@@ -1,0 +1,35 @@
+{
+  "scripts": {
+    "dev": "vite",
+    "dev:api": "node server/index.mjs",
+    "dev:all": "concurrently \"npm run dev:api\" \"npm run dev\"",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "start": "node server/index.mjs",
+    "preview": "vite preview",
+    "import:excel": "node scripts/import-excel.mjs",
+    "normalize:seed": "npx tsx scripts/normalize-seed.ts",
+    "audit:billing": "node scripts/audit-sale-billing.mjs",
+    "reseed:db": "node scripts/reseed-db.mjs"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "latest",
+    "@vitejs/plugin-react": "latest",
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "html2canvas": "^1.4.1",
+    "jsonwebtoken": "^9.0.2",
+    "jspdf": "latest",
+    "lucide-react": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "tailwindcss": "latest",
+    "typescript": "latest",
+    "vite": "latest",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

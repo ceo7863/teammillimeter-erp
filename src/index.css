@@ -1,0 +1,2262 @@
+@import "tailwindcss";
+
+html {
+  font-size: clamp(14px, 12.5px + 0.45vw, 16px);
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  background: #f8fafc;
+  overflow-x: hidden;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: #0f172a;
+}
+
+input:not([type="date"]):not([type="number"]):not([type="checkbox"]):not([type="file"]),
+textarea {
+  ime-mode: active;
+}
+
+.erp-text-page-title {
+  font-size: clamp(1.35rem, 1.1rem + 0.9vw, 1.875rem);
+  line-height: 1.2;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+}
+
+.erp-text-section {
+  font-size: clamp(1.0625rem, 0.98rem + 0.4vw, 1.3125rem);
+  line-height: 1.3;
+  font-weight: 700;
+}
+
+.erp-text-body {
+  font-size: clamp(0.875rem, 0.84rem + 0.16vw, 0.9375rem);
+  line-height: 1.45;
+}
+
+.erp-text-caption {
+  font-size: clamp(0.75rem, 0.72rem + 0.14vw, 0.8125rem);
+  line-height: 1.4;
+}
+
+.erp-text-stat {
+  line-height: 1.15;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.erp-summary-card {
+  container-type: inline-size;
+  min-width: 0;
+}
+
+.erp-summary-card .erp-text-stat {
+  font-size: clamp(0.8125rem, 4.8cqi + 0.35rem, 1.25rem);
+}
+
+.erp-input {
+  font-size: clamp(0.9375rem, 0.88rem + 0.22vw, 1rem);
+}
+
+@media (max-width: 767px) {
+  .erp-input {
+    font-size: 16px;
+  }
+}
+
+.erp-table-wrap {
+  max-width: 100%;
+  max-height: min(62vh, 560px);
+  overflow: auto;
+  border-radius: 0.75rem;
+  border: 1px solid #e2e8f0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.erp-table {
+  width: 100%;
+  font-size: 0.75rem;
+  line-height: 1.3;
+}
+
+.erp-table--md {
+  min-width: 36rem;
+}
+
+.erp-table--lg {
+  min-width: 44rem;
+}
+
+.erp-table--sm,
+.erp-pdf-archive-table {
+  min-width: 0;
+}
+
+.erp-pdf-archive-table {
+  table-layout: fixed;
+  min-width: 38rem;
+}
+
+.erp-pdf-archive-table col.col-created {
+  width: 10%;
+}
+
+.erp-pdf-archive-table col.col-category {
+  width: 8%;
+}
+
+.erp-pdf-archive-table col.col-subject {
+  width: 11%;
+}
+
+.erp-pdf-archive-table col.col-period {
+  width: 15%;
+}
+
+.erp-pdf-archive-table col.col-file {
+  width: 34%;
+}
+
+.erp-pdf-archive-table col.col-size {
+  width: 8%;
+}
+
+.erp-pdf-archive-table col.col-pages {
+  width: 5%;
+}
+
+.erp-pdf-archive-table col.col-actions {
+  width: 9%;
+}
+
+.erp-pdf-archive-table .erp-pdf-archive-clip {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 0;
+}
+
+.erp-pdf-archive-table .erp-cell-truncate {
+  max-width: none;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.erp-pdf-archive-table-wrap {
+  max-height: min(62vh, 560px);
+}
+
+.erp-pdf-archive-table .erp-archive-action-btn {
+  height: 1.65rem;
+  width: 1.65rem;
+  padding: 0;
+}
+
+.erp-pdf-archive-totals-bar {
+  padding: 0.45rem 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.erp-pdf-archive-totals-bar .erp-receivable-totals-item {
+  font-size: 0.6875rem;
+}
+
+.erp-pdf-archive-totals-bar .erp-receivable-totals-item b {
+  font-size: 0.8125rem;
+}
+
+.erp-table--xl {
+  min-width: 52rem;
+}
+
+.erp-table thead {
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 0.6875rem;
+}
+
+.erp-table th,
+.erp-table td {
+  padding: 0.3rem 0.45rem;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.erp-table td.text-right,
+.erp-table th.text-right {
+  font-variant-numeric: tabular-nums;
+}
+
+.erp-table button.rounded-xl,
+.erp-table a.rounded-xl {
+  height: 1.65rem;
+  min-height: 1.65rem;
+  padding-left: 0.45rem;
+  padding-right: 0.45rem;
+}
+
+.erp-table button.rounded-xl svg,
+.erp-table a.rounded-xl svg {
+  width: 0.8125rem;
+  height: 0.8125rem;
+}
+
+.erp-table-export-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.erp-table-export-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem 0.75rem;
+}
+
+.erp-table-export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.erp-table-export-message {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.erp-table-export-print {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.erp-table-export-print th,
+.erp-table-export-print td {
+  border: 1px solid #cbd5e1;
+  padding: 4px 6px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.erp-table-export-print th {
+  background: #f1f5f9;
+}
+
+.erp-table .erp-cell-truncate {
+  max-width: 7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (min-width: 1280px) {
+  .erp-table .erp-cell-truncate {
+    max-width: 10rem;
+  }
+}
+
+.erp-page {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(0.875rem, 0.7rem + 0.5vw, 1.5rem);
+}
+
+.erp-calendar-day {
+  font-size: clamp(0.8125rem, 0.76rem + 0.2vw, 0.9375rem);
+}
+
+.erp-calendar-detail {
+  font-size: clamp(0.6875rem, 0.64rem + 0.18vw, 0.8125rem);
+  line-height: 1.35;
+}
+
+.erp-worker-grid-table {
+  min-width: 74rem;
+  table-layout: fixed;
+}
+
+.erp-worker-grid-table .erp-col-worker {
+  width: 12rem;
+}
+
+.erp-worker-grid-table .erp-col-qty {
+  width: 4.75rem;
+}
+
+.erp-worker-grid-table .erp-col-num {
+  width: 8.5rem;
+}
+
+.erp-worker-grid-table .erp-col-memo {
+  width: 10rem;
+}
+
+.erp-worker-grid-table .erp-col-action {
+  width: 5.5rem;
+}
+
+.erp-worker-grid-table .erp-grid-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 0.35rem 0.45rem;
+  border-radius: 0.65rem;
+}
+
+.erp-worker-grid-table .erp-grid-input--num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  padding-right: 0.55rem;
+}
+
+.erp-worker-grid-table .erp-grid-worker .erp-input,
+.erp-worker-grid-table .erp-grid-worker .erp-grid-input,
+.erp-worker-grid-table .erp-grid-worker-field .erp-input {
+  min-width: 0;
+  ime-mode: active;
+}
+
+.erp-worker-grid-table .erp-grid-worker-field .erp-input {
+  ime-mode: active;
+}
+
+.erp-worker-grid-table td.erp-grid-num,
+.erp-worker-grid-table td.erp-grid-qty {
+  overflow: visible;
+  white-space: nowrap;
+}
+
+.erp-pivot-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+}
+
+@media (min-width: 1280px) {
+  .erp-pivot-layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.erp-analysis-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+}
+
+@media (min-width: 1024px) {
+  .erp-analysis-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1536px) {
+  .erp-analysis-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.erp-pivot-card .erp-text-section {
+  margin-bottom: 0.5rem;
+  font-size: 0.9375rem;
+  line-height: 1.25;
+}
+
+.erp-pivot-card .erp-text-caption {
+  margin-top: 0.5rem;
+  font-size: 0.6875rem;
+}
+
+.erp-pivot-table-wrap {
+  max-height: min(56vh, 520px);
+}
+
+.erp-pivot-table .erp-pivot-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 8rem;
+}
+
+.erp-pivot-table tbody tr.erp-pivot-total {
+  background: #f8fafc;
+  font-weight: 700;
+}
+
+.erp-pivot-table tbody tr.erp-pivot-total td {
+  border-top: 1px solid #cbd5e1;
+  padding-top: 0.35rem;
+  padding-bottom: 0.35rem;
+}
+
+.erp-pivot-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  user-select: none;
+}
+
+.erp-pivot-sort-btn.text-right {
+  justify-content: flex-end;
+}
+
+.erp-pivot-sort-btn.text-left {
+  justify-content: flex-start;
+}
+
+.erp-pivot-sort-btn:hover {
+  color: #0f172a;
+}
+
+.erp-pivot-sort-btn.is-active {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.erp-pivot-sort-icon {
+  display: inline-flex;
+  opacity: 0.45;
+  flex-shrink: 0;
+}
+
+.erp-pivot-sort-icon svg {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.erp-pivot-sort-btn.is-active .erp-pivot-sort-icon {
+  opacity: 1;
+}
+
+.erp-payment-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
+}
+
+.erp-payment-filters {
+  display: grid;
+  flex: 1 1 20rem;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .erp-payment-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .erp-payment-filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.erp-payment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.erp-payment-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+@media (min-width: 1024px) {
+  .erp-payment-summary {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+.erp-payment-table-wrap {
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  max-height: min(62vh, 560px);
+  -webkit-overflow-scrolling: touch;
+}
+
+.erp-payment-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.75rem;
+  line-height: 1.3;
+}
+
+.erp-payment-table col.col-check {
+  width: 2.75rem;
+}
+
+.erp-payment-table col.col-no {
+  width: 3.25rem;
+}
+
+.erp-payment-table col.col-date {
+  width: 6.25rem;
+}
+
+.erp-payment-table col.col-client {
+  width: 7.5rem;
+}
+
+.erp-payment-table col.col-site {
+  width: 8rem;
+}
+
+.erp-payment-table col.col-num {
+  width: 3.25rem;
+}
+
+.erp-payment-table col.col-money {
+  width: 5.75rem;
+}
+
+.erp-payment-table col.col-paydate {
+  width: 8.5rem;
+}
+
+.erp-payment-table col.col-vat {
+  width: 4.75rem;
+}
+
+.erp-payment-table col.col-memo {
+  width: 6.5rem;
+}
+
+.erp-payment-table col.col-action {
+  width: 4.5rem;
+}
+
+.erp-payment-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 0.35rem 0.4rem;
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+.erp-payment-table thead tr.erp-payment-group-row th {
+  top: 0;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 0.625rem;
+  letter-spacing: 0.02em;
+  padding: 0.25rem 0.4rem;
+  border-bottom: 1px solid #cbd5e1;
+}
+
+.erp-payment-table thead tr.erp-payment-col-row th {
+  top: 1.3rem;
+}
+
+.erp-payment-table tbody td {
+  padding: 0.3rem 0.4rem;
+  vertical-align: middle;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.erp-payment-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+.erp-payment-table tbody tr.is-selected {
+  background: #ecfdf5;
+}
+
+.erp-payment-table tbody tr.is-selected:hover {
+  background: #d1fae5;
+}
+
+.erp-payment-table tfoot td {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  background: #f8fafc;
+  border-top: 1px solid #cbd5e1;
+  font-weight: 700;
+  padding: 0.35rem 0.4rem;
+}
+
+.erp-payment-table .erp-cell-clip {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.erp-payment-table .erp-input-compact {
+  min-height: 1.75rem;
+  padding: 0.25rem 0.45rem;
+  font-size: 0.75rem;
+  border-radius: 0.55rem;
+}
+
+.erp-payment-table .erp-vat-select {
+  overflow: visible;
+  position: relative;
+}
+
+.erp-payment-hub-filter .relative {
+  position: relative;
+  z-index: 1;
+}
+
+.erp-payment-hub-filter:focus-within {
+  z-index: 20;
+}
+
+.erp-payment-table .erp-vat-select .erp-input {
+  min-height: 2rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8125rem;
+  border-radius: 0.65rem;
+}
+
+.erp-payment-check {
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 0.25rem;
+  border-color: #cbd5e1;
+  accent-color: #059669;
+}
+
+.erp-payment-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.erp-payment-empty {
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: #64748b;
+}
+
+.erp-payment-hub-page {
+  gap: 0.75rem;
+}
+
+.erp-payment-hub-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+}
+
+.erp-payment-hub-title {
+  font-size: 1.125rem;
+  line-height: 1.2;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+}
+
+.erp-payment-hub-desc {
+  margin-top: 0.15rem;
+  font-size: 0.6875rem;
+  color: #94a3b8;
+}
+
+.erp-payment-hub-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.erp-payment-hub-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 5.5rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: 0.75rem;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+}
+
+.erp-payment-hub-metric.is-highlight {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.erp-payment-hub-metric .label {
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.erp-payment-hub-metric .value {
+  font-size: 0.875rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.erp-payment-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.25rem;
+  border-radius: 0.875rem;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  width: fit-content;
+}
+
+.erp-payment-tab {
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  padding: 0.45rem 0.85rem;
+  border-radius: 0.65rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.erp-payment-tab.is-active {
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.erp-payment-hub-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem 0.75rem;
+}
+
+.erp-payment-hub-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.erp-payment-hub-filter--grow {
+  flex: 1 1 10rem;
+  min-width: 8rem;
+}
+
+.erp-payment-hub-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #475569;
+  padding-bottom: 0.35rem;
+}
+
+.erp-receivable-totals-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.875rem;
+  border: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #f8fafc 0%, #fff 100%);
+}
+
+.erp-receivable-totals-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.erp-receivable-totals-label {
+  min-width: 5.5rem;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.erp-receivable-totals-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  flex: 1;
+}
+
+.erp-receivable-totals-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.erp-receivable-totals-item b {
+  font-size: 0.9375rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.erp-statement-summary-bar {
+  padding: 0.75rem 1rem;
+  border-radius: 0.875rem;
+  border: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #f8fafc 0%, #fff 100%);
+  margin-bottom: 1rem;
+}
+
+.erp-statement-summary-bar .erp-receivable-totals-group {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 0.75rem 1.25rem;
+}
+
+.erp-statement-summary-bar .erp-receivable-totals-label {
+  flex-shrink: 0;
+}
+
+.erp-statement-summary-bar .erp-receivable-totals-items {
+  flex-wrap: nowrap;
+  min-width: min-content;
+}
+
+.erp-statement-summary-bar .erp-receivable-totals-item {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.erp-statement-preview-wrap {
+  overflow-x: auto;
+  padding: 1rem;
+  background: #e2e8f0;
+  border-radius: 1rem;
+  border: 1px solid #cbd5e1;
+}
+
+.erp-statement-sheet {
+  width: 794px;
+  min-width: 794px;
+  min-height: 1123px;
+  margin: 0 auto;
+  padding: 28px 32px 36px;
+  background: #fff;
+  color: #111827;
+  font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  font-size: 11px;
+  line-height: 1.4;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.erp-statement-sheet.is-pdf-source {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  z-index: -1;
+  box-shadow: none;
+}
+
+.erp-statement-sheet .excel-sheet-header {
+  position: relative;
+  margin: 0 0 28px;
+  min-height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.erp-statement-sheet .excel-sheet-logo {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  height: 88px;
+  width: auto;
+  max-width: 320px;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.erp-statement-sheet .excel-sheet-title {
+  width: 100%;
+  text-align: center;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.45em;
+  margin: 0;
+  padding: 10px 0;
+}
+
+.erp-statement-sheet .excel-client-recipient {
+  margin: 0 0 18px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.erp-statement-sheet .excel-client-recipient .honorific {
+  margin-left: 12px;
+  font-weight: 600;
+}
+
+.erp-statement-sheet .excel-header-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  margin-bottom: 10px;
+  font-size: 11px;
+}
+
+.erp-statement-sheet .excel-header-table td {
+  border: 1px solid #111827;
+  padding: 6px 8px;
+  vertical-align: middle;
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.erp-statement-sheet .excel-header-table .label {
+  width: 72px;
+  min-width: 72px;
+  background: #f3f4f6;
+  font-weight: 700;
+  text-align: center;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.erp-statement-sheet .excel-header-table .amount {
+  text-align: right;
+  font-weight: 700;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.erp-statement-sheet .excel-data-table-shell {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 640px;
+}
+
+.erp-statement-sheet .excel-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 10.5px;
+  flex: 1 1 auto;
+  height: 100%;
+}
+
+.erp-statement-sheet .excel-data-table th,
+.erp-statement-sheet .excel-data-table td {
+  border: 1px solid #111827;
+  padding: 5px 6px;
+  line-height: 1.45;
+  overflow: visible;
+  text-overflow: clip;
+  max-width: none;
+  vertical-align: middle;
+}
+
+.erp-statement-sheet .excel-data-table .excel-fit-cell {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 1.45em;
+  overflow: visible;
+  box-sizing: border-box;
+}
+
+.erp-statement-sheet .excel-data-table .excel-fit-cell--left {
+  justify-content: flex-start;
+}
+
+.erp-statement-sheet .excel-data-table .excel-fit-cell--right {
+  justify-content: flex-end;
+}
+
+.erp-statement-sheet .excel-data-table .excel-fit-cell--center {
+  justify-content: center;
+}
+
+.erp-statement-sheet .excel-data-table .excel-fit-cell-text {
+  display: block;
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.45;
+}
+
+.erp-statement-sheet .excel-data-table th {
+  background: #e5e7eb;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.erp-statement-sheet.is-pdf-capture {
+  min-height: auto;
+  min-width: 794px;
+  padding: 18px 24px 20px;
+  box-shadow: none;
+}
+
+.erp-statement-sheet.is-pdf-capture .excel-sheet-header {
+  margin-bottom: 10px;
+  min-height: 72px;
+}
+
+.erp-statement-sheet.is-pdf-capture .excel-sheet-logo {
+  height: 64px;
+  max-width: 240px;
+}
+
+.erp-statement-sheet.is-pdf-capture .excel-sheet-title {
+  font-size: 18px;
+  letter-spacing: 0.35em;
+  padding: 6px 0;
+}
+
+.erp-statement-sheet.is-pdf-continuation-page .excel-sheet-header {
+  margin-bottom: 6px;
+  min-height: 52px;
+}
+
+.erp-statement-sheet.is-pdf-continuation-page .excel-sheet-logo {
+  height: 48px;
+  max-width: 180px;
+}
+
+.erp-statement-sheet.is-pdf-continuation-page .excel-sheet-title {
+  font-size: 15px;
+  letter-spacing: 0.28em;
+  padding: 4px 0;
+}
+
+.erp-statement-sheet.is-pdf-capture .excel-client-recipient {
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.erp-statement-sheet.is-pdf-continuation-page .excel-client-recipient {
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.erp-statement-sheet.is-pdf-capture .excel-header-table {
+  margin-bottom: 6px;
+  font-size: 10px;
+}
+
+.erp-statement-sheet.is-pdf-capture .excel-header-table td {
+  padding: 3px 5px;
+  line-height: 1.25;
+}
+
+.erp-statement-sheet .excel-pdf-continuation-note {
+  margin: 0 0 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.erp-statement-sheet.is-pdf-capture .excel-data-table-shell {
+  min-height: auto;
+  flex: none;
+}
+
+.erp-statement-sheet.is-pdf-capture .excel-data-table {
+  height: auto;
+  font-size: 9.5px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.erp-statement-sheet.is-pdf-capture .excel-header-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.erp-statement-sheet.is-pdf-capture .excel-data-table td,
+.erp-statement-sheet.is-pdf-capture .excel-data-table th,
+.erp-statement-sheet.is-pdf-capture .excel-header-table td {
+  padding: 2px 4px;
+  line-height: 1.25;
+}
+
+.erp-statement-sheet.is-pdf-capture .excel-data-table .excel-filler-row {
+  display: none !important;
+}
+
+.erp-statement-sheet.is-pdf-capture .excel-data-table .excel-fit-cell {
+  min-height: auto;
+}
+
+.erp-statement-sheet.is-pdf-capture .excel-data-table .excel-fit-cell-text {
+  line-height: 1.25;
+}
+
+.erp-statement-sheet.is-pdf-capture .excel-data-table .excel-worker-line,
+.erp-statement-sheet.is-pdf-capture .excel-data-table .excel-worker-merged-cell,
+.erp-statement-sheet.is-pdf-capture .excel-data-table .excel-worker-sub-row .num,
+.erp-statement-sheet.is-pdf-capture .excel-data-table .excel-worker-sub-row .excel-memo-cell {
+  font-size: 9.5px;
+}
+
+.erp-statement-sheet.is-pdf-capture .excel-footer-brand {
+  margin-top: 10px;
+  padding-top: 8px;
+  font-size: 13px;
+  letter-spacing: 0.45em;
+}
+
+.erp-statement-sheet.is-pdf-capture .excel-data-table tfoot td {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+.erp-statement-sheet.is-pdf-capture .excel-date-cell-rowspan {
+  line-height: 1.25;
+}
+
+.erp-statement-sheet .excel-data-table .num,
+.erp-statement-sheet .excel-data-table .excel-date-cell,
+.erp-statement-sheet .excel-data-table tfoot td {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.erp-statement-sheet .excel-data-table .num {
+  text-align: right;
+}
+
+.erp-statement-sheet .excel-data-table .excel-text-cell {
+  text-align: left;
+}
+
+.erp-statement-sheet .excel-data-table .excel-memo-cell {
+  text-align: left;
+}
+
+.erp-statement-sheet .excel-data-table .excel-site-cell {
+  min-width: 0;
+}
+
+.erp-statement-sheet .excel-data-table .excel-site-line {
+  font-weight: 700;
+}
+
+.erp-statement-sheet .excel-data-table .excel-date-cell-rowspan {
+  vertical-align: middle;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.erp-statement-sheet .excel-data-table .excel-worker-sub-row td {
+  background: #f8fafc;
+}
+
+.erp-statement-sheet .excel-data-table .excel-worker-line {
+  color: #475569;
+  font-size: 10.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: visible;
+}
+
+.erp-statement-sheet .excel-data-table .excel-worker-merged-cell {
+  color: #475569;
+  font-size: 10.5px;
+  font-weight: 500;
+  text-align: left;
+  white-space: normal;
+  overflow: visible;
+  line-height: 1.35;
+  word-break: keep-all;
+}
+
+.erp-statement-sheet .excel-data-table .excel-worker-sub-row .num,
+.erp-statement-sheet .excel-data-table .excel-worker-sub-row .excel-memo-cell {
+  font-size: 10.5px;
+  white-space: nowrap;
+  overflow: visible;
+}
+
+.erp-statement-sheet .excel-data-table .excel-worker-prefix {
+  margin-right: 0.35rem;
+  color: #94a3b8;
+}
+
+.erp-statement-sheet .excel-data-table tfoot td {
+  background: #f3f4f6;
+  font-weight: 700;
+}
+
+.erp-statement-sheet .excel-data-table .excel-empty-cell {
+  text-align: center;
+  padding: 0.5rem 1rem;
+  color: #64748b;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.erp-statement-sheet .excel-data-table .excel-filler-row td {
+  height: 22px;
+  min-height: 22px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.erp-statement-sheet .excel-footer-brand {
+  margin-top: auto;
+  padding-top: 28px;
+  text-align: center;
+}
+
+.erp-statement-sheet .excel-footer-logo {
+  height: 48px;
+  width: auto;
+  object-fit: contain;
+  opacity: 0.92;
+}
+
+.erp-statement-sheet.is-pdf-capture .excel-footer-logo {
+  height: 38px;
+}
+
+.erp-audit-info-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  border-radius: 9999px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.2;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.erp-audit-info-btn:hover {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+.erp-audit-last-line,
+.erp-audit-cell-line {
+  margin-top: 0.25rem;
+  font-size: 0.6875rem;
+  color: #94a3b8;
+  line-height: 1.3;
+}
+
+.erp-audit-cell-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0.15rem;
+  border-radius: 9999px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #64748b;
+  padding: 0.1rem 0.35rem;
+}
+
+.erp-audit-cell-btn:hover {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+.erp-audit-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.45);
+  padding: 1rem;
+}
+
+.erp-audit-modal {
+  width: min(640px, 100%);
+  max-height: min(80vh, 720px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 1rem;
+  background: #fff;
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.35);
+  overflow: hidden;
+}
+
+.erp-audit-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.erp-audit-modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.65rem;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #64748b;
+  padding: 0.35rem;
+}
+
+.erp-audit-modal-close:hover {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.erp-audit-modal-body {
+  overflow: auto;
+  padding: 0.75rem 1.25rem 1.25rem;
+}
+
+.erp-audit-empty {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: #64748b;
+}
+
+.erp-audit-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.erp-audit-history-item {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.85rem;
+  padding: 0.75rem 0.85rem;
+  background: #f8fafc;
+}
+
+.erp-audit-history-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-bottom: 0.35rem;
+}
+
+.erp-audit-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  background: #e2e8f0;
+  color: #475569;
+  padding: 0.05rem 0.45rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
+.erp-audit-history-change {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.8125rem;
+}
+
+.erp-audit-log-filters {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.85rem;
+}
+
+@media (min-width: 640px) {
+  .erp-audit-log-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .erp-audit-log-filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.erp-audit-log-table-wrap {
+  max-height: min(62vh, 560px);
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+}
+
+.erp-audit-log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  line-height: 1.3;
+}
+
+.erp-audit-log-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 0.6875rem;
+}
+
+.erp-audit-log-table th,
+.erp-audit-log-table td {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid #e2e8f0;
+  vertical-align: top;
+}
+
+.erp-audit-log-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+.erp-audit-log-change {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 22rem;
+}
+
+.erp-audit-action {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  padding: 0.12rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.erp-audit-action.create {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.erp-audit-action.update {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.erp-audit-action.delete {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.erp-audit-action.import {
+  background: #faf5ff;
+  color: #7e22ce;
+}
+
+.erp-sale-form-page {
+  gap: 1rem;
+}
+
+.erp-sale-form-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.erp-sale-form-top-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 9999px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #334155;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.erp-sale-form-card {
+  background: linear-gradient(180deg, #ffffff 0%, #fcfdff 100%);
+}
+
+.erp-sale-form-section-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.erp-sale-form-section-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.85rem;
+  background: #eff6ff;
+  color: #1d4ed8;
+  flex-shrink: 0;
+}
+
+.erp-sale-form-field {
+  min-width: 0;
+}
+
+.erp-sale-form-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.erp-sale-form-label-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+}
+
+.erp-sale-form-hint {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.6875rem;
+  line-height: 1.35;
+  color: #94a3b8;
+}
+
+.erp-sale-form-basic-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+@media (min-width: 640px) {
+  .erp-sale-form-basic-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .erp-sale-form-basic-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.erp-sale-form-memo {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 1280px) {
+  .erp-sale-form-memo {
+    grid-column: span 2;
+  }
+}
+
+.erp-sale-form-metrics {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+}
+
+@media (min-width: 768px) {
+  .erp-sale-form-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.erp-sale-form-metric {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  border-radius: 1rem;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  padding: 1rem 1.1rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.erp-sale-form-metric-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.85rem;
+  flex-shrink: 0;
+}
+
+.erp-sale-form-metric--bill .erp-sale-form-metric-icon {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.erp-sale-form-metric--spend .erp-sale-form-metric-icon {
+  background: #f5f3ff;
+  color: #6d28d9;
+}
+
+.erp-sale-form-metric--margin.is-positive .erp-sale-form-metric-icon {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.erp-sale-form-metric--margin.is-negative .erp-sale-form-metric-icon {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.erp-sale-form-metric-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.erp-sale-form-metric-value {
+  margin-top: 0.2rem;
+  font-size: clamp(1rem, 0.9rem + 0.5vw, 1.25rem);
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+
+.erp-sale-form-metric--margin.is-positive .erp-sale-form-metric-value {
+  color: #047857;
+}
+
+.erp-sale-form-metric--margin.is-negative .erp-sale-form-metric-value {
+  color: #b91c1c;
+}
+
+.erp-sale-form-metric-sub {
+  margin-top: 0.15rem;
+  font-size: 0.6875rem;
+  color: #94a3b8;
+}
+
+.erp-sale-form-worker-card .erp-sale-form-section-icon {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.erp-sale-form-worker-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.15rem 1.25rem 0.85rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.erp-sale-form-count-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  background: #ecfdf5;
+  color: #047857;
+  padding: 0.12rem 0.55rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.erp-sale-form-table-wrap {
+  max-height: min(52vh, 560px);
+  overflow: auto;
+  border-top: 1px solid #e2e8f0;
+}
+
+.erp-sale-form-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.erp-sale-form-table .erp-col-index {
+  width: 2.75rem;
+}
+
+.erp-sale-form-group-row th {
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.45rem 0.65rem;
+  border-bottom: 1px solid #cbd5e1;
+}
+
+.erp-sale-form-col-row th {
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.erp-sale-form-table tbody tr.is-filled {
+  background: #f8fafc;
+}
+
+.erp-sale-form-table tbody tr:hover {
+  background: #f1f5f9;
+}
+
+.erp-sale-form-row-no {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 9999px;
+  background: #e2e8f0;
+  color: #64748b;
+  font-size: 0.6875rem;
+  font-weight: 800;
+}
+
+.erp-sale-form-row-no.is-active {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.erp-sale-form-table-foot td {
+  background: #f8fafc;
+  border-top: 2px solid #cbd5e1;
+  font-weight: 700;
+}
+
+.erp-sale-form-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  border-radius: 1rem;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  padding: 0.95rem 1rem;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+  position: sticky;
+  bottom: 0.75rem;
+  z-index: 5;
+}
+
+@media (min-width: 768px) {
+  .erp-sale-form-footer {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.95rem 1.15rem;
+  }
+}
+
+.erp-sale-form-footer-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: #64748b;
+}
+
+.erp-sale-form-footer-status strong {
+  color: #0f172a;
+}
+
+.erp-sale-form-footer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+/* 매출등록 compact layout */
+.erp-sale-form-page--compact {
+  gap: 0.5rem;
+  max-width: 100%;
+}
+
+.erp-sale-form-compact-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
+.erp-sale-form-compact-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem 0.75rem;
+}
+
+.erp-sale-form-compact-title {
+  font-size: 1.125rem;
+  line-height: 1.2;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+}
+
+.erp-sale-form-compact-desc {
+  margin-top: 0.15rem;
+  font-size: 0.6875rem;
+  color: #94a3b8;
+}
+
+.erp-sale-form-compact-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.erp-sale-form-compact-metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  border-radius: 0.55rem;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  padding: 0.25rem 0.55rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.erp-sale-form-compact-metric .label {
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.erp-sale-form-compact-metric .value {
+  font-size: 0.8125rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.erp-sale-form-compact-metric.is-positive .value {
+  color: #047857;
+}
+
+.erp-sale-form-compact-metric.is-negative .value {
+  color: #b91c1c;
+}
+
+.erp-sale-form-card--compact {
+  background: #fff;
+}
+
+.erp-sale-form-page--compact .erp-sale-form-label {
+  margin-bottom: 0.2rem;
+  font-size: 0.6875rem;
+}
+
+.erp-sale-form-page--compact .erp-sale-form-label-icon {
+  display: none;
+}
+
+.erp-sale-form-inline-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem 0.65rem;
+}
+
+@media (min-width: 768px) {
+  .erp-sale-form-inline-grid {
+    grid-template-columns: 6.5rem 1.4fr 1fr 5.5rem 1fr;
+  }
+}
+
+@media (min-width: 1280px) {
+  .erp-sale-form-inline-grid {
+    grid-template-columns: 6.5rem 1.5fr 1.2fr 5.5rem 1fr;
+  }
+}
+
+.erp-sale-form-table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.65rem;
+  margin-bottom: 0.35rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.erp-sale-form-table-wrap--compact {
+  max-height: none;
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.65rem;
+}
+
+.erp-sale-form-page--compact .erp-input-compact,
+.erp-sale-form-page--compact .erp-input.erp-input-compact {
+  min-height: 1.75rem;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.8125rem;
+  border-radius: 0.45rem;
+}
+
+.erp-sale-form-table--compact {
+  min-width: 52rem;
+  font-size: 0.75rem;
+}
+
+.erp-sale-form-table--compact .erp-col-index {
+  width: 1.75rem;
+}
+
+.erp-sale-form-table--compact .erp-col-worker {
+  width: 7.5rem;
+}
+
+.erp-sale-form-table--compact .erp-col-qty {
+  width: 2.75rem;
+}
+
+.erp-sale-form-table--compact .erp-col-num {
+  width: 4.75rem;
+}
+
+.erp-sale-form-table--compact .erp-col-memo {
+  width: 5.5rem;
+}
+
+.erp-sale-form-table--compact .erp-col-action {
+  width: 1.75rem;
+}
+
+.erp-sale-form-table--compact th,
+.erp-sale-form-table--compact td {
+  padding: 0.2rem 0.25rem;
+}
+
+.erp-sale-form-table--compact .erp-grid-input,
+.erp-sale-form-table--compact .erp-grid-worker-input {
+  min-height: 1.65rem;
+  padding: 0.15rem 0.35rem;
+  font-size: 0.75rem;
+  border-radius: 0.4rem;
+}
+
+.erp-sale-form-table--compact .erp-sale-form-col-row th {
+  padding: 0.3rem 0.35rem;
+  font-size: 0.6875rem;
+  background: #f1f5f9;
+}
+
+.erp-sale-form-table--compact .erp-sale-form-row-no {
+  min-width: 1.15rem;
+  height: 1.15rem;
+  font-size: 0.625rem;
+}
+
+.erp-sale-form-row-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.4rem;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #94a3b8;
+}
+
+.erp-sale-form-row-delete:hover:not(:disabled) {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.erp-sale-form-row-delete:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.erp-sale-form-footer--compact {
+  position: static;
+  margin-top: 0.65rem;
+  padding: 0.55rem 0.65rem;
+  box-shadow: none;
+  border-radius: 0.65rem;
+  background: #f8fafc;
+}
+
+.erp-sale-form-footer--compact .erp-sale-form-footer-status {
+  font-size: 0.75rem;
+}
+
+.erp-sales-sheet-page {
+  gap: 0.65rem;
+}
+
+.erp-sales-sheet-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.erp-sales-sheet-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.125rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+}
+
+.erp-sales-sheet-desc {
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.erp-sales-sheet-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.erp-sales-sheet-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.erp-sales-sheet-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.55rem;
+  background: #fff;
+  padding: 0.25rem 0.55rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.erp-sales-sheet-stat span {
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+}
+
+.erp-sales-sheet-stat b {
+  font-size: 0.8125rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.erp-sales-sheet-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.65rem;
+}
+
+.erp-sales-sheet-search {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: 1 1 12rem;
+  min-width: 10rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.65rem;
+  background: #fff;
+  padding: 0.35rem 0.55rem;
+}
+
+.erp-sales-sheet-page .erp-input-compact {
+  min-height: 1.85rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8125rem;
+  border-radius: 0.5rem;
+}
+
+.erp-sales-sheet-wrap {
+  max-height: min(62vh, 560px);
+  overflow: auto;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.65rem;
+  background: #fff;
+}
+
+.erp-sales-sheet-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.75rem;
+}
+
+.erp-sales-sheet-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  padding: 0.35rem 0.45rem;
+  border-bottom: 1px solid #cbd5e1;
+  white-space: nowrap;
+}
+
+.erp-sales-sheet-table tbody td,
+.erp-sales-sheet-table tfoot td {
+  padding: 0.22rem 0.4rem;
+  border-bottom: 1px solid #e2e8f0;
+  vertical-align: middle;
+  white-space: nowrap;
+  max-width: 11rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: #fff;
+}
+
+.erp-sales-sheet-table tbody tr.is-voucher-start td {
+  border-top: 2px solid #cbd5e1;
+  background: #f8fafc;
+}
+
+.erp-sales-sheet-table tbody tr.is-voucher-line td {
+  background: #fcfdff;
+}
+
+.erp-sales-sheet-table tbody tr:hover td {
+  background: #f1f5f9;
+}
+
+.erp-sales-sheet-table td.is-num,
+.erp-sales-sheet-table th.text-right {
+  font-variant-numeric: tabular-nums;
+}
+
+.erp-sales-sheet-table th.is-sticky,
+.erp-sales-sheet-table td.is-sticky {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  box-shadow: 1px 0 0 #e2e8f0;
+}
+
+.erp-sales-sheet-table th.is-sticky:nth-child(2),
+.erp-sales-sheet-table td.is-sticky:nth-child(2) {
+  left: 3.5rem;
+}
+
+.erp-sales-sheet-table th.is-sticky:nth-child(3),
+.erp-sales-sheet-table td.is-sticky:nth-child(3) {
+  left: 7.5rem;
+}
+
+.erp-sales-sheet-table thead th.is-sticky {
+  z-index: 4;
+}
+
+.erp-sales-sheet-table th.is-action,
+.erp-sales-sheet-table td.is-action {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  box-shadow: -1px 0 0 #e2e8f0;
+  min-width: 2.5rem;
+}
+
+.erp-sales-sheet-table thead th.is-action {
+  z-index: 4;
+}
+
+.erp-sales-sheet-table tfoot td {
+  position: sticky;
+  bottom: 0;
+  background: #f1f5f9;
+  border-top: 2px solid #cbd5e1;
+  font-weight: 700;
+}
+
+.erp-sales-sheet-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.4rem;
+  border: 1px solid transparent;
+  color: #94a3b8;
+  background: transparent;
+}
+
+.erp-sales-sheet-delete:hover {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.erp-sales-sheet-empty {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: #64748b;
+  font-size: 0.8125rem;
+}
