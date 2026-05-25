@@ -400,11 +400,11 @@ export function UsersAdminPage({
           <h1 className="erp-text-page-title">{L.pageTitle}</h1>
           <p className="erp-text-body mt-2 text-slate-500">{L.pageDesc}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" className="rounded-2xl" onClick={loadUsers} disabled={loading}>
+        <div className="flex shrink-0 flex-nowrap items-center gap-2">
+          <Button variant="outline" className="shrink-0 whitespace-nowrap rounded-2xl" onClick={loadUsers} disabled={loading}>
             <RefreshCw size={16} className={loading ? "animate-spin" : ""} /> {L.refresh}
           </Button>
-          <Button className="rounded-2xl font-bold" onClick={openCreateModal}>
+          <Button className="shrink-0 whitespace-nowrap rounded-2xl font-bold" onClick={openCreateModal}>
             <UserPlus size={16} /> {L.addUser}
           </Button>
         </div>
@@ -427,17 +427,27 @@ export function UsersAdminPage({
               <p className="erp-text-caption mt-1 text-slate-500">{L.dataSectionDesc}</p>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" className="rounded-2xl" onClick={onBackup}>
+          <div className="erp-users-data-actions">
+            <Button type="button" variant="outline" className="shrink-0 whitespace-nowrap rounded-2xl" onClick={onBackup}>
               <Download size={16} /> {L.backupSave}
             </Button>
-            <Button type="button" variant="outline" className="rounded-2xl" onClick={() => backupInputRef.current?.click()}>
+            <Button
+              type="button"
+              variant="outline"
+              className="shrink-0 whitespace-nowrap rounded-2xl"
+              onClick={() => backupInputRef.current?.click()}
+            >
               <Download size={16} /> {L.backupRestore}
             </Button>
-            <Button type="button" variant="outline" className="rounded-2xl" onClick={() => excelInputRef.current?.click()}>
+            <Button
+              type="button"
+              variant="outline"
+              className="shrink-0 whitespace-nowrap rounded-2xl"
+              onClick={() => excelInputRef.current?.click()}
+            >
               <FileSpreadsheet size={16} /> {L.excelImport}
             </Button>
-            <Button type="button" variant="outline" className="rounded-2xl" onClick={onLoadBundledSeed}>
+            <Button type="button" variant="outline" className="shrink-0 whitespace-nowrap rounded-2xl" onClick={onLoadBundledSeed}>
               <FileSpreadsheet size={16} /> {L.bundledSeed}
             </Button>
           </div>
@@ -594,11 +604,11 @@ export function UsersAdminPage({
                           </td>
                           <td>{formatDate(user.createdAt)}</td>
                           <td>
-                            <div className="flex flex-wrap gap-1.5">
+                            <div className="flex flex-nowrap items-center gap-1.5">
                               <Button
                                 variant="outline"
                                 size="sm"
-                                className="rounded-xl"
+                                className="shrink-0 whitespace-nowrap rounded-xl"
                                 onClick={() => openEditModal(user)}
                               >
                                 <Pencil size={14} /> {L.edit}
@@ -606,7 +616,7 @@ export function UsersAdminPage({
                               <Button
                                 variant="outline"
                                 size="sm"
-                                className="rounded-xl"
+                                className="shrink-0 whitespace-nowrap rounded-xl"
                                 onClick={() => openPasswordModal(user)}
                               >
                                 <KeyRound size={14} /> {L.resetPassword}
@@ -614,7 +624,7 @@ export function UsersAdminPage({
                               <Button
                                 variant="outline"
                                 size="sm"
-                                className={`rounded-xl ${isActive ? "text-amber-700" : "text-emerald-700"}`}
+                                className={`shrink-0 whitespace-nowrap rounded-xl ${isActive ? "text-amber-700" : "text-emerald-700"}`}
                                 onClick={() => handleToggleStatus(user)}
                                 disabled={isSelf && isActive}
                               >

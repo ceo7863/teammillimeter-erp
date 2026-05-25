@@ -18,6 +18,7 @@ import {
   Home,
   Layers,
   Landmark,
+  LogIn,
   LogOut,
   MapPin,
   Menu,
@@ -35,6 +36,10 @@ import {
   BookOpen,
   UserCog,
   Megaphone,
+  Receipt,
+  Circle,
+  UserMinus,
+  UserCheck,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -45,6 +50,7 @@ import { sortRowsByColumn } from "@/utils/pivotSort";
 import { AuditProvider, useAudit } from "@/context/AuditContext";
 import { AuditField, AuditCellHint, EntityAuditButton } from "@/components/AuditField";
 import { AuditLogPage } from "@/components/AuditLogPage";
+import { LoginHistoryPage } from "@/components/LoginHistoryPage";
 import { SalesManagementPage } from "@/components/SalesManagementPage";
 import { PaymentReceivablesPage } from "@/components/PaymentReceivablesPage";
 import { WorkerPaymentsPage } from "@/components/WorkerPaymentsPage";
@@ -53,11 +59,13 @@ import { PdfArchivePage } from "@/components/PdfArchivePage";
 import { UsersAdminPage } from "@/components/UsersAdminPage";
 import { CompanyLedgerPage } from "@/components/CompanyLedgerPage";
 import { CompanyNoticeBoardPage } from "@/components/CompanyNoticeBoardPage";
+import { TaxInvoicePage } from "@/components/TaxInvoicePage";
 import { LoginBoardPreview } from "@/components/LoginBoardPreview";
 import { CompanyProfilePage } from "@/components/CompanyProfilePage";
 import { DEFAULT_COMPANY_PROFILE, normalizeCompanyProfile } from "@/utils/companyProfile";
 import { normalizeCompanyNotices } from "@/utils/companyNotices";
 import { normalizeWorkPosts } from "@/utils/workBoard";
+import { normalizeTaxInvoices } from "@/utils/taxInvoices";
 import { normalizeStatementGenerationLogs } from "@/utils/statementGenerationLogs";
 import { normalizeStatementFolders } from "@/utils/statementFolders";
 import { createUnpaidClientStatementDraft, stashStatementDraft, type StatementDraft } from "@/utils/statementDraft";
@@ -70,8 +78,10 @@ import { buildReceivableRowsFromSales, getStatus, getUnpaid, parseMoney } from "
 import { getSaleStaffCount, getSaleTotalBill, getSaleWorkerLines, normalizeSalesRecords } from "@/utils/saleBilling";
 import { buildSaleDuplicateIndex, findSalesWithSameClientWorkerDate, isDuplicateSale } from "@/utils/saleDuplicates";
 import { filterNamedSuggestions } from "@/utils/autocompleteFilter";
+import { confirmDelete } from "@/utils/confirmDelete";
 import { filterSalesVoucherRows } from "@/utils/saleVoucherSearch";
-import { allocateNextSaleRecordIds, getSaleVoucherLabel } from "@/utils/saleVoucherNo";
+import { allocateNextSaleRecordIds, getSaleVoucherLabel, parseVoucherSequence } from "@/utils/saleVoucherNo";
+import type { SortDirection } from "@/utils/pivotSort";
 import {
   SALE_AUDIT_FIELDS,
   CLIENT_AUDIT_FIELDS,
@@ -83,8 +93,12 @@ import {
   snapshotPaymentForAudit,
   appendAuditLogs,
   buildAuditEntries,
-  buildLoginAuditEntry,
 } from "@/utils/auditLog";
+import {
+  appendLoginLogs,
+  buildLoginLogEntry,
+  migrateErpLoginLogs,
+} from "@/utils/loginLogs";
 import {
   buildWorkerFeeMap,
   calculateWorkerLineAmounts,
@@ -309,24 +323,35 @@ function migrateClientName(data) {
   return next;
 }
 
+function resolveInitialLogs(storedData) {
+  return migrateErpLoginLogs({
+    auditLogs: Array.isArray(storedData?.auditLogs) ? storedData.auditLogs : [],
+    loginLogs: Array.isArray(storedData?.loginLogs) ? storedData.loginLogs : [],
+  });
+}
+
 function normalizeBackupPayload(raw) {
   if (!raw || typeof raw !== "object") throw new Error("invalid backup");
-  return migrateClientName({
-    sales: Array.isArray(raw.sales) ? raw.sales : initialSales,
-    paymentVouchers: Array.isArray(raw.paymentVouchers) ? raw.paymentVouchers : [],
-    paymentInputLogs: Array.isArray(raw.paymentInputLogs) ? raw.paymentInputLogs : [],
-    clients: Array.isArray(raw.clients) && raw.clients.length ? raw.clients : initialClients,
-    workers: Array.isArray(raw.workers) && raw.workers.length ? raw.workers : initialWorkers,
-    auditLogs: Array.isArray(raw.auditLogs) ? raw.auditLogs : [],
-    workerPaymentRecords: Array.isArray(raw.workerPaymentRecords) ? raw.workerPaymentRecords : [],
-    companyExpenses: Array.isArray(raw.companyExpenses) ? raw.companyExpenses : [],
-    fixedExpenses: Array.isArray(raw.fixedExpenses) ? raw.fixedExpenses : [],
-    companyNotices: normalizeCompanyNotices(raw.companyNotices),
-    workPosts: normalizeWorkPosts(raw.workPosts),
-    statementGenerationLogs: normalizeStatementGenerationLogs(raw.statementGenerationLogs),
-    statementFolders: normalizeStatementFolders(raw.statementFolders),
-    companyProfile: normalizeCompanyProfile(raw.companyProfile),
-  });
+  return migrateErpLoginLogs(
+    migrateClientName({
+      sales: Array.isArray(raw.sales) ? raw.sales : initialSales,
+      paymentVouchers: Array.isArray(raw.paymentVouchers) ? raw.paymentVouchers : [],
+      paymentInputLogs: Array.isArray(raw.paymentInputLogs) ? raw.paymentInputLogs : [],
+      clients: Array.isArray(raw.clients) && raw.clients.length ? raw.clients : initialClients,
+      workers: Array.isArray(raw.workers) && raw.workers.length ? raw.workers : initialWorkers,
+      auditLogs: Array.isArray(raw.auditLogs) ? raw.auditLogs : [],
+      loginLogs: Array.isArray(raw.loginLogs) ? raw.loginLogs : [],
+      workerPaymentRecords: Array.isArray(raw.workerPaymentRecords) ? raw.workerPaymentRecords : [],
+      companyExpenses: Array.isArray(raw.companyExpenses) ? raw.companyExpenses : [],
+      fixedExpenses: Array.isArray(raw.fixedExpenses) ? raw.fixedExpenses : [],
+      companyNotices: normalizeCompanyNotices(raw.companyNotices),
+      workPosts: normalizeWorkPosts(raw.workPosts),
+      taxInvoices: normalizeTaxInvoices(raw.taxInvoices),
+      statementGenerationLogs: normalizeStatementGenerationLogs(raw.statementGenerationLogs),
+      statementFolders: normalizeStatementFolders(raw.statementFolders),
+      companyProfile: normalizeCompanyProfile(raw.companyProfile),
+    })
+  );
 }
 
 const emptyReceivableForm = {
@@ -571,7 +596,17 @@ function SaleFormCompactEditor({
                       <td className="erp-grid-num"><WorkerGridInput rowIndex={index} columnKey="overtimeCost" rowCount={form.workers.length} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.overtimeCost} onChange={(e) => updateWorkerLine(index, "overtimeCost", e.target.value)} /></td>
                       <td className="erp-sale-form-row-memo"><WorkerGridInput rowIndex={index} columnKey="memo" rowCount={form.workers.length} className="erp-grid-input erp-input-compact" value={line.memo} onChange={(e) => updateWorkerLine(index, "memo", e.target.value)} placeholder="비고" /></td>
                       <td className="erp-sale-form-row-action erp-table-export-skip text-center">
-                        <button type="button" className="erp-sale-form-row-delete" tabIndex={skipToolbarTabStop ? -1 : undefined} onClick={() => removeWorkerLine(index)} disabled={form.workers.length <= 1} aria-label="행 삭제">
+                        <button
+                          type="button"
+                          className="erp-sale-form-row-delete"
+                          tabIndex={skipToolbarTabStop ? -1 : undefined}
+                          onClick={() => {
+                            if (!confirmDelete("이 시공자 행을 삭제할까요?")) return;
+                            removeWorkerLine(index);
+                          }}
+                          disabled={form.workers.length <= 1}
+                          aria-label="행 삭제"
+                        >
                           <Trash2 size={13} />
                         </button>
                       </td>
@@ -972,7 +1007,7 @@ function ensureImeAnchor() {
 }
 
 function filterWorkerSuggestions(workers, query, limit = 12) {
-  return filterNamedSuggestions(workers, query, (worker) => String(worker.name || ""), limit);
+  return filterNamedSuggestions(filterActiveWorkers(workers), query, (worker) => String(worker.name || ""), limit);
 }
 
 function isImeActive(event) {
@@ -1223,6 +1258,48 @@ const YES_NO_OPTIONS = [
   { label: "N", value: "N" },
 ];
 
+const WORKER_CATEGORY_OPTIONS = ["팀원", "외주"];
+
+function normalizeWorkerCategory(value) {
+  return String(value || "").trim() === "외주" ? "외주" : "팀원";
+}
+
+function workerCategorySortRank(value) {
+  return normalizeWorkerCategory(value) === "외주" ? 1 : 0;
+}
+
+function workerActiveSortRank(worker) {
+  return worker?.isActive === false ? 1 : 0;
+}
+
+function isWorkerActive(worker) {
+  return worker?.isActive !== false;
+}
+
+function filterActiveWorkers(workers = []) {
+  return workers.filter((worker) => isWorkerActive(worker));
+}
+
+function findActiveWorkerByName(workers, name) {
+  const trimmed = String(name || "").trim();
+  if (!trimmed) return undefined;
+  return workers.find((worker) => worker.name === trimmed && isWorkerActive(worker));
+}
+
+function getInactiveWorkerNamesInForm(form, workers) {
+  const inactiveNames = new Set(
+    workers
+      .filter((worker) => !isWorkerActive(worker))
+      .map((worker) => String(worker.name || "").trim())
+      .filter(Boolean)
+  );
+  return [...new Set(
+    (form.workers || [])
+      .map((line) => String(line.worker || "").trim())
+      .filter((name) => name && inactiveNames.has(name))
+  )];
+}
+
 function SummaryCard({ title, value, sub, tone = "default", icon: Icon, compact = false }) {
   const toneClass = tone === "danger" ? "text-red-600" : tone === "success" ? "text-emerald-600" : "text-slate-900";
   return (
@@ -1371,13 +1448,15 @@ function Sidebar({ active, setActive, currentUser, onLogout, mobileOpen, onMobil
   ];
   items.push(["clients", "거래처", Building2]);
   items.push(["workers", "시공자", Users]);
-  if (currentUser?.role === "admin") {
-    items.push(["usersAdmin", "사용자 관리", UserCog]);
-  }
   items.push(["companyLedger", "회사 가계부", BookOpen]);
+  items.push(["taxInvoices", "계산서 발행", Receipt]);
   items.push(["companyNotices", "회사게시판", Megaphone]);
   items.push(["companyProfile", "회사정보", Landmark]);
   items.push(["auditLog", "감사로그", History]);
+  if (currentUser?.role === "admin") {
+    items.push(["usersAdmin", "사용자 관리", UserCog]);
+    items.push(["loginHistory", "로그인 이력", LogIn]);
+  }
 
   const navigate = (key) => {
     setActive(key);
@@ -1581,6 +1660,39 @@ function DashboardAnnualChart({ months, maxBill }) {
   );
 }
 
+function DashboardSalesRankingChart({ title, rows, tone = "bill", limit = 12, emptyLabel = "매출 데이터가 없습니다." }) {
+  const visibleRows = useMemo(
+    () => rows.filter((row) => row.bill > 0).slice(0, limit),
+    [rows, limit]
+  );
+  const maxBill = useMemo(() => Math.max(...visibleRows.map((row) => row.bill), 1), [visibleRows]);
+
+  if (!visibleRows.length) {
+    return <p className="erp-text-body py-8 text-center text-slate-500">{emptyLabel}</p>;
+  }
+
+  return (
+    <div className="erp-dashboard-ranking-chart" aria-label={title}>
+      {visibleRows.map((row) => (
+        <div
+          key={row.key}
+          className="erp-dashboard-ranking-row"
+          title={`${row.label} · 매출 ${formatKRW(row.bill)}`}
+        >
+          <span className="erp-dashboard-ranking-label" title={row.label}>{row.label}</span>
+          <div className="erp-dashboard-ranking-bar-track">
+            <div
+              className={`erp-dashboard-ranking-bar-fill is-${tone}`}
+              style={{ width: `${Math.max((row.bill / maxBill) * 100, row.bill > 0 ? 6 : 0)}%` }}
+            />
+          </div>
+          <span className="erp-dashboard-ranking-value">{formatCompactKRW(row.bill)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Dashboard({ sales, paymentVouchers = [], workers = [] }) {
   const yearOptions = useMemo(() => listDashboardYears(sales), [sales]);
   const [year, setYear] = useState(() => yearOptions[0] || new Date().getFullYear());
@@ -1599,6 +1711,16 @@ function Dashboard({ sales, paymentVouchers = [], workers = [] }) {
   const totalReceived = totals.paid + totals.vat;
   const yearLabel = `${year}년`;
   const countLabel = `${totals.voucherCount}전표 · ${yearLabel}`;
+  const yearDateFilter = useMemo(() => ({ startDate: `${year}-01-01`, endDate: `${year}-12-31` }), [year]);
+  const salesPivotContext = useMemo(() => ({ workerFeeRates: buildWorkerFeeMap(workers) }), [workers]);
+  const clientRanking = useMemo(
+    () => buildClientPivotReport(sales, yearDateFilter, salesPivotContext).rows,
+    [sales, yearDateFilter, salesPivotContext]
+  );
+  const workerRanking = useMemo(
+    () => buildWorkerPivotReport(sales, yearDateFilter, salesPivotContext).rows,
+    [sales, yearDateFilter, salesPivotContext]
+  );
 
   const shiftYear = (delta) => {
     const index = yearOptions.indexOf(year);
@@ -1687,11 +1809,42 @@ function Dashboard({ sales, paymentVouchers = [], workers = [] }) {
         </CardContent>
       </Card>
 
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <Card className="erp-dashboard-annual-card rounded-2xl shadow-sm">
+          <CardContent className="p-4 md:p-5">
+            <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+              <h2 className="erp-text-section">{yearLabel} 거래처별 매출</h2>
+              <span className="erp-text-caption text-slate-500">매출 상위 · 전표 총매출 기준</span>
+            </div>
+            <DashboardSalesRankingChart
+              title={`${yearLabel} 거래처별 매출`}
+              rows={clientRanking}
+              tone="client"
+              emptyLabel={`${yearLabel} 거래처 매출이 없습니다.`}
+            />
+          </CardContent>
+        </Card>
+        <Card className="erp-dashboard-annual-card rounded-2xl shadow-sm">
+          <CardContent className="p-4 md:p-5">
+            <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+              <h2 className="erp-text-section">{yearLabel} 시공자별 매출</h2>
+              <span className="erp-text-caption text-slate-500">매출 상위 · 시공자별 청구 합계</span>
+            </div>
+            <DashboardSalesRankingChart
+              title={`${yearLabel} 시공자별 매출`}
+              rows={workerRanking}
+              tone="worker"
+              emptyLabel={`${yearLabel} 시공자 매출이 없습니다.`}
+            />
+          </CardContent>
+        </Card>
+      </div>
+
       <Card className="rounded-2xl shadow-sm">
         <CardContent className="p-4 md:p-5">
           <div className="mb-3 flex flex-col gap-1 md:mb-4 md:flex-row md:items-center md:justify-between">
             <h2 className="erp-text-section">{yearLabel} 월별 표</h2>
-            <span className="erp-text-caption text-slate-500">1~12월 · 연간 합계 포함</span>
+            <span className="erp-text-caption text-slate-500">1~12월 · 연간 합계 · 월평균매출(연간 총매출 ÷ 매출 있는 달)</span>
           </div>
           <TableExportSection fileName={`대시보드_${year}_월별`} title={`${yearLabel} 월별 연매출`}>
             <div className="erp-table-wrap">
@@ -1700,6 +1853,7 @@ function Dashboard({ sales, paymentVouchers = [], workers = [] }) {
                   <tr>
                     <th className="text-left">월</th>
                     <th className="text-right">총매출</th>
+                    <th className="text-right">월평균매출</th>
                     <th className="text-right">마진</th>
                     <th className="text-right">마진율</th>
                     <th className="text-right">입금</th>
@@ -1713,6 +1867,7 @@ function Dashboard({ sales, paymentVouchers = [], workers = [] }) {
                     <tr key={row.monthKey} className="border-t">
                       <td className="font-semibold text-left">{row.label}</td>
                       <td className="text-right font-medium">{formatKRW(row.bill)}</td>
+                      <td className="text-right text-slate-400">-</td>
                       <td className={`text-right font-medium ${row.margin >= 0 ? "text-emerald-600" : "text-red-600"}`}>{formatKRW(row.margin)}</td>
                       <td className="text-right text-slate-600">{formatMarginRate(row.margin, row.bill)}</td>
                       <td className="text-right text-slate-600">{formatKRW(row.paid)}</td>
@@ -1724,6 +1879,7 @@ function Dashboard({ sales, paymentVouchers = [], workers = [] }) {
                   <tr className="erp-dashboard-annual-total border-t bg-slate-50 font-bold">
                     <td className="text-left">연간 합계</td>
                     <td className="text-right">{formatKRW(totals.bill)}</td>
+                    <td className="text-right text-indigo-700">{formatKRW(totals.avgBill)}</td>
                     <td className={`text-right ${totals.margin >= 0 ? "text-emerald-700" : "text-red-700"}`}>{formatKRW(totals.margin)}</td>
                     <td className="text-right">{formatMarginRate(totals.margin, totals.bill)}</td>
                     <td className="text-right">{formatKRW(totals.paid)}</td>
@@ -1741,19 +1897,80 @@ function Dashboard({ sales, paymentVouchers = [], workers = [] }) {
   );
 }
 
+type CalendarDaySortColumn = "voucher" | "client" | "site" | "worker" | "bill" | "paid" | "unpaid" | "status";
+
+function getCalendarDaySortValue(sale, column: CalendarDaySortColumn) {
+  switch (column) {
+    case "voucher":
+      return parseVoucherSequence(getSaleVoucherLabel(sale)) ?? getSaleVoucherLabel(sale);
+    case "client":
+      return sale.client;
+    case "site":
+      return sale.site;
+    case "worker":
+      return sale.worker;
+    case "bill":
+      return getSaleTotalBill(sale);
+    case "paid":
+      return Number(sale.paid) || 0;
+    case "unpaid":
+      return getUnpaid(sale);
+    case "status":
+      return getStatus(sale);
+    default:
+      return "";
+  }
+}
+
+function CalendarDaySortHeader({
+  label,
+  column,
+  sort,
+  onSort,
+  align = "left",
+}: {
+  label: string;
+  column: CalendarDaySortColumn;
+  sort: { column: CalendarDaySortColumn; direction: SortDirection };
+  onSort: (column: CalendarDaySortColumn) => void;
+  align?: "left" | "right" | "center";
+}) {
+  const isActive = sort.column === column;
+  const SortIcon = !isActive ? ArrowUpDown : sort.direction === "asc" ? ArrowUp : ArrowDown;
+  const alignClass = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
+
+  return (
+    <th className={alignClass}>
+      <button
+        type="button"
+        className={`erp-pivot-sort-btn erp-calendar-day-sort-btn ${alignClass} ${isActive ? "is-active" : ""}`}
+        onClick={() => onSort(column)}
+        aria-label={`${label} 정렬`}
+      >
+        <span>{label}</span>
+        <span className="erp-pivot-sort-icon" aria-hidden="true">
+          <SortIcon size={12} />
+        </span>
+      </button>
+    </th>
+  );
+}
+
 function CalendarPage({ sales, workers = [], onOpenVoucherEdit }) {
   const [monthKey, setMonthKey] = useState(() => todayISO().slice(0, 7));
   const [selectedDate, setSelectedDate] = useState("");
+  const [daySort, setDaySort] = useState<{ column: CalendarDaySortColumn; direction: SortDirection }>({
+    column: "client",
+    direction: "asc",
+  });
   const { cells, monthLabel } = useMemo(() => buildCalendarDays(monthKey, sales, workers), [monthKey, sales, workers]);
   const todayDate = todayISO();
 
   const selectedDaySales = useMemo(() => {
     if (!selectedDate) return [];
-    return sales
-      .filter((sale) => sale.date === selectedDate)
-      .slice()
-      .sort((a, b) => String(a.client || "").localeCompare(String(b.client || ""), "ko") || String(a.site || "").localeCompare(String(b.site || ""), "ko"));
-  }, [sales, selectedDate]);
+    const rows = sales.filter((sale) => sale.date === selectedDate);
+    return sortRowsByColumn(rows, (sale) => getCalendarDaySortValue(sale, daySort.column), daySort.direction);
+  }, [sales, selectedDate, daySort.column, daySort.direction]);
 
   const selectedDayTotals = useMemo(() => {
     const feeMap = buildWorkerFeeMap(workers);
@@ -1772,6 +1989,19 @@ function CalendarPage({ sales, workers = [], onOpenVoucherEdit }) {
   useEffect(() => {
     if (selectedDate && !selectedDate.startsWith(monthKey)) setSelectedDate("");
   }, [monthKey, selectedDate]);
+
+  useEffect(() => {
+    if (!selectedDate) return;
+    setDaySort({ column: "client", direction: "asc" });
+  }, [selectedDate]);
+
+  const handleDaySort = (column: CalendarDaySortColumn) => {
+    setDaySort((prev) =>
+      prev.column === column
+        ? { column, direction: prev.direction === "asc" ? "desc" : "asc" }
+        : { column, direction: "asc" }
+    );
+  };
 
   const monthTotals = useMemo(() => {
     return cells.filter(Boolean).reduce(
@@ -2011,14 +2241,14 @@ function CalendarPage({ sales, workers = [], onOpenVoucherEdit }) {
                   <table className="erp-table erp-table--md erp-calendar-day-footer-table">
                     <thead>
                       <tr>
-                        <th className="text-left">전표</th>
-                        <th className="text-left">거래처</th>
-                        <th className="text-left">현장</th>
-                        <th className="text-left">시공자</th>
-                        <th className="text-right">시공비</th>
-                        <th className="text-right">입금</th>
-                        <th className="text-right">미수</th>
-                        <th className="text-center">상태</th>
+                        <CalendarDaySortHeader label="전표" column="voucher" sort={daySort} onSort={handleDaySort} />
+                        <CalendarDaySortHeader label="거래처" column="client" sort={daySort} onSort={handleDaySort} />
+                        <CalendarDaySortHeader label="현장" column="site" sort={daySort} onSort={handleDaySort} />
+                        <CalendarDaySortHeader label="시공자" column="worker" sort={daySort} onSort={handleDaySort} />
+                        <CalendarDaySortHeader label="시공비" column="bill" sort={daySort} onSort={handleDaySort} align="right" />
+                        <CalendarDaySortHeader label="입금" column="paid" sort={daySort} onSort={handleDaySort} align="right" />
+                        <CalendarDaySortHeader label="미수" column="unpaid" sort={daySort} onSort={handleDaySort} align="right" />
+                        <CalendarDaySortHeader label="상태" column="status" sort={daySort} onSort={handleDaySort} align="center" />
                       </tr>
                     </thead>
                     <tbody>
@@ -2157,7 +2387,7 @@ function SalesRegistrationPage({ sales = [], setSales, setActive, clients, worke
         if (lineIndex !== index) return line;
         const nextLine = { ...line, [key]: value };
         if (key === "worker") {
-          const selectedWorker = workers.find((worker) => worker.name === value);
+          const selectedWorker = findActiveWorkerByName(workers, value);
           const selectedClient = clients.find((client) => client.name === prev.client);
           nextLine.quantity = nextLine.quantity || "1";
           nextLine.unitCost = selectedWorker?.constructionCost ? String(selectedWorker.constructionCost) : nextLine.unitCost;
@@ -2205,6 +2435,12 @@ function SalesRegistrationPage({ sales = [], setSales, setActive, clients, worke
   };
 
   const saveNewSale = () => {
+    const inactiveWorkers = getInactiveWorkerNamesInForm(form, workers);
+    if (inactiveWorkers.length > 0) {
+      setSaveMessage(`비활성 시공자는 매출등록에 사용할 수 없습니다: ${inactiveWorkers.join(", ")}`);
+      return;
+    }
+
     const payload = buildSaleFromForm(form, currentUser, workers);
     if (!payload.client || !payload.site || payload.amount <= 0) return;
 
@@ -2271,7 +2507,7 @@ function SalesRegistrationPage({ sales = [], setSales, setActive, clients, worke
         addWorkerLine={addWorkerLine}
         removeWorkerLine={removeWorkerLine}
         clients={clients}
-        workers={workers}
+        workers={filterActiveWorkers(workers)}
         totals={totals}
         filledWorkerCount={filledWorkerCount}
         canSave={canSave}
@@ -2359,7 +2595,7 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
         if (lineIndex !== index) return line;
         const nextLine = { ...line, [key]: value };
         if (key === "worker") {
-          const selectedWorker = workers.find((worker) => worker.name === value);
+          const selectedWorker = findActiveWorkerByName(workers, value);
           const selectedClient = clients.find((client) => client.name === prev.client);
           nextLine.quantity = nextLine.quantity || "1";
           nextLine.unitCost = selectedWorker?.constructionCost ? String(selectedWorker.constructionCost) : nextLine.unitCost;
@@ -2591,7 +2827,39 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
 }
 
 
-function ClientsPage({ clients, setClients }) {
+function daysSinceClientSaleDate(dateStr: string) {
+  const saleDate = new Date(`${dateStr}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (Number.isNaN(saleDate.getTime())) return Number.POSITIVE_INFINITY;
+  return Math.floor((today.getTime() - saleDate.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function getClientActivityTone(lastSaleDate?: string | null) {
+  if (!lastSaleDate) return "red";
+  const days = daysSinceClientSaleDate(lastSaleDate);
+  if (days <= 30) return "green";
+  if (days <= 90) return "yellow";
+  return "red";
+}
+
+function getClientActivityLabel(tone: "green" | "yellow" | "red") {
+  if (tone === "green") return "최근 1개월 내 거래";
+  if (tone === "yellow") return "최근 2~3개월 내 거래";
+  return "최근 3개월 거래 없음";
+}
+
+function ClientActivityIcon({ lastSaleDate }: { lastSaleDate?: string }) {
+  const tone = getClientActivityTone(lastSaleDate);
+  const label = getClientActivityLabel(tone);
+  return (
+    <span className={`erp-client-activity-icon is-${tone} erp-table-export-skip`} title={label} aria-label={label}>
+      <Circle size={10} fill="currentColor" strokeWidth={0} />
+    </span>
+  );
+}
+
+function ClientsPage({ clients, setClients, sales = [] }) {
   const { recordAudit } = useAudit();
   const emptyClientForm = {
     name: "",
@@ -2608,18 +2876,59 @@ function ClientsPage({ clients, setClients }) {
   const [form, setForm] = useState(emptyClientForm);
   const [editingId, setEditingId] = useState(null);
   const [query, setQuery] = useState("");
+  const [formError, setFormError] = useState("");
 
-  const filteredClients = clients.filter((client) => Object.values(client).join(" ").toLowerCase().includes(query.toLowerCase()));
+  const filteredClients = useMemo(
+    () => clients.filter((client) => Object.values(client).join(" ").toLowerCase().includes(query.toLowerCase())),
+    [clients, query]
+  );
 
-  const updateForm = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+  const sortedClients = useMemo(() => {
+    const salesByClient = new Map();
+    for (const sale of sales) {
+      const name = String(sale.client || "").trim();
+      if (!name) continue;
+      salesByClient.set(name, (salesByClient.get(name) || 0) + getSaleTotalBill(sale));
+    }
+    return [...filteredClients].sort((a, b) => {
+      const diff = (salesByClient.get(b.name) || 0) - (salesByClient.get(a.name) || 0);
+      return diff || String(a.name || "").localeCompare(String(b.name || ""), "ko");
+    });
+  }, [filteredClients, sales]);
+
+  const clientLastSaleDate = useMemo(() => {
+    const map = new Map();
+    for (const sale of sales) {
+      const name = String(sale.client || "").trim();
+      const date = String(sale.date || "").slice(0, 10);
+      if (!name || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+      const prev = map.get(name);
+      if (!prev || date > prev) map.set(name, date);
+    }
+    return map;
+  }, [sales]);
+
+  const updateForm = (key, value) => {
+    setFormError("");
+    setForm((prev) => ({ ...prev, [key]: value }));
+  };
 
   const saveClient = () => {
-    if (!form.name.trim()) return;
+    const name = form.name.trim();
+    if (!name) return;
+
+    const duplicateClient = clients.find(
+      (client) => String(client.name || "").trim() === name && client.id !== editingId
+    );
+    if (duplicateClient) {
+      setFormError("이미 등록된 거래처명입니다. 다른 이름을 사용해 주세요.");
+      return;
+    }
 
     const existingClient = editingId ? clients.find((client) => client.id === editingId) : null;
     const payload = {
       id: editingId || Date.now(),
-      name: form.name.trim(),
+      name,
       businessNo: form.businessNo.trim(),
       manager: form.manager.trim(),
       phone: form.phone.trim(),
@@ -2647,9 +2956,11 @@ function ClientsPage({ clients, setClients }) {
 
     setForm(emptyClientForm);
     setEditingId(null);
+    setFormError("");
   };
 
   const editClient = (client) => {
+    setFormError("");
     setEditingId(client.id);
     setForm({
       name: client.name || "",
@@ -2667,8 +2978,10 @@ function ClientsPage({ clients, setClients }) {
 
   const deleteClient = (id) => {
     const client = clients.find((item) => item.id === id);
-    if (client) {
-      recordAudit({
+    if (!client) return;
+    if (!confirmDelete(`거래처 "${client.name}"을(를) 삭제할까요?`)) return;
+
+    recordAudit({
         entityType: "client",
         entityId: id,
         entityLabel: client.name,
@@ -2676,8 +2989,7 @@ function ClientsPage({ clients, setClients }) {
         action: "delete",
         before: snapshotClientForAudit(client),
         fields: CLIENT_AUDIT_FIELDS,
-      });
-    }
+    });
     setClients((prev) => prev.filter((item) => item.id !== id));
   };
 
@@ -2708,8 +3020,9 @@ function ClientsPage({ clients, setClients }) {
             </div>
           </div>
 
-          <div className="mt-5 flex justify-end gap-2">
-            <Button variant="outline" className="rounded-2xl" onClick={() => { setForm(emptyClientForm); setEditingId(null); }}>초기화</Button>
+          <div className="mt-5 flex flex-col items-end gap-2 sm:flex-row sm:justify-end">
+            {formError ? <p className="mr-auto erp-text-caption font-semibold text-red-600">{formError}</p> : null}
+            <Button variant="outline" className="rounded-2xl" onClick={() => { setForm(emptyClientForm); setEditingId(null); setFormError(""); }}>초기화</Button>
             <Button className="rounded-2xl" onClick={saveClient}>{editingId ? "거래처 수정" : "거래처 저장"}</Button>
           </div>
         </CardContent>
@@ -2717,9 +3030,15 @@ function ClientsPage({ clients, setClients }) {
 
       <SearchBox query={query} setQuery={setQuery} placeholder="거래처명, 담당자, 연락처 검색" />
 
+      <p className="erp-text-caption erp-client-activity-legend mb-3 flex flex-wrap items-center gap-3 text-slate-500">
+        <span className="inline-flex items-center gap-1"><Circle size={10} fill="currentColor" strokeWidth={0} className="text-emerald-500" /> 1개월 내 거래</span>
+        <span className="inline-flex items-center gap-1"><Circle size={10} fill="currentColor" strokeWidth={0} className="text-amber-500" /> 2~3개월 내 거래</span>
+        <span className="inline-flex items-center gap-1"><Circle size={10} fill="currentColor" strokeWidth={0} className="text-red-500" /> 3개월 이상 거래 없음</span>
+      </p>
+
       <Card className="rounded-2xl shadow-sm">
         <CardContent className="p-4 md:p-5">
-          <TableExportSection fileName="거래처목록" title="거래처 목록" disabled={filteredClients.length === 0}>
+          <TableExportSection fileName="거래처목록" title="거래처 목록" disabled={sortedClients.length === 0}>
           <div className="erp-table-wrap">
             <table className="erp-table erp-table--lg">
               <thead className="bg-slate-100 text-slate-600">
@@ -2737,9 +3056,14 @@ function ClientsPage({ clients, setClients }) {
                 </tr>
               </thead>
               <tbody>
-                {filteredClients.map((client) => (
+                {sortedClients.map((client) => (
                   <tr key={client.id} className="border-t hover:bg-slate-50">
-                    <td className="font-bold text-left">{client.name}</td>
+                    <td className="font-bold text-left">
+                      <span className="inline-flex items-center gap-1.5">
+                        <ClientActivityIcon lastSaleDate={clientLastSaleDate.get(client.name)} />
+                        {client.name}
+                      </span>
+                    </td>
                     <td>{client.businessNo || "-"}</td>
                     <td>{client.manager || "-"}</td>
                     <td>{client.phone || "-"}</td>
@@ -2766,13 +3090,46 @@ function ClientsPage({ clients, setClients }) {
   );
 }
 
+function WorkerStatusBadge({ active }: { active: boolean }) {
+  return (
+    <span className={`erp-worker-status-badge ${active ? "is-active" : "is-inactive"}`}>
+      {active ? "활성" : "비활성"}
+    </span>
+  );
+}
+
+function WorkerCategorySelect({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const category = normalizeWorkerCategory(value);
+  return (
+    <select
+      className={`erp-worker-category-select is-${category === "외주" ? "outsource" : "team"}`}
+      value={category}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      {WORKER_CATEGORY_OPTIONS.map((option) => (
+        <option key={option} value={option}>{option}</option>
+      ))}
+    </select>
+  );
+}
+
 function WorkersPage({ workers, setWorkers }) {
   const { recordAudit } = useAudit();
   const emptyWorkerForm = {
     name: "",
+    category: "팀원",
     bank: "",
     account: "",
     phone: "",
+    businessNo: "",
+    address: "",
+    vehicleNo: "",
     constructionCost: "",
     customChargeCost: "",
     overtimeCost: "30000",
@@ -2785,7 +3142,30 @@ function WorkersPage({ workers, setWorkers }) {
   const [query, setQuery] = useState("");
   const [inlineChargeDrafts, setInlineChargeDrafts] = useState({});
 
-  const filteredWorkers = workers.filter((worker) => Object.values(worker).join(" ").toLowerCase().includes(query.toLowerCase()));
+  const displayedWorkers = useMemo(() => {
+    const q = query.toLowerCase();
+    return workers
+      .filter((worker) => Object.values(worker).join(" ").toLowerCase().includes(q))
+      .sort((a, b) => {
+        const activeDiff = workerActiveSortRank(a) - workerActiveSortRank(b);
+        if (activeDiff !== 0) return activeDiff;
+        const rankDiff = workerCategorySortRank(a.category) - workerCategorySortRank(b.category);
+        if (rankDiff !== 0) return rankDiff;
+        return String(a.name || "").localeCompare(String(b.name || ""), "ko");
+      });
+  }, [workers, query]);
+
+  const workerStats = useMemo(() => {
+    const activeRows = displayedWorkers.filter((worker) => isWorkerActive(worker));
+    return {
+      total: displayedWorkers.length,
+      active: activeRows.length,
+      inactive: displayedWorkers.length - activeRows.length,
+      team: activeRows.filter((worker) => normalizeWorkerCategory(worker.category) === "팀원").length,
+      outsource: activeRows.filter((worker) => normalizeWorkerCategory(worker.category) === "외주").length,
+    };
+  }, [displayedWorkers]);
+
   const updateForm = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
 
   const saveWorker = () => {
@@ -2796,14 +3176,19 @@ function WorkersPage({ workers, setWorkers }) {
     const payload = {
       id: editingId || Date.now(),
       name: form.name.trim(),
+      category: normalizeWorkerCategory(form.category),
       bank: form.bank.trim(),
       account: form.account.trim(),
       phone: form.phone.trim(),
+      businessNo: form.businessNo.trim(),
+      address: form.address.trim(),
+      vehicleNo: form.vehicleNo.trim(),
       constructionCost: parseMoney(form.constructionCost),
       customChargeCost: parseMoney(form.customChargeCost),
       overtimeCost: parseMoney(form.overtimeCost),
       feeRate: feeNumber > 1 ? feeNumber / 100 : feeNumber,
       memo: form.memo.trim(),
+      isActive: editingId ? isWorkerActive(existingWorker) : true,
     };
 
     recordAudit({
@@ -2826,9 +3211,13 @@ function WorkersPage({ workers, setWorkers }) {
     setEditingId(worker.id);
     setForm({
       name: worker.name || "",
+      category: normalizeWorkerCategory(worker.category),
       bank: worker.bank || "",
       account: worker.account || "",
       phone: worker.phone || "",
+      businessNo: worker.businessNo || "",
+      address: worker.address || "",
+      vehicleNo: worker.vehicleNo || "",
       constructionCost: String(worker.constructionCost || ""),
       customChargeCost: String(worker.customChargeCost || ""),
       overtimeCost: String(worker.overtimeCost || "30000"),
@@ -2840,8 +3229,10 @@ function WorkersPage({ workers, setWorkers }) {
 
   const deleteWorker = (id) => {
     const worker = workers.find((item) => item.id === id);
-    if (worker) {
-      recordAudit({
+    if (!worker) return;
+    if (!confirmDelete(`시공자 "${worker.name}"을(를) 삭제할까요?`)) return;
+
+    recordAudit({
         entityType: "worker",
         entityId: id,
         entityLabel: worker.name,
@@ -2849,8 +3240,7 @@ function WorkersPage({ workers, setWorkers }) {
         action: "delete",
         before: snapshotWorkerForAudit(worker),
         fields: WORKER_AUDIT_FIELDS,
-      });
-    }
+    });
     setWorkers((prev) => prev.filter((item) => item.id !== id));
   };
 
@@ -2876,6 +3266,50 @@ function WorkersPage({ workers, setWorkers }) {
     )));
   };
 
+  const updateWorkerCategoryInline = (worker, value) => {
+    const category = normalizeWorkerCategory(value);
+    if (category === normalizeWorkerCategory(worker.category)) return;
+
+    recordAudit({
+      entityType: "worker",
+      entityId: worker.id,
+      entityLabel: worker.name,
+      screen: "시공자",
+      action: "update",
+      before: snapshotWorkerForAudit(worker),
+      after: snapshotWorkerForAudit({ ...worker, category }),
+      fields: WORKER_AUDIT_FIELDS.filter((field) => field.key === "category"),
+    });
+
+    setWorkers((prev) => prev.map((item) => (
+      item.id === worker.id
+        ? { ...item, category }
+        : item
+    )));
+  };
+
+  const toggleWorkerActive = (worker) => {
+    const nextIsActive = !isWorkerActive(worker);
+    if (nextIsActive === isWorkerActive(worker)) return;
+
+    recordAudit({
+      entityType: "worker",
+      entityId: worker.id,
+      entityLabel: worker.name,
+      screen: "시공자",
+      action: "update",
+      before: snapshotWorkerForAudit(worker),
+      after: snapshotWorkerForAudit({ ...worker, isActive: nextIsActive }),
+      fields: WORKER_AUDIT_FIELDS.filter((field) => field.key === "isActive"),
+    });
+
+    setWorkers((prev) => prev.map((item) => (
+      item.id === worker.id
+        ? { ...item, isActive: nextIsActive }
+        : item
+    )));
+  };
+
   return (
     <div className="erp-page">
       <PageTitle title="시공자" desc="엑셀 기본정보 시트를 기준으로 시공자 정보를 관리합니다." />
@@ -2884,9 +3318,25 @@ function WorkersPage({ workers, setWorkers }) {
         <CardContent className="p-6">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <AuditField label="시공자명" entityType="worker" entityId={editingId} field="name"><Input value={form.name} onChange={(e) => updateForm("name", e.target.value)} placeholder="시공자명" /></AuditField>
+            <AuditField label="구분" entityType="worker" entityId={editingId} field="category">
+              <select
+                className="erp-input w-full rounded-xl px-3 py-2 text-sm font-semibold"
+                value={form.category}
+                onChange={(e) => updateForm("category", e.target.value)}
+              >
+                {WORKER_CATEGORY_OPTIONS.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+            </AuditField>
             <AuditField label="은행명" entityType="worker" entityId={editingId} field="bank"><Input value={form.bank} onChange={(e) => updateForm("bank", e.target.value)} placeholder="은행명" /></AuditField>
             <AuditField label="계좌번호" entityType="worker" entityId={editingId} field="account"><Input value={form.account} onChange={(e) => updateForm("account", e.target.value)} placeholder="계좌번호" /></AuditField>
             <AuditField label="연락처" entityType="worker" entityId={editingId} field="phone"><Input value={form.phone} onChange={(e) => updateForm("phone", e.target.value)} placeholder="연락처" /></AuditField>
+            <AuditField label="사업자등록번호" entityType="worker" entityId={editingId} field="businessNo"><Input value={form.businessNo} onChange={(e) => updateForm("businessNo", e.target.value)} placeholder="123-45-67890" /></AuditField>
+            <AuditField label="차량번호" entityType="worker" entityId={editingId} field="vehicleNo"><Input value={form.vehicleNo} onChange={(e) => updateForm("vehicleNo", e.target.value)} placeholder="12가3456" /></AuditField>
+            <div className="sm:col-span-2 xl:col-span-4">
+              <AuditField label="주소" entityType="worker" entityId={editingId} field="address"><Input value={form.address} onChange={(e) => updateForm("address", e.target.value)} placeholder="주소" /></AuditField>
+            </div>
             <AuditField label="시공비" entityType="worker" entityId={editingId} field="constructionCost"><Input inputMode="numeric" value={form.constructionCost} onChange={(e) => updateForm("constructionCost", e.target.value)} placeholder="시공비" /></AuditField>
             <AuditField label="개별청구단가" entityType="worker" entityId={editingId} field="customChargeCost"><Input inputMode="numeric" value={form.customChargeCost} onChange={(e) => updateForm("customChargeCost", e.target.value)} placeholder="비워두면 거래처 기본단가 적용" /></AuditField>
             <AuditField label="야근비" entityType="worker" entityId={editingId} field="overtimeCost"><Input inputMode="numeric" value={form.overtimeCost} onChange={(e) => updateForm("overtimeCost", e.target.value)} placeholder="야근비" /></AuditField>
@@ -2901,36 +3351,96 @@ function WorkersPage({ workers, setWorkers }) {
         </CardContent>
       </Card>
 
-      <SearchBox query={query} setQuery={setQuery} placeholder="시공자명, 연락처, 은행, 계좌 검색" />
+      <SearchBox query={query} setQuery={setQuery} placeholder="시공자명, 구분, 연락처, 사업자등록번호, 주소, 차량번호, 은행, 계좌 검색" />
 
       <Card className="rounded-2xl shadow-sm">
         <CardContent className="p-4 md:p-5">
-          <TableExportSection fileName="시공자목록" title="시공자 목록" disabled={filteredWorkers.length === 0}>
-          <div className="erp-table-wrap">
-            <table className="erp-table erp-table--lg">
+          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h2 className="erp-text-section">시공자 목록</h2>
+              <p className="erp-text-caption mt-1 text-slate-500">활성 · 팀원/외주 · 비활성 순으로 정렬됩니다.</p>
+            </div>
+            <div className="erp-workers-summary">
+              <span>전체 <b>{workerStats.total}</b></span>
+              <span>활성 <b className="text-emerald-700">{workerStats.active}</b></span>
+              <span>팀원 <b>{workerStats.team}</b></span>
+              <span>외주 <b className="text-amber-700">{workerStats.outsource}</b></span>
+              <span>비활성 <b className="text-slate-500">{workerStats.inactive}</b></span>
+            </div>
+          </div>
+
+          <TableExportSection fileName="시공자목록" title="시공자 목록" disabled={displayedWorkers.length === 0}>
+          <div className="erp-table-wrap erp-workers-table-wrap">
+            <table className="erp-table erp-workers-table">
+              <colgroup>
+                <col className="col-name" />
+                <col className="col-status" />
+                <col className="col-category" />
+                <col className="col-contact" />
+                <col className="col-account" />
+                <col className="col-meta" />
+                <col className="col-money" />
+                <col className="col-money" />
+                <col className="col-money" />
+                <col className="col-rate" />
+                <col className="col-memo" />
+                <col className="col-actions" />
+              </colgroup>
               <thead className="bg-slate-100 text-slate-600">
                 <tr>
-                  <th className="text-left">시공자명</th>
-                  <th className="text-left">은행명</th>
-                  <th className="text-left">계좌번호</th>
+                  <th className="text-left">시공자</th>
+                  <th className="text-center">상태</th>
+                  <th className="text-center">구분</th>
                   <th className="text-left">연락처</th>
+                  <th className="text-left">계좌</th>
+                  <th className="text-left">차량 · 사업자</th>
                   <th className="text-right">시공비</th>
                   <th className="text-right">개별청구단가</th>
                   <th className="text-right">야근비</th>
-                  <th className="text-right">수수료율</th>
+                  <th className="text-right">수수료</th>
                   <th className="text-left">비고</th>
                   <th className="text-center erp-table-export-skip">관리</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredWorkers.map((worker) => (
-                  <tr key={worker.id} className="border-t hover:bg-slate-50">
-                    <td className="font-bold text-left">{worker.name}</td>
-                    <td>{worker.bank || "-"}</td>
-                    <td>{worker.account || "-"}</td>
-                    <td>{worker.phone || "-"}</td>
-                    <td className="text-right font-semibold">{formatKRW(worker.constructionCost)}</td>
-                    <td className="text-right">
+                {displayedWorkers.length === 0 ? (
+                  <tr>
+                    <td colSpan={12} className="p-10 text-center text-slate-500">
+                      표시할 시공자가 없습니다.
+                    </td>
+                  </tr>
+                ) : displayedWorkers.map((worker) => {
+                  const active = isWorkerActive(worker);
+                  const category = normalizeWorkerCategory(worker.category);
+                  return (
+                  <tr key={worker.id} className={`erp-workers-row border-t hover:bg-slate-50${active ? "" : " is-inactive"}`}>
+                    <td className="erp-workers-name-cell">
+                      <div className={`erp-workers-name${active ? "" : " is-muted"}`}>{worker.name}</div>
+                      {worker.address ? (
+                        <div className="erp-workers-sub truncate" title={worker.address}>{worker.address}</div>
+                      ) : null}
+                    </td>
+                    <td className="text-center">
+                      <WorkerStatusBadge active={active} />
+                    </td>
+                    <td className="text-center">
+                      <WorkerCategorySelect
+                        value={category}
+                        onChange={(value) => updateWorkerCategoryInline(worker, value)}
+                      />
+                      <AuditCellHint entityType="worker" entityId={worker.id} field="category" fieldLabel="구분" />
+                    </td>
+                    <td className="whitespace-nowrap">{worker.phone || "-"}</td>
+                    <td className="erp-workers-account-cell">
+                      <div>{worker.bank || "-"}</div>
+                      {worker.account ? <div className="erp-workers-sub truncate" title={worker.account}>{worker.account}</div> : null}
+                    </td>
+                    <td className="erp-workers-meta-cell">
+                      <div>{worker.vehicleNo || "-"}</div>
+                      {worker.businessNo ? <div className="erp-workers-sub">{worker.businessNo}</div> : null}
+                    </td>
+                    <td className="text-right font-semibold whitespace-nowrap">{formatKRW(worker.constructionCost)}</td>
+                    <td className="text-right erp-workers-charge-cell">
                       <Input
                         inputMode="numeric"
                         value={inlineChargeDrafts[worker.id] ?? worker.customChargeCost ?? ""}
@@ -2943,22 +3453,56 @@ function WorkersPage({ workers, setWorkers }) {
                             return next;
                           });
                         }}
-                        placeholder="거래처 기본단가"
-                        className="text-right font-semibold text-blue-600"
+                        placeholder="기본단가"
+                        className="erp-input-compact erp-workers-charge-input text-right"
                       />
                       <AuditCellHint entityType="worker" entityId={worker.id} field="customChargeCost" fieldLabel="개별청구단가" />
                     </td>
-                    <td className="text-right">{formatKRW(worker.overtimeCost || 30000)}</td>
-                    <td className="text-right">{Math.round((worker.feeRate || 0) * 100)}%</td>
-                    <td>{worker.memo || "-"}</td>
+                    <td className="text-right whitespace-nowrap text-slate-600">{formatKRW(worker.overtimeCost || 30000)}</td>
+                    <td className="text-right whitespace-nowrap">{Math.round((worker.feeRate || 0) * 100)}%</td>
+                    <td className="erp-workers-memo-cell">
+                      <span className="erp-cell-truncate block" title={worker.memo || ""}>{worker.memo || "-"}</span>
+                    </td>
                     <td className="erp-table-export-skip">
-                      <div className="flex justify-center gap-2">
-                        <Button size="sm" variant="outline" className="rounded-xl" onClick={() => editWorker(worker)}><Pencil size={14} /></Button>
-                        <Button size="sm" className="rounded-xl bg-red-600 hover:bg-red-700" onClick={() => deleteWorker(worker.id)}><Trash2 size={14} /></Button>
+                      <div className="erp-workers-actions">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className={`erp-workers-action-btn ${active ? "is-deactivate" : "is-activate"}`}
+                          onClick={() => toggleWorkerActive(worker)}
+                          title={active ? "비활성화" : "활성화"}
+                          aria-label={active ? "비활성화" : "활성화"}
+                        >
+                          {active ? <UserMinus size={14} /> : <UserCheck size={14} />}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="erp-workers-action-btn"
+                          onClick={() => editWorker(worker)}
+                          title="수정"
+                          aria-label="수정"
+                        >
+                          <Pencil size={14} />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="erp-workers-action-btn is-delete"
+                          onClick={() => deleteWorker(worker.id)}
+                          title="삭제"
+                          aria-label="삭제"
+                        >
+                          <Trash2 size={14} />
+                        </Button>
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -3699,7 +4243,11 @@ export default function TeammillimeterErpMvp() {
   const appliedSales = appliedPaymentData.sales;
   const [auditLogs, setAuditLogs] = useState(() => {
     if (apiMode && sessionOnMount) return [];
-    return Array.isArray(storedData?.auditLogs) ? storedData.auditLogs : [];
+    return resolveInitialLogs(storedData).auditLogs;
+  });
+  const [loginLogs, setLoginLogs] = useState(() => {
+    if (apiMode && sessionOnMount) return [];
+    return resolveInitialLogs(storedData).loginLogs;
   });
   const [workerPaymentRecords, setWorkerPaymentRecords] = useState(() => {
     if (apiMode && sessionOnMount) return [];
@@ -3724,6 +4272,10 @@ export default function TeammillimeterErpMvp() {
   const [workPosts, setWorkPosts] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return normalizeWorkPosts(storedData?.workPosts);
+  });
+  const [taxInvoices, setTaxInvoices] = useState(() => {
+    if (apiMode && sessionOnMount) return [];
+    return normalizeTaxInvoices(storedData?.taxInvoices);
   });
   const [statementGenerationLogs, setStatementGenerationLogs] = useState(() => {
     if (apiMode && sessionOnMount) return [];
@@ -3752,12 +4304,18 @@ export default function TeammillimeterErpMvp() {
         setPaymentInputLogs(Array.isArray(data.paymentInputLogs) ? data.paymentInputLogs : []);
         setClients(data.clients?.length ? data.clients : initialClients);
         setWorkers(nextWorkers);
-        setAuditLogs(Array.isArray(data.auditLogs) ? data.auditLogs : []);
+        const migratedLogs = migrateErpLoginLogs({
+          auditLogs: Array.isArray(data.auditLogs) ? data.auditLogs : [],
+          loginLogs: Array.isArray(data.loginLogs) ? data.loginLogs : [],
+        });
+        setAuditLogs(migratedLogs.auditLogs);
+        setLoginLogs(migratedLogs.loginLogs);
         setWorkerPaymentRecords(Array.isArray(data.workerPaymentRecords) ? data.workerPaymentRecords : []);
         setCompanyExpenses(Array.isArray(data.companyExpenses) ? data.companyExpenses : []);
         setFixedExpenses(Array.isArray(data.fixedExpenses) ? data.fixedExpenses : []);
         setCompanyNotices(normalizeCompanyNotices(data.companyNotices));
         setWorkPosts(normalizeWorkPosts(data.workPosts));
+        setTaxInvoices(normalizeTaxInvoices(data.taxInvoices));
         setStatementGenerationLogs(normalizeStatementGenerationLogs(data.statementGenerationLogs));
         setStatementFolders(normalizeStatementFolders(data.statementFolders));
         setCompanyProfile(normalizeCompanyProfile(data.companyProfile));
@@ -3781,7 +4339,7 @@ export default function TeammillimeterErpMvp() {
 
   useEffect(() => {
     if (!apiMode) {
-      saveStoredData({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, workerPaymentRecords, companyExpenses, fixedExpenses, companyNotices, workPosts, statementGenerationLogs, statementFolders, companyProfile });
+      saveStoredData({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, fixedExpenses, companyNotices, workPosts, taxInvoices, statementGenerationLogs, statementFolders, companyProfile });
       return;
     }
     if (!currentUser || !dataReady) return;
@@ -3799,11 +4357,13 @@ export default function TeammillimeterErpMvp() {
           clients,
           workers,
           auditLogs,
+          loginLogs,
           workerPaymentRecords,
           companyExpenses,
           fixedExpenses,
           companyNotices,
           workPosts,
+          taxInvoices,
           statementGenerationLogs,
           statementFolders,
           companyProfile,
@@ -3822,7 +4382,7 @@ export default function TeammillimeterErpMvp() {
       }
     }, 900);
     return () => window.clearTimeout(timer);
-  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, workerPaymentRecords, companyExpenses, fixedExpenses, companyNotices, workPosts, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode]);
+  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, fixedExpenses, companyNotices, workPosts, taxInvoices, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -3834,7 +4394,7 @@ export default function TeammillimeterErpMvp() {
   }, [active]);
 
   const backupData = () => {
-    downloadBackup({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, workerPaymentRecords, companyExpenses, fixedExpenses, companyNotices, workPosts, statementGenerationLogs, statementFolders, companyProfile });
+    downloadBackup({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, fixedExpenses, companyNotices, workPosts, taxInvoices, statementGenerationLogs, statementFolders, companyProfile });
   };
 
   const restoreBackup = (file) => {
@@ -3849,11 +4409,13 @@ export default function TeammillimeterErpMvp() {
         setClients(parsed.clients);
         setWorkers(parsed.workers);
         setAuditLogs(parsed.auditLogs || []);
+        setLoginLogs(parsed.loginLogs || []);
         setWorkerPaymentRecords(parsed.workerPaymentRecords || []);
         setCompanyExpenses(parsed.companyExpenses || []);
         setFixedExpenses(parsed.fixedExpenses || []);
         setCompanyNotices(normalizeCompanyNotices(parsed.companyNotices));
         setWorkPosts(normalizeWorkPosts(parsed.workPosts));
+        setTaxInvoices(normalizeTaxInvoices(parsed.taxInvoices));
         setStatementGenerationLogs(normalizeStatementGenerationLogs(parsed.statementGenerationLogs));
         setStatementFolders(normalizeStatementFolders(parsed.statementFolders));
         setCompanyProfile(normalizeCompanyProfile(parsed.companyProfile));
@@ -3885,6 +4447,7 @@ export default function TeammillimeterErpMvp() {
     setFixedExpenses(Array.isArray(payload.fixedExpenses) ? payload.fixedExpenses : []);
     setCompanyNotices(normalizeCompanyNotices(payload.companyNotices));
     setWorkPosts(normalizeWorkPosts(payload.workPosts));
+    setTaxInvoices(normalizeTaxInvoices(payload.taxInvoices));
     setStatementGenerationLogs(normalizeStatementGenerationLogs(payload.statementGenerationLogs));
     setStatementFolders(normalizeStatementFolders(payload.statementFolders));
     setCompanyProfile(normalizeCompanyProfile(payload.companyProfile));
@@ -3925,7 +4488,7 @@ export default function TeammillimeterErpMvp() {
   };
 
   const handleLogin = (user) => {
-    setAuditLogs((prev) => appendAuditLogs(prev, [buildLoginAuditEntry(user)]));
+    setLoginLogs((prev) => appendLoginLogs(prev, [buildLoginLogEntry(user)]));
     setCurrentUser(user);
     if (!apiMode) saveSessionUser(user);
   };
@@ -3960,12 +4523,14 @@ export default function TeammillimeterErpMvp() {
     receivables: "입금/미수금",
     workerPayments: "시공자 지급",
     companyLedger: "회사 가계부",
+    taxInvoices: "계산서 발행",
     companyNotices: "회사게시판",
     clients: "거래처",
     workers: "시공자",
     companyProfile: "회사정보",
     reports: "보고서",
     auditLog: "감사로그",
+    loginHistory: "로그인 이력",
     statements: "내역서",
     pdfArchive: "PDF 보관함",
     usersAdmin: "사용자 관리",
@@ -4059,6 +4624,14 @@ export default function TeammillimeterErpMvp() {
             currentUser={currentUser}
           />
         </PageKeepAlive>
+        <PageKeepAlive pageKey="taxInvoices" active={active}>
+          <TaxInvoicePage
+            taxInvoices={taxInvoices}
+            setTaxInvoices={setTaxInvoices}
+            clients={clients}
+            currentUser={currentUser}
+          />
+        </PageKeepAlive>
         <PageKeepAlive pageKey="companyNotices" active={active}>
           <CompanyNoticeBoardPage
             companyNotices={companyNotices}
@@ -4069,7 +4642,7 @@ export default function TeammillimeterErpMvp() {
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="clients" active={active}>
-          <ClientsPage clients={clients} setClients={setClients} />
+          <ClientsPage clients={clients} setClients={setClients} sales={appliedSales} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="workers" active={active}>
           <WorkersPage workers={workers} setWorkers={setWorkers} />
@@ -4091,6 +4664,11 @@ export default function TeammillimeterErpMvp() {
         <PageKeepAlive pageKey="auditLog" active={active}>
           <AuditLogPage />
         </PageKeepAlive>
+        {currentUser.role === "admin" && (
+          <PageKeepAlive pageKey="loginHistory" active={active}>
+            <LoginHistoryPage loginLogs={loginLogs} />
+          </PageKeepAlive>
+        )}
         <PageKeepAlive pageKey="statements" active={active}>
           <StatementsPage
             sales={appliedSales}

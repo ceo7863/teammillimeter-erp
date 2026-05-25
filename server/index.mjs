@@ -251,6 +251,7 @@ app.get("/api/erp", authMiddleware, (_req, res) => {
     clients: state.data.clients || [],
     workers: state.data.workers || [],
     auditLogs: state.data.auditLogs || [],
+    loginLogs: state.data.loginLogs || [],
     workerPaymentRecords: state.data.workerPaymentRecords || [],
     companyExpenses: state.data.companyExpenses || [],
     fixedExpenses: state.data.fixedExpenses || [],
@@ -266,7 +267,7 @@ app.get("/api/erp", authMiddleware, (_req, res) => {
 });
 
 app.put("/api/erp", authMiddleware, (req, res) => {
-  const { sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, workerPaymentRecords, companyExpenses, fixedExpenses, companyNotices, workPosts, statementGenerationLogs, statementFolders, companyProfile, version } = req.body || {};
+  const { sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, fixedExpenses, companyNotices, workPosts, statementGenerationLogs, statementFolders, companyProfile, version } = req.body || {};
   const payload = {
     sales: Array.isArray(sales) ? sales : [],
     paymentVouchers: Array.isArray(paymentVouchers) ? paymentVouchers : [],
@@ -274,6 +275,7 @@ app.put("/api/erp", authMiddleware, (req, res) => {
     clients: Array.isArray(clients) ? clients : [],
     workers: Array.isArray(workers) ? workers : [],
     auditLogs: Array.isArray(auditLogs) ? auditLogs : [],
+    loginLogs: Array.isArray(loginLogs) ? loginLogs : [],
     workerPaymentRecords: Array.isArray(workerPaymentRecords) ? workerPaymentRecords : [],
     companyExpenses: Array.isArray(companyExpenses) ? companyExpenses : [],
     fixedExpenses: Array.isArray(fixedExpenses) ? fixedExpenses : [],

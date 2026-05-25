@@ -1,4 +1,4 @@
-export type AuditAction = "create" | "update" | "delete" | "import" | "login";
+export type AuditAction = "create" | "update" | "delete" | "import";
 
 export type AuditLogEntry = {
   id: number;
@@ -54,9 +54,14 @@ export const CLIENT_AUDIT_FIELDS: AuditFieldDef[] = [
 
 export const WORKER_AUDIT_FIELDS: AuditFieldDef[] = [
   { key: "name", label: "시공자명" },
+  { key: "category", label: "구분" },
+  { key: "isActive", label: "상태", format: (v) => (v === false ? "비활성" : "활성") },
   { key: "bank", label: "은행명" },
   { key: "account", label: "계좌번호" },
   { key: "phone", label: "연락처" },
+  { key: "businessNo", label: "사업자등록번호" },
+  { key: "address", label: "주소" },
+  { key: "vehicleNo", label: "차량번호" },
   { key: "constructionCost", label: "시공비", format: (v) => formatAuditMoney(v) },
   { key: "customChargeCost", label: "개별청구단가", format: (v) => formatAuditMoney(v) },
   { key: "overtimeCost", label: "야근비", format: (v) => formatAuditMoney(v) },
@@ -144,9 +149,14 @@ export function snapshotClientForAudit(client: Record<string, unknown>) {
 export function snapshotWorkerForAudit(worker: Record<string, unknown>) {
   return {
     name: worker.name || "",
+    category: worker.category === "외주" ? "외주" : "팀원",
+    isActive: worker.isActive !== false,
     bank: worker.bank || "",
     account: worker.account || "",
     phone: worker.phone || "",
+    businessNo: worker.businessNo || "",
+    address: worker.address || "",
+    vehicleNo: worker.vehicleNo || "",
     constructionCost: worker.constructionCost ?? 0,
     customChargeCost: worker.customChargeCost ?? 0,
     overtimeCost: worker.overtimeCost ?? 0,
@@ -212,37 +222,6 @@ export function buildAuditEntries(input: {
 export function appendAuditLogs(existing: AuditLogEntry[], entries: AuditLogEntry[]) {
   if (!entries.length) return existing;
   return [...entries, ...existing].slice(0, MAX_AUDIT_LOGS);
-}
-
-export type AuditLoginUser = {
-  id?: string | number;
-  name?: string;
-  loginId?: string;
-  email?: string;
-  role?: string;
-};
-
-export function buildLoginAuditEntry(user: AuditLoginUser): AuditLogEntry {
-  const at = new Date().toISOString();
-  const loginId = String(user.loginId || user.email || "").trim();
-  const roleLabel =
-    user.role === "admin" ? "관리자" : user.role === "staff" ? "일반" : user.role ? String(user.role) : "";
-
-  return {
-    id: Date.now() + Math.floor(Math.random() * 1000),
-    entityType: "user",
-    entityId: user.id ?? loginId ?? "unknown",
-    entityLabel: user.name || loginId || "사용자",
-    field: "session",
-    fieldLabel: "로그인",
-    before: "-",
-    after: loginId ? (roleLabel ? `${loginId} · ${roleLabel}` : loginId) : "로그인 성공",
-    action: "login",
-    screen: "로그인",
-    userName: user.name || loginId || "사용자",
-    userEmail: loginId,
-    at,
-  };
 }
 
 export function getAuditHistory(

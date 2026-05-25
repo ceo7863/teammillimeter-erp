@@ -9,6 +9,7 @@ import { TableExportToolbar } from "@/components/TableExportSection";
 import { AutocompleteInput } from "@/components/AutocompleteInput";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { DEFAULT_COMPANY_PROFILE, type CompanyProfile } from "@/utils/companyProfile";
+import { confirmDelete } from "@/utils/confirmDelete";
 import { archiveGeneratedPdf, getPdfArchiveRecord, listPdfArchives, openPdfBlobInNewTab, sharePdfBlob } from "@/utils/pdfArchive";
 import { createPdfPreviewWindow, downloadPdfFromHtmlElement, revokePdfBlobUrl } from "@/utils/statementPdf";
 import {
@@ -25,14 +26,16 @@ import {
 import {
   fileStatementLogToFolder,
   fileStatementLogsToFolders,
+  autoFileGenerationLogsToFolders,
   filterAndSortStatementFolders,
   findFolderItemByLogId,
   findMatchingPdfArchive,
   getStatementFolderStats,
   isGenerationLogFullyFiled,
-  linkPdfArchiveToFolders,
+  fileOrLinkPdfArchiveToFolders,
   makeStatementFolderId,
   removeStatementFolderItem,
+  removeStatementFolder,
   type StatementFolder,
   type StatementFolderItem,
   type StatementFolderSort,
@@ -126,6 +129,10 @@ const L = {
   folderColumnEmptyWorker: "\uC2DC\uACF5\uC790 \uD3F4\uB354\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
   folderRemoveItem: "\uD3F4\uB764\uC5D0\uC11C \uC81C\uAC70",
   folderRemoveConfirm: "\uC774 \uB0B4\uC5ED\uC11C\uB97C \uD3F4\uB764\uC5D0\uC11C \uC81C\uAC70\uD560\uAE4C\uC694?",
+  folderRemoveFolder: "\uD3F4\uB354 \uC0AD\uC81C",
+  folderRemoveFolderConfirm: (name: string, count: number) =>
+    `"${name}" \uD3F4\uB354\uC640 \uC548\uC758 \uB0B4\uC5ED ${count}\uAC74\uC744 \uBAA8\uB450 \uC0AD\uC81C\uD560\uAE4C\uC694?`,
+  folderFolderRemoved: "\uD3F4\uB354\uB97C \uC0AD\uC81C\uD588\uC2B5\uB2C8\uB2E4.",
   folderRemoved: "\uD3F4\uB764\uC5D0\uC11C \uC81C\uAC70\uD588\uC2B5\uB2C8\uB2E4.",
   folderLastUpdated: "\uCD5C\uADFC",
   emptyTitle: "\uC544\uC9C1 \uC0DD\uC131\uB41C \uB0B4\uC5ED\uC11C\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
@@ -575,8 +582,26 @@ export function StatementsPage({
   const statementClient = hasClientSelection ? client : "";
   const statementWorkerName = hasWorkerSelection ? worker : "";
 
+  const autoFileGenerationLog = (log: StatementGenerationLog) => {
+    if (!setStatementFolders) return;
+    const filedBy = currentUser?.name || currentUser?.loginId || "";
+    setStatementFolders((prev) => fileStatementLogToFolder(prev, log, { filedBy }));
+    const folderId = makeStatementFolderId(log.statementType, log.subjectName);
+    setExpandedFolderIds((prev) => (prev.includes(folderId) ? prev : [folderId, ...prev]));
+    setFolderMessage(L.folderMetaOnly);
+  };
+
+  const autoFileGenerationLogs = (logs: StatementGenerationLog[]) => {
+    if (!setStatementFolders || !logs.length) return;
+    const filedBy = currentUser?.name || currentUser?.loginId || "";
+    setStatementFolders((prev) => autoFileGenerationLogsToFolders(prev, logs, filedBy).folders);
+    setExpandedFolderIds((prev) =>
+      Array.from(new Set([...logs.map((log) => makeStatementFolderId(log.statementType, log.subjectName)), ...prev]))
+    );
+  };
+
   const recordGenerationLog = (type: "client" | "worker", subjectName: string, rowCount: number) => {
-    if (!setStatementGenerationLogs) return;
+    if (!setStatementGenerationLogs) return null;
     const log = createStatementGenerationLog({
       statementType: type,
       subjectName,
@@ -587,6 +612,8 @@ export function StatementsPage({
       createdBy: currentUser?.name || currentUser?.loginId || "",
     });
     setStatementGenerationLogs((prev) => appendStatementGenerationLog(prev, log));
+    autoFileGenerationLog(log);
+    return log;
   };
 
   useEffect(() => {
@@ -671,6 +698,7 @@ export function StatementsPage({
     );
 
     setStatementGenerationLogs((prev) => appendStatementGenerationLogs(prev, nextLogs));
+    autoFileGenerationLogs(nextLogs);
     setFolderMessage(L.batchGenerateDoneWorker(targets.length));
     setPdfMessage("");
     setActivePageTab("archive");
@@ -702,6 +730,7 @@ export function StatementsPage({
     );
 
     setStatementGenerationLogs((prev) => appendStatementGenerationLogs(prev, nextLogs));
+    autoFileGenerationLogs(nextLogs);
     setFolderMessage(L.batchGenerateDoneClient(targets.length));
     setPdfMessage("");
     setActivePageTab("archive");
@@ -848,6 +877,21 @@ export function StatementsPage({
     restoreStatementSnapshot(log ?? item);
   };
 
+  const removeFolderItem = (folderId: string, itemId: string) => {
+    if (!setStatementFolders) return;
+    if (!confirmDelete(L.folderRemoveConfirm)) return;
+    setStatementFolders((prev) => removeStatementFolderItem(prev, folderId, itemId));
+    setFolderMessage(L.folderRemoved);
+  };
+
+  const removeFolder = (folder: StatementFolder) => {
+    if (!setStatementFolders) return;
+    if (!confirmDelete(L.folderRemoveFolderConfirm(folder.folderName, folder.items.length))) return;
+    setStatementFolders((prev) => removeStatementFolder(prev, folder.id));
+    setExpandedFolderIds((prev) => prev.filter((id) => id !== folder.id));
+    setFolderMessage(L.folderFolderRemoved);
+  };
+
   const renderFolderList = (folders: StatementFolder[], emptyLabel: string) => {
     if (!folders.length) {
       return <p className="erp-statement-folder-empty">{emptyLabel}</p>;
@@ -859,15 +903,30 @@ export function StatementsPage({
           const expanded = expandedFolderIds.includes(folder.id);
           return (
             <div key={folder.id} className="erp-statement-folder">
-              <button type="button" className="erp-statement-folder-head" onClick={() => toggleFolderExpanded(folder.id)}>
-                {expanded ? <ChevronDown size={13} className="shrink-0 text-slate-500" /> : <ChevronRight size={13} className="shrink-0 text-slate-500" />}
-                <span className="erp-statement-folder-name">{folder.folderName}</span>
-                <span className="erp-statement-folder-meta">
-                  {folder.items.length}
-                  {"\uAC74 \u00B7 "}
-                  {formatStatementGenerationDateTime(folder.updatedAt).split(" ")[0]}
-                </span>
-              </button>
+              <div className="erp-statement-folder-head-row">
+                <button type="button" className="erp-statement-folder-head" onClick={() => toggleFolderExpanded(folder.id)}>
+                  {expanded ? <ChevronDown size={13} className="shrink-0 text-slate-500" /> : <ChevronRight size={13} className="shrink-0 text-slate-500" />}
+                  <span className="erp-statement-folder-name">{folder.folderName}</span>
+                  <span className="erp-statement-folder-meta">
+                    {folder.items.length}
+                    {"\uAC74 \u00B7 "}
+                    {formatStatementGenerationDateTime(folder.updatedAt).split(" ")[0]}
+                  </span>
+                </button>
+                {setStatementFolders ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="erp-statement-folder-delete-btn rounded-lg text-red-600 hover:text-red-700"
+                    title={L.folderRemoveFolder}
+                    aria-label={L.folderRemoveFolder}
+                    onClick={() => removeFolder(folder)}
+                  >
+                    <Trash2 size={12} />
+                  </Button>
+                ) : null}
+              </div>
               {expanded && (
                 <div className="erp-statement-folder-items">
                   {folder.items.map((item) => {
@@ -942,13 +1001,6 @@ export function StatementsPage({
     );
   };
 
-  const removeFolderItem = (folderId: string, itemId: string) => {
-    if (!setStatementFolders) return;
-    if (!window.confirm(L.folderRemoveConfirm)) return;
-    setStatementFolders((prev) => removeStatementFolderItem(prev, folderId, itemId));
-    setFolderMessage(L.folderRemoved);
-  };
-
   const deleteGenerationLog = (log: StatementGenerationLog) => {
     if (!setStatementGenerationLogs) return;
     if (!window.confirm(L.removeConfirm)) return;
@@ -1014,7 +1066,8 @@ export function StatementsPage({
         statementView: isClient ? clientStatementView : undefined,
       });
       if (setStatementFolders) {
-        setStatementFolders((prev) => linkPdfArchiveToFolders(prev, archived));
+        const filedBy = currentUser?.name || currentUser?.loginId || "";
+        setStatementFolders((prev) => fileOrLinkPdfArchiveToFolders(prev, statementGenerationLogs, archived, filedBy));
       }
       setPdfMessage(
         result.previewOpened
@@ -1069,7 +1122,8 @@ export function StatementsPage({
         statementView: clientStatementView,
       });
       if (setStatementFolders) {
-        setStatementFolders((prev) => linkPdfArchiveToFolders(prev, archived));
+        const filedBy = currentUser?.name || currentUser?.loginId || "";
+        setStatementFolders((prev) => fileOrLinkPdfArchiveToFolders(prev, statementGenerationLogs, archived, filedBy));
       }
       const shareResult = await sharePdfBlob(result.blob, fileName);
       setPdfMessage(shareResult.message);

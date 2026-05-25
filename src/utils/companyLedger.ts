@@ -94,6 +94,15 @@ export function monthRangeISO(offset = 0) {
   return { startDate, endDate };
 }
 
+export function quarterRangeISO(quarter: 1 | 2 | 3 | 4, year = new Date().getFullYear()) {
+  const startMonth = (quarter - 1) * 3 + 1;
+  const endMonth = startMonth + 2;
+  const startDate = `${year}-${String(startMonth).padStart(2, "0")}-01`;
+  const lastDay = new Date(year, endMonth, 0).getDate();
+  const endDate = `${year}-${String(endMonth).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  return { startDate, endDate };
+}
+
 export function ledgerDateFilter(periodKey: LedgerPeriodKey) {
   if (periodKey === "today") {
     const today = todayISO();

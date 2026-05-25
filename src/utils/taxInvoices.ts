@@ -1,0 +1,266 @@
+export type TaxInvoiceDocumentType = "tax" | "bill";
+
+export type TaxInvoiceFlowType = "sales" | "purchase";
+
+export type TaxInvoiceStatus = "issued" | "cancelled";
+
+export type TaxInvoice = {
+  id: string;
+  issueDate: string;
+  client: string;
+  businessNo: string;
+  flowType: TaxInvoiceFlowType;
+  documentType: TaxInvoiceDocumentType;
+  supplyAmount: number;
+  vatAmount: number;
+  totalAmount: number;
+  invoiceNo?: string;
+  memo?: string;
+  status: TaxInvoiceStatus;
+  createdAt: string;
+  updatedAt?: string;
+  createdBy: string;
+  createdByLoginId?: string;
+  updatedBy?: string;
+};
+
+export const TAX_INVOICE_FLOW_OPTIONS: Array<{ value: TaxInvoiceFlowType; label: string }> = [
+  { value: "sales", label: "\uB9E4\uCD9C" },
+  { value: "purchase", label: "\uB9E4\uC785" },
+];
+
+export const TAX_INVOICE_DOCUMENT_OPTIONS: Array<{ value: TaxInvoiceDocumentType; label: string }> = [
+  { value: "tax", label: "\uC138\uAE08\uACC4\uC0B0\uC11C" },
+  { value: "bill", label: "\uACC4\uC0B0\uC11C" },
+];
+
+export const TAX_INVOICE_STATUS_OPTIONS: Array<{ value: TaxInvoiceStatus; label: string }> = [
+  { value: "issued", label: "\uBC1C\uD589" },
+  { value: "cancelled", label: "\uCDE8\uC18C" },
+];
+
+export function makeTaxInvoiceId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return `tax-inv-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+export function normalizeTaxInvoiceDocumentType(value: unknown): TaxInvoiceDocumentType {
+  return value === "bill" ? "bill" : "tax";
+}
+
+export function normalizeTaxInvoiceFlowType(value: unknown): TaxInvoiceFlowType {
+  return value === "purchase" ? "purchase" : "sales";
+}
+
+export function normalizeTaxInvoiceStatus(value: unknown): TaxInvoiceStatus {
+  return value === "cancelled" ? "cancelled" : "issued";
+}
+
+export function getTaxInvoiceDocumentTypeLabel(type: TaxInvoiceDocumentType) {
+  return TAX_INVOICE_DOCUMENT_OPTIONS.find((item) => item.value === type)?.label || TAX_INVOICE_DOCUMENT_OPTIONS[0].label;
+}
+
+export function getTaxInvoiceFlowLabel(flowType: TaxInvoiceFlowType) {
+  return TAX_INVOICE_FLOW_OPTIONS.find((item) => item.value === flowType)?.label || TAX_INVOICE_FLOW_OPTIONS[0].label;
+}
+
+export function getTaxInvoiceKindLabel(row: Pick<TaxInvoice, "flowType" | "documentType">) {
+  return `${getTaxInvoiceFlowLabel(row.flowType)} ${getTaxInvoiceDocumentTypeLabel(row.documentType)}`;
+}
+
+export function getTaxInvoiceStatusLabel(status: TaxInvoiceStatus) {
+  return TAX_INVOICE_STATUS_OPTIONS.find((item) => item.value === status)?.label || TAX_INVOICE_STATUS_OPTIONS[0].label;
+}
+
+export function parseTaxInvoiceAmount(value: unknown) {
+  const num = Number(String(value ?? "").replace(/[^\d.-]/g, ""));
+  return Number.isFinite(num) ? Math.round(num) : 0;
+}
+
+export function calculateTaxInvoiceAmounts(supplyAmount: number, documentType: TaxInvoiceDocumentType) {
+  const supply = Math.max(0, Math.round(supplyAmount));
+  const vatAmount = documentType === "tax" ? Math.round(supply * 0.1) : 0;
+  return {
+    supplyAmount: supply,
+    vatAmount,
+    totalAmount: supply + vatAmount,
+  };
+}
+
+export function calculateTaxInvoiceAmountsFromTotal(totalAmount: number, documentType: TaxInvoiceDocumentType) {
+  const total = Math.max(0, Math.round(totalAmount));
+  if (documentType === "bill") {
+    return {
+      supplyAmount: total,
+      vatAmount: 0,
+      totalAmount: total,
+    };
+  }
+  const supplyAmount = Math.round(total / 1.1);
+  const vatAmount = total - supplyAmount;
+  return {
+    supplyAmount,
+    vatAmount,
+    totalAmount: total,
+  };
+}
+
+export function resolveTaxInvoiceModalAmounts(input: {
+  supplyAmount: string | number;
+  totalAmount: string | number;
+  documentType: TaxInvoiceDocumentType;
+  amountInputSource?: "supply" | "total";
+}) {
+  const supply = parseTaxInvoiceAmount(input.supplyAmount);
+  const total = parseTaxInvoiceAmount(input.totalAmount);
+  if (input.amountInputSource === "total" && total > 0) {
+    return calculateTaxInvoiceAmountsFromTotal(total, input.documentType);
+  }
+  if (supply > 0) {
+    return calculateTaxInvoiceAmounts(supply, input.documentType);
+  }
+  if (total > 0) {
+    return calculateTaxInvoiceAmountsFromTotal(total, input.documentType);
+  }
+  return calculateTaxInvoiceAmounts(0, input.documentType);
+}
+
+export function normalizeTaxInvoice(raw: Partial<TaxInvoice> & { id: string }): TaxInvoice {
+  const documentType = normalizeTaxInvoiceDocumentType(raw.documentType);
+  const amounts = calculateTaxInvoiceAmounts(parseTaxInvoiceAmount(raw.supplyAmount), documentType);
+  return {
+    id: raw.id,
+    issueDate: String(raw.issueDate || new Date().toISOString().slice(0, 10)),
+    client: String(raw.client || ""),
+    businessNo: String(raw.businessNo || ""),
+    flowType: normalizeTaxInvoiceFlowType(raw.flowType),
+    documentType,
+    supplyAmount: amounts.supplyAmount,
+    vatAmount: amounts.vatAmount,
+    totalAmount: parseTaxInvoiceAmount(raw.totalAmount) || amounts.totalAmount,
+    invoiceNo: raw.invoiceNo ? String(raw.invoiceNo) : undefined,
+    memo: raw.memo ? String(raw.memo) : undefined,
+    status: normalizeTaxInvoiceStatus(raw.status),
+    createdAt: String(raw.createdAt || new Date().toISOString()),
+    updatedAt: raw.updatedAt ? String(raw.updatedAt) : undefined,
+    createdBy: String(raw.createdBy || ""),
+    createdByLoginId: raw.createdByLoginId ? String(raw.createdByLoginId) : undefined,
+    updatedBy: raw.updatedBy ? String(raw.updatedBy) : undefined,
+  };
+}
+
+export function normalizeTaxInvoices(rows: unknown[]) {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .filter((row) => row && typeof row === "object" && "id" in row)
+    .map((row) => normalizeTaxInvoice(row as Partial<TaxInvoice> & { id: string }));
+}
+
+export function sortTaxInvoices(rows: TaxInvoice[]) {
+  return [...rows].sort((a, b) => {
+    const dateDiff = String(b.issueDate).localeCompare(String(a.issueDate));
+    if (dateDiff !== 0) return dateDiff;
+    return String(b.createdAt).localeCompare(String(a.createdAt));
+  });
+}
+
+export function filterTaxInvoicesByPeriod(rows: TaxInvoice[], startDate: string, endDate: string) {
+  if (!startDate && !endDate) return rows;
+  return rows.filter((row) => {
+    const date = String(row.issueDate || "");
+    if (startDate && date < startDate) return false;
+    if (endDate && date > endDate) return false;
+    return true;
+  });
+}
+
+export function filterTaxInvoicesByFlow(rows: TaxInvoice[], flowType: "all" | TaxInvoiceFlowType) {
+  if (flowType === "all") return rows;
+  return rows.filter((row) => row.flowType === flowType);
+}
+
+export function filterTaxInvoices(rows: TaxInvoice[], query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) return rows;
+  return rows.filter((row) => {
+    const haystack = [
+      row.client,
+      row.businessNo,
+      row.invoiceNo || "",
+      row.memo || "",
+      row.createdBy,
+      getTaxInvoiceFlowLabel(row.flowType),
+      getTaxInvoiceDocumentTypeLabel(row.documentType),
+      getTaxInvoiceKindLabel(row),
+      getTaxInvoiceStatusLabel(row.status),
+    ]
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(q);
+  });
+}
+
+export function sumTaxInvoices(rows: TaxInvoice[], options?: { activeOnly?: boolean }) {
+  const activeOnly = options?.activeOnly !== false;
+  return rows.reduce(
+    (acc, row) => {
+      if (activeOnly && row.status === "cancelled") return acc;
+      acc.count += 1;
+      acc.supply += row.supplyAmount;
+      acc.vat += row.vatAmount;
+      acc.total += row.totalAmount;
+      return acc;
+    },
+    { count: 0, supply: 0, vat: 0, total: 0 }
+  );
+}
+
+export function buildTaxInvoiceStats(rows: TaxInvoice[]) {
+  const salesRows = filterTaxInvoicesByFlow(rows, "sales");
+  const purchaseRows = filterTaxInvoicesByFlow(rows, "purchase");
+  return {
+    all: sumTaxInvoices(rows),
+    sales: sumTaxInvoices(salesRows),
+    purchase: sumTaxInvoices(purchaseRows),
+  };
+}
+
+export function formatTaxInvoicePeriodLabel(startDate: string, endDate: string) {
+  if (startDate && endDate) return `${startDate} ~ ${endDate}`;
+  if (startDate) return `${startDate} ~`;
+  if (endDate) return `~ ${endDate}`;
+  return "\uC804\uCCB4 \uAE30\uAC04";
+}
+
+export function listTaxInvoiceYears(rows: TaxInvoice[]) {
+  const years = new Set<number>([new Date().getFullYear()]);
+  for (const row of rows) {
+    const year = Number(String(row.issueDate || "").slice(0, 4));
+    if (Number.isFinite(year) && year > 1900) years.add(year);
+  }
+  return [...years].sort((a, b) => b - a);
+}
+
+export function countTaxInvoicesThisMonth(rows: TaxInvoice[]) {
+  const monthKey = new Date().toISOString().slice(0, 7);
+  return rows.filter((row) => row.status !== "cancelled" && String(row.issueDate || "").startsWith(monthKey)).length;
+}
+
+export function validateTaxInvoiceInput(input: {
+  issueDate: string;
+  client: string;
+  supplyAmount: string | number;
+  totalAmount?: string | number;
+}) {
+  if (!String(input.issueDate || "").trim()) return "\uBC1C\uD589\uC77C\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
+  if (!String(input.client || "").trim()) return "\uAC70\uB798\uCC98\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
+  const supply = parseTaxInvoiceAmount(input.supplyAmount);
+  const total = parseTaxInvoiceAmount(input.totalAmount);
+  if (supply <= 0 && total <= 0) return "\uACF5\uAE09\uAC00\uC561 \uB610\uB294 \uBD80\uAC00\uC138 \uD3EC\uD568 \uAE08\uC561\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
+  return null;
+}
+
+export function formatTaxInvoiceDate(iso: string) {
+  if (!iso) return "-";
+  return iso.slice(0, 10);
+}

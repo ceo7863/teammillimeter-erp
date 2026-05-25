@@ -239,6 +239,48 @@ export function linkPdfArchiveToFolders(
   return changed ? next : folders;
 }
 
+export function fileOrLinkPdfArchiveToFolders(
+  folders: StatementFolder[],
+  logs: StatementGenerationLog[],
+  meta: Pick<PdfArchiveMeta, "id" | "category" | "subjectName" | "periodStart" | "periodEnd" | "statementView">,
+  filedBy = ""
+) {
+  const statementType: StatementGenerationType = meta.category === "statement-worker" ? "worker" : "client";
+  const view = meta.statementView || "summary";
+  const matchingLogs = logs
+    .filter(
+      (log) =>
+        log.statementType === statementType &&
+        log.subjectName === meta.subjectName &&
+        log.startDate === meta.periodStart &&
+        log.endDate === meta.periodEnd &&
+        (statementType !== "client" || (log.clientStatementView || "summary") === view)
+    )
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+
+  if (matchingLogs[0]) {
+    return fileStatementLogToFolder(folders, matchingLogs[0], { pdfArchiveId: meta.id, filedBy });
+  }
+
+  return linkPdfArchiveToFolders(folders, meta);
+}
+
+export function autoFileGenerationLogsToFolders(
+  folders: StatementFolder[],
+  logs: StatementGenerationLog[],
+  filedBy = ""
+) {
+  let next = folders;
+  const folderIds: string[] = [];
+
+  logs.forEach((log) => {
+    next = fileStatementLogToFolder(next, log, { filedBy });
+    folderIds.push(makeStatementFolderId(log.statementType, log.subjectName));
+  });
+
+  return { folders: next, folderIds };
+}
+
 export type StatementFolderSort = "updated" | "name" | "items";
 
 export function getStatementFolderStats(folders: StatementFolder[]) {
@@ -297,4 +339,8 @@ export function removeStatementFolderItem(folders: StatementFolder[], folderId: 
       return { ...folder, items, updatedAt: new Date().toISOString() };
     })
     .filter((folder): folder is StatementFolder => Boolean(folder));
+}
+
+export function removeStatementFolder(folders: StatementFolder[], folderId: string) {
+  return folders.filter((folder) => folder.id !== folderId);
 }

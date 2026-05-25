@@ -19,7 +19,6 @@ const ENTITY_TYPE_OPTIONS = [
 
 const ACTION_OPTIONS = [
   { value: "", label: "전체 작업" },
-  { value: "login", label: "로그인" },
   { value: "create", label: "등록" },
   { value: "update", label: "수정" },
   { value: "delete", label: "삭제" },
@@ -35,7 +34,6 @@ function actionLabel(value: AuditAction) {
 }
 
 function actionTone(value: AuditAction) {
-  if (value === "login") return "erp-audit-action login";
   if (value === "create") return "erp-audit-action create";
   if (value === "update") return "erp-audit-action update";
   if (value === "delete") return "erp-audit-action delete";

@@ -10,6 +10,7 @@ import { WorkerMonthlyStatementExport } from "@/components/WorkerMonthlyStatemen
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { createPdfPreviewWindow, downloadPdfFromHtmlElement, revokePdfBlobUrl } from "@/utils/statementPdf";
 import { archiveGeneratedPdf } from "@/utils/pdfArchive";
+import { confirmDelete } from "@/utils/confirmDelete";
 import {
   buildWorkerStatementSummary,
   filterSalesByDate,
@@ -64,6 +65,65 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="erp-text-caption font-bold text-slate-500">{label}</span>
       {children}
     </label>
+  );
+}
+
+function formatCompactKRW(value: number) {
+  const amount = Math.round(Number(value) || 0);
+  if (amount === 0) return "-";
+  if (amount >= 100000000) {
+    const eok = amount / 100000000;
+    return `${Number.isInteger(eok) ? eok : eok.toFixed(1).replace(/\.0$/, "")}억`;
+  }
+  if (amount >= 10000) return `${Math.round(amount / 10000)}만`;
+  if (amount >= 1000) return `${Math.round(amount / 1000)}천`;
+  return String(amount);
+}
+
+function WorkerNetPayRankingChart({
+  rows,
+  limit = 30,
+  emptyLabel = "실지급 데이터가 없습니다.",
+}: {
+  rows: WorkerPaymentSummaryRow[];
+  limit?: number;
+  emptyLabel?: string;
+}) {
+  const visibleRows = useMemo(
+    () => [...rows].filter((row) => row.netPay > 0).sort((a, b) => b.netPay - a.netPay || a.name.localeCompare(b.name, "ko")).slice(0, limit),
+    [rows, limit]
+  );
+  const maxNetPay = useMemo(() => Math.max(...visibleRows.map((row) => row.netPay), 1), [visibleRows]);
+
+  const barHeight = (value: number) => {
+    if (!value) return 0;
+    return Math.max((value / maxNetPay) * 100, 18);
+  };
+
+  if (!visibleRows.length) {
+    return <p className="erp-text-body py-8 text-center text-slate-500">{emptyLabel}</p>;
+  }
+
+  return (
+    <div className="erp-worker-netpay-chart" aria-label="시공자별 실지급">
+      <div
+        className="erp-worker-netpay-chart-grid"
+        style={{ ["--worker-netpay-count" as string]: String(visibleRows.length) }}
+      >
+        {visibleRows.map((row) => (
+          <div key={row.name} className="erp-worker-netpay-chart-col" title={`${row.name} · 실지급 ${formatKRW(row.netPay)}`}>
+            <div className="erp-worker-netpay-chart-bar-wrap">
+              <span className="erp-worker-netpay-chart-value">{formatCompactKRW(row.netPay)}</span>
+              <div
+                className={`erp-worker-netpay-chart-bar${row.netPay > 0 ? " has-value" : ""}`}
+                style={{ height: row.netPay > 0 ? `${barHeight(row.netPay)}%` : "0" }}
+              />
+            </div>
+            <span className="erp-worker-netpay-chart-label">{row.name}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -241,6 +301,7 @@ export function WorkerPaymentsPage({
   };
 
   const cancelPayment = (worker: string) => {
+    if (!confirmDelete(`${worker} 시공자의 지급 완료 상태를 취소할까요?`)) return;
     const rowKey = makeWorkerMonthKey(worker, selectedMonthKey);
     setPaymentDraftVat((prev) => {
       const next = { ...prev };
@@ -350,6 +411,31 @@ export function WorkerPaymentsPage({
   }, [detailQuery, detailRows, selectedWorker]);
 
   const detailTotals = useMemo(() => summarizeWorkerPaymentDetailTotals(scopedDetailRows), [scopedDetailRows]);
+
+  const chartDetailRows = useMemo(() => {
+    if (activeTab === "monthly") {
+      return allDetailRows.filter((row) => String(row.date || "").slice(0, 7) === selectedMonthKey);
+    }
+    return detailRows;
+  }, [activeTab, allDetailRows, detailRows, selectedMonthKey]);
+
+  const chartSummaryRows = useMemo(
+    () => summarizeWorkerPaymentRows(chartDetailRows, workers),
+    [chartDetailRows, workers]
+  );
+
+  const chartPeriodLabel = useMemo(() => {
+    if (activeTab === "monthly") return formatMonthLabel(selectedMonthKey);
+    if (dateFilter.startDate || dateFilter.endDate) {
+      return `${dateFilter.startDate || "전체"} ~ ${dateFilter.endDate || "전체"}`;
+    }
+    return "전체 기간";
+  }, [activeTab, dateFilter.endDate, dateFilter.startDate, selectedMonthKey]);
+
+  const chartNetPayTotal = useMemo(
+    () => chartSummaryRows.reduce((sum, row) => sum + (row.netPay > 0 ? row.netPay : 0), 0),
+    [chartSummaryRows]
+  );
 
   const statementWorker = selectedWorker && selectedWorker !== "전체" ? selectedWorker : "";
   const statementRows = useMemo(
@@ -1057,6 +1143,18 @@ export function WorkerPaymentsPage({
           )}
         </>
       )}
+
+      <Card className="rounded-2xl shadow-sm">
+        <CardContent className="p-4 md:p-5">
+          <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+            <h2 className="erp-text-section">시공자별 실지급</h2>
+            <span className="erp-text-caption text-slate-500">
+              {chartPeriodLabel} · 실지급 합계 {formatKRW(chartNetPayTotal)} · 상위 30명
+            </span>
+          </div>
+          <WorkerNetPayRankingChart rows={chartSummaryRows} emptyLabel={`${chartPeriodLabel} 실지급 내역이 없습니다.`} />
+        </CardContent>
+      </Card>
     </div>
   );
 }

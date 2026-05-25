@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { TableExportSection } from "@/components/TableExportSection";
 import { DesktopTableWrap, MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
 import type { ErpUser } from "@/utils/erpApi";
+import { confirmDelete } from "@/utils/confirmDelete";
 import {
   deleteBoardAttachment,
   deleteBoardAttachments,
@@ -201,10 +202,12 @@ export function WorkBoardPage({
   };
 
   const removePendingFile = (index: number) => {
+    if (!confirmDelete("선택한 첨부 파일을 삭제할까요?")) return;
     setPendingFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   const removeExistingAttachment = (id: string) => {
+    if (!confirmDelete("첨부 파일을 삭제할까요?")) return;
     setRemovedAttachmentIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
     setModal((prev) =>
       prev ? { ...prev, attachments: prev.attachments.filter((item) => item.id !== id) } : prev

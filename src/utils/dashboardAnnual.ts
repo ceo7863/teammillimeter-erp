@@ -20,6 +20,7 @@ export type DashboardAnnualReport = {
     paid: number;
     vat: number;
     voucherCount: number;
+    avgBill: number;
   };
 };
 
@@ -64,6 +65,10 @@ function addSaleMetrics(row: DashboardMonthRow, sale: SaleRecord, feeMap: Map<st
     return;
   }
   row.bill += getSaleTotalBill(sale);
+}
+
+function monthHasSales(row: DashboardMonthRow) {
+  return row.voucherCount > 0;
 }
 
 export function listDashboardYears(sales: SaleRecord[], fallbackYear = new Date().getFullYear()) {
@@ -117,8 +122,12 @@ export function buildAnnualMonthlyDashboard(
       acc.voucherCount += row.voucherCount;
       return acc;
     },
-    { bill: 0, margin: 0, paid: 0, vat: 0, voucherCount: 0 }
+    { bill: 0, margin: 0, paid: 0, vat: 0, voucherCount: 0, avgBill: 0 }
   );
+  totals.avgBill = (() => {
+    const monthsWithSales = months.filter(monthHasSales).length;
+    return monthsWithSales > 0 ? Math.round(totals.bill / monthsWithSales) : 0;
+  })();
 
   return { year, months, totals };
 }

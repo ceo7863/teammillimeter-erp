@@ -25,11 +25,13 @@ export type ErpPayload = {
   clients: unknown[];
   workers: unknown[];
   auditLogs: unknown[];
+  loginLogs?: unknown[];
   workerPaymentRecords?: unknown[];
   companyExpenses?: unknown[];
   fixedExpenses?: unknown[];
   companyNotices?: unknown[];
   workPosts?: unknown[];
+  taxInvoices?: unknown[];
   statementGenerationLogs?: unknown[];
   statementFolders?: unknown[];
   companyProfile?: CompanyProfile;

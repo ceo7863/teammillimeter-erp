@@ -8,6 +8,7 @@ import { EntityAuditButton } from "@/components/AuditField";
 import { TableExportSection } from "@/components/TableExportSection";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { PAYMENT_AUDIT_FIELDS, snapshotPaymentForAudit } from "@/utils/auditLog";
+import { confirmDelete } from "@/utils/confirmDelete";
 import {
   RECEIVABLE_STATUS_OPTIONS,
   formatKRW,
@@ -386,18 +387,19 @@ export function PaymentReceivablesPage({
 
   const deletePayment = (id: number | string) => {
     const voucher = paymentVouchers.find((item) => item.id === id);
-    if (voucher) {
-      recordAudit({
-        entityType: "paymentVoucher",
-        entityId: id,
-        entityLabel: `${voucher.client} · ${voucher.site}`,
-        screen: "입금/미수금",
-        action: "delete",
-        before: snapshotPaymentForAudit(voucher),
-        fields: PAYMENT_AUDIT_FIELDS,
-        user: currentUser,
-      });
-    }
+    if (!voucher) return;
+    if (!confirmDelete(`입금 전표 (${voucher.client} · ${voucher.site})를 삭제할까요?`)) return;
+
+    recordAudit({
+      entityType: "paymentVoucher",
+      entityId: id,
+      entityLabel: `${voucher.client} · ${voucher.site}`,
+      screen: "입금/미수금",
+      action: "delete",
+      before: snapshotPaymentForAudit(voucher),
+      fields: PAYMENT_AUDIT_FIELDS,
+      user: currentUser,
+    });
     setPaymentVouchers((prev) => prev.filter((item) => item.id !== id));
   };
 
