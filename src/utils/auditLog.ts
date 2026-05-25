@@ -1,4 +1,4 @@
-export type AuditAction = "create" | "update" | "delete" | "import";
+export type AuditAction = "create" | "update" | "delete" | "import" | "login";
 
 export type AuditLogEntry = {
   id: number;
@@ -212,6 +212,37 @@ export function buildAuditEntries(input: {
 export function appendAuditLogs(existing: AuditLogEntry[], entries: AuditLogEntry[]) {
   if (!entries.length) return existing;
   return [...entries, ...existing].slice(0, MAX_AUDIT_LOGS);
+}
+
+export type AuditLoginUser = {
+  id?: string | number;
+  name?: string;
+  loginId?: string;
+  email?: string;
+  role?: string;
+};
+
+export function buildLoginAuditEntry(user: AuditLoginUser): AuditLogEntry {
+  const at = new Date().toISOString();
+  const loginId = String(user.loginId || user.email || "").trim();
+  const roleLabel =
+    user.role === "admin" ? "관리자" : user.role === "staff" ? "일반" : user.role ? String(user.role) : "";
+
+  return {
+    id: Date.now() + Math.floor(Math.random() * 1000),
+    entityType: "user",
+    entityId: user.id ?? loginId ?? "unknown",
+    entityLabel: user.name || loginId || "사용자",
+    field: "session",
+    fieldLabel: "로그인",
+    before: "-",
+    after: loginId ? (roleLabel ? `${loginId} · ${roleLabel}` : loginId) : "로그인 성공",
+    action: "login",
+    screen: "로그인",
+    userName: user.name || loginId || "사용자",
+    userEmail: loginId,
+    at,
+  };
 }
 
 export function getAuditHistory(

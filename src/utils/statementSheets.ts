@@ -5,8 +5,11 @@ import {
   getWorkerLineExtras,
 } from "./saleBilling";
 import { parseWorkerMoney } from "./workerLineMetrics";
+import { filterSalesByDate, type SaleLike } from "./workerPayments";
 
-export const COMPANY_BANK_ACCOUNT = "969-046529-04-015 기업은행 (주)팀밀리미터";
+import { LEGACY_COMPANY_BANK_ACCOUNT } from "./companyProfile";
+
+export const COMPANY_BANK_ACCOUNT = LEGACY_COMPANY_BANK_ACCOUNT;
 
 export type ClientMasterLike = {
   name?: string;
@@ -89,12 +92,33 @@ function aggregateClientSale(sale: ClientStatementSaleLike): ClientStatementRow 
     lodgingCost: billing.lodgingCost,
     mealCost: billing.mealCost,
     expenseCost: billing.expenseCost,
-    memo: sale.memo || "",
+    memo: formatStatementMemo(sale.memo || ""),
   };
 }
 
 export function buildClientStatementRows(sales: ClientStatementSaleLike[] = []): ClientStatementRow[] {
   return sales.map(aggregateClientSale);
+}
+
+export function normalizeClientStatementName(value: unknown) {
+  return String(value || "").trim() || "(\uBBF8\uC9C0\uC815)";
+}
+
+export function listClientsWithStatementRows(
+  sales: SaleLike[] = [],
+  dateFilter: { startDate?: string; endDate?: string } = {}
+) {
+  const filtered = filterSalesByDate(sales, dateFilter.startDate, dateFilter.endDate);
+  const grouped = new Map<string, number>();
+
+  for (const sale of filtered) {
+    const name = normalizeClientStatementName(sale.client);
+    grouped.set(name, (grouped.get(name) || 0) + 1);
+  }
+
+  return [...grouped.entries()]
+    .map(([name, rowCount]) => ({ name, rowCount }))
+    .sort((a, b) => a.name.localeCompare(b.name, "ko"));
 }
 
 function formatChargeAmountLabel(chargeAmount: number) {
@@ -110,14 +134,62 @@ function formatWorkerNameSummary(lines: ReturnType<typeof getSaleWorkerLines>) {
     .join(", ");
 }
 
+export function normalizeStatementMemo(memo?: string | null) {
+  return String(memo ?? "").replace(/\s+/g, " ").trim();
+}
+
+const MEMO_SEGMENT_SPLIT = /\s*[\/|,·|;|\n]+\s*/;
+
+/** "주차비 / 주차비" → "주차비" — 비고 문자열 안의 반복 구절 제거 */
+export function dedupeMemoSegments(memo?: string | null) {
+  const text = normalizeStatementMemo(memo);
+  if (!text) return "";
+
+  const segments = text
+    .split(MEMO_SEGMENT_SPLIT)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  if (segments.length <= 1) return text;
+
+  const seen = new Set<string>();
+  const unique: string[] = [];
+
+  segments.forEach((segment) => {
+    if (seen.has(segment)) return;
+    seen.add(segment);
+    unique.push(segment);
+  });
+
+  return unique.join(" / ");
+}
+
+function formatStatementMemo(memo?: string | null) {
+  return dedupeMemoSegments(memo);
+}
+
+/** 비고가 여러 행에 같으면 첫 행만 표시 */
+export function dedupeStatementRowMemos<T extends { memo?: string }>(rows: T[] = []): T[] {
+  const seen = new Set<string>();
+
+  return rows.map((row) => {
+    const memo = formatStatementMemo(row.memo);
+    if (!memo || seen.has(memo)) {
+      return { ...row, memo: "" };
+    }
+    seen.add(memo);
+    return { ...row, memo };
+  });
+}
+
 /** 요약: 현장 1행 + 시공자명(청구단가) 나열 행 */
 export function buildClientStatementSummaryDisplayRows(sales: ClientStatementSaleLike[] = []): ClientStatementDisplayRow[] {
-  return sales.flatMap((sale) => {
+  const rows = sales.flatMap((sale) => {
     const aggregated = aggregateClientSale(sale);
     const lines = getSaleWorkerLines(sale);
     const workerLabel = formatWorkerNameSummary(lines);
 
-    const rows: ClientStatementDisplayRow[] = [
+    const groupRows: ClientStatementDisplayRow[] = [
       {
         id: `${sale.id}-site`,
         kind: "site",
@@ -135,20 +207,22 @@ export function buildClientStatementSummaryDisplayRows(sales: ClientStatementSal
     ];
 
     if (workerLabel) {
-      rows.push({
+      groupRows.push({
         id: `${sale.id}-workers`,
         kind: "sub",
         site: workerLabel,
       });
     }
 
-    return rows;
+    return groupRows;
   });
+
+  return dedupeStatementRowMemos(rows);
 }
 
 /** 상세: 현장 1행(총시공비) + 시공자별 행(원시공비=청구단가) */
 export function buildClientStatementDetailDisplayRows(sales: ClientStatementSaleLike[] = []): ClientStatementDisplayRow[] {
-  return sales.flatMap((sale) => {
+  const rows = sales.flatMap((sale) => {
     const aggregated = aggregateClientSale(sale);
     const lines = getSaleWorkerLines(sale);
 
@@ -184,12 +258,14 @@ export function buildClientStatementDetailDisplayRows(sales: ClientStatementSale
         lodgingCost: extras.lodging,
         mealCost: extras.meal,
         expenseCost: extras.expense,
-        memo: String(line.memo || "").trim(),
+        memo: formatStatementMemo(line.memo || ""),
       });
     });
 
     return rows;
   });
+
+  return dedupeStatementRowMemos(rows);
 }
 
 export function countClientStatementBodyRows(rows: ClientStatementDisplayRow[] = []) {

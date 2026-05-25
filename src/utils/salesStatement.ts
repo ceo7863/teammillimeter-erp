@@ -5,6 +5,7 @@ import {
   resolveWorkerFeeRate,
   buildWorkerFeeMap,
 } from "./workerLineMetrics";
+import { compareSortValues, type SortDirection } from "./pivotSort";
 
 export type SaleLike = {
   id?: number | string;
@@ -136,7 +137,7 @@ export function flattenSalesToStatementRows(
 ): SalesStatementRow[] {
   const feeMap = buildWorkerFeeMap(workersMaster);
   const sortedSales = [...sales].sort(
-    (a, b) => String(a.date || "").localeCompare(String(b.date || "")) || Number(a.id || 0) - Number(b.id || 0)
+    (a, b) => String(b.date || "").localeCompare(String(a.date || "")) || Number(b.id || 0) - Number(a.id || 0)
   );
 
   return sortedSales.flatMap((sale) => {
@@ -276,4 +277,71 @@ export function summarizeStatementRows(rows: SalesStatementRow[]) {
     paidTotal: rows.filter((row) => row.isFirstLine).reduce((sum, row) => sum + row.paid, 0),
     unpaidTotal: rows.filter((row) => row.isFirstLine).reduce((sum, row) => sum + row.unpaid, 0),
   };
+}
+
+export type SalesSheetTextFilters = {
+  client: string;
+  site: string;
+  worker: string;
+};
+
+export const emptySalesSheetTextFilters: SalesSheetTextFilters = {
+  client: "",
+  site: "",
+  worker: "",
+};
+
+export type SalesSheetSortColumn = "date" | "client" | "site" | "worker";
+
+function splitSheetFilterTerms(query: string) {
+  return String(query || "")
+    .trim()
+    .toLowerCase()
+    .split(/[\s,]+/)
+    .filter(Boolean);
+}
+
+function matchesSheetTextQuery(haystack: string, query: string) {
+  const terms = splitSheetFilterTerms(query);
+  if (!terms.length) return true;
+  const text = String(haystack || "").toLowerCase();
+  return terms.every((term) => text.includes(term));
+}
+
+export function matchesSalesStatementRowFilters(
+  row: SalesStatementRow,
+  textFilters: SalesSheetTextFilters,
+  dateFilter: { startDate: string; endDate: string } = { startDate: "", endDate: "" }
+) {
+  const rowDate = String(row.date || "");
+  if (dateFilter.startDate && rowDate < dateFilter.startDate) return false;
+  if (dateFilter.endDate && rowDate > dateFilter.endDate) return false;
+  if (!matchesSheetTextQuery(String(row.client || ""), textFilters.client)) return false;
+  if (!matchesSheetTextQuery(String(row.site || ""), textFilters.site)) return false;
+  if (!matchesSheetTextQuery(String(row.worker || ""), textFilters.worker)) return false;
+  return true;
+}
+
+export function filterSalesStatementRows(
+  rows: SalesStatementRow[] = [],
+  textFilters: SalesSheetTextFilters,
+  dateFilter: { startDate: string; endDate: string } = { startDate: "", endDate: "" }
+) {
+  return rows.filter((row) => matchesSalesStatementRowFilters(row, textFilters, dateFilter));
+}
+
+export function sortSalesStatementRows(
+  rows: SalesStatementRow[] = [],
+  column: SalesSheetSortColumn = "date",
+  direction: SortDirection = "desc"
+) {
+  return [...rows].sort((a, b) => {
+    const primary = compareSortValues(a[column], b[column], direction);
+    if (primary !== 0) return primary;
+    const dateCompare = compareSortValues(a.date, b.date, "desc");
+    if (dateCompare !== 0) return dateCompare;
+    const idCompare = compareSortValues(a.saleId, b.saleId, "desc");
+    if (idCompare !== 0) return idCompare;
+    return a.lineIndex - b.lineIndex;
+  });
 }

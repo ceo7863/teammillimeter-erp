@@ -1,4 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
+import {
+  filterAutocompleteOptions,
+  mapAutocompleteOptions,
+} from "@/utils/autocompleteFilter";
 
 function ErpInput({
   className = "",
@@ -7,10 +11,14 @@ function ErpInput({
   inputMode,
   value,
   onChange,
+  onLiveValueChange,
   onCompositionStart,
   onCompositionEnd,
+  onCompositionUpdate,
   ...rest
-}: React.InputHTMLAttributes<HTMLInputElement>) {
+}: React.InputHTMLAttributes<HTMLInputElement> & {
+  onLiveValueChange?: (value: string) => void;
+}) {
   const isNumericField = type === "number" || type === "date" || inputMode === "numeric" || inputMode === "decimal";
   const composingRef = useRef(false);
   const [localValue, setLocalValue] = useState(value ?? "");
@@ -18,6 +26,10 @@ function ErpInput({
   useEffect(() => {
     if (!composingRef.current) setLocalValue(value ?? "");
   }, [value]);
+
+  const emitLiveValue = (nextValue: string) => {
+    onLiveValueChange?.(nextValue);
+  };
 
   return (
     <input
@@ -31,16 +43,26 @@ function ErpInput({
       autoCapitalize="off"
       spellCheck={false}
       onChange={(event) => {
-        setLocalValue(event.target.value);
+        const nextValue = event.target.value;
+        setLocalValue(nextValue);
+        emitLiveValue(nextValue);
         if (!composingRef.current) onChange?.(event);
       }}
       onCompositionStart={(event) => {
         composingRef.current = true;
         onCompositionStart?.(event);
       }}
+      onCompositionUpdate={(event) => {
+        const nextValue = event.currentTarget.value;
+        setLocalValue(nextValue);
+        emitLiveValue(nextValue);
+        onCompositionUpdate?.(event);
+      }}
       onCompositionEnd={(event) => {
         composingRef.current = false;
-        setLocalValue(event.currentTarget.value);
+        const nextValue = event.currentTarget.value;
+        setLocalValue(nextValue);
+        emitLiveValue(nextValue);
         onChange?.(event);
         onCompositionEnd?.(event);
       }}
@@ -65,7 +87,15 @@ type AutocompleteInputProps = {
   limit?: number;
   freeSolo?: boolean;
   showOptionsOnFocus?: boolean;
+  compact?: boolean;
 };
+
+function resolveAutocompleteInputClassName(inputProps: Record<string, unknown>, compact: boolean) {
+  const customClass = String(inputProps.className ?? "").trim();
+  if (!compact) return customClass;
+  if (customClass.includes("erp-input-compact")) return customClass;
+  return ["erp-input-compact", customClass].filter(Boolean).join(" ");
+}
 
 export function AutocompleteInput({
   value,
@@ -77,6 +107,7 @@ export function AutocompleteInput({
   limit = 12,
   freeSolo = true,
   showOptionsOnFocus,
+  compact = true,
 }: AutocompleteInputProps) {
   const [focused, setFocused] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
@@ -84,18 +115,12 @@ export function AutocompleteInput({
   const openOnFocus = showOptionsOnFocus ?? !(inputProps as { excelGrid?: boolean }).excelGrid;
 
   const passthroughInputProps = Object.fromEntries(
-    Object.entries(inputProps).filter(([key]) => !["onKeyDown", "excelGrid", "showOptionsOnFocus"].includes(key))
+    Object.entries(inputProps).filter(([key]) => !["onKeyDown", "excelGrid", "showOptionsOnFocus", "onLiveValueChange", "className"].includes(key))
   );
+  const resolvedInputClassName = resolveAutocompleteInputClassName(inputProps, compact !== false);
+  const useCompactMenu = compact !== false;
 
-  const normalizedOptions = options.map((item) =>
-    typeof item === "string"
-      ? { label: item, value: item, raw: item }
-      : {
-          label: item.label ?? item.name ?? String(item.value ?? ""),
-          value: item.value ?? item.name ?? item.label ?? "",
-          raw: item,
-        }
-  );
+  const normalizedOptions = mapAutocompleteOptions(options);
 
   const selectedOption = normalizedOptions.find((item) => item.value === value);
   const resolvedLabel = selectedOption?.label ?? String(value ?? "");
@@ -110,17 +135,15 @@ export function AutocompleteInput({
     setHighlightedIndex(0);
   };
 
-  const filtered = normalizedOptions
-    .filter((item) => item.label.toLowerCase().includes(String(inputText || "").toLowerCase()))
-    .sort((a, b) => {
-      const query = String(inputText || "").toLowerCase();
-      const aStarts = query && a.label.toLowerCase().startsWith(query);
-      const bStarts = query && b.label.toLowerCase().startsWith(query);
-      if (aStarts && !bStarts) return -1;
-      if (!aStarts && bStarts) return 1;
-      return a.label.localeCompare(b.label, "ko-KR");
-    })
-    .slice(0, limit);
+  const syncFilterText = (nextText: string) => {
+    setInputText(nextText);
+    setHighlightedIndex(0);
+  };
+
+  const filtered = filterAutocompleteOptions(normalizedOptions, inputText, {
+    limit,
+    allowEmpty: openOnFocus,
+  });
 
   const selectItem = (item: { label: string; value: string; raw: unknown }) => {
     setInputText(item.label);
@@ -128,17 +151,33 @@ export function AutocompleteInput({
     setFocused(false);
   };
 
-  const canShowDropdown = focused && filtered.length > 0 && (inputText.length > 0 || openOnFocus);
-  const canPickFromDropdown = canShowDropdown && inputText.length > 0;
+  const clearOption = normalizedOptions.find(
+    (item) => item.value === "" || item.label === "전체" || item.value === "전체"
+  );
+
+  const commitClearedSelection = () => {
+    if (clearOption) {
+      selectItem(clearOption);
+      return;
+    }
+    setInputText("");
+    onChange("");
+    setFocused(false);
+  };
+
+  const canShowDropdown = focused && filtered.length > 0 && (inputText.trim().length > 0 || openOnFocus);
+  const canPickFromDropdown = canShowDropdown && inputText.trim().length > 0;
 
   return (
     <div className="relative">
       <ErpInput
         value={inputText}
+        onLiveValueChange={syncFilterText}
         onChange={(e) => commitInputText(e.target.value)}
         placeholder={placeholder}
         lang="ko"
         inputMode="text"
+        className={resolvedInputClassName}
         onFocus={() => {
           setFocused(true);
           setHighlightedIndex(0);
@@ -146,7 +185,10 @@ export function AutocompleteInput({
         onBlur={() => {
           setTimeout(() => {
             setFocused(false);
-            if (!freeSolo) setInputText(resolvedLabel);
+            if (!freeSolo) {
+              if (!inputText.trim()) commitClearedSelection();
+              else setInputText(resolvedLabel);
+            }
           }, 150);
         }}
         onKeyDown={(e) => {
@@ -166,10 +208,17 @@ export function AutocompleteInput({
             return;
           }
 
-          if (canPickFromDropdown && e.key === "Enter") {
-            e.preventDefault();
-            selectItem(filtered[highlightedIndex] || filtered[0]);
-            return;
+          if (e.key === "Enter") {
+            if (canPickFromDropdown) {
+              e.preventDefault();
+              selectItem(filtered[highlightedIndex] || filtered[0]);
+              return;
+            }
+            if (!freeSolo && !inputText.trim()) {
+              e.preventDefault();
+              commitClearedSelection();
+              return;
+            }
           }
 
           if (canPickFromDropdown && e.key === "Tab") {
@@ -183,20 +232,26 @@ export function AutocompleteInput({
       />
 
       {canShowDropdown && (
-        <div className="absolute z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-2xl border bg-white shadow-xl">
+        <div
+          className={`erp-autocomplete-menu absolute z-50 w-full overflow-y-auto border bg-white ${
+            useCompactMenu ? "erp-autocomplete-menu--compact" : "mt-1 max-h-64 rounded-2xl shadow-xl"
+          }`}
+        >
           {filtered.map((item, index) => (
             <button
               key={`${item.value}-${index}`}
               type="button"
-              className={`w-full border-b px-4 py-3 text-left hover:bg-slate-50 ${highlightedIndex === index ? "bg-slate-50" : ""}`}
+              className={`erp-autocomplete-option w-full border-b text-left hover:bg-slate-50 ${
+                useCompactMenu ? "erp-autocomplete-option--inline" : ""
+              } ${highlightedIndex === index ? "bg-slate-50" : ""}`}
               onMouseEnter={() => setHighlightedIndex(index)}
               onMouseDown={(e) => {
                 e.preventDefault();
                 selectItem(item);
               }}
             >
-              <div className="font-semibold text-slate-900">{item.label}</div>
-              {renderSub && <div className="erp-text-caption mt-1 text-slate-500">{renderSub(item.raw)}</div>}
+              <div className="erp-autocomplete-option-label">{item.label}</div>
+              {renderSub && <div className="erp-autocomplete-option-sub">{renderSub(item.raw)}</div>}
             </button>
           ))}
         </div>
@@ -212,9 +267,18 @@ type AutocompleteSelectProps = {
   placeholder?: string;
   renderSub?: (raw: unknown) => React.ReactNode;
   inputProps?: Record<string, unknown>;
+  compact?: boolean;
 };
 
-export function AutocompleteSelect({ value, onChange, options, placeholder = "선택", renderSub, inputProps = {} }: AutocompleteSelectProps) {
+export function AutocompleteSelect({
+  value,
+  onChange,
+  options,
+  placeholder = "선택",
+  renderSub,
+  inputProps = {},
+  compact = true,
+}: AutocompleteSelectProps) {
   return (
     <AutocompleteInput
       value={value}
@@ -225,6 +289,7 @@ export function AutocompleteSelect({ value, onChange, options, placeholder = "�
       freeSolo={false}
       showOptionsOnFocus
       limit={8}
+      compact={compact}
       inputProps={inputProps}
     />
   );

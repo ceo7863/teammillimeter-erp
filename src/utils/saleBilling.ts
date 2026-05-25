@@ -2,6 +2,7 @@ import {
   buildWorkerFeeMap,
   calculateWorkerLineAmounts,
   enrichWorkerLineWithMetrics,
+  hasExplicitWorkerField,
   parseWorkerMoney,
   resolveWorkerFeeRate,
   type WorkerLineLike,
@@ -39,10 +40,9 @@ export function getWorkerLineExtras(line: WorkerLineLike) {
   };
 }
 
-/** 시공자 1줄 청구합계 — lineBill 없으면 인원×청구단가+부대비용 */
+/** 시공자 1줄 청구합계 — lineBill(엑셀 11열)이 있으면 0 포함 그대로, 없으면 인원×청구단가+부대비용 */
 export function getWorkerLineBill(line: WorkerLineLike) {
-  const storedBill = parseWorkerMoney(line.lineBill);
-  if (storedBill) return storedBill;
+  if (hasExplicitWorkerField(line.lineBill)) return parseWorkerMoney(line.lineBill);
   return calculateWorkerLineAmounts(line).bill;
 }
 

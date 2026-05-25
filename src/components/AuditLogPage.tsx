@@ -5,6 +5,7 @@ import { formatAuditDateTime, type AuditAction, type AuditLogEntry } from "@/uti
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { TableExportSection } from "@/components/TableExportSection";
+import { KoreanDateInput } from "@/components/KoreanDateInput";
 
 const ENTITY_TYPE_OPTIONS = [
   { value: "", label: "전체 유형" },
@@ -12,11 +13,13 @@ const ENTITY_TYPE_OPTIONS = [
   { value: "paymentVoucher", label: "입금전표" },
   { value: "client", label: "거래처" },
   { value: "worker", label: "시공자" },
+  { value: "user", label: "사용자" },
   { value: "system", label: "시스템" },
 ];
 
 const ACTION_OPTIONS = [
   { value: "", label: "전체 작업" },
+  { value: "login", label: "로그인" },
   { value: "create", label: "등록" },
   { value: "update", label: "수정" },
   { value: "delete", label: "삭제" },
@@ -32,6 +35,7 @@ function actionLabel(value: AuditAction) {
 }
 
 function actionTone(value: AuditAction) {
+  if (value === "login") return "erp-audit-action login";
   if (value === "create") return "erp-audit-action create";
   if (value === "update") return "erp-audit-action update";
   if (value === "delete") return "erp-audit-action delete";
@@ -39,10 +43,18 @@ function actionTone(value: AuditAction) {
   return "erp-audit-action";
 }
 
-function Input({ className = "", ...props }) {
+function Input({ className = "", lang, type, value, onChange, ...props }) {
+  if (type === "date") {
+    return <KoreanDateInput className={className} value={value ?? ""} onChange={onChange} {...props} />;
+  }
+  const skipKoLang = type === "number";
   return (
     <input
       {...props}
+      type={type}
+      value={value}
+      onChange={onChange}
+      lang={lang ?? (skipKoLang ? undefined : "ko")}
       className={`erp-input w-full rounded-2xl border bg-white px-3 py-2.5 text-slate-900 outline-none transition focus:border-slate-900 md:px-4 md:py-3 ${className}`}
     />
   );

@@ -3,7 +3,16 @@ import cors from "cors";
 import fs from "fs";
 import path from "path";
 import { config } from "./config.mjs";
-import { initDb, getErpState, saveErpState, listUsers } from "./db.mjs";
+import {
+  initDb,
+  getErpState,
+  saveErpState,
+  listUsers,
+  createUser,
+  updateUser,
+  updateUserPassword,
+  setUserActive,
+} from "./db.mjs";
 import { authenticateUser, authMiddleware, adminMiddleware, signToken } from "./auth.mjs";
 import {
   initPdfArchiveStore,
@@ -13,11 +22,27 @@ import {
   getPdfArchiveFile,
   deletePdfArchiveById,
 } from "./pdfArchive.mjs";
+import {
+  initBoardAttachmentStore,
+  createBoardAttachment,
+  getBoardAttachmentFile,
+  deleteBoardAttachmentById,
+} from "./boardAttachments.mjs";
 
 initDb();
 initPdfArchiveStore();
+initBoardAttachmentStore();
 
 function parsePdfMetaHeader(rawMeta) {
+  const text = String(rawMeta);
+  try {
+    return JSON.parse(text);
+  } catch {
+    return JSON.parse(decodeURIComponent(text));
+  }
+}
+
+function parseAttachmentMetaHeader(rawMeta) {
   const text = String(rawMeta);
   try {
     return JSON.parse(text);
@@ -31,6 +56,47 @@ app.use(cors());
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, service: "teammillimeter-erp-api" });
+});
+
+function buildBoardPreview(data) {
+  const companyNotices = Array.isArray(data?.companyNotices) ? data.companyNotices : [];
+  const workPosts = Array.isArray(data?.workPosts) ? data.workPosts : [];
+
+  const sortPinnedFirst = (a, b) => {
+    const pinDiff = Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned));
+    if (pinDiff !== 0) return pinDiff;
+    return String(b.createdAt || "").localeCompare(String(a.createdAt || ""));
+  };
+
+  const notices = companyNotices
+    .filter((notice) => !notice?.board || notice.board === "notice")
+    .sort(sortPinnedFirst)
+    .slice(0, 5)
+    .map((notice) => ({
+      id: String(notice.id || ""),
+      title: String(notice.title || ""),
+      body: String(notice.body || ""),
+      isPinned: Boolean(notice.isPinned),
+      createdAt: String(notice.createdAt || ""),
+    }));
+
+  const posts = workPosts
+    .sort(sortPinnedFirst)
+    .slice(0, 5)
+    .map((post) => ({
+      id: String(post.id || ""),
+      title: String(post.title || ""),
+      body: String(post.body || ""),
+      createdAt: String(post.createdAt || ""),
+      attachmentCount: Array.isArray(post.attachments) ? post.attachments.length : 0,
+    }));
+
+  return { notices, workPosts: posts };
+}
+
+app.get("/api/public/board-preview", (_req, res) => {
+  const state = getErpState();
+  res.json(buildBoardPreview(state.data));
 });
 
 app.post(
@@ -54,7 +120,7 @@ app.post(
         res.status(400).json({ error: "PDF 파일이 비어 있습니다." });
         return;
       }
-      const saved = createPdfArchive(buffer, meta, req.user.email || req.user.name);
+      const saved = createPdfArchive(buffer, meta, req.user.loginId || req.user.name || req.user.email);
       res.status(201).json(saved);
     } catch (error) {
       console.error(error);
@@ -63,24 +129,71 @@ app.post(
   },
 );
 
+app.post(
+  "/api/board-attachments",
+  authMiddleware,
+  express.raw({ type: () => true, limit: "15mb" }),
+  (req, res) => {
+    try {
+      const rawMeta = req.headers["x-attachment-meta"];
+      if (!rawMeta) {
+        res.status(400).json({ error: "첨부파일 메타데이터가 없습니다." });
+        return;
+      }
+      const meta = parseAttachmentMetaHeader(rawMeta);
+      if (!meta.fileName || !meta.postId) {
+        res.status(400).json({ error: "파일명과 게시글 ID는 필수입니다." });
+        return;
+      }
+      const buffer = Buffer.from(req.body || []);
+      if (!buffer.length) {
+        res.status(400).json({ error: "첨부파일이 비어 있습니다." });
+        return;
+      }
+      const saved = createBoardAttachment(buffer, meta, req.user.loginId || req.user.name || req.user.email);
+      res.status(201).json({
+        id: saved.id,
+        fileName: saved.fileName,
+        mimeType: saved.mimeType,
+        fileSize: saved.fileSize,
+        createdAt: saved.createdAt,
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "첨부파일 저장에 실패했습니다." });
+    }
+  },
+);
+
 app.use(express.json({ limit: "25mb" }));
 
 app.post("/api/auth/login", (req, res) => {
-  const { email, password } = req.body || {};
-  const user = authenticateUser(email, password);
+  const { loginId, email, password } = req.body || {};
+  const identifier = loginId || email;
+  const user = authenticateUser(identifier, password);
   if (!user) {
-    res.status(401).json({ error: "이메일 또는 비밀번호가 맞지 않습니다." });
+    res.status(401).json({ error: "로그인 ID 또는 비밀번호가 맞지 않습니다." });
     return;
   }
   const token = signToken(user);
-  res.json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
+  res.json({
+    token,
+    user: {
+      id: user.id,
+      loginId: user.loginId,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+    },
+  });
 });
 
 app.get("/api/auth/me", authMiddleware, (req, res) => {
   res.json({
     user: {
       id: req.user.sub,
-      email: req.user.email,
+      loginId: req.user.loginId || "",
+      email: req.user.email || null,
       name: req.user.name,
       role: req.user.role,
     },
@@ -91,14 +204,61 @@ app.get("/api/users", authMiddleware, adminMiddleware, (_req, res) => {
   res.json({ users: listUsers() });
 });
 
+app.post("/api/users", authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const user = createUser(req.body || {});
+    res.status(201).json({ user });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "사용자 생성에 실패했습니다." });
+  }
+});
+
+app.put("/api/users/:id", authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const user = updateUser(req.params.id, req.body || {}, req.user.sub);
+    res.json({ user });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "사용자 수정에 실패했습니다." });
+  }
+});
+
+app.patch("/api/users/:id/password", authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const { password } = req.body || {};
+    const user = updateUserPassword(req.params.id, password);
+    res.json({ user });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "비밀번호 변경에 실패했습니다." });
+  }
+});
+
+app.patch("/api/users/:id/status", authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const { isActive } = req.body || {};
+    const user = setUserActive(req.params.id, isActive, req.user.sub);
+    res.json({ user });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "상태 변경에 실패했습니다." });
+  }
+});
+
 app.get("/api/erp", authMiddleware, (_req, res) => {
   const state = getErpState();
   res.json({
     sales: state.data.sales || [],
     paymentVouchers: state.data.paymentVouchers || [],
+    paymentInputLogs: state.data.paymentInputLogs || [],
     clients: state.data.clients || [],
     workers: state.data.workers || [],
     auditLogs: state.data.auditLogs || [],
+    workerPaymentRecords: state.data.workerPaymentRecords || [],
+    companyExpenses: state.data.companyExpenses || [],
+    fixedExpenses: state.data.fixedExpenses || [],
+    companyNotices: state.data.companyNotices || [],
+    workPosts: state.data.workPosts || [],
+    statementGenerationLogs: state.data.statementGenerationLogs || [],
+    statementFolders: state.data.statementFolders || [],
+    companyProfile: state.data.companyProfile || null,
     version: state.version,
     updatedAt: state.updatedAt,
     updatedBy: state.updatedBy,
@@ -106,17 +266,26 @@ app.get("/api/erp", authMiddleware, (_req, res) => {
 });
 
 app.put("/api/erp", authMiddleware, (req, res) => {
-  const { sales, paymentVouchers, clients, workers, auditLogs, version } = req.body || {};
+  const { sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, workerPaymentRecords, companyExpenses, fixedExpenses, companyNotices, workPosts, statementGenerationLogs, statementFolders, companyProfile, version } = req.body || {};
   const payload = {
     sales: Array.isArray(sales) ? sales : [],
     paymentVouchers: Array.isArray(paymentVouchers) ? paymentVouchers : [],
+    paymentInputLogs: Array.isArray(paymentInputLogs) ? paymentInputLogs : [],
     clients: Array.isArray(clients) ? clients : [],
     workers: Array.isArray(workers) ? workers : [],
     auditLogs: Array.isArray(auditLogs) ? auditLogs : [],
+    workerPaymentRecords: Array.isArray(workerPaymentRecords) ? workerPaymentRecords : [],
+    companyExpenses: Array.isArray(companyExpenses) ? companyExpenses : [],
+    fixedExpenses: Array.isArray(fixedExpenses) ? fixedExpenses : [],
+    companyNotices: Array.isArray(companyNotices) ? companyNotices : [],
+    workPosts: Array.isArray(workPosts) ? workPosts : [],
+    statementGenerationLogs: Array.isArray(statementGenerationLogs) ? statementGenerationLogs : [],
+    statementFolders: Array.isArray(statementFolders) ? statementFolders : [],
+    companyProfile: companyProfile && typeof companyProfile === "object" ? companyProfile : null,
   };
 
   try {
-    const saved = saveErpState(payload, version ?? null, req.user.email || req.user.name);
+    const saved = saveErpState(payload, version ?? null, req.user.loginId || req.user.name || req.user.email);
     res.json({ ok: true, version: saved.version, updatedAt: saved.updatedAt });
   } catch (error) {
     if (error.status === 409) {
@@ -159,6 +328,26 @@ app.delete("/api/pdf-archives/:id", authMiddleware, (req, res) => {
   const deleted = deletePdfArchiveById(req.params.id);
   if (!deleted) {
     res.status(404).json({ error: "PDF를 찾을 수 없습니다." });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+app.get("/api/board-attachments/:id/file", authMiddleware, (req, res) => {
+  const file = getBoardAttachmentFile(req.params.id);
+  if (!file) {
+    res.status(404).json({ error: "첨부파일을 찾을 수 없습니다." });
+    return;
+  }
+  res.setHeader("Content-Type", file.mimeType || "application/octet-stream");
+  res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+  res.sendFile(path.resolve(file.path));
+});
+
+app.delete("/api/board-attachments/:id", authMiddleware, (req, res) => {
+  const deleted = deleteBoardAttachmentById(req.params.id);
+  if (!deleted) {
+    res.status(404).json({ error: "첨부파일을 찾을 수 없습니다." });
     return;
   }
   res.json({ ok: true });

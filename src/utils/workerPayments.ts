@@ -2,6 +2,7 @@ import * as XLSX from "xlsx";
 import {
   buildWorkerFeeMap,
   calculateWorkerLineAmounts,
+  calculateWorkerLineMetrics,
   parseWorkerMoney,
   resolveWorkerFeeRate,
 } from "./workerLineMetrics";
@@ -44,6 +45,9 @@ export type WorkerLineLike = {
   overtimeHours?: string | number;
   overtimeCost?: string | number;
   feeRate?: string | number;
+  lineBill?: string | number;
+  lineSpend?: string | number;
+  lineMargin?: string | number;
   memo?: string;
   no?: string | number;
 };
@@ -67,6 +71,8 @@ export type WorkerPaymentDetailRow = {
   feeRate: number;
   fee: number;
   netPay: number;
+  bill: number;
+  margin: number;
   memo: string;
 };
 
@@ -147,6 +153,7 @@ export function flattenSalesToWorkerPaymentRows(
       const basePay = quantity * unitCost;
       const totalPay = calculated.spend;
       const fee = Math.round(totalPay * feeRate);
+      const metrics = calculateWorkerLineMetrics(line, feeRate);
 
       return {
         id: `${sale.id}-${line.worker}-${line.no ?? lineIndex}`,
@@ -167,10 +174,31 @@ export function flattenSalesToWorkerPaymentRows(
         feeRate,
         fee,
         netPay: totalPay - fee,
+        bill: metrics.bill,
+        margin: metrics.margin,
         memo: String(line.memo || sale.memo || "").trim(),
       };
     });
   });
+}
+
+export function listWorkersWithPaymentRows(
+  sales: SaleLike[] = [],
+  dateFilter: { startDate?: string; endDate?: string } = {},
+  workersMaster: WorkerMasterLike[] = []
+) {
+  const filtered = filterSalesByDate(sales, dateFilter.startDate, dateFilter.endDate);
+  const rows = flattenSalesToWorkerPaymentRows(filtered, workersMaster);
+  const grouped = new Map<string, number>();
+
+  for (const row of rows) {
+    if (!row.worker) continue;
+    grouped.set(row.worker, (grouped.get(row.worker) || 0) + 1);
+  }
+
+  return [...grouped.entries()]
+    .map(([name, rowCount]) => ({ name, rowCount }))
+    .sort((a, b) => a.name.localeCompare(b.name, "ko"));
 }
 
 export function buildWorkerStatementSummary(rows: WorkerPaymentDetailRow[], workerInfo: WorkerMasterLike = {}) {

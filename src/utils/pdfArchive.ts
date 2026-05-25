@@ -279,6 +279,42 @@ export async function deletePdfArchive(id: string) {
   return deletePdfArchiveLocal(id);
 }
 
+export async function clearAllPdfArchives() {
+  const records = await listPdfArchives();
+  for (const record of records) {
+    await deletePdfArchive(record.id);
+  }
+  return records.length;
+}
+
+function wait(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+export async function downloadPdfArchives(records: PdfArchiveMeta[]) {
+  let downloaded = 0;
+  let failed = 0;
+
+  for (const record of records) {
+    try {
+      const saved = await getPdfArchiveRecord(record.id);
+      if (!saved) {
+        failed += 1;
+        continue;
+      }
+      downloadPdfBlob(saved.blob, saved.fileName);
+      downloaded += 1;
+      await wait(350);
+    } catch {
+      failed += 1;
+    }
+  }
+
+  return { downloaded, failed };
+}
+
 export function downloadPdfBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -288,6 +324,45 @@ export function downloadPdfBlob(blob: Blob, fileName: string) {
   link.click();
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+export type SharePdfResult = {
+  ok: boolean;
+  method: "share" | "download";
+  message: string;
+};
+
+export async function sharePdfBlob(blob: Blob, fileName: string): Promise<SharePdfResult> {
+  const safeName = fileName.endsWith(".pdf") ? fileName : `${fileName}.pdf`;
+  const file = new File([blob], safeName, { type: "application/pdf" });
+
+  if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+    const payload: ShareData = { files: [file], title: safeName };
+    const canShareFiles = typeof navigator.canShare !== "function" || navigator.canShare(payload);
+
+    if (canShareFiles) {
+      try {
+        await navigator.share(payload);
+        return {
+          ok: true,
+          method: "share",
+          message: "공유 메뉴에서 카카오톡을 선택해 보내주세요.",
+        };
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return { ok: false, method: "share", message: "공유가 취소되었습니다." };
+        }
+      }
+    }
+  }
+
+  downloadPdfBlob(blob, safeName);
+  return {
+    ok: true,
+    method: "download",
+    message:
+      "이 기기에서는 카카오톡으로 바로 보낼 수 없어 PDF를 저장했습니다. 카카오톡에서 파일을 첨부해 보내주세요. (모바일에서는 「카톡」 버튼으로 바로 공유할 수 있습니다.)",
+  };
 }
 
 export function openPdfBlobInNewTab(blob: Blob, fileName = "document.pdf"): boolean {
@@ -319,10 +394,16 @@ export async function archiveGeneratedPdf(
     statementView?: PdfArchiveStatementView;
   }
 ) {
-  return savePdfArchive({
+  const saved = await savePdfArchive({
     blob: result.blob,
     fileName: result.fileName,
     pageCount: result.pageCount,
     ...meta,
   });
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("pdf-archive-updated", { detail: saved }));
+  }
+
+  return saved;
 }

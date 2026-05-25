@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import { excelDateToISO } from "./excelDates";
+import { dedupeMemoSegments } from "./statementSheets";
 import { getSaleTotalBill, normalizeSaleRecord } from "./saleBilling";
 
 function parseMoney(value: unknown) {
@@ -22,7 +23,7 @@ function parseClients(wb: XLSX.WorkBook) {
         overtimeCost: parseMoney(row[5]) || 30000,
         vat: String(row[6] || "Y").trim() || "Y",
         mealIncluded: String(row[7] || "N").trim() || "N",
-        memo: [row[8], row[9]].filter(Boolean).join(" / "),
+        memo: dedupeMemoSegments([row[8], row[9]].map((value) => String(value || "").trim()).filter(Boolean).join(" / ")),
       },
     ];
   });
@@ -112,7 +113,7 @@ function parseSales(wb: XLSX.WorkBook) {
         amount,
         paid: 0,
         basePaid: 0,
-        memo: workers.map((line) => line.memo).filter(Boolean).join(" / "),
+        memo: dedupeMemoSegments(workers.map((line) => line.memo).filter(Boolean).join(" / ")),
         createdBy: "엑셀 import",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),

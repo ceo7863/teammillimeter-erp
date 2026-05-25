@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TEAM mm ERP · 모바일 확인</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #0f172a;
+        font-family: "Malgun Gothic", sans-serif;
+        color: #e2e8f0;
+        padding: 1rem;
+      }
+
+      .wrap {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.75rem;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 0.95rem;
+        font-weight: 700;
+      }
+
+      p {
+        margin: 0;
+        font-size: 0.75rem;
+        color: #94a3b8;
+      }
+
+      .phone {
+        width: 390px;
+        max-width: 100%;
+        padding: 0.75rem 0.8rem 1rem;
+        border-radius: 2rem;
+        background: #111827;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+      }
+
+      .notch {
+        width: 5.5rem;
+        height: 0.35rem;
+        margin: 0 auto 0.75rem;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.16);
+      }
+
+      .screen {
+        height: min(78vh, 844px);
+        border: none;
+        width: 100%;
+        border-radius: 1.35rem;
+        background: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>모바일 확인 창</h1>
+      <p>390 × 844 · http://localhost:5173</p>
+      <div class="phone">
+        <div class="notch"></div>
+        <iframe class="screen" src="http://localhost:5173/" title="TEAM mm ERP 모바일"></iframe>
+      </div>
+    </div>
+  </body>
+</html>

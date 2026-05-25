@@ -8,6 +8,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      jszip: path.resolve(__dirname, "node_modules/jszip/dist/jszip.min.js"),
     },
   },
   server: {
@@ -16,6 +17,9 @@ export default defineConfig({
         target: "http://localhost:8080",
         changeOrigin: true,
       },
+    },
+    watch: {
+      ignored: ["**/tmp-*/**"],
     },
   },
 });

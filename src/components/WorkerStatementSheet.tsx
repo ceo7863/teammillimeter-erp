@@ -1,8 +1,10 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { StatementFillerRows } from "@/components/StatementFillerRows";
 import { StatementFitCell, StatementFitTd } from "@/components/StatementFitCell";
 import { StatementSheetFooter, StatementSheetHeader } from "@/components/StatementBrand";
 import { getStatementFillerRowCount } from "@/utils/statementSheetLayout";
+import type { CompanyProfile } from "@/utils/companyProfile";
+import { buildWorkerStatementExcelPayload, serializeStatementExcelPayload } from "@/utils/statementExcel";
 import {
   formatKRW,
   formatStatementDashAmount,
@@ -11,25 +13,14 @@ import {
   type WorkerPaymentDetailRow,
 } from "@/utils/workerPayments";
 
-export type WorkerStatementTotals = {
-  count: number;
-  basePay: number;
-  overtime: number;
-  lodging: number;
-  meal: number;
-  expense: number;
-  totalPay: number;
-};
+import type { WorkerStatementSummary, WorkerStatementTotals } from "@/utils/statementExcel/types";
 
-export type WorkerStatementSummary = {
-  grossPay: number;
-  fee: number;
-  netPay: number;
-};
+export type { WorkerStatementSummary, WorkerStatementTotals } from "@/utils/statementExcel/types";
 
 type WorkerStatementSheetProps = {
   workerName: string;
   workerInfo?: WorkerMasterLike;
+  companyProfile?: CompanyProfile;
   periodStart?: string;
   periodEnd?: string;
   summary: WorkerStatementSummary;
@@ -59,6 +50,7 @@ export const WorkerStatementSheet = React.forwardRef<HTMLDivElement, WorkerState
   {
     workerName,
     workerInfo = {},
+    companyProfile,
     periodStart = "",
     periodEnd = "",
     summary,
@@ -73,10 +65,31 @@ export const WorkerStatementSheet = React.forwardRef<HTMLDivElement, WorkerState
   const visibleBodyRows = hasRows ? rows.length : 1;
   const fillerRowCount = getStatementFillerRowCount(visibleBodyRows);
   const workerDataColumnCount = 11;
+  const excelPayload = useMemo(
+    () =>
+      buildWorkerStatementExcelPayload({
+        workerName,
+        workerInfo,
+        companyProfile,
+        periodStart,
+        periodEnd,
+        summary,
+        rows,
+        totals,
+        emptyMessage,
+      }),
+    [companyProfile, emptyMessage, periodEnd, periodStart, rows, summary, totals, workerInfo, workerName]
+  );
 
   return (
-    <div ref={ref} data-pdf-export-root className={`erp-statement-sheet ${className}`.trim()}>
-      <StatementSheetHeader title="시 공 내 역 서" />
+    <div
+      ref={ref}
+      data-pdf-export-root
+      data-statement-kind="worker"
+      data-statement-excel={serializeStatementExcelPayload(excelPayload)}
+      className={`erp-statement-sheet ${className}`.trim()}
+    >
+      <StatementSheetHeader title="시 공 내 역 서" companyProfile={companyProfile} />
 
       <div className="excel-client-recipient">
         <span>{workerName || "시공자"}</span>
@@ -108,8 +121,8 @@ export const WorkerStatementSheet = React.forwardRef<HTMLDivElement, WorkerState
             <td className="amount">{formatKRW(summary.grossPay)}</td>
           </tr>
           <tr>
-            <td className="label">수수료율</td>
-            <td colSpan={3}>{Math.round((workerInfo.feeRate || 0) * 100)}%</td>
+            <td className="label"></td>
+            <td colSpan={3}></td>
             <td className="label">수수료</td>
             <td className="amount">{formatKRW(summary.fee)}</td>
           </tr>
@@ -221,7 +234,7 @@ export const WorkerStatementSheet = React.forwardRef<HTMLDivElement, WorkerState
         </table>
       </div>
 
-      <StatementSheetFooter />
+      <StatementSheetFooter companyProfile={companyProfile} />
     </div>
   );
 });

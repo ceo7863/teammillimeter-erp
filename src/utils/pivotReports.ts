@@ -74,6 +74,17 @@ export type DateRangeFilter = {
   endDate?: string;
 };
 
+export type PivotSaleRecord = {
+  id?: number;
+  client?: string;
+  date?: string;
+  site?: string;
+  worker?: string;
+  amount?: number;
+  paid?: number;
+  workers?: { worker?: string }[];
+};
+
 export type PaymentVoucherRecord = {
   client?: string;
   date?: string;
@@ -130,6 +141,17 @@ export function filterSalesByDate<T extends { date?: string }>(sales: T[], filte
     const startMatch = filter.startDate ? String(sale.date || "") >= filter.startDate : true;
     const endMatch = filter.endDate ? String(sale.date || "") <= filter.endDate : true;
     return startMatch && endMatch;
+  });
+}
+
+export function filterSalesByClient(
+  sales: PivotSaleRecord[],
+  clientKey: string,
+  filter: DateRangeFilter = {}
+): PivotSaleRecord[] {
+  return filterSalesByDate(sales, filter).filter((sale) => {
+    const client = String(sale.client || "").trim() || "(미지정)";
+    return client === clientKey;
   });
 }
 

@@ -15,9 +15,12 @@ function parseMoney(value) {
   return Number(String(value ?? "").replace(/[^0-9.-]/g, "")) || 0;
 }
 
+function hasExplicitLineBill(line) {
+  return line.lineBill != null && String(line.lineBill).trim() !== "";
+}
+
 function getWorkerLineBill(line) {
-  const stored = parseMoney(line.lineBill);
-  if (stored) return stored;
+  if (hasExplicitLineBill(line)) return parseMoney(line.lineBill);
   const q = parseMoney(line.quantity || 1) || 1;
   const ca = parseMoney(line.chargeAmount) || parseMoney(line.unitCost);
   const meal = parseMoney(line.meal);

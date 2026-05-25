@@ -16,9 +16,12 @@ function calculateWorkerLineAmounts(line) {
   return { bill: quantity * chargeAmount + extras, extras, meal, lodging, expense, overtime };
 }
 
+function hasExplicitLineBill(line) {
+  return line.lineBill != null && String(line.lineBill).trim() !== "";
+}
+
 function getWorkerLineBill(line) {
-  const stored = parseWorkerMoney(line.lineBill);
-  if (stored) return stored;
+  if (hasExplicitLineBill(line)) return parseWorkerMoney(line.lineBill);
   return calculateWorkerLineAmounts(line).bill;
 }
 

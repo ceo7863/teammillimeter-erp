@@ -36,6 +36,11 @@ export function parseWorkerMoney(value: unknown) {
   return Number(String(value ?? "").replace(/[^0-9.-]/g, "")) || 0;
 }
 
+/** lineBill 등 시트/DB에 값이 있으면 true — "0"도 명시적 값으로 취급 */
+export function hasExplicitWorkerField(value: unknown) {
+  return value != null && String(value).trim() !== "";
+}
+
 export function normalizeFeeRate(value: unknown) {
   const raw = parseWorkerMoney(value);
   return raw > 1 ? raw / 100 : raw;
@@ -76,18 +81,30 @@ export function resolveWorkerFeeRate(line: WorkerLineLike, feeMap?: Map<string, 
 }
 
 export function calculateWorkerLineMetrics(line: WorkerLineLike, feeRate = 0): WorkerLineMetrics {
-  const sheetBill = parseWorkerMoney(line.lineBill);
-  const sheetSpend = parseWorkerMoney(line.lineSpend);
-  const sheetMargin = parseWorkerMoney(line.lineMargin);
   const normalizedFee =
     line.feeRate != null && line.feeRate !== "" ? normalizeFeeRate(line.feeRate) : normalizeFeeRate(feeRate);
 
-  if (sheetBill || sheetSpend || sheetMargin) {
+  if (hasExplicitWorkerField(line.lineBill)) {
+    const sheetBill = parseWorkerMoney(line.lineBill);
+    const sheetSpend = parseWorkerMoney(line.lineSpend);
+    const sheetMargin = parseWorkerMoney(line.lineMargin);
     return {
       staffCount: parseWorkerMoney(line.quantity || "1") || 1,
       bill: sheetBill,
       spend: sheetSpend,
       margin: sheetMargin || calculateWorkerMargin(sheetBill, sheetSpend, normalizedFee),
+      feeRate: normalizedFee,
+    };
+  }
+
+  const sheetSpend = parseWorkerMoney(line.lineSpend);
+  const sheetMargin = parseWorkerMoney(line.lineMargin);
+  if (sheetSpend || sheetMargin) {
+    return {
+      staffCount: parseWorkerMoney(line.quantity || "1") || 1,
+      bill: 0,
+      spend: sheetSpend,
+      margin: sheetMargin || calculateWorkerMargin(0, sheetSpend, normalizedFee),
       feeRate: normalizedFee,
     };
   }

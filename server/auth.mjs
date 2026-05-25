@@ -1,13 +1,25 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { config } from "./config.mjs";
-import { findUserByEmail } from "./db.mjs";
+import { findUserByLoginId, findUserByEmail } from "./db.mjs";
+
+function publicEmail(email) {
+  const value = String(email || "").trim();
+  if (!value || value.endsWith("@local.teammillimeter")) return null;
+  return value;
+}
 
 export function signToken(user) {
   return jwt.sign(
-    { sub: user.id, email: user.email, name: user.name, role: user.role },
+    {
+      sub: user.id,
+      loginId: user.loginId,
+      email: user.email || "",
+      name: user.name,
+      role: user.role,
+    },
     config.jwtSecret,
-    { expiresIn: config.tokenExpiresIn }
+    { expiresIn: config.tokenExpiresIn },
   );
 }
 
@@ -15,14 +27,19 @@ export function verifyToken(token) {
   return jwt.verify(token, config.jwtSecret);
 }
 
-export function authenticateUser(email, password) {
-  const user = findUserByEmail(email);
+export function authenticateUser(identifier, password) {
+  let user = findUserByLoginId(identifier);
+  if (!user && String(identifier || "").includes("@")) {
+    user = findUserByEmail(identifier);
+  }
   if (!user) return null;
+  if (!user.is_active) return null;
   const ok = bcrypt.compareSync(String(password || ""), user.password_hash);
   if (!ok) return null;
   return {
     id: user.id,
-    email: user.email,
+    loginId: user.login_id,
+    email: publicEmail(user.email),
     name: user.name,
     role: user.role,
   };

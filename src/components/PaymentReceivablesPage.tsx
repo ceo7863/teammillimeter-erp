@@ -1,15 +1,15 @@
-import React, { useMemo, useState } from "react";
-import { AlertCircle, CheckCircle2, CreditCard, Search, Trash2 } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { AlertCircle, CheckCircle2, CreditCard, Search, Trash2, WalletCards } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useAudit } from "@/context/AuditContext";
 import { AutocompleteInput, AutocompleteSelect } from "@/components/AutocompleteInput";
 import { EntityAuditButton } from "@/components/AuditField";
 import { TableExportSection } from "@/components/TableExportSection";
+import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { PAYMENT_AUDIT_FIELDS, snapshotPaymentForAudit } from "@/utils/auditLog";
 import {
   RECEIVABLE_STATUS_OPTIONS,
-  VAT_TYPE_OPTIONS,
   formatKRW,
   getStatus,
   getUnpaid,
@@ -18,8 +18,15 @@ import {
   todayISO,
   type ReceivableRow,
 } from "@/utils/receivables";
+import { summarizePaymentVatBySaleDate } from "@/utils/paymentVatTotals";
+import {
+  createPaymentInputLogsFromVouchers,
+  formatPaymentInputLogRecord,
+  summarizePaymentInputLogs,
+  type PaymentInputLog,
+} from "@/utils/paymentInputLogs";
 
-type PaymentTab = "input" | "receivables" | "history";
+type PaymentTab = "input" | "receivables" | "history" | "log";
 
 type SaleLike = {
   id: number | string;
@@ -59,6 +66,7 @@ const TAB_ITEMS: Array<{ key: PaymentTab; label: string }> = [
   { key: "input", label: "입금 입력" },
   { key: "receivables", label: "미수 조회" },
   { key: "history", label: "입금 내역" },
+  { key: "log", label: "입금로그" },
 ];
 
 function SearchBox({ query, setQuery, placeholder }: { query: string; setQuery: (value: string) => void; placeholder: string }) {
@@ -151,6 +159,8 @@ export function PaymentReceivablesPage({
   clients = [],
   paymentVouchers = [],
   setPaymentVouchers,
+  paymentInputLogs = [],
+  setPaymentInputLogs,
   currentUser,
 }: {
   sales?: SaleLike[];
@@ -158,6 +168,8 @@ export function PaymentReceivablesPage({
   clients?: Array<{ name?: string; manager?: string; phone?: string }>;
   paymentVouchers?: PaymentVoucherLike[];
   setPaymentVouchers: React.Dispatch<React.SetStateAction<PaymentVoucherLike[]>>;
+  paymentInputLogs?: PaymentInputLog[];
+  setPaymentInputLogs: React.Dispatch<React.SetStateAction<PaymentInputLog[]>>;
   currentUser: { name?: string; email?: string } | null;
 }) {
   const { recordAudit } = useAudit();
@@ -169,6 +181,8 @@ export function PaymentReceivablesPage({
   });
   const [paymentRows, setPaymentRows] = useState<Record<string, PaymentDraft>>({});
   const [historyQuery, setHistoryQuery] = useState("");
+  const [logQuery, setLogQuery] = useState("");
+  const [selectedLogSummaryId, setSelectedLogSummaryId] = useState<string | null>(null);
   const [receivableQuery, setReceivableQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("전체");
   const [hideCompleted, setHideCompleted] = useState(true);
@@ -176,6 +190,10 @@ export function PaymentReceivablesPage({
   const [saveMessage, setSaveMessage] = useState("");
 
   const updateFilter = (key: keyof typeof filters, value: string) => setFilters((prev) => ({ ...prev, [key]: value }));
+
+  useEffect(() => {
+    if (tab !== "log") setSelectedLogSummaryId(null);
+  }, [tab]);
 
   const clientAutocompleteOptions = useMemo(
     () => [{ name: "전체", manager: "거래처 필터 해제", phone: "" }, ...clients],
@@ -190,6 +208,18 @@ export function PaymentReceivablesPage({
       return acc;
     }, {});
   }, [paymentVouchers]);
+
+  const saleDateById = useMemo(() => {
+    return sales.reduce<Record<string, string>>((acc, row) => {
+      if (row.id != null && row.date) acc[String(row.id)] = row.date;
+      return acc;
+    }, {});
+  }, [sales]);
+
+  const getVoucherSaleDate = (voucher: PaymentVoucherLike) => {
+    if (voucher.salesId != null) return saleDateById[String(voucher.salesId)] || "";
+    return "";
+  };
 
   const targetSalesRows = useMemo(() => {
     return sales
@@ -239,6 +269,13 @@ export function PaymentReceivablesPage({
     }));
   };
 
+  const getRowVatIncluded = (rowKey: string) => (paymentRows[rowKey]?.vatType || "included") === "included";
+
+  const togglePaymentVat = (id: string | number) => {
+    const rowKey = String(id);
+    updatePaymentRow(id, "vatType", getRowVatIncluded(rowKey) ? "excluded" : "included");
+  };
+
   const getPaymentDraft = (row: SaleLike) => {
     const draft = paymentRows[String(row.id)] || {};
     const checked = !!draft.checked;
@@ -266,6 +303,20 @@ export function PaymentReceivablesPage({
     () => targetSalesRows.filter((row) => paymentRows[String(row.id)]?.checked),
     [targetSalesRows, paymentRows]
   );
+
+  const inputUnselectedUnpaidTotals = useMemo(() => {
+    return targetSalesRows.reduce(
+      (acc, row) => {
+        if (paymentRows[String(row.id)]?.checked) return acc;
+        const unpaid = getUnpaid(row);
+        if (unpaid <= 0) return acc;
+        acc.amount += unpaid;
+        acc.count += 1;
+        return acc;
+      },
+      { amount: 0, count: 0 }
+    );
+  }, [targetSalesRows, paymentRows]);
 
   const selectedDraftTotals = useMemo(() => {
     return checkedRows.reduce(
@@ -310,6 +361,10 @@ export function PaymentReceivablesPage({
       return;
     }
 
+    const batchId = Date.now();
+    const savedBy = currentUser?.name || currentUser?.email || "";
+    const newLogs = createPaymentInputLogsFromVouchers(nextPayments, savedBy, batchId);
+
     nextPayments.forEach((voucher) => {
       recordAudit({
         entityType: "paymentVoucher",
@@ -324,6 +379,7 @@ export function PaymentReceivablesPage({
     });
 
     setPaymentVouchers((prev) => [...nextPayments, ...prev]);
+    setPaymentInputLogs((prev) => [...newLogs, ...prev]);
     setPaymentRows({});
     setSaveMessage(`${nextPayments.length}건의 입금이 등록되었습니다.`);
   };
@@ -345,9 +401,160 @@ export function PaymentReceivablesPage({
     setPaymentVouchers((prev) => prev.filter((item) => item.id !== id));
   };
 
-  const filteredVouchers = paymentVouchers
-    .filter((voucher) => Object.values(voucher).join(" ").toLowerCase().includes(historyQuery.toLowerCase()))
-    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || Number(b.id || 0) - Number(a.id || 0));
+  const dateFilteredVouchers = useMemo(() => {
+    return paymentVouchers.filter((voucher) => {
+      const startMatch = filters.startDate ? (voucher.date || "") >= filters.startDate : true;
+      const endMatch = filters.endDate ? (voucher.date || "") <= filters.endDate : true;
+      const clientMatch = filters.client ? voucher.client === filters.client : true;
+      return startMatch && endMatch && clientMatch;
+    });
+  }, [paymentVouchers, filters]);
+
+  const historyDateFilteredVouchers = useMemo(() => {
+    return paymentVouchers.filter((voucher) => {
+      const saleDate = getVoucherSaleDate(voucher) || voucher.date || "";
+      const startMatch = filters.startDate ? saleDate >= filters.startDate : true;
+      const endMatch = filters.endDate ? saleDate <= filters.endDate : true;
+      const clientMatch = filters.client ? voucher.client === filters.client : true;
+      return startMatch && endMatch && clientMatch;
+    });
+  }, [paymentVouchers, filters, saleDateById]);
+
+  const inputTablePaymentTotals = useMemo(() => {
+    const voucherTotalsBySalesId = paymentVouchers.reduce<
+      Record<string, { amount: number; vat: number; final: number; vatCount: number }>
+    >((acc, voucher) => {
+      if (!voucher.salesId) return acc;
+      const key = String(voucher.salesId);
+      if (!acc[key]) acc[key] = { amount: 0, vat: 0, final: 0, vatCount: 0 };
+      const vat = voucher.vatAmount || 0;
+      acc[key].amount += voucher.amount || 0;
+      acc[key].vat += vat;
+      acc[key].final += voucher.finalAmount ?? voucher.amount ?? 0;
+      if (vat > 0) acc[key].vatCount += 1;
+      return acc;
+    }, {});
+
+    return targetSalesRows.reduce(
+      (acc, row) => {
+        const saved = voucherTotalsBySalesId[String(row.id)] || { amount: 0, vat: 0, final: 0, vatCount: 0 };
+        const draft = getPaymentDraft(row);
+
+        acc.registeredAmount += saved.amount;
+        acc.registeredVat += saved.vat;
+        acc.registeredFinal += saved.final;
+        acc.vatCount += saved.vatCount;
+
+        if (draft.checked) {
+          acc.pendingAmount += draft.amount;
+          acc.pendingVat += draft.vatAmount;
+          acc.pendingFinal += draft.finalAmount;
+          if (draft.vatAmount > 0) acc.pendingVatCount += 1;
+        }
+
+        acc.amount += saved.amount + (draft.checked ? draft.amount : 0);
+        acc.vat += saved.vat + (draft.checked ? draft.vatAmount : 0);
+        acc.final += saved.final + (draft.checked ? draft.finalAmount : 0);
+        return acc;
+      },
+      {
+        amount: 0,
+        vat: 0,
+        final: 0,
+        vatCount: 0,
+        registeredAmount: 0,
+        registeredVat: 0,
+        registeredFinal: 0,
+        pendingAmount: 0,
+        pendingVat: 0,
+        pendingFinal: 0,
+        pendingVatCount: 0,
+      }
+    );
+  }, [targetSalesRows, paymentVouchers, paymentRows, paidVoucherBySalesId, filters.endDate]);
+
+  const filteredVouchers = useMemo(() => {
+    const query = historyQuery.toLowerCase();
+    return historyDateFilteredVouchers
+      .filter((voucher) => Object.values(voucher).join(" ").toLowerCase().includes(query))
+      .sort((a, b) => {
+        const aSale = getVoucherSaleDate(a) || a.date || "";
+        const bSale = getVoucherSaleDate(b) || b.date || "";
+        const saleCmp = String(bSale).localeCompare(String(aSale));
+        if (saleCmp !== 0) return saleCmp;
+        return String(b.date || "").localeCompare(String(a.date || "")) || Number(b.id || 0) - Number(a.id || 0);
+      });
+  }, [historyDateFilteredVouchers, historyQuery, saleDateById]);
+
+  const inputHistoryVatTotals = useMemo(
+    () => summarizePaymentVatBySaleDate(paymentVouchers, sales, filters.startDate, filters.endDate, filters.client),
+    [paymentVouchers, sales, filters.startDate, filters.endDate, filters.client]
+  );
+
+  const historyTotals = useMemo(() => {
+    const round = (value: number) => Math.round(Number(value) || 0);
+
+    return filteredVouchers.reduce(
+      (acc, voucher) => {
+        const amount = round(voucher.amount);
+        const vat = round(voucher.vatAmount);
+        const final = round(voucher.finalAmount ?? voucher.amount);
+        acc.count += 1;
+        acc.bill += round(voucher.totalSalesAmount);
+        acc.amount += amount;
+        acc.vat += vat;
+        acc.final += final;
+        if (vat > 0) {
+          acc.vatCount += 1;
+          acc.vatFinal += final;
+        }
+        return acc;
+      },
+      { count: 0, bill: 0, amount: 0, vat: 0, final: 0, vatCount: 0, vatFinal: 0 }
+    );
+  }, [filteredVouchers]);
+
+  const filteredPaymentInputLogSummaries = useMemo(() => {
+    const query = logQuery.toLowerCase();
+    const filteredLogs = paymentInputLogs.filter((log) => {
+      const startMatch = filters.startDate ? (log.paymentDate || "") >= filters.startDate : true;
+      const endMatch = filters.endDate ? (log.paymentDate || "") <= filters.endDate : true;
+      const clientMatch = filters.client ? log.client === filters.client : true;
+      return startMatch && endMatch && clientMatch;
+    });
+
+    return summarizePaymentInputLogs(filteredLogs).filter((row) =>
+      Object.values(row).join(" ").toLowerCase().includes(query)
+    );
+  }, [paymentInputLogs, filters.startDate, filters.endDate, filters.client, logQuery]);
+
+  const selectedLogSummary = useMemo(
+    () => filteredPaymentInputLogSummaries.find((row) => row.id === selectedLogSummaryId) || null,
+    [filteredPaymentInputLogSummaries, selectedLogSummaryId]
+  );
+
+  const selectedLogVouchers = useMemo(() => {
+    if (!selectedLogSummary) return [];
+    const idSet = new Set(selectedLogSummary.paymentVoucherIds.map(String));
+    return paymentVouchers
+      .filter((voucher) => idSet.has(String(voucher.id)))
+      .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || Number(b.id || 0) - Number(a.id || 0));
+  }, [selectedLogSummary, paymentVouchers]);
+
+  const selectedLogVoucherTotals = useMemo(() => {
+    const round = (value: number) => Math.round(Number(value) || 0);
+    return selectedLogVouchers.reduce(
+      (acc, voucher) => {
+        acc.count += 1;
+        acc.bill += round(voucher.totalSalesAmount);
+        acc.amount += round(voucher.amount);
+        acc.vat += round(voucher.vatAmount);
+        acc.final += round(voucher.finalAmount ?? voucher.amount);
+        return acc;
+      },
+      { count: 0, bill: 0, amount: 0, vat: 0, final: 0 }
+    );
+  }, [selectedLogVouchers]);
 
   const allChecked = targetSalesRows.length > 0 && targetSalesRows.every((row) => paymentRows[String(row.id)]?.checked);
 
@@ -436,6 +643,23 @@ export function PaymentReceivablesPage({
     );
   }, [filteredReceivableRows]);
 
+  const receivablePaymentVatTotals = useMemo(() => {
+    const salesIds = new Set(filteredReceivableRows.map((row) => String(row.id)));
+    return dateFilteredVouchers.reduce(
+      (acc, voucher) => {
+        if (!voucher.salesId || !salesIds.has(String(voucher.salesId))) return acc;
+        const vat = voucher.vatAmount || 0;
+        acc.vat += vat;
+        if (vat > 0) {
+          acc.count += 1;
+          acc.final += voucher.finalAmount ?? voucher.amount ?? 0;
+        }
+        return acc;
+      },
+      { vat: 0, final: 0, count: 0 }
+    );
+  }, [filteredReceivableRows, dateFilteredVouchers]);
+
   const clientSummaryTotals = useMemo(() => {
     return clientSummaryRows.reduce(
       (acc, row) => {
@@ -497,11 +721,11 @@ export function PaymentReceivablesPage({
           <div className="erp-payment-hub-filters">
             <label className="erp-payment-hub-filter">
               <span>시작</span>
-              <input type="date" className="erp-input erp-input-compact" value={filters.startDate} onChange={(e) => updateFilter("startDate", e.target.value)} />
+              <KoreanDateInput className="erp-input-compact" value={filters.startDate} onChange={(e) => updateFilter("startDate", e.target.value)} />
             </label>
             <label className="erp-payment-hub-filter">
               <span>종료</span>
-              <input type="date" className="erp-input erp-input-compact" value={filters.endDate} onChange={(e) => updateFilter("endDate", e.target.value)} />
+              <KoreanDateInput className="erp-input-compact" value={filters.endDate} onChange={(e) => updateFilter("endDate", e.target.value)} />
             </label>
             <label className="erp-payment-hub-filter erp-payment-hub-filter--grow">
               <span>거래처</span>
@@ -561,6 +785,120 @@ export function PaymentReceivablesPage({
       </Card>
 
       {tab === "input" && (
+        <>
+          <div className="erp-payment-input-summary space-y-2">
+            <div className="erp-payment-input-summary-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+              <SummaryCard
+                compact
+                title="총 시공비"
+                value={formatKRW(scopedTotals.bill)}
+                sub={`${targetSalesRows.length}건 · ${filters.startDate || "전체"} ~ ${filters.endDate || "전체"}`}
+                icon={WalletCards}
+              />
+              <SummaryCard
+                compact
+                title="입금"
+                value={formatKRW(scopedTotals.paid)}
+                sub="기간 내 공급가 입금"
+                tone="success"
+                icon={CheckCircle2}
+              />
+              <SummaryCard
+                compact
+                title="미수"
+                value={formatKRW(scopedTotals.unpaid)}
+                sub="기간 내 미수 잔액"
+                tone="danger"
+                icon={AlertCircle}
+              />
+              <SummaryCard
+                compact
+                title="입금내역 부가세"
+                value={formatKRW(inputHistoryVatTotals.vat)}
+                sub={
+                  inputHistoryVatTotals.count
+                    ? `${inputHistoryVatTotals.count}건 · 최종 ${formatKRW(inputHistoryVatTotals.final)} · 거래일 기준`
+                    : "입금내역 부가세 없음"
+                }
+                tone={inputHistoryVatTotals.vat > 0 ? "warning" : "default"}
+                icon={CreditCard}
+              />
+            </div>
+
+            <div className="erp-payment-input-summary-panel rounded-xl border border-slate-200/80 bg-slate-50/70">
+              <p className="erp-payment-input-summary-label text-xs font-bold text-slate-600">입금 · 부가세 · 선택</p>
+              <div className="erp-payment-input-summary-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                <SummaryCard
+                  compact
+                  title="시공비 총액"
+                  value={formatKRW(inputTablePaymentTotals.amount)}
+                  sub={
+                    checkedRows.length
+                      ? `공급가 · 등록 ${formatKRW(inputTablePaymentTotals.registeredAmount)} · 선택 +${formatKRW(inputTablePaymentTotals.pendingAmount)}`
+                      : inputTablePaymentTotals.amount
+                        ? `공급가 · ${targetSalesRows.length}건 · 표시 전표 기준`
+                        : "공급가 · 표시 전표 기준 입금 없음"
+                  }
+                  icon={WalletCards}
+                />
+                <SummaryCard
+                  compact
+                  title="미선택 미수금액"
+                  value={formatKRW(inputUnselectedUnpaidTotals.amount)}
+                  sub={
+                    inputUnselectedUnpaidTotals.count
+                      ? `${inputUnselectedUnpaidTotals.count}건 · 체크 안 한 전표`
+                      : checkedRows.length
+                        ? "선택 전표 제외 · 미수 없음"
+                        : "표시 전표 · 미수 없음"
+                  }
+                  tone={inputUnselectedUnpaidTotals.amount > 0 ? "danger" : "default"}
+                  icon={AlertCircle}
+                />
+                <SummaryCard
+                  compact
+                  title="부가세포함 총입금액"
+                  value={formatKRW(inputTablePaymentTotals.final)}
+                  sub={
+                    checkedRows.length
+                      ? `등록 ${formatKRW(inputTablePaymentTotals.registeredFinal)} · 선택 +${formatKRW(inputTablePaymentTotals.pendingFinal)}`
+                      : inputTablePaymentTotals.final
+                        ? `공급가 ${formatKRW(inputTablePaymentTotals.amount)} · 부가세 ${formatKRW(inputTablePaymentTotals.vat)}`
+                        : "표시 전표 기준 입금 없음"
+                  }
+                  tone={inputTablePaymentTotals.final > 0 ? "success" : "default"}
+                  icon={WalletCards}
+                />
+                <SummaryCard
+                  compact
+                  title="부가세 입금"
+                  value={formatKRW(inputTablePaymentTotals.vat)}
+                  sub={
+                    checkedRows.length
+                      ? `등록 ${formatKRW(inputTablePaymentTotals.registeredVat)} · 선택 +${formatKRW(inputTablePaymentTotals.pendingVat)}`
+                      : inputTablePaymentTotals.vatCount
+                        ? `${inputTablePaymentTotals.vatCount}건 · 최종 ${formatKRW(inputTablePaymentTotals.registeredFinal)}`
+                        : "부가세 포함 입금 없음"
+                  }
+                  tone={inputTablePaymentTotals.vat > 0 ? "warning" : "default"}
+                  icon={CreditCard}
+                />
+                <SummaryCard
+                  compact
+                  title="선택 입금"
+                  value={formatKRW(selectedDraftTotals.finalAmount)}
+                  sub={
+                    checkedRows.length
+                      ? `${checkedRows.length}건 · 공급가 ${formatKRW(selectedDraftTotals.paymentAmount)}`
+                      : "전표 선택 후 저장"
+                  }
+                  tone={checkedRows.length ? "warning" : "default"}
+                  icon={CreditCard}
+                />
+              </div>
+            </div>
+          </div>
+
         <Card className="rounded-xl border-slate-200/80 shadow-sm">
           <CardContent className="p-3 md:p-4">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -572,8 +910,8 @@ export function PaymentReceivablesPage({
             </div>
 
             <TableExportSection fileName="입금입력_전표" title="입금 입력 전표" disabled={targetSalesRows.length === 0}>
-            <div className="erp-payment-table-wrap">
-              <table className="erp-payment-table">
+            <div className="erp-payment-table-wrap erp-payment-table-wrap--input">
+              <table className="erp-payment-table erp-payment-table--input">
                 <colgroup>
                   <col className="col-check" />
                   <col className="col-no" />
@@ -605,7 +943,7 @@ export function PaymentReceivablesPage({
                     <th className="text-right">시공비</th>
                     <th className="text-left">입금일</th>
                     <th className="text-right">입금액</th>
-                    <th className="text-center">VAT</th>
+                    <th className="text-center">부가세+</th>
                     <th className="text-right">최종</th>
                     <th className="text-left">비고</th>
                   </tr>
@@ -630,9 +968,8 @@ export function PaymentReceivablesPage({
                         <td className="text-right">{workerCount}</td>
                         <td className="text-right font-semibold">{formatKRW(row.amount || 0)}</td>
                         <td>
-                          <input
-                            type="date"
-                            className="erp-input erp-input-compact"
+                          <KoreanDateInput
+                            className="erp-input-compact"
                             value={paymentRows[rowKey]?.paymentDate || filters.endDate || row.date}
                             onChange={(e) => updatePaymentRow(row.id, "paymentDate", e.target.value)}
                           />
@@ -651,14 +988,21 @@ export function PaymentReceivablesPage({
                             </span>
                           )}
                         </td>
-                        <td className="erp-vat-select">
-                          <AutocompleteSelect
-                            value={paymentRows[rowKey]?.vatType || "included"}
-                            options={VAT_TYPE_OPTIONS}
-                            onChange={(value) => updatePaymentRow(row.id, "vatType", value)}
-                            placeholder="VAT"
-                            inputProps={{ className: "erp-input-compact rounded-lg" }}
-                          />
+                        <td className="text-center">
+                          <div className="erp-worker-vat-toggle erp-payment-input-vat-toggle flex flex-col items-center">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={getRowVatIncluded(rowKey) ? "default" : "outline"}
+                              className={`erp-payment-input-vat-btn ${getRowVatIncluded(rowKey) ? "bg-amber-600 hover:bg-amber-700" : ""}`}
+                              onClick={() => togglePaymentVat(row.id)}
+                              aria-pressed={getRowVatIncluded(rowKey)}
+                              aria-label={`${row.client || "거래처"} 부가세 포함 입금`}
+                            >
+                              부가세+
+                            </Button>
+                            <span className="erp-text-caption text-slate-600">{getRowVatIncluded(rowKey) ? formatKRW(draft.vatAmount) : "-"}</span>
+                          </div>
                         </td>
                         <td className="text-right font-bold text-emerald-700">{formatKRW(draft.finalAmount)}</td>
                         <td>
@@ -687,57 +1031,49 @@ export function PaymentReceivablesPage({
             </TableExportSection>
           </CardContent>
         </Card>
+        </>
       )}
 
       {tab === "receivables" && (
         <>
-          <div className="erp-receivable-totals-bar">
-            <div className="erp-receivable-totals-group">
-              <span className="erp-receivable-totals-label">미수 전표 합계</span>
-              <div className="erp-receivable-totals-items">
-                <div className="erp-receivable-totals-item">
-                  <span>건수</span>
-                  <b>{receivableDetailTotals.count.toLocaleString()}</b>
-                </div>
-                <div className="erp-receivable-totals-item">
-                  <span>총매출</span>
-                  <b>{formatKRW(receivableDetailTotals.sales)}</b>
-                </div>
-                <div className="erp-receivable-totals-item">
-                  <span>입금</span>
-                  <b className="text-emerald-700">{formatKRW(receivableDetailTotals.paid)}</b>
-                </div>
-                <div className="erp-receivable-totals-item">
-                  <span>미수</span>
-                  <b className="text-red-600">{formatKRW(receivableDetailTotals.unpaid)}</b>
-                </div>
-              </div>
-            </div>
-            <div className="erp-receivable-totals-group">
-              <span className="erp-receivable-totals-label">거래처 합계</span>
-              <div className="erp-receivable-totals-items">
-                <div className="erp-receivable-totals-item">
-                  <span>거래처</span>
-                  <b>{clientSummaryTotals.clients.toLocaleString()}</b>
-                </div>
-                <div className="erp-receivable-totals-item">
-                  <span>전표</span>
-                  <b>{clientSummaryTotals.count.toLocaleString()}</b>
-                </div>
-                <div className="erp-receivable-totals-item">
-                  <span>총매출</span>
-                  <b>{formatKRW(clientSummaryTotals.sales)}</b>
-                </div>
-                <div className="erp-receivable-totals-item">
-                  <span>입금</span>
-                  <b className="text-emerald-700">{formatKRW(clientSummaryTotals.paid)}</b>
-                </div>
-                <div className="erp-receivable-totals-item">
-                  <span>미수</span>
-                  <b className="text-red-600">{formatKRW(clientSummaryTotals.unpaid)}</b>
-                </div>
-              </div>
-            </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            <SummaryCard
+              title="총매출"
+              value={formatKRW(receivableDetailTotals.sales)}
+              sub={`${receivableDetailTotals.count}건 · 필터 적용`}
+              icon={WalletCards}
+            />
+            <SummaryCard
+              title="입금"
+              value={formatKRW(receivableDetailTotals.paid)}
+              sub="미수 조회 기준"
+              tone="success"
+              icon={CheckCircle2}
+            />
+            <SummaryCard
+              title="부가세 입금"
+              value={formatKRW(receivablePaymentVatTotals.vat)}
+              sub={
+                receivablePaymentVatTotals.count
+                  ? `${receivablePaymentVatTotals.count}건 · 최종 ${formatKRW(receivablePaymentVatTotals.final)}`
+                  : "부가세 포함 입금 없음"
+              }
+              tone={receivablePaymentVatTotals.vat > 0 ? "warning" : "default"}
+              icon={CreditCard}
+            />
+            <SummaryCard
+              title="미수"
+              value={formatKRW(receivableDetailTotals.unpaid)}
+              sub={`${clientSummaryTotals.clients}개 거래처`}
+              tone="danger"
+              icon={AlertCircle}
+            />
+            <SummaryCard
+              title="거래처"
+              value={`${clientSummaryTotals.clients}곳`}
+              sub={`전표 ${clientSummaryTotals.count}건`}
+              icon={CreditCard}
+            />
           </div>
 
           <Card className="rounded-xl border-slate-200/80 shadow-sm">
@@ -789,12 +1125,46 @@ export function PaymentReceivablesPage({
       )}
 
       {tab === "history" && (
+        <>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <SummaryCard
+              title="입금 건수"
+              value={`${historyTotals.count}건`}
+              sub={`${filters.startDate || "전체"} ~ ${filters.endDate || "전체"} · 거래일 기준`}
+              icon={WalletCards}
+            />
+            <SummaryCard
+              title="입금액"
+              value={formatKRW(historyTotals.amount)}
+              sub="공급가액 합계"
+              tone="success"
+              icon={CheckCircle2}
+            />
+            <SummaryCard
+              title="부가세 입금"
+              value={formatKRW(historyTotals.vat)}
+              sub={
+                historyTotals.vatCount
+                  ? `${historyTotals.vatCount}건 · 최종 ${formatKRW(historyTotals.vatFinal)}`
+                  : "부가세 포함 입금 없음"
+              }
+              tone={historyTotals.vat > 0 ? "warning" : "default"}
+              icon={CreditCard}
+            />
+            <SummaryCard
+              title="최종 입금"
+              value={formatKRW(historyTotals.final)}
+              sub="입금액 + 부가세"
+              icon={CreditCard}
+            />
+          </div>
+
         <Card className="rounded-xl border-slate-200/80 shadow-sm">
           <CardContent className="p-3 md:p-4">
             <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <h2 className="text-sm font-bold text-slate-800">입금 내역</h2>
-                <p className="text-xs text-slate-500">등록된 입금전표 조회 · 삭제</p>
+                <p className="text-xs text-slate-500">거래일(매출일) 기준 조회 · 입금일·삭제</p>
               </div>
               <SearchBox query={historyQuery} setQuery={setHistoryQuery} placeholder="입금내역 검색" />
             </div>
@@ -814,6 +1184,7 @@ export function PaymentReceivablesPage({
                 </colgroup>
                 <thead>
                   <tr>
+                    <th className="text-left">거래일</th>
                     <th className="text-left">입금일</th>
                     <th className="text-left">거래처</th>
                     <th className="text-left">현장</th>
@@ -828,6 +1199,7 @@ export function PaymentReceivablesPage({
                 <tbody>
                   {filteredVouchers.map((voucher) => (
                     <tr key={voucher.id}>
+                      <td className="font-medium text-slate-800">{getVoucherSaleDate(voucher) || "-"}</td>
                       <td className="text-slate-600">{voucher.date}</td>
                       <td className="erp-cell-clip text-left font-semibold" title={voucher.client}>{voucher.client}</td>
                       <td className="erp-cell-clip text-left text-slate-600" title={voucher.site || ""}>{voucher.site || "-"}</td>
@@ -847,13 +1219,207 @@ export function PaymentReceivablesPage({
                     </tr>
                   ))}
                 </tbody>
+                {filteredVouchers.length > 0 && (
+                  <tfoot>
+                    <tr>
+                      <td colSpan={4} className="text-left">
+                        총합계 {historyTotals.count}건
+                        <span className="erp-text-caption ml-2 font-normal text-slate-500">거래일 기준 · 시공비는 매출 참고값</span>
+                      </td>
+                      <td className="text-right">{formatKRW(historyTotals.bill)}</td>
+                      <td className="text-right text-emerald-600">{formatKRW(historyTotals.amount)}</td>
+                      <td className="text-center text-slate-500">{formatKRW(historyTotals.vat)}</td>
+                      <td className="text-right text-emerald-700">{formatKRW(historyTotals.final)}</td>
+                      <td colSpan={2} />
+                    </tr>
+                  </tfoot>
+                )}
               </table>
               {filteredVouchers.length === 0 && <div className="erp-payment-empty">등록된 입금내역이 없습니다.</div>}
             </div>
             </TableExportSection>
           </CardContent>
         </Card>
+        </>
+      )}
+
+      {tab === "log" && (
+        <>
+        <Card className="rounded-xl border-slate-200/80 shadow-sm">
+          <CardContent className="p-3 md:p-4">
+            <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h2 className="text-sm font-bold text-slate-800">입금로그</h2>
+                <p className="text-xs text-slate-500">행 클릭 → 해당 저장 건의 입금 내역 표시</p>
+              </div>
+              <SearchBox query={logQuery} setQuery={setLogQuery} placeholder="입금로그 검색" />
+            </div>
+            <TableExportSection fileName="입금로그" title="입금로그" disabled={filteredPaymentInputLogSummaries.length === 0}>
+              <div className="erp-table-wrap">
+                <table className="erp-table">
+                  <thead className="bg-slate-100 text-slate-600">
+                    <tr>
+                      <th className="text-left">입금일자</th>
+                      <th className="text-left">거래처명</th>
+                      <th className="text-right">총합</th>
+                      <th className="text-right">공급가</th>
+                      <th className="text-right">VAT</th>
+                      <th className="text-left">저장일시</th>
+                      <th className="text-left">로그기록</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredPaymentInputLogSummaries.map((row) => (
+                      <tr
+                        key={row.id}
+                        className={`cursor-pointer border-t hover:bg-sky-50 ${selectedLogSummaryId === row.id ? "bg-sky-50" : ""}`}
+                        onClick={() => setSelectedLogSummaryId((prev) => (prev === row.id ? null : row.id))}
+                      >
+                        <td className="text-slate-700">{row.paymentDate}</td>
+                        <td className="text-left font-semibold">{row.clientLabel}</td>
+                        <td className="text-right font-bold text-emerald-700">{formatKRW(row.totalAmount)}</td>
+                        <td className="text-right font-semibold text-emerald-600">{formatKRW(row.supplyAmount)}</td>
+                        <td className="text-right text-slate-600">{formatKRW(row.vatAmount)}</td>
+                        <td className="text-slate-500">{row.createdAt ? row.createdAt.replace("T", " ").slice(0, 16) : "-"}</td>
+                        <td className="text-left text-slate-600">{formatPaymentInputLogRecord(row)}</td>
+                      </tr>
+                    ))}
+                    {filteredPaymentInputLogSummaries.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="p-8 text-center text-slate-500">
+                          입금로그가 없습니다. 입금 입력에서 선택 입금 저장 시 기록됩니다.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </TableExportSection>
+          </CardContent>
+        </Card>
+
+        {selectedLogSummary && (
+          <Card className="rounded-xl border-sky-200/80 shadow-sm">
+            <CardContent className="p-3 md:p-4">
+              <div className="mb-3">
+                <h2 className="text-sm font-bold text-slate-800">입금 내역</h2>
+                <p className="text-xs text-slate-500">
+                  {formatPaymentInputLogRecord(selectedLogSummary)} · {selectedLogSummary.paymentDate}
+                </p>
+              </div>
+              <TableExportSection
+                fileName={`입금로그_내역_${selectedLogSummary.paymentDate}`}
+                title="입금로그 상세 입금내역"
+                disabled={selectedLogVouchers.length === 0}
+              >
+                <div className="erp-payment-table-wrap">
+                  <table className="erp-payment-table erp-payment-table--history">
+                    <colgroup>
+                      <col className="col-date" />
+                      <col className="col-date" />
+                      <col className="col-client" />
+                      <col className="col-site" />
+                      <col className="col-money" />
+                      <col className="col-money" />
+                      <col className="col-vat" />
+                      <col className="col-money" />
+                      <col className="col-memo" />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th className="text-left">거래일</th>
+                        <th className="text-left">입금일</th>
+                        <th className="text-left">거래처</th>
+                        <th className="text-left">현장</th>
+                        <th className="text-right">시공비</th>
+                        <th className="text-right">입금액</th>
+                        <th className="text-center">VAT</th>
+                        <th className="text-right">최종</th>
+                        <th className="text-left">비고</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedLogVouchers.map((voucher) => (
+                        <tr key={voucher.id}>
+                          <td className="font-medium text-slate-800">{getVoucherSaleDate(voucher) || "-"}</td>
+                          <td className="text-slate-600">{voucher.date}</td>
+                          <td className="erp-cell-clip text-left font-semibold" title={voucher.client}>{voucher.client}</td>
+                          <td className="erp-cell-clip text-left text-slate-600" title={voucher.site || ""}>{voucher.site || "-"}</td>
+                          <td className="text-right">{formatKRW(voucher.totalSalesAmount || 0)}</td>
+                          <td className="text-right font-semibold text-emerald-600">{formatKRW(voucher.amount || 0)}</td>
+                          <td className="text-center text-slate-600">{voucher.vatType === "excluded" ? "별도" : "포함"}</td>
+                          <td className="text-right font-bold text-emerald-700">{formatKRW(voucher.finalAmount ?? voucher.amount ?? 0)}</td>
+                          <td className="erp-cell-clip text-slate-600" title={voucher.memo || ""}>{voucher.memo || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    {selectedLogVouchers.length > 0 && (
+                      <tfoot>
+                        <tr>
+                          <td colSpan={4} className="text-left">총합계 {selectedLogVoucherTotals.count}건</td>
+                          <td className="text-right">{formatKRW(selectedLogVoucherTotals.bill)}</td>
+                          <td className="text-right text-emerald-600">{formatKRW(selectedLogVoucherTotals.amount)}</td>
+                          <td className="text-center text-slate-500">{formatKRW(selectedLogVoucherTotals.vat)}</td>
+                          <td className="text-right text-emerald-700">{formatKRW(selectedLogVoucherTotals.final)}</td>
+                          <td />
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                  {selectedLogVouchers.length === 0 && (
+                    <div className="erp-payment-empty">
+                      연결된 입금 전표를 찾을 수 없습니다. 입금 내역에서 삭제되었거나 로그만 남아 있을 수 있습니다.
+                    </div>
+                  )}
+                </div>
+              </TableExportSection>
+            </CardContent>
+          </Card>
+        )}
+        </>
       )}
     </div>
+  );
+}
+
+function SummaryCard({
+  title,
+  value,
+  sub,
+  tone = "default",
+  icon: Icon,
+  compact = false,
+}: {
+  title: string;
+  value: string;
+  sub: string;
+  tone?: "default" | "success" | "danger" | "warning";
+  icon: React.ComponentType<{ size?: number }>;
+  compact?: boolean;
+}) {
+  const toneClass =
+    tone === "success"
+      ? "text-emerald-600"
+      : tone === "danger"
+        ? "text-red-600"
+        : tone === "warning"
+          ? "text-amber-600"
+          : "text-slate-950";
+
+  return (
+    <Card className={`erp-summary-card ${compact ? "erp-summary-card--compact" : ""} rounded-2xl shadow-sm`}>
+      <CardContent className={compact ? "p-2.5 md:p-3" : "p-4 md:p-5"}>
+        <div className="flex items-start justify-between gap-2 md:gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="erp-text-caption font-bold text-slate-500">{title}</div>
+            <div className={`${compact ? "erp-text-stat" : "erp-text-title"} ${compact ? "mt-0.5" : "mt-1"} font-black ${toneClass}`}>{value}</div>
+            <div className={`erp-text-caption ${compact ? "mt-0.5" : "mt-1"} text-slate-500`}>{sub}</div>
+          </div>
+          <div className={`shrink-0 bg-slate-100 text-slate-600 ${compact ? "rounded-lg p-1.5" : "rounded-2xl p-3"}`}>
+            <Icon size={compact ? 16 : 20} />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

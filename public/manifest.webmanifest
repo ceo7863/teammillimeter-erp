@@ -1,0 +1,26 @@
+{
+  "name": "TeamMillimeter ERP",
+  "short_name": "TM ERP",
+  "description": "\uD300\uBC00\uB9AC\uBBF8\uD130 \uC5C5\uBB34 \uAD00\uB9AC ERP",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "lang": "ko",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

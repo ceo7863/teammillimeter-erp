@@ -1,0 +1,87 @@
+import React, { useMemo, useRef } from "react";
+import { WorkerStatementSheet } from "@/components/WorkerStatementSheet";
+import { TableExportToolbar } from "@/components/TableExportSection";
+import { dedupeStatementRowMemos } from "@/utils/statementSheets";
+import { formatMonthLabel } from "@/utils/workerMonthlyPayments";
+import {
+  buildWorkerStatementSummary,
+  type WorkerMasterLike,
+  type WorkerPaymentDetailRow,
+} from "@/utils/workerPayments";
+
+function getMonthEndISO(monthKey: string) {
+  const match = /^(\d{4})-(\d{2})$/.exec(String(monthKey || ""));
+  if (!match) return monthKey;
+  const date = new Date(Number(match[1]), Number(match[2]), 0);
+  return `${monthKey}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function buildStatementTotals(rows: WorkerPaymentDetailRow[]) {
+  return rows.reduce(
+    (acc, row) => {
+      acc.count += 1;
+      acc.basePay += row.basePay || 0;
+      acc.overtime += row.overtime || 0;
+      acc.lodging += row.lodging || 0;
+      acc.meal += row.meal || 0;
+      acc.expense += row.expense || 0;
+      acc.totalPay += row.totalPay || 0;
+      return acc;
+    },
+    { count: 0, basePay: 0, overtime: 0, lodging: 0, meal: 0, expense: 0, totalPay: 0 },
+  );
+}
+
+export function WorkerMonthlyStatementExport({
+  worker,
+  monthKey,
+  rows,
+  workerInfo = {},
+}: {
+  worker: string;
+  monthKey: string;
+  rows: WorkerPaymentDetailRow[];
+  workerInfo?: WorkerMasterLike;
+}) {
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const periodStart = `${monthKey}-01`;
+  const periodEnd = getMonthEndISO(monthKey);
+  const displayRows = useMemo(() => dedupeStatementRowMemos(rows), [rows]);
+  const summary = useMemo(() => buildWorkerStatementSummary(rows, workerInfo), [rows, workerInfo]);
+  const totals = useMemo(() => buildStatementTotals(rows), [rows]);
+  const safeName = worker.replace(/[\\/:*?"<>|]/g, "_");
+  const fileName = `시공내역서_시공자_${safeName}_${monthKey}`;
+  const title = `${formatMonthLabel(monthKey)} ${worker} 시공내역서`;
+
+  return (
+    <div className="erp-worker-month-statement-export">
+      <div className="erp-worker-month-statement-host" aria-hidden="true">
+        <WorkerStatementSheet
+          ref={sheetRef}
+          workerName={worker}
+          workerInfo={workerInfo}
+          periodStart={periodStart}
+          periodEnd={periodEnd}
+          summary={summary}
+          rows={displayRows}
+          totals={totals}
+          emptyMessage="표시할 시공자 내역이 없습니다."
+        />
+      </div>
+      <TableExportToolbar
+        className="erp-worker-month-statement-toolbar"
+        getTable={() => sheetRef.current?.querySelector(".excel-data-table") as HTMLTableElement | null}
+        getExportRoot={() => sheetRef.current}
+        fileName={fileName}
+        title={title}
+        disabled={rows.length === 0}
+        pdfArchiveMeta={{
+          category: "statement-worker",
+          subjectName: worker,
+          periodStart,
+          periodEnd,
+        }}
+      />
+    </div>
+  );
+}

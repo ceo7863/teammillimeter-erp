@@ -1,9 +1,8 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { StatementFillerRows } from "@/components/StatementFillerRows";
 import { StatementFitCell, StatementFitTd } from "@/components/StatementFitCell";
 import { StatementSheetFooter, StatementSheetHeader } from "@/components/StatementBrand";
 import {
-  COMPANY_BANK_ACCOUNT,
   type ClientMasterLike,
   type ClientStatementDisplayRow,
   type ClientStatementSummary,
@@ -11,12 +10,15 @@ import {
   groupClientStatementDisplayRows,
   isClientStatementWorkerDetailRow,
 } from "@/utils/statementSheets";
+import { DEFAULT_COMPANY_PROFILE, resolveStatementBankAccount, type CompanyProfile } from "@/utils/companyProfile";
 import { getStatementFillerRowCount } from "@/utils/statementSheetLayout";
+import { buildClientStatementExcelPayload, serializeStatementExcelPayload } from "@/utils/statementExcel";
 import { formatKRW, formatStatementDashAmount, formatStatementDate } from "@/utils/workerPayments";
 
 type ClientStatementSheetProps = {
   clientName: string;
   clientInfo?: ClientMasterLike;
+  companyProfile?: CompanyProfile;
   periodStart?: string;
   periodEnd?: string;
   summary: ClientStatementSummary;
@@ -72,6 +74,7 @@ export const ClientStatementSheet = React.forwardRef<HTMLDivElement, ClientState
   {
     clientName,
     clientInfo = {},
+    companyProfile,
     periodStart = "",
     periodEnd = "",
     summary,
@@ -86,10 +89,31 @@ export const ClientStatementSheet = React.forwardRef<HTMLDivElement, ClientState
   const fillerRowCount = getStatementFillerRowCount(hasRows ? visibleBodyRows : 1);
   const clientDataColumnCount = 10;
   const rowGroups = groupClientStatementDisplayRows(rows);
+  const bankAccount = resolveStatementBankAccount(companyProfile || DEFAULT_COMPANY_PROFILE, clientInfo.vat);
+  const excelPayload = useMemo(
+    () =>
+      buildClientStatementExcelPayload({
+        clientName,
+        clientInfo,
+        companyProfile,
+        periodStart,
+        periodEnd,
+        summary,
+        rows,
+        emptyMessage,
+      }),
+    [clientInfo, clientName, companyProfile, emptyMessage, periodEnd, periodStart, rows, summary]
+  );
 
   return (
-    <div ref={ref} data-pdf-export-root className={`erp-statement-sheet ${className}`.trim()}>
-      <StatementSheetHeader title="시 공 비 내 역 서" />
+    <div
+      ref={ref}
+      data-pdf-export-root
+      data-statement-kind="client"
+      data-statement-excel={serializeStatementExcelPayload(excelPayload)}
+      className={`erp-statement-sheet ${className}`.trim()}
+    >
+      <StatementSheetHeader title="시 공 비 내 역 서" companyProfile={companyProfile} />
 
       <div className="excel-client-recipient">
         <span>{clientName || "거래처"}</span>
@@ -110,7 +134,7 @@ export const ClientStatementSheet = React.forwardRef<HTMLDivElement, ClientState
             <td className="label">사업자번호</td>
             <td colSpan={3}>{clientInfo.businessNo || ""}</td>
             <td className="label">계좌정보</td>
-            <td>{COMPANY_BANK_ACCOUNT}</td>
+            <td>{bankAccount}</td>
           </tr>
           <tr>
             <td className="label">담당자</td>
@@ -251,7 +275,7 @@ export const ClientStatementSheet = React.forwardRef<HTMLDivElement, ClientState
         </table>
       </div>
 
-      <StatementSheetFooter />
+      <StatementSheetFooter companyProfile={companyProfile} />
     </div>
   );
 });

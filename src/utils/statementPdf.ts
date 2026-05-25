@@ -1,6 +1,19 @@
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
-import { A4_PORTRAIT_HEIGHT_PX, A4_PORTRAIT_WIDTH_PX } from "./statementSheetLayout";
+import { buildStatementExportPages } from "./statementPagination";
+import {
+  applyStatementSingleA4PageLayout,
+  cloneStatementDocument,
+  fixStatementCloneImages,
+  flattenStatementFitCells,
+  prepareStatementSheetPrintClone,
+  waitForStatementImages,
+} from "./statementDocument";
+import {
+  A4_PORTRAIT_HEIGHT_PX,
+  A4_PORTRAIT_WIDTH_PX,
+  shouldCaptureStatementAsSingleA4Page,
+} from "./statementSheetLayout";
 
 type PdfOrientation = "portrait" | "landscape";
 
@@ -9,6 +22,8 @@ export type StatementPdfOptions = {
   previewWindow?: Window | null;
   /** 내역서 DOM이면 페이지별 표 헤더 반복 */
   paginate?: boolean;
+  /** false면 다운로드/미리보기 없이 blob만 생성 */
+  deliver?: boolean;
 };
 
 export function revokePdfBlobUrl(url: string) {
@@ -78,214 +93,32 @@ export function deliverPdf(blobUrl: string, fileName: string, previewWindow?: Wi
   return { previewOpened: false };
 }
 
-function cloneNode<T extends Node>(node: T | null | undefined): T | null {
-  return node ? (node.cloneNode(true) as T) : null;
+function finalizeStatementPdf(
+  blob: Blob,
+  fileName: string,
+  pageCount: number,
+  options: StatementPdfOptions
+): { blobUrl: string; fileName: string; blob: Blob; pageCount: number; previewOpened: boolean } {
+  const blobUrl = URL.createObjectURL(blob);
+  const previewOpened =
+    options.deliver === false ? false : deliverPdf(blobUrl, fileName, options.previewWindow).previewOpened;
+  return { blobUrl, fileName, blob, pageCount, previewOpened };
 }
 
-function getStatementBodyRows(dataTable: Element | null): HTMLTableRowElement[] {
-  if (!dataTable) return [];
+async function captureStatementPage(pageElement: HTMLElement, options: { fullPage?: boolean } = {}) {
+  const width = A4_PORTRAIT_WIDTH_PX;
+  const contentHeight = Math.ceil(Math.max(pageElement.scrollHeight, pageElement.offsetHeight, A4_PORTRAIT_HEIGHT_PX));
+  const height = options.fullPage ? A4_PORTRAIT_HEIGHT_PX : contentHeight;
 
-  const rows = Array.from(dataTable.querySelectorAll("tbody tr")).filter((row) => !row.classList.contains("excel-filler-row")) as HTMLTableRowElement[];
-  const dataRows = rows.filter((row) => !row.querySelector(".excel-empty-cell"));
-  if (dataRows.length) return dataRows;
-
-  const emptyRow = rows.find((row) => row.querySelector(".excel-empty-cell"));
-  return emptyRow ? [emptyRow] : [];
-}
-
-function createMeasureHost(): HTMLElement {
-  const host = document.createElement("div");
-  host.style.position = "fixed";
-  host.style.left = "-12000px";
-  host.style.top = "0";
-  host.style.width = `${A4_PORTRAIT_WIDTH_PX}px`;
-  host.style.pointerEvents = "none";
-  host.style.visibility = "hidden";
-  document.body.appendChild(host);
-  return host;
-}
-
-function buildStatementPageElement(
-  source: HTMLElement,
-  options: {
-    showFullHeader: boolean;
-    bodyRows: HTMLTableRowElement[];
-    showTableFooter: boolean;
-  }
-) {
-  const sheet = document.createElement("div");
-  sheet.className = `erp-statement-sheet is-pdf-capture ${options.showFullHeader ? "is-pdf-first-page" : "is-pdf-continuation-page"}`.trim();
-  sheet.style.width = `${A4_PORTRAIT_WIDTH_PX}px`;
-  sheet.style.minHeight = "auto";
-  sheet.style.boxShadow = "none";
-
-  const header = cloneNode(source.querySelector(".excel-sheet-header"));
-  if (header) {
-    sheet.appendChild(header);
-  } else {
-    const title = cloneNode(source.querySelector(".excel-sheet-title"));
-    if (title) sheet.appendChild(title);
-  }
-
-  if (options.showFullHeader) {
-    const recipient = cloneNode(source.querySelector(".excel-client-recipient"));
-    const metaTable = cloneNode(source.querySelector(".excel-header-table"));
-    if (recipient) sheet.appendChild(recipient);
-    if (metaTable) sheet.appendChild(metaTable);
-  } else {
-    const recipient = cloneNode(source.querySelector(".excel-client-recipient"));
-    if (recipient) sheet.appendChild(recipient);
-    const continuation = document.createElement("div");
-    continuation.className = "excel-pdf-continuation-note";
-    continuation.textContent = "아래 내역 계속";
-    sheet.appendChild(continuation);
-  }
-
-  const sourceTable = source.querySelector(".excel-data-table");
-  const colgroup = cloneNode(sourceTable?.querySelector("colgroup"));
-  const thead = cloneNode(sourceTable?.querySelector("thead"));
-  const tfoot = cloneNode(sourceTable?.querySelector("tfoot"));
-
-  const tableShell = document.createElement("div");
-  tableShell.className = "excel-data-table-shell";
-  const table = document.createElement("table");
-  table.className = "excel-data-table";
-  if (colgroup) table.appendChild(colgroup);
-  if (thead) table.appendChild(thead);
-  const tbody = document.createElement("tbody");
-  options.bodyRows.forEach((row) => tbody.appendChild(row.cloneNode(true)));
-  table.appendChild(tbody);
-  if (options.showTableFooter && tfoot) table.appendChild(tfoot);
-  tableShell.appendChild(table);
-  sheet.appendChild(tableShell);
-
-  if (options.showTableFooter) {
-    const brand = cloneNode(source.querySelector(".excel-footer-brand"));
-    if (brand) sheet.appendChild(brand);
-  }
-
-  return sheet;
-}
-
-function measurePageHeight(host: HTMLElement, pageElement: HTMLElement) {
-  host.replaceChildren(pageElement);
-  return pageElement.getBoundingClientRect().height;
-}
-
-function splitBodyRowsIntoGroups(rows: HTMLTableRowElement[]): HTMLTableRowElement[][] {
-  const groups: HTMLTableRowElement[][] = [];
-  let current: HTMLTableRowElement[] = [];
-
-  rows.forEach((row) => {
-    if (!row.classList.contains("excel-worker-sub-row") && current.length > 0) {
-      groups.push(current);
-      current = [];
-    }
-    current.push(row);
-  });
-
-  if (current.length) groups.push(current);
-  return groups;
-}
-
-function fixRowspanForChunk(rows: HTMLTableRowElement[]) {
-  const clones = rows.map((row) => row.cloneNode(true) as HTMLTableRowElement);
-  const siteRowIndex = clones.findIndex((row) => !row.classList.contains("excel-worker-sub-row"));
-
-  if (siteRowIndex >= 0) {
-    const siteRow = clones[siteRowIndex];
-    const dateCell = siteRow.querySelector("td[rowspan], .excel-date-cell-rowspan, .excel-date-cell");
-    if (dateCell) {
-      dateCell.setAttribute("rowspan", String(clones.length - siteRowIndex));
-    }
-  }
-
-  return clones;
-}
-
-function canFitPage(
-  host: HTMLElement,
-  source: HTMLElement,
-  bodyRows: HTMLTableRowElement[],
-  showFullHeader: boolean,
-  showTableFooter: boolean
-) {
-  const page = buildStatementPageElement(source, {
-    showFullHeader,
-    bodyRows: fixRowspanForChunk(bodyRows),
-    showTableFooter,
-  });
-  return measurePageHeight(host, page) <= A4_PORTRAIT_HEIGHT_PX;
-}
-
-function paginateStatementRows(source: HTMLElement, host: HTMLElement, rows: HTMLTableRowElement[]) {
-  if (!rows.length) {
-    return [[]];
-  }
-
-  const groups = splitBodyRowsIntoGroups(rows);
-  const pages: HTMLTableRowElement[][] = [];
-  let pending: HTMLTableRowElement[] = [];
-
-  const flushPending = () => {
-    if (!pending.length) return;
-    pages.push(pending);
-    pending = [];
-  };
-
-  groups.forEach((group, groupIndex) => {
-    const isLastGroup = groupIndex === groups.length - 1;
-
-    const tryMerge = (extra: HTMLTableRowElement[], showFooter: boolean) =>
-      canFitPage(host, source, [...pending, ...extra], pages.length === 0 && pending.length === 0, showFooter);
-
-    if (tryMerge(group, isLastGroup && pending.length + group.length === rows.length)) {
-      pending.push(...group);
-      return;
-    }
-
-    flushPending();
-
-    if (canFitPage(host, source, group, pages.length === 0, isLastGroup)) {
-      pending = [...group];
-      return;
-    }
-
-    let offset = 0;
-    while (offset < group.length) {
-      let bestCount = 1;
-
-      for (let tryCount = 1; tryCount <= group.length - offset; tryCount += 1) {
-        const slice = group.slice(offset, offset + tryCount);
-        const isLastSlice = offset + tryCount >= group.length;
-        const isLastPage = isLastGroup && isLastSlice;
-        const showFullHeader = pages.length === 0 && offset === 0;
-
-        if (canFitPage(host, source, slice, showFullHeader, isLastPage)) {
-          bestCount = tryCount;
-        } else {
-          break;
-        }
-      }
-
-      pages.push(group.slice(offset, offset + bestCount));
-      offset += bestCount;
-    }
-  });
-
-  flushPending();
-
-  return pages.map((pageRows) => fixRowspanForChunk(pageRows));
-}
-
-async function captureStatementPage(pageElement: HTMLElement) {
   return html2canvas(pageElement, {
-    scale: 2,
+    scale: 1.5,
     backgroundColor: "#ffffff",
     logging: false,
     useCORS: true,
-    width: A4_PORTRAIT_WIDTH_PX,
-    windowWidth: A4_PORTRAIT_WIDTH_PX,
+    width,
+    height,
+    windowWidth: width,
+    windowHeight: height,
   });
 }
 
@@ -294,61 +127,208 @@ async function downloadPaginatedStatementPdf(
   fileName: string,
   options: StatementPdfOptions = {}
 ): Promise<{ blobUrl: string; fileName: string; blob: Blob; pageCount: number; previewOpened: boolean }> {
-  const orientation = options.orientation ?? "portrait";
-  const dataTable = element.querySelector(".excel-data-table");
-  const bodyRows = getStatementBodyRows(dataTable);
-  const host = createMeasureHost();
-
-  let pageChunks: HTMLTableRowElement[][];
-  try {
-    pageChunks = paginateStatementRows(element, host, bodyRows);
-  } finally {
-    host.remove();
-  }
-
+  const orientation: PdfOrientation = "portrait";
+  const pages = buildStatementExportPages(element);
   const pdf = new jsPDF({ orientation, unit: "mm", format: "a4" });
-  const margin = 8;
-  const printableWidth = pdf.internal.pageSize.getWidth() - margin * 2;
-  const printableHeight = pdf.internal.pageSize.getHeight() - margin * 2;
+  const pageWidthMm = pdf.internal.pageSize.getWidth();
+  const pageHeightMm = pdf.internal.pageSize.getHeight();
 
-  for (let pageIndex = 0; pageIndex < pageChunks.length; pageIndex += 1) {
-    const isFirstPage = pageIndex === 0;
-    const isLastPage = pageIndex === pageChunks.length - 1;
-    const pageElement = buildStatementPageElement(element, {
-      showFullHeader: isFirstPage,
-      bodyRows: pageChunks[pageIndex],
-      showTableFooter: isLastPage,
-    });
-
+  for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
+    const pageElement = pages[pageIndex];
+    flattenStatementFitCells(pageElement);
+    fixStatementCloneImages(pageElement);
     pageElement.style.position = "fixed";
     pageElement.style.left = "-12000px";
     pageElement.style.top = "0";
+    pageElement.style.width = `${A4_PORTRAIT_WIDTH_PX}px`;
+    pageElement.style.minHeight = `${A4_PORTRAIT_HEIGHT_PX}px`;
+    pageElement.style.boxShadow = "none";
     document.body.appendChild(pageElement);
 
     try {
-      const canvas = await captureStatementPage(pageElement);
+      await waitForStatementImages(pageElement);
+      const canvas = await captureStatementPage(pageElement, { fullPage: true });
       const imgData = canvas.toDataURL("image/png");
-      let imgHeight = (canvas.height * printableWidth) / canvas.width;
-      let imgWidth = printableWidth;
-
-      if (imgHeight > printableHeight) {
-        const scale = printableHeight / imgHeight;
-        imgHeight = printableHeight;
-        imgWidth = printableWidth * scale;
-      }
 
       if (pageIndex > 0) pdf.addPage("a4", orientation);
-      pdf.addImage(imgData, "PNG", margin, margin, imgWidth, imgHeight);
+      pdf.addImage(imgData, "PNG", 0, 0, pageWidthMm, pageHeightMm);
     } finally {
       pageElement.remove();
     }
   }
 
   const blob = pdf.output("blob");
-  const blobUrl = URL.createObjectURL(blob);
-  const delivery = deliverPdf(blobUrl, fileName, options.previewWindow);
+  return finalizeStatementPdf(blob, fileName, pages.length || 1, options);
+}
 
-  return { blobUrl, fileName, blob, pageCount: pageChunks.length || 1, previewOpened: delivery.previewOpened };
+function createStatementExportClone(source: HTMLElement) {
+  return cloneStatementDocument(source, { forPdf: true });
+}
+
+const STATEMENT_CAPTURE_SCALE = 2;
+
+async function captureStatementExportCanvas(clone: HTMLElement) {
+  const host = document.createElement("div");
+  host.style.cssText = `position:fixed;left:-20000px;top:0;width:${A4_PORTRAIT_WIDTH_PX}px;overflow:visible;background:#fff;`;
+  host.appendChild(clone);
+  document.body.appendChild(host);
+
+  try {
+    await waitForStatementImages(clone);
+
+    const naturalHeight = Math.ceil(Math.max(clone.offsetHeight, clone.scrollHeight, A4_PORTRAIT_HEIGHT_PX));
+    const singleA4Page = shouldCaptureStatementAsSingleA4Page(naturalHeight);
+    if (singleA4Page) {
+      applyStatementSingleA4PageLayout(clone);
+    } else {
+      clone.style.width = `${A4_PORTRAIT_WIDTH_PX}px`;
+      clone.style.minWidth = `${A4_PORTRAIT_WIDTH_PX}px`;
+      clone.style.boxSizing = "border-box";
+      clone.style.boxShadow = "none";
+      clone.style.margin = "0";
+    }
+    const captureHeight = singleA4Page ? A4_PORTRAIT_HEIGHT_PX : naturalHeight;
+
+    const canvas = await html2canvas(clone, {
+      scale: STATEMENT_CAPTURE_SCALE,
+      backgroundColor: "#ffffff",
+      logging: false,
+      useCORS: true,
+      width: A4_PORTRAIT_WIDTH_PX,
+      height: captureHeight,
+      windowWidth: A4_PORTRAIT_WIDTH_PX,
+      windowHeight: captureHeight,
+    });
+    return { canvas, singleA4Page };
+  } finally {
+    host.remove();
+  }
+}
+
+function scaleCanvasToSingleA4Page(sourceCanvas: HTMLCanvasElement) {
+  const output = document.createElement("canvas");
+  output.width = A4_PORTRAIT_WIDTH_PX * STATEMENT_CAPTURE_SCALE;
+  output.height = A4_PORTRAIT_HEIGHT_PX * STATEMENT_CAPTURE_SCALE;
+  const ctx = output.getContext("2d");
+  if (!ctx) return sourceCanvas;
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, output.width, output.height);
+
+  const fitScale = Math.min(output.width / sourceCanvas.width, output.height / sourceCanvas.height);
+  const drawWidth = sourceCanvas.width * fitScale;
+  const drawHeight = sourceCanvas.height * fitScale;
+  const offsetX = (output.width - drawWidth) / 2;
+  const offsetY = (output.height - drawHeight) / 2;
+  ctx.drawImage(sourceCanvas, offsetX, offsetY, drawWidth, drawHeight);
+  return output;
+}
+
+/** Capture on-screen statement as one A4 page image (WYSIWYG, always single page). */
+export async function captureStatementPrintCanvas(root: HTMLElement) {
+  const clone = prepareStatementSheetPrintClone(root);
+  const host = document.createElement("div");
+  host.style.cssText = `position:fixed;left:-20000px;top:0;width:${A4_PORTRAIT_WIDTH_PX}px;overflow:visible;background:#fff;`;
+  host.appendChild(clone);
+  document.body.appendChild(host);
+
+  try {
+    await waitForStatementImages(clone);
+
+    const naturalHeight = Math.ceil(Math.max(clone.offsetHeight, clone.scrollHeight, A4_PORTRAIT_HEIGHT_PX));
+    const fitsSinglePage = shouldCaptureStatementAsSingleA4Page(naturalHeight);
+
+    if (fitsSinglePage) {
+      applyStatementSingleA4PageLayout(clone);
+      return html2canvas(clone, {
+        scale: STATEMENT_CAPTURE_SCALE,
+        backgroundColor: "#ffffff",
+        logging: false,
+        useCORS: true,
+        width: A4_PORTRAIT_WIDTH_PX,
+        height: A4_PORTRAIT_HEIGHT_PX,
+        windowWidth: A4_PORTRAIT_WIDTH_PX,
+        windowHeight: A4_PORTRAIT_HEIGHT_PX,
+      });
+    }
+
+    const sourceCanvas = await html2canvas(clone, {
+      scale: STATEMENT_CAPTURE_SCALE,
+      backgroundColor: "#ffffff",
+      logging: false,
+      useCORS: true,
+      width: A4_PORTRAIT_WIDTH_PX,
+      height: naturalHeight,
+      windowWidth: A4_PORTRAIT_WIDTH_PX,
+      windowHeight: naturalHeight,
+    });
+    return scaleCanvasToSingleA4Page(sourceCanvas);
+  } finally {
+    host.remove();
+  }
+}
+
+function addCanvasPagesToPdf(
+  pdf: jsPDF,
+  canvas: HTMLCanvasElement,
+  orientation: PdfOrientation,
+  options: { singleA4Page?: boolean } = {}
+) {
+  const pageWidthMm = pdf.internal.pageSize.getWidth();
+  const pageHeightMm = pdf.internal.pageSize.getHeight();
+  const imgData = canvas.toDataURL("image/png");
+  const renderWidthMm = pageWidthMm;
+  const renderHeightMm = (canvas.height / canvas.width) * renderWidthMm;
+
+  if (options.singleA4Page || renderHeightMm <= pageHeightMm + 0.5) {
+    pdf.addImage(imgData, "PNG", 0, 0, renderWidthMm, pageHeightMm);
+    return 1;
+  }
+
+  const fitScale = pageHeightMm / renderHeightMm;
+  if (fitScale >= 0.88) {
+    pdf.addImage(imgData, "PNG", 0, 0, renderWidthMm * fitScale, pageHeightMm);
+    return 1;
+  }
+
+  let pageIndex = 0;
+  let offsetMm = 0;
+
+  while (offsetMm < renderHeightMm - 0.5) {
+    if (pageIndex > 0) pdf.addPage("a4", orientation);
+    pdf.addImage(imgData, "PNG", 0, -offsetMm, renderWidthMm, renderHeightMm);
+    offsetMm += pageHeightMm;
+    pageIndex += 1;
+  }
+
+  return pageIndex;
+}
+
+async function downloadStatementWysiwygPdf(
+  element: HTMLElement,
+  fileName: string,
+  options: StatementPdfOptions = {}
+): Promise<{ blobUrl: string; fileName: string; blob: Blob; pageCount: number; previewOpened: boolean }> {
+  const orientation = options.orientation ?? "portrait";
+  const clone = createStatementExportClone(element);
+  const { canvas, singleA4Page } = await captureStatementExportCanvas(clone);
+  const pdf = new jsPDF({ orientation, unit: "mm", format: "a4" });
+  const pageCount = addCanvasPagesToPdf(pdf, canvas, orientation, { singleA4Page });
+
+  const blob = pdf.output("blob");
+  return finalizeStatementPdf(blob, fileName, pageCount, options);
+}
+
+function prepareStatementDomForCapture(root: HTMLElement) {
+  root.style.position = "static";
+  root.style.left = "auto";
+  root.style.top = "auto";
+  root.style.zIndex = "auto";
+  root.style.width = `${A4_PORTRAIT_WIDTH_PX}px`;
+  root.style.minWidth = `${A4_PORTRAIT_WIDTH_PX}px`;
+  root.style.boxShadow = "none";
+  root.classList.add("is-pdf-export");
+  flattenStatementFitCells(root);
 }
 
 async function downloadFlatStatementPdf(
@@ -356,21 +336,22 @@ async function downloadFlatStatementPdf(
   fileName: string,
   options: StatementPdfOptions = {}
 ): Promise<{ blobUrl: string; fileName: string; blob: Blob; pageCount: number; previewOpened: boolean }> {
-  const orientation = options.orientation ?? "landscape";
+  const isStatement = element.matches("[data-pdf-export-root]");
+  const orientation = options.orientation ?? (isStatement ? "portrait" : "landscape");
+
+  await waitForStatementImages(element);
 
   const canvas = await html2canvas(element, {
-    scale: 2,
+    scale: 1.5,
     backgroundColor: "#ffffff",
     logging: false,
     useCORS: true,
+    width: isStatement ? A4_PORTRAIT_WIDTH_PX : undefined,
+    windowWidth: isStatement ? A4_PORTRAIT_WIDTH_PX : undefined,
     onclone: (clonedDoc) => {
       const cloned = clonedDoc.querySelector("[data-pdf-export-root]") as HTMLElement | null;
       if (cloned) {
-        cloned.style.position = "static";
-        cloned.style.left = "auto";
-        cloned.style.top = "auto";
-        cloned.style.zIndex = "auto";
-        cloned.classList.add("is-pdf-capture");
+        prepareStatementDomForCapture(cloned);
       }
     },
   });
@@ -395,22 +376,20 @@ async function downloadFlatStatementPdf(
   }
 
   const blob = pdf.output("blob");
-  const blobUrl = URL.createObjectURL(blob);
-  const delivery = deliverPdf(blobUrl, fileName, options.previewWindow);
-
-  return { blobUrl, fileName, blob, pageCount: pageIndex, previewOpened: delivery.previewOpened };
+  return finalizeStatementPdf(blob, fileName, pageIndex, options);
 }
 
-/** DOM 내역서 → A4 PDF (내역서는 페이지별 표 제목·헤더 반복) */
+/** DOM 내역서 → A4 PDF (기본: 화면과 동일 DOM, A4 세로 자동 분할) */
 export async function downloadPdfFromHtmlElement(
   element: HTMLElement,
   fileName: string,
   options: StatementPdfOptions = {}
 ): Promise<{ blobUrl: string; fileName: string; blob: Blob; pageCount: number; previewOpened: boolean }> {
-  const usePagination = options.paginate !== false && element.matches("[data-pdf-export-root]");
-
-  if (usePagination) {
-    return downloadPaginatedStatementPdf(element, fileName, options);
+  if (element.matches("[data-pdf-export-root]")) {
+    if (options.paginate === true) {
+      return downloadPaginatedStatementPdf(element, fileName, options);
+    }
+    return downloadStatementWysiwygPdf(element, fileName, options);
   }
 
   return downloadFlatStatementPdf(element, fileName, options);
