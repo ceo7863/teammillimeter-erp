@@ -790,23 +790,20 @@ export function ClientCalendarPage({
                 <FileText size={16} className="mr-1.5" />
                 시공비내역서 생성
               </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="rounded-xl"
+                onClick={openPaymentConfirm}
+                disabled={!client || !selectedDates.length}
+              >
+                <CreditCard size={16} className="mr-1.5" />
+                입금처리
+              </Button>
             </div>
           </div>
         </CardContent>
       </Card>
-      </div>
-
-      <div className="erp-client-calendar-pay-fab">
-        <Button
-          type="button"
-          size="sm"
-          className="rounded-xl shadow-md"
-          onClick={openPaymentConfirm}
-          disabled={!client || !selectedDates.length}
-        >
-          <CreditCard size={16} className="mr-1.5" />
-          입금처리
-        </Button>
       </div>
     </div>
   );

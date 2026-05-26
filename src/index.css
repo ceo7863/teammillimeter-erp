@@ -1340,19 +1340,6 @@ textarea {
   justify-content: flex-end;
 }
 
-.erp-client-calendar-pay-fab {
-  position: fixed;
-  left: max(1rem, env(safe-area-inset-left, 0px));
-  bottom: max(1rem, env(safe-area-inset-bottom, 0px));
-  z-index: 35;
-}
-
-@media (min-width: 1024px) {
-  .erp-client-calendar-pay-fab {
-    left: calc(17.5rem + 1rem);
-  }
-}
-
 .erp-client-calendar-payment-modal {
   max-width: 24rem;
 }
