@@ -499,7 +499,7 @@ export function ClientCalendarPage({
 
     stashStatementDraft(draft);
     onRequestClientStatement?.(draft);
-    showNotice(`${selectedDates.length}일 · 시공비내역서를 생성하고 PDF를 보관함에 저장합니다.`);
+    showNotice(`${selectedDates.length}일 · 시공비내역서 생성 화면으로 이동합니다.`);
   };
 
   const openPaymentConfirm = () => {

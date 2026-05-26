@@ -4238,32 +4238,6 @@ textarea {
   color: #334155;
 }
 
-.erp-statement-pdf-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  font-size: 0.8125rem;
-  font-weight: 700;
-  color: #2563eb;
-  text-decoration: underline;
-  text-underline-offset: 0.15rem;
-  cursor: pointer;
-  word-break: break-all;
-}
-
-.erp-statement-pdf-link:hover {
-  color: #1d4ed8;
-}
-
-.erp-statement-pdf-link-btn {
-  border-color: #bfdbfe;
-  color: #1d4ed8;
-}
-
 .erp-statement-preview-wrap {
   overflow: auto;
   padding: 1.5rem;

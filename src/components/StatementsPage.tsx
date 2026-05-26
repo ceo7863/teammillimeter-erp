@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, Download, ExternalLink, Eye, FileText, Files, FolderInput, History, RotateCcw, Search, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, Eye, FileText, Files, FolderInput, History, RotateCcw, Search, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ClientStatementSheet } from "@/components/ClientStatementSheet";
@@ -144,8 +144,6 @@ const L = {
   detail: "\uC0C1\uC138",
   pdfGenerating: "PDF \uC0DD\uC131 \uC911...",
   pdfGenerate: "PDF \uC0DD\uC131",
-  pdfOpenLink: "PDF \uC5F4\uAE30",
-  pdfArchivedHint: "PDF\uAC00 \uBCF4\uAD00\uD568\uC5D0 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uC544\uB798 \uB9C1\uD06C\uB97C \uB20C\uB7EC \uC5F4\uAC70\uB098 \uB2E4\uC6B4\uB85C\uB4DC\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
   shareKakao: "\uCE74\uD1A1",
   shareKakaoPreparing: "\uCE74\uD1A1 \uBCF4\uB0B4\uAE30 \uC900\uBE44 \uC911...",
   count: "\uAC74\uC218",
@@ -321,7 +319,6 @@ export function StatementsPage({
   const [clientStatementView, setClientStatementView] = useState<"summary" | "detail">("summary");
   const [pdfMessage, setPdfMessage] = useState("");
   const [pdfGenerating, setPdfGenerating] = useState(false);
-  const [clientPdfLink, setClientPdfLink] = useState<{ archiveId: string; fileName: string } | null>(null);
   const pdfBlobUrlRef = useRef("");
   const restoringHistoryRef = useRef(false);
   const [client, setClient] = useState("");
@@ -342,9 +339,7 @@ export function StatementsPage({
   const restrictedSaleIdsRef = useRef<Array<string | number>>([]);
   const appliedDraftTokenRef = useRef("");
   const autoGeneratePendingRef = useRef(false);
-  const autoGeneratePdfPendingRef = useRef(false);
   const [autoGenerateTick, setAutoGenerateTick] = useState(0);
-  const [autoGeneratePdfTick, setAutoGeneratePdfTick] = useState(0);
   const onDraftConsumedRef = useRef(onDraftConsumed);
   onDraftConsumedRef.current = onDraftConsumed;
   const clientPrintRef = useRef<HTMLDivElement>(null);
@@ -380,7 +375,6 @@ export function StatementsPage({
     setActivePageTab("create");
     setStatementHint("");
     setPdfMessage("");
-    setClientPdfLink(null);
     setStatementType("client");
     setClient(incoming.client);
     setDateFilter({ startDate: incoming.startDate, endDate: incoming.endDate });
@@ -389,7 +383,6 @@ export function StatementsPage({
     setWorkerStatementGenerated(false);
     setClientStatementGenerated(false);
     autoGeneratePendingRef.current = Boolean(incoming.autoGenerate);
-    autoGeneratePdfPendingRef.current = Boolean(incoming.autoGeneratePdf);
 
     window.setTimeout(() => {
       restoringHistoryRef.current = false;
@@ -418,7 +411,6 @@ export function StatementsPage({
     setClientStatementGenerated(false);
     setStatementHint("");
     setPdfMessage("");
-    setClientPdfLink(null);
   }, [client, dateFilter.startDate, dateFilter.endDate, unpaidOnly]);
 
   useEffect(() => {
@@ -426,13 +418,11 @@ export function StatementsPage({
     setWorkerStatementGenerated(false);
     setStatementHint("");
     setPdfMessage("");
-    setClientPdfLink(null);
   }, [worker, dateFilter.startDate, dateFilter.endDate]);
 
   useEffect(() => {
     setStatementHint("");
     setPdfMessage("");
-    setClientPdfLink(null);
   }, [statementType]);
 
   const hasClientSelection = Boolean(client && client !== "\uC804\uCCB4");
@@ -644,26 +634,11 @@ export function StatementsPage({
 
     setStatementHint(shouldFilterUnpaid ? L.unpaidOnlyHint(rows.length) : "");
     setPdfMessage("");
-    setClientPdfLink(null);
     setClientStatementGenerated(true);
     recordGenerationLog("client", client, rows.length);
     clearStatementDraftStash();
     onDraftConsumedRef.current?.();
-    if (autoGeneratePdfPendingRef.current) {
-      autoGeneratePdfPendingRef.current = false;
-      setAutoGeneratePdfTick((tick) => tick + 1);
-    }
   }, [autoGenerateTick]);
-
-  useEffect(() => {
-    if (!autoGeneratePdfTick) return;
-    if (!clientStatementGenerated) return;
-
-    const timer = window.setTimeout(() => {
-      void generateStatementPdf("client", { autoMode: true });
-    }, 450);
-    return () => window.clearTimeout(timer);
-  }, [autoGeneratePdfTick, clientStatementGenerated]);
 
   const handleGenerateStatement = () => {
     const isClient = statementType === "client";
@@ -679,7 +654,6 @@ export function StatementsPage({
       }
       setStatementHint(shouldFilterUnpaid ? L.unpaidOnlyHint(clientRows.length) : "");
       setPdfMessage("");
-      setClientPdfLink(null);
       setClientStatementGenerated(true);
       recordGenerationLog("client", client, clientRows.length);
       return;
@@ -1027,31 +1001,6 @@ export function StatementsPage({
     );
   };
 
-  const handleOpenClientPdfLink = async () => {
-    if (!clientPdfLink) return;
-
-    try {
-      if (pdfBlobUrlRef.current) {
-        const response = await fetch(pdfBlobUrlRef.current);
-        const blob = await response.blob();
-        openPdfBlobInNewTab(blob, clientPdfLink.fileName);
-        setPdfMessage("");
-        return;
-      }
-
-      const record = await getPdfArchiveRecord(clientPdfLink.archiveId);
-      if (!record) {
-        setPdfMessage("\uD574\uB2F9 PDF\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
-        return;
-      }
-      openPdfBlobInNewTab(record.blob, record.fileName);
-      setPdfMessage("");
-    } catch (error) {
-      console.error(error);
-      setPdfMessage("PDF \uC5F4\uAE30\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
-    }
-  };
-
   const deleteGenerationLog = (log: StatementGenerationLog) => {
     if (!setStatementGenerationLogs) return;
     if (!window.confirm(L.removeConfirm)) return;
@@ -1062,8 +1011,7 @@ export function StatementsPage({
     restoreStatementSnapshot(log);
   };
 
-  const generateStatementPdf = async (type: string, options: { autoMode?: boolean } = {}) => {
-    const autoMode = Boolean(options.autoMode);
+  const generateStatementPdf = async (type: string) => {
     const isClient = type === "client";
     const element = isClient ? clientPrintRef.current : workerPrintRef.current;
 
@@ -1096,11 +1044,11 @@ export function StatementsPage({
 
     revokePdfBlobUrl(pdfBlobUrlRef.current);
     setPdfGenerating(true);
-    setPdfMessage(autoMode ? "PDF \uC0DD\uC131 \uBC0F \uBCF4\uAD00 \uC911\uC785\uB2C8\uB2E4..." : "PDF \uC0DD\uC131 \uC911\uC785\uB2C8\uB2E4...");
+    setPdfMessage("PDF \uC0DD\uC131 \uC911\uC785\uB2C8\uB2E4...");
     pdfBlobUrlRef.current = "";
 
-    const previewWindow = autoMode ? null : createPdfPreviewWindow();
-    if (!autoMode && !previewWindow) {
+    const previewWindow = createPdfPreviewWindow();
+    if (!previewWindow) {
       setPdfMessage("\uD31D\uC5C5\uC774 \uCC28\uB2E8\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uBE0C\uB77C\uC6B0\uC800\uC5D0\uC11C \uD31D\uC5C5 \uD5C8\uC6A9 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.");
     }
 
@@ -1108,7 +1056,6 @@ export function StatementsPage({
       const result = await downloadPdfFromHtmlElement(element, fileName, {
         orientation: "portrait",
         previewWindow,
-        deliver: autoMode ? false : undefined,
       });
       pdfBlobUrlRef.current = result.blobUrl;
       const archived = await archiveGeneratedPdf(result, {
@@ -1118,22 +1065,15 @@ export function StatementsPage({
         periodEnd: dateFilter.endDate,
         statementView: isClient ? clientStatementView : undefined,
       });
-      if (isClient) {
-        setClientPdfLink({ archiveId: archived.id, fileName: result.fileName });
-      }
       if (setStatementFolders) {
         const filedBy = currentUser?.name || currentUser?.loginId || "";
         setStatementFolders((prev) => fileOrLinkPdfArchiveToFolders(prev, statementGenerationLogs, archived, filedBy));
       }
-      if (autoMode) {
-        setPdfMessage(L.pdfArchivedHint);
-      } else {
-        setPdfMessage(
-          result.previewOpened
-            ? "PDF\uAC00 \uB2E4\uC6B4\uB85C\uB4DC\uB418\uC5C8\uACE0 \uC0C8 \uD0ED\uC5D0\uC11C \uC5F4\uB838\uC2B5\uB2C8\uB2E4. \uBCF4\uAD00\uD568\uC5D0\uB3C4 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4."
-            : "PDF\uAC00 \uB2E4\uC6B4\uB85C\uB4DC\uB418\uACE0 \uBCF4\uAD00\uD568\uC5D0 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4."
-        );
-      }
+      setPdfMessage(
+        result.previewOpened
+          ? "PDF\uAC00 \uB2E4\uC6B4\uB85C\uB4DC\uB418\uC5C8\uACE0 \uC0C8 \uD0ED\uC5D0\uC11C \uC5F4\uB838\uC2B5\uB2C8\uB2E4. \uBCF4\uAD00\uD568\uC5D0\uB3C4 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4."
+          : "PDF\uAC00 \uB2E4\uC6B4\uB85C\uB4DC\uB418\uACE0 \uBCF4\uAD00\uD568\uC5D0 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4."
+      );
     } catch (error) {
       console.error(error);
       previewWindow?.close();
@@ -1181,7 +1121,6 @@ export function StatementsPage({
         periodEnd: dateFilter.endDate,
         statementView: clientStatementView,
       });
-      setClientPdfLink({ archiveId: archived.id, fileName: result.fileName });
       if (setStatementFolders) {
         const filedBy = currentUser?.name || currentUser?.loginId || "";
         setStatementFolders((prev) => fileOrLinkPdfArchiveToFolders(prev, statementGenerationLogs, archived, filedBy));
@@ -1634,18 +1573,6 @@ export function StatementsPage({
                   <Download size={16} className="mr-1" />
                   {pdfGenerating ? L.pdfGenerating : L.pdfGenerate}
                 </Button>
-                {isClientStatement && clientPdfLink && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="erp-statement-pdf-link-btn rounded-xl"
-                    disabled={pdfGenerating}
-                    onClick={() => void handleOpenClientPdfLink()}
-                  >
-                    <ExternalLink size={16} className="mr-1" />
-                    {L.pdfOpenLink}
-                  </Button>
-                )}
                 {isClientStatement && (
                   <Button
                     className="erp-pdf-archive-kakao-btn rounded-xl"
@@ -1670,7 +1597,7 @@ export function StatementsPage({
               </div>
             </div>
 
-            {(pdfMessage || isClientStatement || clientPdfLink) && (
+            {(pdfMessage || isClientStatement) && (
               <div className="erp-statement-status-row">
                 {isClientStatement && (
                   <p className="erp-text-caption text-slate-500">
@@ -1678,12 +1605,6 @@ export function StatementsPage({
                   </p>
                 )}
                 {pdfMessage && <p className="erp-statement-pdf-message">{pdfMessage}</p>}
-                {isClientStatement && clientPdfLink && (
-                  <button type="button" className="erp-statement-pdf-link" onClick={() => void handleOpenClientPdfLink()}>
-                    <ExternalLink size={14} aria-hidden="true" />
-                    <span>{clientPdfLink.fileName}</span>
-                  </button>
-                )}
               </div>
             )}
 

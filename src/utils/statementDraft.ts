@@ -7,8 +7,6 @@ export type StatementDraft = {
   endDate: string;
   unpaidOnly: boolean;
   autoGenerate: boolean;
-  /** Navigate from calendar: auto-create PDF and save to PDF archive after preview renders */
-  autoGeneratePdf?: boolean;
   /** Pivot unpaid voucher ids */
   saleIds: Array<string | number>;
   createdAt?: number;
@@ -95,7 +93,6 @@ export function createClientCalendarStatementDraft(
     endDate: dates.endDate,
     unpaidOnly: false,
     autoGenerate: true,
-    autoGeneratePdf: true,
     saleIds: saleIds.length === matchedSales.length ? saleIds : [],
     createdAt: Date.now(),
     source: "client-calendar",
