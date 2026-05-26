@@ -1278,6 +1278,12 @@ const YES_NO_OPTIONS = [
 ];
 
 const WORKER_CATEGORY_OPTIONS = ["팀원", "외주"];
+const WORKER_GRADE_OPTIONS = ["S", "A", "B", "C", "D"];
+
+function normalizeWorkerGrade(value) {
+  const grade = String(value || "").trim().toUpperCase();
+  return WORKER_GRADE_OPTIONS.includes(grade) ? grade : "";
+}
 
 function normalizeWorkerCategory(value) {
   return String(value || "").trim() === "외주" ? "외주" : "팀원";
@@ -3168,10 +3174,33 @@ function WorkerCategorySelect({
   );
 }
 
+function WorkerGradeSelect({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const grade = normalizeWorkerGrade(value);
+  return (
+    <select
+      className={`erp-worker-grade-select${grade ? ` is-${grade.toLowerCase()}` : " is-empty"}`}
+      value={grade}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      <option value="">-</option>
+      {WORKER_GRADE_OPTIONS.map((option) => (
+        <option key={option} value={option}>{option}</option>
+      ))}
+    </select>
+  );
+}
+
 function WorkersPage({ workers, setWorkers }) {
   const { recordAudit } = useAudit();
   const emptyWorkerForm = {
     name: "",
+    grade: "",
     category: "팀원",
     bank: "",
     account: "",
@@ -3226,6 +3255,7 @@ function WorkersPage({ workers, setWorkers }) {
     const payload = {
       id: editingId || Date.now(),
       name: form.name.trim(),
+      grade: normalizeWorkerGrade(form.grade),
       category: normalizeWorkerCategory(form.category),
       bank: form.bank.trim(),
       account: form.account.trim(),
@@ -3261,6 +3291,7 @@ function WorkersPage({ workers, setWorkers }) {
     setEditingId(worker.id);
     setForm({
       name: worker.name || "",
+      grade: normalizeWorkerGrade(worker.grade),
       category: normalizeWorkerCategory(worker.category),
       bank: worker.bank || "",
       account: worker.account || "",
@@ -3377,6 +3408,28 @@ function WorkersPage({ workers, setWorkers }) {
     )));
   };
 
+  const updateWorkerGradeInline = (worker, value) => {
+    const grade = normalizeWorkerGrade(value);
+    if (grade === normalizeWorkerGrade(worker.grade)) return;
+
+    recordAudit({
+      entityType: "worker",
+      entityId: worker.id,
+      entityLabel: worker.name,
+      screen: "시공자",
+      action: "update",
+      before: snapshotWorkerForAudit(worker),
+      after: snapshotWorkerForAudit({ ...worker, grade }),
+      fields: WORKER_AUDIT_FIELDS.filter((field) => field.key === "grade"),
+    });
+
+    setWorkers((prev) => prev.map((item) => (
+      item.id === worker.id
+        ? { ...item, grade }
+        : item
+    )));
+  };
+
   const toggleWorkerActive = (worker) => {
     const nextIsActive = !isWorkerActive(worker);
     if (nextIsActive === isWorkerActive(worker)) return;
@@ -3446,6 +3499,18 @@ function WorkersPage({ workers, setWorkers }) {
         <CardContent className="p-6">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <AuditField label="시공자명" entityType="worker" entityId={editingId} field="name"><Input value={form.name} onChange={(e) => updateForm("name", e.target.value)} placeholder="시공자명" /></AuditField>
+            <AuditField label="시공등급" entityType="worker" entityId={editingId} field="grade">
+              <select
+                className="erp-input w-full rounded-xl px-3 py-2 text-sm font-semibold"
+                value={form.grade}
+                onChange={(e) => updateForm("grade", e.target.value)}
+              >
+                <option value="">선택 안 함</option>
+                {WORKER_GRADE_OPTIONS.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+            </AuditField>
             <AuditField label="구분" entityType="worker" entityId={editingId} field="category">
               <select
                 className="erp-input w-full rounded-xl px-3 py-2 text-sm font-semibold"
@@ -3479,7 +3544,7 @@ function WorkersPage({ workers, setWorkers }) {
         </CardContent>
       </Card>
 
-      <SearchBox query={query} setQuery={setQuery} placeholder="시공자명, 구분, 연락처, 사업자등록번호, 주소, 차량번호, 은행, 계좌 검색" />
+      <SearchBox query={query} setQuery={setQuery} placeholder="시공자명, 시공등급, 구분, 연락처, 사업자등록번호, 주소, 차량번호, 은행, 계좌 검색" />
 
       <Card className="rounded-2xl shadow-sm">
         <CardContent className="p-4 md:p-5">
@@ -3502,6 +3567,7 @@ function WorkersPage({ workers, setWorkers }) {
             <table className="erp-table erp-workers-table">
               <colgroup>
                 <col className="col-name" />
+                <col className="col-grade" />
                 <col className="col-status" />
                 <col className="col-category" />
                 <col className="col-contact" />
@@ -3517,6 +3583,7 @@ function WorkersPage({ workers, setWorkers }) {
               <thead className="bg-slate-100 text-slate-600">
                 <tr>
                   <th className="text-left">시공자</th>
+                  <th className="text-center">시공등급</th>
                   <th className="text-center">상태</th>
                   <th className="text-center">구분</th>
                   <th className="text-left">연락처</th>
@@ -3533,7 +3600,7 @@ function WorkersPage({ workers, setWorkers }) {
               <tbody>
                 {displayedWorkers.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="p-10 text-center text-slate-500">
+                    <td colSpan={13} className="p-10 text-center text-slate-500">
                       표시할 시공자가 없습니다.
                     </td>
                   </tr>
@@ -3547,6 +3614,13 @@ function WorkersPage({ workers, setWorkers }) {
                       {worker.address ? (
                         <div className="erp-workers-sub truncate" title={worker.address}>{worker.address}</div>
                       ) : null}
+                    </td>
+                    <td className="text-center">
+                      <WorkerGradeSelect
+                        value={normalizeWorkerGrade(worker.grade)}
+                        onChange={(value) => updateWorkerGradeInline(worker, value)}
+                      />
+                      <AuditCellHint entityType="worker" entityId={worker.id} field="grade" fieldLabel="시공등급" />
                     </td>
                     <td className="text-center">
                       <WorkerStatusBadge active={active} />

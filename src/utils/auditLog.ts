@@ -54,6 +54,7 @@ export const CLIENT_AUDIT_FIELDS: AuditFieldDef[] = [
 
 export const WORKER_AUDIT_FIELDS: AuditFieldDef[] = [
   { key: "name", label: "시공자명" },
+  { key: "grade", label: "시공등급" },
   { key: "category", label: "구분" },
   { key: "isActive", label: "상태", format: (v) => (v === false ? "비활성" : "활성") },
   { key: "bank", label: "은행명" },
@@ -149,6 +150,7 @@ export function snapshotClientForAudit(client: Record<string, unknown>) {
 export function snapshotWorkerForAudit(worker: Record<string, unknown>) {
   return {
     name: worker.name || "",
+    grade: worker.grade || "",
     category: worker.category === "외주" ? "외주" : "팀원",
     isActive: worker.isActive !== false,
     bank: worker.bank || "",

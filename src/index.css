@@ -2091,6 +2091,7 @@ textarea {
 }
 
 .erp-workers-table col.col-name { width: 11%; }
+.erp-workers-table col.col-grade { width: 4rem; }
 .erp-workers-table col.col-status { width: 5.5rem; }
 .erp-workers-table col.col-category { width: 5.5rem; }
 .erp-workers-table col.col-contact { width: 8%; }
@@ -2187,6 +2188,50 @@ textarea {
 .erp-worker-category-select.is-outsource {
   background: #fffbeb;
   color: #b45309;
+}
+
+.erp-worker-grade-select {
+  width: 100%;
+  max-width: 3.25rem;
+  margin-inline: auto;
+  border: 1px solid transparent;
+  border-radius: 9999px;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-align: center;
+  outline: none;
+  cursor: pointer;
+}
+
+.erp-worker-grade-select.is-empty {
+  background: #f8fafc;
+  color: #94a3b8;
+}
+
+.erp-worker-grade-select.is-s {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.erp-worker-grade-select.is-a {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.erp-worker-grade-select.is-b {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.erp-worker-grade-select.is-c {
+  background: #f5f3ff;
+  color: #6d28d9;
+}
+
+.erp-worker-grade-select.is-d {
+  background: #f1f5f9;
+  color: #64748b;
 }
 
 .erp-workers-charge-cell {
