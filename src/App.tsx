@@ -2457,6 +2457,7 @@ function SalesRegistrationPage({ sales = [], setSales, setActive, clients, worke
   const salesRef = useRef(sales);
   const [form, setForm] = useState(() => compactSaleForm());
   const { message: saveMessage, setMessage: setSaveMessage, clearMessage: clearSaveMessage } = useSaveMessage();
+  const [duplicateConfirm, setDuplicateConfirm] = useState(null);
 
   useEffect(() => {
     salesRef.current = sales;
@@ -4951,6 +4952,7 @@ export default function TeammillimeterErpMvp() {
           <ClientCalendarPage
             sales={appliedSales}
             clients={clients}
+            paymentVouchers={paymentVouchers}
             setPaymentVouchers={setPaymentVouchers}
             setPaymentInputLogs={setPaymentInputLogs}
             currentUser={currentUser}

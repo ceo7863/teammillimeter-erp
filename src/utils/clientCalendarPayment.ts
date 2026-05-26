@@ -39,8 +39,34 @@ export type CalendarPaymentPreview = {
   vouchers: CalendarPaymentVoucherDraft[];
 };
 
+export type CalendarPaymentCancelPreview = {
+  client: string;
+  selectedDays: number;
+  voucherCount: number;
+  totalAmount: number;
+  totalVat: number;
+  totalFinal: number;
+  vouchers: CalendarPaymentVoucherRecord[];
+};
+
+export type CalendarPaymentVoucherRecord = {
+  id: number | string;
+  salesId?: number | string;
+  date?: string;
+  client?: string;
+  site?: string;
+  amount?: number;
+  vatAmount?: number;
+  finalAmount?: number;
+  vatType?: string;
+  memo?: string;
+  workerCount?: number;
+  totalSalesAmount?: number;
+  supplyAmount?: number;
+};
+
 function normalizeClientName(value: unknown) {
-  return String(value || "").trim() || "(???)";
+  return String(value || "").trim() || "(\uBBF8\uC9C0\uC815)";
 }
 
 function matchesClientName(row: CalendarPayableSale, clientName: string) {
@@ -106,6 +132,56 @@ export function buildCalendarPaymentPreview(
     totalUnpaid: vouchers.reduce((sum, voucher) => sum + voucher.amount, 0),
     totalVat: vouchers.reduce((sum, voucher) => sum + voucher.vatAmount, 0),
     totalFinal: vouchers.reduce((sum, voucher) => sum + voucher.finalAmount, 0),
+    vouchers,
+  };
+}
+
+export function collectCalendarCancellableVouchers(
+  sales: CalendarPayableSale[],
+  paymentVouchers: CalendarPaymentVoucherRecord[],
+  client: string,
+  selectedDates: string[]
+) {
+  const dateSet = new Set(selectedDates);
+  const saleIds = new Set(
+    sales
+      .filter((sale) => {
+        const date = String(sale.date || "").slice(0, 10);
+        if (!dateSet.has(date)) return false;
+        return matchesClientName(sale, client);
+      })
+      .map((sale) => String(sale.id))
+      .filter(Boolean)
+  );
+
+  if (!saleIds.size) return [];
+
+  return paymentVouchers.filter((voucher) => {
+    if (voucher.salesId == null) return false;
+    if (!saleIds.has(String(voucher.salesId))) return false;
+    return matchesClientName({ client: voucher.client }, client);
+  });
+}
+
+export function buildCalendarPaymentCancelPreview(
+  sales: CalendarPayableSale[],
+  paymentVouchers: CalendarPaymentVoucherRecord[],
+  client: string,
+  selectedDates: string[]
+): CalendarPaymentCancelPreview | null {
+  const vouchers = collectCalendarCancellableVouchers(sales, paymentVouchers, client, selectedDates);
+  if (!vouchers.length) return null;
+
+  return {
+    client,
+    selectedDays: selectedDates.length,
+    voucherCount: vouchers.length,
+    totalAmount: vouchers.reduce((sum, voucher) => sum + (Number(voucher.amount) || 0), 0),
+    totalVat: vouchers.reduce((sum, voucher) => sum + (Number(voucher.vatAmount) || 0), 0),
+    totalFinal: vouchers.reduce(
+      (sum, voucher) => sum + (Number(voucher.finalAmount) || Number(voucher.amount) || 0),
+      0
+    ),
     vouchers,
   };
 }

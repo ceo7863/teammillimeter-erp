@@ -1,12 +1,18 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { CalendarDays, Check, ChevronLeft, ChevronRight, CreditCard, FileText, ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import { CalendarDays, Check, ChevronLeft, ChevronRight, CreditCard, FileText, ArrowDown, ArrowUp, ArrowUpDown, Undo2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AutocompleteInput } from "@/components/AutocompleteInput";
 import { useAudit } from "@/context/AuditContext";
 import { getUnpaid, todayISO, formatKRW } from "@/utils/receivables";
 import { PAYMENT_AUDIT_FIELDS, snapshotPaymentForAudit } from "@/utils/auditLog";
-import { buildCalendarPaymentPreview, type CalendarPaymentPreview } from "@/utils/clientCalendarPayment";
+import {
+  buildCalendarPaymentPreview,
+  buildCalendarPaymentCancelPreview,
+  type CalendarPaymentPreview,
+  type CalendarPaymentCancelPreview,
+  type CalendarPaymentVoucherRecord,
+} from "@/utils/clientCalendarPayment";
 import { createPaymentInputLogsFromVouchers, type PaymentInputLog } from "@/utils/paymentInputLogs";
 import {
   createClientCalendarStatementDraft,
@@ -71,6 +77,7 @@ function getSiteName(row: SaleLike) {
 type ClientCalendarPageProps = {
   sales: SaleLike[];
   clients: ClientLike[];
+  paymentVouchers?: CalendarPaymentVoucherRecord[];
   setPaymentVouchers?: React.Dispatch<React.SetStateAction<Array<Record<string, unknown>>>>;
   setPaymentInputLogs?: React.Dispatch<React.SetStateAction<PaymentInputLog[]>>;
   currentUser?: { name?: string; email?: string };
@@ -178,6 +185,7 @@ function sortClientMonthRows(
 export function ClientCalendarPage({
   sales,
   clients,
+  paymentVouchers = [],
   setPaymentVouchers,
   setPaymentInputLogs,
   currentUser,
@@ -189,6 +197,7 @@ export function ClientCalendarPage({
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
   const { message: notice, showNotice, clearNotice } = useActionNotice();
   const [paymentPreview, setPaymentPreview] = useState<CalendarPaymentPreview | null>(null);
+  const [paymentCancelPreview, setPaymentCancelPreview] = useState<CalendarPaymentCancelPreview | null>(null);
   const [clientListSort, setClientListSort] = useState<{ column: ClientMonthSortColumn; direction: SortDirection }>({
     column: "sales",
     direction: "desc",
@@ -291,6 +300,13 @@ export function ClientCalendarPage({
     [cells],
   );
 
+  const allMonthDatesSelected = useMemo(
+    () =>
+      monthTransactionDates.length > 0 &&
+      monthTransactionDates.every((date) => selectedDates.includes(date)),
+    [monthTransactionDates, selectedDates],
+  );
+
   const monthTotals = useMemo(() => {
     return monthTransactionDates.reduce(
       (acc, date) => {
@@ -341,6 +357,11 @@ export function ClientCalendarPage({
     }
     if (!monthTransactionDates.length) {
       showNotice("이번 달에 거래 내역이 있는 날짜가 없습니다.");
+      return;
+    }
+    if (allMonthDatesSelected) {
+      setSelectedDates([]);
+      showNotice("선택이 해제되었습니다.");
       return;
     }
     setSelectedDates([...monthTransactionDates]);
@@ -430,6 +451,58 @@ export function ClientCalendarPage({
     showNotice(`${vouchers.length}건 · ${formatKRW(paymentPreview.totalFinal)} 입금완료 처리되었습니다.`);
   };
 
+  const openPaymentCancelConfirm = () => {
+    if (!client) {
+      showNotice("거래처를 선택해 주세요.");
+      return;
+    }
+    if (!selectedDates.length) {
+      showNotice("입금 취소할 날짜를 선택해 주세요.");
+      return;
+    }
+    if (!setPaymentVouchers || !setPaymentInputLogs) {
+      showNotice("입금 취소 기능을 사용할 수 없습니다.");
+      return;
+    }
+
+    const preview = buildCalendarPaymentCancelPreview(sales, paymentVouchers, client, selectedDates);
+    if (!preview) {
+      showNotice("선택한 날짜에 취소할 입금 내역이 없습니다.");
+      return;
+    }
+
+    setPaymentCancelPreview(preview);
+  };
+
+  const closePaymentCancelConfirm = () => {
+    setPaymentCancelPreview(null);
+  };
+
+  const confirmPaymentCancel = () => {
+    if (!paymentCancelPreview || !setPaymentVouchers || !setPaymentInputLogs) return;
+
+    const cancelIds = new Set(paymentCancelPreview.vouchers.map((voucher) => String(voucher.id)));
+
+    paymentCancelPreview.vouchers.forEach((voucher) => {
+      recordAudit({
+        entityType: "paymentVoucher",
+        entityId: voucher.id,
+        entityLabel: `${voucher.client} · ${voucher.site}`,
+        screen: "거래처캘린더",
+        action: "delete",
+        before: snapshotPaymentForAudit(voucher),
+        fields: PAYMENT_AUDIT_FIELDS,
+        user: currentUser,
+      });
+    });
+
+    setPaymentVouchers((prev) => prev.filter((item) => !cancelIds.has(String(item.id))));
+    setPaymentInputLogs((prev) => prev.filter((log) => !cancelIds.has(String(log.paymentVoucherId))));
+    setPaymentCancelPreview(null);
+    setSelectedDates([]);
+    showNotice(`${paymentCancelPreview.voucherCount}건 · ${formatKRW(paymentCancelPreview.totalFinal)} 입금이 취소되었습니다.`);
+  };
+
   const weekdayLabels = [
     { label: "일", tone: "sun" },
     { label: "월", tone: "default" },
@@ -442,6 +515,44 @@ export function ClientCalendarPage({
 
   return (
     <div className="erp-page erp-calendar-page erp-client-calendar-page">
+      {paymentCancelPreview ? (
+        <div className="erp-ledger-modal-backdrop" onClick={closePaymentCancelConfirm}>
+          <div
+            className="erp-ledger-modal erp-client-calendar-payment-modal"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="client-calendar-payment-cancel-title"
+          >
+            <h2 id="client-calendar-payment-cancel-title" className="text-base font-bold text-slate-900 md:text-lg">
+              입금 취소
+            </h2>
+            <p className="mt-2 text-sm font-semibold text-slate-800">{paymentCancelPreview.client}</p>
+            <div className="mt-4 space-y-2 text-sm text-slate-600">
+              <p>선택 일자 <strong>{paymentCancelPreview.selectedDays}일</strong></p>
+              <p>취소 입금 <strong>{paymentCancelPreview.voucherCount}건</strong></p>
+              <p>입금 공급가액 <strong>{formatKRW(paymentCancelPreview.totalAmount)}</strong></p>
+              <p>
+                부가세{" "}
+                <strong className={paymentCancelPreview.totalVat > 0 ? "text-amber-700" : "text-slate-500"}>
+                  {paymentCancelPreview.totalVat > 0 ? formatKRW(paymentCancelPreview.totalVat) : "없음"}
+                </strong>
+              </p>
+              <p>취소 금액 <strong className="text-red-700">{formatKRW(paymentCancelPreview.totalFinal)}</strong></p>
+              <p className="text-xs text-slate-500">선택한 날짜 매출 전표에 연결된 입금 내역을 삭제합니다.</p>
+            </div>
+            <div className="mt-5 flex gap-2">
+              <Button variant="outline" className="flex-1 rounded-xl" onClick={closePaymentCancelConfirm} noFeedback>
+                닫기
+              </Button>
+              <Button className="flex-1 rounded-xl bg-red-600 hover:bg-red-700" onClick={confirmPaymentCancel}>
+                입금취소
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {paymentPreview ? (
         <div className="erp-ledger-modal-backdrop" onClick={closePaymentConfirm}>
           <div
@@ -816,7 +927,7 @@ export function ClientCalendarPage({
                 onClick={selectAllMonthDates}
                 disabled={!client || !monthTransactionDates.length}
               >
-                전체선택
+                {allMonthDatesSelected ? "전체해제" : "전체선택"}
               </Button>
               <Button
                 type="button"
@@ -837,6 +948,17 @@ export function ClientCalendarPage({
               >
                 <CreditCard size={16} className="mr-1.5" />
                 입금처리
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="rounded-xl border-red-200 text-red-600 hover:bg-red-50"
+                onClick={openPaymentCancelConfirm}
+                disabled={!client || !selectedDates.length}
+              >
+                <Undo2 size={16} className="mr-1.5" />
+                입금취소
               </Button>
             </div>
           </div>
