@@ -44,14 +44,23 @@ type ClientLike = {
 type DayVoucher = {
   site: string;
   amount: number;
+  unpaid: number;
   hasUnpaid: boolean;
 };
 
 type DayStats = {
   count: number;
   totalAmount: number;
+  totalUnpaid: number;
   vouchers: DayVoucher[];
   hasUnpaid: boolean;
+};
+
+type DayHoverPreview = {
+  date: string;
+  stats: DayStats;
+  anchorX: number;
+  anchorY: number;
 };
 
 type ClientMonthRow = {
@@ -118,7 +127,7 @@ function buildMonthCells(monthKey: string, statsByDate: Record<string, DayStats>
     cells.push({
       date,
       day,
-      stats: statsByDate[date] || { count: 0, totalAmount: 0, vouchers: [], hasUnpaid: false },
+      stats: statsByDate[date] || { count: 0, totalAmount: 0, totalUnpaid: 0, vouchers: [], hasUnpaid: false },
     });
   }
   while (cells.length % 7 !== 0) cells.push(null);
@@ -132,6 +141,49 @@ function formatSelectedDateLabel(date: string) {
   const weekday = ["\uC77C", "\uC6D4", "\uD654", "\uC218", "\uBAA9", "\uAE08", "\uD1A0"][parsed.getDay()];
   const [, monthText, dayText] = date.split("-");
   return `${Number(monthText)}/${Number(dayText)} (${weekday})`;
+}
+
+function ClientCalendarDayTooltip({ preview }: { preview: DayHoverPreview | null }) {
+  if (!preview) return null;
+
+  const { date, stats } = preview;
+
+  return (
+    <div
+      className="erp-client-calendar-day-tooltip"
+      style={{ left: preview.anchorX, top: preview.anchorY }}
+      role="tooltip"
+    >
+      <div className="erp-client-calendar-day-tooltip-head">
+        <strong>{formatSelectedDateLabel(date)}</strong>
+        <span>{stats.count}건</span>
+      </div>
+      <ul className="erp-client-calendar-day-tooltip-list">
+        {stats.vouchers.map((voucher, index) => (
+          <li
+            key={`${date}-tooltip-${index}`}
+            className={`erp-client-calendar-day-tooltip-item ${voucher.hasUnpaid ? "is-unpaid" : "is-paid"}`}
+          >
+            <span className="erp-client-calendar-day-tooltip-site">{voucher.site}</span>
+            <span className="erp-client-calendar-day-tooltip-meta">
+              <span>{formatKRW(voucher.amount)}</span>
+              <span className="erp-client-calendar-day-tooltip-status">
+                {voucher.hasUnpaid ? `미수 ${formatKRW(voucher.unpaid)}` : "완납"}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      <div className="erp-client-calendar-day-tooltip-foot">
+        <span>합계 {formatKRW(stats.totalAmount)}</span>
+        {stats.totalUnpaid > 0 ? (
+          <span className="is-unpaid">미수 {formatKRW(stats.totalUnpaid)}</span>
+        ) : (
+          <span className="is-paid">완납</span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function ClientMonthSortButton({
@@ -198,6 +250,7 @@ export function ClientCalendarPage({
   const { message: notice, showNotice, clearNotice } = useActionNotice();
   const [paymentPreview, setPaymentPreview] = useState<CalendarPaymentPreview | null>(null);
   const [paymentCancelPreview, setPaymentCancelPreview] = useState<CalendarPaymentCancelPreview | null>(null);
+  const [hoverDayPreview, setHoverDayPreview] = useState<DayHoverPreview | null>(null);
   const [clientListSort, setClientListSort] = useState<{ column: ClientMonthSortColumn; direction: SortDirection }>({
     column: "sales",
     direction: "desc",
@@ -274,17 +327,19 @@ export function ClientCalendarPage({
     clientSales.forEach((sale) => {
       const date = String(sale.date || "").trim();
       if (!date.startsWith(monthKey)) return;
-      if (!acc[date]) acc[date] = { count: 0, totalAmount: 0, vouchers: [], hasUnpaid: false };
+      if (!acc[date]) acc[date] = { count: 0, totalAmount: 0, totalUnpaid: 0, vouchers: [], hasUnpaid: false };
       const amount = getSaleAmount(sale);
-      const unpaid = getUnpaid(sale) > 0;
+      const unpaid = getUnpaid(sale);
       acc[date].count += 1;
       acc[date].totalAmount += amount;
+      acc[date].totalUnpaid += unpaid;
       acc[date].vouchers.push({
         site: getSiteName(sale) || "현장명 없음",
         amount,
-        hasUnpaid: unpaid,
+        unpaid,
+        hasUnpaid: unpaid > 0,
       });
-      if (unpaid) acc[date].hasUnpaid = true;
+      if (unpaid > 0) acc[date].hasUnpaid = true;
     });
     return acc;
   }, [clientSales, monthKey]);
@@ -338,6 +393,7 @@ export function ClientCalendarPage({
   useEffect(() => {
     setSelectedDates([]);
     clearNotice();
+    setHoverDayPreview(null);
   }, [client, monthKey, clearNotice]);
 
   const shiftMonth = (delta: number) => {
@@ -348,6 +404,20 @@ export function ClientCalendarPage({
 
   const toggleDate = (date: string) => {
     setSelectedDates((prev) => (prev.includes(date) ? prev.filter((item) => item !== date) : [...prev, date].sort()));
+  };
+
+  const showDayPreview = (date: string, stats: DayStats, event: React.MouseEvent<HTMLElement> | React.FocusEvent<HTMLElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setHoverDayPreview({
+      date,
+      stats,
+      anchorX: rect.left + rect.width / 2,
+      anchorY: rect.top,
+    });
+  };
+
+  const hideDayPreview = () => {
+    setHoverDayPreview(null);
   };
 
   const selectAllMonthDates = () => {
@@ -868,9 +938,12 @@ export function ClientCalendarPage({
                     type="button"
                     className={cellClassName}
                     onClick={() => toggleDate(cell.date)}
+                    onMouseEnter={(event) => showDayPreview(cell.date, cell.stats, event)}
+                    onMouseLeave={hideDayPreview}
+                    onFocus={(event) => showDayPreview(cell.date, cell.stats, event)}
+                    onBlur={hideDayPreview}
                     aria-pressed={isChecked}
                     aria-label={`${cell.date} ${isChecked ? "선택됨" : "선택"} · ${voucherSummary}`}
-                    title={`${cell.date} · ${cell.stats.count}건 · ${formatKRW(cell.stats.totalAmount)} · ${cell.stats.hasUnpaid ? "미수금 있음" : "완납"}`}
                   >
                     {cellBody}
                   </button>
@@ -965,6 +1038,7 @@ export function ClientCalendarPage({
         </CardContent>
       </Card>
       </div>
+      <ClientCalendarDayTooltip preview={hoverDayPreview} />
     </div>
   );
 }
