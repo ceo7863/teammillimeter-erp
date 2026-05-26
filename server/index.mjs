@@ -36,6 +36,7 @@ import {
   getBoardAttachmentFile,
   deleteBoardAttachmentById,
 } from "./boardAttachments.mjs";
+import { buildPdfShareViewerHtml } from "./pdfShareViewer.mjs";
 
 initDb();
 initPdfArchiveStore();
@@ -61,6 +62,7 @@ function parseAttachmentMetaHeader(rawMeta) {
 
 const app = express();
 app.use(cors());
+app.use("/vendor/pdfjs", express.static(config.pdfJsDir, { maxAge: "7d", fallthrough: false }));
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, service: "teammillimeter-erp-api" });
@@ -125,6 +127,7 @@ app.get("/api/public/pdf-share/:token/file", (req, res) => {
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `${disposition}; filename*=UTF-8''${encodedName}`);
   res.setHeader("Cache-Control", "private, max-age=3600");
+  res.setHeader("Access-Control-Allow-Origin", "*");
   res.sendFile(path.resolve(file.path));
 });
 
@@ -144,50 +147,16 @@ app.get("/api/public/pdf-share/:token", (req, res) => {
   }
 
   const pdfUrl = `${buildPublicRequestOrigin(req)}/api/public/pdf-share/${encodeURIComponent(req.params.token)}/file`;
-  const safeTitle = String(file.fileName).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+  const downloadUrl = `${pdfUrl}?download=1`;
   res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.send(`<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>${safeTitle}</title>
-  <style>
-    html, body { margin: 0; height: 100%; background: #525659; }
-    .toolbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.75rem;
-      padding: 0.65rem 0.85rem;
-      background: #0f172a;
-      color: #f8fafc;
-      font-family: "Malgun Gothic", sans-serif;
-      font-size: 0.875rem;
-    }
-    .toolbar a {
-      color: #fff;
-      text-decoration: none;
-      font-weight: 700;
-      padding: 0.45rem 0.75rem;
-      border-radius: 0.65rem;
-      background: #2563eb;
-      white-space: nowrap;
-    }
-    .viewer { height: calc(100% - 3rem); }
-    embed, iframe, object { display: block; width: 100%; height: 100%; border: 0; background: #525659; }
-  </style>
-</head>
-<body>
-  <div class="toolbar">
-    <span>${safeTitle}</span>
-    <a href="${pdfUrl}?download=1">다운로드</a>
-  </div>
-  <div class="viewer">
-    <embed src="${pdfUrl}" type="application/pdf" />
-  </div>
-</body>
-</html>`);
+  res.setHeader("Cache-Control", "no-store");
+  res.send(
+    buildPdfShareViewerHtml({
+      title: file.fileName,
+      pdfUrl,
+      downloadUrl,
+    })
+  );
 });
 
 app.post(

@@ -11,6 +11,7 @@ export const config = {
   pdfArchiveDir: process.env.PDF_ARCHIVE_DIR || path.join(rootDir, "data", "pdf-archives"),
   boardAttachmentDir: process.env.BOARD_ATTACHMENT_DIR || path.join(rootDir, "data", "board-attachments"),
   distDir: process.env.DIST_DIR || path.join(rootDir, "dist"),
+  pdfJsDir: path.join(rootDir, "node_modules", "pdfjs-dist", "legacy", "build"),
   tokenExpiresIn: process.env.JWT_EXPIRES || "7d",
 };
 

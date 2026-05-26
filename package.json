@@ -23,6 +23,7 @@
     "jspdf": "latest",
     "jszip": "^3.10.1",
     "lucide-react": "latest",
+    "pdfjs-dist": "^3.11.174",
     "react": "latest",
     "react-dom": "latest",
     "tailwindcss": "latest",
