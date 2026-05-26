@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
   ChevronLeft,
@@ -260,6 +260,15 @@ export function CompanyLedgerPage({
   const [fixedModal, setFixedModal] = useState<FixedModalState | null>(null);
   const [formError, setFormError] = useState("");
   const monthlyTableRef = useRef<HTMLTableElement | null>(null);
+
+  useEffect(() => {
+    if (!manualModal && !fixedModal) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [manualModal, fixedModal]);
 
   const currentMonthKey = todayISO().slice(0, 7);
   const periodFilter = useMemo(() => ledgerDateFilter(periodKey), [periodKey]);
@@ -926,7 +935,10 @@ export function CompanyLedgerPage({
             </div>
             <div className="space-y-4">
               <Field label={L.expenseDate}>
-                <KoreanDateInput value={manualModal.date} onChange={(value) => setManualModal((prev) => (prev ? { ...prev, date: value } : prev))} />
+                <KoreanDateInput
+                  value={manualModal.date}
+                  onChange={(event) => setManualModal((prev) => (prev ? { ...prev, date: event.target.value } : prev))}
+                />
               </Field>
               <Field label={L.category}>
                 <Select value={manualModal.category} onChange={(e) => setManualModal((prev) => (prev ? { ...prev, category: e.target.value } : prev))}>
@@ -1008,7 +1020,10 @@ export function CompanyLedgerPage({
                 </Select>
               </Field>
               <Field label={L.applyStartDate}>
-                <KoreanDateInput value={fixedModal.startDate} onChange={(value) => setFixedModal((prev) => (prev ? { ...prev, startDate: value } : prev))} />
+                <KoreanDateInput
+                  value={fixedModal.startDate}
+                  onChange={(event) => setFixedModal((prev) => (prev ? { ...prev, startDate: event.target.value } : prev))}
+                />
               </Field>
               <Field label={L.memoOptional}>
                 <Input value={fixedModal.memo} onChange={(e) => setFixedModal((prev) => (prev ? { ...prev, memo: e.target.value } : prev))} />

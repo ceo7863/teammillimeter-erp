@@ -92,6 +92,48 @@ function migrateUsersTable(database) {
         .run(loginId, user.id);
     }
   }
+
+  if (!colNames.has("allowed_pages")) {
+    database.exec(`ALTER TABLE users ADD COLUMN allowed_pages TEXT;`);
+  }
+
+  if (!colNames.has("sidebar_order")) {
+    database.exec(`ALTER TABLE users ADD COLUMN sidebar_order TEXT;`);
+  }
+}
+
+function parseJsonStringArray(raw) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(String(raw));
+    if (!Array.isArray(parsed)) return null;
+    const values = [...new Set(parsed.map((item) => String(item || "").trim()).filter(Boolean))];
+    return values.length ? values : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseAllowedPages(raw) {
+  return parseJsonStringArray(raw);
+}
+
+function serializeJsonStringArray(values) {
+  if (!Array.isArray(values) || !values.length) return null;
+  const normalized = [...new Set(values.map((item) => String(item || "").trim()).filter(Boolean))];
+  return normalized.length ? JSON.stringify(normalized) : null;
+}
+
+function serializeAllowedPages(pages) {
+  return serializeJsonStringArray(pages);
+}
+
+export function parseSidebarOrder(raw) {
+  return parseJsonStringArray(raw);
+}
+
+function serializeSidebarOrder(pages) {
+  return serializeJsonStringArray(pages);
 }
 
 function formatUserRow(row) {
@@ -104,6 +146,8 @@ function formatUserRow(row) {
     phone: row.phone || null,
     role: row.role,
     isActive: Boolean(row.is_active),
+    allowedPages: parseAllowedPages(row.allowed_pages),
+    sidebarOrder: parseSidebarOrder(row.sidebar_order),
     createdAt: row.created_at,
     updatedAt: row.updated_at || null,
   };
@@ -272,7 +316,7 @@ export function getDb() {
 }
 
 const USER_SELECT = `
-  SELECT id, login_id, email, password_hash, name, phone, role, is_active, created_at, updated_at
+  SELECT id, login_id, email, password_hash, name, phone, role, is_active, allowed_pages, sidebar_order, created_at, updated_at
   FROM users
 `;
 
@@ -299,7 +343,7 @@ export function listUsers() {
     .map(formatUserRow);
 }
 
-export function createUser({ loginId, password, name, phone, email, role }) {
+export function createUser({ loginId, password, name, phone, email, role, allowedPages }) {
   const database = getDb();
   const loginCheck = validateLoginId(loginId);
   if (!loginCheck.ok) {
@@ -323,6 +367,7 @@ export function createUser({ loginId, password, name, phone, email, role }) {
   }
 
   const nextRole = role === "admin" ? "admin" : "staff";
+  const nextAllowedPages = nextRole === "admin" ? null : serializeAllowedPages(allowedPages);
   const normalizedEmail = normalizeEmail(email);
   if (normalizedEmail && findUserByEmail(normalizedEmail)) {
     const err = new Error("이미 사용 중인 이메일입니다.");
@@ -339,8 +384,8 @@ export function createUser({ loginId, password, name, phone, email, role }) {
   const now = new Date().toISOString();
   const result = database
     .prepare(`
-      INSERT INTO users (login_id, email, password_hash, name, phone, role, is_active, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+      INSERT INTO users (login_id, email, password_hash, name, phone, role, allowed_pages, is_active, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
     `)
     .run(
       loginCheck.value,
@@ -349,6 +394,7 @@ export function createUser({ loginId, password, name, phone, email, role }) {
       trimmedName,
       String(phone || "").trim() || null,
       nextRole,
+      nextAllowedPages,
       now,
       now,
     );
@@ -356,7 +402,7 @@ export function createUser({ loginId, password, name, phone, email, role }) {
   return formatUserRow(findUserById(result.lastInsertRowid));
 }
 
-export function updateUser(id, { name, phone, email, role }, actorUserId) {
+export function updateUser(id, { name, phone, email, role, allowedPages }, actorUserId) {
   const database = getDb();
   const userId = Number(id);
   const existing = findUserById(userId);
@@ -374,6 +420,7 @@ export function updateUser(id, { name, phone, email, role }, actorUserId) {
   }
 
   const nextRole = role === "admin" ? "admin" : "staff";
+  const nextAllowedPages = nextRole === "admin" ? null : serializeAllowedPages(allowedPages);
   const normalizedEmail = normalizeEmail(email);
   if (normalizedEmail) {
     const emailOwner = findUserByEmail(normalizedEmail);
@@ -402,7 +449,7 @@ export function updateUser(id, { name, phone, email, role }, actorUserId) {
   database
     .prepare(`
       UPDATE users
-      SET name = ?, phone = ?, email = ?, role = ?, updated_at = ?
+      SET name = ?, phone = ?, email = ?, role = ?, allowed_pages = ?, updated_at = ?
       WHERE id = ?
     `)
     .run(
@@ -410,11 +457,88 @@ export function updateUser(id, { name, phone, email, role }, actorUserId) {
       String(phone || "").trim() || null,
       storageEmail(existing.login_id, normalizedEmail),
       nextRole,
+      nextAllowedPages,
       now,
       userId,
     );
 
   return formatUserRow(findUserById(userId));
+}
+
+export function updateSelfProfile(userId, { name, phone, email }) {
+  const database = getDb();
+  const existing = findUserById(Number(userId));
+  if (!existing) {
+    const err = new Error("사용자를 찾을 수 없습니다.");
+    err.status = 404;
+    throw err;
+  }
+
+  const trimmedName = String(name || "").trim();
+  if (!trimmedName) {
+    const err = new Error("이름을 입력해 주세요.");
+    err.status = 400;
+    throw err;
+  }
+
+  const normalizedEmail = normalizeEmail(email);
+  if (normalizedEmail) {
+    const emailOwner = findUserByEmail(normalizedEmail);
+    if (emailOwner && emailOwner.id !== existing.id) {
+      const err = new Error("이미 사용 중인 이메일입니다.");
+      err.status = 409;
+      throw err;
+    }
+  }
+
+  const now = new Date().toISOString();
+  database
+    .prepare(`
+      UPDATE users
+      SET name = ?, phone = ?, email = ?, updated_at = ?
+      WHERE id = ?
+    `)
+    .run(
+      trimmedName,
+      String(phone || "").trim() || null,
+      storageEmail(existing.login_id, normalizedEmail),
+      now,
+      existing.id,
+    );
+
+  return formatUserRow(findUserById(existing.id));
+}
+
+export function updateSelfSidebarOrder(userId, sidebarOrder) {
+  const existing = findUserById(Number(userId));
+  if (!existing) {
+    const err = new Error("사용자를 찾을 수 없습니다.");
+    err.status = 404;
+    throw err;
+  }
+
+  if (sidebarOrder != null && !Array.isArray(sidebarOrder)) {
+    const err = new Error("메뉴 순서 형식이 올바르지 않습니다.");
+    err.status = 400;
+    throw err;
+  }
+
+  const now = new Date().toISOString();
+  getDb()
+    .prepare(`
+      UPDATE users
+      SET sidebar_order = ?, updated_at = ?
+      WHERE id = ?
+    `)
+    .run(serializeSidebarOrder(sidebarOrder), now, existing.id);
+
+  return formatUserRow(findUserById(existing.id));
+}
+
+export function verifyUserPassword(userId, password) {
+  const existing = findUserById(Number(userId));
+  if (!existing) return false;
+  return bcrypt.compareSync(String(password || ""), existing.password_hash);
 }
 
 export function updateUserPassword(id, password) {
@@ -473,6 +597,26 @@ export function setUserActive(id, isActive, actorUserId) {
     .run(nextActive ? 1 : 0, now, userId);
 
   return formatUserRow(findUserById(userId));
+}
+
+const MAX_LOGIN_LOGS = 3000;
+
+export function recordLoginLog(user) {
+  const state = getErpState();
+  const data = state.data && typeof state.data === "object" ? state.data : emptyErpPayload();
+  const loginLogs = Array.isArray(data.loginLogs) ? data.loginLogs : [];
+  const loginId = String(user?.loginId || user?.login_id || user?.email || "").trim();
+  const entry = {
+    id: Date.now() + Math.floor(Math.random() * 1000),
+    at: new Date().toISOString(),
+    userId: user?.id ?? loginId ?? "unknown",
+    userName: String(user?.name || loginId || "사용자"),
+    loginId: loginId || "-",
+    role: String(user?.role || ""),
+  };
+  const nextLogs = [entry, ...loginLogs].slice(0, MAX_LOGIN_LOGS);
+  saveErpState({ ...data, loginLogs: nextLogs }, state.version, loginId || user?.name || "login");
+  return entry;
 }
 
 export function getErpState() {

@@ -1122,7 +1122,9 @@ export function WorkerPaymentsPage({
                 disabled={!statementWorker || !statementRows.length}
               >
               <div className="erp-statement-preview-wrap">
-                <StatementA4Preview>
+                <StatementA4Preview
+                  layoutVersion={`w:${statementDisplayRows.length}:${statementDisplayRows.map((row) => row.id).join(",")}`}
+                >
                   <WorkerStatementSheet
                     ref={workerPrintRef}
                     workerName={statementWorker || "시공자"}

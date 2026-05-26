@@ -1,7 +1,7 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { config } from "./config.mjs";
-import { findUserByLoginId, findUserByEmail } from "./db.mjs";
+import { findUserByLoginId, findUserByEmail, parseSidebarOrder } from "./db.mjs";
 
 function publicEmail(email) {
   const value = String(email || "").trim();
@@ -41,7 +41,18 @@ export function authenticateUser(identifier, password) {
     loginId: user.login_id,
     email: publicEmail(user.email),
     name: user.name,
+    phone: user.phone || null,
     role: user.role,
+    allowedPages: (() => {
+      if (!user.allowed_pages) return null;
+      try {
+        const parsed = JSON.parse(String(user.allowed_pages));
+        return Array.isArray(parsed) ? parsed : null;
+      } catch {
+        return null;
+      }
+    })(),
+    sidebarOrder: parseSidebarOrder(user.sidebar_order),
   };
 }
 

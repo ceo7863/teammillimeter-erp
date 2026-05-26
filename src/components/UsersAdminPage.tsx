@@ -26,6 +26,11 @@ import {
   type ErpUser,
   type ErpUserRecord,
 } from "@/utils/erpApi";
+import {
+  DEFAULT_STAFF_PAGE_KEYS,
+  getPageAccessGroups,
+  type ErpPageKey,
+} from "@/utils/pageAccess";
 
 const LOGIN_ID_RE = /^[a-zA-Z0-9]+$/;
 
@@ -86,6 +91,10 @@ const L = {
   backupRestore: "\uBC31\uC5C5 \uBD88\uB7EC\uC624\uAE30",
   excelImport: "\uC5D1\uC140 \uBD88\uB7EC\uC624\uAE30",
   bundledSeed: "\uBC88\uB4EC \uB370\uC774\uD130 \uC801\uC6A9",
+  pageAccess: "\uD398\uC774\uC9C0 \uC811\uADFC",
+  pageAccessHint: "\uC77C\uBC18 \uACC4\uC815\uC774 \uBA54\uB274\uC5D0\uC11C \uBCFC \uC218 \uC788\uB294 \uD398\uC774\uC9C0\uB97C \uC120\uD0DD\uD569\uB2C8\uB2E4.",
+  pageAccessAdminHint: "\uAD00\uB9AC\uC790\uB294 \uBAA8\uB4E0 \uD398\uC774\uC9C0\uC5D0 \uC811\uADFC\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+  pageAccessRequired: "\uCD5C\uC18C 1\uAC1C \uC774\uC0C1\uC758 \uD398\uC774\uC9C0\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
 };
 
 type UsersAdminPageProps = {
@@ -106,6 +115,7 @@ type UserFormState = {
   password: string;
   confirmPassword: string;
   role: "admin" | "staff";
+  allowedPages: ErpPageKey[];
 };
 
 const emptyForm = (): UserFormState => ({
@@ -116,6 +126,7 @@ const emptyForm = (): UserFormState => ({
   password: "",
   confirmPassword: "",
   role: "staff",
+  allowedPages: [...DEFAULT_STAFF_PAGE_KEYS],
 });
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
@@ -154,6 +165,51 @@ function RoleBadge({ role }: { role: string }) {
     <span className={`erp-user-role-badge ${isAdmin ? "admin" : "staff"}`}>
       {isAdmin ? L.roleAdmin : L.roleStaff}
     </span>
+  );
+}
+
+function PageAccessPicker({
+  value,
+  onChange,
+  disabled = false,
+}: {
+  value: ErpPageKey[];
+  onChange: (next: ErpPageKey[]) => void;
+  disabled?: boolean;
+}) {
+  const groups = getPageAccessGroups();
+  const selected = new Set(value);
+
+  const togglePage = (pageKey: ErpPageKey, checked: boolean) => {
+    if (disabled) return;
+    if (checked) {
+      onChange([...value, pageKey]);
+      return;
+    }
+    onChange(value.filter((page) => page !== pageKey));
+  };
+
+  return (
+    <div className="erp-page-access-picker space-y-3">
+      {groups.map(([group, pages]) => (
+        <div key={group} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div className="erp-text-caption mb-2 font-bold text-slate-600">{group}</div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {pages.map((page) => (
+              <label key={page.key} className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={selected.has(page.key)}
+                  disabled={disabled}
+                  onChange={(event) => togglePage(page.key, event.target.checked)}
+                />
+                <span>{page.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -258,6 +314,7 @@ export function UsersAdminPage({
       password: "",
       confirmPassword: "",
       role: user.role === "admin" ? "admin" : "staff",
+      allowedPages: user.allowedPages?.length ? (user.allowedPages as ErpPageKey[]) : [...DEFAULT_STAFF_PAGE_KEYS],
     });
     setModalMode("edit");
     setError("");
@@ -287,12 +344,20 @@ export function UsersAdminPage({
       setError(L.passwordMismatch);
       return false;
     }
+    if (form.role === "staff" && form.allowedPages.length === 0) {
+      setError(L.pageAccessRequired);
+      return false;
+    }
     return true;
   };
 
   const validateEditForm = () => {
     if (!form.name.trim()) {
       setError(L.nameRequired);
+      return false;
+    }
+    if (form.role === "staff" && form.allowedPages.length === 0) {
+      setError(L.pageAccessRequired);
       return false;
     }
     return true;
@@ -322,6 +387,7 @@ export function UsersAdminPage({
         phone: form.phone.trim() || undefined,
         email: form.email.trim() || undefined,
         role: form.role,
+        allowedPages: form.role === "staff" ? form.allowedPages : null,
       });
       setMessage(L.createSuccess);
       closeModal();
@@ -343,6 +409,7 @@ export function UsersAdminPage({
         phone: form.phone.trim() || undefined,
         email: form.email.trim() || undefined,
         role: form.role,
+        allowedPages: form.role === "staff" ? form.allowedPages : null,
       });
       setMessage(L.updateSuccess);
       closeModal();
@@ -730,6 +797,8 @@ export function UsersAdminPage({
                         setForm((prev) => ({
                           ...prev,
                           role: event.target.value === "admin" ? "admin" : "staff",
+                          allowedPages:
+                            event.target.value === "admin" ? [...DEFAULT_STAFF_PAGE_KEYS] : prev.allowedPages.length ? prev.allowedPages : [...DEFAULT_STAFF_PAGE_KEYS],
                         }))
                       }
                       disabled={modalMode === "edit" && selectedUser?.id === currentUser.id}
@@ -738,6 +807,16 @@ export function UsersAdminPage({
                       <option value="admin">{L.roleAdmin}</option>
                     </select>
                   </Field>
+                  {form.role === "staff" ? (
+                    <Field label={L.pageAccess} hint={L.pageAccessHint}>
+                      <PageAccessPicker
+                        value={form.allowedPages}
+                        onChange={(allowedPages) => setForm((prev) => ({ ...prev, allowedPages }))}
+                      />
+                    </Field>
+                  ) : (
+                    <p className="erp-text-caption rounded-2xl bg-slate-50 px-4 py-3 text-slate-500">{L.pageAccessAdminHint}</p>
+                  )}
                 </>
               ) : null}
 

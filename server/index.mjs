@@ -12,6 +12,12 @@ import {
   updateUser,
   updateUserPassword,
   setUserActive,
+  findUserById,
+  updateSelfProfile,
+  updateSelfSidebarOrder,
+  verifyUserPassword,
+  parseSidebarOrder,
+  recordLoginLog,
 } from "./db.mjs";
 import { authenticateUser, authMiddleware, adminMiddleware, signToken } from "./auth.mjs";
 import {
@@ -175,6 +181,11 @@ app.post("/api/auth/login", (req, res) => {
     res.status(401).json({ error: "로그인 ID 또는 비밀번호가 맞지 않습니다." });
     return;
   }
+  try {
+    recordLoginLog(user);
+  } catch (error) {
+    console.error("login log save failed:", error);
+  }
   const token = signToken(user);
   res.json({
     token,
@@ -184,20 +195,98 @@ app.post("/api/auth/login", (req, res) => {
       email: user.email,
       name: user.name,
       role: user.role,
+      phone: user.phone,
+      allowedPages: user.allowedPages,
+      sidebarOrder: user.sidebarOrder,
     },
   });
 });
 
+function formatAuthUserResponse(userId) {
+  const row = findUserById(userId);
+  if (!row) return null;
+  const email = String(row.email || "").trim();
+  return {
+    id: row.id,
+    loginId: row.login_id,
+    email: email.endsWith("@local.teammillimeter") ? null : email || null,
+    name: row.name,
+    phone: row.phone || null,
+    role: row.role,
+    allowedPages: (() => {
+      if (!row.allowed_pages) return null;
+      try {
+        const parsed = JSON.parse(String(row.allowed_pages));
+        return Array.isArray(parsed) ? parsed : null;
+      } catch {
+        return null;
+      }
+    })(),
+    sidebarOrder: parseSidebarOrder(row.sidebar_order),
+  };
+}
+
 app.get("/api/auth/me", authMiddleware, (req, res) => {
-  res.json({
-    user: {
-      id: req.user.sub,
-      loginId: req.user.loginId || "",
-      email: req.user.email || null,
-      name: req.user.name,
-      role: req.user.role,
-    },
-  });
+  const user = formatAuthUserResponse(req.user.sub);
+  if (!user) {
+    res.status(404).json({ error: "사용자를 찾을 수 없습니다." });
+    return;
+  }
+  res.json({ user });
+});
+
+app.patch("/api/auth/me", authMiddleware, (req, res) => {
+  try {
+    const user = updateSelfProfile(req.user.sub, req.body || {});
+    res.json({
+      user: {
+        id: user.id,
+        loginId: user.loginId,
+        email: user.email,
+        name: user.name,
+        phone: user.phone,
+        role: user.role,
+        allowedPages: user.allowedPages,
+        sidebarOrder: user.sidebarOrder,
+      },
+    });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "내 정보 수정에 실패했습니다." });
+  }
+});
+
+app.patch("/api/auth/me/sidebar-order", authMiddleware, (req, res) => {
+  try {
+    const user = updateSelfSidebarOrder(req.user.sub, req.body?.sidebarOrder ?? null);
+    res.json({
+      user: {
+        id: user.id,
+        loginId: user.loginId,
+        email: user.email,
+        name: user.name,
+        phone: user.phone,
+        role: user.role,
+        allowedPages: user.allowedPages,
+        sidebarOrder: user.sidebarOrder,
+      },
+    });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "메뉴 순서 저장에 실패했습니다." });
+  }
+});
+
+app.patch("/api/auth/me/password", authMiddleware, (req, res) => {
+  try {
+    const { currentPassword, password } = req.body || {};
+    if (!verifyUserPassword(req.user.sub, currentPassword)) {
+      res.status(400).json({ error: "현재 비밀번호가 맞지 않습니다." });
+      return;
+    }
+    updateUserPassword(req.user.sub, password);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "비밀번호 변경에 실패했습니다." });
+  }
 });
 
 app.get("/api/users", authMiddleware, adminMiddleware, (_req, res) => {

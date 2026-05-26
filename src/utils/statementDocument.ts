@@ -26,17 +26,47 @@ export function fixStatementCloneImages(root: HTMLElement) {
   });
 }
 
-function cloneTableSectionRow(row: HTMLTableRowElement, rowClassName: string) {
-  const nextRow = document.createElement("tr");
-  nextRow.className = rowClassName;
-  row.querySelectorAll("th, td").forEach((cell) => {
-    const nextCell = document.createElement("td");
+function readTableCellContent(cell: Element): { text: string; fontSize: string } {
+  const fitText = cell.querySelector(".excel-fit-cell-text") as HTMLElement | null;
+  if (fitText) {
+    return {
+      text: fitText.textContent?.trim() || "",
+      fontSize: fitText.style.fontSize || "",
+    };
+  }
+
+  return {
+    text: cell.textContent?.trim() || "",
+    fontSize: (cell as HTMLElement).style.fontSize || "",
+  };
+}
+
+/** Clone a tbody row with fit-cell text resolved to plain td content (for pagination/print). */
+export function cloneStatementTableRow(row: HTMLTableRowElement): HTMLTableRowElement {
+  const clone = document.createElement("tr");
+  clone.className = row.className;
+  const ariaHidden = row.getAttribute("aria-hidden");
+  if (ariaHidden) clone.setAttribute("aria-hidden", ariaHidden);
+
+  row.querySelectorAll(":scope > th, :scope > td").forEach((cell) => {
+    const tag = cell.tagName.toLowerCase() === "th" ? "th" : "td";
+    const nextCell = document.createElement(tag);
     nextCell.className = cell.className;
     if (cell.colSpan > 1) nextCell.colSpan = cell.colSpan;
     if (cell.rowSpan > 1) nextCell.rowSpan = cell.rowSpan;
-    nextCell.textContent = cell.textContent?.trim() || "";
-    nextRow.appendChild(nextCell);
+
+    const { text, fontSize } = readTableCellContent(cell);
+    nextCell.textContent = text;
+    if (fontSize) nextCell.style.fontSize = fontSize;
+    clone.appendChild(nextCell);
   });
+
+  return clone;
+}
+
+function cloneTableSectionRow(row: HTMLTableRowElement, rowClassName: string) {
+  const nextRow = cloneStatementTableRow(row);
+  nextRow.className = rowClassName;
   return nextRow;
 }
 
@@ -125,6 +155,48 @@ export async function waitForStatementImages(root: HTMLElement) {
         })
     )
   );
+}
+
+/** Wait until fit-cell layout and row content stop changing (avoids paginating half-rendered tables). */
+export async function waitForStatementFitCellsStable(root: HTMLElement, timeoutMs = 2500) {
+  const started = Date.now();
+  let lastSignature = "";
+  let stablePasses = 0;
+
+  while (Date.now() - started < timeoutMs) {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+    const fitCells = Array.from(root.querySelectorAll(".excel-fit-cell"));
+    let ready = fitCells.length === 0;
+
+    const signatureParts: string[] = [];
+    if (fitCells.length > 0) {
+      ready = true;
+      fitCells.forEach((cell) => {
+        if (cell.clientWidth <= 0) ready = false;
+        const text = cell.querySelector(".excel-fit-cell-text") as HTMLElement | null;
+        signatureParts.push(`${text?.textContent ?? ""}|${text?.style.fontSize ?? ""}|${cell.clientWidth}`);
+      });
+    }
+
+    root.querySelectorAll(".excel-data-table tbody tr:not(.excel-filler-row)").forEach((row) => {
+      signatureParts.push(row.textContent?.trim() ?? "");
+    });
+
+    const signature = signatureParts.join("\u001f");
+    if (ready && signature === lastSignature) {
+      stablePasses += 1;
+      if (stablePasses >= 4) return;
+    } else {
+      stablePasses = 0;
+      lastSignature = signature;
+    }
+  }
+}
+
+export function findStatementSheetRoot(host: HTMLElement | null): HTMLElement | null {
+  if (!host) return null;
+  return host.querySelector("[data-pdf-export-root]") as HTMLElement | null;
 }
 
 export function measureStatementElementHeight(element: HTMLElement) {

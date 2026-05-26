@@ -189,6 +189,7 @@ export function PaymentReceivablesPage({
   const [hideCompleted, setHideCompleted] = useState(true);
   const [unpaidOnly, setUnpaidOnly] = useState(true);
   const [saveMessage, setSaveMessage] = useState("");
+  const [depositEditSalesId, setDepositEditSalesId] = useState<string | null>(null);
 
   const updateFilter = (key: keyof typeof filters, value: string) => setFilters((prev) => ({ ...prev, [key]: value }));
 
@@ -206,6 +207,16 @@ export function PaymentReceivablesPage({
       if (!voucher.salesId) return acc;
       const key = String(voucher.salesId);
       acc[key] = (acc[key] || 0) + (voucher.amount || 0);
+      return acc;
+    }, {});
+  }, [paymentVouchers]);
+
+  const vouchersBySalesId = useMemo(() => {
+    return paymentVouchers.reduce<Record<string, PaymentVoucherLike[]>>((acc, voucher) => {
+      if (!voucher.salesId) return acc;
+      const key = String(voucher.salesId);
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(voucher);
       return acc;
     }, {});
   }, [paymentVouchers]);
@@ -385,10 +396,15 @@ export function PaymentReceivablesPage({
     setSaveMessage(`${nextPayments.length}건의 입금이 등록되었습니다.`);
   };
 
-  const deletePayment = (id: number | string) => {
+  const deletePayment = (id: number | string, options?: { skipConfirm?: boolean; confirmMessage?: string }) => {
     const voucher = paymentVouchers.find((item) => item.id === id);
-    if (!voucher) return;
-    if (!confirmDelete(`입금 전표 (${voucher.client} · ${voucher.site})를 삭제할까요?`)) return;
+    if (!voucher) return false;
+    if (
+      !options?.skipConfirm &&
+      !confirmDelete(options?.confirmMessage || `입금 전표 (${voucher.client} · ${voucher.site})를 삭제할까요?`)
+    ) {
+      return false;
+    }
 
     recordAudit({
       entityType: "paymentVoucher",
@@ -401,6 +417,31 @@ export function PaymentReceivablesPage({
       user: currentUser,
     });
     setPaymentVouchers((prev) => prev.filter((item) => item.id !== id));
+    setPaymentInputLogs((prev) => prev.filter((log) => String(log.paymentVoucherId) !== String(id)));
+    if (voucher.salesId != null) {
+      const salesKey = String(voucher.salesId);
+      const remainingDeposits = (vouchersBySalesId[salesKey] || []).filter((item) => item.id !== id).length;
+      setPaymentRows((prev) => {
+        if (!prev[salesKey]) return prev;
+        const next = { ...prev };
+        delete next[salesKey];
+        return next;
+      });
+      setDepositEditSalesId((prev) => (prev === salesKey && remainingDeposits === 0 ? null : prev));
+    }
+    setSaveMessage("입금 내역이 취소되었습니다.");
+    return true;
+  };
+
+  const cancelDeposit = (voucher: PaymentVoucherLike) => {
+    deletePayment(voucher.id, {
+      confirmMessage: `${voucher.client} · ${voucher.site} 입금 ${formatKRW(voucher.amount || 0)}을 취소할까요?`,
+    });
+  };
+
+  const toggleDepositEdit = (salesId: string | number) => {
+    const key = String(salesId);
+    setDepositEditSalesId((prev) => (prev === key ? null : key));
   };
 
   const dateFilteredVouchers = useMemo(() => {
@@ -927,11 +968,12 @@ export function PaymentReceivablesPage({
                   <col className="col-vat" />
                   <col className="col-money" />
                   <col className="col-memo" />
+                  <col className="col-action" />
                 </colgroup>
                 <thead>
                   <tr className="erp-payment-group-row">
                     <th colSpan={7}>매출 전표</th>
-                    <th colSpan={5}>입금 입력</th>
+                    <th colSpan={6}>입금 입력</th>
                   </tr>
                   <tr className="erp-payment-col-row">
                     <th className="text-center">
@@ -948,6 +990,7 @@ export function PaymentReceivablesPage({
                     <th className="text-center">부가세+</th>
                     <th className="text-right">최종</th>
                     <th className="text-left">비고</th>
+                    <th className="text-center erp-table-export-skip">수정</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -957,9 +1000,13 @@ export function PaymentReceivablesPage({
                     const isSelected = !!paymentRows[rowKey]?.checked;
                     const workerCount = row.workers?.length || String(row.worker || "").split(",").filter(Boolean).length || 0;
                     const unpaid = getUnpaid(row);
+                    const rowDeposits = vouchersBySalesId[rowKey] || [];
+                    const hasDeposits = rowDeposits.length > 0;
+                    const isDepositEditOpen = depositEditSalesId === rowKey;
 
                     return (
-                      <tr key={row.id} className={isSelected ? "is-selected" : ""}>
+                      <React.Fragment key={row.id}>
+                      <tr className={isSelected ? "is-selected" : ""}>
                         <td className="text-center">
                           <input type="checkbox" checked={isSelected} onChange={(e) => updatePaymentRow(row.id, "checked", e.target.checked)} className="erp-payment-check" />
                         </td>
@@ -1010,7 +1057,74 @@ export function PaymentReceivablesPage({
                         <td>
                           <input className="erp-input erp-input-compact" value={paymentRows[rowKey]?.memo || ""} onChange={(e) => updatePaymentRow(row.id, "memo", e.target.value)} placeholder="비고" />
                         </td>
+                        <td className="text-center erp-table-export-skip">
+                          {hasDeposits ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={isDepositEditOpen ? "default" : "outline"}
+                              className="h-7 rounded-lg px-2 text-xs"
+                              onClick={() => toggleDepositEdit(row.id)}
+                              aria-expanded={isDepositEditOpen}
+                            >
+                              수정
+                            </Button>
+                          ) : (
+                            <span className="text-slate-300">-</span>
+                          )}
+                        </td>
                       </tr>
+                      {isDepositEditOpen && hasDeposits && (
+                        <tr className="erp-payment-deposit-edit-row">
+                          <td colSpan={13} className="!p-0">
+                            <div className="erp-payment-deposit-edit-panel">
+                              <div className="erp-payment-deposit-edit-head">
+                                <span className="font-semibold text-slate-700">입금 내역 · {row.voucherNo || row.id}</span>
+                                <span className="text-xs text-slate-500">{rowDeposits.length}건 · 취소 시 미수금이 복원됩니다</span>
+                              </div>
+                              <div className="erp-table-wrap">
+                                <table className="erp-table erp-table--sm">
+                                  <thead className="bg-slate-50 text-slate-600">
+                                    <tr>
+                                      <th className="text-left">입금일</th>
+                                      <th className="text-right">입금액</th>
+                                      <th className="text-center">VAT</th>
+                                      <th className="text-right">최종</th>
+                                      <th className="text-left">비고</th>
+                                      <th className="text-center erp-table-export-skip">취소</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {[...rowDeposits]
+                                      .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || Number(b.id || 0) - Number(a.id || 0))
+                                      .map((voucher) => (
+                                        <tr key={voucher.id} className="border-t">
+                                          <td>{voucher.date || "-"}</td>
+                                          <td className="text-right font-semibold text-emerald-600">{formatKRW(voucher.amount || 0)}</td>
+                                          <td className="text-center text-slate-600">{voucher.vatType === "excluded" ? "별도" : "포함"}</td>
+                                          <td className="text-right font-bold text-emerald-700">{formatKRW(voucher.finalAmount ?? voucher.amount ?? 0)}</td>
+                                          <td className="text-slate-600">{voucher.memo || "-"}</td>
+                                          <td className="text-center erp-table-export-skip">
+                                            <Button
+                                              type="button"
+                                              size="sm"
+                                              variant="outline"
+                                              className="h-7 rounded-lg border-red-200 px-2 text-xs text-red-600 hover:bg-red-50"
+                                              onClick={() => cancelDeposit(voucher)}
+                                            >
+                                              취소
+                                            </Button>
+                                          </td>
+                                        </tr>
+                                      ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      </React.Fragment>
                     );
                   })}
                 </tbody>
@@ -1023,6 +1137,7 @@ export function PaymentReceivablesPage({
                       <td className="text-right text-emerald-600">{formatKRW(selectedDraftTotals.paymentAmount)}</td>
                       <td className="text-center text-slate-500">{formatKRW(selectedDraftTotals.vatAmount)}</td>
                       <td className="text-right text-emerald-700">{formatKRW(selectedDraftTotals.finalAmount)}</td>
+                      <td />
                       <td />
                     </tr>
                   </tfoot>

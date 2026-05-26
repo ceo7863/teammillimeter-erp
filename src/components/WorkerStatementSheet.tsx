@@ -63,7 +63,7 @@ export const WorkerStatementSheet = React.forwardRef<HTMLDivElement, WorkerState
 ) {
   const hasRows = rows.length > 0;
   const visibleBodyRows = hasRows ? rows.length : 1;
-  const fillerRowCount = getStatementFillerRowCount(visibleBodyRows);
+  const fillerRowCount = getStatementFillerRowCount(visibleBodyRows, companyProfile);
   const workerDataColumnCount = 11;
   const excelPayload = useMemo(
     () =>

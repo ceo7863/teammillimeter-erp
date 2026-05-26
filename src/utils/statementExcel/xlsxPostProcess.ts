@@ -1,10 +1,15 @@
 import JSZip from "jszip";
 
 const A4_SHEET_PR = `<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>`;
-const A4_PRINT_BLOCK =
-  `<printOptions horizontalCentered="1"/>` +
-  `<pageMargins left="0.25" right="0.25" top="0.35" bottom="0.35" header="0.2" footer="0.2"/>` +
-  `<pageSetup paperSize="9" orientation="portrait" fitToHeight="1" fitToWidth="1"/>`;
+
+function buildA4PrintBlock(printPageCount: number) {
+  const fitToHeight = Math.max(1, printPageCount);
+  return (
+    `<printOptions horizontalCentered="1"/>` +
+    `<pageMargins left="0.25" right="0.25" top="0.35" bottom="0.35" header="0.2" footer="0.2"/>` +
+    `<pageSetup paperSize="9" orientation="portrait" fitToHeight="${fitToHeight}" fitToWidth="1"/>`
+  );
+}
 
 export type StatementLogoAnchor = {
   fromCol: number;
@@ -17,7 +22,8 @@ const DRAWING_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/
 const IMAGE_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image";
 const DRAWING_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.drawing+xml";
 
-function patchWorksheetXml(xml: string) {
+function patchWorksheetXml(xml: string, printPageCount = 1) {
+  const A4_PRINT_BLOCK = buildA4PrintBlock(printPageCount);
   let next = xml;
   if (!next.includes("pageSetUpPr")) {
     next = next.replace(/<worksheet([^>]*)>/, `<worksheet$1>${A4_SHEET_PR}`);
@@ -30,6 +36,8 @@ function patchWorksheetXml(xml: string) {
     } else {
       next = next.replace("</worksheet>", `${A4_PRINT_BLOCK}</worksheet>`);
     }
+  } else {
+    next = next.replace(/fitToHeight="\d+"/, `fitToHeight="${Math.max(1, printPageCount)}"`);
   }
   return next;
 }
@@ -179,6 +187,7 @@ async function embedLogoInWorksheet(
 export async function finalizeStatementXlsx(
   buffer: ArrayBuffer,
   options?: {
+    printPageCount?: number;
     logo?: {
       bytes: ArrayBuffer;
       anchor: StatementLogoAnchor;
@@ -193,12 +202,14 @@ export async function finalizeStatementXlsx(
     (path) => path.startsWith("xl/worksheets/sheet") && path.endsWith(".xml") && !path.includes("_rels")
   );
 
+  const printPageCount = Math.max(1, options?.printPageCount ?? 1);
+
   await Promise.all(
     sheetPaths.map(async (path) => {
       const file = zip.file(path);
       if (!file) return;
       const xml = await file.async("string");
-      zip.file(path, patchWorksheetXml(xml));
+      zip.file(path, patchWorksheetXml(xml, printPageCount));
     })
   );
 

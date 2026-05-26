@@ -1,4 +1,10 @@
-import { A4_PORTRAIT_HEIGHT_PX, A4_PORTRAIT_WIDTH_PX, getStatementFillerRowCount } from "./statementSheetLayout";
+import { A4_PORTRAIT_HEIGHT_PX, A4_PORTRAIT_WIDTH_PX, getStatementFillerRowCountFromElement, getStatementPaginationMaxHeightPx } from "./statementSheetLayout";
+import {
+  cloneStatementTableRow,
+  findStatementSheetRoot,
+  fixStatementCloneImages,
+  flattenStatementFitCells,
+} from "./statementDocument";
 
 export type StatementPageVariant = "screen" | "capture";
 
@@ -11,10 +17,12 @@ export function getStatementBodyRows(dataTable: Element | null): HTMLTableRowEle
 
   const rows = Array.from(dataTable.querySelectorAll("tbody tr")).filter((row) => !row.classList.contains("excel-filler-row")) as HTMLTableRowElement[];
   const dataRows = rows.filter((row) => !row.querySelector(".excel-empty-cell"));
-  if (dataRows.length) return dataRows;
+  if (dataRows.length) {
+    return dataRows.map((row) => cloneStatementTableRow(row));
+  }
 
   const emptyRow = rows.find((row) => row.querySelector(".excel-empty-cell"));
-  return emptyRow ? [emptyRow] : [];
+  return emptyRow ? [cloneStatementTableRow(emptyRow)] : [];
 }
 
 function countVisibleBodyRows(rows: HTMLTableRowElement[]) {
@@ -115,10 +123,10 @@ export function buildStatementPageElement(
   if (colgroup) table.appendChild(colgroup);
   if (thead) table.appendChild(thead);
   const tbody = document.createElement("tbody");
-  options.bodyRows.forEach((row) => tbody.appendChild(row.cloneNode(true)));
+  options.bodyRows.forEach((row) => tbody.appendChild(row));
 
   if (variant === "screen" && options.showTableFooter) {
-    appendFillerRows(tbody, columnCount, getStatementFillerRowCount(countVisibleBodyRows(options.bodyRows)));
+    appendFillerRows(tbody, columnCount, getStatementFillerRowCountFromElement(source, countVisibleBodyRows(options.bodyRows)));
   }
 
   table.appendChild(tbody);
@@ -131,7 +139,34 @@ export function buildStatementPageElement(
     if (brand) sheet.appendChild(brand);
   }
 
+  flattenStatementFitCells(sheet);
+  fixStatementCloneImages(sheet);
+
   return sheet;
+}
+
+export function removeStatementPageNumbers(sheet: HTMLElement) {
+  sheet.querySelectorAll(".excel-sheet-page-number").forEach((node) => node.remove());
+}
+
+export function appendStatementPageNumber(sheet: HTMLElement, page: number, total: number) {
+  removeStatementPageNumbers(sheet);
+  if (total <= 1) return;
+
+  const label = document.createElement("div");
+  label.className = "excel-sheet-page-number";
+  label.setAttribute("aria-hidden", "true");
+  label.textContent = `${page} / ${total}`;
+  sheet.appendChild(label);
+}
+
+function measurePageContentHeight(host: HTMLElement, pageElement: HTMLElement) {
+  pageElement.style.minHeight = "auto";
+  pageElement.style.height = "auto";
+  pageElement.style.maxHeight = "none";
+  pageElement.style.overflow = "visible";
+  host.replaceChildren(pageElement);
+  return Math.ceil(Math.max(pageElement.scrollHeight, pageElement.offsetHeight, pageElement.getBoundingClientRect().height));
 }
 
 function measurePageHeight(host: HTMLElement, pageElement: HTMLElement) {
@@ -140,8 +175,13 @@ function measurePageHeight(host: HTMLElement, pageElement: HTMLElement) {
   } else {
     pageElement.style.minHeight = `${A4_PORTRAIT_HEIGHT_PX}px`;
   }
+  pageElement.style.height = "auto";
+  pageElement.style.maxHeight = "none";
+  pageElement.style.overflow = "visible";
   host.replaceChildren(pageElement);
-  return pageElement.getBoundingClientRect().height;
+  return Math.ceil(
+    Math.max(pageElement.getBoundingClientRect().height, pageElement.scrollHeight, pageElement.offsetHeight)
+  );
 }
 
 function splitBodyRowsIntoGroups(rows: HTMLTableRowElement[]): HTMLTableRowElement[][] {
@@ -160,20 +200,51 @@ function splitBodyRowsIntoGroups(rows: HTMLTableRowElement[]): HTMLTableRowEleme
   return groups;
 }
 
-export function fixRowspanForChunk(rows: HTMLTableRowElement[]) {
-  const clones = rows.map((row) => row.cloneNode(true) as HTMLTableRowElement);
-  const siteRowIndex = clones.findIndex((row) => !row.classList.contains("excel-worker-sub-row"));
-
-  if (siteRowIndex >= 0) {
-    const siteRow = clones[siteRowIndex];
-    const dateCell = siteRow.querySelector("td[rowspan], .excel-date-cell-rowspan, .excel-date-cell");
-    if (dateCell) {
-      dateCell.setAttribute("rowspan", String(clones.length - siteRowIndex));
-    }
-  }
-
-  return clones;
+function extractSiteDateFromGroup(group: HTMLTableRowElement[]): string {
+  const siteRow = group.find((row) => !row.classList.contains("excel-worker-sub-row"));
+  if (!siteRow) return "";
+  const dateCell = siteRow.querySelector(".excel-date-cell-rowspan, .excel-date-cell, td[rowspan]");
+  if (!dateCell) return "";
+  const fitText = dateCell.querySelector(".excel-fit-cell-text");
+  return (fitText?.textContent || dateCell.textContent)?.trim() || "";
 }
+
+export function fixRowspanForChunk(rows: HTMLTableRowElement[], siteDate = "") {
+  const clones = rows.map((row) => cloneStatementTableRow(row));
+  const groups = splitBodyRowsIntoGroups(clones);
+  const result: HTMLTableRowElement[] = [];
+
+  groups.forEach((group) => {
+    const siteRowIndex = group.findIndex((row) => !row.classList.contains("excel-worker-sub-row"));
+
+    if (siteRowIndex >= 0) {
+      const siteRow = group[siteRowIndex];
+      const dateCell = siteRow.querySelector("td[rowspan], .excel-date-cell-rowspan, .excel-date-cell");
+      if (dateCell) {
+        dateCell.setAttribute("rowspan", String(group.length - siteRowIndex));
+      }
+      result.push(...group);
+      return;
+    }
+
+    if (group.length > 0 && group.every((row) => row.classList.contains("excel-worker-sub-row"))) {
+      const dateCell = document.createElement("td");
+      dateCell.className = "excel-date-cell excel-date-cell-rowspan";
+      dateCell.textContent = siteDate;
+      dateCell.rowSpan = group.length;
+      group[0].insertBefore(dateCell, group[0].firstChild);
+    }
+
+    result.push(...group);
+  });
+
+  return result;
+}
+
+type StatementPageChunk = {
+  rows: HTMLTableRowElement[];
+  siteDate: string;
+};
 
 function canFitPage(
   host: HTMLElement,
@@ -181,15 +252,16 @@ function canFitPage(
   bodyRows: HTMLTableRowElement[],
   showFullHeader: boolean,
   showTableFooter: boolean,
+  siteDate: string,
   variant: StatementPageVariant = "screen"
 ) {
   const page = buildStatementPageElement(source, {
     showFullHeader,
-    bodyRows: fixRowspanForChunk(bodyRows),
+    bodyRows: fixRowspanForChunk(bodyRows, siteDate),
     showTableFooter,
     variant,
   });
-  return measurePageHeight(host, page) <= A4_PORTRAIT_HEIGHT_PX + 0.5;
+  return measurePageContentHeight(host, page) <= getStatementPaginationMaxHeightPx() + 0.5;
 }
 
 export function paginateStatementRows(
@@ -199,34 +271,47 @@ export function paginateStatementRows(
   variant: StatementPageVariant = "screen"
 ) {
   if (!rows.length) {
-    return [[]];
+    return [{ rows: [], siteDate: "" }];
   }
 
   const groups = splitBodyRowsIntoGroups(rows);
-  const pages: HTMLTableRowElement[][] = [];
+  const pages: StatementPageChunk[] = [];
   let pending: HTMLTableRowElement[] = [];
+  let pendingSiteDate = "";
 
   const flushPending = () => {
     if (!pending.length) return;
-    pages.push(pending);
+    pages.push({ rows: pending, siteDate: pendingSiteDate });
     pending = [];
+    pendingSiteDate = "";
   };
 
   groups.forEach((group, groupIndex) => {
+    const groupSiteDate = extractSiteDateFromGroup(group);
     const isLastGroup = groupIndex === groups.length - 1;
 
     const tryMerge = (extra: HTMLTableRowElement[], showFooter: boolean) =>
-      canFitPage(host, source, [...pending, ...extra], pages.length === 0 && pending.length === 0, showFooter, variant);
+      canFitPage(
+        host,
+        source,
+        [...pending, ...extra],
+        pages.length === 0 && pending.length === 0,
+        showFooter,
+        pendingSiteDate || groupSiteDate,
+        variant
+      );
 
     if (tryMerge(group, isLastGroup && pending.length + group.length === rows.length)) {
+      if (!pending.length) pendingSiteDate = groupSiteDate;
       pending.push(...group);
       return;
     }
 
     flushPending();
 
-    if (canFitPage(host, source, group, pages.length === 0, isLastGroup, variant)) {
+    if (canFitPage(host, source, group, pages.length === 0, isLastGroup, groupSiteDate, variant)) {
       pending = [...group];
+      pendingSiteDate = groupSiteDate;
       return;
     }
 
@@ -239,22 +324,26 @@ export function paginateStatementRows(
         const isLastSlice = offset + tryCount >= group.length;
         const isLastPage = isLastGroup && isLastSlice;
         const showFullHeader = pages.length === 0 && offset === 0;
+        const sliceSiteDate = offset === 0 ? groupSiteDate : groupSiteDate;
 
-        if (canFitPage(host, source, slice, showFullHeader, isLastPage, variant)) {
+        if (canFitPage(host, source, slice, showFullHeader, isLastPage, sliceSiteDate, variant)) {
           bestCount = tryCount;
         } else {
           break;
         }
       }
 
-      pages.push(group.slice(offset, offset + bestCount));
+      pages.push({ rows: group.slice(offset, offset + bestCount), siteDate: groupSiteDate });
       offset += bestCount;
     }
   });
 
   flushPending();
 
-  return pages.map((pageRows) => fixRowspanForChunk(pageRows));
+  return pages.map((chunk) => ({
+    rows: fixRowspanForChunk(chunk.rows, chunk.siteDate),
+    siteDate: chunk.siteDate,
+  }));
 }
 
 export function buildPaginatedStatementPages(
@@ -268,14 +357,17 @@ export function buildPaginatedStatementPages(
 
   try {
     const pageChunks = paginateStatementRows(source, host, bodyRows, variant);
-    return pageChunks.map((chunk, pageIndex) =>
-      buildStatementPageElement(source, {
+    const totalPages = pageChunks.length;
+    return pageChunks.map((chunk, pageIndex) => {
+      const page = buildStatementPageElement(source, {
         showFullHeader: pageIndex === 0,
-        bodyRows: chunk,
+        bodyRows: chunk.rows,
         showTableFooter: pageIndex === pageChunks.length - 1,
         variant,
-      })
-    );
+      });
+      appendStatementPageNumber(page, pageIndex + 1, totalPages);
+      return page;
+    });
   } finally {
     host.remove();
   }
@@ -284,4 +376,79 @@ export function buildPaginatedStatementPages(
 /** Build paginated A4 pages for PDF/print export */
 export function buildStatementExportPages(source: HTMLElement): HTMLElement[] {
   return buildPaginatedStatementPages(source, { variant: "screen" });
+}
+
+export function countStatementExportPages(source: HTMLElement): number {
+  const preview = source.closest(".erp-statement-a4-preview") as HTMLElement | null;
+  if (preview?.dataset.statementPageCount) {
+    return Math.max(1, Number(preview.dataset.statementPageCount));
+  }
+  if (preview) {
+    const displayHost = preview.querySelector("[data-statement-display-host]") as HTMLElement | null;
+    if (displayHost?.dataset.statementPageCount) {
+      return Math.max(1, Number(displayHost.dataset.statementPageCount));
+    }
+  }
+  return buildStatementExportPages(source).length;
+}
+
+function cloneStatementPrintSheet(sheet: HTMLElement) {
+  const clone = sheet.cloneNode(true) as HTMLElement;
+  flattenStatementFitCells(clone);
+  fixStatementCloneImages(clone);
+  clone.classList.remove("is-pdf-export", "is-pdf-export-fixed");
+  clone.style.boxShadow = "none";
+  clone.style.margin = "0";
+  clone.style.width = `${A4_PORTRAIT_WIDTH_PX}px`;
+  clone.style.minWidth = `${A4_PORTRAIT_WIDTH_PX}px`;
+  return clone;
+}
+
+export async function waitForStatementPreviewReady(preview: HTMLElement, timeoutMs = 4000) {
+  const started = Date.now();
+
+  while (Date.now() - started < timeoutMs) {
+    if (preview.dataset.statementPagesReady === "true") {
+      const pageCount = Math.max(1, Number(preview.dataset.statementPageCount || "1"));
+      if (pageCount <= 1) return pageCount;
+
+      const displayHost = preview.querySelector("[data-statement-display-host]") as HTMLElement | null;
+      const frameCount = displayHost?.querySelectorAll(":scope > .erp-statement-a4-page").length || 0;
+      if (frameCount >= pageCount) return pageCount;
+    }
+
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 40));
+  }
+
+  return Math.max(1, Number(preview.dataset.statementPageCount || "1"));
+}
+
+function readVisiblePreviewSheets(preview: HTMLElement, pageCount: number) {
+  if (pageCount <= 1) {
+    const measureHost = preview.querySelector("[data-statement-measure-host]") as HTMLElement | null;
+    const liveSheet = findStatementSheetRoot(measureHost);
+    return liveSheet ? [liveSheet] : [];
+  }
+
+  const displayHost = preview.querySelector("[data-statement-display-host]") as HTMLElement | null;
+  if (!displayHost) return [];
+
+  return Array.from(displayHost.querySelectorAll(":scope > .erp-statement-a4-page > .erp-statement-sheet")) as HTMLElement[];
+}
+
+/** Collect pages shown on screen for WYSIWYG print/PDF. */
+export async function collectStatementPrintPages(exportRoot: HTMLElement): Promise<HTMLElement[]> {
+  const preview = exportRoot.closest(".erp-statement-a4-preview") as HTMLElement | null;
+
+  if (preview) {
+    const pageCount = await waitForStatementPreviewReady(preview);
+    const visibleSheets = readVisiblePreviewSheets(preview, pageCount);
+
+    if (visibleSheets.length > 0) {
+      return visibleSheets.map((sheet) => cloneStatementPrintSheet(sheet));
+    }
+  }
+
+  return buildStatementExportPages(exportRoot).map((sheet) => cloneStatementPrintSheet(sheet));
 }

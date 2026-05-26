@@ -1,7 +1,5 @@
 import {
   DEFAULT_COMPANY_PROFILE,
-  companyProfileContactLines,
-  companyProfileLinkItems,
   resolveStatementBankAccount,
   type CompanyProfile,
 } from "@/utils/companyProfile";
@@ -36,8 +34,6 @@ function formatStatementCellAmount(value?: number | null) {
 
 function buildCompanyExcelInfo(companyProfile?: CompanyProfile): StatementExcelCompany {
   const profile = companyProfile || DEFAULT_COMPANY_PROFILE;
-  const headerLinks = companyProfileLinkItems(profile).map((item) => `${item.label}: ${item.href.replace(/^https?:\/\//i, "")}`);
-  const footerLinks = headerLinks;
 
   const headerLines = [
     profile.businessNo ? `사업자번호 ${profile.businessNo}` : "",
@@ -49,9 +45,9 @@ function buildCompanyExcelInfo(companyProfile?: CompanyProfile): StatementExcelC
   return {
     name: profile.name || DEFAULT_COMPANY_PROFILE.name,
     headerLines,
-    headerLinks,
-    footerLines: companyProfileContactLines(profile),
-    footerLinks,
+    headerLinks: [],
+    footerLines: [profile.name || DEFAULT_COMPANY_PROFILE.name],
+    footerLinks: [],
   };
 }
 
@@ -154,7 +150,7 @@ export function buildClientStatementExcelPayload(input: {
           "",
         ]
       : null,
-    fillerRowCount: getStatementFillerRowCount(hasRows ? visibleBodyRows : 1),
+    fillerRowCount: getStatementFillerRowCount(hasRows ? visibleBodyRows : 1, input.companyProfile),
     emptyMessage: input.emptyMessage || "표시할 거래처 내역이 없습니다.",
   };
 }
@@ -220,7 +216,7 @@ export function buildWorkerStatementExcelPayload(input: {
           "",
         ]
       : null,
-    fillerRowCount: getStatementFillerRowCount(hasRows ? input.rows.length : 1),
+    fillerRowCount: getStatementFillerRowCount(hasRows ? input.rows.length : 1, input.companyProfile),
     emptyMessage: input.emptyMessage || "표시할 시공자 내역이 없습니다.",
   };
 }

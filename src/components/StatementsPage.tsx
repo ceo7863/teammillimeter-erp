@@ -1609,7 +1609,13 @@ export function StatementsPage({
             )}
 
             <div className="erp-statement-preview-wrap">
-              <StatementA4Preview>
+              <StatementA4Preview
+                layoutVersion={
+                  isClientStatement
+                    ? `c:${clientStatementView}:${clientDisplayRows.length}:${clientDisplayRows.map((row) => row.id).join(",")}`
+                    : `w:${workerStatementSheetRows.length}:${workerStatementSheetRows.map((row) => row.id).join(",")}`
+                }
+              >
                 {isClientStatement ? (
                   <ClientStatementSheet
                     ref={clientPrintRef}

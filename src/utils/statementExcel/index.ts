@@ -1,4 +1,5 @@
 import { safeExportFileName } from "@/utils/tableExport";
+import { countStatementExportPages } from "@/utils/statementPagination";
 import { parseStatementExcelPayload } from "./payload";
 import { buildClientStatementWorksheet, buildWorkerStatementWorksheet } from "./template";
 import { downloadWorksheet } from "./workbook";
@@ -16,7 +17,8 @@ export async function exportStatementExcelFromPayload(root: HTMLElement, fileNam
   const built =
     payload.kind === "client" ? buildClientStatementWorksheet(payload) : buildWorkerStatementWorksheet(payload);
 
-  await downloadWorksheet(built.ws, "내역서", `${safeExportFileName(fileName)}_${todayISO()}.xlsx`, built.logoAnchor);
+  const printPageCount = countStatementExportPages(root);
+  await downloadWorksheet(built.ws, "내역서", `${safeExportFileName(fileName)}_${todayISO()}.xlsx`, built.logoAnchor, printPageCount);
 }
 
 export function serializeStatementExcelPayload(payload: import("./types").StatementExcelPayload) {

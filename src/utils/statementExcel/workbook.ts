@@ -114,7 +114,8 @@ export async function downloadWorksheet(
   ws: XLSX.WorkSheet,
   sheetName: string,
   fileName: string,
-  logoAnchor?: StatementLogoAnchor
+  logoAnchor?: StatementLogoAnchor,
+  printPageCount = 1
 ) {
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, ws, sheetName.slice(0, 31));
@@ -122,6 +123,7 @@ export async function downloadWorksheet(
 
   const logoAsset = logoAnchor ? await loadStatementLogo() : null;
   const blob = await finalizeStatementXlsx(buffer, {
+    printPageCount,
     logo:
       logoAnchor && logoAsset
         ? {

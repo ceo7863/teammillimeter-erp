@@ -10,7 +10,7 @@ export type StatementDraft = {
   /** Pivot unpaid voucher ids */
   saleIds: Array<string | number>;
   createdAt?: number;
-  source?: "reports-pivot";
+  source?: "reports-pivot" | "client-calendar";
 };
 
 export function stashStatementDraft(draft: StatementDraft) {
@@ -68,6 +68,34 @@ export function createUnpaidClientStatementDraft(
     saleIds: saleIds.length === unpaidSales.length ? saleIds : [],
     createdAt: Date.now(),
     source: "reports-pivot",
+  };
+}
+
+export function createClientCalendarStatementDraft(
+  client: string,
+  sales: Array<{ date?: string; id?: string | number }> = [],
+  selectedDates: string[] = [],
+): StatementDraft | null {
+  if (!client || !selectedDates.length) return null;
+  const dateSet = new Set(selectedDates.map((date) => String(date || "").trim()).filter(Boolean));
+  const matchedSales = sales.filter((sale) => dateSet.has(String(sale.date || "").trim()));
+  if (!matchedSales.length) return null;
+
+  const saleIds = matchedSales
+    .map((sale) => sale.id)
+    .filter((id) => id != null && id !== "") as Array<string | number>;
+  const dates = resolveSaleDateRange(matchedSales);
+
+  return {
+    statementType: "client",
+    client,
+    startDate: dates.startDate,
+    endDate: dates.endDate,
+    unpaidOnly: false,
+    autoGenerate: true,
+    saleIds: saleIds.length === matchedSales.length ? saleIds : [],
+    createdAt: Date.now(),
+    source: "client-calendar",
   };
 }
 

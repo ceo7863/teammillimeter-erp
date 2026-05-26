@@ -1,6 +1,6 @@
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
-import { buildStatementExportPages } from "./statementPagination";
+import { collectStatementPrintPages } from "./statementPagination";
 import {
   applyStatementSingleA4PageLayout,
   cloneStatementDocument,
@@ -128,7 +128,7 @@ async function downloadPaginatedStatementPdf(
   options: StatementPdfOptions = {}
 ): Promise<{ blobUrl: string; fileName: string; blob: Blob; pageCount: number; previewOpened: boolean }> {
   const orientation: PdfOrientation = "portrait";
-  const pages = buildStatementExportPages(element);
+  const pages = await collectStatementPrintPages(element);
   const pdf = new jsPDF({ orientation, unit: "mm", format: "a4" });
   const pageWidthMm = pdf.internal.pageSize.getWidth();
   const pageHeightMm = pdf.internal.pageSize.getHeight();
@@ -137,17 +137,22 @@ async function downloadPaginatedStatementPdf(
     const pageElement = pages[pageIndex];
     flattenStatementFitCells(pageElement);
     fixStatementCloneImages(pageElement);
+    pageElement.classList.remove("is-pdf-export-fixed");
+    pageElement.classList.add("is-pdf-export", "is-a4-page");
     pageElement.style.position = "fixed";
     pageElement.style.left = "-12000px";
     pageElement.style.top = "0";
     pageElement.style.width = `${A4_PORTRAIT_WIDTH_PX}px`;
     pageElement.style.minHeight = `${A4_PORTRAIT_HEIGHT_PX}px`;
+    pageElement.style.height = "auto";
+    pageElement.style.maxHeight = "none";
+    pageElement.style.overflow = "visible";
     pageElement.style.boxShadow = "none";
     document.body.appendChild(pageElement);
 
     try {
       await waitForStatementImages(pageElement);
-      const canvas = await captureStatementPage(pageElement, { fullPage: true });
+      const canvas = await captureStatementPage(pageElement);
       const imgData = canvas.toDataURL("image/png");
 
       if (pageIndex > 0) pdf.addPage("a4", orientation);
@@ -268,6 +273,24 @@ export async function captureStatementPrintCanvas(root: HTMLElement) {
   }
 }
 
+/** Statement sheet → single A4 PDF (same capture path as print). */
+export async function downloadStatementSinglePagePdf(
+  element: HTMLElement,
+  fileName: string,
+  options: StatementPdfOptions = {}
+): Promise<{ blobUrl: string; fileName: string; blob: Blob; pageCount: number; previewOpened: boolean }> {
+  const orientation = options.orientation ?? "portrait";
+  const canvas = await captureStatementPrintCanvas(element);
+  const pdf = new jsPDF({ orientation, unit: "mm", format: "a4" });
+  const pageWidthMm = pdf.internal.pageSize.getWidth();
+  const pageHeightMm = pdf.internal.pageSize.getHeight();
+  const imgData = canvas.toDataURL("image/png");
+  pdf.addImage(imgData, "PNG", 0, 0, pageWidthMm, pageHeightMm);
+
+  const blob = pdf.output("blob");
+  return finalizeStatementPdf(blob, fileName, 1, options);
+}
+
 function addCanvasPagesToPdf(
   pdf: jsPDF,
   canvas: HTMLCanvasElement,
@@ -386,7 +409,7 @@ export async function downloadPdfFromHtmlElement(
   options: StatementPdfOptions = {}
 ): Promise<{ blobUrl: string; fileName: string; blob: Blob; pageCount: number; previewOpened: boolean }> {
   if (element.matches("[data-pdf-export-root]")) {
-    if (options.paginate === true) {
+    if (options.paginate !== false) {
       return downloadPaginatedStatementPdf(element, fileName, options);
     }
     return downloadStatementWysiwygPdf(element, fileName, options);

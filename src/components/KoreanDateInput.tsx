@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
 
 const WEEKDAY_LABELS = ["\uC77C", "\uC6D4", "\uD654", "\uC218", "\uBAA9", "\uAE08", "\uD1A0"] as const;
@@ -77,6 +78,7 @@ export function KoreanDateInput({
 }: KoreanDateInputProps) {
   const isCompact = compact || className.includes("erp-input-compact");
   const rootRef = useRef<HTMLDivElement>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [pickerStyle, setPickerStyle] = useState<React.CSSProperties>({});
@@ -119,7 +121,9 @@ export function KoreanDateInput({
   useEffect(() => {
     if (!open) return;
     const handlePointerDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (rootRef.current?.contains(target) || pickerRef.current?.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener("mousedown", handlePointerDown);
     return () => document.removeEventListener("mousedown", handlePointerDown);
@@ -153,6 +157,90 @@ export function KoreanDateInput({
     setOpen(false);
   };
 
+  const picker = open ? (
+    <div
+      ref={pickerRef}
+      className={`erp-date-picker erp-date-picker--fixed ${isCompact ? "erp-date-picker--compact-anchor" : ""}`}
+      style={pickerStyle}
+      role="dialog"
+      aria-label={"\uB0A0\uC9DC \uC120\uD0DD"}
+    >
+      <div className="erp-date-picker-header">
+        <button
+          type="button"
+          className="erp-date-picker-nav"
+          aria-label={"\uC774\uC804 \uB2EC"}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => moveMonth(-1)}
+        >
+          <ChevronLeft size={16} />
+        </button>
+        <div className="erp-date-picker-title">
+          {viewYear}
+          {"\uB144 "}
+          {MONTH_LABELS[viewMonth]}
+        </div>
+        <button
+          type="button"
+          className="erp-date-picker-nav"
+          aria-label={"\uB2E4\uC74C \uB2EC"}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => moveMonth(1)}
+        >
+          <ChevronRight size={16} />
+        </button>
+      </div>
+
+      <div className="erp-date-picker-weekdays">
+        {WEEKDAY_LABELS.map((label, index) => (
+          <span
+            key={`${label}-${index}`}
+            className={`erp-date-picker-weekday ${index === 0 ? "is-sunday" : index === 6 ? "is-saturday" : ""}`}
+          >
+            {label}
+          </span>
+        ))}
+      </div>
+
+      <div className="erp-date-picker-grid">
+        {cells.map((cell) =>
+          cell.day && cell.iso ? (
+            <button
+              key={cell.key}
+              type="button"
+              className={[
+                "erp-date-picker-day",
+                value === cell.iso ? "is-selected" : "",
+                today === cell.iso ? "is-today" : "",
+                new Date(viewYear, viewMonth, cell.day).getDay() === 0 ? "is-sunday" : "",
+                new Date(viewYear, viewMonth, cell.day).getDay() === 6 ? "is-saturday" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => selectDate(cell.iso!)}
+            >
+              {cell.day}
+            </button>
+          ) : (
+            <span key={cell.key} className="erp-date-picker-day is-empty" aria-hidden="true" />
+          ),
+        )}
+      </div>
+
+      <div className="erp-date-picker-footer">
+        <button
+          type="button"
+          className="erp-date-picker-today"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => selectDate(today)}
+        >
+          {"\uC624\uB298"}
+        </button>
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div ref={rootRef} className={`erp-date-input ${isCompact ? "erp-date-input--compact" : ""}`}>
       <input type="hidden" name={name} id={id} value={value} readOnly />
@@ -161,6 +249,7 @@ export function KoreanDateInput({
         type="button"
         className={`erp-date-input-trigger erp-input w-full ${className} ${open ? "is-open" : ""}`}
         disabled={disabled}
+        onMouseDown={(event) => event.preventDefault()}
         onClick={() => setOpen((prev) => !prev)}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -188,70 +277,7 @@ export function KoreanDateInput({
         </span>
       </button>
 
-      {open ? (
-        <div
-          className={`erp-date-picker erp-date-picker--fixed ${isCompact ? "erp-date-picker--compact-anchor" : ""}`}
-          style={pickerStyle}
-          role="dialog"
-          aria-label={"\uB0A0\uC9DC \uC120\uD0DD"}
-        >
-          <div className="erp-date-picker-header">
-            <button type="button" className="erp-date-picker-nav" aria-label={"\uC774\uC804 \uB2EC"} onClick={() => moveMonth(-1)}>
-              <ChevronLeft size={16} />
-            </button>
-            <div className="erp-date-picker-title">
-              {viewYear}
-              {"\uB144 "}
-              {MONTH_LABELS[viewMonth]}
-            </div>
-            <button type="button" className="erp-date-picker-nav" aria-label={"\uB2E4\uC74C \uB2EC"} onClick={() => moveMonth(1)}>
-              <ChevronRight size={16} />
-            </button>
-          </div>
-
-          <div className="erp-date-picker-weekdays">
-            {WEEKDAY_LABELS.map((label, index) => (
-              <span
-                key={`${label}-${index}`}
-                className={`erp-date-picker-weekday ${index === 0 ? "is-sunday" : index === 6 ? "is-saturday" : ""}`}
-              >
-                {label}
-              </span>
-            ))}
-          </div>
-
-          <div className="erp-date-picker-grid">
-            {cells.map((cell) =>
-              cell.day && cell.iso ? (
-                <button
-                  key={cell.key}
-                  type="button"
-                  className={[
-                    "erp-date-picker-day",
-                    value === cell.iso ? "is-selected" : "",
-                    today === cell.iso ? "is-today" : "",
-                    new Date(viewYear, viewMonth, cell.day).getDay() === 0 ? "is-sunday" : "",
-                    new Date(viewYear, viewMonth, cell.day).getDay() === 6 ? "is-saturday" : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  onClick={() => selectDate(cell.iso!)}
-                >
-                  {cell.day}
-                </button>
-              ) : (
-                <span key={cell.key} className="erp-date-picker-day is-empty" aria-hidden="true" />
-              ),
-            )}
-          </div>
-
-          <div className="erp-date-picker-footer">
-            <button type="button" className="erp-date-picker-today" onClick={() => selectDate(today)}>
-              {"\uC624\uB298"}
-            </button>
-          </div>
-        </div>
-      ) : null}
+      {picker ? createPortal(picker, document.body) : null}
     </div>
   );
 }

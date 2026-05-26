@@ -10,6 +10,7 @@ import {
   BarChart3,
   Building2,
   CalendarDays,
+  CalendarRange,
   CheckCircle2,
   CreditCard,
   Download,
@@ -20,6 +21,7 @@ import {
   Landmark,
   LogIn,
   LogOut,
+  ListOrdered,
   MapPin,
   Menu,
   Pencil,
@@ -56,11 +58,13 @@ import { PaymentReceivablesPage } from "@/components/PaymentReceivablesPage";
 import { WorkerPaymentsPage } from "@/components/WorkerPaymentsPage";
 import { StatementsPage } from "@/components/StatementsPage";
 import { PdfArchivePage } from "@/components/PdfArchivePage";
+import { MyAccountModal } from "@/components/MyAccountModal";
+import { SidebarMenuOrderModal } from "@/components/SidebarMenuOrderModal";
 import { UsersAdminPage } from "@/components/UsersAdminPage";
 import { CompanyLedgerPage } from "@/components/CompanyLedgerPage";
+import { ClientCalendarPage } from "@/components/ClientCalendarPage";
 import { CompanyNoticeBoardPage } from "@/components/CompanyNoticeBoardPage";
 import { TaxInvoicePage } from "@/components/TaxInvoicePage";
-import { LoginBoardPreview } from "@/components/LoginBoardPreview";
 import { CompanyProfilePage } from "@/components/CompanyProfilePage";
 import { DEFAULT_COMPANY_PROFILE, normalizeCompanyProfile } from "@/utils/companyProfile";
 import { normalizeCompanyNotices } from "@/utils/companyNotices";
@@ -115,7 +119,22 @@ import {
   loadAuthUser,
   loginWithApi,
   saveErpData,
+  updateSidebarOrderApi,
 } from "@/utils/erpApi";
+import {
+  canUserAccessPage,
+  getAccessiblePageDefs,
+  getDefaultPageForUser,
+  getPageLabel,
+  type ErpPageKey,
+} from "@/utils/pageAccess";
+import {
+  cacheSidebarOrderFromUser,
+  resolveSidebarOrder,
+  saveSidebarOrder,
+  sortPageDefsByOrder,
+  syncLocalSidebarOrderIfNeeded,
+} from "@/utils/sidebarOrder";
 
 const initialReceivables = [
   { id: 1, client: "키친바이블", businessNo: "751-24-01200", manager: "김혁대표님", phone: "010-5775-4630", date: "2026-03-01", voucherNo: "2821-001", salesAmount: 354000, paidAmount: 354000, dueDate: "2026-03-23", memo: "마포 현장" },
@@ -1382,7 +1401,6 @@ function LoginScreen({ onLogin }) {
           <p className="erp-login-hero-desc">
             매출등록, 거래처 미수, 시공자 관리, 보고서를 하나의 ERP 화면에서 확인합니다.
           </p>
-          <LoginBoardPreview />
         </div>
         <Card className="erp-login-card rounded-3xl border-0 bg-white text-slate-900 shadow-2xl">
           <CardContent className="p-6 sm:p-8">
@@ -1433,30 +1451,46 @@ function LoginScreen({ onLogin }) {
   );
 }
 
-function Sidebar({ active, setActive, currentUser, onLogout, mobileOpen, onMobileClose, syncStatus }) {
-  const items = [
-    ["dashboard", "대시보드", Home],
-    ["calendar", "캘린더", CalendarDays],
-    ["salesInput", "매출등록", Plus],
-    ["sales", "매출관리", FileSpreadsheet],
-    ["salesVoucherSearch", "매출전표검색", Search],
-    ["receivables", "입금/미수금", CreditCard],
-    ["workerPayments", "시공자 지급", WalletCards],
-    ["reports", "보고서", BarChart3],
-    ["statements", "내역서", Download],
-    ["pdfArchive", "PDF 보관함", Archive],
-  ];
-  items.push(["clients", "거래처", Building2]);
-  items.push(["workers", "시공자", Users]);
-  items.push(["companyLedger", "회사 가계부", BookOpen]);
-  items.push(["taxInvoices", "계산서 발행", Receipt]);
-  items.push(["companyNotices", "회사게시판", Megaphone]);
-  items.push(["companyProfile", "회사정보", Landmark]);
-  items.push(["auditLog", "감사로그", History]);
-  if (currentUser?.role === "admin") {
-    items.push(["usersAdmin", "사용자 관리", UserCog]);
-    items.push(["loginHistory", "로그인 이력", LogIn]);
-  }
+const PAGE_ICONS: Record<ErpPageKey, typeof Home> = {
+  dashboard: Home,
+  calendar: CalendarDays,
+  clientCalendar: CalendarRange,
+  salesInput: Plus,
+  sales: FileSpreadsheet,
+  salesVoucherSearch: Search,
+  receivables: CreditCard,
+  workerPayments: WalletCards,
+  reports: BarChart3,
+  statements: Download,
+  pdfArchive: Archive,
+  clients: Building2,
+  workers: Users,
+  companyLedger: BookOpen,
+  taxInvoices: Receipt,
+  companyNotices: Megaphone,
+  companyProfile: Landmark,
+  auditLog: History,
+  usersAdmin: UserCog,
+  loginHistory: LogIn,
+};
+
+function Sidebar({
+  active,
+  setActive,
+  currentUser,
+  sidebarOrder,
+  onLogout,
+  onOpenMyAccount,
+  onOpenMenuOrder,
+  mobileOpen,
+  onMobileClose,
+  syncStatus,
+}) {
+  const items = sortPageDefsByOrder(getAccessiblePageDefs(currentUser), sidebarOrder).map((page) => [
+    page.key,
+    page.label,
+    PAGE_ICONS[page.key],
+  ]);
 
   const navigate = (key) => {
     setActive(key);
@@ -1492,6 +1526,14 @@ function Sidebar({ active, setActive, currentUser, onLogout, mobileOpen, onMobil
         </button>
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto lg:space-y-2">
+        <button
+          type="button"
+          className="erp-sidebar-menu-order-btn erp-text-caption mb-2 flex min-h-[40px] w-full items-center justify-center gap-2 rounded-2xl border border-slate-700 px-3 py-2 font-semibold text-slate-300 transition hover:border-slate-500 hover:bg-slate-800 hover:text-white"
+          onClick={onOpenMenuOrder}
+        >
+          <ListOrdered size={16} />
+          메뉴 순서
+        </button>
         {items.map(([key, label, Icon]) => (
           <button key={key} onClick={() => navigate(key)} className={`erp-touch-target erp-text-body flex min-h-[44px] w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left font-semibold transition lg:px-4 lg:py-3 ${active === key ? "bg-white text-slate-950" : "text-slate-300 hover:bg-slate-800"}`}>
             <Icon size={18} /> {label}
@@ -1499,8 +1541,15 @@ function Sidebar({ active, setActive, currentUser, onLogout, mobileOpen, onMobil
         ))}
       </nav>
       <div className="mt-4 shrink-0 rounded-2xl bg-slate-900 p-3 lg:mt-auto lg:p-4">
-        <div className="erp-text-body font-bold">{currentUser.name}</div>
-        <div className="erp-text-caption mt-1 text-slate-400">{currentUser.loginId || currentUser.email || ""}</div>
+        <button
+          type="button"
+          className="erp-sidebar-account-btn w-full rounded-xl px-2 py-2 text-left transition hover:bg-slate-800"
+          onClick={onOpenMyAccount}
+        >
+          <div className="erp-text-body font-bold">{currentUser.name}</div>
+          <div className="erp-text-caption mt-1 text-slate-400">{currentUser.loginId || currentUser.email || ""}</div>
+          <div className="erp-text-caption mt-1 text-slate-500">내 계정</div>
+        </button>
         {syncStatus && <div className="erp-text-caption mt-2 text-emerald-400">{syncStatus}</div>}
         <button type="button" className="erp-sidebar-footer-btn erp-text-body mt-4" onClick={onLogout}>
           <LogOut size={16} /> 로그아웃
@@ -4288,6 +4337,9 @@ export default function TeammillimeterErpMvp() {
   const [statementDraft, setStatementDraft] = useState<StatementDraft | null>(null);
   const [pendingVoucherEditId, setPendingVoucherEditId] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [myAccountOpen, setMyAccountOpen] = useState(false);
+  const [sidebarMenuOrderOpen, setSidebarMenuOrderOpen] = useState(false);
+  const [sidebarOrder, setSidebarOrder] = useState(() => resolveSidebarOrder(currentUser));
   const receivableRowsFromSales = useMemo(() => buildReceivableRowsFromSales(appliedSales, clients), [appliedSales, clients]);
 
   useEffect(() => {
@@ -4487,10 +4539,18 @@ export default function TeammillimeterErpMvp() {
     applyErpImport(payload, "번들 데이터 적용");
   };
 
-  const handleLogin = (user) => {
-    setLoginLogs((prev) => appendLoginLogs(prev, [buildLoginLogEntry(user)]));
-    setCurrentUser(user);
-    if (!apiMode) saveSessionUser(user);
+  const handleLogin = async (user) => {
+    let nextUser = user;
+    if (apiMode) {
+      nextUser = await syncLocalSidebarOrderIfNeeded(user, updateSidebarOrderApi);
+    } else {
+      setLoginLogs((prev) => appendLoginLogs(prev, [buildLoginLogEntry(user)]));
+    }
+    setCurrentUser(nextUser);
+    const order = resolveSidebarOrder(nextUser);
+    setSidebarOrder(order);
+    cacheSidebarOrderFromUser(nextUser);
+    if (!apiMode) saveSessionUser(nextUser);
   };
 
   const handleLogout = () => {
@@ -4500,6 +4560,32 @@ export default function TeammillimeterErpMvp() {
     setSyncStatus("");
     setDataReady(!apiMode);
   };
+
+  useEffect(() => {
+    const order = resolveSidebarOrder(currentUser);
+    setSidebarOrder(order);
+    cacheSidebarOrderFromUser(currentUser);
+  }, [currentUser?.id, currentUser?.sidebarOrder]);
+
+  useEffect(() => {
+    if (!apiMode || !currentUser?.id) return;
+    let cancelled = false;
+    (async () => {
+      const synced = await syncLocalSidebarOrderIfNeeded(currentUser, updateSidebarOrderApi);
+      if (cancelled || synced === currentUser) return;
+      setCurrentUser(synced);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiMode, currentUser?.id]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    if (!canUserAccessPage(currentUser, active)) {
+      setActive(getDefaultPageForUser(currentUser));
+    }
+  }, [currentUser, active]);
 
   if (!currentUser) return <LoginScreen onLogin={handleLogin} />;
 
@@ -4514,27 +4600,7 @@ export default function TeammillimeterErpMvp() {
     );
   }
 
-  const activeLabel = {
-    dashboard: "대시보드",
-    calendar: "캘린더",
-    salesInput: "매출등록",
-    sales: "매출관리",
-    salesVoucherSearch: "매출전표검색",
-    receivables: "입금/미수금",
-    workerPayments: "시공자 지급",
-    companyLedger: "회사 가계부",
-    taxInvoices: "계산서 발행",
-    companyNotices: "회사게시판",
-    clients: "거래처",
-    workers: "시공자",
-    companyProfile: "회사정보",
-    reports: "보고서",
-    auditLog: "감사로그",
-    loginHistory: "로그인 이력",
-    statements: "내역서",
-    pdfArchive: "PDF 보관함",
-    usersAdmin: "사용자 관리",
-  }[active] || "ERP";
+  const activeLabel = getPageLabel(active);
 
   return (
     <AuditProvider auditLogs={auditLogs} setAuditLogs={setAuditLogs} currentUser={currentUser}>
@@ -4543,7 +4609,16 @@ export default function TeammillimeterErpMvp() {
         active={active}
         setActive={setActive}
         currentUser={currentUser}
+        sidebarOrder={sidebarOrder}
         onLogout={handleLogout}
+        onOpenMyAccount={() => {
+          setMyAccountOpen(true);
+          setSidebarOpen(false);
+        }}
+        onOpenMenuOrder={() => {
+          setSidebarMenuOrderOpen(true);
+          setSidebarOpen(false);
+        }}
         mobileOpen={sidebarOpen}
         onMobileClose={() => setSidebarOpen(false)}
         syncStatus={apiMode ? syncStatus : ""}
@@ -4574,6 +4649,16 @@ export default function TeammillimeterErpMvp() {
             onOpenVoucherEdit={(saleId) => {
               setPendingVoucherEditId(saleId);
               setActive("salesVoucherSearch");
+            }}
+          />
+        </PageKeepAlive>
+        <PageKeepAlive pageKey="clientCalendar" active={active}>
+          <ClientCalendarPage
+            sales={appliedSales}
+            clients={clients}
+            onRequestClientStatement={(draft) => {
+              setStatementDraft(draft);
+              setActive("statements");
             }}
           />
         </PageKeepAlive>
@@ -4664,11 +4749,11 @@ export default function TeammillimeterErpMvp() {
         <PageKeepAlive pageKey="auditLog" active={active}>
           <AuditLogPage />
         </PageKeepAlive>
-        {currentUser.role === "admin" && (
+        {canUserAccessPage(currentUser, "loginHistory") ? (
           <PageKeepAlive pageKey="loginHistory" active={active}>
             <LoginHistoryPage loginLogs={loginLogs} />
           </PageKeepAlive>
-        )}
+        ) : null}
         <PageKeepAlive pageKey="statements" active={active}>
           <StatementsPage
             sales={appliedSales}
@@ -4687,7 +4772,7 @@ export default function TeammillimeterErpMvp() {
         <PageKeepAlive pageKey="pdfArchive" active={active}>
           <PdfArchivePage isActive={active === "pdfArchive"} />
         </PageKeepAlive>
-        {currentUser.role === "admin" && (
+        {canUserAccessPage(currentUser, "usersAdmin") ? (
           <PageKeepAlive pageKey="usersAdmin" active={active}>
             <UsersAdminPage
               currentUser={currentUser}
@@ -4697,9 +4782,40 @@ export default function TeammillimeterErpMvp() {
               onLoadBundledSeed={handleLoadBundledSeed}
             />
           </PageKeepAlive>
-        )}
+        ) : null}
         </main>
       </div>
+      <MyAccountModal
+        open={myAccountOpen}
+        currentUser={currentUser}
+        apiMode={apiMode}
+        onClose={() => setMyAccountOpen(false)}
+        onUserUpdated={(user) => {
+          setCurrentUser(user);
+          if (!apiMode) saveSessionUser(user);
+        }}
+      />
+      <SidebarMenuOrderModal
+        open={sidebarMenuOrderOpen}
+        pages={getAccessiblePageDefs(currentUser)}
+        savedOrder={sidebarOrder}
+        apiMode={apiMode}
+        onClose={() => setSidebarMenuOrderOpen(false)}
+        onSave={async (order) => {
+          if (currentUser?.id == null) return;
+          saveSidebarOrder(currentUser.id, order);
+          setSidebarOrder(order);
+          if (apiMode) {
+            const user = await updateSidebarOrderApi(order);
+            setCurrentUser(user);
+            cacheSidebarOrderFromUser(user);
+            return;
+          }
+          const nextUser = { ...currentUser, sidebarOrder: order };
+          setCurrentUser(nextUser);
+          saveSessionUser(nextUser);
+        }}
+      />
     </div>
     </AuditProvider>
   );

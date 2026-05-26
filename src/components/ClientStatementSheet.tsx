@@ -86,7 +86,7 @@ export const ClientStatementSheet = React.forwardRef<HTMLDivElement, ClientState
 ) {
   const hasRows = rows.length > 0;
   const visibleBodyRows = countClientStatementBodyRows(rows);
-  const fillerRowCount = getStatementFillerRowCount(hasRows ? visibleBodyRows : 1);
+  const fillerRowCount = getStatementFillerRowCount(hasRows ? visibleBodyRows : 1, companyProfile);
   const clientDataColumnCount = 10;
   const rowGroups = groupClientStatementDisplayRows(rows);
   const bankAccount = resolveStatementBankAccount(companyProfile || DEFAULT_COMPANY_PROFILE, clientInfo.vat);

@@ -11,6 +11,8 @@ export type ErpUser = {
   role: string;
   phone?: string | null;
   isActive?: boolean;
+  allowedPages?: string[] | null;
+  sidebarOrder?: string[] | null;
 };
 
 export type ErpUserRecord = ErpUser & {
@@ -47,6 +49,7 @@ export type CreateUserInput = {
   phone?: string;
   email?: string;
   role?: string;
+  allowedPages?: string[] | null;
 };
 
 export type UpdateUserInput = {
@@ -54,6 +57,7 @@ export type UpdateUserInput = {
   phone?: string;
   email?: string;
   role?: string;
+  allowedPages?: string[] | null;
 };
 
 function apiBase() {
@@ -122,6 +126,44 @@ export async function loginWithApi(loginId: string, password: string) {
     body: JSON.stringify({ loginId, password }),
   });
   saveAuthSession(result.token, result.user);
+  return result.user;
+}
+
+export async function fetchAuthMe() {
+  const result = await apiRequest<{ user: ErpUser }>("/auth/me");
+  return result.user;
+}
+
+export type UpdateSelfProfileInput = {
+  name: string;
+  phone?: string;
+  email?: string;
+};
+
+export async function updateSelfProfileApi(input: UpdateSelfProfileInput) {
+  const result = await apiRequest<{ user: ErpUser }>("/auth/me", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+  const token = getAuthToken();
+  if (token) saveAuthSession(token, result.user);
+  return result.user;
+}
+
+export async function changeSelfPasswordApi(currentPassword: string, password: string) {
+  return apiRequest<{ ok: boolean }>("/auth/me/password", {
+    method: "PATCH",
+    body: JSON.stringify({ currentPassword, password }),
+  });
+}
+
+export async function updateSidebarOrderApi(sidebarOrder: string[]) {
+  const result = await apiRequest<{ user: ErpUser }>("/auth/me/sidebar-order", {
+    method: "PATCH",
+    body: JSON.stringify({ sidebarOrder }),
+  });
+  const token = getAuthToken();
+  if (token) saveAuthSession(token, result.user);
   return result.user;
 }
 
