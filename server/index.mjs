@@ -114,15 +114,80 @@ function buildPublicRequestOrigin(req) {
   return `${req.protocol}://${req.get("host")}`;
 }
 
+app.get("/api/public/pdf-share/:token/file", (req, res) => {
+  const file = getPdfArchiveFileByShareToken(req.params.token);
+  if (!file) {
+    res.status(404).send("PDF를 찾을 수 없습니다.");
+    return;
+  }
+  const encodedName = encodeURIComponent(file.fileName);
+  const disposition = req.query.download === "1" ? "attachment" : "inline";
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `${disposition}; filename*=UTF-8''${encodedName}`);
+  res.setHeader("Cache-Control", "private, max-age=3600");
+  res.sendFile(path.resolve(file.path));
+});
+
 app.get("/api/public/pdf-share/:token", (req, res) => {
   const file = getPdfArchiveFileByShareToken(req.params.token);
   if (!file) {
     res.status(404).send("PDF를 찾을 수 없습니다.");
     return;
   }
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
-  res.sendFile(path.resolve(file.path));
+
+  if (req.query.download === "1") {
+    const encodedName = encodeURIComponent(file.fileName);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodedName}`);
+    res.sendFile(path.resolve(file.path));
+    return;
+  }
+
+  const pdfUrl = `${buildPublicRequestOrigin(req)}/api/public/pdf-share/${encodeURIComponent(req.params.token)}/file`;
+  const safeTitle = String(file.fileName).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(`<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>${safeTitle}</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #525659; }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.65rem 0.85rem;
+      background: #0f172a;
+      color: #f8fafc;
+      font-family: "Malgun Gothic", sans-serif;
+      font-size: 0.875rem;
+    }
+    .toolbar a {
+      color: #fff;
+      text-decoration: none;
+      font-weight: 700;
+      padding: 0.45rem 0.75rem;
+      border-radius: 0.65rem;
+      background: #2563eb;
+      white-space: nowrap;
+    }
+    .viewer { height: calc(100% - 3rem); }
+    embed, iframe, object { display: block; width: 100%; height: 100%; border: 0; background: #525659; }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <span>${safeTitle}</span>
+    <a href="${pdfUrl}?download=1">다운로드</a>
+  </div>
+  <div class="viewer">
+    <embed src="${pdfUrl}" type="application/pdf" />
+  </div>
+</body>
+</html>`);
 });
 
 app.post(
