@@ -17,6 +17,16 @@ import {
 
 type PdfOrientation = "portrait" | "landscape";
 
+const PDF_JPEG_QUALITY = 0.92;
+
+function canvasToPdfImageData(canvas: HTMLCanvasElement) {
+  return canvas.toDataURL("image/jpeg", PDF_JPEG_QUALITY);
+}
+
+function createStatementPdf(orientation: PdfOrientation) {
+  return new jsPDF({ orientation, unit: "mm", format: "a4", compress: true });
+}
+
 export type StatementPdfOptions = {
   orientation?: PdfOrientation;
   previewWindow?: Window | null;
@@ -129,7 +139,7 @@ async function downloadPaginatedStatementPdf(
 ): Promise<{ blobUrl: string; fileName: string; blob: Blob; pageCount: number; previewOpened: boolean }> {
   const orientation: PdfOrientation = "portrait";
   const pages = await collectStatementPrintPages(element);
-  const pdf = new jsPDF({ orientation, unit: "mm", format: "a4" });
+  const pdf = createStatementPdf(orientation);
   const pageWidthMm = pdf.internal.pageSize.getWidth();
   const pageHeightMm = pdf.internal.pageSize.getHeight();
 
@@ -154,10 +164,10 @@ async function downloadPaginatedStatementPdf(
     try {
       await waitForStatementImages(pageElement);
       const canvas = await captureStatementPage(pageElement, { fullPage: true });
-      const imgData = canvas.toDataURL("image/png");
+      const imgData = canvasToPdfImageData(canvas);
 
       if (pageIndex > 0) pdf.addPage("a4", orientation);
-      pdf.addImage(imgData, "PNG", 0, 0, pageWidthMm, pageHeightMm);
+      pdf.addImage(imgData, "JPEG", 0, 0, pageWidthMm, pageHeightMm);
     } finally {
       pageElement.remove();
     }
@@ -282,11 +292,11 @@ export async function downloadStatementSinglePagePdf(
 ): Promise<{ blobUrl: string; fileName: string; blob: Blob; pageCount: number; previewOpened: boolean }> {
   const orientation = options.orientation ?? "portrait";
   const canvas = await captureStatementPrintCanvas(element);
-  const pdf = new jsPDF({ orientation, unit: "mm", format: "a4" });
+  const pdf = createStatementPdf(orientation);
   const pageWidthMm = pdf.internal.pageSize.getWidth();
   const pageHeightMm = pdf.internal.pageSize.getHeight();
-  const imgData = canvas.toDataURL("image/png");
-  pdf.addImage(imgData, "PNG", 0, 0, pageWidthMm, pageHeightMm);
+  const imgData = canvasToPdfImageData(canvas);
+  pdf.addImage(imgData, "JPEG", 0, 0, pageWidthMm, pageHeightMm);
 
   const blob = pdf.output("blob");
   return finalizeStatementPdf(blob, fileName, 1, options);
@@ -300,18 +310,18 @@ function addCanvasPagesToPdf(
 ) {
   const pageWidthMm = pdf.internal.pageSize.getWidth();
   const pageHeightMm = pdf.internal.pageSize.getHeight();
-  const imgData = canvas.toDataURL("image/png");
+  const imgData = canvasToPdfImageData(canvas);
   const renderWidthMm = pageWidthMm;
   const renderHeightMm = (canvas.height / canvas.width) * renderWidthMm;
 
   if (options.singleA4Page || renderHeightMm <= pageHeightMm + 0.5) {
-    pdf.addImage(imgData, "PNG", 0, 0, renderWidthMm, pageHeightMm);
+    pdf.addImage(imgData, "JPEG", 0, 0, renderWidthMm, pageHeightMm);
     return 1;
   }
 
   const fitScale = pageHeightMm / renderHeightMm;
   if (fitScale >= 0.88) {
-    pdf.addImage(imgData, "PNG", 0, 0, renderWidthMm * fitScale, pageHeightMm);
+    pdf.addImage(imgData, "JPEG", 0, 0, renderWidthMm * fitScale, pageHeightMm);
     return 1;
   }
 
@@ -320,7 +330,7 @@ function addCanvasPagesToPdf(
 
   while (offsetMm < renderHeightMm - 0.5) {
     if (pageIndex > 0) pdf.addPage("a4", orientation);
-    pdf.addImage(imgData, "PNG", 0, -offsetMm, renderWidthMm, renderHeightMm);
+    pdf.addImage(imgData, "JPEG", 0, -offsetMm, renderWidthMm, renderHeightMm);
     offsetMm += pageHeightMm;
     pageIndex += 1;
   }
@@ -336,7 +346,7 @@ async function downloadStatementWysiwygPdf(
   const orientation = options.orientation ?? "portrait";
   const clone = createStatementExportClone(element);
   const { canvas, singleA4Page } = await captureStatementExportCanvas(clone);
-  const pdf = new jsPDF({ orientation, unit: "mm", format: "a4" });
+  const pdf = createStatementPdf(orientation);
   const pageCount = addCanvasPagesToPdf(pdf, canvas, orientation, { singleA4Page });
 
   const blob = pdf.output("blob");
@@ -380,12 +390,12 @@ async function downloadFlatStatementPdf(
     },
   });
 
-  const pdf = new jsPDF({ orientation, unit: "mm", format: "a4" });
+  const pdf = createStatementPdf(orientation);
   const margin = 8;
   const printableWidth = pdf.internal.pageSize.getWidth() - margin * 2;
   const printableHeight = pdf.internal.pageSize.getHeight() - margin * 2;
 
-  const imgData = canvas.toDataURL("image/png");
+  const imgData = canvasToPdfImageData(canvas);
   const imgHeight = (canvas.height * printableWidth) / canvas.width;
 
   let pageIndex = 0;
@@ -394,7 +404,7 @@ async function downloadFlatStatementPdf(
   while (remaining > 0) {
     if (pageIndex > 0) pdf.addPage("a4", orientation);
     const y = margin - pageIndex * printableHeight;
-    pdf.addImage(imgData, "PNG", margin, y, printableWidth, imgHeight);
+    pdf.addImage(imgData, "JPEG", margin, y, printableWidth, imgHeight);
     remaining -= printableHeight;
     pageIndex += 1;
   }
