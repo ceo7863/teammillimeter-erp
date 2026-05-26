@@ -6,6 +6,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+if ! command -v pdftoppm >/dev/null 2>&1; then
+  echo "==> install poppler-utils (pdftoppm)"
+  sudo apt-get update
+  sudo apt-get install -y poppler-utils
+fi
+
 echo "==> npm install"
 npm install
 

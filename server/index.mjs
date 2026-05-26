@@ -37,6 +37,7 @@ import {
   deleteBoardAttachmentById,
 } from "./boardAttachments.mjs";
 import { buildPdfShareViewerHtml } from "./pdfShareViewer.mjs";
+import { renderPdfSharePreviewImages } from "./pdfSharePreview.mjs";
 
 initDb();
 initPdfArchiveStore();
@@ -131,7 +132,7 @@ app.get("/api/public/pdf-share/:token/file", (req, res) => {
   res.sendFile(path.resolve(file.path));
 });
 
-app.get("/api/public/pdf-share/:token", (req, res) => {
+app.get("/api/public/pdf-share/:token", async (req, res) => {
   const file = getPdfArchiveFileByShareToken(req.params.token);
   if (!file) {
     res.status(404).send("PDF를 찾을 수 없습니다.");
@@ -148,6 +149,14 @@ app.get("/api/public/pdf-share/:token", (req, res) => {
 
   const pdfUrl = `${buildPublicRequestOrigin(req)}/api/public/pdf-share/${encodeURIComponent(req.params.token)}/file`;
   const downloadUrl = `${pdfUrl}?download=1`;
+
+  let pageImages = [];
+  try {
+    pageImages = await renderPdfSharePreviewImages(file.path);
+  } catch (error) {
+    console.error("pdf share preview failed:", error);
+  }
+
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", "no-store");
   res.send(
@@ -155,6 +164,7 @@ app.get("/api/public/pdf-share/:token", (req, res) => {
       title: file.fileName,
       pdfUrl,
       downloadUrl,
+      pageImages,
     })
   );
 });
