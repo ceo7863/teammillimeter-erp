@@ -3190,7 +3190,7 @@ function WorkersPage({ workers, setWorkers }) {
   const [editingId, setEditingId] = useState(null);
   const [query, setQuery] = useState("");
   const [inlineChargeDrafts, setInlineChargeDrafts] = useState({});
-  const [inlineConstructionDrafts, setInlineConstructionDrafts] = useState({});
+  const [constructionCostEdit, setConstructionCostEdit] = useState(null);
 
   const displayedWorkers = useMemo(() => {
     const q = query.toLowerCase();
@@ -3338,6 +3338,23 @@ function WorkersPage({ workers, setWorkers }) {
     )));
   };
 
+  const openConstructionCostEdit = (worker) => {
+    setConstructionCostEdit({
+      worker,
+      value: String(worker.constructionCost ?? ""),
+    });
+  };
+
+  const closeConstructionCostEdit = () => {
+    setConstructionCostEdit(null);
+  };
+
+  const confirmConstructionCostEdit = () => {
+    if (!constructionCostEdit?.worker) return;
+    updateWorkerConstructionInline(constructionCostEdit.worker, constructionCostEdit.value);
+    setConstructionCostEdit(null);
+  };
+
   const updateWorkerCategoryInline = (worker, value) => {
     const category = normalizeWorkerCategory(value);
     if (category === normalizeWorkerCategory(worker.category)) return;
@@ -3384,6 +3401,45 @@ function WorkersPage({ workers, setWorkers }) {
 
   return (
     <div className="erp-page">
+      {constructionCostEdit ? (
+        <div className="erp-ledger-modal-backdrop" onClick={closeConstructionCostEdit}>
+          <div
+            className="erp-ledger-modal"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="worker-construction-cost-title"
+          >
+            <h2 id="worker-construction-cost-title" className="text-base font-bold text-slate-900 md:text-lg">
+              시공비 수정
+            </h2>
+            <p className="mt-2 text-sm text-slate-600">{constructionCostEdit.worker.name}</p>
+            <div className="mt-4">
+              <Input
+                inputMode="numeric"
+                value={constructionCostEdit.value}
+                onChange={(event) => setConstructionCostEdit((prev) => (
+                  prev ? { ...prev, value: event.target.value } : null
+                ))}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") confirmConstructionCostEdit();
+                  if (event.key === "Escape") closeConstructionCostEdit();
+                }}
+                placeholder="시공비"
+                autoFocus
+              />
+            </div>
+            <div className="mt-5 flex gap-2">
+              <Button variant="outline" className="flex-1 rounded-xl" onClick={closeConstructionCostEdit}>
+                취소
+              </Button>
+              <Button className="flex-1 rounded-xl" onClick={confirmConstructionCostEdit}>
+                저장
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <PageTitle title="시공자" desc="엑셀 기본정보 시트를 기준으로 시공자 정보를 관리합니다." />
 
       <Card className="rounded-2xl shadow-sm">
@@ -3512,24 +3568,20 @@ function WorkersPage({ workers, setWorkers }) {
                       {worker.businessNo ? <div className="erp-workers-sub">{worker.businessNo}</div> : null}
                     </td>
                     <td className="text-right erp-workers-charge-cell">
-                      <Input
-                        inputMode="numeric"
-                        value={inlineConstructionDrafts[worker.id] ?? worker.constructionCost ?? ""}
-                        onChange={(e) => setInlineConstructionDrafts((prev) => ({ ...prev, [worker.id]: e.target.value }))}
-                        onBlur={(e) => {
-                          updateWorkerConstructionInline(worker, e.target.value);
-                          setInlineConstructionDrafts((prev) => {
-                            const next = { ...prev };
-                            delete next[worker.id];
-                            return next;
-                          });
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") e.currentTarget.blur();
-                        }}
-                        placeholder="시공비"
-                        className="erp-input-compact erp-workers-charge-input text-right"
-                      />
+                      <div className="erp-workers-cost-display">
+                        <span className="font-semibold text-blue-600">{formatKRW(worker.constructionCost || 0)}</span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="erp-workers-cost-edit-btn"
+                          onClick={() => openConstructionCostEdit(worker)}
+                          title="시공비 수정"
+                          aria-label="시공비 수정"
+                        >
+                          <Pencil size={12} />
+                        </Button>
+                      </div>
                       <AuditCellHint entityType="worker" entityId={worker.id} field="constructionCost" fieldLabel="시공비" />
                     </td>
                     <td className="text-right erp-workers-charge-cell">

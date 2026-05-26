@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Run on AWS server after git pull: bash scripts/deploy-server.sh
+# Production: https://erp.teammillimeter.com  EC2: ubuntu@52.78.74.101
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

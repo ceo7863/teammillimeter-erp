@@ -2193,6 +2193,19 @@ textarea {
   min-width: 6.5rem;
 }
 
+.erp-workers-cost-display {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.erp-workers-cost-edit-btn {
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+}
+
 .erp-workers-charge-input {
   min-width: 5.5rem;
   font-weight: 600;
