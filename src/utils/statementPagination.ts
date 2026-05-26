@@ -1,4 +1,4 @@
-import { A4_PORTRAIT_HEIGHT_PX, A4_PORTRAIT_WIDTH_PX, getStatementFillerRowCountFromElement, getStatementPaginationMaxHeightPx } from "./statementSheetLayout";
+import { A4_PORTRAIT_HEIGHT_PX, A4_PORTRAIT_WIDTH_PX, A4_STATEMENT_CAPTURE_SLACK_PX, getStatementFillerRowCountFromElement } from "./statementSheetLayout";
 import {
   cloneStatementTableRow,
   findStatementSheetRoot,
@@ -160,15 +160,6 @@ export function appendStatementPageNumber(sheet: HTMLElement, page: number, tota
   sheet.appendChild(label);
 }
 
-function measurePageContentHeight(host: HTMLElement, pageElement: HTMLElement) {
-  pageElement.style.minHeight = "auto";
-  pageElement.style.height = "auto";
-  pageElement.style.maxHeight = "none";
-  pageElement.style.overflow = "visible";
-  host.replaceChildren(pageElement);
-  return Math.ceil(Math.max(pageElement.scrollHeight, pageElement.offsetHeight, pageElement.getBoundingClientRect().height));
-}
-
 function measurePageHeight(host: HTMLElement, pageElement: HTMLElement) {
   if (pageElement.classList.contains("is-pdf-capture")) {
     pageElement.style.minHeight = "auto";
@@ -261,7 +252,8 @@ function canFitPage(
     showTableFooter,
     variant,
   });
-  return measurePageContentHeight(host, page) <= getStatementPaginationMaxHeightPx() + 0.5;
+  const height = measurePageHeight(host, page);
+  return height <= A4_PORTRAIT_HEIGHT_PX + A4_STATEMENT_CAPTURE_SLACK_PX + 0.5;
 }
 
 export function paginateStatementRows(
@@ -295,7 +287,7 @@ export function paginateStatementRows(
         host,
         source,
         [...pending, ...extra],
-        pages.length === 0 && pending.length === 0,
+        pages.length === 0,
         showFooter,
         pendingSiteDate || groupSiteDate,
         variant
@@ -356,7 +348,20 @@ export function buildPaginatedStatementPages(
   const host = createMeasureHost();
 
   try {
-    const pageChunks = paginateStatementRows(source, host, bodyRows, variant);
+    let pageChunks = paginateStatementRows(source, host, bodyRows, variant);
+
+    if (pageChunks.length > 1 && bodyRows.length > 0) {
+      const singlePage = buildStatementPageElement(source, {
+        showFullHeader: true,
+        bodyRows: fixRowspanForChunk(bodyRows, ""),
+        showTableFooter: true,
+        variant,
+      });
+      if (measurePageHeight(host, singlePage) <= A4_PORTRAIT_HEIGHT_PX + A4_STATEMENT_CAPTURE_SLACK_PX + 0.5) {
+        pageChunks = [{ rows: fixRowspanForChunk(bodyRows, ""), siteDate: "" }];
+      }
+    }
+
     const totalPages = pageChunks.length;
     return pageChunks.map((chunk, pageIndex) => {
       const page = buildStatementPageElement(source, {
