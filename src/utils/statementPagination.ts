@@ -66,15 +66,16 @@ function getTableColumnCount(sourceTable: Element | null) {
 }
 
 function appendFillerRows(tbody: HTMLElement, columnCount: number, rowCount: number) {
-  for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
-    const row = document.createElement("tr");
-    row.className = "excel-filler-row";
-    row.setAttribute("aria-hidden", "true");
-    for (let cellIndex = 0; cellIndex < columnCount; cellIndex += 1) {
-      row.appendChild(document.createElement("td"));
-    }
-    tbody.appendChild(row);
-  }
+  if (rowCount <= 0) return;
+
+  const row = document.createElement("tr");
+  row.className = "excel-filler-spacer excel-filler-row";
+  row.setAttribute("aria-hidden", "true");
+  row.style.setProperty("--statement-filler-min-height", `${Math.max(rowCount * 22, 48)}px`);
+  const cell = document.createElement("td");
+  cell.colSpan = columnCount;
+  row.appendChild(cell);
+  tbody.appendChild(row);
 }
 
 export function createMeasureHost(): HTMLElement {

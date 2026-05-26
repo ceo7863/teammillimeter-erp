@@ -3735,11 +3735,30 @@ textarea {
 }
 
 .erp-statement-sheet.is-a4-page .excel-data-table {
-  flex: 0 1 auto;
-  height: auto;
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
 }
 
-.erp-statement-sheet.is-a4-page .excel-data-table .excel-filler-row td {
+.erp-statement-sheet.is-a4-page .excel-data-table tbody {
+  height: 100%;
+}
+
+.erp-statement-sheet.is-a4-page .excel-filler-spacer {
+  height: 100%;
+}
+
+.erp-statement-sheet.is-a4-page .excel-filler-spacer td {
+  height: 100%;
+  min-height: var(--statement-filler-min-height, 48px);
+  padding: 0;
+  border-top: none !important;
+  border-bottom: none !important;
+  background: #fff;
+  vertical-align: top;
+}
+
+.erp-statement-sheet.is-a4-page .excel-data-table .excel-filler-row:not(.excel-filler-spacer) td {
   height: auto;
   min-height: 6px;
   padding: 2px 4px;
@@ -3969,6 +3988,17 @@ textarea {
   padding-bottom: 4px;
 }
 
+.erp-statement-sheet .excel-data-table .excel-filler-spacer td {
+  border-top: none;
+  border-bottom: none;
+  border-left: none;
+  border-right: none;
+  height: auto;
+  min-height: var(--statement-filler-min-height, 48px);
+  padding: 0;
+  background: #fff;
+}
+
 .erp-statement-sheet .excel-data-table .excel-empty-cell {
   color: #94a3b8;
   text-align: center;
@@ -4099,8 +4129,13 @@ textarea {
   line-height: 1.25;
 }
 
-.erp-statement-sheet.is-pdf-capture .excel-data-table .excel-filler-row {
+.erp-statement-sheet.is-pdf-capture .excel-data-table .excel-filler-row:not(.excel-filler-spacer) {
   display: none !important;
+}
+
+.erp-statement-sheet.is-pdf-capture .excel-data-table .excel-filler-spacer td {
+  min-height: 24px;
+  border: none !important;
 }
 
 .erp-statement-sheet.is-pdf-capture .excel-data-table .excel-fit-cell {
