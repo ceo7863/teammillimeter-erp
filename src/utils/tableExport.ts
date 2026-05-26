@@ -16,6 +16,19 @@ export function safeExportFileName(name: string) {
 
 function normalizeCellText(cell: Element) {
   const clone = cell.cloneNode(true) as HTMLElement;
+
+  const sortLabel = clone.querySelector(".erp-pivot-sort-btn > span:first-child");
+  if (sortLabel) {
+    const text = sortLabel.textContent?.replace(/\s+/g, " ").trim();
+    if (text) return text;
+  }
+
+  const pivotLabel = clone.querySelector(".erp-pivot-label-name");
+  if (pivotLabel) {
+    const text = pivotLabel.textContent?.replace(/\s+/g, " ").trim();
+    if (text) return text;
+  }
+
   clone.querySelectorAll("button, svg, .erp-table-export-skip").forEach((node) => node.remove());
 
   const fields = Array.from(clone.querySelectorAll("input, select, textarea")) as Array<
@@ -71,6 +84,7 @@ export function parseDomTable(table: HTMLTableElement): ParsedTable {
   const rows: string[][] = [];
   table.querySelectorAll("tbody tr, tfoot tr").forEach((row) => {
     if (!(row instanceof HTMLTableRowElement)) return;
+    if (row.classList.contains("erp-table-export-skip")) return;
     if (isPlaceholderRow(row)) return;
 
     const cells = Array.from(row.querySelectorAll("td"));
