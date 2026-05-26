@@ -1340,6 +1340,46 @@ textarea {
   justify-content: flex-end;
 }
 
+.erp-client-calendar-pay-fab {
+  position: fixed;
+  left: max(1rem, env(safe-area-inset-left, 0px));
+  bottom: max(1rem, env(safe-area-inset-bottom, 0px));
+  z-index: 35;
+}
+
+@media (min-width: 1024px) {
+  .erp-client-calendar-pay-fab {
+    left: calc(17.5rem + 1rem);
+  }
+}
+
+.erp-client-calendar-payment-modal {
+  max-width: 24rem;
+}
+
+.erp-client-calendar-client-title {
+  margin: 0.15rem 0 0.85rem;
+  padding: 0.55rem 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid #dbeafe;
+  background: linear-gradient(180deg, #f8fbff 0%, #fff 100%);
+  text-align: center;
+  font-size: 1.125rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+  line-height: 1.35;
+  word-break: keep-all;
+}
+
+.erp-client-calendar-client-title.is-empty {
+  border-color: #e2e8f0;
+  background: #f8fafc;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
 .erp-client-calendar-client-field {
   max-width: 28rem;
 }

@@ -4952,6 +4952,9 @@ export default function TeammillimeterErpMvp() {
           <ClientCalendarPage
             sales={appliedSales}
             clients={clients}
+            setPaymentVouchers={setPaymentVouchers}
+            setPaymentInputLogs={setPaymentInputLogs}
+            currentUser={currentUser}
             onRequestClientStatement={(draft) => {
               setStatementDraft(draft);
               setActive("statements");

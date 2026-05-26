@@ -1,9 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight, FileText, ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, CreditCard, FileText, ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AutocompleteInput } from "@/components/AutocompleteInput";
+import { useAudit } from "@/context/AuditContext";
 import { getUnpaid, todayISO, formatKRW } from "@/utils/receivables";
+import { PAYMENT_AUDIT_FIELDS, snapshotPaymentForAudit } from "@/utils/auditLog";
+import { buildCalendarPaymentPreview, type CalendarPaymentPreview } from "@/utils/clientCalendarPayment";
+import { createPaymentInputLogsFromVouchers, type PaymentInputLog } from "@/utils/paymentInputLogs";
 import {
   createClientCalendarStatementDraft,
   stashStatementDraft,
@@ -65,6 +69,9 @@ function getSiteName(row: SaleLike) {
 type ClientCalendarPageProps = {
   sales: SaleLike[];
   clients: ClientLike[];
+  setPaymentVouchers?: React.Dispatch<React.SetStateAction<Array<Record<string, unknown>>>>;
+  setPaymentInputLogs?: React.Dispatch<React.SetStateAction<PaymentInputLog[]>>;
+  currentUser?: { name?: string; email?: string };
   onRequestClientStatement?: (draft: StatementDraft) => void;
 };
 
@@ -153,11 +160,20 @@ function sortClientMonthRows(
   });
 }
 
-export function ClientCalendarPage({ sales, clients, onRequestClientStatement }: ClientCalendarPageProps) {
+export function ClientCalendarPage({
+  sales,
+  clients,
+  setPaymentVouchers,
+  setPaymentInputLogs,
+  currentUser,
+  onRequestClientStatement,
+}: ClientCalendarPageProps) {
+  const { recordAudit } = useAudit();
   const [monthKey, setMonthKey] = useState(() => todayISO().slice(0, 7));
   const [client, setClient] = useState("");
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
   const [notice, setNotice] = useState("");
+  const [paymentPreview, setPaymentPreview] = useState<CalendarPaymentPreview | null>(null);
   const [clientListSort, setClientListSort] = useState<{ column: ClientMonthSortColumn; direction: SortDirection }>({
     column: "sales",
     direction: "desc",
@@ -343,6 +359,61 @@ export function ClientCalendarPage({ sales, clients, onRequestClientStatement }:
     setNotice(`${selectedDates.length}일 · 시공비내역서 생성 화면으로 이동합니다.`);
   };
 
+  const openPaymentConfirm = () => {
+    if (!client) {
+      setNotice("거래처를 선택해 주세요.");
+      return;
+    }
+    if (!selectedDates.length) {
+      setNotice("입금 처리할 날짜를 선택해 주세요.");
+      return;
+    }
+    if (!setPaymentVouchers || !setPaymentInputLogs) {
+      setNotice("입금 처리 기능을 사용할 수 없습니다.");
+      return;
+    }
+
+    const preview = buildCalendarPaymentPreview(sales, client, selectedDates);
+    if (!preview) {
+      setNotice("선택한 날짜에 미수 전표가 없습니다.");
+      return;
+    }
+
+    setPaymentPreview(preview);
+  };
+
+  const closePaymentConfirm = () => {
+    setPaymentPreview(null);
+  };
+
+  const confirmPaymentProcess = () => {
+    if (!paymentPreview || !setPaymentVouchers || !setPaymentInputLogs) return;
+
+    const batchId = Date.now();
+    const savedBy = currentUser?.name || currentUser?.email || "";
+    const vouchers = paymentPreview.vouchers;
+    const logs = createPaymentInputLogsFromVouchers(vouchers, savedBy, batchId);
+
+    vouchers.forEach((voucher) => {
+      recordAudit({
+        entityType: "paymentVoucher",
+        entityId: voucher.id,
+        entityLabel: `${voucher.client} · ${voucher.site}`,
+        screen: "거래처캘린더",
+        action: "create",
+        after: snapshotPaymentForAudit(voucher),
+        fields: PAYMENT_AUDIT_FIELDS,
+        user: currentUser,
+      });
+    });
+
+    setPaymentVouchers((prev) => [...vouchers, ...prev]);
+    setPaymentInputLogs((prev) => [...logs, ...prev]);
+    setPaymentPreview(null);
+    setSelectedDates([]);
+    setNotice(`${vouchers.length}건 · ${formatKRW(paymentPreview.totalUnpaid)} 입금완료 처리되었습니다.`);
+  };
+
   const weekdayLabels = [
     { label: "일", tone: "sun" },
     { label: "월", tone: "default" },
@@ -355,9 +426,40 @@ export function ClientCalendarPage({ sales, clients, onRequestClientStatement }:
 
   return (
     <div className="erp-page erp-calendar-page erp-client-calendar-page">
+      {paymentPreview ? (
+        <div className="erp-ledger-modal-backdrop" onClick={closePaymentConfirm}>
+          <div
+            className="erp-ledger-modal erp-client-calendar-payment-modal"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="client-calendar-payment-title"
+          >
+            <h2 id="client-calendar-payment-title" className="text-base font-bold text-slate-900 md:text-lg">
+              입금 처리
+            </h2>
+            <p className="mt-2 text-sm font-semibold text-slate-800">{paymentPreview.client}</p>
+            <div className="mt-4 space-y-2 text-sm text-slate-600">
+              <p>선택 일자 <strong>{paymentPreview.selectedDays}일</strong></p>
+              <p>미수 전표 <strong>{paymentPreview.saleCount}건</strong></p>
+              <p>입금 처리 금액 <strong className="text-emerald-700">{formatKRW(paymentPreview.totalUnpaid)}</strong></p>
+              <p className="text-xs text-slate-500">선택한 날짜의 미수 잔액을 오늘({todayISO()}) 입금완료 처리합니다.</p>
+            </div>
+            <div className="mt-5 flex gap-2">
+              <Button variant="outline" className="flex-1 rounded-xl" onClick={closePaymentConfirm}>
+                취소
+              </Button>
+              <Button className="flex-1 rounded-xl" onClick={confirmPaymentProcess}>
+                입금완료
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <PageTitle
         title="거래처캘린더"
-        desc="거래처별 일자 매출 전표, 현장명, 미수금 상태를 확인하고 선택한 날짜의 시공비내역서를 생성합니다."
+        desc="거래처별 일자 매출 전표, 현장명, 미수금 상태를 확인하고 선택한 날짜의 시공비내역서 생성·입금 처리를 할 수 있습니다."
       />
 
       <div className="erp-client-calendar-toolbar mb-4">
@@ -514,6 +616,10 @@ export function ClientCalendarPage({ sales, clients, onRequestClientStatement }:
             </Button>
           </div>
 
+          <div className={`erp-client-calendar-client-title${client ? "" : " is-empty"}`}>
+            {client || "거래처를 선택해 주세요"}
+          </div>
+
           <div className="erp-calendar-weekdays">
             {weekdayLabels.map((item) => (
               <div key={item.label} className={`erp-calendar-weekday is-${item.tone}`}>
@@ -654,6 +760,19 @@ export function ClientCalendarPage({ sales, clients, onRequestClientStatement }:
           </div>
         </CardContent>
       </Card>
+      </div>
+
+      <div className="erp-client-calendar-pay-fab">
+        <Button
+          type="button"
+          size="sm"
+          className="rounded-xl shadow-md"
+          onClick={openPaymentConfirm}
+          disabled={!client || !selectedDates.length}
+        >
+          <CreditCard size={16} className="mr-1.5" />
+          입금처리
+        </Button>
       </div>
     </div>
   );
