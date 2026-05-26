@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight, CreditCard, FileText, ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import { CalendarDays, Check, ChevronLeft, ChevronRight, CreditCard, FileText, ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AutocompleteInput } from "@/components/AutocompleteInput";
@@ -110,6 +110,14 @@ function buildMonthCells(monthKey: string, statsByDate: Record<string, DayStats>
   while (cells.length % 7 !== 0) cells.push(null);
 
   return { cells, monthLabel: `${year}년 ${month}월` };
+}
+
+function formatSelectedDateLabel(date: string) {
+  const parsed = new Date(`${date}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return date;
+  const weekday = ["\uC77C", "\uC6D4", "\uD654", "\uC218", "\uBAA9", "\uAE08", "\uD1A0"][parsed.getDay()];
+  const [, monthText, dayText] = date.split("-");
+  return `${Number(monthText)}/${Number(dayText)} (${weekday})`;
 }
 
 function ClientMonthSortButton({
@@ -620,6 +628,25 @@ export function ClientCalendarPage({
             {client || "거래처를 선택해 주세요"}
           </div>
 
+          {client && selectedDates.length > 0 ? (
+            <div className="erp-client-calendar-selected-bar" aria-label={`선택된 날짜 ${selectedDates.length}일`}>
+              <span className="erp-client-calendar-selected-bar-label">선택 {selectedDates.length}일</span>
+              <div className="erp-client-calendar-selected-chips">
+                {selectedDates.map((date) => (
+                  <button
+                    key={date}
+                    type="button"
+                    className="erp-client-calendar-selected-chip"
+                    onClick={() => toggleDate(date)}
+                    title={`${date} 선택 해제`}
+                  >
+                    {formatSelectedDateLabel(date)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <div className="erp-calendar-weekdays">
             {weekdayLabels.map((item) => (
               <div key={item.label} className={`erp-calendar-weekday is-${item.tone}`}>
@@ -660,7 +687,14 @@ export function ClientCalendarPage({
                 <>
                   <div className="erp-calendar-cell-head">
                     <span className="erp-calendar-day">{cell.day}</span>
-                    {hasData ? <span className="erp-calendar-badge">{cell.stats.count}건</span> : null}
+                    <div className="erp-client-calendar-cell-head-meta">
+                      {isChecked ? (
+                        <span className="erp-client-calendar-selected-badge" aria-hidden="true">
+                          <Check size={12} strokeWidth={3} />
+                        </span>
+                      ) : null}
+                      {hasData ? <span className="erp-calendar-badge">{cell.stats.count}건</span> : null}
+                    </div>
                   </div>
                   {hasData ? (
                     <ul className="erp-client-calendar-vouchers">
