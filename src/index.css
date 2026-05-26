@@ -1793,11 +1793,57 @@ textarea {
 .erp-client-calendar-day-tooltip-item {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
-  padding: 0.45rem 0.55rem;
+  gap: 0.25rem;
+  padding: 0.5rem 0.55rem;
   border-radius: 0.65rem;
   border: 1px solid #e2e8f0;
   background: #f8fafc;
+}
+
+.erp-client-calendar-day-tooltip-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.erp-client-calendar-day-tooltip-site {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1.3;
+  color: #0f172a;
+  word-break: keep-all;
+}
+
+.erp-client-calendar-day-tooltip-total {
+  flex-shrink: 0;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  color: #0f172a;
+  white-space: nowrap;
+}
+
+.erp-client-calendar-day-tooltip-workers {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #334155;
+  word-break: keep-all;
+}
+
+.erp-client-calendar-day-tooltip-extras {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.55rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.erp-client-calendar-day-tooltip-extras span {
+  white-space: nowrap;
 }
 
 .erp-client-calendar-day-tooltip-item.is-unpaid {
@@ -1808,14 +1854,6 @@ textarea {
 .erp-client-calendar-day-tooltip-item.is-paid {
   border-color: #bbf7d0;
   background: #f0fdf4;
-}
-
-.erp-client-calendar-day-tooltip-site {
-  font-size: 0.75rem;
-  font-weight: 800;
-  line-height: 1.3;
-  color: #0f172a;
-  word-break: keep-all;
 }
 
 .erp-client-calendar-day-tooltip-meta {

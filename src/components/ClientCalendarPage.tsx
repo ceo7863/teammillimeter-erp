@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { AutocompleteInput } from "@/components/AutocompleteInput";
 import { useAudit } from "@/context/AuditContext";
 import { getUnpaid, todayISO, formatKRW } from "@/utils/receivables";
+import { aggregateSaleBilling, getSaleTotalBill, getSaleWorkerLines } from "@/utils/saleBilling";
+import { formatWorkerNameSummary } from "@/utils/statementSheets";
 import { PAYMENT_AUDIT_FIELDS, snapshotPaymentForAudit } from "@/utils/auditLog";
 import {
   buildCalendarPaymentPreview,
@@ -34,6 +36,8 @@ type SaleLike = {
   paidAmount?: number;
   site?: string;
   memo?: string;
+  worker?: string;
+  workers?: Array<Record<string, unknown>>;
 };
 
 type ClientLike = {
@@ -48,11 +52,22 @@ type DayVoucher = {
   hasUnpaid: boolean;
 };
 
+type DayTooltipVoucher = {
+  site: string;
+  totalAmount: number;
+  workerSummary: string;
+  mealCost: number;
+  lodgingCost: number;
+  expenseCost: number;
+  overtimeCost: number;
+};
+
 type DayStats = {
   count: number;
   totalAmount: number;
   totalUnpaid: number;
   vouchers: DayVoucher[];
+  tooltipVouchers: DayTooltipVoucher[];
   hasUnpaid: boolean;
 };
 
@@ -127,7 +142,14 @@ function buildMonthCells(monthKey: string, statsByDate: Record<string, DayStats>
     cells.push({
       date,
       day,
-      stats: statsByDate[date] || { count: 0, totalAmount: 0, totalUnpaid: 0, vouchers: [], hasUnpaid: false },
+      stats: statsByDate[date] || {
+        count: 0,
+        totalAmount: 0,
+        totalUnpaid: 0,
+        vouchers: [],
+        tooltipVouchers: [],
+        hasUnpaid: false,
+      },
     });
   }
   while (cells.length % 7 !== 0) cells.push(null);
@@ -159,28 +181,28 @@ function ClientCalendarDayTooltip({ preview }: { preview: DayHoverPreview | null
         <span>{stats.count}건</span>
       </div>
       <ul className="erp-client-calendar-day-tooltip-list">
-        {stats.vouchers.map((voucher, index) => (
-          <li
-            key={`${date}-tooltip-${index}`}
-            className={`erp-client-calendar-day-tooltip-item ${voucher.hasUnpaid ? "is-unpaid" : "is-paid"}`}
-          >
-            <span className="erp-client-calendar-day-tooltip-site">{voucher.site}</span>
-            <span className="erp-client-calendar-day-tooltip-meta">
-              <span>{formatKRW(voucher.amount)}</span>
-              <span className="erp-client-calendar-day-tooltip-status">
-                {voucher.hasUnpaid ? `미수 ${formatKRW(voucher.unpaid)}` : "완납"}
-              </span>
-            </span>
+        {stats.tooltipVouchers.map((voucher, index) => (
+          <li key={`${date}-tooltip-${index}`} className="erp-client-calendar-day-tooltip-item">
+            <div className="erp-client-calendar-day-tooltip-row">
+              <span className="erp-client-calendar-day-tooltip-site">{voucher.site}</span>
+              <span className="erp-client-calendar-day-tooltip-total">{formatKRW(voucher.totalAmount)}</span>
+            </div>
+            {voucher.workerSummary ? (
+              <div className="erp-client-calendar-day-tooltip-workers">{voucher.workerSummary}</div>
+            ) : null}
+            {voucher.mealCost || voucher.expenseCost || voucher.lodgingCost || voucher.overtimeCost ? (
+              <div className="erp-client-calendar-day-tooltip-extras">
+                {voucher.mealCost ? <span>식대 {formatKRW(voucher.mealCost)}</span> : null}
+                {voucher.expenseCost ? <span>경비 {formatKRW(voucher.expenseCost)}</span> : null}
+                {voucher.lodgingCost ? <span>숙박 {formatKRW(voucher.lodgingCost)}</span> : null}
+                {voucher.overtimeCost ? <span>잔업 {formatKRW(voucher.overtimeCost)}</span> : null}
+              </div>
+            ) : null}
           </li>
         ))}
       </ul>
       <div className="erp-client-calendar-day-tooltip-foot">
         <span>합계 {formatKRW(stats.totalAmount)}</span>
-        {stats.totalUnpaid > 0 ? (
-          <span className="is-unpaid">미수 {formatKRW(stats.totalUnpaid)}</span>
-        ) : (
-          <span className="is-paid">완납</span>
-        )}
       </div>
     </div>
   );
@@ -327,17 +349,38 @@ export function ClientCalendarPage({
     clientSales.forEach((sale) => {
       const date = String(sale.date || "").trim();
       if (!date.startsWith(monthKey)) return;
-      if (!acc[date]) acc[date] = { count: 0, totalAmount: 0, totalUnpaid: 0, vouchers: [], hasUnpaid: false };
+      if (!acc[date]) {
+        acc[date] = {
+          count: 0,
+          totalAmount: 0,
+          totalUnpaid: 0,
+          vouchers: [],
+          tooltipVouchers: [],
+          hasUnpaid: false,
+        };
+      }
       const amount = getSaleAmount(sale);
       const unpaid = getUnpaid(sale);
+      const billing = aggregateSaleBilling(sale);
+      const totalAmount = billing.totalConstructionCost || getSaleTotalBill(sale) || amount;
+      const workerLines = getSaleWorkerLines(sale);
       acc[date].count += 1;
-      acc[date].totalAmount += amount;
+      acc[date].totalAmount += totalAmount;
       acc[date].totalUnpaid += unpaid;
       acc[date].vouchers.push({
         site: getSiteName(sale) || "현장명 없음",
         amount,
         unpaid,
         hasUnpaid: unpaid > 0,
+      });
+      acc[date].tooltipVouchers.push({
+        site: getSiteName(sale) || "현장명 없음",
+        totalAmount,
+        workerSummary: formatWorkerNameSummary(workerLines),
+        mealCost: billing.mealCost,
+        lodgingCost: billing.lodgingCost,
+        expenseCost: billing.expenseCost,
+        overtimeCost: billing.overtimeCost,
       });
       if (unpaid > 0) acc[date].hasUnpaid = true;
     });

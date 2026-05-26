@@ -128,9 +128,10 @@ function formatChargeAmountLabel(chargeAmount: number) {
   return String(Number(scaled.toFixed(1)));
 }
 
-function formatWorkerNameSummary(lines: ReturnType<typeof getSaleWorkerLines>) {
+export function formatWorkerNameSummary(lines: ReturnType<typeof getSaleWorkerLines>) {
   return lines
     .map((line) => `${String(line.worker || "").trim()}(${formatChargeAmountLabel(getWorkerLineChargeAmount(line))})`)
+    .filter((entry) => entry && !entry.startsWith("("))
     .join(", ");
 }
 
