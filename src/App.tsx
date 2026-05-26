@@ -74,6 +74,9 @@ import { normalizeStatementGenerationLogs } from "@/utils/statementGenerationLog
 import { normalizeStatementFolders } from "@/utils/statementFolders";
 import { createUnpaidClientStatementDraft, stashStatementDraft, type StatementDraft } from "@/utils/statementDraft";
 import { TableExportSection, TableExportToolbar } from "@/components/TableExportSection";
+import { WorkerListExport } from "@/components/WorkerListExport";
+import { ClientListExport } from "@/components/ClientListExport";
+import { buildClientLastSaleDateMap } from "@/utils/clientListExport";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { PageKeepAlive } from "@/components/PageKeepAlive";
 import { DesktopTableWrap, MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
@@ -2944,7 +2947,7 @@ function ClientActivityIcon({ lastSaleDate }: { lastSaleDate?: string }) {
   );
 }
 
-function ClientsPage({ clients, setClients, sales = [] }) {
+function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
   const { recordAudit } = useAudit();
   const emptyClientForm = {
     name: "",
@@ -2981,17 +2984,7 @@ function ClientsPage({ clients, setClients, sales = [] }) {
     });
   }, [filteredClients, sales]);
 
-  const clientLastSaleDate = useMemo(() => {
-    const map = new Map();
-    for (const sale of sales) {
-      const name = String(sale.client || "").trim();
-      const date = String(sale.date || "").slice(0, 10);
-      if (!name || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
-      const prev = map.get(name);
-      if (!prev || date > prev) map.set(name, date);
-    }
-    return map;
-  }, [sales]);
+  const clientLastSaleDate = useMemo(() => buildClientLastSaleDateMap(sales), [sales]);
 
   const updateForm = (key, value) => {
     setFormError("");
@@ -3123,7 +3116,15 @@ function ClientsPage({ clients, setClients, sales = [] }) {
 
       <Card className="rounded-2xl shadow-sm">
         <CardContent className="p-4 md:p-5">
-          <TableExportSection fileName="거래처목록" title="거래처 목록" disabled={sortedClients.length === 0}>
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <h2 className="erp-text-section">거래처 목록</h2>
+            <ClientListExport
+              clients={sortedClients}
+              lastSaleByClient={clientLastSaleDate}
+              companyProfile={companyProfile}
+              disabled={sortedClients.length === 0}
+            />
+          </div>
           <div className="erp-table-wrap">
             <table className="erp-table erp-table--lg">
               <thead className="bg-slate-100 text-slate-600">
@@ -3168,7 +3169,6 @@ function ClientsPage({ clients, setClients, sales = [] }) {
               </tbody>
             </table>
           </div>
-          </TableExportSection>
         </CardContent>
       </Card>
     </div>
@@ -3260,7 +3260,7 @@ function WorkerListSortHeader({
   );
 }
 
-function WorkersPage({ workers, setWorkers }) {
+function WorkersPage({ workers, setWorkers, companyProfile }) {
   const { recordAudit } = useAudit();
   const emptyWorkerForm = {
     name: "",
@@ -3301,20 +3301,28 @@ function WorkersPage({ workers, setWorkers }) {
     });
   };
 
+  const activeWorkers = useMemo(() => filterActiveWorkers(workers), [workers]);
+
   const displayedWorkers = useMemo(() => {
-    const q = query.toLowerCase();
-    return workers
-      .filter((worker) => Object.values(worker).join(" ").toLowerCase().includes(q))
+    const q = query.trim().toLowerCase();
+    const pool = q ? activeWorkers : workers;
+    return pool
+      .filter((worker) => !q || Object.values(worker).join(" ").toLowerCase().includes(q))
       .sort((a, b) => (
         listSort.column
           ? compareWorkersByColumn(a, b, listSort.column, listSort.direction)
           : compareWorkersDefault(a, b)
       ));
-  }, [workers, query, listSort.column, listSort.direction]);
+  }, [workers, activeWorkers, query, listSort.column, listSort.direction]);
+
+  const exportableWorkers = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return activeWorkers.filter((worker) => !q || Object.values(worker).join(" ").toLowerCase().includes(q));
+  }, [activeWorkers, query]);
 
   const workerListSortHint = useMemo(() => {
     if (!listSort.column) {
-      return "활성 · 팀원/외주 · 비활성 순으로 정렬됩니다. 시공자·등급·구분 헤더를 클릭하면 정렬할 수 있습니다.";
+      return "활성 · 팀원/외주 · 비활성 순으로 정렬됩니다. 검색·리스트 출력에는 활성 시공자만 포함됩니다.";
     }
     const label = listSort.column === "name" ? "시공자명" : listSort.column === "grade" ? "시공등급" : "구분";
     const direction = listSort.direction === "asc" ? "오름차순" : "내림차순";
@@ -3635,21 +3643,27 @@ function WorkersPage({ workers, setWorkers }) {
 
       <Card className="rounded-2xl shadow-sm">
         <CardContent className="p-4 md:p-5">
-          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <h2 className="erp-text-section">시공자 목록</h2>
               <p className="erp-text-caption mt-1 text-slate-500">{workerListSortHint}</p>
             </div>
-            <div className="erp-workers-summary">
-              <span>전체 <b>{workerStats.total}</b></span>
-              <span>활성 <b className="text-emerald-700">{workerStats.active}</b></span>
-              <span>팀원 <b>{workerStats.team}</b></span>
-              <span>외주 <b className="text-amber-700">{workerStats.outsource}</b></span>
-              <span>비활성 <b className="text-slate-500">{workerStats.inactive}</b></span>
+            <div className="flex flex-col items-stretch gap-3 sm:items-end">
+              <WorkerListExport
+                workers={exportableWorkers}
+                companyProfile={companyProfile}
+                disabled={exportableWorkers.length === 0}
+              />
+              <div className="erp-workers-summary">
+                <span>전체 <b>{workerStats.total}</b></span>
+                <span>활성 <b className="text-emerald-700">{workerStats.active}</b></span>
+                <span>팀원 <b>{workerStats.team}</b></span>
+                <span>외주 <b className="text-amber-700">{workerStats.outsource}</b></span>
+                <span>비활성 <b className="text-slate-500">{workerStats.inactive}</b></span>
+              </div>
             </div>
           </div>
 
-          <TableExportSection fileName="시공자목록" title="시공자 목록" disabled={displayedWorkers.length === 0}>
           <div className="erp-table-wrap erp-workers-table-wrap">
             <table className="erp-table erp-workers-table">
               <colgroup>
@@ -3814,7 +3828,6 @@ function WorkersPage({ workers, setWorkers }) {
               </tbody>
             </table>
           </div>
-          </TableExportSection>
         </CardContent>
       </Card>
     </div>
@@ -5010,10 +5023,10 @@ export default function TeammillimeterErpMvp() {
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="clients" active={active}>
-          <ClientsPage clients={clients} setClients={setClients} sales={appliedSales} />
+          <ClientsPage clients={clients} setClients={setClients} sales={appliedSales} companyProfile={companyProfile} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="workers" active={active}>
-          <WorkersPage workers={workers} setWorkers={setWorkers} />
+          <WorkersPage workers={workers} setWorkers={setWorkers} companyProfile={companyProfile} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="companyProfile" active={active}>
           <CompanyProfilePage companyProfile={companyProfile} setCompanyProfile={setCompanyProfile} />
