@@ -3666,6 +3666,97 @@ textarea {
   --statement-subrow-bg: #fafbfc;
 }
 
+/* 인쇄·PDF — 얇은 표 선 (화면보다 가늘고 연하게) */
+.erp-statement-print-host .erp-statement-sheet,
+.erp-statement-sheet.is-pdf-export,
+.erp-statement-sheet.is-pdf-export-fixed {
+  --statement-border: #e8edf2;
+  --statement-border-strong: #d5dce4;
+  --statement-table-border: 0.35pt solid #dfe5eb;
+  --statement-table-border-outer: 0.5pt solid #cfd6de;
+  --statement-table-border-foot: 0.6pt solid #c8d1db;
+  --statement-table-border-head: 0.35pt solid #64748b;
+}
+
+.erp-statement-print-host .erp-statement-sheet .excel-data-table-shell,
+.erp-statement-sheet.is-pdf-export .excel-data-table-shell,
+.erp-statement-sheet.is-pdf-export-fixed .excel-data-table-shell {
+  border: var(--statement-table-border-outer);
+  border-radius: 4px;
+}
+
+.erp-statement-print-host .erp-statement-sheet .excel-header-table,
+.erp-statement-sheet.is-pdf-export .excel-header-table,
+.erp-statement-sheet.is-pdf-export-fixed .excel-header-table {
+  border: var(--statement-table-border-outer);
+  border-radius: 4px;
+}
+
+.erp-statement-print-host .erp-statement-sheet .excel-header-table td,
+.erp-statement-sheet.is-pdf-export .excel-header-table td,
+.erp-statement-sheet.is-pdf-export-fixed .excel-header-table td {
+  border: var(--statement-table-border);
+}
+
+.erp-statement-print-host .erp-statement-sheet .excel-data-table th,
+.erp-statement-print-host .erp-statement-sheet .excel-data-table td,
+.erp-statement-sheet.is-pdf-export .excel-data-table th,
+.erp-statement-sheet.is-pdf-export .excel-data-table td,
+.erp-statement-sheet.is-pdf-export-fixed .excel-data-table th,
+.erp-statement-sheet.is-pdf-export-fixed .excel-data-table td {
+  border: var(--statement-table-border);
+}
+
+.erp-statement-print-host .erp-statement-sheet .excel-data-table th,
+.erp-statement-sheet.is-pdf-export .excel-data-table th,
+.erp-statement-sheet.is-pdf-export-fixed .excel-data-table th {
+  border-color: var(--statement-table-border-head);
+}
+
+.erp-statement-print-host .erp-statement-sheet .excel-data-table .excel-worker-sub-row td,
+.erp-statement-sheet.is-pdf-export .excel-data-table .excel-worker-sub-row td,
+.erp-statement-sheet.is-pdf-export-fixed .excel-data-table .excel-worker-sub-row td {
+  border-color: #eef2f6;
+}
+
+.erp-statement-print-host .erp-statement-sheet .excel-data-table tfoot td,
+.erp-statement-sheet.is-pdf-export .excel-data-table tfoot td,
+.erp-statement-sheet.is-pdf-export-fixed .excel-data-table tfoot td {
+  border-top: var(--statement-table-border-foot);
+}
+
+.erp-statement-print-host .erp-statement-sheet .excel-data-table,
+.erp-statement-sheet.is-pdf-export .excel-data-table,
+.erp-statement-sheet.is-pdf-export-fixed .excel-data-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.erp-statement-print-host .erp-statement-sheet .excel-data-table th,
+.erp-statement-print-host .erp-statement-sheet .excel-data-table td,
+.erp-statement-sheet.is-pdf-export .excel-data-table th,
+.erp-statement-sheet.is-pdf-export .excel-data-table td,
+.erp-statement-sheet.is-pdf-export-fixed .excel-data-table th,
+.erp-statement-sheet.is-pdf-export-fixed .excel-data-table td {
+  border-top-width: 0;
+  border-left-width: 0;
+}
+
+.erp-statement-print-host .erp-statement-sheet .excel-data-table thead tr:first-child th,
+.erp-statement-sheet.is-pdf-export .excel-data-table thead tr:first-child th,
+.erp-statement-sheet.is-pdf-export-fixed .excel-data-table thead tr:first-child th {
+  border-top-width: 0;
+}
+
+.erp-statement-print-host .erp-statement-sheet .excel-data-table th:first-child,
+.erp-statement-print-host .erp-statement-sheet .excel-data-table td:first-child,
+.erp-statement-sheet.is-pdf-export .excel-data-table th:first-child,
+.erp-statement-sheet.is-pdf-export .excel-data-table td:first-child,
+.erp-statement-sheet.is-pdf-export-fixed .excel-data-table th:first-child,
+.erp-statement-sheet.is-pdf-export-fixed .excel-data-table td:first-child {
+  border-left-width: 0;
+}
+
 .erp-statement-sheet.is-pdf-source {
   position: fixed;
   left: -10000px;
@@ -4524,6 +4615,42 @@ textarea {
   body.erp-statement-printing .erp-statement-print-host .excel-data-table {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+  }
+
+  body.erp-statement-printing .erp-statement-print-host .erp-statement-sheet {
+    --statement-border: #e8edf2;
+    --statement-border-strong: #d5dce4;
+    --statement-table-border: 0.35pt solid #dfe5eb;
+    --statement-table-border-outer: 0.5pt solid #cfd6de;
+    --statement-table-border-foot: 0.6pt solid #c8d1db;
+    --statement-table-border-head: 0.35pt solid #64748b;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  body.erp-statement-printing .erp-statement-print-host .excel-data-table-shell {
+    border: var(--statement-table-border-outer) !important;
+  }
+
+  body.erp-statement-printing .erp-statement-print-host .excel-header-table {
+    border: var(--statement-table-border-outer) !important;
+  }
+
+  body.erp-statement-printing .erp-statement-print-host .excel-data-table th,
+  body.erp-statement-printing .erp-statement-print-host .excel-data-table td {
+    border: var(--statement-table-border) !important;
+    border-top-width: 0 !important;
+    border-left-width: 0 !important;
+  }
+
+  body.erp-statement-printing .erp-statement-print-host .excel-data-table th {
+    border-color: var(--statement-table-border-head) !important;
+  }
+
+  body.erp-statement-printing .erp-statement-print-host .excel-data-table tfoot td {
+    border-top: var(--statement-table-border-foot) !important;
   }
 
   @page {
