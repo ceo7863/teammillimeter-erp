@@ -2015,6 +2015,14 @@ textarea {
   white-space: nowrap;
 }
 
+.erp-worker-netpay-chart-count {
+  font-size: 0.5rem;
+  font-weight: 600;
+  line-height: 1;
+  color: #64748b;
+  white-space: nowrap;
+}
+
 .erp-worker-netpay-chart-bar {
   width: 0.625rem;
   min-height: 2px;

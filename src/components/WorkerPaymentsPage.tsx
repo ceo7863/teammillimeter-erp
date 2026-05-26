@@ -111,9 +111,14 @@ function WorkerNetPayRankingChart({
         style={{ ["--worker-netpay-count" as string]: String(visibleRows.length) }}
       >
         {visibleRows.map((row) => (
-          <div key={row.name} className="erp-worker-netpay-chart-col" title={`${row.name} · 실지급 ${formatKRW(row.netPay)}`}>
+          <div
+            key={row.name}
+            className="erp-worker-netpay-chart-col"
+            title={`${row.name} · ${row.lineCount}건 · 실지급 ${formatKRW(row.netPay)}`}
+          >
             <div className="erp-worker-netpay-chart-bar-wrap">
               <span className="erp-worker-netpay-chart-value">{formatCompactKRW(row.netPay)}</span>
+              <span className="erp-worker-netpay-chart-count">{row.lineCount}건</span>
               <div
                 className={`erp-worker-netpay-chart-bar${row.netPay > 0 ? " has-value" : ""}`}
                 style={{ height: row.netPay > 0 ? `${barHeight(row.netPay)}%` : "0" }}
@@ -434,6 +439,11 @@ export function WorkerPaymentsPage({
 
   const chartNetPayTotal = useMemo(
     () => chartSummaryRows.reduce((sum, row) => sum + (row.netPay > 0 ? row.netPay : 0), 0),
+    [chartSummaryRows]
+  );
+
+  const chartLineCountTotal = useMemo(
+    () => chartSummaryRows.reduce((sum, row) => sum + (row.netPay > 0 ? row.lineCount : 0), 0),
     [chartSummaryRows]
   );
 
@@ -1151,7 +1161,7 @@ export function WorkerPaymentsPage({
           <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
             <h2 className="erp-text-section">시공자별 실지급</h2>
             <span className="erp-text-caption text-slate-500">
-              {chartPeriodLabel} · 실지급 합계 {formatKRW(chartNetPayTotal)} · 상위 30명
+              {chartPeriodLabel} · 실지급 합계 {formatKRW(chartNetPayTotal)} · {chartLineCountTotal}건 · 상위 30명
             </span>
           </div>
           <WorkerNetPayRankingChart rows={chartSummaryRows} emptyLabel={`${chartPeriodLabel} 실지급 내역이 없습니다.`} />
