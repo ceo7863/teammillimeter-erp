@@ -181,14 +181,17 @@ app.post("/api/auth/login", (req, res) => {
     res.status(401).json({ error: "로그인 ID 또는 비밀번호가 맞지 않습니다." });
     return;
   }
+  let erpVersion = null;
   try {
-    recordLoginLog(user);
+    const logged = recordLoginLog(user);
+    erpVersion = logged.version;
   } catch (error) {
     console.error("login log save failed:", error);
   }
   const token = signToken(user);
   res.json({
     token,
+    erpVersion,
     user: {
       id: user.id,
       loginId: user.loginId,
@@ -357,6 +360,8 @@ app.get("/api/erp", authMiddleware, (_req, res) => {
 
 app.put("/api/erp", authMiddleware, (req, res) => {
   const { sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, fixedExpenses, companyNotices, workPosts, statementGenerationLogs, statementFolders, companyProfile, version } = req.body || {};
+  const existing = getErpState();
+  const serverLoginLogs = Array.isArray(existing.data?.loginLogs) ? existing.data.loginLogs : [];
   const payload = {
     sales: Array.isArray(sales) ? sales : [],
     paymentVouchers: Array.isArray(paymentVouchers) ? paymentVouchers : [],
@@ -364,7 +369,7 @@ app.put("/api/erp", authMiddleware, (req, res) => {
     clients: Array.isArray(clients) ? clients : [],
     workers: Array.isArray(workers) ? workers : [],
     auditLogs: Array.isArray(auditLogs) ? auditLogs : [],
-    loginLogs: Array.isArray(loginLogs) ? loginLogs : [],
+    loginLogs: serverLoginLogs,
     workerPaymentRecords: Array.isArray(workerPaymentRecords) ? workerPaymentRecords : [],
     companyExpenses: Array.isArray(companyExpenses) ? companyExpenses : [],
     fixedExpenses: Array.isArray(fixedExpenses) ? fixedExpenses : [],

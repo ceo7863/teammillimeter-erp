@@ -121,12 +121,12 @@ async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T
 }
 
 export async function loginWithApi(loginId: string, password: string) {
-  const result = await apiRequest<{ token: string; user: ErpUser }>("/auth/login", {
+  const result = await apiRequest<{ token: string; user: ErpUser; erpVersion?: number | null }>("/auth/login", {
     method: "POST",
     body: JSON.stringify({ loginId, password }),
   });
   saveAuthSession(result.token, result.user);
-  return result.user;
+  return { user: result.user, erpVersion: result.erpVersion ?? null };
 }
 
 export async function fetchAuthMe() {

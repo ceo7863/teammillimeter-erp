@@ -1369,9 +1369,9 @@ function LoginScreen({ onLogin }) {
       setLoading(true);
       setError("");
       try {
-        const user = await loginWithApi(trimmedLoginId, password);
+        const { user, erpVersion } = await loginWithApi(trimmedLoginId, password);
         persistRememberedLoginId(trimmedLoginId, rememberLoginId);
-        onLogin(user);
+        onLogin(user, erpVersion);
       } catch (err) {
         setError(err instanceof Error ? err.message : "로그인에 실패했습니다.");
       } finally {
@@ -4342,37 +4342,41 @@ export default function TeammillimeterErpMvp() {
   const [sidebarOrder, setSidebarOrder] = useState(() => resolveSidebarOrder(currentUser));
   const receivableRowsFromSales = useMemo(() => buildReceivableRowsFromSales(appliedSales, clients), [appliedSales, clients]);
 
+  const applyFetchedErpData = (data) => {
+    const nextWorkers = data.workers?.length ? data.workers : initialWorkers;
+    setSales(normalizeSalesRecords(data.sales || [], nextWorkers));
+    setPaymentVouchers(data.paymentVouchers || []);
+    setPaymentInputLogs(Array.isArray(data.paymentInputLogs) ? data.paymentInputLogs : []);
+    setClients(data.clients?.length ? data.clients : initialClients);
+    setWorkers(nextWorkers);
+    const migratedLogs = migrateErpLoginLogs({
+      auditLogs: Array.isArray(data.auditLogs) ? data.auditLogs : [],
+      loginLogs: Array.isArray(data.loginLogs) ? data.loginLogs : [],
+    });
+    setAuditLogs(migratedLogs.auditLogs);
+    setLoginLogs(migratedLogs.loginLogs);
+    setWorkerPaymentRecords(Array.isArray(data.workerPaymentRecords) ? data.workerPaymentRecords : []);
+    setCompanyExpenses(Array.isArray(data.companyExpenses) ? data.companyExpenses : []);
+    setFixedExpenses(Array.isArray(data.fixedExpenses) ? data.fixedExpenses : []);
+    setCompanyNotices(normalizeCompanyNotices(data.companyNotices));
+    setWorkPosts(normalizeWorkPosts(data.workPosts));
+    setTaxInvoices(normalizeTaxInvoices(data.taxInvoices));
+    setStatementGenerationLogs(normalizeStatementGenerationLogs(data.statementGenerationLogs));
+    setStatementFolders(normalizeStatementFolders(data.statementFolders));
+    setCompanyProfile(normalizeCompanyProfile(data.companyProfile));
+    erpVersionRef.current = data.version ?? 0;
+    skipSaveRef.current = true;
+  };
+
   useEffect(() => {
-    if (!apiMode || !currentUser) return;
+    if (!apiMode || !currentUser?.id) return;
     let cancelled = false;
     setDataReady(false);
     (async () => {
       try {
         const data = await fetchErpData();
         if (cancelled) return;
-        const nextWorkers = data.workers?.length ? data.workers : initialWorkers;
-        setSales(normalizeSalesRecords(data.sales || [], nextWorkers));
-        setPaymentVouchers(data.paymentVouchers || []);
-        setPaymentInputLogs(Array.isArray(data.paymentInputLogs) ? data.paymentInputLogs : []);
-        setClients(data.clients?.length ? data.clients : initialClients);
-        setWorkers(nextWorkers);
-        const migratedLogs = migrateErpLoginLogs({
-          auditLogs: Array.isArray(data.auditLogs) ? data.auditLogs : [],
-          loginLogs: Array.isArray(data.loginLogs) ? data.loginLogs : [],
-        });
-        setAuditLogs(migratedLogs.auditLogs);
-        setLoginLogs(migratedLogs.loginLogs);
-        setWorkerPaymentRecords(Array.isArray(data.workerPaymentRecords) ? data.workerPaymentRecords : []);
-        setCompanyExpenses(Array.isArray(data.companyExpenses) ? data.companyExpenses : []);
-        setFixedExpenses(Array.isArray(data.fixedExpenses) ? data.fixedExpenses : []);
-        setCompanyNotices(normalizeCompanyNotices(data.companyNotices));
-        setWorkPosts(normalizeWorkPosts(data.workPosts));
-        setTaxInvoices(normalizeTaxInvoices(data.taxInvoices));
-        setStatementGenerationLogs(normalizeStatementGenerationLogs(data.statementGenerationLogs));
-        setStatementFolders(normalizeStatementFolders(data.statementFolders));
-        setCompanyProfile(normalizeCompanyProfile(data.companyProfile));
-        erpVersionRef.current = data.version ?? 0;
-        skipSaveRef.current = true;
+        applyFetchedErpData(data);
         setSyncStatus("");
         setDataReady(true);
       } catch (error) {
@@ -4387,7 +4391,7 @@ export default function TeammillimeterErpMvp() {
     return () => {
       cancelled = true;
     };
-  }, [currentUser, apiMode]);
+  }, [currentUser?.id, apiMode]);
 
   useEffect(() => {
     if (!apiMode) {
@@ -4401,33 +4405,49 @@ export default function TeammillimeterErpMvp() {
     }
     setSyncStatus("저장 중...");
     const timer = window.setTimeout(async () => {
+      const savePayload = {
+        sales,
+        paymentVouchers,
+        paymentInputLogs,
+        clients,
+        workers,
+        auditLogs,
+        loginLogs,
+        workerPaymentRecords,
+        companyExpenses,
+        fixedExpenses,
+        companyNotices,
+        workPosts,
+        taxInvoices,
+        statementGenerationLogs,
+        statementFolders,
+        companyProfile,
+        version: erpVersionRef.current,
+      };
       try {
-        const result = await saveErpData({
-          sales,
-          paymentVouchers,
-          paymentInputLogs,
-          clients,
-          workers,
-          auditLogs,
-          loginLogs,
-          workerPaymentRecords,
-          companyExpenses,
-          fixedExpenses,
-          companyNotices,
-          workPosts,
-          taxInvoices,
-          statementGenerationLogs,
-          statementFolders,
-          companyProfile,
-          version: erpVersionRef.current,
-        });
+        const result = await saveErpData(savePayload);
         erpVersionRef.current = result.version;
         setSyncStatus("저장됨");
       } catch (error) {
         const err = error as Error & { status?: number };
         if (err.status === 409) {
-          setSyncStatus("충돌 — 새로고침 필요");
-          window.alert("다른 사용자가 먼저 저장했습니다. 새로고침하면 최신 데이터를 불러옵니다.");
+          try {
+            const latest = await fetchErpData();
+            erpVersionRef.current = latest.version ?? 0;
+            if (Array.isArray(latest.loginLogs)) {
+              setLoginLogs(latest.loginLogs);
+              savePayload.loginLogs = latest.loginLogs;
+            }
+            savePayload.version = erpVersionRef.current;
+            skipSaveRef.current = true;
+            const retry = await saveErpData(savePayload);
+            erpVersionRef.current = retry.version;
+            setSyncStatus("저장됨");
+          } catch (retryError) {
+            console.error(retryError);
+            setSyncStatus("충돌 — 새로고침 필요");
+            window.alert("다른 사용자가 먼저 저장했습니다. 새로고침(F5) 후 다시 시도해 주세요.");
+          }
         } else {
           setSyncStatus("저장 실패");
         }
@@ -4539,9 +4559,13 @@ export default function TeammillimeterErpMvp() {
     applyErpImport(payload, "번들 데이터 적용");
   };
 
-  const handleLogin = async (user) => {
+  const handleLogin = async (user, erpVersion = null) => {
     let nextUser = user;
     if (apiMode) {
+      if (typeof erpVersion === "number") {
+        erpVersionRef.current = erpVersion;
+        skipSaveRef.current = true;
+      }
       nextUser = await syncLocalSidebarOrderIfNeeded(user, updateSidebarOrderApi);
     } else {
       setLoginLogs((prev) => appendLoginLogs(prev, [buildLoginLogEntry(user)]));

@@ -615,8 +615,8 @@ export function recordLoginLog(user) {
     role: String(user?.role || ""),
   };
   const nextLogs = [entry, ...loginLogs].slice(0, MAX_LOGIN_LOGS);
-  saveErpState({ ...data, loginLogs: nextLogs }, state.version, loginId || user?.name || "login");
-  return entry;
+  const saved = saveErpState({ ...data, loginLogs: nextLogs }, state.version, loginId || user?.name || "login");
+  return { entry, version: saved.version };
 }
 
 export function getErpState() {
