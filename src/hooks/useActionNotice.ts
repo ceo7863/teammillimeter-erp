@@ -4,8 +4,8 @@ import { useActionFeedback, type ActionFeedbackTone } from "@/context/ActionFeed
 function inferNoticeTone(message: string): ActionFeedbackTone {
   const text = message.trim();
   if (!text) return "info";
-  if (/??|??|????|??? ? ?|??|??/.test(text)) return "error";
-  if (/???|??|??/.test(text)) return "info";
+  if (/\uC0AD\uC81C|\uC2E4\uD328|\uC5C6\uC2B5\uB2C8\uB2E4|\uC0AC\uC6A9\uD560 \uC218 \uC5C6|\uC624\uB958|\uCDE8\uC18C/.test(text)) return "error";
+  if (/\uC8FC\uC138\uC694|\uC120\uD0DD|\uBA3C\uC800/.test(text)) return "info";
   return "success";
 }
 
