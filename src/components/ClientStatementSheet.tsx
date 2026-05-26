@@ -6,7 +6,6 @@ import {
   type ClientMasterLike,
   type ClientStatementDisplayRow,
   type ClientStatementSummary,
-  countClientStatementBodyRows,
   groupClientStatementDisplayRows,
   isClientStatementWorkerDetailRow,
 } from "@/utils/statementSheets";
@@ -85,7 +84,7 @@ export const ClientStatementSheet = React.forwardRef<HTMLDivElement, ClientState
   ref
 ) {
   const hasRows = rows.length > 0;
-  const visibleBodyRows = countClientStatementBodyRows(rows);
+  const visibleBodyRows = rows.filter((row) => row.kind === "site").length || (hasRows ? rows.length : 1);
   const fillerRowCount = getStatementFillerRowCount(hasRows ? visibleBodyRows : 1, companyProfile);
   const clientDataColumnCount = 10;
   const rowGroups = groupClientStatementDisplayRows(rows);

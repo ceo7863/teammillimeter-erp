@@ -144,15 +144,16 @@ async function downloadPaginatedStatementPdf(
     pageElement.style.top = "0";
     pageElement.style.width = `${A4_PORTRAIT_WIDTH_PX}px`;
     pageElement.style.minHeight = `${A4_PORTRAIT_HEIGHT_PX}px`;
-    pageElement.style.height = "auto";
-    pageElement.style.maxHeight = "none";
-    pageElement.style.overflow = "visible";
+    pageElement.style.height = `${A4_PORTRAIT_HEIGHT_PX}px`;
+    pageElement.style.maxHeight = `${A4_PORTRAIT_HEIGHT_PX}px`;
+    pageElement.style.overflow = "hidden";
+    pageElement.classList.add("is-pdf-export-fixed");
     pageElement.style.boxShadow = "none";
     document.body.appendChild(pageElement);
 
     try {
       await waitForStatementImages(pageElement);
-      const canvas = await captureStatementPage(pageElement);
+      const canvas = await captureStatementPage(pageElement, { fullPage: true });
       const imgData = canvas.toDataURL("image/png");
 
       if (pageIndex > 0) pdf.addPage("a4", orientation);

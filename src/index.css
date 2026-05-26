@@ -3740,8 +3740,10 @@ textarea {
 }
 
 .erp-statement-sheet.is-a4-page .excel-data-table .excel-filler-row td {
-  height: 22px;
-  min-height: 22px;
+  height: auto;
+  min-height: 6px;
+  padding: 2px 4px;
+  line-height: 1;
 }
 
 .erp-statement-sheet.is-a4-page .excel-footer-brand {

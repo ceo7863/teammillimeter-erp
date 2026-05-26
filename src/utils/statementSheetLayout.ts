@@ -4,6 +4,9 @@ import { companyProfileContactLines } from "./companyProfile";
 export const A4_PORTRAIT_WIDTH_PX = 794;
 export const A4_PORTRAIT_HEIGHT_PX = 1123;
 export const A4_STATEMENT_MIN_BODY_ROWS = 30;
+/** Table body row cap so header + meta + footer still fit on one A4 page */
+export const A4_STATEMENT_TABLE_BODY_MAX_ROWS = 24;
+export const A4_STATEMENT_FORCE_SINGLE_PAGE_MAX_SITES = 15;
 /** Footer/logo subpixel overflow above A4 still counts as one page */
 export const A4_STATEMENT_CAPTURE_SLACK_PX = 28;
 /** @page margin + bottom breathing room — pagination stays within printable area */
@@ -32,7 +35,9 @@ export function getStatementMinBodyRows(companyProfile?: CompanyProfile | null) 
 }
 
 export function getStatementFillerRowCount(visibleBodyRows: number, companyProfile?: CompanyProfile | null) {
-  return Math.max(0, getStatementMinBodyRows(companyProfile) - visibleBodyRows);
+  const desired = Math.max(0, getStatementMinBodyRows(companyProfile) - visibleBodyRows);
+  const room = Math.max(0, A4_STATEMENT_TABLE_BODY_MAX_ROWS - visibleBodyRows);
+  return Math.min(desired, room);
 }
 
 /** Derive layout overhead from a rendered statement sheet DOM (for pagination clones). */
@@ -49,7 +54,9 @@ export function countCompanyProfileLayoutRowsFromElement(source: HTMLElement): n
 export function getStatementFillerRowCountFromElement(source: HTMLElement, visibleBodyRows: number) {
   const overhead = countCompanyProfileLayoutRowsFromElement(source);
   const minRows = Math.max(6, A4_STATEMENT_MIN_BODY_ROWS - Math.ceil(overhead * 0.9));
-  return Math.max(0, minRows - visibleBodyRows);
+  const desired = Math.max(0, minRows - visibleBodyRows);
+  const room = Math.max(0, A4_STATEMENT_TABLE_BODY_MAX_ROWS - visibleBodyRows);
+  return Math.min(desired, room);
 }
 
 export function shouldCaptureStatementAsSingleA4Page(naturalHeightPx: number) {

@@ -1,4 +1,10 @@
-import { A4_PORTRAIT_HEIGHT_PX, A4_PORTRAIT_WIDTH_PX, A4_STATEMENT_CAPTURE_SLACK_PX, getStatementFillerRowCountFromElement } from "./statementSheetLayout";
+import {
+  A4_PORTRAIT_HEIGHT_PX,
+  A4_PORTRAIT_WIDTH_PX,
+  A4_STATEMENT_CAPTURE_SLACK_PX,
+  A4_STATEMENT_FORCE_SINGLE_PAGE_MAX_SITES,
+  getStatementFillerRowCountFromElement,
+} from "./statementSheetLayout";
 import {
   cloneStatementTableRow,
   findStatementSheetRoot,
@@ -28,6 +34,29 @@ export function getStatementBodyRows(dataTable: Element | null): HTMLTableRowEle
 function countVisibleBodyRows(rows: HTMLTableRowElement[]) {
   const dataRows = rows.filter((row) => !row.querySelector(".excel-empty-cell"));
   return dataRows.length || 1;
+}
+
+function countSiteBodyRows(rows: HTMLTableRowElement[]) {
+  const siteRows = rows.filter((row) => !row.querySelector(".excel-empty-cell") && !row.classList.contains("excel-worker-sub-row"));
+  return siteRows.length || 1;
+}
+
+function shouldForceSingleStatementPage(bodyRows: HTMLTableRowElement[]) {
+  const siteGroups = splitBodyRowsIntoGroups(bodyRows);
+  return siteGroups.length <= A4_STATEMENT_FORCE_SINGLE_PAGE_MAX_SITES;
+}
+
+function buildSingleStatementPage(
+  source: HTMLElement,
+  bodyRows: HTMLTableRowElement[],
+  variant: StatementPageVariant = "screen"
+) {
+  return buildStatementPageElement(source, {
+    showFullHeader: true,
+    bodyRows: fixRowspanForChunk(bodyRows, ""),
+    showTableFooter: true,
+    variant,
+  });
 }
 
 function getTableColumnCount(sourceTable: Element | null) {
@@ -126,7 +155,7 @@ export function buildStatementPageElement(
   options.bodyRows.forEach((row) => tbody.appendChild(row));
 
   if (variant === "screen" && options.showTableFooter) {
-    appendFillerRows(tbody, columnCount, getStatementFillerRowCountFromElement(source, countVisibleBodyRows(options.bodyRows)));
+    appendFillerRows(tbody, columnCount, getStatementFillerRowCountFromElement(source, countSiteBodyRows(options.bodyRows)));
   }
 
   table.appendChild(tbody);
@@ -348,15 +377,15 @@ export function buildPaginatedStatementPages(
   const host = createMeasureHost();
 
   try {
+    if (bodyRows.length > 0 && shouldForceSingleStatementPage(bodyRows)) {
+      const page = buildSingleStatementPage(source, bodyRows, variant);
+      return [page];
+    }
+
     let pageChunks = paginateStatementRows(source, host, bodyRows, variant);
 
     if (pageChunks.length > 1 && bodyRows.length > 0) {
-      const singlePage = buildStatementPageElement(source, {
-        showFullHeader: true,
-        bodyRows: fixRowspanForChunk(bodyRows, ""),
-        showTableFooter: true,
-        variant,
-      });
+      const singlePage = buildSingleStatementPage(source, bodyRows, variant);
       if (measurePageHeight(host, singlePage) <= A4_PORTRAIT_HEIGHT_PX + A4_STATEMENT_CAPTURE_SLACK_PX + 0.5) {
         pageChunks = [{ rows: fixRowspanForChunk(bodyRows, ""), siteDate: "" }];
       }
