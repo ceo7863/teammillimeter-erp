@@ -3190,6 +3190,7 @@ function WorkersPage({ workers, setWorkers }) {
   const [editingId, setEditingId] = useState(null);
   const [query, setQuery] = useState("");
   const [inlineChargeDrafts, setInlineChargeDrafts] = useState({});
+  const [inlineConstructionDrafts, setInlineConstructionDrafts] = useState({});
 
   const displayedWorkers = useMemo(() => {
     const q = query.toLowerCase();
@@ -3311,6 +3312,28 @@ function WorkersPage({ workers, setWorkers }) {
     setWorkers((prev) => prev.map((item) => (
       item.id === worker.id
         ? { ...item, customChargeCost: parsed }
+        : item
+    )));
+  };
+
+  const updateWorkerConstructionInline = (worker, value) => {
+    const parsed = parseMoney(value);
+    if (parsed === (worker.constructionCost || 0)) return;
+
+    recordAudit({
+      entityType: "worker",
+      entityId: worker.id,
+      entityLabel: worker.name,
+      screen: "시공자",
+      action: "update",
+      before: snapshotWorkerForAudit(worker),
+      after: snapshotWorkerForAudit({ ...worker, constructionCost: parsed }),
+      fields: WORKER_AUDIT_FIELDS.filter((field) => field.key === "constructionCost"),
+    });
+
+    setWorkers((prev) => prev.map((item) => (
+      item.id === worker.id
+        ? { ...item, constructionCost: parsed }
         : item
     )));
   };
@@ -3488,7 +3511,27 @@ function WorkersPage({ workers, setWorkers }) {
                       <div>{worker.vehicleNo || "-"}</div>
                       {worker.businessNo ? <div className="erp-workers-sub">{worker.businessNo}</div> : null}
                     </td>
-                    <td className="text-right font-semibold whitespace-nowrap">{formatKRW(worker.constructionCost)}</td>
+                    <td className="text-right erp-workers-charge-cell">
+                      <Input
+                        inputMode="numeric"
+                        value={inlineConstructionDrafts[worker.id] ?? worker.constructionCost ?? ""}
+                        onChange={(e) => setInlineConstructionDrafts((prev) => ({ ...prev, [worker.id]: e.target.value }))}
+                        onBlur={(e) => {
+                          updateWorkerConstructionInline(worker, e.target.value);
+                          setInlineConstructionDrafts((prev) => {
+                            const next = { ...prev };
+                            delete next[worker.id];
+                            return next;
+                          });
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") e.currentTarget.blur();
+                        }}
+                        placeholder="시공비"
+                        className="erp-input-compact erp-workers-charge-input text-right"
+                      />
+                      <AuditCellHint entityType="worker" entityId={worker.id} field="constructionCost" fieldLabel="시공비" />
+                    </td>
                     <td className="text-right erp-workers-charge-cell">
                       <Input
                         inputMode="numeric"
@@ -3501,6 +3544,9 @@ function WorkersPage({ workers, setWorkers }) {
                             delete next[worker.id];
                             return next;
                           });
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") e.currentTarget.blur();
                         }}
                         placeholder="기본단가"
                         className="erp-input-compact erp-workers-charge-input text-right"
