@@ -680,6 +680,7 @@ export function StatementsPage({
     }
     setStatementHint("");
     setPdfMessage("");
+    setStatementShareLink("");
     setWorkerStatementGenerated(true);
     recordGenerationLog("worker", worker, workerRows.length);
   };
@@ -1094,15 +1095,23 @@ export function StatementsPage({
     }
   };
 
-  const shareClientStatementDownloadLink = async () => {
-    const element = clientPrintRef.current;
+  const shareStatementDownloadLink = async () => {
+    const isClient = statementType === "client";
+    const element = isClient ? clientPrintRef.current : workerPrintRef.current;
+    const subjectName = isClient ? client : worker;
+    const statementGenerated = isClient ? clientStatementGenerated : workerStatementGenerated;
+    const hasSelection = isClient ? hasClientSelection : hasWorkerSelection;
 
-    if (!clientStatementGenerated) {
+    if (!statementGenerated) {
       setPdfMessage("\uB9C1\uD06C \uBCF4\uB0B4\uAE30 \uC804\uC5D0 \uB0B4\uC5ED\uC11C \uC0DD\uC131\uC744 \uBA38\uC800 \uC2E4\uD589\uD574 \uC8FC\uC138\uC694.");
       return;
     }
-    if (!hasClientSelection) {
-      setPdfMessage("\uB9C1\uD06C \uBCF4\uB0B4\uAE30 \uC804\uC5D0 \uAC70\uB798\uCC98\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.");
+    if (!hasSelection) {
+      setPdfMessage(
+        isClient
+          ? "\uB9C1\uD06C \uBCF4\uB0B4\uAE30 \uC804\uC5D0 \uAC70\uB798\uCC98\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694."
+          : "\uB9C1\uD06C \uBCF4\uB0B4\uAE30 \uC804\uC5D0 \uC2DC\uACF5\uC790\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694."
+      );
       return;
     }
     if (!element) {
@@ -1110,9 +1119,11 @@ export function StatementsPage({
       return;
     }
 
-    const safeName = String(client).replace(/[\\/:*?"<>|]/g, "_");
+    const safeName = String(subjectName).replace(/[\\/:*?"<>|]/g, "_");
     const periodLabel = `${dateFilter.startDate || "\uC804\uCCB4"}_${dateFilter.endDate || "\uC804\uCCB4"}`;
-    const fileName = `\uC2DC\uACF5\uB0B4\uC5ED\uC11C_\uAC70\uB798\uCC98_${safeName}_${periodLabel}.pdf`;
+    const fileName = isClient
+      ? `\uC2DC\uACF5\uB0B4\uC5ED\uC11C_\uAC70\uB798\uCC98_${safeName}_${periodLabel}.pdf`
+      : `\uC2DC\uACF5\uB0B4\uC5ED\uC11C_\uC2DC\uACF5\uC790_${safeName}_${periodLabel}.pdf`;
 
     revokePdfBlobUrl(pdfBlobUrlRef.current);
     setPdfGenerating(true);
@@ -1127,11 +1138,11 @@ export function StatementsPage({
       });
       pdfBlobUrlRef.current = result.blobUrl;
       const archived = await archiveGeneratedPdf(result, {
-        category: "statement-client",
-        subjectName: client,
+        category: isClient ? "statement-client" : "statement-worker",
+        subjectName,
         periodStart: dateFilter.startDate,
         periodEnd: dateFilter.endDate,
-        statementView: clientStatementView,
+        statementView: isClient ? clientStatementView : undefined,
       });
       if (setStatementFolders) {
         const filedBy = currentUser?.name || currentUser?.loginId || "";
@@ -1652,13 +1663,13 @@ export function StatementsPage({
                   <Download size={16} className="mr-1" />
                   {pdfGenerating ? L.pdfGenerating : L.pdfGenerate}
                 </Button>
-                {isClientStatement && (
+                {statementGenerated && (
                   <Button
                     type="button"
                     variant="outline"
                     className="erp-statement-share-link-btn rounded-xl"
-                    disabled={pdfGenerating || !hasStatementData || !clientStatementGenerated}
-                    onClick={() => void shareClientStatementDownloadLink()}
+                    disabled={pdfGenerating || !hasStatementData}
+                    onClick={() => void shareStatementDownloadLink()}
                   >
                     <Link2 size={16} className="mr-1" />
                     {pdfGenerating ? "..." : L.shareLink}
@@ -1696,7 +1707,7 @@ export function StatementsPage({
                   </p>
                 )}
                 {pdfMessage && <p className="erp-statement-pdf-message">{pdfMessage}</p>}
-                {isClientStatement && statementShareLink && (
+                {statementShareLink && (
                   <div className="erp-statement-share-link-row">
                     <a
                       href={statementShareLink}
