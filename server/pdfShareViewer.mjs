@@ -6,7 +6,7 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
-export function buildPdfShareViewerHtml({ title, pdfUrl, downloadUrl, pageImages = [] }) {
+export function buildPdfShareViewerHtml({ title, pdfUrl, downloadUrl, pageImages = [], og = null }) {
   const safeTitle = escapeHtml(title);
   const safePdfUrl = escapeHtml(pdfUrl);
   const safeDownloadUrl = escapeHtml(downloadUrl);
@@ -15,13 +15,33 @@ export function buildPdfShareViewerHtml({ title, pdfUrl, downloadUrl, pageImages
     .map((src, index) => `<img src="${src}" alt="\uD398\uC774\uC9C0 ${index + 1}" loading="lazy" />`)
     .join("");
 
+  const ogTags = og
+    ? `
+  <meta property="og:type" content="website"/>
+  <meta property="og:locale" content="ko_KR"/>
+  <meta property="og:site_name" content="${escapeHtml(og.ogSiteName)}"/>
+  <meta property="og:title" content="${escapeHtml(og.ogTitle)}"/>
+  <meta property="og:description" content="${escapeHtml(og.ogDescription)}"/>
+  <meta property="og:url" content="${escapeHtml(og.sharePageUrl)}"/>
+  <meta property="og:image" content="${escapeHtml(og.ogImageUrl)}"/>
+  <meta property="og:image:secure_url" content="${escapeHtml(og.ogImageUrl)}"/>
+  <meta property="og:image:type" content="image/png"/>
+  <meta property="og:image:width" content="${escapeHtml(og.ogImageWidth)}"/>
+  <meta property="og:image:height" content="${escapeHtml(og.ogImageHeight)}"/>
+  <meta name="twitter:card" content="summary_large_image"/>
+  <meta name="twitter:title" content="${escapeHtml(og.ogTitle)}"/>
+  <meta name="twitter:description" content="${escapeHtml(og.ogDescription)}"/>
+  <meta name="twitter:image" content="${escapeHtml(og.ogImageUrl)}"/>
+  <meta name="description" content="${escapeHtml(og.ogDescription)}"/>`
+    : "";
+
   return `<!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="format-detection" content="telephone=no"/>
-  <title>${safeTitle}</title>
+  <title>${safeTitle}</title>${ogTags}
   <style>
     * { box-sizing: border-box; }
     html, body { margin: 0; min-height: 100%; background: #525659; color: #f8fafc; }

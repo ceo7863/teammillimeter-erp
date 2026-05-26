@@ -38,6 +38,7 @@ import {
 } from "./boardAttachments.mjs";
 import { buildPdfShareViewerHtml } from "./pdfShareViewer.mjs";
 import { renderPdfSharePreviewImages } from "./pdfSharePreview.mjs";
+import { buildPdfShareOgMeta } from "./pdfShareOg.mjs";
 
 initDb();
 initPdfArchiveStore();
@@ -149,6 +150,12 @@ app.get("/api/public/pdf-share/:token", async (req, res) => {
 
   const pdfUrl = `${buildPublicRequestOrigin(req)}/api/public/pdf-share/${encodeURIComponent(req.params.token)}/file`;
   const downloadUrl = `${pdfUrl}?download=1`;
+  const sharePageUrl = `${buildPublicRequestOrigin(req)}/api/public/pdf-share/${encodeURIComponent(req.params.token)}`;
+  const og = buildPdfShareOgMeta({
+    fileName: file.fileName,
+    sharePageUrl,
+    origin: buildPublicRequestOrigin(req),
+  });
 
   let pageImages = [];
   try {
@@ -161,10 +168,11 @@ app.get("/api/public/pdf-share/:token", async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   res.send(
     buildPdfShareViewerHtml({
-      title: file.fileName,
+      title: og.ogTitle,
       pdfUrl,
       downloadUrl,
       pageImages,
+      og,
     })
   );
 });
