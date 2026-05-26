@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, ChevronLeft, ChevronRight, CreditCard, Download, FileText, Search, WalletCards } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight, Copy, CreditCard, Download, FileText, Link2, Search, WalletCards } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AutocompleteInput } from "@/components/AutocompleteInput";
@@ -9,7 +9,7 @@ import { TableExportSection } from "@/components/TableExportSection";
 import { WorkerMonthlyStatementExport } from "@/components/WorkerMonthlyStatementExport";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { createPdfPreviewWindow, downloadPdfFromHtmlElement, revokePdfBlobUrl } from "@/utils/statementPdf";
-import { archiveGeneratedPdf } from "@/utils/pdfArchive";
+import { archiveGeneratedPdf, copyTextToClipboard, createPdfShareLink } from "@/utils/pdfArchive";
 import { confirmDelete } from "@/utils/confirmDelete";
 import {
   buildWorkerStatementSummary,
@@ -155,6 +155,7 @@ export function WorkerPaymentsPage({
   const [paymentDraftVat, setPaymentDraftVat] = useState<Record<string, boolean>>({});
   const [pdfMessage, setPdfMessage] = useState("");
   const [pdfGenerating, setPdfGenerating] = useState(false);
+  const [statementShareLink, setStatementShareLink] = useState("");
   const [statementSheetGenerated, setStatementSheetGenerated] = useState(false);
   const [statementHint, setStatementHint] = useState("");
   const pdfBlobUrlRef = useRef("");
@@ -166,6 +167,7 @@ export function WorkerPaymentsPage({
     setStatementSheetGenerated(false);
     setStatementHint("");
     setPdfMessage("");
+    setStatementShareLink("");
   }, [dateFilter.startDate, dateFilter.endDate, selectedWorker]);
 
   useEffect(() => {
@@ -493,7 +495,79 @@ export function WorkerPaymentsPage({
     }
     setStatementHint("");
     setPdfMessage("");
+    setStatementShareLink("");
     setStatementSheetGenerated(true);
+  };
+
+  const shareWorkerStatementDownloadLink = async () => {
+    if (!statementSheetGenerated) {
+      setPdfMessage("링크보내기 전에 내역서 생성을 먼저 실행해 주세요.");
+      return;
+    }
+    if (!statementWorker) {
+      setPdfMessage("링크보내기 전에 시공자를 선택해 주세요.");
+      return;
+    }
+    if (!statementRows.length) {
+      setPdfMessage("링크로 보낼 시공자 내역이 없습니다.");
+      return;
+    }
+
+    const element = workerPrintRef.current;
+    if (!element) {
+      setPdfMessage("PDF 출력 영역을 찾을 수 없습니다. 페이지를 새로고침 후 다시 시도해 주세요.");
+      return;
+    }
+
+    const safeName = statementWorker.replace(/[\\/:*?"<>|]/g, "_");
+    const periodLabel = `${dateFilter.startDate || "전체"}_${dateFilter.endDate || "전체"}`;
+    const fileName = `시공내역서_시공자_${safeName}_${periodLabel}.pdf`;
+
+    revokePdfBlobUrl(pdfBlobUrlRef.current);
+    setPdfGenerating(true);
+    setPdfMessage("PDF 생성 및 링크 준비 중...");
+    setStatementShareLink("");
+    pdfBlobUrlRef.current = "";
+
+    try {
+      const result = await downloadPdfFromHtmlElement(element, fileName, {
+        orientation: "portrait",
+        deliver: false,
+      });
+      pdfBlobUrlRef.current = result.blobUrl;
+      const archived = await archiveGeneratedPdf(result, {
+        category: "statement-worker",
+        subjectName: statementWorker,
+        periodStart: dateFilter.startDate,
+        periodEnd: dateFilter.endDate,
+      });
+
+      const shareLink = await createPdfShareLink(archived.id);
+      setStatementShareLink(shareLink.url);
+      const copied = await copyTextToClipboard(shareLink.url);
+      setPdfMessage(
+        copied
+          ? "PDF가 보관함에 저장되었습니다. 다운로드 링크가 복사되었습니다. 카톡 등에 붙여넣기 하세요."
+          : "PDF가 보관함에 저장되었습니다. 다운로드 링크가 복사되었습니다. 카톡 등에 붙여넣기 하세요. (자동 복사가 지원되지 않아 아래 링크를 직접 복사해 주세요.)"
+      );
+    } catch (error) {
+      console.error(error);
+      setPdfMessage(error instanceof Error ? error.message : "링크보내기에 실패했습니다.");
+      setStatementShareLink("");
+    } finally {
+      setPdfGenerating(false);
+    }
+  };
+
+  const handleCopyStatementShareLink = async () => {
+    if (!statementShareLink) return;
+    try {
+      const copied = await copyTextToClipboard(statementShareLink);
+      setPdfMessage(copied ? "링크가 복사되었습니다." : "링크 복사에 실패했습니다.");
+    } catch (error) {
+      console.error(error);
+      setPdfMessage("링크 복사에 실패했습니다.");
+    }
   };
 
   const generateWorkerPdf = async () => {
@@ -1115,13 +1189,47 @@ export function WorkerPaymentsPage({
                   <h2 className="erp-text-section font-black">시공내역서(개인)</h2>
                   <p className="mt-1 erp-text-body text-slate-500">엑셀 시공내역서 양식과 동일한 표로 미리보기 · PDF 생성</p>
                 </div>
-                <Button className="rounded-2xl" onClick={generateWorkerPdf} disabled={pdfGenerating || !statementWorker || !statementRows.length}>
-                  <FileText size={16} className="mr-2" />
-                  {pdfGenerating ? "PDF 생성 중..." : "PDF 생성"}
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button className="rounded-2xl" onClick={generateWorkerPdf} disabled={pdfGenerating || !statementWorker || !statementRows.length}>
+                    <FileText size={16} className="mr-2" />
+                    {pdfGenerating ? "PDF 생성 중..." : "PDF 생성"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="erp-statement-share-link-btn rounded-2xl"
+                    disabled={pdfGenerating || !statementWorker || !statementRows.length || !statementSheetGenerated}
+                    onClick={() => void shareWorkerStatementDownloadLink()}
+                  >
+                    <Link2 size={16} className="mr-2" />
+                    {pdfGenerating ? "..." : "링크보내기"}
+                  </Button>
+                </div>
               </div>
 
               {pdfMessage && <p className="mb-3 text-sm text-slate-600">{pdfMessage}</p>}
+              {statementShareLink && (
+                <div className="erp-statement-share-link-row mb-3">
+                  <a
+                    href={statementShareLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="erp-statement-share-link-url"
+                  >
+                    {statementShareLink}
+                  </a>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="rounded-lg"
+                    onClick={() => void handleCopyStatementShareLink()}
+                  >
+                    <Copy size={14} className="mr-1" />
+                    링크 복사
+                  </Button>
+                </div>
+              )}
 
               <TableExportSection
                 fileName={`시공내역서_시공자_${statementWorker || "미선택"}`}
