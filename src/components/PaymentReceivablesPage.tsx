@@ -3,6 +3,7 @@ import { AlertCircle, CheckCircle2, CreditCard, Search, Trash2, WalletCards } fr
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useAudit } from "@/context/AuditContext";
+import { useSaveMessage } from "@/hooks/useSaveMessage";
 import { AutocompleteInput, AutocompleteSelect } from "@/components/AutocompleteInput";
 import { EntityAuditButton } from "@/components/AuditField";
 import { TableExportSection } from "@/components/TableExportSection";
@@ -188,7 +189,7 @@ export function PaymentReceivablesPage({
   const [statusFilter, setStatusFilter] = useState("전체");
   const [hideCompleted, setHideCompleted] = useState(true);
   const [unpaidOnly, setUnpaidOnly] = useState(true);
-  const [saveMessage, setSaveMessage] = useState("");
+  const { message: saveMessage, setMessage: setSaveMessage, clearMessage: clearSaveMessage } = useSaveMessage();
   const [depositEditSalesId, setDepositEditSalesId] = useState<string | null>(null);
 
   const updateFilter = (key: keyof typeof filters, value: string) => setFilters((prev) => ({ ...prev, [key]: value }));
@@ -266,7 +267,7 @@ export function PaymentReceivablesPage({
   }, [sales, filters]);
 
   const updatePaymentRow = (id: string | number, key: keyof PaymentDraft, value: unknown) => {
-    setSaveMessage("");
+    clearSaveMessage();
     setPaymentRows((prev) => ({
       ...prev,
       [String(id)]: {

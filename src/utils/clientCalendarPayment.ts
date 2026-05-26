@@ -32,7 +32,10 @@ export type CalendarPaymentPreview = {
   client: string;
   selectedDays: number;
   saleCount: number;
+  vatIncluded: boolean;
   totalUnpaid: number;
+  totalVat: number;
+  totalFinal: number;
   vouchers: CalendarPaymentVoucherDraft[];
 };
 
@@ -99,7 +102,10 @@ export function buildCalendarPaymentPreview(
     client,
     selectedDays: selectedDates.length,
     saleCount: vouchers.length,
+    vatIncluded,
     totalUnpaid: vouchers.reduce((sum, voucher) => sum + voucher.amount, 0),
+    totalVat: vouchers.reduce((sum, voucher) => sum + voucher.vatAmount, 0),
+    totalFinal: vouchers.reduce((sum, voucher) => sum + voucher.finalAmount, 0),
     vouchers,
   };
 }

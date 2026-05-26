@@ -14,6 +14,7 @@ import {
   type StatementDraft,
 } from "@/utils/statementDraft";
 import type { SortDirection } from "@/utils/pivotSort";
+import { useActionNotice } from "@/hooks/useActionNotice";
 
 type ClientMonthSortColumn = "client" | "sales" | "unpaid";
 
@@ -31,6 +32,7 @@ type SaleLike = {
 
 type ClientLike = {
   name?: string;
+  vat?: string;
 };
 
 type DayVoucher = {
@@ -86,6 +88,11 @@ function PageTitle({ title, desc }: { title: string; desc: string }) {
 
 function matchesClientName(row: SaleLike, clientName: string) {
   return normalizeClientName(row.client) === clientName;
+}
+
+function isClientVatIncluded(clients: ClientLike[], clientName: string) {
+  const match = clients.find((row) => String(row.name || "").trim() === clientName);
+  return String(match?.vat || "Y").trim().toUpperCase() !== "N";
 }
 
 function buildMonthCells(monthKey: string, statsByDate: Record<string, DayStats>) {
@@ -180,7 +187,7 @@ export function ClientCalendarPage({
   const [monthKey, setMonthKey] = useState(() => todayISO().slice(0, 7));
   const [client, setClient] = useState("");
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
-  const [notice, setNotice] = useState("");
+  const { message: notice, showNotice, clearNotice } = useActionNotice();
   const [paymentPreview, setPaymentPreview] = useState<CalendarPaymentPreview | null>(null);
   const [clientListSort, setClientListSort] = useState<{ column: ClientMonthSortColumn; direction: SortDirection }>({
     column: "sales",
@@ -242,7 +249,7 @@ export function ClientCalendarPage({
 
   const applyClientFromTable = (clientName: string) => {
     setClient(clientName);
-    setNotice(`${clientName} 캘린더를 표시합니다.`);
+    showNotice(`${clientName} 캘린더를 표시합니다.`);
     window.requestAnimationFrame(() => {
       calendarRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
@@ -314,14 +321,8 @@ export function ClientCalendarPage({
 
   useEffect(() => {
     setSelectedDates([]);
-    setNotice("");
-  }, [client, monthKey]);
-
-  useEffect(() => {
-    if (!notice) return;
-    const timer = window.setTimeout(() => setNotice(""), 3200);
-    return () => window.clearTimeout(timer);
-  }, [notice]);
+    clearNotice();
+  }, [client, monthKey, clearNotice]);
 
   const shiftMonth = (delta: number) => {
     const [yearText, monthText] = monthKey.split("-");
@@ -335,59 +336,66 @@ export function ClientCalendarPage({
 
   const selectAllMonthDates = () => {
     if (!client) {
-      setNotice("거래처를 먼저 선택해 주세요.");
+      showNotice("거래처를 먼저 선택해 주세요.");
       return;
     }
     if (!monthTransactionDates.length) {
-      setNotice("이번 달에 거래 내역이 있는 날짜가 없습니다.");
+      showNotice("이번 달에 거래 내역이 있는 날짜가 없습니다.");
       return;
     }
     setSelectedDates([...monthTransactionDates]);
-    setNotice(`${monthTransactionDates.length}일이 선택되었습니다.`);
+    showNotice(`${monthTransactionDates.length}일이 선택되었습니다.`);
   };
 
   const handleExportStatement = () => {
     if (!client) {
-      setNotice("거래처를 선택해 주세요.");
+      showNotice("거래처를 선택해 주세요.");
       return;
     }
     if (!selectedDates.length) {
-      setNotice("시공비내역서를 만들 날짜를 선택해 주세요.");
+      showNotice("시공비내역서를 만들 날짜를 선택해 주세요.");
       return;
     }
 
     const draft = createClientCalendarStatementDraft(client, clientSales, selectedDates);
     if (!draft) {
-      setNotice("선택한 날짜에 해당 거래처 전표가 없습니다.");
+      showNotice("선택한 날짜에 해당 거래처 전표가 없습니다.");
       return;
     }
 
     stashStatementDraft(draft);
     onRequestClientStatement?.(draft);
-    setNotice(`${selectedDates.length}일 · 시공비내역서 생성 화면으로 이동합니다.`);
+    showNotice(`${selectedDates.length}일 · 시공비내역서 생성 화면으로 이동합니다.`);
   };
 
   const openPaymentConfirm = () => {
     if (!client) {
-      setNotice("거래처를 선택해 주세요.");
+      showNotice("거래처를 선택해 주세요.");
       return;
     }
     if (!selectedDates.length) {
-      setNotice("입금 처리할 날짜를 선택해 주세요.");
+      showNotice("입금 처리할 날짜를 선택해 주세요.");
       return;
     }
     if (!setPaymentVouchers || !setPaymentInputLogs) {
-      setNotice("입금 처리 기능을 사용할 수 없습니다.");
+      showNotice("입금 처리 기능을 사용할 수 없습니다.");
       return;
     }
 
-    const preview = buildCalendarPaymentPreview(sales, client, selectedDates);
+    const vatIncluded = isClientVatIncluded(clients, client);
+    const preview = buildCalendarPaymentPreview(sales, client, selectedDates, todayISO(), vatIncluded);
     if (!preview) {
-      setNotice("선택한 날짜에 미수 전표가 없습니다.");
+      showNotice("선택한 날짜에 미수 전표가 없습니다.");
       return;
     }
 
     setPaymentPreview(preview);
+  };
+
+  const handlePaymentVatChange = (vatIncluded: boolean) => {
+    if (!client || !selectedDates.length) return;
+    const preview = buildCalendarPaymentPreview(sales, client, selectedDates, todayISO(), vatIncluded);
+    if (preview) setPaymentPreview(preview);
   };
 
   const closePaymentConfirm = () => {
@@ -419,7 +427,7 @@ export function ClientCalendarPage({
     setPaymentInputLogs((prev) => [...logs, ...prev]);
     setPaymentPreview(null);
     setSelectedDates([]);
-    setNotice(`${vouchers.length}건 · ${formatKRW(paymentPreview.totalUnpaid)} 입금완료 처리되었습니다.`);
+    showNotice(`${vouchers.length}건 · ${formatKRW(paymentPreview.totalFinal)} 입금완료 처리되었습니다.`);
   };
 
   const weekdayLabels = [
@@ -447,14 +455,44 @@ export function ClientCalendarPage({
               입금 처리
             </h2>
             <p className="mt-2 text-sm font-semibold text-slate-800">{paymentPreview.client}</p>
+            <div className="mt-4">
+              <p className="text-xs font-semibold text-slate-500">부가세 처리</p>
+              <div className="mt-2 flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={paymentPreview.vatIncluded ? "default" : "outline"}
+                  className="flex-1 rounded-xl"
+                  onClick={() => handlePaymentVatChange(true)}
+                >
+                  부가세 포함
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={!paymentPreview.vatIncluded ? "default" : "outline"}
+                  className="flex-1 rounded-xl"
+                  onClick={() => handlePaymentVatChange(false)}
+                >
+                  부가세 미포함
+                </Button>
+              </div>
+            </div>
             <div className="mt-4 space-y-2 text-sm text-slate-600">
               <p>선택 일자 <strong>{paymentPreview.selectedDays}일</strong></p>
               <p>미수 전표 <strong>{paymentPreview.saleCount}건</strong></p>
-              <p>입금 처리 금액 <strong className="text-emerald-700">{formatKRW(paymentPreview.totalUnpaid)}</strong></p>
+              <p>입금 공급가액 <strong>{formatKRW(paymentPreview.totalUnpaid)}</strong></p>
+              <p>
+                부가세{" "}
+                <strong className={paymentPreview.totalVat > 0 ? "text-amber-700" : "text-slate-500"}>
+                  {paymentPreview.totalVat > 0 ? formatKRW(paymentPreview.totalVat) : "없음"}
+                </strong>
+              </p>
+              <p>최종 입금액 <strong className="text-emerald-700">{formatKRW(paymentPreview.totalFinal)}</strong></p>
               <p className="text-xs text-slate-500">선택한 날짜의 미수 잔액을 오늘({todayISO()}) 입금완료 처리합니다.</p>
             </div>
             <div className="mt-5 flex gap-2">
-              <Button variant="outline" className="flex-1 rounded-xl" onClick={closePaymentConfirm}>
+              <Button variant="outline" className="flex-1 rounded-xl" onClick={closePaymentConfirm} noFeedback>
                 취소
               </Button>
               <Button className="flex-1 rounded-xl" onClick={confirmPaymentProcess}>

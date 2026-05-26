@@ -48,7 +48,7 @@ import { Button } from "@/components/ui/button";
 import { fetchBundledErpSeed, parseErpExcelFile } from "@/utils/excelImport";
 import { buildAnalysisReport, buildClientPivotReport, buildMonthlyPivotReport, buildQuarterlyPivotReport, buildWorkerPivotReport, filterSalesByClient } from "@/utils/pivotReports";
 import { buildAnnualMonthlyDashboard, listDashboardYears } from "@/utils/dashboardAnnual";
-import { sortRowsByColumn } from "@/utils/pivotSort";
+import { useSaveMessage } from "@/hooks/useSaveMessage";
 import { AuditProvider, useAudit } from "@/context/AuditContext";
 import { AuditField, AuditCellHint, EntityAuditButton } from "@/components/AuditField";
 import { AuditLogPage } from "@/components/AuditLogPage";
@@ -2456,19 +2456,18 @@ function SalesRegistrationPage({ sales = [], setSales, setActive, clients, worke
   const { recordAudit } = useAudit();
   const salesRef = useRef(sales);
   const [form, setForm] = useState(() => compactSaleForm());
-  const [saveMessage, setSaveMessage] = useState("");
-  const [duplicateConfirm, setDuplicateConfirm] = useState(null);
+  const { message: saveMessage, setMessage: setSaveMessage, clearMessage: clearSaveMessage } = useSaveMessage();
 
   useEffect(() => {
     salesRef.current = sales;
   }, [sales]);
   const update = (key, value) => {
-    setSaveMessage("");
+    clearSaveMessage();
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
   const updateWorkerLine = (index, key, value) => {
-    setSaveMessage("");
+    clearSaveMessage();
     setForm((prev) => ({
       ...prev,
       workers: prev.workers.map((line, lineIndex) => {
@@ -2553,7 +2552,7 @@ function SalesRegistrationPage({ sales = [], setSales, setActive, clients, worke
   };
 
   const resetForm = () => {
-    setSaveMessage("");
+    clearSaveMessage();
     setDuplicateConfirm(null);
     setForm(compactSaleForm());
   };
@@ -2627,7 +2626,7 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
   const [dateFilter, setDateFilter] = useState({ startDate: "", endDate: "" });
   const [selectedRowId, setSelectedRowId] = useState(null);
   const [form, setForm] = useState(emptySaleForm);
-  const [saveMessage, setSaveMessage] = useState("");
+  const { message: saveMessage, setMessage: setSaveMessage, clearMessage: clearSaveMessage } = useSaveMessage();
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const duplicateIndex = useMemo(() => buildSaleDuplicateIndex(sales), [sales]);
   const isDuplicateRow = (row) => isDuplicateSale(row, duplicateIndex.duplicateKeys);
@@ -2645,20 +2644,20 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
   const selectedRow = sales.find((row) => row.id === selectedRowId);
 
   const update = (key, value) => {
-    setSaveMessage("");
+    clearSaveMessage();
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
   const closeEditor = () => {
     setSelectedRowId(null);
     setForm(emptySaleForm);
-    setSaveMessage("");
+    clearSaveMessage();
     setDeleteConfirm(null);
   };
 
   const openVoucher = (row) => {
     setSelectedRowId(row.id);
-    setSaveMessage("");
+    clearSaveMessage();
     setForm(saleRowToForm(row));
   };
 
@@ -2676,7 +2675,7 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
   }, [pendingVoucherId, sales, onPendingVoucherConsumed]);
 
   const updateWorkerLine = (index, key, value) => {
-    setSaveMessage("");
+    clearSaveMessage();
     setForm((prev) => ({
       ...prev,
       workers: prev.workers.map((line, lineIndex) => {

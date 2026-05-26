@@ -3,19 +3,39 @@ import React from "react";
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: string;
   size?: string;
+  /** Toast message after click */
+  feedback?: string;
+  feedbackTone?: "success" | "info" | "error";
+  /** Disable click flash + toast (navigation, cancel, etc.) */
+  noFeedback?: boolean;
 };
 
-export function Button({ className = "", variant, size, children, ...props }: ButtonProps) {
+export function Button({
+  className = "",
+  variant,
+  size,
+  children,
+  feedback,
+  feedbackTone = "success",
+  noFeedback = false,
+  ...props
+}: ButtonProps) {
   const variantClass =
     variant === "outline"
-      ? "border border-slate-300 bg-white text-slate-900 hover:bg-slate-50"
-      : "bg-slate-900 text-white hover:bg-slate-800";
+      ? "erp-ui-btn erp-ui-btn--outline"
+      : variant === "ghost"
+        ? "erp-ui-btn erp-ui-btn--ghost"
+        : "erp-ui-btn erp-ui-btn--primary";
 
-  const sizeClass = size === "sm" ? "px-3 py-1.5 erp-text-caption" : "px-4 py-2 erp-text-body";
+  const sizeClass =
+    size === "sm" ? "erp-ui-btn--sm" : size === "lg" ? "erp-ui-btn--lg" : "erp-ui-btn--md";
 
   return (
     <button
-      className={`inline-flex items-center justify-center gap-2 font-semibold transition ${variantClass} ${sizeClass} ${className}`}
+      className={`erp-ui-btn ${variantClass} ${sizeClass} ${className}`}
+      data-action-feedback={!noFeedback && feedback ? feedback : undefined}
+      data-action-feedback-tone={feedbackTone}
+      data-no-action-feedback={noFeedback ? "" : undefined}
       {...props}
     >
       {children}
