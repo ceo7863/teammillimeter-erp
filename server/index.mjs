@@ -27,6 +27,8 @@ import {
   createPdfArchive,
   getPdfArchiveFile,
   deletePdfArchiveById,
+  ensurePdfArchiveShareToken,
+  getPdfArchiveFileByShareToken,
 } from "./pdfArchive.mjs";
 import {
   initBoardAttachmentStore,
@@ -103,6 +105,24 @@ function buildBoardPreview(data) {
 app.get("/api/public/board-preview", (_req, res) => {
   const state = getErpState();
   res.json(buildBoardPreview(state.data));
+});
+
+function buildPublicRequestOrigin(req) {
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  const forwardedHost = String(req.headers["x-forwarded-host"] || "").split(",")[0].trim();
+  if (forwardedProto && forwardedHost) return `${forwardedProto}://${forwardedHost}`;
+  return `${req.protocol}://${req.get("host")}`;
+}
+
+app.get("/api/public/pdf-share/:token", (req, res) => {
+  const file = getPdfArchiveFileByShareToken(req.params.token);
+  if (!file) {
+    res.status(404).send("PDF를 찾을 수 없습니다.");
+    return;
+  }
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+  res.sendFile(path.resolve(file.path));
 });
 
 app.post(
@@ -418,6 +438,21 @@ app.get("/api/pdf-archives/:id/file", authMiddleware, (req, res) => {
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
   res.sendFile(path.resolve(file.path));
+});
+
+app.post("/api/pdf-archives/:id/share-link", authMiddleware, (req, res) => {
+  const meta = getPdfArchiveMetaById(req.params.id);
+  if (!meta) {
+    res.status(404).json({ error: "PDF를 찾을 수 없습니다." });
+    return;
+  }
+  const token = ensurePdfArchiveShareToken(req.params.id);
+  if (!token) {
+    res.status(500).json({ error: "공유 링크를 만들 수 없습니다." });
+    return;
+  }
+  const url = `${buildPublicRequestOrigin(req)}/api/public/pdf-share/${token}`;
+  res.json({ token, url, fileName: meta.fileName });
 });
 
 app.delete("/api/pdf-archives/:id", authMiddleware, (req, res) => {

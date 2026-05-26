@@ -39,6 +39,12 @@ export function initPdfArchiveStore() {
     CREATE INDEX IF NOT EXISTS idx_pdf_archives_created_at ON pdf_archives(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_pdf_archives_category ON pdf_archives(category);
   `);
+
+  const columns = getDb().prepare("PRAGMA table_info(pdf_archives)").all();
+  if (!columns.some((column) => column.name === "share_token")) {
+    getDb().exec(`ALTER TABLE pdf_archives ADD COLUMN share_token TEXT`);
+    getDb().exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_pdf_archives_share_token ON pdf_archives(share_token)`);
+  }
 }
 
 export function listPdfArchiveMetas() {
@@ -109,4 +115,33 @@ export function deletePdfArchiveById(id) {
   if (fs.existsSync(row.storage_path)) fs.unlinkSync(row.storage_path);
   getDb().prepare("DELETE FROM pdf_archives WHERE id = ?").run(id);
   return true;
+}
+
+export function ensurePdfArchiveShareToken(id) {
+  const row = getDb().prepare("SELECT share_token FROM pdf_archives WHERE id = ?").get(id);
+  if (!row) return null;
+  if (row.share_token) return row.share_token;
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const token = crypto.randomBytes(24).toString("hex");
+    try {
+      getDb().prepare("UPDATE pdf_archives SET share_token = ? WHERE id = ?").run(token, id);
+      return token;
+    } catch {
+      // rare token collision — retry
+    }
+  }
+
+  return null;
+}
+
+export function getPdfArchiveFileByShareToken(token) {
+  const row = getDb()
+    .prepare("SELECT storage_path, file_name FROM pdf_archives WHERE share_token = ?")
+    .get(String(token || "").trim());
+  if (!row || !fs.existsSync(row.storage_path)) return null;
+  return {
+    path: row.storage_path,
+    fileName: row.file_name,
+  };
 }

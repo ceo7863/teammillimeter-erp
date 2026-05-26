@@ -4238,6 +4238,34 @@ textarea {
   color: #334155;
 }
 
+.erp-statement-share-link-btn {
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+.erp-statement-share-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.erp-statement-share-link-url {
+  flex: 1 1 16rem;
+  min-width: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.4;
+  color: #2563eb;
+  word-break: break-all;
+  text-decoration: underline;
+  text-underline-offset: 0.15rem;
+}
+
+.erp-statement-share-link-url:hover {
+  color: #1d4ed8;
+}
+
 .erp-statement-preview-wrap {
   overflow: auto;
   padding: 1.5rem;

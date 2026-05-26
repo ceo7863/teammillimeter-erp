@@ -407,3 +407,46 @@ export async function archiveGeneratedPdf(
 
   return saved;
 }
+
+export type PdfShareLinkResult = {
+  token: string;
+  url: string;
+  fileName: string;
+};
+
+export async function createPdfShareLink(archiveId: string): Promise<PdfShareLinkResult> {
+  if (!isApiModeEnabled()) {
+    throw new Error("\uB9C1\uD06C \uBCF4\uB0B4\uAE30\uB294 \uC11C\uBC84 \uC5F0\uB3D9 \uBAA8\uB4DC\uC5D0\uC11C\uB9CC \uC0AC\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.");
+  }
+
+  const response = await fetch(`${apiBase()}/pdf-archives/${encodeURIComponent(archiveId)}/share-link`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+
+  return response.json() as Promise<PdfShareLinkResult>;
+}
+
+export async function copyTextToClipboard(text: string) {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+
+  if (typeof document === "undefined") return false;
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  return copied;
+}

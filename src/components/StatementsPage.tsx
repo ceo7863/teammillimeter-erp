@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, Download, Eye, FileText, Files, FolderInput, History, RotateCcw, Search, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, Download, Eye, FileText, Files, FolderInput, History, Link2, RotateCcw, Search, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ClientStatementSheet } from "@/components/ClientStatementSheet";
@@ -10,7 +10,7 @@ import { AutocompleteInput } from "@/components/AutocompleteInput";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { DEFAULT_COMPANY_PROFILE, type CompanyProfile } from "@/utils/companyProfile";
 import { confirmDelete } from "@/utils/confirmDelete";
-import { archiveGeneratedPdf, getPdfArchiveRecord, listPdfArchives, openPdfBlobInNewTab, sharePdfBlob } from "@/utils/pdfArchive";
+import { archiveGeneratedPdf, copyTextToClipboard, createPdfShareLink, getPdfArchiveRecord, listPdfArchives, openPdfBlobInNewTab, sharePdfBlob } from "@/utils/pdfArchive";
 import { createPdfPreviewWindow, downloadPdfFromHtmlElement, revokePdfBlobUrl } from "@/utils/statementPdf";
 import {
   appendStatementGenerationLog,
@@ -144,6 +144,11 @@ const L = {
   detail: "\uC0C1\uC138",
   pdfGenerating: "PDF \uC0DD\uC131 \uC911...",
   pdfGenerate: "PDF \uC0DD\uC131",
+  shareLink: "\uB9C1\uD06C\uBCF4\uB0B4\uAE30",
+  shareLinkPreparing: "PDF \uC0DD\uC131 \uBC0F \uB9C1\uD06C \uC900\uBE44 \uC911...",
+  shareLinkReady: "PDF\uAC00 \uBCF4\uAD00\uD568\uC5D0 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uB2E4\uC6B4\uB85C\uB4DC \uB9C1\uD06C\uAC00 \uBCF5\uC0AC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uCE74\uD1A1 \uB4F1\uC5D0 \uBD99\uC5EC \uB123\uC73C\uC138\uC694.",
+  shareLinkCopy: "\uB9C1\uD06C \uBCF5\uC0AC",
+  shareLinkCopied: "\uB9C1\uD06C\uAC00 \uBCF5\uC0AC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   shareKakao: "\uCE74\uD1A1",
   shareKakaoPreparing: "\uCE74\uD1A1 \uBCF4\uB0B4\uAE30 \uC900\uBE44 \uC911...",
   count: "\uAC74\uC218",
@@ -319,6 +324,7 @@ export function StatementsPage({
   const [clientStatementView, setClientStatementView] = useState<"summary" | "detail">("summary");
   const [pdfMessage, setPdfMessage] = useState("");
   const [pdfGenerating, setPdfGenerating] = useState(false);
+  const [statementShareLink, setStatementShareLink] = useState("");
   const pdfBlobUrlRef = useRef("");
   const restoringHistoryRef = useRef(false);
   const [client, setClient] = useState("");
@@ -375,6 +381,7 @@ export function StatementsPage({
     setActivePageTab("create");
     setStatementHint("");
     setPdfMessage("");
+    setStatementShareLink("");
     setStatementType("client");
     setClient(incoming.client);
     setDateFilter({ startDate: incoming.startDate, endDate: incoming.endDate });
@@ -411,6 +418,7 @@ export function StatementsPage({
     setClientStatementGenerated(false);
     setStatementHint("");
     setPdfMessage("");
+    setStatementShareLink("");
   }, [client, dateFilter.startDate, dateFilter.endDate, unpaidOnly]);
 
   useEffect(() => {
@@ -418,11 +426,13 @@ export function StatementsPage({
     setWorkerStatementGenerated(false);
     setStatementHint("");
     setPdfMessage("");
+    setStatementShareLink("");
   }, [worker, dateFilter.startDate, dateFilter.endDate]);
 
   useEffect(() => {
     setStatementHint("");
     setPdfMessage("");
+    setStatementShareLink("");
   }, [statementType]);
 
   const hasClientSelection = Boolean(client && client !== "\uC804\uCCB4");
@@ -654,6 +664,7 @@ export function StatementsPage({
       }
       setStatementHint(shouldFilterUnpaid ? L.unpaidOnlyHint(clientRows.length) : "");
       setPdfMessage("");
+      setStatementShareLink("");
       setClientStatementGenerated(true);
       recordGenerationLog("client", client, clientRows.length);
       return;
@@ -1080,6 +1091,74 @@ export function StatementsPage({
       setPdfMessage("PDF \uC0DD\uC131\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
     } finally {
       setPdfGenerating(false);
+    }
+  };
+
+  const shareClientStatementDownloadLink = async () => {
+    const element = clientPrintRef.current;
+
+    if (!clientStatementGenerated) {
+      setPdfMessage("\uB9C1\uD06C \uBCF4\uB0B4\uAE30 \uC804\uC5D0 \uB0B4\uC5ED\uC11C \uC0DD\uC131\uC744 \uBA38\uC800 \uC2E4\uD589\uD574 \uC8FC\uC138\uC694.");
+      return;
+    }
+    if (!hasClientSelection) {
+      setPdfMessage("\uB9C1\uD06C \uBCF4\uB0B4\uAE30 \uC804\uC5D0 \uAC70\uB798\uCC98\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.");
+      return;
+    }
+    if (!element) {
+      setPdfMessage("PDF \uCD9C\uB825 \uC601\uC5ED\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C\uACE0\uCE68 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.");
+      return;
+    }
+
+    const safeName = String(client).replace(/[\\/:*?"<>|]/g, "_");
+    const periodLabel = `${dateFilter.startDate || "\uC804\uCCB4"}_${dateFilter.endDate || "\uC804\uCCB4"}`;
+    const fileName = `\uC2DC\uACF5\uB0B4\uC5ED\uC11C_\uAC70\uB798\uCC98_${safeName}_${periodLabel}.pdf`;
+
+    revokePdfBlobUrl(pdfBlobUrlRef.current);
+    setPdfGenerating(true);
+    setPdfMessage(L.shareLinkPreparing);
+    setStatementShareLink("");
+    pdfBlobUrlRef.current = "";
+
+    try {
+      const result = await downloadPdfFromHtmlElement(element, fileName, {
+        orientation: "portrait",
+        deliver: false,
+      });
+      pdfBlobUrlRef.current = result.blobUrl;
+      const archived = await archiveGeneratedPdf(result, {
+        category: "statement-client",
+        subjectName: client,
+        periodStart: dateFilter.startDate,
+        periodEnd: dateFilter.endDate,
+        statementView: clientStatementView,
+      });
+      if (setStatementFolders) {
+        const filedBy = currentUser?.name || currentUser?.loginId || "";
+        setStatementFolders((prev) => fileOrLinkPdfArchiveToFolders(prev, statementGenerationLogs, archived, filedBy));
+      }
+
+      const shareLink = await createPdfShareLink(archived.id);
+      setStatementShareLink(shareLink.url);
+      const copied = await copyTextToClipboard(shareLink.url);
+      setPdfMessage(copied ? L.shareLinkReady : `${L.shareLinkReady} (\uC790\uB3D9 \uBCF5\uC0AC\uAC00 \uC9C0\uC6D0\uB418\uC9C0 \uC54A\uC544 \uC544\uB798 \uB9C1\uD06C\uB97C \uC9C1\uC811 \uBCF5\uC0AC\uD574 \uC8FC\uC138\uC694.)`);
+    } catch (error) {
+      console.error(error);
+      setPdfMessage(error instanceof Error ? error.message : "\uB9C1\uD06C \uBCF4\uB0B4\uAE30\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
+      setStatementShareLink("");
+    } finally {
+      setPdfGenerating(false);
+    }
+  };
+
+  const handleCopyStatementShareLink = async () => {
+    if (!statementShareLink) return;
+    try {
+      const copied = await copyTextToClipboard(statementShareLink);
+      setPdfMessage(copied ? L.shareLinkCopied : "\uB9C1\uD06C \uBCF5\uC0AC\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
+    } catch (error) {
+      console.error(error);
+      setPdfMessage("\uB9C1\uD06C \uBCF5\uC0AC\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
     }
   };
 
@@ -1575,6 +1654,18 @@ export function StatementsPage({
                 </Button>
                 {isClientStatement && (
                   <Button
+                    type="button"
+                    variant="outline"
+                    className="erp-statement-share-link-btn rounded-xl"
+                    disabled={pdfGenerating || !hasStatementData || !clientStatementGenerated}
+                    onClick={() => void shareClientStatementDownloadLink()}
+                  >
+                    <Link2 size={16} className="mr-1" />
+                    {pdfGenerating ? "..." : L.shareLink}
+                  </Button>
+                )}
+                {isClientStatement && (
+                  <Button
                     className="erp-pdf-archive-kakao-btn rounded-xl"
                     disabled={pdfGenerating || !hasStatementData || !clientStatementGenerated}
                     title="카카오톡 보내기"
@@ -1597,7 +1688,7 @@ export function StatementsPage({
               </div>
             </div>
 
-            {(pdfMessage || isClientStatement) && (
+            {(pdfMessage || isClientStatement || statementShareLink) && (
               <div className="erp-statement-status-row">
                 {isClientStatement && (
                   <p className="erp-text-caption text-slate-500">
@@ -1605,6 +1696,28 @@ export function StatementsPage({
                   </p>
                 )}
                 {pdfMessage && <p className="erp-statement-pdf-message">{pdfMessage}</p>}
+                {isClientStatement && statementShareLink && (
+                  <div className="erp-statement-share-link-row">
+                    <a
+                      href={statementShareLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="erp-statement-share-link-url"
+                    >
+                      {statementShareLink}
+                    </a>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="rounded-lg"
+                      onClick={() => void handleCopyStatementShareLink()}
+                    >
+                      <Copy size={14} className="mr-1" />
+                      {L.shareLinkCopy}
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
 
