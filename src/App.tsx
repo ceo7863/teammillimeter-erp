@@ -1297,6 +1297,36 @@ function workerActiveSortRank(worker) {
   return worker?.isActive === false ? 1 : 0;
 }
 
+function workerGradeSortRank(value) {
+  const grade = normalizeWorkerGrade(value);
+  const index = WORKER_GRADE_OPTIONS.indexOf(grade);
+  return index === -1 ? WORKER_GRADE_OPTIONS.length : index;
+}
+
+type WorkerListSortColumn = "name" | "grade" | "category";
+
+function compareWorkersDefault(a, b) {
+  const activeDiff = workerActiveSortRank(a) - workerActiveSortRank(b);
+  if (activeDiff !== 0) return activeDiff;
+  const rankDiff = workerCategorySortRank(a.category) - workerCategorySortRank(b.category);
+  if (rankDiff !== 0) return rankDiff;
+  return String(a.name || "").localeCompare(String(b.name || ""), "ko");
+}
+
+function compareWorkersByColumn(a, b, column: WorkerListSortColumn, direction: SortDirection) {
+  const dir = direction === "asc" ? 1 : -1;
+  let cmp = 0;
+  if (column === "name") {
+    cmp = String(a.name || "").localeCompare(String(b.name || ""), "ko");
+  } else if (column === "grade") {
+    cmp = workerGradeSortRank(a.grade) - workerGradeSortRank(b.grade);
+  } else {
+    cmp = workerCategorySortRank(a.category) - workerCategorySortRank(b.category);
+  }
+  if (cmp !== 0) return cmp * dir;
+  return compareWorkersDefault(a, b);
+}
+
 function isWorkerActive(worker) {
   return worker?.isActive !== false;
 }
@@ -3196,6 +3226,40 @@ function WorkerGradeSelect({
   );
 }
 
+function WorkerListSortHeader({
+  label,
+  column,
+  sort,
+  onSort,
+  align = "left",
+}: {
+  label: string;
+  column: WorkerListSortColumn;
+  sort: { column: WorkerListSortColumn | null; direction: SortDirection };
+  onSort: (column: WorkerListSortColumn) => void;
+  align?: "left" | "center";
+}) {
+  const isActive = sort.column === column;
+  const SortIcon = !isActive ? ArrowUpDown : sort.direction === "asc" ? ArrowUp : ArrowDown;
+  const alignClass = align === "center" ? "text-center" : "text-left";
+
+  return (
+    <th className={alignClass}>
+      <button
+        type="button"
+        className={`erp-pivot-sort-btn erp-workers-sort-btn ${alignClass} ${isActive ? "is-active" : ""}`}
+        onClick={() => onSort(column)}
+        aria-label={`${label} ${isActive ? (sort.direction === "asc" ? "오름차순" : "내림차순") : "정렬"}`}
+      >
+        <span>{label}</span>
+        <span className="erp-pivot-sort-icon" aria-hidden="true">
+          <SortIcon size={12} />
+        </span>
+      </button>
+    </th>
+  );
+}
+
 function WorkersPage({ workers, setWorkers }) {
   const { recordAudit } = useAudit();
   const emptyWorkerForm = {
@@ -3218,21 +3282,44 @@ function WorkersPage({ workers, setWorkers }) {
   const [form, setForm] = useState(emptyWorkerForm);
   const [editingId, setEditingId] = useState(null);
   const [query, setQuery] = useState("");
+  const [listSort, setListSort] = useState<{ column: WorkerListSortColumn | null; direction: SortDirection }>({
+    column: null,
+    direction: "asc",
+  });
   const [inlineChargeDrafts, setInlineChargeDrafts] = useState({});
   const [constructionCostEdit, setConstructionCostEdit] = useState(null);
+
+  const handleWorkerListSort = (column: WorkerListSortColumn) => {
+    setListSort((prev) => {
+      if (prev.column !== column) {
+        return { column, direction: "asc" };
+      }
+      if (prev.direction === "asc") {
+        return { column, direction: "desc" };
+      }
+      return { column: null, direction: "asc" };
+    });
+  };
 
   const displayedWorkers = useMemo(() => {
     const q = query.toLowerCase();
     return workers
       .filter((worker) => Object.values(worker).join(" ").toLowerCase().includes(q))
-      .sort((a, b) => {
-        const activeDiff = workerActiveSortRank(a) - workerActiveSortRank(b);
-        if (activeDiff !== 0) return activeDiff;
-        const rankDiff = workerCategorySortRank(a.category) - workerCategorySortRank(b.category);
-        if (rankDiff !== 0) return rankDiff;
-        return String(a.name || "").localeCompare(String(b.name || ""), "ko");
-      });
-  }, [workers, query]);
+      .sort((a, b) => (
+        listSort.column
+          ? compareWorkersByColumn(a, b, listSort.column, listSort.direction)
+          : compareWorkersDefault(a, b)
+      ));
+  }, [workers, query, listSort.column, listSort.direction]);
+
+  const workerListSortHint = useMemo(() => {
+    if (!listSort.column) {
+      return "활성 · 팀원/외주 · 비활성 순으로 정렬됩니다. 시공자·등급·구분 헤더를 클릭하면 정렬할 수 있습니다.";
+    }
+    const label = listSort.column === "name" ? "시공자명" : listSort.column === "grade" ? "시공등급" : "구분";
+    const direction = listSort.direction === "asc" ? "오름차순" : "내림차순";
+    return `${label} ${direction}으로 정렬 중입니다. 같은 헤더를 다시 클릭하면 정렬이 해제됩니다.`;
+  }, [listSort.column, listSort.direction]);
 
   const workerStats = useMemo(() => {
     const activeRows = displayedWorkers.filter((worker) => isWorkerActive(worker));
@@ -3551,7 +3638,7 @@ function WorkersPage({ workers, setWorkers }) {
           <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="erp-text-section">시공자 목록</h2>
-              <p className="erp-text-caption mt-1 text-slate-500">활성 · 팀원/외주 · 비활성 순으로 정렬됩니다.</p>
+              <p className="erp-text-caption mt-1 text-slate-500">{workerListSortHint}</p>
             </div>
             <div className="erp-workers-summary">
               <span>전체 <b>{workerStats.total}</b></span>
@@ -3582,10 +3669,10 @@ function WorkersPage({ workers, setWorkers }) {
               </colgroup>
               <thead className="bg-slate-100 text-slate-600">
                 <tr>
-                  <th className="text-left">시공자</th>
-                  <th className="text-center">시공등급</th>
+                  <WorkerListSortHeader label="시공자" column="name" sort={listSort} onSort={handleWorkerListSort} />
+                  <WorkerListSortHeader label="시공등급" column="grade" sort={listSort} onSort={handleWorkerListSort} align="center" />
                   <th className="text-center">상태</th>
-                  <th className="text-center">구분</th>
+                  <WorkerListSortHeader label="구분" column="category" sort={listSort} onSort={handleWorkerListSort} align="center" />
                   <th className="text-left">연락처</th>
                   <th className="text-left">계좌</th>
                   <th className="text-left">차량 · 사업자</th>

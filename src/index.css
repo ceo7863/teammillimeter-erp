@@ -2120,6 +2120,18 @@ textarea {
   white-space: nowrap;
 }
 
+.erp-workers-table .erp-workers-sort-btn {
+  width: 100%;
+  justify-content: center;
+  gap: 0.2rem;
+  font: inherit;
+  color: inherit;
+}
+
+.erp-workers-table .erp-workers-sort-btn.text-left {
+  justify-content: flex-start;
+}
+
 .erp-workers-row.is-inactive {
   background: #f8fafc;
 }
