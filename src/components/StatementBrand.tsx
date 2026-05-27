@@ -10,9 +10,11 @@ function resolveProfile(companyProfile?: CompanyProfile) {
 export function StatementSheetHeader({
   title,
   companyProfile,
+  issuedDate,
 }: {
   title: string;
   companyProfile?: CompanyProfile;
+  issuedDate?: string;
 }) {
   const profile = resolveProfile(companyProfile);
 
@@ -27,6 +29,12 @@ export function StatementSheetHeader({
         {profile.phone ? <div className="excel-sheet-company-line">Tel {profile.phone}</div> : null}
         {profile.fax ? <div className="excel-sheet-company-line">Fax {profile.fax}</div> : null}
         {profile.address ? <div className="excel-sheet-company-line excel-sheet-company-address">{profile.address}</div> : null}
+        {issuedDate ? (
+          <div className="excel-sheet-company-line excel-sheet-company-issued-date">
+            {"\uC791\uC131\uC77C "}
+            {issuedDate}
+          </div>
+        ) : null}
       </div>
       <h1 className="excel-sheet-title">{title}</h1>
     </header>

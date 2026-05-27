@@ -118,12 +118,17 @@ export function buildClientStatementExcelPayload(input: {
   const visibleBodyRows = countClientStatementBodyRows(input.rows);
   const clientInfo = input.clientInfo || {};
   const bankAccount = resolveStatementBankAccount(input.companyProfile || DEFAULT_COMPANY_PROFILE, clientInfo.vat);
+  const company = buildCompanyExcelInfo(input.companyProfile);
+  const formattedIssuedDate = formatStatementDate(input.issuedDate || "");
+  if (formattedIssuedDate) {
+    company.headerLines = [...company.headerLines, `\uC791\uC131\uC77C ${formattedIssuedDate}`];
+  }
 
   return {
     kind: "client",
     title: "시 공 비 내 역 서",
     recipientName: input.clientName || "거래처",
-    company: buildCompanyExcelInfo(input.companyProfile),
+    company,
     meta: {
       businessNo: clientInfo.businessNo || "",
       manager: clientInfo.manager || "",
@@ -131,7 +136,6 @@ export function buildClientStatementExcelPayload(input: {
       bankAccount,
       periodStart: formatStatementDate(input.periodStart || ""),
       periodEnd: formatStatementDate(input.periodEnd || ""),
-      issuedDate: formatStatementDate(input.issuedDate || ""),
       subtotal: formatKRW(input.summary.subtotal),
       vatAmount: formatKRW(input.summary.vatAmount),
       grandTotal: formatKRW(input.summary.grandTotal),

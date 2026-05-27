@@ -115,7 +115,11 @@ export const ClientStatementSheet = React.forwardRef<HTMLDivElement, ClientState
       data-statement-excel={serializeStatementExcelPayload(excelPayload)}
       className={`erp-statement-sheet ${className}`.trim()}
     >
-      <StatementSheetHeader title="시 공 비 내 역 서" companyProfile={companyProfile} />
+      <StatementSheetHeader
+        title="시 공 비 내 역 서"
+        companyProfile={companyProfile}
+        issuedDate={issuedDate ? formatStatementDate(issuedDate) : undefined}
+      />
 
       <div className="excel-client-recipient">
         <span>{clientName || "거래처"}</span>
@@ -158,13 +162,6 @@ export const ClientStatementSheet = React.forwardRef<HTMLDivElement, ClientState
             <td className="label">총합계</td>
             <td className="amount">{formatKRW(summary.grandTotal)}</td>
           </tr>
-          {issuedDate ? (
-            <tr>
-              <td className="label">{"\uC791\uC131\uC77C"}</td>
-              <td colSpan={3}>{formatStatementDate(issuedDate)}</td>
-              <td colSpan={2} />
-            </tr>
-          ) : null}
         </tbody>
       </table>
 

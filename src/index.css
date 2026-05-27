@@ -5112,6 +5112,12 @@ textarea {
   white-space: normal;
 }
 
+.erp-statement-sheet .excel-sheet-company-issued-date {
+  margin-top: 4px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
 .erp-statement-sheet .excel-sheet-company-links {
   display: flex;
   flex-direction: row;
