@@ -10,7 +10,6 @@ import {
   BarChart3,
   Building2,
   CalendarDays,
-  CalendarRange,
   Check,
   CheckCircle2,
   CreditCard,
@@ -69,7 +68,6 @@ import { SidebarMenuOrderModal } from "@/components/SidebarMenuOrderModal";
 import { UsersAdminPage } from "@/components/UsersAdminPage";
 import { CompanyLedgerPage } from "@/components/CompanyLedgerPage";
 import { AttendancePage } from "@/components/AttendancePage";
-import { ClientCalendarPage } from "@/components/ClientCalendarPage";
 import { AutoLinkBadge, SalePaymentLinkBadge, SalePaymentLinkProvider } from "@/components/AutoLinkBadge";
 import { buildAutoLinkedSaleIdSet, buildManualLinkedSaleIdSet, isSaleAutoLinkedPaid, isSaleManualLinkedPaid } from "@/utils/bankReceivableMatch";
 import { ClientStatementModal } from "@/components/ClientStatementModal";
@@ -1746,7 +1744,6 @@ const PAGE_ICONS: Record<ErpPageKey, typeof Home> = {
   dashboard: Home,
   calendar: CalendarDays,
   attendance: Clock,
-  clientCalendar: CalendarRange,
   salesInput: Plus,
   sales: FileSpreadsheet,
   salesVoucherSearch: Search,
@@ -6073,8 +6070,6 @@ export default function TeammillimeterErpMvp() {
   const [statementDraft, setStatementDraft] = useState<StatementDraft | null>(null);
   const [pendingVoucherEditId, setPendingVoucherEditId] = useState(null);
   const [pendingVoucherSearchFilter, setPendingVoucherSearchFilter] = useState(null);
-  const [pendingClientCalendarClient, setPendingClientCalendarClient] = useState(null);
-  const [pendingClientCalendarMonthKey, setPendingClientCalendarMonthKey] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [myAccountOpen, setMyAccountOpen] = useState(false);
   const [sidebarMenuOrderOpen, setSidebarMenuOrderOpen] = useState(false);
@@ -6216,6 +6211,7 @@ export default function TeammillimeterErpMvp() {
 
   useEffect(() => {
     if (active === "paymentInput") setActive("receivables");
+    if (active === "clientCalendar") setActive("calendar");
   }, [active]);
 
   const backupData = () => {
@@ -6456,42 +6452,6 @@ export default function TeammillimeterErpMvp() {
             attendanceRecords={attendanceRecords}
             setAttendanceRecords={setAttendanceRecords}
             currentUser={currentUser}
-          />
-        </PageKeepAlive>
-        <PageKeepAlive pageKey="clientCalendar" active={active}>
-          <ClientCalendarPage
-            sales={appliedSales}
-            clients={clients}
-            paymentVouchers={paymentVouchers}
-            setPaymentVouchers={setPaymentVouchers}
-            setPaymentInputLogs={setPaymentInputLogs}
-            currentUser={currentUser}
-            pendingClient={pendingClientCalendarClient}
-            pendingMonthKey={pendingClientCalendarMonthKey}
-            onPendingClientConsumed={() => {
-              setPendingClientCalendarClient(null);
-              setPendingClientCalendarMonthKey(null);
-            }}
-            onRequestClientStatement={(draft) => {
-              setStatementDraft(draft);
-              setActive("statements");
-            }}
-            onOpenVoucherEdit={({ client: clientName, date, saleIds }) => {
-              if (saleIds.length === 1) {
-                setPendingVoucherSearchFilter(null);
-                setPendingVoucherEditId(saleIds[0]);
-              } else {
-                setPendingVoucherEditId(null);
-                setPendingVoucherSearchFilter({
-                  client: clientName,
-                  startDate: date,
-                  endDate: date,
-                });
-              }
-              setActive("salesVoucherSearch");
-            }}
-            autoLinkedSaleIds={autoLinkedSaleIds}
-            manualLinkedSaleIds={manualLinkedSaleIds}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="salesInput" active={active}>
