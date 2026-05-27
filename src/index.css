@@ -778,141 +778,41 @@ textarea {
   padding-bottom: 0.5rem;
 }
 
-.erp-calendar-page.is-client-filter {
-  gap: 0.75rem;
-}
-
-.erp-calendar-page.is-client-filter .erp-calendar-cell.is-unpaid.has-data {
-  background: linear-gradient(180deg, #fef2f2 0%, #ffffff 88%);
-  border-color: #fca5a5;
-}
-
-.erp-calendar-page.is-client-filter .erp-calendar-cell.is-paid.has-data {
-  background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 88%);
-  border-color: #86efac;
-}
-
-.erp-calendar-page.is-client-filter .erp-calendar-cell.is-checked.has-data {
-  background: linear-gradient(180deg, #dbeafe 0%, #eff6ff 52%, #ffffff 100%) !important;
-  border-color: #0284c7 !important;
-  border-width: 2px;
-  box-shadow:
-    0 0 0 3px rgba(14, 165, 233, 0.28),
-    0 12px 28px rgba(14, 165, 233, 0.18);
-  transform: translateY(-2px) scale(1.015);
-  z-index: 2;
-  position: relative;
-}
-
-.erp-calendar-page.is-client-filter .erp-calendar-cell.is-checked.has-data.is-unpaid {
-  background: linear-gradient(180deg, #dbeafe 0%, #fef2f2 58%, #ffffff 100%) !important;
-}
-
-.erp-calendar-page.is-client-filter .erp-calendar-cell.is-checked.has-data.is-paid {
-  background: linear-gradient(180deg, #dbeafe 0%, #f0fdf4 58%, #ffffff 100%) !important;
-}
-
-.erp-calendar-page.is-client-filter .erp-calendar-cell.is-checked.has-data .erp-calendar-day {
-  border-radius: 999px;
-  background: #0284c7;
-  color: #fff !important;
-  min-width: 1.65rem;
-  padding: 0 0.35rem;
-  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.35);
-}
-
-.erp-calendar-page.is-client-filter .erp-calendar-cell.is-checked.has-data.is-today .erp-calendar-day {
-  background: #0369a1;
-}
-
-.erp-calendar-page.is-client-filter .erp-calendar-cell-badges {
+.erp-calendar-toolbar-filter {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 0.5rem 0.65rem;
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.85rem;
+  background: #fff;
 }
 
-.erp-calendar-page.is-client-filter .erp-calendar-cell-entries--client-filter {
-  gap: 0.2rem;
-}
-
-.erp-calendar-page.is-client-filter .erp-calendar-cell-entry {
+.erp-calendar-toolbar-filter-label {
+  display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
-  align-items: stretch;
   gap: 0.1rem;
-  border-left-width: 0;
-  padding: 0.22rem 0.35rem;
+  min-width: 0;
 }
 
-.erp-calendar-page.is-client-filter .erp-calendar-cell-entry.is-unpaid {
-  background: rgba(254, 226, 226, 0.92);
-  border: 1px solid #fecaca;
-}
-
-.erp-calendar-page.is-client-filter .erp-calendar-cell-entry.is-paid {
-  background: rgba(220, 252, 231, 0.92);
-  border: 1px solid #bbf7d0;
-}
-
-.erp-calendar-page.is-client-filter .erp-calendar-cell-entry-amount {
-  font-size: 0.5625rem;
+.erp-calendar-toolbar-filter-name {
+  font-size: 0.9375rem;
   font-weight: 800;
-  line-height: 1.2;
-  text-align: right;
-  white-space: nowrap;
+  color: var(--client-color, #0f172a);
+  word-break: keep-all;
 }
 
-.erp-calendar-page.is-client-filter .erp-calendar-cell-entry.is-unpaid .erp-calendar-cell-entry-amount {
-  color: #b91c1c;
-}
-
-.erp-calendar-page.is-client-filter .erp-calendar-cell-entry.is-paid .erp-calendar-cell-entry-amount {
-  color: #15803d;
-}
-
-@media (min-width: 640px) {
-  .erp-calendar-page.is-client-filter .erp-calendar-cell-entry-amount {
-    font-size: 0.625rem;
-  }
+.erp-calendar-toolbar-filter-meta {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #64748b;
 }
 
 .erp-client-calendar-embedded {
   min-width: 0;
-}
-
-.erp-calendar-client-filter-bar {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.65rem 0.85rem;
-  border: 1px solid #bae6fd;
-  border-radius: 0.875rem;
-  background: linear-gradient(180deg, #f0f9ff 0%, #ffffff 100%);
-  box-shadow: 0 8px 20px rgba(14, 165, 233, 0.08);
-}
-
-.erp-calendar-client-filter-back {
-  flex-shrink: 0;
-  font-weight: 700;
-}
-
-.erp-calendar-client-filter-label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  min-width: 0;
-}
-
-.erp-calendar-client-filter-name {
-  font-size: 1rem;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  color: #0f172a;
-  word-break: keep-all;
-}
-
-.erp-calendar-client-filter-meta {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: #0284c7;
 }
 
 .erp-calendar-layout {
@@ -956,6 +856,10 @@ textarea {
   .erp-calendar-summary-grid {
     grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 0.5rem;
+  }
+
+  .erp-calendar-summary-grid.is-client-filter-summary {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }
 
@@ -1205,6 +1109,60 @@ textarea {
 .erp-calendar-cell.has-data:hover:not(.is-selected) {
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
   border-color: #cbd5e1;
+}
+
+.erp-calendar-cell.is-selectable.has-data.is-paid {
+  border-color: #22c55e;
+  border-width: 2px;
+}
+
+.erp-calendar-cell.is-selectable.has-data.is-unpaid {
+  border-color: #ef4444;
+  border-width: 2px;
+}
+
+.erp-calendar-cell.is-selectable.has-data.is-mixed {
+  border-color: #f97316;
+  border-width: 2px;
+}
+
+.erp-calendar-cell.is-selectable.has-data.is-paid.is-selected {
+  border-color: #22c55e;
+  box-shadow:
+    0 0 0 2px rgba(34, 197, 94, 0.28),
+    0 0 0 4px rgba(14, 165, 233, 0.2),
+    0 8px 20px rgba(14, 165, 233, 0.1);
+}
+
+.erp-calendar-cell.is-selectable.has-data.is-unpaid.is-selected {
+  border-color: #ef4444;
+  box-shadow:
+    0 0 0 2px rgba(239, 68, 68, 0.28),
+    0 0 0 4px rgba(14, 165, 233, 0.2),
+    0 8px 20px rgba(14, 165, 233, 0.1);
+}
+
+.erp-calendar-cell.is-selectable.has-data.is-mixed.is-selected {
+  border-color: #f97316;
+  box-shadow:
+    0 0 0 2px rgba(249, 115, 22, 0.28),
+    0 0 0 4px rgba(14, 165, 233, 0.2),
+    0 8px 20px rgba(14, 165, 233, 0.1);
+}
+
+.erp-calendar-cell.is-selectable.has-data.is-paid:hover:not(.is-selected) {
+  border-color: #16a34a;
+  box-shadow: 0 8px 20px rgba(34, 197, 94, 0.12);
+}
+
+.erp-calendar-cell.is-selectable.has-data.is-unpaid:hover:not(.is-selected) {
+  border-color: #dc2626;
+  box-shadow: 0 8px 20px rgba(239, 68, 68, 0.12);
+}
+
+.erp-calendar-cell.is-selectable.has-data.is-mixed:hover:not(.is-selected) {
+  border-color: #ea580c;
+  box-shadow: 0 8px 20px rgba(249, 115, 22, 0.12);
 }
 
 .erp-calendar-cell.activity-1.has-data {
@@ -1551,17 +1509,275 @@ textarea {
   display: flex;
   align-items: flex-start;
   padding: 0.2rem 0.3rem 0.2rem 0.4rem;
-  border-left: 3px solid #0d9488;
+  border-left: 3px solid #22c55e;
   border-radius: 0.35rem;
   background: rgba(248, 250, 252, 0.92);
+  transition:
+    background 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease,
+    border-color 0.16s ease,
+    opacity 0.16s ease,
+    filter 0.16s ease;
+}
+
+.erp-calendar-cell-entry.is-unpaid {
+  border-left-color: #ef4444;
+}
+
+.erp-calendar-cell-entry.is-paid {
+  border-left-color: #22c55e;
 }
 
 .erp-calendar-cell-entry.is-client-open {
   cursor: pointer;
+  position: relative;
 }
 
 .erp-calendar-cell-entry.is-client-open:hover {
-  background: rgba(224, 242, 254, 0.95);
+  z-index: 4;
+  transform: translateY(-2px) scale(1.02);
+  background: color-mix(in srgb, var(--client-color, #0d9488) 16%, #ffffff) !important;
+  border-left-width: 4px !important;
+  border-left-color: var(--client-color, #0d9488) !important;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--client-color, #0d9488) 38%, transparent),
+    0 12px 24px color-mix(in srgb, var(--client-color, #0d9488) 22%, rgba(15, 23, 42, 0.14));
+}
+
+.erp-calendar-cell-entry.is-client-open:hover .erp-calendar-cell-entry-label {
+  color: #0f172a;
+}
+
+.erp-calendar-cell-entry.is-client-open:hover .erp-calendar-cell-entry-site {
+  color: #475569;
+}
+
+.erp-calendar-grid.has-client-spotlight .erp-calendar-cell-entry.is-client-dimmed.is-client-open:hover {
+  opacity: 1 !important;
+  filter: none !important;
+}
+
+.erp-calendar-cell-entry-client {
+  display: inline;
+  font-weight: 800;
+  color: var(--client-color, #0f766e);
+}
+
+.erp-calendar-cell-entry-sep,
+.erp-calendar-cell-entry-site {
+  font-weight: 600;
+  color: #64748b;
+}
+
+.erp-calendar-cell-entry--client-filter {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.15rem;
+}
+
+.erp-calendar-cell-entry--client-filter .erp-calendar-cell-entry-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.erp-calendar-cell-entry--client-filter .erp-calendar-cell-entry-site {
+  color: #334155;
+  font-weight: 800;
+}
+
+.erp-calendar-cell-entry-workers {
+  display: block;
+  font-size: 0.5625rem;
+  font-weight: 600;
+  line-height: 1.25;
+  color: #64748b;
+  word-break: keep-all;
+}
+
+@media (min-width: 640px) {
+  .erp-calendar-cell-entry-workers {
+    font-size: 0.625rem;
+  }
+}
+
+.erp-calendar-client-spotlight-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.65rem;
+  margin-bottom: 0.55rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--spotlight-client-color, #0d9488) 45%, #cbd5e1);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--spotlight-client-color, #0d9488) 8%, #ffffff);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #334155;
+  animation: erp-calendar-spotlight-in 0.18s ease-out;
+}
+
+.erp-calendar-client-spotlight-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 999px;
+  background: var(--spotlight-client-color, #0d9488);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--spotlight-client-color, #0d9488) 24%, transparent);
+}
+
+.erp-calendar-client-spotlight-bar strong {
+  font-size: 0.8125rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.erp-calendar-client-spotlight-meta {
+  color: #64748b;
+}
+
+.erp-calendar-client-spotlight-meta em {
+  font-style: normal;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.erp-calendar-client-spotlight-dismiss {
+  margin-left: auto;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #fff;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.erp-calendar-client-spotlight-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.erp-calendar-client-spotlight-nav-btn {
+  padding: 0.15rem 0.5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #fff;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #334155;
+  cursor: pointer;
+}
+
+.erp-calendar-client-spotlight-nav-btn:hover {
+  border-color: color-mix(in srgb, var(--spotlight-client-color, #0d9488) 45%, #cbd5e1);
+  color: #0f172a;
+  background: color-mix(in srgb, var(--spotlight-client-color, #0d9488) 8%, #ffffff);
+}
+
+.erp-calendar-client-spotlight-dismiss:hover {
+  border-color: #94a3b8;
+  color: #334155;
+}
+
+@keyframes erp-calendar-spotlight-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.erp-calendar-grid.has-client-spotlight .erp-calendar-cell-entry.is-client-dimmed {
+  opacity: 0.28;
+  filter: grayscale(0.35);
+}
+
+.erp-calendar-grid.has-client-spotlight .erp-calendar-cell.is-client-dimmed-cell {
+  opacity: 0.45;
+}
+
+.erp-calendar-cell-entry.is-client-spotlight {
+  position: relative;
+  z-index: 2;
+  opacity: 1 !important;
+  filter: none !important;
+  border-width: 2px !important;
+  border-style: solid !important;
+  border-left-width: 4px !important;
+  transform: scale(1.02);
+}
+
+.erp-calendar-cell-entry.is-client-spotlight.is-paid {
+  border-color: #22c55e !important;
+  background: #f0fdf4 !important;
+  box-shadow:
+    0 0 0 2px rgba(34, 197, 94, 0.28),
+    0 8px 18px rgba(34, 197, 94, 0.14);
+}
+
+.erp-calendar-cell-entry.is-client-spotlight.is-unpaid {
+  border-color: #ef4444 !important;
+  background: #fef2f2 !important;
+  box-shadow:
+    0 0 0 2px rgba(239, 68, 68, 0.28),
+    0 8px 18px rgba(239, 68, 68, 0.14);
+}
+
+.erp-calendar-cell.is-client-spotlight-cell {
+  position: relative;
+  z-index: 1;
+  opacity: 1 !important;
+  box-shadow:
+    inset 0 0 0 2px var(--client-color, #0d9488),
+    0 10px 22px color-mix(in srgb, var(--client-color, #0d9488) 16%, transparent);
+  transform: translateY(-1px);
+}
+
+.erp-calendar-cell.is-client-spotlight-cell .erp-calendar-day {
+  color: var(--client-color, #0d9488);
+  font-weight: 900;
+}
+
+.erp-calendar-cell.is-spotlight-nav-active {
+  z-index: 2;
+}
+
+.erp-calendar-cell.is-spotlight-nav-active .erp-calendar-day {
+  border-radius: 999px;
+  padding: 0 0.35rem;
+  background: color-mix(in srgb, var(--client-color, #0d9488) 16%, #ffffff);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--client-color, #0d9488) 35%, transparent);
+}
+
+.erp-calendar-side-card-client {
+  font-weight: 800;
+  color: var(--client-color, #0f766e);
+}
+
+.erp-calendar-side-card.is-client-spotlight.is-paid {
+  border-color: #22c55e;
+  box-shadow:
+    0 0 0 2px rgba(34, 197, 94, 0.24),
+    0 8px 18px rgba(34, 197, 94, 0.12);
+}
+
+.erp-calendar-side-card.is-client-spotlight.is-unpaid {
+  border-color: #ef4444;
+  box-shadow:
+    0 0 0 2px rgba(239, 68, 68, 0.24),
+    0 8px 18px rgba(239, 68, 68, 0.12);
+}
+
+.erp-calendar-side-card-title-sep {
+  font-weight: 700;
+  color: #94a3b8;
 }
 
 .erp-calendar-cell-entry-label {
@@ -1723,17 +1939,46 @@ textarea {
   cursor: pointer;
   font: inherit;
   color: inherit;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease,
+    transform 0.16s ease;
 }
 
 .erp-calendar-side-card.is-editable {
-  cursor: default;
+  cursor: pointer;
 }
 
 .erp-calendar-side-card:hover {
-  border-color: #7dd3fc;
-  background: #f0f9ff;
-  box-shadow: 0 6px 16px rgba(14, 165, 233, 0.1);
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--client-color, #0ea5e9) 55%, #7dd3fc);
+  background: color-mix(in srgb, var(--client-color, #0ea5e9) 10%, #ffffff);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--client-color, #0ea5e9) 22%, transparent),
+    0 12px 24px color-mix(in srgb, var(--client-color, #0ea5e9) 16%, rgba(15, 23, 42, 0.12));
+}
+
+.erp-calendar-side-card.is-client-spotlight:hover {
+  transform: translateY(-2px);
+}
+
+.erp-calendar-side-card.is-unpaid {
+  border-color: #fecaca;
+}
+
+.erp-calendar-side-card.is-paid {
+  border-color: #bbf7d0;
+}
+
+.erp-calendar-side-card.is-unpaid:hover {
+  border-color: #f87171;
+  background: color-mix(in srgb, #ef4444 8%, #ffffff);
+}
+
+.erp-calendar-side-card.is-paid:hover {
+  border-color: #4ade80;
+  background: color-mix(in srgb, #22c55e 8%, #ffffff);
 }
 
 .erp-calendar-side-card-bar {
@@ -1831,6 +2076,282 @@ textarea {
 .erp-client-calendar-bottom-actions > .flex {
   margin-left: auto;
   justify-content: flex-end;
+}
+
+.erp-calendar-mobile-hint {
+  display: none;
+}
+
+.erp-calendar-cell-mobile-count {
+  display: none;
+}
+
+.erp-calendar-legend-item--desktop-only {
+  display: inline-flex;
+}
+
+@media (max-width: 767px) {
+  .erp-calendar-page {
+    gap: 0.5rem;
+  }
+
+  .erp-calendar-page .erp-text-page-title + .erp-text-body {
+    display: none;
+  }
+
+  .erp-calendar-mobile-hint {
+    display: block;
+    margin: -0.35rem 0 0.65rem;
+    padding: 0.45rem 0.65rem;
+    border-radius: 0.75rem;
+    background: #f0f9ff;
+    border: 1px solid #bae6fd;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    line-height: 1.45;
+    color: #0369a1;
+  }
+
+  .erp-calendar-summary-grid {
+    display: flex;
+    overflow-x: auto;
+    gap: 0.45rem;
+    padding-bottom: 0.15rem;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .erp-calendar-summary-grid::-webkit-scrollbar {
+    display: none;
+  }
+
+  .erp-calendar-summary-grid > * {
+    flex: 0 0 min(46%, 11rem);
+    scroll-snap-align: start;
+  }
+
+  .erp-calendar-toolbar-filter {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .erp-calendar-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.55rem;
+    margin-bottom: 0.65rem;
+  }
+
+  .erp-calendar-toolbar-main {
+    justify-content: center;
+  }
+
+  .erp-calendar-nav-btn {
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 0.9rem;
+  }
+
+  .erp-calendar-month-label h2 {
+    font-size: 1rem;
+  }
+
+  .erp-calendar-today-btn {
+    width: 100%;
+    min-height: 44px;
+    font-size: 0.8125rem;
+  }
+
+  .erp-calendar-highlight {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    padding: 0.5rem 0.65rem;
+    font-size: 0.6875rem;
+  }
+
+  .erp-calendar-highlight-meta {
+    font-size: 0.6875rem;
+    line-height: 1.45;
+    word-break: keep-all;
+  }
+
+  .erp-calendar-weekdays {
+    gap: 0.15rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .erp-calendar-weekday {
+    padding: 0.2rem 0;
+    font-size: 0.625rem;
+  }
+
+  .erp-calendar-grid {
+    gap: 0.15rem;
+  }
+
+  .erp-calendar-cell,
+  .erp-calendar-cell--entries {
+    min-height: 3.35rem;
+    max-height: none;
+    padding: 0.2rem 0.15rem 0.25rem;
+    border-radius: 0.55rem;
+  }
+
+  .erp-calendar-cell-head {
+    flex-direction: column;
+    align-items: center;
+    gap: 0.15rem;
+  }
+
+  .erp-calendar-cell-head-start {
+    flex-direction: column;
+    align-items: center;
+    gap: 0.05rem;
+  }
+
+  .erp-calendar-cell-daily-sales,
+  .erp-calendar-cell-badges {
+    display: none !important;
+  }
+
+  .erp-calendar-cell-mobile-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    padding: 0.05rem 0.35rem;
+    font-size: 0.5625rem;
+    font-weight: 800;
+    line-height: 1.2;
+    color: #c2410c;
+    background: #ffedd5;
+  }
+
+  .erp-calendar-cell--entries.has-data.is-unpaid .erp-calendar-cell-mobile-count {
+    color: #b91c1c;
+    background: #fee2e2;
+  }
+
+  .erp-calendar-cell--entries.has-data.is-paid .erp-calendar-cell-mobile-count {
+    color: #15803d;
+    background: #dcfce7;
+  }
+
+  .erp-calendar-cell--entries.has-data.is-mixed .erp-calendar-cell-mobile-count {
+    color: #c2410c;
+    background: #ffedd5;
+  }
+
+  .erp-calendar-cell-entries {
+    display: none !important;
+  }
+
+  .erp-calendar-cell .erp-calendar-day {
+    min-width: 1.35rem;
+    height: 1.35rem;
+    font-size: 0.8125rem;
+  }
+
+  .erp-calendar-cell.has-data:hover,
+  .erp-calendar-cell.is-selected {
+    transform: none;
+  }
+
+  .erp-calendar-legend {
+    gap: 0.35rem 0.55rem;
+    margin-top: 0.65rem;
+    padding-top: 0.55rem;
+  }
+
+  .erp-calendar-legend-item {
+    font-size: 0.625rem;
+  }
+
+  .erp-calendar-legend-item--desktop-only {
+    display: none;
+  }
+
+  .erp-client-calendar-selected-bar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .erp-client-calendar-selected-chips {
+    max-height: 4.5rem;
+    overflow-y: auto;
+  }
+
+  .erp-client-calendar-bottom-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 4;
+    margin: 0.75rem -0.75rem -0.75rem;
+    padding: 0.75rem;
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(8px);
+    border-top: 1px solid #e2e8f0;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .erp-client-calendar-bottom-actions > .flex {
+    margin-left: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+    width: 100%;
+  }
+
+  .erp-client-calendar-bottom-actions .rounded-xl {
+    min-height: 44px;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .erp-calendar-side-panel {
+    max-height: min(86vh, 42rem);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .erp-calendar-side-panel-head {
+    padding-top: 0.85rem;
+  }
+
+  .erp-calendar-side-panel-date {
+    white-space: normal;
+    text-align: center;
+    line-height: 1.35;
+  }
+
+  .erp-calendar-side-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.45rem;
+  }
+
+  .erp-calendar-side-stat strong {
+    font-size: 0.75rem;
+    white-space: normal;
+  }
+
+  .erp-calendar-side-panel-body {
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .erp-calendar-side-card {
+    min-height: 44px;
+  }
+
+  .erp-calendar-side-card-title {
+    font-size: 0.875rem;
+    line-height: 1.35;
+    word-break: keep-all;
+  }
+
+  .erp-calendar-side-card-meta {
+    gap: 0.25rem;
+  }
 }
 
 .erp-client-calendar-payment-modal {
@@ -2198,6 +2719,32 @@ textarea {
   font-size: 0.75rem;
   font-weight: 800;
   color: #0369a1;
+}
+
+.erp-client-calendar-selected-bar-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.erp-client-calendar-selected-bar-amount {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #334155;
+}
+
+.erp-client-calendar-selected-bar-amount .is-paid {
+  color: #15803d;
+}
+
+.erp-client-calendar-selected-bar-amount .is-unpaid {
+  color: #b91c1c;
+}
+
+.erp-client-calendar-selected-bar-amount .is-zero {
+  color: #64748b;
 }
 
 .erp-client-calendar-selected-chips {

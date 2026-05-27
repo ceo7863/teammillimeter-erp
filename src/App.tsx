@@ -800,7 +800,14 @@ function aggregateSaleCalendarStats(sale, feeMap) {
 
 const CALENDAR_CLIENT_COLORS = ["#0d9488", "#7c3aed", "#e11d48", "#ea580c", "#2563eb", "#db2777", "#059669", "#ca8a04"];
 
-const EMPTY_CALENDAR_DAY_STATS = { staff: 0, bill: 0, spend: 0, fee: 0, netPay: 0, margin: 0, count: 0, hasUnpaid: false, entries: [] };
+const EMPTY_CALENDAR_DAY_STATS = { staff: 0, bill: 0, spend: 0, fee: 0, netPay: 0, margin: 0, count: 0, paid: 0, unpaid: 0, hasUnpaid: false, entries: [] };
+
+function getSalePaidAmount(sale, unpaid = getUnpaid(sale)) {
+  const explicit = Number(sale.paid ?? sale.paidAmount);
+  if (Number.isFinite(explicit) && explicit >= 0) return explicit;
+  const amount = Number(sale.amount ?? sale.salesAmount ?? 0) || 0;
+  return Math.max(0, amount - unpaid);
+}
 
 function getCalendarClientColor(client) {
   const name = String(client || "").trim() || "(미지정)";
@@ -809,6 +816,83 @@ function getCalendarClientColor(client) {
     hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
   }
   return CALENDAR_CLIENT_COLORS[hash % CALENDAR_CLIENT_COLORS.length];
+}
+
+function getCalendarPaymentBorderColor(hasUnpaid) {
+  return hasUnpaid ? "#ef4444" : "#22c55e";
+}
+
+function getCalendarEntryBorderStyle(entry) {
+  return { borderLeftColor: getCalendarPaymentBorderColor(entry.hasUnpaid) };
+}
+
+function normalizeCalendarClientName(client) {
+  return String(client || "").trim() || "(미지정)";
+}
+
+function getCalendarDayPaymentTone(stats) {
+  if (!stats?.count) return "";
+  const unpaidCount = stats.entries.filter((entry) => entry.hasUnpaid).length;
+  if (unpaidCount === 0) return "paid";
+  if (unpaidCount === stats.entries.length) return "unpaid";
+  return "mixed";
+}
+
+function isElementVisibleInContainer(element, container, padding = 2) {
+  const entryRect = element.getBoundingClientRect();
+  const containerRect = container.getBoundingClientRect();
+  return entryRect.top >= containerRect.top - padding && entryRect.bottom <= containerRect.bottom + padding;
+}
+
+function isElementVisibleInViewport(element, topInset = 72, bottomInset = 24) {
+  const rect = element.getBoundingClientRect();
+  return rect.top >= topInset && rect.bottom <= window.innerHeight - bottomInset;
+}
+
+function scrollCalendarSpotlightEntryIntoView(entry) {
+  const list = entry.closest(".erp-calendar-cell-entries");
+  if (!list || isElementVisibleInContainer(entry, list)) return;
+  entry.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+function scrollCalendarSpotlightDateIntoView(grid, date) {
+  if (!grid || !date) return;
+  const cell = grid.querySelector(`[data-calendar-date="${date}"]`);
+  if (!cell) return;
+
+  cell.querySelectorAll(".erp-calendar-cell-entry.is-client-spotlight").forEach(scrollCalendarSpotlightEntryIntoView);
+
+  if (!isElementVisibleInViewport(cell)) {
+    cell.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+}
+
+function scrollCalendarSpotlightIntoView(grid, anchorDate = null, orderedDates = []) {
+  if (!grid) return;
+
+  const dates = orderedDates.length
+    ? orderedDates
+    : [...grid.querySelectorAll(".erp-calendar-cell.is-client-spotlight-cell")]
+        .map((cell) => cell.getAttribute("data-calendar-date"))
+        .filter(Boolean);
+
+  const primaryDate = anchorDate && dates.includes(anchorDate) ? anchorDate : dates[0];
+  if (primaryDate) scrollCalendarSpotlightDateIntoView(grid, primaryDate);
+
+  grid.querySelectorAll(".erp-calendar-cell-entry.is-client-spotlight").forEach((entry) => {
+    window.setTimeout(() => scrollCalendarSpotlightEntryIntoView(entry), primaryDate ? 180 : 0);
+  });
+
+  window.setTimeout(() => {
+    const offScreenDates = dates.filter((date) => {
+      const cell = grid.querySelector(`[data-calendar-date="${date}"]`);
+      return cell && !isElementVisibleInViewport(cell);
+    });
+    const nextDate = offScreenDates.find((date) => date !== primaryDate) || offScreenDates[0];
+    if (nextDate && nextDate !== primaryDate) {
+      scrollCalendarSpotlightDateIntoView(grid, nextDate);
+    }
+  }, primaryDate ? 320 : 120);
 }
 
 function formatCalendarDayLabel(date) {
@@ -839,6 +923,7 @@ function buildCalendarDays(monthKey, sales, workers = []) {
     if (!acc[key]) acc[key] = { ...EMPTY_CALENDAR_DAY_STATS, entries: [] };
     const dayStats = aggregateSaleCalendarStats(sale, feeMap);
     const unpaid = getUnpaid(sale);
+    const paid = getSalePaidAmount(sale, unpaid);
     if (unpaid > 0) acc[key].hasUnpaid = true;
     acc[key].staff += dayStats.staff;
     acc[key].bill += dayStats.bill;
@@ -846,6 +931,8 @@ function buildCalendarDays(monthKey, sales, workers = []) {
     acc[key].fee += dayStats.fee;
     acc[key].netPay += dayStats.netPay;
     acc[key].margin += dayStats.margin;
+    acc[key].paid += paid;
+    acc[key].unpaid += unpaid;
     acc[key].count += dayStats.count;
     acc[key].entries.push({
       saleId: sale.id,
@@ -856,6 +943,7 @@ function buildCalendarDays(monthKey, sales, workers = []) {
       workerSummary: formatWorkerNameSummary(getSaleWorkerLines(sale)),
       bill: dayStats.bill,
       amount: Number(sale.amount ?? sale.salesAmount ?? dayStats.bill) || 0,
+      paid,
       unpaid,
       hasUnpaid: unpaid > 0,
       color: getCalendarClientColor(sale.client),
@@ -2221,11 +2309,47 @@ function CalendarPage({
   const { message: voucherSaveMessage, setMessage: setVoucherSaveMessage, clearMessage: clearVoucherSaveMessage } = useSaveMessage();
   const suppressCellClickUntilRef = useRef(0);
   const preFilterRef = useRef(null);
+  const entrySpotlightClickTimerRef = useRef(null);
+  const calendarGridRef = useRef(null);
+  const spotlightScrollAnchorRef = useRef(null);
+  const [spotlightClient, setSpotlightClient] = useState(null);
+  const [spotlightDateIndex, setSpotlightDateIndex] = useState(0);
   const calendarSales = useMemo(
     () => (filteredClient ? filterClientCalendarSales(sales, filteredClient) : sales),
     [sales, filteredClient],
   );
   const { cells, monthLabel } = useMemo(() => buildCalendarDays(monthKey, calendarSales, workers), [monthKey, calendarSales, workers]);
+  const spotlightSummary = useMemo(() => {
+    if (!spotlightClient) return null;
+    const dates = new Set();
+    let entryCount = 0;
+    cells.forEach((cell) => {
+      if (!cell) return;
+      cell.stats.entries.forEach((entry) => {
+        if (entry.client !== spotlightClient) return;
+        dates.add(cell.date);
+        entryCount += 1;
+      });
+    });
+    if (entryCount === 0) return null;
+    return {
+      client: spotlightClient,
+      dayCount: dates.size,
+      entryCount,
+      color: getCalendarClientColor(spotlightClient),
+    };
+  }, [spotlightClient, cells]);
+  const spotlightDates = useMemo(() => {
+    if (!spotlightClient) return [];
+    const dates = [];
+    cells.forEach((cell) => {
+      if (!cell) return;
+      if (cell.stats.entries.some((entry) => entry.client === spotlightClient)) {
+        dates.push(cell.date);
+      }
+    });
+    return dates.sort();
+  }, [spotlightClient, cells]);
   const todayDate = todayISO();
   const feeMap = useMemo(() => buildWorkerFeeMap(workers), [workers]);
 
@@ -2257,10 +2381,44 @@ function CalendarPage({
 
   useEffect(() => {
     setSelectedDates([]);
+    setSpotlightClient(null);
+    setSpotlightDateIndex(0);
+    spotlightScrollAnchorRef.current = null;
     clearClientFilterNotice();
     setPaymentPreview(null);
     setPaymentCancelPreview(null);
-  }, [filteredClient, monthKey, clearClientFilterNotice]);
+  }, [filteredClient, clearClientFilterNotice]);
+
+  useEffect(() => {
+    if (!filteredClient) {
+      setSpotlightClient(null);
+      setSpotlightDateIndex(0);
+      spotlightScrollAnchorRef.current = null;
+      return;
+    }
+    setPaymentPreview(null);
+    setPaymentCancelPreview(null);
+  }, [monthKey, filteredClient]);
+
+  useEffect(() => {
+    if (!spotlightClient || filteredClient) return;
+    const anchorDate = spotlightScrollAnchorRef.current;
+    const anchorIndex = anchorDate ? spotlightDates.indexOf(anchorDate) : -1;
+    setSpotlightDateIndex(anchorIndex >= 0 ? anchorIndex : 0);
+    const timer = window.setTimeout(() => {
+      scrollCalendarSpotlightIntoView(calendarGridRef.current, anchorDate, spotlightDates);
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [spotlightClient, filteredClient, spotlightDates]);
+
+  const goSpotlightDate = (delta) => {
+    if (!spotlightDates.length) return;
+    setSpotlightDateIndex((current) => {
+      const nextIndex = (current + delta + spotlightDates.length) % spotlightDates.length;
+      scrollCalendarSpotlightDateIntoView(calendarGridRef.current, spotlightDates[nextIndex]);
+      return nextIndex;
+    });
+  };
 
   const monthTransactionDates = useMemo(
     () => cells.filter(Boolean).filter((cell) => cell.stats.count > 0).map((cell) => cell.date),
@@ -2272,9 +2430,33 @@ function CalendarPage({
     [monthTransactionDates, selectedDates],
   );
 
+  const toggleSpotlightClient = (clientName, anchorDate = null) => {
+    const normalized = normalizeCalendarClientName(clientName);
+    setSpotlightClient((current) => {
+      if (current === normalized) {
+        spotlightScrollAnchorRef.current = null;
+        setSpotlightDateIndex(0);
+        return null;
+      }
+      spotlightScrollAnchorRef.current = anchorDate;
+      return normalized;
+    });
+  };
+
+  const handleEntrySpotlightClick = (event, clientName, anchorDate) => {
+    event.stopPropagation();
+    clearTimeout(entrySpotlightClickTimerRef.current);
+    entrySpotlightClickTimerRef.current = setTimeout(() => {
+      toggleSpotlightClient(clientName, anchorDate);
+    }, 220);
+  };
+
   const applyClientFilter = (clientName, anchorDate) => {
-    preFilterRef.current = { selectedDate, monthKey };
+    preFilterRef.current = { selectedDate, monthKey, spotlightClient };
     const normalized = normalizeClientCalendarName(clientName);
+    setSpotlightClient(null);
+    spotlightScrollAnchorRef.current = null;
+    setSpotlightDateIndex(0);
     setFilteredClient(normalized);
     setSelectedDate("");
     setSelectedDates([]);
@@ -2284,6 +2466,13 @@ function CalendarPage({
     if (anchorDate && String(anchorDate).length >= 7) {
       setMonthKey(String(anchorDate).slice(0, 7));
     }
+  };
+
+  const enterClientFilterFromSpotlight = (clientName, anchorDate) => {
+    const normalized = normalizeCalendarClientName(clientName);
+    if (!spotlightClient || spotlightClient !== normalized) return;
+    applyClientFilter(clientName, anchorDate);
+    showClientFilterNotice(`${normalized} 거래처만 표시합니다. 날짜를 선택해 주세요.`);
   };
 
   const goBackFromClientFilter = () => {
@@ -2297,6 +2486,9 @@ function CalendarPage({
     if (previous) {
       setMonthKey(previous.monthKey);
       setSelectedDate(previous.selectedDate || "");
+      if (previous.spotlightClient) {
+        setSpotlightClient(previous.spotlightClient);
+      }
     }
     preFilterRef.current = null;
   };
@@ -2477,12 +2669,34 @@ function CalendarPage({
         acc.fee += cell.stats.fee;
         acc.netPay += cell.stats.netPay;
         acc.margin += cell.stats.margin;
+        acc.paid += cell.stats.paid;
+        acc.unpaid += cell.stats.unpaid;
         acc.count += cell.stats.count;
         return acc;
       },
-      { staff: 0, bill: 0, spend: 0, fee: 0, netPay: 0, margin: 0, count: 0 },
+      { staff: 0, bill: 0, spend: 0, fee: 0, netPay: 0, margin: 0, paid: 0, unpaid: 0, count: 0 },
     );
   }, [cells]);
+
+  const clientFilterSelectedTotals = useMemo(() => {
+    if (!filteredClient || !selectedDates.length) return null;
+    const selectedSet = new Set(selectedDates);
+    return calendarSales.reduce(
+      (acc, sale) => {
+        const date = String(sale.date || "").trim();
+        if (!selectedSet.has(date)) return acc;
+        const stats = aggregateSaleCalendarStats(sale, feeMap);
+        const unpaid = getUnpaid(sale);
+        const paid = getSalePaidAmount(sale, unpaid);
+        acc.count += 1;
+        acc.bill += stats.bill;
+        acc.paid += paid;
+        acc.unpaid += unpaid;
+        return acc;
+      },
+      { days: selectedDates.length, count: 0, bill: 0, paid: 0, unpaid: 0 },
+    );
+  }, [filteredClient, selectedDates, calendarSales, feeMap]);
 
   const busiestDay = useMemo(() => {
     let best = null;
@@ -2652,7 +2866,7 @@ function CalendarPage({
 
   return (
     <div
-      className={`erp-page erp-calendar-page${filteredClient ? " is-client-filter" : ""}${selectedDate ? " has-side-panel" : ""}`}
+      className={`erp-page erp-calendar-page${selectedDate ? " has-side-panel" : ""}`}
     >
       {paymentCancelPreview ? (
         <div className="erp-ledger-modal-backdrop" onClick={closeClientFilterPaymentCancelConfirm}>
@@ -2753,48 +2967,81 @@ function CalendarPage({
         </div>
       ) : null}
 
-      <PageTitle title="캘린더" desc="월별 일자별 총인원·총시공비·시공자 지급액·마진·마진율을 확인합니다." />
+      <PageTitle
+        title="캘린더"
+        desc={
+          filteredClient
+            ? `${filteredClient} 거래처 전표만 표시합니다. 날짜를 선택해 시공비내역서·입금 처리를 진행하세요.`
+            : "월별 일자별 총인원·총시공비·시공자 지급액·마진·마진율을 확인합니다."
+        }
+      />
 
-      {filteredClient ? (
-        <div className="erp-calendar-client-filter-bar mb-4">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="erp-calendar-client-filter-back rounded-xl"
-            onClick={goBackFromClientFilter}
-          >
-            <ArrowLeft size={16} className="mr-1" />
-            돌아가기
-          </Button>
-          <div className="erp-calendar-client-filter-label">
-            <span className="erp-calendar-client-filter-name">{filteredClient}</span>
-            <span className="erp-calendar-client-filter-meta">{monthLabel} · 거래처 필터</span>
-          </div>
-          <Button type="button" variant="ghost" size="sm" className="rounded-xl text-sky-700" onClick={clearClientFilter}>
-            전체 보기
-          </Button>
-        </div>
-      ) : null}
-
-      <div className="erp-calendar-summary-grid">
-        <SummaryCard compact title="월간 전표" value={`${monthTotals.count}건`} sub={monthLabel} />
-        <SummaryCard compact title="총 인원" value={`${monthTotals.staff}명`} sub="인원 합계" />
-        <SummaryCard compact title="총 시공비" value={formatKRW(monthTotals.bill)} sub="청구 기준" />
-        <SummaryCard compact title="시공자 지급" value={formatKRW(monthTotals.netPay)} sub="실지급" />
-        <SummaryCard
-          compact
-          title="마진"
-          value={formatKRW(monthTotals.margin)}
-          sub={`마진율 ${formatMarginRate(monthTotals.margin, monthTotals.bill)}`}
-          tone={monthTotals.margin >= 0 ? "success" : "danger"}
-        />
+      <div className={`erp-calendar-summary-grid${filteredClient ? " is-client-filter-summary" : ""}`}>
+        {filteredClient ? (
+          <>
+            <SummaryCard compact title="월간 전표" value={`${monthTotals.count}건`} sub={monthLabel} />
+            <SummaryCard compact title="총 시공비" value={formatKRW(monthTotals.bill)} sub="청구 기준" />
+            <SummaryCard compact title="입금액" value={formatKRW(monthTotals.paid)} sub="공급가 기준" tone="success" />
+            <SummaryCard compact title="미수금" value={formatKRW(monthTotals.unpaid)} sub={monthTotals.unpaid > 0 ? "미수 포함" : "미수 없음"} tone={monthTotals.unpaid > 0 ? "danger" : "default"} />
+            {clientFilterSelectedTotals ? (
+              <SummaryCard
+                compact
+                title="선택 매출 합계"
+                value={formatKRW(clientFilterSelectedTotals.bill)}
+                sub={`${clientFilterSelectedTotals.days}일 · ${clientFilterSelectedTotals.count}건 · 입금 ${formatKRW(clientFilterSelectedTotals.paid)} · 미수 ${formatKRW(clientFilterSelectedTotals.unpaid)}`}
+                tone="default"
+              />
+            ) : (
+              <SummaryCard compact title="선택 일자" value="0일" sub="날짜를 눌러 선택" />
+            )}
+          </>
+        ) : (
+          <>
+            <SummaryCard compact title="월간 전표" value={`${monthTotals.count}건`} sub={monthLabel} />
+            <SummaryCard compact title="총 인원" value={`${monthTotals.staff}명`} sub="인원 합계" />
+            <SummaryCard compact title="총 시공비" value={formatKRW(monthTotals.bill)} sub="청구 기준" />
+            <SummaryCard compact title="시공자 지급" value={formatKRW(monthTotals.netPay)} sub="실지급" />
+            <SummaryCard
+              compact
+              title="마진"
+              value={formatKRW(monthTotals.margin)}
+              sub={`마진율 ${formatMarginRate(monthTotals.margin, monthTotals.bill)}`}
+              tone={monthTotals.margin >= 0 ? "success" : "danger"}
+            />
+          </>
+        )}
       </div>
 
       <div className="erp-calendar-layout">
         <Card className="erp-calendar-card erp-calendar-main rounded-2xl shadow-sm">
           <CardContent className="p-3 md:p-5">
             <div className="erp-calendar-toolbar">
+              {filteredClient ? (
+                <div className="erp-calendar-toolbar-filter">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl"
+                    onClick={goBackFromClientFilter}
+                  >
+                    <ArrowLeft size={16} className="mr-1" />
+                    돌아가기
+                  </Button>
+                  <div className="erp-calendar-toolbar-filter-label">
+                    <span
+                      className="erp-calendar-toolbar-filter-name"
+                      style={{ "--client-color": getCalendarClientColor(filteredClient) }}
+                    >
+                      {filteredClient}
+                    </span>
+                    <span className="erp-calendar-toolbar-filter-meta">거래처만 표시</span>
+                  </div>
+                  <Button type="button" variant="ghost" size="sm" className="rounded-xl" onClick={clearClientFilter}>
+                    전체 보기
+                  </Button>
+                </div>
+              ) : null}
               <div className="erp-calendar-toolbar-main">
                 <button type="button" className="erp-calendar-nav-btn" onClick={() => shiftMonth(-1)} aria-label="이전 달">
                   <ChevronLeft size={18} />
@@ -2812,6 +3059,12 @@ function CalendarPage({
               </Button>
             </div>
 
+            <p className="erp-calendar-mobile-hint">
+              {filteredClient
+                ? "날짜를 눌러 선택하고, 아래 버튼으로 시공비내역서·입금 처리를 진행하세요. 더블클릭하면 일자 상세를 볼 수 있습니다."
+                : "날짜를 누르면 해당 일자의 전표 상세를 볼 수 있습니다."}
+            </p>
+
             {busiestDay ? (
               <div className="erp-calendar-highlight">
                 <span className="erp-calendar-highlight-label">이번 달 최다 시공비</span>
@@ -2824,7 +3077,19 @@ function CalendarPage({
 
             {filteredClient && selectedDates.length > 0 ? (
               <div className="erp-client-calendar-selected-bar" aria-label={`선택된 날짜 ${selectedDates.length}일`}>
-                <span className="erp-client-calendar-selected-bar-label">선택 {selectedDates.length}일</span>
+                <div className="erp-client-calendar-selected-bar-summary">
+                  <span className="erp-client-calendar-selected-bar-label">선택 {selectedDates.length}일</span>
+                  {clientFilterSelectedTotals ? (
+                    <span className="erp-client-calendar-selected-bar-amount">
+                      매출 {formatKRW(clientFilterSelectedTotals.bill)}
+                      <span className="is-paid"> · 입금 {formatKRW(clientFilterSelectedTotals.paid)}</span>
+                      <span className={clientFilterSelectedTotals.unpaid > 0 ? "is-unpaid" : "is-zero"}>
+                        {" "}
+                        · 미수 {formatKRW(clientFilterSelectedTotals.unpaid)}
+                      </span>
+                    </span>
+                  ) : null}
+                </div>
                 <div className="erp-client-calendar-selected-chips">
                   {selectedDates.map((date) => (
                     <button
@@ -2849,7 +3114,71 @@ function CalendarPage({
               ))}
             </div>
 
-            <div className="erp-calendar-grid erp-calendar-grid--entries">
+            {spotlightSummary && !filteredClient ? (
+              <div
+                className="erp-calendar-client-spotlight-bar"
+                style={{ "--spotlight-client-color": spotlightSummary.color }}
+                role="status"
+                aria-live="polite"
+              >
+                <span className="erp-calendar-client-spotlight-dot" aria-hidden="true" />
+                <strong>{spotlightSummary.client}</strong>
+                <span className="erp-calendar-client-spotlight-meta">
+                  이번 달 <em>{spotlightSummary.dayCount}일</em> · 전표 <em>{spotlightSummary.entryCount}건</em>
+                  {spotlightDates.length > 1 ? (
+                    <>
+                      {" "}
+                      · <em>{formatCalendarSelectedDateLabel(spotlightDates[spotlightDateIndex])}</em>
+                    </>
+                  ) : null}
+                  {" "}
+                  · 행 더블클릭 → 거래처만 보기
+                </span>
+                {spotlightDates.length > 1 ? (
+                  <div className="erp-calendar-client-spotlight-nav">
+                    <button
+                      type="button"
+                      className="erp-calendar-client-spotlight-nav-btn"
+                      onClick={() => goSpotlightDate(-1)}
+                      aria-label="이전 강조 일정으로 이동"
+                    >
+                      이전
+                    </button>
+                    <button
+                      type="button"
+                      className="erp-calendar-client-spotlight-nav-btn"
+                      onClick={() => goSpotlightDate(1)}
+                      aria-label="다음 강조 일정으로 이동"
+                    >
+                      다음
+                    </button>
+                  </div>
+                ) : null}
+                <button
+                  type="button"
+                  className="erp-calendar-client-spotlight-dismiss"
+                  onClick={() => {
+                    spotlightScrollAnchorRef.current = null;
+                    setSpotlightDateIndex(0);
+                    setSpotlightClient(null);
+                  }}
+                  aria-label="업체 강조 해제"
+                >
+                  해제
+                </button>
+              </div>
+            ) : null}
+
+            <div
+              ref={calendarGridRef}
+              className={[
+                "erp-calendar-grid",
+                "erp-calendar-grid--entries",
+                spotlightClient && !filteredClient ? "has-client-spotlight" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+            >
               {cells.map((cell, index) => {
                 if (!cell) {
                   return <div key={`empty-${index}`} className="erp-calendar-cell is-placeholder" aria-hidden="true" />;
@@ -2861,7 +3190,12 @@ function CalendarPage({
                 const weekendTone = weekday === 0 ? "sun" : weekday === 6 ? "sat" : "default";
                 const isSideSelected = selectedDate === cell.date;
                 const isDateChecked = filteredClient && selectedDates.includes(cell.date);
-                const paymentTone = filteredClient && hasData ? (cell.stats.hasUnpaid ? "unpaid" : "paid") : "";
+                const isCellSelected = filteredClient ? isDateChecked : isSideSelected;
+                const paymentTone = hasData ? getCalendarDayPaymentTone(cell.stats) : "";
+                const cellHasSpotlightClient =
+                  Boolean(spotlightClient) &&
+                  !filteredClient &&
+                  cell.stats.entries.some((entry) => entry.client === spotlightClient);
 
                 const cellClassName = [
                   "erp-calendar-cell",
@@ -2870,9 +3204,13 @@ function CalendarPage({
                   hasData ? "has-data" : "is-empty",
                   isToday ? "is-today" : "",
                   filteredClient && hasData ? "is-selectable" : "",
-                  paymentTone ? `is-${paymentTone}` : "",
-                  isDateChecked ? "is-checked" : "",
-                  !filteredClient && isSideSelected ? "is-selected" : "",
+                  paymentTone && filteredClient ? `is-${paymentTone}` : "",
+                  isCellSelected ? "is-selected" : "",
+                  cellHasSpotlightClient ? "is-client-spotlight-cell" : "",
+                  spotlightClient && !filteredClient && spotlightDates[spotlightDateIndex] === cell.date
+                    ? "is-spotlight-nav-active"
+                    : "",
+                  spotlightClient && hasData && !cellHasSpotlightClient && !filteredClient ? "is-client-dimmed-cell" : "",
                 ]
                   .filter(Boolean)
                   .join(" ");
@@ -2899,53 +3237,87 @@ function CalendarPage({
                           <span className="erp-calendar-cell-badge is-count">{cell.stats.count}건</span>
                         </div>
                       ) : null}
+                      {hasData ? (
+                        <span className="erp-calendar-cell-mobile-count" aria-hidden="true">
+                          {cell.stats.count}건
+                        </span>
+                      ) : null}
                     </div>
                     {hasData ? (
-                      <ul className={`erp-calendar-cell-entries${filteredClient ? " erp-calendar-cell-entries--client-filter" : ""}`} aria-label={`${cell.date} 일정`}>
-                        {cell.stats.entries.map((entry) => (
+                      <ul className="erp-calendar-cell-entries" aria-label={`${cell.date} 일정`}>
+                        {cell.stats.entries.map((entry) => {
+                          const isEntrySpotlight = spotlightClient && !filteredClient && entry.client === spotlightClient;
+                          return (
                           <li
                             key={`${cell.date}-${entry.saleId}`}
                             className={[
                               "erp-calendar-cell-entry",
+                              entry.hasUnpaid ? "is-unpaid" : "is-paid",
+                              filteredClient ? "erp-calendar-cell-entry--client-filter" : "",
+                              !filteredClient ? "is-client-open" : "",
+                              isEntrySpotlight ? "is-client-spotlight" : "",
+                              spotlightClient && !filteredClient && !isEntrySpotlight ? "is-client-dimmed" : "",
+                            ]
+                              .filter(Boolean)
+                              .join(" ")}
+                            style={{
+                              ...getCalendarEntryBorderStyle(entry),
+                              "--client-color": entry.color,
+                            }}
+                            title={
                               filteredClient
-                                ? entry.hasUnpaid ? "is-unpaid" : "is-paid"
-                                : "is-client-open",
-                            ].join(" ")}
-                            style={filteredClient ? undefined : { borderLeftColor: entry.color }}
-                            title={filteredClient ? `${entry.site} · ${formatKRW(entry.amount)}${entry.hasUnpaid ? ` · 미수 ${formatKRW(entry.unpaid)}` : " · 완납"}` : "더블클릭: 이 거래처만 보기"}
+                                ? `${entry.site}${entry.workerSummary ? ` · ${entry.workerSummary}` : ""}${entry.hasUnpaid ? ` · 미수 ${formatKRW(entry.unpaid)}` : " · 입금완료"}`
+                                : `${entry.client} · ${entry.site}${entry.hasUnpaid ? ` · 미수 ${formatKRW(entry.unpaid)}` : " · 입금완료"} · 행 클릭: 강조 · 강조 상태에서 더블클릭: 거래처만 보기`
+                            }
+                            onClick={
+                              filteredClient
+                                ? undefined
+                                : (event) => handleEntrySpotlightClick(event, entry.client, cell.date)
+                            }
                             onDoubleClick={
                               filteredClient
                                 ? undefined
                                 : (event) => {
+                                    clearTimeout(entrySpotlightClickTimerRef.current);
                                     event.stopPropagation();
                                     event.preventDefault();
+                                    if (!spotlightClient || entry.client !== spotlightClient) return;
                                     suppressCellClickUntilRef.current = Date.now() + 400;
-                                    applyClientFilter(entry.client, cell.date);
+                                    enterClientFilterFromSpotlight(entry.client, cell.date);
                                   }
                             }
                           >
-                            {filteredClient ? (
-                              <>
-                                <span className="erp-calendar-cell-entry-label">{entry.site}</span>
-                                <span className="erp-calendar-cell-entry-amount">
-                                  {formatKRW(entry.amount)}
-                                  <SalePaymentLinkBadge
-                                    saleId={entry.saleId}
-                                    autoLinkedSaleIds={autoLinkedSaleIds}
-                                    manualLinkedSaleIds={manualLinkedSaleIds}
-                                  />
-                                </span>
-                              </>
-                            ) : (
-                              <>
-                                <span className="erp-calendar-cell-entry-label">
-                                  {`${entry.client} / ${entry.site}`}
-                                </span>
-                                {entry.saleId ? <SalePaymentLinkBadge saleId={entry.saleId} /> : null}
-                              </>
-                            )}
+                            <span className="erp-calendar-cell-entry-label">
+                              {filteredClient ? (
+                                <>
+                                  <span className="erp-calendar-cell-entry-site">{entry.site}</span>
+                                  {entry.workerSummary ? (
+                                    <span className="erp-calendar-cell-entry-workers">{entry.workerSummary}</span>
+                                  ) : null}
+                                </>
+                              ) : (
+                                <>
+                                  <span
+                                    className="erp-calendar-cell-entry-client"
+                                    style={{ "--client-color": entry.color }}
+                                  >
+                                    {entry.client}
+                                  </span>
+                                  <span className="erp-calendar-cell-entry-sep"> / </span>
+                                  <span className="erp-calendar-cell-entry-site">{entry.site}</span>
+                                </>
+                              )}
+                            </span>
+                            {entry.saleId ? (
+                              <SalePaymentLinkBadge
+                                saleId={entry.saleId}
+                                autoLinkedSaleIds={autoLinkedSaleIds}
+                                manualLinkedSaleIds={manualLinkedSaleIds}
+                              />
+                            ) : null}
                           </li>
-                        ))}
+                          );
+                        })}
                       </ul>
                     ) : null}
                   </>
@@ -2972,12 +3344,25 @@ function CalendarPage({
                               suppressCellClickUntilRef.current = Date.now() + 400;
                               selectDate(cell.date);
                             }
+                          : !filteredClient && spotlightClient && cellHasSpotlightClient
+                            ? (event) => {
+                                event.stopPropagation();
+                                event.preventDefault();
+                                suppressCellClickUntilRef.current = Date.now() + 400;
+                                enterClientFilterFromSpotlight(spotlightClient, cell.date);
+                              }
+                            : undefined
+                      }
+                      aria-pressed={isCellSelected}
+                      className={cellClassName}
+                      data-calendar-date={cell.date}
+                      style={cellHasSpotlightClient ? { "--client-color": getCalendarClientColor(spotlightClient) } : undefined}
+                      aria-label={`${cell.date} · ${hasData ? `${cell.stats.count}건` : "일정 없음"}`}
+                      title={
+                        filteredClient && hasData
+                          ? "클릭: 날짜 선택 · 더블클릭: 일자 상세"
                           : undefined
                       }
-                      aria-pressed={filteredClient ? isDateChecked : isSideSelected}
-                      className={cellClassName}
-                      aria-label={`${cell.date} · ${hasData ? `${cell.stats.count}건` : "일정 없음"}`}
-                      title={filteredClient && hasData ? "클릭: 날짜 선택 · 더블클릭: 일자 상세" : undefined}
                     >
                       {cellBody}
                     </button>
@@ -2985,7 +3370,7 @@ function CalendarPage({
                 }
 
                 return (
-                  <div key={cell.date} className={cellClassName} title={cell.date}>
+                  <div key={cell.date} className={cellClassName} data-calendar-date={cell.date} title={cell.date}>
                     {cellBody}
                   </div>
                 );
@@ -2996,26 +3381,25 @@ function CalendarPage({
               <span className="erp-calendar-legend-item">
                 <i className="erp-calendar-legend-dot is-today" /> 오늘
               </span>
+              <span className="erp-calendar-legend-item">
+                <i className="erp-client-calendar-legend-dot is-unpaid" /> 미수 전표
+              </span>
+              <span className="erp-calendar-legend-item">
+                <i className="erp-client-calendar-legend-dot is-paid" /> 입금 전표
+              </span>
+              <span className="erp-calendar-legend-item">
+                <i className="erp-calendar-legend-dot is-selected" /> {filteredClient ? "날짜 선택" : "날짜 클릭 · 상세"}
+              </span>
               {filteredClient ? (
                 <>
-                  <span className="erp-calendar-legend-item">
-                    <i className="erp-client-calendar-legend-dot is-unpaid" /> 미수금
-                  </span>
-                  <span className="erp-calendar-legend-item">
-                    <i className="erp-client-calendar-legend-dot is-paid" /> 완납
-                  </span>
-                  <span className="erp-calendar-legend-item">
-                    <i className="erp-client-calendar-legend-dot is-checked" /> 선택 (날짜 클릭)
-                  </span>
-                  <span className="erp-calendar-legend-item">더블클릭 → 일자 상세</span>
+                  <span className="erp-calendar-legend-item erp-calendar-legend-item--desktop-only">날짜 테두리: 초록 입금 · 빨강 미수 · 주황 혼재</span>
+                  <span className="erp-calendar-legend-item erp-calendar-legend-item--desktop-only">더블클릭 → 일자 상세</span>
                 </>
               ) : (
                 <>
-                  <span className="erp-calendar-legend-item">
-                    <i className="erp-calendar-legend-dot is-selected" /> 선택 (날짜 클릭)
-                  </span>
-                  <span className="erp-calendar-legend-item">거래처/현장명 더블클릭 → 거래처 필터</span>
-                  <span className="erp-calendar-legend-item">우측 전표 더블클릭 → 전표 수정</span>
+                  <span className="erp-calendar-legend-item erp-calendar-legend-item--desktop-only">전표 행 클릭 → 같은 업체 강조</span>
+                  <span className="erp-calendar-legend-item erp-calendar-legend-item--desktop-only">강조 상태에서 행 더블클릭 → 거래처만 보기</span>
+                  <span className="erp-calendar-legend-item erp-calendar-legend-item--desktop-only">우측 전표 더블클릭 → 전표 수정</span>
                 </>
               )}
             </div>
@@ -3027,9 +3411,11 @@ function CalendarPage({
             {filteredClient ? (
               <div className="erp-client-calendar-bottom-actions">
                 <div className="erp-text-caption text-slate-500">
-                  {selectedDates.length
-                    ? `${selectedDates.length}일 선택됨`
-                    : "거래가 있는 날짜를 선택해 주세요."}
+                  {selectedDates.length && clientFilterSelectedTotals
+                    ? `${selectedDates.length}일 선택 · 매출 ${formatKRW(clientFilterSelectedTotals.bill)} · 입금 ${formatKRW(clientFilterSelectedTotals.paid)} · 미수 ${formatKRW(clientFilterSelectedTotals.unpaid)}`
+                    : selectedDates.length
+                      ? `${selectedDates.length}일 선택됨`
+                      : "거래가 있는 날짜를 선택해 주세요."}
                 </div>
                 <div className="flex flex-wrap justify-end gap-2">
                   <Button
@@ -3151,24 +3537,45 @@ function CalendarPage({
                     const stats = aggregateSaleCalendarStats(sale, feeMap);
                     const workerLabel = sale.worker || formatWorkerNameSummary(getSaleWorkerLines(sale)) || "-";
                     const color = getCalendarClientColor(sale.client);
+                    const unpaid = getUnpaid(sale);
+                    const hasUnpaid = unpaid > 0;
                     return (
                       <li key={sale.id}>
                         <button
                           type="button"
-                          className="erp-calendar-side-card is-editable"
-                          title="더블클릭: 전표 수정"
+                          className={`erp-calendar-side-card is-editable ${hasUnpaid ? "is-unpaid" : "is-paid"}${
+                            !filteredClient && spotlightClient === normalizeCalendarClientName(sale.client) ? " is-client-spotlight" : ""
+                          }`}
+                          style={{ "--client-color": color }}
+                          title={
+                            filteredClient
+                              ? `${hasUnpaid ? `미수 ${formatKRW(unpaid)}` : "입금완료"} · 더블클릭: 전표 수정`
+                              : `${hasUnpaid ? `미수 ${formatKRW(unpaid)}` : "입금완료"} · 클릭: 같은 업체 일정 강조 · 더블클릭: 전표 수정`
+                          }
+                          onClick={() => {
+                            if (filteredClient) return;
+                            toggleSpotlightClient(sale.client, sale.date);
+                          }}
                           onDoubleClick={(event) => {
                             event.stopPropagation();
                             event.preventDefault();
                             openVoucherEdit(sale);
                           }}
                         >
-                          <span className="erp-calendar-side-card-bar" style={{ backgroundColor: color }} aria-hidden="true" />
+                          <span
+                            className="erp-calendar-side-card-bar"
+                            style={{ backgroundColor: color }}
+                            aria-hidden="true"
+                          />
                           <div className="erp-calendar-side-card-body">
                             <div className="erp-calendar-side-card-title">
-                              {filteredClient
-                                ? sale.site || "현장명 없음"
-                                : `[${sale.client}] ${sale.site || "현장명 없음"}`}
+                              <>
+                                <span className="erp-calendar-side-card-client" style={{ "--client-color": color }}>
+                                  {sale.client}
+                                </span>
+                                <span className="erp-calendar-side-card-title-sep"> · </span>
+                                <span>{sale.site || "현장명 없음"}</span>
+                              </>
                             </div>
                             <div className="erp-calendar-side-card-workers">{workerLabel}</div>
                             <div className="erp-calendar-side-card-meta">
