@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
+  BarChart3,
   ChevronLeft,
   ChevronRight,
   Pencil,
@@ -17,6 +18,7 @@ import { DesktopTableWrap, MobileRecordCard, MobileRecordList } from "@/componen
 import {
   buildMonthlyLedgerDetail,
   buildMonthlyLedgerRows,
+  buildLedgerCategoryStats,
   EXPENSE_CATEGORY_OPTIONS,
   EXPENSE_KIND_OPTIONS,
   filterCompanyExpenses,
@@ -42,11 +44,12 @@ import {
 import type { ErpUser } from "@/utils/erpApi";
 import { AutocompleteInput } from "@/components/AutocompleteInput";
 
-type LedgerTab = "manual" | "monthly";
+type LedgerTab = "manual" | "monthly" | "stats";
 
 const TAB_ITEMS: Array<{ key: LedgerTab; label: string }> = [
   { key: "manual", label: "\uC9C0\uCD9C \uB4F1\uB85D" },
   { key: "monthly", label: "\uC6D4\uBCC4 \uAC00\uACC4\uBD80" },
+  { key: "stats", label: "\uD1B5\uACC4" },
 ];
 
 const PERIOD_OPTIONS: Array<{ key: LedgerPeriodKey; label: string }> = [
@@ -97,6 +100,10 @@ const L = {
   fixedPayment: "\uACE0\uC815\uBE44 \uB0A9\uBD80",
   monthTotal: "\uC6D4 \uCD1D\uD569",
   monthSummary: "\uC6D4\uBCC4 \uC694\uC57D",
+  statsTitle: "\uCE74\uD14C\uACE0\uB9AC\uBCC4 \uD86F\uACC4",
+  statsDesc: "\uC120\uD0DD \uAE30\uAC04 \uB3D9\uC548 \uCE74\uD14C\uACE0\uB9AC\uBCC4 \uBCC0\uB3D9 \uC9C0\uCD9C\uACFC \uACE0\uC815\uBE44 \uD569\uACC4\uB97C \uBE44\uAD50\uD569\uB2C8\uB2E4.",
+  statsEmpty: "\uC120\uD0DD \uAE30\uAC04\uC5D0 \uC9D1\uACC4\uD560 \uC9C0\uCD9C \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  share: "\uBE44\uC728",
   month: "\uC6D4",
   monthDetail: "\uC0C1\uC138",
   section: "\uAD6C\uBD84",
@@ -327,6 +334,7 @@ export function CompanyLedgerPage({
   const [manualModal, setManualModal] = useState<ManualModalState | null>(null);
   const [formError, setFormError] = useState("");
   const monthlyTableRef = useRef<HTMLTableElement | null>(null);
+  const statsTableRef = useRef<HTMLTableElement | null>(null);
 
   useEffect(() => {
     if (!manualModal) return;
@@ -412,6 +420,18 @@ export function CompanyLedgerPage({
   const selectedMonthDetail = useMemo(
     () => buildMonthlyLedgerDetail(companyExpenses, selectedMonthKey, fixedExpensePayments),
     [companyExpenses, fixedExpensePayments, selectedMonthKey],
+  );
+
+  const categoryStats = useMemo(
+    () =>
+      buildLedgerCategoryStats(
+        companyExpenses,
+        fixedExpensePayments,
+        fixedExpenses,
+        periodFilter.startDate,
+        periodFilter.endDate,
+      ),
+    [companyExpenses, fixedExpensePayments, fixedExpenses, periodFilter.endDate, periodFilter.startDate],
   );
 
   const expenseCategoryOptions = useMemo(() => {
@@ -1138,6 +1158,165 @@ export function CompanyLedgerPage({
             </CardContent>
           </Card>
         </div>
+      ) : null}
+
+      {activeTab === "stats" ? (
+        <Card className="rounded-2xl border-slate-200 shadow-sm">
+          <CardContent className="space-y-4 p-4 md:p-5">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <BarChart3 size={18} className="text-slate-600" />
+                  <h2 className="erp-text-section font-bold text-slate-900">{L.statsTitle}</h2>
+                </div>
+                <p className="erp-text-caption mt-1 text-slate-500">{L.statsDesc}</p>
+              </div>
+              <TableExportToolbar
+                getTable={() => statsTableRef.current}
+                fileName={`${L.pageTitle}_stats_${periodKey}`}
+                title={`${L.pageTitle} ${L.statsTitle}`}
+                hidePdf
+                className="justify-end"
+              />
+            </div>
+
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="erp-dashboard-period-tabs flex flex-wrap gap-2">
+                {PERIOD_OPTIONS.map(({ key, label }) => (
+                  <Button
+                    key={key}
+                    size="sm"
+                    variant={periodKey === key ? "default" : "outline"}
+                    className="erp-touch-target shrink-0 rounded-2xl"
+                    onClick={() => setPeriodKey(key)}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+              <span className="erp-text-caption text-slate-500">{periodLabel}</span>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <SummaryCard
+                label={L.variableExpense}
+                value={`${formatKRW(categoryStats.summary.variableTotal)}${L.won}`}
+                tone="text-rose-600"
+                sub={`${categoryStats.summary.variableCount}${L.count}`}
+              />
+              <SummaryCard
+                label={L.fixedExpense}
+                value={`${formatKRW(categoryStats.summary.fixedTotal)}${L.won}`}
+                tone="text-amber-600"
+                sub={`${categoryStats.summary.fixedCount}${L.count}`}
+              />
+              <SummaryCard
+                label={L.grandTotal}
+                value={`${formatKRW(categoryStats.summary.grandTotal)}${L.won}`}
+                tone="text-slate-900"
+                sub={`${categoryStats.summary.totalCount}${L.count}`}
+              />
+            </div>
+
+            <MobileRecordList>
+              {categoryStats.rows.length ? (
+                categoryStats.rows.map((row) => (
+                  <MobileRecordCard
+                    key={row.category}
+                    title={row.category}
+                    subtitle={`${row.sharePercent}% ${L.share}`}
+                    fields={[
+                      { label: L.variableExpense, value: `${formatKRW(row.variableTotal)}${L.won}`, tone: "danger" },
+                      { label: L.fixedExpense, value: `${formatKRW(row.fixedTotal)}${L.won}`, tone: "muted" },
+                      { label: L.grandTotal, value: `${formatKRW(row.grandTotal)}${L.won}` },
+                      { label: L.count, value: `${row.totalCount}${L.count}` },
+                    ]}
+                  />
+                ))
+              ) : (
+                <MobileRecordCard empty emptyLabel={L.statsEmpty} />
+              )}
+            </MobileRecordList>
+
+            <DesktopTableWrap>
+              <table ref={statsTableRef} className="erp-ledger-table erp-ledger-stats-table min-w-full">
+                <thead>
+                  <tr>
+                    <th>{L.category}</th>
+                    <th className="text-right">{L.variableExpense}</th>
+                    <th className="text-right">{L.fixedExpense}</th>
+                    <th className="text-right">{L.grandTotal}</th>
+                    <th className="text-right">{L.count}</th>
+                    <th>{L.share}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {categoryStats.rows.length ? (
+                    categoryStats.rows.map((row) => (
+                      <tr key={row.category}>
+                        <td>
+                          <CategoryBadge label={row.category} />
+                        </td>
+                        <td className="text-right text-rose-600">
+                          {row.variableTotal > 0 ? `${formatKRW(row.variableTotal)}${L.won}` : "-"}
+                        </td>
+                        <td className="text-right text-amber-600">
+                          {row.fixedTotal > 0 ? `${formatKRW(row.fixedTotal)}${L.won}` : "-"}
+                        </td>
+                        <td className="text-right font-bold text-slate-900">
+                          {formatKRW(row.grandTotal)}
+                          {L.won}
+                        </td>
+                        <td className="text-right text-slate-600">
+                          {row.totalCount}
+                          {L.count}
+                        </td>
+                        <td>
+                          <div className="erp-ledger-stat-share">
+                            <div className="erp-ledger-stat-share-bar" aria-hidden="true">
+                              <div className="erp-ledger-stat-share-fill" style={{ width: `${Math.min(row.sharePercent, 100)}%` }} />
+                            </div>
+                            <span className="erp-text-caption min-w-[3rem] font-semibold text-slate-600">{row.sharePercent}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="erp-ledger-empty">
+                        {L.statsEmpty}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+                {categoryStats.rows.length ? (
+                  <tfoot>
+                    <tr>
+                      <td className="font-bold">{L.total}</td>
+                      <td className="text-right font-bold text-rose-600">
+                        {formatKRW(categoryStats.summary.variableTotal)}
+                        {L.won}
+                      </td>
+                      <td className="text-right font-bold text-amber-600">
+                        {formatKRW(categoryStats.summary.fixedTotal)}
+                        {L.won}
+                      </td>
+                      <td className="text-right font-black text-slate-900">
+                        {formatKRW(categoryStats.summary.grandTotal)}
+                        {L.won}
+                      </td>
+                      <td className="text-right font-bold text-slate-600">
+                        {categoryStats.summary.totalCount}
+                        {L.count}
+                      </td>
+                      <td className="font-bold text-slate-600">100%</td>
+                    </tr>
+                  </tfoot>
+                ) : null}
+              </table>
+            </DesktopTableWrap>
+          </CardContent>
+        </Card>
       ) : null}
 
       {manualModal ? (

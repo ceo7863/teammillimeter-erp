@@ -308,6 +308,120 @@ export function getFixedExpensePaymentsForMonth(
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
 }
 
+export type LedgerStatsSummary = {
+  variableTotal: number;
+  fixedTotal: number;
+  grandTotal: number;
+  variableCount: number;
+  fixedCount: number;
+  totalCount: number;
+};
+
+export type LedgerCategoryStatRow = {
+  category: string;
+  variableTotal: number;
+  fixedTotal: number;
+  grandTotal: number;
+  variableCount: number;
+  fixedCount: number;
+  totalCount: number;
+  sharePercent: number;
+};
+
+function resolveFixedPaymentCategory(
+  payment: FixedExpensePayment,
+  fixedExpenses: FixedExpense[] = [],
+) {
+  const category = fixedExpenses.find((row) => row.id === payment.fixedExpenseId)?.category;
+  return String(category || "").trim() || "\uAE30\uD0C0";
+}
+
+export function buildLedgerCategoryStats(
+  companyExpenses: CompanyExpense[] = [],
+  fixedExpensePayments: FixedExpensePayment[] = [],
+  fixedExpenses: FixedExpense[] = [],
+  startDate = "",
+  endDate = "",
+) {
+  const rangedExpenses = filterCompanyExpenses(companyExpenses, startDate, endDate);
+  const rangedPayments = filterFixedExpensePayments(fixedExpensePayments, startDate, endDate);
+  const bucket = new Map<
+    string,
+    Omit<LedgerCategoryStatRow, "category" | "sharePercent" | "grandTotal" | "totalCount">
+  >();
+
+  const touch = (category: string) => {
+    const key = category.trim() || "\uAE30\uD0C0";
+    if (!bucket.has(key)) {
+      bucket.set(key, {
+        variableTotal: 0,
+        fixedTotal: 0,
+        variableCount: 0,
+        fixedCount: 0,
+      });
+    }
+    return key;
+  };
+
+  for (const row of rangedExpenses) {
+    const key = touch(row.category);
+    const entry = bucket.get(key)!;
+    const amount = Number(row.amount) || 0;
+    if (resolveCompanyExpenseKind(row) === "fixed") {
+      entry.fixedTotal += amount;
+      entry.fixedCount += 1;
+    } else {
+      entry.variableTotal += amount;
+      entry.variableCount += 1;
+    }
+  }
+
+  for (const row of rangedPayments) {
+    const key = touch(resolveFixedPaymentCategory(row, fixedExpenses));
+    const entry = bucket.get(key)!;
+    entry.fixedTotal += Number(row.amount) || 0;
+    entry.fixedCount += 1;
+  }
+
+  const summary: LedgerStatsSummary = {
+    variableTotal: 0,
+    fixedTotal: 0,
+    grandTotal: 0,
+    variableCount: 0,
+    fixedCount: 0,
+    totalCount: 0,
+  };
+
+  const rows: LedgerCategoryStatRow[] = Array.from(bucket.entries())
+    .map(([category, entry]) => {
+      const grandTotal = entry.variableTotal + entry.fixedTotal;
+      const totalCount = entry.variableCount + entry.fixedCount;
+      summary.variableTotal += entry.variableTotal;
+      summary.fixedTotal += entry.fixedTotal;
+      summary.variableCount += entry.variableCount;
+      summary.fixedCount += entry.fixedCount;
+      return {
+        category,
+        ...entry,
+        grandTotal,
+        totalCount,
+        sharePercent: 0,
+      };
+    })
+    .sort((a, b) => b.grandTotal - a.grandTotal || a.category.localeCompare(b.category, "ko"));
+
+  summary.grandTotal = summary.variableTotal + summary.fixedTotal;
+  summary.totalCount = summary.variableCount + summary.fixedCount;
+
+  if (summary.grandTotal > 0) {
+    for (const row of rows) {
+      row.sharePercent = Math.round((row.grandTotal / summary.grandTotal) * 1000) / 10;
+    }
+  }
+
+  return { rows, summary };
+}
+
 export function buildMonthlyLedgerDetail(
   companyExpenses: CompanyExpense[] = [],
   monthKey: string,
