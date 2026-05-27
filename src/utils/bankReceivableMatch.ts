@@ -37,6 +37,9 @@ export type BankPaymentVoucherDraft = {
   finalAmount: number;
   memo: string;
   bankTransactionId: string;
+  statementPeriodStart?: string;
+  statementPeriodEnd?: string;
+  statementSalesIds?: Array<string | number>;
 };
 
 
@@ -242,8 +245,12 @@ export function isBankTransactionLinked(tx: BankTransaction) {
   return Boolean(tx.linkedPaymentVoucherId || tx.linkedSalesId);
 }
 
+export function isBankMatchAutoLinked(tx?: Pick<BankTransaction, "matchAutoLinked"> | null) {
+  return tx?.matchAutoLinked === true;
+}
+
 export function getBankMatchStatusLabel(tx: BankTransaction) {
-  if (tx.linkedPaymentVoucherId && tx.linkedPdfArchiveId) return "\uBCF4\uB0B4\uB0B4\uC5ED\uC11C \uC785\uAE08\uD655\uC778";
+  if (tx.linkedPaymentVoucherId && tx.linkedPdfArchiveId) return "\uBCF4\uB0B8\uB0B4\uC5ED\uC11C \uC785\uAE08\uD655\uC778";
   if (tx.linkedPaymentVoucherId) return "\uC785\uAE08 \uC5F0\uACB0\uC644\uB8CC";
   if (tx.deposit > 0) return "\uBBF8\uC5F0\uACB0";
   return "-";

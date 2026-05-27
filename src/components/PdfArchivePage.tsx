@@ -17,6 +17,8 @@ import {
   type PdfArchiveMeta,
 } from "@/utils/pdfArchive";
 import { getSentStatementPaymentStatusLabel } from "@/utils/bankSentStatementMatch";
+import { isBankMatchAutoLinked } from "@/utils/bankReceivableMatch";
+import type { BankTransaction } from "@/utils/bankTransactions";
 import {
   filterPdfArchiveRecords,
   getPdfArchiveFolderStats,
@@ -59,6 +61,19 @@ function paymentStatusTone(status?: PdfArchiveMeta["paymentStatus"]) {
   return "bg-slate-100 text-slate-600";
 }
 
+function isArchiveAutoLinked(record: PdfArchiveMeta, bankTxById: Map<string, BankTransaction>) {
+  if (!record.linkedBankTransactionId) return false;
+  return isBankMatchAutoLinked(bankTxById.get(record.linkedBankTransactionId));
+}
+
+function AutoLinkBadge() {
+  return (
+    <span className="erp-bank-auto-link-badge" title="\uACE0\uC2E0\uB8B0 \uC790\uB3D9 \uC785\uAE08 \uC5F0\uACB0">
+      {"\uC790\uB3D9\uC5F0\uACB0"}
+    </span>
+  );
+}
+
 function buildPdfArchiveSummary(record: PdfArchiveMeta) {
   return [
     formatPeriod(record.periodStart, record.periodEnd),
@@ -80,7 +95,13 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-export function PdfArchivePage({ isActive = true }: { isActive?: boolean }) {
+export function PdfArchivePage({
+  isActive = true,
+  bankTransactions = [],
+}: {
+  isActive?: boolean;
+  bankTransactions?: BankTransaction[];
+}) {
   const [records, setRecords] = useState<PdfArchiveMeta[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
@@ -147,6 +168,11 @@ export function PdfArchivePage({ isActive = true }: { isActive?: boolean }) {
         .filter((record) => record.sentViaLink)
         .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
     [filteredRecords]
+  );
+
+  const bankTxById = useMemo(
+    () => new Map(bankTransactions.map((row) => [row.id, row])),
+    [bankTransactions]
   );
 
   const regularFilteredRecords = useMemo(
@@ -348,6 +374,7 @@ export function PdfArchivePage({ isActive = true }: { isActive?: boolean }) {
                   <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${paymentStatusTone(record.paymentStatus)}`}>
                     {getSentStatementPaymentStatusLabel(record.paymentStatus)}
                   </span>
+                  {isArchiveAutoLinked(record, bankTxById) ? <AutoLinkBadge /> : null}
                   <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-bold text-violet-700">
                     {getPdfArchiveCategoryLabel(record.category)}
                   </span>
@@ -580,7 +607,7 @@ export function PdfArchivePage({ isActive = true }: { isActive?: boolean }) {
             <span className="value">{stats.workerCount.toLocaleString()}건</span>
           </div>
           <div className="erp-payment-hub-metric">
-            <span className="label">{"\uBCF4\uB0B4\uB0B4\uC5ED\uC11C"}</span>
+            <span className="label">{"\uBCF4\uB0B8\uB0B4\uC5ED\uC11C"}</span>
             <span className="value">{stats.sentCount.toLocaleString()}{"\uAC74"}</span>
           </div>
           <div className="erp-payment-hub-metric is-highlight">
@@ -690,7 +717,7 @@ export function PdfArchivePage({ isActive = true }: { isActive?: boolean }) {
             <div className="space-y-4">
               <section className="rounded-2xl border border-violet-200 bg-violet-50/30 p-3 md:p-4">
                 <div className="mb-3 flex items-center justify-between gap-2">
-                  <h4 className="erp-statement-folder-column-title">{"\uBCF4\uB0B4\uB0B4\uC5ED\uC11C\uD568"}</h4>
+                  <h4 className="erp-statement-folder-column-title">{"\uBCF4\uB0B8\uB0B4\uC5ED\uC11C\uD568"}</h4>
                   <span className="erp-statement-folder-column-count">{sentRecords.length}</span>
                 </div>
                 {renderSentStatementList()}

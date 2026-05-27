@@ -162,6 +162,10 @@ export function updatePdfArchiveMeta(id, patch = {}) {
     linked_payment_voucher_id:
       patch.linkedPaymentVoucherId != null ? String(patch.linkedPaymentVoucherId) : row.linked_payment_voucher_id,
     share_link_url: patch.shareLinkUrl != null ? patch.shareLinkUrl : row.share_link_url,
+    statement_sales_ids:
+      patch.statementSalesIds != null
+        ? serializeStatementSalesIds(patch.statementSalesIds)
+        : row.statement_sales_ids,
   };
 
   getDb()
@@ -172,7 +176,8 @@ export function updatePdfArchiveMeta(id, patch = {}) {
         payment_status = ?,
         linked_bank_transaction_id = ?,
         linked_payment_voucher_id = ?,
-        share_link_url = ?
+        share_link_url = ?,
+        statement_sales_ids = ?
       WHERE id = ?
     `)
     .run(
@@ -182,6 +187,7 @@ export function updatePdfArchiveMeta(id, patch = {}) {
       next.linked_bank_transaction_id,
       next.linked_payment_voucher_id,
       next.share_link_url,
+      next.statement_sales_ids,
       id,
     );
 

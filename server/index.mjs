@@ -520,6 +520,11 @@ function patchPdfArchiveMetaHandler(req, res) {
       allowed.linkedPaymentVoucherId = patch.linkedPaymentVoucherId;
     }
     if (patch.shareLinkUrl != null) allowed.shareLinkUrl = String(patch.shareLinkUrl);
+    if (patch.statementSalesIds != null) {
+      allowed.statementSalesIds = Array.isArray(patch.statementSalesIds)
+        ? patch.statementSalesIds.map((id) => id)
+        : [];
+    }
 
     const updated = updatePdfArchiveMeta(req.params.id, allowed);
     if (!updated) {

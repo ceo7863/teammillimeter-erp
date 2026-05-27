@@ -113,17 +113,71 @@ function saleWorkerCount(sale: SaleLikeForStatement) {
     .filter(Boolean).length;
 }
 
-function buildStatementSaleRow(sale: SaleLikeForStatement): StatementSaleForPayment | null {
+function buildStatementSaleRowFromAmount(sale: SaleLikeForStatement): StatementSaleForPayment | null {
   if (sale.id == null || sale.id === "") return null;
-  const billing = aggregateSaleBilling(sale);
-  if ((billing.totalConstructionCost || 0) <= 0) return null;
+  const statementAmount = Number(sale.amount) || 0;
+  if (statementAmount <= 0) return null;
   return {
     salesId: sale.id,
-    statementAmount: billing.totalConstructionCost,
+    statementAmount,
     site: sale.site,
     salesAmount: sale.amount,
     workerCount: saleWorkerCount(sale),
   };
+}
+
+function buildStatementSaleRow(sale: SaleLikeForStatement): StatementSaleForPayment | null {
+  if (sale.id == null || sale.id === "") return null;
+  const billing = aggregateSaleBilling(sale);
+  if ((billing.totalConstructionCost || 0) > 0) {
+    return {
+      salesId: sale.id,
+      statementAmount: billing.totalConstructionCost,
+      site: sale.site,
+      salesAmount: sale.amount,
+      workerCount: saleWorkerCount(sale),
+    };
+  }
+  return buildStatementSaleRowFromAmount(sale);
+}
+
+function saleMatchesStatementClient(sale: SaleLikeForStatement, clientName: string) {
+  return String(sale.client || "").trim() === String(clientName || "").trim();
+}
+
+function filterSalesByStatementPeriod(sales: SaleLikeForStatement[], periodStart?: string, periodEnd?: string) {
+  return sales.filter((sale) => {
+    const date = String(sale.date || "");
+    if (periodStart && date < periodStart) return false;
+    if (periodEnd && date > periodEnd) return false;
+    return true;
+  });
+}
+
+function resolveStatementSalesBySaleAmount(
+  archive: Pick<
+    PdfArchiveMeta,
+    "subjectName" | "periodStart" | "periodEnd" | "statementTotalAmount" | "statementSalesIds"
+  >,
+  sales: SaleLikeForStatement[] = [],
+  clients?: ClientDepositMatchSource[]
+): StatementSaleForPayment[] {
+  const scopedSales = filterSalesByStatementPeriod(
+    sales.filter((sale) => saleMatchesStatementClient(sale, archive.subjectName)),
+    archive.periodStart,
+    archive.periodEnd
+  );
+  const rows = scopedSales
+    .map((sale) => buildStatementSaleRowFromAmount(sale))
+    .filter((row): row is StatementSaleForPayment => Boolean(row));
+  if (!rows.length) return [];
+
+  const subtotal = rows.reduce((sum, row) => sum + row.statementAmount, 0);
+  const expectedTotal = archive.statementTotalAmount || 0;
+  const inferredVat = clientHasVat(clients, archive.subjectName, subtotal, expectedTotal);
+  if (amountsMatch(statementGrandTotal(subtotal, inferredVat), expectedTotal)) return rows;
+  if (amountsMatch(subtotal, expectedTotal)) return rows;
+  return [];
 }
 
 function statementGrandTotal(subtotal: number, hasVat: boolean) {
@@ -151,24 +205,22 @@ export function resolveStatementSalesForArchive(
     const rows = archive.statementSalesIds
       .map((id) => {
         const sale = saleById.get(String(id));
-        return sale ? buildStatementSaleRow(sale) : null;
+        if (!sale) return null;
+        return buildStatementSaleRow(sale) || buildStatementSaleRowFromAmount(sale);
       })
       .filter((row): row is StatementSaleForPayment => Boolean(row));
     if (rows.length) return rows;
   }
 
-  const periodRows = sales
-    .filter((sale) => String(sale.client || "").trim() === String(archive.subjectName || "").trim())
-    .filter((sale) => {
-      const date = String(sale.date || "");
-      if (archive.periodStart && date < archive.periodStart) return false;
-      if (archive.periodEnd && date > archive.periodEnd) return false;
-      return true;
-    })
-    .map((sale) => buildStatementSaleRow(sale))
+  const periodRows = filterSalesByStatementPeriod(
+    sales.filter((sale) => saleMatchesStatementClient(sale, archive.subjectName)),
+    archive.periodStart,
+    archive.periodEnd
+  )
+    .map((sale) => buildStatementSaleRow(sale) || buildStatementSaleRowFromAmount(sale))
     .filter((row): row is StatementSaleForPayment => Boolean(row));
 
-  if (!periodRows.length) return [];
+  if (!periodRows.length) return resolveStatementSalesBySaleAmount(archive, sales, clients);
 
   const subtotal = periodRows.reduce((sum, row) => sum + row.statementAmount, 0);
   const expectedTotal = archive.statementTotalAmount || 0;
@@ -180,7 +232,7 @@ export function resolveStatementSalesForArchive(
     return periodRows;
   }
 
-  return [];
+  return resolveStatementSalesBySaleAmount(archive, sales, clients);
 }
 
 function distributeAmountByWeight(
@@ -337,13 +389,14 @@ export function buildAllSentStatementDepositSuggestions(
 
 function createFallbackPaymentVoucher(
   tx: BankTransaction,
-  candidate: SentStatementMatchCandidate
+  candidate: SentStatementMatchCandidate,
+  hasVat: boolean
 ): BankPaymentVoucherDraft {
   const total = candidate.statementTotalAmount;
-  const supplyTotal = Math.round(total / 1.1);
   const ratio = total > 0 ? candidate.paymentAmount / total : 1;
-  const supplyAmount = Math.max(1, Math.round(supplyTotal * ratio));
-  const vatAmount = Math.max(0, candidate.paymentAmount - supplyAmount);
+  const finalAmount = Math.max(1, Math.round(candidate.paymentAmount));
+  const supplyAmount = hasVat ? Math.max(1, Math.round(finalAmount / 1.1)) : finalAmount;
+  const vatAmount = Math.max(0, finalAmount - supplyAmount);
 
   return {
     id: Date.now() + Number(String(candidate.pdfArchiveId).replace(/\D/g, "").slice(-6) || 0),
@@ -354,12 +407,15 @@ function createFallbackPaymentVoucher(
     workerCount: 0,
     totalSalesAmount: total,
     amount: supplyAmount,
-    vatType: "included",
+    vatType: hasVat ? "included" : "excluded",
     supplyAmount,
     vatAmount,
-    finalAmount: candidate.paymentAmount,
-    memo: `\uD1B5\uC7A5\uC785\uAE08(\uBCF4\uB0B4\uB0B4\uC5ED\uC11C) ${tx.description || tx.counterpartyName || ""}`.trim(),
+    finalAmount,
+    memo: `\uD1B5\uC7A5\uC785\uAE08(\uBCF4\uB0B8\uB0B4\uC5ED\uC11C) ${tx.description || tx.counterpartyName || ""}`.trim(),
     bankTransactionId: tx.id,
+    statementPeriodStart: candidate.periodStart,
+    statementPeriodEnd: candidate.periodEnd,
+    statementSalesIds: candidate.statementSalesIds,
   };
 }
 
@@ -389,19 +445,21 @@ export function createPaymentVouchersFromSentStatementMatch(
     >);
 
   const statementSales = resolveStatementSalesForArchive(archiveMeta, options.sales || [], options.clients);
-  if (!statementSales.length) {
-    return [createFallbackPaymentVoucher(tx, candidate)];
-  }
-
   const subtotal = statementSales.reduce((sum, row) => sum + row.statementAmount, 0);
   const hasVat = clientHasVat(options.clients, candidate.client, subtotal, candidate.statementTotalAmount);
+  const statementSalesIds = statementSales.map((row) => row.salesId);
+
+  if (!statementSales.length) {
+    return [createFallbackPaymentVoucher(tx, candidate, hasVat)];
+  }
+
   const splits = splitPaymentAcrossStatementSales(statementSales, candidate.paymentAmount, hasVat);
   if (!splits.length) {
-    return [createFallbackPaymentVoucher(tx, candidate)];
+    return [createFallbackPaymentVoucher(tx, candidate, hasVat)];
   }
 
   const baseId = Date.now() + Number(String(candidate.pdfArchiveId).replace(/\D/g, "").slice(-6) || 0);
-  const memo = `\uD1B5\uC7A5\uC785\uAE08(\uBCF4\uB0B4\uB0B4\uC5ED\uC11C) ${tx.description || tx.counterpartyName || ""}`.trim();
+  const memo = `\uD1B5\uC7A5\uC785\uAE08(\uBCF4\uB0B8\uB0B4\uC5ED\uC11C) ${tx.description || tx.counterpartyName || ""}`.trim();
 
   return splits.map((row, index) => ({
     id: baseId + index,
@@ -418,6 +476,9 @@ export function createPaymentVouchersFromSentStatementMatch(
     finalAmount: row.finalAmount,
     memo,
     bankTransactionId: tx.id,
+    statementPeriodStart: archiveMeta.periodStart,
+    statementPeriodEnd: archiveMeta.periodEnd,
+    statementSalesIds,
   }));
 }
 

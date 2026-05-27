@@ -946,7 +946,7 @@ function applyPaymentVouchers(sales, vouchers) {
     let remaining = parseMoney(voucher.amount);
 
     if (voucher.salesId) {
-      const target = copied.find((row) => row.id === voucher.salesId);
+      const target = copied.find((row) => String(row.id) === String(voucher.salesId));
       if (target) remaining = applyToRow(target, remaining);
       if (remaining > 0) {
         clientCredits[voucher.client] = (clientCredits[voucher.client] || 0) + remaining;
@@ -954,8 +954,21 @@ function applyPaymentVouchers(sales, vouchers) {
       return;
     }
 
-    copied
-      .filter((row) => row.client === voucher.client && !row.manualPaidCleared)
+    let scopedRows = copied.filter((row) => row.client === voucher.client && !row.manualPaidCleared);
+
+    if (voucher.statementSalesIds?.length) {
+      const idSet = new Set(voucher.statementSalesIds.map((id) => String(id)));
+      scopedRows = scopedRows.filter((row) => idSet.has(String(row.id)));
+    } else if (voucher.statementPeriodStart || voucher.statementPeriodEnd) {
+      scopedRows = scopedRows.filter((row) => {
+        const date = String(row.date || "");
+        if (voucher.statementPeriodStart && date < voucher.statementPeriodStart) return false;
+        if (voucher.statementPeriodEnd && date > voucher.statementPeriodEnd) return false;
+        return true;
+      });
+    }
+
+    scopedRows
       .sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)))
       .forEach((row) => {
         if (remaining <= 0) return;
@@ -6162,7 +6175,7 @@ export default function TeammillimeterErpMvp() {
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="pdfArchive" active={active}>
-          <PdfArchivePage isActive={active === "pdfArchive"} />
+          <PdfArchivePage isActive={active === "pdfArchive"} bankTransactions={bankTransactions} />
         </PageKeepAlive>
         {canUserAccessPage(currentUser, "usersAdmin") ? (
           <PageKeepAlive pageKey="usersAdmin" active={active}>

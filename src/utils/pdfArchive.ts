@@ -504,6 +504,7 @@ export type PdfArchiveMetaPatch = Partial<
     | "linkedBankTransactionId"
     | "linkedPaymentVoucherId"
     | "shareLinkUrl"
+    | "statementSalesIds"
   >
 >;
 

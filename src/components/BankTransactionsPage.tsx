@@ -52,6 +52,7 @@ import {
   buildBankDepositMatchCandidates,
   createPaymentVoucherFromBankMatch,
   getBankMatchStatusLabel,
+  isBankMatchAutoLinked,
   type BankDepositMatchCandidate,
 } from "@/utils/bankReceivableMatch";
 import {
@@ -188,11 +189,11 @@ const L = {
   folderScopeWorker: "\uC2DC\uACF5\uC790",
   viewList: "\uAC70\uB798 \uBAA9\uB85D",
   viewReconcile: "\uC785\uAE08 \uB300\uC0AC",
-  reconcileTitle: "\uD1B5\uC7A5 \uC785\uAE08 \u2194 \uBCF4\uB0B4\uB0B4\uC5ED\uC11C \uB9E4\uCE69",
+  reconcileTitle: "\uD1B5\uC7A5 \uC785\uAE08 \u2194 \uBCF4\uB0B8\uB0B4\uC5ED\uC11C \uB9E4\uCE69",
   reconcileDesc:
     "\uB9C1\uD06C\uB85C \uBCF4\uB0B8 \uAC70\uB798\uCC98 \uC2DC\uACF5\uBE44 \uB0B4\uC5ED\uC11C\uC640 \uC785\uAE08 \uAE08\uC561\u00B7\uAC70\uB798\uCC98\uBA85\uC774 \uC77C\uCE58\uD558\uBA74 \uAC74\uBCC4 \uC785\uAE08 \uCC98\uB9AC\uB97C \uCD94\uCC9C\uD569\uB2C8\uB2E4. \uB0B4\uC5ED\uC11C\uAC00 \uC5C6\uC73C\uBA74 \uBBF8\uC218 \uB9E4\uCD9C\uACFC \uBE44\uAD50\uD569\uB2C8\uB2E4.",
   reconcileBanner: (count: number) =>
-    `\uC785\uAE08 ${count}\uAC74\uC774 \uBCF4\uB0B4\uB0B4\uC5ED\uC11C \uB610\uB294 \uBBF8\uC218 \uB9E4\uCD9C\uACFC \uB9E4\uCE69\uB420 \uC218 \uC788\uC2B5\uB2C8\uB2E4.`,
+    `\uC785\uAE08 ${count}\uAC74\uC774 \uBCF4\uB0B8\uB0B4\uC5ED\uC11C \uB610\uB294 \uBBF8\uC218 \uB9E4\uCD9C\uACFC \uB9E4\uCE69\uB420 \uC218 \uC788\uC2B5\uB2C8\uB2E4.`,
   reconcileOpen: "\uC785\uAE08 \uB300\uC0AC \uC5F4\uAE30",
   matchScore: "\uC77C\uCE58\uB3C4",
   matchConfirm: "\uAC74\uBCC4 \uC785\uAE08\uCC98\uB9AC",
@@ -201,14 +202,16 @@ const L = {
   matchDone: "\uC785\uAE08 \uC804\uD45C\uAC00 \uC0DD\uC131\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   matchBulk: "\uACE0\uC2E0\uB8B0 \uC790\uB3D9 \uC5F0\uACB0",
   matchBulkDone: "\uAC74\uC744 \uC790\uB3D9 \uC785\uAE08 \uC5F0\uACB0\uD588\uC2B5\uB2C8\uB2E4.",
+  autoLinkBadge: "\uC790\uB3D9\uC5F0\uACB0",
+  autoLinkBadgeTitle: "\uACE0\uC2E0\uB8B0 \uC790\uB3D9 \uC785\uAE08 \uC5F0\uACB0",
   matchEmpty: "\uCD94\uCC9C\uD560 \uBBF8\uC5F0\uACB0 \uC785\uAE08\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   matchStatus: "\uBBF8\uC218 \uC5F0\uACB0",
   linkedSale: "\uC5F0\uACB0 \uB9E4\uCD9C",
   saleDate: "\uB9E4\uCD9C\uC77C",
   unpaidAmount: "\uBBF8\uC218\uAE08",
   selectReceivable: "\uBBF8\uC218 \uB9E4\uCD9C \uC120\uD0DD",
-  selectSentStatement: "\uBCF4\uB0B4\uB0B4\uC5ED\uC11C \uC120\uD0DD",
-  sentStatementMatch: "\uBCF4\uB0B4\uB0B4\uC5ED\uC11C",
+  selectSentStatement: "\uBCF4\uB0B8\uB0B4\uC5ED\uC11C \uC120\uD0DD",
+  sentStatementMatch: "\uBCF4\uB0B8\uB0B4\uC5ED\uC11C",
   statementTotal: "\uB0B4\uC5ED\uC11C \uAE08\uC561",
   sentAt: "\uB9C1\uD06C \uBC1C\uC1A1",
   ledgerRegister: "\uAC00\uACC4\uBD80 \uB4F1\uB85D",
@@ -257,6 +260,14 @@ type DepositSuggestion =
       kind: "receivable";
       candidates: BankDepositMatchCandidate[];
     };
+
+function BankAutoLinkBadge() {
+  return (
+    <span className="erp-bank-auto-link-badge" title={L.autoLinkBadgeTitle}>
+      {L.autoLinkBadge}
+    </span>
+  );
+}
 
 function resolveActivePeriod(periodKey: PeriodKey, dateFilter: DateFilter): DateFilter {
   if (periodKey === "thisMonth") return monthRangeISO(0);
@@ -781,6 +792,7 @@ export function BankTransactionsPage({
               linkedSalesId: vouchers.length === 1 ? primaryVoucher.salesId : undefined,
               matchConfirmedAt: new Date().toISOString(),
               matchConfirmedBy: savedBy,
+              matchAutoLinked: false,
               folderId:
                 row.folderId ||
                 (isCardCompanyDeposit(row) ? DEFAULT_CARD_SALES_FOLDER_ID : DEFAULT_CLIENT_FOLDER_ID),
@@ -789,11 +801,14 @@ export function BankTransactionsPage({
       )
     );
 
+    const statementSalesIds = vouchers[0]?.statementSalesIds;
+
     try {
       await updatePdfArchiveMeta(candidate.pdfArchiveId, {
         paymentStatus: candidate.paymentStatus,
         linkedBankTransactionId: tx.id,
         linkedPaymentVoucherId: primaryVoucher.id,
+        ...(statementSalesIds?.length ? { statementSalesIds } : {}),
       });
       setSentArchives((prev) =>
         prev.map((row) =>
@@ -803,6 +818,7 @@ export function BankTransactionsPage({
                 paymentStatus: candidate.paymentStatus,
                 linkedBankTransactionId: tx.id,
                 linkedPaymentVoucherId: primaryVoucher.id,
+                ...(statementSalesIds?.length ? { statementSalesIds } : {}),
               }
             : row
         )
@@ -1065,6 +1081,7 @@ export function BankTransactionsPage({
               linkedSubject: receivable.client,
               matchConfirmedAt: new Date().toISOString(),
               matchConfirmedBy: savedBy,
+              matchAutoLinked: false,
               folderId:
                 row.folderId ||
                 (isCardCompanyDeposit(row) ? DEFAULT_CARD_SALES_FOLDER_ID : DEFAULT_CLIENT_FOLDER_ID),
@@ -1141,6 +1158,7 @@ export function BankTransactionsPage({
           linkedSubject: linked.client,
           matchConfirmedAt: new Date().toISOString(),
           matchConfirmedBy: savedBy,
+          matchAutoLinked: true,
           folderId:
             row.folderId || (isCardCompanyDeposit(row) ? DEFAULT_CARD_SALES_FOLDER_ID : DEFAULT_CLIENT_FOLDER_ID),
         };
@@ -1276,9 +1294,12 @@ export function BankTransactionsPage({
         <td>
           {row.linkedPaymentVoucherId ? (
             <div>
-              <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">
-                {getBankMatchStatusLabel(row)}
-              </span>
+              <div className="flex flex-wrap items-center gap-1">
+                <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">
+                  {getBankMatchStatusLabel(row)}
+                </span>
+                {isBankMatchAutoLinked(row) ? <BankAutoLinkBadge /> : null}
+              </div>
               {row.linkedSubject ? (
                 <div className="mt-1 text-xs text-slate-500">
                   {row.linkedSubject}
@@ -1421,6 +1442,9 @@ export function BankTransactionsPage({
           : { label: L.unfiled, tone: "muted" as const },
         row.linkedCompanyExpenseId ? { label: L.ledgerManualRegistered, tone: "default" as const } : null,
         row.linkedFixedExpensePaymentId ? { label: L.ledgerFixedRegistered, tone: "default" as const } : null,
+        row.linkedPaymentVoucherId && isBankMatchAutoLinked(row)
+          ? { label: L.autoLinkBadge, tone: "default" as const }
+          : null,
         row.deposit > 0 ? { label: `${L.deposit} ${formatKRW(row.deposit)}`, tone: "success" as const } : null,
         row.withdrawal > 0 ? { label: `${L.withdrawal} ${formatKRW(row.withdrawal)}`, tone: "danger" as const } : null,
       ].filter(Boolean) as Array<{ label: string; tone: "success" | "danger" | "default" | "muted" }>}

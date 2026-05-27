@@ -28,6 +28,7 @@ export type BankTransaction = {
   linkedFixedExpensePaymentId?: string;
   matchConfirmedAt?: string;
   matchConfirmedBy?: string;
+  matchAutoLinked?: boolean;
 };
 
 export function makeBankTransactionId() {
@@ -86,6 +87,7 @@ export function normalizeBankTransaction(raw: Partial<BankTransaction> & { id: s
       : undefined,
     matchConfirmedAt: raw.matchConfirmedAt ? String(raw.matchConfirmedAt) : undefined,
     matchConfirmedBy: raw.matchConfirmedBy ? String(raw.matchConfirmedBy) : undefined,
+    matchAutoLinked: raw.matchAutoLinked === true ? true : undefined,
   };
 }
 
