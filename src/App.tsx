@@ -6178,6 +6178,7 @@ export default function TeammillimeterErpMvp() {
             expenseCategories={expenseCategories}
             setExpenseCategories={setExpenseCategories}
             currentUser={currentUser}
+            onNavigateToCompanyLedger={() => setActive("companyLedger")}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="companyNotices" active={active}>

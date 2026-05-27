@@ -38,7 +38,10 @@ import {
   buildBankLearnRuleFromManualRegistration,
   buildCompanyExpensePrefillFromBankTransaction,
   canRegisterBankTxToCompanyLedger,
+  findMatchingBankLedgerRule,
   formatBankLearnAutoMessage,
+  getLinkedCompanyExpenseForBankTx,
+  getLinkedFixedPaymentForBankTx,
   parseLedgerTargetKey,
   resolveLedgerTargetForBankTransaction,
   upsertBankLearnRule,
@@ -114,7 +117,7 @@ const FLOW_FILTER_OPTIONS: Array<{ key: BankTransactionFlowFilter; label: string
 type LedgerRegisterKind = "fixed" | "manual";
 
 const LEDGER_KIND_OPTIONS: Array<{ key: LedgerRegisterKind; label: string; tone: string; activeTone: string }> = [
-  { key: "manual", label: "\uB2E8\uC21C\uC9C0\uCD9C", tone: "border-slate-200 bg-white text-slate-600", activeTone: "border-slate-900 bg-slate-900 text-white" },
+  { key: "manual", label: "\uBCC0\uB3D9 \uC9C0\uCD9C", tone: "border-slate-200 bg-white text-slate-600", activeTone: "border-slate-900 bg-slate-900 text-white" },
   { key: "fixed", label: "\uACE0\uC815\uBE44", tone: "border-slate-200 bg-white text-slate-600", activeTone: "border-amber-600 bg-amber-600 text-white" },
 ];
 
@@ -222,7 +225,7 @@ const L = {
   ledgerRegisterTitle: "\uD68C\uC0AC \uAC00\uACC4\uBD80 \uC9C0\uCD9C \uB4F1\uB85D",
   ledgerRegisterDesc: "\uBBF8\uBD84\uB958 \uCD9C\uAE08 \uB0B4\uC5ED\uC744 \uD68C\uC0AC \uAC00\uACC4\uBD80 \uC9C0\uCD9C\uB85C \uB4F1\uB85D\uD569\uB2C8\uB2E4.",
   ledgerRegistered: "\uAC00\uACC4\uBD80 \uB4F1\uB85D\uC74C",
-  ledgerManualRegistered: "\uB2E8\uC21C\uC9C0\uCD9C \uB4F1\uB85D\uC74C",
+  ledgerManualRegistered: "\uBCC0\uB3D9 \uC9C0\uCD9C \uB4F1\uB85D\uC74C",
   ledgerFixedRegistered: "\uACE0\uC815\uBE44 \uB4F1\uB85D\uC74C",
   ledgerRegisterDone: "\uD68C\uC0AC \uAC00\uACC4\uBD80\uC5D0 \uB4F1\uB85D\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   ledgerFixedRegisterDone: "\uACE0\uC815\uBE44 \uB0A9\uBD80\uB85C \uB4F1\uB85D\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
@@ -360,6 +363,7 @@ export function BankTransactionsPage({
   expenseCategories,
   setExpenseCategories,
   currentUser,
+  onNavigateToCompanyLedger,
 }: {
   bankTransactions: BankTransaction[];
   setBankTransactions: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
@@ -383,6 +387,7 @@ export function BankTransactionsPage({
   expenseCategories: string[];
   setExpenseCategories: React.Dispatch<React.SetStateAction<string[]>>;
   currentUser: ErpUser | null;
+  onNavigateToCompanyLedger?: () => void;
 }) {
   const [pageView, setPageView] = useState<PageView>("list");
   const [periodKey, setPeriodKey] = useState<PeriodKey>("thisMonth");
@@ -419,6 +424,25 @@ export function BankTransactionsPage({
   const ibkInputRef = useRef<HTMLInputElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
   const savedBy = currentUser?.name || currentUser?.loginId || "";
+
+  const ledgerRegistrationContext = useMemo(
+    () => ({ companyExpenses, fixedExpensePayments }),
+    [companyExpenses, fixedExpensePayments],
+  );
+
+  const canRegisterLedger = (tx: BankTransaction) =>
+    canRegisterBankTxToCompanyLedger(tx, ledgerRegistrationContext);
+
+  const getLedgerRegisteredBadgeLabel = (row: BankTransaction) => {
+    const linkedExpense = getLinkedCompanyExpenseForBankTx(row, companyExpenses);
+    if (linkedExpense) {
+      return linkedExpense.kind === "fixed" ? L.ledgerFixedRegistered : L.ledgerManualRegistered;
+    }
+    if (getLinkedFixedPaymentForBankTx(row, fixedExpensePayments)) {
+      return L.ledgerFixedRegistered;
+    }
+    return null;
+  };
 
   const applyAutoLearnRules = React.useCallback(
     (
@@ -836,10 +860,11 @@ export function BankTransactionsPage({
   };
 
   const openLedgerRegister = (tx: BankTransaction) => {
-    if (!canRegisterBankTxToCompanyLedger(tx)) return;
+    if (!canRegisterLedger(tx)) return;
     const prefill = buildCompanyExpensePrefillFromBankTransaction(tx);
     const targetKey = resolveLedgerTargetForBankTransaction(tx, bankLedgerRules, fixedExpenses);
     const parsed = parseLedgerTargetKey(targetKey);
+    const ledgerRule = findMatchingBankLedgerRule(tx, bankLedgerRules, fixedExpenses);
     const kind: LedgerRegisterKind = parsed?.kind === "fixed" ? "fixed" : "manual";
     const fixedItem =
       parsed?.kind === "fixed" && parsed.fixedExpenseId
@@ -854,7 +879,10 @@ export function BankTransactionsPage({
       tx,
       kind,
       fixedExpenseId: kind === "fixed" ? defaultFixedId : "",
-      category: kind === "manual" ? parsed?.category || prefill.category : prefill.category,
+      category:
+        kind === "manual"
+          ? parsed?.category || prefill.category
+          : fixedItem?.category || ledgerRule?.category || prefill.category,
       date: prefill.date,
       description: fixedItem?.name || prefill.description,
       amount: prefill.amount,
@@ -922,6 +950,7 @@ export function BankTransactionsPage({
           ? {
               ...row,
               linkedCompanyExpenseId: expenseId,
+              linkedFixedExpensePaymentId: undefined,
             }
           : row,
       );
@@ -940,6 +969,7 @@ export function BankTransactionsPage({
       setLedgerModal(null);
       setLedgerFormError("");
       setImportMessage(L.ledgerFixedRegisterDone);
+      onNavigateToCompanyLedger?.();
       return;
     }
 
@@ -979,6 +1009,7 @@ export function BankTransactionsPage({
         ? {
             ...row,
             linkedCompanyExpenseId: expenseId,
+            linkedFixedExpensePaymentId: undefined,
           }
         : row,
     );
@@ -999,6 +1030,7 @@ export function BankTransactionsPage({
     setLedgerModal(null);
     setLedgerFormError("");
     setImportMessage(L.ledgerRegisterDone);
+    onNavigateToCompanyLedger?.();
   };
 
   const openClientLinkModal = (tx: BankTransaction) => {
@@ -1212,7 +1244,7 @@ export function BankTransactionsPage({
 
   const renderTransactionDescription = (row: BankTransaction) => {
     const text = row.description || "-";
-    if (canRegisterBankTxToCompanyLedger(row)) {
+    if (canRegisterLedger(row)) {
       return (
         <button
           type="button"
@@ -1232,6 +1264,8 @@ export function BankTransactionsPage({
     const isWithdrawal = row.withdrawal > 0;
     const rowClass = isDeposit ? "is-deposit-row" : isWithdrawal ? "is-withdrawal-row" : "";
     const folder = row.folderId ? folderMap.get(row.folderId) : undefined;
+    const canLedger = canRegisterLedger(row);
+    const ledgerBadgeLabel = getLedgerRegisteredBadgeLabel(row);
 
     return (
       <tr key={row.id} className={`border-t ${rowClass}`}>
@@ -1271,17 +1305,16 @@ export function BankTransactionsPage({
           ) : (
             <span className="text-xs font-semibold text-slate-400">{L.unfiled}</span>
           )}
-          {row.linkedCompanyExpenseId ? (
+          {ledgerBadgeLabel ? (
             <div className="mt-1">
-              <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-700">
-                {L.ledgerManualRegistered}
-              </span>
-            </div>
-          ) : null}
-          {row.linkedFixedExpensePaymentId ? (
-            <div className="mt-1">
-              <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">
-                {L.ledgerFixedRegistered}
+              <span
+                className={`inline-flex rounded-full px-2 py-0.5 text-xs font-bold ${
+                  ledgerBadgeLabel === L.ledgerFixedRegistered
+                    ? "bg-amber-100 text-amber-800"
+                    : "bg-slate-100 text-slate-700"
+                }`}
+              >
+                {ledgerBadgeLabel}
               </span>
             </div>
           ) : null}
@@ -1416,13 +1449,24 @@ export function BankTransactionsPage({
             onClick={(event) => event.stopPropagation()}
           />
         </td>
+        <td>
+          {canLedger ? (
+            <Button type="button" size="sm" variant="outline" className="rounded-lg text-xs" onClick={() => openLedgerRegister(row)}>
+              <BookOpen size={12} className="mr-1" />
+              {L.ledgerRegister}
+            </Button>
+          ) : (
+            "-"
+          )}
+        </td>
       </tr>
     );
   };
 
   const renderMobileCard = (row: BankTransaction) => {
     const folder = row.folderId ? folderMap.get(row.folderId) : undefined;
-    const canLedger = canRegisterBankTxToCompanyLedger(row);
+    const canLedger = canRegisterLedger(row);
+    const ledgerBadgeLabel = getLedgerRegisteredBadgeLabel(row);
     return (
     <MobileRecordCard
       key={row.id}
@@ -1440,8 +1484,12 @@ export function BankTransactionsPage({
                     : ("default" as const),
             }
           : { label: L.unfiled, tone: "muted" as const },
-        row.linkedCompanyExpenseId ? { label: L.ledgerManualRegistered, tone: "default" as const } : null,
-        row.linkedFixedExpensePaymentId ? { label: L.ledgerFixedRegistered, tone: "default" as const } : null,
+        ledgerBadgeLabel
+          ? {
+              label: ledgerBadgeLabel,
+              tone: ledgerBadgeLabel === L.ledgerFixedRegistered ? ("default" as const) : ("default" as const),
+            }
+          : null,
         row.linkedPaymentVoucherId && isBankMatchAutoLinked(row)
           ? { label: L.autoLinkBadge, tone: "default" as const }
           : null,
@@ -2122,14 +2170,15 @@ export function BankTransactionsPage({
                 <th>{L.transactionType}</th>
                 <th>{L.assignFolder}</th>
                 <th>{L.memo}</th>
-                </tr>
+                <th>{L.ledgerRegister}</th>
+              </tr>
               </thead>
               <tbody>
                 {filteredRows.length ? (
                   filteredRows.map(renderRow)
                 ) : (
                   <tr>
-                    <td colSpan={12} className="py-12 text-center text-slate-500">
+                    <td colSpan={13} className="py-12 text-center text-slate-500">
                       {L.empty}
                     </td>
                   </tr>
