@@ -249,6 +249,40 @@ export function isBankMatchAutoLinked(tx?: Pick<BankTransaction, "matchAutoLinke
   return tx?.matchAutoLinked === true;
 }
 
+type PaymentVoucherAutoLinkSource = {
+  salesId?: number | string;
+  bankTransactionId?: string;
+  statementSalesIds?: Array<string | number>;
+};
+
+export function buildAutoLinkedSaleIdSet(
+  paymentVouchers: PaymentVoucherAutoLinkSource[] = [],
+  bankTransactions: Array<Pick<BankTransaction, "id" | "matchAutoLinked">> = []
+) {
+  const autoTxIds = new Set(
+    bankTransactions.filter((tx) => tx.matchAutoLinked === true).map((tx) => String(tx.id))
+  );
+  const saleIds = new Set<string>();
+  paymentVouchers.forEach((voucher) => {
+    if (!voucher.bankTransactionId || !autoTxIds.has(String(voucher.bankTransactionId))) return;
+    if (voucher.salesId != null && voucher.salesId !== "") {
+      saleIds.add(String(voucher.salesId));
+    }
+    voucher.statementSalesIds?.forEach((id) => {
+      if (id != null && id !== "") saleIds.add(String(id));
+    });
+  });
+  return saleIds;
+}
+
+export function isSaleAutoLinkedPaid(
+  saleId: number | string | undefined | null,
+  autoLinkedSaleIds: Set<string>
+) {
+  if (saleId == null || saleId === "") return false;
+  return autoLinkedSaleIds.has(String(saleId));
+}
+
 export function getBankMatchStatusLabel(tx: BankTransaction) {
   if (tx.linkedPaymentVoucherId && tx.linkedPdfArchiveId) return "\uBCF4\uB0B8\uB0B4\uC5ED\uC11C \uC785\uAE08\uD655\uC778";
   if (tx.linkedPaymentVoucherId) return "\uC785\uAE08 \uC5F0\uACB0\uC644\uB8CC";

@@ -27,6 +27,8 @@ import {
   summarizePaymentInputLogs,
   type PaymentInputLog,
 } from "@/utils/paymentInputLogs";
+import { AutoLinkBadge } from "@/components/AutoLinkBadge";
+import { isSaleAutoLinkedPaid } from "@/utils/bankReceivableMatch";
 
 type PaymentTab = "input" | "receivables" | "history" | "log";
 
@@ -84,10 +86,12 @@ function ReceivableDetailTable({
   rows,
   onPayRow,
   exportFileName = "미수전표_상세",
+  autoLinkedSaleIds = new Set<string>(),
 }: {
   rows: ReceivableRow[];
   onPayRow?: (row: ReceivableRow) => void;
   exportFileName?: string;
+  autoLinkedSaleIds?: Set<string>;
 }) {
   const today = todayISO();
 
@@ -123,7 +127,12 @@ function ReceivableDetailTable({
                 onClick={() => onPayRow?.(row)}
               >
                 <td>{row.date}</td>
-                <td>{row.voucherNo}</td>
+                <td>
+                  {row.voucherNo}
+                  {isSaleAutoLinkedPaid(row.id, autoLinkedSaleIds) ? (
+                    <AutoLinkBadge title="고신뢰 자동 입금으로 연결된 전표" />
+                  ) : null}
+                </td>
                 <td className="text-left font-semibold">{row.client}</td>
                 <td>{row.site || "-"}</td>
                 <td>{row.manager || "-"}</td>
@@ -164,6 +173,7 @@ export function PaymentReceivablesPage({
   paymentInputLogs = [],
   setPaymentInputLogs,
   currentUser,
+  autoLinkedSaleIds = new Set<string>(),
 }: {
   sales?: SaleLike[];
   receivableRows?: ReceivableRow[];
@@ -173,6 +183,7 @@ export function PaymentReceivablesPage({
   paymentInputLogs?: PaymentInputLog[];
   setPaymentInputLogs: React.Dispatch<React.SetStateAction<PaymentInputLog[]>>;
   currentUser: { name?: string; email?: string } | null;
+  autoLinkedSaleIds?: Set<string>;
 }) {
   const { recordAudit } = useAudit();
   const [tab, setTab] = useState<PaymentTab>("input");
@@ -1012,7 +1023,12 @@ export function PaymentReceivablesPage({
                           <input type="checkbox" checked={isSelected} onChange={(e) => updatePaymentRow(row.id, "checked", e.target.checked)} className="erp-payment-check" />
                         </td>
                         <td className="text-left font-semibold">{row.voucherNo || row.id}</td>
-                        <td className="text-slate-600">{row.date}</td>
+                        <td className="text-slate-600">
+                          {row.date}
+                          {isSaleAutoLinkedPaid(row.id, autoLinkedSaleIds) ? (
+                            <AutoLinkBadge title="고신뢰 자동 입금으로 연결된 전표" />
+                          ) : null}
+                        </td>
                         <td className="erp-cell-clip text-left font-semibold" title={row.client}>{row.client}</td>
                         <td className="erp-cell-clip text-left text-slate-600" title={row.site || ""}>{row.site || "-"}</td>
                         <td className="text-right">{workerCount}</td>
@@ -1236,7 +1252,7 @@ export function PaymentReceivablesPage({
             <CardContent className="p-3 md:p-4">
               <h2 className="mb-3 text-sm font-bold text-slate-800">미수 전표 상세</h2>
               <p className="mb-3 text-xs text-slate-500">전표 클릭 → 입금 입력 탭에서 해당 건 선택</p>
-              <ReceivableDetailTable rows={filteredReceivableRows} onPayRow={openPaymentForRow} exportFileName="미수전표_상세" />
+              <ReceivableDetailTable rows={filteredReceivableRows} onPayRow={openPaymentForRow} exportFileName="미수전표_상세" autoLinkedSaleIds={autoLinkedSaleIds} />
             </CardContent>
           </Card>
         </>

@@ -70,6 +70,8 @@ import { UsersAdminPage } from "@/components/UsersAdminPage";
 import { CompanyLedgerPage } from "@/components/CompanyLedgerPage";
 import { AttendancePage } from "@/components/AttendancePage";
 import { ClientCalendarPage } from "@/components/ClientCalendarPage";
+import { AutoLinkBadge } from "@/components/AutoLinkBadge";
+import { buildAutoLinkedSaleIdSet, isSaleAutoLinkedPaid } from "@/utils/bankReceivableMatch";
 import { ClientStatementModal } from "@/components/ClientStatementModal";
 import { filterClientCalendarSales, normalizeClientCalendarName } from "@/utils/clientCalendarStats";
 import { CompanyNoticeBoardPage } from "@/components/CompanyNoticeBoardPage";
@@ -2201,6 +2203,7 @@ function CalendarPage({
   setStatementGenerationLogs,
   statementFolders,
   setStatementFolders,
+  autoLinkedSaleIds = new Set(),
 }) {
   const { recordAudit } = useAudit();
   const { message: clientFilterNotice, showNotice: showClientFilterNotice, clearNotice: clearClientFilterNotice } = useActionNotice();
@@ -2923,7 +2926,12 @@ function CalendarPage({
                             {filteredClient ? (
                               <>
                                 <span className="erp-calendar-cell-entry-label">{entry.site}</span>
-                                <span className="erp-calendar-cell-entry-amount">{formatKRW(entry.amount)}</span>
+                                <span className="erp-calendar-cell-entry-amount">
+                                  {formatKRW(entry.amount)}
+                                  {isSaleAutoLinkedPaid(entry.saleId, autoLinkedSaleIds) ? (
+                                    <AutoLinkBadge title="고신뢰 자동 입금으로 연결된 전표" />
+                                  ) : null}
+                                </span>
                               </>
                             ) : (
                               <span className="erp-calendar-cell-entry-label">
@@ -3161,6 +3169,9 @@ function CalendarPage({
                               <span className="erp-calendar-side-card-badge is-staff">{stats.staff}명</span>
                               <span className="erp-calendar-side-card-badge is-bill">시공비 {formatKRW(stats.bill)}</span>
                               <span className="erp-calendar-side-card-badge is-voucher">{getSaleVoucherLabel(sale)}</span>
+                              {isSaleAutoLinkedPaid(sale.id, autoLinkedSaleIds) ? (
+                                <AutoLinkBadge title="고신뢰 자동 입금으로 연결된 전표" />
+                              ) : null}
                             </div>
                           </div>
                         </button>
@@ -3282,7 +3293,7 @@ function PageTitle({ title, desc, action }) {
   );
 }
 
-function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "매출목록", exportTitle, isDuplicateRow }) {
+function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "매출목록", exportTitle, isDuplicateRow, autoLinkedSaleIds = new Set() }) {
   const title = exportTitle || exportFileName;
   return (
     <TableExportSection fileName={exportFileName} title={title} disabled={rows.length === 0}>
@@ -3303,6 +3314,9 @@ function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "�
                   { label: "입금", value: formatKRW(row.paid), tone: "success" },
                   { label: "미수", value: formatKRW(getUnpaid(row)), tone: "danger" },
                   { label: "시공자", value: row.worker || "-", tone: "muted" },
+                  ...(isSaleAutoLinkedPaid(row.id, autoLinkedSaleIds)
+                    ? [{ label: "입금연결", value: "자동연결", tone: "default" as const }]
+                    : []),
                 ]}
               />
             );
@@ -3339,6 +3353,9 @@ function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "�
               <td className="whitespace-nowrap">
                 {row.date}
                 {isDuplicate ? <span className="erp-duplicate-badge">중복</span> : null}
+                {isSaleAutoLinkedPaid(row.id, autoLinkedSaleIds) ? (
+                  <AutoLinkBadge title="고신뢰 자동 입금으로 연결된 전표" />
+                ) : null}
               </td>
               <td className="font-semibold"><span className="erp-cell-truncate inline-block max-w-[7rem] md:max-w-none">{row.client}</span></td>
               <td><span className="erp-cell-truncate inline-block max-w-[8rem] md:max-w-none">{row.site}</span></td>
@@ -3548,7 +3565,7 @@ function SearchBox({ query, setQuery, placeholder }) {
 
 const emptyVoucherSearchFilters = { client: "", site: "", worker: "" };
 
-function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed }) {
+function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed, autoLinkedSaleIds = new Set() }) {
   const { recordAudit } = useAudit();
   const [searchFilters, setSearchFilters] = useState(emptyVoucherSearchFilters);
   const [dateFilter, setDateFilter] = useState({ startDate: "", endDate: "" });
@@ -3870,6 +3887,7 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
             exportFileName="매출전표검색"
             exportTitle="매출전표 검색"
             isDuplicateRow={isDuplicateRow}
+            autoLinkedSaleIds={autoLinkedSaleIds}
           />
         </CardContent>
       </Card>
@@ -4985,7 +5003,7 @@ function PivotPaymentRateCell({ totalPaid, bill }) {
   return <td className={`text-right font-medium ${toneClass}`}>{formatPaymentRate(totalPaid, bill)}</td>;
 }
 
-function PivotReportTable({ title, labelHeader, rows, totals, showAvgPaid = false, showStaffCount = true, clientExpand = null, clientStatement = null }) {
+function PivotReportTable({ title, labelHeader, rows, totals, showAvgPaid = false, showStaffCount = true, clientExpand = null, clientStatement = null, autoLinkedSaleIds = new Set() }) {
   const [expandedClientKey, setExpandedClientKey] = useState("");
   const { sort, toggleSort } = usePivotTableSort("bill", "desc");
   const sortedRows = useMemo(
@@ -5106,7 +5124,12 @@ function PivotReportTable({ title, labelHeader, rows, totals, showAvgPaid = fals
                                 <tbody>
                                   {vouchers.map((sale) => (
                                     <tr key={sale.id ?? `${sale.date}-${sale.site}-${sale.amount}`}>
-                                      <td className="whitespace-nowrap">{sale.date || "-"}</td>
+                                      <td className="whitespace-nowrap">
+                                        {sale.date || "-"}
+                                        {isSaleAutoLinkedPaid(sale.id, autoLinkedSaleIds) ? (
+                                          <AutoLinkBadge title="고신뢰 자동 입금으로 연결된 전표" />
+                                        ) : null}
+                                      </td>
                                       <td><span className="erp-cell-truncate inline-block max-w-[8rem] md:max-w-none">{sale.site || "-"}</span></td>
                                       <td><span className="erp-cell-truncate inline-block max-w-[10rem] md:max-w-none">{formatSaleWorkerLabel(sale)}</span></td>
                                       <td className="text-right font-medium whitespace-nowrap">{formatKRW(sale.amount)}</td>
@@ -5358,7 +5381,7 @@ const REPORT_TABS = [
   ["analysis", "데이터분석"],
 ];
 
-function ReportsPage({ sales, workers = [], paymentVouchers = [], onRequestClientStatement }) {
+function ReportsPage({ sales, workers = [], paymentVouchers = [], onRequestClientStatement, autoLinkedSaleIds = new Set() }) {
   const [reportTab, setReportTab] = useState("pivot");
   const [dateFilter, setDateFilter] = useState(() => monthRangeISO(0));
   const [selectedPeriodKey, setSelectedPeriodKey] = useState("");
@@ -5479,7 +5502,7 @@ function ReportsPage({ sales, workers = [], paymentVouchers = [], onRequestClien
 
       {reportTab === "pivot" && (
         <div className="erp-pivot-layout">
-          <PivotReportTable title="거래처 Pivot" labelHeader="거래처" rows={clientReport.rows} totals={clientReport.totals} showAvgPaid clientExpand={{ sales, dateFilter }} clientStatement={buildClientStatementActions(dateFilter)} />
+          <PivotReportTable title="거래처 Pivot" labelHeader="거래처" rows={clientReport.rows} totals={clientReport.totals} showAvgPaid clientExpand={{ sales, dateFilter }} clientStatement={buildClientStatementActions(dateFilter)} autoLinkedSaleIds={autoLinkedSaleIds} />
           <PivotReportTable title="시공자 Pivot" labelHeader="시공자" rows={workerReport.rows} totals={workerReport.totals} />
         </div>
       )}
@@ -5489,7 +5512,7 @@ function ReportsPage({ sales, workers = [], paymentVouchers = [], onRequestClien
           <PeriodPivotTable title="월별 Pivot" rows={monthlyReport.rows} totals={monthlyReport.totals} selectedKey={selectedPeriodKey} onSelect={setSelectedPeriodKey} />
           {drilldownClientReport && drilldownWorkerReport && (
             <div className="erp-pivot-layout">
-              <PivotReportTable title={`${monthlyReport.rows.find((row) => row.key === selectedPeriodKey)?.label || selectedPeriodKey} · 거래처`} labelHeader="거래처" rows={drilldownClientReport.rows} totals={drilldownClientReport.totals} showAvgPaid clientExpand={{ sales, dateFilter: drilldownFilter }} clientStatement={buildClientStatementActions(drilldownFilter)} />
+              <PivotReportTable title={`${monthlyReport.rows.find((row) => row.key === selectedPeriodKey)?.label || selectedPeriodKey} · 거래처`} labelHeader="거래처" rows={drilldownClientReport.rows} totals={drilldownClientReport.totals} showAvgPaid clientExpand={{ sales, dateFilter: drilldownFilter }} clientStatement={buildClientStatementActions(drilldownFilter)} autoLinkedSaleIds={autoLinkedSaleIds} />
               <PivotReportTable title={`${monthlyReport.rows.find((row) => row.key === selectedPeriodKey)?.label || selectedPeriodKey} · 시공자`} labelHeader="시공자" rows={drilldownWorkerReport.rows} totals={drilldownWorkerReport.totals} />
             </div>
           )}
@@ -5501,7 +5524,7 @@ function ReportsPage({ sales, workers = [], paymentVouchers = [], onRequestClien
           <PeriodPivotTable title="분기별 Pivot" rows={quarterlyReport.rows} totals={quarterlyReport.totals} selectedKey={selectedPeriodKey} onSelect={setSelectedPeriodKey} />
           {drilldownClientReport && drilldownWorkerReport && (
             <div className="erp-pivot-layout">
-              <PivotReportTable title={`${quarterlyReport.rows.find((row) => row.key === selectedPeriodKey)?.label || selectedPeriodKey} · 거래처`} labelHeader="거래처" rows={drilldownClientReport.rows} totals={drilldownClientReport.totals} showAvgPaid clientExpand={{ sales, dateFilter: drilldownFilter }} clientStatement={buildClientStatementActions(drilldownFilter)} />
+              <PivotReportTable title={`${quarterlyReport.rows.find((row) => row.key === selectedPeriodKey)?.label || selectedPeriodKey} · 거래처`} labelHeader="거래처" rows={drilldownClientReport.rows} totals={drilldownClientReport.totals} showAvgPaid clientExpand={{ sales, dateFilter: drilldownFilter }} clientStatement={buildClientStatementActions(drilldownFilter)} autoLinkedSaleIds={autoLinkedSaleIds} />
               <PivotReportTable title={`${quarterlyReport.rows.find((row) => row.key === selectedPeriodKey)?.label || selectedPeriodKey} · 시공자`} labelHeader="시공자" rows={drilldownWorkerReport.rows} totals={drilldownWorkerReport.totals} />
             </div>
           )}
@@ -5605,6 +5628,10 @@ export default function TeammillimeterErpMvp() {
     if (apiMode && sessionOnMount) return [];
     return normalizeBankTransactions(storedData?.bankTransactions);
   });
+  const autoLinkedSaleIds = useMemo(
+    () => buildAutoLinkedSaleIdSet(paymentVouchers, bankTransactions),
+    [paymentVouchers, bankTransactions]
+  );
   const [bankTransactionFolders, setBankTransactionFolders] = useState(() => {
     if (apiMode && sessionOnMount) return normalizeBankTransactionFolders([]);
     return normalizeBankTransactionFolders(storedData?.bankTransactionFolders);
@@ -5993,6 +6020,7 @@ export default function TeammillimeterErpMvp() {
             setStatementGenerationLogs={setStatementGenerationLogs}
             statementFolders={statementFolders}
             setStatementFolders={setStatementFolders}
+            autoLinkedSaleIds={autoLinkedSaleIds}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="attendance" active={active}>
@@ -6034,6 +6062,7 @@ export default function TeammillimeterErpMvp() {
               }
               setActive("salesVoucherSearch");
             }}
+            autoLinkedSaleIds={autoLinkedSaleIds}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="salesInput" active={active}>
@@ -6053,6 +6082,7 @@ export default function TeammillimeterErpMvp() {
             pendingSearchFilter={pendingVoucherSearchFilter}
             onPendingVoucherConsumed={() => setPendingVoucherEditId(null)}
             onPendingSearchConsumed={() => setPendingVoucherSearchFilter(null)}
+            autoLinkedSaleIds={autoLinkedSaleIds}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="receivables" active={active}>
@@ -6065,6 +6095,7 @@ export default function TeammillimeterErpMvp() {
             paymentInputLogs={paymentInputLogs}
             setPaymentInputLogs={setPaymentInputLogs}
             currentUser={currentUser}
+            autoLinkedSaleIds={autoLinkedSaleIds}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="workerPayments" active={active}>
@@ -6149,9 +6180,8 @@ export default function TeammillimeterErpMvp() {
               setStatementDraft(draft);
               setActive("statements");
             }}
+            autoLinkedSaleIds={autoLinkedSaleIds}
           />
-        </PageKeepAlive>
-        <PageKeepAlive pageKey="auditLog" active={active}>
           <AuditLogPage />
         </PageKeepAlive>
         {canUserAccessPage(currentUser, "loginHistory") ? (

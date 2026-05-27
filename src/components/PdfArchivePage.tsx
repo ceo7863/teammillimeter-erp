@@ -18,6 +18,7 @@ import {
 } from "@/utils/pdfArchive";
 import { getSentStatementPaymentStatusLabel } from "@/utils/bankSentStatementMatch";
 import { isBankMatchAutoLinked } from "@/utils/bankReceivableMatch";
+import { AutoLinkBadge } from "@/components/AutoLinkBadge";
 import type { BankTransaction } from "@/utils/bankTransactions";
 import {
   filterPdfArchiveRecords,
@@ -64,14 +65,6 @@ function paymentStatusTone(status?: PdfArchiveMeta["paymentStatus"]) {
 function isArchiveAutoLinked(record: PdfArchiveMeta, bankTxById: Map<string, BankTransaction>) {
   if (!record.linkedBankTransactionId) return false;
   return isBankMatchAutoLinked(bankTxById.get(record.linkedBankTransactionId));
-}
-
-function AutoLinkBadge() {
-  return (
-    <span className="erp-bank-auto-link-badge" title="\uACE0\uC2E0\uB8B0 \uC790\uB3D9 \uC785\uAE08 \uC5F0\uACB0">
-      {"\uC790\uB3D9\uC5F0\uACB0"}
-    </span>
-  );
 }
 
 function buildPdfArchiveSummary(record: PdfArchiveMeta) {

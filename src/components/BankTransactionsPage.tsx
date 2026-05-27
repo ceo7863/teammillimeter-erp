@@ -21,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { AutoLinkBadge } from "@/components/AutoLinkBadge";
 import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { TableExportSection } from "@/components/TableExportSection";
@@ -262,11 +263,7 @@ type DepositSuggestion =
     };
 
 function BankAutoLinkBadge() {
-  return (
-    <span className="erp-bank-auto-link-badge" title={L.autoLinkBadgeTitle}>
-      {L.autoLinkBadge}
-    </span>
-  );
+  return <AutoLinkBadge title={L.autoLinkBadgeTitle} />;
 }
 
 function resolveActivePeriod(periodKey: PeriodKey, dateFilter: DateFilter): DateFilter {
