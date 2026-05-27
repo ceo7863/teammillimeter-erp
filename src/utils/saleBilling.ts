@@ -54,7 +54,14 @@ export function getWorkerLineOriginalBill(line: WorkerLineLike) {
 }
 
 export function getWorkerLineChargeAmount(line: WorkerLineLike) {
-  if (hasExplicitWorkerField(line.chargeAmount)) return parseWorkerMoney(line.chargeAmount);
+  if (hasExplicitWorkerField(line.chargeAmount)) {
+    return parseWorkerMoney(line.chargeAmount);
+  }
+  // chargeAmount 필드는 있지만 비어 있음 → 청구 0 (지급단가로 대체하지 않음)
+  if (Object.prototype.hasOwnProperty.call(line, "chargeAmount")) {
+    return 0;
+  }
+  // 구 데이터: chargeAmount 없을 때만 지급단가 참고
   return parseWorkerMoney(line.unitCost);
 }
 
