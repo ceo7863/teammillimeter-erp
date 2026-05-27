@@ -2739,7 +2739,7 @@ function SearchBox({ query, setQuery, placeholder }) {
 
 const emptyVoucherSearchFilters = { client: "", site: "", worker: "" };
 
-function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, pendingVoucherId, onPendingVoucherConsumed }) {
+function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed }) {
   const { recordAudit } = useAudit();
   const [searchFilters, setSearchFilters] = useState(emptyVoucherSearchFilters);
   const [dateFilter, setDateFilter] = useState({ startDate: "", endDate: "" });
@@ -2808,6 +2808,21 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
     openVoucher(row);
     onPendingVoucherConsumed?.();
   }, [pendingVoucherId, sales, onPendingVoucherConsumed]);
+
+  useEffect(() => {
+    if (!pendingSearchFilter) return;
+    setSearchFilters({
+      client: pendingSearchFilter.client || "",
+      site: "",
+      worker: "",
+    });
+    setDateFilter({
+      startDate: pendingSearchFilter.startDate || "",
+      endDate: pendingSearchFilter.endDate || pendingSearchFilter.startDate || "",
+    });
+    closeEditor();
+    onPendingSearchConsumed?.();
+  }, [pendingSearchFilter, onPendingSearchConsumed]);
 
   const updateWorkerLine = (index, key, value) => {
     clearSaveMessage();
@@ -4795,6 +4810,7 @@ export default function TeammillimeterErpMvp() {
   });
   const [statementDraft, setStatementDraft] = useState<StatementDraft | null>(null);
   const [pendingVoucherEditId, setPendingVoucherEditId] = useState(null);
+  const [pendingVoucherSearchFilter, setPendingVoucherSearchFilter] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [myAccountOpen, setMyAccountOpen] = useState(false);
   const [sidebarMenuOrderOpen, setSidebarMenuOrderOpen] = useState(false);
@@ -5180,6 +5196,20 @@ export default function TeammillimeterErpMvp() {
               setStatementDraft(draft);
               setActive("statements");
             }}
+            onOpenVoucherEdit={({ client: clientName, date, saleIds }) => {
+              if (saleIds.length === 1) {
+                setPendingVoucherSearchFilter(null);
+                setPendingVoucherEditId(saleIds[0]);
+              } else {
+                setPendingVoucherEditId(null);
+                setPendingVoucherSearchFilter({
+                  client: clientName,
+                  startDate: date,
+                  endDate: date,
+                });
+              }
+              setActive("salesVoucherSearch");
+            }}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="salesInput" active={active}>
@@ -5196,7 +5226,9 @@ export default function TeammillimeterErpMvp() {
             workers={workers}
             currentUser={currentUser}
             pendingVoucherId={pendingVoucherEditId}
+            pendingSearchFilter={pendingVoucherSearchFilter}
             onPendingVoucherConsumed={() => setPendingVoucherEditId(null)}
+            onPendingSearchConsumed={() => setPendingVoucherSearchFilter(null)}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="receivables" active={active}>

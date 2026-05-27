@@ -1747,6 +1747,10 @@ textarea {
   animation: erp-client-calendar-tooltip-in 0.14s ease-out;
 }
 
+.erp-client-calendar-day-tooltip.is-interactive {
+  pointer-events: auto;
+}
+
 @keyframes erp-client-calendar-tooltip-in {
   from {
     opacity: 0;
@@ -1882,12 +1886,18 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.5rem;
+  flex-wrap: wrap;
   padding: 0.6rem 0.8rem;
   border-top: 1px solid #e2e8f0;
   font-size: 0.75rem;
   font-weight: 800;
   color: #0f172a;
+}
+
+.erp-client-calendar-day-tooltip-edit {
+  flex-shrink: 0;
+  font-weight: 700;
 }
 
 .erp-client-calendar-day-tooltip-foot .is-unpaid {
@@ -6821,6 +6831,18 @@ body.erp-col-resizing * {
   background: #eff6ff;
 }
 
+.erp-company-ledger-page .erp-ledger-table tbody tr.erp-ledger-row-bank-linked {
+  background: #f0f9ff;
+}
+
+.erp-company-ledger-page .erp-ledger-table tbody tr.erp-ledger-row-bank-linked:hover {
+  background: #e0f2fe;
+}
+
+.erp-company-ledger-page .erp-ledger-table tbody tr.erp-ledger-row-bank-linked.is-selected {
+  background: #dbeafe;
+}
+
 .erp-company-ledger-page .erp-ledger-table tfoot td {
   background: #f8fafc;
   border-top: 2px solid #cbd5e1;
@@ -6879,6 +6901,14 @@ body.erp-col-resizing * {
 .erp-ledger-bank-source-badge {
   background: #e0f2fe;
   color: #0369a1;
+  cursor: help;
+}
+
+.erp-ledger-bank-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .erp-ledger-status-badge.active {

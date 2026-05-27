@@ -20,6 +20,7 @@ import {
   buildMonthlyLedgerRows,
   EXPENSE_CATEGORY_OPTIONS,
   filterCompanyExpenses,
+  filterFixedExpensePayments,
   FIXED_CATEGORY_OPTIONS,
   FIXED_CYCLE_OPTIONS,
   fixedCycleLabel,
@@ -120,6 +121,9 @@ const L = {
   won: "\uC6D0",
   count: "\uAC74",
   separator: "\u00B7",
+  bankSourceBadge: "\uD1B5\uC7A5\uC5F0\uB3D9",
+  bankSourceTitle: "\uD1B5\uC7A5\uAC70\uB798\uB0B4\uC5ED\uC5D0\uC11C \uB4F1\uB85D\uB428",
+  bankSourceLegend: "\uD1B5\uC7A5\uAC70\uB798\uB0B4\uC5ED\uC5D0\uC11C \uB4F1\uB85D\uB41C \uC9C0\uCD9C\uC785\uB2C8\uB2E4.",
 };
 
 type CompanyLedgerPageProps = {
@@ -154,6 +158,10 @@ type FixedModalState = {
   memo: string;
   isActive: boolean;
 };
+
+type ManualLedgerRow =
+  | { type: "expense"; row: CompanyExpense }
+  | { type: "fixedPayment"; row: FixedExpensePayment };
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -224,7 +232,28 @@ function isBankLinkedExpense(row: CompanyExpense): boolean {
 }
 
 function BankSourceBadge() {
-  return <span className="erp-ledger-bank-source-badge">{"\uD1B5\uC7A5"}</span>;
+  return (
+    <span className="erp-ledger-bank-source-badge" title={L.bankSourceTitle}>
+      {L.bankSourceBadge}
+    </span>
+  );
+}
+
+function bankLinkedRowClass(isLinked: boolean) {
+  return isLinked ? "erp-ledger-row-bank-linked" : "";
+}
+
+function DescriptionWithBankBadge({ text, bankLinked }: { text: string; bankLinked?: boolean }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="font-semibold text-slate-900">{text}</span>
+      {bankLinked ? <BankSourceBadge /> : null}
+    </div>
+  );
+}
+
+function sumManualLedgerRows(rows: ManualLedgerRow[]) {
+  return rows.reduce((sum, item) => sum + (item.row.amount || 0), 0);
 }
 
 function isBankLinkedPayment(row: FixedExpensePayment): boolean {
@@ -346,19 +375,47 @@ export function CompanyLedgerPage({
   );
 
   const filteredManualRows = useMemo(() => {
-    const ranged = filterCompanyExpenses(companyExpenses, periodFilter.startDate, periodFilter.endDate);
+    const rangedExpenses = filterCompanyExpenses(companyExpenses, periodFilter.startDate, periodFilter.endDate);
+    const rangedBankPayments = filterFixedExpensePayments(
+      fixedExpensePayments.filter((row) => isBankLinkedPayment(row)),
+      periodFilter.startDate,
+      periodFilter.endDate,
+    );
+    const merged: ManualLedgerRow[] = [
+      ...rangedExpenses.map((row) => ({ type: "expense" as const, row })),
+      ...rangedBankPayments.map((row) => ({ type: "fixedPayment" as const, row })),
+    ];
     const keyword = manualQuery.trim().toLowerCase();
-    if (!keyword) return ranged.sort((a, b) => String(b.date).localeCompare(String(a.date)));
-    return ranged
-      .filter((row) =>
-        [row.description, row.category, row.memo, row.createdBy]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase()
-          .includes(keyword),
-      )
-      .sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  }, [companyExpenses, manualQuery, periodFilter.endDate, periodFilter.startDate]);
+    const filtered = keyword
+      ? merged.filter((item) => {
+          if (item.type === "expense") {
+            const row = item.row;
+            return [row.description, row.category, row.memo, row.createdBy]
+              .filter(Boolean)
+              .join(" ")
+              .toLowerCase()
+              .includes(keyword);
+          }
+          const row = item.row;
+          const name = resolveFixedExpenseName(row.fixedExpenseId, fixedExpenses);
+          const category = resolveFixedExpenseCategory(row.fixedExpenseId, fixedExpenses);
+          return [name, category, row.memo, L.fixedPayment]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+            .includes(keyword);
+        })
+      : merged;
+    return filtered.sort((a, b) => String(b.row.date).localeCompare(String(a.row.date)));
+  }, [companyExpenses, fixedExpensePayments, fixedExpenses, manualQuery, periodFilter.endDate, periodFilter.startDate]);
+
+  const hasBankLinkedManualRows = useMemo(
+    () =>
+      filteredManualRows.some((item) =>
+        item.type === "expense" ? isBankLinkedExpense(item.row) : isBankLinkedPayment(item.row),
+      ),
+    [filteredManualRows],
+  );
 
   const filteredFixedRows = useMemo(() => {
     const keyword = fixedQuery.trim().toLowerCase();
@@ -589,30 +646,59 @@ export function CompanyLedgerPage({
               />
             </div>
 
+            {hasBankLinkedManualRows ? (
+              <p className="erp-ledger-bank-legend erp-text-caption text-slate-500">
+                <BankSourceBadge /> {L.bankSourceLegend}
+              </p>
+            ) : null}
+
             <MobileRecordList>
               {filteredManualRows.length ? (
-                filteredManualRows.map((row) => (
-                  <MobileRecordCard
-                    key={row.id}
-                    title={row.description}
-                    subtitle={row.date}
-                    badge={<ExpenseCategoryBadges row={row} />}
-                    fields={[
-                      { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
-                      { label: L.memo, value: row.memo || "-", tone: "muted" },
-                    ]}
-                    actions={
-                      <>
-                        <button type="button" className="erp-mobile-action-btn" onClick={() => openEditManual(row)}>
-                          <Pencil size={15} /> {L.edit}
-                        </button>
-                        <button type="button" className="erp-mobile-action-btn danger" onClick={() => deleteManual(row)}>
-                          <Trash2 size={15} /> {L.delete}
-                        </button>
-                      </>
-                    }
-                  />
-                ))
+                filteredManualRows.map((item) => {
+                  if (item.type === "expense") {
+                    const row = item.row;
+                    const bankLinked = isBankLinkedExpense(row);
+                    return (
+                      <MobileRecordCard
+                        key={`expense-${row.id}`}
+                        title={<DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />}
+                        subtitle={row.date}
+                        badge={<ExpenseCategoryBadges row={row} />}
+                        fields={[
+                          { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
+                          { label: L.memo, value: row.memo || "-", tone: "muted" },
+                        ]}
+                        actions={
+                          bankLinked ? undefined : (
+                            <>
+                              <button type="button" className="erp-mobile-action-btn" onClick={() => openEditManual(row)}>
+                                <Pencil size={15} /> {L.edit}
+                              </button>
+                              <button type="button" className="erp-mobile-action-btn danger" onClick={() => deleteManual(row)}>
+                                <Trash2 size={15} /> {L.delete}
+                              </button>
+                            </>
+                          )
+                        }
+                      />
+                    );
+                  }
+                  const row = item.row;
+                  const name = resolveFixedExpenseName(row.fixedExpenseId, fixedExpenses);
+                  return (
+                    <MobileRecordCard
+                      key={`fixed-pay-${row.id}`}
+                      title={<DescriptionWithBankBadge text={name} bankLinked />}
+                      subtitle={row.date}
+                      badge={<FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} />}
+                      fields={[
+                        { label: L.section, value: L.fixedPayment, tone: "muted" },
+                        { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
+                        { label: L.memo, value: row.memo || "-", tone: "muted" },
+                      ]}
+                    />
+                  );
+                })
               ) : (
                 <MobileRecordCard empty emptyLabel={L.emptyManual} />
               )}
@@ -632,27 +718,73 @@ export function CompanyLedgerPage({
                 </thead>
                 <tbody>
                   {filteredManualRows.length ? (
-                    filteredManualRows.map((row) => (
-                      <tr key={row.id}>
-                        <td>{row.date}</td>
-                        <td>
-                          <ExpenseCategoryBadges row={row} />
-                        </td>
-                        <td className="font-semibold text-slate-900">{row.description}</td>
-                        <td className="text-right font-bold text-rose-600">{formatKRW(row.amount)}{L.won}</td>
-                        <td className="text-slate-500">{row.memo || "-"}</td>
-                        <td className="erp-table-export-skip">
-                          <div className="erp-ledger-row-actions">
-                            <button type="button" className="erp-ledger-icon-btn" onClick={() => openEditManual(row)} aria-label={L.edit}>
-                              <Pencil size={15} />
-                            </button>
-                            <button type="button" className="erp-ledger-icon-btn danger" onClick={() => deleteManual(row)} aria-label={L.delete}>
-                              <Trash2 size={15} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
+                    filteredManualRows.map((item) => {
+                      if (item.type === "expense") {
+                        const row = item.row;
+                        const bankLinked = isBankLinkedExpense(row);
+                        return (
+                          <tr key={`expense-${row.id}`} className={bankLinkedRowClass(bankLinked)}>
+                            <td>{row.date}</td>
+                            <td>
+                              <ExpenseCategoryBadges row={row} />
+                            </td>
+                            <td>
+                              <DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />
+                            </td>
+                            <td className="text-right font-bold text-rose-600">
+                              {formatKRW(row.amount)}
+                              {L.won}
+                            </td>
+                            <td className="text-slate-500">{row.memo || "-"}</td>
+                            <td className="erp-table-export-skip">
+                              {bankLinked ? (
+                                <span className="erp-text-caption text-slate-400">-</span>
+                              ) : (
+                                <div className="erp-ledger-row-actions">
+                                  <button
+                                    type="button"
+                                    className="erp-ledger-icon-btn"
+                                    onClick={() => openEditManual(row)}
+                                    aria-label={L.edit}
+                                  >
+                                    <Pencil size={15} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="erp-ledger-icon-btn danger"
+                                    onClick={() => deleteManual(row)}
+                                    aria-label={L.delete}
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      }
+                      const row = item.row;
+                      const name = resolveFixedExpenseName(row.fixedExpenseId, fixedExpenses);
+                      return (
+                        <tr key={`fixed-pay-${row.id}`} className={bankLinkedRowClass(true)}>
+                          <td>{row.date}</td>
+                          <td>
+                            <FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} />
+                          </td>
+                          <td>
+                            <DescriptionWithBankBadge text={`${L.fixedPayment} ${L.separator} ${name}`} bankLinked />
+                          </td>
+                          <td className="text-right font-bold text-rose-600">
+                            {formatKRW(row.amount)}
+                            {L.won}
+                          </td>
+                          <td className="text-slate-500">{row.memo || "-"}</td>
+                          <td className="erp-table-export-skip">
+                            <span className="erp-text-caption text-slate-400">-</span>
+                          </td>
+                        </tr>
+                      );
+                    })
                   ) : (
                     <tr>
                       <td colSpan={6} className="erp-ledger-empty">
@@ -668,7 +800,7 @@ export function CompanyLedgerPage({
                         {L.total} ({filteredManualRows.length}{L.count})
                       </td>
                       <td className="text-right font-black text-rose-600">
-                        {formatKRW(sumCompanyExpenses(filteredManualRows))}{L.won}
+                        {formatKRW(sumManualLedgerRows(filteredManualRows))}{L.won}
                       </td>
                       <td colSpan={2} />
                     </tr>
@@ -904,18 +1036,21 @@ export function CompanyLedgerPage({
                 selectedMonthDetail.fixedItems.length ||
                 selectedMonthDetail.fixedPayments.length ? (
                   <>
-                    {selectedMonthDetail.manualExpenses.map((row) => (
-                      <MobileRecordCard
-                        key={`manual-${row.id}`}
-                        title={row.description}
-                        subtitle={row.date}
-                        badge={<ExpenseCategoryBadges row={row} />}
-                        fields={[
-                          { label: L.section, value: L.variableExpense, tone: "muted" },
-                          { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
-                        ]}
-                      />
-                    ))}
+                    {selectedMonthDetail.manualExpenses.map((row) => {
+                      const bankLinked = isBankLinkedExpense(row);
+                      return (
+                        <MobileRecordCard
+                          key={`manual-${row.id}`}
+                          title={<DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />}
+                          subtitle={row.date}
+                          badge={<ExpenseCategoryBadges row={row} />}
+                          fields={[
+                            { label: L.section, value: L.variableExpense, tone: "muted" },
+                            { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
+                          ]}
+                        />
+                      );
+                    })}
                     {selectedMonthDetail.fixedItems.map((row) => (
                       <MobileRecordCard
                         key={`fixed-${row.id}`}
@@ -928,19 +1063,23 @@ export function CompanyLedgerPage({
                         ]}
                       />
                     ))}
-                    {selectedMonthDetail.fixedPayments.map((row) => (
-                      <MobileRecordCard
-                        key={`fixed-pay-${row.id}`}
-                        title={resolveFixedExpenseName(row.fixedExpenseId, fixedExpenses)}
-                        subtitle={row.date}
-                        badge={<FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} />}
-                        fields={[
-                          { label: L.section, value: L.fixedPayment, tone: "muted" },
-                          { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
-                          ...(row.memo ? [{ label: L.memoOptional, value: row.memo, tone: "muted" as const }] : []),
-                        ]}
-                      />
-                    ))}
+                    {selectedMonthDetail.fixedPayments.map((row) => {
+                      const name = resolveFixedExpenseName(row.fixedExpenseId, fixedExpenses);
+                      const bankLinked = isBankLinkedPayment(row);
+                      return (
+                        <MobileRecordCard
+                          key={`fixed-pay-${row.id}`}
+                          title={<DescriptionWithBankBadge text={name} bankLinked={bankLinked} />}
+                          subtitle={row.date}
+                          badge={<FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} />}
+                          fields={[
+                            { label: L.section, value: L.fixedPayment, tone: "muted" },
+                            { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
+                            ...(row.memo ? [{ label: L.memoOptional, value: row.memo, tone: "muted" as const }] : []),
+                          ]}
+                        />
+                      );
+                    })}
                     <MobileRecordCard
                       title={L.grandTotal}
                       fields={[
@@ -964,17 +1103,25 @@ export function CompanyLedgerPage({
                     </tr>
                   </thead>
                   <tbody>
-                    {selectedMonthDetail.manualExpenses.map((row) => (
-                      <tr key={`manual-${row.id}`}>
-                        <td>{L.variableExpense}</td>
-                        <td>{row.date}</td>
-                        <td>
-                          <ExpenseCategoryBadges row={row} />
-                        </td>
-                        <td>{row.description}</td>
-                        <td className="text-right">{formatKRW(row.amount)}{L.won}</td>
-                      </tr>
-                    ))}
+                    {selectedMonthDetail.manualExpenses.map((row) => {
+                      const bankLinked = isBankLinkedExpense(row);
+                      return (
+                        <tr key={`manual-${row.id}`} className={bankLinkedRowClass(bankLinked)}>
+                          <td>{L.variableExpense}</td>
+                          <td>{row.date}</td>
+                          <td>
+                            <ExpenseCategoryBadges row={row} />
+                          </td>
+                          <td>
+                            <DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />
+                          </td>
+                          <td className="text-right">
+                            {formatKRW(row.amount)}
+                            {L.won}
+                          </td>
+                        </tr>
+                      );
+                    })}
                     {selectedMonthDetail.fixedItems.map((row) => (
                       <tr key={`fixed-${row.id}`}>
                         <td>{L.fixedExpense}</td>
@@ -986,20 +1133,27 @@ export function CompanyLedgerPage({
                         <td className="text-right">{formatKRW(row.monthlyAmount)}{L.won}</td>
                       </tr>
                     ))}
-                    {selectedMonthDetail.fixedPayments.map((row) => (
-                      <tr key={`fixed-pay-${row.id}`}>
-                        <td>{L.fixedPayment}</td>
-                        <td>{row.date}</td>
-                        <td>
-                          <FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} />
-                        </td>
-                        <td>
-                          {resolveFixedExpenseName(row.fixedExpenseId, fixedExpenses)}
-                          {row.memo ? ` ${L.separator} ${row.memo}` : ""}
-                        </td>
-                        <td className="text-right">{formatKRW(row.amount)}{L.won}</td>
-                      </tr>
-                    ))}
+                    {selectedMonthDetail.fixedPayments.map((row) => {
+                      const name = resolveFixedExpenseName(row.fixedExpenseId, fixedExpenses);
+                      const bankLinked = isBankLinkedPayment(row);
+                      const description = row.memo ? `${name} ${L.separator} ${row.memo}` : name;
+                      return (
+                        <tr key={`fixed-pay-${row.id}`} className={bankLinkedRowClass(bankLinked)}>
+                          <td>{L.fixedPayment}</td>
+                          <td>{row.date}</td>
+                          <td>
+                            <FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} />
+                          </td>
+                          <td>
+                            <DescriptionWithBankBadge text={description} bankLinked={bankLinked} />
+                          </td>
+                          <td className="text-right">
+                            {formatKRW(row.amount)}
+                            {L.won}
+                          </td>
+                        </tr>
+                      );
+                    })}
                     {!selectedMonthDetail.manualExpenses.length &&
                     !selectedMonthDetail.fixedItems.length &&
                     !selectedMonthDetail.fixedPayments.length ? (

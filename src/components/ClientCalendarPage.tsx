@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { CalendarDays, Check, ChevronLeft, ChevronRight, CreditCard, FileText, ArrowDown, ArrowUp, ArrowUpDown, Undo2 } from "lucide-react";
+import { CalendarDays, Check, ChevronLeft, ChevronRight, CreditCard, FileText, ArrowDown, ArrowUp, ArrowUpDown, Undo2, Pencil } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AutocompleteInput } from "@/components/AutocompleteInput";
@@ -66,6 +66,7 @@ type DayStats = {
   count: number;
   totalAmount: number;
   totalUnpaid: number;
+  saleIds: Array<string | number>;
   vouchers: DayVoucher[];
   tooltipVouchers: DayTooltipVoucher[];
   hasUnpaid: boolean;
@@ -106,6 +107,7 @@ type ClientCalendarPageProps = {
   setPaymentInputLogs?: React.Dispatch<React.SetStateAction<PaymentInputLog[]>>;
   currentUser?: { name?: string; email?: string };
   onRequestClientStatement?: (draft: StatementDraft) => void;
+  onOpenVoucherEdit?: (input: { client: string; date: string; saleIds: Array<string | number> }) => void;
 };
 
 function PageTitle({ title, desc }: { title: string; desc: string }) {
@@ -146,6 +148,7 @@ function buildMonthCells(monthKey: string, statsByDate: Record<string, DayStats>
         count: 0,
         totalAmount: 0,
         totalUnpaid: 0,
+        saleIds: [],
         vouchers: [],
         tooltipVouchers: [],
         hasUnpaid: false,
@@ -165,16 +168,31 @@ function formatSelectedDateLabel(date: string) {
   return `${Number(monthText)}/${Number(dayText)} (${weekday})`;
 }
 
-function ClientCalendarDayTooltip({ preview }: { preview: DayHoverPreview | null }) {
+function ClientCalendarDayTooltip({
+  preview,
+  clientName,
+  onOpenVoucherEdit,
+  onMouseEnter,
+  onMouseLeave,
+}: {
+  preview: DayHoverPreview | null;
+  clientName: string;
+  onOpenVoucherEdit?: (input: { client: string; date: string; saleIds: Array<string | number> }) => void;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
+}) {
   if (!preview) return null;
 
   const { date, stats } = preview;
+  const canEdit = stats.saleIds.length > 0 && Boolean(onOpenVoucherEdit);
 
   return (
     <div
-      className="erp-client-calendar-day-tooltip"
+      className={`erp-client-calendar-day-tooltip${canEdit ? " is-interactive" : ""}`}
       style={{ left: preview.anchorX, top: preview.anchorY }}
       role="tooltip"
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
     >
       <div className="erp-client-calendar-day-tooltip-head">
         <strong>{formatSelectedDateLabel(date)}</strong>
@@ -203,6 +221,24 @@ function ClientCalendarDayTooltip({ preview }: { preview: DayHoverPreview | null
       </ul>
       <div className="erp-client-calendar-day-tooltip-foot">
         <span>합계 {formatKRW(stats.totalAmount)}</span>
+        {canEdit ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="erp-client-calendar-day-tooltip-edit h-7 rounded-lg px-2 text-xs"
+            onClick={() => {
+              onOpenVoucherEdit?.({
+                client: clientName,
+                date,
+                saleIds: stats.saleIds,
+              });
+            }}
+          >
+            <Pencil size={12} className="mr-1" />
+            매출전표 수정
+          </Button>
+        ) : null}
       </div>
     </div>
   );
@@ -264,6 +300,7 @@ export function ClientCalendarPage({
   setPaymentInputLogs,
   currentUser,
   onRequestClientStatement,
+  onOpenVoucherEdit,
 }: ClientCalendarPageProps) {
   const { recordAudit } = useAudit();
   const [monthKey, setMonthKey] = useState(() => todayISO().slice(0, 7));
@@ -278,6 +315,7 @@ export function ClientCalendarPage({
     direction: "desc",
   });
   const calendarRef = React.useRef<HTMLDivElement | null>(null);
+  const hideDayPreviewTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clientOptions = useMemo(() => {
     const fromMaster = clients.map((row) => String(row.name || "").trim()).filter(Boolean);
@@ -354,6 +392,7 @@ export function ClientCalendarPage({
           count: 0,
           totalAmount: 0,
           totalUnpaid: 0,
+          saleIds: [],
           vouchers: [],
           tooltipVouchers: [],
           hasUnpaid: false,
@@ -365,6 +404,9 @@ export function ClientCalendarPage({
       const totalAmount = billing.totalConstructionCost || getSaleTotalBill(sale) || amount;
       const workerLines = getSaleWorkerLines(sale);
       acc[date].count += 1;
+      if (sale.id != null && sale.id !== "") {
+        acc[date].saleIds.push(sale.id);
+      }
       acc[date].totalAmount += totalAmount;
       acc[date].totalUnpaid += unpaid;
       acc[date].vouchers.push({
@@ -450,6 +492,10 @@ export function ClientCalendarPage({
   };
 
   const showDayPreview = (date: string, stats: DayStats, event: React.MouseEvent<HTMLElement> | React.FocusEvent<HTMLElement>) => {
+    if (hideDayPreviewTimerRef.current) {
+      clearTimeout(hideDayPreviewTimerRef.current);
+      hideDayPreviewTimerRef.current = null;
+    }
     const rect = event.currentTarget.getBoundingClientRect();
     setHoverDayPreview({
       date,
@@ -460,7 +506,20 @@ export function ClientCalendarPage({
   };
 
   const hideDayPreview = () => {
-    setHoverDayPreview(null);
+    if (hideDayPreviewTimerRef.current) {
+      clearTimeout(hideDayPreviewTimerRef.current);
+    }
+    hideDayPreviewTimerRef.current = setTimeout(() => {
+      setHoverDayPreview(null);
+      hideDayPreviewTimerRef.current = null;
+    }, 120);
+  };
+
+  const keepDayPreview = () => {
+    if (hideDayPreviewTimerRef.current) {
+      clearTimeout(hideDayPreviewTimerRef.current);
+      hideDayPreviewTimerRef.current = null;
+    }
   };
 
   const selectAllMonthDates = () => {
@@ -1081,7 +1140,13 @@ export function ClientCalendarPage({
         </CardContent>
       </Card>
       </div>
-      <ClientCalendarDayTooltip preview={hoverDayPreview} />
+      <ClientCalendarDayTooltip
+        preview={hoverDayPreview}
+        clientName={client}
+        onOpenVoucherEdit={onOpenVoucherEdit}
+        onMouseEnter={keepDayPreview}
+        onMouseLeave={hideDayPreview}
+      />
     </div>
   );
 }

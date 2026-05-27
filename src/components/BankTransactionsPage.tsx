@@ -177,6 +177,8 @@ const L = {
   deleteFolder: "\uD3F4\uB354 \uC0AD\uC81C",
   deleteFolderConfirm: "\uD3F4\uB354\uB97C \uC0AD\uC81C\uD560\uAE4C\uC694? \uC548\uC758 \uAC70\uB798\uB294 \uBBF8\uBD84\uB958\uB85C \uC774\uB3D9\uD569\uB2C8\uB2E4.",
   assignFolder: "\uD3F4\uB354",
+  memo: "\uBA54\uBAA8",
+  memoPlaceholder: "\uBA54\uBAA8 \uC785\uB825",
   classification: "\uBD84\uB958",
   linkedSubject: "\uC5F0\uACB0 \uC774\uB984",
   autoClassify: "\uC790\uB3D9 \uBD84\uB958",
@@ -690,6 +692,14 @@ export function BankTransactionsPage({
     applyAutoLearnRules(nextTransactions, fixedExpensePayments, companyExpenses, nextRules, {
       showMessage: true,
     });
+  };
+
+  const updateTransactionMemo = (transactionId: string, memo: string) => {
+    setBankTransactions((prev) =>
+      prev.map((row) =>
+        row.id === transactionId ? { ...row, memo: memo || undefined } : row
+      )
+    );
   };
 
   const runAutoClassify = () => {
@@ -1310,6 +1320,15 @@ export function BankTransactionsPage({
             </optgroup>
           </select>
         </td>
+        <td>
+          <input
+            className="erp-input erp-input-compact min-w-[8rem] max-w-[14rem]"
+            value={row.memo || ""}
+            placeholder={L.memoPlaceholder}
+            onChange={(event) => updateTransactionMemo(row.id, event.target.value)}
+            onClick={(event) => event.stopPropagation()}
+          />
+        </td>
       </tr>
     );
   };
@@ -1344,6 +1363,17 @@ export function BankTransactionsPage({
         { label: L.counterpartyName, value: row.counterpartyName || "-" },
         { label: L.counterpartyBank, value: row.counterpartyBank || "-" },
         { label: L.transactionType, value: row.transactionType || "-" },
+        {
+          label: L.memo,
+          value: (
+            <input
+              className="erp-input erp-input-compact w-full min-w-0 text-right"
+              value={row.memo || ""}
+              placeholder={L.memoPlaceholder}
+              onChange={(event) => updateTransactionMemo(row.id, event.target.value)}
+            />
+          ),
+        },
       ]}
       actions={
         canLedger || canLinkUnclassifiedClientDeposit(row) ? (
@@ -1983,6 +2013,7 @@ export function BankTransactionsPage({
                 <th>{L.matchStatus}</th>
                 <th>{L.transactionType}</th>
                 <th>{L.assignFolder}</th>
+                <th>{L.memo}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1990,7 +2021,7 @@ export function BankTransactionsPage({
                   filteredRows.map(renderRow)
                 ) : (
                   <tr>
-                    <td colSpan={11} className="py-12 text-center text-slate-500">
+                    <td colSpan={12} className="py-12 text-center text-slate-500">
                       {L.empty}
                     </td>
                   </tr>
