@@ -38,6 +38,7 @@ import {
   validateFixedExpenseInput,
   type CompanyExpense,
   type FixedExpense,
+  type FixedExpensePayment,
   type FixedExpenseCycle,
   type LedgerPeriodKey,
 } from "@/utils/companyLedger";
@@ -96,6 +97,7 @@ const L = {
   thisMonthBtn: "\uC774\uBC88 \uB2EC",
   variableExpense: "\uBCC0\uB3D9 \uC9C0\uCD9C",
   fixedExpense: "\uACE0\uC815\uBE44",
+  fixedPayment: "\uACE0\uC815\uBE44 \uB0A9\uBD80",
   monthTotal: "\uC6D4 \uCD1D\uD569",
   monthSummary: "\uC6D4\uBCC4 \uC694\uC57D",
   month: "\uC6D4",
@@ -123,6 +125,7 @@ type CompanyLedgerPageProps = {
   setCompanyExpenses: React.Dispatch<React.SetStateAction<CompanyExpense[]>>;
   fixedExpenses: FixedExpense[];
   setFixedExpenses: React.Dispatch<React.SetStateAction<FixedExpense[]>>;
+  fixedExpensePayments?: FixedExpensePayment[];
   currentUser?: ErpUser | null;
 };
 
@@ -212,6 +215,57 @@ function CategoryBadge({ label }: { label: string }) {
   return <span className="erp-ledger-category-badge">{label || "-"}</span>;
 }
 
+function isBankLinkedExpense(row: CompanyExpense): boolean {
+  return Boolean(row.bankTransactionId?.trim());
+}
+
+function BankSourceBadge() {
+  return <span className="erp-ledger-bank-source-badge">{"\uD1B5\uC7A5"}</span>;
+}
+
+function isBankLinkedPayment(row: FixedExpensePayment): boolean {
+  return Boolean(row.bankTransactionId?.trim());
+}
+
+function resolveFixedExpenseName(fixedExpenseId: string, fixedExpenses: FixedExpense[]) {
+  return fixedExpenses.find((row) => row.id === fixedExpenseId)?.name || fixedExpenseId;
+}
+
+function resolveFixedExpenseCategory(fixedExpenseId: string, fixedExpenses: FixedExpense[]) {
+  return fixedExpenses.find((row) => row.id === fixedExpenseId)?.category || "-";
+}
+
+function ExpenseCategoryBadges({ row }: { row: CompanyExpense }) {
+  if (isBankLinkedExpense(row)) {
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        <CategoryBadge label={row.category} />
+        <BankSourceBadge />
+      </div>
+    );
+  }
+  return <CategoryBadge label={row.category} />;
+}
+
+function FixedPaymentBadges({
+  payment,
+  fixedExpenses,
+}: {
+  payment: FixedExpensePayment;
+  fixedExpenses: FixedExpense[];
+}) {
+  const category = resolveFixedExpenseCategory(payment.fixedExpenseId, fixedExpenses);
+  if (isBankLinkedPayment(payment)) {
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        <CategoryBadge label={category} />
+        <BankSourceBadge />
+      </div>
+    );
+  }
+  return <CategoryBadge label={category} />;
+}
+
 function ActiveBadge({ active }: { active: boolean }) {
   return (
     <span className={`erp-ledger-status-badge ${active ? "active" : "inactive"}`}>
@@ -249,6 +303,7 @@ export function CompanyLedgerPage({
   setCompanyExpenses,
   fixedExpenses = [],
   setFixedExpenses,
+  fixedExpensePayments = [],
   currentUser,
 }: CompanyLedgerPageProps) {
   const [activeTab, setActiveTab] = useState<LedgerTab>("manual");
@@ -318,8 +373,8 @@ export function CompanyLedgerPage({
   );
 
   const selectedMonthDetail = useMemo(
-    () => buildMonthlyLedgerDetail(companyExpenses, fixedExpenses, selectedMonthKey),
-    [companyExpenses, fixedExpenses, selectedMonthKey],
+    () => buildMonthlyLedgerDetail(companyExpenses, fixedExpenses, selectedMonthKey, fixedExpensePayments),
+    [companyExpenses, fixedExpenses, fixedExpensePayments, selectedMonthKey],
   );
 
   const openCreateManual = () => {
@@ -526,7 +581,7 @@ export function CompanyLedgerPage({
                     key={row.id}
                     title={row.description}
                     subtitle={row.date}
-                    badge={<CategoryBadge label={row.category} />}
+                    badge={<ExpenseCategoryBadges row={row} />}
                     fields={[
                       { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
                       { label: L.memo, value: row.memo || "-", tone: "muted" },
@@ -566,7 +621,7 @@ export function CompanyLedgerPage({
                       <tr key={row.id}>
                         <td>{row.date}</td>
                         <td>
-                          <CategoryBadge label={row.category} />
+                          <ExpenseCategoryBadges row={row} />
                         </td>
                         <td className="font-semibold text-slate-900">{row.description}</td>
                         <td className="text-right font-bold text-rose-600">{formatKRW(row.amount)}{L.won}</td>
@@ -830,14 +885,16 @@ export function CompanyLedgerPage({
             <CardContent className="space-y-4 p-4 md:p-5">
               <h2 className="erp-text-section font-bold text-slate-900">{selectedMonthDetail.label} {L.monthDetail}</h2>
               <MobileRecordList>
-                {selectedMonthDetail.manualExpenses.length || selectedMonthDetail.fixedItems.length ? (
+                {selectedMonthDetail.manualExpenses.length ||
+                selectedMonthDetail.fixedItems.length ||
+                selectedMonthDetail.fixedPayments.length ? (
                   <>
                     {selectedMonthDetail.manualExpenses.map((row) => (
                       <MobileRecordCard
                         key={`manual-${row.id}`}
                         title={row.description}
                         subtitle={row.date}
-                        badge={<CategoryBadge label={row.category} />}
+                        badge={<ExpenseCategoryBadges row={row} />}
                         fields={[
                           { label: L.section, value: L.variableExpense, tone: "muted" },
                           { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
@@ -853,6 +910,19 @@ export function CompanyLedgerPage({
                         fields={[
                           { label: L.section, value: L.fixedExpense, tone: "muted" },
                           { label: L.amount, value: `${formatKRW(row.monthlyAmount)}${L.won}`, tone: "success" },
+                        ]}
+                      />
+                    ))}
+                    {selectedMonthDetail.fixedPayments.map((row) => (
+                      <MobileRecordCard
+                        key={`fixed-pay-${row.id}`}
+                        title={resolveFixedExpenseName(row.fixedExpenseId, fixedExpenses)}
+                        subtitle={row.date}
+                        badge={<FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} />}
+                        fields={[
+                          { label: L.section, value: L.fixedPayment, tone: "muted" },
+                          { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
+                          ...(row.memo ? [{ label: L.memoOptional, value: row.memo, tone: "muted" as const }] : []),
                         ]}
                       />
                     ))}
@@ -883,7 +953,9 @@ export function CompanyLedgerPage({
                       <tr key={`manual-${row.id}`}>
                         <td>{L.variableExpense}</td>
                         <td>{row.date}</td>
-                        <td>{row.category}</td>
+                        <td>
+                          <ExpenseCategoryBadges row={row} />
+                        </td>
                         <td>{row.description}</td>
                         <td className="text-right">{formatKRW(row.amount)}{L.won}</td>
                       </tr>
@@ -899,7 +971,23 @@ export function CompanyLedgerPage({
                         <td className="text-right">{formatKRW(row.monthlyAmount)}{L.won}</td>
                       </tr>
                     ))}
-                    {!selectedMonthDetail.manualExpenses.length && !selectedMonthDetail.fixedItems.length ? (
+                    {selectedMonthDetail.fixedPayments.map((row) => (
+                      <tr key={`fixed-pay-${row.id}`}>
+                        <td>{L.fixedPayment}</td>
+                        <td>{row.date}</td>
+                        <td>
+                          <FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} />
+                        </td>
+                        <td>
+                          {resolveFixedExpenseName(row.fixedExpenseId, fixedExpenses)}
+                          {row.memo ? ` ${L.separator} ${row.memo}` : ""}
+                        </td>
+                        <td className="text-right">{formatKRW(row.amount)}{L.won}</td>
+                      </tr>
+                    ))}
+                    {!selectedMonthDetail.manualExpenses.length &&
+                    !selectedMonthDetail.fixedItems.length &&
+                    !selectedMonthDetail.fixedPayments.length ? (
                       <tr>
                         <td colSpan={5} className="erp-ledger-empty">
                           {L.emptyMonth}

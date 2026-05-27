@@ -6085,9 +6085,17 @@ textarea {
 }
 
 .erp-sale-form-memo-after-workers {
+  display: grid;
+  gap: 0.55rem;
   margin-top: 0.65rem;
   padding-top: 0.55rem;
   border-top: 1px solid #e2e8f0;
+}
+
+@media (min-width: 768px) {
+  .erp-sale-form-memo-after-workers {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 .erp-sale-form-table-toolbar {
@@ -6487,9 +6495,10 @@ textarea {
 .erp-sales-sheet-table {
   width: max-content;
   min-width: 100%;
+  table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
 }
 
 .erp-sales-sheet-table thead th {
@@ -6498,15 +6507,61 @@ textarea {
   z-index: 3;
   background: #e2e8f0;
   color: #475569;
-  font-size: 0.6875rem;
+  font-size: 0.625rem;
   font-weight: 800;
-  padding: 0.35rem 0.45rem;
+  padding: 0;
   border-bottom: 1px solid #cbd5e1;
   white-space: nowrap;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+}
+
+.erp-sales-sheet-th-inner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 1.65rem;
+  padding: 0.28rem 0.45rem 0.28rem 0.32rem;
+}
+
+.erp-sales-sheet-th-inner--action {
+  justify-content: center;
+}
+
+.erp-sales-sheet-th-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 0.15rem;
+}
+
+.erp-sales-sheet-col-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none;
+  z-index: 2;
+}
+
+.erp-sales-sheet-col-resize:hover {
+  background: rgba(59, 130, 246, 0.28);
+}
+
+body.erp-col-resizing,
+body.erp-col-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 
 .erp-sales-sheet-sort-btn {
   width: 100%;
+  min-width: 0;
+  padding-right: 0.35rem;
   font-size: inherit;
   font-weight: inherit;
   color: inherit;
@@ -6514,14 +6569,14 @@ textarea {
 
 .erp-sales-sheet-table tbody td,
 .erp-sales-sheet-table tfoot td {
-  padding: 0.22rem 0.4rem;
+  padding: 0.16rem 0.3rem;
   border-bottom: 1px solid #e2e8f0;
   vertical-align: middle;
   white-space: nowrap;
-  max-width: 11rem;
   overflow: hidden;
   text-overflow: ellipsis;
   background: #fff;
+  line-height: 1.25;
 }
 
 .erp-sales-sheet-table tbody tr:last-child td {
@@ -6530,15 +6585,28 @@ textarea {
 
 .erp-sales-sheet-table tbody tr.is-voucher-start td {
   border-top: 2px solid #cbd5e1;
+}
+
+.erp-sales-sheet-table tbody tr.is-voucher-start td:not(.is-voucher-merged) {
   background: #f8fafc;
+}
+
+.erp-sales-sheet-table tbody td.is-voucher-merged {
+  vertical-align: middle;
+  background: #f8fafc;
+  border-top: 2px solid #cbd5e1;
 }
 
 .erp-sales-sheet-table tbody tr.is-voucher-line td {
   background: #fcfdff;
 }
 
-.erp-sales-sheet-table tbody tr:hover td {
+.erp-sales-sheet-table tbody tr:hover td:not(.is-voucher-merged) {
   background: #f1f5f9;
+}
+
+.erp-sales-sheet-table tbody tr:hover td.is-voucher-merged {
+  background: #eef2f7;
 }
 
 .erp-sales-sheet-table td.is-num,
@@ -6554,18 +6622,24 @@ textarea {
   box-shadow: 1px 0 0 #e2e8f0;
 }
 
-.erp-sales-sheet-table th.is-sticky:nth-child(2),
-.erp-sales-sheet-table td.is-sticky:nth-child(2) {
-  left: 3.5rem;
-}
-
-.erp-sales-sheet-table th.is-sticky:nth-child(3),
-.erp-sales-sheet-table td.is-sticky:nth-child(3) {
-  left: 7.5rem;
-}
-
 .erp-sales-sheet-table thead th.is-sticky {
   z-index: 4;
+}
+
+.erp-sales-sheet-table td.is-office-memo {
+  background: #fef3c7;
+  box-shadow: inset 3px 0 0 #f59e0b;
+}
+
+.erp-sales-sheet-table tbody tr:hover td.is-office-memo {
+  background: #fde68a;
+}
+
+.erp-sales-sheet-office-memo {
+  display: block;
+  color: #b45309;
+  font-weight: 800;
+  letter-spacing: -0.01em;
 }
 
 .erp-sales-sheet-table th.is-action,
@@ -6574,7 +6648,9 @@ textarea {
   right: 0;
   z-index: 2;
   box-shadow: -1px 0 0 #e2e8f0;
-  min-width: 2.5rem;
+  min-width: 2rem;
+  padding-left: 0.2rem;
+  padding-right: 0.2rem;
 }
 
 .erp-sales-sheet-table thead th.is-action {
@@ -6756,7 +6832,35 @@ textarea {
   color: #94a3b8;
 }
 
+.erp-attendance-page .erp-attendance-status-card {
+  background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
+}
+
+.erp-attendance-page .erp-attendance-clock-btn--in {
+  background: #059669;
+  color: #fff;
+}
+
+.erp-attendance-page .erp-attendance-clock-btn--in:hover:not(:disabled) {
+  background: #047857;
+}
+
+.erp-attendance-page .erp-attendance-clock-btn--out {
+  background: #0284c7;
+  color: #fff;
+}
+
+.erp-attendance-page .erp-attendance-clock-btn--out:hover:not(:disabled) {
+  background: #0369a1;
+}
+
+.erp-attendance-page .erp-attendance-clock-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .erp-ledger-category-badge,
+.erp-ledger-bank-source-badge,
 .erp-ledger-status-badge {
   display: inline-flex;
   align-items: center;
@@ -6770,6 +6874,11 @@ textarea {
 .erp-ledger-category-badge {
   background: #eef2ff;
   color: #4338ca;
+}
+
+.erp-ledger-bank-source-badge {
+  background: #e0f2fe;
+  color: #0369a1;
 }
 
 .erp-ledger-status-badge.active {
@@ -7836,4 +7945,155 @@ button:disabled,
 .erp-statement-view-btn:hover:not(:disabled),
 .erp-payment-input-vat-btn:hover:not(:disabled) {
   filter: brightness(0.96);
+}
+
+/* Bank transactions page */
+.erp-bank-hub-card {
+  overflow: hidden;
+  border: 1px solid #dbeafe;
+  background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 45%, #ecfdf5 100%);
+}
+
+.erp-bank-hub-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 1rem;
+  background: linear-gradient(145deg, #2563eb, #1d4ed8);
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.28);
+}
+
+.erp-bank-stat-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (min-width: 1024px) {
+  .erp-bank-stat-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.erp-bank-stat-card {
+  border-radius: 1rem;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  padding: 1rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.erp-bank-stat-card.is-deposit {
+  border-color: #bbf7d0;
+  background: linear-gradient(180deg, #f0fdf4 0%, #fff 100%);
+}
+
+.erp-bank-stat-card.is-withdrawal {
+  border-color: #fecaca;
+  background: linear-gradient(180deg, #fef2f2 0%, #fff 100%);
+}
+
+.erp-bank-stat-card.is-net-positive {
+  border-color: #a7f3d0;
+}
+
+.erp-bank-stat-card.is-net-negative {
+  border-color: #fecaca;
+}
+
+.erp-bank-flow-bar {
+  display: flex;
+  height: 0.5rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #f1f5f9;
+}
+
+.erp-bank-flow-bar-deposit {
+  background: linear-gradient(90deg, #34d399, #10b981);
+  transition: width 0.3s ease;
+}
+
+.erp-bank-flow-bar-withdrawal {
+  background: linear-gradient(90deg, #f87171, #ef4444);
+  transition: width 0.3s ease;
+}
+
+.erp-bank-account-chip {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 10rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.875rem;
+  border: 1px solid #e2e8f0;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(6px);
+}
+
+.erp-bank-account-chip.is-active {
+  border-color: #93c5fd;
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.erp-bank-counterparty-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px dashed #e2e8f0;
+}
+
+.erp-bank-counterparty-item:last-child {
+  border-bottom: none;
+}
+
+.erp-bank-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+.erp-bank-table tbody tr.is-deposit-row {
+  border-left: 3px solid #34d399;
+}
+
+.erp-bank-table tbody tr.is-withdrawal-row {
+  border-left: 3px solid #f87171;
+}
+
+.erp-bank-empty-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+}
+
+.erp-bank-empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 4rem;
+  height: 4rem;
+  border-radius: 1.25rem;
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.erp-bank-type-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  background: #f1f5f9;
+  color: #475569;
+  white-space: nowrap;
 }

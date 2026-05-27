@@ -35,6 +35,7 @@ import {
   FileText,
   X,
   Archive,
+  ArrowLeftRight,
   BookOpen,
   UserCog,
   Megaphone,
@@ -42,6 +43,7 @@ import {
   Circle,
   UserMinus,
   UserCheck,
+  Clock,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -63,16 +65,22 @@ import { MyAccountModal } from "@/components/MyAccountModal";
 import { SidebarMenuOrderModal } from "@/components/SidebarMenuOrderModal";
 import { UsersAdminPage } from "@/components/UsersAdminPage";
 import { CompanyLedgerPage } from "@/components/CompanyLedgerPage";
+import { AttendancePage } from "@/components/AttendancePage";
 import { ClientCalendarPage } from "@/components/ClientCalendarPage";
 import { CompanyNoticeBoardPage } from "@/components/CompanyNoticeBoardPage";
 import { TaxInvoicePage } from "@/components/TaxInvoicePage";
+import { BankTransactionsPage } from "@/components/BankTransactionsPage";
 import { CompanyProfilePage } from "@/components/CompanyProfilePage";
 import { DEFAULT_COMPANY_PROFILE, normalizeCompanyProfile } from "@/utils/companyProfile";
+import { formatDepositNameAliases } from "@/utils/clientDepositAliases";
 import { normalizeCompanyNotices } from "@/utils/companyNotices";
 import { normalizeWorkPosts } from "@/utils/workBoard";
 import { normalizeTaxInvoices } from "@/utils/taxInvoices";
+import { normalizeBankTransactions } from "@/utils/bankTransactions";
+import { normalizeBankTransactionFolders } from "@/utils/bankTransactionFolders";
 import { normalizeStatementGenerationLogs } from "@/utils/statementGenerationLogs";
 import { normalizeStatementFolders } from "@/utils/statementFolders";
+import { normalizeAttendanceRecords } from "@/utils/attendance";
 import { createUnpaidClientStatementDraft, stashStatementDraft, type StatementDraft } from "@/utils/statementDraft";
 import { TableExportSection, TableExportToolbar } from "@/components/TableExportSection";
 import { WorkerListExport } from "@/components/WorkerListExport";
@@ -82,7 +90,7 @@ import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { PageKeepAlive } from "@/components/PageKeepAlive";
 import { DesktopTableWrap, MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
 import { AutocompleteInput, AutocompleteSelect } from "@/components/AutocompleteInput";
-import { buildReceivableRowsFromSales, getStatus, getUnpaid, parseMoney } from "@/utils/receivables";
+import { buildReceivableRowsFromSales, getStatus, getUnpaid, parseMoney, formatMoneyInput, sanitizeMoneyInput } from "@/utils/receivables";
 import { getSaleStaffCount, getSaleTotalBill, getSaleWorkerLines, normalizeSalesRecords } from "@/utils/saleBilling";
 import { buildSaleDuplicateIndex, findSalesWithSameClientWorkerDate, isDuplicateSale } from "@/utils/saleDuplicates";
 import { filterNamedSuggestions } from "@/utils/autocompleteFilter";
@@ -107,11 +115,13 @@ import {
   migrateErpLoginLogs,
 } from "@/utils/loginLogs";
 import {
+  applyWorkerLineFieldUpdate,
   buildWorkerFeeMap,
   calculateWorkerLineAmounts,
   calculateWorkerLineMetrics,
   enrichWorkerLineWithMetrics,
   resolveWorkerFeeRate,
+  stripWorkerLineComputedMetrics,
   sumWorkerFormTotals,
 } from "@/utils/workerLineMetrics";
 import {
@@ -365,10 +375,14 @@ function normalizeBackupPayload(raw) {
       loginLogs: Array.isArray(raw.loginLogs) ? raw.loginLogs : [],
       workerPaymentRecords: Array.isArray(raw.workerPaymentRecords) ? raw.workerPaymentRecords : [],
       companyExpenses: Array.isArray(raw.companyExpenses) ? raw.companyExpenses : [],
+      attendanceRecords: normalizeAttendanceRecords(raw.attendanceRecords),
       fixedExpenses: Array.isArray(raw.fixedExpenses) ? raw.fixedExpenses : [],
+      fixedExpensePayments: Array.isArray(raw.fixedExpensePayments) ? raw.fixedExpensePayments : [],
       companyNotices: normalizeCompanyNotices(raw.companyNotices),
       workPosts: normalizeWorkPosts(raw.workPosts),
       taxInvoices: normalizeTaxInvoices(raw.taxInvoices),
+      bankTransactions: normalizeBankTransactions(raw.bankTransactions),
+      bankTransactionFolders: normalizeBankTransactionFolders(raw.bankTransactionFolders),
       statementGenerationLogs: normalizeStatementGenerationLogs(raw.statementGenerationLogs),
       statementFolders: normalizeStatementFolders(raw.statementFolders),
       companyProfile: normalizeCompanyProfile(raw.companyProfile),
@@ -409,6 +423,7 @@ const emptySaleForm = {
   site: "",
   paid: "",
   memo: "",
+  officeMemo: "",
   workers: Array.from({ length: 5 }, (_, index) => createWorkerLine(index)),
 };
 
@@ -438,6 +453,7 @@ function saleRowToForm(row, minWorkerRows = 8) {
     site: row.site || "",
     paid: row.manualPaidCleared ? "" : String(row.basePaid ?? 0),
     memo: row.memo || "",
+    officeMemo: row.officeMemo || "",
     workers: workerLines,
   };
 }
@@ -466,6 +482,7 @@ function SaleFormCompactEditor({
   onReset,
   showPaidField = true,
   memoAfterWorkers = false,
+  onSharedMemoChange,
 }) {
   const footerStatus = saveMessage || statusMessage || (canSave
     ? `${form.client}${form.site ? ` · ${form.site}` : ""} · ${formatKRW(totals.bill)}`
@@ -546,13 +563,18 @@ function SaleFormCompactEditor({
             </SaleFormField>
             {showPaidField && (
               <SaleFormField label="입금" icon={CreditCard}>
-                <Input className="erp-input-compact" inputMode="numeric" value={form.paid} onChange={(e) => update("paid", e.target.value)} placeholder="0" />
+                <MoneyInput className="erp-input-compact" value={form.paid} onChange={(e) => update("paid", e.target.value)} placeholder="0" />
               </SaleFormField>
             )}
             {!memoAfterWorkers && (
-              <SaleFormField label="비고" icon={FileText}>
-                <Input className="erp-input-compact" value={form.memo} onChange={(e) => update("memo", e.target.value)} placeholder="메모" />
-              </SaleFormField>
+              <>
+                <SaleFormField label="공통비고" icon={FileText}>
+                  <Input className="erp-input-compact" value={form.memo} onChange={(e) => (onSharedMemoChange || ((value) => update("memo", value)))(e.target.value)} placeholder="시공자 공통 비고" />
+                </SaleFormField>
+                <SaleFormField label="사무실메모" icon={FileText}>
+                  <Input className="erp-input-compact" value={form.officeMemo || ""} onChange={(e) => update("officeMemo", e.target.value)} placeholder="사무실 메모" />
+                </SaleFormField>
+              </>
             )}
           </div>
 
@@ -616,7 +638,7 @@ function SaleFormCompactEditor({
                       <td className="erp-grid-num"><WorkerGridInput rowIndex={index} columnKey="expense" rowCount={form.workers.length} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.expense} onChange={(e) => updateWorkerLine(index, "expense", e.target.value)} /></td>
                       <td className="erp-grid-num"><WorkerGridInput rowIndex={index} columnKey="overtimeHours" rowCount={form.workers.length} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.overtimeHours} onChange={(e) => updateWorkerLine(index, "overtimeHours", e.target.value)} /></td>
                       <td className="erp-grid-num"><WorkerGridInput rowIndex={index} columnKey="overtimeCost" rowCount={form.workers.length} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.overtimeCost} onChange={(e) => updateWorkerLine(index, "overtimeCost", e.target.value)} /></td>
-                      <td className="erp-sale-form-row-memo"><WorkerGridInput rowIndex={index} columnKey="memo" rowCount={form.workers.length} className="erp-grid-input erp-input-compact" value={line.memo} onChange={(e) => updateWorkerLine(index, "memo", e.target.value)} placeholder="비고" /></td>
+                      <td className="erp-sale-form-row-memo"><WorkerGridInput rowIndex={index} columnKey="memo" rowCount={form.workers.length} className="erp-grid-input erp-input-compact" value={line.memo} onChange={(e) => updateWorkerLine(index, "memo", e.target.value)} placeholder="개별 비고" /></td>
                       <td className="erp-sale-form-row-action erp-table-export-skip text-center">
                         <button
                           type="button"
@@ -642,8 +664,16 @@ function SaleFormCompactEditor({
 
           {memoAfterWorkers && (
             <div className="erp-sale-form-memo-after-workers">
-              <SaleFormField label="비고" icon={FileText}>
-                <Input className="erp-input-compact" value={form.memo} onChange={(e) => update("memo", e.target.value)} placeholder="메모" />
+              <SaleFormField label="공통비고" icon={FileText}>
+                <Input
+                  className="erp-input-compact"
+                  value={form.memo}
+                  onChange={(e) => (onSharedMemoChange || ((value) => update("memo", value)))(e.target.value)}
+                  placeholder="시공자 공통 비고"
+                />
+              </SaleFormField>
+              <SaleFormField label="사무실메모" icon={FileText}>
+                <Input className="erp-input-compact" value={form.officeMemo || ""} onChange={(e) => update("officeMemo", e.target.value)} placeholder="사무실 메모" />
               </SaleFormField>
             </div>
           )}
@@ -797,7 +827,12 @@ function buildSaleFromForm(form, currentUser = null, workers = []) {
   const feeMap = buildWorkerFeeMap(workers);
   const workerLines = (form.workers || [])
     .filter((line) => line.worker)
-    .map((line) => enrichWorkerLineWithMetrics(line, resolveWorkerFeeRate(line, feeMap)));
+    .map((line) =>
+      enrichWorkerLineWithMetrics(
+        stripWorkerLineComputedMetrics(line),
+        resolveWorkerFeeRate(line, feeMap)
+      )
+    );
   const amount = getSaleTotalBill({ workers: workerLines, amount: 0 });
   const workerNames = workerLines.map((line) => line.worker).filter(Boolean);
   const workerLabel = workerNames.join(", ");
@@ -812,7 +847,8 @@ function buildSaleFromForm(form, currentUser = null, workers = []) {
     amount,
     paid: Math.min(parseMoney(form.paid), amount),
     basePaid: Math.min(parseMoney(form.paid), amount),
-    memo: form.memo,
+    memo: String(form.memo ?? "").trim(),
+    officeMemo: String(form.officeMemo ?? "").trim(),
     createdBy: currentUser?.name || form.createdBy || "-",
     createdByEmail: currentUser?.email || form.createdByEmail || "",
     createdAt: form.createdAt || now,
@@ -1007,6 +1043,7 @@ function SaleFormSectionHead({ icon: Icon, title, desc, badge }) {
 
 const workerGridColumns = ["worker", "quantity", "unitCost", "chargeAmount", "meal", "lodging", "expense", "overtimeHours", "overtimeCost", "memo"];
 const workerGridNumericColumns = new Set(["quantity", "unitCost", "chargeAmount", "meal", "lodging", "expense", "overtimeHours", "overtimeCost"]);
+const workerGridIntegerColumns = new Set(["quantity"]);
 const workerGridTextColumns = new Set(["worker", "memo"]);
 
 let erpInputComposing = false;
@@ -1147,16 +1184,58 @@ function WorkerGridColgroup() {
   );
 }
 
-function WorkerGridInput({ rowIndex, columnKey, rowCount, className = "", ...props }) {
+function MoneyInput({ className = "", value, onChange, ...rest }) {
+  return (
+    <Input
+      {...rest}
+      className={className}
+      type="text"
+      inputMode="numeric"
+      value={formatMoneyInput(value)}
+      onChange={(event) => {
+        const sanitized = sanitizeMoneyInput(event.target.value);
+        onChange?.({
+          ...event,
+          target: { ...event.target, value: sanitized },
+          currentTarget: { ...event.currentTarget, value: sanitized },
+        });
+      }}
+    />
+  );
+}
+
+function WorkerGridInput({ rowIndex, columnKey, rowCount, className = "", value, onChange, ...props }) {
   const isNumeric = workerGridNumericColumns.has(columnKey);
+  const displayValue = isNumeric ? formatMoneyInput(value) : value;
+
+  const handleChange = (event) => {
+    if (!isNumeric) {
+      onChange?.(event);
+      return;
+    }
+
+    let sanitized = sanitizeMoneyInput(event.target.value);
+    if (workerGridIntegerColumns.has(columnKey)) {
+      sanitized = sanitized.replace(/[^\d]/g, "");
+    }
+
+    onChange?.({
+      ...event,
+      target: { ...event.target, value: sanitized },
+      currentTarget: { ...event.currentTarget, value: sanitized },
+    });
+  };
 
   return (
     <Input
       {...props}
       type="text"
+      value={displayValue}
+      onChange={handleChange}
       data-worker-row={rowIndex}
       data-worker-col={columnKey}
       className={`erp-grid-input ${isNumeric ? "erp-grid-input--num" : ""} ${className}`.trim()}
+      inputMode={columnKey === "overtimeHours" ? "decimal" : isNumeric ? "numeric" : undefined}
       onKeyDown={(event) => {
         props.onKeyDown?.(event);
         if (event.defaultPrevented) return;
@@ -1493,6 +1572,7 @@ function LoginScreen({ onLogin }) {
 const PAGE_ICONS: Record<ErpPageKey, typeof Home> = {
   dashboard: Home,
   calendar: CalendarDays,
+  attendance: Clock,
   clientCalendar: CalendarRange,
   salesInput: Plus,
   sales: FileSpreadsheet,
@@ -1506,6 +1586,7 @@ const PAGE_ICONS: Record<ErpPageKey, typeof Home> = {
   workers: Users,
   companyLedger: BookOpen,
   taxInvoices: Receipt,
+  bankTransactions: ArrowLeftRight,
   companyNotices: Megaphone,
   companyProfile: Landmark,
   auditLog: History,
@@ -2393,7 +2474,7 @@ function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "�
                 selected={isSelected}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
                 fields={[
-                  { label: "매출액", value: formatKRW(row.amount) },
+                  { label: "매출액", value: formatKRW(getSaleTotalBill(row)) },
                   { label: "입금", value: formatKRW(row.paid), tone: "success" },
                   { label: "미수", value: formatKRW(getUnpaid(row)), tone: "danger" },
                   { label: "시공자", value: row.worker || "-", tone: "muted" },
@@ -2437,7 +2518,7 @@ function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "�
               <td className="font-semibold"><span className="erp-cell-truncate inline-block max-w-[7rem] md:max-w-none">{row.client}</span></td>
               <td><span className="erp-cell-truncate inline-block max-w-[8rem] md:max-w-none">{row.site}</span></td>
               <td className="hidden md:table-cell"><span className="erp-cell-truncate inline-block">{row.worker}</span></td>
-              <td className="text-right font-bold whitespace-nowrap">{formatKRW(row.amount)}</td>
+              <td className="text-right font-bold whitespace-nowrap">{formatKRW(getSaleTotalBill(row))}</td>
               <td className="text-right text-emerald-600 whitespace-nowrap">{formatKRW(row.paid)}</td>
               <td className="text-right text-red-600 font-bold whitespace-nowrap">{formatKRW(getUnpaid(row))}</td>
               <td className="hidden xl:table-cell">{row.createdBy || "-"}</td>
@@ -2467,13 +2548,29 @@ function SalesRegistrationPage({ sales = [], setSales, setActive, clients, worke
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
+  const updateSharedMemo = (value) => {
+    clearSaveMessage();
+    setForm((prev) => {
+      const previousCommon = String(prev.memo || "").trim();
+      return {
+        ...prev,
+        memo: value,
+        workers: prev.workers.map((line) => {
+          const lineMemo = String(line.memo || "").trim();
+          if (lineMemo && lineMemo !== previousCommon) return line;
+          return { ...line, memo: value };
+        }),
+      };
+    });
+  };
+
   const updateWorkerLine = (index, key, value) => {
     clearSaveMessage();
     setForm((prev) => ({
       ...prev,
       workers: prev.workers.map((line, lineIndex) => {
         if (lineIndex !== index) return line;
-        const nextLine = { ...line, [key]: value };
+        let nextLine = applyWorkerLineFieldUpdate(line, key, value);
         if (key === "worker") {
           const selectedWorker = findActiveWorkerByName(workers, value);
           const selectedClient = clients.find((client) => client.name === prev.client);
@@ -2482,13 +2579,17 @@ function SalesRegistrationPage({ sales = [], setSales, setActive, clients, worke
           nextLine.chargeAmount = selectedWorker?.customChargeCost ? String(selectedWorker.customChargeCost) : selectedClient?.constructionCost ? String(selectedClient.constructionCost) : nextLine.chargeAmount;
           nextLine.overtimeCost = selectedClient?.overtimeCost ? String(selectedClient.overtimeCost) : selectedWorker?.overtimeCost ? String(selectedWorker.overtimeCost) : nextLine.overtimeCost || "30000";
           nextLine.feeRate = selectedWorker?.feeRate ?? nextLine.feeRate ?? "";
+          nextLine = stripWorkerLineComputedMetrics(nextLine);
         }
         return nextLine;
       }),
     }));
   };
 
-  const addWorkerLine = () => setForm((prev) => ({ ...prev, workers: [...prev.workers, createWorkerLine(prev.workers.length)] }));
+  const addWorkerLine = () => setForm((prev) => ({
+    ...prev,
+    workers: [...prev.workers, { ...createWorkerLine(prev.workers.length), memo: prev.memo || "" }],
+  }));
   const removeWorkerLine = (index) => setForm((prev) => ({ ...prev, workers: prev.workers.length <= 1 ? prev.workers : prev.workers.filter((_, lineIndex) => lineIndex !== index) }));
 
   const totals = useMemo(() => sumWorkerFormTotals(form.workers, workers), [form.workers, workers]);
@@ -2605,6 +2706,7 @@ function SalesRegistrationPage({ sales = [], setSales, setActive, clients, worke
         saveMessage={saveMessage}
         showPaidField={false}
         memoAfterWorkers={true}
+        onSharedMemoChange={updateSharedMemo}
       />
     </div>
   );
@@ -2649,6 +2751,22 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
+  const updateSharedMemo = (value) => {
+    clearSaveMessage();
+    setForm((prev) => {
+      const previousCommon = String(prev.memo || "").trim();
+      return {
+        ...prev,
+        memo: value,
+        workers: prev.workers.map((line) => {
+          const lineMemo = String(line.memo || "").trim();
+          if (lineMemo && lineMemo !== previousCommon) return line;
+          return { ...line, memo: value };
+        }),
+      };
+    });
+  };
+
   const closeEditor = () => {
     setSelectedRowId(null);
     setForm(emptySaleForm);
@@ -2681,7 +2799,7 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
       ...prev,
       workers: prev.workers.map((line, lineIndex) => {
         if (lineIndex !== index) return line;
-        const nextLine = { ...line, [key]: value };
+        let nextLine = applyWorkerLineFieldUpdate(line, key, value);
         if (key === "worker") {
           const selectedWorker = findActiveWorkerByName(workers, value);
           const selectedClient = clients.find((client) => client.name === prev.client);
@@ -2690,13 +2808,17 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
           nextLine.chargeAmount = selectedWorker?.customChargeCost ? String(selectedWorker.customChargeCost) : selectedClient?.constructionCost ? String(selectedClient.constructionCost) : nextLine.chargeAmount;
           nextLine.overtimeCost = selectedClient?.overtimeCost ? String(selectedClient.overtimeCost) : selectedWorker?.overtimeCost ? String(selectedWorker.overtimeCost) : nextLine.overtimeCost || "30000";
           nextLine.feeRate = selectedWorker?.feeRate ?? nextLine.feeRate ?? "";
+          nextLine = stripWorkerLineComputedMetrics(nextLine);
         }
         return nextLine;
       }),
     }));
   };
 
-  const addWorkerLine = () => setForm((prev) => ({ ...prev, workers: [...prev.workers, createWorkerLine(prev.workers.length)] }));
+  const addWorkerLine = () => setForm((prev) => ({
+    ...prev,
+    workers: [...prev.workers, { ...createWorkerLine(prev.workers.length), memo: prev.memo || "" }],
+  }));
   const removeWorkerLine = (index) => setForm((prev) => ({ ...prev, workers: prev.workers.length <= 1 ? prev.workers : prev.workers.filter((_, lineIndex) => lineIndex !== index) }));
 
   const formTotals = useMemo(() => sumWorkerFormTotals(form.workers, workers), [form.workers, workers]);
@@ -2813,6 +2935,7 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
               </Button>
             </>
           )}
+          onSharedMemoChange={updateSharedMemo}
         />
       ) : (
         <PageTitle title="매출전표검색" desc="전표를 클릭해 열고, 매출등록과 같은 화면에서 수정합니다." />
@@ -2958,6 +3081,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
     overtimeCost: "30000",
     vat: "Y",
     mealIncluded: "N",
+    depositNameAliases: "",
     memo: "",
   };
 
@@ -3016,6 +3140,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
       overtimeCost: parseMoney(form.overtimeCost),
       vat: form.vat,
       mealIncluded: form.mealIncluded,
+      depositNameAliases: form.depositNameAliases.trim(),
       memo: form.memo.trim(),
     };
 
@@ -3050,6 +3175,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
       overtimeCost: String(client.overtimeCost || "30000"),
       vat: client.vat || "Y",
       mealIncluded: client.mealIncluded || "N",
+      depositNameAliases: client.depositNameAliases || "",
       memo: client.memo || "",
     });
   };
@@ -3091,6 +3217,11 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
             <AuditField label="식대" entityType="client" entityId={editingId} field="mealIncluded">
               <AutocompleteSelect value={form.mealIncluded} options={YES_NO_OPTIONS} onChange={(value) => updateForm("mealIncluded", value)} placeholder="Y / N" />
             </AuditField>
+            <div className="md:col-span-2">
+              <AuditField label="예금주 별칭" entityType="client" entityId={editingId} field="depositNameAliases">
+                <Input value={form.depositNameAliases} onChange={(e) => updateForm("depositNameAliases", e.target.value)} placeholder="통장 입금 시 표시 이름 (쉼표로 구분). 담당자명은 자동 매칭됩니다." />
+              </AuditField>
+            </div>
             <div className="md:col-span-4">
               <AuditField label="비고" entityType="client" entityId={editingId} field="memo">
                 <Input value={form.memo} onChange={(e) => updateForm("memo", e.target.value)} placeholder="거래처 비고" />
@@ -3106,7 +3237,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
         </CardContent>
       </Card>
 
-      <SearchBox query={query} setQuery={setQuery} placeholder="거래처명, 담당자, 연락처 검색" />
+      <SearchBox query={query} setQuery={setQuery} placeholder="거래처명, 담당자, 연락처, 예금주 별칭 검색" />
 
       <p className="erp-text-caption erp-client-activity-legend mb-3 flex flex-wrap items-center gap-3 text-slate-500">
         <span className="inline-flex items-center gap-1"><Circle size={10} fill="currentColor" strokeWidth={0} className="text-emerald-500" /> 1개월 내 거래</span>
@@ -3137,6 +3268,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
                   <th className="text-right">야근비</th>
                   <th className="text-center">부가세</th>
                   <th className="text-center">식대</th>
+                  <th className="text-left">예금주 별칭</th>
                   <th className="text-left">비고</th>
                   <th className="text-center erp-table-export-skip">관리</th>
                 </tr>
@@ -3157,6 +3289,9 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
                     <td className="text-right">{formatKRW(client.overtimeCost)}</td>
                     <td className="text-center">{client.vat}</td>
                     <td className="text-center">{client.mealIncluded}</td>
+                    <td className="max-w-[180px] truncate text-slate-600" title={formatDepositNameAliases(client.depositNameAliases)}>
+                      {formatDepositNameAliases(client.depositNameAliases) || "-"}
+                    </td>
                     <td>{client.memo || "-"}</td>
                     <td className="erp-table-export-skip">
                       <div className="flex justify-center gap-2">
@@ -3276,6 +3411,7 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
     customChargeCost: "",
     overtimeCost: "30000",
     feeRate: "10",
+    depositNameAliases: "",
     memo: "",
   };
 
@@ -3362,6 +3498,7 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
       customChargeCost: parseMoney(form.customChargeCost),
       overtimeCost: parseMoney(form.overtimeCost),
       feeRate: feeNumber > 1 ? feeNumber / 100 : feeNumber,
+      depositNameAliases: form.depositNameAliases.trim(),
       memo: form.memo.trim(),
       isActive: editingId ? isWorkerActive(existingWorker) : true,
     };
@@ -3398,6 +3535,7 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
       customChargeCost: String(worker.customChargeCost || ""),
       overtimeCost: String(worker.overtimeCost || "30000"),
       feeRate: String(Math.round((worker.feeRate || 0) * 100)),
+      depositNameAliases: worker.depositNameAliases || "",
       memo: worker.memo || "",
     });
     setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 0);
@@ -3619,6 +3757,11 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
             </AuditField>
             <AuditField label="은행명" entityType="worker" entityId={editingId} field="bank"><Input value={form.bank} onChange={(e) => updateForm("bank", e.target.value)} placeholder="은행명" /></AuditField>
             <AuditField label="계좌번호" entityType="worker" entityId={editingId} field="account"><Input value={form.account} onChange={(e) => updateForm("account", e.target.value)} placeholder="계좌번호" /></AuditField>
+            <div className="sm:col-span-2">
+              <AuditField label="예금주 별칭" entityType="worker" entityId={editingId} field="depositNameAliases">
+                <Input value={form.depositNameAliases} onChange={(e) => updateForm("depositNameAliases", e.target.value)} placeholder="통장 입·출금 시 표시 이름 (쉼표로 구분)" />
+              </AuditField>
+            </div>
             <AuditField label="연락처" entityType="worker" entityId={editingId} field="phone"><Input value={form.phone} onChange={(e) => updateForm("phone", e.target.value)} placeholder="연락처" /></AuditField>
             <AuditField label="사업자등록번호" entityType="worker" entityId={editingId} field="businessNo"><Input value={form.businessNo} onChange={(e) => updateForm("businessNo", e.target.value)} placeholder="123-45-67890" /></AuditField>
             <AuditField label="차량번호" entityType="worker" entityId={editingId} field="vehicleNo"><Input value={form.vehicleNo} onChange={(e) => updateForm("vehicleNo", e.target.value)} placeholder="12가3456" /></AuditField>
@@ -3639,7 +3782,7 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
         </CardContent>
       </Card>
 
-      <SearchBox query={query} setQuery={setQuery} placeholder="시공자명, 시공등급, 구분, 연락처, 사업자등록번호, 주소, 차량번호, 은행, 계좌 검색" />
+      <SearchBox query={query} setQuery={setQuery} placeholder="시공자명, 시공등급, 구분, 연락처, 예금주 별칭, 사업자등록번호, 주소, 차량번호, 은행, 계좌 검색" />
 
       <Card className="rounded-2xl shadow-sm">
         <CardContent className="p-4 md:p-5">
@@ -3689,6 +3832,7 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
                   <WorkerListSortHeader label="구분" column="category" sort={listSort} onSort={handleWorkerListSort} align="center" />
                   <th className="text-left">연락처</th>
                   <th className="text-left">계좌</th>
+                  <th className="text-left">예금주 별칭</th>
                   <th className="text-left">차량 · 사업자</th>
                   <th className="text-right">시공비</th>
                   <th className="text-right">개별청구단가</th>
@@ -3701,7 +3845,7 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
               <tbody>
                 {displayedWorkers.length === 0 ? (
                   <tr>
-                    <td colSpan={13} className="p-10 text-center text-slate-500">
+                    <td colSpan={14} className="p-10 text-center text-slate-500">
                       표시할 시공자가 없습니다.
                     </td>
                   </tr>
@@ -3737,6 +3881,9 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
                     <td className="erp-workers-account-cell">
                       <div>{worker.bank || "-"}</div>
                       {worker.account ? <div className="erp-workers-sub truncate" title={worker.account}>{worker.account}</div> : null}
+                    </td>
+                    <td className="max-w-[160px] truncate text-slate-600" title={formatDepositNameAliases(worker.depositNameAliases)}>
+                      {formatDepositNameAliases(worker.depositNameAliases) || "-"}
                     </td>
                     <td className="erp-workers-meta-cell">
                       <div>{worker.vehicleNo || "-"}</div>
@@ -4578,9 +4725,17 @@ export default function TeammillimeterErpMvp() {
     if (apiMode && sessionOnMount) return [];
     return Array.isArray(storedData?.companyExpenses) ? storedData.companyExpenses : [];
   });
+  const [attendanceRecords, setAttendanceRecords] = useState(() => {
+    if (apiMode && sessionOnMount) return [];
+    return normalizeAttendanceRecords(storedData?.attendanceRecords);
+  });
   const [fixedExpenses, setFixedExpenses] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return Array.isArray(storedData?.fixedExpenses) ? storedData.fixedExpenses : [];
+  });
+  const [fixedExpensePayments, setFixedExpensePayments] = useState(() => {
+    if (apiMode && sessionOnMount) return [];
+    return Array.isArray(storedData?.fixedExpensePayments) ? storedData.fixedExpensePayments : [];
   });
   const [companyProfile, setCompanyProfile] = useState(() => {
     if (apiMode && sessionOnMount) return DEFAULT_COMPANY_PROFILE;
@@ -4597,6 +4752,14 @@ export default function TeammillimeterErpMvp() {
   const [taxInvoices, setTaxInvoices] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return normalizeTaxInvoices(storedData?.taxInvoices);
+  });
+  const [bankTransactions, setBankTransactions] = useState(() => {
+    if (apiMode && sessionOnMount) return [];
+    return normalizeBankTransactions(storedData?.bankTransactions);
+  });
+  const [bankTransactionFolders, setBankTransactionFolders] = useState(() => {
+    if (apiMode && sessionOnMount) return normalizeBankTransactionFolders([]);
+    return normalizeBankTransactionFolders(storedData?.bankTransactionFolders);
   });
   const [statementGenerationLogs, setStatementGenerationLogs] = useState(() => {
     if (apiMode && sessionOnMount) return [];
@@ -4629,10 +4792,14 @@ export default function TeammillimeterErpMvp() {
     setLoginLogs(migratedLogs.loginLogs);
     setWorkerPaymentRecords(Array.isArray(data.workerPaymentRecords) ? data.workerPaymentRecords : []);
     setCompanyExpenses(Array.isArray(data.companyExpenses) ? data.companyExpenses : []);
+    setAttendanceRecords(normalizeAttendanceRecords(data.attendanceRecords));
     setFixedExpenses(Array.isArray(data.fixedExpenses) ? data.fixedExpenses : []);
+    setFixedExpensePayments(Array.isArray(data.fixedExpensePayments) ? data.fixedExpensePayments : []);
     setCompanyNotices(normalizeCompanyNotices(data.companyNotices));
     setWorkPosts(normalizeWorkPosts(data.workPosts));
     setTaxInvoices(normalizeTaxInvoices(data.taxInvoices));
+    setBankTransactions(normalizeBankTransactions(data.bankTransactions));
+    setBankTransactionFolders(normalizeBankTransactionFolders(data.bankTransactionFolders));
     setStatementGenerationLogs(normalizeStatementGenerationLogs(data.statementGenerationLogs));
     setStatementFolders(normalizeStatementFolders(data.statementFolders));
     setCompanyProfile(normalizeCompanyProfile(data.companyProfile));
@@ -4667,7 +4834,7 @@ export default function TeammillimeterErpMvp() {
 
   useEffect(() => {
     if (!apiMode) {
-      saveStoredData({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, fixedExpenses, companyNotices, workPosts, taxInvoices, statementGenerationLogs, statementFolders, companyProfile });
+      saveStoredData({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
       return;
     }
     if (!currentUser || !dataReady) return;
@@ -4687,10 +4854,14 @@ export default function TeammillimeterErpMvp() {
         loginLogs,
         workerPaymentRecords,
         companyExpenses,
+        attendanceRecords,
         fixedExpenses,
+        fixedExpensePayments,
         companyNotices,
         workPosts,
         taxInvoices,
+        bankTransactions,
+        bankTransactionFolders,
         statementGenerationLogs,
         statementFolders,
         companyProfile,
@@ -4726,7 +4897,7 @@ export default function TeammillimeterErpMvp() {
       }
     }, 900);
     return () => window.clearTimeout(timer);
-  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, fixedExpenses, companyNotices, workPosts, taxInvoices, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode]);
+  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -4738,7 +4909,7 @@ export default function TeammillimeterErpMvp() {
   }, [active]);
 
   const backupData = () => {
-    downloadBackup({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, fixedExpenses, companyNotices, workPosts, taxInvoices, statementGenerationLogs, statementFolders, companyProfile });
+    downloadBackup({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
   };
 
   const restoreBackup = (file) => {
@@ -4756,10 +4927,14 @@ export default function TeammillimeterErpMvp() {
         setLoginLogs(parsed.loginLogs || []);
         setWorkerPaymentRecords(parsed.workerPaymentRecords || []);
         setCompanyExpenses(parsed.companyExpenses || []);
+        setAttendanceRecords(normalizeAttendanceRecords(parsed.attendanceRecords));
         setFixedExpenses(parsed.fixedExpenses || []);
+        setFixedExpensePayments(parsed.fixedExpensePayments || []);
         setCompanyNotices(normalizeCompanyNotices(parsed.companyNotices));
         setWorkPosts(normalizeWorkPosts(parsed.workPosts));
         setTaxInvoices(normalizeTaxInvoices(parsed.taxInvoices));
+        setBankTransactions(normalizeBankTransactions(parsed.bankTransactions));
+        setBankTransactionFolders(normalizeBankTransactionFolders(parsed.bankTransactionFolders));
         setStatementGenerationLogs(normalizeStatementGenerationLogs(parsed.statementGenerationLogs));
         setStatementFolders(normalizeStatementFolders(parsed.statementFolders));
         setCompanyProfile(normalizeCompanyProfile(parsed.companyProfile));
@@ -4788,10 +4963,14 @@ export default function TeammillimeterErpMvp() {
     setPaymentVouchers(payload.paymentVouchers?.length ? payload.paymentVouchers : []);
     setWorkerPaymentRecords(Array.isArray(payload.workerPaymentRecords) ? payload.workerPaymentRecords : []);
     setCompanyExpenses(Array.isArray(payload.companyExpenses) ? payload.companyExpenses : []);
+    setAttendanceRecords(normalizeAttendanceRecords(payload.attendanceRecords));
     setFixedExpenses(Array.isArray(payload.fixedExpenses) ? payload.fixedExpenses : []);
+    setFixedExpensePayments(Array.isArray(payload.fixedExpensePayments) ? payload.fixedExpensePayments : []);
     setCompanyNotices(normalizeCompanyNotices(payload.companyNotices));
     setWorkPosts(normalizeWorkPosts(payload.workPosts));
     setTaxInvoices(normalizeTaxInvoices(payload.taxInvoices));
+    setBankTransactions(normalizeBankTransactions(payload.bankTransactions));
+    setBankTransactionFolders(normalizeBankTransactionFolders(payload.bankTransactionFolders));
     setStatementGenerationLogs(normalizeStatementGenerationLogs(payload.statementGenerationLogs));
     setStatementFolders(normalizeStatementFolders(payload.statementFolders));
     setCompanyProfile(normalizeCompanyProfile(payload.companyProfile));
@@ -4948,6 +5127,13 @@ export default function TeammillimeterErpMvp() {
             }}
           />
         </PageKeepAlive>
+        <PageKeepAlive pageKey="attendance" active={active}>
+          <AttendancePage
+            attendanceRecords={attendanceRecords}
+            setAttendanceRecords={setAttendanceRecords}
+            currentUser={currentUser}
+          />
+        </PageKeepAlive>
         <PageKeepAlive pageKey="clientCalendar" active={active}>
           <ClientCalendarPage
             sales={appliedSales}
@@ -5006,6 +5192,7 @@ export default function TeammillimeterErpMvp() {
             setCompanyExpenses={setCompanyExpenses}
             fixedExpenses={fixedExpenses}
             setFixedExpenses={setFixedExpenses}
+            fixedExpensePayments={fixedExpensePayments}
             currentUser={currentUser}
           />
         </PageKeepAlive>
@@ -5014,6 +5201,26 @@ export default function TeammillimeterErpMvp() {
             taxInvoices={taxInvoices}
             setTaxInvoices={setTaxInvoices}
             clients={clients}
+            currentUser={currentUser}
+          />
+        </PageKeepAlive>
+        <PageKeepAlive pageKey="bankTransactions" active={active}>
+          <BankTransactionsPage
+            bankTransactions={bankTransactions}
+            setBankTransactions={setBankTransactions}
+            bankTransactionFolders={bankTransactionFolders}
+            setBankTransactionFolders={setBankTransactionFolders}
+            clients={clients}
+            workers={workers}
+            receivableRows={receivableRowsFromSales}
+            sales={appliedSales}
+            paymentVouchers={paymentVouchers}
+            setPaymentVouchers={setPaymentVouchers}
+            setPaymentInputLogs={setPaymentInputLogs}
+            setCompanyExpenses={setCompanyExpenses}
+            fixedExpenses={fixedExpenses}
+            fixedExpensePayments={fixedExpensePayments}
+            setFixedExpensePayments={setFixedExpensePayments}
             currentUser={currentUser}
           />
         </PageKeepAlive>

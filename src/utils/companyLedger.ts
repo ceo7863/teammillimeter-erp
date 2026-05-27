@@ -12,6 +12,7 @@ export type CompanyExpense = {
   description: string;
   amount: number;
   memo?: string;
+  bankTransactionId?: string;
   createdBy?: string;
   createdAt?: string;
 };
@@ -25,6 +26,17 @@ export type FixedExpense = {
   startDate?: string;
   memo?: string;
   isActive: boolean;
+};
+
+export type FixedExpensePayment = {
+  id: string;
+  fixedExpenseId: string;
+  date: string;
+  amount: number;
+  memo?: string;
+  bankTransactionId?: string;
+  createdBy?: string;
+  createdAt?: string;
 };
 
 export type LedgerPeriodKey = "today" | "thisMonth" | "lastMonth" | "all";
@@ -44,6 +56,7 @@ export type MonthlyLedgerDetail = {
   label: string;
   manualExpenses: CompanyExpense[];
   fixedItems: Array<FixedExpense & { monthlyAmount: number }>;
+  fixedPayments: FixedExpensePayment[];
   manualTotal: number;
   fixedTotal: number;
   grandTotal: number;
@@ -212,10 +225,33 @@ export function buildMonthlyLedgerRows(
   });
 }
 
+export function filterFixedExpensePayments(
+  payments: FixedExpensePayment[] = [],
+  startDate = "",
+  endDate = "",
+) {
+  return payments.filter((row) => {
+    const date = String(row.date || "");
+    const startMatch = startDate ? date >= startDate : true;
+    const endMatch = endDate ? date <= endDate : true;
+    return startMatch && endMatch;
+  });
+}
+
+export function getFixedExpensePaymentsForMonth(
+  payments: FixedExpensePayment[] = [],
+  monthKey: string,
+) {
+  return payments
+    .filter((row) => getMonthKey(row.date) === monthKey)
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+}
+
 export function buildMonthlyLedgerDetail(
   companyExpenses: CompanyExpense[] = [],
   fixedExpenses: FixedExpense[] = [],
   monthKey: string,
+  fixedExpensePayments: FixedExpensePayment[] = [],
 ): MonthlyLedgerDetail {
   const manualExpenses = companyExpenses
     .filter((row) => getMonthKey(row.date) === monthKey)
@@ -224,6 +260,7 @@ export function buildMonthlyLedgerDetail(
     .filter((row) => isFixedActiveInMonth(row, monthKey))
     .map((row) => ({ ...row, monthlyAmount: fixedMonthlyAmount(row) }))
     .sort((a, b) => String(a.name).localeCompare(String(b.name), "ko"));
+  const fixedPayments = getFixedExpensePaymentsForMonth(fixedExpensePayments, monthKey);
   const manualTotal = sumCompanyExpenses(manualExpenses);
   const fixedTotal = fixedItems.reduce((sum, row) => sum + row.monthlyAmount, 0);
   return {
@@ -231,6 +268,7 @@ export function buildMonthlyLedgerDetail(
     label: formatMonthLabel(monthKey),
     manualExpenses,
     fixedItems,
+    fixedPayments,
     manualTotal,
     fixedTotal,
     grandTotal: manualTotal + fixedTotal,
@@ -262,5 +300,17 @@ export function validateFixedExpenseInput(input: {
   const amount = parseLedgerAmount(input.amount);
   if (amount <= 0) return "\uAE08\uC561\uC744 0\uBCF4\uB2E4 \uD06C\uAC8C \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
   if (!input.cycle) return "\uC8FC\uAE30\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.";
+  return "";
+}
+
+export function validateFixedExpensePaymentInput(input: {
+  date?: string;
+  fixedExpenseId?: string;
+  amount?: unknown;
+}) {
+  if (!String(input.date || "").trim()) return "\uB0A9\uBD80 \uC77C\uC790\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
+  if (!String(input.fixedExpenseId || "").trim()) return "\uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.";
+  const amount = parseLedgerAmount(input.amount);
+  if (amount <= 0) return "\uAE08\uC561\uC744 0\uBCF4\uB2E4 \uD06C\uAC8C \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
   return "";
 }

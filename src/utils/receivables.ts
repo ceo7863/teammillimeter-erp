@@ -2,6 +2,31 @@ export function parseMoney(value: unknown) {
   return Number(String(value ?? "").replace(/[^0-9.-]/g, "")) || 0;
 }
 
+/** 입력 필드용 숫자 문자열 (콤마 제외) */
+export function sanitizeMoneyInput(value: unknown) {
+  return String(value ?? "").replace(/[^0-9.-]/g, "");
+}
+
+/** 매출 등록 등 입력란 표시용 천단위 콤마 */
+export function formatMoneyInput(value: unknown) {
+  const cleaned = sanitizeMoneyInput(value);
+  if (!cleaned) return "";
+  if (cleaned === "-") return "-";
+
+  const negative = cleaned.startsWith("-");
+  const unsigned = cleaned.replace(/^-/, "");
+  const dotIndex = unsigned.indexOf(".");
+  const wholeRaw = dotIndex >= 0 ? unsigned.slice(0, dotIndex) : unsigned;
+  const decimal = dotIndex >= 0 ? unsigned.slice(dotIndex + 1) : "";
+  const whole = wholeRaw.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const prefix = negative ? "-" : "";
+
+  if (dotIndex >= 0) {
+    return `${prefix}${whole}${decimal ? `.${decimal}` : "."}`;
+  }
+  return `${prefix}${whole}`;
+}
+
 export function formatKRW(value: number) {
   return new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 0 }).format(Number(value) || 0);
 }

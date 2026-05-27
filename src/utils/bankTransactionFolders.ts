@@ -1,0 +1,293 @@
+import type { BankTransaction } from "./bankTransactions";
+import type { ClientDepositMatchSource, WorkerDepositMatchSource } from "./clientDepositAliases";
+import { findClientByDepositSubject, findWorkerByDepositSubject } from "./clientDepositAliases";
+
+export type BankTransactionFolderType = "client" | "worker" | "card";
+
+export type BankTransactionFolder = {
+  id: string;
+  folderName: string;
+  folderType: BankTransactionFolderType;
+  isDefault?: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export const DEFAULT_CLIENT_FOLDER_ID = "bank-folder-client-default";
+export const DEFAULT_WORKER_FOLDER_ID = "bank-folder-worker-default";
+export const DEFAULT_CARD_SALES_FOLDER_ID = "bank-folder-card-default";
+export const UNFILED_FOLDER_KEY = "__unfiled__";
+
+export function makeBankTransactionFolderId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return `bank-folder-${crypto.randomUUID()}`;
+  return `bank-folder-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+export function normalizeBankTransactionFolder(raw: unknown): BankTransactionFolder | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Partial<BankTransactionFolder>;
+  if (!row.id || !row.folderName) return null;
+  const folderType: BankTransactionFolderType =
+    row.folderType === "worker" ? "worker" : row.folderType === "card" ? "card" : "client";
+  return {
+    id: String(row.id),
+    folderName: String(row.folderName),
+    folderType,
+    isDefault: Boolean(row.isDefault),
+    createdAt: String(row.createdAt || new Date().toISOString()),
+    updatedAt: String(row.updatedAt || new Date().toISOString()),
+  };
+}
+
+export function normalizeBankTransactionFolders(rows: unknown): BankTransactionFolder[] {
+  const parsed = Array.isArray(rows)
+    ? rows.map(normalizeBankTransactionFolder).filter((row): row is BankTransactionFolder => Boolean(row))
+    : [];
+  return ensureDefaultBankTransactionFolders(parsed);
+}
+
+export function ensureDefaultBankTransactionFolders(folders: BankTransactionFolder[]) {
+  const now = new Date().toISOString();
+  const next = [...folders];
+  const hasClient = next.some((folder) => folder.id === DEFAULT_CLIENT_FOLDER_ID);
+  const hasWorker = next.some((folder) => folder.id === DEFAULT_WORKER_FOLDER_ID);
+  const hasCard = next.some((folder) => folder.id === DEFAULT_CARD_SALES_FOLDER_ID);
+
+  if (!hasClient) {
+    next.unshift({
+      id: DEFAULT_CLIENT_FOLDER_ID,
+      folderName: "\uAC70\uB798\uCC98 \uC785\uAE08",
+      folderType: "client",
+      isDefault: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  if (!hasCard) {
+    next.unshift({
+      id: DEFAULT_CARD_SALES_FOLDER_ID,
+      folderName: "\uCE74\uB4DC\uB9E4\uCD9C",
+      folderType: "card",
+      isDefault: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  if (!hasWorker) {
+    next.unshift({
+      id: DEFAULT_WORKER_FOLDER_ID,
+      folderName: "\uC2DC\uACF5\uC790 \uC9C0\uCD9C",
+      folderType: "worker",
+      isDefault: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  return next.sort((a, b) => {
+    if (a.isDefault && !b.isDefault) return -1;
+    if (!a.isDefault && b.isDefault) return 1;
+    const typeOrder = { client: 0, card: 1, worker: 2 } as const;
+    if (a.folderType !== b.folderType) return typeOrder[a.folderType] - typeOrder[b.folderType];
+    return a.folderName.localeCompare(b.folderName, "ko");
+  });
+}
+
+export function getBankTransactionFolderLabel(type: BankTransactionFolderType) {
+  if (type === "client") return "\uAC70\uB798\uCC98 \uC785\uAE08";
+  if (type === "card") return "\uCE74\uB4DC\uB9E4\uCD9C";
+  return "\uC2DC\uACF5\uC790 \uC9C0\uCD9C";
+}
+
+export function getBankTransactionFolderTone(type: BankTransactionFolderType) {
+  if (type === "client") return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  if (type === "card") return "border-violet-200 bg-violet-50 text-violet-800";
+  return "border-amber-200 bg-amber-50 text-amber-800";
+}
+
+const CARD_DEPOSIT_KEYWORDS = [
+  "\uCE74\uB4DC",
+  "\uAC00\uB9F9",
+  "\uCE74\uB4DC\uB9E4\uCD9C",
+  "\uCE74\uB4DC\uAC00\uB9F9",
+  "\uB86F\uB370\uCE74\uB4DC",
+  "\uC0BC\uC131\uCE74\uB4DC",
+  "\uC2E0\uD55C\uCE74\uB4DC",
+  "\uD604\uB300\uCE74\uB4DC",
+  "BC\uCE74\uB4DC",
+  "KB\uCE74\uB4DC",
+  "NH",
+  "SHC",
+  "BC",
+  "KB",
+  "\uB86F\uB370",
+  "\uC0BC\uC131",
+  "\uC2E0\uD55C",
+  "\uD604\uB300",
+  "\uC6B0\uB9AC\uCE74\uB4DC",
+  "\uD558\uEB098\uCE74\uB4DC",
+  "SC\uCE74\uB4DC",
+  "\uCE74\uB4DC\uBC14\uB514",
+  "VISA",
+  "MASTER",
+];
+
+export function isCardCompanyDeposit(tx: BankTransaction) {
+  if (tx.deposit <= 0) return false;
+  const subject = [tx.counterpartyName, tx.description, tx.memo, tx.transactionType].filter(Boolean).join(" ");
+  return looksLikeCardDeposit(subject);
+}
+
+function looksLikeCardDeposit(subject: string) {
+  const text = String(subject || "");
+  if (CARD_DEPOSIT_KEYWORDS.some((keyword) => text.includes(keyword))) return true;
+  if (/\uCE74\uB4DC[\uFF08(]?[\uC8FC\uC810\d]/u.test(text)) return true;
+  if (/NH\d{4,}/i.test(text)) return true;
+  if (/SHC\d+/i.test(text)) return true;
+  return false;
+}
+
+export function suggestBankTransactionClassification(
+  tx: BankTransaction,
+  clients: ClientDepositMatchSource[],
+  workers: WorkerDepositMatchSource[]
+): { folderType: BankTransactionFolderType; linkedSubject?: string } | null {
+  const subject = String(tx.counterpartyName || tx.description || "").trim();
+  if (!subject) return null;
+
+  if (tx.deposit > 0) {
+    if (looksLikeCardDeposit(subject)) {
+      return { folderType: "card", linkedSubject: String(tx.counterpartyName || tx.description || "").trim() || undefined };
+    }
+    const client = findClientByDepositSubject(clients, subject);
+    if (client?.name) return { folderType: "client", linkedSubject: String(client.name).trim() };
+  }
+
+  if (tx.withdrawal > 0) {
+    const worker = findWorkerByDepositSubject(workers, subject);
+    if (worker?.name) return { folderType: "worker", linkedSubject: String(worker.name).trim() };
+  }
+
+  return null;
+}
+
+export function resolveDefaultFolderId(type: BankTransactionFolderType) {
+  if (type === "worker") return DEFAULT_WORKER_FOLDER_ID;
+  if (type === "card") return DEFAULT_CARD_SALES_FOLDER_ID;
+  return DEFAULT_CLIENT_FOLDER_ID;
+}
+
+export type BankTransactionFolderStats = {
+  count: number;
+  deposits: number;
+  withdrawals: number;
+};
+
+export function buildBankTransactionFolderStats(
+  transactions: BankTransaction[],
+  folderId: string
+): BankTransactionFolderStats {
+  const rows =
+    folderId === UNFILED_FOLDER_KEY
+      ? transactions.filter((row) => !row.folderId)
+      : transactions.filter((row) => row.folderId === folderId);
+
+  return rows.reduce(
+    (acc, row) => {
+      acc.count += 1;
+      acc.deposits += row.deposit;
+      acc.withdrawals += row.withdrawal;
+      return acc;
+    },
+    { count: 0, deposits: 0, withdrawals: 0 }
+  );
+}
+
+export function filterBankTransactionsByFolder(transactions: BankTransaction[], folderId: string) {
+  if (!folderId) return transactions;
+  if (folderId === UNFILED_FOLDER_KEY) return transactions.filter((row) => !row.folderId);
+  return transactions.filter((row) => row.folderId === folderId);
+}
+
+export function filterBankTransactionsByFolderType(
+  transactions: BankTransaction[],
+  folders: BankTransactionFolder[],
+  folderType: BankTransactionFolderType | "all"
+) {
+  if (folderType === "all") return transactions;
+  const folderIds = new Set(folders.filter((folder) => folder.folderType === folderType).map((folder) => folder.id));
+  return transactions.filter((row) => row.folderId && folderIds.has(row.folderId));
+}
+
+export function listFoldersByType(folders: BankTransactionFolder[], folderType: BankTransactionFolderType) {
+  return folders.filter((folder) => folder.folderType === folderType);
+}
+
+export function createBankTransactionFolder(
+  folders: BankTransactionFolder[],
+  input: { folderName: string; folderType: BankTransactionFolderType }
+) {
+  const folderName = String(input.folderName || "").trim();
+  if (!folderName) return { next: folders, error: "\uD3F4\uB354 \uC774\uB984\uC744 \uC785\uB825\uD558\uC138\uC694." };
+
+  const duplicate = folders.some(
+    (folder) => folder.folderType === input.folderType && folder.folderName.trim() === folderName
+  );
+  if (duplicate) return { next: folders, error: "\uC774\uBBF8 \uC788\uB294 \uD3F4\uB354 \uC774\uB984\uC785\uB2C8\uB2E4." };
+
+  const now = new Date().toISOString();
+  const folder: BankTransactionFolder = {
+    id: makeBankTransactionFolderId(),
+    folderName,
+    folderType: input.folderType,
+    createdAt: now,
+    updatedAt: now,
+  };
+  return { next: [...folders, folder], folder, error: "" };
+}
+
+export function removeBankTransactionFolder(folders: BankTransactionFolder[], folderId: string) {
+  const target = folders.find((folder) => folder.id === folderId);
+  if (!target) return { next: folders, error: "\uD3F4\uB354\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
+  if (target.isDefault) return { next: folders, error: "\uAE30\uBCF8 \uD3F4\uB354\uB294 \uC0AD\uC81C\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
+  return { next: folders.filter((folder) => folder.id !== folderId), error: "" };
+}
+
+export function clearBankTransactionFolderReferences(transactions: BankTransaction[], folderId: string) {
+  return transactions.map((row) =>
+    row.folderId === folderId
+      ? { ...row, folderId: undefined, linkedSubject: undefined, classifiedAt: undefined }
+      : row
+  );
+}
+
+export function autoClassifyBankTransactions(
+  transactions: BankTransaction[],
+  clients: ClientDepositMatchSource[],
+  workers: WorkerDepositMatchSource[],
+  folders: BankTransactionFolder[]
+) {
+  let updated = 0;
+  const next = transactions.map((row) => {
+    if (isCardCompanyDeposit(row)) {
+      if (row.folderId === DEFAULT_CARD_SALES_FOLDER_ID) return row;
+      updated += 1;
+      return {
+        ...row,
+        folderId: DEFAULT_CARD_SALES_FOLDER_ID,
+        linkedSubject: String(row.counterpartyName || row.description || row.linkedSubject || "").trim() || undefined,
+        classifiedAt: new Date().toISOString(),
+      };
+    }
+    if (row.folderId) return row;
+    const suggestion = suggestBankTransactionClassification(row, clients, workers);
+    if (!suggestion) return row;
+    updated += 1;
+    return {
+      ...row,
+      folderId: resolveDefaultFolderId(suggestion.folderType),
+      linkedSubject: suggestion.linkedSubject,
+      classifiedAt: new Date().toISOString(),
+    };
+  });
+  return { next, updated, folders: ensureDefaultBankTransactionFolders(folders) };
+}

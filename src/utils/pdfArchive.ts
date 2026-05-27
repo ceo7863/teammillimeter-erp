@@ -5,6 +5,8 @@ export type PdfArchiveCategory = "statement-client" | "statement-worker";
 
 export type PdfArchiveStatementView = "summary" | "detail";
 
+export type PdfArchivePaymentStatus = "pending" | "confirmed" | "partial";
+
 export type PdfArchiveRecord = {
   id: string;
   fileName: string;
@@ -16,6 +18,12 @@ export type PdfArchiveRecord = {
   statementView?: PdfArchiveStatementView;
   fileSize: number;
   pageCount: number;
+  sentViaLink?: boolean;
+  statementTotalAmount?: number;
+  paymentStatus?: PdfArchivePaymentStatus;
+  linkedBankTransactionId?: string;
+  linkedPaymentVoucherId?: string | number;
+  shareLinkUrl?: string;
   blob: Blob;
 };
 
@@ -93,6 +101,10 @@ async function savePdfArchiveLocal(input: {
   periodEnd?: string;
   statementView?: PdfArchiveStatementView;
   pageCount?: number;
+  sentViaLink?: boolean;
+  statementTotalAmount?: number;
+  paymentStatus?: PdfArchivePaymentStatus;
+  shareLinkUrl?: string;
 }): Promise<PdfArchiveMeta> {
   const record: PdfArchiveRecord = {
     id: `pdf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -105,6 +117,10 @@ async function savePdfArchiveLocal(input: {
     statementView: input.statementView,
     fileSize: input.blob.size,
     pageCount: input.pageCount || 1,
+    sentViaLink: input.sentViaLink || false,
+    statementTotalAmount: input.statementTotalAmount,
+    paymentStatus: input.paymentStatus || (input.sentViaLink ? "pending" : undefined),
+    shareLinkUrl: input.shareLinkUrl,
     blob: input.blob,
   };
 
@@ -134,6 +150,10 @@ async function savePdfArchiveApi(input: {
   periodEnd?: string;
   statementView?: PdfArchiveStatementView;
   pageCount?: number;
+  sentViaLink?: boolean;
+  statementTotalAmount?: number;
+  paymentStatus?: PdfArchivePaymentStatus;
+  shareLinkUrl?: string;
 }): Promise<PdfArchiveMeta> {
   const meta = {
     fileName: input.fileName,
@@ -143,6 +163,10 @@ async function savePdfArchiveApi(input: {
     periodEnd: input.periodEnd || "",
     statementView: input.statementView,
     pageCount: input.pageCount || 1,
+    sentViaLink: input.sentViaLink || false,
+    statementTotalAmount: input.statementTotalAmount,
+    paymentStatus: input.paymentStatus || (input.sentViaLink ? "pending" : undefined),
+    shareLinkUrl: input.shareLinkUrl,
   };
 
   const response = await fetch(`${apiBase()}/pdf-archives`, {
@@ -171,6 +195,10 @@ export async function savePdfArchive(input: {
   periodEnd?: string;
   statementView?: PdfArchiveStatementView;
   pageCount?: number;
+  sentViaLink?: boolean;
+  statementTotalAmount?: number;
+  paymentStatus?: PdfArchivePaymentStatus;
+  shareLinkUrl?: string;
 }): Promise<PdfArchiveMeta> {
   if (isApiModeEnabled()) return savePdfArchiveApi(input);
   return savePdfArchiveLocal(input);
@@ -392,6 +420,10 @@ export async function archiveGeneratedPdf(
     periodStart?: string;
     periodEnd?: string;
     statementView?: PdfArchiveStatementView;
+    sentViaLink?: boolean;
+    statementTotalAmount?: number;
+    paymentStatus?: PdfArchivePaymentStatus;
+    shareLinkUrl?: string;
   }
 ) {
   const saved = await savePdfArchive({
@@ -449,4 +481,76 @@ export async function copyTextToClipboard(text: string) {
   const copied = document.execCommand("copy");
   textarea.remove();
   return copied;
+}
+
+export type PdfArchiveMetaPatch = Partial<
+  Pick<
+    PdfArchiveMeta,
+    | "sentViaLink"
+    | "statementTotalAmount"
+    | "paymentStatus"
+    | "linkedBankTransactionId"
+    | "linkedPaymentVoucherId"
+    | "shareLinkUrl"
+  >
+>;
+
+async function updatePdfArchiveMetaLocal(id: string, patch: PdfArchiveMetaPatch): Promise<PdfArchiveMeta> {
+  const record = await getPdfArchiveRecordLocal(id);
+  if (!record) {
+    throw new Error("PDF\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+  }
+
+  const updated: PdfArchiveRecord = {
+    ...record,
+    ...patch,
+  };
+
+  const db = await openPdfDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(PDF_STORE, "readwrite");
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error || new Error("PDF \uBA54\uD0C0 \uC5C5\uB370\uC774\uD2B8\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4."));
+    };
+    tx.objectStore(PDF_STORE).put(updated);
+  });
+
+  const meta = toMeta(updated);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("pdf-archive-updated", { detail: meta }));
+  }
+  return meta;
+}
+
+async function updatePdfArchiveMetaApi(id: string, patch: PdfArchiveMetaPatch): Promise<PdfArchiveMeta> {
+  const response = await fetch(`${apiBase()}/pdf-archives/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(patch),
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+
+  const meta = (await response.json()) as PdfArchiveMeta;
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("pdf-archive-updated", { detail: meta }));
+  }
+  return meta;
+}
+
+export async function updatePdfArchiveMeta(id: string, patch: PdfArchiveMetaPatch): Promise<PdfArchiveMeta> {
+  if (isApiModeEnabled()) return updatePdfArchiveMetaApi(id, patch);
+  return updatePdfArchiveMetaLocal(id, patch);
+}
+
+export async function listSentStatementArchives(): Promise<PdfArchiveMeta[]> {
+  const records = await listPdfArchives();
+  return records.filter((record) => record.sentViaLink);
 }

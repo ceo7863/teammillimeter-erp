@@ -117,6 +117,41 @@ export function calculateWorkerLineMetrics(line: WorkerLineLike, feeRate = 0): W
   };
 }
 
+const WORKER_BILLING_INPUT_KEYS = new Set([
+  "quantity",
+  "unitCost",
+  "chargeAmount",
+  "meal",
+  "lodging",
+  "accommodation",
+  "room",
+  "expense",
+  "extraExpense",
+  "overtimeHours",
+  "overtimeCost",
+  "worker",
+  "feeRate",
+]);
+
+/** 청구·지급·마진 캐시 제거 — chargeAmount 등 입력 변경 시 재계산용 */
+export function stripWorkerLineComputedMetrics(line: WorkerLineLike): WorkerLineLike {
+  const next = { ...line };
+  delete next.lineBill;
+  delete next.lineSpend;
+  delete next.lineMargin;
+  return next;
+}
+
+export function applyWorkerLineFieldUpdate(line: WorkerLineLike, key: string, value: unknown): WorkerLineLike {
+  const nextLine = { ...line, [key]: value };
+  if (WORKER_BILLING_INPUT_KEYS.has(key)) {
+    delete nextLine.lineBill;
+    delete nextLine.lineSpend;
+    delete nextLine.lineMargin;
+  }
+  return nextLine;
+}
+
 export function enrichWorkerLineWithMetrics(line: WorkerLineLike, feeRate = 0) {
   const metrics = calculateWorkerLineMetrics(line, feeRate);
 

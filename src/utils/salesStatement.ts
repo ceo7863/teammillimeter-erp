@@ -19,6 +19,7 @@ export type SaleLike = {
   paid?: number;
   basePaid?: number;
   memo?: string;
+  officeMemo?: string;
 };
 
 export type WorkerLineLike = {
@@ -65,6 +66,8 @@ export type SalesStatementRow = {
   lineMargin: number;
   worker: string;
   memo: string;
+  sharedMemo: string;
+  officeMemo: string;
   unitCost: number;
   overtimeCost: number;
   feeRate: number;
@@ -73,13 +76,23 @@ export type SalesStatementRow = {
   unpaid: number;
   paymentDate: string;
   paymentAmount: number;
+  voucherLineCount?: number;
 };
 
+export const SALES_SHEET_VOUCHER_MERGE_KEYS = new Set([
+  "voucherNo",
+  "date",
+  "client",
+  "site",
+  "saleAmount",
+]);
+
 export const SALES_SHEET_COLUMNS = [
-  { key: "voucherNo", label: "NO", align: "left", sticky: true },
-  { key: "date", label: "일자", align: "left", sticky: true },
-  { key: "client", label: "거래처", align: "left", sticky: true },
-  { key: "site", label: "현장", align: "left" },
+  { key: "voucherNo", label: "NO", align: "left", sticky: true, voucherMerge: true },
+  { key: "date", label: "일자", align: "left", sticky: true, voucherMerge: true },
+  { key: "client", label: "거래처", align: "left", sticky: true, voucherMerge: true },
+  { key: "site", label: "현장", align: "left", voucherMerge: true },
+  { key: "saleAmount", label: "전표매출", align: "right", numeric: true, voucherMerge: true },
   { key: "quantity", label: "인원", align: "right", numeric: true },
   { key: "worker", label: "시공자", align: "left" },
   { key: "chargeAmount", label: "청구단가", align: "right", numeric: true },
@@ -91,20 +104,33 @@ export const SALES_SHEET_COLUMNS = [
   { key: "overtimeHours", label: "야근", align: "right", numeric: true },
   { key: "lodging", label: "숙박", align: "right", numeric: true },
   { key: "memo", label: "비고", align: "left" },
+  { key: "sharedMemo", label: "공통비고", align: "left", voucherOnly: true },
+  { key: "officeMemo", label: "사무실메모", align: "left", voucherOnly: true },
   { key: "unitCost", label: "지급단가", align: "right", numeric: true },
   { key: "overtimeCost", label: "야근단가", align: "right", numeric: true },
   { key: "feeRate", label: "수수료율", align: "right", numeric: true, percent: true },
   { key: "paymentDate", label: "입금일", align: "left" },
   { key: "paymentAmount", label: "입금액", align: "right", numeric: true },
-  { key: "saleAmount", label: "전표매출", align: "right", numeric: true, voucherOnly: true },
   { key: "paid", label: "반영입금", align: "right", numeric: true, voucherOnly: true },
   { key: "unpaid", label: "미수", align: "right", numeric: true, voucherOnly: true },
 ] as const;
 
+const SALES_SHEET_UI_HIDDEN_KEYS = new Set(["unitCost", "overtimeCost", "feeRate"]);
+
+/** 매출관리 화면 표시용 (지급단가·야근단가·수수료율 제외) */
+export const SALES_SHEET_UI_COLUMNS = SALES_SHEET_COLUMNS.filter(
+  (column) => !SALES_SHEET_UI_HIDDEN_KEYS.has(column.key),
+);
+
 type SheetColumn = (typeof SALES_SHEET_COLUMNS)[number] & {
   percent?: boolean;
   voucherOnly?: boolean;
+  voucherMerge?: boolean;
 };
+
+export function isSalesSheetVoucherMergeColumn(key: string) {
+  return SALES_SHEET_VOUCHER_MERGE_KEYS.has(key);
+}
 
 export function getSaleUnpaid(row: SaleLike) {
   const paid = row.paid ?? row.basePaid ?? 0;
@@ -130,6 +156,13 @@ function paymentSummaryForSale(vouchers: PaymentVoucherLike[], saleId: number | 
   return { paymentDate, paymentAmount };
 }
 
+/** 시공자 행 비고: 개별 비고 우선, 없으면 공통비고를 모든 시공자에 분배 */
+function resolveWorkerRowMemo(saleMemo: string, lineMemo: string) {
+  const individual = String(lineMemo || "").trim();
+  const common = String(saleMemo || "").trim();
+  return individual || common;
+}
+
 export function flattenSalesToStatementRows(
   sales: SaleLike[] = [],
   workersMaster: Array<{ name?: string; feeRate?: number }> = [],
@@ -152,6 +185,7 @@ export function flattenSalesToStatementRows(
         saleId: sale.id ?? "",
         lineIndex: 0,
         isFirstLine: true,
+        voucherLineCount: 1,
         voucherNo: String(sale.voucherNo ?? sale.id ?? ""),
         date: sale.date || "",
         client: sale.client || "",
@@ -166,7 +200,9 @@ export function flattenSalesToStatementRows(
         lineSpend: 0,
         lineMargin: 0,
         worker: sale.worker || "",
-        memo: sale.memo || "",
+        memo: resolveWorkerRowMemo(String(sale.memo || ""), ""),
+        sharedMemo: String(sale.memo || "").trim(),
+        officeMemo: String(sale.officeMemo || "").trim(),
         unitCost: 0,
         overtimeCost: 0,
         feeRate: 0,
@@ -186,6 +222,7 @@ export function flattenSalesToStatementRows(
         saleId: sale.id ?? "",
         lineIndex,
         isFirstLine: lineIndex === 0,
+        voucherLineCount: lines.length,
         voucherNo: String(sale.voucherNo ?? sale.id ?? ""),
         date: sale.date || "",
         client: sale.client || "",
@@ -200,7 +237,9 @@ export function flattenSalesToStatementRows(
         lineSpend: metrics.spend,
         lineMargin: metrics.margin,
         worker: String(line.worker || "").trim(),
-        memo: String(line.memo || "").trim(),
+        memo: resolveWorkerRowMemo(String(sale.memo || ""), String(line.memo || "")),
+        sharedMemo: String(sale.memo || "").trim(),
+        officeMemo: String(sale.officeMemo || "").trim(),
         unitCost: parseWorkerMoney(line.unitCost),
         overtimeCost: parseWorkerMoney(line.overtimeCost) || 30000,
         feeRate: metrics.feeRate,
@@ -335,13 +374,31 @@ export function sortSalesStatementRows(
   column: SalesSheetSortColumn = "date",
   direction: SortDirection = "desc"
 ) {
-  return [...rows].sort((a, b) => {
-    const primary = compareSortValues(a[column], b[column], direction);
-    if (primary !== 0) return primary;
-    const dateCompare = compareSortValues(a.date, b.date, "desc");
-    if (dateCompare !== 0) return dateCompare;
-    const idCompare = compareSortValues(a.saleId, b.saleId, "desc");
-    if (idCompare !== 0) return idCompare;
-    return a.lineIndex - b.lineIndex;
+  const groups = new Map<string, SalesStatementRow[]>();
+  rows.forEach((row) => {
+    const key = String(row.saleId);
+    const group = groups.get(key);
+    if (group) group.push(row);
+    else groups.set(key, [row]);
   });
+
+  groups.forEach((group) => {
+    group.sort((a, b) => a.lineIndex - b.lineIndex);
+  });
+
+  const sortedGroups = [...groups.values()].sort((groupA, groupB) => {
+    const repA = groupA[0];
+    const repB = groupB[0];
+    const primary = compareSortValues(
+      column === "worker" ? groupA.map((row) => row.worker).sort()[0] : repA[column],
+      column === "worker" ? groupB.map((row) => row.worker).sort()[0] : repB[column],
+      direction,
+    );
+    if (primary !== 0) return primary;
+    const dateCompare = compareSortValues(repA.date, repB.date, "desc");
+    if (dateCompare !== 0) return dateCompare;
+    return compareSortValues(repA.saleId, repB.saleId, "desc");
+  });
+
+  return sortedGroups.flat();
 }

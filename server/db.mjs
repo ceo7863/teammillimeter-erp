@@ -40,10 +40,14 @@ function emptyErpPayload() {
     loginLogs: [],
     workerPaymentRecords: [],
     companyExpenses: [],
+    attendanceRecords: [],
     fixedExpenses: [],
+    fixedExpensePayments: [],
     companyNotices: [],
     workPosts: [],
     taxInvoices: [],
+    bankTransactions: [],
+    bankTransactionFolders: [],
     statementGenerationLogs: [],
     statementFolders: [],
     companyProfile: null,
@@ -100,6 +104,10 @@ function migrateUsersTable(database) {
   if (!colNames.has("sidebar_order")) {
     database.exec(`ALTER TABLE users ADD COLUMN sidebar_order TEXT;`);
   }
+
+  if (!colNames.has("attendance_view_user_ids")) {
+    database.exec(`ALTER TABLE users ADD COLUMN attendance_view_user_ids TEXT;`);
+  }
 }
 
 function parseJsonStringArray(raw) {
@@ -128,6 +136,24 @@ function serializeAllowedPages(pages) {
   return serializeJsonStringArray(pages);
 }
 
+export function parseAttendanceViewUserIds(raw) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(String(raw));
+    if (!Array.isArray(parsed)) return null;
+    const values = [...new Set(parsed.map((item) => Number(item)).filter((id) => Number.isFinite(id) && id > 0))];
+    return values.length ? values : null;
+  } catch {
+    return null;
+  }
+}
+
+function serializeAttendanceViewUserIds(values) {
+  if (!Array.isArray(values) || !values.length) return null;
+  const normalized = [...new Set(values.map((item) => Number(item)).filter((id) => Number.isFinite(id) && id > 0))];
+  return normalized.length ? JSON.stringify(normalized) : null;
+}
+
 export function parseSidebarOrder(raw) {
   return parseJsonStringArray(raw);
 }
@@ -148,6 +174,7 @@ function formatUserRow(row) {
     isActive: Boolean(row.is_active),
     allowedPages: parseAllowedPages(row.allowed_pages),
     sidebarOrder: parseSidebarOrder(row.sidebar_order),
+    attendanceViewUserIds: parseAttendanceViewUserIds(row.attendance_view_user_ids),
     createdAt: row.created_at,
     updatedAt: row.updated_at || null,
   };
@@ -257,10 +284,14 @@ function seedErpIfNeeded(database) {
     loginLogs: seed.loginLogs || [],
     workerPaymentRecords: seed.workerPaymentRecords || [],
     companyExpenses: seed.companyExpenses || [],
+    attendanceRecords: seed.attendanceRecords || [],
     fixedExpenses: seed.fixedExpenses || [],
+    fixedExpensePayments: seed.fixedExpensePayments || [],
     companyNotices: seed.companyNotices || [],
     workPosts: seed.workPosts || [],
     taxInvoices: seed.taxInvoices || [],
+    bankTransactions: seed.bankTransactions || [],
+    bankTransactionFolders: seed.bankTransactionFolders || [],
     statementGenerationLogs: seed.statementGenerationLogs || [],
     statementFolders: seed.statementFolders || [],
   };
@@ -316,7 +347,7 @@ export function getDb() {
 }
 
 const USER_SELECT = `
-  SELECT id, login_id, email, password_hash, name, phone, role, is_active, allowed_pages, sidebar_order, created_at, updated_at
+  SELECT id, login_id, email, password_hash, name, phone, role, is_active, allowed_pages, sidebar_order, attendance_view_user_ids, created_at, updated_at
   FROM users
 `;
 
@@ -343,7 +374,7 @@ export function listUsers() {
     .map(formatUserRow);
 }
 
-export function createUser({ loginId, password, name, phone, email, role, allowedPages }) {
+export function createUser({ loginId, password, name, phone, email, role, allowedPages, attendanceViewUserIds }) {
   const database = getDb();
   const loginCheck = validateLoginId(loginId);
   if (!loginCheck.ok) {
@@ -368,6 +399,7 @@ export function createUser({ loginId, password, name, phone, email, role, allowe
 
   const nextRole = role === "admin" ? "admin" : "staff";
   const nextAllowedPages = nextRole === "admin" ? null : serializeAllowedPages(allowedPages);
+  const nextAttendanceViewUserIds = nextRole === "admin" ? null : serializeAttendanceViewUserIds(attendanceViewUserIds);
   const normalizedEmail = normalizeEmail(email);
   if (normalizedEmail && findUserByEmail(normalizedEmail)) {
     const err = new Error("이미 사용 중인 이메일입니다.");
@@ -384,8 +416,8 @@ export function createUser({ loginId, password, name, phone, email, role, allowe
   const now = new Date().toISOString();
   const result = database
     .prepare(`
-      INSERT INTO users (login_id, email, password_hash, name, phone, role, allowed_pages, is_active, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+      INSERT INTO users (login_id, email, password_hash, name, phone, role, allowed_pages, attendance_view_user_ids, is_active, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
     `)
     .run(
       loginCheck.value,
@@ -395,6 +427,7 @@ export function createUser({ loginId, password, name, phone, email, role, allowe
       String(phone || "").trim() || null,
       nextRole,
       nextAllowedPages,
+      nextAttendanceViewUserIds,
       now,
       now,
     );
@@ -402,7 +435,7 @@ export function createUser({ loginId, password, name, phone, email, role, allowe
   return formatUserRow(findUserById(result.lastInsertRowid));
 }
 
-export function updateUser(id, { name, phone, email, role, allowedPages }, actorUserId) {
+export function updateUser(id, { name, phone, email, role, allowedPages, attendanceViewUserIds }, actorUserId) {
   const database = getDb();
   const userId = Number(id);
   const existing = findUserById(userId);
@@ -421,6 +454,7 @@ export function updateUser(id, { name, phone, email, role, allowedPages }, actor
 
   const nextRole = role === "admin" ? "admin" : "staff";
   const nextAllowedPages = nextRole === "admin" ? null : serializeAllowedPages(allowedPages);
+  const nextAttendanceViewUserIds = nextRole === "admin" ? null : serializeAttendanceViewUserIds(attendanceViewUserIds);
   const normalizedEmail = normalizeEmail(email);
   if (normalizedEmail) {
     const emailOwner = findUserByEmail(normalizedEmail);
@@ -449,7 +483,7 @@ export function updateUser(id, { name, phone, email, role, allowedPages }, actor
   database
     .prepare(`
       UPDATE users
-      SET name = ?, phone = ?, email = ?, role = ?, allowed_pages = ?, updated_at = ?
+      SET name = ?, phone = ?, email = ?, role = ?, allowed_pages = ?, attendance_view_user_ids = ?, updated_at = ?
       WHERE id = ?
     `)
     .run(
@@ -458,6 +492,7 @@ export function updateUser(id, { name, phone, email, role, allowedPages }, actor
       storageEmail(existing.login_id, normalizedEmail),
       nextRole,
       nextAllowedPages,
+      nextAttendanceViewUserIds,
       now,
       userId,
     );
@@ -669,4 +704,23 @@ export function saveErpState(payload, expectedVersion, updatedBy) {
     .run(JSON.stringify(payload), nextVersion, updatedAt, updatedBy);
 
   return { version: nextVersion, updatedAt };
+}
+
+export function listAttendanceViewableUsers(viewerId) {
+  const viewer = formatUserRow(findUserById(viewerId));
+  if (!viewer) return [];
+
+  if (viewer.role === "admin") {
+    return listUsers()
+      .filter((user) => user.isActive !== false)
+      .map((user) => ({ id: user.id, name: user.name }));
+  }
+
+  const ids = viewer.attendanceViewUserIds || [];
+  if (!ids.length) return [];
+
+  return ids
+    .map((id) => formatUserRow(findUserById(id)))
+    .filter(Boolean)
+    .map((user) => ({ id: user.id, name: user.name }));
 }

@@ -13,6 +13,7 @@ export type ErpUser = {
   isActive?: boolean;
   allowedPages?: string[] | null;
   sidebarOrder?: string[] | null;
+  attendanceViewUserIds?: number[] | null;
 };
 
 export type ErpUserRecord = ErpUser & {
@@ -30,10 +31,14 @@ export type ErpPayload = {
   loginLogs?: unknown[];
   workerPaymentRecords?: unknown[];
   companyExpenses?: unknown[];
+  attendanceRecords?: unknown[];
   fixedExpenses?: unknown[];
+  fixedExpensePayments?: unknown[];
   companyNotices?: unknown[];
   workPosts?: unknown[];
   taxInvoices?: unknown[];
+  bankTransactions?: unknown[];
+  bankTransactionFolders?: unknown[];
   statementGenerationLogs?: unknown[];
   statementFolders?: unknown[];
   companyProfile?: CompanyProfile;
@@ -50,6 +55,7 @@ export type CreateUserInput = {
   email?: string;
   role?: string;
   allowedPages?: string[] | null;
+  attendanceViewUserIds?: number[] | null;
 };
 
 export type UpdateUserInput = {
@@ -58,6 +64,7 @@ export type UpdateUserInput = {
   email?: string;
   role?: string;
   allowedPages?: string[] | null;
+  attendanceViewUserIds?: number[] | null;
 };
 
 function apiBase() {
@@ -169,6 +176,11 @@ export async function updateSidebarOrderApi(sidebarOrder: string[]) {
 
 export async function fetchUsers() {
   const result = await apiRequest<{ users: ErpUserRecord[] }>("/users");
+  return result.users;
+}
+
+export async function fetchAttendanceViewableUsers() {
+  const result = await apiRequest<{ users: Array<{ id: number; name: string }> }>("/users/attendance-viewable");
   return result.users;
 }
 

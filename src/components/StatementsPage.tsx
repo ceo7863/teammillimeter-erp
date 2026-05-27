@@ -10,7 +10,8 @@ import { AutocompleteInput } from "@/components/AutocompleteInput";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { DEFAULT_COMPANY_PROFILE, type CompanyProfile } from "@/utils/companyProfile";
 import { confirmDelete } from "@/utils/confirmDelete";
-import { archiveGeneratedPdf, copyTextToClipboard, createPdfShareLink, getPdfArchiveRecord, listPdfArchives, openPdfBlobInNewTab, sharePdfBlob } from "@/utils/pdfArchive";
+import { archiveGeneratedPdf, copyTextToClipboard, createPdfShareLink, getPdfArchiveRecord, listPdfArchives, openPdfBlobInNewTab, sharePdfBlob, updatePdfArchiveMeta } from "@/utils/pdfArchive";
+import { isApiModeEnabled } from "@/utils/erpApi";
 import { createPdfPreviewWindow, downloadPdfFromHtmlElement, revokePdfBlobUrl } from "@/utils/statementPdf";
 import {
   appendStatementGenerationLog,
@@ -1137,22 +1138,31 @@ export function StatementsPage({
         deliver: false,
       });
       pdfBlobUrlRef.current = result.blobUrl;
+      const statementTotalAmount = isClient ? clientTotals.grandTotal : workerTotals.totalPay;
       const archived = await archiveGeneratedPdf(result, {
         category: isClient ? "statement-client" : "statement-worker",
         subjectName,
         periodStart: dateFilter.startDate,
         periodEnd: dateFilter.endDate,
         statementView: isClient ? clientStatementView : undefined,
+        sentViaLink: true,
+        statementTotalAmount,
+        paymentStatus: "pending",
       });
       if (setStatementFolders) {
         const filedBy = currentUser?.name || currentUser?.loginId || "";
         setStatementFolders((prev) => fileOrLinkPdfArchiveToFolders(prev, statementGenerationLogs, archived, filedBy));
       }
 
-      const shareLink = await createPdfShareLink(archived.id);
-      setStatementShareLink(shareLink.url);
-      const copied = await copyTextToClipboard(shareLink.url);
-      setPdfMessage(copied ? L.shareLinkReady : `${L.shareLinkReady} (\uC790\uB3D9 \uBCF5\uC0AC\uAC00 \uC9C0\uC6D0\uB418\uC9C0 \uC54A\uC544 \uC544\uB798 \uB9C1\uD06C\uB97C \uC9C1\uC811 \uBCF5\uC0AC\uD574 \uC8FC\uC138\uC694.)`);
+      if (isApiModeEnabled()) {
+        const shareLink = await createPdfShareLink(archived.id);
+        await updatePdfArchiveMeta(archived.id, { shareLinkUrl: shareLink.url });
+        setStatementShareLink(shareLink.url);
+        const copied = await copyTextToClipboard(shareLink.url);
+        setPdfMessage(copied ? L.shareLinkReady : `${L.shareLinkReady} (\uC790\uB3D9 \uBCF5\uC0AC\uAC00 \uC9C0\uC6D0\uB418\uC9C0 \uC54A\uC544 \uC544\uB798 \uB9C1\uD06C\uB97C \uC9C1\uC811 \uBCF5\uC0AC\uD574 \uC8FC\uC138\uC694.)`);
+      } else {
+        setPdfMessage("\uB9C1\uD06C \uBCF4\uB0B4\uAE30\uB294 \uC11C\uBC84 \uC5F0\uB3D9 \uBAA8\uB4DC\uC5D0\uC11C\uB9CC \uAC00\uB2A5\uD569\uB2C8\uB2E4. PDF\uB294 \uBCF4\uB0B4\uB0B4\uC5ED\uC11C\uD568\uC5D0 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4.");
+      }
     } catch (error) {
       console.error(error);
       setPdfMessage(error instanceof Error ? error.message : "\uB9C1\uD06C \uBCF4\uB0B4\uAE30\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");

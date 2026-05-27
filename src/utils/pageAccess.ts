@@ -3,6 +3,7 @@ import type { ErpUser } from "./erpApi";
 export const ERP_PAGE_KEYS = [
   "dashboard",
   "calendar",
+  "attendance",
   "clientCalendar",
   "salesInput",
   "sales",
@@ -16,6 +17,7 @@ export const ERP_PAGE_KEYS = [
   "workers",
   "companyLedger",
   "taxInvoices",
+  "bankTransactions",
   "companyNotices",
   "companyProfile",
   "auditLog",
@@ -35,6 +37,7 @@ export type ErpPageDef = {
 export const ERP_PAGE_DEFS: ErpPageDef[] = [
   { key: "dashboard", label: "대시보드", group: "업무" },
   { key: "calendar", label: "캘린더", group: "업무" },
+  { key: "attendance", label: "근태 관리", group: "업무" },
   { key: "clientCalendar", label: "거래처캘린더", group: "매출" },
   { key: "salesInput", label: "매출등록", group: "매출" },
   { key: "sales", label: "매출관리", group: "매출" },
@@ -48,6 +51,7 @@ export const ERP_PAGE_DEFS: ErpPageDef[] = [
   { key: "workers", label: "시공자", group: "기준정보" },
   { key: "companyLedger", label: "회사 가계부", group: "회계" },
   { key: "taxInvoices", label: "계산서 발행", group: "회계" },
+  { key: "bankTransactions", label: "통장 거래내역", group: "회계" },
   { key: "companyNotices", label: "회사게시판", group: "게시" },
   { key: "companyProfile", label: "회사정보", group: "설정" },
   { key: "auditLog", label: "감사로그", group: "설정", adminOnly: true },
@@ -61,6 +65,7 @@ const ERP_PAGE_KEY_SET = new Set<string>(ERP_PAGE_KEYS);
 export const DEFAULT_STAFF_PAGE_KEYS: ErpPageKey[] = [
   "dashboard",
   "calendar",
+  "attendance",
   "clientCalendar",
   "salesInput",
   "sales",

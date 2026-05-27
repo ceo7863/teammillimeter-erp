@@ -9,7 +9,8 @@ import { TableExportSection } from "@/components/TableExportSection";
 import { WorkerMonthlyStatementExport } from "@/components/WorkerMonthlyStatementExport";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { createPdfPreviewWindow, downloadPdfFromHtmlElement, revokePdfBlobUrl } from "@/utils/statementPdf";
-import { archiveGeneratedPdf, copyTextToClipboard, createPdfShareLink } from "@/utils/pdfArchive";
+import { archiveGeneratedPdf, copyTextToClipboard, createPdfShareLink, updatePdfArchiveMeta } from "@/utils/pdfArchive";
+import { isApiModeEnabled } from "@/utils/erpApi";
 import { confirmDelete } from "@/utils/confirmDelete";
 import {
   buildWorkerStatementSummary,
@@ -540,16 +541,24 @@ export function WorkerPaymentsPage({
         subjectName: statementWorker,
         periodStart: dateFilter.startDate,
         periodEnd: dateFilter.endDate,
+        sentViaLink: true,
+        statementTotalAmount: workerPrintTotals.totalPay,
+        paymentStatus: "pending",
       });
 
-      const shareLink = await createPdfShareLink(archived.id);
-      setStatementShareLink(shareLink.url);
-      const copied = await copyTextToClipboard(shareLink.url);
-      setPdfMessage(
-        copied
-          ? "PDF가 보관함에 저장되었습니다. 다운로드 링크가 복사되었습니다. 카톡 등에 붙여넣기 하세요."
-          : "PDF가 보관함에 저장되었습니다. 다운로드 링크가 복사되었습니다. 카톡 등에 붙여넣기 하세요. (자동 복사가 지원되지 않아 아래 링크를 직접 복사해 주세요.)"
-      );
+      if (isApiModeEnabled()) {
+        const shareLink = await createPdfShareLink(archived.id);
+        await updatePdfArchiveMeta(archived.id, { shareLinkUrl: shareLink.url });
+        setStatementShareLink(shareLink.url);
+        const copied = await copyTextToClipboard(shareLink.url);
+        setPdfMessage(
+          copied
+            ? "PDF가 보낸내역서함에 저장되었습니다. 다운로드 링크가 복사되었습니다. 카톡 등에 붙여넣기 하세요."
+            : "PDF가 보낸내역서함에 저장되었습니다. 다운로드 링크가 복사되었습니다. 카톡 등에 붙여넣기 하세요. (자동 복사가 지원되지 않아 아래 링크를 직접 복사해 주세요.)"
+        );
+      } else {
+        setPdfMessage("링크보내기는 서버 연동 모드에서만 가능합니다. PDF는 보낸내역서함에 저장되었습니다.");
+      }
     } catch (error) {
       console.error(error);
       setPdfMessage(error instanceof Error ? error.message : "링크보내기에 실패했습니다.");

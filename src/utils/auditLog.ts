@@ -34,7 +34,8 @@ export const SALE_AUDIT_FIELDS: AuditFieldDef[] = [
   { key: "client", label: "거래처" },
   { key: "site", label: "현장" },
   { key: "paid", label: "입금액", format: (v) => formatAuditMoney(v) },
-  { key: "memo", label: "비고" },
+  { key: "memo", label: "공통비고" },
+  { key: "officeMemo", label: "사무실메모" },
   { key: "amount", label: "총시공비", format: (v) => formatAuditMoney(v) },
   { key: "workersSummary", label: "시공자 내역" },
 ];
@@ -49,6 +50,7 @@ export const CLIENT_AUDIT_FIELDS: AuditFieldDef[] = [
   { key: "overtimeCost", label: "야근비", format: (v) => formatAuditMoney(v) },
   { key: "vat", label: "부가세" },
   { key: "mealIncluded", label: "식대" },
+  { key: "depositNameAliases", label: "예금주 별칭" },
   { key: "memo", label: "비고" },
 ];
 
@@ -59,6 +61,7 @@ export const WORKER_AUDIT_FIELDS: AuditFieldDef[] = [
   { key: "isActive", label: "상태", format: (v) => (v === false ? "비활성" : "활성") },
   { key: "bank", label: "은행명" },
   { key: "account", label: "계좌번호" },
+  { key: "depositNameAliases", label: "예금주 별칭" },
   { key: "phone", label: "연락처" },
   { key: "businessNo", label: "사업자등록번호" },
   { key: "address", label: "주소" },
@@ -127,6 +130,7 @@ export function snapshotSaleForAudit(row: Record<string, unknown>) {
     site: row.site || "",
     paid: String(row.basePaid ?? row.paid ?? 0),
     memo: row.memo || "",
+    officeMemo: row.officeMemo || "",
     amount: row.amount ?? 0,
     workersSummary: summarizeWorkers(row.workers),
   };
@@ -143,6 +147,7 @@ export function snapshotClientForAudit(client: Record<string, unknown>) {
     overtimeCost: client.overtimeCost ?? 0,
     vat: client.vat || "",
     mealIncluded: client.mealIncluded || "",
+    depositNameAliases: client.depositNameAliases || "",
     memo: client.memo || "",
   };
 }
@@ -155,6 +160,7 @@ export function snapshotWorkerForAudit(worker: Record<string, unknown>) {
     isActive: worker.isActive !== false,
     bank: worker.bank || "",
     account: worker.account || "",
+    depositNameAliases: worker.depositNameAliases || "",
     phone: worker.phone || "",
     businessNo: worker.businessNo || "",
     address: worker.address || "",

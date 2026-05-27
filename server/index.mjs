@@ -13,10 +13,12 @@ import {
   updateUserPassword,
   setUserActive,
   findUserById,
+  listAttendanceViewableUsers,
   updateSelfProfile,
   updateSelfSidebarOrder,
   verifyUserPassword,
   parseSidebarOrder,
+  parseAttendanceViewUserIds,
   recordLoginLog,
 } from "./db.mjs";
 import { authenticateUser, authMiddleware, adminMiddleware, signToken } from "./auth.mjs";
@@ -29,6 +31,7 @@ import {
   deletePdfArchiveById,
   ensurePdfArchiveShareToken,
   getPdfArchiveFileByShareToken,
+  updatePdfArchiveMeta,
 } from "./pdfArchive.mjs";
 import {
   initBoardAttachmentStore,
@@ -273,6 +276,7 @@ app.post("/api/auth/login", (req, res) => {
       phone: user.phone,
       allowedPages: user.allowedPages,
       sidebarOrder: user.sidebarOrder,
+      attendanceViewUserIds: user.attendanceViewUserIds,
     },
   });
 });
@@ -298,6 +302,7 @@ function formatAuthUserResponse(userId) {
       }
     })(),
     sidebarOrder: parseSidebarOrder(row.sidebar_order),
+    attendanceViewUserIds: parseAttendanceViewUserIds(row.attendance_view_user_ids),
   };
 }
 
@@ -323,6 +328,7 @@ app.patch("/api/auth/me", authMiddleware, (req, res) => {
         role: user.role,
         allowedPages: user.allowedPages,
         sidebarOrder: user.sidebarOrder,
+        attendanceViewUserIds: user.attendanceViewUserIds,
       },
     });
   } catch (error) {
@@ -343,6 +349,7 @@ app.patch("/api/auth/me/sidebar-order", authMiddleware, (req, res) => {
         role: user.role,
         allowedPages: user.allowedPages,
         sidebarOrder: user.sidebarOrder,
+        attendanceViewUserIds: user.attendanceViewUserIds,
       },
     });
   } catch (error) {
@@ -366,6 +373,10 @@ app.patch("/api/auth/me/password", authMiddleware, (req, res) => {
 
 app.get("/api/users", authMiddleware, adminMiddleware, (_req, res) => {
   res.json({ users: listUsers() });
+});
+
+app.get("/api/users/attendance-viewable", authMiddleware, (req, res) => {
+  res.json({ users: listAttendanceViewableUsers(req.user.sub) });
 });
 
 app.post("/api/users", authMiddleware, adminMiddleware, (req, res) => {
@@ -418,7 +429,9 @@ app.get("/api/erp", authMiddleware, (_req, res) => {
     loginLogs: state.data.loginLogs || [],
     workerPaymentRecords: state.data.workerPaymentRecords || [],
     companyExpenses: state.data.companyExpenses || [],
+    attendanceRecords: state.data.attendanceRecords || [],
     fixedExpenses: state.data.fixedExpenses || [],
+    fixedExpensePayments: state.data.fixedExpensePayments || [],
     companyNotices: state.data.companyNotices || [],
     workPosts: state.data.workPosts || [],
     statementGenerationLogs: state.data.statementGenerationLogs || [],
@@ -431,7 +444,7 @@ app.get("/api/erp", authMiddleware, (_req, res) => {
 });
 
 app.put("/api/erp", authMiddleware, (req, res) => {
-  const { sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, fixedExpenses, companyNotices, workPosts, statementGenerationLogs, statementFolders, companyProfile, version } = req.body || {};
+  const { sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, companyNotices, workPosts, statementGenerationLogs, statementFolders, companyProfile, version } = req.body || {};
   const existing = getErpState();
   const serverLoginLogs = Array.isArray(existing.data?.loginLogs) ? existing.data.loginLogs : [];
   const payload = {
@@ -444,7 +457,9 @@ app.put("/api/erp", authMiddleware, (req, res) => {
     loginLogs: serverLoginLogs,
     workerPaymentRecords: Array.isArray(workerPaymentRecords) ? workerPaymentRecords : [],
     companyExpenses: Array.isArray(companyExpenses) ? companyExpenses : [],
+    attendanceRecords: Array.isArray(attendanceRecords) ? attendanceRecords : [],
     fixedExpenses: Array.isArray(fixedExpenses) ? fixedExpenses : [],
+    fixedExpensePayments: Array.isArray(fixedExpensePayments) ? fixedExpensePayments : [],
     companyNotices: Array.isArray(companyNotices) ? companyNotices : [],
     workPosts: Array.isArray(workPosts) ? workPosts : [],
     statementGenerationLogs: Array.isArray(statementGenerationLogs) ? statementGenerationLogs : [],
@@ -479,6 +494,33 @@ app.get("/api/pdf-archives/:id", authMiddleware, (req, res) => {
     return;
   }
   res.json(meta);
+});
+
+app.patch("/api/pdf-archives/:id", authMiddleware, (req, res) => {
+  try {
+    const patch = req.body || {};
+    const allowed = {};
+    if (patch.sentViaLink != null) allowed.sentViaLink = Boolean(patch.sentViaLink);
+    if (patch.statementTotalAmount != null) allowed.statementTotalAmount = Number(patch.statementTotalAmount);
+    if (patch.paymentStatus != null) allowed.paymentStatus = String(patch.paymentStatus);
+    if (patch.linkedBankTransactionId != null) {
+      allowed.linkedBankTransactionId = String(patch.linkedBankTransactionId);
+    }
+    if (patch.linkedPaymentVoucherId != null) {
+      allowed.linkedPaymentVoucherId = patch.linkedPaymentVoucherId;
+    }
+    if (patch.shareLinkUrl != null) allowed.shareLinkUrl = String(patch.shareLinkUrl);
+
+    const updated = updatePdfArchiveMeta(req.params.id, allowed);
+    if (!updated) {
+      res.status(404).json({ error: "PDF를 찾을 수 없습니다." });
+      return;
+    }
+    res.json(updated);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "PDF 메타 업데이트에 실패했습니다." });
+  }
 });
 
 app.get("/api/pdf-archives/:id/file", authMiddleware, (req, res) => {

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Archive, ChevronDown, ChevronRight, Download, Eye, FileText, RefreshCw, RotateCcw, Search, Trash2 } from "lucide-react";
+import { Archive, ChevronDown, ChevronRight, Download, Eye, FileText, Link2, RefreshCw, RotateCcw, Search, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
@@ -9,12 +9,14 @@ import {
   downloadPdfArchives,
   downloadPdfBlob,
   formatPdfArchiveSize,
+  getPdfArchiveCategoryLabel,
   getPdfArchiveRecord,
   listPdfArchives,
   openPdfBlobInNewTab,
   sharePdfBlob,
   type PdfArchiveMeta,
 } from "@/utils/pdfArchive";
+import { getSentStatementPaymentStatusLabel } from "@/utils/bankSentStatementMatch";
 import {
   filterPdfArchiveRecords,
   getPdfArchiveFolderStats,
@@ -40,15 +42,21 @@ function formatArchiveDate(value: string) {
 }
 
 function formatPeriod(start: string, end: string) {
-  if (!start && !end) return "전체";
+  if (!start && !end) return "\uC804\uCCB4";
   if (start && end) return `${start} ~ ${end}`;
-  return start || end || "전체";
+  return start || end || "\uC804\uCCB4";
 }
 
 function formatStatementViewLabel(view?: string) {
-  if (view === "detail") return "상세";
-  if (view === "summary") return "요약";
+  if (view === "detail") return "\uC0C1\uC138";
+  if (view === "summary") return "\uC694\uC57D";
   return "";
+}
+
+function paymentStatusTone(status?: PdfArchiveMeta["paymentStatus"]) {
+  if (status === "confirmed") return "bg-emerald-100 text-emerald-700";
+  if (status === "partial") return "bg-amber-100 text-amber-700";
+  return "bg-slate-100 text-slate-600";
 }
 
 function buildPdfArchiveSummary(record: PdfArchiveMeta) {
@@ -133,24 +141,39 @@ export function PdfArchivePage({ isActive = true }: { isActive?: boolean }) {
     [records, query, startDate, endDate]
   );
 
+  const sentRecords = useMemo(
+    () =>
+      filteredRecords
+        .filter((record) => record.sentViaLink)
+        .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
+    [filteredRecords]
+  );
+
+  const regularFilteredRecords = useMemo(
+    () => filteredRecords.filter((record) => !record.sentViaLink),
+    [filteredRecords]
+  );
+
   const clientFolders = useMemo(
-    () => groupPdfArchivesBySubject(filteredRecords.filter((record) => record.category === "statement-client"), folderSort),
-    [filteredRecords, folderSort]
+    () => groupPdfArchivesBySubject(regularFilteredRecords.filter((record) => record.category === "statement-client"), folderSort),
+    [regularFilteredRecords, folderSort]
   );
   const workerFolders = useMemo(
-    () => groupPdfArchivesBySubject(filteredRecords.filter((record) => record.category === "statement-worker"), folderSort),
-    [filteredRecords, folderSort]
+    () => groupPdfArchivesBySubject(regularFilteredRecords.filter((record) => record.category === "statement-worker"), folderSort),
+    [regularFilteredRecords, folderSort]
   );
   const visibleFolders = useMemo(() => [...clientFolders, ...workerFolders], [clientFolders, workerFolders]);
 
   const stats = useMemo(() => {
     const clientCount = records.filter((record) => record.category === "statement-client").length;
     const workerCount = records.filter((record) => record.category === "statement-worker").length;
+    const sentCount = records.filter((record) => record.sentViaLink).length;
     const filteredStats = getPdfArchiveFolderStats(visibleFolders);
     return {
       total: records.length,
       clientCount,
       workerCount,
+      sentCount,
       filtered: filteredRecords.length,
       totalBytes: filteredStats.totalBytes,
       clientFolders: clientFolders.length,
@@ -301,6 +324,108 @@ export function PdfArchivePage({ isActive = true }: { isActive?: boolean }) {
     if (action === "clear") {
       await handleClearAll();
     }
+  };
+
+  const renderSentStatementList = () => {
+    if (loading) {
+      return <p className="erp-statement-folder-empty">{"\uBD88\uB7EC\uC624\uB294 \uC911..."}</p>;
+    }
+    if (!sentRecords.length) {
+      return <p className="erp-statement-folder-empty">{"\uB9C1\uD06C \uBCF4\uB0B4\uAE30\uB85C \uBC1C\uC1A1\uD55C \uB0B4\uC5ED\uC11C\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4."}</p>;
+    }
+
+    return (
+      <div className="erp-statement-folder-list">
+        {sentRecords.map((record) => {
+          const summary = buildPdfArchiveSummary(record);
+          return (
+            <div key={record.id} className="erp-statement-folder-item">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="erp-pdf-archive-file-name" title={summary}>
+                    {record.subjectName}
+                  </div>
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${paymentStatusTone(record.paymentStatus)}`}>
+                    {getSentStatementPaymentStatusLabel(record.paymentStatus)}
+                  </span>
+                  <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-bold text-violet-700">
+                    {getPdfArchiveCategoryLabel(record.category)}
+                  </span>
+                </div>
+                <div className="mt-1 text-xs text-slate-500">{summary}</div>
+                {record.statementTotalAmount ? (
+                  <div className="mt-1 text-sm font-semibold text-slate-700">
+                    {"\uB0B4\uC5ED\uC11C \uCD1D\uD569\uACC4"}{" "}
+                    {new Intl.NumberFormat("ko-KR").format(record.statementTotalAmount)}
+                    {"\uC6D0"}
+                  </div>
+                ) : null}
+                {record.shareLinkUrl ? (
+                  <div className="mt-1 truncate text-xs text-blue-600">{record.shareLinkUrl}</div>
+                ) : null}
+              </div>
+              <div className="erp-statement-folder-item-actions">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="erp-statement-history-btn rounded-lg"
+                  title="\uBCF4\uAE30"
+                  onClick={() => handleOpen(record.id)}
+                >
+                  <Eye size={12} />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="erp-statement-history-btn rounded-lg"
+                  title="\uB2E4\uC6B4\uB85C\uB4DC"
+                  onClick={() => handleDownload(record)}
+                >
+                  <Download size={12} />
+                </Button>
+                {record.shareLinkUrl ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="erp-statement-history-btn rounded-lg"
+                    title="\uB9C1\uD06C \uBCF5\uC0AC"
+                    onClick={() => {
+                      void navigator.clipboard?.writeText(record.shareLinkUrl || "");
+                      setMessage("\uB9C1\uD06C\uB97C \uBCF5\uC0AC\uD588\uC2B5\uB2C8\uB2E4.");
+                    }}
+                  >
+                    <Link2 size={12} />
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="erp-statement-history-btn erp-pdf-archive-kakao-btn rounded-lg"
+                  title="\uCE74\uCE74\uC624\uD5A1 \uBCF4\uB0B4\uAE30"
+                  onClick={() => handleShare(record)}
+                >
+                  {"\uCE74\uD1A1"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="erp-statement-history-btn rounded-lg text-red-600 hover:text-red-700"
+                  title="\uC0AD\uC81C"
+                  onClick={() => handleDelete(record)}
+                >
+                  <Trash2 size={12} />
+                </Button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
   };
 
   const renderFolderList = (folders: PdfArchiveFolder[], emptyLabel: string) => {
@@ -454,6 +579,10 @@ export function PdfArchivePage({ isActive = true }: { isActive?: boolean }) {
             <span className="label">시공자</span>
             <span className="value">{stats.workerCount.toLocaleString()}건</span>
           </div>
+          <div className="erp-payment-hub-metric">
+            <span className="label">{"\uBCF4\uB0B4\uB0B4\uC5ED\uC11C"}</span>
+            <span className="value">{stats.sentCount.toLocaleString()}{"\uAC74"}</span>
+          </div>
           <div className="erp-payment-hub-metric is-highlight">
             <span className="label">조회</span>
             <span className="value">{stats.filtered.toLocaleString()}건</span>
@@ -558,25 +687,35 @@ export function PdfArchivePage({ isActive = true }: { isActive?: boolean }) {
           ) : !loading && filteredRecords.length === 0 ? (
             <p className="erp-text-caption text-slate-500">검색 조건에 맞는 PDF가 없습니다.</p>
           ) : (
-            <div className="erp-statement-folder-split">
-              <section className="erp-statement-folder-column">
-                <div className="erp-statement-folder-column-head">
-                  <h4 className="erp-statement-folder-column-title">거래처</h4>
-                  <span className="erp-statement-folder-column-count">{clientFolders.length}</span>
+            <div className="space-y-4">
+              <section className="rounded-2xl border border-violet-200 bg-violet-50/30 p-3 md:p-4">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <h4 className="erp-statement-folder-column-title">{"\uBCF4\uB0B4\uB0B4\uC5ED\uC11C\uD568"}</h4>
+                  <span className="erp-statement-folder-column-count">{sentRecords.length}</span>
                 </div>
-                <div className="erp-statement-folder-column-body">
-                  {renderFolderList(clientFolders, "거래처 PDF 폴더가 없습니다.")}
-                </div>
+                {renderSentStatementList()}
               </section>
-              <section className="erp-statement-folder-column">
-                <div className="erp-statement-folder-column-head">
-                  <h4 className="erp-statement-folder-column-title">시공자</h4>
-                  <span className="erp-statement-folder-column-count">{workerFolders.length}</span>
-                </div>
-                <div className="erp-statement-folder-column-body">
-                  {renderFolderList(workerFolders, "시공자 PDF 폴더가 없습니다.")}
-                </div>
-              </section>
+
+              <div className="erp-statement-folder-split">
+                <section className="erp-statement-folder-column">
+                  <div className="erp-statement-folder-column-head">
+                    <h4 className="erp-statement-folder-column-title">{"\uAC70\uB798\uCC98"}</h4>
+                    <span className="erp-statement-folder-column-count">{clientFolders.length}</span>
+                  </div>
+                  <div className="erp-statement-folder-column-body">
+                    {renderFolderList(clientFolders, "\uAC70\uB798\uCC98 PDF \uD3F4\uB354\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.")}
+                  </div>
+                </section>
+                <section className="erp-statement-folder-column">
+                  <div className="erp-statement-folder-column-head">
+                    <h4 className="erp-statement-folder-column-title">{"\uC2DC\uACF5\uC790"}</h4>
+                    <span className="erp-statement-folder-column-count">{workerFolders.length}</span>
+                  </div>
+                  <div className="erp-statement-folder-column-body">
+                    {renderFolderList(workerFolders, "\uC2DC\uACF5\uC790 PDF \uD3F4\uB354\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.")}
+                  </div>
+                </section>
+              </div>
             </div>
           )}
 

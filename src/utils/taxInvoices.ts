@@ -225,6 +225,62 @@ export function buildTaxInvoiceStats(rows: TaxInvoice[]) {
   };
 }
 
+export function buildTaxInvoiceClientGroupKey(row: Pick<TaxInvoice, "client" | "businessNo" | "flowType">) {
+  const businessNo = String(row.businessNo || "").trim();
+  const client = String(row.client || "").trim() || "(미지정)";
+  const partyKey = businessNo || client;
+  return `${row.flowType}:${partyKey}`;
+}
+
+export type TaxInvoiceClientSummary = {
+  key: string;
+  flowType: TaxInvoiceFlowType;
+  client: string;
+  businessNo: string;
+  count: number;
+  supply: number;
+  vat: number;
+  total: number;
+  rows: TaxInvoice[];
+};
+
+export function buildTaxInvoiceClientSummaries(rows: TaxInvoice[]): TaxInvoiceClientSummary[] {
+  const map = new Map<string, TaxInvoiceClientSummary>();
+
+  rows.forEach((row) => {
+    const key = buildTaxInvoiceClientGroupKey(row);
+    if (!map.has(key)) {
+      map.set(key, {
+        key,
+        flowType: row.flowType,
+        client: String(row.client || "").trim() || "(미지정)",
+        businessNo: String(row.businessNo || "").trim(),
+        count: 0,
+        supply: 0,
+        vat: 0,
+        total: 0,
+        rows: [],
+      });
+    }
+
+    const bucket = map.get(key)!;
+    bucket.rows.push(row);
+    if (row.status !== "cancelled") {
+      bucket.count += 1;
+      bucket.supply += row.supplyAmount;
+      bucket.vat += row.vatAmount;
+      bucket.total += row.totalAmount;
+    }
+  });
+
+  return [...map.values()]
+    .map((group) => ({
+      ...group,
+      rows: sortTaxInvoices(group.rows),
+    }))
+    .sort((a, b) => b.total - a.total || a.client.localeCompare(b.client, "ko"));
+}
+
 export function formatTaxInvoicePeriodLabel(startDate: string, endDate: string) {
   if (startDate && endDate) return `${startDate} ~ ${endDate}`;
   if (startDate) return `${startDate} ~`;
