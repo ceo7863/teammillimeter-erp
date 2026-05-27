@@ -25,7 +25,10 @@ import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { TableExportSection } from "@/components/TableExportSection";
 import { DesktopTableWrap, MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
+import { useAudit } from "@/context/AuditContext";
 import { confirmDelete } from "@/utils/confirmDelete";
+import { CLIENT_AUDIT_FIELDS, snapshotClientForAudit } from "@/utils/auditLog";
+import { appendDepositNameAlias, resolveBankDepositMatchSubject } from "@/utils/clientDepositAliases";
 import { formatKRW, monthRangeISO, todayISO, makeLedgerId, mergeExpenseCategory, parseLedgerAmount, validateCompanyExpenseInput, validateFixedExpensePaymentInput, type CompanyExpense, type FixedExpense, type FixedExpensePayment } from "@/utils/companyLedger";
 import {
   autoApplyBankLearnRules,
@@ -224,6 +227,16 @@ const L = {
   ledgerSave: "\uAC00\uACC4\uBD80 \uB4F1\uB85D",
   ledgerDate: "\uC9C0\uCD9C\uC77C",
   ledgerClickHint: "\uBBF8\uBD84\uB958 \uCD9C\uAE08 \uB0B4\uC6A9 \uD074\uB9AD \u2192 \uAC00\uACC4\uBD80",
+  clientLinkTitle: "\uAC70\uB798\uCC98 \uC5F0\uACB0",
+  clientLinkDesc:
+    "\uD1B5\uC7A5 \uC785\uAE08 \uC2DC \uD45C\uC2DC\uB41C \uC774\uB984\uC744 \uAC70\uB798\uCC98 \uC608\uAE08\uC8FC \uBCC4\uCE59\uC5D0 \uCD94\uAC00\uD569\uB2C8\uB2E4. \uC774\uD6C4 \uB3D9\uC77C \uC774\uB984 \uC785\uAE08\uC740 \uC790\uB3D9 \uBD84\uB958\uB429\uB2C8\uB2E4.",
+  clientLinkSelectClient: "\uAC70\uB798\uCC98 \uAC80\uC0C9",
+  clientLinkDepositSubject: "\uD1B5\uC7A5 \uD45C\uC2DC \uC774\uB984",
+  clientLinkSave: "\uC5F0\uACB0 \uC800\uC7A5",
+  clientLinkDone: "\uAC70\uB798\uCC98 \uC5F0\uACB0 \uBC0F \uC790\uB3D9 \uBD84\uB958\uAC00 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
+  clientLinkMissingSubject: "\uC0C1\uB300\uC608\uAE08\uC8FC \uB610\uB294 \uAC70\uB798\uB0B4\uC6A9\uC774 \uC5C6\uC5B4 \uC5F0\uACB0\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  clientLinkMissingClient: "\uAC70\uB798\uCC98\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
+  clientLinkClickHint: "\uBBF8\uBD84\uB958 \uC785\uAE08 \uD074\uB9AD \u2192 \uAC70\uB798\uCC98 \uC5F0\uACB0",
 };
 
 type DepositSuggestion =
@@ -298,12 +311,17 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+function canLinkUnclassifiedClientDeposit(row: BankTransaction) {
+  return row.deposit > 0 && !row.folderId && !isCardCompanyDeposit(row);
+}
+
 export function BankTransactionsPage({
   bankTransactions,
   setBankTransactions,
   bankTransactionFolders,
   setBankTransactionFolders,
   clients,
+  setClients,
   workers,
   receivableRows,
   sales,
@@ -325,7 +343,8 @@ export function BankTransactionsPage({
   setBankTransactions: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
   bankTransactionFolders: BankTransactionFolder[];
   setBankTransactionFolders: React.Dispatch<React.SetStateAction<BankTransactionFolder[]>>;
-  clients: Array<{ name?: string; manager?: string; depositNameAliases?: string }>;
+  clients: Array<{ id?: number | string; name?: string; manager?: string; depositNameAliases?: string }>;
+  setClients: React.Dispatch<React.SetStateAction<Array<{ id?: number | string; name?: string; manager?: string; depositNameAliases?: string; [key: string]: unknown }>>>;
   workers: Array<{ name?: string; depositNameAliases?: string }>;
   receivableRows: ReceivableRow[];
   sales: Array<{ id?: number | string; workers?: unknown[]; worker?: string; amount?: number }>;
@@ -360,6 +379,9 @@ export function BankTransactionsPage({
   const [importMessage, setImportMessage] = useState("");
   const [importLoading, setImportLoading] = useState(false);
   const [linkModalTx, setLinkModalTx] = useState<BankTransaction | null>(null);
+  const [clientLinkModalTx, setClientLinkModalTx] = useState<BankTransaction | null>(null);
+  const [clientLinkClientName, setClientLinkClientName] = useState("");
+  const { recordAudit } = useAudit();
   const [ledgerModal, setLedgerModal] = useState<{
     tx: BankTransaction;
     kind: LedgerRegisterKind;
@@ -463,6 +485,19 @@ export function BankTransactionsPage({
   );
 
   const accountSummaries = useMemo(() => buildBankAccountSummaries(bankTransactions), [bankTransactions]);
+
+  const clientAutocompleteOptions = useMemo(
+    () =>
+      [...clients]
+        .filter((client) => String(client.name || "").trim())
+        .sort((a, b) => String(a.name).localeCompare(String(b.name), "ko"))
+        .map((client) => ({
+          label: String(client.name),
+          value: String(client.name),
+          raw: client,
+        })),
+    [clients]
+  );
 
   const fixedExpenseSelectOptions = useMemo(
     () =>
@@ -920,6 +955,61 @@ export function BankTransactionsPage({
     setImportMessage(L.ledgerRegisterDone);
   };
 
+  const openClientLinkModal = (tx: BankTransaction) => {
+    setClientLinkClientName("");
+    setClientLinkModalTx(tx);
+  };
+
+  const confirmClientDepositLink = () => {
+    const tx = clientLinkModalTx;
+    if (!tx) return;
+
+    const clientName = clientLinkClientName.trim();
+    if (!clientName) {
+      setImportMessage(L.clientLinkMissingClient);
+      return;
+    }
+
+    const subject = resolveBankDepositMatchSubject(tx);
+    if (!subject) {
+      setImportMessage(L.clientLinkMissingSubject);
+      return;
+    }
+
+    const client = clients.find((row) => String(row.name || "").trim() === clientName);
+    if (!client?.id) {
+      setImportMessage(L.clientLinkMissingClient);
+      return;
+    }
+
+    const nextAliases = appendDepositNameAlias(client.depositNameAliases, subject);
+    const updatedClient = { ...client, depositNameAliases: nextAliases };
+
+    recordAudit({
+      entityType: "client",
+      entityId: client.id,
+      entityLabel: String(client.name || ""),
+      screen: L.pageTitle,
+      action: "update",
+      before: snapshotClientForAudit(client),
+      after: snapshotClientForAudit(updatedClient),
+      fields: CLIENT_AUDIT_FIELDS,
+      user: currentUser,
+    });
+
+    const nextClients = clients.map((row) => (row.id === client.id ? updatedClient : row));
+    setClients(nextClients);
+
+    const classified = autoClassifyBankTransactions(bankTransactions, nextClients, workers, bankTransactionFolders);
+    setBankTransactions(classified.next);
+    setBankTransactionFolders(classified.folders);
+
+    setClientLinkModalTx(null);
+    setClientLinkClientName("");
+    const classifyNote = classified.updated > 0 ? ` (${classified.updated}\uAC74 \uBD84\uB958)` : "";
+    setImportMessage(`${L.clientLinkDone}${classifyNote}`);
+  };
+
   const confirmDepositMatch = (tx: BankTransaction, candidate: BankDepositMatchCandidate) => {
     if (paymentVouchers.some((voucher) => voucher.bankTransactionId === tx.id)) {
       setImportMessage("\uC774\uBBF8 \uC5F0\uACB0\uB41C \uD1B5\uC7A5 \uAC70\uB798\uC785\uB2C8\uB2E4.");
@@ -1100,12 +1190,34 @@ export function BankTransactionsPage({
         <td className="text-right font-semibold text-red-600">{row.withdrawal > 0 ? formatKRW(row.withdrawal) : "-"}</td>
         <td className="text-right font-bold text-slate-900">{formatKRW(row.balanceAfter)}</td>
         <td>{renderTransactionDescription(row)}</td>
-        <td className="text-slate-700">{row.counterpartyName || "-"}</td>
+        <td className="text-slate-700">
+          {canLinkUnclassifiedClientDeposit(row) ? (
+            <button
+              type="button"
+              className="text-left font-medium text-emerald-700 underline decoration-emerald-200 underline-offset-2 hover:text-emerald-900"
+              title={L.clientLinkClickHint}
+              onClick={() => openClientLinkModal(row)}
+            >
+              {row.counterpartyName || row.description || "-"}
+            </button>
+          ) : (
+            row.counterpartyName || "-"
+          )}
+        </td>
         <td>
           {folder ? (
             <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getBankTransactionFolderTone(folder.folderType)}`}>
               {folder.folderName}
             </span>
+          ) : canLinkUnclassifiedClientDeposit(row) ? (
+            <button
+              type="button"
+              className="inline-flex rounded-full border border-dashed border-emerald-300 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800 hover:border-emerald-400 hover:bg-emerald-100"
+              title={L.clientLinkClickHint}
+              onClick={() => openClientLinkModal(row)}
+            >
+              {L.unfiled}
+            </button>
           ) : (
             <span className="text-xs font-semibold text-slate-400">{L.unfiled}</span>
           )}
@@ -1229,11 +1341,21 @@ export function BankTransactionsPage({
         { label: L.transactionType, value: row.transactionType || "-" },
       ]}
       actions={
-        canLedger ? (
-          <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={() => openLedgerRegister(row)}>
-            <BookOpen size={14} className="mr-1" />
-            {L.ledgerRegister}
-          </Button>
+        canLedger || canLinkUnclassifiedClientDeposit(row) ? (
+          <div className="flex flex-wrap gap-2">
+            {canLinkUnclassifiedClientDeposit(row) ? (
+              <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={() => openClientLinkModal(row)}>
+                <Building2 size={14} className="mr-1" />
+                {L.clientLinkTitle}
+              </Button>
+            ) : null}
+            {canLedger ? (
+              <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={() => openLedgerRegister(row)}>
+                <BookOpen size={14} className="mr-1" />
+                {L.ledgerRegister}
+              </Button>
+            ) : null}
+          </div>
         ) : undefined
       }
     />
@@ -2013,6 +2135,80 @@ export function BankTransactionsPage({
               <Button type="button" className="rounded-2xl" onClick={confirmImport}>
                 <ArrowLeftRight size={16} className="mr-2" />
                 {L.ibkImportConfirm}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {clientLinkModalTx ? (
+        <div className="erp-ledger-modal-backdrop" onClick={() => setClientLinkModalTx(null)}>
+          <div
+            className="erp-ledger-modal max-w-lg"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">
+                  <Building2 size={14} />
+                  {L.clientLinkTitle}
+                </div>
+                <h2 className="erp-text-section font-bold">{L.clientLinkTitle}</h2>
+                <p className="mt-1 erp-text-caption text-slate-500">{L.clientLinkDesc}</p>
+                <p className="mt-2 text-sm font-semibold text-emerald-700">
+                  {formatKRW(clientLinkModalTx.deposit)}
+                  {" \u00B7 "}
+                  {formatBankTransactionDateTime(clientLinkModalTx.transactionAt)}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
+                onClick={() => setClientLinkModalTx(null)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="grid gap-3">
+              <Field label={L.clientLinkDepositSubject}>
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-900">
+                  {resolveBankDepositMatchSubject(clientLinkModalTx) || "-"}
+                </div>
+              </Field>
+              <Field label={L.clientLinkSelectClient}>
+                <AutocompleteInput
+                  value={clientLinkClientName}
+                  onChange={(value) => setClientLinkClientName(String(value || ""))}
+                  options={clientAutocompleteOptions}
+                  placeholder={L.clientLinkSelectClient}
+                  freeSolo={false}
+                  showOptionsOnFocus
+                  compact={false}
+                  renderSub={(raw) => {
+                    const client = raw as { manager?: string; depositNameAliases?: string };
+                    const manager = String(client?.manager || "").trim();
+                    const aliases = String(client?.depositNameAliases || "").trim();
+                    if (!manager && !aliases) return null;
+                    return (
+                      <span className="text-xs text-slate-500">
+                        {[manager, aliases].filter(Boolean).join(" \u00B7 ")}
+                      </span>
+                    );
+                  }}
+                />
+              </Field>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setClientLinkModalTx(null)}>
+                {L.cancel}
+              </Button>
+              <Button type="button" className="rounded-2xl" onClick={confirmClientDepositLink}>
+                <Link2 size={16} className="mr-2" />
+                {L.clientLinkSave}
               </Button>
             </div>
           </div>

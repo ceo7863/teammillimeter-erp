@@ -5235,6 +5235,7 @@ export default function TeammillimeterErpMvp() {
             bankTransactionFolders={bankTransactionFolders}
             setBankTransactionFolders={setBankTransactionFolders}
             clients={clients}
+            setClients={setClients}
             workers={workers}
             receivableRows={receivableRowsFromSales}
             sales={appliedSales}

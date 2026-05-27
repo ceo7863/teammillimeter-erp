@@ -1,7 +1,7 @@
 import type { BankTransaction } from "./bankTransactions";
 import { isCardCompanyDeposit } from "./bankTransactionFolders";
 import type { ClientDepositMatchSource } from "./clientDepositAliases";
-import { includesDepositName, resolveDepositSubjectClientMatch } from "./clientDepositAliases";
+import { includesDepositName, resolveBankDepositMatchSubject, resolveDepositSubjectClientMatch } from "./clientDepositAliases";
 import type { ReceivableRow } from "./receivables";
 import { getUnpaid } from "./receivables";
 
@@ -125,7 +125,7 @@ export function buildBankDepositMatchCandidates(
 
   const deposit = tx.deposit;
   const txDate = String(tx.transactionAt || "").slice(0, 10);
-  const subject = `${tx.counterpartyName || ""} ${tx.description || ""}`.trim();
+  const subject = resolveBankDepositMatchSubject(tx);
   const linkedSalesIds = options.linkedSalesIds || new Set<string>();
   const clients = options.clients;
   const minScore = options.minScore ?? 35;

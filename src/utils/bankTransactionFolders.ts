@@ -1,6 +1,6 @@
 import type { BankTransaction } from "./bankTransactions";
 import type { ClientDepositMatchSource, WorkerDepositMatchSource } from "./clientDepositAliases";
-import { findClientByDepositSubject, findWorkerByDepositSubject } from "./clientDepositAliases";
+import { findClientByDepositSubject, findWorkerByDepositSubject, resolveBankDepositMatchSubject } from "./clientDepositAliases";
 
 export type BankTransactionFolderType = "client" | "worker" | "card";
 
@@ -151,12 +151,12 @@ export function suggestBankTransactionClassification(
   clients: ClientDepositMatchSource[],
   workers: WorkerDepositMatchSource[]
 ): { folderType: BankTransactionFolderType; linkedSubject?: string } | null {
-  const subject = String(tx.counterpartyName || tx.description || "").trim();
+  const subject = resolveBankDepositMatchSubject(tx);
   if (!subject) return null;
 
   if (tx.deposit > 0) {
     if (looksLikeCardDeposit(subject)) {
-      return { folderType: "card", linkedSubject: String(tx.counterpartyName || tx.description || "").trim() || undefined };
+      return { folderType: "card", linkedSubject: subject || undefined };
     }
     const client = findClientByDepositSubject(clients, subject);
     if (client?.name) return { folderType: "client", linkedSubject: String(client.name).trim() };

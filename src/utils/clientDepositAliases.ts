@@ -54,6 +54,25 @@ export function formatDepositNameAliases(raw?: string) {
   return parseDepositNameAliases(raw).join(", ");
 }
 
+/** Bank import counterparty (?????), then description. */
+export function resolveBankDepositMatchSubject(tx: { counterpartyName?: string; description?: string }) {
+  const counterparty = String(tx.counterpartyName || "").trim();
+  if (counterparty) return counterparty;
+  return String(tx.description || "").trim();
+}
+
+export function appendDepositNameAlias(raw: string | undefined, alias: string) {
+  const trimmed = String(alias || "").trim();
+  if (!trimmed) return String(raw || "").trim();
+
+  const existing = parseDepositNameAliases(raw);
+  const key = normalizeMatchText(trimmed);
+  if (existing.some((item) => normalizeMatchText(item) === key)) {
+    return existing.join(", ");
+  }
+  return [...existing, trimmed].join(", ");
+}
+
 export function normalizeClientManagerName(raw?: string) {
   let text = String(raw || "").trim();
   if (!text) return "";
