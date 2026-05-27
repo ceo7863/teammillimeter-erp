@@ -202,7 +202,11 @@ function CategoryBadge({ label }: { label: string }) {
 }
 
 function ExpenseKindBadge({ kind }: { kind: CompanyExpenseKind }) {
-  return <span className={`erp-ledger-kind-badge ${kind}`}>{EXPENSE_KIND_OPTIONS.find((row) => row.value === kind)?.label || kind}</span>;
+  return (
+    <span className={`erp-ledger-kind-badge kind-${kind}`}>
+      {EXPENSE_KIND_OPTIONS.find((row) => row.value === kind)?.label || kind}
+    </span>
+  );
 }
 
 function isBankLinkedExpense(row: CompanyExpense): boolean {

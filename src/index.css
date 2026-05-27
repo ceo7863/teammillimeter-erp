@@ -7398,12 +7398,12 @@ body.erp-col-resizing * {
   color: #4338ca;
 }
 
-.erp-ledger-kind-badge.variable {
+.erp-ledger-kind-badge.kind-variable {
   background: #fff1f2;
   color: #be123c;
 }
 
-.erp-ledger-kind-badge.fixed {
+.erp-ledger-kind-badge.kind-fixed {
   background: #fffbeb;
   color: #b45309;
 }
