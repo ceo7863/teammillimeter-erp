@@ -94,6 +94,7 @@ import { DesktopTableWrap, MobileRecordCard, MobileRecordList } from "@/componen
 import { AutocompleteInput, AutocompleteSelect } from "@/components/AutocompleteInput";
 import { buildReceivableRowsFromSales, getStatus, getUnpaid, parseMoney, formatMoneyInput, sanitizeMoneyInput } from "@/utils/receivables";
 import { getSaleStaffCount, getSaleTotalBill, getSaleWorkerLines, normalizeSalesRecords } from "@/utils/saleBilling";
+import { formatWorkerNameSummary } from "@/utils/statementSheets";
 import { buildSaleDuplicateIndex, findSalesWithSameClientWorkerDate, isDuplicateSale } from "@/utils/saleDuplicates";
 import { filterNamedSuggestions } from "@/utils/autocompleteFilter";
 import { confirmDelete } from "@/utils/confirmDelete";
@@ -784,7 +785,26 @@ function aggregateSaleCalendarStats(sale, feeMap) {
   };
 }
 
-const EMPTY_CALENDAR_DAY_STATS = { staff: 0, bill: 0, spend: 0, fee: 0, netPay: 0, margin: 0, count: 0 };
+const CALENDAR_CLIENT_COLORS = ["#0d9488", "#7c3aed", "#e11d48", "#ea580c", "#2563eb", "#db2777", "#059669", "#ca8a04"];
+
+const EMPTY_CALENDAR_DAY_STATS = { staff: 0, bill: 0, spend: 0, fee: 0, netPay: 0, margin: 0, count: 0, entries: [] };
+
+function getCalendarClientColor(client) {
+  const name = String(client || "").trim() || "(미지정)";
+  let hash = 0;
+  for (let i = 0; i < name.length; i += 1) {
+    hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  }
+  return CALENDAR_CLIENT_COLORS[hash % CALENDAR_CLIENT_COLORS.length];
+}
+
+function formatCalendarDayLabel(date) {
+  const parsed = new Date(`${date}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return date;
+  const weekday = ["일", "월", "화", "수", "목", "금", "토"][parsed.getDay()];
+  const [, monthText, dayText] = date.split("-");
+  return `${Number(monthText)}월 ${Number(dayText)}일 (${weekday})`;
+}
 
 function buildCalendarDays(monthKey, sales, workers = []) {
   const [yearText, monthText] = monthKey.split("-");
@@ -799,7 +819,7 @@ function buildCalendarDays(monthKey, sales, workers = []) {
   const statsByDate = sales.reduce((acc, sale) => {
     if (!String(sale.date || "").startsWith(monthKey)) return acc;
     const key = sale.date;
-    if (!acc[key]) acc[key] = { ...EMPTY_CALENDAR_DAY_STATS };
+    if (!acc[key]) acc[key] = { ...EMPTY_CALENDAR_DAY_STATS, entries: [] };
     const dayStats = aggregateSaleCalendarStats(sale, feeMap);
     acc[key].staff += dayStats.staff;
     acc[key].bill += dayStats.bill;
@@ -808,8 +828,21 @@ function buildCalendarDays(monthKey, sales, workers = []) {
     acc[key].netPay += dayStats.netPay;
     acc[key].margin += dayStats.margin;
     acc[key].count += dayStats.count;
+    acc[key].entries.push({
+      saleId: sale.id,
+      client: String(sale.client || "").trim() || "(미지정)",
+      site: String(sale.site || sale.memo || "").trim() || "현장명 없음",
+      staff: dayStats.staff,
+      workerSummary: formatWorkerNameSummary(getSaleWorkerLines(sale)),
+      bill: dayStats.bill,
+      color: getCalendarClientColor(sale.client),
+    });
     return acc;
   }, {});
+
+  Object.values(statsByDate).forEach((day) => {
+    day.entries.sort((left, right) => left.client.localeCompare(right.client, "ko") || left.site.localeCompare(right.site, "ko"));
+  });
 
   const cells = [];
   for (let i = 0; i < startOffset; i += 1) cells.push(null);
@@ -2107,86 +2140,38 @@ function getCalendarDaySortValue(sale, column: CalendarDaySortColumn) {
   }
 }
 
-function CalendarDaySortHeader({
-  label,
-  column,
-  sort,
-  onSort,
-  align = "left",
-}: {
-  label: string;
-  column: CalendarDaySortColumn;
-  sort: { column: CalendarDaySortColumn; direction: SortDirection };
-  onSort: (column: CalendarDaySortColumn) => void;
-  align?: "left" | "right" | "center";
-}) {
-  const isActive = sort.column === column;
-  const SortIcon = !isActive ? ArrowUpDown : sort.direction === "asc" ? ArrowUp : ArrowDown;
-  const alignClass = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
-
-  return (
-    <th className={alignClass}>
-      <button
-        type="button"
-        className={`erp-pivot-sort-btn erp-calendar-day-sort-btn ${alignClass} ${isActive ? "is-active" : ""}`}
-        onClick={() => onSort(column)}
-        aria-label={`${label} 정렬`}
-      >
-        <span>{label}</span>
-        <span className="erp-pivot-sort-icon" aria-hidden="true">
-          <SortIcon size={12} />
-        </span>
-      </button>
-    </th>
-  );
-}
-
 function CalendarPage({ sales, workers = [], onOpenVoucherEdit }) {
   const [monthKey, setMonthKey] = useState(() => todayISO().slice(0, 7));
   const [selectedDate, setSelectedDate] = useState("");
-  const [daySort, setDaySort] = useState<{ column: CalendarDaySortColumn; direction: SortDirection }>({
-    column: "client",
-    direction: "asc",
-  });
   const { cells, monthLabel } = useMemo(() => buildCalendarDays(monthKey, sales, workers), [monthKey, sales, workers]);
   const todayDate = todayISO();
+  const feeMap = useMemo(() => buildWorkerFeeMap(workers), [workers]);
 
   const selectedDaySales = useMemo(() => {
     if (!selectedDate) return [];
     const rows = sales.filter((sale) => sale.date === selectedDate);
-    return sortRowsByColumn(rows, (sale) => getCalendarDaySortValue(sale, daySort.column), daySort.direction);
-  }, [sales, selectedDate, daySort.column, daySort.direction]);
+    return sortRowsByColumn(rows, (sale) => getCalendarDaySortValue(sale, "client"), "asc");
+  }, [sales, selectedDate]);
 
-  const selectedDayTotals = useMemo(() => {
-    const feeMap = buildWorkerFeeMap(workers);
+  const selectedDayStats = useMemo(() => {
+    if (!selectedDate) return null;
     return selectedDaySales.reduce(
       (acc, sale) => {
         const stats = aggregateSaleCalendarStats(sale, feeMap);
+        acc.staff += stats.staff;
         acc.bill += stats.bill;
-        acc.paid += Number(sale.paid) || 0;
-        acc.unpaid += getUnpaid(sale);
+        acc.netPay += stats.netPay;
+        acc.margin += stats.margin;
+        acc.count += 1;
         return acc;
       },
-      { bill: 0, paid: 0, unpaid: 0 }
+      { staff: 0, bill: 0, netPay: 0, margin: 0, count: 0 },
     );
-  }, [selectedDaySales, workers]);
+  }, [selectedDate, selectedDaySales, feeMap]);
 
   useEffect(() => {
     if (selectedDate && !selectedDate.startsWith(monthKey)) setSelectedDate("");
   }, [monthKey, selectedDate]);
-
-  useEffect(() => {
-    if (!selectedDate) return;
-    setDaySort({ column: "client", direction: "asc" });
-  }, [selectedDate]);
-
-  const handleDaySort = (column: CalendarDaySortColumn) => {
-    setDaySort((prev) =>
-      prev.column === column
-        ? { column, direction: prev.direction === "asc" ? "desc" : "asc" }
-        : { column, direction: "asc" }
-    );
-  };
 
   const monthTotals = useMemo(() => {
     return cells.filter(Boolean).reduce(
@@ -2200,14 +2185,9 @@ function CalendarPage({ sales, workers = [], onOpenVoucherEdit }) {
         acc.count += cell.stats.count;
         return acc;
       },
-      { staff: 0, bill: 0, spend: 0, fee: 0, netPay: 0, margin: 0, count: 0 }
+      { staff: 0, bill: 0, spend: 0, fee: 0, netPay: 0, margin: 0, count: 0 },
     );
   }, [cells]);
-
-  const maxDailySales = useMemo(
-    () => Math.max(...cells.filter(Boolean).map((cell) => cell.stats.bill), 0),
-    [cells]
-  );
 
   const busiestDay = useMemo(() => {
     let best = null;
@@ -2224,22 +2204,19 @@ function CalendarPage({ sales, workers = [], onOpenVoucherEdit }) {
     setMonthKey(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`);
   };
 
-  const toggleSelectedDate = (date) => {
-    setSelectedDate((prev) => (prev === date ? "" : date));
+  const selectDate = (date) => {
+    setSelectedDate(date);
   };
 
-  const formatSelectedDateLabel = (date) => {
-    if (!date) return "";
-    const [year, month, day] = date.split("-");
-    return `${year}년 ${Number(month)}월 ${Number(day)}일`;
-  };
-
-  const getActivityLevel = (salesAmount) => {
-    if (!salesAmount || maxDailySales <= 0) return 0;
-    const ratio = salesAmount / maxDailySales;
-    if (ratio >= 0.67) return 3;
-    if (ratio >= 0.34) return 2;
-    return 1;
+  const shiftSelectedDate = (delta) => {
+    if (!selectedDate) return;
+    const parsed = new Date(`${selectedDate}T12:00:00`);
+    parsed.setDate(parsed.getDate() + delta);
+    const nextDate = `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+    setSelectedDate(nextDate);
+    if (!nextDate.startsWith(monthKey)) {
+      setMonthKey(nextDate.slice(0, 7));
+    }
   };
 
   const weekdayLabels = [
@@ -2253,7 +2230,7 @@ function CalendarPage({ sales, workers = [], onOpenVoucherEdit }) {
   ];
 
   return (
-    <div className={`erp-page erp-calendar-page${selectedDate ? " has-day-footer" : ""}`}>
+    <div className={`erp-page erp-calendar-page${selectedDate ? " has-side-panel" : ""}`}>
       <PageTitle title="캘린더" desc="월별 일자별 총인원·총시공비·시공자 지급액·마진·마진율을 확인합니다." />
 
       <div className="erp-calendar-summary-grid">
@@ -2270,193 +2247,224 @@ function CalendarPage({ sales, workers = [], onOpenVoucherEdit }) {
         />
       </div>
 
-      <Card className="erp-calendar-card rounded-2xl shadow-sm">
-        <CardContent className="p-3 md:p-5">
-          <div className="erp-calendar-toolbar">
-            <div className="erp-calendar-toolbar-main">
-              <button type="button" className="erp-calendar-nav-btn" onClick={() => shiftMonth(-1)} aria-label="이전 달">
-                <ChevronLeft size={18} />
-              </button>
-              <div className="erp-calendar-month-label">
-                <CalendarDays size={18} className="text-sky-600" />
-                <h2>{monthLabel}</h2>
-              </div>
-              <button type="button" className="erp-calendar-nav-btn" onClick={() => shiftMonth(1)} aria-label="다음 달">
-                <ChevronRight size={18} />
-              </button>
-            </div>
-            <Button variant="outline" size="sm" className="erp-calendar-today-btn rounded-xl" onClick={() => setMonthKey(todayISO().slice(0, 7))}>
-              이번 달
-            </Button>
-          </div>
-
-          {busiestDay && (
-            <div className="erp-calendar-highlight">
-              <span className="erp-calendar-highlight-label">이번 달 최다 시공비</span>
-              <strong>{busiestDay.day}일</strong>
-              <span className="erp-calendar-highlight-meta">
-                {busiestDay.stats.count}건 · {formatKRW(busiestDay.stats.bill)} · 마진 {formatKRW(busiestDay.stats.margin)} ({formatMarginRate(busiestDay.stats.margin, busiestDay.stats.bill)})
-              </span>
-            </div>
-          )}
-
-          <div className="erp-calendar-weekdays">
-            {weekdayLabels.map((item) => (
-              <div key={item.label} className={`erp-calendar-weekday is-${item.tone}`}>
-                {item.label}
-              </div>
-            ))}
-          </div>
-
-          <div className="erp-calendar-grid">
-            {cells.map((cell, index) => {
-              if (!cell) {
-                return <div key={`empty-${index}`} className="erp-calendar-cell is-placeholder" aria-hidden="true" />;
-              }
-
-              const weekday = new Date(`${cell.date}T12:00:00`).getDay();
-              const isToday = cell.date === todayDate;
-              const hasData = cell.stats.count > 0;
-              const activityLevel = getActivityLevel(cell.stats.bill);
-              const weekendTone = weekday === 0 ? "sun" : weekday === 6 ? "sat" : "default";
-
-              return (
-                <button
-                  type="button"
-                  key={cell.date}
-                  onClick={() => toggleSelectedDate(cell.date)}
-                  aria-pressed={selectedDate === cell.date}
-                  className={[
-                    "erp-calendar-cell",
-                    `is-${weekendTone}`,
-                    hasData ? "has-data" : "is-empty",
-                    isToday ? "is-today" : "",
-                    selectedDate === cell.date ? "is-selected" : "",
-                    activityLevel ? `activity-${activityLevel}` : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  title={
-                    hasData
-                      ? `${cell.date} · ${cell.stats.count}건 · 인원 ${cell.stats.staff} · 시공비 ${formatKRW(cell.stats.bill)} · 지급 ${formatKRW(cell.stats.netPay)} · 마진 ${formatKRW(cell.stats.margin)} · 마진율 ${formatMarginRate(cell.stats.margin, cell.stats.bill)}`
-                      : cell.date
-                  }
-                >
-                  <div className="erp-calendar-cell-head">
-                    <span className="erp-calendar-day">{cell.day}</span>
-                    {hasData && <span className="erp-calendar-badge">{cell.stats.count}건</span>}
-                  </div>
-                  {hasData && (
-                    <div className="erp-calendar-metrics">
-                      <div className="erp-calendar-metric">
-                        <span className="erp-calendar-metric-label">인원</span>
-                        <span>{cell.stats.staff}명</span>
-                      </div>
-                      <div className="erp-calendar-metric is-bill">
-                        <span className="erp-calendar-metric-label">시공비</span>
-                        <span>{formatKRW(cell.stats.bill)}</span>
-                      </div>
-                      <div className="erp-calendar-metric is-spend">
-                        <span className="erp-calendar-metric-label">지급</span>
-                        <span>{formatKRW(cell.stats.netPay)}</span>
-                      </div>
-                      <div className={`erp-calendar-metric is-margin${cell.stats.margin < 0 ? " is-negative" : ""}`}>
-                        <span className="erp-calendar-metric-label">마진</span>
-                        <span>{formatKRW(cell.stats.margin)}</span>
-                      </div>
-                      <div className={`erp-calendar-metric is-margin-rate${cell.stats.margin < 0 ? " is-negative" : ""}`}>
-                        <span className="erp-calendar-metric-label">마진율</span>
-                        <span>{formatMarginRate(cell.stats.margin, cell.stats.bill)}</span>
-                      </div>
-                    </div>
-                  )}
+      <div className="erp-calendar-layout">
+        <Card className="erp-calendar-card erp-calendar-main rounded-2xl shadow-sm">
+          <CardContent className="p-3 md:p-5">
+            <div className="erp-calendar-toolbar">
+              <div className="erp-calendar-toolbar-main">
+                <button type="button" className="erp-calendar-nav-btn" onClick={() => shiftMonth(-1)} aria-label="이전 달">
+                  <ChevronLeft size={18} />
                 </button>
-              );
-            })}
-          </div>
-
-          <div className="erp-calendar-legend">
-            <span className="erp-calendar-legend-item"><i className="erp-calendar-legend-dot is-today" /> 오늘</span>
-            <span className="erp-calendar-legend-item"><i className="erp-calendar-legend-dot activity-1" /> 시공 적음</span>
-            <span className="erp-calendar-legend-item"><i className="erp-calendar-legend-dot activity-2" /> 보통</span>
-            <span className="erp-calendar-legend-item"><i className="erp-calendar-legend-dot activity-3" /> 많음</span>
-            <span className="erp-calendar-legend-item"><i className="erp-calendar-legend-dot is-selected" /> 선택</span>
-          </div>
-        </CardContent>
-      </Card>
-
-      {selectedDate ? (
-        <div className="erp-calendar-day-footer erp-sale-form-footer">
-          <div className="erp-calendar-day-footer-head">
-            <div className="erp-sale-form-footer-status">
-              <strong>{formatSelectedDateLabel(selectedDate)}</strong>
-              <span>
-                전표 {selectedDaySales.length}건 · 시공비 {formatKRW(selectedDayTotals.bill)} · 입금 {formatKRW(selectedDayTotals.paid)} · 미수 {formatKRW(selectedDayTotals.unpaid)}
-              </span>
+                <div className="erp-calendar-month-label">
+                  <CalendarDays size={18} className="text-sky-600" />
+                  <h2>{monthLabel}</h2>
+                </div>
+                <button type="button" className="erp-calendar-nav-btn" onClick={() => shiftMonth(1)} aria-label="다음 달">
+                  <ChevronRight size={18} />
+                </button>
+              </div>
+              <Button variant="outline" size="sm" className="erp-calendar-today-btn rounded-xl" onClick={() => setMonthKey(todayISO().slice(0, 7))}>
+                이번 달
+              </Button>
             </div>
-            <div className="erp-sale-form-footer-actions">
+
+            {busiestDay ? (
+              <div className="erp-calendar-highlight">
+                <span className="erp-calendar-highlight-label">이번 달 최다 시공비</span>
+                <strong>{busiestDay.day}일</strong>
+                <span className="erp-calendar-highlight-meta">
+                  {busiestDay.stats.count}건 · {formatKRW(busiestDay.stats.bill)} · 마진 {formatKRW(busiestDay.stats.margin)} ({formatMarginRate(busiestDay.stats.margin, busiestDay.stats.bill)})
+                </span>
+              </div>
+            ) : null}
+
+            <div className="erp-calendar-weekdays">
+              {weekdayLabels.map((item) => (
+                <div key={item.label} className={`erp-calendar-weekday is-${item.tone}`}>
+                  {item.label}
+                </div>
+              ))}
+            </div>
+
+            <div className="erp-calendar-grid erp-calendar-grid--entries">
+              {cells.map((cell, index) => {
+                if (!cell) {
+                  return <div key={`empty-${index}`} className="erp-calendar-cell is-placeholder" aria-hidden="true" />;
+                }
+
+                const weekday = new Date(`${cell.date}T12:00:00`).getDay();
+                const isToday = cell.date === todayDate;
+                const hasData = cell.stats.count > 0;
+                const weekendTone = weekday === 0 ? "sun" : weekday === 6 ? "sat" : "default";
+                const isSelected = selectedDate === cell.date;
+
+                const cellClassName = [
+                  "erp-calendar-cell",
+                  "erp-calendar-cell--entries",
+                  `is-${weekendTone}`,
+                  hasData ? "has-data" : "is-empty",
+                  isToday ? "is-today" : "",
+                  isSelected ? "is-selected" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ");
+
+                const cellBody = (
+                  <>
+                    <div className="erp-calendar-cell-head">
+                      <span className="erp-calendar-day">{cell.day}</span>
+                      {hasData ? (
+                        <div className="erp-calendar-cell-badges">
+                          <span className="erp-calendar-cell-badge is-staff">{cell.stats.staff}명</span>
+                          <span className="erp-calendar-cell-badge is-count">{cell.stats.count}건</span>
+                        </div>
+                      ) : null}
+                    </div>
+                    {hasData ? (
+                      <ul className="erp-calendar-cell-entries" aria-label={`${cell.date} 일정`}>
+                        {cell.stats.entries.map((entry) => (
+                          <li
+                            key={`${cell.date}-${entry.saleId}`}
+                            className="erp-calendar-cell-entry"
+                            style={{ borderLeftColor: entry.color }}
+                          >
+                            <span className="erp-calendar-cell-entry-label">
+                              {entry.client} / {entry.site}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </>
+                );
+
+                if (hasData || isToday) {
+                  return (
+                    <button
+                      type="button"
+                      key={cell.date}
+                      onClick={() => selectDate(cell.date)}
+                      aria-pressed={isSelected}
+                      className={cellClassName}
+                      aria-label={`${cell.date} · ${hasData ? `${cell.stats.count}건` : "일정 없음"}`}
+                    >
+                      {cellBody}
+                    </button>
+                  );
+                }
+
+                return (
+                  <div key={cell.date} className={cellClassName} title={cell.date}>
+                    {cellBody}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="erp-calendar-legend">
+              <span className="erp-calendar-legend-item">
+                <i className="erp-calendar-legend-dot is-today" /> 오늘
+              </span>
+              <span className="erp-calendar-legend-item">
+                <i className="erp-calendar-legend-dot is-selected" /> 선택 (날짜 클릭)
+              </span>
+              <span className="erp-calendar-legend-item">거래처/현장명 · 셀 내 스크롤</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {selectedDate ? (
+          <>
+          <button
+            type="button"
+            className="erp-calendar-side-backdrop"
+            aria-label="상세 패널 닫기"
+            onClick={() => setSelectedDate("")}
+          />
+          <aside className="erp-calendar-side-panel" aria-label={`${selectedDate} 상세`}>
+            <div className="erp-calendar-side-panel-head">
+              <div className="erp-calendar-side-panel-nav">
+                <button type="button" className="erp-calendar-nav-btn" onClick={() => shiftSelectedDate(-1)} aria-label="이전 날짜">
+                  <ChevronLeft size={18} />
+                </button>
+                <strong className="erp-calendar-side-panel-date">{formatCalendarDayLabel(selectedDate)}</strong>
+                <button type="button" className="erp-calendar-nav-btn" onClick={() => shiftSelectedDate(1)} aria-label="다음 날짜">
+                  <ChevronRight size={18} />
+                </button>
+              </div>
               <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={() => setSelectedDate("")}>
                 닫기
               </Button>
             </div>
-          </div>
-          <div className="erp-calendar-day-footer-body">
-            {selectedDaySales.length === 0 ? (
-              <p className="erp-calendar-day-footer-empty">해당 날짜에 등록된 전표가 없습니다.</p>
-            ) : (
-              <>
-                <MobileRecordList className="erp-calendar-day-footer-mobile">
-                  {selectedDaySales.map((sale) => (
-                    <MobileRecordCard
-                      key={sale.id}
-                      title={sale.client}
-                      subtitle={`${getSaleVoucherLabel(sale)} · ${sale.site}`}
-                      onClick={() => onOpenVoucherEdit?.(sale.id)}
-                      fields={[
-                        { label: "시공자", value: sale.worker || "-", tone: "muted" },
-                        { label: "시공비", value: formatKRW(getSaleTotalBill(sale)) },
-                        { label: "입금", value: formatKRW(sale.paid), tone: "success" },
-                        { label: "미수", value: formatKRW(getUnpaid(sale)), tone: "danger" },
-                        { label: "상태", value: getStatus(sale), tone: getUnpaid(sale) > 0 ? "danger" : "success" },
-                      ]}
-                    />
-                  ))}
-                </MobileRecordList>
-                <DesktopTableWrap className="erp-calendar-day-footer-table-wrap">
-                  <table className="erp-table erp-table--md erp-calendar-day-footer-table">
-                    <thead>
-                      <tr>
-                        <CalendarDaySortHeader label="전표" column="voucher" sort={daySort} onSort={handleDaySort} />
-                        <CalendarDaySortHeader label="거래처" column="client" sort={daySort} onSort={handleDaySort} />
-                        <CalendarDaySortHeader label="현장" column="site" sort={daySort} onSort={handleDaySort} />
-                        <CalendarDaySortHeader label="시공자" column="worker" sort={daySort} onSort={handleDaySort} />
-                        <CalendarDaySortHeader label="시공비" column="bill" sort={daySort} onSort={handleDaySort} align="right" />
-                        <CalendarDaySortHeader label="입금" column="paid" sort={daySort} onSort={handleDaySort} align="right" />
-                        <CalendarDaySortHeader label="미수" column="unpaid" sort={daySort} onSort={handleDaySort} align="right" />
-                        <CalendarDaySortHeader label="상태" column="status" sort={daySort} onSort={handleDaySort} align="center" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedDaySales.map((sale) => (
-                        <tr key={sale.id} className="erp-calendar-day-footer-row" onClick={() => onOpenVoucherEdit?.(sale.id)}>
-                          <td className="whitespace-nowrap font-semibold">{getSaleVoucherLabel(sale)}</td>
-                          <td className="whitespace-nowrap font-semibold">{sale.client}</td>
-                          <td className="whitespace-nowrap">{sale.site}</td>
-                          <td className="whitespace-nowrap">{sale.worker || "-"}</td>
-                          <td className="text-right whitespace-nowrap font-bold">{formatKRW(getSaleTotalBill(sale))}</td>
-                          <td className="text-right whitespace-nowrap text-emerald-600">{formatKRW(sale.paid)}</td>
-                          <td className="text-right whitespace-nowrap font-bold text-red-600">{formatKRW(getUnpaid(sale))}</td>
-                          <td className="text-center whitespace-nowrap">{getStatus(sale)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </DesktopTableWrap>
-              </>
-            )}
-          </div>
-        </div>
-      ) : null}
+
+            {selectedDayStats ? (
+              <div className="erp-calendar-side-stats" aria-label="일자 요약">
+                <div className="erp-calendar-side-stat">
+                  <span className="erp-calendar-side-stat-label">인원</span>
+                  <strong>{selectedDayStats.staff}명</strong>
+                </div>
+                <div className="erp-calendar-side-stat">
+                  <span className="erp-calendar-side-stat-label">건수</span>
+                  <strong>{selectedDayStats.count}건</strong>
+                </div>
+                <div className="erp-calendar-side-stat">
+                  <span className="erp-calendar-side-stat-label">시공비합</span>
+                  <strong>{formatKRW(selectedDayStats.bill)}</strong>
+                </div>
+                <div className="erp-calendar-side-stat">
+                  <span className="erp-calendar-side-stat-label">지급</span>
+                  <strong>{formatKRW(selectedDayStats.netPay)}</strong>
+                </div>
+                <div className={`erp-calendar-side-stat${selectedDayStats.margin < 0 ? " is-negative" : ""}`}>
+                  <span className="erp-calendar-side-stat-label">마진</span>
+                  <strong>{formatKRW(selectedDayStats.margin)}</strong>
+                </div>
+                <div className={`erp-calendar-side-stat${selectedDayStats.margin < 0 ? " is-negative" : ""}`}>
+                  <span className="erp-calendar-side-stat-label">마진율</span>
+                  <strong>{formatMarginRate(selectedDayStats.margin, selectedDayStats.bill)}</strong>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="erp-calendar-side-panel-body">
+              {selectedDaySales.length === 0 ? (
+                <p className="erp-calendar-side-empty">해당 날짜에 등록된 전표가 없습니다.</p>
+              ) : (
+                <ul className="erp-calendar-side-list">
+                  {selectedDaySales.map((sale) => {
+                    const stats = aggregateSaleCalendarStats(sale, feeMap);
+                    const workerLabel = sale.worker || formatWorkerNameSummary(getSaleWorkerLines(sale)) || "-";
+                    const color = getCalendarClientColor(sale.client);
+                    return (
+                      <li key={sale.id}>
+                        <button
+                          type="button"
+                          className="erp-calendar-side-card"
+                          onClick={() => onOpenVoucherEdit?.(sale.id)}
+                        >
+                          <span className="erp-calendar-side-card-bar" style={{ backgroundColor: color }} aria-hidden="true" />
+                          <div className="erp-calendar-side-card-body">
+                            <div className="erp-calendar-side-card-title">
+                              [{sale.client}] {sale.site || "현장명 없음"}
+                            </div>
+                            <div className="erp-calendar-side-card-workers">{workerLabel}</div>
+                            <div className="erp-calendar-side-card-meta">
+                              <span className="erp-calendar-side-card-badge is-staff">{stats.staff}명</span>
+                              <span className="erp-calendar-side-card-badge is-bill">시공비 {formatKRW(stats.bill)}</span>
+                              <span className="erp-calendar-side-card-badge is-voucher">{getSaleVoucherLabel(sale)}</span>
+                            </div>
+                          </div>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </aside>
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }
