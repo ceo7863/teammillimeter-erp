@@ -122,6 +122,8 @@ import {
   calculateWorkerLineAmounts,
   calculateWorkerLineMetrics,
   enrichWorkerLineWithMetrics,
+  hasExplicitWorkerField,
+  isLineBillStaleUnitCostFallback,
   resolveWorkerFeeRate,
   stripWorkerLineComputedMetrics,
   sumWorkerFormTotals,
@@ -438,7 +440,17 @@ const compactSaleForm = () => ({
 
 function saleRowToForm(row, minWorkerRows = 8) {
   const workerLines = row.workers?.length
-    ? row.workers.map((line, index) => ({ ...createWorkerLine(index), ...line }))
+    ? row.workers.map((line, index) => {
+        const merged = { ...createWorkerLine(index), ...line };
+        if (
+          Object.prototype.hasOwnProperty.call(merged, "chargeAmount") &&
+          !hasExplicitWorkerField(merged.chargeAmount) &&
+          isLineBillStaleUnitCostFallback(merged)
+        ) {
+          return stripWorkerLineComputedMetrics(merged);
+        }
+        return merged;
+      })
     : [{
       ...createWorkerLine(0),
       worker: row.worker || "",

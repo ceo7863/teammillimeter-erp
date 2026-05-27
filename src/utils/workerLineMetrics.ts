@@ -46,9 +46,41 @@ export function normalizeFeeRate(value: unknown) {
   return raw > 1 ? raw / 100 : raw;
 }
 
-/** 청구단가 필드에 값이 있으면(0 포함) lineBill 캐시보다 입력값으로 청구합계 계산 */
+function readFieldExtrasTotal(line: WorkerLineLike) {
+  const meal = parseWorkerMoney(line.meal);
+  const lodging = parseWorkerMoney(line.lodging || line.accommodation || line.room);
+  const expense = parseWorkerMoney(line.expense || line.extraExpense);
+  const overtime = parseWorkerMoney(line.overtimeHours) * (parseWorkerMoney(line.overtimeCost) || 30000);
+  return meal + lodging + expense + overtime;
+}
+
+/** 청구단가 비어 있는데 lineBill이 지급단가(+부대비용)와 같으면 구 캐시로 간주 */
+export function isLineBillStaleUnitCostFallback(line: WorkerLineLike) {
+  if (!hasExplicitWorkerField(line.lineBill)) return false;
+
+  const bill = parseWorkerMoney(line.lineBill);
+  const quantity = parseWorkerMoney(line.quantity || "1") || 1;
+  const unitCost = parseWorkerMoney(line.unitCost);
+  if (!unitCost) return false;
+
+  const unitTotal = quantity * unitCost;
+  const extras = readFieldExtrasTotal(line);
+  return bill === unitTotal || bill === unitTotal + extras;
+}
+
 export function usesChargeAmountForBill(line: WorkerLineLike) {
-  return hasExplicitWorkerField(line.chargeAmount);
+  if (hasExplicitWorkerField(line.chargeAmount)) {
+    return true;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(line, "chargeAmount")) {
+    if (hasExplicitWorkerField(line.lineBill) && !isLineBillStaleUnitCostFallback(line)) {
+      return false;
+    }
+    return true;
+  }
+
+  return false;
 }
 
 export function calculateWorkerLineAmounts(line: WorkerLineLike) {
