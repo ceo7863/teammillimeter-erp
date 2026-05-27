@@ -140,6 +140,7 @@ type CompanyLedgerPageProps = {
 
 type ManualModalState = {
   mode: "create" | "edit";
+  source?: "expense" | "fixedPayment";
   id?: string;
   kind: CompanyExpenseKind;
   date: string;
@@ -248,6 +249,12 @@ function resolveFixedExpenseName(fixedExpenseId: string, fixedExpenses: FixedExp
 
 function resolveFixedExpenseCategory(fixedExpenseId: string, fixedExpenses: FixedExpense[]) {
   return fixedExpenses.find((row) => row.id === fixedExpenseId)?.category || "-";
+}
+
+function resolveFixedPaymentDescription(payment: FixedExpensePayment, fixedExpenses: FixedExpense[]) {
+  const memo = String(payment.memo || "").trim();
+  if (memo) return memo;
+  return resolveFixedExpenseName(payment.fixedExpenseId, fixedExpenses);
 }
 
 function ExpenseCategoryBadges({ row }: { row: CompanyExpense }) {
@@ -405,6 +412,7 @@ export function CompanyLedgerPage({
     setFormError("");
     setManualModal({
       mode: "edit",
+      source: "expense",
       id: row.id,
       kind: resolveCompanyExpenseKind(row),
       date: row.date,
@@ -415,11 +423,44 @@ export function CompanyLedgerPage({
     });
   };
 
+  const openEditFixedPayment = (row: FixedExpensePayment) => {
+    setFormError("");
+    setManualModal({
+      mode: "edit",
+      source: "fixedPayment",
+      id: row.id,
+      kind: "fixed",
+      date: row.date,
+      category: resolveFixedExpenseCategory(row.fixedExpenseId, fixedExpenses),
+      description: resolveFixedPaymentDescription(row, fixedExpenses),
+      amount: String(row.amount || ""),
+      memo: row.memo || "",
+    });
+  };
+
   const saveManual = () => {
     if (!manualModal) return;
     const error = validateCompanyExpenseInput(manualModal);
     if (error) {
       setFormError(error);
+      return;
+    }
+    if (manualModal.mode === "edit" && manualModal.source === "fixedPayment" && manualModal.id) {
+      setFixedExpensePayments?.((prev) =>
+        prev.map((row) =>
+          row.id === manualModal.id
+            ? {
+                ...row,
+                date: manualModal.date,
+                amount: parseLedgerAmount(manualModal.amount),
+                memo: manualModal.description.trim() || manualModal.memo.trim(),
+              }
+            : row,
+        ),
+      );
+      setExpenseCategories((prev) => mergeExpenseCategory(prev, manualModal.category));
+      setManualModal(null);
+      setFormError("");
       return;
     }
     const payload: CompanyExpense = {
@@ -435,7 +476,11 @@ export function CompanyLedgerPage({
     };
     if (manualModal.mode === "edit" && manualModal.id) {
       setCompanyExpenses((prev) =>
-        prev.map((row) => (row.id === manualModal.id ? { ...row, ...payload, createdAt: row.createdAt, createdBy: row.createdBy || payload.createdBy } : row)),
+        prev.map((row) =>
+          row.id === manualModal.id
+            ? { ...row, ...payload, createdAt: row.createdAt, createdBy: row.createdBy || payload.createdBy }
+            : row,
+        ),
       );
     } else {
       setCompanyExpenses((prev) => [payload, ...prev]);
@@ -596,7 +641,7 @@ export function CompanyLedgerPage({
                     );
                   }
                   const row = item.row;
-                  const name = resolveFixedExpenseName(row.fixedExpenseId, fixedExpenses);
+                  const name = resolveFixedPaymentDescription(row, fixedExpenses);
                   const bankLinked = isBankLinkedPayment(row);
                   return (
                     <MobileRecordCard
@@ -611,9 +656,14 @@ export function CompanyLedgerPage({
                       ]}
                       actions={
                         setFixedExpensePayments ? (
-                          <button type="button" className="erp-mobile-action-btn danger" onClick={() => deleteFixedPayment(row)}>
-                            <Trash2 size={15} /> {L.delete}
-                          </button>
+                          <>
+                            <button type="button" className="erp-mobile-action-btn" onClick={() => openEditFixedPayment(row)}>
+                              <Pencil size={15} /> {L.edit}
+                            </button>
+                            <button type="button" className="erp-mobile-action-btn danger" onClick={() => deleteFixedPayment(row)}>
+                              <Trash2 size={15} /> {L.delete}
+                            </button>
+                          </>
                         ) : undefined
                       }
                     />
@@ -684,7 +734,7 @@ export function CompanyLedgerPage({
                         );
                       }
                       const row = item.row;
-                      const name = resolveFixedExpenseName(row.fixedExpenseId, fixedExpenses);
+                      const name = resolveFixedPaymentDescription(row, fixedExpenses);
                       const bankLinked = isBankLinkedPayment(row);
                       return (
                         <tr key={`fixed-pay-${row.id}`} className={bankLinkedRowClass(bankLinked)}>
@@ -696,7 +746,7 @@ export function CompanyLedgerPage({
                             <FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} />
                           </td>
                           <td>
-                            <DescriptionWithBankBadge text={`${L.fixedPayment} ${L.separator} ${name}`} bankLinked={bankLinked} />
+                            <DescriptionWithBankBadge text={name} bankLinked={bankLinked} />
                           </td>
                           <td className="text-right font-bold text-rose-600">
                             {formatKRW(row.amount)}
@@ -706,6 +756,14 @@ export function CompanyLedgerPage({
                           <td className="erp-table-export-skip">
                             {setFixedExpensePayments ? (
                               <div className="erp-ledger-row-actions">
+                                <button
+                                  type="button"
+                                  className="erp-ledger-icon-btn"
+                                  onClick={() => openEditFixedPayment(row)}
+                                  aria-label={L.edit}
+                                >
+                                  <Pencil size={15} />
+                                </button>
                                 <button
                                   type="button"
                                   className="erp-ledger-icon-btn danger"
@@ -987,20 +1045,27 @@ export function CompanyLedgerPage({
               </button>
             </div>
             <div className="space-y-4">
-              <div className="flex flex-wrap gap-2">
-                {EXPENSE_KIND_OPTIONS.map((option) => (
-                  <Button
-                    key={option.value}
-                    type="button"
-                    size="sm"
-                    variant={manualModal.kind === option.value ? "default" : "outline"}
-                    className="rounded-2xl"
-                    onClick={() => setManualModal((prev) => (prev ? { ...prev, kind: option.value } : prev))}
-                  >
-                    {option.label}
-                  </Button>
-                ))}
-              </div>
+              {manualModal.mode === "create" ? (
+                <div className="flex flex-wrap gap-2">
+                  {EXPENSE_KIND_OPTIONS.map((option) => (
+                    <Button
+                      key={option.value}
+                      type="button"
+                      size="sm"
+                      variant={manualModal.kind === option.value ? "default" : "outline"}
+                      className="rounded-2xl"
+                      onClick={() => setManualModal((prev) => (prev ? { ...prev, kind: option.value } : prev))}
+                    >
+                      {option.label}
+                    </Button>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="erp-text-caption font-semibold text-slate-500">{L.section}</span>
+                  <ExpenseKindBadge kind={manualModal.kind} />
+                </div>
+              )}
               <Field label={L.expenseDate}>
                 <KoreanDateInput
                   value={manualModal.date}
