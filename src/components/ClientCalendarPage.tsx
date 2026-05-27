@@ -108,6 +108,9 @@ type ClientCalendarPageProps = {
   currentUser?: { name?: string; email?: string };
   onRequestClientStatement?: (draft: StatementDraft) => void;
   onOpenVoucherEdit?: (input: { client: string; date: string; saleIds: Array<string | number> }) => void;
+  pendingClient?: string | null;
+  pendingMonthKey?: string | null;
+  onPendingClientConsumed?: () => void;
 };
 
 function PageTitle({ title, desc }: { title: string; desc: string }) {
@@ -301,6 +304,9 @@ export function ClientCalendarPage({
   currentUser,
   onRequestClientStatement,
   onOpenVoucherEdit,
+  pendingClient = null,
+  pendingMonthKey = null,
+  onPendingClientConsumed,
 }: ClientCalendarPageProps) {
   const { recordAudit } = useAudit();
   const [monthKey, setMonthKey] = useState(() => todayISO().slice(0, 7));
@@ -316,6 +322,21 @@ export function ClientCalendarPage({
   });
   const calendarRef = React.useRef<HTMLDivElement | null>(null);
   const hideDayPreviewTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const name = String(pendingClient || "").trim();
+    if (!name) return;
+    const normalized = normalizeClientName(name);
+    setClient(normalized);
+    const nextMonth = String(pendingMonthKey || "").trim();
+    if (/^\d{4}-\d{2}$/.test(nextMonth)) setMonthKey(nextMonth);
+    setSelectedDates([]);
+    showNotice(`${normalized} 캘린더를 표시합니다.`);
+    window.requestAnimationFrame(() => {
+      calendarRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    onPendingClientConsumed?.();
+  }, [pendingClient, pendingMonthKey, onPendingClientConsumed, showNotice]);
 
   const clientOptions = useMemo(() => {
     const fromMaster = clients.map((row) => String(row.name || "").trim()).filter(Boolean);

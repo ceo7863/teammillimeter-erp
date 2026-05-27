@@ -1419,6 +1419,14 @@ textarea {
   background: rgba(248, 250, 252, 0.92);
 }
 
+.erp-calendar-cell-entry.is-client-open {
+  cursor: pointer;
+}
+
+.erp-calendar-cell-entry.is-client-open:hover {
+  background: rgba(224, 242, 254, 0.95);
+}
+
 .erp-calendar-cell-entry-label {
   font-size: 0.625rem;
   font-weight: 700;

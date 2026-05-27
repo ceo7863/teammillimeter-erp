@@ -2145,9 +2145,11 @@ function getCalendarDaySortValue(sale, column: CalendarDaySortColumn) {
   }
 }
 
-function CalendarPage({ sales, workers = [], onOpenVoucherEdit }) {
+function CalendarPage({ sales, workers = [], onOpenVoucherEdit, onOpenClientCalendar }) {
   const [monthKey, setMonthKey] = useState(() => todayISO().slice(0, 7));
   const [selectedDate, setSelectedDate] = useState("");
+  const suppressCellClickUntilRef = useRef(0);
+  const suppressSideClickUntilRef = useRef(0);
   const { cells, monthLabel } = useMemo(() => buildCalendarDays(monthKey, sales, workers), [monthKey, sales, workers]);
   const todayDate = todayISO();
   const feeMap = useMemo(() => buildWorkerFeeMap(workers), [workers]);
@@ -2337,8 +2339,15 @@ function CalendarPage({ sales, workers = [], onOpenVoucherEdit }) {
                         {cell.stats.entries.map((entry) => (
                           <li
                             key={`${cell.date}-${entry.saleId}`}
-                            className="erp-calendar-cell-entry"
+                            className="erp-calendar-cell-entry is-client-open"
                             style={{ borderLeftColor: entry.color }}
+                            title="더블클릭: 거래처 캘린더"
+                            onDoubleClick={(event) => {
+                              event.stopPropagation();
+                              event.preventDefault();
+                              suppressCellClickUntilRef.current = Date.now() + 400;
+                              onOpenClientCalendar?.(entry.client, cell.date.slice(0, 7));
+                            }}
                           >
                             <span className="erp-calendar-cell-entry-label">
                               {entry.client} / {entry.site}
@@ -2355,7 +2364,10 @@ function CalendarPage({ sales, workers = [], onOpenVoucherEdit }) {
                     <button
                       type="button"
                       key={cell.date}
-                      onClick={() => selectDate(cell.date)}
+                      onClick={() => {
+                        if (Date.now() < suppressCellClickUntilRef.current) return;
+                        selectDate(cell.date);
+                      }}
                       aria-pressed={isSelected}
                       className={cellClassName}
                       aria-label={`${cell.date} · ${hasData ? `${cell.stats.count}건` : "일정 없음"}`}
@@ -2380,7 +2392,7 @@ function CalendarPage({ sales, workers = [], onOpenVoucherEdit }) {
               <span className="erp-calendar-legend-item">
                 <i className="erp-calendar-legend-dot is-selected" /> 선택 (날짜 클릭)
               </span>
-              <span className="erp-calendar-legend-item">거래처/현장명 · 셀 내 스크롤</span>
+              <span className="erp-calendar-legend-item">거래처/현장명 더블클릭 → 거래처 캘린더</span>
             </div>
           </CardContent>
         </Card>
@@ -2457,7 +2469,17 @@ function CalendarPage({ sales, workers = [], onOpenVoucherEdit }) {
                         <button
                           type="button"
                           className="erp-calendar-side-card"
-                          onClick={() => onOpenVoucherEdit?.(sale.id)}
+                          title="클릭: 전표 수정 · 더블클릭: 거래처 캘린더"
+                          onClick={() => {
+                            if (Date.now() < suppressSideClickUntilRef.current) return;
+                            onOpenVoucherEdit?.(sale.id);
+                          }}
+                          onDoubleClick={(event) => {
+                            event.stopPropagation();
+                            event.preventDefault();
+                            suppressSideClickUntilRef.current = Date.now() + 400;
+                            onOpenClientCalendar?.(sale.client, selectedDate.slice(0, 7));
+                          }}
                         >
                           <span className="erp-calendar-side-card-bar" style={{ backgroundColor: color }} aria-hidden="true" />
                           <div className="erp-calendar-side-card-body">
@@ -4836,6 +4858,8 @@ export default function TeammillimeterErpMvp() {
   const [statementDraft, setStatementDraft] = useState<StatementDraft | null>(null);
   const [pendingVoucherEditId, setPendingVoucherEditId] = useState(null);
   const [pendingVoucherSearchFilter, setPendingVoucherSearchFilter] = useState(null);
+  const [pendingClientCalendarClient, setPendingClientCalendarClient] = useState(null);
+  const [pendingClientCalendarMonthKey, setPendingClientCalendarMonthKey] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [myAccountOpen, setMyAccountOpen] = useState(false);
   const [sidebarMenuOrderOpen, setSidebarMenuOrderOpen] = useState(false);
@@ -5200,6 +5224,11 @@ export default function TeammillimeterErpMvp() {
               setPendingVoucherEditId(saleId);
               setActive("salesVoucherSearch");
             }}
+            onOpenClientCalendar={(clientName, monthKey) => {
+              setPendingClientCalendarClient(clientName);
+              setPendingClientCalendarMonthKey(monthKey || null);
+              setActive("clientCalendar");
+            }}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="attendance" active={active}>
@@ -5217,6 +5246,12 @@ export default function TeammillimeterErpMvp() {
             setPaymentVouchers={setPaymentVouchers}
             setPaymentInputLogs={setPaymentInputLogs}
             currentUser={currentUser}
+            pendingClient={pendingClientCalendarClient}
+            pendingMonthKey={pendingClientCalendarMonthKey}
+            onPendingClientConsumed={() => {
+              setPendingClientCalendarClient(null);
+              setPendingClientCalendarMonthKey(null);
+            }}
             onRequestClientStatement={(draft) => {
               setStatementDraft(draft);
               setActive("statements");
