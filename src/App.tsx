@@ -70,6 +70,7 @@ import { UsersAdminPage } from "@/components/UsersAdminPage";
 import { CompanyLedgerPage } from "@/components/CompanyLedgerPage";
 import { AttendancePage } from "@/components/AttendancePage";
 import { ClientCalendarPage } from "@/components/ClientCalendarPage";
+import { ClientStatementModal } from "@/components/ClientStatementModal";
 import { filterClientCalendarSales, normalizeClientCalendarName } from "@/utils/clientCalendarStats";
 import { CompanyNoticeBoardPage } from "@/components/CompanyNoticeBoardPage";
 import { TaxInvoicePage } from "@/components/TaxInvoicePage";
@@ -2182,7 +2183,11 @@ function CalendarPage({
   paymentVouchers = [],
   setPaymentVouchers,
   setPaymentInputLogs,
-  onRequestClientStatement,
+  companyProfile,
+  statementGenerationLogs,
+  setStatementGenerationLogs,
+  statementFolders,
+  setStatementFolders,
 }) {
   const { recordAudit } = useAudit();
   const { message: clientFilterNotice, showNotice: showClientFilterNotice, clearNotice: clearClientFilterNotice } = useActionNotice();
@@ -2192,6 +2197,7 @@ function CalendarPage({
   const [selectedDates, setSelectedDates] = useState([]);
   const [paymentPreview, setPaymentPreview] = useState(null);
   const [paymentCancelPreview, setPaymentCancelPreview] = useState(null);
+  const [statementModalDraft, setStatementModalDraft] = useState(null);
   const [editingSaleId, setEditingSaleId] = useState(null);
   const [voucherForm, setVoucherForm] = useState(emptySaleForm);
   const [voucherDeleteConfirm, setVoucherDeleteConfirm] = useState(null);
@@ -2267,6 +2273,7 @@ function CalendarPage({
     const previous = preFilterRef.current;
     setFilteredClient(null);
     setSelectedDates([]);
+    setStatementModalDraft(null);
     clearClientFilterNotice();
     setPaymentPreview(null);
     setPaymentCancelPreview(null);
@@ -2280,6 +2287,7 @@ function CalendarPage({
   const clearClientFilter = () => {
     setFilteredClient(null);
     setSelectedDates([]);
+    setStatementModalDraft(null);
     clearClientFilterNotice();
     setPaymentPreview(null);
     setPaymentCancelPreview(null);
@@ -2325,8 +2333,8 @@ function CalendarPage({
     }
 
     stashStatementDraft(draft);
-    onRequestClientStatement?.(draft);
-    showClientFilterNotice(`${selectedDates.length}일 · 시공비내역서 생성 화면으로 이동합니다.`);
+    setStatementModalDraft(draft);
+    showClientFilterNotice(`${selectedDates.length}일 · 시공비내역서를 엽니다.`);
   };
 
   const openClientFilterPaymentConfirm = () => {
@@ -3174,6 +3182,21 @@ function CalendarPage({
             </div>
           </div>
         </div>
+      ) : null}
+
+      {statementModalDraft ? (
+        <ClientStatementModal
+          draft={statementModalDraft}
+          onClose={() => setStatementModalDraft(null)}
+          sales={sales}
+          clientMaster={clients}
+          companyProfile={companyProfile}
+          statementGenerationLogs={statementGenerationLogs}
+          setStatementGenerationLogs={setStatementGenerationLogs}
+          statementFolders={statementFolders}
+          setStatementFolders={setStatementFolders}
+          currentUser={currentUser}
+        />
       ) : null}
 
       {editingSale ? (
@@ -5952,10 +5975,11 @@ export default function TeammillimeterErpMvp() {
             paymentVouchers={paymentVouchers}
             setPaymentVouchers={setPaymentVouchers}
             setPaymentInputLogs={setPaymentInputLogs}
-            onRequestClientStatement={(draft) => {
-              setStatementDraft(draft);
-              setActive("statements");
-            }}
+            companyProfile={companyProfile}
+            statementGenerationLogs={statementGenerationLogs}
+            setStatementGenerationLogs={setStatementGenerationLogs}
+            statementFolders={statementFolders}
+            setStatementFolders={setStatementFolders}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="attendance" active={active}>
