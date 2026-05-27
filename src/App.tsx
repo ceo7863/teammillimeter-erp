@@ -2149,14 +2149,20 @@ function getCalendarDaySortValue(sale, column: CalendarDaySortColumn) {
 
 function CalendarPage({
   sales,
+  setSales,
+  clients,
   workers = [],
-  onOpenVoucherEdit,
+  currentUser,
 }) {
+  const { recordAudit } = useAudit();
   const [monthKey, setMonthKey] = useState(() => todayISO().slice(0, 7));
   const [selectedDate, setSelectedDate] = useState("");
   const [filteredClient, setFilteredClient] = useState(null);
+  const [editingSaleId, setEditingSaleId] = useState(null);
+  const [voucherForm, setVoucherForm] = useState(emptySaleForm);
+  const [voucherDeleteConfirm, setVoucherDeleteConfirm] = useState(null);
+  const { message: voucherSaveMessage, setMessage: setVoucherSaveMessage, clearMessage: clearVoucherSaveMessage } = useSaveMessage();
   const suppressCellClickUntilRef = useRef(0);
-  const suppressSideClickUntilRef = useRef(0);
   const preFilterRef = useRef(null);
   const calendarSales = useMemo(
     () => (filteredClient ? filterClientCalendarSales(sales, filteredClient) : sales),
@@ -2272,6 +2278,132 @@ function CalendarPage({
     { label: "금", tone: "default" },
     { label: "토", tone: "sat" },
   ];
+
+  const editingSale = sales.find((row) => row.id === editingSaleId);
+
+  const updateVoucherForm = (key, value) => {
+    clearVoucherSaveMessage();
+    setVoucherForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const updateVoucherSharedMemo = (value) => {
+    clearVoucherSaveMessage();
+    setVoucherForm((prev) => {
+      const previousCommon = String(prev.memo || "").trim();
+      return {
+        ...prev,
+        memo: value,
+        workers: prev.workers.map((line) => {
+          const lineMemo = String(line.memo || "").trim();
+          if (lineMemo && lineMemo !== previousCommon) return line;
+          return { ...line, memo: value };
+        }),
+      };
+    });
+  };
+
+  const resetVoucherEdit = () => {
+    setEditingSaleId(null);
+    setVoucherForm(emptySaleForm);
+    setVoucherDeleteConfirm(null);
+  };
+
+  const closeVoucherEdit = () => {
+    resetVoucherEdit();
+    clearVoucherSaveMessage();
+  };
+
+  const openVoucherEdit = (sale) => {
+    setEditingSaleId(sale.id);
+    clearVoucherSaveMessage();
+    setVoucherForm(saleRowToForm(sale));
+  };
+
+  const updateVoucherWorkerLine = (index, key, value) => {
+    clearVoucherSaveMessage();
+    setVoucherForm((prev) => ({
+      ...prev,
+      workers: prev.workers.map((line, lineIndex) => {
+        if (lineIndex !== index) return line;
+        let nextLine = applyWorkerLineFieldUpdate(line, key, value);
+        if (key === "worker") {
+          const selectedWorker = findActiveWorkerByName(workers, value);
+          const selectedClient = clients.find((client) => client.name === prev.client);
+          nextLine.quantity = nextLine.quantity || "1";
+          nextLine.unitCost = selectedWorker?.constructionCost ? String(selectedWorker.constructionCost) : nextLine.unitCost;
+          nextLine.chargeAmount = selectedWorker?.customChargeCost ? String(selectedWorker.customChargeCost) : selectedClient?.constructionCost ? String(selectedClient.constructionCost) : nextLine.chargeAmount;
+          nextLine.overtimeCost = selectedClient?.overtimeCost ? String(selectedClient.overtimeCost) : selectedWorker?.overtimeCost ? String(selectedWorker.overtimeCost) : nextLine.overtimeCost || "30000";
+          nextLine.feeRate = selectedWorker?.feeRate ?? nextLine.feeRate ?? "";
+          nextLine = stripWorkerLineComputedMetrics(nextLine);
+        }
+        return nextLine;
+      }),
+    }));
+  };
+
+  const addVoucherWorkerLine = () => setVoucherForm((prev) => ({
+    ...prev,
+    workers: [...prev.workers, { ...createWorkerLine(prev.workers.length), memo: prev.memo || "" }],
+  }));
+
+  const removeVoucherWorkerLine = (index) => setVoucherForm((prev) => ({
+    ...prev,
+    workers: prev.workers.length <= 1 ? prev.workers : prev.workers.filter((_, lineIndex) => lineIndex !== index),
+  }));
+
+  const voucherFormTotals = useMemo(() => sumWorkerFormTotals(voucherForm.workers, workers), [voucherForm.workers, workers]);
+  const voucherFilledWorkerCount = useMemo(
+    () => voucherForm.workers.filter((line) => String(line.worker || "").trim()).length,
+    [voucherForm.workers],
+  );
+  const canSaveVoucher = Boolean(voucherForm.client.trim() && voucherForm.site.trim() && voucherFormTotals.bill > 0);
+
+  const saveVoucherEdit = () => {
+    if (!editingSale) return;
+    const payload = buildSaleFromForm(voucherForm, currentUser, workers);
+    if (!payload.client || !payload.site || payload.amount <= 0) return;
+
+    recordAudit({
+      entityType: "sale",
+      entityId: editingSale.id,
+      entityLabel: `${payload.client} · ${payload.site}`,
+      screen: "캘린더",
+      action: "update",
+      before: snapshotSaleForAudit(editingSale),
+      after: snapshotSaleForAudit({ ...editingSale, ...payload }),
+      fields: SALE_AUDIT_FIELDS,
+      user: currentUser,
+    });
+
+    setSales((prev) => prev.map((row) => (
+      row.id === editingSale.id
+        ? { ...row, ...payload, createdBy: row.createdBy, createdByEmail: row.createdByEmail, createdAt: row.createdAt }
+        : row
+    )));
+    setVoucherSaveMessage(`${payload.client} · ${payload.site} 전표가 저장되었습니다.`);
+    resetVoucherEdit();
+  };
+
+  const confirmDeleteVoucherEdit = () => {
+    if (!voucherDeleteConfirm) return;
+    const sale = voucherDeleteConfirm;
+
+    recordAudit({
+      entityType: "sale",
+      entityId: sale.id,
+      entityLabel: `${sale.client} · ${sale.site}`,
+      screen: "캘린더",
+      action: "delete",
+      before: snapshotSaleForAudit(sale),
+      fields: SALE_AUDIT_FIELDS,
+      user: currentUser,
+    });
+
+    setSales((prev) => prev.filter((row) => row.id !== sale.id));
+    setVoucherDeleteConfirm(null);
+    resetVoucherEdit();
+    setVoucherSaveMessage(`전표 ${sale.voucherNo || sale.id} (${sale.client} · ${sale.site})가 삭제되었습니다.`);
+  };
 
   return (
     <div
@@ -2462,6 +2594,7 @@ function CalendarPage({
               ) : (
                 <span className="erp-calendar-legend-item">거래처/현장명 더블클릭 → 거래처 필터</span>
               )}
+              <span className="erp-calendar-legend-item">우측 전표 더블클릭 → 전표 수정</span>
             </div>
           </CardContent>
         </Card>
@@ -2525,6 +2658,11 @@ function CalendarPage({
             ) : null}
 
             <div className="erp-calendar-side-panel-body">
+              {voucherSaveMessage ? (
+                <div className="erp-calendar-side-save-message mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
+                  {voucherSaveMessage}
+                </div>
+              ) : null}
               {selectedDaySales.length === 0 ? (
                 <p className="erp-calendar-side-empty">해당 날짜에 등록된 전표가 없습니다.</p>
               ) : (
@@ -2537,22 +2675,13 @@ function CalendarPage({
                       <li key={sale.id}>
                         <button
                           type="button"
-                          className="erp-calendar-side-card"
-                          title={filteredClient ? "클릭: 전표 수정" : "클릭: 전표 수정 · 더블클릭: 이 거래처만 보기"}
-                          onClick={() => {
-                            if (Date.now() < suppressSideClickUntilRef.current) return;
-                            onOpenVoucherEdit?.(sale.id);
+                          className="erp-calendar-side-card is-editable"
+                          title="더블클릭: 전표 수정"
+                          onDoubleClick={(event) => {
+                            event.stopPropagation();
+                            event.preventDefault();
+                            openVoucherEdit(sale);
                           }}
-                          onDoubleClick={
-                            filteredClient
-                              ? undefined
-                              : (event) => {
-                                  event.stopPropagation();
-                                  event.preventDefault();
-                                  suppressSideClickUntilRef.current = Date.now() + 400;
-                                  applyClientFilter(sale.client, selectedDate);
-                                }
-                          }
                         >
                           <span className="erp-calendar-side-card-bar" style={{ backgroundColor: color }} aria-hidden="true" />
                           <div className="erp-calendar-side-card-body">
@@ -2579,6 +2708,83 @@ function CalendarPage({
           </>
         ) : null}
       </div>
+
+      {voucherDeleteConfirm ? (
+        <div className="erp-ledger-modal-backdrop" onClick={() => setVoucherDeleteConfirm(null)}>
+          <div className="erp-ledger-modal" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="calendar-sale-delete-title">
+            <h2 id="calendar-sale-delete-title" className="text-base font-bold text-slate-900 md:text-lg">
+              전표 삭제
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              전표 {voucherDeleteConfirm.voucherNo || voucherDeleteConfirm.id} ({voucherDeleteConfirm.client} · {voucherDeleteConfirm.site})를 삭제할까요?
+            </p>
+            <p className="mt-4 text-sm font-semibold text-slate-700">삭제 후에는 복구할 수 없습니다.</p>
+            <div className="mt-5 flex gap-2">
+              <Button variant="outline" className="flex-1 rounded-xl" onClick={() => setVoucherDeleteConfirm(null)}>
+                아니오
+              </Button>
+              <Button className="flex-1 rounded-xl bg-red-600 hover:bg-red-700" onClick={confirmDeleteVoucherEdit}>
+                삭제
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {editingSale ? (
+        <div className="erp-ledger-modal-backdrop" onClick={closeVoucherEdit}>
+          <div
+            className="erp-ledger-modal erp-ledger-modal--sale-edit"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="calendar-sale-edit-title"
+          >
+            <div className="erp-sale-form-page erp-sale-form-page--compact">
+              <SaleFormCompactEditor
+                title="매출전표 수정"
+                desc={`${editingSale.client} · ${editingSale.site} · 시공자 ${voucherFilledWorkerCount}/${voucherForm.workers.length}명`}
+                form={voucherForm}
+                update={updateVoucherForm}
+                updateWorkerLine={updateVoucherWorkerLine}
+                addWorkerLine={addVoucherWorkerLine}
+                removeWorkerLine={removeVoucherWorkerLine}
+                clients={clients}
+                workers={workers}
+                totals={voucherFormTotals}
+                filledWorkerCount={voucherFilledWorkerCount}
+                canSave={canSaveVoucher}
+                onSave={saveVoucherEdit}
+                saveLabel="전표 저장"
+                saveMessage={voucherSaveMessage}
+                auditEntityId={editingSaleId}
+                headerAction={(
+                  <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={closeVoucherEdit}>
+                    닫기
+                  </Button>
+                )}
+                footerStartExtra={(
+                  <>
+                    <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={closeVoucherEdit}>
+                      저장 안 하고 종료
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 rounded-lg border-red-200 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
+                      onClick={() => setVoucherDeleteConfirm(editingSale)}
+                    >
+                      <Trash2 size={13} />
+                      전표 삭제
+                    </Button>
+                  </>
+                )}
+                onSharedMemoChange={updateVoucherSharedMemo}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -5294,11 +5500,10 @@ export default function TeammillimeterErpMvp() {
         <PageKeepAlive pageKey="calendar" active={active}>
           <CalendarPage
             sales={appliedSales}
+            setSales={setSales}
+            clients={clients}
             workers={workers}
-            onOpenVoucherEdit={(saleId) => {
-              setPendingVoucherEditId(saleId);
-              setActive("salesVoucherSearch");
-            }}
+            currentUser={currentUser}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="attendance" active={active}>

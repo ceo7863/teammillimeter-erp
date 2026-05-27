@@ -1635,6 +1635,10 @@ textarea {
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
+.erp-calendar-side-card.is-editable {
+  cursor: default;
+}
+
 .erp-calendar-side-card:hover {
   border-color: #7dd3fc;
   background: #f0f9ff;
@@ -7375,6 +7379,21 @@ body.erp-col-resizing * {
   background: #fff;
   padding: 1.25rem;
   box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.35);
+}
+
+.erp-ledger-modal--sale-edit {
+  width: min(100%, 72rem);
+  padding: 0;
+}
+
+.erp-ledger-modal--sale-edit .erp-sale-form-page--compact {
+  padding: 1rem 1.25rem 1.25rem;
+}
+
+@media (min-width: 640px) {
+  .erp-ledger-modal--sale-edit .erp-sale-form-page--compact {
+    padding: 1.25rem 1.5rem 1.5rem;
+  }
 }
 
 @media (min-width: 640px) {
