@@ -154,6 +154,15 @@ type ManualLedgerRow =
   | { type: "expense"; row: CompanyExpense }
   | { type: "fixedPayment"; row: FixedExpensePayment };
 
+function isVariableLedgerRow(item: ManualLedgerRow) {
+  return item.type === "expense" && resolveCompanyExpenseKind(item.row) === "variable";
+}
+
+function isFixedLedgerRow(item: ManualLedgerRow) {
+  if (item.type === "fixedPayment") return true;
+  return item.type === "expense" && resolveCompanyExpenseKind(item.row) === "fixed";
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
@@ -376,6 +385,16 @@ export function CompanyLedgerPage({
       : merged;
     return filtered.sort((a, b) => String(b.row.date).localeCompare(String(a.row.date)));
   }, [companyExpenses, fixedExpensePayments, fixedExpenses, manualQuery, periodFilter.endDate, periodFilter.startDate]);
+
+  const filteredVariableRows = useMemo(
+    () => filteredManualRows.filter(isVariableLedgerRow),
+    [filteredManualRows],
+  );
+
+  const filteredFixedRows = useMemo(
+    () => filteredManualRows.filter(isFixedLedgerRow),
+    [filteredManualRows],
+  );
 
   const hasBankLinkedManualRows = useMemo(
     () =>
@@ -610,10 +629,18 @@ export function CompanyLedgerPage({
               </p>
             ) : null}
 
-            <MobileRecordList>
-              {filteredManualRows.length ? (
-                filteredManualRows.map((item) => {
-                  if (item.type === "expense") {
+            <section className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="erp-text-section font-bold text-rose-700">{L.variableExpense}</h2>
+                <span className="erp-text-caption font-semibold text-slate-500">
+                  {filteredVariableRows.length}
+                  {L.count} · {formatKRW(sumManualLedgerRows(filteredVariableRows))}
+                  {L.won}
+                </span>
+              </div>
+              <MobileRecordList>
+                {filteredVariableRows.length ? (
+                  filteredVariableRows.map((item) => {
                     const row = item.row;
                     const bankLinked = isBankLinkedExpense(row);
                     return (
@@ -623,7 +650,6 @@ export function CompanyLedgerPage({
                         subtitle={row.date}
                         badge={<ExpenseCategoryBadges row={row} />}
                         fields={[
-                          { label: L.section, value: <ExpenseKindBadge kind={resolveCompanyExpenseKind(row)} /> },
                           { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
                           { label: L.memo, value: row.memo || "-", tone: "muted" },
                         ]}
@@ -639,65 +665,30 @@ export function CompanyLedgerPage({
                         }
                       />
                     );
-                  }
-                  const row = item.row;
-                  const name = resolveFixedPaymentDescription(row, fixedExpenses);
-                  const bankLinked = isBankLinkedPayment(row);
-                  return (
-                    <MobileRecordCard
-                      key={`fixed-pay-${row.id}`}
-                      title={<DescriptionWithBankBadge text={name} bankLinked={bankLinked} />}
-                      subtitle={row.date}
-                      badge={<FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} />}
-                      fields={[
-                        { label: L.section, value: <ExpenseKindBadge kind="fixed" /> },
-                        { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
-                        { label: L.memo, value: row.memo || "-", tone: "muted" },
-                      ]}
-                      actions={
-                        setFixedExpensePayments ? (
-                          <>
-                            <button type="button" className="erp-mobile-action-btn" onClick={() => openEditFixedPayment(row)}>
-                              <Pencil size={15} /> {L.edit}
-                            </button>
-                            <button type="button" className="erp-mobile-action-btn danger" onClick={() => deleteFixedPayment(row)}>
-                              <Trash2 size={15} /> {L.delete}
-                            </button>
-                          </>
-                        ) : undefined
-                      }
-                    />
-                  );
-                })
-              ) : (
-                <MobileRecordCard empty emptyLabel={L.emptyManual} />
-              )}
-            </MobileRecordList>
-
-            <DesktopTableWrap>
-              <table className="erp-ledger-table min-w-full">
-                <thead>
-                  <tr>
-                    <th>{L.section}</th>
-                    <th>{L.date}</th>
-                    <th>{L.category}</th>
-                    <th>{L.description}</th>
-                    <th className="text-right">{L.amount}</th>
-                    <th>{L.memo}</th>
-                    <th className="erp-table-export-skip">{L.actions}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredManualRows.length ? (
-                    filteredManualRows.map((item) => {
-                      if (item.type === "expense") {
+                  })
+                ) : (
+                  <MobileRecordCard empty emptyLabel={L.emptyManual} />
+                )}
+              </MobileRecordList>
+              <DesktopTableWrap>
+                <table className="erp-ledger-table min-w-full">
+                  <thead>
+                    <tr>
+                      <th>{L.date}</th>
+                      <th>{L.category}</th>
+                      <th>{L.description}</th>
+                      <th className="text-right">{L.amount}</th>
+                      <th>{L.memo}</th>
+                      <th className="erp-table-export-skip">{L.actions}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredVariableRows.length ? (
+                      filteredVariableRows.map((item) => {
                         const row = item.row;
                         const bankLinked = isBankLinkedExpense(row);
                         return (
                           <tr key={`expense-${row.id}`} className={bankLinkedRowClass(bankLinked)}>
-                            <td>
-                              <ExpenseKindBadge kind={resolveCompanyExpenseKind(row)} />
-                            </td>
                             <td>{row.date}</td>
                             <td>
                               <ExpenseCategoryBadges row={row} />
@@ -712,97 +703,219 @@ export function CompanyLedgerPage({
                             <td className="text-slate-500">{row.memo || "-"}</td>
                             <td className="erp-table-export-skip">
                               <div className="erp-ledger-row-actions">
-                                <button
-                                  type="button"
-                                  className="erp-ledger-icon-btn"
-                                  onClick={() => openEditManual(row)}
-                                  aria-label={L.edit}
-                                >
+                                <button type="button" className="erp-ledger-icon-btn" onClick={() => openEditManual(row)} aria-label={L.edit}>
                                   <Pencil size={15} />
                                 </button>
-                                <button
-                                  type="button"
-                                  className="erp-ledger-icon-btn danger"
-                                  onClick={() => deleteManual(row)}
-                                  aria-label={L.delete}
-                                >
+                                <button type="button" className="erp-ledger-icon-btn danger" onClick={() => deleteManual(row)} aria-label={L.delete}>
                                   <Trash2 size={15} />
                                 </button>
                               </div>
                             </td>
                           </tr>
                         );
-                      }
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={6} className="erp-ledger-empty">
+                          {L.emptyManual}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                  {filteredVariableRows.length ? (
+                    <tfoot>
+                      <tr>
+                        <td colSpan={3} className="font-bold">
+                          {L.total} ({filteredVariableRows.length}
+                          {L.count})
+                        </td>
+                        <td className="text-right font-black text-rose-600">
+                          {formatKRW(sumManualLedgerRows(filteredVariableRows))}
+                          {L.won}
+                        </td>
+                        <td colSpan={2} />
+                      </tr>
+                    </tfoot>
+                  ) : null}
+                </table>
+              </DesktopTableWrap>
+            </section>
+
+            <section className="space-y-3 border-t border-slate-100 pt-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="erp-text-section font-bold text-amber-700">{L.fixedExpense}</h2>
+                <span className="erp-text-caption font-semibold text-slate-500">
+                  {filteredFixedRows.length}
+                  {L.count} · {formatKRW(sumManualLedgerRows(filteredFixedRows))}
+                  {L.won}
+                </span>
+              </div>
+              <MobileRecordList>
+                {filteredFixedRows.length ? (
+                  filteredFixedRows.map((item) => {
+                    if (item.type === "expense") {
                       const row = item.row;
-                      const name = resolveFixedPaymentDescription(row, fixedExpenses);
-                      const bankLinked = isBankLinkedPayment(row);
+                      const bankLinked = isBankLinkedExpense(row);
                       return (
-                        <tr key={`fixed-pay-${row.id}`} className={bankLinkedRowClass(bankLinked)}>
-                          <td>
-                            <ExpenseKindBadge kind="fixed" />
-                          </td>
-                          <td>{row.date}</td>
-                          <td>
-                            <FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} />
-                          </td>
-                          <td>
-                            <DescriptionWithBankBadge text={name} bankLinked={bankLinked} />
-                          </td>
-                          <td className="text-right font-bold text-rose-600">
-                            {formatKRW(row.amount)}
-                            {L.won}
-                          </td>
-                          <td className="text-slate-500">{row.memo || "-"}</td>
-                          <td className="erp-table-export-skip">
-                            {setFixedExpensePayments ? (
-                              <div className="erp-ledger-row-actions">
-                                <button
-                                  type="button"
-                                  className="erp-ledger-icon-btn"
-                                  onClick={() => openEditFixedPayment(row)}
-                                  aria-label={L.edit}
-                                >
-                                  <Pencil size={15} />
-                                </button>
-                                <button
-                                  type="button"
-                                  className="erp-ledger-icon-btn danger"
-                                  onClick={() => deleteFixedPayment(row)}
-                                  aria-label={L.delete}
-                                >
-                                  <Trash2 size={15} />
-                                </button>
-                              </div>
-                            ) : (
-                              <span className="erp-text-caption text-slate-400">-</span>
-                            )}
-                          </td>
-                        </tr>
+                        <MobileRecordCard
+                          key={`expense-${row.id}`}
+                          title={<DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />}
+                          subtitle={row.date}
+                          badge={<ExpenseCategoryBadges row={row} />}
+                          fields={[
+                            { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
+                            { label: L.memo, value: row.memo || "-", tone: "muted" },
+                          ]}
+                          actions={
+                            <>
+                              <button type="button" className="erp-mobile-action-btn" onClick={() => openEditManual(row)}>
+                                <Pencil size={15} /> {L.edit}
+                              </button>
+                              <button type="button" className="erp-mobile-action-btn danger" onClick={() => deleteManual(row)}>
+                                <Trash2 size={15} /> {L.delete}
+                              </button>
+                            </>
+                          }
+                        />
                       );
-                    })
-                  ) : (
+                    }
+                    const row = item.row;
+                    const name = resolveFixedPaymentDescription(row, fixedExpenses);
+                    const bankLinked = isBankLinkedPayment(row);
+                    return (
+                      <MobileRecordCard
+                        key={`fixed-pay-${row.id}`}
+                        title={<DescriptionWithBankBadge text={name} bankLinked={bankLinked} />}
+                        subtitle={row.date}
+                        badge={<FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} />}
+                        fields={[
+                          { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
+                          { label: L.memo, value: row.memo || "-", tone: "muted" },
+                        ]}
+                        actions={
+                          setFixedExpensePayments ? (
+                            <>
+                              <button type="button" className="erp-mobile-action-btn" onClick={() => openEditFixedPayment(row)}>
+                                <Pencil size={15} /> {L.edit}
+                              </button>
+                              <button type="button" className="erp-mobile-action-btn danger" onClick={() => deleteFixedPayment(row)}>
+                                <Trash2 size={15} /> {L.delete}
+                              </button>
+                            </>
+                          ) : undefined
+                        }
+                      />
+                    );
+                  })
+                ) : (
+                  <MobileRecordCard empty emptyLabel={L.emptyFixed} />
+                )}
+              </MobileRecordList>
+              <DesktopTableWrap>
+                <table className="erp-ledger-table min-w-full">
+                  <thead>
                     <tr>
-                      <td colSpan={7} className="erp-ledger-empty">
-                        {L.emptyManual}
-                      </td>
+                      <th>{L.date}</th>
+                      <th>{L.category}</th>
+                      <th>{L.description}</th>
+                      <th className="text-right">{L.amount}</th>
+                      <th>{L.memo}</th>
+                      <th className="erp-table-export-skip">{L.actions}</th>
                     </tr>
-                  )}
-                </tbody>
-                {filteredManualRows.length ? (
-                  <tfoot>
-                    <tr>
-                      <td colSpan={4} className="font-bold">
-                        {L.total} ({filteredManualRows.length}{L.count})
-                      </td>
-                      <td className="text-right font-black text-rose-600">
-                        {formatKRW(sumManualLedgerRows(filteredManualRows))}{L.won}
-                      </td>
-                      <td colSpan={2} />
-                    </tr>
-                  </tfoot>
-                ) : null}
-              </table>
-            </DesktopTableWrap>
+                  </thead>
+                  <tbody>
+                    {filteredFixedRows.length ? (
+                      filteredFixedRows.map((item) => {
+                        if (item.type === "expense") {
+                          const row = item.row;
+                          const bankLinked = isBankLinkedExpense(row);
+                          return (
+                            <tr key={`expense-${row.id}`} className={bankLinkedRowClass(bankLinked)}>
+                              <td>{row.date}</td>
+                              <td>
+                                <ExpenseCategoryBadges row={row} />
+                              </td>
+                              <td>
+                                <DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />
+                              </td>
+                              <td className="text-right font-bold text-rose-600">
+                                {formatKRW(row.amount)}
+                                {L.won}
+                              </td>
+                              <td className="text-slate-500">{row.memo || "-"}</td>
+                              <td className="erp-table-export-skip">
+                                <div className="erp-ledger-row-actions">
+                                  <button type="button" className="erp-ledger-icon-btn" onClick={() => openEditManual(row)} aria-label={L.edit}>
+                                    <Pencil size={15} />
+                                  </button>
+                                  <button type="button" className="erp-ledger-icon-btn danger" onClick={() => deleteManual(row)} aria-label={L.delete}>
+                                    <Trash2 size={15} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        }
+                        const row = item.row;
+                        const name = resolveFixedPaymentDescription(row, fixedExpenses);
+                        const bankLinked = isBankLinkedPayment(row);
+                        return (
+                          <tr key={`fixed-pay-${row.id}`} className={bankLinkedRowClass(bankLinked)}>
+                            <td>{row.date}</td>
+                            <td>
+                              <FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} />
+                            </td>
+                            <td>
+                              <DescriptionWithBankBadge text={name} bankLinked={bankLinked} />
+                            </td>
+                            <td className="text-right font-bold text-rose-600">
+                              {formatKRW(row.amount)}
+                              {L.won}
+                            </td>
+                            <td className="text-slate-500">{row.memo || "-"}</td>
+                            <td className="erp-table-export-skip">
+                              {setFixedExpensePayments ? (
+                                <div className="erp-ledger-row-actions">
+                                  <button type="button" className="erp-ledger-icon-btn" onClick={() => openEditFixedPayment(row)} aria-label={L.edit}>
+                                    <Pencil size={15} />
+                                  </button>
+                                  <button type="button" className="erp-ledger-icon-btn danger" onClick={() => deleteFixedPayment(row)} aria-label={L.delete}>
+                                    <Trash2 size={15} />
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="erp-text-caption text-slate-400">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={6} className="erp-ledger-empty">
+                          {L.emptyFixed}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                  {filteredFixedRows.length ? (
+                    <tfoot>
+                      <tr>
+                        <td colSpan={3} className="font-bold">
+                          {L.total} ({filteredFixedRows.length}
+                          {L.count})
+                        </td>
+                        <td className="text-right font-black text-amber-600">
+                          {formatKRW(sumManualLedgerRows(filteredFixedRows))}
+                          {L.won}
+                        </td>
+                        <td colSpan={2} />
+                      </tr>
+                    </tfoot>
+                  ) : null}
+                </table>
+              </DesktopTableWrap>
+            </section>
           </CardContent>
         </Card>
       ) : null}
