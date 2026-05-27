@@ -797,7 +797,7 @@ function aggregateSaleCalendarStats(sale, feeMap) {
 
 const CALENDAR_CLIENT_COLORS = ["#0d9488", "#7c3aed", "#e11d48", "#ea580c", "#2563eb", "#db2777", "#059669", "#ca8a04"];
 
-const EMPTY_CALENDAR_DAY_STATS = { staff: 0, bill: 0, spend: 0, fee: 0, netPay: 0, margin: 0, count: 0, entries: [] };
+const EMPTY_CALENDAR_DAY_STATS = { staff: 0, bill: 0, spend: 0, fee: 0, netPay: 0, margin: 0, count: 0, hasUnpaid: false, entries: [] };
 
 function getCalendarClientColor(client) {
   const name = String(client || "").trim() || "(미지정)";
@@ -835,6 +835,8 @@ function buildCalendarDays(monthKey, sales, workers = []) {
     const key = sale.date;
     if (!acc[key]) acc[key] = { ...EMPTY_CALENDAR_DAY_STATS, entries: [] };
     const dayStats = aggregateSaleCalendarStats(sale, feeMap);
+    const unpaid = getUnpaid(sale);
+    if (unpaid > 0) acc[key].hasUnpaid = true;
     acc[key].staff += dayStats.staff;
     acc[key].bill += dayStats.bill;
     acc[key].spend += dayStats.spend;
@@ -850,6 +852,9 @@ function buildCalendarDays(monthKey, sales, workers = []) {
       staff: dayStats.staff,
       workerSummary: formatWorkerNameSummary(getSaleWorkerLines(sale)),
       bill: dayStats.bill,
+      amount: Number(sale.amount ?? sale.salesAmount ?? dayStats.bill) || 0,
+      unpaid,
+      hasUnpaid: unpaid > 0,
       color: getCalendarClientColor(sale.client),
     });
     return acc;
@@ -2831,6 +2836,7 @@ function CalendarPage({
                 const weekendTone = weekday === 0 ? "sun" : weekday === 6 ? "sat" : "default";
                 const isSideSelected = selectedDate === cell.date;
                 const isDateChecked = filteredClient && selectedDates.includes(cell.date);
+                const paymentTone = filteredClient && hasData ? (cell.stats.hasUnpaid ? "unpaid" : "paid") : "";
 
                 const cellClassName = [
                   "erp-calendar-cell",
@@ -2839,6 +2845,7 @@ function CalendarPage({
                   hasData ? "has-data" : "is-empty",
                   isToday ? "is-today" : "",
                   filteredClient && hasData ? "is-selectable" : "",
+                  paymentTone ? `is-${paymentTone}` : "",
                   isDateChecked ? "is-checked" : "",
                   !filteredClient && isSideSelected ? "is-selected" : "",
                 ]
@@ -2869,13 +2876,18 @@ function CalendarPage({
                       ) : null}
                     </div>
                     {hasData ? (
-                      <ul className="erp-calendar-cell-entries" aria-label={`${cell.date} 일정`}>
+                      <ul className={`erp-calendar-cell-entries${filteredClient ? " erp-calendar-cell-entries--client-filter" : ""}`} aria-label={`${cell.date} 일정`}>
                         {cell.stats.entries.map((entry) => (
                           <li
                             key={`${cell.date}-${entry.saleId}`}
-                            className={`erp-calendar-cell-entry${filteredClient ? "" : " is-client-open"}`}
-                            style={{ borderLeftColor: entry.color }}
-                            title={filteredClient ? entry.site : "더블클릭: 이 거래처만 보기"}
+                            className={[
+                              "erp-calendar-cell-entry",
+                              filteredClient
+                                ? entry.hasUnpaid ? "is-unpaid" : "is-paid"
+                                : "is-client-open",
+                            ].join(" ")}
+                            style={filteredClient ? undefined : { borderLeftColor: entry.color }}
+                            title={filteredClient ? `${entry.site} · ${formatKRW(entry.amount)}${entry.hasUnpaid ? ` · 미수 ${formatKRW(entry.unpaid)}` : " · 완납"}` : "더블클릭: 이 거래처만 보기"}
                             onDoubleClick={
                               filteredClient
                                 ? undefined
@@ -2887,9 +2899,16 @@ function CalendarPage({
                                   }
                             }
                           >
-                            <span className="erp-calendar-cell-entry-label">
-                              {filteredClient ? entry.site : `${entry.client} / ${entry.site}`}
-                            </span>
+                            {filteredClient ? (
+                              <>
+                                <span className="erp-calendar-cell-entry-label">{entry.site}</span>
+                                <span className="erp-calendar-cell-entry-amount">{formatKRW(entry.amount)}</span>
+                              </>
+                            ) : (
+                              <span className="erp-calendar-cell-entry-label">
+                                {`${entry.client} / ${entry.site}`}
+                              </span>
+                            )}
                           </li>
                         ))}
                       </ul>
@@ -2945,10 +2964,15 @@ function CalendarPage({
               {filteredClient ? (
                 <>
                   <span className="erp-calendar-legend-item">
+                    <i className="erp-client-calendar-legend-dot is-unpaid" /> 미수금
+                  </span>
+                  <span className="erp-calendar-legend-item">
+                    <i className="erp-client-calendar-legend-dot is-paid" /> 완납
+                  </span>
+                  <span className="erp-calendar-legend-item">
                     <i className="erp-client-calendar-legend-dot is-checked" /> 선택 (날짜 클릭)
                   </span>
                   <span className="erp-calendar-legend-item">더블클릭 → 일자 상세</span>
-                  <span className="erp-calendar-legend-item">현장명 · {filteredClient}</span>
                 </>
               ) : (
                 <>

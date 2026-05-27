@@ -782,6 +782,16 @@ textarea {
   gap: 0.75rem;
 }
 
+.erp-calendar-page.is-client-filter .erp-calendar-cell.is-unpaid.has-data {
+  background: linear-gradient(180deg, #fef2f2 0%, #ffffff 88%);
+  border-color: #fca5a5;
+}
+
+.erp-calendar-page.is-client-filter .erp-calendar-cell.is-paid.has-data {
+  background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 88%);
+  border-color: #86efac;
+}
+
 .erp-calendar-page.is-client-filter .erp-calendar-cell.is-checked.has-data {
   background: linear-gradient(180deg, #dbeafe 0%, #eff6ff 52%, #ffffff 100%) !important;
   border-color: #0284c7 !important;
@@ -792,6 +802,14 @@ textarea {
   transform: translateY(-2px) scale(1.015);
   z-index: 2;
   position: relative;
+}
+
+.erp-calendar-page.is-client-filter .erp-calendar-cell.is-checked.has-data.is-unpaid {
+  background: linear-gradient(180deg, #dbeafe 0%, #fef2f2 58%, #ffffff 100%) !important;
+}
+
+.erp-calendar-page.is-client-filter .erp-calendar-cell.is-checked.has-data.is-paid {
+  background: linear-gradient(180deg, #dbeafe 0%, #f0fdf4 58%, #ffffff 100%) !important;
 }
 
 .erp-calendar-page.is-client-filter .erp-calendar-cell.is-checked.has-data .erp-calendar-day {
@@ -809,6 +827,50 @@ textarea {
 
 .erp-calendar-page.is-client-filter .erp-calendar-cell-badges {
   align-items: center;
+}
+
+.erp-calendar-page.is-client-filter .erp-calendar-cell-entries--client-filter {
+  gap: 0.2rem;
+}
+
+.erp-calendar-page.is-client-filter .erp-calendar-cell-entry {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.1rem;
+  border-left-width: 0;
+  padding: 0.22rem 0.35rem;
+}
+
+.erp-calendar-page.is-client-filter .erp-calendar-cell-entry.is-unpaid {
+  background: rgba(254, 226, 226, 0.92);
+  border: 1px solid #fecaca;
+}
+
+.erp-calendar-page.is-client-filter .erp-calendar-cell-entry.is-paid {
+  background: rgba(220, 252, 231, 0.92);
+  border: 1px solid #bbf7d0;
+}
+
+.erp-calendar-page.is-client-filter .erp-calendar-cell-entry-amount {
+  font-size: 0.5625rem;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.erp-calendar-page.is-client-filter .erp-calendar-cell-entry.is-unpaid .erp-calendar-cell-entry-amount {
+  color: #b91c1c;
+}
+
+.erp-calendar-page.is-client-filter .erp-calendar-cell-entry.is-paid .erp-calendar-cell-entry-amount {
+  color: #15803d;
+}
+
+@media (min-width: 640px) {
+  .erp-calendar-page.is-client-filter .erp-calendar-cell-entry-amount {
+    font-size: 0.625rem;
+  }
 }
 
 .erp-client-calendar-embedded {
