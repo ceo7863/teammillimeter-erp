@@ -188,10 +188,15 @@ const L = {
   folderScopeWorker: "\uC2DC\uACF5\uC790",
   viewList: "\uAC70\uB798 \uBAA9\uB85D",
   viewReconcile: "\uC785\uAE08 \uB300\uC0AC",
-  reconcileTitle: "\uD1B5\uC7A5 \uC785\uAE08 \u2194 \uBBF8\uC218\uAE08 \uC5F0\uACB0",
-  reconcileDesc: "\uAC70\uB798\uCC98\uBA85\u00B7\uAE08\uC561\u00B7\uC785\uAE08\uC77C\uC744 \uAE30\uC900\uC73C\uB85C \uBBF8\uC218 \uB9E4\uCD9C\uACFC \uC785\uAE08 \uC804\uD45C\uB97C \uC790\uB3D9 \uCD94\uCC9C\uD569\uB2C8\uB2E4.",
+  reconcileTitle: "\uD1B5\uC7A5 \uC785\uAE08 \u2194 \uBCF4\uB0B4\uB0B4\uC5ED\uC11C \uB9E4\uCE69",
+  reconcileDesc:
+    "\uB9C1\uD06C\uB85C \uBCF4\uB0B8 \uAC70\uB798\uCC98 \uC2DC\uACF5\uBE44 \uB0B4\uC5ED\uC11C\uC640 \uC785\uAE08 \uAE08\uC561\u00B7\uAC70\uB798\uCC98\uBA85\uC774 \uC77C\uCE58\uD558\uBA74 \uAC74\uBCC4 \uC785\uAE08 \uCC98\uB9AC\uB97C \uCD94\uCC9C\uD569\uB2C8\uB2E4. \uB0B4\uC5ED\uC11C\uAC00 \uC5C6\uC73C\uBA74 \uBBF8\uC218 \uB9E4\uCD9C\uACFC \uBE44\uAD50\uD569\uB2C8\uB2E4.",
+  reconcileBanner: (count: number) =>
+    `\uC785\uAE08 ${count}\uAC74\uC774 \uBCF4\uB0B4\uB0B4\uC5ED\uC11C \uB610\uB294 \uBBF8\uC218 \uB9E4\uCD9C\uACFC \uB9E4\uCE69\uB420 \uC218 \uC788\uC2B5\uB2C8\uB2E4.`,
+  reconcileOpen: "\uC785\uAE08 \uB300\uC0AC \uC5F4\uAE30",
   matchScore: "\uC77C\uCE58\uB3C4",
-  matchConfirm: "\uC785\uAE08 \uC5F0\uACB0",
+  matchConfirm: "\uAC74\uBCC4 \uC785\uAE08\uCC98\uB9AC",
+  matchConfirmHint: "\uCD94\uCC9C \uB0B4\uC6A9\uC73C\uB85C \uC785\uAE08 \uC804\uD45C \uC0DD\uC131",
   matchManual: "\uC9C1\uC811 \uC120\uD0DD",
   matchDone: "\uC785\uAE08 \uC804\uD45C\uAC00 \uC0DD\uC131\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   matchBulk: "\uACE0\uC2E0\uB8B0 \uC790\uB3D9 \uC5F0\uACB0",
@@ -596,6 +601,10 @@ export function BankTransactionsPage({
       return scoreB - scoreA;
     });
   }, [bankTransactions, receivableRows, sentArchives, clients]);
+  const depositSuggestionByTxId = useMemo(
+    () => new Map(depositSuggestions.map((item) => [item.tx.id, item])),
+    [depositSuggestions]
+  );
   const unmatchedDepositCount = useMemo(
     () => bankTransactions.filter((row) => row.deposit > 0 && !row.linkedPaymentVoucherId).length,
     [bankTransactions]
@@ -658,8 +667,17 @@ export function BankTransactionsPage({
           folder: autoLearn.folderCount,
         }).replace(/\.$/, "")}`
       : "";
+    const sentSuggestions = buildAllSentStatementDepositSuggestions(autoLearn.transactions, sentArchives, clients);
+    const sentTxIds = new Set(sentSuggestions.map((row) => row.tx.id));
+    const receivableSuggestionCount = buildAllBankDepositSuggestions(autoLearn.transactions, receivableRows, clients).filter(
+      (row) => !sentTxIds.has(row.tx.id)
+    ).length;
+    const matchSuggestionCount = sentSuggestions.length + receivableSuggestionCount;
+    const matchHint =
+      matchSuggestionCount > 0 ? ` \u00B7 ${L.reconcileBanner(matchSuggestionCount)} (${L.viewReconcile})` : "";
+
     setImportMessage(
-      `${L.ibkImportDone} (${result.added}${L.ibkImportAdded}${result.skipped ? `, ${result.skipped}${L.ibkImportSkipped}` : ""}${classified.updated ? `, ${classified.updated}\uAC74 \uBD84\uB958` : ""}${autoLearnLabel})${latestLabel}`
+      `${L.ibkImportDone} (${result.added}${L.ibkImportAdded}${result.skipped ? `, ${result.skipped}${L.ibkImportSkipped}` : ""}${classified.updated ? `, ${classified.updated}\uAC74 \uBD84\uB958` : ""}${autoLearnLabel})${latestLabel}${matchHint}`
     );
   };
 
@@ -1269,16 +1287,64 @@ export function BankTransactionsPage({
               ) : null}
             </div>
           ) : row.deposit > 0 && !isCardCompanyDeposit(row) ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="rounded-lg text-xs"
-              onClick={() => setLinkModalTx(row)}
-            >
-              <Link2 size={12} className="mr-1" />
-              {L.matchManual}
-            </Button>
+            (() => {
+              const suggestion = depositSuggestionByTxId.get(row.id);
+              const top = suggestion?.candidates[0];
+              if (suggestion && top) {
+                const isSentStatement = suggestion.kind === "sentStatement";
+                const sentTop = isSentStatement ? (top as SentStatementMatchCandidate) : null;
+                const receivableTop = !isSentStatement ? (top as BankDepositMatchCandidate) : null;
+                return (
+                  <div className="space-y-1">
+                    <div className="text-xs font-semibold text-violet-700">
+                      {isSentStatement ? L.sentStatementMatch : L.selectReceivable}
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      {isSentStatement ? sentTop?.client : receivableTop?.client}
+                      {" \u00B7 "}
+                      {L.matchScore} {top.score}
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="rounded-lg text-xs"
+                        title={L.matchConfirmHint}
+                        onClick={() =>
+                          isSentStatement
+                            ? void confirmSentStatementMatch(row, sentTop!)
+                            : confirmDepositMatch(row, receivableTop!)
+                        }
+                      >
+                        <Link2 size={12} className="mr-1" />
+                        {L.matchConfirm}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="rounded-lg text-xs"
+                        onClick={() => setLinkModalTx(row)}
+                      >
+                        {L.matchManual}
+                      </Button>
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="rounded-lg text-xs"
+                  onClick={() => setLinkModalTx(row)}
+                >
+                  <Link2 size={12} className="mr-1" />
+                  {L.matchManual}
+                </Button>
+              );
+            })()
           ) : (
             "-"
           )}
@@ -1493,6 +1559,21 @@ export function BankTransactionsPage({
             {unmatchedDepositCount > 0 ? ` (${unmatchedDepositCount})` : ""}
           </Button>
         </div>
+      ) : null}
+
+      {hasAnyData && pageView === "list" && depositSuggestions.length > 0 ? (
+        <Card className="mb-4 rounded-2xl border-violet-200 bg-violet-50/40 shadow-sm">
+          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="font-bold text-violet-900">{L.reconcileBanner(depositSuggestions.length)}</div>
+              <p className="mt-1 text-sm text-violet-800/80">{L.reconcileDesc}</p>
+            </div>
+            <Button type="button" className="shrink-0 rounded-xl" onClick={() => setPageView("reconcile")}>
+              <Sparkles size={14} className="mr-1" />
+              {L.reconcileOpen}
+            </Button>
+          </CardContent>
+        </Card>
       ) : null}
 
       {hasAnyData && pageView === "reconcile" ? (
