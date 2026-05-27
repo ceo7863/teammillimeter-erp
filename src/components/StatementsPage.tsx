@@ -1148,6 +1148,7 @@ export function StatementsPage({
         sentViaLink: true,
         statementTotalAmount,
         paymentStatus: "pending",
+        statementSalesIds: isClient ? filteredClientSales.map((row) => row.id).filter((id) => id != null && id !== "") : undefined,
       });
       if (setStatementFolders) {
         const filedBy = currentUser?.name || currentUser?.loginId || "";

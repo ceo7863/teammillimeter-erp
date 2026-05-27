@@ -4,6 +4,7 @@ import type { ClientDepositMatchSource } from "./clientDepositAliases";
 import { includesDepositName, resolveDepositSubjectClientMatch } from "./clientDepositAliases";
 import type { PdfArchiveMeta } from "./pdfArchive";
 import type { BankPaymentVoucherDraft } from "./bankReceivableMatch";
+import { aggregateSaleBilling } from "./statementSheets";
 
 export type SentStatementMatchCandidate = {
   pdfArchiveId: string;
@@ -17,6 +18,25 @@ export type SentStatementMatchCandidate = {
   paymentAmount: number;
   paymentStatus: "confirmed" | "partial";
   shareLinkUrl?: string;
+  statementSalesIds?: Array<string | number>;
+};
+
+export type StatementSaleForPayment = {
+  salesId: number | string;
+  statementAmount: number;
+  site?: string;
+  salesAmount?: number;
+  workerCount?: number;
+};
+
+type SaleLikeForStatement = {
+  id?: number | string;
+  date?: string;
+  client?: string;
+  site?: string;
+  amount?: number;
+  worker?: string;
+  workers?: unknown[];
 };
 
 function resolveStatementClientMatch(
@@ -67,6 +87,149 @@ function resolveStatementPaymentAmount(deposit: number, total: number) {
     };
   }
   return null;
+}
+
+function clientHasVat(
+  clients: ClientDepositMatchSource[] | undefined,
+  clientName: string,
+  subtotal?: number,
+  grandTotal?: number
+) {
+  const client = clients?.find((row) => String(row.name || "").trim() === String(clientName || "").trim()) as
+    | { vat?: string }
+    | undefined;
+  if (client?.vat === "Y") return true;
+  if (client?.vat === "N") return false;
+  if (subtotal != null && grandTotal != null && subtotal > 0) {
+    return amountsMatch(grandTotal, Math.round(subtotal * 1.1));
+  }
+  return false;
+}
+
+function saleWorkerCount(sale: SaleLikeForStatement) {
+  if (sale.workers?.length) return sale.workers.length;
+  return String(sale.worker || "")
+    .split(",")
+    .filter(Boolean).length;
+}
+
+function buildStatementSaleRow(sale: SaleLikeForStatement): StatementSaleForPayment | null {
+  if (sale.id == null || sale.id === "") return null;
+  const billing = aggregateSaleBilling(sale);
+  if ((billing.totalConstructionCost || 0) <= 0) return null;
+  return {
+    salesId: sale.id,
+    statementAmount: billing.totalConstructionCost,
+    site: sale.site,
+    salesAmount: sale.amount,
+    workerCount: saleWorkerCount(sale),
+  };
+}
+
+function statementGrandTotal(subtotal: number, hasVat: boolean) {
+  const vatAmount = hasVat ? Math.round(subtotal * 0.1) : 0;
+  return subtotal + vatAmount;
+}
+
+function amountsMatch(expected: number, actual: number) {
+  if (expected <= 0 || actual <= 0) return false;
+  return Math.abs(expected - actual) <= Math.max(1000, Math.round(expected * 0.02));
+}
+
+/** Archive meta or period/client/amount fallback resolves statement sales rows. */
+export function resolveStatementSalesForArchive(
+  archive: Pick<
+    PdfArchiveMeta,
+    "subjectName" | "periodStart" | "periodEnd" | "statementTotalAmount" | "statementSalesIds"
+  >,
+  sales: SaleLikeForStatement[] = [],
+  clients?: ClientDepositMatchSource[]
+): StatementSaleForPayment[] {
+  const saleById = new Map(sales.map((sale) => [String(sale.id), sale]));
+
+  if (archive.statementSalesIds?.length) {
+    const rows = archive.statementSalesIds
+      .map((id) => {
+        const sale = saleById.get(String(id));
+        return sale ? buildStatementSaleRow(sale) : null;
+      })
+      .filter((row): row is StatementSaleForPayment => Boolean(row));
+    if (rows.length) return rows;
+  }
+
+  const periodRows = sales
+    .filter((sale) => String(sale.client || "").trim() === String(archive.subjectName || "").trim())
+    .filter((sale) => {
+      const date = String(sale.date || "");
+      if (archive.periodStart && date < archive.periodStart) return false;
+      if (archive.periodEnd && date > archive.periodEnd) return false;
+      return true;
+    })
+    .map((sale) => buildStatementSaleRow(sale))
+    .filter((row): row is StatementSaleForPayment => Boolean(row));
+
+  if (!periodRows.length) return [];
+
+  const subtotal = periodRows.reduce((sum, row) => sum + row.statementAmount, 0);
+  const expectedTotal = archive.statementTotalAmount || 0;
+  const inferredVat = clientHasVat(clients, archive.subjectName, subtotal, expectedTotal);
+  if (amountsMatch(statementGrandTotal(subtotal, inferredVat), expectedTotal)) {
+    return periodRows;
+  }
+  if (amountsMatch(subtotal, expectedTotal)) {
+    return periodRows;
+  }
+
+  return [];
+}
+
+function distributeAmountByWeight(
+  items: Array<{ key: string; weight: number }>,
+  totalAmount: number
+): Map<string, number> {
+  const totalWeight = items.reduce((sum, item) => sum + item.weight, 0);
+  if (totalWeight <= 0 || totalAmount <= 0) return new Map();
+
+  const allocations = items.map((item) => {
+    const exact = (totalAmount * item.weight) / totalWeight;
+    const floor = Math.floor(exact);
+    return { key: item.key, floor, fraction: exact - floor };
+  });
+
+  let remainder = totalAmount - allocations.reduce((sum, row) => sum + row.floor, 0);
+  const sorted = [...allocations].sort((a, b) => b.fraction - a.fraction);
+  const result = new Map<string, number>();
+  sorted.forEach((row, index) => {
+    const extra = index < remainder ? 1 : 0;
+    result.set(row.key, row.floor + extra);
+  });
+  return result;
+}
+
+function splitPaymentAcrossStatementSales(
+  statementSales: StatementSaleForPayment[],
+  paymentAmount: number,
+  hasVat: boolean
+) {
+  const subtotal = statementSales.reduce((sum, row) => sum + row.statementAmount, 0);
+  if (subtotal <= 0) return [];
+
+  const finalBySale = distributeAmountByWeight(
+    statementSales.map((row) => ({ key: String(row.salesId), weight: row.statementAmount })),
+    paymentAmount
+  );
+
+  return statementSales.map((row) => {
+    const finalAmount = finalBySale.get(String(row.salesId)) || 0;
+    const supplyAmount = hasVat ? Math.max(0, Math.round(finalAmount / 1.1)) : finalAmount;
+    const vatAmount = Math.max(0, finalAmount - supplyAmount);
+    return {
+      ...row,
+      finalAmount,
+      supplyAmount,
+      vatAmount,
+    };
+  }).filter((row) => row.finalAmount > 0);
 }
 
 export function listMatchableSentStatements(archives: PdfArchiveMeta[]) {
@@ -143,6 +306,7 @@ export function buildSentStatementMatchCandidates(
       paymentAmount: amountMatch.paymentAmount,
       paymentStatus: amountMatch.paymentStatus,
       shareLinkUrl: archive.shareLinkUrl,
+      statementSalesIds: archive.statementSalesIds,
     });
   }
 
@@ -171,7 +335,7 @@ export function buildAllSentStatementDepositSuggestions(
     .sort((a, b) => (b.candidates[0]?.score || 0) - (a.candidates[0]?.score || 0));
 }
 
-export function createPaymentVoucherFromSentStatementMatch(
+function createFallbackPaymentVoucher(
   tx: BankTransaction,
   candidate: SentStatementMatchCandidate
 ): BankPaymentVoucherDraft {
@@ -197,6 +361,73 @@ export function createPaymentVoucherFromSentStatementMatch(
     memo: `\uD1B5\uC7A5\uC785\uAE08(\uBCF4\uB0B4\uB0B4\uC5ED\uC11C) ${tx.description || tx.counterpartyName || ""}`.trim(),
     bankTransactionId: tx.id,
   };
+}
+
+export function createPaymentVouchersFromSentStatementMatch(
+  tx: BankTransaction,
+  candidate: SentStatementMatchCandidate,
+  options: {
+    sales?: SaleLikeForStatement[];
+    clients?: ClientDepositMatchSource[];
+    archive?: Pick<
+      PdfArchiveMeta,
+      "subjectName" | "periodStart" | "periodEnd" | "statementTotalAmount" | "statementSalesIds"
+    >;
+  } = {}
+): BankPaymentVoucherDraft[] {
+  const archiveMeta =
+    options.archive ||
+    ({
+      subjectName: candidate.client,
+      periodStart: candidate.periodStart,
+      periodEnd: candidate.periodEnd,
+      statementTotalAmount: candidate.statementTotalAmount,
+      statementSalesIds: candidate.statementSalesIds,
+    } satisfies Pick<
+      PdfArchiveMeta,
+      "subjectName" | "periodStart" | "periodEnd" | "statementTotalAmount" | "statementSalesIds"
+    >);
+
+  const statementSales = resolveStatementSalesForArchive(archiveMeta, options.sales || [], options.clients);
+  if (!statementSales.length) {
+    return [createFallbackPaymentVoucher(tx, candidate)];
+  }
+
+  const subtotal = statementSales.reduce((sum, row) => sum + row.statementAmount, 0);
+  const hasVat = clientHasVat(options.clients, candidate.client, subtotal, candidate.statementTotalAmount);
+  const splits = splitPaymentAcrossStatementSales(statementSales, candidate.paymentAmount, hasVat);
+  if (!splits.length) {
+    return [createFallbackPaymentVoucher(tx, candidate)];
+  }
+
+  const baseId = Date.now() + Number(String(candidate.pdfArchiveId).replace(/\D/g, "").slice(-6) || 0);
+  const memo = `\uD1B5\uC7A5\uC785\uAE08(\uBCF4\uB0B4\uB0B4\uC5ED\uC11C) ${tx.description || tx.counterpartyName || ""}`.trim();
+
+  return splits.map((row, index) => ({
+    id: baseId + index,
+    salesId: row.salesId,
+    date: String(tx.transactionAt || "").slice(0, 10),
+    client: candidate.client,
+    site: String(row.site || ""),
+    workerCount: row.workerCount || 0,
+    totalSalesAmount: row.salesAmount || row.statementAmount,
+    amount: row.supplyAmount,
+    vatType: hasVat ? ("included" as const) : ("excluded" as const),
+    supplyAmount: row.supplyAmount,
+    vatAmount: row.vatAmount,
+    finalAmount: row.finalAmount,
+    memo,
+    bankTransactionId: tx.id,
+  }));
+}
+
+/** @deprecated Returns first voucher only; prefer createPaymentVouchersFromSentStatementMatch. */
+export function createPaymentVoucherFromSentStatementMatch(
+  tx: BankTransaction,
+  candidate: SentStatementMatchCandidate,
+  options?: Parameters<typeof createPaymentVouchersFromSentStatementMatch>[2]
+): BankPaymentVoucherDraft {
+  return createPaymentVouchersFromSentStatementMatch(tx, candidate, options)[0];
 }
 
 export function getSentStatementPaymentStatusLabel(status?: PdfArchiveMeta["paymentStatus"]) {

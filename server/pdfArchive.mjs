@@ -4,6 +4,22 @@ import crypto from "crypto";
 import { config } from "./config.mjs";
 import { getDb } from "./db.mjs";
 
+function parseStatementSalesIds(raw) {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(String(raw));
+    if (!Array.isArray(parsed)) return undefined;
+    return parsed.map((id) => id);
+  } catch {
+    return undefined;
+  }
+}
+
+function serializeStatementSalesIds(ids) {
+  if (!Array.isArray(ids) || !ids.length) return null;
+  return JSON.stringify(ids.map((id) => id));
+}
+
 function rowToMeta(row) {
   return {
     id: row.id,
@@ -26,6 +42,7 @@ function rowToMeta(row) {
         ? row.linked_payment_voucher_id
         : undefined,
     shareLinkUrl: row.share_link_url || undefined,
+    statementSalesIds: parseStatementSalesIds(row.statement_sales_ids),
   };
 }
 
@@ -64,6 +81,7 @@ export function initPdfArchiveStore() {
   ensurePdfArchiveColumn("linked_bank_transaction_id", "TEXT");
   ensurePdfArchiveColumn("linked_payment_voucher_id", "TEXT");
   ensurePdfArchiveColumn("share_link_url", "TEXT");
+  ensurePdfArchiveColumn("statement_sales_ids", "TEXT");
 
   getDb().exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_pdf_archives_share_token ON pdf_archives(share_token)`);
   getDb().exec(`CREATE INDEX IF NOT EXISTS idx_pdf_archives_sent_via_link ON pdf_archives(sent_via_link)`);
@@ -101,8 +119,9 @@ export function createPdfArchive(buffer, meta, createdBy) {
         id, file_name, created_at, category, subject_name,
         period_start, period_end, statement_view,
         file_size, page_count, storage_path, created_by,
-        sent_via_link, statement_total_amount, payment_status, share_link_url
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        sent_via_link, statement_total_amount, payment_status, share_link_url,
+        statement_sales_ids
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .run(
       id,
@@ -121,6 +140,7 @@ export function createPdfArchive(buffer, meta, createdBy) {
       meta.statementTotalAmount != null ? Number(meta.statementTotalAmount) : null,
       paymentStatus,
       meta.shareLinkUrl || null,
+      serializeStatementSalesIds(meta.statementSalesIds),
     );
 
   return rowToMeta(

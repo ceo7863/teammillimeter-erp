@@ -57,7 +57,7 @@ import {
 import {
   buildAllSentStatementDepositSuggestions,
   buildSentStatementMatchCandidates,
-  createPaymentVoucherFromSentStatementMatch,
+  createPaymentVouchersFromSentStatementMatch,
   type SentStatementMatchCandidate,
 } from "@/utils/bankSentStatementMatch";
 import { listSentStatementArchives, updatePdfArchiveMeta, type PdfArchiveMeta } from "@/utils/pdfArchive";
@@ -734,20 +734,23 @@ export function BankTransactionsPage({
       return;
     }
 
-    const voucher = createPaymentVoucherFromSentStatementMatch(tx, candidate);
+    const archive = sentArchives.find((row) => row.id === candidate.pdfArchiveId);
+    const vouchers = createPaymentVouchersFromSentStatementMatch(tx, candidate, { sales, clients, archive });
+    const primaryVoucher = vouchers[0];
     const savedBy = currentUser?.name || currentUser?.loginId || "";
-    const logs = createPaymentInputLogsFromVouchers([voucher], savedBy);
+    const logs = createPaymentInputLogsFromVouchers(vouchers, savedBy);
 
-    setPaymentVouchers((prev) => [voucher, ...(prev as typeof voucher[])]);
+    setPaymentVouchers((prev) => [...vouchers, ...(prev as typeof vouchers)]);
     setPaymentInputLogs((prev) => [...logs, ...(prev as typeof logs)]);
     setBankTransactions((prev) =>
       prev.map((row) =>
         row.id === tx.id
           ? {
               ...row,
-              linkedPaymentVoucherId: voucher.id,
+              linkedPaymentVoucherId: primaryVoucher.id,
               linkedPdfArchiveId: candidate.pdfArchiveId,
               linkedSubject: candidate.client,
+              linkedSalesId: vouchers.length === 1 ? primaryVoucher.salesId : undefined,
               matchConfirmedAt: new Date().toISOString(),
               matchConfirmedBy: savedBy,
               folderId:
@@ -762,7 +765,7 @@ export function BankTransactionsPage({
       await updatePdfArchiveMeta(candidate.pdfArchiveId, {
         paymentStatus: candidate.paymentStatus,
         linkedBankTransactionId: tx.id,
-        linkedPaymentVoucherId: voucher.id,
+        linkedPaymentVoucherId: primaryVoucher.id,
       });
       setSentArchives((prev) =>
         prev.map((row) =>
@@ -771,7 +774,7 @@ export function BankTransactionsPage({
                 ...row,
                 paymentStatus: candidate.paymentStatus,
                 linkedBankTransactionId: tx.id,
-                linkedPaymentVoucherId: voucher.id,
+                linkedPaymentVoucherId: primaryVoucher.id,
               }
             : row
         )
@@ -1051,7 +1054,7 @@ export function BankTransactionsPage({
       paymentVouchers.map((voucher) => String(voucher.bankTransactionId || "")).filter(Boolean)
     );
     const newVouchers: ReturnType<typeof createPaymentVoucherFromBankMatch>[] = [];
-    const sentVouchers: ReturnType<typeof createPaymentVoucherFromSentStatementMatch>[] = [];
+    const sentVouchers: ReturnType<typeof createPaymentVouchersFromSentStatementMatch>[number][] = [];
     const linkedByTxId = new Map<
       string,
       { salesId?: number | string; voucherId: number; client: string; pdfArchiveId?: string; paymentStatus?: "confirmed" | "partial" }
@@ -1064,14 +1067,16 @@ export function BankTransactionsPage({
 
       if (item.kind === "sentStatement") {
         const sentCandidate = candidate as SentStatementMatchCandidate;
-        const voucher = createPaymentVoucherFromSentStatementMatch(item.tx, sentCandidate);
-        sentVouchers.push(voucher);
+        const archive = sentArchives.find((row) => row.id === sentCandidate.pdfArchiveId);
+        const vouchers = createPaymentVouchersFromSentStatementMatch(item.tx, sentCandidate, { sales, clients, archive });
+        sentVouchers.push(...vouchers);
         existingBankIds.add(item.tx.id);
         linkedByTxId.set(item.tx.id, {
-          voucherId: voucher.id,
+          voucherId: vouchers[0].id,
           client: sentCandidate.client,
           pdfArchiveId: sentCandidate.pdfArchiveId,
           paymentStatus: sentCandidate.paymentStatus,
+          salesId: vouchers.length === 1 ? vouchers[0].salesId : undefined,
         });
         continue;
       }

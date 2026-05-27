@@ -24,6 +24,7 @@ export type PdfArchiveRecord = {
   linkedBankTransactionId?: string;
   linkedPaymentVoucherId?: string | number;
   shareLinkUrl?: string;
+  statementSalesIds?: Array<string | number>;
   blob: Blob;
 };
 
@@ -110,6 +111,7 @@ async function savePdfArchiveLocal(input: {
   statementTotalAmount?: number;
   paymentStatus?: PdfArchivePaymentStatus;
   shareLinkUrl?: string;
+  statementSalesIds?: Array<string | number>;
 }): Promise<PdfArchiveMeta> {
   const record: PdfArchiveRecord = {
     id: `pdf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -126,6 +128,7 @@ async function savePdfArchiveLocal(input: {
     statementTotalAmount: input.statementTotalAmount,
     paymentStatus: input.paymentStatus || (input.sentViaLink ? "pending" : undefined),
     shareLinkUrl: input.shareLinkUrl,
+    statementSalesIds: input.statementSalesIds?.length ? [...input.statementSalesIds] : undefined,
     blob: input.blob,
   };
 
@@ -159,6 +162,7 @@ async function savePdfArchiveApi(input: {
   statementTotalAmount?: number;
   paymentStatus?: PdfArchivePaymentStatus;
   shareLinkUrl?: string;
+  statementSalesIds?: Array<string | number>;
 }): Promise<PdfArchiveMeta> {
   const meta = {
     fileName: input.fileName,
@@ -172,6 +176,7 @@ async function savePdfArchiveApi(input: {
     statementTotalAmount: input.statementTotalAmount,
     paymentStatus: input.paymentStatus || (input.sentViaLink ? "pending" : undefined),
     shareLinkUrl: input.shareLinkUrl,
+    statementSalesIds: input.statementSalesIds?.length ? [...input.statementSalesIds] : undefined,
   };
 
   const response = await fetch(`${apiBase()}/pdf-archives`, {
@@ -204,6 +209,7 @@ export async function savePdfArchive(input: {
   statementTotalAmount?: number;
   paymentStatus?: PdfArchivePaymentStatus;
   shareLinkUrl?: string;
+  statementSalesIds?: Array<string | number>;
 }): Promise<PdfArchiveMeta> {
   if (isApiModeEnabled()) return savePdfArchiveApi(input);
   return savePdfArchiveLocal(input);
@@ -429,6 +435,7 @@ export async function archiveGeneratedPdf(
     statementTotalAmount?: number;
     paymentStatus?: PdfArchivePaymentStatus;
     shareLinkUrl?: string;
+    statementSalesIds?: Array<string | number>;
   }
 ) {
   const saved = await savePdfArchive({
