@@ -46,6 +46,11 @@ export function normalizeFeeRate(value: unknown) {
   return raw > 1 ? raw / 100 : raw;
 }
 
+/** 청구단가 필드에 값이 있으면(0 포함) lineBill 캐시보다 입력값으로 청구합계 계산 */
+export function usesChargeAmountForBill(line: WorkerLineLike) {
+  return hasExplicitWorkerField(line.chargeAmount);
+}
+
 export function calculateWorkerLineAmounts(line: WorkerLineLike) {
   const quantity = parseWorkerMoney(line.quantity || "1") || 1;
   const unitCost = parseWorkerMoney(line.unitCost);
@@ -83,6 +88,17 @@ export function resolveWorkerFeeRate(line: WorkerLineLike, feeMap?: Map<string, 
 export function calculateWorkerLineMetrics(line: WorkerLineLike, feeRate = 0): WorkerLineMetrics {
   const normalizedFee =
     line.feeRate != null && line.feeRate !== "" ? normalizeFeeRate(line.feeRate) : normalizeFeeRate(feeRate);
+
+  if (usesChargeAmountForBill(line)) {
+    const amounts = calculateWorkerLineAmounts(line);
+    return {
+      staffCount: amounts.staffCount,
+      bill: amounts.bill,
+      spend: amounts.spend,
+      margin: calculateWorkerMargin(amounts.bill, amounts.spend, normalizedFee),
+      feeRate: normalizedFee,
+    };
+  }
 
   if (hasExplicitWorkerField(line.lineBill)) {
     const sheetBill = parseWorkerMoney(line.lineBill);

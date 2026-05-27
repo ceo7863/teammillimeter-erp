@@ -5,6 +5,7 @@ import {
   hasExplicitWorkerField,
   parseWorkerMoney,
   resolveWorkerFeeRate,
+  usesChargeAmountForBill,
   type WorkerLineLike,
 } from "./workerLineMetrics";
 
@@ -95,6 +96,9 @@ export function getWorkerLineExtras(line: WorkerLineLike) {
 
 /** 시공자 1줄 청구합계 — lineBill(엑셀 11열)이 있으면 0 포함 그대로, 없으면 인원×청구단가+부대비용 */
 export function getWorkerLineBill(line: WorkerLineLike) {
+  if (usesChargeAmountForBill(line)) {
+    return calculateWorkerLineAmounts(line).bill;
+  }
   if (hasExplicitWorkerField(line.lineBill)) return parseWorkerMoney(line.lineBill);
   return calculateWorkerLineAmounts(line).bill;
 }
