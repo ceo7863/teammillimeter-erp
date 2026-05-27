@@ -61,7 +61,12 @@ export function getWorkerLineChargeAmount(line: WorkerLineLike) {
   if (Object.prototype.hasOwnProperty.call(line, "chargeAmount")) {
     return 0;
   }
-  // 구 데이터: chargeAmount 없을 때만 지급단가 참고
+  // 구 데이터: chargeAmount 없음 — lineBill이 있으면 원시공비에서 역산 (지급단가와 다를 수 있음)
+  if (hasExplicitWorkerField(line.lineBill)) {
+    const quantity = parseWorkerMoney(line.quantity || "1") || 1;
+    return Math.round(getWorkerLineOriginalBill(line) / quantity);
+  }
+  // lineBill도 없는 아주 오래된 행만 지급단가 참고
   return parseWorkerMoney(line.unitCost);
 }
 

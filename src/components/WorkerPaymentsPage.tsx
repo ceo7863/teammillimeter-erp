@@ -9,7 +9,7 @@ import { TableExportSection } from "@/components/TableExportSection";
 import { WorkerMonthlyStatementExport } from "@/components/WorkerMonthlyStatementExport";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { createPdfPreviewWindow, downloadPdfFromHtmlElement, revokePdfBlobUrl } from "@/utils/statementPdf";
-import { archiveGeneratedPdf, copyTextToClipboard, createPdfShareLink, updatePdfArchiveMeta } from "@/utils/pdfArchive";
+import { archiveGeneratedPdf, copyTextToClipboard, createPdfShareLink } from "@/utils/pdfArchive";
 import { isApiModeEnabled } from "@/utils/erpApi";
 import { confirmDelete } from "@/utils/confirmDelete";
 import {
@@ -548,7 +548,6 @@ export function WorkerPaymentsPage({
 
       if (isApiModeEnabled()) {
         const shareLink = await createPdfShareLink(archived.id);
-        await updatePdfArchiveMeta(archived.id, { shareLinkUrl: shareLink.url });
         setStatementShareLink(shareLink.url);
         const copied = await copyTextToClipboard(shareLink.url);
         setPdfMessage(

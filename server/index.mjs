@@ -560,6 +560,7 @@ app.post("/api/pdf-archives/:id/share-link", authMiddleware, (req, res) => {
     return;
   }
   const url = `${buildPublicRequestOrigin(req)}/api/public/pdf-share/${token}`;
+  updatePdfArchiveMeta(req.params.id, { shareLinkUrl: url });
   res.json({ token, url, fileName: meta.fileName });
 });
 

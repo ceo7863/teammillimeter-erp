@@ -50,6 +50,11 @@ async function parseApiError(response: Response) {
     const data = JSON.parse(text);
     return String(data.error || `API ${response.status}`);
   } catch {
+    if (text.includes("<!DOCTYPE") || text.includes("<html")) {
+      const match = text.match(/<pre>([\s\S]*?)<\/pre>/i);
+      if (match) return match[1].trim();
+      return `\uC11C\uBC84 \uC624\uB958 (${response.status})`;
+    }
     return text || `API ${response.status}`;
   }
 }
