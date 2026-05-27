@@ -782,17 +782,25 @@ textarea {
   gap: 0.75rem;
 }
 
+.erp-client-calendar-embedded {
+  min-width: 0;
+}
+
 .erp-calendar-client-filter-bar {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 0.75rem;
   padding: 0.65rem 0.85rem;
   border: 1px solid #bae6fd;
   border-radius: 0.875rem;
   background: linear-gradient(180deg, #f0f9ff 0%, #ffffff 100%);
   box-shadow: 0 8px 20px rgba(14, 165, 233, 0.08);
+}
+
+.erp-calendar-client-filter-back {
+  flex-shrink: 0;
+  font-weight: 700;
 }
 
 .erp-calendar-client-filter-label {

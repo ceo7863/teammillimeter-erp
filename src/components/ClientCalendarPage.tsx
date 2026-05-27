@@ -330,6 +330,7 @@ export function ClientCalendarPage({
   });
   const calendarRef = React.useRef<HTMLDivElement | null>(null);
   const hideDayPreviewTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const auditScreen = embedded ? "캘린더" : "거래처캘린더";
 
   useEffect(() => {
     const name = String(pendingClient || "").trim();
@@ -652,7 +653,7 @@ export function ClientCalendarPage({
         entityType: "paymentVoucher",
         entityId: voucher.id,
         entityLabel: `${voucher.client} · ${voucher.site}`,
-        screen: "거래처캘린더",
+        screen: auditScreen,
         action: "create",
         after: snapshotPaymentForAudit(voucher),
         fields: PAYMENT_AUDIT_FIELDS,
@@ -704,7 +705,7 @@ export function ClientCalendarPage({
         entityType: "paymentVoucher",
         entityId: voucher.id,
         entityLabel: `${voucher.client} · ${voucher.site}`,
-        screen: "거래처캘린더",
+        screen: auditScreen,
         action: "delete",
         before: snapshotPaymentForAudit(voucher),
         fields: PAYMENT_AUDIT_FIELDS,
@@ -997,9 +998,11 @@ export function ClientCalendarPage({
             </Button>
           </div>
 
+          {!embedded ? (
           <div className={`erp-client-calendar-client-title${client ? "" : " is-empty"}`}>
             {client || "거래처를 선택해 주세요"}
           </div>
+          ) : null}
 
           {client && selectedDates.length > 0 ? (
             <div className="erp-client-calendar-selected-bar" aria-label={`선택된 날짜 ${selectedDates.length}일`}>

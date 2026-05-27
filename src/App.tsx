@@ -35,6 +35,7 @@ import {
   FileText,
   X,
   Archive,
+  ArrowLeft,
   ArrowLeftRight,
   BookOpen,
   UserCog,
@@ -67,7 +68,7 @@ import { UsersAdminPage } from "@/components/UsersAdminPage";
 import { CompanyLedgerPage } from "@/components/CompanyLedgerPage";
 import { AttendancePage } from "@/components/AttendancePage";
 import { ClientCalendarPage } from "@/components/ClientCalendarPage";
-import { normalizeClientCalendarName } from "@/utils/clientCalendarStats";
+import { filterClientCalendarSales, normalizeClientCalendarName } from "@/utils/clientCalendarStats";
 import { CompanyNoticeBoardPage } from "@/components/CompanyNoticeBoardPage";
 import { TaxInvoicePage } from "@/components/TaxInvoicePage";
 import { BankTransactionsPage } from "@/components/BankTransactionsPage";
@@ -2149,29 +2150,27 @@ function getCalendarDaySortValue(sale, column: CalendarDaySortColumn) {
 function CalendarPage({
   sales,
   workers = [],
-  clients = [],
-  paymentVouchers = [],
-  setPaymentVouchers,
-  setPaymentInputLogs,
-  currentUser,
   onOpenVoucherEdit,
-  onOpenClientCalendarVoucherEdit,
-  onRequestClientStatement,
 }) {
   const [monthKey, setMonthKey] = useState(() => todayISO().slice(0, 7));
   const [selectedDate, setSelectedDate] = useState("");
   const [filteredClient, setFilteredClient] = useState(null);
   const suppressCellClickUntilRef = useRef(0);
   const suppressSideClickUntilRef = useRef(0);
-  const { cells, monthLabel } = useMemo(() => buildCalendarDays(monthKey, sales, workers), [monthKey, sales, workers]);
+  const preFilterRef = useRef(null);
+  const calendarSales = useMemo(
+    () => (filteredClient ? filterClientCalendarSales(sales, filteredClient) : sales),
+    [sales, filteredClient],
+  );
+  const { cells, monthLabel } = useMemo(() => buildCalendarDays(monthKey, calendarSales, workers), [monthKey, calendarSales, workers]);
   const todayDate = todayISO();
   const feeMap = useMemo(() => buildWorkerFeeMap(workers), [workers]);
 
   const selectedDaySales = useMemo(() => {
     if (!selectedDate) return [];
-    const rows = sales.filter((sale) => sale.date === selectedDate);
+    const rows = calendarSales.filter((sale) => sale.date === selectedDate);
     return sortRowsByColumn(rows, (sale) => getCalendarDaySortValue(sale, "voucher"), "asc");
-  }, [sales, selectedDate]);
+  }, [calendarSales, selectedDate]);
 
   const selectedDayStats = useMemo(() => {
     if (!selectedDate) return null;
@@ -2194,6 +2193,7 @@ function CalendarPage({
   }, [monthKey, selectedDate]);
 
   const applyClientFilter = (clientName, anchorDate) => {
+    preFilterRef.current = { selectedDate, monthKey };
     const normalized = normalizeClientCalendarName(clientName);
     setFilteredClient(normalized);
     setSelectedDate("");
@@ -2202,8 +2202,19 @@ function CalendarPage({
     }
   };
 
+  const goBackFromClientFilter = () => {
+    const previous = preFilterRef.current;
+    setFilteredClient(null);
+    if (previous) {
+      setMonthKey(previous.monthKey);
+      setSelectedDate(previous.selectedDate || "");
+    }
+    preFilterRef.current = null;
+  };
+
   const clearClientFilter = () => {
     setFilteredClient(null);
+    preFilterRef.current = null;
   };
 
   const monthTotals = useMemo(() => {
@@ -2264,39 +2275,32 @@ function CalendarPage({
 
   return (
     <div
-      className={`erp-page erp-calendar-page${filteredClient ? " is-client-filter erp-client-calendar-page" : ""}${!filteredClient && selectedDate ? " has-side-panel" : ""}`}
+      className={`erp-page erp-calendar-page${filteredClient ? " is-client-filter" : ""}${selectedDate ? " has-side-panel" : ""}`}
     >
       <PageTitle title="캘린더" desc="월별 일자별 총인원·총시공비·시공자 지급액·마진·마진율을 확인합니다." />
 
       {filteredClient ? (
         <div className="erp-calendar-client-filter-bar mb-4">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="erp-calendar-client-filter-back rounded-xl"
+            onClick={goBackFromClientFilter}
+          >
+            <ArrowLeft size={16} className="mr-1" />
+            돌아가기
+          </Button>
           <div className="erp-calendar-client-filter-label">
             <span className="erp-calendar-client-filter-name">{filteredClient}</span>
             <span className="erp-calendar-client-filter-meta">{monthLabel} · 거래처 필터</span>
           </div>
-          <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={clearClientFilter}>
+          <Button type="button" variant="ghost" size="sm" className="rounded-xl text-sky-700" onClick={clearClientFilter}>
             전체 보기
           </Button>
         </div>
       ) : null}
 
-      {filteredClient ? (
-        <ClientCalendarPage
-          embedded
-          embeddedClient={filteredClient}
-          embeddedMonthKey={monthKey}
-          onEmbeddedMonthKeyChange={setMonthKey}
-          sales={sales}
-          clients={clients}
-          paymentVouchers={paymentVouchers}
-          setPaymentVouchers={setPaymentVouchers}
-          setPaymentInputLogs={setPaymentInputLogs}
-          currentUser={currentUser}
-          onRequestClientStatement={onRequestClientStatement}
-          onOpenVoucherEdit={onOpenClientCalendarVoucherEdit}
-        />
-      ) : (
-      <>
       <div className="erp-calendar-summary-grid">
         <SummaryCard compact title="월간 전표" value={`${monthTotals.count}건`} sub={monthLabel} />
         <SummaryCard compact title="총 인원" value={`${monthTotals.staff}명`} sub="인원 합계" />
@@ -2396,18 +2400,22 @@ function CalendarPage({
                         {cell.stats.entries.map((entry) => (
                           <li
                             key={`${cell.date}-${entry.saleId}`}
-                            className="erp-calendar-cell-entry is-client-open"
+                            className={`erp-calendar-cell-entry${filteredClient ? "" : " is-client-open"}`}
                             style={{ borderLeftColor: entry.color }}
-                            title="더블클릭: 이 거래처만 보기"
-                            onDoubleClick={(event) => {
-                              event.stopPropagation();
-                              event.preventDefault();
-                              suppressCellClickUntilRef.current = Date.now() + 400;
-                              applyClientFilter(entry.client, cell.date);
-                            }}
+                            title={filteredClient ? entry.site : "더블클릭: 이 거래처만 보기"}
+                            onDoubleClick={
+                              filteredClient
+                                ? undefined
+                                : (event) => {
+                                    event.stopPropagation();
+                                    event.preventDefault();
+                                    suppressCellClickUntilRef.current = Date.now() + 400;
+                                    applyClientFilter(entry.client, cell.date);
+                                  }
+                            }
                           >
                             <span className="erp-calendar-cell-entry-label">
-                              {entry.client} / {entry.site}
+                              {filteredClient ? entry.site : `${entry.client} / ${entry.site}`}
                             </span>
                           </li>
                         ))}
@@ -2449,7 +2457,11 @@ function CalendarPage({
               <span className="erp-calendar-legend-item">
                 <i className="erp-calendar-legend-dot is-selected" /> 선택 (날짜 클릭)
               </span>
-              <span className="erp-calendar-legend-item">거래처/현장명 더블클릭 → 거래처 필터</span>
+              {filteredClient ? (
+                <span className="erp-calendar-legend-item">현장명 · {filteredClient}</span>
+              ) : (
+                <span className="erp-calendar-legend-item">거래처/현장명 더블클릭 → 거래처 필터</span>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -2526,22 +2538,28 @@ function CalendarPage({
                         <button
                           type="button"
                           className="erp-calendar-side-card"
-                          title="클릭: 전표 수정 · 더블클릭: 이 거래처만 보기"
+                          title={filteredClient ? "클릭: 전표 수정" : "클릭: 전표 수정 · 더블클릭: 이 거래처만 보기"}
                           onClick={() => {
                             if (Date.now() < suppressSideClickUntilRef.current) return;
                             onOpenVoucherEdit?.(sale.id);
                           }}
-                          onDoubleClick={(event) => {
-                            event.stopPropagation();
-                            event.preventDefault();
-                            suppressSideClickUntilRef.current = Date.now() + 400;
-                            applyClientFilter(sale.client, selectedDate);
-                          }}
+                          onDoubleClick={
+                            filteredClient
+                              ? undefined
+                              : (event) => {
+                                  event.stopPropagation();
+                                  event.preventDefault();
+                                  suppressSideClickUntilRef.current = Date.now() + 400;
+                                  applyClientFilter(sale.client, selectedDate);
+                                }
+                          }
                         >
                           <span className="erp-calendar-side-card-bar" style={{ backgroundColor: color }} aria-hidden="true" />
                           <div className="erp-calendar-side-card-body">
                             <div className="erp-calendar-side-card-title">
-                              [{sale.client}] {sale.site || "현장명 없음"}
+                              {filteredClient
+                                ? sale.site || "현장명 없음"
+                                : `[${sale.client}] ${sale.site || "현장명 없음"}`}
                             </div>
                             <div className="erp-calendar-side-card-workers">{workerLabel}</div>
                             <div className="erp-calendar-side-card-meta">
@@ -2561,8 +2579,6 @@ function CalendarPage({
           </>
         ) : null}
       </div>
-      </>
-      )}
     </div>
   );
 }
@@ -5279,32 +5295,9 @@ export default function TeammillimeterErpMvp() {
           <CalendarPage
             sales={appliedSales}
             workers={workers}
-            clients={clients}
-            paymentVouchers={paymentVouchers}
-            setPaymentVouchers={setPaymentVouchers}
-            setPaymentInputLogs={setPaymentInputLogs}
-            currentUser={currentUser}
             onOpenVoucherEdit={(saleId) => {
               setPendingVoucherEditId(saleId);
               setActive("salesVoucherSearch");
-            }}
-            onOpenClientCalendarVoucherEdit={({ client: clientName, date, saleIds }) => {
-              if (saleIds.length === 1) {
-                setPendingVoucherSearchFilter(null);
-                setPendingVoucherEditId(saleIds[0]);
-              } else {
-                setPendingVoucherEditId(null);
-                setPendingVoucherSearchFilter({
-                  client: clientName,
-                  startDate: date,
-                  endDate: date,
-                });
-              }
-              setActive("salesVoucherSearch");
-            }}
-            onRequestClientStatement={(draft) => {
-              setStatementDraft(draft);
-              setActive("statements");
             }}
           />
         </PageKeepAlive>
