@@ -2550,7 +2550,7 @@ export function BankTransactionsPage({
       ) : null}
 
       {ledgerModal ? (
-        <div className="erp-ledger-modal-backdrop" onClick={() => setLedgerModal(null)}>
+        <div className="erp-ledger-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setLedgerModal(null); }}>
           <div
             className="erp-ledger-modal max-w-lg"
             onClick={(event) => event.stopPropagation()}
@@ -2596,7 +2596,7 @@ export function BankTransactionsPage({
                 </Field>
               </div>
               <Field label={L.ledgerDate}>
-                <KoreanDateInput value={ledgerModal.date} onChange={(value) => setLedgerModal((prev) => (prev ? { ...prev, date: value } : prev))} />
+                <KoreanDateInput value={ledgerModal.date} onChange={(event) => setLedgerModal((prev) => (prev ? { ...prev, date: event.target.value } : prev))} />
               </Field>
               <Field label={L.ledgerManualCategory}>
                 <AutocompleteInput

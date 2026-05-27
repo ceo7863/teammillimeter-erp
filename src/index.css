@@ -124,6 +124,10 @@ textarea {
   font-size: inherit;
 }
 
+.erp-autocomplete-menu--portal {
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+}
+
 .erp-autocomplete-menu {
   font-size: 0.75rem;
   max-height: 9rem;

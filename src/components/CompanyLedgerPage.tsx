@@ -1320,7 +1320,7 @@ export function CompanyLedgerPage({
       ) : null}
 
       {manualModal ? (
-        <div className="erp-ledger-modal-backdrop" onClick={() => setManualModal(null)}>
+        <div className="erp-ledger-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setManualModal(null); }}>
           <div className="erp-ledger-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="erp-text-section font-bold">

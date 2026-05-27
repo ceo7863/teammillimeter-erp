@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   filterAutocompleteOptions,
   mapAutocompleteOptions,
@@ -109,9 +110,12 @@ export function AutocompleteInput({
   showOptionsOnFocus,
   compact = true,
 }: AutocompleteInputProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const [focused, setFocused] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [inputText, setInputText] = useState("");
+  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
   const openOnFocus = showOptionsOnFocus ?? !(inputProps as { excelGrid?: boolean }).excelGrid;
 
   const passthroughInputProps = Object.fromEntries(
@@ -168,8 +172,82 @@ export function AutocompleteInput({
   const canShowDropdown = focused && filtered.length > 0 && (inputText.trim().length > 0 || openOnFocus);
   const canPickFromDropdown = canShowDropdown && inputText.trim().length > 0;
 
+  const updateMenuPosition = useCallback(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const rect = root.getBoundingClientRect();
+    const width = rect.width;
+    const maxHeight = useCompactMenu ? 144 : 256;
+    let top = rect.bottom + (useCompactMenu ? 2 : 4);
+    let left = Math.max(8, rect.left);
+    if (left + width > window.innerWidth - 8) left = window.innerWidth - width - 8;
+    if (top + maxHeight > window.innerHeight - 8) {
+      top = Math.max(8, rect.top - maxHeight - 4);
+    }
+    setMenuStyle({
+      position: "fixed",
+      top,
+      left,
+      width,
+      maxHeight,
+      zIndex: 10000,
+    });
+  }, [useCompactMenu]);
+
+  useEffect(() => {
+    if (!canShowDropdown) return;
+    updateMenuPosition();
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [canShowDropdown, updateMenuPosition, filtered.length, inputText, highlightedIndex]);
+
+  useEffect(() => {
+    if (!canShowDropdown) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (rootRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setFocused(false);
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [canShowDropdown]);
+
+  const dropdownMenu = canShowDropdown ? (
+    <div
+      ref={menuRef}
+      style={menuStyle}
+      className={`erp-autocomplete-menu erp-autocomplete-menu--portal overflow-y-auto border bg-white ${
+        useCompactMenu ? "erp-autocomplete-menu--compact" : "rounded-2xl shadow-xl"
+      }`}
+      onMouseDown={(event) => event.preventDefault()}
+    >
+      {filtered.map((item, index) => (
+        <button
+          key={`${item.value}-${index}`}
+          type="button"
+          className={`erp-autocomplete-option w-full border-b text-left hover:bg-slate-50 ${
+            useCompactMenu ? "erp-autocomplete-option--inline" : ""
+          } ${highlightedIndex === index ? "bg-slate-50" : ""}`}
+          onMouseEnter={() => setHighlightedIndex(index)}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            selectItem(item);
+          }}
+        >
+          <div className="erp-autocomplete-option-label">{item.label}</div>
+          {renderSub && <div className="erp-autocomplete-option-sub">{renderSub(item.raw)}</div>}
+        </button>
+      ))}
+    </div>
+  ) : null;
+
   return (
-    <div className="relative">
+    <div ref={rootRef} className="relative">
       <ErpInput
         value={inputText}
         onLiveValueChange={syncFilterText}
@@ -231,31 +309,7 @@ export function AutocompleteInput({
         {...passthroughInputProps}
       />
 
-      {canShowDropdown && (
-        <div
-          className={`erp-autocomplete-menu absolute z-50 w-full overflow-y-auto border bg-white ${
-            useCompactMenu ? "erp-autocomplete-menu--compact" : "mt-1 max-h-64 rounded-2xl shadow-xl"
-          }`}
-        >
-          {filtered.map((item, index) => (
-            <button
-              key={`${item.value}-${index}`}
-              type="button"
-              className={`erp-autocomplete-option w-full border-b text-left hover:bg-slate-50 ${
-                useCompactMenu ? "erp-autocomplete-option--inline" : ""
-              } ${highlightedIndex === index ? "bg-slate-50" : ""}`}
-              onMouseEnter={() => setHighlightedIndex(index)}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                selectItem(item);
-              }}
-            >
-              <div className="erp-autocomplete-option-label">{item.label}</div>
-              {renderSub && <div className="erp-autocomplete-option-sub">{renderSub(item.raw)}</div>}
-            </button>
-          ))}
-        </div>
-      )}
+      {dropdownMenu ? createPortal(dropdownMenu, document.body) : null}
     </div>
   );
 }

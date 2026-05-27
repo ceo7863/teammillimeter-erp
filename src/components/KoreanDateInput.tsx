@@ -217,8 +217,11 @@ export function KoreanDateInput({
               ]
                 .filter(Boolean)
                 .join(" ")}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => selectDate(cell.iso!)}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                selectDate(cell.iso!);
+              }}
             >
               {cell.day}
             </button>
@@ -232,8 +235,11 @@ export function KoreanDateInput({
         <button
           type="button"
           className="erp-date-picker-today"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => selectDate(today)}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            selectDate(today);
+          }}
         >
           {"\uC624\uB298"}
         </button>
