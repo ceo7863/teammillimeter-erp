@@ -25,7 +25,50 @@ export type SaleBillingBreakdown = {
   expenseCost: number;
 };
 
-export function getWorkerLineExtras(line: WorkerLineLike) {
+function resolveImpliedWorkerLineExtras(line: WorkerLineLike, fieldExtras: ReturnType<typeof readWorkerLineExtraFields>) {
+  const bill = getWorkerLineBill(line);
+  const quantity = parseWorkerMoney(line.quantity || "1") || 1;
+  const chargeBase = quantity * getWorkerLineChargeAmount(line);
+  const impliedTotal = Math.max(0, bill - chargeBase);
+  const fieldTotal = fieldExtras.meal + fieldExtras.lodging + fieldExtras.expense + fieldExtras.overtime;
+
+  if (impliedTotal <= 0) {
+    return fieldExtras;
+  }
+
+  if (fieldTotal >= impliedTotal) {
+    return fieldExtras;
+  }
+
+  let meal = fieldExtras.meal;
+  let lodging = fieldExtras.lodging;
+  let expense = fieldExtras.expense;
+  let overtime = fieldExtras.overtime;
+  let remainder = impliedTotal - fieldTotal;
+
+  if (remainder > 0 && overtime === 0 && hasExplicitWorkerField(line.overtimeHours)) {
+    const overtimeAmount =
+      parseWorkerMoney(line.overtimeHours) * (parseWorkerMoney(line.overtimeCost) || 30000);
+    if (overtimeAmount > 0 && overtimeAmount <= remainder) {
+      overtime = overtimeAmount;
+      remainder -= overtimeAmount;
+    }
+  }
+
+  if (remainder > 0) {
+    meal += remainder;
+  }
+
+  return {
+    meal,
+    lodging,
+    expense,
+    overtime,
+    total: meal + lodging + expense + overtime,
+  };
+}
+
+function readWorkerLineExtraFields(line: WorkerLineLike) {
   const meal = parseWorkerMoney(line.meal);
   const lodging = parseWorkerMoney(line.lodging || line.accommodation || line.room);
   const expense = parseWorkerMoney(line.expense || line.extraExpense);
@@ -38,6 +81,16 @@ export function getWorkerLineExtras(line: WorkerLineLike) {
     overtime,
     total: meal + lodging + expense + overtime,
   };
+}
+
+export function getWorkerLineExtras(line: WorkerLineLike) {
+  const fieldExtras = readWorkerLineExtraFields(line);
+
+  if (!hasExplicitWorkerField(line.lineBill)) {
+    return fieldExtras;
+  }
+
+  return resolveImpliedWorkerLineExtras(line, fieldExtras);
 }
 
 /** 시공자 1줄 청구합계 — lineBill(엑셀 11열)이 있으면 0 포함 그대로, 없으면 인원×청구단가+부대비용 */

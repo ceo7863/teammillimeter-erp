@@ -1,8 +1,10 @@
 import {
   aggregateSaleBilling,
   getSaleWorkerLines,
+  getWorkerLineBill,
   getWorkerLineChargeAmount,
   getWorkerLineExtras,
+  getWorkerLineOriginalBill,
 } from "./saleBilling";
 import { parseWorkerMoney } from "./workerLineMetrics";
 import { filterSalesByDate, type SaleLike } from "./workerPayments";
@@ -221,7 +223,7 @@ export function buildClientStatementSummaryDisplayRows(sales: ClientStatementSal
   return dedupeStatementRowMemos(rows);
 }
 
-/** 상세: 현장 1행(총시공비) + 시공자별 행(원시공비=청구단가) */
+/** 상세: 현장 1행(총시공비) + 시공자별 행(총시공비=lineBill, 원시공비=청구합-부대비용) */
 export function buildClientStatementDetailDisplayRows(sales: ClientStatementSaleLike[] = []): ClientStatementDisplayRow[] {
   const rows = sales.flatMap((sale) => {
     const aggregated = aggregateClientSale(sale);
@@ -235,7 +237,7 @@ export function buildClientStatementDetailDisplayRows(sales: ClientStatementSale
         site: aggregated.site,
         staffCount: aggregated.staffCount,
         totalConstructionCost: aggregated.totalConstructionCost,
-        originalCost: null,
+        originalCost: aggregated.originalCost,
         overtimeCost: aggregated.overtimeCost,
         lodgingCost: aggregated.lodgingCost,
         mealCost: aggregated.mealCost,
@@ -253,8 +255,8 @@ export function buildClientStatementDetailDisplayRows(sales: ClientStatementSale
         kind: "sub",
         site: String(line.worker).trim(),
         staffCount: quantity,
-        totalConstructionCost: null,
-        originalCost: getWorkerLineChargeAmount(line),
+        totalConstructionCost: getWorkerLineBill(line),
+        originalCost: getWorkerLineOriginalBill(line),
         overtimeCost: extras.overtime,
         lodgingCost: extras.lodging,
         mealCost: extras.meal,
