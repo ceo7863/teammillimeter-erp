@@ -11,6 +11,7 @@ import {
   Building2,
   CalendarDays,
   CalendarRange,
+  Check,
   CheckCircle2,
   CreditCard,
   Download,
@@ -30,6 +31,7 @@ import {
   Save,
   Search,
   Trash2,
+  Undo2,
   Users,
   WalletCards,
   FileText,
@@ -85,7 +87,13 @@ import { normalizeBankTransactionFolders } from "@/utils/bankTransactionFolders"
 import { normalizeStatementGenerationLogs } from "@/utils/statementGenerationLogs";
 import { normalizeStatementFolders } from "@/utils/statementFolders";
 import { normalizeAttendanceRecords } from "@/utils/attendance";
-import { createUnpaidClientStatementDraft, stashStatementDraft, type StatementDraft } from "@/utils/statementDraft";
+import { createClientCalendarStatementDraft, createUnpaidClientStatementDraft, stashStatementDraft, type StatementDraft } from "@/utils/statementDraft";
+import {
+  buildCalendarPaymentPreview,
+  buildCalendarPaymentCancelPreview,
+} from "@/utils/clientCalendarPayment";
+import { createPaymentInputLogsFromVouchers } from "@/utils/paymentInputLogs";
+import { useActionNotice } from "@/hooks/useActionNotice";
 import { TableExportSection, TableExportToolbar } from "@/components/TableExportSection";
 import { WorkerListExport } from "@/components/WorkerListExport";
 import { ClientListExport } from "@/components/ClientListExport";
@@ -2147,17 +2155,38 @@ function getCalendarDaySortValue(sale, column: CalendarDaySortColumn) {
   }
 }
 
+function formatCalendarSelectedDateLabel(date) {
+  const parsed = new Date(`${date}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return date;
+  const weekday = ["일", "월", "화", "수", "목", "금", "토"][parsed.getDay()];
+  const [, monthText, dayText] = date.split("-");
+  return `${Number(monthText)}/${Number(dayText)} (${weekday})`;
+}
+
+function isCalendarClientVatIncluded(clients, clientName) {
+  const match = clients.find((row) => String(row.name || "").trim() === clientName);
+  return String(match?.vat || "Y").trim().toUpperCase() !== "N";
+}
+
 function CalendarPage({
   sales,
   setSales,
   clients,
   workers = [],
   currentUser,
+  paymentVouchers = [],
+  setPaymentVouchers,
+  setPaymentInputLogs,
+  onRequestClientStatement,
 }) {
   const { recordAudit } = useAudit();
+  const { message: clientFilterNotice, showNotice: showClientFilterNotice, clearNotice: clearClientFilterNotice } = useActionNotice();
   const [monthKey, setMonthKey] = useState(() => todayISO().slice(0, 7));
   const [selectedDate, setSelectedDate] = useState("");
   const [filteredClient, setFilteredClient] = useState(null);
+  const [selectedDates, setSelectedDates] = useState([]);
+  const [paymentPreview, setPaymentPreview] = useState(null);
+  const [paymentCancelPreview, setPaymentCancelPreview] = useState(null);
   const [editingSaleId, setEditingSaleId] = useState(null);
   const [voucherForm, setVoucherForm] = useState(emptySaleForm);
   const [voucherDeleteConfirm, setVoucherDeleteConfirm] = useState(null);
@@ -2198,11 +2227,32 @@ function CalendarPage({
     if (selectedDate && !selectedDate.startsWith(monthKey)) setSelectedDate("");
   }, [monthKey, selectedDate]);
 
+  useEffect(() => {
+    setSelectedDates([]);
+    clearClientFilterNotice();
+    setPaymentPreview(null);
+    setPaymentCancelPreview(null);
+  }, [filteredClient, monthKey, clearClientFilterNotice]);
+
+  const monthTransactionDates = useMemo(
+    () => cells.filter(Boolean).filter((cell) => cell.stats.count > 0).map((cell) => cell.date),
+    [cells],
+  );
+
+  const allMonthDatesSelected = useMemo(
+    () => monthTransactionDates.length > 0 && monthTransactionDates.every((date) => selectedDates.includes(date)),
+    [monthTransactionDates, selectedDates],
+  );
+
   const applyClientFilter = (clientName, anchorDate) => {
     preFilterRef.current = { selectedDate, monthKey };
     const normalized = normalizeClientCalendarName(clientName);
     setFilteredClient(normalized);
     setSelectedDate("");
+    setSelectedDates([]);
+    clearClientFilterNotice();
+    setPaymentPreview(null);
+    setPaymentCancelPreview(null);
     if (anchorDate && String(anchorDate).length >= 7) {
       setMonthKey(String(anchorDate).slice(0, 7));
     }
@@ -2211,6 +2261,10 @@ function CalendarPage({
   const goBackFromClientFilter = () => {
     const previous = preFilterRef.current;
     setFilteredClient(null);
+    setSelectedDates([]);
+    clearClientFilterNotice();
+    setPaymentPreview(null);
+    setPaymentCancelPreview(null);
     if (previous) {
       setMonthKey(previous.monthKey);
       setSelectedDate(previous.selectedDate || "");
@@ -2220,7 +2274,168 @@ function CalendarPage({
 
   const clearClientFilter = () => {
     setFilteredClient(null);
+    setSelectedDates([]);
+    clearClientFilterNotice();
+    setPaymentPreview(null);
+    setPaymentCancelPreview(null);
     preFilterRef.current = null;
+  };
+
+  const toggleClientFilterDate = (date) => {
+    setSelectedDates((prev) => (prev.includes(date) ? prev.filter((item) => item !== date) : [...prev, date].sort()));
+  };
+
+  const selectAllClientFilterDates = () => {
+    if (!filteredClient) {
+      showClientFilterNotice("거래처를 먼저 선택해 주세요.");
+      return;
+    }
+    if (!monthTransactionDates.length) {
+      showClientFilterNotice("이번 달에 거래 내역이 있는 날짜가 없습니다.");
+      return;
+    }
+    if (allMonthDatesSelected) {
+      setSelectedDates([]);
+      showClientFilterNotice("선택이 해제되었습니다.");
+      return;
+    }
+    setSelectedDates([...monthTransactionDates]);
+    showClientFilterNotice(`${monthTransactionDates.length}일이 선택되었습니다.`);
+  };
+
+  const handleClientFilterExportStatement = () => {
+    if (!filteredClient) {
+      showClientFilterNotice("거래처를 선택해 주세요.");
+      return;
+    }
+    if (!selectedDates.length) {
+      showClientFilterNotice("시공비내역서를 만들 날짜를 선택해 주세요.");
+      return;
+    }
+
+    const draft = createClientCalendarStatementDraft(filteredClient, calendarSales, selectedDates);
+    if (!draft) {
+      showClientFilterNotice("선택한 날짜에 해당 거래처 전표가 없습니다.");
+      return;
+    }
+
+    stashStatementDraft(draft);
+    onRequestClientStatement?.(draft);
+    showClientFilterNotice(`${selectedDates.length}일 · 시공비내역서 생성 화면으로 이동합니다.`);
+  };
+
+  const openClientFilterPaymentConfirm = () => {
+    if (!filteredClient) {
+      showClientFilterNotice("거래처를 선택해 주세요.");
+      return;
+    }
+    if (!selectedDates.length) {
+      showClientFilterNotice("입금 처리할 날짜를 선택해 주세요.");
+      return;
+    }
+    if (!setPaymentVouchers || !setPaymentInputLogs) {
+      showClientFilterNotice("입금 처리 기능을 사용할 수 없습니다.");
+      return;
+    }
+
+    const vatIncluded = isCalendarClientVatIncluded(clients, filteredClient);
+    const preview = buildCalendarPaymentPreview(sales, filteredClient, selectedDates, todayISO(), vatIncluded);
+    if (!preview) {
+      showClientFilterNotice("선택한 날짜에 미수 전표가 없습니다.");
+      return;
+    }
+
+    setPaymentPreview(preview);
+  };
+
+  const handleClientFilterPaymentVatChange = (vatIncluded) => {
+    if (!filteredClient || !selectedDates.length) return;
+    const preview = buildCalendarPaymentPreview(sales, filteredClient, selectedDates, todayISO(), vatIncluded);
+    if (preview) setPaymentPreview(preview);
+  };
+
+  const closeClientFilterPaymentConfirm = () => {
+    setPaymentPreview(null);
+  };
+
+  const confirmClientFilterPaymentProcess = () => {
+    if (!paymentPreview || !setPaymentVouchers || !setPaymentInputLogs) return;
+
+    const batchId = Date.now();
+    const savedBy = currentUser?.name || currentUser?.email || "";
+    const vouchers = paymentPreview.vouchers;
+    const logs = createPaymentInputLogsFromVouchers(vouchers, savedBy, batchId);
+
+    vouchers.forEach((voucher) => {
+      recordAudit({
+        entityType: "paymentVoucher",
+        entityId: voucher.id,
+        entityLabel: `${voucher.client} · ${voucher.site}`,
+        screen: "캘린더",
+        action: "create",
+        after: snapshotPaymentForAudit(voucher),
+        fields: PAYMENT_AUDIT_FIELDS,
+        user: currentUser,
+      });
+    });
+
+    setPaymentVouchers((prev) => [...vouchers, ...prev]);
+    setPaymentInputLogs((prev) => [...logs, ...prev]);
+    setPaymentPreview(null);
+    setSelectedDates([]);
+    showClientFilterNotice(`${vouchers.length}건 · ${formatKRW(paymentPreview.totalFinal)} 입금완료 처리되었습니다.`);
+  };
+
+  const openClientFilterPaymentCancelConfirm = () => {
+    if (!filteredClient) {
+      showClientFilterNotice("거래처를 선택해 주세요.");
+      return;
+    }
+    if (!selectedDates.length) {
+      showClientFilterNotice("입금 취소할 날짜를 선택해 주세요.");
+      return;
+    }
+    if (!setPaymentVouchers || !setPaymentInputLogs) {
+      showClientFilterNotice("입금 취소 기능을 사용할 수 없습니다.");
+      return;
+    }
+
+    const preview = buildCalendarPaymentCancelPreview(sales, paymentVouchers, filteredClient, selectedDates);
+    if (!preview) {
+      showClientFilterNotice("선택한 날짜에 취소할 입금 내역이 없습니다.");
+      return;
+    }
+
+    setPaymentCancelPreview(preview);
+  };
+
+  const closeClientFilterPaymentCancelConfirm = () => {
+    setPaymentCancelPreview(null);
+  };
+
+  const confirmClientFilterPaymentCancel = () => {
+    if (!paymentCancelPreview || !setPaymentVouchers || !setPaymentInputLogs) return;
+
+    const cancelIds = new Set(paymentCancelPreview.vouchers.map((voucher) => String(voucher.id)));
+
+    paymentCancelPreview.vouchers.forEach((voucher) => {
+      recordAudit({
+        entityType: "paymentVoucher",
+        entityId: voucher.id,
+        entityLabel: `${voucher.client} · ${voucher.site}`,
+        screen: "캘린더",
+        action: "delete",
+        before: snapshotPaymentForAudit(voucher),
+        fields: PAYMENT_AUDIT_FIELDS,
+        user: currentUser,
+      });
+    });
+
+    setPaymentVouchers((prev) => prev.filter((item) => !cancelIds.has(String(item.id))));
+    setPaymentInputLogs((prev) => prev.filter((log) => !cancelIds.has(String(log.paymentVoucherId))));
+    setPaymentCancelPreview(null);
+    setSelectedDates([]);
+    showClientFilterNotice(`${paymentCancelPreview.voucherCount}건 · ${formatKRW(paymentCancelPreview.totalFinal)} 입금이 취소되었습니다.`);
   };
 
   const monthTotals = useMemo(() => {
@@ -2409,6 +2624,105 @@ function CalendarPage({
     <div
       className={`erp-page erp-calendar-page${filteredClient ? " is-client-filter" : ""}${selectedDate ? " has-side-panel" : ""}`}
     >
+      {paymentCancelPreview ? (
+        <div className="erp-ledger-modal-backdrop" onClick={closeClientFilterPaymentCancelConfirm}>
+          <div
+            className="erp-ledger-modal erp-client-calendar-payment-modal"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="calendar-client-payment-cancel-title"
+          >
+            <h2 id="calendar-client-payment-cancel-title" className="text-base font-bold text-slate-900 md:text-lg">
+              입금 취소
+            </h2>
+            <p className="mt-2 text-sm font-semibold text-slate-800">{paymentCancelPreview.client}</p>
+            <div className="mt-4 space-y-2 text-sm text-slate-600">
+              <p>선택 일자 <strong>{paymentCancelPreview.selectedDays}일</strong></p>
+              <p>취소 입금 <strong>{paymentCancelPreview.voucherCount}건</strong></p>
+              <p>입금 공급가액 <strong>{formatKRW(paymentCancelPreview.totalAmount)}</strong></p>
+              <p>
+                부가세{" "}
+                <strong className={paymentCancelPreview.totalVat > 0 ? "text-amber-700" : "text-slate-500"}>
+                  {paymentCancelPreview.totalVat > 0 ? formatKRW(paymentCancelPreview.totalVat) : "없음"}
+                </strong>
+              </p>
+              <p>취소 금액 <strong className="text-red-700">{formatKRW(paymentCancelPreview.totalFinal)}</strong></p>
+              <p className="text-xs text-slate-500">선택한 날짜 매출 전표에 연결된 입금 내역을 삭제합니다.</p>
+            </div>
+            <div className="mt-5 flex gap-2">
+              <Button variant="outline" className="flex-1 rounded-xl" onClick={closeClientFilterPaymentCancelConfirm}>
+                닫기
+              </Button>
+              <Button className="flex-1 rounded-xl bg-red-600 hover:bg-red-700" onClick={confirmClientFilterPaymentCancel}>
+                입금취소
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {paymentPreview ? (
+        <div className="erp-ledger-modal-backdrop" onClick={closeClientFilterPaymentConfirm}>
+          <div
+            className="erp-ledger-modal erp-client-calendar-payment-modal"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="calendar-client-payment-title"
+          >
+            <h2 id="calendar-client-payment-title" className="text-base font-bold text-slate-900 md:text-lg">
+              입금 처리
+            </h2>
+            <p className="mt-2 text-sm font-semibold text-slate-800">{paymentPreview.client}</p>
+            <div className="mt-4">
+              <p className="text-xs font-semibold text-slate-500">부가세 처리</p>
+              <div className="mt-2 flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={paymentPreview.vatIncluded ? "default" : "outline"}
+                  className="flex-1 rounded-xl"
+                  onClick={() => handleClientFilterPaymentVatChange(true)}
+                >
+                  부가세 포함
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={!paymentPreview.vatIncluded ? "default" : "outline"}
+                  className="flex-1 rounded-xl"
+                  onClick={() => handleClientFilterPaymentVatChange(false)}
+                >
+                  부가세 미포함
+                </Button>
+              </div>
+            </div>
+            <div className="mt-4 space-y-2 text-sm text-slate-600">
+              <p>선택 일자 <strong>{paymentPreview.selectedDays}일</strong></p>
+              <p>미수 전표 <strong>{paymentPreview.saleCount}건</strong></p>
+              <p>입금 공급가액 <strong>{formatKRW(paymentPreview.totalUnpaid)}</strong></p>
+              <p>
+                부가세{" "}
+                <strong className={paymentPreview.totalVat > 0 ? "text-amber-700" : "text-slate-500"}>
+                  {paymentPreview.totalVat > 0 ? formatKRW(paymentPreview.totalVat) : "없음"}
+                </strong>
+              </p>
+              <p>최종 입금액 <strong className="text-emerald-700">{formatKRW(paymentPreview.totalFinal)}</strong></p>
+              <p className="text-xs text-slate-500">선택한 날짜의 미수 잔액을 오늘({todayISO()}) 입금완료 처리합니다.</p>
+            </div>
+            <div className="mt-5 flex gap-2">
+              <Button variant="outline" className="flex-1 rounded-xl" onClick={closeClientFilterPaymentConfirm}>
+                취소
+              </Button>
+              <Button className="flex-1 rounded-xl" onClick={confirmClientFilterPaymentProcess}>
+                입금완료
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <PageTitle title="캘린더" desc="월별 일자별 총인원·총시공비·시공자 지급액·마진·마진율을 확인합니다." />
 
       {filteredClient ? (
@@ -2478,6 +2792,25 @@ function CalendarPage({
               </div>
             ) : null}
 
+            {filteredClient && selectedDates.length > 0 ? (
+              <div className="erp-client-calendar-selected-bar" aria-label={`선택된 날짜 ${selectedDates.length}일`}>
+                <span className="erp-client-calendar-selected-bar-label">선택 {selectedDates.length}일</span>
+                <div className="erp-client-calendar-selected-chips">
+                  {selectedDates.map((date) => (
+                    <button
+                      key={date}
+                      type="button"
+                      className="erp-client-calendar-selected-chip"
+                      onClick={() => toggleClientFilterDate(date)}
+                      title={`${date} 선택 해제`}
+                    >
+                      {formatCalendarSelectedDateLabel(date)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             <div className="erp-calendar-weekdays">
               {weekdayLabels.map((item) => (
                 <div key={item.label} className={`erp-calendar-weekday is-${item.tone}`}>
@@ -2496,7 +2829,8 @@ function CalendarPage({
                 const isToday = cell.date === todayDate;
                 const hasData = cell.stats.count > 0;
                 const weekendTone = weekday === 0 ? "sun" : weekday === 6 ? "sat" : "default";
-                const isSelected = selectedDate === cell.date;
+                const isSideSelected = selectedDate === cell.date;
+                const isDateChecked = filteredClient && selectedDates.includes(cell.date);
 
                 const cellClassName = [
                   "erp-calendar-cell",
@@ -2504,7 +2838,9 @@ function CalendarPage({
                   `is-${weekendTone}`,
                   hasData ? "has-data" : "is-empty",
                   isToday ? "is-today" : "",
-                  isSelected ? "is-selected" : "",
+                  filteredClient && hasData ? "is-selectable" : "",
+                  isDateChecked ? "is-checked" : "",
+                  !filteredClient && isSideSelected ? "is-selected" : "",
                 ]
                   .filter(Boolean)
                   .join(" ");
@@ -2522,6 +2858,11 @@ function CalendarPage({
                       </div>
                       {hasData ? (
                         <div className="erp-calendar-cell-badges">
+                          {isDateChecked ? (
+                            <span className="erp-client-calendar-selected-badge" aria-hidden="true">
+                              <Check size={12} strokeWidth={3} />
+                            </span>
+                          ) : null}
                           <span className="erp-calendar-cell-badge is-staff">{cell.stats.staff}명</span>
                           <span className="erp-calendar-cell-badge is-count">{cell.stats.count}건</span>
                         </div>
@@ -2563,11 +2904,26 @@ function CalendarPage({
                       key={cell.date}
                       onClick={() => {
                         if (Date.now() < suppressCellClickUntilRef.current) return;
+                        if (filteredClient) {
+                          if (hasData) toggleClientFilterDate(cell.date);
+                          return;
+                        }
                         selectDate(cell.date);
                       }}
-                      aria-pressed={isSelected}
+                      onDoubleClick={
+                        filteredClient && hasData
+                          ? (event) => {
+                              event.stopPropagation();
+                              event.preventDefault();
+                              suppressCellClickUntilRef.current = Date.now() + 400;
+                              selectDate(cell.date);
+                            }
+                          : undefined
+                      }
+                      aria-pressed={filteredClient ? isDateChecked : isSideSelected}
                       className={cellClassName}
                       aria-label={`${cell.date} · ${hasData ? `${cell.stats.count}건` : "일정 없음"}`}
+                      title={filteredClient && hasData ? "클릭: 날짜 선택 · 더블클릭: 일자 상세" : undefined}
                     >
                       {cellBody}
                     </button>
@@ -2586,16 +2942,81 @@ function CalendarPage({
               <span className="erp-calendar-legend-item">
                 <i className="erp-calendar-legend-dot is-today" /> 오늘
               </span>
-              <span className="erp-calendar-legend-item">
-                <i className="erp-calendar-legend-dot is-selected" /> 선택 (날짜 클릭)
-              </span>
               {filteredClient ? (
-                <span className="erp-calendar-legend-item">현장명 · {filteredClient}</span>
+                <>
+                  <span className="erp-calendar-legend-item">
+                    <i className="erp-client-calendar-legend-dot is-checked" /> 선택 (날짜 클릭)
+                  </span>
+                  <span className="erp-calendar-legend-item">더블클릭 → 일자 상세</span>
+                  <span className="erp-calendar-legend-item">현장명 · {filteredClient}</span>
+                </>
               ) : (
-                <span className="erp-calendar-legend-item">거래처/현장명 더블클릭 → 거래처 필터</span>
+                <>
+                  <span className="erp-calendar-legend-item">
+                    <i className="erp-calendar-legend-dot is-selected" /> 선택 (날짜 클릭)
+                  </span>
+                  <span className="erp-calendar-legend-item">거래처/현장명 더블클릭 → 거래처 필터</span>
+                  <span className="erp-calendar-legend-item">우측 전표 더블클릭 → 전표 수정</span>
+                </>
               )}
-              <span className="erp-calendar-legend-item">우측 전표 더블클릭 → 전표 수정</span>
             </div>
+
+            {filteredClient && clientFilterNotice ? (
+              <p className="erp-text-body mt-3 font-semibold text-sky-700">{clientFilterNotice}</p>
+            ) : null}
+
+            {filteredClient ? (
+              <div className="erp-client-calendar-bottom-actions">
+                <div className="erp-text-caption text-slate-500">
+                  {selectedDates.length
+                    ? `${selectedDates.length}일 선택됨`
+                    : "거래가 있는 날짜를 선택해 주세요."}
+                </div>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl"
+                    onClick={selectAllClientFilterDates}
+                    disabled={!monthTransactionDates.length}
+                  >
+                    {allMonthDatesSelected ? "전체해제" : "전체선택"}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="rounded-xl"
+                    onClick={handleClientFilterExportStatement}
+                    disabled={!selectedDates.length}
+                  >
+                    <FileText size={16} className="mr-1.5" />
+                    시공비내역서 생성
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="rounded-xl"
+                    onClick={openClientFilterPaymentConfirm}
+                    disabled={!selectedDates.length}
+                  >
+                    <CreditCard size={16} className="mr-1.5" />
+                    입금처리
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl border-red-200 text-red-600 hover:bg-red-50"
+                    onClick={openClientFilterPaymentCancelConfirm}
+                    disabled={!selectedDates.length}
+                  >
+                    <Undo2 size={16} className="mr-1.5" />
+                    입금취소
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -5504,6 +5925,13 @@ export default function TeammillimeterErpMvp() {
             clients={clients}
             workers={workers}
             currentUser={currentUser}
+            paymentVouchers={paymentVouchers}
+            setPaymentVouchers={setPaymentVouchers}
+            setPaymentInputLogs={setPaymentInputLogs}
+            onRequestClientStatement={(draft) => {
+              setStatementDraft(draft);
+              setActive("statements");
+            }}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="attendance" active={active}>

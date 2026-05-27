@@ -782,6 +782,35 @@ textarea {
   gap: 0.75rem;
 }
 
+.erp-calendar-page.is-client-filter .erp-calendar-cell.is-checked.has-data {
+  background: linear-gradient(180deg, #dbeafe 0%, #eff6ff 52%, #ffffff 100%) !important;
+  border-color: #0284c7 !important;
+  border-width: 2px;
+  box-shadow:
+    0 0 0 3px rgba(14, 165, 233, 0.28),
+    0 12px 28px rgba(14, 165, 233, 0.18);
+  transform: translateY(-2px) scale(1.015);
+  z-index: 2;
+  position: relative;
+}
+
+.erp-calendar-page.is-client-filter .erp-calendar-cell.is-checked.has-data .erp-calendar-day {
+  border-radius: 999px;
+  background: #0284c7;
+  color: #fff !important;
+  min-width: 1.65rem;
+  padding: 0 0.35rem;
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.35);
+}
+
+.erp-calendar-page.is-client-filter .erp-calendar-cell.is-checked.has-data.is-today .erp-calendar-day {
+  background: #0369a1;
+}
+
+.erp-calendar-page.is-client-filter .erp-calendar-cell-badges {
+  align-items: center;
+}
+
 .erp-client-calendar-embedded {
   min-width: 0;
 }
