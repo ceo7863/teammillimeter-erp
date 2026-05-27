@@ -528,8 +528,8 @@ async function updatePdfArchiveMetaLocal(id: string, patch: PdfArchiveMetaPatch)
 }
 
 async function updatePdfArchiveMetaApi(id: string, patch: PdfArchiveMetaPatch): Promise<PdfArchiveMeta> {
-  const response = await fetch(`${apiBase()}/pdf-archives/${encodeURIComponent(id)}`, {
-    method: "PATCH",
+  const response = await fetch(`${apiBase()}/pdf-archives/${encodeURIComponent(id)}/meta`, {
+    method: "POST",
     headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(patch),
   });

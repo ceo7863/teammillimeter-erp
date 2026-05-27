@@ -506,7 +506,7 @@ app.get("/api/pdf-archives/:id", authMiddleware, (req, res) => {
   res.json(meta);
 });
 
-app.patch("/api/pdf-archives/:id", authMiddleware, (req, res) => {
+function patchPdfArchiveMetaHandler(req, res) {
   try {
     const patch = req.body || {};
     const allowed = {};
@@ -531,7 +531,11 @@ app.patch("/api/pdf-archives/:id", authMiddleware, (req, res) => {
     console.error(error);
     res.status(500).json({ error: "PDF 메타 업데이트에 실패했습니다." });
   }
-});
+}
+
+app.patch("/api/pdf-archives/:id", authMiddleware, patchPdfArchiveMetaHandler);
+app.put("/api/pdf-archives/:id", authMiddleware, patchPdfArchiveMetaHandler);
+app.post("/api/pdf-archives/:id/meta", authMiddleware, patchPdfArchiveMetaHandler);
 
 app.get("/api/pdf-archives/:id/file", authMiddleware, (req, res) => {
   const file = getPdfArchiveFile(req.params.id);
@@ -586,6 +590,10 @@ app.delete("/api/board-attachments/:id", authMiddleware, (req, res) => {
     return;
   }
   res.json({ ok: true });
+});
+
+app.use("/api", (req, res) => {
+  res.status(404).json({ error: `${req.method} ${req.originalUrl} 을(를) 처리할 수 없습니다.` });
 });
 
 if (fs.existsSync(config.distDir)) {
