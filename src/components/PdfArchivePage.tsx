@@ -17,8 +17,8 @@ import {
   type PdfArchiveMeta,
 } from "@/utils/pdfArchive";
 import { getSentStatementPaymentStatusLabel } from "@/utils/bankSentStatementMatch";
-import { isBankMatchAutoLinked } from "@/utils/bankReceivableMatch";
-import { AutoLinkBadge } from "@/components/AutoLinkBadge";
+import { isBankMatchAutoLinked, isBankMatchManualLinked } from "@/utils/bankReceivableMatch";
+import { AutoLinkBadge, ManualLinkBadge } from "@/components/AutoLinkBadge";
 import type { BankTransaction } from "@/utils/bankTransactions";
 import {
   filterPdfArchiveRecords,
@@ -65,6 +65,11 @@ function paymentStatusTone(status?: PdfArchiveMeta["paymentStatus"]) {
 function isArchiveAutoLinked(record: PdfArchiveMeta, bankTxById: Map<string, BankTransaction>) {
   if (!record.linkedBankTransactionId) return false;
   return isBankMatchAutoLinked(bankTxById.get(record.linkedBankTransactionId));
+}
+
+function isArchiveManualLinked(record: PdfArchiveMeta, bankTxById: Map<string, BankTransaction>) {
+  if (!record.linkedBankTransactionId) return false;
+  return isBankMatchManualLinked(bankTxById.get(record.linkedBankTransactionId));
 }
 
 function buildPdfArchiveSummary(record: PdfArchiveMeta) {
@@ -368,6 +373,7 @@ export function PdfArchivePage({
                     {getSentStatementPaymentStatusLabel(record.paymentStatus)}
                   </span>
                   {isArchiveAutoLinked(record, bankTxById) ? <AutoLinkBadge /> : null}
+                  {isArchiveManualLinked(record, bankTxById) ? <ManualLinkBadge /> : null}
                   <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-bold text-violet-700">
                     {getPdfArchiveCategoryLabel(record.category)}
                   </span>

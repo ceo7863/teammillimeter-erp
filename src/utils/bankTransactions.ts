@@ -87,7 +87,8 @@ export function normalizeBankTransaction(raw: Partial<BankTransaction> & { id: s
       : undefined,
     matchConfirmedAt: raw.matchConfirmedAt ? String(raw.matchConfirmedAt) : undefined,
     matchConfirmedBy: raw.matchConfirmedBy ? String(raw.matchConfirmedBy) : undefined,
-    matchAutoLinked: raw.matchAutoLinked === true ? true : undefined,
+    matchAutoLinked:
+      raw.matchAutoLinked === true ? true : raw.matchAutoLinked === false ? false : undefined,
   };
 }
 

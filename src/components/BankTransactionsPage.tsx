@@ -21,7 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { AutoLinkBadge } from "@/components/AutoLinkBadge";
+import { AutoLinkBadge, ManualLinkBadge } from "@/components/AutoLinkBadge";
 import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { TableExportSection } from "@/components/TableExportSection";
@@ -54,6 +54,7 @@ import {
   createPaymentVoucherFromBankMatch,
   getBankMatchStatusLabel,
   isBankMatchAutoLinked,
+  isBankMatchManualLinked,
   type BankDepositMatchCandidate,
 } from "@/utils/bankReceivableMatch";
 import {
@@ -205,6 +206,8 @@ const L = {
   matchBulkDone: "\uAC74\uC744 \uC790\uB3D9 \uC785\uAE08 \uC5F0\uACB0\uD588\uC2B5\uB2C8\uB2E4.",
   autoLinkBadge: "\uC790\uB3D9\uC5F0\uACB0",
   autoLinkBadgeTitle: "\uACE0\uC2E0\uB8B0 \uC790\uB3D9 \uC785\uAE08 \uC5F0\uACB0",
+  manualLinkBadge: "\uAC74\uBCC4\uC785\uAE08",
+  manualLinkBadgeTitle: "\uAC74\uBCC4 \uC785\uAE08\uCC98\uB9AC\uB85C \uC5F0\uACB0",
   matchEmpty: "\uCD94\uCC9C\uD560 \uBBF8\uC5F0\uACB0 \uC785\uAE08\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   matchStatus: "\uBBF8\uC218 \uC5F0\uACB0",
   linkedSale: "\uC5F0\uACB0 \uB9E4\uCD9C",
@@ -264,6 +267,10 @@ type DepositSuggestion =
 
 function BankAutoLinkBadge() {
   return <AutoLinkBadge title={L.autoLinkBadgeTitle} />;
+}
+
+function BankManualLinkBadge() {
+  return <ManualLinkBadge title={L.manualLinkBadgeTitle} />;
 }
 
 function resolveActivePeriod(periodKey: PeriodKey, dateFilter: DateFilter): DateFilter {
@@ -1296,6 +1303,7 @@ export function BankTransactionsPage({
                   {getBankMatchStatusLabel(row)}
                 </span>
                 {isBankMatchAutoLinked(row) ? <BankAutoLinkBadge /> : null}
+                {isBankMatchManualLinked(row) ? <BankManualLinkBadge /> : null}
               </div>
               {row.linkedSubject ? (
                 <div className="mt-1 text-xs text-slate-500">
@@ -1441,6 +1449,9 @@ export function BankTransactionsPage({
         row.linkedFixedExpensePaymentId ? { label: L.ledgerFixedRegistered, tone: "default" as const } : null,
         row.linkedPaymentVoucherId && isBankMatchAutoLinked(row)
           ? { label: L.autoLinkBadge, tone: "default" as const }
+          : null,
+        row.linkedPaymentVoucherId && isBankMatchManualLinked(row)
+          ? { label: L.manualLinkBadge, tone: "default" as const }
           : null,
         row.deposit > 0 ? { label: `${L.deposit} ${formatKRW(row.deposit)}`, tone: "success" as const } : null,
         row.withdrawal > 0 ? { label: `${L.withdrawal} ${formatKRW(row.withdrawal)}`, tone: "danger" as const } : null,

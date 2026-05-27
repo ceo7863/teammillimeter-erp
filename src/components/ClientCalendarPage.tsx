@@ -7,8 +7,7 @@ import { useAudit } from "@/context/AuditContext";
 import { getUnpaid, todayISO, formatKRW } from "@/utils/receivables";
 import { aggregateSaleBilling, getSaleTotalBill, getSaleWorkerLines } from "@/utils/saleBilling";
 import { formatWorkerNameSummary } from "@/utils/statementSheets";
-import { AutoLinkBadge } from "@/components/AutoLinkBadge";
-import { isSaleAutoLinkedPaid } from "@/utils/bankReceivableMatch";
+import { SalePaymentLinkBadge } from "@/components/AutoLinkBadge";
 import { PAYMENT_AUDIT_FIELDS, snapshotPaymentForAudit } from "@/utils/auditLog";
 import {
   buildCalendarPaymentPreview,
@@ -119,6 +118,7 @@ type ClientCalendarPageProps = {
   embeddedMonthKey?: string;
   onEmbeddedMonthKeyChange?: (monthKey: string) => void;
   autoLinkedSaleIds?: Set<string>;
+  manualLinkedSaleIds?: Set<string>;
 };
 
 function PageTitle({ title, desc }: { title: string; desc: string }) {
@@ -320,6 +320,7 @@ export function ClientCalendarPage({
   embeddedMonthKey,
   onEmbeddedMonthKeyChange,
   autoLinkedSaleIds = new Set<string>(),
+  manualLinkedSaleIds = new Set<string>(),
 }: ClientCalendarPageProps) {
   const { recordAudit } = useAudit();
   const [monthKey, setMonthKey] = useState(() => todayISO().slice(0, 7));
@@ -1088,9 +1089,11 @@ export function ClientCalendarPage({
                           <span className="erp-client-calendar-voucher-site">{voucher.site}</span>
                           <span className="erp-client-calendar-voucher-amount">
                             {formatKRW(voucher.amount)}
-                            {isSaleAutoLinkedPaid(voucher.saleId, autoLinkedSaleIds) ? (
-                              <AutoLinkBadge title="고신뢰 자동 입금으로 연결된 전표" />
-                            ) : null}
+                            <SalePaymentLinkBadge
+                              saleId={voucher.saleId}
+                              autoLinkedSaleIds={autoLinkedSaleIds}
+                              manualLinkedSaleIds={manualLinkedSaleIds}
+                            />
                           </span>
                         </li>
                       ))}

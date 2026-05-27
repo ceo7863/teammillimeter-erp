@@ -249,22 +249,26 @@ export function isBankMatchAutoLinked(tx?: Pick<BankTransaction, "matchAutoLinke
   return tx?.matchAutoLinked === true;
 }
 
+export function isBankMatchManualLinked(
+  tx?: Pick<BankTransaction, "matchAutoLinked" | "linkedPaymentVoucherId"> | null
+) {
+  if (!tx?.linkedPaymentVoucherId) return false;
+  return !isBankMatchAutoLinked(tx);
+}
+
 type PaymentVoucherAutoLinkSource = {
   salesId?: number | string;
   bankTransactionId?: string;
   statementSalesIds?: Array<string | number>;
 };
 
-export function buildAutoLinkedSaleIdSet(
-  paymentVouchers: PaymentVoucherAutoLinkSource[] = [],
-  bankTransactions: Array<Pick<BankTransaction, "id" | "matchAutoLinked">> = []
+function collectLinkedSaleIdsFromVouchers(
+  paymentVouchers: PaymentVoucherAutoLinkSource[],
+  bankTxIds: Set<string>
 ) {
-  const autoTxIds = new Set(
-    bankTransactions.filter((tx) => tx.matchAutoLinked === true).map((tx) => String(tx.id))
-  );
   const saleIds = new Set<string>();
   paymentVouchers.forEach((voucher) => {
-    if (!voucher.bankTransactionId || !autoTxIds.has(String(voucher.bankTransactionId))) return;
+    if (!voucher.bankTransactionId || !bankTxIds.has(String(voucher.bankTransactionId))) return;
     if (voucher.salesId != null && voucher.salesId !== "") {
       saleIds.add(String(voucher.salesId));
     }
@@ -275,12 +279,40 @@ export function buildAutoLinkedSaleIdSet(
   return saleIds;
 }
 
+export function buildAutoLinkedSaleIdSet(
+  paymentVouchers: PaymentVoucherAutoLinkSource[] = [],
+  bankTransactions: Array<Pick<BankTransaction, "id" | "matchAutoLinked" | "linkedPaymentVoucherId">> = []
+) {
+  const autoTxIds = new Set(
+    bankTransactions.filter((tx) => isBankMatchAutoLinked(tx)).map((tx) => String(tx.id))
+  );
+  return collectLinkedSaleIdsFromVouchers(paymentVouchers, autoTxIds);
+}
+
+export function buildManualLinkedSaleIdSet(
+  paymentVouchers: PaymentVoucherAutoLinkSource[] = [],
+  bankTransactions: Array<Pick<BankTransaction, "id" | "matchAutoLinked" | "linkedPaymentVoucherId">> = []
+) {
+  const manualTxIds = new Set(
+    bankTransactions.filter((tx) => isBankMatchManualLinked(tx)).map((tx) => String(tx.id))
+  );
+  return collectLinkedSaleIdsFromVouchers(paymentVouchers, manualTxIds);
+}
+
 export function isSaleAutoLinkedPaid(
   saleId: number | string | undefined | null,
   autoLinkedSaleIds: Set<string>
 ) {
   if (saleId == null || saleId === "") return false;
   return autoLinkedSaleIds.has(String(saleId));
+}
+
+export function isSaleManualLinkedPaid(
+  saleId: number | string | undefined | null,
+  manualLinkedSaleIds: Set<string>
+) {
+  if (saleId == null || saleId === "") return false;
+  return manualLinkedSaleIds.has(String(saleId));
 }
 
 export function getBankMatchStatusLabel(tx: BankTransaction) {
