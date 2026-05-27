@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownLeft,
   ArrowLeftRight,
+  ArrowUp,
+  ArrowDown,
   ArrowUpRight,
   BookOpen,
   Building2,
@@ -76,8 +78,11 @@ import {
   filterBankTransactions,
   formatBankTransactionDateTime,
   sortBankTransactions,
+  DEFAULT_BANK_TRANSACTION_SORT,
   type BankTransaction,
   type BankTransactionFlowFilter,
+  type BankTransactionSort,
+  type BankTransactionSortKey,
 } from "@/utils/bankTransactions";
 import {
   mergeIbkBankImport,
@@ -112,6 +117,13 @@ const FLOW_FILTER_OPTIONS: Array<{ key: BankTransactionFlowFilter; label: string
   { key: "all", label: "\uC804\uCCB4", tone: "bg-slate-900 text-white" },
   { key: "deposit", label: "\uC785\uAE08", tone: "bg-emerald-600 text-white" },
   { key: "withdrawal", label: "\uCD9C\uAE08", tone: "bg-red-600 text-white" },
+];
+
+const SORT_KEY_OPTIONS: Array<{ key: BankTransactionSortKey; label: string }> = [
+  { key: "transactionAt", label: "\uAC70\uB798\uC77C\uC2DC" },
+  { key: "deposit", label: "\uC785\uAE08" },
+  { key: "withdrawal", label: "\uCD9C\uAE08" },
+  { key: "balanceAfter", label: "\uC794\uC561" },
 ];
 
 type LedgerRegisterKind = "fixed" | "manual";
@@ -165,6 +177,9 @@ const L = {
   cancel: "\uCDE8\uC18C",
   periodLabel: "\uAE30\uAC04",
   flowLabel: "\uAD6C\uBD84",
+  sortLabel: "\uC815\uB840",
+  sortAsc: "\uC624\uB984\uCC28\uC21C",
+  sortDesc: "\uB0B4\uB984\uCC28\uC21C",
   latestBalance: "\uCD5C\uC2E0 \uC794\uC561",
   topCounterparties: "\uC8FC\uC694 \uAC70\uB798\uCC98",
   flowRatio: "\uC785\uCD9C\uAE08 \uBE44\uC728",
@@ -222,6 +237,7 @@ const L = {
   statementTotal: "\uB0B4\uC5ED\uC11C \uAE08\uC561",
   sentAt: "\uB9C1\uD06C \uBC1C\uC1A1",
   ledgerRegister: "\uAC00\uACC4\uBD80 \uB4F1\uB85D",
+  ledgerSendTo: "\uAC00\uACC4\uBD80\uB85C \uBCF4\uB0B4\uAE30",
   ledgerRegisterTitle: "\uD68C\uC0AC \uAC00\uACC4\uBD80 \uC9C0\uCD9C \uB4F1\uB85D",
   ledgerRegisterDesc: "\uBBF8\uBD84\uB958 \uCD9C\uAE08 \uB0B4\uC5ED\uC744 \uD68C\uC0AC \uAC00\uACC4\uBD80 \uC9C0\uCD9C\uB85C \uB4F1\uB85D\uD569\uB2C8\uB2E4.",
   ledgerRegistered: "\uAC00\uACC4\uBD80 \uB4F1\uB85D\uC74C",
@@ -241,9 +257,9 @@ const L = {
   ledgerDescription: "\uB0B4\uC6A9",
   ledgerAmount: "\uAE08\uC561",
   ledgerMemo: "\uBA54\uBAA8",
-  ledgerSave: "\uAC00\uACC4\uBD80 \uB4F1\uB85D",
+  ledgerSave: "\uAC00\uACC4\uBD80\uB85C \uBCF4\uB0B4\uAE30",
   ledgerDate: "\uC9C0\uCD9C\uC77C",
-  ledgerClickHint: "\uBBF8\uBD84\uB958 \uCD9C\uAE08 \uB0B4\uC6A9 \uD074\uB9AD \u2192 \uAC00\uACC4\uBD80",
+  ledgerClickHint: "\uBBF8\uBD84\uB958 \uCD9C\uAE08 \uB0B4\uC6A9 \uD074\uB9AD \u2192 \uAC00\uACC4\uBD80\uB85C \uBCF4\uB0B4\uAE30",
   clientLinkTitle: "\uAC70\uB798\uCC98 \uC5F0\uACB0",
   clientLinkDesc:
     "\uD1B5\uC7A5 \uC785\uAE08 \uC2DC \uD45C\uC2DC\uB41C \uC774\uB984\uC744 \uAC70\uB798\uCC98 \uC608\uAE08\uC8FC \uBCC4\uCE59\uC5D0 \uCD94\uAC00\uD569\uB2C8\uB2E4. \uC774\uD6C4 \uB3D9\uC77C \uC774\uB984 \uC785\uAE08\uC740 \uC790\uB3D9 \uBD84\uB958\uB429\uB2C8\uB2E4.",
@@ -397,6 +413,7 @@ export function BankTransactionsPage({
   const [query, setQuery] = useState("");
   const [selectedFolderId, setSelectedFolderId] = useState("");
   const [folderScope, setFolderScope] = useState<FolderScope>("all");
+  const [sort, setSort] = useState<BankTransactionSort>(DEFAULT_BANK_TRANSACTION_SORT);
   const [createFolderOpen, setCreateFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderType, setNewFolderType] = useState<BankTransactionFolderType>("client");
@@ -594,7 +611,7 @@ export function BankTransactionsPage({
       scoped = scoped.filter((row) => row.folderId && ids.has(row.folderId));
     }
 
-    return sortBankTransactions(scoped);
+    return sortBankTransactions(scoped, { key: sort.key, direction: sort.direction });
   }, [
     bankTransactions,
     query,
@@ -607,6 +624,7 @@ export function BankTransactionsPage({
     clientFolders,
     cardFolders,
     workerFolders,
+    sort,
   ]);
 
   const stats = useMemo(() => buildBankTransactionStats(filteredRows), [filteredRows]);
@@ -1249,7 +1267,7 @@ export function BankTransactionsPage({
         <button
           type="button"
           className="text-left font-medium text-blue-700 underline decoration-blue-200 underline-offset-2 hover:text-blue-900"
-          title={L.ledgerRegister}
+          title={L.ledgerSendTo}
           onClick={() => openLedgerRegister(row)}
         >
           {text}
@@ -1451,9 +1469,15 @@ export function BankTransactionsPage({
         </td>
         <td>
           {canLedger ? (
-            <Button type="button" size="sm" variant="outline" className="rounded-lg text-xs" onClick={() => openLedgerRegister(row)}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="rounded-lg border-amber-200 bg-amber-50 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+              onClick={() => openLedgerRegister(row)}
+            >
               <BookOpen size={12} className="mr-1" />
-              {L.ledgerRegister}
+              {L.ledgerSendTo}
             </Button>
           ) : (
             "-"
@@ -1526,9 +1550,15 @@ export function BankTransactionsPage({
               </Button>
             ) : null}
             {canLedger ? (
-              <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={() => openLedgerRegister(row)}>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="rounded-xl border-amber-200 bg-amber-50 font-semibold text-amber-900 hover:bg-amber-100"
+                onClick={() => openLedgerRegister(row)}
+              >
                 <BookOpen size={14} className="mr-1" />
-                {L.ledgerRegister}
+                {L.ledgerSendTo}
               </Button>
             ) : null}
           </div>
@@ -2114,6 +2144,43 @@ export function BankTransactionsPage({
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              <span className="mr-1 erp-text-caption font-bold text-slate-500">{L.sortLabel}</span>
+              {SORT_KEY_OPTIONS.map((option) => (
+                <Button
+                  key={option.key}
+                  type="button"
+                  size="sm"
+                  variant={sort.key === option.key ? "default" : "outline"}
+                  className="rounded-xl"
+                  onClick={() => setSort((prev) => ({ ...prev, key: option.key }))}
+                >
+                  {option.label}
+                </Button>
+              ))}
+              <span className="mx-1 hidden h-5 w-px bg-slate-200 sm:inline-block" aria-hidden="true" />
+              <Button
+                type="button"
+                size="sm"
+                variant={sort.direction === "asc" ? "default" : "outline"}
+                className="rounded-xl"
+                onClick={() => setSort((prev) => ({ ...prev, direction: "asc" }))}
+              >
+                <ArrowUp size={14} className="mr-1" />
+                {L.sortAsc}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={sort.direction === "desc" ? "default" : "outline"}
+                className="rounded-xl"
+                onClick={() => setSort((prev) => ({ ...prev, direction: "desc" }))}
+              >
+                <ArrowDown size={14} className="mr-1" />
+                {L.sortDesc}
+              </Button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
               <span className="mr-1 erp-text-caption font-bold text-slate-500">{L.flowLabel}</span>
               {FLOW_FILTER_OPTIONS.map((option) => (
                 <Button
@@ -2138,6 +2205,7 @@ export function BankTransactionsPage({
                   setFlowFilter("all");
                   setAccountFilter("");
                   setQuery("");
+                  setSort(DEFAULT_BANK_TRANSACTION_SORT);
                 }}
               >
                 {L.resetFilter}
@@ -2170,7 +2238,7 @@ export function BankTransactionsPage({
                 <th>{L.transactionType}</th>
                 <th>{L.assignFolder}</th>
                 <th>{L.memo}</th>
-                <th>{L.ledgerRegister}</th>
+                <th>{L.ledgerSendTo}</th>
               </tr>
               </thead>
               <tbody>
@@ -2491,9 +2559,9 @@ export function BankTransactionsPage({
           >
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
+                <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800">
                   <BookOpen size={14} />
-                  {L.ledgerRegister}
+                  {L.ledgerSendTo}
                 </div>
                 <h2 className="erp-text-section font-bold">{L.ledgerRegisterTitle}</h2>
                 <p className="mt-1 erp-text-caption text-slate-500">{L.ledgerRegisterDesc}</p>

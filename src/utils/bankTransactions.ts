@@ -1,4 +1,18 @@
+import { compareSortValues, type SortDirection } from "./pivotSort";
+
 export type BankTransactionFlowFilter = "all" | "deposit" | "withdrawal";
+
+export type BankTransactionSortKey = "transactionAt" | "deposit" | "withdrawal" | "balanceAfter";
+
+export type BankTransactionSort = {
+  key: BankTransactionSortKey;
+  direction: "asc" | "desc";
+};
+
+export const DEFAULT_BANK_TRANSACTION_SORT: BankTransactionSort = {
+  key: "transactionAt",
+  direction: "desc",
+};
 
 export type BankTransaction = {
   id: string;
@@ -99,11 +113,27 @@ export function normalizeBankTransactions(rows: unknown[]) {
     .map((row) => normalizeBankTransaction(row as Partial<BankTransaction> & { id: string }));
 }
 
-export function sortBankTransactions(rows: BankTransaction[]) {
+export function sortBankTransactions(
+  rows: BankTransaction[],
+  options: { key?: BankTransactionSortKey; direction?: SortDirection } = {},
+) {
+  const key = options.key ?? DEFAULT_BANK_TRANSACTION_SORT.key;
+  const direction = options.direction ?? DEFAULT_BANK_TRANSACTION_SORT.direction;
+
+  const getValue = (row: BankTransaction) => {
+    if (key === "deposit") return row.deposit;
+    if (key === "withdrawal") return row.withdrawal;
+    if (key === "balanceAfter") return row.balanceAfter;
+    return row.transactionAt;
+  };
+
   return [...rows].sort((a, b) => {
-    const dateDiff = String(b.transactionAt).localeCompare(String(a.transactionAt));
-    if (dateDiff !== 0) return dateDiff;
-    return String(b.createdAt).localeCompare(String(a.createdAt));
+    const primary = compareSortValues(getValue(a), getValue(b), direction);
+    if (primary !== 0) return primary;
+    if (key !== "transactionAt") {
+      return compareSortValues(a.transactionAt, b.transactionAt, "desc");
+    }
+    return compareSortValues(a.createdAt, b.createdAt, direction);
   });
 }
 
