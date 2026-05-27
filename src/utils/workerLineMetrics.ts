@@ -49,7 +49,7 @@ export function normalizeFeeRate(value: unknown) {
 export function calculateWorkerLineAmounts(line: WorkerLineLike) {
   const quantity = parseWorkerMoney(line.quantity || "1") || 1;
   const unitCost = parseWorkerMoney(line.unitCost);
-  const chargeAmount = parseWorkerMoney(line.chargeAmount) || unitCost;
+  const chargeAmount = parseWorkerMoney(line.chargeAmount);
   const meal = parseWorkerMoney(line.meal);
   const lodging = parseWorkerMoney(line.lodging || line.accommodation || line.room);
   const expense = parseWorkerMoney(line.expense || line.extraExpense);

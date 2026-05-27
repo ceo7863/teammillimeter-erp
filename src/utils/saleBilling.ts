@@ -54,7 +54,8 @@ export function getWorkerLineOriginalBill(line: WorkerLineLike) {
 }
 
 export function getWorkerLineChargeAmount(line: WorkerLineLike) {
-  return parseWorkerMoney(line.chargeAmount) || parseWorkerMoney(line.unitCost);
+  if (hasExplicitWorkerField(line.chargeAmount)) return parseWorkerMoney(line.chargeAmount);
+  return parseWorkerMoney(line.unitCost);
 }
 
 export function getSaleWorkerLines(sale: SaleBillingLike): WorkerLineLike[] {

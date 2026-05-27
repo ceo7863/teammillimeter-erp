@@ -29,6 +29,7 @@ import {
   ledgerDateFilter,
   ledgerPeriodLabel,
   makeLedgerId,
+  mergeExpenseCategory,
   parseLedgerAmount,
   shiftMonthKey,
   sumActiveFixedMonthly,
@@ -43,6 +44,7 @@ import {
   type LedgerPeriodKey,
 } from "@/utils/companyLedger";
 import type { ErpUser } from "@/utils/erpApi";
+import { AutocompleteInput } from "@/components/AutocompleteInput";
 
 type LedgerTab = "manual" | "fixed" | "monthly";
 
@@ -123,6 +125,8 @@ const L = {
 type CompanyLedgerPageProps = {
   companyExpenses: CompanyExpense[];
   setCompanyExpenses: React.Dispatch<React.SetStateAction<CompanyExpense[]>>;
+  expenseCategories: string[];
+  setExpenseCategories: React.Dispatch<React.SetStateAction<string[]>>;
   fixedExpenses: FixedExpense[];
   setFixedExpenses: React.Dispatch<React.SetStateAction<FixedExpense[]>>;
   fixedExpensePayments?: FixedExpensePayment[];
@@ -274,11 +278,11 @@ function ActiveBadge({ active }: { active: boolean }) {
   );
 }
 
-function emptyManualForm(): ManualModalState {
+function emptyManualForm(category = EXPENSE_CATEGORY_OPTIONS[0]): ManualModalState {
   return {
     mode: "create",
     date: todayISO(),
-    category: EXPENSE_CATEGORY_OPTIONS[0],
+    category,
     description: "",
     amount: "",
     memo: "",
@@ -301,6 +305,8 @@ function emptyFixedForm(): FixedModalState {
 export function CompanyLedgerPage({
   companyExpenses = [],
   setCompanyExpenses,
+  expenseCategories,
+  setExpenseCategories,
   fixedExpenses = [],
   setFixedExpenses,
   fixedExpensePayments = [],
@@ -377,9 +383,17 @@ export function CompanyLedgerPage({
     [companyExpenses, fixedExpenses, fixedExpensePayments, selectedMonthKey],
   );
 
+  const expenseCategoryOptions = useMemo(() => {
+    const categories = [...expenseCategories];
+    if (manualModal?.category && !categories.includes(manualModal.category)) {
+      categories.unshift(manualModal.category);
+    }
+    return categories.map((category) => ({ label: category, value: category }));
+  }, [expenseCategories, manualModal?.category]);
+
   const openCreateManual = () => {
     setFormError("");
-    setManualModal(emptyManualForm());
+    setManualModal(emptyManualForm(expenseCategories[0] || EXPENSE_CATEGORY_OPTIONS[0]));
   };
 
   const openEditManual = (row: CompanyExpense) => {
@@ -419,6 +433,7 @@ export function CompanyLedgerPage({
     } else {
       setCompanyExpenses((prev) => [payload, ...prev]);
     }
+    setExpenseCategories((prev) => mergeExpenseCategory(prev, payload.category));
     setManualModal(null);
     setFormError("");
   };
@@ -1029,13 +1044,18 @@ export function CompanyLedgerPage({
                 />
               </Field>
               <Field label={L.category}>
-                <Select value={manualModal.category} onChange={(e) => setManualModal((prev) => (prev ? { ...prev, category: e.target.value } : prev))}>
-                  {EXPENSE_CATEGORY_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </Select>
+                <AutocompleteInput
+                  value={manualModal.category}
+                  options={expenseCategoryOptions}
+                  placeholder={L.category}
+                  freeSolo
+                  compact={false}
+                  inputProps={{ className: "rounded-xl" }}
+                  onChange={(value) => setManualModal((prev) => (prev ? { ...prev, category: value.trim() } : prev))}
+                />
+                <p className="mt-1.5 text-xs font-semibold text-slate-500">
+                  {"\uBAA9\uB85D\uC5D0 \uC5C6\uB294 \uCE74\uD14C\uACE0\uB9AC\uB294 \uC774\uB984\uC744 \uC785\uB825\uD558\uC138\uC694."}
+                </p>
               </Field>
               <Field label={L.description}>
                 <Input value={manualModal.description} onChange={(e) => setManualModal((prev) => (prev ? { ...prev, description: e.target.value } : prev))} />

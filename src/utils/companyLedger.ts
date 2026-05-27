@@ -73,6 +73,30 @@ export const EXPENSE_CATEGORY_OPTIONS = [
   "\uAE30\uD0C0",
 ];
 
+export function normalizeExpenseCategories(
+  rows: unknown,
+  existingExpenses: Array<{ category?: string }> = [],
+): string[] {
+  const extras = Array.isArray(rows) ? rows.map((item) => String(item || "").trim()).filter(Boolean) : [];
+  const fromExpenses = existingExpenses.map((row) => String(row.category || "").trim()).filter(Boolean);
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const category of [...EXPENSE_CATEGORY_OPTIONS, ...extras, ...fromExpenses]) {
+    if (!category || seen.has(category)) continue;
+    seen.add(category);
+    result.push(category);
+  }
+
+  return result;
+}
+
+export function mergeExpenseCategory(categories: string[], category: string): string[] {
+  const trimmed = String(category || "").trim();
+  if (!trimmed) return categories;
+  return normalizeExpenseCategories([...categories, trimmed]);
+}
+
 export const FIXED_CATEGORY_OPTIONS = [
   "\uC784\uB300\uB8CC",
   "\uAD6C\uB3C5/\uC11C\uBE44\uC2A4",

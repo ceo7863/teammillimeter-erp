@@ -77,6 +77,8 @@ import { normalizeCompanyNotices } from "@/utils/companyNotices";
 import { normalizeWorkPosts } from "@/utils/workBoard";
 import { normalizeTaxInvoices } from "@/utils/taxInvoices";
 import { normalizeBankTransactions } from "@/utils/bankTransactions";
+import { normalizeBankLedgerMatchRules } from "@/utils/bankCompanyLedger";
+import { normalizeExpenseCategories } from "@/utils/companyLedger";
 import { normalizeBankTransactionFolders } from "@/utils/bankTransactionFolders";
 import { normalizeStatementGenerationLogs } from "@/utils/statementGenerationLogs";
 import { normalizeStatementFolders } from "@/utils/statementFolders";
@@ -378,6 +380,8 @@ function normalizeBackupPayload(raw) {
       attendanceRecords: normalizeAttendanceRecords(raw.attendanceRecords),
       fixedExpenses: Array.isArray(raw.fixedExpenses) ? raw.fixedExpenses : [],
       fixedExpensePayments: Array.isArray(raw.fixedExpensePayments) ? raw.fixedExpensePayments : [],
+      bankLedgerRules: normalizeBankLedgerMatchRules(raw.bankLedgerRules),
+      expenseCategories: normalizeExpenseCategories(raw.expenseCategories, Array.isArray(raw.companyExpenses) ? raw.companyExpenses : []),
       companyNotices: normalizeCompanyNotices(raw.companyNotices),
       workPosts: normalizeWorkPosts(raw.workPosts),
       taxInvoices: normalizeTaxInvoices(raw.taxInvoices),
@@ -4737,6 +4741,14 @@ export default function TeammillimeterErpMvp() {
     if (apiMode && sessionOnMount) return [];
     return Array.isArray(storedData?.fixedExpensePayments) ? storedData.fixedExpensePayments : [];
   });
+  const [bankLedgerRules, setBankLedgerRules] = useState(() => {
+    if (apiMode && sessionOnMount) return [];
+    return normalizeBankLedgerMatchRules(storedData?.bankLedgerRules);
+  });
+  const [expenseCategories, setExpenseCategories] = useState(() => {
+    if (apiMode && sessionOnMount) return normalizeExpenseCategories([], []);
+    return normalizeExpenseCategories(storedData?.expenseCategories, storedData?.companyExpenses);
+  });
   const [companyProfile, setCompanyProfile] = useState(() => {
     if (apiMode && sessionOnMount) return DEFAULT_COMPANY_PROFILE;
     return normalizeCompanyProfile(storedData?.companyProfile);
@@ -4795,6 +4807,10 @@ export default function TeammillimeterErpMvp() {
     setAttendanceRecords(normalizeAttendanceRecords(data.attendanceRecords));
     setFixedExpenses(Array.isArray(data.fixedExpenses) ? data.fixedExpenses : []);
     setFixedExpensePayments(Array.isArray(data.fixedExpensePayments) ? data.fixedExpensePayments : []);
+    setBankLedgerRules(normalizeBankLedgerMatchRules(data.bankLedgerRules));
+    setExpenseCategories(
+      normalizeExpenseCategories(data.expenseCategories, Array.isArray(data.companyExpenses) ? data.companyExpenses : []),
+    );
     setCompanyNotices(normalizeCompanyNotices(data.companyNotices));
     setWorkPosts(normalizeWorkPosts(data.workPosts));
     setTaxInvoices(normalizeTaxInvoices(data.taxInvoices));
@@ -4834,7 +4850,7 @@ export default function TeammillimeterErpMvp() {
 
   useEffect(() => {
     if (!apiMode) {
-      saveStoredData({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
+      saveStoredData({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
       return;
     }
     if (!currentUser || !dataReady) return;
@@ -4857,6 +4873,8 @@ export default function TeammillimeterErpMvp() {
         attendanceRecords,
         fixedExpenses,
         fixedExpensePayments,
+        bankLedgerRules,
+        expenseCategories,
         companyNotices,
         workPosts,
         taxInvoices,
@@ -4897,7 +4915,7 @@ export default function TeammillimeterErpMvp() {
       }
     }, 900);
     return () => window.clearTimeout(timer);
-  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode]);
+  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -4909,7 +4927,7 @@ export default function TeammillimeterErpMvp() {
   }, [active]);
 
   const backupData = () => {
-    downloadBackup({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
+    downloadBackup({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
   };
 
   const restoreBackup = (file) => {
@@ -4930,6 +4948,8 @@ export default function TeammillimeterErpMvp() {
         setAttendanceRecords(normalizeAttendanceRecords(parsed.attendanceRecords));
         setFixedExpenses(parsed.fixedExpenses || []);
         setFixedExpensePayments(parsed.fixedExpensePayments || []);
+        setBankLedgerRules(normalizeBankLedgerMatchRules(parsed.bankLedgerRules));
+        setExpenseCategories(normalizeExpenseCategories(parsed.expenseCategories, parsed.companyExpenses || []));
         setCompanyNotices(normalizeCompanyNotices(parsed.companyNotices));
         setWorkPosts(normalizeWorkPosts(parsed.workPosts));
         setTaxInvoices(normalizeTaxInvoices(parsed.taxInvoices));
@@ -4966,6 +4986,8 @@ export default function TeammillimeterErpMvp() {
     setAttendanceRecords(normalizeAttendanceRecords(payload.attendanceRecords));
     setFixedExpenses(Array.isArray(payload.fixedExpenses) ? payload.fixedExpenses : []);
     setFixedExpensePayments(Array.isArray(payload.fixedExpensePayments) ? payload.fixedExpensePayments : []);
+    setBankLedgerRules(normalizeBankLedgerMatchRules(payload.bankLedgerRules));
+    setExpenseCategories(normalizeExpenseCategories(payload.expenseCategories, payload.companyExpenses || []));
     setCompanyNotices(normalizeCompanyNotices(payload.companyNotices));
     setWorkPosts(normalizeWorkPosts(payload.workPosts));
     setTaxInvoices(normalizeTaxInvoices(payload.taxInvoices));
@@ -5190,6 +5212,8 @@ export default function TeammillimeterErpMvp() {
           <CompanyLedgerPage
             companyExpenses={companyExpenses}
             setCompanyExpenses={setCompanyExpenses}
+            expenseCategories={expenseCategories}
+            setExpenseCategories={setExpenseCategories}
             fixedExpenses={fixedExpenses}
             setFixedExpenses={setFixedExpenses}
             fixedExpensePayments={fixedExpensePayments}
@@ -5217,10 +5241,15 @@ export default function TeammillimeterErpMvp() {
             paymentVouchers={paymentVouchers}
             setPaymentVouchers={setPaymentVouchers}
             setPaymentInputLogs={setPaymentInputLogs}
+            companyExpenses={companyExpenses}
             setCompanyExpenses={setCompanyExpenses}
             fixedExpenses={fixedExpenses}
             fixedExpensePayments={fixedExpensePayments}
             setFixedExpensePayments={setFixedExpensePayments}
+            bankLedgerRules={bankLedgerRules}
+            setBankLedgerRules={setBankLedgerRules}
+            expenseCategories={expenseCategories}
+            setExpenseCategories={setExpenseCategories}
             currentUser={currentUser}
           />
         </PageKeepAlive>

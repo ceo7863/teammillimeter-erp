@@ -432,6 +432,11 @@ app.get("/api/erp", authMiddleware, (_req, res) => {
     attendanceRecords: state.data.attendanceRecords || [],
     fixedExpenses: state.data.fixedExpenses || [],
     fixedExpensePayments: state.data.fixedExpensePayments || [],
+    bankLedgerRules: state.data.bankLedgerRules || [],
+    expenseCategories: state.data.expenseCategories || [],
+    taxInvoices: state.data.taxInvoices || [],
+    bankTransactions: state.data.bankTransactions || [],
+    bankTransactionFolders: state.data.bankTransactionFolders || [],
     companyNotices: state.data.companyNotices || [],
     workPosts: state.data.workPosts || [],
     statementGenerationLogs: state.data.statementGenerationLogs || [],
@@ -444,7 +449,7 @@ app.get("/api/erp", authMiddleware, (_req, res) => {
 });
 
 app.put("/api/erp", authMiddleware, (req, res) => {
-  const { sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, companyNotices, workPosts, statementGenerationLogs, statementFolders, companyProfile, version } = req.body || {};
+  const { sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, version } = req.body || {};
   const existing = getErpState();
   const serverLoginLogs = Array.isArray(existing.data?.loginLogs) ? existing.data.loginLogs : [];
   const payload = {
@@ -460,8 +465,13 @@ app.put("/api/erp", authMiddleware, (req, res) => {
     attendanceRecords: Array.isArray(attendanceRecords) ? attendanceRecords : [],
     fixedExpenses: Array.isArray(fixedExpenses) ? fixedExpenses : [],
     fixedExpensePayments: Array.isArray(fixedExpensePayments) ? fixedExpensePayments : [],
+    bankLedgerRules: Array.isArray(bankLedgerRules) ? bankLedgerRules : [],
+    expenseCategories: Array.isArray(expenseCategories) ? expenseCategories : [],
     companyNotices: Array.isArray(companyNotices) ? companyNotices : [],
     workPosts: Array.isArray(workPosts) ? workPosts : [],
+    taxInvoices: Array.isArray(taxInvoices) ? taxInvoices : [],
+    bankTransactions: Array.isArray(bankTransactions) ? bankTransactions : [],
+    bankTransactionFolders: Array.isArray(bankTransactionFolders) ? bankTransactionFolders : [],
     statementGenerationLogs: Array.isArray(statementGenerationLogs) ? statementGenerationLogs : [],
     statementFolders: Array.isArray(statementFolders) ? statementFolders : [],
     companyProfile: companyProfile && typeof companyProfile === "object" ? companyProfile : null,
