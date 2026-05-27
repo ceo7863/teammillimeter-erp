@@ -1340,7 +1340,10 @@ export function PaymentReceivablesPage({
                 <tbody>
                   {filteredVouchers.map((voucher) => (
                     <tr key={voucher.id}>
-                      <td className="font-medium text-slate-800">{getVoucherSaleDate(voucher) || "-"}</td>
+                      <td className="font-medium text-slate-800">
+                        {getVoucherSaleDate(voucher) || "-"}
+                        <SalePaymentLinkBadge saleId={voucher.salesId} />
+                      </td>
                       <td className="text-slate-600">{voucher.date}</td>
                       <td className="erp-cell-clip text-left font-semibold" title={voucher.client}>{voucher.client}</td>
                       <td className="erp-cell-clip text-left text-slate-600" title={voucher.site || ""}>{voucher.site || "-"}</td>
@@ -1482,7 +1485,10 @@ export function PaymentReceivablesPage({
                     <tbody>
                       {selectedLogVouchers.map((voucher) => (
                         <tr key={voucher.id}>
-                          <td className="font-medium text-slate-800">{getVoucherSaleDate(voucher) || "-"}</td>
+                          <td className="font-medium text-slate-800">
+                        {getVoucherSaleDate(voucher) || "-"}
+                        <SalePaymentLinkBadge saleId={voucher.salesId} />
+                      </td>
                           <td className="text-slate-600">{voucher.date}</td>
                           <td className="erp-cell-clip text-left font-semibold" title={voucher.client}>{voucher.client}</td>
                           <td className="erp-cell-clip text-left text-slate-600" title={voucher.site || ""}>{voucher.site || "-"}</td>

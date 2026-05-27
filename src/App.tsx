@@ -70,7 +70,7 @@ import { UsersAdminPage } from "@/components/UsersAdminPage";
 import { CompanyLedgerPage } from "@/components/CompanyLedgerPage";
 import { AttendancePage } from "@/components/AttendancePage";
 import { ClientCalendarPage } from "@/components/ClientCalendarPage";
-import { AutoLinkBadge, SalePaymentLinkBadge } from "@/components/AutoLinkBadge";
+import { AutoLinkBadge, SalePaymentLinkBadge, SalePaymentLinkProvider } from "@/components/AutoLinkBadge";
 import { buildAutoLinkedSaleIdSet, buildManualLinkedSaleIdSet, isSaleAutoLinkedPaid, isSaleManualLinkedPaid } from "@/utils/bankReceivableMatch";
 import { ClientStatementModal } from "@/components/ClientStatementModal";
 import { filterClientCalendarSales, normalizeClientCalendarName } from "@/utils/clientCalendarStats";
@@ -2937,9 +2937,12 @@ function CalendarPage({
                                 </span>
                               </>
                             ) : (
-                              <span className="erp-calendar-cell-entry-label">
-                                {`${entry.client} / ${entry.site}`}
-                              </span>
+                              <>
+                                <span className="erp-calendar-cell-entry-label">
+                                  {`${entry.client} / ${entry.site}`}
+                                </span>
+                                {entry.saleId ? <SalePaymentLinkBadge saleId={entry.saleId} /> : null}
+                              </>
                             )}
                           </li>
                         ))}
@@ -3320,7 +3323,7 @@ function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "�
                   { label: "미수", value: formatKRW(getUnpaid(row)), tone: "danger" },
                   { label: "시공자", value: row.worker || "-", tone: "muted" },
                   ...(isSaleAutoLinkedPaid(row.id, autoLinkedSaleIds)
-                    ? [{ label: "입금연결", value: "자동연결", tone: "default" as const }]
+                    ? [{ label: "입금연결", value: "자동입금", tone: "default" as const }]
                     : isSaleManualLinkedPaid(row.id, manualLinkedSaleIds)
                       ? [{ label: "입금연결", value: "건별입금", tone: "default" as const }]
                       : []),
@@ -5983,6 +5986,7 @@ export default function TeammillimeterErpMvp() {
 
   return (
     <AuditProvider auditLogs={auditLogs} setAuditLogs={setAuditLogs} currentUser={currentUser}>
+    <SalePaymentLinkProvider paymentVouchers={paymentVouchers} bankTransactions={bankTransactions}>
     <div className="erp-app-shell flex min-h-screen bg-slate-50 text-slate-900" lang="ko">
       <Sidebar
         active={active}
@@ -6136,6 +6140,9 @@ export default function TeammillimeterErpMvp() {
             fixedExpenses={fixedExpenses}
             setFixedExpenses={setFixedExpenses}
             fixedExpensePayments={fixedExpensePayments}
+            setFixedExpensePayments={setFixedExpensePayments}
+            bankTransactions={bankTransactions}
+            setBankTransactions={setBankTransactions}
             currentUser={currentUser}
           />
         </PageKeepAlive>
@@ -6275,6 +6282,7 @@ export default function TeammillimeterErpMvp() {
         }}
       />
     </div>
+    </SalePaymentLinkProvider>
     </AuditProvider>
   );
 }

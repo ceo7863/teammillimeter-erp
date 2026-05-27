@@ -55,6 +55,7 @@ type DayVoucher = {
 };
 
 type DayTooltipVoucher = {
+  saleId?: string | number;
   site: string;
   totalAmount: number;
   workerSummary: string;
@@ -214,7 +215,10 @@ function ClientCalendarDayTooltip({
           <li key={`${date}-tooltip-${index}`} className="erp-client-calendar-day-tooltip-item">
             <div className="erp-client-calendar-day-tooltip-row">
               <span className="erp-client-calendar-day-tooltip-site">{voucher.site}</span>
-              <span className="erp-client-calendar-day-tooltip-total">{formatKRW(voucher.totalAmount)}</span>
+              <span className="erp-client-calendar-day-tooltip-total">
+                {formatKRW(voucher.totalAmount)}
+                <SalePaymentLinkBadge saleId={voucher.saleId} />
+              </span>
             </div>
             {voucher.workerSummary ? (
               <div className="erp-client-calendar-day-tooltip-workers">{voucher.workerSummary}</div>
@@ -466,6 +470,7 @@ export function ClientCalendarPage({
         hasUnpaid: unpaid > 0,
       });
       acc[date].tooltipVouchers.push({
+        saleId: sale.id,
         site: getSiteName(sale) || "현장명 없음",
         totalAmount,
         workerSummary: formatWorkerNameSummary(workerLines),

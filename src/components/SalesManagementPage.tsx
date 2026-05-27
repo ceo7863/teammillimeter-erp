@@ -29,6 +29,7 @@ import {
   saveSalesSheetColumnWidths,
 } from "@/utils/salesSheetColumnResize";
 import type { SortDirection } from "@/utils/pivotSort";
+import { SalePaymentLinkBadge } from "@/components/AutoLinkBadge";
 
 const SHEET_SORTABLE_COLUMNS = new Set<SalesSheetSortColumn>(["date", "client", "site", "worker"]);
 
@@ -89,6 +90,16 @@ function renderCell(row: SalesSheetDisplayRow, key: string) {
     const text = String(value ?? "").trim();
     if (!text) return row.isFirstVisibleLine ? "-" : "";
     return <span className="erp-sales-sheet-office-memo">{text}</span>;
+  }
+
+  if ((key === "date" || key === "voucherNo") && row.isFirstVisibleLine) {
+    const text = String(value ?? "") || "-";
+    return (
+      <>
+        {text}
+        <SalePaymentLinkBadge saleId={row.saleId} />
+      </>
+    );
   }
 
   return String(value ?? "") || "-";

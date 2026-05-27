@@ -7381,6 +7381,7 @@ body.erp-col-resizing * {
 }
 
 .erp-ledger-category-badge,
+.erp-ledger-kind-badge,
 .erp-ledger-bank-source-badge,
 .erp-ledger-status-badge {
   display: inline-flex;
@@ -7395,6 +7396,16 @@ body.erp-col-resizing * {
 .erp-ledger-category-badge {
   background: #eef2ff;
   color: #4338ca;
+}
+
+.erp-ledger-kind-badge.variable {
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.erp-ledger-kind-badge.fixed {
+  background: #fffbeb;
+  color: #b45309;
 }
 
 .erp-ledger-bank-source-badge {

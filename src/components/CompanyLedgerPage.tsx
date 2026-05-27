@@ -7,7 +7,6 @@ import {
   Plus,
   Search,
   Trash2,
-  Wallet,
   X,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -19,12 +18,9 @@ import {
   buildMonthlyLedgerDetail,
   buildMonthlyLedgerRows,
   EXPENSE_CATEGORY_OPTIONS,
+  EXPENSE_KIND_OPTIONS,
   filterCompanyExpenses,
   filterFixedExpensePayments,
-  FIXED_CATEGORY_OPTIONS,
-  FIXED_CYCLE_OPTIONS,
-  fixedCycleLabel,
-  fixedMonthlyAmount,
   formatKRW,
   formatMonthLabel,
   ledgerDateFilter,
@@ -32,26 +28,24 @@ import {
   makeLedgerId,
   mergeExpenseCategory,
   parseLedgerAmount,
+  resolveCompanyExpenseKind,
   shiftMonthKey,
-  sumActiveFixedMonthly,
-  sumCompanyExpenses,
+  sumExpensesForMonthByKind,
   todayISO,
   validateCompanyExpenseInput,
-  validateFixedExpenseInput,
   type CompanyExpense,
+  type CompanyExpenseKind,
   type FixedExpense,
   type FixedExpensePayment,
-  type FixedExpenseCycle,
   type LedgerPeriodKey,
 } from "@/utils/companyLedger";
 import type { ErpUser } from "@/utils/erpApi";
 import { AutocompleteInput } from "@/components/AutocompleteInput";
 
-type LedgerTab = "manual" | "fixed" | "monthly";
+type LedgerTab = "manual" | "monthly";
 
 const TAB_ITEMS: Array<{ key: LedgerTab; label: string }> = [
   { key: "manual", label: "\uC9C0\uCD9C \uB4F1\uB85D" },
-  { key: "fixed", label: "\uACE0\uC815\uBE44" },
   { key: "monthly", label: "\uC6D4\uBCC4 \uAC00\uACC4\uBD80" },
 ];
 
@@ -64,7 +58,7 @@ const PERIOD_OPTIONS: Array<{ key: LedgerPeriodKey; label: string }> = [
 
 const L = {
   pageTitle: "\uD68C\uC0AC \uAC00\uACC4\uBD80",
-  pageDesc: "\uC218\uC785 \uC678 \uD68C\uC0AC \uC9C0\uCD9C\uACFC \uACE0\uC815\uBE44\uB97C \uBCC4\uB3C4\uB85C \uAD00\uB9AC\uD569\uB2C8\uB4F1.",
+  pageDesc: "\uC218\uC785 \uC678 \uD68C\uC0AC \uC9C0\uCD9C\uACFC \uACE0\uC815\uBE44\uB97C \uD55C \uACF3\uC5D0\uC11C \uB4F1\uB85D\uD558\uACE0 \uC870\uD68C\uD569\uB2C8\uB4F1.",
   addManual: "\uC9C0\uCD9C \uCD94\uAC00",
   addFixed: "\uACE0\uC815\uBE44 \uCD94\uAC00",
   editManual: "\uC9C0\uCD9C \uC218\uC815",
@@ -124,6 +118,8 @@ const L = {
   bankSourceBadge: "\uD1B5\uC7A5\uC5F0\uB3D9",
   bankSourceTitle: "\uD1B5\uC7A5\uAC70\uB798\uB0B4\uC5ED\uC5D0\uC11C \uB4F1\uB85D\uB428",
   bankSourceLegend: "\uD1B5\uC7A5\uAC70\uB798\uB0B4\uC5ED\uC5D0\uC11C \uB4F1\uB85D\uB41C \uC9C0\uCD9C\uC785\uB2C8\uB2E4.",
+  deleteBankLinkedConfirm:
+    "\uD1B5\uC7A5 \uC5F0\uB3D9 \uC9C0\uCD9C\uC785\uB2C8\uB2E4. \uC0AD\uC81C\uD558\uBA74 \uAC00\uACC4\uBD80\uC5D0\uC11C \uC81C\uAC70\uB418\uACE0 \uD1B5\uC7A5 \uAC70\uB798 \uC5F0\uB3D9\uB3C4 \uD574\uC81C\uB429\uB2C8\uB2E4. \uC0AD\uC81C\uD560\uAE4C\uC694?",
 };
 
 type CompanyLedgerPageProps = {
@@ -134,29 +130,23 @@ type CompanyLedgerPageProps = {
   fixedExpenses: FixedExpense[];
   setFixedExpenses: React.Dispatch<React.SetStateAction<FixedExpense[]>>;
   fixedExpensePayments?: FixedExpensePayment[];
+  setFixedExpensePayments?: React.Dispatch<React.SetStateAction<FixedExpensePayment[]>>;
+  bankTransactions?: Array<{ id: string; linkedCompanyExpenseId?: string; linkedFixedExpensePaymentId?: string }>;
+  setBankTransactions?: React.Dispatch<
+    React.SetStateAction<Array<{ id: string; linkedCompanyExpenseId?: string; linkedFixedExpensePaymentId?: string }>>
+  >;
   currentUser?: ErpUser | null;
 };
 
 type ManualModalState = {
   mode: "create" | "edit";
   id?: string;
+  kind: CompanyExpenseKind;
   date: string;
   category: string;
   description: string;
   amount: string;
   memo: string;
-};
-
-type FixedModalState = {
-  mode: "create" | "edit";
-  id?: string;
-  name: string;
-  category: string;
-  amount: string;
-  cycle: FixedExpenseCycle;
-  startDate: string;
-  memo: string;
-  isActive: boolean;
 };
 
 type ManualLedgerRow =
@@ -185,22 +175,6 @@ function Input({
   );
 }
 
-function Select({
-  className = "",
-  children,
-  ...props
-}: React.SelectHTMLAttributes<HTMLSelectElement> & { className?: string }) {
-  return (
-    <select
-      {...props}
-      lang={props.lang ?? "ko"}
-      className={`erp-input w-full rounded-2xl border bg-white px-3 py-2.5 text-slate-900 outline-none transition focus:border-slate-900 md:px-4 md:py-3 ${className}`}
-    >
-      {children}
-    </select>
-  );
-}
-
 function SummaryCard({
   label,
   value,
@@ -225,6 +199,10 @@ function SummaryCard({
 
 function CategoryBadge({ label }: { label: string }) {
   return <span className="erp-ledger-category-badge">{label || "-"}</span>;
+}
+
+function ExpenseKindBadge({ kind }: { kind: CompanyExpenseKind }) {
+  return <span className={`erp-ledger-kind-badge ${kind}`}>{EXPENSE_KIND_OPTIONS.find((row) => row.value === kind)?.label || kind}</span>;
 }
 
 function isBankLinkedExpense(row: CompanyExpense): boolean {
@@ -299,35 +277,15 @@ function FixedPaymentBadges({
   return <CategoryBadge label={category} />;
 }
 
-function ActiveBadge({ active }: { active: boolean }) {
-  return (
-    <span className={`erp-ledger-status-badge ${active ? "active" : "inactive"}`}>
-      {active ? L.active : L.inactive}
-    </span>
-  );
-}
-
 function emptyManualForm(category = EXPENSE_CATEGORY_OPTIONS[0]): ManualModalState {
   return {
     mode: "create",
+    kind: "variable",
     date: todayISO(),
     category,
     description: "",
     amount: "",
     memo: "",
-  };
-}
-
-function emptyFixedForm(): FixedModalState {
-  return {
-    mode: "create",
-    name: "",
-    category: FIXED_CATEGORY_OPTIONS[0],
-    amount: "",
-    cycle: "monthly",
-    startDate: todayISO(),
-    memo: "",
-    isActive: true,
   };
 }
 
@@ -337,53 +295,52 @@ export function CompanyLedgerPage({
   expenseCategories,
   setExpenseCategories,
   fixedExpenses = [],
-  setFixedExpenses,
   fixedExpensePayments = [],
+  setFixedExpensePayments,
+  setBankTransactions,
   currentUser,
 }: CompanyLedgerPageProps) {
   const [activeTab, setActiveTab] = useState<LedgerTab>("manual");
   const [periodKey, setPeriodKey] = useState<LedgerPeriodKey>("thisMonth");
   const [manualQuery, setManualQuery] = useState("");
-  const [fixedQuery, setFixedQuery] = useState("");
   const [selectedMonthKey, setSelectedMonthKey] = useState(() => todayISO().slice(0, 7));
   const [manualModal, setManualModal] = useState<ManualModalState | null>(null);
-  const [fixedModal, setFixedModal] = useState<FixedModalState | null>(null);
   const [formError, setFormError] = useState("");
   const monthlyTableRef = useRef<HTMLTableElement | null>(null);
 
   useEffect(() => {
-    if (!manualModal && !fixedModal) return;
+    if (!manualModal) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [manualModal, fixedModal]);
+  }, [manualModal]);
 
   const currentMonthKey = todayISO().slice(0, 7);
   const periodFilter = useMemo(() => ledgerDateFilter(periodKey), [periodKey]);
   const periodLabel = useMemo(() => ledgerPeriodLabel(periodKey), [periodKey]);
 
-  const thisMonthManualTotal = useMemo(() => {
-    const rows = companyExpenses.filter((row) => row.date?.slice(0, 7) === currentMonthKey);
-    return sumCompanyExpenses(rows);
-  }, [companyExpenses, currentMonthKey]);
+  const thisMonthVariableTotal = useMemo(
+    () => sumExpensesForMonthByKind(companyExpenses, fixedExpensePayments, currentMonthKey, "variable"),
+    [companyExpenses, fixedExpensePayments, currentMonthKey],
+  );
 
-  const activeFixedTotal = useMemo(
-    () => sumActiveFixedMonthly(fixedExpenses, currentMonthKey),
-    [fixedExpenses, currentMonthKey],
+  const thisMonthFixedTotal = useMemo(
+    () => sumExpensesForMonthByKind(companyExpenses, fixedExpensePayments, currentMonthKey, "fixed"),
+    [companyExpenses, fixedExpensePayments, currentMonthKey],
   );
 
   const filteredManualRows = useMemo(() => {
     const rangedExpenses = filterCompanyExpenses(companyExpenses, periodFilter.startDate, periodFilter.endDate);
-    const rangedBankPayments = filterFixedExpensePayments(
-      fixedExpensePayments.filter((row) => isBankLinkedPayment(row)),
+    const rangedPayments = filterFixedExpensePayments(
+      fixedExpensePayments,
       periodFilter.startDate,
       periodFilter.endDate,
     );
     const merged: ManualLedgerRow[] = [
       ...rangedExpenses.map((row) => ({ type: "expense" as const, row })),
-      ...rangedBankPayments.map((row) => ({ type: "fixedPayment" as const, row })),
+      ...rangedPayments.map((row) => ({ type: "fixedPayment" as const, row })),
     ];
     const keyword = manualQuery.trim().toLowerCase();
     const filtered = keyword
@@ -417,27 +374,14 @@ export function CompanyLedgerPage({
     [filteredManualRows],
   );
 
-  const filteredFixedRows = useMemo(() => {
-    const keyword = fixedQuery.trim().toLowerCase();
-    const rows = [...fixedExpenses].sort((a, b) => String(a.name).localeCompare(String(b.name), "ko"));
-    if (!keyword) return rows;
-    return rows.filter((row) =>
-      [row.name, row.category, row.memo]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(keyword),
-    );
-  }, [fixedExpenses, fixedQuery]);
-
   const monthlyRows = useMemo(
-    () => buildMonthlyLedgerRows(companyExpenses, fixedExpenses),
-    [companyExpenses, fixedExpenses],
+    () => buildMonthlyLedgerRows(companyExpenses, fixedExpensePayments),
+    [companyExpenses, fixedExpensePayments],
   );
 
   const selectedMonthDetail = useMemo(
-    () => buildMonthlyLedgerDetail(companyExpenses, fixedExpenses, selectedMonthKey, fixedExpensePayments),
-    [companyExpenses, fixedExpenses, fixedExpensePayments, selectedMonthKey],
+    () => buildMonthlyLedgerDetail(companyExpenses, selectedMonthKey, fixedExpensePayments),
+    [companyExpenses, fixedExpensePayments, selectedMonthKey],
   );
 
   const expenseCategoryOptions = useMemo(() => {
@@ -458,6 +402,7 @@ export function CompanyLedgerPage({
     setManualModal({
       mode: "edit",
       id: row.id,
+      kind: resolveCompanyExpenseKind(row),
       date: row.date,
       category: row.category,
       description: row.description,
@@ -480,6 +425,7 @@ export function CompanyLedgerPage({
       description: manualModal.description.trim(),
       amount: parseLedgerAmount(manualModal.amount),
       memo: manualModal.memo.trim(),
+      kind: manualModal.kind,
       createdBy: currentUser?.name || currentUser?.loginId || "",
       createdAt: new Date().toISOString(),
     };
@@ -495,66 +441,34 @@ export function CompanyLedgerPage({
     setFormError("");
   };
 
-  const deleteManual = (row: CompanyExpense) => {
-    if (!window.confirm(L.deleteConfirm)) return;
-    setCompanyExpenses((prev) => prev.filter((item) => item.id !== row.id));
-  };
-
-  const openCreateFixed = () => {
-    setFormError("");
-    setFixedModal(emptyFixedForm());
-  };
-
-  const openEditFixed = (row: FixedExpense) => {
-    setFormError("");
-    setFixedModal({
-      mode: "edit",
-      id: row.id,
-      name: row.name,
-      category: row.category,
-      amount: String(row.amount || ""),
-      cycle: row.cycle,
-      startDate: row.startDate || todayISO(),
-      memo: row.memo || "",
-      isActive: row.isActive,
-    });
-  };
-
-  const saveFixed = () => {
-    if (!fixedModal) return;
-    const error = validateFixedExpenseInput(fixedModal);
-    if (error) {
-      setFormError(error);
-      return;
-    }
-    const payload: FixedExpense = {
-      id: fixedModal.id || makeLedgerId(),
-      name: fixedModal.name.trim(),
-      category: fixedModal.category,
-      amount: parseLedgerAmount(fixedModal.amount),
-      cycle: fixedModal.cycle,
-      startDate: fixedModal.startDate,
-      memo: fixedModal.memo.trim(),
-      isActive: fixedModal.isActive,
-    };
-    if (fixedModal.mode === "edit" && fixedModal.id) {
-      setFixedExpenses((prev) => prev.map((row) => (row.id === fixedModal.id ? payload : row)));
-    } else {
-      setFixedExpenses((prev) => [payload, ...prev]);
-    }
-    setFixedModal(null);
-    setFormError("");
-  };
-
-  const deleteFixed = (row: FixedExpense) => {
-    if (!window.confirm(L.deleteConfirm)) return;
-    setFixedExpenses((prev) => prev.filter((item) => item.id !== row.id));
-  };
-
-  const toggleFixedActive = (row: FixedExpense) => {
-    setFixedExpenses((prev) =>
-      prev.map((item) => (item.id === row.id ? { ...item, isActive: !item.isActive } : item)),
+  const unlinkBankCompanyExpense = (expenseId: string) => {
+    if (!setBankTransactions) return;
+    setBankTransactions((prev) =>
+      prev.map((tx) => (tx.linkedCompanyExpenseId === expenseId ? { ...tx, linkedCompanyExpenseId: undefined } : tx)),
     );
+  };
+
+  const unlinkBankFixedPayment = (paymentId: string) => {
+    if (!setBankTransactions) return;
+    setBankTransactions((prev) =>
+      prev.map((tx) =>
+        tx.linkedFixedExpensePaymentId === paymentId ? { ...tx, linkedFixedExpensePaymentId: undefined } : tx,
+      ),
+    );
+  };
+
+  const deleteManual = (row: CompanyExpense) => {
+    const message = isBankLinkedExpense(row) ? L.deleteBankLinkedConfirm : L.deleteConfirm;
+    if (!window.confirm(message)) return;
+    setCompanyExpenses((prev) => prev.filter((item) => item.id !== row.id));
+    if (isBankLinkedExpense(row)) unlinkBankCompanyExpense(row.id);
+  };
+
+  const deleteFixedPayment = (row: FixedExpensePayment) => {
+    const message = isBankLinkedPayment(row) ? L.deleteBankLinkedConfirm : L.deleteConfirm;
+    if (!window.confirm(message)) return;
+    setFixedExpensePayments?.((prev) => prev.filter((item) => item.id !== row.id));
+    if (isBankLinkedPayment(row)) unlinkBankFixedPayment(row.id);
   };
 
   return (
@@ -573,30 +487,25 @@ export function CompanyLedgerPage({
               <Plus size={16} /> {L.addManual}
             </Button>
           ) : null}
-          {activeTab === "fixed" ? (
-            <Button className="rounded-2xl" onClick={openCreateFixed}>
-              <Plus size={16} /> {L.addFixed}
-            </Button>
-          ) : null}
         </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
         <SummaryCard
-          label={L.thisMonthManual}
-          value={`${formatKRW(thisMonthManualTotal)}${L.won}`}
+          label={L.variableExpense}
+          value={`${formatKRW(thisMonthVariableTotal)}${L.won}`}
           tone="text-rose-600"
           sub={formatMonthLabel(currentMonthKey)}
         />
         <SummaryCard
-          label={L.fixedMonthlyTotal}
-          value={`${formatKRW(activeFixedTotal)}${L.won}`}
+          label={L.fixedExpense}
+          value={`${formatKRW(thisMonthFixedTotal)}${L.won}`}
           tone="text-amber-600"
-          sub={L.fixedMonthlyHint}
+          sub={formatMonthLabel(currentMonthKey)}
         />
         <SummaryCard
           label={L.grandTotal}
-          value={`${formatKRW(thisMonthManualTotal + activeFixedTotal)}${L.won}`}
+          value={`${formatKRW(thisMonthVariableTotal + thisMonthFixedTotal)}${L.won}`}
           tone="text-slate-900"
           sub={L.thisMonthGrandHint}
         />
@@ -665,37 +574,44 @@ export function CompanyLedgerPage({
                         subtitle={row.date}
                         badge={<ExpenseCategoryBadges row={row} />}
                         fields={[
+                          { label: L.section, value: <ExpenseKindBadge kind={resolveCompanyExpenseKind(row)} /> },
                           { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
                           { label: L.memo, value: row.memo || "-", tone: "muted" },
                         ]}
                         actions={
-                          bankLinked ? undefined : (
-                            <>
-                              <button type="button" className="erp-mobile-action-btn" onClick={() => openEditManual(row)}>
-                                <Pencil size={15} /> {L.edit}
-                              </button>
-                              <button type="button" className="erp-mobile-action-btn danger" onClick={() => deleteManual(row)}>
-                                <Trash2 size={15} /> {L.delete}
-                              </button>
-                            </>
-                          )
+                          <>
+                            <button type="button" className="erp-mobile-action-btn" onClick={() => openEditManual(row)}>
+                              <Pencil size={15} /> {L.edit}
+                            </button>
+                            <button type="button" className="erp-mobile-action-btn danger" onClick={() => deleteManual(row)}>
+                              <Trash2 size={15} /> {L.delete}
+                            </button>
+                          </>
                         }
                       />
                     );
                   }
                   const row = item.row;
                   const name = resolveFixedExpenseName(row.fixedExpenseId, fixedExpenses);
+                  const bankLinked = isBankLinkedPayment(row);
                   return (
                     <MobileRecordCard
                       key={`fixed-pay-${row.id}`}
-                      title={<DescriptionWithBankBadge text={name} bankLinked />}
+                      title={<DescriptionWithBankBadge text={name} bankLinked={bankLinked} />}
                       subtitle={row.date}
                       badge={<FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} />}
                       fields={[
-                        { label: L.section, value: L.fixedPayment, tone: "muted" },
+                        { label: L.section, value: <ExpenseKindBadge kind="fixed" /> },
                         { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
                         { label: L.memo, value: row.memo || "-", tone: "muted" },
                       ]}
+                      actions={
+                        setFixedExpensePayments ? (
+                          <button type="button" className="erp-mobile-action-btn danger" onClick={() => deleteFixedPayment(row)}>
+                            <Trash2 size={15} /> {L.delete}
+                          </button>
+                        ) : undefined
+                      }
                     />
                   );
                 })
@@ -708,6 +624,7 @@ export function CompanyLedgerPage({
               <table className="erp-ledger-table min-w-full">
                 <thead>
                   <tr>
+                    <th>{L.section}</th>
                     <th>{L.date}</th>
                     <th>{L.category}</th>
                     <th>{L.description}</th>
@@ -724,6 +641,9 @@ export function CompanyLedgerPage({
                         const bankLinked = isBankLinkedExpense(row);
                         return (
                           <tr key={`expense-${row.id}`} className={bankLinkedRowClass(bankLinked)}>
+                            <td>
+                              <ExpenseKindBadge kind={resolveCompanyExpenseKind(row)} />
+                            </td>
                             <td>{row.date}</td>
                             <td>
                               <ExpenseCategoryBadges row={row} />
@@ -737,42 +657,42 @@ export function CompanyLedgerPage({
                             </td>
                             <td className="text-slate-500">{row.memo || "-"}</td>
                             <td className="erp-table-export-skip">
-                              {bankLinked ? (
-                                <span className="erp-text-caption text-slate-400">-</span>
-                              ) : (
-                                <div className="erp-ledger-row-actions">
-                                  <button
-                                    type="button"
-                                    className="erp-ledger-icon-btn"
-                                    onClick={() => openEditManual(row)}
-                                    aria-label={L.edit}
-                                  >
-                                    <Pencil size={15} />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="erp-ledger-icon-btn danger"
-                                    onClick={() => deleteManual(row)}
-                                    aria-label={L.delete}
-                                  >
-                                    <Trash2 size={15} />
-                                  </button>
-                                </div>
-                              )}
+                              <div className="erp-ledger-row-actions">
+                                <button
+                                  type="button"
+                                  className="erp-ledger-icon-btn"
+                                  onClick={() => openEditManual(row)}
+                                  aria-label={L.edit}
+                                >
+                                  <Pencil size={15} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="erp-ledger-icon-btn danger"
+                                  onClick={() => deleteManual(row)}
+                                  aria-label={L.delete}
+                                >
+                                  <Trash2 size={15} />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
                       }
                       const row = item.row;
                       const name = resolveFixedExpenseName(row.fixedExpenseId, fixedExpenses);
+                      const bankLinked = isBankLinkedPayment(row);
                       return (
-                        <tr key={`fixed-pay-${row.id}`} className={bankLinkedRowClass(true)}>
+                        <tr key={`fixed-pay-${row.id}`} className={bankLinkedRowClass(bankLinked)}>
+                          <td>
+                            <ExpenseKindBadge kind="fixed" />
+                          </td>
                           <td>{row.date}</td>
                           <td>
                             <FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} />
                           </td>
                           <td>
-                            <DescriptionWithBankBadge text={`${L.fixedPayment} ${L.separator} ${name}`} bankLinked />
+                            <DescriptionWithBankBadge text={`${L.fixedPayment} ${L.separator} ${name}`} bankLinked={bankLinked} />
                           </td>
                           <td className="text-right font-bold text-rose-600">
                             {formatKRW(row.amount)}
@@ -780,14 +700,27 @@ export function CompanyLedgerPage({
                           </td>
                           <td className="text-slate-500">{row.memo || "-"}</td>
                           <td className="erp-table-export-skip">
-                            <span className="erp-text-caption text-slate-400">-</span>
+                            {setFixedExpensePayments ? (
+                              <div className="erp-ledger-row-actions">
+                                <button
+                                  type="button"
+                                  className="erp-ledger-icon-btn danger"
+                                  onClick={() => deleteFixedPayment(row)}
+                                  aria-label={L.delete}
+                                >
+                                  <Trash2 size={15} />
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="erp-text-caption text-slate-400">-</span>
+                            )}
                           </td>
                         </tr>
                       );
                     })
                   ) : (
                     <tr>
-                      <td colSpan={6} className="erp-ledger-empty">
+                      <td colSpan={7} className="erp-ledger-empty">
                         {L.emptyManual}
                       </td>
                     </tr>
@@ -796,137 +729,13 @@ export function CompanyLedgerPage({
                 {filteredManualRows.length ? (
                   <tfoot>
                     <tr>
-                      <td colSpan={3} className="font-bold">
+                      <td colSpan={4} className="font-bold">
                         {L.total} ({filteredManualRows.length}{L.count})
                       </td>
                       <td className="text-right font-black text-rose-600">
                         {formatKRW(sumManualLedgerRows(filteredManualRows))}{L.won}
                       </td>
                       <td colSpan={2} />
-                    </tr>
-                  </tfoot>
-                ) : null}
-              </table>
-            </DesktopTableWrap>
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {activeTab === "fixed" ? (
-        <Card className="rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="space-y-4 p-4 md:p-5">
-            <div className="flex max-w-xl items-center gap-3 rounded-2xl border bg-white px-4 py-3 shadow-sm">
-              <Search size={18} className="text-slate-400" />
-              <input
-                lang="ko"
-                className="erp-input w-full bg-transparent outline-none"
-                value={fixedQuery}
-                onChange={(e) => setFixedQuery(e.target.value)}
-                placeholder={L.searchFixed}
-              />
-            </div>
-
-            <MobileRecordList>
-              {filteredFixedRows.length ? (
-                filteredFixedRows.map((row) => (
-                  <MobileRecordCard
-                    key={row.id}
-                    title={row.name}
-                    subtitle={row.startDate || "-"}
-                    badge={<CategoryBadge label={row.category} />}
-                    fields={[
-                      { label: L.amount, value: `${formatKRW(row.amount)}${L.won}` },
-                      { label: L.cycle, value: fixedCycleLabel(row.cycle), tone: "muted" },
-                      { label: L.monthlyEquiv, value: `${formatKRW(fixedMonthlyAmount(row))}${L.won}`, tone: "success" },
-                      { label: L.status, value: row.isActive ? L.active : L.inactive, tone: row.isActive ? "success" : "danger" },
-                    ]}
-                    actions={
-                      <>
-                        <button type="button" className="erp-mobile-action-btn" onClick={() => openEditFixed(row)}>
-                          <Pencil size={15} /> {L.edit}
-                        </button>
-                        <button type="button" className="erp-mobile-action-btn" onClick={() => toggleFixedActive(row)}>
-                          <Wallet size={15} /> {row.isActive ? L.deactivate : L.activate}
-                        </button>
-                        <button type="button" className="erp-mobile-action-btn danger" onClick={() => deleteFixed(row)}>
-                          <Trash2 size={15} /> {L.delete}
-                        </button>
-                      </>
-                    }
-                  />
-                ))
-              ) : (
-                <MobileRecordCard empty emptyLabel={L.emptyFixed} />
-              )}
-            </MobileRecordList>
-
-            <DesktopTableWrap>
-              <table className="erp-ledger-table min-w-full">
-                <thead>
-                  <tr>
-                    <th>{L.item}</th>
-                    <th>{L.category}</th>
-                    <th className="text-right">{L.amount}</th>
-                    <th>{L.cycle}</th>
-                    <th className="text-right">{L.monthlyEquiv}</th>
-                    <th>{L.startDate}</th>
-                    <th>{L.status}</th>
-                    <th className="erp-table-export-skip">{L.actions}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredFixedRows.length ? (
-                    filteredFixedRows.map((row) => (
-                      <tr key={row.id} className={!row.isActive ? "erp-ledger-row-inactive" : ""}>
-                        <td className="font-semibold text-slate-900">{row.name}</td>
-                        <td>
-                          <CategoryBadge label={row.category} />
-                        </td>
-                        <td className="text-right font-bold">{formatKRW(row.amount)}{L.won}</td>
-                        <td>{fixedCycleLabel(row.cycle)}</td>
-                        <td className="text-right font-bold text-amber-600">{formatKRW(fixedMonthlyAmount(row))}{L.won}</td>
-                        <td>{row.startDate || "-"}</td>
-                        <td>
-                          <ActiveBadge active={row.isActive} />
-                        </td>
-                        <td className="erp-table-export-skip">
-                          <div className="erp-ledger-row-actions">
-                            <button type="button" className="erp-ledger-icon-btn" onClick={() => openEditFixed(row)} aria-label={L.edit}>
-                              <Pencil size={15} />
-                            </button>
-                            <button
-                              type="button"
-                              className="erp-ledger-icon-btn"
-                              onClick={() => toggleFixedActive(row)}
-                              aria-label={row.isActive ? L.deactivate : L.activate}
-                            >
-                              <Wallet size={15} />
-                            </button>
-                            <button type="button" className="erp-ledger-icon-btn danger" onClick={() => deleteFixed(row)} aria-label={L.delete}>
-                              <Trash2 size={15} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={8} className="erp-ledger-empty">
-                        {L.emptyFixed}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-                {filteredFixedRows.length ? (
-                  <tfoot>
-                    <tr>
-                      <td colSpan={4} className="font-bold">
-                        {L.activeFixedTotal}
-                      </td>
-                      <td className="text-right font-black text-amber-600">
-                        {formatKRW(sumActiveFixedMonthly(filteredFixedRows.filter((row) => row.isActive)))}{L.won}
-                      </td>
-                      <td colSpan={3} />
                     </tr>
                   </tfoot>
                 ) : null}
@@ -1032,9 +841,7 @@ export function CompanyLedgerPage({
             <CardContent className="space-y-4 p-4 md:p-5">
               <h2 className="erp-text-section font-bold text-slate-900">{selectedMonthDetail.label} {L.monthDetail}</h2>
               <MobileRecordList>
-                {selectedMonthDetail.manualExpenses.length ||
-                selectedMonthDetail.fixedItems.length ||
-                selectedMonthDetail.fixedPayments.length ? (
+                {selectedMonthDetail.manualExpenses.length || selectedMonthDetail.fixedPayments.length ? (
                   <>
                     {selectedMonthDetail.manualExpenses.map((row) => {
                       const bankLinked = isBankLinkedExpense(row);
@@ -1045,24 +852,12 @@ export function CompanyLedgerPage({
                           subtitle={row.date}
                           badge={<ExpenseCategoryBadges row={row} />}
                           fields={[
-                            { label: L.section, value: L.variableExpense, tone: "muted" },
+                            { label: L.section, value: <ExpenseKindBadge kind={resolveCompanyExpenseKind(row)} /> },
                             { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
                           ]}
                         />
                       );
                     })}
-                    {selectedMonthDetail.fixedItems.map((row) => (
-                      <MobileRecordCard
-                        key={`fixed-${row.id}`}
-                        title={row.name}
-                        subtitle={`${fixedCycleLabel(row.cycle)} ${L.separator} ${row.memo || "-"}`}
-                        badge={<CategoryBadge label={row.category} />}
-                        fields={[
-                          { label: L.section, value: L.fixedExpense, tone: "muted" },
-                          { label: L.amount, value: `${formatKRW(row.monthlyAmount)}${L.won}`, tone: "success" },
-                        ]}
-                      />
-                    ))}
                     {selectedMonthDetail.fixedPayments.map((row) => {
                       const name = resolveFixedExpenseName(row.fixedExpenseId, fixedExpenses);
                       const bankLinked = isBankLinkedPayment(row);
@@ -1073,7 +868,7 @@ export function CompanyLedgerPage({
                           subtitle={row.date}
                           badge={<FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} />}
                           fields={[
-                            { label: L.section, value: L.fixedPayment, tone: "muted" },
+                            { label: L.section, value: <ExpenseKindBadge kind="fixed" /> },
                             { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
                             ...(row.memo ? [{ label: L.memoOptional, value: row.memo, tone: "muted" as const }] : []),
                           ]}
@@ -1107,7 +902,9 @@ export function CompanyLedgerPage({
                       const bankLinked = isBankLinkedExpense(row);
                       return (
                         <tr key={`manual-${row.id}`} className={bankLinkedRowClass(bankLinked)}>
-                          <td>{L.variableExpense}</td>
+                          <td>
+                            <ExpenseKindBadge kind={resolveCompanyExpenseKind(row)} />
+                          </td>
                           <td>{row.date}</td>
                           <td>
                             <ExpenseCategoryBadges row={row} />
@@ -1122,24 +919,15 @@ export function CompanyLedgerPage({
                         </tr>
                       );
                     })}
-                    {selectedMonthDetail.fixedItems.map((row) => (
-                      <tr key={`fixed-${row.id}`}>
-                        <td>{L.fixedExpense}</td>
-                        <td>{row.name}</td>
-                        <td>{row.category}</td>
-                        <td>
-                          {fixedCycleLabel(row.cycle)} {L.separator} {row.memo || "-"}
-                        </td>
-                        <td className="text-right">{formatKRW(row.monthlyAmount)}{L.won}</td>
-                      </tr>
-                    ))}
                     {selectedMonthDetail.fixedPayments.map((row) => {
                       const name = resolveFixedExpenseName(row.fixedExpenseId, fixedExpenses);
                       const bankLinked = isBankLinkedPayment(row);
                       const description = row.memo ? `${name} ${L.separator} ${row.memo}` : name;
                       return (
                         <tr key={`fixed-pay-${row.id}`} className={bankLinkedRowClass(bankLinked)}>
-                          <td>{L.fixedPayment}</td>
+                          <td>
+                            <ExpenseKindBadge kind="fixed" />
+                          </td>
                           <td>{row.date}</td>
                           <td>
                             <FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} />
@@ -1154,9 +942,7 @@ export function CompanyLedgerPage({
                         </tr>
                       );
                     })}
-                    {!selectedMonthDetail.manualExpenses.length &&
-                    !selectedMonthDetail.fixedItems.length &&
-                    !selectedMonthDetail.fixedPayments.length ? (
+                    {!selectedMonthDetail.manualExpenses.length && !selectedMonthDetail.fixedPayments.length ? (
                       <tr>
                         <td colSpan={5} className="erp-ledger-empty">
                           {L.emptyMonth}
@@ -1184,13 +970,33 @@ export function CompanyLedgerPage({
           <div className="erp-ledger-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="erp-text-section font-bold">
-                {manualModal.mode === "create" ? L.addManual : L.editManual}
+                {manualModal.mode === "create"
+                  ? manualModal.kind === "fixed"
+                    ? L.addFixed
+                    : L.addManual
+                  : manualModal.kind === "fixed"
+                    ? L.editFixed
+                    : L.editManual}
               </h2>
               <button type="button" className="rounded-xl p-2 text-slate-400 hover:bg-slate-100" onClick={() => setManualModal(null)}>
                 <X size={18} />
               </button>
             </div>
             <div className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                {EXPENSE_KIND_OPTIONS.map((option) => (
+                  <Button
+                    key={option.value}
+                    type="button"
+                    size="sm"
+                    variant={manualModal.kind === option.value ? "default" : "outline"}
+                    className="rounded-2xl"
+                    onClick={() => setManualModal((prev) => (prev ? { ...prev, kind: option.value } : prev))}
+                  >
+                    {option.label}
+                  </Button>
+                ))}
+              </div>
               <Field label={L.expenseDate}>
                 <KoreanDateInput
                   value={manualModal.date}
@@ -1230,80 +1036,6 @@ export function CompanyLedgerPage({
                   {L.cancel}
                 </Button>
                 <Button className="rounded-2xl" onClick={saveManual}>
-                  {L.save}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {fixedModal ? (
-        <div className="erp-ledger-modal-backdrop" onClick={() => setFixedModal(null)}>
-          <div className="erp-ledger-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="erp-text-section font-bold">
-                {fixedModal.mode === "create" ? L.addFixed : L.editFixed}
-              </h2>
-              <button type="button" className="rounded-xl p-2 text-slate-400 hover:bg-slate-100" onClick={() => setFixedModal(null)}>
-                <X size={18} />
-              </button>
-            </div>
-            <div className="space-y-4">
-              <Field label={L.itemName}>
-                <Input value={fixedModal.name} onChange={(e) => setFixedModal((prev) => (prev ? { ...prev, name: e.target.value } : prev))} />
-              </Field>
-              <Field label={L.category}>
-                <Select value={fixedModal.category} onChange={(e) => setFixedModal((prev) => (prev ? { ...prev, category: e.target.value } : prev))}>
-                  {FIXED_CATEGORY_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label={L.amountWon}>
-                <Input
-                  inputMode="numeric"
-                  value={fixedModal.amount}
-                  onChange={(e) => setFixedModal((prev) => (prev ? { ...prev, amount: e.target.value } : prev))}
-                />
-              </Field>
-              <Field label={L.cycle}>
-                <Select
-                  value={fixedModal.cycle}
-                  onChange={(e) => setFixedModal((prev) => (prev ? { ...prev, cycle: e.target.value as FixedExpenseCycle } : prev))}
-                >
-                  {FIXED_CYCLE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label={L.applyStartDate}>
-                <KoreanDateInput
-                  value={fixedModal.startDate}
-                  onChange={(event) => setFixedModal((prev) => (prev ? { ...prev, startDate: event.target.value } : prev))}
-                />
-              </Field>
-              <Field label={L.memoOptional}>
-                <Input value={fixedModal.memo} onChange={(e) => setFixedModal((prev) => (prev ? { ...prev, memo: e.target.value } : prev))} />
-              </Field>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={fixedModal.isActive}
-                  onChange={(e) => setFixedModal((prev) => (prev ? { ...prev, isActive: e.target.checked } : prev))}
-                />
-                <span className="erp-text-body font-semibold text-slate-700">{L.activeStatus}</span>
-              </label>
-              {formError ? <p className="erp-text-caption font-semibold text-rose-600">{formError}</p> : null}
-              <div className="flex justify-end gap-2 pt-2">
-                <Button variant="outline" className="rounded-2xl" onClick={() => setFixedModal(null)}>
-                  {L.cancel}
-                </Button>
-                <Button className="rounded-2xl" onClick={saveFixed}>
                   {L.save}
                 </Button>
               </div>

@@ -33,7 +33,7 @@ import { appendDepositNameAlias, resolveBankDepositMatchSubject } from "@/utils/
 import { formatKRW, monthRangeISO, todayISO, makeLedgerId, mergeExpenseCategory, parseLedgerAmount, validateCompanyExpenseInput, validateFixedExpensePaymentInput, type CompanyExpense, type FixedExpense, type FixedExpensePayment } from "@/utils/companyLedger";
 import {
   autoApplyBankLearnRules,
-  buildBankLedgerMatchRuleFromRegistration,
+  buildBankLearnRuleFromFixedRegistration,
   buildBankLearnRuleFromFolderAssignment,
   buildBankLearnRuleFromManualRegistration,
   buildCompanyExpensePrefillFromBankTransaction,
@@ -204,8 +204,8 @@ const L = {
   matchDone: "\uC785\uAE08 \uC804\uD45C\uAC00 \uC0DD\uC131\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   matchBulk: "\uACE0\uC2E0\uB8B0 \uC790\uB3D9 \uC5F0\uACB0",
   matchBulkDone: "\uAC74\uC744 \uC790\uB3D9 \uC785\uAE08 \uC5F0\uACB0\uD588\uC2B5\uB2C8\uB2E4.",
-  autoLinkBadge: "\uC790\uB3D9\uC5F0\uACB0",
-  autoLinkBadgeTitle: "\uACE0\uC2E0\uB8B0 \uC790\uB3D9 \uC785\uAE08 \uC5F0\uACB0",
+  autoLinkBadge: "\uC790\uB3D9\uC785\uAE08",
+  autoLinkBadgeTitle: "\uACE0\uC2E0\uB8B0 \uC790\uB3D9 \uC785\uAE08",
   manualLinkBadge: "\uAC74\uBCC4\uC785\uAE08",
   manualLinkBadgeTitle: "\uAC74\uBCC4 \uC785\uAE08\uCC98\uB9AC\uB85C \uC5F0\uACB0",
   matchEmpty: "\uCD94\uCC9C\uD560 \uBBF8\uC5F0\uACB0 \uC785\uAE08\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
@@ -886,14 +886,16 @@ export function BankTransactionsPage({
     const savedBy = currentUser?.name || currentUser?.loginId || "";
 
     if (ledgerModal.kind === "fixed") {
-      if (!ledgerModal.fixedExpenseId) {
-        setLedgerFormError("\uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.");
+      const category = ledgerModal.category.trim();
+      if (!category) {
+        setLedgerFormError("\uCE74\uD14C\uACE0\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.");
         return;
       }
 
-      const error = validateFixedExpensePaymentInput({
+      const error = validateCompanyExpenseInput({
         date: ledgerModal.date,
-        fixedExpenseId: ledgerModal.fixedExpenseId,
+        category,
+        description: ledgerModal.description,
         amount: ledgerModal.amount,
       });
       if (error) {
@@ -901,48 +903,40 @@ export function BankTransactionsPage({
         return;
       }
 
-      const paymentId = makeLedgerId();
-      const payment: FixedExpensePayment = {
-        id: paymentId,
-        fixedExpenseId: ledgerModal.fixedExpenseId,
+      const expenseId = makeLedgerId();
+      const expense: CompanyExpense = {
+        id: expenseId,
         date: ledgerModal.date,
+        category,
+        description: ledgerModal.description.trim(),
         amount: parseLedgerAmount(ledgerModal.amount),
-        memo: ledgerModal.memo.trim() || ledgerModal.description.trim(),
+        memo: ledgerModal.memo.trim(),
+        kind: "fixed",
         bankTransactionId: ledgerModal.tx.id,
         createdBy: savedBy,
         createdAt: new Date().toISOString(),
       };
 
-      setFixedExpensePayments((prev) => [payment, ...prev]);
-      setBankTransactions((prev) =>
-        prev.map((row) =>
-          row.id === ledgerModal.tx.id
-            ? {
-                ...row,
-                linkedFixedExpensePaymentId: paymentId,
-              }
-            : row
-        )
+      const nextTransactions = bankTransactions.map((row) =>
+        row.id === ledgerModal.tx.id
+          ? {
+              ...row,
+              linkedCompanyExpenseId: expenseId,
+            }
+          : row,
       );
+      const nextExpenses = [expense, ...companyExpenses];
+      const nextCategories = mergeExpenseCategory(expenseCategories, category);
       const nextRules = upsertBankLearnRule(
         bankLedgerRules,
-        buildBankLedgerMatchRuleFromRegistration(
-          ledgerModal.tx,
-          ledgerModal.fixedExpenseId,
-          savedBy,
-          parseLedgerAmount(ledgerModal.amount),
-        ),
+        buildBankLearnRuleFromFixedRegistration(ledgerModal.tx, category, savedBy),
       );
+
+      setExpenseCategories(nextCategories);
+      setCompanyExpenses(nextExpenses);
+      setBankTransactions(nextTransactions);
       setBankLedgerRules(nextRules);
-      applyAutoLearnRules(
-        bankTransactions.map((row) =>
-          row.id === ledgerModal.tx.id ? { ...row, linkedFixedExpensePaymentId: paymentId } : row,
-        ),
-        [payment, ...fixedExpensePayments],
-        companyExpenses,
-        nextRules,
-        { showMessage: true },
-      );
+      applyAutoLearnRules(nextTransactions, fixedExpensePayments, nextExpenses, nextRules, { showMessage: true });
       setLedgerModal(null);
       setLedgerFormError("");
       setImportMessage(L.ledgerFixedRegisterDone);
@@ -974,6 +968,7 @@ export function BankTransactionsPage({
       description: ledgerModal.description.trim(),
       amount: parseLedgerAmount(ledgerModal.amount),
       memo: ledgerModal.memo.trim(),
+      kind: "variable",
       bankTransactionId: ledgerModal.tx.id,
       createdBy: savedBy,
       createdAt: new Date().toISOString(),
@@ -2486,48 +2481,22 @@ export function BankTransactionsPage({
               <Field label={L.ledgerDate}>
                 <KoreanDateInput value={ledgerModal.date} onChange={(value) => setLedgerModal((prev) => (prev ? { ...prev, date: value } : prev))} />
               </Field>
-              {ledgerModal.kind === "fixed" ? (
-                <Field label={L.ledgerFixedItem}>
-                  <AutocompleteSelect
-                    value={ledgerModal.fixedExpenseId}
-                    options={fixedExpenseSelectOptions}
-                    placeholder={L.ledgerFixedItem}
-                    compact={false}
-                    inputProps={{ className: "rounded-xl" }}
-                    onChange={(value, raw) => {
-                      setLedgerModal((prev) => {
-                        if (!prev) return prev;
-                        const next = { ...prev, fixedExpenseId: value };
-                        if (raw && typeof raw === "object" && "fixedExpense" in raw) {
-                          const fixedExpense = raw.fixedExpense as FixedExpense;
-                          if (!prev.description.trim()) {
-                            next.description = fixedExpense.name;
-                          }
-                        }
-                        return next;
-                      });
-                    }}
-                  />
-                  <p className="mt-1.5 text-xs font-semibold text-amber-700">{L.ledgerSaveFixedHint}</p>
-                </Field>
-              ) : (
-                <Field label={L.ledgerManualCategory}>
-                  <AutocompleteInput
-                    value={ledgerModal.category}
-                    options={manualCategoryOptions}
-                    placeholder={L.ledgerManualCategory}
-                    freeSolo
-                    compact={false}
-                    inputProps={{ className: "rounded-xl" }}
-                    onChange={(value) =>
-                      setLedgerModal((prev) => (prev ? { ...prev, category: String(value || "").trim() } : prev))
-                    }
-                  />
-                  <p className="mt-1.5 text-xs font-semibold text-slate-500">
-                    {`${L.ledgerSaveManualHint}. ${L.ledgerCategoryAddHint}`}
-                  </p>
-                </Field>
-              )}
+              <Field label={L.ledgerManualCategory}>
+                <AutocompleteInput
+                  value={ledgerModal.category}
+                  options={manualCategoryOptions}
+                  placeholder={L.ledgerManualCategory}
+                  freeSolo
+                  compact={false}
+                  inputProps={{ className: "rounded-xl" }}
+                  onChange={(value) =>
+                    setLedgerModal((prev) => (prev ? { ...prev, category: String(value || "").trim() } : prev))
+                  }
+                />
+                <p className="mt-1.5 text-xs font-semibold text-slate-500">
+                  {ledgerModal.kind === "fixed" ? L.ledgerSaveFixedHint : `${L.ledgerSaveManualHint}. ${L.ledgerCategoryAddHint}`}
+                </p>
+              </Field>
               <div className="sm:col-span-2">
                 <Field label={L.ledgerDescription}>
                   <input

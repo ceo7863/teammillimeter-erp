@@ -5,6 +5,8 @@ export { formatKRW, formatMonthLabel, shiftMonthKey, todayISO };
 
 export type FixedExpenseCycle = "monthly" | "quarterly" | "yearly";
 
+export type CompanyExpenseKind = "variable" | "fixed";
+
 export type CompanyExpense = {
   id: string;
   date: string;
@@ -12,6 +14,7 @@ export type CompanyExpense = {
   description: string;
   amount: number;
   memo?: string;
+  kind?: CompanyExpenseKind;
   bankTransactionId?: string;
   createdBy?: string;
   createdAt?: string;
@@ -55,12 +58,24 @@ export type MonthlyLedgerDetail = {
   monthKey: string;
   label: string;
   manualExpenses: CompanyExpense[];
-  fixedItems: Array<FixedExpense & { monthlyAmount: number }>;
   fixedPayments: FixedExpensePayment[];
   manualTotal: number;
   fixedTotal: number;
   grandTotal: number;
 };
+
+export const EXPENSE_KIND_OPTIONS: Array<{ value: CompanyExpenseKind; label: string }> = [
+  { value: "variable", label: "\uBCC0\uB3D9 \uC9C0\uCD9C" },
+  { value: "fixed", label: "\uACE0\uC815\uBE44" },
+];
+
+export function expenseKindLabel(kind: CompanyExpenseKind = "variable") {
+  return EXPENSE_KIND_OPTIONS.find((row) => row.value === kind)?.label || EXPENSE_KIND_OPTIONS[0].label;
+}
+
+export function resolveCompanyExpenseKind(expense: Pick<CompanyExpense, "kind">) {
+  return expense.kind === "fixed" ? "fixed" : "variable";
+}
 
 export const EXPENSE_CATEGORY_OPTIONS = [
   "\uC0AC\uBB34\uC6A9\uD488",
@@ -210,18 +225,38 @@ export function sumActiveFixedMonthly(fixedExpenses: FixedExpense[] = [], monthK
     .reduce((sum, row) => sum + fixedMonthlyAmount(row), 0);
 }
 
+export function sumFixedExpensePayments(payments: FixedExpensePayment[] = []) {
+  return payments.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+}
+
+export function sumExpensesForMonthByKind(
+  companyExpenses: CompanyExpense[] = [],
+  fixedExpensePayments: FixedExpensePayment[] = [],
+  monthKey: string,
+  kind: CompanyExpenseKind,
+) {
+  const expenseTotal = companyExpenses
+    .filter((row) => getMonthKey(row.date) === monthKey && resolveCompanyExpenseKind(row) === kind)
+    .reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+  if (kind !== "fixed") return expenseTotal;
+  const paymentTotal = fixedExpensePayments
+    .filter((row) => getMonthKey(row.date) === monthKey)
+    .reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+  return expenseTotal + paymentTotal;
+}
+
 export function collectLedgerMonthKeys(
   companyExpenses: CompanyExpense[] = [],
-  fixedExpenses: FixedExpense[] = [],
+  fixedExpensePayments: FixedExpensePayment[] = [],
 ) {
   const keys = new Set<string>();
   for (const row of companyExpenses) {
     const key = getMonthKey(row.date);
     if (key) keys.add(key);
   }
-  for (const row of fixedExpenses) {
-    const key = getMonthKey(row.startDate || "") || todayISO().slice(0, 7);
-    keys.add(key);
+  for (const row of fixedExpensePayments) {
+    const key = getMonthKey(row.date);
+    if (key) keys.add(key);
   }
   if (!keys.size) keys.add(todayISO().slice(0, 7));
   return Array.from(keys).sort((a, b) => b.localeCompare(a));
@@ -229,22 +264,24 @@ export function collectLedgerMonthKeys(
 
 export function buildMonthlyLedgerRows(
   companyExpenses: CompanyExpense[] = [],
-  fixedExpenses: FixedExpense[] = [],
+  fixedExpensePayments: FixedExpensePayment[] = [],
 ): MonthlyLedgerRow[] {
-  const monthKeys = collectLedgerMonthKeys(companyExpenses, fixedExpenses);
+  const monthKeys = collectLedgerMonthKeys(companyExpenses, fixedExpensePayments);
   return monthKeys.map((monthKey) => {
     const manualRows = companyExpenses.filter((row) => getMonthKey(row.date) === monthKey);
-    const fixedRows = fixedExpenses.filter((row) => isFixedActiveInMonth(row, monthKey));
-    const manualTotal = sumCompanyExpenses(manualRows);
-    const fixedTotal = fixedRows.reduce((sum, row) => sum + fixedMonthlyAmount(row), 0);
+    const paymentRows = fixedExpensePayments.filter((row) => getMonthKey(row.date) === monthKey);
+    const manualTotal = sumCompanyExpenses(manualRows.filter((row) => resolveCompanyExpenseKind(row) === "variable"));
+    const fixedTotal =
+      sumCompanyExpenses(manualRows.filter((row) => resolveCompanyExpenseKind(row) === "fixed")) +
+      sumFixedExpensePayments(paymentRows);
     return {
       monthKey,
       label: formatMonthLabel(monthKey),
       manualTotal,
       fixedTotal,
       grandTotal: manualTotal + fixedTotal,
-      manualCount: manualRows.length,
-      fixedCount: fixedRows.length,
+      manualCount: manualRows.filter((row) => resolveCompanyExpenseKind(row) === "variable").length,
+      fixedCount: manualRows.filter((row) => resolveCompanyExpenseKind(row) === "fixed").length + paymentRows.length,
     };
   });
 }
@@ -273,25 +310,21 @@ export function getFixedExpensePaymentsForMonth(
 
 export function buildMonthlyLedgerDetail(
   companyExpenses: CompanyExpense[] = [],
-  fixedExpenses: FixedExpense[] = [],
   monthKey: string,
   fixedExpensePayments: FixedExpensePayment[] = [],
 ): MonthlyLedgerDetail {
   const manualExpenses = companyExpenses
     .filter((row) => getMonthKey(row.date) === monthKey)
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  const fixedItems = fixedExpenses
-    .filter((row) => isFixedActiveInMonth(row, monthKey))
-    .map((row) => ({ ...row, monthlyAmount: fixedMonthlyAmount(row) }))
-    .sort((a, b) => String(a.name).localeCompare(String(b.name), "ko"));
   const fixedPayments = getFixedExpensePaymentsForMonth(fixedExpensePayments, monthKey);
-  const manualTotal = sumCompanyExpenses(manualExpenses);
-  const fixedTotal = fixedItems.reduce((sum, row) => sum + row.monthlyAmount, 0);
+  const manualTotal = sumCompanyExpenses(manualExpenses.filter((row) => resolveCompanyExpenseKind(row) === "variable"));
+  const fixedTotal =
+    sumCompanyExpenses(manualExpenses.filter((row) => resolveCompanyExpenseKind(row) === "fixed")) +
+    sumFixedExpensePayments(fixedPayments);
   return {
     monthKey,
     label: formatMonthLabel(monthKey),
     manualExpenses,
-    fixedItems,
     fixedPayments,
     manualTotal,
     fixedTotal,

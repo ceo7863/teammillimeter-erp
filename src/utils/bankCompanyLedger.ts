@@ -220,6 +220,18 @@ export function buildBankLedgerMatchRuleFromRegistration(
   };
 }
 
+export function buildBankLearnRuleFromFixedRegistration(
+  tx: BankTransaction,
+  category: string,
+  createdBy?: string,
+): BankLearnRule {
+  return {
+    id: makeLedgerId(),
+    kind: "fixed",
+    category,
+    ...buildLearnRuleBase(tx, createdBy),
+  };
+}
 export function buildBankLearnRuleFromManualRegistration(
   tx: BankTransaction,
   category: string,
@@ -248,7 +260,7 @@ export function buildBankLearnRuleFromFolderAssignment(
 
 function learnRuleUpsertKey(rule: BankLearnRule) {
   const counterpartyKey = normalizeMatchText(rule.counterpartyName || "");
-  if (rule.kind === "fixed") return `fixed:${rule.fixedExpenseId}:${counterpartyKey}`;
+  if (rule.kind === "fixed") return `fixed:${rule.fixedExpenseId || rule.category}:${counterpartyKey}`;
   if (rule.kind === "manual") return `manual:${rule.category}:${counterpartyKey}`;
   return `folder:${rule.folderId}:${counterpartyKey}`;
 }
@@ -481,21 +493,26 @@ export function autoApplyBankLearnRules(
 
     if (canRegisterBankTxToCompanyLedger(tx) && !linkedPaymentBankTxIds.has(tx.id) && !linkedExpenseBankTxIds.has(tx.id)) {
       const ledgerRule = findBestBankLearnRule(tx, rules, fixedExpenses, ["fixed", "manual"]);
-      if (ledgerRule?.kind === "fixed" && ledgerRule.fixedExpenseId) {
+      if (ledgerRule?.kind === "fixed") {
         const prefill = buildCompanyExpensePrefillFromBankTransaction(tx);
-        const paymentId = makeLedgerId();
-        newPayments.push({
-          id: paymentId,
-          fixedExpenseId: ledgerRule.fixedExpenseId,
+        const fixedRow = ledgerRule.fixedExpenseId
+          ? fixedExpenses.find((row) => row.id === ledgerRule.fixedExpenseId)
+          : undefined;
+        const expenseId = makeLedgerId();
+        newExpenses.push({
+          id: expenseId,
           date: prefill.date,
+          category: fixedRow?.category || ledgerRule.category || guessExpenseCategory(prefill.description),
+          description: fixedRow?.name || prefill.description,
           amount: parseLedgerAmount(prefill.amount),
           memo: prefill.memo || prefill.description,
+          kind: "fixed",
           bankTransactionId: tx.id,
           createdBy: options.createdBy,
           createdAt: new Date().toISOString(),
         });
-        paymentLinks.set(tx.id, paymentId);
-        linkedPaymentBankTxIds.add(tx.id);
+        expenseLinks.set(tx.id, expenseId);
+        linkedExpenseBankTxIds.add(tx.id);
         continue;
       }
 
