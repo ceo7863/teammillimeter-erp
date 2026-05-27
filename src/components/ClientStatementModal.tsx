@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Download, X } from "lucide-react";
+import { Copy, Download, Link2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ClientStatementSheet } from "@/components/ClientStatementSheet";
 import { StatementA4Preview } from "@/components/StatementA4Preview";
 import { TableExportToolbar } from "@/components/TableExportSection";
 import { DEFAULT_COMPANY_PROFILE, type CompanyProfile } from "@/utils/companyProfile";
-import { archiveGeneratedPdf, sharePdfBlob } from "@/utils/pdfArchive";
+import { archiveGeneratedPdf, copyTextToClipboard, createPdfShareLink, sharePdfBlob } from "@/utils/pdfArchive";
 import type { ErpUser } from "@/utils/erpApi";
+import { isApiModeEnabled } from "@/utils/erpApi";
 import { formatKRW, getUnpaid } from "@/utils/receivables";
 import { createPdfPreviewWindow, downloadPdfFromHtmlElement, revokePdfBlobUrl } from "@/utils/statementPdf";
 import {
@@ -60,6 +61,7 @@ export function ClientStatementModal({
   const [clientStatementView, setClientStatementView] = useState<"summary" | "detail">("summary");
   const [pdfMessage, setPdfMessage] = useState("");
   const [pdfGenerating, setPdfGenerating] = useState(false);
+  const [statementShareLink, setStatementShareLink] = useState("");
   const clientPrintRef = useRef<HTMLDivElement>(null);
   const pdfBlobUrlRef = useRef("");
   const loggedDraftTokenRef = useRef("");
@@ -124,6 +126,7 @@ export function ClientStatementModal({
       loggedDraftTokenRef.current = "";
       setClientStatementView("summary");
       setPdfMessage("");
+      setStatementShareLink("");
     }
   }, [draft]);
 
@@ -226,6 +229,80 @@ export function ClientStatementModal({
     }
   };
 
+  const shareStatementDownloadLink = async () => {
+    const element = clientPrintRef.current;
+    if (!hasStatementData) {
+      setPdfMessage("\uB9C1\uD06C \uBCF4\uB0B4\uAE30 \uC804\uC5D0 \uB0B4\uC5ED\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694.");
+      return;
+    }
+    if (!element) {
+      setPdfMessage("PDF \uCD9C\uB825 \uC601\uC5ED\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+      return;
+    }
+
+    const safeName = String(draft.client).replace(/[\\/:*?"<>|]/g, "_");
+    const fileName = `\uC2DC\uACF5\uB0B4\uC5ED\uC11C_\uAC70\uB798\uCC98_${safeName}_${draft.startDate || "\uC804\uCCB4"}_${draft.endDate || "\uC804\uCCB4"}.pdf`;
+
+    revokePdfBlobUrl(pdfBlobUrlRef.current);
+    setPdfGenerating(true);
+    setPdfMessage("PDF \uC0DD\uC131 \uBC0F \uB9C1\uD06C \uC900\uBE44 \uC911...");
+    setStatementShareLink("");
+    pdfBlobUrlRef.current = "";
+
+    try {
+      const result = await downloadPdfFromHtmlElement(element, fileName, {
+        orientation: "portrait",
+        deliver: false,
+      });
+      pdfBlobUrlRef.current = result.blobUrl;
+      const archived = await archiveGeneratedPdf(result, {
+        category: "statement-client",
+        subjectName: draft.client,
+        periodStart: draft.startDate,
+        periodEnd: draft.endDate,
+        statementView: clientStatementView,
+        sentViaLink: true,
+        statementTotalAmount: clientStatementSummary.grandTotal,
+        paymentStatus: "pending",
+        statementSalesIds: filteredSales.map((row) => row.id).filter((id) => id != null && id !== "") as Array<string | number>,
+      });
+      if (setStatementFolders) {
+        const filedBy = currentUser?.name || currentUser?.loginId || "";
+        setStatementFolders((prev) => fileOrLinkPdfArchiveToFolders(prev, statementGenerationLogs, archived, filedBy));
+      }
+
+      if (isApiModeEnabled()) {
+        const shareLink = await createPdfShareLink(archived.id);
+        setStatementShareLink(shareLink.url);
+        const copied = await copyTextToClipboard(shareLink.url);
+        setPdfMessage(
+          copied
+            ? "PDF\uAC00 \uBCF4\uAD00\uD568\uC5D0 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uB2E4\uC6B4\uB85C\uB4DC \uB9C1\uD06C\uAC00 \uBCF5\uC0AC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uCE74\uD1A1 \uB4F1\uC5D0 \uBD99\uC5EC \uB123\uC73C\uC138\uC694."
+            : "PDF\uAC00 \uBCF4\uAD00\uD568\uC5D0 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uB2E4\uC6B4\uB85C\uB4DC \uB9C1\uD06C\uAC00 \uBCF5\uC0AC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. (\uC790\uB3D9 \uBCF5\uC0AC\uAC00 \uC9C0\uC6D0\uB418\uC9C0 \uC54A\uC544 \uC544\uB798 \uB9C1\uD06C\uB97C \uC9C1\uC811 \uBCF5\uC0AC\uD574 \uC8FC\uC138\uC694.)",
+        );
+      } else {
+        setPdfMessage("\uB9C1\uD06C \uBCF4\uB0B4\uAE30\uB294 \uC11C\uBC84 \uC5F0\uB3D9 \uBAA8\uB4DC\uC5D0\uC11C\uB9CC \uAC00\uB2A5\uD569\uB2C8\uB2E4. PDF\uB294 \uBCF4\uB0B4\uB0B4\uC5ED\uC11C\uD568\uC5D0 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4.");
+      }
+    } catch (error) {
+      console.error(error);
+      setPdfMessage(error instanceof Error ? error.message : "\uB9C1\uD06C \uBCF4\uB0B4\uAE30\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
+      setStatementShareLink("");
+    } finally {
+      setPdfGenerating(false);
+    }
+  };
+
+  const handleCopyStatementShareLink = async () => {
+    if (!statementShareLink) return;
+    try {
+      const copied = await copyTextToClipboard(statementShareLink);
+      setPdfMessage(copied ? "\uB9C1\uD06C\uAC00 \uBCF5\uC0AC\uB418\uC5C8\uC2B5\uB2C8\uB2E4." : "\uB9C1\uD06C \uBCF5\uC0AC\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
+    } catch (error) {
+      console.error(error);
+      setPdfMessage("\uB9C1\uD06C \uBCF5\uC0AC\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
+    }
+  };
+
   return (
     <div className="erp-ledger-modal-backdrop" onClick={onClose}>
       <div
@@ -282,6 +359,16 @@ export function ClientStatementModal({
                 </Button>
                 <Button
                   type="button"
+                  variant="outline"
+                  className="erp-statement-share-link-btn rounded-xl"
+                  disabled={pdfGenerating}
+                  onClick={() => void shareStatementDownloadLink()}
+                >
+                  <Link2 size={16} className="mr-1" />
+                  {pdfGenerating ? "..." : "\uB9C1\uD06C\uBCF4\uB0B4\uAE30"}
+                </Button>
+                <Button
+                  type="button"
                   className="erp-pdf-archive-kakao-btn rounded-xl"
                   disabled={pdfGenerating}
                   onClick={() => void shareKakao()}
@@ -300,7 +387,33 @@ export function ClientStatementModal({
               </div>
             </div>
 
-            {pdfMessage ? <p className="erp-statement-pdf-message mt-3">{pdfMessage}</p> : null}
+            {pdfMessage || statementShareLink ? (
+              <div className="erp-statement-status-row mt-3">
+                {pdfMessage ? <p className="erp-statement-pdf-message">{pdfMessage}</p> : null}
+                {statementShareLink ? (
+                  <div className="erp-statement-share-link-row">
+                    <a
+                      href={statementShareLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="erp-statement-share-link-url"
+                    >
+                      {statementShareLink}
+                    </a>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="rounded-lg"
+                      onClick={() => void handleCopyStatementShareLink()}
+                    >
+                      <Copy size={14} className="mr-1" />
+                      {"\uB9C1\uD06C \uBCF5\uC0AC"}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             <div className="erp-statement-preview-wrap erp-client-statement-modal-preview">
               <StatementA4Preview
