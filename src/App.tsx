@@ -50,7 +50,7 @@ import { Button } from "@/components/ui/button";
 import { fetchBundledErpSeed, parseErpExcelFile } from "@/utils/excelImport";
 import { buildAnalysisReport, buildClientPivotReport, buildMonthlyPivotReport, buildQuarterlyPivotReport, buildWorkerPivotReport, filterSalesByClient } from "@/utils/pivotReports";
 import { buildAnnualMonthlyDashboard, listDashboardYears } from "@/utils/dashboardAnnual";
-import { sortRowsByColumn, type SortDirection } from "@/utils/pivotSort";
+import { compareSortValues, sortRowsByColumn, type SortDirection } from "@/utils/pivotSort";
 import { useSaveMessage } from "@/hooks/useSaveMessage";
 import { AuditProvider, useAudit } from "@/context/AuditContext";
 import { AuditField, AuditCellHint, EntityAuditButton } from "@/components/AuditField";
@@ -806,6 +806,10 @@ function formatCalendarDayLabel(date) {
   return `${Number(monthText)}월 ${Number(dayText)}일 (${weekday})`;
 }
 
+function getSaleVoucherSortValue(sale) {
+  return parseVoucherSequence(getSaleVoucherLabel(sale)) ?? getSaleVoucherLabel(sale);
+}
+
 function buildCalendarDays(monthKey, sales, workers = []) {
   const [yearText, monthText] = monthKey.split("-");
   const year = Number(yearText);
@@ -830,6 +834,7 @@ function buildCalendarDays(monthKey, sales, workers = []) {
     acc[key].count += dayStats.count;
     acc[key].entries.push({
       saleId: sale.id,
+      voucherSortValue: getSaleVoucherSortValue(sale),
       client: String(sale.client || "").trim() || "(미지정)",
       site: String(sale.site || sale.memo || "").trim() || "현장명 없음",
       staff: dayStats.staff,
@@ -841,7 +846,7 @@ function buildCalendarDays(monthKey, sales, workers = []) {
   }, {});
 
   Object.values(statsByDate).forEach((day) => {
-    day.entries.sort((left, right) => left.client.localeCompare(right.client, "ko") || left.site.localeCompare(right.site, "ko"));
+    day.entries.sort((left, right) => compareSortValues(left.voucherSortValue, right.voucherSortValue, "asc"));
   });
 
   const cells = [];
@@ -2120,7 +2125,7 @@ type CalendarDaySortColumn = "voucher" | "client" | "site" | "worker" | "bill" |
 function getCalendarDaySortValue(sale, column: CalendarDaySortColumn) {
   switch (column) {
     case "voucher":
-      return parseVoucherSequence(getSaleVoucherLabel(sale)) ?? getSaleVoucherLabel(sale);
+      return getSaleVoucherSortValue(sale);
     case "client":
       return sale.client;
     case "site":
@@ -2150,7 +2155,7 @@ function CalendarPage({ sales, workers = [], onOpenVoucherEdit }) {
   const selectedDaySales = useMemo(() => {
     if (!selectedDate) return [];
     const rows = sales.filter((sale) => sale.date === selectedDate);
-    return sortRowsByColumn(rows, (sale) => getCalendarDaySortValue(sale, "client"), "asc");
+    return sortRowsByColumn(rows, (sale) => getCalendarDaySortValue(sale, "voucher"), "asc");
   }, [sales, selectedDate]);
 
   const selectedDayStats = useMemo(() => {
@@ -2312,7 +2317,14 @@ function CalendarPage({ sales, workers = [], onOpenVoucherEdit }) {
                 const cellBody = (
                   <>
                     <div className="erp-calendar-cell-head">
-                      <span className="erp-calendar-day">{cell.day}</span>
+                      <div className="erp-calendar-cell-head-start">
+                        <span className="erp-calendar-day">{cell.day}</span>
+                        {hasData ? (
+                          <span className="erp-calendar-cell-daily-sales" title="일매출">
+                            {formatKRW(cell.stats.bill)}
+                          </span>
+                        ) : null}
+                      </div>
                       {hasData ? (
                         <div className="erp-calendar-cell-badges">
                           <span className="erp-calendar-cell-badge is-staff">{cell.stats.staff}명</span>
@@ -2387,7 +2399,12 @@ function CalendarPage({ sales, workers = [], onOpenVoucherEdit }) {
                 <button type="button" className="erp-calendar-nav-btn" onClick={() => shiftSelectedDate(-1)} aria-label="이전 날짜">
                   <ChevronLeft size={18} />
                 </button>
-                <strong className="erp-calendar-side-panel-date">{formatCalendarDayLabel(selectedDate)}</strong>
+                <strong className="erp-calendar-side-panel-date">
+                  {formatCalendarDayLabel(selectedDate)}
+                  {selectedDayStats && selectedDayStats.bill > 0 ? (
+                    <span className="erp-calendar-side-panel-daily-sales"> · 일매출 {formatKRW(selectedDayStats.bill)}</span>
+                  ) : null}
+                </strong>
                 <button type="button" className="erp-calendar-nav-btn" onClick={() => shiftSelectedDate(1)} aria-label="다음 날짜">
                   <ChevronRight size={18} />
                 </button>

@@ -1096,6 +1096,29 @@ textarea {
   gap: 0.25rem;
 }
 
+.erp-calendar-cell-head-start {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.erp-calendar-cell-daily-sales {
+  font-size: 0.5625rem;
+  font-weight: 700;
+  color: #0f766e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.erp-calendar-side-panel-daily-sales {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #0f766e;
+}
+
 .erp-calendar-cell .erp-calendar-day {
   display: inline-flex;
   align-items: center;
