@@ -67,6 +67,7 @@ import { UsersAdminPage } from "@/components/UsersAdminPage";
 import { CompanyLedgerPage } from "@/components/CompanyLedgerPage";
 import { AttendancePage } from "@/components/AttendancePage";
 import { ClientCalendarPage } from "@/components/ClientCalendarPage";
+import { normalizeClientCalendarName } from "@/utils/clientCalendarStats";
 import { CompanyNoticeBoardPage } from "@/components/CompanyNoticeBoardPage";
 import { TaxInvoicePage } from "@/components/TaxInvoicePage";
 import { BankTransactionsPage } from "@/components/BankTransactionsPage";
@@ -2145,9 +2146,21 @@ function getCalendarDaySortValue(sale, column: CalendarDaySortColumn) {
   }
 }
 
-function CalendarPage({ sales, workers = [], onOpenVoucherEdit, onOpenClientCalendar }) {
+function CalendarPage({
+  sales,
+  workers = [],
+  clients = [],
+  paymentVouchers = [],
+  setPaymentVouchers,
+  setPaymentInputLogs,
+  currentUser,
+  onOpenVoucherEdit,
+  onOpenClientCalendarVoucherEdit,
+  onRequestClientStatement,
+}) {
   const [monthKey, setMonthKey] = useState(() => todayISO().slice(0, 7));
   const [selectedDate, setSelectedDate] = useState("");
+  const [filteredClient, setFilteredClient] = useState(null);
   const suppressCellClickUntilRef = useRef(0);
   const suppressSideClickUntilRef = useRef(0);
   const { cells, monthLabel } = useMemo(() => buildCalendarDays(monthKey, sales, workers), [monthKey, sales, workers]);
@@ -2179,6 +2192,19 @@ function CalendarPage({ sales, workers = [], onOpenVoucherEdit, onOpenClientCale
   useEffect(() => {
     if (selectedDate && !selectedDate.startsWith(monthKey)) setSelectedDate("");
   }, [monthKey, selectedDate]);
+
+  const applyClientFilter = (clientName, anchorDate) => {
+    const normalized = normalizeClientCalendarName(clientName);
+    setFilteredClient(normalized);
+    setSelectedDate("");
+    if (anchorDate && String(anchorDate).length >= 7) {
+      setMonthKey(String(anchorDate).slice(0, 7));
+    }
+  };
+
+  const clearClientFilter = () => {
+    setFilteredClient(null);
+  };
 
   const monthTotals = useMemo(() => {
     return cells.filter(Boolean).reduce(
@@ -2237,9 +2263,40 @@ function CalendarPage({ sales, workers = [], onOpenVoucherEdit, onOpenClientCale
   ];
 
   return (
-    <div className={`erp-page erp-calendar-page${selectedDate ? " has-side-panel" : ""}`}>
+    <div
+      className={`erp-page erp-calendar-page${filteredClient ? " is-client-filter erp-client-calendar-page" : ""}${!filteredClient && selectedDate ? " has-side-panel" : ""}`}
+    >
       <PageTitle title="캘린더" desc="월별 일자별 총인원·총시공비·시공자 지급액·마진·마진율을 확인합니다." />
 
+      {filteredClient ? (
+        <div className="erp-calendar-client-filter-bar mb-4">
+          <div className="erp-calendar-client-filter-label">
+            <span className="erp-calendar-client-filter-name">{filteredClient}</span>
+            <span className="erp-calendar-client-filter-meta">{monthLabel} · 거래처 필터</span>
+          </div>
+          <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={clearClientFilter}>
+            전체 보기
+          </Button>
+        </div>
+      ) : null}
+
+      {filteredClient ? (
+        <ClientCalendarPage
+          embedded
+          embeddedClient={filteredClient}
+          embeddedMonthKey={monthKey}
+          onEmbeddedMonthKeyChange={setMonthKey}
+          sales={sales}
+          clients={clients}
+          paymentVouchers={paymentVouchers}
+          setPaymentVouchers={setPaymentVouchers}
+          setPaymentInputLogs={setPaymentInputLogs}
+          currentUser={currentUser}
+          onRequestClientStatement={onRequestClientStatement}
+          onOpenVoucherEdit={onOpenClientCalendarVoucherEdit}
+        />
+      ) : (
+      <>
       <div className="erp-calendar-summary-grid">
         <SummaryCard compact title="월간 전표" value={`${monthTotals.count}건`} sub={monthLabel} />
         <SummaryCard compact title="총 인원" value={`${monthTotals.staff}명`} sub="인원 합계" />
@@ -2341,12 +2398,12 @@ function CalendarPage({ sales, workers = [], onOpenVoucherEdit, onOpenClientCale
                             key={`${cell.date}-${entry.saleId}`}
                             className="erp-calendar-cell-entry is-client-open"
                             style={{ borderLeftColor: entry.color }}
-                            title="더블클릭: 거래처 캘린더"
+                            title="더블클릭: 이 거래처만 보기"
                             onDoubleClick={(event) => {
                               event.stopPropagation();
                               event.preventDefault();
                               suppressCellClickUntilRef.current = Date.now() + 400;
-                              onOpenClientCalendar?.(entry.client, cell.date.slice(0, 7));
+                              applyClientFilter(entry.client, cell.date);
                             }}
                           >
                             <span className="erp-calendar-cell-entry-label">
@@ -2392,7 +2449,7 @@ function CalendarPage({ sales, workers = [], onOpenVoucherEdit, onOpenClientCale
               <span className="erp-calendar-legend-item">
                 <i className="erp-calendar-legend-dot is-selected" /> 선택 (날짜 클릭)
               </span>
-              <span className="erp-calendar-legend-item">거래처/현장명 더블클릭 → 거래처 캘린더</span>
+              <span className="erp-calendar-legend-item">거래처/현장명 더블클릭 → 거래처 필터</span>
             </div>
           </CardContent>
         </Card>
@@ -2469,7 +2526,7 @@ function CalendarPage({ sales, workers = [], onOpenVoucherEdit, onOpenClientCale
                         <button
                           type="button"
                           className="erp-calendar-side-card"
-                          title="클릭: 전표 수정 · 더블클릭: 거래처 캘린더"
+                          title="클릭: 전표 수정 · 더블클릭: 이 거래처만 보기"
                           onClick={() => {
                             if (Date.now() < suppressSideClickUntilRef.current) return;
                             onOpenVoucherEdit?.(sale.id);
@@ -2478,7 +2535,7 @@ function CalendarPage({ sales, workers = [], onOpenVoucherEdit, onOpenClientCale
                             event.stopPropagation();
                             event.preventDefault();
                             suppressSideClickUntilRef.current = Date.now() + 400;
-                            onOpenClientCalendar?.(sale.client, selectedDate.slice(0, 7));
+                            applyClientFilter(sale.client, selectedDate);
                           }}
                         >
                           <span className="erp-calendar-side-card-bar" style={{ backgroundColor: color }} aria-hidden="true" />
@@ -2504,6 +2561,8 @@ function CalendarPage({ sales, workers = [], onOpenVoucherEdit, onOpenClientCale
           </>
         ) : null}
       </div>
+      </>
+      )}
     </div>
   );
 }
@@ -5220,14 +5279,32 @@ export default function TeammillimeterErpMvp() {
           <CalendarPage
             sales={appliedSales}
             workers={workers}
+            clients={clients}
+            paymentVouchers={paymentVouchers}
+            setPaymentVouchers={setPaymentVouchers}
+            setPaymentInputLogs={setPaymentInputLogs}
+            currentUser={currentUser}
             onOpenVoucherEdit={(saleId) => {
               setPendingVoucherEditId(saleId);
               setActive("salesVoucherSearch");
             }}
-            onOpenClientCalendar={(clientName, monthKey) => {
-              setPendingClientCalendarClient(clientName);
-              setPendingClientCalendarMonthKey(monthKey || null);
-              setActive("clientCalendar");
+            onOpenClientCalendarVoucherEdit={({ client: clientName, date, saleIds }) => {
+              if (saleIds.length === 1) {
+                setPendingVoucherSearchFilter(null);
+                setPendingVoucherEditId(saleIds[0]);
+              } else {
+                setPendingVoucherEditId(null);
+                setPendingVoucherSearchFilter({
+                  client: clientName,
+                  startDate: date,
+                  endDate: date,
+                });
+              }
+              setActive("salesVoucherSearch");
+            }}
+            onRequestClientStatement={(draft) => {
+              setStatementDraft(draft);
+              setActive("statements");
             }}
           />
         </PageKeepAlive>

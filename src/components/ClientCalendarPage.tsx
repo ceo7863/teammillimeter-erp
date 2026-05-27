@@ -111,6 +111,10 @@ type ClientCalendarPageProps = {
   pendingClient?: string | null;
   pendingMonthKey?: string | null;
   onPendingClientConsumed?: () => void;
+  embedded?: boolean;
+  embeddedClient?: string | null;
+  embeddedMonthKey?: string;
+  onEmbeddedMonthKeyChange?: (monthKey: string) => void;
 };
 
 function PageTitle({ title, desc }: { title: string; desc: string }) {
@@ -307,6 +311,10 @@ export function ClientCalendarPage({
   pendingClient = null,
   pendingMonthKey = null,
   onPendingClientConsumed,
+  embedded = false,
+  embeddedClient = null,
+  embeddedMonthKey,
+  onEmbeddedMonthKeyChange,
 }: ClientCalendarPageProps) {
   const { recordAudit } = useAudit();
   const [monthKey, setMonthKey] = useState(() => todayISO().slice(0, 7));
@@ -337,6 +345,19 @@ export function ClientCalendarPage({
     });
     onPendingClientConsumed?.();
   }, [pendingClient, pendingMonthKey, onPendingClientConsumed, showNotice]);
+
+  useEffect(() => {
+    if (!embedded) return;
+    const name = String(embeddedClient || "").trim();
+    if (!name) return;
+    setClient(normalizeClientName(name));
+    setSelectedDates([]);
+  }, [embedded, embeddedClient]);
+
+  useEffect(() => {
+    if (!embedded || !embeddedMonthKey) return;
+    if (/^\d{4}-\d{2}$/.test(embeddedMonthKey)) setMonthKey(embeddedMonthKey);
+  }, [embedded, embeddedMonthKey]);
 
   const clientOptions = useMemo(() => {
     const fromMaster = clients.map((row) => String(row.name || "").trim()).filter(Boolean);
@@ -505,7 +526,9 @@ export function ClientCalendarPage({
   const shiftMonth = (delta: number) => {
     const [yearText, monthText] = monthKey.split("-");
     const date = new Date(Number(yearText), Number(monthText) - 1 + delta, 1);
-    setMonthKey(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`);
+    const nextKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    setMonthKey(nextKey);
+    onEmbeddedMonthKeyChange?.(nextKey);
   };
 
   const toggleDate = (date: string) => {
@@ -707,7 +730,7 @@ export function ClientCalendarPage({
   ];
 
   return (
-    <div className="erp-page erp-calendar-page erp-client-calendar-page">
+    <div className={embedded ? "erp-client-calendar-embedded" : "erp-page erp-calendar-page erp-client-calendar-page"}>
       {paymentCancelPreview ? (
         <div className="erp-ledger-modal-backdrop" onClick={closePaymentCancelConfirm}>
           <div
@@ -807,6 +830,8 @@ export function ClientCalendarPage({
         </div>
       ) : null}
 
+      {!embedded ? (
+      <>
       <PageTitle
         title="거래처캘린더"
         desc="거래처별 일자 매출 전표, 현장명, 미수금 상태를 확인하고 선택한 날짜의 시공비내역서 생성·입금 처리를 할 수 있습니다."
@@ -904,6 +929,8 @@ export function ClientCalendarPage({
           )}
         </CardContent>
       </Card>
+      </>
+      ) : null}
 
       {client ? (
         <div className="erp-calendar-summary-grid mb-4">
@@ -960,7 +987,11 @@ export function ClientCalendarPage({
               variant="outline"
               size="sm"
               className="erp-calendar-today-btn rounded-xl"
-              onClick={() => setMonthKey(todayISO().slice(0, 7))}
+              onClick={() => {
+                const nextKey = todayISO().slice(0, 7);
+                setMonthKey(nextKey);
+                onEmbeddedMonthKeyChange?.(nextKey);
+              }}
             >
               이번 달
             </Button>
