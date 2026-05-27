@@ -50,7 +50,7 @@ import {
   listClientsWithStatementRows,
 } from "@/utils/statementSheets";
 import { buildWorkerStatementSummary, listWorkersWithPaymentRows, type SaleLike } from "@/utils/workerPayments";
-import { getUnpaid, parseMoney } from "@/utils/receivables";
+import { getUnpaid, parseMoney, todayISO } from "@/utils/receivables";
 import {
   clearStatementDraftStash,
   peekStatementDraft,
@@ -332,6 +332,7 @@ export function StatementsPage({
   const [worker, setWorker] = useState("");
   const [dateFilter, setDateFilter] = useState({ startDate: "", endDate: "" });
   const [clientStatementGenerated, setClientStatementGenerated] = useState(false);
+  const [clientStatementIssuedDate, setClientStatementIssuedDate] = useState("");
   const [workerStatementGenerated, setWorkerStatementGenerated] = useState(false);
   const [statementHint, setStatementHint] = useState("");
   const [folderMessage, setFolderMessage] = useState("");
@@ -390,6 +391,7 @@ export function StatementsPage({
     setClientStatementView("summary");
     setWorkerStatementGenerated(false);
     setClientStatementGenerated(false);
+    setClientStatementIssuedDate("");
     autoGeneratePendingRef.current = Boolean(incoming.autoGenerate);
 
     window.setTimeout(() => {
@@ -417,6 +419,7 @@ export function StatementsPage({
     if (restoringHistoryRef.current) return;
     if (restrictedSaleIdsRef.current.length) return;
     setClientStatementGenerated(false);
+    setClientStatementIssuedDate("");
     setStatementHint("");
     setPdfMessage("");
     setStatementShareLink("");
@@ -645,6 +648,7 @@ export function StatementsPage({
 
     setStatementHint(shouldFilterUnpaid ? L.unpaidOnlyHint(rows.length) : "");
     setPdfMessage("");
+    setClientStatementIssuedDate(todayISO());
     setClientStatementGenerated(true);
     recordGenerationLog("client", client, rows.length);
     clearStatementDraftStash();
@@ -666,6 +670,7 @@ export function StatementsPage({
       setStatementHint(shouldFilterUnpaid ? L.unpaidOnlyHint(clientRows.length) : "");
       setPdfMessage("");
       setStatementShareLink("");
+      setClientStatementIssuedDate(todayISO());
       setClientStatementGenerated(true);
       recordGenerationLog("client", client, clientRows.length);
       return;
@@ -860,6 +865,7 @@ export function StatementsPage({
     startDate: string;
     endDate: string;
     clientStatementView?: StatementGenerationLog["clientStatementView"];
+    createdAt?: string;
   }) => {
     restoringHistoryRef.current = true;
     setActivePageTab("create");
@@ -872,12 +878,14 @@ export function StatementsPage({
     if (input.statementType === "client") {
       setClient(input.subjectName);
       setClientStatementView(input.clientStatementView || "summary");
+      setClientStatementIssuedDate(input.createdAt?.slice(0, 10) || todayISO());
       setClientStatementGenerated(true);
       setWorkerStatementGenerated(false);
     } else {
       setWorker(input.subjectName);
       setWorkerStatementGenerated(true);
       setClientStatementGenerated(false);
+      setClientStatementIssuedDate("");
     }
 
     window.setTimeout(() => {
@@ -887,7 +895,15 @@ export function StatementsPage({
 
   const openFolderStatement = (item: StatementFolderItem) => {
     const log = statementGenerationLogs.find((row) => row.id === item.generationLogId);
-    restoreStatementSnapshot(log ?? item);
+    const snapshot = log ?? item;
+    restoreStatementSnapshot({
+      statementType: snapshot.statementType,
+      subjectName: snapshot.subjectName,
+      startDate: snapshot.startDate,
+      endDate: snapshot.endDate,
+      clientStatementView: snapshot.clientStatementView,
+      createdAt: log?.createdAt ?? item.logCreatedAt,
+    });
   };
 
   const removeFolderItem = (folderId: string, itemId: string) => {
@@ -1758,6 +1774,7 @@ export function StatementsPage({
                     companyProfile={companyProfile}
                     periodStart={dateFilter.startDate || String(clientRows[0]?.date || "")}
                     periodEnd={dateFilter.endDate || String(clientRows[clientRows.length - 1]?.date || "")}
+                    issuedDate={clientStatementGenerated ? clientStatementIssuedDate : undefined}
                     summary={clientStatementSummary}
                     rows={clientDisplayRows}
                     emptyMessage={L.emptyClientRows}

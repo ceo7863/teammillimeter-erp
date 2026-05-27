@@ -20,6 +20,7 @@ type ClientStatementSheetProps = {
   companyProfile?: CompanyProfile;
   periodStart?: string;
   periodEnd?: string;
+  issuedDate?: string;
   summary: ClientStatementSummary;
   rows: ClientStatementDisplayRow[];
   emptyMessage?: string;
@@ -76,6 +77,7 @@ export const ClientStatementSheet = React.forwardRef<HTMLDivElement, ClientState
     companyProfile,
     periodStart = "",
     periodEnd = "",
+    issuedDate,
     summary,
     rows,
     emptyMessage = "표시할 거래처 내역이 없습니다.",
@@ -97,11 +99,12 @@ export const ClientStatementSheet = React.forwardRef<HTMLDivElement, ClientState
         companyProfile,
         periodStart,
         periodEnd,
+        issuedDate,
         summary,
         rows,
         emptyMessage,
       }),
-    [clientInfo, clientName, companyProfile, emptyMessage, periodEnd, periodStart, rows, summary]
+    [clientInfo, clientName, companyProfile, emptyMessage, issuedDate, periodEnd, periodStart, rows, summary]
   );
 
   return (
@@ -155,6 +158,13 @@ export const ClientStatementSheet = React.forwardRef<HTMLDivElement, ClientState
             <td className="label">총합계</td>
             <td className="amount">{formatKRW(summary.grandTotal)}</td>
           </tr>
+          {issuedDate ? (
+            <tr>
+              <td className="label">{"\uC791\uC131\uC77C"}</td>
+              <td colSpan={3}>{formatStatementDate(issuedDate)}</td>
+              <td colSpan={2} />
+            </tr>
+          ) : null}
         </tbody>
       </table>
 

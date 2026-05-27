@@ -109,6 +109,7 @@ export function buildClientStatementExcelPayload(input: {
   companyProfile?: CompanyProfile;
   periodStart?: string;
   periodEnd?: string;
+  issuedDate?: string;
   summary: ClientStatementSummary;
   rows: ClientStatementDisplayRow[];
   emptyMessage?: string;
@@ -130,6 +131,7 @@ export function buildClientStatementExcelPayload(input: {
       bankAccount,
       periodStart: formatStatementDate(input.periodStart || ""),
       periodEnd: formatStatementDate(input.periodEnd || ""),
+      issuedDate: formatStatementDate(input.issuedDate || ""),
       subtotal: formatKRW(input.summary.subtotal),
       vatAmount: formatKRW(input.summary.vatAmount),
       grandTotal: formatKRW(input.summary.grandTotal),

@@ -34,6 +34,7 @@ export type ClientStatementExcelPayload = {
     bankAccount: string;
     periodStart: string;
     periodEnd: string;
+    issuedDate: string;
     subtotal: string;
     vatAmount: string;
     grandTotal: string;

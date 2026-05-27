@@ -8,7 +8,7 @@ import { DEFAULT_COMPANY_PROFILE, type CompanyProfile } from "@/utils/companyPro
 import { archiveGeneratedPdf, copyTextToClipboard, createPdfShareLink, sharePdfBlob } from "@/utils/pdfArchive";
 import type { ErpUser } from "@/utils/erpApi";
 import { isApiModeEnabled } from "@/utils/erpApi";
-import { formatKRW, getUnpaid } from "@/utils/receivables";
+import { formatKRW, getUnpaid, todayISO } from "@/utils/receivables";
 import { createPdfPreviewWindow, downloadPdfFromHtmlElement, revokePdfBlobUrl } from "@/utils/statementPdf";
 import {
   appendStatementGenerationLog,
@@ -62,6 +62,7 @@ export function ClientStatementModal({
   const [pdfMessage, setPdfMessage] = useState("");
   const [pdfGenerating, setPdfGenerating] = useState(false);
   const [statementShareLink, setStatementShareLink] = useState("");
+  const [issuedDate, setIssuedDate] = useState("");
   const clientPrintRef = useRef<HTMLDivElement>(null);
   const pdfBlobUrlRef = useRef("");
   const loggedDraftTokenRef = useRef("");
@@ -103,6 +104,7 @@ export function ClientStatementModal({
     const token = JSON.stringify(draft);
     if (loggedDraftTokenRef.current === token) return;
     loggedDraftTokenRef.current = token;
+    setIssuedDate(todayISO());
 
     const log = createStatementGenerationLog({
       statementType: "client",
@@ -127,6 +129,7 @@ export function ClientStatementModal({
       setClientStatementView("summary");
       setPdfMessage("");
       setStatementShareLink("");
+      setIssuedDate("");
     }
   }, [draft]);
 
@@ -426,6 +429,7 @@ export function ClientStatementModal({
                   companyProfile={companyProfile}
                   periodStart={draft.startDate || String(clientRows[0]?.date || "")}
                   periodEnd={draft.endDate || String(clientRows[clientRows.length - 1]?.date || "")}
+                  issuedDate={issuedDate || undefined}
                   summary={clientStatementSummary}
                   rows={clientDisplayRows}
                   emptyMessage={"\uC120\uD0DD\uD55C \uAE30\uAC04\uC5D0 \uD574\uB2F9 \uAC70\uB798\uCC98 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."}

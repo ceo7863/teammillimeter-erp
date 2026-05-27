@@ -159,6 +159,9 @@ function writeClientMeta(ws: XLSX.WorkSheet, merges: XLSX.Range[], row: number, 
     "총합계",
     payload.meta.grandTotal
   );
+  if (payload.meta.issuedDate) {
+    row = writeMetaRow(ws, merges, row, lastCol, "작성일", payload.meta.issuedDate, "", "");
+  }
   return row + 1;
 }
 
