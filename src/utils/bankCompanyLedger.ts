@@ -528,7 +528,9 @@ export function buildMemoCategorySuggestionMap(
 
   const memoSources = withdrawalTxs.flatMap((tx) => {
     const category = resolveMemoLearnCategory(tx.memo, categories);
-    return category ? [{ tx, category }] : [];
+    return category
+      ? [{ tx, category, fingerprints: extractBankTransactionMerchantFingerprints(tx) }]
+      : [];
   });
 
   if (!memoSources.length && !memoRules.length) return map;
@@ -543,9 +545,11 @@ export function buildMemoCategorySuggestionMap(
       bestCategory = ownCategory;
     }
 
+    const targetFingerprints = bestScore >= 18 ? [] : extractBankTransactionMerchantFingerprints(target);
+
     for (const source of memoSources) {
       if (source.tx.id === target.id) continue;
-      if (!bankTransactionsShareMerchantFingerprint(source.tx, target)) continue;
+      if (!merchantFingerprintsOverlap(source.fingerprints, targetFingerprints)) continue;
       const score = 16;
       if (score > bestScore) {
         bestScore = score;

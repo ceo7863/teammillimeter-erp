@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, startTransition } from "react";
 import {
   ArrowDownLeft,
   ArrowLeftRight,
@@ -585,6 +585,77 @@ function buildLedgerLinkDefaults(
   return { linkMode: "link" as const, linkPaymentId: linkable[0].id };
 }
 
+const MEMO_CLASSIFICATION_DEBOUNCE_MS = 220;
+const MEMO_PERSIST_DEBOUNCE_MS = 450;
+
+const BankTransactionMemoInput = React.memo(function BankTransactionMemoInput({
+  transactionId,
+  savedMemo,
+  placeholder,
+  className,
+  onClassificationDraft,
+  onPersist,
+}: {
+  transactionId: string;
+  savedMemo: string;
+  placeholder: string;
+  className: string;
+  onClassificationDraft: (transactionId: string, memo: string) => void;
+  onPersist: (transactionId: string, memo: string) => void;
+}) {
+  const [value, setValue] = useState(savedMemo);
+  const classificationTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const persistTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    setValue(savedMemo);
+  }, [transactionId, savedMemo]);
+
+  useEffect(() => {
+    return () => {
+      if (classificationTimerRef.current) clearTimeout(classificationTimerRef.current);
+      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    };
+  }, []);
+
+  const scheduleClassificationDraft = (next: string) => {
+    if (classificationTimerRef.current) clearTimeout(classificationTimerRef.current);
+    classificationTimerRef.current = setTimeout(() => {
+      onClassificationDraft(transactionId, next);
+    }, MEMO_CLASSIFICATION_DEBOUNCE_MS);
+  };
+
+  const schedulePersist = (next: string) => {
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    persistTimerRef.current = setTimeout(() => {
+      onPersist(transactionId, next);
+    }, MEMO_PERSIST_DEBOUNCE_MS);
+  };
+
+  const flush = (next: string) => {
+    if (classificationTimerRef.current) clearTimeout(classificationTimerRef.current);
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    onClassificationDraft(transactionId, next);
+    onPersist(transactionId, next);
+  };
+
+  return (
+    <input
+      className={className}
+      value={value}
+      placeholder={placeholder}
+      onChange={(event) => {
+        const next = event.target.value;
+        setValue(next);
+        scheduleClassificationDraft(next);
+        schedulePersist(next);
+      }}
+      onBlur={(event) => flush(event.target.value)}
+      onClick={(event) => event.stopPropagation()}
+    />
+  );
+});
+
 export function BankTransactionsPage({
   bankTransactions,
   setBankTransactions,
@@ -711,8 +782,7 @@ export function BankTransactionsPage({
   const [preauthNetModalOpen, setPreauthNetModalOpen] = useState(false);
   const [selectedPreauthGroupKeys, setSelectedPreauthGroupKeys] = useState<string[]>([]);
   const [learnPreauthMerchants, setLearnPreauthMerchants] = useState(true);
-  const [memoDraftByTxId, setMemoDraftByTxId] = useState<Record<string, string>>({});
-  const memoPersistTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const [memoClassificationDraftByTxId, setMemoClassificationDraftByTxId] = useState<Record<string, string>>({});
   const importLedgerBatchIdsRef = useRef<Set<string>>(new Set());
   const [sentArchives, setSentArchives] = useState<PdfArchiveMeta[]>([]);
   const ibkInputRef = useRef<HTMLInputElement>(null);
@@ -778,16 +848,16 @@ export function BankTransactionsPage({
   const bankTransactionsForClassification = useMemo(
     () =>
       bankTransactions.map((tx) => {
-        const draft = memoDraftByTxId[tx.id];
+        const draft = memoClassificationDraftByTxId[tx.id];
         if (draft === undefined) return tx;
         return { ...tx, memo: draft || undefined };
       }),
-    [bankTransactions, memoDraftByTxId],
+    [bankTransactions, memoClassificationDraftByTxId],
   );
 
   const pendingSmartLedger = useMemo(
     () =>
-      countPendingSmartLedger(bankTransactionsForClassification, {
+      countPendingSmartLedger(bankTransactions, {
         ...ledgerRegistrationContext,
         rules: bankLedgerRules,
         fixedExpenses,
@@ -796,7 +866,7 @@ export function BankTransactionsPage({
         clients,
       }),
     [
-      bankTransactionsForClassification,
+      bankTransactions,
       ledgerRegistrationContext,
       bankLedgerRules,
       fixedExpenses,
@@ -1905,63 +1975,59 @@ export function BankTransactionsPage({
     });
   };
 
-  const updateTransactionMemo = (transactionId: string, memo: string) => {
-    const tx = bankTransactions.find((row) => row.id === transactionId);
-    if (!tx) return;
-    const nextRow = { ...tx, memo: memo || undefined };
-    if (String(tx.memo || "") !== String(nextRow.memo || "")) {
-      auditBankTxUpdate(tx, nextRow);
-    }
-    setBankTransactions((prev) =>
-      prev.map((row) =>
-        row.id === transactionId ? nextRow : row
-      )
-    );
-
-    const category = resolveMemoLearnCategory(memo, expenseCategories);
-    if (category && Number(tx.withdrawal || 0) > 0) {
-      setExpenseCategories((prev) => mergeExpenseCategory(prev, category));
-      setBankLedgerRules((prev) =>
-        upsertBankLearnRule(prev, buildBankLearnRuleFromMemoCategory(nextRow, category, savedBy)),
-      );
-    }
-  };
-
-  const flushTransactionMemo = (transactionId: string) => {
-    const timers = memoPersistTimersRef.current;
-    if (timers[transactionId]) {
-      clearTimeout(timers[transactionId]);
-      delete timers[transactionId];
-    }
-    const draft = memoDraftByTxId[transactionId];
-    if (draft === undefined) return;
-    updateTransactionMemo(transactionId, draft);
-    setMemoDraftByTxId((prev) => {
-      if (prev[transactionId] === undefined) return prev;
-      const next = { ...prev };
-      delete next[transactionId];
-      return next;
+  const handleMemoClassificationDraft = React.useCallback((transactionId: string, memo: string) => {
+    startTransition(() => {
+      setMemoClassificationDraftByTxId((prev) => {
+        if (prev[transactionId] === memo) return prev;
+        return { ...prev, [transactionId]: memo };
+      });
     });
-  };
-
-  const handleTransactionMemoChange = (transactionId: string, memo: string) => {
-    setMemoDraftByTxId((prev) => ({ ...prev, [transactionId]: memo }));
-    const timers = memoPersistTimersRef.current;
-    if (timers[transactionId]) clearTimeout(timers[transactionId]);
-    timers[transactionId] = setTimeout(() => {
-      delete timers[transactionId];
-      updateTransactionMemo(transactionId, memo);
-    }, 350);
-  };
-
-  useEffect(() => {
-    return () => {
-      const timers = memoPersistTimersRef.current;
-      for (const timer of Object.values(timers)) clearTimeout(timer);
-    };
   }, []);
 
-  const getTransactionMemoValue = (row: BankTransaction) => memoDraftByTxId[row.id] ?? row.memo ?? "";
+  const handleMemoPersist = React.useCallback(
+    (transactionId: string, memo: string) => {
+      const tx = bankTransactions.find((row) => row.id === transactionId);
+      if (!tx) return;
+      const nextRow = { ...tx, memo: memo || undefined };
+      if (String(tx.memo || "") === String(nextRow.memo || "")) {
+        setMemoClassificationDraftByTxId((prev) => {
+          if (prev[transactionId] === undefined) return prev;
+          const next = { ...prev };
+          delete next[transactionId];
+          return next;
+        });
+        return;
+      }
+      auditBankTxUpdate(tx, nextRow);
+      setBankTransactions((prev) =>
+        prev.map((row) => (row.id === transactionId ? nextRow : row)),
+      );
+
+      const category = resolveMemoLearnCategory(memo, expenseCategories);
+      if (category && Number(tx.withdrawal || 0) > 0) {
+        setExpenseCategories((prev) => mergeExpenseCategory(prev, category));
+        setBankLedgerRules((prev) =>
+          upsertBankLearnRule(prev, buildBankLearnRuleFromMemoCategory(nextRow, category, savedBy)),
+        );
+      }
+
+      setMemoClassificationDraftByTxId((prev) => {
+        if (prev[transactionId] === undefined) return prev;
+        const next = { ...prev };
+        delete next[transactionId];
+        return next;
+      });
+    },
+    [
+      bankTransactions,
+      expenseCategories,
+      savedBy,
+      setBankTransactions,
+      setExpenseCategories,
+      setBankLedgerRules,
+      currentUser,
+    ],
+  );
 
   const runAutoClassify = () => {
     const result = autoClassifyBankTransactions(bankTransactions, clients, workers, bankTransactionFolders);
@@ -3340,13 +3406,13 @@ export function BankTransactionsPage({
         <td className="text-right font-bold text-slate-900">{formatKRW(row.balanceAfter)}</td>
         <td>{renderTransactionDescription(row)}</td>
         <td>
-          <input
-            className="erp-input erp-input-compact min-w-[8rem] max-w-[14rem]"
-            value={getTransactionMemoValue(row)}
+          <BankTransactionMemoInput
+            transactionId={row.id}
+            savedMemo={row.memo || ""}
             placeholder={L.memoPlaceholder}
-            onChange={(event) => handleTransactionMemoChange(row.id, event.target.value)}
-            onBlur={() => flushTransactionMemo(row.id)}
-            onClick={(event) => event.stopPropagation()}
+            className="erp-input erp-input-compact min-w-[8rem] max-w-[14rem]"
+            onClassificationDraft={handleMemoClassificationDraft}
+            onPersist={handleMemoPersist}
           />
         </td>
         <td className="text-slate-700">
@@ -3618,12 +3684,13 @@ export function BankTransactionsPage({
         {
           label: L.memo,
           value: (
-            <input
-              className="erp-input erp-input-compact w-full min-w-0 text-right"
-              value={getTransactionMemoValue(row)}
+            <BankTransactionMemoInput
+              transactionId={row.id}
+              savedMemo={row.memo || ""}
               placeholder={L.memoPlaceholder}
-              onChange={(event) => handleTransactionMemoChange(row.id, event.target.value)}
-              onBlur={() => flushTransactionMemo(row.id)}
+              className="erp-input erp-input-compact w-full min-w-0 text-right"
+              onClassificationDraft={handleMemoClassificationDraft}
+              onPersist={handleMemoPersist}
             />
           ),
         },
