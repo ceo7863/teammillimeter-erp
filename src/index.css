@@ -73,6 +73,14 @@ textarea {
   border-radius: 0.45rem;
 }
 
+.erp-input-compact--locked,
+.erp-input.erp-input-compact--locked:disabled {
+  background: #f8fafc;
+  color: #475569;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
 .erp-table .erp-input,
 .erp-table .erp-date-input-trigger,
 .erp-table select {

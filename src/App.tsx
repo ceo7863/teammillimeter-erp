@@ -518,6 +518,7 @@ function SaleFormCompactEditor({
   showPaidField = true,
   memoAfterWorkers = false,
   onSharedMemoChange,
+  lockClientSite = false,
 }) {
   const footerStatus = saveMessage || statusMessage || (canSave
     ? `${form.client}${form.site ? ` · ${form.site}` : ""} · ${formatKRW(totals.bill)}`
@@ -584,17 +585,31 @@ function SaleFormCompactEditor({
               </div>
             </SaleFormField>
             <SaleFormField label="거래처" icon={Building2}>
-              <AutocompleteInput
-                value={form.client}
-                options={clients}
-                onChange={(value) => update("client", value)}
-                placeholder="거래처"
-                inputProps={{ className: "erp-input-compact" }}
-                renderSub={(client) => `${client.manager || "담당자 없음"} · ${formatKRW(client.constructionCost || 0)}`}
-              />
+              {lockClientSite ? (
+                <Input className="erp-input-compact erp-input-compact--locked" value={form.client} readOnly disabled />
+              ) : (
+                <AutocompleteInput
+                  value={form.client}
+                  options={clients}
+                  onChange={(value) => update("client", value)}
+                  placeholder="거래처"
+                  freeSolo={false}
+                  inputProps={{ className: "erp-input-compact" }}
+                  renderSub={(client) => `${client.manager || "담당자 없음"} · ${formatKRW(client.constructionCost || 0)}`}
+                />
+              )}
             </SaleFormField>
             <SaleFormField label="현장" icon={MapPin}>
-              <Input className="erp-input-compact" data-sale-form-site="true" value={form.site} onChange={(e) => update("site", e.target.value)} onKeyDown={handleSiteKeyDown} placeholder="현장명" />
+              <Input
+                className={`erp-input-compact${lockClientSite ? " erp-input-compact--locked" : ""}`}
+                data-sale-form-site="true"
+                value={form.site}
+                onChange={(e) => update("site", e.target.value)}
+                onKeyDown={lockClientSite ? undefined : handleSiteKeyDown}
+                placeholder="현장명"
+                readOnly={lockClientSite}
+                disabled={lockClientSite}
+              />
             </SaleFormField>
             {showPaidField && (
               <SaleFormField label="입금" icon={CreditCard}>
@@ -737,7 +752,7 @@ function SaleFormCompactEditor({
               ) : (
                 <>
                   <AlertCircle size={14} className="text-amber-500" />
-                  <span>거래처·현장·청구액 입력 필요</span>
+                  <span>등록된 거래처·시공자 선택 및 현장·청구액 입력 필요</span>
                 </>
               )}
             </div>
@@ -1471,6 +1486,11 @@ function WorkerGridWorkerInput({ rowIndex, rowCount, workers, value, onChange, p
         }}
         onBlur={(event) => {
           setTimeout(() => setMenuOpen(false), 150);
+          const trimmed = String(value ?? "").trim();
+          if (trimmed && !findActiveWorkerByName(workers, trimmed)) {
+            onChange("");
+            syncFilterQuery("");
+          }
           onBlur?.(event);
         }}
         onKeyDown={(event) => {
@@ -1613,6 +1633,53 @@ function getInactiveWorkerNamesInForm(form, workers) {
       .map((line) => String(line.worker || "").trim())
       .filter((name) => name && inactiveNames.has(name))
   )];
+}
+
+function findRegisteredClientByName(clients, name) {
+  const trimmed = String(name || "").trim();
+  if (!trimmed) return undefined;
+  return clients.find((client) => client.name === trimmed);
+}
+
+function getUnknownWorkerNamesInForm(form, workers) {
+  const knownNames = new Set(
+    workers
+      .map((worker) => String(worker.name || "").trim())
+      .filter(Boolean)
+  );
+  return [...new Set(
+    (form.workers || [])
+      .map((line) => String(line.worker || "").trim())
+      .filter((name) => name && !knownNames.has(name))
+  )];
+}
+
+function validateSaleFormMasterRefs(form, clients, workers) {
+  const clientName = String(form.client || "").trim();
+  if (clientName && !findRegisteredClientByName(clients, clientName)) {
+    return "등록된 거래처만 선택할 수 있습니다.";
+  }
+
+  const inactiveWorkers = getInactiveWorkerNamesInForm(form, workers);
+  if (inactiveWorkers.length > 0) {
+    return `비활성 시공자는 매출등록에 사용할 수 없습니다: ${inactiveWorkers.join(", ")}`;
+  }
+
+  const unknownWorkers = getUnknownWorkerNamesInForm(form, workers);
+  if (unknownWorkers.length > 0) {
+    return `등록된 시공자만 선택할 수 있습니다: ${unknownWorkers.join(", ")}`;
+  }
+
+  const hasRegisteredActiveWorker = (form.workers || []).some((line) => findActiveWorkerByName(workers, line.worker));
+  if (!hasRegisteredActiveWorker) {
+    return "등록된 활성 시공자를 한 명 이상 선택해 주세요.";
+  }
+
+  return "";
+}
+
+function isSaleFormMasterRefsValid(form, clients, workers) {
+  return validateSaleFormMasterRefs(form, clients, workers) === "";
 }
 
 function SummaryCard({ title, value, sub, tone = "default", icon: Icon, compact = false }) {
@@ -2819,10 +2886,20 @@ function CalendarPage({
     () => voucherForm.workers.filter((line) => String(line.worker || "").trim()).length,
     [voucherForm.workers],
   );
-  const canSaveVoucher = Boolean(voucherForm.client.trim() && voucherForm.site.trim() && voucherFormTotals.bill > 0);
+  const canSaveVoucher = Boolean(
+    voucherForm.client.trim()
+    && voucherForm.site.trim()
+    && voucherFormTotals.bill > 0
+    && isSaleFormMasterRefsValid(voucherForm, clients, workers)
+  );
 
   const saveVoucherEdit = () => {
     if (!editingSale) return;
+    const masterRefError = validateSaleFormMasterRefs(voucherForm, clients, workers);
+    if (masterRefError) {
+      setVoucherSaveMessage(masterRefError);
+      return;
+    }
     const payload = buildSaleFromForm(voucherForm, currentUser, workers);
     if (!payload.client || !payload.site || payload.amount <= 0) return;
 
@@ -3669,6 +3746,7 @@ function CalendarPage({
                 saveLabel="전표 저장"
                 saveMessage={voucherSaveMessage}
                 auditEntityId={editingSaleId}
+                lockClientSite
                 headerAction={(
                   <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={closeVoucherEdit}>
                     닫기
@@ -3862,7 +3940,12 @@ function SalesRegistrationPage({ sales = [], setSales, setActive, clients, worke
     () => form.workers.filter((line) => String(line.worker || "").trim()).length,
     [form.workers]
   );
-  const canSave = Boolean(form.client.trim() && form.site.trim() && totals.bill > 0);
+  const canSave = Boolean(
+    form.client.trim()
+    && form.site.trim()
+    && totals.bill > 0
+    && isSaleFormMasterRefsValid(form, clients, workers)
+  );
 
   const commitSave = (payload) => {
     const { id: newId, voucherNo } = allocateNextSaleRecordIds(salesRef.current);
@@ -3889,9 +3972,9 @@ function SalesRegistrationPage({ sales = [], setSales, setActive, clients, worke
   };
 
   const saveNewSale = () => {
-    const inactiveWorkers = getInactiveWorkerNamesInForm(form, workers);
-    if (inactiveWorkers.length > 0) {
-      setSaveMessage(`비활성 시공자는 매출등록에 사용할 수 없습니다: ${inactiveWorkers.join(", ")}`);
+    const masterRefError = validateSaleFormMasterRefs(form, clients, workers);
+    if (masterRefError) {
+      setSaveMessage(masterRefError);
       return;
     }
 
@@ -4106,10 +4189,20 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
     () => form.workers.filter((line) => String(line.worker || "").trim()).length,
     [form.workers]
   );
-  const canSave = Boolean(form.client.trim() && form.site.trim() && formTotals.bill > 0);
+  const canSave = Boolean(
+    form.client.trim()
+    && form.site.trim()
+    && formTotals.bill > 0
+    && isSaleFormMasterRefsValid(form, clients, workers)
+  );
 
   const saveVoucher = () => {
     if (!selectedRow) return;
+    const masterRefError = validateSaleFormMasterRefs(form, clients, workers);
+    if (masterRefError) {
+      setSaveMessage(masterRefError);
+      return;
+    }
     const payload = buildSaleFromForm(form, currentUser, workers);
     if (!payload.client || !payload.site || payload.amount <= 0) return;
 
@@ -4194,6 +4287,7 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
           saveLabel="전표 저장"
           saveMessage={saveMessage}
           auditEntityId={selectedRowId}
+          lockClientSite
           headerAction={(
             <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={closeEditor}>
               닫기
@@ -4362,7 +4456,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
     constructionCost: "",
     overtimeCost: "30000",
     vat: "Y",
-    mealIncluded: "N",
+    mealIncluded: "Y",
     depositNameAliases: "",
     memo: "",
   };
@@ -4399,7 +4493,21 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
 
   const saveClient = () => {
     const name = form.name.trim();
-    if (!name) return;
+    if (!name) {
+      setFormError("거래처명을 입력해 주세요.");
+      return;
+    }
+
+    const constructionCostRaw = String(form.constructionCost ?? "").trim();
+    if (!constructionCostRaw) {
+      setFormError("시공비를 입력해 주세요.");
+      return;
+    }
+    const constructionCost = parseMoney(constructionCostRaw);
+    if (!Number.isFinite(constructionCost) || constructionCost < 0) {
+      setFormError("시공비를 올바르게 입력해 주세요.");
+      return;
+    }
 
     const duplicateClient = clients.find(
       (client) => String(client.name || "").trim() === name && client.id !== editingId
@@ -4416,7 +4524,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
       businessNo: form.businessNo.trim(),
       manager: form.manager.trim(),
       phone: form.phone.trim(),
-      constructionCost: parseMoney(form.constructionCost),
+      constructionCost,
       customChargeCost: parseMoney(form.customChargeCost || form.constructionCost),
       chargeCost: parseMoney(form.chargeCost || form.constructionCost),
       overtimeCost: parseMoney(form.overtimeCost),
@@ -4456,7 +4564,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
       customChargeCost: String(client.customChargeCost || client.chargeCost || ""),
       overtimeCost: String(client.overtimeCost || "30000"),
       vat: client.vat || "Y",
-      mealIncluded: client.mealIncluded || "N",
+      mealIncluded: client.mealIncluded || "Y",
       depositNameAliases: client.depositNameAliases || "",
       memo: client.memo || "",
     });
@@ -4486,18 +4594,34 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
       <Card className="rounded-2xl shadow-sm">
         <CardContent className="p-6">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <AuditField label="거래처명" entityType="client" entityId={editingId} field="name"><Input value={form.name} onChange={(e) => updateForm("name", e.target.value)} placeholder="거래처명" /></AuditField>
+            <AuditField label="거래처명" entityType="client" entityId={editingId} field="name"><Input value={form.name} onChange={(e) => updateForm("name", e.target.value)} placeholder="거래처명 (필수)" required /></AuditField>
             <AuditField label="사업자번호" entityType="client" entityId={editingId} field="businessNo"><Input value={form.businessNo} onChange={(e) => updateForm("businessNo", e.target.value)} placeholder="사업자번호" /></AuditField>
             <AuditField label="담당자" entityType="client" entityId={editingId} field="manager"><Input value={form.manager} onChange={(e) => updateForm("manager", e.target.value)} placeholder="담당자" /></AuditField>
             <AuditField label="연락처" entityType="client" entityId={editingId} field="phone"><Input value={form.phone} onChange={(e) => updateForm("phone", e.target.value)} placeholder="연락처" /></AuditField>
-            <AuditField label="시공비" entityType="client" entityId={editingId} field="constructionCost"><Input inputMode="numeric" value={form.constructionCost} onChange={(e) => updateForm("constructionCost", e.target.value)} placeholder="시공비" /></AuditField>
+            <AuditField label="시공비" entityType="client" entityId={editingId} field="constructionCost"><Input inputMode="numeric" value={form.constructionCost} onChange={(e) => updateForm("constructionCost", e.target.value)} placeholder="시공비 (필수)" required /></AuditField>
             <AuditField label="개별청구단가(선택)" entityType="client" entityId={editingId} field="customChargeCost"><Input inputMode="numeric" value={form.customChargeCost} onChange={(e) => updateForm("customChargeCost", e.target.value)} placeholder="특정 시공자만 별도 청구시 입력" /></AuditField>
             <AuditField label="야근비" entityType="client" entityId={editingId} field="overtimeCost"><Input inputMode="numeric" value={form.overtimeCost} onChange={(e) => updateForm("overtimeCost", e.target.value)} placeholder="야근비" /></AuditField>
             <AuditField label="부가세" entityType="client" entityId={editingId} field="vat">
-              <AutocompleteSelect value={form.vat} options={YES_NO_OPTIONS} onChange={(value) => updateForm("vat", value)} placeholder="Y / N" />
+              <select
+                className="erp-input w-full rounded-xl px-3 py-2 text-sm font-semibold"
+                value={form.vat}
+                onChange={(e) => updateForm("vat", e.target.value)}
+              >
+                {YES_NO_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
             </AuditField>
             <AuditField label="식대" entityType="client" entityId={editingId} field="mealIncluded">
-              <AutocompleteSelect value={form.mealIncluded} options={YES_NO_OPTIONS} onChange={(value) => updateForm("mealIncluded", value)} placeholder="Y / N" />
+              <select
+                className="erp-input w-full rounded-xl px-3 py-2 text-sm font-semibold"
+                value={form.mealIncluded}
+                onChange={(e) => updateForm("mealIncluded", e.target.value)}
+              >
+                {YES_NO_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
             </AuditField>
             <div className="md:col-span-2">
               <AuditField label="예금주 별칭" entityType="client" entityId={editingId} field="depositNameAliases">
@@ -4706,6 +4830,7 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
   });
   const [inlineChargeDrafts, setInlineChargeDrafts] = useState({});
   const [constructionCostEdit, setConstructionCostEdit] = useState(null);
+  const [formError, setFormError] = useState("");
 
   const handleWorkerListSort = (column: WorkerListSortColumn) => {
     setListSort((prev) => {
@@ -4758,25 +4883,49 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
     };
   }, [displayedWorkers]);
 
-  const updateForm = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+  const updateForm = (key, value) => {
+    setFormError("");
+    setForm((prev) => ({ ...prev, [key]: value }));
+  };
 
   const saveWorker = () => {
-    if (!form.name.trim()) return;
+    const name = form.name.trim();
+    if (!name) {
+      setFormError("시공자명을 입력해 주세요.");
+      return;
+    }
+
+    const constructionCostRaw = String(form.constructionCost ?? "").trim();
+    if (!constructionCostRaw) {
+      setFormError("시공비를 입력해 주세요.");
+      return;
+    }
+    const constructionCost = parseMoney(constructionCostRaw);
+    if (!Number.isFinite(constructionCost) || constructionCost < 0) {
+      setFormError("시공비를 올바르게 입력해 주세요.");
+      return;
+    }
+
+    const category = String(form.category || "").trim();
+    if (!WORKER_CATEGORY_OPTIONS.includes(category)) {
+      setFormError("팀원/외주 구분을 선택해 주세요.");
+      return;
+    }
 
     const existingWorker = editingId ? workers.find((worker) => worker.id === editingId) : null;
     const feeNumber = Number(String(form.feeRate).replace(/[^0-9.]/g, ""));
     const payload = {
       id: editingId || Date.now(),
-      name: form.name.trim(),
+      name,
       grade: normalizeWorkerGrade(form.grade),
-      category: normalizeWorkerCategory(form.category),
+      category: normalizeWorkerCategory(category),
       bank: form.bank.trim(),
       account: form.account.trim(),
       phone: form.phone.trim(),
       businessNo: form.businessNo.trim(),
       address: form.address.trim(),
       vehicleNo: form.vehicleNo.trim(),
-      constructionCost: parseMoney(form.constructionCost),
+      constructionCost,
       customChargeCost: parseMoney(form.customChargeCost),
       overtimeCost: parseMoney(form.overtimeCost),
       feeRate: feeNumber > 1 ? feeNumber / 100 : feeNumber,
@@ -4799,9 +4948,11 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
     setWorkers((prev) => editingId ? prev.map((worker) => worker.id === editingId ? payload : worker) : [payload, ...prev]);
     setForm(emptyWorkerForm);
     setEditingId(null);
+    setFormError("");
   };
 
   const editWorker = (worker) => {
+    setFormError("");
     setEditingId(worker.id);
     setForm({
       name: worker.name || "",
@@ -5013,7 +5164,7 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
       <Card className="rounded-2xl shadow-sm">
         <CardContent className="p-6">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <AuditField label="시공자명" entityType="worker" entityId={editingId} field="name"><Input value={form.name} onChange={(e) => updateForm("name", e.target.value)} placeholder="시공자명" /></AuditField>
+            <AuditField label="시공자명" entityType="worker" entityId={editingId} field="name"><Input value={form.name} onChange={(e) => updateForm("name", e.target.value)} placeholder="시공자명 (필수)" required /></AuditField>
             <AuditField label="시공등급" entityType="worker" entityId={editingId} field="grade">
               <select
                 className="erp-input w-full rounded-xl px-3 py-2 text-sm font-semibold"
@@ -5031,6 +5182,7 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
                 className="erp-input w-full rounded-xl px-3 py-2 text-sm font-semibold"
                 value={form.category}
                 onChange={(e) => updateForm("category", e.target.value)}
+                required
               >
                 {WORKER_CATEGORY_OPTIONS.map((option) => (
                   <option key={option} value={option}>{option}</option>
@@ -5050,15 +5202,16 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
             <div className="sm:col-span-2 xl:col-span-4">
               <AuditField label="주소" entityType="worker" entityId={editingId} field="address"><Input value={form.address} onChange={(e) => updateForm("address", e.target.value)} placeholder="주소" /></AuditField>
             </div>
-            <AuditField label="시공비" entityType="worker" entityId={editingId} field="constructionCost"><Input inputMode="numeric" value={form.constructionCost} onChange={(e) => updateForm("constructionCost", e.target.value)} placeholder="시공비" /></AuditField>
+            <AuditField label="시공비" entityType="worker" entityId={editingId} field="constructionCost"><Input inputMode="numeric" value={form.constructionCost} onChange={(e) => updateForm("constructionCost", e.target.value)} placeholder="시공비 (필수)" required /></AuditField>
             <AuditField label="개별청구단가" entityType="worker" entityId={editingId} field="customChargeCost"><Input inputMode="numeric" value={form.customChargeCost} onChange={(e) => updateForm("customChargeCost", e.target.value)} placeholder="비워두면 거래처 기본단가 적용" /></AuditField>
             <AuditField label="야근비" entityType="worker" entityId={editingId} field="overtimeCost"><Input inputMode="numeric" value={form.overtimeCost} onChange={(e) => updateForm("overtimeCost", e.target.value)} placeholder="야근비" /></AuditField>
             <AuditField label="수수료율(%)" entityType="worker" entityId={editingId} field="feeRate"><Input inputMode="decimal" value={form.feeRate} onChange={(e) => updateForm("feeRate", e.target.value)} placeholder="10" /></AuditField>
             <div className="md:col-span-1"><AuditField label="비고" entityType="worker" entityId={editingId} field="memo"><Input value={form.memo} onChange={(e) => updateForm("memo", e.target.value)} placeholder="비고" /></AuditField></div>
           </div>
 
-          <div className="mt-5 flex justify-end gap-2">
-            <Button variant="outline" className="rounded-2xl" onClick={() => { setForm(emptyWorkerForm); setEditingId(null); }}>초기화</Button>
+          <div className="mt-5 flex flex-col items-end gap-2 sm:flex-row sm:justify-end">
+            {formError ? <p className="mr-auto erp-text-caption font-semibold text-red-600">{formError}</p> : null}
+            <Button variant="outline" className="rounded-2xl" onClick={() => { setForm(emptyWorkerForm); setEditingId(null); setFormError(""); }}>초기화</Button>
             <Button className="rounded-2xl" onClick={saveWorker}>{editingId ? "시공자 수정" : "시공자 저장"}</Button>
           </div>
         </CardContent>
