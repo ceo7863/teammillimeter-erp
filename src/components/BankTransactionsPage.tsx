@@ -14,6 +14,8 @@ import {
   Landmark,
   Link2,
   ListChecks,
+  RefreshCw,
+  Repeat,
   Search,
   Sparkles,
   Trash2,
@@ -30,16 +32,51 @@ import { TableExportSection } from "@/components/TableExportSection";
 import { DesktopTableWrap, MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
 import { useAudit } from "@/context/AuditContext";
 import { confirmDelete } from "@/utils/confirmDelete";
-import { CLIENT_AUDIT_FIELDS, snapshotClientForAudit } from "@/utils/auditLog";
-import { appendDepositNameAlias, resolveBankDepositMatchSubject } from "@/utils/clientDepositAliases";
-import { formatKRW, monthRangeISO, todayISO, makeLedgerId, mergeExpenseCategory, parseLedgerAmount, validateCompanyExpenseInput, validateFixedExpensePaymentInput, type CompanyExpense, type FixedExpense, type FixedExpensePayment } from "@/utils/companyLedger";
+import { CLIENT_AUDIT_FIELDS, COMPANY_EXPENSE_AUDIT_FIELDS, BANK_FOLDER_AUDIT_FIELDS, BANK_TRANSACTION_AUDIT_FIELDS, FIXED_EXPENSE_AUDIT_FIELDS, PAYMENT_AUDIT_FIELDS, snapshotBankFolderForAudit, snapshotBankTransactionForAudit, snapshotClientForAudit, snapshotCompanyExpenseForAudit, snapshotFixedExpenseForAudit, snapshotPaymentForAudit, type AuditUser } from "@/utils/auditLog";
+import {
+  applyPreauthNetGroups,
+  detectPreauthNetGroups,
+  filterPreauthNetGroupsForAutoApply,
+  isNetGroupSuppressed,
+  preauthNetGroupKey,
+} from "@/utils/bankPreauthNetting";
+import {
+  applyRecurringFixedExpensePatterns,
+  detectRecurringFixedExpensePatterns,
+  type RecurringFixedExpensePattern,
+} from "@/utils/bankRecurringFixedExpense";
+import {
+  findLinkableFixedExpensePayment,
+  formatFixedExpensePaymentDay,
+  formatKRW,
+  linkFixedExpensePaymentToBankTx,
+  EXPENSE_CATEGORY_OPTIONS,
+  FIXED_CATEGORY_OPTIONS,
+  makeLedgerId,
+  mergeExpenseCategory,
+  mergeFixedExpenseCategory,
+  buildFixedCategorySelectOptions,
+  monthRangeISO,
+  normalizeExpenseCategories,
+  parseLedgerAmount,
+  todayISO,
+  validateCompanyExpenseInput,
+  validateFixedExpensePaymentInput,
+  type CompanyExpense,
+  type FixedExpense,
+  type FixedExpensePayment,
+} from "@/utils/companyLedger";
 import {
   autoApplyBankLearnRules,
   buildBankLearnRuleFromFixedRegistration,
   buildBankLearnRuleFromFolderAssignment,
   buildBankLearnRuleFromManualRegistration,
+  buildBankLedgerMatchRuleFromRegistration,
+  buildPreauthNetLearnRule,
   buildCompanyExpensePrefillFromBankTransaction,
+  buildLedgerCategoryPromptGroups,
   canRegisterBankTxToCompanyLedger,
+  createCompanyExpenseFromBankTransaction,
   findMatchingBankLedgerRule,
   formatBankLearnAutoMessage,
   getLinkedCompanyExpenseForBankTx,
@@ -49,10 +86,12 @@ import {
   upsertBankLearnRule,
   type BankLearnRule,
 } from "@/utils/bankCompanyLedger";
-import { AutocompleteInput, AutocompleteSelect } from "@/components/AutocompleteInput";
+import { AutocompleteInput } from "@/components/AutocompleteInput";
 import { createPaymentInputLogsFromVouchers } from "@/utils/paymentInputLogs";
 import type { ReceivableRow } from "@/utils/receivables";
-import type { ErpUser } from "@/utils/erpApi";
+import type { ErpUser, BankSyncSnapshot } from "@/utils/erpApi";
+import { useBankLiveSync } from "@/hooks/useBankLiveSync";
+import { OpenBankingSettingsPanel } from "@/components/OpenBankingSettingsPanel";
 import {
   buildAllBankDepositSuggestions,
   buildBankDepositMatchCandidates,
@@ -93,11 +132,20 @@ import {
   UNFILED_FOLDER_KEY,
   autoClassifyBankTransactions,
   buildBankTransactionFolderStats,
+  buildBankTransactionFolderTree,
   clearBankTransactionFolderReferences,
+  collectDescendantFolderIds,
   createBankTransactionFolder,
+  flattenBankTransactionFolderTree,
+  getBankTransactionFolderPath,
   getBankTransactionFolderTone,
+  getBankTransactionFolderLabel,
+  listAssignableFolders,
+  listFolderParentOptions,
   listFoldersByType,
+  normalizeBankTransactionFolders,
   removeBankTransactionFolder,
+  sanitizeBankTransactionFolderParentId,
   type BankTransactionFolder,
   type BankTransactionFolderType,
 } from "@/utils/bankTransactionFolders";
@@ -144,6 +192,14 @@ const L = {
   ibkImportSkipped: "\uAC74 \uC911\uBCF5 \uC81C\uC678",
   ibkImportDone: "\uAC70\uB798\uB0B4\uC5ED \uAC00\uC838\uC624\uAE30\uAC00 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   ibkImportFailed: "\uC5D1\uC140\uC744 \uC77D\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  liveSyncTitle: "\uC2E4\uC2DC\uAC04 \uC5F0\uB3D9",
+  liveSyncOn: "\uC5F0\uB3D9 \uC911",
+  liveSyncOff: "\uC5F0\uB3D9 \uAE34\uAE30",
+  liveSyncNow: "\uC9C0\uAE08 \uB3D9\uAE30\uD654",
+  liveSyncFolder: "\uD3F4\uB354\uC5D0\uC11C \uAC00\uC838\uC624\uAE30",
+  liveSyncHint: "\uC11C\uBC84\uAC00 IBK \uC5D1\uC140 \uD3F4\uB354\uB97C \uC8FC\uAE30\uC801\uC73C\uB85C \uD655\uC778\uD558\uACE0, \uB2E4\uB978 PC \uBCC0\uACBD\uB3C4 \uC790\uB3D9 \uBC18\uC601\uD569\uB2C8\uB2E4.",
+  liveSyncLocalHint: "\uC11C\uBC84 \uBAA8\uB4DC\uC5D0\uC11C \uC2E4\uC2DC\uAC04 \uC5F0\uB3D9\uC744 \uC0AC\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+  liveSyncFolderDisabled: "\uC11C\uBC84\uC5D0 IBK \uD3F4\uB354\uAC00 \uC124\uC815\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.",
   previewRows: "\uC778\uC2DD \uAC74\uC218",
   previewDeposits: "\uC785\uAE08 \uD569\uACC4",
   previewWithdrawals: "\uCD9C\uAE08 \uD569\uACC4",
@@ -193,6 +249,13 @@ const L = {
   allFolders: "\uC804\uCCB4 \uBAA9\uB85D",
   createFolder: "\uD3F4\uB354 \uC0DD\uC131",
   folderName: "\uD3F4\uB354 \uC774\uB984",
+  parentFolder: "\uC0C1\uC704 \uD3F4\uB354 (\uC120\uD0DD)",
+  parentFolderSectionRoot: (label: string) => `${label} \uCD5C\uC0C1\uC704 (\uAE30\uBCF8 \uBD84\uB958\uC640 \uAC19\uC740 \uB2E8\uACC4)`,
+  parentFolderHint:
+    "\uCD5C\uC0C1\uC704\uB97C \uC120\uD0DD\uD558\uBA74 \uAC70\uB798\uCC98 \uC785\uAE08\uB7EC \uAE30\uBCF8 \uBD84\uB958 \uD3F4\uB354\uC640 \uAC19\uC740 \uB2E8\uACC4\uC5D0 \uC0DD\uC131\uB429\uB2C8\uB2E4. \uC0C1\uC704 \uD3F4\uB354\uB97C \uACE0\uB974\uBA74 \uD558\uC704 \uD3F4\uB354\uAC00 \uB429\uB2C8\uB2E4.",
+  defaultFolderBadge: "\uAE30\uBCF8",
+  createFolderInSection: "\uD3F4\uB354 \uCD94\uAC00",
+  createSubfolder: "\uD558\uC704 \uD3F4\uB354 \uC0DD\uC131",
   folderType: "\uD3F4\uB354 \uAD6C\uBD84",
   saveFolder: "\uC0DD\uC131",
   deleteFolder: "\uD3F4\uB354 \uC0AD\uC81C",
@@ -260,6 +323,50 @@ const L = {
   ledgerSave: "\uAC00\uACC4\uBD80\uB85C \uBCF4\uB0B4\uAE30",
   ledgerDate: "\uC9C0\uCD9C\uC77C",
   ledgerClickHint: "\uBBF8\uBD84\uB958 \uCD9C\uAE08 \uB0B4\uC6A9 \uD074\uB9AD \u2192 \uAC00\uACC4\uBD80\uB85C \uBCF4\uB0B4\uAE30",
+  categoryPromptTitle: "\uAC00\uACC4\uBD80 \uCE74\uD14C\uACE0\uB9AC \uC120\uD0DD",
+  categoryPromptDesc:
+    "\uCC98\uC74C \uB4F1\uB85D\uD558\uB294 \uCD9C\uAE08\uC785\uB2C8\uB2E4. \uCE74\uD14C\uACE0\uB9AC\uB97C \uC815\uD558\uBA74 \uBE44\uC2B7\uD55C \uAC70\uB798\uC5D0 \uC790\uB3D9 \uC801\uC6A9\uB429\uB2C8\uB2E4.",
+  categoryPromptPattern: (label: string, count: number) =>
+    count > 1 ? `${label} \u00B7 \uBE44\uC2B7 ${count}\uAC74` : label,
+  categoryPromptSave: "\uC800\uC7A5 \uBC0F \uD559\uC2B5",
+  categoryPromptSkip: "\uAC74\uB108\uB700\uAE30",
+  categoryPromptLater: "\uB098\uC911\uC5D0",
+  categoryPromptRequired: "\uCE74\uD14C\uACE0\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.",
+  categoryPromptDone: (count: number) => `\uCE74\uD14C\uACE0\uB9AC \uD559\uC2B5 \uD6C4 ${count}\uAC74 \uAC00\uACC4\uBD80 \uB4F1\uB85D`,
+  recurringFixedTitle: "\uBC18\uBCF5 \uCD9C\uAE08 \u2192 \uACE0\uC815\uBE44",
+  recurringFixedDesc:
+    "\uB9E4\uC6D4 \uBE44\uC2B7\uD55C \uCD9C\uAE08\uC774 2\uAC1C\uC6D4 \uC774\uC0C1 \uBC18\uBCF5\uB418\uBA74 \uACE0\uC815\uBE44\uB85C \uC778\uC2DD\uD569\uB2C8\uB2E4. \uC608\uAE08\uC8FC\u00B7\uAC70\uB798\uB0B4\uC6A9 \uC811\uB450\uC0AC\u00B7\uAE08\uC561 \uC77C\uBD80 \uCC28\uC774(\uC790\uB3D9\uC774\uCC28 \uB4F1)\u00B7\uB0A9\uBD80\uC77C 2~3\uC77C \uCC28\uC774\uB3C4 \uD568\uAED8 \uBB36\uC2B5\uB2C8\uB2E4.",
+  recurringFixedOpen: "\uBC18\uBCF5 \uCD9C\uAE08 \u2192 \uACE0\uC815\uBE44",
+  recurringFixedApply: "\uACE0\uC815\uBE44 \uC0DD\uC131 \uBC0F \uC5F0\uACB0",
+  recurringFixedEmpty: "\uC778\uC2DD\uD560 \uBC18\uBCF5 \uCD9C\uAE08 \uD328\uD134\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  recurringFixedPattern: (
+    name: string,
+    day: number,
+    amount: number,
+    months: number,
+    txCount: number,
+    daySpread = 0,
+    amountFlexible = false,
+  ) =>
+    `${name} \u00B7 \uB9E4\uC6D4 ${daySpread > 0 ? `${day}\uC77C(\u00B1${daySpread}\uC77C)` : `${day}\uC77C`} \u00B7 ${amountFlexible ? `\uC57D ${formatKRW(amount)}` : formatKRW(amount)} \u00B7 ${months}\uAC1C\uC6D4 \u00B7 ${txCount}\uAC74`,
+  recurringFixedExisting: "\uAE30\uC874 \uACE0\uC815\uBE44 \uC788\uC74C",
+  recurringFixedNew: "\uC2E0\uADDC \uACE0\uC815\uBE44",
+  recurringFixedDone: (created: number, linked: number) =>
+    `\uACE0\uC815\uBE44 ${created}\uAC1C \uC0DD\uC131 \u00B7 \uB0A9\uBD80 ${linked}\uAC74 \uC5F0\uACB0`,
+  preauthNetOpen: "\uC120\uACB0\uC81C \uC815\uB9AC",
+  preauthNetTitle: "\uC8FC\uC720\uC18C \uC120\uACB0\uC81C \uC815\uB9AC",
+  preauthNetDesc:
+    "\uC120\uACB0\uC778 \uCD9C\uAE08 \u2192 \uB3D9\uC77C \uAE08\uC561 \uD658\uBD88 \uC785\uAE08 \u2192 \uC2E4\uACB0\uC81C \uCD9C\uAE08 \uC138 \uAC74\uC744 \uD558\uB098\uC758 \uC9C0\uCD9C\uB85C \uC815\uB9AC\uD569\uB2C8\uB2E4.",
+  preauthNetApply: "\uC815\uB9AC \uC801\uC6A9",
+  preauthNetLearn: "\uD559\uC2B5\uD558\uC5EC \uB2E4\uC74C\uBD80\uD130 \uC790\uB3D9 \uC801\uC6A9",
+  preauthNetDone: (count: number) => `\uC120\uACB0\uC81C \uC815\uB9AC ${count}\uAC74 \uADF8\uB8F9 \uC801\uC6A9`,
+  preauthNetBadge: "\uC120\uACB0\uC81C",
+  preauthNetSuppressedBadge: "\uC120\uACB0\uC81C(\uBBF8\uC801\uC6A9)",
+  preauthNetRefundBadge: "\uC120\uACB0\uC81C \uD658\uBD88",
+  preauthNetSettlementBadge: "\uC2E4\uACB0\uC81C",
+  preauthNetEmpty: "\uC815\uB9AC\uD560 \uC120\uACB0\uC81C \uD328\uD134\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  preauthNetPattern: (name: string, date: string, preauth: number, settlement: number) =>
+    `${name} \u00B7 ${date} \u00B7 \uC120\uACB0 ${formatKRW(preauth)} \u2192 \uC2E4\uACB0 ${formatKRW(settlement)}`,
   clientLinkTitle: "\uAC70\uB798\uCC98 \uC5F0\uACB0",
   clientLinkDesc:
     "\uD1B5\uC7A5 \uC785\uAE08 \uC2DC \uD45C\uC2DC\uB41C \uC774\uB984\uC744 \uAC70\uB798\uCC98 \uC608\uAE08\uC8FC \uBCC4\uCE59\uC5D0 \uCD94\uAC00\uD569\uB2C8\uB2E4. \uC774\uD6C4 \uB3D9\uC77C \uC774\uB984 \uC785\uAE08\uC740 \uC790\uB3D9 \uBD84\uB958\uB429\uB2C8\uB2E4.",
@@ -372,14 +479,21 @@ export function BankTransactionsPage({
   companyExpenses,
   setCompanyExpenses,
   fixedExpenses,
+  setFixedExpenses,
   fixedExpensePayments,
   setFixedExpensePayments,
   bankLedgerRules,
   setBankLedgerRules,
   expenseCategories,
   setExpenseCategories,
+  fixedExpenseCategories,
+  setFixedExpenseCategories,
   currentUser,
   onNavigateToCompanyLedger,
+  apiMode = false,
+  erpVersion = 0,
+  isPageActive = true,
+  onApplyRemoteBankSnapshot,
 }: {
   bankTransactions: BankTransaction[];
   setBankTransactions: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
@@ -396,14 +510,21 @@ export function BankTransactionsPage({
   companyExpenses: CompanyExpense[];
   setCompanyExpenses: React.Dispatch<React.SetStateAction<CompanyExpense[]>>;
   fixedExpenses: FixedExpense[];
+  setFixedExpenses: React.Dispatch<React.SetStateAction<FixedExpense[]>>;
   fixedExpensePayments: FixedExpensePayment[];
   setFixedExpensePayments: React.Dispatch<React.SetStateAction<FixedExpensePayment[]>>;
   bankLedgerRules: BankLearnRule[];
   setBankLedgerRules: React.Dispatch<React.SetStateAction<BankLearnRule[]>>;
   expenseCategories: string[];
   setExpenseCategories: React.Dispatch<React.SetStateAction<string[]>>;
+  fixedExpenseCategories: string[];
+  setFixedExpenseCategories: React.Dispatch<React.SetStateAction<string[]>>;
   currentUser: ErpUser | null;
   onNavigateToCompanyLedger?: () => void;
+  apiMode?: boolean;
+  erpVersion?: number;
+  isPageActive?: boolean;
+  onApplyRemoteBankSnapshot?: (snapshot: BankSyncSnapshot) => void;
 }) {
   const [pageView, setPageView] = useState<PageView>("list");
   const [periodKey, setPeriodKey] = useState<PeriodKey>("thisMonth");
@@ -417,6 +538,7 @@ export function BankTransactionsPage({
   const [createFolderOpen, setCreateFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderType, setNewFolderType] = useState<BankTransactionFolderType>("client");
+  const [newFolderParentId, setNewFolderParentId] = useState("");
   const [folderError, setFolderError] = useState("");
   const [importPreview, setImportPreview] = useState<IbkBankImportPreview | null>(null);
   const [importError, setImportError] = useState("");
@@ -425,7 +547,7 @@ export function BankTransactionsPage({
   const [linkModalTx, setLinkModalTx] = useState<BankTransaction | null>(null);
   const [clientLinkModalTx, setClientLinkModalTx] = useState<BankTransaction | null>(null);
   const [clientLinkClientName, setClientLinkClientName] = useState("");
-  const { recordAudit } = useAudit();
+  const { recordAudit, recordSummaryAudit } = useAudit();
   const [ledgerModal, setLedgerModal] = useState<{
     tx: BankTransaction;
     kind: LedgerRegisterKind;
@@ -437,18 +559,82 @@ export function BankTransactionsPage({
     memo: string;
   } | null>(null);
   const [ledgerFormError, setLedgerFormError] = useState("");
+  const [categoryPrompt, setCategoryPrompt] = useState<{
+    key: string;
+    label: string;
+    transactions: BankTransaction[];
+    category: string;
+  } | null>(null);
+  const [categoryPromptError, setCategoryPromptError] = useState("");
+  const [recurringFixedModalOpen, setRecurringFixedModalOpen] = useState(false);
+  const [selectedRecurringPatternKeys, setSelectedRecurringPatternKeys] = useState<string[]>([]);
+  const [preauthNetModalOpen, setPreauthNetModalOpen] = useState(false);
+  const [selectedPreauthGroupKeys, setSelectedPreauthGroupKeys] = useState<string[]>([]);
+  const [learnPreauthMerchants, setLearnPreauthMerchants] = useState(true);
+  const importLedgerBatchIdsRef = useRef<Set<string>>(new Set());
   const [sentArchives, setSentArchives] = useState<PdfArchiveMeta[]>([]);
   const ibkInputRef = useRef<HTMLInputElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
   const savedBy = currentUser?.name || currentUser?.loginId || "";
 
+  const handleRemoteBankSnapshot = React.useCallback(
+    (snapshot: BankSyncSnapshot) => {
+      onApplyRemoteBankSnapshot?.(snapshot);
+    },
+    [onApplyRemoteBankSnapshot],
+  );
+
+  const { liveSyncEnabled, setLiveSyncEnabled, state: liveSyncState, pullSnapshot, runFolderSync } = useBankLiveSync({
+    enabled: apiMode,
+    isActive: isPageActive,
+    sinceVersion: erpVersion,
+    localTransactionCount: bankTransactions.length,
+    onRemoteUpdate: handleRemoteBankSnapshot,
+  });
+
+  const resolveFolderLabel = React.useCallback(
+    (folderId?: string) => {
+      if (!folderId) return "-";
+      const folder = bankTransactionFolders.find((row) => row.id === folderId);
+      if (!folder) return folderId;
+      const path = getBankTransactionFolderPath(bankTransactionFolders, folderId);
+      return path || folder.folderName;
+    },
+    [bankTransactionFolders],
+  );
+
+  const bankTxLabel = (tx: BankTransaction) =>
+    `${String(tx.transactionAt || "").slice(0, 10)} \u00B7 ${tx.description || tx.counterpartyName || "-"}`;
+
+  const bankTxAuditSnapshot = React.useCallback(
+    (row: BankTransaction) =>
+      snapshotBankTransactionForAudit({
+        ...row,
+        folderLabel: resolveFolderLabel(row.folderId),
+      }),
+    [resolveFolderLabel],
+  );
+
+  const auditBankTxUpdate = (before: BankTransaction, after: BankTransaction) => {
+    recordAudit({
+      entityType: "bankTransaction",
+      entityId: before.id,
+      entityLabel: bankTxLabel(before),
+      screen: L.pageTitle,
+      action: "update",
+      before: bankTxAuditSnapshot(before),
+      after: bankTxAuditSnapshot(after),
+      fields: BANK_TRANSACTION_AUDIT_FIELDS,
+      user: currentUser,
+    });
+  };
   const ledgerRegistrationContext = useMemo(
     () => ({ companyExpenses, fixedExpensePayments }),
     [companyExpenses, fixedExpensePayments],
   );
 
   const canRegisterLedger = (tx: BankTransaction) =>
-    canRegisterBankTxToCompanyLedger(tx, ledgerRegistrationContext);
+    !isNetGroupSuppressed(tx) && canRegisterBankTxToCompanyLedger(tx, ledgerRegistrationContext);
 
   const getLedgerRegisteredBadgeLabel = (row: BankTransaction) => {
     const linkedExpense = getLinkedCompanyExpenseForBankTx(row, companyExpenses);
@@ -467,7 +653,7 @@ export function BankTransactionsPage({
       payments: FixedExpensePayment[],
       expenses: CompanyExpense[],
       rules: BankLearnRule[],
-      options: { onlyTransactionIds?: Set<string>; showMessage?: boolean } = {},
+      options: { onlyTransactionIds?: Set<string>; showMessage?: boolean; auditUser?: AuditUser | null } = {},
     ) => {
       const result = autoApplyBankLearnRules(transactions, payments, expenses, rules, fixedExpenses, {
         createdBy: savedBy || undefined,
@@ -484,13 +670,27 @@ export function BankTransactionsPage({
           folderCount: 0,
         };
       }
-      if (result.newPayments.length) {
+      if (result.allPayments) {
+        setFixedExpensePayments(result.allPayments);
+      } else if (result.newPayments.length) {
         setFixedExpensePayments((prev) => [...result.newPayments, ...prev]);
       }
       if (result.newExpenses.length) {
         setCompanyExpenses((prev) => [...result.newExpenses, ...prev]);
       }
       setBankTransactions(result.transactions);
+      if (options.auditUser !== false) {
+        recordSummaryAudit({
+          entityType: "bankTransaction",
+          entityId: "auto-learn",
+          entityLabel: "\uC790\uB3D9 \uD559\uC2B5 \uC5F0\uACB0",
+          screen: L.pageTitle,
+          action: "import",
+          fieldLabel: options.auditUser === null ? "\uC790\uB3D9 \uCC98\uB9AC" : "\uC790\uB3D9 \uD559\uC2B5",
+          after: `\uACE0\uC815\uBE44 ${result.fixedCount}\u00B7\uC218\uB3D9 ${result.manualCount}\u00B7\uD3F4\uB354 ${result.folderCount}`,
+          user: options.auditUser === null ? null : currentUser,
+        });
+      }
       if (options.showMessage !== false) {
         const message = L.ledgerAutoLearnDone({
           fixed: result.fixedCount,
@@ -508,8 +708,140 @@ export function BankTransactionsPage({
         folderCount: result.folderCount,
       };
     },
-    [fixedExpenses, savedBy, setFixedExpensePayments, setCompanyExpenses, setBankTransactions],
+    [fixedExpenses, savedBy, setFixedExpensePayments, setCompanyExpenses, setBankTransactions, recordSummaryAudit, currentUser],
   );
+
+  const openNextCategoryPrompt = React.useCallback(
+    (transactions: BankTransaction[], rules: BankLearnRule[]) => {
+      const groups = buildLedgerCategoryPromptGroups(
+        transactions,
+        rules,
+        fixedExpenses,
+        ledgerRegistrationContext,
+        { onlyTransactionIds: importLedgerBatchIdsRef.current },
+      );
+      const next = groups[0];
+      if (!next) {
+        setCategoryPrompt(null);
+        setCategoryPromptError("");
+        return;
+      }
+      setCategoryPrompt({ ...next, category: "" });
+      setCategoryPromptError("");
+    },
+    [fixedExpenses, ledgerRegistrationContext],
+  );
+
+  const skipCategoryPrompt = React.useCallback(() => {
+    if (!categoryPrompt) return;
+    const skippedIds = new Set(categoryPrompt.transactions.map((row) => row.id));
+    for (const id of skippedIds) importLedgerBatchIdsRef.current.delete(id);
+    openNextCategoryPrompt(bankTransactions, bankLedgerRules);
+  }, [bankTransactions, bankLedgerRules, categoryPrompt, openNextCategoryPrompt]);
+
+  const saveCategoryPrompt = React.useCallback(() => {
+    if (!categoryPrompt) return;
+    const category = categoryPrompt.category.trim();
+    if (!category) {
+      setCategoryPromptError(L.categoryPromptRequired);
+      return;
+    }
+
+    const firstTx = categoryPrompt.transactions[0];
+    if (!firstTx) return;
+
+    let nextRules = upsertBankLearnRule(
+      bankLedgerRules,
+      buildBankLearnRuleFromManualRegistration(firstTx, category, savedBy || undefined),
+    );
+    let nextExpenses = [...companyExpenses];
+    let nextTransactions = [...bankTransactions];
+
+    for (const tx of categoryPrompt.transactions) {
+      const expense = createCompanyExpenseFromBankTransaction(tx, category, savedBy || undefined);
+      nextExpenses = [expense, ...nextExpenses];
+      nextTransactions = nextTransactions.map((row) =>
+        row.id === tx.id
+          ? { ...row, linkedCompanyExpenseId: expense.id, linkedFixedExpensePaymentId: undefined }
+          : row,
+      );
+      recordAudit({
+        entityType: "companyExpense",
+        entityId: expense.id,
+        entityLabel: `${expense.date} \u00B7 ${expense.description || expense.category}`,
+        screen: L.pageTitle,
+        action: "create",
+        after: snapshotCompanyExpenseForAudit(expense),
+        fields: COMPANY_EXPENSE_AUDIT_FIELDS,
+        user: currentUser,
+      });
+      auditBankTxUpdate(tx, nextTransactions.find((row) => row.id === tx.id) || tx);
+      importLedgerBatchIdsRef.current.delete(tx.id);
+    }
+
+    const autoLearn = autoApplyBankLearnRules(
+      nextTransactions,
+      fixedExpensePayments,
+      nextExpenses,
+      nextRules,
+      fixedExpenses,
+      {
+        createdBy: savedBy || undefined,
+        onlyTransactionIds: importLedgerBatchIdsRef.current.size ? importLedgerBatchIdsRef.current : undefined,
+      },
+    );
+
+    if (autoLearn.newPayments.length) {
+      setFixedExpensePayments((prev) => [...autoLearn.newPayments, ...prev]);
+    }
+    if (autoLearn.newExpenses.length) {
+      for (const expense of autoLearn.newExpenses) {
+        recordAudit({
+          entityType: "companyExpense",
+          entityId: expense.id,
+          entityLabel: `${expense.date} \u00B7 ${expense.description || expense.category}`,
+          screen: L.pageTitle,
+          action: "create",
+          after: snapshotCompanyExpenseForAudit(expense),
+          fields: COMPANY_EXPENSE_AUDIT_FIELDS,
+          user: null,
+        });
+      }
+      nextExpenses = [...autoLearn.newExpenses, ...nextExpenses];
+    }
+
+    nextTransactions = autoLearn.transactions;
+    nextRules = nextRules;
+
+    setExpenseCategories((prev) => mergeExpenseCategory(prev, category));
+    setCompanyExpenses(nextExpenses);
+    setBankTransactions(nextTransactions);
+    setBankLedgerRules(nextRules);
+
+    const learnedCount = categoryPrompt.transactions.length + autoLearn.manualCount;
+    if (learnedCount > 0) {
+      setImportMessage(L.categoryPromptDone(learnedCount));
+    }
+
+    openNextCategoryPrompt(nextTransactions, nextRules);
+  }, [
+    auditBankTxUpdate,
+    bankLedgerRules,
+    bankTransactions,
+    categoryPrompt,
+    companyExpenses,
+    currentUser,
+    fixedExpensePayments,
+    fixedExpenses,
+    openNextCategoryPrompt,
+    recordAudit,
+    savedBy,
+    setBankLedgerRules,
+    setBankTransactions,
+    setCompanyExpenses,
+    setExpenseCategories,
+    setFixedExpensePayments,
+  ]);
 
   const loadSentArchives = React.useCallback(async () => {
     try {
@@ -528,8 +860,11 @@ export function BankTransactionsPage({
     if (!bankLedgerRules.length) return;
     applyAutoLearnRules(bankTransactions, fixedExpensePayments, companyExpenses, bankLedgerRules, {
       showMessage: false,
+      auditUser: null,
     });
-  }, [bankLedgerRules, fixedExpenses, bankTransactions, fixedExpensePayments, companyExpenses, applyAutoLearnRules]);
+    // Re-apply only when learn rules change — not on every bank/ledger data update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bankLedgerRules]);
 
   useEffect(() => {
     const handleArchiveUpdated = () => {
@@ -542,9 +877,41 @@ export function BankTransactionsPage({
   const clientFolders = useMemo(() => listFoldersByType(bankTransactionFolders, "client"), [bankTransactionFolders]);
   const cardFolders = useMemo(() => listFoldersByType(bankTransactionFolders, "card"), [bankTransactionFolders]);
   const workerFolders = useMemo(() => listFoldersByType(bankTransactionFolders, "worker"), [bankTransactionFolders]);
+  const clientFolderTree = useMemo(
+    () => flattenBankTransactionFolderTree(buildBankTransactionFolderTree(bankTransactionFolders, "client")),
+    [bankTransactionFolders],
+  );
+  const cardFolderTree = useMemo(
+    () => flattenBankTransactionFolderTree(buildBankTransactionFolderTree(bankTransactionFolders, "card")),
+    [bankTransactionFolders],
+  );
+  const workerFolderTree = useMemo(
+    () => flattenBankTransactionFolderTree(buildBankTransactionFolderTree(bankTransactionFolders, "worker")),
+    [bankTransactionFolders],
+  );
+  const assignableClientFolders = useMemo(
+    () => listAssignableFolders(bankTransactionFolders, "client"),
+    [bankTransactionFolders],
+  );
+  const assignableCardFolders = useMemo(
+    () => listAssignableFolders(bankTransactionFolders, "card"),
+    [bankTransactionFolders],
+  );
+  const assignableWorkerFolders = useMemo(
+    () => listAssignableFolders(bankTransactionFolders, "worker"),
+    [bankTransactionFolders],
+  );
+  const parentFolderOptions = useMemo(
+    () => listFolderParentOptions(bankTransactionFolders, newFolderType),
+    [bankTransactionFolders, newFolderType],
+  );
+  const selectedFolderScopeIds = useMemo(() => {
+    if (!selectedFolderId) return null;
+    return new Set(collectDescendantFolderIds(bankTransactionFolders, selectedFolderId));
+  }, [bankTransactionFolders, selectedFolderId]);
   const unfiledStats = useMemo(
-    () => buildBankTransactionFolderStats(bankTransactions, UNFILED_FOLDER_KEY),
-    [bankTransactions]
+    () => buildBankTransactionFolderStats(bankTransactions, UNFILED_FOLDER_KEY, bankTransactionFolders),
+    [bankTransactions, bankTransactionFolders],
   );
 
   const accountSummaries = useMemo(() => buildBankAccountSummaries(bankTransactions), [bankTransactions]);
@@ -568,20 +935,38 @@ export function BankTransactionsPage({
         .filter((row) => row.isActive)
         .map((row) => ({
           value: row.id,
-          label: `${row.name} \u00B7 ${row.category}`,
+          label: `${row.name} \u00B7 ${row.category} \u00B7 ${formatFixedExpensePaymentDay(row.paymentDayOfMonth)}`,
           raw: { kind: "fixed" as const, fixedExpense: row },
         }))
         .sort((a, b) => a.label.localeCompare(b.label, "ko")),
     [fixedExpenses],
   );
 
-  const manualCategoryOptions = useMemo(() => {
-    const categories = [...expenseCategories];
-    if (ledgerModal?.kind === "manual" && ledgerModal.category && !categories.includes(ledgerModal.category)) {
-      categories.unshift(ledgerModal.category);
+  const ledgerManualCategoryOptions = useMemo(() => {
+    const categories = normalizeExpenseCategories(expenseCategories);
+    const current = ledgerModal?.kind === "manual" ? ledgerModal.category?.trim() : "";
+    if (current && !categories.includes(current)) {
+      categories.unshift(current);
+    }
+    const promptCategory = categoryPrompt?.category?.trim();
+    if (promptCategory && !categories.includes(promptCategory)) {
+      categories.unshift(promptCategory);
     }
     return categories.map((category) => ({ label: category, value: category }));
-  }, [expenseCategories, ledgerModal?.kind, ledgerModal?.category]);
+  }, [expenseCategories, ledgerModal?.category, ledgerModal?.kind, categoryPrompt?.category]);
+
+  const ledgerFixedCategoryOptions = useMemo(
+    () =>
+      buildFixedCategorySelectOptions(
+        fixedExpenses,
+        fixedExpenseCategories,
+        ledgerModal?.kind === "fixed" ? ledgerModal.category : "",
+      ),
+    [fixedExpenses, fixedExpenseCategories, ledgerModal?.category, ledgerModal?.kind],
+  );
+
+  const activeLedgerCategoryOptions =
+    ledgerModal?.kind === "fixed" ? ledgerFixedCategoryOptions : ledgerManualCategoryOptions;
 
   const activePeriod = useMemo(
     () => resolveActivePeriod(periodKey, dateFilter),
@@ -595,18 +980,19 @@ export function BankTransactionsPage({
       dateTo: activePeriod.endDate,
       flowType: flowFilter,
       accountNumber: accountFilter,
-      folderId: selectedFolderId || undefined,
     });
 
-    if (!selectedFolderId && folderScope === "unfiled") {
+    if (selectedFolderScopeIds) {
+      scoped = scoped.filter((row) => row.folderId && selectedFolderScopeIds.has(row.folderId));
+    } else if (folderScope === "unfiled") {
       scoped = scoped.filter((row) => !row.folderId);
-    } else if (!selectedFolderId && folderScope === "client") {
+    } else if (folderScope === "client") {
       const ids = new Set(clientFolders.map((folder) => folder.id));
       scoped = scoped.filter((row) => row.folderId && ids.has(row.folderId));
-    } else if (!selectedFolderId && folderScope === "card") {
+    } else if (folderScope === "card") {
       const ids = new Set(cardFolders.map((folder) => folder.id));
       scoped = scoped.filter((row) => row.folderId && ids.has(row.folderId));
-    } else if (!selectedFolderId && folderScope === "worker") {
+    } else if (folderScope === "worker") {
       const ids = new Set(workerFolders.map((folder) => folder.id));
       scoped = scoped.filter((row) => row.folderId && ids.has(row.folderId));
     }
@@ -619,7 +1005,7 @@ export function BankTransactionsPage({
     activePeriod.endDate,
     flowFilter,
     accountFilter,
-    selectedFolderId,
+    selectedFolderScopeIds,
     folderScope,
     clientFolders,
     cardFolders,
@@ -673,6 +1059,142 @@ export function BankTransactionsPage({
 
   const hasAnyData = bankTransactions.length > 0;
 
+  const recurringFixedPatterns = useMemo(
+    () => detectRecurringFixedExpensePatterns(bankTransactions, fixedExpenses),
+    [bankTransactions, fixedExpenses],
+  );
+
+  const preauthNetGroups = useMemo(
+    () => detectPreauthNetGroups(bankTransactions, bankLedgerRules),
+    [bankTransactions, bankLedgerRules],
+  );
+
+  const openPreauthNetModal = () => {
+    const groups = detectPreauthNetGroups(bankTransactions, bankLedgerRules);
+    if (!groups.length) {
+      setImportMessage(L.preauthNetEmpty);
+      return;
+    }
+    setSelectedPreauthGroupKeys(groups.map((row) => preauthNetGroupKey(row)));
+    setPreauthNetModalOpen(true);
+  };
+
+  const togglePreauthNetGroup = (key: string) => {
+    setSelectedPreauthGroupKeys((prev) =>
+      prev.includes(key) ? prev.filter((row) => row !== key) : [...prev, key],
+    );
+  };
+
+  const applyPreauthNet = () => {
+    const groups = preauthNetGroups.filter((row) => selectedPreauthGroupKeys.includes(preauthNetGroupKey(row)));
+    if (!groups.length) {
+      setImportMessage(L.preauthNetEmpty);
+      return;
+    }
+
+    const nextTransactions = applyPreauthNetGroups(bankTransactions, groups);
+    let nextRules = bankLedgerRules;
+    if (learnPreauthMerchants) {
+      for (const group of groups) {
+        nextRules = upsertBankLearnRule(
+          nextRules,
+          buildPreauthNetLearnRule(group.settlementTx, savedBy || undefined),
+        );
+      }
+      setBankLedgerRules(nextRules);
+    }
+
+    setBankTransactions(nextTransactions);
+    recordSummaryAudit({
+      entityType: "bankTransaction",
+      entityId: "preauth-net",
+      entityLabel: L.preauthNetTitle,
+      screen: L.pageTitle,
+      action: "update",
+      fieldLabel: L.preauthNetApply,
+      after: L.preauthNetDone(groups.length),
+      user: currentUser,
+    });
+
+    setPreauthNetModalOpen(false);
+    setImportMessage(L.preauthNetDone(groups.length));
+  };
+
+  const openRecurringFixedModal = () => {
+    const patterns = detectRecurringFixedExpensePatterns(bankTransactions, fixedExpenses);
+    if (!patterns.length) {
+      setImportMessage(L.recurringFixedEmpty);
+      return;
+    }
+    setSelectedRecurringPatternKeys(patterns.map((row) => row.key));
+    setRecurringFixedModalOpen(true);
+  };
+
+  const toggleRecurringPattern = (key: string) => {
+    setSelectedRecurringPatternKeys((prev) =>
+      prev.includes(key) ? prev.filter((row) => row !== key) : [...prev, key],
+    );
+  };
+
+  const applyRecurringFixed = () => {
+    const patterns = recurringFixedPatterns.filter((row) => selectedRecurringPatternKeys.includes(row.key));
+    if (!patterns.length) {
+      setImportMessage(L.recurringFixedEmpty);
+      return;
+    }
+
+    const beforeFixedIds = new Set(fixedExpenses.map((row) => row.id));
+    const result = applyRecurringFixedExpensePatterns({
+      patterns,
+      fixedExpenses,
+      fixedExpensePayments,
+      bankTransactions,
+      bankLedgerRules,
+      createdBy: savedBy,
+    });
+
+    setFixedExpenses(result.fixedExpenses);
+    setFixedExpensePayments(result.fixedExpensePayments);
+    setBankTransactions(result.bankTransactions);
+    setBankLedgerRules(result.bankLedgerRules);
+    setFixedExpenseCategories((prev) => {
+      let next = prev;
+      for (const expense of result.fixedExpenses) {
+        if (beforeFixedIds.has(expense.id)) continue;
+        next = mergeFixedExpenseCategory(next, expense.category, result.fixedExpenses);
+      }
+      return next;
+    });
+
+    for (const expense of result.fixedExpenses) {
+      if (beforeFixedIds.has(expense.id)) continue;
+      recordAudit({
+        entityType: "fixedExpense",
+        entityId: expense.id,
+        entityLabel: expense.name,
+        screen: L.pageTitle,
+        action: "create",
+        after: snapshotFixedExpenseForAudit(expense),
+        fields: FIXED_EXPENSE_AUDIT_FIELDS,
+        user: currentUser,
+      });
+    }
+
+    recordSummaryAudit({
+      entityType: "fixedExpense",
+      entityId: "recurring-fixed-expense",
+      entityLabel: L.recurringFixedTitle,
+      screen: L.pageTitle,
+      action: "import",
+      fieldLabel: L.recurringFixedApply,
+      after: L.recurringFixedDone(result.createdFixedCount, result.linkedPaymentCount),
+      user: currentUser,
+    });
+
+    setRecurringFixedModalOpen(false);
+    setImportMessage(L.recurringFixedDone(result.createdFixedCount, result.linkedPaymentCount));
+  };
+
   const handleIbkFile = async (file: File) => {
     setImportLoading(true);
     setImportError("");
@@ -697,63 +1219,65 @@ export function BankTransactionsPage({
         .filter((row) => !bankTransactions.some((existing) => existing.id === row.id))
         .map((row) => row.id),
     );
-    const autoLearn = autoApplyBankLearnRules(
-      classified.next,
-      fixedExpensePayments,
-      companyExpenses,
-      bankLedgerRules,
-      fixedExpenses,
-      { createdBy: savedBy || undefined, onlyTransactionIds: addedIds.size ? addedIds : undefined },
-    );
-    setBankTransactions(autoLearn.transactions);
-    if (autoLearn.newPayments.length) {
-      setFixedExpensePayments((prev) => [...autoLearn.newPayments, ...prev]);
+    importLedgerBatchIdsRef.current = addedIds;
+    let nextTransactions = classified.next;
+    const preauthGroups = detectPreauthNetGroups(nextTransactions, bankLedgerRules);
+    const autoPreauthGroups = filterPreauthNetGroupsForAutoApply(preauthGroups, bankLedgerRules, addedIds);
+    if (autoPreauthGroups.length) {
+      nextTransactions = applyPreauthNetGroups(nextTransactions, autoPreauthGroups);
     }
-    if (autoLearn.newExpenses.length) {
-      setCompanyExpenses((prev) => [...autoLearn.newExpenses, ...prev]);
-    }
+    setBankTransactions(nextTransactions);
     setBankTransactionFolders(classified.folders);
     setImportPreview(null);
+    recordSummaryAudit({
+      entityType: "bankTransaction",
+      entityId: importPreview.importBatchId || "ibk-import",
+      entityLabel: "IBK \uD1B5\uC7A5 \uAC00\uC838\uC624\uAE30",
+      screen: L.pageTitle,
+      action: "import",
+      fieldLabel: "\uAC00\uC838\uC624\uAE30",
+      after: `${result.added}\uAC74 \uCD94\uAC00${result.skipped ? ` \u00B7 ${result.skipped}\uAC74 \uC81C\uC678` : ""}${classified.updated ? ` \u00B7 ${classified.updated}\uAC74 \uBD84\uB958` : ""}`,
+      user: currentUser,
+    });
     const latestLabel = importPreview.latestTransactionAt
       ? ` \u00B7 ${L.dataAsOf} ${formatBankTransactionDateTime(importPreview.latestTransactionAt)}`
       : "";
-    const autoLearnLabel = autoLearn.fixedCount + autoLearn.manualCount + autoLearn.folderCount
-      ? `, ${L.ledgerAutoLearnDone({
-          fixed: autoLearn.fixedCount,
-          manual: autoLearn.manualCount,
-          folder: autoLearn.folderCount,
-        }).replace(/\.$/, "")}`
-      : "";
-    const sentSuggestions = buildAllSentStatementDepositSuggestions(autoLearn.transactions, sentArchives, clients);
+    const sentSuggestions = buildAllSentStatementDepositSuggestions(classified.next, sentArchives, clients);
     const sentTxIds = new Set(sentSuggestions.map((row) => row.tx.id));
-    const receivableSuggestionCount = buildAllBankDepositSuggestions(autoLearn.transactions, receivableRows, clients).filter(
+    const receivableSuggestionCount = buildAllBankDepositSuggestions(classified.next, receivableRows, clients).filter(
       (row) => !sentTxIds.has(row.tx.id)
     ).length;
     const matchSuggestionCount = sentSuggestions.length + receivableSuggestionCount;
     const matchHint =
       matchSuggestionCount > 0 ? ` \u00B7 ${L.reconcileBanner(matchSuggestionCount)} (${L.viewReconcile})` : "";
 
+    const preauthHint = autoPreauthGroups.length
+      ? ` \u00B7 ${L.preauthNetDone(autoPreauthGroups.length)}`
+      : "";
     setImportMessage(
-      `${L.ibkImportDone} (${result.added}${L.ibkImportAdded}${result.skipped ? `, ${result.skipped}${L.ibkImportSkipped}` : ""}${classified.updated ? `, ${classified.updated}\uAC74 \uBD84\uB958` : ""}${autoLearnLabel})${latestLabel}${matchHint}`
+      `${L.ibkImportDone} (${result.added}${L.ibkImportAdded}${result.skipped ? `, ${result.skipped}${L.ibkImportSkipped}` : ""}${classified.updated ? `, ${classified.updated}\uAC74 \uBD84\uB958` : ""})${latestLabel}${matchHint}${preauthHint}`
     );
+
+    if (addedIds.size > 0) {
+      openNextCategoryPrompt(nextTransactions, bankLedgerRules);
+    }
   };
 
   const assignTransactionFolder = (transactionId: string, folderId: string) => {
     const tx = bankTransactions.find((row) => row.id === transactionId);
     if (!tx) return;
+    const nextRow = !folderId
+      ? { ...tx, folderId: undefined, linkedSubject: undefined, classifiedAt: undefined }
+      : {
+          ...tx,
+          folderId,
+          classifiedAt: new Date().toISOString(),
+          linkedSubject: tx.linkedSubject || tx.counterpartyName || tx.description || undefined,
+        };
 
-    const nextTransactions = bankTransactions.map((row) => {
-      if (row.id !== transactionId) return row;
-      if (!folderId) {
-        return { ...row, folderId: undefined, linkedSubject: undefined, classifiedAt: undefined };
-      }
-      return {
-        ...row,
-        folderId,
-        classifiedAt: new Date().toISOString(),
-        linkedSubject: row.linkedSubject || row.counterpartyName || row.description || undefined,
-      };
-    });
+    auditBankTxUpdate(tx, nextRow);
+
+    const nextTransactions = bankTransactions.map((row) => (row.id !== transactionId ? row : nextRow));
 
     setBankTransactions(nextTransactions);
 
@@ -770,9 +1294,15 @@ export function BankTransactionsPage({
   };
 
   const updateTransactionMemo = (transactionId: string, memo: string) => {
+    const tx = bankTransactions.find((row) => row.id === transactionId);
+    if (!tx) return;
+    const nextRow = { ...tx, memo: memo || undefined };
+    if (String(tx.memo || "") !== String(nextRow.memo || "")) {
+      auditBankTxUpdate(tx, nextRow);
+    }
     setBankTransactions((prev) =>
       prev.map((row) =>
-        row.id === transactionId ? { ...row, memo: memo || undefined } : row
+        row.id === transactionId ? nextRow : row
       )
     );
   };
@@ -781,22 +1311,56 @@ export function BankTransactionsPage({
     const result = autoClassifyBankTransactions(bankTransactions, clients, workers, bankTransactionFolders);
     setBankTransactions(result.next);
     setBankTransactionFolders(result.folders);
+    if (result.updated > 0) {
+      recordSummaryAudit({
+        entityType: "bankTransaction",
+        entityId: "auto-classify",
+        entityLabel: "\uC790\uB3D9 \uBD84\uB958",
+        screen: L.pageTitle,
+        action: "import",
+        fieldLabel: "\uBD84\uB958",
+        after: `${result.updated}\uAC74 \uC790\uB3D9 \uBD84\uB958`,
+        user: currentUser,
+      });
+    }
     setImportMessage(`${result.updated}${L.autoClassifyDone}`);
+  };
+
+  const openCreateFolderModal = (folderType: BankTransactionFolderType, parentId = "") => {
+    setNewFolderType(folderType);
+    setNewFolderParentId(sanitizeBankTransactionFolderParentId(parentId) || "");
+    setNewFolderName("");
+    setFolderError("");
+    setCreateFolderOpen(true);
   };
 
   const handleCreateFolder = () => {
     const result = createBankTransactionFolder(bankTransactionFolders, {
       folderName: newFolderName,
       folderType: newFolderType,
+      parentId: newFolderParentId || undefined,
     });
     if (result.error) {
       setFolderError(result.error);
       return;
     }
-    setBankTransactionFolders(result.next);
+    if (result.folder) {
+      recordAudit({
+        entityType: "bankFolder",
+        entityId: result.folder.id,
+        entityLabel: result.folder.folderName,
+        screen: L.pageTitle,
+        action: "create",
+        after: snapshotBankFolderForAudit(result.folder),
+        fields: BANK_FOLDER_AUDIT_FIELDS,
+        user: currentUser,
+      });
+    }
+    setBankTransactionFolders(normalizeBankTransactionFolders(result.next));
     if (result.folder) setSelectedFolderId(result.folder.id);
     setCreateFolderOpen(false);
     setNewFolderName("");
+    setNewFolderParentId("");
     setFolderError("");
   };
 
@@ -807,7 +1371,17 @@ export function BankTransactionsPage({
       setFolderError(removed.error);
       return;
     }
-    setBankTransactionFolders(removed.next);
+    recordAudit({
+      entityType: "bankFolder",
+      entityId: folder.id,
+      entityLabel: folder.folderName,
+      screen: L.pageTitle,
+      action: "delete",
+      before: snapshotBankFolderForAudit(folder),
+      fields: BANK_FOLDER_AUDIT_FIELDS,
+      user: currentUser,
+    });
+    setBankTransactionFolders(normalizeBankTransactionFolders(removed.next));
     setBankTransactions((prev) => clearBankTransactionFolderReferences(prev, folder.id));
     if (selectedFolderId === folder.id) setSelectedFolderId("");
     setFolderError("");
@@ -824,6 +1398,32 @@ export function BankTransactionsPage({
     const primaryVoucher = vouchers[0];
     const savedBy = currentUser?.name || currentUser?.loginId || "";
     const logs = createPaymentInputLogsFromVouchers(vouchers, savedBy);
+
+    vouchers.forEach((voucher) => {
+      recordAudit({
+        entityType: "paymentVoucher",
+        entityId: voucher.id,
+        entityLabel: `${voucher.client} \u00B7 ${voucher.site}`,
+        screen: L.pageTitle,
+        action: "create",
+        after: snapshotPaymentForAudit(voucher),
+        fields: PAYMENT_AUDIT_FIELDS,
+        user: currentUser,
+      });
+    });
+    auditBankTxUpdate(tx, {
+      ...tx,
+      linkedPaymentVoucherId: primaryVoucher.id,
+      linkedPdfArchiveId: candidate.pdfArchiveId,
+      linkedSubject: candidate.client,
+      linkedSalesId: vouchers.length === 1 ? primaryVoucher.salesId : undefined,
+      matchConfirmedAt: new Date().toISOString(),
+      matchConfirmedBy: savedBy,
+      matchAutoLinked: false,
+      folderId:
+        tx.folderId ||
+        (isCardCompanyDeposit(tx) ? DEFAULT_CARD_SALES_FOLDER_ID : DEFAULT_CLIENT_FOLDER_ID),
+    });
 
     setPaymentVouchers((prev) => [...vouchers, ...(prev as typeof vouchers)]);
     setPaymentInputLogs((prev) => [...logs, ...(prev as typeof logs)]);
@@ -892,15 +1492,25 @@ export function BankTransactionsPage({
       fixedItem?.id ||
       fixedExpenses.find((row) => row.isActive)?.id ||
       "";
+    const defaultManualCategory = expenseCategories[0] || EXPENSE_CATEGORY_OPTIONS[0];
+    const defaultFixedCategory = fixedItem?.category?.trim() || FIXED_CATEGORY_OPTIONS[0];
+    const resolvedCategory =
+      kind === "manual"
+        ? ledgerRule?.kind === "manual"
+          ? ledgerRule.category || parsed?.category || ""
+          : parsed?.kind === "manual"
+            ? parsed.category || ""
+            : ""
+        : fixedItem?.category || ledgerRule?.category || "";
     setLedgerFormError("");
     setLedgerModal({
       tx,
       kind,
       fixedExpenseId: kind === "fixed" ? defaultFixedId : "",
       category:
-        kind === "manual"
-          ? parsed?.category || prefill.category
-          : fixedItem?.category || ledgerRule?.category || prefill.category,
+        kind === "fixed"
+          ? resolvedCategory.trim() || defaultFixedCategory
+          : resolvedCategory.trim() || defaultManualCategory,
       date: prefill.date,
       description: fixedItem?.name || prefill.description,
       amount: prefill.amount,
@@ -917,11 +1527,14 @@ export function BankTransactionsPage({
           next.fixedExpenseId = fixedExpenses.find((row) => row.isActive)?.id || "";
         }
         const fixedItem = fixedExpenses.find((row) => row.id === next.fixedExpenseId);
-        if (fixedItem && !prev.description.trim()) {
-          next.description = fixedItem.name;
+        if (fixedItem) {
+          next.category = fixedItem.category?.trim() || next.category;
+          if (!prev.description.trim()) {
+            next.description = fixedItem.name;
+          }
         }
       } else if (!next.category.trim()) {
-        next.category = buildCompanyExpensePrefillFromBankTransaction(prev.tx).category;
+        next.category = expenseCategories[0] || EXPENSE_CATEGORY_OPTIONS[0];
       }
       return next;
     });
@@ -932,16 +1545,21 @@ export function BankTransactionsPage({
     const savedBy = currentUser?.name || currentUser?.loginId || "";
 
     if (ledgerModal.kind === "fixed") {
+      const fixedExpenseId = ledgerModal.fixedExpenseId.trim();
       const category = ledgerModal.category.trim();
       if (!category) {
         setLedgerFormError("\uCE74\uD14C\uACE0\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.");
         return;
       }
 
-      const error = validateCompanyExpenseInput({
+      if (!fixedExpenseId) {
+        setLedgerFormError("\uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.");
+        return;
+      }
+
+      const error = validateFixedExpensePaymentInput({
         date: ledgerModal.date,
-        category,
-        description: ledgerModal.description,
+        fixedExpenseId,
         amount: ledgerModal.amount,
       });
       if (error) {
@@ -949,41 +1567,72 @@ export function BankTransactionsPage({
         return;
       }
 
-      const expenseId = makeLedgerId();
-      const expense: CompanyExpense = {
-        id: expenseId,
-        date: ledgerModal.date,
-        category,
-        description: ledgerModal.description.trim(),
-        amount: parseLedgerAmount(ledgerModal.amount),
-        memo: ledgerModal.memo.trim(),
-        kind: "fixed",
-        bankTransactionId: ledgerModal.tx.id,
-        createdBy: savedBy,
-        createdAt: new Date().toISOString(),
-      };
+      const amount = parseLedgerAmount(ledgerModal.amount);
+      const existingPayment =
+        fixedExpenseId &&
+        findLinkableFixedExpensePayment(ledgerModal.tx, fixedExpenseId, fixedExpensePayments, fixedExpenses);
+
+      let nextPayments = fixedExpensePayments;
+      let paymentId = existingPayment?.id || "";
+
+      if (existingPayment) {
+        nextPayments = linkFixedExpensePaymentToBankTx(nextPayments, existingPayment.id, ledgerModal.tx.id, ledgerModal.tx);
+        paymentId = existingPayment.id;
+      } else {
+        paymentId = makeLedgerId();
+        nextPayments = [
+          {
+            id: paymentId,
+            fixedExpenseId,
+            date: ledgerModal.date,
+            amount,
+            memo: ledgerModal.memo.trim() || ledgerModal.description.trim(),
+            bankTransactionId: ledgerModal.tx.id,
+            createdBy: savedBy,
+            createdAt: new Date().toISOString(),
+          },
+          ...nextPayments,
+        ];
+      }
 
       const nextTransactions = bankTransactions.map((row) =>
         row.id === ledgerModal.tx.id
           ? {
               ...row,
-              linkedCompanyExpenseId: expenseId,
-              linkedFixedExpensePaymentId: undefined,
+              linkedFixedExpensePaymentId: paymentId,
+              linkedCompanyExpenseId: undefined,
             }
           : row,
       );
-      const nextExpenses = [expense, ...companyExpenses];
-      const nextCategories = mergeExpenseCategory(expenseCategories, category);
+      const existingFixed = fixedExpenses.find((row) => row.id === fixedExpenseId);
+      if (existingFixed && existingFixed.category !== category) {
+        setFixedExpenses((prev) =>
+          prev.map((row) => (row.id === fixedExpenseId ? { ...row, category } : row)),
+        );
+        recordAudit({
+          entityType: "fixedExpense",
+          entityId: fixedExpenseId,
+          entityLabel: existingFixed.name,
+          screen: L.pageTitle,
+          action: "update",
+          before: snapshotFixedExpenseForAudit(existingFixed),
+          after: snapshotFixedExpenseForAudit({ ...existingFixed, category }),
+          fields: FIXED_EXPENSE_AUDIT_FIELDS,
+          user: currentUser,
+        });
+      }
+      setFixedExpenseCategories((prev) => mergeFixedExpenseCategory(prev, category, fixedExpenses));
       const nextRules = upsertBankLearnRule(
         bankLedgerRules,
-        buildBankLearnRuleFromFixedRegistration(ledgerModal.tx, category, savedBy),
+        buildBankLedgerMatchRuleFromRegistration(ledgerModal.tx, fixedExpenseId, savedBy, amount),
       );
 
-      setExpenseCategories(nextCategories);
-      setCompanyExpenses(nextExpenses);
+      auditBankTxUpdate(ledgerModal.tx, nextTransactions.find((row) => row.id === ledgerModal.tx.id) || ledgerModal.tx);
+
+      setFixedExpensePayments(nextPayments);
       setBankTransactions(nextTransactions);
       setBankLedgerRules(nextRules);
-      applyAutoLearnRules(nextTransactions, fixedExpensePayments, nextExpenses, nextRules, { showMessage: true });
+      applyAutoLearnRules(nextTransactions, nextPayments, companyExpenses, nextRules, { showMessage: true });
       setLedgerModal(null);
       setLedgerFormError("");
       setImportMessage(L.ledgerFixedRegisterDone);
@@ -1037,6 +1686,18 @@ export function BankTransactionsPage({
       bankLedgerRules,
       buildBankLearnRuleFromManualRegistration(ledgerModal.tx, category, savedBy),
     );
+
+    recordAudit({
+      entityType: "companyExpense",
+      entityId: expense.id,
+      entityLabel: `${expense.date} \u00B7 ${expense.description || expense.category}`,
+      screen: L.pageTitle,
+      action: "create",
+      after: snapshotCompanyExpenseForAudit(expense),
+      fields: COMPANY_EXPENSE_AUDIT_FIELDS,
+      user: currentUser,
+    });
+    auditBankTxUpdate(ledgerModal.tx, nextTransactions.find((row) => row.id === ledgerModal.tx.id) || ledgerModal.tx);
 
     setExpenseCategories(nextCategories);
     setCompanyExpenses(nextExpenses);
@@ -1118,6 +1779,29 @@ export function BankTransactionsPage({
     const savedBy = currentUser?.name || currentUser?.loginId || "";
     const logs = createPaymentInputLogsFromVouchers([voucher], savedBy);
 
+    recordAudit({
+      entityType: "paymentVoucher",
+      entityId: voucher.id,
+      entityLabel: `${voucher.client} \u00B7 ${voucher.site}`,
+      screen: L.pageTitle,
+      action: "create",
+      after: snapshotPaymentForAudit(voucher),
+      fields: PAYMENT_AUDIT_FIELDS,
+      user: currentUser,
+    });
+    auditBankTxUpdate(tx, {
+      ...tx,
+      linkedSalesId: receivable.id,
+      linkedPaymentVoucherId: voucher.id,
+      linkedSubject: receivable.client,
+      matchConfirmedAt: new Date().toISOString(),
+      matchConfirmedBy: savedBy,
+      matchAutoLinked: false,
+      folderId:
+        tx.folderId ||
+        (isCardCompanyDeposit(tx) ? DEFAULT_CARD_SALES_FOLDER_ID : DEFAULT_CLIENT_FOLDER_ID),
+    });
+
     setPaymentVouchers((prev) => [voucher, ...(prev as typeof voucher[])]);
     setPaymentInputLogs((prev) => [...logs, ...(prev as typeof logs)]);
     setBankTransactions((prev) =>
@@ -1193,6 +1877,29 @@ export function BankTransactionsPage({
     if (!allVouchers.length) return;
 
     const logs = createPaymentInputLogsFromVouchers(allVouchers, savedBy);
+    allVouchers.forEach((voucher) => {
+      recordAudit({
+        entityType: "paymentVoucher",
+        entityId: voucher.id,
+        entityLabel: `${voucher.client} \u00B7 ${voucher.site}`,
+        screen: L.pageTitle,
+        action: "create",
+        after: snapshotPaymentForAudit(voucher),
+        fields: PAYMENT_AUDIT_FIELDS,
+        user: currentUser,
+      });
+    });
+    recordSummaryAudit({
+      entityType: "bankTransaction",
+      entityId: "bulk-match",
+      entityLabel: "\uACE0\uC2E0\uB8B0 \uC790\uB3D9 \uC785\uAE08 \uC5F0\uACB0",
+      screen: L.pageTitle,
+      action: "import",
+      fieldLabel: "\uC77C\uAD04 \uC785\uAE08",
+      after: `${allVouchers.length}\uAC74 \uC790\uB3D9 \uC785\uAE08 \uC5F0\uACB0`,
+      user: currentUser,
+    });
+
     setPaymentVouchers((prev) => [...allVouchers, ...(prev as typeof allVouchers)]);
     setPaymentInputLogs((prev) => [...logs, ...(prev as typeof logs)]);
     setBankTransactions((prev) =>
@@ -1236,6 +1943,84 @@ export function BankTransactionsPage({
     [bankTransactionFolders]
   );
 
+  const formatFolderSelectLabel = (folder: BankTransactionFolder) => {
+    const path = getBankTransactionFolderPath(bankTransactionFolders, folder.id);
+    const depth = path.split(" / ").length - 1;
+    const prefix = depth > 0 ? `${"— ".repeat(depth)}` : "";
+    return `${prefix}${folder.folderName}`;
+  };
+
+  const renderFolderTreeRows = (
+    treeItems: Array<{ folder: BankTransactionFolder; depth: number }>,
+    amountLabel: string,
+    amountField: "deposits" | "withdrawals",
+    activeClass: string,
+    inactiveClass: string,
+  ) =>
+    treeItems.map(({ folder, depth }) => {
+      const folderStats = buildBankTransactionFolderStats(
+        bankTransactions,
+        folder.id,
+        bankTransactionFolders,
+      );
+      const active = selectedFolderId === folder.id;
+      const subfolderParentId = folder.isDefault ? "" : folder.id;
+      return (
+        <div
+          key={folder.id}
+          className={`flex items-center gap-2 rounded-xl border px-3 py-2 ${
+            folder.isDefault
+              ? "border-dashed bg-white/90"
+              : active
+                ? activeClass
+                : inactiveClass
+          }`}
+          style={{ marginLeft: depth * 12 }}
+        >
+          <button
+            type="button"
+            className="min-w-0 flex-1 text-left"
+            onClick={() => {
+              setSelectedFolderId(active ? "" : folder.id);
+              setFolderScope("all");
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <span className="truncate font-semibold text-slate-900">{folder.folderName}</span>
+              {folder.isDefault ? (
+                <span className="shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">
+                  {L.defaultFolderBadge}
+                </span>
+              ) : null}
+            </div>
+            <div className="text-xs text-slate-500">
+              {folderStats.count}
+              {L.count}
+              {" \u00B7 "}
+              {amountLabel} {formatKRW(folderStats[amountField])}
+            </div>
+          </button>
+          <button
+            type="button"
+            className="rounded-lg px-1.5 py-1 text-xs font-bold text-slate-500 hover:bg-slate-100"
+            title={folder.isDefault ? L.createFolder : L.createSubfolder}
+            onClick={() => openCreateFolderModal(folder.folderType, subfolderParentId)}
+          >
+            +
+          </button>
+          {!folder.isDefault ? (
+            <button
+              type="button"
+              className="rounded-lg p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+              onClick={() => handleDeleteFolder(folder)}
+            >
+              <Trash2 size={14} />
+            </button>
+          ) : null}
+        </div>
+      );
+    });
+
   const countSkippedInPreview = importPreview
     ? importPreview.rows.filter((row) =>
         bankTransactions.some(
@@ -1277,10 +2062,40 @@ export function BankTransactionsPage({
     return <span className="font-medium text-slate-900">{text}</span>;
   };
 
+  const renderPreauthNetBadges = (row: BankTransaction) => {
+    if (!row.netGroupRole) return null;
+    if (row.netGroupRole === "settlement") {
+      return (
+        <span className="inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-xs font-bold text-violet-800">
+          {L.preauthNetSettlementBadge}
+        </span>
+      );
+    }
+    if (row.netGroupRole === "preauth_refund") {
+      return (
+        <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-500">
+          {L.preauthNetRefundBadge}
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-500">
+        {L.preauthNetSuppressedBadge}
+      </span>
+    );
+  };
+
   const renderRow = (row: BankTransaction) => {
+    const suppressed = isNetGroupSuppressed(row);
     const isDeposit = row.deposit > 0;
     const isWithdrawal = row.withdrawal > 0;
-    const rowClass = isDeposit ? "is-deposit-row" : isWithdrawal ? "is-withdrawal-row" : "";
+    const rowClass = suppressed
+      ? "is-preauth-suppressed opacity-60 bg-slate-50/80"
+      : isDeposit
+        ? "is-deposit-row"
+        : isWithdrawal
+          ? "is-withdrawal-row"
+          : "";
     const folder = row.folderId ? folderMap.get(row.folderId) : undefined;
     const canLedger = canRegisterLedger(row);
     const ledgerBadgeLabel = getLedgerRegisteredBadgeLabel(row);
@@ -1336,6 +2151,7 @@ export function BankTransactionsPage({
               </span>
             </div>
           ) : null}
+          {row.netGroupRole ? <div className="mt-1">{renderPreauthNetBadges(row)}</div> : null}
           {row.linkedSubject ? (
             <div className="mt-1 text-xs text-slate-500">{row.linkedSubject}</div>
           ) : null}
@@ -1436,23 +2252,23 @@ export function BankTransactionsPage({
           >
             <option value="">{L.unfiled}</option>
             <optgroup label={L.clientFolders}>
-              {clientFolders.map((item) => (
+              {assignableClientFolders.map((item) => (
                 <option key={item.id} value={item.id}>
-                  {item.folderName}
+                  {formatFolderSelectLabel(item)}
                 </option>
               ))}
             </optgroup>
             <optgroup label={L.cardFolders}>
-              {cardFolders.map((item) => (
+              {assignableCardFolders.map((item) => (
                 <option key={item.id} value={item.id}>
-                  {item.folderName}
+                  {formatFolderSelectLabel(item)}
                 </option>
               ))}
             </optgroup>
             <optgroup label={L.workerFolders}>
-              {workerFolders.map((item) => (
+              {assignableWorkerFolders.map((item) => (
                 <option key={item.id} value={item.id}>
-                  {item.folderName}
+                  {formatFolderSelectLabel(item)}
                 </option>
               ))}
             </optgroup>
@@ -1491,12 +2307,21 @@ export function BankTransactionsPage({
     const folder = row.folderId ? folderMap.get(row.folderId) : undefined;
     const canLedger = canRegisterLedger(row);
     const ledgerBadgeLabel = getLedgerRegisteredBadgeLabel(row);
+    const preauthBadge =
+      row.netGroupRole === "settlement"
+        ? L.preauthNetSettlementBadge
+        : row.netGroupRole === "preauth_refund"
+          ? L.preauthNetRefundBadge
+          : row.netGroupRole === "preauth_withdrawal"
+            ? L.preauthNetSuppressedBadge
+            : null;
     return (
     <MobileRecordCard
       key={row.id}
       title={row.description || "(\uAC70\uB798\uB0B4\uC6A9 \uC5C6\uC74C)"}
       subtitle={formatBankTransactionDateTime(row.transactionAt)}
       badges={[
+        preauthBadge ? { label: preauthBadge, tone: "muted" as const } : null,
         folder
           ? {
               label: folder.folderName,
@@ -1579,6 +2404,67 @@ export function BankTransactionsPage({
             <div>
               <h1 className="erp-text-page-title text-slate-900">{L.pageTitle}</h1>
               <p className="mt-1 max-w-2xl erp-text-body text-slate-600">{L.pageDesc}</p>
+              {apiMode ? (
+                <div className="mt-3 rounded-2xl border border-sky-100 bg-sky-50/70 px-3 py-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1 text-xs font-bold text-sky-800">
+                      <RefreshCw size={14} className={liveSyncState.polling ? "animate-spin" : ""} />
+                      {L.liveSyncTitle}
+                    </span>
+                    <label className="inline-flex items-center gap-1 text-xs font-semibold text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={liveSyncEnabled}
+                        onChange={(event) => setLiveSyncEnabled(event.target.checked)}
+                      />
+                      {liveSyncEnabled ? L.liveSyncOn : L.liveSyncOff}
+                    </label>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 rounded-lg px-2 text-xs"
+                      disabled={liveSyncState.polling}
+                      onClick={() => void pullSnapshot(true)}
+                    >
+                      {L.liveSyncNow}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 rounded-lg px-2 text-xs"
+                      disabled={liveSyncState.polling || !liveSyncState.serverStatus?.enabled}
+                      title={liveSyncState.serverStatus?.enabled ? liveSyncState.serverStatus.importDir : L.liveSyncFolderDisabled}
+                      onClick={() => void runFolderSync()}
+                    >
+                      {L.liveSyncFolder}
+                    </Button>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-600">{L.liveSyncHint}</p>
+                  {liveSyncState.lastMessage ? (
+                    <p className="mt-1 text-xs font-semibold text-emerald-700">{liveSyncState.lastMessage}</p>
+                  ) : null}
+                  {liveSyncState.bankSyncMeta?.lastImportAt ? (
+                    <p className="mt-1 text-xs text-slate-500">
+                      {L.dataAsOf}{" "}
+                      {liveSyncState.bankSyncMeta.lastImportLatestAt
+                        ? formatBankTransactionDateTime(liveSyncState.bankSyncMeta.lastImportLatestAt)
+                        : formatBankTransactionDateTime(liveSyncState.bankSyncMeta.lastImportAt)}
+                      {liveSyncState.bankSyncMeta.lastImportSource
+                        ? ` · ${liveSyncState.bankSyncMeta.lastImportSource}`
+                        : ""}
+                    </p>
+                  ) : null}
+                  <OpenBankingSettingsPanel
+                    apiMode={apiMode}
+                    isAdmin={currentUser?.role === "admin"}
+                    onSynced={() => pullSnapshot(true)}
+                  />
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-slate-500">{L.liveSyncLocalHint}</p>
+              )}
               {hasAnyData ? (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {accountSummaries.map((account) => (
@@ -1807,6 +2693,30 @@ export function BankTransactionsPage({
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl"
+                    onClick={openPreauthNetModal}
+                    disabled={!preauthNetGroups.length}
+                  >
+                    <ArrowLeftRight size={14} className="mr-1" />
+                    {L.preauthNetOpen}
+                    {preauthNetGroups.length ? ` (${preauthNetGroups.length})` : ""}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl"
+                    onClick={openRecurringFixedModal}
+                    disabled={!recurringFixedPatterns.length}
+                  >
+                    <Repeat size={14} className="mr-1" />
+                    {L.recurringFixedOpen}
+                    {recurringFixedPatterns.length ? ` (${recurringFixedPatterns.length})` : ""}
+                  </Button>
                   <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={runAutoClassify}>
                     <Sparkles size={14} className="mr-1" />
                     {L.autoClassify}
@@ -1816,10 +2726,7 @@ export function BankTransactionsPage({
                     variant="outline"
                     size="sm"
                     className="rounded-xl"
-                    onClick={() => {
-                      setCreateFolderOpen(true);
-                      setFolderError("");
-                    }}
+                    onClick={() => openCreateFolderModal(newFolderType)}
                   >
                     <FolderPlus size={14} className="mr-1" />
                     {L.createFolder}
@@ -1861,137 +2768,83 @@ export function BankTransactionsPage({
 
               <div className="grid gap-4 xl:grid-cols-3">
                 <section className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-3">
-                  <div className="mb-3 flex items-center gap-2 font-bold text-emerald-800">
-                    <Building2 size={16} />
-                    {L.clientFolders}
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 font-bold text-emerald-800">
+                      <Building2 size={16} />
+                      {L.clientFolders}
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 rounded-lg px-2 text-xs"
+                      onClick={() => openCreateFolderModal("client")}
+                    >
+                      + {L.createFolderInSection}
+                    </Button>
                   </div>
                   <div className="space-y-2">
-                    {clientFolders.map((folder) => {
-                      const folderStats = buildBankTransactionFolderStats(bankTransactions, folder.id);
-                      const active = selectedFolderId === folder.id;
-                      return (
-                        <div
-                          key={folder.id}
-                          className={`flex items-center gap-2 rounded-xl border px-3 py-2 ${active ? "border-emerald-300 bg-white shadow-sm" : "border-emerald-100 bg-white/70"}`}
-                        >
-                          <button
-                            type="button"
-                            className="min-w-0 flex-1 text-left"
-                            onClick={() => {
-                              setSelectedFolderId(folder.id);
-                              setFolderScope("all");
-                            }}
-                          >
-                            <div className="truncate font-semibold text-slate-900">{folder.folderName}</div>
-                            <div className="text-xs text-slate-500">
-                              {folderStats.count}
-                              {L.count}
-                              {" \u00B7 "}
-                              {L.deposit} {formatKRW(folderStats.deposits)}
-                            </div>
-                          </button>
-                          {!folder.isDefault ? (
-                            <button
-                              type="button"
-                              className="rounded-lg p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                              onClick={() => handleDeleteFolder(folder)}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          ) : null}
-                        </div>
-                      );
-                    })}
+                    {renderFolderTreeRows(
+                      clientFolderTree,
+                      L.deposit,
+                      "deposits",
+                      "border-emerald-300 bg-white shadow-sm",
+                      "border-emerald-100 bg-white/70",
+                    )}
                   </div>
                 </section>
 
                 <section className="rounded-2xl border border-violet-100 bg-violet-50/40 p-3">
-                  <div className="mb-3 flex items-center gap-2 font-bold text-violet-800">
-                    <CreditCard size={16} />
-                    {L.cardFolders}
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 font-bold text-violet-800">
+                      <CreditCard size={16} />
+                      {L.cardFolders}
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 rounded-lg px-2 text-xs"
+                      onClick={() => openCreateFolderModal("card")}
+                    >
+                      + {L.createFolderInSection}
+                    </Button>
                   </div>
                   <div className="space-y-2">
-                    {cardFolders.map((folder) => {
-                      const folderStats = buildBankTransactionFolderStats(bankTransactions, folder.id);
-                      const active = selectedFolderId === folder.id;
-                      return (
-                        <div
-                          key={folder.id}
-                          className={`flex items-center gap-2 rounded-xl border px-3 py-2 ${active ? "border-violet-300 bg-white shadow-sm" : "border-violet-100 bg-white/70"}`}
-                        >
-                          <button
-                            type="button"
-                            className="min-w-0 flex-1 text-left"
-                            onClick={() => {
-                              setSelectedFolderId(folder.id);
-                              setFolderScope("all");
-                            }}
-                          >
-                            <div className="truncate font-semibold text-slate-900">{folder.folderName}</div>
-                            <div className="text-xs text-slate-500">
-                              {folderStats.count}
-                              {L.count}
-                              {" \u00B7 "}
-                              {L.deposit} {formatKRW(folderStats.deposits)}
-                            </div>
-                          </button>
-                          {!folder.isDefault ? (
-                            <button
-                              type="button"
-                              className="rounded-lg p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                              onClick={() => handleDeleteFolder(folder)}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          ) : null}
-                        </div>
-                      );
-                    })}
+                    {renderFolderTreeRows(
+                      cardFolderTree,
+                      L.deposit,
+                      "deposits",
+                      "border-violet-300 bg-white shadow-sm",
+                      "border-violet-100 bg-white/70",
+                    )}
                   </div>
                 </section>
 
                 <section className="rounded-2xl border border-amber-100 bg-amber-50/40 p-3">
-                  <div className="mb-3 flex items-center gap-2 font-bold text-amber-800">
-                    <HardHat size={16} />
-                    {L.workerFolders}
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 font-bold text-amber-800">
+                      <HardHat size={16} />
+                      {L.workerFolders}
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 rounded-lg px-2 text-xs"
+                      onClick={() => openCreateFolderModal("worker")}
+                    >
+                      + {L.createFolderInSection}
+                    </Button>
                   </div>
                   <div className="space-y-2">
-                    {workerFolders.map((folder) => {
-                      const folderStats = buildBankTransactionFolderStats(bankTransactions, folder.id);
-                      const active = selectedFolderId === folder.id;
-                      return (
-                        <div
-                          key={folder.id}
-                          className={`flex items-center gap-2 rounded-xl border px-3 py-2 ${active ? "border-amber-300 bg-white shadow-sm" : "border-amber-100 bg-white/70"}`}
-                        >
-                          <button
-                            type="button"
-                            className="min-w-0 flex-1 text-left"
-                            onClick={() => {
-                              setSelectedFolderId(folder.id);
-                              setFolderScope("all");
-                            }}
-                          >
-                            <div className="truncate font-semibold text-slate-900">{folder.folderName}</div>
-                            <div className="text-xs text-slate-500">
-                              {folderStats.count}
-                              {L.count}
-                              {" \u00B7 "}
-                              {L.withdrawal} {formatKRW(folderStats.withdrawals)}
-                            </div>
-                          </button>
-                          {!folder.isDefault ? (
-                            <button
-                              type="button"
-                              className="rounded-lg p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                              onClick={() => handleDeleteFolder(folder)}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          ) : null}
-                        </div>
-                      );
-                    })}
+                    {renderFolderTreeRows(
+                      workerFolderTree,
+                      L.withdrawal,
+                      "withdrawals",
+                      "border-amber-300 bg-white shadow-sm",
+                      "border-amber-100 bg-white/70",
+                    )}
                   </div>
                 </section>
               </div>
@@ -2595,23 +3448,60 @@ export function BankTransactionsPage({
                   </div>
                 </Field>
               </div>
+              {ledgerModal.kind === "fixed" ? (
+                <div className="sm:col-span-2">
+                  <Field label={L.ledgerFixedItem}>
+                    <AutocompleteInput
+                      value={ledgerModal.fixedExpenseId}
+                      options={fixedExpenseSelectOptions}
+                      placeholder={L.ledgerFixedItem}
+                      freeSolo={false}
+                      showOptionsOnFocus
+                      commitFreeSoloOnBlur
+                      keepOpenUntilSelect
+                      compact={false}
+                      limit={24}
+                      inputProps={{ className: "rounded-xl" }}
+                      onChange={(value) => {
+                        const fixedExpenseId = String(value || "").trim();
+                        const fixedItem = fixedExpenses.find((row) => row.id === fixedExpenseId);
+                        setLedgerModal((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                fixedExpenseId,
+                                category: fixedItem?.category?.trim() || prev.category,
+                                description: prev.description.trim() || fixedItem?.name || prev.description,
+                              }
+                            : prev,
+                        );
+                      }}
+                    />
+                  </Field>
+                </div>
+              ) : null}
               <Field label={L.ledgerDate}>
                 <KoreanDateInput value={ledgerModal.date} onChange={(event) => setLedgerModal((prev) => (prev ? { ...prev, date: event.target.value } : prev))} />
               </Field>
               <Field label={L.ledgerManualCategory}>
                 <AutocompleteInput
                   value={ledgerModal.category}
-                  options={manualCategoryOptions}
+                  options={activeLedgerCategoryOptions}
                   placeholder={L.ledgerManualCategory}
                   freeSolo
+                  showOptionsOnFocus
+                  commitFreeSoloOnBlur
+                  keepOpenUntilSelect
                   compact={false}
+                  limit={24}
                   inputProps={{ className: "rounded-xl" }}
                   onChange={(value) =>
                     setLedgerModal((prev) => (prev ? { ...prev, category: String(value || "").trim() } : prev))
                   }
                 />
-                <p className="mt-1.5 text-xs font-semibold text-slate-500">
-                  {ledgerModal.kind === "fixed" ? L.ledgerSaveFixedHint : `${L.ledgerSaveManualHint}. ${L.ledgerCategoryAddHint}`}
+                <p className="mt-1.5 text-xs font-semibold text-slate-500">{L.ledgerCategoryAddHint}</p>
+                <p className="mt-1 text-xs font-semibold text-slate-500">
+                  {ledgerModal.kind === "fixed" ? L.ledgerSaveFixedHint : L.ledgerSaveManualHint}
                 </p>
               </Field>
               <div className="sm:col-span-2">
@@ -2657,6 +3547,265 @@ export function BankTransactionsPage({
         </div>
       ) : null}
 
+      {preauthNetModalOpen ? (
+        <div
+          className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setPreauthNetModalOpen(false);
+          }}
+        >
+          <div
+            className="erp-ledger-modal max-w-2xl"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={L.preauthNetTitle}
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="erp-text-section font-bold">{L.preauthNetTitle}</h2>
+                <p className="mt-1 erp-text-caption text-slate-500">{L.preauthNetDesc}</p>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
+                onClick={() => setPreauthNetModalOpen(false)}
+                aria-label={L.cancel}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="max-h-[min(420px,60vh)] space-y-2 overflow-y-auto pr-1">
+              {preauthNetGroups.map((group) => {
+                const key = preauthNetGroupKey(group);
+                const checked = selectedPreauthGroupKeys.includes(key);
+                return (
+                  <label
+                    key={key}
+                    className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-4 py-3 transition ${
+                      checked ? "border-violet-300 bg-violet-50/70" : "border-slate-200 bg-white"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={checked}
+                      onChange={() => togglePreauthNetGroup(key)}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-bold text-slate-900">
+                        {L.preauthNetPattern(
+                          group.counterpartyName,
+                          group.date,
+                          group.preauthAmount,
+                          group.settlementAmount,
+                        )}
+                      </div>
+                      <div className="mt-1 text-xs font-semibold text-slate-500">
+                        {formatBankTransactionDateTime(group.preauthWithdrawalTx.transactionAt)} \u2192{" "}
+                        {formatBankTransactionDateTime(group.refundTx.transactionAt)} \u2192{" "}
+                        {formatBankTransactionDateTime(group.settlementTx.transactionAt)}
+                      </div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+
+            <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-700">
+              <input
+                type="checkbox"
+                checked={learnPreauthMerchants}
+                onChange={(event) => setLearnPreauthMerchants(event.target.checked)}
+              />
+              {L.preauthNetLearn}
+            </label>
+
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setPreauthNetModalOpen(false)}>
+                {L.cancel}
+              </Button>
+              <Button
+                type="button"
+                className="rounded-2xl"
+                disabled={!selectedPreauthGroupKeys.length}
+                onClick={applyPreauthNet}
+              >
+                <ArrowLeftRight size={16} className="mr-2" />
+                {L.preauthNetApply}
+                {selectedPreauthGroupKeys.length ? ` (${selectedPreauthGroupKeys.length})` : ""}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {recurringFixedModalOpen ? (
+        <div
+          className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setRecurringFixedModalOpen(false);
+          }}
+        >
+          <div
+            className="erp-ledger-modal max-w-2xl"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={L.recurringFixedTitle}
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="erp-text-section font-bold">{L.recurringFixedTitle}</h2>
+                <p className="mt-1 erp-text-caption text-slate-500">{L.recurringFixedDesc}</p>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
+                onClick={() => setRecurringFixedModalOpen(false)}
+                aria-label={L.cancel}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="max-h-[min(420px,60vh)] space-y-2 overflow-y-auto pr-1">
+              {recurringFixedPatterns.map((pattern) => {
+                const checked = selectedRecurringPatternKeys.includes(pattern.key);
+                return (
+                  <label
+                    key={pattern.key}
+                    className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-4 py-3 transition ${
+                      checked ? "border-amber-300 bg-amber-50/70" : "border-slate-200 bg-white"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={checked}
+                      onChange={() => toggleRecurringPattern(pattern.key)}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-bold text-slate-900">
+                        {L.recurringFixedPattern(
+                          pattern.name,
+                          pattern.paymentDayOfMonth,
+                          pattern.amount,
+                          pattern.monthCount,
+                          pattern.transactions.length,
+                          pattern.daySpread,
+                          pattern.amountFlexible,
+                        )}
+                      </div>
+                      <div className="mt-1 text-xs font-semibold text-slate-500">
+                        {pattern.monthKeys.join(", ")}
+                      </div>
+                      <div className="mt-1 text-xs font-semibold text-amber-700">
+                        {pattern.existingFixedExpenseId ? L.recurringFixedExisting : L.recurringFixedNew}
+                      </div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setRecurringFixedModalOpen(false)}>
+                {L.cancel}
+              </Button>
+              <Button
+                type="button"
+                className="rounded-2xl"
+                disabled={!selectedRecurringPatternKeys.length}
+                onClick={applyRecurringFixed}
+              >
+                <Repeat size={16} className="mr-2" />
+                {L.recurringFixedApply}
+                {selectedRecurringPatternKeys.length ? ` (${selectedRecurringPatternKeys.length})` : ""}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {categoryPrompt ? (
+        <div
+          className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) skipCategoryPrompt();
+          }}
+        >
+          <div
+            className="erp-ledger-modal max-w-lg"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={L.categoryPromptTitle}
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="erp-text-section font-bold">{L.categoryPromptTitle}</h2>
+                <p className="mt-1 erp-text-caption text-slate-500">{L.categoryPromptDesc}</p>
+                <p className="mt-2 text-sm font-bold text-slate-900">
+                  {L.categoryPromptPattern(categoryPrompt.label, categoryPrompt.transactions.length)}
+                </p>
+                {categoryPrompt.transactions[0] ? (
+                  <p className="mt-1 text-sm font-semibold text-red-600">
+                    {formatKRW(categoryPrompt.transactions[0].withdrawal)}
+                    {" \u00B7 "}
+                    {formatBankTransactionDateTime(categoryPrompt.transactions[0].transactionAt)}
+                  </p>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
+                onClick={skipCategoryPrompt}
+                aria-label={L.categoryPromptSkip}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <Field label={L.ledgerManualCategory}>
+              <AutocompleteInput
+                value={categoryPrompt.category}
+                options={ledgerManualCategoryOptions}
+                placeholder={L.ledgerManualCategory}
+                freeSolo
+                showOptionsOnFocus
+                commitFreeSoloOnBlur
+                keepOpenUntilSelect
+                compact={false}
+                limit={24}
+                inputProps={{ className: "rounded-xl" }}
+                onChange={(value) => {
+                  setCategoryPromptError("");
+                  setCategoryPrompt((prev) => (prev ? { ...prev, category: String(value || "").trim() } : prev));
+                }}
+              />
+              <p className="mt-1.5 text-xs font-semibold text-slate-500">{L.ledgerCategoryAddHint}</p>
+            </Field>
+
+            {categoryPromptError ? <p className="mt-3 text-sm font-semibold text-red-600">{categoryPromptError}</p> : null}
+
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <Button type="button" variant="outline" className="rounded-2xl" onClick={skipCategoryPrompt}>
+                {L.categoryPromptSkip}
+              </Button>
+              <Button type="button" className="rounded-2xl" onClick={saveCategoryPrompt}>
+                <BookOpen size={16} className="mr-2" />
+                {L.categoryPromptSave}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {createFolderOpen ? (
         <div className="erp-ledger-modal-backdrop" onClick={() => setCreateFolderOpen(false)}>
           <div
@@ -2676,13 +3825,31 @@ export function BankTransactionsPage({
                 <select
                   className="erp-input w-full rounded-xl"
                   value={newFolderType}
-                  onChange={(event) => setNewFolderType(event.target.value as BankTransactionFolderType)}
+                  onChange={(event) => {
+                    setNewFolderType(event.target.value as BankTransactionFolderType);
+                    setNewFolderParentId("");
+                  }}
                 >
                   <option value="client">{L.clientFolders}</option>
                   <option value="card">{L.cardFolders}</option>
                   <option value="worker">{L.workerFolders}</option>
                 </select>
               </Field>
+              <Field label={L.parentFolder}>
+                <select
+                  className="erp-input w-full rounded-xl"
+                  value={newFolderParentId}
+                  onChange={(event) => setNewFolderParentId(event.target.value)}
+                >
+                  <option value="">{L.parentFolderSectionRoot(getBankTransactionFolderLabel(newFolderType))}</option>
+                  {parentFolderOptions.map((folder) => (
+                    <option key={folder.id} value={folder.id}>
+                      {formatFolderSelectLabel(folder)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <p className="text-xs text-slate-500">{L.parentFolderHint}</p>
               <Field label={L.folderName}>
                 <input
                   className="erp-input w-full rounded-xl"

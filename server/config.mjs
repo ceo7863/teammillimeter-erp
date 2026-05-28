@@ -13,6 +13,24 @@ export const config = {
   distDir: process.env.DIST_DIR || path.join(rootDir, "dist"),
   pdfJsDir: path.join(rootDir, "node_modules", "pdfjs-dist", "legacy", "build"),
   tokenExpiresIn: process.env.JWT_EXPIRES || "7d",
+  /** IBK 거래내역 엑셀이 저장되는 폴더 (설정 시 서버가 주기적으로 자동 가져옴) */
+  ibkBankImportDir: process.env.IBK_BANK_IMPORT_DIR || "",
+  /** 자동 가져오기 주기(ms). 기본 3분 */
+  bankSyncIntervalMs: Number(process.env.BANK_SYNC_INTERVAL_MS || 180000),
+  openBanking: {
+    enabled: process.env.OPEN_BANKING_ENABLED !== "false",
+    baseUrl: process.env.OPEN_BANKING_BASE_URL || "https://testapi.openbanking.or.kr",
+    clientId: process.env.OPEN_BANKING_CLIENT_ID || "",
+    clientSecret: process.env.OPEN_BANKING_CLIENT_SECRET || "",
+    orgCode: process.env.OPEN_BANKING_ORG_CODE || "",
+    redirectUri: process.env.OPEN_BANKING_REDIRECT_URI || "",
+    scope: process.env.OPEN_BANKING_SCOPE || "login inquiry",
+    fintechUseNum: process.env.OPEN_BANKING_FINTECH_USE_NUM || "",
+    accessToken: process.env.OPEN_BANKING_ACCESS_TOKEN || "",
+    refreshToken: process.env.OPEN_BANKING_REFRESH_TOKEN || "",
+    accountMask: process.env.OPEN_BANKING_ACCOUNT_MASK || "",
+    syncDays: Number(process.env.OPEN_BANKING_SYNC_DAYS || 7),
+  },
 };
 
 /** 초기 계정 — 배포 후 비밀번호 변경 권장 */

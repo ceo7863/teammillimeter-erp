@@ -1,5 +1,9 @@
 import { compareSortValues, type SortDirection } from "./pivotSort";
 
+function isPreauthNetTotalsSuppressed(row: BankTransaction) {
+  return row.netGroupRole === "preauth_withdrawal" || row.netGroupRole === "preauth_refund";
+}
+
 export type BankTransactionFlowFilter = "all" | "deposit" | "withdrawal";
 
 export type BankTransactionSortKey = "transactionAt" | "deposit" | "withdrawal" | "balanceAfter";
@@ -43,6 +47,8 @@ export type BankTransaction = {
   matchConfirmedAt?: string;
   matchConfirmedBy?: string;
   matchAutoLinked?: boolean;
+  netGroupId?: string;
+  netGroupRole?: "preauth_withdrawal" | "preauth_refund" | "settlement";
 };
 
 export function makeBankTransactionId() {
@@ -103,6 +109,13 @@ export function normalizeBankTransaction(raw: Partial<BankTransaction> & { id: s
     matchConfirmedBy: raw.matchConfirmedBy ? String(raw.matchConfirmedBy) : undefined,
     matchAutoLinked:
       raw.matchAutoLinked === true ? true : raw.matchAutoLinked === false ? false : undefined,
+    netGroupId: raw.netGroupId ? String(raw.netGroupId) : undefined,
+    netGroupRole:
+      raw.netGroupRole === "preauth_withdrawal" ||
+      raw.netGroupRole === "preauth_refund" ||
+      raw.netGroupRole === "settlement"
+        ? raw.netGroupRole
+        : undefined,
   };
 }
 
@@ -188,8 +201,10 @@ export function sumBankTransactions(rows: BankTransaction[]) {
   return rows.reduce(
     (acc, row) => {
       acc.count += 1;
-      acc.deposits += row.deposit;
-      acc.withdrawals += row.withdrawal;
+      if (!isPreauthNetTotalsSuppressed(row)) {
+        acc.deposits += row.deposit;
+        acc.withdrawals += row.withdrawal;
+      }
       return acc;
     },
     { count: 0, deposits: 0, withdrawals: 0, net: 0 }

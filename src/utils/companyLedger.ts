@@ -26,6 +26,7 @@ export type FixedExpense = {
   category: string;
   amount: number;
   cycle: FixedExpenseCycle;
+  paymentDayOfMonth?: number;
   startDate?: string;
   memo?: string;
   isActive: boolean;
@@ -36,6 +37,7 @@ export type FixedExpensePayment = {
   fixedExpenseId: string;
   date: string;
   amount: number;
+  category?: string;
   memo?: string;
   bankTransactionId?: string;
   createdBy?: string;
@@ -110,6 +112,58 @@ export function mergeExpenseCategory(categories: string[], category: string): st
   const trimmed = String(category || "").trim();
   if (!trimmed) return categories;
   return normalizeExpenseCategories([...categories, trimmed]);
+}
+
+export function normalizeFixedExpenseCategories(
+  rows: unknown,
+  fixedExpenses: Array<{ category?: string }> = [],
+): string[] {
+  const extras = Array.isArray(rows) ? rows.map((item) => String(item || "").trim()).filter(Boolean) : [];
+  const fromFixed = fixedExpenses.map((row) => String(row.category || "").trim()).filter(Boolean);
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const category of [...FIXED_CATEGORY_OPTIONS, ...extras, ...fromFixed]) {
+    if (!category || seen.has(category)) continue;
+    seen.add(category);
+    result.push(category);
+  }
+
+  return result;
+}
+
+export function mergeFixedExpenseCategory(
+  categories: string[],
+  category: string,
+  fixedExpenses: Array<{ category?: string }> = [],
+): string[] {
+  const trimmed = String(category || "").trim();
+  if (!trimmed) return categories;
+  return normalizeFixedExpenseCategories([...categories, trimmed], fixedExpenses);
+}
+
+export function buildFixedCategoryOptionList(
+  fixedExpenses: FixedExpense[] = [],
+  savedCategories: string[] = [],
+  draftCategory = "",
+): string[] {
+  const categories = normalizeFixedExpenseCategories(savedCategories, fixedExpenses);
+  const draft = String(draftCategory || "").trim();
+  if (draft && !categories.includes(draft)) {
+    return [draft, ...categories];
+  }
+  return categories;
+}
+
+export function buildFixedCategorySelectOptions(
+  fixedExpenses: FixedExpense[] = [],
+  savedCategories: string[] = [],
+  draftCategory = "",
+) {
+  return buildFixedCategoryOptionList(fixedExpenses, savedCategories, draftCategory).map((category) => ({
+    label: category,
+    value: category,
+  }));
 }
 
 export const FIXED_CATEGORY_OPTIONS = [
@@ -192,6 +246,40 @@ export function fixedMonthlyAmount(expense: Pick<FixedExpense, "amount" | "cycle
 
 export function fixedCycleLabel(cycle: FixedExpenseCycle) {
   return FIXED_CYCLE_OPTIONS.find((row) => row.value === cycle)?.label || cycle;
+}
+
+export const RECURRING_FIXED_AMOUNT_TOLERANCE_RATIO = 0.15;
+
+export function areRecurringAmountsCompatible(
+  base: number,
+  actual: number,
+  ratio = RECURRING_FIXED_AMOUNT_TOLERANCE_RATIO,
+) {
+  if (!(base > 0) || !(actual > 0)) return false;
+  if (base === actual) return true;
+  const diff = Math.abs(actual - base);
+  return diff / base <= ratio;
+}
+
+export function normalizeFixedExpensePaymentDay(value: unknown): number {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 1;
+  return Math.min(31, Math.max(1, Math.round(num)));
+}
+
+export function buildFixedExpensePaymentDate(monthKey: string, paymentDayOfMonth?: number): string {
+  const day = normalizeFixedExpensePaymentDay(paymentDayOfMonth);
+  const match = /^(\d{4})-(\d{2})$/.exec(String(monthKey || "").trim());
+  if (!match) return `${monthKey}-01`;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const lastDay = new Date(year, month, 0).getDate();
+  const clampedDay = Math.min(day, lastDay);
+  return `${match[1]}-${match[2]}-${String(clampedDay).padStart(2, "0")}`;
+}
+
+export function formatFixedExpensePaymentDay(day?: number): string {
+  return `\uB9E4\uC6D4 ${normalizeFixedExpensePaymentDay(day)}\uC77C`;
 }
 
 export function isFixedActiveInMonth(expense: FixedExpense, monthKey: string) {
@@ -328,10 +416,12 @@ export type LedgerCategoryStatRow = {
   sharePercent: number;
 };
 
-function resolveFixedPaymentCategory(
+export function resolveFixedPaymentCategory(
   payment: FixedExpensePayment,
   fixedExpenses: FixedExpense[] = [],
 ) {
+  const override = String(payment.category || "").trim();
+  if (override) return override;
   const category = fixedExpenses.find((row) => row.id === payment.fixedExpenseId)?.category;
   return String(category || "").trim() || "\uAE30\uD0C0";
 }
@@ -465,12 +555,23 @@ export function validateFixedExpenseInput(input: {
   category?: string;
   amount?: unknown;
   cycle?: FixedExpenseCycle;
+  paymentDayOfMonth?: unknown;
 }) {
   if (!String(input.name || "").trim()) return "\uD56D\uBAA9 \uC774\uB984\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
   if (!String(input.category || "").trim()) return "\uCE74\uD14C\uACE0\uB9AC\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.";
   const amount = parseLedgerAmount(input.amount);
   if (amount <= 0) return "\uAE08\uC561\uC744 0\uBCF4\uB2E4 \uD06C\uAC8C \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
   if (!input.cycle) return "\uC8FC\uAE30\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.";
+  if (
+    input.paymentDayOfMonth !== undefined &&
+    input.paymentDayOfMonth !== null &&
+    String(input.paymentDayOfMonth).trim() !== ""
+  ) {
+    const raw = Number(input.paymentDayOfMonth);
+    if (!Number.isFinite(raw) || raw < 1 || raw > 31) {
+      return "\uCD9C\uAE08\uC77C\uC744 1~31 \uC0AC\uC774\uC758 \uC21C\uC790\uB85C \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
+    }
+  }
   return "";
 }
 
@@ -484,4 +585,67 @@ export function validateFixedExpensePaymentInput(input: {
   const amount = parseLedgerAmount(input.amount);
   if (amount <= 0) return "\uAE08\uC561\uC744 0\uBCF4\uB2E4 \uD06C\uAC8C \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
   return "";
+}
+
+function amountMatchesFixedPayment(
+  withdrawal: number,
+  payment: FixedExpensePayment,
+  expense?: FixedExpense,
+) {
+  if (withdrawal <= 0) return false;
+  if (withdrawal === Number(payment.amount)) return true;
+  if (expense && withdrawal === Number(expense.amount)) return true;
+  if (areRecurringAmountsCompatible(Number(payment.amount), withdrawal)) return true;
+  if (expense && areRecurringAmountsCompatible(Number(expense.amount), withdrawal)) return true;
+  return false;
+}
+
+export function findLinkableFixedExpensePayment(
+  tx: { transactionAt?: string; withdrawal?: number },
+  fixedExpenseId: string,
+  payments: FixedExpensePayment[],
+  fixedExpenses: FixedExpense[] = [],
+) {
+  const monthKey = getMonthKey(String(tx.transactionAt || "").slice(0, 10));
+  if (!monthKey) return null;
+
+  const expense = fixedExpenses.find((row) => row.id === fixedExpenseId);
+  const withdrawal = Number(tx.withdrawal || 0);
+  const candidates = payments.filter(
+    (row) =>
+      row.fixedExpenseId === fixedExpenseId &&
+      getMonthKey(row.date) === monthKey &&
+      !row.bankTransactionId,
+  );
+
+  if (!candidates.length) return null;
+
+  return candidates.find((row) => amountMatchesFixedPayment(withdrawal, row, expense)) || null;
+}
+
+export function resolveFixedPaymentFieldsFromBankTx(tx: { transactionAt?: string; withdrawal?: number }) {
+  const withdrawal = Number(tx.withdrawal || 0);
+  const date = String(tx.transactionAt || "").slice(0, 10);
+  return {
+    amount: withdrawal > 0 ? withdrawal : undefined,
+    date: date || undefined,
+  };
+}
+
+export function linkFixedExpensePaymentToBankTx(
+  payments: FixedExpensePayment[],
+  paymentId: string,
+  bankTransactionId: string,
+  syncFromBank?: { transactionAt?: string; withdrawal?: number },
+) {
+  const sync = syncFromBank ? resolveFixedPaymentFieldsFromBankTx(syncFromBank) : {};
+  return payments.map((row) => {
+    if (row.id !== paymentId) return row;
+    return {
+      ...row,
+      bankTransactionId,
+      ...(sync.amount != null ? { amount: sync.amount } : {}),
+      ...(sync.date ? { date: sync.date } : {}),
+    };
+  });
 }

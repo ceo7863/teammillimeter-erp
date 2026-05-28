@@ -26,6 +26,8 @@ import {
   type ErpUser,
   type ErpUserRecord,
 } from "@/utils/erpApi";
+import { useAudit } from "@/context/AuditContext";
+import { USER_AUDIT_FIELDS, snapshotUserForAudit } from "@/utils/auditLog";
 import {
   DEFAULT_STAFF_PAGE_KEYS,
   getPageAccessGroups,
@@ -289,6 +291,7 @@ export function UsersAdminPage({
   onExcelImport,
   onLoadBundledSeed,
 }: UsersAdminPageProps) {
+  const { recordAudit, recordSummaryAudit } = useAudit();
   const backupInputRef = useRef<HTMLInputElement>(null);
   const excelInputRef = useRef<HTMLInputElement>(null);
   const [users, setUsers] = useState<ErpUserRecord[]>([]);
@@ -441,6 +444,23 @@ export function UsersAdminPage({
         allowedPages: form.role === "staff" ? form.allowedPages : null,
         attendanceViewUserIds: form.role === "staff" ? form.attendanceViewUserIds : null,
       });
+      recordAudit({
+        entityType: "user",
+        entityId: form.loginId.trim(),
+        entityLabel: form.name.trim(),
+        screen: L.pageTitle,
+        action: "create",
+        after: snapshotUserForAudit({
+          loginId: form.loginId.trim(),
+          name: form.name.trim(),
+          email: form.email.trim(),
+          phone: form.phone.trim(),
+          role: form.role,
+          isActive: true,
+        }),
+        fields: USER_AUDIT_FIELDS,
+        user: currentUser,
+      });
       setMessage(L.createSuccess);
       closeModal();
       await loadUsers();
@@ -464,6 +484,23 @@ export function UsersAdminPage({
         allowedPages: form.role === "staff" ? form.allowedPages : null,
         attendanceViewUserIds: form.role === "staff" ? form.attendanceViewUserIds : null,
       });
+      recordAudit({
+        entityType: "user",
+        entityId: selectedUser.id,
+        entityLabel: form.name.trim() || selectedUser.loginId,
+        screen: L.pageTitle,
+        action: "update",
+        before: snapshotUserForAudit(selectedUser),
+        after: snapshotUserForAudit({
+          ...selectedUser,
+          name: form.name.trim(),
+          phone: form.phone.trim(),
+          email: form.email.trim(),
+          role: form.role,
+        }),
+        fields: USER_AUDIT_FIELDS,
+        user: currentUser,
+      });
       setMessage(L.updateSuccess);
       closeModal();
       await loadUsers();
@@ -480,6 +517,17 @@ export function UsersAdminPage({
     setError("");
     try {
       await resetUserPasswordApi(selectedUser.id, form.password);
+      recordSummaryAudit({
+        entityType: "user",
+        entityId: selectedUser.id,
+        entityLabel: selectedUser.name || selectedUser.loginId,
+        screen: L.pageTitle,
+        action: "update",
+        fieldLabel: "\uBE44\uBC00\uBC88\uD638",
+        before: "-",
+        after: "\uBE44\uBC00\uBC88\uD638 \uC7AC\uC124\uC815",
+        user: currentUser,
+      });
       setMessage(L.passwordSuccess);
       closeModal();
     } catch (err) {
@@ -497,6 +545,17 @@ export function UsersAdminPage({
     setError("");
     try {
       await setUserStatusApi(user.id, nextActive);
+      recordAudit({
+        entityType: "user",
+        entityId: user.id,
+        entityLabel: user.name || user.loginId,
+        screen: L.pageTitle,
+        action: "update",
+        before: snapshotUserForAudit(user),
+        after: snapshotUserForAudit({ ...user, isActive: nextActive }),
+        fields: USER_AUDIT_FIELDS.filter((field) => field.key === "isActive"),
+        user: currentUser,
+      });
       setMessage(L.statusSuccess);
       await loadUsers();
     } catch (err) {

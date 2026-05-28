@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { History, RotateCcw } from "lucide-react";
 import { useAudit } from "@/context/AuditContext";
-import { formatAuditDateTime, type AuditAction, type AuditLogEntry } from "@/utils/auditLog";
+import { auditLocalDayKey, formatAuditDateTime, type AuditAction, type AuditLogEntry } from "@/utils/auditLog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { TableExportSection } from "@/components/TableExportSection";
@@ -13,6 +13,16 @@ const ENTITY_TYPE_OPTIONS = [
   { value: "paymentVoucher", label: "입금전표" },
   { value: "client", label: "거래처" },
   { value: "worker", label: "시공자" },
+  { value: "companyExpense", label: "회사 지출" },
+  { value: "fixedExpense", label: "고정비" },
+  { value: "fixedExpensePayment", label: "고정비 납부" },
+  { value: "bankTransaction", label: "통장 거래" },
+  { value: "bankFolder", label: "통장 폴더" },
+  { value: "taxInvoice", label: "계산서" },
+  { value: "attendance", label: "근태" },
+  { value: "workPost", label: "업무게시" },
+  { value: "companyNotice", label: "사내게시" },
+  { value: "companyProfile", label: "회사정보" },
   { value: "user", label: "사용자" },
   { value: "system", label: "시스템" },
 ];
@@ -69,7 +79,7 @@ function Field({ label, children }) {
 
 function matchesDateRange(at: string, startDate: string, endDate: string) {
   if (!at) return false;
-  const day = at.slice(0, 10);
+  const day = auditLocalDayKey(at);
   if (startDate && day < startDate) return false;
   if (endDate && day > endDate) return false;
   return true;

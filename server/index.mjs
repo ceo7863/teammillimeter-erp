@@ -42,10 +42,20 @@ import {
 import { buildPdfShareViewerHtml } from "./pdfShareViewer.mjs";
 import { renderPdfSharePreviewImages } from "./pdfSharePreview.mjs";
 import { buildPdfShareOgMeta } from "./pdfShareOg.mjs";
+import { getBankSyncStatus, runBankFolderSync, startBankSyncScheduler, runUnifiedBankSync } from "./bankSync.mjs";
+import {
+  getOpenBankingSyncStatus,
+  connectOpenBankingManual,
+  disconnectOpenBanking,
+  handleOpenBankingOAuthCallback,
+  runOpenBankingSync,
+} from "./openBankingSync.mjs";
+import { buildAuthorizeUrl } from "./openBankingClient.mjs";
 
 initDb();
 initPdfArchiveStore();
 initBoardAttachmentStore();
+startBankSyncScheduler();
 
 function parsePdfMetaHeader(rawMeta) {
   const text = String(rawMeta);
@@ -445,6 +455,114 @@ app.get("/api/erp", authMiddleware, (_req, res) => {
     version: state.version,
     updatedAt: state.updatedAt,
     updatedBy: state.updatedBy,
+  });
+});
+
+app.get("/api/erp/bank-sync", authMiddleware, (req, res) => {
+  const sinceVersion = Number(req.query.sinceVersion || 0);
+  const state = getErpState();
+  const changed = state.version > sinceVersion;
+  res.json({
+    version: state.version,
+    updatedAt: state.updatedAt,
+    updatedBy: state.updatedBy,
+    changed,
+    bankTransactions: changed ? state.data.bankTransactions || [] : undefined,
+    bankTransactionFolders: changed ? state.data.bankTransactionFolders || [] : undefined,
+    bankSyncMeta: state.data.bankSyncMeta || null,
+    liveSyncStatus: getBankSyncStatus(),
+    openBankingStatus: getOpenBankingSyncStatus(),
+  });
+});
+
+app.post("/api/bank-sync/run", authMiddleware, async (req, res) => {
+  const actor = req.user.loginId || req.user.name || req.user.email || "manual-sync";
+  const result = await runUnifiedBankSync({ updatedBy: actor, forceMetaUpdate: true });
+  if (!result.ok && result.error) {
+    res.status(500).json({
+      error: result.error,
+      liveSyncStatus: getBankSyncStatus(),
+      openBankingStatus: getOpenBankingSyncStatus(),
+    });
+    return;
+  }
+  const state = getErpState();
+  res.json({
+    ...result,
+    version: state.version,
+    updatedAt: state.updatedAt,
+    bankSyncMeta: state.data.bankSyncMeta || null,
+    liveSyncStatus: getBankSyncStatus(),
+    openBankingStatus: getOpenBankingSyncStatus(),
+  });
+});
+
+app.get("/api/open-banking/status", authMiddleware, (_req, res) => {
+  res.json({ status: getOpenBankingSyncStatus() });
+});
+
+app.get("/api/open-banking/authorize-url", authMiddleware, adminMiddleware, (_req, res) => {
+  try {
+    const url = buildAuthorizeUrl(`erp-${Date.now()}`);
+    res.json({ url });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+app.get("/api/open-banking/oauth/callback", async (req, res) => {
+  try {
+    const code = String(req.query.code || "");
+    const result = await handleOpenBankingOAuthCallback(code);
+    if (!result.ok) {
+      res.status(400).send(result.error || "연동 실패");
+      return;
+    }
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(`<!DOCTYPE html><html lang="ko"><body style="font-family:sans-serif;padding:2rem"><h1>오픈뱅킹 연동 완료</h1><p>ERP 통장 거래내역 화면으로 돌아가 핀테크이용번호를 저장해 주세요.</p><p>이 창은 닫아도 됩니다.</p></body></html>`);
+  } catch (error) {
+    res.status(500).send(error instanceof Error ? error.message : "연동 실패");
+  }
+});
+
+app.post("/api/open-banking/connect", authMiddleware, adminMiddleware, (req, res) => {
+  const result = connectOpenBankingManual(req.body || {});
+  if (!result.ok) {
+    res.status(400).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+app.post("/api/open-banking/disconnect", authMiddleware, adminMiddleware, (_req, res) => {
+  res.json(disconnectOpenBanking());
+});
+
+app.post("/api/open-banking/sync", authMiddleware, async (req, res) => {
+  const actor = req.user.loginId || req.user.name || req.user.email || "open-banking-manual";
+  const result = await runOpenBankingSync({ updatedBy: actor, forceMetaUpdate: true });
+  if (!result.ok && result.error) {
+    res.status(500).json({ ...result, status: getOpenBankingSyncStatus() });
+    return;
+  }
+  const state = getErpState();
+  res.json({
+    ...result,
+    version: state.version,
+    updatedAt: state.updatedAt,
+    bankSyncMeta: state.data.bankSyncMeta || null,
+    status: getOpenBankingSyncStatus(),
+  });
+});
+
+app.get("/api/bank-sync/status", authMiddleware, (_req, res) => {
+  const state = getErpState();
+  res.json({
+    liveSyncStatus: getBankSyncStatus(),
+    openBankingStatus: getOpenBankingSyncStatus(),
+    bankSyncMeta: state.data.bankSyncMeta || null,
+    version: state.version,
+    updatedAt: state.updatedAt,
   });
 });
 

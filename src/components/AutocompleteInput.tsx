@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   filterAutocompleteOptions,
@@ -88,6 +88,10 @@ type AutocompleteInputProps = {
   limit?: number;
   freeSolo?: boolean;
   showOptionsOnFocus?: boolean;
+  /** freeSolo일 때 입력 중에는 onChange를 호출하지 않고, 선택·blur·바깥 클릭 시 반영 */
+  commitFreeSoloOnBlur?: boolean;
+  /** 포커스 blur만으로는 드롭다운을 닫지 않음 (항목 클릭·바깥 클릭·Esc) */
+  keepOpenUntilSelect?: boolean;
   compact?: boolean;
 };
 
@@ -108,6 +112,8 @@ export function AutocompleteInput({
   limit = 12,
   freeSolo = true,
   showOptionsOnFocus,
+  commitFreeSoloOnBlur = false,
+  keepOpenUntilSelect = false,
   compact = true,
 }: AutocompleteInputProps) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -119,7 +125,18 @@ export function AutocompleteInput({
   const openOnFocus = showOptionsOnFocus ?? !(inputProps as { excelGrid?: boolean }).excelGrid;
 
   const passthroughInputProps = Object.fromEntries(
-    Object.entries(inputProps).filter(([key]) => !["onKeyDown", "excelGrid", "showOptionsOnFocus", "onLiveValueChange", "className"].includes(key))
+    Object.entries(inputProps).filter(
+      ([key]) =>
+        ![
+          "onKeyDown",
+          "excelGrid",
+          "showOptionsOnFocus",
+          "commitFreeSoloOnBlur",
+          "keepOpenUntilSelect",
+          "onLiveValueChange",
+          "className",
+        ].includes(key),
+    ),
   );
   const resolvedInputClassName = resolveAutocompleteInputClassName(inputProps, compact !== false);
   const useCompactMenu = compact !== false;
@@ -135,7 +152,14 @@ export function AutocompleteInput({
 
   const commitInputText = (nextText: string) => {
     setInputText(nextText);
-    if (freeSolo) onChange(nextText);
+    if (freeSolo && !commitFreeSoloOnBlur) onChange(nextText);
+    setHighlightedIndex(0);
+  };
+
+  const commitFreeSoloValue = (nextText: string) => {
+    const trimmed = nextText.trim();
+    setInputText(trimmed);
+    onChange(trimmed);
     setHighlightedIndex(0);
   };
 
@@ -149,8 +173,20 @@ export function AutocompleteInput({
     allowEmpty: openOnFocus,
   });
 
+  const displayOptions = useMemo(() => {
+    if (filtered.length > 0) return filtered;
+    const trimmed = inputText.trim();
+    if (!freeSolo || !trimmed) return filtered;
+    const hasExactMatch = normalizedOptions.some(
+      (item) => item.label.trim().toLowerCase() === trimmed.toLowerCase(),
+    );
+    if (hasExactMatch) return filtered;
+    return [{ label: `"${trimmed}" 사용`, value: trimmed, raw: null }];
+  }, [filtered, freeSolo, inputText, normalizedOptions]);
+
   const selectItem = (item: { label: string; value: string; raw: unknown }) => {
-    setInputText(item.label);
+    const nextLabel = item.raw == null && freeSolo ? item.value : item.label;
+    setInputText(nextLabel);
     onChange(item.value, item.raw);
     setFocused(false);
   };
@@ -169,8 +205,21 @@ export function AutocompleteInput({
     setFocused(false);
   };
 
-  const canShowDropdown = focused && filtered.length > 0 && (inputText.trim().length > 0 || openOnFocus);
-  const canPickFromDropdown = canShowDropdown && inputText.trim().length > 0;
+  const canShowDropdown =
+    focused && displayOptions.length > 0 && (inputText.trim().length > 0 || openOnFocus);
+  const canPickFromDropdown = canShowDropdown && (inputText.trim().length > 0 || openOnFocus);
+
+  const closeDropdown = useCallback(
+    (commitValue = false) => {
+      if (commitValue && freeSolo && commitFreeSoloOnBlur) {
+        const trimmed = inputText.trim();
+        setInputText(trimmed);
+        onChange(trimmed);
+      }
+      setFocused(false);
+    },
+    [commitFreeSoloOnBlur, freeSolo, inputText, onChange],
+  );
 
   const updateMenuPosition = useCallback(() => {
     const root = rootRef.current;
@@ -203,18 +252,18 @@ export function AutocompleteInput({
       window.removeEventListener("resize", updateMenuPosition);
       window.removeEventListener("scroll", updateMenuPosition, true);
     };
-  }, [canShowDropdown, updateMenuPosition, filtered.length, inputText, highlightedIndex]);
+  }, [canShowDropdown, updateMenuPosition, displayOptions.length, inputText, highlightedIndex]);
 
   useEffect(() => {
     if (!canShowDropdown) return;
     const handlePointerDown = (event: MouseEvent) => {
       const target = event.target as Node;
       if (rootRef.current?.contains(target) || menuRef.current?.contains(target)) return;
-      setFocused(false);
+      closeDropdown(true);
     };
     document.addEventListener("mousedown", handlePointerDown);
     return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [canShowDropdown]);
+  }, [canShowDropdown, closeDropdown]);
 
   const dropdownMenu = canShowDropdown ? (
     <div
@@ -225,13 +274,13 @@ export function AutocompleteInput({
       }`}
       onMouseDown={(event) => event.preventDefault()}
     >
-      {filtered.map((item, index) => (
+      {displayOptions.map((item, index) => (
         <button
           key={`${item.value}-${index}`}
           type="button"
           className={`erp-autocomplete-option w-full border-b text-left hover:bg-slate-50 ${
             useCompactMenu ? "erp-autocomplete-option--inline" : ""
-          } ${highlightedIndex === index ? "bg-slate-50" : ""}`}
+          } ${highlightedIndex === index ? "bg-slate-50" : ""} ${item.raw == null && freeSolo ? "erp-autocomplete-option--create" : ""}`}
           onMouseEnter={() => setHighlightedIndex(index)}
           onMouseDown={(event) => {
             event.preventDefault();
@@ -240,7 +289,7 @@ export function AutocompleteInput({
           }}
         >
           <div className="erp-autocomplete-option-label">{item.label}</div>
-          {renderSub && <div className="erp-autocomplete-option-sub">{renderSub(item.raw)}</div>}
+          {renderSub && item.raw != null ? <div className="erp-autocomplete-option-sub">{renderSub(item.raw)}</div> : null}
         </button>
       ))}
     </div>
@@ -261,7 +310,12 @@ export function AutocompleteInput({
           setHighlightedIndex(0);
         }}
         onBlur={() => {
+          if (keepOpenUntilSelect) return;
           setTimeout(() => {
+            if (keepOpenUntilSelect) return;
+            if (freeSolo && commitFreeSoloOnBlur) {
+              commitFreeSoloValue(inputText);
+            }
             setFocused(false);
             if (!freeSolo) {
               if (!inputText.trim()) commitClearedSelection();
@@ -272,24 +326,36 @@ export function AutocompleteInput({
         onKeyDown={(e) => {
           if (isImeActive(e)) return;
 
+          if (e.key === "Escape" && canShowDropdown) {
+            e.preventDefault();
+            closeDropdown(commitFreeSoloOnBlur);
+            return;
+          }
+
           const dropdownUsesVerticalKeys = canPickFromDropdown;
 
           if (dropdownUsesVerticalKeys && e.key === "ArrowDown") {
             e.preventDefault();
-            setHighlightedIndex((prev) => (prev + 1) % filtered.length);
+            setHighlightedIndex((prev) => (prev + 1) % displayOptions.length);
             return;
           }
 
           if (dropdownUsesVerticalKeys && e.key === "ArrowUp") {
             e.preventDefault();
-            setHighlightedIndex((prev) => (prev - 1 + filtered.length) % filtered.length);
+            setHighlightedIndex((prev) => (prev - 1 + displayOptions.length) % displayOptions.length);
             return;
           }
 
           if (e.key === "Enter") {
             if (canPickFromDropdown) {
               e.preventDefault();
-              selectItem(filtered[highlightedIndex] || filtered[0]);
+              selectItem(displayOptions[highlightedIndex] || displayOptions[0]);
+              return;
+            }
+            if (freeSolo && commitFreeSoloOnBlur && inputText.trim()) {
+              e.preventDefault();
+              commitFreeSoloValue(inputText);
+              setFocused(false);
               return;
             }
             if (!freeSolo && !inputText.trim()) {
@@ -300,7 +366,7 @@ export function AutocompleteInput({
           }
 
           if (canPickFromDropdown && e.key === "Tab") {
-            selectItem(filtered[highlightedIndex] || filtered[0]);
+            selectItem(displayOptions[highlightedIndex] || displayOptions[0]);
             return;
           }
 

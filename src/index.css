@@ -195,9 +195,8 @@ textarea {
   white-space: nowrap;
 }
 
-.erp-autocomplete-option .font-semibold {
-  font-size: inherit;
-  font-weight: 600;
+.erp-autocomplete-option--create .erp-autocomplete-option-label {
+  color: #0369a1;
 }
 
 @media (max-width: 767px) {
@@ -7986,6 +7985,523 @@ body.erp-col-resizing * {
   cursor: help;
 }
 
+.erp-ledger-unpaid-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+  background: #ffedd5;
+  color: #c2410c;
+  border: 1px solid #fdba74;
+  cursor: help;
+}
+
+.erp-ledger-paid-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #86efac;
+  cursor: help;
+}
+
+.erp-ledger-calendar {
+  min-width: 0;
+}
+
+.erp-ledger-calendar-summary-grid,
+.erp-ledger-page-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+@media (min-width: 640px) {
+  .erp-ledger-calendar-summary-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .erp-ledger-page-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+}
+
+.erp-ledger-summary-tile {
+  min-width: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #fff;
+  padding: 0.45rem 0.55rem;
+}
+
+.erp-ledger-summary-tile-label {
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #64748b;
+}
+
+.erp-ledger-summary-tile-value {
+  margin-top: 0.12rem;
+  font-size: clamp(0.8125rem, 0.75rem + 0.35vw, 1rem);
+  font-weight: 800;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  word-break: keep-all;
+}
+
+.erp-ledger-summary-tile-sub {
+  margin-top: 0.1rem;
+  font-size: 0.5625rem;
+  font-weight: 600;
+  line-height: 1.25;
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.erp-ledger-calendar-toolbar {
+  margin-bottom: 0.55rem;
+}
+
+.erp-ledger-calendar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.75rem;
+  margin-bottom: 0.45rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.65rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.erp-ledger-calendar-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #475569;
+}
+
+.erp-ledger-calendar-legend-item::before {
+  content: "";
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 0.2rem;
+  flex-shrink: 0;
+}
+
+.erp-ledger-calendar-legend-item.is-variable::before {
+  background: #fda4af;
+}
+
+.erp-ledger-calendar-legend-item.is-fixed-unpaid::before {
+  background: #fb923c;
+  box-shadow: inset 0 0 0 1px #ea580c;
+}
+
+.erp-ledger-calendar-legend-item.is-fixed-paid::before {
+  background: #4ade80;
+  box-shadow: inset 0 0 0 1px #16a34a;
+}
+
+.erp-ledger-calendar .erp-calendar-highlight {
+  margin-bottom: 0.35rem;
+  padding: 0.45rem 0.65rem;
+}
+
+.erp-ledger-calendar-grid .erp-ledger-calendar-cell {
+  min-height: 8rem;
+  max-height: 10.5rem;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (min-width: 768px) {
+  .erp-ledger-calendar-grid .erp-ledger-calendar-cell {
+    min-height: 8.75rem;
+    max-height: 11.5rem;
+  }
+}
+
+.erp-ledger-calendar-grid .erp-ledger-calendar-cell .erp-calendar-cell-head {
+  flex-shrink: 0;
+}
+
+.erp-ledger-calendar-cell-total {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #be123c;
+}
+
+.erp-ledger-calendar-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 9999px;
+  padding: 0 0.35rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.erp-ledger-calendar-badge.is-variable {
+  background: #ffe4e6;
+  color: #be123c;
+}
+
+.erp-ledger-calendar-badge.is-fixed-unpaid {
+  background: #ffedd5;
+  color: #c2410c;
+  box-shadow: inset 0 0 0 1px #fdba74;
+}
+
+.erp-ledger-calendar-badge.is-fixed-paid {
+  background: #dcfce7;
+  color: #15803d;
+  box-shadow: inset 0 0 0 1px #86efac;
+}
+
+.erp-ledger-calendar-entry-list {
+  margin: 0.35rem 0 0;
+  padding: 0;
+  padding-right: 0.1rem;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.erp-ledger-calendar-entry-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.erp-ledger-calendar-entry-list::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+.erp-ledger-calendar-entry {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.35rem;
+  border-radius: 0.55rem;
+  padding: 0.18rem 0.35rem;
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+.erp-ledger-calendar-legend-item.is-category::before {
+  background: var(--ledger-category-border, #94a3b8);
+}
+
+.erp-ledger-calendar-entry.is-category {
+  background: var(--ledger-category-bg, #f8fafc);
+  color: var(--ledger-category-text, #334155);
+  border-left: 3px solid var(--ledger-category-border, #94a3b8);
+}
+
+.erp-ledger-calendar-entry.is-category.is-fixed-unpaid {
+  box-shadow: inset 0 0 0 1px var(--ledger-category-border, #94a3b8);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--ledger-category-bg, #fff7ed) 88%, #fff7ed) 0%,
+    var(--ledger-category-bg, #fff7ed) 36%
+  );
+}
+
+.erp-ledger-calendar-entry.is-category .erp-ledger-calendar-entry-amount {
+  color: var(--ledger-category-text, #334155);
+}
+
+.erp-ledger-calendar-side-item.is-category {
+  border-left: 4px solid var(--ledger-category-border, #94a3b8);
+  background: linear-gradient(
+    90deg,
+    var(--ledger-category-bg, #f8fafc) 0%,
+    #ffffff 32%
+  );
+}
+
+.erp-ledger-calendar-side-item.is-category.is-fixed-unpaid {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ledger-category-border, #fdba74) 55%, transparent);
+}
+
+.erp-ledger-calendar-side-item.is-category .erp-ledger-calendar-side-item-amount {
+  color: var(--ledger-category-text, #334155);
+}
+
+.erp-ledger-calendar-side-item.is-category .erp-ledger-calendar-side-item-category {
+  color: var(--ledger-category-text, #334155);
+}
+
+.erp-ledger-calendar-entry.is-variable {
+  background: #fff1f2;
+  color: #9f1239;
+  border-left: 3px solid #fb7185;
+}
+
+.erp-ledger-calendar-entry.is-category-toned {
+  border-left-width: 3px;
+  border-left-style: solid;
+}
+
+.erp-ledger-calendar-entry.is-category-toned.is-fixed-unpaid {
+  box-shadow: inset 0 0 0 1px #fdba74;
+}
+
+.erp-ledger-calendar-entry.is-fixed.is-fixed-unpaid {
+  background: #fff7ed;
+  color: #c2410c;
+  border-left: 3px solid #f97316;
+  box-shadow: inset 0 0 0 1px #fed7aa;
+}
+
+.erp-ledger-calendar-entry.is-fixed.is-fixed-paid {
+  background: #f0fdf4;
+  color: #15803d;
+  border-left: 3px solid #22c55e;
+  box-shadow: inset 0 0 0 1px #bbf7d0;
+}
+
+.erp-ledger-calendar-entry.is-fixed-unpaid .erp-ledger-calendar-entry-amount {
+  color: #ea580c;
+}
+
+.erp-ledger-calendar-entry.is-fixed-paid .erp-ledger-calendar-entry-amount {
+  color: #16a34a;
+}
+
+.erp-ledger-calendar-entry.is-more {
+  justify-content: center;
+  color: #64748b;
+  background: #f8fafc;
+}
+
+.erp-ledger-calendar-entry-category {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+  white-space: normal;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.erp-ledger-calendar-entry-amount {
+  flex-shrink: 0;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.erp-ledger-calendar-cell.is-variable.has-data {
+  border-color: #fda4af;
+}
+
+.erp-ledger-calendar-cell.is-unpaid-only.has-data {
+  border-color: #fb923c;
+  background: linear-gradient(180deg, #fff7ed 0%, #ffffff 72%);
+}
+
+.erp-ledger-calendar-cell.is-paid-only.has-data {
+  border-color: #4ade80;
+  background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 72%);
+}
+
+.erp-ledger-calendar-cell.is-mixed-fixed.has-data {
+  border-color: #a78bfa;
+  background: linear-gradient(135deg, #fff7ed 0%, #f0fdf4 100%);
+}
+
+.erp-ledger-calendar-cell.is-has-unpaid-fixed.has-data {
+  border-color: #fb7185;
+  box-shadow: inset 0 -3px 0 #fb923c;
+}
+
+.erp-ledger-calendar-cell.is-has-paid-fixed.has-data {
+  border-color: #fb7185;
+  box-shadow: inset 0 -3px 0 #4ade80;
+}
+
+.erp-ledger-calendar-side-total {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #be123c;
+}
+
+.erp-ledger-calendar-side-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.erp-ledger-calendar-side-stats .erp-calendar-side-stat.is-variable strong {
+  color: #be123c;
+}
+
+.erp-ledger-calendar-side-stats .erp-calendar-side-stat.is-fixed strong {
+  color: #b45309;
+}
+
+.erp-ledger-calendar-side-stats .erp-calendar-side-stat.is-grand strong {
+  color: #0f172a;
+}
+
+.erp-ledger-calendar-side-item {
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.85rem;
+  background: #fff;
+  padding: 0.65rem 0.75rem;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+.erp-ledger-calendar-side-item.is-editable {
+  cursor: pointer;
+}
+
+.erp-ledger-calendar-side-item.is-variable {
+  border-left: 4px solid #fb7185;
+}
+
+.erp-ledger-calendar-side-item.is-category-toned {
+  border-left-style: solid;
+}
+
+.erp-ledger-calendar-side-item.is-category-toned.is-fixed-unpaid {
+  box-shadow: inset 0 0 0 1px #fdba74;
+}
+
+.erp-ledger-calendar-side-item.is-fixed-unpaid {
+  border-left: 4px solid #f97316;
+  background: linear-gradient(90deg, #fff7ed 0%, #ffffff 28%);
+}
+
+.erp-ledger-calendar-side-item.is-fixed-paid {
+  border-left: 4px solid #22c55e;
+  background: linear-gradient(90deg, #f0fdf4 0%, #ffffff 28%);
+}
+
+.erp-ledger-calendar-side-item.is-fixed-unpaid .erp-ledger-calendar-side-item-amount {
+  color: #ea580c;
+}
+
+.erp-ledger-calendar-side-item.is-fixed-paid .erp-ledger-calendar-side-item-amount {
+  color: #16a34a;
+}
+
+.erp-ledger-calendar-side-item.is-editable:hover {
+  transform: translateY(-1px);
+  border-color: #94a3b8;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+}
+
+.erp-ledger-calendar-side-item:disabled {
+  cursor: default;
+}
+
+.erp-ledger-calendar-side-edit-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.erp-ledger-calendar-side-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.erp-ledger-calendar-side-item-amount {
+  flex-shrink: 0;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  color: #be123c;
+  font-variant-numeric: tabular-nums;
+}
+
+.erp-ledger-calendar-side-item-category {
+  margin-top: 0.45rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.erp-ledger-calendar-side-item-label {
+  margin-top: 0.2rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.4;
+  color: #0f172a;
+  word-break: keep-all;
+}
+
+@media (min-width: 1024px) {
+  .erp-ledger-calendar-side-panel {
+    flex: 0 0 min(24rem, 36vw);
+  }
+}
+
+.erp-ledger-calendar-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.erp-ledger-calendar-drawer {
+  width: min(100%, 24rem);
+  max-width: 92vw;
+  height: 100%;
+  max-height: 100dvh;
+  border-radius: 0;
+  border: none;
+  border-left: 1px solid #e2e8f0;
+  box-shadow: -16px 0 40px rgba(15, 23, 42, 0.18);
+  animation: erp-ledger-calendar-drawer-in 0.2s ease-out;
+}
+
+.erp-ledger-calendar-drawer .erp-calendar-side-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+@keyframes erp-ledger-calendar-drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
 .erp-ledger-bank-legend {
   display: flex;
   flex-wrap: wrap;
@@ -8048,6 +8564,10 @@ body.erp-col-resizing * {
   background: rgba(15, 23, 42, 0.45);
   padding: 1rem;
   overflow: hidden;
+}
+
+.erp-ledger-modal-backdrop--elevated {
+  z-index: 70;
 }
 
 .erp-ledger-modal {

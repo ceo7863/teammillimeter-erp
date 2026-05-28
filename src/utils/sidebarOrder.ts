@@ -67,15 +67,22 @@ export function clearSidebarOrder(userId: string | number) {
 }
 
 export function sortPageDefsByOrder(pages: ErpPageDef[], order: ErpPageKey[] | null | undefined): ErpPageDef[] {
-  if (!order?.length) return pages;
+  let sorted: ErpPageDef[];
+  if (!order?.length) {
+    sorted = pages;
+  } else {
+    const rank = new Map(order.map((key, index) => [key, index]));
+    sorted = [...pages].sort((left, right) => {
+      const leftRank = rank.has(left.key) ? rank.get(left.key)! : Number.MAX_SAFE_INTEGER;
+      const rightRank = rank.has(right.key) ? rank.get(right.key)! : Number.MAX_SAFE_INTEGER;
+      if (leftRank !== rightRank) return leftRank - rightRank;
+      return left.label.localeCompare(right.label, "ko");
+    });
+  }
 
-  const rank = new Map(order.map((key, index) => [key, index]));
-  return [...pages].sort((left, right) => {
-    const leftRank = rank.has(left.key) ? rank.get(left.key)! : Number.MAX_SAFE_INTEGER;
-    const rightRank = rank.has(right.key) ? rank.get(right.key)! : Number.MAX_SAFE_INTEGER;
-    if (leftRank !== rightRank) return leftRank - rightRank;
-    return left.label.localeCompare(right.label, "ko");
-  });
+  const attendancePage = sorted.find((page) => page.key === "attendance");
+  if (!attendancePage) return sorted;
+  return [...sorted.filter((page) => page.key !== "attendance"), attendancePage];
 }
 
 export function buildSidebarOrderDraft(pages: ErpPageDef[], savedOrder: ErpPageKey[] | null | undefined): ErpPageKey[] {

@@ -22,6 +22,8 @@ import {
 } from "@/utils/attendanceAccess";
 import { fetchAttendanceViewableUsers, type ErpUser } from "@/utils/erpApi";
 import { formatMonthLabel, shiftMonthKey } from "@/utils/workerMonthlyPayments";
+import { useAudit } from "@/context/AuditContext";
+import { ATTENDANCE_AUDIT_FIELDS, snapshotAttendanceForAudit } from "@/utils/auditLog";
 
 type AttendancePageProps = {
   attendanceRecords: AttendanceRecord[];
@@ -228,6 +230,7 @@ export function AttendancePage({
   setAttendanceRecords,
   currentUser,
 }: AttendancePageProps) {
+  const { recordAudit } = useAudit();
   const [feedback, setFeedback] = useState("");
   const [viewableUsers, setViewableUsers] = useState<AttendanceViewUser[]>([]);
   const [browseMonthKey, setBrowseMonthKey] = useState(() => todayAttendanceDate().slice(0, 7));
@@ -315,23 +318,47 @@ export function AttendancePage({
 
   const handleCheckIn = () => {
     if (!currentUser?.id) return;
+    const beforeCheckIn = findTodayAttendance(attendanceRecords, currentUser.id);
     const result = checkInAttendance(attendanceRecords, { id: currentUser.id, name: currentUser.name });
     if (!result.ok) {
       setFeedback(result.message);
       return;
     }
     setAttendanceRecords(result.records);
+    recordAudit({
+      entityType: "attendance",
+      entityId: result.record.id,
+      entityLabel: `${result.record.userName} \u00B7 ${result.record.date}`,
+      screen: L.pageTitle,
+      action: beforeCheckIn ? "update" : "create",
+      before: beforeCheckIn ? snapshotAttendanceForAudit(beforeCheckIn) : undefined,
+      after: snapshotAttendanceForAudit(result.record),
+      fields: ATTENDANCE_AUDIT_FIELDS,
+      user: currentUser,
+    });
     setFeedback(`\uCD9C\uADFC \uC644\uB8CC (${formatAttendanceTime(result.record.checkInAt)})`);
   };
 
   const handleCheckOut = () => {
     if (!currentUser?.id) return;
+    const beforeRecord = findTodayAttendance(attendanceRecords, currentUser.id);
     const result = checkOutAttendance(attendanceRecords, { id: currentUser.id, name: currentUser.name });
     if (!result.ok) {
       setFeedback(result.message);
       return;
     }
     setAttendanceRecords(result.records);
+    recordAudit({
+      entityType: "attendance",
+      entityId: result.record.id,
+      entityLabel: `${result.record.userName} \u00B7 ${result.record.date}`,
+      screen: L.pageTitle,
+      action: "update",
+      before: beforeRecord ? snapshotAttendanceForAudit(beforeRecord) : undefined,
+      after: snapshotAttendanceForAudit(result.record),
+      fields: ATTENDANCE_AUDIT_FIELDS,
+      user: currentUser,
+    });
     setFeedback(`\uD1F4\uADFC \uC644\uB8CC (${formatAttendanceTime(result.record.checkOutAt)})`);
   };
 

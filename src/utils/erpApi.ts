@@ -36,6 +36,7 @@ export type ErpPayload = {
   fixedExpensePayments?: unknown[];
   bankLedgerRules?: unknown[];
   expenseCategories?: unknown[];
+  fixedExpenseCategories?: unknown[];
   companyNotices?: unknown[];
   workPosts?: unknown[];
   taxInvoices?: unknown[];
@@ -229,4 +230,69 @@ export async function saveErpData(payload: ErpPayload) {
 
 export function isApiModeEnabled() {
   return import.meta.env.VITE_USE_API !== "false";
+}
+
+export type BankSyncMeta = {
+  lastImportAt?: string;
+  lastImportSource?: string;
+  lastImportAdded?: number;
+  lastImportSkipped?: number;
+  lastImportLatestAt?: string | null;
+  lastImportDir?: string;
+  lastImportBy?: string;
+};
+
+export type BankLiveSyncStatus = {
+  enabled: boolean;
+  importDir: string;
+  intervalMs?: number;
+  lastRunAt?: string | null;
+  lastSuccessAt?: string | null;
+  lastError?: string | null;
+  lastSourceFile?: string | null;
+  lastAdded?: number;
+  lastSkipped?: number;
+  lastLatestTransactionAt?: string | null;
+};
+
+export type BankSyncSnapshot = {
+  version: number;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+  changed: boolean;
+  bankTransactions?: unknown[];
+  bankTransactionFolders?: unknown[];
+  bankSyncMeta?: BankSyncMeta | null;
+  liveSyncStatus?: BankLiveSyncStatus | null;
+};
+
+export type BankFolderSyncResult = {
+  ok: boolean;
+  added?: number;
+  skipped?: number;
+  sourceFile?: string;
+  latestTransactionAt?: string | null;
+  version?: number;
+  updatedAt?: string;
+  reason?: string;
+  error?: string;
+  bankSyncMeta?: BankSyncMeta | null;
+  liveSyncStatus?: BankLiveSyncStatus | null;
+};
+
+export async function fetchBankSyncSnapshot(sinceVersion: number) {
+  return apiRequest<BankSyncSnapshot>(`/erp/bank-sync?sinceVersion=${encodeURIComponent(String(sinceVersion))}`);
+}
+
+export async function runBankFolderSync() {
+  return apiRequest<BankFolderSyncResult>("/bank-sync/run", { method: "POST" });
+}
+
+export async function fetchBankSyncStatus() {
+  return apiRequest<{
+    liveSyncStatus: BankLiveSyncStatus;
+    bankSyncMeta?: BankSyncMeta | null;
+    version: number;
+    updatedAt?: string | null;
+  }>("/bank-sync/status");
 }

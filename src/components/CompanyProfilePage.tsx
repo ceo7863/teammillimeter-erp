@@ -7,6 +7,8 @@ import {
   normalizeCompanyProfile,
   type CompanyProfile,
 } from "@/utils/companyProfile";
+import { useAudit } from "@/context/AuditContext";
+import { COMPANY_PROFILE_AUDIT_FIELDS, snapshotCompanyProfileForAudit } from "@/utils/auditLog";
 
 const L = {
   pageTitle: "\uD68C\uC0AC \uC815\uBCF4",
@@ -82,6 +84,7 @@ export function CompanyProfilePage({
   companyProfile: CompanyProfile;
   setCompanyProfile: React.Dispatch<React.SetStateAction<CompanyProfile>>;
 }) {
+  const { recordAudit } = useAudit();
   const [draft, setDraft] = useState(() => normalizeCompanyProfile(companyProfile));
   const [message, setMessage] = useState("");
 
@@ -95,12 +98,22 @@ export function CompanyProfilePage({
       const current = normalizeCompanyProfile(companyProfile);
       const changed = (Object.keys(next) as Array<keyof CompanyProfile>).some((key) => next[key] !== current[key]);
       if (changed) {
+        recordAudit({
+          entityType: "companyProfile",
+          entityId: "company",
+          entityLabel: L.pageTitle,
+          screen: L.pageTitle,
+          action: "update",
+          before: snapshotCompanyProfileForAudit(current),
+          after: snapshotCompanyProfileForAudit(next),
+          fields: COMPANY_PROFILE_AUDIT_FIELDS,
+        });
         setCompanyProfile(next);
         setMessage(L.saved);
       }
     }, 600);
     return () => window.clearTimeout(timer);
-  }, [draft, companyProfile, setCompanyProfile]);
+  }, [draft, companyProfile, setCompanyProfile, recordAudit]);
 
   const update = (key: keyof CompanyProfile, value: string) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
@@ -108,6 +121,17 @@ export function CompanyProfilePage({
 
   const saveProfile = () => {
     const next = normalizeCompanyProfile(draft);
+    const current = normalizeCompanyProfile(companyProfile);
+    recordAudit({
+      entityType: "companyProfile",
+      entityId: "company",
+      entityLabel: L.pageTitle,
+      screen: L.pageTitle,
+      action: "update",
+      before: snapshotCompanyProfileForAudit(current),
+      after: snapshotCompanyProfileForAudit(next),
+      fields: COMPANY_PROFILE_AUDIT_FIELDS,
+    });
     setCompanyProfile(next);
     setDraft(next);
     setMessage(L.saved);
@@ -116,6 +140,16 @@ export function CompanyProfilePage({
   const resetProfile = () => {
     if (!window.confirm("\uAE30\uBCF8 \uAC12\uC73C\uB85C \uB418\uB3CC\uB9B4\uAE4C\uC694?")) return;
     const next = { ...DEFAULT_COMPANY_PROFILE };
+    recordAudit({
+      entityType: "companyProfile",
+      entityId: "company",
+      entityLabel: L.pageTitle,
+      screen: L.pageTitle,
+      action: "update",
+      before: snapshotCompanyProfileForAudit(normalizeCompanyProfile(companyProfile)),
+      after: snapshotCompanyProfileForAudit(next),
+      fields: COMPANY_PROFILE_AUDIT_FIELDS,
+    });
     setDraft(next);
     setCompanyProfile(next);
     setMessage(L.saved);

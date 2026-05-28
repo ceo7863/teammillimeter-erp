@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { LogIn, RotateCcw } from "lucide-react";
-import { formatAuditDateTime } from "@/utils/auditLog";
+import { auditLocalDayKey, formatAuditDateTime } from "@/utils/auditLog";
 import { roleLabel, type LoginLogEntry } from "@/utils/loginLogs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -35,7 +35,7 @@ function Field({ label, children }) {
 
 function matchesDateRange(at: string, startDate: string, endDate: string) {
   if (!at) return false;
-  const day = at.slice(0, 10);
+  const day = auditLocalDayKey(at);
   if (startDate && day < startDate) return false;
   if (endDate && day > endDate) return false;
   return true;
@@ -62,11 +62,11 @@ export function LoginHistoryPage({ loginLogs }: LoginHistoryPageProps) {
   }, [loginLogs, startDate, endDate, query]);
 
   const stats = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = auditLocalDayKey(new Date().toISOString());
     return {
       total: loginLogs.length,
       filtered: filteredLogs.length,
-      today: loginLogs.filter((entry) => entry.at?.slice(0, 10) === today).length,
+      today: loginLogs.filter((entry) => auditLocalDayKey(entry.at) === today).length,
       admins: loginLogs.filter((entry) => entry.role === "admin").length,
     };
   }, [loginLogs, filteredLogs.length]);

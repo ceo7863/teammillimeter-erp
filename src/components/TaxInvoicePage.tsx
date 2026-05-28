@@ -44,6 +44,8 @@ import {
   parseHometaxTaxInvoiceFile,
   type HometaxImportPreview,
 } from "@/utils/hometaxTaxInvoiceImport";
+import { useAudit } from "@/context/AuditContext";
+import { TAX_INVOICE_AUDIT_FIELDS, snapshotTaxInvoiceForAudit } from "@/utils/auditLog";
 
 type PeriodKey = "thisMonth" | "lastMonth" | "q1" | "q2" | "q3" | "q4" | "all" | "custom";
 type QuarterKey = "q1" | "q2" | "q3" | "q4";
@@ -239,6 +241,7 @@ export function TaxInvoicePage({
   clients: Array<{ name?: string; businessNo?: string }>;
   currentUser: ErpUser | null;
 }) {
+  const { recordAudit, recordSummaryAudit } = useAudit();
   const [periodKey, setPeriodKey] = useState<PeriodKey>("thisMonth");
   const [dateFilter, setDateFilter] = useState<DateFilter>(() => monthRangeISO(0));
   const [quarterYear, setQuarterYear] = useState(() => new Date().getFullYear());
@@ -612,6 +615,34 @@ export function TaxInvoicePage({
     const now = new Date().toISOString();
 
     if (modal.mode === "edit" && modal.id) {
+      const existing = taxInvoices.find((row) => row.id === modal.id);
+      const updated = {
+        ...(existing || {}),
+        issueDate: modal.issueDate,
+        client: modal.client.trim(),
+        businessNo: modal.businessNo.trim(),
+        flowType: modal.flowType,
+        documentType: modal.documentType,
+        supplyAmount: amounts.supplyAmount,
+        vatAmount: amounts.vatAmount,
+        totalAmount: amounts.totalAmount,
+        invoiceNo: modal.invoiceNo.trim() || undefined,
+        memo: modal.memo.trim() || undefined,
+        status: modal.status,
+        updatedAt: now,
+        updatedBy: authorName,
+      };
+      recordAudit({
+        entityType: "taxInvoice",
+        entityId: modal.id,
+        entityLabel: `${updated.client} \u00B7 ${updated.issueDate}`,
+        screen: L.pageTitle,
+        action: "update",
+        before: existing ? snapshotTaxInvoiceForAudit(existing) : undefined,
+        after: snapshotTaxInvoiceForAudit(updated),
+        fields: TAX_INVOICE_AUDIT_FIELDS,
+        user: currentUser,
+      });
       setTaxInvoices((prev) =>
         prev.map((row) =>
           row.id === modal.id
@@ -652,6 +683,16 @@ export function TaxInvoicePage({
         createdBy: authorName,
         createdByLoginId: authorLoginId,
       };
+      recordAudit({
+        entityType: "taxInvoice",
+        entityId: next.id,
+        entityLabel: `${next.client} \u00B7 ${next.issueDate}`,
+        screen: L.pageTitle,
+        action: "create",
+        after: snapshotTaxInvoiceForAudit(next),
+        fields: TAX_INVOICE_AUDIT_FIELDS,
+        user: currentUser,
+      });
       setTaxInvoices((prev) => [next, ...prev]);
     }
 
@@ -661,6 +702,16 @@ export function TaxInvoicePage({
 
   const deleteInvoice = (row: TaxInvoice) => {
     if (!window.confirm(L.deleteConfirm)) return;
+    recordAudit({
+      entityType: "taxInvoice",
+      entityId: row.id,
+      entityLabel: `${row.client} \u00B7 ${row.issueDate}`,
+      screen: L.pageTitle,
+      action: "delete",
+      before: snapshotTaxInvoiceForAudit(row),
+      fields: TAX_INVOICE_AUDIT_FIELDS,
+      user: currentUser,
+    });
     setTaxInvoices((prev) => prev.filter((item) => item.id !== row.id));
   };
 
@@ -686,6 +737,16 @@ export function TaxInvoicePage({
     });
     setTaxInvoices(result.next);
     setImportPreview(null);
+    recordSummaryAudit({
+      entityType: "taxInvoice",
+      entityId: "hometax-import",
+      entityLabel: "\uD648\uD0D1\uC2A4 \uACC4\uC0B0\uC11C \uAC00\uC838\uC624\uAE30",
+      screen: L.pageTitle,
+      action: "import",
+      fieldLabel: "\uAC00\uC838\uC624\uAE30",
+      after: `${result.added}\uAC74 \uCD94\uAC00${result.skipped ? ` \u00B7 ${result.skipped}\uAC74 \uC81C\uC678` : ""}`,
+      user: currentUser,
+    });
     const periodLabel =
       importPreview.earliestIssueDate && importPreview.latestIssueDate
         ? importPreview.earliestIssueDate === importPreview.latestIssueDate

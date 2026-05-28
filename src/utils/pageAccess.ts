@@ -3,7 +3,6 @@ import type { ErpUser } from "./erpApi";
 export const ERP_PAGE_KEYS = [
   "dashboard",
   "calendar",
-  "attendance",
   "salesInput",
   "sales",
   "salesVoucherSearch",
@@ -22,6 +21,7 @@ export const ERP_PAGE_KEYS = [
   "auditLog",
   "usersAdmin",
   "loginHistory",
+  "attendance",
 ] as const;
 
 export type ErpPageKey = (typeof ERP_PAGE_KEYS)[number];
@@ -36,7 +36,6 @@ export type ErpPageDef = {
 export const ERP_PAGE_DEFS: ErpPageDef[] = [
   { key: "dashboard", label: "대시보드", group: "업무" },
   { key: "calendar", label: "캘린더", group: "업무" },
-  { key: "attendance", label: "근태 관리", group: "업무" },
   { key: "salesInput", label: "매출등록", group: "매출" },
   { key: "sales", label: "매출관리", group: "매출" },
   { key: "salesVoucherSearch", label: "매출전표검색", group: "매출" },
@@ -55,6 +54,7 @@ export const ERP_PAGE_DEFS: ErpPageDef[] = [
   { key: "auditLog", label: "감사로그", group: "설정", adminOnly: true },
   { key: "usersAdmin", label: "사용자 관리", group: "관리", adminOnly: true },
   { key: "loginHistory", label: "로그인 이력", group: "관리", adminOnly: true },
+  { key: "attendance", label: "근태 관리", group: "업무" },
 ];
 
 const ERP_PAGE_KEY_SET = new Set<string>(ERP_PAGE_KEYS);
@@ -63,7 +63,6 @@ const ERP_PAGE_KEY_SET = new Set<string>(ERP_PAGE_KEYS);
 export const DEFAULT_STAFF_PAGE_KEYS: ErpPageKey[] = [
   "dashboard",
   "calendar",
-  "attendance",
   "salesInput",
   "sales",
   "salesVoucherSearch",
@@ -75,6 +74,7 @@ export const DEFAULT_STAFF_PAGE_KEYS: ErpPageKey[] = [
   "companyNotices",
   "clients",
   "workers",
+  "attendance",
 ];
 
 export function isErpPageKey(value: string): value is ErpPageKey {

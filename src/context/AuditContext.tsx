@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useMemo } from "react";
 import {
   appendAuditLogs,
   buildAuditEntries,
+  buildSummaryAuditEntry,
   diffAuditRecords,
   getAuditHistory,
   getLatestAuditEntry,
@@ -27,6 +28,17 @@ type AuditContextValue = {
   auditLogs: AuditLogEntry[];
   recordAudit: (input: RecordAuditInput) => void;
   recordAuditEntries: (entries: AuditLogEntry[]) => void;
+  recordSummaryAudit: (input: {
+    entityType: string;
+    entityId: string | number;
+    entityLabel: string;
+    screen: string;
+    action: AuditAction;
+    fieldLabel: string;
+    before?: string;
+    after: string;
+    user?: AuditUser;
+  }) => void;
   getFieldHistory: (entityType: string, entityId: string | number, field: string) => AuditLogEntry[];
   getLatestFieldAudit: (entityType: string, entityId: string | number, field: string) => AuditLogEntry | null;
   getEntityHistory: (entityType: string, entityId: string | number) => AuditLogEntry[];
@@ -81,11 +93,29 @@ export function AuditProvider({
     [currentUser, recordAuditEntries]
   );
 
+  const recordSummaryAudit = useCallback(
+    (input: {
+      entityType: string;
+      entityId: string | number;
+      entityLabel: string;
+      screen: string;
+      action: AuditAction;
+      fieldLabel: string;
+      before?: string;
+      after: string;
+      user?: AuditUser;
+    }) => {
+      recordAuditEntries(buildSummaryAuditEntry(input));
+    },
+    [recordAuditEntries]
+  );
+
   const value = useMemo(
     () => ({
       auditLogs,
       recordAudit,
       recordAuditEntries,
+      recordSummaryAudit,
       getFieldHistory: (entityType: string, entityId: string | number, field: string) =>
         getAuditHistory(auditLogs, { entityType, entityId, field }),
       getLatestFieldAudit: (entityType: string, entityId: string | number, field: string) =>
@@ -93,7 +123,7 @@ export function AuditProvider({
       getEntityHistory: (entityType: string, entityId: string | number) =>
         getAuditHistory(auditLogs, { entityType, entityId }),
     }),
-    [auditLogs, recordAudit, recordAuditEntries]
+    [auditLogs, recordAudit, recordAuditEntries, recordSummaryAudit]
   );
 
   return <AuditContext.Provider value={value}>{children}</AuditContext.Provider>;

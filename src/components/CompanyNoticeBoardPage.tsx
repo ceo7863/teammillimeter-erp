@@ -22,6 +22,8 @@ import {
   type CompanyNotice,
   type NoticeBoardKey,
 } from "@/utils/companyNotices";
+import { useAudit } from "@/context/AuditContext";
+import { COMPANY_NOTICE_AUDIT_FIELDS, snapshotCompanyNoticeForAudit } from "@/utils/auditLog";
 
 type CompanyBoardTabKey = NoticeBoardKey | "work";
 
@@ -92,6 +94,7 @@ export function CompanyNoticeBoardPage({
   setWorkPosts: React.Dispatch<React.SetStateAction<WorkPost[]>>;
   currentUser: ErpUser | null;
 }) {
+  const { recordAudit } = useAudit();
   const [activeBoard, setActiveBoard] = useState<CompanyBoardTabKey>(DEFAULT_NOTICE_BOARD);
   const isWorkBoard = activeBoard === "work";
   const [query, setQuery] = useState("");
@@ -164,6 +167,27 @@ export function CompanyNoticeBoardPage({
     const authorLoginId = currentUser?.loginId || "";
 
     if (modal.mode === "edit" && modal.id) {
+      const existing = companyNotices.find((notice) => notice.id === modal.id);
+      const updated = {
+        ...(existing || {}),
+        board: modal.board,
+        title: modal.title.trim(),
+        body: modal.body.trim(),
+        isPinned: modal.isPinned,
+        updatedAt: now,
+        updatedBy: authorName,
+      };
+      recordAudit({
+        entityType: "companyNotice",
+        entityId: modal.id,
+        entityLabel: updated.title,
+        screen: getNoticeBoardLabel(modal.board),
+        action: "update",
+        before: existing ? snapshotCompanyNoticeForAudit(existing) : undefined,
+        after: snapshotCompanyNoticeForAudit(updated),
+        fields: COMPANY_NOTICE_AUDIT_FIELDS,
+        user: currentUser,
+      });
       setCompanyNotices((prev) =>
         prev.map((notice) =>
           notice.id === modal.id
@@ -192,6 +216,16 @@ export function CompanyNoticeBoardPage({
         createdBy: authorName,
         createdByLoginId: authorLoginId,
       };
+      recordAudit({
+        entityType: "companyNotice",
+        entityId: next.id,
+        entityLabel: next.title,
+        screen: getNoticeBoardLabel(next.board),
+        action: "create",
+        after: snapshotCompanyNoticeForAudit(next),
+        fields: COMPANY_NOTICE_AUDIT_FIELDS,
+        user: currentUser,
+      });
       setCompanyNotices((prev) => [next, ...prev]);
       setSelectedId(next.id);
       setActiveBoard(next.board);
@@ -203,6 +237,16 @@ export function CompanyNoticeBoardPage({
 
   const deleteNotice = (notice: CompanyNotice) => {
     if (!window.confirm(L.deleteConfirm)) return;
+    recordAudit({
+      entityType: "companyNotice",
+      entityId: notice.id,
+      entityLabel: notice.title,
+      screen: getNoticeBoardLabel(notice.board),
+      action: "delete",
+      before: snapshotCompanyNoticeForAudit(notice),
+      fields: COMPANY_NOTICE_AUDIT_FIELDS,
+      user: currentUser,
+    });
     setCompanyNotices((prev) => prev.filter((row) => row.id !== notice.id));
     if (selectedId === notice.id) setSelectedId(null);
   };

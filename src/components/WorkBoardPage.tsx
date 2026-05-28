@@ -26,6 +26,8 @@ import {
   type WorkPost,
   type WorkPostAttachment,
 } from "@/utils/workBoard";
+import { useAudit } from "@/context/AuditContext";
+import { WORK_POST_AUDIT_FIELDS, snapshotWorkPostForAudit } from "@/utils/auditLog";
 
 type PostModalState = {
   mode: "create" | "edit";
@@ -135,6 +137,7 @@ export function WorkBoardPage({
   currentUser: ErpUser | null;
   embedded?: boolean;
 }) {
+  const { recordAudit } = useAudit();
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modal, setModal] = useState<PostModalState | null>(null);
@@ -242,6 +245,27 @@ export function WorkBoardPage({
       const authorLoginId = currentUser?.loginId || "";
 
       if (modal.mode === "edit" && modal.id) {
+        const existing = workPosts.find((post) => post.id === modal.id);
+        const updated = {
+          ...(existing || {}),
+          title: modal.title.trim(),
+          body: modal.body.trim(),
+          isPinned: modal.isPinned,
+          attachments,
+          updatedAt: now,
+          updatedBy: authorName,
+        };
+        recordAudit({
+          entityType: "workPost",
+          entityId: modal.id,
+          entityLabel: updated.title,
+          screen: embedded ? "\uC0AC\uB0B4\uAC8C\uC2DC\uD310" : L.pageTitle,
+          action: "update",
+          before: existing ? snapshotWorkPostForAudit(existing) : undefined,
+          after: snapshotWorkPostForAudit(updated),
+          fields: WORK_POST_AUDIT_FIELDS,
+          user: currentUser,
+        });
         setWorkPosts((prev) =>
           prev.map((post) =>
             post.id === modal.id
@@ -269,6 +293,16 @@ export function WorkBoardPage({
           createdBy: authorName,
           createdByLoginId: authorLoginId,
         };
+        recordAudit({
+          entityType: "workPost",
+          entityId: next.id,
+          entityLabel: next.title,
+          screen: embedded ? "\uC0AC\uB0B4\uAC8C\uC2DC\uD310" : L.pageTitle,
+          action: "create",
+          after: snapshotWorkPostForAudit(next),
+          fields: WORK_POST_AUDIT_FIELDS,
+          user: currentUser,
+        });
         setWorkPosts((prev) => [next, ...prev]);
         setSelectedId(next.id);
       }
@@ -291,6 +325,16 @@ export function WorkBoardPage({
       if (post.attachments?.length) {
         await deleteBoardAttachments(post.attachments.map((item) => item.id));
       }
+      recordAudit({
+        entityType: "workPost",
+        entityId: post.id,
+        entityLabel: post.title,
+        screen: embedded ? "\uC0AC\uB0B4\uAC8C\uC2DC\uD310" : L.pageTitle,
+        action: "delete",
+        before: snapshotWorkPostForAudit(post),
+        fields: WORK_POST_AUDIT_FIELDS,
+        user: currentUser,
+      });
       setWorkPosts((prev) => prev.filter((row) => row.id !== post.id));
       if (selectedId === post.id) setSelectedId(null);
     } catch (error) {
