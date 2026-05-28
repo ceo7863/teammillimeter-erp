@@ -1,7 +1,7 @@
 import type { BankTransaction } from "./bankTransactions";
 import { isCardCompanyDeposit } from "./bankTransactionFolders";
 import type { ClientDepositMatchSource } from "./clientDepositAliases";
-import { includesDepositName, resolveDepositSubjectClientMatch } from "./clientDepositAliases";
+import { resolveBankDepositMatchSubject, resolveDepositSubjectClientMatch } from "./clientDepositAliases";
 import type { PdfArchiveMeta } from "./pdfArchive";
 import type { BankPaymentVoucherDraft } from "./bankReceivableMatch";
 import { aggregateSaleBilling } from "./statementSheets";
@@ -60,33 +60,14 @@ function daysBetween(fromDate: string, toDate: string) {
 }
 
 function resolveStatementPaymentAmount(deposit: number, total: number) {
-  if (total <= 0) return null;
+  if (total <= 0 || deposit !== total) return null;
 
-  if (deposit === total) {
-    return {
-      score: 50,
-      reason: "\uB0B4\uC5ED\uC11C \uCD1D\uD569\uACC4 \uC815\uD655 \uC77C\uCE58",
-      paymentAmount: total,
-      paymentStatus: "confirmed" as const,
-    };
-  }
-  if (deposit < total && deposit >= total * 0.95) {
-    return {
-      score: 36,
-      reason: "\uB0B4\uC5ED\uC11C \uAE08\uC561 \uBD80\uBD84 \uC77C\uCE58",
-      paymentAmount: deposit,
-      paymentStatus: "partial" as const,
-    };
-  }
-  if (deposit > total && deposit <= total + Math.max(1000, Math.round(total * 0.02))) {
-    return {
-      score: 42,
-      reason: "\uB0B4\uC5ED\uC11C \uCD1D\uD569\uACC4 \uADFC\uC0AC \uAE08\uC561",
-      paymentAmount: total,
-      paymentStatus: "confirmed" as const,
-    };
-  }
-  return null;
+  return {
+    score: 50,
+    reason: "\uB0B4\uC5ED\uC11C \uCD1D\uD569\uACC4 \uC815\uD655 \uC77C\uCE58",
+    paymentAmount: total,
+    paymentStatus: "confirmed" as const,
+  };
 }
 
 function clientHasVat(
@@ -311,20 +292,19 @@ export function buildSentStatementMatchCandidates(
 
   const deposit = tx.deposit;
   const txDate = String(tx.transactionAt || "").slice(0, 10);
-  const subject = `${tx.counterpartyName || ""} ${tx.description || ""}`.trim();
+  const subject = resolveBankDepositMatchSubject(tx);
   const linkedPdfArchiveIds = options.linkedPdfArchiveIds || new Set<string>();
   const clients = options.clients;
   const minScore = options.minScore ?? 35;
   const limit = options.limit ?? 5;
 
-  const candidates: SentStatementMatchCandidate[] = [];
+  const candidates: Array<SentStatementMatchCandidate & { dayGap: number }> = [];
 
   for (const archive of listMatchableSentStatements(archives)) {
     if (linkedPdfArchiveIds.has(archive.id)) continue;
     if (archive.linkedBankTransactionId && archive.linkedBankTransactionId !== tx.id) continue;
 
     const sentDate = String(archive.createdAt || "").slice(0, 10);
-    if (txDate && sentDate && txDate < sentDate) continue;
 
     const amountMatch = resolveStatementPaymentAmount(deposit, archive.statementTotalAmount || 0);
     if (!amountMatch) continue;
@@ -338,13 +318,7 @@ export function buildSentStatementMatchCandidates(
     score += nameMatch.scoreBonus;
     reasons.push(nameMatch.reason);
 
-    const dayGap = daysBetween(sentDate, txDate);
-    if (dayGap >= 0 && dayGap <= 30) {
-      score += 10;
-      reasons.push("\uB9C1\uD06C \uBC1C\uC1A1 \uD6C4 \uC785\uAE08");
-    } else if (dayGap <= 60) {
-      score += 5;
-    }
+    const dayGap = txDate && sentDate ? Math.abs(daysBetween(sentDate, txDate)) : 999;
 
     candidates.push({
       pdfArchiveId: archive.id,
@@ -359,13 +333,20 @@ export function buildSentStatementMatchCandidates(
       paymentStatus: amountMatch.paymentStatus,
       shareLinkUrl: archive.shareLinkUrl,
       statementSalesIds: archive.statementSalesIds,
+      dayGap,
     });
   }
 
   return candidates
     .filter((row) => row.score >= minScore)
-    .sort((a, b) => b.score - a.score || b.statementTotalAmount - a.statementTotalAmount)
-    .slice(0, limit);
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        (a.dayGap ?? 999) - (b.dayGap ?? 999) ||
+        b.statementTotalAmount - a.statementTotalAmount
+    )
+    .slice(0, limit)
+    .map(({ dayGap: _dayGap, ...row }) => row);
 }
 
 export function buildAllSentStatementDepositSuggestions(
