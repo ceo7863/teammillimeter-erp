@@ -8,6 +8,7 @@ import {
   EXPENSE_CATEGORY_OPTIONS,
   bankTransactionMatchesFixedPayment,
   findLinkableFixedExpensePayment,
+  getMonthKey,
   linkFixedExpensePaymentToBankTx,
   makeLedgerId,
   normalizeExpenseCategoryName,
@@ -197,16 +198,81 @@ export function listBankTransactionsForLedgerLink(
     .sort((a, b) => String(b.transactionAt).localeCompare(String(a.transactionAt)));
 }
 
-/** Unlinked bank withdrawals that match a fixed payment (same month + amount). */
+export function bankTransactionMatchesLedgerLinkName(referenceLabel: string, tx: BankTransaction) {
+  const label = String(referenceLabel || "").trim();
+  if (label.length < 2) return true;
+  const referenceLike = { counterpartyName: label, description: label } as BankTransaction;
+  return merchantFingerprintsOverlap(
+    extractBankTransactionMerchantFingerprints(referenceLike),
+    extractBankTransactionMerchantFingerprints(tx),
+  );
+}
+
+export function bankTransactionMatchesFixedPaymentForLink(
+  tx: BankTransaction,
+  payment: FixedExpensePayment,
+  fixedExpenses: FixedExpense[] = [],
+) {
+  if (!bankTransactionMatchesFixedPayment(tx, payment, fixedExpenses)) return false;
+  const fixedItem = fixedExpenses.find((row) => row.id === payment.fixedExpenseId);
+  return bankTransactionMatchesLedgerLinkName(fixedItem?.name || payment.memo || "", tx);
+}
+
+function bankTransactionMatchesCompanyExpenseAmount(
+  tx: BankTransaction,
+  expense: CompanyExpense,
+) {
+  const monthKey = getMonthKey(String(tx.transactionAt || "").slice(0, 10));
+  if (!monthKey || getMonthKey(expense.date) !== monthKey) return false;
+  const withdrawal = Number(tx.withdrawal || 0);
+  const amount = Number(expense.amount || 0);
+  if (withdrawal <= 0 || amount <= 0) return false;
+  if (withdrawal === amount) return true;
+  return areRecurringAmountsCompatible(amount, withdrawal);
+}
+
+export function bankTransactionMatchesCompanyExpenseForLink(
+  tx: BankTransaction,
+  expense: CompanyExpense,
+) {
+  if (!bankTransactionMatchesCompanyExpenseAmount(tx, expense)) return false;
+  return bankTransactionMatchesLedgerLinkName(expense.description || expense.category || "", tx);
+}
+
+/** Bank withdrawals that match a fixed payment (same month, similar amount, similar name). */
 export function listBankTransactionsForFixedPaymentLink(
   payment: FixedExpensePayment,
   transactions: BankTransaction[],
   context: BankLedgerRegistrationContext = {},
   fixedExpenses: FixedExpense[] = [],
-  options: { excludePaymentId?: string } = {},
+  options: { excludePaymentId?: string; includeVariableLinked?: boolean } = {},
 ) {
-  return listBankTransactionsForLedgerLink(transactions, context, options)
-    .filter((tx) => bankTransactionMatchesFixedPayment(tx, payment, fixedExpenses))
+  const { excludePaymentId, includeVariableLinked } = options;
+  return listBankTransactionsForLedgerLink(
+    transactions,
+    context,
+    {
+      excludePaymentId,
+      includeVariableLinked,
+    },
+  )
+    .filter((tx) => bankTransactionMatchesFixedPaymentForLink(tx, payment, fixedExpenses))
+    .sort((a, b) => String(b.transactionAt).localeCompare(String(a.transactionAt)));
+}
+
+/** Bank withdrawals that match a company expense (same month, similar amount, similar name). */
+export function listBankTransactionsForCompanyExpenseLink(
+  expense: CompanyExpense,
+  transactions: BankTransaction[],
+  context: BankLedgerRegistrationContext = {},
+  options: { excludeExpenseId?: string } = {},
+) {
+  const expenses = (context.companyExpenses || []).filter(
+    (row) => !options.excludeExpenseId || row.id !== options.excludeExpenseId,
+  );
+
+  return listBankTransactionsForLedgerLink(transactions, { ...context, companyExpenses: expenses })
+    .filter((tx) => bankTransactionMatchesCompanyExpenseForLink(tx, expense))
     .sort((a, b) => String(b.transactionAt).localeCompare(String(a.transactionAt)));
 }
 

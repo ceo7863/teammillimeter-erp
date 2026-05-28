@@ -64,7 +64,7 @@ import type { ErpUser } from "@/utils/erpApi";
 import { AutocompleteInput } from "@/components/AutocompleteInput";
 import { CompanyLedgerCalendar } from "@/components/CompanyLedgerCalendar";
 import type { LedgerCalendarEntry } from "@/utils/ledgerCalendar";
-import { formatBankLearnAutoMessage, getLinkedCompanyExpenseForBankTx, listBankTransactionsForLedgerLink, clearVariableExpenseLinkForBankTx, type BankLearnRule } from "@/utils/bankCompanyLedger";
+import { formatBankLearnAutoMessage, getLinkedCompanyExpenseForBankTx, listBankTransactionsForCompanyExpenseLink, listBankTransactionsForFixedPaymentLink, clearVariableExpenseLinkForBankTx, type BankLearnRule } from "@/utils/bankCompanyLedger";
 import { loadSmartLedgerRunSummary } from "@/utils/bankSmartLedger";
 import { formatBankTransactionDateTime, type BankTransaction } from "@/utils/bankTransactions";
 import { reconcileLedgerBankLinks, refreshCompanyLedgerFromBankTransactions } from "@/utils/fixedExpenseAutomation";
@@ -190,9 +190,9 @@ const L = {
   linkFromBank: "\uD1B5\uC7A5\uB0B4\uC5ED\uC5D0\uC11C \uC5F0\uACB0\uD558\uAE30",
   linkFromBankTitle: "\uD1B5\uC7A5 \uB0B4\uC5ED \uC5F0\uACB0",
   linkFromBankDesc:
-    "\uBBF8\uAC00\uACC4\uBD80 \uC5F0\uACB0 \uCD9C\uAE08 \uB0B4\uC5ED\uC744 \uAC80\uC0C9\uD574 \uC120\uD0DD\uD558\uC138\uC694. \uACE0\uC815\uBE44\uC640 \uBCC0\uB3D9 \uC9C0\uCD9C \uBAA8\uB450 \uC5F0\uACB0\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
-  linkFromBankSearch: "\uAC70\uB798\uB0B4\uC6A9\uC774 \uAE08\uC561 \uAC80\uC0C9",
-  linkFromBankEmpty: "\uC5F0\uACB0 \uAC00\uB2A5\uD55C \uCD9C\uAE08 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+    "\uAC19\uC740 \uB2EC\u00B7\uBE44\uC2B7\uD55C \uAE08\uC561\u00B7\uC774\uB984\uC774 \uB9DE\uB294 \uCD9C\uAE08 \uB0B4\uC5ED\uC785\uB2C8\uB2E4. \uBCC0\uB3D9\uC9C0\uCD9C\uC5D0 \uC774\uBBF8 \uC5F0\uACB0\uB41C \uB0B4\uC5ED\uB3C4 \uD45C\uC2DC\uB420 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+  linkFromBankSearch: "\uAC70\uB798\uB0B4\uC6A9 \uB610\uB294 \uAE08\uC561 \uC774\uC288 \uAC80\uC0C9",
+  linkFromBankEmpty: "\uAE08\uC561\uACFC \uC774\uB984\uC774 \uB9DE\uB294 \uC5F0\uACB0 \uAC00\uB2A5\uD55C \uCD9C\uAE08 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   linkFromBankVariableLinkedBadge: "\uBCC0\uB3D9\uC9C0\uCD9C \uC5F0\uACB0\uC74C",
   linkFromBankDone: "\uD1B5\uC7A5 \uB0B4\uC5ED\uC774 \uC5F0\uACB0\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   refreshBankLedger: "\uD1B5\uC7A5 \uC5F0\uB3D9 \uC0C8\uB85C\uACE0\uCE68",
@@ -1520,18 +1520,23 @@ export function CompanyLedgerPage({
   );
 
   const linkableBankTransactions = useMemo(() => {
-    const isFixedPaymentLink =
-      manualModal?.source === "fixedPayment" && manualModal?.mode === "edit" && Boolean(manualModal.id);
-    const base = listBankTransactionsForLedgerLink(
-      bankTransactions,
-      {
-        companyExpenses,
-        fixedExpensePayments,
-      },
-      isFixedPaymentLink
-        ? { includeVariableLinked: true, excludePaymentId: manualModal?.id }
-        : {},
-    );
+    let base: BankTransaction[] = [];
+    if (editingFixedPayment) {
+      base = listBankTransactionsForFixedPaymentLink(
+        editingFixedPayment,
+        bankTransactions,
+        { companyExpenses, fixedExpensePayments },
+        fixedExpenses,
+        { excludePaymentId: manualModal?.id, includeVariableLinked: true },
+      );
+    } else if (editingCompanyExpense) {
+      base = listBankTransactionsForCompanyExpenseLink(
+        editingCompanyExpense,
+        bankTransactions,
+        { companyExpenses, fixedExpensePayments },
+        { excludeExpenseId: manualModal?.id },
+      );
+    }
     const keyword = bankLinkSearch.trim().toLowerCase();
     if (!keyword) return base;
     return base.filter((tx) => {
@@ -1546,8 +1551,9 @@ export function CompanyLedgerPage({
     bankLinkSearch,
     companyExpenses,
     fixedExpensePayments,
-    manualModal?.source,
-    manualModal?.mode,
+    fixedExpenses,
+    editingCompanyExpense,
+    editingFixedPayment,
     manualModal?.id,
   ]);
 
