@@ -109,7 +109,33 @@ import {
   type SentStatementMatchCandidate,
 } from "@/utils/bankSentStatementMatch";
 import { listSentStatementArchives, updatePdfArchiveMeta, type PdfArchiveMeta } from "@/utils/pdfArchive";
-import { DEFAULT_CLIENT_FOLDER_ID, DEFAULT_CARD_SALES_FOLDER_ID, isCardCompanyDeposit } from "@/utils/bankTransactionFolders";
+import {
+  UNFILED_FOLDER_KEY,
+  autoClassifyBankTransactions,
+  buildBankTransactionFolderStats,
+  buildBankTransactionFolderTree,
+  clearBankTransactionFolderReferences,
+  collectDescendantFolderIds,
+  createBankTransactionFolder,
+  flattenBankTransactionFolderTree,
+  flattenCustomCategoryFolderTree,
+  listCustomCategoryRoots,
+  collectCustomCategoryFolderIds,
+  getBankTransactionFolderPath,
+  getBankTransactionFolderTone,
+  getBankTransactionFolderLabel,
+  listAssignableFolders,
+  listFolderParentOptions,
+  listFoldersByType,
+  normalizeBankTransactionFolders,
+  removeBankTransactionFolder,
+  sanitizeBankTransactionFolderParentId,
+  DEFAULT_CLIENT_FOLDER_ID,
+  DEFAULT_CARD_SALES_FOLDER_ID,
+  isCardCompanyDeposit,
+  type BankTransactionFolder,
+  type BankTransactionFolderType,
+} from "@/utils/bankTransactionFolders";
 import {
   buildBankAccountSummaries,
   buildBankTransactionStats,
@@ -129,29 +155,6 @@ import {
   parseIbkBankFile,
   type IbkBankImportPreview,
 } from "@/utils/ibkBankImport";
-import {
-  UNFILED_FOLDER_KEY,
-  autoClassifyBankTransactions,
-  buildBankTransactionFolderStats,
-  buildBankTransactionFolderTree,
-  clearBankTransactionFolderReferences,
-  collectDescendantFolderIds,
-  createBankTransactionFolder,
-  flattenCustomCategoryFolderTree,
-  listCustomCategoryRoots,
-  collectCustomCategoryFolderIds,
-  getBankTransactionFolderPath,
-  getBankTransactionFolderTone,
-  getBankTransactionFolderLabel,
-  listAssignableFolders,
-  listFolderParentOptions,
-  listFoldersByType,
-  normalizeBankTransactionFolders,
-  removeBankTransactionFolder,
-  sanitizeBankTransactionFolderParentId,
-  type BankTransactionFolder,
-  type BankTransactionFolderType,
-} from "@/utils/bankTransactionFolders";
 
 type PeriodKey = "thisMonth" | "lastMonth" | "all" | "custom";
 type DateFilter = { startDate: string; endDate: string };
