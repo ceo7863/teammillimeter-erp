@@ -64,7 +64,7 @@ import type { ErpUser } from "@/utils/erpApi";
 import { AutocompleteInput } from "@/components/AutocompleteInput";
 import { CompanyLedgerCalendar } from "@/components/CompanyLedgerCalendar";
 import type { LedgerCalendarEntry } from "@/utils/ledgerCalendar";
-import { formatBankLearnAutoMessage, listBankTransactionsForFixedPaymentLink, listBankTransactionsForLedgerLink, type BankLearnRule } from "@/utils/bankCompanyLedger";
+import { formatBankLearnAutoMessage, listBankTransactionsForLedgerLink, type BankLearnRule } from "@/utils/bankCompanyLedger";
 import { loadSmartLedgerRunSummary } from "@/utils/bankSmartLedger";
 import { formatBankTransactionDateTime, type BankTransaction } from "@/utils/bankTransactions";
 import { reconcileLedgerBankLinks, refreshCompanyLedgerFromBankTransactions } from "@/utils/fixedExpenseAutomation";
@@ -189,8 +189,10 @@ const L = {
   paidFixedHint: "\uD1B5\uC7A5 \uAC70\uB798\uB0B4\uC5ED\uACFC \uC5F0\uB3D9 \uC644\uB8CC",
   linkFromBank: "\uD1B5\uC7A5\uB0B4\uC5ED\uC5D0\uC11C \uC5F0\uACB0\uD558\uAE30",
   linkFromBankTitle: "\uD1B5\uC7A5 \uB0B4\uC5ED \uC5F0\uACB0",
-  linkFromBankDesc: "\uB0A9\uBD80 \uAE08\uC561\uACFC \uAC19\uC740 \uB2EC\uC758 \uBBF8\uBD84\uB958 \uCD9C\uAE08 \uB0B4\uC5ED\uC744 \uC120\uD0DD\uD558\uC138\uC694.",
-  linkFromBankEmpty: "\uAE08\uC561\uACFC \uB2EC\uC774 \uB9DE\uB294 \uC5F0\uACB0 \uAC00\uB2A5\uD55C \uCD9C\uAE08 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  linkFromBankDesc:
+    "\uBBF8\uAC00\uACC4\uBD80 \uC5F0\uACB0 \uCD9C\uAE08 \uB0B4\uC5ED\uC744 \uAC80\uC0C9\uD574 \uC120\uD0DD\uD558\uC138\uC694. \uACE0\uC815\uBE44\uC640 \uBCC0\uB3D9 \uC9C0\uCD9C \uBAA8\uB450 \uC5F0\uACB0\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+  linkFromBankSearch: "\uAC70\uB798\uB0B4\uC6A9\uC774 \uAE08\uC561 \uAC80\uC0C9",
+  linkFromBankEmpty: "\uC5F0\uACB0 \uAC00\uB2A5\uD55C \uCD9C\uAE08 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   linkFromBankDone: "\uD1B5\uC7A5 \uB0B4\uC5ED\uC774 \uC5F0\uACB0\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   refreshBankLedger: "\uD1B5\uC7A5 \uC5F0\uB3D9 \uC0C8\uB85C\uACE0\uCE68",
   refreshBankLedgerHint: "\uD1B5\uC7A5 \uAC70\uB798\uB0B4\uC5ED\uC744 \uB2E4\uC2DC \uD655\uC778\uD558\uACE0 \uACE0\uC815\uBE44 \uB0A9\uBD80 \u00B7 \uD559\uC2B5 \uADDC\uCE59 \uC5F0\uACB0\uC744 \uAC31\uC2E0\uD569\uB2C8\uB2E4.",
@@ -819,6 +821,7 @@ export function CompanyLedgerPage({
   const [manualModal, setManualModal] = useState<ManualModalState | null>(null);
   const [fixedExpenseModal, setFixedExpenseModal] = useState<FixedExpenseModalState | null>(null);
   const [bankLinkModalOpen, setBankLinkModalOpen] = useState(false);
+  const [bankLinkSearch, setBankLinkSearch] = useState("");
   const [bankLinkView, setBankLinkView] = useState<{ fixedExpenseId: string; paymentId?: string; title: string } | null>(
     null,
   );
@@ -1497,33 +1500,39 @@ export function CompanyLedgerPage({
     return fixedExpensePayments.find((row) => row.id === manualModal.id) || null;
   }, [fixedExpensePayments, manualModal?.id, manualModal?.source]);
 
-  const canLinkBankFromFixedPaymentEdit = Boolean(
+  const editingCompanyExpense = useMemo(() => {
+    if (!manualModal?.id || manualModal.source !== "expense") return null;
+    return companyExpenses.find((row) => row.id === manualModal.id) || null;
+  }, [companyExpenses, manualModal?.id, manualModal?.source]);
+
+  const canLinkBankFromManualEdit = Boolean(
     manualModal?.mode === "edit" &&
-      manualModal.source === "fixedPayment" &&
-      manualModal.kind === "fixed" &&
       manualModal.id &&
-      editingFixedPayment &&
-      !isBankLinkedPayment(editingFixedPayment, bankTransactions) &&
-      setFixedExpensePayments &&
-      setBankTransactions,
+      setBankTransactions &&
+      ((manualModal.source === "fixedPayment" &&
+        editingFixedPayment &&
+        !isBankLinkedPayment(editingFixedPayment, bankTransactions) &&
+        setFixedExpensePayments) ||
+        (manualModal.source === "expense" &&
+          editingCompanyExpense &&
+          !isBankLinkedExpense(editingCompanyExpense, bankTransactions))),
   );
 
   const linkableBankTransactions = useMemo(() => {
-    if (editingFixedPayment) {
-      return listBankTransactionsForFixedPaymentLink(
-        editingFixedPayment,
-        bankTransactions,
-        { companyExpenses, fixedExpensePayments },
-        fixedExpenses,
-        { excludePaymentId: manualModal?.id },
-      );
-    }
-    return listBankTransactionsForLedgerLink(
-      bankTransactions,
-      { companyExpenses, fixedExpensePayments },
-      { excludePaymentId: manualModal?.id },
-    );
-  }, [bankTransactions, companyExpenses, editingFixedPayment, fixedExpensePayments, fixedExpenses, manualModal?.id]);
+    const base = listBankTransactionsForLedgerLink(bankTransactions, {
+      companyExpenses,
+      fixedExpensePayments,
+    });
+    const keyword = bankLinkSearch.trim().toLowerCase();
+    if (!keyword) return base;
+    return base.filter((tx) => {
+      const haystack = [tx.counterpartyName, tx.description, tx.memo, String(tx.withdrawal || "")]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(keyword);
+    });
+  }, [bankTransactions, bankLinkSearch, companyExpenses, fixedExpensePayments]);
 
   const linkBankTransactionToFixedPayment = (tx: BankTransaction) => {
     const paymentId = manualModal?.id;
@@ -1567,7 +1576,73 @@ export function CompanyLedgerPage({
       });
     }
     setBankLinkModalOpen(false);
+    setBankLinkSearch("");
     setLinkMessage(L.linkFromBankDone);
+  };
+
+  const linkBankTransactionToCompanyExpense = (tx: BankTransaction) => {
+    const expenseId = manualModal?.id;
+    if (!expenseId || !setCompanyExpenses || !setBankTransactions) return;
+
+    const expense = companyExpenses.find((row) => row.id === expenseId);
+    const synced = resolveFixedPaymentFieldsFromBankTx(tx);
+    const nextExpense: CompanyExpense = {
+      ...(expense || {
+        id: expenseId,
+        date: synced.date || todayISO(),
+        category: manualModal?.category || EXPENSE_CATEGORY_OPTIONS[0],
+        description: manualModal?.description || "",
+        amount: synced.amount || 0,
+        kind: manualModal?.kind === "fixed" ? "fixed" : "variable",
+      }),
+      bankTransactionId: tx.id,
+      ...(synced.date ? { date: synced.date } : {}),
+      ...(synced.amount != null ? { amount: synced.amount } : {}),
+    };
+
+    setCompanyExpenses((prev) => prev.map((row) => (row.id === expenseId ? nextExpense : row)));
+    setManualModal((prev) =>
+      prev && prev.id === expenseId
+        ? {
+            ...prev,
+            ...(synced.date ? { date: synced.date } : {}),
+            ...(synced.amount != null ? { amount: String(synced.amount) } : {}),
+          }
+        : prev,
+    );
+    setBankTransactions((prev) =>
+      prev.map((row) =>
+        row.id === tx.id
+          ? { ...row, linkedCompanyExpenseId: expenseId, linkedFixedExpensePaymentId: undefined }
+          : row,
+      ),
+    );
+    if (expense) {
+      recordAudit({
+        entityType: "companyExpense",
+        entityId: expenseId,
+        entityLabel: `${nextExpense.date} \u00B7 ${nextExpense.description || nextExpense.category}`,
+        screen: L.pageTitle,
+        action: "update",
+        before: snapshotCompanyExpenseForAudit(expense),
+        after: snapshotCompanyExpenseForAudit(nextExpense),
+        fields: COMPANY_EXPENSE_AUDIT_FIELDS,
+        user: currentUser,
+      });
+    }
+    setBankLinkModalOpen(false);
+    setBankLinkSearch("");
+    setLinkMessage(L.linkFromBankDone);
+  };
+
+  const linkBankTransactionToManualRecord = (tx: BankTransaction) => {
+    if (manualModal?.source === "fixedPayment") {
+      linkBankTransactionToFixedPayment(tx);
+      return;
+    }
+    if (manualModal?.source === "expense") {
+      linkBankTransactionToCompanyExpense(tx);
+    }
   };
 
   const refreshBankLedger = () => {
@@ -2852,7 +2927,7 @@ export function CompanyLedgerPage({
               <Field label={L.memoOptional}>
                 <Input value={manualModal.memo} onChange={(e) => setManualModal((prev) => (prev ? { ...prev, memo: e.target.value } : prev))} />
               </Field>
-              {canLinkBankFromFixedPaymentEdit ? (
+              {canLinkBankFromManualEdit ? (
                 <div>
                   <Button
                     type="button"
@@ -2860,6 +2935,7 @@ export function CompanyLedgerPage({
                     className="w-full rounded-2xl"
                     onClick={() => {
                       setLinkMessage("");
+                      setBankLinkSearch("");
                       setBankLinkModalOpen(true);
                     }}
                   >
@@ -2943,6 +3019,12 @@ export function CompanyLedgerPage({
                     <X size={18} />
                   </button>
                 </div>
+                <Input
+                  value={bankLinkSearch}
+                  onChange={(event) => setBankLinkSearch(event.target.value)}
+                  placeholder={L.linkFromBankSearch}
+                  className="mb-3 rounded-xl"
+                />
                 <div className="max-h-96 space-y-2 overflow-auto">
                   {linkableBankTransactions.length ? (
                     linkableBankTransactions.map((tx) => (
@@ -2950,7 +3032,7 @@ export function CompanyLedgerPage({
                         key={tx.id}
                         type="button"
                         className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-left hover:border-amber-300 hover:bg-amber-50"
-                        onClick={() => linkBankTransactionToFixedPayment(tx)}
+                        onClick={() => linkBankTransactionToManualRecord(tx)}
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="font-bold text-slate-900">
