@@ -2,6 +2,7 @@ import type { BankTransaction } from "./bankTransactions";
 import {
   canClassifyBankTransactionAsWorkerFolder,
   findClientByDepositSubject,
+  findWorkerByDepositSubject,
   findWorkerByMasterName,
   resolveBankDepositMatchSubject,
   resolveBankWorkerFolderMatchSubject,
@@ -247,11 +248,28 @@ export function suggestBankTransactionClassification(
 
   if (tx.withdrawal > 0) {
     const workerSubject = resolveBankWorkerFolderMatchSubject(tx);
-    const worker = findWorkerByMasterName(workers, workerSubject);
+    const worker =
+      findWorkerByMasterName(workers, workerSubject) ||
+      findWorkerByDepositSubject(workers, workerSubject) ||
+      (String(tx.memo || "").trim() ? findWorkerByDepositSubject(workers, String(tx.memo || "").trim()) : undefined);
     if (worker?.name) return { folderType: "worker", linkedSubject: String(worker.name).trim() };
   }
 
   return null;
+}
+
+export function buildFolderClassificationSuggestionMap(
+  transactions: BankTransaction[],
+  clients: ClientDepositMatchSource[],
+  workers: WorkerDepositMatchSource[],
+) {
+  const map = new Map<string, { folderType: BankTransactionFolderType; linkedSubject?: string }>();
+  for (const tx of transactions) {
+    if (tx.folderId) continue;
+    const suggestion = suggestBankTransactionClassification(tx, clients, workers);
+    if (suggestion) map.set(tx.id, suggestion);
+  }
+  return map;
 }
 
 export function isWorkerBankTransactionFolder(folders: BankTransactionFolder[], folderId: string) {

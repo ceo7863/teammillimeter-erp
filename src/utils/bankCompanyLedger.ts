@@ -221,7 +221,7 @@ export function guessExpenseCategory(text: string) {
   const haystack = String(text || "").toLowerCase();
   const rules: Array<[string, string[]]> = [
     ["\uAD50\uD86D/\uC8FC\uCC28", ["\uC8FC\uCC28", "\uD86D", "\uACE0\uC18D", "\uD0DD\uC2DC", "\uC8FC\uC720", "\uAE30\uB984", "\uAE30\uC0B0"]],
-    ["\uC811\uB300/\uC2DD\uBE44", ["\uC2DD\uB300", "\uC2DD\uBE44", "\uC74C\uC2DD", "\uCE74\uD398", "\uCEE4\uD53C", "\uC811\uB300", "\uC2DD\uC0AC"]],
+    ["\uC811\uB300/\uC2DD\uBE44", ["\uC2DD\uB300", "\uC2DD\uBE44", "\uC2DD\uB300", "\uC74C\uC2DD", "\uCE74\uD398", "\uCEE4\uD53C", "\uC811\uB300", "\uC2DD\uC0AC"]],
     ["\uD1B5\uC2E0\uBE44", ["\uD1B5\uC2E0", "kt", "skt", "lgu", "\uC778\uD130\uB137", "\uD578\uB4DC\uD3F0"]],
     ["\uC18C\uBAA8\uD488", ["\uC18C\uBAA8", "\uC815\uAE30", "\uBE44\uC2DD", "\uACF5\uACFC"]],
     ["\uC0AC\uBB34\uC6A9\uD488", ["\uC0AC\uBB34", "\uBB38\uAD6C", "\uC6A9\uC9C0", "\uD504\uB9B0\uD130"]],
@@ -372,6 +372,139 @@ export function buildBankLearnRuleFromManualRegistration(
   };
 }
 
+/** 메모에 적은 카테고리 힌트(예: 식대)로 같은 거래처·거래내용 출금에 적용할 학습 규칙 */
+export function buildBankLearnRuleFromMemoCategory(
+  tx: BankTransaction,
+  category: string,
+  createdBy?: string,
+): BankLearnRule {
+  const counterpartyName = String(tx.counterpartyName || "").trim() || undefined;
+  const merchantLabel = String(tx.counterpartyName || tx.description || "").trim();
+  return {
+    id: makeLedgerId(),
+    kind: "manual",
+    category,
+    counterpartyName,
+    descriptionTokens: filterBankLearnDescriptionTokens([
+      merchantLabel,
+      ...tokenizeBankLedgerText(tx.description, undefined, counterpartyName),
+    ]),
+    createdAt: new Date().toISOString(),
+    createdBy: createdBy || undefined,
+    sourceBankTransactionId: tx.id,
+  };
+}
+
+export function resolveBankTransactionMerchantKey(tx: BankTransaction) {
+  const counterparty = normalizeMatchText(tx.counterpartyName || "");
+  if (counterparty.length >= 2) return counterparty;
+  return normalizeMatchText(tx.description || "");
+}
+
+export function resolveMemoLearnCategory(memo: string | undefined, categories: string[]) {
+  const trimmed = String(memo || "").trim();
+  if (!trimmed) return null;
+  if (categories.includes(trimmed)) return trimmed;
+  if (/^[\uAC00-\uD7A3a-zA-Z0-9/+\-().]{1,12}$/.test(trimmed)) return trimmed;
+
+  const guessed = guessExpenseCategory(trimmed);
+  if (guessed !== "\uAE30\uD0C0" && categories.includes(guessed)) return guessed;
+  return null;
+}
+
+export function buildMemoLearnRulesFromTransactions(
+  transactions: BankTransaction[],
+  categories: string[],
+  createdBy?: string,
+) {
+  const byMerchant = new Map<string, BankLearnRule>();
+  const ordered = [...transactions]
+    .filter((tx) => Number(tx.withdrawal || 0) > 0)
+    .sort((left, right) => String(right.transactionAt || "").localeCompare(String(left.transactionAt || "")));
+
+  for (const tx of ordered) {
+    const category = resolveMemoLearnCategory(tx.memo, categories);
+    if (!category) continue;
+    const merchantKey = resolveBankTransactionMerchantKey(tx);
+    if (!merchantKey) continue;
+    byMerchant.set(merchantKey, buildBankLearnRuleFromMemoCategory(tx, category, createdBy));
+  }
+
+  return [...byMerchant.values()];
+}
+
+export function mergeMemoLearnRules(rules: BankLearnRule[], memoRules: BankLearnRule[]) {
+  let merged = rules;
+  for (const rule of memoRules) {
+    merged = upsertBankLearnRule(merged, rule);
+  }
+  return merged;
+}
+
+export function scoreMemoLearnCategoryRule(tx: BankTransaction, rule: BankLearnRule) {
+  if (rule.kind !== "manual" || !String(rule.category || "").trim()) return 0;
+
+  const baseScore = scoreBankLearnRule(tx, rule, []);
+  if (baseScore > 0) return baseScore;
+
+  const ruleMerchant =
+    normalizeMatchText(rule.counterpartyName || "") ||
+    normalizeMatchText(rule.descriptionTokens?.[0] || "");
+  if (ruleMerchant.length < 2) return 0;
+
+  const txMerchant = resolveBankTransactionMerchantKey(tx);
+  const haystack = buildBankLedgerMatchHaystack(tx);
+
+  if (
+    txMerchant &&
+    (txMerchant === ruleMerchant || txMerchant.includes(ruleMerchant) || ruleMerchant.includes(txMerchant))
+  ) {
+    return 14;
+  }
+  if (haystack.includes(ruleMerchant)) return 12;
+
+  for (const token of rule.descriptionTokens || []) {
+    const tokenKey = normalizeMatchText(token);
+    if (tokenKey.length >= 2 && haystack.includes(tokenKey)) return 10;
+  }
+  return 0;
+}
+
+export type MemoCategorySuggestion = {
+  category: string;
+  confidence: number;
+  label: string;
+};
+
+export function buildMemoCategorySuggestionMap(transactions: BankTransaction[], memoRules: BankLearnRule[]) {
+  const map = new Map<string, MemoCategorySuggestion>();
+  if (!memoRules.length) return map;
+
+  for (const tx of transactions) {
+    if (!(tx.withdrawal > 0) || isNetGroupSuppressed(tx)) continue;
+
+    let bestScore = 0;
+    let bestCategory = "";
+    for (const rule of memoRules) {
+      const score = scoreMemoLearnCategoryRule(tx, rule);
+      if (score > bestScore) {
+        bestScore = score;
+        bestCategory = String(rule.category || "").trim();
+      }
+    }
+
+    if (bestCategory && bestScore >= 8) {
+      map.set(tx.id, {
+        category: bestCategory,
+        confidence: formatLearnRuleConfidencePercent(bestScore),
+        label: `[\uC9C0\uCD9C] ${bestCategory}`,
+      });
+    }
+  }
+
+  return map;
+}
+
 export function buildBankLearnRuleFromFolderAssignment(
   tx: BankTransaction,
   folderId: string,
@@ -486,7 +619,9 @@ export function scoreBankLearnRule(
   let score = 0;
   if (counterpartyKey) {
     if (!txCounterpartyKey) {
-      return 0;
+      if (rule.kind === "fixed") return 0;
+      if (haystack.includes(counterpartyKey)) score += 12;
+      else return 0;
     } else if (txCounterpartyKey === counterpartyKey) score += 20;
     else if (txCounterpartyKey.includes(counterpartyKey) || counterpartyKey.includes(txCounterpartyKey)) {
       score += 12;

@@ -54,11 +54,16 @@ export function formatDepositNameAliases(raw?: string) {
   return parseDepositNameAliases(raw).join(", ");
 }
 
-/** Bank import counterparty (?????), then description. */
-export function resolveBankDepositMatchSubject(tx: { counterpartyName?: string; description?: string }) {
-  const counterparty = String(tx.counterpartyName || "").trim();
-  if (counterparty) return counterparty;
-  return String(tx.description || "").trim();
+/** Bank import counterparty (예금주), description, memo 순으로 매칭 텍스트를 구성합니다. */
+export function resolveBankDepositMatchSubject(tx: {
+  counterpartyName?: string;
+  description?: string;
+  memo?: string;
+}) {
+  return [tx.counterpartyName, tx.description, tx.memo]
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .join(" ");
 }
 
 export function appendDepositNameAlias(raw: string | undefined, alias: string) {
@@ -121,17 +126,25 @@ export function findWorkerByMasterName(workers: WorkerDepositMatchSource[], subj
   });
 }
 
-export function resolveBankWorkerFolderMatchSubject(tx: { counterpartyName?: string }) {
-  return String(tx.counterpartyName || "").trim();
+export function resolveBankWorkerFolderMatchSubject(tx: {
+  counterpartyName?: string;
+  description?: string;
+  memo?: string;
+}) {
+  return [tx.memo, tx.counterpartyName, tx.description]
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .join(" ");
 }
 
 export function canClassifyBankTransactionAsWorkerFolder(
-  tx: { withdrawal?: number; counterpartyName?: string },
+  tx: { withdrawal?: number; counterpartyName?: string; description?: string; memo?: string },
   workers: WorkerDepositMatchSource[],
 ) {
   if (Number(tx.withdrawal || 0) <= 0) return false;
   const subject = resolveBankWorkerFolderMatchSubject(tx);
-  return Boolean(findWorkerByMasterName(workers, subject));
+  if (findWorkerByMasterName(workers, subject)) return true;
+  return Boolean(findWorkerByDepositSubject(workers, subject));
 }
 
 export function depositSubjectMatchesClientManager(subject: string, client: ClientDepositMatchSource) {

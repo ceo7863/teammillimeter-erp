@@ -146,6 +146,10 @@ const L = {
   view: "\uBCF4\uAE30",
   expenseDate: "\uC9C0\uCD9C \uC77C\uC790",
   itemName: "\uD56D\uBAA9 \uC774\uB984",
+  fixedPaymentCategoryHint:
+    "\uCE74\uD14C\uACE0\uB9AC \uBCC0\uACBD\uC740 \uC774 \uB0A9\uBD80 \uAE30\uB85D\uC5D0\uB9CC \uC801\uC6A9\uB429\uB2C8\uB2E4.",
+  fixedPaymentItemHint:
+    "\uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD558\uBA74 \uC774 \uB0A9\uBD80 \uAE30\uB85D\uC774 \uD574\uB2F9 \uD56D\uBAA9\uC5D0 \uC5F0\uACB0\uB429\uB2C8\uB2E4.",
   amountWon: "\uAE08\uC561 (\uC6D0)",
   memoOptional: "\uBA54\uBAA8 (\uC120\uD0DD)",
   applyStartDate: "\uC801\uC6A9 \uC2DC\uC791\uC77C",
@@ -960,6 +964,18 @@ export function CompanyLedgerPage({
     [fixedExpenses, fixedExpenseCategories, manualModal?.category, manualModal?.source],
   );
 
+  const fixedExpenseSelectOptions = useMemo(() => {
+    const selectedId = manualModal?.source === "fixedPayment" ? manualModal.fixedExpenseId : "";
+    return fixedExpenses
+      .filter((row) => row.isActive || row.id === selectedId)
+      .map((row) => ({
+        value: row.id,
+        label: `${row.name} \u00B7 ${row.category} \u00B7 ${formatFixedExpensePaymentDay(row.paymentDayOfMonth)}`,
+        raw: row,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label, "ko"));
+  }, [fixedExpenses, manualModal?.fixedExpenseId, manualModal?.source]);
+
   const openCreateManual = () => {
     setFormError("");
     setManualModal(emptyManualForm(expenseCategories[0] || EXPENSE_CATEGORY_OPTIONS[0]));
@@ -992,7 +1008,7 @@ export function CompanyLedgerPage({
       kind: "fixed",
       date: row.date,
       category: resolveFixedPaymentCategory(row, fixedExpenses),
-      description: resolveFixedPaymentDescription(row, fixedExpenses),
+      description: row.memo || "",
       amount: String(row.amount || ""),
       memo: row.memo || "",
     });
@@ -1099,6 +1115,11 @@ export function CompanyLedgerPage({
     }
     if (manualModal.mode === "edit" && manualModal.source === "fixedPayment" && manualModal.id) {
       const category = manualModal.category.trim();
+      const fixedExpenseId = String(manualModal.fixedExpenseId || "").trim();
+      if (!fixedExpenseId) {
+        setFormError("\uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.");
+        return;
+      }
       if (!category) {
         setFormError("\uCE74\uD14C\uACE0\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.");
         return;
@@ -1109,9 +1130,10 @@ export function CompanyLedgerPage({
           row.id === manualModal.id
             ? {
                 ...row,
+                fixedExpenseId,
                 date: manualModal.date,
                 amount: parseLedgerAmount(manualModal.amount),
-                category: category,
+                category,
                 memo: manualModal.description.trim() || manualModal.memo.trim(),
               }
             : row,
@@ -2384,6 +2406,36 @@ export function CompanyLedgerPage({
                   onChange={(event) => setManualModal((prev) => (prev ? { ...prev, date: event.target.value } : prev))}
                 />
               </Field>
+              {manualModal.mode === "edit" && manualModal.source === "fixedPayment" ? (
+                <Field label={L.fixedItemSection}>
+                  <AutocompleteInput
+                    value={manualModal.fixedExpenseId || ""}
+                    options={fixedExpenseSelectOptions}
+                    placeholder={L.fixedItemSection}
+                    freeSolo={false}
+                    showOptionsOnFocus
+                    commitFreeSoloOnBlur
+                    keepOpenUntilSelect
+                    compact={false}
+                    limit={24}
+                    inputProps={{ className: "rounded-xl" }}
+                    onChange={(value) => {
+                      const fixedExpenseId = String(value || "").trim();
+                      const fixedItem = fixedExpenses.find((row) => row.id === fixedExpenseId);
+                      setManualModal((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              fixedExpenseId,
+                              category: fixedItem?.category?.trim() || prev.category,
+                            }
+                          : prev,
+                      );
+                    }}
+                  />
+                  <p className="mt-1.5 text-xs font-semibold text-slate-500">{L.fixedPaymentItemHint}</p>
+                </Field>
+              ) : null}
               <Field label={L.category}>
                 {manualModal.source === "fixedPayment" || manualModal.kind === "fixed" ? (
                   <>
@@ -2399,7 +2451,7 @@ export function CompanyLedgerPage({
                     />
                     <p className="mt-1.5 text-xs font-semibold text-slate-500">
                       {manualModal.source === "fixedPayment"
-                        ? "\uC774 \uB0A9\uBD80 \uBAA9\uB85D\uC758 \uCE74\uD14C\uACE0\uB9AC\uB9CC \uBCC0\uACBD\uB429\uB2C8\uB2E4. \uACE0\uC815\uBE44 \uD56D\uBAA9 \uCE74\uD14C\uACE0\uB9AC\uB294 \uACE0\uC815\uBE44 \uD56D\uBAA9 \uC218\uC815\uC5D0\uC11C \uBCC0\uACBD\uD558\uC138\uC694."
+                        ? L.fixedPaymentCategoryHint
                         : "\uBAA9\uB85D\uC5D0 \uC5C6\uB294 \uCE74\uD14C\uACE0\uB9AC\uB294 \uC774\uB984\uC744 \uC785\uB825\uD558\uC138\uC694."}
                     </p>
                   </>
