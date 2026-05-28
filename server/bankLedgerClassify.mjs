@@ -4,20 +4,30 @@ function normalizeText(text) {
   return String(text || "").toLowerCase().replace(/\s+/g, "");
 }
 
+function isCheckCardBankTransaction(tx) {
+  const normalized = String(tx.transactionType || "").toLowerCase().replace(/\s+/g, "");
+  if (!normalized) return false;
+  return normalized.includes("\uCCB4\uD06C") || normalized.includes("check");
+}
+
+function buildLedgerMatchHaystack(tx) {
+  return normalizeText([tx.description, tx.counterpartyName, tx.memo].filter(Boolean).join(" "));
+}
+
 function heuristicClassify(tx, expenseCategories, fixedExpenses) {
-  const haystack = normalizeText(
-    [tx.description, tx.counterpartyName, tx.memo, tx.transactionType].filter(Boolean).join(" "),
-  );
+  const haystack = buildLedgerMatchHaystack(tx);
   const withdrawal = Number(tx.withdrawal || 0);
 
   let bestFixed = null;
-  for (const row of fixedExpenses) {
+  if (!isCheckCardBankTransaction(tx)) {
+    for (const row of fixedExpenses) {
     const nameKey = normalizeText(row.name);
     if (nameKey.length < 2) continue;
     let score = haystack.includes(nameKey) ? 12 + nameKey.length : 0;
     if (withdrawal > 0 && Number(row.amount) === withdrawal) score += 10;
     if (score >= 12 && (!bestFixed || score > bestFixed.score)) {
       bestFixed = { id: row.id, score, category: row.category };
+    }
     }
   }
 

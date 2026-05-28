@@ -1,5 +1,6 @@
-import type { BankTransaction } from "./bankTransactions";
+import { isCheckCardBankTransaction, type BankTransaction } from "./bankTransactions";
 import {
+  buildBankLedgerMatchHaystack,
   findBestBankLearnRuleWithScore,
   fixedLedgerTargetKey,
   formatLearnRuleConfidencePercent,
@@ -80,6 +81,7 @@ function scoreFixedExpenseMatch(
   haystack: string,
   tokens: string[],
 ) {
+  if (isCheckCardBankTransaction(tx)) return null;
   const withdrawal = Number(tx.withdrawal || 0);
   let best: { id: string; score: number; reasons: string[] } | null = null;
 
@@ -233,12 +235,12 @@ export function classifyBankTransactionForLedger(
     };
   }
 
-  const haystack = normalizeBankLedgerMatchText(
-    [tx.description, tx.counterpartyName, tx.memo, tx.transactionType].filter(Boolean).join(" "),
-  );
+  const haystack = buildBankLedgerMatchHaystack(tx);
   const tokens = extractBankLedgerTokens(tx.counterpartyName, tx.description, tx.memo);
 
-  const fixedMatch = scoreFixedExpenseMatch(tx, fixedExpenses, haystack, tokens);
+  const fixedMatch = isCheckCardBankTransaction(tx)
+    ? null
+    : scoreFixedExpenseMatch(tx, fixedExpenses, haystack, tokens);
   if (fixedMatch && fixedMatch.score >= 14) {
     const fixedRow = fixedExpenses.find((row) => row.id === fixedMatch.id);
     const confidence = Math.min(96, 68 + Math.min(28, fixedMatch.score));
@@ -287,7 +289,7 @@ export function classifyBankTransactionForLedger(
 
   const guessedKey = guessLedgerTargetFromBankTransaction(tx, fixedExpenses);
   const parsed = parseLedgerTargetKey(guessedKey);
-  if (parsed?.kind === "fixed" && parsed.fixedExpenseId) {
+  if (!isCheckCardBankTransaction(tx) && parsed?.kind === "fixed" && parsed.fixedExpenseId) {
     const fixedRow = fixedExpenses.find((row) => row.id === parsed.fixedExpenseId);
     return {
       targetKey: guessedKey,

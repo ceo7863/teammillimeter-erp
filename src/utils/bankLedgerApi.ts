@@ -43,7 +43,6 @@ export async function fetchBankLedgerClassifications(
           counterpartyName: tx.counterpartyName,
           memo: tx.memo,
           withdrawal: tx.withdrawal,
-          transactionType: tx.transactionType,
         })),
         expenseCategories: context.expenseCategories,
         fixedExpenses: context.fixedExpenses

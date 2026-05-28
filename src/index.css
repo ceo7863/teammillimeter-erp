@@ -2369,6 +2369,10 @@ textarea {
   max-width: 26rem;
 }
 
+.erp-ledger-modal--calendar-client-search {
+  width: min(100%, 40rem);
+}
+
 .erp-client-calendar-client-title {
   margin: 0.15rem 0 0.85rem;
   padding: 0.55rem 1rem;

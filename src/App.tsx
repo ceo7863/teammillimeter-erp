@@ -923,6 +923,47 @@ function formatCalendarDayLabel(date) {
   return `${Number(monthText)}월 ${Number(dayText)}일 (${weekday})`;
 }
 
+function buildCalendarClientSearchRows(sales, monthKey, feeMap) {
+  const map = new Map();
+
+  sales.forEach((sale) => {
+    const clientName = normalizeClientCalendarName(sale.client);
+    const date = String(sale.date || "").trim();
+    if (!date) return;
+
+    let row = map.get(clientName);
+    if (!row) {
+      row = {
+        client: clientName,
+        monthBill: 0,
+        monthPaid: 0,
+        monthUnpaid: 0,
+        monthCount: 0,
+        latestDate: "",
+        firstDateInMonth: "",
+      };
+      map.set(clientName, row);
+    }
+
+    if (date > row.latestDate) row.latestDate = date;
+
+    if (!date.startsWith(monthKey)) return;
+
+    const stats = aggregateSaleCalendarStats(sale, feeMap);
+    const unpaid = getUnpaid(sale);
+    const paid = getSalePaidAmount(sale, unpaid);
+    row.monthBill += stats.bill;
+    row.monthPaid += paid;
+    row.monthUnpaid += unpaid;
+    row.monthCount += 1;
+    if (!row.firstDateInMonth || date < row.firstDateInMonth) {
+      row.firstDateInMonth = date;
+    }
+  });
+
+  return Array.from(map.values()).sort((a, b) => a.client.localeCompare(b.client, "ko-KR"));
+}
+
 function getSaleVoucherSortValue(sale) {
   return parseVoucherSequence(getSaleVoucherLabel(sale)) ?? getSaleVoucherLabel(sale);
 }
@@ -2385,6 +2426,9 @@ function CalendarPage({
   const spotlightScrollAnchorRef = useRef(null);
   const [spotlightClient, setSpotlightClient] = useState(null);
   const [spotlightDateIndex, setSpotlightDateIndex] = useState(0);
+  const [clientSearchOpen, setClientSearchOpen] = useState(false);
+  const [clientSearchQuery, setClientSearchQuery] = useState("");
+  const [clientSearchSort, setClientSearchSort] = useState("name");
   const calendarSales = useMemo(
     () => (filteredClient ? filterClientCalendarSales(sales, filteredClient) : sales),
     [sales, filteredClient],
@@ -2423,6 +2467,38 @@ function CalendarPage({
   }, [spotlightClient, cells]);
   const todayDate = todayISO();
   const feeMap = useMemo(() => buildWorkerFeeMap(workers), [workers]);
+  const calendarClientSearchRows = useMemo(
+    () => buildCalendarClientSearchRows(sales, monthKey, feeMap),
+    [sales, monthKey, feeMap],
+  );
+  const calendarClientMasterByName = useMemo(() => {
+    const map = new Map();
+    clients.forEach((client) => {
+      const name = String(client.name || "").trim();
+      if (name) map.set(name, client);
+    });
+    return map;
+  }, [clients]);
+  const filteredCalendarClientSearchRows = useMemo(() => {
+    const query = clientSearchQuery.trim().toLowerCase();
+    let rows = calendarClientSearchRows;
+    if (query) {
+      rows = rows.filter((row) => {
+        if (row.client.toLowerCase().includes(query)) return true;
+        const master = calendarClientMasterByName.get(row.client);
+        if (!master) return false;
+        return [master.manager, master.phone, master.depositNameAliases].some((value) =>
+          String(value || "").toLowerCase().includes(query),
+        );
+      });
+    }
+    if (clientSearchSort === "sales") {
+      return [...rows].sort(
+        (a, b) => b.monthBill - a.monthBill || a.client.localeCompare(b.client, "ko-KR"),
+      );
+    }
+    return [...rows].sort((a, b) => a.client.localeCompare(b.client, "ko-KR"));
+  }, [calendarClientSearchRows, calendarClientMasterByName, clientSearchQuery, clientSearchSort]);
 
   const selectedDaySales = useMemo(() => {
     if (!selectedDate) return [];
@@ -2543,6 +2619,25 @@ function CalendarPage({
     const normalized = normalizeCalendarClientName(clientName);
     if (!spotlightClient || spotlightClient !== normalized) return;
     applyClientFilter(clientName, anchorDate);
+    showClientFilterNotice(`${normalized} 거래처만 표시합니다. 날짜를 선택해 주세요.`);
+  };
+
+  const openClientSearch = () => {
+    setClientSearchQuery("");
+    setClientSearchSort("name");
+    setClientSearchOpen(true);
+  };
+
+  const closeClientSearch = () => {
+    setClientSearchOpen(false);
+    setClientSearchQuery("");
+  };
+
+  const selectClientFromSearch = (row) => {
+    const normalized = normalizeClientCalendarName(row.client);
+    const anchorDate = row.firstDateInMonth || row.latestDate;
+    closeClientSearch();
+    applyClientFilter(row.client, anchorDate);
     showClientFilterNotice(`${normalized} 거래처만 표시합니다. 날짜를 선택해 주세요.`);
   };
 
@@ -3055,7 +3150,123 @@ function CalendarPage({
             ? `${filteredClient} 거래처 전표만 표시합니다. 날짜를 선택해 시공비내역서·입금 처리를 진행하세요.`
             : "월별 일자별 총인원·총시공비·시공자 지급액·마진·마진율을 확인합니다."
         }
+        action={(
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="erp-touch-target shrink-0 rounded-xl"
+            onClick={openClientSearch}
+          >
+            <Search size={16} className="mr-1.5" />
+            거래처 검색
+          </Button>
+        )}
       />
+
+      {clientSearchOpen ? (
+        <div className="erp-ledger-modal-backdrop" onClick={closeClientSearch}>
+          <div
+            className="erp-ledger-modal erp-ledger-modal--calendar-client-search"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="calendar-client-search-title"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 id="calendar-client-search-title" className="text-base font-bold text-slate-900 md:text-lg">
+                  거래처 검색
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  {monthLabel} 기준 · 거래처를 선택하면 해당 거래처 전표만 표시합니다.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="erp-calendar-nav-btn shrink-0"
+                onClick={closeClientSearch}
+                aria-label="거래처 검색 닫기"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="mt-4">
+              <SearchBox
+                query={clientSearchQuery}
+                setQuery={setClientSearchQuery}
+                placeholder="거래처명, 담당자, 연락처, 예금주 별칭 검색"
+              />
+            </div>
+
+            <div className="erp-client-calendar-client-list mt-4">
+              <div className="erp-client-calendar-client-list-head">
+                <div className="erp-client-calendar-client-list-head-name">
+                  <button
+                    type="button"
+                    className={`erp-pivot-sort-btn erp-client-calendar-sort-btn ${clientSearchSort === "name" ? "is-active" : ""}`}
+                    onClick={() => setClientSearchSort("name")}
+                  >
+                    거래처
+                    {clientSearchSort === "name" ? <ArrowUp size={12} aria-hidden="true" /> : null}
+                  </button>
+                </div>
+                <div className="erp-client-calendar-client-list-head-amounts">
+                  <button
+                    type="button"
+                    className={`erp-pivot-sort-btn erp-client-calendar-sort-btn ${clientSearchSort === "sales" ? "is-active" : ""}`}
+                    onClick={() => setClientSearchSort("sales")}
+                  >
+                    {monthLabel} 매출
+                    {clientSearchSort === "sales" ? <ArrowDown size={12} aria-hidden="true" /> : null}
+                  </button>
+                </div>
+              </div>
+
+              <div className="erp-client-calendar-client-list-body">
+                {filteredCalendarClientSearchRows.length ? (
+                  filteredCalendarClientSearchRows.map((row) => (
+                    <button
+                      key={row.client}
+                      type="button"
+                      className={`erp-client-calendar-client-row${filteredClient === normalizeClientCalendarName(row.client) ? " is-selected" : ""}`}
+                      onClick={() => selectClientFromSearch(row)}
+                    >
+                      <div className="erp-client-calendar-client-row-inner">
+                        <span className="erp-client-calendar-client-row-name">{row.client}</span>
+                        <div className="erp-client-calendar-client-row-amounts">
+                          <span className="erp-client-calendar-client-row-sales">
+                            {row.monthCount > 0 ? formatKRW(row.monthBill) : "-"}
+                          </span>
+                          <span className="erp-client-calendar-client-row-sub">
+                            {row.monthCount > 0 ? (
+                              <>
+                                {row.monthCount}건
+                                {row.monthUnpaid > 0 ? (
+                                  <span className="is-unpaid"> · 미수 {formatKRW(row.monthUnpaid)}</span>
+                                ) : (
+                                  <span className="is-paid"> · 입금완료</span>
+                                )}
+                              </>
+                            ) : (
+                              <span className="is-zero">이번 달 전표 없음</span>
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    </button>
+                  ))
+                ) : (
+                  <p className="col-span-full px-1 py-6 text-center text-sm text-slate-500">
+                    {clientSearchQuery.trim() ? "검색 결과가 없습니다." : "표시할 거래처가 없습니다."}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className={`erp-calendar-summary-grid${filteredClient ? " is-client-filter-summary" : ""}`}>
         {filteredClient ? (

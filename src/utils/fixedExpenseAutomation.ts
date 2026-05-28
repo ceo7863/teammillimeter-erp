@@ -1,7 +1,8 @@
-import type { BankTransaction } from "./bankTransactions";
+import { isCheckCardBankTransaction, type BankTransaction } from "./bankTransactions";
 import type { BankTransactionFolder } from "./bankTransactionFolders";
 import type { BankLearnRule } from "./bankCompanyLedger";
 import {
+  buildBankLedgerMatchHaystack,
   findMatchingBankLedgerRule,
   guessLedgerTargetFromBankTransaction,
   isBankTransactionLinkedToCompanyLedger,
@@ -82,6 +83,8 @@ function resolveFixedExpenseIdForBankTx(
   rules: BankLearnRule[],
   fixedExpenses: FixedExpense[],
 ) {
+  if (isCheckCardBankTransaction(tx)) return null;
+
   const matchedRule = findMatchingBankLedgerRule(tx, rules, fixedExpenses);
   if (matchedRule?.fixedExpenseId) return matchedRule.fixedExpenseId;
 
@@ -92,11 +95,7 @@ function resolveFixedExpenseIdForBankTx(
   const withdrawal = Number(tx.withdrawal || 0);
   if (withdrawal <= 0) return null;
 
-  const haystack = [tx.description, tx.counterpartyName, tx.memo, tx.transactionType]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase()
-    .replace(/\s+/g, "");
+  const haystack = buildBankLedgerMatchHaystack(tx);
 
   let best: { id: string; score: number } | null = null;
   for (const row of fixedExpenses.filter((item) => item.isActive)) {

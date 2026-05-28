@@ -1,5 +1,5 @@
 import { isNetGroupSuppressed } from "./bankPreauthNetting";
-import type { BankTransaction } from "./bankTransactions";
+import { isCheckCardBankTransaction, type BankTransaction } from "./bankTransactions";
 import {
   buildBankLedgerMatchRuleFromRegistration,
   isBankTransactionLinkedToCompanyLedger,
@@ -73,6 +73,7 @@ function getTransactionDayOfMonth(transactionAt: string) {
 }
 
 function isEligibleRecurringWithdrawal(tx: BankTransaction) {
+  if (isCheckCardBankTransaction(tx)) return false;
   if (isNetGroupSuppressed(tx)) return false;
   if (!(Number(tx.withdrawal) > 0)) return false;
   if (tx.linkedFixedExpensePaymentId) return false;

@@ -216,7 +216,7 @@ const CARD_DEPOSIT_KEYWORDS = [
 
 export function isCardCompanyDeposit(tx: BankTransaction) {
   if (tx.deposit <= 0) return false;
-  const subject = [tx.counterpartyName, tx.description, tx.memo, tx.transactionType].filter(Boolean).join(" ");
+  const subject = [tx.counterpartyName, tx.description, tx.memo].filter(Boolean).join(" ");
   return looksLikeCardDeposit(subject);
 }
 

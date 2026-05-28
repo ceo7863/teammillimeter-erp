@@ -56,6 +56,17 @@ export function makeBankTransactionId() {
   return `bank-tx-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+function normalizeBankTransactionType(value: string | undefined) {
+  return String(value || "").toLowerCase().replace(/\s+/g, "");
+}
+
+/** IBK 거래구분 "체크" (check card) — excluded from automatic fixed-expense linking. */
+export function isCheckCardBankTransaction(tx: Pick<BankTransaction, "transactionType">) {
+  const normalized = normalizeBankTransactionType(tx.transactionType);
+  if (!normalized) return false;
+  return normalized.includes("체크") || normalized.includes("check");
+}
+
 export function parseBankAmount(value: unknown) {
   const num = Number(String(value ?? "").replace(/[^\d.-]/g, ""));
   return Number.isFinite(num) ? Math.round(num) : 0;
