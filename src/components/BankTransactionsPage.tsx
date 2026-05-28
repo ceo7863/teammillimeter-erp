@@ -109,6 +109,7 @@ import {
   type SentStatementMatchCandidate,
 } from "@/utils/bankSentStatementMatch";
 import { listSentStatementArchives, updatePdfArchiveMeta, type PdfArchiveMeta } from "@/utils/pdfArchive";
+import { appendDepositNameAlias, resolveBankDepositMatchSubject } from "@/utils/clientDepositAliases";
 import {
   UNFILED_FOLDER_KEY,
   autoClassifyBankTransactions,
