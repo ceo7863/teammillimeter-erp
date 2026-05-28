@@ -1,6 +1,13 @@
 import type { BankTransaction } from "./bankTransactions";
-import type { ClientDepositMatchSource, WorkerDepositMatchSource } from "./clientDepositAliases";
-import { findClientByDepositSubject, findWorkerByDepositSubject, resolveBankDepositMatchSubject } from "./clientDepositAliases";
+import {
+  canClassifyBankTransactionAsWorkerFolder,
+  findClientByDepositSubject,
+  findWorkerByMasterName,
+  resolveBankDepositMatchSubject,
+  resolveBankWorkerFolderMatchSubject,
+  type ClientDepositMatchSource,
+  type WorkerDepositMatchSource,
+} from "./clientDepositAliases";
 
 export type BankTransactionFolderType = "client" | "worker" | "card" | "custom";
 
@@ -239,11 +246,44 @@ export function suggestBankTransactionClassification(
   }
 
   if (tx.withdrawal > 0) {
-    const worker = findWorkerByDepositSubject(workers, subject);
+    const workerSubject = resolveBankWorkerFolderMatchSubject(tx);
+    const worker = findWorkerByMasterName(workers, workerSubject);
     if (worker?.name) return { folderType: "worker", linkedSubject: String(worker.name).trim() };
   }
 
   return null;
+}
+
+export function isWorkerBankTransactionFolder(folders: BankTransactionFolder[], folderId: string) {
+  const folder = folders.find((row) => row.id === folderId);
+  return folder?.folderType === "worker";
+}
+
+export function canAssignBankTransactionToFolder(
+  tx: BankTransaction,
+  folderId: string,
+  folders: BankTransactionFolder[],
+  workers: WorkerDepositMatchSource[] = [],
+) {
+  if (!folderId) return true;
+  if (!isWorkerBankTransactionFolder(folders, folderId)) return true;
+  return canClassifyBankTransactionAsWorkerFolder(tx, workers);
+}
+
+export function sanitizeWorkerFolderAssignments(
+  transactions: BankTransaction[],
+  folders: BankTransactionFolder[],
+  workers: WorkerDepositMatchSource[],
+) {
+  const workerFolderIds = new Set(folders.filter((folder) => folder.folderType === "worker").map((folder) => folder.id));
+  let updated = 0;
+  const next = transactions.map((row) => {
+    if (!row.folderId || !workerFolderIds.has(row.folderId)) return row;
+    if (canClassifyBankTransactionAsWorkerFolder(row, workers)) return row;
+    updated += 1;
+    return { ...row, folderId: undefined, linkedSubject: undefined, classifiedAt: undefined };
+  });
+  return { next, updated };
 }
 
 export function resolveDefaultFolderId(type: BankTransactionFolderType) {
@@ -495,8 +535,9 @@ export function autoClassifyBankTransactions(
   workers: WorkerDepositMatchSource[],
   folders: BankTransactionFolder[]
 ) {
-  let updated = 0;
-  const next = transactions.map((row) => {
+  const sanitized = sanitizeWorkerFolderAssignments(transactions, folders, workers);
+  let updated = sanitized.updated;
+  const next = sanitized.next.map((row) => {
     if (isCardCompanyDeposit(row)) {
       if (row.folderId === DEFAULT_CARD_SALES_FOLDER_ID) return row;
       updated += 1;

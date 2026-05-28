@@ -2,10 +2,11 @@ import { isNetGroupSuppressed } from "./bankPreauthNetting";
 import type { BankTransaction } from "./bankTransactions";
 import {
   buildBankLedgerMatchRuleFromRegistration,
+  isBankTransactionLinkedToCompanyLedger,
   upsertBankLearnRule,
   type BankLearnRule,
 } from "./bankCompanyLedger";
-import type { FixedExpense, FixedExpensePayment } from "./companyLedger";
+import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "./companyLedger";
 import {
   FIXED_CATEGORY_OPTIONS,
   getMonthKey,
@@ -317,6 +318,7 @@ export function applyRecurringFixedExpensePatterns(input: {
   fixedExpensePayments: FixedExpensePayment[];
   bankTransactions: BankTransaction[];
   bankLedgerRules: BankLearnRule[];
+  companyExpenses?: CompanyExpense[];
   createdBy?: string;
   defaultCategory?: string;
 }): ApplyRecurringFixedExpenseResult {
@@ -364,7 +366,14 @@ export function applyRecurringFixedExpensePatterns(input: {
       );
     }
 
-    const sampleTx = pattern.transactions.find((tx) => !linkedBankTxIds.has(tx.id)) || pattern.transactions[0];
+    const sampleTx =
+      pattern.transactions.find(
+        (tx) =>
+          !isBankTransactionLinkedToCompanyLedger(tx, {
+            companyExpenses: input.companyExpenses,
+            fixedExpensePayments,
+          }),
+      ) || pattern.transactions[0];
     if (sampleTx) {
       bankLedgerRules = upsertBankLearnRule(
         bankLedgerRules,
@@ -378,7 +387,12 @@ export function applyRecurringFixedExpensePatterns(input: {
     }
 
     for (const tx of pattern.transactions) {
-      if (linkedBankTxIds.has(tx.id)) {
+      if (
+        isBankTransactionLinkedToCompanyLedger(tx, {
+          companyExpenses: input.companyExpenses,
+          fixedExpensePayments,
+        })
+      ) {
         skippedLinkedCount += 1;
         continue;
       }

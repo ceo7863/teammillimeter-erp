@@ -1,11 +1,15 @@
 import type { BankTransaction } from "./bankTransactions";
+import type { BankTransactionFolder } from "./bankTransactionFolders";
 import type { BankLearnRule } from "./bankCompanyLedger";
 import {
-  autoApplyBankLearnRules,
   findMatchingBankLedgerRule,
   guessLedgerTargetFromBankTransaction,
+  isBankTransactionLinkedToCompanyLedger,
   parseLedgerTargetKey,
+  syncBankTransactionLedgerLinkFields,
 } from "./bankCompanyLedger";
+import { runSmartAutoLedgerSync } from "./bankSmartLedger";
+import type { ClientDepositMatchSource, WorkerDepositMatchSource } from "./clientDepositAliases";
 import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "./companyLedger";
 import {
   buildFixedExpensePaymentDate,
@@ -126,20 +130,25 @@ export function autoLinkBankTransactionsToFixedPayments(
   payments: FixedExpensePayment[],
   fixedExpenses: FixedExpense[],
   rules: BankLearnRule[] = [],
-  options: { onlyTransactionIds?: Set<string> } = {},
+  options: {
+    onlyTransactionIds?: Set<string>;
+    companyExpenses?: CompanyExpense[];
+  } = {},
 ) {
-  const linkedPaymentBankTxIds = new Set(
-    payments.map((row) => row.bankTransactionId).filter(Boolean) as string[],
-  );
-
   let nextPayments = payments;
   let linkedCount = 0;
 
   const nextTransactions = transactions.map((tx) => {
     if (options.onlyTransactionIds && !options.onlyTransactionIds.has(tx.id)) return tx;
     if (tx.folderId || !(tx.withdrawal > 0)) return tx;
-    if (tx.linkedFixedExpensePaymentId || tx.linkedCompanyExpenseId) return tx;
-    if (linkedPaymentBankTxIds.has(tx.id)) return tx;
+    if (
+      isBankTransactionLinkedToCompanyLedger(tx, {
+        companyExpenses: options.companyExpenses,
+        fixedExpensePayments: nextPayments,
+      })
+    ) {
+      return tx;
+    }
 
     const fixedExpenseId = resolveFixedExpenseIdForBankTx(tx, rules, fixedExpenses);
     if (!fixedExpenseId) return tx;
@@ -148,7 +157,6 @@ export function autoLinkBankTransactionsToFixedPayments(
     if (!payment) return tx;
 
     nextPayments = linkFixedExpensePaymentToBankTx(nextPayments, payment.id, tx.id, tx);
-    linkedPaymentBankTxIds.add(tx.id);
     linkedCount += 1;
 
     return { ...tx, linkedFixedExpensePaymentId: payment.id, linkedCompanyExpenseId: undefined };
@@ -185,6 +193,7 @@ export function syncFixedExpenseAutomation(input: {
     payments,
     input.fixedExpenses,
     input.bankLedgerRules || [],
+    { companyExpenses: input.companyExpenses },
   );
 
   return {
@@ -212,6 +221,10 @@ export function refreshCompanyLedgerFromBankTransactions(input: {
   fixedExpensePayments: FixedExpensePayment[];
   companyExpenses: CompanyExpense[];
   bankLedgerRules?: BankLearnRule[];
+  bankTransactionFolders?: BankTransactionFolder[];
+  expenseCategories?: string[];
+  clients?: ClientDepositMatchSource[];
+  workers?: WorkerDepositMatchSource[];
   createdBy?: string;
 }): RefreshCompanyLedgerFromBankResult {
   const rules = input.bankLedgerRules || [];
@@ -242,37 +255,42 @@ export function refreshCompanyLedgerFromBankTransactions(input: {
     payments,
     input.fixedExpenses,
     rules,
+    { companyExpenses: input.companyExpenses },
   );
 
   payments = linkResult.payments;
   let transactions = linkResult.transactions;
   const linkedPaymentCount = linkResult.linkedCount;
 
-  const learnResult = autoApplyBankLearnRules(
-    transactions,
-    payments,
-    input.companyExpenses,
-    rules,
-    input.fixedExpenses,
-    { createdBy: input.createdBy },
+  const smart = runSmartAutoLedgerSync({
+    bankTransactions: transactions,
+    bankTransactionFolders: input.bankTransactionFolders || [],
+    fixedExpensePayments: payments,
+    companyExpenses: input.companyExpenses,
+    bankLedgerRules: rules,
+    fixedExpenses: input.fixedExpenses,
+    expenseCategories: input.expenseCategories || [],
+    clients: input.clients || [],
+    workers: input.workers || [],
+    createdBy: input.createdBy,
+    useLlm: false,
+  });
+
+  const companyExpenses = smart.companyExpenses;
+  const bankTransactions = syncBankTransactionLedgerLinkFields(
+    smart.bankTransactions,
+    companyExpenses,
+    smart.fixedExpensePayments,
   );
 
-  if (learnResult.allPayments) {
-    payments = learnResult.allPayments;
-  } else if (learnResult.newPayments.length) {
-    payments = [...learnResult.newPayments, ...payments];
-  }
-
   return {
-    bankTransactions: learnResult.transactions,
-    fixedExpensePayments: payments,
-    companyExpenses: learnResult.newExpenses.length
-      ? [...learnResult.newExpenses, ...input.companyExpenses]
-      : input.companyExpenses,
+    bankTransactions,
+    fixedExpensePayments: smart.fixedExpensePayments,
+    companyExpenses,
     generatedPaymentCount,
     linkedPaymentCount,
-    learnedFixedCount: learnResult.fixedCount,
-    learnedManualCount: learnResult.manualCount,
-    learnedFolderCount: learnResult.folderCount,
+    learnedFixedCount: smart.learnFixed + smart.heuristicRegistered,
+    learnedManualCount: smart.learnManual,
+    learnedFolderCount: smart.learnFolder + smart.classifiedFolders,
   };
 }

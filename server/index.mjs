@@ -51,6 +51,7 @@ import {
   runOpenBankingSync,
 } from "./openBankingSync.mjs";
 import { buildAuthorizeUrl } from "./openBankingClient.mjs";
+import { classifyBankLedgerBatch } from "./bankLedgerClassify.mjs";
 
 initDb();
 initPdfArchiveStore();
@@ -456,6 +457,19 @@ app.get("/api/erp", authMiddleware, (_req, res) => {
     updatedAt: state.updatedAt,
     updatedBy: state.updatedBy,
   });
+});
+
+app.post("/api/bank/classify-ledger", authMiddleware, async (req, res) => {
+  try {
+    const result = await classifyBankLedgerBatch(req.body || {});
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "분류에 실패했습니다.",
+      items: [],
+      engine: "error",
+    });
+  }
 });
 
 app.get("/api/erp/bank-sync", authMiddleware, (req, res) => {

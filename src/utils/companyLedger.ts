@@ -600,27 +600,51 @@ function amountMatchesFixedPayment(
   return false;
 }
 
-export function findLinkableFixedExpensePayment(
+export function isFixedExpensePaymentBankLinked(payment: FixedExpensePayment) {
+  return Boolean(String(payment.bankTransactionId || "").trim());
+}
+
+export function bankTransactionMatchesFixedPayment(
+  tx: { transactionAt?: string; withdrawal?: number },
+  payment: FixedExpensePayment,
+  fixedExpenses: FixedExpense[] = [],
+) {
+  const monthKey = getMonthKey(String(tx.transactionAt || "").slice(0, 10));
+  if (!monthKey || getMonthKey(payment.date) !== monthKey) return false;
+  const expense = fixedExpenses.find((row) => row.id === payment.fixedExpenseId);
+  return amountMatchesFixedPayment(Number(tx.withdrawal || 0), payment, expense);
+}
+
+export function listLinkableFixedExpensePayments(
   tx: { transactionAt?: string; withdrawal?: number },
   fixedExpenseId: string,
   payments: FixedExpensePayment[],
   fixedExpenses: FixedExpense[] = [],
 ) {
   const monthKey = getMonthKey(String(tx.transactionAt || "").slice(0, 10));
-  if (!monthKey) return null;
+  if (!monthKey || !fixedExpenseId) return [];
 
   const expense = fixedExpenses.find((row) => row.id === fixedExpenseId);
   const withdrawal = Number(tx.withdrawal || 0);
-  const candidates = payments.filter(
-    (row) =>
-      row.fixedExpenseId === fixedExpenseId &&
-      getMonthKey(row.date) === monthKey &&
-      !row.bankTransactionId,
-  );
 
-  if (!candidates.length) return null;
+  return payments
+    .filter(
+      (row) =>
+        row.fixedExpenseId === fixedExpenseId &&
+        getMonthKey(row.date) === monthKey &&
+        !isFixedExpensePaymentBankLinked(row) &&
+        amountMatchesFixedPayment(withdrawal, row, expense),
+    )
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+}
 
-  return candidates.find((row) => amountMatchesFixedPayment(withdrawal, row, expense)) || null;
+export function findLinkableFixedExpensePayment(
+  tx: { transactionAt?: string; withdrawal?: number },
+  fixedExpenseId: string,
+  payments: FixedExpensePayment[],
+  fixedExpenses: FixedExpense[] = [],
+) {
+  return listLinkableFixedExpensePayments(tx, fixedExpenseId, payments, fixedExpenses)[0] || null;
 }
 
 export function resolveFixedPaymentFieldsFromBankTx(tx: { transactionAt?: string; withdrawal?: number }) {

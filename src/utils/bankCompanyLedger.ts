@@ -1,7 +1,10 @@
 import type { BankTransaction } from "./bankTransactions";
 import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "./companyLedger";
+import { canAssignBankTransactionToFolder, type BankTransactionFolder } from "./bankTransactionFolders";
+import type { WorkerDepositMatchSource } from "./clientDepositAliases";
 import {
   EXPENSE_CATEGORY_OPTIONS,
+  bankTransactionMatchesFixedPayment,
   findLinkableFixedExpensePayment,
   linkFixedExpensePaymentToBankTx,
   makeLedgerId,
@@ -37,7 +40,8 @@ export type BankLearnRule = {
 /** @deprecated Use BankLearnRule with kind "fixed" */
 export type BankLedgerMatchRule = BankLearnRule & { kind: "fixed"; fixedExpenseId: string };
 
-const AUTO_LEARN_MIN_SCORE = 5;
+export const AUTO_LEARN_MIN_SCORE = 5;
+export const AUTO_LEARN_HIGH_CONFIDENCE_SCORE = 16;
 
 export type BankLedgerRegistrationContext = {
   companyExpenses?: CompanyExpense[];
@@ -48,16 +52,73 @@ export function getLinkedCompanyExpenseForBankTx(
   tx: BankTransaction,
   expenses: CompanyExpense[] = [],
 ) {
-  if (!tx.linkedCompanyExpenseId) return undefined;
-  return expenses.find((row) => row.id === tx.linkedCompanyExpenseId);
+  if (tx.linkedCompanyExpenseId) {
+    const linked = expenses.find((row) => row.id === tx.linkedCompanyExpenseId);
+    if (linked) return linked;
+  }
+  return expenses.find((row) => row.bankTransactionId === tx.id);
 }
 
 export function getLinkedFixedPaymentForBankTx(
   tx: BankTransaction,
   payments: FixedExpensePayment[] = [],
 ) {
-  if (!tx.linkedFixedExpensePaymentId) return undefined;
-  return payments.find((row) => row.id === tx.linkedFixedExpensePaymentId);
+  if (tx.linkedFixedExpensePaymentId) {
+    const linked = payments.find((row) => row.id === tx.linkedFixedExpensePaymentId);
+    if (linked) return linked;
+  }
+  return payments.find((row) => row.bankTransactionId === tx.id);
+}
+
+export function isBankTransactionLinkedToCompanyLedger(
+  tx: BankTransaction,
+  context: BankLedgerRegistrationContext = {},
+) {
+  return Boolean(
+    getLinkedCompanyExpenseForBankTx(tx, context.companyExpenses) ||
+      getLinkedFixedPaymentForBankTx(tx, context.fixedExpensePayments),
+  );
+}
+
+/** Align tx.linked* fields with ledger rows matched by bankTransactionId. */
+export function syncBankTransactionLedgerLinkFields(
+  transactions: BankTransaction[],
+  expenses: CompanyExpense[] = [],
+  payments: FixedExpensePayment[] = [],
+) {
+  return transactions.map((tx) => {
+    const expense = expenses.find((row) => row.bankTransactionId === tx.id);
+    const payment = payments.find((row) => row.bankTransactionId === tx.id);
+
+    if (payment) {
+      return {
+        ...tx,
+        linkedFixedExpensePaymentId: payment.id,
+        linkedCompanyExpenseId: undefined,
+      };
+    }
+
+    if (expense) {
+      return {
+        ...tx,
+        linkedCompanyExpenseId: expense.id,
+        linkedFixedExpensePaymentId: undefined,
+      };
+    }
+
+    const linkedExpense = tx.linkedCompanyExpenseId
+      ? expenses.find((row) => row.id === tx.linkedCompanyExpenseId)
+      : undefined;
+    const linkedPayment = tx.linkedFixedExpensePaymentId
+      ? payments.find((row) => row.id === tx.linkedFixedExpensePaymentId)
+      : undefined;
+
+    return {
+      ...tx,
+      linkedCompanyExpenseId: linkedExpense?.id,
+      linkedFixedExpensePaymentId: linkedPayment?.id,
+    };
+  });
 }
 
 export function canRegisterBankTxToCompanyLedger(
@@ -65,14 +126,7 @@ export function canRegisterBankTxToCompanyLedger(
   context: BankLedgerRegistrationContext = {},
 ) {
   if (tx.folderId || !(tx.withdrawal > 0)) return false;
-
-  const linkedExpense = getLinkedCompanyExpenseForBankTx(tx, context.companyExpenses);
-  if (linkedExpense) return false;
-
-  const linkedPayment = getLinkedFixedPaymentForBankTx(tx, context.fixedExpensePayments);
-  if (linkedPayment) return false;
-
-  return true;
+  return !isBankTransactionLinkedToCompanyLedger(tx, context);
 }
 
 export function listBankTransactionsForLedgerLink(
@@ -80,23 +134,25 @@ export function listBankTransactionsForLedgerLink(
   context: BankLedgerRegistrationContext = {},
   options: { excludePaymentId?: string } = {},
 ) {
-  const usedByOtherPayments = new Set(
-    (context.fixedExpensePayments || [])
-      .filter((row) => row.bankTransactionId && row.id !== options.excludePaymentId)
-      .map((row) => String(row.bankTransactionId)),
-  );
-  const usedByExpenses = new Set(
-    (context.companyExpenses || [])
-      .filter((row) => row.bankTransactionId)
-      .map((row) => String(row.bankTransactionId)),
+  const payments = (context.fixedExpensePayments || []).filter(
+    (row) => !options.excludePaymentId || row.id !== options.excludePaymentId,
   );
 
   return transactions
-    .filter((tx) => {
-      if (!canRegisterBankTxToCompanyLedger(tx, context)) return false;
-      if (usedByOtherPayments.has(tx.id) || usedByExpenses.has(tx.id)) return false;
-      return true;
-    })
+    .filter((tx) => canRegisterBankTxToCompanyLedger(tx, { ...context, fixedExpensePayments: payments }))
+    .sort((a, b) => String(b.transactionAt).localeCompare(String(a.transactionAt)));
+}
+
+/** Unlinked bank withdrawals that match a fixed payment (same month + amount). */
+export function listBankTransactionsForFixedPaymentLink(
+  payment: FixedExpensePayment,
+  transactions: BankTransaction[],
+  context: BankLedgerRegistrationContext = {},
+  fixedExpenses: FixedExpense[] = [],
+  options: { excludePaymentId?: string } = {},
+) {
+  return listBankTransactionsForLedgerLink(transactions, context, options)
+    .filter((tx) => bankTransactionMatchesFixedPayment(tx, payment, fixedExpenses))
     .sort((a, b) => String(b.transactionAt).localeCompare(String(a.transactionAt)));
 }
 
@@ -157,7 +213,7 @@ export function getLedgerTargetLabel(key: string, fixedExpenses: FixedExpense[] 
   return String(key || "");
 }
 
-function guessExpenseCategory(text: string) {
+export function guessExpenseCategory(text: string) {
   const haystack = String(text || "").toLowerCase();
   const rules: Array<[string, string[]]> = [
     ["\uAD50\uD86D/\uC8FC\uCC28", ["\uC8FC\uCC28", "\uD86D", "\uACE0\uC18D", "\uD0DD\uC2DC", "\uC8FC\uC720", "\uAE30\uB984", "\uAE30\uC0B0"]],
@@ -451,7 +507,7 @@ export function scoreBankLedgerMatchRule(
   return scoreBankLearnRule(tx, rule, fixedExpenses);
 }
 
-function findBestBankLearnRule(
+export function findBestBankLearnRuleWithScore(
   tx: BankTransaction,
   rules: BankLearnRule[] = [],
   fixedExpenses: FixedExpense[] = [],
@@ -465,7 +521,23 @@ function findBestBankLearnRule(
     if (!best || score > best.score) best = { rule, score };
   }
   if (!best || best.score < AUTO_LEARN_MIN_SCORE) return null;
-  return best.rule;
+  return best;
+}
+
+export function formatLearnRuleConfidencePercent(score: number) {
+  if (score >= AUTO_LEARN_HIGH_CONFIDENCE_SCORE) return 95;
+  if (score >= 12) return 85;
+  if (score >= AUTO_LEARN_MIN_SCORE) return 72;
+  return Math.max(0, Math.min(99, Math.round((score / AUTO_LEARN_HIGH_CONFIDENCE_SCORE) * 100)));
+}
+
+function findBestBankLearnRule(
+  tx: BankTransaction,
+  rules: BankLearnRule[] = [],
+  fixedExpenses: FixedExpense[] = [],
+  kinds?: BankLearnRuleKind[],
+) {
+  return findBestBankLearnRuleWithScore(tx, rules, fixedExpenses, kinds)?.rule ?? null;
 }
 
 export function findMatchingBankLedgerRule(
@@ -627,33 +699,30 @@ export function autoApplyBankLearnRules(
   existingExpenses: CompanyExpense[],
   rules: BankLearnRule[],
   fixedExpenses: FixedExpense[],
-  options: { createdBy?: string; onlyTransactionIds?: Set<string> } = {},
+  options: {
+    createdBy?: string;
+    onlyTransactionIds?: Set<string>;
+    workers?: WorkerDepositMatchSource[];
+    bankTransactionFolders?: BankTransactionFolder[];
+  } = {},
 ): AutoApplyBankLearnResult {
-  const linkedPaymentBankTxIds = new Set(
-    existingPayments.map((payment) => payment.bankTransactionId).filter(Boolean) as string[],
-  );
-  const linkedExpenseBankTxIds = new Set(
-    existingExpenses.map((expense) => expense.bankTransactionId).filter(Boolean) as string[],
-  );
-
   const newPayments: FixedExpensePayment[] = [];
   const newExpenses: CompanyExpense[] = [];
   const paymentLinks = new Map<string, string>();
   const expenseLinks = new Map<string, string>();
   const folderUpdates = new Map<string, { folderId: string; linkedSubject?: string }>();
   let workingPayments = [...existingPayments];
+  let workingExpenses = [...existingExpenses];
 
   for (const tx of transactions) {
     if (options.onlyTransactionIds && !options.onlyTransactionIds.has(tx.id)) continue;
 
-    if (
-      canRegisterBankTxToCompanyLedger(tx, {
-        companyExpenses: existingExpenses,
-        fixedExpensePayments: workingPayments,
-      }) &&
-      !linkedPaymentBankTxIds.has(tx.id) &&
-      !linkedExpenseBankTxIds.has(tx.id)
-    ) {
+    const ledgerContext = {
+      companyExpenses: workingExpenses,
+      fixedExpensePayments: workingPayments,
+    };
+
+    if (canRegisterBankTxToCompanyLedger(tx, ledgerContext)) {
       const ledgerRule = findBestBankLearnRule(tx, rules, fixedExpenses, ["fixed", "manual"]);
       if (ledgerRule?.kind === "fixed" && ledgerRule.fixedExpenseId) {
         const existingPayment = findLinkableFixedExpensePayment(
@@ -666,7 +735,6 @@ export function autoApplyBankLearnRules(
         if (existingPayment) {
           workingPayments = linkFixedExpensePaymentToBankTx(workingPayments, existingPayment.id, tx.id, tx);
           paymentLinks.set(tx.id, existingPayment.id);
-          linkedPaymentBankTxIds.add(tx.id);
           continue;
         }
 
@@ -686,26 +754,27 @@ export function autoApplyBankLearnRules(
         newPayments.push(payment);
         workingPayments = [payment, ...workingPayments];
         paymentLinks.set(tx.id, paymentId);
-        linkedPaymentBankTxIds.add(tx.id);
         continue;
       }
 
       if (ledgerRule?.kind === "manual" && ledgerRule.category) {
         const prefill = buildCompanyExpensePrefillFromBankTransaction(tx);
         const expenseId = makeLedgerId();
-        newExpenses.push({
+        const expense: CompanyExpense = {
           id: expenseId,
           date: prefill.date,
           category: ledgerRule.category,
           description: prefill.description,
           amount: parseLedgerAmount(prefill.amount),
           memo: prefill.memo,
+          kind: "variable",
           bankTransactionId: tx.id,
           createdBy: options.createdBy,
           createdAt: new Date().toISOString(),
-        });
+        };
+        newExpenses.push(expense);
+        workingExpenses = [expense, ...workingExpenses];
         expenseLinks.set(tx.id, expenseId);
-        linkedExpenseBankTxIds.add(tx.id);
         continue;
       }
     }
@@ -713,17 +782,40 @@ export function autoApplyBankLearnRules(
     if (!tx.folderId) {
       const folderRule = findBestBankLearnRule(tx, rules, fixedExpenses, ["folder"]);
       if (folderRule?.folderId) {
-        folderUpdates.set(tx.id, {
-          folderId: folderRule.folderId,
-          linkedSubject: tx.linkedSubject || tx.counterpartyName || tx.description || undefined,
-        });
+        const folders = options.bankTransactionFolders || [];
+        const workers = options.workers || [];
+        if (canAssignBankTransactionToFolder(tx, folderRule.folderId, folders, workers)) {
+          folderUpdates.set(tx.id, {
+            folderId: folderRule.folderId,
+            linkedSubject: tx.linkedSubject || tx.counterpartyName || tx.description || undefined,
+          });
+        }
       }
     }
   }
 
+  const allExpenses = [...newExpenses, ...existingExpenses];
+  const allPayments = workingPayments;
+
   if (!newPayments.length && !newExpenses.length && !folderUpdates.size) {
+    const syncedOnly = syncBankTransactionLedgerLinkFields(transactions, allExpenses, allPayments);
+    const linksChanged = syncedOnly.some(
+      (row, index) =>
+        row.linkedCompanyExpenseId !== transactions[index]?.linkedCompanyExpenseId ||
+        row.linkedFixedExpensePaymentId !== transactions[index]?.linkedFixedExpensePaymentId,
+    );
+    if (!linksChanged) {
+      return {
+        transactions,
+        newPayments,
+        newExpenses,
+        fixedCount: 0,
+        manualCount: 0,
+        folderCount: 0,
+      };
+    }
     return {
-      transactions,
+      transactions: syncedOnly,
       newPayments,
       newExpenses,
       fixedCount: 0,
@@ -733,12 +825,12 @@ export function autoApplyBankLearnRules(
   }
 
   const allNewPayments = [...newPayments];
-  const nextTransactions = transactions.map((tx) => {
+  let nextTransactions = transactions.map((tx) => {
     const paymentId = paymentLinks.get(tx.id);
     if (paymentId) return { ...tx, linkedFixedExpensePaymentId: paymentId, linkedCompanyExpenseId: undefined };
 
     const expenseId = expenseLinks.get(tx.id);
-    if (expenseId) return { ...tx, linkedCompanyExpenseId: expenseId };
+    if (expenseId) return { ...tx, linkedCompanyExpenseId: expenseId, linkedFixedExpensePaymentId: undefined };
 
     const folderUpdate = folderUpdates.get(tx.id);
     if (folderUpdate) {
@@ -752,6 +844,7 @@ export function autoApplyBankLearnRules(
 
     return tx;
   });
+  nextTransactions = syncBankTransactionLedgerLinkFields(nextTransactions, allExpenses, allPayments);
 
   const fixedCount = newPayments.length + newExpenses.filter((row) => row.kind === "fixed").length;
   const manualCount = newExpenses.filter((row) => row.kind !== "fixed").length;
@@ -772,9 +865,20 @@ export function autoApplyBankLedgerRegistrations(
   existingPayments: FixedExpensePayment[],
   rules: BankLearnRule[],
   fixedExpenses: FixedExpense[],
-  options: { createdBy?: string; onlyTransactionIds?: Set<string> } = {},
+  options: {
+    createdBy?: string;
+    onlyTransactionIds?: Set<string>;
+    companyExpenses?: CompanyExpense[];
+  } = {},
 ): AutoApplyBankLedgerResult {
-  const result = autoApplyBankLearnRules(transactions, existingPayments, [], rules, fixedExpenses, options);
+  const result = autoApplyBankLearnRules(
+    transactions,
+    existingPayments,
+    options.companyExpenses || [],
+    rules,
+    fixedExpenses,
+    options,
+  );
   return {
     transactions: result.transactions,
     newPayments: result.newPayments,

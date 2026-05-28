@@ -61,7 +61,8 @@ import type { ErpUser } from "@/utils/erpApi";
 import { AutocompleteInput } from "@/components/AutocompleteInput";
 import { CompanyLedgerCalendar } from "@/components/CompanyLedgerCalendar";
 import type { LedgerCalendarEntry } from "@/utils/ledgerCalendar";
-import { formatBankLearnAutoMessage, listBankTransactionsForLedgerLink, type BankLearnRule } from "@/utils/bankCompanyLedger";
+import { formatBankLearnAutoMessage, listBankTransactionsForFixedPaymentLink, listBankTransactionsForLedgerLink, type BankLearnRule } from "@/utils/bankCompanyLedger";
+import { loadSmartLedgerRunSummary } from "@/utils/bankSmartLedger";
 import { formatBankTransactionDateTime, type BankTransaction } from "@/utils/bankTransactions";
 import { refreshCompanyLedgerFromBankTransactions } from "@/utils/fixedExpenseAutomation";
 import { useAudit } from "@/context/AuditContext";
@@ -163,17 +164,17 @@ const L = {
   editFixedItem: "\uACE0\uC815\uBE44 \uD56D\uBAA9 \uC218\uC815",
   emptyFixedItems: "\uB4F1\uB85D\uB41C \uACE0\uC815\uBE44 \uD56D\uBAA9\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   paymentDay: "\uB9E4\uC6D4 \uCD9C\uAE08\uC77C",
-  unpaidFixedExpense: "\uC544\uC9C1 \uC9C0\uCD9C\uD558\uC9C0 \uC54A\uC740 \uACE0\uC815\uBE44",
-  paidFixedExpense: "\uC9C0\uCD9C\uD55C \uACE0\uC815\uBE44",
-  emptyUnpaidFixed: "\uC544\uC9C1 \uC9C0\uCD9C\uD558\uC9C0 \uC54A\uC740 \uACE0\uC815\uBE44\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
-  emptyPaidFixed: "\uC9C0\uCD9C\uD55C \uACE0\uC815\uBE44\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
-  unpaidFixedBadge: "\uBBF8\uC9C0\uCD9C",
-  unpaidFixedHint: "\uD1B5\uC7A5 \uC5F0\uB3D9 \uC804 \uACE0\uC815\uBE44",
-  paidFixedHint: "\uD1B5\uC7A5 \uC5F0\uB3D9 \uC644\uB8CC",
+  unpaidFixedExpense: "\uD1B5\uC7A5 \uBBF8\uC5F0\uACB0 \uACE0\uC815\uBE44",
+  paidFixedExpense: "\uD1B5\uC7A5 \uC5F0\uB3D9 \uACE0\uC815\uBE44",
+  emptyUnpaidFixed: "\uD1B5\uC7A5 \uBBF8\uC5F0\uACB0 \uACE0\uC815\uBE44\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  emptyPaidFixed: "\uD1B5\uC7A5 \uC5F0\uB3D9 \uC644\uB8CC \uACE0\uC815\uBE44\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  unpaidFixedBadge: "\uD1B5\uC7A5 \uBBF8\uC5F0\uACB0",
+  unpaidFixedHint: "\uB0A9\uBD80 \uB4F1\uB85D\uC740 \uC788\uC9C0\uB9CC \uD1B5\uC7A5 \uAC70\uB798\uC640 \uC544\uC9C1 \uC5F0\uACB0\uB418\uC9C0 \uC54A\uC74C",
+  paidFixedHint: "\uD1B5\uC7A5 \uAC70\uB798\uB0B4\uC5ED\uACFC \uC5F0\uB3D9 \uC644\uB8CC",
   linkFromBank: "\uD1B5\uC7A5\uB0B4\uC5ED\uC5D0\uC11C \uC5F0\uACB0\uD558\uAE30",
-  linkFromBankTitle: "\uBBF8\uBD84\uB958 \uD1B5\uC7A5 \uB0B4\uC5ED \uC5F0\uACB0",
-  linkFromBankDesc: "\uC5F0\uACB0\uD560 \uCD9C\uAE08 \uB0B4\uC5ED\uC744 \uC120\uD0DD\uD558\uC138\uC694.",
-  linkFromBankEmpty: "\uC5F0\uACB0 \uAC00\uB2A5\uD55C \uBBF8\uBD84\uB958 \uCD9C\uAE08 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  linkFromBankTitle: "\uD1B5\uC7A5 \uB0B4\uC5ED \uC5F0\uACB0",
+  linkFromBankDesc: "\uB0A9\uBD80 \uAE08\uC561\uACFC \uAC19\uC740 \uB2EC\uC758 \uBBF8\uBD84\uB958 \uCD9C\uAE08 \uB0B4\uC5ED\uC744 \uC120\uD0DD\uD558\uC138\uC694.",
+  linkFromBankEmpty: "\uAE08\uC561\uACFC \uB2EC\uC774 \uB9DE\uB294 \uC5F0\uACB0 \uAC00\uB2A5\uD55C \uCD9C\uAE08 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   linkFromBankDone: "\uD1B5\uC7A5 \uB0B4\uC5ED\uC774 \uC5F0\uACB0\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   refreshBankLedger: "\uD1B5\uC7A5 \uC5F0\uB3D9 \uC0C8\uB85C\uACE0\uCE68",
   refreshBankLedgerHint: "\uD1B5\uC7A5 \uAC70\uB798\uB0B4\uC5ED\uC744 \uB2E4\uC2DC \uD655\uC778\uD558\uACE0 \uACE0\uC815\uBE44 \uB0A9\uBD80 \u00B7 \uD559\uC2B5 \uADDC\uCE59 \uC5F0\uACB0\uC744 \uAC31\uC2E0\uD569\uB2C8\uB2E4.",
@@ -185,6 +186,10 @@ const L = {
     return parts.length ? `\uD1B5\uC7A5 \uC5F0\uB3D9 \uC644\uB8CC \u00B7 ${parts.join(" \u00B7 ")}` : "\uD655\uC778 \uC644\uB8CC. \uC0C8\uB85C \uC5F0\uACB0\uD560 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.";
   },
   refreshBankLedgerEmpty: "\uD1B5\uC7A5 \uAC70\uB798\uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  bankAutoLinked: "\uD1B5\uC7A5 \uC790\uB3D9 \uB4F1\uB85D",
+  bankManualEntry: "\uC218\uAE30 \uC785\uB825",
+  smartLedgerLastRun: "\uB9C8\uC9C0\uB9C9 \uC790\uB3D9 \uAC00\uACC4\uBD80",
+  smartLedgerLastRunEmpty: "\uD1B5\uC7A5 \uD654\uBA74\uC5D0\uC11C \uC790\uB3D9 \uAC00\uACC4\uBD80\uB97C \uC2E4\uD589\uD558\uBA74 \uC694\uC57D\uC774 \uD45C\uC2DC\uB429\uB2C8\uB2E4.",
   viewBankLinks: "\uD1B5\uC7A5 \uC5F0\uB3D9 \uD655\uC778",
   viewBankLinksTitle: "\uD1B5\uC7A5 \uC5F0\uB3D9 \uB0B4\uC5ED",
   viewBankLinksDesc: "\uACE0\uC815\uBE44 \uB0A9\uBD80\uC640 \uC5F0\uACB0\uB41C \uD1B5\uC7A5 \uAC70\uB798 \uB0B4\uC5ED\uC785\uB2C8\uB2E4.",
@@ -829,6 +834,32 @@ export function CompanyLedgerPage({
     [filteredFixedRows],
   );
 
+  const bankLedgerLinkStats = useMemo(() => {
+    const monthPrefix = `${currentMonthKey}-`;
+    const monthExpenses = companyExpenses.filter((row) => String(row.date || "").startsWith(monthPrefix));
+    const monthPayments = (fixedExpensePayments || []).filter((row) =>
+      String(row.date || "").startsWith(monthPrefix),
+    );
+    let autoExpense = 0;
+    let manualExpense = 0;
+    let autoPayment = 0;
+    let manualPayment = 0;
+    for (const row of monthExpenses) {
+      if (isBankLinkedExpense(row)) autoExpense += 1;
+      else manualExpense += 1;
+    }
+    for (const row of monthPayments) {
+      if (isBankLinkedPayment(row)) autoPayment += 1;
+      else manualPayment += 1;
+    }
+    return {
+      autoCount: autoExpense + autoPayment,
+      manualCount: manualExpense + manualPayment,
+    };
+  }, [companyExpenses, fixedExpensePayments, currentMonthKey]);
+
+  const smartLedgerSummary = useMemo(() => loadSmartLedgerRunSummary(), [bankRefreshMessage]);
+
   const thisMonthFixedBreakdown = useMemo(() => {
     const monthPrefix = `${currentMonthKey}-`;
     const payments = fixedExpensePayments.filter((row) => String(row.date || "").startsWith(monthPrefix));
@@ -1154,15 +1185,22 @@ export function CompanyLedgerPage({
       setBankTransactions,
   );
 
-  const linkableBankTransactions = useMemo(
-    () =>
-      listBankTransactionsForLedgerLink(
+  const linkableBankTransactions = useMemo(() => {
+    if (editingFixedPayment) {
+      return listBankTransactionsForFixedPaymentLink(
+        editingFixedPayment,
         bankTransactions,
         { companyExpenses, fixedExpensePayments },
+        fixedExpenses,
         { excludePaymentId: manualModal?.id },
-      ),
-    [bankTransactions, companyExpenses, fixedExpensePayments, manualModal?.id],
-  );
+      );
+    }
+    return listBankTransactionsForLedgerLink(
+      bankTransactions,
+      { companyExpenses, fixedExpensePayments },
+      { excludePaymentId: manualModal?.id },
+    );
+  }, [bankTransactions, companyExpenses, editingFixedPayment, fixedExpensePayments, fixedExpenses, manualModal?.id]);
 
   const linkBankTransactionToFixedPayment = (tx: BankTransaction) => {
     const paymentId = manualModal?.id;
@@ -1359,6 +1397,27 @@ export function CompanyLedgerPage({
           tone="text-slate-900"
           sub={L.thisMonthGrandHint}
         />
+        <SummaryCard
+          compact
+          label={L.bankAutoLinked}
+          value={`${bankLedgerLinkStats.autoCount}${L.count}`}
+          tone="text-violet-700"
+          sub={`${L.bankManualEntry} ${bankLedgerLinkStats.manualCount}${L.count} · ${formatMonthLabel(currentMonthKey)}`}
+        />
+      </div>
+
+      <div className="rounded-2xl border border-violet-100 bg-violet-50/50 px-4 py-3 text-sm text-violet-900">
+        <div className="font-bold">{L.smartLedgerLastRun}</div>
+        {smartLedgerSummary ? (
+          <p className="mt-1 text-violet-800">
+            {new Date(smartLedgerSummary.at).toLocaleString("ko-KR")} · 학습 고정{" "}
+            {smartLedgerSummary.learnFixed} · 학습 지출 {smartLedgerSummary.learnManual} · AI 등록{" "}
+            {smartLedgerSummary.heuristicRegistered + smartLedgerSummary.llmRegistered} · 확인 필요{" "}
+            {smartLedgerSummary.pendingSuggestions}건
+          </p>
+        ) : (
+          <p className="mt-1 text-violet-700">{L.smartLedgerLastRunEmpty}</p>
+        )}
       </div>
 
       <div className="erp-ledger-tabs flex flex-wrap gap-2">

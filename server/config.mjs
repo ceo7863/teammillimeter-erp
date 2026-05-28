@@ -17,6 +17,7 @@ export const config = {
   ibkBankImportDir: process.env.IBK_BANK_IMPORT_DIR || "",
   /** 자동 가져오기 주기(ms). 기본 3분 */
   bankSyncIntervalMs: Number(process.env.BANK_SYNC_INTERVAL_MS || 180000),
+  openAiConfigured: Boolean(process.env.OPENAI_API_KEY),
   openBanking: {
     enabled: process.env.OPEN_BANKING_ENABLED !== "false",
     baseUrl: process.env.OPEN_BANKING_BASE_URL || "https://testapi.openbanking.or.kr",

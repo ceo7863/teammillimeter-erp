@@ -48,6 +48,7 @@ import {
 } from "@/utils/bankRecurringFixedExpense";
 import {
   findLinkableFixedExpensePayment,
+  listLinkableFixedExpensePayments,
   formatFixedExpensePaymentDay,
   formatKRW,
   linkFixedExpensePaymentToBankTx,
@@ -78,8 +79,10 @@ import {
   buildLedgerCategoryPromptGroups,
   canRegisterBankTxToCompanyLedger,
   createCompanyExpenseFromBankTransaction,
+  findBestBankLearnRuleWithScore,
   findMatchingBankLedgerRule,
   formatBankLearnAutoMessage,
+  formatLearnRuleConfidencePercent,
   getLinkedCompanyExpenseForBankTx,
   getLinkedFixedPaymentForBankTx,
   parseLedgerTargetKey,
@@ -87,6 +90,12 @@ import {
   upsertBankLearnRule,
   type BankLearnRule,
 } from "@/utils/bankCompanyLedger";
+import { buildLedgerClassificationMap } from "@/utils/bankLedgerClassifier";
+import {
+  countPendingSmartLedger,
+  formatSmartLedgerRunMessage,
+  runSmartAutoLedger,
+} from "@/utils/bankSmartLedger";
 import { AutocompleteInput } from "@/components/AutocompleteInput";
 import { createPaymentInputLogsFromVouchers } from "@/utils/paymentInputLogs";
 import type { ReceivableRow } from "@/utils/receivables";
@@ -115,6 +124,7 @@ import {
   autoClassifyBankTransactions,
   buildBankTransactionFolderStats,
   buildBankTransactionFolderTree,
+  canAssignBankTransactionToFolder,
   clearBankTransactionFolderReferences,
   collectDescendantFolderIds,
   createBankTransactionFolder,
@@ -285,6 +295,7 @@ const L = {
   memoPlaceholder: "\uBA54\uBAA8 \uC785\uB825",
   classification: "\uBD84\uB958",
   linkedSubject: "\uC5F0\uACB0 \uC774\uB984",
+  workerFolderAssignBlocked: "\uC2DC\uACF5\uC790 \uBAA9\uB85D\uC5D0 \uB4F1\uB85D\uB41C \uC0C1\uB300\uC608\uAE08\uC8FC \uC774\uB984\uC778 \uCD9C\uAE08\uB9CC \uC2DC\uACF5\uC790 \uC9C0\uCD9C\uB85C \uBD84\uB958\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
   autoClassify: "\uC790\uB3D9 \uBD84\uB958",
   autoClassifyDone: "\uAC74\uC744 \uC790\uB3D9 \uBD84\uB958\uD588\uC2B5\uB2C8\uB2E4.",
   folderScopeClient: "\uAC70\uB798\uCC98",
@@ -327,7 +338,16 @@ const L = {
   ledgerManualRegistered: "\uBCC0\uB3D9 \uC9C0\uCD9C \uB4F1\uB85D\uC74C",
   ledgerFixedRegistered: "\uACE0\uC815\uBE44 \uB4F1\uB85D\uC74C",
   ledgerRegisterDone: "\uD68C\uC0AC \uAC00\uACC4\uBD80\uC5D0 \uB4F1\uB85D\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
+  ledgerAlreadyRegistered: "\uC774\uBBF8 \uAC00\uACC4\uBD80\uC5D0 \uB4F1\uB85D\uB41C \uD1B5\uC7A5 \uB0B4\uC5ED\uC785\uB2C8\uB2E4.",
   ledgerFixedRegisterDone: "\uACE0\uC815\uBE44 \uB0A9\uBD80\uB85C \uB4F1\uB85D\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
+  ledgerFixedLinkDone: "\uAE30\uC874 \uACE0\uC815\uBE44 \uB0A9\uBD80\uC5D0 \uD1B5\uC7A5 \uB0B4\uC5ED\uC774 \uC5F0\uACB0\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
+  ledgerLinkExistingTitle: "\uBBF8\uC5F0\uACB0 \uB0A9\uBD80 \uC788\uC74C",
+  ledgerLinkExistingDesc: (count: number) =>
+    `\uC774\uBC88 \uB2EC \uB4F1\uB85D\uB41C \uBBF8\uC5F0\uACB0 \uB0A9\uBD80 ${count}\uAC74\uC774 \uC788\uC2B5\uB2C8\uB2E4. \uC911\uBCF5 \uC0DD\uC131 \uC5C6\uC774 \uAE30\uC874 \uB0A9\uBD80\uC5D0 \uC5F0\uACB0\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.`,
+  ledgerLinkModeLink: "\uAE30\uC874 \uB0A9\uBD80\uC5D0 \uC5F0\uACB0",
+  ledgerLinkModeCreate: "\uC0C8 \uB0A9\uBD80 \uB4F1\uB85D",
+  ledgerLinkPaymentPick: "\uC5F0\uACB0\uD560 \uB0A9\uBD80",
+  ledgerSaveLink: "\uAE30\uC874 \uB0A9\uBD80\uC5D0 \uC5F0\uACB0",
   ledgerEditTitle: "\uAC00\uACC4\uBD80 \uB4F1\uB85D \uC218\uC815",
   ledgerEditDesc: "\uBD84\uB958\uB41C \uCD9C\uAE08 \uB4F1\uB85D \uB0B4\uC6A9\uC744 \uC218\uC815\uD569\uB2C8\uB2E4.",
   ledgerEditSave: "\uC218\uC815 \uC800\uC7A5",
@@ -336,9 +356,16 @@ const L = {
   ledgerBadgeEditHint: "\uD074\uB9AD\uD558\uBA74 \uB4F1\uB85D \uB0B4\uC6A9\uC744 \uC218\uC815\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
   ledgerAutoRegisterDone: (count: number) => `\uACE0\uC815\uBE44 ${count}\uAC74\uC774 \uC790\uB3D9 \uB4F1\uB85D\uB418\uC5C8\uC2B5\uB2C8\uB2E4.`,
   ledgerAutoLearnDone: formatBankLearnAutoMessage,
+  smartLedgerRun: "자동 가계부",
+  smartLedgerRunHint: "폴더 분류·학습 규칙·AI 추정으로 출금을 가계부에 자동 등록합니다.",
+  smartLedgerRunning: "자동 가계부 처리 중…",
+  smartLedgerBanner: (eligible: number, high: number) =>
+    `미등록 출금 ${eligible}건 · 자동 등록 가능 ${high}건`,
+  ledgerSuggestionBadge: (label: string, confidence: number) => `추천 ${label} (${confidence}%)`,
+  ledgerLearnRuleBadge: (confidence: number) => `학습규칙 ${confidence}%`,
   ledgerSaveManualHint: "\uB2E8\uC21C\uC9C0\uCD9C\uB85C \uC800\uC7A5",
   ledgerCategoryAddHint: "\uBAA9\uB85D\uC5D0 \uC5C6\uB294 \uCE74\uD14C\uACE0\uB9AC\uB294 \uC774\uB984\uC744 \uC785\uB825\uD558\uC138\uC694.",
-  ledgerSaveFixedHint: "\uACE0\uC815\uBE44 \uB0A9\uBD80\uB85C \uC800\uC7A5 (\uB3D9\uC77C \uAE08\uC561\uC77C \uB54C \uC790\uB3D9 \uACE0\uC815\uBE44)",
+  ledgerSaveFixedHint: "\uAE08\uC561\uC774 \uB9DE\uB294 \uBBF8\uC5F0\uACB0 \uB0A9\uBD80\uAC00 \uC788\uC73C\uBA74 \uC790\uB3D9 \uC5F0\uACB0\uD569\uB2C8\uB2E4",
   ledgerKind: "\uB4F1\uB85D \uC720\uD615",
   ledgerFixedItem: "\uACE0\uC815\uBE44 \uD56D\uBAA9",
   ledgerManualCategory: "\uC9C0\uCD9C \uCE74\uD14C\uACE0\uB9AC",
@@ -532,6 +559,19 @@ function canLinkUnclassifiedClientDeposit(row: BankTransaction) {
   return row.deposit > 0 && !row.folderId && !isCardCompanyDeposit(row);
 }
 
+function buildLedgerLinkDefaults(
+  tx: BankTransaction,
+  fixedExpenseId: string,
+  payments: FixedExpensePayment[],
+  fixedExpenses: FixedExpense[],
+) {
+  const linkable = listLinkableFixedExpensePayments(tx, fixedExpenseId, payments, fixedExpenses);
+  if (!linkable.length) {
+    return { linkMode: "create" as const, linkPaymentId: "" };
+  }
+  return { linkMode: "link" as const, linkPaymentId: linkable[0].id };
+}
+
 export function BankTransactionsPage({
   bankTransactions,
   setBankTransactions,
@@ -615,6 +655,7 @@ export function BankTransactionsPage({
   const [importError, setImportError] = useState("");
   const [importMessage, setImportMessage] = useState("");
   const [importLoading, setImportLoading] = useState(false);
+  const [smartLedgerLoading, setSmartLedgerLoading] = useState(false);
   const [linkModalTx, setLinkModalTx] = useState<BankTransaction | null>(null);
   const [clientLinkModalTx, setClientLinkModalTx] = useState<BankTransaction | null>(null);
   const [clientLinkClientName, setClientLinkClientName] = useState("");
@@ -631,6 +672,8 @@ export function BankTransactionsPage({
     memo: string;
     editPaymentId?: string;
     editExpenseId?: string;
+    linkMode?: "link" | "create";
+    linkPaymentId?: string;
   } | null>(null);
   const [ledgerFormError, setLedgerFormError] = useState("");
   const [categoryPrompt, setCategoryPrompt] = useState<{
@@ -707,6 +750,50 @@ export function BankTransactionsPage({
     [companyExpenses, fixedExpensePayments],
   );
 
+  const pendingSmartLedger = useMemo(
+    () =>
+      countPendingSmartLedger(bankTransactions, {
+        ...ledgerRegistrationContext,
+        rules: bankLedgerRules,
+        fixedExpenses,
+        expenseCategories,
+        workers,
+        clients,
+      }),
+    [
+      bankTransactions,
+      ledgerRegistrationContext,
+      bankLedgerRules,
+      fixedExpenses,
+      expenseCategories,
+      workers,
+      clients,
+    ],
+  );
+
+  const ledgerSuggestionByTxId = useMemo(
+    () =>
+      buildLedgerClassificationMap(bankTransactions, {
+        rules: bankLedgerRules,
+        fixedExpenses,
+        expenseCategories,
+        companyExpenses,
+        workers,
+        clients,
+        canRegister: (tx) => canRegisterBankTxToCompanyLedger(tx, ledgerRegistrationContext),
+      }),
+    [
+      bankTransactions,
+      bankLedgerRules,
+      fixedExpenses,
+      expenseCategories,
+      companyExpenses,
+      workers,
+      clients,
+      ledgerRegistrationContext,
+    ],
+  );
+
   const canRegisterLedger = (tx: BankTransaction) =>
     !isNetGroupSuppressed(tx) && canRegisterBankTxToCompanyLedger(tx, ledgerRegistrationContext);
 
@@ -714,12 +801,10 @@ export function BankTransactionsPage({
     modal.mode === "edit" || Boolean(modal.editPaymentId || modal.editExpenseId);
 
   const resolveLinkedCompanyExpenseForBankTx = (tx: BankTransaction) =>
-    getLinkedCompanyExpenseForBankTx(tx, companyExpenses) ||
-    companyExpenses.find((row) => row.bankTransactionId === tx.id);
+    getLinkedCompanyExpenseForBankTx(tx, companyExpenses);
 
   const resolveLinkedFixedPaymentForBankTx = (tx: BankTransaction) =>
-    getLinkedFixedPaymentForBankTx(tx, fixedExpensePayments) ||
-    fixedExpensePayments.find((row) => row.bankTransactionId === tx.id);
+    getLinkedFixedPaymentForBankTx(tx, fixedExpensePayments);
 
   const getLedgerRegisteredBadgeLabel = (row: BankTransaction) => {
     const linkedExpense = resolveLinkedCompanyExpenseForBankTx(row);
@@ -743,6 +828,8 @@ export function BankTransactionsPage({
       const result = autoApplyBankLearnRules(transactions, payments, expenses, rules, fixedExpenses, {
         createdBy: savedBy || undefined,
         onlyTransactionIds: options.onlyTransactionIds,
+        workers,
+        bankTransactionFolders,
       });
       const total = result.fixedCount + result.manualCount + result.folderCount;
       if (total <= 0) {
@@ -793,7 +880,7 @@ export function BankTransactionsPage({
         folderCount: result.folderCount,
       };
     },
-    [fixedExpenses, savedBy, setFixedExpensePayments, setCompanyExpenses, setBankTransactions, recordSummaryAudit, currentUser],
+    [fixedExpenses, savedBy, setFixedExpensePayments, setCompanyExpenses, setBankTransactions, recordSummaryAudit, currentUser, workers, bankTransactionFolders],
   );
 
   const openNextCategoryPrompt = React.useCallback(
@@ -816,6 +903,75 @@ export function BankTransactionsPage({
     },
     [fixedExpenses, ledgerRegistrationContext],
   );
+
+  const runSmartAutoLedgerFlow = React.useCallback(async () => {
+    if (smartLedgerLoading) return;
+    setSmartLedgerLoading(true);
+    setImportError("");
+    try {
+      const result = await runSmartAutoLedger({
+        bankTransactions,
+        bankTransactionFolders,
+        fixedExpensePayments,
+        companyExpenses,
+        bankLedgerRules,
+        fixedExpenses,
+        expenseCategories,
+        clients,
+        workers,
+        createdBy: savedBy || undefined,
+      });
+
+      setBankTransactions(result.bankTransactions);
+      setBankTransactionFolders(result.bankTransactionFolders);
+      setFixedExpensePayments(result.fixedExpensePayments);
+      setCompanyExpenses(result.companyExpenses);
+      setBankLedgerRules(result.bankLedgerRules);
+      if (result.expenseCategories.length) {
+        setExpenseCategories(result.expenseCategories);
+      }
+
+      recordSummaryAudit({
+        entityType: "bankTransaction",
+        entityId: "smart-ledger",
+        entityLabel: L.smartLedgerRun,
+        screen: L.pageTitle,
+        action: "import",
+        fieldLabel: L.smartLedgerRun,
+        after: formatSmartLedgerRunMessage(result),
+        user: currentUser,
+      });
+
+      setImportMessage(formatSmartLedgerRunMessage(result));
+      openNextCategoryPrompt(result.bankTransactions, result.bankLedgerRules);
+    } catch (error) {
+      console.error(error);
+      setImportMessage("자동 가계부 처리 중 오류가 발생했습니다.");
+    } finally {
+      setSmartLedgerLoading(false);
+    }
+  }, [
+    smartLedgerLoading,
+    bankTransactions,
+    bankTransactionFolders,
+    fixedExpensePayments,
+    companyExpenses,
+    bankLedgerRules,
+    fixedExpenses,
+    expenseCategories,
+    clients,
+    workers,
+    savedBy,
+    setBankTransactions,
+    setBankTransactionFolders,
+    setFixedExpensePayments,
+    setCompanyExpenses,
+    setBankLedgerRules,
+    setExpenseCategories,
+    recordSummaryAudit,
+    currentUser,
+    openNextCategoryPrompt,
+  ]);
 
   const skipCategoryPrompt = React.useCallback(() => {
     if (!categoryPrompt) return;
@@ -1068,6 +1224,18 @@ export function BankTransactionsPage({
   const activeLedgerCategoryOptions =
     ledgerModal?.kind === "fixed" ? ledgerFixedCategoryOptions : ledgerManualCategoryOptions;
 
+  const ledgerLinkablePayments = useMemo(() => {
+    if (!ledgerModal || ledgerModal.kind !== "fixed" || isLedgerEditModal(ledgerModal)) return [];
+    const fixedExpenseId = ledgerModal.fixedExpenseId.trim();
+    if (!fixedExpenseId) return [];
+    return listLinkableFixedExpensePayments(
+      ledgerModal.tx,
+      fixedExpenseId,
+      fixedExpensePayments,
+      fixedExpenses,
+    );
+  }, [fixedExpensePayments, fixedExpenses, ledgerModal]);
+
   const activePeriod = useMemo(
     () => resolveActivePeriod(periodKey, dateFilter),
     [periodKey, dateFilter]
@@ -1257,6 +1425,7 @@ export function BankTransactionsPage({
       fixedExpensePayments,
       bankTransactions,
       bankLedgerRules,
+      companyExpenses,
       createdBy: savedBy,
     });
 
@@ -1366,13 +1535,47 @@ export function BankTransactionsPage({
     );
 
     if (addedIds.size > 0) {
-      openNextCategoryPrompt(nextTransactions, bankLedgerRules);
+      void (async () => {
+        try {
+          const smart = await runSmartAutoLedger({
+            bankTransactions: nextTransactions,
+            bankTransactionFolders: classified.folders,
+            fixedExpensePayments,
+            companyExpenses,
+            bankLedgerRules,
+            fixedExpenses,
+            expenseCategories,
+            clients,
+            workers,
+            createdBy: savedBy || undefined,
+            onlyTransactionIds: addedIds,
+          });
+          setBankTransactions(smart.bankTransactions);
+          setBankTransactionFolders(smart.bankTransactionFolders);
+          setFixedExpensePayments(smart.fixedExpensePayments);
+          setCompanyExpenses(smart.companyExpenses);
+          setBankLedgerRules(smart.bankLedgerRules);
+          if (smart.expenseCategories.length) setExpenseCategories(smart.expenseCategories);
+          const hint = formatSmartLedgerRunMessage(smart);
+          if (hint && !hint.includes("\uC5C6\uC2B5\uB2C8\uB2E4")) {
+            setImportMessage((prev) => `${prev} · ${hint}`);
+          }
+          openNextCategoryPrompt(smart.bankTransactions, smart.bankLedgerRules);
+        } catch (error) {
+          console.error(error);
+          openNextCategoryPrompt(nextTransactions, bankLedgerRules);
+        }
+      })();
     }
   };
 
   const assignTransactionFolder = (transactionId: string, folderId: string) => {
     const tx = bankTransactions.find((row) => row.id === transactionId);
     if (!tx) return;
+    if (folderId && !canAssignBankTransactionToFolder(tx, folderId, bankTransactionFolders, workers)) {
+      setImportMessage(L.workerFolderAssignBlocked);
+      return;
+    }
     const nextRow = !folderId
       ? { ...tx, folderId: undefined, linkedSubject: undefined, classifiedAt: undefined }
       : {
@@ -1622,9 +1825,11 @@ export function BankTransactionsPage({
   const openLedgerRegister = (tx: BankTransaction) => {
     if (!canRegisterLedger(tx)) return;
     const prefill = buildCompanyExpensePrefillFromBankTransaction(tx);
-    const targetKey = resolveLedgerTargetForBankTransaction(tx, bankLedgerRules, fixedExpenses);
+    const suggestion = ledgerSuggestionByTxId.get(tx.id);
+    const targetKey = suggestion?.targetKey || resolveLedgerTargetForBankTransaction(tx, bankLedgerRules, fixedExpenses);
     const parsed = parseLedgerTargetKey(targetKey);
-    const ledgerRule = findMatchingBankLedgerRule(tx, bankLedgerRules, fixedExpenses);
+    const learnMatch = findBestBankLearnRuleWithScore(tx, bankLedgerRules, fixedExpenses, ["fixed", "manual"]);
+    const ledgerRule = learnMatch?.rule || findMatchingBankLedgerRule(tx, bankLedgerRules, fixedExpenses);
     const kind: LedgerRegisterKind = parsed?.kind === "fixed" ? "fixed" : "manual";
     const fixedItem =
       parsed?.kind === "fixed" && parsed.fixedExpenseId
@@ -1638,13 +1843,18 @@ export function BankTransactionsPage({
     const defaultFixedCategory = fixedItem?.category?.trim() || FIXED_CATEGORY_OPTIONS[0];
     const resolvedCategory =
       kind === "manual"
-        ? ledgerRule?.kind === "manual"
-          ? ledgerRule.category || parsed?.category || ""
-          : parsed?.kind === "manual"
-            ? parsed.category || ""
-            : ""
-        : fixedItem?.category || ledgerRule?.category || "";
+        ? suggestion?.category ||
+          (ledgerRule && "category" in ledgerRule ? ledgerRule.category : "") ||
+          (parsed?.kind === "manual" ? parsed.category || "" : "")
+        : fixedItem?.category ||
+          suggestion?.category ||
+          (ledgerRule && "category" in ledgerRule ? ledgerRule.category : "") ||
+          "";
     setLedgerFormError("");
+    const linkDefaults =
+      kind === "fixed" && defaultFixedId
+        ? buildLedgerLinkDefaults(tx, defaultFixedId, fixedExpensePayments, fixedExpenses)
+        : { linkMode: "create" as const, linkPaymentId: "" };
     setLedgerModal({
       mode: "create",
       tx,
@@ -1658,6 +1868,7 @@ export function BankTransactionsPage({
       description: fixedItem?.name || prefill.description,
       amount: prefill.amount,
       memo: prefill.memo,
+      ...linkDefaults,
     });
   };
 
@@ -1714,6 +1925,10 @@ export function BankTransactionsPage({
             next.description = fixedItem.name;
           }
         }
+        Object.assign(
+          next,
+          buildLedgerLinkDefaults(next.tx, next.fixedExpenseId, fixedExpensePayments, fixedExpenses),
+        );
       } else if (!next.category.trim()) {
         next.category = expenseCategories[0] || EXPENSE_CATEGORY_OPTIONS[0];
       }
@@ -1894,6 +2109,10 @@ export function BankTransactionsPage({
       saveLedgerEdit();
       return;
     }
+    if (!canRegisterLedger(ledgerModal.tx)) {
+      setLedgerFormError(L.ledgerAlreadyRegistered);
+      return;
+    }
     const savedBy = currentUser?.name || currentUser?.loginId || "";
 
     if (ledgerModal.kind === "fixed") {
@@ -1920,9 +2139,23 @@ export function BankTransactionsPage({
       }
 
       const amount = parseLedgerAmount(ledgerModal.amount);
-      const existingPayment =
-        fixedExpenseId &&
-        findLinkableFixedExpensePayment(ledgerModal.tx, fixedExpenseId, fixedExpensePayments, fixedExpenses);
+      const linkable = listLinkableFixedExpensePayments(
+        ledgerModal.tx,
+        fixedExpenseId,
+        fixedExpensePayments,
+        fixedExpenses,
+      );
+      let existingPayment: FixedExpensePayment | null = null;
+      if (ledgerModal.linkMode === "link" && ledgerModal.linkPaymentId) {
+        existingPayment = linkable.find((row) => row.id === ledgerModal.linkPaymentId) || null;
+      } else if (ledgerModal.linkMode !== "create") {
+        existingPayment = findLinkableFixedExpensePayment(
+          ledgerModal.tx,
+          fixedExpenseId,
+          fixedExpensePayments,
+          fixedExpenses,
+        );
+      }
 
       let nextPayments = fixedExpensePayments;
       let paymentId = existingPayment?.id || "";
@@ -1987,7 +2220,7 @@ export function BankTransactionsPage({
       applyAutoLearnRules(nextTransactions, nextPayments, companyExpenses, nextRules, { showMessage: true });
       setLedgerModal(null);
       setLedgerFormError("");
-      setImportMessage(L.ledgerFixedRegisterDone);
+      setImportMessage(existingPayment ? L.ledgerFixedLinkDone : L.ledgerFixedRegisterDone);
       return;
     }
 
@@ -2450,6 +2683,29 @@ export function BankTransactionsPage({
     );
   };
 
+  const renderLedgerSuggestionBadge = (row: BankTransaction) => {
+    const suggestion = ledgerSuggestionByTxId.get(row.id);
+    if (!suggestion || !canRegisterLedger(row)) return null;
+    const learnMatch = findBestBankLearnRuleWithScore(row, bankLedgerRules, fixedExpenses, ["fixed", "manual"]);
+    const confidence =
+      suggestion.source === "learn_rule" && learnMatch
+        ? formatLearnRuleConfidencePercent(learnMatch.score)
+        : Math.round(suggestion.confidence);
+    const label =
+      suggestion.source === "learn_rule"
+        ? L.ledgerLearnRuleBadge(confidence)
+        : L.ledgerSuggestionBadge(suggestion.label.replace(/^\[[^\]]+\]\s*/, ""), confidence);
+    const tone =
+      confidence >= 78
+        ? "bg-violet-100 text-violet-800"
+        : "bg-sky-50 text-sky-800 border border-sky-200";
+    return (
+      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-bold ${tone}`} title={suggestion.reasons.join(" · ")}>
+        {label}
+      </span>
+    );
+  };
+
   const renderLedgerRegisteredBadge = (row: BankTransaction, label: string) => (
     <button
       type="button"
@@ -2519,6 +2775,7 @@ export function BankTransactionsPage({
           {ledgerBadgeLabel ? (
             <div className="mt-1">{renderLedgerRegisteredBadge(row, ledgerBadgeLabel)}</div>
           ) : null}
+          {!ledgerBadgeLabel ? <div className="mt-1">{renderLedgerSuggestionBadge(row)}</div> : null}
           {row.netGroupRole ? <div className="mt-1">{renderPreauthNetBadges(row)}</div> : null}
           {row.linkedSubject ? (
             <div className="mt-1 text-xs text-slate-500">{row.linkedSubject}</div>
@@ -2917,6 +3174,25 @@ export function BankTransactionsPage({
         </CardContent>
       </Card>
 
+      {pendingSmartLedger.eligible > 0 ? (
+        <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="erp-text-body font-semibold text-violet-900">
+            {L.smartLedgerBanner(pendingSmartLedger.eligible, pendingSmartLedger.highConfidence)}
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            className="rounded-xl shrink-0"
+            disabled={smartLedgerLoading}
+            title={L.smartLedgerRunHint}
+            onClick={() => void runSmartAutoLedgerFlow()}
+          >
+            <BookOpen size={14} className="mr-1" />
+            {smartLedgerLoading ? L.smartLedgerRunning : L.smartLedgerRun}
+          </Button>
+        </div>
+      ) : null}
+
       {importMessage ? (
         <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 erp-text-body font-semibold text-emerald-700">
           {importMessage}
@@ -3116,6 +3392,17 @@ export function BankTransactionsPage({
                     <Repeat size={14} className="mr-1" />
                     {L.recurringFixedOpen}
                     {recurringFixedPatterns.length ? ` (${recurringFixedPatterns.length})` : ""}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="rounded-xl"
+                    title={L.smartLedgerRunHint}
+                    disabled={smartLedgerLoading || !hasAnyData}
+                    onClick={() => void runSmartAutoLedgerFlow()}
+                  >
+                    <BookOpen size={14} className="mr-1" />
+                    {smartLedgerLoading ? L.smartLedgerRunning : L.smartLedgerRun}
                   </Button>
                   <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={runAutoClassify}>
                     <Sparkles size={14} className="mr-1" />
@@ -3908,19 +4195,90 @@ export function BankTransactionsPage({
                       onChange={(value) => {
                         const fixedExpenseId = String(value || "").trim();
                         const fixedItem = fixedExpenses.find((row) => row.id === fixedExpenseId);
-                        setLedgerModal((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                fixedExpenseId,
-                                category: fixedItem?.category?.trim() || prev.category,
-                                description: prev.description.trim() || fixedItem?.name || prev.description,
-                              }
-                            : prev,
-                        );
+                        setLedgerModal((prev) => {
+                          if (!prev) return prev;
+                          const next = {
+                            ...prev,
+                            fixedExpenseId,
+                            category: fixedItem?.category?.trim() || prev.category,
+                            description: prev.description.trim() || fixedItem?.name || prev.description,
+                          };
+                          if (prev.kind === "fixed" && !isLedgerEditModal(prev)) {
+                            Object.assign(
+                              next,
+                              buildLedgerLinkDefaults(prev.tx, fixedExpenseId, fixedExpensePayments, fixedExpenses),
+                            );
+                          }
+                          return next;
+                        });
                       }}
                     />
                   </Field>
+                </div>
+              ) : null}
+              {!isLedgerEditModal(ledgerModal) && ledgerModal.kind === "fixed" && ledgerLinkablePayments.length ? (
+                <div className="sm:col-span-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                  <p className="text-sm font-bold text-emerald-900">{L.ledgerLinkExistingTitle}</p>
+                  <p className="mt-1 text-xs font-semibold text-emerald-800">
+                    {L.ledgerLinkExistingDesc(ledgerLinkablePayments.length)}
+                  </p>
+                  <div className="mt-3 space-y-2">
+                    <label className="flex items-center gap-2 text-sm font-semibold text-emerald-900">
+                      <input
+                        type="radio"
+                        name="ledger-link-mode"
+                        checked={ledgerModal.linkMode !== "create"}
+                        onChange={() =>
+                          setLedgerModal((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  linkMode: "link",
+                                  linkPaymentId: ledgerLinkablePayments[0]?.id || "",
+                                }
+                              : prev,
+                          )
+                        }
+                      />
+                      {L.ledgerLinkModeLink}
+                    </label>
+                    {ledgerModal.linkMode !== "create" && ledgerLinkablePayments.length > 1 ? (
+                      <select
+                        className="erp-input w-full rounded-xl border bg-white px-3 py-2.5 text-sm font-semibold text-slate-900"
+                        value={ledgerModal.linkPaymentId || ledgerLinkablePayments[0]?.id || ""}
+                        onChange={(event) =>
+                          setLedgerModal((prev) =>
+                            prev ? { ...prev, linkMode: "link", linkPaymentId: event.target.value } : prev,
+                          )
+                        }
+                      >
+                        {ledgerLinkablePayments.map((payment) => {
+                          const fixedItem = fixedExpenses.find((row) => row.id === payment.fixedExpenseId);
+                          const label = `${payment.date} · ${formatKRW(payment.amount)}\uC6D0${
+                            payment.memo ? ` · ${payment.memo}` : fixedItem?.name ? ` · ${fixedItem.name}` : ""
+                          }`;
+                          return (
+                            <option key={payment.id} value={payment.id}>
+                              {label}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    ) : null}
+                    <label className="flex items-center gap-2 text-sm font-semibold text-emerald-900">
+                      <input
+                        type="radio"
+                        name="ledger-link-mode"
+                        checked={ledgerModal.linkMode === "create"}
+                        onChange={() =>
+                          setLedgerModal((prev) =>
+                            prev ? { ...prev, linkMode: "create", linkPaymentId: "" } : prev,
+                          )
+                        }
+                      />
+                      {L.ledgerLinkModeCreate}
+                    </label>
+                  </div>
                 </div>
               ) : null}
               <Field label={L.ledgerDate}>
@@ -3983,7 +4341,13 @@ export function BankTransactionsPage({
               </Button>
               <Button type="button" className="rounded-2xl" onClick={saveLedgerRegister}>
                 <BookOpen size={16} className="mr-2" />
-                {isLedgerEditModal(ledgerModal) ? L.ledgerEditSave : L.ledgerSave}
+                {isLedgerEditModal(ledgerModal)
+                  ? L.ledgerEditSave
+                  : ledgerModal.kind === "fixed" &&
+                      ledgerModal.linkMode !== "create" &&
+                      ledgerLinkablePayments.length
+                    ? L.ledgerSaveLink
+                    : L.ledgerSave}
               </Button>
             </div>
           </div>

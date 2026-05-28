@@ -110,6 +110,30 @@ export function findWorkerByDepositSubject(workers: WorkerDepositMatchSource[], 
   return workers.find((worker) => depositSubjectMatchesWorker(trimmed, worker));
 }
 
+/** 시공자 마스터 `name`과 정확히 일치할 때만 시공자 지출 분류에 사용 */
+export function findWorkerByMasterName(workers: WorkerDepositMatchSource[], subject: string) {
+  const normalizedSubject = normalizeMatchText(subject);
+  if (!normalizedSubject) return undefined;
+  return workers.find((worker) => {
+    const name = String(worker.name || "").trim();
+    if (!name) return false;
+    return normalizeMatchText(name) === normalizedSubject;
+  });
+}
+
+export function resolveBankWorkerFolderMatchSubject(tx: { counterpartyName?: string }) {
+  return String(tx.counterpartyName || "").trim();
+}
+
+export function canClassifyBankTransactionAsWorkerFolder(
+  tx: { withdrawal?: number; counterpartyName?: string },
+  workers: WorkerDepositMatchSource[],
+) {
+  if (Number(tx.withdrawal || 0) <= 0) return false;
+  const subject = resolveBankWorkerFolderMatchSubject(tx);
+  return Boolean(findWorkerByMasterName(workers, subject));
+}
+
 export function depositSubjectMatchesClientManager(subject: string, client: ClientDepositMatchSource) {
   return clientManagerMatchesSubject(subject, client);
 }
