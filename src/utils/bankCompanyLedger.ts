@@ -257,7 +257,12 @@ export function searchBankTransactionsForLedgerLink(
       if (monthKey && getMonthKey(String(tx.transactionAt || "").slice(0, 10)) !== monthKey) {
         return false;
       }
-      return buildBankTransactionLinkSearchHaystack(tx).includes(keyword);
+      const haystacks = [buildBankTransactionLinkSearchHaystack(tx)];
+      const linkedExpense = getLinkedCompanyExpenseForBankTx(tx, context.companyExpenses);
+      if (linkedExpense) {
+        haystacks.push(buildCompanyExpenseLinkSearchHaystack(linkedExpense));
+      }
+      return haystacks.some((haystack) => haystack.includes(keyword));
     })
     .sort((a, b) => String(b.transactionAt).localeCompare(String(a.transactionAt)));
 }
@@ -272,25 +277,63 @@ export function bankTransactionMatchesLedgerLinkName(referenceLabel: string, tx:
   );
 }
 
+export function buildCompanyExpenseLinkSearchHaystack(expense: CompanyExpense) {
+  return [expense.description, expense.category, expense.memo, String(expense.amount || "")]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function bankTransactionMatchesFixedPaymentCategoryOrMemo(
+  tx: BankTransaction,
+  fixedItem: FixedExpense | undefined,
+  linkedExpense: CompanyExpense | undefined,
+) {
+  const txHaystack = buildBankTransactionLinkSearchHaystack(tx);
+  const tokens = [fixedItem?.category, fixedItem?.name, linkedExpense?.category]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter((value) => value.length >= 2);
+  return tokens.some((token) => txHaystack.includes(token));
+}
+
 export function bankTransactionMatchesFixedPaymentForLink(
   tx: BankTransaction,
   payment: FixedExpensePayment,
   fixedExpenses: FixedExpense[] = [],
   context: BankLedgerRegistrationContext = {},
 ) {
-  if (!bankTransactionMatchesFixedPayment(tx, payment, fixedExpenses)) return false;
+  const txMonth = getMonthKey(String(tx.transactionAt || "").slice(0, 10));
+  const paymentMonth = getMonthKey(payment.date);
+  if (!txMonth || txMonth !== paymentMonth) return false;
+  if (!(Number(tx.withdrawal) > 0)) return false;
 
+  const fixedItem = fixedExpenses.find((row) => row.id === payment.fixedExpenseId);
   const linkedExpense = getLinkedCompanyExpenseForBankTx(tx, context.companyExpenses);
+
   if (
     linkedExpense &&
     resolveCompanyExpenseKind(linkedExpense) === "variable" &&
-    Number(linkedExpense.amount) === Number(tx.withdrawal || 0) &&
-    getMonthKey(linkedExpense.date) === getMonthKey(String(tx.transactionAt || "").slice(0, 10))
+    fixedItem?.category &&
+    linkedExpense.category === fixedItem.category
   ) {
     return true;
   }
 
-  const fixedItem = fixedExpenses.find((row) => row.id === payment.fixedExpenseId);
+  if (bankTransactionMatchesFixedPaymentCategoryOrMemo(tx, fixedItem, linkedExpense)) {
+    return true;
+  }
+
+  if (
+    linkedExpense &&
+    resolveCompanyExpenseKind(linkedExpense) === "variable" &&
+    Number(linkedExpense.amount) === Number(tx.withdrawal || 0) &&
+    getMonthKey(linkedExpense.date) === txMonth
+  ) {
+    return true;
+  }
+
+  if (!bankTransactionMatchesFixedPayment(tx, payment, fixedExpenses)) return false;
+
   const labels = [fixedItem?.name || "", fixedItem?.category || "", payment.memo || ""];
   if (linkedExpense) {
     labels.push(
