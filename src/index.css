@@ -9628,6 +9628,88 @@ button:disabled,
 }
 
 /* Bank transactions page */
+.erp-bank-search {
+  min-width: 0;
+}
+
+.erp-bank-search__label {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.erp-bank-search__field {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-height: 2.625rem;
+  padding: 0 0.875rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.75rem;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.erp-bank-search__field:focus-within {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.erp-bank-search__icon {
+  flex-shrink: 0;
+  color: #94a3b8;
+}
+
+.erp-bank-search__input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 0.5rem 0;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: #0f172a;
+  outline: none;
+}
+
+.erp-bank-search__input::placeholder {
+  color: #94a3b8;
+  font-size: 0.8125rem;
+}
+
+.erp-bank-search__input::-webkit-search-cancel-button,
+.erp-bank-search__input::-webkit-search-decoration {
+  display: none;
+}
+
+.erp-bank-search__clear {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 0;
+  border-radius: 9999px;
+  background: #f1f5f9;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.erp-bank-search__clear:hover {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.erp-bank-search__hint {
+  margin: 0.375rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: #94a3b8;
+}
+
 .erp-bank-hub-card {
   overflow: hidden;
   border: 1px solid #dbeafe;

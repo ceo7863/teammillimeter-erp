@@ -211,6 +211,9 @@ const L = {
   previewDeposits: "\uC785\uAE08 \uD569\uACC4",
   previewWithdrawals: "\uCD9C\uAE08 \uD569\uACC4",
   search: "\uAC70\uB798\uB0B4\uC6A9, \uC0C1\uB300\uC608\uAE08\uC8FC, \uC740\uD589, \uBA54\uBAA8 \uAC80\uC0C9",
+  searchLabel: "\uAC80\uC0C9",
+  searchPlaceholder: "\uAC70\uB798\uB0B4\uC6A9, \uC0C1\uB300\uC608\uAE08\uC8FC, \uC740\uD589, \uBA54\uBAA8",
+  searchHint: "\uAC70\uB798\uB0B4\uC6A9\u00B7\uC608\uAE08\uC8FC\u00B7\uC740\uD589\u00B7\uBA54\uBAA8 \uD56D\uBAA9\uC744 \uAC80\uC0C9\uD569\uB2C8\uB2E4.",
   empty: "\uC870\uD68C \uC870\uAC74\uC5D0 \uB9DE\uB294 \uAC70\uB798\uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   emptyAll: "\uC544\uC9C1 \uAC00\uC838\uC628 \uAC70\uB798\uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   emptyHint: "IBK \uC778\uD130\uB137\uB1B9\uD0B9 \u2192 \uACC4\uC88C\uC870\uD68C \u2192 \uAC70\uB798\uB0B4\uC5ED \uC870\uD68C \u2192 \uC5D1\uC140 \uB2E4\uC6B4\uB85C\uB4DC \uD6C4 \uAC00\uC838\uC624\uAE30\uB97C \uB20C\uB7EC\uC8FC\uC138\uC694.",
@@ -469,6 +472,49 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="erp-text-caption mb-1 block font-semibold text-slate-500">{label}</span>
       {children}
     </label>
+  );
+}
+
+function BankTransactionSearchBar({
+  value,
+  onChange,
+  onClear,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onClear: () => void;
+}) {
+  return (
+    <div className="erp-bank-search">
+      <label className="erp-bank-search__label" htmlFor="bank-transaction-search">
+        {L.searchLabel}
+      </label>
+      <div className="erp-bank-search__field">
+        <Search size={18} className="erp-bank-search__icon" aria-hidden="true" />
+        <input
+          id="bank-transaction-search"
+          lang="ko"
+          type="search"
+          className="erp-bank-search__input"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={L.searchPlaceholder}
+          autoComplete="off"
+          spellCheck={false}
+        />
+        {value ? (
+          <button
+            type="button"
+            className="erp-bank-search__clear"
+            onClick={onClear}
+            aria-label="검색어 지우기"
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
+        ) : null}
+      </div>
+      <p className="erp-bank-search__hint">{L.searchHint}</p>
+    </div>
   );
 }
 
@@ -3099,7 +3145,7 @@ export function BankTransactionsPage({
               ))}
             </div>
 
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               <Field label={L.periodStart}>
                 <KoreanDateInput
                   value={activePeriod.startDate}
@@ -3132,18 +3178,9 @@ export function BankTransactionsPage({
                   ))}
                 </select>
               </Field>
-              <Field label={L.search}>
-                <div className="relative">
-                  <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    className="erp-input w-full rounded-xl pl-9"
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder={L.search}
-                  />
-                </div>
-              </Field>
             </div>
+
+            <BankTransactionSearchBar value={query} onChange={setQuery} onClear={() => setQuery("")} />
 
             <div className="flex flex-wrap items-center gap-2">
               <span className="mr-1 erp-text-caption font-bold text-slate-500">{L.sortLabel}</span>
