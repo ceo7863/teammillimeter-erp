@@ -2,11 +2,8 @@ import { isCheckCardBankTransaction, type BankTransaction } from "./bankTransact
 import type { BankTransactionFolder } from "./bankTransactionFolders";
 import type { BankLearnRule } from "./bankCompanyLedger";
 import {
-  buildBankLedgerMatchHaystack,
   findMatchingBankLedgerRule,
-  guessLedgerTargetFromBankTransaction,
   isBankTransactionLinkedToCompanyLedger,
-  parseLedgerTargetKey,
   syncBankTransactionLedgerLinkFields,
 } from "./bankCompanyLedger";
 import { runSmartAutoLedgerSync } from "./bankSmartLedger";
@@ -87,39 +84,6 @@ function resolveFixedExpenseIdForBankTx(
 
   const matchedRule = findMatchingBankLedgerRule(tx, rules, fixedExpenses);
   if (matchedRule?.fixedExpenseId) return matchedRule.fixedExpenseId;
-
-  const targetKey = guessLedgerTargetFromBankTransaction(tx, fixedExpenses);
-  const parsed = parseLedgerTargetKey(targetKey);
-  if (parsed?.kind === "fixed" && parsed.fixedExpenseId) return parsed.fixedExpenseId;
-
-  const withdrawal = Number(tx.withdrawal || 0);
-  if (withdrawal <= 0) return null;
-
-  const haystack = buildBankLedgerMatchHaystack(tx);
-
-  let best: { id: string; score: number } | null = null;
-  for (const row of fixedExpenses.filter((item) => item.isActive)) {
-    const nameKey = String(row.name || "").toLowerCase().replace(/\s+/g, "");
-    if (nameKey.length < 2) continue;
-
-    let score = 0;
-    const nameMatched = haystack.includes(nameKey);
-    if (nameMatched) score += 10 + nameKey.length;
-
-    const tokens = String(row.name || "")
-      .split(/[\s/.]+/)
-      .map((token) => token.toLowerCase().replace(/\s+/g, ""))
-      .filter((token) => token.length >= 2);
-    for (const token of tokens) {
-      if (haystack.includes(token)) score += 3;
-    }
-
-    if (!nameMatched && score < 10) continue;
-    if (Number(row.amount) === withdrawal) score += 8;
-    if (score >= 10 && (!best || score > best.score)) best = { id: row.id, score };
-  }
-
-  if (best && best.score >= 10) return best.id;
 
   return null;
 }

@@ -215,6 +215,57 @@ bankTransactions = bankTransactions.map((tx) => {
   return { ...tx, linkedCompanyExpenseId: undefined, linkedFixedExpensePaymentId: undefined };
 });
 
+const fixedExpenses = data.fixedExpenses || [];
+const insuranceFixedIds = new Set(
+  fixedExpenses
+    .filter((row) => String(row.category || "").trim() === "\uBCF4\uD5D8")
+    .map((row) => row.id),
+);
+
+function ledgerHaystack(tx) {
+  return [tx.description, tx.counterpartyName, tx.memo].filter(Boolean).join(" ").toLowerCase().replace(/\s+/g, "");
+}
+
+function matchesInsuranceFixed(tx, fixed) {
+  const nameKey = String(fixed.name || "").toLowerCase().replace(/\s+/g, "");
+  if (nameKey.length < 2) return false;
+  const hay = ledgerHaystack(tx);
+  const cp = String(tx.counterpartyName || "").toLowerCase().replace(/\s+/g, "");
+  if (cp && (cp === nameKey || cp.includes(nameKey) || nameKey.includes(cp))) return true;
+  return hay.includes(nameKey);
+}
+
+let unlinkedInsurancePayments = 0;
+for (const payment of fixedExpensePayments) {
+  if (!payment.bankTransactionId || !insuranceFixedIds.has(payment.fixedExpenseId)) continue;
+  const tx = bankTransactions.find((row) => row.id === payment.bankTransactionId);
+  const fixed = fixedExpenses.find((row) => row.id === payment.fixedExpenseId);
+  if (!tx || !fixed || matchesInsuranceFixed(tx, fixed)) continue;
+  unlinkedInsurancePayments += 1;
+  fixedExpensePayments = fixedExpensePayments.map((row) =>
+    row.id === payment.id ? { ...row, bankTransactionId: undefined } : row,
+  );
+  bankTransactions = bankTransactions.map((row) =>
+    row.id === tx.id ? { ...row, linkedFixedExpensePaymentId: undefined } : row,
+  );
+}
+
+let removedInsuranceExpenses = 0;
+companyExpenses = companyExpenses.filter((row) => {
+  if (String(row.category || "").trim() !== "\uBCF4\uD5D8" || !row.bankTransactionId) return true;
+  const tx = bankTransactions.find((item) => item.id === row.bankTransactionId);
+  if (!tx) return true;
+  const hay = ledgerHaystack(tx);
+  const looksInsurance =
+    /\uBCF4\uD5D8|\uC758\uB8CC|\uC0BC\uC131|\uD604\uB300|\uBDB0\uD30C|\uC528\uC0DD|\uC885\uC218|\uD558\uB298|\uC560\uC704/.test(hay);
+  if (looksInsurance) return true;
+  removedInsuranceExpenses += 1;
+  bankTransactions = bankTransactions.map((item) =>
+    item.id === tx.id ? { ...item, linkedCompanyExpenseId: undefined } : item,
+  );
+  return false;
+});
+
 const nextPayload = {
   ...data,
   bankLedgerRules,
@@ -240,6 +291,8 @@ console.log(
       preauthGroups: groups.length,
       removedExpenses: beforeExp - companyExpenses.length,
       removedPayments: beforePay - fixedExpensePayments.length,
+      unlinkedInsurancePayments,
+      removedInsuranceExpenses,
       skySample: bankTransactions
         .filter((tx) => String(tx.description || "").includes("\uD558\uB298"))
         .map((tx) => ({

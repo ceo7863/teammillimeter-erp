@@ -1,4 +1,4 @@
-import { isCheckCardBankTransaction, type BankTransaction } from "./bankTransactions";
+import type { BankTransaction } from "./bankTransactions";
 import {
   buildBankLedgerMatchHaystack,
   findBestBankLearnRuleWithScore,
@@ -73,50 +73,6 @@ function tokenOverlapScore(haystack: string, tokens: string[]) {
   if (!tokens.length) return 0;
   const matched = tokens.filter((token) => haystack.includes(token));
   return matched.length ? matched.length * 4 + Math.min(8, matched.join("").length) : 0;
-}
-
-function scoreFixedExpenseMatch(
-  tx: BankTransaction,
-  fixedExpenses: FixedExpense[],
-  haystack: string,
-  tokens: string[],
-) {
-  if (isCheckCardBankTransaction(tx)) return null;
-  const withdrawal = Number(tx.withdrawal || 0);
-  let best: { id: string; score: number; reasons: string[] } | null = null;
-
-  for (const row of fixedExpenses.filter((item) => item.isActive)) {
-    const nameKey = normalizeKoreanMerchantName(row.name);
-    const categoryKey = normalizeKoreanMerchantName(row.category);
-    let score = 0;
-    const reasons: string[] = [];
-
-    if (nameKey.length >= 2 && haystack.includes(nameKey)) {
-      score += 12 + Math.min(nameKey.length, 12);
-      reasons.push(`\uACE0\uC815\uBE44\uBA85 "${row.name}"`);
-    }
-    score += tokenOverlapScore(haystack, extractBankLedgerTokens(row.name));
-    if (categoryKey.length >= 2 && haystack.includes(categoryKey)) {
-      score += 4;
-      reasons.push(`\uCE74\uD14C\uACE0\uB9AC "${row.category}"`);
-    }
-
-    if (withdrawal > 0 && Number(row.amount) > 0) {
-      if (withdrawal === Number(row.amount)) {
-        score += 10;
-        reasons.push("\uAE08\uC561 \uC77C\uCE58");
-      } else if (Math.abs(withdrawal - Number(row.amount)) <= Math.max(500, Number(row.amount) * 0.02)) {
-        score += 6;
-        reasons.push("\uAE08\uC561 \uC720\uC0AC");
-      }
-    }
-
-    if (score >= 10 && (!best || score > best.score)) {
-      best = { id: row.id, score, reasons };
-    }
-  }
-
-  return best;
 }
 
 function scoreCategoryFromHistory(
@@ -238,24 +194,6 @@ export function classifyBankTransactionForLedger(
   const haystack = buildBankLedgerMatchHaystack(tx);
   const tokens = extractBankLedgerTokens(tx.counterpartyName, tx.description, tx.memo);
 
-  const fixedMatch = isCheckCardBankTransaction(tx)
-    ? null
-    : scoreFixedExpenseMatch(tx, fixedExpenses, haystack, tokens);
-  if (fixedMatch && fixedMatch.score >= 14) {
-    const fixedRow = fixedExpenses.find((row) => row.id === fixedMatch.id);
-    const confidence = Math.min(96, 68 + Math.min(28, fixedMatch.score));
-    return {
-      targetKey: fixedLedgerTargetKey(fixedMatch.id),
-      kind: "fixed",
-      fixedExpenseId: fixedMatch.id,
-      category: fixedRow?.category,
-      confidence,
-      source: "heuristic",
-      label: fixedRow ? `[\uACE0\uC815\uBE44] ${fixedRow.name}` : "[\uACE0\uC815\uBE44]",
-      reasons: fixedMatch.reasons,
-    };
-  }
-
   const historyMatch = scoreCategoryFromHistory(tx, companyExpenses, haystack, tokens);
   if (historyMatch && historyMatch.score >= 12) {
     return {
@@ -289,19 +227,6 @@ export function classifyBankTransactionForLedger(
 
   const guessedKey = guessLedgerTargetFromBankTransaction(tx, fixedExpenses);
   const parsed = parseLedgerTargetKey(guessedKey);
-  if (!isCheckCardBankTransaction(tx) && parsed?.kind === "fixed" && parsed.fixedExpenseId) {
-    const fixedRow = fixedExpenses.find((row) => row.id === parsed.fixedExpenseId);
-    return {
-      targetKey: guessedKey,
-      kind: "fixed",
-      fixedExpenseId: parsed.fixedExpenseId,
-      category: fixedRow?.category,
-      confidence: 74,
-      source: "heuristic",
-      label: fixedRow ? `[\uACE0\uC815\uBE44] ${fixedRow.name}` : "[\uACE0\uC815\uBE44]",
-      reasons: ["\uC774\uB984\u00B7\uAE08\uC561 \uD328\uD134"],
-    };
-  }
 
   if (parsed?.kind === "manual" && parsed.category) {
     return {

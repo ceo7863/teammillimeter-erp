@@ -43,6 +43,7 @@ export type BankLearnRule = {
 export type BankLedgerMatchRule = BankLearnRule & { kind: "fixed"; fixedExpenseId: string };
 
 export const AUTO_LEARN_MIN_SCORE = 5;
+export const FIXED_AUTO_LEARN_MIN_SCORE = 12;
 export const AUTO_LEARN_HIGH_CONFIDENCE_SCORE = 16;
 
 export type BankLedgerRegistrationContext = {
@@ -480,20 +481,23 @@ export function scoreBankLearnRule(
   const counterpartyKey = normalizeMatchText(rule.counterpartyName || "");
   const txCounterpartyKey = normalizeMatchText(tx.counterpartyName || "");
 
+  if (rule.kind === "fixed" && counterpartyKey && !txCounterpartyKey) return 0;
+
   let score = 0;
   if (counterpartyKey) {
     if (!txCounterpartyKey) {
-      if (haystack.includes(counterpartyKey)) score += 8;
-      else return 0;
+      return 0;
     } else if (txCounterpartyKey === counterpartyKey) score += 20;
     else if (txCounterpartyKey.includes(counterpartyKey) || counterpartyKey.includes(txCounterpartyKey)) {
       score += 12;
-    } else if (haystack.includes(counterpartyKey)) {
+    } else if (rule.kind !== "fixed" && haystack.includes(counterpartyKey)) {
       score += 8;
     } else {
       return 0;
     }
   }
+
+  if (rule.kind === "fixed" && !counterpartyKey) return 0;
 
   const tokens = filterBankLearnDescriptionTokens(rule.descriptionTokens || [])
     .map((token) => normalizeMatchText(token))
@@ -531,7 +535,9 @@ export function findBestBankLearnRuleWithScore(
     if (score <= 0) continue;
     if (!best || score > best.score) best = { rule, score };
   }
-  if (!best || best.score < AUTO_LEARN_MIN_SCORE) return null;
+  if (!best) return null;
+  const minScore = best.rule.kind === "fixed" ? FIXED_AUTO_LEARN_MIN_SCORE : AUTO_LEARN_MIN_SCORE;
+  if (best.score < minScore) return null;
   return best;
 }
 
@@ -908,38 +914,8 @@ export function formatBankLearnAutoMessage(counts: { fixed: number; manual: numb
 
 export function guessLedgerTargetFromBankTransaction(
   tx: BankTransaction,
-  fixedExpenses: FixedExpense[] = [],
+  _fixedExpenses: FixedExpense[] = [],
 ) {
-  if (!isCheckCardBankTransaction(tx)) {
-  const haystack = buildBankLedgerMatchHaystack(tx);
-
-    let bestFixed: { id: string; score: number } | null = null;
-    for (const row of fixedExpenses.filter((item) => item.isActive)) {
-      const nameKey = normalizeMatchText(row.name);
-      const categoryKey = normalizeMatchText(row.category);
-      let score = 0;
-      if (nameKey.length >= 2 && haystack.includes(nameKey)) score += 10 + nameKey.length;
-      if (categoryKey.length >= 2 && haystack.includes(categoryKey)) score += 4;
-      const tokens = String(row.name || "")
-        .split(/[\s/.]+/)
-        .map((token) => normalizeMatchText(token))
-        .filter((token) => token.length >= 2);
-      for (const token of tokens) {
-        if (haystack.includes(token)) score += 3;
-      }
-      if (score > 0 && (!bestFixed || score > bestFixed.score)) {
-        bestFixed = { id: row.id, score };
-      }
-    }
-
-    if (bestFixed && bestFixed.score >= 5) {
-      const fixedRow = fixedExpenses.find((row) => row.id === bestFixed!.id);
-      if (fixedRow && Number(tx.withdrawal || 0) === Number(fixedRow.amount || 0)) {
-        return fixedLedgerTargetKey(bestFixed.id);
-      }
-    }
-  }
-
   const prefill = buildCompanyExpensePrefillFromBankTransaction(tx);
   return manualLedgerTargetKey(prefill.category);
 }
