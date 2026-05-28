@@ -817,8 +817,13 @@ export function BankTransactionsPage({
   );
 
   const memoCategorySuggestionByTxId = useMemo(
-    () => buildMemoCategorySuggestionMap(bankTransactionsForClassification, memoLearnRules),
-    [bankTransactionsForClassification, memoLearnRules],
+    () =>
+      buildMemoCategorySuggestionMap(
+        bankTransactionsForClassification,
+        memoLearnRules,
+        expenseCategories,
+      ),
+    [bankTransactionsForClassification, memoLearnRules, expenseCategories],
   );
 
   const ledgerSuggestionByTxId = useMemo(

@@ -387,6 +387,7 @@ export function buildBankLearnRuleFromMemoCategory(
     counterpartyName,
     descriptionTokens: filterBankLearnDescriptionTokens([
       merchantLabel,
+      ...extractBankTransactionMerchantFingerprints(tx),
       ...tokenizeBankLedgerText(tx.description, undefined, counterpartyName),
     ]),
     createdAt: new Date().toISOString(),
@@ -399,6 +400,48 @@ export function resolveBankTransactionMerchantKey(tx: BankTransaction) {
   const counterparty = normalizeMatchText(tx.counterpartyName || "");
   if (counterparty.length >= 2) return counterparty;
   return normalizeMatchText(tx.description || "");
+}
+
+const MERCHANT_CORPORATE_SUFFIX_PATTERN = /(\(주\)|\(유\)|주식회사|㈜|유한회사|co\.?ltd|corp|inc)/gi;
+
+function normalizeMerchantFingerprint(text: string) {
+  let normalized = normalizeMatchText(text).replace(MERCHANT_CORPORATE_SUFFIX_PATTERN, "");
+  return normalized.trim();
+}
+
+export function extractBankTransactionMerchantFingerprints(tx: BankTransaction) {
+  const fingerprints = new Set<string>();
+  for (const part of [tx.counterpartyName, tx.description]) {
+    const text = String(part || "").trim();
+    if (!text) continue;
+    const normalized = normalizeMerchantFingerprint(text);
+    if (normalized.length >= 2 && !isBankLearnStopToken(normalized)) {
+      fingerprints.add(normalized);
+    }
+    for (const token of text.split(/[\s/.,\-_()·]+/)) {
+      const key = normalizeMerchantFingerprint(token);
+      if (key.length >= 2 && !isBankLearnStopToken(key)) fingerprints.add(key);
+    }
+  }
+  return [...fingerprints];
+}
+
+export function merchantFingerprintsOverlap(left: string[], right: string[]) {
+  for (const a of left) {
+    for (const b of right) {
+      if (a === b) return true;
+      const minLen = Math.min(a.length, b.length);
+      if (minLen >= 3 && (a.includes(b) || b.includes(a))) return true;
+    }
+  }
+  return false;
+}
+
+export function bankTransactionsShareMerchantFingerprint(left: BankTransaction, right: BankTransaction) {
+  return merchantFingerprintsOverlap(
+    extractBankTransactionMerchantFingerprints(left),
+    extractBankTransactionMerchantFingerprints(right),
+  );
 }
 
 export function resolveMemoLearnCategory(memo: string | undefined, categories: string[]) {
@@ -447,25 +490,22 @@ export function scoreMemoLearnCategoryRule(tx: BankTransaction, rule: BankLearnR
   const baseScore = scoreBankLearnRule(tx, rule, []);
   if (baseScore > 0) return baseScore;
 
-  const ruleMerchant =
-    normalizeMatchText(rule.counterpartyName || "") ||
-    normalizeMatchText(rule.descriptionTokens?.[0] || "");
-  if (ruleMerchant.length < 2) return 0;
-
-  const txMerchant = resolveBankTransactionMerchantKey(tx);
-  const haystack = buildBankLedgerMatchHaystack(tx);
-
+  const ruleFingerprints = new Set<string>();
+  const ruleMerchant = normalizeMerchantFingerprint(rule.counterpartyName || "");
+  if (ruleMerchant.length >= 2) ruleFingerprints.add(ruleMerchant);
+  for (const token of rule.descriptionTokens || []) {
+    const key = normalizeMerchantFingerprint(token);
+    if (key.length >= 2) ruleFingerprints.add(key);
+  }
   if (
-    txMerchant &&
-    (txMerchant === ruleMerchant || txMerchant.includes(ruleMerchant) || ruleMerchant.includes(txMerchant))
+    merchantFingerprintsOverlap([...ruleFingerprints], extractBankTransactionMerchantFingerprints(tx))
   ) {
     return 14;
   }
-  if (haystack.includes(ruleMerchant)) return 12;
 
-  for (const token of rule.descriptionTokens || []) {
-    const tokenKey = normalizeMatchText(token);
-    if (tokenKey.length >= 2 && haystack.includes(tokenKey)) return 10;
+  const haystack = buildBankLedgerMatchHaystack(tx);
+  for (const fingerprint of ruleFingerprints) {
+    if (fingerprint.length >= 2 && haystack.includes(fingerprint)) return 12;
   }
   return 0;
 }
@@ -476,25 +516,55 @@ export type MemoCategorySuggestion = {
   label: string;
 };
 
-export function buildMemoCategorySuggestionMap(transactions: BankTransaction[], memoRules: BankLearnRule[]) {
+export function buildMemoCategorySuggestionMap(
+  transactions: BankTransaction[],
+  memoRules: BankLearnRule[],
+  categories: string[] = [],
+) {
   const map = new Map<string, MemoCategorySuggestion>();
-  if (!memoRules.length) return map;
+  const withdrawalTxs = transactions.filter(
+    (tx) => Number(tx.withdrawal || 0) > 0 && !isNetGroupSuppressed(tx),
+  );
 
-  for (const tx of transactions) {
-    if (!(tx.withdrawal > 0) || isNetGroupSuppressed(tx)) continue;
+  const memoSources = withdrawalTxs.flatMap((tx) => {
+    const category = resolveMemoLearnCategory(tx.memo, categories);
+    return category ? [{ tx, category }] : [];
+  });
 
+  if (!memoSources.length && !memoRules.length) return map;
+
+  for (const target of withdrawalTxs) {
     let bestScore = 0;
     let bestCategory = "";
-    for (const rule of memoRules) {
-      const score = scoreMemoLearnCategoryRule(tx, rule);
+
+    const ownCategory = resolveMemoLearnCategory(target.memo, categories);
+    if (ownCategory) {
+      bestScore = 18;
+      bestCategory = ownCategory;
+    }
+
+    for (const source of memoSources) {
+      if (source.tx.id === target.id) continue;
+      if (!bankTransactionsShareMerchantFingerprint(source.tx, target)) continue;
+      const score = 16;
       if (score > bestScore) {
         bestScore = score;
-        bestCategory = String(rule.category || "").trim();
+        bestCategory = source.category;
+      }
+    }
+
+    if (bestScore < 16) {
+      for (const rule of memoRules) {
+        const score = scoreMemoLearnCategoryRule(target, rule);
+        if (score > bestScore) {
+          bestScore = score;
+          bestCategory = String(rule.category || "").trim();
+        }
       }
     }
 
     if (bestCategory && bestScore >= 8) {
-      map.set(tx.id, {
+      map.set(target.id, {
         category: bestCategory,
         confidence: formatLearnRuleConfidencePercent(bestScore),
         label: `[\uC9C0\uCD9C] ${bestCategory}`,
