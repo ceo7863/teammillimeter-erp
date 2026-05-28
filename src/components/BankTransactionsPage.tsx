@@ -79,6 +79,7 @@ import {
   mergeMemoLearnRules,
   buildBankLearnRuleFromMemoCategory,
   resolveMemoLearnCategory,
+  isMemoLearnAmountFlexibleCategory,
   buildPreauthNetLearnRule,
   buildCompanyExpensePrefillFromBankTransaction,
   buildLedgerReviewPromptGroups,
@@ -449,7 +450,9 @@ const L = {
   preauthNetSettlementBadge: "\uC2E4\uACB0\uC81C",
   preauthNetEmpty: "\uC815\uB9AC\uD560 \uC120\uACB0\uC81C \uD328\uD134\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   preauthNetPattern: (name: string, date: string, preauth: number, settlement: number) =>
-    `${name} \u00B7 ${date} \u00B7 \uC120\uACB0 ${formatKRW(preauth)} \u2192 \uC2E4\uACB0 ${formatKRW(settlement)}`,
+    settlement > 0
+      ? `${name} \u00B7 ${date} \u00B7 \uC120\uACB0 ${formatKRW(preauth)} \u2192 \uC2E4\uACB0 ${formatKRW(settlement)}`
+      : `${name} \u00B7 ${date} \u00B7 \uC120\uACB0 ${formatKRW(preauth)} \u2192 \uCDE8\uC18C\uB9CC`,
   clientLinkTitle: "\uAC70\uB798\uCC98 \uC5F0\uACB0",
   clientLinkDesc:
     "\uD1B5\uC7A5 \uC785\uAE08 \uC2DC \uD45C\uC2DC\uB41C \uC774\uB984\uC744 \uAC70\uB798\uCC98 \uC608\uAE08\uC8FC \uBCC4\uCE59\uC5D0 \uCD94\uAC00\uD569\uB2C8\uB2E4. \uC774\uD6C4 \uB3D9\uC77C \uC774\uB984 \uC785\uAE08\uC740 \uC790\uB3D9 \uBD84\uB958\uB429\uB2C8\uB2E4.",
@@ -1591,6 +1594,17 @@ export function BankTransactionsPage({
   }, [bankLedgerRules]);
 
   useEffect(() => {
+    if (!memoLearnRules.length) return;
+    applyAutoLearnRules(bankTransactions, fixedExpensePayments, companyExpenses, effectiveBankLedgerRules, {
+      showMessage: false,
+      auditUser: null,
+      applyKinds: ["manual"],
+    });
+    // Meal memo learn: auto-register same-merchant withdrawals when amounts differ.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memoLearnRules]);
+
+  useEffect(() => {
     const handleArchiveUpdated = () => {
       void loadSentArchives();
     };
@@ -1966,6 +1980,7 @@ export function BankTransactionsPage({
     let nextRules = bankLedgerRules;
     if (learnPreauthMerchants) {
       for (const group of groups) {
+        if (!group.settlementTx) continue;
         nextRules = upsertBankLearnRule(
           nextRules,
           buildPreauthNetLearnRule(group.settlementTx, savedBy || undefined),
@@ -2224,16 +2239,32 @@ export function BankTransactionsPage({
         return;
       }
       auditBankTxUpdate(tx, nextRow);
-      setBankTransactions((prev) =>
-        prev.map((row) => (row.id === transactionId ? nextRow : row)),
+      const nextTransactions = bankTransactions.map((row) =>
+        row.id === transactionId ? nextRow : row,
       );
+      setBankTransactions(nextTransactions);
 
       const category = resolveMemoLearnCategory(memo, expenseCategories);
+      let nextRules = bankLedgerRules;
       if (category && Number(tx.withdrawal || 0) > 0) {
         setExpenseCategories((prev) => mergeExpenseCategory(prev, category));
-        setBankLedgerRules((prev) =>
-          upsertBankLearnRule(prev, buildBankLearnRuleFromMemoCategory(nextRow, category, savedBy)),
+        nextRules = upsertBankLearnRule(
+          bankLedgerRules,
+          buildBankLearnRuleFromMemoCategory(nextRow, category, savedBy),
         );
+        setBankLedgerRules(nextRules);
+      }
+
+      if (category && isMemoLearnAmountFlexibleCategory(category) && Number(tx.withdrawal || 0) > 0) {
+        const rulesForApply = mergeMemoLearnRules(
+          nextRules,
+          buildMemoLearnRulesFromTransactions(nextTransactions, expenseCategories, savedBy),
+        );
+        applyAutoLearnRules(nextTransactions, fixedExpensePayments, companyExpenses, rulesForApply, {
+          showMessage: false,
+          auditUser: null,
+          applyKinds: ["manual"],
+        });
       }
 
       setMemoClassificationDraftByTxId((prev) => {
@@ -2244,8 +2275,12 @@ export function BankTransactionsPage({
       });
     },
     [
+      applyAutoLearnRules,
+      bankLedgerRules,
       bankTransactions,
+      companyExpenses,
       expenseCategories,
+      fixedExpensePayments,
       savedBy,
       setBankTransactions,
       setExpenseCategories,
@@ -5423,8 +5458,10 @@ export function BankTransactionsPage({
                       </div>
                       <div className="mt-1 text-xs font-semibold text-slate-500">
                         {formatBankTransactionDateTime(group.preauthWithdrawalTx.transactionAt)} \u2192{" "}
-                        {formatBankTransactionDateTime(group.refundTx.transactionAt)} \u2192{" "}
-                        {formatBankTransactionDateTime(group.settlementTx.transactionAt)}
+                        {formatBankTransactionDateTime(group.refundTx.transactionAt)}
+                        {group.settlementTx
+                          ? ` \u2192 ${formatBankTransactionDateTime(group.settlementTx.transactionAt)}`
+                          : ""}
                       </div>
                     </div>
                   </label>

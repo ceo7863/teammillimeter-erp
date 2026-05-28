@@ -630,14 +630,19 @@ export function buildBankLearnRuleFromMemoCategory(
   category: string,
   createdBy?: string,
 ): BankLearnRule {
+  const normalizedCategory = normalizeExpenseCategoryName(category);
   const counterpartyName = String(tx.counterpartyName || "").trim() || undefined;
   const merchantLabel = String(tx.counterpartyName || tx.description || "").trim();
+  const withdrawal = Number(tx.withdrawal || 0);
   return {
     id: makeLedgerId(),
     kind: "manual",
-    category,
+    category: normalizedCategory,
     counterpartyName,
-    amount: Number(tx.withdrawal || 0) > 0 ? Number(tx.withdrawal) : undefined,
+    amount:
+      isMemoLearnAmountFlexibleCategory(normalizedCategory) || withdrawal <= 0
+        ? undefined
+        : withdrawal,
     descriptionTokens: filterBankLearnDescriptionTokens([
       merchantLabel,
       ...extractBankTransactionMerchantFingerprints(tx),
@@ -719,6 +724,11 @@ export function isMemoLearnTaxCategory(category: string) {
   return normalized === "세금" || normalized.includes("세금") || normalized === "세액";
 }
 
+/** 식비·식대·접대 등 금액이 매번 달라도 같은 거래처면 자동 등록 */
+export function isMemoLearnAmountFlexibleCategory(category: string) {
+  return normalizeExpenseCategoryName(category) === "\uC811\uB300/\uC2DD\uBE44";
+}
+
 function extractMemoLearnDomainTokens(tx: BankTransaction, category: string) {
   if (!isMemoLearnTaxCategory(category)) return [] as string[];
   const haystack = normalizeMatchText(buildBankTransactionMemoLearnText(tx));
@@ -790,7 +800,9 @@ export function buildMemoLearnRulesFromTransactions(
     const amount = Number(tx.withdrawal || 0);
     const ruleKey = isMemoLearnTaxCategory(category)
       ? `tax:${category}`
-      : `${merchantKey}:${amount}:${category}`;
+      : isMemoLearnAmountFlexibleCategory(category)
+        ? `meal:${merchantKey}:${category}`
+        : `${merchantKey}:${amount}:${category}`;
     byMerchant.set(ruleKey, buildBankLearnRuleFromMemoCategory(tx, category, createdBy));
   }
 
@@ -934,6 +946,9 @@ function learnRuleUpsertKey(rule: BankLearnRule) {
     if (isMemoLearnTaxCategory(String(rule.category || ""))) {
       return `manual:tax-domain:${normalizeMatchText(String(rule.category || ""))}`;
     }
+    if (isMemoLearnAmountFlexibleCategory(String(rule.category || ""))) {
+      return `manual:meal:${counterpartyKey}:${normalizeExpenseCategoryName(String(rule.category || ""))}`;
+    }
     if (rule.amount != null && rule.amount > 0) {
       return `manual:${rule.category}:${counterpartyKey}:${rule.amount}`;
     }
@@ -1031,6 +1046,7 @@ export function scoreBankLearnRule(
     rule.kind === "manual" &&
     rule.amount != null &&
     rule.amount > 0 &&
+    !isMemoLearnAmountFlexibleCategory(String(rule.category || "")) &&
     !memoLearnWithdrawalsMatch({ withdrawal: rule.amount } as BankTransaction, tx)
   ) {
     return 0;
@@ -1347,7 +1363,22 @@ export function autoApplyBankLearnRules(
     };
 
     if (canRegisterBankTxToCompanyLedger(tx, ledgerContext) && applyLedgerKinds.length) {
-      const learnMatch = findBestBankLearnRuleWithScore(tx, rules, fixedExpenses, applyLedgerKinds);
+      let learnMatch = findBestBankLearnRuleWithScore(tx, rules, fixedExpenses, applyLedgerKinds);
+      if (!learnMatch && applyLedgerKinds.includes("manual")) {
+        const memoCategory = resolveMemoLearnCategory(tx.memo);
+        if (memoCategory && isMemoLearnAmountFlexibleCategory(memoCategory)) {
+          learnMatch = {
+            rule: {
+              id: makeLedgerId(),
+              kind: "manual",
+              category: memoCategory,
+              descriptionTokens: [],
+              createdAt: new Date().toISOString(),
+            },
+            score: AUTO_LEARN_HIGH_CONFIDENCE_SCORE,
+          };
+        }
+      }
       if (!learnMatch) continue;
 
       if (

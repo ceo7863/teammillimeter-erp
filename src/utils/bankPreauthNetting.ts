@@ -9,7 +9,7 @@ export type PreauthNetGroup = {
   id: string;
   preauthWithdrawalTx: BankTransaction;
   refundTx: BankTransaction;
-  settlementTx: BankTransaction;
+  settlementTx?: BankTransaction;
   preauthAmount: number;
   settlementAmount: number;
   counterpartyName: string;
@@ -22,8 +22,29 @@ export const DEFAULT_PREAUTH_NET_KEYWORDS = ["\uC8FC\uC720\uC18C", "\uC8FC\uC720
 /** Same window for preauth partial settlement and cancel+repay (W→D→W equal amount). */
 export const NET_GROUP_WINDOW_MINUTES = 60;
 
+/** Cross-day check-card cancel/correction netting (W→D cancel → optional partial W settlement). */
+export const CANCEL_CORRECTION_NET_WINDOW_HOURS = 72;
+
 export function preauthNetGroupKey(group: PreauthNetGroup) {
-  return [group.preauthWithdrawalTx.id, group.refundTx.id, group.settlementTx.id].join(":");
+  return [group.preauthWithdrawalTx.id, group.refundTx.id, group.settlementTx?.id ?? ""].join(":");
+}
+
+export function isCancellationOrCorrectionTransaction(tx: BankTransaction) {
+  const haystack = [tx.transactionType, tx.description, tx.memo]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+    .replace(/\s+/g, "");
+  return haystack.includes("\uCDE8\uC18C") || haystack.includes("\uC815\uC815");
+}
+
+function preauthMerchantsCompatible(left: BankTransaction, right: BankTransaction) {
+  const leftName = normalizePreauthCounterpartyName(left).toLowerCase().replace(/\s+/g, "");
+  const rightName = normalizePreauthCounterpartyName(right).toLowerCase().replace(/\s+/g, "");
+  if (!leftName || !rightName) return false;
+  if (leftName === rightName) return true;
+  const minLen = Math.min(leftName.length, rightName.length);
+  return minLen >= 3 && (leftName.includes(rightName) || rightName.includes(leftName));
 }
 
 export function normalizePreauthCounterpartyName(tx: BankTransaction) {
@@ -243,6 +264,124 @@ function buildCounterpartyDayBuckets(
   return buckets;
 }
 
+export function buildAccountBuckets(
+  transactions: BankTransaction[],
+  include: (tx: BankTransaction) => boolean,
+) {
+  const buckets = new Map<string, BankTransaction[]>();
+  for (const tx of transactions) {
+    if (!include(tx)) continue;
+    const accountNumber = String(tx.accountNumber || "").trim();
+    if (!accountNumber) continue;
+    const bucket = buckets.get(accountNumber) || [];
+    bucket.push(tx);
+    buckets.set(accountNumber, bucket);
+  }
+  return buckets;
+}
+
+/** Check-card cancel: deposit(cancel) → backward W same amount → forward W settlement (partial ok). */
+export function findNextCancelMarkedTriplet(
+  txs: BankTransaction[],
+  used: Set<string>,
+  windowMs: number,
+): Omit<PreauthNetGroup, "id"> | null {
+  for (let j = 0; j < txs.length; j += 1) {
+    const refund = txs[j];
+    if (used.has(refund.id) || !isEligibleForPreauthNetDetection(refund)) continue;
+    const amount = Number(refund.deposit || 0);
+    if (!(amount > 0) || refund.withdrawal > 0) continue;
+    if (!isCancellationOrCorrectionTransaction(refund)) continue;
+
+    let w1: BankTransaction | null = null;
+    for (let i = j - 1; i >= 0; i -= 1) {
+      const candidate = txs[i];
+      if (used.has(candidate.id) || !isEligibleForPreauthNetDetection(candidate)) continue;
+      const wAmount = Number(candidate.withdrawal || 0);
+      if (!(wAmount > 0) || candidate.deposit > 0) continue;
+      if (wAmount !== amount) continue;
+      if (txTimeMs(refund) - txTimeMs(candidate) > windowMs) break;
+      w1 = candidate;
+      break;
+    }
+    if (!w1) continue;
+
+    for (let k = j + 1; k < txs.length; k += 1) {
+      const settlement = txs[k];
+      if (used.has(settlement.id) || !isEligibleForPreauthNetDetection(settlement)) continue;
+      const settlementAmount = Number(settlement.withdrawal || 0);
+      if (!(settlementAmount > 0) || settlement.deposit > 0) continue;
+      if (txTimeMs(settlement) - txTimeMs(w1) > windowMs) break;
+      if (!preauthMerchantsCompatible(w1, settlement)) continue;
+
+      return {
+        preauthWithdrawalTx: w1,
+        refundTx: refund,
+        settlementTx: settlement,
+        preauthAmount: amount,
+        settlementAmount,
+        counterpartyName: normalizePreauthCounterpartyName(w1),
+        date: txDate(w1),
+        accountNumber: String(w1.accountNumber || "").trim(),
+      };
+    }
+  }
+  return null;
+}
+
+/** Check-card cancel pair when no settlement withdrawal appears within the window. */
+export function findNextCancelMarkedPair(
+  txs: BankTransaction[],
+  used: Set<string>,
+  windowMs: number,
+): Omit<PreauthNetGroup, "id"> | null {
+  for (let j = 0; j < txs.length; j += 1) {
+    const refund = txs[j];
+    if (used.has(refund.id) || !isEligibleForPreauthNetDetection(refund)) continue;
+    const amount = Number(refund.deposit || 0);
+    if (!(amount > 0) || refund.withdrawal > 0) continue;
+    if (!isCancellationOrCorrectionTransaction(refund)) continue;
+
+    let w1: BankTransaction | null = null;
+    for (let i = j - 1; i >= 0; i -= 1) {
+      const candidate = txs[i];
+      if (used.has(candidate.id) || !isEligibleForPreauthNetDetection(candidate)) continue;
+      const wAmount = Number(candidate.withdrawal || 0);
+      if (!(wAmount > 0) || candidate.deposit > 0) continue;
+      if (wAmount !== amount) continue;
+      if (txTimeMs(refund) - txTimeMs(candidate) > windowMs) break;
+      w1 = candidate;
+      break;
+    }
+    if (!w1) continue;
+
+    let hasSettlement = false;
+    for (let k = j + 1; k < txs.length; k += 1) {
+      const settlement = txs[k];
+      if (used.has(settlement.id) || !isEligibleForPreauthNetDetection(settlement)) continue;
+      const settlementAmount = Number(settlement.withdrawal || 0);
+      if (!(settlementAmount > 0) || settlement.deposit > 0) continue;
+      if (txTimeMs(settlement) - txTimeMs(w1) > windowMs) break;
+      if (preauthMerchantsCompatible(w1, settlement)) {
+        hasSettlement = true;
+        break;
+      }
+    }
+    if (hasSettlement) continue;
+
+    return {
+      preauthWithdrawalTx: w1,
+      refundTx: refund,
+      preauthAmount: amount,
+      settlementAmount: 0,
+      counterpartyName: normalizePreauthCounterpartyName(w1),
+      date: txDate(w1),
+      accountNumber: String(w1.accountNumber || "").trim(),
+    };
+  }
+  return null;
+}
+
 function collectNetGroupsFromBucket(
   bucket: BankTransaction[],
   windowMs: number,
@@ -256,7 +395,7 @@ function collectNetGroupsFromBucket(
     groups.push({ id: makeBankTransactionId(), ...triplet });
     used.add(triplet.preauthWithdrawalTx.id);
     used.add(triplet.refundTx.id);
-    used.add(triplet.settlementTx.id);
+    if (triplet.settlementTx) used.add(triplet.settlementTx.id);
     triplet = findNext(sorted, used, windowMs);
   }
 }
@@ -283,6 +422,13 @@ export function detectPreauthNetGroups(
     collectNetGroupsFromBucket(bucket, windowMs, used, groups, findNextCancelRepayTriplet);
   }
 
+  const cancelWindowMs = CANCEL_CORRECTION_NET_WINDOW_HOURS * 60 * 60 * 1000;
+  const accountBuckets = buildAccountBuckets(transactions, isEligibleForPreauthNetDetection);
+  for (const bucket of accountBuckets.values()) {
+    collectNetGroupsFromBucket(bucket, cancelWindowMs, used, groups, findNextCancelMarkedTriplet);
+    collectNetGroupsFromBucket(bucket, cancelWindowMs, used, groups, findNextCancelMarkedPair);
+  }
+
   return groups.sort((a, b) => String(b.date).localeCompare(String(a.date)));
 }
 
@@ -292,7 +438,9 @@ export function applyPreauthNetGroups(transactions: BankTransaction[], groups: P
   for (const group of groups) {
     patch.set(group.preauthWithdrawalTx.id, { netGroupId: group.id, netGroupRole: "preauth_withdrawal" });
     patch.set(group.refundTx.id, { netGroupId: group.id, netGroupRole: "preauth_refund" });
-    patch.set(group.settlementTx.id, { netGroupId: group.id, netGroupRole: "settlement" });
+    if (group.settlementTx) {
+      patch.set(group.settlementTx.id, { netGroupId: group.id, netGroupRole: "settlement" });
+    }
   }
   return transactions.map((tx) => {
     const next = patch.get(tx.id);
@@ -353,7 +501,7 @@ export function filterPreauthNetGroupsForAutoApply(
     return (
       addedTransactionIds.has(group.preauthWithdrawalTx.id) ||
       addedTransactionIds.has(group.refundTx.id) ||
-      addedTransactionIds.has(group.settlementTx.id)
+      (group.settlementTx ? addedTransactionIds.has(group.settlementTx.id) : false)
     );
   });
 }
