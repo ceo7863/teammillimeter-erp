@@ -580,10 +580,7 @@ export function scoreMemoLearnCategoryRule(tx: BankTransaction, rule: BankLearnR
   if (
     merchantFingerprintsOverlap([...ruleFingerprints], extractBankTransactionMerchantFingerprints(tx))
   ) {
-    if (rule.amount != null && rule.amount > 0 && !memoLearnWithdrawalsMatch({ withdrawal: rule.amount } as BankTransaction, tx)) {
-      return 0;
-    }
-    return 14;
+    return 16;
   }
 
   const haystack = buildBankLedgerMatchHaystack(tx);
@@ -636,12 +633,10 @@ export function buildMemoCategorySuggestionMap(
 
     for (const source of memoSources) {
       if (source.tx.id === target.id) continue;
-      if (
-        merchantFingerprintsOverlap(source.fingerprints, targetFingerprints) &&
-        (isMemoLearnTaxCategory(source.category) || memoLearnWithdrawalsMatch(source.tx, target))
-      ) {
-        if (16 > bestScore) {
-          bestScore = 16;
+      if (merchantFingerprintsOverlap(source.fingerprints, targetFingerprints)) {
+        const merchantScore = memoLearnWithdrawalsMatch(source.tx, target) ? 17 : 16;
+        if (merchantScore > bestScore) {
+          bestScore = merchantScore;
           bestCategory = source.category;
         }
         continue;
