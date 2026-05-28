@@ -589,6 +589,8 @@ export type LedgerCategoryPromptGroup = {
   transactions: BankTransaction[];
 };
 
+export type LedgerReviewPromptGroup = LedgerCategoryPromptGroup;
+
 export function buildLedgerCategoryPromptGroups(
   transactions: BankTransaction[],
   rules: BankLearnRule[],
@@ -601,6 +603,32 @@ export function buildLedgerCategoryPromptGroups(
   for (const tx of transactions) {
     if (options.onlyTransactionIds && !options.onlyTransactionIds.has(tx.id)) continue;
     if (!transactionNeedsLedgerCategoryPrompt(tx, rules, fixedExpenses, context)) continue;
+    const key = buildBankLedgerPromptKey(tx);
+    const bucket = groups.get(key) || [];
+    bucket.push(tx);
+    groups.set(key, bucket);
+  }
+
+  return [...groups.entries()]
+    .map(([key, txs]) => ({
+      key,
+      label: String(txs[0]?.counterpartyName || txs[0]?.description || key).trim() || key,
+      transactions: txs.sort((a, b) => String(b.transactionAt).localeCompare(String(a.transactionAt))),
+    }))
+    .sort((a, b) => b.transactions.length - a.transactions.length || a.label.localeCompare(b.label, "ko"));
+}
+
+/** All unlinked ledger-eligible txs (including learn-rule matches) for interactive review. */
+export function buildLedgerReviewPromptGroups(
+  transactions: BankTransaction[],
+  context: BankLedgerRegistrationContext = {},
+  options: { onlyTransactionIds?: Set<string> } = {},
+): LedgerReviewPromptGroup[] {
+  const groups = new Map<string, BankTransaction[]>();
+
+  for (const tx of transactions) {
+    if (options.onlyTransactionIds && !options.onlyTransactionIds.has(tx.id)) continue;
+    if (!canRegisterBankTxToCompanyLedger(tx, context)) continue;
     const key = buildBankLedgerPromptKey(tx);
     const bucket = groups.get(key) || [];
     bucket.push(tx);
@@ -721,8 +749,15 @@ export function autoApplyBankLearnRules(
     onlyTransactionIds?: Set<string>;
     workers?: WorkerDepositMatchSource[];
     bankTransactionFolders?: BankTransactionFolder[];
+    /** Which learn-rule kinds to auto-apply. Default: fixed, manual, folder. */
+    applyKinds?: BankLearnRuleKind[];
   } = {},
 ): AutoApplyBankLearnResult {
+  const applyKinds = options.applyKinds ?? (["fixed", "manual", "folder"] as BankLearnRuleKind[]);
+  const applyLedgerKinds = applyKinds.filter((kind) => kind === "fixed" || kind === "manual") as Array<
+    "fixed" | "manual"
+  >;
+  const applyFolderRules = applyKinds.includes("folder");
   const newPayments: FixedExpensePayment[] = [];
   const newExpenses: CompanyExpense[] = [];
   const paymentLinks = new Map<string, string>();
@@ -739,8 +774,8 @@ export function autoApplyBankLearnRules(
       fixedExpensePayments: workingPayments,
     };
 
-    if (canRegisterBankTxToCompanyLedger(tx, ledgerContext)) {
-      const ledgerRule = findBestBankLearnRule(tx, rules, fixedExpenses, ["fixed", "manual"]);
+    if (canRegisterBankTxToCompanyLedger(tx, ledgerContext) && applyLedgerKinds.length) {
+      const ledgerRule = findBestBankLearnRule(tx, rules, fixedExpenses, applyLedgerKinds);
       if (ledgerRule?.kind === "fixed" && ledgerRule.fixedExpenseId && !isCheckCardBankTransaction(tx)) {
         const existingPayment = findLinkableFixedExpensePayment(
           tx,
@@ -796,7 +831,7 @@ export function autoApplyBankLearnRules(
       }
     }
 
-    if (!tx.folderId) {
+    if (applyFolderRules && !tx.folderId) {
       const folderRule = findBestBankLearnRule(tx, rules, fixedExpenses, ["folder"]);
       if (folderRule?.folderId) {
         const folders = options.bankTransactionFolders || [];

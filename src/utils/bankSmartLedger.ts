@@ -132,6 +132,8 @@ export type RunSmartAutoLedgerInput = {
   createdBy?: string;
   onlyTransactionIds?: Set<string>;
   useLlm?: boolean;
+  /** When true, only folder/preauth automation runs; ledger entries require user confirmation. */
+  skipLedgerRegistration?: boolean;
 };
 
 export type RunSmartAutoLedgerResult = {
@@ -269,6 +271,7 @@ export function runSmartAutoLedgerSync(input: RunSmartAutoLedgerInput): RunSmart
   let expenses = [...input.companyExpenses];
   let categories = [...input.expenseCategories];
 
+  const folderOnlyKinds = input.skipLedgerRegistration ? (["folder"] as const) : undefined;
   const learnPass = autoApplyBankLearnRules(
     transactions,
     payments,
@@ -280,6 +283,7 @@ export function runSmartAutoLedgerSync(input: RunSmartAutoLedgerInput): RunSmart
       onlyTransactionIds: input.onlyTransactionIds,
       workers: input.workers,
       bankTransactionFolders: folders,
+      applyKinds: folderOnlyKinds ? [...folderOnlyKinds] : undefined,
     },
   );
 
@@ -288,11 +292,24 @@ export function runSmartAutoLedgerSync(input: RunSmartAutoLedgerInput): RunSmart
   if (learnPass.newExpenses.length) expenses = [...learnPass.newExpenses, ...expenses];
   transactions = learnPass.transactions;
 
-  const heuristicPass = applyHeuristicLearnRules(transactions, payments, expenses, rules, { ...input, bankTransactionFolders: folders }, new Map());
-  transactions = heuristicPass.transactions;
-  payments = heuristicPass.payments;
-  expenses = heuristicPass.expenses;
-  rules = heuristicPass.rules;
+  let heuristicRegistered = 0;
+  let llmRegistered = 0;
+  if (!input.skipLedgerRegistration) {
+    const heuristicPass = applyHeuristicLearnRules(
+      transactions,
+      payments,
+      expenses,
+      rules,
+      { ...input, bankTransactionFolders: folders },
+      new Map(),
+    );
+    transactions = heuristicPass.transactions;
+    payments = heuristicPass.payments;
+    expenses = heuristicPass.expenses;
+    rules = heuristicPass.rules;
+    heuristicRegistered = heuristicPass.heuristicRegistered;
+    llmRegistered = heuristicPass.llmRegistered;
+  }
 
   const pending = countPendingSmartLedger(transactions, {
     companyExpenses: expenses,
@@ -307,11 +324,11 @@ export function runSmartAutoLedgerSync(input: RunSmartAutoLedgerInput): RunSmart
   const summary: SmartLedgerRunSummary = {
     at: new Date().toISOString(),
     classifiedFolders: classified.updated,
-    learnFixed: learnPass.fixedCount,
-    learnManual: learnPass.manualCount,
+    learnFixed: input.skipLedgerRegistration ? 0 : learnPass.fixedCount,
+    learnManual: input.skipLedgerRegistration ? 0 : learnPass.manualCount,
     learnFolder: learnPass.folderCount,
-    heuristicRegistered: heuristicPass.heuristicRegistered,
-    llmRegistered: heuristicPass.llmRegistered,
+    heuristicRegistered,
+    llmRegistered,
     pendingSuggestions: pending.withSuggestion,
   };
   saveSmartLedgerRunSummary(summary);
@@ -324,11 +341,11 @@ export function runSmartAutoLedgerSync(input: RunSmartAutoLedgerInput): RunSmart
     bankLedgerRules: rules,
     expenseCategories: categories,
     classifiedFolders: classified.updated,
-    learnFixed: learnPass.fixedCount,
-    learnManual: learnPass.manualCount,
+    learnFixed: input.skipLedgerRegistration ? 0 : learnPass.fixedCount,
+    learnManual: input.skipLedgerRegistration ? 0 : learnPass.manualCount,
     learnFolder: learnPass.folderCount,
-    heuristicRegistered: heuristicPass.heuristicRegistered,
-    llmRegistered: heuristicPass.llmRegistered,
+    heuristicRegistered,
+    llmRegistered,
     pendingSuggestions: pending.withSuggestion,
   };
 }
@@ -348,6 +365,7 @@ export async function runSmartAutoLedger(input: RunSmartAutoLedgerInput): Promis
   let expenses = [...input.companyExpenses];
   let categories = [...input.expenseCategories];
 
+  const folderOnlyKinds = input.skipLedgerRegistration ? (["folder"] as const) : undefined;
   const learnPass = autoApplyBankLearnRules(
     transactions,
     payments,
@@ -359,6 +377,7 @@ export async function runSmartAutoLedger(input: RunSmartAutoLedgerInput): Promis
       onlyTransactionIds: input.onlyTransactionIds,
       workers: input.workers,
       bankTransactionFolders: folders,
+      applyKinds: folderOnlyKinds ? [...folderOnlyKinds] : undefined,
     },
   );
 
@@ -367,35 +386,41 @@ export async function runSmartAutoLedger(input: RunSmartAutoLedgerInput): Promis
   if (learnPass.newExpenses.length) expenses = [...learnPass.newExpenses, ...expenses];
   transactions = learnPass.transactions;
 
-  let llmMap = new Map<string, BankLedgerClassification>();
-  if (input.useLlm !== false) {
-    const eligibleTxs = transactions.filter((tx) => {
-      if (input.onlyTransactionIds && !input.onlyTransactionIds.has(tx.id)) return false;
-      return canRegisterBankTxToCompanyLedger(tx, {
-        companyExpenses: expenses,
-        fixedExpensePayments: payments,
+  let heuristicRegistered = 0;
+  let llmRegistered = 0;
+  if (!input.skipLedgerRegistration) {
+    let llmMap = new Map<string, BankLedgerClassification>();
+    if (input.useLlm !== false) {
+      const eligibleTxs = transactions.filter((tx) => {
+        if (input.onlyTransactionIds && !input.onlyTransactionIds.has(tx.id)) return false;
+        return canRegisterBankTxToCompanyLedger(tx, {
+          companyExpenses: expenses,
+          fixedExpensePayments: payments,
+        });
       });
-    });
-    if (eligibleTxs.length) {
-      llmMap = await fetchBankLedgerClassifications(eligibleTxs, {
-        expenseCategories: categories,
-        fixedExpenses: input.fixedExpenses,
-      });
+      if (eligibleTxs.length) {
+        llmMap = await fetchBankLedgerClassifications(eligibleTxs, {
+          expenseCategories: categories,
+          fixedExpenses: input.fixedExpenses,
+        });
+      }
     }
-  }
 
-  const heuristicPass = applyHeuristicLearnRules(
-    transactions,
-    payments,
-    expenses,
-    rules,
-    { ...input, bankTransactionFolders: folders, expenseCategories: categories },
-    llmMap,
-  );
-  transactions = heuristicPass.transactions;
-  payments = heuristicPass.payments;
-  expenses = heuristicPass.expenses;
-  rules = heuristicPass.rules;
+    const heuristicPass = applyHeuristicLearnRules(
+      transactions,
+      payments,
+      expenses,
+      rules,
+      { ...input, bankTransactionFolders: folders, expenseCategories: categories },
+      llmMap,
+    );
+    transactions = heuristicPass.transactions;
+    payments = heuristicPass.payments;
+    expenses = heuristicPass.expenses;
+    rules = heuristicPass.rules;
+    heuristicRegistered = heuristicPass.heuristicRegistered;
+    llmRegistered = heuristicPass.llmRegistered;
+  }
 
   const pending = countPendingSmartLedger(transactions, {
     companyExpenses: expenses,
@@ -410,11 +435,11 @@ export async function runSmartAutoLedger(input: RunSmartAutoLedgerInput): Promis
   const summary: SmartLedgerRunSummary = {
     at: new Date().toISOString(),
     classifiedFolders: classified.updated,
-    learnFixed: learnPass.fixedCount,
-    learnManual: learnPass.manualCount,
+    learnFixed: input.skipLedgerRegistration ? 0 : learnPass.fixedCount,
+    learnManual: input.skipLedgerRegistration ? 0 : learnPass.manualCount,
     learnFolder: learnPass.folderCount,
-    heuristicRegistered: heuristicPass.heuristicRegistered,
-    llmRegistered: heuristicPass.llmRegistered,
+    heuristicRegistered,
+    llmRegistered,
     pendingSuggestions: pending.withSuggestion,
   };
   saveSmartLedgerRunSummary(summary);
@@ -427,11 +452,11 @@ export async function runSmartAutoLedger(input: RunSmartAutoLedgerInput): Promis
     bankLedgerRules: rules,
     expenseCategories: categories,
     classifiedFolders: classified.updated,
-    learnFixed: learnPass.fixedCount,
-    learnManual: learnPass.manualCount,
+    learnFixed: input.skipLedgerRegistration ? 0 : learnPass.fixedCount,
+    learnManual: input.skipLedgerRegistration ? 0 : learnPass.manualCount,
     learnFolder: learnPass.folderCount,
-    heuristicRegistered: heuristicPass.heuristicRegistered,
-    llmRegistered: heuristicPass.llmRegistered,
+    heuristicRegistered,
+    llmRegistered,
     pendingSuggestions: pending.withSuggestion,
   };
 }

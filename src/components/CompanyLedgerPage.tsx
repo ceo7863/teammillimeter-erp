@@ -40,6 +40,8 @@ import {
   mergeExpenseCategory,
   mergeFixedExpenseCategory,
   buildFixedCategorySelectOptions,
+  normalizeExpenseCategories,
+  normalizeFixedExpenseCategories,
   resolveFixedPaymentCategory,
   normalizeFixedExpensePaymentDay,
   parseLedgerAmount,
@@ -66,6 +68,7 @@ import { loadSmartLedgerRunSummary } from "@/utils/bankSmartLedger";
 import { formatBankTransactionDateTime, type BankTransaction } from "@/utils/bankTransactions";
 import { refreshCompanyLedgerFromBankTransactions } from "@/utils/fixedExpenseAutomation";
 import { useAudit } from "@/context/AuditContext";
+import { confirmDelete } from "@/utils/confirmDelete";
 import {
   COMPANY_EXPENSE_AUDIT_FIELDS,
   FIXED_EXPENSE_AUDIT_FIELDS,
@@ -186,6 +189,10 @@ const L = {
     return parts.length ? `\uD1B5\uC7A5 \uC5F0\uB3D9 \uC644\uB8CC \u00B7 ${parts.join(" \u00B7 ")}` : "\uD655\uC778 \uC644\uB8CC. \uC0C8\uB85C \uC5F0\uACB0\uD560 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.";
   },
   refreshBankLedgerEmpty: "\uD1B5\uC7A5 \uAC70\uB798\uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  resetLedger: "\uAC00\uACC4\uBD80 \uCD08\uAE30\uD654",
+  resetLedgerConfirm:
+    "\uD68C\uC0AC \uAC00\uACC4\uBD80 \uB370\uC774\uD130\uB97C \uCD08\uAE30\uD654\uD560\uAE4C\uC694?\n\n\uC0AD\uC81C \uB300\uC0C1:\n- \uBCC0\uB3D9\uC9C0\uCD9C \uB0B4\uC5ED\n- \uACE0\uC815\uBE44 \uB0A9\uBD80 \uB0B4\uC5ED\n- \uC9C0\uCD9C \uCE74\uD14C\uACE0\uB9AC\n- \uAC00\uACC4\uBD80 \uD559\uC2B5 \uADDC\uCE59(\uACE0\uC815\uBE44/\uBCC0\uB3D9\uC9C0\uCD9C)\n\n\uACE0\uC815\uBE44 \uB9C8\uC2A4\uD130(\uD56D\uBAA9 \uC815\uC758)\uB294 \uC720\uC9C0\uB429\uB2C8\uB2E4.\n\uD1B5\uC7A5 \uAC70\uB798\uC758 \uAC00\uACC4\uBD80 \uC5F0\uB3D9\uC774 \uD574\uC81C\uB429\uB2C8\uB2E4.\n(\uD3F4\uB354/\uC120\uACB0\uC81C \uD559\uC2B5 \uADDC\uCE59\uC740 \uC720\uC9C0)",
+  resetLedgerDone: "\uAC00\uACC4\uBD80 \uB370\uC774\uD130\uB97C \uCD08\uAE30\uD654\uD588\uC2B5\uB2C8\uB2E4.",
   bankAutoLinked: "\uD1B5\uC7A5 \uC790\uB3D9 \uB4F1\uB85D",
   bankManualEntry: "\uC218\uAE30 \uC785\uB825",
   smartLedgerLastRun: "\uB9C8\uC9C0\uB9C9 \uC790\uB3D9 \uAC00\uACC4\uBD80",
@@ -219,6 +226,7 @@ type CompanyLedgerPageProps = {
   bankTransactions?: BankTransaction[];
   setBankTransactions?: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
   bankLedgerRules?: BankLearnRule[];
+  setBankLedgerRules?: React.Dispatch<React.SetStateAction<BankLearnRule[]>>;
   currentUser?: ErpUser | null;
 };
 
@@ -726,9 +734,11 @@ export function CompanyLedgerPage({
   bankTransactions = [],
   setBankTransactions,
   bankLedgerRules = [],
+  setBankLedgerRules,
   currentUser,
 }: CompanyLedgerPageProps) {
   const { recordAudit, recordSummaryAudit } = useAudit();
+  const isAdmin = currentUser?.role === "admin";
   const [activeTab, setActiveTab] = useState<LedgerTab>("calendar");
   const [periodKey, setPeriodKey] = useState<LedgerPeriodKey>("thisMonth");
   const [manualQuery, setManualQuery] = useState("");
@@ -1330,6 +1340,44 @@ export function CompanyLedgerPage({
     if (isBankLinkedPayment(row)) unlinkBankFixedPayment(row.id);
   };
 
+  const resetCompanyLedger = () => {
+    if (!isAdmin) return;
+    if (!confirmDelete(L.resetLedgerConfirm)) return;
+
+    const expenseCount = companyExpenses.length;
+    const paymentCount = fixedExpensePayments.length;
+    const preservedFixedCount = fixedExpenses.length;
+    const clearedRules = bankLedgerRules.filter((rule) => rule.kind === "fixed" || rule.kind === "manual").length;
+    const unlinkedTxCount = bankTransactions.filter(
+      (row) => row.linkedCompanyExpenseId || row.linkedFixedExpensePaymentId,
+    ).length;
+
+    setCompanyExpenses([]);
+    setFixedExpensePayments?.([]);
+    setExpenseCategories(normalizeExpenseCategories([]));
+    setFixedExpenseCategories(normalizeFixedExpenseCategories([], fixedExpenses));
+    setBankLedgerRules?.((prev) => prev.filter((rule) => rule.kind === "folder" || rule.kind === "preauth_net"));
+    setBankTransactions?.((prev) =>
+      prev.map((row) => ({
+        ...row,
+        linkedCompanyExpenseId: undefined,
+        linkedFixedExpensePaymentId: undefined,
+      })),
+    );
+
+    recordSummaryAudit({
+      entityType: "companyExpense",
+      entityId: "ledger-reset",
+      entityLabel: L.resetLedger,
+      screen: L.pageTitle,
+      action: "delete",
+      fieldLabel: L.resetLedger,
+      after: `\uC9C0\uCD9C ${expenseCount}\u00B7\uB0A9\uBD80 ${paymentCount}\u00B7\uACE0\uC815\uBE44\uB9C8\uC2A4\uD130\uC720\uC9C0 ${preservedFixedCount}\u00B7\uD559\uC2B5\uADDC\uCE59 ${clearedRules}\u00B7\uC5F0\uB3D9\uD574\uC81C ${unlinkedTxCount}`,
+      user: currentUser,
+    });
+    setBankRefreshMessage(L.resetLedgerDone);
+  };
+
   return (
     <div className="erp-company-ledger-page space-y-4 md:space-y-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -1352,6 +1400,24 @@ export function CompanyLedgerPage({
             >
               <RefreshCw size={16} className={bankRefreshLoading ? "mr-2 animate-spin" : "mr-2"} />
               {L.refreshBankLedger}
+            </Button>
+          ) : null}
+          {isAdmin &&
+          setCompanyExpenses &&
+          setFixedExpensePayments &&
+          setFixedExpenses &&
+          setExpenseCategories &&
+          setFixedExpenseCategories &&
+          setBankTransactions &&
+          setBankLedgerRules ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-2xl border-red-200 text-red-700 hover:bg-red-50"
+              onClick={resetCompanyLedger}
+            >
+              <Trash2 size={16} className="mr-2" />
+              {L.resetLedger}
             </Button>
           ) : null}
           {activeTab === "manual" ? (

@@ -6960,6 +6960,7 @@ export default function TeammillimeterErpMvp() {
             bankTransactions={bankTransactions}
             setBankTransactions={setBankTransactions}
             bankLedgerRules={bankLedgerRules}
+            setBankLedgerRules={setBankLedgerRules}
             currentUser={currentUser}
           />
         </PageKeepAlive>

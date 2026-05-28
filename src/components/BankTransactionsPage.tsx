@@ -76,7 +76,7 @@ import {
   buildBankLedgerMatchRuleFromRegistration,
   buildPreauthNetLearnRule,
   buildCompanyExpensePrefillFromBankTransaction,
-  buildLedgerCategoryPromptGroups,
+  buildLedgerReviewPromptGroups,
   canRegisterBankTxToCompanyLedger,
   createCompanyExpenseFromBankTransaction,
   findBestBankLearnRuleWithScore,
@@ -90,7 +90,7 @@ import {
   upsertBankLearnRule,
   type BankLearnRule,
 } from "@/utils/bankCompanyLedger";
-import { buildLedgerClassificationMap } from "@/utils/bankLedgerClassifier";
+import { buildLedgerClassificationMap, classifyBankTransactionForLedger } from "@/utils/bankLedgerClassifier";
 import {
   countPendingSmartLedger,
   formatSmartLedgerRunMessage,
@@ -379,16 +379,18 @@ const L = {
   ledgerSave: "\uAC00\uACC4\uBD80\uB85C \uBCF4\uB0B4\uAE30",
   ledgerDate: "\uC9C0\uCD9C\uC77C",
   ledgerClickHint: "\uBBF8\uBD84\uB958 \uCD9C\uAE08 \uB0B4\uC6A9 \uD074\uB9AD \u2192 \uAC00\uACC4\uBD80\uB85C \uBCF4\uB0B4\uAE30",
-  categoryPromptTitle: "\uAC00\uACC4\uBD80 \uCE74\uD14C\uACE0\uB9AC \uC120\uD0DD",
+  categoryPromptTitle: "\uAC00\uACC4\uBD80 \uC5F0\uB3D9 \uD655\uC778",
   categoryPromptDesc:
-    "\uCC98\uC74C \uB4F1\uB85D\uD558\uB294 \uCD9C\uAE08\uC785\uB2C8\uB2E4. \uCE74\uD14C\uACE0\uB9AC\uB97C \uC815\uD558\uBA74 \uBE44\uC2B7\uD55C \uAC70\uB798\uC5D0 \uC790\uB3D9 \uC801\uC6A9\uB429\uB2C8\uB2E4.",
+    "\uCD9C\uAE08 \uB0B4\uC5ED\uC744 \uACE0\uC815\uBE44 \uB610\uB294 \uBCC0\uB3D9\uC9C0\uCD9C\uB85C \uB4F1\uB85D\uD569\uB2C8\uB2E4. \uD655\uC778\uD558\uBA74 \uBE44\uC2B7\uD55C \uAC70\uB798\uC5D0 \uD559\uC2B5\uB429\uB2C8\uB2E4.",
   categoryPromptPattern: (label: string, count: number) =>
     count > 1 ? `${label} \u00B7 \uBE44\uC2B7 ${count}\uAC74` : label,
-  categoryPromptSave: "\uC800\uC7A5 \uBC0F \uD559\uC2B5",
+  categoryPromptSave: "\uB4F1\uB85D \uBC0F \uD559\uC2B5",
   categoryPromptSkip: "\uAC74\uB108\uB700\uAE30",
   categoryPromptLater: "\uB098\uC911\uC5D0",
   categoryPromptRequired: "\uCE74\uD14C\uACE0\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.",
-  categoryPromptDone: (count: number) => `\uCE74\uD14C\uACE0\uB9AC \uD559\uC2B5 \uD6C4 ${count}\uAC74 \uAC00\uACC4\uBD80 \uB4F1\uB85D`,
+  categoryPromptFixedRequired: "\uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
+  categoryPromptDone: (count: number) => `\uAC00\uACC4\uBD80 \uD655\uC778 \uD6C4 ${count}\uAC74 \uB4F1\uB85D`,
+  categoryPromptSuggestion: (label: string, confidence: number) => `\uCD94\uCC9C: ${label} (${confidence}%)`,
   recurringFixedTitle: "\uBC18\uBCF5 \uCD9C\uAE08 \u2192 \uACE0\uC815\uBE44",
   recurringFixedDesc:
     "\uB9E4\uC6D4 \uBE44\uC2B7\uD55C \uCD9C\uAE08\uC774 2\uAC1C\uC6D4 \uC774\uC0C1 \uBC18\uBCF5\uB418\uBA74 \uACE0\uC815\uBE44\uB85C \uC778\uC2DD\uD569\uB2C8\uB2E4. \uC608\uAE08\uC8FC\u00B7\uAC70\uB798\uB0B4\uC6A9 \uC811\uB450\uC0AC\u00B7\uAE08\uC561 \uC77C\uBD80 \uCC28\uC774(\uC790\uB3D9\uC774\uCC28 \uB4F1)\u00B7\uB0A9\uBD80\uC77C 2~3\uC77C \uCC28\uC774\uB3C4 \uD568\uAED8 \uBB36\uC2B5\uB2C8\uB2E4.",
@@ -679,13 +681,23 @@ export function BankTransactionsPage({
     linkPaymentId?: string;
   } | null>(null);
   const [ledgerFormError, setLedgerFormError] = useState("");
-  const [categoryPrompt, setCategoryPrompt] = useState<{
+  const [ledgerReviewPrompt, setLedgerReviewPrompt] = useState<{
     key: string;
     label: string;
     transactions: BankTransaction[];
+    kind: LedgerRegisterKind;
+    fixedExpenseId: string;
     category: string;
+    date: string;
+    description: string;
+    amount: string;
+    memo: string;
+    linkMode: "link" | "create";
+    linkPaymentId: string;
+    suggestionLabel?: string;
+    suggestionConfidence?: number;
   } | null>(null);
-  const [categoryPromptError, setCategoryPromptError] = useState("");
+  const [ledgerReviewPromptError, setLedgerReviewPromptError] = useState("");
   const [recurringFixedModalOpen, setRecurringFixedModalOpen] = useState(false);
   const [selectedRecurringPatternKeys, setSelectedRecurringPatternKeys] = useState<string[]>([]);
   const [preauthNetModalOpen, setPreauthNetModalOpen] = useState(false);
@@ -830,13 +842,19 @@ export function BankTransactionsPage({
       payments: FixedExpensePayment[],
       expenses: CompanyExpense[],
       rules: BankLearnRule[],
-      options: { onlyTransactionIds?: Set<string>; showMessage?: boolean; auditUser?: AuditUser | null } = {},
+      options: {
+        onlyTransactionIds?: Set<string>;
+        showMessage?: boolean;
+        auditUser?: AuditUser | null;
+        applyKinds?: Array<"fixed" | "manual" | "folder">;
+      } = {},
     ) => {
       const result = autoApplyBankLearnRules(transactions, payments, expenses, rules, fixedExpenses, {
         createdBy: savedBy || undefined,
         onlyTransactionIds: options.onlyTransactionIds,
         workers,
         bankTransactionFolders,
+        applyKinds: options.applyKinds,
       });
       const total = result.fixedCount + result.manualCount + result.folderCount;
       if (total <= 0) {
@@ -890,25 +908,89 @@ export function BankTransactionsPage({
     [fixedExpenses, savedBy, setFixedExpensePayments, setCompanyExpenses, setBankTransactions, recordSummaryAudit, currentUser, workers, bankTransactionFolders],
   );
 
-  const openNextCategoryPrompt = React.useCallback(
-    (transactions: BankTransaction[], rules: BankLearnRule[]) => {
-      const groups = buildLedgerCategoryPromptGroups(
-        transactions,
-        rules,
+  const buildReviewPromptFromTx = React.useCallback(
+    (tx: BankTransaction, group: { key: string; label: string; transactions: BankTransaction[] }) => {
+      const prefill = buildCompanyExpensePrefillFromBankTransaction(tx);
+      const suggestion = ledgerSuggestionByTxId.get(tx.id) || classifyBankTransactionForLedger(tx, {
+        rules: bankLedgerRules,
         fixedExpenses,
-        ledgerRegistrationContext,
-        { onlyTransactionIds: importLedgerBatchIdsRef.current },
-      );
+        expenseCategories,
+        companyExpenses,
+        workers,
+        clients,
+      });
+      const targetKey =
+        suggestion?.targetKey || resolveLedgerTargetForBankTransaction(tx, bankLedgerRules, fixedExpenses);
+      const parsed = parseLedgerTargetKey(targetKey);
+      const learnMatch = findBestBankLearnRuleWithScore(tx, bankLedgerRules, fixedExpenses, ["fixed", "manual"]);
+      const ledgerRule = learnMatch?.rule || findMatchingBankLedgerRule(tx, bankLedgerRules, fixedExpenses);
+      const kind: LedgerRegisterKind = parsed?.kind === "fixed" ? "fixed" : "manual";
+      const fixedItem =
+        parsed?.kind === "fixed" && parsed.fixedExpenseId
+          ? fixedExpenses.find((row) => row.id === parsed.fixedExpenseId)
+          : undefined;
+      const defaultFixedId =
+        fixedItem?.id || suggestion?.fixedExpenseId || fixedExpenses.find((row) => row.isActive)?.id || "";
+      const defaultManualCategory = expenseCategories[0] || EXPENSE_CATEGORY_OPTIONS[0];
+      const defaultFixedCategory = fixedItem?.category?.trim() || FIXED_CATEGORY_OPTIONS[0];
+      const resolvedCategory =
+        kind === "manual"
+          ? suggestion?.category ||
+            (ledgerRule && "category" in ledgerRule ? ledgerRule.category : "") ||
+            (parsed?.kind === "manual" ? parsed.category || "" : "")
+          : fixedItem?.category ||
+            suggestion?.category ||
+            (ledgerRule && "category" in ledgerRule ? ledgerRule.category : "") ||
+            "";
+      const linkDefaults =
+        kind === "fixed" && defaultFixedId
+          ? buildLedgerLinkDefaults(tx, defaultFixedId, fixedExpensePayments, fixedExpenses)
+          : { linkMode: "create" as const, linkPaymentId: "" };
+
+      return {
+        ...group,
+        kind,
+        fixedExpenseId: kind === "fixed" ? defaultFixedId : "",
+        category:
+          kind === "fixed"
+            ? resolvedCategory.trim() || defaultFixedCategory
+            : resolvedCategory.trim() || defaultManualCategory,
+        date: prefill.date,
+        description: fixedItem?.name || prefill.description,
+        amount: prefill.amount,
+        memo: prefill.memo,
+        ...linkDefaults,
+        suggestionLabel: suggestion?.label,
+        suggestionConfidence: suggestion?.confidence,
+      };
+    },
+    [
+      bankLedgerRules,
+      clients,
+      companyExpenses,
+      expenseCategories,
+      fixedExpensePayments,
+      fixedExpenses,
+      ledgerSuggestionByTxId,
+      workers,
+    ],
+  );
+
+  const openNextLedgerReviewPrompt = React.useCallback(
+    (transactions: BankTransaction[]) => {
+      const groups = buildLedgerReviewPromptGroups(transactions, ledgerRegistrationContext, {
+        onlyTransactionIds: importLedgerBatchIdsRef.current,
+      });
       const next = groups[0];
       if (!next) {
-        setCategoryPrompt(null);
-        setCategoryPromptError("");
+        setLedgerReviewPrompt(null);
+        setLedgerReviewPromptError("");
         return;
       }
-      setCategoryPrompt({ ...next, category: "" });
-      setCategoryPromptError("");
+      setLedgerReviewPrompt(buildReviewPromptFromTx(next.transactions[0], next));
+      setLedgerReviewPromptError("");
     },
-    [fixedExpenses, ledgerRegistrationContext],
+    [buildReviewPromptFromTx, ledgerRegistrationContext],
   );
 
   const runSmartAutoLedgerFlow = React.useCallback(async () => {
@@ -927,6 +1009,7 @@ export function BankTransactionsPage({
         clients,
         workers,
         createdBy: savedBy || undefined,
+        skipLedgerRegistration: true,
       });
 
       setBankTransactions(result.bankTransactions);
@@ -950,7 +1033,12 @@ export function BankTransactionsPage({
       });
 
       setImportMessage(formatSmartLedgerRunMessage(result));
-      openNextCategoryPrompt(result.bankTransactions, result.bankLedgerRules);
+      importLedgerBatchIdsRef.current = new Set(
+        result.bankTransactions
+          .filter((tx) => canRegisterBankTxToCompanyLedger(tx, ledgerRegistrationContext))
+          .map((row) => row.id),
+      );
+      openNextLedgerReviewPrompt(result.bankTransactions);
     } catch (error) {
       console.error(error);
       setImportMessage("자동 가계부 처리 중 오류가 발생했습니다.");
@@ -969,6 +1057,7 @@ export function BankTransactionsPage({
     clients,
     workers,
     savedBy,
+    ledgerRegistrationContext,
     setBankTransactions,
     setBankTransactionFolders,
     setFixedExpensePayments,
@@ -977,26 +1066,158 @@ export function BankTransactionsPage({
     setExpenseCategories,
     recordSummaryAudit,
     currentUser,
-    openNextCategoryPrompt,
+    openNextLedgerReviewPrompt,
   ]);
 
-  const skipCategoryPrompt = React.useCallback(() => {
-    if (!categoryPrompt) return;
-    const skippedIds = new Set(categoryPrompt.transactions.map((row) => row.id));
+  const skipLedgerReviewPrompt = React.useCallback(() => {
+    if (!ledgerReviewPrompt) return;
+    const skippedIds = new Set(ledgerReviewPrompt.transactions.map((row) => row.id));
     for (const id of skippedIds) importLedgerBatchIdsRef.current.delete(id);
-    openNextCategoryPrompt(bankTransactions, bankLedgerRules);
-  }, [bankTransactions, bankLedgerRules, categoryPrompt, openNextCategoryPrompt]);
+    openNextLedgerReviewPrompt(bankTransactions);
+  }, [bankTransactions, ledgerReviewPrompt, openNextLedgerReviewPrompt]);
 
-  const saveCategoryPrompt = React.useCallback(() => {
-    if (!categoryPrompt) return;
-    const category = categoryPrompt.category.trim();
-    if (!category) {
-      setCategoryPromptError(L.categoryPromptRequired);
+  const setReviewPromptKind = (kind: LedgerRegisterKind) => {
+    setLedgerReviewPrompt((prev) => {
+      if (!prev || prev.kind === kind) return prev;
+      const next = { ...prev, kind };
+      if (kind === "fixed") {
+        if (!next.fixedExpenseId) {
+          next.fixedExpenseId = fixedExpenses.find((row) => row.isActive)?.id || "";
+        }
+        const fixedItem = fixedExpenses.find((row) => row.id === next.fixedExpenseId);
+        if (fixedItem) {
+          next.category = fixedItem.category?.trim() || next.category;
+          if (!prev.description.trim()) {
+            next.description = fixedItem.name;
+          }
+        }
+        Object.assign(
+          next,
+          buildLedgerLinkDefaults(prev.transactions[0], next.fixedExpenseId, fixedExpensePayments, fixedExpenses),
+        );
+      } else if (!next.category.trim()) {
+        next.category = expenseCategories[0] || EXPENSE_CATEGORY_OPTIONS[0];
+        next.fixedExpenseId = "";
+        next.linkMode = "create";
+        next.linkPaymentId = "";
+      }
+      return next;
+    });
+  };
+
+  const saveLedgerReviewPrompt = React.useCallback(() => {
+    if (!ledgerReviewPrompt) return;
+    const firstTx = ledgerReviewPrompt.transactions[0];
+    if (!firstTx) return;
+
+    if (ledgerReviewPrompt.kind === "fixed") {
+      const fixedExpenseId = ledgerReviewPrompt.fixedExpenseId.trim();
+      const category = ledgerReviewPrompt.category.trim();
+      if (!fixedExpenseId) {
+        setLedgerReviewPromptError(L.categoryPromptFixedRequired);
+        return;
+      }
+      if (!category) {
+        setLedgerReviewPromptError(L.categoryPromptRequired);
+        return;
+      }
+      const error = validateFixedExpensePaymentInput({
+        date: ledgerReviewPrompt.date,
+        fixedExpenseId,
+        amount: ledgerReviewPrompt.amount,
+      });
+      if (error) {
+        setLedgerReviewPromptError(error);
+        return;
+      }
+
+      let nextPayments = fixedExpensePayments;
+      let nextTransactions = [...bankTransactions];
+      const amount = parseLedgerAmount(ledgerReviewPrompt.amount);
+      let registeredCount = 0;
+
+      for (const tx of ledgerReviewPrompt.transactions) {
+        const linkable = listLinkableFixedExpensePayments(tx, fixedExpenseId, nextPayments, fixedExpenses);
+        let existingPayment: FixedExpensePayment | null = null;
+        if (ledgerReviewPrompt.linkMode === "link" && ledgerReviewPrompt.linkPaymentId) {
+          existingPayment = linkable.find((row) => row.id === ledgerReviewPrompt.linkPaymentId) || null;
+        } else if (ledgerReviewPrompt.linkMode !== "create") {
+          existingPayment = findLinkableFixedExpensePayment(tx, fixedExpenseId, nextPayments, fixedExpenses);
+        }
+
+        let paymentId = existingPayment?.id || "";
+        if (existingPayment) {
+          nextPayments = linkFixedExpensePaymentToBankTx(nextPayments, existingPayment.id, tx.id, tx);
+        } else {
+          paymentId = makeLedgerId();
+          const prefill = buildCompanyExpensePrefillFromBankTransaction(tx);
+          const fixedRow = fixedExpenses.find((row) => row.id === fixedExpenseId);
+          nextPayments = [
+            {
+              id: paymentId,
+              fixedExpenseId,
+              date: prefill.date,
+              amount: parseLedgerAmount(prefill.amount),
+              memo: prefill.memo || fixedRow?.name || prefill.description,
+              bankTransactionId: tx.id,
+              createdBy: savedBy || undefined,
+              createdAt: new Date().toISOString(),
+            },
+            ...nextPayments,
+          ];
+        }
+
+        nextTransactions = nextTransactions.map((row) =>
+          row.id === tx.id
+            ? { ...row, linkedFixedExpensePaymentId: paymentId, linkedCompanyExpenseId: undefined }
+            : row,
+        );
+        auditBankTxUpdate(tx, nextTransactions.find((row) => row.id === tx.id) || tx);
+        importLedgerBatchIdsRef.current.delete(tx.id);
+        registeredCount += 1;
+      }
+
+      let nextRules = upsertBankLearnRule(
+        bankLedgerRules,
+        buildBankLedgerMatchRuleFromRegistration(firstTx, fixedExpenseId, savedBy || undefined, amount),
+      );
+
+      const autoLearn = autoApplyBankLearnRules(
+        nextTransactions,
+        nextPayments,
+        companyExpenses,
+        nextRules,
+        fixedExpenses,
+        {
+          createdBy: savedBy || undefined,
+          onlyTransactionIds: importLedgerBatchIdsRef.current.size ? importLedgerBatchIdsRef.current : undefined,
+          workers,
+          bankTransactionFolders,
+        },
+      );
+
+      if (autoLearn.allPayments) nextPayments = autoLearn.allPayments;
+      else if (autoLearn.newPayments.length) nextPayments = [...autoLearn.newPayments, ...nextPayments];
+      nextTransactions = autoLearn.transactions;
+      registeredCount += autoLearn.fixedCount;
+
+      setFixedExpenseCategories((prev) => mergeFixedExpenseCategory(prev, category, fixedExpenses));
+      setFixedExpensePayments(nextPayments);
+      setBankTransactions(nextTransactions);
+      setBankLedgerRules(nextRules);
+
+      if (registeredCount > 0) {
+        setImportMessage(L.categoryPromptDone(registeredCount));
+      }
+      openNextLedgerReviewPrompt(nextTransactions);
       return;
     }
 
-    const firstTx = categoryPrompt.transactions[0];
-    if (!firstTx) return;
+    const category = ledgerReviewPrompt.category.trim();
+    if (!category) {
+      setLedgerReviewPromptError(L.categoryPromptRequired);
+      return;
+    }
 
     let nextRules = upsertBankLearnRule(
       bankLedgerRules,
@@ -1005,7 +1226,7 @@ export function BankTransactionsPage({
     let nextExpenses = [...companyExpenses];
     let nextTransactions = [...bankTransactions];
 
-    for (const tx of categoryPrompt.transactions) {
+    for (const tx of ledgerReviewPrompt.transactions) {
       const expense = createCompanyExpenseFromBankTransaction(tx, category, savedBy || undefined);
       nextExpenses = [expense, ...nextExpenses];
       nextTransactions = nextTransactions.map((row) =>
@@ -1036,6 +1257,8 @@ export function BankTransactionsPage({
       {
         createdBy: savedBy || undefined,
         onlyTransactionIds: importLedgerBatchIdsRef.current.size ? importLedgerBatchIdsRef.current : undefined,
+        workers,
+        bankTransactionFolders,
       },
     );
 
@@ -1059,36 +1282,38 @@ export function BankTransactionsPage({
     }
 
     nextTransactions = autoLearn.transactions;
-    nextRules = nextRules;
 
     setExpenseCategories((prev) => mergeExpenseCategory(prev, category));
     setCompanyExpenses(nextExpenses);
     setBankTransactions(nextTransactions);
     setBankLedgerRules(nextRules);
 
-    const learnedCount = categoryPrompt.transactions.length + autoLearn.manualCount;
+    const learnedCount = ledgerReviewPrompt.transactions.length + autoLearn.manualCount + autoLearn.fixedCount;
     if (learnedCount > 0) {
       setImportMessage(L.categoryPromptDone(learnedCount));
     }
 
-    openNextCategoryPrompt(nextTransactions, nextRules);
+    openNextLedgerReviewPrompt(nextTransactions);
   }, [
     auditBankTxUpdate,
     bankLedgerRules,
+    bankTransactionFolders,
     bankTransactions,
-    categoryPrompt,
     companyExpenses,
     currentUser,
     fixedExpensePayments,
     fixedExpenses,
-    openNextCategoryPrompt,
+    ledgerReviewPrompt,
+    openNextLedgerReviewPrompt,
     recordAudit,
     savedBy,
     setBankLedgerRules,
     setBankTransactions,
     setCompanyExpenses,
     setExpenseCategories,
+    setFixedExpenseCategories,
     setFixedExpensePayments,
+    workers,
   ]);
 
   const loadSentArchives = React.useCallback(async () => {
@@ -1109,6 +1334,7 @@ export function BankTransactionsPage({
     applyAutoLearnRules(bankTransactions, fixedExpensePayments, companyExpenses, bankLedgerRules, {
       showMessage: false,
       auditUser: null,
+      applyKinds: ["folder"],
     });
     // Re-apply only when learn rules change — not on every bank/ledger data update.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1211,12 +1437,12 @@ export function BankTransactionsPage({
     if (current && !categories.includes(current)) {
       categories.unshift(current);
     }
-    const promptCategory = categoryPrompt?.category?.trim();
+    const promptCategory = ledgerReviewPrompt?.category?.trim();
     if (promptCategory && !categories.includes(promptCategory)) {
       categories.unshift(promptCategory);
     }
     return categories.map((category) => ({ label: category, value: category }));
-  }, [expenseCategories, ledgerModal?.category, ledgerModal?.kind, categoryPrompt?.category]);
+  }, [expenseCategories, ledgerModal?.category, ledgerModal?.kind, ledgerReviewPrompt?.category]);
 
   const ledgerFixedCategoryOptions = useMemo(
     () =>
@@ -1230,6 +1456,27 @@ export function BankTransactionsPage({
 
   const activeLedgerCategoryOptions =
     ledgerModal?.kind === "fixed" ? ledgerFixedCategoryOptions : ledgerManualCategoryOptions;
+
+  const reviewLinkablePayments = useMemo(() => {
+    if (!ledgerReviewPrompt || ledgerReviewPrompt.kind !== "fixed") return [];
+    const fixedExpenseId = ledgerReviewPrompt.fixedExpenseId.trim();
+    if (!fixedExpenseId || !ledgerReviewPrompt.transactions[0]) return [];
+    return listLinkableFixedExpensePayments(
+      ledgerReviewPrompt.transactions[0],
+      fixedExpenseId,
+      fixedExpensePayments,
+      fixedExpenses,
+    );
+  }, [fixedExpensePayments, fixedExpenses, ledgerReviewPrompt]);
+
+  const reviewCategoryOptions =
+    ledgerReviewPrompt?.kind === "fixed"
+      ? buildFixedCategorySelectOptions(
+          fixedExpenses,
+          fixedExpenseCategories,
+          ledgerReviewPrompt.category,
+        ).map((category) => ({ label: category, value: category }))
+      : ledgerManualCategoryOptions;
 
   const ledgerLinkablePayments = useMemo(() => {
     if (!ledgerModal || ledgerModal.kind !== "fixed") return [];
@@ -1557,6 +1804,7 @@ export function BankTransactionsPage({
             workers,
             createdBy: savedBy || undefined,
             onlyTransactionIds: addedIds,
+            skipLedgerRegistration: true,
           });
           setBankTransactions(smart.bankTransactions);
           setBankTransactionFolders(smart.bankTransactionFolders);
@@ -1568,10 +1816,10 @@ export function BankTransactionsPage({
           if (hint && !hint.includes("\uC5C6\uC2B5\uB2C8\uB2E4")) {
             setImportMessage((prev) => `${prev} · ${hint}`);
           }
-          openNextCategoryPrompt(smart.bankTransactions, smart.bankLedgerRules);
+          openNextLedgerReviewPrompt(smart.bankTransactions);
         } catch (error) {
           console.error(error);
-          openNextCategoryPrompt(nextTransactions, bankLedgerRules);
+          openNextLedgerReviewPrompt(nextTransactions);
         }
       })();
     }
@@ -1608,6 +1856,7 @@ export function BankTransactionsPage({
     setBankLedgerRules(nextRules);
     applyAutoLearnRules(nextTransactions, fixedExpensePayments, companyExpenses, nextRules, {
       showMessage: true,
+      applyKinds: ["folder"],
     });
   };
 
@@ -4763,11 +5012,11 @@ export function BankTransactionsPage({
         </div>
       ) : null}
 
-      {categoryPrompt ? (
+      {ledgerReviewPrompt ? (
         <div
           className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) skipCategoryPrompt();
+            if (event.target === event.currentTarget) skipLedgerReviewPrompt();
           }}
         >
           <div
@@ -4780,56 +5029,238 @@ export function BankTransactionsPage({
           >
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                <h2 className="erp-text-section font-bold">{L.categoryPromptTitle}</h2>
+                <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800">
+                  <BookOpen size={14} />
+                  {L.categoryPromptTitle}
+                </div>
                 <p className="mt-1 erp-text-caption text-slate-500">{L.categoryPromptDesc}</p>
                 <p className="mt-2 text-sm font-bold text-slate-900">
-                  {L.categoryPromptPattern(categoryPrompt.label, categoryPrompt.transactions.length)}
+                  {L.categoryPromptPattern(ledgerReviewPrompt.label, ledgerReviewPrompt.transactions.length)}
                 </p>
-                {categoryPrompt.transactions[0] ? (
+                {ledgerReviewPrompt.transactions[0] ? (
                   <p className="mt-1 text-sm font-semibold text-red-600">
-                    {formatKRW(categoryPrompt.transactions[0].withdrawal)}
+                    {formatKRW(ledgerReviewPrompt.transactions[0].withdrawal)}
                     {" \u00B7 "}
-                    {formatBankTransactionDateTime(categoryPrompt.transactions[0].transactionAt)}
+                    {formatBankTransactionDateTime(ledgerReviewPrompt.transactions[0].transactionAt)}
+                  </p>
+                ) : null}
+                {ledgerReviewPrompt.suggestionLabel && ledgerReviewPrompt.suggestionConfidence ? (
+                  <p className="mt-1 text-xs font-semibold text-sky-700">
+                    {L.categoryPromptSuggestion(
+                      ledgerReviewPrompt.suggestionLabel,
+                      ledgerReviewPrompt.suggestionConfidence,
+                    )}
                   </p>
                 ) : null}
               </div>
               <button
                 type="button"
                 className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
-                onClick={skipCategoryPrompt}
+                onClick={skipLedgerReviewPrompt}
                 aria-label={L.categoryPromptSkip}
               >
                 <X size={18} />
               </button>
             </div>
 
-            <Field label={L.ledgerManualCategory}>
-              <AutocompleteInput
-                value={categoryPrompt.category}
-                options={ledgerManualCategoryOptions}
-                placeholder={L.ledgerManualCategory}
-                freeSolo
-                showOptionsOnFocus
-                commitFreeSoloOnBlur
-                keepOpenUntilSelect
-                compact={false}
-                limit={24}
-                inputProps={{ className: "rounded-xl" }}
-                onChange={(value) => {
-                  setCategoryPromptError("");
-                  setCategoryPrompt((prev) => (prev ? { ...prev, category: String(value || "").trim() } : prev));
-                }}
-              />
-              <p className="mt-1.5 text-xs font-semibold text-slate-500">{L.ledgerCategoryAddHint}</p>
-            </Field>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <Field label={L.ledgerKind}>
+                  <div className="grid grid-cols-2 gap-2">
+                    {LEDGER_KIND_OPTIONS.map((option) => (
+                      <button
+                        key={option.key}
+                        type="button"
+                        className={`rounded-xl border px-3 py-2.5 text-sm font-bold transition ${
+                          ledgerReviewPrompt.kind === option.key ? option.activeTone : option.tone
+                        }`}
+                        onClick={() => setReviewPromptKind(option.key)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+              </div>
+              {ledgerReviewPrompt.kind === "fixed" ? (
+                <div className="sm:col-span-2">
+                  <Field label={L.ledgerFixedItem}>
+                    <AutocompleteInput
+                      value={ledgerReviewPrompt.fixedExpenseId}
+                      options={fixedExpenseSelectOptions}
+                      placeholder={L.ledgerFixedItem}
+                      freeSolo={false}
+                      showOptionsOnFocus
+                      commitFreeSoloOnBlur
+                      keepOpenUntilSelect
+                      compact={false}
+                      limit={24}
+                      inputProps={{ className: "rounded-xl" }}
+                      onChange={(value) => {
+                        const fixedExpenseId = String(value || "").trim();
+                        const fixedItem = fixedExpenses.find((row) => row.id === fixedExpenseId);
+                        setLedgerReviewPrompt((prev) => {
+                          if (!prev) return prev;
+                          const next = {
+                            ...prev,
+                            fixedExpenseId,
+                            category: fixedItem?.category?.trim() || prev.category,
+                            description: prev.description.trim() || fixedItem?.name || prev.description,
+                          };
+                          Object.assign(
+                            next,
+                            buildLedgerLinkDefaults(
+                              prev.transactions[0],
+                              fixedExpenseId,
+                              fixedExpensePayments,
+                              fixedExpenses,
+                            ),
+                          );
+                          return next;
+                        });
+                        setLedgerReviewPromptError("");
+                      }}
+                    />
+                  </Field>
+                </div>
+              ) : null}
+              {ledgerReviewPrompt.kind === "fixed" && reviewLinkablePayments.length ? (
+                <div className="sm:col-span-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                  <p className="text-sm font-bold text-emerald-900">{L.ledgerLinkExistingTitle}</p>
+                  <p className="mt-1 text-xs font-semibold text-emerald-800">
+                    {L.ledgerLinkExistingDesc(reviewLinkablePayments.length)}
+                  </p>
+                  <div className="mt-3 space-y-2">
+                    <label className="flex items-center gap-2 text-sm font-semibold text-emerald-900">
+                      <input
+                        type="radio"
+                        name="review-ledger-link-mode"
+                        checked={ledgerReviewPrompt.linkMode !== "create"}
+                        onChange={() =>
+                          setLedgerReviewPrompt((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  linkMode: "link",
+                                  linkPaymentId: reviewLinkablePayments[0]?.id || "",
+                                }
+                              : prev,
+                          )
+                        }
+                      />
+                      {L.ledgerLinkModeLink}
+                    </label>
+                    {ledgerReviewPrompt.linkMode !== "create" && reviewLinkablePayments.length > 1 ? (
+                      <select
+                        className="erp-input w-full rounded-xl border bg-white px-3 py-2.5 text-sm font-semibold text-slate-900"
+                        value={ledgerReviewPrompt.linkPaymentId || reviewLinkablePayments[0]?.id || ""}
+                        onChange={(event) =>
+                          setLedgerReviewPrompt((prev) =>
+                            prev ? { ...prev, linkMode: "link", linkPaymentId: event.target.value } : prev,
+                          )
+                        }
+                      >
+                        {reviewLinkablePayments.map((payment) => {
+                          const fixedItem = fixedExpenses.find((row) => row.id === payment.fixedExpenseId);
+                          const label = `${payment.date} · ${formatKRW(payment.amount)}\uC6D0${
+                            payment.memo ? ` · ${payment.memo}` : fixedItem?.name ? ` · ${fixedItem.name}` : ""
+                          }`;
+                          return (
+                            <option key={payment.id} value={payment.id}>
+                              {label}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    ) : null}
+                    <label className="flex items-center gap-2 text-sm font-semibold text-emerald-900">
+                      <input
+                        type="radio"
+                        name="review-ledger-link-mode"
+                        checked={ledgerReviewPrompt.linkMode === "create"}
+                        onChange={() =>
+                          setLedgerReviewPrompt((prev) =>
+                            prev ? { ...prev, linkMode: "create", linkPaymentId: "" } : prev,
+                          )
+                        }
+                      />
+                      {L.ledgerLinkModeCreate}
+                    </label>
+                  </div>
+                </div>
+              ) : null}
+              <Field label={L.ledgerDate}>
+                <KoreanDateInput
+                  value={ledgerReviewPrompt.date}
+                  onChange={(event) =>
+                    setLedgerReviewPrompt((prev) => (prev ? { ...prev, date: event.target.value } : prev))
+                  }
+                />
+              </Field>
+              <Field label={ledgerReviewPrompt.kind === "fixed" ? L.ledgerCategory : L.ledgerManualCategory}>
+                <AutocompleteInput
+                  value={ledgerReviewPrompt.category}
+                  options={reviewCategoryOptions}
+                  placeholder={L.ledgerManualCategory}
+                  freeSolo
+                  showOptionsOnFocus
+                  commitFreeSoloOnBlur
+                  keepOpenUntilSelect
+                  compact={false}
+                  limit={24}
+                  inputProps={{ className: "rounded-xl" }}
+                  onChange={(value) => {
+                    setLedgerReviewPromptError("");
+                    setLedgerReviewPrompt((prev) =>
+                      prev ? { ...prev, category: String(value || "").trim() } : prev,
+                    );
+                  }}
+                />
+                <p className="mt-1.5 text-xs font-semibold text-slate-500">{L.ledgerCategoryAddHint}</p>
+              </Field>
+              <div className="sm:col-span-2">
+                <Field label={L.ledgerDescription}>
+                  <input
+                    className="erp-input w-full rounded-xl"
+                    value={ledgerReviewPrompt.description}
+                    onChange={(event) =>
+                      setLedgerReviewPrompt((prev) =>
+                        prev ? { ...prev, description: event.target.value } : prev,
+                      )
+                    }
+                  />
+                </Field>
+              </div>
+              <Field label={L.ledgerAmount}>
+                <input
+                  className="erp-input w-full rounded-xl"
+                  inputMode="numeric"
+                  value={ledgerReviewPrompt.amount}
+                  onChange={(event) =>
+                    setLedgerReviewPrompt((prev) => (prev ? { ...prev, amount: event.target.value } : prev))
+                  }
+                />
+              </Field>
+              <Field label={L.ledgerMemo}>
+                <input
+                  className="erp-input w-full rounded-xl"
+                  value={ledgerReviewPrompt.memo}
+                  onChange={(event) =>
+                    setLedgerReviewPrompt((prev) => (prev ? { ...prev, memo: event.target.value } : prev))
+                  }
+                />
+              </Field>
+            </div>
 
-            {categoryPromptError ? <p className="mt-3 text-sm font-semibold text-red-600">{categoryPromptError}</p> : null}
+            {ledgerReviewPromptError ? (
+              <p className="mt-3 text-sm font-semibold text-red-600">{ledgerReviewPromptError}</p>
+            ) : null}
 
             <div className="mt-5 flex flex-wrap justify-end gap-2">
-              <Button type="button" variant="outline" className="rounded-2xl" onClick={skipCategoryPrompt}>
+              <Button type="button" variant="outline" className="rounded-2xl" onClick={skipLedgerReviewPrompt}>
                 {L.categoryPromptSkip}
               </Button>
-              <Button type="button" className="rounded-2xl" onClick={saveCategoryPrompt}>
+              <Button type="button" className="rounded-2xl" onClick={saveLedgerReviewPrompt}>
                 <BookOpen size={16} className="mr-2" />
                 {L.categoryPromptSave}
               </Button>
