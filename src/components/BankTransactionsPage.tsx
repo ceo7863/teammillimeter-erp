@@ -353,6 +353,9 @@ const L = {
   ledgerEditSave: "\uC218\uC815 \uC800\uC7A5",
   ledgerEditDone: "\uAC00\uACC4\uBD80 \uB4F1\uB85D\uC774 \uC218\uC815\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   ledgerFixedEditDone: "\uACE0\uC815\uBE44 \uB4F1\uB85D\uC774 \uC218\uC815\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
+  ledgerKindChangeDone: "\uB4F1\uB85D \uC720\uD615\uC774 \uBCC0\uACBD\uB418\uC5B4 \uAE30\uC874 \uC5F0\uACB0\uC744 \uD574\uC81C\uD55C \uB4A4 \uB2E4\uC2DC \uB4F1\uB85D\uD588\uC2B5\uB2C8\uB2E4.",
+  ledgerKindChangeSaveManual: "\uC720\uD615 \uBCC0\uACBD \u00B7 \uBCC0\uB3D9\uC9C0\uCD9C\uB85C \uC800\uC7A5",
+  ledgerKindChangeSaveFixed: "\uC720\uD615 \uBCC0\uACBD \u00B7 \uACE0\uC815\uBE44\uB85C \uC800\uC7A5",
   ledgerBadgeEditHint: "\uD074\uB9AD\uD558\uBA74 \uB4F1\uB85D \uB0B4\uC6A9\uC744 \uC218\uC815\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
   ledgerAutoRegisterDone: (count: number) => `\uACE0\uC815\uBE44 ${count}\uAC74\uC774 \uC790\uB3D9 \uB4F1\uB85D\uB418\uC5C8\uC2B5\uB2C8\uB2E4.`,
   ledgerAutoLearnDone: formatBankLearnAutoMessage,
@@ -800,6 +803,10 @@ export function BankTransactionsPage({
   const isLedgerEditModal = (modal: NonNullable<typeof ledgerModal>) =>
     modal.mode === "edit" || Boolean(modal.editPaymentId || modal.editExpenseId);
 
+  const isLedgerKindSwitch = (modal: NonNullable<typeof ledgerModal>) =>
+    (Boolean(modal.editPaymentId) && modal.kind === "manual") ||
+    (Boolean(modal.editExpenseId) && modal.kind === "fixed");
+
   const resolveLinkedCompanyExpenseForBankTx = (tx: BankTransaction) =>
     getLinkedCompanyExpenseForBankTx(tx, companyExpenses);
 
@@ -1225,7 +1232,8 @@ export function BankTransactionsPage({
     ledgerModal?.kind === "fixed" ? ledgerFixedCategoryOptions : ledgerManualCategoryOptions;
 
   const ledgerLinkablePayments = useMemo(() => {
-    if (!ledgerModal || ledgerModal.kind !== "fixed" || isLedgerEditModal(ledgerModal)) return [];
+    if (!ledgerModal || ledgerModal.kind !== "fixed") return [];
+    if (isLedgerEditModal(ledgerModal) && !ledgerModal.editExpenseId) return [];
     const fixedExpenseId = ledgerModal.fixedExpenseId.trim();
     if (!fixedExpenseId) return [];
     return listLinkableFixedExpensePayments(
@@ -1943,8 +1951,217 @@ export function BankTransactionsPage({
       (Boolean(ledgerModal.editPaymentId) && ledgerModal.kind === "manual") ||
       (Boolean(ledgerModal.editExpenseId) && ledgerModal.kind === "fixed");
 
-    if (kindChanged) {
-      setLedgerFormError("\uB4F1\uB85D \uC720\uD615 \uBCC0\uACBD\uC740 \uAE30\uC874 \uC5F0\uACB0\uC744 \uD574\uC81C\uD55C \uB4A4 \uB2E4\uC2DC \uB4F1\uB85D\uD574 \uC8FC\uC138\uC694.");
+    if (kindChanged && ledgerModal.editPaymentId && ledgerModal.kind === "manual") {
+      const category = ledgerModal.category.trim();
+      if (!category) {
+        setLedgerFormError("\uCE74\uD14C\uACE0\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.");
+        return;
+      }
+      const error = validateCompanyExpenseInput({
+        date: ledgerModal.date,
+        category,
+        description: ledgerModal.description,
+        amount: ledgerModal.amount,
+      });
+      if (error) {
+        setLedgerFormError(error);
+        return;
+      }
+
+      const paymentId = ledgerModal.editPaymentId;
+      const beforePayment = fixedExpensePayments.find((row) => row.id === paymentId);
+      const nextPayments = fixedExpensePayments.filter((row) => row.id !== paymentId);
+      const expenseId = makeLedgerId();
+      const expense: CompanyExpense = {
+        id: expenseId,
+        date: ledgerModal.date,
+        category,
+        description: ledgerModal.description.trim(),
+        amount: parseLedgerAmount(ledgerModal.amount),
+        memo: ledgerModal.memo.trim(),
+        kind: "variable",
+        bankTransactionId: ledgerModal.tx.id,
+        createdBy: savedBy,
+        createdAt: new Date().toISOString(),
+      };
+      const nextExpenses = [expense, ...companyExpenses];
+      const nextTransactions = bankTransactions.map((row) => {
+        if (row.id === ledgerModal.tx.id) {
+          return { ...row, linkedCompanyExpenseId: expenseId, linkedFixedExpensePaymentId: undefined };
+        }
+        if (row.linkedFixedExpensePaymentId === paymentId) {
+          return { ...row, linkedFixedExpensePaymentId: undefined };
+        }
+        return row;
+      });
+      const nextCategories = mergeExpenseCategory(expenseCategories, category);
+      const nextRules = upsertBankLearnRule(
+        bankLedgerRules,
+        buildBankLearnRuleFromManualRegistration(ledgerModal.tx, category, savedBy),
+      );
+      if (beforePayment) {
+        const fixedItem = fixedExpenses.find((row) => row.id === beforePayment.fixedExpenseId);
+        recordAudit({
+          entityType: "fixedExpensePayment",
+          entityId: paymentId,
+          entityLabel: fixedItem?.name || paymentId,
+          screen: L.pageTitle,
+          action: "delete",
+          before: snapshotFixedExpensePaymentForAudit(beforePayment),
+          fields: FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS,
+          user: currentUser,
+        });
+      }
+      recordAudit({
+        entityType: "companyExpense",
+        entityId: expenseId,
+        entityLabel: `${expense.date} \u00B7 ${expense.description || expense.category}`,
+        screen: L.pageTitle,
+        action: "create",
+        after: snapshotCompanyExpenseForAudit(expense),
+        fields: COMPANY_EXPENSE_AUDIT_FIELDS,
+        user: currentUser,
+      });
+      auditBankTxUpdate(ledgerModal.tx, nextTransactions.find((row) => row.id === ledgerModal.tx.id) || ledgerModal.tx);
+      setFixedExpensePayments(nextPayments);
+      setCompanyExpenses(nextExpenses);
+      setBankTransactions(nextTransactions);
+      setExpenseCategories(nextCategories);
+      setBankLedgerRules(nextRules);
+      setLedgerModal(null);
+      setLedgerFormError("");
+      setImportMessage(L.ledgerKindChangeDone);
+      return;
+    }
+
+    if (kindChanged && ledgerModal.editExpenseId && ledgerModal.kind === "fixed") {
+      const fixedExpenseId = ledgerModal.fixedExpenseId.trim();
+      const category = ledgerModal.category.trim();
+      if (!category) {
+        setLedgerFormError("\uCE74\uD14C\uACE0\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.");
+        return;
+      }
+      if (!fixedExpenseId) {
+        setLedgerFormError("\uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.");
+        return;
+      }
+      const error = validateFixedExpensePaymentInput({
+        date: ledgerModal.date,
+        fixedExpenseId,
+        amount: ledgerModal.amount,
+      });
+      if (error) {
+        setLedgerFormError(error);
+        return;
+      }
+
+      const expenseId = ledgerModal.editExpenseId;
+      const beforeExpense = companyExpenses.find((row) => row.id === expenseId);
+      const nextExpenses = companyExpenses.filter((row) => row.id !== expenseId);
+      const amount = parseLedgerAmount(ledgerModal.amount);
+      const linkable = listLinkableFixedExpensePayments(
+        ledgerModal.tx,
+        fixedExpenseId,
+        fixedExpensePayments,
+        fixedExpenses,
+      );
+      let existingPayment: FixedExpensePayment | null = null;
+      if (ledgerModal.linkMode === "link" && ledgerModal.linkPaymentId) {
+        existingPayment = linkable.find((row) => row.id === ledgerModal.linkPaymentId) || null;
+      } else if (ledgerModal.linkMode !== "create") {
+        existingPayment = findLinkableFixedExpensePayment(
+          ledgerModal.tx,
+          fixedExpenseId,
+          fixedExpensePayments,
+          fixedExpenses,
+        );
+      }
+
+      let nextPayments = fixedExpensePayments;
+      let paymentId = existingPayment?.id || "";
+      if (existingPayment) {
+        nextPayments = linkFixedExpensePaymentToBankTx(nextPayments, existingPayment.id, ledgerModal.tx.id, ledgerModal.tx);
+        paymentId = existingPayment.id;
+      } else {
+        paymentId = makeLedgerId();
+        nextPayments = [
+          {
+            id: paymentId,
+            fixedExpenseId,
+            date: ledgerModal.date,
+            amount,
+            memo: ledgerModal.memo.trim() || ledgerModal.description.trim(),
+            bankTransactionId: ledgerModal.tx.id,
+            createdBy: savedBy,
+            createdAt: new Date().toISOString(),
+          },
+          ...nextPayments,
+        ];
+      }
+
+      const nextTransactions = bankTransactions.map((row) =>
+        row.id === ledgerModal.tx.id
+          ? { ...row, linkedFixedExpensePaymentId: paymentId, linkedCompanyExpenseId: undefined }
+          : row.linkedCompanyExpenseId === expenseId
+            ? { ...row, linkedCompanyExpenseId: undefined }
+            : row,
+      );
+      const existingFixed = fixedExpenses.find((row) => row.id === fixedExpenseId);
+      if (existingFixed && existingFixed.category !== category) {
+        setFixedExpenses((prev) =>
+          prev.map((row) => (row.id === fixedExpenseId ? { ...row, category } : row)),
+        );
+        recordAudit({
+          entityType: "fixedExpense",
+          entityId: fixedExpenseId,
+          entityLabel: existingFixed.name,
+          screen: L.pageTitle,
+          action: "update",
+          before: snapshotFixedExpenseForAudit(existingFixed),
+          after: snapshotFixedExpenseForAudit({ ...existingFixed, category }),
+          fields: FIXED_EXPENSE_AUDIT_FIELDS,
+          user: currentUser,
+        });
+      }
+      const nextRules = upsertBankLearnRule(
+        bankLedgerRules,
+        buildBankLedgerMatchRuleFromRegistration(ledgerModal.tx, fixedExpenseId, savedBy, amount),
+      );
+      if (beforeExpense) {
+        recordAudit({
+          entityType: "companyExpense",
+          entityId: expenseId,
+          entityLabel: `${beforeExpense.date} \u00B7 ${beforeExpense.description || beforeExpense.category}`,
+          screen: L.pageTitle,
+          action: "delete",
+          before: snapshotCompanyExpenseForAudit(beforeExpense),
+          fields: COMPANY_EXPENSE_AUDIT_FIELDS,
+          user: currentUser,
+        });
+      }
+      const linkedPayment = nextPayments.find((row) => row.id === paymentId);
+      if (linkedPayment && !existingPayment) {
+        const fixedItem = fixedExpenses.find((row) => row.id === fixedExpenseId);
+        recordAudit({
+          entityType: "fixedExpensePayment",
+          entityId: paymentId,
+          entityLabel: fixedItem?.name || paymentId,
+          screen: L.pageTitle,
+          action: "create",
+          after: snapshotFixedExpensePaymentForAudit(linkedPayment),
+          fields: FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS,
+          user: currentUser,
+        });
+      }
+      setFixedExpenseCategories((prev) => mergeFixedExpenseCategory(prev, category, fixedExpenses));
+      auditBankTxUpdate(ledgerModal.tx, nextTransactions.find((row) => row.id === ledgerModal.tx.id) || ledgerModal.tx);
+      setCompanyExpenses(nextExpenses);
+      setFixedExpensePayments(nextPayments);
+      setBankTransactions(nextTransactions);
+      setBankLedgerRules(nextRules);
+      setLedgerModal(null);
+      setLedgerFormError("");
+      setImportMessage(L.ledgerKindChangeDone);
       return;
     }
 
@@ -4216,7 +4433,9 @@ export function BankTransactionsPage({
                   </Field>
                 </div>
               ) : null}
-              {!isLedgerEditModal(ledgerModal) && ledgerModal.kind === "fixed" && ledgerLinkablePayments.length ? (
+              {(!isLedgerEditModal(ledgerModal) || ledgerModal.editExpenseId) &&
+              ledgerModal.kind === "fixed" &&
+              ledgerLinkablePayments.length ? (
                 <div className="sm:col-span-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
                   <p className="text-sm font-bold text-emerald-900">{L.ledgerLinkExistingTitle}</p>
                   <p className="mt-1 text-xs font-semibold text-emerald-800">
@@ -4341,13 +4560,19 @@ export function BankTransactionsPage({
               </Button>
               <Button type="button" className="rounded-2xl" onClick={saveLedgerRegister}>
                 <BookOpen size={16} className="mr-2" />
-                {isLedgerEditModal(ledgerModal)
-                  ? L.ledgerEditSave
-                  : ledgerModal.kind === "fixed" &&
-                      ledgerModal.linkMode !== "create" &&
-                      ledgerLinkablePayments.length
-                    ? L.ledgerSaveLink
-                    : L.ledgerSave}
+                {isLedgerKindSwitch(ledgerModal)
+                  ? ledgerModal.kind === "fixed"
+                    ? ledgerModal.linkMode !== "create" && ledgerLinkablePayments.length
+                      ? L.ledgerSaveLink
+                      : L.ledgerKindChangeSaveFixed
+                    : L.ledgerKindChangeSaveManual
+                  : isLedgerEditModal(ledgerModal)
+                    ? L.ledgerEditSave
+                    : ledgerModal.kind === "fixed" &&
+                        ledgerModal.linkMode !== "create" &&
+                        ledgerLinkablePayments.length
+                      ? L.ledgerSaveLink
+                      : L.ledgerSave}
               </Button>
             </div>
           </div>
