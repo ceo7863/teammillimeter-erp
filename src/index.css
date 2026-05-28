@@ -8600,6 +8600,127 @@ body.erp-col-resizing * {
   padding: 1rem 1.25rem 1.25rem;
 }
 
+.erp-ledger-modal--bank-links {
+  width: min(100%, 56rem);
+  max-width: calc(100vw - 1.5rem);
+  max-height: calc(100vh - 1.5rem);
+  padding: 1rem 1.125rem 1.125rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow: hidden;
+}
+
+.erp-bank-links-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.erp-bank-links-table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: min(62vh, 26rem);
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+.erp-bank-links-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 0.6875rem;
+  line-height: 1.35;
+}
+
+.erp-bank-links-table__col-date {
+  width: 11%;
+}
+
+.erp-bank-links-table__col-amount {
+  width: 10%;
+}
+
+.erp-bank-links-table__col-status {
+  width: 8%;
+}
+
+.erp-bank-links-table__col-tx {
+  width: 14%;
+}
+
+.erp-bank-links-table__col-desc {
+  width: 30%;
+}
+
+.erp-bank-links-table__col-party {
+  width: 17%;
+}
+
+.erp-bank-links-table th,
+.erp-bank-links-table td {
+  padding: 0.35rem 0.4rem;
+  border-bottom: 1px solid #e2e8f0;
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.erp-bank-links-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f8fafc;
+  font-weight: 700;
+  color: #64748b;
+  font-size: 0.625rem;
+  letter-spacing: -0.01em;
+}
+
+.erp-bank-links-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+.erp-bank-links-table__empty {
+  padding: 2rem 0.75rem !important;
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  white-space: normal;
+}
+
+.erp-bank-links-modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  padding-top: 0.125rem;
+}
+
+@media (min-width: 640px) {
+  .erp-ledger-modal--bank-links {
+    padding: 1.125rem 1.25rem 1.25rem;
+  }
+
+  .erp-bank-links-table {
+    font-size: 0.75rem;
+  }
+
+  .erp-bank-links-table th,
+  .erp-bank-links-table td {
+    padding: 0.4rem 0.5rem;
+  }
+
+  .erp-bank-links-table thead th {
+    font-size: 0.6875rem;
+  }
+}
+
 .erp-client-statement-modal-head {
   display: flex;
   align-items: flex-start;

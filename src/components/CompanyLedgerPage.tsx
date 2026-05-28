@@ -2438,30 +2438,39 @@ export function CompanyLedgerPage({
               }}
             >
               <div
-                className="erp-ledger-modal max-w-5xl"
+                className="erp-ledger-modal erp-ledger-modal--bank-links"
                 onMouseDown={(event) => event.stopPropagation()}
                 onClick={(event) => event.stopPropagation()}
                 role="dialog"
                 aria-modal="true"
                 aria-label={L.viewBankLinksTitle}
               >
-                <div className="mb-4 flex items-start justify-between gap-3">
-                  <div>
+                <div className="erp-bank-links-modal-head">
+                  <div className="min-w-0">
                     <h2 className="erp-text-section font-bold">{L.viewBankLinksTitle}</h2>
                     <p className="mt-1 erp-text-caption text-slate-500">{L.viewBankLinksDesc}</p>
-                    <p className="mt-2 text-sm font-bold text-slate-900">{bankLinkView.title}</p>
+                    <p className="mt-2 truncate text-sm font-bold text-slate-900">{bankLinkView.title}</p>
                   </div>
                   <button
                     type="button"
-                    className="rounded-xl p-2 text-slate-400 hover:bg-slate-100"
+                    className="shrink-0 rounded-xl p-2 text-slate-400 hover:bg-slate-100"
                     onClick={() => setBankLinkView(null)}
                   >
                     <X size={18} />
                   </button>
                 </div>
 
-                <DesktopTableWrap>
-                  <table className="erp-ledger-table min-w-full">
+                <div className="erp-bank-links-table-wrap">
+                  <table className="erp-bank-links-table">
+                    <colgroup>
+                      <col className="erp-bank-links-table__col-date" />
+                      <col className="erp-bank-links-table__col-amount" />
+                      <col className="erp-bank-links-table__col-status" />
+                      <col className="erp-bank-links-table__col-tx" />
+                      <col className="erp-bank-links-table__col-amount" />
+                      <col className="erp-bank-links-table__col-desc" />
+                      <col className="erp-bank-links-table__col-party" />
+                    </colgroup>
                     <thead>
                       <tr>
                         <th>{L.viewBankLinksPaymentDate}</th>
@@ -2477,10 +2486,9 @@ export function CompanyLedgerPage({
                       {bankLinkViewRows.length ? (
                         bankLinkViewRows.map((row) => (
                           <tr key={row.paymentId}>
-                            <td className="whitespace-nowrap">{row.paymentDate}</td>
+                            <td>{row.paymentDate}</td>
                             <td className="text-right font-semibold text-rose-600">
                               {formatKRW(row.paymentAmount)}
-                              {L.won}
                             </td>
                             <td>
                               <span
@@ -2491,28 +2499,32 @@ export function CompanyLedgerPage({
                                 {row.linked ? L.viewBankLinksLinked : L.viewBankLinksUnlinked}
                               </span>
                             </td>
-                            <td className="whitespace-nowrap text-slate-600">
+                            <td className="text-slate-600">
                               {row.bankAt ? formatBankTransactionDateTime(row.bankAt) : "-"}
                             </td>
                             <td className="text-right font-semibold text-red-600">
                               {row.bankWithdrawal ? formatKRW(row.bankWithdrawal) : "-"}
                             </td>
-                            <td className="font-medium text-slate-900">{row.bankDescription || "-"}</td>
-                            <td className="text-slate-700">{row.bankCounterparty || "-"}</td>
+                            <td className="font-medium text-slate-900" title={row.bankDescription || undefined}>
+                              {row.bankDescription || "-"}
+                            </td>
+                            <td className="text-slate-700" title={row.bankCounterparty || undefined}>
+                              {row.bankCounterparty || "-"}
+                            </td>
                           </tr>
                         ))
                       ) : (
                         <tr>
-                          <td colSpan={7} className="py-10 text-center text-sm font-semibold text-slate-500">
+                          <td colSpan={7} className="erp-bank-links-table__empty">
                             {L.viewBankLinksEmpty}
                           </td>
                         </tr>
                       )}
                     </tbody>
                   </table>
-                </DesktopTableWrap>
+                </div>
 
-                <div className="mt-5 flex justify-end">
+                <div className="erp-bank-links-modal-foot">
                   <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setBankLinkView(null)}>
                     {L.cancel}
                   </Button>
