@@ -321,7 +321,13 @@ export function snapshotBankTransactionForAudit(row: Record<string, unknown>) {
 export function snapshotBankFolderForAudit(folder: Record<string, unknown>) {
   const folderType = folder.folderType;
   const typeLabel =
-    folderType === "worker" ? "\uC2DC\uACF5\uC790" : folderType === "card" ? "\uCE74\uB4DC\uB9E4\uCD9C" : "\uAC70\uB798\uCC98";
+    folderType === "worker"
+      ? "\uC2DC\uACF5\uC790"
+      : folderType === "card"
+        ? "\uCE74\uB4DC\uB9E4\uCD9C"
+        : folderType === "custom"
+          ? "\uC0AC\uC6A9\uC790 \uAD6C\uBD84"
+          : "\uAC70\uB798\uCC98";
   return {
     folderName: folder.folderName || "",
     folderType: typeLabel,

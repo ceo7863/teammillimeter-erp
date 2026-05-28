@@ -10,6 +10,7 @@ import {
   CreditCard,
   FileSpreadsheet,
   FolderPlus,
+  FolderTree,
   HardHat,
   Landmark,
   Link2,
@@ -136,7 +137,9 @@ import {
   clearBankTransactionFolderReferences,
   collectDescendantFolderIds,
   createBankTransactionFolder,
-  flattenBankTransactionFolderTree,
+  flattenCustomCategoryFolderTree,
+  listCustomCategoryRoots,
+  collectCustomCategoryFolderIds,
   getBankTransactionFolderPath,
   getBankTransactionFolderTone,
   getBankTransactionFolderLabel,
@@ -152,7 +155,11 @@ import {
 
 type PeriodKey = "thisMonth" | "lastMonth" | "all" | "custom";
 type DateFilter = { startDate: string; endDate: string };
-type FolderScope = "all" | "client" | "card" | "worker" | "unfiled";
+type FolderScope = "all" | "client" | "card" | "worker" | "unfiled" | `custom:${string}`;
+
+function parseCustomFolderScope(scope: FolderScope) {
+  return scope.startsWith("custom:") ? scope.slice("custom:".length) : "";
+}
 type PageView = "list" | "reconcile";
 
 const PERIOD_OPTIONS: Array<{ key: PeriodKey; label: string }> = [
@@ -241,7 +248,8 @@ const L = {
   flowRatio: "\uC785\uCD9C\uAE08 \uBE44\uC728",
   filteredSummary: "\uC120\uD0DD \uAE30\uAC04 \uC694\uC57D",
   foldersTitle: "\uBD84\uB958 \uD3F4\uB354",
-  foldersHint: "\uAC70\uB798\uCC98 \uC785\uAE08\uACFC \uC2DC\uACF5\uC790 \uC9C0\uCD9C\uC744 \uD3F4\uB354\uB85C \uB098\uB204\uACE0 \uAC01 \uAC70\uB798\uB97C \uB123\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+  foldersHint:
+    "\uAC70\uB798\uCC98 \uC785\uAE08\u00B7\uCE74\uB4DC\uB9E4\uCD9C\u00B7\uC2DC\uACF5\uC790 \uC9C0\uCD9C \uC678\uC5D0\uB3C4 \uAD6C\uBD84\uC744 \uCD94\uAC00\uD560 \uC218 \uC788\uACE0, \uAC01 \uAC70\uB798\uB97C \uD3F4\uB354\uC5D0 \uB123\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
   clientFolders: "\uAC70\uB798\uCC98 \uC785\uAE08",
   cardFolders: "\uCE74\uB4DC\uB9E4\uCD9C",
   workerFolders: "\uC2DC\uACF5\uC790 \uC9C0\uCD9C",
@@ -255,6 +263,11 @@ const L = {
     "\uCD5C\uC0C1\uC704\uB97C \uC120\uD0DD\uD558\uBA74 \uAC70\uB798\uCC98 \uC785\uAE08\uB7EC \uAE30\uBCF8 \uBD84\uB958 \uD3F4\uB354\uC640 \uAC19\uC740 \uB2E8\uACC4\uC5D0 \uC0DD\uC131\uB429\uB2C8\uB2E4. \uC0C1\uC704 \uD3F4\uB354\uB97C \uACE0\uB974\uBA74 \uD558\uC704 \uD3F4\uB354\uAC00 \uB429\uB2C8\uB2E4.",
   defaultFolderBadge: "\uAE30\uBCF8",
   createFolderInSection: "\uD3F4\uB354 \uCD94\uAC00",
+  createCategory: "\uAD6C\uBD84 \uCD94\uAC00",
+  createCategoryHint:
+    "\uAC70\uB798\uCC98 \uC785\uAE08\u00B7\uCE74\uB4DC\uB9E4\uCD9C\u00B7\uC2DC\uACF5\uC790 \uC9C0\uCD9C\uACFC \uAC19\uC740 \uC0C8 \uCD5C\uC0C1\uC704 \uBD84\uB958\uB97C \uB9CC\uB463\uB2C8\uB2E4.",
+  deleteCategoryConfirm:
+    "\uAD6C\uBD84\uACFC \uC548\uC758 \uD558\uC704 \uD3F4\uB354\u00B7\uAC70\uB798\uAC00 \uD568\uAED8 \uC0AD\uC81C\uB429\uB2C8\uB2E4. \uACC4\uC18D\uD560\uAE4C\uC694?",
   createSubfolder: "\uD558\uC704 \uD3F4\uB354 \uC0DD\uC131",
   folderType: "\uD3F4\uB354 \uAD6C\uBD84",
   saveFolder: "\uC0DD\uC131",
@@ -536,6 +549,8 @@ export function BankTransactionsPage({
   const [folderScope, setFolderScope] = useState<FolderScope>("all");
   const [sort, setSort] = useState<BankTransactionSort>(DEFAULT_BANK_TRANSACTION_SORT);
   const [createFolderOpen, setCreateFolderOpen] = useState(false);
+  const [createCategoryOpen, setCreateCategoryOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderType, setNewFolderType] = useState<BankTransactionFolderType>("client");
   const [newFolderParentId, setNewFolderParentId] = useState("");
@@ -889,6 +904,17 @@ export function BankTransactionsPage({
     () => flattenBankTransactionFolderTree(buildBankTransactionFolderTree(bankTransactionFolders, "worker")),
     [bankTransactionFolders],
   );
+  const customCategoryRoots = useMemo(
+    () => listCustomCategoryRoots(bankTransactionFolders),
+    [bankTransactionFolders],
+  );
+  const customCategoryTrees = useMemo(
+    () =>
+      Object.fromEntries(
+        customCategoryRoots.map((root) => [root.id, flattenCustomCategoryFolderTree(bankTransactionFolders, root.id)]),
+      ),
+    [bankTransactionFolders, customCategoryRoots],
+  );
   const assignableClientFolders = useMemo(
     () => listAssignableFolders(bankTransactionFolders, "client"),
     [bankTransactionFolders],
@@ -899,6 +925,10 @@ export function BankTransactionsPage({
   );
   const assignableWorkerFolders = useMemo(
     () => listAssignableFolders(bankTransactionFolders, "worker"),
+    [bankTransactionFolders],
+  );
+  const assignableCustomFolders = useMemo(
+    () => listAssignableFolders(bankTransactionFolders, "custom"),
     [bankTransactionFolders],
   );
   const parentFolderOptions = useMemo(
@@ -995,6 +1025,12 @@ export function BankTransactionsPage({
     } else if (folderScope === "worker") {
       const ids = new Set(workerFolders.map((folder) => folder.id));
       scoped = scoped.filter((row) => row.folderId && ids.has(row.folderId));
+    } else {
+      const customRootId = parseCustomFolderScope(folderScope);
+      if (customRootId) {
+        const ids = new Set(collectCustomCategoryFolderIds(bankTransactionFolders, customRootId));
+        scoped = scoped.filter((row) => row.folderId && ids.has(row.folderId));
+      }
     }
 
     return sortBankTransactions(scoped, { key: sort.key, direction: sort.direction });
@@ -1010,6 +1046,7 @@ export function BankTransactionsPage({
     clientFolders,
     cardFolders,
     workerFolders,
+    bankTransactionFolders,
     sort,
   ]);
 
@@ -1364,8 +1401,38 @@ export function BankTransactionsPage({
     setFolderError("");
   };
 
+  const handleCreateCategory = () => {
+    const result = createBankTransactionFolder(bankTransactionFolders, {
+      folderName: newCategoryName,
+      folderType: "custom",
+    });
+    if (result.error) {
+      setFolderError(result.error);
+      return;
+    }
+    if (result.folder) {
+      recordAudit({
+        entityType: "bankFolder",
+        entityId: result.folder.id,
+        entityLabel: result.folder.folderName,
+        screen: L.pageTitle,
+        action: "create",
+        after: snapshotBankFolderForAudit(result.folder),
+        fields: BANK_FOLDER_AUDIT_FIELDS,
+        user: currentUser,
+      });
+      setSelectedFolderId(result.folder.id);
+      setFolderScope(`custom:${result.folder.id}`);
+    }
+    setBankTransactionFolders(normalizeBankTransactionFolders(result.next));
+    setCreateCategoryOpen(false);
+    setNewCategoryName("");
+    setFolderError("");
+  };
+
   const handleDeleteFolder = (folder: BankTransactionFolder) => {
-    if (!confirmDelete(L.deleteFolderConfirm)) return;
+    const isCategoryRoot = folder.folderType === "custom" && !folder.parentId;
+    if (!confirmDelete(isCategoryRoot ? L.deleteCategoryConfirm : L.deleteFolderConfirm)) return;
     const removed = removeBankTransactionFolder(bankTransactionFolders, folder.id);
     if (removed.error) {
       setFolderError(removed.error);
@@ -1382,8 +1449,13 @@ export function BankTransactionsPage({
       user: currentUser,
     });
     setBankTransactionFolders(normalizeBankTransactionFolders(removed.next));
-    setBankTransactions((prev) => clearBankTransactionFolderReferences(prev, folder.id));
-    if (selectedFolderId === folder.id) setSelectedFolderId("");
+    setBankTransactions((prev) => clearBankTransactionFolderReferences(prev, removed.removedFolderIds || [folder.id]));
+    if (selectedFolderId && (removed.removedFolderIds || [folder.id]).includes(selectedFolderId)) {
+      setSelectedFolderId("");
+    }
+    if (isCategoryRoot && folderScope === `custom:${folder.id}`) {
+      setFolderScope("all");
+    }
     setFolderError("");
   };
 
@@ -1956,6 +2028,7 @@ export function BankTransactionsPage({
     amountField: "deposits" | "withdrawals",
     activeClass: string,
     inactiveClass: string,
+    amountMode: "single" | "both" = "single",
   ) =>
     treeItems.map(({ folder, depth }) => {
       const folderStats = buildBankTransactionFolderStats(
@@ -1964,7 +2037,12 @@ export function BankTransactionsPage({
         bankTransactionFolders,
       );
       const active = selectedFolderId === folder.id;
+      const isCategoryRoot = folder.folderType === "custom" && !folder.parentId;
       const subfolderParentId = folder.isDefault ? "" : folder.id;
+      const amountText =
+        amountMode === "both"
+          ? `${L.deposit} ${formatKRW(folderStats.deposits)} \u00B7 ${L.withdrawal} ${formatKRW(folderStats.withdrawals)}`
+          : `${amountLabel} ${formatKRW(folderStats[amountField])}`;
       return (
         <div
           key={folder.id}
@@ -1997,7 +2075,7 @@ export function BankTransactionsPage({
               {folderStats.count}
               {L.count}
               {" \u00B7 "}
-              {amountLabel} {formatKRW(folderStats[amountField])}
+              {amountText}
             </div>
           </button>
           <button
@@ -2008,10 +2086,19 @@ export function BankTransactionsPage({
           >
             +
           </button>
-          {!folder.isDefault ? (
+          {!folder.isDefault && !isCategoryRoot ? (
             <button
               type="button"
               className="rounded-lg p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+              onClick={() => handleDeleteFolder(folder)}
+            >
+              <Trash2 size={14} />
+            </button>
+          ) : isCategoryRoot ? (
+            <button
+              type="button"
+              className="rounded-lg p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+              title={L.deleteFolder}
               onClick={() => handleDeleteFolder(folder)}
             >
               <Trash2 size={14} />
@@ -2272,6 +2359,20 @@ export function BankTransactionsPage({
                 </option>
               ))}
             </optgroup>
+            {customCategoryRoots.map((root) => {
+              const ids = new Set(collectCustomCategoryFolderIds(bankTransactionFolders, root.id));
+              const options = assignableCustomFolders.filter((item) => ids.has(item.id));
+              if (!options.length) return null;
+              return (
+                <optgroup key={root.id} label={root.folderName}>
+                  {options.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {formatFolderSelectLabel(item)}
+                    </option>
+                  ))}
+                </optgroup>
+              );
+            })}
           </select>
         </td>
         <td>
@@ -2726,6 +2827,20 @@ export function BankTransactionsPage({
                     variant="outline"
                     size="sm"
                     className="rounded-xl"
+                    onClick={() => {
+                      setNewCategoryName("");
+                      setFolderError("");
+                      setCreateCategoryOpen(true);
+                    }}
+                  >
+                    <FolderTree size={14} className="mr-1" />
+                    {L.createCategory}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl"
                     onClick={() => openCreateFolderModal(newFolderType)}
                   >
                     <FolderPlus size={14} className="mr-1" />
@@ -2747,6 +2862,10 @@ export function BankTransactionsPage({
                     { key: "client" as FolderScope, label: L.folderScopeClient },
                     { key: "card" as FolderScope, label: L.folderScopeCard },
                     { key: "worker" as FolderScope, label: L.folderScopeWorker },
+                    ...customCategoryRoots.map((root) => ({
+                      key: `custom:${root.id}` as FolderScope,
+                      label: root.folderName,
+                    })),
                     { key: "unfiled" as FolderScope, label: `${L.unfiled} (${unfiledStats.count})` },
                   ] as const
                 ).map((option) => (
@@ -2766,7 +2885,7 @@ export function BankTransactionsPage({
                 ))}
               </div>
 
-              <div className="grid gap-4 xl:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <section className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-3">
                   <div className="mb-3 flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 font-bold text-emerald-800">
@@ -2847,6 +2966,36 @@ export function BankTransactionsPage({
                     )}
                   </div>
                 </section>
+
+                {customCategoryRoots.map((root) => (
+                  <section key={root.id} className="rounded-2xl border border-slate-200 bg-slate-50/50 p-3">
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 font-bold text-slate-800">
+                        <FolderTree size={16} />
+                        {root.folderName}
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 rounded-lg px-2 text-xs"
+                        onClick={() => openCreateFolderModal("custom", root.id)}
+                      >
+                        + {L.createFolderInSection}
+                      </Button>
+                    </div>
+                    <div className="space-y-2">
+                      {renderFolderTreeRows(
+                        customCategoryTrees[root.id] || [{ folder: root, depth: 0 }],
+                        L.deposit,
+                        "deposits",
+                        "border-slate-300 bg-white shadow-sm",
+                        "border-slate-100 bg-white/70",
+                        "both",
+                      )}
+                    </div>
+                  </section>
+                ))}
               </div>
             </CardContent>
           </Card>
@@ -3806,6 +3955,46 @@ export function BankTransactionsPage({
         </div>
       ) : null}
 
+      {createCategoryOpen ? (
+        <div className="erp-ledger-modal-backdrop" onClick={() => setCreateCategoryOpen(false)}>
+          <div
+            className="erp-ledger-modal max-w-md"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="erp-text-section font-bold">{L.createCategory}</h2>
+              <button
+                type="button"
+                className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
+                onClick={() => setCreateCategoryOpen(false)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p className="mb-4 text-sm text-slate-600">{L.createCategoryHint}</p>
+            <Field label={L.folderName}>
+              <input
+                className="erp-input w-full rounded-xl"
+                value={newCategoryName}
+                onChange={(event) => setNewCategoryName(event.target.value)}
+                placeholder="예: 세금, 대출금, 기타수입"
+              />
+            </Field>
+            {folderError ? <p className="mt-3 text-sm font-semibold text-red-600">{folderError}</p> : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setCreateCategoryOpen(false)}>
+                {L.cancel}
+              </Button>
+              <Button type="button" className="rounded-2xl" onClick={handleCreateCategory}>
+                {L.saveFolder}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {createFolderOpen ? (
         <div className="erp-ledger-modal-backdrop" onClick={() => setCreateFolderOpen(false)}>
           <div
@@ -3833,6 +4022,9 @@ export function BankTransactionsPage({
                   <option value="client">{L.clientFolders}</option>
                   <option value="card">{L.cardFolders}</option>
                   <option value="worker">{L.workerFolders}</option>
+                  {newFolderType === "custom" ? (
+                    <option value="custom">{getBankTransactionFolderLabel("custom")}</option>
+                  ) : null}
                 </select>
               </Field>
               <Field label={L.parentFolder}>

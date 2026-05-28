@@ -2,7 +2,7 @@ import type { BankTransaction } from "./bankTransactions";
 import type { ClientDepositMatchSource, WorkerDepositMatchSource } from "./clientDepositAliases";
 import { findClientByDepositSubject, findWorkerByDepositSubject, resolveBankDepositMatchSubject } from "./clientDepositAliases";
 
-export type BankTransactionFolderType = "client" | "worker" | "card";
+export type BankTransactionFolderType = "client" | "worker" | "card" | "custom";
 
 export type BankTransactionFolder = {
   id: string;
@@ -52,7 +52,13 @@ export function normalizeBankTransactionFolder(raw: unknown): BankTransactionFol
   const row = raw as Partial<BankTransactionFolder>;
   if (!row.id || !row.folderName) return null;
   const folderType: BankTransactionFolderType =
-    row.folderType === "worker" ? "worker" : row.folderType === "card" ? "card" : "client";
+    row.folderType === "worker"
+      ? "worker"
+      : row.folderType === "card"
+        ? "card"
+        : row.folderType === "custom"
+          ? "custom"
+          : "client";
   return {
     id: String(row.id),
     folderName: String(row.folderName),
@@ -126,7 +132,7 @@ export function ensureDefaultBankTransactionFolders(folders: BankTransactionFold
   return next.sort((a, b) => {
     if (a.isDefault && !b.isDefault) return -1;
     if (!a.isDefault && b.isDefault) return 1;
-    const typeOrder = { client: 0, card: 1, worker: 2 } as const;
+    const typeOrder = { client: 0, card: 1, worker: 2, custom: 3 } as const;
     if (a.folderType !== b.folderType) return typeOrder[a.folderType] - typeOrder[b.folderType];
     return a.folderName.localeCompare(b.folderName, "ko");
   });
@@ -135,13 +141,43 @@ export function ensureDefaultBankTransactionFolders(folders: BankTransactionFold
 export function getBankTransactionFolderLabel(type: BankTransactionFolderType) {
   if (type === "client") return "\uAC70\uB798\uCC98 \uC785\uAE08";
   if (type === "card") return "\uCE74\uB4DC\uB9E4\uCD9C";
+  if (type === "custom") return "\uC0AC\uC6A9\uC790 \uAD6C\uBD84";
   return "\uC2DC\uACF5\uC790 \uC9C0\uCD9C";
 }
 
 export function getBankTransactionFolderTone(type: BankTransactionFolderType) {
   if (type === "client") return "border-emerald-200 bg-emerald-50 text-emerald-800";
   if (type === "card") return "border-violet-200 bg-violet-50 text-violet-800";
+  if (type === "custom") return "border-slate-200 bg-slate-50 text-slate-800";
   return "border-amber-200 bg-amber-50 text-amber-800";
+}
+
+export function listCustomCategoryRoots(folders: BankTransactionFolder[]) {
+  return folders
+    .filter((folder) => folder.folderType === "custom" && !folder.parentId)
+    .sort((left, right) => left.folderName.localeCompare(right.folderName, "ko"));
+}
+
+export function flattenCustomCategoryFolderTree(folders: BankTransactionFolder[], rootId: string) {
+  const root = folders.find((folder) => folder.id === rootId);
+  if (!root) return [] as Array<{ folder: BankTransactionFolder; depth: number }>;
+
+  const rows: Array<{ folder: BankTransactionFolder; depth: number }> = [{ folder: root, depth: 0 }];
+  const walk = (parentId: string, depth: number) => {
+    const children = folders
+      .filter((folder) => folder.parentId === parentId && folder.folderType === "custom")
+      .sort(sortFolderSiblings);
+    for (const child of children) {
+      rows.push({ folder: child, depth });
+      walk(child.id, depth + 1);
+    }
+  };
+  walk(rootId, 1);
+  return rows;
+}
+
+export function collectCustomCategoryFolderIds(folders: BankTransactionFolder[], rootId: string) {
+  return collectDescendantFolderIds(folders, rootId);
 }
 
 const CARD_DEPOSIT_KEYWORDS = [
@@ -390,12 +426,13 @@ export function createBankTransactionFolder(
   const parentError = validateFolderParent(folders, input.folderType, parentId);
   if (parentError) return { next: folders, error: parentError };
 
-  const duplicate = folders.some(
-    (folder) =>
-      folder.folderType === input.folderType &&
-      (folder.parentId || "") === (parentId || "") &&
-      folder.folderName.trim() === folderName,
-  );
+  const duplicate = folders.some((folder) => {
+    if (folder.folderName.trim() !== folderName) return false;
+    if (input.folderType === "custom" && !parentId) {
+      return folder.folderType === "custom" && !folder.parentId;
+    }
+    return folder.folderType === input.folderType && (folder.parentId || "") === (parentId || "");
+  });
   if (duplicate) return { next: folders, error: "\uAC19\uC740 \uC704\uCE58\uC5D0 \uC774\uBBF8 \uC788\uB294 \uD3F4\uB354 \uC774\uB984\uC785\uB2C8\uB2E4." };
 
   const now = new Date().toISOString();
@@ -414,8 +451,21 @@ export function createBankTransactionFolder(
 
 export function removeBankTransactionFolder(folders: BankTransactionFolder[], folderId: string) {
   const target = folders.find((folder) => folder.id === folderId);
-  if (!target) return { next: folders, error: "\uD3F4\uB354\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
-  if (target.isDefault) return { next: folders, error: "\uAE30\uBCF8 \uD3F4\uB354\uB294 \uC0AD\uC81C\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
+  if (!target) return { next: folders, error: "\uD3F4\uB354\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", removedFolderIds: [] as string[] };
+  if (target.isDefault) {
+    return { next: folders, error: "\uAE30\uBCF8 \uD3F4\uB354\uB294 \uC0AD\uC81C\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", removedFolderIds: [] as string[] };
+  }
+
+  const removedFolderIds =
+    target.folderType === "custom" && !target.parentId
+      ? collectDescendantFolderIds(folders, folderId)
+      : [folderId];
+  const removedSet = new Set(removedFolderIds);
+
+  if (removedFolderIds.length > 1) {
+    const next = finalizeBankTransactionFolders(folders.filter((folder) => !removedSet.has(folder.id)));
+    return { next, error: "", removedFolderIds };
+  }
 
   const now = new Date().toISOString();
   const next = finalizeBankTransactionFolders(
@@ -427,14 +477,15 @@ export function removeBankTransactionFolder(folders: BankTransactionFolder[], fo
           : folder,
       ),
   );
-  return { next, error: "" };
+  return { next, error: "", removedFolderIds };
 }
 
-export function clearBankTransactionFolderReferences(transactions: BankTransaction[], folderId: string) {
+export function clearBankTransactionFolderReferences(transactions: BankTransaction[], folderIds: string | string[]) {
+  const ids = new Set(Array.isArray(folderIds) ? folderIds : [folderIds]);
   return transactions.map((row) =>
-    row.folderId === folderId
+    row.folderId && ids.has(row.folderId)
       ? { ...row, folderId: undefined, linkedSubject: undefined, classifiedAt: undefined }
-      : row
+      : row,
   );
 }
 
