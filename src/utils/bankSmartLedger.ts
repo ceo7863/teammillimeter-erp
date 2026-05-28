@@ -18,6 +18,7 @@ import type { ClientDepositMatchSource, WorkerDepositMatchSource } from "./clien
 import { autoClassifyBankTransactions } from "./bankTransactionFolders";
 import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "./companyLedger";
 import { normalizeExpenseCategories } from "./companyLedger";
+import { applyPreauthNetGroups, detectPreauthNetGroups } from "./bankPreauthNetting";
 import { fetchBankLedgerClassifications } from "./bankLedgerApi";
 
 export const SMART_LEDGER_SUMMARY_KEY = "teammillimeter-smart-ledger-summary";
@@ -248,6 +249,11 @@ function applyHeuristicLearnRules(
   };
 }
 
+function applyPreauthNettingStep(transactions: BankTransaction[], rules: BankLearnRule[]) {
+  const groups = detectPreauthNetGroups(transactions, rules);
+  return applyPreauthNetGroups(transactions, groups);
+}
+
 export function runSmartAutoLedgerSync(input: RunSmartAutoLedgerInput): RunSmartAutoLedgerResult {
   const classified = autoClassifyBankTransactions(
     input.bankTransactions,
@@ -256,7 +262,7 @@ export function runSmartAutoLedgerSync(input: RunSmartAutoLedgerInput): RunSmart
     input.bankTransactionFolders,
   );
 
-  let transactions = classified.next;
+  let transactions = applyPreauthNettingStep(classified.next, input.bankLedgerRules);
   let folders = classified.folders;
   let rules = [...input.bankLedgerRules];
   let payments = [...input.fixedExpensePayments];
@@ -335,7 +341,7 @@ export async function runSmartAutoLedger(input: RunSmartAutoLedgerInput): Promis
     input.bankTransactionFolders,
   );
 
-  let transactions = classified.next;
+  let transactions = applyPreauthNettingStep(classified.next, input.bankLedgerRules);
   let folders = classified.folders;
   let rules = [...input.bankLedgerRules];
   let payments = [...input.fixedExpensePayments];

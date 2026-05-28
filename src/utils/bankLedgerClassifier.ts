@@ -13,6 +13,7 @@ import {
 import type { CompanyExpense, FixedExpense } from "./companyLedger";
 import { EXPENSE_CATEGORY_OPTIONS } from "./companyLedger";
 import type { ClientDepositMatchSource, WorkerDepositMatchSource } from "./clientDepositAliases";
+import { isNetGroupSuppressed } from "./bankPreauthNetting";
 
 export type BankLedgerClassificationSource = "learn_rule" | "heuristic" | "llm";
 
@@ -197,7 +198,7 @@ export function classifyBankTransactionForLedger(
     clients?: ClientDepositMatchSource[];
   } = {},
 ): BankLedgerClassification | null {
-  if (!(tx.withdrawal > 0) || tx.folderId) return null;
+  if (!(tx.withdrawal > 0) || tx.folderId || isNetGroupSuppressed(tx)) return null;
 
   const rules = input.rules || [];
   const fixedExpenses = input.fixedExpenses || [];

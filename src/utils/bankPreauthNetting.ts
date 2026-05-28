@@ -1,4 +1,5 @@
 import type { BankLearnRule } from "./bankCompanyLedger";
+import { filterBankLearnDescriptionTokens } from "./bankLearnTokens";
 import { makeLedgerId } from "./companyLedger";
 import { makeBankTransactionId, type BankTransaction } from "./bankTransactions";
 
@@ -47,8 +48,12 @@ function buildPreauthHaystack(tx: BankTransaction) {
     .replace(/\s+/g, "");
 }
 
+export function isEligibleForPreauthNetDetection(tx: BankTransaction) {
+  return !tx.netGroupId;
+}
+
 export function isEligibleForPreauthNetting(tx: BankTransaction) {
-  if (tx.netGroupId) return false;
+  if (!isEligibleForPreauthNetDetection(tx)) return false;
   if (tx.folderId) return false;
   if (tx.linkedCompanyExpenseId) return false;
   if (tx.linkedFixedExpensePaymentId) return false;
@@ -80,6 +85,47 @@ export function matchesPreauthNetRule(tx: BankTransaction, rules: BankLearnRule[
   return DEFAULT_PREAUTH_NET_KEYWORDS.some((keyword) => haystack.includes(keyword.toLowerCase()));
 }
 
+function findNextPreauthTripletWwd(
+  txs: BankTransaction[],
+  used: Set<string>,
+  windowMs: number,
+): Omit<PreauthNetGroup, "id"> | null {
+  for (let i = 0; i < txs.length; i += 1) {
+    const w1 = txs[i];
+    if (used.has(w1.id) || !isEligibleForPreauthNetDetection(w1)) continue;
+    const preauthAmount = Number(w1.withdrawal || 0);
+    if (!(preauthAmount > 0) || w1.deposit > 0) continue;
+
+    for (let j = i + 1; j < txs.length; j += 1) {
+      const settlement = txs[j];
+      if (used.has(settlement.id) || !isEligibleForPreauthNetDetection(settlement)) continue;
+      const settlementAmount = Number(settlement.withdrawal || 0);
+      if (!(settlementAmount > 0) || settlement.deposit > 0) continue;
+      if (settlementAmount >= preauthAmount) continue;
+      if (txTimeMs(settlement) - txTimeMs(w1) > windowMs) break;
+
+      for (let k = j + 1; k < txs.length; k += 1) {
+        const refund = txs[k];
+        if (used.has(refund.id) || !isEligibleForPreauthNetDetection(refund)) continue;
+        if (refund.deposit !== preauthAmount || refund.withdrawal > 0) continue;
+        if (txTimeMs(refund) - txTimeMs(w1) > windowMs) break;
+
+        return {
+          preauthWithdrawalTx: w1,
+          refundTx: refund,
+          settlementTx: settlement,
+          preauthAmount,
+          settlementAmount,
+          counterpartyName: normalizePreauthCounterpartyName(w1),
+          date: txDate(w1),
+          accountNumber: String(w1.accountNumber || "").trim(),
+        };
+      }
+    }
+  }
+  return null;
+}
+
 function findNextPreauthTriplet(
   txs: BankTransaction[],
   used: Set<string>,
@@ -87,19 +133,19 @@ function findNextPreauthTriplet(
 ): Omit<PreauthNetGroup, "id"> | null {
   for (let i = 0; i < txs.length; i += 1) {
     const w1 = txs[i];
-    if (used.has(w1.id) || !isEligibleForPreauthNetting(w1)) continue;
+    if (used.has(w1.id) || !isEligibleForPreauthNetDetection(w1)) continue;
     const preauthAmount = Number(w1.withdrawal || 0);
     if (!(preauthAmount > 0) || w1.deposit > 0) continue;
 
     for (let j = i + 1; j < txs.length; j += 1) {
       const refund = txs[j];
-      if (used.has(refund.id) || !isEligibleForPreauthNetting(refund)) continue;
+      if (used.has(refund.id) || !isEligibleForPreauthNetDetection(refund)) continue;
       if (refund.deposit !== preauthAmount || refund.withdrawal > 0) continue;
       if (txTimeMs(refund) - txTimeMs(w1) > windowMs) break;
 
       for (let k = j + 1; k < txs.length; k += 1) {
         const settlement = txs[k];
-        if (used.has(settlement.id) || !isEligibleForPreauthNetting(settlement)) continue;
+        if (used.has(settlement.id) || !isEligibleForPreauthNetDetection(settlement)) continue;
         const settlementAmount = Number(settlement.withdrawal || 0);
         if (!(settlementAmount > 0) || settlement.deposit > 0) continue;
         if (txTimeMs(settlement) - txTimeMs(w1) > windowMs) break;
@@ -129,7 +175,7 @@ export function detectPreauthNetGroups(
   const buckets = new Map<string, BankTransaction[]>();
 
   for (const tx of transactions) {
-    if (!isEligibleForPreauthNetting(tx)) continue;
+    if (!isEligibleForPreauthNetDetection(tx)) continue;
     if (!matchesPreauthNetRule(tx, rules)) continue;
     const accountNumber = String(tx.accountNumber || "").trim();
     const date = txDate(tx);
@@ -151,6 +197,7 @@ export function detectPreauthNetGroups(
     });
     const used = new Set<string>();
     let triplet = findNextPreauthTriplet(sorted, used, windowMs);
+    if (!triplet) triplet = findNextPreauthTripletWwd(sorted, used, windowMs);
     while (triplet) {
       groups.push({ id: makeBankTransactionId(), ...triplet });
       used.add(triplet.preauthWithdrawalTx.id);
@@ -179,25 +226,27 @@ export function applyPreauthNetGroups(transactions: BankTransaction[], groups: P
 
 export function buildPreauthNetLearnRule(settlementTx: BankTransaction, createdBy?: string): BankLearnRule {
   const counterpartyName = normalizePreauthCounterpartyName(settlementTx);
-  const descriptionTokens = [
-    settlementTx.description,
-    settlementTx.memo,
-    settlementTx.transactionType,
-    counterpartyName,
-  ]
-    .filter(Boolean)
-    .flatMap((part) =>
-      String(part)
-        .split(/[\s/.,\-_]+/)
-        .map((token) => token.trim().toLowerCase())
-        .filter((token) => token.length >= 2),
-    );
+  const descriptionTokens = filterBankLearnDescriptionTokens(
+    [
+      settlementTx.description,
+      settlementTx.memo,
+      settlementTx.transactionType,
+      counterpartyName,
+    ]
+      .filter(Boolean)
+      .flatMap((part) =>
+        String(part)
+          .split(/[\s/.,\-_]+/)
+          .map((token) => token.trim().toLowerCase())
+          .filter((token) => token.length >= 2),
+      ),
+  );
 
   return {
     id: makeLedgerId(),
     kind: "preauth_net",
     counterpartyName: counterpartyName || undefined,
-    descriptionTokens: [...new Set(descriptionTokens)],
+    descriptionTokens,
     createdAt: new Date().toISOString(),
     createdBy: createdBy || undefined,
     sourceBankTransactionId: settlementTx.id,
@@ -220,15 +269,15 @@ export function hasPreauthNetLearnRule(rules: BankLearnRule[] = []) {
 
 export function filterPreauthNetGroupsForAutoApply(
   groups: PreauthNetGroup[],
-  rules: BankLearnRule[],
+  _rules: BankLearnRule[],
   addedTransactionIds: Set<string>,
 ) {
+  if (!addedTransactionIds.size) return [];
   return groups.filter((group) => {
-    const involvedInImport =
+    return (
       addedTransactionIds.has(group.preauthWithdrawalTx.id) ||
       addedTransactionIds.has(group.refundTx.id) ||
-      addedTransactionIds.has(group.settlementTx.id);
-    if (!involvedInImport) return false;
-    return matchesPreauthNetRule(group.settlementTx, rules);
+      addedTransactionIds.has(group.settlementTx.id)
+    );
   });
 }

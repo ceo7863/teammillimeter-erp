@@ -2,6 +2,8 @@ import type { BankTransaction } from "./bankTransactions";
 import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "./companyLedger";
 import { canAssignBankTransactionToFolder, type BankTransactionFolder } from "./bankTransactionFolders";
 import type { WorkerDepositMatchSource } from "./clientDepositAliases";
+import { isNetGroupSuppressed } from "./bankPreauthNetting";
+import { filterBankLearnDescriptionTokens, isBankLearnStopToken } from "./bankLearnTokens";
 import {
   EXPENSE_CATEGORY_OPTIONS,
   bankTransactionMatchesFixedPayment,
@@ -125,6 +127,7 @@ export function canRegisterBankTxToCompanyLedger(
   tx: BankTransaction,
   context: BankLedgerRegistrationContext = {},
 ) {
+  if (isNetGroupSuppressed(tx)) return false;
   if (tx.folderId || !(tx.withdrawal > 0)) return false;
   return !isBankTransactionLinkedToCompanyLedger(tx, context);
 }
@@ -246,10 +249,17 @@ function tokenizeBankLedgerText(...parts: Array<string | undefined>) {
       .split(/[\s/.,\-_]+/)
       .map((item) => normalizeMatchText(item))
       .filter((item) => item.length >= 2)) {
-      tokens.add(token);
+      if (!isBankLearnStopToken(token)) tokens.add(token);
     }
   }
-  return [...tokens];
+  return filterBankLearnDescriptionTokens([...tokens]);
+}
+
+function sanitizeLearnRuleRow(rule: BankLearnRule): BankLearnRule {
+  return {
+    ...rule,
+    descriptionTokens: filterBankLearnDescriptionTokens(rule.descriptionTokens || []),
+  };
 }
 
 function inferLearnRuleKind(raw: Partial<BankLearnRule>): BankLearnRuleKind {
@@ -290,6 +300,7 @@ export function normalizeBankLearnRules(rows: unknown[]): BankLearnRule[] {
         sourceBankTransactionId: raw.sourceBankTransactionId ? String(raw.sourceBankTransactionId) : undefined,
       };
     })
+    .map(sanitizeLearnRuleRow)
     .filter((rule) => {
       if (rule.kind === "fixed") return Boolean(rule.fixedExpenseId);
       if (rule.kind === "manual") return Boolean(rule.category);
@@ -395,7 +406,7 @@ export function upsertBankLearnRule(rules: BankLearnRule[], incoming: BankLearnR
   if (index < 0) return [incoming, ...rules];
 
   const existing = rules[index];
-  const mergedTokens = [...new Set([...existing.descriptionTokens, ...incoming.descriptionTokens])];
+  const mergedTokens = filterBankLearnDescriptionTokens([...existing.descriptionTokens, ...incoming.descriptionTokens]);
   const updated: BankLearnRule = {
     ...existing,
     descriptionTokens: mergedTokens,
@@ -476,7 +487,10 @@ export function scoreBankLearnRule(
 
   let score = 0;
   if (counterpartyKey) {
-    if (txCounterpartyKey === counterpartyKey) score += 20;
+    if (!txCounterpartyKey) {
+      if (haystack.includes(counterpartyKey)) score += 8;
+      else return 0;
+    } else if (txCounterpartyKey === counterpartyKey) score += 20;
     else if (txCounterpartyKey.includes(counterpartyKey) || counterpartyKey.includes(txCounterpartyKey)) {
       score += 12;
     } else if (haystack.includes(counterpartyKey)) {
@@ -486,7 +500,9 @@ export function scoreBankLearnRule(
     }
   }
 
-  const tokens = rule.descriptionTokens.map((token) => normalizeMatchText(token)).filter((token) => token.length >= 2);
+  const tokens = filterBankLearnDescriptionTokens(rule.descriptionTokens || [])
+    .map((token) => normalizeMatchText(token))
+    .filter((token) => token.length >= 2);
   if (tokens.length) {
     const matchedTokens = tokens.filter((token) => haystack.includes(token));
     if (!matchedTokens.length && !counterpartyKey) return 0;
