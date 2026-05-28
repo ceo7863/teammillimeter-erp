@@ -3,6 +3,7 @@ import type { BankTransactionFolder } from "./bankTransactionFolders";
 import type { BankLearnRule } from "./bankCompanyLedger";
 import {
   findMatchingBankLedgerRule,
+  getLinkedCompanyExpenseForBankTx,
   isBankTransactionLinkedToCompanyLedger,
   syncBankTransactionLedgerLinkFields,
 } from "./bankCompanyLedger";
@@ -10,6 +11,7 @@ import { runSmartAutoLedgerSync } from "./bankSmartLedger";
 import type { ClientDepositMatchSource, WorkerDepositMatchSource } from "./clientDepositAliases";
 import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "./companyLedger";
 import {
+  bankTransactionMatchesFixedPayment,
   buildFixedExpensePaymentDate,
   findLinkableFixedExpensePayment,
   getMonthKey,
@@ -132,6 +134,135 @@ export function autoLinkBankTransactionsToFixedPayments(
   };
 }
 
+function normalizeLedgerLinkText(text: string) {
+  return String(text || "").toLowerCase().replace(/\s+/g, "");
+}
+
+function fixedExpenseNameMatchesBankTx(expense: FixedExpense, tx: BankTransaction) {
+  const haystack = normalizeLedgerLinkText(
+    [tx.counterpartyName, tx.description, tx.memo].filter(Boolean).join(" "),
+  );
+  const fullName = normalizeLedgerLinkText(expense.name);
+  if (fullName.length >= 2 && haystack.includes(fullName)) return true;
+
+  const tokens = String(expense.name || "")
+    .split(/[\s/·]+/)
+    .map(normalizeLedgerLinkText)
+    .filter((token) => token.length >= 2);
+  if (!tokens.length) return true;
+  return tokens.some((token) => haystack.includes(token));
+}
+
+function isFixedPaymentBankLinked(
+  payment: FixedExpensePayment,
+  transactions: BankTransaction[] = [],
+) {
+  if (String(payment.bankTransactionId || "").trim()) return true;
+  return transactions.some((tx) => tx.linkedFixedExpensePaymentId === payment.id);
+}
+
+/** Repair broken / split bank ↔ fixed-payment links after kind switches or auto-generated duplicates. */
+export function reconcileLedgerBankLinks(input: {
+  bankTransactions: BankTransaction[];
+  fixedExpensePayments: FixedExpensePayment[];
+  companyExpenses: CompanyExpense[];
+  fixedExpenses: FixedExpense[];
+}) {
+  let payments = [...input.fixedExpensePayments];
+  const companyExpenses = [...input.companyExpenses];
+  let transactions = syncBankTransactionLedgerLinkFields(
+    input.bankTransactions,
+    companyExpenses,
+    payments,
+  );
+  let linkedCount = 0;
+  let removedDuplicateCount = 0;
+
+  transactions = transactions.map((tx) => {
+    if (!tx.linkedCompanyExpenseId) return tx;
+    const exists = companyExpenses.some((row) => row.id === tx.linkedCompanyExpenseId);
+    if (exists) return tx;
+    return { ...tx, linkedCompanyExpenseId: undefined };
+  });
+
+  payments = payments.map((payment) => {
+    if (String(payment.bankTransactionId || "").trim()) return payment;
+    const tx = transactions.find((row) => row.linkedFixedExpensePaymentId === payment.id);
+    if (!tx) return payment;
+    return linkFixedExpensePaymentToBankTx([payment], payment.id, tx.id, tx)[0];
+  });
+
+  transactions = syncBankTransactionLedgerLinkFields(transactions, companyExpenses, payments);
+
+  const tryLinkPaymentToTx = (payment: FixedExpensePayment, tx: BankTransaction) => {
+    payments = linkFixedExpensePaymentToBankTx(payments, payment.id, tx.id, tx);
+    transactions = transactions.map((row) =>
+      row.id === tx.id
+        ? { ...row, linkedFixedExpensePaymentId: payment.id, linkedCompanyExpenseId: undefined }
+        : row,
+    );
+    linkedCount += 1;
+  };
+
+  for (const payment of payments) {
+    if (isFixedPaymentBankLinked(payment, transactions)) continue;
+    const expense = input.fixedExpenses.find((row) => row.id === payment.fixedExpenseId);
+    if (!expense) continue;
+
+    const monthKey = getMonthKey(payment.date);
+    const candidates = transactions.filter((tx) => {
+      if (tx.folderId || !(Number(tx.withdrawal) > 0)) return false;
+      if (getMonthKey(String(tx.transactionAt || "").slice(0, 10)) !== monthKey) return false;
+      if (getLinkedCompanyExpenseForBankTx(tx, companyExpenses)) return false;
+      if (payments.some((row) => row.bankTransactionId === tx.id)) return false;
+      if (
+        tx.linkedFixedExpensePaymentId &&
+        payments.some((row) => row.id === tx.linkedFixedExpensePaymentId && row.id !== payment.id)
+      ) {
+        return false;
+      }
+      if (!bankTransactionMatchesFixedPayment(tx, payment, input.fixedExpenses)) return false;
+      return fixedExpenseNameMatchesBankTx(expense, tx);
+    });
+
+    if (candidates.length !== 1) continue;
+    tryLinkPaymentToTx(payment, candidates[0]);
+  }
+
+  const removeIds = new Set<string>();
+  const byMonth = new Map<string, FixedExpensePayment[]>();
+  for (const payment of payments) {
+    const key = `${payment.fixedExpenseId}:${getMonthKey(payment.date)}`;
+    if (!byMonth.has(key)) byMonth.set(key, []);
+    byMonth.get(key)!.push(payment);
+  }
+  for (const group of byMonth.values()) {
+    if (group.length <= 1) continue;
+    const linked = group.filter((row) => isFixedPaymentBankLinked(row, transactions));
+    if (!linked.length) continue;
+    for (const row of group) {
+      if (isFixedPaymentBankLinked(row, transactions)) continue;
+      if (String(row.memo || "").includes("\uC790\uB3D9 \uB4F1\uB85D")) {
+        removeIds.add(row.id);
+      }
+    }
+  }
+  if (removeIds.size) {
+    payments = payments.filter((row) => !removeIds.has(row.id));
+    removedDuplicateCount = removeIds.size;
+  }
+
+  transactions = syncBankTransactionLedgerLinkFields(transactions, companyExpenses, payments);
+
+  return {
+    bankTransactions: transactions,
+    fixedExpensePayments: payments,
+    companyExpenses,
+    linkedCount,
+    removedDuplicateCount,
+  };
+}
+
 export function syncFixedExpenseAutomation(input: {
   fixedExpenses: FixedExpense[];
   fixedExpensePayments: FixedExpensePayment[];
@@ -173,6 +304,8 @@ export type RefreshCompanyLedgerFromBankResult = {
   companyExpenses: CompanyExpense[];
   generatedPaymentCount: number;
   linkedPaymentCount: number;
+  reconciledLinkCount: number;
+  removedDuplicatePaymentCount: number;
   learnedFixedCount: number;
   learnedManualCount: number;
   learnedFolderCount: number;
@@ -240,18 +373,21 @@ export function refreshCompanyLedgerFromBankTransactions(input: {
   });
 
   const companyExpenses = smart.companyExpenses;
-  const bankTransactions = syncBankTransactionLedgerLinkFields(
-    smart.bankTransactions,
-    companyExpenses,
-    smart.fixedExpensePayments,
-  );
-
-  return {
-    bankTransactions,
+  const reconciled = reconcileLedgerBankLinks({
+    bankTransactions: smart.bankTransactions,
     fixedExpensePayments: smart.fixedExpensePayments,
     companyExpenses,
+    fixedExpenses: input.fixedExpenses,
+  });
+
+  return {
+    bankTransactions: reconciled.bankTransactions,
+    fixedExpensePayments: reconciled.fixedExpensePayments,
+    companyExpenses: reconciled.companyExpenses,
     generatedPaymentCount,
-    linkedPaymentCount,
+    linkedPaymentCount: linkedPaymentCount + reconciled.linkedCount,
+    reconciledLinkCount: reconciled.linkedCount,
+    removedDuplicatePaymentCount: reconciled.removedDuplicateCount,
     learnedFixedCount: smart.learnFixed + smart.heuristicRegistered,
     learnedManualCount: smart.learnManual,
     learnedFolderCount: smart.learnFolder + smart.classifiedFolders,

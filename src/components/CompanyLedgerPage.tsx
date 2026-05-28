@@ -67,7 +67,7 @@ import type { LedgerCalendarEntry } from "@/utils/ledgerCalendar";
 import { formatBankLearnAutoMessage, listBankTransactionsForFixedPaymentLink, listBankTransactionsForLedgerLink, type BankLearnRule } from "@/utils/bankCompanyLedger";
 import { loadSmartLedgerRunSummary } from "@/utils/bankSmartLedger";
 import { formatBankTransactionDateTime, type BankTransaction } from "@/utils/bankTransactions";
-import { refreshCompanyLedgerFromBankTransactions } from "@/utils/fixedExpenseAutomation";
+import { reconcileLedgerBankLinks, refreshCompanyLedgerFromBankTransactions } from "@/utils/fixedExpenseAutomation";
 import { useAudit } from "@/context/AuditContext";
 import { confirmDelete } from "@/utils/confirmDelete";
 import {
@@ -826,6 +826,36 @@ export function CompanyLedgerPage({
   const [linkMessage, setLinkMessage] = useState("");
   const [bankRefreshMessage, setBankRefreshMessage] = useState("");
   const [bankRefreshLoading, setBankRefreshLoading] = useState(false);
+  const reconciledOnMountRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (reconciledOnMountRef.current) return;
+    if (!setBankTransactions || !setFixedExpensePayments || !bankTransactions.length) return;
+    reconciledOnMountRef.current = true;
+
+    const result = reconcileLedgerBankLinks({
+      bankTransactions,
+      fixedExpensePayments,
+      companyExpenses,
+      fixedExpenses,
+    });
+    if (!result.linkedCount && !result.removedDuplicateCount) return;
+
+    setFixedExpensePayments(result.fixedExpensePayments);
+    setBankTransactions(result.bankTransactions);
+    if (result.linkedCount || result.removedDuplicateCount) {
+      setBankRefreshMessage(
+        `\uD1B5\uC7A5 \uC5F0\uACB0 \uC815\uB9AC: ${result.linkedCount}\uAC74 \uC5F0\uACB0${result.removedDuplicateCount ? `, \uC911\uBCF5 \uBBF8\uC5F0\uACB0 ${result.removedDuplicateCount}\uAC74 \uC81C\uAC70` : ""}`,
+      );
+    }
+  }, [
+    bankTransactions,
+    companyExpenses,
+    fixedExpensePayments,
+    fixedExpenses,
+    setBankTransactions,
+    setFixedExpensePayments,
+  ]);
   const monthlyTableRef = useRef<HTMLTableElement | null>(null);
   const statsTableRef = useRef<HTMLTableElement | null>(null);
 
