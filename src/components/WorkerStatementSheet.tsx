@@ -63,7 +63,7 @@ export const WorkerStatementSheet = React.forwardRef<HTMLDivElement, WorkerState
 ) {
   const hasRows = rows.length > 0;
   const visibleBodyRows = hasRows ? rows.length : 1;
-  const fillerRowCount = getStatementFillerRowCount(visibleBodyRows, companyProfile);
+  const fillerRowCount = Math.min(getStatementFillerRowCount(visibleBodyRows, companyProfile), 4);
   const workerDataColumnCount = 11;
   const excelPayload = useMemo(
     () =>
@@ -93,7 +93,7 @@ export const WorkerStatementSheet = React.forwardRef<HTMLDivElement, WorkerState
 
       <div className="excel-client-recipient">
         <span>{workerName || "시공자"}</span>
-        <span className="honorific">귀하</span>
+        <span className="honorific">{"\u00A0"}\uADD0\uD558</span>
       </div>
 
       <table className="excel-header-table">
@@ -108,9 +108,9 @@ export const WorkerStatementSheet = React.forwardRef<HTMLDivElement, WorkerState
         <tbody>
           <tr>
             <td className="label">연락처</td>
-            <td colSpan={3}>{workerInfo.phone || ""}</td>
+            <td colSpan={3}>{workerInfo.phone || "-"}</td>
             <td className="label">계좌정보</td>
-            <td>{[workerInfo.bank, workerInfo.account].filter(Boolean).join(" ")}</td>
+            <td>{[workerInfo.bank, workerInfo.account].filter(Boolean).join(" ") || "-"}</td>
           </tr>
           <tr>
             <td className="label">시공기간</td>

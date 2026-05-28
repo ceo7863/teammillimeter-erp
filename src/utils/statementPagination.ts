@@ -14,6 +14,10 @@ import {
 
 export type StatementPageVariant = "screen" | "capture";
 
+function resolveStatementPageVariant(source: HTMLElement): StatementPageVariant {
+  return source.getAttribute("data-statement-kind") === "worker" ? "capture" : "screen";
+}
+
 function cloneNode<T extends Node>(node: T | null | undefined): T | null {
   return node ? (node.cloneNode(true) as T) : null;
 }
@@ -109,6 +113,8 @@ export function buildStatementPageElement(
   ]
     .filter(Boolean)
     .join(" ");
+  const statementKind = source.getAttribute("data-statement-kind");
+  if (statementKind) sheet.setAttribute("data-statement-kind", statementKind);
   sheet.style.width = `${A4_PORTRAIT_WIDTH_PX}px`;
   if (variant === "screen") {
     sheet.style.minHeight = `${A4_PORTRAIT_HEIGHT_PX}px`;
@@ -372,7 +378,7 @@ export function buildPaginatedStatementPages(
   source: HTMLElement,
   options: { variant?: StatementPageVariant } = {}
 ): HTMLElement[] {
-  const variant = options.variant ?? "screen";
+  const variant = options.variant ?? resolveStatementPageVariant(source);
   const dataTable = source.querySelector(".excel-data-table");
   const bodyRows = getStatementBodyRows(dataTable);
   const host = createMeasureHost();
@@ -410,7 +416,7 @@ export function buildPaginatedStatementPages(
 
 /** Build paginated A4 pages for PDF/print export */
 export function buildStatementExportPages(source: HTMLElement): HTMLElement[] {
-  return buildPaginatedStatementPages(source, { variant: "screen" });
+  return buildPaginatedStatementPages(source, { variant: resolveStatementPageVariant(source) });
 }
 
 export function countStatementExportPages(source: HTMLElement): number {

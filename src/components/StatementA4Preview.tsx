@@ -45,7 +45,12 @@ export function StatementA4Preview({ children, layoutVersion }: StatementA4Previ
 
     if (pages.length <= 1) {
       setUsePaginatedDisplay(false);
-      source.classList.add("is-a4-page");
+      source.classList.remove("is-a4-page", "is-pdf-capture");
+      if (source.getAttribute("data-statement-kind") === "worker") {
+        source.classList.add("is-pdf-capture");
+      } else {
+        source.classList.add("is-a4-page");
+      }
       removeStatementPageNumbers(source);
       appendStatementPageNumber(source, 1, 1);
       displayHost.replaceChildren();

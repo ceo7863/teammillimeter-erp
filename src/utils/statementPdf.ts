@@ -147,18 +147,41 @@ async function downloadPaginatedStatementPdf(
     const pageElement = pages[pageIndex];
     flattenStatementFitCells(pageElement);
     fixStatementCloneImages(pageElement);
+    const isCompactWorker = pageElement.getAttribute("data-statement-kind") === "worker";
     pageElement.classList.remove("is-pdf-export-fixed");
-    pageElement.classList.add("is-pdf-export", "is-a4-page");
     pageElement.style.position = "fixed";
     pageElement.style.left = "-12000px";
     pageElement.style.top = "0";
     pageElement.style.width = `${A4_PORTRAIT_WIDTH_PX}px`;
+    pageElement.style.boxShadow = "none";
+
+    if (isCompactWorker) {
+      pageElement.classList.add("is-pdf-export", "is-pdf-capture");
+      pageElement.style.minHeight = "auto";
+      pageElement.style.height = "auto";
+      pageElement.style.maxHeight = "none";
+      pageElement.style.overflow = "visible";
+      document.body.appendChild(pageElement);
+
+      try {
+        await waitForStatementImages(pageElement);
+        const canvas = await captureStatementPage(pageElement, { fullPage: false });
+        const imgData = canvasToPdfImageData(canvas);
+        if (pageIndex > 0) pdf.addPage("a4", orientation);
+        const imgHeightMm = (canvas.height / canvas.width) * pageWidthMm;
+        pdf.addImage(imgData, "JPEG", 0, 0, pageWidthMm, Math.min(imgHeightMm, pageHeightMm));
+      } finally {
+        pageElement.remove();
+      }
+      continue;
+    }
+
+    pageElement.classList.add("is-pdf-export", "is-a4-page");
     pageElement.style.minHeight = `${A4_PORTRAIT_HEIGHT_PX}px`;
     pageElement.style.height = `${A4_PORTRAIT_HEIGHT_PX}px`;
     pageElement.style.maxHeight = `${A4_PORTRAIT_HEIGHT_PX}px`;
     pageElement.style.overflow = "hidden";
     pageElement.classList.add("is-pdf-export-fixed");
-    pageElement.style.boxShadow = "none";
     document.body.appendChild(pageElement);
 
     try {
