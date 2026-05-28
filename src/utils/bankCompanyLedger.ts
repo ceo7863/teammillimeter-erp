@@ -212,10 +212,26 @@ export function bankTransactionMatchesFixedPaymentForLink(
   tx: BankTransaction,
   payment: FixedExpensePayment,
   fixedExpenses: FixedExpense[] = [],
+  context: BankLedgerRegistrationContext = {},
 ) {
   if (!bankTransactionMatchesFixedPayment(tx, payment, fixedExpenses)) return false;
+
+  const linkedExpense = getLinkedCompanyExpenseForBankTx(tx, context.companyExpenses);
+  if (
+    linkedExpense &&
+    resolveCompanyExpenseKind(linkedExpense) === "variable" &&
+    Number(linkedExpense.amount) === Number(tx.withdrawal || 0) &&
+    getMonthKey(linkedExpense.date) === getMonthKey(String(tx.transactionAt || "").slice(0, 10))
+  ) {
+    return true;
+  }
+
   const fixedItem = fixedExpenses.find((row) => row.id === payment.fixedExpenseId);
-  return bankTransactionMatchesLedgerLinkName(fixedItem?.name || payment.memo || "", tx);
+  const labels = [fixedItem?.name || "", payment.memo || ""];
+  if (linkedExpense) {
+    labels.push(linkedExpense.description || "", linkedExpense.category || "");
+  }
+  return labels.some((label) => bankTransactionMatchesLedgerLinkName(label, tx));
 }
 
 function bankTransactionMatchesCompanyExpenseAmount(
@@ -256,7 +272,7 @@ export function listBankTransactionsForFixedPaymentLink(
       includeVariableLinked,
     },
   )
-    .filter((tx) => bankTransactionMatchesFixedPaymentForLink(tx, payment, fixedExpenses))
+    .filter((tx) => bankTransactionMatchesFixedPaymentForLink(tx, payment, fixedExpenses, context))
     .sort((a, b) => String(b.transactionAt).localeCompare(String(a.transactionAt)));
 }
 
