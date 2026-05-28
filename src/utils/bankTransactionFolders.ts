@@ -1,4 +1,6 @@
 import type { BankTransaction } from "./bankTransactions";
+import { isBankTransactionLinkedToCompanyLedger } from "./bankCompanyLedger";
+import type { CompanyExpense, FixedExpensePayment } from "./companyLedger";
 import {
   canClassifyBankTransactionAsWorkerFolder,
   findClientByDepositSubject,
@@ -32,10 +34,12 @@ export type BankTransactionFolderTreeNode = {
 export const DEFAULT_CLIENT_FOLDER_ID = "bank-folder-client-default";
 export const DEFAULT_WORKER_FOLDER_ID = "bank-folder-worker-default";
 export const DEFAULT_CARD_SALES_FOLDER_ID = "bank-folder-card-default";
+export const DEFAULT_LEDGER_CATEGORY_FOLDER_ID = "bank-folder-ledger-default";
 export const DEFAULT_BANK_TRANSACTION_FOLDER_IDS = new Set([
   DEFAULT_CLIENT_FOLDER_ID,
   DEFAULT_WORKER_FOLDER_ID,
   DEFAULT_CARD_SALES_FOLDER_ID,
+  DEFAULT_LEDGER_CATEGORY_FOLDER_ID,
 ]);
 export const UNFILED_FOLDER_KEY = "__unfiled__";
 
@@ -106,6 +110,7 @@ export function ensureDefaultBankTransactionFolders(folders: BankTransactionFold
   const hasClient = next.some((folder) => folder.id === DEFAULT_CLIENT_FOLDER_ID);
   const hasWorker = next.some((folder) => folder.id === DEFAULT_WORKER_FOLDER_ID);
   const hasCard = next.some((folder) => folder.id === DEFAULT_CARD_SALES_FOLDER_ID);
+  const hasLedger = next.some((folder) => folder.id === DEFAULT_LEDGER_CATEGORY_FOLDER_ID);
 
   if (!hasClient) {
     next.unshift({
@@ -137,6 +142,16 @@ export function ensureDefaultBankTransactionFolders(folders: BankTransactionFold
       updatedAt: now,
     });
   }
+  if (!hasLedger) {
+    next.unshift({
+      id: DEFAULT_LEDGER_CATEGORY_FOLDER_ID,
+      folderName: "\uAC00\uACC4\uBD80",
+      folderType: "custom",
+      isDefault: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
   return next.sort((a, b) => {
     if (a.isDefault && !b.isDefault) return -1;
     if (!a.isDefault && b.isDefault) return 1;
@@ -163,7 +178,11 @@ export function getBankTransactionFolderTone(type: BankTransactionFolderType) {
 export function listCustomCategoryRoots(folders: BankTransactionFolder[]) {
   return folders
     .filter((folder) => folder.folderType === "custom" && !folder.parentId)
-    .sort((left, right) => left.folderName.localeCompare(right.folderName, "ko"));
+    .sort((left, right) => {
+      if (left.isDefault && !right.isDefault) return -1;
+      if (!left.isDefault && right.isDefault) return 1;
+      return left.folderName.localeCompare(right.folderName, "ko");
+    });
 }
 
 export function flattenCustomCategoryFolderTree(folders: BankTransactionFolder[], rootId: string) {
@@ -578,4 +597,38 @@ export function autoClassifyBankTransactions(
     };
   });
   return { next, updated, folders: ensureDefaultBankTransactionFolders(folders) };
+}
+
+/** Move ledger-linked bank rows into the default 가계부 classification folder. */
+export function syncLedgerLinkedBankTransactionFolders(
+  transactions: BankTransaction[],
+  folders: BankTransactionFolder[],
+  context: {
+    companyExpenses?: CompanyExpense[];
+    fixedExpensePayments?: FixedExpensePayment[];
+  },
+) {
+  const nextFolders = ensureDefaultBankTransactionFolders(folders);
+  const ledgerFolderId = DEFAULT_LEDGER_CATEGORY_FOLDER_ID;
+  let updated = 0;
+
+  const next = transactions.map((tx) => {
+    const linked = isBankTransactionLinkedToCompanyLedger(tx, context);
+    if (linked) {
+      if (tx.folderId === ledgerFolderId) return tx;
+      updated += 1;
+      return {
+        ...tx,
+        folderId: ledgerFolderId,
+        classifiedAt: new Date().toISOString(),
+      };
+    }
+    if (tx.folderId === ledgerFolderId) {
+      updated += 1;
+      return { ...tx, folderId: undefined, linkedSubject: undefined, classifiedAt: undefined };
+    }
+    return tx;
+  });
+
+  return { transactions: next, folders: nextFolders, updated };
 }

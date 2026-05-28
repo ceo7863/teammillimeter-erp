@@ -1,6 +1,6 @@
 import { isCheckCardBankTransaction, type BankTransaction } from "./bankTransactions";
 import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "./companyLedger";
-import { canAssignBankTransactionToFolder, type BankTransactionFolder } from "./bankTransactionFolders";
+import { canAssignBankTransactionToFolder, syncLedgerLinkedBankTransactionFolders, type BankTransactionFolder } from "./bankTransactionFolders";
 import type { WorkerDepositMatchSource } from "./clientDepositAliases";
 import { isNetGroupSuppressed } from "./bankPreauthNetting";
 import { filterBankLearnDescriptionTokens, isBankLearnStopToken } from "./bankLearnTokens";
@@ -1315,10 +1315,23 @@ export type AutoApplyBankLearnResult = {
   newPayments: FixedExpensePayment[];
   newExpenses: CompanyExpense[];
   allPayments?: FixedExpensePayment[];
+  bankTransactionFolders?: BankTransactionFolder[];
   fixedCount: number;
   manualCount: number;
   folderCount: number;
 };
+
+function applyLedgerCategoryFolderSync(
+  transactions: BankTransaction[],
+  folders: BankTransactionFolder[] | undefined,
+  context: { companyExpenses: CompanyExpense[]; fixedExpensePayments: FixedExpensePayment[] },
+) {
+  if (!folders) {
+    return { transactions, folders: undefined as BankTransactionFolder[] | undefined, syncCount: 0 };
+  }
+  const synced = syncLedgerLinkedBankTransactionFolders(transactions, folders, context);
+  return { transactions: synced.transactions, folders: synced.folders, syncCount: synced.updated };
+}
 
 export type AutoApplyBankLedgerResult = {
   transactions: BankTransaction[];
@@ -1470,22 +1483,42 @@ export function autoApplyBankLearnRules(
         row.linkedFixedExpensePaymentId !== transactions[index]?.linkedFixedExpensePaymentId,
     );
     if (!linksChanged) {
+      const folderSync = applyLedgerCategoryFolderSync(syncedOnly, options.bankTransactionFolders, {
+        companyExpenses: allExpenses,
+        fixedExpensePayments: allPayments,
+      });
+      if (!folderSync.syncCount) {
+        return {
+          transactions: syncedOnly,
+          newPayments,
+          newExpenses,
+          fixedCount: 0,
+          manualCount: 0,
+          folderCount: 0,
+        };
+      }
       return {
-        transactions,
+        transactions: folderSync.transactions,
         newPayments,
         newExpenses,
+        bankTransactionFolders: folderSync.folders,
         fixedCount: 0,
         manualCount: 0,
-        folderCount: 0,
+        folderCount: folderSync.syncCount,
       };
     }
+    const folderSync = applyLedgerCategoryFolderSync(syncedOnly, options.bankTransactionFolders, {
+      companyExpenses: allExpenses,
+      fixedExpensePayments: allPayments,
+    });
     return {
-      transactions: syncedOnly,
+      transactions: folderSync.transactions,
       newPayments,
       newExpenses,
+      bankTransactionFolders: folderSync.folders,
       fixedCount: 0,
       manualCount: 0,
-      folderCount: 0,
+      folderCount: folderSync.syncCount,
     };
   }
 
@@ -1513,15 +1546,20 @@ export function autoApplyBankLearnRules(
 
   const fixedCount = newPayments.length + newExpenses.filter((row) => row.kind === "fixed").length;
   const manualCount = newExpenses.filter((row) => row.kind !== "fixed").length;
+  const folderSync = applyLedgerCategoryFolderSync(nextTransactions, options.bankTransactionFolders, {
+    companyExpenses: allExpenses,
+    fixedExpensePayments: allPayments,
+  });
 
   return {
-    transactions: nextTransactions,
+    transactions: folderSync.transactions,
     newPayments: allNewPayments,
     newExpenses,
     allPayments: paymentLinks.size > 0 || allNewPayments.length > 0 ? workingPayments : undefined,
+    bankTransactionFolders: folderSync.folders,
     fixedCount,
     manualCount,
-    folderCount: folderUpdates.size,
+    folderCount: folderUpdates.size + folderSync.syncCount,
   };
 }
 

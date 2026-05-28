@@ -1,5 +1,9 @@
 import type { BankTransactionFolder } from "./bankTransactionFolders";
 import {
+  DEFAULT_LEDGER_CATEGORY_FOLDER_ID,
+  syncLedgerLinkedBankTransactionFolders,
+} from "./bankTransactionFolders";
+import {
   autoApplyBankLearnRules,
   buildMemoCategorySuggestionMap,
   canRegisterBankTxToCompanyLedger,
@@ -29,6 +33,8 @@ export type BackgroundBankLedgerLearningResult = {
   learnManual: number;
   learnFolder: number;
   highConfidenceRegistered: number;
+  ledgerFolderSync: number;
+  bankTransactionFolders?: BankTransactionFolder[];
   changed: boolean;
 };
 
@@ -143,6 +149,25 @@ export function runBackgroundBankLedgerLearning(input: {
       batch.registeredFixed + batch.registeredManual + batch.linkedFixed;
   }
 
+  let nextFolders = input.bankTransactionFolders;
+  let ledgerFolderSync = 0;
+  if (nextFolders) {
+    const folderSync = syncLedgerLinkedBankTransactionFolders(transactions, nextFolders, {
+      companyExpenses: expenses,
+      fixedExpensePayments: payments,
+    });
+    ledgerFolderSync = folderSync.updated;
+    transactions = folderSync.transactions;
+    nextFolders = folderSync.folders;
+  }
+
+  const hadLedgerFolder = Boolean(
+    input.bankTransactionFolders?.some((folder) => folder.id === DEFAULT_LEDGER_CATEGORY_FOLDER_ID),
+  );
+  const hasLedgerFolder = Boolean(
+    nextFolders?.some((folder) => folder.id === DEFAULT_LEDGER_CATEGORY_FOLDER_ID),
+  );
+
   const changed =
     preauthToApply.length > 0 ||
     suppressedRepair.removedExpenses > 0 ||
@@ -150,12 +175,15 @@ export function runBackgroundBankLedgerLearning(input: {
     reconciled.removedDuplicateCount > 0 ||
     reconciled.linkedCount > 0 ||
     learnFixed + learnManual + learnFolder > 0 ||
-    highConfidenceRegistered > 0;
+    highConfidenceRegistered > 0 ||
+    ledgerFolderSync > 0 ||
+    (!hadLedgerFolder && hasLedgerFolder);
 
   return {
     bankTransactions: transactions,
     fixedExpensePayments: payments,
     companyExpenses: expenses,
+    bankTransactionFolders: nextFolders,
     preauthGroups: preauthToApply.length,
     removedExpenses: suppressedRepair.removedExpenses,
     removedDuplicatePayments: reconciled.removedDuplicateCount,
@@ -164,6 +192,7 @@ export function runBackgroundBankLedgerLearning(input: {
     learnManual,
     learnFolder,
     highConfidenceRegistered,
+    ledgerFolderSync,
     changed,
   };
 }

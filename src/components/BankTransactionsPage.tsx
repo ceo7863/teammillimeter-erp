@@ -159,6 +159,7 @@ import {
   sanitizeBankTransactionFolderParentId,
   DEFAULT_CLIENT_FOLDER_ID,
   DEFAULT_CARD_SALES_FOLDER_ID,
+  DEFAULT_LEDGER_CATEGORY_FOLDER_ID,
   isCardCompanyDeposit,
   type BankTransactionFolder,
   type BankTransactionFolderType,
@@ -282,7 +283,7 @@ const L = {
   filteredSummary: "\uC120\uD0DD \uAE30\uAC04 \uC694\uC57D",
   foldersTitle: "\uBD84\uB958 \uD3F4\uB354",
   foldersHint:
-    "\uAC70\uB798\uCC98 \uC785\uAE08\u00B7\uCE74\uB4DC\uB9E4\uCD9C\u00B7\uC2DC\uACF5\uC790 \uC9C0\uCD9C \uC678\uC5D0\uB3C4 \uAD6C\uBD84\uC744 \uCD94\uAC00\uD560 \uC218 \uC788\uACE0, \uAC01 \uAC70\uB798\uB97C \uD3F4\uB354\uC5D0 \uB123\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+    "\uAC70\uB798\uCC98 \uC785\uAE08\u00B7\uCE74\uB4DC\uB9E4\uCD9C\u00B7\uC2DC\uACF5\uC790 \uC9C0\uCD9C \uC678\uC5D0\uB3C4 \uAD6C\uBD84\uC744 \uCD94\uAC00\uD560 \uC218 \uC788\uACE0, \uAC01 \uAC70\uB798\uB97C \uD3F4\uB354\uC5D0 \uB123\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uAC00\uACC4\uBD80\uC5D0 \uC5F0\uB3D9\uB41C \uAC70\uB798\uB294 \u300C\uAC00\uACC4\uBD80\u300D \uBD84\uB958 \uD3F4\uB354\uC5D0 \uC790\uB3D9 \uC800\uC7A5\uB429\uB2C8\uB2E4.",
   clientFolders: "\uAC70\uB798\uCC98 \uC785\uAE08",
   cardFolders: "\uCE74\uB4DC\uB9E4\uCD9C",
   workerFolders: "\uC2DC\uACF5\uC790 \uC9C0\uCD9C",
@@ -1120,6 +1121,9 @@ export function BankTransactionsPage({
         setCompanyExpenses((prev) => [...result.newExpenses, ...prev]);
       }
       setBankTransactions(result.transactions);
+      if (result.bankTransactionFolders) {
+        setBankTransactionFolders(result.bankTransactionFolders);
+      }
       if (options.auditUser !== false) {
         recordSummaryAudit({
           entityType: "bankTransaction",
@@ -1149,7 +1153,7 @@ export function BankTransactionsPage({
         folderCount: result.folderCount,
       };
     },
-    [fixedExpenses, savedBy, setFixedExpensePayments, setCompanyExpenses, setBankTransactions, recordSummaryAudit, currentUser, workers, bankTransactionFolders],
+    [fixedExpenses, savedBy, setFixedExpensePayments, setCompanyExpenses, setBankTransactions, setBankTransactionFolders, recordSummaryAudit, currentUser, workers, bankTransactionFolders],
   );
 
   const backgroundLearningTimerRef = useRef<number | null>(null);
@@ -1170,17 +1174,26 @@ export function BankTransactionsPage({
         createdBy: savedBy || undefined,
         onlyTransactionIds: options.onlyTransactionIds,
       });
-      if (!result.changed) return result;
+      if (!result.changed) {
+        if (result.bankTransactionFolders) {
+          setBankTransactionFolders(result.bankTransactionFolders);
+        }
+        return result;
+      }
 
       setBankTransactions(result.bankTransactions);
       setFixedExpensePayments(result.fixedExpensePayments);
       setCompanyExpenses(result.companyExpenses);
+      if (result.bankTransactionFolders) {
+        setBankTransactionFolders(result.bankTransactionFolders);
+      }
 
       const parts: string[] = [];
       if (result.preauthGroups) parts.push(`\uC120\uACB0\uC81C ${result.preauthGroups}\uAC74`);
       if (result.learnFixed) parts.push(`\uACE0\uC815\uBE44 ${result.learnFixed}\uAC74`);
       if (result.learnManual) parts.push(`\uC9C0\uCD9C ${result.learnManual}\uAC74`);
       if (result.learnFolder) parts.push(`\uD3F4\uB354 ${result.learnFolder}\uAC74`);
+      if (result.ledgerFolderSync) parts.push(`\uAC00\uACC4\uBD80 \uD3F4\uB354 ${result.ledgerFolderSync}\uAC74`);
       if (result.highConfidenceRegistered) parts.push(`\uACE0\uC2E0\uB3C4 ${result.highConfidenceRegistered}\uAC74`);
       if (result.removedExpenses + result.removedDuplicatePayments > 0) {
         parts.push(`\uC911\uBCF5 \uC815\uB9AC ${result.removedExpenses + result.removedDuplicatePayments}\uAC74`);
@@ -1217,6 +1230,7 @@ export function BankTransactionsPage({
       workers,
       savedBy,
       setBankTransactions,
+      setBankTransactionFolders,
       setFixedExpensePayments,
       setCompanyExpenses,
       recordSummaryAudit,
@@ -1544,6 +1558,9 @@ export function BankTransactionsPage({
       setFixedExpenseCategories((prev) => mergeFixedExpenseCategory(prev, category, fixedExpenses));
       setFixedExpensePayments(nextPayments);
       setBankTransactions(nextTransactions);
+      if (autoLearn.bankTransactionFolders) {
+        setBankTransactionFolders(autoLearn.bankTransactionFolders);
+      }
       setBankLedgerRules(nextRules);
 
       if (registeredCount > 0) {
@@ -1626,6 +1643,9 @@ export function BankTransactionsPage({
     setExpenseCategories((prev) => mergeExpenseCategory(prev, category));
     setCompanyExpenses(nextExpenses);
     setBankTransactions(nextTransactions);
+    if (autoLearn.bankTransactionFolders) {
+      setBankTransactionFolders(autoLearn.bankTransactionFolders);
+    }
     setBankLedgerRules(nextRules);
 
     const learnedCount = ledgerReviewPrompt.transactions.length + autoLearn.manualCount + autoLearn.fixedCount;
@@ -4679,13 +4699,29 @@ export function BankTransactionsPage({
                   </div>
                 </section>
 
-                {customCategoryRoots.map((root) => (
-                  <section key={root.id} className="rounded-2xl border border-slate-200 bg-slate-50/50 p-3">
+                {customCategoryRoots.map((root) => {
+                  const isLedgerRoot = root.id === DEFAULT_LEDGER_CATEGORY_FOLDER_ID;
+                  return (
+                  <section
+                    key={root.id}
+                    className={
+                      isLedgerRoot
+                        ? "rounded-2xl border border-amber-200 bg-amber-50/50 p-3"
+                        : "rounded-2xl border border-slate-200 bg-slate-50/50 p-3"
+                    }
+                  >
                     <div className="mb-3 flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 font-bold text-slate-800">
-                        <FolderTree size={16} />
+                      <div
+                        className={
+                          isLedgerRoot
+                            ? "flex items-center gap-2 font-bold text-amber-900"
+                            : "flex items-center gap-2 font-bold text-slate-800"
+                        }
+                      >
+                        {isLedgerRoot ? <BookOpen size={16} /> : <FolderTree size={16} />}
                         {root.folderName}
                       </div>
+                      {!isLedgerRoot ? (
                       <Button
                         type="button"
                         size="sm"
@@ -4695,19 +4731,21 @@ export function BankTransactionsPage({
                       >
                         + {L.createFolderInSection}
                       </Button>
+                      ) : null}
                     </div>
                     <div className="space-y-2">
                       {renderFolderTreeRows(
                         customCategoryTrees[root.id] || [{ folder: root, depth: 0 }],
                         L.deposit,
                         "deposits",
-                        "border-slate-300 bg-white shadow-sm",
-                        "border-slate-100 bg-white/70",
+                        isLedgerRoot ? "border-amber-300 bg-white shadow-sm" : "border-slate-300 bg-white shadow-sm",
+                        isLedgerRoot ? "border-amber-100 bg-white/70" : "border-slate-100 bg-white/70",
                         "both",
                       )}
                     </div>
                   </section>
-                ))}
+                  );
+                })}
               </div>
             </CardContent>
           </Card>
