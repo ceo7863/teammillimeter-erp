@@ -42,7 +42,7 @@ async function parseJsonResponse(response) {
   try {
     return text ? JSON.parse(text) : {};
   } catch {
-    throw new Error(text || `???? API ?? ?? (${response.status})`);
+    throw new Error(text || `\uC624\uD508\uB1F9\uD0B9 API \uC751\uB2F5 \uC624\uB958 (${response.status})`);
   }
 }
 
@@ -58,7 +58,7 @@ function assertOpenBankingOk(body, context) {
 export function buildAuthorizeUrl(state = "") {
   const { clientId, redirectUri, scope } = config.openBanking;
   if (!clientId || !redirectUri) {
-    throw new Error("OPEN_BANKING_CLIENT_ID / OPEN_BANKING_REDIRECT_URI ? ?????.");
+    throw new Error("OPEN_BANKING_CLIENT_ID / OPEN_BANKING_REDIRECT_URI \uAC00 \uC124\uC815\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.");
   }
   const params = new URLSearchParams({
     response_type: "code",
@@ -86,14 +86,14 @@ export async function exchangeAuthorizationCode(code) {
     body,
   });
   const json = await parseJsonResponse(response);
-  assertOpenBankingOk(json, "?? ??");
+  assertOpenBankingOk(json, "\uD1A0\uD070 \uBC1C\uAE09");
   return persistTokenResponse(json);
 }
 
 export async function refreshAccessToken() {
   const secrets = getOpenBankingSecrets();
   if (!secrets.refreshToken) {
-    throw new Error("refresh_token ? ????. ?? ??? ?? ??? ???.");
+    throw new Error("refresh_token \uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uC624\uD508\uB1F9\uD0B9 \uC778\uC99D \uD6C4 \uB2E4\uC2DC \uC800\uC7A5\uD574 \uC8FC\uC138\uC694.");
   }
   const { clientId, clientSecret } = config.openBanking;
   const body = new URLSearchParams({
@@ -108,7 +108,7 @@ export async function refreshAccessToken() {
     body,
   });
   const json = await parseJsonResponse(response);
-  assertOpenBankingOk(json, "?? ??");
+  assertOpenBankingOk(json, "\uD1A0\uD070 \uBC1C\uAE09");
   return persistTokenResponse(json);
 }
 
@@ -129,7 +129,7 @@ function persistTokenResponse(json) {
 async function resolveAccessToken() {
   const secrets = getOpenBankingSecrets();
   if (!secrets.accessToken) {
-    throw new Error("access_token ? ????.");
+    throw new Error("access_token \uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
   }
   const expiresAt = secrets.accessTokenExpiresAt ? Date.parse(secrets.accessTokenExpiresAt) : 0;
   if (expiresAt && expiresAt - Date.now() < 60_000) {
@@ -144,7 +144,7 @@ export async function fetchTransactionPage(options) {
   const secrets = getOpenBankingSecrets();
   const fintechUseNum = options.fintechUseNum || secrets.fintechUseNum;
   if (!fintechUseNum) {
-    throw new Error("???????(fintech_use_num)? ????.");
+    throw new Error("\uD540\uD14C\uD06C\uC774\uC6A9\uBC88\uD638(fintech_use_num)\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
   }
 
   const params = new URLSearchParams({
@@ -175,7 +175,7 @@ export async function fetchTransactionPage(options) {
     await refreshAccessToken();
     return fetchTransactionPage(options);
   }
-  assertOpenBankingOk(json, "???? ??");
+  assertOpenBankingOk(json, "\uAC70\uB798\uB0B4\uC5ED \uC870\uD68C");
   return json;
 }
 
@@ -213,7 +213,7 @@ export function mapOpenBankingRowsToImportPreview(rows, meta = {}) {
         ? `${tranDate.slice(0, 4)}-${tranDate.slice(4, 6)}-${tranDate.slice(6, 8)}T${tranTime.slice(0, 2)}:${tranTime.slice(2, 4)}:${tranTime.slice(4, 6)}`
         : "";
       const amount = Number(String(row.tran_amt || "0").replace(/[^\d.-]/g, "")) || 0;
-      const isDeposit = String(row.inout_type || "").includes("?");
+      const isDeposit = String(row.inout_type || "").includes("\uC785");
       const description =
         String(row.print_content || row.printed_content || row.branch_name || "").trim() ||
         String(row.tran_type || "").trim();

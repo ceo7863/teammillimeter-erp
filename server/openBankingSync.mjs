@@ -27,10 +27,10 @@ export function connectOpenBankingManual(input = {}) {
   const accountMask = String(input.accountMask || "").trim();
 
   if (!fintechUseNum || fintechUseNum.length !== 24) {
-    return { ok: false, error: "??????? 24??? ??? ???." };
+    return { ok: false, error: "\uD540\uD14C\uD06C\uC774\uC6A9\uBC88\uD638\uB294 24\uC790\uB9AC \uC22B\uC790\uC5EC\uC57C \uD569\uB2C8\uB2E4." };
   }
   if (!accessToken) {
-    return { ok: false, error: "access_token ? ??? ???." };
+    return { ok: false, error: "access_token \uC774 \uD544\uC694\uD569\uB2C8\uB2E4." };
   }
 
   const store = saveOpenBankingStore({
@@ -46,7 +46,7 @@ export function connectOpenBankingManual(input = {}) {
 }
 
 export async function handleOpenBankingOAuthCallback(code) {
-  if (!code) return { ok: false, error: "authorization code ? ????." };
+  if (!code) return { ok: false, error: "authorization code \uAC00 \uC5C6\uC2B5\uB2C8\uB2E4." };
   const tokens = await exchangeAuthorizationCode(code);
   const userSeqNo = tokens.user_seq_no || tokens.userSeqNo;
   saveOpenBankingStore({

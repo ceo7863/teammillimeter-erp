@@ -1,8 +1,8 @@
 import * as XLSX from "xlsx";
 import crypto from "crypto";
 
-const HEADER_TRANSACTION_AT = "????";
-const SHEET_HINT = "????";
+const HEADER_TRANSACTION_AT = "\uAC70\uB798\uC77C\uC2DC";
+const SHEET_HINT = "\uAC70\uB798\uB0B4\uC5ED";
 
 function makeBankTransactionId() {
   if (crypto.randomUUID) return crypto.randomUUID();
@@ -39,14 +39,14 @@ function findHeaderIndex(rows) {
 }
 
 function parseAccountInfoCell(text) {
-  const accountMatch = text.match(/????\s*:\s*([0-9-]+)/);
-  const holderMatch = text.match(/????\s*:\s*(.+)/);
-  const dateFromMatch = text.match(/??????\s*:\s*(\d{4}-\d{2}-\d{2})/);
-  const dateToMatch = text.match(/??????\s*:\s*(\d{4}-\d{2}-\d{2})/);
+  const accountMatch = text.match(/\uACC4\uC88C\uBC88\uD638\s*:\s*([0-9-]+)/);
+  const holderMatch = text.match(/\uC608\uAE08\uC8FC\uBA85\s*:\s*(.+)/);
+  const dateFromMatch = text.match(/\uC870\uD68C\uC2DC\uC791\uC77C\uC790\s*:\s*(\d{4}-\d{2}-\d{2})/);
+  const dateToMatch = text.match(/\uC870\uD68C\uC885\uB8CC\uC77C\uC790\s*:\s*(\d{4}-\d{2}-\d{2})/);
 
   let accountHolder = holderMatch?.[1]?.trim();
   if (accountHolder) {
-    accountHolder = accountHolder.split(/????/)[0]?.trim() || accountHolder;
+    accountHolder = accountHolder.split(/\uC608\uAE08\uC885\uB958/)[0]?.trim() || accountHolder;
     accountHolder = accountHolder.split(/\s{2,}/)[0]?.trim() || accountHolder;
   }
 
@@ -83,7 +83,7 @@ function optionalText(value) {
 function isSummaryRow(row) {
   const first = String(row?.[0] ?? "").trim();
   const second = String(row?.[1] ?? "").trim();
-  return first === "??" || second === "??";
+  return first === "\uD569\uACC4" || second === "\uD569\uACC4";
 }
 
 function parseDataRow(row, rowNumber) {
@@ -93,7 +93,7 @@ function parseDataRow(row, rowNumber) {
   if (!transactionAt) {
     const marker = String(row[1] ?? "").trim();
     if (!marker) return "";
-    return `${rowNumber}?: ????? ???? ????. (${marker})`;
+    return `${rowNumber}\uD589: \uAC70\uB798\uC77C\uC2DC\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. (${marker})`;
   }
 
   const withdrawal = parseBankAmount(row[2]);
@@ -131,12 +131,14 @@ function computeTransactionDateRange(rows) {
 export function parseIbkBankExcelBuffer(buffer, fileName = "upload.xlsx") {
   const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
   const { rows } = sheetRows(wb);
-  if (!rows.length) throw new Error("?? ??? ?? ????.");
+  if (!rows.length) {
+    throw new Error("\uC5D1\uC140 \uC2DC\uD2B8\uAC00 \uBE44\uC5B4 \uC788\uC2B5\uB2C8\uB2E4.");
+  }
 
   const accountInfo = parseAccountInfoCell(String(rows[1]?.[0] || ""));
   const headerIdx = findHeaderIndex(rows);
   if (headerIdx < 0) {
-    throw new Error("IBK ???? ?? ??? ????.");
+    throw new Error("IBK \uAC70\uB798\uB0B4\uC5ED \uC5D1\uC140 \uD615\uC2F0\uC774 \uC544\uB2D9\uB2C8\uB2E4. (\uD5E4\uB354 \uD589\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4)");
   }
 
   const errors = [];
@@ -153,8 +155,11 @@ export function parseIbkBankExcelBuffer(buffer, fileName = "upload.xlsx") {
     parsedRows.push(parsed);
   });
 
+  if (!parsedRows.length && errors.length) {
+    throw new Error(errors[0] || "\uAC00\uC838\uC62C \uAC70\uB798 \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+  }
   if (!parsedRows.length) {
-    throw new Error(errors[0] || "??? ?? ???? ????.");
+    throw new Error("\uAC00\uC838\uC62C \uAC70\uB798 \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
   }
 
   const parsedTotals = parsedRows.reduce(

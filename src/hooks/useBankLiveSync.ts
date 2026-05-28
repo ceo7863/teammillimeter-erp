@@ -96,7 +96,7 @@ export function useBankLiveSync({
         setState((prev) => ({
           ...prev,
           lastAppliedAt: new Date().toISOString(),
-          lastMessage: added > 0 ? `${added}? ? ?? ??` : "?? ?? ??",
+          lastMessage: added > 0 ? `${added}\uAC74 \uC790\uB3D9 \uBC18\uC601\uB428` : "\uC774\uBBF8 \uCD5C\uC2E0 \uC0C1\uD0DC",
         }));
       }
 
@@ -105,7 +105,7 @@ export function useBankLiveSync({
       setState((prev) => ({
         ...prev,
         polling: false,
-        lastMessage: error instanceof Error ? error.message : "??? ??",
+        lastMessage: error instanceof Error ? error.message : "\uB3D9\uAE30\uD654 \uC2E4\uD328",
       }));
       return null;
     }
@@ -113,7 +113,7 @@ export function useBankLiveSync({
 
   const runFolderSync = React.useCallback(async () => {
     if (!enabled) return null;
-    setState((prev) => ({ ...prev, polling: true, lastMessage: "???? ???? ?..." }));
+    setState((prev) => ({ ...prev, polling: true, lastMessage: "\uD3F4\uB354 \uB3D9\uAE30\uD654 \uC911..." }));
     try {
       const result = await runBankFolderSync();
       await pullSnapshot(true);
@@ -124,19 +124,19 @@ export function useBankLiveSync({
         lastAppliedAt: new Date().toISOString(),
         lastMessage:
           added > 0
-            ? `${added}? ?? (${result.sourceFile || "IBK"})`
+            ? `${added}\uAC74 \uCD94\uAC00 (${result.sourceFile || "IBK"})`
             : result.reason === "no_files"
-              ? "??? IBK ??? ????"
+              ? "\uC2E0\uADDC IBK \uC5D1\uC140 \uC5C6\uC74C"
               : result.reason === "IBK_BANK_IMPORT_DIR not configured"
-                ? "??? IBK ??? ???? ?????"
-                : "? ?? ??",
+                ? "\uC11C\uBC84\uC5D0 IBK \uD3F4\uB354\uAC00 \uC124\uC815\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4"
+                : "\uBCC0\uACBD \uC5C6\uC74C",
       }));
       return result;
     } catch (error) {
       setState((prev) => ({
         ...prev,
         polling: false,
-        lastMessage: error instanceof Error ? error.message : "?? ???? ??",
+        lastMessage: error instanceof Error ? error.message : "\uD3F4\uB354 \uB3D9\uAE30\uD654 \uC2E4\uD328",
       }));
       return null;
     }
