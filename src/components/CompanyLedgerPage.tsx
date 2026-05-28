@@ -359,9 +359,9 @@ function isFixedLedgerRow(item: ManualLedgerRow) {
   return item.type === "expense" && resolveCompanyExpenseKind(item.row) === "fixed";
 }
 
-function isPaidFixedLedgerRow(item: ManualLedgerRow) {
-  if (item.type === "fixedPayment") return isBankLinkedPayment(item.row);
-  return isBankLinkedExpense(item.row);
+function isPaidFixedLedgerRow(item: ManualLedgerRow, bankTransactions: BankTransaction[] = []) {
+  if (item.type === "fixedPayment") return isBankLinkedPayment(item.row, bankTransactions);
+  return isBankLinkedExpense(item.row, bankTransactions);
 }
 
 function UnpaidFixedBadge() {
@@ -439,8 +439,9 @@ function ExpenseKindBadge({ kind }: { kind: CompanyExpenseKind }) {
   );
 }
 
-function isBankLinkedExpense(row: CompanyExpense): boolean {
-  return Boolean(row.bankTransactionId?.trim());
+function isBankLinkedExpense(row: CompanyExpense, bankTransactions: BankTransaction[] = []): boolean {
+  if (Boolean(row.bankTransactionId?.trim())) return true;
+  return bankTransactions.some((tx) => tx.linkedCompanyExpenseId === row.id);
 }
 
 function BankSourceBadge() {
@@ -468,8 +469,29 @@ function sumManualLedgerRows(rows: ManualLedgerRow[]) {
   return rows.reduce((sum, item) => sum + (item.row.amount || 0), 0);
 }
 
-function isBankLinkedPayment(row: FixedExpensePayment): boolean {
-  return Boolean(row.bankTransactionId?.trim());
+function isBankLinkedPayment(row: FixedExpensePayment, bankTransactions: BankTransaction[] = []): boolean {
+  if (Boolean(row.bankTransactionId?.trim())) return true;
+  return bankTransactions.some((tx) => tx.linkedFixedExpensePaymentId === row.id);
+}
+
+function resolveExpenseBankTransactionId(
+  expense: CompanyExpense,
+  expenseId: string,
+  bankTransactions: BankTransaction[],
+) {
+  const direct = String(expense.bankTransactionId || "").trim();
+  if (direct) return direct;
+  return bankTransactions.find((tx) => tx.linkedCompanyExpenseId === expenseId)?.id || "";
+}
+
+function resolvePaymentBankTransactionId(
+  payment: FixedExpensePayment,
+  paymentId: string,
+  bankTransactions: BankTransaction[],
+) {
+  const direct = String(payment.bankTransactionId || "").trim();
+  if (direct) return direct;
+  return bankTransactions.find((tx) => tx.linkedFixedExpensePaymentId === paymentId)?.id || "";
 }
 
 function resolveFixedExpenseName(fixedExpenseId: string, fixedExpenses: FixedExpense[]) {
@@ -486,8 +508,14 @@ function resolveFixedPaymentDescription(payment: FixedExpensePayment, fixedExpen
   return resolveFixedExpenseName(payment.fixedExpenseId, fixedExpenses);
 }
 
-function ExpenseCategoryBadges({ row }: { row: CompanyExpense }) {
-  if (isBankLinkedExpense(row)) {
+function ExpenseCategoryBadges({
+  row,
+  bankTransactions = [],
+}: {
+  row: CompanyExpense;
+  bankTransactions?: BankTransaction[];
+}) {
+  if (isBankLinkedExpense(row, bankTransactions)) {
     return (
       <div className="flex flex-wrap items-center gap-1.5">
         <CategoryBadge label={row.category} />
@@ -501,12 +529,14 @@ function ExpenseCategoryBadges({ row }: { row: CompanyExpense }) {
 function FixedPaymentBadges({
   payment,
   fixedExpenses,
+  bankTransactions = [],
 }: {
   payment: FixedExpensePayment;
   fixedExpenses: FixedExpense[];
+  bankTransactions?: BankTransaction[];
 }) {
   const category = resolveFixedPaymentCategory(payment, fixedExpenses);
-  if (isBankLinkedPayment(payment)) {
+  if (isBankLinkedPayment(payment, bankTransactions)) {
     return (
       <div className="flex flex-wrap items-center gap-1.5">
         <CategoryBadge label={category} />
@@ -522,6 +552,7 @@ function FixedLedgerRowsPanel({
   emptyLabel,
   showUnpaidBadge,
   fixedExpenses,
+  bankTransactions = [],
   canEditPayments,
   onEditManual,
   onEditFixedPayment,
@@ -532,6 +563,7 @@ function FixedLedgerRowsPanel({
   emptyLabel: string;
   showUnpaidBadge: boolean;
   fixedExpenses: FixedExpense[];
+  bankTransactions?: BankTransaction[];
   canEditPayments: boolean;
   onEditManual: (row: CompanyExpense) => void;
   onEditFixedPayment: (row: FixedExpensePayment) => void;
@@ -545,7 +577,7 @@ function FixedLedgerRowsPanel({
           rows.map((item) => {
             if (item.type === "expense") {
               const row = item.row;
-              const bankLinked = isBankLinkedExpense(row);
+              const bankLinked = isBankLinkedExpense(row, bankTransactions);
               return (
                 <MobileRecordCard
                   key={`expense-${row.id}`}
@@ -556,7 +588,7 @@ function FixedLedgerRowsPanel({
                     </div>
                   }
                   subtitle={row.date}
-                  badge={<ExpenseCategoryBadges row={row} />}
+                  badge={<ExpenseCategoryBadges row={row} bankTransactions={bankTransactions} />}
                   fields={[
                     { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
                     { label: L.memo, value: row.memo || "-", tone: "muted" },
@@ -576,7 +608,7 @@ function FixedLedgerRowsPanel({
             }
             const row = item.row;
             const name = resolveFixedPaymentDescription(row, fixedExpenses);
-            const bankLinked = isBankLinkedPayment(row);
+            const bankLinked = isBankLinkedPayment(row, bankTransactions);
             return (
               <MobileRecordCard
                 key={`fixed-pay-${row.id}`}
@@ -587,7 +619,7 @@ function FixedLedgerRowsPanel({
                   </div>
                 }
                 subtitle={row.date}
-                badge={<FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} />}
+                badge={<FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} bankTransactions={bankTransactions} />}
                 fields={[
                   { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
                   { label: L.memo, value: row.memo || "-", tone: "muted" },
@@ -628,12 +660,12 @@ function FixedLedgerRowsPanel({
               rows.map((item) => {
                 if (item.type === "expense") {
                   const row = item.row;
-                  const bankLinked = isBankLinkedExpense(row);
+                  const bankLinked = isBankLinkedExpense(row, bankTransactions);
                   return (
                     <tr key={`expense-${row.id}`} className={bankLinkedRowClass(bankLinked)}>
                       <td>{row.date}</td>
                       <td>
-                        <ExpenseCategoryBadges row={row} />
+                        <ExpenseCategoryBadges row={row} bankTransactions={bankTransactions} />
                       </td>
                       <td>
                         <div className="flex flex-wrap items-center gap-1.5">
@@ -661,7 +693,7 @@ function FixedLedgerRowsPanel({
                 }
                 const row = item.row;
                 const name = resolveFixedPaymentDescription(row, fixedExpenses);
-                const bankLinked = isBankLinkedPayment(row);
+                const bankLinked = isBankLinkedPayment(row, bankTransactions);
                 return (
                   <tr key={`fixed-pay-${row.id}`} className={bankLinkedRowClass(bankLinked)}>
                     <td>{row.date}</td>
@@ -876,13 +908,13 @@ export function CompanyLedgerPage({
   );
 
   const filteredUnpaidFixedRows = useMemo(
-    () => filteredFixedRows.filter((row) => !isPaidFixedLedgerRow(row)),
-    [filteredFixedRows],
+    () => filteredFixedRows.filter((row) => !isPaidFixedLedgerRow(row, bankTransactions)),
+    [filteredFixedRows, bankTransactions],
   );
 
   const filteredPaidFixedRows = useMemo(
-    () => filteredFixedRows.filter(isPaidFixedLedgerRow),
-    [filteredFixedRows],
+    () => filteredFixedRows.filter((row) => isPaidFixedLedgerRow(row, bankTransactions)),
+    [filteredFixedRows, bankTransactions],
   );
 
   const bankLedgerLinkStats = useMemo(() => {
@@ -896,18 +928,18 @@ export function CompanyLedgerPage({
     let autoPayment = 0;
     let manualPayment = 0;
     for (const row of monthExpenses) {
-      if (isBankLinkedExpense(row)) autoExpense += 1;
+      if (isBankLinkedExpense(row, bankTransactions)) autoExpense += 1;
       else manualExpense += 1;
     }
     for (const row of monthPayments) {
-      if (isBankLinkedPayment(row)) autoPayment += 1;
+      if (isBankLinkedPayment(row, bankTransactions)) autoPayment += 1;
       else manualPayment += 1;
     }
     return {
       autoCount: autoExpense + autoPayment,
       manualCount: manualExpense + manualPayment,
     };
-  }, [companyExpenses, fixedExpensePayments, currentMonthKey]);
+  }, [companyExpenses, fixedExpensePayments, currentMonthKey, bankTransactions]);
 
   const smartLedgerSummary = useMemo(() => loadSmartLedgerRunSummary(), [bankRefreshMessage]);
 
@@ -922,7 +954,7 @@ export function CompanyLedgerPage({
     let unpaidCount = 0;
     let paidCount = 0;
     for (const row of payments) {
-      if (isBankLinkedPayment(row)) {
+      if (isBankLinkedPayment(row, bankTransactions)) {
         paidTotal += Number(row.amount) || 0;
         paidCount += 1;
       } else {
@@ -931,7 +963,7 @@ export function CompanyLedgerPage({
       }
     }
     for (const row of legacy) {
-      if (isBankLinkedExpense(row)) {
+      if (isBankLinkedExpense(row, bankTransactions)) {
         paidTotal += Number(row.amount) || 0;
         paidCount += 1;
       } else {
@@ -940,14 +972,16 @@ export function CompanyLedgerPage({
       }
     }
     return { unpaidTotal, paidTotal, unpaidCount, paidCount };
-  }, [companyExpenses, fixedExpensePayments, currentMonthKey]);
+  }, [companyExpenses, fixedExpensePayments, currentMonthKey, bankTransactions]);
 
   const hasBankLinkedManualRows = useMemo(
     () =>
       filteredManualRows.some((item) =>
-        item.type === "expense" ? isBankLinkedExpense(item.row) : isBankLinkedPayment(item.row),
+        item.type === "expense"
+          ? isBankLinkedExpense(item.row, bankTransactions)
+          : isBankLinkedPayment(item.row, bankTransactions),
       ),
-    [filteredManualRows],
+    [filteredManualRows, bankTransactions],
   );
 
   const monthlyRows = useMemo(
@@ -1194,6 +1228,9 @@ export function CompanyLedgerPage({
       }
 
       const beforePayment = fixedExpensePayments.find((row) => row.id === paymentId);
+      const bankTransactionId = beforePayment
+        ? resolvePaymentBankTransactionId(beforePayment, paymentId, bankTransactions)
+        : "";
       const expenseId = makeLedgerId();
       const expense: CompanyExpense = {
         id: expenseId,
@@ -1203,21 +1240,21 @@ export function CompanyLedgerPage({
         amount: parseLedgerAmount(manualModal.amount),
         memo: manualModal.memo.trim(),
         kind: "variable",
-        bankTransactionId: beforePayment?.bankTransactionId,
+        bankTransactionId: bankTransactionId || undefined,
         createdBy: savedBy,
         createdAt: new Date().toISOString(),
       };
 
       setFixedExpensePayments((prev) => prev.filter((row) => row.id !== paymentId));
       setCompanyExpenses((prev) => [expense, ...prev]);
-      if (beforePayment?.bankTransactionId && setBankTransactions) {
+      if (bankTransactionId && setBankTransactions) {
         setBankTransactions((prev) =>
           prev.map((tx) => {
-            if (tx.id === beforePayment.bankTransactionId) {
+            if (tx.id === bankTransactionId) {
               return { ...tx, linkedCompanyExpenseId: expenseId, linkedFixedExpensePaymentId: undefined };
             }
             if (tx.linkedFixedExpensePaymentId === paymentId) {
-              return { ...tx, linkedFixedExpensePaymentId: undefined };
+              return { ...tx, linkedFixedExpensePaymentId: undefined, linkedCompanyExpenseId: expenseId };
             }
             return tx;
           }),
@@ -1276,6 +1313,9 @@ export function CompanyLedgerPage({
       }
 
       const beforeExpense = companyExpenses.find((row) => row.id === expenseId);
+      const bankTransactionId = beforeExpense
+        ? resolveExpenseBankTransactionId(beforeExpense, expenseId, bankTransactions)
+        : "";
       const paymentId = makeLedgerId();
       const payment: FixedExpensePayment = {
         id: paymentId,
@@ -1284,21 +1324,21 @@ export function CompanyLedgerPage({
         amount: parseLedgerAmount(manualModal.amount),
         category,
         memo: manualModal.description.trim() || manualModal.memo.trim(),
-        bankTransactionId: beforeExpense?.bankTransactionId,
+        bankTransactionId: bankTransactionId || undefined,
         createdBy: savedBy,
         createdAt: new Date().toISOString(),
       };
 
       setCompanyExpenses((prev) => prev.filter((row) => row.id !== expenseId));
       setFixedExpensePayments((prev) => [payment, ...prev]);
-      if (beforeExpense?.bankTransactionId && setBankTransactions) {
+      if (bankTransactionId && setBankTransactions) {
         setBankTransactions((prev) =>
           prev.map((tx) => {
-            if (tx.id === beforeExpense.bankTransactionId) {
+            if (tx.id === bankTransactionId) {
               return { ...tx, linkedFixedExpensePaymentId: paymentId, linkedCompanyExpenseId: undefined };
             }
             if (tx.linkedCompanyExpenseId === expenseId) {
-              return { ...tx, linkedCompanyExpenseId: undefined };
+              return { ...tx, linkedCompanyExpenseId: undefined, linkedFixedExpensePaymentId: paymentId };
             }
             return tx;
           }),
@@ -1433,7 +1473,7 @@ export function CompanyLedgerPage({
       manualModal.kind === "fixed" &&
       manualModal.id &&
       editingFixedPayment &&
-      !isBankLinkedPayment(editingFixedPayment) &&
+      !isBankLinkedPayment(editingFixedPayment, bankTransactions) &&
       setFixedExpensePayments &&
       setBankTransactions,
   );
@@ -1550,7 +1590,7 @@ export function CompanyLedgerPage({
   };
 
   const deleteManual = (row: CompanyExpense) => {
-    const message = isBankLinkedExpense(row) ? L.deleteBankLinkedConfirm : L.deleteConfirm;
+    const message = isBankLinkedExpense(row, bankTransactions) ? L.deleteBankLinkedConfirm : L.deleteConfirm;
     if (!window.confirm(message)) return;
     recordAudit({
       entityType: "companyExpense",
@@ -1563,11 +1603,11 @@ export function CompanyLedgerPage({
       user: currentUser,
     });
     setCompanyExpenses((prev) => prev.filter((item) => item.id !== row.id));
-    if (isBankLinkedExpense(row)) unlinkBankCompanyExpense(row.id);
+    if (isBankLinkedExpense(row, bankTransactions)) unlinkBankCompanyExpense(row.id);
   };
 
   const deleteFixedPayment = (row: FixedExpensePayment) => {
-    const message = isBankLinkedPayment(row) ? L.deleteBankLinkedConfirm : L.deleteConfirm;
+    const message = isBankLinkedPayment(row, bankTransactions) ? L.deleteBankLinkedConfirm : L.deleteConfirm;
     if (!window.confirm(message)) return;
     recordAudit({
       entityType: "fixedExpensePayment",
@@ -1580,7 +1620,7 @@ export function CompanyLedgerPage({
       user: currentUser,
     });
     setFixedExpensePayments?.((prev) => prev.filter((item) => item.id !== row.id));
-    if (isBankLinkedPayment(row)) unlinkBankFixedPayment(row.id);
+    if (isBankLinkedPayment(row, bankTransactions)) unlinkBankFixedPayment(row.id);
   };
 
   const deleteFixedExpense = () => {
@@ -1590,7 +1630,7 @@ export function CompanyLedgerPage({
     if (!row) return;
 
     const relatedPayments = fixedExpensePayments.filter((payment) => payment.fixedExpenseId === fixedExpenseId);
-    const hasBankLinkedPayment = relatedPayments.some((payment) => isBankLinkedPayment(payment));
+    const hasBankLinkedPayment = relatedPayments.some((payment) => isBankLinkedPayment(payment, bankTransactions));
     const message = hasBankLinkedPayment ? L.deleteFixedItemBankLinkedConfirm : L.deleteFixedItemConfirm;
     if (!window.confirm(message)) return;
 
@@ -1616,7 +1656,7 @@ export function CompanyLedgerPage({
         fields: FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS,
         user: currentUser,
       });
-      if (isBankLinkedPayment(payment)) unlinkBankFixedPayment(payment.id);
+      if (isBankLinkedPayment(payment, bankTransactions)) unlinkBankFixedPayment(payment.id);
     });
 
     const nextFixedExpenses = fixedExpenses.filter((item) => item.id !== fixedExpenseId);
@@ -1840,13 +1880,13 @@ export function CompanyLedgerPage({
                 {filteredVariableRows.length ? (
                   filteredVariableRows.map((item) => {
                     const row = item.row;
-                    const bankLinked = isBankLinkedExpense(row);
+                    const bankLinked = isBankLinkedExpense(row, bankTransactions);
                     return (
                       <MobileRecordCard
                         key={`expense-${row.id}`}
                         title={<DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />}
                         subtitle={row.date}
-                        badge={<ExpenseCategoryBadges row={row} />}
+                        badge={<ExpenseCategoryBadges row={row} bankTransactions={bankTransactions} />}
                         fields={[
                           { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
                           { label: L.memo, value: row.memo || "-", tone: "muted" },
@@ -1884,12 +1924,12 @@ export function CompanyLedgerPage({
                     {filteredVariableRows.length ? (
                       filteredVariableRows.map((item) => {
                         const row = item.row;
-                        const bankLinked = isBankLinkedExpense(row);
+                        const bankLinked = isBankLinkedExpense(row, bankTransactions);
                         return (
                           <tr key={`expense-${row.id}`} className={bankLinkedRowClass(bankLinked)}>
                             <td>{row.date}</td>
                             <td>
-                              <ExpenseCategoryBadges row={row} />
+                              <ExpenseCategoryBadges row={row} bankTransactions={bankTransactions} />
                             </td>
                             <td>
                               <DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />
@@ -2077,6 +2117,7 @@ export function CompanyLedgerPage({
                   emptyLabel={L.emptyUnpaidFixed}
                   showUnpaidBadge
                   fixedExpenses={fixedExpenses}
+                  bankTransactions={bankTransactions}
                   canEditPayments={Boolean(setFixedExpensePayments)}
                   onEditManual={openEditManual}
                   onEditFixedPayment={openEditFixedPayment}
@@ -2099,6 +2140,7 @@ export function CompanyLedgerPage({
                   emptyLabel={L.emptyPaidFixed}
                   showUnpaidBadge={false}
                   fixedExpenses={fixedExpenses}
+                  bankTransactions={bankTransactions}
                   canEditPayments={Boolean(setFixedExpensePayments)}
                   onEditManual={openEditManual}
                   onEditFixedPayment={openEditFixedPayment}
@@ -2210,13 +2252,13 @@ export function CompanyLedgerPage({
                 {selectedMonthDetail.manualExpenses.length || selectedMonthDetail.fixedPayments.length ? (
                   <>
                     {selectedMonthDetail.manualExpenses.map((row) => {
-                      const bankLinked = isBankLinkedExpense(row);
+                      const bankLinked = isBankLinkedExpense(row, bankTransactions);
                       return (
                         <MobileRecordCard
                           key={`manual-${row.id}`}
                           title={<DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />}
                           subtitle={row.date}
-                          badge={<ExpenseCategoryBadges row={row} />}
+                          badge={<ExpenseCategoryBadges row={row} bankTransactions={bankTransactions} />}
                           fields={[
                             { label: L.section, value: <ExpenseKindBadge kind={resolveCompanyExpenseKind(row)} /> },
                             { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
@@ -2226,13 +2268,13 @@ export function CompanyLedgerPage({
                     })}
                     {selectedMonthDetail.fixedPayments.map((row) => {
                       const name = resolveFixedExpenseName(row.fixedExpenseId, fixedExpenses);
-                      const bankLinked = isBankLinkedPayment(row);
+                      const bankLinked = isBankLinkedPayment(row, bankTransactions);
                       return (
                         <MobileRecordCard
                           key={`fixed-pay-${row.id}`}
                           title={<DescriptionWithBankBadge text={name} bankLinked={bankLinked} />}
                           subtitle={row.date}
-                          badge={<FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} />}
+                          badge={<FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} bankTransactions={bankTransactions} />}
                           fields={[
                             { label: L.section, value: <ExpenseKindBadge kind="fixed" /> },
                             { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
@@ -2265,7 +2307,7 @@ export function CompanyLedgerPage({
                   </thead>
                   <tbody>
                     {selectedMonthDetail.manualExpenses.map((row) => {
-                      const bankLinked = isBankLinkedExpense(row);
+                      const bankLinked = isBankLinkedExpense(row, bankTransactions);
                       return (
                         <tr key={`manual-${row.id}`} className={bankLinkedRowClass(bankLinked)}>
                           <td>
@@ -2273,7 +2315,7 @@ export function CompanyLedgerPage({
                           </td>
                           <td>{row.date}</td>
                           <td>
-                            <ExpenseCategoryBadges row={row} />
+                            <ExpenseCategoryBadges row={row} bankTransactions={bankTransactions} />
                           </td>
                           <td>
                             <DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />
@@ -2287,7 +2329,7 @@ export function CompanyLedgerPage({
                     })}
                     {selectedMonthDetail.fixedPayments.map((row) => {
                       const name = resolveFixedExpenseName(row.fixedExpenseId, fixedExpenses);
-                      const bankLinked = isBankLinkedPayment(row);
+                      const bankLinked = isBankLinkedPayment(row, bankTransactions);
                       const description = row.memo ? `${name} ${L.separator} ${row.memo}` : name;
                       return (
                         <tr key={`fixed-pay-${row.id}`} className={bankLinkedRowClass(bankLinked)}>
