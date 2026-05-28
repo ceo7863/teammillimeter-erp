@@ -311,6 +311,7 @@ const L = {
   memo: "\uBA54\uBAA8",
   memoPlaceholder: "\uBA54\uBAA8 \uC785\uB825",
   classification: "\uBD84\uB958",
+  ledgerCategoryColumn: "\uAC00\uACC4\uBD80",
   linkedSubject: "\uC5F0\uACB0 \uC774\uB984",
   workerFolderAssignBlocked: "\uC2DC\uACF5\uC790 \uBAA9\uB85D\uC5D0 \uB4F1\uB85D\uB41C \uC0C1\uB300\uC608\uAE08\uC8FC \uC774\uB984\uC778 \uCD9C\uAE08\uB9CC \uC2DC\uACF5\uC790 \uC9C0\uCD9C\uB85C \uBD84\uB958\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
   autoClassify: "\uC790\uB3D9 \uBD84\uB958",
@@ -1070,13 +1071,31 @@ export function BankTransactionsPage({
   const resolveLinkedFixedPaymentForBankTx = (tx: BankTransaction) =>
     getLinkedFixedPaymentForBankTx(tx, fixedExpensePayments);
 
-  const getLedgerRegisteredBadgeLabel = (row: BankTransaction) => {
+  const getLedgerCategoryLabel = (row: BankTransaction) => {
     const linkedExpense = resolveLinkedCompanyExpenseForBankTx(row);
-    if (linkedExpense) {
-      return linkedExpense.kind === "fixed" ? L.ledgerFixedRegistered : L.ledgerManualRegistered;
+    if (linkedExpense?.category?.trim()) return linkedExpense.category.trim();
+
+    const linkedPayment = resolveLinkedFixedPaymentForBankTx(row);
+    if (linkedPayment) {
+      const fixedItem = fixedExpenses.find((item) => item.id === linkedPayment.fixedExpenseId);
+      return fixedItem?.category?.trim() || fixedItem?.name?.trim() || null;
     }
-    if (resolveLinkedFixedPaymentForBankTx(row)) {
-      return L.ledgerFixedRegistered;
+    return null;
+  };
+
+  const isLedgerCategoryFromFixed = (row: BankTransaction) => {
+    const linkedExpense = resolveLinkedCompanyExpenseForBankTx(row);
+    if (linkedExpense?.kind === "fixed") return true;
+    return Boolean(resolveLinkedFixedPaymentForBankTx(row));
+  };
+
+  const resolveLedgerCategorySuggestionLabel = (row: BankTransaction) => {
+    if (getLedgerCategoryLabel(row)) return null;
+    const memoSuggestion = memoCategorySuggestionByTxId.get(row.id);
+    if (memoSuggestion?.category?.trim()) return memoSuggestion.category.trim();
+    const suggestion = ledgerSuggestionByTxId.get(row.id);
+    if (suggestion?.label) {
+      return suggestion.label.replace(/^\[[^\]]+\]\s*/, "").split(" \u00B7 ")[0]?.trim() || null;
     }
     return null;
   };
@@ -3748,62 +3767,36 @@ export function BankTransactionsPage({
     );
   };
 
-  const renderLedgerSuggestionBadge = (row: BankTransaction) => {
-    const effectiveRow = bankTransactionsForClassification.find((tx) => tx.id === row.id) || row;
-    const memoSuggestion = memoCategorySuggestionByTxId.get(row.id);
-    const suggestion = ledgerSuggestionByTxId.get(row.id);
-    const activeSuggestion = memoSuggestion
-      ? {
-          label: memoSuggestion.label,
-          confidence: memoSuggestion.confidence,
-          source: "learn_rule" as const,
-          reasons: ["\uBA54\uBAA8 \uD559\uC2B5 \u00B7 \uAC19\uC740 \uAC70\uB798\uCC98"],
-        }
-      : suggestion;
-    if (!activeSuggestion) return null;
-    if (!memoSuggestion && !canRegisterLedger(effectiveRow)) return null;
-    const learnMatch = memoSuggestion
-      ? null
-      : findBestBankLearnRuleWithScore(
-          effectiveRow,
-          effectiveBankLedgerRules,
-          fixedExpenses,
-          ["fixed", "manual"],
-        );
-    const confidence =
-      activeSuggestion.source === "learn_rule" && learnMatch
-        ? formatLearnRuleConfidencePercent(learnMatch.score)
-        : Math.round(activeSuggestion.confidence);
-    const label =
-      activeSuggestion.source === "learn_rule" && learnMatch
-        ? L.ledgerLearnRuleBadge(confidence)
-        : L.ledgerSuggestionBadge(activeSuggestion.label.replace(/^\[[^\]]+\]\s*/, ""), confidence);
-    const tone =
-      confidence >= LEDGER_REGISTRATION_MIN_CONFIDENCE_PERCENT
-        ? "bg-violet-100 text-violet-800"
-        : "bg-sky-50 text-sky-800 border border-sky-200";
-    return (
-      <span
-        className={`inline-flex rounded-full px-2 py-0.5 text-xs font-bold ${tone}`}
-        title={activeSuggestion.reasons.join(" · ")}
-      >
-        {label}
-      </span>
-    );
-  };
+  const renderLedgerCategoryCell = (row: BankTransaction) => {
+    const category = getLedgerCategoryLabel(row);
+    if (category) {
+      const isFixed = isLedgerCategoryFromFixed(row);
+      return (
+        <button
+          type="button"
+          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold transition hover:brightness-95 ${
+            isFixed ? "bg-amber-100 text-amber-800" : "border border-amber-200 bg-amber-50 text-amber-900"
+          }`}
+          title={L.ledgerBadgeEditHint}
+          onClick={() => openLedgerEdit(row)}
+        >
+          <BookOpen size={11} />
+          {category}
+        </button>
+      );
+    }
 
-  const renderLedgerRegisteredBadge = (row: BankTransaction, label: string) => (
-    <button
-      type="button"
-      className={`inline-flex rounded-full px-2 py-0.5 text-xs font-bold transition hover:brightness-95 ${
-        label === L.ledgerFixedRegistered ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-700"
-      }`}
-      title={L.ledgerBadgeEditHint}
-      onClick={() => openLedgerEdit(row)}
-    >
-      {label}
-    </button>
-  );
+    const suggestionLabel = resolveLedgerCategorySuggestionLabel(row);
+    if (suggestionLabel) {
+      return (
+        <span className="inline-flex rounded-full border border-dashed border-violet-200 bg-violet-50 px-2 py-0.5 text-xs font-semibold text-violet-800">
+          {suggestionLabel}
+        </span>
+      );
+    }
+
+    return <span className="text-xs text-slate-400">-</span>;
+  };
 
   const renderRow = (row: BankTransaction) => {
     const suppressed = isNetGroupSuppressed(row);
@@ -3818,7 +3811,6 @@ export function BankTransactionsPage({
           : "";
     const folder = row.folderId ? folderMap.get(row.folderId) : undefined;
     const canLedger = canRegisterLedgerWithConfidence(row);
-    const ledgerBadgeLabel = getLedgerRegisteredBadgeLabel(row);
 
     return (
       <tr key={row.id} className={`border-t ${rowClass}`}>
@@ -3851,6 +3843,7 @@ export function BankTransactionsPage({
             row.counterpartyName || "-"
           )}
         </td>
+        <td>{renderLedgerCategoryCell(row)}</td>
         <td>
           {folder ? (
             <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getBankTransactionFolderTone(folder.folderType)}`}>
@@ -3869,10 +3862,6 @@ export function BankTransactionsPage({
             <span className="text-xs font-semibold text-slate-400">{L.unfiled}</span>
           )}
           {!folder ? <div className="mt-1">{renderFolderSuggestionBadge(row)}</div> : null}
-          {ledgerBadgeLabel ? (
-            <div className="mt-1">{renderLedgerRegisteredBadge(row, ledgerBadgeLabel)}</div>
-          ) : null}
-          {!ledgerBadgeLabel ? <div className="mt-1">{renderLedgerSuggestionBadge(row)}</div> : null}
           {row.netGroupRole ? <div className="mt-1">{renderPreauthNetBadges(row)}</div> : null}
           {row.linkedSubject ? (
             <div className="mt-1 text-xs text-slate-500">{row.linkedSubject}</div>
@@ -4033,10 +4022,9 @@ export function BankTransactionsPage({
   const renderMobileCard = (row: BankTransaction) => {
     const folder = row.folderId ? folderMap.get(row.folderId) : undefined;
     const canLedger = canRegisterLedgerWithConfidence(row);
-    const ledgerBadgeLabel = getLedgerRegisteredBadgeLabel(row);
+    const ledgerCategoryLabel = getLedgerCategoryLabel(row);
+    const ledgerCategorySuggestion = !ledgerCategoryLabel ? resolveLedgerCategorySuggestionLabel(row) : null;
     const folderSuggestion = !folder ? folderSuggestionByTxId.get(row.id) : undefined;
-    const memoSuggestion = !ledgerBadgeLabel ? memoCategorySuggestionByTxId.get(row.id) : undefined;
-    const ledgerSuggestion = !ledgerBadgeLabel && !memoSuggestion ? ledgerSuggestionByTxId.get(row.id) : undefined;
     const preauthBadge =
       row.netGroupRole === "settlement"
         ? L.preauthNetSettlementBadge
@@ -4052,6 +4040,11 @@ export function BankTransactionsPage({
       subtitle={formatBankTransactionDateTime(row.transactionAt)}
       badges={[
         preauthBadge ? { label: preauthBadge, tone: "muted" as const } : null,
+        ledgerCategoryLabel
+          ? { label: ledgerCategoryLabel, tone: "default" as const }
+          : ledgerCategorySuggestion
+            ? { label: ledgerCategorySuggestion, tone: "default" as const }
+            : null,
         folder
           ? {
               label: folder.folderName,
@@ -4070,27 +4063,6 @@ export function BankTransactionsPage({
                 folderSuggestion.linkedSubject,
               ),
               tone: "success" as const,
-            }
-          : null,
-        memoSuggestion
-          ? {
-              label: L.ledgerSuggestionBadge(memoSuggestion.category, Math.round(memoSuggestion.confidence)),
-              tone: "default" as const,
-            }
-          : null,
-        ledgerSuggestion
-          ? {
-              label: L.ledgerSuggestionBadge(
-                ledgerSuggestion.label.replace(/^\[[^\]]+\]\s*/, ""),
-                Math.round(ledgerSuggestion.confidence),
-              ),
-              tone: "default" as const,
-            }
-          : null,
-        ledgerBadgeLabel
-          ? {
-              label: ledgerBadgeLabel,
-              tone: ledgerBadgeLabel === L.ledgerFixedRegistered ? ("default" as const) : ("default" as const),
             }
           : null,
         row.linkedPaymentVoucherId && isBankMatchAutoLinked(row)
@@ -4123,20 +4095,16 @@ export function BankTransactionsPage({
       ]}
       actions={
         <>
-          {ledgerBadgeLabel ? (
+          {ledgerCategoryLabel ? (
             <Button
               type="button"
               size="sm"
               variant="outline"
-              className={`rounded-xl text-xs font-semibold ${
-                ledgerBadgeLabel === L.ledgerFixedRegistered
-                  ? "border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100"
-                  : ""
-              }`}
+              className="rounded-xl border-amber-200 bg-amber-50 text-xs font-semibold text-amber-900 hover:bg-amber-100"
               onClick={() => openLedgerEdit(row)}
             >
               <BookOpen size={14} className="mr-1" />
-              {ledgerBadgeLabel}
+              {ledgerCategoryLabel}
             </Button>
           ) : null}
           {canLedger || canLinkUnclassifiedClientDeposit(row) ? (
@@ -4976,6 +4944,7 @@ export function BankTransactionsPage({
                   <th>{L.description}</th>
                 <th>{L.memo}</th>
                 <th>{L.counterpartyName}</th>
+                <th>{L.ledgerCategoryColumn}</th>
                 <th>{L.classification}</th>
                 <th>{L.counterpartyBank}</th>
                 <th>{L.matchStatus}</th>
@@ -4989,7 +4958,7 @@ export function BankTransactionsPage({
                   filteredRows.map(renderRow)
                 ) : (
                   <tr>
-                    <td colSpan={13} className="py-12 text-center text-slate-500">
+                    <td colSpan={14} className="py-12 text-center text-slate-500">
                       {L.empty}
                     </td>
                   </tr>
