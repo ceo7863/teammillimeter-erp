@@ -64,7 +64,7 @@ import type { ErpUser } from "@/utils/erpApi";
 import { AutocompleteInput } from "@/components/AutocompleteInput";
 import { CompanyLedgerCalendar } from "@/components/CompanyLedgerCalendar";
 import type { LedgerCalendarEntry } from "@/utils/ledgerCalendar";
-import { formatBankLearnAutoMessage, listBankTransactionsForLedgerLink, type BankLearnRule } from "@/utils/bankCompanyLedger";
+import { formatBankLearnAutoMessage, getLinkedCompanyExpenseForBankTx, listBankTransactionsForLedgerLink, clearVariableExpenseLinkForBankTx, type BankLearnRule } from "@/utils/bankCompanyLedger";
 import { loadSmartLedgerRunSummary } from "@/utils/bankSmartLedger";
 import { formatBankTransactionDateTime, type BankTransaction } from "@/utils/bankTransactions";
 import { reconcileLedgerBankLinks, refreshCompanyLedgerFromBankTransactions } from "@/utils/fixedExpenseAutomation";
@@ -193,6 +193,7 @@ const L = {
     "\uBBF8\uAC00\uACC4\uBD80 \uC5F0\uACB0 \uCD9C\uAE08 \uB0B4\uC5ED\uC744 \uAC80\uC0C9\uD574 \uC120\uD0DD\uD558\uC138\uC694. \uACE0\uC815\uBE44\uC640 \uBCC0\uB3D9 \uC9C0\uCD9C \uBAA8\uB450 \uC5F0\uACB0\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
   linkFromBankSearch: "\uAC70\uB798\uB0B4\uC6A9\uC774 \uAE08\uC561 \uAC80\uC0C9",
   linkFromBankEmpty: "\uC5F0\uACB0 \uAC00\uB2A5\uD55C \uCD9C\uAE08 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  linkFromBankVariableLinkedBadge: "\uBCC0\uB3D9\uC9C0\uCD9C \uC5F0\uACB0\uC74C",
   linkFromBankDone: "\uD1B5\uC7A5 \uB0B4\uC5ED\uC774 \uC5F0\uACB0\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   refreshBankLedger: "\uD1B5\uC7A5 \uC5F0\uB3D9 \uC0C8\uB85C\uACE0\uCE68",
   refreshBankLedgerHint: "\uD1B5\uC7A5 \uAC70\uB798\uB0B4\uC5ED\uC744 \uB2E4\uC2DC \uD655\uC778\uD558\uACE0 \uACE0\uC815\uBE44 \uB0A9\uBD80 \u00B7 \uD559\uC2B5 \uADDC\uCE59 \uC5F0\uACB0\uC744 \uAC31\uC2E0\uD569\uB2C8\uB2E4.",
@@ -1519,10 +1520,18 @@ export function CompanyLedgerPage({
   );
 
   const linkableBankTransactions = useMemo(() => {
-    const base = listBankTransactionsForLedgerLink(bankTransactions, {
-      companyExpenses,
-      fixedExpensePayments,
-    });
+    const isFixedPaymentLink =
+      manualModal?.source === "fixedPayment" && manualModal?.mode === "edit" && Boolean(manualModal.id);
+    const base = listBankTransactionsForLedgerLink(
+      bankTransactions,
+      {
+        companyExpenses,
+        fixedExpensePayments,
+      },
+      isFixedPaymentLink
+        ? { includeVariableLinked: true, excludePaymentId: manualModal?.id }
+        : {},
+    );
     const keyword = bankLinkSearch.trim().toLowerCase();
     if (!keyword) return base;
     return base.filter((tx) => {
@@ -1532,7 +1541,15 @@ export function CompanyLedgerPage({
         .toLowerCase();
       return haystack.includes(keyword);
     });
-  }, [bankTransactions, bankLinkSearch, companyExpenses, fixedExpensePayments]);
+  }, [
+    bankTransactions,
+    bankLinkSearch,
+    companyExpenses,
+    fixedExpensePayments,
+    manualModal?.source,
+    manualModal?.mode,
+    manualModal?.id,
+  ]);
 
   const linkBankTransactionToFixedPayment = (tx: BankTransaction) => {
     const paymentId = manualModal?.id;
@@ -1540,6 +1557,26 @@ export function CompanyLedgerPage({
 
     const payment = fixedExpensePayments.find((row) => row.id === paymentId);
     const synced = resolveFixedPaymentFieldsFromBankTx(tx);
+    const {
+      expenses: clearedExpenses,
+      transactions: clearedTransactions,
+      removedExpense,
+    } = clearVariableExpenseLinkForBankTx(tx.id, companyExpenses, bankTransactions);
+
+    if (removedExpense && setCompanyExpenses) {
+      recordAudit({
+        entityType: "companyExpense",
+        entityId: removedExpense.id,
+        entityLabel: `${removedExpense.date} \u00B7 ${removedExpense.description || removedExpense.category}`,
+        screen: L.pageTitle,
+        action: "delete",
+        before: snapshotCompanyExpenseForAudit(removedExpense),
+        fields: COMPANY_EXPENSE_AUDIT_FIELDS,
+        user: currentUser,
+      });
+      setCompanyExpenses(clearedExpenses);
+    }
+
     setFixedExpensePayments((prev) => linkFixedExpensePaymentToBankTx(prev, paymentId, tx.id, tx));
     setManualModal((prev) =>
       prev && prev.id === paymentId
@@ -1550,8 +1587,8 @@ export function CompanyLedgerPage({
           }
         : prev,
     );
-    setBankTransactions((prev) =>
-      prev.map((row) =>
+    setBankTransactions(
+      clearedTransactions.map((row) =>
         row.id === tx.id
           ? { ...row, linkedFixedExpensePaymentId: paymentId, linkedCompanyExpenseId: undefined }
           : row,
@@ -3027,7 +3064,12 @@ export function CompanyLedgerPage({
                 />
                 <div className="max-h-96 space-y-2 overflow-auto">
                   {linkableBankTransactions.length ? (
-                    linkableBankTransactions.map((tx) => (
+                    linkableBankTransactions.map((tx) => {
+                      const variableLinkedExpense = getLinkedCompanyExpenseForBankTx(tx, companyExpenses);
+                      const showVariableLinkedBadge =
+                        variableLinkedExpense &&
+                        resolveCompanyExpenseKind(variableLinkedExpense) === "variable";
+                      return (
                       <button
                         key={tx.id}
                         type="button"
@@ -3038,9 +3080,16 @@ export function CompanyLedgerPage({
                           <span className="font-bold text-slate-900">
                             {tx.description || tx.counterpartyName || "-"}
                           </span>
-                          <span className="text-sm font-bold text-red-600">
-                            {formatKRW(tx.withdrawal)}
-                            {L.won}
+                          <span className="flex flex-wrap items-center gap-2">
+                            {showVariableLinkedBadge ? (
+                              <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">
+                                {L.linkFromBankVariableLinkedBadge}
+                              </span>
+                            ) : null}
+                            <span className="text-sm font-bold text-red-600">
+                              {formatKRW(tx.withdrawal)}
+                              {L.won}
+                            </span>
                           </span>
                         </div>
                         <div className="mt-1 text-sm text-slate-600">
@@ -3048,7 +3097,8 @@ export function CompanyLedgerPage({
                           {tx.counterpartyName ? ` \u00B7 ${tx.counterpartyName}` : ""}
                         </div>
                       </button>
-                    ))
+                      );
+                    })
                   ) : (
                     <p className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm font-semibold text-slate-500">
                       {L.linkFromBankEmpty}

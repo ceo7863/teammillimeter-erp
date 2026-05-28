@@ -83,12 +83,14 @@ import {
   buildCompanyExpensePrefillFromBankTransaction,
   buildLedgerReviewPromptGroups,
   canRegisterBankTxToCompanyLedger,
+  clearVariableExpenseLinkForBankTx,
   createCompanyExpenseFromBankTransaction,
   findBestBankLearnRuleWithScore,
   findMatchingBankLedgerRule,
   formatBankLearnAutoMessage,
   formatLearnRuleConfidencePercent,
   hasManualLedgerCategoryMemoOverride,
+  isBankTransactionLinkedToVariableExpenseOnly,
   LEDGER_REGISTRATION_MIN_CONFIDENCE_PERCENT,
   getLinkedCompanyExpenseForBankTx,
   getLinkedFixedPaymentForBankTx,
@@ -942,6 +944,13 @@ export function BankTransactionsPage({
 
   const canRegisterLedger = (tx: BankTransaction) =>
     !isNetGroupSuppressed(tx) && canRegisterBankTxToCompanyLedger(tx, ledgerRegistrationContext);
+
+  const isVariableExpenseLinkedOnly = (tx: BankTransaction) =>
+    isBankTransactionLinkedToVariableExpenseOnly(tx, ledgerRegistrationContext);
+
+  const canRegisterFixedLedger = (tx: BankTransaction) =>
+    !isNetGroupSuppressed(tx) &&
+    canRegisterBankTxToCompanyLedger(tx, ledgerRegistrationContext, { allowVariableLinked: true });
 
   const evaluateLedgerRegistrationGate = React.useCallback(
     (tx: BankTransaction) =>
@@ -2451,11 +2460,14 @@ export function BankTransactionsPage({
   };
 
   const openLedgerRegister = (tx: BankTransaction) => {
-    if (!canRegisterLedger(tx)) return;
-    const gate = evaluateLedgerRegistrationGate(tx);
-    if (!gate.allowed) {
-      setImportMessage(L.ledgerConfidenceBlocked(gate.confidence));
-      return;
+    const variableOnlyLinked = isVariableExpenseLinkedOnly(tx);
+    if (!canRegisterLedger(tx) && !variableOnlyLinked) return;
+    if (!variableOnlyLinked) {
+      const gate = evaluateLedgerRegistrationGate(tx);
+      if (!gate.allowed) {
+        setImportMessage(L.ledgerConfidenceBlocked(gate.confidence));
+        return;
+      }
     }
     const prefill = buildCompanyExpensePrefillFromBankTransaction(tx);
     const suggestion = ledgerSuggestionByTxId.get(tx.id);
@@ -2463,7 +2475,11 @@ export function BankTransactionsPage({
     const parsed = parseLedgerTargetKey(targetKey);
     const learnMatch = findBestBankLearnRuleWithScore(tx, bankLedgerRules, fixedExpenses, ["fixed", "manual"]);
     const ledgerRule = learnMatch?.rule || findMatchingBankLedgerRule(tx, bankLedgerRules, fixedExpenses);
-    const kind: LedgerRegisterKind = parsed?.kind === "fixed" ? "fixed" : "manual";
+    const kind: LedgerRegisterKind = variableOnlyLinked
+      ? "fixed"
+      : parsed?.kind === "fixed"
+        ? "fixed"
+        : "manual";
     const fixedItem =
       parsed?.kind === "fixed" && parsed.fixedExpenseId
         ? fixedExpenses.find((row) => row.id === parsed.fixedExpenseId)
@@ -2952,16 +2968,19 @@ export function BankTransactionsPage({
       return;
     }
     if (!canRegisterLedger(ledgerModal.tx)) {
-      setLedgerFormError(L.ledgerAlreadyRegistered);
-      return;
+      if (ledgerModal.kind !== "fixed" || !canRegisterFixedLedger(ledgerModal.tx)) {
+        setLedgerFormError(L.ledgerAlreadyRegistered);
+        return;
+      }
     }
+    const variableOnlyLinked = isVariableExpenseLinkedOnly(ledgerModal.tx);
     const gate = evaluateLedgerRegistrationGate(ledgerModal.tx);
     const manualOverride = isManualLedgerRegistrationOverride(ledgerModal.tx, {
       kind: ledgerModal.kind,
       category: ledgerModal.category,
       fixedExpenseId: ledgerModal.fixedExpenseId,
     });
-    if (!gate.allowed && !manualOverride) {
+    if (!variableOnlyLinked && !gate.allowed && !manualOverride) {
       setLedgerFormError(L.ledgerConfidenceBlocked(gate.confidence));
       return;
     }
@@ -3009,6 +3028,32 @@ export function BankTransactionsPage({
         );
       }
 
+      let nextExpenses = companyExpenses;
+      let workingTransactions = bankTransactions;
+      let removedExpense: CompanyExpense | null = null;
+      if (variableOnlyLinked) {
+        const cleared = clearVariableExpenseLinkForBankTx(
+          ledgerModal.tx.id,
+          companyExpenses,
+          bankTransactions,
+        );
+        nextExpenses = cleared.expenses;
+        workingTransactions = cleared.transactions;
+        removedExpense = cleared.removedExpense;
+        if (removedExpense) {
+          recordAudit({
+            entityType: "companyExpense",
+            entityId: removedExpense.id,
+            entityLabel: `${removedExpense.date} \u00B7 ${removedExpense.description || removedExpense.category}`,
+            screen: L.pageTitle,
+            action: "delete",
+            before: snapshotCompanyExpenseForAudit(removedExpense),
+            fields: COMPANY_EXPENSE_AUDIT_FIELDS,
+            user: currentUser,
+          });
+        }
+      }
+
       let nextPayments = fixedExpensePayments;
       let paymentId = existingPayment?.id || "";
 
@@ -3032,7 +3077,7 @@ export function BankTransactionsPage({
         ];
       }
 
-      const nextTransactions = bankTransactions.map((row) =>
+      const nextTransactions = workingTransactions.map((row) =>
         row.id === ledgerModal.tx.id
           ? {
               ...row,
@@ -3066,10 +3111,13 @@ export function BankTransactionsPage({
 
       auditBankTxUpdate(ledgerModal.tx, nextTransactions.find((row) => row.id === ledgerModal.tx.id) || ledgerModal.tx);
 
+      if (removedExpense) {
+        setCompanyExpenses(nextExpenses);
+      }
       setFixedExpensePayments(nextPayments);
       setBankTransactions(nextTransactions);
       setBankLedgerRules(nextRules);
-      applyAutoLearnRules(nextTransactions, nextPayments, companyExpenses, nextRules, { showMessage: true });
+      applyAutoLearnRules(nextTransactions, nextPayments, nextExpenses, nextRules, { showMessage: true });
       setLedgerModal(null);
       setLedgerFormError("");
       setImportMessage(existingPayment ? L.ledgerFixedLinkDone : L.ledgerFixedRegisterDone);

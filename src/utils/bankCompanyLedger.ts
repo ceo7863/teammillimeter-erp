@@ -13,6 +13,7 @@ import {
   normalizeExpenseCategoryName,
   parseLedgerAmount,
   areRecurringAmountsCompatible,
+  resolveCompanyExpenseKind,
 } from "./companyLedger";
 
 export type LedgerTargetKind = "manual" | "fixed";
@@ -86,6 +87,41 @@ export function isBankTransactionLinkedToCompanyLedger(
   );
 }
 
+export function isBankTransactionLinkedToVariableExpenseOnly(
+  tx: BankTransaction,
+  context: BankLedgerRegistrationContext = {},
+) {
+  if (getLinkedFixedPaymentForBankTx(tx, context.fixedExpensePayments)) return false;
+  const expense = getLinkedCompanyExpenseForBankTx(tx, context.companyExpenses);
+  if (!expense) return false;
+  return resolveCompanyExpenseKind(expense) === "variable";
+}
+
+export function clearVariableExpenseLinkForBankTx(
+  txId: string,
+  expenses: CompanyExpense[],
+  transactions: BankTransaction[],
+) {
+  const tx = transactions.find((row) => row.id === txId);
+  const linkedExpense =
+    (tx?.linkedCompanyExpenseId
+      ? expenses.find((row) => row.id === tx.linkedCompanyExpenseId)
+      : undefined) || expenses.find((row) => row.bankTransactionId === txId);
+
+  if (!linkedExpense || resolveCompanyExpenseKind(linkedExpense) !== "variable") {
+    return { expenses, transactions, removedExpense: null as CompanyExpense | null };
+  }
+
+  const nextExpenses = expenses.filter((row) => row.id !== linkedExpense.id);
+  const nextTransactions = transactions.map((row) =>
+    row.id === txId || row.linkedCompanyExpenseId === linkedExpense.id
+      ? { ...row, linkedCompanyExpenseId: undefined }
+      : row,
+  );
+
+  return { expenses: nextExpenses, transactions: nextTransactions, removedExpense: linkedExpense };
+}
+
 /** Align tx.linked* fields with ledger rows matched by bankTransactionId. */
 export function syncBankTransactionLedgerLinkFields(
   transactions: BankTransaction[],
@@ -130,23 +166,34 @@ export function syncBankTransactionLedgerLinkFields(
 export function canRegisterBankTxToCompanyLedger(
   tx: BankTransaction,
   context: BankLedgerRegistrationContext = {},
+  options: { allowVariableLinked?: boolean } = {},
 ) {
   if (isNetGroupSuppressed(tx)) return false;
   if (tx.folderId || !(tx.withdrawal > 0)) return false;
+  if (options.allowVariableLinked && isBankTransactionLinkedToVariableExpenseOnly(tx, context)) {
+    return true;
+  }
   return !isBankTransactionLinkedToCompanyLedger(tx, context);
 }
 
 export function listBankTransactionsForLedgerLink(
   transactions: BankTransaction[],
   context: BankLedgerRegistrationContext = {},
-  options: { excludePaymentId?: string } = {},
+  options: { excludePaymentId?: string; includeVariableLinked?: boolean } = {},
 ) {
   const payments = (context.fixedExpensePayments || []).filter(
     (row) => !options.excludePaymentId || row.id !== options.excludePaymentId,
   );
+  const registrationOptions = options.includeVariableLinked ? { allowVariableLinked: true } : {};
 
   return transactions
-    .filter((tx) => canRegisterBankTxToCompanyLedger(tx, { ...context, fixedExpensePayments: payments }))
+    .filter((tx) =>
+      canRegisterBankTxToCompanyLedger(
+        tx,
+        { ...context, fixedExpensePayments: payments },
+        registrationOptions,
+      ),
+    )
     .sort((a, b) => String(b.transactionAt).localeCompare(String(a.transactionAt)));
 }
 
