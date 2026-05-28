@@ -710,12 +710,23 @@ export function BankTransactionsPage({
   const canRegisterLedger = (tx: BankTransaction) =>
     !isNetGroupSuppressed(tx) && canRegisterBankTxToCompanyLedger(tx, ledgerRegistrationContext);
 
+  const isLedgerEditModal = (modal: NonNullable<typeof ledgerModal>) =>
+    modal.mode === "edit" || Boolean(modal.editPaymentId || modal.editExpenseId);
+
+  const resolveLinkedCompanyExpenseForBankTx = (tx: BankTransaction) =>
+    getLinkedCompanyExpenseForBankTx(tx, companyExpenses) ||
+    companyExpenses.find((row) => row.bankTransactionId === tx.id);
+
+  const resolveLinkedFixedPaymentForBankTx = (tx: BankTransaction) =>
+    getLinkedFixedPaymentForBankTx(tx, fixedExpensePayments) ||
+    fixedExpensePayments.find((row) => row.bankTransactionId === tx.id);
+
   const getLedgerRegisteredBadgeLabel = (row: BankTransaction) => {
-    const linkedExpense = getLinkedCompanyExpenseForBankTx(row, companyExpenses);
+    const linkedExpense = resolveLinkedCompanyExpenseForBankTx(row);
     if (linkedExpense) {
       return linkedExpense.kind === "fixed" ? L.ledgerFixedRegistered : L.ledgerManualRegistered;
     }
-    if (getLinkedFixedPaymentForBankTx(row, fixedExpensePayments)) {
+    if (resolveLinkedFixedPaymentForBankTx(row)) {
       return L.ledgerFixedRegistered;
     }
     return null;
@@ -1651,7 +1662,7 @@ export function BankTransactionsPage({
   };
 
   const openLedgerEdit = (tx: BankTransaction) => {
-    const linkedPayment = getLinkedFixedPaymentForBankTx(tx, fixedExpensePayments);
+    const linkedPayment = resolveLinkedFixedPaymentForBankTx(tx);
     if (linkedPayment) {
       const fixedItem = fixedExpenses.find((row) => row.id === linkedPayment.fixedExpenseId);
       setLedgerFormError("");
@@ -1670,7 +1681,7 @@ export function BankTransactionsPage({
       return;
     }
 
-    const linkedExpense = getLinkedCompanyExpenseForBankTx(tx, companyExpenses);
+    const linkedExpense = resolveLinkedCompanyExpenseForBankTx(tx);
     if (!linkedExpense) return;
 
     setLedgerFormError("");
@@ -1711,7 +1722,7 @@ export function BankTransactionsPage({
   };
 
   const saveLedgerEdit = () => {
-    if (!ledgerModal || ledgerModal.mode !== "edit") return;
+    if (!ledgerModal || !isLedgerEditModal(ledgerModal)) return;
     const savedBy = currentUser?.name || currentUser?.loginId || "";
     const kindChanged =
       (Boolean(ledgerModal.editPaymentId) && ledgerModal.kind === "manual") ||
@@ -1879,7 +1890,7 @@ export function BankTransactionsPage({
 
   const saveLedgerRegister = () => {
     if (!ledgerModal) return;
-    if (ledgerModal.mode === "edit") {
+    if (isLedgerEditModal(ledgerModal)) {
       saveLedgerEdit();
       return;
     }
@@ -1977,7 +1988,6 @@ export function BankTransactionsPage({
       setLedgerModal(null);
       setLedgerFormError("");
       setImportMessage(L.ledgerFixedRegisterDone);
-      onNavigateToCompanyLedger?.();
       return;
     }
 
@@ -2050,7 +2060,6 @@ export function BankTransactionsPage({
     setLedgerModal(null);
     setLedgerFormError("");
     setImportMessage(L.ledgerRegisterDone);
-    onNavigateToCompanyLedger?.();
   };
 
   const openClientLinkModal = (tx: BankTransaction) => {
@@ -3844,13 +3853,13 @@ export function BankTransactionsPage({
               <div>
                 <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800">
                   <BookOpen size={14} />
-                  {ledgerModal.mode === "edit" ? L.ledgerEditTitle : L.ledgerSendTo}
+                  {isLedgerEditModal(ledgerModal) ? L.ledgerEditTitle : L.ledgerSendTo}
                 </div>
                 <h2 className="erp-text-section font-bold">
-                  {ledgerModal.mode === "edit" ? L.ledgerEditTitle : L.ledgerRegisterTitle}
+                  {isLedgerEditModal(ledgerModal) ? L.ledgerEditTitle : L.ledgerRegisterTitle}
                 </h2>
                 <p className="mt-1 erp-text-caption text-slate-500">
-                  {ledgerModal.mode === "edit" ? L.ledgerEditDesc : L.ledgerRegisterDesc}
+                  {isLedgerEditModal(ledgerModal) ? L.ledgerEditDesc : L.ledgerRegisterDesc}
                 </p>
                 <p className="mt-2 text-sm font-semibold text-red-600">
                   {formatKRW(ledgerModal.tx.withdrawal)}
@@ -3974,7 +3983,7 @@ export function BankTransactionsPage({
               </Button>
               <Button type="button" className="rounded-2xl" onClick={saveLedgerRegister}>
                 <BookOpen size={16} className="mr-2" />
-                {ledgerModal.mode === "edit" ? L.ledgerEditSave : L.ledgerSave}
+                {isLedgerEditModal(ledgerModal) ? L.ledgerEditSave : L.ledgerSave}
               </Button>
             </div>
           </div>
