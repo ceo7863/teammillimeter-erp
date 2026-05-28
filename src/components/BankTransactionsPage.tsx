@@ -503,11 +503,13 @@ function StatCard({
   value,
   icon,
   tone,
+  compact = true,
 }: {
   label: string;
   value: string;
   icon: React.ReactNode;
   tone: "deposit" | "withdrawal" | "net-positive" | "net-negative" | "neutral";
+  compact?: boolean;
 }) {
   const toneClass =
     tone === "deposit"
@@ -530,6 +532,18 @@ function StatCard({
           : tone === "net-negative"
             ? "text-red-600"
             : "text-slate-900";
+
+  if (compact) {
+    return (
+      <div className={`erp-bank-stat-card is-compact ${toneClass}`}>
+        <span className="erp-bank-stat-compact-icon">{icon}</span>
+        <div className="min-w-0">
+          <div className="erp-bank-stat-compact-label">{label}</div>
+          <div className={`erp-bank-stat-compact-value ${valueClass}`}>{value}</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`erp-bank-stat-card ${toneClass}`}>
@@ -1171,21 +1185,49 @@ export function BankTransactionsPage({
   );
 
   const backgroundLearningTimerRef = useRef<number | null>(null);
+  const learningSnapshotRef = useRef({
+    bankTransactions,
+    fixedExpensePayments,
+    companyExpenses,
+    effectiveBankLedgerRules,
+    fixedExpenses,
+    bankTransactionFolders,
+    expenseCategories,
+    memoLearnRules,
+    clients,
+    workers,
+    savedBy,
+  });
+  learningSnapshotRef.current = {
+    bankTransactions,
+    fixedExpensePayments,
+    companyExpenses,
+    effectiveBankLedgerRules,
+    fixedExpenses,
+    bankTransactionFolders,
+    expenseCategories,
+    memoLearnRules,
+    clients,
+    workers,
+    savedBy,
+  };
+
   const applyBackgroundLearning = React.useCallback(
     (options: { onlyTransactionIds?: Set<string>; showMessage?: boolean } = {}) => {
-      if (!bankTransactions.length) return null;
+      const snap = learningSnapshotRef.current;
+      if (!snap.bankTransactions.length) return null;
       const result = runBackgroundBankLedgerLearning({
-        bankTransactions,
-        fixedExpensePayments,
-        companyExpenses,
-        bankLedgerRules: effectiveBankLedgerRules,
-        fixedExpenses,
-        bankTransactionFolders,
-        expenseCategories,
-        memoLearnRules,
-        clients,
-        workers,
-        createdBy: savedBy || undefined,
+        bankTransactions: snap.bankTransactions,
+        fixedExpensePayments: snap.fixedExpensePayments,
+        companyExpenses: snap.companyExpenses,
+        bankLedgerRules: snap.effectiveBankLedgerRules,
+        fixedExpenses: snap.fixedExpenses,
+        bankTransactionFolders: snap.bankTransactionFolders,
+        expenseCategories: snap.expenseCategories,
+        memoLearnRules: snap.memoLearnRules,
+        clients: snap.clients,
+        workers: snap.workers,
+        createdBy: snap.savedBy || undefined,
         onlyTransactionIds: options.onlyTransactionIds,
       });
       if (!result.changed) {
@@ -1232,17 +1274,6 @@ export function BankTransactionsPage({
       return result;
     },
     [
-      bankTransactions,
-      fixedExpensePayments,
-      companyExpenses,
-      effectiveBankLedgerRules,
-      fixedExpenses,
-      bankTransactionFolders,
-      expenseCategories,
-      memoLearnRules,
-      clients,
-      workers,
-      savedBy,
       setBankTransactions,
       setBankTransactionFolders,
       setFixedExpensePayments,
@@ -1251,16 +1282,19 @@ export function BankTransactionsPage({
     ],
   );
 
+  const applyBackgroundLearningRef = useRef(applyBackgroundLearning);
+  applyBackgroundLearningRef.current = applyBackgroundLearning;
+
   const scheduleBackgroundLearning = React.useCallback(
     (options: { onlyTransactionIds?: Set<string>; showMessage?: boolean } = {}) => {
       if (backgroundLearningTimerRef.current) {
         window.clearTimeout(backgroundLearningTimerRef.current);
       }
       backgroundLearningTimerRef.current = window.setTimeout(() => {
-        applyBackgroundLearning(options);
+        applyBackgroundLearningRef.current(options);
       }, 350);
     },
-    [applyBackgroundLearning],
+    [],
   );
 
   const buildReviewPromptFromTx = React.useCallback(
@@ -2311,6 +2345,10 @@ export function BankTransactionsPage({
   };
 
   const assignTransactionFolder = (transactionId: string, folderId: string) => {
+    if (backgroundLearningTimerRef.current) {
+      window.clearTimeout(backgroundLearningTimerRef.current);
+      backgroundLearningTimerRef.current = null;
+    }
     const tx = bankTransactions.find((row) => row.id === transactionId);
     if (!tx) return;
     if (folderId && !canAssignBankTransactionToFolder(tx, folderId, bankTransactionFolders, workers)) {
@@ -4446,90 +4484,74 @@ export function BankTransactionsPage({
         <>
           {pageView === "list" ? (
             <>
+          <div className="mb-3 erp-bank-stat-grid">
+            <StatCard
+              label={L.depositTotal}
+              value={formatKRW(stats.deposits)}
+              icon={<ArrowDownLeft size={16} className="text-emerald-500" />}
+              tone="deposit"
+            />
+            <StatCard
+              label={L.withdrawalTotal}
+              value={formatKRW(stats.withdrawals)}
+              icon={<ArrowUpRight size={16} className="text-red-500" />}
+              tone="withdrawal"
+            />
+            <StatCard
+              label={L.netTotal}
+              value={formatKRW(stats.net)}
+              icon={<TrendingUp size={16} className="text-slate-400" />}
+              tone={stats.net >= 0 ? "net-positive" : "net-negative"}
+            />
+            <StatCard
+              label={L.count}
+              value={`${stats.count}${L.count}`}
+              icon={<ListChecks size={16} className="text-slate-400" />}
+              tone="neutral"
+            />
+          </div>
+
           <Card className="mb-4 rounded-2xl border-slate-200 shadow-sm">
-            <CardContent className="space-y-4 p-4">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <CardContent className="space-y-3 p-3 md:p-4">
+              <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <div className="erp-text-section font-bold text-slate-900">{L.foldersTitle}</div>
-                  <p className="mt-1 erp-text-caption text-slate-500">
-                    {L.foldersHint} {L.ledgerClickHint}
-                  </p>
+                  <div className="text-sm font-bold text-slate-900">{L.foldersTitle}</div>
+                  <p className="mt-0.5 text-xs text-slate-500">{L.foldersHint}</p>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5">
+                  {preauthNetGroups.length ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 rounded-lg px-2.5 text-xs"
+                      onClick={openPreauthNetModal}
+                    >
+                      <ArrowLeftRight size={13} className="mr-1" />
+                      {L.preauthNetOpen} ({preauthNetGroups.length})
+                    </Button>
+                  ) : null}
+                  {recurringFixedPatterns.length ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 rounded-lg px-2.5 text-xs"
+                      onClick={openRecurringFixedModal}
+                    >
+                      <Repeat size={13} className="mr-1" />
+                      {L.recurringFixedOpen} ({recurringFixedPatterns.length})
+                    </Button>
+                  ) : null}
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="rounded-xl"
-                    onClick={openPreauthNetModal}
-                    disabled={!preauthNetGroups.length}
+                    className="h-8 rounded-lg px-2.5 text-xs"
+                    onClick={runAutoClassify}
                   >
-                    <ArrowLeftRight size={14} className="mr-1" />
-                    {L.preauthNetOpen}
-                    {preauthNetGroups.length ? ` (${preauthNetGroups.length})` : ""}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="rounded-xl"
-                    onClick={openRecurringFixedModal}
-                    disabled={!recurringFixedPatterns.length}
-                  >
-                    <Repeat size={14} className="mr-1" />
-                    {L.recurringFixedOpen}
-                    {recurringFixedPatterns.length ? ` (${recurringFixedPatterns.length})` : ""}
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="rounded-xl"
-                    title={L.ledgerBatchSendHint}
-                    disabled={batchLedgerLoading || pendingBatchLedger <= 0}
-                    onClick={runBatchLedgerRegister}
-                  >
-                    <BookOpen size={14} className="mr-1" />
-                    {batchLedgerLoading ? L.ledgerBatchSending : L.ledgerBatchSend}
-                    {pendingBatchLedger > 0 ? ` (${pendingBatchLedger})` : ""}
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="rounded-xl"
-                    title={L.smartLedgerRunHint}
-                    disabled={smartLedgerLoading || !hasAnyData}
-                    onClick={() => void runSmartAutoLedgerFlow()}
-                  >
-                    <BookOpen size={14} className="mr-1" />
-                    {smartLedgerLoading ? L.smartLedgerRunning : L.smartLedgerRun}
-                  </Button>
-                  <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={runAutoClassify}>
-                    <Sparkles size={14} className="mr-1" />
+                    <Sparkles size={13} className="mr-1" />
                     {L.autoClassify}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="rounded-xl"
-                    onClick={() => {
-                      setNewCategoryName("");
-                      setFolderError("");
-                      setCreateCategoryOpen(true);
-                    }}
-                  >
-                    <FolderTree size={14} className="mr-1" />
-                    {L.createCategory}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="rounded-xl"
-                    onClick={() => openCreateFolderModal(newFolderType)}
-                  >
-                    <FolderPlus size={14} className="mr-1" />
-                    {L.createFolder}
                   </Button>
                 </div>
               </div>
@@ -4540,7 +4562,7 @@ export function BankTransactionsPage({
                 </div>
               ) : null}
 
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-1.5">
                 {(
                   [
                     { key: "all" as FolderScope, label: L.allFolders },
@@ -4559,7 +4581,7 @@ export function BankTransactionsPage({
                     type="button"
                     size="sm"
                     variant={!selectedFolderId && folderScope === option.key ? "default" : "outline"}
-                    className="rounded-xl"
+                    className="h-7 rounded-lg px-2.5 text-xs"
                     onClick={() => {
                       setSelectedFolderId("");
                       setFolderScope(option.key);
@@ -4570,18 +4592,18 @@ export function BankTransactionsPage({
                 ))}
               </div>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                <section className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-3">
-                  <div className="mb-3 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 font-bold text-emerald-800">
-                      <Building2 size={16} />
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                <section className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-2.5">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 text-sm font-bold text-emerald-800">
+                      <Building2 size={15} />
                       {L.clientFolders}
                     </div>
                     <Button
                       type="button"
                       size="sm"
-                      variant="outline"
-                      className="h-7 rounded-lg px-2 text-xs"
+                      variant="ghost"
+                      className="h-7 rounded-md px-2 text-xs text-emerald-800 hover:bg-emerald-100/80"
                       onClick={() => openCreateFolderModal("client")}
                     >
                       + {L.createFolderInSection}
@@ -4598,17 +4620,17 @@ export function BankTransactionsPage({
                   </div>
                 </section>
 
-                <section className="rounded-2xl border border-violet-100 bg-violet-50/40 p-3">
-                  <div className="mb-3 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 font-bold text-violet-800">
-                      <CreditCard size={16} />
+                <section className="rounded-xl border border-violet-100 bg-violet-50/40 p-2.5">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 text-sm font-bold text-violet-800">
+                      <CreditCard size={15} />
                       {L.cardFolders}
                     </div>
                     <Button
                       type="button"
                       size="sm"
-                      variant="outline"
-                      className="h-7 rounded-lg px-2 text-xs"
+                      variant="ghost"
+                      className="h-7 rounded-md px-2 text-xs text-violet-800 hover:bg-violet-100/80"
                       onClick={() => openCreateFolderModal("card")}
                     >
                       + {L.createFolderInSection}
@@ -4625,17 +4647,17 @@ export function BankTransactionsPage({
                   </div>
                 </section>
 
-                <section className="rounded-2xl border border-amber-100 bg-amber-50/40 p-3">
-                  <div className="mb-3 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 font-bold text-amber-800">
-                      <HardHat size={16} />
+                <section className="rounded-xl border border-amber-100 bg-amber-50/40 p-2.5">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 text-sm font-bold text-amber-800">
+                      <HardHat size={15} />
                       {L.workerFolders}
                     </div>
                     <Button
                       type="button"
                       size="sm"
-                      variant="outline"
-                      className="h-7 rounded-lg px-2 text-xs"
+                      variant="ghost"
+                      className="h-7 rounded-md px-2 text-xs text-amber-900 hover:bg-amber-100/80"
                       onClick={() => openCreateFolderModal("worker")}
                     >
                       + {L.createFolderInSection}
@@ -4659,27 +4681,27 @@ export function BankTransactionsPage({
                     key={root.id}
                     className={
                       isLedgerRoot
-                        ? "rounded-2xl border border-amber-200 bg-amber-50/50 p-3"
-                        : "rounded-2xl border border-slate-200 bg-slate-50/50 p-3"
+                        ? "rounded-xl border border-amber-200 bg-amber-50/50 p-2.5"
+                        : "rounded-xl border border-slate-200 bg-slate-50/50 p-2.5"
                     }
                   >
-                    <div className="mb-3 flex items-center justify-between gap-2">
+                    <div className="mb-2 flex items-center justify-between gap-2">
                       <div
                         className={
                           isLedgerRoot
-                            ? "flex items-center gap-2 font-bold text-amber-900"
-                            : "flex items-center gap-2 font-bold text-slate-800"
+                            ? "flex items-center gap-1.5 text-sm font-bold text-amber-900"
+                            : "flex items-center gap-1.5 text-sm font-bold text-slate-800"
                         }
                       >
-                        {isLedgerRoot ? <BookOpen size={16} /> : <FolderTree size={16} />}
+                        {isLedgerRoot ? <BookOpen size={15} /> : <FolderTree size={15} />}
                         {root.folderName}
                       </div>
                       {!isLedgerRoot ? (
                       <Button
                         type="button"
                         size="sm"
-                        variant="outline"
-                        className="h-7 rounded-lg px-2 text-xs"
+                        variant="ghost"
+                        className="h-7 rounded-md px-2 text-xs text-slate-700 hover:bg-slate-100"
                         onClick={() => openCreateFolderModal("custom", root.id)}
                       >
                         + {L.createFolderInSection}
@@ -4702,33 +4724,6 @@ export function BankTransactionsPage({
               </div>
             </CardContent>
           </Card>
-
-          <div className="mb-4 erp-bank-stat-grid">
-            <StatCard
-              label={L.depositTotal}
-              value={formatKRW(stats.deposits)}
-              icon={<ArrowDownLeft size={18} className="text-emerald-500" />}
-              tone="deposit"
-            />
-            <StatCard
-              label={L.withdrawalTotal}
-              value={formatKRW(stats.withdrawals)}
-              icon={<ArrowUpRight size={18} className="text-red-500" />}
-              tone="withdrawal"
-            />
-            <StatCard
-              label={L.netTotal}
-              value={formatKRW(stats.net)}
-              icon={<TrendingUp size={18} className="text-slate-400" />}
-              tone={stats.net >= 0 ? "net-positive" : "net-negative"}
-            />
-            <StatCard
-              label={L.count}
-              value={`${stats.count}${L.count}`}
-              icon={<ListChecks size={18} className="text-slate-400" />}
-              tone="neutral"
-            />
-          </div>
 
           {flowTotal > 0 ? (
             <Card className="mb-4 rounded-2xl border-slate-200 shadow-sm">

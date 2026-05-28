@@ -25,6 +25,9 @@ export const NET_GROUP_WINDOW_MINUTES = 60;
 /** Cross-day check-card cancel/correction netting (W→D cancel → optional partial W settlement). */
 export const CANCEL_CORRECTION_NET_WINDOW_HOURS = 72;
 
+/** Withdrawal then deposit with same counterparty/amount and no net cash flow (offsetting duplicate pair). */
+export const DUPLICATE_OFFSET_PAIR_WINDOW_HOURS = 72;
+
 export function preauthNetGroupKey(group: PreauthNetGroup) {
   return [group.preauthWithdrawalTx.id, group.refundTx.id, group.settlementTx?.id ?? ""].join(":");
 }
@@ -264,6 +267,24 @@ function buildCounterpartyDayBuckets(
   return buckets;
 }
 
+function buildCounterpartyAccountBuckets(
+  transactions: BankTransaction[],
+  include: (tx: BankTransaction) => boolean,
+) {
+  const buckets = new Map<string, BankTransaction[]>();
+  for (const tx of transactions) {
+    if (!include(tx)) continue;
+    const accountNumber = String(tx.accountNumber || "").trim();
+    const counterparty = normalizePreauthCounterpartyName(tx);
+    if (!accountNumber || !counterparty) continue;
+    const key = `${accountNumber}|${counterparty.toLowerCase()}`;
+    const bucket = buckets.get(key) || [];
+    bucket.push(tx);
+    buckets.set(key, bucket);
+  }
+  return buckets;
+}
+
 export function buildAccountBuckets(
   transactions: BankTransaction[],
   include: (tx: BankTransaction) => boolean,
@@ -325,6 +346,62 @@ export function findNextCancelMarkedTriplet(
         accountNumber: String(w1.accountNumber || "").trim(),
       };
     }
+  }
+  return null;
+}
+
+/**
+ * Offsetting duplicate pair: nearest prior withdrawal matches a deposit (same amount/counterparty),
+ * with no follow-up settlement withdrawal in the window.
+ */
+export function findNextOffsettingTransferPair(
+  txs: BankTransaction[],
+  used: Set<string>,
+  windowMs: number,
+): Omit<PreauthNetGroup, "id"> | null {
+  for (let j = 0; j < txs.length; j += 1) {
+    const refund = txs[j];
+    if (used.has(refund.id) || !isEligibleForPreauthNetDetection(refund)) continue;
+    const amount = Number(refund.deposit || 0);
+    if (!(amount > 0) || refund.withdrawal > 0) continue;
+    if (isCancellationOrCorrectionTransaction(refund)) continue;
+
+    let w1: BankTransaction | null = null;
+    for (let i = j - 1; i >= 0; i -= 1) {
+      const candidate = txs[i];
+      if (used.has(candidate.id) || !isEligibleForPreauthNetDetection(candidate)) continue;
+      const wAmount = Number(candidate.withdrawal || 0);
+      if (!(wAmount > 0) || candidate.deposit > 0) continue;
+      if (wAmount !== amount) continue;
+      if (txTimeMs(refund) - txTimeMs(candidate) > windowMs) break;
+      w1 = candidate;
+      break;
+    }
+    if (!w1) continue;
+
+    let hasSettlement = false;
+    for (let k = j + 1; k < txs.length; k += 1) {
+      const settlement = txs[k];
+      if (used.has(settlement.id) || !isEligibleForPreauthNetDetection(settlement)) continue;
+      const settlementAmount = Number(settlement.withdrawal || 0);
+      if (!(settlementAmount > 0) || settlement.deposit > 0) continue;
+      if (txTimeMs(settlement) - txTimeMs(w1) > windowMs) break;
+      if (preauthMerchantsCompatible(w1, settlement)) {
+        hasSettlement = true;
+        break;
+      }
+    }
+    if (hasSettlement) continue;
+
+    return {
+      preauthWithdrawalTx: w1,
+      refundTx: refund,
+      preauthAmount: amount,
+      settlementAmount: 0,
+      counterpartyName: normalizePreauthCounterpartyName(w1),
+      date: txDate(w1),
+      accountNumber: String(w1.accountNumber || "").trim(),
+    };
   }
   return null;
 }
@@ -420,6 +497,15 @@ export function detectPreauthNetGroups(
   const allBuckets = buildCounterpartyDayBuckets(transactions, isEligibleForPreauthNetDetection);
   for (const bucket of allBuckets.values()) {
     collectNetGroupsFromBucket(bucket, windowMs, used, groups, findNextCancelRepayTriplet);
+  }
+
+  const offsetWindowMs = DUPLICATE_OFFSET_PAIR_WINDOW_HOURS * 60 * 60 * 1000;
+  const counterpartyAccountBuckets = buildCounterpartyAccountBuckets(
+    transactions,
+    isEligibleForPreauthNetDetection,
+  );
+  for (const bucket of counterpartyAccountBuckets.values()) {
+    collectNetGroupsFromBucket(bucket, offsetWindowMs, used, groups, findNextOffsettingTransferPair);
   }
 
   const cancelWindowMs = CANCEL_CORRECTION_NET_WINDOW_HOURS * 60 * 60 * 1000;

@@ -616,6 +616,7 @@ export function syncLedgerLinkedBankTransactionFolders(
     const linked = isBankTransactionLinkedToCompanyLedger(tx, context);
     if (linked) {
       if (tx.folderId === ledgerFolderId) return tx;
+      if (tx.folderId) return tx;
       updated += 1;
       return {
         ...tx,
