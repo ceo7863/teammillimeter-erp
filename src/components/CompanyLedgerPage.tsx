@@ -47,6 +47,7 @@ import {
   parseLedgerAmount,
   resolveCompanyExpenseKind,
   resolveFixedPaymentFieldsFromBankTx,
+  getMonthKey,
   shiftMonthKey,
   sumExpensesForMonthByKind,
   todayISO,
@@ -64,7 +65,7 @@ import type { ErpUser } from "@/utils/erpApi";
 import { AutocompleteInput } from "@/components/AutocompleteInput";
 import { CompanyLedgerCalendar } from "@/components/CompanyLedgerCalendar";
 import type { LedgerCalendarEntry } from "@/utils/ledgerCalendar";
-import { formatBankLearnAutoMessage, getLinkedCompanyExpenseForBankTx, listBankTransactionsForCompanyExpenseLink, listBankTransactionsForFixedPaymentLink, clearVariableExpenseLinkForBankTx, type BankLearnRule } from "@/utils/bankCompanyLedger";
+import { formatBankLearnAutoMessage, getLinkedCompanyExpenseForBankTx, listBankTransactionsForCompanyExpenseLink, listBankTransactionsForFixedPaymentLink, clearVariableExpenseLinkForBankTx, mergeBankTransactionsById, searchBankTransactionsForLedgerLink, type BankLearnRule } from "@/utils/bankCompanyLedger";
 import { loadSmartLedgerRunSummary } from "@/utils/bankSmartLedger";
 import { formatBankTransactionDateTime, type BankTransaction } from "@/utils/bankTransactions";
 import { reconcileLedgerBankLinks, refreshCompanyLedgerFromBankTransactions } from "@/utils/fixedExpenseAutomation";
@@ -191,7 +192,7 @@ const L = {
   linkFromBankTitle: "\uD1B5\uC7A5 \uB0B4\uC5ED \uC5F0\uACB0",
   linkFromBankDesc:
     "\uAC19\uC740 \uB2EC\u00B7\uBE44\uC2B7\uD55C \uAE08\uC561\u00B7\uC774\uB984\uC774 \uB9DE\uB294 \uCD9C\uAE08 \uB0B4\uC5ED\uC785\uB2C8\uB2E4. \uBCC0\uB3D9\uC9C0\uCD9C\uC5D0 \uC774\uBBF8 \uC5F0\uACB0\uB41C \uB0B4\uC5ED\uB3C4 \uD45C\uC2DC\uB420 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
-  linkFromBankSearch: "\uAC70\uB798\uB0B4\uC6A9 \uB610\uB294 \uAE08\uC561 \uC774\uC288 \uAC80\uC0C9",
+  linkFromBankSearch: "\uAC70\uB798\uB0B4\uC6A9 \u00B7 \uBA54\uBAA8 \u00B7 \uAE08\uC561 \uAC80\uC0C9",
   linkFromBankEmpty: "\uAE08\uC561\uACFC \uC774\uB984\uC774 \uB9DE\uB294 \uC5F0\uACB0 \uAC00\uB2A5\uD55C \uCD9C\uAE08 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   linkFromBankVariableLinkedBadge: "\uBCC0\uB3D9\uC9C0\uCD9C \uC5F0\uACB0\uC74C",
   linkFromBankDone: "\uD1B5\uC7A5 \uB0B4\uC5ED\uC774 \uC5F0\uACB0\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
@@ -1520,32 +1521,43 @@ export function CompanyLedgerPage({
   );
 
   const linkableBankTransactions = useMemo(() => {
-    let base: BankTransaction[] = [];
+    const context = { companyExpenses, fixedExpensePayments };
+    const keyword = bankLinkSearch.trim().toLowerCase();
+    let autoMatched: BankTransaction[] = [];
+
     if (editingFixedPayment) {
-      base = listBankTransactionsForFixedPaymentLink(
+      autoMatched = listBankTransactionsForFixedPaymentLink(
         editingFixedPayment,
         bankTransactions,
-        { companyExpenses, fixedExpensePayments },
+        context,
         fixedExpenses,
         { excludePaymentId: manualModal?.id, includeVariableLinked: true },
       );
     } else if (editingCompanyExpense) {
-      base = listBankTransactionsForCompanyExpenseLink(
+      autoMatched = listBankTransactionsForCompanyExpenseLink(
         editingCompanyExpense,
         bankTransactions,
-        { companyExpenses, fixedExpensePayments },
+        context,
         { excludeExpenseId: manualModal?.id },
       );
     }
-    const keyword = bankLinkSearch.trim().toLowerCase();
-    if (!keyword) return base;
-    return base.filter((tx) => {
-      const haystack = [tx.counterpartyName, tx.description, tx.memo, String(tx.withdrawal || "")]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(keyword);
+
+    if (!keyword) return autoMatched;
+
+    const monthKey = editingFixedPayment
+      ? getMonthKey(editingFixedPayment.date)
+      : editingCompanyExpense
+        ? getMonthKey(editingCompanyExpense.date)
+        : "";
+
+    const searchMatches = searchBankTransactionsForLedgerLink(bankTransactions, context, {
+      excludePaymentId: manualModal?.id,
+      includeVariableLinked: Boolean(editingFixedPayment),
+      monthKey,
+      keyword,
     });
+
+    return mergeBankTransactionsById(autoMatched, searchMatches);
   }, [
     bankTransactions,
     bankLinkSearch,
@@ -3101,6 +3113,7 @@ export function CompanyLedgerPage({
                         <div className="mt-1 text-sm text-slate-600">
                           {formatBankTransactionDateTime(tx.transactionAt)}
                           {tx.counterpartyName ? ` \u00B7 ${tx.counterpartyName}` : ""}
+                          {tx.memo ? ` \u00B7 ${tx.memo}` : ""}
                         </div>
                       </button>
                       );

@@ -198,13 +198,77 @@ export function listBankTransactionsForLedgerLink(
     .sort((a, b) => String(b.transactionAt).localeCompare(String(a.transactionAt)));
 }
 
+export function buildBankTransactionLinkSearchHaystack(tx: BankTransaction) {
+  return [tx.counterpartyName, tx.description, tx.memo, String(tx.withdrawal || "")]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+export function extractBankTransactionLinkFingerprints(tx: BankTransaction) {
+  const fingerprints = new Set(extractBankTransactionMerchantFingerprints(tx));
+  for (const part of [tx.memo]) {
+    const text = String(part || "").trim();
+    if (!text) continue;
+    const normalized = normalizeMerchantFingerprint(text);
+    if (normalized.length >= 2 && !isBankLearnStopToken(normalized)) {
+      fingerprints.add(normalized);
+    }
+    for (const token of text.split(/[\s/.,\-_()·]+/)) {
+      const key = normalizeMerchantFingerprint(token);
+      if (key.length >= 2 && !isBankLearnStopToken(key)) fingerprints.add(key);
+    }
+  }
+  return [...fingerprints];
+}
+
+export function mergeBankTransactionsById(...lists: BankTransaction[][]) {
+  const seen = new Set<string>();
+  const merged: BankTransaction[] = [];
+  for (const list of lists) {
+    for (const tx of list) {
+      if (seen.has(tx.id)) continue;
+      seen.add(tx.id);
+      merged.push(tx);
+    }
+  }
+  return merged;
+}
+
+export function searchBankTransactionsForLedgerLink(
+  transactions: BankTransaction[],
+  context: BankLedgerRegistrationContext = {},
+  options: {
+    excludePaymentId?: string;
+    includeVariableLinked?: boolean;
+    monthKey?: string;
+    keyword: string;
+  },
+) {
+  const keyword = String(options.keyword || "").trim().toLowerCase();
+  if (!keyword) return [];
+
+  const { excludePaymentId, includeVariableLinked, monthKey } = options;
+  return listBankTransactionsForLedgerLink(transactions, context, {
+    excludePaymentId,
+    includeVariableLinked,
+  })
+    .filter((tx) => {
+      if (monthKey && getMonthKey(String(tx.transactionAt || "").slice(0, 10)) !== monthKey) {
+        return false;
+      }
+      return buildBankTransactionLinkSearchHaystack(tx).includes(keyword);
+    })
+    .sort((a, b) => String(b.transactionAt).localeCompare(String(a.transactionAt)));
+}
+
 export function bankTransactionMatchesLedgerLinkName(referenceLabel: string, tx: BankTransaction) {
   const label = String(referenceLabel || "").trim();
   if (label.length < 2) return true;
   const referenceLike = { counterpartyName: label, description: label } as BankTransaction;
   return merchantFingerprintsOverlap(
     extractBankTransactionMerchantFingerprints(referenceLike),
-    extractBankTransactionMerchantFingerprints(tx),
+    extractBankTransactionLinkFingerprints(tx),
   );
 }
 
@@ -227,9 +291,13 @@ export function bankTransactionMatchesFixedPaymentForLink(
   }
 
   const fixedItem = fixedExpenses.find((row) => row.id === payment.fixedExpenseId);
-  const labels = [fixedItem?.name || "", payment.memo || ""];
+  const labels = [fixedItem?.name || "", fixedItem?.category || "", payment.memo || ""];
   if (linkedExpense) {
-    labels.push(linkedExpense.description || "", linkedExpense.category || "");
+    labels.push(
+      linkedExpense.description || "",
+      linkedExpense.category || "",
+      linkedExpense.memo || "",
+    );
   }
   return labels.some((label) => bankTransactionMatchesLedgerLinkName(label, tx));
 }
@@ -252,7 +320,8 @@ export function bankTransactionMatchesCompanyExpenseForLink(
   expense: CompanyExpense,
 ) {
   if (!bankTransactionMatchesCompanyExpenseAmount(tx, expense)) return false;
-  return bankTransactionMatchesLedgerLinkName(expense.description || expense.category || "", tx);
+  const labels = [expense.description || "", expense.category || "", expense.memo || ""];
+  return labels.some((label) => bankTransactionMatchesLedgerLinkName(label, tx));
 }
 
 /** Bank withdrawals that match a fixed payment (same month, similar amount, similar name). */
