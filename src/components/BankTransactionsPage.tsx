@@ -3906,18 +3906,18 @@ export function BankTransactionsPage({
               <Field label={L.periodStart}>
                 <KoreanDateInput
                   value={activePeriod.startDate}
-                  onChange={(value) => {
+                  onChange={(event) => {
                     setPeriodKey("custom");
-                    setDateFilter((prev) => ({ ...prev, startDate: value }));
+                    setDateFilter((prev) => ({ ...prev, startDate: event.target.value }));
                   }}
                 />
               </Field>
               <Field label={L.periodEnd}>
                 <KoreanDateInput
                   value={activePeriod.endDate}
-                  onChange={(value) => {
+                  onChange={(event) => {
                     setPeriodKey("custom");
-                    setDateFilter((prev) => ({ ...prev, endDate: value }));
+                    setDateFilter((prev) => ({ ...prev, endDate: event.target.value }));
                   }}
                 />
               </Field>

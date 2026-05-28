@@ -26,8 +26,8 @@ function toISODate(year: number, month: number, day: number) {
   return `${year}-${pad2(month + 1)}-${pad2(day)}`;
 }
 
-function parseISODate(value: string) {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+function parseISODate(value: unknown) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value ?? "").trim());
   if (!match) return null;
   const year = Number(match[1]);
   const month = Number(match[2]) - 1;

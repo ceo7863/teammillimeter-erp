@@ -923,14 +923,14 @@ export function TaxInvoicePage({
             <KoreanDateInput
               className="erp-input w-full rounded-2xl border px-3 py-2.5 sm:w-auto"
               value={dateFilter.startDate}
-              onChange={(value) => handleDateFilterChange({ startDate: value })}
+              onChange={(event) => handleDateFilterChange({ startDate: event.target.value })}
               aria-label={L.periodStart}
             />
             <span className="erp-text-caption text-slate-400">~</span>
             <KoreanDateInput
               className="erp-input w-full rounded-2xl border px-3 py-2.5 sm:w-auto"
               value={dateFilter.endDate}
-              onChange={(value) => handleDateFilterChange({ endDate: value })}
+              onChange={(event) => handleDateFilterChange({ endDate: event.target.value })}
               aria-label={L.periodEnd}
             />
             <Button type="button" variant="outline" className="rounded-2xl" onClick={resetSearchFilters}>
@@ -1152,7 +1152,7 @@ export function TaxInvoicePage({
                   <KoreanDateInput
                     className="erp-input w-full rounded-2xl border px-3 py-2.5"
                     value={modal.issueDate}
-                    onChange={(value) => setModal((prev) => (prev ? { ...prev, issueDate: value } : prev))}
+                    onChange={(event) => setModal((prev) => (prev ? { ...prev, issueDate: event.target.value } : prev))}
                   />
                 </Field>
                 <Field label={L.documentType}>
