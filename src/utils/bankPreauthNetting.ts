@@ -505,3 +505,16 @@ export function filterPreauthNetGroupsForAutoApply(
     );
   });
 }
+
+/** Apply cancel/preauth netting for groups that still have unmarked transactions. */
+export function filterPreauthNetGroupsNeedingApply(
+  groups: PreauthNetGroup[],
+  transactions: BankTransaction[],
+) {
+  const byId = new Map(transactions.map((tx) => [tx.id, tx]));
+  return groups.filter((group) => {
+    const ids = [group.preauthWithdrawalTx.id, group.refundTx.id];
+    if (group.settlementTx?.id) ids.push(group.settlementTx.id);
+    return ids.some((id) => !byId.get(id)?.netGroupId);
+  });
+}

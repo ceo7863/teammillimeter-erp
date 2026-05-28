@@ -38,9 +38,11 @@ import {
   applyPreauthNetGroups,
   detectPreauthNetGroups,
   filterPreauthNetGroupsForAutoApply,
+  filterPreauthNetGroupsNeedingApply,
   isNetGroupSuppressed,
   preauthNetGroupKey,
 } from "@/utils/bankPreauthNetting";
+import { runBackgroundBankLedgerLearning } from "@/utils/bankBackgroundLearning";
 import {
   applyRecurringFixedExpensePatterns,
   detectRecurringFixedExpensePatterns,
@@ -453,6 +455,8 @@ const L = {
     settlement > 0
       ? `${name} \u00B7 ${date} \u00B7 \uC120\uACB0 ${formatKRW(preauth)} \u2192 \uC2E4\uACB0 ${formatKRW(settlement)}`
       : `${name} \u00B7 ${date} \u00B7 \uC120\uACB0 ${formatKRW(preauth)} \u2192 \uCDE8\uC18C\uB9CC`,
+  backgroundLearnDone: (parts: string[]) =>
+    parts.length ? `\uBC18\uB3D9 \uD559\uC2B5 \u00B7 ${parts.join(" \u00B7 ")}` : "",
   clientLinkTitle: "\uAC70\uB798\uCC98 \uC5F0\uACB0",
   clientLinkDesc:
     "\uD1B5\uC7A5 \uC785\uAE08 \uC2DC \uD45C\uC2DC\uB41C \uC774\uB984\uC744 \uAC70\uB798\uCC98 \uC608\uAE08\uC8FC \uBCC4\uCE59\uC5D0 \uCD94\uAC00\uD569\uB2C8\uB2E4. \uC774\uD6C4 \uB3D9\uC77C \uC774\uB984 \uC785\uAE08\uC740 \uC790\uB3D9 \uBD84\uB958\uB429\uB2C8\uB2E4.",
@@ -1148,6 +1152,89 @@ export function BankTransactionsPage({
     [fixedExpenses, savedBy, setFixedExpensePayments, setCompanyExpenses, setBankTransactions, recordSummaryAudit, currentUser, workers, bankTransactionFolders],
   );
 
+  const backgroundLearningTimerRef = useRef<number | null>(null);
+  const applyBackgroundLearning = React.useCallback(
+    (options: { onlyTransactionIds?: Set<string>; showMessage?: boolean } = {}) => {
+      if (!bankTransactions.length) return null;
+      const result = runBackgroundBankLedgerLearning({
+        bankTransactions,
+        fixedExpensePayments,
+        companyExpenses,
+        bankLedgerRules: effectiveBankLedgerRules,
+        fixedExpenses,
+        bankTransactionFolders,
+        expenseCategories,
+        memoLearnRules,
+        clients,
+        workers,
+        createdBy: savedBy || undefined,
+        onlyTransactionIds: options.onlyTransactionIds,
+      });
+      if (!result.changed) return result;
+
+      setBankTransactions(result.bankTransactions);
+      setFixedExpensePayments(result.fixedExpensePayments);
+      setCompanyExpenses(result.companyExpenses);
+
+      const parts: string[] = [];
+      if (result.preauthGroups) parts.push(`\uC120\uACB0\uC81C ${result.preauthGroups}\uAC74`);
+      if (result.learnFixed) parts.push(`\uACE0\uC815\uBE44 ${result.learnFixed}\uAC74`);
+      if (result.learnManual) parts.push(`\uC9C0\uCD9C ${result.learnManual}\uAC74`);
+      if (result.learnFolder) parts.push(`\uD3F4\uB354 ${result.learnFolder}\uAC74`);
+      if (result.highConfidenceRegistered) parts.push(`\uACE0\uC2E0\uB3C4 ${result.highConfidenceRegistered}\uAC74`);
+      if (result.removedExpenses + result.removedDuplicatePayments > 0) {
+        parts.push(`\uC911\uBCF5 \uC815\uB9AC ${result.removedExpenses + result.removedDuplicatePayments}\uAC74`);
+      }
+
+      if (parts.length) {
+        recordSummaryAudit({
+          entityType: "bankTransaction",
+          entityId: "background-learn",
+          entityLabel: "\uBC18\uB3D9 \uD559\uC2B5",
+          screen: L.pageTitle,
+          action: "import",
+          fieldLabel: "\uBC18\uB3D9 \uD559\uC2B5",
+          after: parts.join(" \u00B7 "),
+          user: null,
+        });
+      }
+
+      if (options.showMessage && parts.length) {
+        setImportMessage(L.backgroundLearnDone(parts));
+      }
+      return result;
+    },
+    [
+      bankTransactions,
+      fixedExpensePayments,
+      companyExpenses,
+      effectiveBankLedgerRules,
+      fixedExpenses,
+      bankTransactionFolders,
+      expenseCategories,
+      memoLearnRules,
+      clients,
+      workers,
+      savedBy,
+      setBankTransactions,
+      setFixedExpensePayments,
+      setCompanyExpenses,
+      recordSummaryAudit,
+    ],
+  );
+
+  const scheduleBackgroundLearning = React.useCallback(
+    (options: { onlyTransactionIds?: Set<string>; showMessage?: boolean } = {}) => {
+      if (backgroundLearningTimerRef.current) {
+        window.clearTimeout(backgroundLearningTimerRef.current);
+      }
+      backgroundLearningTimerRef.current = window.setTimeout(() => {
+        applyBackgroundLearning(options);
+      }, 350);
+    },
+    [applyBackgroundLearning],
+  );
+
   const buildReviewPromptFromTx = React.useCallback(
     (tx: BankTransaction, group: { key: string; label: string; transactions: BankTransaction[] }) => {
       const prefill = buildCompanyExpensePrefillFromBankTransaction(tx);
@@ -1278,6 +1365,7 @@ export function BankTransactionsPage({
           .filter((tx) => canRegisterBankTxToCompanyLedger(tx, ledgerRegistrationContext))
           .map((row) => row.id),
       );
+      scheduleBackgroundLearning({ showMessage: true });
       openNextLedgerReviewPrompt(result.bankTransactions);
     } catch (error) {
       console.error(error);
@@ -1307,6 +1395,7 @@ export function BankTransactionsPage({
     recordSummaryAudit,
     currentUser,
     openNextLedgerReviewPrompt,
+    scheduleBackgroundLearning,
   ]);
 
   const skipLedgerReviewPrompt = React.useCallback(() => {
@@ -1583,26 +1672,28 @@ export function BankTransactionsPage({
   }, [loadSentArchives]);
 
   useEffect(() => {
-    if (!bankLedgerRules.length) return;
-    applyAutoLearnRules(bankTransactions, fixedExpensePayments, companyExpenses, bankLedgerRules, {
-      showMessage: false,
-      auditUser: null,
-      applyKinds: ["folder"],
-    });
-    // Re-apply only when learn rules change — not on every bank/ledger data update.
+    if (!bankLedgerRules.length && !memoLearnRules.length) return;
+    scheduleBackgroundLearning();
+    return () => {
+      if (backgroundLearningTimerRef.current) {
+        window.clearTimeout(backgroundLearningTimerRef.current);
+      }
+    };
+    // Background learning when rules or memo patterns change — not on every tx edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bankLedgerRules]);
+  }, [bankLedgerRules, memoLearnRules]);
 
   useEffect(() => {
-    if (!memoLearnRules.length) return;
-    applyAutoLearnRules(bankTransactions, fixedExpensePayments, companyExpenses, effectiveBankLedgerRules, {
-      showMessage: false,
-      auditUser: null,
-      applyKinds: ["manual"],
-    });
-    // Meal memo learn: auto-register same-merchant withdrawals when amounts differ.
+    if (!bankTransactions.length) return;
+    scheduleBackgroundLearning();
+    return () => {
+      if (backgroundLearningTimerRef.current) {
+        window.clearTimeout(backgroundLearningTimerRef.current);
+      }
+    };
+    // One pass when the page opens with existing bank data.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [memoLearnRules]);
+  }, []);
 
   useEffect(() => {
     const handleArchiveUpdated = () => {
@@ -2108,7 +2199,11 @@ export function BankTransactionsPage({
     importLedgerBatchIdsRef.current = addedIds;
     let nextTransactions = classified.next;
     const preauthGroups = detectPreauthNetGroups(nextTransactions, bankLedgerRules);
-    const autoPreauthGroups = filterPreauthNetGroupsForAutoApply(preauthGroups, bankLedgerRules, addedIds);
+    const autoPreauthGroups = filterPreauthNetGroupsNeedingApply(preauthGroups, nextTransactions).filter((group) =>
+      [group.preauthWithdrawalTx.id, group.refundTx.id, group.settlementTx?.id].some(
+        (id) => id && addedIds.has(id),
+      ),
+    );
     if (autoPreauthGroups.length) {
       nextTransactions = applyPreauthNetGroups(nextTransactions, autoPreauthGroups);
     }
@@ -2171,6 +2266,7 @@ export function BankTransactionsPage({
           if (hint && !hint.includes("\uC5C6\uC2B5\uB2C8\uB2E4")) {
             setImportMessage((prev) => `${prev} · ${hint}`);
           }
+          scheduleBackgroundLearning({ onlyTransactionIds: addedIds, showMessage: true });
           openNextLedgerReviewPrompt(smart.bankTransactions);
         } catch (error) {
           console.error(error);
@@ -2256,15 +2352,7 @@ export function BankTransactionsPage({
       }
 
       if (category && isMemoLearnAmountFlexibleCategory(category) && Number(tx.withdrawal || 0) > 0) {
-        const rulesForApply = mergeMemoLearnRules(
-          nextRules,
-          buildMemoLearnRulesFromTransactions(nextTransactions, expenseCategories, savedBy),
-        );
-        applyAutoLearnRules(nextTransactions, fixedExpensePayments, companyExpenses, rulesForApply, {
-          showMessage: false,
-          auditUser: null,
-          applyKinds: ["manual"],
-        });
+        scheduleBackgroundLearning({ showMessage: false });
       }
 
       setMemoClassificationDraftByTxId((prev) => {
@@ -2275,13 +2363,13 @@ export function BankTransactionsPage({
       });
     },
     [
-      applyAutoLearnRules,
       bankLedgerRules,
       bankTransactions,
       companyExpenses,
       expenseCategories,
       fixedExpensePayments,
       savedBy,
+      scheduleBackgroundLearning,
       setBankTransactions,
       setExpenseCategories,
       setBankLedgerRules,
