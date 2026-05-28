@@ -90,6 +90,23 @@ export const EXPENSE_CATEGORY_OPTIONS = [
   "\uAE30\uD0C0",
 ];
 
+/** 접대·식비·식대 등 동의어 → EXPENSE_CATEGORY_OPTIONS 표준명 */
+const MEAL_EXPENSE_CATEGORY_CANONICAL = "\uC811\uB300/\uC2DD\uBE44";
+
+const EXPENSE_CATEGORY_ALIASES: Record<string, string> = {
+  "\uC2DD": MEAL_EXPENSE_CATEGORY_CANONICAL,
+  "\uC2DD\uB300": MEAL_EXPENSE_CATEGORY_CANONICAL,
+  "\uC2DD\uBE44": MEAL_EXPENSE_CATEGORY_CANONICAL,
+  "\uC811\uB300": MEAL_EXPENSE_CATEGORY_CANONICAL,
+  "\uC811\uB300/\uC2DD\uB300": MEAL_EXPENSE_CATEGORY_CANONICAL,
+};
+
+export function normalizeExpenseCategoryName(category: string): string {
+  const trimmed = String(category || "").trim();
+  if (!trimmed) return trimmed;
+  return EXPENSE_CATEGORY_ALIASES[trimmed] ?? trimmed;
+}
+
 export function normalizeExpenseCategories(
   rows: unknown,
   existingExpenses: Array<{ category?: string }> = [],
@@ -99,7 +116,8 @@ export function normalizeExpenseCategories(
   const seen = new Set<string>();
   const result: string[] = [];
 
-  for (const category of [...EXPENSE_CATEGORY_OPTIONS, ...extras, ...fromExpenses]) {
+  for (const raw of [...EXPENSE_CATEGORY_OPTIONS, ...extras, ...fromExpenses]) {
+    const category = normalizeExpenseCategoryName(raw);
     if (!category || seen.has(category)) continue;
     seen.add(category);
     result.push(category);
@@ -109,7 +127,7 @@ export function normalizeExpenseCategories(
 }
 
 export function mergeExpenseCategory(categories: string[], category: string): string[] {
-  const trimmed = String(category || "").trim();
+  const trimmed = normalizeExpenseCategoryName(String(category || "").trim());
   if (!trimmed) return categories;
   return normalizeExpenseCategories([...categories, trimmed]);
 }
@@ -441,7 +459,7 @@ export function buildLedgerCategoryStats(
   >();
 
   const touch = (category: string) => {
-    const key = category.trim() || "\uAE30\uD0C0";
+    const key = normalizeExpenseCategoryName(category.trim()) || "\uAE30\uD0C0";
     if (!bucket.has(key)) {
       bucket.set(key, {
         variableTotal: 0,

@@ -10,6 +10,7 @@ import {
   findLinkableFixedExpensePayment,
   linkFixedExpensePaymentToBankTx,
   makeLedgerId,
+  normalizeExpenseCategoryName,
   parseLedgerAmount,
   areRecurringAmountsCompatible,
 } from "./companyLedger";
@@ -45,6 +46,8 @@ export type BankLedgerMatchRule = BankLearnRule & { kind: "fixed"; fixedExpenseI
 export const AUTO_LEARN_MIN_SCORE = 5;
 export const FIXED_AUTO_LEARN_MIN_SCORE = 12;
 export const AUTO_LEARN_HIGH_CONFIDENCE_SCORE = 16;
+/** Minimum match confidence (percent) required to register a bank withdrawal to company ledger. */
+export const LEDGER_REGISTRATION_MIN_CONFIDENCE_PERCENT = 90;
 
 export type BankLedgerRegistrationContext = {
   companyExpenses?: CompanyExpense[];
@@ -221,7 +224,7 @@ export function guessExpenseCategory(text: string) {
   const haystack = String(text || "").toLowerCase();
   const rules: Array<[string, string[]]> = [
     ["\uAD50\uD86D/\uC8FC\uCC28", ["\uC8FC\uCC28", "\uD86D", "\uACE0\uC18D", "\uD0DD\uC2DC", "\uC8FC\uC720", "\uAE30\uB984", "\uAE30\uC0B0"]],
-    ["\uC811\uB300/\uC2DD\uBE44", ["\uC2DD\uB300", "\uC2DD\uBE44", "\uC2DD\uB300", "\uC74C\uC2DD", "\uCE74\uD398", "\uCEE4\uD53C", "\uC811\uB300", "\uC2DD\uC0AC"]],
+    ["\uC811\uB300/\uC2DD\uBE44", ["\uC2DD", "\uC2DD\uB300", "\uC2DD\uBE44", "\uC74C\uC2DD", "\uCE74\uD398", "\uCEE4\uD53C", "\uC811\uB300", "\uC2DD\uC0AC"]],
     ["\uD1B5\uC2E0\uBE44", ["\uD1B5\uC2E0", "kt", "skt", "lgu", "\uC778\uD130\uB137", "\uD578\uB4DC\uD3F0"]],
     ["\uC18C\uBAA8\uD488", ["\uC18C\uBAA8", "\uC815\uAE30", "\uBE44\uC2DD", "\uACF5\uACFC"]],
     ["\uC0AC\uBB34\uC6A9\uD488", ["\uC0AC\uBB34", "\uBB38\uAD6C", "\uC6A9\uC9C0", "\uD504\uB9B0\uD130"]],
@@ -280,7 +283,10 @@ export function normalizeBankLearnRules(rows: unknown[]): BankLearnRule[] {
       const raw = row as Partial<BankLearnRule> & { fixedExpenseId?: string };
       const kind = inferLearnRuleKind(raw);
       const counterpartyName = String(raw.counterpartyName || "").trim();
-      const category = String(raw.category || "").trim();
+      const category =
+        kind === "manual"
+          ? normalizeExpenseCategoryName(String(raw.category || "").trim())
+          : String(raw.category || "").trim();
       const fixedExpenseId = String(raw.fixedExpenseId || "").trim();
       const folderId = String(raw.folderId || "").trim();
       const amount = Number(raw.amount);
@@ -295,7 +301,12 @@ export function normalizeBankLearnRules(rows: unknown[]): BankLearnRule[] {
         descriptionTokens: Array.isArray(raw.descriptionTokens)
           ? raw.descriptionTokens.map((token) => String(token)).filter(Boolean)
           : [],
-        amount: kind === "fixed" && Number.isFinite(amount) && amount > 0 ? amount : undefined,
+        amount:
+          Number.isFinite(amount) && amount > 0
+            ? kind === "fixed" || kind === "manual"
+              ? amount
+              : undefined
+            : undefined,
         createdAt: String(raw.createdAt || new Date().toISOString()),
         createdBy: raw.createdBy ? String(raw.createdBy) : undefined,
         sourceBankTransactionId: raw.sourceBankTransactionId ? String(raw.sourceBankTransactionId) : undefined,
@@ -385,6 +396,7 @@ export function buildBankLearnRuleFromMemoCategory(
     kind: "manual",
     category,
     counterpartyName,
+    amount: Number(tx.withdrawal || 0) > 0 ? Number(tx.withdrawal) : undefined,
     descriptionTokens: filterBankLearnDescriptionTokens([
       merchantLabel,
       ...extractBankTransactionMerchantFingerprints(tx),
@@ -485,20 +497,43 @@ export function sharesMemoLearnDomain(
   return isTaxRelatedBankTransaction(source) && isTaxRelatedBankTransaction(target);
 }
 
-export function resolveMemoLearnCategory(memo: string | undefined, categories: string[]) {
+export function memoLearnWithdrawalsMatch(source: BankTransaction, target: BankTransaction) {
+  const left = Number(source.withdrawal || 0);
+  const right = Number(target.withdrawal || 0);
+  if (left <= 0 || right <= 0) return false;
+  return left === right;
+}
+
+export function bankTransactionsShareMemoLearnPattern(
+  source: BankTransaction,
+  target: BankTransaction,
+  options: { requireAmountMatch?: boolean } = {},
+) {
+  if (!bankTransactionsShareMerchantFingerprint(source, target)) return false;
+  if (options.requireAmountMatch === false) return true;
+  return memoLearnWithdrawalsMatch(source, target);
+}
+
+export function resolveMemoLearnCategory(memo: string | undefined, categories?: string[] | null) {
   const trimmed = String(memo || "").trim();
   if (!trimmed) return null;
-  if (categories.includes(trimmed)) return trimmed;
-  if (/^[\uAC00-\uD7A3a-zA-Z0-9/+\-().]{1,12}$/.test(trimmed)) return trimmed;
+  const canonical = normalizeExpenseCategoryName(trimmed);
+  const categoryList = Array.isArray(categories) ? categories : [];
+  if (categoryList.some((item) => normalizeExpenseCategoryName(item) === canonical)) return canonical;
+  if (/^[\uAC00-\uD7A3a-zA-Z0-9/+\-().\s]{1,24}$/.test(trimmed)) {
+    return canonical !== trimmed ? canonical : trimmed;
+  }
 
   const guessed = guessExpenseCategory(trimmed);
-  if (guessed !== "\uAE30\uD0C0" && categories.includes(guessed)) return guessed;
+  if (guessed !== "\uAE30\uD0C0" && categoryList.some((item) => normalizeExpenseCategoryName(item) === guessed)) {
+    return guessed;
+  }
   return null;
 }
 
 export function buildMemoLearnRulesFromTransactions(
   transactions: BankTransaction[],
-  categories: string[],
+  categories: string[] = [],
   createdBy?: string,
 ) {
   const byMerchant = new Map<string, BankLearnRule>();
@@ -511,7 +546,11 @@ export function buildMemoLearnRulesFromTransactions(
     if (!category) continue;
     const merchantKey = resolveBankTransactionMerchantKey(tx);
     if (!merchantKey) continue;
-    byMerchant.set(merchantKey, buildBankLearnRuleFromMemoCategory(tx, category, createdBy));
+    const amount = Number(tx.withdrawal || 0);
+    const ruleKey = isMemoLearnTaxCategory(category)
+      ? `tax:${category}`
+      : `${merchantKey}:${amount}:${category}`;
+    byMerchant.set(ruleKey, buildBankLearnRuleFromMemoCategory(tx, category, createdBy));
   }
 
   return [...byMerchant.values()];
@@ -541,6 +580,9 @@ export function scoreMemoLearnCategoryRule(tx: BankTransaction, rule: BankLearnR
   if (
     merchantFingerprintsOverlap([...ruleFingerprints], extractBankTransactionMerchantFingerprints(tx))
   ) {
+    if (rule.amount != null && rule.amount > 0 && !memoLearnWithdrawalsMatch({ withdrawal: rule.amount } as BankTransaction, tx)) {
+      return 0;
+    }
     return 14;
   }
 
@@ -594,7 +636,10 @@ export function buildMemoCategorySuggestionMap(
 
     for (const source of memoSources) {
       if (source.tx.id === target.id) continue;
-      if (merchantFingerprintsOverlap(source.fingerprints, targetFingerprints)) {
+      if (
+        merchantFingerprintsOverlap(source.fingerprints, targetFingerprints) &&
+        (isMemoLearnTaxCategory(source.category) || memoLearnWithdrawalsMatch(source.tx, target))
+      ) {
         if (16 > bestScore) {
           bestScore = 16;
           bestCategory = source.category;
@@ -653,6 +698,9 @@ function learnRuleUpsertKey(rule: BankLearnRule) {
     if (isMemoLearnTaxCategory(String(rule.category || ""))) {
       return `manual:tax-domain:${normalizeMatchText(String(rule.category || ""))}`;
     }
+    if (rule.amount != null && rule.amount > 0) {
+      return `manual:${rule.category}:${counterpartyKey}:${rule.amount}`;
+    }
     return `manual:${rule.category}:${counterpartyKey}`;
   }
   if (rule.kind === "preauth_net") return `preauth_net:${counterpartyKey}`;
@@ -670,7 +718,10 @@ export function upsertBankLearnRule(rules: BankLearnRule[], incoming: BankLearnR
   const updated: BankLearnRule = {
     ...existing,
     descriptionTokens: mergedTokens,
-    amount: incoming.kind === "fixed" ? incoming.amount ?? existing.amount : existing.amount,
+    amount:
+      incoming.kind === "fixed" || incoming.kind === "manual"
+        ? incoming.amount ?? existing.amount
+        : existing.amount,
     sourceBankTransactionId: incoming.sourceBankTransactionId || existing.sourceBankTransactionId,
     createdBy: incoming.createdBy || existing.createdBy,
   };
@@ -740,6 +791,14 @@ export function scoreBankLearnRule(
   if (!isLearnRuleActive(rule, fixedExpenses)) return 0;
   if (rule.kind === "fixed" && isCheckCardBankTransaction(tx)) return 0;
   if (rule.kind === "fixed" && !fixedLearnRuleAmountMatches(tx, rule, fixedExpenses)) return 0;
+  if (
+    rule.kind === "manual" &&
+    rule.amount != null &&
+    rule.amount > 0 &&
+    !memoLearnWithdrawalsMatch({ withdrawal: rule.amount } as BankTransaction, tx)
+  ) {
+    return 0;
+  }
 
   const haystack = buildBankLedgerMatchHaystack(tx);
   const counterpartyKey = normalizeMatchText(rule.counterpartyName || "");
@@ -812,6 +871,17 @@ export function formatLearnRuleConfidencePercent(score: number) {
   if (score >= 12) return 85;
   if (score >= AUTO_LEARN_MIN_SCORE) return 72;
   return Math.max(0, Math.min(99, Math.round((score / AUTO_LEARN_HIGH_CONFIDENCE_SCORE) * 100)));
+}
+
+export function meetsLedgerRegistrationConfidenceThreshold(confidence: number | null | undefined) {
+  return confidence != null && confidence >= LEDGER_REGISTRATION_MIN_CONFIDENCE_PERCENT;
+}
+
+export function hasManualLedgerCategoryMemoOverride(
+  tx: BankTransaction,
+  categories: string[] = EXPENSE_CATEGORY_OPTIONS,
+) {
+  return Boolean(resolveMemoLearnCategory(tx.memo, categories));
 }
 
 function findBestBankLearnRule(
@@ -1041,7 +1111,17 @@ export function autoApplyBankLearnRules(
     };
 
     if (canRegisterBankTxToCompanyLedger(tx, ledgerContext) && applyLedgerKinds.length) {
-      const ledgerRule = findBestBankLearnRule(tx, rules, fixedExpenses, applyLedgerKinds);
+      const learnMatch = findBestBankLearnRuleWithScore(tx, rules, fixedExpenses, applyLedgerKinds);
+      if (!learnMatch) continue;
+
+      if (
+        !hasManualLedgerCategoryMemoOverride(tx) &&
+        !meetsLedgerRegistrationConfidenceThreshold(formatLearnRuleConfidencePercent(learnMatch.score))
+      ) {
+        continue;
+      }
+
+      const ledgerRule = learnMatch.rule;
       if (ledgerRule?.kind === "fixed" && ledgerRule.fixedExpenseId && !isCheckCardBankTransaction(tx)) {
         const existingPayment = findLinkableFixedExpensePayment(
           tx,

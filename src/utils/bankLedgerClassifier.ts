@@ -6,13 +6,17 @@ import {
   formatLearnRuleConfidencePercent,
   guessExpenseCategory,
   guessLedgerTargetFromBankTransaction,
+  hasManualLedgerCategoryMemoOverride,
+  LEDGER_REGISTRATION_MIN_CONFIDENCE_PERCENT,
   manualLedgerTargetKey,
+  meetsLedgerRegistrationConfidenceThreshold,
   normalizeBankLedgerMatchText,
   parseLedgerTargetKey,
   type BankLearnRule,
+  type MemoCategorySuggestion,
 } from "./bankCompanyLedger";
 import type { CompanyExpense, FixedExpense } from "./companyLedger";
-import { EXPENSE_CATEGORY_OPTIONS } from "./companyLedger";
+import { EXPENSE_CATEGORY_OPTIONS, normalizeExpenseCategoryName } from "./companyLedger";
 import type { ClientDepositMatchSource, WorkerDepositMatchSource } from "./clientDepositAliases";
 import { isNetGroupSuppressed } from "./bankPreauthNetting";
 
@@ -29,7 +33,7 @@ export type BankLedgerClassification = {
   reasons: string[];
 };
 
-export const HEURISTIC_AUTO_REGISTER_MIN_CONFIDENCE = 78;
+export const HEURISTIC_AUTO_REGISTER_MIN_CONFIDENCE = LEDGER_REGISTRATION_MIN_CONFIDENCE_PERCENT;
 
 const CORPORATE_SUFFIXES = [
   "(\uC8FC)",
@@ -85,7 +89,7 @@ function scoreCategoryFromHistory(
   const counts = new Map<string, { score: number; reasons: string[] }>();
 
   for (const row of expenses) {
-    const category = String(row.category || "").trim();
+    const category = normalizeExpenseCategoryName(String(row.category || "").trim());
     if (!category) continue;
     const descKey = normalizeKoreanMerchantName(row.description || "");
     const memoKey = normalizeKoreanMerchantName(row.memo || "");
@@ -180,10 +184,11 @@ export function classifyBankTransactionForLedger(
 
   const learnManual = findBestBankLearnRuleWithScore(tx, rules, fixedExpenses, ["manual"]);
   if (learnManual?.rule.category) {
+    const manualCategory = normalizeExpenseCategoryName(learnManual.rule.category);
     return {
-      targetKey: manualLedgerTargetKey(learnManual.rule.category),
+      targetKey: manualLedgerTargetKey(manualCategory),
       kind: "manual",
-      category: learnManual.rule.category,
+      category: manualCategory,
       confidence: formatLearnRuleConfidencePercent(learnManual.score),
       source: "learn_rule",
       label: `[\uC9C0\uCD9C] ${learnManual.rule.category}`,
@@ -196,10 +201,11 @@ export function classifyBankTransactionForLedger(
 
   const historyMatch = scoreCategoryFromHistory(tx, companyExpenses, haystack, tokens);
   if (historyMatch && historyMatch.score >= 12) {
+    const historyCategory = normalizeExpenseCategoryName(historyMatch.category);
     return {
-      targetKey: manualLedgerTargetKey(historyMatch.category),
+      targetKey: manualLedgerTargetKey(historyCategory),
       kind: "manual",
-      category: historyMatch.category,
+      category: historyCategory,
       confidence: Math.min(92, 62 + Math.min(30, historyMatch.score)),
       source: "heuristic",
       label: `[\uC9C0\uCD9C] ${historyMatch.category}`,
@@ -241,6 +247,53 @@ export function classifyBankTransactionForLedger(
   }
 
   return null;
+}
+
+export function resolveBankTxLedgerMatchConfidence(
+  tx: BankTransaction,
+  input: {
+    rules?: BankLearnRule[];
+    fixedExpenses?: FixedExpense[];
+    expenseCategories?: string[];
+    companyExpenses?: CompanyExpense[];
+    workers?: WorkerDepositMatchSource[];
+    clients?: ClientDepositMatchSource[];
+    memoCategorySuggestion?: MemoCategorySuggestion | null;
+  } = {},
+): number | null {
+  if (input.memoCategorySuggestion) {
+    return Math.round(input.memoCategorySuggestion.confidence);
+  }
+
+  const learnMatch = findBestBankLearnRuleWithScore(
+    tx,
+    input.rules || [],
+    input.fixedExpenses || [],
+    ["fixed", "manual"],
+  );
+  if (learnMatch) {
+    return formatLearnRuleConfidencePercent(learnMatch.score);
+  }
+
+  const classification = classifyBankTransactionForLedger(tx, input);
+  if (!classification) return null;
+  return Math.round(classification.confidence);
+}
+
+export function evaluateBankTxLedgerRegistrationGate(
+  tx: BankTransaction,
+  input: Parameters<typeof resolveBankTxLedgerMatchConfidence>[1] = {},
+) {
+  const manualMemoOverride = hasManualLedgerCategoryMemoOverride(tx, input.expenseCategories);
+  const confidence = resolveBankTxLedgerMatchConfidence(tx, input);
+  if (manualMemoOverride) {
+    return { allowed: true, confidence, manualMemoOverride: true as const };
+  }
+  return {
+    allowed: meetsLedgerRegistrationConfidenceThreshold(confidence),
+    confidence,
+    manualMemoOverride: false as const,
+  };
 }
 
 export function buildLedgerClassificationMap(

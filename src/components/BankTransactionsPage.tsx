@@ -88,6 +88,8 @@ import {
   findMatchingBankLedgerRule,
   formatBankLearnAutoMessage,
   formatLearnRuleConfidencePercent,
+  hasManualLedgerCategoryMemoOverride,
+  LEDGER_REGISTRATION_MIN_CONFIDENCE_PERCENT,
   getLinkedCompanyExpenseForBankTx,
   getLinkedFixedPaymentForBankTx,
   parseLedgerTargetKey,
@@ -95,7 +97,7 @@ import {
   upsertBankLearnRule,
   type BankLearnRule,
 } from "@/utils/bankCompanyLedger";
-import { buildLedgerClassificationMap, classifyBankTransactionForLedger } from "@/utils/bankLedgerClassifier";
+import { buildLedgerClassificationMap, classifyBankTransactionForLedger, evaluateBankTxLedgerRegistrationGate } from "@/utils/bankLedgerClassifier";
 import {
   countPendingSmartLedger,
   formatSmartLedgerRunMessage,
@@ -374,6 +376,10 @@ const L = {
   folderSuggestionBadge: (label: string, subject?: string) =>
     subject ? `추천 ${label}: ${subject}` : `추천 ${label}`,
   ledgerLearnRuleBadge: (confidence: number) => `학습규칙 ${confidence}%`,
+  ledgerConfidenceBlocked: (confidence: number | null) =>
+    confidence != null
+      ? `매칭 신뢰도 ${Math.round(confidence)}%입니다. 회사 가계부 등록에는 ${LEDGER_REGISTRATION_MIN_CONFIDENCE_PERCENT}% 이상이 필요합니다. 메모에 카테고리를 직접 입력하면 등록할 수 있습니다.`
+      : `매칭 신뢰도가 확인되지 않아 회사 가계부로 등록할 수 없습니다. 메모에 카테고리를 직접 입력하거나 학습 규칙을 추가해 주세요.`,
   ledgerSaveManualHint: "\uB2E8\uC21C\uC9C0\uCD9C\uB85C \uC800\uC7A5",
   ledgerCategoryAddHint: "\uBAA9\uB85D\uC5D0 \uC5C6\uB294 \uCE74\uD14C\uACE0\uB9AC\uB294 \uC774\uB984\uC744 \uC785\uB825\uD558\uC138\uC694.",
   ledgerSaveFixedHint: "\uAE08\uC561\uC774 \uB9DE\uB294 \uBBF8\uC5F0\uACB0 \uB0A9\uBD80\uAC00 \uC788\uC73C\uBA74 \uC790\uB3D9 \uC5F0\uACB0\uD569\uB2C8\uB2E4",
@@ -927,6 +933,103 @@ export function BankTransactionsPage({
   const canRegisterLedger = (tx: BankTransaction) =>
     !isNetGroupSuppressed(tx) && canRegisterBankTxToCompanyLedger(tx, ledgerRegistrationContext);
 
+  const evaluateLedgerRegistrationGate = React.useCallback(
+    (tx: BankTransaction) =>
+      evaluateBankTxLedgerRegistrationGate(tx, {
+        rules: effectiveBankLedgerRules,
+        fixedExpenses,
+        expenseCategories,
+        companyExpenses,
+        workers,
+        clients,
+        memoCategorySuggestion: memoCategorySuggestionByTxId.get(tx.id) || null,
+      }),
+    [
+      effectiveBankLedgerRules,
+      fixedExpenses,
+      expenseCategories,
+      companyExpenses,
+      workers,
+      clients,
+      memoCategorySuggestionByTxId,
+    ],
+  );
+
+  const canRegisterLedgerWithConfidence = (tx: BankTransaction) =>
+    canRegisterLedger(tx) && evaluateLedgerRegistrationGate(tx).allowed;
+
+  const resolveLedgerRegistrationSuggestion = React.useCallback(
+    (tx: BankTransaction) => {
+      const memoSuggestion = memoCategorySuggestionByTxId.get(tx.id);
+      if (memoSuggestion) {
+        return {
+          kind: "manual" as LedgerRegisterKind,
+          fixedExpenseId: "",
+          category: memoSuggestion.category,
+        };
+      }
+
+      const suggestion = ledgerSuggestionByTxId.get(tx.id);
+      const targetKey = suggestion?.targetKey || resolveLedgerTargetForBankTransaction(tx, bankLedgerRules, fixedExpenses);
+      const parsed = parseLedgerTargetKey(targetKey);
+      const learnMatch = findBestBankLearnRuleWithScore(tx, bankLedgerRules, fixedExpenses, ["fixed", "manual"]);
+      const ledgerRule = learnMatch?.rule || findMatchingBankLedgerRule(tx, bankLedgerRules, fixedExpenses);
+      const kind: LedgerRegisterKind = parsed?.kind === "fixed" ? "fixed" : "manual";
+      const fixedItem =
+        parsed?.kind === "fixed" && parsed.fixedExpenseId
+          ? fixedExpenses.find((row) => row.id === parsed.fixedExpenseId)
+          : undefined;
+      const defaultFixedId =
+        fixedItem?.id ||
+        suggestion?.fixedExpenseId ||
+        fixedExpenses.find((row) => row.isActive)?.id ||
+        "";
+      const defaultManualCategory = expenseCategories[0] || EXPENSE_CATEGORY_OPTIONS[0];
+      const defaultFixedCategory = fixedItem?.category?.trim() || FIXED_CATEGORY_OPTIONS[0];
+      const resolvedCategory =
+        kind === "manual"
+          ? suggestion?.category ||
+            (ledgerRule && "category" in ledgerRule ? ledgerRule.category : "") ||
+            (parsed?.kind === "manual" ? parsed.category || "" : "")
+          : fixedItem?.category ||
+            suggestion?.category ||
+            (ledgerRule && "category" in ledgerRule ? ledgerRule.category : "") ||
+            "";
+
+      return {
+        kind,
+        fixedExpenseId: kind === "fixed" ? defaultFixedId : "",
+        category:
+          kind === "fixed"
+            ? resolvedCategory.trim() || defaultFixedCategory
+            : resolvedCategory.trim() || defaultManualCategory,
+      };
+    },
+    [
+      bankLedgerRules,
+      expenseCategories,
+      fixedExpenses,
+      ledgerSuggestionByTxId,
+      memoCategorySuggestionByTxId,
+    ],
+  );
+
+  const isManualLedgerRegistrationOverride = React.useCallback(
+    (
+      tx: BankTransaction,
+      input: { kind: LedgerRegisterKind; category: string; fixedExpenseId: string },
+    ) => {
+      if (hasManualLedgerCategoryMemoOverride(tx, expenseCategories)) return true;
+      const suggestion = resolveLedgerRegistrationSuggestion(tx);
+      if (input.kind !== suggestion.kind) return true;
+      if (input.kind === "fixed" && input.fixedExpenseId.trim() !== suggestion.fixedExpenseId.trim()) {
+        return true;
+      }
+      return input.category.trim() !== suggestion.category.trim();
+    },
+    [expenseCategories, resolveLedgerRegistrationSuggestion],
+  );
+
   const isLedgerEditModal = (modal: NonNullable<typeof ledgerModal>) =>
     modal.mode === "edit" || Boolean(modal.editPaymentId || modal.editExpenseId);
 
@@ -1225,6 +1328,17 @@ export function BankTransactionsPage({
     const firstTx = ledgerReviewPrompt.transactions[0];
     if (!firstTx) return;
 
+    const gate = evaluateLedgerRegistrationGate(firstTx);
+    const manualOverride = isManualLedgerRegistrationOverride(firstTx, {
+      kind: ledgerReviewPrompt.kind,
+      category: ledgerReviewPrompt.category,
+      fixedExpenseId: ledgerReviewPrompt.fixedExpenseId,
+    });
+    if (!gate.allowed && !manualOverride) {
+      setLedgerReviewPromptError(L.ledgerConfidenceBlocked(gate.confidence));
+      return;
+    }
+
     if (ledgerReviewPrompt.kind === "fixed") {
       const fixedExpenseId = ledgerReviewPrompt.fixedExpenseId.trim();
       const category = ledgerReviewPrompt.category.trim();
@@ -1422,6 +1536,8 @@ export function BankTransactionsPage({
     openNextLedgerReviewPrompt,
     recordAudit,
     savedBy,
+    evaluateLedgerRegistrationGate,
+    isManualLedgerRegistrationOverride,
     setBankLedgerRules,
     setBankTransactions,
     setCompanyExpenses,
@@ -2236,6 +2352,11 @@ export function BankTransactionsPage({
 
   const openLedgerRegister = (tx: BankTransaction) => {
     if (!canRegisterLedger(tx)) return;
+    const gate = evaluateLedgerRegistrationGate(tx);
+    if (!gate.allowed) {
+      setImportMessage(L.ledgerConfidenceBlocked(gate.confidence));
+      return;
+    }
     const prefill = buildCompanyExpensePrefillFromBankTransaction(tx);
     const suggestion = ledgerSuggestionByTxId.get(tx.id);
     const targetKey = suggestion?.targetKey || resolveLedgerTargetForBankTransaction(tx, bankLedgerRules, fixedExpenses);
@@ -2732,6 +2853,16 @@ export function BankTransactionsPage({
     }
     if (!canRegisterLedger(ledgerModal.tx)) {
       setLedgerFormError(L.ledgerAlreadyRegistered);
+      return;
+    }
+    const gate = evaluateLedgerRegistrationGate(ledgerModal.tx);
+    const manualOverride = isManualLedgerRegistrationOverride(ledgerModal.tx, {
+      kind: ledgerModal.kind,
+      category: ledgerModal.category,
+      fixedExpenseId: ledgerModal.fixedExpenseId,
+    });
+    if (!gate.allowed && !manualOverride) {
+      setLedgerFormError(L.ledgerConfidenceBlocked(gate.confidence));
       return;
     }
     const savedBy = currentUser?.name || currentUser?.loginId || "";
@@ -3266,7 +3397,7 @@ export function BankTransactionsPage({
 
   const renderTransactionDescription = (row: BankTransaction) => {
     const text = row.description || "-";
-    if (canRegisterLedger(row)) {
+    if (canRegisterLedgerWithConfidence(row)) {
       return (
         <button
           type="button"
@@ -3357,7 +3488,7 @@ export function BankTransactionsPage({
         ? L.ledgerLearnRuleBadge(confidence)
         : L.ledgerSuggestionBadge(activeSuggestion.label.replace(/^\[[^\]]+\]\s*/, ""), confidence);
     const tone =
-      confidence >= 78
+      confidence >= LEDGER_REGISTRATION_MIN_CONFIDENCE_PERCENT
         ? "bg-violet-100 text-violet-800"
         : "bg-sky-50 text-sky-800 border border-sky-200";
     return (
@@ -3395,7 +3526,7 @@ export function BankTransactionsPage({
           ? "is-withdrawal-row"
           : "";
     const folder = row.folderId ? folderMap.get(row.folderId) : undefined;
-    const canLedger = canRegisterLedger(row);
+    const canLedger = canRegisterLedgerWithConfidence(row);
     const ledgerBadgeLabel = getLedgerRegisteredBadgeLabel(row);
 
     return (
@@ -3610,7 +3741,7 @@ export function BankTransactionsPage({
 
   const renderMobileCard = (row: BankTransaction) => {
     const folder = row.folderId ? folderMap.get(row.folderId) : undefined;
-    const canLedger = canRegisterLedger(row);
+    const canLedger = canRegisterLedgerWithConfidence(row);
     const ledgerBadgeLabel = getLedgerRegisteredBadgeLabel(row);
     const folderSuggestion = !folder ? folderSuggestionByTxId.get(row.id) : undefined;
     const memoSuggestion = !ledgerBadgeLabel ? memoCategorySuggestionByTxId.get(row.id) : undefined;
