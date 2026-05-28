@@ -99,6 +99,30 @@ function findWdw(sorted, used, windowMs) {
   return null;
 }
 
+function findCancelRepayWdw(sorted, used, windowMs) {
+  for (let i = 0; i < sorted.length; i++) {
+    const w1 = sorted[i];
+    if (used.has(w1.id) || w1.netGroupId) continue;
+    const pre = Number(w1.withdrawal || 0);
+    if (!(pre > 0) || w1.deposit > 0) continue;
+    for (let j = i + 1; j < sorted.length; j++) {
+      const refund = sorted[j];
+      if (used.has(refund.id) || refund.netGroupId) continue;
+      if (refund.deposit !== pre || refund.withdrawal > 0) continue;
+      if (txMs(refund) - txMs(w1) > windowMs) break;
+      for (let k = j + 1; k < sorted.length; k++) {
+        const settle = sorted[k];
+        if (used.has(settle.id) || settle.netGroupId) continue;
+        const sa = Number(settle.withdrawal || 0);
+        if (sa !== pre || settle.deposit > 0) continue;
+        if (txMs(settle) - txMs(w1) > windowMs) break;
+        return { w1, refund, settle, pre, sa };
+      }
+    }
+  }
+  return null;
+}
+
 function findWwd(sorted, used, windowMs) {
   for (let i = 0; i < sorted.length; i++) {
     const w1 = sorted[i];
@@ -123,12 +147,11 @@ function findWwd(sorted, used, windowMs) {
   return null;
 }
 
-function detectPreauth(transactions, rules) {
-  const windowMs = 60 * 60 * 1000;
+function bucketByCounterparty(transactions, include) {
   const buckets = new Map();
   for (const tx of transactions) {
     if (tx.netGroupId) continue;
-    if (!matchesPreauth(tx, rules)) continue;
+    if (!include(tx)) continue;
     const account = String(tx.accountNumber || "").trim();
     const date = txDate(tx);
     const cp = cpName(tx);
@@ -138,21 +161,38 @@ function detectPreauth(transactions, rules) {
     list.push(tx);
     buckets.set(key, list);
   }
+  return buckets;
+}
 
-  const groups = [];
-  for (const bucket of buckets.values()) {
-    const sorted = [...bucket].sort((a, b) => txMs(a) - txMs(b));
-    const used = new Set();
-    let hit = findWdw(sorted, used, windowMs) || findWwd(sorted, used, windowMs);
-    while (hit) {
-      const id = `preauth-${groups.length + 1}-${Date.now()}`;
-      groups.push({ id, ...hit });
-      used.add(hit.w1.id);
-      used.add(hit.refund.id);
-      used.add(hit.settle.id);
-      hit = findWdw(sorted, used, windowMs) || findWwd(sorted, used, windowMs);
-    }
+function collectFromBucket(sorted, used, windowMs, groups, findNext) {
+  let hit = findNext(sorted, used, windowMs);
+  while (hit) {
+    const id = `preauth-${groups.length + 1}-${Date.now()}`;
+    groups.push({ id, ...hit });
+    used.add(hit.w1.id);
+    used.add(hit.refund.id);
+    used.add(hit.settle.id);
+    hit = findNext(sorted, used, windowMs);
   }
+}
+
+function detectPreauth(transactions, rules) {
+  const windowMs = 60 * 60 * 1000;
+  const groups = [];
+  const used = new Set();
+
+  const preauthBuckets = bucketByCounterparty(transactions, (tx) => matchesPreauth(tx, rules));
+  for (const bucket of preauthBuckets.values()) {
+    const sorted = [...bucket].sort((a, b) => txMs(a) - txMs(b));
+    collectFromBucket(sorted, used, windowMs, groups, (s, u, w) => findWdw(s, u, w) || findWwd(s, u, w));
+  }
+
+  const allBuckets = bucketByCounterparty(transactions, () => true);
+  for (const bucket of allBuckets.values()) {
+    const sorted = [...bucket].sort((a, b) => txMs(a) - txMs(b));
+    collectFromBucket(sorted, used, windowMs, groups, findCancelRepayWdw);
+  }
+
   return groups;
 }
 

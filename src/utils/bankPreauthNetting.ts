@@ -19,7 +19,8 @@ export type PreauthNetGroup = {
 
 export const DEFAULT_PREAUTH_NET_KEYWORDS = ["\uC8FC\uC720\uC18C", "\uC8FC\uC720", "LPG", "\uCDA9\uC804\uC18C"];
 
-const PREAUTH_NET_WINDOW_MS = 60 * 60 * 1000;
+/** Same window for preauth partial settlement and cancel+repay (W→D→W equal amount). */
+export const NET_GROUP_WINDOW_MINUTES = 60;
 
 export function preauthNetGroupKey(group: PreauthNetGroup) {
   return [group.preauthWithdrawalTx.id, group.refundTx.id, group.settlementTx.id].join(":");
@@ -83,6 +84,47 @@ export function matchesPreauthNetRule(tx: BankTransaction, rules: BankLearnRule[
   }
 
   return DEFAULT_PREAUTH_NET_KEYWORDS.some((keyword) => haystack.includes(keyword.toLowerCase()));
+}
+
+/** Payment cancel then re-charge: withdrawal → deposit(refund) → withdrawal, all same amount. */
+function findNextCancelRepayTriplet(
+  txs: BankTransaction[],
+  used: Set<string>,
+  windowMs: number,
+): Omit<PreauthNetGroup, "id"> | null {
+  for (let i = 0; i < txs.length; i += 1) {
+    const w1 = txs[i];
+    if (used.has(w1.id) || !isEligibleForPreauthNetDetection(w1)) continue;
+    const amount = Number(w1.withdrawal || 0);
+    if (!(amount > 0) || w1.deposit > 0) continue;
+
+    for (let j = i + 1; j < txs.length; j += 1) {
+      const refund = txs[j];
+      if (used.has(refund.id) || !isEligibleForPreauthNetDetection(refund)) continue;
+      if (refund.deposit !== amount || refund.withdrawal > 0) continue;
+      if (txTimeMs(refund) - txTimeMs(w1) > windowMs) break;
+
+      for (let k = j + 1; k < txs.length; k += 1) {
+        const settlement = txs[k];
+        if (used.has(settlement.id) || !isEligibleForPreauthNetDetection(settlement)) continue;
+        const settlementAmount = Number(settlement.withdrawal || 0);
+        if (settlementAmount !== amount || settlement.deposit > 0) continue;
+        if (txTimeMs(settlement) - txTimeMs(w1) > windowMs) break;
+
+        return {
+          preauthWithdrawalTx: w1,
+          refundTx: refund,
+          settlementTx: settlement,
+          preauthAmount: amount,
+          settlementAmount,
+          counterpartyName: normalizePreauthCounterpartyName(w1),
+          date: txDate(w1),
+          accountNumber: String(w1.accountNumber || "").trim(),
+        };
+      }
+    }
+  }
+  return null;
 }
 
 function findNextPreauthTripletWwd(
@@ -166,17 +208,29 @@ function findNextPreauthTriplet(
   return null;
 }
 
-export function detectPreauthNetGroups(
-  transactions: BankTransaction[],
-  rules: BankLearnRule[] = [],
-  options: { windowMinutes?: number } = {},
-): PreauthNetGroup[] {
-  const windowMs = Math.max(1, options.windowMinutes ?? 60) * 60 * 1000;
-  const buckets = new Map<string, BankTransaction[]>();
+function findNextPreauthGroup(
+  txs: BankTransaction[],
+  used: Set<string>,
+  windowMs: number,
+): Omit<PreauthNetGroup, "id"> | null {
+  return findNextPreauthTriplet(txs, used, windowMs) || findNextPreauthTripletWwd(txs, used, windowMs);
+}
 
+function sortNetBucket(bucket: BankTransaction[]) {
+  return [...bucket].sort((a, b) => {
+    const timeDiff = txTimeMs(a) - txTimeMs(b);
+    if (timeDiff !== 0) return timeDiff;
+    return String(a.createdAt).localeCompare(String(b.createdAt));
+  });
+}
+
+function buildCounterpartyDayBuckets(
+  transactions: BankTransaction[],
+  include: (tx: BankTransaction) => boolean,
+) {
+  const buckets = new Map<string, BankTransaction[]>();
   for (const tx of transactions) {
-    if (!isEligibleForPreauthNetDetection(tx)) continue;
-    if (!matchesPreauthNetRule(tx, rules)) continue;
+    if (!include(tx)) continue;
     const accountNumber = String(tx.accountNumber || "").trim();
     const date = txDate(tx);
     const counterparty = normalizePreauthCounterpartyName(tx);
@@ -186,25 +240,47 @@ export function detectPreauthNetGroups(
     bucket.push(tx);
     buckets.set(key, bucket);
   }
+  return buckets;
+}
 
+function collectNetGroupsFromBucket(
+  bucket: BankTransaction[],
+  windowMs: number,
+  used: Set<string>,
+  groups: PreauthNetGroup[],
+  findNext: (txs: BankTransaction[], used: Set<string>, windowMs: number) => Omit<PreauthNetGroup, "id"> | null,
+) {
+  const sorted = sortNetBucket(bucket);
+  let triplet = findNext(sorted, used, windowMs);
+  while (triplet) {
+    groups.push({ id: makeBankTransactionId(), ...triplet });
+    used.add(triplet.preauthWithdrawalTx.id);
+    used.add(triplet.refundTx.id);
+    used.add(triplet.settlementTx.id);
+    triplet = findNext(sorted, used, windowMs);
+  }
+}
+
+export function detectPreauthNetGroups(
+  transactions: BankTransaction[],
+  rules: BankLearnRule[] = [],
+  options: { windowMinutes?: number } = {},
+): PreauthNetGroup[] {
+  const windowMs = Math.max(1, options.windowMinutes ?? NET_GROUP_WINDOW_MINUTES) * 60 * 1000;
   const groups: PreauthNetGroup[] = [];
+  const used = new Set<string>();
 
-  for (const bucket of buckets.values()) {
-    const sorted = [...bucket].sort((a, b) => {
-      const timeDiff = txTimeMs(a) - txTimeMs(b);
-      if (timeDiff !== 0) return timeDiff;
-      return String(a.createdAt).localeCompare(String(b.createdAt));
-    });
-    const used = new Set<string>();
-    let triplet = findNextPreauthTriplet(sorted, used, windowMs);
-    if (!triplet) triplet = findNextPreauthTripletWwd(sorted, used, windowMs);
-    while (triplet) {
-      groups.push({ id: makeBankTransactionId(), ...triplet });
-      used.add(triplet.preauthWithdrawalTx.id);
-      used.add(triplet.refundTx.id);
-      used.add(triplet.settlementTx.id);
-      triplet = findNextPreauthTriplet(sorted, used, windowMs);
-    }
+  const preauthBuckets = buildCounterpartyDayBuckets(
+    transactions,
+    (tx) => isEligibleForPreauthNetDetection(tx) && matchesPreauthNetRule(tx, rules),
+  );
+  for (const bucket of preauthBuckets.values()) {
+    collectNetGroupsFromBucket(bucket, windowMs, used, groups, findNextPreauthGroup);
+  }
+
+  const allBuckets = buildCounterpartyDayBuckets(transactions, isEligibleForPreauthNetDetection);
+  for (const bucket of allBuckets.values()) {
+    collectNetGroupsFromBucket(bucket, windowMs, used, groups, findNextCancelRepayTriplet);
   }
 
   return groups.sort((a, b) => String(b.date).localeCompare(String(a.date)));

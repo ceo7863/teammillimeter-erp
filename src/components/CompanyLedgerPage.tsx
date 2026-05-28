@@ -52,6 +52,7 @@ import {
   todayISO,
   validateCompanyExpenseInput,
   validateFixedExpenseInput,
+  validateFixedExpensePaymentInput,
   type CompanyExpense,
   type CompanyExpenseKind,
   type FixedExpense,
@@ -110,6 +111,10 @@ const L = {
   emptyFixed: "\uB4F1\uB85D\uB41C \uACE0\uC815\uBE44\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
   emptyMonth: "\uD574\uB2F9 \uC6D4 \uC9C0\uCD9C \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   deleteConfirm: "\uC774 \uD56D\uBAA9\uC744 \uC0AD\uC81C\uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?",
+  deleteFixedItemConfirm:
+    "\uC774 \uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC0AD\uC81C\uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?\n\uC5F0\uACB0\uB41C \uB0A9\uBD80 \uB0B4\uC5ED\uACFC \uD1B5\uC7A5 \uD559\uC2B5 \uADDC\uCE59\uB3C4 \uD568\uAED8 \uC0AD\uC81C\uB429\uB2C8\uB2E4.",
+  deleteFixedItemBankLinkedConfirm:
+    "\uC774 \uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC0AD\uC81C\uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?\n\uC5F0\uACB0\uB41C \uB0A9\uBD80 \uB0B4\uC5ED\uACFC \uD1B5\uC7A5 \uD559\uC2B5 \uADDC\uCE59\uB3C4 \uD568\uAED8 \uC0AD\uC81C\uB429\uB2C8\uB2E4.\n\uD1B5\uC7A5 \uC5F0\uB3D9 \uB0A9\uBD80\uAC00 \uC788\uC73C\uBA74 \uAC00\uACC4\uBD80 \uC5F0\uB3D9\uB3C4 \uD574\uC81C\uB429\uB2C8\uB2E4.",
   save: "\uC800\uC7A5",
   cancel: "\uCDE8\uC18C",
   edit: "\uC218\uC815",
@@ -167,6 +172,10 @@ const L = {
   deleteBankLinkedConfirm:
     "\uD1B5\uC7A5 \uC5F0\uB3D9 \uC9C0\uCD9C\uC785\uB2C8\uB2E4. \uC0AD\uC81C\uD558\uBA74 \uAC00\uACC4\uBD80\uC5D0\uC11C \uC81C\uAC70\uB418\uACE0 \uD1B5\uC7A5 \uAC70\uB798 \uC5F0\uB3D9\uB3C4 \uD574\uC81C\uB429\uB2C8\uB2E4. \uC0AD\uC81C\uD560\uAE4C\uC694?",
   fixedItemSection: "\uACE0\uC815\uBE44 \uD56D\uBAA9",
+  editKind: "\uAD6C\uBD84",
+  kindChangeDone: "\uB4F1\uB85D \uC720\uD615\uC774 \uBCC0\uACBD\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
+  kindChangeSaveManual: "\uC720\uD615 \uBCC0\uACBD \u00B7 \uBCC0\uB3D9\uC9C0\uCD9C\uB85C \uC800\uC7A5",
+  kindChangeSaveFixed: "\uC720\uD615 \uBCC0\uACBD \u00B7 \uACE0\uC815\uBE44\uB85C \uC800\uC7A5",
   addFixedItem: "\uACE0\uC815\uBE44 \uD56D\uBAA9 \uCD94\uAC00",
   editFixedItem: "\uACE0\uC815\uBE44 \uD56D\uBAA9 \uC218\uC815",
   emptyFixedItems: "\uB4F1\uB85D\uB41C \uACE0\uC815\uBE44 \uD56D\uBAA9\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
@@ -240,12 +249,40 @@ type ManualModalState = {
   id?: string;
   fixedExpenseId?: string;
   kind: CompanyExpenseKind;
+  initialKind?: CompanyExpenseKind;
   date: string;
   category: string;
   description: string;
   amount: string;
   memo: string;
 };
+
+const MANUAL_KIND_TOGGLE_OPTIONS: Array<{
+  key: CompanyExpenseKind;
+  label: string;
+  tone: string;
+  activeTone: string;
+}> = [
+  {
+    key: "variable",
+    label: "\uBCC0\uB3D9 \uC9C0\uCD9C",
+    tone: "border-slate-200 bg-white text-slate-600",
+    activeTone: "border-slate-900 bg-slate-900 text-white",
+  },
+  {
+    key: "fixed",
+    label: "\uACE0\uC815\uBE44",
+    tone: "border-slate-200 bg-white text-slate-600",
+    activeTone: "border-amber-600 bg-amber-600 text-white",
+  },
+];
+
+function isManualRecordTypeSwitch(modal: ManualModalState) {
+  if (modal.mode !== "edit" || !modal.id) return false;
+  if (modal.source === "fixedPayment" && modal.kind === "variable") return true;
+  if (modal.source === "expense" && modal.initialKind === "variable" && modal.kind === "fixed") return true;
+  return false;
+}
 
 type ManualLedgerRow =
   | { type: "expense"; row: CompanyExpense }
@@ -959,13 +996,13 @@ export function CompanyLedgerPage({
       buildFixedCategorySelectOptions(
         fixedExpenses,
         fixedExpenseCategories,
-        manualModal?.source === "fixedPayment" ? manualModal.category : "",
+        manualModal?.kind === "fixed" ? manualModal.category : "",
       ),
-    [fixedExpenses, fixedExpenseCategories, manualModal?.category, manualModal?.source],
+    [fixedExpenses, fixedExpenseCategories, manualModal?.category, manualModal?.kind],
   );
 
   const fixedExpenseSelectOptions = useMemo(() => {
-    const selectedId = manualModal?.source === "fixedPayment" ? manualModal.fixedExpenseId : "";
+    const selectedId = manualModal?.kind === "fixed" ? manualModal.fixedExpenseId : "";
     return fixedExpenses
       .filter((row) => row.isActive || row.id === selectedId)
       .map((row) => ({
@@ -974,7 +1011,30 @@ export function CompanyLedgerPage({
         raw: row,
       }))
       .sort((a, b) => a.label.localeCompare(b.label, "ko"));
-  }, [fixedExpenses, manualModal?.fixedExpenseId, manualModal?.source]);
+  }, [fixedExpenses, manualModal?.fixedExpenseId, manualModal?.kind]);
+
+  const setManualKind = (kind: CompanyExpenseKind) => {
+    setManualModal((prev) => {
+      if (!prev || prev.kind === kind || prev.mode !== "edit") return prev;
+      const next = { ...prev, kind };
+      if (kind === "fixed") {
+        if (!next.fixedExpenseId) {
+          next.fixedExpenseId = fixedExpenses.find((row) => row.isActive)?.id || "";
+        }
+        const fixedItem = fixedExpenses.find((row) => row.id === next.fixedExpenseId);
+        if (fixedItem) {
+          next.category = fixedItem.category?.trim() || next.category;
+          if (!prev.description.trim()) {
+            next.description = fixedItem.name;
+          }
+        }
+      } else if (!next.category.trim()) {
+        next.category = expenseCategories[0] || EXPENSE_CATEGORY_OPTIONS[0];
+        next.fixedExpenseId = undefined;
+      }
+      return next;
+    });
+  };
 
   const openCreateManual = () => {
     setFormError("");
@@ -983,11 +1043,13 @@ export function CompanyLedgerPage({
 
   const openEditManual = (row: CompanyExpense) => {
     setFormError("");
+    const kind = resolveCompanyExpenseKind(row);
     setManualModal({
       mode: "edit",
       source: "expense",
       id: row.id,
-      kind: resolveCompanyExpenseKind(row),
+      kind,
+      initialKind: kind,
       date: row.date,
       category: row.category,
       description: row.description,
@@ -1006,6 +1068,7 @@ export function CompanyLedgerPage({
       id: row.id,
       fixedExpenseId: row.fixedExpenseId,
       kind: "fixed",
+      initialKind: "fixed",
       date: row.date,
       category: resolveFixedPaymentCategory(row, fixedExpenses),
       description: row.memo || "",
@@ -1109,11 +1172,168 @@ export function CompanyLedgerPage({
   const saveManual = () => {
     if (!manualModal) return;
     const error = validateCompanyExpenseInput(manualModal);
-    if (error) {
+    if (error && !isManualRecordTypeSwitch(manualModal)) {
       setFormError(error);
       return;
     }
-    if (manualModal.mode === "edit" && manualModal.source === "fixedPayment" && manualModal.id) {
+
+    const savedBy = currentUser?.name || currentUser?.loginId || "";
+
+    if (isManualRecordTypeSwitch(manualModal) && manualModal.source === "fixedPayment" && manualModal.kind === "variable") {
+      const paymentId = manualModal.id;
+      if (!paymentId || !setFixedExpensePayments) return;
+      const category = manualModal.category.trim();
+      if (!category) {
+        setFormError("\uCE74\uD14C\uACE0\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.");
+        return;
+      }
+      const inputError = validateCompanyExpenseInput(manualModal);
+      if (inputError) {
+        setFormError(inputError);
+        return;
+      }
+
+      const beforePayment = fixedExpensePayments.find((row) => row.id === paymentId);
+      const expenseId = makeLedgerId();
+      const expense: CompanyExpense = {
+        id: expenseId,
+        date: manualModal.date,
+        category,
+        description: manualModal.description.trim(),
+        amount: parseLedgerAmount(manualModal.amount),
+        memo: manualModal.memo.trim(),
+        kind: "variable",
+        bankTransactionId: beforePayment?.bankTransactionId,
+        createdBy: savedBy,
+        createdAt: new Date().toISOString(),
+      };
+
+      setFixedExpensePayments((prev) => prev.filter((row) => row.id !== paymentId));
+      setCompanyExpenses((prev) => [expense, ...prev]);
+      if (beforePayment?.bankTransactionId && setBankTransactions) {
+        setBankTransactions((prev) =>
+          prev.map((tx) => {
+            if (tx.id === beforePayment.bankTransactionId) {
+              return { ...tx, linkedCompanyExpenseId: expenseId, linkedFixedExpensePaymentId: undefined };
+            }
+            if (tx.linkedFixedExpensePaymentId === paymentId) {
+              return { ...tx, linkedFixedExpensePaymentId: undefined };
+            }
+            return tx;
+          }),
+        );
+      }
+      if (beforePayment) {
+        const fixedItem = fixedExpenses.find((row) => row.id === beforePayment.fixedExpenseId);
+        recordAudit({
+          entityType: "fixedExpensePayment",
+          entityId: paymentId,
+          entityLabel: fixedItem?.name || paymentId,
+          screen: L.pageTitle,
+          action: "delete",
+          before: snapshotFixedExpensePaymentForAudit(beforePayment),
+          fields: FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS,
+          user: currentUser,
+        });
+      }
+      recordAudit({
+        entityType: "companyExpense",
+        entityId: expenseId,
+        entityLabel: `${expense.date} \u00B7 ${expense.description || expense.category}`,
+        screen: L.pageTitle,
+        action: "create",
+        after: snapshotCompanyExpenseForAudit(expense),
+        fields: COMPANY_EXPENSE_AUDIT_FIELDS,
+        user: currentUser,
+      });
+      setExpenseCategories((prev) => mergeExpenseCategory(prev, category));
+      setManualModal(null);
+      setFormError("");
+      return;
+    }
+
+    if (isManualRecordTypeSwitch(manualModal) && manualModal.source === "expense" && manualModal.kind === "fixed") {
+      const expenseId = manualModal.id;
+      if (!expenseId || !setFixedExpensePayments) return;
+      const fixedExpenseId = String(manualModal.fixedExpenseId || "").trim();
+      const category = manualModal.category.trim();
+      if (!fixedExpenseId) {
+        setFormError("\uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.");
+        return;
+      }
+      if (!category) {
+        setFormError("\uCE74\uD14C\uACE0\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.");
+        return;
+      }
+      const inputError = validateFixedExpensePaymentInput({
+        date: manualModal.date,
+        fixedExpenseId,
+        amount: manualModal.amount,
+      });
+      if (inputError) {
+        setFormError(inputError);
+        return;
+      }
+
+      const beforeExpense = companyExpenses.find((row) => row.id === expenseId);
+      const paymentId = makeLedgerId();
+      const payment: FixedExpensePayment = {
+        id: paymentId,
+        fixedExpenseId,
+        date: manualModal.date,
+        amount: parseLedgerAmount(manualModal.amount),
+        category,
+        memo: manualModal.description.trim() || manualModal.memo.trim(),
+        bankTransactionId: beforeExpense?.bankTransactionId,
+        createdBy: savedBy,
+        createdAt: new Date().toISOString(),
+      };
+
+      setCompanyExpenses((prev) => prev.filter((row) => row.id !== expenseId));
+      setFixedExpensePayments((prev) => [payment, ...prev]);
+      if (beforeExpense?.bankTransactionId && setBankTransactions) {
+        setBankTransactions((prev) =>
+          prev.map((tx) => {
+            if (tx.id === beforeExpense.bankTransactionId) {
+              return { ...tx, linkedFixedExpensePaymentId: paymentId, linkedCompanyExpenseId: undefined };
+            }
+            if (tx.linkedCompanyExpenseId === expenseId) {
+              return { ...tx, linkedCompanyExpenseId: undefined };
+            }
+            return tx;
+          }),
+        );
+      }
+      if (beforeExpense) {
+        recordAudit({
+          entityType: "companyExpense",
+          entityId: expenseId,
+          entityLabel: `${beforeExpense.date} \u00B7 ${beforeExpense.description || beforeExpense.category}`,
+          screen: L.pageTitle,
+          action: "delete",
+          before: snapshotCompanyExpenseForAudit(beforeExpense),
+          fields: COMPANY_EXPENSE_AUDIT_FIELDS,
+          user: currentUser,
+        });
+      }
+      const fixedItem = fixedExpenses.find((row) => row.id === fixedExpenseId);
+      recordAudit({
+        entityType: "fixedExpensePayment",
+        entityId: paymentId,
+        entityLabel: fixedItem?.name || paymentId,
+        screen: L.pageTitle,
+        action: "create",
+        after: snapshotFixedExpensePaymentForAudit(payment),
+        fields: FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS,
+        user: currentUser,
+      });
+      setFixedExpenseCategories((prev) => mergeFixedExpenseCategory(prev, category, fixedExpenses));
+      setManualModal(null);
+      setFormError("");
+      return;
+    }
+
+    if (manualModal.mode === "edit" && manualModal.source === "fixedPayment" && manualModal.id && manualModal.kind === "fixed") {
       const category = manualModal.category.trim();
       const fixedExpenseId = String(manualModal.fixedExpenseId || "").trim();
       if (!fixedExpenseId) {
@@ -1210,6 +1430,7 @@ export function CompanyLedgerPage({
   const canLinkBankFromFixedPaymentEdit = Boolean(
     manualModal?.mode === "edit" &&
       manualModal.source === "fixedPayment" &&
+      manualModal.kind === "fixed" &&
       manualModal.id &&
       editingFixedPayment &&
       !isBankLinkedPayment(editingFixedPayment) &&
@@ -1360,6 +1581,54 @@ export function CompanyLedgerPage({
     });
     setFixedExpensePayments?.((prev) => prev.filter((item) => item.id !== row.id));
     if (isBankLinkedPayment(row)) unlinkBankFixedPayment(row.id);
+  };
+
+  const deleteFixedExpense = () => {
+    if (!fixedExpenseModal?.id || !setFixedExpenses) return;
+    const fixedExpenseId = fixedExpenseModal.id;
+    const row = fixedExpenses.find((item) => item.id === fixedExpenseId);
+    if (!row) return;
+
+    const relatedPayments = fixedExpensePayments.filter((payment) => payment.fixedExpenseId === fixedExpenseId);
+    const hasBankLinkedPayment = relatedPayments.some((payment) => isBankLinkedPayment(payment));
+    const message = hasBankLinkedPayment ? L.deleteFixedItemBankLinkedConfirm : L.deleteFixedItemConfirm;
+    if (!window.confirm(message)) return;
+
+    recordAudit({
+      entityType: "fixedExpense",
+      entityId: row.id,
+      entityLabel: row.name,
+      screen: L.pageTitle,
+      action: "delete",
+      before: snapshotFixedExpenseForAudit(row),
+      fields: FIXED_EXPENSE_AUDIT_FIELDS,
+      user: currentUser,
+    });
+
+    relatedPayments.forEach((payment) => {
+      recordAudit({
+        entityType: "fixedExpensePayment",
+        entityId: payment.id,
+        entityLabel: `${payment.date} \u00B7 ${formatKRW(payment.amount)}`,
+        screen: L.pageTitle,
+        action: "delete",
+        before: snapshotFixedExpensePaymentForAudit(payment),
+        fields: FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS,
+        user: currentUser,
+      });
+      if (isBankLinkedPayment(payment)) unlinkBankFixedPayment(payment.id);
+    });
+
+    const nextFixedExpenses = fixedExpenses.filter((item) => item.id !== fixedExpenseId);
+    setFixedExpenses(nextFixedExpenses);
+    setFixedExpensePayments?.((prev) => prev.filter((payment) => payment.fixedExpenseId !== fixedExpenseId));
+    setBankLedgerRules?.((prev) =>
+      prev.filter((rule) => !(rule.kind === "fixed" && rule.fixedExpenseId === fixedExpenseId)),
+    );
+    setFixedExpenseCategories((prev) => normalizeFixedExpenseCategories(prev, nextFixedExpenses));
+    setFixedExpenseModal(null);
+    setBankLinkView(null);
+    setFormError("");
   };
 
   const resetCompanyLedger = () => {
@@ -2350,13 +2619,28 @@ export function CompanyLedgerPage({
                   {L.viewBankLinks}
                 </Button>
               ) : null}
-              <div className="flex justify-end gap-2 pt-2">
-                <Button variant="outline" className="rounded-2xl" onClick={() => setFixedExpenseModal(null)}>
-                  {L.cancel}
-                </Button>
-                <Button className="rounded-2xl" onClick={saveFixedExpense}>
-                  {L.save}
-                </Button>
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+                {fixedExpenseModal.mode === "edit" && fixedExpenseModal.id ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-2xl border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                    onClick={deleteFixedExpense}
+                  >
+                    <Trash2 size={16} className="mr-2" />
+                    {L.delete}
+                  </Button>
+                ) : (
+                  <span />
+                )}
+                <div className="flex gap-2">
+                  <Button variant="outline" className="rounded-2xl" onClick={() => setFixedExpenseModal(null)}>
+                    {L.cancel}
+                  </Button>
+                  <Button className="rounded-2xl" onClick={saveFixedExpense}>
+                    {L.save}
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
@@ -2394,11 +2678,23 @@ export function CompanyLedgerPage({
               </button>
             </div>
             <div className="space-y-4">
-              {manualModal.mode === "edit" && (manualModal.source === "fixedPayment" || manualModal.kind === "fixed") ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="erp-text-caption font-semibold text-slate-500">{L.section}</span>
-                  <ExpenseKindBadge kind="fixed" />
-                </div>
+              {manualModal.mode === "edit" ? (
+                <Field label={L.editKind}>
+                  <div className="grid grid-cols-2 gap-2">
+                    {MANUAL_KIND_TOGGLE_OPTIONS.map((option) => (
+                      <button
+                        key={option.key}
+                        type="button"
+                        className={`rounded-xl border px-3 py-2.5 text-sm font-bold transition ${
+                          manualModal.kind === option.key ? option.activeTone : option.tone
+                        }`}
+                        onClick={() => setManualKind(option.key)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
               ) : null}
               <Field label={L.expenseDate}>
                 <KoreanDateInput
@@ -2406,7 +2702,7 @@ export function CompanyLedgerPage({
                   onChange={(event) => setManualModal((prev) => (prev ? { ...prev, date: event.target.value } : prev))}
                 />
               </Field>
-              {manualModal.mode === "edit" && manualModal.source === "fixedPayment" ? (
+              {manualModal.mode === "edit" && manualModal.kind === "fixed" ? (
                 <Field label={L.fixedItemSection}>
                   <AutocompleteInput
                     value={manualModal.fixedExpenseId || ""}
@@ -2437,10 +2733,10 @@ export function CompanyLedgerPage({
                 </Field>
               ) : null}
               <Field label={L.category}>
-                {manualModal.source === "fixedPayment" || manualModal.kind === "fixed" ? (
+                {manualModal.kind === "fixed" ? (
                   <>
                     <AutocompleteInput
-                      key={`${manualModal.id || "create"}-${manualModal.source || "expense"}`}
+                      key={`${manualModal.id || "create"}-${manualModal.source || "expense"}-${manualModal.kind}`}
                       value={manualModal.category}
                       options={manualFixedCategoryOptions}
                       placeholder={L.category}
@@ -2501,6 +2797,7 @@ export function CompanyLedgerPage({
                 </div>
               ) : null}
               {manualModal.mode === "edit" &&
+              manualModal.kind === "fixed" &&
               manualModal.source === "fixedPayment" &&
               manualModal.fixedExpenseId ? (
                 <Button
@@ -2533,7 +2830,11 @@ export function CompanyLedgerPage({
                   {L.cancel}
                 </Button>
                 <Button className="rounded-2xl" onClick={saveManual}>
-                  {L.save}
+                  {isManualRecordTypeSwitch(manualModal)
+                    ? manualModal.kind === "fixed"
+                      ? L.kindChangeSaveFixed
+                      : L.kindChangeSaveManual
+                    : L.save}
                 </Button>
               </div>
             </div>

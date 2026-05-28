@@ -99,7 +99,10 @@ import {
 } from "@/utils/bankCompanyLedger";
 import { buildLedgerClassificationMap, classifyBankTransactionForLedger, evaluateBankTxLedgerRegistrationGate } from "@/utils/bankLedgerClassifier";
 import {
+  batchRegisterHighConfidenceBankTxToLedger,
+  countBatchRegisterableLedger,
   countPendingSmartLedger,
+  formatBatchLedgerRegisterMessage,
   formatSmartLedgerRunMessage,
   runSmartAutoLedger,
 } from "@/utils/bankSmartLedger";
@@ -391,6 +394,12 @@ const L = {
   ledgerAmount: "\uAE08\uC561",
   ledgerMemo: "\uBA54\uBAA8",
   ledgerSave: "\uAC00\uACC4\uBD80\uB85C \uBCF4\uB0B4\uAE30",
+  ledgerBatchSend: "\uAC00\uACC4\uBD80\uB85C \uBCF4\uB0B4\uAE30",
+  ledgerBatchSendHint:
+    "\uD604\uC7AC \uD544\uD130 \uC911 \uC2E0\uB8B0\uB3C4 90% \uC774\uC0C1(\uBA54\uBAA8 \uCE74\uD14C\uACE0\uB9AC \uD3EC\uD568) \uCD9C\uAE08\uC744 \uD655\uC778 \uC5C6\uC774 \uAC00\uACC4\uBD80\uC5D0 \uB4F1\uB85D\uD569\uB2C8\uB2E4. \uACE0\uC815\uBE44\uB294 \uAE08\uC561 \uC77C\uCE58 \uB0A9\uBD80\uAC00 \uC788\uC73C\uBA74 \uC790\uB3D9 \uC5F0\uACB0\uD569\uB2C8\uB2E4.",
+  ledgerBatchSending: "\uAC00\uACC4\uBD80 \uB4F1\uB85D \uC911\u2026",
+  ledgerBatchBanner: (registerable: number) =>
+    `\uD544\uD130 \uCD9C\uAE08 \uC911 \uAC00\uACC4\uBD80 \uB4F1\uB85D \uAC00\uB2A5 ${registerable}\uAC74`,
   ledgerDate: "\uC9C0\uCD9C\uC77C",
   ledgerClickHint: "\uBBF8\uBD84\uB958 \uCD9C\uAE08 \uB0B4\uC6A9 \uD074\uB9AD \u2192 \uAC00\uACC4\uBD80\uB85C \uBCF4\uB0B4\uAE30",
   categoryPromptTitle: "\uAC00\uACC4\uBD80 \uC5F0\uB3D9 \uD655\uC778",
@@ -746,6 +755,7 @@ export function BankTransactionsPage({
   const [importMessage, setImportMessage] = useState("");
   const [importLoading, setImportLoading] = useState(false);
   const [smartLedgerLoading, setSmartLedgerLoading] = useState(false);
+  const [batchLedgerLoading, setBatchLedgerLoading] = useState(false);
   const [linkModalTx, setLinkModalTx] = useState<BankTransaction | null>(null);
   const [clientLinkModalTx, setClientLinkModalTx] = useState<BankTransaction | null>(null);
   const [clientLinkClientName, setClientLinkClientName] = useState("");
@@ -1775,7 +1785,97 @@ export function BankTransactionsPage({
   ]);
 
   const stats = useMemo(() => buildBankTransactionStats(filteredRows), [filteredRows]);
+  const pendingBatchLedger = useMemo(
+    () =>
+      countBatchRegisterableLedger(bankTransactionsForClassification, {
+        fixedExpensePayments,
+        companyExpenses,
+        bankLedgerRules: effectiveBankLedgerRules,
+        fixedExpenses,
+        expenseCategories,
+        workers,
+        clients,
+        onlyTransactionIds: new Set(filteredRows.map((row) => row.id)),
+        memoCategorySuggestions: memoCategorySuggestionByTxId,
+      }),
+    [
+      bankTransactionsForClassification,
+      filteredRows,
+      fixedExpensePayments,
+      companyExpenses,
+      effectiveBankLedgerRules,
+      fixedExpenses,
+      expenseCategories,
+      workers,
+      clients,
+      memoCategorySuggestionByTxId,
+    ],
+  );
   const topCounterparties = useMemo(() => buildTopCounterpartySummaries(filteredRows, 5), [filteredRows]);
+
+  const runBatchLedgerRegister = React.useCallback(() => {
+    if (batchLedgerLoading || pendingBatchLedger <= 0) return;
+    setBatchLedgerLoading(true);
+    setImportError("");
+    try {
+      const scopedIds = new Set(filteredRows.map((row) => row.id));
+      const result = batchRegisterHighConfidenceBankTxToLedger({
+        bankTransactions: bankTransactionsForClassification,
+        fixedExpensePayments,
+        companyExpenses,
+        bankLedgerRules: effectiveBankLedgerRules,
+        fixedExpenses,
+        expenseCategories,
+        clients,
+        workers,
+        createdBy: savedBy || undefined,
+        onlyTransactionIds: scopedIds,
+        memoCategorySuggestions: memoCategorySuggestionByTxId,
+      });
+
+      setBankTransactions(result.bankTransactions);
+      setFixedExpensePayments(result.fixedExpensePayments);
+      setCompanyExpenses(result.companyExpenses);
+      setBankLedgerRules(result.bankLedgerRules);
+      if (result.expenseCategories.length) {
+        setExpenseCategories(result.expenseCategories);
+      }
+
+      recordSummaryAudit({
+        entityType: "bankTransaction",
+        entityId: "batch-ledger",
+        entityLabel: L.ledgerBatchSend,
+        screen: L.pageTitle,
+        action: "import",
+        fieldLabel: L.ledgerBatchSend,
+        after: formatBatchLedgerRegisterMessage(result),
+        user: currentUser,
+      });
+      setImportMessage(formatBatchLedgerRegisterMessage(result));
+    } catch (error) {
+      console.error(error);
+      setImportMessage("가계부 일괄 등록 중 오류가 발생했습니다.");
+    } finally {
+      setBatchLedgerLoading(false);
+    }
+  }, [
+    batchLedgerLoading,
+    pendingBatchLedger,
+    filteredRows,
+    bankTransactionsForClassification,
+    fixedExpensePayments,
+    companyExpenses,
+    effectiveBankLedgerRules,
+    fixedExpenses,
+    expenseCategories,
+    clients,
+    workers,
+    savedBy,
+    memoCategorySuggestionByTxId,
+    recordSummaryAudit,
+    currentUser,
+  ]);
+
   const depositSuggestions = useMemo(() => {
     const sentByTxId = new Map(
       buildAllSentStatementDepositSuggestions(bankTransactions, sentArchives, clients).map((row) => [
@@ -4019,6 +4119,23 @@ export function BankTransactionsPage({
         </div>
       ) : null}
 
+      {pendingBatchLedger > 0 ? (
+        <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="erp-text-body font-semibold text-emerald-900">{L.ledgerBatchBanner(pendingBatchLedger)}</p>
+          <Button
+            type="button"
+            size="sm"
+            className="rounded-xl shrink-0"
+            disabled={batchLedgerLoading}
+            title={L.ledgerBatchSendHint}
+            onClick={runBatchLedgerRegister}
+          >
+            <BookOpen size={14} className="mr-1" />
+            {batchLedgerLoading ? L.ledgerBatchSending : L.ledgerBatchSend}
+          </Button>
+        </div>
+      ) : null}
+
       {importMessage ? (
         <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 erp-text-body font-semibold text-emerald-700">
           {importMessage}
@@ -4218,6 +4335,18 @@ export function BankTransactionsPage({
                     <Repeat size={14} className="mr-1" />
                     {L.recurringFixedOpen}
                     {recurringFixedPatterns.length ? ` (${recurringFixedPatterns.length})` : ""}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="rounded-xl"
+                    title={L.ledgerBatchSendHint}
+                    disabled={batchLedgerLoading || pendingBatchLedger <= 0}
+                    onClick={runBatchLedgerRegister}
+                  >
+                    <BookOpen size={14} className="mr-1" />
+                    {batchLedgerLoading ? L.ledgerBatchSending : L.ledgerBatchSend}
+                    {pendingBatchLedger > 0 ? ` (${pendingBatchLedger})` : ""}
                   </Button>
                   <Button
                     type="button"
