@@ -611,7 +611,7 @@ function buildLedgerLinkDefaults(
   return { linkMode: "link" as const, linkPaymentId: linkable[0].id };
 }
 
-const MEMO_CLASSIFICATION_DEBOUNCE_MS = 220;
+const MEMO_DRAFT_PREVIEW_DEBOUNCE_MS = 350;
 const MEMO_PERSIST_DEBOUNCE_MS = 450;
 
 const BankTransactionMemoInput = React.memo(function BankTransactionMemoInput({
@@ -619,18 +619,18 @@ const BankTransactionMemoInput = React.memo(function BankTransactionMemoInput({
   savedMemo,
   placeholder,
   className,
-  onClassificationDraft,
+  onDraftPreview,
   onPersist,
 }: {
   transactionId: string;
   savedMemo: string;
   placeholder: string;
   className: string;
-  onClassificationDraft: (transactionId: string, memo: string) => void;
+  onDraftPreview?: (transactionId: string, memo: string) => void;
   onPersist: (transactionId: string, memo: string) => void;
 }) {
   const [value, setValue] = useState(savedMemo);
-  const classificationTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const draftPreviewTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const persistTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
@@ -639,16 +639,17 @@ const BankTransactionMemoInput = React.memo(function BankTransactionMemoInput({
 
   useEffect(() => {
     return () => {
-      if (classificationTimerRef.current) clearTimeout(classificationTimerRef.current);
+      if (draftPreviewTimerRef.current) clearTimeout(draftPreviewTimerRef.current);
       if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
     };
   }, []);
 
-  const scheduleClassificationDraft = (next: string) => {
-    if (classificationTimerRef.current) clearTimeout(classificationTimerRef.current);
-    classificationTimerRef.current = setTimeout(() => {
-      onClassificationDraft(transactionId, next);
-    }, MEMO_CLASSIFICATION_DEBOUNCE_MS);
+  const scheduleDraftPreview = (next: string) => {
+    if (!onDraftPreview) return;
+    if (draftPreviewTimerRef.current) clearTimeout(draftPreviewTimerRef.current);
+    draftPreviewTimerRef.current = setTimeout(() => {
+      onDraftPreview(transactionId, next);
+    }, MEMO_DRAFT_PREVIEW_DEBOUNCE_MS);
   };
 
   const schedulePersist = (next: string) => {
@@ -659,9 +660,9 @@ const BankTransactionMemoInput = React.memo(function BankTransactionMemoInput({
   };
 
   const flush = (next: string) => {
-    if (classificationTimerRef.current) clearTimeout(classificationTimerRef.current);
+    if (draftPreviewTimerRef.current) clearTimeout(draftPreviewTimerRef.current);
     if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-    onClassificationDraft(transactionId, next);
+    onDraftPreview?.(transactionId, next);
     onPersist(transactionId, next);
   };
 
@@ -673,7 +674,7 @@ const BankTransactionMemoInput = React.memo(function BankTransactionMemoInput({
       onChange={(event) => {
         const next = event.target.value;
         setValue(next);
-        scheduleClassificationDraft(next);
+        scheduleDraftPreview(next);
         schedulePersist(next);
       }}
       onBlur={(event) => flush(event.target.value)}
@@ -809,7 +810,7 @@ export function BankTransactionsPage({
   const [preauthNetModalOpen, setPreauthNetModalOpen] = useState(false);
   const [selectedPreauthGroupKeys, setSelectedPreauthGroupKeys] = useState<string[]>([]);
   const [learnPreauthMerchants, setLearnPreauthMerchants] = useState(true);
-  const [memoClassificationDraftByTxId, setMemoClassificationDraftByTxId] = useState<Record<string, string>>({});
+  const [memoDraftPreview, setMemoDraftPreview] = useState<{ txId: string; memo: string } | null>(null);
   const importLedgerBatchIdsRef = useRef<Set<string>>(new Set());
   const [sentArchives, setSentArchives] = useState<PdfArchiveMeta[]>([]);
   const ibkInputRef = useRef<HTMLInputElement>(null);
@@ -872,14 +873,52 @@ export function BankTransactionsPage({
     [companyExpenses, fixedExpensePayments],
   );
 
-  const bankTransactionsForClassification = useMemo(
+  const memoLearnRules = useMemo(
+    () => buildMemoLearnRulesFromTransactions(bankTransactions, expenseCategories, savedBy),
+    [bankTransactions, expenseCategories, savedBy],
+  );
+
+  const effectiveBankLedgerRules = useMemo(
+    () => mergeMemoLearnRules(bankLedgerRules, memoLearnRules),
+    [bankLedgerRules, memoLearnRules],
+  );
+
+  const memoCategorySuggestionByTxId = useMemo(
     () =>
-      bankTransactions.map((tx) => {
-        const draft = memoClassificationDraftByTxId[tx.id];
-        if (draft === undefined) return tx;
-        return { ...tx, memo: draft || undefined };
+      buildMemoCategorySuggestionMap(
+        bankTransactions,
+        memoLearnRules,
+        expenseCategories,
+      ),
+    [bankTransactions, memoLearnRules, expenseCategories],
+  );
+
+  const ledgerSuggestionByTxId = useMemo(
+    () =>
+      buildLedgerClassificationMap(bankTransactions, {
+        rules: effectiveBankLedgerRules,
+        fixedExpenses,
+        expenseCategories,
+        companyExpenses,
+        workers,
+        clients,
+        canRegister: (tx) => canRegisterBankTxToCompanyLedger(tx, ledgerRegistrationContext),
       }),
-    [bankTransactions, memoClassificationDraftByTxId],
+    [
+      bankTransactions,
+      effectiveBankLedgerRules,
+      fixedExpenses,
+      expenseCategories,
+      companyExpenses,
+      workers,
+      clients,
+      ledgerRegistrationContext,
+    ],
+  );
+
+  const folderSuggestionByTxId = useMemo(
+    () => buildFolderClassificationSuggestionMap(bankTransactions, clients, workers),
+    [bankTransactions, clients, workers],
   );
 
   const pendingSmartLedger = useMemo(
@@ -901,54 +940,6 @@ export function BankTransactionsPage({
       workers,
       clients,
     ],
-  );
-
-  const memoLearnRules = useMemo(
-    () => buildMemoLearnRulesFromTransactions(bankTransactionsForClassification, expenseCategories, savedBy),
-    [bankTransactionsForClassification, expenseCategories, savedBy],
-  );
-
-  const effectiveBankLedgerRules = useMemo(
-    () => mergeMemoLearnRules(bankLedgerRules, memoLearnRules),
-    [bankLedgerRules, memoLearnRules],
-  );
-
-  const memoCategorySuggestionByTxId = useMemo(
-    () =>
-      buildMemoCategorySuggestionMap(
-        bankTransactionsForClassification,
-        memoLearnRules,
-        expenseCategories,
-      ),
-    [bankTransactionsForClassification, memoLearnRules, expenseCategories],
-  );
-
-  const ledgerSuggestionByTxId = useMemo(
-    () =>
-      buildLedgerClassificationMap(bankTransactionsForClassification, {
-        rules: effectiveBankLedgerRules,
-        fixedExpenses,
-        expenseCategories,
-        companyExpenses,
-        workers,
-        clients,
-        canRegister: (tx) => canRegisterBankTxToCompanyLedger(tx, ledgerRegistrationContext),
-      }),
-    [
-      bankTransactionsForClassification,
-      effectiveBankLedgerRules,
-      fixedExpenses,
-      expenseCategories,
-      companyExpenses,
-      workers,
-      clients,
-      ledgerRegistrationContext,
-    ],
-  );
-
-  const folderSuggestionByTxId = useMemo(
-    () => buildFolderClassificationSuggestionMap(bankTransactionsForClassification, clients, workers),
-    [bankTransactionsForClassification, clients, workers],
   );
 
   const canRegisterLedger = (tx: BankTransaction) =>
@@ -1091,6 +1082,10 @@ export function BankTransactionsPage({
 
   const resolveLedgerCategorySuggestionLabel = (row: BankTransaction) => {
     if (getLedgerCategoryLabel(row)) return null;
+    if (memoDraftPreview?.txId === row.id) {
+      const draftCategory = resolveMemoLearnCategory(memoDraftPreview.memo, expenseCategories);
+      if (draftCategory) return draftCategory;
+    }
     const memoSuggestion = memoCategorySuggestionByTxId.get(row.id);
     if (memoSuggestion?.category?.trim()) return memoSuggestion.category.trim();
     const suggestion = ledgerSuggestionByTxId.get(row.id);
@@ -1940,7 +1935,7 @@ export function BankTransactionsPage({
   const stats = useMemo(() => buildBankTransactionStats(filteredRows), [filteredRows]);
   const pendingBatchLedger = useMemo(
     () =>
-      countBatchRegisterableLedger(bankTransactionsForClassification, {
+      countBatchRegisterableLedger(bankTransactions, {
         fixedExpensePayments,
         companyExpenses,
         bankLedgerRules: effectiveBankLedgerRules,
@@ -1952,7 +1947,7 @@ export function BankTransactionsPage({
         memoCategorySuggestions: memoCategorySuggestionByTxId,
       }),
     [
-      bankTransactionsForClassification,
+      bankTransactions,
       filteredRows,
       fixedExpensePayments,
       companyExpenses,
@@ -1973,7 +1968,7 @@ export function BankTransactionsPage({
     try {
       const scopedIds = new Set(filteredRows.map((row) => row.id));
       const result = batchRegisterHighConfidenceBankTxToLedger({
-        bankTransactions: bankTransactionsForClassification,
+        bankTransactions,
         fixedExpensePayments,
         companyExpenses,
         bankLedgerRules: effectiveBankLedgerRules,
@@ -2015,7 +2010,7 @@ export function BankTransactionsPage({
     batchLedgerLoading,
     pendingBatchLedger,
     filteredRows,
-    bankTransactionsForClassification,
+    bankTransactions,
     fixedExpensePayments,
     companyExpenses,
     effectiveBankLedgerRules,
@@ -2350,11 +2345,11 @@ export function BankTransactionsPage({
     });
   };
 
-  const handleMemoClassificationDraft = React.useCallback((transactionId: string, memo: string) => {
+  const handleMemoDraftPreview = React.useCallback((transactionId: string, memo: string) => {
     startTransition(() => {
-      setMemoClassificationDraftByTxId((prev) => {
-        if (prev[transactionId] === memo) return prev;
-        return { ...prev, [transactionId]: memo };
+      setMemoDraftPreview((prev) => {
+        if (prev?.txId === transactionId && prev.memo === memo) return prev;
+        return { txId: transactionId, memo };
       });
     });
   }, []);
@@ -2365,12 +2360,7 @@ export function BankTransactionsPage({
       if (!tx) return;
       const nextRow = { ...tx, memo: memo || undefined };
       if (String(tx.memo || "") === String(nextRow.memo || "")) {
-        setMemoClassificationDraftByTxId((prev) => {
-          if (prev[transactionId] === undefined) return prev;
-          const next = { ...prev };
-          delete next[transactionId];
-          return next;
-        });
+        setMemoDraftPreview((prev) => (prev?.txId === transactionId ? null : prev));
         return;
       }
       auditBankTxUpdate(tx, nextRow);
@@ -2394,12 +2384,7 @@ export function BankTransactionsPage({
         scheduleBackgroundLearning({ showMessage: false });
       }
 
-      setMemoClassificationDraftByTxId((prev) => {
-        if (prev[transactionId] === undefined) return prev;
-        const next = { ...prev };
-        delete next[transactionId];
-        return next;
-      });
+      setMemoDraftPreview((prev) => (prev?.txId === transactionId ? null : prev));
     },
     [
       bankLedgerRules,
@@ -3825,7 +3810,7 @@ export function BankTransactionsPage({
             savedMemo={row.memo || ""}
             placeholder={L.memoPlaceholder}
             className="erp-input erp-input-compact min-w-[8rem] max-w-[14rem]"
-            onClassificationDraft={handleMemoClassificationDraft}
+            onDraftPreview={handleMemoDraftPreview}
             onPersist={handleMemoPersist}
           />
         </td>
@@ -4083,7 +4068,7 @@ export function BankTransactionsPage({
               savedMemo={row.memo || ""}
               placeholder={L.memoPlaceholder}
               className="erp-input erp-input-compact w-full min-w-0 text-right"
-              onClassificationDraft={handleMemoClassificationDraft}
+              onDraftPreview={handleMemoDraftPreview}
               onPersist={handleMemoPersist}
             />
           ),

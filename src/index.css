@@ -8036,6 +8036,128 @@ body.erp-col-resizing * {
   gap: 0.45rem;
 }
 
+.erp-ledger-at-a-glance-total {
+  font-size: clamp(1.5rem, 1.2rem + 1.2vw, 2rem);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.erp-ledger-at-a-glance-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  padding: 0.2rem 0.55rem;
+  font-weight: 700;
+}
+
+.erp-ledger-at-a-glance-chip.chip-variable {
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.erp-ledger-at-a-glance-chip.chip-fixed {
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.erp-ledger-at-a-glance-split-wrap {
+  min-width: 0;
+}
+
+.erp-ledger-at-a-glance-split {
+  display: flex;
+  height: 0.5rem;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: #f1f5f9;
+}
+
+.erp-ledger-at-a-glance-split .split-variable {
+  background: #fb7185;
+}
+
+.erp-ledger-at-a-glance-split .split-fixed {
+  background: #fbbf24;
+}
+
+.erp-ledger-at-a-glance-alert {
+  display: inline-flex;
+  border-radius: 9999px;
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #b45309;
+}
+
+.erp-ledger-at-a-glance-note {
+  display: inline-flex;
+  border-radius: 9999px;
+  background: #f5f3ff;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6d28d9;
+}
+
+.erp-ledger-at-a-glance-category-row {
+  display: grid;
+  grid-template-columns: 0.75rem minmax(3.5rem, 5rem) minmax(0, 1fr) 4.5rem;
+  gap: 0.35rem 0.5rem;
+  align-items: center;
+}
+
+.erp-ledger-at-a-glance-category-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: var(--ledger-category-bg, #e2e8f0);
+  border: 1px solid var(--ledger-category-border, #cbd5e1);
+}
+
+.erp-ledger-at-a-glance-category-bar-wrap {
+  min-width: 0;
+  height: 0.45rem;
+  border-radius: 9999px;
+  background: #f1f5f9;
+  overflow: hidden;
+}
+
+.erp-ledger-at-a-glance-category-bar {
+  height: 100%;
+  border-radius: 9999px;
+  background: var(--ledger-category-bg, #cbd5e1);
+  min-width: 4%;
+}
+
+.erp-ledger-at-a-glance-recent-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.erp-ledger-at-a-glance-recent-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.erp-ledger-at-a-glance-recent-item:last-child {
+  border-bottom: none;
+}
+
+.erp-ledger-smart-summary summary {
+  list-style: none;
+}
+
+.erp-ledger-smart-summary summary::-webkit-details-marker {
+  display: none;
+}
+
 @media (min-width: 640px) {
   .erp-ledger-calendar-summary-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));

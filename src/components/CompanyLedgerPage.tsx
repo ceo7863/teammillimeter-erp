@@ -48,6 +48,7 @@ import {
   resolveCompanyExpenseKind,
   resolveFixedPaymentFieldsFromBankTx,
   getMonthKey,
+  monthRangeISO,
   shiftMonthKey,
   sumExpensesForMonthByKind,
   todayISO,
@@ -65,6 +66,7 @@ import type { ErpUser } from "@/utils/erpApi";
 import { AutocompleteInput } from "@/components/AutocompleteInput";
 import { CompanyLedgerCalendar } from "@/components/CompanyLedgerCalendar";
 import type { LedgerCalendarEntry } from "@/utils/ledgerCalendar";
+import { getLedgerCategoryColorStyle } from "@/utils/ledgerCalendar";
 import { formatBankLearnAutoMessage, getLinkedCompanyExpenseForBankTx, listBankTransactionsForCompanyExpenseLink, listBankTransactionsForFixedPaymentLink, clearVariableExpenseLinkForBankTx, mergeBankTransactionsById, searchBankTransactionsForLedgerLink, type BankLearnRule } from "@/utils/bankCompanyLedger";
 import { loadSmartLedgerRunSummary } from "@/utils/bankSmartLedger";
 import { formatBankTransactionDateTime, type BankTransaction } from "@/utils/bankTransactions";
@@ -83,10 +85,10 @@ import {
 type LedgerTab = "manual" | "monthly" | "calendar" | "stats";
 
 const TAB_ITEMS: Array<{ key: LedgerTab; label: string }> = [
-  { key: "calendar", label: "\uAC00\uACC4\uBD80 \uCE98\uB9B0\uB354" },
-  { key: "manual", label: "\uC9C0\uCD9C \uB4F1\uB85D" },
-  { key: "monthly", label: "\uC6D4\uBCC4 \uAC00\uACC4\uBD80" },
-  { key: "stats", label: "\uD1B5\uACC4" },
+  { key: "calendar", label: "\uCE98\uB9B0\uB354" },
+  { key: "manual", label: "\uC9C0\uCD9C \uB0B4\uC5ED" },
+  { key: "monthly", label: "\uC6D4\uBCC4 \uC694\uC57D" },
+  { key: "stats", label: "\uCE74\uD14C\uACE0\uB9AC \uBE44\uC911" },
 ];
 
 const PERIOD_OPTIONS: Array<{ key: LedgerPeriodKey; label: string }> = [
@@ -214,6 +216,16 @@ const L = {
   bankManualEntry: "\uC218\uAE30 \uC785\uB825",
   smartLedgerLastRun: "\uB9C8\uC9C0\uB9C9 \uC790\uB3D9 \uAC00\uACC4\uBD80",
   smartLedgerLastRunEmpty: "\uD1B5\uC7A5 \uD654\uBA74\uC5D0\uC11C \uC790\uB3D9 \uAC00\uACC4\uBD80\uB97C \uC2E4\uD589\uD558\uBA74 \uC694\uC57D\uC774 \uD45C\uC2DC\uB429\uB2C8\uB2E4.",
+  atAGlanceTitle: "\uC774\uBC88 \uB2EC \uD55C\uB208\uC5D0",
+  atAGlanceRecent: "\uCD5C\uADFC \uC9C0\uCD9C",
+  atAGlanceCategories: "\uCE74\uD14C\uACE0\uB9AC\uBCC4",
+  atAGlanceViewAll: "\uC804\uCCB4 \uB0B4\uC5ED",
+  atAGlanceViewStats: "\uBE44\uC911 \uBCF4\uAE30",
+  atAGlanceEmpty: "\uC774\uBC88 \uB2EC \uB4F1\uB85D\uB41C \uC9C0\uCD9C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  atAGlanceUnpaidAlert: (count: number, amount: string) =>
+    `\uD1B5\uC7A5 \uBBF8\uC5F0\uACB0 \uACE0\uC815\uBE44 ${count}\uAC74 \u00B7 ${amount}\uC6D0`,
+  atAGlanceBankLinked: (auto: number, manual: number) =>
+    `\uD1B5\uC7A5 \uC5F0\uB3D9 ${auto}\uAC74 \u00B7 \uC218\uAE08 ${manual}\uAC74`,
   viewBankLinks: "\uD1B5\uC7A5 \uC5F0\uB3D9 \uD655\uC778",
   viewBankLinksTitle: "\uD1B5\uC7A5 \uC5F0\uB3D9 \uB0B4\uC5ED",
   viewBankLinksDesc: "\uACE0\uC815\uBE44 \uB0A9\uBD80\uC640 \uC5F0\uACB0\uB41C \uD1B5\uC7A5 \uAC70\uB798 \uB0B4\uC5ED\uC785\uB2C8\uB2E4.",
@@ -426,6 +438,183 @@ function SummaryCard({
         <div className="erp-text-caption font-bold text-slate-500">{label}</div>
         <div className={`erp-text-stat mt-1 font-black ${tone}`}>{value}</div>
         {sub ? <div className="erp-text-caption mt-1 text-slate-400">{sub}</div> : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function LedgerAtAGlancePanel({
+  monthLabel,
+  variableTotal,
+  fixedTotal,
+  grandTotal,
+  categoryRows,
+  recentRows,
+  unpaidFixedCount,
+  unpaidFixedTotal,
+  bankAutoCount,
+  bankManualCount,
+  onViewAll,
+  onViewStats,
+  fixedExpenses,
+  bankTransactions,
+}: {
+  monthLabel: string;
+  variableTotal: number;
+  fixedTotal: number;
+  grandTotal: number;
+  categoryRows: Array<{ category: string; grandTotal: number; sharePercent: number }>;
+  recentRows: ManualLedgerRow[];
+  unpaidFixedCount: number;
+  unpaidFixedTotal: number;
+  bankAutoCount: number;
+  bankManualCount: number;
+  onViewAll: () => void;
+  onViewStats: () => void;
+  fixedExpenses: FixedExpense[];
+  bankTransactions: BankTransaction[];
+}) {
+  const variableRatio = grandTotal > 0 ? Math.round((variableTotal / grandTotal) * 1000) / 10 : 0;
+  const fixedRatio = grandTotal > 0 ? Math.round((fixedTotal / grandTotal) * 1000) / 10 : 0;
+  const topCategories = categoryRows.slice(0, 6);
+
+  return (
+    <Card className="erp-ledger-at-a-glance rounded-2xl border-slate-200 shadow-sm">
+      <CardContent className="space-y-4 p-4 md:p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <div className="erp-text-caption font-bold text-slate-500">
+              {L.atAGlanceTitle} · {monthLabel}
+            </div>
+            <div className="erp-ledger-at-a-glance-total mt-1 font-black text-slate-900">
+              {formatKRW(grandTotal)}
+              {L.won}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2 erp-text-caption">
+              <span className="erp-ledger-at-a-glance-chip chip-variable">
+                {L.variableExpense} {formatKRW(variableTotal)}
+                {L.won}
+              </span>
+              <span className="erp-ledger-at-a-glance-chip chip-fixed">
+                {L.fixedExpense} {formatKRW(fixedTotal)}
+                {L.won}
+              </span>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={onViewAll}>
+              {L.atAGlanceViewAll}
+            </Button>
+            <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={onViewStats}>
+              {L.atAGlanceViewStats}
+            </Button>
+          </div>
+        </div>
+
+        {grandTotal > 0 ? (
+          <div className="erp-ledger-at-a-glance-split-wrap">
+            <div className="erp-ledger-at-a-glance-split">
+              {variableTotal > 0 ? (
+                <div className="split-variable" style={{ width: `${variableRatio}%` }} title={`${L.variableExpense} ${variableRatio}%`} />
+              ) : null}
+              {fixedTotal > 0 ? (
+                <div className="split-fixed" style={{ width: `${fixedRatio}%` }} title={`${L.fixedExpense} ${fixedRatio}%`} />
+              ) : null}
+            </div>
+            <div className="mt-1 flex justify-between erp-text-caption text-slate-500">
+              <span>{L.variableExpense} {variableRatio}%</span>
+              <span>{L.fixedExpense} {fixedRatio}%</span>
+            </div>
+          </div>
+        ) : null}
+
+        {(unpaidFixedCount > 0 || bankAutoCount + bankManualCount > 0) && (
+          <div className="flex flex-wrap gap-2">
+            {unpaidFixedCount > 0 ? (
+              <span className="erp-ledger-at-a-glance-alert">
+                {L.atAGlanceUnpaidAlert(unpaidFixedCount, formatKRW(unpaidFixedTotal))}
+              </span>
+            ) : null}
+            {bankAutoCount + bankManualCount > 0 ? (
+              <span className="erp-ledger-at-a-glance-note">
+                {L.atAGlanceBankLinked(bankAutoCount, bankManualCount)}
+              </span>
+            ) : null}
+          </div>
+        )}
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <section>
+            <h3 className="mb-2 erp-text-caption font-bold text-slate-600">{L.atAGlanceCategories}</h3>
+            {topCategories.length ? (
+              <div className="space-y-2">
+                {topCategories.map((row) => (
+                  <div key={row.category} className="erp-ledger-at-a-glance-category-row">
+                    <span
+                      className="erp-ledger-at-a-glance-category-dot"
+                      style={getLedgerCategoryColorStyle(row.category) as React.CSSProperties}
+                    />
+                    <span className="min-w-0 truncate font-semibold text-slate-800">{row.category}</span>
+                    <div className="erp-ledger-at-a-glance-category-bar-wrap">
+                      <div
+                        className="erp-ledger-at-a-glance-category-bar"
+                        style={{
+                          width: `${Math.max(row.sharePercent, 4)}%`,
+                          ...(getLedgerCategoryColorStyle(row.category) as React.CSSProperties),
+                        }}
+                      />
+                    </div>
+                    <span className="text-right text-xs font-bold tabular-nums text-slate-700">
+                      {formatKRW(row.grandTotal)}
+                      {L.won}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="erp-text-caption text-slate-400">{L.atAGlanceEmpty}</p>
+            )}
+          </section>
+
+          <section>
+            <h3 className="mb-2 erp-text-caption font-bold text-slate-600">{L.atAGlanceRecent}</h3>
+            {recentRows.length ? (
+              <ul className="erp-ledger-at-a-glance-recent-list">
+                {recentRows.map((item) => {
+                  const isExpense = item.type === "expense";
+                  const row = item.row;
+                  const category = isExpense
+                    ? row.category
+                    : resolveFixedPaymentCategory(row, fixedExpenses);
+                  const label = isExpense
+                    ? row.description || row.category
+                    : resolveFixedExpenseName(row.fixedExpenseId, fixedExpenses);
+                  const bankLinked = isExpense
+                    ? isBankLinkedExpense(row, bankTransactions)
+                    : isBankLinkedPayment(row, bankTransactions);
+                  return (
+                    <li key={`recent-${item.type}-${row.id}`} className="erp-ledger-at-a-glance-recent-item">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-xs text-slate-500">{row.date}</span>
+                          <CategoryBadge label={category} />
+                          {bankLinked ? <BankSourceBadge /> : null}
+                        </div>
+                        <div className="truncate text-sm font-semibold text-slate-900">{label}</div>
+                      </div>
+                      <div className="shrink-0 text-sm font-bold tabular-nums text-rose-600">
+                        {formatKRW(row.amount)}
+                        {L.won}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="erp-text-caption text-slate-400">{L.atAGlanceEmpty}</p>
+            )}
+          </section>
+        </div>
       </CardContent>
     </Card>
   );
@@ -1040,6 +1229,38 @@ export function CompanyLedgerPage({
       ),
     [companyExpenses, fixedExpensePayments, fixedExpenses, periodFilter.endDate, periodFilter.startDate],
   );
+
+  const thisMonthRange = useMemo(() => monthRangeISO(0), []);
+
+  const thisMonthCategoryStats = useMemo(
+    () =>
+      buildLedgerCategoryStats(
+        companyExpenses,
+        fixedExpensePayments,
+        fixedExpenses,
+        thisMonthRange.startDate,
+        thisMonthRange.endDate,
+      ),
+    [companyExpenses, fixedExpensePayments, fixedExpenses, thisMonthRange],
+  );
+
+  const thisMonthRecentRows = useMemo(() => {
+    const rangedExpenses = filterCompanyExpenses(
+      companyExpenses,
+      thisMonthRange.startDate,
+      thisMonthRange.endDate,
+    );
+    const rangedPayments = filterFixedExpensePayments(
+      fixedExpensePayments,
+      thisMonthRange.startDate,
+      thisMonthRange.endDate,
+    );
+    const merged: ManualLedgerRow[] = [
+      ...rangedExpenses.map((row) => ({ type: "expense" as const, row })),
+      ...rangedPayments.map((row) => ({ type: "fixedPayment" as const, row })),
+    ];
+    return merged.sort((a, b) => String(b.row.date).localeCompare(String(a.row.date))).slice(0, 5);
+  }, [companyExpenses, fixedExpensePayments, thisMonthRange]);
 
   const expenseCategoryOptions = useMemo(() => {
     const categories = [...expenseCategories];
@@ -1932,50 +2153,40 @@ export function CompanyLedgerPage({
         </div>
       ) : null}
 
-      <div className="erp-ledger-page-summary-grid">
-        <SummaryCard
-          compact
-          label={L.variableExpense}
-          value={`${formatKRW(thisMonthVariableTotal)}${L.won}`}
-          tone="text-rose-600"
-          sub={formatMonthLabel(currentMonthKey)}
-        />
-        <SummaryCard
-          compact
-          label={L.fixedExpense}
-          value={`${formatKRW(thisMonthFixedTotal)}${L.won}`}
-          tone="text-amber-600"
-          sub={`${L.unpaidFixedExpense} ${thisMonthFixedBreakdown.unpaidCount}${L.count} ${formatKRW(thisMonthFixedBreakdown.unpaidTotal)}${L.won}`}
-        />
-        <SummaryCard
-          compact
-          label={L.grandTotal}
-          value={`${formatKRW(thisMonthVariableTotal + thisMonthFixedTotal)}${L.won}`}
-          tone="text-slate-900"
-          sub={L.thisMonthGrandHint}
-        />
-        <SummaryCard
-          compact
-          label={L.bankAutoLinked}
-          value={`${bankLedgerLinkStats.autoCount}${L.count}`}
-          tone="text-violet-700"
-          sub={`${L.bankManualEntry} ${bankLedgerLinkStats.manualCount}${L.count} · ${formatMonthLabel(currentMonthKey)}`}
-        />
-      </div>
+      <LedgerAtAGlancePanel
+        monthLabel={formatMonthLabel(currentMonthKey)}
+        variableTotal={thisMonthCategoryStats.summary.variableTotal}
+        fixedTotal={thisMonthCategoryStats.summary.fixedTotal}
+        grandTotal={thisMonthCategoryStats.summary.grandTotal}
+        categoryRows={thisMonthCategoryStats.rows}
+        recentRows={thisMonthRecentRows}
+        unpaidFixedCount={thisMonthFixedBreakdown.unpaidCount}
+        unpaidFixedTotal={thisMonthFixedBreakdown.unpaidTotal}
+        bankAutoCount={bankLedgerLinkStats.autoCount}
+        bankManualCount={bankLedgerLinkStats.manualCount}
+        fixedExpenses={fixedExpenses}
+        bankTransactions={bankTransactions}
+        onViewAll={() => {
+          setActiveTab("manual");
+          setPeriodKey("thisMonth");
+        }}
+        onViewStats={() => {
+          setActiveTab("stats");
+          setPeriodKey("thisMonth");
+        }}
+      />
 
-      <div className="rounded-2xl border border-violet-100 bg-violet-50/50 px-4 py-3 text-sm text-violet-900">
-        <div className="font-bold">{L.smartLedgerLastRun}</div>
-        {smartLedgerSummary ? (
+      {smartLedgerSummary ? (
+        <details className="erp-ledger-smart-summary rounded-xl border border-violet-100 bg-violet-50/40 px-3 py-2 text-sm text-violet-900">
+          <summary className="cursor-pointer font-semibold">{L.smartLedgerLastRun}</summary>
           <p className="mt-1 text-violet-800">
             {new Date(smartLedgerSummary.at).toLocaleString("ko-KR")} · 학습 고정{" "}
             {smartLedgerSummary.learnFixed} · 학습 지출 {smartLedgerSummary.learnManual} · AI 등록{" "}
             {smartLedgerSummary.heuristicRegistered + smartLedgerSummary.llmRegistered} · 확인 필요{" "}
             {smartLedgerSummary.pendingSuggestions}건
           </p>
-        ) : (
-          <p className="mt-1 text-violet-700">{L.smartLedgerLastRunEmpty}</p>
-        )}
-      </div>
+        </details>
+      ) : null}
 
       <div className="erp-ledger-tabs flex flex-wrap gap-2">
         {TAB_ITEMS.map((tab) => (
