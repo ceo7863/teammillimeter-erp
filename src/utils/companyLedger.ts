@@ -662,7 +662,23 @@ export function findLinkableFixedExpensePayment(
   payments: FixedExpensePayment[],
   fixedExpenses: FixedExpense[] = [],
 ) {
-  return listLinkableFixedExpensePayments(tx, fixedExpenseId, payments, fixedExpenses)[0] || null;
+  const amountMatch = listLinkableFixedExpensePayments(tx, fixedExpenseId, payments, fixedExpenses)[0];
+  if (amountMatch) return amountMatch;
+
+  const monthKey = getMonthKey(String(tx.transactionAt || "").slice(0, 10));
+  if (!monthKey || !fixedExpenseId) return null;
+
+  const monthRows = payments.filter(
+    (row) =>
+      row.fixedExpenseId === fixedExpenseId &&
+      getMonthKey(row.date) === monthKey &&
+      !isFixedExpensePaymentBankLinked(row),
+  );
+
+  // Reuse the monthly auto-generated placeholder instead of creating a second payment.
+  if (monthRows.length === 1) return monthRows[0];
+
+  return null;
 }
 
 export function resolveFixedPaymentFieldsFromBankTx(tx: { transactionAt?: string; withdrawal?: number }) {

@@ -6768,9 +6768,10 @@ export default function TeammillimeterErpMvp() {
       fixedExpensePayments,
       bankTransactions,
       bankLedgerRules,
+      companyExpenses,
       createdBy: currentUser.name || currentUser.loginId || "",
     });
-    if (!result.generatedCount && !result.linkedCount) return;
+    if (!result.generatedCount && !result.linkedCount && !result.removedDuplicateCount) return;
     setFixedExpensePayments(result.fixedExpensePayments);
     setBankTransactions(result.bankTransactions);
     const parts: string[] = [];

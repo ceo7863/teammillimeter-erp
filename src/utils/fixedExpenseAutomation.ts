@@ -268,6 +268,7 @@ export function syncFixedExpenseAutomation(input: {
   fixedExpensePayments: FixedExpensePayment[];
   bankTransactions: BankTransaction[];
   bankLedgerRules?: BankLearnRule[];
+  companyExpenses?: CompanyExpense[];
   monthKey?: string;
   createdBy?: string;
 }) {
@@ -290,11 +291,19 @@ export function syncFixedExpenseAutomation(input: {
     { companyExpenses: input.companyExpenses },
   );
 
-  return {
-    fixedExpensePayments: linkResult.payments,
+  const reconciled = reconcileLedgerBankLinks({
     bankTransactions: linkResult.transactions,
+    fixedExpensePayments: linkResult.payments,
+    companyExpenses: input.companyExpenses || [],
+    fixedExpenses: input.fixedExpenses,
+  });
+
+  return {
+    fixedExpensePayments: reconciled.fixedExpensePayments,
+    bankTransactions: reconciled.bankTransactions,
     generatedCount: generated.length,
-    linkedCount: linkResult.linkedCount,
+    linkedCount: linkResult.linkedCount + reconciled.linkedCount,
+    removedDuplicateCount: reconciled.removedDuplicateCount,
   };
 }
 
