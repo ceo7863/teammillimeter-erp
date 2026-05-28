@@ -388,6 +388,7 @@ export function buildBankLearnRuleFromMemoCategory(
     descriptionTokens: filterBankLearnDescriptionTokens([
       merchantLabel,
       ...extractBankTransactionMerchantFingerprints(tx),
+      ...extractMemoLearnDomainTokens(tx, category),
       ...tokenizeBankLedgerText(tx.description, undefined, counterpartyName),
     ]),
     createdAt: new Date().toISOString(),
@@ -442,6 +443,46 @@ export function bankTransactionsShareMerchantFingerprint(left: BankTransaction, 
     extractBankTransactionMerchantFingerprints(left),
     extractBankTransactionMerchantFingerprints(right),
   );
+}
+
+const MEMO_LEARN_TAX_TEXT_PATTERN =
+  /소득세|지방소득세|지방세|법인세|부가세|원천세|국세|세금|종합소득|사업소득|근로소득/i;
+
+const MEMO_LEARN_TAX_DOMAIN_TOKENS = [
+  "소득세",
+  "지방소득세",
+  "지방세",
+  "법인세",
+  "부가세",
+  "원천세",
+];
+
+function buildBankTransactionMemoLearnText(tx: BankTransaction) {
+  return [tx.counterpartyName, tx.description].filter(Boolean).join(" ");
+}
+
+export function isMemoLearnTaxCategory(category: string) {
+  const normalized = String(category || "").trim();
+  return normalized === "세금" || normalized.includes("세금") || normalized === "세액";
+}
+
+function extractMemoLearnDomainTokens(tx: BankTransaction, category: string) {
+  if (!isMemoLearnTaxCategory(category)) return [] as string[];
+  const haystack = normalizeMatchText(buildBankTransactionMemoLearnText(tx));
+  return MEMO_LEARN_TAX_DOMAIN_TOKENS.filter((token) => haystack.includes(normalizeMatchText(token)));
+}
+
+export function isTaxRelatedBankTransaction(tx: BankTransaction) {
+  return MEMO_LEARN_TAX_TEXT_PATTERN.test(buildBankTransactionMemoLearnText(tx));
+}
+
+export function sharesMemoLearnDomain(
+  sourceCategory: string,
+  source: BankTransaction,
+  target: BankTransaction,
+) {
+  if (!isMemoLearnTaxCategory(sourceCategory)) return false;
+  return isTaxRelatedBankTransaction(source) && isTaxRelatedBankTransaction(target);
 }
 
 export function resolveMemoLearnCategory(memo: string | undefined, categories: string[]) {
@@ -507,6 +548,10 @@ export function scoreMemoLearnCategoryRule(tx: BankTransaction, rule: BankLearnR
   for (const fingerprint of ruleFingerprints) {
     if (fingerprint.length >= 2 && haystack.includes(fingerprint)) return 12;
   }
+
+  if (isMemoLearnTaxCategory(String(rule.category || "")) && isTaxRelatedBankTransaction(tx)) {
+    return 12;
+  }
   return 0;
 }
 
@@ -549,15 +594,22 @@ export function buildMemoCategorySuggestionMap(
 
     for (const source of memoSources) {
       if (source.tx.id === target.id) continue;
-      if (!merchantFingerprintsOverlap(source.fingerprints, targetFingerprints)) continue;
-      const score = 16;
-      if (score > bestScore) {
-        bestScore = score;
-        bestCategory = source.category;
+      if (merchantFingerprintsOverlap(source.fingerprints, targetFingerprints)) {
+        if (16 > bestScore) {
+          bestScore = 16;
+          bestCategory = source.category;
+        }
+        continue;
+      }
+      if (sharesMemoLearnDomain(source.category, source.tx, target)) {
+        if (15 > bestScore) {
+          bestScore = 15;
+          bestCategory = source.category;
+        }
       }
     }
 
-    if (bestScore < 16) {
+    if (bestScore < 15) {
       for (const rule of memoRules) {
         const score = scoreMemoLearnCategoryRule(target, rule);
         if (score > bestScore) {
@@ -597,7 +649,12 @@ export { buildPreauthNetLearnRule } from "./bankPreauthNetting";
 function learnRuleUpsertKey(rule: BankLearnRule) {
   const counterpartyKey = normalizeMatchText(rule.counterpartyName || "");
   if (rule.kind === "fixed") return `fixed:${rule.fixedExpenseId || rule.category}:${counterpartyKey}`;
-  if (rule.kind === "manual") return `manual:${rule.category}:${counterpartyKey}`;
+  if (rule.kind === "manual") {
+    if (isMemoLearnTaxCategory(String(rule.category || ""))) {
+      return `manual:tax-domain:${normalizeMatchText(String(rule.category || ""))}`;
+    }
+    return `manual:${rule.category}:${counterpartyKey}`;
+  }
   if (rule.kind === "preauth_net") return `preauth_net:${counterpartyKey}`;
   return `folder:${rule.folderId}:${counterpartyKey}`;
 }
