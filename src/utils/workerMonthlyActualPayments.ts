@@ -2,6 +2,7 @@ import type { BankTransaction } from "./bankTransactions";
 import {
   compareWorkerFolderRows,
   findWorkerMasterByName,
+  isWorkerActive,
   normalizeWorkerCategory,
   normalizeWorkerName,
   type WorkerCategory,
@@ -183,6 +184,7 @@ export function buildWorkerMonthlyWorkerSummaries(
   const seen = new Set<string>();
 
   for (const worker of workers) {
+    if (!isWorkerActive(worker)) continue;
     const workerName = normalizeWorkerName(worker.name);
     if (!workerName || seen.has(workerName)) continue;
     seen.add(workerName);
@@ -192,6 +194,7 @@ export function buildWorkerMonthlyWorkerSummaries(
   for (const [workerName, rows] of byWorker) {
     if (seen.has(workerName)) continue;
     const master = findWorkerMasterByName(workers, workerName);
+    if (master && !isWorkerActive(master)) continue;
     summaries.push(buildWorkerMonthlyWorkerSummary(workerName, master, rows));
     seen.add(workerName);
   }

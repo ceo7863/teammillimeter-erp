@@ -4,6 +4,7 @@ import { findWorkerForBankTransaction, type WorkerDepositMatchSource } from "./c
 import {
   compareWorkerFolderRows,
   findWorkerMasterByName,
+  isWorkerActive,
   normalizeWorkerCategory,
   normalizeWorkerName,
   type WorkerCategory,
@@ -181,6 +182,7 @@ export function buildWorkerPayoutFolders(
   const seen = new Set<string>();
 
   for (const worker of workersMaster) {
+    if (!isWorkerActive(worker)) continue;
     const workerName = normalizeWorkerName(worker.name);
     if (!workerName || seen.has(workerName)) continue;
     seen.add(workerName);
@@ -190,6 +192,7 @@ export function buildWorkerPayoutFolders(
   for (const [workerName, entries] of map) {
     if (seen.has(workerName)) continue;
     const master = findWorkerMasterByName(workersMaster, workerName);
+    if (master && !isWorkerActive(master)) continue;
     folders.push(buildWorkerPayoutFolder(workerName, entries, master));
     seen.add(workerName);
   }

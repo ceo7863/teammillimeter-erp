@@ -49,8 +49,12 @@ export function workerCategorySortRank(value?: string) {
   return normalizeWorkerCategory(value) === WORKER_CATEGORY_OUTSOURCE ? 1 : 0;
 }
 
+export function isWorkerActive(worker?: Pick<WorkerMasterLike, "isActive"> | null) {
+  return worker?.isActive !== false;
+}
+
 export function workerActiveSortRank(worker: Pick<WorkerMasterLike, "isActive">) {
-  return worker.isActive === false ? 1 : 0;
+  return isWorkerActive(worker) ? 0 : 1;
 }
 
 export function compareWorkerMastersDefault(a: WorkerMasterLike, b: WorkerMasterLike) {

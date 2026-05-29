@@ -86,12 +86,12 @@ function renderPayoutFolderList(
             <button
               key={folder.workerName}
               type="button"
-              className={`erp-worker-payout-folder-btn ${active ? "is-active" : ""}${folder.isActive === false ? " is-inactive" : ""}`}
+              className={`erp-worker-payout-folder-btn ${active ? "is-active" : ""}`}
               onClick={() => onSelect(folder.workerName)}
             >
               <span className="erp-worker-payout-folder-name">
                 <WorkerCategoryBadge category={folder.category || WORKER_CATEGORY_TEAM} />
-                <span className={folder.isActive === false ? "text-slate-400" : ""}>{folder.workerName}</span>
+                <span>{folder.workerName}</span>
               </span>
               <span className="erp-worker-payout-folder-meta">
                 {folder.entries.length}
