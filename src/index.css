@@ -6739,13 +6739,25 @@ textarea {
 }
 
 .erp-sale-form-label {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 0.35rem;
+  justify-content: space-between;
+  gap: 0.5rem;
   margin-bottom: 0.4rem;
   font-size: 0.8125rem;
   font-weight: 700;
   color: #64748b;
+}
+
+.erp-sale-form-label-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.erp-sale-form-label-action {
+  flex-shrink: 0;
 }
 
 .erp-sale-form-label-icon {
@@ -7152,17 +7164,32 @@ textarea {
 
 .erp-sale-form-client-change-btn {
   flex-shrink: 0;
-  height: auto;
+  height: 1.625rem;
   padding: 0 0.55rem;
   font-size: 0.75rem;
   gap: 0.25rem;
   white-space: nowrap;
+  border-color: #cbd5e1;
+  background: #fff;
+  color: #334155;
+}
+
+.erp-sale-form-client-change-btn:hover {
+  border-color: #94a3b8;
+  background: #f8fafc;
 }
 
 .erp-sale-form-inline-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.5rem 0.65rem;
+}
+
+@media (max-width: 767px) {
+  .erp-sale-form-inline-grid--client-unlock .erp-sale-form-field--client-unlock,
+  .erp-sale-form-inline-grid--client-unlock .erp-sale-form-field--site-unlock {
+    grid-column: 1 / -1;
+  }
 }
 
 .erp-sale-form-inline-grid .erp-sale-form-field:first-child {

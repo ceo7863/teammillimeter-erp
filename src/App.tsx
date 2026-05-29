@@ -587,7 +587,7 @@ function SaleFormCompactEditor({
 
       <Card className="erp-sale-form-card erp-sale-form-card--compact rounded-xl border-slate-200/80 shadow-sm">
         <CardContent className="p-3 md:p-4">
-          <div className={`erp-sale-form-inline-grid${!showPaidField ? " erp-sale-form-inline-grid--no-paid" : ""}`}>
+          <div className={`erp-sale-form-inline-grid${!showPaidField ? " erp-sale-form-inline-grid--no-paid" : ""}${allowClientSiteUnlock ? " erp-sale-form-inline-grid--client-unlock" : ""}`}>
             <SaleFormField label="일자" icon={CalendarDays}>
               <div className="erp-sale-form-date-wrap">
                 <Input type="date" className="erp-input-compact" value={form.date} onChange={(e) => update("date", e.target.value)} />
@@ -596,7 +596,25 @@ function SaleFormCompactEditor({
                 </button>
               </div>
             </SaleFormField>
-            <SaleFormField label="거래처" icon={Building2}>
+            <SaleFormField
+              label="거래처"
+              icon={Building2}
+              className="erp-sale-form-field--client-unlock"
+              labelAction={
+                allowClientSiteUnlock && clientSiteLocked ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="erp-sale-form-client-change-btn"
+                    onClick={() => setClientSiteUnlockPromptOpen(true)}
+                  >
+                    <Pencil size={13} />
+                    변경
+                  </Button>
+                ) : null
+              }
+            >
               <div className="erp-sale-form-client-row">
                 {clientSiteLocked ? (
                   <Input className="erp-input-compact erp-input-compact--locked" value={form.client} readOnly disabled />
@@ -611,21 +629,9 @@ function SaleFormCompactEditor({
                     renderSub={(client) => `${client.manager || "담당자 없음"} · ${formatKRW(client.constructionCost || 0)}`}
                   />
                 )}
-                {allowClientSiteUnlock && clientSiteLocked ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="erp-sale-form-client-change-btn"
-                    onClick={() => setClientSiteUnlockPromptOpen(true)}
-                  >
-                    <Pencil size={13} />
-                    변경
-                  </Button>
-                ) : null}
               </div>
             </SaleFormField>
-            <SaleFormField label="현장" icon={MapPin}>
+            <SaleFormField label="현장" icon={MapPin} className="erp-sale-form-field--site-unlock">
               <Input
                 className={`erp-input-compact${clientSiteLocked ? " erp-input-compact--locked" : ""}`}
                 data-sale-form-site="true"
@@ -1299,16 +1305,19 @@ function Field({ label, children }) {
   );
 }
 
-function SaleFormField({ label, icon: Icon, children, hint }) {
+function SaleFormField({ label, icon: Icon, children, hint, labelAction, className = "" }) {
   return (
-    <label className="erp-sale-form-field block">
+    <label className={`erp-sale-form-field block ${className}`.trim()}>
       <span className="erp-sale-form-label">
-        {Icon && (
-          <span className="erp-sale-form-label-icon">
-            <Icon size={14} />
-          </span>
-        )}
-        {label}
+        <span className="erp-sale-form-label-main">
+          {Icon && (
+            <span className="erp-sale-form-label-icon">
+              <Icon size={14} />
+            </span>
+          )}
+          {label}
+        </span>
+        {labelAction ? <span className="erp-sale-form-label-action">{labelAction}</span> : null}
       </span>
       {children}
       {hint && <span className="erp-sale-form-hint">{hint}</span>}
