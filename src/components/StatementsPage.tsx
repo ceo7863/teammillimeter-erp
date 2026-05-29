@@ -10,9 +10,14 @@ import { AutocompleteInput } from "@/components/AutocompleteInput";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { DEFAULT_COMPANY_PROFILE, type CompanyProfile } from "@/utils/companyProfile";
 import { confirmDelete } from "@/utils/confirmDelete";
-import { archiveGeneratedPdf, copyTextToClipboard, createPdfShareLink, getPdfArchiveRecord, listPdfArchives, openPdfBlobInNewTab, sharePdfBlob } from "@/utils/pdfArchive";
+import { archiveGeneratedPdf, archivePdfAndCreateShareLink, copyTextToClipboard, getPdfArchiveRecord, listPdfArchives, openPdfBlobInNewTab, sharePdfBlob } from "@/utils/pdfArchive";
 import { isApiModeEnabled } from "@/utils/erpApi";
 import { createPdfPreviewWindow, downloadPdfFromHtmlElement, revokePdfBlobUrl } from "@/utils/statementPdf";
+import {
+  buildStatementPdfCacheKey,
+  prefetchStatementPdf,
+  resolveStatementPdf,
+} from "@/utils/statementPdfCache";
 import {
   appendStatementGenerationLog,
   appendStatementGenerationLogs,
@@ -568,6 +573,68 @@ export function StatementsPage({
   const workerStatementPeriodStart = dateFilter.startDate || String(workerRows[0]?.date || "");
   const workerStatementPeriodEnd = dateFilter.endDate || String(workerRows[workerRows.length - 1]?.date || "");
   const clientTotals = clientStatementSummary;
+
+  useEffect(() => {
+    if (statementType !== "client" || !clientStatementGenerated || !hasClientSelection) return;
+    const timer = window.setTimeout(() => {
+      const element = clientPrintRef.current;
+      if (!element) return;
+      const safeName = String(client).replace(/[\\/:*?"<>|]/g, "_");
+      const periodLabel = `${dateFilter.startDate || "\uC804\uCCB4"}_${dateFilter.endDate || "\uC804\uCCB4"}`;
+      const fileName = `\uC2DC\uACF5\uB0B4\uC5ED\uC11C_\uAC70\uB798\uCC98_${safeName}_${periodLabel}.pdf`;
+      const cacheKey = buildStatementPdfCacheKey([
+        "client",
+        client,
+        dateFilter.startDate,
+        dateFilter.endDate,
+        clientStatementView,
+        clientRows.length,
+      ]);
+      prefetchStatementPdf(cacheKey, () =>
+        downloadPdfFromHtmlElement(element, fileName, { orientation: "portrait", deliver: false })
+      );
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [
+    statementType,
+    clientStatementGenerated,
+    hasClientSelection,
+    client,
+    dateFilter.startDate,
+    dateFilter.endDate,
+    clientStatementView,
+    clientRows.length,
+  ]);
+
+  useEffect(() => {
+    if (statementType !== "worker" || !workerStatementGenerated || !hasWorkerSelection) return;
+    const timer = window.setTimeout(() => {
+      const element = workerPrintRef.current;
+      if (!element) return;
+      const safeName = String(worker).replace(/[\\/:*?"<>|]/g, "_");
+      const periodLabel = `${dateFilter.startDate || "\uC804\uCCB4"}_${dateFilter.endDate || "\uC804\uCCB4"}`;
+      const fileName = `\uC2DC\uACF5\uB0B4\uC5ED\uC11C_\uC2DC\uACF5\uC790_${safeName}_${periodLabel}.pdf`;
+      const cacheKey = buildStatementPdfCacheKey([
+        "worker",
+        worker,
+        dateFilter.startDate,
+        dateFilter.endDate,
+        workerRows.length,
+      ]);
+      prefetchStatementPdf(cacheKey, () =>
+        downloadPdfFromHtmlElement(element, fileName, { orientation: "portrait", deliver: false })
+      );
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [
+    statementType,
+    workerStatementGenerated,
+    hasWorkerSelection,
+    worker,
+    dateFilter.startDate,
+    dateFilter.endDate,
+    workerRows.length,
+  ]);
 
   const workerTotals = workerRows.reduce(
     (acc, row) => {
@@ -1142,26 +1209,33 @@ export function StatementsPage({
       ? `\uC2DC\uACF5\uB0B4\uC5ED\uC11C_\uAC70\uB798\uCC98_${safeName}_${periodLabel}.pdf`
       : `\uC2DC\uACF5\uB0B4\uC5ED\uC11C_\uC2DC\uACF5\uC790_${safeName}_${periodLabel}.pdf`;
 
-    revokePdfBlobUrl(pdfBlobUrlRef.current);
+    const cacheKey = buildStatementPdfCacheKey(
+      isClient
+        ? ["client", subjectName, dateFilter.startDate, dateFilter.endDate, clientStatementView, clientRows.length]
+        : ["worker", subjectName, dateFilter.startDate, dateFilter.endDate, workerRows.length]
+    );
+
     setPdfGenerating(true);
     setPdfMessage(L.shareLinkPreparing);
     setStatementShareLink("");
-    pdfBlobUrlRef.current = "";
 
     try {
-      const result = await downloadPdfFromHtmlElement(element, fileName, {
-        orientation: "portrait",
-        deliver: false,
-      });
+      const { result, fromCache } = await resolveStatementPdf(cacheKey, () =>
+        downloadPdfFromHtmlElement(element, fileName, {
+          orientation: "portrait",
+          deliver: false,
+        })
+      );
       pdfBlobUrlRef.current = result.blobUrl;
+      setPdfMessage(fromCache ? "\uC11C\uBC84 \uC5C5\uB85C\uB4DC \uBC0F \uB9C1\uD06C \uC0DD\uC131 \uC911..." : L.shareLinkPreparing);
+
       const statementTotalAmount = isClient ? clientTotals.grandTotal : workerTotals.totalPay;
-      const archived = await archiveGeneratedPdf(result, {
+      const { archived, shareLink } = await archivePdfAndCreateShareLink(result, {
         category: isClient ? "statement-client" : "statement-worker",
         subjectName,
         periodStart: dateFilter.startDate,
         periodEnd: dateFilter.endDate,
         statementView: isClient ? clientStatementView : undefined,
-        sentViaLink: true,
         statementTotalAmount,
         paymentStatus: "pending",
         statementSalesIds: isClient ? filteredClientSales.map((row) => row.id).filter((id) => id != null && id !== "") : undefined,
@@ -1171,8 +1245,7 @@ export function StatementsPage({
         setStatementFolders((prev) => fileOrLinkPdfArchiveToFolders(prev, statementGenerationLogs, archived, filedBy));
       }
 
-      if (isApiModeEnabled()) {
-        const shareLink = await createPdfShareLink(archived.id);
+      if (shareLink?.url) {
         setStatementShareLink(shareLink.url);
         const copied = await copyTextToClipboard(shareLink.url);
         setPdfMessage(copied ? L.shareLinkReady : `${L.shareLinkReady} (\uC790\uB3D9 \uBCF5\uC0AC\uAC00 \uC9C0\uC6D0\uB418\uC9C0 \uC54A\uC544 \uC544\uB798 \uB9C1\uD06C\uB97C \uC9C1\uC811 \uBCF5\uC0AC\uD574 \uC8FC\uC138\uC694.)`);

@@ -5,11 +5,16 @@ import { ClientStatementSheet } from "@/components/ClientStatementSheet";
 import { StatementA4Preview } from "@/components/StatementA4Preview";
 import { TableExportToolbar } from "@/components/TableExportSection";
 import { DEFAULT_COMPANY_PROFILE, type CompanyProfile } from "@/utils/companyProfile";
-import { archiveGeneratedPdf, copyTextToClipboard, createPdfShareLink, sharePdfBlob } from "@/utils/pdfArchive";
+import { archiveGeneratedPdf, archivePdfAndCreateShareLink, copyTextToClipboard, sharePdfBlob } from "@/utils/pdfArchive";
 import type { ErpUser } from "@/utils/erpApi";
 import { isApiModeEnabled } from "@/utils/erpApi";
 import { formatKRW, getUnpaid, todayISO } from "@/utils/receivables";
 import { createPdfPreviewWindow, downloadPdfFromHtmlElement, revokePdfBlobUrl } from "@/utils/statementPdf";
+import {
+  buildStatementPdfCacheKey,
+  prefetchStatementPdf,
+  resolveStatementPdf,
+} from "@/utils/statementPdfCache";
 import {
   appendStatementGenerationLog,
   createStatementGenerationLog,
@@ -133,6 +138,28 @@ export function ClientStatementModal({
     }
   }, [draft]);
 
+  useEffect(() => {
+    if (!draft || !hasStatementData) return;
+    const timer = window.setTimeout(() => {
+      const element = clientPrintRef.current;
+      if (!element) return;
+      const safeName = String(draft.client).replace(/[\\/:*?"<>|]/g, "_");
+      const fileName = `\uC2DC\uACF5\uB0B4\uC5ED\uC11C_\uAC70\uB798\uCC98_${safeName}_${draft.startDate || "\uC804\uCCB4"}_${draft.endDate || "\uC804\uCCB4"}.pdf`;
+      const cacheKey = buildStatementPdfCacheKey([
+        "client-modal",
+        draft.client,
+        draft.startDate,
+        draft.endDate,
+        clientStatementView,
+        filteredSales.length,
+      ]);
+      prefetchStatementPdf(cacheKey, () =>
+        downloadPdfFromHtmlElement(element, fileName, { orientation: "portrait", deliver: false })
+      );
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [draft, hasStatementData, clientStatementView, filteredSales.length]);
+
   if (!draft) return null;
 
   const generatePdf = async () => {
@@ -246,25 +273,35 @@ export function ClientStatementModal({
     const safeName = String(draft.client).replace(/[\\/:*?"<>|]/g, "_");
     const fileName = `\uC2DC\uACF5\uB0B4\uC5ED\uC11C_\uAC70\uB798\uCC98_${safeName}_${draft.startDate || "\uC804\uCCB4"}_${draft.endDate || "\uC804\uCCB4"}.pdf`;
 
-    revokePdfBlobUrl(pdfBlobUrlRef.current);
+    const cacheKey = buildStatementPdfCacheKey([
+      "client-modal",
+      draft.client,
+      draft.startDate,
+      draft.endDate,
+      clientStatementView,
+      filteredSales.length,
+    ]);
+
     setPdfGenerating(true);
     setPdfMessage("PDF \uC0DD\uC131 \uBC0F \uB9C1\uD06C \uC900\uBE44 \uC911...");
     setStatementShareLink("");
-    pdfBlobUrlRef.current = "";
 
     try {
-      const result = await downloadPdfFromHtmlElement(element, fileName, {
-        orientation: "portrait",
-        deliver: false,
-      });
+      const { result, fromCache } = await resolveStatementPdf(cacheKey, () =>
+        downloadPdfFromHtmlElement(element, fileName, {
+          orientation: "portrait",
+          deliver: false,
+        })
+      );
       pdfBlobUrlRef.current = result.blobUrl;
-      const archived = await archiveGeneratedPdf(result, {
+      setPdfMessage(fromCache ? "\uC11C\uBC84 \uC5C5\uB85C\uB4DC \uBC0F \uB9C1\uD06C \uC0DD\uC131 \uC911..." : "PDF \uC0DD\uC131 \uBC0F \uB9C1\uD06C \uC900\uBE44 \uC911...");
+
+      const { archived, shareLink } = await archivePdfAndCreateShareLink(result, {
         category: "statement-client",
         subjectName: draft.client,
         periodStart: draft.startDate,
         periodEnd: draft.endDate,
         statementView: clientStatementView,
-        sentViaLink: true,
         statementTotalAmount: clientStatementSummary.grandTotal,
         paymentStatus: "pending",
         statementSalesIds: filteredSales.map((row) => row.id).filter((id) => id != null && id !== "") as Array<string | number>,
@@ -274,8 +311,7 @@ export function ClientStatementModal({
         setStatementFolders((prev) => fileOrLinkPdfArchiveToFolders(prev, statementGenerationLogs, archived, filedBy));
       }
 
-      if (isApiModeEnabled()) {
-        const shareLink = await createPdfShareLink(archived.id);
+      if (shareLink?.url) {
         setStatementShareLink(shareLink.url);
         const copied = await copyTextToClipboard(shareLink.url);
         setPdfMessage(

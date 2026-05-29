@@ -213,6 +213,15 @@ app.post(
         return;
       }
       const saved = createPdfArchive(buffer, meta, req.user.loginId || req.user.name || req.user.email);
+      if (meta.sentViaLink) {
+        const token = ensurePdfArchiveShareToken(saved.id);
+        if (token) {
+          const url = `${buildPublicRequestOrigin(req)}/api/public/pdf-share/${token}`;
+          const updated = updatePdfArchiveMeta(saved.id, { shareLinkUrl: url });
+          res.status(201).json(updated || { ...saved, shareLinkUrl: url });
+          return;
+        }
+      }
       res.status(201).json(saved);
     } catch (error) {
       console.error(error);

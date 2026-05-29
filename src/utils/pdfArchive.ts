@@ -452,6 +452,31 @@ export async function archiveGeneratedPdf(
   return saved;
 }
 
+export async function archivePdfAndCreateShareLink(
+  result: { blob: Blob; fileName: string; pageCount: number },
+  meta: Omit<Parameters<typeof archiveGeneratedPdf>[1], "sentViaLink">
+): Promise<{ archived: PdfArchiveMeta; shareLink: PdfShareLinkResult | null }> {
+  const archived = await archiveGeneratedPdf(result, { ...meta, sentViaLink: true });
+
+  if (!isApiModeEnabled()) {
+    return { archived, shareLink: null };
+  }
+
+  if (archived.shareLinkUrl) {
+    return {
+      archived,
+      shareLink: {
+        token: "",
+        url: archived.shareLinkUrl,
+        fileName: archived.fileName,
+      },
+    };
+  }
+
+  const shareLink = await createPdfShareLink(archived.id);
+  return { archived, shareLink };
+}
+
 export type PdfShareLinkResult = {
   token: string;
   url: string;

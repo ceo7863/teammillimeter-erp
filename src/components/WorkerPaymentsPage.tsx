@@ -9,8 +9,12 @@ import { TableExportSection } from "@/components/TableExportSection";
 import { WorkerMonthlyStatementExport } from "@/components/WorkerMonthlyStatementExport";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { createPdfPreviewWindow, downloadPdfFromHtmlElement, revokePdfBlobUrl } from "@/utils/statementPdf";
-import { archiveGeneratedPdf, copyTextToClipboard, createPdfShareLink } from "@/utils/pdfArchive";
-import { isApiModeEnabled } from "@/utils/erpApi";
+import { archiveGeneratedPdf, archivePdfAndCreateShareLink, copyTextToClipboard } from "@/utils/pdfArchive";
+import {
+  buildStatementPdfCacheKey,
+  prefetchStatementPdf,
+  resolveStatementPdf,
+} from "@/utils/statementPdfCache";
 import { confirmDelete } from "@/utils/confirmDelete";
 import {
   buildWorkerStatementSummary,
@@ -513,6 +517,28 @@ export function WorkerPaymentsPage({
     setStatementSheetGenerated(true);
   };
 
+  useEffect(() => {
+    if (!statementSheetGenerated || !statementWorker || !statementRows.length) return;
+    const timer = window.setTimeout(() => {
+      const element = workerPrintRef.current;
+      if (!element) return;
+      const safeName = statementWorker.replace(/[\\/:*?"<>|]/g, "_");
+      const periodLabel = `${dateFilter.startDate || "전체"}_${dateFilter.endDate || "전체"}`;
+      const fileName = `시공내역서_시공자_${safeName}_${periodLabel}.pdf`;
+      const cacheKey = buildStatementPdfCacheKey([
+        "worker-payment",
+        statementWorker,
+        dateFilter.startDate,
+        dateFilter.endDate,
+        statementRows.length,
+      ]);
+      prefetchStatementPdf(cacheKey, () =>
+        downloadPdfFromHtmlElement(element, fileName, { orientation: "portrait", deliver: false })
+      );
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [statementSheetGenerated, statementWorker, statementRows.length, dateFilter.startDate, dateFilter.endDate]);
+
   const shareWorkerStatementDownloadLink = async () => {
     if (!statementSheetGenerated) {
       setPdfMessage("링크보내기 전에 내역서 생성을 먼저 실행해 주세요.");
@@ -537,30 +563,38 @@ export function WorkerPaymentsPage({
     const periodLabel = `${dateFilter.startDate || "전체"}_${dateFilter.endDate || "전체"}`;
     const fileName = `시공내역서_시공자_${safeName}_${periodLabel}.pdf`;
 
-    revokePdfBlobUrl(pdfBlobUrlRef.current);
+    const cacheKey = buildStatementPdfCacheKey([
+      "worker-payment",
+      statementWorker,
+      dateFilter.startDate,
+      dateFilter.endDate,
+      statementRows.length,
+    ]);
+
     setPdfGenerating(true);
     setPdfMessage("PDF 생성 및 링크 준비 중...");
     setStatementShareLink("");
-    pdfBlobUrlRef.current = "";
 
     try {
-      const result = await downloadPdfFromHtmlElement(element, fileName, {
-        orientation: "portrait",
-        deliver: false,
-      });
+      const { result, fromCache } = await resolveStatementPdf(cacheKey, () =>
+        downloadPdfFromHtmlElement(element, fileName, {
+          orientation: "portrait",
+          deliver: false,
+        })
+      );
       pdfBlobUrlRef.current = result.blobUrl;
-      const archived = await archiveGeneratedPdf(result, {
+      setPdfMessage(fromCache ? "서버 업로드 및 링크 생성 중..." : "PDF 생성 및 링크 준비 중...");
+
+      const { shareLink } = await archivePdfAndCreateShareLink(result, {
         category: "statement-worker",
         subjectName: statementWorker,
         periodStart: dateFilter.startDate,
         periodEnd: dateFilter.endDate,
-        sentViaLink: true,
         statementTotalAmount: workerPrintTotals.totalPay,
         paymentStatus: "pending",
       });
 
-      if (isApiModeEnabled()) {
-        const shareLink = await createPdfShareLink(archived.id);
+      if (shareLink?.url) {
         setStatementShareLink(shareLink.url);
         const copied = await copyTextToClipboard(shareLink.url);
         setPdfMessage(
