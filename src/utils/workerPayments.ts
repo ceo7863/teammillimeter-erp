@@ -34,15 +34,26 @@ export function normalizeWorkerName(value?: string) {
 }
 
 export function normalizeWorkerCategory(value?: string): WorkerCategory {
-  const normalized = String(value || "").trim().replace(/\s+/g, "");
-  if (
-    normalized === WORKER_CATEGORY_OUTSOURCE ||
-    normalized.toLowerCase() === "outsource" ||
-    normalized === "\uC678\uC8FC"
-  ) {
-    return WORKER_CATEGORY_OUTSOURCE;
-  }
-  return WORKER_CATEGORY_TEAM;
+  return String(value || "").trim() === WORKER_CATEGORY_OUTSOURCE ? WORKER_CATEGORY_OUTSOURCE : WORKER_CATEGORY_TEAM;
+}
+
+export function findWorkerMasterByExactName(
+  workers: WorkerMasterLike[] = [],
+  name?: string,
+): WorkerMasterLike | undefined {
+  const target = normalizeWorkerName(name);
+  if (!target) return undefined;
+  return workers.find((worker) => normalizeWorkerName(worker.name) === target);
+}
+
+/** 시공자 목록의 구분(category) 필드만 사용 — 시공자명 정확히 일치할 때만 */
+export function resolveWorkerCategoryFromList(
+  workers: WorkerMasterLike[] = [],
+  workerName: string,
+  master?: WorkerMasterLike | null,
+): WorkerCategory {
+  const source = master ?? findWorkerMasterByExactName(workers, workerName);
+  return normalizeWorkerCategory(source?.category);
 }
 
 export function workerCategorySortRank(value?: string) {

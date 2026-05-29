@@ -1,9 +1,10 @@
 import type { BankTransaction } from "./bankTransactions";
 import {
   compareWorkerFolderRows,
-  findWorkerMasterByName,
+  findWorkerMasterByExactName,
   isWorkerActive,
-  normalizeWorkerCategory,
+  resolveWorkerCategoryFromList,
+  WORKER_CATEGORY_TEAM,
   normalizeWorkerName,
   type WorkerCategory,
   type WorkerMasterLike,
@@ -188,14 +189,14 @@ export function buildWorkerMonthlyWorkerSummaries(
     const workerName = normalizeWorkerName(worker.name);
     if (!workerName || seen.has(workerName)) continue;
     seen.add(workerName);
-    summaries.push(buildWorkerMonthlyWorkerSummary(workerName, worker, byWorker.get(workerName) || []));
+    summaries.push(buildWorkerMonthlyWorkerSummary(workers, workerName, worker, byWorker.get(workerName) || []));
   }
 
   for (const [workerName, rows] of byWorker) {
     if (seen.has(workerName)) continue;
-    const master = findWorkerMasterByName(workers, workerName);
+    const master = findWorkerMasterByExactName(workers, workerName);
     if (master && !isWorkerActive(master)) continue;
-    summaries.push(buildWorkerMonthlyWorkerSummary(workerName, master, rows));
+    summaries.push(buildWorkerMonthlyWorkerSummary(workers, workerName, master, rows));
     seen.add(workerName);
   }
 
@@ -203,6 +204,7 @@ export function buildWorkerMonthlyWorkerSummaries(
 }
 
 function buildWorkerMonthlyWorkerSummary(
+  workers: WorkerMasterLike[],
   workerName: string,
   master: WorkerMasterLike | undefined,
   rows: WorkerMonthlyObligation[],
@@ -210,7 +212,7 @@ function buildWorkerMonthlyWorkerSummary(
   const sorted = [...rows].sort((a, b) => b.monthKey.localeCompare(a.monthKey));
   return {
     worker: workerName,
-    category: normalizeWorkerCategory(master?.category),
+    category: resolveWorkerCategoryFromList(workers, workerName, master),
     isActive: master?.isActive !== false,
     expectedTotal: sorted.reduce((sum, row) => sum + row.expectedFinalAmount, 0),
     paidTotal: sorted.reduce((sum, row) => sum + row.paid, 0),

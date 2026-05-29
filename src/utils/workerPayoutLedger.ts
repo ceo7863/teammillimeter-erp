@@ -3,9 +3,10 @@ import { isNetGroupSuppressed } from "./bankPreauthNetting";
 import { findWorkerForBankTransaction, type WorkerDepositMatchSource } from "./clientDepositAliases";
 import {
   compareWorkerFolderRows,
-  findWorkerMasterByName,
+  findWorkerMasterByExactName,
   isWorkerActive,
-  normalizeWorkerCategory,
+  resolveWorkerCategoryFromList,
+  WORKER_CATEGORY_TEAM,
   normalizeWorkerName,
   type WorkerCategory,
   type WorkerMasterLike,
@@ -116,6 +117,7 @@ export function resolveWorkerNameFromBankTransaction(
 function buildWorkerPayoutFolder(
   workerName: string,
   entries: WorkerPayoutLedgerEntry[],
+  workersMaster: WorkerMasterLike[],
   master?: WorkerMasterLike,
 ): WorkerPayoutFolder {
   const sorted = [...entries].sort((a, b) => {
@@ -131,7 +133,7 @@ function buildWorkerPayoutFolder(
     bankTotal,
     voucherTotal,
     total: bankTotal + voucherTotal,
-    category: normalizeWorkerCategory(master?.category),
+    category: resolveWorkerCategoryFromList(workersMaster, workerName, master),
     isActive: master?.isActive !== false,
   };
 }
@@ -186,26 +188,26 @@ export function buildWorkerPayoutFolders(
     const workerName = normalizeWorkerName(worker.name);
     if (!workerName || seen.has(workerName)) continue;
     seen.add(workerName);
-    folders.push(buildWorkerPayoutFolder(workerName, map.get(workerName) || [], worker));
+    folders.push(buildWorkerPayoutFolder(workerName, map.get(workerName) || [], workersMaster, worker));
   }
 
   for (const [workerName, entries] of map) {
     if (seen.has(workerName)) continue;
-    const master = findWorkerMasterByName(workersMaster, workerName);
+    const master = findWorkerMasterByExactName(workersMaster, workerName);
     if (master && !isWorkerActive(master)) continue;
-    folders.push(buildWorkerPayoutFolder(workerName, entries, master));
+    folders.push(buildWorkerPayoutFolder(workerName, entries, workersMaster, master));
     seen.add(workerName);
   }
 
   folders.sort((a, b) =>
     compareWorkerFolderRows(
       {
-        category: a.category || normalizeWorkerCategory(undefined),
+        category: a.category || WORKER_CATEGORY_TEAM,
         isActive: a.isActive,
         workerName: a.workerName,
       },
       {
-        category: b.category || normalizeWorkerCategory(undefined),
+        category: b.category || WORKER_CATEGORY_TEAM,
         isActive: b.isActive,
         workerName: b.workerName,
       },
