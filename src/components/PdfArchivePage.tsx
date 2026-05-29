@@ -363,12 +363,12 @@ export function PdfArchivePage({
         {sentRecords.map((record) => {
           const summary = buildPdfArchiveSummary(record);
           return (
-            <div key={record.id} className="erp-statement-folder-item">
+            <div key={record.id} className="erp-statement-folder-item erp-sent-statement-item">
               <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="erp-pdf-archive-file-name" title={summary}>
-                    {record.subjectName}
-                  </div>
+                <div className="erp-sent-statement-subject-name" title={record.subjectName}>
+                  {record.subjectName}
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
                   <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${paymentStatusTone(record.paymentStatus)}`}>
                     {getSentStatementPaymentStatusLabel(record.paymentStatus)}
                   </span>
@@ -378,7 +378,7 @@ export function PdfArchivePage({
                     {getPdfArchiveCategoryLabel(record.category)}
                   </span>
                 </div>
-                <div className="mt-1 text-xs text-slate-500">{summary}</div>
+                <div className="mt-1.5 text-xs text-slate-500">{summary}</div>
                 {record.statementTotalAmount ? (
                   <div className="mt-1 text-sm font-semibold text-slate-700">
                     {"\uB0B4\uC5ED\uC11C \uCD1D\uD569\uACC4"}{" "}
