@@ -41,13 +41,18 @@ import {
   updateWorkerPaymentPaidDate as setWorkerPaymentPaidDate,
   type WorkerMonthlyPaymentRecord,
 } from "@/utils/workerMonthlyPayments";
+import { WorkerPayoutHistoryTab } from "@/components/WorkerPayoutHistoryTab";
+import type { BankTransaction } from "@/utils/bankTransactions";
+import type { BankTransactionFolder } from "@/utils/bankTransactionFolders";
+import type { WorkerPayoutVoucher } from "@/utils/workerPayoutLedger";
 
-type WorkerPaymentTab = "summary" | "detail" | "monthly" | "statement";
+type WorkerPaymentTab = "summary" | "detail" | "monthly" | "statement" | "payoutHistory";
 
 const TAB_ITEMS: Array<{ key: WorkerPaymentTab; label: string }> = [
   { key: "summary", label: "지급 집계" },
   { key: "monthly", label: "월별 지급" },
   { key: "detail", label: "시공자별 상세" },
+  { key: "payoutHistory", label: "\uC9C0\uAE09\uB0B4\uC5ED" },
   { key: "statement", label: "내역서 / PDF" },
 ];
 
@@ -138,12 +143,20 @@ export function WorkerPaymentsPage({
   sales = [],
   workerPaymentRecords = [],
   setWorkerPaymentRecords,
+  bankTransactions = [],
+  bankTransactionFolders = [],
+  workerPayoutVouchers = [],
+  setWorkerPayoutVouchers,
   currentUser,
 }: {
   workers?: WorkerMasterLike[];
   sales?: Parameters<typeof flattenSalesToWorkerPaymentRows>[0];
   workerPaymentRecords?: WorkerMonthlyPaymentRecord[];
   setWorkerPaymentRecords?: React.Dispatch<React.SetStateAction<WorkerMonthlyPaymentRecord[]>>;
+  bankTransactions?: BankTransaction[];
+  bankTransactionFolders?: BankTransactionFolder[];
+  workerPayoutVouchers?: WorkerPayoutVoucher[];
+  setWorkerPayoutVouchers?: React.Dispatch<React.SetStateAction<WorkerPayoutVoucher[]>>;
   currentUser?: { name?: string; email?: string };
 }) {
   const [activeTab, setActiveTab] = useState<WorkerPaymentTab>("summary");
@@ -1172,6 +1185,18 @@ export function WorkerPaymentsPage({
             </TableExportSection>
           </CardContent>
         </Card>
+      )}
+
+      {activeTab === "payoutHistory" && (
+        <WorkerPayoutHistoryTab
+          workers={workers}
+          bankTransactions={bankTransactions}
+          bankTransactionFolders={bankTransactionFolders}
+          workerPayoutVouchers={workerPayoutVouchers}
+          setWorkerPayoutVouchers={setWorkerPayoutVouchers}
+          dateFilter={dateFilter}
+          currentUser={currentUser}
+        />
       )}
 
       {activeTab === "statement" && (

@@ -17,6 +17,7 @@ export type SentStatementMatchCandidate = {
   reasons: string[];
   paymentAmount: number;
   paymentStatus: "confirmed" | "partial";
+  statementRemainingAmount: number;
   shareLinkUrl?: string;
   statementSalesIds?: Array<string | number>;
 };
@@ -24,6 +25,7 @@ export type SentStatementMatchCandidate = {
 export type StatementSaleForPayment = {
   salesId: number | string;
   statementAmount: number;
+  saleDate?: string;
   site?: string;
   salesAmount?: number;
   workerCount?: number;
@@ -39,11 +41,19 @@ type SaleLikeForStatement = {
   workers?: unknown[];
 };
 
+type PaymentVoucherLike = {
+  salesId?: number | string;
+  finalAmount?: number;
+  amount?: number;
+  bankTransactionId?: string | number;
+  linkedPdfArchiveId?: string;
+};
+
 function resolveStatementClientMatch(
   subject: string,
   clientName: string,
   tx: BankTransaction,
-  clients?: ClientDepositMatchSource[]
+  clients?: ClientDepositMatchSource[],
 ) {
   const clientRecord = clients?.find((client) => String(client.name || "").trim() === String(clientName || "").trim());
   return resolveDepositSubjectClientMatch(subject, clientName, clientRecord, {
@@ -59,22 +69,91 @@ function daysBetween(fromDate: string, toDate: string) {
   return Math.round((to - from) / (1000 * 60 * 60 * 24));
 }
 
-function resolveStatementPaymentAmount(deposit: number, total: number) {
-  if (total <= 0 || deposit !== total) return null;
+function amountsMatch(expected: number, actual: number) {
+  if (expected <= 0 || actual <= 0) return false;
+  return Math.abs(expected - actual) <= Math.max(1000, Math.round(expected * 0.02));
+}
 
-  return {
-    score: 50,
-    reason: "\uB0B4\uC5ED\uC11C \uCD1D\uD569\uACC4 \uC815\uD655 \uC77C\uCE58",
-    paymentAmount: total,
-    paymentStatus: "confirmed" as const,
-  };
+export function buildPaidAmountBySaleId(paymentVouchers: PaymentVoucherLike[] = []) {
+  const map = new Map<string, number>();
+  for (const voucher of paymentVouchers) {
+    if (voucher.salesId == null || voucher.salesId === "") continue;
+    const key = String(voucher.salesId);
+    map.set(key, (map.get(key) || 0) + Number(voucher.finalAmount ?? voucher.amount ?? 0));
+  }
+  return map;
+}
+
+export function resolveStatementPaidAmount(
+  archiveId: string,
+  paymentVouchers: PaymentVoucherLike[] = [],
+  bankTransactions: Array<Pick<BankTransaction, "id" | "linkedPdfArchiveId">> = [],
+) {
+  const linkedTxIds = new Set(
+    bankTransactions.filter((tx) => tx.linkedPdfArchiveId === archiveId).map((tx) => tx.id),
+  );
+  let sum = 0;
+  for (const voucher of paymentVouchers) {
+    const amount = Number(voucher.finalAmount ?? voucher.amount ?? 0);
+    if (!amount) continue;
+    if (voucher.linkedPdfArchiveId === archiveId) {
+      sum += amount;
+      continue;
+    }
+    const bankTxId = String(voucher.bankTransactionId || "");
+    if (bankTxId && linkedTxIds.has(bankTxId)) sum += amount;
+  }
+  return sum;
+}
+
+function resolveStatementPaymentAmount(deposit: number, statementTotal: number, paidSoFar = 0) {
+  const remaining = Math.max(0, statementTotal - paidSoFar);
+  if (remaining <= 0 || deposit <= 0) return null;
+
+  if (deposit === remaining) {
+    return {
+      score: paidSoFar > 0 ? 48 : 50,
+      reason: paidSoFar > 0 ? "\uBCF4\uB0B8\uB0B4\uC5ED\uC11C \uC794\uC561 \uC815\uD655 \uC77C\uCE58" : "\uBCF4\uB0B8\uB0B4\uC5ED\uC11C \uCD1D\uD569\uACC4 \uC815\uD655 \uC77C\uCE58",
+      paymentAmount: deposit,
+      paymentStatus: "confirmed" as const,
+    };
+  }
+
+  if (amountsMatch(deposit, remaining)) {
+    return {
+      score: paidSoFar > 0 ? 46 : 45,
+      reason: paidSoFar > 0 ? "\uBCF4\uB0B8\uB0B4\uC5ED\uC11C \uC794\uC561 \uADFC\uC0AC \uC77C\uCE58" : "\uBCF4\uB0B8\uB0B4\uC5ED\uC11C \uCD1D\uD569\uACC4 \uADFC\uC0AC \uC77C\uCE58",
+      paymentAmount: deposit,
+      paymentStatus: "confirmed" as const,
+    };
+  }
+
+  if (deposit < remaining) {
+    return {
+      score: paidSoFar > 0 ? 40 : 38,
+      reason: paidSoFar > 0 ? "\uBCF4\uB0B8\uB0B4\uC5ED\uC11C \uC794\uC561 \uBD80\uBD84 \uC785\uAE08" : "\uBCF4\uB0B8\uB0B4\uC5ED\uC11C \uBD80\uBD84 \uC785\uAE08",
+      paymentAmount: deposit,
+      paymentStatus: "partial" as const,
+    };
+  }
+
+  if (deposit > remaining) {
+    return {
+      score: 36,
+      reason: "\uBCF4\uB0B8\uB0B4\uC5ED\uC11C \uC794\uC561 \uCD08\uACFC \uC785\uAE08",
+      paymentAmount: remaining,
+      paymentStatus: "confirmed" as const,
+    };
+  }
+
+  return null;
 }
 
 function clientHasVat(
   clients: ClientDepositMatchSource[] | undefined,
   clientName: string,
   subtotal?: number,
-  grandTotal?: number
+  grandTotal?: number,
 ) {
   const client = clients?.find((row) => String(row.name || "").trim() === String(clientName || "").trim()) as
     | { vat?: string }
@@ -101,6 +180,7 @@ function buildStatementSaleRowFromAmount(sale: SaleLikeForStatement): StatementS
   return {
     salesId: sale.id,
     statementAmount,
+    saleDate: sale.date,
     site: sale.site,
     salesAmount: sale.amount,
     workerCount: saleWorkerCount(sale),
@@ -114,6 +194,7 @@ function buildStatementSaleRow(sale: SaleLikeForStatement): StatementSaleForPaym
     return {
       salesId: sale.id,
       statementAmount: billing.totalConstructionCost,
+      saleDate: sale.date,
       site: sale.site,
       salesAmount: sale.amount,
       workerCount: saleWorkerCount(sale),
@@ -141,12 +222,12 @@ function resolveStatementSalesBySaleAmount(
     "subjectName" | "periodStart" | "periodEnd" | "statementTotalAmount" | "statementSalesIds"
   >,
   sales: SaleLikeForStatement[] = [],
-  clients?: ClientDepositMatchSource[]
+  clients?: ClientDepositMatchSource[],
 ): StatementSaleForPayment[] {
   const scopedSales = filterSalesByStatementPeriod(
     sales.filter((sale) => saleMatchesStatementClient(sale, archive.subjectName)),
     archive.periodStart,
-    archive.periodEnd
+    archive.periodEnd,
   );
   const rows = scopedSales
     .map((sale) => buildStatementSaleRowFromAmount(sale))
@@ -166,11 +247,6 @@ function statementGrandTotal(subtotal: number, hasVat: boolean) {
   return subtotal + vatAmount;
 }
 
-function amountsMatch(expected: number, actual: number) {
-  if (expected <= 0 || actual <= 0) return false;
-  return Math.abs(expected - actual) <= Math.max(1000, Math.round(expected * 0.02));
-}
-
 /** Archive meta or period/client/amount fallback resolves statement sales rows. */
 export function resolveStatementSalesForArchive(
   archive: Pick<
@@ -178,7 +254,7 @@ export function resolveStatementSalesForArchive(
     "subjectName" | "periodStart" | "periodEnd" | "statementTotalAmount" | "statementSalesIds"
   >,
   sales: SaleLikeForStatement[] = [],
-  clients?: ClientDepositMatchSource[]
+  clients?: ClientDepositMatchSource[],
 ): StatementSaleForPayment[] {
   const saleById = new Map(sales.map((sale) => [String(sale.id), sale]));
 
@@ -196,7 +272,7 @@ export function resolveStatementSalesForArchive(
   const periodRows = filterSalesByStatementPeriod(
     sales.filter((sale) => saleMatchesStatementClient(sale, archive.subjectName)),
     archive.periodStart,
-    archive.periodEnd
+    archive.periodEnd,
   )
     .map((sale) => buildStatementSaleRow(sale) || buildStatementSaleRowFromAmount(sale))
     .filter((row): row is StatementSaleForPayment => Boolean(row));
@@ -216,53 +292,61 @@ export function resolveStatementSalesForArchive(
   return resolveStatementSalesBySaleAmount(archive, sales, clients);
 }
 
-function distributeAmountByWeight(
-  items: Array<{ key: string; weight: number }>,
-  totalAmount: number
-): Map<string, number> {
-  const totalWeight = items.reduce((sum, item) => sum + item.weight, 0);
-  if (totalWeight <= 0 || totalAmount <= 0) return new Map();
-
-  const allocations = items.map((item) => {
-    const exact = (totalAmount * item.weight) / totalWeight;
-    const floor = Math.floor(exact);
-    return { key: item.key, floor, fraction: exact - floor };
-  });
-
-  let remainder = totalAmount - allocations.reduce((sum, row) => sum + row.floor, 0);
-  const sorted = [...allocations].sort((a, b) => b.fraction - a.fraction);
-  const result = new Map<string, number>();
-  sorted.forEach((row, index) => {
-    const extra = index < remainder ? 1 : 0;
-    result.set(row.key, row.floor + extra);
-  });
-  return result;
+function saleDueAmount(
+  row: StatementSaleForPayment,
+  hasVat: boolean,
+  paidBySaleId: Map<string, number>,
+) {
+  const gross = statementGrandTotal(row.statementAmount, hasVat);
+  const paid = paidBySaleId.get(String(row.salesId)) || 0;
+  return Math.max(0, gross - paid);
 }
 
-function splitPaymentAcrossStatementSales(
+/** Allocate deposit to statement sales in ascending sale-date order (FIFO). */
+export function allocatePaymentFifoBySaleDate(
   statementSales: StatementSaleForPayment[],
   paymentAmount: number,
-  hasVat: boolean
+  hasVat: boolean,
+  paidBySaleId: Map<string, number>,
 ) {
-  const subtotal = statementSales.reduce((sum, row) => sum + row.statementAmount, 0);
-  if (subtotal <= 0) return [];
-
-  const finalBySale = distributeAmountByWeight(
-    statementSales.map((row) => ({ key: String(row.salesId), weight: row.statementAmount })),
-    paymentAmount
+  const sorted = [...statementSales].sort(
+    (a, b) =>
+      String(a.saleDate || "").localeCompare(String(b.saleDate || "")) ||
+      String(a.salesId).localeCompare(String(b.salesId)),
   );
 
-  return statementSales.map((row) => {
-    const finalAmount = finalBySale.get(String(row.salesId)) || 0;
+  let remaining = paymentAmount;
+  const results: Array<
+    StatementSaleForPayment & {
+      finalAmount: number;
+      supplyAmount: number;
+      vatAmount: number;
+      isPartialPayment: boolean;
+    }
+  > = [];
+
+  for (const row of sorted) {
+    if (remaining <= 0) break;
+    const due = saleDueAmount(row, hasVat, paidBySaleId);
+    if (due <= 0) continue;
+
+    const finalAmount = Math.min(remaining, due);
+    const isPartialPayment = finalAmount < due;
+    remaining -= finalAmount;
+
     const supplyAmount = hasVat ? Math.max(0, Math.round(finalAmount / 1.1)) : finalAmount;
     const vatAmount = Math.max(0, finalAmount - supplyAmount);
-    return {
+
+    results.push({
       ...row,
       finalAmount,
       supplyAmount,
       vatAmount,
-    };
-  }).filter((row) => row.finalAmount > 0);
+      isPartialPayment,
+    });
+  }
+
+  return results;
 }
 
 export function listMatchableSentStatements(archives: PdfArchiveMeta[]) {
@@ -271,8 +355,7 @@ export function listMatchableSentStatements(archives: PdfArchiveMeta[]) {
       row.sentViaLink &&
       row.category === "statement-client" &&
       row.paymentStatus !== "confirmed" &&
-      row.paymentStatus !== "partial" &&
-      (row.statementTotalAmount || 0) > 0
+      (row.statementTotalAmount || 0) > 0,
   );
 }
 
@@ -284,7 +367,9 @@ export function buildSentStatementMatchCandidates(
     minScore?: number;
     limit?: number;
     clients?: ClientDepositMatchSource[];
-  } = {}
+    paymentVouchers?: PaymentVoucherLike[];
+    bankTransactions?: Array<Pick<BankTransaction, "id" | "linkedPdfArchiveId">>;
+  } = {},
 ) {
   if (tx.deposit <= 0 || tx.linkedPaymentVoucherId || tx.linkedPdfArchiveId || isCardCompanyDeposit(tx)) {
     return [];
@@ -295,6 +380,8 @@ export function buildSentStatementMatchCandidates(
   const subject = resolveBankDepositMatchSubject(tx);
   const linkedPdfArchiveIds = options.linkedPdfArchiveIds || new Set<string>();
   const clients = options.clients;
+  const paymentVouchers = options.paymentVouchers || [];
+  const bankTransactions = options.bankTransactions || [];
   const minScore = options.minScore ?? 35;
   const limit = options.limit ?? 5;
 
@@ -304,11 +391,12 @@ export function buildSentStatementMatchCandidates(
     if (linkedPdfArchiveIds.has(archive.id)) continue;
     if (archive.linkedBankTransactionId && archive.linkedBankTransactionId !== tx.id) continue;
 
-    const sentDate = String(archive.createdAt || "").slice(0, 10);
-
-    const amountMatch = resolveStatementPaymentAmount(deposit, archive.statementTotalAmount || 0);
+    const paidSoFar = resolveStatementPaidAmount(archive.id, paymentVouchers, bankTransactions);
+    const statementTotal = archive.statementTotalAmount || 0;
+    const amountMatch = resolveStatementPaymentAmount(deposit, statementTotal, paidSoFar);
     if (!amountMatch) continue;
 
+    const sentDate = String(archive.createdAt || "").slice(0, 10);
     let score = amountMatch.score;
     const reasons = [amountMatch.reason];
 
@@ -323,7 +411,7 @@ export function buildSentStatementMatchCandidates(
     candidates.push({
       pdfArchiveId: archive.id,
       client: archive.subjectName,
-      statementTotalAmount: archive.statementTotalAmount || 0,
+      statementTotalAmount: statementTotal,
       sentAt: archive.createdAt,
       periodStart: archive.periodStart,
       periodEnd: archive.periodEnd,
@@ -331,6 +419,7 @@ export function buildSentStatementMatchCandidates(
       reasons,
       paymentAmount: amountMatch.paymentAmount,
       paymentStatus: amountMatch.paymentStatus,
+      statementRemainingAmount: Math.max(0, statementTotal - paidSoFar),
       shareLinkUrl: archive.shareLinkUrl,
       statementSalesIds: archive.statementSalesIds,
       dayGap,
@@ -343,7 +432,8 @@ export function buildSentStatementMatchCandidates(
       (a, b) =>
         b.score - a.score ||
         (a.dayGap ?? 999) - (b.dayGap ?? 999) ||
-        b.statementTotalAmount - a.statementTotalAmount
+        String(a.periodStart || "").localeCompare(String(b.periodStart || "")) ||
+        b.statementTotalAmount - a.statementTotalAmount,
     )
     .slice(0, limit)
     .map(({ dayGap: _dayGap, ...row }) => row);
@@ -352,17 +442,23 @@ export function buildSentStatementMatchCandidates(
 export function buildAllSentStatementDepositSuggestions(
   transactions: BankTransaction[],
   archives: PdfArchiveMeta[],
-  clients?: ClientDepositMatchSource[]
+  clients?: ClientDepositMatchSource[],
+  paymentVouchers: PaymentVoucherLike[] = [],
 ) {
   const linkedPdfArchiveIds = new Set(
-    transactions.filter((row) => row.linkedPdfArchiveId).map((row) => String(row.linkedPdfArchiveId))
+    transactions.filter((row) => row.linkedPdfArchiveId).map((row) => String(row.linkedPdfArchiveId)),
   );
 
   return transactions
     .filter((row) => row.deposit > 0 && !row.linkedPaymentVoucherId)
     .map((tx) => ({
       tx,
-      candidates: buildSentStatementMatchCandidates(tx, archives, { linkedPdfArchiveIds, clients }),
+      candidates: buildSentStatementMatchCandidates(tx, archives, {
+        linkedPdfArchiveIds,
+        clients,
+        paymentVouchers,
+        bankTransactions: transactions,
+      }),
     }))
     .filter((row) => row.candidates.length > 0)
     .sort((a, b) => (b.candidates[0]?.score || 0) - (a.candidates[0]?.score || 0));
@@ -371,13 +467,13 @@ export function buildAllSentStatementDepositSuggestions(
 function createFallbackPaymentVoucher(
   tx: BankTransaction,
   candidate: SentStatementMatchCandidate,
-  hasVat: boolean
+  hasVat: boolean,
 ): BankPaymentVoucherDraft {
   const total = candidate.statementTotalAmount;
-  const ratio = total > 0 ? candidate.paymentAmount / total : 1;
   const finalAmount = Math.max(1, Math.round(candidate.paymentAmount));
   const supplyAmount = hasVat ? Math.max(1, Math.round(finalAmount / 1.1)) : finalAmount;
   const vatAmount = Math.max(0, finalAmount - supplyAmount);
+  const isPartialPayment = candidate.paymentStatus === "partial";
 
   return {
     id: Date.now() + Number(String(candidate.pdfArchiveId).replace(/\D/g, "").slice(-6) || 0),
@@ -397,7 +493,19 @@ function createFallbackPaymentVoucher(
     statementPeriodStart: candidate.periodStart,
     statementPeriodEnd: candidate.periodEnd,
     statementSalesIds: candidate.statementSalesIds,
+    linkedPdfArchiveId: candidate.pdfArchiveId,
+    isPartialPayment,
   };
+}
+
+export function resolveArchivePaymentStatusAfterApply(
+  statementTotal: number,
+  paidSoFar: number,
+  appliedAmount: number,
+): "confirmed" | "partial" {
+  const nextPaid = paidSoFar + appliedAmount;
+  if (nextPaid >= statementTotal || amountsMatch(nextPaid, statementTotal)) return "confirmed";
+  return "partial";
 }
 
 export function createPaymentVouchersFromSentStatementMatch(
@@ -406,11 +514,12 @@ export function createPaymentVouchersFromSentStatementMatch(
   options: {
     sales?: SaleLikeForStatement[];
     clients?: ClientDepositMatchSource[];
+    paymentVouchers?: PaymentVoucherLike[];
     archive?: Pick<
       PdfArchiveMeta,
       "subjectName" | "periodStart" | "periodEnd" | "statementTotalAmount" | "statementSalesIds"
     >;
-  } = {}
+  } = {},
 ): BankPaymentVoucherDraft[] {
   const archiveMeta =
     options.archive ||
@@ -429,12 +538,18 @@ export function createPaymentVouchersFromSentStatementMatch(
   const subtotal = statementSales.reduce((sum, row) => sum + row.statementAmount, 0);
   const hasVat = clientHasVat(options.clients, candidate.client, subtotal, candidate.statementTotalAmount);
   const statementSalesIds = statementSales.map((row) => row.salesId);
+  const paidBySaleId = buildPaidAmountBySaleId(options.paymentVouchers || []);
 
   if (!statementSales.length) {
     return [createFallbackPaymentVoucher(tx, candidate, hasVat)];
   }
 
-  const splits = splitPaymentAcrossStatementSales(statementSales, candidate.paymentAmount, hasVat);
+  const splits = allocatePaymentFifoBySaleDate(
+    statementSales,
+    candidate.paymentAmount,
+    hasVat,
+    paidBySaleId,
+  );
   if (!splits.length) {
     return [createFallbackPaymentVoucher(tx, candidate, hasVat)];
   }
@@ -460,6 +575,8 @@ export function createPaymentVouchersFromSentStatementMatch(
     statementPeriodStart: archiveMeta.periodStart,
     statementPeriodEnd: archiveMeta.periodEnd,
     statementSalesIds,
+    linkedPdfArchiveId: candidate.pdfArchiveId,
+    isPartialPayment: row.isPartialPayment || candidate.paymentStatus === "partial",
   }));
 }
 
@@ -467,7 +584,7 @@ export function createPaymentVouchersFromSentStatementMatch(
 export function createPaymentVoucherFromSentStatementMatch(
   tx: BankTransaction,
   candidate: SentStatementMatchCandidate,
-  options?: Parameters<typeof createPaymentVouchersFromSentStatementMatch>[2]
+  options?: Parameters<typeof createPaymentVouchersFromSentStatementMatch>[2],
 ): BankPaymentVoucherDraft {
   return createPaymentVouchersFromSentStatementMatch(tx, candidate, options)[0];
 }
@@ -476,4 +593,13 @@ export function getSentStatementPaymentStatusLabel(status?: PdfArchiveMeta["paym
   if (status === "confirmed") return "\uC785\uAE08\uD655\uC778";
   if (status === "partial") return "\uBD80\uBD84\uC785\uAE08";
   return "\uC785\uAE08\uB300\uAE30";
+}
+
+export function bankTxHasPartialPaymentVoucher(
+  tx: Pick<BankTransaction, "id">,
+  paymentVouchers: Array<{ bankTransactionId?: string | number; isPartialPayment?: boolean }> = [],
+) {
+  return paymentVouchers.some(
+    (voucher) => String(voucher.bankTransactionId || "") === tx.id && voucher.isPartialPayment,
+  );
 }

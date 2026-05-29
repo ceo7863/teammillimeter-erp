@@ -40,6 +40,8 @@ export type BankPaymentVoucherDraft = {
   statementPeriodStart?: string;
   statementPeriodEnd?: string;
   statementSalesIds?: Array<string | number>;
+  linkedPdfArchiveId?: string;
+  isPartialPayment?: boolean;
 };
 
 

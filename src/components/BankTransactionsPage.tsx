@@ -26,7 +26,7 @@ import {
   X,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { AutoLinkBadge, ManualLinkBadge } from "@/components/AutoLinkBadge";
+import { AutoLinkBadge, ManualLinkBadge, PartialPaymentBadge } from "@/components/AutoLinkBadge";
 import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { TableExportSection } from "@/components/TableExportSection";
@@ -131,6 +131,9 @@ import {
   buildAllSentStatementDepositSuggestions,
   buildSentStatementMatchCandidates,
   createPaymentVouchersFromSentStatementMatch,
+  resolveArchivePaymentStatusAfterApply,
+  resolveStatementPaidAmount,
+  bankTxHasPartialPaymentVoucher,
   type SentStatementMatchCandidate,
 } from "@/utils/bankSentStatementMatch";
 import { listSentStatementArchives, updatePdfArchiveMeta, type PdfArchiveMeta } from "@/utils/pdfArchive";
@@ -347,6 +350,9 @@ const L = {
   autoLinkBadgeTitle: "\uACE0\uC2E0\uB8B0 \uC790\uB3D9 \uC785\uAE08",
   manualLinkBadge: "\uAC74\uBCC4\uC785\uAE08",
   manualLinkBadgeTitle: "\uAC74\uBCC4 \uC785\uAE08\uCC98\uB9AC\uB85C \uC5F0\uACB0",
+  partialPaymentBadgeTitle: "\uBD80\uBD84 \uC785\uAE08 \uC804\uD45C (\uB0B4\uC5ED\uC11C \uC794\uC561 \uBBF8\uC218)",
+  partialStatementMatchHint: (amount: number, remaining: number) =>
+    `\uBD80\uBD84\uC785\uAE08 ${formatKRW(amount)} \u00B7 \uC794\uC561 ${formatKRW(Math.max(0, remaining - amount))}`,
   matchEmpty: "\uCD94\uCC9C\uD560 \uBBF8\uC5F0\uACB0 \uC785\uAE08\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   matchStatus: "\uBBF8\uC218 \uC5F0\uACB0",
   linkedSale: "\uC5F0\uACB0 \uB9E4\uCD9C",
@@ -498,6 +504,10 @@ function BankAutoLinkBadge() {
 
 function BankManualLinkBadge() {
   return <ManualLinkBadge title={L.manualLinkBadgeTitle} />;
+}
+
+function BankPartialPaymentBadge() {
+  return <PartialPaymentBadge title={L.partialPaymentBadgeTitle} />;
 }
 
 function resolveActivePeriod(periodKey: PeriodKey, dateFilter: DateFilter): DateFilter {
@@ -2069,7 +2079,7 @@ export function BankTransactionsPage({
 
   const depositSuggestions = useMemo(() => {
     const sentByTxId = new Map(
-      buildAllSentStatementDepositSuggestions(bankTransactions, sentArchives, clients).map((row) => [
+      buildAllSentStatementDepositSuggestions(bankTransactions, sentArchives, clients, paymentVouchers).map((row) => [
         row.tx.id,
         row.candidates,
       ])
@@ -2095,7 +2105,7 @@ export function BankTransactionsPage({
       const scoreB = b.candidates[0]?.score || 0;
       return scoreB - scoreA;
     });
-  }, [bankTransactions, receivableRows, sentArchives, clients]);
+  }, [bankTransactions, receivableRows, sentArchives, clients, paymentVouchers]);
   const depositSuggestionByTxId = useMemo(
     () => new Map(depositSuggestions.map((item) => [item.tx.id, item])),
     [depositSuggestions]
@@ -2618,7 +2628,19 @@ export function BankTransactionsPage({
     }
 
     const archive = sentArchives.find((row) => row.id === candidate.pdfArchiveId);
-    const vouchers = createPaymentVouchersFromSentStatementMatch(tx, candidate, { sales, clients, archive });
+    const paidSoFar = resolveStatementPaidAmount(candidate.pdfArchiveId, paymentVouchers, bankTransactions);
+    const vouchers = createPaymentVouchersFromSentStatementMatch(tx, candidate, {
+      sales,
+      clients,
+      archive,
+      paymentVouchers,
+    });
+    const appliedAmount = vouchers.reduce((sum, voucher) => sum + Number(voucher.finalAmount || 0), 0);
+    const paymentStatus = resolveArchivePaymentStatusAfterApply(
+      candidate.statementTotalAmount,
+      paidSoFar,
+      appliedAmount,
+    );
     const primaryVoucher = vouchers[0];
     const savedBy = currentUser?.name || currentUser?.loginId || "";
     const logs = createPaymentInputLogsFromVouchers(vouchers, savedBy);
@@ -2675,7 +2697,7 @@ export function BankTransactionsPage({
 
     try {
       await updatePdfArchiveMeta(candidate.pdfArchiveId, {
-        paymentStatus: candidate.paymentStatus,
+        paymentStatus,
         linkedBankTransactionId: tx.id,
         linkedPaymentVoucherId: primaryVoucher.id,
         ...(statementSalesIds?.length ? { statementSalesIds } : {}),
@@ -2685,7 +2707,7 @@ export function BankTransactionsPage({
           row.id === candidate.pdfArchiveId
             ? {
                 ...row,
-                paymentStatus: candidate.paymentStatus,
+                paymentStatus,
                 linkedBankTransactionId: tx.id,
                 linkedPaymentVoucherId: primaryVoucher.id,
                 ...(statementSalesIds?.length ? { statementSalesIds } : {}),
@@ -3558,6 +3580,14 @@ export function BankTransactionsPage({
     );
     const newVouchers: ReturnType<typeof createPaymentVoucherFromBankMatch>[] = [];
     const sentVouchers: ReturnType<typeof createPaymentVouchersFromSentStatementMatch>[number][] = [];
+    let workingPaymentVouchers = paymentVouchers as Array<{
+      salesId?: number | string;
+      finalAmount?: number;
+      amount?: number;
+      bankTransactionId?: string | number;
+      linkedPdfArchiveId?: string;
+      isPartialPayment?: boolean;
+    }>;
     const linkedByTxId = new Map<
       string,
       { salesId?: number | string; voucherId: number; client: string; pdfArchiveId?: string; paymentStatus?: "confirmed" | "partial" }
@@ -3571,14 +3601,31 @@ export function BankTransactionsPage({
       if (item.kind === "sentStatement") {
         const sentCandidate = candidate as SentStatementMatchCandidate;
         const archive = sentArchives.find((row) => row.id === sentCandidate.pdfArchiveId);
-        const vouchers = createPaymentVouchersFromSentStatementMatch(item.tx, sentCandidate, { sales, clients, archive });
+        const paidSoFar = resolveStatementPaidAmount(
+          sentCandidate.pdfArchiveId,
+          workingPaymentVouchers,
+          bankTransactions,
+        );
+        const vouchers = createPaymentVouchersFromSentStatementMatch(item.tx, sentCandidate, {
+          sales,
+          clients,
+          archive,
+          paymentVouchers: workingPaymentVouchers,
+        });
+        const appliedAmount = vouchers.reduce((sum, voucher) => sum + Number(voucher.finalAmount || 0), 0);
+        const paymentStatus = resolveArchivePaymentStatusAfterApply(
+          sentCandidate.statementTotalAmount,
+          paidSoFar,
+          appliedAmount,
+        );
         sentVouchers.push(...vouchers);
+        workingPaymentVouchers = [...workingPaymentVouchers, ...vouchers];
         existingBankIds.add(item.tx.id);
         linkedByTxId.set(item.tx.id, {
           voucherId: vouchers[0].id,
           client: sentCandidate.client,
           pdfArchiveId: sentCandidate.pdfArchiveId,
-          paymentStatus: sentCandidate.paymentStatus,
+          paymentStatus,
           salesId: vouchers.length === 1 ? vouchers[0].salesId : undefined,
         });
         continue;
@@ -3957,6 +4004,7 @@ export function BankTransactionsPage({
                 </span>
                 {isBankMatchAutoLinked(row) ? <BankAutoLinkBadge /> : null}
                 {isBankMatchManualLinked(row) ? <BankManualLinkBadge /> : null}
+                {bankTxHasPartialPaymentVoucher(row, paymentVouchers) ? <BankPartialPaymentBadge /> : null}
               </div>
               {row.linkedSubject ? (
                 <div className="mt-1 text-xs text-slate-500">
@@ -3983,6 +4031,11 @@ export function BankTransactionsPage({
                       {" \u00B7 "}
                       {L.matchScore} {top.score}
                     </div>
+                    {isSentStatement && sentTop?.paymentStatus === "partial" ? (
+                      <div className="text-xs font-semibold text-amber-700">
+                        {L.partialStatementMatchHint(sentTop.paymentAmount, sentTop.statementRemainingAmount)}
+                      </div>
+                    ) : null}
                     <div className="flex flex-wrap gap-1">
                       <Button
                         type="button"
@@ -4508,6 +4561,11 @@ export function BankTransactionsPage({
                             )}
                           </div>
                           <div className="mt-1 text-xs text-slate-500">{top.reasons.join(" \u00B7 ")}</div>
+                          {isSentStatement && sentTop?.paymentStatus === "partial" ? (
+                            <div className="mt-1 text-xs font-semibold text-amber-700">
+                              {L.partialStatementMatchHint(sentTop.paymentAmount, sentTop.statementRemainingAmount)}
+                            </div>
+                          ) : null}
                         </div>
                         <div className="flex gap-2">
                           <Button
@@ -5262,7 +5320,13 @@ export function BankTransactionsPage({
               </button>
             </div>
             <div className="max-h-96 space-y-2 overflow-auto">
-              {buildSentStatementMatchCandidates(linkModalTx, sentArchives, { minScore: 0, limit: 30, clients }).map((candidate) => (
+              {buildSentStatementMatchCandidates(linkModalTx, sentArchives, {
+                minScore: 0,
+                limit: 30,
+                clients,
+                paymentVouchers,
+                bankTransactions,
+              }).map((candidate) => (
                 <button
                   key={candidate.pdfArchiveId}
                   type="button"
@@ -5271,8 +5335,11 @@ export function BankTransactionsPage({
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-bold text-slate-900">{candidate.client}</span>
-                    <span className="text-xs font-bold text-violet-700">
-                      {L.matchScore} {candidate.score}
+                    <span className="flex items-center gap-1">
+                      {candidate.paymentStatus === "partial" ? <PartialPaymentBadge /> : null}
+                      <span className="text-xs font-bold text-violet-700">
+                        {L.matchScore} {candidate.score}
+                      </span>
                     </span>
                   </div>
                   <div className="mt-1 text-sm text-slate-600">
@@ -5280,9 +5347,20 @@ export function BankTransactionsPage({
                     {" \u00B7 "}
                     {L.sentAt} {String(candidate.sentAt || "").slice(0, 10)}
                   </div>
+                  {candidate.paymentStatus === "partial" ? (
+                    <div className="mt-1 text-xs font-semibold text-amber-700">
+                      {L.partialStatementMatchHint(candidate.paymentAmount, candidate.statementRemainingAmount)}
+                    </div>
+                  ) : null}
                 </button>
               ))}
-              {buildSentStatementMatchCandidates(linkModalTx, sentArchives, { minScore: 0, limit: 30, clients }).length > 0 &&
+              {buildSentStatementMatchCandidates(linkModalTx, sentArchives, {
+                minScore: 0,
+                limit: 30,
+                clients,
+                paymentVouchers,
+                bankTransactions,
+              }).length > 0 &&
               buildBankDepositMatchCandidates(linkModalTx, receivableRows, { minScore: 0, limit: 30, clients }).length > 0 ? (
                 <div className="py-2 text-center text-xs font-semibold text-slate-400">{L.selectReceivable}</div>
               ) : null}

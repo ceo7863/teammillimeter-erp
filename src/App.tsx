@@ -86,6 +86,7 @@ import { normalizeBankLedgerMatchRules } from "@/utils/bankCompanyLedger";
 import { syncFixedExpenseAutomation } from "@/utils/fixedExpenseAutomation";
 import { normalizeExpenseCategories, normalizeFixedExpenseCategories } from "@/utils/companyLedger";
 import { normalizeBankTransactionFolders } from "@/utils/bankTransactionFolders";
+import { normalizeWorkerPayoutVouchers } from "@/utils/workerPayoutLedger";
 import { normalizeStatementGenerationLogs } from "@/utils/statementGenerationLogs";
 import { normalizeStatementFolders } from "@/utils/statementFolders";
 import { normalizeAttendanceRecords } from "@/utils/attendance";
@@ -393,6 +394,7 @@ function normalizeBackupPayload(raw) {
       auditLogs: Array.isArray(raw.auditLogs) ? raw.auditLogs : [],
       loginLogs: Array.isArray(raw.loginLogs) ? raw.loginLogs : [],
       workerPaymentRecords: Array.isArray(raw.workerPaymentRecords) ? raw.workerPaymentRecords : [],
+      workerPayoutVouchers: normalizeWorkerPayoutVouchers(raw.workerPayoutVouchers),
       companyExpenses: Array.isArray(raw.companyExpenses) ? raw.companyExpenses : [],
       attendanceRecords: normalizeAttendanceRecords(raw.attendanceRecords),
       fixedExpenses: Array.isArray(raw.fixedExpenses) ? raw.fixedExpenses : [],
@@ -6375,6 +6377,10 @@ export default function TeammillimeterErpMvp() {
     if (apiMode && sessionOnMount) return [];
     return Array.isArray(storedData?.workerPaymentRecords) ? storedData.workerPaymentRecords : [];
   });
+  const [workerPayoutVouchers, setWorkerPayoutVouchers] = useState(() => {
+    if (apiMode && sessionOnMount) return [];
+    return normalizeWorkerPayoutVouchers(storedData?.workerPayoutVouchers);
+  });
   const [companyExpenses, setCompanyExpenses] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return Array.isArray(storedData?.companyExpenses) ? storedData.companyExpenses : [];
@@ -6466,6 +6472,7 @@ export default function TeammillimeterErpMvp() {
     setAuditLogs(migratedLogs.auditLogs);
     setLoginLogs(migratedLogs.loginLogs);
     setWorkerPaymentRecords(Array.isArray(data.workerPaymentRecords) ? data.workerPaymentRecords : []);
+    setWorkerPayoutVouchers(normalizeWorkerPayoutVouchers(data.workerPayoutVouchers));
     setCompanyExpenses(Array.isArray(data.companyExpenses) ? data.companyExpenses : []);
     setAttendanceRecords(normalizeAttendanceRecords(data.attendanceRecords));
     setFixedExpenses(Array.isArray(data.fixedExpenses) ? data.fixedExpenses : []);
@@ -6520,7 +6527,7 @@ export default function TeammillimeterErpMvp() {
 
   useEffect(() => {
     if (!apiMode) {
-      saveStoredData({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
+      saveStoredData({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
       return;
     }
     if (!currentUser || !dataReady) return;
@@ -6539,6 +6546,7 @@ export default function TeammillimeterErpMvp() {
         auditLogs,
         loginLogs,
         workerPaymentRecords,
+        workerPayoutVouchers,
         companyExpenses,
         attendanceRecords,
         fixedExpenses,
@@ -6592,7 +6600,7 @@ export default function TeammillimeterErpMvp() {
       }
     }, 900);
     return () => window.clearTimeout(timer);
-  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode]);
+  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -6605,7 +6613,7 @@ export default function TeammillimeterErpMvp() {
   }, [active]);
 
   const backupData = () => {
-    downloadBackup({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
+    downloadBackup({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
   };
 
   const restoreBackup = (file) => {
@@ -6622,6 +6630,7 @@ export default function TeammillimeterErpMvp() {
         setAuditLogs(parsed.auditLogs || []);
         setLoginLogs(parsed.loginLogs || []);
         setWorkerPaymentRecords(parsed.workerPaymentRecords || []);
+        setWorkerPayoutVouchers(normalizeWorkerPayoutVouchers(parsed.workerPayoutVouchers));
         setCompanyExpenses(parsed.companyExpenses || []);
         setAttendanceRecords(normalizeAttendanceRecords(parsed.attendanceRecords));
         setFixedExpenses(parsed.fixedExpenses || []);
@@ -6663,6 +6672,7 @@ export default function TeammillimeterErpMvp() {
     if (salesCount) setSales(normalizeSalesRecords(payload.sales, payload.workers || workers));
     setPaymentVouchers(payload.paymentVouchers?.length ? payload.paymentVouchers : []);
     setWorkerPaymentRecords(Array.isArray(payload.workerPaymentRecords) ? payload.workerPaymentRecords : []);
+    setWorkerPayoutVouchers(normalizeWorkerPayoutVouchers(payload.workerPayoutVouchers));
     setCompanyExpenses(Array.isArray(payload.companyExpenses) ? payload.companyExpenses : []);
     setAttendanceRecords(normalizeAttendanceRecords(payload.attendanceRecords));
     setFixedExpenses(Array.isArray(payload.fixedExpenses) ? payload.fixedExpenses : []);
@@ -6943,6 +6953,10 @@ export default function TeammillimeterErpMvp() {
             sales={appliedSales}
             workerPaymentRecords={workerPaymentRecords}
             setWorkerPaymentRecords={setWorkerPaymentRecords}
+            bankTransactions={bankTransactions}
+            bankTransactionFolders={bankTransactionFolders}
+            workerPayoutVouchers={workerPayoutVouchers}
+            setWorkerPayoutVouchers={setWorkerPayoutVouchers}
             currentUser={currentUser}
           />
         </PageKeepAlive>

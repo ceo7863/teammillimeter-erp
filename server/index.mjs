@@ -439,6 +439,7 @@ app.get("/api/erp", authMiddleware, (_req, res) => {
     auditLogs: state.data.auditLogs || [],
     loginLogs: state.data.loginLogs || [],
     workerPaymentRecords: state.data.workerPaymentRecords || [],
+    workerPayoutVouchers: state.data.workerPayoutVouchers || [],
     companyExpenses: state.data.companyExpenses || [],
     attendanceRecords: state.data.attendanceRecords || [],
     fixedExpenses: state.data.fixedExpenses || [],
@@ -581,7 +582,7 @@ app.get("/api/bank-sync/status", authMiddleware, (_req, res) => {
 });
 
 app.put("/api/erp", authMiddleware, (req, res) => {
-  const { sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, version } = req.body || {};
+  const { sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, version } = req.body || {};
   const existing = getErpState();
   const serverLoginLogs = Array.isArray(existing.data?.loginLogs) ? existing.data.loginLogs : [];
   const payload = {
@@ -593,6 +594,7 @@ app.put("/api/erp", authMiddleware, (req, res) => {
     auditLogs: Array.isArray(auditLogs) ? auditLogs : [],
     loginLogs: serverLoginLogs,
     workerPaymentRecords: Array.isArray(workerPaymentRecords) ? workerPaymentRecords : [],
+    workerPayoutVouchers: Array.isArray(workerPayoutVouchers) ? workerPayoutVouchers : [],
     companyExpenses: Array.isArray(companyExpenses) ? companyExpenses : [],
     attendanceRecords: Array.isArray(attendanceRecords) ? attendanceRecords : [],
     fixedExpenses: Array.isArray(fixedExpenses) ? fixedExpenses : [],

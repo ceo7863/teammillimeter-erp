@@ -27,7 +27,7 @@ import {
   summarizePaymentInputLogs,
   type PaymentInputLog,
 } from "@/utils/paymentInputLogs";
-import { SalePaymentLinkBadge } from "@/components/AutoLinkBadge";
+import { SalePaymentLinkBadge, PartialPaymentBadge } from "@/components/AutoLinkBadge";
 
 type PaymentTab = "input" | "receivables" | "history" | "log";
 
@@ -55,6 +55,7 @@ type PaymentVoucherLike = {
   finalAmount?: number;
   totalSalesAmount?: number;
   memo?: string;
+  isPartialPayment?: boolean;
 };
 
 type PaymentDraft = {
@@ -1343,6 +1344,7 @@ export function PaymentReceivablesPage({
                       <td className="font-medium text-slate-800">
                         {getVoucherSaleDate(voucher) || "-"}
                         <SalePaymentLinkBadge saleId={voucher.salesId} />
+                        {voucher.isPartialPayment ? <PartialPaymentBadge /> : null}
                       </td>
                       <td className="text-slate-600">{voucher.date}</td>
                       <td className="erp-cell-clip text-left font-semibold" title={voucher.client}>{voucher.client}</td>
@@ -1488,6 +1490,7 @@ export function PaymentReceivablesPage({
                           <td className="font-medium text-slate-800">
                         {getVoucherSaleDate(voucher) || "-"}
                         <SalePaymentLinkBadge saleId={voucher.salesId} />
+                        {voucher.isPartialPayment ? <PartialPaymentBadge /> : null}
                       </td>
                           <td className="text-slate-600">{voucher.date}</td>
                           <td className="erp-cell-clip text-left font-semibold" title={voucher.client}>{voucher.client}</td>

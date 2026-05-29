@@ -92,7 +92,71 @@ export function normalizeClientManagerName(raw?: string) {
 function depositSubjectMatchesNameAndAliases(subject: string, name: string, aliases?: string) {
   const trimmedName = String(name || "").trim();
   if (trimmedName && includesDepositName(subject, trimmedName)) return true;
+  const coreName = extractWorkerCoreName(trimmedName);
+  if (coreName && coreName !== trimmedName && includesDepositName(subject, coreName)) return true;
   return parseDepositNameAliases(aliases).some((alias) => includesDepositName(subject, alias));
+}
+
+/** `황진성(단단팀)` → `황진성` */
+export function extractWorkerCoreName(name: string) {
+  const trimmed = String(name || "").trim();
+  if (!trimmed) return "";
+  const parenMatch = trimmed.match(/^(.+?)\s*[\uFF08(]([^)\uFF09]+)[\uFF09)]\s*$/);
+  if (parenMatch?.[1]) return parenMatch[1].trim();
+  return trimmed;
+}
+
+function buildWorkerMatchTokens(worker: WorkerDepositMatchSource) {
+  const tokens = new Set<string>();
+  const name = String(worker.name || "").trim();
+  if (name) {
+    tokens.add(name);
+    const core = extractWorkerCoreName(name);
+    if (core) tokens.add(core);
+    const teamMatch = name.match(/[\uFF08(]([^)\uFF09]+)[\uFF09)]/);
+    const team = teamMatch?.[1]?.trim();
+    if (team) tokens.add(team);
+  }
+  for (const alias of parseDepositNameAliases(worker.depositNameAliases)) {
+    tokens.add(alias);
+    const core = extractWorkerCoreName(alias);
+    if (core) tokens.add(core);
+  }
+  return [...tokens].filter((token) => token.length >= 2);
+}
+
+export function bankTextMatchesWorker(text: string, worker: WorkerDepositMatchSource) {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return false;
+  const normalizedText = normalizeMatchText(trimmed);
+  return buildWorkerMatchTokens(worker).some((token) => {
+    const normalizedToken = normalizeMatchText(token);
+    if (normalizedText === normalizedToken) return true;
+    return includesDepositName(trimmed, token);
+  });
+}
+
+export function collectBankTransactionWorkerMatchTexts(tx: {
+  memo?: string;
+  counterpartyName?: string;
+  description?: string;
+}) {
+  return [
+    ...new Set(
+      [tx.memo, tx.counterpartyName, tx.description]
+        .map((part) => String(part || "").trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+export function findWorkerForBankTransaction(
+  tx: { memo?: string; counterpartyName?: string; description?: string },
+  workers: WorkerDepositMatchSource[],
+) {
+  const texts = collectBankTransactionWorkerMatchTexts(tx);
+  if (!texts.length) return undefined;
+  return workers.find((worker) => texts.some((text) => bankTextMatchesWorker(text, worker)));
 }
 
 function clientManagerMatchesSubject(subject: string, client: ClientDepositMatchSource) {
@@ -106,23 +170,25 @@ export function depositSubjectMatchesClientAliases(subject: string, client: Clie
 }
 
 export function depositSubjectMatchesWorker(subject: string, worker: WorkerDepositMatchSource) {
-  return depositSubjectMatchesNameAndAliases(subject, String(worker.name || ""), worker.depositNameAliases);
+  return bankTextMatchesWorker(subject, worker);
 }
 
 export function findWorkerByDepositSubject(workers: WorkerDepositMatchSource[], subject: string) {
   const trimmed = String(subject || "").trim();
   if (!trimmed) return undefined;
-  return workers.find((worker) => depositSubjectMatchesWorker(trimmed, worker));
+  return workers.find((worker) => bankTextMatchesWorker(trimmed, worker));
 }
 
-/** 시공자 마스터 `name`과 정확히 일치할 때만 시공자 지출 분류에 사용 */
+/** 시공자 마스터 이름 또는 괄호 앞 핵심 이름과 정확히 일치할 때 시공자 지출 분류에 사용 */
 export function findWorkerByMasterName(workers: WorkerDepositMatchSource[], subject: string) {
   const normalizedSubject = normalizeMatchText(subject);
   if (!normalizedSubject) return undefined;
   return workers.find((worker) => {
     const name = String(worker.name || "").trim();
     if (!name) return false;
-    return normalizeMatchText(name) === normalizedSubject;
+    if (normalizeMatchText(name) === normalizedSubject) return true;
+    const core = extractWorkerCoreName(name);
+    return Boolean(core && normalizeMatchText(core) === normalizedSubject);
   });
 }
 
@@ -142,9 +208,7 @@ export function canClassifyBankTransactionAsWorkerFolder(
   workers: WorkerDepositMatchSource[],
 ) {
   if (Number(tx.withdrawal || 0) <= 0) return false;
-  const subject = resolveBankWorkerFolderMatchSubject(tx);
-  if (findWorkerByMasterName(workers, subject)) return true;
-  return Boolean(findWorkerByDepositSubject(workers, subject));
+  return Boolean(findWorkerForBankTransaction(tx, workers));
 }
 
 export function depositSubjectMatchesClientManager(subject: string, client: ClientDepositMatchSource) {

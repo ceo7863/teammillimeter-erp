@@ -10180,6 +10180,20 @@ button:disabled,
   vertical-align: middle;
 }
 
+.erp-bank-partial-link-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  background: #fef3c7;
+  color: #b45309;
+  white-space: nowrap;
+  margin-left: 0.25rem;
+  vertical-align: middle;
+}
+
 .erp-bank-auto-link-badge {
   display: inline-flex;
   align-items: center;
@@ -10200,4 +10214,66 @@ button:disabled,
   flex-wrap: wrap;
   align-items: center;
   gap: 0.2rem;
+}
+
+.erp-worker-payout-folder-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.875rem;
+  background: #fff;
+  padding: 0.75rem 0.875rem;
+  text-align: left;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.erp-worker-payout-folder-btn:hover {
+  background: #f8fafc;
+}
+
+.erp-worker-payout-folder-btn.is-active {
+  border-color: #86efac;
+  background: #ecfdf5;
+}
+
+.erp-worker-payout-folder-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.erp-worker-payout-folder-meta {
+  flex-shrink: 0;
+  font-size: 0.6875rem;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.erp-worker-payout-detail-column {
+  min-height: 420px;
+}
+
+.erp-worker-payout-kind-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.erp-worker-payout-kind-badge.is-bank {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.erp-worker-payout-kind-badge.is-voucher {
+  background: #fffbeb;
+  color: #b45309;
 }

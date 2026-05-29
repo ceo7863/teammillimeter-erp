@@ -63,6 +63,14 @@ export function ManualLinkBadge({ title = "\uAC74\uBCC4 \uC785\uAE08\uCC98\uB9AC
   );
 }
 
+export function PartialPaymentBadge({ title = "\uBD80\uBD84 \uC785\uAE08 \uC804\uD45C" }: { title?: string }) {
+  return (
+    <span className="erp-bank-partial-link-badge" title={title}>
+      {"\uBD80\uBD84\uC785\uAE08"}
+    </span>
+  );
+}
+
 export function SalePaymentLinkBadge({
   saleId,
   autoLinkedSaleIds,

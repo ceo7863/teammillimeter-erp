@@ -4,10 +4,8 @@ import type { CompanyExpense, FixedExpensePayment } from "./companyLedger";
 import {
   canClassifyBankTransactionAsWorkerFolder,
   findClientByDepositSubject,
-  findWorkerByDepositSubject,
-  findWorkerByMasterName,
+  findWorkerForBankTransaction,
   resolveBankDepositMatchSubject,
-  resolveBankWorkerFolderMatchSubject,
   type ClientDepositMatchSource,
   type WorkerDepositMatchSource,
 } from "./clientDepositAliases";
@@ -266,11 +264,7 @@ export function suggestBankTransactionClassification(
   }
 
   if (tx.withdrawal > 0) {
-    const workerSubject = resolveBankWorkerFolderMatchSubject(tx);
-    const worker =
-      findWorkerByMasterName(workers, workerSubject) ||
-      findWorkerByDepositSubject(workers, workerSubject) ||
-      (String(tx.memo || "").trim() ? findWorkerByDepositSubject(workers, String(tx.memo || "").trim()) : undefined);
+    const worker = findWorkerForBankTransaction(tx, workers);
     if (worker?.name) return { folderType: "worker", linkedSubject: String(worker.name).trim() };
   }
 
