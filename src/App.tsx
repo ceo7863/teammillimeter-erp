@@ -520,7 +520,18 @@ function SaleFormCompactEditor({
   memoAfterWorkers = false,
   onSharedMemoChange,
   lockClientSite = false,
+  allowClientSiteUnlock = false,
 }) {
+  const [clientSiteUnlocked, setClientSiteUnlocked] = useState(false);
+  const [clientSiteUnlockPromptOpen, setClientSiteUnlockPromptOpen] = useState(false);
+
+  useEffect(() => {
+    setClientSiteUnlocked(false);
+    setClientSiteUnlockPromptOpen(false);
+  }, [auditEntityId, allowClientSiteUnlock]);
+
+  const clientSiteLocked = allowClientSiteUnlock ? !clientSiteUnlocked : lockClientSite;
+
   const footerStatus = saveMessage || statusMessage || (canSave
     ? `${form.client}${form.site ? ` · ${form.site}` : ""} · ${formatKRW(totals.bill)}`
     : null);
@@ -586,30 +597,44 @@ function SaleFormCompactEditor({
               </div>
             </SaleFormField>
             <SaleFormField label="거래처" icon={Building2}>
-              {lockClientSite ? (
-                <Input className="erp-input-compact erp-input-compact--locked" value={form.client} readOnly disabled />
-              ) : (
-                <AutocompleteInput
-                  value={form.client}
-                  options={clients}
-                  onChange={(value) => update("client", value)}
-                  placeholder="거래처"
-                  freeSolo={false}
-                  inputProps={{ className: "erp-input-compact" }}
-                  renderSub={(client) => `${client.manager || "담당자 없음"} · ${formatKRW(client.constructionCost || 0)}`}
-                />
-              )}
+              <div className="erp-sale-form-client-row">
+                {clientSiteLocked ? (
+                  <Input className="erp-input-compact erp-input-compact--locked" value={form.client} readOnly disabled />
+                ) : (
+                  <AutocompleteInput
+                    value={form.client}
+                    options={clients}
+                    onChange={(value) => update("client", value)}
+                    placeholder="거래처"
+                    freeSolo={false}
+                    inputProps={{ className: "erp-input-compact" }}
+                    renderSub={(client) => `${client.manager || "담당자 없음"} · ${formatKRW(client.constructionCost || 0)}`}
+                  />
+                )}
+                {allowClientSiteUnlock && clientSiteLocked ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="erp-sale-form-client-change-btn"
+                    onClick={() => setClientSiteUnlockPromptOpen(true)}
+                  >
+                    <Pencil size={13} />
+                    변경
+                  </Button>
+                ) : null}
+              </div>
             </SaleFormField>
             <SaleFormField label="현장" icon={MapPin}>
               <Input
-                className={`erp-input-compact${lockClientSite ? " erp-input-compact--locked" : ""}`}
+                className={`erp-input-compact${clientSiteLocked ? " erp-input-compact--locked" : ""}`}
                 data-sale-form-site="true"
                 value={form.site}
                 onChange={(e) => update("site", e.target.value)}
-                onKeyDown={lockClientSite ? undefined : handleSiteKeyDown}
+                onKeyDown={clientSiteLocked ? undefined : handleSiteKeyDown}
                 placeholder="현장명"
-                readOnly={lockClientSite}
-                disabled={lockClientSite}
+                readOnly={clientSiteLocked}
+                disabled={clientSiteLocked}
               />
             </SaleFormField>
             {showPaidField && (
@@ -771,6 +796,40 @@ function SaleFormCompactEditor({
           </div>
         </CardContent>
       </Card>
+
+      {clientSiteUnlockPromptOpen ? (
+        <div className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated" onClick={() => setClientSiteUnlockPromptOpen(false)}>
+          <div
+            className="erp-ledger-modal"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="sale-client-unlock-title"
+          >
+            <h2 id="sale-client-unlock-title" className="text-base font-bold text-slate-900 md:text-lg">
+              거래처·현장 변경
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              거래처·현장을 변경하면 연결된 입금전표·미수금 집계에도 반영됩니다. 실수로 변경하지 않도록 주의해 주세요.
+            </p>
+            <p className="mt-4 text-sm font-semibold text-slate-700">거래처·현장 변경을 진행할까요?</p>
+            <div className="mt-5 flex gap-2">
+              <Button variant="outline" className="flex-1 rounded-xl" onClick={() => setClientSiteUnlockPromptOpen(false)}>
+                취소
+              </Button>
+              <Button
+                className="flex-1 rounded-xl"
+                onClick={() => {
+                  setClientSiteUnlocked(true);
+                  setClientSiteUnlockPromptOpen(false);
+                }}
+              >
+                변경 진행
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }
@@ -1722,6 +1781,19 @@ function validateSaleFormMasterRefs(form, clients, workers) {
 
 function isSaleFormMasterRefsValid(form, clients, workers) {
   return validateSaleFormMasterRefs(form, clients, workers) === "";
+}
+
+function syncLinkedPaymentVouchersForSale(vouchers, saleId, next: { client: string; site: string }) {
+  if (!Array.isArray(vouchers)) return vouchers;
+  const saleKey = String(saleId);
+  let changed = false;
+  const nextVouchers = vouchers.map((voucher) => {
+    if (String(voucher.salesId ?? "") !== saleKey) return voucher;
+    if (voucher.client === next.client && voucher.site === next.site) return voucher;
+    changed = true;
+    return { ...voucher, client: next.client, site: next.site };
+  });
+  return changed ? nextVouchers : vouchers;
 }
 
 function SummaryCard({ title, value, sub, tone = "default", icon: Icon, compact = false }) {
@@ -3014,6 +3086,9 @@ function CalendarPage({
         ? { ...row, ...payload, createdBy: row.createdBy, createdByEmail: row.createdByEmail, createdAt: row.createdAt }
         : row
     )));
+    if (setPaymentVouchers && (payload.client !== editingSale.client || payload.site !== editingSale.site)) {
+      setPaymentVouchers((prev) => syncLinkedPaymentVouchersForSale(prev, editingSale.id, { client: payload.client, site: payload.site }));
+    }
     setVoucherSaveMessage(`${payload.client} · ${payload.site} 전표가 저장되었습니다.`);
     resetVoucherEdit();
   };
@@ -3956,7 +4031,6 @@ function CalendarPage({
                 saveLabel="전표 저장"
                 saveMessage={voucherSaveMessage}
                 auditEntityId={editingSaleId}
-                lockClientSite
                 headerAction={(
                   <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={closeVoucherEdit}>
                     닫기
@@ -3979,6 +4053,7 @@ function CalendarPage({
                   </>
                 )}
                 onSharedMemoChange={updateVoucherSharedMemo}
+                allowClientSiteUnlock
               />
             </div>
           </div>
@@ -4281,7 +4356,7 @@ function SearchBox({ query, setQuery, placeholder }) {
 
 const emptyVoucherSearchFilters = { client: "", site: "", worker: "" };
 
-function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set() }) {
+function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, setPaymentVouchers, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set() }) {
   const { recordAudit } = useAudit();
   const [searchFilters, setSearchFilters] = useState(emptyVoucherSearchFilters);
   const [dateFilter, setDateFilter] = useState({ startDate: "", endDate: "" });
@@ -4429,6 +4504,9 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
     });
 
     setSales((prev) => prev.map((row) => row.id === selectedRow.id ? { ...row, ...payload, createdBy: row.createdBy, createdByEmail: row.createdByEmail, createdAt: row.createdAt } : row));
+    if (setPaymentVouchers && (payload.client !== selectedRow.client || payload.site !== selectedRow.site)) {
+      setPaymentVouchers((prev) => syncLinkedPaymentVouchersForSale(prev, selectedRow.id, { client: payload.client, site: payload.site }));
+    }
     setSaveMessage(`${payload.client} · ${payload.site} 전표가 저장되었습니다.`);
     setSelectedRowId(null);
     setForm(emptySaleForm);
@@ -4497,7 +4575,6 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
           saveLabel="전표 저장"
           saveMessage={saveMessage}
           auditEntityId={selectedRowId}
-          lockClientSite
           headerAction={(
             <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={closeEditor}>
               닫기
@@ -4520,6 +4597,7 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
             </>
           )}
           onSharedMemoChange={updateSharedMemo}
+          allowClientSiteUnlock
         />
       ) : (
         <PageTitle title="매출전표검색" desc="전표를 클릭해 열고, 매출등록과 같은 화면에서 수정합니다." />
@@ -6933,6 +7011,7 @@ export default function TeammillimeterErpMvp() {
             clients={clients}
             workers={workers}
             currentUser={currentUser}
+            setPaymentVouchers={setPaymentVouchers}
             pendingVoucherId={pendingVoucherEditId}
             pendingSearchFilter={pendingVoucherSearchFilter}
             onPendingVoucherConsumed={() => setPendingVoucherEditId(null)}

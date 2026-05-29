@@ -7138,6 +7138,27 @@ textarea {
   display: none;
 }
 
+.erp-sale-form-client-row {
+  display: flex;
+  gap: 0.35rem;
+  align-items: stretch;
+}
+
+.erp-sale-form-client-row > .erp-input-compact,
+.erp-sale-form-client-row > .relative {
+  flex: 1;
+  min-width: 0;
+}
+
+.erp-sale-form-client-change-btn {
+  flex-shrink: 0;
+  height: auto;
+  padding: 0 0.55rem;
+  font-size: 0.75rem;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+
 .erp-sale-form-inline-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -4166,11 +4166,19 @@ export function BankTransactionsPage({
           : row.netGroupRole === "preauth_withdrawal"
             ? L.preauthNetSuppressedBadge
             : null;
+    const amount =
+      row.deposit > 0
+        ? { label: L.deposit, value: formatKRW(row.deposit), tone: "success" as const }
+        : row.withdrawal > 0
+          ? { label: L.withdrawal, value: formatKRW(row.withdrawal), tone: "danger" as const }
+          : undefined;
+
     return (
     <MobileRecordCard
       key={row.id}
       title={row.description || "(\uAC70\uB798\uB0B4\uC6A9 \uC5C6\uC74C)"}
       subtitle={formatBankTransactionDateTime(row.transactionAt)}
+      amount={amount}
       badges={[
         preauthBadge ? { label: preauthBadge, tone: "muted" as const } : null,
         ledgerCategoryLabel
@@ -4204,8 +4212,6 @@ export function BankTransactionsPage({
         row.linkedPaymentVoucherId && isBankMatchManualLinked(row)
           ? { label: L.manualLinkBadge, tone: "default" as const }
           : null,
-        row.deposit > 0 ? { label: `${L.deposit} ${formatKRW(row.deposit)}`, tone: "success" as const } : null,
-        row.withdrawal > 0 ? { label: `${L.withdrawal} ${formatKRW(row.withdrawal)}`, tone: "danger" as const } : null,
       ].filter(Boolean) as Array<{ label: string; tone: "success" | "danger" | "default" | "muted" }>}
       rows={[
         {

@@ -62,6 +62,36 @@ function paymentStatusTone(status?: PdfArchiveMeta["paymentStatus"]) {
   return "bg-slate-100 text-slate-600";
 }
 
+type SentStatementPaymentSort = "recent" | "pending-first" | "confirmed-first";
+
+function sentPaymentStatusRank(status?: PdfArchiveMeta["paymentStatus"]) {
+  if (status === "confirmed") return 2;
+  if (status === "partial") return 1;
+  return 0;
+}
+
+function sortSentStatementRecords(records: PdfArchiveMeta[], sort: SentStatementPaymentSort) {
+  const sorted = [...records];
+  if (sort === "recent") {
+    sorted.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    return sorted;
+  }
+  if (sort === "pending-first") {
+    sorted.sort((a, b) => {
+      const rankDiff = sentPaymentStatusRank(a.paymentStatus) - sentPaymentStatusRank(b.paymentStatus);
+      if (rankDiff !== 0) return rankDiff;
+      return String(b.createdAt).localeCompare(String(a.createdAt));
+    });
+    return sorted;
+  }
+  sorted.sort((a, b) => {
+    const rankDiff = sentPaymentStatusRank(b.paymentStatus) - sentPaymentStatusRank(a.paymentStatus);
+    if (rankDiff !== 0) return rankDiff;
+    return String(b.createdAt).localeCompare(String(a.createdAt));
+  });
+  return sorted;
+}
+
 function isArchiveAutoLinked(record: PdfArchiveMeta, bankTxById: Map<string, BankTransaction>) {
   if (!record.linkedBankTransactionId) return false;
   return isBankMatchAutoLinked(bankTxById.get(record.linkedBankTransactionId));
@@ -107,6 +137,7 @@ export function PdfArchivePage({
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [folderSort, setFolderSort] = useState<PdfArchiveFolderSort>("updated");
+  const [sentPaymentSort, setSentPaymentSort] = useState<SentStatementPaymentSort>("recent");
   const [expandedFolderIds, setExpandedFolderIds] = useState<string[]>([]);
   const [bulkWorking, setBulkWorking] = useState<"download" | "clear" | null>(null);
   const [confirmAction, setConfirmAction] = useState<"download" | "clear" | null>(null);
@@ -161,12 +192,18 @@ export function PdfArchivePage({
   );
 
   const sentRecords = useMemo(
-    () =>
-      filteredRecords
-        .filter((record) => record.sentViaLink)
-        .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
-    [filteredRecords]
+    () => sortSentStatementRecords(filteredRecords.filter((record) => record.sentViaLink), sentPaymentSort),
+    [filteredRecords, sentPaymentSort],
   );
+
+  const sentPaymentStats = useMemo(() => {
+    const sent = filteredRecords.filter((record) => record.sentViaLink);
+    return {
+      pending: sent.filter((record) => !record.paymentStatus || record.paymentStatus === "pending").length,
+      partial: sent.filter((record) => record.paymentStatus === "partial").length,
+      confirmed: sent.filter((record) => record.paymentStatus === "confirmed").length,
+    };
+  }, [filteredRecords]);
 
   const bankTxById = useMemo(
     () => new Map(bankTransactions.map((row) => [row.id, row])),
@@ -715,9 +752,25 @@ export function PdfArchivePage({
           ) : (
             <div className="space-y-4">
               <section className="rounded-2xl border border-violet-200 bg-violet-50/30 p-3 md:p-4">
-                <div className="mb-3 flex items-center justify-between gap-2">
-                  <h4 className="erp-statement-folder-column-title">{"\uBCF4\uB0B8\uB0B4\uC5ED\uC11C\uD568"}</h4>
-                  <span className="erp-statement-folder-column-count">{sentRecords.length}</span>
+                <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h4 className="erp-statement-folder-column-title">{"\uBCF4\uB0B8\uB0B4\uC5ED\uC11C\uD568"}</h4>
+                    <span className="erp-statement-folder-column-count">{sentRecords.length}</span>
+                    <span className="text-xs text-slate-500">
+                      {"\uC785\uAE08\uB300\uAE30 "}{sentPaymentStats.pending}
+                      {" \u00B7 \uBD80\uBD84\uC785\uAE08 "}{sentPaymentStats.partial}
+                      {" \u00B7 \uC785\uAE08\uD655\uC778 "}{sentPaymentStats.confirmed}
+                    </span>
+                  </div>
+                  <select
+                    className="erp-statement-folder-sort erp-input w-full rounded-lg border px-2 py-1 erp-text-caption sm:w-auto"
+                    value={sentPaymentSort}
+                    onChange={(event) => setSentPaymentSort(event.target.value as SentStatementPaymentSort)}
+                  >
+                    <option value="recent">{"\uC815\uB840 \u00B7 \uCD5C\uADFC\uC21C"}</option>
+                    <option value="pending-first">{"\uC815\uB840 \u00B7 \uC785\uAE08\uB300\uAE30 \uBA3C\uC800"}</option>
+                    <option value="confirmed-first">{"\uC815\uB840 \u00B7 \uC785\uAE08\uD655\uC778 \uBA3C\uC800"}</option>
+                  </select>
                 </div>
                 {renderSentStatementList()}
               </section>
