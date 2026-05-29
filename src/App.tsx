@@ -85,7 +85,7 @@ import { syncFixedExpenseAutomation } from "@/utils/fixedExpenseAutomation";
 import { normalizeExpenseCategories, normalizeFixedExpenseCategories } from "@/utils/companyLedger";
 import { normalizeBankTransactionFolders } from "@/utils/bankTransactionFolders";
 import { normalizeWorkerPayoutVouchers } from "@/utils/workerPayoutLedger";
-import { normalizeWorkerMonthlyActualVouchers } from "@/utils/workerMonthlyActualPayments";
+import { normalizeWorkerMonthlyActualVouchers, normalizeWorkerPayWithVatLearnRules } from "@/utils/workerMonthlyActualPayments";
 import { migrateActivePageKey, storeAccountingTab } from "@/utils/accountingHub";
 import { normalizeStatementGenerationLogs } from "@/utils/statementGenerationLogs";
 import { normalizeStatementFolders } from "@/utils/statementFolders";
@@ -396,6 +396,7 @@ function normalizeBackupPayload(raw) {
       workerPaymentRecords: Array.isArray(raw.workerPaymentRecords) ? raw.workerPaymentRecords : [],
       workerPayoutVouchers: normalizeWorkerPayoutVouchers(raw.workerPayoutVouchers),
       workerMonthlyActualVouchers: normalizeWorkerMonthlyActualVouchers(raw.workerMonthlyActualVouchers),
+      workerPayWithVatLearnRules: normalizeWorkerPayWithVatLearnRules(raw.workerPayWithVatLearnRules),
       companyExpenses: Array.isArray(raw.companyExpenses) ? raw.companyExpenses : [],
       attendanceRecords: normalizeAttendanceRecords(raw.attendanceRecords),
       fixedExpenses: Array.isArray(raw.fixedExpenses) ? raw.fixedExpenses : [],
@@ -6477,6 +6478,10 @@ export default function TeammillimeterErpMvp() {
     if (apiMode && sessionOnMount) return [];
     return normalizeWorkerMonthlyActualVouchers(storedData?.workerMonthlyActualVouchers);
   });
+  const [workerPayWithVatLearnRules, setWorkerPayWithVatLearnRules] = useState(() => {
+    if (apiMode && sessionOnMount) return [];
+    return normalizeWorkerPayWithVatLearnRules(storedData?.workerPayWithVatLearnRules);
+  });
   const [companyExpenses, setCompanyExpenses] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return Array.isArray(storedData?.companyExpenses) ? storedData.companyExpenses : [];
@@ -6570,6 +6575,7 @@ export default function TeammillimeterErpMvp() {
     setWorkerPaymentRecords(Array.isArray(data.workerPaymentRecords) ? data.workerPaymentRecords : []);
     setWorkerPayoutVouchers(normalizeWorkerPayoutVouchers(data.workerPayoutVouchers));
     setWorkerMonthlyActualVouchers(normalizeWorkerMonthlyActualVouchers(data.workerMonthlyActualVouchers));
+    setWorkerPayWithVatLearnRules(normalizeWorkerPayWithVatLearnRules(data.workerPayWithVatLearnRules));
     setCompanyExpenses(Array.isArray(data.companyExpenses) ? data.companyExpenses : []);
     setAttendanceRecords(normalizeAttendanceRecords(data.attendanceRecords));
     setFixedExpenses(Array.isArray(data.fixedExpenses) ? data.fixedExpenses : []);
@@ -6624,7 +6630,7 @@ export default function TeammillimeterErpMvp() {
 
   useEffect(() => {
     if (!apiMode) {
-      saveStoredData({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
+      saveStoredData({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
       return;
     }
     if (!currentUser || !dataReady) return;
@@ -6645,6 +6651,7 @@ export default function TeammillimeterErpMvp() {
         workerPaymentRecords,
         workerPayoutVouchers,
         workerMonthlyActualVouchers,
+        workerPayWithVatLearnRules,
         companyExpenses,
         attendanceRecords,
         fixedExpenses,
@@ -6698,7 +6705,7 @@ export default function TeammillimeterErpMvp() {
       }
     }, 900);
     return () => window.clearTimeout(timer);
-  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode]);
+  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -6716,7 +6723,7 @@ export default function TeammillimeterErpMvp() {
   }, [active]);
 
   const backupData = () => {
-    downloadBackup({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
+    downloadBackup({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
   };
 
   const restoreBackup = (file) => {
@@ -6735,6 +6742,7 @@ export default function TeammillimeterErpMvp() {
         setWorkerPaymentRecords(parsed.workerPaymentRecords || []);
         setWorkerPayoutVouchers(normalizeWorkerPayoutVouchers(parsed.workerPayoutVouchers));
         setWorkerMonthlyActualVouchers(normalizeWorkerMonthlyActualVouchers(parsed.workerMonthlyActualVouchers));
+        setWorkerPayWithVatLearnRules(normalizeWorkerPayWithVatLearnRules(parsed.workerPayWithVatLearnRules));
         setCompanyExpenses(parsed.companyExpenses || []);
         setAttendanceRecords(normalizeAttendanceRecords(parsed.attendanceRecords));
         setFixedExpenses(parsed.fixedExpenses || []);
@@ -6778,6 +6786,7 @@ export default function TeammillimeterErpMvp() {
     setWorkerPaymentRecords(Array.isArray(payload.workerPaymentRecords) ? payload.workerPaymentRecords : []);
     setWorkerPayoutVouchers(normalizeWorkerPayoutVouchers(payload.workerPayoutVouchers));
     setWorkerMonthlyActualVouchers(normalizeWorkerMonthlyActualVouchers(payload.workerMonthlyActualVouchers));
+    setWorkerPayWithVatLearnRules(normalizeWorkerPayWithVatLearnRules(payload.workerPayWithVatLearnRules));
     setCompanyExpenses(Array.isArray(payload.companyExpenses) ? payload.companyExpenses : []);
     setAttendanceRecords(normalizeAttendanceRecords(payload.attendanceRecords));
     setFixedExpenses(Array.isArray(payload.fixedExpenses) ? payload.fixedExpenses : []);
@@ -7065,6 +7074,8 @@ export default function TeammillimeterErpMvp() {
             setWorkerPayoutVouchers={setWorkerPayoutVouchers}
             workerMonthlyActualVouchers={workerMonthlyActualVouchers}
             setWorkerMonthlyActualVouchers={setWorkerMonthlyActualVouchers}
+            workerPayWithVatLearnRules={workerPayWithVatLearnRules}
+            setWorkerPayWithVatLearnRules={setWorkerPayWithVatLearnRules}
             setBankTransactions={setBankTransactions}
             currentUser={currentUser}
           />

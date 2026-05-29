@@ -47,7 +47,10 @@ import {
 } from "@/utils/workerMonthlyPayments";
 import { WorkerPayoutHistoryTab } from "@/components/WorkerPayoutHistoryTab";
 import { WorkerMonthlyActualPaymentTab } from "@/components/WorkerMonthlyActualPaymentTab";
-import type { WorkerMonthlyActualVoucher } from "@/utils/workerMonthlyActualPayments";
+import type {
+  WorkerMonthlyActualVoucher,
+  WorkerPayWithVatLearnRule,
+} from "@/utils/workerMonthlyActualPayments";
 import type { BankTransaction } from "@/utils/bankTransactions";
 import type { BankTransactionFolder } from "@/utils/bankTransactionFolders";
 import type { WorkerPayoutVoucher } from "@/utils/workerPayoutLedger";
@@ -156,6 +159,8 @@ export function WorkerPaymentsPage({
   setWorkerPayoutVouchers,
   workerMonthlyActualVouchers = [],
   setWorkerMonthlyActualVouchers,
+  workerPayWithVatLearnRules = [],
+  setWorkerPayWithVatLearnRules,
   setBankTransactions,
   currentUser,
 }: {
@@ -169,6 +174,8 @@ export function WorkerPaymentsPage({
   setWorkerPayoutVouchers?: React.Dispatch<React.SetStateAction<WorkerPayoutVoucher[]>>;
   workerMonthlyActualVouchers?: WorkerMonthlyActualVoucher[];
   setWorkerMonthlyActualVouchers?: React.Dispatch<React.SetStateAction<WorkerMonthlyActualVoucher[]>>;
+  workerPayWithVatLearnRules?: WorkerPayWithVatLearnRule[];
+  setWorkerPayWithVatLearnRules?: React.Dispatch<React.SetStateAction<WorkerPayWithVatLearnRule[]>>;
   setBankTransactions?: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
   currentUser?: { name?: string; email?: string };
 }) {
@@ -736,7 +743,7 @@ export function WorkerPaymentsPage({
             </div>
 
             <div className="erp-payment-hub-filters">
-              {activeTab === "monthly" || activeTab === "monthlyActual" ? (
+              {activeTab === "monthly" ? (
                 <>
                   <div className="erp-worker-month-nav">
                     <button type="button" className="erp-worker-month-nav-btn" onClick={() => setSelectedMonthKey((prev) => shiftMonthKey(prev, -1))} aria-label="이전 달">
@@ -1238,6 +1245,8 @@ export function WorkerPaymentsPage({
           setWorkerPaymentRecords={setWorkerPaymentRecords}
           workerMonthlyActualVouchers={workerMonthlyActualVouchers}
           setWorkerMonthlyActualVouchers={setWorkerMonthlyActualVouchers}
+          workerPayWithVatLearnRules={workerPayWithVatLearnRules}
+          setWorkerPayWithVatLearnRules={setWorkerPayWithVatLearnRules}
           workerPayoutVouchers={workerPayoutVouchers}
           setWorkerPayoutVouchers={setWorkerPayoutVouchers}
           bankTransactions={bankTransactions}

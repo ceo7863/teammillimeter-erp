@@ -1,5 +1,15 @@
 import type { BankTransaction } from "./bankTransactions";
-import type { WorkerMasterLike, WorkerPaymentDetailRow } from "./workerPayments";
+import {
+  compareWorkerMastersDefault,
+  findWorkerMasterByName,
+  normalizeWorkerCategory,
+  normalizeWorkerName,
+  WORKER_CATEGORY_OUTSOURCE,
+  WORKER_CATEGORY_TEAM,
+  type WorkerCategory,
+  type WorkerMasterLike,
+  type WorkerPaymentDetailRow,
+} from "./workerPayments";
 import {
   buildWorkerMonthlyWorkerRows,
   calculateWorkerPaymentVat,
@@ -66,6 +76,155 @@ export type WorkerMonthlyObligation = {
 };
 
 export type WorkerMonthlyVoucherStatus = "unpaid" | "partial" | "paid" | "overpaid";
+
+export type WorkerPayWithVatLearnRule = {
+  worker: string;
+  payWithVat: boolean;
+  learnedAt?: string;
+};
+
+export type WorkerPaymentBreakdown = {
+  includesVat: boolean;
+  netAmount: number;
+  vatAmount: number;
+  total: number;
+};
+
+export type WorkerMonthlyWorkerSummary = {
+  worker: string;
+  expectedTotal: number;
+  paidTotal: number;
+  balanceTotal: number;
+  unpaidMonthCount: number;
+  obligations: WorkerMonthlyObligation[];
+};
+
+export function detectWorkerPaymentBreakdown(amount: number, expectedNetPay: number): WorkerPaymentBreakdown {
+  const total = Math.round(Number(amount) || 0);
+  const netAmount = Math.round(Number(expectedNetPay) || 0);
+  const withVat = calculateWorkerPaymentVat(netAmount, true);
+  const withoutVat = calculateWorkerPaymentVat(netAmount, false);
+
+  if (netAmount > 0 && total === withVat.finalPayAmount) {
+    return { includesVat: true, netAmount, vatAmount: withVat.vatAmount, total: withVat.finalPayAmount };
+  }
+  if (total === withoutVat.finalPayAmount) {
+    return { includesVat: false, netAmount, vatAmount: 0, total: withoutVat.finalPayAmount };
+  }
+  return { includesVat: false, netAmount, vatAmount: 0, total };
+}
+
+export function inferPayWithVatFromAmount(amount: number, expectedNetPay: number) {
+  return detectWorkerPaymentBreakdown(amount, expectedNetPay).includesVat;
+}
+
+export function normalizeWorkerPayWithVatLearnRule(raw: unknown): WorkerPayWithVatLearnRule | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Partial<WorkerPayWithVatLearnRule>;
+  const worker = String(row.worker || "").trim();
+  if (!worker) return null;
+  return {
+    worker,
+    payWithVat: Boolean(row.payWithVat),
+    learnedAt: row.learnedAt ? String(row.learnedAt) : undefined,
+  };
+}
+
+export function normalizeWorkerPayWithVatLearnRules(rows: unknown): WorkerPayWithVatLearnRule[] {
+  if (!Array.isArray(rows)) return [];
+  return rows.map(normalizeWorkerPayWithVatLearnRule).filter((row): row is WorkerPayWithVatLearnRule => Boolean(row));
+}
+
+export function upsertWorkerPayWithVatLearnRule(
+  rules: WorkerPayWithVatLearnRule[],
+  worker: string,
+  payWithVat: boolean,
+): WorkerPayWithVatLearnRule[] {
+  const name = String(worker || "").trim();
+  if (!name) return rules;
+  const entry: WorkerPayWithVatLearnRule = {
+    worker: name,
+    payWithVat,
+    learnedAt: new Date().toISOString(),
+  };
+  const existing = rules.find((row) => row.worker === name);
+  if (existing) {
+    return rules.map((row) => (row.worker === name ? { ...row, ...entry } : row));
+  }
+  return [...rules, entry];
+}
+
+export function resolveWorkerPayWithVat(
+  worker: string,
+  monthKey: string,
+  records: WorkerMonthlyPaymentRecord[] = [],
+  learnRules: WorkerPayWithVatLearnRule[] = [],
+  voucher?: WorkerMonthlyActualVoucher | null,
+) {
+  if (voucher?.payWithVat) return true;
+  const record = records.find((row) => row.key === makeWorkerMonthKey(worker, monthKey));
+  if (record?.payWithVat) return true;
+  const learnRule = learnRules.find((row) => row.worker === String(worker || "").trim());
+  return Boolean(learnRule?.payWithVat);
+}
+
+export function buildWorkerMonthlyWorkerSummaries(
+  obligations: WorkerMonthlyObligation[] = [],
+  workers: WorkerMasterLike[] = [],
+) {
+  const byWorker = new Map<string, WorkerMonthlyObligation[]>();
+  for (const obligation of obligations) {
+    const workerName = normalizeWorkerName(obligation.worker);
+    if (!workerName) continue;
+    const list = byWorker.get(workerName) || [];
+    list.push(obligation);
+    byWorker.set(workerName, list);
+  }
+
+  const summaries: WorkerMonthlyWorkerSummary[] = [];
+  const seen = new Set<string>();
+
+  for (const worker of [...workers].sort(compareWorkerMastersDefault)) {
+    const workerName = normalizeWorkerName(worker.name);
+    if (!workerName || seen.has(workerName)) continue;
+    seen.add(workerName);
+    summaries.push(buildWorkerMonthlyWorkerSummary(workerName, worker, byWorker.get(workerName) || []));
+  }
+
+  for (const [workerName, rows] of byWorker) {
+    if (seen.has(workerName)) continue;
+    const master = findWorkerMasterByName(workers, workerName);
+    summaries.push(buildWorkerMonthlyWorkerSummary(workerName, master, rows));
+    seen.add(workerName);
+  }
+
+  return summaries.sort((a, b) => {
+    const activeDiff = (a.isActive ? 0 : 1) - (b.isActive ? 0 : 1);
+    if (activeDiff !== 0) return activeDiff;
+    const categoryDiff =
+      (a.category === WORKER_CATEGORY_OUTSOURCE ? 1 : 0) - (b.category === WORKER_CATEGORY_OUTSOURCE ? 1 : 0);
+    if (categoryDiff !== 0) return categoryDiff;
+    return a.worker.localeCompare(b.worker, "ko");
+  });
+}
+
+function buildWorkerMonthlyWorkerSummary(
+  workerName: string,
+  master: WorkerMasterLike | undefined,
+  rows: WorkerMonthlyObligation[],
+): WorkerMonthlyWorkerSummary {
+  const sorted = [...rows].sort((a, b) => b.monthKey.localeCompare(a.monthKey));
+  return {
+    worker: workerName,
+    category: normalizeWorkerCategory(master?.category),
+    isActive: master?.isActive !== false,
+    expectedTotal: sorted.reduce((sum, row) => sum + row.expectedFinalAmount, 0),
+    paidTotal: sorted.reduce((sum, row) => sum + row.paid, 0),
+    balanceTotal: sorted.reduce((sum, row) => sum + row.balance, 0),
+    unpaidMonthCount: sorted.filter((row) => row.balance > 0).length,
+    obligations: sorted,
+  };
+}
 
 function makeEntryId() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return `wm-entry-${crypto.randomUUID()}`;
@@ -228,20 +387,12 @@ export function allocateWorkerPaymentFifo(
   return allocations;
 }
 
-function resolvePayWithVat(
-  worker: string,
-  monthKey: string,
-  records: WorkerMonthlyPaymentRecord[] = [],
-) {
-  const record = records.find((row) => row.key === makeWorkerMonthKey(worker, monthKey));
-  return Boolean(record?.payWithVat);
-}
-
 export function buildWorkerMonthlyObligations(
   detailRows: WorkerPaymentDetailRow[] = [],
   workers: WorkerMasterLike[] = [],
   vouchers: WorkerMonthlyActualVoucher[] = [],
   records: WorkerMonthlyPaymentRecord[] = [],
+  learnRules: WorkerPayWithVatLearnRule[] = [],
 ): WorkerMonthlyObligation[] {
   const monthKeys = new Set<string>();
   for (const row of detailRows) {
@@ -278,11 +429,11 @@ export function buildWorkerMonthlyObligations(
     for (const worker of workersInMonth) {
       const workerRow = workerRows.find((row) => row.worker === worker);
       const expectedAmount = Math.round(workerRow?.netPay || 0);
-      const payWithVat = resolvePayWithVat(worker, monthKey, records);
+      const voucher = voucherByKey.get(`${worker}::${monthKey}`) || null;
+      const payWithVat = resolveWorkerPayWithVat(worker, monthKey, records, learnRules, voucher);
       const expectedFinalAmount = calculateWorkerPaymentVat(expectedAmount, payWithVat).finalPayAmount;
       const key = makeWorkerMonthKey(worker, monthKey);
       const paid = paidByKey.get(`${worker}::${monthKey}`) || 0;
-      const voucher = voucherByKey.get(`${worker}::${monthKey}`) || null;
 
       obligations.push({
         worker,
@@ -416,7 +567,11 @@ export function linkBankEntryToWorkerMonthlyVoucher(
     obligations: WorkerMonthlyObligation[];
     useFifo?: boolean;
   },
-): { vouchers: WorkerMonthlyActualVoucher[]; bankTransactions: BankTransaction[] } {
+): {
+  vouchers: WorkerMonthlyActualVoucher[];
+  bankTransactions: BankTransaction[];
+  learnedPayWithVat?: boolean;
+} {
   const tx = bankTransactions.find((row) => row.id === input.bankTransactionId);
   if (!tx) return { vouchers, bankTransactions };
 
@@ -430,14 +585,35 @@ export function linkBankEntryToWorkerMonthlyVoucher(
     date,
   };
 
-  const target = vouchers.find((row) => row.id === input.voucherId);
-  const expected = target?.expectedFinalAmount || 0;
+  let nextVouchers = vouchers;
+  let target = nextVouchers.find((row) => row.id === input.voucherId);
+  const obligation = input.obligations.find(
+    (row) => row.worker === input.worker && row.monthKey === input.monthKey,
+  );
+  const expectedAmount = Math.round(target?.expectedAmount || obligation?.expectedAmount || 0);
+  let payWithVat = Boolean(target?.payWithVat || obligation?.payWithVat);
+  let learnedPayWithVat = false;
+
+  if (!payWithVat && expectedAmount > 0 && inferPayWithVatFromAmount(amount, expectedAmount)) {
+    payWithVat = true;
+    learnedPayWithVat = true;
+    nextVouchers = upsertWorkerMonthlyActualVoucher(nextVouchers, {
+      worker: input.worker,
+      monthKey: input.monthKey,
+      expectedAmount,
+      payWithVat: true,
+    });
+    target = nextVouchers.find((row) => row.id === input.voucherId);
+  }
+
+  const expected =
+    target?.expectedFinalAmount || calculateWorkerPaymentVat(expectedAmount, payWithVat).finalPayAmount;
   const fifoAllocations =
     input.useFifo !== false && amount !== expected
       ? allocateWorkerPaymentFifo(input.worker, amount, input.obligations)
       : undefined;
 
-  let nextVouchers = addEntryToWorkerMonthlyVoucher(vouchers, input.voucherId, entry, fifoAllocations);
+  nextVouchers = addEntryToWorkerMonthlyVoucher(nextVouchers, input.voucherId, entry, fifoAllocations);
 
   if (fifoAllocations?.length) {
     for (const alloc of fifoAllocations) {
@@ -448,7 +624,7 @@ export function linkBankEntryToWorkerMonthlyVoucher(
         expectedAmount:
           input.obligations.find((row) => row.worker === input.worker && row.monthKey === alloc.monthKey)
             ?.expectedAmount || 0,
-        payWithVat: target?.payWithVat,
+        payWithVat: payWithVat || target?.payWithVat,
       });
     }
   }
@@ -457,7 +633,7 @@ export function linkBankEntryToWorkerMonthlyVoucher(
     row.id === tx.id ? { ...row, linkedWorkerMonthlyPaymentVoucherId: input.voucherId } : row,
   );
 
-  return { vouchers: nextVouchers, bankTransactions: nextBankTransactions };
+  return { vouchers: nextVouchers, bankTransactions: nextBankTransactions, learnedPayWithVat: learnedPayWithVat || undefined };
 }
 
 export function createVoucherWithEntries(

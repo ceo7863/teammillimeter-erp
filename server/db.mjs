@@ -41,6 +41,7 @@ function emptyErpPayload() {
     workerPaymentRecords: [],
     workerPayoutVouchers: [],
     workerMonthlyActualVouchers: [],
+    workerPayWithVatLearnRules: [],
     companyExpenses: [],
     attendanceRecords: [],
     fixedExpenses: [],

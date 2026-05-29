@@ -2,6 +2,14 @@ import type { BankTransaction } from "./bankTransactions";
 import { isNetGroupSuppressed } from "./bankPreauthNetting";
 import { findWorkerForBankTransaction, type WorkerDepositMatchSource } from "./clientDepositAliases";
 import {
+  findWorkerMasterByName,
+  normalizeWorkerCategory,
+  normalizeWorkerName,
+  WORKER_CATEGORY_OUTSOURCE,
+  type WorkerCategory,
+  type WorkerMasterLike,
+} from "./workerPayments";
+import {
   isWorkerBankTransactionFolder,
   type BankTransactionFolder,
 } from "./bankTransactionFolders";
@@ -35,6 +43,8 @@ export type WorkerPayoutFolder = {
   bankTotal: number;
   voucherTotal: number;
   total: number;
+  category?: WorkerCategory;
+  isActive?: boolean;
 };
 
 export function makeWorkerPayoutVoucherId() {
@@ -108,11 +118,12 @@ export function buildWorkerPayoutFolders(
   workers: WorkerDepositMatchSource[],
   vouchers: WorkerPayoutVoucher[],
   dateFilter: { startDate?: string; endDate?: string } = {},
+  workersMaster: WorkerMasterLike[] = [],
 ): WorkerPayoutFolder[] {
   const map = new Map<string, WorkerPayoutLedgerEntry[]>();
 
   const pushEntry = (workerName: string, entry: WorkerPayoutLedgerEntry) => {
-    const key = workerName.trim();
+    const key = normalizeWorkerName(workerName);
     if (!key) return;
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(entry);
@@ -152,16 +163,26 @@ export function buildWorkerPayoutFolders(
     });
     const bankTotal = sorted.filter((row) => row.kind === "bank").reduce((sum, row) => sum + row.amount, 0);
     const voucherTotal = sorted.filter((row) => row.kind === "voucher").reduce((sum, row) => sum + row.amount, 0);
+    const master = findWorkerMasterByName(workersMaster, workerName);
     folders.push({
       workerName,
       entries: sorted,
       bankTotal,
       voucherTotal,
       total: bankTotal + voucherTotal,
+      category: normalizeWorkerCategory(master?.category),
+      isActive: master?.isActive !== false,
     });
   }
 
-  folders.sort((a, b) => b.total - a.total || a.workerName.localeCompare(b.workerName, "ko"));
+  folders.sort((a, b) => {
+    const activeDiff = (a.isActive === false ? 1 : 0) - (b.isActive === false ? 1 : 0);
+    if (activeDiff !== 0) return activeDiff;
+    const categoryDiff =
+      (a.category === WORKER_CATEGORY_OUTSOURCE ? 1 : 0) - (b.category === WORKER_CATEGORY_OUTSOURCE ? 1 : 0);
+    if (categoryDiff !== 0) return categoryDiff;
+    return b.total - a.total || a.workerName.localeCompare(b.workerName, "ko");
+  });
   return folders;
 }
 

@@ -3571,6 +3571,18 @@ textarea {
   color: #b45309;
 }
 
+span.erp-worker-category-select.is-readonly {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: auto;
+  max-width: none;
+  margin: 0;
+  cursor: default;
+  pointer-events: none;
+}
+
 .erp-worker-grade-select {
   width: 100%;
   max-width: 3.25rem;
@@ -10367,9 +10379,36 @@ button:disabled,
 .erp-worker-payout-folder-name {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
   font-size: 0.875rem;
   font-weight: 700;
   color: #0f172a;
+}
+
+.erp-worker-payout-folder-btn.is-inactive {
+  opacity: 0.72;
+}
+
+.erp-worker-monthly-folder-group + .erp-worker-monthly-folder-group {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.erp-worker-monthly-folder-group-head {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-bottom: 0.375rem;
+  padding: 0 0.25rem;
+}
+
+.erp-worker-monthly-folder-group-count {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #64748b;
 }
 
 .erp-worker-payout-folder-meta {

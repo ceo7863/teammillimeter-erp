@@ -8,7 +8,7 @@ import { confirmDelete } from "@/utils/confirmDelete";
 import { formatBankTransactionDateTime } from "@/utils/bankTransactions";
 import type { BankTransaction } from "@/utils/bankTransactions";
 import type { BankTransactionFolder } from "@/utils/bankTransactionFolders";
-import { formatKRW, todayISO, type WorkerMasterLike } from "@/utils/workerPayments";
+import { formatKRW, normalizeWorkerCategory, WORKER_CATEGORY_OUTSOURCE, WORKER_CATEGORY_TEAM, todayISO, type WorkerCategory, type WorkerMasterLike } from "@/utils/workerPayments";
 import { parseMoney, formatMoneyInput, sanitizeMoneyInput } from "@/utils/receivables";
 import {
   WORKER_PAYOUT_METHOD_LABELS,
@@ -43,6 +43,83 @@ const emptyVoucherForm = {
   memo: "",
 };
 
+function WorkerCategoryBadge({ category }: { category: WorkerCategory }) {
+  const normalized = normalizeWorkerCategory(category);
+  return (
+    <span
+      className={`erp-worker-category-select is-readonly is-${normalized === WORKER_CATEGORY_OUTSOURCE ? "outsource" : "team"}`}
+    >
+      {normalized}
+    </span>
+  );
+}
+
+function renderPayoutFolderList(
+  folders: Array<{
+    workerName: string;
+    entries: { length: number };
+    total: number;
+    category?: WorkerCategory;
+    isActive?: boolean;
+  }>,
+  activeWorkerName: string | undefined,
+  onSelect: (workerName: string) => void,
+) {
+  const groups: React.ReactNode[] = [];
+  let currentCategory: WorkerCategory | null = null;
+  let currentItems: typeof folders = [];
+
+  const flushGroup = () => {
+    if (!currentItems.length || !currentCategory) return;
+    groups.push(
+      <div key={`group-${currentCategory}-${currentItems[0]?.workerName}`} className="erp-worker-monthly-folder-group">
+        <div className="erp-worker-monthly-folder-group-head">
+          <WorkerCategoryBadge category={currentCategory} />
+          <span className="erp-worker-monthly-folder-group-count">
+            {currentItems.length}
+            {"\uBA85"}
+          </span>
+        </div>
+        {currentItems.map((folder) => {
+          const active = activeWorkerName === folder.workerName;
+          return (
+            <button
+              key={folder.workerName}
+              type="button"
+              className={`erp-worker-payout-folder-btn ${active ? "is-active" : ""}${folder.isActive === false ? " is-inactive" : ""}`}
+              onClick={() => onSelect(folder.workerName)}
+            >
+              <span className="erp-worker-payout-folder-name">
+                <WorkerCategoryBadge category={folder.category || WORKER_CATEGORY_TEAM} />
+                <span className={folder.isActive === false ? "text-slate-400" : ""}>{folder.workerName}</span>
+              </span>
+              <span className="erp-worker-payout-folder-meta">
+                {folder.entries.length}
+                {"\uAC74 \u00B7 "}
+                {formatKRW(folder.total)}
+              </span>
+              <ChevronRight size={14} className="shrink-0 text-slate-400" />
+            </button>
+          );
+        })}
+      </div>,
+    );
+    currentItems = [];
+  };
+
+  for (const folder of folders) {
+    const category = normalizeWorkerCategory(folder.category);
+    if (category !== currentCategory) {
+      flushGroup();
+      currentCategory = category;
+    }
+    currentItems.push(folder);
+  }
+  flushGroup();
+
+  return groups;
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="erp-payment-hub-filter">
@@ -71,10 +148,17 @@ export function WorkerPayoutHistoryTab({
 
   const payoutFolders = useMemo(
     () =>
-      buildWorkerPayoutFolders(bankTransactions, bankTransactionFolders, workers, workerPayoutVouchers, {
-        startDate: dateFilter.startDate || undefined,
-        endDate: dateFilter.endDate || undefined,
-      }),
+      buildWorkerPayoutFolders(
+        bankTransactions,
+        bankTransactionFolders,
+        workers,
+        workerPayoutVouchers,
+        {
+          startDate: dateFilter.startDate || undefined,
+          endDate: dateFilter.endDate || undefined,
+        },
+        workers,
+      ),
     [bankTransactions, bankTransactionFolders, workers, workerPayoutVouchers, dateFilter.endDate, dateFilter.startDate],
   );
 
@@ -189,7 +273,18 @@ export function WorkerPayoutHistoryTab({
             <div className="erp-statement-folder-column">
               <div className="erp-statement-folder-column-head">
                 <span className="erp-statement-folder-column-title">{"\uC2DC\uACF5\uC790 \uD3F4\uB354"}</span>
-                <span className="erp-statement-folder-column-count">{filteredFolders.length}</span>
+                <div className="erp-workers-summary">
+                  <span>
+                    {"\uD300\uC6D0 "}
+                    <b>{payoutFolders.filter((row) => row.category === WORKER_CATEGORY_TEAM).length}</b>
+                  </span>
+                  <span>
+                    {"\uC678\uC8FC "}
+                    <b className="text-amber-700">
+                      {payoutFolders.filter((row) => row.category === WORKER_CATEGORY_OUTSOURCE).length}
+                    </b>
+                  </span>
+                </div>
               </div>
               <div className="erp-statement-folder-toolbar">
                 <input
@@ -207,23 +302,7 @@ export function WorkerPayoutHistoryTab({
                   </p>
                 ) : (
                   <div className="erp-statement-folder-list">
-                    {filteredFolders.map((folder) => {
-                      const active = activeFolder?.workerName === folder.workerName;
-                      return (
-                        <button
-                          key={folder.workerName}
-                          type="button"
-                          className={`erp-worker-payout-folder-btn ${active ? "is-active" : ""}`}
-                          onClick={() => setSelectedWorker(folder.workerName)}
-                        >
-                          <span className="erp-worker-payout-folder-name">{folder.workerName}</span>
-                          <span className="erp-worker-payout-folder-meta">
-                            {folder.entries.length}{"\uAC74 \u00B7 "}{formatKRW(folder.total)}
-                          </span>
-                          <ChevronRight size={14} className="shrink-0 text-slate-400" />
-                        </button>
-                      );
-                    })}
+                    {renderPayoutFolderList(filteredFolders, activeFolder?.workerName, setSelectedWorker)}
                   </div>
                 )}
               </div>
@@ -236,7 +315,10 @@ export function WorkerPayoutHistoryTab({
                 <>
                   <div className="erp-statement-folder-column-head">
                     <div>
-                      <span className="erp-statement-folder-column-title">{activeFolder.workerName}</span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <WorkerCategoryBadge category={activeFolder.category || WORKER_CATEGORY_TEAM} />
+                        <span className="erp-statement-folder-column-title">{activeFolder.workerName}</span>
+                      </div>
                       <p className="erp-text-caption mt-1 text-slate-500">
                         {"\uD1B5\uC7A5 "}{formatKRW(activeFolder.bankTotal)}{" \u00B7 \uC804\uD45C "}{formatKRW(activeFolder.voucherTotal)}{" \u00B7 \uD569\uACC4 "}{formatKRW(activeFolder.total)}
                       </p>

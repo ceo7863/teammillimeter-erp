@@ -7,8 +7,14 @@ import {
   resolveWorkerFeeRate,
 } from "./workerLineMetrics";
 import { formatKRW, monthStartISO, todayISO } from "./receivables";
+import { includesDepositName, parseDepositNameAliases } from "./clientDepositAliases";
 
 export { formatKRW, monthStartISO, todayISO };
+
+export type WorkerCategory = "\uD300\uC6D0" | "\uC678\uC8FC";
+
+export const WORKER_CATEGORY_TEAM: WorkerCategory = "\uD300\uC6D0";
+export const WORKER_CATEGORY_OUTSOURCE: WorkerCategory = "\uC678\uC8FC";
 
 export type WorkerMasterLike = {
   id?: number | string;
@@ -17,7 +23,63 @@ export type WorkerMasterLike = {
   bank?: string;
   account?: string;
   feeRate?: number;
+  category?: string;
+  isActive?: boolean;
+  depositNameAliases?: string;
+  grade?: string;
 };
+
+export function normalizeWorkerName(value?: string) {
+  return String(value || "").trim();
+}
+
+export function normalizeWorkerCategory(value?: string): WorkerCategory {
+  const normalized = String(value || "").trim().replace(/\s+/g, "");
+  if (
+    normalized === WORKER_CATEGORY_OUTSOURCE ||
+    normalized.toLowerCase() === "outsource" ||
+    normalized === "\uC678\uC8FC"
+  ) {
+    return WORKER_CATEGORY_OUTSOURCE;
+  }
+  return WORKER_CATEGORY_TEAM;
+}
+
+export function workerCategorySortRank(value?: string) {
+  return normalizeWorkerCategory(value) === WORKER_CATEGORY_OUTSOURCE ? 1 : 0;
+}
+
+export function workerActiveSortRank(worker: Pick<WorkerMasterLike, "isActive">) {
+  return worker.isActive === false ? 1 : 0;
+}
+
+export function compareWorkerMastersDefault(a: WorkerMasterLike, b: WorkerMasterLike) {
+  const activeDiff = workerActiveSortRank(a) - workerActiveSortRank(b);
+  if (activeDiff !== 0) return activeDiff;
+  const categoryDiff = workerCategorySortRank(a.category) - workerCategorySortRank(b.category);
+  if (categoryDiff !== 0) return categoryDiff;
+  return normalizeWorkerName(a.name).localeCompare(normalizeWorkerName(b.name), "ko");
+}
+
+export function findWorkerMasterByName(
+  workers: WorkerMasterLike[] = [],
+  name?: string,
+): WorkerMasterLike | undefined {
+  const target = normalizeWorkerName(name);
+  if (!target) return undefined;
+
+  for (const worker of workers) {
+    if (normalizeWorkerName(worker.name) === target) return worker;
+  }
+
+  for (const worker of workers) {
+    const aliases = parseDepositNameAliases(worker.depositNameAliases);
+    if (aliases.some((alias) => normalizeWorkerName(alias) === target)) return worker;
+    if (includesDepositName(worker.name || "", target)) return worker;
+  }
+
+  return undefined;
+}
 
 export type SaleLike = {
   id?: number | string;

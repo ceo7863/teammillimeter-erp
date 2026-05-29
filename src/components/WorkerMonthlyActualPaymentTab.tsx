@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, FileText, Landmark, Plus, X } from "lucide-react";
+import { ChevronRight, FileText, Landmark, Plus, X } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
@@ -8,12 +8,16 @@ import type { BankTransactionFolder } from "@/utils/bankTransactionFolders";
 import {
   flattenSalesToWorkerPaymentRows,
   formatKRW,
+  normalizeWorkerCategory,
+  WORKER_CATEGORY_OUTSOURCE,
+  WORKER_CATEGORY_TEAM,
   todayISO,
+  type WorkerCategory,
   type WorkerMasterLike,
 } from "@/utils/workerPayments";
 import {
+  calculateWorkerPaymentVat,
   formatMonthLabel,
-  shiftMonthKey,
   type WorkerMonthlyPaymentRecord,
 } from "@/utils/workerMonthlyPayments";
 import {
@@ -27,18 +31,24 @@ import {
   allocateWorkerPaymentFifo,
   buildUnlinkedWorkerBankWithdrawals,
   buildWorkerMonthlyObligations,
+  buildWorkerMonthlyWorkerSummaries,
   computeVoucherStatus,
   createWorkerPayoutVoucherFromManualEntry,
+  detectWorkerPaymentBreakdown,
+  inferPayWithVatFromAmount,
   linkBankEntryToWorkerMonthlyVoucher,
   refreshVoucherPaidAmount,
   resolveWorkerFromBankTx,
   sumVoucherPaidAmount,
   syncWorkerPaymentRecordsFromVouchers,
   upsertWorkerMonthlyActualVoucher,
+  upsertWorkerPayWithVatLearnRule,
   WORKER_MONTHLY_VOUCHER_STATUS_LABELS,
   type WorkerMonthlyActualVoucher,
   type WorkerMonthlyObligation,
   type WorkerMonthlyPaymentEntry,
+  type WorkerPayWithVatLearnRule,
+  type WorkerMonthlyWorkerSummary,
 } from "@/utils/workerMonthlyActualPayments";
 
 type WorkerMonthlyActualPaymentTabProps = {
@@ -48,13 +58,15 @@ type WorkerMonthlyActualPaymentTabProps = {
   setWorkerPaymentRecords?: React.Dispatch<React.SetStateAction<WorkerMonthlyPaymentRecord[]>>;
   workerMonthlyActualVouchers?: WorkerMonthlyActualVoucher[];
   setWorkerMonthlyActualVouchers?: React.Dispatch<React.SetStateAction<WorkerMonthlyActualVoucher[]>>;
+  workerPayWithVatLearnRules?: WorkerPayWithVatLearnRule[];
+  setWorkerPayWithVatLearnRules?: React.Dispatch<React.SetStateAction<WorkerPayWithVatLearnRule[]>>;
   workerPayoutVouchers?: WorkerPayoutVoucher[];
   setWorkerPayoutVouchers?: React.Dispatch<React.SetStateAction<WorkerPayoutVoucher[]>>;
   bankTransactions?: BankTransaction[];
   setBankTransactions?: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
   bankTransactionFolders?: BankTransactionFolder[];
-  selectedMonthKey: string;
-  setSelectedMonthKey: (value: string | ((prev: string) => string)) => void;
+  selectedMonthKey?: string;
+  setSelectedMonthKey?: (value: string | ((prev: string) => string)) => void;
   currentUser?: { name?: string; email?: string };
 };
 
@@ -87,9 +99,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function makeManualEntry(
-  form: typeof emptyManualForm,
-): WorkerMonthlyPaymentEntry | null {
+function makeManualEntry(form: typeof emptyManualForm): WorkerMonthlyPaymentEntry | null {
   const amount = parseMoney(form.amount);
   const date = form.date.trim();
   if (amount <= 0 || !date) return null;
@@ -103,6 +113,147 @@ function makeManualEntry(
   };
 }
 
+function formatAmountWithVatBreakdown(amount: number, expectedNetPay: number) {
+  const breakdown = detectWorkerPaymentBreakdown(amount, expectedNetPay);
+  if (!breakdown.includesVat) return formatKRW(amount);
+  return (
+    <>
+      {formatKRW(amount)}
+      <span className="erp-text-caption block text-slate-500">
+        {"(\uC2E4\uC9C0\uAE09 "}
+        {formatKRW(breakdown.netAmount)}
+        {" + \uBD80\uAC00\uC138 "}
+        {formatKRW(breakdown.vatAmount)}
+        {")"}
+      </span>
+    </>
+  );
+}
+
+function formatExpectedAmount(obligation: WorkerMonthlyObligation) {
+  if (!obligation.payWithVat) return formatKRW(obligation.expectedFinalAmount);
+  const { vatAmount, finalPayAmount } = calculateWorkerPaymentVat(obligation.expectedAmount, true);
+  return (
+    <>
+      {formatKRW(finalPayAmount)}
+      <span className="erp-text-caption block text-slate-500">
+        {"\uC2E4\uC9C0\uAE09 "}
+        {formatKRW(obligation.expectedAmount)}
+        {" + \uBD80\uAC00\uC138 "}
+        {formatKRW(vatAmount)}
+      </span>
+    </>
+  );
+}
+
+const CATEGORY_FILTER_OPTIONS: Array<{ value: "all" | "team" | "outsource"; label: string }> = [
+  { value: "all", label: "\uC804\uCCB4" },
+  { value: "team", label: "\uD300\uC6D0" },
+  { value: "outsource", label: "\uC678\uC8FC" },
+];
+
+function WorkerCategoryBadge({ category }: { category: WorkerCategory }) {
+  const normalized = normalizeWorkerCategory(category);
+  return (
+    <span
+      className={`erp-worker-category-select is-readonly is-${normalized === WORKER_CATEGORY_OUTSOURCE ? "outsource" : "team"}`}
+    >
+      {normalized}
+    </span>
+  );
+}
+
+function renderWorkerFolderList(
+  summaries: WorkerMonthlyWorkerSummary[],
+  activeWorker: string | undefined,
+  onSelect: (worker: string) => void,
+) {
+  const groups: React.ReactNode[] = [];
+  let currentCategory: WorkerCategory | null = null;
+  let currentItems: WorkerMonthlyWorkerSummary[] = [];
+
+  const flushGroup = () => {
+    if (!currentItems.length || !currentCategory) return;
+    groups.push(
+      <div key={`group-${currentCategory}-${currentItems[0]?.worker}`} className="erp-worker-monthly-folder-group">
+        <div className="erp-worker-monthly-folder-group-head">
+          <WorkerCategoryBadge category={currentCategory} />
+          <span className="erp-worker-monthly-folder-group-count">
+            {currentItems.length}
+            {"\uBA85"}
+          </span>
+        </div>
+        {currentItems.map((folder) =>
+          renderWorkerFolderButton(folder, activeWorker === folder.worker, () => onSelect(folder.worker)),
+        )}
+      </div>,
+    );
+    currentItems = [];
+  };
+
+  for (const folder of summaries) {
+    if (folder.category !== currentCategory) {
+      flushGroup();
+      currentCategory = folder.category;
+    }
+    currentItems.push(folder);
+  }
+  flushGroup();
+
+  return groups;
+}
+
+function renderWorkerFolderButton(
+  folder: {
+    worker: string;
+    category: WorkerCategory;
+    isActive: boolean;
+    unpaidMonthCount: number;
+    balanceTotal: number;
+    paidTotal: number;
+    expectedTotal: number;
+  },
+  active: boolean,
+  onSelect: () => void,
+) {
+  return (
+    <button
+      key={folder.worker}
+      type="button"
+      className={`erp-worker-payout-folder-btn ${active ? "is-active" : ""}${folder.isActive ? "" : " is-inactive"}`}
+      onClick={onSelect}
+    >
+      <span className="erp-worker-payout-folder-name">
+        <WorkerCategoryBadge category={folder.category} />
+        <span className={folder.isActive ? "" : "text-slate-400"}>{folder.worker}</span>
+      </span>
+      <span className="erp-worker-payout-folder-meta">
+        {folder.unpaidMonthCount > 0 ? `\uBBF8\uC9C0\uAE09 ${folder.unpaidMonthCount}\uAC1C\uC6D4 \u00B7 ` : ""}
+        {formatKRW(folder.balanceTotal)}
+        {" \u00B7 "}
+        {formatKRW(folder.paidTotal)}
+        {"/"}
+        {formatKRW(folder.expectedTotal)}
+      </span>
+      <ChevronRight size={14} className="shrink-0 text-slate-400" />
+    </button>
+  );
+}
+
+function findBankVatMatchHint(tx: BankTransaction, workerObligations: WorkerMonthlyObligation[]) {
+  const amount = Math.round(Number(tx.withdrawal) || 0);
+  for (const obligation of workerObligations.filter((row) => row.balance > 0)) {
+    const withVatAmount = calculateWorkerPaymentVat(obligation.expectedAmount, true).finalPayAmount;
+    if (amount === withVatAmount) {
+      return formatMonthLabel(obligation.monthKey);
+    }
+    if (amount === obligation.balance && obligation.payWithVat) {
+      return formatMonthLabel(obligation.monthKey);
+    }
+  }
+  return null;
+}
+
 export function WorkerMonthlyActualPaymentTab({
   workers = [],
   sales = [],
@@ -110,17 +261,19 @@ export function WorkerMonthlyActualPaymentTab({
   setWorkerPaymentRecords,
   workerMonthlyActualVouchers = [],
   setWorkerMonthlyActualVouchers,
+  workerPayWithVatLearnRules = [],
+  setWorkerPayWithVatLearnRules,
   workerPayoutVouchers = [],
   setWorkerPayoutVouchers,
   bankTransactions = [],
   setBankTransactions,
   bankTransactionFolders = [],
-  selectedMonthKey,
-  setSelectedMonthKey,
   currentUser,
 }: WorkerMonthlyActualPaymentTabProps) {
-  const [tableQuery, setTableQuery] = useState("");
+  const [folderQuery, setFolderQuery] = useState("");
   const [unpaidOnly, setUnpaidOnly] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState<"all" | "team" | "outsource">("all");
+  const [selectedWorker, setSelectedWorker] = useState("");
   const [activeVoucherId, setActiveVoucherId] = useState<string | null>(null);
   const [manualForm, setManualForm] = useState(emptyManualForm);
   const [manualError, setManualError] = useState("");
@@ -128,36 +281,64 @@ export function WorkerMonthlyActualPaymentTab({
   const detailRows = useMemo(() => flattenSalesToWorkerPaymentRows(sales), [sales]);
 
   const allObligations = useMemo(
-    () => buildWorkerMonthlyObligations(detailRows, workers, workerMonthlyActualVouchers, workerPaymentRecords),
-    [detailRows, workerPaymentRecords, workerMonthlyActualVouchers, workers],
+    () =>
+      buildWorkerMonthlyObligations(
+        detailRows,
+        workers,
+        workerMonthlyActualVouchers,
+        workerPaymentRecords,
+        workerPayWithVatLearnRules,
+      ),
+    [detailRows, workerPaymentRecords, workerMonthlyActualVouchers, workerPayWithVatLearnRules, workers],
   );
 
-  const monthObligations = useMemo(
-    () => allObligations.filter((row) => row.monthKey === selectedMonthKey),
-    [allObligations, selectedMonthKey],
+  const workerSummaries = useMemo(
+    () => buildWorkerMonthlyWorkerSummaries(allObligations, workers),
+    [allObligations, workers],
   );
 
-  const filteredRows = useMemo(() => {
-    const query = tableQuery.trim().toLowerCase();
-    return monthObligations.filter((row) => {
-      if (unpaidOnly && row.balance <= 0) return false;
+  const filteredSummaries = useMemo(() => {
+    const query = folderQuery.trim().toLowerCase();
+    return workerSummaries.filter((row) => {
+      if (categoryFilter === "team" && row.category !== WORKER_CATEGORY_TEAM) return false;
+      if (categoryFilter === "outsource" && row.category !== WORKER_CATEGORY_OUTSOURCE) return false;
+      if (unpaidOnly && row.balanceTotal <= 0) return false;
       if (!query) return true;
       return row.worker.toLowerCase().includes(query);
     });
-  }, [monthObligations, tableQuery, unpaidOnly]);
+  }, [categoryFilter, folderQuery, unpaidOnly, workerSummaries]);
+
+  const teamCount = useMemo(
+    () => workerSummaries.filter((row) => row.category === WORKER_CATEGORY_TEAM).length,
+    [workerSummaries],
+  );
+  const outsourceCount = useMemo(
+    () => workerSummaries.filter((row) => row.category === WORKER_CATEGORY_OUTSOURCE).length,
+    [workerSummaries],
+  );
+
+  const activeSummary = useMemo(() => {
+    if (!filteredSummaries.length) return null;
+    if (selectedWorker) {
+      return filteredSummaries.find((row) => row.worker === selectedWorker) || filteredSummaries[0];
+    }
+    return filteredSummaries[0];
+  }, [filteredSummaries, selectedWorker]);
 
   const summary = useMemo(() => {
-    const expected = monthObligations.reduce((sum, row) => sum + row.expectedFinalAmount, 0);
-    const paid = monthObligations.reduce((sum, row) => sum + row.paid, 0);
+    const expected = allObligations.reduce((sum, row) => sum + row.expectedFinalAmount, 0);
+    const paid = allObligations.reduce((sum, row) => sum + row.paid, 0);
     return { expected, paid, unpaid: Math.max(expected - paid, 0) };
-  }, [monthObligations]);
+  }, [allObligations]);
 
   const activeObligation = useMemo(() => {
     if (!activeVoucherId) return null;
     const voucher = workerMonthlyActualVouchers.find((row) => row.id === activeVoucherId);
     if (!voucher) return null;
-    return monthObligations.find((row) => row.worker === voucher.worker && row.monthKey === voucher.monthKey) || null;
-  }, [activeVoucherId, monthObligations, workerMonthlyActualVouchers]);
+    return (
+      allObligations.find((row) => row.worker === voucher.worker && row.monthKey === voucher.monthKey) || null
+    );
+  }, [activeVoucherId, allObligations, workerMonthlyActualVouchers]);
 
   const activeVoucher = useMemo(() => {
     if (!activeVoucherId) return null;
@@ -176,6 +357,11 @@ export function WorkerMonthlyActualPaymentTab({
       return workerName === activeVoucher.worker;
     });
   }, [activeVoucher, bankTransactionFolders, bankTransactions, workers]);
+
+  const applyLearnedPayWithVat = (worker: string) => {
+    if (!setWorkerPayWithVatLearnRules) return;
+    setWorkerPayWithVatLearnRules((prev) => upsertWorkerPayWithVatLearnRule(prev, worker, true));
+  };
 
   const openVoucher = (obligation: WorkerMonthlyObligation) => {
     if (!setWorkerMonthlyActualVouchers) return;
@@ -207,10 +393,7 @@ export function WorkerMonthlyActualPaymentTab({
     setManualError("");
   };
 
-  const commitVoucherUpdates = (
-    vouchers: WorkerMonthlyActualVoucher[],
-    records?: boolean,
-  ) => {
+  const commitVoucherUpdates = (vouchers: WorkerMonthlyActualVoucher[], records?: boolean) => {
     if (!setWorkerMonthlyActualVouchers) return;
     const refreshed = vouchers.map(refreshVoucherPaidAmount);
     setWorkerMonthlyActualVouchers(refreshed);
@@ -229,17 +412,31 @@ export function WorkerMonthlyActualPaymentTab({
       return;
     }
 
+    const expectedAmount = Math.round(activeVoucher.expectedAmount || activeObligation?.expectedAmount || 0);
+    let next = workerMonthlyActualVouchers;
+    let learnedPayWithVat = false;
+
+    if (
+      !activeVoucher.payWithVat &&
+      expectedAmount > 0 &&
+      inferPayWithVatFromAmount(entry.amount, expectedAmount)
+    ) {
+      learnedPayWithVat = true;
+      next = upsertWorkerMonthlyActualVoucher(next, {
+        worker: activeVoucher.worker,
+        monthKey: activeVoucher.monthKey,
+        expectedAmount,
+        payWithVat: true,
+      });
+    }
+
+    const refreshedVoucher = next.find((row) => row.id === activeVoucher.id) || activeVoucher;
     const fifoAllocations =
-      entry.amount !== activeVoucher.expectedFinalAmount
+      entry.amount !== refreshedVoucher.expectedFinalAmount
         ? allocateWorkerPaymentFifo(activeVoucher.worker, entry.amount, workerObligations)
         : undefined;
 
-    let next = addEntryToWorkerMonthlyVoucher(
-      workerMonthlyActualVouchers,
-      activeVoucher.id,
-      entry,
-      fifoAllocations,
-    );
+    next = addEntryToWorkerMonthlyVoucher(next, activeVoucher.id, entry, fifoAllocations);
 
     if (fifoAllocations?.length) {
       for (const alloc of fifoAllocations) {
@@ -251,7 +448,7 @@ export function WorkerMonthlyActualPaymentTab({
           worker: activeVoucher.worker,
           monthKey: alloc.monthKey,
           expectedAmount: target?.expectedAmount || 0,
-          payWithVat: activeVoucher.payWithVat,
+          payWithVat: refreshedVoucher.payWithVat || target?.payWithVat,
         });
       }
     }
@@ -265,6 +462,7 @@ export function WorkerMonthlyActualPaymentTab({
       setWorkerPayoutVouchers((prev) => [payout, ...prev]);
     }
 
+    if (learnedPayWithVat) applyLearnedPayWithVat(activeVoucher.worker);
     commitVoucherUpdates(next, true);
     setManualForm(emptyManualForm);
     setManualError("");
@@ -272,7 +470,7 @@ export function WorkerMonthlyActualPaymentTab({
 
   const linkBankTx = (tx: BankTransaction) => {
     if (!setWorkerMonthlyActualVouchers || !setBankTransactions || !activeVoucher) return;
-    const { vouchers, bankTransactions: nextBank } = linkBankEntryToWorkerMonthlyVoucher(
+    const { vouchers, bankTransactions: nextBank, learnedPayWithVat } = linkBankEntryToWorkerMonthlyVoucher(
       workerMonthlyActualVouchers,
       bankTransactions,
       {
@@ -284,16 +482,19 @@ export function WorkerMonthlyActualPaymentTab({
         useFifo: true,
       },
     );
+    if (learnedPayWithVat) applyLearnedPayWithVat(activeVoucher.worker);
     setBankTransactions(nextBank);
     commitVoucherUpdates(vouchers, true);
   };
+
+  const activeExpectedNetPay = activeObligation?.expectedAmount || activeVoucher?.expectedAmount || 0;
 
   return (
     <>
       <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Card className="rounded-2xl shadow-sm">
           <CardContent className="p-4">
-            <div className="erp-text-caption font-bold text-slate-500">{"\uC6D4 \uC9C0\uAE09 \uC608\uC815"}</div>
+            <div className="erp-text-caption font-bold text-slate-500">{"\uC608\uC815 \uD569\uACC4"}</div>
             <div className="erp-text-title mt-1 font-black">{formatKRW(summary.expected)}</div>
           </CardContent>
         </Card>
@@ -313,100 +514,150 @@ export function WorkerMonthlyActualPaymentTab({
 
       <Card className="rounded-2xl shadow-sm">
         <CardContent className="p-4 md:p-5">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div className="erp-worker-month-nav">
-              <button
-                type="button"
-                className="erp-worker-month-nav-btn"
-                onClick={() => setSelectedMonthKey((prev) => shiftMonthKey(prev, -1))}
-                aria-label={"\uC774\uC804 \uB2EC"}
-              >
-                <ChevronLeft size={16} />
-              </button>
-              <div className="erp-worker-month-nav-label">{formatMonthLabel(selectedMonthKey)}</div>
-              <button
-                type="button"
-                className="erp-worker-month-nav-btn"
-                onClick={() => setSelectedMonthKey((prev) => shiftMonthKey(prev, 1))}
-                aria-label={"\uB2E4\uC74C \uB2EC"}
-              >
-                <ChevronRight size={16} />
-              </button>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                lang="ko"
-                className="erp-input rounded-xl px-3 py-2"
-                value={tableQuery}
-                onChange={(e) => setTableQuery(e.target.value)}
-                placeholder={"\uC2DC\uACF5\uC790 \uAC80\uC0C9"}
-              />
-              <Button
-                variant={unpaidOnly ? "default" : "outline"}
-                className="rounded-2xl"
-                onClick={() => setUnpaidOnly((prev) => !prev)}
-              >
-                {"\uBBF8\uC9C0\uAE09\uB9CC"}
-              </Button>
-            </div>
-          </div>
-
-          <div className="erp-table-wrap">
-            <table className="erp-table erp-table--lg">
-              <thead className="bg-slate-100 text-slate-600">
-                <tr>
-                  <th className="text-left">{"\uC2DC\uACF5\uC790"}</th>
-                  <th className="text-right">{"\uC608\uC815(\uC2E4\uC9C0\uAE09)"}</th>
-                  <th className="text-right">{"\uC9C0\uAE09\uC561"}</th>
-                  <th className="text-right">{"\uBBF8\uC9C0\uAE09"}</th>
-                  <th className="text-center">{"\uC0C1\uD0DC"}</th>
-                  <th className="text-right">{"\uC804\uD45C"}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredRows.map((row) => {
-                  const voucher = row.voucher;
-                  const paidAmount = voucher ? sumVoucherPaidAmount(voucher) : row.paid;
-                  const status = computeVoucherStatus({
-                    paidAmount,
-                    expectedFinalAmount: row.expectedFinalAmount,
-                  });
-                  return (
-                    <tr key={row.key} className="border-t hover:bg-slate-50">
-                      <td className="font-semibold">{row.worker}</td>
-                      <td className="text-right">{formatKRW(row.expectedFinalAmount)}</td>
-                      <td className="text-right font-bold text-emerald-700">{formatKRW(row.paid)}</td>
-                      <td className="text-right text-red-600">{formatKRW(row.balance)}</td>
-                      <td className="text-center">
-                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${STATUS_CLASS[status]}`}>
-                          {WORKER_MONTHLY_VOUCHER_STATUS_LABELS[status]}
-                        </span>
-                      </td>
-                      <td className="text-right">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="rounded-xl"
-                          onClick={() => openVoucher(row)}
-                          disabled={!setWorkerMonthlyActualVouchers}
-                        >
-                          <FileText size={14} className="mr-1" />
-                          {voucher ? "\uC804\uD45C \uC5F4\uAE30" : "\uC804\uD45C \uC0DD\uC131"}
-                        </Button>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {filteredRows.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="p-8 text-center text-slate-500">
-                      {"\uD45C\uC2DC\uD560 \uC6D4 \uC2E4\uC9C0\uAE09 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."}
-                    </td>
-                  </tr>
+          <div className="erp-statement-folder-split">
+            <div className="erp-statement-folder-column">
+              <div className="erp-statement-folder-column-head">
+                <span className="erp-statement-folder-column-title">{"\uC2DC\uACF5\uC790"}</span>
+                <div className="erp-workers-summary">
+                  <span>
+                    {"\uD300\uC6D0 "}
+                    <b>{teamCount}</b>
+                  </span>
+                  <span>
+                    {"\uC678\uC8FC "}
+                    <b className="text-amber-700">{outsourceCount}</b>
+                  </span>
+                </div>
+              </div>
+              <div className="erp-statement-folder-toolbar">
+                <input
+                  lang="ko"
+                  className="erp-statement-folder-search erp-input"
+                  value={folderQuery}
+                  onChange={(e) => setFolderQuery(e.target.value)}
+                  placeholder={"\uC2DC\uACF5\uC790 \uAC80\uC0C9"}
+                />
+                <label className="erp-worker-list-export-category">
+                  <span className="erp-worker-list-export-category-label">{"\uAD6C\uBD84"}</span>
+                  <select
+                    className="erp-input erp-worker-list-export-category-select rounded-lg px-2 py-1.5 text-sm font-semibold"
+                    value={categoryFilter}
+                    onChange={(e) => setCategoryFilter(e.target.value as "all" | "team" | "outsource")}
+                  >
+                    {CATEGORY_FILTER_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <Button
+                  variant={unpaidOnly ? "default" : "outline"}
+                  className="rounded-xl"
+                  onClick={() => setUnpaidOnly((prev) => !prev)}
+                >
+                  {"\uBBF8\uC9C0\uAE09\uB9CC"}
+                </Button>
+              </div>
+              <div className="erp-statement-folder-column-body">
+                {!filteredSummaries.length ? (
+                  <p className="erp-statement-folder-empty">
+                    {"\uC870\uAC74\uC5D0 \uD574\uB2F9\uD558\uB294 \uC2DC\uACF5\uC790\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4."}
+                  </p>
+                ) : (
+                  <div className="erp-statement-folder-list">
+                    {renderWorkerFolderList(filteredSummaries, activeSummary?.worker, setSelectedWorker)}
+                  </div>
                 )}
-              </tbody>
-            </table>
+              </div>
+            </div>
+
+            <div className="erp-statement-folder-column erp-worker-payout-detail-column">
+              {!activeSummary ? (
+                <p className="erp-statement-folder-empty">{"\uC2DC\uACF5\uC790\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694."}</p>
+              ) : (
+                <>
+                  <div className="erp-statement-folder-column-head">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <WorkerCategoryBadge category={activeSummary.category} />
+                        <span className="erp-statement-folder-column-title">{activeSummary.worker}</span>
+                      </div>
+                      <p className="erp-text-caption mt-1 text-slate-500">
+                        {"\uC608\uC815 "}
+                        {formatKRW(activeSummary.expectedTotal)}
+                        {" \u00B7 \uC9C0\uAE09 "}
+                        {formatKRW(activeSummary.paidTotal)}
+                        {" \u00B7 \uBBF8\uC9C0\uAE09 "}
+                        {formatKRW(activeSummary.balanceTotal)}
+                        {activeSummary.unpaidMonthCount > 0
+                          ? ` \u00B7 \uBBF8\uC9C0\uAE09 ${activeSummary.unpaidMonthCount}\uAC1C\uC6D4`
+                          : ""}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="erp-table-wrap mt-3">
+                    <table className="erp-table erp-table--lg">
+                      <thead className="bg-slate-100 text-slate-600">
+                        <tr>
+                          <th className="text-left">{"\uC6D4"}</th>
+                          <th className="text-right">{"\uC608\uC815(\uC2E4\uC9C0\uAE09)"}</th>
+                          <th className="text-right">{"\uC9C0\uAE09\uC561"}</th>
+                          <th className="text-right">{"\uBBF8\uC9C0\uAE09"}</th>
+                          <th className="text-center">{"\uC0C1\uD0DC"}</th>
+                          <th className="text-right">{"\uC804\uD45C"}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {activeSummary.obligations.map((row) => {
+                          const voucher = row.voucher;
+                          const paidAmount = voucher ? sumVoucherPaidAmount(voucher) : row.paid;
+                          const status = computeVoucherStatus({
+                            paidAmount,
+                            expectedFinalAmount: row.expectedFinalAmount,
+                          });
+                          return (
+                            <tr key={row.key} className="border-t hover:bg-slate-50">
+                              <td className="font-semibold">{formatMonthLabel(row.monthKey)}</td>
+                              <td className="text-right">{formatExpectedAmount(row)}</td>
+                              <td className="text-right font-bold text-emerald-700">{formatKRW(row.paid)}</td>
+                              <td className="text-right text-red-600">{formatKRW(row.balance)}</td>
+                              <td className="text-center">
+                                <span
+                                  className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${STATUS_CLASS[status]}`}
+                                >
+                                  {WORKER_MONTHLY_VOUCHER_STATUS_LABELS[status]}
+                                </span>
+                              </td>
+                              <td className="text-right">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="rounded-xl"
+                                  onClick={() => openVoucher(row)}
+                                  disabled={!setWorkerMonthlyActualVouchers}
+                                >
+                                  <FileText size={14} className="mr-1" />
+                                  {voucher ? "\uC804\uD45C \uC5F4\uAE30" : "\uC804\uD45C \uC0DD\uC131"}
+                                </Button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {activeSummary.obligations.length === 0 && (
+                          <tr>
+                            <td colSpan={6} className="p-8 text-center text-slate-500">
+                              {"\uC774 \uC2DC\uACF5\uC790\uC758 \uC6D4 \uC2E4\uC9C0\uAE09 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -430,12 +681,17 @@ export function WorkerMonthlyActualPaymentTab({
               <div>
                 <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-800">
                   <FileText size={14} />
-                  {activeVoucher.worker}{" \u00B7 "}{formatMonthLabel(activeVoucher.monthKey)}
+                  {activeVoucher.worker}
+                  {" \u00B7 "}
+                  {formatMonthLabel(activeVoucher.monthKey)}
                 </div>
                 <p className="erp-text-caption text-slate-500">
-                  {"\uC608\uC815 "}{formatKRW(activeVoucher.expectedFinalAmount)}
-                  {" \u00B7 \uC9C0\uAE09 "}{formatKRW(sumVoucherPaidAmount(activeVoucher))}
-                  {" \u00B7 \uBBF8\uC9C0\uAE09 "}{formatKRW(Math.max(activeVoucher.expectedFinalAmount - sumVoucherPaidAmount(activeVoucher), 0))}
+                  {"\uC608\uC815 "}
+                  {formatExpectedAmount(activeObligation)}
+                  {" \u00B7 \uC9C0\uAE09 "}
+                  {formatKRW(sumVoucherPaidAmount(activeVoucher))}
+                  {" \u00B7 \uBBF8\uC9C0\uAE09 "}
+                  {formatKRW(Math.max(activeVoucher.expectedFinalAmount - sumVoucherPaidAmount(activeVoucher), 0))}
                 </p>
               </div>
               <button
@@ -487,7 +743,9 @@ export function WorkerMonthlyActualPaymentTab({
                               {"\uD1B5\uC7A5"}
                             </span>
                           </td>
-                          <td className="text-right font-bold">{formatKRW(entry.amount)}</td>
+                          <td className="text-right font-bold">
+                            {formatAmountWithVatBreakdown(entry.amount, activeExpectedNetPay)}
+                          </td>
                           <td className="text-slate-600">{memo || "-"}</td>
                         </tr>
                       );
@@ -501,7 +759,9 @@ export function WorkerMonthlyActualPaymentTab({
                             {WORKER_PAYOUT_METHOD_LABELS[entry.method]}
                           </span>
                         </td>
-                        <td className="text-right font-bold text-amber-800">{formatKRW(entry.amount)}</td>
+                        <td className="text-right font-bold text-amber-800">
+                          {formatAmountWithVatBreakdown(entry.amount, activeExpectedNetPay)}
+                        </td>
                         <td>{entry.memo || "-"}</td>
                       </tr>
                     );
@@ -581,15 +841,32 @@ export function WorkerMonthlyActualPaymentTab({
                   ) : (
                     unlinkedBankForWorker.map((tx) => {
                       const memo = [tx.counterpartyName, tx.description, tx.memo].filter(Boolean).join(" \u00B7 ");
+                      const vatHint = findBankVatMatchHint(tx, workerObligations);
                       return (
                         <div key={tx.id} className="flex items-center justify-between gap-2 rounded-xl border px-3 py-2">
                           <div className="min-w-0">
                             <div className="text-sm font-semibold">{formatBankTransactionDateTime(tx.transactionAt)}</div>
                             <div className="erp-text-caption truncate text-slate-500">{memo || "-"}</div>
+                            {vatHint ? (
+                              <div className="erp-text-caption mt-1 font-semibold text-amber-700">
+                                {"\uC2E4\uC9C0\uAE09+\uBD80\uAC00\uC138 \uD655\uC778: "}
+                                {vatHint}
+                              </div>
+                            ) : null}
                           </div>
                           <div className="flex shrink-0 items-center gap-2">
-                            <span className="font-bold text-red-600">{formatKRW(tx.withdrawal)}</span>
-                            <Button type="button" size="sm" variant="outline" className="rounded-lg" onClick={() => linkBankTx(tx)}>
+                            <span className="text-right font-bold text-red-600">
+                              {activeExpectedNetPay > 0
+                                ? formatAmountWithVatBreakdown(tx.withdrawal, activeExpectedNetPay)
+                                : formatKRW(tx.withdrawal)}
+                            </span>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="rounded-lg"
+                              onClick={() => linkBankTx(tx)}
+                            >
                               {"\uC5F0\uACB0"}
                             </Button>
                           </div>
