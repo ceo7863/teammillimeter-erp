@@ -2,10 +2,10 @@ import type { BankTransaction } from "./bankTransactions";
 import { isNetGroupSuppressed } from "./bankPreauthNetting";
 import { findWorkerForBankTransaction, type WorkerDepositMatchSource } from "./clientDepositAliases";
 import {
+  compareWorkerFolderRows,
   findWorkerMasterByName,
   normalizeWorkerCategory,
   normalizeWorkerName,
-  WORKER_CATEGORY_OUTSOURCE,
   type WorkerCategory,
   type WorkerMasterLike,
 } from "./workerPayments";
@@ -175,14 +175,17 @@ export function buildWorkerPayoutFolders(
     });
   }
 
-  folders.sort((a, b) => {
-    const activeDiff = (a.isActive === false ? 1 : 0) - (b.isActive === false ? 1 : 0);
-    if (activeDiff !== 0) return activeDiff;
-    const categoryDiff =
-      (a.category === WORKER_CATEGORY_OUTSOURCE ? 1 : 0) - (b.category === WORKER_CATEGORY_OUTSOURCE ? 1 : 0);
-    if (categoryDiff !== 0) return categoryDiff;
-    return b.total - a.total || a.workerName.localeCompare(b.workerName, "ko");
-  });
+  folders.sort((a, b) =>
+    compareWorkerFolderRows({
+      category: a.category || normalizeWorkerCategory(undefined),
+      isActive: a.isActive,
+      workerName: a.workerName,
+    }, {
+      category: b.category || normalizeWorkerCategory(undefined),
+      isActive: b.isActive,
+      workerName: b.workerName,
+    }),
+  );
   return folders;
 }
 

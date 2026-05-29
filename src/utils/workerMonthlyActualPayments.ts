@@ -1,11 +1,10 @@
 import type { BankTransaction } from "./bankTransactions";
 import {
   compareWorkerMastersDefault,
+  compareWorkerFolderRows,
   findWorkerMasterByName,
   normalizeWorkerCategory,
   normalizeWorkerName,
-  WORKER_CATEGORY_OUTSOURCE,
-  WORKER_CATEGORY_TEAM,
   type WorkerCategory,
   type WorkerMasterLike,
   type WorkerPaymentDetailRow,
@@ -198,14 +197,7 @@ export function buildWorkerMonthlyWorkerSummaries(
     seen.add(workerName);
   }
 
-  return summaries.sort((a, b) => {
-    const activeDiff = (a.isActive ? 0 : 1) - (b.isActive ? 0 : 1);
-    if (activeDiff !== 0) return activeDiff;
-    const categoryDiff =
-      (a.category === WORKER_CATEGORY_OUTSOURCE ? 1 : 0) - (b.category === WORKER_CATEGORY_OUTSOURCE ? 1 : 0);
-    if (categoryDiff !== 0) return categoryDiff;
-    return a.worker.localeCompare(b.worker, "ko");
-  });
+  return summaries.sort(compareWorkerFolderRows);
 }
 
 function buildWorkerMonthlyWorkerSummary(

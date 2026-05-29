@@ -61,6 +61,19 @@ export function compareWorkerMastersDefault(a: WorkerMasterLike, b: WorkerMaster
   return normalizeWorkerName(a.name).localeCompare(normalizeWorkerName(b.name), "ko");
 }
 
+/** Folder lists: keep each category in one block (team, then outsource). */
+export function compareWorkerFolderRows<
+  T extends { category: WorkerCategory; isActive?: boolean; worker?: string; workerName?: string },
+>(a: T, b: T) {
+  const categoryDiff = workerCategorySortRank(a.category) - workerCategorySortRank(b.category);
+  if (categoryDiff !== 0) return categoryDiff;
+  const activeDiff = workerActiveSortRank(a) - workerActiveSortRank(b);
+  if (activeDiff !== 0) return activeDiff;
+  const aName = normalizeWorkerName(a.worker || a.workerName);
+  const bName = normalizeWorkerName(b.worker || b.workerName);
+  return aName.localeCompare(bName, "ko");
+}
+
 export function findWorkerMasterByName(
   workers: WorkerMasterLike[] = [],
   name?: string,
