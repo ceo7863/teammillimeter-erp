@@ -91,6 +91,45 @@ export function removeSuppressedPreauthLedgerEntries(
   };
 }
 
+export function removeBankTransactionsByAccountNumber(
+  transactions: BankTransaction[],
+  expenses: CompanyExpense[],
+  payments: FixedExpensePayment[],
+  accountNumber: string,
+) {
+  const normalizedAccount = String(accountNumber || "").trim();
+  const removedIds = new Set(
+    transactions
+      .filter((tx) => String(tx.accountNumber || "").trim() === normalizedAccount)
+      .map((tx) => tx.id),
+  );
+  if (!removedIds.size) {
+    return {
+      transactions,
+      expenses,
+      payments,
+      removedIds,
+      removedCount: 0,
+      removedExpenses: 0,
+      removedPayments: 0,
+    };
+  }
+
+  const nextExpenses = expenses.filter((row) => !row.bankTransactionId || !removedIds.has(row.bankTransactionId));
+  const nextPayments = payments.filter((row) => !row.bankTransactionId || !removedIds.has(row.bankTransactionId));
+  const nextTransactions = transactions.filter((tx) => !removedIds.has(tx.id));
+
+  return {
+    transactions: nextTransactions,
+    expenses: nextExpenses,
+    payments: nextPayments,
+    removedIds,
+    removedCount: removedIds.size,
+    removedExpenses: expenses.length - nextExpenses.length,
+    removedPayments: payments.length - nextPayments.length,
+  };
+}
+
 export function repairBankLedgerData(payload: {
   bankTransactions?: BankTransaction[];
   bankTransactionFolders?: BankTransactionFolder[];

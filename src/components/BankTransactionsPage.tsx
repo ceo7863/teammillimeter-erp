@@ -42,6 +42,7 @@ import {
   isNetGroupSuppressed,
   preauthNetGroupKey,
 } from "@/utils/bankPreauthNetting";
+import { removeBankTransactionsByAccountNumber } from "@/utils/bankDataRepair";
 import { runBackgroundBankLedgerLearning } from "@/utils/bankBackgroundLearning";
 import {
   applyRecurringFixedExpensePatterns,
@@ -174,6 +175,7 @@ import {
   sortBankTransactions,
   DEFAULT_BANK_TRANSACTION_SORT,
   type BankTransaction,
+  type BankAccountSummary,
   type BankTransactionFlowFilter,
   type BankTransactionSort,
   type BankTransactionSortKey,
@@ -254,6 +256,13 @@ const L = {
   resetFilter: "\uCD08\uAE30\uD654",
   accountFilter: "\uACC4\uC88C",
   allAccounts: "\uC804\uCCB4 \uACC4\uC88C",
+  deleteAccountHistory: "\uD1B5\uC7A5 \uB0B4\uC5ED \uC0AD\uC81C",
+  deleteAccountHistoryConfirm: (accountNumber: string, count: number) =>
+    `${accountNumber} \uACC4\uC88C\uC758 \uD1B5\uC7A5 \uB0B4\uC5ED ${count}\uAC74\uC744 \uC804\uBD80 \uC0AD\uC81C\uD569\uB2C8\uB2E4.\n\uC5F0\uACB0\uB41C \uAC00\uACC4\uBD80 \uD56D\uBAA9\uB3C4 \uD568\uAED8 \uC0AD\uC81C\uB429\uB2C8\uB2E4. \uBCF5\uAD6C\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uACC4\uC18D\uD560\uAE4C\uC694?`,
+  deleteAccountHistoryDone: (accountNumber: string, count: number, ledgerRemoved: number) =>
+    `${accountNumber} \uACC4\uC88C \uD1B5\uC7A5 \uB0B4\uC5ED ${count}\uAC74\uC744 \uC0AD\uC81C\uD588\uC2B5\uB2C8\uB2E4.${
+      ledgerRemoved ? ` (\uAC00\uACC4\uBD80 ${ledgerRemoved}\uAC74 \uC815\uB9AC)` : ""
+    }`,
   depositTotal: "\uC785\uAE08 \uD569\uACC4",
   withdrawalTotal: "\uCD9C\uAE08 \uD569\uACC4",
   netTotal: "\uC21C\uC720\uC785",
@@ -2554,6 +2563,54 @@ export function BankTransactionsPage({
     setFolderError("");
   };
 
+  const handleDeleteAccountHistory = (account: BankAccountSummary) => {
+    if (!account.count) return;
+    if (!confirmDelete(L.deleteAccountHistoryConfirm(account.accountNumber, account.count))) return;
+
+    const result = removeBankTransactionsByAccountNumber(
+      bankTransactions,
+      companyExpenses,
+      fixedExpensePayments,
+      account.accountNumber,
+    );
+
+    setPaymentVouchers((prev) =>
+      (prev as Array<{ bankTransactionId?: string; [key: string]: unknown }>).map((voucher) =>
+        voucher.bankTransactionId && result.removedIds.has(String(voucher.bankTransactionId))
+          ? { ...voucher, bankTransactionId: undefined }
+          : voucher,
+      ),
+    );
+
+    setBankTransactions(result.transactions);
+    setCompanyExpenses(result.expenses);
+    setFixedExpensePayments(result.payments);
+
+    if (accountFilter === account.accountNumber) {
+      setAccountFilter("");
+    }
+
+    recordSummaryAudit({
+      entityType: "bankTransaction",
+      entityId: account.accountNumber,
+      entityLabel: account.accountNumber,
+      screen: L.pageTitle,
+      action: "delete",
+      fieldLabel: L.deleteAccountHistory,
+      after: `${result.removedCount}\uAC74 \u00B7 \uAC00\uACC4\uBD80 ${result.removedExpenses + result.removedPayments}\uAC74`,
+      user: currentUser,
+    });
+
+    setImportError("");
+    setImportMessage(
+      L.deleteAccountHistoryDone(
+        account.accountNumber,
+        result.removedCount,
+        result.removedExpenses + result.removedPayments,
+      ),
+    );
+  };
+
   const confirmSentStatementMatch = async (tx: BankTransaction, candidate: SentStatementMatchCandidate) => {
     if (paymentVouchers.some((voucher) => voucher.bankTransactionId === tx.id)) {
       setImportMessage("\uC774\uBBF8 \uC5F0\uACB0\uB41C \uD1B5\uC7A5 \uAC70\uB798\uC785\uB2C8\uB2E4.");
@@ -4233,23 +4290,38 @@ export function BankTransactionsPage({
               {hasAnyData ? (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {accountSummaries.map((account) => (
-                    <button
+                    <div
                       key={account.accountNumber}
-                      type="button"
-                      className={`erp-bank-account-chip text-left ${accountFilter === account.accountNumber ? "is-active" : ""}`}
-                      onClick={() =>
-                        setAccountFilter((prev) => (prev === account.accountNumber ? "" : account.accountNumber))
-                      }
+                      className={`erp-bank-account-chip ${accountFilter === account.accountNumber ? "is-active" : ""}`}
                     >
-                      <span className="text-xs font-bold text-slate-500">{account.bankName}</span>
-                      <span className="font-mono text-sm font-bold text-slate-900">{account.accountNumber}</span>
-                      <span className="text-xs font-semibold text-emerald-700">
-                        {L.latestBalance} {formatKRW(account.latestBalance)}
-                      </span>
-                      <span className="text-xs text-slate-500">
-                        {L.dataAsOf} {formatBankTransactionDateTime(account.latestAt)}
-                      </span>
-                    </button>
+                      <button
+                        type="button"
+                        className="flex flex-1 flex-col gap-0.5 text-left"
+                        onClick={() =>
+                          setAccountFilter((prev) => (prev === account.accountNumber ? "" : account.accountNumber))
+                        }
+                      >
+                        <span className="text-xs font-bold text-slate-500">{account.bankName}</span>
+                        <span className="font-mono text-sm font-bold text-slate-900">{account.accountNumber}</span>
+                        <span className="text-xs font-semibold text-emerald-700">
+                          {L.latestBalance} {formatKRW(account.latestBalance)}
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          {L.dataAsOf} {formatBankTransactionDateTime(account.latestAt)} · {account.count}
+                          {L.count}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="erp-bank-account-chip-delete"
+                        title={L.deleteAccountHistoryConfirm(account.accountNumber, account.count)}
+                        aria-label={L.deleteAccountHistory}
+                        onClick={() => handleDeleteAccountHistory(account)}
+                      >
+                        <Trash2 size={14} />
+                        <span>{L.deleteAccountHistory}</span>
+                      </button>
+                    </div>
                   ))}
                 </div>
               ) : null}
