@@ -171,6 +171,24 @@ function formatStatementMemo(memo?: string | null) {
   return dedupeMemoSegments(memo);
 }
 
+/** 요약·상세 현장 행 비고: 공통비고 + 시공자별 비고(중복 제거) */
+export function collectClientStatementSiteMemo(sale: ClientStatementSaleLike): string {
+  const parts: string[] = [];
+  const seen = new Set<string>();
+
+  const push = (raw?: string | null) => {
+    const memo = formatStatementMemo(raw);
+    if (!memo || seen.has(memo)) return;
+    seen.add(memo);
+    parts.push(memo);
+  };
+
+  push(sale.memo);
+  getSaleWorkerLines(sale).forEach((line) => push(line.memo));
+
+  return parts.join(" / ");
+}
+
 /** 비고가 여러 행에 같으면 첫 행만 표시 */
 export function dedupeStatementRowMemos<T extends { memo?: string }>(rows: T[] = []): T[] {
   const seen = new Set<string>();
@@ -205,7 +223,7 @@ export function buildClientStatementSummaryDisplayRows(sales: ClientStatementSal
         lodgingCost: aggregated.lodgingCost,
         mealCost: aggregated.mealCost,
         expenseCost: aggregated.expenseCost,
-        memo: aggregated.memo,
+        memo: collectClientStatementSiteMemo(sale),
       },
     ];
 
