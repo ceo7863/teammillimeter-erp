@@ -175,6 +175,7 @@ import {
   buildTopCounterpartySummaries,
   filterBankTransactions,
   formatBankTransactionDateTime,
+  parseBankAmount,
   sortBankTransactions,
   DEFAULT_BANK_TRANSACTION_SORT,
   type BankTransaction,
@@ -4166,11 +4167,13 @@ export function BankTransactionsPage({
           : row.netGroupRole === "preauth_withdrawal"
             ? L.preauthNetSuppressedBadge
             : null;
+    const deposit = parseBankAmount(row.deposit);
+    const withdrawal = parseBankAmount(row.withdrawal);
     const amount =
-      row.deposit > 0
-        ? { label: L.deposit, value: formatKRW(row.deposit), tone: "success" as const }
-        : row.withdrawal > 0
-          ? { label: L.withdrawal, value: formatKRW(row.withdrawal), tone: "danger" as const }
+      deposit > 0
+        ? { label: L.deposit, value: formatKRW(deposit), tone: "success" as const }
+        : withdrawal > 0
+          ? { label: L.withdrawal, value: formatKRW(withdrawal), tone: "danger" as const }
           : undefined;
 
     return (
@@ -4214,6 +4217,12 @@ export function BankTransactionsPage({
           : null,
       ].filter(Boolean) as Array<{ label: string; tone: "success" | "danger" | "default" | "muted" }>}
       rows={[
+        ...(deposit > 0
+          ? [{ label: L.deposit, value: formatKRW(deposit), tone: "success" as const }]
+          : []),
+        ...(withdrawal > 0
+          ? [{ label: L.withdrawal, value: formatKRW(withdrawal), tone: "danger" as const }]
+          : []),
         {
           label: L.memo,
           value: (

@@ -8999,12 +8999,69 @@ body.erp-col-resizing * {
   -webkit-overflow-scrolling: touch;
 }
 
+.erp-mobile-card-amount {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-radius: 0.85rem;
+  padding: 0.55rem 0.75rem;
+}
+
+.erp-mobile-card-amount--deposit {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+}
+
+.erp-mobile-card-amount--withdrawal {
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+}
+
+.erp-mobile-card-amount-label {
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.erp-mobile-card-amount--deposit .erp-mobile-card-amount-label {
+  color: #047857;
+}
+
+.erp-mobile-card-amount--withdrawal .erp-mobile-card-amount-label {
+  color: #be123c;
+}
+
+.erp-mobile-card-amount-value {
+  font-size: 1.125rem;
+  font-weight: 900;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.erp-mobile-card-amount--deposit .erp-mobile-card-amount-value {
+  color: #059669;
+}
+
+.erp-mobile-card-amount--withdrawal .erp-mobile-card-amount-value {
+  color: #e11d48;
+}
+
 .erp-table-scroll-hint {
   -webkit-overflow-scrolling: touch;
   position: relative;
 }
 
 @media (max-width: 767px) {
+  .erp-desktop-table-wrap {
+    display: none !important;
+  }
+
+  .erp-mobile-card-list {
+    display: block !important;
+  }
+
   .erp-table-scroll-hint::after {
     content: "";
     position: absolute;

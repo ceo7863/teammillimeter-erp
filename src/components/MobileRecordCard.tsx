@@ -80,28 +80,25 @@ export function MobileRecordCard({
         selected ? "border-sky-300 bg-sky-50 ring-1 ring-sky-200" : "border-slate-200"
       } ${clickable ? "cursor-pointer active:scale-[0.99]" : ""}`}
     >
-      {(title || subtitle || badge || amount) && (
-        <div className="mb-3 flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            {title ? <div className="truncate font-bold text-slate-900">{title}</div> : null}
-            {subtitle ? <div className="mt-0.5 truncate text-slate-500">{subtitle}</div> : null}
-          </div>
-          {amount ? (
-            <div className="shrink-0 text-right">
-              <div className="text-[11px] font-semibold text-slate-500">{amount.label}</div>
-              <div
-                className={`text-lg font-black tabular-nums leading-tight ${
-                  amount.tone === "success" ? "text-emerald-600" : "text-rose-600"
-                }`}
-              >
-                {amount.value}
-              </div>
-            </div>
-          ) : badge ? (
-            <div className="shrink-0">{badge}</div>
-          ) : null}
+      {(title || subtitle) && (
+        <div className="mb-2 min-w-0">
+          {title ? <div className="truncate font-bold text-slate-900">{title}</div> : null}
+          {subtitle ? <div className="mt-0.5 truncate text-slate-500">{subtitle}</div> : null}
         </div>
       )}
+
+      {amount ? (
+        <div
+          className={`erp-mobile-card-amount mb-3 ${
+            amount.tone === "success" ? "erp-mobile-card-amount--deposit" : "erp-mobile-card-amount--withdrawal"
+          }`}
+        >
+          <span className="erp-mobile-card-amount-label">{amount.label}</span>
+          <span className="erp-mobile-card-amount-value">{amount.value}</span>
+        </div>
+      ) : badge ? (
+        <div className="mb-3 shrink-0">{badge}</div>
+      ) : null}
 
       {badges.length > 0 ? (
         <div className="mb-3 flex flex-wrap gap-1.5">
