@@ -243,7 +243,7 @@ export function WorkerPayoutHistoryTab({
             <CardContent className="p-4">
               <div className="erp-text-caption font-bold text-slate-500">{"\uC9C0\uAE09 \uD569\uACC4"}</div>
               <div className="erp-text-title mt-1 font-black text-emerald-700">{formatKRW(payoutSummary.total)}</div>
-              <div className="erp-text-caption mt-1 text-slate-500">{payoutSummary.workerCount}{"\uBA85 \uC2DC\uACF5\uC790"}</div>
+              <div className="erp-text-caption mt-1 text-slate-500">{payoutSummary.paidWorkerCount}{"\uBA85 \uC9C0\uAE09 \u00B7 \uC804\uCCB4 "}{payoutSummary.workerCount}{"\uBA85"}</div>
             </CardContent>
           </Card>
           <Card className="rounded-2xl shadow-sm">
@@ -275,6 +275,10 @@ export function WorkerPayoutHistoryTab({
                 <span className="erp-statement-folder-column-title">{"\uC2DC\uACF5\uC790 \uD3F4\uB354"}</span>
                 <div className="erp-workers-summary">
                   <span>
+                    {"\uC804\uCCB4 "}
+                    <b>{payoutFolders.length}</b>
+                  </span>
+                  <span>
                     {"\uD300\uC6D0 "}
                     <b>{payoutFolders.filter((row) => row.category === WORKER_CATEGORY_TEAM).length}</b>
                   </span>
@@ -298,7 +302,7 @@ export function WorkerPayoutHistoryTab({
               <div className="erp-statement-folder-column-body">
                 {!filteredFolders.length ? (
                   <p className="erp-statement-folder-empty">
-                    {"\uC120\uD0DD \uAE30\uAC04\uC5D0 \uD1B5\uC7A5 \uCD9C\uAE08\u00B7\uC2DC\uACF5\uC790 \uC804\uD45C\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4. \uD1B5\uC7A5 \uAC70\uB798\uB0B4\uC5ED\uC5D0\uC11C \uC2DC\uACF5\uC790 \uBD84\uB958 \uD6C4 \uD655\uC778\uD558\uAC70\uB098 \uC804\uD45C\uB97C \uCD94\uAC00\uD574 \uC8FC\uC138\uC694."}
+                    {"\uB4F1\uB85D\uB41C \uC2DC\uACF5\uC790\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4."}
                   </p>
                 ) : (
                   <div className="erp-statement-folder-list">

@@ -112,6 +112,29 @@ export function resolveWorkerNameFromBankTransaction(
   return null;
 }
 
+function buildWorkerPayoutFolder(
+  workerName: string,
+  entries: WorkerPayoutLedgerEntry[],
+  master?: WorkerMasterLike,
+): WorkerPayoutFolder {
+  const sorted = [...entries].sort((a, b) => {
+    const dateCmp = b.date.localeCompare(a.date);
+    if (dateCmp !== 0) return dateCmp;
+    return b.id.localeCompare(a.id);
+  });
+  const bankTotal = sorted.filter((row) => row.kind === "bank").reduce((sum, row) => sum + row.amount, 0);
+  const voucherTotal = sorted.filter((row) => row.kind === "voucher").reduce((sum, row) => sum + row.amount, 0);
+  return {
+    workerName,
+    entries: sorted,
+    bankTotal,
+    voucherTotal,
+    total: bankTotal + voucherTotal,
+    category: normalizeWorkerCategory(master?.category),
+    isActive: master?.isActive !== false,
+  };
+}
+
 export function buildWorkerPayoutFolders(
   bankTransactions: BankTransaction[],
   bankTransactionFolders: BankTransactionFolder[],
@@ -155,36 +178,35 @@ export function buildWorkerPayoutFolders(
   }
 
   const folders: WorkerPayoutFolder[] = [];
+  const seen = new Set<string>();
+
+  for (const worker of workersMaster) {
+    const workerName = normalizeWorkerName(worker.name);
+    if (!workerName || seen.has(workerName)) continue;
+    seen.add(workerName);
+    folders.push(buildWorkerPayoutFolder(workerName, map.get(workerName) || [], worker));
+  }
+
   for (const [workerName, entries] of map) {
-    const sorted = [...entries].sort((a, b) => {
-      const dateCmp = b.date.localeCompare(a.date);
-      if (dateCmp !== 0) return dateCmp;
-      return b.id.localeCompare(a.id);
-    });
-    const bankTotal = sorted.filter((row) => row.kind === "bank").reduce((sum, row) => sum + row.amount, 0);
-    const voucherTotal = sorted.filter((row) => row.kind === "voucher").reduce((sum, row) => sum + row.amount, 0);
+    if (seen.has(workerName)) continue;
     const master = findWorkerMasterByName(workersMaster, workerName);
-    folders.push({
-      workerName,
-      entries: sorted,
-      bankTotal,
-      voucherTotal,
-      total: bankTotal + voucherTotal,
-      category: normalizeWorkerCategory(master?.category),
-      isActive: master?.isActive !== false,
-    });
+    folders.push(buildWorkerPayoutFolder(workerName, entries, master));
+    seen.add(workerName);
   }
 
   folders.sort((a, b) =>
-    compareWorkerFolderRows({
-      category: a.category || normalizeWorkerCategory(undefined),
-      isActive: a.isActive,
-      workerName: a.workerName,
-    }, {
-      category: b.category || normalizeWorkerCategory(undefined),
-      isActive: b.isActive,
-      workerName: b.workerName,
-    }),
+    compareWorkerFolderRows(
+      {
+        category: a.category || normalizeWorkerCategory(undefined),
+        isActive: a.isActive,
+        workerName: a.workerName,
+      },
+      {
+        category: b.category || normalizeWorkerCategory(undefined),
+        isActive: b.isActive,
+        workerName: b.workerName,
+      },
+    ),
   );
   return folders;
 }
@@ -192,7 +214,9 @@ export function buildWorkerPayoutFolders(
 export function summarizeWorkerPayoutFolders(folders: WorkerPayoutFolder[]) {
   let bankCount = 0;
   let voucherCount = 0;
+  let paidWorkerCount = 0;
   for (const folder of folders) {
+    if (folder.total > 0) paidWorkerCount += 1;
     for (const entry of folder.entries) {
       if (entry.kind === "bank") bankCount += 1;
       else voucherCount += 1;
@@ -200,6 +224,7 @@ export function summarizeWorkerPayoutFolders(folders: WorkerPayoutFolder[]) {
   }
   return {
     workerCount: folders.length,
+    paidWorkerCount,
     bankCount,
     voucherCount,
     total: folders.reduce((sum, folder) => sum + folder.total, 0),

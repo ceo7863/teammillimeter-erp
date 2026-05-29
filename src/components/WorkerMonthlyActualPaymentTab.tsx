@@ -520,6 +520,10 @@ export function WorkerMonthlyActualPaymentTab({
                 <span className="erp-statement-folder-column-title">{"\uC2DC\uACF5\uC790"}</span>
                 <div className="erp-workers-summary">
                   <span>
+                    {"\uC804\uCCB4 "}
+                    <b>{workerSummaries.length}</b>
+                  </span>
+                  <span>
                     {"\uD300\uC6D0 "}
                     <b>{teamCount}</b>
                   </span>

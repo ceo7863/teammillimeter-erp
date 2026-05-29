@@ -1,6 +1,5 @@
 import type { BankTransaction } from "./bankTransactions";
 import {
-  compareWorkerMastersDefault,
   compareWorkerFolderRows,
   findWorkerMasterByName,
   normalizeWorkerCategory,
@@ -183,7 +182,7 @@ export function buildWorkerMonthlyWorkerSummaries(
   const summaries: WorkerMonthlyWorkerSummary[] = [];
   const seen = new Set<string>();
 
-  for (const worker of [...workers].sort(compareWorkerMastersDefault)) {
+  for (const worker of workers) {
     const workerName = normalizeWorkerName(worker.name);
     if (!workerName || seen.has(workerName)) continue;
     seen.add(workerName);
