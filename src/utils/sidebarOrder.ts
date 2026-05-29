@@ -8,7 +8,29 @@ export function getSidebarOrderStorageKey(userId: string | number) {
 
 export function normalizeSidebarOrder(value: unknown): ErpPageKey[] | null {
   if (!Array.isArray(value)) return null;
-  const unique = [...new Set(value.filter((item): item is ErpPageKey => typeof item === "string" && isErpPageKey(item)))];
+  const legacySet = new Set<string>(["companyLedger", "taxInvoices", "bankTransactions"]);
+  let hasAccounting = false;
+  const unique: ErpPageKey[] = [];
+  const seen = new Set<string>();
+
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    if (legacySet.has(item)) {
+      if (!hasAccounting) {
+        hasAccounting = true;
+        if (!seen.has("accounting")) {
+          seen.add("accounting");
+          unique.push("accounting");
+        }
+      }
+      continue;
+    }
+    if (!isErpPageKey(item) || seen.has(item)) continue;
+    if (item === "accounting") hasAccounting = true;
+    seen.add(item);
+    unique.push(item);
+  }
+
   return unique.length ? unique : null;
 }
 

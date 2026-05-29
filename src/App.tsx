@@ -66,15 +66,13 @@ import { PdfArchivePage } from "@/components/PdfArchivePage";
 import { MyAccountModal } from "@/components/MyAccountModal";
 import { SidebarMenuOrderModal } from "@/components/SidebarMenuOrderModal";
 import { UsersAdminPage } from "@/components/UsersAdminPage";
-import { CompanyLedgerPage } from "@/components/CompanyLedgerPage";
+import { AccountingHubPage } from "@/components/AccountingHubPage";
 import { AttendancePage } from "@/components/AttendancePage";
 import { AutoLinkBadge, SalePaymentLinkBadge, SalePaymentLinkProvider } from "@/components/AutoLinkBadge";
 import { buildAutoLinkedSaleIdSet, buildManualLinkedSaleIdSet, isSaleAutoLinkedPaid, isSaleManualLinkedPaid } from "@/utils/bankReceivableMatch";
 import { ClientStatementModal } from "@/components/ClientStatementModal";
 import { filterClientCalendarSales, normalizeClientCalendarName } from "@/utils/clientCalendarStats";
 import { CompanyNoticeBoardPage } from "@/components/CompanyNoticeBoardPage";
-import { TaxInvoicePage } from "@/components/TaxInvoicePage";
-import { BankTransactionsPage } from "@/components/BankTransactionsPage";
 import { CompanyProfilePage } from "@/components/CompanyProfilePage";
 import { DEFAULT_COMPANY_PROFILE, normalizeCompanyProfile } from "@/utils/companyProfile";
 import { formatDepositNameAliases } from "@/utils/clientDepositAliases";
@@ -87,6 +85,7 @@ import { syncFixedExpenseAutomation } from "@/utils/fixedExpenseAutomation";
 import { normalizeExpenseCategories, normalizeFixedExpenseCategories } from "@/utils/companyLedger";
 import { normalizeBankTransactionFolders } from "@/utils/bankTransactionFolders";
 import { normalizeWorkerPayoutVouchers } from "@/utils/workerPayoutLedger";
+import { migrateActivePageKey, storeAccountingTab } from "@/utils/accountingHub";
 import { normalizeStatementGenerationLogs } from "@/utils/statementGenerationLogs";
 import { normalizeStatementFolders } from "@/utils/statementFolders";
 import { normalizeAttendanceRecords } from "@/utils/attendance";
@@ -1871,9 +1870,7 @@ const PAGE_ICONS: Record<ErpPageKey, typeof Home> = {
   pdfArchive: Archive,
   clients: Building2,
   workers: Users,
-  companyLedger: BookOpen,
-  taxInvoices: Receipt,
-  bankTransactions: ArrowLeftRight,
+  accounting: Landmark,
   companyNotices: Megaphone,
   companyProfile: Landmark,
   auditLog: History,
@@ -6340,7 +6337,13 @@ export default function TeammillimeterErpMvp() {
   const skipSaveRef = useRef(true);
   const [active, setActive] = useState(() => {
     if (typeof window === "undefined") return "dashboard";
-    return window.sessionStorage.getItem(ACTIVE_TAB_KEY) || "dashboard";
+    const stored = window.sessionStorage.getItem(ACTIVE_TAB_KEY) || "dashboard";
+    const migrated = migrateActivePageKey(stored);
+    if (migrated.accountingTab) storeAccountingTab(migrated.accountingTab);
+    if (migrated.page !== stored && typeof window !== "undefined") {
+      window.sessionStorage.setItem(ACTIVE_TAB_KEY, migrated.page);
+    }
+    return migrated.page;
   });
   const [sales, setSales] = useState(() => {
     if (apiMode && sessionOnMount) return [];
@@ -6610,6 +6613,11 @@ export default function TeammillimeterErpMvp() {
   useEffect(() => {
     if (active === "paymentInput") setActive("receivables");
     if (active === "clientCalendar") setActive("calendar");
+    const migrated = migrateActivePageKey(active);
+    if (migrated.page !== active) {
+      if (migrated.accountingTab) storeAccountingTab(migrated.accountingTab);
+      setActive(migrated.page);
+    }
   }, [active]);
 
   const backupData = () => {
@@ -6960,65 +6968,62 @@ export default function TeammillimeterErpMvp() {
             currentUser={currentUser}
           />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="companyLedger" active={active}>
-          <CompanyLedgerPage
-            companyExpenses={companyExpenses}
-            setCompanyExpenses={setCompanyExpenses}
-            expenseCategories={expenseCategories}
-            setExpenseCategories={setExpenseCategories}
-            fixedExpenseCategories={fixedExpenseCategories}
-            setFixedExpenseCategories={setFixedExpenseCategories}
-            fixedExpenses={fixedExpenses}
-            setFixedExpenses={setFixedExpenses}
-            fixedExpensePayments={fixedExpensePayments}
-            setFixedExpensePayments={setFixedExpensePayments}
-            bankTransactions={bankTransactions}
-            setBankTransactions={setBankTransactions}
-            bankLedgerRules={bankLedgerRules}
-            setBankLedgerRules={setBankLedgerRules}
-            currentUser={currentUser}
-          />
-        </PageKeepAlive>
-        <PageKeepAlive pageKey="taxInvoices" active={active}>
-          <TaxInvoicePage
-            taxInvoices={taxInvoices}
-            setTaxInvoices={setTaxInvoices}
-            clients={clients}
-            currentUser={currentUser}
-          />
-        </PageKeepAlive>
-        <PageKeepAlive pageKey="bankTransactions" active={active}>
-          <BankTransactionsPage
-            bankTransactions={bankTransactions}
-            setBankTransactions={setBankTransactions}
-            bankTransactionFolders={bankTransactionFolders}
-            setBankTransactionFolders={setBankTransactionFolders}
-            apiMode={apiMode}
-            erpVersion={erpVersion}
-            isPageActive={active === "bankTransactions"}
-            onApplyRemoteBankSnapshot={applyRemoteBankSnapshot}
-            clients={clients}
-            setClients={setClients}
-            workers={workers}
-            receivableRows={receivableRowsFromSales}
-            sales={appliedSales}
-            paymentVouchers={paymentVouchers}
-            setPaymentVouchers={setPaymentVouchers}
-            setPaymentInputLogs={setPaymentInputLogs}
-            companyExpenses={companyExpenses}
-            setCompanyExpenses={setCompanyExpenses}
-            fixedExpenses={fixedExpenses}
-            setFixedExpenses={setFixedExpenses}
-            fixedExpensePayments={fixedExpensePayments}
-            setFixedExpensePayments={setFixedExpensePayments}
-            bankLedgerRules={bankLedgerRules}
-            setBankLedgerRules={setBankLedgerRules}
-            expenseCategories={expenseCategories}
-            setExpenseCategories={setExpenseCategories}
-            fixedExpenseCategories={fixedExpenseCategories}
-            setFixedExpenseCategories={setFixedExpenseCategories}
-            currentUser={currentUser}
-            onNavigateToCompanyLedger={() => setActive("companyLedger")}
+        <PageKeepAlive pageKey="accounting" active={active}>
+          <AccountingHubPage
+            isHubActive={active === "accounting"}
+            bank={{
+              bankTransactions,
+              setBankTransactions,
+              bankTransactionFolders,
+              setBankTransactionFolders,
+              apiMode,
+              erpVersion,
+              onApplyRemoteBankSnapshot: applyRemoteBankSnapshot,
+              clients,
+              setClients,
+              workers,
+              receivableRows: receivableRowsFromSales,
+              sales: appliedSales,
+              paymentVouchers,
+              setPaymentVouchers,
+              setPaymentInputLogs,
+              companyExpenses,
+              setCompanyExpenses,
+              fixedExpenses,
+              setFixedExpenses,
+              fixedExpensePayments,
+              setFixedExpensePayments,
+              bankLedgerRules,
+              setBankLedgerRules,
+              expenseCategories,
+              setExpenseCategories,
+              fixedExpenseCategories,
+              setFixedExpenseCategories,
+              currentUser,
+            }}
+            ledger={{
+              companyExpenses,
+              setCompanyExpenses,
+              expenseCategories,
+              setExpenseCategories,
+              fixedExpenseCategories,
+              setFixedExpenseCategories,
+              fixedExpenses,
+              setFixedExpenses,
+              fixedExpensePayments,
+              setFixedExpensePayments,
+              bankTransactions,
+              setBankTransactions,
+              bankLedgerRules,
+              setBankLedgerRules,
+              currentUser,
+            }}
+            tax={{
+              taxInvoices,
+              setTaxInvoices,
+              clients,
+              currentUser,
+            }}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="companyNotices" active={active}>

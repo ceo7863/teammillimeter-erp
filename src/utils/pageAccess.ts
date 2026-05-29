@@ -13,9 +13,7 @@ export const ERP_PAGE_KEYS = [
   "pdfArchive",
   "clients",
   "workers",
-  "companyLedger",
-  "taxInvoices",
-  "bankTransactions",
+  "accounting",
   "companyNotices",
   "companyProfile",
   "auditLog",
@@ -46,9 +44,7 @@ export const ERP_PAGE_DEFS: ErpPageDef[] = [
   { key: "pdfArchive", label: "PDF 보관함", group: "보고" },
   { key: "clients", label: "거래처", group: "기준정보" },
   { key: "workers", label: "시공자", group: "기준정보" },
-  { key: "companyLedger", label: "회사 가계부", group: "회계" },
-  { key: "taxInvoices", label: "계산서 발행", group: "회계" },
-  { key: "bankTransactions", label: "통장 거래내역", group: "회계" },
+  { key: "accounting", label: "회계·통장", group: "회계" },
   { key: "companyNotices", label: "회사게시판", group: "게시" },
   { key: "companyProfile", label: "회사정보", group: "설정" },
   { key: "auditLog", label: "감사로그", group: "설정", adminOnly: true },
@@ -81,10 +77,29 @@ export function isErpPageKey(value: string): value is ErpPageKey {
   return ERP_PAGE_KEY_SET.has(value);
 }
 
+const LEGACY_ACCOUNTING_PAGE_KEYS = ["companyLedger", "taxInvoices", "bankTransactions"] as const;
+
 export function normalizeAllowedPages(pages: unknown): ErpPageKey[] | null {
   if (!Array.isArray(pages)) return null;
-  const unique = [...new Set(pages.filter((page): page is ErpPageKey => typeof page === "string" && isErpPageKey(page)))];
-  return unique.length ? unique : null;
+  const legacySet = new Set<string>(LEGACY_ACCOUNTING_PAGE_KEYS);
+  let hasLegacy = false;
+  const unique: ErpPageKey[] = [];
+  const seen = new Set<string>();
+
+  for (const page of pages) {
+    if (typeof page !== "string") continue;
+    if (legacySet.has(page)) {
+      hasLegacy = true;
+      continue;
+    }
+    if (!isErpPageKey(page) || seen.has(page)) continue;
+    seen.add(page);
+    unique.push(page);
+  }
+
+  if (!unique.length && !hasLegacy) return null;
+  if (hasLegacy && !unique.includes("accounting")) unique.push("accounting");
+  return unique.length ? unique : ["accounting"];
 }
 
 export function resolveUserAllowedPages(user: Pick<ErpUser, "role" | "allowedPages"> | null | undefined): ErpPageKey[] {
