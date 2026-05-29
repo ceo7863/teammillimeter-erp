@@ -46,15 +46,18 @@ import {
   type WorkerMonthlyPaymentRecord,
 } from "@/utils/workerMonthlyPayments";
 import { WorkerPayoutHistoryTab } from "@/components/WorkerPayoutHistoryTab";
+import { WorkerMonthlyActualPaymentTab } from "@/components/WorkerMonthlyActualPaymentTab";
+import type { WorkerMonthlyActualVoucher } from "@/utils/workerMonthlyActualPayments";
 import type { BankTransaction } from "@/utils/bankTransactions";
 import type { BankTransactionFolder } from "@/utils/bankTransactionFolders";
 import type { WorkerPayoutVoucher } from "@/utils/workerPayoutLedger";
 
-type WorkerPaymentTab = "summary" | "detail" | "monthly" | "statement" | "payoutHistory";
+type WorkerPaymentTab = "summary" | "detail" | "monthly" | "monthlyActual" | "statement" | "payoutHistory";
 
 const TAB_ITEMS: Array<{ key: WorkerPaymentTab; label: string }> = [
   { key: "summary", label: "지급 집계" },
   { key: "monthly", label: "월별 지급" },
+  { key: "monthlyActual", label: "\uC6D4 \uC2E4\uC9C0\uAE09" },
   { key: "detail", label: "시공자별 상세" },
   { key: "payoutHistory", label: "\uC9C0\uAE09\uB0B4\uC5ED" },
   { key: "statement", label: "내역서 / PDF" },
@@ -151,6 +154,9 @@ export function WorkerPaymentsPage({
   bankTransactionFolders = [],
   workerPayoutVouchers = [],
   setWorkerPayoutVouchers,
+  workerMonthlyActualVouchers = [],
+  setWorkerMonthlyActualVouchers,
+  setBankTransactions,
   currentUser,
 }: {
   workers?: WorkerMasterLike[];
@@ -161,6 +167,9 @@ export function WorkerPaymentsPage({
   bankTransactionFolders?: BankTransactionFolder[];
   workerPayoutVouchers?: WorkerPayoutVoucher[];
   setWorkerPayoutVouchers?: React.Dispatch<React.SetStateAction<WorkerPayoutVoucher[]>>;
+  workerMonthlyActualVouchers?: WorkerMonthlyActualVoucher[];
+  setWorkerMonthlyActualVouchers?: React.Dispatch<React.SetStateAction<WorkerMonthlyActualVoucher[]>>;
+  setBankTransactions?: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
   currentUser?: { name?: string; email?: string };
 }) {
   const [activeTab, setActiveTab] = useState<WorkerPaymentTab>("summary");
@@ -727,7 +736,7 @@ export function WorkerPaymentsPage({
             </div>
 
             <div className="erp-payment-hub-filters">
-              {activeTab === "monthly" ? (
+              {activeTab === "monthly" || activeTab === "monthlyActual" ? (
                 <>
                   <div className="erp-worker-month-nav">
                     <button type="button" className="erp-worker-month-nav-btn" onClick={() => setSelectedMonthKey((prev) => shiftMonthKey(prev, -1))} aria-label="이전 달">
@@ -1219,6 +1228,25 @@ export function WorkerPaymentsPage({
             </TableExportSection>
           </CardContent>
         </Card>
+      )}
+
+      {activeTab === "monthlyActual" && (
+        <WorkerMonthlyActualPaymentTab
+          workers={workers}
+          sales={sales}
+          workerPaymentRecords={workerPaymentRecords}
+          setWorkerPaymentRecords={setWorkerPaymentRecords}
+          workerMonthlyActualVouchers={workerMonthlyActualVouchers}
+          setWorkerMonthlyActualVouchers={setWorkerMonthlyActualVouchers}
+          workerPayoutVouchers={workerPayoutVouchers}
+          setWorkerPayoutVouchers={setWorkerPayoutVouchers}
+          bankTransactions={bankTransactions}
+          setBankTransactions={setBankTransactions}
+          bankTransactionFolders={bankTransactionFolders}
+          selectedMonthKey={selectedMonthKey}
+          setSelectedMonthKey={setSelectedMonthKey}
+          currentUser={currentUser}
+        />
       )}
 
       {activeTab === "payoutHistory" && (

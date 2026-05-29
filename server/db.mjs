@@ -40,6 +40,7 @@ function emptyErpPayload() {
     loginLogs: [],
     workerPaymentRecords: [],
     workerPayoutVouchers: [],
+    workerMonthlyActualVouchers: [],
     companyExpenses: [],
     attendanceRecords: [],
     fixedExpenses: [],

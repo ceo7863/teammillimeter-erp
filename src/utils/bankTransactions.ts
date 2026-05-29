@@ -41,6 +41,7 @@ export type BankTransaction = {
   classificationNote?: string;
   linkedSalesId?: string | number;
   linkedPaymentVoucherId?: string | number;
+  linkedWorkerMonthlyPaymentVoucherId?: string;
   linkedPdfArchiveId?: string;
   linkedCompanyExpenseId?: string;
   linkedFixedExpensePaymentId?: string;
@@ -111,6 +112,9 @@ export function normalizeBankTransaction(raw: Partial<BankTransaction> & { id: s
     linkedSalesId: raw.linkedSalesId != null && raw.linkedSalesId !== "" ? raw.linkedSalesId : undefined,
     linkedPaymentVoucherId:
       raw.linkedPaymentVoucherId != null && raw.linkedPaymentVoucherId !== "" ? raw.linkedPaymentVoucherId : undefined,
+    linkedWorkerMonthlyPaymentVoucherId: raw.linkedWorkerMonthlyPaymentVoucherId
+      ? String(raw.linkedWorkerMonthlyPaymentVoucherId)
+      : undefined,
     linkedPdfArchiveId: raw.linkedPdfArchiveId ? String(raw.linkedPdfArchiveId) : undefined,
     linkedCompanyExpenseId: raw.linkedCompanyExpenseId ? String(raw.linkedCompanyExpenseId) : undefined,
     linkedFixedExpensePaymentId: raw.linkedFixedExpensePaymentId
