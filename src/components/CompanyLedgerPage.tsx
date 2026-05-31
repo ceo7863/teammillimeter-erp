@@ -65,7 +65,7 @@ import {
   type LedgerPeriodKey,
 } from "@/utils/companyLedger";
 import type { ErpUser } from "@/utils/erpApi";
-import { AutocompleteInput } from "@/components/AutocompleteInput";
+import { AutocompleteInput, CategorySuggestInput } from "@/components/AutocompleteInput";
 import { CompanyLedgerCalendar } from "@/components/CompanyLedgerCalendar";
 import type { LedgerCalendarEntry } from "@/utils/ledgerCalendar";
 import { getLedgerCategoryColorStyle } from "@/utils/ledgerCalendar";
@@ -993,16 +993,6 @@ function emptyFixedExpenseForm(category = FIXED_CATEGORY_OPTIONS[0]): FixedExpen
     isActive: true,
   };
 }
-
-const LEDGER_CATEGORY_AUTOCOMPLETE_PROPS = {
-  freeSolo: true,
-  showOptionsOnFocus: true,
-  commitFreeSoloOnBlur: true,
-  keepOpenUntilSelect: true,
-  compact: false,
-  limit: 24,
-  inputProps: { className: "rounded-xl" },
-} as const;
 
 export function CompanyLedgerPage({
   companyExpenses = [],
@@ -2967,14 +2957,14 @@ export function CompanyLedgerPage({
                 />
               </Field>
               <Field label={L.category}>
-                <AutocompleteInput
+                <CategorySuggestInput
                   key={fixedExpenseModal.id || "create"}
                   value={fixedExpenseModal.category}
                   options={fixedCategorySelectOptions}
                   placeholder={L.category}
-                  {...LEDGER_CATEGORY_AUTOCOMPLETE_PROPS}
+                  className="rounded-xl"
                   onChange={(value) =>
-                    setFixedExpenseModal((prev) => (prev ? { ...prev, category: String(value || "").trim() } : prev))
+                    setFixedExpenseModal((prev) => (prev ? { ...prev, category: value.trim() } : prev))
                   }
                 />
                 <p className="mt-1.5 text-xs font-semibold text-slate-500">
@@ -3175,14 +3165,14 @@ export function CompanyLedgerPage({
               <Field label={L.category}>
                 {manualModal.kind === "fixed" ? (
                   <>
-                    <AutocompleteInput
+                    <CategorySuggestInput
                       key={`${manualModal.id || "create"}-${manualModal.source || "expense"}-${manualModal.kind}`}
                       value={manualModal.category}
                       options={manualFixedCategoryOptions}
                       placeholder={L.category}
-                      {...LEDGER_CATEGORY_AUTOCOMPLETE_PROPS}
+                      className="rounded-xl"
                       onChange={(value) =>
-                        setManualModal((prev) => (prev ? { ...prev, category: String(value || "").trim() } : prev))
+                        setManualModal((prev) => (prev ? { ...prev, category: value.trim() } : prev))
                       }
                     />
                     <p className="mt-1.5 text-xs font-semibold text-slate-500">
@@ -3193,12 +3183,12 @@ export function CompanyLedgerPage({
                   </>
                 ) : (
                   <>
-                    <AutocompleteInput
+                    <CategorySuggestInput
                       key={`${manualModal.id || "create"}-variable`}
                       value={manualModal.category}
                       options={expenseCategoryOptions}
                       placeholder={L.category}
-                      {...LEDGER_CATEGORY_AUTOCOMPLETE_PROPS}
+                      className="rounded-xl"
                       onChange={(value) => setManualModal((prev) => (prev ? { ...prev, category: value.trim() } : prev))}
                     />
                     <p className="mt-1.5 text-xs font-semibold text-slate-500">

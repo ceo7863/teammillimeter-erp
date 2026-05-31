@@ -114,7 +114,7 @@ import {
   formatSmartLedgerRunMessage,
   runSmartAutoLedger,
 } from "@/utils/bankSmartLedger";
-import { AutocompleteInput } from "@/components/AutocompleteInput";
+import { AutocompleteInput, CategorySuggestInput } from "@/components/AutocompleteInput";
 import { createPaymentInputLogsFromVouchers } from "@/utils/paymentInputLogs";
 import type { ReceivableRow } from "@/utils/receivables";
 import type { ErpUser, BankSyncSnapshot } from "@/utils/erpApi";
@@ -910,18 +910,12 @@ const BankTransactionDetailDrawer = React.memo(function BankTransactionDetailDra
                 </Field>
               ) : null}
               <Field label={ledgerKind === "fixed" ? L.ledgerCategory : L.ledgerManualCategory}>
-                <AutocompleteInput
+                <CategorySuggestInput
                   value={ledgerCategory}
                   options={ledgerKind === "fixed" ? fixedCategoryOptions : ledgerCategoryOptions}
                   placeholder={ledgerKind === "fixed" ? L.ledgerCategory : L.ledgerManualCategory}
-                  freeSolo
-                  showOptionsOnFocus
-                  commitFreeSoloOnBlur
-                  keepOpenUntilSelect
-                  compact={false}
-                  limit={24}
-                  inputProps={{ className: "rounded-xl" }}
-                  onChange={(value) => setLedgerCategory(String(value || "").trim())}
+                  className="rounded-xl"
+                  onChange={setLedgerCategory}
                 />
                 <p className="mt-1.5 text-xs font-semibold text-slate-500">{L.ledgerCategoryAddHint}</p>
               </Field>
@@ -2231,6 +2225,8 @@ export function BankTransactionsPage({
     return options;
   }, [detailLedgerPrefill.fixedExpenseId, fixedExpenseSelectOptions, fixedExpenses]);
 
+  const closeDetailDrawer = React.useCallback(() => setDetailTxId(null), []);
+
   const reviewLinkablePayments = useMemo(() => {
     if (!ledgerReviewPrompt || ledgerReviewPrompt.kind !== "fixed") return [];
     const fixedExpenseId = ledgerReviewPrompt.fixedExpenseId.trim();
@@ -3360,6 +3356,18 @@ export function BankTransactionsPage({
       memo: linkedExpense.memo || "",
     });
   };
+
+  const handleDetailLedgerEdit = React.useCallback(() => {
+    if (!detailTx) return;
+    setDetailTxId(null);
+    openLedgerEdit(detailTx);
+  }, [detailTx]);
+
+  const handleDetailLedgerRegister = React.useCallback(() => {
+    if (!detailTx) return;
+    setDetailTxId(null);
+    openLedgerRegister(detailTx);
+  }, [detailTx]);
 
   const setLedgerKind = (kind: LedgerRegisterKind) => {
     setLedgerModal((prev) => {
@@ -6062,19 +6070,13 @@ export function BankTransactionsPage({
                 <KoreanDateInput value={ledgerModal.date} onChange={(event) => setLedgerModal((prev) => (prev ? { ...prev, date: event.target.value } : prev))} />
               </Field>
               <Field label={L.ledgerManualCategory}>
-                <AutocompleteInput
+                <CategorySuggestInput
                   value={ledgerModal.category}
                   options={activeLedgerCategoryOptions}
                   placeholder={L.ledgerManualCategory}
-                  freeSolo
-                  showOptionsOnFocus
-                  commitFreeSoloOnBlur
-                  keepOpenUntilSelect
-                  compact={false}
-                  limit={24}
-                  inputProps={{ className: "rounded-xl" }}
+                  className="rounded-xl"
                   onChange={(value) =>
-                    setLedgerModal((prev) => (prev ? { ...prev, category: String(value || "").trim() } : prev))
+                    setLedgerModal((prev) => (prev ? { ...prev, category: value.trim() } : prev))
                   }
                 />
                 <p className="mt-1.5 text-xs font-semibold text-slate-500">{L.ledgerCategoryAddHint}</p>
@@ -6509,22 +6511,14 @@ export function BankTransactionsPage({
                 />
               </Field>
               <Field label={ledgerReviewPrompt.kind === "fixed" ? L.ledgerCategory : L.ledgerManualCategory}>
-                <AutocompleteInput
+                <CategorySuggestInput
                   value={ledgerReviewPrompt.category}
                   options={reviewCategoryOptions}
                   placeholder={L.ledgerManualCategory}
-                  freeSolo
-                  showOptionsOnFocus
-                  commitFreeSoloOnBlur
-                  keepOpenUntilSelect
-                  compact={false}
-                  limit={24}
-                  inputProps={{ className: "rounded-xl" }}
+                  className="rounded-xl"
                   onChange={(value) => {
                     setLedgerReviewPromptError("");
-                    setLedgerReviewPrompt((prev) =>
-                      prev ? { ...prev, category: String(value || "").trim() } : prev,
-                    );
+                    setLedgerReviewPrompt((prev) => (prev ? { ...prev, category: value.trim() } : prev));
                   }}
                 />
                 <p className="mt-1.5 text-xs font-semibold text-slate-500">{L.ledgerCategoryAddHint}</p>
@@ -6719,23 +6713,13 @@ export function BankTransactionsPage({
           bankTransactionFolders={bankTransactionFolders}
           formatFolderSelectLabel={formatFolderSelectLabel}
           canLedger={canRegisterLedgerWithConfidence(detailTx)}
-          onClose={() => setDetailTxId(null)}
+          onClose={closeDetailDrawer}
           onSave={saveBankTransactionDetail}
           onOpenLedgerEdit={
-            getLedgerCategoryLabel(detailTx)
-              ? () => {
-                  setDetailTxId(null);
-                  openLedgerEdit(detailTx);
-                }
-              : undefined
+            getLedgerCategoryLabel(detailTx) ? handleDetailLedgerEdit : undefined
           }
           onOpenLedgerRegister={
-            canRegisterLedgerWithConfidence(detailTx)
-              ? () => {
-                  setDetailTxId(null);
-                  openLedgerRegister(detailTx);
-                }
-              : undefined
+            canRegisterLedgerWithConfidence(detailTx) ? handleDetailLedgerRegister : undefined
           }
         />
       ) : null}

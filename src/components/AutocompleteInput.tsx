@@ -141,7 +141,7 @@ export function AutocompleteInput({
   const resolvedInputClassName = resolveAutocompleteInputClassName(inputProps, compact !== false);
   const useCompactMenu = compact !== false;
 
-  const normalizedOptions = mapAutocompleteOptions(options);
+  const normalizedOptions = useMemo(() => mapAutocompleteOptions(options), [options]);
 
   const selectedOption = normalizedOptions.find((item) => item.value === value);
   const resolvedLabel = selectedOption?.label ?? String(value ?? "");
@@ -377,6 +377,66 @@ export function AutocompleteInput({
 
       {dropdownMenu ? createPortal(dropdownMenu, document.body) : null}
     </div>
+  );
+}
+
+type CategorySuggestInputProps = {
+  value?: string;
+  onChange: (value: string) => void;
+  options?: OptionLike[];
+  placeholder?: string;
+  className?: string;
+  listId?: string;
+};
+
+/** Lightweight category text field with native datalist suggestions (no portal dropdown). */
+export function CategorySuggestInput({
+  value = "",
+  onChange,
+  options = [],
+  placeholder = "",
+  className = "rounded-xl",
+  listId: listIdProp,
+}: CategorySuggestInputProps) {
+  const autoId = React.useId();
+  const listId = listIdProp || `category-suggest-${autoId.replace(/:/g, "")}`;
+  const suggestions = useMemo(() => {
+    const seen = new Set<string>();
+    const rows: string[] = [];
+    for (const item of options) {
+      const label =
+        typeof item === "string"
+          ? item.trim()
+          : String(item.label ?? item.name ?? item.value ?? "").trim();
+      if (!label || seen.has(label)) continue;
+      seen.add(label);
+      rows.push(label);
+    }
+    return rows;
+  }, [options]);
+
+  return (
+    <>
+      <input
+        lang="ko"
+        list={suggestions.length ? listId : undefined}
+        className={`erp-input w-full rounded-2xl border bg-white px-3 py-2.5 text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-slate-900 md:px-4 md:py-3 ${className}`}
+        value={value}
+        placeholder={placeholder}
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {suggestions.length ? (
+        <datalist id={listId}>
+          {suggestions.map((label) => (
+            <option key={label} value={label} />
+          ))}
+        </datalist>
+      ) : null}
+    </>
   );
 }
 
