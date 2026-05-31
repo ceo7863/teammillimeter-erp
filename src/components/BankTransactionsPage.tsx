@@ -27,11 +27,23 @@ import {
   X,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { AutoLinkBadge, ManualLinkBadge, PartialPaymentBadge } from "@/components/AutoLinkBadge";
+import { PartialPaymentBadge } from "@/components/AutoLinkBadge";
 import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { TableExportSection } from "@/components/TableExportSection";
-import { DesktopTableWrap, MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
+import { DesktopTableWrap, MobileRecordCard } from "@/components/MobileRecordCard";
+import {
+  BankTransactionTableRow,
+  type BankTransactionTableRowLabels,
+} from "@/components/BankTransactionTableRow";
+import {
+  BankTransactionVirtualMobileList,
+  BankTransactionVirtualTable,
+} from "@/components/BankTransactionVirtualTable";
+import {
+  buildBankTransactionRowDisplayCache,
+  buildBankTransactionsExportTable,
+} from "@/utils/bankTransactionRowDisplay";
 import { useAudit } from "@/context/AuditContext";
 import { confirmDelete } from "@/utils/confirmDelete";
 import { CLIENT_AUDIT_FIELDS, COMPANY_EXPENSE_AUDIT_FIELDS, BANK_FOLDER_AUDIT_FIELDS, BANK_TRANSACTION_AUDIT_FIELDS, FIXED_EXPENSE_AUDIT_FIELDS, FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS, PAYMENT_AUDIT_FIELDS, snapshotBankFolderForAudit, snapshotBankTransactionForAudit, snapshotClientForAudit, snapshotCompanyExpenseForAudit, snapshotFixedExpenseForAudit, snapshotFixedExpensePaymentForAudit, snapshotPaymentForAudit, type AuditUser } from "@/utils/auditLog";
@@ -530,18 +542,6 @@ type DepositSuggestion =
       candidates: BankDepositMatchCandidate[];
     };
 
-function BankAutoLinkBadge() {
-  return <AutoLinkBadge title={L.autoLinkBadgeTitle} />;
-}
-
-function BankManualLinkBadge() {
-  return <ManualLinkBadge title={L.manualLinkBadgeTitle} />;
-}
-
-function BankPartialPaymentBadge() {
-  return <PartialPaymentBadge title={L.partialPaymentBadgeTitle} />;
-}
-
 function resolveActivePeriod(periodKey: PeriodKey, dateFilter: DateFilter): DateFilter {
   if (periodKey === "thisMonth") return monthRangeISO(0);
   if (periodKey === "lastMonth") return monthRangeISO(-1);
@@ -614,6 +614,15 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       {children}
     </label>
   );
+}
+
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
 }
 
 function BankTransactionSearchBar({
@@ -745,6 +754,7 @@ export function BankTransactionsPage({
   const [flowFilter, setFlowFilter] = useState<BankTransactionFlowFilter>("all");
   const [accountFilter, setAccountFilter] = useState("");
   const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query, 280);
   const [selectedFolderId, setSelectedFolderId] = useState("");
   const [folderScope, setFolderScope] = useState<FolderScope>("all");
   const [sort, setSort] = useState<BankTransactionSort>(DEFAULT_BANK_TRANSACTION_SORT);
@@ -2036,7 +2046,7 @@ export function BankTransactionsPage({
 
   const filteredRows = useMemo(() => {
     let scoped = filterBankTransactions(bankTransactions, {
-      search: query,
+      search: debouncedQuery,
       dateFrom: activePeriod.startDate,
       dateTo: activePeriod.endDate,
       flowType: flowFilter,
@@ -2067,7 +2077,7 @@ export function BankTransactionsPage({
     return sortBankTransactions(scoped, { key: sort.key, direction: sort.direction });
   }, [
     bankTransactions,
-    query,
+    debouncedQuery,
     activePeriod.startDate,
     activePeriod.endDate,
     flowFilter,
@@ -4126,6 +4136,195 @@ export function BankTransactionsPage({
     [bankTransactionFolders]
   );
 
+  const ledgerCategoryFolder = useMemo(
+    () => folderMap.get(DEFAULT_LEDGER_CATEGORY_FOLDER_ID),
+    [folderMap],
+  );
+
+  const rowDisplayById = useMemo(
+    () =>
+      buildBankTransactionRowDisplayCache({
+        rows: filteredRows,
+        companyExpenses,
+        fixedExpensePayments,
+        fixedExpenses,
+        memoCategorySuggestionByTxId,
+        ledgerSuggestionByTxId,
+        canRegisterLedgerWithConfidence,
+        resolveLedgerCategorySuggestionLabel,
+      }),
+    [
+      filteredRows,
+      companyExpenses,
+      fixedExpensePayments,
+      fixedExpenses,
+      memoCategorySuggestionByTxId,
+      ledgerSuggestionByTxId,
+      canRegisterLedgerWithConfidence,
+      resolveLedgerCategorySuggestionLabel,
+    ],
+  );
+
+  const folderSelectOptions = useMemo(
+    () => (
+      <>
+        <option value="">{L.unfiled}</option>
+        <optgroup label={L.clientFolders}>
+          {assignableClientFolders.map((item) => (
+            <option key={item.id} value={item.id}>
+              {formatFolderSelectLabel(item)}
+            </option>
+          ))}
+        </optgroup>
+        <optgroup label={L.cardFolders}>
+          {assignableCardFolders.map((item) => (
+            <option key={item.id} value={item.id}>
+              {formatFolderSelectLabel(item)}
+            </option>
+          ))}
+        </optgroup>
+        <optgroup label={L.workerFolders}>
+          {assignableWorkerFolders.map((item) => (
+            <option key={item.id} value={item.id}>
+              {formatFolderSelectLabel(item)}
+            </option>
+          ))}
+        </optgroup>
+        {customCategoryRoots.map((root) => {
+          const ids = new Set(collectCustomCategoryFolderIds(bankTransactionFolders, root.id));
+          const options = assignableCustomFolders.filter((item) => ids.has(item.id));
+          if (!options.length) return null;
+          return (
+            <optgroup key={root.id} label={root.folderName}>
+              {options.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {formatFolderSelectLabel(item)}
+                </option>
+              ))}
+            </optgroup>
+          );
+        })}
+      </>
+    ),
+    [
+      assignableCardFolders,
+      assignableClientFolders,
+      assignableCustomFolders,
+      assignableWorkerFolders,
+      bankTransactionFolders,
+      customCategoryRoots,
+      formatFolderSelectLabel,
+    ],
+  );
+
+  const tableRowLabels = useMemo<BankTransactionTableRowLabels>(
+    () => ({
+      memoPlaceholder: L.memoPlaceholder,
+      clientLinkClickHint: L.clientLinkClickHint,
+      unfiled: L.unfiled,
+      sentStatementMatch: L.sentStatementMatch,
+      selectReceivable: L.selectReceivable,
+      matchScore: L.matchScore,
+      partialStatementMatchHint: L.partialStatementMatchHint,
+      matchConfirmHint: L.matchConfirmHint,
+      matchConfirm: L.matchConfirm,
+      matchManual: L.matchManual,
+      ledgerSendTo: L.ledgerSendTo,
+      folderSuggestionBadge: L.folderSuggestionBadge,
+      clientFolders: L.clientFolders,
+      workerFolders: L.workerFolders,
+      cardFolders: L.cardFolders,
+      classification: L.classification,
+      preauthNetSettlementBadge: L.preauthNetSettlementBadge,
+      preauthNetRefundBadge: L.preauthNetRefundBadge,
+      preauthNetSuppressedBadge: L.preauthNetSuppressedBadge,
+      autoLinkBadgeTitle: L.autoLinkBadgeTitle,
+      manualLinkBadgeTitle: L.manualLinkBadgeTitle,
+      partialPaymentBadgeTitle: L.partialPaymentBadgeTitle,
+    }),
+    [],
+  );
+
+  const getBankTransactionsExportParsed = useCallback(
+    () =>
+      buildBankTransactionsExportTable(
+        filteredRows,
+        {
+          transactionAt: L.transactionAt,
+          deposit: L.deposit,
+          withdrawal: L.withdrawal,
+          balance: L.balance,
+          description: L.description,
+          memo: L.memo,
+          counterpartyName: L.counterpartyName,
+          ledgerCategoryColumn: L.ledgerCategoryColumn,
+          classification: L.classification,
+          counterpartyBank: L.counterpartyBank,
+          matchStatus: L.matchStatus,
+          transactionType: L.transactionType,
+          assignFolder: L.assignFolder,
+          ledgerSendTo: L.ledgerSendTo,
+          unfiled: L.unfiled,
+          memoPlaceholder: L.memoPlaceholder,
+        },
+        folderMap,
+        rowDisplayById,
+        ledgerCategoryFolder,
+      ),
+    [filteredRows, folderMap, rowDisplayById, ledgerCategoryFolder],
+  );
+
+  const renderBankTransactionRow = useCallback(
+    (row: BankTransaction) => {
+      const display = rowDisplayById.get(row.id);
+      if (!display) return null;
+      const folder = row.folderId ? folderMap.get(row.folderId) : undefined;
+      const depositSuggestion = depositSuggestionByTxId.get(row.id);
+      return (
+        <BankTransactionTableRow
+          row={row}
+          display={display}
+          isSelected={detailTxId === row.id}
+          folder={folder}
+          ledgerFolder={ledgerCategoryFolder}
+          folderSuggestion={folderSuggestionByTxId.get(row.id)}
+          depositSuggestion={
+            depositSuggestion
+              ? { kind: depositSuggestion.kind, candidates: depositSuggestion.candidates }
+              : undefined
+          }
+          folderSelectOptions={folderSelectOptions}
+          paymentVouchers={paymentVouchers}
+          labels={tableRowLabels}
+          onOpenDetail={openBankTransactionDetail}
+          onOpenClientLink={openClientLinkModal}
+          onAssignFolder={assignTransactionFolder}
+          onOpenLedgerRegister={openLedgerRegister}
+          onOpenLinkModal={setLinkModalTx}
+          onConfirmSentStatementMatch={(tx, candidate) => void confirmSentStatementMatch(tx, candidate)}
+          onConfirmDepositMatch={(tx, candidate) => confirmDepositMatch(tx, candidate)}
+        />
+      );
+    },
+    [
+      rowDisplayById,
+      folderMap,
+      depositSuggestionByTxId,
+      folderSuggestionByTxId,
+      folderSelectOptions,
+      paymentVouchers,
+      tableRowLabels,
+      detailTxId,
+      ledgerCategoryFolder,
+      openBankTransactionDetail,
+      openClientLinkModal,
+      assignTransactionFolder,
+      openLedgerRegister,
+      confirmSentStatementMatch,
+      confirmDepositMatch,
+    ],
+  );
+
   const renderFolderTreeRows = (
     treeItems: Array<{ folder: BankTransactionFolder; depth: number }>,
     amountLabel: string,
@@ -4236,34 +4435,6 @@ export function BankTransactionsPage({
       ).length
     : 0;
 
-  const renderTransactionDescription = (row: BankTransaction) => {
-    const text = row.description || "-";
-    return <span className="font-medium text-slate-900">{text}</span>;
-  };
-
-  const renderPreauthNetBadges = (row: BankTransaction) => {
-    if (!row.netGroupRole) return null;
-    if (row.netGroupRole === "settlement") {
-      return (
-        <span className="inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-xs font-bold text-violet-800">
-          {L.preauthNetSettlementBadge}
-        </span>
-      );
-    }
-    if (row.netGroupRole === "preauth_refund") {
-      return (
-        <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-500">
-          {L.preauthNetRefundBadge}
-        </span>
-      );
-    }
-    return (
-      <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-500">
-        {L.preauthNetSuppressedBadge}
-      </span>
-    );
-  };
-
   const resolveFolderSuggestionLabel = (folderType: BankTransactionFolderType) => {
     if (folderType === "client") return L.clientFolders;
     if (folderType === "worker") return L.workerFolders;
@@ -4271,304 +4442,12 @@ export function BankTransactionsPage({
     return L.classification;
   };
 
-  const renderFolderSuggestionBadge = (row: BankTransaction) => {
-    if (row.folderId) return null;
-    const suggestion = folderSuggestionByTxId.get(row.id);
-    if (!suggestion) return null;
-    const label = resolveFolderSuggestionLabel(suggestion.folderType);
-    return (
-      <span
-        className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-800"
-        title={L.folderSuggestionBadge(label, suggestion.linkedSubject)}
-      >
-        {L.folderSuggestionBadge(label, suggestion.linkedSubject)}
-      </span>
-    );
-  };
-
-  const renderLedgerCategoryCell = (row: BankTransaction) => {
-    const category = getLedgerCategoryLabel(row);
-    if (category) {
-      const isFixed = isLedgerCategoryFromFixed(row);
-      return (
-        <span
-          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold ${
-            isFixed ? "bg-amber-100 text-amber-800" : "border border-amber-200 bg-amber-50 text-amber-900"
-          }`}
-        >
-          <BookOpen size={11} />
-          {category}
-        </span>
-      );
-    }
-
-    const suggestionLabel = resolveLedgerCategorySuggestionLabel(row);
-    if (suggestionLabel) {
-      return (
-        <span className="inline-flex rounded-full border border-dashed border-violet-200 bg-violet-50 px-2 py-0.5 text-xs font-semibold text-violet-800">
-          {suggestionLabel}
-        </span>
-      );
-    }
-
-    return <span className="text-xs text-slate-400">-</span>;
-  };
-
-  const stopRowClick = (event: React.MouseEvent) => {
-    event.stopPropagation();
-  };
-
-  const renderRow = (row: BankTransaction) => {
-    const suppressed = isNetGroupSuppressed(row);
-    const isDeposit = row.deposit > 0;
-    const isWithdrawal = row.withdrawal > 0;
-    const rowClass = suppressed
-      ? "is-preauth-suppressed opacity-60 bg-slate-50/80"
-      : isDeposit
-        ? "is-deposit-row"
-        : isWithdrawal
-          ? "is-withdrawal-row"
-          : "";
-    const folder = row.folderId ? folderMap.get(row.folderId) : undefined;
-    const ledgerCategory = getLedgerCategoryLabel(row);
-    const ledgerFolder = folderMap.get(DEFAULT_LEDGER_CATEGORY_FOLDER_ID);
-    const canLedger = canRegisterLedgerWithConfidence(row);
-    const isSelected = detailTxId === row.id;
-
-    return (
-      <tr
-        key={row.id}
-        className={`border-t cursor-pointer transition hover:bg-slate-50/80 ${rowClass} ${isSelected ? "bg-sky-50 ring-1 ring-inset ring-sky-200" : ""}`}
-        onClick={() => openBankTransactionDetail(row)}
-      >
-        <td className="whitespace-nowrap text-slate-600">{formatBankTransactionDateTime(row.transactionAt)}</td>
-        <td className="text-right font-semibold text-emerald-700">{row.deposit > 0 ? formatKRW(row.deposit) : "-"}</td>
-        <td className="text-right font-semibold text-red-600">{row.withdrawal > 0 ? formatKRW(row.withdrawal) : "-"}</td>
-        <td className="text-right font-bold text-slate-900">{formatKRW(row.balanceAfter)}</td>
-        <td>{renderTransactionDescription(row)}</td>
-        <td className="max-w-[14rem]">
-          <span
-            className={`block truncate text-xs ${row.memo ? "font-medium text-slate-800" : "text-slate-400"}`}
-            title={row.memo || L.memoPlaceholder}
-          >
-            {row.memo || L.memoPlaceholder}
-          </span>
-        </td>
-        <td className="text-slate-700">
-          {canLinkUnclassifiedClientDeposit(row) ? (
-            <button
-              type="button"
-              className="text-left font-medium text-emerald-700 underline decoration-emerald-200 underline-offset-2 hover:text-emerald-900"
-              title={L.clientLinkClickHint}
-              onClick={(event) => {
-                stopRowClick(event);
-                openClientLinkModal(row);
-              }}
-            >
-              {row.counterpartyName || row.description || "-"}
-            </button>
-          ) : (
-            row.counterpartyName || "-"
-          )}
-        </td>
-        <td>{renderLedgerCategoryCell(row)}</td>
-        <td>
-          {folder ? (
-            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getBankTransactionFolderTone(folder.folderType)}`}>
-              {folder.folderName}
-            </span>
-          ) : ledgerCategory && ledgerFolder ? (
-            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getBankTransactionFolderTone(ledgerFolder.folderType)}`}>
-              {ledgerFolder.folderName}
-            </span>
-          ) : canLinkUnclassifiedClientDeposit(row) ? (
-            <button
-              type="button"
-              className="inline-flex rounded-full border border-dashed border-emerald-300 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800 hover:border-emerald-400 hover:bg-emerald-100"
-              title={L.clientLinkClickHint}
-              onClick={(event) => {
-                stopRowClick(event);
-                openClientLinkModal(row);
-              }}
-            >
-              {L.unfiled}
-            </button>
-          ) : (
-            <span className="text-xs font-semibold text-slate-400">{L.unfiled}</span>
-          )}
-          {!folder ? <div className="mt-1">{renderFolderSuggestionBadge(row)}</div> : null}
-          {row.netGroupRole ? <div className="mt-1">{renderPreauthNetBadges(row)}</div> : null}
-          {row.linkedSubject ? (
-            <div className="mt-1 text-xs text-slate-500">{row.linkedSubject}</div>
-          ) : null}
-        </td>
-        <td className="text-slate-600">{row.counterpartyBank || "-"}</td>
-        <td>
-          {row.linkedPaymentVoucherId ? (
-            <div>
-              <div className="flex flex-wrap items-center gap-1">
-                <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">
-                  {getBankMatchStatusLabel(row)}
-                </span>
-                {isBankMatchAutoLinked(row) ? <BankAutoLinkBadge /> : null}
-                {isBankMatchManualLinked(row) ? <BankManualLinkBadge /> : null}
-                {bankTxHasPartialPaymentVoucher(row, paymentVouchers) ? <BankPartialPaymentBadge /> : null}
-              </div>
-              {row.linkedSubject ? (
-                <div className="mt-1 text-xs text-slate-500">
-                  {row.linkedSubject}
-                  {row.linkedSalesId ? ` #${row.linkedSalesId}` : ""}
-                </div>
-              ) : null}
-            </div>
-          ) : row.deposit > 0 && !isCardCompanyDeposit(row) ? (
-            (() => {
-              const suggestion = depositSuggestionByTxId.get(row.id);
-              const top = suggestion?.candidates[0];
-              if (suggestion && top) {
-                const isSentStatement = suggestion.kind === "sentStatement";
-                const sentTop = isSentStatement ? (top as SentStatementMatchCandidate) : null;
-                const receivableTop = !isSentStatement ? (top as BankDepositMatchCandidate) : null;
-                return (
-                  <div className="space-y-1">
-                    <div className="text-xs font-semibold text-violet-700">
-                      {isSentStatement ? L.sentStatementMatch : L.selectReceivable}
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      {isSentStatement ? sentTop?.client : receivableTop?.client}
-                      {" \u00B7 "}
-                      {L.matchScore} {top.score}
-                    </div>
-                    {isSentStatement && sentTop?.paymentStatus === "partial" ? (
-                      <div className="text-xs font-semibold text-amber-700">
-                        {L.partialStatementMatchHint(sentTop.paymentAmount, sentTop.statementRemainingAmount)}
-                      </div>
-                    ) : null}
-                    <div className="flex flex-wrap gap-1" onClick={stopRowClick}>
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="rounded-lg text-xs"
-                        title={L.matchConfirmHint}
-                        onClick={() =>
-                          isSentStatement
-                            ? void confirmSentStatementMatch(row, sentTop!)
-                            : confirmDepositMatch(row, receivableTop!)
-                        }
-                      >
-                        <Link2 size={12} className="mr-1" />
-                        {L.matchConfirm}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="rounded-lg text-xs"
-                        onClick={() => setLinkModalTx(row)}
-                      >
-                        {L.matchManual}
-                      </Button>
-                    </div>
-                  </div>
-                );
-              }
-              return (
-                <div onClick={stopRowClick}>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="rounded-lg text-xs"
-                    onClick={() => setLinkModalTx(row)}
-                  >
-                    <Link2 size={12} className="mr-1" />
-                    {L.matchManual}
-                  </Button>
-                </div>
-              );
-            })()
-          ) : (
-            "-"
-          )}
-        </td>
-        <td>
-          {row.transactionType ? (
-            <span className="erp-bank-type-badge">{row.transactionType}</span>
-          ) : (
-            "-"
-          )}
-        </td>
-        <td onClick={stopRowClick}>
-          <select
-            className="erp-input max-w-[10rem] rounded-lg py-1 text-xs"
-            value={row.folderId || ""}
-            onChange={(event) => assignTransactionFolder(row.id, event.target.value)}
-          >
-            <option value="">{L.unfiled}</option>
-            <optgroup label={L.clientFolders}>
-              {assignableClientFolders.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {formatFolderSelectLabel(item)}
-                </option>
-              ))}
-            </optgroup>
-            <optgroup label={L.cardFolders}>
-              {assignableCardFolders.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {formatFolderSelectLabel(item)}
-                </option>
-              ))}
-            </optgroup>
-            <optgroup label={L.workerFolders}>
-              {assignableWorkerFolders.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {formatFolderSelectLabel(item)}
-                </option>
-              ))}
-            </optgroup>
-            {customCategoryRoots.map((root) => {
-              const ids = new Set(collectCustomCategoryFolderIds(bankTransactionFolders, root.id));
-              const options = assignableCustomFolders.filter((item) => ids.has(item.id));
-              if (!options.length) return null;
-              return (
-                <optgroup key={root.id} label={root.folderName}>
-                  {options.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {formatFolderSelectLabel(item)}
-                    </option>
-                  ))}
-                </optgroup>
-              );
-            })}
-          </select>
-        </td>
-        <td onClick={stopRowClick}>
-          {canLedger ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="rounded-lg border-amber-200 bg-amber-50 text-xs font-semibold text-amber-900 hover:bg-amber-100"
-              onClick={() => openLedgerRegister(row)}
-            >
-              <BookOpen size={12} className="mr-1" />
-              {L.ledgerSendTo}
-            </Button>
-          ) : (
-            "-"
-          )}
-        </td>
-      </tr>
-    );
-  };
-
   const renderMobileCard = (row: BankTransaction) => {
+    const display = rowDisplayById.get(row.id);
     const folder = row.folderId ? folderMap.get(row.folderId) : undefined;
-    const ledgerCategoryLabel = getLedgerCategoryLabel(row);
-    const ledgerFolder = folderMap.get(DEFAULT_LEDGER_CATEGORY_FOLDER_ID);
-    const displayFolder = folder || (ledgerCategoryLabel && ledgerFolder ? ledgerFolder : undefined);
-    const canLedger = canRegisterLedgerWithConfidence(row);
-    const ledgerCategorySuggestion = !ledgerCategoryLabel ? resolveLedgerCategorySuggestionLabel(row) : null;
+    const ledgerCategoryLabel = display?.ledgerCategory || null;
+    const displayFolder = folder || (ledgerCategoryLabel && ledgerCategoryFolder ? ledgerCategoryFolder : undefined);
+    const ledgerCategorySuggestion = display?.ledgerSuggestion || null;
     const folderSuggestion = !folder ? folderSuggestionByTxId.get(row.id) : undefined;
     const preauthBadge =
       row.netGroupRole === "settlement"
@@ -5432,49 +5311,50 @@ export function BankTransactionsPage({
           title={L.pageTitle}
           disabled={!filteredRows.length}
           tableSelector="#bank-transactions-table"
+          getParsedTable={getBankTransactionsExportParsed}
         >
           <p className="mb-2 text-xs font-semibold text-slate-500">{L.detailRowHint}</p>
           <DesktopTableWrap>
-            <table id="bank-transactions-table" ref={tableRef} className="erp-table erp-bank-table w-full min-w-[960px]">
-              <thead>
+            <BankTransactionVirtualTable
+              rows={filteredRows}
+              tableId="bank-transactions-table"
+              tableRef={tableRef}
+              tableClassName="erp-table erp-bank-table w-full min-w-[960px]"
+              colSpan={14}
+              header={
                 <tr className="bg-slate-100 text-left text-slate-600">
                   <th>{L.transactionAt}</th>
                   <th className="text-right">{L.deposit}</th>
                   <th className="text-right">{L.withdrawal}</th>
                   <th className="text-right">{L.balance}</th>
                   <th>{L.description}</th>
-                <th>{L.memo}</th>
-                <th>{L.counterpartyName}</th>
-                <th>{L.ledgerCategoryColumn}</th>
-                <th>{L.classification}</th>
-                <th>{L.counterpartyBank}</th>
-                <th>{L.matchStatus}</th>
-                <th>{L.transactionType}</th>
-                <th>{L.assignFolder}</th>
-                <th>{L.ledgerSendTo}</th>
-              </tr>
-              </thead>
-              <tbody>
-                {filteredRows.length ? (
-                  filteredRows.map(renderRow)
-                ) : (
-                  <tr>
-                    <td colSpan={14} className="py-12 text-center text-slate-500">
-                      {L.empty}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                  <th>{L.memo}</th>
+                  <th>{L.counterpartyName}</th>
+                  <th>{L.ledgerCategoryColumn}</th>
+                  <th>{L.classification}</th>
+                  <th>{L.counterpartyBank}</th>
+                  <th>{L.matchStatus}</th>
+                  <th>{L.transactionType}</th>
+                  <th>{L.assignFolder}</th>
+                  <th>{L.ledgerSendTo}</th>
+                </tr>
+              }
+              empty={
+                <tr>
+                  <td colSpan={14} className="py-12 text-center text-slate-500">
+                    {L.empty}
+                  </td>
+                </tr>
+              }
+              renderRow={renderBankTransactionRow}
+            />
           </DesktopTableWrap>
 
-          <MobileRecordList>
-            {filteredRows.length ? (
-              filteredRows.map(renderMobileCard)
-            ) : (
-              <div className="py-8 text-center text-slate-500">{L.empty}</div>
-            )}
-          </MobileRecordList>
+          <BankTransactionVirtualMobileList
+            rows={filteredRows}
+            empty={<div className="py-8 text-center text-slate-500">{L.empty}</div>}
+            renderCard={renderMobileCard}
+          />
         </TableExportSection>
       ) : null}
 

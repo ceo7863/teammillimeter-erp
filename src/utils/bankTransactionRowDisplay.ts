@@ -1,0 +1,222 @@
+import type { BankTransaction } from "@/utils/bankTransactions";
+import type { BankTransactionFolder } from "@/utils/bankTransactionFolders";
+import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "@/utils/companyLedger";
+import {
+  getLinkedCompanyExpenseForBankTx,
+  getLinkedFixedPaymentForBankTx,
+} from "@/utils/bankCompanyLedger";
+import { isNetGroupSuppressed } from "@/utils/bankPreauthNetting";
+import type { ParsedTable } from "@/utils/tableExport";
+import { formatBankTransactionDateTime } from "@/utils/bankTransactions";
+import { formatKRW } from "@/utils/companyLedger";
+import { getBankMatchStatusLabel } from "@/utils/bankReceivableMatch";
+
+export type BankTransactionRowDisplay = {
+  ledgerCategory: string | null;
+  ledgerFromFixed: boolean;
+  ledgerSuggestion: string | null;
+  canLedger: boolean;
+  suppressed: boolean;
+};
+
+type BuildRowDisplayCacheInput = {
+  rows: BankTransaction[];
+  companyExpenses: CompanyExpense[];
+  fixedExpensePayments: FixedExpensePayment[];
+  fixedExpenses: FixedExpense[];
+  memoCategorySuggestionByTxId: Map<string, { category: string }>;
+  ledgerSuggestionByTxId: Map<string, { label?: string }>;
+  canRegisterLedgerWithConfidence: (tx: BankTransaction) => boolean;
+  resolveLedgerCategorySuggestionLabel: (row: BankTransaction) => string | null;
+};
+
+function resolveLedgerCategoryLabel(
+  row: BankTransaction,
+  companyExpenseByTxId: Map<string, CompanyExpense>,
+  companyExpenseById: Map<string, CompanyExpense>,
+  fixedPaymentByTxId: Map<string, FixedExpensePayment>,
+  fixedPaymentById: Map<string, FixedExpensePayment>,
+  fixedExpenseById: Map<string, FixedExpense>,
+): string | null {
+  let linkedExpense: CompanyExpense | undefined;
+  if (row.linkedCompanyExpenseId) {
+    linkedExpense = companyExpenseById.get(row.linkedCompanyExpenseId);
+  }
+  if (!linkedExpense) {
+    linkedExpense = companyExpenseByTxId.get(row.id);
+  }
+  if (linkedExpense?.category?.trim()) return linkedExpense.category.trim();
+
+  let linkedPayment: FixedExpensePayment | undefined;
+  if (row.linkedFixedExpensePaymentId) {
+    linkedPayment = fixedPaymentById.get(row.linkedFixedExpensePaymentId);
+  }
+  if (!linkedPayment) {
+    linkedPayment = fixedPaymentByTxId.get(row.id);
+  }
+  if (linkedPayment) {
+    const fixedItem = fixedExpenseById.get(linkedPayment.fixedExpenseId);
+    if (fixedItem?.name?.trim()) return fixedItem.name.trim();
+    return fixedItem?.category?.trim() || null;
+  }
+  return null;
+}
+
+function isLedgerCategoryFromFixed(
+  row: BankTransaction,
+  companyExpenseByTxId: Map<string, CompanyExpense>,
+  companyExpenseById: Map<string, CompanyExpense>,
+  fixedPaymentByTxId: Map<string, FixedExpensePayment>,
+  fixedPaymentById: Map<string, FixedExpensePayment>,
+): boolean {
+  let linkedExpense: CompanyExpense | undefined;
+  if (row.linkedCompanyExpenseId) {
+    linkedExpense = companyExpenseById.get(row.linkedCompanyExpenseId);
+  }
+  if (!linkedExpense) {
+    linkedExpense = companyExpenseByTxId.get(row.id);
+  }
+  if (linkedExpense?.kind === "fixed") return true;
+  let linkedPayment: FixedExpensePayment | undefined;
+  if (row.linkedFixedExpensePaymentId) {
+    linkedPayment = fixedPaymentById.get(row.linkedFixedExpensePaymentId);
+  }
+  if (!linkedPayment) {
+    linkedPayment = fixedPaymentByTxId.get(row.id);
+  }
+  return Boolean(linkedPayment);
+}
+
+export function buildBankTransactionRowDisplayCache({
+  rows,
+  companyExpenses,
+  fixedExpensePayments,
+  fixedExpenses,
+  memoCategorySuggestionByTxId,
+  ledgerSuggestionByTxId,
+  canRegisterLedgerWithConfidence,
+  resolveLedgerCategorySuggestionLabel,
+}: BuildRowDisplayCacheInput): Map<string, BankTransactionRowDisplay> {
+  const companyExpenseByTxId = new Map<string, CompanyExpense>();
+  const companyExpenseById = new Map<string, CompanyExpense>();
+  for (const expense of companyExpenses) {
+    companyExpenseById.set(expense.id, expense);
+    if (expense.bankTransactionId) {
+      companyExpenseByTxId.set(expense.bankTransactionId, expense);
+    }
+  }
+
+  const fixedPaymentByTxId = new Map<string, FixedExpensePayment>();
+  const fixedPaymentById = new Map<string, FixedExpensePayment>();
+  for (const payment of fixedExpensePayments) {
+    fixedPaymentById.set(payment.id, payment);
+    if (payment.bankTransactionId) {
+      fixedPaymentByTxId.set(payment.bankTransactionId, payment);
+    }
+  }
+
+  const fixedExpenseById = new Map(fixedExpenses.map((item) => [item.id, item]));
+  const cache = new Map<string, BankTransactionRowDisplay>();
+
+  for (const row of rows) {
+    const ledgerCategory = resolveLedgerCategoryLabel(
+      row,
+      companyExpenseByTxId,
+      companyExpenseById,
+      fixedPaymentByTxId,
+      fixedPaymentById,
+      fixedExpenseById,
+    );
+    const ledgerSuggestion = ledgerCategory
+      ? null
+      : resolveLedgerCategorySuggestionLabel(row);
+    cache.set(row.id, {
+      ledgerCategory,
+      ledgerFromFixed: isLedgerCategoryFromFixed(
+        row,
+        companyExpenseByTxId,
+        companyExpenseById,
+        fixedPaymentByTxId,
+        fixedPaymentById,
+      ),
+      ledgerSuggestion,
+      canLedger: canRegisterLedgerWithConfidence(row),
+      suppressed: isNetGroupSuppressed(row),
+    });
+  }
+
+  return cache;
+}
+
+export type BankTransactionExportLabels = {
+  transactionAt: string;
+  deposit: string;
+  withdrawal: string;
+  balance: string;
+  description: string;
+  memo: string;
+  counterpartyName: string;
+  ledgerCategoryColumn: string;
+  classification: string;
+  counterpartyBank: string;
+  matchStatus: string;
+  transactionType: string;
+  assignFolder: string;
+  ledgerSendTo: string;
+  unfiled: string;
+  memoPlaceholder: string;
+};
+
+export function buildBankTransactionsExportTable(
+  rows: BankTransaction[],
+  labels: BankTransactionExportLabels,
+  folderMap: Map<string, BankTransactionFolder>,
+  rowDisplayById: Map<string, BankTransactionRowDisplay>,
+  defaultLedgerFolder?: BankTransactionFolder,
+): ParsedTable {
+  const headers = [
+    labels.transactionAt,
+    labels.deposit,
+    labels.withdrawal,
+    labels.balance,
+    labels.description,
+    labels.memo,
+    labels.counterpartyName,
+    labels.ledgerCategoryColumn,
+    labels.classification,
+    labels.counterpartyBank,
+    labels.matchStatus,
+    labels.transactionType,
+    labels.assignFolder,
+    labels.ledgerSendTo,
+  ];
+
+  const parsedRows = rows.map((row) => {
+    const display = rowDisplayById.get(row.id);
+    const folder = row.folderId ? folderMap.get(row.folderId) : undefined;
+    const ledgerCategory = display?.ledgerCategory || display?.ledgerSuggestion || "";
+    const classification =
+      folder?.folderName ||
+      (ledgerCategory && defaultLedgerFolder ? defaultLedgerFolder.folderName : labels.unfiled);
+    const folderLabel = folder?.folderName || labels.unfiled;
+
+    return [
+      formatBankTransactionDateTime(row.transactionAt),
+      row.deposit > 0 ? formatKRW(row.deposit) : "-",
+      row.withdrawal > 0 ? formatKRW(row.withdrawal) : "-",
+      formatKRW(row.balanceAfter),
+      row.description || "-",
+      row.memo || labels.memoPlaceholder,
+      row.counterpartyName || "-",
+      ledgerCategory || "-",
+      classification,
+      row.counterpartyBank || "-",
+      row.linkedPaymentVoucherId ? getBankMatchStatusLabel(row) : "-",
+      row.transactionType || "-",
+      folderLabel,
+      display?.canLedger ? labels.ledgerSendTo : "-",
+    ];
+  });
+
+  return { headers, rows: parsedRows };
+}

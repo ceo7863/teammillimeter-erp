@@ -3,7 +3,16 @@ import { Download, FileSpreadsheet, Loader2, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { archiveGeneratedPdf, type PdfArchiveCategory, type PdfArchiveStatementView } from "@/utils/pdfArchive";
 import { exportStatementSheetExcel, exportStatementSheetPdf, printStatementSheet } from "@/utils/statementExport";
-import { exportDomTableExcel, exportDomTablePdf, printDomTable, safeExportFileName } from "@/utils/tableExport";
+import {
+  downloadParsedTableExcel,
+  exportDomTableExcel,
+  exportDomTablePdf,
+  exportParsedTablePdf,
+  printDomTable,
+  printParsedTable,
+  safeExportFileName,
+  type ParsedTable,
+} from "@/utils/tableExport";
 
 type PdfArchiveMetaInput = {
   category: PdfArchiveCategory;
@@ -24,12 +33,14 @@ type TableExportSectionProps = {
   /** 내역서 전체([data-pdf-export-root])를 화면과 동일하게 내보낼 때 */
   exportRootSelector?: string;
   pdfArchiveMeta?: PdfArchiveMetaInput;
+  getParsedTable?: () => ParsedTable | null;
   children: React.ReactNode;
 };
 
 export function TableExportToolbar({
   getTable,
   getExportRoot,
+  getParsedTable,
   fileName,
   title,
   disabled = false,
@@ -40,6 +51,7 @@ export function TableExportToolbar({
 }: {
   getTable: () => HTMLTableElement | null;
   getExportRoot?: () => HTMLElement | null;
+  getParsedTable?: () => ParsedTable | null;
   fileName: string;
   title?: string;
   disabled?: boolean;
@@ -58,8 +70,9 @@ export function TableExportToolbar({
     async (kind: "pdf" | "excel" | "print") => {
       const exportRoot = getExportRoot?.() || null;
       const table = getTable();
+      const parsedTable = getParsedTable?.() || null;
 
-      if (!exportRoot && !table) {
+      if (!exportRoot && !table && !parsedTable) {
         setMessage("표를 찾을 수 없습니다.");
         return;
       }
@@ -96,6 +109,20 @@ export function TableExportToolbar({
           return;
         }
 
+        if (parsedTable) {
+          if (kind === "excel") {
+            downloadParsedTableExcel(parsedTable, safeName);
+            return;
+          }
+          if (kind === "print") {
+            printParsedTable(parsedTable, exportTitle);
+            return;
+          }
+          const result = await exportParsedTablePdf(parsedTable, safeName, exportTitle);
+          setMessage(result.previewOpened ? "PDF가 생성되었습니다." : "PDF가 다운로드되었습니다.");
+          return;
+        }
+
         if (kind === "excel") {
           exportDomTableExcel(table!, safeName);
           return;
@@ -113,7 +140,7 @@ export function TableExportToolbar({
         setBusy(null);
       }
     },
-    [exportTitle, getExportRoot, getTable, pdfArchiveMeta, safeName]
+    [exportTitle, getExportRoot, getParsedTable, getTable, pdfArchiveMeta, safeName]
   );
 
   return (
@@ -173,6 +200,7 @@ export function TableExportSection({
   exportRootSelector,
   pdfArchiveMeta,
   toolbarTabIndex,
+  getParsedTable,
   children,
 }: TableExportSectionProps) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -187,6 +215,7 @@ export function TableExportSection({
       <TableExportToolbar
         getTable={getTable}
         getExportRoot={exportRootSelector ? getExportRoot : undefined}
+        getParsedTable={getParsedTable}
         fileName={fileName}
         title={title ?? fileName}
         disabled={disabled}

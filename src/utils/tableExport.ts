@@ -102,8 +102,7 @@ export function parseDomTable(table: HTMLTableElement): ParsedTable {
   return { headers, rows };
 }
 
-function cloneTableForExport(table: HTMLTableElement) {
-  const parsed = parseDomTable(table);
+export function buildTableElementFromParsed(parsed: ParsedTable) {
   const clone = document.createElement("table");
   clone.className = "erp-table-export-print";
 
@@ -130,6 +129,10 @@ function cloneTableForExport(table: HTMLTableElement) {
   clone.appendChild(tbody);
 
   return clone;
+}
+
+function cloneTableForExport(table: HTMLTableElement) {
+  return buildTableElementFromParsed(parseDomTable(table));
 }
 
 function buildPrintHtml(tableHtml: string, title: string) {
@@ -165,6 +168,14 @@ export function downloadParsedTableExcel(parsed: ParsedTable, fileName: string) 
 
 export function exportDomTableExcel(table: HTMLTableElement, fileName: string) {
   downloadParsedTableExcel(parseDomTable(table), fileName);
+}
+
+export function printParsedTable(parsed: ParsedTable, title: string) {
+  printDomTable(buildTableElementFromParsed(parsed), title);
+}
+
+export async function exportParsedTablePdf(parsed: ParsedTable, fileName: string, title: string) {
+  return exportDomTablePdf(buildTableElementFromParsed(parsed), fileName, title);
 }
 
 export function printDomTable(table: HTMLTableElement, title: string) {
