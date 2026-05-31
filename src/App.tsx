@@ -6467,10 +6467,6 @@ export default function TeammillimeterErpMvp() {
   const skipSaveRef = useRef(true);
   const pendingLocalEditsRef = useRef(false);
   const saveDebounceTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
-  const companyExpensesRef = useRef(companyExpenses);
-  const fixedExpensePaymentsRef = useRef(fixedExpensePayments);
-  companyExpensesRef.current = companyExpenses;
-  fixedExpensePaymentsRef.current = fixedExpensePayments;
   const [active, setActive] = useState(() => {
     if (typeof window === "undefined") return "dashboard";
     const stored = window.sessionStorage.getItem(ACTIVE_TAB_KEY) || "dashboard";
@@ -6544,6 +6540,10 @@ export default function TeammillimeterErpMvp() {
     if (apiMode && sessionOnMount) return [];
     return Array.isArray(storedData?.fixedExpensePayments) ? storedData.fixedExpensePayments : [];
   });
+  const companyExpensesRef = useRef(companyExpenses);
+  const fixedExpensePaymentsRef = useRef(fixedExpensePayments);
+  companyExpensesRef.current = companyExpenses;
+  fixedExpensePaymentsRef.current = fixedExpensePayments;
   const [bankLedgerRules, setBankLedgerRules] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return normalizeBankLedgerMatchRules(storedData?.bankLedgerRules);
