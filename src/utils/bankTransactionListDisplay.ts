@@ -95,9 +95,7 @@ export function buildBankTransactionListRowModels(
       fixedPaymentById,
       fixedExpenseById,
     );
-    const classificationLabel =
-      folder?.folderName ||
-      (ledgerCategory && ledgerCategoryFolder ? ledgerCategoryFolder.folderName : labels.unfiled);
+    const classificationLabel = folder?.folderName || labels.unfiled;
 
     let matchStatusLabel = "-";
     if (row.linkedPaymentVoucherId) {

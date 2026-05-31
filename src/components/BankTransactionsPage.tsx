@@ -713,6 +713,7 @@ export function BankTransactionsPage({
   erpVersion = 0,
   isPageActive = true,
   onApplyRemoteBankSnapshot,
+  onRequestImmediateSave,
 }: {
   bankTransactions: BankTransaction[];
   setBankTransactions: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
@@ -744,6 +745,7 @@ export function BankTransactionsPage({
   erpVersion?: number;
   isPageActive?: boolean;
   onApplyRemoteBankSnapshot?: (snapshot: BankSyncSnapshot) => void;
+  onRequestImmediateSave?: () => void | Promise<void>;
 }) {
   const [pageView, setPageView] = useState<PageView>("list");
   const [periodKey, setPeriodKey] = useState<PeriodKey>("thisMonth");
@@ -2541,28 +2543,29 @@ export function BankTransactionsPage({
       const tx = bankTransactions.find((row) => row.id === detailTxId);
       if (!tx) return;
 
-      const commitLedgerState = (
+      const finalizeLedgerState = (
         workingTransactions: BankTransaction[],
         nextExpenses: typeof companyExpenses,
         nextPayments: typeof fixedExpensePayments,
+        foldersBase: typeof bankTransactionFolders,
       ) => {
-        const folders = ensureDefaultBankTransactionFolders(bankTransactionFolders);
+        const folders = ensureDefaultBankTransactionFolders(foldersBase);
         const synced = syncBankTransactionLedgerLinkFields(workingTransactions, nextExpenses, nextPayments);
-        const folderSync = syncLedgerLinkedBankTransactionFolders(synced, folders, {
+        return syncLedgerLinkedBankTransactionFolders(synced, folders, {
           companyExpenses: nextExpenses,
           fixedExpensePayments: nextPayments,
         });
-        if (folderSync.updated > 0 || folderSync.folders.length !== bankTransactionFolders.length) {
-          setBankTransactionFolders(folderSync.folders);
-        }
-        setCompanyExpenses(nextExpenses);
-        setFixedExpensePayments(nextPayments);
-        setBankTransactions(folderSync.transactions);
-        return folderSync.transactions;
       };
 
       let nextRow: BankTransaction = { ...tx };
       let rowChanged = false;
+      let nextTransactions = bankTransactions;
+      let nextExpenses = companyExpenses;
+      let nextPayments = fixedExpensePayments;
+      let nextRules = bankLedgerRules;
+      let nextFolders = bankTransactionFolders;
+      let expenseCategoryToMerge: string | null = null;
+      let manualLedgerRegistered = false;
 
       const detailPrefill = resolveDetailLedgerPrefill(tx);
       const nextMemo = payload.memo.trim() || undefined;
@@ -2617,28 +2620,22 @@ export function BankTransactionsPage({
         rowChanged = true;
       }
 
-      let nextTransactions = bankTransactions;
       if (rowChanged) {
         auditBankTxUpdate(tx, nextRow);
         nextTransactions = bankTransactions.map((row) => (row.id === tx.id ? nextRow : row));
-        setBankTransactions(nextTransactions);
       }
-
-      let nextRules = bankLedgerRules;
 
       if (folderChanged && targetFolderId) {
         nextRules = upsertBankLearnRule(
           nextRules,
           buildBankLearnRuleFromFolderAssignment(tx, targetFolderId, savedBy || undefined),
         );
-        setBankLedgerRules(nextRules);
-        setBankTransactionFolders((prev) => ensureDefaultBankTransactionFolders(prev));
+        nextFolders = ensureDefaultBankTransactionFolders(nextFolders);
       }
 
       const fixedExpenseId = payload.fixedExpenseId.trim();
       const linkedPayment = resolveLinkedFixedPaymentForBankTx(tx);
       const linkedExpense = resolveLinkedCompanyExpenseForBankTx(tx);
-      let manualLedgerRegistered = false;
 
       if (resolvedLedgerKind === "fixed") {
         let resolvedFixedExpenseId = fixedExpenseId;
@@ -2657,8 +2654,6 @@ export function BankTransactionsPage({
         }
 
         const workingTx = nextTransactions.find((row) => row.id === tx.id) || nextRow;
-        let nextPayments = fixedExpensePayments;
-        let nextExpenses = companyExpenses;
         let workingTransactions = nextTransactions;
         const resolvedCategory = ledgerCategory || fixedItem.category?.trim() || "";
 
@@ -2733,13 +2728,10 @@ export function BankTransactionsPage({
               : row,
           );
           auditBankTxUpdate(tx, workingTransactions.find((row) => row.id === tx.id) || workingTx);
-          workingTransactions = commitLedgerState(workingTransactions, nextExpenses, nextPayments);
           nextTransactions = workingTransactions;
         }
       } else if (ledgerCategory) {
         const workingTx = nextTransactions.find((row) => row.id === tx.id) || nextRow;
-        let nextExpenses = companyExpenses;
-        let nextPayments = fixedExpensePayments;
         let workingTransactions = nextTransactions;
 
         if (linkedPayment) {
@@ -2809,22 +2801,20 @@ export function BankTransactionsPage({
           manualLedgerRegistered = true;
         }
 
-        setExpenseCategories((prev) => mergeExpenseCategory(prev, ledgerCategory));
+        expenseCategoryToMerge = ledgerCategory;
         nextRules = upsertBankLearnRule(
           nextRules,
           buildBankLearnRuleFromManualRegistration(workingTx, ledgerCategory, savedBy),
         );
-        setBankLedgerRules(nextRules);
 
         if (!manualLedgerRegistered) {
           setImportMessage(L.detailLedgerRegisterFailed);
           return;
         }
 
-        workingTransactions = workingTransactions.map((row) =>
+        nextTransactions = workingTransactions.map((row) =>
           row.id === tx.id ? assignDefaultLedgerFolderToBankTransaction(row) : row,
         );
-        nextTransactions = commitLedgerState(workingTransactions, nextExpenses, nextPayments);
       } else if (
         payload.ledgerCategory.trim() &&
         resolvedLedgerKind === "manual" &&
@@ -2838,20 +2828,36 @@ export function BankTransactionsPage({
       if (String(tx.memo || "") !== String(nextMemo || "") && resolveBankTxLedgerAmount(tx) > 0) {
         const memoCategory = resolveMemoLearnCategory(payload.memo, expenseCategories);
         if (memoCategory) {
-          setExpenseCategories((prev) => mergeExpenseCategory(prev, memoCategory));
+          expenseCategoryToMerge = expenseCategoryToMerge || memoCategory;
           nextRules = upsertBankLearnRule(
             nextRules,
             buildBankLearnRuleFromMemoCategory(nextRow, memoCategory, savedBy),
           );
-          setBankLedgerRules(nextRules);
         }
         if (memoCategory && isMemoLearnAmountFlexibleCategory(memoCategory)) {
           scheduleBackgroundLearning({ showMessage: false });
         }
       }
 
+      const folderSync = finalizeLedgerState(nextTransactions, nextExpenses, nextPayments, nextFolders);
+      if (folderSync.folders.length !== bankTransactionFolders.length || folderSync.updated > 0) {
+        setBankTransactionFolders(folderSync.folders);
+      } else if (nextFolders !== bankTransactionFolders) {
+        setBankTransactionFolders(nextFolders);
+      }
+      setCompanyExpenses(nextExpenses);
+      setFixedExpensePayments(nextPayments);
+      setBankTransactions(folderSync.transactions);
+      if (nextRules !== bankLedgerRules) {
+        setBankLedgerRules(nextRules);
+      }
+      if (expenseCategoryToMerge) {
+        setExpenseCategories((prev) => mergeExpenseCategory(prev, expenseCategoryToMerge));
+      }
+
       setDetailTxId(null);
       setImportMessage(L.detailSaveDone);
+      void onRequestImmediateSave?.();
     },
     [
       applyAutoLearnRules,
@@ -2864,6 +2870,7 @@ export function BankTransactionsPage({
       expenseCategories,
       fixedExpensePayments,
       fixedExpenses,
+      onRequestImmediateSave,
       recordAudit,
       resolveDetailLedgerPrefill,
       savedBy,

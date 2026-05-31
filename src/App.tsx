@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowDown,
@@ -79,7 +79,7 @@ import { formatDepositNameAliases } from "@/utils/clientDepositAliases";
 import { normalizeCompanyNotices } from "@/utils/companyNotices";
 import { normalizeWorkPosts } from "@/utils/workBoard";
 import { normalizeTaxInvoices } from "@/utils/taxInvoices";
-import { normalizeBankTransactions } from "@/utils/bankTransactions";
+import { normalizeBankTransactions, type BankTransaction } from "@/utils/bankTransactions";
 import { normalizeBankLedgerMatchRules, syncBankTransactionLedgerLinkFields } from "@/utils/bankCompanyLedger";
 import { syncFixedExpenseAutomation } from "@/utils/fixedExpenseAutomation";
 import { normalizeExpenseCategories, normalizeFixedExpenseCategories } from "@/utils/companyLedger";
@@ -6415,6 +6415,46 @@ function ReportsPage({ sales, workers = [], paymentVouchers = [], onRequestClien
   );
 }
 
+function parseClassifiedAtMs(value: string | undefined): number {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function shouldPreferLocalBankTransaction(local: BankTransaction, incoming: BankTransaction): boolean {
+  const localMs = parseClassifiedAtMs(local.classifiedAt);
+  const incomingMs = parseClassifiedAtMs(incoming.classifiedAt);
+  return (
+    localMs > incomingMs ||
+    Boolean(local.folderId && !incoming.folderId) ||
+    Boolean(local.linkedCompanyExpenseId && !incoming.linkedCompanyExpenseId) ||
+    Boolean(local.linkedFixedExpensePaymentId && !incoming.linkedFixedExpensePaymentId)
+  );
+}
+
+function mergeRemoteBankTransactionRow(local: BankTransaction, incoming: BankTransaction): BankTransaction {
+  if (!shouldPreferLocalBankTransaction(local, incoming)) {
+    return {
+      ...incoming,
+      linkedCompanyExpenseId: incoming.linkedCompanyExpenseId || local.linkedCompanyExpenseId,
+      linkedFixedExpensePaymentId: incoming.linkedFixedExpensePaymentId || local.linkedFixedExpensePaymentId,
+      folderId: incoming.folderId || local.folderId,
+      memo: incoming.memo ?? local.memo,
+      linkedSubject: incoming.linkedSubject || local.linkedSubject,
+      classifiedAt: incoming.classifiedAt || local.classifiedAt,
+    };
+  }
+  return {
+    ...incoming,
+    folderId: local.folderId ?? incoming.folderId,
+    linkedCompanyExpenseId: local.linkedCompanyExpenseId ?? incoming.linkedCompanyExpenseId,
+    linkedFixedExpensePaymentId: local.linkedFixedExpensePaymentId ?? incoming.linkedFixedExpensePaymentId,
+    memo: local.memo ?? incoming.memo,
+    linkedSubject: local.linkedSubject || incoming.linkedSubject,
+    classifiedAt: local.classifiedAt || incoming.classifiedAt,
+  };
+}
+
 export default function TeammillimeterErpMvp() {
   const apiMode = isApiModeEnabled();
   const storedData = apiMode ? null : loadStoredData();
@@ -6425,6 +6465,8 @@ export default function TeammillimeterErpMvp() {
   const [erpVersion, setErpVersion] = useState(0);
   const erpVersionRef = useRef(0);
   const skipSaveRef = useRef(true);
+  const pendingLocalEditsRef = useRef(false);
+  const saveDebounceTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const [active, setActive] = useState(() => {
     if (typeof window === "undefined") return "dashboard";
     const stored = window.sessionStorage.getItem(ACTIVE_TAB_KEY) || "dashboard";
@@ -6642,52 +6684,75 @@ export default function TeammillimeterErpMvp() {
     };
   }, [currentUser?.id, apiMode]);
 
-  useEffect(() => {
-    if (!apiMode) {
-      saveStoredData({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
-      return;
-    }
-    if (!currentUser || !dataReady) return;
-    if (skipSaveRef.current) {
-      skipSaveRef.current = false;
-      return;
-    }
-    setSyncStatus("저장 중...");
-    const timer = window.setTimeout(async () => {
-      const savePayload = {
-        sales,
-        paymentVouchers,
-        paymentInputLogs,
-        clients,
-        workers,
-        auditLogs,
-        loginLogs,
-        workerPaymentRecords,
-        workerPayoutVouchers,
-        workerMonthlyActualVouchers,
-        workerPayWithVatLearnRules,
-        companyExpenses,
-        attendanceRecords,
-        fixedExpenses,
-        fixedExpensePayments,
-        bankLedgerRules,
-        expenseCategories,
-        fixedExpenseCategories,
-        companyNotices,
-        workPosts,
-        taxInvoices,
-        bankTransactions,
-        bankTransactionFolders,
-        statementGenerationLogs,
-        statementFolders,
-        companyProfile,
-        version: erpVersionRef.current,
-      };
+  const buildErpSavePayload = useCallback(
+    () => ({
+      sales,
+      paymentVouchers,
+      paymentInputLogs,
+      clients,
+      workers,
+      auditLogs,
+      loginLogs,
+      workerPaymentRecords,
+      workerPayoutVouchers,
+      workerMonthlyActualVouchers,
+      workerPayWithVatLearnRules,
+      companyExpenses,
+      attendanceRecords,
+      fixedExpenses,
+      fixedExpensePayments,
+      bankLedgerRules,
+      expenseCategories,
+      fixedExpenseCategories,
+      companyNotices,
+      workPosts,
+      taxInvoices,
+      bankTransactions,
+      bankTransactionFolders,
+      statementGenerationLogs,
+      statementFolders,
+      companyProfile,
+      version: erpVersionRef.current,
+    }),
+    [
+      sales,
+      paymentVouchers,
+      paymentInputLogs,
+      clients,
+      workers,
+      auditLogs,
+      loginLogs,
+      workerPaymentRecords,
+      workerPayoutVouchers,
+      workerMonthlyActualVouchers,
+      workerPayWithVatLearnRules,
+      companyExpenses,
+      attendanceRecords,
+      fixedExpenses,
+      fixedExpensePayments,
+      bankLedgerRules,
+      expenseCategories,
+      fixedExpenseCategories,
+      companyNotices,
+      workPosts,
+      taxInvoices,
+      bankTransactions,
+      bankTransactionFolders,
+      statementGenerationLogs,
+      statementFolders,
+      companyProfile,
+    ],
+  );
+
+  const persistErpSave = useCallback(
+    async (savePayload: ReturnType<typeof buildErpSavePayload>) => {
       try {
         const result = await saveErpData(savePayload);
         erpVersionRef.current = result.version;
         setErpVersion(result.version);
+        pendingLocalEditsRef.current = false;
         setSyncStatus("저장됨");
+        return true;
       } catch (error) {
         const err = error as Error & { status?: number };
         if (err.status === 409) {
@@ -6707,19 +6772,65 @@ export default function TeammillimeterErpMvp() {
             const retry = await saveErpData(savePayload);
             erpVersionRef.current = retry.version;
             setErpVersion(retry.version);
+            pendingLocalEditsRef.current = false;
             setSyncStatus("저장됨");
+            return true;
           } catch (retryError) {
             console.error(retryError);
             setSyncStatus("충돌 — 새로고침 필요");
             window.alert("다른 사용자가 먼저 저장했습니다. 새로고침(F5) 후 다시 시도해 주세요.");
+            return false;
           }
-        } else {
-          setSyncStatus("저장 실패");
         }
+        setSyncStatus("저장 실패");
+        return false;
       }
+    },
+    [setLoginLogs, setAuditLogs],
+  );
+
+  const flushErpSave = useCallback(async () => {
+    if (!apiMode || !currentUser || !dataReady) return;
+    if (saveDebounceTimerRef.current) {
+      window.clearTimeout(saveDebounceTimerRef.current);
+      saveDebounceTimerRef.current = null;
+    }
+    setSyncStatus("저장 중...");
+    await persistErpSave(buildErpSavePayload());
+  }, [apiMode, currentUser, dataReady, buildErpSavePayload, persistErpSave]);
+
+  useEffect(() => {
+    if (!apiMode || !dataReady) return;
+    if (skipSaveRef.current) return;
+    pendingLocalEditsRef.current = true;
+  }, [bankTransactions, companyExpenses, apiMode, dataReady]);
+
+  useEffect(() => {
+    if (!apiMode) {
+      saveStoredData({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
+      return;
+    }
+    if (!currentUser || !dataReady) return;
+    if (skipSaveRef.current) {
+      skipSaveRef.current = false;
+      return;
+    }
+    pendingLocalEditsRef.current = true;
+    setSyncStatus("저장 중...");
+    if (saveDebounceTimerRef.current) {
+      window.clearTimeout(saveDebounceTimerRef.current);
+    }
+    saveDebounceTimerRef.current = window.setTimeout(() => {
+      saveDebounceTimerRef.current = null;
+      void persistErpSave(buildErpSavePayload());
     }, 900);
-    return () => window.clearTimeout(timer);
-  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode]);
+    return () => {
+      if (saveDebounceTimerRef.current) {
+        window.clearTimeout(saveDebounceTimerRef.current);
+        saveDebounceTimerRef.current = null;
+      }
+    };
+  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode, buildErpSavePayload, persistErpSave]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -6942,7 +7053,7 @@ export default function TeammillimeterErpMvp() {
     skipSaveRef.current = true;
     const nextVersion = snapshot.version ?? erpVersionRef.current;
 
-    if (nextVersion > erpVersionRef.current) {
+    if (nextVersion > erpVersionRef.current && !pendingLocalEditsRef.current) {
       try {
         const data = await fetchErpData();
         applyFetchedErpData(data);
@@ -6960,21 +7071,19 @@ export default function TeammillimeterErpMvp() {
         const merged = incoming.map((row) => {
           const local = prev.find((item) => item.id === row.id);
           if (!local) return row;
-          return {
-            ...row,
-            linkedCompanyExpenseId: row.linkedCompanyExpenseId || local.linkedCompanyExpenseId,
-            linkedFixedExpensePaymentId: row.linkedFixedExpensePaymentId || local.linkedFixedExpensePaymentId,
-            folderId: local.folderId || row.folderId,
-            memo: local.memo ?? row.memo,
-            linkedSubject: local.linkedSubject || row.linkedSubject,
-            classifiedAt: local.classifiedAt || row.classifiedAt,
-          };
+          return mergeRemoteBankTransactionRow(local, row);
         });
         return syncBankTransactionLedgerLinkFields(merged, companyExpenses, fixedExpensePayments);
       });
     }
     if (Array.isArray(snapshot.bankTransactionFolders)) {
-      setBankTransactionFolders(normalizeBankTransactionFolders(snapshot.bankTransactionFolders));
+      setBankTransactionFolders((prev) => {
+        const incoming = normalizeBankTransactionFolders(snapshot.bankTransactionFolders);
+        if (!pendingLocalEditsRef.current) return incoming;
+        const incomingIds = new Set(incoming.map((folder) => folder.id));
+        const localOnly = prev.filter((folder) => !incomingIds.has(folder.id));
+        return localOnly.length ? [...incoming, ...localOnly] : incoming;
+      });
     }
   }, [companyExpenses, fixedExpensePayments]);
 
@@ -7132,6 +7241,7 @@ export default function TeammillimeterErpMvp() {
               apiMode,
               erpVersion,
               onApplyRemoteBankSnapshot: applyRemoteBankSnapshot,
+              onRequestImmediateSave: flushErpSave,
               clients,
               setClients,
               workers,
