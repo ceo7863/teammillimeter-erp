@@ -101,6 +101,7 @@ import {
   getLinkedCompanyExpenseForBankTx,
   getLinkedFixedPaymentForBankTx,
   parseLedgerTargetKey,
+  releaseFixedExpensePaymentBankLink,
   resolveLedgerTargetForBankTransaction,
   upsertBankLearnRule,
   type BankLearnRule,
@@ -2904,51 +2905,86 @@ export function BankTransactionsPage({
           nextTransactions = workingTransactions;
         }
       } else if (ledgerCategory) {
+        const workingTx = nextTransactions.find((row) => row.id === tx.id) || nextRow;
+        let nextExpenses = companyExpenses;
+        let nextPayments = fixedExpensePayments;
+        let workingTransactions = nextTransactions;
+
         if (linkedPayment) {
-          const currentPayment = fixedExpensePayments.find((row) => row.id === linkedPayment.id);
-          if (currentPayment && String(currentPayment.category || "") !== ledgerCategory) {
-            const updatedPayment = { ...currentPayment, category: ledgerCategory };
-            setFixedExpensePayments((prev) =>
-              prev.map((row) => (row.id === linkedPayment.id ? updatedPayment : row)),
-            );
-            recordAudit({
-              entityType: "fixedExpensePayment",
-              entityId: updatedPayment.id,
-              entityLabel: updatedPayment.description || ledgerCategory,
-              screen: L.pageTitle,
-              action: "update",
-              before: snapshotFixedExpensePaymentForAudit(currentPayment),
-              after: snapshotFixedExpensePaymentForAudit(updatedPayment),
-              fields: FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS,
-              user: currentUser,
-            });
+          nextPayments = releaseFixedExpensePaymentBankLink(nextPayments, linkedPayment.id, tx.id);
+          workingTransactions = workingTransactions.map((row) =>
+            row.id === tx.id ? { ...row, linkedFixedExpensePaymentId: undefined } : row,
+          );
+        }
+
+        const prefill = buildCompanyExpensePrefillFromBankTransaction(workingTx);
+        const currentExpense = getLinkedCompanyExpenseForBankTx(workingTx, nextExpenses);
+
+        if (currentExpense) {
+          const updates: Partial<typeof currentExpense> = {};
+          if (String(currentExpense.category || "") !== ledgerCategory) {
+            updates.category = ledgerCategory;
           }
-        } else if (linkedExpense) {
-          if (String(linkedExpense.category || "") !== ledgerCategory) {
-            const updatedExpense = { ...linkedExpense, category: ledgerCategory };
-            setCompanyExpenses((prev) =>
-              prev.map((row) => (row.id === linkedExpense.id ? updatedExpense : row)),
-            );
+          if (nextMemo !== undefined && String(currentExpense.memo || "") !== String(nextMemo || "")) {
+            updates.memo = nextMemo;
+          }
+          if (Object.keys(updates).length) {
+            const updatedExpense = { ...currentExpense, ...updates };
+            nextExpenses = nextExpenses.map((row) => (row.id === currentExpense.id ? updatedExpense : row));
             recordAudit({
               entityType: "companyExpense",
               entityId: updatedExpense.id,
               entityLabel: updatedExpense.description || ledgerCategory,
               screen: L.pageTitle,
               action: "update",
-              before: snapshotCompanyExpenseForAudit(linkedExpense),
+              before: snapshotCompanyExpenseForAudit(currentExpense),
               after: snapshotCompanyExpenseForAudit(updatedExpense),
               fields: COMPANY_EXPENSE_AUDIT_FIELDS,
               user: currentUser,
             });
           }
-        } else if (Number(tx.withdrawal || 0) > 0) {
-          setExpenseCategories((prev) => mergeExpenseCategory(prev, ledgerCategory));
-          nextRules = upsertBankLearnRule(
-            nextRules,
-            buildBankLearnRuleFromMemoCategory(nextRow, ledgerCategory, savedBy),
+        } else if (Number(workingTx.withdrawal || 0) > 0) {
+          const validationError = validateCompanyExpenseInput({
+            date: prefill.date,
+            category: ledgerCategory,
+            description: prefill.description,
+            amount: prefill.amount,
+          });
+          if (validationError) {
+            setImportMessage(validationError);
+            return;
+          }
+          const expense = createCompanyExpenseFromBankTransaction(workingTx, ledgerCategory, savedBy);
+          if (nextMemo) expense.memo = nextMemo;
+          nextExpenses = [expense, ...nextExpenses];
+          workingTransactions = workingTransactions.map((row) =>
+            row.id === tx.id
+              ? { ...row, linkedCompanyExpenseId: expense.id, linkedFixedExpensePaymentId: undefined }
+              : row,
           );
-          setBankLedgerRules(nextRules);
+          recordAudit({
+            entityType: "companyExpense",
+            entityId: expense.id,
+            entityLabel: `${expense.date} \u00B7 ${expense.description || expense.category}`,
+            screen: L.pageTitle,
+            action: "create",
+            after: snapshotCompanyExpenseForAudit(expense),
+            fields: COMPANY_EXPENSE_AUDIT_FIELDS,
+            user: currentUser,
+          });
+          auditBankTxUpdate(tx, workingTransactions.find((row) => row.id === tx.id) || workingTx);
         }
+
+        setExpenseCategories((prev) => mergeExpenseCategory(prev, ledgerCategory));
+        nextRules = upsertBankLearnRule(
+          nextRules,
+          buildBankLearnRuleFromManualRegistration(workingTx, ledgerCategory, savedBy),
+        );
+        setCompanyExpenses(nextExpenses);
+        setFixedExpensePayments(nextPayments);
+        setBankTransactions(workingTransactions);
+        setBankLedgerRules(nextRules);
+        nextTransactions = workingTransactions;
       }
 
       if (String(tx.memo || "") !== String(nextMemo || "") && Number(tx.withdrawal || 0) > 0) {
