@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback, useDeferredValue } from "react";
 import { createPortal } from "react-dom";
 import {
   ArrowDownLeft,
@@ -31,7 +31,6 @@ import { PartialPaymentBadge } from "@/components/AutoLinkBadge";
 import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { TableExportSection } from "@/components/TableExportSection";
-import { MobileRecordCard } from "@/components/MobileRecordCard";
 import { BankTransactionListSection } from "@/components/BankTransactionListSection";
 import {
   buildBankTransactionRowDisplayCache,
@@ -222,6 +221,8 @@ function parseCustomFolderScope(scope: FolderScope) {
   return scope.startsWith("custom:") ? scope.slice("custom:".length) : "";
 }
 type PageView = "list" | "reconcile";
+
+const EMPTY_TX_SUGGESTION_MAP = new Map<string, never>();
 
 const PERIOD_OPTIONS: Array<{ key: PeriodKey; label: string }> = [
   { key: "thisMonth", label: "\uC774\uBC88 \uB2EC" },
@@ -815,7 +816,6 @@ export function BankTransactionsPage({
   const ledgerReviewMemoDraftRef = useRef("");
   const [sentArchives, setSentArchives] = useState<PdfArchiveMeta[]>([]);
   const ibkInputRef = useRef<HTMLInputElement>(null);
-  const tableRef = useRef<HTMLTableElement>(null);
   const savedBy = currentUser?.name || currentUser?.loginId || "";
 
   const handleRemoteBankSnapshot = React.useCallback(
@@ -874,9 +874,23 @@ export function BankTransactionsPage({
     [companyExpenses, fixedExpensePayments],
   );
 
+  const needsHeavyBankClassification = Boolean(
+    detailTxId ||
+      ledgerModal ||
+      ledgerReviewPrompt ||
+      linkModalTx ||
+      clientLinkModalTx ||
+      batchLedgerLoading ||
+      smartLedgerLoading ||
+      importPreview,
+  );
+
   const memoLearnRules = useMemo(
-    () => buildMemoLearnRulesFromTransactions(bankTransactions, expenseCategories, savedBy),
-    [bankTransactions, expenseCategories, savedBy],
+    () =>
+      needsHeavyBankClassification
+        ? buildMemoLearnRulesFromTransactions(bankTransactions, expenseCategories, savedBy)
+        : [],
+    [needsHeavyBankClassification, bankTransactions, expenseCategories, savedBy],
   );
 
   const effectiveBankLedgerRules = useMemo(
@@ -886,26 +900,27 @@ export function BankTransactionsPage({
 
   const memoCategorySuggestionByTxId = useMemo(
     () =>
-      buildMemoCategorySuggestionMap(
-        bankTransactions,
-        memoLearnRules,
-        expenseCategories,
-      ),
-    [bankTransactions, memoLearnRules, expenseCategories],
+      needsHeavyBankClassification
+        ? buildMemoCategorySuggestionMap(bankTransactions, memoLearnRules, expenseCategories)
+        : EMPTY_TX_SUGGESTION_MAP,
+    [needsHeavyBankClassification, bankTransactions, memoLearnRules, expenseCategories],
   );
 
   const ledgerSuggestionByTxId = useMemo(
     () =>
-      buildLedgerClassificationMap(bankTransactions, {
-        rules: effectiveBankLedgerRules,
-        fixedExpenses,
-        expenseCategories,
-        companyExpenses,
-        workers,
-        clients,
-        canRegister: (tx) => canRegisterBankTxToCompanyLedger(tx, ledgerRegistrationContext),
-      }),
+      needsHeavyBankClassification
+        ? buildLedgerClassificationMap(bankTransactions, {
+            rules: effectiveBankLedgerRules,
+            fixedExpenses,
+            expenseCategories,
+            companyExpenses,
+            workers,
+            clients,
+            canRegister: (tx) => canRegisterBankTxToCompanyLedger(tx, ledgerRegistrationContext),
+          })
+        : EMPTY_TX_SUGGESTION_MAP,
     [
+      needsHeavyBankClassification,
       bankTransactions,
       effectiveBankLedgerRules,
       fixedExpenses,
@@ -918,8 +933,11 @@ export function BankTransactionsPage({
   );
 
   const folderSuggestionByTxId = useMemo(
-    () => buildFolderClassificationSuggestionMap(bankTransactions, clients, workers),
-    [bankTransactions, clients, workers],
+    () =>
+      needsHeavyBankClassification
+        ? buildFolderClassificationSuggestionMap(bankTransactions, clients, workers)
+        : EMPTY_TX_SUGGESTION_MAP,
+    [needsHeavyBankClassification, bankTransactions, clients, workers],
   );
 
   const pendingSmartLedger = useMemo(
@@ -2179,19 +2197,21 @@ export function BankTransactionsPage({
     currentUser,
   ]);
 
+  const deferredBankTransactions = useDeferredValue(bankTransactions);
+
   const depositSuggestions = useMemo(() => {
+    if (pageView !== "list") return [];
     const sentByTxId = new Map(
-      buildAllSentStatementDepositSuggestions(bankTransactions, sentArchives, clients, paymentVouchers).map((row) => [
-        row.tx.id,
-        row.candidates,
-      ])
+      buildAllSentStatementDepositSuggestions(deferredBankTransactions, sentArchives, clients, paymentVouchers).map(
+        (row) => [row.tx.id, row.candidates],
+      ),
     );
-    const receivableSuggestions = buildAllBankDepositSuggestions(bankTransactions, receivableRows, clients);
+    const receivableSuggestions = buildAllBankDepositSuggestions(deferredBankTransactions, receivableRows, clients);
 
     const merged: DepositSuggestion[] = [];
 
     for (const [txId, candidates] of sentByTxId.entries()) {
-      const tx = bankTransactions.find((row) => row.id === txId);
+      const tx = deferredBankTransactions.find((row) => row.id === txId);
       if (tx && candidates.length) {
         merged.push({ tx, kind: "sentStatement", candidates });
       }
@@ -2207,11 +2227,8 @@ export function BankTransactionsPage({
       const scoreB = b.candidates[0]?.score || 0;
       return scoreB - scoreA;
     });
-  }, [bankTransactions, receivableRows, sentArchives, clients, paymentVouchers]);
-  const depositSuggestionByTxId = useMemo(
-    () => new Map(depositSuggestions.map((item) => [item.tx.id, item])),
-    [depositSuggestions]
-  );
+  }, [pageView, deferredBankTransactions, receivableRows, sentArchives, clients, paymentVouchers]);
+
   const unmatchedDepositCount = useMemo(
     () => bankTransactions.filter((row) => row.deposit > 0 && !row.linkedPaymentVoucherId).length,
     [bankTransactions]
@@ -4137,30 +4154,6 @@ export function BankTransactionsPage({
     [folderMap],
   );
 
-  const rowDisplayById = useMemo(
-    () =>
-      buildBankTransactionRowDisplayCache({
-        rows: filteredRows,
-        companyExpenses,
-        fixedExpensePayments,
-        fixedExpenses,
-        memoCategorySuggestionByTxId,
-        ledgerSuggestionByTxId,
-        canRegisterLedgerWithConfidence,
-        resolveLedgerCategorySuggestionLabel,
-      }),
-    [
-      filteredRows,
-      companyExpenses,
-      fixedExpensePayments,
-      fixedExpenses,
-      memoCategorySuggestionByTxId,
-      ledgerSuggestionByTxId,
-      canRegisterLedgerWithConfidence,
-      resolveLedgerCategorySuggestionLabel,
-    ],
-  );
-
   const listSectionLabels = useMemo(
     () => ({
       empty: L.empty,
@@ -4184,8 +4177,38 @@ export function BankTransactionsPage({
   );
 
   const getBankTransactionsExportParsed = useCallback(
-    () =>
-      buildBankTransactionsExportTable(
+    () => {
+      const exportMemoLearnRules = buildMemoLearnRulesFromTransactions(
+        bankTransactions,
+        expenseCategories,
+        savedBy,
+      );
+      const exportEffectiveRules = mergeMemoLearnRules(bankLedgerRules, exportMemoLearnRules);
+      const exportMemoSuggestions = buildMemoCategorySuggestionMap(
+        bankTransactions,
+        exportMemoLearnRules,
+        expenseCategories,
+      );
+      const exportLedgerSuggestions = buildLedgerClassificationMap(bankTransactions, {
+        rules: exportEffectiveRules,
+        fixedExpenses,
+        expenseCategories,
+        companyExpenses,
+        workers,
+        clients,
+        canRegister: (tx) => canRegisterBankTxToCompanyLedger(tx, ledgerRegistrationContext),
+      });
+      const exportRowDisplayById = buildBankTransactionRowDisplayCache({
+        rows: filteredRows,
+        companyExpenses,
+        fixedExpensePayments,
+        fixedExpenses,
+        memoCategorySuggestionByTxId: exportMemoSuggestions,
+        ledgerSuggestionByTxId: exportLedgerSuggestions,
+        canRegisterLedgerWithConfidence,
+        resolveLedgerCategorySuggestionLabel,
+      });
+      return buildBankTransactionsExportTable(
         filteredRows,
         {
           transactionAt: L.transactionAt,
@@ -4206,10 +4229,26 @@ export function BankTransactionsPage({
           memoPlaceholder: L.memoPlaceholder,
         },
         folderMap,
-        rowDisplayById,
+        exportRowDisplayById,
         ledgerCategoryFolder,
-      ),
-    [filteredRows, folderMap, rowDisplayById, ledgerCategoryFolder],
+      );
+    },
+    [
+      bankTransactions,
+      expenseCategories,
+      savedBy,
+      bankLedgerRules,
+      fixedExpenses,
+      companyExpenses,
+      workers,
+      clients,
+      ledgerRegistrationContext,
+      filteredRows,
+      folderMap,
+      ledgerCategoryFolder,
+      canRegisterLedgerWithConfidence,
+      resolveLedgerCategorySuggestionLabel,
+    ],
   );
 
   const renderFolderTreeRows = (
@@ -4327,101 +4366,6 @@ export function BankTransactionsPage({
     if (folderType === "worker") return L.workerFolders;
     if (folderType === "card") return L.cardFolders;
     return L.classification;
-  };
-
-  const renderMobileCard = (row: BankTransaction) => {
-    const display = rowDisplayById.get(row.id);
-    const folder = row.folderId ? folderMap.get(row.folderId) : undefined;
-    const ledgerCategoryLabel = display?.ledgerCategory || null;
-    const displayFolder = folder || (ledgerCategoryLabel && ledgerCategoryFolder ? ledgerCategoryFolder : undefined);
-    const ledgerCategorySuggestion = display?.ledgerSuggestion || null;
-    const folderSuggestion = !folder ? folderSuggestionByTxId.get(row.id) : undefined;
-    const preauthBadge =
-      row.netGroupRole === "settlement"
-        ? L.preauthNetSettlementBadge
-        : row.netGroupRole === "preauth_refund"
-          ? L.preauthNetRefundBadge
-          : row.netGroupRole === "preauth_withdrawal"
-            ? L.preauthNetSuppressedBadge
-            : null;
-    const deposit = parseBankAmount(row.deposit);
-    const withdrawal = parseBankAmount(row.withdrawal);
-    const amount =
-      deposit > 0
-        ? { label: L.deposit, value: formatKRW(deposit), tone: "success" as const }
-        : withdrawal > 0
-          ? { label: L.withdrawal, value: formatKRW(withdrawal), tone: "danger" as const }
-          : undefined;
-
-    return (
-    <MobileRecordCard
-      key={row.id}
-      title={row.description || "(\uAC70\uB798\uB0B4\uC6A9 \uC5C6\uC74C)"}
-      subtitle={formatBankTransactionDateTime(row.transactionAt)}
-      amount={amount}
-      selected={detailTxId === row.id}
-      onClick={() => openBankTransactionDetail(row)}
-      badges={[
-        preauthBadge ? { label: preauthBadge, tone: "muted" as const } : null,
-        ledgerCategoryLabel
-          ? { label: ledgerCategoryLabel, tone: "default" as const }
-          : ledgerCategorySuggestion
-            ? { label: ledgerCategorySuggestion, tone: "default" as const }
-            : null,
-        folder
-          ? {
-              label: folder.folderName,
-              tone:
-                folder.folderType === "client"
-                  ? ("success" as const)
-                  : folder.folderType === "card"
-                    ? ("default" as const)
-                    : ("default" as const),
-            }
-          : displayFolder
-            ? {
-                label: displayFolder.folderName,
-                tone: "default" as const,
-              }
-          : { label: L.unfiled, tone: "muted" as const },
-        folderSuggestion
-          ? {
-              label: L.folderSuggestionBadge(
-                resolveFolderSuggestionLabel(folderSuggestion.folderType),
-                folderSuggestion.linkedSubject,
-              ),
-              tone: "success" as const,
-            }
-          : null,
-        row.linkedPaymentVoucherId && isBankMatchAutoLinked(row)
-          ? { label: L.autoLinkBadge, tone: "default" as const }
-          : null,
-        row.linkedPaymentVoucherId && isBankMatchManualLinked(row)
-          ? { label: L.manualLinkBadge, tone: "default" as const }
-          : null,
-      ].filter(Boolean) as Array<{ label: string; tone: "success" | "danger" | "default" | "muted" }>}
-      rows={[
-        ...(deposit > 0
-          ? [{ label: L.deposit, value: formatKRW(deposit), tone: "success" as const }]
-          : []),
-        ...(withdrawal > 0
-          ? [{ label: L.withdrawal, value: formatKRW(withdrawal), tone: "danger" as const }]
-          : []),
-        {
-          label: L.memo,
-          value: row.memo ? (
-            <span className="font-medium text-slate-800">{row.memo}</span>
-          ) : (
-            <span className="text-slate-400">{L.memoPlaceholder}</span>
-          ),
-        },
-        { label: L.balance, value: formatKRW(row.balanceAfter) },
-        { label: L.counterpartyName, value: row.counterpartyName || "-" },
-        { label: L.counterpartyBank, value: row.counterpartyBank || "-" },
-        { label: L.transactionType, value: row.transactionType || "-" },
-      ]}
-    />
-    );
   };
 
   return (
@@ -5209,11 +5153,11 @@ export function BankTransactionsPage({
             rows={filteredRows}
             folderMap={folderMap}
             ledgerCategoryFolder={ledgerCategoryFolder}
-            rowDisplayById={rowDisplayById}
-            tableRef={tableRef}
+            companyExpenses={companyExpenses}
+            fixedExpensePayments={fixedExpensePayments}
+            fixedExpenses={fixedExpenses}
             labels={listSectionLabels}
             onOpenDetail={openBankTransactionDetail}
-            renderMobileCard={renderMobileCard}
           />
         </TableExportSection>
       ) : null}
