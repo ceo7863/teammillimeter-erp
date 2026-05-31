@@ -745,7 +745,14 @@ export function BankTransactionsPage({
   erpVersion?: number;
   isPageActive?: boolean;
   onApplyRemoteBankSnapshot?: (snapshot: BankSyncSnapshot) => void;
-  onRequestImmediateSave?: () => void | Promise<void>;
+  onRequestImmediateSave?: (patch?: {
+    bankTransactions?: BankTransaction[];
+    companyExpenses?: CompanyExpense[];
+    fixedExpensePayments?: FixedExpensePayment[];
+    bankTransactionFolders?: BankTransactionFolder[];
+    bankLedgerRules?: BankLearnRule[];
+    expenseCategories?: string[];
+  }) => void | Promise<void>;
 }) {
   const [pageView, setPageView] = useState<PageView>("list");
   const [periodKey, setPeriodKey] = useState<PeriodKey>("thisMonth");
@@ -2840,10 +2847,16 @@ export function BankTransactionsPage({
       }
 
       const folderSync = finalizeLedgerState(nextTransactions, nextExpenses, nextPayments, nextFolders);
-      if (folderSync.folders.length !== bankTransactionFolders.length || folderSync.updated > 0) {
-        setBankTransactionFolders(folderSync.folders);
-      } else if (nextFolders !== bankTransactionFolders) {
-        setBankTransactionFolders(nextFolders);
+      const nextExpenseCategories = expenseCategoryToMerge
+        ? mergeExpenseCategory(expenseCategories, expenseCategoryToMerge)
+        : expenseCategories;
+      const resolvedFolders =
+        folderSync.folders.length !== bankTransactionFolders.length || folderSync.updated > 0
+          ? folderSync.folders
+          : nextFolders;
+
+      if (resolvedFolders !== bankTransactionFolders) {
+        setBankTransactionFolders(resolvedFolders);
       }
       setCompanyExpenses(nextExpenses);
       setFixedExpensePayments(nextPayments);
@@ -2852,12 +2865,19 @@ export function BankTransactionsPage({
         setBankLedgerRules(nextRules);
       }
       if (expenseCategoryToMerge) {
-        setExpenseCategories((prev) => mergeExpenseCategory(prev, expenseCategoryToMerge));
+        setExpenseCategories(nextExpenseCategories);
       }
 
       setDetailTxId(null);
       setImportMessage(L.detailSaveDone);
-      void onRequestImmediateSave?.();
+      void onRequestImmediateSave?.({
+        bankTransactions: folderSync.transactions,
+        companyExpenses: nextExpenses,
+        fixedExpensePayments: nextPayments,
+        bankTransactionFolders: resolvedFolders,
+        bankLedgerRules: nextRules,
+        expenseCategories: nextExpenseCategories,
+      });
     },
     [
       applyAutoLearnRules,

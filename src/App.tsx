@@ -6467,6 +6467,10 @@ export default function TeammillimeterErpMvp() {
   const skipSaveRef = useRef(true);
   const pendingLocalEditsRef = useRef(false);
   const saveDebounceTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const companyExpensesRef = useRef(companyExpenses);
+  const fixedExpensePaymentsRef = useRef(fixedExpensePayments);
+  companyExpensesRef.current = companyExpenses;
+  fixedExpensePaymentsRef.current = fixedExpensePayments;
   const [active, setActive] = useState(() => {
     if (typeof window === "undefined") return "dashboard";
     const stored = window.sessionStorage.getItem(ACTIVE_TAB_KEY) || "dashboard";
@@ -6684,8 +6688,10 @@ export default function TeammillimeterErpMvp() {
     };
   }, [currentUser?.id, apiMode]);
 
-  const buildErpSavePayload = useCallback(
-    () => ({
+  type ErpSavePatch = Partial<Omit<ReturnType<typeof buildErpSavePayloadBase>, "version">>;
+
+  function buildErpSavePayloadBase() {
+    return {
       sales,
       paymentVouchers,
       paymentInputLogs,
@@ -6712,6 +6718,14 @@ export default function TeammillimeterErpMvp() {
       statementGenerationLogs,
       statementFolders,
       companyProfile,
+      version: erpVersionRef.current,
+    };
+  }
+
+  const buildErpSavePayload = useCallback(
+    (patch?: ErpSavePatch) => ({
+      ...buildErpSavePayloadBase(),
+      ...patch,
       version: erpVersionRef.current,
     }),
     [
@@ -6789,15 +6803,18 @@ export default function TeammillimeterErpMvp() {
     [setLoginLogs, setAuditLogs],
   );
 
-  const flushErpSave = useCallback(async () => {
-    if (!apiMode || !currentUser || !dataReady) return;
-    if (saveDebounceTimerRef.current) {
-      window.clearTimeout(saveDebounceTimerRef.current);
-      saveDebounceTimerRef.current = null;
-    }
-    setSyncStatus("저장 중...");
-    await persistErpSave(buildErpSavePayload());
-  }, [apiMode, currentUser, dataReady, buildErpSavePayload, persistErpSave]);
+  const flushErpSave = useCallback(
+    async (patch?: Partial<Omit<ReturnType<typeof buildErpSavePayload>, "version">>) => {
+      if (!apiMode || !currentUser || !dataReady) return;
+      if (saveDebounceTimerRef.current) {
+        window.clearTimeout(saveDebounceTimerRef.current);
+        saveDebounceTimerRef.current = null;
+      }
+      setSyncStatus("저장 중...");
+      await persistErpSave(buildErpSavePayload(patch));
+    },
+    [apiMode, currentUser, dataReady, buildErpSavePayload, persistErpSave],
+  );
 
   useEffect(() => {
     if (!apiMode || !dataReady) return;
@@ -7073,7 +7090,11 @@ export default function TeammillimeterErpMvp() {
           if (!local) return row;
           return mergeRemoteBankTransactionRow(local, row);
         });
-        return syncBankTransactionLedgerLinkFields(merged, companyExpenses, fixedExpensePayments);
+        return syncBankTransactionLedgerLinkFields(
+          merged,
+          companyExpensesRef.current,
+          fixedExpensePaymentsRef.current,
+        );
       });
     }
     if (Array.isArray(snapshot.bankTransactionFolders)) {
