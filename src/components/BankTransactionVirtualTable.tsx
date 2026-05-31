@@ -2,9 +2,9 @@ import React, { memo, useLayoutEffect, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { BankTransaction } from "@/utils/bankTransactions";
 
-const BANK_TABLE_ROW_ESTIMATE_PX = 52;
-const BANK_TABLE_OVERSCAN = 3;
-const BANK_MOBILE_CARD_ESTIMATE_PX = 140;
+const BANK_TABLE_ROW_ESTIMATE_PX = 44;
+const BANK_TABLE_OVERSCAN = 2;
+const BANK_MOBILE_CARD_ESTIMATE_PX = 120;
 const BANK_MOBILE_OVERSCAN = 2;
 const BANK_SCROLL_HEIGHT_CLASS = "h-[min(72vh,960px)]";
 
@@ -23,19 +23,13 @@ function useBankRowVirtualizer(
   });
 
   useLayoutEffect(() => {
-    const element = scrollRef.current;
-    if (!element) return;
-
     rowVirtualizer.measure();
-    const observer = new ResizeObserver(() => rowVirtualizer.measure());
-    observer.observe(element);
-    return () => observer.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows.length]);
 
   const virtualRows = rowVirtualizer.getVirtualItems();
 
-  return { scrollRef, rowVirtualizer, virtualRows };
+  return { scrollRef, virtualRows, totalSize: rowVirtualizer.getTotalSize() };
 }
 
 type BankTransactionVirtualTableProps = {
@@ -59,7 +53,10 @@ function BankTransactionVirtualTableComponent({
   empty,
   renderRow,
 }: BankTransactionVirtualTableProps) {
-  const { scrollRef, rowVirtualizer, virtualRows } = useBankRowVirtualizer(
+  const renderRowRef = useRef(renderRow);
+  renderRowRef.current = renderRow;
+
+  const { scrollRef, virtualRows, totalSize } = useBankRowVirtualizer(
     rows,
     () => BANK_TABLE_ROW_ESTIMATE_PX,
     BANK_TABLE_OVERSCAN,
@@ -67,9 +64,7 @@ function BankTransactionVirtualTableComponent({
 
   const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
   const paddingBottom =
-    virtualRows.length > 0
-      ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end
-      : 0;
+    virtualRows.length > 0 ? totalSize - virtualRows[virtualRows.length - 1].end : 0;
 
   return (
     <div
@@ -77,7 +72,7 @@ function BankTransactionVirtualTableComponent({
       className={`erp-bank-table-scroll ${BANK_SCROLL_HEIGHT_CLASS} overflow-auto overscroll-contain`}
     >
       <table id={tableId} ref={tableRef} className={tableClassName}>
-        <thead className="sticky top-0 z-10">{header}</thead>
+        <thead className="sticky top-0 z-10 bg-slate-100">{header}</thead>
         <tbody>
           {!rows.length ? (
             empty
@@ -90,7 +85,7 @@ function BankTransactionVirtualTableComponent({
               ) : null}
               {virtualRows.map((virtualRow) => {
                 const row = rows[virtualRow.index];
-                return <React.Fragment key={row.id}>{renderRow(row)}</React.Fragment>;
+                return <React.Fragment key={row.id}>{renderRowRef.current(row)}</React.Fragment>;
               })}
               {paddingBottom > 0 ? (
                 <tr aria-hidden="true">
@@ -118,7 +113,10 @@ function BankTransactionVirtualMobileListComponent({
   empty,
   renderCard,
 }: BankTransactionVirtualMobileListProps) {
-  const { scrollRef, rowVirtualizer, virtualRows } = useBankRowVirtualizer(
+  const renderCardRef = useRef(renderCard);
+  renderCardRef.current = renderCard;
+
+  const { scrollRef, virtualRows, totalSize } = useBankRowVirtualizer(
     rows,
     () => BANK_MOBILE_CARD_ESTIMATE_PX,
     BANK_MOBILE_OVERSCAN,
@@ -130,9 +128,7 @@ function BankTransactionVirtualMobileListComponent({
 
   const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
   const paddingBottom =
-    virtualRows.length > 0
-      ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end
-      : 0;
+    virtualRows.length > 0 ? totalSize - virtualRows[virtualRows.length - 1].end : 0;
 
   return (
     <div
@@ -142,7 +138,7 @@ function BankTransactionVirtualMobileListComponent({
       {paddingTop > 0 ? <div aria-hidden="true" style={{ height: paddingTop }} /> : null}
       {virtualRows.map((virtualRow) => {
         const row = rows[virtualRow.index];
-        return <React.Fragment key={row.id}>{renderCard(row)}</React.Fragment>;
+        return <React.Fragment key={row.id}>{renderCardRef.current(row)}</React.Fragment>;
       })}
       {paddingBottom > 0 ? <div aria-hidden="true" style={{ height: paddingBottom }} /> : null}
     </div>

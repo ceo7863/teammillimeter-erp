@@ -31,16 +31,8 @@ import { PartialPaymentBadge } from "@/components/AutoLinkBadge";
 import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { TableExportSection } from "@/components/TableExportSection";
-import { DesktopTableWrap, MobileRecordCard } from "@/components/MobileRecordCard";
-import {
-  BankTransactionTableRow,
-  type BankTransactionTableRowLabels,
-} from "@/components/BankTransactionTableRow";
-import {
-  BankTransactionVirtualMobileList,
-  BankTransactionVirtualTable,
-} from "@/components/BankTransactionVirtualTable";
-import type { BankFolderSelectGroup } from "@/components/BankTransactionFolderAssignCell";
+import { MobileRecordCard } from "@/components/MobileRecordCard";
+import { BankTransactionListSection } from "@/components/BankTransactionListSection";
 import {
   buildBankTransactionRowDisplayCache,
   buildBankTransactionsExportTable,
@@ -163,7 +155,6 @@ import {
   createPaymentVouchersFromSentStatementMatch,
   resolveArchivePaymentStatusAfterApply,
   resolveStatementPaidAmount,
-  bankTxHasPartialPaymentVoucher,
   type SentStatementMatchCandidate,
 } from "@/utils/bankSentStatementMatch";
 import { listSentStatementArchives, updatePdfArchiveMeta, type PdfArchiveMeta } from "@/utils/pdfArchive";
@@ -2188,14 +2179,6 @@ export function BankTransactionsPage({
     currentUser,
   ]);
 
-  const partialPaymentTxIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const tx of bankTransactions) {
-      if (bankTxHasPartialPaymentVoucher(tx, paymentVouchers)) ids.add(tx.id);
-    }
-    return ids;
-  }, [bankTransactions, paymentVouchers]);
-
   const depositSuggestions = useMemo(() => {
     const sentByTxId = new Map(
       buildAllSentStatementDepositSuggestions(bankTransactions, sentArchives, clients, paymentVouchers).map((row) => [
@@ -4178,56 +4161,24 @@ export function BankTransactionsPage({
     ],
   );
 
-  const folderSelectGroups = useMemo((): BankFolderSelectGroup[] => {
-    const mapFolder = (item: BankTransactionFolder) => ({
-      id: item.id,
-      label: formatFolderSelectLabel(item),
-    });
-    const groups: BankFolderSelectGroup[] = [
-      { label: L.clientFolders, options: assignableClientFolders.map(mapFolder) },
-      { label: L.cardFolders, options: assignableCardFolders.map(mapFolder) },
-      { label: L.workerFolders, options: assignableWorkerFolders.map(mapFolder) },
-    ];
-    for (const root of customCategoryRoots) {
-      const ids = new Set(collectCustomCategoryFolderIds(bankTransactionFolders, root.id));
-      const options = assignableCustomFolders.filter((item) => ids.has(item.id)).map(mapFolder);
-      if (options.length) groups.push({ label: root.folderName, options });
-    }
-    return groups;
-  }, [
-    assignableCardFolders,
-    assignableClientFolders,
-    assignableCustomFolders,
-    assignableWorkerFolders,
-    bankTransactionFolders,
-    customCategoryRoots,
-    formatFolderSelectLabel,
-  ]);
-
-  const tableRowLabels = useMemo<BankTransactionTableRowLabels>(
+  const listSectionLabels = useMemo(
     () => ({
-      memoPlaceholder: L.memoPlaceholder,
-      clientLinkClickHint: L.clientLinkClickHint,
+      empty: L.empty,
       unfiled: L.unfiled,
-      sentStatementMatch: L.sentStatementMatch,
-      selectReceivable: L.selectReceivable,
-      matchScore: L.matchScore,
-      partialStatementMatchHint: L.partialStatementMatchHint,
-      matchConfirmHint: L.matchConfirmHint,
-      matchConfirm: L.matchConfirm,
-      matchManual: L.matchManual,
-      ledgerSendTo: L.ledgerSendTo,
-      folderSuggestionBadge: L.folderSuggestionBadge,
-      clientFolders: L.clientFolders,
-      workerFolders: L.workerFolders,
-      cardFolders: L.cardFolders,
+      memoPlaceholder: L.memoPlaceholder,
+      transactionAt: L.transactionAt,
+      deposit: L.deposit,
+      withdrawal: L.withdrawal,
+      balance: L.balance,
+      description: L.description,
+      memo: L.memo,
+      counterpartyName: L.counterpartyName,
+      ledgerCategoryColumn: L.ledgerCategoryColumn,
       classification: L.classification,
-      preauthNetSettlementBadge: L.preauthNetSettlementBadge,
-      preauthNetRefundBadge: L.preauthNetRefundBadge,
-      preauthNetSuppressedBadge: L.preauthNetSuppressedBadge,
-      autoLinkBadgeTitle: L.autoLinkBadgeTitle,
-      manualLinkBadgeTitle: L.manualLinkBadgeTitle,
-      partialPaymentBadgeTitle: L.partialPaymentBadgeTitle,
+      counterpartyBank: L.counterpartyBank,
+      matchStatus: L.matchStatus,
+      transactionType: L.transactionType,
+      detailRowHint: L.detailRowHint,
     }),
     [],
   );
@@ -4259,57 +4210,6 @@ export function BankTransactionsPage({
         ledgerCategoryFolder,
       ),
     [filteredRows, folderMap, rowDisplayById, ledgerCategoryFolder],
-  );
-
-  const renderBankTransactionRow = useCallback(
-    (row: BankTransaction) => {
-      const display = rowDisplayById.get(row.id);
-      if (!display) return null;
-      const folder = row.folderId ? folderMap.get(row.folderId) : undefined;
-      const depositSuggestion = depositSuggestionByTxId.get(row.id);
-      return (
-        <BankTransactionTableRow
-          row={row}
-          display={display}
-          isSelected={detailTxId === row.id}
-          folder={folder}
-          ledgerFolder={ledgerCategoryFolder}
-          folderSuggestion={folderSuggestionByTxId.get(row.id)}
-          depositSuggestion={
-            depositSuggestion
-              ? { kind: depositSuggestion.kind, candidates: depositSuggestion.candidates }
-              : undefined
-          }
-          folderSelectGroups={folderSelectGroups}
-          hasPartialPayment={partialPaymentTxIds.has(row.id)}
-          labels={tableRowLabels}
-          onOpenDetail={openBankTransactionDetail}
-          onOpenClientLink={openClientLinkModal}
-          onAssignFolder={assignTransactionFolder}
-          onOpenLedgerRegister={openLedgerRegister}
-          onOpenLinkModal={setLinkModalTx}
-          onConfirmSentStatementMatch={(tx, candidate) => void confirmSentStatementMatch(tx, candidate)}
-          onConfirmDepositMatch={(tx, candidate) => confirmDepositMatch(tx, candidate)}
-        />
-      );
-    },
-    [
-      rowDisplayById,
-      folderMap,
-      depositSuggestionByTxId,
-      folderSuggestionByTxId,
-      folderSelectGroups,
-      partialPaymentTxIds,
-      tableRowLabels,
-      detailTxId,
-      ledgerCategoryFolder,
-      openBankTransactionDetail,
-      openClientLinkModal,
-      assignTransactionFolder,
-      openLedgerRegister,
-      confirmSentStatementMatch,
-      confirmDepositMatch,
-    ],
   );
 
   const renderFolderTreeRows = (
@@ -5305,47 +5205,15 @@ export function BankTransactionsPage({
           tableSelector="#bank-transactions-table"
           getParsedTable={getBankTransactionsExportParsed}
         >
-          <p className="mb-2 text-xs font-semibold text-slate-500">{L.detailRowHint}</p>
-          <DesktopTableWrap>
-            <BankTransactionVirtualTable
-              rows={filteredRows}
-              tableId="bank-transactions-table"
-              tableRef={tableRef}
-              tableClassName="erp-table erp-bank-table w-full min-w-[960px]"
-              colSpan={14}
-              header={
-                <tr className="bg-slate-100 text-left text-slate-600">
-                  <th>{L.transactionAt}</th>
-                  <th className="text-right">{L.deposit}</th>
-                  <th className="text-right">{L.withdrawal}</th>
-                  <th className="text-right">{L.balance}</th>
-                  <th>{L.description}</th>
-                  <th>{L.memo}</th>
-                  <th>{L.counterpartyName}</th>
-                  <th>{L.ledgerCategoryColumn}</th>
-                  <th>{L.classification}</th>
-                  <th>{L.counterpartyBank}</th>
-                  <th>{L.matchStatus}</th>
-                  <th>{L.transactionType}</th>
-                  <th>{L.assignFolder}</th>
-                  <th>{L.ledgerSendTo}</th>
-                </tr>
-              }
-              empty={
-                <tr>
-                  <td colSpan={14} className="py-12 text-center text-slate-500">
-                    {L.empty}
-                  </td>
-                </tr>
-              }
-              renderRow={renderBankTransactionRow}
-            />
-          </DesktopTableWrap>
-
-          <BankTransactionVirtualMobileList
+          <BankTransactionListSection
             rows={filteredRows}
-            empty={<div className="py-8 text-center text-slate-500">{L.empty}</div>}
-            renderCard={renderMobileCard}
+            folderMap={folderMap}
+            ledgerCategoryFolder={ledgerCategoryFolder}
+            rowDisplayById={rowDisplayById}
+            tableRef={tableRef}
+            labels={listSectionLabels}
+            onOpenDetail={openBankTransactionDetail}
+            renderMobileCard={renderMobileCard}
           />
         </TableExportSection>
       ) : null}

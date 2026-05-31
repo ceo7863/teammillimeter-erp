@@ -10353,7 +10353,7 @@ button:disabled,
 
 .erp-bank-table-scroll tbody tr {
   content-visibility: auto;
-  contain-intrinsic-size: 52px;
+  contain-intrinsic-size: 44px;
 }
 
 .erp-bank-table tbody tr:hover {
