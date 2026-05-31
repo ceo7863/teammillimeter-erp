@@ -83,6 +83,7 @@ import {
   mergeMemoLearnRules,
   buildBankLearnRuleFromMemoCategory,
   resolveMemoLearnCategory,
+  resolveMealCategoryFromMemo,
   isMemoLearnAmountFlexibleCategory,
   buildPreauthNetLearnRule,
   buildCompanyExpensePrefillFromBankTransaction,
@@ -811,15 +812,18 @@ const DrawerLedgerKindToggle = React.memo(function DrawerLedgerKindToggle({
 const DrawerMemoField = React.memo(function DrawerMemoField({
   defaultMemo,
   draftRef,
+  textareaRef,
 }: {
   defaultMemo: string;
   draftRef: React.MutableRefObject<string>;
+  textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
 }) {
   return (
     <Field label={L.memo}>
       <UncontrolledBufferedTextarea
         defaultValue={defaultMemo}
         draftRef={draftRef}
+        textareaRef={textareaRef}
         className="min-h-24 w-full rounded-2xl px-4 py-3"
         placeholder={L.memoPlaceholder}
       />
@@ -918,6 +922,7 @@ const BankTransactionDetailDrawer = React.memo(function BankTransactionDetailDra
   onOpenLedgerEdit?: () => void;
 }) {
   const memoDraftRef = useRef(tx.memo || "");
+  const memoTextareaRef = useRef<HTMLTextAreaElement>(null);
   const categoryDraftRef = useRef(initialLedgerCategory);
   const categoryInputRef = useRef<HTMLInputElement>(null);
   const [folderId, setFolderId] = useState(tx.folderId || "");
@@ -1058,7 +1063,7 @@ const BankTransactionDetailDrawer = React.memo(function BankTransactionDetailDra
             <h3 className="erp-bank-tx-detail-section-title">{L.detailEditSection}</h3>
             <p className="mb-3 text-xs font-semibold text-slate-500">{L.memoEditHint}</p>
             <div className="space-y-3">
-              <DrawerMemoField key={tx.id} defaultMemo={tx.memo || ""} draftRef={memoDraftRef} />
+              <DrawerMemoField key={tx.id} defaultMemo={tx.memo || ""} draftRef={memoDraftRef} textareaRef={memoTextareaRef} />
               <DrawerFolderSelect
                 folderId={folderId}
                 onFolderChange={setFolderId}
@@ -1116,7 +1121,10 @@ const BankTransactionDetailDrawer = React.memo(function BankTransactionDetailDra
             className="rounded-2xl"
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => {
-              const ledgerCategory = categoryDraftRef.current.trim();
+              const memo = (memoTextareaRef.current?.value ?? memoDraftRef.current).trim();
+              memoDraftRef.current = memo;
+              const ledgerCategory = (categoryInputRef.current?.value ?? categoryDraftRef.current).trim();
+              categoryDraftRef.current = ledgerCategory;
               let resolvedFixedId = fixedExpenseId.trim();
               if (ledgerKind === "fixed") {
                 const selected = fixedExpenseOptions.find((row) => row.value === resolvedFixedId);
@@ -1128,7 +1136,7 @@ const BankTransactionDetailDrawer = React.memo(function BankTransactionDetailDra
                 }
               }
               onSave({
-                memo: memoDraftRef.current,
+                memo,
                 folderId,
                 ledgerKind,
                 ledgerCategory,
@@ -2344,37 +2352,55 @@ export function BankTransactionsPage({
     return categories.map((category) => ({ label: category, value: category }));
   }, [detailTx, expenseCategories, companyExpenses, fixedExpensePayments, fixedExpenses, memoCategorySuggestionByTxId, ledgerSuggestionByTxId]);
 
+  const resolveDetailLedgerPrefill = React.useCallback(
+    (row: BankTransaction) => {
+      const linkedPayment = resolveLinkedFixedPaymentForBankTx(row);
+      if (linkedPayment) {
+        const fixedItem = fixedExpenses.find((item) => item.id === linkedPayment.fixedExpenseId);
+        return {
+          kind: "fixed" as LedgerRegisterKind,
+          fixedExpenseId: linkedPayment.fixedExpenseId,
+          category:
+            linkedPayment.category?.trim() || fixedItem?.category?.trim() || fixedItem?.name?.trim() || "",
+        };
+      }
+      const suggestion = resolveLedgerRegistrationSuggestion(row);
+      if (isLedgerCategoryFromFixed(row) || suggestion.kind === "fixed") {
+        const fixedItem = suggestion.fixedExpenseId
+          ? fixedExpenses.find((item) => item.id === suggestion.fixedExpenseId)
+          : undefined;
+        return {
+          kind: "fixed" as LedgerRegisterKind,
+          fixedExpenseId: suggestion.fixedExpenseId || "",
+          category: suggestion.category || fixedItem?.category?.trim() || fixedItem?.name?.trim() || "",
+        };
+      }
+      return {
+        kind: "manual" as LedgerRegisterKind,
+        fixedExpenseId: "",
+        category:
+          getLedgerCategoryLabel(row) ||
+          resolveLedgerCategorySuggestionLabel(row) ||
+          suggestion.category ||
+          "",
+      };
+    },
+    [
+      fixedExpenses,
+      fixedExpensePayments,
+      companyExpenses,
+      resolveLedgerRegistrationSuggestion,
+      memoCategorySuggestionByTxId,
+      ledgerSuggestionByTxId,
+    ],
+  );
+
   const detailLedgerPrefill = useMemo(() => {
     if (!detailTx) {
       return { kind: "manual" as LedgerRegisterKind, fixedExpenseId: "", category: "" };
     }
-    const linkedPayment = resolveLinkedFixedPaymentForBankTx(detailTx);
-    if (linkedPayment) {
-      const fixedItem = fixedExpenses.find((row) => row.id === linkedPayment.fixedExpenseId);
-      return {
-        kind: "fixed" as LedgerRegisterKind,
-        fixedExpenseId: linkedPayment.fixedExpenseId,
-        category: linkedPayment.category?.trim() || fixedItem?.category?.trim() || fixedItem?.name?.trim() || "",
-      };
-    }
-    const suggestion = resolveLedgerRegistrationSuggestion(detailTx);
-    if (isLedgerCategoryFromFixed(detailTx) || suggestion.kind === "fixed") {
-      const fixedItem = suggestion.fixedExpenseId
-        ? fixedExpenses.find((row) => row.id === suggestion.fixedExpenseId)
-        : undefined;
-      return {
-        kind: "fixed" as LedgerRegisterKind,
-        fixedExpenseId: suggestion.fixedExpenseId || "",
-        category: suggestion.category || fixedItem?.category?.trim() || fixedItem?.name?.trim() || "",
-      };
-    }
-    return {
-      kind: "manual" as LedgerRegisterKind,
-      fixedExpenseId: "",
-      category:
-        getLedgerCategoryLabel(detailTx) || resolveLedgerCategorySuggestionLabel(detailTx) || suggestion.category || "",
-    };
-  }, [detailTx, fixedExpenses, fixedExpensePayments, companyExpenses, resolveLedgerRegistrationSuggestion]);
+    return resolveDetailLedgerPrefill(detailTx);
+  }, [detailTx, resolveDetailLedgerPrefill]);
 
   const detailFixedCategoryOptions = useMemo(
     () =>
@@ -2946,13 +2972,25 @@ export function BankTransactionsPage({
       let nextRow: BankTransaction = { ...tx };
       let rowChanged = false;
 
+      const detailPrefill = resolveDetailLedgerPrefill(tx);
       const nextMemo = payload.memo.trim() || undefined;
-      if (String(tx.memo || "") !== String(nextMemo || "")) {
+      const memoChanged = String(tx.memo || "").trim() !== String(nextMemo || "").trim();
+      if (memoChanged) {
         nextRow = { ...nextRow, memo: nextMemo };
         rowChanged = true;
       }
 
-      const targetFolderId = payload.folderId.trim();
+      let ledgerCategory = payload.ledgerCategory.trim();
+      if (payload.ledgerKind !== "fixed") {
+        const mealCategory = resolveMealCategoryFromMemo(payload.memo);
+        if (mealCategory) ledgerCategory = mealCategory;
+      }
+      const categoryChanged = detailPrefill.category.trim() !== ledgerCategory;
+
+      let targetFolderId = payload.folderId.trim();
+      if (memoChanged || categoryChanged) {
+        targetFolderId = DEFAULT_LEDGER_CATEGORY_FOLDER_ID;
+      }
       const folderChanged = String(tx.folderId || "") !== targetFolderId;
       if (folderChanged) {
         if (targetFolderId && !canAssignBankTransactionToFolder(tx, targetFolderId, bankTransactionFolders, workers)) {
@@ -2997,7 +3035,6 @@ export function BankTransactionsPage({
         });
       }
 
-      const ledgerCategory = payload.ledgerCategory.trim();
       const fixedExpenseId = payload.fixedExpenseId.trim();
       const linkedPayment = resolveLinkedFixedPaymentForBankTx(tx);
       const linkedExpense = resolveLinkedCompanyExpenseForBankTx(tx);
@@ -3217,6 +3254,7 @@ export function BankTransactionsPage({
       fixedExpensePayments,
       fixedExpenses,
       recordAudit,
+      resolveDetailLedgerPrefill,
       savedBy,
       scheduleBackgroundLearning,
       setBankLedgerRules,

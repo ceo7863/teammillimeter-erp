@@ -903,9 +903,17 @@ export function bankTransactionsShareMemoLearnPattern(
   return memoLearnWithdrawalsMatch(source, target);
 }
 
+/** 메모에 '식대'가 포함되면 가계부 카테고리 접대/식비 */
+export function resolveMealCategoryFromMemo(memo: string | undefined): string | null {
+  if (!String(memo || "").includes("\uC2DD\uB300")) return null;
+  return "\uC811\uB300/\uC2DD\uBE44";
+}
+
 export function resolveMemoLearnCategory(memo: string | undefined, categories?: string[] | null) {
   const trimmed = String(memo || "").trim();
   if (!trimmed) return null;
+  const mealCategory = resolveMealCategoryFromMemo(trimmed);
+  if (mealCategory) return mealCategory;
   const canonical = normalizeExpenseCategoryName(trimmed);
   const categoryList = Array.isArray(categories) ? categories : [];
   if (categoryList.some((item) => normalizeExpenseCategoryName(item) === canonical)) return canonical;
