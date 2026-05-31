@@ -79,6 +79,140 @@ export function getLinkedFixedPaymentForBankTx(
   return payments.find((row) => row.bankTransactionId === tx.id);
 }
 
+export function releaseFixedExpensePaymentBankLink(
+  payments: FixedExpensePayment[],
+  paymentId: string,
+  bankTransactionId: string,
+) {
+  return payments.map((row) => {
+    if (row.id !== paymentId) return row;
+    if (String(row.bankTransactionId || "") !== bankTransactionId) return row;
+    return { ...row, bankTransactionId: undefined };
+  });
+}
+
+function hasConflictingSiblingFixedExpenseLink(
+  tx: BankTransaction,
+  fixedExpenseId: string,
+  transactions: BankTransaction[],
+  payments: FixedExpensePayment[],
+  expenses: CompanyExpense[] = [],
+) {
+  const monthKey = getMonthKey(String(tx.transactionAt || "").slice(0, 10));
+  const counterpartyKey = normalizeMatchText(tx.counterpartyName || "");
+  const amount = Number(tx.withdrawal || 0);
+  if (!monthKey || !counterpartyKey || amount <= 0) return false;
+
+  return transactions.some((other) => {
+    if (other.id === tx.id) return false;
+    if (getMonthKey(String(other.transactionAt || "").slice(0, 10)) !== monthKey) return false;
+    if (normalizeMatchText(other.counterpartyName || "") !== counterpartyKey) return false;
+    if (Number(other.withdrawal || 0) !== amount) return false;
+    const otherPayment = getLinkedFixedPaymentForBankTx(other, payments);
+    if (!otherPayment) return false;
+    return otherPayment.fixedExpenseId !== fixedExpenseId;
+  });
+}
+
+/** Assign one bank tx to a fixed expense payment without mutating another tx's link. */
+export function assignBankTxToFixedExpensePayment(input: {
+  tx: BankTransaction;
+  resolvedFixedExpenseId: string;
+  fixedItem: FixedExpense;
+  payments: FixedExpensePayment[];
+  fixedExpenses: FixedExpense[];
+  resolvedCategory: string;
+  memo?: string;
+  savedBy?: string;
+}) {
+  const currentPayment = getLinkedFixedPaymentForBankTx(input.tx, input.payments);
+  let payments = input.payments;
+  const changedFixedItem = Boolean(
+    currentPayment && currentPayment.fixedExpenseId !== input.resolvedFixedExpenseId,
+  );
+
+  if (currentPayment && !changedFixedItem) {
+    const afterPayment = {
+      ...currentPayment,
+      category: input.resolvedCategory || input.fixedItem.category || currentPayment.category,
+      bankTransactionId: input.tx.id,
+    };
+    return {
+      payments: payments.map((row) => (row.id === currentPayment.id ? afterPayment : row)),
+      paymentId: currentPayment.id,
+      beforePayment: currentPayment,
+      afterPayment,
+      created: false,
+      changedFixedItem: false,
+    };
+  }
+
+  if (currentPayment && changedFixedItem) {
+    payments = releaseFixedExpensePaymentBankLink(payments, currentPayment.id, input.tx.id);
+  }
+
+  if (Number(input.tx.withdrawal || 0) <= 0) {
+    return {
+      payments,
+      paymentId: "",
+      beforePayment: currentPayment || null,
+      afterPayment: null,
+      created: false,
+      changedFixedItem,
+    };
+  }
+
+  const targetLinkable = findLinkableFixedExpensePayment(
+    input.tx,
+    input.resolvedFixedExpenseId,
+    payments,
+    input.fixedExpenses,
+  );
+  if (targetLinkable) {
+    const afterPayment = {
+      ...targetLinkable,
+      fixedExpenseId: input.resolvedFixedExpenseId,
+      category: input.resolvedCategory || input.fixedItem.category || targetLinkable.category,
+    };
+    payments = linkFixedExpensePaymentToBankTx(
+      payments.map((row) => (row.id === targetLinkable.id ? afterPayment : row)),
+      targetLinkable.id,
+      input.tx.id,
+      input.tx,
+    );
+    return {
+      payments,
+      paymentId: targetLinkable.id,
+      beforePayment: currentPayment || null,
+      afterPayment: payments.find((row) => row.id === targetLinkable.id) || afterPayment,
+      created: false,
+      changedFixedItem,
+    };
+  }
+
+  const paymentId = makeLedgerId();
+  const prefill = buildCompanyExpensePrefillFromBankTransaction(input.tx);
+  const createdPayment: FixedExpensePayment = {
+    id: paymentId,
+    fixedExpenseId: input.resolvedFixedExpenseId,
+    date: prefill.date,
+    amount: parseLedgerAmount(prefill.amount),
+    memo: input.memo || prefill.memo || input.fixedItem.name || prefill.description,
+    category: input.resolvedCategory || undefined,
+    bankTransactionId: input.tx.id,
+    createdBy: input.savedBy,
+    createdAt: new Date().toISOString(),
+  };
+  return {
+    payments: [createdPayment, ...payments],
+    paymentId,
+    beforePayment: currentPayment || null,
+    afterPayment: createdPayment,
+    created: true,
+    changedFixedItem,
+  };
+}
+
 export function isBankTransactionLinkedToCompanyLedger(
   tx: BankTransaction,
   context: BankLedgerRegistrationContext = {},
@@ -1407,6 +1541,17 @@ export function autoApplyBankLearnRules(
         const fixedExpenseId =
           resolveFixedExpenseIdForBankTransaction(tx, fixedExpenses, ledgerRule.fixedExpenseId) ||
           ledgerRule.fixedExpenseId;
+        if (
+          hasConflictingSiblingFixedExpenseLink(
+            tx,
+            fixedExpenseId,
+            transactions,
+            workingPayments,
+            workingExpenses,
+          )
+        ) {
+          continue;
+        }
         const existingPayment = findLinkableFixedExpensePayment(
           tx,
           fixedExpenseId,

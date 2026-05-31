@@ -90,6 +90,7 @@ import {
   canRegisterBankTxToCompanyLedger,
   clearVariableExpenseLinkForBankTx,
   createCompanyExpenseFromBankTransaction,
+  assignBankTxToFixedExpensePayment,
   findBestBankLearnRuleWithScore,
   findMatchingBankLedgerRule,
   formatBankLearnAutoMessage,
@@ -2848,20 +2849,35 @@ export function BankTransactionsPage({
           }
         }
 
-        const currentPayment = getLinkedFixedPaymentForBankTx(workingTx, nextPayments);
-        let paymentId = "";
+        const assignment = assignBankTxToFixedExpensePayment({
+          tx: workingTx,
+          resolvedFixedExpenseId,
+          fixedItem,
+          payments: nextPayments,
+          fixedExpenses,
+          resolvedCategory,
+          memo: nextMemo,
+          savedBy,
+        });
+        nextPayments = assignment.payments;
+        const paymentId = assignment.paymentId;
 
-        if (currentPayment) {
-          const beforePayment = currentPayment;
-          const afterPayment = {
-            ...currentPayment,
-            fixedExpenseId: resolvedFixedExpenseId,
-            category: resolvedCategory || fixedItem.category || currentPayment.category,
-            bankTransactionId: tx.id,
-          };
-          nextPayments = nextPayments.map((row) => (row.id === currentPayment.id ? afterPayment : row));
-          paymentId = currentPayment.id;
+        if (assignment.created && assignment.afterPayment) {
+          recordAudit({
+            entityType: "fixedExpensePayment",
+            entityId: assignment.afterPayment.id,
+            entityLabel: fixedItem.name || assignment.afterPayment.id,
+            screen: L.pageTitle,
+            action: "create",
+            after: snapshotFixedExpensePaymentForAudit(assignment.afterPayment),
+            fields: FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS,
+            user: currentUser,
+          });
+        } else if (assignment.afterPayment && assignment.beforePayment) {
+          const beforePayment = assignment.beforePayment;
+          const afterPayment = assignment.afterPayment;
           if (
+            assignment.changedFixedItem ||
             beforePayment.fixedExpenseId !== afterPayment.fixedExpenseId ||
             String(beforePayment.category || "") !== String(afterPayment.category || "")
           ) {
@@ -2873,42 +2889,6 @@ export function BankTransactionsPage({
               action: "update",
               before: snapshotFixedExpensePaymentForAudit(beforePayment),
               after: snapshotFixedExpensePaymentForAudit(afterPayment),
-              fields: FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS,
-              user: currentUser,
-            });
-          }
-        } else if (Number(workingTx.withdrawal || 0) > 0) {
-          const targetLinkable = findLinkableFixedExpensePayment(
-            workingTx,
-            resolvedFixedExpenseId,
-            nextPayments,
-            fixedExpenses,
-          );
-          if (targetLinkable) {
-            nextPayments = linkFixedExpensePaymentToBankTx(nextPayments, targetLinkable.id, tx.id, workingTx);
-            paymentId = targetLinkable.id;
-          } else {
-            paymentId = makeLedgerId();
-            const prefill = buildCompanyExpensePrefillFromBankTransaction(workingTx);
-            const createdPayment: FixedExpensePayment = {
-              id: paymentId,
-              fixedExpenseId: resolvedFixedExpenseId,
-              date: prefill.date,
-              amount: parseLedgerAmount(prefill.amount),
-              memo: nextMemo || prefill.memo || fixedItem.name || prefill.description,
-              category: resolvedCategory || undefined,
-              bankTransactionId: tx.id,
-              createdBy: savedBy,
-              createdAt: new Date().toISOString(),
-            };
-            nextPayments = [createdPayment, ...nextPayments];
-            recordAudit({
-              entityType: "fixedExpensePayment",
-              entityId: createdPayment.id,
-              entityLabel: fixedItem.name || createdPayment.id,
-              screen: L.pageTitle,
-              action: "create",
-              after: snapshotFixedExpensePaymentForAudit(createdPayment),
               fields: FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS,
               user: currentUser,
             });
@@ -2927,17 +2907,6 @@ export function BankTransactionsPage({
           setBankTransactions(workingTransactions);
           nextTransactions = workingTransactions;
         }
-
-        nextRules = upsertBankLearnRule(
-          nextRules,
-          buildBankLedgerMatchRuleFromRegistration(
-            workingTx,
-            resolvedFixedExpenseId,
-            savedBy,
-            workingTx.withdrawal,
-          ),
-        );
-        setBankLedgerRules(nextRules);
       } else if (ledgerCategory) {
         if (linkedPayment) {
           const currentPayment = fixedExpensePayments.find((row) => row.id === linkedPayment.id);
