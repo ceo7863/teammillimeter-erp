@@ -171,6 +171,148 @@ export function BufferedTextarea({
   );
 }
 
+const UNCONTROLLED_TEXTAREA_CLASS =
+  "erp-input w-full rounded-2xl border bg-white px-3 py-2.5 text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-slate-900 md:px-4 md:py-3";
+
+const UNCONTROLLED_INPUT_CLASS =
+  "erp-input w-full rounded-2xl border bg-white px-3 py-2.5 text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-slate-900 md:px-4 md:py-3";
+
+/** Memo/notes field with zero React re-renders while typing — value lives in a ref only. */
+export const UncontrolledBufferedTextarea = React.memo(function UncontrolledBufferedTextarea({
+  defaultValue = "",
+  draftRef,
+  className = "",
+  placeholder,
+}: {
+  defaultValue?: string;
+  draftRef: React.MutableRefObject<string>;
+  className?: string;
+  placeholder?: string;
+}) {
+  const composingRef = useRef(false);
+
+  useEffect(() => {
+    draftRef.current = defaultValue;
+  }, [defaultValue, draftRef]);
+
+  const syncDraft = (nextValue: string) => {
+    draftRef.current = nextValue;
+  };
+
+  return (
+    <textarea
+      lang="ko"
+      className={`${UNCONTROLLED_TEXTAREA_CLASS} ${className}`}
+      defaultValue={defaultValue}
+      placeholder={placeholder}
+      autoComplete="off"
+      autoCorrect="off"
+      autoCapitalize="off"
+      spellCheck={false}
+      onInput={(event) => {
+        if (!composingRef.current) syncDraft(event.currentTarget.value);
+      }}
+      onCompositionStart={() => {
+        composingRef.current = true;
+      }}
+      onCompositionEnd={(event) => {
+        composingRef.current = false;
+        syncDraft(event.currentTarget.value);
+      }}
+    />
+  );
+});
+
+export function extractCategorySuggestionLabels(options: OptionLike[] = []) {
+  const seen = new Set<string>();
+  const rows: string[] = [];
+  for (const item of options) {
+    const label =
+      typeof item === "string"
+        ? item.trim()
+        : String(item.label ?? item.name ?? item.value ?? "").trim();
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    rows.push(label);
+  }
+  return rows;
+}
+
+/** Static datalist rendered once — immune to sibling input re-renders. */
+export const CategoryDatalistOptions = React.memo(function CategoryDatalistOptions({
+  listId,
+  suggestions,
+}: {
+  listId: string;
+  suggestions: readonly string[];
+}) {
+  if (!suggestions.length) return null;
+  return (
+    <datalist id={listId}>
+      {suggestions.map((label) => (
+        <option key={label} value={label} />
+      ))}
+    </datalist>
+  );
+});
+
+/** Category field with native datalist — uncontrolled, no parent state on keystroke. */
+export const UncontrolledCategoryInput = React.memo(function UncontrolledCategoryInput({
+  defaultValue = "",
+  draftRef,
+  inputRef,
+  listId,
+  suggestions,
+  className = "rounded-xl",
+  placeholder = "",
+}: {
+  defaultValue?: string;
+  draftRef: React.MutableRefObject<string>;
+  inputRef?: React.RefObject<HTMLInputElement | null>;
+  listId: string;
+  suggestions: readonly string[];
+  className?: string;
+  placeholder?: string;
+}) {
+  const composingRef = useRef(false);
+
+  useEffect(() => {
+    draftRef.current = defaultValue;
+  }, [defaultValue, draftRef]);
+
+  const syncDraft = (nextValue: string) => {
+    draftRef.current = nextValue;
+  };
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        lang="ko"
+        list={suggestions.length ? listId : undefined}
+        className={`${UNCONTROLLED_INPUT_CLASS} ${className}`}
+        defaultValue={defaultValue}
+        placeholder={placeholder}
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        onInput={(event) => {
+          if (!composingRef.current) syncDraft(event.currentTarget.value);
+        }}
+        onCompositionStart={() => {
+          composingRef.current = true;
+        }}
+        onCompositionEnd={(event) => {
+          composingRef.current = false;
+          syncDraft(event.currentTarget.value);
+        }}
+      />
+      <CategoryDatalistOptions listId={listId} suggestions={suggestions} />
+    </>
+  );
+});
+
 function isImeActive(event: React.KeyboardEvent) {
   return event.nativeEvent.isComposing || event.key === "Process" || event.keyCode === 229;
 }
@@ -499,20 +641,7 @@ export function CategorySuggestInput({
 }: CategorySuggestInputProps) {
   const autoId = React.useId();
   const listId = listIdProp || `category-suggest-${autoId.replace(/:/g, "")}`;
-  const suggestions = useMemo(() => {
-    const seen = new Set<string>();
-    const rows: string[] = [];
-    for (const item of options) {
-      const label =
-        typeof item === "string"
-          ? item.trim()
-          : String(item.label ?? item.name ?? item.value ?? "").trim();
-      if (!label || seen.has(label)) continue;
-      seen.add(label);
-      rows.push(label);
-    }
-    return rows;
-  }, [options]);
+  const suggestions = useMemo(() => extractCategorySuggestionLabels(options), [options]);
 
   return (
     <>

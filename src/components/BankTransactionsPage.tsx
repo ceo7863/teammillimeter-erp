@@ -122,6 +122,9 @@ import {
   BufferedTextarea,
   BufferedTextInput,
   CategorySuggestInput,
+  extractCategorySuggestionLabels,
+  UncontrolledBufferedTextarea,
+  UncontrolledCategoryInput,
 } from "@/components/AutocompleteInput";
 import { createPaymentInputLogsFromVouchers } from "@/utils/paymentInputLogs";
 import type { ReceivableRow } from "@/utils/receivables";
@@ -676,6 +679,187 @@ function DetailReadRow({ label, value }: { label: string; value: React.ReactNode
   );
 }
 
+type DrawerFolderOption = { id: string; label: string };
+
+type DrawerCustomFolderOptgroup = {
+  rootId: string;
+  rootLabel: string;
+  options: DrawerFolderOption[];
+};
+
+const DrawerFolderSelect = React.memo(function DrawerFolderSelect({
+  folderId,
+  onFolderChange,
+  clientOptions,
+  cardOptions,
+  workerOptions,
+  customOptgroups,
+}: {
+  folderId: string;
+  onFolderChange: (value: string) => void;
+  clientOptions: DrawerFolderOption[];
+  cardOptions: DrawerFolderOption[];
+  workerOptions: DrawerFolderOption[];
+  customOptgroups: DrawerCustomFolderOptgroup[];
+}) {
+  return (
+    <Field label={L.classification}>
+      <select
+        className="erp-input w-full rounded-xl"
+        value={folderId}
+        onChange={(event) => onFolderChange(event.target.value)}
+      >
+        <option value="">{L.unfiled}</option>
+        <optgroup label={L.clientFolders}>
+          {clientOptions.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.label}
+            </option>
+          ))}
+        </optgroup>
+        <optgroup label={L.cardFolders}>
+          {cardOptions.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.label}
+            </option>
+          ))}
+        </optgroup>
+        <optgroup label={L.workerFolders}>
+          {workerOptions.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.label}
+            </option>
+          ))}
+        </optgroup>
+        {customOptgroups.map((group) => (
+          <optgroup key={group.rootId} label={group.rootLabel}>
+            {group.options.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+    </Field>
+  );
+});
+
+const DrawerFixedExpenseSelect = React.memo(function DrawerFixedExpenseSelect({
+  value,
+  options,
+  onChange,
+  onPickCategory,
+}: {
+  value: string;
+  options: Array<{ label: string; value: string }>;
+  onChange: (value: string) => void;
+  onPickCategory: (category: string) => void;
+}) {
+  return (
+    <Field label={L.ledgerFixedItem}>
+      <select
+        className="erp-input w-full rounded-xl"
+        value={value}
+        onChange={(event) => {
+          const nextFixedExpenseId = event.target.value;
+          onChange(nextFixedExpenseId);
+          const selected = options.find((row) => row.value === nextFixedExpenseId);
+          const categoryFromLabel = selected?.label.split(" · ")[1]?.trim();
+          if (categoryFromLabel) onPickCategory(categoryFromLabel);
+        }}
+      >
+        <option value="">{L.ledgerFixedItem}</option>
+        {options.map((row) => (
+          <option key={row.value} value={row.value}>
+            {row.label}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+});
+
+const DrawerLedgerKindToggle = React.memo(function DrawerLedgerKindToggle({
+  ledgerKind,
+  onChange,
+}: {
+  ledgerKind: LedgerRegisterKind;
+  onChange: (kind: LedgerRegisterKind) => void;
+}) {
+  return (
+    <Field label={L.ledgerKind}>
+      <div className="grid grid-cols-2 gap-2">
+        {LEDGER_KIND_OPTIONS.map((option) => (
+          <button
+            key={option.key}
+            type="button"
+            className={`rounded-xl border px-3 py-2.5 text-sm font-bold transition ${
+              ledgerKind === option.key ? option.activeTone : option.tone
+            }`}
+            onClick={() => onChange(option.key)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      <p className="mt-1.5 text-xs font-semibold text-slate-500">{L.detailLedgerKindHint}</p>
+    </Field>
+  );
+});
+
+const DrawerMemoField = React.memo(function DrawerMemoField({
+  defaultMemo,
+  draftRef,
+}: {
+  defaultMemo: string;
+  draftRef: React.MutableRefObject<string>;
+}) {
+  return (
+    <Field label={L.memo}>
+      <UncontrolledBufferedTextarea
+        defaultValue={defaultMemo}
+        draftRef={draftRef}
+        className="min-h-24 w-full rounded-2xl px-4 py-3"
+        placeholder={L.memoPlaceholder}
+      />
+    </Field>
+  );
+});
+
+const DrawerCategoryField = React.memo(function DrawerCategoryField({
+  defaultCategory,
+  draftRef,
+  inputRef,
+  listId,
+  suggestions,
+  label,
+  placeholder,
+}: {
+  defaultCategory: string;
+  draftRef: React.MutableRefObject<string>;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  listId: string;
+  suggestions: readonly string[];
+  label: string;
+  placeholder: string;
+}) {
+  return (
+    <Field label={label}>
+      <UncontrolledCategoryInput
+        defaultValue={defaultCategory}
+        draftRef={draftRef}
+        inputRef={inputRef}
+        listId={listId}
+        suggestions={suggestions}
+        className="rounded-xl"
+        placeholder={placeholder}
+      />
+      <p className="mt-1.5 text-xs font-semibold text-slate-500">{L.ledgerCategoryAddHint}</p>
+    </Field>
+  );
+});
+
 const BankTransactionDetailDrawer = React.memo(function BankTransactionDetailDrawer({
   tx,
   folderLabel,
@@ -734,16 +918,18 @@ const BankTransactionDetailDrawer = React.memo(function BankTransactionDetailDra
   onOpenLedgerEdit?: () => void;
 }) {
   const memoDraftRef = useRef(tx.memo || "");
+  const categoryDraftRef = useRef(initialLedgerCategory);
+  const categoryInputRef = useRef<HTMLInputElement>(null);
   const [folderId, setFolderId] = useState(tx.folderId || "");
   const [ledgerKind, setLedgerKind] = useState<LedgerRegisterKind>(initialLedgerKind);
-  const [ledgerCategory, setLedgerCategory] = useState(initialLedgerCategory);
   const [fixedExpenseId, setFixedExpenseId] = useState(initialFixedExpenseId);
 
   useEffect(() => {
     memoDraftRef.current = tx.memo || "";
+    categoryDraftRef.current = initialLedgerCategory;
+    if (categoryInputRef.current) categoryInputRef.current.value = initialLedgerCategory;
     setFolderId(tx.folderId || "");
     setLedgerKind(initialLedgerKind);
-    setLedgerCategory(initialLedgerCategory);
     setFixedExpenseId(initialFixedExpenseId);
   }, [tx.id, tx.memo, tx.folderId, initialLedgerKind, initialLedgerCategory, initialFixedExpenseId]);
 
@@ -753,6 +939,54 @@ const BankTransactionDetailDrawer = React.memo(function BankTransactionDetailDra
     return () => {
       document.body.style.overflow = previousOverflow;
     };
+  }, []);
+
+  const folderSelectData = useMemo(() => {
+    const mapFolder = (folder: BankTransactionFolder): DrawerFolderOption => ({
+      id: folder.id,
+      label: formatFolderSelectLabel(folder),
+    });
+    const customOptgroups: DrawerCustomFolderOptgroup[] = [];
+    for (const root of customCategoryRoots) {
+      const ids = new Set(collectCustomCategoryFolderIds(bankTransactionFolders, root.id));
+      const options = assignableCustomFolders.filter((item) => ids.has(item.id)).map(mapFolder);
+      if (options.length) {
+        customOptgroups.push({
+          rootId: root.id,
+          rootLabel: root.folderName,
+          options,
+        });
+      }
+    }
+    return {
+      clientOptions: assignableClientFolders.map(mapFolder),
+      cardOptions: assignableCardFolders.map(mapFolder),
+      workerOptions: assignableWorkerFolders.map(mapFolder),
+      customOptgroups,
+    };
+  }, [
+    assignableCardFolders,
+    assignableClientFolders,
+    assignableCustomFolders,
+    assignableWorkerFolders,
+    bankTransactionFolders,
+    customCategoryRoots,
+    formatFolderSelectLabel,
+  ]);
+
+  const categorySuggestions = useMemo(
+    () =>
+      extractCategorySuggestionLabels(
+        ledgerKind === "fixed" ? fixedCategoryOptions : ledgerCategoryOptions,
+      ),
+    [fixedCategoryOptions, ledgerCategoryOptions, ledgerKind],
+  );
+
+  const categoryListId = `bank-tx-detail-category-${tx.id}-${ledgerKind}`;
+
+  const setCategoryFromFixedPick = useCallback((category: string) => {
+    categoryDraftRef.current = category;
+    if (categoryInputRef.current) categoryInputRef.current.value = category;
   }, []);
 
   const deposit = parseBankAmount(tx.deposit);
@@ -824,113 +1058,34 @@ const BankTransactionDetailDrawer = React.memo(function BankTransactionDetailDra
             <h3 className="erp-bank-tx-detail-section-title">{L.detailEditSection}</h3>
             <p className="mb-3 text-xs font-semibold text-slate-500">{L.memoEditHint}</p>
             <div className="space-y-3">
-              <Field label={L.memo}>
-                <BufferedTextarea
-                  key={tx.id}
-                  value={tx.memo || ""}
-                  className="min-h-24 w-full rounded-2xl px-4 py-3"
-                  placeholder={L.memoPlaceholder}
-                  onDraftChange={(next) => {
-                    memoDraftRef.current = next;
-                  }}
-                />
-              </Field>
-              <Field label={L.classification}>
-                <select
-                  className="erp-input w-full rounded-xl"
-                  value={folderId}
-                  onChange={(event) => setFolderId(event.target.value)}
-                >
-                  <option value="">{L.unfiled}</option>
-                  <optgroup label={L.clientFolders}>
-                    {assignableClientFolders.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {formatFolderSelectLabel(item)}
-                      </option>
-                    ))}
-                  </optgroup>
-                  <optgroup label={L.cardFolders}>
-                    {assignableCardFolders.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {formatFolderSelectLabel(item)}
-                      </option>
-                    ))}
-                  </optgroup>
-                  <optgroup label={L.workerFolders}>
-                    {assignableWorkerFolders.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {formatFolderSelectLabel(item)}
-                      </option>
-                    ))}
-                  </optgroup>
-                  {customCategoryRoots.map((root) => {
-                    const ids = new Set(collectCustomCategoryFolderIds(bankTransactionFolders, root.id));
-                    const options = assignableCustomFolders.filter((item) => ids.has(item.id));
-                    if (!options.length) return null;
-                    return (
-                      <optgroup key={root.id} label={root.folderName}>
-                        {options.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {formatFolderSelectLabel(item)}
-                          </option>
-                        ))}
-                      </optgroup>
-                    );
-                  })}
-                </select>
-              </Field>
-              <Field label={L.ledgerKind}>
-                <div className="grid grid-cols-2 gap-2">
-                  {LEDGER_KIND_OPTIONS.map((option) => (
-                    <button
-                      key={option.key}
-                      type="button"
-                      className={`rounded-xl border px-3 py-2.5 text-sm font-bold transition ${
-                        ledgerKind === option.key ? option.activeTone : option.tone
-                      }`}
-                      onClick={() => setLedgerKind(option.key)}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-                <p className="mt-1.5 text-xs font-semibold text-slate-500">{L.detailLedgerKindHint}</p>
-              </Field>
+              <DrawerMemoField key={tx.id} defaultMemo={tx.memo || ""} draftRef={memoDraftRef} />
+              <DrawerFolderSelect
+                folderId={folderId}
+                onFolderChange={setFolderId}
+                clientOptions={folderSelectData.clientOptions}
+                cardOptions={folderSelectData.cardOptions}
+                workerOptions={folderSelectData.workerOptions}
+                customOptgroups={folderSelectData.customOptgroups}
+              />
+              <DrawerLedgerKindToggle ledgerKind={ledgerKind} onChange={setLedgerKind} />
               {ledgerKind === "fixed" ? (
-                <Field label={L.ledgerFixedItem}>
-                  <AutocompleteInput
-                    value={fixedExpenseId}
-                    options={fixedExpenseOptions}
-                    placeholder={L.ledgerFixedItem}
-                    freeSolo={false}
-                    showOptionsOnFocus
-                    commitFreeSoloOnBlur
-                    keepOpenUntilSelect
-                    compact={false}
-                    limit={24}
-                    inputProps={{ className: "rounded-xl" }}
-                    onChange={(value) => {
-                      const nextFixedExpenseId = String(value || "").trim();
-                      setFixedExpenseId(nextFixedExpenseId);
-                      const selected = fixedExpenseOptions.find((row) => row.value === nextFixedExpenseId);
-                      const categoryFromLabel = selected?.label.split(" · ")[1]?.trim();
-                      if (categoryFromLabel) {
-                        setLedgerCategory(categoryFromLabel);
-                      }
-                    }}
-                  />
-                </Field>
-              ) : null}
-              <Field label={ledgerKind === "fixed" ? L.ledgerCategory : L.ledgerManualCategory}>
-                <CategorySuggestInput
-                  value={ledgerCategory}
-                  options={ledgerKind === "fixed" ? fixedCategoryOptions : ledgerCategoryOptions}
-                  placeholder={ledgerKind === "fixed" ? L.ledgerCategory : L.ledgerManualCategory}
-                  className="rounded-xl"
-                  onChange={setLedgerCategory}
+                <DrawerFixedExpenseSelect
+                  value={fixedExpenseId}
+                  options={fixedExpenseOptions}
+                  onChange={setFixedExpenseId}
+                  onPickCategory={setCategoryFromFixedPick}
                 />
-                <p className="mt-1.5 text-xs font-semibold text-slate-500">{L.ledgerCategoryAddHint}</p>
-              </Field>
+              ) : null}
+              <DrawerCategoryField
+                key={`${tx.id}-${ledgerKind}`}
+                defaultCategory={initialLedgerCategory}
+                draftRef={categoryDraftRef}
+                inputRef={categoryInputRef}
+                listId={categoryListId}
+                suggestions={categorySuggestions}
+                label={ledgerKind === "fixed" ? L.ledgerCategory : L.ledgerManualCategory}
+                placeholder={ledgerKind === "fixed" ? L.ledgerCategory : L.ledgerManualCategory}
+              />
             </div>
           </section>
 
@@ -961,12 +1116,13 @@ const BankTransactionDetailDrawer = React.memo(function BankTransactionDetailDra
             className="rounded-2xl"
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => {
+              const ledgerCategory = categoryDraftRef.current.trim();
               let resolvedFixedId = fixedExpenseId.trim();
               if (ledgerKind === "fixed") {
                 const selected = fixedExpenseOptions.find((row) => row.value === resolvedFixedId);
                 if (!selected) {
                   const byLabel = fixedExpenseOptions.find(
-                    (row) => row.label.split(" · ")[0]?.trim() === ledgerCategory.trim(),
+                    (row) => row.label.split(" · ")[0]?.trim() === ledgerCategory,
                   );
                   if (byLabel) resolvedFixedId = byLabel.value;
                 }
