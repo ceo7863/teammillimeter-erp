@@ -709,8 +709,6 @@ function resolveFixedExpenseCategory(fixedExpenseId: string, fixedExpenses: Fixe
 }
 
 function resolveFixedPaymentDescription(payment: FixedExpensePayment, fixedExpenses: FixedExpense[]) {
-  const memo = String(payment.memo || "").trim();
-  if (memo) return memo;
   return resolveFixedExpenseName(payment.fixedExpenseId, fixedExpenses);
 }
 
@@ -742,15 +740,22 @@ function FixedPaymentBadges({
   bankTransactions?: BankTransaction[];
 }) {
   const category = resolveFixedPaymentCategory(payment, fixedExpenses);
+  const itemName = resolveFixedExpenseName(payment.fixedExpenseId, fixedExpenses);
   if (isBankLinkedPayment(payment, bankTransactions)) {
     return (
       <div className="flex flex-wrap items-center gap-1.5">
+        <span className="erp-ledger-fixed-item-name font-semibold text-slate-900">{itemName}</span>
         <CategoryBadge label={category} />
         <BankSourceBadge />
       </div>
     );
   }
-  return <CategoryBadge label={category} />;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="erp-ledger-fixed-item-name font-semibold text-slate-900">{itemName}</span>
+      <CategoryBadge label={category} />
+    </div>
+  );
 }
 
 function FixedLedgerRowsPanel({
@@ -904,7 +909,7 @@ function FixedLedgerRowsPanel({
                   <tr key={`fixed-pay-${row.id}`} className={bankLinkedRowClass(bankLinked)}>
                     <td>{row.date}</td>
                     <td>
-                      <FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} />
+                      <FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} bankTransactions={bankTransactions} />
                     </td>
                     <td>
                       <div className="flex flex-wrap items-center gap-1.5">
@@ -2730,7 +2735,7 @@ export function CompanyLedgerPage({
                           </td>
                           <td>{row.date}</td>
                           <td>
-                            <FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} />
+                            <FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} bankTransactions={bankTransactions} />
                           </td>
                           <td>
                             <DescriptionWithBankBadge text={description} bankLinked={bankLinked} />

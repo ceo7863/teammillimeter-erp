@@ -1103,7 +1103,8 @@ export function BankTransactionsPage({
     const linkedPayment = resolveLinkedFixedPaymentForBankTx(row);
     if (linkedPayment) {
       const fixedItem = fixedExpenses.find((item) => item.id === linkedPayment.fixedExpenseId);
-      return fixedItem?.category?.trim() || fixedItem?.name?.trim() || null;
+      if (fixedItem?.name?.trim()) return fixedItem.name.trim();
+      return fixedItem?.category?.trim() || null;
     }
     return null;
   };

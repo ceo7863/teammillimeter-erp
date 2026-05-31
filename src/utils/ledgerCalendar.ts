@@ -171,7 +171,6 @@ export function buildLedgerCalendarDays(
   for (const payment of fixedExpensePayments) {
     if (getMonthKey(payment.date) !== monthKey) continue;
     const stats = statsByDate[payment.date] || (statsByDate[payment.date] = EMPTY_DAY_STATS());
-    const memo = String(payment.memo || "").trim();
     const settled = isFixedExpensePaymentSettled(
       payment,
       fixedExpensePayments,
@@ -182,7 +181,7 @@ export function buildLedgerCalendarDays(
       id: payment.id,
       kind: "fixed",
       source: "fixedPayment",
-      label: memo || resolveFixedExpenseName(payment.fixedExpenseId, fixedExpenses),
+      label: resolveFixedExpenseName(payment.fixedExpenseId, fixedExpenses),
       category: resolveFixedPaymentCategory(payment, fixedExpenses),
       amount: Number(payment.amount) || 0,
       bankLinked: settled,
