@@ -103,6 +103,7 @@ import {
   parseLedgerTargetKey,
   releaseFixedExpensePaymentBankLink,
   resolveBankTxLedgerAmount,
+  syncBankTransactionLedgerLinkFields,
   resolveLedgerTargetForBankTransaction,
   upsertBankLearnRule,
   type BankLearnRule,
@@ -2749,6 +2750,18 @@ export function BankTransactionsPage({
       const tx = bankTransactions.find((row) => row.id === detailTxId);
       if (!tx) return;
 
+      const commitLedgerState = (
+        workingTransactions: BankTransaction[],
+        nextExpenses: typeof companyExpenses,
+        nextPayments: typeof fixedExpensePayments,
+      ) => {
+        const synced = syncBankTransactionLedgerLinkFields(workingTransactions, nextExpenses, nextPayments);
+        setCompanyExpenses(nextExpenses);
+        setFixedExpensePayments(nextPayments);
+        setBankTransactions(synced);
+        return synced;
+      };
+
       let nextRow: BankTransaction = { ...tx };
       let rowChanged = false;
 
@@ -2902,9 +2915,7 @@ export function BankTransactionsPage({
               : row,
           );
           auditBankTxUpdate(tx, workingTransactions.find((row) => row.id === tx.id) || workingTx);
-          setFixedExpensePayments(nextPayments);
-          setCompanyExpenses(nextExpenses);
-          setBankTransactions(workingTransactions);
+          workingTransactions = commitLedgerState(workingTransactions, nextExpenses, nextPayments);
           nextTransactions = workingTransactions;
         }
       } else if (ledgerCategory) {
@@ -2985,9 +2996,7 @@ export function BankTransactionsPage({
           nextRules,
           buildBankLearnRuleFromManualRegistration(workingTx, ledgerCategory, savedBy),
         );
-        setCompanyExpenses(nextExpenses);
-        setFixedExpensePayments(nextPayments);
-        setBankTransactions(workingTransactions);
+        workingTransactions = commitLedgerState(workingTransactions, nextExpenses, nextPayments);
         setBankLedgerRules(nextRules);
         nextTransactions = workingTransactions;
 

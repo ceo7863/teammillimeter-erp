@@ -80,7 +80,7 @@ import { normalizeCompanyNotices } from "@/utils/companyNotices";
 import { normalizeWorkPosts } from "@/utils/workBoard";
 import { normalizeTaxInvoices } from "@/utils/taxInvoices";
 import { normalizeBankTransactions } from "@/utils/bankTransactions";
-import { normalizeBankLedgerMatchRules } from "@/utils/bankCompanyLedger";
+import { normalizeBankLedgerMatchRules, syncBankTransactionLedgerLinkFields } from "@/utils/bankCompanyLedger";
 import { syncFixedExpenseAutomation } from "@/utils/fixedExpenseAutomation";
 import { normalizeExpenseCategories, normalizeFixedExpenseCategories } from "@/utils/companyLedger";
 import { normalizeBankTransactionFolders } from "@/utils/bankTransactionFolders";
@@ -6576,14 +6576,14 @@ export default function TeammillimeterErpMvp() {
     setWorkerPayoutVouchers(normalizeWorkerPayoutVouchers(data.workerPayoutVouchers));
     setWorkerMonthlyActualVouchers(normalizeWorkerMonthlyActualVouchers(data.workerMonthlyActualVouchers));
     setWorkerPayWithVatLearnRules(normalizeWorkerPayWithVatLearnRules(data.workerPayWithVatLearnRules));
-    setCompanyExpenses(Array.isArray(data.companyExpenses) ? data.companyExpenses : []);
+    const nextCompanyExpenses = Array.isArray(data.companyExpenses) ? data.companyExpenses : [];
+    const nextFixedExpensePayments = Array.isArray(data.fixedExpensePayments) ? data.fixedExpensePayments : [];
+    setCompanyExpenses(nextCompanyExpenses);
     setAttendanceRecords(normalizeAttendanceRecords(data.attendanceRecords));
     setFixedExpenses(Array.isArray(data.fixedExpenses) ? data.fixedExpenses : []);
-    setFixedExpensePayments(Array.isArray(data.fixedExpensePayments) ? data.fixedExpensePayments : []);
+    setFixedExpensePayments(nextFixedExpensePayments);
     setBankLedgerRules(normalizeBankLedgerMatchRules(data.bankLedgerRules));
-    setExpenseCategories(
-      normalizeExpenseCategories(data.expenseCategories, Array.isArray(data.companyExpenses) ? data.companyExpenses : []),
-    );
+    setExpenseCategories(normalizeExpenseCategories(data.expenseCategories, nextCompanyExpenses));
     setFixedExpenseCategories(
       normalizeFixedExpenseCategories(
         data.fixedExpenseCategories,
@@ -6593,7 +6593,13 @@ export default function TeammillimeterErpMvp() {
     setCompanyNotices(normalizeCompanyNotices(data.companyNotices));
     setWorkPosts(normalizeWorkPosts(data.workPosts));
     setTaxInvoices(normalizeTaxInvoices(data.taxInvoices));
-    setBankTransactions(normalizeBankTransactions(data.bankTransactions));
+    setBankTransactions(
+      syncBankTransactionLedgerLinkFields(
+        normalizeBankTransactions(data.bankTransactions),
+        nextCompanyExpenses,
+        nextFixedExpensePayments,
+      ),
+    );
     setBankTransactionFolders(normalizeBankTransactionFolders(data.bankTransactionFolders));
     setStatementGenerationLogs(normalizeStatementGenerationLogs(data.statementGenerationLogs));
     setStatementFolders(normalizeStatementFolders(data.statementFolders));
@@ -6922,20 +6928,47 @@ export default function TeammillimeterErpMvp() {
         }),
       ),
     );
-  }, [dataReady, currentUser, fixedExpenses, fixedExpensePayments, bankTransactions, bankLedgerRules]);
+  }, [dataReady, currentUser, fixedExpenses, fixedExpensePayments, bankTransactions, bankLedgerRules, companyExpenses]);
 
-  const applyRemoteBankSnapshot = React.useCallback((snapshot: BankSyncSnapshot) => {
+  const applyRemoteBankSnapshot = React.useCallback(async (snapshot: BankSyncSnapshot) => {
     skipSaveRef.current = true;
     const nextVersion = snapshot.version ?? erpVersionRef.current;
+
+    if (nextVersion > erpVersionRef.current) {
+      try {
+        const data = await fetchErpData();
+        applyFetchedErpData(data);
+        return;
+      } catch (error) {
+        console.error(error);
+      }
+    }
+
     erpVersionRef.current = nextVersion;
     setErpVersion(nextVersion);
     if (Array.isArray(snapshot.bankTransactions)) {
-      setBankTransactions(normalizeBankTransactions(snapshot.bankTransactions));
+      setBankTransactions((prev) => {
+        const incoming = normalizeBankTransactions(snapshot.bankTransactions);
+        const merged = incoming.map((row) => {
+          const local = prev.find((item) => item.id === row.id);
+          if (!local) return row;
+          return {
+            ...row,
+            linkedCompanyExpenseId: row.linkedCompanyExpenseId || local.linkedCompanyExpenseId,
+            linkedFixedExpensePaymentId: row.linkedFixedExpensePaymentId || local.linkedFixedExpensePaymentId,
+            folderId: local.folderId || row.folderId,
+            memo: local.memo ?? row.memo,
+            linkedSubject: local.linkedSubject || row.linkedSubject,
+            classifiedAt: local.classifiedAt || row.classifiedAt,
+          };
+        });
+        return syncBankTransactionLedgerLinkFields(merged, companyExpenses, fixedExpensePayments);
+      });
     }
     if (Array.isArray(snapshot.bankTransactionFolders)) {
       setBankTransactionFolders(normalizeBankTransactionFolders(snapshot.bankTransactionFolders));
     }
-  }, []);
+  }, [companyExpenses, fixedExpensePayments]);
 
   useEffect(() => {
     if (!currentUser) return;
