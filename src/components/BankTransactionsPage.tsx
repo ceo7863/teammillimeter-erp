@@ -952,7 +952,20 @@ const BankTransactionDetailDrawer = React.memo(function BankTransactionDetailDra
           <Button
             type="button"
             className="rounded-2xl"
-            onClick={() => onSave({ memo, folderId, ledgerKind, ledgerCategory, fixedExpenseId })}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              let resolvedFixedId = fixedExpenseId.trim();
+              if (ledgerKind === "fixed") {
+                const selected = fixedExpenseOptions.find((row) => row.value === resolvedFixedId);
+                if (!selected) {
+                  const byLabel = fixedExpenseOptions.find(
+                    (row) => row.label.split(" · ")[0]?.trim() === ledgerCategory.trim(),
+                  );
+                  if (byLabel) resolvedFixedId = byLabel.value;
+                }
+              }
+              onSave({ memo, folderId, ledgerKind, ledgerCategory, fixedExpenseId: resolvedFixedId });
+            }}
           >
             {L.detailSave}
           </Button>
@@ -2796,11 +2809,16 @@ export function BankTransactionsPage({
       const linkedExpense = resolveLinkedCompanyExpenseForBankTx(tx);
 
       if (payload.ledgerKind === "fixed") {
-        if (!fixedExpenseId) {
+        let resolvedFixedExpenseId = fixedExpenseId;
+        if (!resolvedFixedExpenseId && ledgerCategory) {
+          const fixedByName = fixedExpenses.find((row) => row.name.trim() === ledgerCategory.trim());
+          if (fixedByName) resolvedFixedExpenseId = fixedByName.id;
+        }
+        if (!resolvedFixedExpenseId) {
           setImportMessage(L.detailFixedItemRequired);
           return;
         }
-        const fixedItem = fixedExpenses.find((row) => row.id === fixedExpenseId);
+        const fixedItem = fixedExpenses.find((row) => row.id === resolvedFixedExpenseId);
         if (!fixedItem) {
           setImportMessage(L.detailFixedItemRequired);
           return;
@@ -2810,6 +2828,7 @@ export function BankTransactionsPage({
         let nextPayments = fixedExpensePayments;
         let nextExpenses = companyExpenses;
         let workingTransactions = nextTransactions;
+        const resolvedCategory = ledgerCategory || fixedItem.category?.trim() || "";
 
         if (linkedExpense && linkedExpense.kind !== "fixed") {
           const cleared = clearVariableExpenseLinkForBankTx(tx.id, nextExpenses, workingTransactions);
@@ -2830,70 +2849,41 @@ export function BankTransactionsPage({
         }
 
         const currentPayment = getLinkedFixedPaymentForBankTx(workingTx, nextPayments);
-        const targetLinkable = findLinkableFixedExpensePayment(
-          workingTx,
-          fixedExpenseId,
-          nextPayments,
-          fixedExpenses,
-        );
-        let paymentId = currentPayment?.id || "";
-        const resolvedCategory = ledgerCategory || fixedItem.category?.trim() || "";
+        let paymentId = "";
 
         if (currentPayment) {
           const beforePayment = currentPayment;
-          if (targetLinkable && targetLinkable.id !== currentPayment.id) {
-            if (currentPayment.bankTransactionId === tx.id) {
-              nextPayments = nextPayments.map((row) =>
-                row.id === currentPayment.id ? { ...row, bankTransactionId: undefined } : row,
-              );
-            }
-            nextPayments = linkFixedExpensePaymentToBankTx(nextPayments, targetLinkable.id, tx.id, workingTx);
-            paymentId = targetLinkable.id;
-            const afterPayment = nextPayments.find((row) => row.id === targetLinkable.id);
-            if (beforePayment && afterPayment) {
-              recordAudit({
-                entityType: "fixedExpensePayment",
-                entityId: afterPayment.id,
-                entityLabel: fixedItem.name || afterPayment.id,
-                screen: L.pageTitle,
-                action: "update",
-                before: snapshotFixedExpensePaymentForAudit(beforePayment),
-                after: snapshotFixedExpensePaymentForAudit(afterPayment),
-                fields: FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS,
-                user: currentUser,
-              });
-            }
-          } else if (
-            currentPayment.fixedExpenseId !== fixedExpenseId ||
-            (resolvedCategory && String(currentPayment.category || "") !== resolvedCategory)
+          const afterPayment = {
+            ...currentPayment,
+            fixedExpenseId: resolvedFixedExpenseId,
+            category: resolvedCategory || fixedItem.category || currentPayment.category,
+            bankTransactionId: tx.id,
+          };
+          nextPayments = nextPayments.map((row) => (row.id === currentPayment.id ? afterPayment : row));
+          paymentId = currentPayment.id;
+          if (
+            beforePayment.fixedExpenseId !== afterPayment.fixedExpenseId ||
+            String(beforePayment.category || "") !== String(afterPayment.category || "")
           ) {
-            nextPayments = nextPayments.map((row) =>
-              row.id === currentPayment.id
-                ? {
-                    ...row,
-                    fixedExpenseId,
-                    category: resolvedCategory || row.category,
-                    bankTransactionId: tx.id,
-                  }
-                : row,
-            );
-            paymentId = currentPayment.id;
-            const afterPayment = nextPayments.find((row) => row.id === currentPayment.id);
-            if (afterPayment) {
-              recordAudit({
-                entityType: "fixedExpensePayment",
-                entityId: afterPayment.id,
-                entityLabel: fixedItem.name || afterPayment.id,
-                screen: L.pageTitle,
-                action: "update",
-                before: snapshotFixedExpensePaymentForAudit(beforePayment),
-                after: snapshotFixedExpensePaymentForAudit(afterPayment),
-                fields: FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS,
-                user: currentUser,
-              });
-            }
+            recordAudit({
+              entityType: "fixedExpensePayment",
+              entityId: afterPayment.id,
+              entityLabel: fixedItem.name || afterPayment.id,
+              screen: L.pageTitle,
+              action: "update",
+              before: snapshotFixedExpensePaymentForAudit(beforePayment),
+              after: snapshotFixedExpensePaymentForAudit(afterPayment),
+              fields: FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS,
+              user: currentUser,
+            });
           }
         } else if (Number(workingTx.withdrawal || 0) > 0) {
+          const targetLinkable = findLinkableFixedExpensePayment(
+            workingTx,
+            resolvedFixedExpenseId,
+            nextPayments,
+            fixedExpenses,
+          );
           if (targetLinkable) {
             nextPayments = linkFixedExpensePaymentToBankTx(nextPayments, targetLinkable.id, tx.id, workingTx);
             paymentId = targetLinkable.id;
@@ -2902,7 +2892,7 @@ export function BankTransactionsPage({
             const prefill = buildCompanyExpensePrefillFromBankTransaction(workingTx);
             const createdPayment: FixedExpensePayment = {
               id: paymentId,
-              fixedExpenseId,
+              fixedExpenseId: resolvedFixedExpenseId,
               date: prefill.date,
               amount: parseLedgerAmount(prefill.amount),
               memo: nextMemo || prefill.memo || fixedItem.name || prefill.description,
@@ -2940,7 +2930,12 @@ export function BankTransactionsPage({
 
         nextRules = upsertBankLearnRule(
           nextRules,
-          buildBankLedgerMatchRuleFromRegistration(workingTx, fixedExpenseId, savedBy, workingTx.withdrawal),
+          buildBankLedgerMatchRuleFromRegistration(
+            workingTx,
+            resolvedFixedExpenseId,
+            savedBy,
+            workingTx.withdrawal,
+          ),
         );
         setBankLedgerRules(nextRules);
       } else if (ledgerCategory) {
@@ -3019,6 +3014,7 @@ export function BankTransactionsPage({
       detailTxId,
       expenseCategories,
       fixedExpensePayments,
+      fixedExpenses,
       recordAudit,
       savedBy,
       scheduleBackgroundLearning,
