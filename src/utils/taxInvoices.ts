@@ -200,11 +200,67 @@ export function filterTaxInvoices(rows: TaxInvoice[], query: string) {
   });
 }
 
+export function matchesTaxInvoiceCancellationPair(
+  cancelled: Pick<TaxInvoice, "flowType" | "documentType" | "client" | "businessNo" | "supplyAmount" | "vatAmount" | "totalAmount">,
+  issued: Pick<TaxInvoice, "flowType" | "documentType" | "client" | "businessNo" | "supplyAmount" | "vatAmount" | "totalAmount" | "status">,
+) {
+  if (issued.status !== "issued") return false;
+  if (cancelled.flowType !== issued.flowType) return false;
+  if (cancelled.documentType !== issued.documentType) return false;
+  if (buildTaxInvoiceClientGroupKey(cancelled) !== buildTaxInvoiceClientGroupKey(issued)) return false;
+  if (cancelled.totalAmount !== issued.totalAmount) return false;
+  if (cancelled.supplyAmount !== issued.supplyAmount) return false;
+  if (cancelled.vatAmount !== issued.vatAmount) return false;
+  return true;
+}
+
+/** 취소 전표와 동일 금액·거래처의 발행 전표를 짝지어 합계에서 제외할 id 집합 */
+export function buildTaxInvoiceCancellationExcludedIds(rows: TaxInvoice[]) {
+  const excluded = new Set<string>();
+  const usedIssuedIds = new Set<string>();
+  const issuedRows = rows.filter((row) => row.status === "issued");
+  const cancelledRows = [...rows.filter((row) => row.status === "cancelled")].sort((a, b) => {
+    const dateDiff = String(a.issueDate).localeCompare(String(b.issueDate));
+    if (dateDiff !== 0) return dateDiff;
+    return String(a.createdAt).localeCompare(String(b.createdAt));
+  });
+
+  cancelledRows.forEach((cancelled) => {
+    excluded.add(cancelled.id);
+
+    const candidates = issuedRows
+      .filter((issued) => !usedIssuedIds.has(issued.id) && matchesTaxInvoiceCancellationPair(cancelled, issued))
+      .sort((a, b) => {
+        const aBefore = a.issueDate <= cancelled.issueDate ? 0 : 1;
+        const bBefore = b.issueDate <= cancelled.issueDate ? 0 : 1;
+        if (aBefore !== bBefore) return aBefore - bBefore;
+        const aDistance = Math.abs(new Date(a.issueDate).getTime() - new Date(cancelled.issueDate).getTime());
+        const bDistance = Math.abs(new Date(b.issueDate).getTime() - new Date(cancelled.issueDate).getTime());
+        if (aDistance !== bDistance) return aDistance - bDistance;
+        return String(a.createdAt).localeCompare(String(b.createdAt));
+      });
+
+    const paired = candidates[0];
+    if (paired) {
+      excluded.add(paired.id);
+      usedIssuedIds.add(paired.id);
+    }
+  });
+
+  return excluded;
+}
+
+export function isTaxInvoiceIncludedInTotals(row: TaxInvoice, rows: TaxInvoice[]) {
+  if (row.status !== "cancelled" && row.status !== "issued") return true;
+  return !buildTaxInvoiceCancellationExcludedIds(rows).has(row.id);
+}
+
 export function sumTaxInvoices(rows: TaxInvoice[], options?: { activeOnly?: boolean }) {
   const activeOnly = options?.activeOnly !== false;
+  const excludedIds = activeOnly ? buildTaxInvoiceCancellationExcludedIds(rows) : new Set<string>();
   return rows.reduce(
     (acc, row) => {
-      if (activeOnly && row.status === "cancelled") return acc;
+      if (activeOnly && excludedIds.has(row.id)) return acc;
       acc.count += 1;
       acc.supply += row.supplyAmount;
       acc.vat += row.vatAmount;
@@ -246,6 +302,7 @@ export type TaxInvoiceClientSummary = {
 
 export function buildTaxInvoiceClientSummaries(rows: TaxInvoice[]): TaxInvoiceClientSummary[] {
   const map = new Map<string, TaxInvoiceClientSummary>();
+  const excludedIds = buildTaxInvoiceCancellationExcludedIds(rows);
 
   rows.forEach((row) => {
     const key = buildTaxInvoiceClientGroupKey(row);
@@ -265,7 +322,7 @@ export function buildTaxInvoiceClientSummaries(rows: TaxInvoice[]): TaxInvoiceCl
 
     const bucket = map.get(key)!;
     bucket.rows.push(row);
-    if (row.status !== "cancelled") {
+    if (!excludedIds.has(row.id)) {
       bucket.count += 1;
       bucket.supply += row.supplyAmount;
       bucket.vat += row.vatAmount;
@@ -299,7 +356,10 @@ export function listTaxInvoiceYears(rows: TaxInvoice[]) {
 
 export function countTaxInvoicesThisMonth(rows: TaxInvoice[]) {
   const monthKey = new Date().toISOString().slice(0, 7);
-  return rows.filter((row) => row.status !== "cancelled" && String(row.issueDate || "").startsWith(monthKey)).length;
+  const excludedIds = buildTaxInvoiceCancellationExcludedIds(rows);
+  return rows.filter(
+    (row) => !excludedIds.has(row.id) && String(row.issueDate || "").startsWith(monthKey),
+  ).length;
 }
 
 export function validateTaxInvoiceInput(input: {

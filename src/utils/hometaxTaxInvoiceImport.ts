@@ -4,6 +4,7 @@ import {
   makeTaxInvoiceId,
   normalizeTaxInvoiceStatus,
   parseTaxInvoiceAmount,
+  sumTaxInvoices,
   type TaxInvoice,
   type TaxInvoiceFlowType,
   type TaxInvoiceStatus,
@@ -179,15 +180,21 @@ export function parseHometaxTaxInvoiceWorkbook(wb: XLSX.WorkBook, sourceFile = "
     throw new Error("\uAC00\uC838\uC62C \uACC4\uC0B0\uC11C \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
   }
 
-  const parsedTotals = parsedRows.reduce(
-    (acc, row) => {
-      if (row.status === "cancelled") return acc;
-      acc.total += row.totalAmount;
-      acc.supply += row.supplyAmount;
-      acc.vat += row.vatAmount;
-      return acc;
-    },
-    { total: 0, supply: 0, vat: 0 }
+  const parsedTotals = sumTaxInvoices(
+    parsedRows.map((row, index) => ({
+      id: `preview-${index}`,
+      issueDate: row.issueDate,
+      client: row.client,
+      businessNo: row.businessNo,
+      flowType: row.flowType,
+      documentType: row.documentType,
+      supplyAmount: row.supplyAmount,
+      vatAmount: row.vatAmount,
+      totalAmount: row.totalAmount,
+      status: row.status,
+      createdAt: "",
+      createdBy: "",
+    })),
   );
 
   const { earliestIssueDate, latestIssueDate } = computeIssueDateRange(parsedRows);
