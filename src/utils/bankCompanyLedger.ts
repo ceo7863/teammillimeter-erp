@@ -975,16 +975,26 @@ export function applyMemoCategoryToLedgerDraft(
   categories: string[] = EXPENSE_CATEGORY_OPTIONS,
 ): MemoLedgerCategoryDraft {
   const memoCategory = resolveMemoLearnCategory(memo, categories);
-  if (!memoCategory) return draft;
-
   const trimmedCategory = String(draft.ledgerCategory || "").trim();
-  const ledgerKind = draft.ledgerKind === "fixed" ? "manual" : draft.ledgerKind;
-  const ledgerCategory =
-    !trimmedCategory || trimmedCategory === "\uAE30\uD0C0" || memoCategory !== trimmedCategory
-      ? memoCategory
-      : trimmedCategory;
 
-  return { ledgerKind, ledgerCategory };
+  if (memoCategory) {
+    const ledgerKind = draft.ledgerKind === "fixed" ? "manual" : draft.ledgerKind;
+    const ledgerCategory =
+      !trimmedCategory || trimmedCategory === "\uAE30\uD0C0" || memoCategory !== trimmedCategory
+        ? memoCategory
+        : trimmedCategory;
+
+    return { ledgerKind, ledgerCategory };
+  }
+
+  if (draft.ledgerKind === "fixed" && trimmedCategory && trimmedCategory !== "\uAE30\uD0C0") {
+    return {
+      ledgerKind: "manual",
+      ledgerCategory: normalizeExpenseCategoryName(trimmedCategory),
+    };
+  }
+
+  return draft;
 }
 
 export function resolveMemoLearnCategory(memo: string | undefined, categories?: string[] | null) {

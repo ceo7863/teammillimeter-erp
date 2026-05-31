@@ -292,6 +292,9 @@ export const UncontrolledCategoryInput = React.memo(function UncontrolledCategor
       onInput={(event) => {
         if (!composingRef.current) draftRef.current = event.currentTarget.value;
       }}
+      onChange={(event) => {
+        draftRef.current = event.currentTarget.value;
+      }}
       onCompositionStart={() => {
         composingRef.current = true;
       }}

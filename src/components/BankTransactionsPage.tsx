@@ -2552,10 +2552,17 @@ export function BankTransactionsPage({
       );
       const ledgerKind = memoLedgerDraft.ledgerKind;
       let ledgerCategory = memoLedgerDraft.ledgerCategory;
+      // 고정비 모드인데 항목 없이 변동 카테고리만 입력한 경우 → 변동 지출로 등록
+      const resolvedLedgerKind =
+        ledgerCategory.trim() && ledgerKind === "fixed" && !payload.fixedExpenseId.trim()
+          ? "manual"
+          : ledgerKind;
       const categoryChanged = detailPrefill.category.trim() !== ledgerCategory;
+      const hasManualLedgerCategory =
+        resolvedLedgerKind === "manual" && Boolean(ledgerCategory.trim());
 
       let targetFolderId = payload.folderId.trim();
-      if (memoChanged || categoryChanged) {
+      if (memoChanged || categoryChanged || hasManualLedgerCategory) {
         targetFolderId = DEFAULT_LEDGER_CATEGORY_FOLDER_ID;
       }
       const folderChanged = String(tx.folderId || "") !== targetFolderId;
@@ -2607,7 +2614,7 @@ export function BankTransactionsPage({
       const linkedExpense = resolveLinkedCompanyExpenseForBankTx(tx);
       let manualLedgerRegistered = false;
 
-      if (ledgerKind === "fixed") {
+      if (resolvedLedgerKind === "fixed") {
         let resolvedFixedExpenseId = fixedExpenseId;
         if (!resolvedFixedExpenseId && ledgerCategory) {
           const fixedByName = fixedExpenses.find((row) => row.name.trim() === ledgerCategory.trim());
