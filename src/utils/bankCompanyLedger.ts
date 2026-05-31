@@ -224,6 +224,15 @@ export function isBankTransactionLinkedToCompanyLedger(
   );
 }
 
+/** 미분류 목록·집계용 — folderId 없고 가계부·고정비 연결도 없을 때만 true */
+export function isBankTransactionUnfiled(
+  tx: BankTransaction,
+  context: BankLedgerRegistrationContext = {},
+) {
+  if (tx.folderId) return false;
+  return !isBankTransactionLinkedToCompanyLedger(tx, context);
+}
+
 export function isBankTransactionLinkedToVariableExpenseOnly(
   tx: BankTransaction,
   context: BankLedgerRegistrationContext = {},

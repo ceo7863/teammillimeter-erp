@@ -103,6 +103,7 @@ import {
   formatLearnRuleConfidencePercent,
   hasManualLedgerCategoryMemoOverride,
   isBankTransactionLinkedToVariableExpenseOnly,
+  isBankTransactionUnfiled,
   LEDGER_REGISTRATION_MIN_CONFIDENCE_PERCENT,
   getLinkedCompanyExpenseForBankTx,
   getLinkedFixedPaymentForBankTx,
@@ -882,6 +883,40 @@ export function BankTransactionsPage({
     () => ({ companyExpenses, fixedExpensePayments }),
     [companyExpenses, fixedExpensePayments],
   );
+
+  const ledgerSyncedTransactions = useMemo(() => {
+    const folders = ensureDefaultBankTransactionFolders(bankTransactionFolders);
+    const synced = syncBankTransactionLedgerLinkFields(
+      bankTransactions,
+      companyExpenses,
+      fixedExpensePayments,
+    );
+    return syncLedgerLinkedBankTransactionFolders(synced, folders, ledgerRegistrationContext).transactions;
+  }, [bankTransactions, bankTransactionFolders, companyExpenses, fixedExpensePayments, ledgerRegistrationContext]);
+
+  React.useEffect(() => {
+    const folders = ensureDefaultBankTransactionFolders(bankTransactionFolders);
+    const synced = syncBankTransactionLedgerLinkFields(
+      bankTransactions,
+      companyExpenses,
+      fixedExpensePayments,
+    );
+    const folderSync = syncLedgerLinkedBankTransactionFolders(synced, folders, ledgerRegistrationContext);
+    if (folderSync.updated > 0) {
+      setBankTransactions(folderSync.transactions);
+      if (folderSync.folders.length !== bankTransactionFolders.length) {
+        setBankTransactionFolders(folderSync.folders);
+      }
+    }
+  }, [
+    bankTransactions,
+    bankTransactionFolders,
+    companyExpenses,
+    fixedExpensePayments,
+    ledgerRegistrationContext,
+    setBankTransactions,
+    setBankTransactionFolders,
+  ]);
 
   const needsHeavyBankClassification = Boolean(
     detailTxId ||
@@ -1846,8 +1881,8 @@ export function BankTransactionsPage({
     return new Set(collectDescendantFolderIds(bankTransactionFolders, selectedFolderId));
   }, [bankTransactionFolders, selectedFolderId]);
   const folderStatsById = useMemo(
-    () => buildBankTransactionFolderStatsMap(bankTransactions, bankTransactionFolders),
-    [bankTransactions, bankTransactionFolders],
+    () => buildBankTransactionFolderStatsMap(ledgerSyncedTransactions, bankTransactionFolders, ledgerRegistrationContext),
+    [ledgerSyncedTransactions, bankTransactionFolders, ledgerRegistrationContext],
   );
   const unfiledStats = useMemo(
     () => folderStatsById.get(UNFILED_FOLDER_KEY) ?? { count: 0, deposits: 0, withdrawals: 0 },
@@ -2072,7 +2107,7 @@ export function BankTransactionsPage({
   );
 
   const filteredRows = useMemo(() => {
-    let scoped = filterBankTransactions(bankTransactions, {
+    let scoped = filterBankTransactions(ledgerSyncedTransactions, {
       search: searchQuery,
       dateFrom: activePeriod.startDate,
       dateTo: activePeriod.endDate,
@@ -2083,7 +2118,7 @@ export function BankTransactionsPage({
     if (selectedFolderScopeIds) {
       scoped = scoped.filter((row) => row.folderId && selectedFolderScopeIds.has(row.folderId));
     } else if (folderScope === "unfiled") {
-      scoped = scoped.filter((row) => !row.folderId);
+      scoped = scoped.filter((row) => isBankTransactionUnfiled(row, ledgerRegistrationContext));
     } else if (folderScope === "client") {
       const ids = new Set(clientFolders.map((folder) => folder.id));
       scoped = scoped.filter((row) => row.folderId && ids.has(row.folderId));
@@ -2103,7 +2138,7 @@ export function BankTransactionsPage({
 
     return sortBankTransactions(scoped, { key: sort.key, direction: sort.direction });
   }, [
-    bankTransactions,
+    ledgerSyncedTransactions,
     searchQuery,
     activePeriod.startDate,
     activePeriod.endDate,
@@ -2115,6 +2150,7 @@ export function BankTransactionsPage({
     cardFolders,
     workerFolders,
     bankTransactionFolders,
+    ledgerRegistrationContext,
     sort,
   ]);
 

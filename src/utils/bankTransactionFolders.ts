@@ -457,9 +457,26 @@ export function buildBankTransactionFolderStats(
   );
 }
 
+type BankTransactionFolderStatsContext = {
+  companyExpenses?: CompanyExpense[];
+  fixedExpensePayments?: FixedExpensePayment[];
+};
+
+function resolveBankTransactionStatsFolderId(
+  tx: BankTransaction,
+  context?: BankTransactionFolderStatsContext,
+) {
+  if (tx.folderId) return tx.folderId;
+  if (context && isBankTransactionLinkedToCompanyLedger(tx, context)) {
+    return DEFAULT_LEDGER_CATEGORY_FOLDER_ID;
+  }
+  return UNFILED_FOLDER_KEY;
+}
+
 export function buildBankTransactionFolderStatsMap(
   transactions: BankTransaction[],
   folders: BankTransactionFolder[] = [],
+  context?: BankTransactionFolderStatsContext,
 ): Map<string, BankTransactionFolderStats> {
   const stats = new Map<string, BankTransactionFolderStats>();
   const folderById = new Map(folders.map((folder) => [folder.id, folder]));
@@ -476,7 +493,7 @@ export function buildBankTransactionFolderStatsMap(
   ensure(UNFILED_FOLDER_KEY);
 
   for (const tx of transactions) {
-    const targetFolderId = tx.folderId || UNFILED_FOLDER_KEY;
+    const targetFolderId = resolveBankTransactionStatsFolderId(tx, context);
     const seen = new Set<string>();
     let currentId: string | undefined = targetFolderId;
     while (currentId && !seen.has(currentId)) {
@@ -498,9 +515,15 @@ export function filterBankTransactionsByFolder(
   transactions: BankTransaction[],
   folderId: string,
   folders: BankTransactionFolder[] = [],
+  context?: BankTransactionFolderStatsContext,
 ) {
   if (!folderId) return transactions;
-  if (folderId === UNFILED_FOLDER_KEY) return transactions.filter((row) => !row.folderId);
+  if (folderId === UNFILED_FOLDER_KEY) {
+    return transactions.filter((row) => {
+      if (context) return resolveBankTransactionStatsFolderId(row, context) === UNFILED_FOLDER_KEY;
+      return !row.folderId;
+    });
+  }
   const folderIds = folders.length > 0 ? collectDescendantFolderIds(folders, folderId) : [folderId];
   const idSet = new Set(folderIds);
   return transactions.filter((row) => row.folderId && idSet.has(row.folderId));
