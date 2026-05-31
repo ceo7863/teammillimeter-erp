@@ -426,6 +426,9 @@ export const BankTransactionDetailDrawer = React.memo(function BankTransactionDe
   }, []);
 
   const handleSave = useCallback(() => {
+    // Commit datalist / IME selection before read (save button must not block blur).
+    categoryInputRef.current?.blur();
+    memoTextareaRef.current?.blur();
     const memo = (memoTextareaRef.current?.value ?? memoDraftRef.current).trim();
     memoDraftRef.current = memo;
     const rawCategory = (categoryInputRef.current?.value ?? categoryDraftRef.current).trim();
@@ -620,7 +623,6 @@ export const BankTransactionDetailDrawer = React.memo(function BankTransactionDe
               <Button
                 type="button"
                 className="rounded-2xl"
-                onMouseDown={(event) => event.preventDefault()}
                 onClick={handleSave}
               >
                 {LABELS.detailSave}
