@@ -120,6 +120,7 @@ const EXPENSE_CATEGORY_ALIASES: Record<string, string> = {
   "\uC2DD\uBE44": MEAL_EXPENSE_CATEGORY_CANONICAL,
   "\uC811\uB300": MEAL_EXPENSE_CATEGORY_CANONICAL,
   "\uC811\uB300/\uC2DD\uB300": MEAL_EXPENSE_CATEGORY_CANONICAL,
+  "\uB300\uD45C\uC774\uC0AC \uAC00\uC218\uAE08": "\uB300\uD45C\uC774\uC0AC \uAC00\uC9C0\uAE09\uAE08",
 };
 
 export function normalizeExpenseCategoryName(category: string): string {

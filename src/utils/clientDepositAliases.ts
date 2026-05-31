@@ -35,6 +35,21 @@ function normalizeMatchText(value: string) {
 
 const INTERNAL_COMPANY_NAME_KEY = "\uD300\uBC00\uB9AC\uBBF8\uD130";
 
+/** \uB300\uD45C\uC774\uC0AC \uB4F1 \uC2DC\uACF5\uC790 \uBD84\uB958\uC5D0\uC11C \uC81C\uC678\uD560 \uD1B5\uC7A5 \uC608\uAE08\uC8FC \uC774\uB984 */
+export const CEO_BANK_MATCH_NAMES = ["\uBC30\uC885\uC6D0"] as const;
+
+export function isCeoBankMatchText(text: string) {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return false;
+  const normalized = normalizeMatchText(trimmed);
+  return CEO_BANK_MATCH_NAMES.some((name) => {
+    const normalizedName = normalizeMatchText(name);
+    if (!normalizedName) return false;
+    if (normalized === normalizedName) return true;
+    return includesDepositName(trimmed, name);
+  });
+}
+
 /** \uC608\uAE08\uC8FC\uAC00 \uBCF8\uC778 \uD68C\uC0AC(\uC8FC\uC2DD\uD68C\uC0AC \uD300\uBC00\uB9AC\uBBF8\uD130 \uB4F1) \uACC4\uC88C\uB85C \uB098\uAC04 \uB0B4\uBD80 \uC774\uCCB4 */
 export function isInternalCompanyBankTransfer(tx: { counterpartyName?: string }) {
   const counterparty = normalizeMatchText(tx.counterpartyName || "");
@@ -161,11 +176,22 @@ export function collectBankTransactionWorkerMatchTexts(tx: {
   ];
 }
 
+export function isCeoBankTransaction(tx: {
+  counterpartyName?: string;
+  description?: string;
+  memo?: string;
+  linkedSubject?: string;
+}) {
+  if (tx.linkedSubject && isCeoBankMatchText(String(tx.linkedSubject))) return true;
+  return collectBankTransactionWorkerMatchTexts(tx).some((text) => isCeoBankMatchText(text));
+}
+
 export function findWorkerForBankTransaction(
-  tx: { memo?: string; counterpartyName?: string; description?: string },
+  tx: { memo?: string; counterpartyName?: string; description?: string; linkedSubject?: string },
   workers: WorkerDepositMatchSource[],
 ) {
   if (isInternalCompanyBankTransfer(tx)) return undefined;
+  if (isCeoBankTransaction(tx)) return undefined;
   const texts = collectBankTransactionWorkerMatchTexts(tx);
   if (!texts.length) return undefined;
   return workers.find((worker) => texts.some((text) => bankTextMatchesWorker(text, worker)));

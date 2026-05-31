@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { syncLedgerLinkedBankTransactionFolders } from "../src/utils/bankTransactionFolders.ts";
 
 const dbPath = process.argv[2] || "data/erp.sqlite";
-const category = process.argv[3] || "\uB300\uD45C\uC774\uC0AC \uAC00\uC218\uAE08";
+const category = process.argv[3] || "\uB300\uD45C\uC774\uC0AC \uAC00\uC9C0\uAE09\uAE08";
 const dryRun = process.argv.includes("--dry-run");
 
 const db = new DatabaseSync(dbPath);
