@@ -48,6 +48,8 @@ import {
   resolveCompanyExpenseKind,
   resolveFixedPaymentFieldsFromBankTx,
   getMonthKey,
+  isFixedExpensePaymentBankLinked,
+  isFixedExpensePaymentSettled,
   monthRangeISO,
   shiftMonthKey,
   sumExpensesForMonthByKind,
@@ -375,8 +377,20 @@ function isFixedLedgerRow(item: ManualLedgerRow) {
   return item.type === "expense" && resolveCompanyExpenseKind(item.row) === "fixed";
 }
 
-function isPaidFixedLedgerRow(item: ManualLedgerRow, bankTransactions: BankTransaction[] = []) {
-  if (item.type === "fixedPayment") return isBankLinkedPayment(item.row, bankTransactions);
+function isPaidFixedLedgerRow(
+  item: ManualLedgerRow,
+  bankTransactions: BankTransaction[] = [],
+  fixedExpensePayments: FixedExpensePayment[] = [],
+  fixedExpenses: FixedExpense[] = [],
+) {
+  if (item.type === "fixedPayment") {
+    return isFixedExpensePaymentSettled(
+      item.row,
+      fixedExpensePayments,
+      bankTransactions,
+      fixedExpenses,
+    );
+  }
   return isBankLinkedExpense(item.row, bankTransactions);
 }
 
@@ -663,8 +677,7 @@ function sumManualLedgerRows(rows: ManualLedgerRow[]) {
 }
 
 function isBankLinkedPayment(row: FixedExpensePayment, bankTransactions: BankTransaction[] = []): boolean {
-  if (Boolean(row.bankTransactionId?.trim())) return true;
-  return bankTransactions.some((tx) => tx.linkedFixedExpensePaymentId === row.id);
+  return isFixedExpensePaymentBankLinked(row, bankTransactions);
 }
 
 function resolveExpenseBankTransactionId(
@@ -1132,13 +1145,19 @@ export function CompanyLedgerPage({
   );
 
   const filteredUnpaidFixedRows = useMemo(
-    () => filteredFixedRows.filter((row) => !isPaidFixedLedgerRow(row, bankTransactions)),
-    [filteredFixedRows, bankTransactions],
+    () =>
+      filteredFixedRows.filter(
+        (row) => !isPaidFixedLedgerRow(row, bankTransactions, fixedExpensePayments, fixedExpenses),
+      ),
+    [filteredFixedRows, bankTransactions, fixedExpensePayments, fixedExpenses],
   );
 
   const filteredPaidFixedRows = useMemo(
-    () => filteredFixedRows.filter((row) => isPaidFixedLedgerRow(row, bankTransactions)),
-    [filteredFixedRows, bankTransactions],
+    () =>
+      filteredFixedRows.filter((row) =>
+        isPaidFixedLedgerRow(row, bankTransactions, fixedExpensePayments, fixedExpenses),
+      ),
+    [filteredFixedRows, bankTransactions, fixedExpensePayments, fixedExpenses],
   );
 
   const bankLedgerLinkStats = useMemo(() => {
@@ -1178,7 +1197,9 @@ export function CompanyLedgerPage({
     let unpaidCount = 0;
     let paidCount = 0;
     for (const row of payments) {
-      if (isBankLinkedPayment(row, bankTransactions)) {
+      if (
+        isFixedExpensePaymentSettled(row, payments, bankTransactions, fixedExpenses)
+      ) {
         paidTotal += Number(row.amount) || 0;
         paidCount += 1;
       } else {
@@ -1196,7 +1217,7 @@ export function CompanyLedgerPage({
       }
     }
     return { unpaidTotal, paidTotal, unpaidCount, paidCount };
-  }, [companyExpenses, fixedExpensePayments, currentMonthKey, bankTransactions]);
+  }, [companyExpenses, fixedExpensePayments, fixedExpenses, currentMonthKey, bankTransactions]);
 
   const hasBankLinkedManualRows = useMemo(
     () =>
@@ -2749,6 +2770,7 @@ export function CompanyLedgerPage({
           companyExpenses={companyExpenses}
           fixedExpensePayments={fixedExpensePayments}
           fixedExpenses={fixedExpenses}
+          bankTransactions={bankTransactions}
           onEditEntry={openCalendarEntryEdit}
         />
       ) : null}

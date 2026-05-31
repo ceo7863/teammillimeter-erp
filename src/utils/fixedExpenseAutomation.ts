@@ -16,8 +16,10 @@ import {
   findLinkableFixedExpensePayment,
   getMonthKey,
   isFixedActiveInMonth,
+  isFixedExpensePaymentBankLinked,
   linkFixedExpensePaymentToBankTx,
   makeLedgerId,
+  pruneSettledDuplicateFixedExpensePayments,
   todayISO,
 } from "./companyLedger";
 
@@ -157,8 +159,7 @@ function isFixedPaymentBankLinked(
   payment: FixedExpensePayment,
   transactions: BankTransaction[] = [],
 ) {
-  if (String(payment.bankTransactionId || "").trim()) return true;
-  return transactions.some((tx) => tx.linkedFixedExpensePaymentId === payment.id);
+  return isFixedExpensePaymentBankLinked(payment, transactions);
 }
 
 /** Repair broken / split bank ↔ fixed-payment links after kind switches or auto-generated duplicates. */
@@ -250,6 +251,16 @@ export function reconcileLedgerBankLinks(input: {
   if (removeIds.size) {
     payments = payments.filter((row) => !removeIds.has(row.id));
     removedDuplicateCount = removeIds.size;
+  }
+
+  const pruned = pruneSettledDuplicateFixedExpensePayments({
+    fixedExpensePayments: payments,
+    bankTransactions: transactions,
+    fixedExpenses: input.fixedExpenses,
+  });
+  if (pruned.removedCount) {
+    payments = pruned.payments;
+    removedDuplicateCount += pruned.removedCount;
   }
 
   transactions = syncBankTransactionLedgerLinkFields(transactions, companyExpenses, payments);

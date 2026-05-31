@@ -13,6 +13,7 @@ import {
   calculateTaxInvoiceAmountsFromTotal,
   buildTaxInvoiceStats,
   buildTaxInvoiceClientSummaries,
+  buildTaxInvoiceCancellationExcludedIds,
   filterTaxInvoices,
   filterTaxInvoicesByFlow,
   filterTaxInvoicesByPeriod,
@@ -156,7 +157,42 @@ const L = {
   clientCount: "\uACE8",
   invoiceCount: "\uACC4\uC0B0\uC11C \uAC74\uC218",
   expandDetail: "\uC138\uBD80 \uBAA9\uB85D",
+  cancelledOffset: "\uC0C1\uC1C0",
+  cancelledRowHint: "\uCDE8\uC18C \uC804\uD45C \u00B7 \uD569\uACC4 \uC81C\uC678",
+  offsetRowHint: "\uB3D9\uC77C \uAE08\uC561 \uCDE8\uC18C \uC804\uD45C\uC640 \uC0C1\uC1C0",
 };
+
+function getTaxInvoiceRowMeta(row: TaxInvoice, excludedIds: Set<string>) {
+  const isCancelled = row.status === "cancelled";
+  const isExcludedFromTotals = excludedIds.has(row.id);
+  const isOffsetIssued = row.status === "issued" && isExcludedFromTotals;
+  return { isCancelled, isExcludedFromTotals, isOffsetIssued };
+}
+
+function taxInvoiceRowClassName(meta: ReturnType<typeof getTaxInvoiceRowMeta>) {
+  if (meta.isCancelled) return "erp-tax-invoice-row is-cancelled";
+  if (meta.isOffsetIssued) return "erp-tax-invoice-row is-offset";
+  return "";
+}
+
+function TaxInvoiceStatusBadge({ status }: { status: TaxInvoiceStatus }) {
+  if (status === "cancelled") {
+    return <span className="erp-tax-invoice-status-badge is-cancelled">{getTaxInvoiceStatusLabel(status)}</span>;
+  }
+  return <span className="erp-tax-invoice-status-badge is-issued">{getTaxInvoiceStatusLabel(status)}</span>;
+}
+
+function TaxInvoiceOffsetBadge() {
+  return <span className="erp-tax-invoice-offset-badge">{L.cancelledOffset}</span>;
+}
+
+function TaxInvoiceAmountCell({ amount, cancelled }: { amount: number; cancelled?: boolean }) {
+  return (
+    <span className={cancelled ? "erp-tax-invoice-amount is-cancelled" : "font-semibold tabular-nums"}>
+      {formatKRW(amount)}
+    </span>
+  );
+}
 
 function ClientFlowSectionHeader({
   title,
@@ -281,6 +317,11 @@ export function TaxInvoicePage({
     return sortTaxInvoices(filterTaxInvoices(byFlow, query));
   }, [taxInvoices, activePeriod.startDate, activePeriod.endDate, flowFilter, query]);
 
+  const totalExcludedIds = useMemo(
+    () => buildTaxInvoiceCancellationExcludedIds(filteredRows),
+    [filteredRows],
+  );
+
   const stats = useMemo(() => {
     const scoped = filterTaxInvoicesByPeriod(taxInvoices, activePeriod.startDate, activePeriod.endDate);
     return buildTaxInvoiceStats(scoped);
@@ -326,8 +367,10 @@ export function TaxInvoicePage({
     </>
   );
 
-  const renderInvoiceRow = (row: TaxInvoice) => (
-    <tr key={row.id} className={`border-t ${row.status === "cancelled" ? "bg-slate-50 text-slate-500" : ""}`}>
+  const renderInvoiceRow = (row: TaxInvoice) => {
+    const meta = getTaxInvoiceRowMeta(row, totalExcludedIds);
+    return (
+    <tr key={row.id} className={`border-t ${taxInvoiceRowClassName(meta)}`}>
       <td className="whitespace-nowrap">{formatTaxInvoiceDate(row.issueDate)}</td>
       <td>
         <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${row.flowType === "sales" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
@@ -335,37 +378,70 @@ export function TaxInvoicePage({
         </span>
       </td>
       <td>{getTaxInvoiceDocumentTypeLabel(row.documentType)}</td>
-      <td className="font-semibold text-slate-900">{row.client}</td>
+      <td className="font-semibold">{row.client}</td>
       <td>{row.businessNo || "-"}</td>
-      <td className="text-right">{formatKRW(row.supplyAmount)}</td>
-      <td className="text-right">{formatKRW(row.vatAmount)}</td>
-      <td className="text-right font-semibold">{formatKRW(row.totalAmount)}</td>
+      <td className="text-right"><TaxInvoiceAmountCell amount={row.supplyAmount} cancelled={meta.isCancelled} /></td>
+      <td className="text-right"><TaxInvoiceAmountCell amount={row.vatAmount} cancelled={meta.isCancelled} /></td>
+      <td className="text-right"><TaxInvoiceAmountCell amount={row.totalAmount} cancelled={meta.isCancelled} /></td>
       <td>{row.invoiceNo || "-"}</td>
-      <td>{getTaxInvoiceStatusLabel(row.status)}</td>
+      <td>
+        <div className="flex flex-wrap items-center gap-1">
+          <TaxInvoiceStatusBadge status={row.status} />
+          {meta.isOffsetIssued ? <TaxInvoiceOffsetBadge /> : null}
+        </div>
+        {meta.isCancelled ? <div className="erp-tax-invoice-row-hint">{L.cancelledRowHint}</div> : null}
+        {meta.isOffsetIssued ? <div className="erp-tax-invoice-row-hint">{L.offsetRowHint}</div> : null}
+      </td>
       <td>{row.createdBy}</td>
       <td>
         <div className="flex gap-1">{renderInvoiceActions(row)}</div>
       </td>
     </tr>
-  );
+    );
+  };
 
-  const renderInvoiceMobileCard = (row: TaxInvoice) => (
+  const renderInvoiceMobileCard = (row: TaxInvoice) => {
+    const meta = getTaxInvoiceRowMeta(row, totalExcludedIds);
+    return (
     <MobileRecordCard
       key={row.id}
       title={row.client}
       subtitle={`${getTaxInvoiceKindLabel(row)} · ${formatTaxInvoiceDate(row.issueDate)}`}
-      badge={getTaxInvoiceStatusLabel(row.status)}
+      badge={
+        <span className="flex flex-wrap items-center gap-1">
+          <TaxInvoiceStatusBadge status={row.status} />
+          {meta.isOffsetIssued ? <TaxInvoiceOffsetBadge /> : null}
+        </span>
+      }
       fields={[
         { label: L.flowType, value: getTaxInvoiceFlowLabel(row.flowType) },
         { label: L.documentType, value: getTaxInvoiceDocumentTypeLabel(row.documentType) },
-        { label: L.supplyAmount, value: formatKRW(row.supplyAmount) },
-        { label: L.vatAmount, value: formatKRW(row.vatAmount) },
-        { label: L.totalAmount, value: formatKRW(row.totalAmount), tone: "success" },
+        {
+          label: L.supplyAmount,
+          value: formatKRW(row.supplyAmount),
+          tone: meta.isCancelled ? "danger" : "default",
+        },
+        {
+          label: L.vatAmount,
+          value: formatKRW(row.vatAmount),
+          tone: meta.isCancelled ? "danger" : "default",
+        },
+        {
+          label: L.totalAmount,
+          value: formatKRW(row.totalAmount),
+          tone: meta.isCancelled ? "danger" : meta.isOffsetIssued ? "muted" : "success",
+        },
         { label: L.businessNo, value: row.businessNo || "-", tone: "muted" },
+        ...(meta.isCancelled
+          ? [{ label: L.status, value: L.cancelledRowHint, tone: "danger" as const }]
+          : meta.isOffsetIssued
+            ? [{ label: L.status, value: L.offsetRowHint, tone: "muted" as const }]
+            : []),
       ]}
       actions={renderInvoiceActions(row)}
     />
-  );
+    );
+  };
 
   const renderClientGroupMobile = (group: TaxInvoiceClientSummary) => {
     const expanded = expandedClientKeys.includes(group.key);
@@ -432,20 +508,28 @@ export function TaxInvoicePage({
                   </tr>
                 </thead>
                 <tbody>
-                  {group.rows.map((row) => (
-                    <tr key={row.id} className={`border-t ${row.status === "cancelled" ? "text-slate-500" : ""}`}>
+                  {group.rows.map((row) => {
+                    const meta = getTaxInvoiceRowMeta(row, totalExcludedIds);
+                    return (
+                    <tr key={row.id} className={`border-t ${taxInvoiceRowClassName(meta)}`}>
                       <td className="whitespace-nowrap">{formatTaxInvoiceDate(row.issueDate)}</td>
                       <td>{getTaxInvoiceDocumentTypeLabel(row.documentType)}</td>
-                      <td className="text-right">{formatKRW(row.supplyAmount)}</td>
-                      <td className="text-right">{formatKRW(row.vatAmount)}</td>
-                      <td className="text-right font-semibold">{formatKRW(row.totalAmount)}</td>
+                      <td className="text-right"><TaxInvoiceAmountCell amount={row.supplyAmount} cancelled={meta.isCancelled} /></td>
+                      <td className="text-right"><TaxInvoiceAmountCell amount={row.vatAmount} cancelled={meta.isCancelled} /></td>
+                      <td className="text-right"><TaxInvoiceAmountCell amount={row.totalAmount} cancelled={meta.isCancelled} /></td>
                       <td className="text-xs">{row.invoiceNo || "-"}</td>
-                      <td>{getTaxInvoiceStatusLabel(row.status)}</td>
+                      <td>
+                        <div className="flex flex-wrap items-center gap-1">
+                          <TaxInvoiceStatusBadge status={row.status} />
+                          {meta.isOffsetIssued ? <TaxInvoiceOffsetBadge /> : null}
+                        </div>
+                      </td>
                       <td>
                         <div className="flex gap-1">{renderInvoiceActions(row)}</div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </td>

@@ -10442,3 +10442,67 @@ button:disabled,
   background: #fffbeb;
   color: #b45309;
 }
+
+.erp-tax-invoice-row.is-cancelled {
+  background: #fff1f2;
+  box-shadow: inset 4px 0 0 #e11d48;
+}
+
+.erp-tax-invoice-row.is-cancelled td {
+  color: #881337;
+}
+
+.erp-tax-invoice-row.is-offset {
+  background: #fffbeb;
+  box-shadow: inset 4px 0 0 #f59e0b;
+}
+
+.erp-tax-invoice-status-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.erp-tax-invoice-status-badge.is-cancelled {
+  border: 1px solid #fda4af;
+  background: #ffe4e6;
+  color: #be123c;
+}
+
+.erp-tax-invoice-status-badge.is-issued {
+  border: 1px solid #bbf7d0;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.erp-tax-invoice-offset-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  border: 1px solid #fcd34d;
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.erp-tax-invoice-amount.is-cancelled {
+  color: #be123c;
+  font-weight: 800;
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.erp-tax-invoice-row-hint {
+  margin-top: 0.2rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #9f1239;
+}

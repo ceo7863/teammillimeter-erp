@@ -15,6 +15,7 @@ import {
 } from "@/utils/ledgerCalendar";
 import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "@/utils/companyLedger";
 import { shiftMonthKey, todayISO } from "@/utils/companyLedger";
+import type { BankTransaction } from "@/utils/bankTransactions";
 
 const L = {
   tabTitle: "\uAC00\uACC4\uBD80 \uCE98\uB9B0\uB354",
@@ -56,6 +57,7 @@ type CompanyLedgerCalendarProps = {
   companyExpenses?: CompanyExpense[];
   fixedExpensePayments?: FixedExpensePayment[];
   fixedExpenses?: FixedExpense[];
+  bankTransactions?: BankTransaction[];
   onEditEntry?: (entry: LedgerCalendarEntry) => void;
 };
 
@@ -276,6 +278,7 @@ export function CompanyLedgerCalendar({
   companyExpenses = [],
   fixedExpensePayments = [],
   fixedExpenses = [],
+  bankTransactions = [],
   onEditEntry,
 }: CompanyLedgerCalendarProps) {
   const currentMonthKey = todayISO().slice(0, 7);
@@ -283,8 +286,15 @@ export function CompanyLedgerCalendar({
   const [selectedDate, setSelectedDate] = useState("");
 
   const { cells, monthLabel } = useMemo(
-    () => buildLedgerCalendarDays(monthKey, companyExpenses, fixedExpensePayments, fixedExpenses),
-    [monthKey, companyExpenses, fixedExpensePayments, fixedExpenses],
+    () =>
+      buildLedgerCalendarDays(
+        monthKey,
+        companyExpenses,
+        fixedExpensePayments,
+        fixedExpenses,
+        bankTransactions,
+      ),
+    [monthKey, companyExpenses, fixedExpensePayments, fixedExpenses, bankTransactions],
   );
 
   const monthSummary = useMemo(() => summarizeLedgerCalendarMonth(cells), [cells]);

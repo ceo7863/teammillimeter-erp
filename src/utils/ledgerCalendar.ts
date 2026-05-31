@@ -2,12 +2,14 @@ import {
   formatKRW,
   formatMonthLabel,
   getMonthKey,
+  isFixedExpensePaymentSettled,
   resolveCompanyExpenseKind,
   resolveFixedPaymentCategory,
   type CompanyExpense,
   type FixedExpense,
   type FixedExpensePayment,
 } from "./companyLedger";
+import type { BankTransaction } from "./bankTransactions";
 
 export type LedgerCalendarEntryKind = "variable" | "fixed";
 
@@ -139,6 +141,7 @@ export function buildLedgerCalendarDays(
   companyExpenses: CompanyExpense[] = [],
   fixedExpensePayments: FixedExpensePayment[] = [],
   fixedExpenses: FixedExpense[] = [],
+  bankTransactions: BankTransaction[] = [],
 ) {
   const [yearText, monthText] = monthKey.split("-");
   const year = Number(yearText);
@@ -169,6 +172,12 @@ export function buildLedgerCalendarDays(
     if (getMonthKey(payment.date) !== monthKey) continue;
     const stats = statsByDate[payment.date] || (statsByDate[payment.date] = EMPTY_DAY_STATS());
     const memo = String(payment.memo || "").trim();
+    const settled = isFixedExpensePaymentSettled(
+      payment,
+      fixedExpensePayments,
+      bankTransactions,
+      fixedExpenses,
+    );
     addEntry(stats, {
       id: payment.id,
       kind: "fixed",
@@ -176,7 +185,7 @@ export function buildLedgerCalendarDays(
       label: memo || resolveFixedExpenseName(payment.fixedExpenseId, fixedExpenses),
       category: resolveFixedPaymentCategory(payment, fixedExpenses),
       amount: Number(payment.amount) || 0,
-      bankLinked: Boolean(payment.bankTransactionId?.trim()),
+      bankLinked: settled,
     });
   }
 
