@@ -100,6 +100,9 @@ export function isCompanyExpenseIncome(expense: Pick<CompanyExpense, "flow">) {
   return resolveCompanyExpenseFlow(expense) === "income";
 }
 
+export const CEO_ADVANCE_CATEGORY = "\uB300\uD45C\uC774\uC0AC \uAC00\uC9C0\uAE09\uAE08";
+export const CEO_RECEIVABLE_CATEGORY = "\uB300\uD45C\uC774\uC0AC \uAC00\uC218\uAE08";
+
 export const EXPENSE_CATEGORY_OPTIONS = [
   "\uC0AC\uBB34\uC6A9\uD488",
   "\uAD50\uD86D/\uC8FC\uCC28",
@@ -108,6 +111,8 @@ export const EXPENSE_CATEGORY_OPTIONS = [
   "\uC18C\uBAA8\uD488",
   "\uB9C8\uCF00\uD305",
   "\uBC29\uBB38/\uC678\uBD80",
+  CEO_ADVANCE_CATEGORY,
+  CEO_RECEIVABLE_CATEGORY,
   "\uAE30\uD0C0",
 ];
 
@@ -120,8 +125,65 @@ const EXPENSE_CATEGORY_ALIASES: Record<string, string> = {
   "\uC2DD\uBE44": MEAL_EXPENSE_CATEGORY_CANONICAL,
   "\uC811\uB300": MEAL_EXPENSE_CATEGORY_CANONICAL,
   "\uC811\uB300/\uC2DD\uB300": MEAL_EXPENSE_CATEGORY_CANONICAL,
-  "\uB300\uD45C\uC774\uC0AC \uAC00\uC218\uAE08": "\uB300\uD45C\uC774\uC0AC \uAC00\uC9C0\uAE09\uAE08",
 };
+
+export function isCeoDedicatedLedgerCategory(category: string) {
+  const raw = String(category || "").trim();
+  if (!raw) return false;
+  if (raw === CEO_RECEIVABLE_CATEGORY) return true;
+  return normalizeExpenseCategoryName(raw) === CEO_ADVANCE_CATEGORY;
+}
+
+export function matchesCeoLedgerTabCategory(category: string, tabCategory: string) {
+  const raw = String(category || "").trim();
+  if (tabCategory === CEO_RECEIVABLE_CATEGORY) return raw === CEO_RECEIVABLE_CATEGORY;
+  return normalizeExpenseCategoryName(raw) === tabCategory;
+}
+
+export function filterCompanyExpensesByCategory(
+  expenses: CompanyExpense[] = [],
+  category: string,
+  startDate = "",
+  endDate = "",
+) {
+  return filterCompanyExpenses(expenses, startDate, endDate).filter((row) =>
+    matchesCeoLedgerTabCategory(row.category, category),
+  );
+}
+
+export type CeoLedgerFlowTotals = {
+  expenseTotal: number;
+  incomeTotal: number;
+  netBalance: number;
+  expenseCount: number;
+  incomeCount: number;
+  totalCount: number;
+};
+
+export function sumCeoLedgerFlowTotals(expenses: CompanyExpense[] = []): CeoLedgerFlowTotals {
+  let expenseTotal = 0;
+  let incomeTotal = 0;
+  let expenseCount = 0;
+  let incomeCount = 0;
+  for (const row of expenses) {
+    const amount = Number(row.amount) || 0;
+    if (resolveCompanyExpenseFlow(row) === "income") {
+      incomeTotal += amount;
+      incomeCount += 1;
+    } else {
+      expenseTotal += amount;
+      expenseCount += 1;
+    }
+  }
+  return {
+    expenseTotal,
+    incomeTotal,
+    netBalance: incomeTotal - expenseTotal,
+    expenseCount,
+    incomeCount,
+    totalCount: expenseCount + incomeCount,
+  };
+}
 
 export function normalizeExpenseCategoryName(category: string): string {
   const trimmed = String(category || "").trim();

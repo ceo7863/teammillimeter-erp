@@ -49,6 +49,11 @@ import {
   resolveCompanyExpenseFlow,
   isCompanyExpenseIncome,
   sumCompanyExpensesByFlow,
+  CEO_ADVANCE_CATEGORY,
+  CEO_RECEIVABLE_CATEGORY,
+  filterCompanyExpensesByCategory,
+  isCeoDedicatedLedgerCategory,
+  sumCeoLedgerFlowTotals,
   type CompanyLedgerFlow,
   resolveFixedPaymentFieldsFromBankTx,
   getMonthKey,
@@ -88,11 +93,13 @@ import {
   snapshotFixedExpensePaymentForAudit,
 } from "@/utils/auditLog";
 
-type LedgerTab = "manual" | "monthly" | "calendar" | "stats";
+type LedgerTab = "manual" | "monthly" | "calendar" | "stats" | "ceoAdvance" | "ceoReceivable";
 
 const TAB_ITEMS: Array<{ key: LedgerTab; label: string }> = [
   { key: "calendar", label: "\uCE98\uB9B0\uB354" },
   { key: "manual", label: "\uC9C0\uCD9C \uB0B4\uC5ED" },
+  { key: "ceoAdvance", label: CEO_ADVANCE_CATEGORY },
+  { key: "ceoReceivable", label: CEO_RECEIVABLE_CATEGORY },
   { key: "monthly", label: "\uC6D4\uBCC4 \uC694\uC57D" },
   { key: "stats", label: "\uCE74\uD14C\uACE0\uB9AC \uBE44\uC911" },
 ];
@@ -252,6 +259,16 @@ const L = {
   viewBankLinksWithdrawal: "\uCD9C\uAE08",
   viewBankLinksDescription: "\uAC70\uB798\uB0B4\uC6A9",
   viewBankLinksCounterparty: "\uC0C1\uB300\uC608\uAE08\uC8FC",
+  ceoNetBalance: "\uC794\uC561 (\uC785\uAE08 \u2212 \uC9C0\uCD9C)",
+  ceoExpenseTotal: "\uC9C0\uCD9C \uD569\uACC4",
+  ceoIncomeTotal: "\uC785\uAE08 \uD569\uACC4",
+  ceoAddExpense: "\uC9C0\uCD9C \uCD94\uAC00",
+  ceoAddIncome: "\uC785\uAE08 \uCD94\uAC00",
+  ceoEmpty: "\uD45C\uC2DC\uD560 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  ceoSearch: "\uB0B4\uC6A9, \uBA54\uBAA8 \uAC80\uC0C9",
+  ceoFlowExpense: "\uC9C0\uCD9C",
+  ceoFlowIncome: "\uC785\uAE08",
+  ceoCategoryLockedHint: "\uCE74\uD14C\uACE0\uB9AC\uB294 \uC774 \uD0ED\uC5D0\uC11C \uACE0\uC815\uB429\uB2C8\uB2E4.",
 };
 
 type CompanyLedgerPageProps = {
@@ -285,6 +302,7 @@ type ManualModalState = {
   description: string;
   amount: string;
   memo: string;
+  categoryLocked?: boolean;
 };
 
 const MANUAL_KIND_TOGGLE_OPTIONS: Array<{
@@ -384,12 +402,17 @@ function isVariableLedgerRow(item: ManualLedgerRow) {
   return (
     item.type === "expense" &&
     resolveCompanyExpenseKind(item.row) === "variable" &&
-    !isCompanyExpenseIncome(item.row)
+    !isCompanyExpenseIncome(item.row) &&
+    !isCeoDedicatedLedgerCategory(item.row.category)
   );
 }
 
 function isIncomeLedgerRow(item: ManualLedgerRow) {
-  return item.type === "expense" && isCompanyExpenseIncome(item.row);
+  return (
+    item.type === "expense" &&
+    isCompanyExpenseIncome(item.row) &&
+    !isCeoDedicatedLedgerCategory(item.row.category)
+  );
 }
 
 function isFixedLedgerRow(item: ManualLedgerRow) {
@@ -441,6 +464,267 @@ function Input({
       lang={props.lang ?? "ko"}
       className={`erp-input w-full rounded-2xl border bg-white px-3 py-2.5 text-slate-900 outline-none transition focus:border-slate-900 md:px-4 md:py-3 ${className}`}
     />
+  );
+}
+
+function CeoLedgerTabPanel({
+  category,
+  companyExpenses,
+  query,
+  setQuery,
+  periodKey,
+  setPeriodKey,
+  periodLabel,
+  bankTransactions,
+  onEdit,
+  onDelete,
+}: {
+  category: string;
+  companyExpenses: CompanyExpense[];
+  query: string;
+  setQuery: (value: string) => void;
+  periodKey: LedgerPeriodKey;
+  setPeriodKey: (key: LedgerPeriodKey) => void;
+  periodLabel: string;
+  bankTransactions: BankTransaction[];
+  onEdit: (row: CompanyExpense) => void;
+  onDelete: (row: CompanyExpense) => void;
+}) {
+  const periodFilter = useMemo(() => ledgerDateFilter(periodKey), [periodKey]);
+  const filteredRows = useMemo(() => {
+    const ranged = filterCompanyExpensesByCategory(
+      companyExpenses,
+      category,
+      periodFilter.startDate,
+      periodFilter.endDate,
+    );
+    const keyword = query.trim().toLowerCase();
+    const filtered = keyword
+      ? ranged.filter((row) =>
+          [row.description, row.memo, row.createdBy]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+            .includes(keyword),
+        )
+      : ranged;
+    return filtered.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  }, [companyExpenses, category, periodFilter.endDate, periodFilter.startDate, query]);
+
+  const totals = useMemo(() => sumCeoLedgerFlowTotals(filteredRows), [filteredRows]);
+  const expenseRows = useMemo(
+    () => filteredRows.filter((row) => !isCompanyExpenseIncome(row)),
+    [filteredRows],
+  );
+  const incomeRows = useMemo(
+    () => filteredRows.filter((row) => isCompanyExpenseIncome(row)),
+    [filteredRows],
+  );
+
+  const renderRows = (rows: CompanyExpense[], emptyLabel: string, amountTone: string) => (
+    <>
+      <MobileRecordList>
+        {rows.length ? (
+          rows.map((row) => {
+            const bankLinked = isBankLinkedExpense(row, bankTransactions);
+            const isIncome = isCompanyExpenseIncome(row);
+            return (
+              <MobileRecordCard
+                key={row.id}
+                title={<DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />}
+                subtitle={row.date}
+                badge={
+                  <span
+                    className={`rounded-lg px-2 py-0.5 text-xs font-bold ${
+                      isIncome ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
+                    }`}
+                  >
+                    {isIncome ? L.ceoFlowIncome : L.ceoFlowExpense}
+                  </span>
+                }
+                fields={[
+                  {
+                    label: L.amount,
+                    value: `${formatKRW(row.amount)}${L.won}`,
+                    tone: isIncome ? "success" : "danger",
+                  },
+                  { label: L.memo, value: row.memo || "-", tone: "muted" },
+                ]}
+                actions={
+                  <>
+                    <button type="button" className="erp-mobile-action-btn" onClick={() => onEdit(row)}>
+                      <Pencil size={15} /> {L.edit}
+                    </button>
+                    <button type="button" className="erp-mobile-action-btn danger" onClick={() => onDelete(row)}>
+                      <Trash2 size={15} /> {L.delete}
+                    </button>
+                  </>
+                }
+              />
+            );
+          })
+        ) : (
+          <MobileRecordCard empty emptyLabel={emptyLabel} />
+        )}
+      </MobileRecordList>
+      <DesktopTableWrap>
+        <table className="erp-ledger-table min-w-full">
+          <thead>
+            <tr>
+              <th>{L.date}</th>
+              <th>{L.ledgerFlow}</th>
+              <th>{L.description}</th>
+              <th className="text-right">{L.amount}</th>
+              <th>{L.memo}</th>
+              <th className="erp-table-export-skip">{L.actions}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length ? (
+              rows.map((row) => {
+                const bankLinked = isBankLinkedExpense(row, bankTransactions);
+                const isIncome = isCompanyExpenseIncome(row);
+                return (
+                  <tr key={row.id} className={bankLinkedRowClass(bankLinked)}>
+                    <td>{row.date}</td>
+                    <td>
+                      <span
+                        className={`inline-flex rounded-lg px-2 py-0.5 text-xs font-bold ${
+                          isIncome ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
+                        }`}
+                      >
+                        {isIncome ? L.ceoFlowIncome : L.ceoFlowExpense}
+                      </span>
+                    </td>
+                    <td>
+                      <DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />
+                    </td>
+                    <td className={`text-right font-bold ${amountTone}`}>
+                      {formatKRW(row.amount)}
+                      {L.won}
+                    </td>
+                    <td className="text-slate-500">{row.memo || "-"}</td>
+                    <td className="erp-table-export-skip">
+                      <div className="erp-ledger-row-actions">
+                        <button type="button" className="erp-ledger-icon-btn" onClick={() => onEdit(row)} aria-label={L.edit}>
+                          <Pencil size={15} />
+                        </button>
+                        <button type="button" className="erp-ledger-icon-btn danger" onClick={() => onDelete(row)} aria-label={L.delete}>
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
+            ) : (
+              <tr>
+                <td colSpan={6} className="erp-ledger-empty">
+                  {emptyLabel}
+                </td>
+              </tr>
+            )}
+          </tbody>
+          {rows.length ? (
+            <tfoot>
+              <tr>
+                <td colSpan={3} className="font-bold">
+                  {L.total} ({rows.length}
+                  {L.count})
+                </td>
+                <td className={`text-right font-black ${amountTone}`}>
+                  {formatKRW(rows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0))}
+                  {L.won}
+                </td>
+                <td colSpan={2} />
+              </tr>
+            </tfoot>
+          ) : null}
+        </table>
+      </DesktopTableWrap>
+    </>
+  );
+
+  return (
+    <Card className="rounded-2xl border-slate-200 shadow-sm">
+      <CardContent className="space-y-4 p-4 md:p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="erp-dashboard-period-tabs flex flex-wrap gap-2">
+            {PERIOD_OPTIONS.map(({ key, label }) => (
+              <Button
+                key={key}
+                size="sm"
+                variant={periodKey === key ? "default" : "outline"}
+                className="erp-touch-target shrink-0 rounded-2xl"
+                onClick={() => setPeriodKey(key)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+          <span className="erp-text-caption text-slate-500">{periodLabel}</span>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <SummaryCard
+            label={L.ceoNetBalance}
+            value={`${formatKRW(totals.netBalance)}${L.won}`}
+            tone={totals.netBalance >= 0 ? "text-emerald-600" : "text-rose-600"}
+            sub={`${totals.totalCount}${L.count}`}
+            compact
+          />
+          <SummaryCard
+            label={L.ceoExpenseTotal}
+            value={`${formatKRW(totals.expenseTotal)}${L.won}`}
+            tone="text-rose-600"
+            sub={`${totals.expenseCount}${L.count}`}
+            compact
+          />
+          <SummaryCard
+            label={L.ceoIncomeTotal}
+            value={`${formatKRW(totals.incomeTotal)}${L.won}`}
+            tone="text-emerald-600"
+            sub={`${totals.incomeCount}${L.count}`}
+            compact
+          />
+        </div>
+
+        <div className="flex max-w-xl items-center gap-3 rounded-2xl border bg-white px-4 py-3 shadow-sm">
+          <Search size={18} className="text-slate-400" />
+          <input
+            lang="ko"
+            className="erp-input w-full bg-transparent outline-none"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={L.ceoSearch}
+          />
+        </div>
+
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="erp-text-section font-bold text-rose-700">{L.ceoFlowExpense}</h2>
+            <span className="erp-text-caption font-semibold text-slate-500">
+              {expenseRows.length}
+              {L.count} · {formatKRW(totals.expenseTotal)}
+              {L.won}
+            </span>
+          </div>
+          {renderRows(expenseRows, L.ceoEmpty, "text-rose-600")}
+        </section>
+
+        <section className="space-y-3 border-t border-slate-100 pt-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="erp-text-section font-bold text-emerald-700">{L.ceoFlowIncome}</h2>
+            <span className="erp-text-caption font-semibold text-slate-500">
+              {incomeRows.length}
+              {L.count} · {formatKRW(totals.incomeTotal)}
+              {L.won}
+            </span>
+          </div>
+          {renderRows(incomeRows, L.ceoEmpty, "text-emerald-600")}
+        </section>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1049,6 +1333,8 @@ export function CompanyLedgerPage({
   const [activeTab, setActiveTab] = useState<LedgerTab>("calendar");
   const [periodKey, setPeriodKey] = useState<LedgerPeriodKey>("thisMonth");
   const [manualQuery, setManualQuery] = useState("");
+  const [ceoAdvanceQuery, setCeoAdvanceQuery] = useState("");
+  const [ceoReceivableQuery, setCeoReceivableQuery] = useState("");
   const [selectedMonthKey, setSelectedMonthKey] = useState(() => todayISO().slice(0, 7));
   const [manualModal, setManualModal] = useState<ManualModalState | null>(null);
   const [fixedExpenseModal, setFixedExpenseModal] = useState<FixedExpenseModalState | null>(null);
@@ -1322,7 +1608,10 @@ export function CompanyLedgerPage({
       ...rangedExpenses.map((row) => ({ type: "expense" as const, row })),
       ...rangedPayments.map((row) => ({ type: "fixedPayment" as const, row })),
     ];
-    return merged.sort((a, b) => String(b.row.date).localeCompare(String(a.row.date))).slice(0, 5);
+    return merged
+      .filter((item) => item.type !== "expense" || !isCeoDedicatedLedgerCategory(item.row.category))
+      .sort((a, b) => String(b.row.date).localeCompare(String(a.row.date)))
+      .slice(0, 5);
   }, [companyExpenses, fixedExpensePayments, thisMonthRange]);
 
   const expenseCategoryOptions = useMemo(() => {
@@ -1399,6 +1688,11 @@ export function CompanyLedgerPage({
     setManualModal(emptyManualForm(expenseCategories[0] || EXPENSE_CATEGORY_OPTIONS[0], "income"));
   };
 
+  const openCreateCeoEntry = (category: string, flow: CompanyLedgerFlow) => {
+    setFormError("");
+    setManualModal({ ...emptyManualForm(category, flow), categoryLocked: true });
+  };
+
   const openEditManual = (row: CompanyExpense) => {
     setFormError("");
     const kind = resolveCompanyExpenseKind(row);
@@ -1415,6 +1709,7 @@ export function CompanyLedgerPage({
       description: row.description,
       amount: String(row.amount || ""),
       memo: row.memo || "",
+      categoryLocked: isCeoDedicatedLedgerCategory(row.category),
     });
   };
 
@@ -2224,6 +2519,34 @@ export function CompanyLedgerPage({
               ) : null}
             </>
           ) : null}
+          {activeTab === "ceoAdvance" ? (
+            <>
+              <Button className="rounded-2xl" onClick={() => openCreateCeoEntry(CEO_ADVANCE_CATEGORY, "expense")}>
+                <Plus size={16} /> {L.ceoAddExpense}
+              </Button>
+              <Button
+                variant="outline"
+                className="rounded-2xl border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                onClick={() => openCreateCeoEntry(CEO_ADVANCE_CATEGORY, "income")}
+              >
+                <Plus size={16} /> {L.ceoAddIncome}
+              </Button>
+            </>
+          ) : null}
+          {activeTab === "ceoReceivable" ? (
+            <>
+              <Button className="rounded-2xl" onClick={() => openCreateCeoEntry(CEO_RECEIVABLE_CATEGORY, "expense")}>
+                <Plus size={16} /> {L.ceoAddExpense}
+              </Button>
+              <Button
+                variant="outline"
+                className="rounded-2xl border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                onClick={() => openCreateCeoEntry(CEO_RECEIVABLE_CATEGORY, "income")}
+              >
+                <Plus size={16} /> {L.ceoAddIncome}
+              </Button>
+            </>
+          ) : null}
         </div>
       </div>
 
@@ -2715,6 +3038,36 @@ export function CompanyLedgerPage({
             </section>
           </CardContent>
         </Card>
+      ) : null}
+
+      {activeTab === "ceoAdvance" ? (
+        <CeoLedgerTabPanel
+          category={CEO_ADVANCE_CATEGORY}
+          companyExpenses={companyExpenses}
+          query={ceoAdvanceQuery}
+          setQuery={setCeoAdvanceQuery}
+          periodKey={periodKey}
+          setPeriodKey={setPeriodKey}
+          periodLabel={periodLabel}
+          bankTransactions={bankTransactions}
+          onEdit={openEditManual}
+          onDelete={deleteManual}
+        />
+      ) : null}
+
+      {activeTab === "ceoReceivable" ? (
+        <CeoLedgerTabPanel
+          category={CEO_RECEIVABLE_CATEGORY}
+          companyExpenses={companyExpenses}
+          query={ceoReceivableQuery}
+          setQuery={setCeoReceivableQuery}
+          periodKey={periodKey}
+          setPeriodKey={setPeriodKey}
+          periodLabel={periodLabel}
+          bankTransactions={bankTransactions}
+          onEdit={openEditManual}
+          onDelete={deleteManual}
+        />
       ) : null}
 
       {activeTab === "monthly" ? (
@@ -3289,7 +3642,7 @@ export function CompanyLedgerPage({
               </button>
             </div>
             <div className="space-y-4">
-              {manualModal.mode === "edit" && manualModal.flow === "expense" ? (
+              {manualModal.mode === "edit" && manualModal.flow === "expense" && !manualModal.categoryLocked ? (
                 <Field label={L.editKind}>
                   <div className="grid grid-cols-2 gap-2">
                     {MANUAL_KIND_TOGGLE_OPTIONS.map((option) => (
@@ -3344,7 +3697,14 @@ export function CompanyLedgerPage({
                 </Field>
               ) : null}
               <Field label={L.category}>
-                {manualModal.kind === "fixed" && manualModal.flow === "expense" ? (
+                {manualModal.categoryLocked ? (
+                  <>
+                    <div className="erp-input w-full rounded-2xl border bg-slate-50 px-3 py-2.5 font-semibold text-slate-800 md:px-4 md:py-3">
+                      {manualModal.category}
+                    </div>
+                    <p className="mt-1.5 text-xs font-semibold text-slate-500">{L.ceoCategoryLockedHint}</p>
+                  </>
+                ) : manualModal.kind === "fixed" && manualModal.flow === "expense" ? (
                   <>
                     <CategorySuggestInput
                       key={`${manualModal.id || "create"}-${manualModal.source || "expense"}-${manualModal.kind}`}
