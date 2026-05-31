@@ -10351,6 +10351,11 @@ button:disabled,
   border-bottom: none;
 }
 
+.erp-bank-table-scroll tbody tr {
+  content-visibility: auto;
+  contain-intrinsic-size: 52px;
+}
+
 .erp-bank-table tbody tr:hover {
   background: #f8fafc;
 }

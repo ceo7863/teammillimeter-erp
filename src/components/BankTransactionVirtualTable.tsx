@@ -1,11 +1,12 @@
-import React, { useLayoutEffect, useRef } from "react";
+import React, { memo, useLayoutEffect, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { BankTransaction } from "@/utils/bankTransactions";
 
-const BANK_TABLE_ROW_ESTIMATE_PX = 56;
-const BANK_TABLE_OVERSCAN = 12;
-const BANK_MOBILE_CARD_ESTIMATE_PX = 168;
-const BANK_MOBILE_OVERSCAN = 6;
+const BANK_TABLE_ROW_ESTIMATE_PX = 52;
+const BANK_TABLE_OVERSCAN = 3;
+const BANK_MOBILE_CARD_ESTIMATE_PX = 140;
+const BANK_MOBILE_OVERSCAN = 2;
+const BANK_SCROLL_HEIGHT_CLASS = "h-[min(72vh,960px)]";
 
 function useBankRowVirtualizer(
   rows: BankTransaction[],
@@ -18,16 +19,23 @@ function useBankRowVirtualizer(
     getScrollElement: () => scrollRef.current,
     estimateSize,
     overscan,
+    getItemKey: (index) => rows[index]?.id ?? index,
   });
 
   useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+
     rowVirtualizer.measure();
-  }, [rows.length, rowVirtualizer]);
+    const observer = new ResizeObserver(() => rowVirtualizer.measure());
+    observer.observe(element);
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows.length]);
 
   const virtualRows = rowVirtualizer.getVirtualItems();
-  const useFallback = rows.length > 0 && virtualRows.length === 0;
 
-  return { scrollRef, rowVirtualizer, virtualRows, useFallback };
+  return { scrollRef, rowVirtualizer, virtualRows };
 }
 
 type BankTransactionVirtualTableProps = {
@@ -41,7 +49,7 @@ type BankTransactionVirtualTableProps = {
   renderRow: (row: BankTransaction) => React.ReactNode;
 };
 
-export function BankTransactionVirtualTable({
+function BankTransactionVirtualTableComponent({
   rows,
   tableId,
   tableRef,
@@ -51,7 +59,7 @@ export function BankTransactionVirtualTable({
   empty,
   renderRow,
 }: BankTransactionVirtualTableProps) {
-  const { scrollRef, rowVirtualizer, virtualRows, useFallback } = useBankRowVirtualizer(
+  const { scrollRef, rowVirtualizer, virtualRows } = useBankRowVirtualizer(
     rows,
     () => BANK_TABLE_ROW_ESTIMATE_PX,
     BANK_TABLE_OVERSCAN,
@@ -66,15 +74,13 @@ export function BankTransactionVirtualTable({
   return (
     <div
       ref={scrollRef}
-      className="erp-bank-table-scroll max-h-[min(72vh,960px)] overflow-auto overscroll-contain"
+      className={`erp-bank-table-scroll ${BANK_SCROLL_HEIGHT_CLASS} overflow-auto overscroll-contain`}
     >
       <table id={tableId} ref={tableRef} className={tableClassName}>
         <thead className="sticky top-0 z-10">{header}</thead>
         <tbody>
           {!rows.length ? (
             empty
-          ) : useFallback ? (
-            rows.map((row) => <React.Fragment key={row.id}>{renderRow(row)}</React.Fragment>)
           ) : (
             <>
               {paddingTop > 0 ? (
@@ -99,18 +105,20 @@ export function BankTransactionVirtualTable({
   );
 }
 
+export const BankTransactionVirtualTable = memo(BankTransactionVirtualTableComponent);
+
 type BankTransactionVirtualMobileListProps = {
   rows: BankTransaction[];
   empty: React.ReactNode;
   renderCard: (row: BankTransaction) => React.ReactNode;
 };
 
-export function BankTransactionVirtualMobileList({
+function BankTransactionVirtualMobileListComponent({
   rows,
   empty,
   renderCard,
 }: BankTransactionVirtualMobileListProps) {
-  const { scrollRef, rowVirtualizer, virtualRows, useFallback } = useBankRowVirtualizer(
+  const { scrollRef, rowVirtualizer, virtualRows } = useBankRowVirtualizer(
     rows,
     () => BANK_MOBILE_CARD_ESTIMATE_PX,
     BANK_MOBILE_OVERSCAN,
@@ -129,20 +137,16 @@ export function BankTransactionVirtualMobileList({
   return (
     <div
       ref={scrollRef}
-      className="erp-mobile-card-list erp-bank-mobile-scroll max-h-[min(72vh,960px)] space-y-3 overflow-auto overscroll-contain md:hidden"
+      className={`erp-mobile-card-list erp-bank-mobile-scroll ${BANK_SCROLL_HEIGHT_CLASS} space-y-3 overflow-auto overscroll-contain md:hidden`}
     >
-      {useFallback ? (
-        rows.map((row) => <React.Fragment key={row.id}>{renderCard(row)}</React.Fragment>)
-      ) : (
-        <>
-          {paddingTop > 0 ? <div aria-hidden="true" style={{ height: paddingTop }} /> : null}
-          {virtualRows.map((virtualRow) => {
-            const row = rows[virtualRow.index];
-            return <React.Fragment key={row.id}>{renderCard(row)}</React.Fragment>;
-          })}
-          {paddingBottom > 0 ? <div aria-hidden="true" style={{ height: paddingBottom }} /> : null}
-        </>
-      )}
+      {paddingTop > 0 ? <div aria-hidden="true" style={{ height: paddingTop }} /> : null}
+      {virtualRows.map((virtualRow) => {
+        const row = rows[virtualRow.index];
+        return <React.Fragment key={row.id}>{renderCard(row)}</React.Fragment>;
+      })}
+      {paddingBottom > 0 ? <div aria-hidden="true" style={{ height: paddingBottom }} /> : null}
     </div>
   );
 }
+
+export const BankTransactionVirtualMobileList = memo(BankTransactionVirtualMobileListComponent);

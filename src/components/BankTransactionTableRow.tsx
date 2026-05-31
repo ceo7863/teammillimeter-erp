@@ -3,12 +3,16 @@ import { BookOpen, Link2 } from "lucide-react";
 import { AutoLinkBadge, ManualLinkBadge, PartialPaymentBadge } from "@/components/AutoLinkBadge";
 import { Button } from "@/components/ui/button";
 import {
+  BankTransactionFolderAssignCell,
+  type BankFolderSelectGroup,
+} from "@/components/BankTransactionFolderAssignCell";
+import {
   getBankMatchStatusLabel,
   isBankMatchAutoLinked,
   isBankMatchManualLinked,
   type BankDepositMatchCandidate,
 } from "@/utils/bankReceivableMatch";
-import { bankTxHasPartialPaymentVoucher, type SentStatementMatchCandidate } from "@/utils/bankSentStatementMatch";
+import { type SentStatementMatchCandidate } from "@/utils/bankSentStatementMatch";
 import {
   getBankTransactionFolderTone,
   isCardCompanyDeposit,
@@ -73,8 +77,8 @@ type BankTransactionTableRowProps = {
   ledgerFolder?: BankTransactionFolder;
   folderSuggestion?: { folderType: BankTransactionFolderType; linkedSubject?: string };
   depositSuggestion?: BankTransactionDepositSuggestion;
-  folderSelectOptions: React.ReactNode;
-  paymentVouchers: Array<{ id?: number | string; bankTransactionId?: string }>;
+  folderSelectGroups: BankFolderSelectGroup[];
+  hasPartialPayment: boolean;
   labels: BankTransactionTableRowLabels;
   onOpenDetail: (row: BankTransaction) => void;
   onOpenClientLink: (row: BankTransaction) => void;
@@ -105,8 +109,8 @@ function BankTransactionTableRowComponent({
   ledgerFolder,
   folderSuggestion,
   depositSuggestion,
-  folderSelectOptions,
-  paymentVouchers,
+  folderSelectGroups,
+  hasPartialPayment,
   labels,
   onOpenDetail,
   onOpenClientLink,
@@ -191,7 +195,7 @@ function BankTransactionTableRowComponent({
 
   return (
     <tr
-      className={`border-t cursor-pointer transition hover:bg-slate-50/80 ${rowClass} ${isSelected ? "bg-sky-50 ring-1 ring-inset ring-sky-200" : ""}`}
+      className={`border-t cursor-pointer hover:bg-slate-50/80 ${rowClass} ${isSelected ? "bg-sky-50 ring-1 ring-inset ring-sky-200" : ""}`}
       onClick={() => onOpenDetail(row)}
     >
       <td className="whitespace-nowrap text-slate-600">{formatBankTransactionDateTime(row.transactionAt)}</td>
@@ -265,7 +269,7 @@ function BankTransactionTableRowComponent({
               </span>
               {isBankMatchAutoLinked(row) ? <BankAutoLinkBadge title={labels.autoLinkBadgeTitle} /> : null}
               {isBankMatchManualLinked(row) ? <BankManualLinkBadge title={labels.manualLinkBadgeTitle} /> : null}
-              {bankTxHasPartialPaymentVoucher(row, paymentVouchers) ? (
+              {hasPartialPayment ? (
                 <BankPartialPaymentBadge title={labels.partialPaymentBadgeTitle} />
               ) : null}
             </div>
@@ -284,45 +288,30 @@ function BankTransactionTableRowComponent({
               const sentTop = isSentStatement ? (top as SentStatementMatchCandidate) : null;
               const receivableTop = !isSentStatement ? (top as BankDepositMatchCandidate) : null;
               return (
-                <div className="space-y-1">
-                  <div className="text-xs font-semibold text-violet-700">
-                    {isSentStatement ? labels.sentStatementMatch : labels.selectReceivable}
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    {isSentStatement ? sentTop?.client : receivableTop?.client}
-                    {" \u00B7 "}
-                    {labels.matchScore} {top.score}
-                  </div>
-                  {isSentStatement && sentTop?.paymentStatus === "partial" ? (
-                    <div className="text-xs font-semibold text-amber-700">
-                      {labels.partialStatementMatchHint(sentTop.paymentAmount, sentTop.statementRemainingAmount)}
-                    </div>
-                  ) : null}
-                  <div className="flex flex-wrap gap-1" onClick={stopRowClick}>
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="rounded-lg text-xs"
-                      title={labels.matchConfirmHint}
-                      onClick={() =>
-                        isSentStatement
-                          ? onConfirmSentStatementMatch(row, sentTop!)
-                          : onConfirmDepositMatch(row, receivableTop!)
-                      }
-                    >
-                      <Link2 size={12} className="mr-1" />
-                      {labels.matchConfirm}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="rounded-lg text-xs"
-                      onClick={() => onOpenLinkModal(row)}
-                    >
-                      {labels.matchManual}
-                    </Button>
-                  </div>
+                <div className="flex flex-wrap gap-1" onClick={stopRowClick}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="rounded-lg text-xs"
+                    title={labels.matchConfirmHint}
+                    onClick={() =>
+                      isSentStatement
+                        ? onConfirmSentStatementMatch(row, sentTop!)
+                        : onConfirmDepositMatch(row, receivableTop!)
+                    }
+                  >
+                    <Link2 size={12} className="mr-1" />
+                    {labels.matchConfirm} ({top.score})
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="rounded-lg text-xs"
+                    onClick={() => onOpenLinkModal(row)}
+                  >
+                    {labels.matchManual}
+                  </Button>
                 </div>
               );
             }
@@ -341,13 +330,13 @@ function BankTransactionTableRowComponent({
       </td>
       <td>{row.transactionType ? <span className="erp-bank-type-badge">{row.transactionType}</span> : "-"}</td>
       <td onClick={stopRowClick}>
-        <select
-          className="erp-input max-w-[10rem] rounded-lg py-1 text-xs"
-          value={row.folderId || ""}
-          onChange={(event) => onAssignFolder(row.id, event.target.value)}
-        >
-          {folderSelectOptions}
-        </select>
+        <BankTransactionFolderAssignCell
+          folderId={row.folderId || ""}
+          folderName={folder?.folderName}
+          groups={folderSelectGroups}
+          unfiledLabel={labels.unfiled}
+          onAssign={(nextFolderId) => onAssignFolder(row.id, nextFolderId)}
+        />
       </td>
       <td onClick={stopRowClick}>
         {display.canLedger ? (

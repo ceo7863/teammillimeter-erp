@@ -40,6 +40,7 @@ import {
   BankTransactionVirtualMobileList,
   BankTransactionVirtualTable,
 } from "@/components/BankTransactionVirtualTable";
+import type { BankFolderSelectGroup } from "@/components/BankTransactionFolderAssignCell";
 import {
   buildBankTransactionRowDisplayCache,
   buildBankTransactionsExportTable,
@@ -616,24 +617,28 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function useDebouncedValue<T>(value: T, delayMs: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(value), delayMs);
-    return () => window.clearTimeout(timer);
-  }, [value, delayMs]);
-  return debounced;
-}
-
 function BankTransactionSearchBar({
-  value,
-  onChange,
-  onClear,
+  debouncedValue,
+  onDebouncedChange,
+  resetKey,
 }: {
-  value: string;
-  onChange: (value: string) => void;
-  onClear: () => void;
+  debouncedValue: string;
+  onDebouncedChange: (value: string) => void;
+  resetKey?: string | number;
 }) {
+  const [localValue, setLocalValue] = useState(debouncedValue);
+
+  useEffect(() => {
+    setLocalValue(debouncedValue);
+  }, [debouncedValue, resetKey]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (localValue !== debouncedValue) onDebouncedChange(localValue);
+    }, 280);
+    return () => window.clearTimeout(timer);
+  }, [localValue, debouncedValue, onDebouncedChange]);
+
   return (
     <div className="erp-bank-search">
       <label className="erp-bank-search__label" htmlFor="bank-transaction-search">
@@ -646,17 +651,17 @@ function BankTransactionSearchBar({
           lang="ko"
           type="search"
           className="erp-bank-search__input"
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
+          value={localValue}
+          onChange={(event) => setLocalValue(event.target.value)}
           placeholder={L.searchPlaceholder}
           autoComplete="off"
           spellCheck={false}
         />
-        {value ? (
+        {localValue ? (
           <button
             type="button"
             className="erp-bank-search__clear"
-            onClick={onClear}
+            onClick={() => setLocalValue("")}
             aria-label="검색어 지우기"
           >
             <X size={16} aria-hidden="true" />
@@ -753,8 +758,8 @@ export function BankTransactionsPage({
   const [dateFilter, setDateFilter] = useState<DateFilter>(() => monthRangeISO(0));
   const [flowFilter, setFlowFilter] = useState<BankTransactionFlowFilter>("all");
   const [accountFilter, setAccountFilter] = useState("");
-  const [query, setQuery] = useState("");
-  const debouncedQuery = useDebouncedValue(query, 280);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterResetKey, setFilterResetKey] = useState(0);
   const [selectedFolderId, setSelectedFolderId] = useState("");
   const [folderScope, setFolderScope] = useState<FolderScope>("all");
   const [sort, setSort] = useState<BankTransactionSort>(DEFAULT_BANK_TRANSACTION_SORT);
@@ -2046,7 +2051,7 @@ export function BankTransactionsPage({
 
   const filteredRows = useMemo(() => {
     let scoped = filterBankTransactions(bankTransactions, {
-      search: debouncedQuery,
+      search: searchQuery,
       dateFrom: activePeriod.startDate,
       dateTo: activePeriod.endDate,
       flowType: flowFilter,
@@ -2077,7 +2082,7 @@ export function BankTransactionsPage({
     return sortBankTransactions(scoped, { key: sort.key, direction: sort.direction });
   }, [
     bankTransactions,
-    debouncedQuery,
+    searchQuery,
     activePeriod.startDate,
     activePeriod.endDate,
     flowFilter,
@@ -2182,6 +2187,14 @@ export function BankTransactionsPage({
     recordSummaryAudit,
     currentUser,
   ]);
+
+  const partialPaymentTxIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const tx of bankTransactions) {
+      if (bankTxHasPartialPaymentVoucher(tx, paymentVouchers)) ids.add(tx.id);
+    }
+    return ids;
+  }, [bankTransactions, paymentVouchers]);
 
   const depositSuggestions = useMemo(() => {
     const sentByTxId = new Map(
@@ -4165,57 +4178,31 @@ export function BankTransactionsPage({
     ],
   );
 
-  const folderSelectOptions = useMemo(
-    () => (
-      <>
-        <option value="">{L.unfiled}</option>
-        <optgroup label={L.clientFolders}>
-          {assignableClientFolders.map((item) => (
-            <option key={item.id} value={item.id}>
-              {formatFolderSelectLabel(item)}
-            </option>
-          ))}
-        </optgroup>
-        <optgroup label={L.cardFolders}>
-          {assignableCardFolders.map((item) => (
-            <option key={item.id} value={item.id}>
-              {formatFolderSelectLabel(item)}
-            </option>
-          ))}
-        </optgroup>
-        <optgroup label={L.workerFolders}>
-          {assignableWorkerFolders.map((item) => (
-            <option key={item.id} value={item.id}>
-              {formatFolderSelectLabel(item)}
-            </option>
-          ))}
-        </optgroup>
-        {customCategoryRoots.map((root) => {
-          const ids = new Set(collectCustomCategoryFolderIds(bankTransactionFolders, root.id));
-          const options = assignableCustomFolders.filter((item) => ids.has(item.id));
-          if (!options.length) return null;
-          return (
-            <optgroup key={root.id} label={root.folderName}>
-              {options.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {formatFolderSelectLabel(item)}
-                </option>
-              ))}
-            </optgroup>
-          );
-        })}
-      </>
-    ),
-    [
-      assignableCardFolders,
-      assignableClientFolders,
-      assignableCustomFolders,
-      assignableWorkerFolders,
-      bankTransactionFolders,
-      customCategoryRoots,
-      formatFolderSelectLabel,
-    ],
-  );
+  const folderSelectGroups = useMemo((): BankFolderSelectGroup[] => {
+    const mapFolder = (item: BankTransactionFolder) => ({
+      id: item.id,
+      label: formatFolderSelectLabel(item),
+    });
+    const groups: BankFolderSelectGroup[] = [
+      { label: L.clientFolders, options: assignableClientFolders.map(mapFolder) },
+      { label: L.cardFolders, options: assignableCardFolders.map(mapFolder) },
+      { label: L.workerFolders, options: assignableWorkerFolders.map(mapFolder) },
+    ];
+    for (const root of customCategoryRoots) {
+      const ids = new Set(collectCustomCategoryFolderIds(bankTransactionFolders, root.id));
+      const options = assignableCustomFolders.filter((item) => ids.has(item.id)).map(mapFolder);
+      if (options.length) groups.push({ label: root.folderName, options });
+    }
+    return groups;
+  }, [
+    assignableCardFolders,
+    assignableClientFolders,
+    assignableCustomFolders,
+    assignableWorkerFolders,
+    bankTransactionFolders,
+    customCategoryRoots,
+    formatFolderSelectLabel,
+  ]);
 
   const tableRowLabels = useMemo<BankTransactionTableRowLabels>(
     () => ({
@@ -4293,8 +4280,8 @@ export function BankTransactionsPage({
               ? { kind: depositSuggestion.kind, candidates: depositSuggestion.candidates }
               : undefined
           }
-          folderSelectOptions={folderSelectOptions}
-          paymentVouchers={paymentVouchers}
+          folderSelectGroups={folderSelectGroups}
+          hasPartialPayment={partialPaymentTxIds.has(row.id)}
           labels={tableRowLabels}
           onOpenDetail={openBankTransactionDetail}
           onOpenClientLink={openClientLinkModal}
@@ -4311,8 +4298,8 @@ export function BankTransactionsPage({
       folderMap,
       depositSuggestionByTxId,
       folderSuggestionByTxId,
-      folderSelectOptions,
-      paymentVouchers,
+      folderSelectGroups,
+      partialPaymentTxIds,
       tableRowLabels,
       detailTxId,
       ledgerCategoryFolder,
@@ -5231,7 +5218,11 @@ export function BankTransactionsPage({
               </Field>
             </div>
 
-            <BankTransactionSearchBar value={query} onChange={setQuery} onClear={() => setQuery("")} />
+            <BankTransactionSearchBar
+              debouncedValue={searchQuery}
+              onDebouncedChange={setSearchQuery}
+              resetKey={filterResetKey}
+            />
 
             <div className="flex flex-wrap items-center gap-2">
               <span className="mr-1 erp-text-caption font-bold text-slate-500">{L.sortLabel}</span>
@@ -5294,7 +5285,8 @@ export function BankTransactionsPage({
                   setDateFilter(monthRangeISO(0));
                   setFlowFilter("all");
                   setAccountFilter("");
-                  setQuery("");
+                  setSearchQuery("");
+                  setFilterResetKey((key) => key + 1);
                   setSort(DEFAULT_BANK_TRANSACTION_SORT);
                 }}
               >
