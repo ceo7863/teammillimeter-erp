@@ -81,6 +81,24 @@ textarea {
   opacity: 1;
 }
 
+.erp-bank-memo-trigger {
+  display: block;
+  width: 100%;
+  cursor: pointer;
+  background: #fff;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.erp-bank-memo-trigger:hover {
+  border-color: #94a3b8;
+  box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.25);
+}
+
+.erp-bank-memo-trigger:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 1px;
+}
+
 .erp-table .erp-input,
 .erp-table .erp-date-input-trigger,
 .erp-table select {

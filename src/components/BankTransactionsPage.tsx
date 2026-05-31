@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, startTransition } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   ArrowDownLeft,
   ArrowLeftRight,
@@ -323,6 +323,9 @@ const L = {
   assignFolder: "\uD3F4\uB354",
   memo: "\uBA54\uBAA8",
   memoPlaceholder: "\uBA54\uBAA8 \uC785\uB825",
+  memoEditTitle: "\uD1B5\uC7A5 \uBA54\uBAA8",
+  memoEditHint: "\uC800\uC7A5 \uD6C4 \uBD84\uB958 \u00B7 \uAC00\uACC4\uBD80 \uD559\uC2B5\uC5D0 \uBC18\uC601\uB429\uB2C8\uB2E4.",
+  memoApply: "\uC801\uC6A9",
   classification: "\uBD84\uB958",
   ledgerCategoryColumn: "\uAC00\uACC4\uBD80",
   linkedSubject: "\uC5F0\uACB0 \uC774\uB984",
@@ -645,75 +648,33 @@ function buildLedgerLinkDefaults(
   return { linkMode: "link" as const, linkPaymentId: linkable[0].id };
 }
 
-const MEMO_DRAFT_PREVIEW_DEBOUNCE_MS = 350;
-const MEMO_PERSIST_DEBOUNCE_MS = 450;
-
-const BankTransactionMemoInput = React.memo(function BankTransactionMemoInput({
-  transactionId,
+const BankTransactionMemoTrigger = React.memo(function BankTransactionMemoTrigger({
   savedMemo,
   placeholder,
   className,
-  onDraftPreview,
-  onPersist,
+  align = "left",
+  onOpen,
 }: {
-  transactionId: string;
   savedMemo: string;
   placeholder: string;
   className: string;
-  onDraftPreview?: (transactionId: string, memo: string) => void;
-  onPersist: (transactionId: string, memo: string) => void;
+  align?: "left" | "right";
+  onOpen: () => void;
 }) {
-  const [value, setValue] = useState(savedMemo);
-  const draftPreviewTimerRef = useRef<ReturnType<typeof setTimeout>>();
-  const persistTimerRef = useRef<ReturnType<typeof setTimeout>>();
-
-  useEffect(() => {
-    setValue(savedMemo);
-  }, [transactionId, savedMemo]);
-
-  useEffect(() => {
-    return () => {
-      if (draftPreviewTimerRef.current) clearTimeout(draftPreviewTimerRef.current);
-      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-    };
-  }, []);
-
-  const scheduleDraftPreview = (next: string) => {
-    if (!onDraftPreview) return;
-    if (draftPreviewTimerRef.current) clearTimeout(draftPreviewTimerRef.current);
-    draftPreviewTimerRef.current = setTimeout(() => {
-      onDraftPreview(transactionId, next);
-    }, MEMO_DRAFT_PREVIEW_DEBOUNCE_MS);
-  };
-
-  const schedulePersist = (next: string) => {
-    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-    persistTimerRef.current = setTimeout(() => {
-      onPersist(transactionId, next);
-    }, MEMO_PERSIST_DEBOUNCE_MS);
-  };
-
-  const flush = (next: string) => {
-    if (draftPreviewTimerRef.current) clearTimeout(draftPreviewTimerRef.current);
-    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-    onDraftPreview?.(transactionId, next);
-    onPersist(transactionId, next);
-  };
-
   return (
-    <input
-      className={className}
-      value={value}
-      placeholder={placeholder}
-      onChange={(event) => {
-        const next = event.target.value;
-        setValue(next);
-        scheduleDraftPreview(next);
-        schedulePersist(next);
+    <button
+      type="button"
+      className={`erp-bank-memo-trigger erp-input erp-input-compact ${align === "right" ? "text-right" : "text-left"} ${className}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpen();
       }}
-      onBlur={(event) => flush(event.target.value)}
-      onClick={(event) => event.stopPropagation()}
-    />
+      title={savedMemo || placeholder}
+    >
+      <span className={`block truncate ${savedMemo ? "font-medium text-slate-800" : "font-normal text-slate-400"}`}>
+        {savedMemo || placeholder}
+      </span>
+    </button>
   );
 });
 
@@ -844,7 +805,12 @@ export function BankTransactionsPage({
   const [preauthNetModalOpen, setPreauthNetModalOpen] = useState(false);
   const [selectedPreauthGroupKeys, setSelectedPreauthGroupKeys] = useState<string[]>([]);
   const [learnPreauthMerchants, setLearnPreauthMerchants] = useState(true);
-  const [memoDraftPreview, setMemoDraftPreview] = useState<{ txId: string; memo: string } | null>(null);
+  const [memoModal, setMemoModal] = useState<{
+    txId: string;
+    memo: string;
+    title: string;
+    subtitle: string;
+  } | null>(null);
   const importLedgerBatchIdsRef = useRef<Set<string>>(new Set());
   const [sentArchives, setSentArchives] = useState<PdfArchiveMeta[]>([]);
   const ibkInputRef = useRef<HTMLInputElement>(null);
@@ -1117,10 +1083,6 @@ export function BankTransactionsPage({
 
   const resolveLedgerCategorySuggestionLabel = (row: BankTransaction) => {
     if (getLedgerCategoryLabel(row)) return null;
-    if (memoDraftPreview?.txId === row.id) {
-      const draftCategory = resolveMemoLearnCategory(memoDraftPreview.memo, expenseCategories);
-      if (draftCategory) return draftCategory;
-    }
     const memoSuggestion = memoCategorySuggestionByTxId.get(row.id);
     if (memoSuggestion?.category?.trim()) return memoSuggestion.category.trim();
     const suggestion = ledgerSuggestionByTxId.get(row.id);
@@ -2404,12 +2366,12 @@ export function BankTransactionsPage({
     });
   };
 
-  const handleMemoDraftPreview = React.useCallback((transactionId: string, memo: string) => {
-    startTransition(() => {
-      setMemoDraftPreview((prev) => {
-        if (prev?.txId === transactionId && prev.memo === memo) return prev;
-        return { txId: transactionId, memo };
-      });
+  const openBankMemoModal = useCallback((tx: BankTransaction) => {
+    setMemoModal({
+      txId: tx.id,
+      memo: tx.memo || "",
+      title: String(tx.description || tx.counterpartyName || L.memo).trim(),
+      subtitle: formatBankTransactionDateTime(tx.transactionAt),
     });
   }, []);
 
@@ -2419,7 +2381,6 @@ export function BankTransactionsPage({
       if (!tx) return;
       const nextRow = { ...tx, memo: memo || undefined };
       if (String(tx.memo || "") === String(nextRow.memo || "")) {
-        setMemoDraftPreview((prev) => (prev?.txId === transactionId ? null : prev));
         return;
       }
       auditBankTxUpdate(tx, nextRow);
@@ -2442,8 +2403,6 @@ export function BankTransactionsPage({
       if (category && isMemoLearnAmountFlexibleCategory(category) && Number(tx.withdrawal || 0) > 0) {
         scheduleBackgroundLearning({ showMessage: false });
       }
-
-      setMemoDraftPreview((prev) => (prev?.txId === transactionId ? null : prev));
     },
     [
       bankLedgerRules,
@@ -3949,13 +3908,11 @@ export function BankTransactionsPage({
         <td className="text-right font-bold text-slate-900">{formatKRW(row.balanceAfter)}</td>
         <td>{renderTransactionDescription(row)}</td>
         <td>
-          <BankTransactionMemoInput
-            transactionId={row.id}
+          <BankTransactionMemoTrigger
             savedMemo={row.memo || ""}
             placeholder={L.memoPlaceholder}
-            className="erp-input erp-input-compact min-w-[8rem] max-w-[14rem]"
-            onDraftPreview={handleMemoDraftPreview}
-            onPersist={handleMemoPersist}
+            className="min-w-[8rem] max-w-[14rem]"
+            onOpen={() => openBankMemoModal(row)}
           />
         </td>
         <td className="text-slate-700">
@@ -4227,13 +4184,12 @@ export function BankTransactionsPage({
         {
           label: L.memo,
           value: (
-            <BankTransactionMemoInput
-              transactionId={row.id}
+            <BankTransactionMemoTrigger
               savedMemo={row.memo || ""}
               placeholder={L.memoPlaceholder}
-              className="erp-input erp-input-compact w-full min-w-0 text-right"
-              onDraftPreview={handleMemoDraftPreview}
-              onPersist={handleMemoPersist}
+              className="w-full min-w-0"
+              align="right"
+              onOpen={() => openBankMemoModal(row)}
             />
           ),
         },
@@ -6188,6 +6144,71 @@ export function BankTransactionsPage({
               <Button type="button" className="rounded-2xl" onClick={handleCreateFolder}>
                 <FolderPlus size={16} className="mr-2" />
                 {L.saveFolder}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {memoModal ? (
+        <div
+          className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setMemoModal(null);
+          }}
+        >
+          <div
+            className="erp-ledger-modal max-w-lg"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={L.memoEditTitle}
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="erp-text-section font-bold">{L.memoEditTitle}</h2>
+                <p className="mt-1 truncate text-sm font-semibold text-slate-900">{memoModal.title}</p>
+                <p className="mt-0.5 erp-text-caption text-slate-500">{memoModal.subtitle}</p>
+                <p className="mt-2 erp-text-caption text-slate-500">{L.memoEditHint}</p>
+              </div>
+              <button
+                type="button"
+                className="shrink-0 rounded-xl p-2 text-slate-400 hover:bg-slate-100"
+                onClick={() => setMemoModal(null)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <textarea
+              lang="ko"
+              className="erp-input min-h-28 w-full rounded-2xl px-4 py-3"
+              value={memoModal.memo}
+              placeholder={L.memoPlaceholder}
+              autoFocus
+              onChange={(event) =>
+                setMemoModal((prev) => (prev ? { ...prev, memo: event.target.value } : prev))
+              }
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setMemoModal(null);
+                }
+              }}
+            />
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setMemoModal(null)}>
+                {L.cancel}
+              </Button>
+              <Button
+                type="button"
+                className="rounded-2xl"
+                onClick={() => {
+                  handleMemoPersist(memoModal.txId, memoModal.memo);
+                  setMemoModal(null);
+                }}
+              >
+                {L.memoApply}
               </Button>
             </div>
           </div>
