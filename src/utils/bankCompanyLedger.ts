@@ -1755,12 +1755,18 @@ export function guessLedgerTargetFromBankTransaction(
   return manualLedgerTargetKey(prefill.category);
 }
 
+export function resolveBankTxLedgerAmount(tx: { withdrawal?: number; deposit?: number }) {
+  const withdrawal = Number(tx.withdrawal || 0);
+  const deposit = Number(tx.deposit || 0);
+  return withdrawal > 0 ? withdrawal : deposit > 0 ? deposit : 0;
+}
+
 export function buildCompanyExpensePrefillFromBankTransaction(tx: BankTransaction) {
   const date = String(tx.transactionAt || "").slice(0, 10) || new Date().toISOString().slice(0, 10);
   const counterparty = String(tx.counterpartyName || "").trim();
   const descriptionText = String(tx.description || "").trim();
   const description =
-    [descriptionText, counterparty].filter(Boolean).join(" \u00B7 ") || "\uD1B5\uC7A5 \uCD9C\uAE08";
+    [descriptionText, counterparty].filter(Boolean).join(" \u00B7 ") || "\uD1B5\uC7A5 \uAC70\uB798";
 
   const memoParts = [
     counterparty ? `\uC0C1\uB300: ${counterparty}` : "",
@@ -1771,12 +1777,13 @@ export function buildCompanyExpensePrefillFromBankTransaction(tx: BankTransactio
 
   const category = guessExpenseCategory([description, tx.memo || ""].filter(Boolean).join(" "));
   const safeCategory = EXPENSE_CATEGORY_OPTIONS.includes(category) ? category : "\uAE30\uD0C0";
+  const ledgerAmount = resolveBankTxLedgerAmount(tx);
 
   return {
     date,
     category: safeCategory,
     description,
-    amount: String(tx.withdrawal || 0),
+    amount: String(ledgerAmount),
     memo: memoParts.join(" \u00B7 "),
     bankTransactionId: tx.id,
   };

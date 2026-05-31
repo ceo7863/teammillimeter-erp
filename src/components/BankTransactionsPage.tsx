@@ -102,6 +102,7 @@ import {
   getLinkedFixedPaymentForBankTx,
   parseLedgerTargetKey,
   releaseFixedExpensePaymentBankLink,
+  resolveBankTxLedgerAmount,
   resolveLedgerTargetForBankTransaction,
   upsertBankLearnRule,
   type BankLearnRule,
@@ -333,6 +334,7 @@ const L = {
   detailSave: "\uC800\uC7A5",
   detailSaveDone: "\uAC70\uB798 \uC815\uBCF4\uB97C \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.",
   detailFixedItemRequired: "\uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
+  detailLedgerRegisterFailed: "\uAC00\uACC4\uBD80 \uB4F1\uB85D\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uC9C0\uCD9C \uCE74\uD14C\uACE0\uB9AC\uB97C \uC785\uB825\uD588\uB294\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694.",
   detailRowHint: "\uD589\uC744 \uD074\uB9AD\uD558\uBA74 \uC804\uD45C\uCC98\uB7FC \uC5F4\uB824 \uBA54\uBAA8\u00B7\uBD84\uB958\u00B7\uAC00\uACC4\uBD80 \uD56D\uBAA9\uC744 \uC218\uC815\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
   memoEditHint: "\uBA54\uBAA8 \u00B7 \uBD84\uB958 \u00B7 \uAC00\uACC4\uBD80 \uD56D\uBAA9\uC744 \uC218\uC815\uD55C \uB92C \uC800\uC7A5\uC744 \uB204\uB974\uBA74 \uBC18\uC601\uB429\uB2C8\uB2E4.",
   detailLedgerKindHint: "\uBCC0\uB3D9 \uC9C0\uCD9C\uC740 \uCE74\uD14C\uACE0\uB9AC\uB97C, \uACE0\uC815\uBE44\uB294 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD569\uB2C8\uB2E4.",
@@ -2805,6 +2807,7 @@ export function BankTransactionsPage({
       const fixedExpenseId = payload.fixedExpenseId.trim();
       const linkedPayment = resolveLinkedFixedPaymentForBankTx(tx);
       const linkedExpense = resolveLinkedCompanyExpenseForBankTx(tx);
+      let manualLedgerRegistered = false;
 
       if (payload.ledgerKind === "fixed") {
         let resolvedFixedExpenseId = fixedExpenseId;
@@ -2943,7 +2946,8 @@ export function BankTransactionsPage({
               user: currentUser,
             });
           }
-        } else if (Number(workingTx.withdrawal || 0) > 0) {
+          manualLedgerRegistered = true;
+        } else if (resolveBankTxLedgerAmount(workingTx) > 0) {
           const validationError = validateCompanyExpenseInput({
             date: prefill.date,
             category: ledgerCategory,
@@ -2973,6 +2977,7 @@ export function BankTransactionsPage({
             user: currentUser,
           });
           auditBankTxUpdate(tx, workingTransactions.find((row) => row.id === tx.id) || workingTx);
+          manualLedgerRegistered = true;
         }
 
         setExpenseCategories((prev) => mergeExpenseCategory(prev, ledgerCategory));
@@ -2985,9 +2990,14 @@ export function BankTransactionsPage({
         setBankTransactions(workingTransactions);
         setBankLedgerRules(nextRules);
         nextTransactions = workingTransactions;
+
+        if (!manualLedgerRegistered) {
+          setImportMessage(L.detailLedgerRegisterFailed);
+          return;
+        }
       }
 
-      if (String(tx.memo || "") !== String(nextMemo || "") && Number(tx.withdrawal || 0) > 0) {
+      if (String(tx.memo || "") !== String(nextMemo || "") && resolveBankTxLedgerAmount(tx) > 0) {
         const memoCategory = resolveMemoLearnCategory(payload.memo, expenseCategories);
         if (memoCategory) {
           setExpenseCategories((prev) => mergeExpenseCategory(prev, memoCategory));
