@@ -426,36 +426,39 @@ export const BankTransactionDetailDrawer = React.memo(function BankTransactionDe
   }, []);
 
   const handleSave = useCallback(() => {
-    // Commit datalist / IME selection before read (save button must not block blur).
+    const commitSave = () => {
+      const memo = (memoTextareaRef.current?.value ?? memoDraftRef.current).trim();
+      memoDraftRef.current = memo;
+      const rawCategory = (categoryInputRef.current?.value ?? categoryDraftRef.current).trim();
+      const resolved = resolveDrawerCategory(memo, rawCategory, ledgerKind);
+      categoryDraftRef.current = resolved.ledgerCategory;
+      if (categoryInputRef.current && resolved.ledgerCategory !== rawCategory) {
+        categoryInputRef.current.value = resolved.ledgerCategory;
+      }
+
+      let resolvedFixedId = fixedExpenseId.trim();
+      if (resolved.ledgerKind === "fixed") {
+        const selected = fixedExpenseOptions.find((row) => row.value === resolvedFixedId);
+        if (!selected) {
+          const byLabel = fixedExpenseOptions.find(
+            (row) => row.label.split(FIXED_LABEL_SPLIT)[0]?.trim() === resolved.ledgerCategory,
+          );
+          if (byLabel) resolvedFixedId = byLabel.value;
+        }
+      }
+
+      onSaveRef.current({
+        memo,
+        folderId,
+        ledgerKind: resolved.ledgerKind,
+        ledgerCategory: resolved.ledgerCategory,
+        fixedExpenseId: resolvedFixedId,
+      });
+    };
+
     categoryInputRef.current?.blur();
     memoTextareaRef.current?.blur();
-    const memo = (memoTextareaRef.current?.value ?? memoDraftRef.current).trim();
-    memoDraftRef.current = memo;
-    const rawCategory = (categoryInputRef.current?.value ?? categoryDraftRef.current).trim();
-    const resolved = resolveDrawerCategory(memo, rawCategory, ledgerKind);
-    categoryDraftRef.current = resolved.ledgerCategory;
-    if (categoryInputRef.current && resolved.ledgerCategory !== rawCategory) {
-      categoryInputRef.current.value = resolved.ledgerCategory;
-    }
-
-    let resolvedFixedId = fixedExpenseId.trim();
-    if (resolved.ledgerKind === "fixed") {
-      const selected = fixedExpenseOptions.find((row) => row.value === resolvedFixedId);
-      if (!selected) {
-        const byLabel = fixedExpenseOptions.find(
-          (row) => row.label.split(FIXED_LABEL_SPLIT)[0]?.trim() === resolved.ledgerCategory,
-        );
-        if (byLabel) resolvedFixedId = byLabel.value;
-      }
-    }
-
-    onSaveRef.current({
-      memo,
-      folderId,
-      ledgerKind: resolved.ledgerKind,
-      ledgerCategory: resolved.ledgerCategory,
-      fixedExpenseId: resolvedFixedId,
-    });
+    queueMicrotask(commitSave);
   }, [fixedExpenseId, fixedExpenseOptions, folderId, ledgerKind]);
 
   const categoryListId =

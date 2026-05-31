@@ -181,6 +181,7 @@ import {
   DEFAULT_CLIENT_FOLDER_ID,
   DEFAULT_CARD_SALES_FOLDER_ID,
   DEFAULT_LEDGER_CATEGORY_FOLDER_ID,
+  ensureDefaultBankTransactionFolders,
   isCardCompanyDeposit,
   syncLedgerLinkedBankTransactionFolders,
   type BankTransactionFolder,
@@ -2552,8 +2553,13 @@ export function BankTransactionsPage({
       );
       const ledgerKind = memoLedgerDraft.ledgerKind;
       let ledgerCategory = memoLedgerDraft.ledgerCategory;
+      const resolvedLedgerKind =
+        ledgerCategory.trim() && ledgerKind === "fixed" && !payload.fixedExpenseId.trim()
+          ? "manual"
+          : ledgerKind;
       const categoryChanged = detailPrefill.category.trim() !== ledgerCategory;
-      const hasManualLedgerCategory = ledgerKind === "manual" && Boolean(ledgerCategory.trim());
+      const hasManualLedgerCategory =
+        resolvedLedgerKind === "manual" && Boolean(ledgerCategory.trim());
 
       let targetFolderId = payload.folderId.trim();
       if (memoChanged || categoryChanged || hasManualLedgerCategory) {
@@ -2597,10 +2603,7 @@ export function BankTransactionsPage({
           buildBankLearnRuleFromFolderAssignment(tx, targetFolderId, savedBy || undefined),
         );
         setBankLedgerRules(nextRules);
-        applyAutoLearnRules(nextTransactions, fixedExpensePayments, companyExpenses, nextRules, {
-          showMessage: false,
-          applyKinds: ["folder"],
-        });
+        setBankTransactionFolders((prev) => ensureDefaultBankTransactionFolders(prev));
       }
 
       const fixedExpenseId = payload.fixedExpenseId.trim();
@@ -2608,7 +2611,7 @@ export function BankTransactionsPage({
       const linkedExpense = resolveLinkedCompanyExpenseForBankTx(tx);
       let manualLedgerRegistered = false;
 
-      if (ledgerKind === "fixed") {
+      if (resolvedLedgerKind === "fixed") {
         let resolvedFixedExpenseId = fixedExpenseId;
         if (!resolvedFixedExpenseId && ledgerCategory) {
           const fixedByName = fixedExpenses.find((row) => row.name.trim() === ledgerCategory.trim());
@@ -2792,7 +2795,7 @@ export function BankTransactionsPage({
         }
       } else if (
         payload.ledgerCategory.trim() &&
-        ledgerKind === "manual" &&
+        resolvedLedgerKind === "manual" &&
         resolveBankTxLedgerAmount(tx) > 0 &&
         !manualLedgerRegistered
       ) {
@@ -4322,6 +4325,8 @@ export function BankTransactionsPage({
           ? "is-withdrawal-row"
           : "";
     const folder = row.folderId ? folderMap.get(row.folderId) : undefined;
+    const ledgerCategory = getLedgerCategoryLabel(row);
+    const ledgerFolder = folderMap.get(DEFAULT_LEDGER_CATEGORY_FOLDER_ID);
     const canLedger = canRegisterLedgerWithConfidence(row);
     const isSelected = detailTxId === row.id;
 
@@ -4366,6 +4371,10 @@ export function BankTransactionsPage({
           {folder ? (
             <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getBankTransactionFolderTone(folder.folderType)}`}>
               {folder.folderName}
+            </span>
+          ) : ledgerCategory && ledgerFolder ? (
+            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getBankTransactionFolderTone(ledgerFolder.folderType)}`}>
+              {ledgerFolder.folderName}
             </span>
           ) : canLinkUnclassifiedClientDeposit(row) ? (
             <button
@@ -4550,8 +4559,10 @@ export function BankTransactionsPage({
 
   const renderMobileCard = (row: BankTransaction) => {
     const folder = row.folderId ? folderMap.get(row.folderId) : undefined;
-    const canLedger = canRegisterLedgerWithConfidence(row);
     const ledgerCategoryLabel = getLedgerCategoryLabel(row);
+    const ledgerFolder = folderMap.get(DEFAULT_LEDGER_CATEGORY_FOLDER_ID);
+    const displayFolder = folder || (ledgerCategoryLabel && ledgerFolder ? ledgerFolder : undefined);
+    const canLedger = canRegisterLedgerWithConfidence(row);
     const ledgerCategorySuggestion = !ledgerCategoryLabel ? resolveLedgerCategorySuggestionLabel(row) : null;
     const folderSuggestion = !folder ? folderSuggestionByTxId.get(row.id) : undefined;
     const preauthBadge =
@@ -4596,6 +4607,11 @@ export function BankTransactionsPage({
                     ? ("default" as const)
                     : ("default" as const),
             }
+          : displayFolder
+            ? {
+                label: displayFolder.folderName,
+                tone: "default" as const,
+              }
           : { label: L.unfiled, tone: "muted" as const },
         folderSuggestion
           ? {
