@@ -678,6 +678,91 @@ const BankTransactionMemoTrigger = React.memo(function BankTransactionMemoTrigge
   );
 });
 
+const BankTransactionMemoModal = React.memo(function BankTransactionMemoModal({
+  txId,
+  title,
+  subtitle,
+  initialMemo,
+  onClose,
+  onApply,
+}: {
+  txId: string;
+  title: string;
+  subtitle: string;
+  initialMemo: string;
+  onClose: () => void;
+  onApply: (transactionId: string, memo: string) => void;
+}) {
+  const [memo, setMemo] = useState(initialMemo);
+
+  useEffect(() => {
+    setMemo(initialMemo);
+  }, [txId, initialMemo]);
+
+  return (
+    <div
+      className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="erp-ledger-modal max-w-lg"
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={L.memoEditTitle}
+      >
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="erp-text-section font-bold">{L.memoEditTitle}</h2>
+            <p className="mt-1 truncate text-sm font-semibold text-slate-900">{title}</p>
+            <p className="mt-0.5 erp-text-caption text-slate-500">{subtitle}</p>
+            <p className="mt-2 erp-text-caption text-slate-500">{L.memoEditHint}</p>
+          </div>
+          <button
+            type="button"
+            className="shrink-0 rounded-xl p-2 text-slate-400 hover:bg-slate-100"
+            onClick={onClose}
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <textarea
+          lang="ko"
+          className="erp-input min-h-28 w-full rounded-2xl px-4 py-3"
+          value={memo}
+          placeholder={L.memoPlaceholder}
+          autoFocus
+          onChange={(event) => setMemo(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              onClose();
+            }
+          }}
+        />
+        <div className="mt-5 flex justify-end gap-2">
+          <Button type="button" variant="outline" className="rounded-2xl" onClick={onClose}>
+            {L.cancel}
+          </Button>
+          <Button
+            type="button"
+            className="rounded-2xl"
+            onClick={() => {
+              onApply(txId, memo);
+              onClose();
+            }}
+          >
+            {L.memoApply}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
 export function BankTransactionsPage({
   bankTransactions,
   setBankTransactions,
@@ -807,7 +892,7 @@ export function BankTransactionsPage({
   const [learnPreauthMerchants, setLearnPreauthMerchants] = useState(true);
   const [memoModal, setMemoModal] = useState<{
     txId: string;
-    memo: string;
+    initialMemo: string;
     title: string;
     subtitle: string;
   } | null>(null);
@@ -2369,7 +2454,7 @@ export function BankTransactionsPage({
   const openBankMemoModal = useCallback((tx: BankTransaction) => {
     setMemoModal({
       txId: tx.id,
-      memo: tx.memo || "",
+      initialMemo: tx.memo || "",
       title: String(tx.description || tx.counterpartyName || L.memo).trim(),
       subtitle: formatBankTransactionDateTime(tx.transactionAt),
     });
@@ -6151,68 +6236,15 @@ export function BankTransactionsPage({
       ) : null}
 
       {memoModal ? (
-        <div
-          className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setMemoModal(null);
-          }}
-        >
-          <div
-            className="erp-ledger-modal max-w-lg"
-            onMouseDown={(event) => event.stopPropagation()}
-            onClick={(event) => event.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label={L.memoEditTitle}
-          >
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <h2 className="erp-text-section font-bold">{L.memoEditTitle}</h2>
-                <p className="mt-1 truncate text-sm font-semibold text-slate-900">{memoModal.title}</p>
-                <p className="mt-0.5 erp-text-caption text-slate-500">{memoModal.subtitle}</p>
-                <p className="mt-2 erp-text-caption text-slate-500">{L.memoEditHint}</p>
-              </div>
-              <button
-                type="button"
-                className="shrink-0 rounded-xl p-2 text-slate-400 hover:bg-slate-100"
-                onClick={() => setMemoModal(null)}
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <textarea
-              lang="ko"
-              className="erp-input min-h-28 w-full rounded-2xl px-4 py-3"
-              value={memoModal.memo}
-              placeholder={L.memoPlaceholder}
-              autoFocus
-              onChange={(event) =>
-                setMemoModal((prev) => (prev ? { ...prev, memo: event.target.value } : prev))
-              }
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  setMemoModal(null);
-                }
-              }}
-            />
-            <div className="mt-5 flex justify-end gap-2">
-              <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setMemoModal(null)}>
-                {L.cancel}
-              </Button>
-              <Button
-                type="button"
-                className="rounded-2xl"
-                onClick={() => {
-                  handleMemoPersist(memoModal.txId, memoModal.memo);
-                  setMemoModal(null);
-                }}
-              >
-                {L.memoApply}
-              </Button>
-            </div>
-          </div>
-        </div>
+        <BankTransactionMemoModal
+          key={memoModal.txId}
+          txId={memoModal.txId}
+          title={memoModal.title}
+          subtitle={memoModal.subtitle}
+          initialMemo={memoModal.initialMemo}
+          onClose={() => setMemoModal(null)}
+          onApply={handleMemoPersist}
+        />
       ) : null}
     </div>
   );
