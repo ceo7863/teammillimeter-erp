@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowDownLeft,
   ArrowLeftRight,
@@ -279,6 +280,7 @@ const L = {
   counterpartyBank: "\uC0C1\uB300\uC740\uD589",
   transactionType: "\uAC70\uB798\uAD6C\uBD84",
   accountNumber: "\uACC4\uC88C\uBC88\uD638",
+  bankName: "\uC740\uD589",
   accountHolder: "\uC608\uAE08\uC8FC",
   queryPeriod: "\uC870\uD68C \uAE30\uAC04",
   latestTransactionAt: "\uCD5C\uC2E0 \uAC70\uB798\uC77C\uC2DC",
@@ -323,9 +325,13 @@ const L = {
   assignFolder: "\uD3F4\uB354",
   memo: "\uBA54\uBAA8",
   memoPlaceholder: "\uBA54\uBAA8 \uC785\uB825",
-  memoEditTitle: "\uD1B5\uC7A5 \uBA54\uBAA8",
-  memoEditHint: "\uC800\uC7A5 \uD6C4 \uBD84\uB958 \u00B7 \uAC00\uACC4\uBD80 \uD559\uC2B5\uC5D0 \uBC18\uC601\uB429\uB2C8\uB2E4.",
-  memoApply: "\uC801\uC6A9",
+  detailTitle: "\uD1B5\uC7A5 \uAC70\uB798 \uC804\uD45C",
+  detailInfoSection: "\uAC70\uB798 \uC815\uBCF4",
+  detailEditSection: "\uC218\uC815 \uD56D\uBAA9",
+  detailSave: "\uC800\uC7A5",
+  detailSaveDone: "\uAC70\uB798 \uC815\uBCF4\uB97C \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.",
+  detailRowHint: "\uD589\uC744 \uD074\uB9AD\uD558\uBA74 \uC804\uD45C\uCC98\uB7FC \uC5F4\uB824 \uBA54\uBAA8\u00B7\uBD84\uB958\u00B7\uAC00\uACC4\uBD80 \uD56D\uBAA9\uC744 \uC218\uC815\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+  memoEditHint: "\uBA54\uBAA8 \u00B7 \uBD84\uB958 \u00B7 \uAC00\uACC4\uBD80 \uD56D\uBAA9\uC744 \uC218\uC815\uD55C \uB92C \uC800\uC7A5\uC744 \uB204\uB974\uBA74 \uBC18\uC601\uB429\uB2C8\uB2E4.",
   classification: "\uBD84\uB958",
   ledgerCategoryColumn: "\uAC00\uACC4\uBD80",
   linkedSubject: "\uC5F0\uACB0 \uC774\uB984",
@@ -648,118 +654,250 @@ function buildLedgerLinkDefaults(
   return { linkMode: "link" as const, linkPaymentId: linkable[0].id };
 }
 
-const BankTransactionMemoTrigger = React.memo(function BankTransactionMemoTrigger({
-  savedMemo,
-  placeholder,
-  className,
-  align = "left",
-  onOpen,
-}: {
-  savedMemo: string;
-  placeholder: string;
-  className: string;
-  align?: "left" | "right";
-  onOpen: () => void;
-}) {
+function DetailReadRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <button
-      type="button"
-      className={`erp-bank-memo-trigger erp-input erp-input-compact ${align === "right" ? "text-right" : "text-left"} ${className}`}
-      onClick={(event) => {
-        event.stopPropagation();
-        onOpen();
-      }}
-      title={savedMemo || placeholder}
-    >
-      <span className={`block truncate ${savedMemo ? "font-medium text-slate-800" : "font-normal text-slate-400"}`}>
-        {savedMemo || placeholder}
-      </span>
-    </button>
+    <div className="erp-bank-tx-detail-row">
+      <dt className="erp-bank-tx-detail-label">{label}</dt>
+      <dd className="erp-bank-tx-detail-value">{value}</dd>
+    </div>
   );
-});
+}
 
-const BankTransactionMemoModal = React.memo(function BankTransactionMemoModal({
-  txId,
-  title,
-  subtitle,
-  initialMemo,
+const BankTransactionDetailDrawer = React.memo(function BankTransactionDetailDrawer({
+  tx,
+  folderLabel,
+  ledgerCategoryLabel,
+  ledgerCategorySuggestion,
+  matchStatusLabel,
+  linkedSubject,
+  initialLedgerCategory,
+  ledgerCategoryOptions,
+  assignableClientFolders,
+  assignableCardFolders,
+  assignableWorkerFolders,
+  customCategoryRoots,
+  assignableCustomFolders,
+  bankTransactionFolders,
+  formatFolderSelectLabel,
+  canLedger,
   onClose,
-  onApply,
+  onSave,
+  onOpenLedgerRegister,
+  onOpenLedgerEdit,
 }: {
-  txId: string;
-  title: string;
-  subtitle: string;
-  initialMemo: string;
+  tx: BankTransaction;
+  folderLabel: string;
+  ledgerCategoryLabel: string | null;
+  ledgerCategorySuggestion: string | null;
+  matchStatusLabel: string;
+  linkedSubject: string;
+  initialLedgerCategory: string;
+  ledgerCategoryOptions: Array<{ label: string; value: string }>;
+  assignableClientFolders: BankTransactionFolder[];
+  assignableCardFolders: BankTransactionFolder[];
+  assignableWorkerFolders: BankTransactionFolder[];
+  customCategoryRoots: BankTransactionFolder[];
+  assignableCustomFolders: BankTransactionFolder[];
+  bankTransactionFolders: BankTransactionFolder[];
+  formatFolderSelectLabel: (folder: BankTransactionFolder) => string;
+  canLedger: boolean;
   onClose: () => void;
-  onApply: (transactionId: string, memo: string) => void;
+  onSave: (payload: { memo: string; folderId: string; ledgerCategory: string }) => void;
+  onOpenLedgerRegister?: () => void;
+  onOpenLedgerEdit?: () => void;
 }) {
-  const [memo, setMemo] = useState(initialMemo);
+  const [memo, setMemo] = useState(tx.memo || "");
+  const [folderId, setFolderId] = useState(tx.folderId || "");
+  const [ledgerCategory, setLedgerCategory] = useState(initialLedgerCategory);
 
   useEffect(() => {
-    setMemo(initialMemo);
-  }, [txId, initialMemo]);
+    setMemo(tx.memo || "");
+    setFolderId(tx.folderId || "");
+    setLedgerCategory(initialLedgerCategory);
+  }, [tx.id, tx.memo, tx.folderId, initialLedgerCategory]);
 
-  return (
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
+  const deposit = parseBankAmount(tx.deposit);
+  const withdrawal = parseBankAmount(tx.withdrawal);
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <div
-      className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
+      className="erp-ledger-calendar-drawer-backdrop erp-ledger-calendar-drawer-backdrop--elevated"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div
-        className="erp-ledger-modal max-w-lg"
+      <aside
+        className="erp-ledger-calendar-drawer erp-bank-tx-detail-drawer erp-calendar-side-panel"
+        aria-label={L.detailTitle}
         onMouseDown={(event) => event.stopPropagation()}
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label={L.memoEditTitle}
       >
-        <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="erp-calendar-side-panel-head">
           <div className="min-w-0">
-            <h2 className="erp-text-section font-bold">{L.memoEditTitle}</h2>
-            <p className="mt-1 truncate text-sm font-semibold text-slate-900">{title}</p>
-            <p className="mt-0.5 erp-text-caption text-slate-500">{subtitle}</p>
-            <p className="mt-2 erp-text-caption text-slate-500">{L.memoEditHint}</p>
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{L.detailTitle}</p>
+            <strong className="erp-calendar-side-panel-date mt-1 block text-base">
+              {formatBankTransactionDateTime(tx.transactionAt)}
+            </strong>
+            <p className="mt-1 truncate text-sm font-semibold text-slate-900">{tx.description || "-"}</p>
+            <p className="mt-1 text-sm font-bold text-slate-900">
+              {deposit > 0 ? (
+                <span className="text-emerald-700">{L.deposit} {formatKRW(deposit)}</span>
+              ) : withdrawal > 0 ? (
+                <span className="text-red-600">{L.withdrawal} {formatKRW(withdrawal)}</span>
+              ) : (
+                "-"
+              )}
+              {" · "}
+              {L.balance} {formatKRW(tx.balanceAfter)}
+            </p>
           </div>
-          <button
-            type="button"
-            className="shrink-0 rounded-xl p-2 text-slate-400 hover:bg-slate-100"
-            onClick={onClose}
-          >
+          <button type="button" className="rounded-xl p-2 text-slate-400 hover:bg-slate-100" onClick={onClose}>
             <X size={18} />
           </button>
         </div>
-        <textarea
-          lang="ko"
-          className="erp-input min-h-28 w-full rounded-2xl px-4 py-3"
-          value={memo}
-          placeholder={L.memoPlaceholder}
-          autoFocus
-          onChange={(event) => setMemo(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              onClose();
-            }
-          }}
-        />
-        <div className="mt-5 flex justify-end gap-2">
+
+        <div className="erp-calendar-side-panel-body erp-bank-tx-detail-body">
+          <section className="erp-bank-tx-detail-section">
+            <h3 className="erp-bank-tx-detail-section-title">{L.detailInfoSection}</h3>
+            <dl className="erp-bank-tx-detail-grid">
+              <DetailReadRow label={L.description} value={tx.description || "-"} />
+              <DetailReadRow label={L.counterpartyName} value={tx.counterpartyName || "-"} />
+              <DetailReadRow label={L.counterpartyBank} value={tx.counterpartyBank || "-"} />
+              <DetailReadRow label={L.accountNumber} value={tx.accountNumber || "-"} />
+              <DetailReadRow label={L.bankName} value={tx.bankName || "-"} />
+              <DetailReadRow label={L.transactionType} value={tx.transactionType || "-"} />
+              <DetailReadRow label={L.classification} value={folderLabel} />
+              <DetailReadRow
+                label={L.ledgerCategoryColumn}
+                value={ledgerCategoryLabel || ledgerCategorySuggestion || "-"}
+              />
+              <DetailReadRow label={L.matchStatus} value={matchStatusLabel} />
+              {linkedSubject ? <DetailReadRow label={L.linkedSubject} value={linkedSubject} /> : null}
+              {tx.memo ? <DetailReadRow label={L.memo} value={tx.memo} /> : null}
+            </dl>
+          </section>
+
+          <section className="erp-bank-tx-detail-section">
+            <h3 className="erp-bank-tx-detail-section-title">{L.detailEditSection}</h3>
+            <p className="mb-3 text-xs font-semibold text-slate-500">{L.memoEditHint}</p>
+            <div className="space-y-3">
+              <Field label={L.memo}>
+                <textarea
+                  lang="ko"
+                  className="erp-input min-h-24 w-full rounded-2xl px-4 py-3"
+                  value={memo}
+                  placeholder={L.memoPlaceholder}
+                  onChange={(event) => setMemo(event.target.value)}
+                />
+              </Field>
+              <Field label={L.classification}>
+                <select
+                  className="erp-input w-full rounded-xl"
+                  value={folderId}
+                  onChange={(event) => setFolderId(event.target.value)}
+                >
+                  <option value="">{L.unfiled}</option>
+                  <optgroup label={L.clientFolders}>
+                    {assignableClientFolders.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {formatFolderSelectLabel(item)}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label={L.cardFolders}>
+                    {assignableCardFolders.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {formatFolderSelectLabel(item)}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label={L.workerFolders}>
+                    {assignableWorkerFolders.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {formatFolderSelectLabel(item)}
+                      </option>
+                    ))}
+                  </optgroup>
+                  {customCategoryRoots.map((root) => {
+                    const ids = new Set(collectCustomCategoryFolderIds(bankTransactionFolders, root.id));
+                    const options = assignableCustomFolders.filter((item) => ids.has(item.id));
+                    if (!options.length) return null;
+                    return (
+                      <optgroup key={root.id} label={root.folderName}>
+                        {options.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {formatFolderSelectLabel(item)}
+                          </option>
+                        ))}
+                      </optgroup>
+                    );
+                  })}
+                </select>
+              </Field>
+              <Field label={L.ledgerCategoryColumn}>
+                <AutocompleteInput
+                  value={ledgerCategory}
+                  options={ledgerCategoryOptions}
+                  placeholder={L.ledgerManualCategory}
+                  freeSolo
+                  showOptionsOnFocus
+                  commitFreeSoloOnBlur
+                  keepOpenUntilSelect
+                  compact={false}
+                  limit={24}
+                  inputProps={{ className: "rounded-xl" }}
+                  onChange={(value) => setLedgerCategory(String(value || "").trim())}
+                />
+                <p className="mt-1.5 text-xs font-semibold text-slate-500">{L.ledgerCategoryAddHint}</p>
+              </Field>
+            </div>
+          </section>
+
+          {canLedger || onOpenLedgerEdit ? (
+            <div className="flex flex-wrap gap-2">
+              {onOpenLedgerEdit ? (
+                <Button type="button" variant="outline" className="rounded-xl border-amber-200 bg-amber-50 text-amber-900" onClick={onOpenLedgerEdit}>
+                  <BookOpen size={14} className="mr-1" />
+                  {L.ledgerEditTitle}
+                </Button>
+              ) : null}
+              {canLedger && onOpenLedgerRegister ? (
+                <Button type="button" variant="outline" className="rounded-xl border-amber-200 bg-amber-50 text-amber-900" onClick={onOpenLedgerRegister}>
+                  <BookOpen size={14} className="mr-1" />
+                  {L.ledgerSendTo}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="erp-bank-tx-detail-footer">
           <Button type="button" variant="outline" className="rounded-2xl" onClick={onClose}>
             {L.cancel}
           </Button>
           <Button
             type="button"
             className="rounded-2xl"
-            onClick={() => {
-              onApply(txId, memo);
-              onClose();
-            }}
+            onClick={() => onSave({ memo, folderId, ledgerCategory })}
           >
-            {L.memoApply}
+            {L.detailSave}
           </Button>
         </div>
-      </div>
-    </div>
+      </aside>
+    </div>,
+    document.body,
   );
 });
 
@@ -890,12 +1028,7 @@ export function BankTransactionsPage({
   const [preauthNetModalOpen, setPreauthNetModalOpen] = useState(false);
   const [selectedPreauthGroupKeys, setSelectedPreauthGroupKeys] = useState<string[]>([]);
   const [learnPreauthMerchants, setLearnPreauthMerchants] = useState(true);
-  const [memoModal, setMemoModal] = useState<{
-    txId: string;
-    initialMemo: string;
-    title: string;
-    subtitle: string;
-  } | null>(null);
+  const [detailTxId, setDetailTxId] = useState<string | null>(null);
   const importLedgerBatchIdsRef = useRef<Set<string>>(new Set());
   const [sentArchives, setSentArchives] = useState<PdfArchiveMeta[]>([]);
   const ibkInputRef = useRef<HTMLInputElement>(null);
@@ -1948,6 +2081,21 @@ export function BankTransactionsPage({
   const activeLedgerCategoryOptions =
     ledgerModal?.kind === "fixed" ? ledgerFixedCategoryOptions : ledgerManualCategoryOptions;
 
+  const detailTx = useMemo(
+    () => (detailTxId ? bankTransactions.find((row) => row.id === detailTxId) ?? null : null),
+    [bankTransactions, detailTxId],
+  );
+
+  const detailLedgerCategoryOptions = useMemo(() => {
+    if (!detailTx) return [];
+    const categories = normalizeExpenseCategories(expenseCategories);
+    const current = getLedgerCategoryLabel(detailTx) || resolveLedgerCategorySuggestionLabel(detailTx) || "";
+    if (current && !categories.includes(current)) {
+      categories.unshift(current);
+    }
+    return categories.map((category) => ({ label: category, value: category }));
+  }, [detailTx, expenseCategories, companyExpenses, fixedExpensePayments, fixedExpenses, memoCategorySuggestionByTxId, ledgerSuggestionByTxId]);
+
   const reviewLinkablePayments = useMemo(() => {
     if (!ledgerReviewPrompt || ledgerReviewPrompt.kind !== "fixed") return [];
     const fixedExpenseId = ledgerReviewPrompt.fixedExpenseId.trim();
@@ -2451,56 +2599,159 @@ export function BankTransactionsPage({
     });
   };
 
-  const openBankMemoModal = useCallback((tx: BankTransaction) => {
-    setMemoModal({
-      txId: tx.id,
-      initialMemo: tx.memo || "",
-      title: String(tx.description || tx.counterpartyName || L.memo).trim(),
-      subtitle: formatBankTransactionDateTime(tx.transactionAt),
-    });
+  const openBankTransactionDetail = useCallback((tx: BankTransaction) => {
+    setDetailTxId(tx.id);
   }, []);
 
-  const handleMemoPersist = React.useCallback(
-    (transactionId: string, memo: string) => {
-      const tx = bankTransactions.find((row) => row.id === transactionId);
+  const saveBankTransactionDetail = useCallback(
+    (payload: { memo: string; folderId: string; ledgerCategory: string }) => {
+      if (!detailTxId) return;
+      const tx = bankTransactions.find((row) => row.id === detailTxId);
       if (!tx) return;
-      const nextRow = { ...tx, memo: memo || undefined };
-      if (String(tx.memo || "") === String(nextRow.memo || "")) {
-        return;
-      }
-      auditBankTxUpdate(tx, nextRow);
-      const nextTransactions = bankTransactions.map((row) =>
-        row.id === transactionId ? nextRow : row,
-      );
-      setBankTransactions(nextTransactions);
 
-      const category = resolveMemoLearnCategory(memo, expenseCategories);
+      let nextRow: BankTransaction = { ...tx };
+      let rowChanged = false;
+
+      const nextMemo = payload.memo.trim() || undefined;
+      if (String(tx.memo || "") !== String(nextMemo || "")) {
+        nextRow = { ...nextRow, memo: nextMemo };
+        rowChanged = true;
+      }
+
+      const targetFolderId = payload.folderId.trim();
+      const folderChanged = String(tx.folderId || "") !== targetFolderId;
+      if (folderChanged) {
+        if (targetFolderId && !canAssignBankTransactionToFolder(tx, targetFolderId, bankTransactionFolders, workers)) {
+          setImportMessage(L.workerFolderAssignBlocked);
+          return;
+        }
+        nextRow = targetFolderId
+          ? {
+              ...nextRow,
+              folderId: targetFolderId,
+              classifiedAt: new Date().toISOString(),
+              linkedSubject:
+                nextRow.linkedSubject || nextRow.counterpartyName || nextRow.description || undefined,
+            }
+          : {
+              ...nextRow,
+              folderId: undefined,
+              linkedSubject: undefined,
+              classifiedAt: undefined,
+            };
+        rowChanged = true;
+      }
+
+      let nextTransactions = bankTransactions;
+      if (rowChanged) {
+        auditBankTxUpdate(tx, nextRow);
+        nextTransactions = bankTransactions.map((row) => (row.id === tx.id ? nextRow : row));
+        setBankTransactions(nextTransactions);
+      }
+
       let nextRules = bankLedgerRules;
-      if (category && Number(tx.withdrawal || 0) > 0) {
-        setExpenseCategories((prev) => mergeExpenseCategory(prev, category));
+
+      if (folderChanged && targetFolderId) {
         nextRules = upsertBankLearnRule(
-          bankLedgerRules,
-          buildBankLearnRuleFromMemoCategory(nextRow, category, savedBy),
+          nextRules,
+          buildBankLearnRuleFromFolderAssignment(tx, targetFolderId, savedBy || undefined),
         );
         setBankLedgerRules(nextRules);
+        applyAutoLearnRules(nextTransactions, fixedExpensePayments, companyExpenses, nextRules, {
+          showMessage: false,
+          applyKinds: ["folder"],
+        });
       }
 
-      if (category && isMemoLearnAmountFlexibleCategory(category) && Number(tx.withdrawal || 0) > 0) {
-        scheduleBackgroundLearning({ showMessage: false });
+      const ledgerCategory = payload.ledgerCategory.trim();
+      const linkedPayment = resolveLinkedFixedPaymentForBankTx(tx);
+      const linkedExpense = resolveLinkedCompanyExpenseForBankTx(tx);
+
+      if (ledgerCategory) {
+        if (linkedPayment) {
+          const currentPayment = fixedExpensePayments.find((row) => row.id === linkedPayment.id);
+          if (currentPayment && String(currentPayment.category || "") !== ledgerCategory) {
+            const updatedPayment = { ...currentPayment, category: ledgerCategory };
+            setFixedExpensePayments((prev) =>
+              prev.map((row) => (row.id === linkedPayment.id ? updatedPayment : row)),
+            );
+            recordAudit({
+              entityType: "fixedExpensePayment",
+              entityId: updatedPayment.id,
+              entityLabel: updatedPayment.description || ledgerCategory,
+              screen: L.pageTitle,
+              action: "update",
+              before: snapshotFixedExpensePaymentForAudit(currentPayment),
+              after: snapshotFixedExpensePaymentForAudit(updatedPayment),
+              fields: FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS,
+              user: currentUser,
+            });
+          }
+        } else if (linkedExpense) {
+          if (String(linkedExpense.category || "") !== ledgerCategory) {
+            const updatedExpense = { ...linkedExpense, category: ledgerCategory };
+            setCompanyExpenses((prev) =>
+              prev.map((row) => (row.id === linkedExpense.id ? updatedExpense : row)),
+            );
+            recordAudit({
+              entityType: "companyExpense",
+              entityId: updatedExpense.id,
+              entityLabel: updatedExpense.description || ledgerCategory,
+              screen: L.pageTitle,
+              action: "update",
+              before: snapshotCompanyExpenseForAudit(linkedExpense),
+              after: snapshotCompanyExpenseForAudit(updatedExpense),
+              fields: COMPANY_EXPENSE_AUDIT_FIELDS,
+              user: currentUser,
+            });
+          }
+        } else if (Number(tx.withdrawal || 0) > 0) {
+          setExpenseCategories((prev) => mergeExpenseCategory(prev, ledgerCategory));
+          nextRules = upsertBankLearnRule(
+            nextRules,
+            buildBankLearnRuleFromMemoCategory(nextRow, ledgerCategory, savedBy),
+          );
+          setBankLedgerRules(nextRules);
+        }
       }
+
+      if (String(tx.memo || "") !== String(nextMemo || "") && Number(tx.withdrawal || 0) > 0) {
+        const memoCategory = resolveMemoLearnCategory(payload.memo, expenseCategories);
+        if (memoCategory) {
+          setExpenseCategories((prev) => mergeExpenseCategory(prev, memoCategory));
+          nextRules = upsertBankLearnRule(
+            nextRules,
+            buildBankLearnRuleFromMemoCategory(nextRow, memoCategory, savedBy),
+          );
+          setBankLedgerRules(nextRules);
+        }
+        if (memoCategory && isMemoLearnAmountFlexibleCategory(memoCategory)) {
+          scheduleBackgroundLearning({ showMessage: false });
+        }
+      }
+
+      setDetailTxId(null);
+      setImportMessage(L.detailSaveDone);
     },
     [
+      applyAutoLearnRules,
       bankLedgerRules,
+      bankTransactionFolders,
       bankTransactions,
       companyExpenses,
+      currentUser,
+      detailTxId,
       expenseCategories,
       fixedExpensePayments,
+      recordAudit,
       savedBy,
       scheduleBackgroundLearning,
-      setBankTransactions,
-      setExpenseCategories,
       setBankLedgerRules,
-      currentUser,
+      setBankTransactions,
+      setCompanyExpenses,
+      setExpenseCategories,
+      setFixedExpensePayments,
+      workers,
     ],
   );
 
@@ -3880,18 +4131,6 @@ export function BankTransactionsPage({
 
   const renderTransactionDescription = (row: BankTransaction) => {
     const text = row.description || "-";
-    if (canRegisterLedgerWithConfidence(row)) {
-      return (
-        <button
-          type="button"
-          className="text-left font-medium text-blue-700 underline decoration-blue-200 underline-offset-2 hover:text-blue-900"
-          title={L.ledgerSendTo}
-          onClick={() => openLedgerRegister(row)}
-        >
-          {text}
-        </button>
-      );
-    }
     return <span className="font-medium text-slate-900">{text}</span>;
   };
 
@@ -3945,17 +4184,14 @@ export function BankTransactionsPage({
     if (category) {
       const isFixed = isLedgerCategoryFromFixed(row);
       return (
-        <button
-          type="button"
-          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold transition hover:brightness-95 ${
+        <span
+          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold ${
             isFixed ? "bg-amber-100 text-amber-800" : "border border-amber-200 bg-amber-50 text-amber-900"
           }`}
-          title={L.ledgerBadgeEditHint}
-          onClick={() => openLedgerEdit(row)}
         >
           <BookOpen size={11} />
           {category}
-        </button>
+        </span>
       );
     }
 
@@ -3971,6 +4207,10 @@ export function BankTransactionsPage({
     return <span className="text-xs text-slate-400">-</span>;
   };
 
+  const stopRowClick = (event: React.MouseEvent) => {
+    event.stopPropagation();
+  };
+
   const renderRow = (row: BankTransaction) => {
     const suppressed = isNetGroupSuppressed(row);
     const isDeposit = row.deposit > 0;
@@ -3984,21 +4224,26 @@ export function BankTransactionsPage({
           : "";
     const folder = row.folderId ? folderMap.get(row.folderId) : undefined;
     const canLedger = canRegisterLedgerWithConfidence(row);
+    const isSelected = detailTxId === row.id;
 
     return (
-      <tr key={row.id} className={`border-t ${rowClass}`}>
+      <tr
+        key={row.id}
+        className={`border-t cursor-pointer transition hover:bg-slate-50/80 ${rowClass} ${isSelected ? "bg-sky-50 ring-1 ring-inset ring-sky-200" : ""}`}
+        onClick={() => openBankTransactionDetail(row)}
+      >
         <td className="whitespace-nowrap text-slate-600">{formatBankTransactionDateTime(row.transactionAt)}</td>
         <td className="text-right font-semibold text-emerald-700">{row.deposit > 0 ? formatKRW(row.deposit) : "-"}</td>
         <td className="text-right font-semibold text-red-600">{row.withdrawal > 0 ? formatKRW(row.withdrawal) : "-"}</td>
         <td className="text-right font-bold text-slate-900">{formatKRW(row.balanceAfter)}</td>
         <td>{renderTransactionDescription(row)}</td>
-        <td>
-          <BankTransactionMemoTrigger
-            savedMemo={row.memo || ""}
-            placeholder={L.memoPlaceholder}
-            className="min-w-[8rem] max-w-[14rem]"
-            onOpen={() => openBankMemoModal(row)}
-          />
+        <td className="max-w-[14rem]">
+          <span
+            className={`block truncate text-xs ${row.memo ? "font-medium text-slate-800" : "text-slate-400"}`}
+            title={row.memo || L.memoPlaceholder}
+          >
+            {row.memo || L.memoPlaceholder}
+          </span>
         </td>
         <td className="text-slate-700">
           {canLinkUnclassifiedClientDeposit(row) ? (
@@ -4006,7 +4251,10 @@ export function BankTransactionsPage({
               type="button"
               className="text-left font-medium text-emerald-700 underline decoration-emerald-200 underline-offset-2 hover:text-emerald-900"
               title={L.clientLinkClickHint}
-              onClick={() => openClientLinkModal(row)}
+              onClick={(event) => {
+                stopRowClick(event);
+                openClientLinkModal(row);
+              }}
             >
               {row.counterpartyName || row.description || "-"}
             </button>
@@ -4025,7 +4273,10 @@ export function BankTransactionsPage({
               type="button"
               className="inline-flex rounded-full border border-dashed border-emerald-300 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800 hover:border-emerald-400 hover:bg-emerald-100"
               title={L.clientLinkClickHint}
-              onClick={() => openClientLinkModal(row)}
+              onClick={(event) => {
+                stopRowClick(event);
+                openClientLinkModal(row);
+              }}
             >
               {L.unfiled}
             </button>
@@ -4080,7 +4331,7 @@ export function BankTransactionsPage({
                         {L.partialStatementMatchHint(sentTop.paymentAmount, sentTop.statementRemainingAmount)}
                       </div>
                     ) : null}
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-wrap gap-1" onClick={stopRowClick}>
                       <Button
                         type="button"
                         size="sm"
@@ -4109,16 +4360,18 @@ export function BankTransactionsPage({
                 );
               }
               return (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="rounded-lg text-xs"
-                  onClick={() => setLinkModalTx(row)}
-                >
-                  <Link2 size={12} className="mr-1" />
-                  {L.matchManual}
-                </Button>
+                <div onClick={stopRowClick}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="rounded-lg text-xs"
+                    onClick={() => setLinkModalTx(row)}
+                  >
+                    <Link2 size={12} className="mr-1" />
+                    {L.matchManual}
+                  </Button>
+                </div>
               );
             })()
           ) : (
@@ -4132,7 +4385,7 @@ export function BankTransactionsPage({
             "-"
           )}
         </td>
-        <td>
+        <td onClick={stopRowClick}>
           <select
             className="erp-input max-w-[10rem] rounded-lg py-1 text-xs"
             value={row.folderId || ""}
@@ -4176,7 +4429,7 @@ export function BankTransactionsPage({
             })}
           </select>
         </td>
-        <td>
+        <td onClick={stopRowClick}>
           {canLedger ? (
             <Button
               type="button"
@@ -4225,6 +4478,8 @@ export function BankTransactionsPage({
       title={row.description || "(\uAC70\uB798\uB0B4\uC6A9 \uC5C6\uC74C)"}
       subtitle={formatBankTransactionDateTime(row.transactionAt)}
       amount={amount}
+      selected={detailTxId === row.id}
+      onClick={() => openBankTransactionDetail(row)}
       badges={[
         preauthBadge ? { label: preauthBadge, tone: "muted" as const } : null,
         ledgerCategoryLabel
@@ -4268,14 +4523,10 @@ export function BankTransactionsPage({
           : []),
         {
           label: L.memo,
-          value: (
-            <BankTransactionMemoTrigger
-              savedMemo={row.memo || ""}
-              placeholder={L.memoPlaceholder}
-              className="w-full min-w-0"
-              align="right"
-              onOpen={() => openBankMemoModal(row)}
-            />
+          value: row.memo ? (
+            <span className="font-medium text-slate-800">{row.memo}</span>
+          ) : (
+            <span className="text-slate-400">{L.memoPlaceholder}</span>
           ),
         },
         { label: L.balance, value: formatKRW(row.balanceAfter) },
@@ -4283,44 +4534,6 @@ export function BankTransactionsPage({
         { label: L.counterpartyBank, value: row.counterpartyBank || "-" },
         { label: L.transactionType, value: row.transactionType || "-" },
       ]}
-      actions={
-        <>
-          {ledgerCategoryLabel ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="rounded-xl border-amber-200 bg-amber-50 text-xs font-semibold text-amber-900 hover:bg-amber-100"
-              onClick={() => openLedgerEdit(row)}
-            >
-              <BookOpen size={14} className="mr-1" />
-              {ledgerCategoryLabel}
-            </Button>
-          ) : null}
-          {canLedger || canLinkUnclassifiedClientDeposit(row) ? (
-          <div className="flex flex-wrap gap-2">
-            {canLinkUnclassifiedClientDeposit(row) ? (
-              <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={() => openClientLinkModal(row)}>
-                <Building2 size={14} className="mr-1" />
-                {L.clientLinkTitle}
-              </Button>
-            ) : null}
-            {canLedger ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="rounded-xl border-amber-200 bg-amber-50 font-semibold text-amber-900 hover:bg-amber-100"
-                onClick={() => openLedgerRegister(row)}
-              >
-                <BookOpen size={14} className="mr-1" />
-                {L.ledgerSendTo}
-              </Button>
-            ) : null}
-          </div>
-          ) : null}
-        </>
-      }
     />
     );
   };
@@ -5100,6 +5313,7 @@ export function BankTransactionsPage({
           disabled={!filteredRows.length}
           tableSelector="#bank-transactions-table"
         >
+          <p className="mb-2 text-xs font-semibold text-slate-500">{L.detailRowHint}</p>
           <DesktopTableWrap>
             <table id="bank-transactions-table" ref={tableRef} className="erp-table erp-bank-table w-full min-w-[960px]">
               <thead>
@@ -6235,15 +6449,51 @@ export function BankTransactionsPage({
         </div>
       ) : null}
 
-      {memoModal ? (
-        <BankTransactionMemoModal
-          key={memoModal.txId}
-          txId={memoModal.txId}
-          title={memoModal.title}
-          subtitle={memoModal.subtitle}
-          initialMemo={memoModal.initialMemo}
-          onClose={() => setMemoModal(null)}
-          onApply={handleMemoPersist}
+      {detailTx ? (
+        <BankTransactionDetailDrawer
+          key={detailTx.id}
+          tx={detailTx}
+          folderLabel={
+            detailTx.folderId
+              ? folderMap.get(detailTx.folderId)?.folderName || L.unfiled
+              : L.unfiled
+          }
+          ledgerCategoryLabel={getLedgerCategoryLabel(detailTx)}
+          ledgerCategorySuggestion={resolveLedgerCategorySuggestionLabel(detailTx)}
+          matchStatusLabel={
+            detailTx.linkedPaymentVoucherId ? getBankMatchStatusLabel(detailTx) : "-"
+          }
+          linkedSubject={detailTx.linkedSubject || ""}
+          initialLedgerCategory={
+            getLedgerCategoryLabel(detailTx) || resolveLedgerCategorySuggestionLabel(detailTx) || ""
+          }
+          ledgerCategoryOptions={detailLedgerCategoryOptions}
+          assignableClientFolders={assignableClientFolders}
+          assignableCardFolders={assignableCardFolders}
+          assignableWorkerFolders={assignableWorkerFolders}
+          customCategoryRoots={customCategoryRoots}
+          assignableCustomFolders={assignableCustomFolders}
+          bankTransactionFolders={bankTransactionFolders}
+          formatFolderSelectLabel={formatFolderSelectLabel}
+          canLedger={canRegisterLedgerWithConfidence(detailTx)}
+          onClose={() => setDetailTxId(null)}
+          onSave={saveBankTransactionDetail}
+          onOpenLedgerEdit={
+            getLedgerCategoryLabel(detailTx)
+              ? () => {
+                  setDetailTxId(null);
+                  openLedgerEdit(detailTx);
+                }
+              : undefined
+          }
+          onOpenLedgerRegister={
+            canRegisterLedgerWithConfidence(detailTx)
+              ? () => {
+                  setDetailTxId(null);
+                  openLedgerRegister(detailTx);
+                }
+              : undefined
+          }
         />
       ) : null}
     </div>

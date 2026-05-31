@@ -8735,6 +8735,80 @@ body.erp-col-resizing * {
   }
 }
 
+.erp-ledger-calendar-drawer-backdrop--elevated {
+  z-index: 70;
+}
+
+.erp-bank-tx-detail-drawer {
+  width: min(100%, 28rem);
+  max-width: 96vw;
+  display: flex;
+  flex-direction: column;
+}
+
+.erp-bank-tx-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding-bottom: 1rem;
+}
+
+.erp-bank-tx-detail-section {
+  border-top: 1px solid #e2e8f0;
+  padding-top: 1rem;
+}
+
+.erp-bank-tx-detail-section:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.erp-bank-tx-detail-section-title {
+  margin-bottom: 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #334155;
+}
+
+.erp-bank-tx-detail-grid {
+  display: grid;
+  gap: 0.625rem;
+}
+
+.erp-bank-tx-detail-row {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, 38%) 1fr;
+  gap: 0.5rem 0.75rem;
+  align-items: start;
+}
+
+.erp-bank-tx-detail-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.erp-bank-tx-detail-value {
+  min-width: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #0f172a;
+  word-break: break-word;
+}
+
+.erp-bank-tx-detail-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  border-top: 1px solid #e2e8f0;
+  padding: 1rem 1.25rem;
+  background: #fff;
+}
+
+.erp-bank-table tbody tr.is-preauth-suppressed:hover {
+  background: rgb(248 250 252 / 0.9);
+}
+
 .erp-ledger-bank-legend {
   display: flex;
   flex-wrap: wrap;
