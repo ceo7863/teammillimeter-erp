@@ -184,6 +184,7 @@ import {
   ensureDefaultBankTransactionFolders,
   isCardCompanyDeposit,
   syncLedgerLinkedBankTransactionFolders,
+  assignDefaultLedgerFolderToBankTransaction,
   type BankTransactionFolder,
   type BankTransactionFolderType,
 } from "@/utils/bankTransactionFolders";
@@ -2518,12 +2519,13 @@ export function BankTransactionsPage({
         nextExpenses: typeof companyExpenses,
         nextPayments: typeof fixedExpensePayments,
       ) => {
+        const folders = ensureDefaultBankTransactionFolders(bankTransactionFolders);
         const synced = syncBankTransactionLedgerLinkFields(workingTransactions, nextExpenses, nextPayments);
-        const folderSync = syncLedgerLinkedBankTransactionFolders(synced, bankTransactionFolders, {
+        const folderSync = syncLedgerLinkedBankTransactionFolders(synced, folders, {
           companyExpenses: nextExpenses,
           fixedExpensePayments: nextPayments,
         });
-        if (folderSync.updated > 0) {
+        if (folderSync.updated > 0 || folderSync.folders.length !== bankTransactionFolders.length) {
           setBankTransactionFolders(folderSync.folders);
         }
         setCompanyExpenses(nextExpenses);
@@ -2785,14 +2787,17 @@ export function BankTransactionsPage({
           nextRules,
           buildBankLearnRuleFromManualRegistration(workingTx, ledgerCategory, savedBy),
         );
-        workingTransactions = commitLedgerState(workingTransactions, nextExpenses, nextPayments);
         setBankLedgerRules(nextRules);
-        nextTransactions = workingTransactions;
 
         if (!manualLedgerRegistered) {
           setImportMessage(L.detailLedgerRegisterFailed);
           return;
         }
+
+        workingTransactions = workingTransactions.map((row) =>
+          row.id === tx.id ? assignDefaultLedgerFolderToBankTransaction(row) : row,
+        );
+        nextTransactions = commitLedgerState(workingTransactions, nextExpenses, nextPayments);
       } else if (
         payload.ledgerCategory.trim() &&
         resolvedLedgerKind === "manual" &&

@@ -458,7 +458,7 @@ export const BankTransactionDetailDrawer = React.memo(function BankTransactionDe
 
     categoryInputRef.current?.blur();
     memoTextareaRef.current?.blur();
-    queueMicrotask(commitSave);
+    window.setTimeout(commitSave, 0);
   }, [fixedExpenseId, fixedExpenseOptions, folderId, ledgerKind]);
 
   const categoryListId =

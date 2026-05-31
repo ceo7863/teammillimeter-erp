@@ -602,6 +602,15 @@ function shouldMoveTxToLedgerFolder(tx: BankTransaction, ledgerFolderId: string)
   return isDefaultBankTransactionFolderId(tx.folderId);
 }
 
+export function assignDefaultLedgerFolderToBankTransaction(tx: BankTransaction): BankTransaction {
+  if (tx.folderId === DEFAULT_LEDGER_CATEGORY_FOLDER_ID) return tx;
+  return {
+    ...tx,
+    folderId: DEFAULT_LEDGER_CATEGORY_FOLDER_ID,
+    classifiedAt: new Date().toISOString(),
+  };
+}
+
 /** Move ledger-linked bank rows into the default 가계부 classification folder. */
 export function syncLedgerLinkedBankTransactionFolders(
   transactions: BankTransaction[],
@@ -626,10 +635,6 @@ export function syncLedgerLinkedBankTransactionFolders(
         folderId: ledgerFolderId,
         classifiedAt: new Date().toISOString(),
       };
-    }
-    if (tx.folderId === ledgerFolderId) {
-      updated += 1;
-      return { ...tx, folderId: undefined, linkedSubject: undefined, classifiedAt: undefined };
     }
     return tx;
   });
