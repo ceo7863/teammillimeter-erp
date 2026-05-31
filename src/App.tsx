@@ -83,7 +83,7 @@ import { normalizeBankTransactions } from "@/utils/bankTransactions";
 import { normalizeBankLedgerMatchRules, syncBankTransactionLedgerLinkFields } from "@/utils/bankCompanyLedger";
 import { syncFixedExpenseAutomation } from "@/utils/fixedExpenseAutomation";
 import { normalizeExpenseCategories, normalizeFixedExpenseCategories } from "@/utils/companyLedger";
-import { normalizeBankTransactionFolders } from "@/utils/bankTransactionFolders";
+import { normalizeBankTransactionFolders, syncLedgerLinkedBankTransactionFolders } from "@/utils/bankTransactionFolders";
 import { normalizeWorkerPayoutVouchers } from "@/utils/workerPayoutLedger";
 import { normalizeWorkerMonthlyActualVouchers, normalizeWorkerPayWithVatLearnRules } from "@/utils/workerMonthlyActualPayments";
 import { migrateActivePageKey, storeAccountingTab } from "@/utils/accountingHub";
@@ -6593,14 +6593,22 @@ export default function TeammillimeterErpMvp() {
     setCompanyNotices(normalizeCompanyNotices(data.companyNotices));
     setWorkPosts(normalizeWorkPosts(data.workPosts));
     setTaxInvoices(normalizeTaxInvoices(data.taxInvoices));
-    setBankTransactions(
-      syncBankTransactionLedgerLinkFields(
-        normalizeBankTransactions(data.bankTransactions),
-        nextCompanyExpenses,
-        nextFixedExpensePayments,
-      ),
+    const nextBankTransactionFolders = normalizeBankTransactionFolders(data.bankTransactionFolders);
+    const syncedBankTransactions = syncBankTransactionLedgerLinkFields(
+      normalizeBankTransactions(data.bankTransactions),
+      nextCompanyExpenses,
+      nextFixedExpensePayments,
     );
-    setBankTransactionFolders(normalizeBankTransactionFolders(data.bankTransactionFolders));
+    const ledgerFolderSync = syncLedgerLinkedBankTransactionFolders(
+      syncedBankTransactions,
+      nextBankTransactionFolders,
+      {
+        companyExpenses: nextCompanyExpenses,
+        fixedExpensePayments: nextFixedExpensePayments,
+      },
+    );
+    setBankTransactions(ledgerFolderSync.transactions);
+    setBankTransactionFolders(ledgerFolderSync.folders);
     setStatementGenerationLogs(normalizeStatementGenerationLogs(data.statementGenerationLogs));
     setStatementFolders(normalizeStatementFolders(data.statementFolders));
     setCompanyProfile(normalizeCompanyProfile(data.companyProfile));

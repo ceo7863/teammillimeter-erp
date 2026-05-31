@@ -595,6 +595,13 @@ export function autoClassifyBankTransactions(
   return { next, updated, folders: ensureDefaultBankTransactionFolders(folders) };
 }
 
+/** Whether a ledger-linked row should be filed under the default 가계부 folder. */
+function shouldMoveTxToLedgerFolder(tx: BankTransaction, ledgerFolderId: string) {
+  if (!tx.folderId) return true;
+  if (tx.folderId === ledgerFolderId) return false;
+  return isDefaultBankTransactionFolderId(tx.folderId);
+}
+
 /** Move ledger-linked bank rows into the default 가계부 classification folder. */
 export function syncLedgerLinkedBankTransactionFolders(
   transactions: BankTransaction[],
@@ -612,7 +619,7 @@ export function syncLedgerLinkedBankTransactionFolders(
     const linked = isBankTransactionLinkedToCompanyLedger(tx, context);
     if (linked) {
       if (tx.folderId === ledgerFolderId) return tx;
-      if (tx.folderId) return tx;
+      if (!shouldMoveTxToLedgerFolder(tx, ledgerFolderId)) return tx;
       updated += 1;
       return {
         ...tx,

@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
+import { syncLedgerLinkedBankTransactionFolders } from "../src/utils/bankTransactionFolders.ts";
 
 const dbPath = process.argv[2] || "data/erp.sqlite";
 const category = process.argv[3] || "\uB300\uD45C\uC774\uC0AC \uAC00\uC218\uAE08";
@@ -68,8 +69,15 @@ for (const tx of targets) {
   console.log("linked", tx.id.slice(0, 8), tx.transactionAt, amount, category);
 }
 
-console.log({ targets: targets.length, created, updated, synced, dryRun });
-if (!dryRun && (created > 0 || updated > 0 || synced > 0)) {
+const folderSync = syncLedgerLinkedBankTransactionFolders(d.bankTransactions || [], d.bankTransactionFolders || [], {
+  companyExpenses: d.companyExpenses || [],
+  fixedExpensePayments: d.fixedExpensePayments || [],
+});
+d.bankTransactions = folderSync.transactions;
+d.bankTransactionFolders = folderSync.folders;
+
+console.log({ targets: targets.length, created, updated, synced, ledgerFolderUpdated: folderSync.updated, dryRun });
+if (!dryRun && (created > 0 || updated > 0 || synced > 0 || folderSync.updated > 0)) {
   db.prepare("UPDATE erp_state SET payload = ?, updated_at = datetime('now') WHERE id = 1").run(JSON.stringify(d));
   console.log("saved");
 }

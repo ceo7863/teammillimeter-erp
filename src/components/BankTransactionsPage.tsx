@@ -170,6 +170,7 @@ import {
   DEFAULT_CARD_SALES_FOLDER_ID,
   DEFAULT_LEDGER_CATEGORY_FOLDER_ID,
   isCardCompanyDeposit,
+  syncLedgerLinkedBankTransactionFolders,
   type BankTransactionFolder,
   type BankTransactionFolderType,
 } from "@/utils/bankTransactionFolders";
@@ -2756,10 +2757,17 @@ export function BankTransactionsPage({
         nextPayments: typeof fixedExpensePayments,
       ) => {
         const synced = syncBankTransactionLedgerLinkFields(workingTransactions, nextExpenses, nextPayments);
+        const folderSync = syncLedgerLinkedBankTransactionFolders(synced, bankTransactionFolders, {
+          companyExpenses: nextExpenses,
+          fixedExpensePayments: nextPayments,
+        });
+        if (folderSync.updated > 0) {
+          setBankTransactionFolders(folderSync.folders);
+        }
         setCompanyExpenses(nextExpenses);
         setFixedExpensePayments(nextPayments);
-        setBankTransactions(synced);
-        return synced;
+        setBankTransactions(folderSync.transactions);
+        return folderSync.transactions;
       };
 
       let nextRow: BankTransaction = { ...tx };
