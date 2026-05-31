@@ -895,32 +895,26 @@ export function BankTransactionsPage({
   }, [bankTransactions, bankTransactionFolders, companyExpenses, fixedExpensePayments, ledgerRegistrationContext]);
 
   React.useEffect(() => {
-    const folders = ensureDefaultBankTransactionFolders(bankTransactionFolders);
-    const synced = syncBankTransactionLedgerLinkFields(
-      bankTransactions,
-      companyExpenses,
-      fixedExpensePayments,
-    );
-    const folderSync = syncLedgerLinkedBankTransactionFolders(synced, folders, ledgerRegistrationContext);
-    if (folderSync.updated > 0) {
-      setBankTransactions(folderSync.transactions);
-      if (folderSync.folders.length !== bankTransactionFolders.length) {
-        setBankTransactionFolders(folderSync.folders);
-      }
-    }
-  }, [
-    bankTransactions,
-    bankTransactionFolders,
-    companyExpenses,
-    fixedExpensePayments,
-    ledgerRegistrationContext,
-    setBankTransactions,
-    setBankTransactionFolders,
-  ]);
+    setBankTransactions((prev) => {
+      const folders = ensureDefaultBankTransactionFolders(bankTransactionFolders);
+      const synced = syncBankTransactionLedgerLinkFields(
+        prev,
+        companyExpenses,
+        fixedExpensePayments,
+      );
+      const folderSync = syncLedgerLinkedBankTransactionFolders(synced, folders, ledgerRegistrationContext);
+      if (folderSync.updated <= 0) return prev;
+      return folderSync.transactions;
+    });
+    setBankTransactionFolders((prev) => {
+      const folders = ensureDefaultBankTransactionFolders(prev);
+      if (folders.length === prev.length) return prev;
+      return folders;
+    });
+  }, [companyExpenses, fixedExpensePayments, bankTransactionFolders, ledgerRegistrationContext, setBankTransactions, setBankTransactionFolders]);
 
   const needsHeavyBankClassification = Boolean(
-    detailTxId ||
-      ledgerModal ||
+    ledgerModal ||
       ledgerReviewPrompt ||
       linkModalTx ||
       clientLinkModalTx ||
@@ -1943,6 +1937,134 @@ export function BankTransactionsPage({
   const activeLedgerCategoryOptions =
     ledgerModal?.kind === "fixed" ? ledgerFixedCategoryOptions : ledgerManualCategoryOptions;
 
+  const resolveDrawerLedgerPrefill = React.useCallback(
+    (row: BankTransaction) => {
+      const linkedPayment = resolveLinkedFixedPaymentForBankTx(row);
+      if (linkedPayment) {
+        const fixedItem = fixedExpenses.find((item) => item.id === linkedPayment.fixedExpenseId);
+        return {
+          kind: "fixed" as LedgerRegisterKind,
+          fixedExpenseId: linkedPayment.fixedExpenseId,
+          category:
+            linkedPayment.category?.trim() || fixedItem?.category?.trim() || fixedItem?.name?.trim() || "",
+        };
+      }
+
+      const linkedCategory = getLedgerCategoryLabel(row);
+      if (linkedCategory) {
+        return {
+          kind: "manual" as LedgerRegisterKind,
+          fixedExpenseId: "",
+          category: linkedCategory,
+        };
+      }
+
+      const memoCategory =
+        resolveMemoLearnCategory(row.memo, expenseCategories) || resolveCategoryFromMemo(row.memo);
+      if (memoCategory) {
+        return {
+          kind: "manual" as LedgerRegisterKind,
+          fixedExpenseId: "",
+          category: memoCategory,
+        };
+      }
+
+      const classification = classifyBankTransactionForLedger(row, {
+        rules: bankLedgerRules,
+        fixedExpenses,
+        expenseCategories,
+        companyExpenses,
+        workers,
+        clients,
+      });
+      if (classification?.kind === "fixed" && classification.fixedExpenseId) {
+        const fixedItem = fixedExpenses.find((item) => item.id === classification.fixedExpenseId);
+        return {
+          kind: "fixed" as LedgerRegisterKind,
+          fixedExpenseId: classification.fixedExpenseId,
+          category:
+            classification.category?.trim() ||
+            fixedItem?.category?.trim() ||
+            fixedItem?.name?.trim() ||
+            "",
+        };
+      }
+      if (classification?.category?.trim()) {
+        return {
+          kind: "manual" as LedgerRegisterKind,
+          fixedExpenseId: "",
+          category: classification.category.trim(),
+        };
+      }
+
+      const targetKey = resolveLedgerTargetForBankTransaction(row, bankLedgerRules, fixedExpenses);
+      const parsed = parseLedgerTargetKey(targetKey);
+      const learnMatch = findBestBankLearnRuleWithScore(row, bankLedgerRules, fixedExpenses, ["fixed", "manual"]);
+      const ledgerRule = learnMatch?.rule || findMatchingBankLedgerRule(row, bankLedgerRules, fixedExpenses);
+      const kind: LedgerRegisterKind = parsed?.kind === "fixed" ? "fixed" : "manual";
+      const fixedItem =
+        parsed?.kind === "fixed" && parsed.fixedExpenseId
+          ? fixedExpenses.find((item) => item.id === parsed.fixedExpenseId)
+          : undefined;
+      const defaultFixedId =
+        fixedItem?.id || fixedExpenses.find((item) => item.isActive)?.id || "";
+      const defaultManualCategory = expenseCategories[0] || EXPENSE_CATEGORY_OPTIONS[0];
+      const defaultFixedCategory = fixedItem?.category?.trim() || FIXED_CATEGORY_OPTIONS[0];
+      const resolvedCategory =
+        kind === "manual"
+          ? (ledgerRule && "category" in ledgerRule ? ledgerRule.category : "") ||
+            (parsed?.kind === "manual" ? parsed.category || "" : "")
+          : fixedItem?.category ||
+            (ledgerRule && "category" in ledgerRule ? ledgerRule.category : "") ||
+            "";
+
+      return {
+        kind,
+        fixedExpenseId: kind === "fixed" ? defaultFixedId : "",
+        category:
+          kind === "fixed"
+            ? resolvedCategory.trim() || defaultFixedCategory
+            : resolvedCategory.trim() || defaultManualCategory,
+      };
+    },
+    [
+      bankLedgerRules,
+      companyExpenses,
+      expenseCategories,
+      fixedExpensePayments,
+      fixedExpenses,
+      clients,
+      workers,
+    ],
+  );
+
+  const canRegisterDrawerLedger = React.useCallback(
+    (tx: BankTransaction) => {
+      if (!canRegisterBankTxToCompanyLedger(tx, ledgerRegistrationContext)) return false;
+      const memoCategory = resolveMemoLearnCategory(tx.memo, expenseCategories);
+      return evaluateBankTxLedgerRegistrationGate(tx, {
+        rules: bankLedgerRules,
+        fixedExpenses,
+        expenseCategories,
+        companyExpenses,
+        workers,
+        clients,
+        memoCategorySuggestion: memoCategory
+          ? { category: memoCategory, confidence: 100, label: memoCategory }
+          : null,
+      }).allowed;
+    },
+    [
+      bankLedgerRules,
+      clients,
+      companyExpenses,
+      expenseCategories,
+      fixedExpenses,
+      ledgerRegistrationContext,
+      workers,
+    ],
+  );
+
   const resolveDetailLedgerPrefill = React.useCallback(
     (row: BankTransaction) => {
       const linkedPayment = resolveLinkedFixedPaymentForBankTx(row);
@@ -1992,7 +2114,7 @@ export function BankTransactionsPage({
     const tx = bankTransactions.find((row) => row.id === detailTxId);
     if (!tx) return null;
 
-    const prefill = resolveDetailLedgerPrefill(tx);
+    const prefill = resolveDrawerLedgerPrefill(tx);
     const folder =
       tx.folderId ? bankTransactionFolders.find((row) => row.id === tx.folderId) : undefined;
     const folderLabel = folder?.folderName || L.unfiled;
@@ -2031,8 +2153,7 @@ export function BankTransactionsPage({
     })();
 
     const categories = normalizeExpenseCategories(expenseCategories);
-    const currentCategory =
-      getLedgerCategoryLabel(tx) || resolveLedgerCategorySuggestionLabel(tx) || "";
+    const currentCategory = getLedgerCategoryLabel(tx) || prefill.category || "";
     if (currentCategory && !categories.includes(currentCategory)) {
       categories.unshift(currentCategory);
     }
@@ -2043,11 +2164,16 @@ export function BankTransactionsPage({
       buildFixedCategorySelectOptions(fixedExpenses, fixedExpenseCategories, prefill.category),
     );
 
+    const drawerCategorySuggestion = (() => {
+      if (getLedgerCategoryLabel(tx)) return null;
+      return resolveDrawerLedgerPrefill(tx).category || null;
+    })();
+
     return {
       tx,
       folderLabel,
       ledgerCategoryLabel: getLedgerCategoryLabel(tx),
-      ledgerCategorySuggestion: resolveLedgerCategorySuggestionLabel(tx),
+      ledgerCategorySuggestion: drawerCategorySuggestion,
       matchStatusLabel: tx.linkedPaymentVoucherId ? getBankMatchStatusLabel(tx) : "-",
       linkedSubject: tx.linkedSubject || "",
       initialLedgerKind: prefill.kind,
@@ -2057,9 +2183,9 @@ export function BankTransactionsPage({
       fixedCategorySuggestions,
       fixedExpenseOptions,
       folderSelectData,
-      canLedger: canRegisterLedgerWithConfidence(tx),
+      canLedger: canRegisterDrawerLedger(tx),
       showLedgerEdit: Boolean(getLedgerCategoryLabel(tx)),
-      showLedgerRegister: canRegisterLedgerWithConfidence(tx),
+      showLedgerRegister: canRegisterDrawerLedger(tx),
     };
     // Freeze snapshot while drawer is open — ignore live bankTransactions updates during typing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
