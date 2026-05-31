@@ -72,6 +72,105 @@ function ErpInput({
   );
 }
 
+type BufferedTextFieldProps = {
+  value?: string;
+  onDraftChange?: (value: string) => void;
+  onCommit?: (value: string) => void;
+  className?: string;
+  placeholder?: string;
+};
+
+function useBufferedTextFieldState(
+  value: string | undefined,
+  onDraftChange?: (value: string) => void,
+  onCommit?: (value: string) => void,
+) {
+  const composingRef = useRef(false);
+  const [localValue, setLocalValue] = useState(value ?? "");
+
+  useEffect(() => {
+    if (!composingRef.current) setLocalValue(value ?? "");
+  }, [value]);
+
+  const emitValue = (nextValue: string, commit: boolean) => {
+    setLocalValue(nextValue);
+    onDraftChange?.(nextValue);
+    if (commit) onCommit?.(nextValue);
+  };
+
+  return { composingRef, localValue, emitValue };
+}
+
+/** Text input that buffers keystrokes locally so parent state does not re-render on every key. */
+export function BufferedTextInput({
+  value = "",
+  onDraftChange,
+  onCommit,
+  className = "",
+  placeholder,
+}: BufferedTextFieldProps) {
+  const { composingRef, localValue, emitValue } = useBufferedTextFieldState(value, onDraftChange, onCommit);
+
+  return (
+    <input
+      lang="ko"
+      className={`erp-input w-full rounded-2xl border bg-white px-3 py-2.5 text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-slate-900 md:px-4 md:py-3 ${className}`}
+      value={localValue}
+      placeholder={placeholder}
+      autoComplete="off"
+      autoCorrect="off"
+      autoCapitalize="off"
+      spellCheck={false}
+      onChange={(event) => emitValue(event.target.value, !composingRef.current)}
+      onCompositionStart={() => {
+        composingRef.current = true;
+      }}
+      onCompositionUpdate={(event) => {
+        emitValue(event.currentTarget.value, false);
+      }}
+      onCompositionEnd={(event) => {
+        composingRef.current = false;
+        emitValue(event.currentTarget.value, true);
+      }}
+    />
+  );
+}
+
+/** Multiline memo field with the same buffered typing behavior as BufferedTextInput. */
+export function BufferedTextarea({
+  value = "",
+  onDraftChange,
+  onCommit,
+  className = "",
+  placeholder,
+}: BufferedTextFieldProps) {
+  const { composingRef, localValue, emitValue } = useBufferedTextFieldState(value, onDraftChange, onCommit);
+
+  return (
+    <textarea
+      lang="ko"
+      className={`erp-input w-full rounded-2xl border bg-white px-3 py-2.5 text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-slate-900 md:px-4 md:py-3 ${className}`}
+      value={localValue}
+      placeholder={placeholder}
+      autoComplete="off"
+      autoCorrect="off"
+      autoCapitalize="off"
+      spellCheck={false}
+      onChange={(event) => emitValue(event.target.value, !composingRef.current)}
+      onCompositionStart={() => {
+        composingRef.current = true;
+      }}
+      onCompositionUpdate={(event) => {
+        emitValue(event.currentTarget.value, false);
+      }}
+      onCompositionEnd={(event) => {
+        composingRef.current = false;
+        emitValue(event.currentTarget.value, true);
+      }}
+    />
+  );
+}
+
 function isImeActive(event: React.KeyboardEvent) {
   return event.nativeEvent.isComposing || event.key === "Process" || event.keyCode === 229;
 }

@@ -117,7 +117,12 @@ import {
   formatSmartLedgerRunMessage,
   runSmartAutoLedger,
 } from "@/utils/bankSmartLedger";
-import { AutocompleteInput, CategorySuggestInput } from "@/components/AutocompleteInput";
+import {
+  AutocompleteInput,
+  BufferedTextarea,
+  BufferedTextInput,
+  CategorySuggestInput,
+} from "@/components/AutocompleteInput";
 import { createPaymentInputLogsFromVouchers } from "@/utils/paymentInputLogs";
 import type { ReceivableRow } from "@/utils/receivables";
 import type { ErpUser, BankSyncSnapshot } from "@/utils/erpApi";
@@ -728,14 +733,14 @@ const BankTransactionDetailDrawer = React.memo(function BankTransactionDetailDra
   onOpenLedgerRegister?: () => void;
   onOpenLedgerEdit?: () => void;
 }) {
-  const [memo, setMemo] = useState(tx.memo || "");
+  const memoDraftRef = useRef(tx.memo || "");
   const [folderId, setFolderId] = useState(tx.folderId || "");
   const [ledgerKind, setLedgerKind] = useState<LedgerRegisterKind>(initialLedgerKind);
   const [ledgerCategory, setLedgerCategory] = useState(initialLedgerCategory);
   const [fixedExpenseId, setFixedExpenseId] = useState(initialFixedExpenseId);
 
   useEffect(() => {
-    setMemo(tx.memo || "");
+    memoDraftRef.current = tx.memo || "";
     setFolderId(tx.folderId || "");
     setLedgerKind(initialLedgerKind);
     setLedgerCategory(initialLedgerCategory);
@@ -820,12 +825,14 @@ const BankTransactionDetailDrawer = React.memo(function BankTransactionDetailDra
             <p className="mb-3 text-xs font-semibold text-slate-500">{L.memoEditHint}</p>
             <div className="space-y-3">
               <Field label={L.memo}>
-                <textarea
-                  lang="ko"
-                  className="erp-input min-h-24 w-full rounded-2xl px-4 py-3"
-                  value={memo}
+                <BufferedTextarea
+                  key={tx.id}
+                  value={tx.memo || ""}
+                  className="min-h-24 w-full rounded-2xl px-4 py-3"
                   placeholder={L.memoPlaceholder}
-                  onChange={(event) => setMemo(event.target.value)}
+                  onDraftChange={(next) => {
+                    memoDraftRef.current = next;
+                  }}
                 />
               </Field>
               <Field label={L.classification}>
@@ -964,7 +971,13 @@ const BankTransactionDetailDrawer = React.memo(function BankTransactionDetailDra
                   if (byLabel) resolvedFixedId = byLabel.value;
                 }
               }
-              onSave({ memo, folderId, ledgerKind, ledgerCategory, fixedExpenseId: resolvedFixedId });
+              onSave({
+                memo: memoDraftRef.current,
+                folderId,
+                ledgerKind,
+                ledgerCategory,
+                fixedExpenseId: resolvedFixedId,
+              });
             }}
           >
             {L.detailSave}
@@ -1105,6 +1118,8 @@ export function BankTransactionsPage({
   const [learnPreauthMerchants, setLearnPreauthMerchants] = useState(true);
   const [detailTxId, setDetailTxId] = useState<string | null>(null);
   const importLedgerBatchIdsRef = useRef<Set<string>>(new Set());
+  const ledgerMemoDraftRef = useRef("");
+  const ledgerReviewMemoDraftRef = useRef("");
   const [sentArchives, setSentArchives] = useState<PdfArchiveMeta[]>([]);
   const ibkInputRef = useRef<HTMLInputElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
@@ -1652,7 +1667,9 @@ export function BankTransactionsPage({
         setLedgerReviewPromptError("");
         return;
       }
-      setLedgerReviewPrompt(buildReviewPromptFromTx(next.transactions[0], next));
+      const prompt = buildReviewPromptFromTx(next.transactions[0], next);
+      ledgerReviewMemoDraftRef.current = prompt.memo;
+      setLedgerReviewPrompt(prompt);
       setLedgerReviewPromptError("");
     },
     [buildReviewPromptFromTx, ledgerRegistrationContext],
@@ -3365,6 +3382,7 @@ export function BankTransactionsPage({
       kind === "fixed" && defaultFixedId
         ? buildLedgerLinkDefaults(tx, defaultFixedId, fixedExpensePayments, fixedExpenses)
         : { linkMode: "create" as const, linkPaymentId: "" };
+    ledgerMemoDraftRef.current = prefill.memo;
     setLedgerModal({
       mode: "create",
       tx,
@@ -3387,6 +3405,7 @@ export function BankTransactionsPage({
     if (linkedPayment) {
       const fixedItem = fixedExpenses.find((row) => row.id === linkedPayment.fixedExpenseId);
       setLedgerFormError("");
+      ledgerMemoDraftRef.current = linkedPayment.memo || "";
       setLedgerModal({
         mode: "edit",
         editPaymentId: linkedPayment.id,
@@ -3406,6 +3425,7 @@ export function BankTransactionsPage({
     if (!linkedExpense) return;
 
     setLedgerFormError("");
+    ledgerMemoDraftRef.current = linkedExpense.memo || "";
     setLedgerModal({
       mode: "edit",
       editExpenseId: linkedExpense.id,
@@ -3492,7 +3512,7 @@ export function BankTransactionsPage({
         category,
         description: ledgerModal.description.trim(),
         amount: parseLedgerAmount(ledgerModal.amount),
-        memo: ledgerModal.memo.trim(),
+        memo: ledgerMemoDraftRef.current.trim(),
         kind: "variable",
         bankTransactionId: ledgerModal.tx.id,
         createdBy: savedBy,
@@ -3604,7 +3624,7 @@ export function BankTransactionsPage({
             fixedExpenseId,
             date: ledgerModal.date,
             amount,
-            memo: ledgerModal.memo.trim() || ledgerModal.description.trim(),
+            memo: ledgerMemoDraftRef.current.trim() || ledgerModal.description.trim(),
             bankTransactionId: ledgerModal.tx.id,
             createdBy: savedBy,
             createdAt: new Date().toISOString(),
@@ -3710,7 +3730,7 @@ export function BankTransactionsPage({
               fixedExpenseId,
               date: ledgerModal.date,
               amount,
-              memo: ledgerModal.memo.trim() || ledgerModal.description.trim(),
+              memo: ledgerMemoDraftRef.current.trim() || ledgerModal.description.trim(),
               bankTransactionId: ledgerModal.tx.id,
             }
           : row,
@@ -3796,7 +3816,7 @@ export function BankTransactionsPage({
         category,
         description: ledgerModal.description.trim(),
         amount: parseLedgerAmount(ledgerModal.amount),
-        memo: ledgerModal.memo.trim(),
+        memo: ledgerMemoDraftRef.current.trim(),
         bankTransactionId: ledgerModal.tx.id,
       };
       const nextExpenses = companyExpenses.map((row) => (row.id === expenseId ? updatedExpense : row));
@@ -3941,7 +3961,7 @@ export function BankTransactionsPage({
             fixedExpenseId,
             date: ledgerModal.date,
             amount,
-            memo: ledgerModal.memo.trim() || ledgerModal.description.trim(),
+            memo: ledgerMemoDraftRef.current.trim() || ledgerModal.description.trim(),
             bankTransactionId: ledgerModal.tx.id,
             createdBy: savedBy,
             createdAt: new Date().toISOString(),
@@ -4021,7 +4041,7 @@ export function BankTransactionsPage({
       category,
       description: ledgerModal.description.trim(),
       amount: parseLedgerAmount(ledgerModal.amount),
-      memo: ledgerModal.memo.trim(),
+      memo: ledgerMemoDraftRef.current.trim(),
       kind: "variable",
       bankTransactionId: ledgerModal.tx.id,
       createdBy: savedBy,
@@ -6166,10 +6186,12 @@ export function BankTransactionsPage({
               </Field>
               <div className="sm:col-span-2">
                 <Field label={L.ledgerMemo}>
-                  <input
-                    className="erp-input w-full rounded-xl"
+                  <BufferedTextInput
                     value={ledgerModal.memo}
-                    onChange={(event) => setLedgerModal((prev) => (prev ? { ...prev, memo: event.target.value } : prev))}
+                    className="w-full rounded-xl"
+                    onDraftChange={(next) => {
+                      ledgerMemoDraftRef.current = next;
+                    }}
                   />
                 </Field>
               </div>
@@ -6610,12 +6632,12 @@ export function BankTransactionsPage({
                 />
               </Field>
               <Field label={L.ledgerMemo}>
-                <input
-                  className="erp-input w-full rounded-xl"
+                <BufferedTextInput
                   value={ledgerReviewPrompt.memo}
-                  onChange={(event) =>
-                    setLedgerReviewPrompt((prev) => (prev ? { ...prev, memo: event.target.value } : prev))
-                  }
+                  className="w-full rounded-xl"
+                  onDraftChange={(next) => {
+                    ledgerReviewMemoDraftRef.current = next;
+                  }}
                 />
               </Field>
             </div>
