@@ -15,6 +15,7 @@ import {
   parseLedgerAmount,
   areRecurringAmountsCompatible,
   resolveCompanyExpenseKind,
+  resolveFixedExpenseIdForBankTransaction,
 } from "./companyLedger";
 
 export type LedgerTargetKind = "manual" | "fixed";
@@ -1403,9 +1404,12 @@ export function autoApplyBankLearnRules(
 
       const ledgerRule = learnMatch.rule;
       if (ledgerRule?.kind === "fixed" && ledgerRule.fixedExpenseId && !isCheckCardBankTransaction(tx)) {
+        const fixedExpenseId =
+          resolveFixedExpenseIdForBankTransaction(tx, fixedExpenses, ledgerRule.fixedExpenseId) ||
+          ledgerRule.fixedExpenseId;
         const existingPayment = findLinkableFixedExpensePayment(
           tx,
-          ledgerRule.fixedExpenseId,
+          fixedExpenseId,
           workingPayments,
           fixedExpenses,
         );
@@ -1417,11 +1421,11 @@ export function autoApplyBankLearnRules(
         }
 
         const prefill = buildCompanyExpensePrefillFromBankTransaction(tx);
-        const fixedRow = fixedExpenses.find((row) => row.id === ledgerRule.fixedExpenseId);
+        const fixedRow = fixedExpenses.find((row) => row.id === fixedExpenseId);
         const paymentId = makeLedgerId();
         const payment: FixedExpensePayment = {
           id: paymentId,
-          fixedExpenseId: ledgerRule.fixedExpenseId,
+          fixedExpenseId,
           date: prefill.date,
           amount: parseLedgerAmount(prefill.amount),
           memo: prefill.memo || fixedRow?.name || prefill.description,

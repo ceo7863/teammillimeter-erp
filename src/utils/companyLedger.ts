@@ -633,9 +633,46 @@ function normalizeFixedExpenseMatchKey(text: string) {
     .replace(/[^\w가-힣]/g, "");
 }
 
-function extractFixedExpenseRoomKey(text: string) {
+export function extractFixedExpenseRoomKey(text: string) {
   const match = normalizeFixedExpenseMatchKey(text).match(/(\d+)호/);
   return match?.[1] || "";
+}
+
+/** 통장 거래내용의 호수(140호 등)로 관리비·임대료 고정비 항목을 우선 매칭 */
+export function resolveFixedExpenseIdForBankTransaction(
+  tx: { description?: string; memo?: string; counterpartyName?: string },
+  fixedExpenses: FixedExpense[],
+  fallbackFixedExpenseId?: string | null,
+) {
+  const haystack = [tx.description, tx.memo].filter(Boolean).join(" ");
+  const roomFromTx = extractFixedExpenseRoomKey(haystack);
+  if (!roomFromTx) return fallbackFixedExpenseId || null;
+
+  const rentKey = normalizeFixedExpenseMatchKey("\uC784\uB300\uB8CC");
+  const mgmtKey = normalizeFixedExpenseMatchKey("\uAD00\uB9AC\uBE44");
+  const txKey = normalizeFixedExpenseMatchKey(haystack);
+  const wantsMgmt = txKey.includes(mgmtKey);
+  const wantsRent = txKey.includes(rentKey);
+
+  const candidates = fixedExpenses.filter((expense) => {
+    const roomFromExpense = extractFixedExpenseRoomKey(`${expense.name} ${expense.category}`);
+    if (roomFromExpense !== roomFromTx) return false;
+    const expenseKey = normalizeFixedExpenseMatchKey(`${expense.name} ${expense.category}`);
+    const isMgmt = expense.category === "\uAD00\uB9AC\uBE44" || expenseKey.includes(mgmtKey);
+    const isRent = expense.category === "\uC784\uB300\uB8CC" || expenseKey.includes(rentKey);
+    if (wantsMgmt && !wantsRent) return isMgmt;
+    if (wantsRent && !wantsMgmt) return isRent;
+    if (wantsMgmt && wantsRent) return isMgmt || isRent;
+    return isMgmt || isRent;
+  });
+
+  if (!candidates.length) return fallbackFixedExpenseId || null;
+  if (candidates.length === 1) return candidates[0].id;
+
+  const byName = candidates.find((expense) => txKey.includes(normalizeFixedExpenseMatchKey(expense.name)));
+  if (byName) return byName.id;
+
+  return fallbackFixedExpenseId || null;
 }
 
 function resolveBankTransactionForFixedPayment(

@@ -20,6 +20,7 @@ import {
   linkFixedExpensePaymentToBankTx,
   makeLedgerId,
   pruneSettledDuplicateFixedExpensePayments,
+  resolveFixedExpenseIdForBankTransaction,
   todayISO,
 } from "./companyLedger";
 
@@ -87,9 +88,8 @@ function resolveFixedExpenseIdForBankTx(
   if (isCheckCardBankTransaction(tx)) return null;
 
   const matchedRule = findMatchingBankLedgerRule(tx, rules, fixedExpenses);
-  if (matchedRule?.fixedExpenseId) return matchedRule.fixedExpenseId;
-
-  return null;
+  const fallbackId = matchedRule?.fixedExpenseId || null;
+  return resolveFixedExpenseIdForBankTransaction(tx, fixedExpenses, fallbackId);
 }
 
 export function autoLinkBankTransactionsToFixedPayments(
