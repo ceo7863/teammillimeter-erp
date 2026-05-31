@@ -184,24 +184,18 @@ export const UncontrolledBufferedTextarea = React.memo(function UncontrolledBuff
   textareaRef,
   className = "",
   placeholder,
-  onBlurAfterSync,
 }: {
   defaultValue?: string;
   draftRef: React.MutableRefObject<string>;
   textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
   className?: string;
   placeholder?: string;
-  onBlurAfterSync?: (value: string) => void;
 }) {
   const composingRef = useRef(false);
 
   useEffect(() => {
     draftRef.current = defaultValue;
   }, [defaultValue, draftRef]);
-
-  const syncDraft = (nextValue: string) => {
-    draftRef.current = nextValue;
-  };
 
   return (
     <textarea
@@ -215,22 +209,14 @@ export const UncontrolledBufferedTextarea = React.memo(function UncontrolledBuff
       autoCapitalize="off"
       spellCheck={false}
       onInput={(event) => {
-        if (!composingRef.current) syncDraft(event.currentTarget.value);
-      }}
-      onChange={(event) => {
-        syncDraft(event.currentTarget.value);
-      }}
-      onBlur={(event) => {
-        const nextValue = event.currentTarget.value;
-        syncDraft(nextValue);
-        onBlurAfterSync?.(nextValue);
+        if (!composingRef.current) draftRef.current = event.currentTarget.value;
       }}
       onCompositionStart={() => {
         composingRef.current = true;
       }}
       onCompositionEnd={(event) => {
         composingRef.current = false;
-        syncDraft(event.currentTarget.value);
+        draftRef.current = event.currentTarget.value;
       }}
     />
   );
@@ -269,13 +255,12 @@ export const CategoryDatalistOptions = React.memo(function CategoryDatalistOptio
   );
 });
 
-/** Category field with native datalist — uncontrolled, no parent state on keystroke. */
+/** Category field with native datalist — uncontrolled, datalist rendered externally via listId. */
 export const UncontrolledCategoryInput = React.memo(function UncontrolledCategoryInput({
   defaultValue = "",
   draftRef,
   inputRef,
   listId,
-  suggestions,
   className = "rounded-xl",
   placeholder = "",
 }: {
@@ -283,7 +268,6 @@ export const UncontrolledCategoryInput = React.memo(function UncontrolledCategor
   draftRef: React.MutableRefObject<string>;
   inputRef?: React.RefObject<HTMLInputElement | null>;
   listId: string;
-  suggestions: readonly string[];
   className?: string;
   placeholder?: string;
 }) {
@@ -293,42 +277,29 @@ export const UncontrolledCategoryInput = React.memo(function UncontrolledCategor
     draftRef.current = defaultValue;
   }, [defaultValue, draftRef]);
 
-  const syncDraft = (nextValue: string) => {
-    draftRef.current = nextValue;
-  };
-
   return (
-    <>
-      <input
-        ref={inputRef}
-        lang="ko"
-        list={suggestions.length ? listId : undefined}
-        className={`${UNCONTROLLED_INPUT_CLASS} ${className}`}
-        defaultValue={defaultValue}
-        placeholder={placeholder}
-        autoComplete="off"
-        autoCorrect="off"
-        autoCapitalize="off"
-        spellCheck={false}
-        onInput={(event) => {
-          if (!composingRef.current) syncDraft(event.currentTarget.value);
-        }}
-        onChange={(event) => {
-          syncDraft(event.currentTarget.value);
-        }}
-        onBlur={(event) => {
-          syncDraft(event.currentTarget.value);
-        }}
-        onCompositionStart={() => {
-          composingRef.current = true;
-        }}
-        onCompositionEnd={(event) => {
-          composingRef.current = false;
-          syncDraft(event.currentTarget.value);
-        }}
-      />
-      <CategoryDatalistOptions listId={listId} suggestions={suggestions} />
-    </>
+    <input
+      ref={inputRef}
+      lang="ko"
+      list={listId}
+      className={`${UNCONTROLLED_INPUT_CLASS} ${className}`}
+      defaultValue={defaultValue}
+      placeholder={placeholder}
+      autoComplete="off"
+      autoCorrect="off"
+      autoCapitalize="off"
+      spellCheck={false}
+      onInput={(event) => {
+        if (!composingRef.current) draftRef.current = event.currentTarget.value;
+      }}
+      onCompositionStart={() => {
+        composingRef.current = true;
+      }}
+      onCompositionEnd={(event) => {
+        composingRef.current = false;
+        draftRef.current = event.currentTarget.value;
+      }}
+    />
   );
 });
 

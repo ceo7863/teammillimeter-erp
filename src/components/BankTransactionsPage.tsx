@@ -83,6 +83,7 @@ import {
   mergeMemoLearnRules,
   buildBankLearnRuleFromMemoCategory,
   resolveMemoLearnCategory,
+  applyMemoCategoryToLedgerDraft,
   resolveCategoryFromMemo,
   isMemoLearnAmountFlexibleCategory,
   buildPreauthNetLearnRule,
@@ -124,9 +125,11 @@ import {
   BufferedTextInput,
   CategorySuggestInput,
   extractCategorySuggestionLabels,
-  UncontrolledBufferedTextarea,
-  UncontrolledCategoryInput,
 } from "@/components/AutocompleteInput";
+import {
+  BankTransactionDetailDrawer,
+  type DrawerFolderSelectData,
+} from "@/components/BankTransactionDetailDrawer";
 import { createPaymentInputLogsFromVouchers } from "@/utils/paymentInputLogs";
 import type { ReceivableRow } from "@/utils/receivables";
 import type { ErpUser, BankSyncSnapshot } from "@/utils/erpApi";
@@ -670,508 +673,6 @@ function buildLedgerLinkDefaults(
   }
   return { linkMode: "link" as const, linkPaymentId: linkable[0].id };
 }
-
-function DetailReadRow({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="erp-bank-tx-detail-row">
-      <dt className="erp-bank-tx-detail-label">{label}</dt>
-      <dd className="erp-bank-tx-detail-value">{value}</dd>
-    </div>
-  );
-}
-
-type DrawerFolderOption = { id: string; label: string };
-
-type DrawerCustomFolderOptgroup = {
-  rootId: string;
-  rootLabel: string;
-  options: DrawerFolderOption[];
-};
-
-const DrawerFolderSelect = React.memo(function DrawerFolderSelect({
-  folderId,
-  onFolderChange,
-  clientOptions,
-  cardOptions,
-  workerOptions,
-  customOptgroups,
-}: {
-  folderId: string;
-  onFolderChange: (value: string) => void;
-  clientOptions: DrawerFolderOption[];
-  cardOptions: DrawerFolderOption[];
-  workerOptions: DrawerFolderOption[];
-  customOptgroups: DrawerCustomFolderOptgroup[];
-}) {
-  return (
-    <Field label={L.classification}>
-      <select
-        className="erp-input w-full rounded-xl"
-        value={folderId}
-        onChange={(event) => onFolderChange(event.target.value)}
-      >
-        <option value="">{L.unfiled}</option>
-        <optgroup label={L.clientFolders}>
-          {clientOptions.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.label}
-            </option>
-          ))}
-        </optgroup>
-        <optgroup label={L.cardFolders}>
-          {cardOptions.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.label}
-            </option>
-          ))}
-        </optgroup>
-        <optgroup label={L.workerFolders}>
-          {workerOptions.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.label}
-            </option>
-          ))}
-        </optgroup>
-        {customOptgroups.map((group) => (
-          <optgroup key={group.rootId} label={group.rootLabel}>
-            {group.options.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.label}
-              </option>
-            ))}
-          </optgroup>
-        ))}
-      </select>
-    </Field>
-  );
-});
-
-const DrawerFixedExpenseSelect = React.memo(function DrawerFixedExpenseSelect({
-  value,
-  options,
-  onChange,
-  onPickCategory,
-}: {
-  value: string;
-  options: Array<{ label: string; value: string }>;
-  onChange: (value: string) => void;
-  onPickCategory: (category: string) => void;
-}) {
-  return (
-    <Field label={L.ledgerFixedItem}>
-      <select
-        className="erp-input w-full rounded-xl"
-        value={value}
-        onChange={(event) => {
-          const nextFixedExpenseId = event.target.value;
-          onChange(nextFixedExpenseId);
-          const selected = options.find((row) => row.value === nextFixedExpenseId);
-          const categoryFromLabel = selected?.label.split(" · ")[1]?.trim();
-          if (categoryFromLabel) onPickCategory(categoryFromLabel);
-        }}
-      >
-        <option value="">{L.ledgerFixedItem}</option>
-        {options.map((row) => (
-          <option key={row.value} value={row.value}>
-            {row.label}
-          </option>
-        ))}
-      </select>
-    </Field>
-  );
-});
-
-const DrawerLedgerKindToggle = React.memo(function DrawerLedgerKindToggle({
-  ledgerKind,
-  onChange,
-}: {
-  ledgerKind: LedgerRegisterKind;
-  onChange: (kind: LedgerRegisterKind) => void;
-}) {
-  return (
-    <Field label={L.ledgerKind}>
-      <div className="grid grid-cols-2 gap-2">
-        {LEDGER_KIND_OPTIONS.map((option) => (
-          <button
-            key={option.key}
-            type="button"
-            className={`rounded-xl border px-3 py-2.5 text-sm font-bold transition ${
-              ledgerKind === option.key ? option.activeTone : option.tone
-            }`}
-            onClick={() => onChange(option.key)}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-      <p className="mt-1.5 text-xs font-semibold text-slate-500">{L.detailLedgerKindHint}</p>
-    </Field>
-  );
-});
-
-const DrawerMemoField = React.memo(function DrawerMemoField({
-  defaultMemo,
-  draftRef,
-  textareaRef,
-  onBlurAfterSync,
-}: {
-  defaultMemo: string;
-  draftRef: React.MutableRefObject<string>;
-  textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
-  onBlurAfterSync?: (value: string) => void;
-}) {
-  return (
-    <Field label={L.memo}>
-      <UncontrolledBufferedTextarea
-        defaultValue={defaultMemo}
-        draftRef={draftRef}
-        textareaRef={textareaRef}
-        className="min-h-24 w-full rounded-2xl px-4 py-3"
-        placeholder={L.memoPlaceholder}
-        onBlurAfterSync={onBlurAfterSync}
-      />
-    </Field>
-  );
-});
-
-const DrawerCategoryField = React.memo(function DrawerCategoryField({
-  defaultCategory,
-  draftRef,
-  inputRef,
-  listId,
-  suggestions,
-  label,
-  placeholder,
-}: {
-  defaultCategory: string;
-  draftRef: React.MutableRefObject<string>;
-  inputRef: React.RefObject<HTMLInputElement | null>;
-  listId: string;
-  suggestions: readonly string[];
-  label: string;
-  placeholder: string;
-}) {
-  return (
-    <Field label={label}>
-      <UncontrolledCategoryInput
-        defaultValue={defaultCategory}
-        draftRef={draftRef}
-        inputRef={inputRef}
-        listId={listId}
-        suggestions={suggestions}
-        className="rounded-xl"
-        placeholder={placeholder}
-      />
-      <p className="mt-1.5 text-xs font-semibold text-slate-500">{L.ledgerCategoryAddHint}</p>
-    </Field>
-  );
-});
-
-const BankTransactionDetailDrawer = React.memo(function BankTransactionDetailDrawer({
-  tx,
-  folderLabel,
-  ledgerCategoryLabel,
-  ledgerCategorySuggestion,
-  matchStatusLabel,
-  linkedSubject,
-  initialLedgerKind,
-  initialLedgerCategory,
-  initialFixedExpenseId,
-  ledgerCategoryOptions,
-  fixedExpenseOptions,
-  fixedCategoryOptions,
-  assignableClientFolders,
-  assignableCardFolders,
-  assignableWorkerFolders,
-  customCategoryRoots,
-  assignableCustomFolders,
-  bankTransactionFolders,
-  formatFolderSelectLabel,
-  canLedger,
-  onClose,
-  onSave,
-  onOpenLedgerRegister,
-  onOpenLedgerEdit,
-}: {
-  tx: BankTransaction;
-  folderLabel: string;
-  ledgerCategoryLabel: string | null;
-  ledgerCategorySuggestion: string | null;
-  matchStatusLabel: string;
-  linkedSubject: string;
-  initialLedgerKind: LedgerRegisterKind;
-  initialLedgerCategory: string;
-  initialFixedExpenseId: string;
-  ledgerCategoryOptions: Array<{ label: string; value: string }>;
-  fixedExpenseOptions: Array<{ label: string; value: string }>;
-  fixedCategoryOptions: Array<{ label: string; value: string }>;
-  assignableClientFolders: BankTransactionFolder[];
-  assignableCardFolders: BankTransactionFolder[];
-  assignableWorkerFolders: BankTransactionFolder[];
-  customCategoryRoots: BankTransactionFolder[];
-  assignableCustomFolders: BankTransactionFolder[];
-  bankTransactionFolders: BankTransactionFolder[];
-  formatFolderSelectLabel: (folder: BankTransactionFolder) => string;
-  canLedger: boolean;
-  onClose: () => void;
-  onSave: (payload: {
-    memo: string;
-    folderId: string;
-    ledgerKind: LedgerRegisterKind;
-    ledgerCategory: string;
-    fixedExpenseId: string;
-  }) => void;
-  onOpenLedgerRegister?: () => void;
-  onOpenLedgerEdit?: () => void;
-}) {
-  const memoDraftRef = useRef(tx.memo || "");
-  const memoTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const categoryDraftRef = useRef(initialLedgerCategory);
-  const categoryInputRef = useRef<HTMLInputElement>(null);
-  const [folderId, setFolderId] = useState(tx.folderId || "");
-  const [ledgerKind, setLedgerKind] = useState<LedgerRegisterKind>(initialLedgerKind);
-  const [fixedExpenseId, setFixedExpenseId] = useState(initialFixedExpenseId);
-
-  useEffect(() => {
-    memoDraftRef.current = tx.memo || "";
-    categoryDraftRef.current = initialLedgerCategory;
-    if (categoryInputRef.current) categoryInputRef.current.value = initialLedgerCategory;
-    setFolderId(tx.folderId || "");
-    setLedgerKind(initialLedgerKind);
-    setFixedExpenseId(initialFixedExpenseId);
-  }, [tx.id, tx.memo, tx.folderId, initialLedgerKind, initialLedgerCategory, initialFixedExpenseId]);
-
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, []);
-
-  const folderSelectData = useMemo(() => {
-    const mapFolder = (folder: BankTransactionFolder): DrawerFolderOption => ({
-      id: folder.id,
-      label: formatFolderSelectLabel(folder),
-    });
-    const customOptgroups: DrawerCustomFolderOptgroup[] = [];
-    for (const root of customCategoryRoots) {
-      const ids = new Set(collectCustomCategoryFolderIds(bankTransactionFolders, root.id));
-      const options = assignableCustomFolders.filter((item) => ids.has(item.id)).map(mapFolder);
-      if (options.length) {
-        customOptgroups.push({
-          rootId: root.id,
-          rootLabel: root.folderName,
-          options,
-        });
-      }
-    }
-    return {
-      clientOptions: assignableClientFolders.map(mapFolder),
-      cardOptions: assignableCardFolders.map(mapFolder),
-      workerOptions: assignableWorkerFolders.map(mapFolder),
-      customOptgroups,
-    };
-  }, [
-    assignableCardFolders,
-    assignableClientFolders,
-    assignableCustomFolders,
-    assignableWorkerFolders,
-    bankTransactionFolders,
-    customCategoryRoots,
-    formatFolderSelectLabel,
-  ]);
-
-  const categorySuggestions = useMemo(
-    () =>
-      extractCategorySuggestionLabels(
-        ledgerKind === "fixed" ? fixedCategoryOptions : ledgerCategoryOptions,
-      ),
-    [fixedCategoryOptions, ledgerCategoryOptions, ledgerKind],
-  );
-
-  const categoryListId = `bank-tx-detail-category-${tx.id}-${ledgerKind}`;
-
-  const setCategoryFromFixedPick = useCallback((category: string) => {
-    categoryDraftRef.current = category;
-    if (categoryInputRef.current) categoryInputRef.current.value = category;
-  }, []);
-
-  const applyMemoCategoryOnBlur = useCallback(
-    (memo: string) => {
-      if (ledgerKind === "fixed") return;
-      const memoCategory = resolveCategoryFromMemo(memo);
-      if (!memoCategory) return;
-      categoryDraftRef.current = memoCategory;
-      if (categoryInputRef.current) categoryInputRef.current.value = memoCategory;
-    },
-    [ledgerKind],
-  );
-
-  const deposit = parseBankAmount(tx.deposit);
-  const withdrawal = parseBankAmount(tx.withdrawal);
-
-  if (typeof document === "undefined") return null;
-
-  return createPortal(
-    <div
-      className="erp-ledger-calendar-drawer-backdrop erp-ledger-calendar-drawer-backdrop--elevated"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <aside
-        className="erp-ledger-calendar-drawer erp-bank-tx-detail-drawer erp-calendar-side-panel"
-        aria-label={L.detailTitle}
-        onMouseDown={(event) => event.stopPropagation()}
-        onClick={(event) => event.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-      >
-        <div className="erp-calendar-side-panel-head">
-          <div className="min-w-0">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{L.detailTitle}</p>
-            <strong className="erp-calendar-side-panel-date mt-1 block text-base">
-              {formatBankTransactionDateTime(tx.transactionAt)}
-            </strong>
-            <p className="mt-1 truncate text-sm font-semibold text-slate-900">{tx.description || "-"}</p>
-            <p className="mt-1 text-sm font-bold text-slate-900">
-              {deposit > 0 ? (
-                <span className="text-emerald-700">{L.deposit} {formatKRW(deposit)}</span>
-              ) : withdrawal > 0 ? (
-                <span className="text-red-600">{L.withdrawal} {formatKRW(withdrawal)}</span>
-              ) : (
-                "-"
-              )}
-              {" · "}
-              {L.balance} {formatKRW(tx.balanceAfter)}
-            </p>
-          </div>
-          <button type="button" className="rounded-xl p-2 text-slate-400 hover:bg-slate-100" onClick={onClose}>
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="erp-calendar-side-panel-body erp-bank-tx-detail-body">
-          <section className="erp-bank-tx-detail-section">
-            <h3 className="erp-bank-tx-detail-section-title">{L.detailInfoSection}</h3>
-            <dl className="erp-bank-tx-detail-grid">
-              <DetailReadRow label={L.description} value={tx.description || "-"} />
-              <DetailReadRow label={L.counterpartyName} value={tx.counterpartyName || "-"} />
-              <DetailReadRow label={L.counterpartyBank} value={tx.counterpartyBank || "-"} />
-              <DetailReadRow label={L.accountNumber} value={tx.accountNumber || "-"} />
-              <DetailReadRow label={L.bankName} value={tx.bankName || "-"} />
-              <DetailReadRow label={L.transactionType} value={tx.transactionType || "-"} />
-              <DetailReadRow label={L.classification} value={folderLabel} />
-              <DetailReadRow
-                label={L.ledgerCategoryColumn}
-                value={ledgerCategoryLabel || ledgerCategorySuggestion || "-"}
-              />
-              <DetailReadRow label={L.matchStatus} value={matchStatusLabel} />
-              {linkedSubject ? <DetailReadRow label={L.linkedSubject} value={linkedSubject} /> : null}
-              {tx.memo ? <DetailReadRow label={L.memo} value={tx.memo} /> : null}
-            </dl>
-          </section>
-
-          <section className="erp-bank-tx-detail-section">
-            <h3 className="erp-bank-tx-detail-section-title">{L.detailEditSection}</h3>
-            <p className="mb-3 text-xs font-semibold text-slate-500">{L.memoEditHint}</p>
-            <div className="space-y-3">
-              <DrawerMemoField
-                key={tx.id}
-                defaultMemo={tx.memo || ""}
-                draftRef={memoDraftRef}
-                textareaRef={memoTextareaRef}
-                onBlurAfterSync={applyMemoCategoryOnBlur}
-              />
-              <DrawerFolderSelect
-                folderId={folderId}
-                onFolderChange={setFolderId}
-                clientOptions={folderSelectData.clientOptions}
-                cardOptions={folderSelectData.cardOptions}
-                workerOptions={folderSelectData.workerOptions}
-                customOptgroups={folderSelectData.customOptgroups}
-              />
-              <DrawerLedgerKindToggle ledgerKind={ledgerKind} onChange={setLedgerKind} />
-              {ledgerKind === "fixed" ? (
-                <DrawerFixedExpenseSelect
-                  value={fixedExpenseId}
-                  options={fixedExpenseOptions}
-                  onChange={setFixedExpenseId}
-                  onPickCategory={setCategoryFromFixedPick}
-                />
-              ) : null}
-              <DrawerCategoryField
-                key={`${tx.id}-${ledgerKind}`}
-                defaultCategory={initialLedgerCategory}
-                draftRef={categoryDraftRef}
-                inputRef={categoryInputRef}
-                listId={categoryListId}
-                suggestions={categorySuggestions}
-                label={ledgerKind === "fixed" ? L.ledgerCategory : L.ledgerManualCategory}
-                placeholder={ledgerKind === "fixed" ? L.ledgerCategory : L.ledgerManualCategory}
-              />
-            </div>
-          </section>
-
-          {canLedger || onOpenLedgerEdit ? (
-            <div className="flex flex-wrap gap-2">
-              {onOpenLedgerEdit ? (
-                <Button type="button" variant="outline" className="rounded-xl border-amber-200 bg-amber-50 text-amber-900" onClick={onOpenLedgerEdit}>
-                  <BookOpen size={14} className="mr-1" />
-                  {L.ledgerEditTitle}
-                </Button>
-              ) : null}
-              {canLedger && onOpenLedgerRegister ? (
-                <Button type="button" variant="outline" className="rounded-xl border-amber-200 bg-amber-50 text-amber-900" onClick={onOpenLedgerRegister}>
-                  <BookOpen size={14} className="mr-1" />
-                  {L.ledgerSendTo}
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-
-        <div className="erp-bank-tx-detail-footer">
-          <Button type="button" variant="outline" className="rounded-2xl" onClick={onClose}>
-            {L.cancel}
-          </Button>
-          <Button
-            type="button"
-            className="rounded-2xl"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => {
-              const memo = (memoTextareaRef.current?.value ?? memoDraftRef.current).trim();
-              memoDraftRef.current = memo;
-              const ledgerCategory = (categoryInputRef.current?.value ?? categoryDraftRef.current).trim();
-              categoryDraftRef.current = ledgerCategory;
-              let resolvedFixedId = fixedExpenseId.trim();
-              if (ledgerKind === "fixed") {
-                const selected = fixedExpenseOptions.find((row) => row.value === resolvedFixedId);
-                if (!selected) {
-                  const byLabel = fixedExpenseOptions.find(
-                    (row) => row.label.split(" · ")[0]?.trim() === ledgerCategory,
-                  );
-                  if (byLabel) resolvedFixedId = byLabel.value;
-                }
-              }
-              onSave({
-                memo,
-                folderId,
-                ledgerKind,
-                ledgerCategory,
-                fixedExpenseId: resolvedFixedId,
-              });
-            }}
-          >
-            {L.detailSave}
-          </Button>
-        </div>
-      </aside>
-    </div>,
-    document.body,
-  );
-});
 
 export function BankTransactionsPage({
   bankTransactions,
@@ -2290,6 +1791,17 @@ export function BankTransactionsPage({
     () => listAssignableFolders(bankTransactionFolders, "custom"),
     [bankTransactionFolders],
   );
+
+  const formatFolderSelectLabel = React.useCallback(
+    (folder: BankTransactionFolder) => {
+      const path = getBankTransactionFolderPath(bankTransactionFolders, folder.id);
+      const depth = path.split(" / ").length - 1;
+      const prefix = depth > 0 ? `${"— ".repeat(depth)}` : "";
+      return `${prefix}${folder.folderName}`;
+    },
+    [bankTransactionFolders],
+  );
+
   const parentFolderOptions = useMemo(
     () => listFolderParentOptions(bankTransactionFolders, newFolderType),
     [bankTransactionFolders, newFolderType],
@@ -2357,21 +1869,6 @@ export function BankTransactionsPage({
   const activeLedgerCategoryOptions =
     ledgerModal?.kind === "fixed" ? ledgerFixedCategoryOptions : ledgerManualCategoryOptions;
 
-  const detailTx = useMemo(
-    () => (detailTxId ? bankTransactions.find((row) => row.id === detailTxId) ?? null : null),
-    [bankTransactions, detailTxId],
-  );
-
-  const detailLedgerCategoryOptions = useMemo(() => {
-    if (!detailTx) return [];
-    const categories = normalizeExpenseCategories(expenseCategories);
-    const current = getLedgerCategoryLabel(detailTx) || resolveLedgerCategorySuggestionLabel(detailTx) || "";
-    if (current && !categories.includes(current)) {
-      categories.unshift(current);
-    }
-    return categories.map((category) => ({ label: category, value: category }));
-  }, [detailTx, expenseCategories, companyExpenses, fixedExpensePayments, fixedExpenses, memoCategorySuggestionByTxId, ledgerSuggestionByTxId]);
-
   const resolveDetailLedgerPrefill = React.useCallback(
     (row: BankTransaction) => {
       const linkedPayment = resolveLinkedFixedPaymentForBankTx(row);
@@ -2401,6 +1898,7 @@ export function BankTransactionsPage({
         category:
           getLedgerCategoryLabel(row) ||
           resolveLedgerCategorySuggestionLabel(row) ||
+          resolveCategoryFromMemo(row.memo) ||
           suggestion.category ||
           "",
       };
@@ -2415,39 +1913,83 @@ export function BankTransactionsPage({
     ],
   );
 
-  const detailLedgerPrefill = useMemo(() => {
-    if (!detailTx) {
-      return { kind: "manual" as LedgerRegisterKind, fixedExpenseId: "", category: "" };
-    }
-    return resolveDetailLedgerPrefill(detailTx);
-  }, [detailTx, resolveDetailLedgerPrefill]);
+  const detailDrawerSnapshot = useMemo(() => {
+    if (!detailTxId) return null;
+    const tx = bankTransactions.find((row) => row.id === detailTxId);
+    if (!tx) return null;
 
-  const detailFixedCategoryOptions = useMemo(
-    () =>
-      buildFixedCategorySelectOptions(
-        fixedExpenses,
-        fixedExpenseCategories,
-        detailLedgerPrefill.category,
-      ),
-    [detailLedgerPrefill.category, fixedExpenseCategories, fixedExpenses],
-  );
+    const prefill = resolveDetailLedgerPrefill(tx);
+    const folder =
+      tx.folderId ? bankTransactionFolders.find((row) => row.id === tx.folderId) : undefined;
+    const folderLabel = folder?.folderName || L.unfiled;
 
-  const detailFixedExpenseOptions = useMemo(() => {
-    const options = fixedExpenseSelectOptions.map((row) => ({ label: row.label, value: row.value }));
-    if (
-      detailLedgerPrefill.fixedExpenseId &&
-      !options.some((row) => row.value === detailLedgerPrefill.fixedExpenseId)
-    ) {
-      const fixedItem = fixedExpenses.find((row) => row.id === detailLedgerPrefill.fixedExpenseId);
-      if (fixedItem) {
-        options.unshift({
-          value: fixedItem.id,
-          label: `${fixedItem.name} · ${fixedItem.category} · ${formatFixedExpensePaymentDay(fixedItem.paymentDayOfMonth)}`,
-        });
+    const mapFolder = (item: BankTransactionFolder) => ({
+      id: item.id,
+      label: formatFolderSelectLabel(item),
+    });
+    const customOptgroups: DrawerFolderSelectData["customOptgroups"] = [];
+    for (const root of customCategoryRoots) {
+      const ids = new Set(collectCustomCategoryFolderIds(bankTransactionFolders, root.id));
+      const options = assignableCustomFolders.filter((item) => ids.has(item.id)).map(mapFolder);
+      if (options.length) {
+        customOptgroups.push({ rootId: root.id, rootLabel: root.folderName, options });
       }
     }
-    return options;
-  }, [detailLedgerPrefill.fixedExpenseId, fixedExpenseSelectOptions, fixedExpenses]);
+    const folderSelectData: DrawerFolderSelectData = {
+      clientOptions: assignableClientFolders.map(mapFolder),
+      cardOptions: assignableCardFolders.map(mapFolder),
+      workerOptions: assignableWorkerFolders.map(mapFolder),
+      customOptgroups,
+    };
+
+    const fixedExpenseOptions = (() => {
+      const options = fixedExpenseSelectOptions.map((row) => ({ label: row.label, value: row.value }));
+      if (prefill.fixedExpenseId && !options.some((row) => row.value === prefill.fixedExpenseId)) {
+        const fixedItem = fixedExpenses.find((row) => row.id === prefill.fixedExpenseId);
+        if (fixedItem) {
+          options.unshift({
+            value: fixedItem.id,
+            label: `${fixedItem.name} \u00B7 ${fixedItem.category} \u00B7 ${formatFixedExpensePaymentDay(fixedItem.paymentDayOfMonth)}`,
+          });
+        }
+      }
+      return options;
+    })();
+
+    const categories = normalizeExpenseCategories(expenseCategories);
+    const currentCategory =
+      getLedgerCategoryLabel(tx) || resolveLedgerCategorySuggestionLabel(tx) || "";
+    if (currentCategory && !categories.includes(currentCategory)) {
+      categories.unshift(currentCategory);
+    }
+    const manualCategorySuggestions = extractCategorySuggestionLabels(
+      categories.map((category) => ({ label: category, value: category })),
+    );
+    const fixedCategorySuggestions = extractCategorySuggestionLabels(
+      buildFixedCategorySelectOptions(fixedExpenses, fixedExpenseCategories, prefill.category),
+    );
+
+    return {
+      tx,
+      folderLabel,
+      ledgerCategoryLabel: getLedgerCategoryLabel(tx),
+      ledgerCategorySuggestion: resolveLedgerCategorySuggestionLabel(tx),
+      matchStatusLabel: tx.linkedPaymentVoucherId ? getBankMatchStatusLabel(tx) : "-",
+      linkedSubject: tx.linkedSubject || "",
+      initialLedgerKind: prefill.kind,
+      initialLedgerCategory: prefill.category,
+      initialFixedExpenseId: prefill.fixedExpenseId,
+      manualCategorySuggestions,
+      fixedCategorySuggestions,
+      fixedExpenseOptions,
+      folderSelectData,
+      canLedger: canRegisterLedgerWithConfidence(tx),
+      showLedgerEdit: Boolean(getLedgerCategoryLabel(tx)),
+      showLedgerRegister: canRegisterLedgerWithConfidence(tx),
+    };
+    // Freeze snapshot while drawer is open — ignore live bankTransactions updates during typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailTxId]);
 
   const closeDetailDrawer = React.useCallback(() => setDetailTxId(null), []);
 
@@ -3000,11 +2542,16 @@ export function BankTransactionsPage({
         rowChanged = true;
       }
 
-      let ledgerCategory = payload.ledgerCategory.trim();
-      if (payload.ledgerKind !== "fixed") {
-        const memoCategory = resolveCategoryFromMemo(payload.memo);
-        if (memoCategory) ledgerCategory = memoCategory;
-      }
+      const memoLedgerDraft = applyMemoCategoryToLedgerDraft(
+        payload.memo,
+        {
+          ledgerKind: payload.ledgerKind,
+          ledgerCategory: payload.ledgerCategory.trim(),
+        },
+        expenseCategories,
+      );
+      const ledgerKind = memoLedgerDraft.ledgerKind;
+      let ledgerCategory = memoLedgerDraft.ledgerCategory;
       const categoryChanged = detailPrefill.category.trim() !== ledgerCategory;
 
       let targetFolderId = payload.folderId.trim();
@@ -3060,7 +2607,7 @@ export function BankTransactionsPage({
       const linkedExpense = resolveLinkedCompanyExpenseForBankTx(tx);
       let manualLedgerRegistered = false;
 
-      if (payload.ledgerKind === "fixed") {
+      if (ledgerKind === "fixed") {
         let resolvedFixedExpenseId = fixedExpenseId;
         if (!resolvedFixedExpenseId && ledgerCategory) {
           const fixedByName = fixedExpenses.find((row) => row.name.trim() === ledgerCategory.trim());
@@ -3655,16 +3202,20 @@ export function BankTransactionsPage({
   };
 
   const handleDetailLedgerEdit = React.useCallback(() => {
-    if (!detailTx) return;
+    if (!detailTxId) return;
+    const tx = bankTransactions.find((row) => row.id === detailTxId);
+    if (!tx) return;
     setDetailTxId(null);
-    openLedgerEdit(detailTx);
-  }, [detailTx]);
+    openLedgerEdit(tx);
+  }, [bankTransactions, detailTxId]);
 
   const handleDetailLedgerRegister = React.useCallback(() => {
-    if (!detailTx) return;
+    if (!detailTxId) return;
+    const tx = bankTransactions.find((row) => row.id === detailTxId);
+    if (!tx) return;
     setDetailTxId(null);
-    openLedgerRegister(detailTx);
-  }, [detailTx]);
+    openLedgerRegister(tx);
+  }, [bankTransactions, detailTxId]);
 
   const setLedgerKind = (kind: LedgerRegisterKind) => {
     setLedgerModal((prev) => {
@@ -4557,13 +4108,6 @@ export function BankTransactionsPage({
     () => new Map(bankTransactionFolders.map((folder) => [folder.id, folder])),
     [bankTransactionFolders]
   );
-
-  const formatFolderSelectLabel = (folder: BankTransactionFolder) => {
-    const path = getBankTransactionFolderPath(bankTransactionFolders, folder.id);
-    const depth = path.split(" / ").length - 1;
-    const prefix = depth > 0 ? `${"— ".repeat(depth)}` : "";
-    return `${prefix}${folder.folderName}`;
-  };
 
   const renderFolderTreeRows = (
     treeItems: Array<{ folder: BankTransactionFolder; depth: number }>,
@@ -6983,42 +6527,30 @@ export function BankTransactionsPage({
         </div>
       ) : null}
 
-      {detailTx ? (
+      {detailDrawerSnapshot ? (
         <BankTransactionDetailDrawer
-          key={detailTx.id}
-          tx={detailTx}
-          folderLabel={
-            detailTx.folderId
-              ? folderMap.get(detailTx.folderId)?.folderName || L.unfiled
-              : L.unfiled
-          }
-          ledgerCategoryLabel={getLedgerCategoryLabel(detailTx)}
-          ledgerCategorySuggestion={resolveLedgerCategorySuggestionLabel(detailTx)}
-          matchStatusLabel={
-            detailTx.linkedPaymentVoucherId ? getBankMatchStatusLabel(detailTx) : "-"
-          }
-          linkedSubject={detailTx.linkedSubject || ""}
-          initialLedgerKind={detailLedgerPrefill.kind}
-          initialLedgerCategory={detailLedgerPrefill.category}
-          initialFixedExpenseId={detailLedgerPrefill.fixedExpenseId}
-          ledgerCategoryOptions={detailLedgerCategoryOptions}
-          fixedExpenseOptions={detailFixedExpenseOptions}
-          fixedCategoryOptions={detailFixedCategoryOptions}
-          assignableClientFolders={assignableClientFolders}
-          assignableCardFolders={assignableCardFolders}
-          assignableWorkerFolders={assignableWorkerFolders}
-          customCategoryRoots={customCategoryRoots}
-          assignableCustomFolders={assignableCustomFolders}
-          bankTransactionFolders={bankTransactionFolders}
-          formatFolderSelectLabel={formatFolderSelectLabel}
-          canLedger={canRegisterLedgerWithConfidence(detailTx)}
+          key={detailDrawerSnapshot.tx.id}
+          tx={detailDrawerSnapshot.tx}
+          folderLabel={detailDrawerSnapshot.folderLabel}
+          ledgerCategoryLabel={detailDrawerSnapshot.ledgerCategoryLabel}
+          ledgerCategorySuggestion={detailDrawerSnapshot.ledgerCategorySuggestion}
+          matchStatusLabel={detailDrawerSnapshot.matchStatusLabel}
+          linkedSubject={detailDrawerSnapshot.linkedSubject}
+          initialLedgerKind={detailDrawerSnapshot.initialLedgerKind}
+          initialLedgerCategory={detailDrawerSnapshot.initialLedgerCategory}
+          initialFixedExpenseId={detailDrawerSnapshot.initialFixedExpenseId}
+          manualCategorySuggestions={detailDrawerSnapshot.manualCategorySuggestions}
+          fixedCategorySuggestions={detailDrawerSnapshot.fixedCategorySuggestions}
+          fixedExpenseOptions={detailDrawerSnapshot.fixedExpenseOptions}
+          folderSelectData={detailDrawerSnapshot.folderSelectData}
+          canLedger={detailDrawerSnapshot.canLedger}
           onClose={closeDetailDrawer}
           onSave={saveBankTransactionDetail}
           onOpenLedgerEdit={
-            getLedgerCategoryLabel(detailTx) ? handleDetailLedgerEdit : undefined
+            detailDrawerSnapshot.showLedgerEdit ? handleDetailLedgerEdit : undefined
           }
           onOpenLedgerRegister={
-            canRegisterLedgerWithConfidence(detailTx) ? handleDetailLedgerRegister : undefined
+            detailDrawerSnapshot.showLedgerRegister ? handleDetailLedgerRegister : undefined
           }
         />
       ) : null}

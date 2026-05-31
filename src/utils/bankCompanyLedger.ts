@@ -963,6 +963,30 @@ export function resolveMealCategoryFromMemo(memo: string | undefined): string | 
   return category === "\uC811\uB300/\uC2DD\uBE44" ? category : null;
 }
 
+export type MemoLedgerCategoryDraft = {
+  ledgerKind: LedgerTargetKind;
+  ledgerCategory: string;
+};
+
+/** Drawer/save: memo 키워드가 있으면 카테고리(및 기타→명시 카테고리)를 덮어쓰고, 고정비 모드면 지출로 전환 */
+export function applyMemoCategoryToLedgerDraft(
+  memo: string | undefined,
+  draft: MemoLedgerCategoryDraft,
+  categories: string[] = EXPENSE_CATEGORY_OPTIONS,
+): MemoLedgerCategoryDraft {
+  const memoCategory = resolveMemoLearnCategory(memo, categories);
+  if (!memoCategory) return draft;
+
+  const trimmedCategory = String(draft.ledgerCategory || "").trim();
+  const ledgerKind = draft.ledgerKind === "fixed" ? "manual" : draft.ledgerKind;
+  const ledgerCategory =
+    !trimmedCategory || trimmedCategory === "\uAE30\uD0C0" || memoCategory !== trimmedCategory
+      ? memoCategory
+      : trimmedCategory;
+
+  return { ledgerKind, ledgerCategory };
+}
+
 export function resolveMemoLearnCategory(memo: string | undefined, categories?: string[] | null) {
   const trimmed = String(memo || "").trim();
   if (!trimmed) return null;
