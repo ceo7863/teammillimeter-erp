@@ -1,11 +1,14 @@
-import React, { memo, useCallback, useDeferredValue, useMemo, useRef, useState } from "react";
-import { BankTransactionVirtualGrid, type BankTransactionVirtualGridLabels } from "@/components/BankTransactionVirtualGrid";
+import React, { memo, useCallback, useMemo, useRef, useState } from "react";
+import {
+  BankTransactionSimpleTable,
+  type BankTransactionSimpleTableLabels,
+} from "@/components/BankTransactionSimpleTable";
 import type { BankTransactionFolder } from "@/utils/bankTransactionFolders";
 import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "@/utils/companyLedger";
 import type { BankTransaction } from "@/utils/bankTransactions";
 import { buildBankTransactionListRowModels } from "@/utils/bankTransactionListDisplay";
 
-export type BankTransactionListSectionLabels = BankTransactionVirtualGridLabels & {
+export type BankTransactionListSectionLabels = BankTransactionSimpleTableLabels & {
   detailRowHint: string;
   unfiled: string;
   memoPlaceholder: string;
@@ -32,16 +35,15 @@ function BankTransactionListSectionComponent({
   labels,
   onOpenDetail,
 }: BankTransactionListSectionProps) {
-  const deferredRows = useDeferredValue(rows);
   const [selectedTxId, setSelectedTxId] = useState<string | null>(null);
   const rowByIdRef = useRef(new Map<string, BankTransaction>());
 
-  rowByIdRef.current = useMemo(() => new Map(deferredRows.map((row) => [row.id, row])), [deferredRows]);
+  rowByIdRef.current = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
 
   const rowModels = useMemo(
     () =>
       buildBankTransactionListRowModels(
-        deferredRows,
+        rows,
         folderMap,
         ledgerCategoryFolder,
         companyExpenses,
@@ -50,7 +52,7 @@ function BankTransactionListSectionComponent({
         { unfiled: labels.unfiled, memoPlaceholder: labels.memoPlaceholder },
       ),
     [
-      deferredRows,
+      rows,
       folderMap,
       ledgerCategoryFolder,
       companyExpenses,
@@ -61,7 +63,7 @@ function BankTransactionListSectionComponent({
     ],
   );
 
-  const rowIds = useMemo(() => deferredRows.map((row) => row.id), [deferredRows]);
+  const rowIds = useMemo(() => rows.map((row) => row.id), [rows]);
 
   const handleSelect = useCallback(
     (id: string) => {
@@ -72,8 +74,8 @@ function BankTransactionListSectionComponent({
     [onOpenDetail],
   );
 
-  const gridLabels = useMemo(
-    (): BankTransactionVirtualGridLabels => ({
+  const tableLabels = useMemo(
+    (): BankTransactionSimpleTableLabels => ({
       transactionAt: labels.transactionAt,
       deposit: labels.deposit,
       withdrawal: labels.withdrawal,
@@ -94,10 +96,10 @@ function BankTransactionListSectionComponent({
   return (
     <>
       <p className="mb-2 text-xs font-semibold text-slate-500">{labels.detailRowHint}</p>
-      <BankTransactionVirtualGrid
+      <BankTransactionSimpleTable
         rowIds={rowIds}
         rowModels={rowModels}
-        labels={gridLabels}
+        labels={tableLabels}
         selectedTxId={selectedTxId}
         onSelect={handleSelect}
       />

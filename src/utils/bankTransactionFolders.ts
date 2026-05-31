@@ -453,8 +453,45 @@ export function buildBankTransactionFolderStats(
       acc.withdrawals += row.withdrawal;
       return acc;
     },
-    { count: 0, deposits: 0, withdrawals: 0 }
+    { count: 0, deposits: 0, withdrawals: 0 },
   );
+}
+
+export function buildBankTransactionFolderStatsMap(
+  transactions: BankTransaction[],
+  folders: BankTransactionFolder[] = [],
+): Map<string, BankTransactionFolderStats> {
+  const stats = new Map<string, BankTransactionFolderStats>();
+  const folderById = new Map(folders.map((folder) => [folder.id, folder]));
+
+  const ensure = (folderId: string) => {
+    const existing = stats.get(folderId);
+    if (existing) return existing;
+    const next = { count: 0, deposits: 0, withdrawals: 0 };
+    stats.set(folderId, next);
+    return next;
+  };
+
+  for (const folder of folders) ensure(folder.id);
+  ensure(UNFILED_FOLDER_KEY);
+
+  for (const tx of transactions) {
+    const targetFolderId = tx.folderId || UNFILED_FOLDER_KEY;
+    const seen = new Set<string>();
+    let currentId: string | undefined = targetFolderId;
+    while (currentId && !seen.has(currentId)) {
+      seen.add(currentId);
+      const bucket = ensure(currentId);
+      bucket.count += 1;
+      bucket.deposits += tx.deposit;
+      bucket.withdrawals += tx.withdrawal;
+      if (currentId === UNFILED_FOLDER_KEY) break;
+      const folder = folderById.get(currentId);
+      currentId = folder?.parentId || undefined;
+    }
+  }
+
+  return stats;
 }
 
 export function filterBankTransactionsByFolder(

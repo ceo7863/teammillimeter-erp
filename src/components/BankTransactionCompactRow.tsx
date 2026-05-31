@@ -42,7 +42,7 @@ function BankTransactionCompactRowComponent({
 }: BankTransactionCompactRowProps) {
   const rowClass =
     rowTone === "suppressed"
-      ? "is-preauth-suppressed opacity-60"
+      ? "is-preauth-suppressed opacity-60 bg-slate-50/80"
       : rowTone === "deposit"
         ? "is-deposit-row"
         : rowTone === "withdrawal"
@@ -50,38 +50,37 @@ function BankTransactionCompactRowComponent({
           : "";
 
   return (
-    <div
-      role="row"
-      className={`erp-bank-virtual-grid-row border-b border-slate-100 text-xs ${rowClass} ${isSelected ? "bg-sky-50 ring-1 ring-inset ring-sky-200" : "hover:bg-slate-50/80"} cursor-pointer`}
+    <tr
+      className={`border-t cursor-pointer hover:bg-slate-50/80 ${rowClass} ${isSelected ? "bg-sky-50 ring-1 ring-inset ring-sky-200" : ""}`}
       onClick={() => onSelect(id)}
     >
-      <div className="whitespace-nowrap text-slate-600">{dateLabel}</div>
-      <div className="text-right font-semibold text-emerald-700">{depositLabel}</div>
-      <div className="text-right font-semibold text-red-600">{withdrawalLabel}</div>
-      <div className="text-right font-bold text-slate-900">{balanceLabel}</div>
-      <div className="truncate font-medium text-slate-900" title={description}>
+      <td className="whitespace-nowrap text-slate-600">{dateLabel}</td>
+      <td className="text-right font-semibold text-emerald-700">{depositLabel}</td>
+      <td className="text-right font-semibold text-red-600">{withdrawalLabel}</td>
+      <td className="text-right font-bold text-slate-900">{balanceLabel}</td>
+      <td className="max-w-[12rem] truncate font-medium text-slate-900" title={description}>
         {description}
-      </div>
-      <div className="truncate text-slate-700" title={memoLabel}>
+      </td>
+      <td className="max-w-[10rem] truncate text-xs text-slate-700" title={memoLabel}>
         {memoLabel}
-      </div>
-      <div className="truncate text-slate-700" title={counterpartyLabel}>
+      </td>
+      <td className="max-w-[8rem] truncate text-slate-700" title={counterpartyLabel}>
         {counterpartyLabel}
-      </div>
-      <div className="truncate text-slate-700" title={ledgerCategoryLabel}>
+      </td>
+      <td className="max-w-[7rem] truncate text-xs text-slate-700" title={ledgerCategoryLabel}>
         {ledgerCategoryLabel}
-      </div>
-      <div className="truncate text-slate-700" title={classificationLabel}>
+      </td>
+      <td className="max-w-[7rem] truncate text-xs text-slate-700" title={classificationLabel}>
         {classificationLabel}
-      </div>
-      <div className="truncate text-slate-500" title={counterpartyBank}>
+      </td>
+      <td className="max-w-[6rem] truncate text-xs text-slate-500" title={counterpartyBank}>
         {counterpartyBank}
-      </div>
-      <div className="truncate text-slate-600" title={matchStatusLabel}>
+      </td>
+      <td className="max-w-[5rem] truncate text-xs text-slate-600" title={matchStatusLabel}>
         {matchStatusLabel}
-      </div>
-      <div className="truncate text-slate-500">{transactionType}</div>
-    </div>
+      </td>
+      <td className="text-xs text-slate-500">{transactionType}</td>
+    </tr>
   );
 }
 

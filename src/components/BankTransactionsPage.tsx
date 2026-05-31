@@ -162,7 +162,7 @@ import {
   UNFILED_FOLDER_KEY,
   autoClassifyBankTransactions,
   buildFolderClassificationSuggestionMap,
-  buildBankTransactionFolderStats,
+  buildBankTransactionFolderStatsMap,
   buildBankTransactionFolderTree,
   canAssignBankTransactionToFolder,
   clearBankTransactionFolderReferences,
@@ -1836,9 +1836,13 @@ export function BankTransactionsPage({
     if (!selectedFolderId) return null;
     return new Set(collectDescendantFolderIds(bankTransactionFolders, selectedFolderId));
   }, [bankTransactionFolders, selectedFolderId]);
-  const unfiledStats = useMemo(
-    () => buildBankTransactionFolderStats(bankTransactions, UNFILED_FOLDER_KEY, bankTransactionFolders),
+  const folderStatsById = useMemo(
+    () => buildBankTransactionFolderStatsMap(bankTransactions, bankTransactionFolders),
     [bankTransactions, bankTransactionFolders],
+  );
+  const unfiledStats = useMemo(
+    () => folderStatsById.get(UNFILED_FOLDER_KEY) ?? { count: 0, deposits: 0, withdrawals: 0 },
+    [folderStatsById],
   );
 
   const accountSummaries = useMemo(() => buildBankAccountSummaries(bankTransactions), [bankTransactions]);
@@ -4260,11 +4264,7 @@ export function BankTransactionsPage({
     amountMode: "single" | "both" = "single",
   ) =>
     treeItems.map(({ folder, depth }) => {
-      const folderStats = buildBankTransactionFolderStats(
-        bankTransactions,
-        folder.id,
-        bankTransactionFolders,
-      );
+      const folderStats = folderStatsById.get(folder.id) ?? { count: 0, deposits: 0, withdrawals: 0 };
       const active = selectedFolderId === folder.id;
       const isCategoryRoot = folder.folderType === "custom" && !folder.parentId;
       const subfolderParentId = folder.isDefault ? "" : folder.id;
