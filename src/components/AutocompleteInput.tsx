@@ -181,13 +181,17 @@ const UNCONTROLLED_INPUT_CLASS =
 export const UncontrolledBufferedTextarea = React.memo(function UncontrolledBufferedTextarea({
   defaultValue = "",
   draftRef,
+  textareaRef,
   className = "",
   placeholder,
+  onBlurAfterSync,
 }: {
   defaultValue?: string;
   draftRef: React.MutableRefObject<string>;
+  textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
   className?: string;
   placeholder?: string;
+  onBlurAfterSync?: (value: string) => void;
 }) {
   const composingRef = useRef(false);
 
@@ -201,6 +205,7 @@ export const UncontrolledBufferedTextarea = React.memo(function UncontrolledBuff
 
   return (
     <textarea
+      ref={textareaRef}
       lang="ko"
       className={`${UNCONTROLLED_TEXTAREA_CLASS} ${className}`}
       defaultValue={defaultValue}
@@ -211,6 +216,14 @@ export const UncontrolledBufferedTextarea = React.memo(function UncontrolledBuff
       spellCheck={false}
       onInput={(event) => {
         if (!composingRef.current) syncDraft(event.currentTarget.value);
+      }}
+      onChange={(event) => {
+        syncDraft(event.currentTarget.value);
+      }}
+      onBlur={(event) => {
+        const nextValue = event.currentTarget.value;
+        syncDraft(nextValue);
+        onBlurAfterSync?.(nextValue);
       }}
       onCompositionStart={() => {
         composingRef.current = true;
@@ -299,6 +312,12 @@ export const UncontrolledCategoryInput = React.memo(function UncontrolledCategor
         spellCheck={false}
         onInput={(event) => {
           if (!composingRef.current) syncDraft(event.currentTarget.value);
+        }}
+        onChange={(event) => {
+          syncDraft(event.currentTarget.value);
+        }}
+        onBlur={(event) => {
+          syncDraft(event.currentTarget.value);
         }}
         onCompositionStart={() => {
           composingRef.current = true;

@@ -903,17 +903,73 @@ export function bankTransactionsShareMemoLearnPattern(
   return memoLearnWithdrawalsMatch(source, target);
 }
 
-/** 메모에 '식대'가 포함되면 가계부 카테고리 접대/식비 */
+/**
+ * 메모 키워드 → 가계부 카테고리 (긴/구체적 키워드 우선 매칭).
+ * - 접대/식비: 식대, 회식, 점심, 저녁, 카페, 커피 …
+ * - 교통/주차: 주유, 기름, 유류, 택시, 주차, 톨비, 하이패스 …
+ * - 통신비: 통신, 인터넷, 핸드폰, kt/skt/lgu …
+ * - 인건비: 급여, 상여, 퇴직금, 4대보험 …
+ * - 세금: 소득세, 법인세, 부가세, 원천세 …
+ * - 사무용품·소모품·마케팅·방문/외부·대표이사 가지급/가수금·보험·구독/서비스
+ */
+const MEMO_CATEGORY_KEYWORD_RULES: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ["\uC811\uB300/\uC2DD\uBE44", ["\uD68C\uC2DD\uBE44", "\uC811\uB300\uBE44", "\uC2DD\uC0AC\uBE44", "\uC810\uC2EC\uC2DD\uC0AC", "\uC800\uB141\uC2DD\uC0AC", "\uC544\uCE68\uC2DD\uC0AC", "\uC2DD\uB300", "\uD68C\uC2DD", "\uC810\uC2EC", "\uC800\uB141", "\uC544\uCE68", "\uC2DD\uBE44", "\uC74C\uC2DD", "\uCE74\uD398", "\uCEE4\uD53C", "\uC811\uB300", "\uC2DD\uC0AC", "\uC21F\uAC12", "\uAC04\uC2DD", "\uB2E4\uACFC", "\uC2DD\uC74C\uB8CC"]],
+  ["\uAD50\uD86D/\uC8FC\uCC28", ["\uD1A0\uB864\uAC8C\uC774\uD2B8", "\uD558\uC774\uD328\uC2A4", "\uC720\uB958\uBE44", "\uC8FC\uCC28\uBE44", "\uC8FC\uC720\uBE44", "\uAE30\uB984\uAC12", "\uD1A0\uB864\uBE44", "\uC8FC\uC720", "\uAE30\uB984", "\uC720\uB958", "\uC8FC\uCC28", "\uD0DD\uC2DC", "\uB300\uB9AC\uC6B4\uC804", "\uACE0\uC18D\uB3C4\uB85C", "\uD1A0\uB864", "\uC8FC\uCC28\uC7A5", "\uD734\uAC8C\uC18C", "\uD3B8\uB3C4", "\uD56D\uACF5", "ktx", "KTX", "\uC9C0\uD558\uCCA0", "\uBC84\uC2A4", "\uCCA0\uB3C4", "\uACE0\uC18D"]],
+  ["\uD1B5\uC2E0\uBE44", ["\uC778\uD130\uB137", "\uD578\uB4DC\uD3F0", "\uD1B5\uC2E0\uBE44", "\uD1B5\uC2E0", "\uD734\uB300\uD3F0", "\uB370\uC774\uD130", "\uC720\uC2EC", "\uB85C\uBBC0", "kt", "skt", "lgu", "u+"]],
+  ["\uC778\uAC74\uBE44", ["4\uB300\uBCF4\uD5D8", "\uAD6D\uBBFC\uC5F0\uAE08", "\uAC74\uAC15\uBCF4\uD5D8", "\uACE0\uC6A9\uBCF4\uD5D8", "\uC0B0\uC7AC\uBCF4\uD5D8", "\uC778\uAC74\uBE44", "\uAE09\uC5EC", "\uC0C1\uC5EC\uAE08", "\uC0C1\uC5EC", "\uD1F4\uC9C1\uAE08", "\uD1F4\uC9C1", "\uBCF4\uB108\uC2A4", "\uAE09\uC5EC\uC9C0\uAE09", "\uC6D4\uAE09", "\uC218\uB2F9", "\uC77C\uB2F9", "\uC6A9\uC5ED\uBE44", "\uC678\uC8FC\uC778\uAC74\uBE44", "\uC784\uAE08"]],
+  ["\uC138\uAE08", ["\uC9C0\uBC29\uC18C\uB355\uC138", "\uC9C0\uBC29\uC18C\uB355", "\uC9C0\uBC29\uC138", "\uC18C\uB355\uC138", "\uBC95\uC778\uC138", "\uBD80\uAC00\uC138", "\uC6D0\uCC9C\uC138", "\uC885\uD569\uC18C\uB355", "\uC0AC\uC5C5\uC18C\uB355", "\uADE0\uB85C\uC18C\uB355", "\uC6D0\uCC9C\uC9D1\uC218", "\uAD6D\uC138", "\uC138\uAE08", "\uC138\uC561"]],
+  ["\uB300\uD45C\uC774\uC0AC \uAC00\uC9C0\uAE09\uAE08", ["\uAC00\uC9C0\uAE09\uAE08", "\uAC00\uC9C0\uAE09", "\uB300\uD45C\uAC00\uC9C0\uAE09"]],
+  ["\uB300\uD45C\uC774\uC0AC \uAC00\uC218\uAE08", ["\uAC00\uC218\uAE08", "\uB300\uD45C\uAC00\uC218"]],
+  ["\uC0AC\uBB34\uC6A9\uD488", ["\uC0AC\uBB34\uC6A9\uD488", "\uD1A0\uB108", "\uD504\uB9B0\uD130", "\uBCF5\uC0AC", "\uBB38\uAD6C", "\uC6A9\uC9C0", "\uC0AC\uBB34"]],
+  ["\uC18C\uBAA8\uD488", ["\uC18C\uBAA8\uD488", "\uC815\uAE30", "\uBE44\uC2DD", "\uACF5\uACFC", "\uCCAD\uC18C", "\uC704\uC0DD"]],
+  ["\uB9C8\uCF00\uD305", ["\uB124\uC774\uBC84\uAD11\uACE0", "\uAD6C\uAE00\uAD11\uACE0", "\uAD11\uACE0", "\uB9C8\uCF00\uD305", "\uD658\uC601", "\uCD2C\uC601", "\uC601\uC0C1"]],
+  ["\uBC29\uBB38/\uC678\uBD80", ["\uCD9C\uC7A5\uBE44", "\uCD9C\uC7A5", "\uBC29\uBB38", "\uC678\uBD80", "\uBBF8\uD305", "\uD604\uC7A5"]],
+  ["\uBCF4\uD5D8", ["\uBCF4\uD5D8\uB8CC", "\uD654\uC7AC\uBCF4\uD5D8", "\uBC30\uC0C1\uCC45\uC784", "\uBCF4\uD5D8"]],
+  ["\uAD6C\uB3C5/\uC11C\uBE44\uC2A4", ["\uAD6C\uB3C5", "\uD074\uB77C\uC6B0\uB4DC", "\uD638\uC2A4\uD305", "\uB3C4\uBA54\uC778", "\uC11C\uBC84", "saas", "aws"]],
+];
+
+type MemoKeywordMatch = { keyword: string; category: string };
+
+function buildMemoKeywordMatches(): MemoKeywordMatch[] {
+  const rows: MemoKeywordMatch[] = [];
+  for (const [category, keywords] of MEMO_CATEGORY_KEYWORD_RULES) {
+    const canonical = normalizeExpenseCategoryName(category);
+    for (const keyword of keywords) {
+      rows.push({ keyword, category: canonical });
+    }
+  }
+  return rows.sort(
+    (left, right) =>
+      normalizeBankLedgerMatchText(right.keyword).length - normalizeBankLedgerMatchText(left.keyword).length,
+  );
+}
+
+const MEMO_KEYWORD_MATCHES = buildMemoKeywordMatches();
+
+/** 메모 텍스트에서 키워드 규칙으로 가계부 카테고리를 추론. 매칭 없으면 null. */
+export function resolveCategoryFromMemo(memo: string | undefined): string | null {
+  const haystack = normalizeBankLedgerMatchText(memo);
+  if (!haystack) return null;
+  for (const { keyword, category } of MEMO_KEYWORD_MATCHES) {
+    const needle = normalizeBankLedgerMatchText(keyword);
+    if (needle.length >= 2 && haystack.includes(needle)) return category;
+  }
+  return null;
+}
+
+/** @deprecated resolveCategoryFromMemo 사용. 접대/식비만 필요할 때 */
 export function resolveMealCategoryFromMemo(memo: string | undefined): string | null {
-  if (!String(memo || "").includes("\uC2DD\uB300")) return null;
-  return "\uC811\uB300/\uC2DD\uBE44";
+  const category = resolveCategoryFromMemo(memo);
+  return category === "\uC811\uB300/\uC2DD\uBE44" ? category : null;
 }
 
 export function resolveMemoLearnCategory(memo: string | undefined, categories?: string[] | null) {
   const trimmed = String(memo || "").trim();
   if (!trimmed) return null;
-  const mealCategory = resolveMealCategoryFromMemo(trimmed);
-  if (mealCategory) return mealCategory;
+
+  const memoKeywordCategory = resolveCategoryFromMemo(trimmed);
+  if (memoKeywordCategory) return memoKeywordCategory;
+
   const canonical = normalizeExpenseCategoryName(trimmed);
   const categoryList = Array.isArray(categories) ? categories : [];
   if (categoryList.some((item) => normalizeExpenseCategoryName(item) === canonical)) return canonical;

@@ -83,7 +83,7 @@ import {
   mergeMemoLearnRules,
   buildBankLearnRuleFromMemoCategory,
   resolveMemoLearnCategory,
-  resolveMealCategoryFromMemo,
+  resolveCategoryFromMemo,
   isMemoLearnAmountFlexibleCategory,
   buildPreauthNetLearnRule,
   buildCompanyExpensePrefillFromBankTransaction,
@@ -813,10 +813,12 @@ const DrawerMemoField = React.memo(function DrawerMemoField({
   defaultMemo,
   draftRef,
   textareaRef,
+  onBlurAfterSync,
 }: {
   defaultMemo: string;
   draftRef: React.MutableRefObject<string>;
   textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
+  onBlurAfterSync?: (value: string) => void;
 }) {
   return (
     <Field label={L.memo}>
@@ -826,6 +828,7 @@ const DrawerMemoField = React.memo(function DrawerMemoField({
         textareaRef={textareaRef}
         className="min-h-24 w-full rounded-2xl px-4 py-3"
         placeholder={L.memoPlaceholder}
+        onBlurAfterSync={onBlurAfterSync}
       />
     </Field>
   );
@@ -994,6 +997,17 @@ const BankTransactionDetailDrawer = React.memo(function BankTransactionDetailDra
     if (categoryInputRef.current) categoryInputRef.current.value = category;
   }, []);
 
+  const applyMemoCategoryOnBlur = useCallback(
+    (memo: string) => {
+      if (ledgerKind === "fixed") return;
+      const memoCategory = resolveCategoryFromMemo(memo);
+      if (!memoCategory) return;
+      categoryDraftRef.current = memoCategory;
+      if (categoryInputRef.current) categoryInputRef.current.value = memoCategory;
+    },
+    [ledgerKind],
+  );
+
   const deposit = parseBankAmount(tx.deposit);
   const withdrawal = parseBankAmount(tx.withdrawal);
 
@@ -1063,7 +1077,13 @@ const BankTransactionDetailDrawer = React.memo(function BankTransactionDetailDra
             <h3 className="erp-bank-tx-detail-section-title">{L.detailEditSection}</h3>
             <p className="mb-3 text-xs font-semibold text-slate-500">{L.memoEditHint}</p>
             <div className="space-y-3">
-              <DrawerMemoField key={tx.id} defaultMemo={tx.memo || ""} draftRef={memoDraftRef} textareaRef={memoTextareaRef} />
+              <DrawerMemoField
+                key={tx.id}
+                defaultMemo={tx.memo || ""}
+                draftRef={memoDraftRef}
+                textareaRef={memoTextareaRef}
+                onBlurAfterSync={applyMemoCategoryOnBlur}
+              />
               <DrawerFolderSelect
                 folderId={folderId}
                 onFolderChange={setFolderId}
@@ -2982,8 +3002,8 @@ export function BankTransactionsPage({
 
       let ledgerCategory = payload.ledgerCategory.trim();
       if (payload.ledgerKind !== "fixed") {
-        const mealCategory = resolveMealCategoryFromMemo(payload.memo);
-        if (mealCategory) ledgerCategory = mealCategory;
+        const memoCategory = resolveCategoryFromMemo(payload.memo);
+        if (memoCategory) ledgerCategory = memoCategory;
       }
       const categoryChanged = detailPrefill.category.trim() !== ledgerCategory;
 
