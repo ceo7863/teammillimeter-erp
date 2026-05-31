@@ -33,6 +33,17 @@ function normalizeMatchText(value: string) {
     .replace(/[\uFF08\uFF09()]/g, "");
 }
 
+const INTERNAL_COMPANY_NAME_KEY = "\uD300\uBC00\uB9AC\uBBF8\uD130";
+
+/** \uC608\uAE08\uC8FC\uAC00 \uBCF8\uC778 \uD68C\uC0AC(\uC8FC\uC2DD\uD68C\uC0AC \uD300\uBC00\uB9AC\uBBF8\uD130 \uB4F1) \uACC4\uC88C\uB85C \uB098\uAC04 \uB0B4\uBD80 \uC774\uCCB4 */
+export function isInternalCompanyBankTransfer(tx: { counterpartyName?: string }) {
+  const counterparty = normalizeMatchText(tx.counterpartyName || "");
+  if (!counterparty.includes(INTERNAL_COMPANY_NAME_KEY)) return false;
+  if (counterparty.includes("\uC8FC\uC2DD\uD68C\uC0AC")) return true;
+  if (counterparty.startsWith("\uC8FC") && counterparty.includes(INTERNAL_COMPANY_NAME_KEY)) return true;
+  return counterparty === INTERNAL_COMPANY_NAME_KEY;
+}
+
 export function includesDepositName(haystack: string, name: string) {
   const left = normalizeMatchText(haystack);
   const right = normalizeMatchText(name);
@@ -154,6 +165,7 @@ export function findWorkerForBankTransaction(
   tx: { memo?: string; counterpartyName?: string; description?: string },
   workers: WorkerDepositMatchSource[],
 ) {
+  if (isInternalCompanyBankTransfer(tx)) return undefined;
   const texts = collectBankTransactionWorkerMatchTexts(tx);
   if (!texts.length) return undefined;
   return workers.find((worker) => texts.some((text) => bankTextMatchesWorker(text, worker)));
@@ -208,6 +220,7 @@ export function canClassifyBankTransactionAsWorkerFolder(
   workers: WorkerDepositMatchSource[],
 ) {
   if (Number(tx.withdrawal || 0) <= 0) return false;
+  if (isInternalCompanyBankTransfer(tx)) return false;
   return Boolean(findWorkerForBankTransaction(tx, workers));
 }
 

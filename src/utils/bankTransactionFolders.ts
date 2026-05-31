@@ -5,6 +5,7 @@ import {
   canClassifyBankTransactionAsWorkerFolder,
   findClientByDepositSubject,
   findWorkerForBankTransaction,
+  isInternalCompanyBankTransfer,
   resolveBankDepositMatchSubject,
   type ClientDepositMatchSource,
   type WorkerDepositMatchSource,
@@ -264,6 +265,7 @@ export function suggestBankTransactionClassification(
   }
 
   if (tx.withdrawal > 0) {
+    if (isInternalCompanyBankTransfer(tx)) return null;
     const worker = findWorkerForBankTransaction(tx, workers);
     if (worker?.name) return { folderType: "worker", linkedSubject: String(worker.name).trim() };
   }
