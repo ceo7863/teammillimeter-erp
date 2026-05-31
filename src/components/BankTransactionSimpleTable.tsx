@@ -38,10 +38,9 @@ function BankTransactionSimpleTableComponent({
 }: BankTransactionSimpleTableProps) {
   return (
     <DesktopTableWrap>
-      <div className="erp-bank-table-scroll max-h-[min(72vh,960px)] overflow-auto overscroll-contain">
-        <table id="bank-transactions-table" className="erp-table erp-bank-table w-full min-w-[960px]">
-          <thead className="sticky top-0 z-10 bg-slate-100">
-            <tr className="text-left text-slate-600">
+      <table id="bank-transactions-table" className="erp-table erp-bank-table w-full min-w-[960px]">
+        <thead>
+          <tr className="bg-slate-100 text-left text-slate-600">
               <th>{labels.transactionAt}</th>
               <th className="text-right">{labels.deposit}</th>
               <th className="text-right">{labels.withdrawal}</th>
@@ -78,8 +77,7 @@ function BankTransactionSimpleTableComponent({
               })
             )}
           </tbody>
-        </table>
-      </div>
+      </table>
     </DesktopTableWrap>
   );
 }
