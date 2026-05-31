@@ -330,6 +330,7 @@ const L = {
   detailEditSection: "\uC218\uC815 \uD56D\uBAA9",
   detailSave: "\uC800\uC7A5",
   detailSaveDone: "\uAC70\uB798 \uC815\uBCF4\uB97C \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.",
+  detailFixedItemRequired: "\uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
   detailRowHint: "\uD589\uC744 \uD074\uB9AD\uD558\uBA74 \uC804\uD45C\uCC98\uB7FC \uC5F4\uB824 \uBA54\uBAA8\u00B7\uBD84\uB958\u00B7\uAC00\uACC4\uBD80 \uD56D\uBAA9\uC744 \uC218\uC815\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
   memoEditHint: "\uBA54\uBAA8 \u00B7 \uBD84\uB958 \u00B7 \uAC00\uACC4\uBD80 \uD56D\uBAA9\uC744 \uC218\uC815\uD55C \uB92C \uC800\uC7A5\uC744 \uB204\uB974\uBA74 \uBC18\uC601\uB429\uB2C8\uB2E4.",
   detailLedgerKindHint: "\uBCC0\uB3D9 \uC9C0\uCD9C\uC740 \uCE74\uD14C\uACE0\uB9AC\uB97C, \uACE0\uC815\uBE44\uB294 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD569\uB2C8\uB2E4.",
@@ -2795,69 +2796,153 @@ export function BankTransactionsPage({
       const linkedExpense = resolveLinkedCompanyExpenseForBankTx(tx);
 
       if (payload.ledgerKind === "fixed") {
-        if (linkedPayment && fixedExpenseId && linkedPayment.fixedExpenseId !== fixedExpenseId) {
-          const beforePayment = fixedExpensePayments.find((row) => row.id === linkedPayment.id);
-          const nextPayments = fixedExpensePayments.map((row) =>
-            row.id === linkedPayment.id
-              ? {
-                  ...row,
-                  fixedExpenseId,
-                  category: ledgerCategory || row.category,
-                }
-              : row,
-          );
-          if (beforePayment) {
-            const fixedItem = fixedExpenses.find((row) => row.id === fixedExpenseId);
+        if (!fixedExpenseId) {
+          setImportMessage(L.detailFixedItemRequired);
+          return;
+        }
+        const fixedItem = fixedExpenses.find((row) => row.id === fixedExpenseId);
+        if (!fixedItem) {
+          setImportMessage(L.detailFixedItemRequired);
+          return;
+        }
+
+        const workingTx = nextTransactions.find((row) => row.id === tx.id) || nextRow;
+        let nextPayments = fixedExpensePayments;
+        let nextExpenses = companyExpenses;
+        let workingTransactions = nextTransactions;
+
+        if (linkedExpense && linkedExpense.kind !== "fixed") {
+          const cleared = clearVariableExpenseLinkForBankTx(tx.id, nextExpenses, workingTransactions);
+          nextExpenses = cleared.expenses;
+          workingTransactions = cleared.transactions;
+          if (cleared.removedExpense) {
             recordAudit({
-              entityType: "fixedExpensePayment",
-              entityId: linkedPayment.id,
-              entityLabel: fixedItem?.name || linkedPayment.id,
+              entityType: "companyExpense",
+              entityId: cleared.removedExpense.id,
+              entityLabel: `${cleared.removedExpense.date} \u00B7 ${cleared.removedExpense.description || cleared.removedExpense.category}`,
               screen: L.pageTitle,
-              action: "update",
-              before: snapshotFixedExpensePaymentForAudit(beforePayment),
-              after: snapshotFixedExpensePaymentForAudit(
-                nextPayments.find((row) => row.id === linkedPayment.id) || beforePayment,
-              ),
-              fields: FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS,
+              action: "delete",
+              before: snapshotCompanyExpenseForAudit(cleared.removedExpense),
+              fields: COMPANY_EXPENSE_AUDIT_FIELDS,
               user: currentUser,
             });
           }
-          setFixedExpensePayments(nextPayments);
-          nextRules = upsertBankLearnRule(
-            nextRules,
-            buildBankLedgerMatchRuleFromRegistration(nextRow, fixedExpenseId, savedBy, nextRow.withdrawal),
-          );
-          setBankLedgerRules(nextRules);
-        } else if (!linkedPayment && !linkedExpense && fixedExpenseId && Number(tx.withdrawal || 0) > 0) {
-          nextRules = upsertBankLearnRule(
-            nextRules,
-            buildBankLedgerMatchRuleFromRegistration(nextRow, fixedExpenseId, savedBy, nextRow.withdrawal),
-          );
-          setBankLedgerRules(nextRules);
-          applyAutoLearnRules(nextTransactions, fixedExpensePayments, companyExpenses, nextRules, {
-            showMessage: false,
-            applyKinds: ["fixed"],
-          });
-        } else if (linkedPayment && ledgerCategory) {
-          const currentPayment = fixedExpensePayments.find((row) => row.id === linkedPayment.id);
-          if (currentPayment && String(currentPayment.category || "") !== ledgerCategory) {
-            const updatedPayment = { ...currentPayment, category: ledgerCategory };
-            setFixedExpensePayments((prev) =>
-              prev.map((row) => (row.id === linkedPayment.id ? updatedPayment : row)),
+        }
+
+        const currentPayment = getLinkedFixedPaymentForBankTx(workingTx, nextPayments);
+        const targetLinkable = findLinkableFixedExpensePayment(
+          workingTx,
+          fixedExpenseId,
+          nextPayments,
+          fixedExpenses,
+        );
+        let paymentId = currentPayment?.id || "";
+        const resolvedCategory = ledgerCategory || fixedItem.category?.trim() || "";
+
+        if (currentPayment) {
+          const beforePayment = currentPayment;
+          if (targetLinkable && targetLinkable.id !== currentPayment.id) {
+            if (currentPayment.bankTransactionId === tx.id) {
+              nextPayments = nextPayments.map((row) =>
+                row.id === currentPayment.id ? { ...row, bankTransactionId: undefined } : row,
+              );
+            }
+            nextPayments = linkFixedExpensePaymentToBankTx(nextPayments, targetLinkable.id, tx.id, workingTx);
+            paymentId = targetLinkable.id;
+            const afterPayment = nextPayments.find((row) => row.id === targetLinkable.id);
+            if (beforePayment && afterPayment) {
+              recordAudit({
+                entityType: "fixedExpensePayment",
+                entityId: afterPayment.id,
+                entityLabel: fixedItem.name || afterPayment.id,
+                screen: L.pageTitle,
+                action: "update",
+                before: snapshotFixedExpensePaymentForAudit(beforePayment),
+                after: snapshotFixedExpensePaymentForAudit(afterPayment),
+                fields: FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS,
+                user: currentUser,
+              });
+            }
+          } else if (
+            currentPayment.fixedExpenseId !== fixedExpenseId ||
+            (resolvedCategory && String(currentPayment.category || "") !== resolvedCategory)
+          ) {
+            nextPayments = nextPayments.map((row) =>
+              row.id === currentPayment.id
+                ? {
+                    ...row,
+                    fixedExpenseId,
+                    category: resolvedCategory || row.category,
+                    bankTransactionId: tx.id,
+                  }
+                : row,
             );
+            paymentId = currentPayment.id;
+            const afterPayment = nextPayments.find((row) => row.id === currentPayment.id);
+            if (afterPayment) {
+              recordAudit({
+                entityType: "fixedExpensePayment",
+                entityId: afterPayment.id,
+                entityLabel: fixedItem.name || afterPayment.id,
+                screen: L.pageTitle,
+                action: "update",
+                before: snapshotFixedExpensePaymentForAudit(beforePayment),
+                after: snapshotFixedExpensePaymentForAudit(afterPayment),
+                fields: FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS,
+                user: currentUser,
+              });
+            }
+          }
+        } else if (Number(workingTx.withdrawal || 0) > 0) {
+          if (targetLinkable) {
+            nextPayments = linkFixedExpensePaymentToBankTx(nextPayments, targetLinkable.id, tx.id, workingTx);
+            paymentId = targetLinkable.id;
+          } else {
+            paymentId = makeLedgerId();
+            const prefill = buildCompanyExpensePrefillFromBankTransaction(workingTx);
+            const createdPayment: FixedExpensePayment = {
+              id: paymentId,
+              fixedExpenseId,
+              date: prefill.date,
+              amount: parseLedgerAmount(prefill.amount),
+              memo: nextMemo || prefill.memo || fixedItem.name || prefill.description,
+              category: resolvedCategory || undefined,
+              bankTransactionId: tx.id,
+              createdBy: savedBy,
+              createdAt: new Date().toISOString(),
+            };
+            nextPayments = [createdPayment, ...nextPayments];
             recordAudit({
               entityType: "fixedExpensePayment",
-              entityId: updatedPayment.id,
-              entityLabel: updatedPayment.description || ledgerCategory,
+              entityId: createdPayment.id,
+              entityLabel: fixedItem.name || createdPayment.id,
               screen: L.pageTitle,
-              action: "update",
-              before: snapshotFixedExpensePaymentForAudit(currentPayment),
-              after: snapshotFixedExpensePaymentForAudit(updatedPayment),
+              action: "create",
+              after: snapshotFixedExpensePaymentForAudit(createdPayment),
               fields: FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS,
               user: currentUser,
             });
           }
         }
+
+        if (paymentId) {
+          workingTransactions = workingTransactions.map((row) =>
+            row.id === tx.id
+              ? { ...row, linkedFixedExpensePaymentId: paymentId, linkedCompanyExpenseId: undefined }
+              : row,
+          );
+          auditBankTxUpdate(tx, workingTransactions.find((row) => row.id === tx.id) || workingTx);
+          setFixedExpensePayments(nextPayments);
+          setCompanyExpenses(nextExpenses);
+          setBankTransactions(workingTransactions);
+          nextTransactions = workingTransactions;
+        }
+
+        nextRules = upsertBankLearnRule(
+          nextRules,
+          buildBankLedgerMatchRuleFromRegistration(workingTx, fixedExpenseId, savedBy, workingTx.withdrawal),
+        );
+        setBankLedgerRules(nextRules);
       } else if (ledgerCategory) {
         if (linkedPayment) {
           const currentPayment = fixedExpensePayments.find((row) => row.id === linkedPayment.id);
