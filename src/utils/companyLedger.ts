@@ -7,6 +7,9 @@ export type FixedExpenseCycle = "monthly" | "quarterly" | "yearly";
 
 export type CompanyExpenseKind = "variable" | "fixed";
 
+/** expense = 지출(출금), income = 입금 */
+export type CompanyLedgerFlow = "expense" | "income";
+
 export type CompanyExpense = {
   id: string;
   date: string;
@@ -15,6 +18,7 @@ export type CompanyExpense = {
   amount: number;
   memo?: string;
   kind?: CompanyExpenseKind;
+  flow?: CompanyLedgerFlow;
   bankTransactionId?: string;
   createdBy?: string;
   createdAt?: string;
@@ -71,12 +75,29 @@ export const EXPENSE_KIND_OPTIONS: Array<{ value: CompanyExpenseKind; label: str
   { value: "fixed", label: "\uACE0\uC815\uBE44" },
 ];
 
+export const LEDGER_FLOW_OPTIONS: Array<{ value: CompanyLedgerFlow; label: string }> = [
+  { value: "expense", label: "\uC9C0\uCD9C" },
+  { value: "income", label: "\uC785\uAE08" },
+];
+
 export function expenseKindLabel(kind: CompanyExpenseKind = "variable") {
   return EXPENSE_KIND_OPTIONS.find((row) => row.value === kind)?.label || EXPENSE_KIND_OPTIONS[0].label;
 }
 
+export function ledgerFlowLabel(flow: CompanyLedgerFlow = "expense") {
+  return LEDGER_FLOW_OPTIONS.find((row) => row.value === flow)?.label || LEDGER_FLOW_OPTIONS[0].label;
+}
+
 export function resolveCompanyExpenseKind(expense: Pick<CompanyExpense, "kind">) {
   return expense.kind === "fixed" ? "fixed" : "variable";
+}
+
+export function resolveCompanyExpenseFlow(expense: Pick<CompanyExpense, "flow">) {
+  return expense.flow === "income" ? "income" : "expense";
+}
+
+export function isCompanyExpenseIncome(expense: Pick<CompanyExpense, "flow">) {
+  return resolveCompanyExpenseFlow(expense) === "income";
 }
 
 export const EXPENSE_CATEGORY_OPTIONS = [
@@ -325,6 +346,15 @@ export function sumCompanyExpenses(expenses: CompanyExpense[] = []) {
   return expenses.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
 }
 
+export function sumCompanyExpensesByFlow(
+  expenses: CompanyExpense[] = [],
+  flow: CompanyLedgerFlow = "expense",
+) {
+  return expenses
+    .filter((row) => resolveCompanyExpenseFlow(row) === flow)
+    .reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+}
+
 export function sumActiveFixedMonthly(fixedExpenses: FixedExpense[] = [], monthKey?: string) {
   return fixedExpenses
     .filter((row) => (monthKey ? isFixedActiveInMonth(row, monthKey) : row.isActive))
@@ -342,7 +372,12 @@ export function sumExpensesForMonthByKind(
   kind: CompanyExpenseKind,
 ) {
   const expenseTotal = companyExpenses
-    .filter((row) => getMonthKey(row.date) === monthKey && resolveCompanyExpenseKind(row) === kind)
+    .filter(
+      (row) =>
+        getMonthKey(row.date) === monthKey &&
+        resolveCompanyExpenseKind(row) === kind &&
+        resolveCompanyExpenseFlow(row) === "expense",
+    )
     .reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
   if (kind !== "fixed") return expenseTotal;
   const paymentTotal = fixedExpensePayments
@@ -376,7 +411,11 @@ export function buildMonthlyLedgerRows(
   return monthKeys.map((monthKey) => {
     const manualRows = companyExpenses.filter((row) => getMonthKey(row.date) === monthKey);
     const paymentRows = fixedExpensePayments.filter((row) => getMonthKey(row.date) === monthKey);
-    const manualTotal = sumCompanyExpenses(manualRows.filter((row) => resolveCompanyExpenseKind(row) === "variable"));
+    const manualTotal = sumCompanyExpenses(
+      manualRows.filter(
+        (row) => resolveCompanyExpenseKind(row) === "variable" && resolveCompanyExpenseFlow(row) === "expense",
+      ),
+    );
     const fixedTotal =
       sumCompanyExpenses(manualRows.filter((row) => resolveCompanyExpenseKind(row) === "fixed")) +
       sumFixedExpensePayments(paymentRows);
@@ -386,7 +425,9 @@ export function buildMonthlyLedgerRows(
       manualTotal,
       fixedTotal,
       grandTotal: manualTotal + fixedTotal,
-      manualCount: manualRows.filter((row) => resolveCompanyExpenseKind(row) === "variable").length,
+      manualCount: manualRows.filter(
+        (row) => resolveCompanyExpenseKind(row) === "variable" && resolveCompanyExpenseFlow(row) === "expense",
+      ).length,
       fixedCount: manualRows.filter((row) => resolveCompanyExpenseKind(row) === "fixed").length + paymentRows.length,
     };
   });
@@ -472,6 +513,7 @@ export function buildLedgerCategoryStats(
   };
 
   for (const row of rangedExpenses) {
+    if (resolveCompanyExpenseFlow(row) === "income") continue;
     const key = touch(row.category);
     const entry = bucket.get(key)!;
     const amount = Number(row.amount) || 0;
@@ -539,7 +581,11 @@ export function buildMonthlyLedgerDetail(
     .filter((row) => getMonthKey(row.date) === monthKey)
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
   const fixedPayments = getFixedExpensePaymentsForMonth(fixedExpensePayments, monthKey);
-  const manualTotal = sumCompanyExpenses(manualExpenses.filter((row) => resolveCompanyExpenseKind(row) === "variable"));
+  const manualTotal = sumCompanyExpenses(
+    manualExpenses.filter(
+      (row) => resolveCompanyExpenseKind(row) === "variable" && resolveCompanyExpenseFlow(row) === "expense",
+    ),
+  );
   const fixedTotal =
     sumCompanyExpenses(manualExpenses.filter((row) => resolveCompanyExpenseKind(row) === "fixed")) +
     sumFixedExpensePayments(fixedPayments);

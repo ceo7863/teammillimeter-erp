@@ -78,6 +78,7 @@ export const COMPANY_EXPENSE_AUDIT_FIELDS: AuditFieldDef[] = [
   { key: "category", label: "분류" },
   { key: "description", label: "내용" },
   { key: "amount", label: "금액", format: (v) => formatAuditMoney(v) },
+  { key: "flow", label: "구분", format: (v) => (v === "income" ? "입금" : "지출") },
   { key: "memo", label: "비고" },
 ];
 

@@ -46,6 +46,10 @@ import {
   normalizeFixedExpensePaymentDay,
   parseLedgerAmount,
   resolveCompanyExpenseKind,
+  resolveCompanyExpenseFlow,
+  isCompanyExpenseIncome,
+  sumCompanyExpensesByFlow,
+  type CompanyLedgerFlow,
   resolveFixedPaymentFieldsFromBankTx,
   getMonthKey,
   isFixedExpensePaymentBankLinked,
@@ -69,7 +73,7 @@ import { AutocompleteInput, CategorySuggestInput } from "@/components/Autocomple
 import { CompanyLedgerCalendar } from "@/components/CompanyLedgerCalendar";
 import type { LedgerCalendarEntry } from "@/utils/ledgerCalendar";
 import { getLedgerCategoryColorStyle } from "@/utils/ledgerCalendar";
-import { formatBankLearnAutoMessage, getLinkedCompanyExpenseForBankTx, listBankTransactionsForCompanyExpenseLink, listBankTransactionsForFixedPaymentLink, clearVariableExpenseLinkForBankTx, mergeBankTransactionsById, searchBankTransactionsForLedgerLink, type BankLearnRule } from "@/utils/bankCompanyLedger";
+import { formatBankLearnAutoMessage, getLinkedCompanyExpenseForBankTx, listBankTransactionsForCompanyExpenseLink, listBankTransactionsForFixedPaymentLink, clearVariableExpenseLinkForBankTx, mergeBankTransactionsById, searchBankTransactionsForLedgerLink, resolveBankTxLedgerFlow, resolveBankTxLedgerAmount, type BankLearnRule } from "@/utils/bankCompanyLedger";
 import { loadSmartLedgerRunSummary } from "@/utils/bankSmartLedger";
 import { formatBankTransactionDateTime, type BankTransaction } from "@/utils/bankTransactions";
 import { reconcileLedgerBankLinks, refreshCompanyLedgerFromBankTransactions } from "@/utils/fixedExpenseAutomation";
@@ -104,6 +108,13 @@ const L = {
   pageTitle: "\uD68C\uC0AC \uAC00\uACC4\uBD80",
   pageDesc: "\uC218\uC785 \uC678 \uD68C\uC0AC \uC9C0\uCD9C\uACFC \uACE0\uC815\uBE44\uB97C \uD55C \uACF3\uC5D0\uC11C \uB4F1\uB85D\uD558\uACE0 \uC870\uD68C\uD569\uB2C8\uB4F1.",
   addManual: "\uC9C0\uCD9C \uCD94\uAC00",
+  addIncome: "\uC785\uAE08 \uCD94\uAC00",
+  editIncome: "\uC785\uAE08 \uC218\uC815",
+  incomeEntry: "\uC785\uAE08 \uB0B4\uC5ED",
+  emptyIncome: "\uD45C\uC2DC\uD560 \uC785\uAE08 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  thisMonthIncome: "\uC774\uBC88 \uB2EC \uC785\uAE08",
+  incomeDate: "\uC785\uAE08\uC77C",
+  ledgerFlow: "\uAD6C\uBD84",
   addFixed: "\uACE0\uC815\uBE44 \uCD94\uAC00",
   editManual: "\uC9C0\uCD9C \uC218\uC815",
   editFixed: "\uACE0\uC815\uBE44 \uC218\uC815",
@@ -268,6 +279,7 @@ type ManualModalState = {
   fixedExpenseId?: string;
   kind: CompanyExpenseKind;
   initialKind?: CompanyExpenseKind;
+  flow: CompanyLedgerFlow;
   date: string;
   category: string;
   description: string;
@@ -369,7 +381,15 @@ function buildFixedExpenseBankLinkRows(
 const PAYMENT_DAY_OPTIONS = Array.from({ length: 31 }, (_, index) => String(index + 1));
 
 function isVariableLedgerRow(item: ManualLedgerRow) {
-  return item.type === "expense" && resolveCompanyExpenseKind(item.row) === "variable";
+  return (
+    item.type === "expense" &&
+    resolveCompanyExpenseKind(item.row) === "variable" &&
+    !isCompanyExpenseIncome(item.row)
+  );
+}
+
+function isIncomeLedgerRow(item: ManualLedgerRow) {
+  return item.type === "expense" && isCompanyExpenseIncome(item.row);
 }
 
 function isFixedLedgerRow(item: ManualLedgerRow) {
@@ -460,6 +480,7 @@ function SummaryCard({
 function LedgerAtAGlancePanel({
   monthLabel,
   variableTotal,
+  incomeTotal,
   fixedTotal,
   grandTotal,
   categoryRows,
@@ -475,6 +496,7 @@ function LedgerAtAGlancePanel({
 }: {
   monthLabel: string;
   variableTotal: number;
+  incomeTotal: number;
   fixedTotal: number;
   grandTotal: number;
   categoryRows: Array<{ category: string; grandTotal: number; sharePercent: number }>;
@@ -509,6 +531,12 @@ function LedgerAtAGlancePanel({
                 {L.variableExpense} {formatKRW(variableTotal)}
                 {L.won}
               </span>
+              {incomeTotal > 0 ? (
+                <span className="erp-ledger-at-a-glance-chip chip-income">
+                  {L.incomeEntry} {formatKRW(incomeTotal)}
+                  {L.won}
+                </span>
+              ) : null}
               <span className="erp-ledger-at-a-glance-chip chip-fixed">
                 {L.fixedExpense} {formatKRW(fixedTotal)}
                 {L.won}
@@ -595,15 +623,16 @@ function LedgerAtAGlancePanel({
             {recentRows.length ? (
               <ul className="erp-ledger-at-a-glance-recent-list">
                 {recentRows.map((item) => {
-                  const isExpense = item.type === "expense";
+                  const isExpenseRow = item.type === "expense";
                   const row = item.row;
-                  const category = isExpense
+                  const isIncome = isExpenseRow && isCompanyExpenseIncome(row);
+                  const category = isExpenseRow
                     ? row.category
                     : resolveFixedPaymentCategory(row, fixedExpenses);
-                  const label = isExpense
+                  const label = isExpenseRow
                     ? row.description || row.category
                     : resolveFixedExpenseName(row.fixedExpenseId, fixedExpenses);
-                  const bankLinked = isExpense
+                  const bankLinked = isExpenseRow
                     ? isBankLinkedExpense(row, bankTransactions)
                     : isBankLinkedPayment(row, bankTransactions);
                   return (
@@ -616,7 +645,7 @@ function LedgerAtAGlancePanel({
                         </div>
                         <div className="truncate text-sm font-semibold text-slate-900">{label}</div>
                       </div>
-                      <div className="shrink-0 text-sm font-bold tabular-nums text-rose-600">
+                      <div className={`shrink-0 text-sm font-bold tabular-nums ${isIncome ? "text-emerald-600" : "text-rose-600"}`}>
                         {formatKRW(row.amount)}
                         {L.won}
                       </div>
@@ -968,10 +997,14 @@ function FixedLedgerRowsPanel({
   );
 }
 
-function emptyManualForm(category = EXPENSE_CATEGORY_OPTIONS[0]): ManualModalState {
+function emptyManualForm(
+  category = EXPENSE_CATEGORY_OPTIONS[0],
+  flow: CompanyLedgerFlow = "expense",
+): ManualModalState {
   return {
     mode: "create",
     kind: "variable",
+    flow,
     date: todayISO(),
     category,
     description: "",
@@ -1084,6 +1117,15 @@ export function CompanyLedgerPage({
   const periodFilter = useMemo(() => ledgerDateFilter(periodKey), [periodKey]);
   const periodLabel = useMemo(() => ledgerPeriodLabel(periodKey), [periodKey]);
 
+  const thisMonthIncomeTotal = useMemo(
+    () =>
+      sumCompanyExpensesByFlow(
+        companyExpenses.filter((row) => getMonthKey(row.date) === currentMonthKey),
+        "income",
+      ),
+    [companyExpenses, currentMonthKey],
+  );
+
   const thisMonthVariableTotal = useMemo(
     () => sumExpensesForMonthByKind(companyExpenses, fixedExpensePayments, currentMonthKey, "variable"),
     [companyExpenses, fixedExpensePayments, currentMonthKey],
@@ -1131,6 +1173,11 @@ export function CompanyLedgerPage({
 
   const filteredVariableRows = useMemo(
     () => filteredManualRows.filter(isVariableLedgerRow),
+    [filteredManualRows],
+  );
+
+  const filteredIncomeRows = useMemo(
+    () => filteredManualRows.filter(isIncomeLedgerRow),
     [filteredManualRows],
   );
 
@@ -1344,18 +1391,25 @@ export function CompanyLedgerPage({
 
   const openCreateManual = () => {
     setFormError("");
-    setManualModal(emptyManualForm(expenseCategories[0] || EXPENSE_CATEGORY_OPTIONS[0]));
+    setManualModal(emptyManualForm(expenseCategories[0] || EXPENSE_CATEGORY_OPTIONS[0], "expense"));
+  };
+
+  const openCreateIncome = () => {
+    setFormError("");
+    setManualModal(emptyManualForm(expenseCategories[0] || EXPENSE_CATEGORY_OPTIONS[0], "income"));
   };
 
   const openEditManual = (row: CompanyExpense) => {
     setFormError("");
     const kind = resolveCompanyExpenseKind(row);
+    const flow = resolveCompanyExpenseFlow(row);
     setManualModal({
       mode: "edit",
       source: "expense",
       id: row.id,
       kind,
       initialKind: kind,
+      flow,
       date: row.date,
       category: row.category,
       description: row.description,
@@ -1375,6 +1429,7 @@ export function CompanyLedgerPage({
       fixedExpenseId: row.fixedExpenseId,
       kind: "fixed",
       initialKind: "fixed",
+      flow: "expense",
       date: row.date,
       category: resolveFixedPaymentCategory(row, fixedExpenses),
       description: row.memo || "",
@@ -1512,6 +1567,7 @@ export function CompanyLedgerPage({
         amount: parseLedgerAmount(manualModal.amount),
         memo: manualModal.memo.trim(),
         kind: "variable",
+        flow: "expense",
         bankTransactionId: bankTransactionId || undefined,
         createdBy: savedBy,
         createdAt: new Date().toISOString(),
@@ -1685,6 +1741,7 @@ export function CompanyLedgerPage({
       amount: parseLedgerAmount(manualModal.amount),
       memo: manualModal.memo.trim(),
       kind: manualModal.mode === "create" ? "variable" : manualModal.kind,
+      flow: manualModal.flow,
       createdBy: currentUser?.name || currentUser?.loginId || "",
       createdAt: new Date().toISOString(),
     };
@@ -1877,19 +1934,22 @@ export function CompanyLedgerPage({
     if (!expenseId || !setCompanyExpenses || !setBankTransactions) return;
 
     const expense = companyExpenses.find((row) => row.id === expenseId);
-    const synced = resolveFixedPaymentFieldsFromBankTx(tx);
+    const ledgerAmount = resolveBankTxLedgerAmount(tx);
+    const ledgerDate = String(tx.transactionAt || "").slice(0, 10) || todayISO();
     const nextExpense: CompanyExpense = {
       ...(expense || {
         id: expenseId,
-        date: synced.date || todayISO(),
+        date: ledgerDate,
         category: manualModal?.category || EXPENSE_CATEGORY_OPTIONS[0],
         description: manualModal?.description || "",
-        amount: synced.amount || 0,
+        amount: ledgerAmount || 0,
         kind: manualModal?.kind === "fixed" ? "fixed" : "variable",
+        flow: manualModal?.flow || resolveBankTxLedgerFlow(tx),
       }),
       bankTransactionId: tx.id,
-      ...(synced.date ? { date: synced.date } : {}),
-      ...(synced.amount != null ? { amount: synced.amount } : {}),
+      flow: resolveBankTxLedgerFlow(tx),
+      ...(ledgerDate ? { date: ledgerDate } : {}),
+      ...(ledgerAmount > 0 ? { amount: ledgerAmount } : {}),
     };
 
     setCompanyExpenses((prev) => prev.map((row) => (row.id === expenseId ? nextExpense : row)));
@@ -1897,8 +1957,9 @@ export function CompanyLedgerPage({
       prev && prev.id === expenseId
         ? {
             ...prev,
-            ...(synced.date ? { date: synced.date } : {}),
-            ...(synced.amount != null ? { amount: String(synced.amount) } : {}),
+            ...(ledgerDate ? { date: ledgerDate } : {}),
+            ...(ledgerAmount > 0 ? { amount: String(ledgerAmount) } : {}),
+            flow: resolveBankTxLedgerFlow(tx),
           }
         : prev,
     );
@@ -2153,6 +2214,9 @@ export function CompanyLedgerPage({
               <Button className="rounded-2xl" onClick={openCreateManual}>
                 <Plus size={16} /> {L.addManual}
               </Button>
+              <Button variant="outline" className="rounded-2xl border-emerald-200 text-emerald-700 hover:bg-emerald-50" onClick={openCreateIncome}>
+                <Plus size={16} /> {L.addIncome}
+              </Button>
               {setFixedExpenses ? (
                 <Button variant="outline" className="rounded-2xl" onClick={openCreateFixedExpense}>
                   <Plus size={16} /> {L.addFixedItem}
@@ -2172,6 +2236,7 @@ export function CompanyLedgerPage({
       <LedgerAtAGlancePanel
         monthLabel={formatMonthLabel(currentMonthKey)}
         variableTotal={thisMonthCategoryStats.summary.variableTotal}
+        incomeTotal={thisMonthIncomeTotal}
         fixedTotal={thisMonthCategoryStats.summary.fixedTotal}
         grandTotal={thisMonthCategoryStats.summary.grandTotal}
         categoryRows={thisMonthCategoryStats.rows}
@@ -2356,6 +2421,118 @@ export function CompanyLedgerPage({
                         </td>
                         <td className="text-right font-black text-rose-600">
                           {formatKRW(sumManualLedgerRows(filteredVariableRows))}
+                          {L.won}
+                        </td>
+                        <td colSpan={2} />
+                      </tr>
+                    </tfoot>
+                  ) : null}
+                </table>
+              </DesktopTableWrap>
+            </section>
+
+            <section className="space-y-3 border-t border-slate-100 pt-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="erp-text-section font-bold text-emerald-700">{L.incomeEntry}</h2>
+                <span className="erp-text-caption font-semibold text-slate-500">
+                  {filteredIncomeRows.length}
+                  {L.count} · {formatKRW(sumManualLedgerRows(filteredIncomeRows))}
+                  {L.won}
+                </span>
+              </div>
+              <MobileRecordList>
+                {filteredIncomeRows.length ? (
+                  filteredIncomeRows.map((item) => {
+                    const row = item.row;
+                    const bankLinked = isBankLinkedExpense(row, bankTransactions);
+                    return (
+                      <MobileRecordCard
+                        key={`income-${row.id}`}
+                        title={<DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />}
+                        subtitle={row.date}
+                        badge={<ExpenseCategoryBadges row={row} bankTransactions={bankTransactions} />}
+                        fields={[
+                          { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "success" },
+                          { label: L.memo, value: row.memo || "-", tone: "muted" },
+                        ]}
+                        actions={
+                          <>
+                            <button type="button" className="erp-mobile-action-btn" onClick={() => openEditManual(row)}>
+                              <Pencil size={15} /> {L.edit}
+                            </button>
+                            <button type="button" className="erp-mobile-action-btn danger" onClick={() => deleteManual(row)}>
+                              <Trash2 size={15} /> {L.delete}
+                            </button>
+                          </>
+                        }
+                      />
+                    );
+                  })
+                ) : (
+                  <MobileRecordCard empty emptyLabel={L.emptyIncome} />
+                )}
+              </MobileRecordList>
+              <DesktopTableWrap>
+                <table className="erp-ledger-table min-w-full">
+                  <thead>
+                    <tr>
+                      <th>{L.incomeDate}</th>
+                      <th>{L.category}</th>
+                      <th>{L.description}</th>
+                      <th className="text-right">{L.amount}</th>
+                      <th>{L.memo}</th>
+                      <th className="erp-table-export-skip">{L.actions}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredIncomeRows.length ? (
+                      filteredIncomeRows.map((item) => {
+                        const row = item.row;
+                        const bankLinked = isBankLinkedExpense(row, bankTransactions);
+                        return (
+                          <tr key={`income-${row.id}`} className={bankLinkedRowClass(bankLinked)}>
+                            <td>{row.date}</td>
+                            <td>
+                              <ExpenseCategoryBadges row={row} bankTransactions={bankTransactions} />
+                            </td>
+                            <td>
+                              <DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />
+                            </td>
+                            <td className="text-right font-bold text-emerald-600">
+                              {formatKRW(row.amount)}
+                              {L.won}
+                            </td>
+                            <td className="text-slate-500">{row.memo || "-"}</td>
+                            <td className="erp-table-export-skip">
+                              <div className="erp-ledger-row-actions">
+                                <button type="button" className="erp-ledger-icon-btn" onClick={() => openEditManual(row)} aria-label={L.edit}>
+                                  <Pencil size={15} />
+                                </button>
+                                <button type="button" className="erp-ledger-icon-btn danger" onClick={() => deleteManual(row)} aria-label={L.delete}>
+                                  <Trash2 size={15} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={6} className="erp-ledger-empty">
+                          {L.emptyIncome}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                  {filteredIncomeRows.length ? (
+                    <tfoot>
+                      <tr>
+                        <td colSpan={3} className="font-bold">
+                          {L.total} ({filteredIncomeRows.length}
+                          {L.count})
+                        </td>
+                        <td className="text-right font-black text-emerald-600">
+                          {formatKRW(sumManualLedgerRows(filteredIncomeRows))}
                           {L.won}
                         </td>
                         <td colSpan={2} />
@@ -3091,10 +3268,14 @@ export function CompanyLedgerPage({
             <div className="mb-4 flex items-center justify-between">
               <h2 className="erp-text-section font-bold">
                 {manualModal.mode === "create"
-                  ? L.addManual
-                  : manualModal.source === "fixedPayment" || manualModal.kind === "fixed"
-                    ? L.editFixed
-                    : L.editManual}
+                  ? manualModal.flow === "income"
+                    ? L.addIncome
+                    : L.addManual
+                  : manualModal.flow === "income"
+                    ? L.editIncome
+                    : manualModal.source === "fixedPayment" || manualModal.kind === "fixed"
+                      ? L.editFixed
+                      : L.editManual}
               </h2>
               <button
                 type="button"
@@ -3108,7 +3289,7 @@ export function CompanyLedgerPage({
               </button>
             </div>
             <div className="space-y-4">
-              {manualModal.mode === "edit" ? (
+              {manualModal.mode === "edit" && manualModal.flow === "expense" ? (
                 <Field label={L.editKind}>
                   <div className="grid grid-cols-2 gap-2">
                     {MANUAL_KIND_TOGGLE_OPTIONS.map((option) => (
@@ -3126,13 +3307,13 @@ export function CompanyLedgerPage({
                   </div>
                 </Field>
               ) : null}
-              <Field label={L.expenseDate}>
+              <Field label={manualModal.flow === "income" ? L.incomeDate : L.expenseDate}>
                 <KoreanDateInput
                   value={manualModal.date}
                   onChange={(event) => setManualModal((prev) => (prev ? { ...prev, date: event.target.value } : prev))}
                 />
               </Field>
-              {manualModal.mode === "edit" && manualModal.kind === "fixed" ? (
+              {manualModal.mode === "edit" && manualModal.kind === "fixed" && manualModal.flow === "expense" ? (
                 <Field label={L.fixedItemSection}>
                   <AutocompleteInput
                     value={manualModal.fixedExpenseId || ""}
@@ -3163,7 +3344,7 @@ export function CompanyLedgerPage({
                 </Field>
               ) : null}
               <Field label={L.category}>
-                {manualModal.kind === "fixed" ? (
+                {manualModal.kind === "fixed" && manualModal.flow === "expense" ? (
                   <>
                     <CategorySuggestInput
                       key={`${manualModal.id || "create"}-${manualModal.source || "expense"}-${manualModal.kind}`}

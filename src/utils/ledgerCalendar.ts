@@ -4,6 +4,7 @@ import {
   getMonthKey,
   isFixedExpensePaymentSettled,
   resolveCompanyExpenseKind,
+  resolveCompanyExpenseFlow,
   resolveFixedPaymentCategory,
   type CompanyExpense,
   type FixedExpense,
@@ -19,6 +20,7 @@ export type LedgerCalendarEntry = {
   id: string;
   kind: LedgerCalendarEntryKind;
   source: LedgerCalendarEntrySource;
+  flow: "expense" | "income";
   label: string;
   category: string;
   amount: number;
@@ -28,9 +30,11 @@ export type LedgerCalendarEntry = {
 export type LedgerCalendarDayStats = {
   variableTotal: number;
   fixedTotal: number;
+  incomeTotal: number;
   grandTotal: number;
   variableCount: number;
   fixedCount: number;
+  incomeCount: number;
   count: number;
   unpaidFixedTotal: number;
   unpaidFixedCount: number;
@@ -97,9 +101,11 @@ export const LEDGER_CALENDAR_WEEKDAYS = [
 const EMPTY_DAY_STATS = (): LedgerCalendarDayStats => ({
   variableTotal: 0,
   fixedTotal: 0,
+  incomeTotal: 0,
   grandTotal: 0,
   variableCount: 0,
   fixedCount: 0,
+  incomeCount: 0,
   count: 0,
   unpaidFixedTotal: 0,
   unpaidFixedCount: 0,
@@ -119,6 +125,11 @@ function resolveFixedExpenseCategory(fixedExpenseId: string, fixedExpenses: Fixe
 function addEntry(stats: LedgerCalendarDayStats, entry: LedgerCalendarEntry) {
   stats.entries.push(entry);
   stats.count += 1;
+  if (entry.flow === "income") {
+    stats.incomeCount += 1;
+    stats.incomeTotal += entry.amount;
+    return;
+  }
   stats.grandTotal += entry.amount;
   if (entry.kind === "variable") {
     stats.variableCount += 1;
@@ -161,6 +172,7 @@ export function buildLedgerCalendarDays(
       id: expense.id,
       kind: kind === "fixed" ? "fixed" : "variable",
       source: "expense",
+      flow: resolveCompanyExpenseFlow(expense),
       label: String(expense.description || expense.category || "-").trim() || "-",
       category: String(expense.category || "-").trim() || "-",
       amount: Number(expense.amount) || 0,
@@ -181,6 +193,7 @@ export function buildLedgerCalendarDays(
       id: payment.id,
       kind: "fixed",
       source: "fixedPayment",
+      flow: "expense",
       label: resolveFixedExpenseName(payment.fixedExpenseId, fixedExpenses),
       category: resolveFixedPaymentCategory(payment, fixedExpenses),
       amount: Number(payment.amount) || 0,
@@ -213,9 +226,11 @@ export function summarizeLedgerCalendarMonth(cells: Array<LedgerCalendarCell | n
       if (!cell) return acc;
       acc.variableTotal += cell.stats.variableTotal;
       acc.fixedTotal += cell.stats.fixedTotal;
+      acc.incomeTotal += cell.stats.incomeTotal;
       acc.grandTotal += cell.stats.grandTotal;
       acc.variableCount += cell.stats.variableCount;
       acc.fixedCount += cell.stats.fixedCount;
+      acc.incomeCount += cell.stats.incomeCount;
       acc.count += cell.stats.count;
       acc.unpaidFixedTotal += cell.stats.unpaidFixedTotal;
       acc.unpaidFixedCount += cell.stats.unpaidFixedCount;
@@ -231,9 +246,11 @@ export function summarizeLedgerCalendarMonth(cells: Array<LedgerCalendarCell | n
     {
       variableTotal: 0,
       fixedTotal: 0,
+      incomeTotal: 0,
       grandTotal: 0,
       variableCount: 0,
       fixedCount: 0,
+      incomeCount: 0,
       count: 0,
       unpaidFixedTotal: 0,
       unpaidFixedCount: 0,

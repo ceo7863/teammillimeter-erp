@@ -15,6 +15,7 @@ import {
   parseLedgerAmount,
   areRecurringAmountsCompatible,
   resolveCompanyExpenseKind,
+  resolveCompanyExpenseFlow,
   resolveFixedExpenseIdForBankTransaction,
 } from "./companyLedger";
 
@@ -305,7 +306,7 @@ export function canRegisterBankTxToCompanyLedger(
   options: { allowVariableLinked?: boolean } = {},
 ) {
   if (isNetGroupSuppressed(tx)) return false;
-  if (tx.folderId || !(tx.withdrawal > 0)) return false;
+  if (tx.folderId || resolveBankTxLedgerAmount(tx) <= 0) return false;
   if (options.allowVariableLinked && isBankTransactionLinkedToVariableExpenseOnly(tx, context)) {
     return true;
   }
@@ -334,7 +335,7 @@ export function listBankTransactionsForLedgerLink(
 }
 
 export function buildBankTransactionLinkSearchHaystack(tx: BankTransaction) {
-  return [tx.counterpartyName, tx.description, tx.memo, String(tx.withdrawal || "")]
+  return [tx.counterpartyName, tx.description, tx.memo, String(tx.withdrawal || tx.deposit || "")]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
@@ -486,11 +487,13 @@ function bankTransactionMatchesCompanyExpenseAmount(
 ) {
   const monthKey = getMonthKey(String(tx.transactionAt || "").slice(0, 10));
   if (!monthKey || getMonthKey(expense.date) !== monthKey) return false;
-  const withdrawal = Number(tx.withdrawal || 0);
+  const txAmount = resolveBankTxLedgerAmount(tx);
   const amount = Number(expense.amount || 0);
-  if (withdrawal <= 0 || amount <= 0) return false;
-  if (withdrawal === amount) return true;
-  return areRecurringAmountsCompatible(amount, withdrawal);
+  if (txAmount <= 0 || amount <= 0) return false;
+  if (resolveCompanyExpenseFlow(expense) === "income" && Number(tx.deposit || 0) <= 0) return false;
+  if (resolveCompanyExpenseFlow(expense) === "expense" && Number(tx.withdrawal || 0) <= 0) return false;
+  if (txAmount === amount) return true;
+  return areRecurringAmountsCompatible(amount, txAmount);
 }
 
 export function bankTransactionMatchesCompanyExpenseForLink(
@@ -1381,6 +1384,7 @@ export function createCompanyExpenseFromBankTransaction(
     amount: parseLedgerAmount(prefill.amount),
     memo: prefill.memo,
     kind: "variable",
+    flow: resolveBankTxLedgerFlow(tx),
     bankTransactionId: tx.id,
     createdBy: createdBy || "",
     createdAt: new Date().toISOString(),
@@ -1759,6 +1763,10 @@ export function resolveBankTxLedgerAmount(tx: { withdrawal?: number; deposit?: n
   const withdrawal = Number(tx.withdrawal || 0);
   const deposit = Number(tx.deposit || 0);
   return withdrawal > 0 ? withdrawal : deposit > 0 ? deposit : 0;
+}
+
+export function resolveBankTxLedgerFlow(tx: { withdrawal?: number; deposit?: number }) {
+  return Number(tx.withdrawal || 0) > 0 ? "expense" : "income";
 }
 
 export function buildCompanyExpensePrefillFromBankTransaction(tx: BankTransaction) {

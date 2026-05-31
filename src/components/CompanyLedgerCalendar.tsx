@@ -22,6 +22,7 @@ const L = {
   tabDesc: "\uB0A0\uC9DC\uBCC4 \uBCC0\uB3D9 \uC9C0\uCD9C\uACFC \uACE0\uC815\uBE44\uB97C \uCE98\uB9B0\uB354\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.",
   thisMonthBtn: "\uC774\uBC88 \uB2EC",
   variableExpense: "\uBCC0\uB3D9 \uC9C0\uCD9C",
+  incomeEntry: "\uC785\uAE08",
   fixedExpense: "\uACE0\uC815\uBE44",
   grandTotal: "\uCD1D \uD569\uACC4",
   unpaidFixedExpense: "\uBBF8\uC9C0\uCD9C \uACE0\uC815\uBE44",
@@ -94,10 +95,13 @@ function SummaryCard({
   );
 }
 
-function KindBadge({ kind }: { kind: LedgerCalendarEntry["kind"] }) {
+function KindBadge({ entry }: { entry: LedgerCalendarEntry }) {
+  if (entry.flow === "income") {
+    return <span className="erp-ledger-kind-badge kind-income">{L.incomeEntry}</span>;
+  }
   return (
-    <span className={`erp-ledger-kind-badge kind-${kind}`}>
-      {kind === "variable" ? L.variableExpense : L.fixedExpense}
+    <span className={`erp-ledger-kind-badge kind-${entry.kind}`}>
+      {entry.kind === "variable" ? L.variableExpense : L.fixedExpense}
     </span>
   );
 }
@@ -105,7 +109,7 @@ function KindBadge({ kind }: { kind: LedgerCalendarEntry["kind"] }) {
 function EntryBadges({ entry }: { entry: LedgerCalendarEntry }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <KindBadge kind={entry.kind} />
+      <KindBadge entry={entry} />
       {entry.kind === "fixed" && !entry.bankLinked ? (
         <span className="erp-ledger-unpaid-badge">{L.unpaidBadge}</span>
       ) : null}
@@ -227,6 +231,12 @@ function LedgerDaySidePanel({
               <span className="erp-calendar-side-stat-label">{L.grandTotal}</span>
               <strong>{formatKRW(selectedDayStats.grandTotal)}{L.won}</strong>
             </div>
+            {selectedDayStats.incomeTotal > 0 ? (
+              <div className="erp-calendar-side-stat is-income">
+                <span className="erp-calendar-side-stat-label">{L.incomeEntry}</span>
+                <strong>{formatKRW(selectedDayStats.incomeTotal)}{L.won}</strong>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -366,6 +376,15 @@ export function CompanyLedgerCalendar({
               tone="text-slate-900"
               sub={`${monthSummary.count}${L.count}`}
             />
+            {monthSummary.incomeTotal > 0 ? (
+              <SummaryCard
+                compact
+                label={L.incomeEntry}
+                value={`${formatKRW(monthSummary.incomeTotal)}${L.won}`}
+                tone="text-emerald-600"
+                sub={`${monthSummary.incomeCount}${L.count}`}
+              />
+            ) : null}
           </div>
 
           <div className="erp-calendar-toolbar erp-ledger-calendar-toolbar">
