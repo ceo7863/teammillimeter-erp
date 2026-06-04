@@ -20,7 +20,6 @@ import {
 import { formatMonthLabel, shiftMonthKey, type WorkerMonthlyPaymentRecord } from "@/utils/workerMonthlyPayments";
 import {
   findWorkerPortalAck,
-  workerPortalPreviousMonthKey,
   type WorkerPortalStatementAck,
 } from "@/utils/workerPortalAcknowledgment";
 import {
@@ -237,7 +236,7 @@ export function WorkerMonthlyPaymentTab({
   });
 
   const detailRows = useMemo(() => flattenSalesToWorkerPaymentRows(sales, workers), [sales, workers]);
-  const showPortalAckColumn = selectedMonthKey === workerPortalPreviousMonthKey();
+  const showPortalAckColumn = /^\d{4}-\d{2}$/.test(selectedMonthKey);
 
   const allObligations = useMemo(
     () =>

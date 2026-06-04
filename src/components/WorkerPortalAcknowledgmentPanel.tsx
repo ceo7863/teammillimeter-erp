@@ -10,7 +10,7 @@ import {
 import {
   buildWorkerPortalAckConfirmMessage,
   formatWorkerPortalAckConfirmedAt,
-  isWorkerPortalAckMonth,
+  isWorkerPortalSignableMonth,
 } from "@/utils/workerPortalAcknowledgment";
 import { formatMonthLabel } from "@/utils/workerMonthlyPayments";
 
@@ -31,10 +31,10 @@ export function WorkerPortalAcknowledgmentPanel({
   const [signatureDataUrl, setSignatureDataUrl] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const isAckMonth = isWorkerPortalAckMonth(monthKey);
+  const canSignMonth = isWorkerPortalSignableMonth(monthKey);
 
   const loadAck = useCallback(async () => {
-    if (!isAckMonth || !hasStatementRows) {
+    if (!canSignMonth || !hasStatementRows) {
       setState(null);
       return;
     }
@@ -53,13 +53,13 @@ export function WorkerPortalAcknowledgmentPanel({
     } finally {
       setLoading(false);
     }
-  }, [hasStatementRows, isAckMonth, monthKey]);
+  }, [canSignMonth, hasStatementRows, monthKey]);
 
   useEffect(() => {
     void loadAck();
   }, [loadAck]);
 
-  if (!isAckMonth || !hasStatementRows) return null;
+  if (!canSignMonth || !hasStatementRows) return null;
 
   const confirmed = Boolean(state?.acknowledgment);
   const canSubmit = Boolean(state?.canSubmit) && !confirmed;
@@ -83,7 +83,7 @@ export function WorkerPortalAcknowledgmentPanel({
             }
           : prev,
       );
-      setSuccess("\uC804\uC6D4 \uC2DC\uACF5\uB0B4\uC5ED\uC11C \uD655\uC778\uC774 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4.");
+      setSuccess("\uC2DC\uACF5\uB0B4\uC5ED\uC11C \uD655\uC778\uC774 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4.");
       setConfirmOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "\uC800\uC7A5\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
@@ -97,7 +97,7 @@ export function WorkerPortalAcknowledgmentPanel({
       <div className="mb-3 flex items-start gap-2">
         <CheckCircle2 size={20} className="mt-0.5 shrink-0 text-emerald-600" />
         <div>
-          <h3 className="erp-text-body font-bold text-slate-900">{"\uC804\uC6D4 \uC2DC\uACF5\uB0B4\uC5ED\uC11C \uD655\uC778"}</h3>
+          <h3 className="erp-text-body font-bold text-slate-900">{"\uC2DC\uACF5\uB0B4\uC5ED\uC11C \uD655\uC778"}</h3>
           <p className="erp-text-caption mt-1 text-slate-600">
             {formatMonthLabel(monthKey)}
             {" \uB0B4\uC5ED\uC744 \uD655\uC778\uD558\uC2DC\uACE0 \uC11C\uBA85 \uD6C4 \uC800\uC7A5\uD574 \uC8FC\uC138\uC694."}

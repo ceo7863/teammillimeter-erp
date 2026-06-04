@@ -111,7 +111,8 @@ export type WorkerPortalAcknowledgmentRecord = {
 export type WorkerPortalAcknowledgmentState = {
   monthKey: string;
   eligible: boolean;
-  previousMonthKey: string;
+  currentMonthKey?: string;
+  previousMonthKey?: string;
   canSubmit: boolean;
   acknowledgment: WorkerPortalAcknowledgmentRecord | null;
 };
