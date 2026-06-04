@@ -5,7 +5,7 @@
 import { getDb, getErpState, saveErpState } from "../server/db.mjs";
 import { updatePdfArchiveMeta } from "../server/pdfArchive.mjs";
 
-const CLIENT = "\uD648\uB8E8\uB4E0\uC2A4";
+const CLIENT = "\uD648\uB8E8\uB374\uC2A4";
 const REMOVE_VOUCHER_IDS = new Set([1780379378889, 1780379378890]);
 const WATCH_SALE_IDS = [3367, 3477, 3498, 3529, 3564, 3584, 3600];
 
