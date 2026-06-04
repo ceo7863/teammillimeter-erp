@@ -236,7 +236,8 @@ export function WorkerMonthlyPaymentTab({
   });
 
   const detailRows = useMemo(() => flattenSalesToWorkerPaymentRows(sales, workers), [sales, workers]);
-  const showPortalAckColumn = /^\d{4}-\d{2}$/.test(selectedMonthKey);
+  const showPortalAckColumn =
+    /^\d{4}-\d{2}$/.test(selectedMonthKey) && selectedMonthKey < monthStartISO().slice(0, 7);
 
   const allObligations = useMemo(
     () =>

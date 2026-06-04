@@ -18,7 +18,7 @@ export function currentStatementMonthKey() {
 
 export function isWorkerPortalAckEligibleMonth(monthKey, baseMonthKey = currentStatementMonthKey()) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) return false;
-  return monthKey <= baseMonthKey;
+  return monthKey < baseMonthKey;
 }
 
 export function makeWorkerPortalAckKey(workerId, monthKey) {
@@ -85,7 +85,7 @@ export function saveWorkerPortalAcknowledgment(workerPortal, input = {}) {
     return {
       ok: false,
       status: 400,
-      error: "\uBBF8\uB798 \uC6D4\uC740 \uD655\uC778 \uC800\uC7A5\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
+      error: "\uC774\uBC88 \uB2EC\uACFC \uBBF8\uB798 \uC6D4\uC740 \uD655\uC778 \uC800\uC7A5\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
     };
   }
 

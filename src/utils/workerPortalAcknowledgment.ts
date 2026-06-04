@@ -18,10 +18,10 @@ export function workerPortalPreviousMonthKey(baseMonthKey = currentStatementMont
   return shiftMonthKey(baseMonthKey, -1);
 }
 
-/** Past/current months only (not future). */
+/** Past months only — not the current month or future. */
 export function isWorkerPortalSignableMonth(monthKey: string, baseMonthKey = currentStatementMonthKey()) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) return false;
-  return monthKey <= baseMonthKey;
+  return monthKey < baseMonthKey;
 }
 
 /** @deprecated Use isWorkerPortalSignableMonth */

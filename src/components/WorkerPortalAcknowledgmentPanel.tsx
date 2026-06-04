@@ -100,7 +100,7 @@ export function WorkerPortalAcknowledgmentPanel({
           <h3 className="erp-text-body font-bold text-slate-900">{"\uC2DC\uACF5\uB0B4\uC5ED\uC11C \uD655\uC778"}</h3>
           <p className="erp-text-caption mt-1 text-slate-600">
             {formatMonthLabel(monthKey)}
-            {" \uB0B4\uC5ED\uC744 \uD655\uC778\uD558\uC2DC\uACE0 \uC11C\uBA85 \uD6C4 \uC800\uC7A5\uD574 \uC8FC\uC138\uC694."}
+            {" \uB0B4\uC5ED\uC744 \uD655\uC778\uD558\uC2DC\uACE0 \uC11C\uBA85 \uD6C4 \uC800\uC7A5\uD574 \uC8FC\uC138\uC694. (\uC774\uBC88 \uB2EC\uC740 \uD655\uC778 \uB300\uC0C1 \uC544\uC998)"}
           </p>
         </div>
       </div>
