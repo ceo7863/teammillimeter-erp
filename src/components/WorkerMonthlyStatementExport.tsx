@@ -1,4 +1,5 @@
 import React, { useMemo, useRef } from "react";
+import { StatementA4Preview } from "@/components/StatementA4Preview";
 import { WorkerStatementSheet } from "@/components/WorkerStatementSheet";
 import { TableExportToolbar } from "@/components/TableExportSection";
 import { findWorkerPortalAck, type WorkerPortalStatementAck } from "@/utils/workerPortalAcknowledgment";
@@ -71,20 +72,22 @@ export function WorkerMonthlyStatementExport({
   return (
     <div className="erp-worker-month-statement-export">
       <div className="erp-worker-month-statement-host" aria-hidden="true">
-        <WorkerStatementSheet
-          ref={sheetRef}
-          workerName={worker}
-          workerInfo={workerInfo}
-          periodStart={periodStart}
-          periodEnd={periodEnd}
-          summary={summary}
-          rows={displayRows}
-          totals={totals}
-          emptyMessage={"\uD45C\uC2DC\uD560 \uC2DC\uACF5\uC790 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."}
-          portalAckConfirmed={portalAckConfirmed}
-          portalSignatureDataUrl={portalAck?.signatureDataUrl}
-          portalSignatureConfirmedAt={portalAck?.confirmedAt}
-        />
+        <StatementA4Preview layoutVersion={`${monthKey}:${displayRows.length}:${portalAck?.confirmedAt || ""}`}>
+          <WorkerStatementSheet
+            ref={sheetRef}
+            workerName={worker}
+            workerInfo={workerInfo}
+            periodStart={periodStart}
+            periodEnd={periodEnd}
+            summary={summary}
+            rows={displayRows}
+            totals={totals}
+            emptyMessage={"\uD45C\uC2DC\uD560 \uC2DC\uACF5\uC790 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."}
+            portalAckConfirmed={portalAckConfirmed}
+            portalSignatureDataUrl={portalAck?.signatureDataUrl}
+            portalSignatureConfirmedAt={portalAck?.confirmedAt}
+          />
+        </StatementA4Preview>
       </div>
       <TableExportToolbar
         className="erp-worker-month-statement-toolbar"

@@ -11626,6 +11626,11 @@ button:disabled,
   margin: 0;
 }
 
+.erp-worker-portal-statement-scaler .erp-statement-a4-preview {
+  width: 794px;
+  max-width: 100%;
+}
+
 @media (max-width: 767px) {
   .erp-worker-portal-page {
     padding: 0.5rem;

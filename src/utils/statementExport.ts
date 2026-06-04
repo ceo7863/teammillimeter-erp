@@ -1,5 +1,5 @@
 import { exportStatementExcelFromPayload } from "@/utils/statementExcel";
-import { collectStatementPrintPages } from "@/utils/statementPagination";
+import { collectStatementPrintPages, waitForStatementPreviewReady } from "@/utils/statementPagination";
 import {
   createPdfPreviewWindow,
   downloadPdfFromHtmlElement,
@@ -43,16 +43,31 @@ export async function printStatementSheet(root: HTMLElement) {
   window.setTimeout(cleanup, 1500);
 }
 
+/** Worker/client statement PDF — same layout as admin modal (A4 preview + pagination). */
+export async function downloadWorkerStatementSheetPdf(
+  sheetRoot: HTMLElement,
+  fileName: string,
+  options: { previewWindow?: Window | null; deliver?: boolean } = {},
+) {
+  const preview = sheetRoot.closest(".erp-statement-a4-preview") as HTMLElement | null;
+  if (preview) {
+    await waitForStatementPreviewReady(preview);
+  }
+
+  return downloadPdfFromHtmlElement(sheetRoot, fileName.endsWith(".pdf") ? fileName : `${fileName}.pdf`, {
+    orientation: "portrait",
+    paginate: true,
+    previewWindow: options.previewWindow,
+    deliver: options.deliver,
+  });
+}
+
 export async function exportStatementSheetPdf(root: HTMLElement, fileName: string) {
   const previewWindow = createPdfPreviewWindow();
   const pdfName = `${safeExportFileName(fileName)}_${todayISO()}.pdf`;
 
   if (root.matches("[data-pdf-export-root]")) {
-    return downloadPdfFromHtmlElement(root, pdfName, {
-      orientation: "portrait",
-      paginate: true,
-      previewWindow,
-    });
+    return downloadWorkerStatementSheetPdf(root, pdfName, { previewWindow });
   }
 
   return downloadPdfFromHtmlElement(root, pdfName, {

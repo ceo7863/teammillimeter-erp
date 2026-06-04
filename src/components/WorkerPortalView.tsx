@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { WorkerPortalAcknowledgmentPanel } from "@/components/WorkerPortalAcknowledgmentPanel";
 import { WorkerPortalStatementScaler } from "@/components/WorkerPortalStatementScaler";
+import { StatementA4Preview } from "@/components/StatementA4Preview";
 import { WorkerStatementSheet } from "@/components/WorkerStatementSheet";
 import { DEFAULT_COMPANY_PROFILE, normalizeCompanyProfile } from "@/utils/companyProfile";
 import { dedupeStatementRowMemos } from "@/utils/statementSheets";
@@ -25,7 +26,7 @@ import {
   sortWorkerPaymentRowsByDateDesc,
   type WorkerPaymentDetailRow,
 } from "@/utils/workerPayments";
-import { downloadPdfFromHtmlElement } from "@/utils/statementPdf";
+import { downloadWorkerStatementSheetPdf } from "@/utils/statementExport";
 
 function getMonthEndISO(monthKey: string) {
   const match = /^(\d{4})-(\d{2})$/.exec(String(monthKey || ""));
@@ -165,6 +166,7 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
   const portalSignatureInteractive = canSignMonth && displayRows.length > 0 && !portalAck;
   const portalSignatureDataUrl = portalAck?.signatureDataUrl || signatureDraft;
   const canDownloadPdf = Boolean(portalAck?.signatureDataUrl) && displayRows.length > 0;
+  const statementLayoutVersion = `${monthKey}:${displayRows.length}:${portalAck?.confirmedAt || ""}:${portalSignatureInteractive ? "draft" : "done"}`;
 
   const handleDownloadPdf = async () => {
     const element = statementSheetRef.current;
@@ -174,11 +176,11 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
     }
     const displayName = workerName || String((workerInfo as { name?: string }).name || "");
     const safeName = displayName.replace(/[\\/:*?"<>|]/g, "_") || "\uC2DC\uACF5\uC790";
-    const fileName = `\uC2DC\uACF5\uB0B4\uC5ED\uC11C_\uC2DC\uACF5\uC790_${safeName}_${monthKey}.pdf`;
+    const fileName = `\uC2DC\uACF5\uB0B4\uC5ED\uC11C_\uC2DC\uACF5\uC790_${safeName}_${monthKey}`;
     setPdfGenerating(true);
     setPdfMessage("PDF \uC0DD\uC131 \uC911\uC785\uB2C8\uB2E4...");
     try {
-      await downloadPdfFromHtmlElement(element, fileName, { orientation: "portrait" });
+      await downloadWorkerStatementSheetPdf(element, fileName);
       setPdfMessage("PDF\uAC00 \uB2E4\uC6B4\uB85C\uB4DC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.");
     } catch (err) {
       console.error(err);
@@ -252,23 +254,25 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
                 ) : monthKey ? (
                   <div className="erp-worker-portal-statement-shell rounded-2xl border bg-white p-2 shadow-inner">
                     <WorkerPortalStatementScaler>
-                      <WorkerStatementSheet
-                        ref={statementSheetRef}
-                        workerName={workerName || String((workerInfo as { name?: string }).name || "")}
-                        workerInfo={workerInfo}
-                        companyProfile={companyProfile}
-                        periodStart={periodStart}
-                        periodEnd={periodEnd}
-                        summary={summary}
-                        rows={displayRows}
-                        totals={totals}
-                        emptyMessage={"\uD45C\uC2DC\uD560 \uC2DC\uACF5 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."}
-                        portalAckConfirmed={Boolean(portalAck)}
-                        portalSignatureDataUrl={portalSignatureDataUrl}
-                        portalSignatureConfirmedAt={portalAck?.confirmedAt}
-                        portalSignatureInteractive={portalSignatureInteractive}
-                        onPortalSignatureChange={setSignatureDraft}
-                      />
+                      <StatementA4Preview layoutVersion={statementLayoutVersion}>
+                        <WorkerStatementSheet
+                          ref={statementSheetRef}
+                          workerName={workerName || String((workerInfo as { name?: string }).name || "")}
+                          workerInfo={workerInfo}
+                          companyProfile={companyProfile}
+                          periodStart={periodStart}
+                          periodEnd={periodEnd}
+                          summary={summary}
+                          rows={displayRows}
+                          totals={totals}
+                          emptyMessage={"\uD45C\uC2DC\uD560 \uC2DC\uACF5 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."}
+                          portalAckConfirmed={Boolean(portalAck)}
+                          portalSignatureDataUrl={portalSignatureDataUrl}
+                          portalSignatureConfirmedAt={portalAck?.confirmedAt}
+                          portalSignatureInteractive={portalSignatureInteractive}
+                          onPortalSignatureChange={setSignatureDraft}
+                        />
+                      </StatementA4Preview>
                     </WorkerPortalStatementScaler>
                   </div>
                 ) : null}

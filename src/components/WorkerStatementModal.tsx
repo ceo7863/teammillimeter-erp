@@ -5,7 +5,8 @@ import { WorkerStatementSheet } from "@/components/WorkerStatementSheet";
 import { StatementA4Preview } from "@/components/StatementA4Preview";
 import { TableExportToolbar } from "@/components/TableExportSection";
 import { archiveGeneratedPdf, archivePdfAndCreateShareLink, copyTextToClipboard } from "@/utils/pdfArchive";
-import { createPdfPreviewWindow, downloadPdfFromHtmlElement, revokePdfBlobUrl } from "@/utils/statementPdf";
+import { createPdfPreviewWindow, revokePdfBlobUrl } from "@/utils/statementPdf";
+import { downloadWorkerStatementSheetPdf } from "@/utils/statementExport";
 import {
   buildStatementPdfCacheKey,
   prefetchStatementPdf,
@@ -105,7 +106,7 @@ export function WorkerStatementModal({
         displayRows.length,
       ]);
       prefetchStatementPdf(cacheKey, () =>
-        downloadPdfFromHtmlElement(element, fileName, { orientation: "portrait", deliver: false }),
+        downloadWorkerStatementSheetPdf(element, fileName, { deliver: false }),
       );
     }, 250);
     return () => window.clearTimeout(timer);
@@ -131,7 +132,7 @@ export function WorkerStatementModal({
 
     try {
       const { result, fromCache } = await resolveStatementPdf(cacheKey, () =>
-        downloadPdfFromHtmlElement(element, fileName, { orientation: "portrait", deliver: false }),
+        downloadWorkerStatementSheetPdf(element, fileName, { deliver: false }),
       );
       pdfBlobUrlRef.current = result.blobUrl;
       setPdfMessage(fromCache ? "\uC11C\uBC84 \uC5C5\uB85C\uB4DC \uBC0F \uB9C1\uD06C \uC0DD\uC131 \uC911..." : "PDF \uC0DD\uC131 \uBC0F \uB9C1\uD06C \uC900\uBE44 \uC911...");
@@ -199,8 +200,7 @@ export function WorkerStatementModal({
     }
 
     try {
-      const result = await downloadPdfFromHtmlElement(element, fileName, {
-        orientation: "portrait",
+      const result = await downloadWorkerStatementSheetPdf(element, fileName, {
         previewWindow,
       });
       pdfBlobUrlRef.current = result.blobUrl;
