@@ -16,7 +16,7 @@ import { formatMonthLabel } from "@/utils/workerMonthlyPayments";
 import {
   buildWorkerStatementSummary,
   formatKRW,
-  sortWorkerPaymentRowsByDate,
+  sortWorkerPaymentRowsByDateDesc,
   type WorkerMasterLike,
   type WorkerPaymentDetailRow,
 } from "@/utils/workerPayments";
@@ -66,7 +66,7 @@ export function WorkerStatementModal({
   const pdfBlobUrlRef = useRef("");
 
   const displayRows = useMemo(
-    () => sortWorkerPaymentRowsByDate(dedupeStatementRowMemos(rows)),
+    () => sortWorkerPaymentRowsByDateDesc(dedupeStatementRowMemos(rows)),
     [rows],
   );
   const summary = useMemo(() => buildWorkerStatementSummary(rows, workerInfo), [rows, workerInfo]);

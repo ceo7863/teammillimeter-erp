@@ -639,6 +639,15 @@ export function sortWorkerPaymentRowsByDate<T extends { date?: string; id?: stri
   });
 }
 
+/** 시공내역서: 최근 시공일이 위로 오도록 */
+export function sortWorkerPaymentRowsByDateDesc<T extends { date?: string; id?: string }>(rows: T[] = []) {
+  return [...rows].sort((a, b) => {
+    const byDate = String(b.date || "").localeCompare(String(a.date || ""));
+    if (byDate !== 0) return byDate;
+    return String(b.id || "").localeCompare(String(a.id || ""));
+  });
+}
+
 export function formatStatementDashAmount(value: number) {
   const amount = Number(value) || 0;
   return amount ? formatKRW(amount) : "-";

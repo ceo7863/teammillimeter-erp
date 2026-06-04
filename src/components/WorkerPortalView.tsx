@@ -11,10 +11,14 @@ import {
   fetchWorkerPortalStatement,
   getWorkerPortalWorkerName,
 } from "@/utils/workerPortalApi";
-import { formatMonthLabel, shiftMonthKey } from "@/utils/workerMonthlyPayments";
+import {
+  currentStatementMonthKey,
+  formatMonthLabel,
+  shiftMonthKey,
+} from "@/utils/workerMonthlyPayments";
 import {
   buildWorkerStatementSummary,
-  sortWorkerPaymentRowsByDate,
+  sortWorkerPaymentRowsByDateDesc,
   type WorkerPaymentDetailRow,
 } from "@/utils/workerPayments";
 
@@ -48,7 +52,7 @@ type WorkerPortalViewProps = {
 export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
   const workerName = getWorkerPortalWorkerName();
   const [months, setMonths] = useState<string[]>([]);
-  const [monthKey, setMonthKey] = useState("");
+  const [monthKey, setMonthKey] = useState(currentStatementMonthKey);
   const [rows, setRows] = useState<WorkerPaymentDetailRow[]>([]);
   const [workerInfo, setWorkerInfo] = useState({});
   const [companyProfile, setCompanyProfile] = useState(DEFAULT_COMPANY_PROFILE);
@@ -63,7 +67,11 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
       const result = await fetchWorkerPortalMonths();
       const list = result.months || [];
       setMonths(list);
-      setMonthKey((prev) => (prev && list.includes(prev) ? prev : list[0] || prev));
+      setMonthKey((prev) => {
+        const current = currentStatementMonthKey();
+        if (!prev || !/^\d{4}-\d{2}$/.test(prev)) return current;
+        return prev;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "\uB0B4\uC5ED\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
     } finally {
@@ -102,7 +110,7 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
   }, [monthKey]);
 
   const displayRows = useMemo(
-    () => sortWorkerPaymentRowsByDate(dedupeStatementRowMemos(rows)),
+    () => sortWorkerPaymentRowsByDateDesc(dedupeStatementRowMemos(rows)),
     [rows],
   );
   const summary = useMemo(() => buildWorkerStatementSummary(rows, workerInfo), [rows, workerInfo]);

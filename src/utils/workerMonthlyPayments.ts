@@ -1,3 +1,4 @@
+import { monthStartISO } from "./receivables";
 import {
   findWorkerMasterByListName,
   normalizeWorkerName,
@@ -5,6 +6,11 @@ import {
   type WorkerMasterLike,
   type WorkerPaymentDetailRow,
 } from "./workerPayments";
+
+/** 시공내역서 기본 표시 월(이번 달) */
+export function currentStatementMonthKey() {
+  return monthStartISO().slice(0, 7);
+}
 
 export type WorkerMonthlyPaymentRecord = {
   key: string;
