@@ -78,6 +78,46 @@ function pickWorkerMasterNumeric(incoming?: number, local?: number) {
   return incomingNum || 0;
 }
 
+/** 개별청구단가: 0은 "미설정" — 서버·로컬 병합 시 빈 값이 기존 단가를 지우지 않도록 */
+export function pickWorkerCustomChargeCost(incoming?: number, local?: number) {
+  return pickWorkerMasterNumeric(incoming, local);
+}
+
+export function applyWorkerCustomChargeCostFromForm(worker: WorkerMasterLike, formValue: string) {
+  const trimmed = String(formValue ?? "").trim();
+  const next: WorkerMasterLike = { ...worker };
+  if (!trimmed) {
+    delete next.customChargeCost;
+    return next;
+  }
+  const parsed = parseWorkerMoney(trimmed);
+  if (parsed > 0) {
+    next.customChargeCost = parsed;
+    return next;
+  }
+  delete next.customChargeCost;
+  return next;
+}
+
+export function applyWorkerCustomChargeCostFromInline(worker: WorkerMasterLike, rawValue: string) {
+  const trimmed = String(rawValue ?? "").trim();
+  if (!trimmed) {
+    if (worker.customChargeCost == null) return worker;
+    const next: WorkerMasterLike = { ...worker };
+    delete next.customChargeCost;
+    return next;
+  }
+  const parsed = parseWorkerMoney(trimmed);
+  if (parsed <= 0) {
+    if (worker.customChargeCost == null) return worker;
+    const next: WorkerMasterLike = { ...worker };
+    delete next.customChargeCost;
+    return next;
+  }
+  if (parsed === parseWorkerMoney(worker.customChargeCost)) return worker;
+  return { ...worker, customChargeCost: parsed };
+}
+
 function pickWorkerMasterText(serverValue?: string, localValue?: string) {
   const serverText = String(serverValue ?? "").trim();
   const localText = String(localValue ?? "").trim();
@@ -188,7 +228,8 @@ export function reconcileWorkerListUpdates(
     const workerId = normalizeWorkerRecordId(worker.id);
     const prev = workerId ? currentById.get(workerId) : undefined;
     if (!prev) return worker;
-    return {
+    const customChargeCost = pickWorkerCustomChargeCost(worker.customChargeCost, prev.customChargeCost);
+    const merged: WorkerMasterLike = {
       ...prev,
       ...worker,
       grade: coalesceWorkerMasterText(worker.grade, prev.grade) || undefined,
@@ -198,6 +239,12 @@ export function reconcileWorkerListUpdates(
       depositNameAliases:
         coalesceWorkerMasterText(worker.depositNameAliases, prev.depositNameAliases) || undefined,
     };
+    if (customChargeCost > 0) {
+      merged.customChargeCost = customChargeCost;
+    } else {
+      delete merged.customChargeCost;
+    }
+    return merged;
   });
 
   for (const worker of current) {

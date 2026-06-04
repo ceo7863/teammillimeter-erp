@@ -189,6 +189,8 @@ import {
   sumWorkerFormTotals,
 } from "@/utils/workerLineMetrics";
 import {
+  applyWorkerCustomChargeCostFromForm,
+  applyWorkerCustomChargeCostFromInline,
   compareWorkerMastersDefault,
   filterActiveWorkers,
   findWorkerMasterByListName,
@@ -5253,6 +5255,25 @@ function appendWorkerAuditLogs(
   );
 }
 
+function workerListSearchText(worker) {
+  return [
+    worker.name,
+    worker.phone,
+    worker.bank,
+    worker.account,
+    worker.memo,
+    worker.grade,
+    worker.category,
+    worker.depositNameAliases,
+    worker.portalLoginId,
+    worker.businessNo,
+    worker.vehicleNo,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
 function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImmediate }) {
   const { auditLogs } = useAudit();
   const workersRef = useRef(workers);
@@ -5311,7 +5332,7 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
         if (editingId != null && workerIdsEqual(worker.id, editingId)) return true;
         if (q) {
           if (!isWorkerActive(worker)) return false;
-          return Object.values(worker).join(" ").toLowerCase().includes(q);
+          return workerListSearchText(worker).includes(q);
         }
         return true;
       })
@@ -5336,7 +5357,7 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
 
   const exportableWorkers = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return activeWorkers.filter((worker) => !q || Object.values(worker).join(" ").toLowerCase().includes(q));
+    return activeWorkers.filter((worker) => !q || workerListSearchText(worker).includes(q));
   }, [activeWorkers, query]);
 
   const workerListSortHint = useMemo(() => {
@@ -5364,11 +5385,11 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const commitWorkerChange = (nextWorkers, auditInput) => {
+  const commitWorkerChange = (nextWorkers, auditInput, options?: { flushNow?: boolean }) => {
     const nextAuditLogs = auditInput
       ? appendWorkerAuditLogs(auditLogs, auditInput, currentUser)
       : undefined;
-    void onPersistWorkersImmediate?.(nextWorkers, nextAuditLogs);
+    void onPersistWorkersImmediate?.(nextWorkers, nextAuditLogs, options);
   };
 
   const saveWorker = () => {
@@ -5423,7 +5444,6 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
       address: form.address.trim(),
       vehicleNo: form.vehicleNo.trim(),
       constructionCost,
-      customChargeCost: parseMoney(form.customChargeCost),
       overtimeCost: parseMoney(form.overtimeCost),
       feeRate: feeNumber > 1 ? feeNumber / 100 : feeNumber,
       depositNameAliases: form.depositNameAliases.trim(),
@@ -5432,24 +5452,29 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
       ...(form.portalPassword.trim() ? { portalPassword: form.portalPassword.trim() } : {}),
       isActive: existingWorker ? isWorkerActive(existingWorker) : true,
     };
+    const payloadWithCharge = applyWorkerCustomChargeCostFromForm(payload, form.customChargeCost);
 
     const nextWorkers = existingWorker
-      ? workersRef.current.map((worker) => (workerIdsEqual(worker.id, existingWorker.id) ? payload : worker))
-      : [payload, ...workersRef.current];
+      ? workersRef.current.map((worker) => (workerIdsEqual(worker.id, existingWorker.id) ? payloadWithCharge : worker))
+      : [payloadWithCharge, ...workersRef.current];
 
-    commitWorkerChange(nextWorkers, {
-      entityId: payload.id,
-      entityLabel: payload.name,
-      action: editingId ? "update" : "create",
-      before: existingWorker ? snapshotWorkerForAudit(existingWorker) : undefined,
-      after: snapshotWorkerForAudit(payload),
-      fields: WORKER_AUDIT_FIELDS,
-    });
+    commitWorkerChange(
+      nextWorkers,
+      {
+        entityId: payloadWithCharge.id,
+        entityLabel: payloadWithCharge.name,
+        action: editingId ? "update" : "create",
+        before: existingWorker ? snapshotWorkerForAudit(existingWorker) : undefined,
+        after: snapshotWorkerForAudit(payloadWithCharge),
+        fields: WORKER_AUDIT_FIELDS,
+      },
+      { flushNow: true },
+    );
     setForm(emptyWorkerForm);
     setEditingId(null);
     setFormError("");
     setQuery("");
-    setScrollToWorkerId(payload.id);
+    setScrollToWorkerId(payloadWithCharge.id);
   };
 
   const editWorker = (worker) => {
@@ -5496,17 +5521,17 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
   };
 
   const updateWorkerInline = (worker, value) => {
-    const parsed = parseMoney(value);
-    if (parsed === (worker.customChargeCost || 0)) return;
+    const nextWorker = applyWorkerCustomChargeCostFromInline(worker, value);
+    if (nextWorker === worker) return;
 
     commitWorkerChange(
-      workersRef.current.map((item) => (workerIdsEqual(item.id, worker.id) ? { ...item, customChargeCost: parsed } : item)),
+      workersRef.current.map((item) => (workerIdsEqual(item.id, worker.id) ? nextWorker : item)),
       {
         entityId: worker.id,
         entityLabel: worker.name,
         action: "update",
         before: snapshotWorkerForAudit(worker),
-        after: snapshotWorkerForAudit({ ...worker, customChargeCost: parsed }),
+        after: snapshotWorkerForAudit(nextWorker),
         fields: WORKER_AUDIT_FIELDS.filter((field) => field.key === "customChargeCost"),
       },
     );
@@ -6653,6 +6678,8 @@ export default function TeammillimeterErpMvp() {
   const workerMonthlyPersistCooldownUntilRef = useRef(0);
   const workerMonthlyLinkCleanupRef = useRef(false);
   const saveDebounceTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const workerFlushDebounceRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const pendingWorkerFlushRef = useRef<{ workers: typeof initialWorkers; auditLogs?: unknown } | null>(null);
   const [active, setActive] = useState(() => {
     if (typeof window === "undefined") return "dashboard";
     const stored = window.sessionStorage.getItem(ACTIVE_TAB_KEY) || "dashboard";
@@ -7219,8 +7246,11 @@ export default function TeammillimeterErpMvp() {
   );
 
   const persistWorkersImmediate = useCallback(
-    async (nextWorkers, nextAuditLogs?) => {
-      workerPersistInFlightRef.current = true;
+    async (
+      nextWorkers,
+      nextAuditLogs?,
+      options?: { flushNow?: boolean },
+    ) => {
       pendingLocalEditsRef.current = true;
       skipSaveRef.current = true;
       if (saveDebounceTimerRef.current) {
@@ -7233,30 +7263,64 @@ export default function TeammillimeterErpMvp() {
       if (nextAuditLogs) {
         setAuditLogs(nextAuditLogs);
       }
-      let saved = true;
-      try {
-        if (apiMode && currentUser && dataReady) {
-          saved = (await flushErpSave({
-            workers: reconciledWorkers,
-            ...(nextAuditLogs ? { auditLogs: nextAuditLogs } : {}),
-          })) !== false;
-          if (!saved) {
-            window.alert("시공자 저장에 실패했습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.");
+
+      pendingWorkerFlushRef.current = {
+        workers: reconciledWorkers,
+        ...(nextAuditLogs ? { auditLogs: nextAuditLogs } : {}),
+      };
+
+      const runFlush = async () => {
+        const pending = pendingWorkerFlushRef.current;
+        if (!pending) return true;
+        workerPersistInFlightRef.current = true;
+        let saved = true;
+        try {
+          if (apiMode && currentUser && dataReady) {
+            saved =
+              (await flushErpSave({
+                workers: pending.workers,
+                ...(pending.auditLogs ? { auditLogs: pending.auditLogs } : {}),
+              })) !== false;
+            if (!saved) {
+              window.alert("시공자 저장에 실패했습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.");
+            }
           }
+          return saved;
+        } finally {
+          workerPersistInFlightRef.current = false;
+          workerPersistCooldownUntilRef.current = Date.now() + WORKER_MONTHLY_EDIT_GUARD_MS;
+          pendingLocalEditsRef.current = true;
+          skipSaveRef.current = false;
+          window.setTimeout(() => {
+            if (workerPersistInFlightRef.current || workerMonthlyPersistInFlightRef.current) return;
+            if (Date.now() < workerPersistCooldownUntilRef.current) return;
+            if (Date.now() < workerMonthlyPersistCooldownUntilRef.current) return;
+            pendingLocalEditsRef.current = false;
+          }, WORKER_MONTHLY_EDIT_GUARD_MS);
         }
-        return saved;
-      } finally {
-        workerPersistInFlightRef.current = false;
-        workerPersistCooldownUntilRef.current = Date.now() + WORKER_MONTHLY_EDIT_GUARD_MS;
-        pendingLocalEditsRef.current = true;
-        skipSaveRef.current = false;
-        window.setTimeout(() => {
-          if (workerPersistInFlightRef.current || workerMonthlyPersistInFlightRef.current) return;
-          if (Date.now() < workerPersistCooldownUntilRef.current) return;
-          if (Date.now() < workerMonthlyPersistCooldownUntilRef.current) return;
-          pendingLocalEditsRef.current = false;
-        }, WORKER_MONTHLY_EDIT_GUARD_MS);
+      };
+
+      if (!apiMode || !currentUser || !dataReady) {
+        return true;
       }
+
+      if (options?.flushNow) {
+        if (workerFlushDebounceRef.current) {
+          window.clearTimeout(workerFlushDebounceRef.current);
+          workerFlushDebounceRef.current = null;
+        }
+        return runFlush();
+      }
+
+      if (workerFlushDebounceRef.current) {
+        window.clearTimeout(workerFlushDebounceRef.current);
+      }
+      return new Promise<boolean>((resolve) => {
+        workerFlushDebounceRef.current = window.setTimeout(async () => {
+          workerFlushDebounceRef.current = null;
+          resolve(await runFlush());
+        }, 700);
+      });
     },
     [apiMode, currentUser, dataReady, flushErpSave, setAuditLogs],
   );

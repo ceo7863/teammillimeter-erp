@@ -251,7 +251,15 @@ export function mergeWorkersForSave(existing = [], incoming = []) {
       if (nextText) return nextText;
       return String(prevValue ?? "").trim();
     };
-    return {
+    const coalesceMoney = (nextValue, prevValue) => {
+      const nextNum = Number(nextValue);
+      const prevNum = Number(prevValue);
+      if (Number.isFinite(nextNum) && nextNum > 0) return nextNum;
+      if (Number.isFinite(prevNum) && prevNum > 0) return prevNum;
+      return undefined;
+    };
+    const customChargeCost = coalesceMoney(worker.customChargeCost, prev.customChargeCost);
+    const merged = {
       ...prev,
       ...worker,
       grade: coalesce(worker.grade, prev.grade) || undefined,
@@ -262,6 +270,12 @@ export function mergeWorkersForSave(existing = [], incoming = []) {
       portalLoginId: coalesce(worker.portalLoginId, prev.portalLoginId) || undefined,
       portalPasswordHash: worker.portalPasswordHash || prev.portalPasswordHash || undefined,
     };
+    if (customChargeCost != null) {
+      merged.customChargeCost = customChargeCost;
+    } else {
+      delete merged.customChargeCost;
+    }
+    return merged;
   });
 
   for (const worker of existing || []) {
