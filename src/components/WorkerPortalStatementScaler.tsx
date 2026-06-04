@@ -46,19 +46,17 @@ export function WorkerPortalStatementScaler({ children }: WorkerPortalStatementS
     };
   }, [children]);
 
-  const marginBottom = layout.scale < 1 ? layout.sheetHeight * (layout.scale - 1) : undefined;
-
-  const scaledWidth = layout.scale < 1 ? SHEET_WIDTH_PX * layout.scale : SHEET_WIDTH_PX;
-  const scaledHeight = layout.scale < 1 ? layout.sheetHeight * layout.scale : layout.sheetHeight;
+  const isScaled = layout.scale < 1;
+  const scaledWidth = isScaled ? SHEET_WIDTH_PX * layout.scale : SHEET_WIDTH_PX;
+  const scaledHeight = isScaled ? layout.sheetHeight * layout.scale : undefined;
 
   return (
     <div ref={viewportRef} className="erp-worker-portal-statement-viewport">
       <div
         className="erp-worker-portal-statement-scaler"
         style={{
-          width: scaledWidth,
-          height: layout.scale < 1 ? scaledHeight : undefined,
-          marginBottom: layout.scale < 1 ? undefined : marginBottom,
+          width: isScaled ? scaledWidth : SHEET_WIDTH_PX,
+          height: scaledHeight,
         }}
       >
         <div
@@ -66,8 +64,8 @@ export function WorkerPortalStatementScaler({ children }: WorkerPortalStatementS
           className="erp-worker-portal-statement-scaler__sheet"
           style={{
             width: SHEET_WIDTH_PX,
-            transform: layout.scale < 1 ? `scale(${layout.scale})` : undefined,
-            transformOrigin: "top center",
+            transform: isScaled ? `scale(${layout.scale})` : undefined,
+            transformOrigin: "top left",
           }}
         >
           {children}

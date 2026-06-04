@@ -11544,18 +11544,25 @@ button:disabled,
   display: flex;
   min-height: 0;
   flex: 1 1 auto;
+  align-items: center;
   justify-content: center;
   overflow: hidden;
+  width: 100%;
 }
 
 .erp-worker-portal-statement-scaler {
   flex-shrink: 0;
   margin-inline: auto;
+  overflow: hidden;
   pointer-events: none;
 }
 
 .erp-worker-portal-statement-scaler__sheet {
   pointer-events: auto;
+}
+
+.erp-worker-portal-statement-scaler__sheet .erp-statement-sheet {
+  margin: 0;
 }
 
 @media (max-width: 767px) {

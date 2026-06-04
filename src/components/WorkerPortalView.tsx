@@ -213,7 +213,6 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
                         rows={displayRows}
                         totals={totals}
                         emptyMessage={"\uD45C\uC2DC\uD560 \uC2DC\uACF5 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."}
-                        className="mx-auto"
                       />
                     </WorkerPortalStatementScaler>
                   </div>
