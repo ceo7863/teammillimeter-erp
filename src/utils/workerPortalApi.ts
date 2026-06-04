@@ -76,6 +76,18 @@ export async function loginWorkerPortal(loginId: string, password: string) {
   return result;
 }
 
+export async function changeWorkerPortalPassword(
+  loginId: string,
+  currentPassword: string,
+  newPassword: string,
+  confirmPassword: string,
+) {
+  return portalRequest<{ ok: boolean }>("/worker-portal/change-password", {
+    method: "POST",
+    body: JSON.stringify({ loginId, currentPassword, newPassword, confirmPassword }),
+  });
+}
+
 export async function fetchWorkerPortalMonths() {
   return portalRequest<{ months: string[]; workerName: string }>("/worker-portal/months");
 }

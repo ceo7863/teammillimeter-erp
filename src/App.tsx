@@ -226,6 +226,7 @@ import {
 import {
   clearWorkerPortalSession,
   getWorkerPortalToken,
+  changeWorkerPortalPassword,
   loginWorkerPortal,
 } from "@/utils/workerPortalApi";
 import {
@@ -2326,9 +2327,31 @@ function LoginScreen({ onLogin }) {
   const [password, setPassword] = useState("");
   const [portalLoginId, setPortalLoginId] = useState("");
   const [portalPassword, setPortalPassword] = useState("");
+  const [portalFormMode, setPortalFormMode] = useState<"login" | "changePassword">("login");
+  const [portalCurrentPassword, setPortalCurrentPassword] = useState("");
+  const [portalNewPassword, setPortalNewPassword] = useState("");
+  const [portalConfirmPassword, setPortalConfirmPassword] = useState("");
+  const [portalSuccess, setPortalSuccess] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const apiMode = isApiModeEnabled();
+
+  const resetPortalChangePasswordForm = () => {
+    setPortalCurrentPassword("");
+    setPortalNewPassword("");
+    setPortalConfirmPassword("");
+  };
+
+  const switchPortalFormMode = (mode: "login" | "changePassword") => {
+    setPortalFormMode(mode);
+    setError("");
+    setPortalSuccess("");
+    if (mode === "login") {
+      resetPortalChangePasswordForm();
+    } else {
+      setPortalPassword("");
+    }
+  };
 
   const submitLogin = async () => {
     const trimmedLoginId = loginId.trim();
@@ -2365,6 +2388,50 @@ function LoginScreen({ onLogin }) {
       return;
     }
     setError("로그인 ID 또는 비밀번호가 맞지 않습니다.");
+  };
+
+  const submitPortalChangePassword = async () => {
+    const trimmedId = portalLoginId.trim();
+    if (!trimmedId) {
+      setError("포털 로그인 ID를 입력해 주세요.");
+      return;
+    }
+    if (!portalCurrentPassword) {
+      setError("현재 비밀번호를 입력해 주세요.");
+      return;
+    }
+    if (!portalNewPassword.trim()) {
+      setError("새 비밀번호를 입력해 주세요.");
+      return;
+    }
+    if (portalNewPassword.trim() !== portalConfirmPassword.trim()) {
+      setError("새 비밀번호 확인이 일치하지 않습니다.");
+      return;
+    }
+    if (!apiMode) {
+      setError("시공내역서 포털은 서버 연동(API) 모드에서만 사용할 수 있습니다.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    setPortalSuccess("");
+    try {
+      await changeWorkerPortalPassword(
+        trimmedId,
+        portalCurrentPassword,
+        portalNewPassword.trim(),
+        portalConfirmPassword.trim(),
+      );
+      resetPortalChangePasswordForm();
+      setPortalFormMode("login");
+      setPortalPassword("");
+      setError("");
+      setPortalSuccess("비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "비밀번호 변경에 실패했습니다.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const submitPortalLogin = async () => {
@@ -2452,6 +2519,7 @@ function LoginScreen({ onLogin }) {
                 onClick={() => {
                   setLoginTab("portal");
                   setError("");
+                  setPortalSuccess("");
                 }}
               >
                 시공내역서
@@ -2490,7 +2558,7 @@ function LoginScreen({ onLogin }) {
                     />
                   </Field>
                 </>
-              ) : (
+              ) : portalFormMode === "login" ? (
                 <>
                   <Field label="포털 로그인 ID">
                     <Input
@@ -2513,15 +2581,93 @@ function LoginScreen({ onLogin }) {
                       onKeyDown={(e) => e.key === "Enter" && !loading && submitPortalLogin()}
                     />
                   </Field>
+                  <div className="text-center">
+                    <button
+                      type="button"
+                      className="erp-text-caption font-semibold text-blue-600 hover:text-blue-700"
+                      onClick={() => switchPortalFormMode("changePassword")}
+                    >
+                      비밀번호 변경
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Field label="포털 로그인 ID">
+                    <Input
+                      value={portalLoginId}
+                      onChange={(e) => setPortalLoginId(e.target.value.replace(/[^a-zA-Z0-9]/gi, "").toLowerCase())}
+                      placeholder="포털 로그인 ID"
+                      autoComplete="username"
+                      className="rounded-2xl"
+                    />
+                  </Field>
+                  <Field label="현재 비밀번호">
+                    <Input
+                      type="password"
+                      value={portalCurrentPassword}
+                      onChange={(e) => setPortalCurrentPassword(e.target.value)}
+                      placeholder="현재 비밀번호"
+                      autoComplete="current-password"
+                      className="rounded-2xl"
+                    />
+                  </Field>
+                  <Field label="새 비밀번호">
+                    <Input
+                      type="password"
+                      value={portalNewPassword}
+                      onChange={(e) => setPortalNewPassword(e.target.value)}
+                      placeholder="4자 이상"
+                      autoComplete="new-password"
+                      className="rounded-2xl"
+                    />
+                  </Field>
+                  <Field label="새 비밀번호 확인">
+                    <Input
+                      type="password"
+                      value={portalConfirmPassword}
+                      onChange={(e) => setPortalConfirmPassword(e.target.value)}
+                      placeholder="새 비밀번호 다시 입력"
+                      autoComplete="new-password"
+                      className="rounded-2xl"
+                      onKeyDown={(e) => e.key === "Enter" && !loading && submitPortalChangePassword()}
+                    />
+                  </Field>
+                  <div className="text-center">
+                    <button
+                      type="button"
+                      className="erp-text-caption font-semibold text-slate-500 hover:text-slate-700"
+                      onClick={() => switchPortalFormMode("login")}
+                    >
+                      로그인으로 돌아가기
+                    </button>
+                  </div>
                 </>
               )}
+              {portalSuccess && loginTab === "portal" ? (
+                <div className="erp-text-body rounded-2xl bg-emerald-50 px-4 py-3 font-semibold text-emerald-700">
+                  {portalSuccess}
+                </div>
+              ) : null}
               {error && <div className="erp-text-body rounded-2xl bg-red-50 px-4 py-3 font-semibold text-red-600">{error}</div>}
               <Button
                 className="erp-login-submit erp-text-body w-full rounded-2xl py-5 font-bold md:py-6"
-                onClick={loginTab === "erp" ? submitLogin : submitPortalLogin}
+                onClick={
+                  loginTab === "erp"
+                    ? submitLogin
+                    : portalFormMode === "login"
+                      ? submitPortalLogin
+                      : submitPortalChangePassword
+                }
                 disabled={loading}
               >
-                {loading ? "로그인 중..." : "로그인"}
+                {loading
+                  ? loginTab === "portal" && portalFormMode === "changePassword"
+                    ? "변경 중..."
+                    : "로그인 중..."
+                  : loginTab === "portal" && portalFormMode === "changePassword"
+                    ? "비밀번호 변경"
+                    : "로그인"}
               </Button>
             </div>
           </CardContent>

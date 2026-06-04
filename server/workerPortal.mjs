@@ -402,6 +402,51 @@ export function authenticateWorkerPortal(workers = [], loginId, password) {
   return worker;
 }
 
+function workerRecordIdsEqual(left, right) {
+  if (left == null || right == null || left === "" || right === "") return false;
+  return String(left) === String(right);
+}
+
+export function validateWorkerPortalNewPassword(password) {
+  const text = String(password ?? "").trim();
+  if (text.length < 4) {
+    return { ok: false, error: "\uBE44\uBC00\uBC88\uD638\uB294 4\uC790 \uC774\uC0C1\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4." };
+  }
+  if (text.length > 64) {
+    return { ok: false, error: "\uBE44\uBC00\uBC88\uD638\uB294 64\uC790 \uC774\uD558\uB85C \uC785\uB825\uD574 \uC8FC\uC138\uC694." };
+  }
+  return { ok: true, password: text };
+}
+
+export function changeWorkerPortalPassword(workers = [], loginId, currentPassword, newPassword) {
+  const worker = authenticateWorkerPortal(workers, loginId, currentPassword);
+  if (!worker) {
+    return {
+      ok: false,
+      error: "\uB85C\uADF8\uC778 ID \uB610\uB294 \uD604\uC7AC \uBE44\uBC00\uBC88\uD638\uAC00 \uB9DE\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
+    };
+  }
+
+  const nextCheck = validateWorkerPortalNewPassword(newPassword);
+  if (!nextCheck.ok) {
+    return { ok: false, error: nextCheck.error };
+  }
+
+  if (verifyPortalPassword(nextCheck.password, worker.portalPasswordHash)) {
+    return {
+      ok: false,
+      error: "\uC0C8 \uBE44\uBC00\uBC88\uD638\uB294 \uD604\uC7AC \uBE44\uBC00\uBC88\uD638\uC640 \uB2E4\uB974\uAC8C \uC785\uB825\uD574 \uC8FC\uC138\uC694.",
+    };
+  }
+
+  const portalPasswordHash = hashPortalPassword(nextCheck.password);
+  const nextWorkers = workers.map((row) =>
+    workerRecordIdsEqual(row.id, worker.id) ? { ...row, portalPasswordHash } : row,
+  );
+
+  return { ok: true, workers: nextWorkers, worker };
+}
+
 export function processWorkersPortalCredentials(incomingWorkers = [], existingWorkers = []) {
   const existingById = new Map(
     (existingWorkers || [])

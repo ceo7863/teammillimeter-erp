@@ -27,6 +27,7 @@ import {
   authenticateWorkerPortal,
   buildWorkerPortalMonths,
   buildWorkerPortalStatement,
+  changeWorkerPortalPassword,
   processWorkersPortalCredentials,
   sanitizeWorkersForClient,
   signWorkerPortalToken,
@@ -295,6 +296,42 @@ app.post("/api/worker-portal/login", (req, res) => {
     workerName: stripWorkerPortalSecrets(worker).name,
     workerId: worker.id,
   });
+});
+
+app.post("/api/worker-portal/change-password", (req, res) => {
+  const { loginId, currentPassword, newPassword, confirmPassword } = req.body || {};
+  const trimmedNew = String(newPassword ?? "").trim();
+  const trimmedConfirm = String(confirmPassword ?? "").trim();
+  if (trimmedNew !== trimmedConfirm) {
+    res.status(400).json({ error: "\uC0C8 \uBE44\uBC00\uBC88\uD638 \uD655\uC778\uC774 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." });
+    return;
+  }
+
+  const state = getErpState();
+  const workers = Array.isArray(state.data?.workers) ? state.data.workers : [];
+  const result = changeWorkerPortalPassword(workers, loginId, currentPassword, trimmedNew);
+  if (!result.ok) {
+    res.status(401).json({ error: result.error });
+    return;
+  }
+
+  try {
+    const saved = saveErpState(
+      { ...state.data, workers: result.workers },
+      state.version,
+      `portal-pw:${stripWorkerPortalSecrets(result.worker).name || "worker"}`,
+    );
+    res.json({ ok: true, version: saved.version });
+  } catch (error) {
+    if (error.status === 409) {
+      res.status(409).json({
+        error: "\uC800\uC7A5 \uCDA9\uB3CC\uC774 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.",
+      });
+      return;
+    }
+    console.error(error);
+    res.status(500).json({ error: "\uBE44\uBC00\uBC88\uD638 \uBCC0\uACBD\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+  }
 });
 
 app.get("/api/worker-portal/months", workerPortalAuthMiddleware, (req, res) => {
