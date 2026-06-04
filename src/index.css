@@ -11504,3 +11504,107 @@ button:disabled,
   font-weight: 600;
   color: #9f1239;
 }
+
+/* 시공자 포털 — 모바일에서 시공내역서 한 화면에 맞춤 */
+.erp-worker-portal-page {
+  min-height: 100dvh;
+  box-sizing: border-box;
+}
+
+.erp-worker-portal-card {
+  display: flex;
+  max-height: calc(100dvh - 2rem);
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.erp-worker-portal-card > [class*="CardContent"],
+.erp-worker-portal-card .erp-worker-portal-card-body {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.erp-worker-portal-card-head {
+  flex-shrink: 0;
+}
+
+.erp-worker-portal-month-nav {
+  flex-shrink: 0;
+}
+
+.erp-worker-portal-statement-viewport {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.erp-worker-portal-statement-scaler {
+  flex-shrink: 0;
+}
+
+@media (max-width: 767px) {
+  .erp-worker-portal-page {
+    padding: 0.5rem;
+  }
+
+  .erp-worker-portal-card {
+    max-height: calc(100dvh - 1rem);
+    border-radius: 1.25rem;
+  }
+
+  .erp-worker-portal-card .erp-worker-portal-card-body {
+    padding: 0.75rem;
+  }
+
+  .erp-worker-portal-card-head {
+    margin-bottom: 0.5rem;
+  }
+
+  .erp-worker-portal-card-head h2 {
+    font-size: 1.05rem;
+  }
+
+  .erp-worker-portal-card-head p {
+    display: none;
+  }
+
+  .erp-worker-portal-month-nav {
+    margin-bottom: 0.5rem;
+  }
+
+  .erp-worker-portal-statement-shell {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .erp-worker-portal-statement-viewport .erp-statement-sheet {
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.1);
+  }
+}
+
+@media (min-width: 768px) {
+  .erp-worker-portal-card {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .erp-worker-portal-card .erp-worker-portal-card-body {
+    overflow: visible;
+  }
+
+  .erp-worker-portal-statement-viewport {
+    overflow-x: auto;
+    overflow-y: visible;
+    flex: none;
+  }
+}

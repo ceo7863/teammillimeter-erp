@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { WorkerPortalStatementScaler } from "@/components/WorkerPortalStatementScaler";
 import { WorkerStatementSheet } from "@/components/WorkerStatementSheet";
 import { DEFAULT_COMPANY_PROFILE, normalizeCompanyProfile } from "@/utils/companyProfile";
 import { dedupeStatementRowMemos } from "@/utils/statementSheets";
@@ -127,12 +128,12 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
   const canShiftNext = months.length === 0 || months.includes(shiftMonthKey(monthKey, 1));
 
   return (
-    <div className="erp-login-page min-h-screen p-4 text-white sm:p-6" lang="ko">
+    <div className="erp-login-page erp-worker-portal-page min-h-screen p-4 text-white sm:p-6" lang="ko">
       <div className="erp-login-page__glow" aria-hidden="true" />
-      <div className="mx-auto max-w-5xl">
-        <Card className="rounded-3xl border-0 bg-white text-slate-900 shadow-2xl">
-          <CardContent className="p-6 sm:p-8">
-            <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mx-auto flex h-full max-w-5xl flex-col">
+        <Card className="erp-worker-portal-card rounded-3xl border-0 bg-white text-slate-900 shadow-2xl">
+          <CardContent className="erp-worker-portal-card-body p-6 sm:p-8">
+            <div className="erp-worker-portal-card-head mb-6 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="erp-text-section font-black">{"\uC2DC\uACF5\uB0B4\uC5ED\uC11C"}</h2>
                 <p className="erp-text-body mt-1 text-slate-500">
@@ -149,7 +150,7 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
               <p className="erp-text-body text-slate-500">{"\uBD88\uB7EC\uC624\uB294 \uC911\u2026"}</p>
             ) : (
               <>
-                <div className="mb-6 flex flex-wrap items-center justify-center gap-2">
+                <div className="erp-worker-portal-month-nav mb-6 flex flex-wrap items-center justify-center gap-2">
                   <button
                     type="button"
                     className="erp-worker-month-nav-btn"
@@ -188,19 +189,21 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
                 {statementLoading ? (
                   <p className="erp-text-body text-slate-500">{"\uB0B4\uC5ED\uC11C \uBD88\uB7EC\uC624\uB294 \uC911\u2026"}</p>
                 ) : monthKey ? (
-                  <div className="overflow-x-auto rounded-2xl border bg-white p-2 shadow-inner">
-                    <WorkerStatementSheet
-                      workerName={workerName || String(workerInfo.name || "")}
-                      workerInfo={workerInfo}
-                      companyProfile={companyProfile}
-                      periodStart={periodStart}
-                      periodEnd={periodEnd}
-                      summary={summary}
-                      rows={displayRows}
-                      totals={totals}
-                      emptyMessage={"\uD45C\uC2DC\uD560 \uC2DC\uACF5 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."}
-                      className="mx-auto"
-                    />
+                  <div className="erp-worker-portal-statement-shell rounded-2xl border bg-white p-2 shadow-inner">
+                    <WorkerPortalStatementScaler>
+                      <WorkerStatementSheet
+                        workerName={workerName || String(workerInfo.name || "")}
+                        workerInfo={workerInfo}
+                        companyProfile={companyProfile}
+                        periodStart={periodStart}
+                        periodEnd={periodEnd}
+                        summary={summary}
+                        rows={displayRows}
+                        totals={totals}
+                        emptyMessage={"\uD45C\uC2DC\uD560 \uC2DC\uACF5 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."}
+                        className="mx-auto"
+                      />
+                    </WorkerPortalStatementScaler>
                   </div>
                 ) : null}
               </>
