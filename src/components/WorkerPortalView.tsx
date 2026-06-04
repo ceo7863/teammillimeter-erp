@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, LogOut } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, Download, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { WorkerPortalAcknowledgmentPanel } from "@/components/WorkerPortalAcknowledgmentPanel";
@@ -25,6 +25,7 @@ import {
   sortWorkerPaymentRowsByDateDesc,
   type WorkerPaymentDetailRow,
 } from "@/utils/workerPayments";
+import { downloadPdfFromHtmlElement } from "@/utils/statementPdf";
 
 function getMonthEndISO(monthKey: string) {
   const match = /^(\d{4})-(\d{2})$/.exec(String(monthKey || ""));
@@ -78,6 +79,9 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
   const [error, setError] = useState("");
   const [portalAck, setPortalAck] = useState<WorkerPortalAcknowledgmentRecord | null>(null);
   const [signatureDraft, setSignatureDraft] = useState("");
+  const [pdfGenerating, setPdfGenerating] = useState(false);
+  const [pdfMessage, setPdfMessage] = useState("");
+  const statementSheetRef = useRef<HTMLDivElement>(null);
   const handlePortalAckChange = useCallback((ack: WorkerPortalAcknowledgmentRecord | null) => {
     setPortalAck(ack);
     if (ack?.signatureDataUrl) {
@@ -109,6 +113,7 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
   useEffect(() => {
     setPortalAck(null);
     setSignatureDraft("");
+    setPdfMessage("");
   }, [monthKey]);
 
   useEffect(() => {
@@ -159,6 +164,29 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
   const canSignMonth = isWorkerPortalSignableMonth(monthKey);
   const portalSignatureInteractive = canSignMonth && displayRows.length > 0 && !portalAck;
   const portalSignatureDataUrl = portalAck?.signatureDataUrl || signatureDraft;
+  const canDownloadPdf = Boolean(portalAck?.signatureDataUrl) && displayRows.length > 0;
+
+  const handleDownloadPdf = async () => {
+    const element = statementSheetRef.current;
+    if (!element) {
+      setPdfMessage("PDF \uCD9C\uB825 \uC601\uC5ED\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+      return;
+    }
+    const displayName = workerName || String((workerInfo as { name?: string }).name || "");
+    const safeName = displayName.replace(/[\\/:*?"<>|]/g, "_") || "\uC2DC\uACF5\uC790";
+    const fileName = `\uC2DC\uACF5\uB0B4\uC5ED\uC11C_\uC2DC\uACF5\uC790_${safeName}_${monthKey}.pdf`;
+    setPdfGenerating(true);
+    setPdfMessage("PDF \uC0DD\uC131 \uC911\uC785\uB2C8\uB2E4...");
+    try {
+      await downloadPdfFromHtmlElement(element, fileName, { orientation: "portrait" });
+      setPdfMessage("PDF\uAC00 \uB2E4\uC6B4\uB85C\uB4DC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.");
+    } catch (err) {
+      console.error(err);
+      setPdfMessage("PDF \uC0DD\uC131\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
+    } finally {
+      setPdfGenerating(false);
+    }
+  };
 
   return (
     <div className="erp-login-page erp-worker-portal-page min-h-screen p-4 text-white sm:p-6" lang="ko">
@@ -225,7 +253,8 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
                   <div className="erp-worker-portal-statement-shell rounded-2xl border bg-white p-2 shadow-inner">
                     <WorkerPortalStatementScaler>
                       <WorkerStatementSheet
-                        workerName={workerName || String(workerInfo.name || "")}
+                        ref={statementSheetRef}
+                        workerName={workerName || String((workerInfo as { name?: string }).name || "")}
                         workerInfo={workerInfo}
                         companyProfile={companyProfile}
                         periodStart={periodStart}
@@ -253,6 +282,31 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
                     signatureDataUrl={signatureDraft}
                     onSignatureDraftChange={setSignatureDraft}
                   />
+                ) : null}
+
+                {canDownloadPdf ? (
+                  <div className="erp-worker-portal-pdf-download mt-3">
+                    <Button
+                      type="button"
+                      className="erp-login-submit erp-text-body w-full rounded-2xl py-4 font-bold"
+                      disabled={pdfGenerating}
+                      onClick={() => void handleDownloadPdf()}
+                    >
+                      <Download size={18} className="mr-2" />
+                      {pdfGenerating ? "PDF \uC0DD\uC131 \uC911\u2026" : "PDF \uB2E4\uC6B4\uB85C\uB4DC"}
+                    </Button>
+                    {pdfMessage ? (
+                      <p
+                        className={`erp-text-caption mt-2 text-center font-semibold ${
+                          pdfMessage.includes("\uC2E4\uD328") || pdfMessage.includes("\uCC3E\uC744")
+                            ? "text-red-600"
+                            : "text-emerald-700"
+                        }`}
+                      >
+                        {pdfMessage}
+                      </p>
+                    ) : null}
+                  </div>
                 ) : null}
               </>
             )}
