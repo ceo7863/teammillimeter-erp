@@ -36,6 +36,10 @@ import {
   workerPortalAuthMiddleware,
 } from "./workerPortal.mjs";
 import {
+  getWorkerPortalAcknowledgment,
+  saveWorkerPortalAcknowledgment,
+} from "./workerPortalAck.mjs";
+import {
   initPdfArchiveStore,
   listPdfArchiveMetas,
   getPdfArchiveMetaById,
@@ -359,6 +363,25 @@ app.get("/api/worker-portal/statement", workerPortalAuthMiddleware, (req, res) =
   res.json(payload);
 });
 
+app.get("/api/worker-portal/acknowledgment", workerPortalAuthMiddleware, (req, res) => {
+  const monthKey = String(req.query.month || "").trim();
+  if (!/^\d{4}-\d{2}$/.test(monthKey)) {
+    res.status(400).json({ error: "\uC6D4(YYYY-MM)\uC744 \uC9C0\uC815\uD574 \uC8FC\uC138\uC694." });
+    return;
+  }
+  res.json(getWorkerPortalAcknowledgment(req.workerPortal, monthKey));
+});
+
+app.post("/api/worker-portal/acknowledgment", workerPortalAuthMiddleware, (req, res) => {
+  const { monthKey, signatureDataUrl } = req.body || {};
+  const result = saveWorkerPortalAcknowledgment(req.workerPortal, { monthKey, signatureDataUrl });
+  if (!result.ok) {
+    res.status(result.status || 400).json({ error: result.error });
+    return;
+  }
+  res.json({ ok: true, acknowledgment: result.acknowledgment, version: result.version });
+});
+
 app.post("/api/auth/login", (req, res) => {
   const { loginId, email, password } = req.body || {};
   const identifier = loginId || email;
@@ -602,6 +625,7 @@ app.get("/api/erp", authMiddleware, (_req, res) => {
     workerMonthlyPaymentMemos,
     auditLogs: state.data.auditLogs || [],
     loginLogs: state.data.loginLogs || [],
+    workerPortalStatementAcks: state.data.workerPortalStatementAcks || [],
     workerPaymentRecords: state.data.workerPaymentRecords || [],
     workerPayoutVouchers: state.data.workerPayoutVouchers || [],
     workerMonthlyActualVouchers: state.data.workerMonthlyActualVouchers || [],
@@ -838,6 +862,9 @@ app.put("/api/erp", authMiddleware, (req, res) => {
   } = req.body || {};
   const existing = getErpState();
   const serverLoginLogs = Array.isArray(existing.data?.loginLogs) ? existing.data.loginLogs : [];
+  const serverPortalAcks = Array.isArray(existing.data?.workerPortalStatementAcks)
+    ? existing.data.workerPortalStatementAcks
+    : [];
   const payload = {
     sales: Array.isArray(sales) ? sales : existing.data.sales || [],
     paymentVouchers: Array.isArray(paymentVouchers) ? paymentVouchers : existing.data.paymentVouchers || [],
@@ -846,6 +873,7 @@ app.put("/api/erp", authMiddleware, (req, res) => {
     workers: Array.isArray(workers) ? workers : existing.data.workers || [],
     auditLogs: Array.isArray(auditLogs) ? auditLogs : existing.data.auditLogs || [],
     loginLogs: serverLoginLogs,
+    workerPortalStatementAcks: serverPortalAcks,
     workerPaymentRecords: Array.isArray(workerPaymentRecords)
       ? workerPaymentRecords
       : existing.data.workerPaymentRecords || [],

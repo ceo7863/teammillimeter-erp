@@ -5,9 +5,11 @@ import { Button } from "@/components/ui/button";
 import { TableExportSection } from "@/components/TableExportSection";
 import {
   flattenSalesToWorkerPaymentRows,
+  findWorkerMasterByListName,
   formatKRW,
   monthStartISO,
   normalizeWorkerCategory,
+  normalizeWorkerName,
   filterActiveWorkers,
   WORKER_CATEGORY_OUTSOURCE,
   WORKER_CATEGORY_TEAM,
@@ -16,6 +18,11 @@ import {
   type WorkerMasterLike,
 } from "@/utils/workerPayments";
 import { formatMonthLabel, shiftMonthKey, type WorkerMonthlyPaymentRecord } from "@/utils/workerMonthlyPayments";
+import {
+  findWorkerPortalAck,
+  workerPortalPreviousMonthKey,
+  type WorkerPortalStatementAck,
+} from "@/utils/workerPortalAcknowledgment";
 import {
   buildWorkerMonthlyActualMonthSummaries,
   buildWorkerMonthlyMonthRowsForMasters,
@@ -34,6 +41,7 @@ import { compareSortValues, type SortDirection } from "@/utils/pivotSort";
 
 type WorkerMonthlyPaymentTabProps = {
   workers?: WorkerMasterLike[];
+  workerPortalStatementAcks?: WorkerPortalStatementAck[];
   sales?: Parameters<typeof flattenSalesToWorkerPaymentRows>[0];
   workerPaymentRecords?: WorkerMonthlyPaymentRecord[];
   workerMonthlyActualVouchers?: WorkerMonthlyActualVoucher[];
@@ -208,6 +216,7 @@ function resolveObligationStatus(row: WorkerMonthlyObligation) {
 
 export function WorkerMonthlyPaymentTab({
   workers = [],
+  workerPortalStatementAcks = [],
   sales = [],
   workerPaymentRecords = [],
   workerMonthlyActualVouchers = [],
@@ -228,6 +237,7 @@ export function WorkerMonthlyPaymentTab({
   });
 
   const detailRows = useMemo(() => flattenSalesToWorkerPaymentRows(sales, workers), [sales, workers]);
+  const showPortalAckColumn = selectedMonthKey === workerPortalPreviousMonthKey();
 
   const allObligations = useMemo(
     () =>
@@ -711,6 +721,27 @@ export function WorkerMonthlyPaymentTab({
                               ) : null}
                               {row.periodLabel ? (
                                 <div className="erp-text-caption mt-0.5 text-slate-500">{row.periodLabel}</div>
+                              ) : null}
+                              {showPortalAckColumn ? (
+                                <div className="mt-1">
+                                  {(() => {
+                                    const master = findWorkerMasterByListName(workers, row.worker);
+                                    const ack =
+                                      master?.id != null
+                                        ? findWorkerPortalAck(workerPortalStatementAcks, master.id, selectedMonthKey)
+                                        : null;
+                                    if (!master?.portalLoginId) {
+                                      return (
+                                        <span className="erp-text-caption text-slate-400">{"\uD3EC\uD138 \uBBF8\uC0AC\uC6A9"}</span>
+                                      );
+                                    }
+                                    return ack ? (
+                                      <span className="erp-worker-portal-ack-badge is-done">{"\uC2DC\uACF5\uB0B4\uC5ED\uC11C \uD655\uC778"}</span>
+                                    ) : (
+                                      <span className="erp-worker-portal-ack-badge is-pending">{"\uBBF8\uD655\uC778"}</span>
+                                    );
+                                  })()}
+                                </div>
                               ) : null}
                             </td>
                             {showProbationBillMargin ? (

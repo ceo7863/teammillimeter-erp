@@ -36,6 +36,7 @@ import {
 import type { BankTransaction } from "@/utils/bankTransactions";
 import type { BankTransactionFolder } from "@/utils/bankTransactionFolders";
 import type { WorkerPayoutVoucher } from "@/utils/workerPayoutLedger";
+import type { WorkerPortalStatementAck } from "@/utils/workerPortalAcknowledgment";
 
 type WorkerPaymentTab = "summary" | "detail" | "monthly" | "monthlyActual" | "statement" | "payoutHistory";
 
@@ -132,6 +133,7 @@ function WorkerNetPayRankingChart({
 
 export function WorkerPaymentsPage({
   workers = [],
+  workerPortalStatementAcks = [],
   workerMonthlyPaymentMemos = {},
   sales = [],
   workerPaymentRecords = [],
@@ -154,6 +156,7 @@ export function WorkerPaymentsPage({
   currentUser,
 }: {
   workers?: WorkerMasterLike[];
+  workerPortalStatementAcks?: WorkerPortalStatementAck[];
   workerMonthlyPaymentMemos?: WorkerMonthlyPaymentMemos;
   sales?: Parameters<typeof flattenSalesToWorkerPaymentRows>[0];
   workerPaymentRecords?: WorkerMonthlyPaymentRecord[];
@@ -573,6 +576,7 @@ export function WorkerPaymentsPage({
       {activeTab === "monthly" && (
         <WorkerMonthlyPaymentTab
           workers={workers}
+          workerPortalStatementAcks={workerPortalStatementAcks}
           sales={sales}
           workerPaymentRecords={workerPaymentRecords}
           workerMonthlyActualVouchers={workerMonthlyActualVouchers}

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { WorkerPortalAcknowledgmentPanel } from "@/components/WorkerPortalAcknowledgmentPanel";
 import { WorkerPortalStatementScaler } from "@/components/WorkerPortalStatementScaler";
 import { WorkerStatementSheet } from "@/components/WorkerStatementSheet";
 import { DEFAULT_COMPANY_PROFILE, normalizeCompanyProfile } from "@/utils/companyProfile";
@@ -216,6 +217,10 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
                       />
                     </WorkerPortalStatementScaler>
                   </div>
+                ) : null}
+
+                {monthKey && displayRows.length > 0 ? (
+                  <WorkerPortalAcknowledgmentPanel monthKey={monthKey} hasStatementRows={displayRows.length > 0} />
                 ) : null}
               </>
             )}

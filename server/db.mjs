@@ -38,6 +38,7 @@ function emptyErpPayload() {
     workers: [],
     auditLogs: [],
     loginLogs: [],
+    workerPortalStatementAcks: [],
     workerPaymentRecords: [],
     workerPayoutVouchers: [],
     workerMonthlyActualVouchers: [],

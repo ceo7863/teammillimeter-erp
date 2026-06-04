@@ -72,6 +72,7 @@ import { BasicInfoHubPage } from "@/components/BasicInfoHubPage";
 import { AttendancePage } from "@/components/AttendancePage";
 import { AutoLinkBadge, SalePaymentLinkBadge, SalePaymentLinkProvider } from "@/components/AutoLinkBadge";
 import { buildAutoLinkedSaleIdSet, buildManualLinkedSaleIdSet, isSaleAutoLinkedPaid, isSaleManualLinkedPaid } from "@/utils/bankReceivableMatch";
+import type { WorkerPortalStatementAck } from "@/utils/workerPortalAcknowledgment";
 import { ClientStatementModal } from "@/components/ClientStatementModal";
 import { CalendarClientSearchModal } from "@/components/CalendarClientSearchModal";
 import { filterClientCalendarSales, normalizeClientCalendarName } from "@/utils/clientCalendarStats";
@@ -6889,6 +6890,10 @@ export default function TeammillimeterErpMvp() {
     if (apiMode && sessionOnMount) return [];
     return resolveInitialLogs(storedData).loginLogs;
   });
+  const [workerPortalStatementAcks, setWorkerPortalStatementAcks] = useState<WorkerPortalStatementAck[]>(() => {
+    if (apiMode && sessionOnMount) return [];
+    return Array.isArray(storedData?.workerPortalStatementAcks) ? storedData.workerPortalStatementAcks : [];
+  });
   const [workerPaymentRecords, setWorkerPaymentRecords] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return Array.isArray(storedData?.workerPaymentRecords) ? storedData.workerPaymentRecords : [];
@@ -7036,6 +7041,9 @@ export default function TeammillimeterErpMvp() {
       setAuditLogs(migratedLogs.auditLogs);
     }
     setLoginLogs(migratedLogs.loginLogs);
+    setWorkerPortalStatementAcks(
+      Array.isArray(data.workerPortalStatementAcks) ? data.workerPortalStatementAcks : [],
+    );
     if (!preserveLocalEdits) {
       const nextWorkerPaymentRecords = Array.isArray(data.workerPaymentRecords) ? data.workerPaymentRecords : [];
       workerPaymentRecordsRef.current = nextWorkerPaymentRecords;
@@ -7314,6 +7322,9 @@ export default function TeammillimeterErpMvp() {
             if (Array.isArray(latest.loginLogs)) {
               setLoginLogs(latest.loginLogs);
               savePayload.loginLogs = latest.loginLogs;
+            }
+            if (Array.isArray(latest.workerPortalStatementAcks)) {
+              setWorkerPortalStatementAcks(latest.workerPortalStatementAcks);
             }
             const serverAudits = Array.isArray(latest.auditLogs) ? latest.auditLogs : [];
             const mergedAudits = mergeAuditLogs(serverAudits, savePayload.auditLogs);
@@ -8150,6 +8161,7 @@ export default function TeammillimeterErpMvp() {
         <PageKeepAlive pageKey="workerPayments" active={active}>
           <WorkerPaymentsPage
             workers={workers}
+            workerPortalStatementAcks={workerPortalStatementAcks}
             workerMonthlyPaymentMemos={workerMonthlyPaymentMemos}
             sales={appliedSales}
             workerPaymentRecords={workerPaymentRecords}

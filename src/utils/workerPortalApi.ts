@@ -96,3 +96,37 @@ export async function fetchWorkerPortalStatement(monthKey: string) {
   const query = new URLSearchParams({ month: monthKey });
   return portalRequest<WorkerPortalStatementPayload>(`/worker-portal/statement?${query}`);
 }
+
+export type WorkerPortalAcknowledgmentRecord = {
+  confirmedAt: string;
+  workerName: string;
+  monthKey: string;
+  signatureDataUrl: string;
+  lineCount?: number;
+  grossPay?: number;
+  fee?: number;
+  netPay?: number;
+};
+
+export type WorkerPortalAcknowledgmentState = {
+  monthKey: string;
+  eligible: boolean;
+  previousMonthKey: string;
+  canSubmit: boolean;
+  acknowledgment: WorkerPortalAcknowledgmentRecord | null;
+};
+
+export async function fetchWorkerPortalAcknowledgment(monthKey: string) {
+  const query = new URLSearchParams({ month: monthKey });
+  return portalRequest<WorkerPortalAcknowledgmentState>(`/worker-portal/acknowledgment?${query}`);
+}
+
+export async function saveWorkerPortalAcknowledgment(monthKey: string, signatureDataUrl: string) {
+  return portalRequest<{ ok: boolean; acknowledgment: WorkerPortalAcknowledgmentRecord }>(
+    "/worker-portal/acknowledgment",
+    {
+      method: "POST",
+      body: JSON.stringify({ monthKey, signatureDataUrl }),
+    },
+  );
+}
