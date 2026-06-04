@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { WorkerPortalStatementAckBadge } from "@/components/WorkerPortalStatementAckBadge";
 import { StatementFillerRows } from "@/components/StatementFillerRows";
 import { StatementFitCell, StatementFitTd } from "@/components/StatementFitCell";
 import { StatementSheetFooter, StatementSheetHeader } from "@/components/StatementBrand";
@@ -29,6 +30,8 @@ type WorkerStatementSheetProps = {
   totals: WorkerStatementTotals;
   emptyMessage?: string;
   className?: string;
+  /** When true, show portal confirmation badge after worker name (screen + PDF capture). */
+  portalAckConfirmed?: boolean;
 };
 
 const WORKER_DATA_COLGROUP = (
@@ -57,8 +60,9 @@ export const WorkerStatementSheet = React.forwardRef<HTMLDivElement, WorkerState
     summary,
     rows,
     totals,
-    emptyMessage = "표시할 시공자 내역이 없습니다.",
+    emptyMessage = "\uD45C\uC2DC\uD560 \uC2DC\uACF5\uC790 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
     className = "",
+    portalAckConfirmed = false,
   },
   ref
 ) {
@@ -94,8 +98,9 @@ export const WorkerStatementSheet = React.forwardRef<HTMLDivElement, WorkerState
       <StatementSheetHeader title="시 공 내 역 서" companyProfile={companyProfile} />
 
       <div className="excel-client-recipient">
-        <span>{workerName || "시공자"}</span>
-        <span className="honorific">{"\u00A0"}귀하</span>
+        <span>{workerName || "\uC2DC\uACF5\uC790"}</span>
+        {portalAckConfirmed ? <WorkerPortalStatementAckBadge /> : null}
+        <span className="honorific">{"\u00A0"}{"\uB298\uD558"}</span>
       </div>
 
       <table className="excel-header-table">

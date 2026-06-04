@@ -74,6 +74,11 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
   const [loading, setLoading] = useState(true);
   const [statementLoading, setStatementLoading] = useState(false);
   const [error, setError] = useState("");
+  const [portalAckConfirmed, setPortalAckConfirmed] = useState(false);
+  const handlePortalAckChange = useCallback(
+    (ack: { id: string } | null) => setPortalAckConfirmed(Boolean(ack)),
+    [],
+  );
 
   const loadMonths = useCallback(async () => {
     setLoading(true);
@@ -93,6 +98,10 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
   useEffect(() => {
     void loadMonths();
   }, [loadMonths]);
+
+  useEffect(() => {
+    setPortalAckConfirmed(false);
+  }, [monthKey]);
 
   useEffect(() => {
     if (!monthKey || !/^\d{4}-\d{2}$/.test(monthKey)) return;
@@ -214,13 +223,18 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
                         rows={displayRows}
                         totals={totals}
                         emptyMessage={"\uD45C\uC2DC\uD560 \uC2DC\uACF5 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."}
+                        portalAckConfirmed={portalAckConfirmed}
                       />
                     </WorkerPortalStatementScaler>
                   </div>
                 ) : null}
 
                 {monthKey && displayRows.length > 0 ? (
-                  <WorkerPortalAcknowledgmentPanel monthKey={monthKey} hasStatementRows={displayRows.length > 0} />
+                  <WorkerPortalAcknowledgmentPanel
+                    monthKey={monthKey}
+                    hasStatementRows={displayRows.length > 0}
+                    onAcknowledgmentChange={(ack) => setPortalAckConfirmed(Boolean(ack))}
+                  />
                 ) : null}
               </>
             )}

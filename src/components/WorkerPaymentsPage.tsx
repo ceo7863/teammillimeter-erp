@@ -728,6 +728,7 @@ export function WorkerPaymentsPage({
         <WorkerStatementTab
           allDetailRows={allDetailRows}
           workers={workers}
+          workerPortalStatementAcks={workerPortalStatementAcks}
           monthKey={selectedMonthKey}
           setMonthKey={setSelectedMonthKey}
         />

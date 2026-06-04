@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, FileText, Search } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { WorkerStatementModal } from "@/components/WorkerStatementModal";
+import type { WorkerPortalStatementAck } from "@/utils/workerPortalAcknowledgment";
 import { formatMonthLabel, shiftMonthKey } from "@/utils/workerMonthlyPayments";
 import {
   formatKRW,
@@ -40,6 +41,7 @@ function SearchBox({
 type WorkerStatementTabProps = {
   allDetailRows: WorkerPaymentDetailRow[];
   workers?: WorkerMasterLike[];
+  workerPortalStatementAcks?: WorkerPortalStatementAck[];
   monthKey: string;
   setMonthKey: (value: string | ((prev: string) => string)) => void;
 };
@@ -47,6 +49,7 @@ type WorkerStatementTabProps = {
 export function WorkerStatementTab({
   allDetailRows,
   workers = [],
+  workerPortalStatementAcks = [],
   monthKey,
   setMonthKey,
 }: WorkerStatementTabProps) {
@@ -206,6 +209,7 @@ export function WorkerStatementTab({
           monthKey={monthKey}
           rows={modalRows}
           workerInfo={modalWorkerInfo}
+          workerPortalStatementAcks={workerPortalStatementAcks}
           onClose={() => setModalWorker(null)}
         />
       ) : null}

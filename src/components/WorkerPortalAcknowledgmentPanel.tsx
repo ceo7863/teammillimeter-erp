@@ -5,6 +5,7 @@ import { WorkerPortalSignaturePad } from "@/components/WorkerPortalSignaturePad"
 import {
   fetchWorkerPortalAcknowledgment,
   saveWorkerPortalAcknowledgment,
+  type WorkerPortalAcknowledgmentRecord,
   type WorkerPortalAcknowledgmentState,
 } from "@/utils/workerPortalApi";
 import {
@@ -17,11 +18,13 @@ import { formatMonthLabel } from "@/utils/workerMonthlyPayments";
 type WorkerPortalAcknowledgmentPanelProps = {
   monthKey: string;
   hasStatementRows: boolean;
+  onAcknowledgmentChange?: (acknowledgment: WorkerPortalAcknowledgmentRecord | null) => void;
 };
 
 export function WorkerPortalAcknowledgmentPanel({
   monthKey,
   hasStatementRows,
+  onAcknowledgmentChange,
 }: WorkerPortalAcknowledgmentPanelProps) {
   const [state, setState] = useState<WorkerPortalAcknowledgmentState | null>(null);
   const [loading, setLoading] = useState(false);
@@ -36,6 +39,7 @@ export function WorkerPortalAcknowledgmentPanel({
   const loadAck = useCallback(async () => {
     if (!canSignMonth || !hasStatementRows) {
       setState(null);
+      onAcknowledgmentChange?.(null);
       return;
     }
     setLoading(true);
@@ -43,6 +47,7 @@ export function WorkerPortalAcknowledgmentPanel({
     try {
       const result = await fetchWorkerPortalAcknowledgment(monthKey);
       setState(result);
+      onAcknowledgmentChange?.(result.acknowledgment);
       if (result.acknowledgment?.signatureDataUrl) {
         setSignatureDataUrl(result.acknowledgment.signatureDataUrl);
       } else {
@@ -53,7 +58,7 @@ export function WorkerPortalAcknowledgmentPanel({
     } finally {
       setLoading(false);
     }
-  }, [canSignMonth, hasStatementRows, monthKey]);
+  }, [canSignMonth, hasStatementRows, monthKey, onAcknowledgmentChange]);
 
   useEffect(() => {
     void loadAck();
@@ -83,6 +88,7 @@ export function WorkerPortalAcknowledgmentPanel({
             }
           : prev,
       );
+      onAcknowledgmentChange?.(result.acknowledgment);
       setSuccess("\uC2DC\uACF5\uB0B4\uC5ED\uC11C \uD655\uC778\uC774 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4.");
       setConfirmOpen(false);
     } catch (err) {

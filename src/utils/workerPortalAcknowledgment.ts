@@ -1,4 +1,5 @@
 import { currentStatementMonthKey, formatMonthLabel, shiftMonthKey } from "./workerMonthlyPayments";
+import { findWorkerMasterByListName, type WorkerMasterLike } from "./workerPayments";
 
 export type WorkerPortalStatementAck = {
   id: string;
@@ -41,6 +42,17 @@ export function findWorkerPortalAck(
   if (workerId == null || workerId === "" || !monthKey) return null;
   const key = makeWorkerPortalAckKey(workerId, monthKey);
   return acks.find((row) => makeWorkerPortalAckKey(row.workerId, row.monthKey) === key) || null;
+}
+
+export function isWorkerPortalAckConfirmedForWorker(
+  acks: WorkerPortalStatementAck[] = [],
+  workers: WorkerMasterLike[] = [],
+  workerName: string,
+  monthKey: string,
+) {
+  const master = findWorkerMasterByListName(workers, workerName);
+  if (master?.id == null) return false;
+  return Boolean(findWorkerPortalAck(acks, master.id, monthKey));
 }
 
 export function formatWorkerPortalAckConfirmedAt(iso: string) {
