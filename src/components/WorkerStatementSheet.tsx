@@ -100,7 +100,7 @@ export const WorkerStatementSheet = React.forwardRef<HTMLDivElement, WorkerState
       <div className="excel-client-recipient">
         <span>{workerName || "\uC2DC\uACF5\uC790"}</span>
         {portalAckConfirmed ? <WorkerPortalStatementAckBadge /> : null}
-        <span className="honorific">{"\u00A0"}{"\uB298\uD558"}</span>
+        <span className="honorific">{"\u00A0"}\uADDC\uD558</span>
       </div>
 
       <table className="excel-header-table">

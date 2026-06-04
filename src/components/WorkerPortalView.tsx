@@ -233,7 +233,7 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
                   <WorkerPortalAcknowledgmentPanel
                     monthKey={monthKey}
                     hasStatementRows={displayRows.length > 0}
-                    onAcknowledgmentChange={(ack) => setPortalAckConfirmed(Boolean(ack))}
+                    onAcknowledgmentChange={handlePortalAckChange}
                   />
                 ) : null}
               </>

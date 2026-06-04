@@ -60,8 +60,13 @@ import {
   listWorkersWithPaymentRows,
   sortWorkerPaymentRowsByDate,
   type SaleLike,
+  type WorkerMasterLike,
 } from "@/utils/workerPayments";
 import type { WorkerMonthlyPaymentRecord } from "@/utils/workerMonthlyPayments";
+import {
+  isWorkerPortalAckConfirmedForWorker,
+  type WorkerPortalStatementAck,
+} from "@/utils/workerPortalAcknowledgment";
 import type { WorkerPayWithVatLearnRule } from "@/utils/workerMonthlyActualPayments";
 import { getUnpaid, parseMoney, todayISO } from "@/utils/receivables";
 import {
@@ -327,6 +332,7 @@ type StatementsPageProps = {
   bankTransactions?: ComponentProps<typeof PdfArchivePage>["bankTransactions"];
   workerPaymentRecords?: WorkerMonthlyPaymentRecord[];
   workerPayWithVatLearnRules?: WorkerPayWithVatLearnRule[];
+  workerPortalStatementAcks?: WorkerPortalStatementAck[];
   isPageActive?: boolean;
 };
 
@@ -345,6 +351,7 @@ export function StatementsPage({
   bankTransactions = [],
   workerPaymentRecords = [],
   workerPayWithVatLearnRules = [],
+  workerPortalStatementAcks = [],
   isPageActive = true,
 }: StatementsPageProps) {
   const [statementType, setStatementType] = useState("client");
@@ -693,6 +700,28 @@ export function StatementsPage({
 
   const statementClient = hasClientSelection ? client : "";
   const statementWorkerName = hasWorkerSelection ? worker : "";
+
+  const workerStatementAckMonthKey = useMemo(() => {
+    const startMonth = workerStatementPeriodStart.slice(0, 7);
+    const endMonth = workerStatementPeriodEnd.slice(0, 7);
+    if (startMonth && startMonth === endMonth && /^\d{4}-\d{2}$/.test(startMonth)) {
+      return startMonth;
+    }
+    return "";
+  }, [workerStatementPeriodStart, workerStatementPeriodEnd]);
+
+  const workerPortalAckConfirmed = useMemo(
+    () =>
+      workerStatementAckMonthKey && statementWorkerName
+        ? isWorkerPortalAckConfirmedForWorker(
+            workerPortalStatementAcks,
+            workerMaster as WorkerMasterLike[],
+            statementWorkerName,
+            workerStatementAckMonthKey,
+          )
+        : false,
+    [workerPortalStatementAcks, workerMaster, statementWorkerName, workerStatementAckMonthKey],
+  );
 
   const autoFileGenerationLog = (log: StatementGenerationLog) => {
     if (!setStatementFolders) return;
@@ -1912,6 +1941,7 @@ export function StatementsPage({
                     rows={workerStatementSheetRows}
                     totals={workerTotals}
                     emptyMessage={L.emptyWorkerRows}
+                    portalAckConfirmed={workerPortalAckConfirmed}
                   />
                 )}
               </StatementA4Preview>

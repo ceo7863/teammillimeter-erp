@@ -8321,6 +8321,7 @@ export default function TeammillimeterErpMvp() {
             bankTransactions={bankTransactions}
             workerPaymentRecords={workerPaymentRecords}
             workerPayWithVatLearnRules={workerPayWithVatLearnRules}
+            workerPortalStatementAcks={workerPortalStatementAcks}
             isPageActive={active === "statements"}
           />
         </PageKeepAlive>
