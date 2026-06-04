@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
 import { WorkerPortalStatementAckBadge } from "@/components/WorkerPortalStatementAckBadge";
+import { WorkerStatementSignatureBlock } from "@/components/WorkerStatementSignatureBlock";
 import { StatementFillerRows } from "@/components/StatementFillerRows";
 import { StatementFitCell, StatementFitTd } from "@/components/StatementFitCell";
 import { StatementSheetFooter, StatementSheetHeader } from "@/components/StatementBrand";
@@ -32,6 +33,12 @@ type WorkerStatementSheetProps = {
   className?: string;
   /** When true, show portal confirmation badge on header table worker row (PDF export). */
   portalAckConfirmed?: boolean;
+  portalSignatureDataUrl?: string;
+  portalSignatureConfirmedAt?: string;
+  /** Portal: embed signature pad inside the statement before save. */
+  portalSignatureInteractive?: boolean;
+  onPortalSignatureChange?: (dataUrl: string) => void;
+  portalSignatureDisabled?: boolean;
 };
 
 const WORKER_DATA_COLGROUP = (
@@ -63,9 +70,16 @@ export const WorkerStatementSheet = React.forwardRef<HTMLDivElement, WorkerState
     emptyMessage = "\uD45C\uC2DC\uD560 \uC2DC\uACF5\uC790 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
     className = "",
     portalAckConfirmed = false,
+    portalSignatureDataUrl = "",
+    portalSignatureConfirmedAt = "",
+    portalSignatureInteractive = false,
+    onPortalSignatureChange,
+    portalSignatureDisabled = false,
   },
   ref
 ) {
+  const showSignatureBlock =
+    portalSignatureInteractive || Boolean(portalSignatureDataUrl) || Boolean(portalSignatureConfirmedAt);
   const hasRows = rows.length > 0;
   const bankAccount = formatWorkerStatementBankAccount(workerInfo, workerName);
   const visibleBodyRows = hasRows ? rows.length : 1;
@@ -240,6 +254,17 @@ export const WorkerStatementSheet = React.forwardRef<HTMLDivElement, WorkerState
           )}
         </table>
       </div>
+
+      {showSignatureBlock ? (
+        <WorkerStatementSignatureBlock
+          workerName={workerName || "\uC2DC\uACF5\uC790"}
+          signatureDataUrl={portalSignatureDataUrl}
+          confirmedAt={portalSignatureConfirmedAt}
+          interactive={portalSignatureInteractive}
+          disabled={portalSignatureDisabled}
+          onSignatureChange={onPortalSignatureChange}
+        />
+      ) : null}
 
       <StatementSheetFooter companyProfile={companyProfile} />
     </div>

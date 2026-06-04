@@ -19,12 +19,19 @@ type WorkerPortalAcknowledgmentPanelProps = {
   monthKey: string;
   hasStatementRows: boolean;
   onAcknowledgmentChange?: (acknowledgment: WorkerPortalAcknowledgmentRecord | null) => void;
+  /** When true, signature pad is rendered on the statement sheet instead of this panel. */
+  signatureOnStatement?: boolean;
+  onSignatureDraftChange?: (dataUrl: string) => void;
+  signatureDataUrl?: string;
 };
 
 export function WorkerPortalAcknowledgmentPanel({
   monthKey,
   hasStatementRows,
   onAcknowledgmentChange,
+  signatureOnStatement = false,
+  onSignatureDraftChange,
+  signatureDataUrl: controlledSignatureDataUrl,
 }: WorkerPortalAcknowledgmentPanelProps) {
   const [state, setState] = useState<WorkerPortalAcknowledgmentState | null>(null);
   const [loading, setLoading] = useState(false);
@@ -33,6 +40,15 @@ export function WorkerPortalAcknowledgmentPanel({
   const [success, setSuccess] = useState("");
   const [signatureDataUrl, setSignatureDataUrl] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const activeSignatureDataUrl = controlledSignatureDataUrl ?? signatureDataUrl;
+  const updateSignatureDataUrl = useCallback(
+    (value: string) => {
+      setSignatureDataUrl(value);
+      onSignatureDraftChange?.(value);
+    },
+    [onSignatureDraftChange],
+  );
 
   const canSignMonth = isWorkerPortalSignableMonth(monthKey);
 
@@ -49,16 +65,16 @@ export function WorkerPortalAcknowledgmentPanel({
       setState(result);
       onAcknowledgmentChange?.(result.acknowledgment);
       if (result.acknowledgment?.signatureDataUrl) {
-        setSignatureDataUrl(result.acknowledgment.signatureDataUrl);
+        updateSignatureDataUrl(result.acknowledgment.signatureDataUrl);
       } else {
-        setSignatureDataUrl("");
+        updateSignatureDataUrl("");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "\uD655\uC778 \uC815\uBCF4\uB97C \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
     } finally {
       setLoading(false);
     }
-  }, [canSignMonth, hasStatementRows, monthKey, onAcknowledgmentChange]);
+  }, [canSignMonth, hasStatementRows, monthKey, onAcknowledgmentChange, updateSignatureDataUrl]);
 
   useEffect(() => {
     void loadAck();
@@ -70,7 +86,7 @@ export function WorkerPortalAcknowledgmentPanel({
   const canSubmit = Boolean(state?.canSubmit) && !confirmed;
 
   const handleSave = async () => {
-    if (!signatureDataUrl) {
+    if (!activeSignatureDataUrl) {
       setError("\uC11C\uBA85\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694.");
       return;
     }
@@ -78,7 +94,7 @@ export function WorkerPortalAcknowledgmentPanel({
     setError("");
     setSuccess("");
     try {
-      const result = await saveWorkerPortalAcknowledgment(monthKey, signatureDataUrl);
+      const result = await saveWorkerPortalAcknowledgment(monthKey, activeSignatureDataUrl);
       setState((prev) =>
         prev
           ? {
@@ -114,24 +130,24 @@ export function WorkerPortalAcknowledgmentPanel({
       {loading ? <p className="erp-text-caption text-slate-500">{"\uBD88\uB7EC\uC624\uB294 \uC911\u2026"}</p> : null}
 
       {confirmed && state?.acknowledgment ? (
-        <div className="space-y-3">
-          <p className="erp-text-body font-semibold text-emerald-700">
-            {"\uD655\uC778 \uC644\uB8CC "}
-            {formatWorkerPortalAckConfirmedAt(state.acknowledgment.confirmedAt)}
-          </p>
-          <img
-            src={state.acknowledgment.signatureDataUrl}
-            alt={"\uC800\uC7A5\uB41C \uC11C\uBA85"}
-            className="erp-worker-portal-ack__signature-image"
-          />
-        </div>
+        <p className="erp-text-body font-semibold text-emerald-700">
+          {"\uD655\uC778 \uC644\uB8CC "}
+          {formatWorkerPortalAckConfirmedAt(state.acknowledgment.confirmedAt)}
+          {signatureOnStatement ? " \u00B7 \uC11C\uBA85\uB780 \uC800\uC7A5 \uC644\uB8CC" : ""}
+        </p>
       ) : canSubmit ? (
         <>
-          <WorkerPortalSignaturePad onChange={setSignatureDataUrl} disabled={saving} />
+          {!signatureOnStatement ? (
+            <WorkerPortalSignaturePad onChange={updateSignatureDataUrl} disabled={saving} />
+          ) : (
+            <p className="erp-text-caption text-slate-600">
+              {"\uC2DC\uACF5\uB0B4\uC5ED\uC11C \uD558\uB2E8 \uC11C\uBA85\uB780\uC5D0 \uC11C\uBA85\uD55C \uB4A4 \uC800\uC7A5\uD574 \uC8FC\uC138\uC694."}
+            </p>
+          )}
           <Button
             type="button"
             className="erp-login-submit erp-text-body mt-3 w-full rounded-2xl py-4 font-bold"
-            disabled={saving || !signatureDataUrl}
+            disabled={saving || !activeSignatureDataUrl}
             onClick={() => {
               setError("");
               setConfirmOpen(true);

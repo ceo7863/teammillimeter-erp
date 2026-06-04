@@ -81,14 +81,14 @@ export function WorkerStatementModal({
   const exportFileName = `\uC2DC\uACF5\uB0B4\uC5ED\uC11C_\uC2DC\uACF5\uC790_${safeName}_${monthKey}`;
   const exportTitle = `${periodLabel} ${workerName} \uC2DC\uACF5\uB0B4\uC5ED\uC11C`;
   const hasRows = displayRows.length > 0;
-  const portalAckConfirmed = useMemo(
+  const portalAck = useMemo(
     () =>
-      Boolean(
-        workerInfo.id != null &&
-          findWorkerPortalAck(workerPortalStatementAcks, workerInfo.id, monthKey),
-      ),
+      workerInfo.id != null
+        ? findWorkerPortalAck(workerPortalStatementAcks, workerInfo.id, monthKey)
+        : null,
     [monthKey, workerInfo.id, workerPortalStatementAcks],
   );
+  const portalAckConfirmed = Boolean(portalAck);
 
   useEffect(() => () => revokePdfBlobUrl(pdfBlobUrlRef.current), []);
 
@@ -323,6 +323,8 @@ export function WorkerStatementModal({
                   totals={totals}
                   emptyMessage={"\uD45C\uC2DC\uD560 \uC2DC\uACF5\uC790 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."}
                   portalAckConfirmed={portalAckConfirmed}
+                  portalSignatureDataUrl={portalAck?.signatureDataUrl}
+                  portalSignatureConfirmedAt={portalAck?.confirmedAt}
                 />
               </StatementA4Preview>
             </div>

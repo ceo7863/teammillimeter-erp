@@ -5914,6 +5914,60 @@ span.erp-worker-category-select.is-readonly {
   vertical-align: middle;
 }
 
+.erp-statement-sheet .excel-worker-signature-table {
+  margin-top: 14px;
+}
+
+.erp-statement-sheet .excel-worker-signature-confirm-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  line-height: 1.45;
+}
+
+.erp-statement-sheet .excel-worker-signature-cell {
+  vertical-align: middle;
+  min-height: 72px;
+}
+
+.erp-statement-sheet .excel-worker-signature-image {
+  display: block;
+  max-width: 220px;
+  max-height: 64px;
+  object-fit: contain;
+}
+
+.erp-statement-sheet .excel-worker-signature-empty {
+  min-height: 56px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.erp-statement-sheet .excel-worker-signature-pad-host {
+  max-width: 280px;
+}
+
+.erp-statement-sheet .excel-worker-signature-pad-host .erp-worker-portal-signature__canvas {
+  width: 100%;
+  height: 88px;
+}
+
+.erp-statement-sheet .excel-worker-signature-date {
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+}
+
+.erp-statement-sheet.is-pdf-capture .excel-worker-signature-table {
+  margin-top: 8px;
+}
+
+.erp-statement-sheet.is-pdf-capture .excel-worker-signature-image {
+  max-height: 52px;
+}
+
 .erp-statement-sheet .excel-header-table {
   width: 100%;
   border-collapse: collapse;

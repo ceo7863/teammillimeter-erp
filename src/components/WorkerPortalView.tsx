@@ -12,7 +12,9 @@ import {
   fetchWorkerPortalMonths,
   fetchWorkerPortalStatement,
   getWorkerPortalWorkerName,
+  type WorkerPortalAcknowledgmentRecord,
 } from "@/utils/workerPortalApi";
+import { isWorkerPortalSignableMonth } from "@/utils/workerPortalAcknowledgment";
 import {
   currentStatementMonthKey,
   formatMonthLabel,
@@ -74,11 +76,16 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
   const [loading, setLoading] = useState(true);
   const [statementLoading, setStatementLoading] = useState(false);
   const [error, setError] = useState("");
-  const [portalAckConfirmed, setPortalAckConfirmed] = useState(false);
-  const handlePortalAckChange = useCallback(
-    (ack: { id: string } | null) => setPortalAckConfirmed(Boolean(ack)),
-    [],
-  );
+  const [portalAck, setPortalAck] = useState<WorkerPortalAcknowledgmentRecord | null>(null);
+  const [signatureDraft, setSignatureDraft] = useState("");
+  const handlePortalAckChange = useCallback((ack: WorkerPortalAcknowledgmentRecord | null) => {
+    setPortalAck(ack);
+    if (ack?.signatureDataUrl) {
+      setSignatureDraft(ack.signatureDataUrl);
+    } else if (!ack) {
+      setSignatureDraft("");
+    }
+  }, []);
 
   const loadMonths = useCallback(async () => {
     setLoading(true);
@@ -100,7 +107,8 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
   }, [loadMonths]);
 
   useEffect(() => {
-    setPortalAckConfirmed(false);
+    setPortalAck(null);
+    setSignatureDraft("");
   }, [monthKey]);
 
   useEffect(() => {
@@ -148,6 +156,9 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
     isValidMonthKey(monthKey) && shiftMonthKey(monthKey, -1) >= PORTAL_MONTH_MIN;
   const canShiftNext =
     isValidMonthKey(monthKey) && shiftMonthKey(monthKey, 1) <= currentMonth;
+  const canSignMonth = isWorkerPortalSignableMonth(monthKey);
+  const portalSignatureInteractive = canSignMonth && displayRows.length > 0 && !portalAck;
+  const portalSignatureDataUrl = portalAck?.signatureDataUrl || signatureDraft;
 
   return (
     <div className="erp-login-page erp-worker-portal-page min-h-screen p-4 text-white sm:p-6" lang="ko">
@@ -223,7 +234,11 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
                         rows={displayRows}
                         totals={totals}
                         emptyMessage={"\uD45C\uC2DC\uD560 \uC2DC\uACF5 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."}
-                        portalAckConfirmed={portalAckConfirmed}
+                        portalAckConfirmed={Boolean(portalAck)}
+                        portalSignatureDataUrl={portalSignatureDataUrl}
+                        portalSignatureConfirmedAt={portalAck?.confirmedAt}
+                        portalSignatureInteractive={portalSignatureInteractive}
+                        onPortalSignatureChange={setSignatureDraft}
                       />
                     </WorkerPortalStatementScaler>
                   </div>
@@ -234,6 +249,9 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
                     monthKey={monthKey}
                     hasStatementRows={displayRows.length > 0}
                     onAcknowledgmentChange={handlePortalAckChange}
+                    signatureOnStatement
+                    signatureDataUrl={signatureDraft}
+                    onSignatureDraftChange={setSignatureDraft}
                   />
                 ) : null}
               </>
