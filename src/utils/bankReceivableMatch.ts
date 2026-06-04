@@ -296,22 +296,35 @@ type PaymentVoucherAutoLinkSource = {
 function collectLinkedSaleIdsFromVouchers(
   paymentVouchers: PaymentVoucherAutoLinkSource[],
   bankTxIds: Set<string>,
-  sales: Array<{ id?: string | number; paid?: number }> = [],
+  _sales: Array<{ id?: string | number; paid?: number }> = [],
 ) {
   const saleIds = new Set<string>();
+  const vouchersByBankTx = new Map<string, PaymentVoucherAutoLinkSource[]>();
+
   paymentVouchers.forEach((voucher) => {
-    if (!voucher.bankTransactionId || !bankTxIds.has(String(voucher.bankTransactionId))) return;
-    if (voucher.salesId != null && voucher.salesId !== "") {
-      saleIds.add(String(voucher.salesId));
-    }
-    voucher.statementSalesIds?.forEach((id) => {
-      if (id == null || id === "") return;
-      const key = String(id);
-      if (key === String(voucher.salesId)) return;
-      const sale = sales.find((row) => String(row.id) === key);
-      if (!sales.length || (Number(sale?.paid) || 0) > 0) saleIds.add(key);
+    const bankId = String(voucher.bankTransactionId || "");
+    if (!bankId || !bankTxIds.has(bankId)) return;
+    const list = vouchersByBankTx.get(bankId) || [];
+    list.push(voucher);
+    vouchersByBankTx.set(bankId, list);
+  });
+
+  vouchersByBankTx.forEach((vouchers) => {
+    const paidSaleIds = new Set(
+      vouchers.map((voucher) => String(voucher.salesId || "")).filter(Boolean),
+    );
+    vouchers.forEach((voucher) => {
+      if (voucher.salesId != null && voucher.salesId !== "") {
+        saleIds.add(String(voucher.salesId));
+      }
+      voucher.statementSalesIds?.forEach((id) => {
+        if (id == null || id === "") return;
+        const key = String(id);
+        if (paidSaleIds.has(key)) saleIds.add(key);
+      });
     });
   });
+
   return saleIds;
 }
 
