@@ -5453,6 +5453,9 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
       isActive: existingWorker ? isWorkerActive(existingWorker) : true,
     };
     const payloadWithCharge = applyWorkerCustomChargeCostFromForm(payload, form.customChargeCost);
+    if (!form.portalPassword.trim()) {
+      delete payloadWithCharge.portalPassword;
+    }
 
     const nextWorkers = existingWorker
       ? workersRef.current.map((worker) => (workerIdsEqual(worker.id, existingWorker.id) ? payloadWithCharge : worker))
@@ -6679,6 +6682,7 @@ export default function TeammillimeterErpMvp() {
   const workerMonthlyLinkCleanupRef = useRef(false);
   const saveDebounceTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const workerFlushDebounceRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const workerFlushChainRef = useRef<Promise<boolean>>(Promise.resolve(true));
   const pendingWorkerFlushRef = useRef<{ workers: typeof initialWorkers; auditLogs?: unknown } | null>(null);
   const [active, setActive] = useState(() => {
     if (typeof window === "undefined") return "dashboard";
@@ -7283,6 +7287,13 @@ export default function TeammillimeterErpMvp() {
               })) !== false;
             if (!saved) {
               window.alert("시공자 저장에 실패했습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.");
+            } else {
+              workersRef.current = workersRef.current.map((worker) => {
+                if (!("portalPassword" in worker)) return worker;
+                const { portalPassword: _pw, ...rest } = worker as WorkerMasterLike & { portalPassword?: string };
+                return rest;
+              });
+              setWorkers(workersRef.current);
             }
           }
           return saved;
@@ -7300,27 +7311,33 @@ export default function TeammillimeterErpMvp() {
         }
       };
 
-      if (!apiMode || !currentUser || !dataReady) {
-        return true;
-      }
-
-      if (options?.flushNow) {
-        if (workerFlushDebounceRef.current) {
+      const enqueueFlush = (immediate: boolean) => {
+        if (!apiMode || !currentUser || !dataReady) {
+          return Promise.resolve(true);
+        }
+        if (immediate && workerFlushDebounceRef.current) {
           window.clearTimeout(workerFlushDebounceRef.current);
           workerFlushDebounceRef.current = null;
         }
-        return runFlush();
-      }
+        const schedule = () => {
+          workerFlushChainRef.current = workerFlushChainRef.current.then(runFlush);
+          return workerFlushChainRef.current;
+        };
+        if (immediate) {
+          return schedule();
+        }
+        if (workerFlushDebounceRef.current) {
+          window.clearTimeout(workerFlushDebounceRef.current);
+        }
+        return new Promise<boolean>((resolve) => {
+          workerFlushDebounceRef.current = window.setTimeout(() => {
+            workerFlushDebounceRef.current = null;
+            void schedule().then(resolve);
+          }, 700);
+        });
+      };
 
-      if (workerFlushDebounceRef.current) {
-        window.clearTimeout(workerFlushDebounceRef.current);
-      }
-      return new Promise<boolean>((resolve) => {
-        workerFlushDebounceRef.current = window.setTimeout(async () => {
-          workerFlushDebounceRef.current = null;
-          resolve(await runFlush());
-        }, 700);
-      });
+      return enqueueFlush(Boolean(options?.flushNow));
     },
     [apiMode, currentUser, dataReady, flushErpSave, setAuditLogs],
   );

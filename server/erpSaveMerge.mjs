@@ -285,7 +285,8 @@ export function mergeWorkersForSave(existing = [], incoming = []) {
     }
   }
 
-  return merged.map(({ monthlyPaymentMemo: _legacy, portalPassword: _pw, ...worker }) => worker);
+  // portalPassword는 index.mjs에서 processWorkersPortalCredentials 후 제거
+  return merged.map(({ monthlyPaymentMemo: _legacy, ...worker }) => worker);
 }
 
 export function mergeErpPaymentLinkState(existingData, incomingData) {
