@@ -2,6 +2,8 @@ import type { AuditLogEntry } from "./auditLog";
 
 export const MAX_LOGIN_LOGS = 3000;
 
+export type LoginLogKind = "erp" | "worker-portal";
+
 export type LoginLogEntry = {
   id: number;
   at: string;
@@ -9,7 +11,17 @@ export type LoginLogEntry = {
   userName: string;
   loginId: string;
   role: string;
+  loginType?: LoginLogKind;
 };
+
+export function isWorkerPortalLoginLog(entry: Pick<LoginLogEntry, "role" | "loginType">) {
+  return entry.loginType === "worker-portal" || entry.role === "worker-portal";
+}
+
+export function loginLogKindLabel(entry: Pick<LoginLogEntry, "role" | "loginType">) {
+  if (isWorkerPortalLoginLog(entry)) return "\uC2DC\uACF5\uB0B4\uC5ED\uC11C";
+  return roleLabel(entry.role);
+}
 
 export type LoginUser = {
   id?: string | number;
@@ -33,9 +45,30 @@ export function buildLoginLogEntry(user: LoginUser): LoginLogEntry {
     id: Date.now() + Math.floor(Math.random() * 1000),
     at,
     userId: user.id ?? loginId ?? "unknown",
-    userName: user.name || loginId || "사용자",
+    userName: user.name || loginId || "\uC0AC\uC6A9\uC790",
     loginId: loginId || "-",
     role: user.role || "",
+    loginType: "erp",
+  };
+}
+
+export function buildWorkerPortalLoginLogEntry(input: {
+  id?: string | number;
+  name?: string;
+  portalLoginId?: string;
+}): LoginLogEntry {
+  const portalLoginId = String(input.portalLoginId || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  return {
+    id: Date.now() + Math.floor(Math.random() * 1000),
+    at: new Date().toISOString(),
+    userId: input.id ?? portalLoginId ?? "unknown",
+    userName: String(input.name || "").trim() || portalLoginId || "\uC2DC\uACF5\uC790",
+    loginId: portalLoginId || "-",
+    role: "worker-portal",
+    loginType: "worker-portal",
   };
 }
 
@@ -48,13 +81,18 @@ export function normalizeLoginLogs(raw: unknown): LoginLogEntry[] {
       const id = Number(row.id);
       const at = String(row.at || "");
       if (!id || !at) return null;
+      const role = String(row.role || "");
+      const loginTypeRaw = String(row.loginType || row.login_type || "");
+      const loginType: LoginLogKind =
+        loginTypeRaw === "worker-portal" || role === "worker-portal" ? "worker-portal" : "erp";
       return {
         id,
         at,
         userId: row.userId ?? row.user_id ?? "unknown",
-        userName: String(row.userName || row.user_name || "사용자"),
+        userName: String(row.userName || row.user_name || "\uC0AC\uC6A9\uC790"),
         loginId: String(row.loginId || row.login_id || "-"),
-        role: String(row.role || ""),
+        role: loginType === "worker-portal" ? "worker-portal" : role,
+        loginType,
       } satisfies LoginLogEntry;
     })
     .filter(Boolean) as LoginLogEntry[];

@@ -1,6 +1,9 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { config } from "./config.mjs";
+import { getErpState, saveErpState } from "./db.mjs";
+
+const MAX_PORTAL_LOGIN_LOGS = 3000;
 
 export function normalizeWorkerName(value) {
   return String(value || "").trim();
@@ -390,6 +393,34 @@ export function buildWorkerPortalStatement(workerName, monthKey, erpState = {}) 
     summary,
     companyProfile,
   };
+}
+
+export function buildWorkerPortalLoginLogEntry(worker) {
+  const safe = stripWorkerPortalSecrets(worker);
+  const portalLoginId = normalizePortalLoginId(safe.portalLoginId);
+  return {
+    id: Date.now() + Math.floor(Math.random() * 1000),
+    at: new Date().toISOString(),
+    userId: safe.id ?? portalLoginId ?? "unknown",
+    userName: normalizeWorkerName(safe.name) || portalLoginId || "\uC2DC\uACF5\uC790",
+    loginId: portalLoginId || "-",
+    role: "worker-portal",
+    loginType: "worker-portal",
+  };
+}
+
+export function recordWorkerPortalLoginLog(worker) {
+  const state = getErpState();
+  const data = state.data && typeof state.data === "object" ? state.data : {};
+  const loginLogs = Array.isArray(data.loginLogs) ? data.loginLogs : [];
+  const entry = buildWorkerPortalLoginLogEntry(worker);
+  const nextLogs = [entry, ...loginLogs].slice(0, MAX_PORTAL_LOGIN_LOGS);
+  const saved = saveErpState(
+    { ...data, loginLogs: nextLogs },
+    state.version,
+    `portal-login:${entry.userName}`,
+  );
+  return { entry, version: saved.version };
 }
 
 export function authenticateWorkerPortal(workers = [], loginId, password) {

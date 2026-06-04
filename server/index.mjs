@@ -29,6 +29,7 @@ import {
   buildWorkerPortalStatement,
   changeWorkerPortalPassword,
   processWorkersPortalCredentials,
+  recordWorkerPortalLoginLog,
   sanitizeWorkersForClient,
   signWorkerPortalToken,
   stripWorkerPortalSecrets,
@@ -289,6 +290,11 @@ app.post("/api/worker-portal/login", (req, res) => {
   if (!worker) {
     res.status(401).json({ error: "\uB85C\uADF8\uC778 ID \uB610\uB294 \uBE44\uBC00\uBC88\uD638\uAC00 \uB9DE\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." });
     return;
+  }
+  try {
+    recordWorkerPortalLoginLog(worker);
+  } catch (error) {
+    console.error("[worker-portal] login log save failed:", error);
   }
   const token = signWorkerPortalToken(worker);
   res.json({
