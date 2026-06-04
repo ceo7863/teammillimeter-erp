@@ -3,7 +3,11 @@ import { ChevronLeft, ChevronRight, FileText, Search } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { WorkerStatementModal } from "@/components/WorkerStatementModal";
-import type { WorkerPortalStatementAck } from "@/utils/workerPortalAcknowledgment";
+import { WorkerPortalStatementAckBadge } from "@/components/WorkerPortalStatementAckBadge";
+import {
+  isWorkerPortalAckConfirmedForWorker,
+  type WorkerPortalStatementAck,
+} from "@/utils/workerPortalAcknowledgment";
 import { formatMonthLabel, shiftMonthKey } from "@/utils/workerMonthlyPayments";
 import {
   formatKRW,
@@ -168,6 +172,14 @@ export function WorkerStatementTab({
                       >
                         {row.name}
                       </button>
+                      {isWorkerPortalAckConfirmedForWorker(
+                        workerPortalStatementAcks,
+                        workers,
+                        row.name,
+                        monthKey,
+                      ) ? (
+                        <WorkerPortalStatementAckBadge />
+                      ) : null}
                     </td>
                     <td className="text-right">{row.lineCount}</td>
                     <td className="text-right font-semibold text-slate-900">{formatKRW(row.grossPay)}</td>

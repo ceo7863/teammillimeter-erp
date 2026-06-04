@@ -5907,10 +5907,11 @@ span.erp-worker-category-select.is-readonly {
   color: #64748b;
 }
 
-.erp-statement-sheet .excel-client-recipient .erp-worker-portal-ack-badge--statement {
+.erp-statement-sheet .excel-header-table .excel-worker-name-cell .erp-worker-portal-ack-badge--statement {
   margin-left: 8px;
   font-size: 10px;
   line-height: 1.2;
+  vertical-align: middle;
 }
 
 .erp-statement-sheet .excel-header-table {

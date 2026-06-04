@@ -30,7 +30,7 @@ type WorkerStatementSheetProps = {
   totals: WorkerStatementTotals;
   emptyMessage?: string;
   className?: string;
-  /** When true, show portal confirmation badge after worker name (screen + PDF capture). */
+  /** When true, show portal confirmation badge on header table worker row (PDF export). */
   portalAckConfirmed?: boolean;
 };
 
@@ -99,7 +99,6 @@ export const WorkerStatementSheet = React.forwardRef<HTMLDivElement, WorkerState
 
       <div className="excel-client-recipient">
         <span>{workerName || "\uC2DC\uACF5\uC790"}</span>
-        {portalAckConfirmed ? <WorkerPortalStatementAckBadge /> : null}
         <span className="honorific">{"\u00A0"}\uADDC\uD558</span>
       </div>
 
@@ -113,6 +112,13 @@ export const WorkerStatementSheet = React.forwardRef<HTMLDivElement, WorkerState
           <col style={{ width: "38%" }} />
         </colgroup>
         <tbody>
+          <tr>
+            <td className="label">{"\uC2DC\uACF5\uC790"}</td>
+            <td colSpan={5} className="excel-worker-name-cell">
+              <span>{workerName || "\uC2DC\uACF5\uC790"}</span>
+              {portalAckConfirmed ? <WorkerPortalStatementAckBadge /> : null}
+            </td>
+          </tr>
           <tr>
             <td className="label">연락처</td>
             <td colSpan={3}>{workerInfo.phone || "-"}</td>
