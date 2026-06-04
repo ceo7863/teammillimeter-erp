@@ -193,6 +193,35 @@ export function buildBankDepositMatchCandidates(
     .slice(0, limit);
 }
 
+export function findBestClientDepositReceivableMatch(
+  tx: BankTransaction,
+  receivables: ReceivableRow[],
+  clientName: string,
+  options: {
+    linkedSalesIds?: Set<string>;
+    clients?: ClientDepositMatchSource[];
+    minScore?: number;
+  } = {},
+): BankDepositMatchCandidate | null {
+  const trimmedClient = String(clientName || "").trim();
+  if (!trimmedClient || tx.deposit <= 0 || tx.linkedPaymentVoucherId || isCardCompanyDeposit(tx)) {
+    return null;
+  }
+
+  const clientReceivables = receivables.filter(
+    (row) => String(row.client || "").trim() === trimmedClient,
+  );
+  if (!clientReceivables.length) return null;
+
+  const candidates = buildBankDepositMatchCandidates(tx, clientReceivables, {
+    linkedSalesIds: options.linkedSalesIds,
+    clients: options.clients,
+    minScore: options.minScore ?? 70,
+    limit: 1,
+  });
+  return candidates[0] || null;
+}
+
 export function buildAllBankDepositSuggestions(
   transactions: BankTransaction[],
   receivables: ReceivableRow[],
@@ -266,7 +295,8 @@ type PaymentVoucherAutoLinkSource = {
 
 function collectLinkedSaleIdsFromVouchers(
   paymentVouchers: PaymentVoucherAutoLinkSource[],
-  bankTxIds: Set<string>
+  bankTxIds: Set<string>,
+  sales: Array<{ id?: string | number; paid?: number }> = [],
 ) {
   const saleIds = new Set<string>();
   paymentVouchers.forEach((voucher) => {
@@ -275,7 +305,11 @@ function collectLinkedSaleIdsFromVouchers(
       saleIds.add(String(voucher.salesId));
     }
     voucher.statementSalesIds?.forEach((id) => {
-      if (id != null && id !== "") saleIds.add(String(id));
+      if (id == null || id === "") return;
+      const key = String(id);
+      if (key === String(voucher.salesId)) return;
+      const sale = sales.find((row) => String(row.id) === key);
+      if (!sales.length || (Number(sale?.paid) || 0) > 0) saleIds.add(key);
     });
   });
   return saleIds;
@@ -283,22 +317,24 @@ function collectLinkedSaleIdsFromVouchers(
 
 export function buildAutoLinkedSaleIdSet(
   paymentVouchers: PaymentVoucherAutoLinkSource[] = [],
-  bankTransactions: Array<Pick<BankTransaction, "id" | "matchAutoLinked" | "linkedPaymentVoucherId">> = []
+  bankTransactions: Array<Pick<BankTransaction, "id" | "matchAutoLinked" | "linkedPaymentVoucherId">> = [],
+  sales: Array<{ id?: string | number; paid?: number }> = [],
 ) {
   const autoTxIds = new Set(
     bankTransactions.filter((tx) => isBankMatchAutoLinked(tx)).map((tx) => String(tx.id))
   );
-  return collectLinkedSaleIdsFromVouchers(paymentVouchers, autoTxIds);
+  return collectLinkedSaleIdsFromVouchers(paymentVouchers, autoTxIds, sales);
 }
 
 export function buildManualLinkedSaleIdSet(
   paymentVouchers: PaymentVoucherAutoLinkSource[] = [],
-  bankTransactions: Array<Pick<BankTransaction, "id" | "matchAutoLinked" | "linkedPaymentVoucherId">> = []
+  bankTransactions: Array<Pick<BankTransaction, "id" | "matchAutoLinked" | "linkedPaymentVoucherId">> = [],
+  sales: Array<{ id?: string | number; paid?: number }> = [],
 ) {
   const manualTxIds = new Set(
     bankTransactions.filter((tx) => isBankMatchManualLinked(tx)).map((tx) => String(tx.id))
   );
-  return collectLinkedSaleIdsFromVouchers(paymentVouchers, manualTxIds);
+  return collectLinkedSaleIdsFromVouchers(paymentVouchers, manualTxIds, sales);
 }
 
 export function isSaleAutoLinkedPaid(

@@ -92,14 +92,18 @@ function renderCell(row: SalesSheetDisplayRow, key: string) {
     return <span className="erp-sales-sheet-office-memo">{text}</span>;
   }
 
-  if ((key === "date" || key === "voucherNo") && row.isFirstVisibleLine) {
+  if (key === "client" && row.isFirstVisibleLine) {
     const text = String(value ?? "") || "-";
     return (
-      <>
-        {text}
+      <span className="erp-sales-sheet-badge-cell">
         <SalePaymentLinkBadge saleId={row.saleId} />
-      </>
+        <span>{text}</span>
+      </span>
     );
+  }
+
+  if (key === "date" && row.isFirstVisibleLine) {
+    return String(value ?? "") || "-";
   }
 
   return String(value ?? "") || "-";
@@ -232,6 +236,7 @@ export function SalesManagementPage({
   setSales,
   setActive,
   currentUser,
+  onEditSale,
 }) {
   const { recordAudit } = useAudit();
   const [textFilters, setTextFilters] = useState(emptySalesSheetTextFilters);
@@ -457,7 +462,7 @@ export function SalesManagementPage({
               <span className="erp-text-caption ml-auto font-semibold text-slate-500">{displayRows.length}행</span>
             </div>
             <p className="erp-text-caption text-slate-500">
-              기본 <strong className="font-semibold text-slate-600">최신 일자순</strong> · 헤더 클릭 정렬 · 열 경계 드래그로 너비 조절(더블클릭 초기화)
+              기본 <strong className="font-semibold text-slate-600">최신 일자순</strong> · 행 클릭으로 전표 수정 · 헤더 클릭 정렬 · 열 경계 드래그로 너비 조절(더블클릭 초기화)
             </p>
           </div>
 
@@ -532,8 +537,18 @@ export function SalesManagementPage({
                     </tr>
                   </thead>
                   <tbody>
-                    {displayRows.map((row) => (
-                      <tr key={row.rowKey} className={row.isFirstVisibleLine ? "is-voucher-start" : "is-voucher-line"}>
+                    {displayRows.map((row) => {
+                      const editTarget = sales.find(
+                        (sale) =>
+                          String(sale.id) === String(row.saleId)
+                          || String(sale.voucherNo ?? "") === String(row.saleId),
+                      );
+                      return (
+                      <tr
+                        key={row.rowKey}
+                        className={`${row.isFirstVisibleLine ? "is-voucher-start" : "is-voucher-line"}${onEditSale && editTarget ? " cursor-pointer hover:bg-slate-50" : ""}`}
+                        onClick={onEditSale && editTarget ? () => onEditSale(editTarget) : undefined}
+                      >
                         {SALES_SHEET_UI_COLUMNS.map((column) => {
                           if (isSalesSheetVoucherMergeColumn(column.key) && !row.isFirstVisibleLine) {
                             return null;
@@ -559,13 +574,14 @@ export function SalesManagementPage({
                             rowSpan={row.voucherLineCount > 1 ? row.voucherLineCount : undefined}
                             className={`text-center is-action erp-table-export-skip ${row.voucherLineCount > 1 ? "is-voucher-merged" : ""}`}
                           >
-                            <button type="button" className="erp-sales-sheet-delete" onClick={() => deleteSale(row.saleId)} title="전표 삭제">
+                            <button type="button" className="erp-sales-sheet-delete" onClick={(event) => { event.stopPropagation(); deleteSale(row.saleId); }} title="전표 삭제">
                               <Trash2 size={13} />
                             </button>
                           </td>
                         ) : null}
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
                 {displayRows.length === 0 && (

@@ -8,7 +8,8 @@ import { buildWorkerStatementExcelPayload, serializeStatementExcelPayload } from
 import {
   formatKRW,
   formatStatementDashAmount,
-  formatStatementDate,
+  formatWorkerStatementBankAccount,
+  formatWorkerStatementDate,
   type WorkerMasterLike,
   type WorkerPaymentDetailRow,
 } from "@/utils/workerPayments";
@@ -62,6 +63,7 @@ export const WorkerStatementSheet = React.forwardRef<HTMLDivElement, WorkerState
   ref
 ) {
   const hasRows = rows.length > 0;
+  const bankAccount = formatWorkerStatementBankAccount(workerInfo, workerName);
   const visibleBodyRows = hasRows ? rows.length : 1;
   const fillerRowCount = Math.min(getStatementFillerRowCount(visibleBodyRows, companyProfile), 4);
   const workerDataColumnCount = 11;
@@ -93,7 +95,7 @@ export const WorkerStatementSheet = React.forwardRef<HTMLDivElement, WorkerState
 
       <div className="excel-client-recipient">
         <span>{workerName || "시공자"}</span>
-        <span className="honorific">{"\u00A0"}\uADD0\uD558</span>
+        <span className="honorific">{"\u00A0"}귀하</span>
       </div>
 
       <table className="excel-header-table">
@@ -109,26 +111,20 @@ export const WorkerStatementSheet = React.forwardRef<HTMLDivElement, WorkerState
           <tr>
             <td className="label">연락처</td>
             <td colSpan={3}>{workerInfo.phone || "-"}</td>
-            <td className="label">계좌정보</td>
-            <td>{[workerInfo.bank, workerInfo.account].filter(Boolean).join(" ") || "-"}</td>
-          </tr>
-          <tr>
-            <td className="label">시공기간</td>
-            <td>{formatStatementDate(periodStart)}</td>
-            <td style={{ textAlign: "center" }}>~</td>
-            <td>{formatStatementDate(periodEnd)}</td>
             <td className="label">합계</td>
             <td className="amount">{formatKRW(summary.grossPay)}</td>
           </tr>
           <tr>
-            <td className="label"></td>
-            <td colSpan={3}></td>
+            <td className="label">계좌정보</td>
+            <td colSpan={3}>{bankAccount}</td>
             <td className="label">수수료</td>
             <td className="amount">{formatKRW(summary.fee)}</td>
           </tr>
           <tr>
-            <td className="label"></td>
-            <td colSpan={3}></td>
+            <td className="label">시공기간</td>
+            <td>{formatWorkerStatementDate(periodStart)}</td>
+            <td style={{ textAlign: "center" }}>~</td>
+            <td>{formatWorkerStatementDate(periodEnd)}</td>
             <td className="label">실수령</td>
             <td className="amount">{formatKRW(summary.netPay)}</td>
           </tr>
@@ -157,7 +153,7 @@ export const WorkerStatementSheet = React.forwardRef<HTMLDivElement, WorkerState
             {rows.map((row) => (
               <tr key={row.id}>
                 <StatementFitTd tdClassName="excel-date-cell" align="left">
-                  {formatStatementDate(row.date)}
+                  {formatWorkerStatementDate(row.date)}
                 </StatementFitTd>
                 <StatementFitTd tdClassName="excel-text-cell" align="left">
                   {row.client || ""}
@@ -210,7 +206,7 @@ export const WorkerStatementSheet = React.forwardRef<HTMLDivElement, WorkerState
                   <StatementFitCell align="right">{totals.count}</StatementFitCell>
                 </td>
                 <td className="num">
-                  <StatementFitCell align="right">{formatKRW(totals.basePay)}</StatementFitCell>
+                  <StatementFitCell align="right">{formatStatementDashAmount(totals.basePay)}</StatementFitCell>
                 </td>
                 <td className="num">
                   <StatementFitCell align="right">{formatStatementDashAmount(totals.overtime)}</StatementFitCell>
@@ -225,7 +221,7 @@ export const WorkerStatementSheet = React.forwardRef<HTMLDivElement, WorkerState
                   <StatementFitCell align="right">{formatStatementDashAmount(totals.expense)}</StatementFitCell>
                 </td>
                 <td className="num">
-                  <StatementFitCell align="right">{formatKRW(totals.totalPay)}</StatementFitCell>
+                  <StatementFitCell align="right">{formatStatementDashAmount(totals.totalPay)}</StatementFitCell>
                 </td>
                 <td />
               </tr>

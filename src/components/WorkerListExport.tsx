@@ -4,18 +4,15 @@ import { Button } from "@/components/ui/button";
 import { WorkerListSheet, type WorkerListSheetRow } from "@/components/WorkerListSheet";
 import type { CompanyProfile } from "@/utils/companyProfile";
 import { exportWorkerListPdf, printWorkerListDocument } from "@/utils/workerListExport";
+import { normalizeWorkerCategory, WORKER_CATEGORY_OUTSOURCE, WORKER_CATEGORY_TEAM } from "@/utils/workerPayments";
 
 export type WorkerListCategoryFilter = "all" | "team" | "outsource";
 
 const CATEGORY_FILTER_OPTIONS: Array<{ value: WorkerListCategoryFilter; label: string }> = [
   { value: "all", label: "\uC804\uCCB4" },
-  { value: "team", label: "\uD300\uC6D0" },
-  { value: "outsource", label: "\uC678\uC8FC" },
+  { value: "team", label: WORKER_CATEGORY_TEAM },
+  { value: "outsource", label: WORKER_CATEGORY_OUTSOURCE },
 ];
-
-function normalizeWorkerCategory(value?: string) {
-  return String(value || "").trim() === "\uC678\uC8FC" ? "\uC678\uC8FC" : "\uD300\uC6D0";
-}
 
 function isActiveWorker(worker: WorkerListSheetRow) {
   return worker.isActive !== false;
@@ -24,13 +21,13 @@ function isActiveWorker(worker: WorkerListSheetRow) {
 function filterWorkersByCategory(workers: WorkerListSheetRow[], categoryFilter: WorkerListCategoryFilter) {
   const activeWorkers = workers.filter((worker) => isActiveWorker(worker));
   if (categoryFilter === "all") return activeWorkers;
-  const target = categoryFilter === "outsource" ? "\uC678\uC8FC" : "\uD300\uC6D0";
+  const target = categoryFilter === "outsource" ? WORKER_CATEGORY_OUTSOURCE : WORKER_CATEGORY_TEAM;
   return activeWorkers.filter((worker) => normalizeWorkerCategory(worker.category) === target);
 }
 
 function resolveCategoryFilterLabel(categoryFilter: WorkerListCategoryFilter) {
-  if (categoryFilter === "team") return "\uD300\uC6D0";
-  if (categoryFilter === "outsource") return "\uC678\uC8FC";
+  if (categoryFilter === "team") return WORKER_CATEGORY_TEAM;
+  if (categoryFilter === "outsource") return WORKER_CATEGORY_OUTSOURCE;
   return "\uC804\uCCB4";
 }
 

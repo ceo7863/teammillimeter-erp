@@ -10,12 +10,16 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Settings2,
   Trash2,
   X,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
+import { ExpenseCategorySelect } from "@/components/ExpenseCategorySelect";
+import { ExpenseCategoryManageModal } from "@/components/ExpenseCategoryManageModal";
 import { TableExportToolbar } from "@/components/TableExportSection";
 import { DesktopTableWrap, MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
 import {
@@ -27,7 +31,6 @@ import {
   filterCompanyExpenses,
   filterFixedExpensePayments,
   FIXED_CATEGORY_OPTIONS,
-  FIXED_CYCLE_OPTIONS,
   fixedCycleLabel,
   fixedMonthlyAmount,
   formatFixedExpensePaymentDay,
@@ -40,9 +43,13 @@ import {
   mergeExpenseCategory,
   mergeFixedExpenseCategory,
   buildFixedCategorySelectOptions,
+  normalizeExpenseCategoryName,
   normalizeExpenseCategories,
   normalizeFixedExpenseCategories,
   resolveFixedPaymentCategory,
+  resolveFixedPaymentAccountContent,
+  getCompanyExpenseAccountContent,
+  getCompanyExpenseBankRecord,
   normalizeFixedExpensePaymentDay,
   parseLedgerAmount,
   resolveCompanyExpenseKind,
@@ -53,6 +60,7 @@ import {
   CEO_RECEIVABLE_CATEGORY,
   filterCompanyExpensesByCategory,
   isCeoDedicatedLedgerCategory,
+  shouldIncludeExpenseInMainLedger,
   sumCeoLedgerFlowTotals,
   type CompanyLedgerFlow,
   resolveFixedPaymentFieldsFromBankTx,
@@ -64,7 +72,6 @@ import {
   sumExpensesForMonthByKind,
   todayISO,
   validateCompanyExpenseInput,
-  validateFixedExpenseInput,
   validateFixedExpensePaymentInput,
   type CompanyExpense,
   type CompanyExpenseKind,
@@ -74,6 +81,10 @@ import {
   type LedgerPeriodKey,
 } from "@/utils/companyLedger";
 import type { ErpUser } from "@/utils/erpApi";
+import {
+  CompanyLedgerFixedExpenseModalLayer,
+  type CompanyLedgerFixedExpenseModalHandle,
+} from "@/components/CompanyLedgerFixedExpenseModalLayer";
 import { AutocompleteInput, CategorySuggestInput } from "@/components/AutocompleteInput";
 import { CompanyLedgerCalendar } from "@/components/CompanyLedgerCalendar";
 import type { LedgerCalendarEntry } from "@/utils/ledgerCalendar";
@@ -146,7 +157,9 @@ const L = {
   searchFixed: "\uD56D\uBAA9\uBA85, \uCE74\uD14C\uACE0\uB9AC, \uBA54\uBAA8 \uAC80\uC0C9",
   date: "\uC9C0\uCD9C\uC77C",
   category: "\uCE74\uD14C\uACE0\uB9AC",
-  description: "\uB0B4\uC6A9",
+  accountContent: "\uACC4\uC815\uB0B4\uC6A9",
+  manageCategories: "\uCE74\uD14C\uACE0\uB9AC",
+  bankRecord: "\uD1B5\uC7A5\uAE30\uB85D",
   amount: "\uAE08\uC561",
   memo: "\uBA54\uBAA8",
   actions: "\uC791\uC5C5",
@@ -299,6 +312,7 @@ type ManualModalState = {
   flow: CompanyLedgerFlow;
   date: string;
   category: string;
+  accountContent: string;
   description: string;
   amount: string;
   memo: string;
@@ -335,19 +349,6 @@ function isManualRecordTypeSwitch(modal: ManualModalState) {
 type ManualLedgerRow =
   | { type: "expense"; row: CompanyExpense }
   | { type: "fixedPayment"; row: FixedExpensePayment };
-
-type FixedExpenseModalState = {
-  mode: "create" | "edit";
-  id?: string;
-  name: string;
-  category: string;
-  amount: string;
-  cycle: FixedExpenseCycle;
-  paymentDayOfMonth: string;
-  startDate: string;
-  memo: string;
-  isActive: boolean;
-};
 
 type FixedExpenseBankLinkRow = {
   paymentId: string;
@@ -478,6 +479,7 @@ function CeoLedgerTabPanel({
   bankTransactions,
   onEdit,
   onDelete,
+  onExpenseAccountContentChange,
 }: {
   category: string;
   companyExpenses: CompanyExpense[];
@@ -489,6 +491,7 @@ function CeoLedgerTabPanel({
   bankTransactions: BankTransaction[];
   onEdit: (row: CompanyExpense) => void;
   onDelete: (row: CompanyExpense) => void;
+  onExpenseAccountContentChange: (row: CompanyExpense, accountContent: string) => void;
 }) {
   const periodFilter = useMemo(() => ledgerDateFilter(periodKey), [periodKey]);
   const filteredRows = useMemo(() => {
@@ -501,7 +504,7 @@ function CeoLedgerTabPanel({
     const keyword = query.trim().toLowerCase();
     const filtered = keyword
       ? ranged.filter((row) =>
-          [row.description, row.memo, row.createdBy]
+          [row.accountContent, row.description, row.memo, row.createdBy]
             .filter(Boolean)
             .join(" ")
             .toLowerCase()
@@ -531,7 +534,7 @@ function CeoLedgerTabPanel({
             return (
               <MobileRecordCard
                 key={row.id}
-                title={<DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />}
+                title={<DescriptionWithBankBadge text={formatExpenseRowTitle(row)} bankLinked={bankLinked} />}
                 subtitle={row.date}
                 badge={
                   <span
@@ -573,7 +576,8 @@ function CeoLedgerTabPanel({
             <tr>
               <th>{L.date}</th>
               <th>{L.ledgerFlow}</th>
-              <th>{L.description}</th>
+              <th>{L.accountContent}</th>
+              <th>{L.bankRecord}</th>
               <th className="text-right">{L.amount}</th>
               <th>{L.memo}</th>
               <th className="erp-table-export-skip">{L.actions}</th>
@@ -597,7 +601,13 @@ function CeoLedgerTabPanel({
                       </span>
                     </td>
                     <td>
-                      <DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />
+                      <LedgerAccountContentInput
+                        value={getCompanyExpenseAccountContent(row)}
+                        onCommit={(next) => onExpenseAccountContentChange(row, next)}
+                      />
+                    </td>
+                    <td>
+                      <DescriptionWithBankBadge text={getCompanyExpenseBankRecord(row) || "-"} bankLinked={bankLinked} />
                     </td>
                     <td className={`text-right font-bold ${amountTone}`}>
                       {formatKRW(row.amount)}
@@ -619,7 +629,7 @@ function CeoLedgerTabPanel({
               })
             ) : (
               <tr>
-                <td colSpan={6} className="erp-ledger-empty">
+                <td colSpan={7} className="erp-ledger-empty">
                   {emptyLabel}
                 </td>
               </tr>
@@ -1021,44 +1031,130 @@ function resolveFixedExpenseCategory(fixedExpenseId: string, fixedExpenses: Fixe
   return fixedExpenses.find((row) => row.id === fixedExpenseId)?.category || "-";
 }
 
+function resolvePaymentBankRecord(payment: FixedExpensePayment, bankTransactions: BankTransaction[] = []) {
+  const paymentId = String(payment.id || "");
+  const txId = resolvePaymentBankTransactionId(payment, paymentId, bankTransactions);
+  const tx = txId ? bankTransactions.find((row) => row.id === txId) : null;
+  if (!tx) return String(payment.memo || "").trim() || "-";
+  const descriptionText = String(tx.description || "").trim();
+  const counterparty = String(tx.counterpartyName || "").trim();
+  return [descriptionText, counterparty].filter(Boolean).join(" \u00B7 ") || "-";
+}
+
+function formatExpenseRowTitle(row: CompanyExpense) {
+  return getCompanyExpenseAccountContent(row) || getCompanyExpenseBankRecord(row) || row.category;
+}
+
 function resolveFixedPaymentDescription(payment: FixedExpensePayment, fixedExpenses: FixedExpense[]) {
   return resolveFixedExpenseName(payment.fixedExpenseId, fixedExpenses);
+}
+
+function LedgerAccountContentInput({
+  value,
+  onCommit,
+  disabled = false,
+  "aria-label": ariaLabel = L.accountContent,
+}: {
+  value: string;
+  onCommit: (next: string) => void;
+  disabled?: boolean;
+  "aria-label"?: string;
+}) {
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  if (disabled) {
+    return <span className="font-semibold text-slate-800">{value || "-"}</span>;
+  }
+
+  return (
+    <Input
+      lang="ko"
+      className="erp-input erp-input-compact erp-ledger-account-content-input h-8 text-sm font-semibold text-slate-800"
+      value={draft}
+      aria-label={ariaLabel}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => {
+        const next = draft.trim();
+        if (next !== value.trim()) onCommit(next);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          (event.currentTarget as HTMLInputElement).blur();
+        }
+      }}
+    />
+  );
 }
 
 function ExpenseCategoryBadges({
   row,
   bankTransactions = [],
+  expenseCategories = [],
+  onCategoryChange,
 }: {
   row: CompanyExpense;
   bankTransactions?: BankTransaction[];
+  expenseCategories?: string[];
+  onCategoryChange?: (row: CompanyExpense, category: string) => void;
 }) {
+  const categoryLocked = isCeoDedicatedLedgerCategory(row.category);
+  const categoryControl =
+    onCategoryChange && !categoryLocked ? (
+      <ExpenseCategorySelect
+        value={row.category}
+        categories={expenseCategories}
+        onChange={(category) => onCategoryChange(row, category)}
+      />
+    ) : (
+      <CategoryBadge label={row.category} />
+    );
+
   if (isBankLinkedExpense(row, bankTransactions)) {
     return (
       <div className="flex flex-wrap items-center gap-1.5">
-        <CategoryBadge label={row.category} />
+        {categoryControl}
         <BankSourceBadge />
       </div>
     );
   }
-  return <CategoryBadge label={row.category} />;
+  return categoryControl;
 }
 
 function FixedPaymentBadges({
   payment,
   fixedExpenses,
   bankTransactions = [],
+  expenseCategories = [],
+  onCategoryChange,
 }: {
   payment: FixedExpensePayment;
   fixedExpenses: FixedExpense[];
   bankTransactions?: BankTransaction[];
+  expenseCategories?: string[];
+  onCategoryChange?: (payment: FixedExpensePayment, category: string) => void;
 }) {
   const category = resolveFixedPaymentCategory(payment, fixedExpenses);
   const itemName = resolveFixedExpenseName(payment.fixedExpenseId, fixedExpenses);
+  const categoryControl = onCategoryChange ? (
+    <ExpenseCategorySelect
+      value={category}
+      categories={expenseCategories}
+      onChange={(next) => onCategoryChange(payment, next)}
+    />
+  ) : (
+    <CategoryBadge label={category} />
+  );
+
   if (isBankLinkedPayment(payment, bankTransactions)) {
     return (
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="erp-ledger-fixed-item-name font-semibold text-slate-900">{itemName}</span>
-        <CategoryBadge label={category} />
+        {categoryControl}
         <BankSourceBadge />
       </div>
     );
@@ -1066,7 +1162,7 @@ function FixedPaymentBadges({
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <span className="erp-ledger-fixed-item-name font-semibold text-slate-900">{itemName}</span>
-      <CategoryBadge label={category} />
+      {categoryControl}
     </div>
   );
 }
@@ -1077,6 +1173,11 @@ function FixedLedgerRowsPanel({
   showUnpaidBadge,
   fixedExpenses,
   bankTransactions = [],
+  expenseCategories = [],
+  onExpenseCategoryChange,
+  onFixedPaymentCategoryChange,
+  onExpenseAccountContentChange,
+  onFixedPaymentAccountContentChange,
   canEditPayments,
   onEditManual,
   onEditFixedPayment,
@@ -1088,6 +1189,11 @@ function FixedLedgerRowsPanel({
   showUnpaidBadge: boolean;
   fixedExpenses: FixedExpense[];
   bankTransactions?: BankTransaction[];
+  expenseCategories?: string[];
+  onExpenseCategoryChange?: (row: CompanyExpense, category: string) => void;
+  onFixedPaymentCategoryChange?: (payment: FixedExpensePayment, category: string) => void;
+  onExpenseAccountContentChange?: (row: CompanyExpense, accountContent: string) => void;
+  onFixedPaymentAccountContentChange?: (payment: FixedExpensePayment, accountContent: string) => void;
   canEditPayments: boolean;
   onEditManual: (row: CompanyExpense) => void;
   onEditFixedPayment: (row: FixedExpensePayment) => void;
@@ -1107,13 +1213,22 @@ function FixedLedgerRowsPanel({
                   key={`expense-${row.id}`}
                   title={
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />
+                      <DescriptionWithBankBadge text={formatExpenseRowTitle(row)} bankLinked={bankLinked} />
                       {showUnpaidBadge && !bankLinked ? <UnpaidFixedBadge /> : null}
                     </div>
                   }
                   subtitle={row.date}
-                  badge={<ExpenseCategoryBadges row={row} bankTransactions={bankTransactions} />}
+                  badge={
+                    <ExpenseCategoryBadges
+                      row={row}
+                      bankTransactions={bankTransactions}
+                      expenseCategories={expenseCategories}
+                      onCategoryChange={onExpenseCategoryChange}
+                    />
+                  }
                   fields={[
+                    { label: L.accountContent, value: getCompanyExpenseAccountContent(row) || "-", tone: "default" },
+                    { label: L.bankRecord, value: getCompanyExpenseBankRecord(row) || "-", tone: "muted" },
                     { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
                     { label: L.memo, value: row.memo || "-", tone: "muted" },
                   ]}
@@ -1138,13 +1253,22 @@ function FixedLedgerRowsPanel({
                 key={`fixed-pay-${row.id}`}
                 title={
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <DescriptionWithBankBadge text={name} bankLinked={bankLinked} />
+                    <DescriptionWithBankBadge text={resolveFixedPaymentAccountContent(row, fixedExpenses)} bankLinked={bankLinked} />
                     {showUnpaidBadge && !bankLinked ? <UnpaidFixedBadge /> : null}
                   </div>
                 }
                 subtitle={row.date}
-                badge={<FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} bankTransactions={bankTransactions} />}
+                badge={
+                  <FixedPaymentBadges
+                    payment={row}
+                    fixedExpenses={fixedExpenses}
+                    bankTransactions={bankTransactions}
+                    expenseCategories={expenseCategories}
+                    onCategoryChange={canEditPayments ? onFixedPaymentCategoryChange : undefined}
+                  />
+                }
                 fields={[
+                  { label: L.bankRecord, value: resolvePaymentBankRecord(row, bankTransactions), tone: "muted" },
                   { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
                   { label: L.memo, value: row.memo || "-", tone: "muted" },
                 ]}
@@ -1173,7 +1297,8 @@ function FixedLedgerRowsPanel({
             <tr>
               <th>{L.date}</th>
               <th>{L.category}</th>
-              <th>{L.description}</th>
+              <th>{L.accountContent}</th>
+              <th>{L.bankRecord}</th>
               <th className="text-right">{L.amount}</th>
               <th>{L.memo}</th>
               <th className="erp-table-export-skip">{L.actions}</th>
@@ -1189,11 +1314,23 @@ function FixedLedgerRowsPanel({
                     <tr key={`expense-${row.id}`} className={bankLinkedRowClass(bankLinked)}>
                       <td>{row.date}</td>
                       <td>
-                        <ExpenseCategoryBadges row={row} bankTransactions={bankTransactions} />
+                        <ExpenseCategoryBadges
+                          row={row}
+                          bankTransactions={bankTransactions}
+                          expenseCategories={expenseCategories}
+                          onCategoryChange={onExpenseCategoryChange}
+                        />
+                      </td>
+                      <td>
+                        <LedgerAccountContentInput
+                          value={getCompanyExpenseAccountContent(row)}
+                          onCommit={(next) => onExpenseAccountContentChange?.(row, next)}
+                          disabled={!onExpenseAccountContentChange}
+                        />
                       </td>
                       <td>
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />
+                          <DescriptionWithBankBadge text={getCompanyExpenseBankRecord(row) || "-"} bankLinked={bankLinked} />
                           {showUnpaidBadge && !bankLinked ? <UnpaidFixedBadge /> : null}
                         </div>
                       </td>
@@ -1222,11 +1359,24 @@ function FixedLedgerRowsPanel({
                   <tr key={`fixed-pay-${row.id}`} className={bankLinkedRowClass(bankLinked)}>
                     <td>{row.date}</td>
                     <td>
-                      <FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} bankTransactions={bankTransactions} />
+                      <FixedPaymentBadges
+                        payment={row}
+                        fixedExpenses={fixedExpenses}
+                        bankTransactions={bankTransactions}
+                        expenseCategories={expenseCategories}
+                        onCategoryChange={canEditPayments ? onFixedPaymentCategoryChange : undefined}
+                      />
+                    </td>
+                    <td>
+                      <LedgerAccountContentInput
+                        value={resolveFixedPaymentAccountContent(row, fixedExpenses)}
+                        onCommit={(next) => onFixedPaymentAccountContentChange?.(row, next)}
+                        disabled={!canEditPayments || !onFixedPaymentAccountContentChange}
+                      />
                     </td>
                     <td>
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <DescriptionWithBankBadge text={name} bankLinked={bankLinked} />
+                        <DescriptionWithBankBadge text={resolvePaymentBankRecord(row, bankTransactions)} bankLinked={bankLinked} />
                         {showUnpaidBadge && !bankLinked ? <UnpaidFixedBadge /> : null}
                       </div>
                     </td>
@@ -1254,7 +1404,7 @@ function FixedLedgerRowsPanel({
               })
             ) : (
               <tr>
-                <td colSpan={6} className="erp-ledger-empty">
+                <td colSpan={7} className="erp-ledger-empty">
                   {emptyLabel}
                 </td>
               </tr>
@@ -1263,7 +1413,7 @@ function FixedLedgerRowsPanel({
           {rows.length ? (
             <tfoot>
               <tr>
-                <td colSpan={3} className="font-bold">
+                <td colSpan={4} className="font-bold">
                   {L.total} ({rows.length}
                   {L.count})
                 </td>
@@ -1291,23 +1441,10 @@ function emptyManualForm(
     flow,
     date: todayISO(),
     category,
+    accountContent: "",
     description: "",
     amount: "",
     memo: "",
-  };
-}
-
-function emptyFixedExpenseForm(category = FIXED_CATEGORY_OPTIONS[0]): FixedExpenseModalState {
-  return {
-    mode: "create",
-    name: "",
-    category,
-    amount: "",
-    cycle: "monthly",
-    paymentDayOfMonth: "1",
-    startDate: todayISO(),
-    memo: "",
-    isActive: true,
   };
 }
 
@@ -1337,7 +1474,7 @@ export function CompanyLedgerPage({
   const [ceoReceivableQuery, setCeoReceivableQuery] = useState("");
   const [selectedMonthKey, setSelectedMonthKey] = useState(() => todayISO().slice(0, 7));
   const [manualModal, setManualModal] = useState<ManualModalState | null>(null);
-  const [fixedExpenseModal, setFixedExpenseModal] = useState<FixedExpenseModalState | null>(null);
+  const fixedExpenseModalRef = useRef<CompanyLedgerFixedExpenseModalHandle>(null);
   const [bankLinkModalOpen, setBankLinkModalOpen] = useState(false);
   const [bankLinkSearch, setBankLinkSearch] = useState("");
   const [bankLinkView, setBankLinkView] = useState<{ fixedExpenseId: string; paymentId?: string; title: string } | null>(
@@ -1347,6 +1484,7 @@ export function CompanyLedgerPage({
   const [linkMessage, setLinkMessage] = useState("");
   const [bankRefreshMessage, setBankRefreshMessage] = useState("");
   const [bankRefreshLoading, setBankRefreshLoading] = useState(false);
+  const [categoryManageOpen, setCategoryManageOpen] = useState(false);
   const reconciledOnMountRef = React.useRef(false);
 
   React.useEffect(() => {
@@ -1381,13 +1519,13 @@ export function CompanyLedgerPage({
   const statsTableRef = useRef<HTMLTableElement | null>(null);
 
   useEffect(() => {
-    if (!manualModal && !fixedExpenseModal && !bankLinkModalOpen && !bankLinkView) return;
+    if (!manualModal && !bankLinkModalOpen && !bankLinkView) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [manualModal, fixedExpenseModal, bankLinkModalOpen, bankLinkView]);
+  }, [manualModal, bankLinkModalOpen, bankLinkView]);
 
   const bankLinkViewRows = useMemo(() => {
     if (!bankLinkView) return [];
@@ -1438,7 +1576,7 @@ export function CompanyLedgerPage({
       ? merged.filter((item) => {
           if (item.type === "expense") {
             const row = item.row;
-            return [row.description, row.category, row.memo, row.createdBy]
+            return [row.accountContent, row.description, row.category, row.memo, row.createdBy]
               .filter(Boolean)
               .join(" ")
               .toLowerCase()
@@ -1447,7 +1585,7 @@ export function CompanyLedgerPage({
           const row = item.row;
           const name = resolveFixedExpenseName(row.fixedExpenseId, fixedExpenses);
           const category = resolveFixedPaymentCategory(row, fixedExpenses);
-          return [name, category, row.memo, L.fixedPayment]
+          return [name, row.accountContent, category, row.memo, L.fixedPayment]
             .filter(Boolean)
             .join(" ")
             .toLowerCase()
@@ -1622,18 +1760,98 @@ export function CompanyLedgerPage({
     return categories.map((category) => ({ label: category, value: category }));
   }, [expenseCategories, manualModal?.category]);
 
+  const handleExpenseCategoryChange = (row: CompanyExpense, nextCategoryRaw: string) => {
+    const nextCategory = normalizeExpenseCategoryName(nextCategoryRaw);
+    if (!nextCategory || nextCategory === row.category || isCeoDedicatedLedgerCategory(row.category)) return;
+    const before = row;
+    setCompanyExpenses((prev) =>
+      prev.map((item) => (item.id === row.id ? { ...item, category: nextCategory } : item)),
+    );
+    setExpenseCategories((prev) => mergeExpenseCategory(prev, nextCategory));
+    recordAudit({
+      entityType: "companyExpense",
+      entityId: row.id,
+      entityLabel: `${row.date} · ${row.description || row.category}`,
+      screen: L.pageTitle,
+      action: "update",
+      before: snapshotCompanyExpenseForAudit(before),
+      after: snapshotCompanyExpenseForAudit({ ...before, category: nextCategory }),
+      fields: COMPANY_EXPENSE_AUDIT_FIELDS,
+      user: currentUser,
+    });
+  };
+
+  const handleFixedPaymentCategoryChange = (payment: FixedExpensePayment, nextCategoryRaw: string) => {
+    const nextCategory = normalizeExpenseCategoryName(nextCategoryRaw);
+    if (!nextCategory) return;
+    const before = payment;
+    const currentCategory = resolveFixedPaymentCategory(payment, fixedExpenses);
+    if (nextCategory === currentCategory) return;
+    setFixedExpensePayments?.((prev) =>
+      prev.map((item) => (item.id === payment.id ? { ...item, category: nextCategory } : item)),
+    );
+    setExpenseCategories((prev) => mergeExpenseCategory(prev, nextCategory));
+    recordAudit({
+      entityType: "fixedExpensePayment",
+      entityId: payment.id,
+      entityLabel: `${payment.date} · ${formatKRW(payment.amount)}`,
+      screen: L.pageTitle,
+      action: "update",
+      before: snapshotFixedExpensePaymentForAudit(before),
+      after: snapshotFixedExpensePaymentForAudit({ ...before, category: nextCategory }),
+      fields: FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS,
+      user: currentUser,
+    });
+  };
+
+  const handleExpenseAccountContentChange = (row: CompanyExpense, nextAccountContentRaw: string) => {
+    const nextAccountContent = String(nextAccountContentRaw || "").trim();
+    const current = getCompanyExpenseAccountContent(row);
+    if (nextAccountContent === current) return;
+    const before = row;
+    setCompanyExpenses((prev) =>
+      prev.map((item) => (item.id === row.id ? { ...item, accountContent: nextAccountContent } : item)),
+    );
+    recordAudit({
+      entityType: "companyExpense",
+      entityId: row.id,
+      entityLabel: `${row.date} · ${nextAccountContent || row.description || row.category}`,
+      screen: L.pageTitle,
+      action: "update",
+      before: snapshotCompanyExpenseForAudit(before),
+      after: snapshotCompanyExpenseForAudit({ ...before, accountContent: nextAccountContent }),
+      fields: COMPANY_EXPENSE_AUDIT_FIELDS,
+      user: currentUser,
+    });
+  };
+
+  const handleFixedPaymentAccountContentChange = (payment: FixedExpensePayment, nextAccountContentRaw: string) => {
+    const nextAccountContent = String(nextAccountContentRaw || "").trim();
+    const current = resolveFixedPaymentAccountContent(payment, fixedExpenses);
+    if (nextAccountContent === current) return;
+    const before = payment;
+    setFixedExpensePayments?.((prev) =>
+      prev.map((item) => (item.id === payment.id ? { ...item, accountContent: nextAccountContent } : item)),
+    );
+    recordAudit({
+      entityType: "fixedExpensePayment",
+      entityId: payment.id,
+      entityLabel: `${payment.date} · ${nextAccountContent || formatKRW(payment.amount)}`,
+      screen: L.pageTitle,
+      action: "update",
+      before: snapshotFixedExpensePaymentForAudit(before),
+      after: snapshotFixedExpensePaymentForAudit({ ...before, accountContent: nextAccountContent }),
+      fields: FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS,
+      user: currentUser,
+    });
+  };
+
   const sortedFixedExpenses = useMemo(
     () => [...fixedExpenses].sort((a, b) => String(a.name).localeCompare(String(b.name), "ko")),
     [fixedExpenses],
   );
 
-  const fixedCategorySelectOptions = useMemo(
-    () =>
-      buildFixedCategorySelectOptions(fixedExpenses, fixedExpenseCategories, fixedExpenseModal?.category),
-    [fixedExpenses, fixedExpenseCategories, fixedExpenseModal?.category],
-  );
-
-  const manualFixedCategoryOptions = useMemo(
+    const manualFixedCategoryOptions = useMemo(
     () =>
       buildFixedCategorySelectOptions(
         fixedExpenses,
@@ -1706,6 +1924,7 @@ export function CompanyLedgerPage({
       flow,
       date: row.date,
       category: row.category,
+      accountContent: getCompanyExpenseAccountContent(row),
       description: row.description,
       amount: String(row.amount || ""),
       memo: row.memo || "",
@@ -1727,7 +1946,8 @@ export function CompanyLedgerPage({
       flow: "expense",
       date: row.date,
       category: resolveFixedPaymentCategory(row, fixedExpenses),
-      description: row.memo || "",
+      accountContent: resolveFixedPaymentAccountContent(row, fixedExpenses),
+      description: resolvePaymentBankRecord(row, bankTransactions),
       amount: String(row.amount || ""),
       memo: row.memo || "",
     });
@@ -1744,85 +1964,13 @@ export function CompanyLedgerPage({
   };
 
   const openCreateFixedExpense = () => {
-    setFormError("");
-    setFixedExpenseModal(
-      emptyFixedExpenseForm(fixedExpenseCategories[0] || FIXED_CATEGORY_OPTIONS[0]),
+    fixedExpenseModalRef.current?.openCreateFixedExpense(
+      fixedExpenseCategories[0] || FIXED_CATEGORY_OPTIONS[0],
     );
   };
 
   const openEditFixedExpense = (row: FixedExpense) => {
-    setFormError("");
-    setFixedExpenseModal({
-      mode: "edit",
-      id: row.id,
-      name: row.name,
-      category: row.category,
-      amount: String(row.amount || ""),
-      cycle: row.cycle,
-      paymentDayOfMonth: String(normalizeFixedExpensePaymentDay(row.paymentDayOfMonth)),
-      startDate: row.startDate || todayISO(),
-      memo: row.memo || "",
-      isActive: row.isActive,
-    });
-  };
-
-  const saveFixedExpense = () => {
-    if (!fixedExpenseModal || !setFixedExpenses) return;
-    const error = validateFixedExpenseInput(fixedExpenseModal);
-    if (error) {
-      setFormError(error);
-      return;
-    }
-    const payload: FixedExpense = {
-      id: fixedExpenseModal.id || makeLedgerId(),
-      name: fixedExpenseModal.name.trim(),
-      category: fixedExpenseModal.category.trim(),
-      amount: parseLedgerAmount(fixedExpenseModal.amount),
-      cycle: fixedExpenseModal.cycle,
-      paymentDayOfMonth: normalizeFixedExpensePaymentDay(fixedExpenseModal.paymentDayOfMonth),
-      startDate: fixedExpenseModal.startDate || undefined,
-      memo: fixedExpenseModal.memo.trim() || undefined,
-      isActive: fixedExpenseModal.isActive,
-    };
-    const existingFixed = fixedExpenseModal.id
-      ? fixedExpenses.find((row) => row.id === fixedExpenseModal.id)
-      : null;
-    recordAudit({
-      entityType: "fixedExpense",
-      entityId: payload.id,
-      entityLabel: payload.name,
-      screen: L.pageTitle,
-      action: fixedExpenseModal.mode === "edit" ? "update" : "create",
-      before: existingFixed ? snapshotFixedExpenseForAudit(existingFixed) : undefined,
-      after: snapshotFixedExpenseForAudit(payload),
-      fields: FIXED_EXPENSE_AUDIT_FIELDS,
-      user: currentUser,
-    });
-    if (fixedExpenseModal.mode === "edit" && fixedExpenseModal.id) {
-      const editingId = fixedExpenseModal.id;
-      setFixedExpenses((prev) =>
-        prev.map((row) =>
-          row.id === editingId
-            ? {
-                ...row,
-                name: payload.name,
-                category: payload.category,
-                amount: payload.amount,
-                cycle: payload.cycle,
-                paymentDayOfMonth: payload.paymentDayOfMonth,
-                startDate: payload.startDate,
-                memo: payload.memo,
-                isActive: payload.isActive,
-              }
-            : row,
-        ),
-      );
-    } else {
-      setFixedExpenses((prev) => [payload, ...prev]);
-    }
-    setFixedExpenseCategories((prev) => mergeFixedExpenseCategory(prev, payload.category, fixedExpenses));
-    setFixedExpenseModal(null);
-    setFormError("");
+    fixedExpenseModalRef.current?.openEditFixedExpense(row);
   };
 
   const saveManual = () => {
@@ -1858,6 +2006,7 @@ export function CompanyLedgerPage({
         id: expenseId,
         date: manualModal.date,
         category,
+        accountContent: manualModal.accountContent.trim(),
         description: manualModal.description.trim(),
         amount: parseLedgerAmount(manualModal.amount),
         memo: manualModal.memo.trim(),
@@ -1946,7 +2095,8 @@ export function CompanyLedgerPage({
         date: manualModal.date,
         amount: parseLedgerAmount(manualModal.amount),
         category,
-        memo: manualModal.description.trim() || manualModal.memo.trim(),
+        accountContent: manualModal.accountContent.trim(),
+        memo: manualModal.memo.trim(),
         bankTransactionId: bankTransactionId || undefined,
         createdBy: savedBy,
         createdAt: new Date().toISOString(),
@@ -2017,7 +2167,8 @@ export function CompanyLedgerPage({
                 date: manualModal.date,
                 amount: parseLedgerAmount(manualModal.amount),
                 category,
-                memo: manualModal.description.trim() || manualModal.memo.trim(),
+                accountContent: manualModal.accountContent.trim(),
+                memo: manualModal.memo.trim(),
               }
             : row,
         ),
@@ -2032,6 +2183,7 @@ export function CompanyLedgerPage({
       id: manualModal.id || makeLedgerId(),
       date: manualModal.date,
       category: manualModal.category,
+      accountContent: manualModal.accountContent.trim(),
       description: manualModal.description.trim(),
       amount: parseLedgerAmount(manualModal.amount),
       memo: manualModal.memo.trim(),
@@ -2376,54 +2528,6 @@ export function CompanyLedgerPage({
     if (isBankLinkedPayment(row, bankTransactions)) unlinkBankFixedPayment(row.id);
   };
 
-  const deleteFixedExpense = () => {
-    if (!fixedExpenseModal?.id || !setFixedExpenses) return;
-    const fixedExpenseId = fixedExpenseModal.id;
-    const row = fixedExpenses.find((item) => item.id === fixedExpenseId);
-    if (!row) return;
-
-    const relatedPayments = fixedExpensePayments.filter((payment) => payment.fixedExpenseId === fixedExpenseId);
-    const hasBankLinkedPayment = relatedPayments.some((payment) => isBankLinkedPayment(payment, bankTransactions));
-    const message = hasBankLinkedPayment ? L.deleteFixedItemBankLinkedConfirm : L.deleteFixedItemConfirm;
-    if (!window.confirm(message)) return;
-
-    recordAudit({
-      entityType: "fixedExpense",
-      entityId: row.id,
-      entityLabel: row.name,
-      screen: L.pageTitle,
-      action: "delete",
-      before: snapshotFixedExpenseForAudit(row),
-      fields: FIXED_EXPENSE_AUDIT_FIELDS,
-      user: currentUser,
-    });
-
-    relatedPayments.forEach((payment) => {
-      recordAudit({
-        entityType: "fixedExpensePayment",
-        entityId: payment.id,
-        entityLabel: `${payment.date} \u00B7 ${formatKRW(payment.amount)}`,
-        screen: L.pageTitle,
-        action: "delete",
-        before: snapshotFixedExpensePaymentForAudit(payment),
-        fields: FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS,
-        user: currentUser,
-      });
-      if (isBankLinkedPayment(payment, bankTransactions)) unlinkBankFixedPayment(payment.id);
-    });
-
-    const nextFixedExpenses = fixedExpenses.filter((item) => item.id !== fixedExpenseId);
-    setFixedExpenses(nextFixedExpenses);
-    setFixedExpensePayments?.((prev) => prev.filter((payment) => payment.fixedExpenseId !== fixedExpenseId));
-    setBankLedgerRules?.((prev) =>
-      prev.filter((rule) => !(rule.kind === "fixed" && rule.fixedExpenseId === fixedExpenseId)),
-    );
-    setFixedExpenseCategories((prev) => normalizeFixedExpenseCategories(prev, nextFixedExpenses));
-    setFixedExpenseModal(null);
-    setBankLinkView(null);
-    setFormError("");
-  };
-
   const resetCompanyLedger = () => {
     if (!isAdmin) return;
     if (!confirmDelete(L.resetLedgerConfirm)) return;
@@ -2473,6 +2577,15 @@ export function CompanyLedgerPage({
           <p className="erp-text-body mt-1 text-slate-500">{L.pageDesc}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-2xl"
+            onClick={() => setCategoryManageOpen(true)}
+          >
+            <Settings2 size={16} className="mr-2" />
+            {L.manageCategories}
+          </Button>
           {setBankTransactions && setFixedExpensePayments ? (
             <Button
               type="button"
@@ -2659,10 +2772,19 @@ export function CompanyLedgerPage({
                     return (
                       <MobileRecordCard
                         key={`expense-${row.id}`}
-                        title={<DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />}
+                        title={<DescriptionWithBankBadge text={formatExpenseRowTitle(row)} bankLinked={bankLinked} />}
                         subtitle={row.date}
-                        badge={<ExpenseCategoryBadges row={row} bankTransactions={bankTransactions} />}
+                        badge={
+                          <ExpenseCategoryBadges
+                            row={row}
+                            bankTransactions={bankTransactions}
+                            expenseCategories={expenseCategories}
+                            onCategoryChange={handleExpenseCategoryChange}
+                          />
+                        }
                         fields={[
+                          { label: L.accountContent, value: getCompanyExpenseAccountContent(row) || "-", tone: "default" },
+                          { label: L.bankRecord, value: getCompanyExpenseBankRecord(row) || "-", tone: "muted" },
                           { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
                           { label: L.memo, value: row.memo || "-", tone: "muted" },
                         ]}
@@ -2689,7 +2811,8 @@ export function CompanyLedgerPage({
                     <tr>
                       <th>{L.date}</th>
                       <th>{L.category}</th>
-                      <th>{L.description}</th>
+                      <th>{L.accountContent}</th>
+                      <th>{L.bankRecord}</th>
                       <th className="text-right">{L.amount}</th>
                       <th>{L.memo}</th>
                       <th className="erp-table-export-skip">{L.actions}</th>
@@ -2704,10 +2827,21 @@ export function CompanyLedgerPage({
                           <tr key={`expense-${row.id}`} className={bankLinkedRowClass(bankLinked)}>
                             <td>{row.date}</td>
                             <td>
-                              <ExpenseCategoryBadges row={row} bankTransactions={bankTransactions} />
+                              <ExpenseCategoryBadges
+                                row={row}
+                                bankTransactions={bankTransactions}
+                                expenseCategories={expenseCategories}
+                                onCategoryChange={handleExpenseCategoryChange}
+                              />
                             </td>
                             <td>
-                              <DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />
+                              <LedgerAccountContentInput
+                                value={getCompanyExpenseAccountContent(row)}
+                                onCommit={(next) => handleExpenseAccountContentChange(row, next)}
+                              />
+                            </td>
+                            <td>
+                              <DescriptionWithBankBadge text={getCompanyExpenseBankRecord(row) || "-"} bankLinked={bankLinked} />
                             </td>
                             <td className="text-right font-bold text-rose-600">
                               {formatKRW(row.amount)}
@@ -2729,7 +2863,7 @@ export function CompanyLedgerPage({
                       })
                     ) : (
                       <tr>
-                        <td colSpan={6} className="erp-ledger-empty">
+                        <td colSpan={7} className="erp-ledger-empty">
                           {L.emptyManual}
                         </td>
                       </tr>
@@ -2738,7 +2872,7 @@ export function CompanyLedgerPage({
                   {filteredVariableRows.length ? (
                     <tfoot>
                       <tr>
-                        <td colSpan={3} className="font-bold">
+                        <td colSpan={4} className="font-bold">
                           {L.total} ({filteredVariableRows.length}
                           {L.count})
                         </td>
@@ -2771,9 +2905,16 @@ export function CompanyLedgerPage({
                     return (
                       <MobileRecordCard
                         key={`income-${row.id}`}
-                        title={<DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />}
+                        title={<DescriptionWithBankBadge text={formatExpenseRowTitle(row)} bankLinked={bankLinked} />}
                         subtitle={row.date}
-                        badge={<ExpenseCategoryBadges row={row} bankTransactions={bankTransactions} />}
+                        badge={
+                          <ExpenseCategoryBadges
+                            row={row}
+                            bankTransactions={bankTransactions}
+                            expenseCategories={expenseCategories}
+                            onCategoryChange={handleExpenseCategoryChange}
+                          />
+                        }
                         fields={[
                           { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "success" },
                           { label: L.memo, value: row.memo || "-", tone: "muted" },
@@ -2801,7 +2942,8 @@ export function CompanyLedgerPage({
                     <tr>
                       <th>{L.incomeDate}</th>
                       <th>{L.category}</th>
-                      <th>{L.description}</th>
+                      <th>{L.accountContent}</th>
+                      <th>{L.bankRecord}</th>
                       <th className="text-right">{L.amount}</th>
                       <th>{L.memo}</th>
                       <th className="erp-table-export-skip">{L.actions}</th>
@@ -2816,10 +2958,21 @@ export function CompanyLedgerPage({
                           <tr key={`income-${row.id}`} className={bankLinkedRowClass(bankLinked)}>
                             <td>{row.date}</td>
                             <td>
-                              <ExpenseCategoryBadges row={row} bankTransactions={bankTransactions} />
+                              <ExpenseCategoryBadges
+                                row={row}
+                                bankTransactions={bankTransactions}
+                                expenseCategories={expenseCategories}
+                                onCategoryChange={handleExpenseCategoryChange}
+                              />
                             </td>
                             <td>
-                              <DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />
+                              <LedgerAccountContentInput
+                                value={getCompanyExpenseAccountContent(row)}
+                                onCommit={(next) => handleExpenseAccountContentChange(row, next)}
+                              />
+                            </td>
+                            <td>
+                              <DescriptionWithBankBadge text={getCompanyExpenseBankRecord(row) || "-"} bankLinked={bankLinked} />
                             </td>
                             <td className="text-right font-bold text-emerald-600">
                               {formatKRW(row.amount)}
@@ -2841,7 +2994,7 @@ export function CompanyLedgerPage({
                       })
                     ) : (
                       <tr>
-                        <td colSpan={6} className="erp-ledger-empty">
+                        <td colSpan={7} className="erp-ledger-empty">
                           {L.emptyIncome}
                         </td>
                       </tr>
@@ -2850,7 +3003,7 @@ export function CompanyLedgerPage({
                   {filteredIncomeRows.length ? (
                     <tfoot>
                       <tr>
-                        <td colSpan={3} className="font-bold">
+                        <td colSpan={4} className="font-bold">
                           {L.total} ({filteredIncomeRows.length}
                           {L.count})
                         </td>
@@ -3005,6 +3158,11 @@ export function CompanyLedgerPage({
                   showUnpaidBadge
                   fixedExpenses={fixedExpenses}
                   bankTransactions={bankTransactions}
+                  expenseCategories={expenseCategories}
+                  onExpenseCategoryChange={handleExpenseCategoryChange}
+                  onFixedPaymentCategoryChange={handleFixedPaymentCategoryChange}
+                  onExpenseAccountContentChange={handleExpenseAccountContentChange}
+                  onFixedPaymentAccountContentChange={handleFixedPaymentAccountContentChange}
                   canEditPayments={Boolean(setFixedExpensePayments)}
                   onEditManual={openEditManual}
                   onEditFixedPayment={openEditFixedPayment}
@@ -3028,6 +3186,11 @@ export function CompanyLedgerPage({
                   showUnpaidBadge={false}
                   fixedExpenses={fixedExpenses}
                   bankTransactions={bankTransactions}
+                  expenseCategories={expenseCategories}
+                  onExpenseCategoryChange={handleExpenseCategoryChange}
+                  onFixedPaymentCategoryChange={handleFixedPaymentCategoryChange}
+                  onExpenseAccountContentChange={handleExpenseAccountContentChange}
+                  onFixedPaymentAccountContentChange={handleFixedPaymentAccountContentChange}
                   canEditPayments={Boolean(setFixedExpensePayments)}
                   onEditManual={openEditManual}
                   onEditFixedPayment={openEditFixedPayment}
@@ -3052,6 +3215,7 @@ export function CompanyLedgerPage({
           bankTransactions={bankTransactions}
           onEdit={openEditManual}
           onDelete={deleteManual}
+          onExpenseAccountContentChange={handleExpenseAccountContentChange}
         />
       ) : null}
 
@@ -3067,6 +3231,7 @@ export function CompanyLedgerPage({
           bankTransactions={bankTransactions}
           onEdit={openEditManual}
           onDelete={deleteManual}
+          onExpenseAccountContentChange={handleExpenseAccountContentChange}
         />
       ) : null}
 
@@ -3173,11 +3338,20 @@ export function CompanyLedgerPage({
                       return (
                         <MobileRecordCard
                           key={`manual-${row.id}`}
-                          title={<DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />}
+                          title={<DescriptionWithBankBadge text={formatExpenseRowTitle(row)} bankLinked={bankLinked} />}
                           subtitle={row.date}
-                          badge={<ExpenseCategoryBadges row={row} bankTransactions={bankTransactions} />}
+                          badge={
+                          <ExpenseCategoryBadges
+                            row={row}
+                            bankTransactions={bankTransactions}
+                            expenseCategories={expenseCategories}
+                            onCategoryChange={handleExpenseCategoryChange}
+                          />
+                        }
                           fields={[
                             { label: L.section, value: <ExpenseKindBadge kind={resolveCompanyExpenseKind(row)} /> },
+                            { label: L.accountContent, value: getCompanyExpenseAccountContent(row) || "-", tone: "default" },
+                            { label: L.bankRecord, value: getCompanyExpenseBankRecord(row) || "-", tone: "muted" },
                             { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
                           ]}
                         />
@@ -3191,11 +3365,21 @@ export function CompanyLedgerPage({
                           key={`fixed-pay-${row.id}`}
                           title={<DescriptionWithBankBadge text={name} bankLinked={bankLinked} />}
                           subtitle={row.date}
-                          badge={<FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} bankTransactions={bankTransactions} />}
+                          badge={
+                            <FixedPaymentBadges
+                              payment={row}
+                              fixedExpenses={fixedExpenses}
+                              bankTransactions={bankTransactions}
+                              expenseCategories={expenseCategories}
+                              onCategoryChange={handleFixedPaymentCategoryChange}
+                            />
+                          }
                           fields={[
                             { label: L.section, value: <ExpenseKindBadge kind="fixed" /> },
+                            { label: L.accountContent, value: resolveFixedPaymentAccountContent(row, fixedExpenses) || "-", tone: "default" },
+                            { label: L.bankRecord, value: resolvePaymentBankRecord(row, bankTransactions), tone: "muted" },
                             { label: L.amount, value: `${formatKRW(row.amount)}${L.won}`, tone: "danger" },
-                            ...(row.memo ? [{ label: L.memoOptional, value: row.memo, tone: "muted" as const }] : []),
+                            ...(row.memo ? [{ label: L.memo, value: row.memo, tone: "muted" as const }] : []),
                           ]}
                         />
                       );
@@ -3218,7 +3402,8 @@ export function CompanyLedgerPage({
                       <th>{L.section}</th>
                       <th>{L.dateOrItem}</th>
                       <th>{L.category}</th>
-                      <th>{L.description}</th>
+                      <th>{L.accountContent}</th>
+                      <th>{L.bankRecord}</th>
                       <th className="text-right">{L.amount}</th>
                     </tr>
                   </thead>
@@ -3232,10 +3417,21 @@ export function CompanyLedgerPage({
                           </td>
                           <td>{row.date}</td>
                           <td>
-                            <ExpenseCategoryBadges row={row} bankTransactions={bankTransactions} />
+                            <ExpenseCategoryBadges
+                              row={row}
+                              bankTransactions={bankTransactions}
+                              expenseCategories={expenseCategories}
+                              onCategoryChange={handleExpenseCategoryChange}
+                            />
                           </td>
                           <td>
-                            <DescriptionWithBankBadge text={row.description} bankLinked={bankLinked} />
+                            <LedgerAccountContentInput
+                              value={getCompanyExpenseAccountContent(row)}
+                              onCommit={(next) => handleExpenseAccountContentChange(row, next)}
+                            />
+                          </td>
+                          <td>
+                            <DescriptionWithBankBadge text={getCompanyExpenseBankRecord(row) || "-"} bankLinked={bankLinked} />
                           </td>
                           <td className="text-right">
                             {formatKRW(row.amount)}
@@ -3255,10 +3451,23 @@ export function CompanyLedgerPage({
                           </td>
                           <td>{row.date}</td>
                           <td>
-                            <FixedPaymentBadges payment={row} fixedExpenses={fixedExpenses} bankTransactions={bankTransactions} />
+                            <FixedPaymentBadges
+                              payment={row}
+                              fixedExpenses={fixedExpenses}
+                              bankTransactions={bankTransactions}
+                              expenseCategories={expenseCategories}
+                              onCategoryChange={handleFixedPaymentCategoryChange}
+                            />
                           </td>
                           <td>
-                            <DescriptionWithBankBadge text={description} bankLinked={bankLinked} />
+                            <LedgerAccountContentInput
+                              value={resolveFixedPaymentAccountContent(row, fixedExpenses)}
+                              onCommit={(next) => handleFixedPaymentAccountContentChange(row, next)}
+                              disabled={!setFixedExpensePayments}
+                            />
+                          </td>
+                          <td>
+                            <DescriptionWithBankBadge text={resolvePaymentBankRecord(row, bankTransactions)} bankLinked={bankLinked} />
                           </td>
                           <td className="text-right">
                             {formatKRW(row.amount)}
@@ -3269,7 +3478,7 @@ export function CompanyLedgerPage({
                     })}
                     {!selectedMonthDetail.manualExpenses.length && !selectedMonthDetail.fixedPayments.length ? (
                       <tr>
-                        <td colSpan={5} className="erp-ledger-empty">
+                        <td colSpan={6} className="erp-ledger-empty">
                           {L.emptyMonth}
                         </td>
                       </tr>
@@ -3277,7 +3486,7 @@ export function CompanyLedgerPage({
                   </tbody>
                   <tfoot>
                     <tr>
-                      <td colSpan={4} className="font-bold">
+                      <td colSpan={5} className="font-bold">
                         {L.grandTotal}
                       </td>
                       <td className="text-right font-black">{formatKRW(selectedMonthDetail.grandTotal)}{L.won}</td>
@@ -3459,153 +3668,22 @@ export function CompanyLedgerPage({
         </Card>
       ) : null}
 
-      {fixedExpenseModal ? (
-        <div
-          className="erp-ledger-modal-backdrop"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setFixedExpenseModal(null);
-          }}
-        >
-          <div className="erp-ledger-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="erp-text-section font-bold">
-                {fixedExpenseModal.mode === "create" ? L.addFixedItem : L.editFixedItem}
-              </h2>
-              <button
-                type="button"
-                className="rounded-xl p-2 text-slate-400 hover:bg-slate-100"
-                onClick={() => setFixedExpenseModal(null)}
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <div className="space-y-4">
-              <Field label={L.itemName}>
-                <Input
-                  value={fixedExpenseModal.name}
-                  onChange={(e) => setFixedExpenseModal((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
-                />
-              </Field>
-              <Field label={L.category}>
-                <CategorySuggestInput
-                  key={fixedExpenseModal.id || "create"}
-                  value={fixedExpenseModal.category}
-                  options={fixedCategorySelectOptions}
-                  placeholder={L.category}
-                  className="rounded-xl"
-                  onChange={(value) =>
-                    setFixedExpenseModal((prev) => (prev ? { ...prev, category: value.trim() } : prev))
-                  }
-                />
-                <p className="mt-1.5 text-xs font-semibold text-slate-500">
-                  {"\uBAA9\uB85D\uC5D0 \uC5C6\uB294 \uCE74\uD14C\uACE0\uB9AC\uB294 \uC774\uB984\uC744 \uC785\uB825\uD558\uC138\uC694."}
-                </p>
-              </Field>
-              <Field label={L.amountWon}>
-                <Input
-                  inputMode="numeric"
-                  value={fixedExpenseModal.amount}
-                  onChange={(e) => setFixedExpenseModal((prev) => (prev ? { ...prev, amount: e.target.value } : prev))}
-                />
-              </Field>
-              <Field label={L.cycle}>
-                <div className="flex flex-wrap gap-2">
-                  {FIXED_CYCLE_OPTIONS.map((option) => (
-                    <Button
-                      key={option.value}
-                      type="button"
-                      size="sm"
-                      variant={fixedExpenseModal.cycle === option.value ? "default" : "outline"}
-                      className="rounded-2xl"
-                      onClick={() => setFixedExpenseModal((prev) => (prev ? { ...prev, cycle: option.value } : prev))}
-                    >
-                      {option.label}
-                    </Button>
-                  ))}
-                </div>
-              </Field>
-              <Field label={L.paymentDay}>
-                <select
-                  className="erp-input w-full rounded-2xl border bg-white px-3 py-2.5 text-slate-900 outline-none transition focus:border-slate-900 md:px-4 md:py-3"
-                  value={fixedExpenseModal.paymentDayOfMonth}
-                  onChange={(e) =>
-                    setFixedExpenseModal((prev) => (prev ? { ...prev, paymentDayOfMonth: e.target.value } : prev))
-                  }
-                >
-                  {PAYMENT_DAY_OPTIONS.map((day) => (
-                    <option key={day} value={day}>
-                      {formatFixedExpensePaymentDay(Number(day))}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label={L.applyStartDate}>
-                <KoreanDateInput
-                  value={fixedExpenseModal.startDate}
-                  onChange={(event) =>
-                    setFixedExpenseModal((prev) => (prev ? { ...prev, startDate: event.target.value } : prev))
-                  }
-                />
-              </Field>
-              <Field label={L.memoOptional}>
-                <Input
-                  value={fixedExpenseModal.memo}
-                  onChange={(e) => setFixedExpenseModal((prev) => (prev ? { ...prev, memo: e.target.value } : prev))}
-                />
-              </Field>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={fixedExpenseModal.isActive}
-                  onChange={(e) => setFixedExpenseModal((prev) => (prev ? { ...prev, isActive: e.target.checked } : prev))}
-                  className="h-4 w-4 rounded border-slate-300"
-                />
-                <span className="erp-text-caption font-semibold text-slate-600">{L.activeStatus}</span>
-              </label>
-              {formError ? <p className="erp-text-caption font-semibold text-rose-600">{formError}</p> : null}
-              {fixedExpenseModal.mode === "edit" && fixedExpenseModal.id ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full rounded-2xl"
-                  onClick={() =>
-                    setBankLinkView({
-                      fixedExpenseId: fixedExpenseModal.id!,
-                      title: fixedExpenseModal.name,
-                    })
-                  }
-                >
-                  <Link2 size={16} className="mr-2" />
-                  {L.viewBankLinks}
-                </Button>
-              ) : null}
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
-                {fixedExpenseModal.mode === "edit" && fixedExpenseModal.id ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="rounded-2xl border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
-                    onClick={deleteFixedExpense}
-                  >
-                    <Trash2 size={16} className="mr-2" />
-                    {L.delete}
-                  </Button>
-                ) : (
-                  <span />
-                )}
-                <div className="flex gap-2">
-                  <Button variant="outline" className="rounded-2xl" onClick={() => setFixedExpenseModal(null)}>
-                    {L.cancel}
-                  </Button>
-                  <Button className="rounded-2xl" onClick={saveFixedExpense}>
-                    {L.save}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
+
+      <CompanyLedgerFixedExpenseModalLayer
+        ref={fixedExpenseModalRef}
+        fixedExpenses={fixedExpenses}
+        setFixedExpenses={setFixedExpenses}
+        fixedExpenseCategories={fixedExpenseCategories}
+        setFixedExpenseCategories={setFixedExpenseCategories}
+        fixedExpensePayments={fixedExpensePayments}
+        setFixedExpensePayments={setFixedExpensePayments}
+        bankTransactions={bankTransactions}
+        setBankTransactions={setBankTransactions}
+        setBankLedgerRules={setBankLedgerRules}
+        currentUser={currentUser}
+        onOpenBankLinkView={(view) => setBankLinkView(view)}
+        onCloseBankLinkView={() => setBankLinkView(null)}
+      />
 
       {manualModal ? (
         <div
@@ -3738,8 +3816,19 @@ export function CompanyLedgerPage({
                   </>
                 )}
               </Field>
-              <Field label={L.description}>
-                <Input value={manualModal.description} onChange={(e) => setManualModal((prev) => (prev ? { ...prev, description: e.target.value } : prev))} />
+              <Field label={L.accountContent}>
+                <Input
+                  lang="ko"
+                  value={manualModal.accountContent}
+                  onChange={(e) => setManualModal((prev) => (prev ? { ...prev, accountContent: e.target.value } : prev))}
+                />
+              </Field>
+              <Field label={L.bankRecord}>
+                <Input
+                  lang="ko"
+                  value={manualModal.description}
+                  onChange={(e) => setManualModal((prev) => (prev ? { ...prev, description: e.target.value } : prev))}
+                />
               </Field>
               <Field label={L.amountWon}>
                 <Input
@@ -4004,6 +4093,23 @@ export function CompanyLedgerPage({
             document.body,
           )
         : null}
+
+      <ExpenseCategoryManageModal
+        open={categoryManageOpen}
+        onClose={() => setCategoryManageOpen(false)}
+        expenseCategories={expenseCategories}
+        setExpenseCategories={setExpenseCategories}
+        fixedExpenseCategories={fixedExpenseCategories}
+        setFixedExpenseCategories={setFixedExpenseCategories}
+        companyExpenses={companyExpenses}
+        setCompanyExpenses={setCompanyExpenses}
+        fixedExpensePayments={fixedExpensePayments}
+        setFixedExpensePayments={setFixedExpensePayments}
+        fixedExpenses={fixedExpenses}
+        setFixedExpenses={setFixedExpenses}
+        bankLedgerRules={bankLedgerRules}
+        setBankLedgerRules={setBankLedgerRules}
+      />
     </div>
   );
 }

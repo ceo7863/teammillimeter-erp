@@ -57,9 +57,20 @@ function escapePdfHtml(value: string) {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 }
 
+function prefersDirectPdfPreview() {
+  if (typeof navigator === "undefined") return false;
+  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+}
+
 export function renderPdfInPreviewWindow(previewWindow: Window, blobUrl: string, fileName: string): boolean {
   try {
     previewWindow.document.title = fileName;
+    if (prefersDirectPdfPreview()) {
+      previewWindow.location.href = blobUrl;
+      previewWindow.focus();
+      return true;
+    }
+
     previewWindow.document.open();
     previewWindow.document.write(`<!DOCTYPE html>
 <html lang="ko">

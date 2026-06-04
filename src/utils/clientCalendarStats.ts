@@ -51,7 +51,7 @@ export type ClientCalendarDayHoverPreview = {
 };
 
 export function normalizeClientCalendarName(value: unknown) {
-  return String(value || "").trim() || "(???)";
+  return String(value || "").trim() || "(미지정)";
 }
 
 export function getClientCalendarSaleAmount(row: ClientCalendarSaleLike) {

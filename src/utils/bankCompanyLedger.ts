@@ -198,7 +198,9 @@ export function assignBankTxToFixedExpensePayment(input: {
     fixedExpenseId: input.resolvedFixedExpenseId,
     date: prefill.date,
     amount: parseLedgerAmount(prefill.amount),
-    memo: input.memo || prefill.memo || input.fixedItem.name || prefill.description,
+    memo:
+      input.memo ||
+      buildFixedExpensePaymentMemoFromBankTx(input.tx, input.fixedItem),
     category: input.resolvedCategory || undefined,
     bankTransactionId: input.tx.id,
     createdBy: input.savedBy,
@@ -1016,7 +1018,7 @@ export function resolveMemoLearnCategory(memo: string | undefined, categories?: 
   const canonical = normalizeExpenseCategoryName(trimmed);
   const categoryList = Array.isArray(categories) ? categories : [];
   if (categoryList.some((item) => normalizeExpenseCategoryName(item) === canonical)) return canonical;
-  if (/^[\uAC00-\uD7A3a-zA-Z0-9/+\-().\s]{1,24}$/.test(trimmed)) {
+  if (/^[\uAC00-\uD7A3a-zA-Z0-9/+\-().\s]{2,24}$/.test(trimmed)) {
     return canonical !== trimmed ? canonical : trimmed;
   }
 
@@ -1487,6 +1489,7 @@ export function createCompanyExpenseFromBankTransaction(
     id: makeLedgerId(),
     date: prefill.date,
     category: String(category || "").trim(),
+    accountContent: "",
     description: prefill.description,
     amount: parseLedgerAmount(prefill.amount),
     memo: prefill.memo,
@@ -1684,7 +1687,7 @@ export function autoApplyBankLearnRules(
           fixedExpenseId,
           date: prefill.date,
           amount: parseLedgerAmount(prefill.amount),
-          memo: prefill.memo || fixedRow?.name || prefill.description,
+          memo: fixedRow ? buildFixedExpensePaymentMemoFromBankTx(tx, fixedRow) : prefill.memo || prefill.description,
           bankTransactionId: tx.id,
           createdBy: options.createdBy,
           createdAt: new Date().toISOString(),
@@ -1874,6 +1877,15 @@ export function resolveBankTxLedgerAmount(tx: { withdrawal?: number; deposit?: n
 
 export function resolveBankTxLedgerFlow(tx: { withdrawal?: number; deposit?: number }) {
   return Number(tx.withdrawal || 0) > 0 ? "expense" : "income";
+}
+
+/** Bank-linked fixed payment memo: prefer tx prefill, then fixed item name. */
+export function buildFixedExpensePaymentMemoFromBankTx(
+  tx: BankTransaction,
+  fixedItem: Pick<FixedExpense, "name">,
+) {
+  const prefill = buildCompanyExpensePrefillFromBankTransaction(tx);
+  return prefill.memo || fixedItem.name || prefill.description;
 }
 
 export function buildCompanyExpensePrefillFromBankTransaction(tx: BankTransaction) {

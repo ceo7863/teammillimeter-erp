@@ -20,6 +20,7 @@ const GRADE_CLASS: Record<string, string> = {
   B: "is-b",
   C: "is-c",
   D: "is-d",
+  E: "is-e",
 };
 
 const LABELS = {

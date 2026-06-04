@@ -58,6 +58,8 @@ export const WORKER_AUDIT_FIELDS: AuditFieldDef[] = [
   { key: "name", label: "시공자명" },
   { key: "grade", label: "시공등급" },
   { key: "category", label: "구분" },
+  { key: "hireDate", label: "입사일" },
+  { key: "eGradeEndedAt", label: "E등급 종료일" },
   { key: "isActive", label: "상태", format: (v) => (v === false ? "비활성" : "활성") },
   { key: "bank", label: "은행명" },
   { key: "account", label: "계좌번호" },
@@ -71,12 +73,14 @@ export const WORKER_AUDIT_FIELDS: AuditFieldDef[] = [
   { key: "overtimeCost", label: "야근비", format: (v) => formatAuditMoney(v) },
   { key: "feeRate", label: "수수료율", format: (v) => `${Math.round(Number(v || 0) * 100)}%` },
   { key: "memo", label: "비고" },
+  { key: "portalLoginId", label: "포털 로그인 ID" },
 ];
 
 export const COMPANY_EXPENSE_AUDIT_FIELDS: AuditFieldDef[] = [
   { key: "date", label: "일자" },
   { key: "category", label: "분류" },
-  { key: "description", label: "내용" },
+  { key: "accountContent", label: "계정내용" },
+  { key: "description", label: "통장기록" },
   { key: "amount", label: "금액", format: (v) => formatAuditMoney(v) },
   { key: "flow", label: "구분", format: (v) => (v === "income" ? "입금" : "지출") },
   { key: "memo", label: "비고" },
@@ -96,6 +100,7 @@ export const PAYMENT_AUDIT_FIELDS: AuditFieldDef[] = [
   { key: "vatType", label: "부가세", format: (v) => (v === "excluded" ? "별도" : "포함") },
   { key: "vatAmount", label: "부가세액", format: (v) => formatAuditMoney(v) },
   { key: "finalAmount", label: "최종입금액", format: (v) => formatAuditMoney(v) },
+  { key: "depositChannel", label: "입금구분", format: (v) => (v === "cash" ? "현금" : v === "personal" ? "개인통장" : "-") },
   { key: "memo", label: "비고" },
 ];
 
@@ -168,6 +173,8 @@ export const USER_AUDIT_FIELDS: AuditFieldDef[] = [
 
 export const FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS: AuditFieldDef[] = [
   { key: "date", label: "\uC77C\uC790" },
+  { key: "category", label: "\uCE74\uD14C\uACE0\uB9AC" },
+  { key: "accountContent", label: "\uACC4\uC815\uB0B4\uC6A9" },
   { key: "amount", label: "\uAE08\uC561", format: (v) => formatAuditMoney(v) },
   { key: "memo", label: "\uBE44\uACE0" },
   { key: "bankTransactionId", label: "\uD1B5\uC7A5\uC5F0\uACB0" },
@@ -257,6 +264,8 @@ export function snapshotWorkerForAudit(worker: Record<string, unknown>) {
     name: worker.name || "",
     grade: worker.grade || "",
     category: worker.category === "외주" ? "외주" : "팀원",
+    hireDate: worker.hireDate || "",
+    eGradeEndedAt: worker.eGradeEndedAt || "",
     isActive: worker.isActive !== false,
     bank: worker.bank || "",
     account: worker.account || "",
@@ -277,6 +286,7 @@ export function snapshotCompanyExpenseForAudit(expense: Record<string, unknown>)
   return {
     date: expense.date || "",
     category: expense.category || "",
+    accountContent: expense.accountContent || "",
     description: expense.description || "",
     amount: expense.amount ?? 0,
     memo: expense.memo || "",
@@ -300,6 +310,7 @@ export function snapshotPaymentForAudit(voucher: Record<string, unknown>) {
     vatType: voucher.vatType || "included",
     vatAmount: voucher.vatAmount ?? 0,
     finalAmount: voucher.finalAmount ?? voucher.amount ?? 0,
+    depositChannel: voucher.depositChannel || "personal",
     memo: voucher.memo || "",
   };
 }
@@ -401,6 +412,8 @@ export function snapshotUserForAudit(user: Record<string, unknown>) {
 export function snapshotFixedExpensePaymentForAudit(payment: Record<string, unknown>) {
   return {
     date: payment.date || "",
+    category: payment.category || "",
+    accountContent: payment.accountContent || "",
     amount: payment.amount ?? 0,
     memo: payment.memo || "",
     bankTransactionId: payment.bankTransactionId ? String(payment.bankTransactionId) : "-",

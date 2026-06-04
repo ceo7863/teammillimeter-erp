@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import { PdfArchivePage } from "@/components/PdfArchivePage";
 import { ChevronDown, ChevronRight, Copy, Download, Eye, FileText, Files, FolderInput, History, Link2, RotateCcw, Search, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -54,7 +55,14 @@ import {
   dedupeStatementRowMemos,
   listClientsWithStatementRows,
 } from "@/utils/statementSheets";
-import { buildWorkerStatementSummary, listWorkersWithPaymentRows, type SaleLike } from "@/utils/workerPayments";
+import {
+  buildWorkerStatementSummary,
+  listWorkersWithPaymentRows,
+  sortWorkerPaymentRowsByDate,
+  type SaleLike,
+} from "@/utils/workerPayments";
+import type { WorkerMonthlyPaymentRecord } from "@/utils/workerMonthlyPayments";
+import type { WorkerPayWithVatLearnRule } from "@/utils/workerMonthlyActualPayments";
 import { getUnpaid, parseMoney, todayISO } from "@/utils/receivables";
 import {
   clearStatementDraftStash,
@@ -63,12 +71,18 @@ import {
   type StatementDraft,
 } from "@/utils/statementDraft";
 import type { ErpUser } from "@/utils/erpApi";
+import {
+  readStoredStatementTab,
+  storeStatementTab,
+  type StatementHubTab,
+} from "@/utils/statementHub";
 
 const L = {
   pageTitle: "\uB0B4\uC5ED\uC11C",
-  pageDesc: "\uB0B4\uC5ED\uC11C \uC0DD\uC131\u00B7PDF\uC640 \uC0DD\uC131 \uAE30\uB85D\u00B7\uC5C5\uCCB4 \uD3F4\uB354 \uAD00\uB9AC\uB97C \uD0ED\uC5D0\uC11C \uCC98\uB9AC\uD569\uB2C8\uB2E4.",
+  pageDesc: "\uB0B4\uC5ED\uC11C \uC0DD\uC131\u00B7PDF, \uC0DD\uC131 \uAE30\uB85D\u00B7\uC5C5\uCCB4 \uD3F4\uB354, PDF \uBCF4\uAD00\uD568\uC744 \uD55C \uBA54\uB274\uC5D0\uC11C \uC804\uD658\uD569\uB2C8\uB2E4.",
   tabCreate: "\uB0B4\uC5ED\uC11C \uC0DD\uC131",
   tabArchive: "\uC0DD\uC131 \uAE30\uB85D \u00B7 \uD3F4\uB354",
+  tabPdf: "PDF \uBCF4\uAD00\uD568",
   archiveTabDesc: "\uCD5C\uADFC \uC0DD\uC131 \uAE30\uB85D\uC744 \uBD88\uB7EC\uC624\uAC70\uB098 \uC5C5\uCCB4\uBCC4 \uD3F4\uB354\uC5D0\uC11C \uC800\uC7A5\uB41C \uB0B4\uC5ED\uC11C\uB97C \uAD00\uB9AC\uD529\uB2C8\uB2E4.",
   historyEmpty: "\uC544\uC9C1 \uC0DD\uC131 \uAE30\uB85D\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uB0B4\uC5ED\uC11C \uC0DD\uC131 \uD0ED\uC5D0\uC11C \uB0B4\uC5ED\uC11C\uB97C \uB9CC\uB4E0 \uB4A4 \uC5EC\uAE30\uC5D0 \uD45C\uC2DC\uB429\uB2C8\uB2E4.",
   step1: "\uC870\uAC74 \uC120\uD0DD",
@@ -269,11 +283,10 @@ function formatKRW(value: number) {
   return `${Math.round(value || 0).toLocaleString("ko-KR")}\uC6D0`;
 }
 
-type StatementPageTab = "create" | "archive";
-
-const STATEMENT_TAB_ITEMS: Array<{ key: StatementPageTab; labelKey: "tabCreate" | "tabArchive" }> = [
+const STATEMENT_TAB_ITEMS: Array<{ key: StatementHubTab; labelKey: "tabCreate" | "tabArchive" | "tabPdf" }> = [
   { key: "create", labelKey: "tabCreate" },
   { key: "archive", labelKey: "tabArchive" },
+  { key: "pdf", labelKey: "tabPdf" },
 ];
 
 function FolderSearchInput({
@@ -311,6 +324,10 @@ type StatementsPageProps = {
   currentUser?: ErpUser | null;
   draft?: StatementDraft | null;
   onDraftConsumed?: () => void;
+  bankTransactions?: ComponentProps<typeof PdfArchivePage>["bankTransactions"];
+  workerPaymentRecords?: WorkerMonthlyPaymentRecord[];
+  workerPayWithVatLearnRules?: WorkerPayWithVatLearnRule[];
+  isPageActive?: boolean;
 };
 
 export function StatementsPage({
@@ -325,6 +342,10 @@ export function StatementsPage({
   currentUser = null,
   draft = null,
   onDraftConsumed,
+  bankTransactions = [],
+  workerPaymentRecords = [],
+  workerPayWithVatLearnRules = [],
+  isPageActive = true,
 }: StatementsPageProps) {
   const [statementType, setStatementType] = useState("client");
   const [clientStatementView, setClientStatementView] = useState<"summary" | "detail">("summary");
@@ -346,7 +367,13 @@ export function StatementsPage({
   const [expandedFolderIds, setExpandedFolderIds] = useState<string[]>([]);
   const [folderQuery, setFolderQuery] = useState("");
   const [folderSort, setFolderSort] = useState<StatementFolderSort>("updated");
-  const [activePageTab, setActivePageTab] = useState<StatementPageTab>("create");
+  const [activePageTab, setActivePageTab] = useState<StatementHubTab>(() => readStoredStatementTab());
+  const [mountedPdfTab, setMountedPdfTab] = useState(() => readStoredStatementTab() === "pdf");
+
+  useEffect(() => {
+    if (activePageTab === "pdf") setMountedPdfTab(true);
+    storeStatementTab(activePageTab);
+  }, [activePageTab]);
   const [unpaidOnly, setUnpaidOnly] = useState(false);
   const unpaidOnlyRef = useRef(false);
   const restrictedSaleIdsRef = useRef<Array<string | number>>([]);
@@ -543,35 +570,39 @@ export function StatementsPage({
 
   const workerStatementSheetRows = useMemo(
     () =>
-      dedupeStatementRowMemos(
-        workerRows.map((row) => ({
-          id: String(row.id),
-          saleId: "",
-          voucherNo: "",
-          date: String(row.date || ""),
-          client: String(row.client || ""),
-          site: String(row.site || ""),
-          worker: String(row.worker || ""),
-          quantity: row.quantity || 0,
-          unitCost: row.unitCost || 0,
-          basePay: row.basePay || 0,
-          meal: row.meal || 0,
-          lodging: row.lodging || 0,
-          expense: row.expense || 0,
-          overtime: row.overtime || 0,
-          totalPay: row.totalPay || 0,
-          feeRate: 0,
-          fee: 0,
-          netPay: row.totalPay || 0,
-          memo: String(row.memo || ""),
-        }))
+      sortWorkerPaymentRowsByDate(
+        dedupeStatementRowMemos(
+          workerRows.map((row) => ({
+            id: String(row.id),
+            saleId: "",
+            voucherNo: "",
+            date: String(row.date || ""),
+            client: String(row.client || ""),
+            site: String(row.site || ""),
+            worker: String(row.worker || ""),
+            quantity: row.quantity || 0,
+            unitCost: row.unitCost || 0,
+            basePay: row.basePay || 0,
+            meal: row.meal || 0,
+            lodging: row.lodging || 0,
+            expense: row.expense || 0,
+            overtime: row.overtime || 0,
+            totalPay: row.totalPay || 0,
+            feeRate: 0,
+            fee: 0,
+            netPay: row.totalPay || 0,
+            memo: String(row.memo || ""),
+          })),
+        ),
       ),
-    [workerRows]
+    [workerRows],
   );
 
   const workerStatementSummary = buildWorkerStatementSummary(workerStatementSheetRows, selectedWorkerInfo as never);
-  const workerStatementPeriodStart = dateFilter.startDate || String(workerRows[0]?.date || "");
-  const workerStatementPeriodEnd = dateFilter.endDate || String(workerRows[workerRows.length - 1]?.date || "");
+  const workerStatementPeriodStart =
+    dateFilter.startDate || String(workerStatementSheetRows[0]?.date || "");
+  const workerStatementPeriodEnd =
+    dateFilter.endDate || String(workerStatementSheetRows[workerStatementSheetRows.length - 1]?.date || "");
   const clientTotals = clientStatementSummary;
 
   useEffect(() => {
@@ -881,15 +912,23 @@ export function StatementsPage({
   };
 
   const handleOpenFolderPdf = async (pdfArchiveId: string) => {
+    const previewWindow = createPdfPreviewWindow();
+    if (!previewWindow) {
+      setFolderMessage("\uD31D\uC5C5\uC774 \uCC28\uB2E8\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uBE0C\uB77C\uC6B0\uC800\uC5D0\uC11C \uD31D\uC5C5 \uD5C8\uC6A9 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.");
+      return;
+    }
+
     try {
       const record = await getPdfArchiveRecord(pdfArchiveId);
       if (!record) {
+        previewWindow.close();
         setFolderMessage("\uD574\uB2F9 PDF\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
         return;
       }
-      openPdfBlobInNewTab(record.blob, record.fileName);
+      openPdfBlobInNewTab(record.blob, record.fileName, previewWindow);
       setFolderMessage("");
     } catch (error) {
+      previewWindow.close();
       console.error(error);
       setFolderMessage("PDF \uBBF8\uB9AC\uBCF4\uAE30\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
     }
@@ -1340,7 +1379,7 @@ export function StatementsPage({
 
   return (
     <div className="erp-page erp-statement-page">
-      <PageTitle title={L.pageTitle} desc={L.pageDesc} />
+      {activePageTab !== "pdf" ? <PageTitle title={L.pageTitle} desc={L.pageDesc} /> : null}
 
       <Card className="erp-statement-hub-card mb-4 rounded-2xl shadow-sm">
         <CardContent className="p-4 md:p-5">
@@ -1489,12 +1528,21 @@ export function StatementsPage({
 
           {statementHint && <p className="erp-statement-hint">{statementHint}</p>}
               </>
-            ) : (
+            ) : activePageTab === "archive" ? (
               <p className="erp-text-caption text-slate-500">{L.archiveTabDesc}</p>
-            )}
+            ) : null}
           </div>
         </CardContent>
       </Card>
+
+      {mountedPdfTab ? (
+        <div className={activePageTab === "pdf" ? "" : "hidden"} aria-hidden={activePageTab !== "pdf"}>
+          <PdfArchivePage
+            isActive={isPageActive && activePageTab === "pdf"}
+            bankTransactions={bankTransactions}
+          />
+        </div>
+      ) : null}
 
       {activePageTab === "archive" && (
         <>

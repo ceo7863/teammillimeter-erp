@@ -302,3 +302,216 @@ export function buildTopCounterpartySummaries(rows: BankTransaction[], limit = 5
     .sort((a, b) => b.depositTotal + b.withdrawalTotal - (a.depositTotal + a.withdrawalTotal))
     .slice(0, limit);
 }
+
+export function parseBankClassifiedAtMs(value?: string) {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/** 수동 거래처 분류가 입금전표/자동연결보다 최신인지 (linkedSubject 되돌림 방지) */
+export function hasManualClientClassificationOverride(
+  tx: Pick<BankTransaction, "classifiedAt" | "matchConfirmedAt" | "linkedSubject">,
+) {
+  const linked = String(tx.linkedSubject || "").trim();
+  if (!linked || !tx.classifiedAt || !tx.matchConfirmedAt) return false;
+  return parseBankClassifiedAtMs(tx.classifiedAt) > parseBankClassifiedAtMs(tx.matchConfirmedAt);
+}
+
+/** 미분류 상태에서 거래처 입금 연결(예금주 별칭 학습)만 한 건 */
+export function isUnfiledClientDepositLink(
+  tx: Pick<BankTransaction, "folderId" | "deposit" | "linkedSubject" | "classifiedAt" | "matchConfirmedAt">,
+) {
+  if (tx.folderId) return false;
+  if (Number(tx.deposit || 0) <= 0) return false;
+  const linked = String(tx.linkedSubject || "").trim();
+  if (!linked || !tx.classifiedAt || tx.matchConfirmedAt) return false;
+  return true;
+}
+
+export function applyUnfiledClientDepositLinkToTransaction(tx: BankTransaction, clientName: string): BankTransaction {
+  const now = new Date().toISOString();
+  return {
+    ...tx,
+    folderId: undefined,
+    linkedSubject: clientName.trim(),
+    classifiedAt: now,
+  };
+}
+
+/** 입금 연결·폴더 분류는 유지한 채 거래처 연결명만 수동 갱신 */
+export function applyManualClientLinkToTransaction(tx: BankTransaction, clientName: string): BankTransaction {
+  const trimmed = clientName.trim();
+  if (!trimmed || String(tx.linkedSubject || "").trim() === trimmed) return tx;
+  return {
+    ...tx,
+    linkedSubject: trimmed,
+    classifiedAt: new Date().toISOString(),
+  };
+}
+
+export function clearBankTransactionPaymentMatch(tx: BankTransaction): BankTransaction {
+  return {
+    ...tx,
+    linkedPaymentVoucherId: undefined,
+    linkedPdfArchiveId: undefined,
+    linkedSalesId: undefined,
+    matchConfirmedAt: undefined,
+    matchConfirmedBy: undefined,
+    matchAutoLinked: undefined,
+  };
+}
+
+export function syncBankTransactionsForSaleClientChange(
+  transactions: BankTransaction[],
+  saleId: string | number,
+  next: { client: string },
+  paymentVouchers: Array<{ salesId?: string | number; bankTransactionId?: string | number }> = [],
+): { transactions: BankTransaction[]; updated: number } {
+  const saleKey = String(saleId);
+  const clientName = String(next.client || "").trim();
+  if (!clientName) return { transactions, updated: 0 };
+
+  const linkedBankIds = new Set<string>();
+  for (const voucher of paymentVouchers) {
+    if (String(voucher.salesId ?? "") !== saleKey) continue;
+    const bankId = String(voucher.bankTransactionId || "").trim();
+    if (bankId) linkedBankIds.add(bankId);
+  }
+
+  let updated = 0;
+  const nextTransactions = transactions.map((tx) => {
+    const linkedToSale = tx.linkedSalesId != null && String(tx.linkedSalesId) === saleKey;
+    const linkedByVoucher = linkedBankIds.has(tx.id);
+    if (!linkedToSale && !linkedByVoucher) return tx;
+    const patched = applyManualClientLinkToTransaction(tx, clientName);
+    if (patched === tx) return tx;
+    updated += 1;
+    return patched;
+  });
+
+  return { transactions: nextTransactions, updated };
+}
+
+export function resolveAutoLinkLinkedSubject(tx: BankTransaction, matchedClient: string) {
+  if (hasManualClientClassificationOverride(tx)) {
+    return String(tx.linkedSubject || "").trim() || matchedClient;
+  }
+  return matchedClient;
+}
+
+export function shouldPreferLocalBankTransactionMerge(
+  local: Pick<
+    BankTransaction,
+    | "classifiedAt"
+    | "linkedSubject"
+    | "folderId"
+    | "linkedCompanyExpenseId"
+    | "linkedFixedExpensePaymentId"
+    | "linkedWorkerMonthlyPaymentVoucherId"
+  >,
+  incoming: Pick<
+    BankTransaction,
+    | "classifiedAt"
+    | "linkedSubject"
+    | "folderId"
+    | "linkedCompanyExpenseId"
+    | "linkedFixedExpensePaymentId"
+    | "linkedWorkerMonthlyPaymentVoucherId"
+  >,
+) {
+  const localMs = parseBankClassifiedAtMs(local.classifiedAt);
+  const incomingMs = parseBankClassifiedAtMs(incoming.classifiedAt);
+  if (localMs > incomingMs) return true;
+  if (localMs < incomingMs) return false;
+
+  const localSubject = String(local.linkedSubject || "").trim();
+  const incomingSubject = String(incoming.linkedSubject || "").trim();
+  if (localSubject && localSubject !== incomingSubject) return true;
+
+  return (
+    Boolean(local.linkedWorkerMonthlyPaymentVoucherId && !incoming.linkedWorkerMonthlyPaymentVoucherId) ||
+    Boolean(local.folderId && !incoming.folderId) ||
+    Boolean(local.linkedCompanyExpenseId && !incoming.linkedCompanyExpenseId) ||
+    Boolean(local.linkedFixedExpensePaymentId && !incoming.linkedFixedExpensePaymentId)
+  );
+}
+
+function mergePaymentMatchFields(local: BankTransaction, incoming: BankTransaction) {
+  const linkedPaymentVoucherId = local.linkedPaymentVoucherId ?? incoming.linkedPaymentVoucherId;
+  const linkedPdfArchiveId = local.linkedPdfArchiveId ?? incoming.linkedPdfArchiveId;
+  const linkedSalesId = local.linkedSalesId ?? incoming.linkedSalesId;
+  const linkedWorkerMonthlyPaymentVoucherId =
+    local.linkedWorkerMonthlyPaymentVoucherId ?? incoming.linkedWorkerMonthlyPaymentVoucherId;
+  const matchConfirmedAt = local.matchConfirmedAt || incoming.matchConfirmedAt;
+  const matchConfirmedBy = local.matchConfirmedBy || incoming.matchConfirmedBy;
+  const matchAutoLinked =
+    local.matchAutoLinked === true || incoming.matchAutoLinked === true
+      ? true
+      : local.matchAutoLinked === false
+        ? false
+        : incoming.matchAutoLinked;
+
+  return {
+    linkedPaymentVoucherId,
+    linkedPdfArchiveId,
+    linkedSalesId,
+    linkedWorkerMonthlyPaymentVoucherId,
+    matchConfirmedAt,
+    matchConfirmedBy,
+    matchAutoLinked,
+  };
+}
+
+/** Union-merge bank rows for save conflicts and live sync while local edits are pending. */
+export function mergeBankTransactionsUnion(
+  existing: BankTransaction[],
+  incoming: BankTransaction[],
+  options?: { preserveLocalOnly?: boolean },
+): BankTransaction[] {
+  const preserveLocalOnly = options?.preserveLocalOnly ?? true;
+  const existingById = new Map(existing.map((row) => [row.id, row]));
+  const incomingIds = new Set(incoming.map((row) => row.id));
+  const merged = incoming.map((row) => {
+    const local = existingById.get(row.id);
+    return local ? mergeRemoteBankTransactionRow(local, row) : row;
+  });
+  if (preserveLocalOnly) {
+    for (const row of existing) {
+      if (!incomingIds.has(row.id)) {
+        merged.push(row);
+      }
+    }
+  }
+  return merged;
+}
+
+export function mergeRemoteBankTransactionRow(local: BankTransaction, incoming: BankTransaction): BankTransaction {
+  const paymentMatch = mergePaymentMatchFields(local, incoming);
+
+  if (!shouldPreferLocalBankTransactionMerge(local, incoming)) {
+    return {
+      ...incoming,
+      ...paymentMatch,
+      linkedCompanyExpenseId: incoming.linkedCompanyExpenseId || local.linkedCompanyExpenseId,
+      linkedFixedExpensePaymentId: incoming.linkedFixedExpensePaymentId || local.linkedFixedExpensePaymentId,
+      folderId: incoming.folderId || local.folderId,
+      memo: incoming.memo ?? local.memo,
+      linkedSubject: hasManualClientClassificationOverride(local)
+        ? local.linkedSubject ?? incoming.linkedSubject
+        : incoming.linkedSubject || local.linkedSubject,
+      classifiedAt: incoming.classifiedAt || local.classifiedAt,
+    };
+  }
+
+  return {
+    ...incoming,
+    ...paymentMatch,
+    folderId: local.folderId ?? incoming.folderId,
+    linkedCompanyExpenseId: local.linkedCompanyExpenseId ?? incoming.linkedCompanyExpenseId,
+    linkedFixedExpensePaymentId: local.linkedFixedExpensePaymentId ?? incoming.linkedFixedExpensePaymentId,
+    memo: local.memo ?? incoming.memo,
+    linkedSubject: local.linkedSubject ?? incoming.linkedSubject,
+    classifiedAt: local.classifiedAt ?? incoming.classifiedAt,
+  };
+}

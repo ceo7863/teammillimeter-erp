@@ -27,6 +27,12 @@ import {
   summarizePaymentInputLogs,
   type PaymentInputLog,
 } from "@/utils/paymentInputLogs";
+import {
+  formatPaymentDepositChannel,
+  normalizePaymentDepositChannel,
+  PAYMENT_DEPOSIT_CHANNEL_OPTIONS,
+  type PaymentDepositChannel,
+} from "@/utils/paymentDepositChannel";
 import { SalePaymentLinkBadge, PartialPaymentBadge } from "@/components/AutoLinkBadge";
 
 type PaymentTab = "input" | "receivables" | "history" | "log";
@@ -56,6 +62,7 @@ type PaymentVoucherLike = {
   totalSalesAmount?: number;
   memo?: string;
   isPartialPayment?: boolean;
+  depositChannel?: PaymentDepositChannel;
 };
 
 type PaymentDraft = {
@@ -64,6 +71,7 @@ type PaymentDraft = {
   vatType?: string;
   customAmount?: string;
   memo?: string;
+  depositChannel?: PaymentDepositChannel;
 };
 
 const TAB_ITEMS: Array<{ key: PaymentTab; label: string }> = [
@@ -72,6 +80,34 @@ const TAB_ITEMS: Array<{ key: PaymentTab; label: string }> = [
   { key: "history", label: "입금 내역" },
   { key: "log", label: "입금로그" },
 ];
+
+function PaymentDepositChannelSelect({
+  value,
+  onChange,
+  compact = false,
+  disabled = false,
+}: {
+  value: PaymentDepositChannel;
+  onChange: (value: PaymentDepositChannel) => void;
+  compact?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <select
+      className={`erp-input erp-payment-deposit-channel-select ${compact ? "erp-input-compact" : ""}`.trim()}
+      value={value}
+      disabled={disabled}
+      onChange={(event) => onChange(normalizePaymentDepositChannel(event.target.value))}
+      aria-label="입금 구분"
+    >
+      {PAYMENT_DEPOSIT_CHANNEL_OPTIONS.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 function SearchBox({ query, setQuery, placeholder }: { query: string; setQuery: (value: string) => void; placeholder: string }) {
   return (
@@ -176,6 +212,8 @@ export function PaymentReceivablesPage({
   setPaymentVouchers,
   paymentInputLogs = [],
   setPaymentInputLogs,
+  bankTransactions = [],
+  setBankTransactions,
   currentUser,
   autoLinkedSaleIds = new Set<string>(),
   manualLinkedSaleIds = new Set<string>(),
@@ -187,6 +225,8 @@ export function PaymentReceivablesPage({
   setPaymentVouchers: React.Dispatch<React.SetStateAction<PaymentVoucherLike[]>>;
   paymentInputLogs?: PaymentInputLog[];
   setPaymentInputLogs: React.Dispatch<React.SetStateAction<PaymentInputLog[]>>;
+  bankTransactions?: Array<{ id?: string; linkedPaymentVoucherId?: string | number; [key: string]: unknown }>;
+  setBankTransactions?: React.Dispatch<React.SetStateAction<Array<{ id?: string; linkedPaymentVoucherId?: string | number; [key: string]: unknown }>>>;
   currentUser: { name?: string; email?: string } | null;
   autoLinkedSaleIds?: Set<string>;
   manualLinkedSaleIds?: Set<string>;
@@ -208,6 +248,7 @@ export function PaymentReceivablesPage({
   const [unpaidOnly, setUnpaidOnly] = useState(true);
   const { message: saveMessage, setMessage: setSaveMessage, clearMessage: clearSaveMessage } = useSaveMessage();
   const [depositEditSalesId, setDepositEditSalesId] = useState<string | null>(null);
+  const [defaultDepositChannel, setDefaultDepositChannel] = useState<PaymentDepositChannel>("personal");
 
   const updateFilter = (key: keyof typeof filters, value: string) => setFilters((prev) => ({ ...prev, [key]: value }));
 
@@ -285,18 +326,24 @@ export function PaymentReceivablesPage({
 
   const updatePaymentRow = (id: string | number, key: keyof PaymentDraft, value: unknown) => {
     clearSaveMessage();
-    setPaymentRows((prev) => ({
-      ...prev,
-      [String(id)]: {
-        checked: prev[String(id)]?.checked || false,
-        paymentDate: prev[String(id)]?.paymentDate || filters.endDate,
-        vatType: prev[String(id)]?.vatType || "included",
-        customAmount: prev[String(id)]?.customAmount || "",
-        memo: prev[String(id)]?.memo || "",
-        ...prev[String(id)],
+    setPaymentRows((prev) => {
+      const rowKey = String(id);
+      const prevRow = prev[rowKey] || {};
+      const nextRow: PaymentDraft = {
+        checked: prevRow.checked || false,
+        paymentDate: prevRow.paymentDate || filters.endDate,
+        vatType: prevRow.vatType || "included",
+        customAmount: prevRow.customAmount || "",
+        memo: prevRow.memo || "",
+        depositChannel: prevRow.depositChannel || defaultDepositChannel,
+        ...prevRow,
         [key]: value,
-      },
-    }));
+      };
+      if (key === "checked" && value === true && !prevRow.depositChannel) {
+        nextRow.depositChannel = defaultDepositChannel;
+      }
+      return { ...prev, [rowKey]: nextRow };
+    });
   };
 
   const getRowVatIncluded = (rowKey: string) => (paymentRows[rowKey]?.vatType || "included") === "included";
@@ -326,6 +373,7 @@ export function PaymentReceivablesPage({
       vatAmount,
       finalAmount,
       memo: draft.memo || "",
+      depositChannel: normalizePaymentDepositChannel(draft.depositChannel || defaultDepositChannel),
     };
   };
 
@@ -382,6 +430,7 @@ export function PaymentReceivablesPage({
           vatAmount: draft.vatAmount,
           finalAmount: draft.finalAmount,
           memo: draft.memo,
+          depositChannel: draft.depositChannel,
         };
       })
       .filter(Boolean) as PaymentVoucherLike[];
@@ -436,6 +485,29 @@ export function PaymentReceivablesPage({
     });
     setPaymentVouchers((prev) => prev.filter((item) => item.id !== id));
     setPaymentInputLogs((prev) => prev.filter((log) => String(log.paymentVoucherId) !== String(id)));
+    if (setBankTransactions && voucher.bankTransactionId) {
+      const bankTxId = String(voucher.bankTransactionId);
+      const stillLinked = paymentVouchers.some(
+        (item) => item.id !== id && String(item.bankTransactionId || "") === bankTxId,
+      );
+      if (!stillLinked) {
+        setBankTransactions((prev) =>
+          prev.map((row) =>
+            String(row.id || "") === bankTxId && String(row.linkedPaymentVoucherId || "") === String(id)
+              ? {
+                  ...row,
+                  linkedPaymentVoucherId: undefined,
+                  linkedPdfArchiveId: undefined,
+                  linkedSalesId: undefined,
+                  matchConfirmedAt: undefined,
+                  matchConfirmedBy: undefined,
+                  matchAutoLinked: undefined,
+                }
+              : row,
+          ),
+        );
+      }
+    }
     if (voucher.salesId != null) {
       const salesKey = String(voucher.salesId);
       const remainingDeposits = (vouchersBySalesId[salesKey] || []).filter((item) => item.id !== id).length;
@@ -630,6 +702,7 @@ export function PaymentReceivablesPage({
           vatType: prev[String(row.id)]?.vatType || "included",
           customAmount: String(unpaid),
           memo: prev[String(row.id)]?.memo || "",
+          depositChannel: prev[String(row.id)]?.depositChannel || defaultDepositChannel,
         };
       });
       return next;
@@ -691,35 +764,27 @@ export function PaymentReceivablesPage({
     });
   }, [dateFilteredReceivables, receivableQuery, statusFilter, hideCompleted]);
 
-  const receivableDetailTotals = useMemo(() => {
-    return filteredReceivableRows.reduce(
-      (acc, row) => {
-        acc.count += 1;
-        acc.sales += row.salesAmount || 0;
-        acc.paid += row.paidAmount || 0;
-        acc.unpaid += getUnpaid(row);
-        return acc;
-      },
-      { count: 0, sales: 0, paid: 0, unpaid: 0 }
-    );
-  }, [filteredReceivableRows]);
+  /** 거래처별 미수 현황 표와 동일 범위(기간·거래처)의 입금전표 합계 */
+  const receivableScopePaymentTotals = useMemo(() => {
+    const salesIds = new Set(dateFilteredReceivables.map((row) => String(row.id)));
+    const round = (value: number) => Math.round(Number(value) || 0);
 
-  const receivablePaymentVatTotals = useMemo(() => {
-    const salesIds = new Set(filteredReceivableRows.map((row) => String(row.id)));
-    return dateFilteredVouchers.reduce(
+    return paymentVouchers.reduce(
       (acc, voucher) => {
         if (!voucher.salesId || !salesIds.has(String(voucher.salesId))) return acc;
-        const vat = voucher.vatAmount || 0;
+        const amount = round(voucher.amount);
+        const vat = round(voucher.vatAmount);
+        const final = round(voucher.finalAmount ?? voucher.amount);
+        acc.count += 1;
+        acc.amount += amount;
         acc.vat += vat;
-        if (vat > 0) {
-          acc.count += 1;
-          acc.final += voucher.finalAmount ?? voucher.amount ?? 0;
-        }
+        acc.final += final;
+        if (vat > 0) acc.vatCount += 1;
         return acc;
       },
-      { vat: 0, final: 0, count: 0 }
+      { count: 0, amount: 0, vat: 0, final: 0, vatCount: 0 }
     );
-  }, [filteredReceivableRows, dateFilteredVouchers]);
+  }, [dateFilteredReceivables, paymentVouchers]);
 
   const clientSummaryTotals = useMemo(() => {
     return clientSummaryRows.reduce(
@@ -807,10 +872,20 @@ export function PaymentReceivablesPage({
               />
             </label>
             {tab === "input" && (
-              <label className="erp-payment-hub-check">
-                <input type="checkbox" checked={unpaidOnly} onChange={(e) => setUnpaidOnly(e.target.checked)} />
-                미수만
-              </label>
+              <>
+                <label className="erp-payment-hub-filter">
+                  <span>입금구분</span>
+                  <PaymentDepositChannelSelect
+                    compact
+                    value={defaultDepositChannel}
+                    onChange={setDefaultDepositChannel}
+                  />
+                </label>
+                <label className="erp-payment-hub-check">
+                  <input type="checkbox" checked={unpaidOnly} onChange={(e) => setUnpaidOnly(e.target.checked)} />
+                  미수만
+                </label>
+              </>
             )}
             {tab === "receivables" && (
               <>
@@ -965,7 +1040,7 @@ export function PaymentReceivablesPage({
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="text-sm font-bold text-slate-800">입금 입력</h2>
-                <p className="text-xs text-slate-500">전표 선택 · 입금일 · 금액(부분입금 가능) · 부가세</p>
+                <p className="text-xs text-slate-500">전표 선택 · 입금일 · 금액 · 부가세 · 입금구분(현금/개인통장)</p>
               </div>
               {checkedRows.length > 0 && <span className="erp-payment-badge">{checkedRows.length}건 선택</span>}
             </div>
@@ -985,13 +1060,14 @@ export function PaymentReceivablesPage({
                   <col className="col-money" />
                   <col className="col-vat" />
                   <col className="col-money" />
+                  <col className="col-channel" />
                   <col className="col-memo" />
                   <col className="col-action" />
                 </colgroup>
                 <thead>
                   <tr className="erp-payment-group-row">
                     <th colSpan={7}>매출 전표</th>
-                    <th colSpan={6}>입금 입력</th>
+                    <th colSpan={7}>입금 입력</th>
                   </tr>
                   <tr className="erp-payment-col-row">
                     <th className="text-center">
@@ -1007,6 +1083,7 @@ export function PaymentReceivablesPage({
                     <th className="text-right">입금액</th>
                     <th className="text-center">부가세+</th>
                     <th className="text-right">최종</th>
+                    <th className="text-center">입금구분</th>
                     <th className="text-left">비고</th>
                     <th className="text-center erp-table-export-skip">수정</th>
                   </tr>
@@ -1079,6 +1156,17 @@ export function PaymentReceivablesPage({
                           </div>
                         </td>
                         <td className="text-right font-bold text-emerald-700">{formatKRW(draft.finalAmount)}</td>
+                        <td className="text-center">
+                          {isSelected ? (
+                            <PaymentDepositChannelSelect
+                              compact
+                              value={normalizePaymentDepositChannel(paymentRows[rowKey]?.depositChannel || defaultDepositChannel)}
+                              onChange={(value) => updatePaymentRow(row.id, "depositChannel", value)}
+                            />
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
+                        </td>
                         <td>
                           <input className="erp-input erp-input-compact" value={paymentRows[rowKey]?.memo || ""} onChange={(e) => updatePaymentRow(row.id, "memo", e.target.value)} placeholder="비고" />
                         </td>
@@ -1101,7 +1189,7 @@ export function PaymentReceivablesPage({
                       </tr>
                       {isDepositEditOpen && hasDeposits && (
                         <tr className="erp-payment-deposit-edit-row">
-                          <td colSpan={13} className="!p-0">
+                          <td colSpan={14} className="!p-0">
                             <div className="erp-payment-deposit-edit-panel">
                               <div className="erp-payment-deposit-edit-head">
                                 <span className="font-semibold text-slate-700">입금 내역 · {row.voucherNo || row.id}</span>
@@ -1112,6 +1200,7 @@ export function PaymentReceivablesPage({
                                   <thead className="bg-slate-50 text-slate-600">
                                     <tr>
                                       <th className="text-left">입금일</th>
+                                      <th className="text-center">입금구분</th>
                                       <th className="text-right">입금액</th>
                                       <th className="text-center">VAT</th>
                                       <th className="text-right">최종</th>
@@ -1125,6 +1214,11 @@ export function PaymentReceivablesPage({
                                       .map((voucher) => (
                                         <tr key={voucher.id} className="border-t">
                                           <td>{voucher.date || "-"}</td>
+                                          <td className="text-center">
+                                            <span className={`erp-payment-channel-badge erp-payment-channel-badge--${normalizePaymentDepositChannel(voucher.depositChannel)}`}>
+                                              {formatPaymentDepositChannel(voucher.depositChannel)}
+                                            </span>
+                                          </td>
                                           <td className="text-right font-semibold text-emerald-600">{formatKRW(voucher.amount || 0)}</td>
                                           <td className="text-center text-slate-600">{voucher.vatType === "excluded" ? "별도" : "포함"}</td>
                                           <td className="text-right font-bold text-emerald-700">{formatKRW(voucher.finalAmount ?? voucher.amount ?? 0)}</td>
@@ -1178,43 +1272,41 @@ export function PaymentReceivablesPage({
 
       {tab === "receivables" && (
         <>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <SummaryCard
               title="총매출"
-              value={formatKRW(receivableDetailTotals.sales)}
-              sub={`${receivableDetailTotals.count}건 · 필터 적용`}
+              value={formatKRW(clientSummaryTotals.sales)}
+              sub={`${clientSummaryTotals.clients}개 거래처 · 전표 ${clientSummaryTotals.count}건`}
               icon={WalletCards}
             />
             <SummaryCard
-              title="입금"
-              value={formatKRW(receivableDetailTotals.paid)}
-              sub="미수 조회 기준"
+              title="입금액"
+              value={formatKRW(clientSummaryTotals.paid)}
+              sub={
+                receivableScopePaymentTotals.count
+                  ? `공급가 ${formatKRW(receivableScopePaymentTotals.amount)} · 전표 ${receivableScopePaymentTotals.count}건`
+                  : "입금 전표 없음"
+              }
               tone="success"
               icon={CheckCircle2}
             />
             <SummaryCard
               title="부가세 입금"
-              value={formatKRW(receivablePaymentVatTotals.vat)}
+              value={formatKRW(receivableScopePaymentTotals.vat)}
               sub={
-                receivablePaymentVatTotals.count
-                  ? `${receivablePaymentVatTotals.count}건 · 최종 ${formatKRW(receivablePaymentVatTotals.final)}`
+                receivableScopePaymentTotals.vatCount
+                  ? `${receivableScopePaymentTotals.vatCount}건 · 실입금 ${formatKRW(receivableScopePaymentTotals.final)}`
                   : "부가세 포함 입금 없음"
               }
-              tone={receivablePaymentVatTotals.vat > 0 ? "warning" : "default"}
+              tone={receivableScopePaymentTotals.vat > 0 ? "warning" : "default"}
               icon={CreditCard}
             />
             <SummaryCard
-              title="미수"
-              value={formatKRW(receivableDetailTotals.unpaid)}
-              sub={`${clientSummaryTotals.clients}개 거래처`}
+              title="미수금"
+              value={formatKRW(clientSummaryTotals.unpaid)}
+              sub={`${clientSummaryTotals.clients}개 거래처 · 아래 표 합계와 동일`}
               tone="danger"
               icon={AlertCircle}
-            />
-            <SummaryCard
-              title="거래처"
-              value={`${clientSummaryTotals.clients}곳`}
-              sub={`전표 ${clientSummaryTotals.count}건`}
-              icon={CreditCard}
             />
           </div>
 
@@ -1321,6 +1413,7 @@ export function PaymentReceivablesPage({
                   <col className="col-money" />
                   <col className="col-vat" />
                   <col className="col-money" />
+                  <col className="col-channel" />
                   <col className="col-memo" />
                   <col className="col-action" />
                 </colgroup>
@@ -1334,6 +1427,7 @@ export function PaymentReceivablesPage({
                     <th className="text-right">입금액</th>
                     <th className="text-center">VAT</th>
                     <th className="text-right">최종</th>
+                    <th className="text-center">입금구분</th>
                     <th className="text-left">비고</th>
                     <th className="text-center erp-table-export-skip">관리</th>
                   </tr>
@@ -1353,6 +1447,11 @@ export function PaymentReceivablesPage({
                       <td className="text-right font-semibold text-emerald-600">{formatKRW(voucher.amount || 0)}</td>
                       <td className="text-center text-slate-600">{voucher.vatType === "excluded" ? "별도" : "포함"}</td>
                       <td className="text-right font-bold text-emerald-700">{formatKRW(voucher.finalAmount ?? voucher.amount ?? 0)}</td>
+                      <td className="text-center">
+                        <span className={`erp-payment-channel-badge erp-payment-channel-badge--${normalizePaymentDepositChannel(voucher.depositChannel)}`}>
+                          {formatPaymentDepositChannel(voucher.depositChannel)}
+                        </span>
+                      </td>
                       <td className="erp-cell-clip text-slate-600" title={voucher.memo || ""}>{voucher.memo || "-"}</td>
                       <td className="text-center erp-table-export-skip">
                         <div className="flex items-center justify-center gap-1">
@@ -1376,7 +1475,7 @@ export function PaymentReceivablesPage({
                       <td className="text-right text-emerald-600">{formatKRW(historyTotals.amount)}</td>
                       <td className="text-center text-slate-500">{formatKRW(historyTotals.vat)}</td>
                       <td className="text-right text-emerald-700">{formatKRW(historyTotals.final)}</td>
-                      <td colSpan={2} />
+                      <td colSpan={3} />
                     </tr>
                   </tfoot>
                 )}
@@ -1469,6 +1568,7 @@ export function PaymentReceivablesPage({
                       <col className="col-money" />
                       <col className="col-vat" />
                       <col className="col-money" />
+                      <col className="col-channel" />
                       <col className="col-memo" />
                     </colgroup>
                     <thead>
@@ -1481,6 +1581,7 @@ export function PaymentReceivablesPage({
                         <th className="text-right">입금액</th>
                         <th className="text-center">VAT</th>
                         <th className="text-right">최종</th>
+                        <th className="text-center">입금구분</th>
                         <th className="text-left">비고</th>
                       </tr>
                     </thead>
@@ -1499,6 +1600,11 @@ export function PaymentReceivablesPage({
                           <td className="text-right font-semibold text-emerald-600">{formatKRW(voucher.amount || 0)}</td>
                           <td className="text-center text-slate-600">{voucher.vatType === "excluded" ? "별도" : "포함"}</td>
                           <td className="text-right font-bold text-emerald-700">{formatKRW(voucher.finalAmount ?? voucher.amount ?? 0)}</td>
+                          <td className="text-center">
+                            <span className={`erp-payment-channel-badge erp-payment-channel-badge--${normalizePaymentDepositChannel(voucher.depositChannel)}`}>
+                              {formatPaymentDepositChannel(voucher.depositChannel)}
+                            </span>
+                          </td>
                           <td className="erp-cell-clip text-slate-600" title={voucher.memo || ""}>{voucher.memo || "-"}</td>
                         </tr>
                       ))}
@@ -1511,7 +1617,7 @@ export function PaymentReceivablesPage({
                           <td className="text-right text-emerald-600">{formatKRW(selectedLogVoucherTotals.amount)}</td>
                           <td className="text-center text-slate-500">{formatKRW(selectedLogVoucherTotals.vat)}</td>
                           <td className="text-right text-emerald-700">{formatKRW(selectedLogVoucherTotals.final)}</td>
-                          <td />
+                          <td colSpan={2} />
                         </tr>
                       </tfoot>
                     )}

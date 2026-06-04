@@ -138,7 +138,7 @@ export function getSaleUnpaid(row: SaleLike) {
 }
 
 function saleWorkerLines(sale: SaleLike): WorkerLineLike[] {
-  if (sale.workers?.length) return sale.workers;
+  if (Array.isArray(sale.workers) && sale.workers.length) return sale.workers;
   if (!sale.worker) return [];
   return [{
     worker: sale.worker,
@@ -182,7 +182,7 @@ export function flattenSalesToStatementRows(
     if (!lines.length) {
       return [{
         rowKey: `${sale.id}-0`,
-        saleId: sale.id ?? "",
+        saleId: sale.id ?? sale.voucherNo ?? "",
         lineIndex: 0,
         isFirstLine: true,
         voucherLineCount: 1,
@@ -219,7 +219,7 @@ export function flattenSalesToStatementRows(
       const metrics = calculateWorkerLineMetrics(line, feeRate);
       return {
         rowKey: `${sale.id}-${lineIndex}`,
-        saleId: sale.id ?? "",
+        saleId: sale.id ?? sale.voucherNo ?? "",
         lineIndex,
         isFirstLine: lineIndex === 0,
         voucherLineCount: lines.length,

@@ -1,4 +1,8 @@
-import type { BankTransaction } from "./bankTransactions";
+import {
+  hasManualClientClassificationOverride,
+  isUnfiledClientDepositLink,
+  type BankTransaction,
+} from "./bankTransactions";
 import { isBankTransactionLinkedToCompanyLedger } from "./bankCompanyLedger";
 import type { CompanyExpense, FixedExpensePayment } from "./companyLedger";
 import {
@@ -41,6 +45,18 @@ export const DEFAULT_BANK_TRANSACTION_FOLDER_IDS = new Set([
   DEFAULT_LEDGER_CATEGORY_FOLDER_ID,
 ]);
 export const UNFILED_FOLDER_KEY = "__unfiled__";
+
+/** 거래처 입금 분류: 거래처 폴더 + linkedSubject 설정 */
+export function applyClientDepositLinkToTransaction(tx: BankTransaction, clientName: string): BankTransaction {
+  const trimmed = clientName.trim();
+  const now = new Date().toISOString();
+  return {
+    ...tx,
+    folderId: DEFAULT_CLIENT_FOLDER_ID,
+    linkedSubject: trimmed,
+    classifiedAt: now,
+  };
+}
 
 export function isDefaultBankTransactionFolderId(folderId?: string) {
   return Boolean(folderId && DEFAULT_BANK_TRANSACTION_FOLDER_IDS.has(folderId));
@@ -631,6 +647,12 @@ export function autoClassifyBankTransactions(
   const sanitized = sanitizeWorkerFolderAssignments(transactions, folders, workers);
   let updated = sanitized.updated;
   const next = sanitized.next.map((row) => {
+    if (row.linkedPaymentVoucherId || row.linkedPdfArchiveId) return row;
+    if (isUnfiledClientDepositLink(row)) {
+      updated += 1;
+      return { ...row, folderId: DEFAULT_CLIENT_FOLDER_ID };
+    }
+    if (hasManualClientClassificationOverride(row)) return row;
     if (isCardCompanyDeposit(row)) {
       if (row.folderId === DEFAULT_CARD_SALES_FOLDER_ID) return row;
       updated += 1;
@@ -669,6 +691,28 @@ export function assignDefaultLedgerFolderToBankTransaction(tx: BankTransaction):
     folderId: DEFAULT_LEDGER_CATEGORY_FOLDER_ID,
     classifiedAt: new Date().toISOString(),
   };
+}
+
+export function isDefaultLedgerBankFolder(folderId?: string) {
+  return folderId === DEFAULT_LEDGER_CATEGORY_FOLDER_ID;
+}
+
+/** 가계부 폴더인데 회사 가계부 연결이 없는 잘못된 분류를 미분류로 되돌림. */
+export function reconcileLedgerFolderWithoutLedgerLink(
+  transactions: BankTransaction[],
+  context: {
+    companyExpenses?: CompanyExpense[];
+    fixedExpensePayments?: FixedExpensePayment[];
+  },
+) {
+  let cleared = 0;
+  const next = transactions.map((tx) => {
+    if (!isDefaultLedgerBankFolder(tx.folderId)) return tx;
+    if (isBankTransactionLinkedToCompanyLedger(tx, context)) return tx;
+    cleared += 1;
+    return { ...tx, folderId: undefined, classifiedAt: undefined };
+  });
+  return { transactions: next, cleared };
 }
 
 /** Move ledger-linked bank rows into the default 가계부 classification folder. */

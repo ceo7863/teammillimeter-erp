@@ -6,6 +6,7 @@ import {
   resolveCompanyExpenseKind,
   resolveCompanyExpenseFlow,
   resolveFixedPaymentCategory,
+  shouldIncludeExpenseInMainLedger,
   type CompanyExpense,
   type FixedExpense,
   type FixedExpensePayment,
@@ -166,6 +167,7 @@ export function buildLedgerCalendarDays(
 
   for (const expense of companyExpenses) {
     if (getMonthKey(expense.date) !== monthKey) continue;
+    if (!shouldIncludeExpenseInMainLedger(expense)) continue;
     const kind = resolveCompanyExpenseKind(expense);
     const stats = statsByDate[expense.date] || (statsByDate[expense.date] = EMPTY_DAY_STATS());
     addEntry(stats, {
@@ -173,7 +175,8 @@ export function buildLedgerCalendarDays(
       kind: kind === "fixed" ? "fixed" : "variable",
       source: "expense",
       flow: resolveCompanyExpenseFlow(expense),
-      label: String(expense.description || expense.category || "-").trim() || "-",
+      label:
+        String(expense.accountContent || expense.description || expense.category || "-").trim() || "-",
       category: String(expense.category || "-").trim() || "-",
       amount: Number(expense.amount) || 0,
       bankLinked: Boolean(expense.bankTransactionId?.trim()),

@@ -30,7 +30,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { PartialPaymentBadge } from "@/components/AutoLinkBadge";
 import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
-import { TableExportSection } from "@/components/TableExportSection";
+import { TableExportSection, TableExportToolbar } from "@/components/TableExportSection";
 import { BankTransactionListSection } from "@/components/BankTransactionListSection";
 import {
   buildBankTransactionRowDisplayCache,
@@ -102,6 +102,7 @@ import {
   formatBankLearnAutoMessage,
   formatLearnRuleConfidencePercent,
   hasManualLedgerCategoryMemoOverride,
+  isBankTransactionLinkedToCompanyLedger,
   isBankTransactionLinkedToVariableExpenseOnly,
   isBankTransactionUnfiled,
   LEDGER_REGISTRATION_MIN_CONFIDENCE_PERCENT,
@@ -133,7 +134,9 @@ import {
 } from "@/components/AutocompleteInput";
 import {
   BankTransactionDetailDrawer,
+  type DrawerClassificationKind,
   type DrawerFolderSelectData,
+  isDrawerFolderClassificationKind,
 } from "@/components/BankTransactionDetailDrawer";
 import { createPaymentInputLogsFromVouchers } from "@/utils/paymentInputLogs";
 import type { ReceivableRow } from "@/utils/receivables";
@@ -144,6 +147,7 @@ import {
   buildAllBankDepositSuggestions,
   buildBankDepositMatchCandidates,
   createPaymentVoucherFromBankMatch,
+  findBestClientDepositReceivableMatch,
   getBankMatchStatusLabel,
   isBankMatchAutoLinked,
   isBankMatchManualLinked,
@@ -151,6 +155,7 @@ import {
 } from "@/utils/bankReceivableMatch";
 import {
   buildAllSentStatementDepositSuggestions,
+  buildHighConfidenceSentStatementAutoLinks,
   buildSentStatementMatchCandidates,
   createPaymentVouchersFromSentStatementMatch,
   resolveArchivePaymentStatusAfterApply,
@@ -158,7 +163,12 @@ import {
   type SentStatementMatchCandidate,
 } from "@/utils/bankSentStatementMatch";
 import { listSentStatementArchives, updatePdfArchiveMeta, type PdfArchiveMeta } from "@/utils/pdfArchive";
-import { appendDepositNameAlias, resolveBankDepositMatchSubject } from "@/utils/clientDepositAliases";
+import {
+  appendDepositNameAlias,
+  findClientByDepositSubject,
+  findWorkerForBankTransaction,
+  resolveBankDepositMatchSubject,
+} from "@/utils/clientDepositAliases";
 import {
   UNFILED_FOLDER_KEY,
   autoClassifyBankTransactions,
@@ -184,11 +194,14 @@ import {
   sanitizeBankTransactionFolderParentId,
   DEFAULT_CLIENT_FOLDER_ID,
   DEFAULT_CARD_SALES_FOLDER_ID,
+  DEFAULT_WORKER_FOLDER_ID,
   DEFAULT_LEDGER_CATEGORY_FOLDER_ID,
   ensureDefaultBankTransactionFolders,
   isCardCompanyDeposit,
   syncLedgerLinkedBankTransactionFolders,
+  reconcileLedgerFolderWithoutLedgerLink,
   assignDefaultLedgerFolderToBankTransaction,
+  applyClientDepositLinkToTransaction,
   type BankTransactionFolder,
   type BankTransactionFolderType,
 } from "@/utils/bankTransactionFolders";
@@ -199,7 +212,9 @@ import {
   buildTopCounterpartySummaries,
   filterBankTransactions,
   formatBankTransactionDateTime,
+  hasManualClientClassificationOverride,
   parseBankAmount,
+  resolveAutoLinkLinkedSubject,
   sortBankTransactions,
   DEFAULT_BANK_TRANSACTION_SORT,
   type BankTransaction,
@@ -221,6 +236,39 @@ type FolderScope = "all" | "client" | "card" | "worker" | "unfiled" | `custom:${
 function parseCustomFolderScope(scope: FolderScope) {
   return scope.startsWith("custom:") ? scope.slice("custom:".length) : "";
 }
+
+function resolveDrawerClassificationKind(
+  tx: BankTransaction,
+  folders: BankTransactionFolder[],
+): DrawerClassificationKind {
+  if (!tx.folderId) {
+    if (Number(tx.deposit || 0) > 0 && String(tx.linkedSubject || "").trim()) return "client";
+    return "unfiled";
+  }
+  const folder = folders.find((row) => row.id === tx.folderId);
+  if (!folder) return "custom";
+  if (folder.folderType === "client") return "client";
+  if (folder.folderType === "card") return "card";
+  if (folder.folderType === "worker") return "worker";
+  return "custom";
+}
+
+function resolveDrawerInitialClientName(
+  tx: BankTransaction,
+  kind: DrawerClassificationKind,
+  clientRows: Array<{ name?: string; depositNameAliases?: string }>,
+) {
+  if (kind !== "client") return "";
+  const linked = String(tx.linkedSubject || "").trim();
+  if (linked) return linked;
+  const subject = resolveBankDepositMatchSubject(tx);
+  if (subject) {
+    const client = findClientByDepositSubject(clientRows, subject);
+    if (client?.name) return String(client.name).trim();
+  }
+  return "";
+}
+
 type PageView = "list" | "reconcile";
 
 const EMPTY_TX_SUGGESTION_MAP = new Map<string, never>();
@@ -276,8 +324,11 @@ const L = {
   search: "\uAC70\uB798\uB0B4\uC6A9, \uC0C1\uB300\uC608\uAE08\uC8FC, \uC740\uD589, \uBA54\uBAA8 \uAC80\uC0C9",
   searchLabel: "\uAC80\uC0C9",
   searchPlaceholder: "\uAC70\uB798\uB0B4\uC6A9, \uC0C1\uB300\uC608\uAE08\uC8FC, \uC740\uD589, \uBA54\uBAA8",
-  searchHint: "\uAC70\uB798\uB0B4\uC6A9\u00B7\uC608\uAE08\uC8FC\u00B7\uC740\uD589\u00B7\uBA54\uBAA8 \uD56D\uBAA9\uC744 \uAC80\uC0C9\uD569\uB2C8\uB2E4.",
+  searchHint: "\uAC80\uC0C9\uC5B4 \uC785\uB825 \uD6C4 \uAC80\uC0C9 \uBC84\uD2BC\uC744 \uB20C\uB7EC \uC801\uC6A9\uD569\uB2C8\uB2E4.",
+  searchApply: "\uAC80\uC0C9",
   empty: "\uC870\uD68C \uC870\uAC74\uC5D0 \uB9DE\uB294 \uAC70\uB798\uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  emptyPeriodHint:
+    "\uC120\uD0DD\uD55C \uAE30\uAC04\uC5D0 \uAC70\uB798\uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \u300C\uC804\uCCB4\u300D \uB610\uB294 \u300C\uC9C0\uB09C \uB2EC\u300D\uC744 \uC120\uD0DD\uD574 \uBCF4\uC138\uC694.",
   emptyAll: "\uC544\uC9C1 \uAC00\uC838\uC628 \uAC70\uB798\uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   emptyHint: "IBK \uC778\uD130\uB137\uB1B9\uD0B9 \u2192 \uACC4\uC88C\uC870\uD68C \u2192 \uAC70\uB798\uB0B4\uC5ED \uC870\uD68C \u2192 \uC5D1\uC140 \uB2E4\uC6B4\uB85C\uB4DC \uD6C4 \uAC00\uC838\uC624\uAE30\uB97C \uB20C\uB7EC\uC8FC\uC138\uC694.",
   count: "\uAC74",
@@ -357,6 +408,10 @@ const L = {
   detailSaveDone: "\uAC70\uB798 \uC815\uBCF4\uB97C \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.",
   detailFixedItemRequired: "\uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
   detailLedgerRegisterFailed: "\uAC00\uACC4\uBD80 \uB4F1\uB85D\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uC9C0\uCD9C \uCE74\uD14C\uACE0\uB9AC\uB97C \uC785\uB825\uD588\uB294\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694.",
+  detailLedgerFolderRequiresRegistration:
+    "\uAC00\uACC4\uBD80 \uD3F4\uB354\uB85C \uC800\uC7A5\uD558\uB824\uBA74 \uC9C0\uCD9C \uCE74\uD14C\uACE0\uB9AC \uB610\uB294 \uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uB4F1\uB85D\uD574 \uC8FC\uC138\uC694.",
+  ledgerFolderRequiresRegistration:
+    "\uAC00\uACC4\uBD80 \uD3F4\uB354\uB85C \uC774\uB3D9\uD558\uB824\uBA74 \uC9C0\uCD9C\u00B7\uACE0\uC815\uBE44 \uB4F1\uB85D\uC744 \uBAFC\uC800 \uC644\uB8CC\uD574 \uC8FC\uC138\uC694.",
   detailRowHint: "\uD589\uC744 \uD074\uB9AD\uD558\uBA74 \uC804\uD45C\uCC98\uB7FC \uC5F4\uB824 \uBA54\uBAA8\u00B7\uBD84\uB958\u00B7\uAC00\uACC4\uBD80 \uD56D\uBAA9\uC744 \uC218\uC815\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
   memoEditHint: "\uBA54\uBAA8 \u00B7 \uBD84\uB958 \u00B7 \uAC00\uACC4\uBD80 \uD56D\uBAA9\uC744 \uC218\uC815\uD55C \uB92C \uC800\uC7A5\uC744 \uB204\uB974\uBA74 \uBC18\uC601\uB429\uB2C8\uB2E4.",
   detailLedgerKindHint: "\uBCC0\uB3D9 \uC9C0\uCD9C\uC740 \uCE74\uD14C\uACE0\uB9AC\uB97C, \uACE0\uC815\uBE44\uB294 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD569\uB2C8\uB2E4.",
@@ -518,7 +573,7 @@ const L = {
   clientLinkSelectClient: "\uAC70\uB798\uCC98 \uAC80\uC0C9",
   clientLinkDepositSubject: "\uD1B5\uC7A5 \uD45C\uC2DC \uC774\uB984",
   clientLinkSave: "\uC5F0\uACB0 \uC800\uC7A5",
-  clientLinkDone: "\uAC70\uB798\uCC98 \uC5F0\uACB0 \uBC0F \uC790\uB3D9 \uBD84\uB958\uAC00 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
+  clientLinkDone: "\uAC70\uB798\uCC98 \uC608\uAE08\uC8FC \uBCC4\uCE59\uC744 \uD559\uC2B5\uD588\uC2B5\uB2C8\uB2E4. \uAC70\uB798\uCC98 \uD3F4\uB354\uB85C \uBD84\uB958\uD588\uC2B5\uB2C8\uB2E4.",
   clientLinkMissingSubject: "\uC0C1\uB300\uC608\uAE08\uC8FC \uB610\uB294 \uAC70\uB798\uB0B4\uC6A9\uC774 \uC5C6\uC5B4 \uC5F0\uACB0\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
   clientLinkMissingClient: "\uAC70\uB798\uCC98\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
   clientLinkClickHint: "\uBBF8\uBD84\uB958 \uC785\uAE08 \uD074\uB9AD \u2192 \uAC70\uB798\uCC98 \uC5F0\uACB0",
@@ -611,55 +666,68 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function BankTransactionSearchBar({
-  debouncedValue,
-  onDebouncedChange,
+  appliedValue,
+  onApply,
   resetKey,
 }: {
-  debouncedValue: string;
-  onDebouncedChange: (value: string) => void;
+  appliedValue: string;
+  onApply: (value: string) => void;
   resetKey?: string | number;
 }) {
-  const [localValue, setLocalValue] = useState(debouncedValue);
+  const [draftValue, setDraftValue] = useState(appliedValue);
 
   useEffect(() => {
-    setLocalValue(debouncedValue);
-  }, [debouncedValue, resetKey]);
+    setDraftValue(appliedValue);
+  }, [appliedValue, resetKey]);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      if (localValue !== debouncedValue) onDebouncedChange(localValue);
-    }, 280);
-    return () => window.clearTimeout(timer);
-  }, [localValue, debouncedValue, onDebouncedChange]);
+  const applySearch = () => {
+    onApply(draftValue.trim());
+  };
+
+  const clearSearch = () => {
+    setDraftValue("");
+    onApply("");
+  };
 
   return (
     <div className="erp-bank-search">
       <label className="erp-bank-search__label" htmlFor="bank-transaction-search">
         {L.searchLabel}
       </label>
-      <div className="erp-bank-search__field">
-        <Search size={18} className="erp-bank-search__icon" aria-hidden="true" />
-        <input
-          id="bank-transaction-search"
-          lang="ko"
-          type="search"
-          className="erp-bank-search__input"
-          value={localValue}
-          onChange={(event) => setLocalValue(event.target.value)}
-          placeholder={L.searchPlaceholder}
-          autoComplete="off"
-          spellCheck={false}
-        />
-        {localValue ? (
-          <button
-            type="button"
-            className="erp-bank-search__clear"
-            onClick={() => setLocalValue("")}
-            aria-label="검색어 지우기"
-          >
-            <X size={16} aria-hidden="true" />
-          </button>
-        ) : null}
+      <div className="erp-bank-search__row">
+        <div className="erp-bank-search__field">
+          <Search size={18} className="erp-bank-search__icon" aria-hidden="true" />
+          <input
+            id="bank-transaction-search"
+            lang="ko"
+            type="text"
+            className="erp-bank-search__input"
+            value={draftValue}
+            onChange={(event) => setDraftValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                applySearch();
+              }
+            }}
+            placeholder={L.searchPlaceholder}
+            autoComplete="off"
+            spellCheck={false}
+          />
+          {draftValue ? (
+            <button
+              type="button"
+              className="erp-bank-search__clear"
+              onClick={clearSearch}
+              aria-label="검색어 지우기"
+            >
+              <X size={16} aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
+        <Button type="button" className="erp-bank-search__submit shrink-0 rounded-xl" onClick={applySearch}>
+          {L.searchApply}
+        </Button>
       </div>
       <p className="erp-bank-search__hint">{L.searchHint}</p>
     </div>
@@ -753,11 +821,13 @@ export function BankTransactionsPage({
     bankTransactionFolders?: BankTransactionFolder[];
     bankLedgerRules?: BankLearnRule[];
     expenseCategories?: string[];
+    clients?: typeof clients;
+    paymentVouchers?: unknown[];
   }) => void | Promise<void>;
 }) {
   const [pageView, setPageView] = useState<PageView>("list");
-  const [periodKey, setPeriodKey] = useState<PeriodKey>("thisMonth");
-  const [dateFilter, setDateFilter] = useState<DateFilter>(() => monthRangeISO(0));
+  const [periodKey, setPeriodKey] = useState<PeriodKey>("all");
+  const [dateFilter, setDateFilter] = useState<DateFilter>(() => ({ startDate: "", endDate: "" }));
   const [flowFilter, setFlowFilter] = useState<BankTransactionFlowFilter>("all");
   const [accountFilter, setAccountFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -821,6 +891,7 @@ export function BankTransactionsPage({
   const [selectedPreauthGroupKeys, setSelectedPreauthGroupKeys] = useState<string[]>([]);
   const [learnPreauthMerchants, setLearnPreauthMerchants] = useState(true);
   const [detailTxId, setDetailTxId] = useState<string | null>(null);
+  const [detailDrawerError, setDetailDrawerError] = useState("");
   const importLedgerBatchIdsRef = useRef<Set<string>>(new Set());
   const ledgerMemoDraftRef = useRef("");
   const ledgerReviewMemoDraftRef = useRef("");
@@ -902,8 +973,13 @@ export function BankTransactionsPage({
         companyExpenses,
         fixedExpensePayments,
       );
-      const folderSync = syncLedgerLinkedBankTransactionFolders(synced, folders, ledgerRegistrationContext);
-      if (folderSync.updated <= 0) return prev;
+      const reconciled = reconcileLedgerFolderWithoutLedgerLink(synced, ledgerRegistrationContext);
+      const folderSync = syncLedgerLinkedBankTransactionFolders(
+        reconciled.transactions,
+        folders,
+        ledgerRegistrationContext,
+      );
+      if (folderSync.updated <= 0 && reconciled.cleared <= 0) return prev;
       return folderSync.transactions;
     });
     setBankTransactionFolders((prev) => {
@@ -2169,6 +2245,9 @@ export function BankTransactionsPage({
       return resolveDrawerLedgerPrefill(tx).category || null;
     })();
 
+    const initialClassificationKind = resolveDrawerClassificationKind(tx, bankTransactionFolders);
+    const initialClientName = resolveDrawerInitialClientName(tx, initialClassificationKind, clients);
+
     return {
       tx,
       folderLabel,
@@ -2176,6 +2255,9 @@ export function BankTransactionsPage({
       ledgerCategorySuggestion: drawerCategorySuggestion,
       matchStatusLabel: tx.linkedPaymentVoucherId ? getBankMatchStatusLabel(tx) : "-",
       linkedSubject: tx.linkedSubject || "",
+      depositSubject: resolveBankDepositMatchSubject(tx) || "",
+      initialClassificationKind,
+      initialClientName,
       initialLedgerKind: prefill.kind,
       initialLedgerCategory: prefill.category,
       initialFixedExpenseId: prefill.fixedExpenseId,
@@ -2183,6 +2265,7 @@ export function BankTransactionsPage({
       fixedCategorySuggestions,
       fixedExpenseOptions,
       folderSelectData,
+      clientAutocompleteOptions,
       canLedger: canRegisterDrawerLedger(tx),
       showLedgerEdit: Boolean(getLedgerCategoryLabel(tx)),
       showLedgerRegister: canRegisterDrawerLedger(tx),
@@ -2191,7 +2274,10 @@ export function BankTransactionsPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detailTxId]);
 
-  const closeDetailDrawer = React.useCallback(() => setDetailTxId(null), []);
+  const closeDetailDrawer = React.useCallback(() => {
+    setDetailDrawerError("");
+    setDetailTxId(null);
+  }, []);
 
   const reviewLinkablePayments = useMemo(() => {
     if (!ledgerReviewPrompt || ledgerReviewPrompt.kind !== "fixed") return [];
@@ -2415,6 +2501,18 @@ export function BankTransactionsPage({
 
   const hasAnyData = bankTransactions.length > 0;
 
+  const showEmptyPeriodHint = useMemo(() => {
+    if (filteredRows.length > 0) return false;
+    if (periodKey === "all" && !activePeriod.startDate && !activePeriod.endDate) return false;
+    return bankTransactions.length > 0;
+  }, [
+    activePeriod.endDate,
+    activePeriod.startDate,
+    bankTransactions.length,
+    filteredRows.length,
+    periodKey,
+  ]);
+
   const recurringFixedPatterns = useMemo(
     () => detectRecurringFixedExpensePatterns(bankTransactions, fixedExpenses),
     [bankTransactions, fixedExpenses],
@@ -2591,6 +2689,10 @@ export function BankTransactionsPage({
     setBankTransactions(nextTransactions);
     setBankTransactionFolders(classified.folders);
     setImportPreview(null);
+    void onRequestImmediateSave?.({
+      bankTransactions: nextTransactions,
+      bankTransactionFolders: classified.folders,
+    });
     recordSummaryAudit({
       entityType: "bankTransaction",
       entityId: importPreview.importBatchId || "ibk-import",
@@ -2637,16 +2739,79 @@ export function BankTransactionsPage({
             onlyTransactionIds: addedIds,
             skipLedgerRegistration: true,
           });
-          setBankTransactions(smart.bankTransactions);
           setBankTransactionFolders(smart.bankTransactionFolders);
           setFixedExpensePayments(smart.fixedExpensePayments);
           setCompanyExpenses(smart.companyExpenses);
           setBankLedgerRules(smart.bankLedgerRules);
           if (smart.expenseCategories.length) setExpenseCategories(smart.expenseCategories);
+          const freshSentArchives = await listSentStatementArchives();
+          setSentArchives(freshSentArchives);
+          const savedByForAutoLink = currentUser?.name || currentUser?.loginId || "";
+          const autoLinks = buildHighConfidenceSentStatementAutoLinks({
+            bankTransactions: smart.bankTransactions,
+            archives: freshSentArchives,
+            clients,
+            sales,
+            paymentVouchers,
+            onlyTransactionIds: addedIds,
+          });
+          let bankTransactionsForSave = smart.bankTransactions;
+          let paymentVouchersForSave = paymentVouchers;
+          if (autoLinks.length) {
+            const autoVouchers = autoLinks.flatMap((row) => row.vouchers);
+            const autoLogs = createPaymentInputLogsFromVouchers(autoVouchers, savedByForAutoLink);
+            const linkByTxId = new Map(autoLinks.map((item) => [item.txId, item]));
+            bankTransactionsForSave = smart.bankTransactions.map((row) => {
+              const linked = linkByTxId.get(row.id);
+              if (!linked) return row;
+              return {
+                ...row,
+                linkedPaymentVoucherId: linked.primaryVoucherId,
+                linkedPdfArchiveId: linked.pdfArchiveId,
+                linkedSubject: resolveAutoLinkLinkedSubject(row, linked.client),
+                linkedSalesId: linked.primarySalesId,
+                matchConfirmedAt: new Date().toISOString(),
+                matchConfirmedBy: savedByForAutoLink,
+                matchAutoLinked: true,
+                folderId:
+                  row.folderId ||
+                  (isCardCompanyDeposit(row) ? DEFAULT_CARD_SALES_FOLDER_ID : DEFAULT_CLIENT_FOLDER_ID),
+              };
+            });
+            paymentVouchersForSave = [...autoVouchers, ...(paymentVouchers as typeof autoVouchers)];
+            setPaymentInputLogs((prevLogs) => [...autoLogs, ...(prevLogs as typeof autoLogs)]);
+            setPaymentVouchers(paymentVouchersForSave);
+            void Promise.all(
+              autoLinks.map((linked) =>
+                updatePdfArchiveMeta(linked.pdfArchiveId, {
+                  paymentStatus: linked.paymentStatus,
+                  linkedBankTransactionId: linked.txId,
+                  linkedPaymentVoucherId: linked.primaryVoucherId,
+                }),
+              ),
+            )
+              .then(() => loadSentArchives())
+              .catch((error) => console.error(error));
+            setImportMessage((prev) =>
+              prev.includes("\uBCF4\uB0B8\uB0B4\uC5ED\uC11C \uC790\uB3D9 \uC785\uAE08")
+                ? prev
+                : `${prev} \u00B7 \uBCF4\uB0B8\uB0B4\uC5ED\uC11C \uC790\uB3D9 \uC785\uAE08 ${autoLinks.length}\uAC74`,
+            );
+          }
+          setBankTransactions(bankTransactionsForSave);
           const hint = formatSmartLedgerRunMessage(smart);
           if (hint && !hint.includes("\uC5C6\uC2B5\uB2C8\uB2E4")) {
             setImportMessage((prev) => `${prev} · ${hint}`);
           }
+          void onRequestImmediateSave?.({
+            bankTransactions: bankTransactionsForSave,
+            paymentVouchers: paymentVouchersForSave,
+            bankTransactionFolders: smart.bankTransactionFolders,
+            fixedExpensePayments: smart.fixedExpensePayments,
+            companyExpenses: smart.companyExpenses,
+            bankLedgerRules: smart.bankLedgerRules,
+            ...(smart.expenseCategories.length ? { expenseCategories: smart.expenseCategories } : {}),
+          });
           scheduleBackgroundLearning({ onlyTransactionIds: addedIds, showMessage: true });
           openNextLedgerReviewPrompt(smart.bankTransactions);
         } catch (error) {
@@ -2664,6 +2829,14 @@ export function BankTransactionsPage({
     }
     const tx = bankTransactions.find((row) => row.id === transactionId);
     if (!tx) return;
+    if (
+      folderId === DEFAULT_LEDGER_CATEGORY_FOLDER_ID &&
+      !isBankTransactionLinkedToCompanyLedger(tx, ledgerRegistrationContext)
+    ) {
+      setDetailTxId(transactionId);
+      setImportMessage(L.ledgerFolderRequiresRegistration);
+      return;
+    }
     if (folderId && !canAssignBankTransactionToFolder(tx, folderId, bankTransactionFolders, workers)) {
       setImportMessage(L.workerFolderAssignBlocked);
       return;
@@ -2690,6 +2863,10 @@ export function BankTransactionsPage({
       buildBankLearnRuleFromFolderAssignment(tx, folderId, savedBy || undefined),
     );
     setBankLedgerRules(nextRules);
+    void onRequestImmediateSave?.({
+      bankTransactions: nextTransactions,
+      bankLedgerRules: nextRules,
+    });
     applyAutoLearnRules(nextTransactions, fixedExpensePayments, companyExpenses, nextRules, {
       showMessage: true,
       applyKinds: ["folder"],
@@ -2697,12 +2874,15 @@ export function BankTransactionsPage({
   };
 
   const openBankTransactionDetail = useCallback((tx: BankTransaction) => {
+    setDetailDrawerError("");
     setDetailTxId(tx.id);
   }, []);
 
   const saveBankTransactionDetail = useCallback(
     (payload: {
       memo: string;
+      classificationKind: DrawerClassificationKind;
+      clientName: string;
       folderId: string;
       ledgerKind: LedgerRegisterKind;
       ledgerCategory: string;
@@ -2733,6 +2913,7 @@ export function BankTransactionsPage({
       let nextPayments = fixedExpensePayments;
       let nextRules = bankLedgerRules;
       let nextFolders = bankTransactionFolders;
+      let nextClients = clients;
       let expenseCategoryToMerge: string | null = null;
       let manualLedgerRegistered = false;
 
@@ -2744,32 +2925,94 @@ export function BankTransactionsPage({
         rowChanged = true;
       }
 
-      const memoLedgerDraft = applyMemoCategoryToLedgerDraft(
-        payload.memo,
-        {
-          ledgerKind: payload.ledgerKind,
-          ledgerCategory: payload.ledgerCategory.trim(),
-        },
-        expenseCategories,
-      );
+      const memoLedgerDraft = isDrawerFolderClassificationKind(payload.classificationKind)
+        ? { ledgerKind: payload.ledgerKind, ledgerCategory: "" }
+        : applyMemoCategoryToLedgerDraft(
+            payload.memo,
+            {
+              ledgerKind: payload.ledgerKind,
+              ledgerCategory: payload.ledgerCategory.trim(),
+            },
+            expenseCategories,
+          );
       const ledgerKind = memoLedgerDraft.ledgerKind;
       let ledgerCategory = memoLedgerDraft.ledgerCategory;
       const resolvedLedgerKind =
-        ledgerCategory.trim() && ledgerKind === "fixed" && !payload.fixedExpenseId.trim()
+        !isDrawerFolderClassificationKind(payload.classificationKind) &&
+        ledgerCategory.trim() &&
+        ledgerKind === "fixed" &&
+        !payload.fixedExpenseId.trim()
           ? "manual"
           : ledgerKind;
-      const categoryChanged = detailPrefill.category.trim() !== ledgerCategory;
+      const categoryChanged =
+        !isDrawerFolderClassificationKind(payload.classificationKind) &&
+        detailPrefill.category.trim() !== ledgerCategory;
       const hasManualLedgerCategory =
-        resolvedLedgerKind === "manual" && Boolean(ledgerCategory.trim());
+        !isDrawerFolderClassificationKind(payload.classificationKind) &&
+        resolvedLedgerKind === "manual" &&
+        Boolean(ledgerCategory.trim());
 
       let targetFolderId = payload.folderId.trim();
-      if (memoChanged || categoryChanged || hasManualLedgerCategory) {
+      let targetLinkedSubject: string | undefined = tx.linkedSubject;
+
+      if (payload.classificationKind === "unfiled") {
+        targetFolderId = "";
+        targetLinkedSubject = undefined;
+      } else if (payload.classificationKind === "client") {
+        const clientName = payload.clientName.trim();
+        if (!clientName) {
+          setDetailDrawerError(L.clientLinkMissingClient);
+          return;
+        }
+        const subject = resolveBankDepositMatchSubject(tx);
+        if (!subject) {
+          setDetailDrawerError(L.clientLinkMissingSubject);
+          return;
+        }
+        const client = nextClients.find((row) => String(row.name || "").trim() === clientName);
+        if (!client?.id) {
+          setDetailDrawerError(L.clientLinkMissingClient);
+          return;
+        }
+        const nextAliases = appendDepositNameAlias(client.depositNameAliases, subject);
+        if (nextAliases !== client.depositNameAliases) {
+          const updatedClient = { ...client, depositNameAliases: nextAliases };
+          recordAudit({
+            entityType: "client",
+            entityId: client.id,
+            entityLabel: String(client.name || ""),
+            screen: L.pageTitle,
+            action: "update",
+            before: snapshotClientForAudit(client),
+            after: snapshotClientForAudit(updatedClient),
+            fields: CLIENT_AUDIT_FIELDS,
+            user: currentUser,
+          });
+          nextClients = nextClients.map((row) => (row.id === client.id ? updatedClient : row));
+        }
+        targetFolderId = DEFAULT_CLIENT_FOLDER_ID;
+        targetLinkedSubject = clientName;
+        nextFolders = ensureDefaultBankTransactionFolders(nextFolders);
+      } else if (payload.classificationKind === "card") {
+        targetFolderId = targetFolderId || DEFAULT_CARD_SALES_FOLDER_ID;
+      } else if (payload.classificationKind === "worker") {
+        targetFolderId = targetFolderId || DEFAULT_WORKER_FOLDER_ID;
+        const matchedWorker = findWorkerForBankTransaction(tx, workers);
+        if (matchedWorker?.name) {
+          targetLinkedSubject = String(matchedWorker.name).trim();
+        }
+      }
+
+      if (
+        !isDrawerFolderClassificationKind(payload.classificationKind) &&
+        (memoChanged || categoryChanged || hasManualLedgerCategory)
+      ) {
         targetFolderId = DEFAULT_LEDGER_CATEGORY_FOLDER_ID;
       }
       const folderChanged = String(tx.folderId || "") !== targetFolderId;
       if (folderChanged) {
         if (targetFolderId && !canAssignBankTransactionToFolder(tx, targetFolderId, bankTransactionFolders, workers)) {
-          setImportMessage(L.workerFolderAssignBlocked);
+          setDetailDrawerError(L.workerFolderAssignBlocked);
           return;
         }
         nextRow = targetFolderId
@@ -2778,7 +3021,11 @@ export function BankTransactionsPage({
               folderId: targetFolderId,
               classifiedAt: new Date().toISOString(),
               linkedSubject:
-                nextRow.linkedSubject || nextRow.counterpartyName || nextRow.description || undefined,
+                targetLinkedSubject ||
+                nextRow.linkedSubject ||
+                nextRow.counterpartyName ||
+                nextRow.description ||
+                undefined,
             }
           : {
               ...nextRow,
@@ -2787,6 +3034,15 @@ export function BankTransactionsPage({
               classifiedAt: undefined,
             };
         rowChanged = true;
+      } else if (
+        payload.classificationKind === "client" &&
+        targetLinkedSubject &&
+        (String(tx.linkedSubject || "") !== targetLinkedSubject ||
+          String(tx.folderId || "") !== DEFAULT_CLIENT_FOLDER_ID)
+      ) {
+        nextRow = applyClientDepositLinkToTransaction(nextRow, targetLinkedSubject);
+        targetFolderId = DEFAULT_CLIENT_FOLDER_ID;
+        rowChanged = true;
       }
 
       if (rowChanged) {
@@ -2794,7 +3050,7 @@ export function BankTransactionsPage({
         nextTransactions = bankTransactions.map((row) => (row.id === tx.id ? nextRow : row));
       }
 
-      if (folderChanged && targetFolderId) {
+      if ((folderChanged || (payload.classificationKind === "client" && rowChanged)) && targetFolderId) {
         nextRules = upsertBankLearnRule(
           nextRules,
           buildBankLearnRuleFromFolderAssignment(tx, targetFolderId, savedBy || undefined),
@@ -2806,19 +3062,46 @@ export function BankTransactionsPage({
       const linkedPayment = resolveLinkedFixedPaymentForBankTx(tx);
       const linkedExpense = resolveLinkedCompanyExpenseForBankTx(tx);
 
-      if (resolvedLedgerKind === "fixed") {
+      if (
+        (payload.classificationKind === "client" ||
+          payload.classificationKind === "worker" ||
+          payload.classificationKind === "card") &&
+        rowChanged
+      ) {
+        let workingTransactions = nextTransactions;
+        if (linkedExpense) {
+          const cleared = clearVariableExpenseLinkForBankTx(tx.id, nextExpenses, workingTransactions);
+          nextExpenses = cleared.expenses;
+          workingTransactions = cleared.transactions;
+        }
+        if (linkedPayment) {
+          nextPayments = releaseFixedExpensePaymentBankLink(nextPayments, linkedPayment.id, tx.id);
+          workingTransactions = workingTransactions.map((row) =>
+            row.id === tx.id ? { ...row, linkedFixedExpensePaymentId: undefined } : row,
+          );
+        }
+        if (linkedExpense || linkedPayment) {
+          nextTransactions = workingTransactions.map((row) =>
+            row.id === tx.id
+              ? { ...row, linkedCompanyExpenseId: undefined, linkedFixedExpensePaymentId: undefined }
+              : row,
+          );
+        }
+      }
+
+      if (!isDrawerFolderClassificationKind(payload.classificationKind) && resolvedLedgerKind === "fixed") {
         let resolvedFixedExpenseId = fixedExpenseId;
         if (!resolvedFixedExpenseId && ledgerCategory) {
           const fixedByName = fixedExpenses.find((row) => row.name.trim() === ledgerCategory.trim());
           if (fixedByName) resolvedFixedExpenseId = fixedByName.id;
         }
         if (!resolvedFixedExpenseId) {
-          setImportMessage(L.detailFixedItemRequired);
+          setDetailDrawerError(L.detailFixedItemRequired);
           return;
         }
         const fixedItem = fixedExpenses.find((row) => row.id === resolvedFixedExpenseId);
         if (!fixedItem) {
-          setImportMessage(L.detailFixedItemRequired);
+          setDetailDrawerError(L.detailFixedItemRequired);
           return;
         }
 
@@ -2893,13 +3176,20 @@ export function BankTransactionsPage({
         if (paymentId) {
           workingTransactions = workingTransactions.map((row) =>
             row.id === tx.id
-              ? { ...row, linkedFixedExpensePaymentId: paymentId, linkedCompanyExpenseId: undefined }
+              ? assignDefaultLedgerFolderToBankTransaction({
+                  ...row,
+                  linkedFixedExpensePaymentId: paymentId,
+                  linkedCompanyExpenseId: undefined,
+                })
               : row,
           );
           auditBankTxUpdate(tx, workingTransactions.find((row) => row.id === tx.id) || workingTx);
           nextTransactions = workingTransactions;
+        } else if (resolveBankTxLedgerAmount(workingTx) > 0) {
+          setDetailDrawerError(L.detailLedgerRegisterFailed);
+          return;
         }
-      } else if (ledgerCategory) {
+      } else if (!isDrawerFolderClassificationKind(payload.classificationKind) && ledgerCategory) {
         const workingTx = nextTransactions.find((row) => row.id === tx.id) || nextRow;
         let workingTransactions = nextTransactions;
 
@@ -2945,7 +3235,7 @@ export function BankTransactionsPage({
             amount: prefill.amount,
           });
           if (validationError) {
-            setImportMessage(validationError);
+            setDetailDrawerError(validationError);
             return;
           }
           const expense = createCompanyExpenseFromBankTransaction(workingTx, ledgerCategory, savedBy);
@@ -2977,7 +3267,7 @@ export function BankTransactionsPage({
         );
 
         if (!manualLedgerRegistered) {
-          setImportMessage(L.detailLedgerRegisterFailed);
+          setDetailDrawerError(L.detailLedgerRegisterFailed);
           return;
         }
 
@@ -2985,12 +3275,13 @@ export function BankTransactionsPage({
           row.id === tx.id ? assignDefaultLedgerFolderToBankTransaction(row) : row,
         );
       } else if (
+        !isDrawerFolderClassificationKind(payload.classificationKind) &&
         payload.ledgerCategory.trim() &&
         resolvedLedgerKind === "manual" &&
         resolveBankTxLedgerAmount(tx) > 0 &&
         !manualLedgerRegistered
       ) {
-        setImportMessage(L.detailLedgerRegisterFailed);
+        setDetailDrawerError(L.detailLedgerRegisterFailed);
         return;
       }
 
@@ -3008,6 +3299,18 @@ export function BankTransactionsPage({
         }
       }
 
+      const pendingTx = nextTransactions.find((row) => row.id === tx.id) || nextRow;
+      if (
+        pendingTx.folderId === DEFAULT_LEDGER_CATEGORY_FOLDER_ID &&
+        !isBankTransactionLinkedToCompanyLedger(pendingTx, {
+          companyExpenses: nextExpenses,
+          fixedExpensePayments: nextPayments,
+        })
+      ) {
+        setDetailDrawerError(L.detailLedgerFolderRequiresRegistration);
+        return;
+      }
+
       const folderSync = finalizeLedgerState(nextTransactions, nextExpenses, nextPayments, nextFolders);
       const nextExpenseCategories = expenseCategoryToMerge
         ? mergeExpenseCategory(expenseCategories, expenseCategoryToMerge)
@@ -3017,12 +3320,73 @@ export function BankTransactionsPage({
           ? folderSync.folders
           : nextFolders;
 
+      let finalTransactions = folderSync.transactions;
+      let autoLinkVouchers: ReturnType<typeof createPaymentVoucherFromBankMatch>[] | null = null;
+      let autoLinkLogs: ReturnType<typeof createPaymentInputLogsFromVouchers> | null = null;
+
+      const savedTx = finalTransactions.find((row) => row.id === tx.id);
+      if (
+        payload.classificationKind === "client" &&
+        savedTx?.linkedSubject &&
+        !savedTx.linkedPaymentVoucherId &&
+        !paymentVouchers.some((voucher) => voucher.bankTransactionId === tx.id)
+      ) {
+        const linkedSalesIds = new Set(
+          finalTransactions.filter((row) => row.linkedSalesId).map((row) => String(row.linkedSalesId)),
+        );
+        const candidate = findBestClientDepositReceivableMatch(
+          savedTx,
+          receivableRows,
+          savedTx.linkedSubject,
+          { linkedSalesIds, clients: nextClients },
+        );
+        if (candidate) {
+          const receivable = receivableRows.find((row) => String(row.id) === String(candidate.salesId));
+          if (receivable) {
+            const sale = sales.find((row) => String(row.id) === String(candidate.salesId));
+            const voucher = createPaymentVoucherFromBankMatch(savedTx, candidate, receivable, sale);
+            const logs = createPaymentInputLogsFromVouchers([voucher], savedBy);
+            recordAudit({
+              entityType: "paymentVoucher",
+              entityId: voucher.id,
+              entityLabel: `${voucher.client} \u00B7 ${voucher.site}`,
+              screen: L.pageTitle,
+              action: "create",
+              after: snapshotPaymentForAudit(voucher),
+              fields: PAYMENT_AUDIT_FIELDS,
+              user: currentUser,
+            });
+            const linkedTx: BankTransaction = {
+              ...savedTx,
+              linkedSalesId: receivable.id,
+              linkedPaymentVoucherId: voucher.id,
+              linkedSubject: receivable.client,
+              matchConfirmedAt: new Date().toISOString(),
+              matchConfirmedBy: savedBy,
+              matchAutoLinked: true,
+              folderId: savedTx.folderId || DEFAULT_CLIENT_FOLDER_ID,
+            };
+            auditBankTxUpdate(savedTx, linkedTx);
+            finalTransactions = finalTransactions.map((row) => (row.id === tx.id ? linkedTx : row));
+            autoLinkVouchers = [voucher];
+            autoLinkLogs = logs;
+          }
+        }
+      }
+
       if (resolvedFolders !== bankTransactionFolders) {
         setBankTransactionFolders(resolvedFolders);
       }
+      if (nextClients !== clients) {
+        setClients(nextClients);
+      }
       setCompanyExpenses(nextExpenses);
       setFixedExpensePayments(nextPayments);
-      setBankTransactions(folderSync.transactions);
+      setBankTransactions(finalTransactions);
+      if (autoLinkVouchers && autoLinkLogs) {
+        setPaymentVouchers((prev) => [...autoLinkVouchers!, ...(prev as typeof autoLinkVouchers)]);
+        setPaymentInputLogs((prev) => [...autoLinkLogs!, ...(prev as typeof autoLinkLogs)]);
+      }
       if (nextRules !== bankLedgerRules) {
         setBankLedgerRules(nextRules);
       }
@@ -3030,15 +3394,20 @@ export function BankTransactionsPage({
         setExpenseCategories(nextExpenseCategories);
       }
 
+      setDetailDrawerError("");
       setDetailTxId(null);
-      setImportMessage(L.detailSaveDone);
+      setImportMessage(autoLinkVouchers?.length ? L.matchDone : L.detailSaveDone);
       void onRequestImmediateSave?.({
-        bankTransactions: folderSync.transactions,
+        bankTransactions: finalTransactions,
         companyExpenses: nextExpenses,
         fixedExpensePayments: nextPayments,
         bankTransactionFolders: resolvedFolders,
         bankLedgerRules: nextRules,
         expenseCategories: nextExpenseCategories,
+        clients: nextClients !== clients ? nextClients : undefined,
+        paymentVouchers: autoLinkVouchers
+          ? [...autoLinkVouchers, ...(paymentVouchers as typeof autoLinkVouchers)]
+          : undefined,
       });
     },
     [
@@ -3046,6 +3415,7 @@ export function BankTransactionsPage({
       bankLedgerRules,
       bankTransactionFolders,
       bankTransactions,
+      clients,
       companyExpenses,
       currentUser,
       detailTxId,
@@ -3053,15 +3423,21 @@ export function BankTransactionsPage({
       fixedExpensePayments,
       fixedExpenses,
       onRequestImmediateSave,
+      paymentVouchers,
+      receivableRows,
       recordAudit,
       resolveDetailLedgerPrefill,
+      sales,
       savedBy,
       scheduleBackgroundLearning,
       setBankLedgerRules,
       setBankTransactions,
+      setClients,
       setCompanyExpenses,
       setExpenseCategories,
       setFixedExpensePayments,
+      setPaymentInputLogs,
+      setPaymentVouchers,
       workers,
     ],
   );
@@ -4005,10 +4381,29 @@ export function BankTransactionsPage({
       if (removedExpense) {
         setCompanyExpenses(nextExpenses);
       }
+      const ledgerFolderSync = syncLedgerLinkedBankTransactionFolders(
+        syncBankTransactionLedgerLinkFields(
+          nextTransactions.map((row) =>
+            row.id === ledgerModal.tx.id ? assignDefaultLedgerFolderToBankTransaction(row) : row,
+          ),
+          nextExpenses,
+          nextPayments,
+        ),
+        ensureDefaultBankTransactionFolders(bankTransactionFolders),
+        { companyExpenses: nextExpenses, fixedExpensePayments: nextPayments },
+      );
       setFixedExpensePayments(nextPayments);
-      setBankTransactions(nextTransactions);
+      setBankTransactions(ledgerFolderSync.transactions);
       setBankLedgerRules(nextRules);
-      applyAutoLearnRules(nextTransactions, nextPayments, nextExpenses, nextRules, { showMessage: true });
+      void onRequestImmediateSave?.({
+        bankTransactions: ledgerFolderSync.transactions,
+        companyExpenses: nextExpenses,
+        fixedExpensePayments: nextPayments,
+        bankLedgerRules: nextRules,
+      });
+      applyAutoLearnRules(ledgerFolderSync.transactions, nextPayments, nextExpenses, nextRules, {
+        showMessage: true,
+      });
       setLedgerModal(null);
       setLedgerFormError("");
       setImportMessage(existingPayment ? L.ledgerFixedLinkDone : L.ledgerFixedRegisterDone);
@@ -4075,10 +4470,27 @@ export function BankTransactionsPage({
     auditBankTxUpdate(ledgerModal.tx, nextTransactions.find((row) => row.id === ledgerModal.tx.id) || ledgerModal.tx);
 
     setExpenseCategories(nextCategories);
+    const ledgerFolderSync = syncLedgerLinkedBankTransactionFolders(
+      syncBankTransactionLedgerLinkFields(
+        nextTransactions.map((row) =>
+          row.id === ledgerModal.tx.id ? assignDefaultLedgerFolderToBankTransaction(row) : row,
+        ),
+        nextExpenses,
+        fixedExpensePayments,
+      ),
+      ensureDefaultBankTransactionFolders(bankTransactionFolders),
+      { companyExpenses: nextExpenses, fixedExpensePayments },
+    );
     setCompanyExpenses(nextExpenses);
-    setBankTransactions(nextTransactions);
+    setBankTransactions(ledgerFolderSync.transactions);
     setBankLedgerRules(nextRules);
-    applyAutoLearnRules(nextTransactions, fixedExpensePayments, nextExpenses, nextRules, {
+    void onRequestImmediateSave?.({
+      bankTransactions: ledgerFolderSync.transactions,
+      companyExpenses: nextExpenses,
+      bankLedgerRules: nextRules,
+      expenseCategories: nextCategories,
+    });
+    applyAutoLearnRules(ledgerFolderSync.transactions, fixedExpensePayments, nextExpenses, nextRules, {
       showMessage: true,
     });
     setLedgerModal(null);
@@ -4131,13 +4543,16 @@ export function BankTransactionsPage({
     const nextClients = clients.map((row) => (row.id === client.id ? updatedClient : row));
     setClients(nextClients);
 
-    const classified = autoClassifyBankTransactions(bankTransactions, nextClients, workers, bankTransactionFolders);
+    const linkedTransactions = bankTransactions.map((row) =>
+      row.id === tx.id ? applyClientDepositLinkToTransaction(row, clientName) : row,
+    );
+    const classified = autoClassifyBankTransactions(linkedTransactions, nextClients, workers, bankTransactionFolders);
     setBankTransactions(classified.next);
     setBankTransactionFolders(classified.folders);
 
     setClientLinkModalTx(null);
     setClientLinkClientName("");
-    const classifyNote = classified.updated > 0 ? ` (${classified.updated}\uAC74 \uBD84\uB958)` : "";
+    const classifyNote = classified.updated > 0 ? ` (\uAE30\uD0C0 ${classified.updated}\uAC74 \uC790\uB3D9 \uBD84\uB958)` : "";
     setImportMessage(`${L.clientLinkDone}${classifyNote}`);
   };
 
@@ -4224,6 +4639,7 @@ export function BankTransactionsPage({
       const candidate = item.candidates[0];
       if (!candidate || candidate.score < 75) continue;
       if (item.tx.linkedPaymentVoucherId || existingBankIds.has(item.tx.id)) continue;
+      if (hasManualClientClassificationOverride(item.tx)) continue;
 
       if (item.kind === "sentStatement") {
         const sentCandidate = candidate as SentStatementMatchCandidate;
@@ -4310,7 +4726,7 @@ export function BankTransactionsPage({
           linkedSalesId: linked.salesId,
           linkedPaymentVoucherId: linked.voucherId,
           linkedPdfArchiveId: linked.pdfArchiveId,
-          linkedSubject: linked.client,
+          linkedSubject: resolveAutoLinkLinkedSubject(row, linked.client),
           matchConfirmedAt: new Date().toISOString(),
           matchConfirmedBy: savedBy,
           matchAutoLinked: true,
@@ -4365,6 +4781,12 @@ export function BankTransactionsPage({
       matchStatus: L.matchStatus,
       transactionType: L.transactionType,
       detailRowHint: L.detailRowHint,
+      autoLinkBadgeTitle: L.autoLinkBadgeTitle,
+      manualLinkBadgeTitle: L.manualLinkBadgeTitle,
+      partialPaymentBadgeTitle: L.partialPaymentBadgeTitle,
+      preauthNetSettlementBadge: L.preauthNetSettlementBadge,
+      preauthNetRefundBadge: L.preauthNetRefundBadge,
+      preauthNetSuppressedBadge: L.preauthNetSuppressedBadge,
     }),
     [],
   );
@@ -4669,19 +5091,31 @@ export function BankTransactionsPage({
               ) : null}
             </div>
           </div>
-          <Button
-            type="button"
-            className="shrink-0 rounded-2xl px-5 shadow-md"
-            disabled={importLoading}
-            onClick={() => ibkInputRef.current?.click()}
-          >
-            {importLoading ? (
-              <Upload size={16} className="mr-2 animate-pulse" />
-            ) : (
-              <FileSpreadsheet size={16} className="mr-2" />
-            )}
-            {L.ibkImport}
-          </Button>
+          <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:items-end">
+            {hasAnyData && pageView === "list" ? (
+              <TableExportToolbar
+                className="erp-bank-header-export"
+                getTable={() => null}
+                getParsedTable={getBankTransactionsExportParsed}
+                fileName={`bank-transactions-${todayISO()}`}
+                title={L.pageTitle}
+                disabled={!filteredRows.length}
+              />
+            ) : null}
+            <Button
+              type="button"
+              className="w-full rounded-2xl px-5 shadow-md sm:w-auto"
+              disabled={importLoading}
+              onClick={() => ibkInputRef.current?.click()}
+            >
+              {importLoading ? (
+                <Upload size={16} className="mr-2 animate-pulse" />
+              ) : (
+                <FileSpreadsheet size={16} className="mr-2" />
+              )}
+              {L.ibkImport}
+            </Button>
+          </div>
           <input
             ref={ibkInputRef}
             type="file"
@@ -5252,8 +5686,8 @@ export function BankTransactionsPage({
             </div>
 
             <BankTransactionSearchBar
-              debouncedValue={searchQuery}
-              onDebouncedChange={setSearchQuery}
+              appliedValue={searchQuery}
+              onApply={setSearchQuery}
               resetKey={filterResetKey}
             />
 
@@ -5314,8 +5748,8 @@ export function BankTransactionsPage({
                 variant="ghost"
                 className="ml-auto rounded-xl text-slate-500"
                 onClick={() => {
-                  setPeriodKey("thisMonth");
-                  setDateFilter(monthRangeISO(0));
+                  setPeriodKey("all");
+                  setDateFilter({ startDate: "", endDate: "" });
                   setFlowFilter("all");
                   setAccountFilter("");
                   setSearchQuery("");
@@ -5331,10 +5765,17 @@ export function BankTransactionsPage({
       ) : null}
 
       {hasAnyData && pageView === "list" ? (
+        <>
+          {showEmptyPeriodHint ? (
+            <p className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
+              {L.emptyPeriodHint}
+            </p>
+          ) : null}
         <TableExportSection
           fileName={`bank-transactions-${todayISO()}`}
           title={L.pageTitle}
           disabled={!filteredRows.length}
+          hideToolbar
           tableSelector="#bank-transactions-table"
           getParsedTable={getBankTransactionsExportParsed}
         >
@@ -5345,10 +5786,12 @@ export function BankTransactionsPage({
             companyExpenses={companyExpenses}
             fixedExpensePayments={fixedExpensePayments}
             fixedExpenses={fixedExpenses}
+            paymentVouchers={paymentVouchers}
             labels={listSectionLabels}
             onOpenDetail={openBankTransactionDetail}
           />
         </TableExportSection>
+        </>
       ) : null}
 
       {importPreview ? (
@@ -6439,6 +6882,9 @@ export function BankTransactionsPage({
           ledgerCategorySuggestion={detailDrawerSnapshot.ledgerCategorySuggestion}
           matchStatusLabel={detailDrawerSnapshot.matchStatusLabel}
           linkedSubject={detailDrawerSnapshot.linkedSubject}
+          depositSubject={detailDrawerSnapshot.depositSubject}
+          initialClassificationKind={detailDrawerSnapshot.initialClassificationKind}
+          initialClientName={detailDrawerSnapshot.initialClientName}
           initialLedgerKind={detailDrawerSnapshot.initialLedgerKind}
           initialLedgerCategory={detailDrawerSnapshot.initialLedgerCategory}
           initialFixedExpenseId={detailDrawerSnapshot.initialFixedExpenseId}
@@ -6446,7 +6892,9 @@ export function BankTransactionsPage({
           fixedCategorySuggestions={detailDrawerSnapshot.fixedCategorySuggestions}
           fixedExpenseOptions={detailDrawerSnapshot.fixedExpenseOptions}
           folderSelectData={detailDrawerSnapshot.folderSelectData}
+          clientAutocompleteOptions={detailDrawerSnapshot.clientAutocompleteOptions}
           canLedger={detailDrawerSnapshot.canLedger}
+          saveError={detailDrawerError}
           onClose={closeDetailDrawer}
           onSave={saveBankTransactionDetail}
           onOpenLedgerEdit={

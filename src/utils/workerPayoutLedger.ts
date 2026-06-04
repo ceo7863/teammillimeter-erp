@@ -3,9 +3,10 @@ import { isNetGroupSuppressed } from "./bankPreauthNetting";
 import { findWorkerForBankTransaction, type WorkerDepositMatchSource } from "./clientDepositAliases";
 import {
   compareWorkerFolderRows,
-  findWorkerMasterByExactName,
+  findWorkerMasterByListName,
   isWorkerActive,
   resolveWorkerCategoryFromList,
+  resolveWorkerListName,
   WORKER_CATEGORY_TEAM,
   normalizeWorkerName,
   type WorkerCategory,
@@ -96,7 +97,8 @@ export function resolveWorkerNameFromBankTransaction(
   folders: BankTransactionFolder[],
   workers: WorkerDepositMatchSource[],
 ): string | null {
-  if (tx.withdrawal <= 0 || isNetGroupSuppressed(tx)) return null;
+  const amount = Math.round(Number(tx.withdrawal) || 0) || Math.round(Number(tx.deposit) || 0);
+  if (amount <= 0 || isNetGroupSuppressed(tx)) return null;
 
   const matched = findWorkerForBankTransaction(tx, workers);
   const inWorkerFolder = Boolean(tx.folderId && isWorkerBankTransactionFolder(folders, tx.folderId));
@@ -149,7 +151,7 @@ export function buildWorkerPayoutFolders(
   const map = new Map<string, WorkerPayoutLedgerEntry[]>();
 
   const pushEntry = (workerName: string, entry: WorkerPayoutLedgerEntry) => {
-    const key = normalizeWorkerName(workerName);
+    const key = resolveWorkerListName(workersMaster, workerName);
     if (!key) return;
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(entry);
@@ -193,7 +195,7 @@ export function buildWorkerPayoutFolders(
 
   for (const [workerName, entries] of map) {
     if (seen.has(workerName)) continue;
-    const master = findWorkerMasterByExactName(workersMaster, workerName);
+    const master = findWorkerMasterByListName(workersMaster, workerName);
     if (master && !isWorkerActive(master)) continue;
     folders.push(buildWorkerPayoutFolder(workerName, entries, workersMaster, master));
     seen.add(workerName);

@@ -1,3 +1,4 @@
+import { mergeErpPaymentLinkState, mergeWorkerMonthlyPaymentMemosForSave } from "./erpSaveMerge.mjs";
 import express from "express";
 import cors from "cors";
 import fs from "fs";
@@ -23,6 +24,16 @@ import {
 } from "./db.mjs";
 import { authenticateUser, authMiddleware, adminMiddleware, signToken } from "./auth.mjs";
 import {
+  authenticateWorkerPortal,
+  buildWorkerPortalMonths,
+  buildWorkerPortalStatement,
+  processWorkersPortalCredentials,
+  sanitizeWorkersForClient,
+  signWorkerPortalToken,
+  stripWorkerPortalSecrets,
+  workerPortalAuthMiddleware,
+} from "./workerPortal.mjs";
+import {
   initPdfArchiveStore,
   listPdfArchiveMetas,
   getPdfArchiveMetaById,
@@ -32,6 +43,7 @@ import {
   ensurePdfArchiveShareToken,
   getPdfArchiveFileByShareToken,
   updatePdfArchiveMeta,
+  migratePdfArchiveShareLink,
 } from "./pdfArchive.mjs";
 import {
   initBoardAttachmentStore,
@@ -268,6 +280,42 @@ app.post(
 
 app.use(express.json({ limit: "25mb" }));
 
+app.post("/api/worker-portal/login", (req, res) => {
+  const { loginId, password } = req.body || {};
+  const state = getErpState();
+  const workers = Array.isArray(state.data?.workers) ? state.data.workers : [];
+  const worker = authenticateWorkerPortal(workers, loginId, password);
+  if (!worker) {
+    res.status(401).json({ error: "\uB85C\uADF8\uC778 ID \uB610\uB294 \uBE44\uBC00\uBC88\uD638\uAC00 \uB9DE\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." });
+    return;
+  }
+  const token = signWorkerPortalToken(worker);
+  res.json({
+    token,
+    workerName: stripWorkerPortalSecrets(worker).name,
+    workerId: worker.id,
+  });
+});
+
+app.get("/api/worker-portal/months", workerPortalAuthMiddleware, (req, res) => {
+  const state = getErpState();
+  const sales = state.data?.sales || [];
+  const workers = state.data?.workers || [];
+  const months = buildWorkerPortalMonths(req.workerPortal.workerName, sales, workers);
+  res.json({ months, workerName: req.workerPortal.workerName });
+});
+
+app.get("/api/worker-portal/statement", workerPortalAuthMiddleware, (req, res) => {
+  const monthKey = String(req.query.month || "").trim();
+  if (!/^\d{4}-\d{2}$/.test(monthKey)) {
+    res.status(400).json({ error: "\uC6D4(YYYY-MM)\uC744 \uC9C0\uC815\uD574 \uC8FC\uC138\uC694." });
+    return;
+  }
+  const state = getErpState();
+  const payload = buildWorkerPortalStatement(req.workerPortal.workerName, monthKey, state.data || {});
+  res.json(payload);
+});
+
 app.post("/api/auth/login", (req, res) => {
   const { loginId, email, password } = req.body || {};
   const identifier = loginId || email;
@@ -437,24 +485,91 @@ app.patch("/api/users/:id/status", authMiddleware, adminMiddleware, (req, res) =
   }
 });
 
+function normalizeWorkerRecordId(id) {
+  if (id == null || id === "") return "";
+  return String(id);
+}
+
+function normalizeWorkerMonthlyPaymentMemos(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out = {};
+  for (const [key, value] of Object.entries(raw)) {
+    const idKey = normalizeWorkerRecordId(key);
+    const text = String(value ?? "").trim();
+    if (idKey && text) out[idKey] = text;
+  }
+  return out;
+}
+
+function syncWorkerMonthlyPaymentMemosFromWorkers(workers = [], memos = {}) {
+  const next = { ...memos };
+  for (const worker of workers) {
+    const idKey = normalizeWorkerRecordId(worker?.id);
+    const text = String(worker?.monthlyPaymentMemo || "").trim();
+    if (idKey && text && !next[idKey]) next[idKey] = text;
+  }
+  return next;
+}
+
+function patchWorkerMonthlyPaymentMemos(memos = {}, workerId, memo) {
+  const idKey = normalizeWorkerRecordId(workerId);
+  if (!idKey) return memos;
+  const trimmed = String(memo ?? "").trim();
+  const next = { ...memos };
+  if (trimmed) next[idKey] = trimmed;
+  else delete next[idKey];
+  return next;
+}
+
+function stripMonthlyPaymentMemoFromWorkers(workers = []) {
+  return workers.map(({ monthlyPaymentMemo: _legacy, portalPassword: _pw, ...worker }) => worker);
+}
+
+function ensureWorkerMonthlyPaymentMemos(data = {}) {
+  const workers = Array.isArray(data.workers) ? data.workers : [];
+  const storedMemos = normalizeWorkerMonthlyPaymentMemos(data.workerMonthlyPaymentMemos);
+  const workerMonthlyPaymentMemos = syncWorkerMonthlyPaymentMemosFromWorkers(workers, storedMemos);
+  const strippedWorkers = stripMonthlyPaymentMemoFromWorkers(workers);
+  const migrated =
+    JSON.stringify(workerMonthlyPaymentMemos) !== JSON.stringify(storedMemos) ||
+    workers.some((worker) => String(worker?.monthlyPaymentMemo || "").trim());
+  return { workerMonthlyPaymentMemos, workers: strippedWorkers, migrated };
+}
+
 app.get("/api/erp", authMiddleware, (_req, res) => {
   const state = getErpState();
+  const { workerMonthlyPaymentMemos, workers, migrated } = ensureWorkerMonthlyPaymentMemos(state.data || {});
+  if (migrated) {
+    try {
+      saveErpState(
+        { ...state.data, workers, workerMonthlyPaymentMemos },
+        state.version,
+        "memo-migration",
+      );
+    } catch (error) {
+      console.error("[workerMonthlyPaymentMemos] migration save failed", error);
+    }
+  }
   res.json({
     sales: state.data.sales || [],
     paymentVouchers: state.data.paymentVouchers || [],
     paymentInputLogs: state.data.paymentInputLogs || [],
     clients: state.data.clients || [],
-    workers: state.data.workers || [],
+    workers: sanitizeWorkersForClient(workers),
+    workerMonthlyPaymentMemos,
     auditLogs: state.data.auditLogs || [],
     loginLogs: state.data.loginLogs || [],
     workerPaymentRecords: state.data.workerPaymentRecords || [],
     workerPayoutVouchers: state.data.workerPayoutVouchers || [],
+    workerMonthlyActualVouchers: state.data.workerMonthlyActualVouchers || [],
+    workerPayWithVatLearnRules: state.data.workerPayWithVatLearnRules || [],
     companyExpenses: state.data.companyExpenses || [],
     attendanceRecords: state.data.attendanceRecords || [],
     fixedExpenses: state.data.fixedExpenses || [],
     fixedExpensePayments: state.data.fixedExpensePayments || [],
     bankLedgerRules: state.data.bankLedgerRules || [],
     expenseCategories: state.data.expenseCategories || [],
+    fixedExpenseCategories: state.data.fixedExpenseCategories || [],
     taxInvoices: state.data.taxInvoices || [],
     bankTransactions: state.data.bankTransactions || [],
     bankTransactionFolders: state.data.bankTransactionFolders || [],
@@ -590,38 +705,178 @@ app.get("/api/bank-sync/status", authMiddleware, (_req, res) => {
   });
 });
 
+app.patch("/api/erp/workers/:workerId/monthly-payment-memo", authMiddleware, (req, res) => {
+  const workerId = String(req.params.workerId || "").trim();
+  const memo = String(req.body?.monthlyPaymentMemo ?? "").trim();
+  const version = req.body?.version ?? null;
+
+  if (!workerId) {
+    res.status(400).json({ error: "시공자 ID가 필요합니다." });
+    return;
+  }
+
+  const state = getErpState();
+  const workers = Array.isArray(state.data?.workers) ? state.data.workers : [];
+  const workerIndex = workers.findIndex((worker) => String(worker?.id ?? "") === workerId);
+  if (workerIndex < 0) {
+    res.status(404).json({ error: "시공자를 찾을 수 없습니다." });
+    return;
+  }
+
+  const existingMemos = normalizeWorkerMonthlyPaymentMemos(state.data?.workerMonthlyPaymentMemos);
+  const workerMonthlyPaymentMemos = patchWorkerMonthlyPaymentMemos(existingMemos, workerId, memo);
+  const strippedWorkers = stripMonthlyPaymentMemoFromWorkers(workers);
+
+  console.log("[monthly-payment-memo] PATCH", {
+    workerId,
+    memoLen: memo.length,
+    memoPreview: memo.slice(0, 40),
+    mapKeys: Object.keys(workerMonthlyPaymentMemos).length,
+    user: req.user?.loginId || req.user?.name,
+  });
+
+  try {
+    const saved = saveErpState(
+      { ...state.data, workers: strippedWorkers, workerMonthlyPaymentMemos },
+      version ?? state.version,
+      req.user.loginId || req.user.name || req.user.email,
+    );
+    res.json({
+      ok: true,
+      version: saved.version,
+      updatedAt: saved.updatedAt,
+      workerId,
+      monthlyPaymentMemo: memo,
+      workerMonthlyPaymentMemos,
+    });
+  } catch (error) {
+    if (error.status === 409) {
+      res.status(409).json({
+        error: "다른 사용자가 먼저 저장했습니다. 새로고침 후 다시 시도해 주세요.",
+        currentVersion: error.currentVersion,
+      });
+      return;
+    }
+    console.error(error);
+    res.status(500).json({ error: "비고 저장에 실패했습니다." });
+  }
+});
+
 app.put("/api/erp", authMiddleware, (req, res) => {
-  const { sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, version } = req.body || {};
+  const {
+    sales,
+    paymentVouchers,
+    paymentInputLogs,
+    clients,
+    workers,
+    auditLogs,
+    loginLogs,
+    workerPaymentRecords,
+    workerPayoutVouchers,
+    workerMonthlyActualVouchers,
+    workerPayWithVatLearnRules,
+    companyExpenses,
+    attendanceRecords,
+    fixedExpenses,
+    fixedExpensePayments,
+    bankLedgerRules,
+    expenseCategories,
+    fixedExpenseCategories,
+    companyNotices,
+    workPosts,
+    taxInvoices,
+    bankTransactions,
+    bankTransactionFolders,
+    statementGenerationLogs,
+    statementFolders,
+    companyProfile,
+    workerMonthlyPaymentMemos,
+    version,
+  } = req.body || {};
   const existing = getErpState();
   const serverLoginLogs = Array.isArray(existing.data?.loginLogs) ? existing.data.loginLogs : [];
   const payload = {
-    sales: Array.isArray(sales) ? sales : [],
-    paymentVouchers: Array.isArray(paymentVouchers) ? paymentVouchers : [],
-    paymentInputLogs: Array.isArray(paymentInputLogs) ? paymentInputLogs : [],
-    clients: Array.isArray(clients) ? clients : [],
-    workers: Array.isArray(workers) ? workers : [],
-    auditLogs: Array.isArray(auditLogs) ? auditLogs : [],
+    sales: Array.isArray(sales) ? sales : existing.data.sales || [],
+    paymentVouchers: Array.isArray(paymentVouchers) ? paymentVouchers : existing.data.paymentVouchers || [],
+    paymentInputLogs: Array.isArray(paymentInputLogs) ? paymentInputLogs : existing.data.paymentInputLogs || [],
+    clients: Array.isArray(clients) ? clients : existing.data.clients || [],
+    workers: Array.isArray(workers) ? workers : existing.data.workers || [],
+    auditLogs: Array.isArray(auditLogs) ? auditLogs : existing.data.auditLogs || [],
     loginLogs: serverLoginLogs,
-    workerPaymentRecords: Array.isArray(workerPaymentRecords) ? workerPaymentRecords : [],
-    workerPayoutVouchers: Array.isArray(workerPayoutVouchers) ? workerPayoutVouchers : [],
-    companyExpenses: Array.isArray(companyExpenses) ? companyExpenses : [],
-    attendanceRecords: Array.isArray(attendanceRecords) ? attendanceRecords : [],
-    fixedExpenses: Array.isArray(fixedExpenses) ? fixedExpenses : [],
-    fixedExpensePayments: Array.isArray(fixedExpensePayments) ? fixedExpensePayments : [],
-    bankLedgerRules: Array.isArray(bankLedgerRules) ? bankLedgerRules : [],
-    expenseCategories: Array.isArray(expenseCategories) ? expenseCategories : [],
-    companyNotices: Array.isArray(companyNotices) ? companyNotices : [],
-    workPosts: Array.isArray(workPosts) ? workPosts : [],
-    taxInvoices: Array.isArray(taxInvoices) ? taxInvoices : [],
-    bankTransactions: Array.isArray(bankTransactions) ? bankTransactions : [],
-    bankTransactionFolders: Array.isArray(bankTransactionFolders) ? bankTransactionFolders : [],
-    statementGenerationLogs: Array.isArray(statementGenerationLogs) ? statementGenerationLogs : [],
-    statementFolders: Array.isArray(statementFolders) ? statementFolders : [],
-    companyProfile: companyProfile && typeof companyProfile === "object" ? companyProfile : null,
+    workerPaymentRecords: Array.isArray(workerPaymentRecords)
+      ? workerPaymentRecords
+      : existing.data.workerPaymentRecords || [],
+    workerPayoutVouchers: Array.isArray(workerPayoutVouchers)
+      ? workerPayoutVouchers
+      : existing.data.workerPayoutVouchers || [],
+    workerMonthlyActualVouchers: Array.isArray(workerMonthlyActualVouchers)
+      ? workerMonthlyActualVouchers.length ||
+        !(existing.data.workerMonthlyActualVouchers || []).some(
+          (voucher) => Array.isArray(voucher?.entries) && voucher.entries.length > 0,
+        )
+        ? workerMonthlyActualVouchers
+        : existing.data.workerMonthlyActualVouchers || []
+      : existing.data.workerMonthlyActualVouchers || [],
+    workerPayWithVatLearnRules: Array.isArray(workerPayWithVatLearnRules)
+      ? workerPayWithVatLearnRules
+      : existing.data.workerPayWithVatLearnRules || [],
+    companyExpenses: Array.isArray(companyExpenses) ? companyExpenses : existing.data.companyExpenses || [],
+    attendanceRecords: Array.isArray(attendanceRecords)
+      ? attendanceRecords
+      : existing.data.attendanceRecords || [],
+    fixedExpenses: Array.isArray(fixedExpenses) ? fixedExpenses : existing.data.fixedExpenses || [],
+    fixedExpensePayments: Array.isArray(fixedExpensePayments)
+      ? fixedExpensePayments
+      : existing.data.fixedExpensePayments || [],
+    bankLedgerRules: Array.isArray(bankLedgerRules) ? bankLedgerRules : existing.data.bankLedgerRules || [],
+    expenseCategories: Array.isArray(expenseCategories)
+      ? expenseCategories
+      : existing.data.expenseCategories || [],
+    fixedExpenseCategories: Array.isArray(fixedExpenseCategories)
+      ? fixedExpenseCategories
+      : existing.data.fixedExpenseCategories || [],
+    companyNotices: Array.isArray(companyNotices) ? companyNotices : existing.data.companyNotices || [],
+    workPosts: Array.isArray(workPosts) ? workPosts : existing.data.workPosts || [],
+    taxInvoices: Array.isArray(taxInvoices) ? taxInvoices : existing.data.taxInvoices || [],
+    bankTransactions: Array.isArray(bankTransactions)
+      ? bankTransactions.length || !(existing.data.bankTransactions || []).length
+        ? bankTransactions
+        : existing.data.bankTransactions || []
+      : existing.data.bankTransactions || [],
+    bankTransactionFolders: Array.isArray(bankTransactionFolders)
+      ? bankTransactionFolders
+      : existing.data.bankTransactionFolders || [],
+    statementGenerationLogs: Array.isArray(statementGenerationLogs)
+      ? statementGenerationLogs
+      : existing.data.statementGenerationLogs || [],
+    statementFolders: Array.isArray(statementFolders) ? statementFolders : existing.data.statementFolders || [],
+    companyProfile:
+      companyProfile && typeof companyProfile === "object"
+        ? companyProfile
+        : existing.data.companyProfile || null,
+    workerMonthlyPaymentMemos:
+      mergeWorkerMonthlyPaymentMemosForSave(
+        existing.data.workerMonthlyPaymentMemos || {},
+        workerMonthlyPaymentMemos &&
+          typeof workerMonthlyPaymentMemos === "object" &&
+          !Array.isArray(workerMonthlyPaymentMemos)
+          ? workerMonthlyPaymentMemos
+          : {},
+      ),
   };
 
+  const mergedPayload = mergeErpPaymentLinkState(existing.data || {}, payload);
+  const existingWorkers = existing.data?.workers || [];
+  mergedPayload.workers = stripMonthlyPaymentMemoFromWorkers(
+    processWorkersPortalCredentials(mergedPayload.workers || [], existingWorkers),
+  );
+
+  if (workerMonthlyPaymentMemos && typeof workerMonthlyPaymentMemos === "object") {
+    console.log("[erp PUT] workerMonthlyPaymentMemos", Object.keys(workerMonthlyPaymentMemos));
+  }
+
   try {
-    const saved = saveErpState(payload, version ?? null, req.user.loginId || req.user.name || req.user.email);
+    const saved = saveErpState(mergedPayload, version ?? null, req.user.loginId || req.user.name || req.user.email);
     res.json({ ok: true, version: saved.version, updatedAt: saved.updatedAt });
   } catch (error) {
     if (error.status === 409) {
@@ -638,6 +893,26 @@ app.put("/api/erp", authMiddleware, (req, res) => {
 
 app.get("/api/pdf-archives", authMiddleware, (_req, res) => {
   res.json({ records: listPdfArchiveMetas() });
+});
+
+app.post("/api/pdf-archives/migrate-share-link", authMiddleware, (req, res) => {
+  try {
+    const keeperId = String(req.body?.keeperId || "").trim();
+    const duplicateId = String(req.body?.duplicateId || "").trim();
+    if (!keeperId || !duplicateId) {
+      res.status(400).json({ error: "keeperId와 duplicateId가 필요합니다." });
+      return;
+    }
+    const updated = migratePdfArchiveShareLink(keeperId, duplicateId);
+    if (!updated) {
+      res.status(404).json({ error: "PDF를 찾을 수 없습니다." });
+      return;
+    }
+    res.json(updated);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "공유 링크 이전에 실패했습니다." });
+  }
 });
 
 app.get("/api/pdf-archives/:id", authMiddleware, (req, res) => {

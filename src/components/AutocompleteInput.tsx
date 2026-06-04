@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   filterAutocompleteOptions,
   mapAutocompleteOptions,
 } from "@/utils/autocompleteFilter";
+import { focusKoreanTextInput, isKoreanTextInput, prepareKoreanTextInput } from "@/utils/koreanIme";
 
 function ErpInput({
   className = "",
@@ -16,6 +17,8 @@ function ErpInput({
   onCompositionStart,
   onCompositionEnd,
   onCompositionUpdate,
+  onFocus,
+  onPointerDown,
   ...rest
 }: React.InputHTMLAttributes<HTMLInputElement> & {
   onLiveValueChange?: (value: string) => void;
@@ -67,6 +70,18 @@ function ErpInput({
         onChange?.(event);
         onCompositionEnd?.(event);
       }}
+      onPointerDown={(event) => {
+        if (!isNumericField) {
+          prepareKoreanTextInput(event.currentTarget);
+        }
+        onPointerDown?.(event);
+      }}
+      onFocus={(event) => {
+        if (!isNumericField) {
+          prepareKoreanTextInput(event.currentTarget);
+        }
+        onFocus?.(event);
+      }}
       className={`erp-input w-full rounded-2xl border bg-white px-3 py-2.5 text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-slate-900 md:px-4 md:py-3 ${className}`}
     />
   );
@@ -76,6 +91,8 @@ type BufferedTextFieldProps = {
   value?: string;
   onDraftChange?: (value: string) => void;
   onCommit?: (value: string) => void;
+  /** true면 blur·Enter·IME 종료 시에만 onCommit (타이핑 중 부모 리렌더 방지) */
+  commitOnBlurOnly?: boolean;
   className?: string;
   placeholder?: string;
 };
@@ -84,6 +101,7 @@ function useBufferedTextFieldState(
   value: string | undefined,
   onDraftChange?: (value: string) => void,
   onCommit?: (value: string) => void,
+  commitOnBlurOnly = false,
 ) {
   const composingRef = useRef(false);
   const [localValue, setLocalValue] = useState(value ?? "");
@@ -94,6 +112,10 @@ function useBufferedTextFieldState(
 
   const emitValue = (nextValue: string, commit: boolean) => {
     setLocalValue(nextValue);
+    if (commitOnBlurOnly) {
+      if (commit) onCommit?.(nextValue);
+      return;
+    }
     onDraftChange?.(nextValue);
     if (commit) onCommit?.(nextValue);
   };
@@ -102,17 +124,29 @@ function useBufferedTextFieldState(
 }
 
 /** Text input that buffers keystrokes locally so parent state does not re-render on every key. */
-export function BufferedTextInput({
+export const BufferedTextInput = memo(function BufferedTextInput({
   value = "",
   onDraftChange,
   onCommit,
+  commitOnBlurOnly = false,
   className = "",
   placeholder,
-}: BufferedTextFieldProps) {
-  const { composingRef, localValue, emitValue } = useBufferedTextFieldState(value, onDraftChange, onCommit);
+  onKeyDown,
+  onFocus,
+  onBlur,
+  onPointerDown,
+  ...rest
+}: BufferedTextFieldProps & React.InputHTMLAttributes<HTMLInputElement>) {
+  const { composingRef, localValue, emitValue } = useBufferedTextFieldState(
+    value,
+    onDraftChange,
+    onCommit,
+    commitOnBlurOnly,
+  );
 
   return (
     <input
+      {...rest}
       lang="ko"
       className={`erp-input w-full rounded-2xl border bg-white px-3 py-2.5 text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-slate-900 md:px-4 md:py-3 ${className}`}
       value={localValue}
@@ -121,7 +155,20 @@ export function BufferedTextInput({
       autoCorrect="off"
       autoCapitalize="off"
       spellCheck={false}
-      onChange={(event) => emitValue(event.target.value, !composingRef.current)}
+      onKeyDown={onKeyDown}
+      onPointerDown={(event) => {
+        prepareKoreanTextInput(event.currentTarget);
+        onPointerDown?.(event);
+      }}
+      onFocus={(event) => {
+        prepareKoreanTextInput(event.currentTarget);
+        onFocus?.(event);
+      }}
+      onBlur={(event) => {
+        emitValue(event.currentTarget.value, true);
+        onBlur?.(event);
+      }}
+      onChange={(event) => emitValue(event.target.value, !commitOnBlurOnly && !composingRef.current)}
       onCompositionStart={() => {
         composingRef.current = true;
       }}
@@ -130,11 +177,11 @@ export function BufferedTextInput({
       }}
       onCompositionEnd={(event) => {
         composingRef.current = false;
-        emitValue(event.currentTarget.value, true);
+        emitValue(event.currentTarget.value, !commitOnBlurOnly);
       }}
     />
   );
-}
+});
 
 /** Multiline memo field with the same buffered typing behavior as BufferedTextInput. */
 export function BufferedTextarea({
@@ -184,18 +231,24 @@ export const UncontrolledBufferedTextarea = React.memo(function UncontrolledBuff
   textareaRef,
   className = "",
   placeholder,
+  onBlur,
+  onDraftChange,
 }: {
   defaultValue?: string;
   draftRef: React.MutableRefObject<string>;
   textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
   className?: string;
   placeholder?: string;
+  onBlur?: () => void;
+  onDraftChange?: () => void;
 }) {
   const composingRef = useRef(false);
 
   useEffect(() => {
+    const el = textareaRef?.current;
+    if (el && document.activeElement === el) return;
     draftRef.current = defaultValue;
-  }, [defaultValue, draftRef]);
+  }, [defaultValue, draftRef, textareaRef]);
 
   return (
     <textarea
@@ -209,7 +262,10 @@ export const UncontrolledBufferedTextarea = React.memo(function UncontrolledBuff
       autoCapitalize="off"
       spellCheck={false}
       onInput={(event) => {
-        if (!composingRef.current) draftRef.current = event.currentTarget.value;
+        if (!composingRef.current) {
+          draftRef.current = event.currentTarget.value;
+          onDraftChange?.();
+        }
       }}
       onCompositionStart={() => {
         composingRef.current = true;
@@ -217,7 +273,9 @@ export const UncontrolledBufferedTextarea = React.memo(function UncontrolledBuff
       onCompositionEnd={(event) => {
         composingRef.current = false;
         draftRef.current = event.currentTarget.value;
+        onDraftChange?.();
       }}
+      onBlur={onBlur}
     />
   );
 });
@@ -310,6 +368,32 @@ function isImeActive(event: React.KeyboardEvent) {
   return event.nativeEvent.isComposing || event.key === "Process" || event.keyCode === 229;
 }
 
+function isFocusableElement(element: Element): element is HTMLElement {
+  if (!(element instanceof HTMLElement)) return false;
+  if (element.hasAttribute("disabled") || element.getAttribute("aria-hidden") === "true") return false;
+  if (element.tabIndex < 0) return false;
+  return element.matches('input, select, textarea, button, [tabindex]:not([tabindex="-1"])');
+}
+
+function listTabFocusables() {
+  if (typeof document === "undefined") return [];
+  return Array.from(document.querySelectorAll('input, select, textarea, button, [tabindex]:not([tabindex="-1"])'))
+    .filter(isFocusableElement)
+    .filter((element) => element.offsetParent !== null || element.getClientRects().length > 0);
+}
+
+export function focusNextTabStop(from: HTMLElement, forward = true) {
+  const focusables = listTabFocusables();
+  const index = focusables.indexOf(from);
+  if (index === -1) return;
+  const next = focusables[index + (forward ? 1 : -1)];
+  if (next instanceof HTMLInputElement && isKoreanTextInput(next)) {
+    focusKoreanTextInput(next);
+    return;
+  }
+  next?.focus({ preventScroll: true });
+}
+
 type OptionLike = string | { label?: string; name?: string; value?: string; manager?: string; phone?: string; [key: string]: unknown };
 
 type AutocompleteInputProps = {
@@ -352,6 +436,9 @@ export function AutocompleteInput({
 }: AutocompleteInputProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const dropdownKeyboardNavRef = useRef(false);
+  const suppressBlurResetRef = useRef(false);
+  const suppressBlurResetTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const [focused, setFocused] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [inputText, setInputText] = useState("");
@@ -381,11 +468,12 @@ export function AutocompleteInput({
   const resolvedLabel = selectedOption?.label ?? String(value ?? "");
 
   useEffect(() => {
-    if (!focused) setInputText(resolvedLabel);
+    if (!focused && !suppressBlurResetRef.current) setInputText(resolvedLabel);
   }, [resolvedLabel, focused]);
 
   const commitInputText = (nextText: string) => {
     setInputText(nextText);
+    dropdownKeyboardNavRef.current = false;
     if (freeSolo && !commitFreeSoloOnBlur) onChange(nextText);
     setHighlightedIndex(0);
   };
@@ -394,18 +482,24 @@ export function AutocompleteInput({
     const trimmed = nextText.trim();
     setInputText(trimmed);
     onChange(trimmed);
+    dropdownKeyboardNavRef.current = false;
     setHighlightedIndex(0);
   };
 
   const syncFilterText = (nextText: string) => {
     setInputText(nextText);
+    dropdownKeyboardNavRef.current = false;
     setHighlightedIndex(0);
   };
 
-  const filtered = filterAutocompleteOptions(normalizedOptions, inputText, {
-    limit,
-    allowEmpty: openOnFocus,
-  });
+  const filtered = useMemo(
+    () =>
+      filterAutocompleteOptions(normalizedOptions, inputText, {
+        limit,
+        allowEmpty: openOnFocus,
+      }),
+    [normalizedOptions, inputText, limit, openOnFocus],
+  );
 
   const displayOptions = useMemo(() => {
     if (filtered.length > 0) return filtered;
@@ -420,8 +514,15 @@ export function AutocompleteInput({
 
   const selectItem = (item: { label: string; value: string; raw: unknown }) => {
     const nextLabel = item.raw == null && freeSolo ? item.value : item.label;
+    suppressBlurResetRef.current = true;
+    if (suppressBlurResetTimerRef.current) window.clearTimeout(suppressBlurResetTimerRef.current);
+    suppressBlurResetTimerRef.current = window.setTimeout(() => {
+      suppressBlurResetRef.current = false;
+      suppressBlurResetTimerRef.current = null;
+    }, 300);
     setInputText(nextLabel);
     onChange(item.value, item.raw);
+    dropdownKeyboardNavRef.current = false;
     setFocused(false);
   };
 
@@ -540,25 +641,34 @@ export function AutocompleteInput({
         inputMode="text"
         className={resolvedInputClassName}
         onFocus={() => {
+          dropdownKeyboardNavRef.current = false;
           setFocused(true);
           setHighlightedIndex(0);
         }}
         onBlur={() => {
           if (keepOpenUntilSelect) return;
           setTimeout(() => {
-            if (keepOpenUntilSelect) return;
+            if (keepOpenUntilSelect || suppressBlurResetRef.current) return;
             if (freeSolo && commitFreeSoloOnBlur) {
               commitFreeSoloValue(inputText);
             }
             setFocused(false);
             if (!freeSolo) {
-              if (!inputText.trim()) commitClearedSelection();
-              else setInputText(resolvedLabel);
+              const committedLabel =
+                normalizedOptions.find((item) => item.value === value)?.label ?? String(value ?? "").trim();
+              if (!inputText.trim()) {
+                if (!committedLabel) commitClearedSelection();
+                else setInputText(committedLabel);
+                return;
+              }
+              if (committedLabel && inputText.trim() === committedLabel) return;
+              setInputText(committedLabel || inputText);
             }
           }, 150);
         }}
         onKeyDown={(e) => {
-          if (isImeActive(e)) return;
+          const isTabSelection = e.key === "Tab" && canPickFromDropdown;
+          if (isImeActive(e) && !isTabSelection) return;
 
           if (e.key === "Escape" && canShowDropdown) {
             e.preventDefault();
@@ -570,12 +680,14 @@ export function AutocompleteInput({
 
           if (dropdownUsesVerticalKeys && e.key === "ArrowDown") {
             e.preventDefault();
+            dropdownKeyboardNavRef.current = true;
             setHighlightedIndex((prev) => (prev + 1) % displayOptions.length);
             return;
           }
 
           if (dropdownUsesVerticalKeys && e.key === "ArrowUp") {
             e.preventDefault();
+            dropdownKeyboardNavRef.current = true;
             setHighlightedIndex((prev) => (prev - 1 + displayOptions.length) % displayOptions.length);
             return;
           }
@@ -600,7 +712,10 @@ export function AutocompleteInput({
           }
 
           if (canPickFromDropdown && e.key === "Tab") {
-            selectItem(displayOptions[highlightedIndex] || displayOptions[0]);
+            const forward = !e.shiftKey;
+            e.preventDefault();
+            selectItem(displayOptions[highlightedIndex] ?? displayOptions[0]);
+            requestAnimationFrame(() => focusNextTabStop(e.currentTarget, forward));
             return;
           }
 

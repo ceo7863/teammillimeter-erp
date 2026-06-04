@@ -2,6 +2,7 @@ import React, { memo } from "react";
 import { DesktopTableWrap } from "@/components/MobileRecordCard";
 import {
   BankTransactionCompactRow,
+  type BankTransactionCompactRowLabels,
   type BankTransactionCompactRowModel,
 } from "@/components/BankTransactionCompactRow";
 
@@ -25,6 +26,7 @@ type BankTransactionSimpleTableProps = {
   rowIds: string[];
   rowModels: Map<string, BankTransactionCompactRowModel>;
   labels: BankTransactionSimpleTableLabels;
+  badgeLabels: BankTransactionCompactRowLabels;
   selectedTxId: string | null;
   onSelect: (id: string) => void;
 };
@@ -33,6 +35,7 @@ function BankTransactionSimpleTableComponent({
   rowIds,
   rowModels,
   labels,
+  badgeLabels,
   selectedTxId,
   onSelect,
 }: BankTransactionSimpleTableProps) {
@@ -41,42 +44,43 @@ function BankTransactionSimpleTableComponent({
       <table id="bank-transactions-table" className="erp-table erp-bank-table w-full min-w-[960px]">
         <thead>
           <tr className="bg-slate-100 text-left text-slate-600">
-              <th>{labels.transactionAt}</th>
-              <th className="text-right">{labels.deposit}</th>
-              <th className="text-right">{labels.withdrawal}</th>
-              <th className="text-right">{labels.balance}</th>
-              <th>{labels.description}</th>
-              <th>{labels.memo}</th>
-              <th>{labels.counterpartyName}</th>
-              <th>{labels.ledgerCategoryColumn}</th>
-              <th>{labels.classification}</th>
-              <th>{labels.counterpartyBank}</th>
-              <th>{labels.matchStatus}</th>
-              <th>{labels.transactionType}</th>
+            <th>{labels.transactionAt}</th>
+            <th className="text-right">{labels.deposit}</th>
+            <th className="text-right">{labels.withdrawal}</th>
+            <th className="text-right">{labels.balance}</th>
+            <th>{labels.description}</th>
+            <th>{labels.memo}</th>
+            <th>{labels.counterpartyName}</th>
+            <th>{labels.ledgerCategoryColumn}</th>
+            <th>{labels.classification}</th>
+            <th>{labels.counterpartyBank}</th>
+            <th>{labels.matchStatus}</th>
+            <th>{labels.transactionType}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {!rowIds.length ? (
+            <tr>
+              <td colSpan={12} className="py-12 text-center text-slate-500">
+                {labels.empty}
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {!rowIds.length ? (
-              <tr>
-                <td colSpan={12} className="py-12 text-center text-slate-500">
-                  {labels.empty}
-                </td>
-              </tr>
-            ) : (
-              rowIds.map((id) => {
-                const model = rowModels.get(id);
-                if (!model) return null;
-                return (
-                  <BankTransactionCompactRow
-                    key={id}
-                    {...model}
-                    isSelected={selectedTxId === id}
-                    onSelect={onSelect}
-                  />
-                );
-              })
-            )}
-          </tbody>
+          ) : (
+            rowIds.map((id) => {
+              const model = rowModels.get(id);
+              if (!model) return null;
+              return (
+                <BankTransactionCompactRow
+                  key={id}
+                  {...model}
+                  labels={badgeLabels}
+                  isSelected={selectedTxId === id}
+                  onSelect={onSelect}
+                />
+              );
+            })
+          )}
+        </tbody>
       </table>
     </DesktopTableWrap>
   );

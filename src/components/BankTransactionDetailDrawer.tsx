@@ -7,6 +7,7 @@ import {
   UncontrolledBufferedTextarea,
   UncontrolledCategoryInput,
 } from "@/components/AutocompleteInput";
+import { AutocompleteInput } from "@/components/AutocompleteInput";
 import { applyMemoCategoryToLedgerDraft } from "@/utils/bankCompanyLedger";
 import { formatKRW, normalizeExpenseCategoryName, EXPENSE_CATEGORY_OPTIONS } from "@/utils/companyLedger";
 import {
@@ -16,6 +17,18 @@ import {
 } from "@/utils/bankTransactions";
 
 export type LedgerRegisterKind = "fixed" | "manual";
+
+export type DrawerClassificationKind = "unfiled" | "client" | "card" | "worker" | "custom";
+
+export function isDrawerFolderClassificationKind(kind: DrawerClassificationKind) {
+  return kind === "client" || kind === "card" || kind === "worker" || kind === "custom";
+}
+
+export type DrawerClientAutocompleteOption = {
+  label: string;
+  value: string;
+  raw?: { manager?: string; depositNameAliases?: string };
+};
 
 export const BANK_TX_MANUAL_CATEGORY_LIST_ID = "erp-bank-tx-category-manual";
 export const BANK_TX_FIXED_CATEGORY_LIST_ID = "erp-bank-tx-category-fixed";
@@ -52,6 +65,14 @@ const LABELS = {
   cardFolders: "\uCE74\uB4DC\uB9E4\uCD9C",
   workerFolders: "\uC2DC\uACF5\uC790 \uC9C0\uCD9C",
   detailLedgerKindHint: "\uBCC0\uB3D9 \uC9C0\uCD9C\uC740 \uCE74\uD14C\uACE0\uB9AC\uB97C, \uACE0\uC815\uBE44\uB294 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD569\uB2C8\uB2E4.",
+  classificationKind: "\uBD84\uB958 \uC720\uD615",
+  classificationClientDeposit: "\uAC70\uB798\uCC98 \uC785\uAE08",
+  classificationCardSales: "\uCE74\uB4DC\uB9E4\uCD9C",
+  classificationWorkerPayout: "\uC2DC\uACF5\uC790 \uC9C0\uCD9C",
+  classificationCustomFolder: "\uC0AC\uC6A9\uC790 \uD3F4\uB354",
+  selectClient: "\uAC70\uB798\uCC98 \uC120\uD0DD",
+  selectClientHint: "\uAC70\uB798\uCC98 \uD3F4\uB354\uB85C \uBD84\uB958\uD558\uACE0 \uC120\uD0DD\uD55C \uAC70\uB798\uCC98\uC5D0 \uC608\uAE08\uC8FC \uBCC4\uCE59\uC744 \uD559\uC2B5\uD569\uB2C8\uB2E4.",
+  depositSubject: "\uD1B5\uC7A5 \uD45C\uC2DC \uC774\uB984",
   ledgerKind: "\uB4F1\uB85D \uC720\uD615",
   ledgerFixedItem: "\uACE0\uC815\uBE44 \uD56D\uBAA9",
   ledgerManualCategory: "\uC9C0\uCD9C \uCE74\uD14C\uACE0\uB9AC",
@@ -85,6 +106,9 @@ export type BankTransactionDetailDrawerProps = {
   ledgerCategorySuggestion: string | null;
   matchStatusLabel: string;
   linkedSubject: string;
+  depositSubject: string;
+  initialClassificationKind: DrawerClassificationKind;
+  initialClientName: string;
   initialLedgerKind: LedgerRegisterKind;
   initialLedgerCategory: string;
   initialFixedExpenseId: string;
@@ -92,10 +116,14 @@ export type BankTransactionDetailDrawerProps = {
   fixedCategorySuggestions: readonly string[];
   fixedExpenseOptions: Array<{ label: string; value: string }>;
   folderSelectData: DrawerFolderSelectData;
+  clientAutocompleteOptions: DrawerClientAutocompleteOption[];
   canLedger: boolean;
+  saveError?: string;
   onClose: () => void;
   onSave: (payload: {
     memo: string;
+    classificationKind: DrawerClassificationKind;
+    clientName: string;
     folderId: string;
     ledgerKind: LedgerRegisterKind;
     ledgerCategory: string;
@@ -123,61 +151,140 @@ function DetailReadRow({ label, value }: { label: string; value: React.ReactNode
   );
 }
 
-const DrawerFolderSelect = React.memo(function DrawerFolderSelect({
+const DrawerClassificationSection = React.memo(function DrawerClassificationSection({
+  classificationKind,
+  onClassificationKindChange,
+  clientName,
+  onClientNameChange,
+  depositSubject,
   folderId,
   onFolderChange,
-  clientOptions,
   cardOptions,
   workerOptions,
   customOptgroups,
+  clientAutocompleteOptions,
+  showClientDeposit,
+  showCardSales,
+  showWorkerPayout,
 }: {
+  classificationKind: DrawerClassificationKind;
+  onClassificationKindChange: (kind: DrawerClassificationKind) => void;
+  clientName: string;
+  onClientNameChange: (value: string) => void;
+  depositSubject: string;
   folderId: string;
   onFolderChange: (value: string) => void;
-  clientOptions: DrawerFolderOption[];
   cardOptions: DrawerFolderOption[];
   workerOptions: DrawerFolderOption[];
   customOptgroups: DrawerCustomFolderOptgroup[];
+  clientAutocompleteOptions: DrawerClientAutocompleteOption[];
+  showClientDeposit: boolean;
+  showCardSales: boolean;
+  showWorkerPayout: boolean;
 }) {
+  const kindOptions: Array<{ key: DrawerClassificationKind; label: string }> = [{ key: "unfiled", label: LABELS.unfiled }];
+  if (showClientDeposit) kindOptions.push({ key: "client", label: LABELS.classificationClientDeposit });
+  if (showCardSales) kindOptions.push({ key: "card", label: LABELS.classificationCardSales });
+  if (showWorkerPayout) kindOptions.push({ key: "worker", label: LABELS.classificationWorkerPayout });
+  if (customOptgroups.some((group) => group.options.length)) {
+    kindOptions.push({ key: "custom", label: LABELS.classificationCustomFolder });
+  }
+
   return (
-    <Field label={LABELS.classification}>
-      <select
-        className="erp-input w-full rounded-xl"
-        value={folderId}
-        onChange={(event) => onFolderChange(event.target.value)}
-      >
-        <option value="">{LABELS.unfiled}</option>
-        <optgroup label={LABELS.clientFolders}>
-          {clientOptions.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.label}
-            </option>
+    <div className="space-y-3">
+      <Field label={LABELS.classificationKind}>
+        <div className="flex flex-wrap gap-2">
+          {kindOptions.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              className={`rounded-xl border px-3 py-2 text-xs font-bold transition ${
+                classificationKind === option.key
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-200 bg-white text-slate-600"
+              }`}
+              onClick={() => onClassificationKindChange(option.key)}
+            >
+              {option.label}
+            </button>
           ))}
-        </optgroup>
-        <optgroup label={LABELS.cardFolders}>
-          {cardOptions.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.label}
-            </option>
-          ))}
-        </optgroup>
-        <optgroup label={LABELS.workerFolders}>
-          {workerOptions.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.label}
-            </option>
-          ))}
-        </optgroup>
-        {customOptgroups.map((group) => (
-          <optgroup key={group.rootId} label={group.rootLabel}>
-            {group.options.map((item) => (
+        </div>
+      </Field>
+
+      {classificationKind === "client" ? (
+        <>
+          <Field label={LABELS.depositSubject}>
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-900">
+              {depositSubject || "-"}
+            </div>
+          </Field>
+          <Field label={LABELS.selectClient}>
+            <AutocompleteInput
+              value={clientName}
+              onChange={(value) => onClientNameChange(String(value || ""))}
+              options={clientAutocompleteOptions}
+              placeholder={LABELS.selectClient}
+              freeSolo={false}
+              showOptionsOnFocus
+              compact={false}
+              renderSub={(raw) => {
+                const client = raw as { manager?: string; depositNameAliases?: string };
+                const manager = String(client?.manager || "").trim();
+                const aliases = String(client?.depositNameAliases || "").trim();
+                if (!manager && !aliases) return null;
+                return (
+                  <span className="text-xs text-slate-500">
+                    {[manager, aliases].filter(Boolean).join(" \u00B7 ")}
+                  </span>
+                );
+              }}
+            />
+            <p className="mt-1.5 text-xs font-semibold text-slate-500">{LABELS.selectClientHint}</p>
+          </Field>
+        </>
+      ) : null}
+
+      {classificationKind === "card" && cardOptions.length > 1 ? (
+        <Field label={LABELS.cardFolders}>
+          <select className="erp-input w-full rounded-xl" value={folderId} onChange={(event) => onFolderChange(event.target.value)}>
+            {cardOptions.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.label}
               </option>
             ))}
-          </optgroup>
-        ))}
-      </select>
-    </Field>
+          </select>
+        </Field>
+      ) : null}
+
+      {classificationKind === "worker" && workerOptions.length > 1 ? (
+        <Field label={LABELS.workerFolders}>
+          <select className="erp-input w-full rounded-xl" value={folderId} onChange={(event) => onFolderChange(event.target.value)}>
+            {workerOptions.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+      ) : null}
+
+      {classificationKind === "custom" ? (
+        <Field label={LABELS.classificationCustomFolder}>
+          <select className="erp-input w-full rounded-xl" value={folderId} onChange={(event) => onFolderChange(event.target.value)}>
+            <option value="">{LABELS.unfiled}</option>
+            {customOptgroups.map((group) => (
+              <optgroup key={group.rootId} label={group.rootLabel}>
+                {group.options.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </Field>
+      ) : null}
+    </div>
   );
 });
 
@@ -347,11 +454,16 @@ function drawerPropsEqual(
     prev.initialLedgerKind === next.initialLedgerKind &&
     prev.initialLedgerCategory === next.initialLedgerCategory &&
     prev.initialFixedExpenseId === next.initialFixedExpenseId &&
+    prev.initialClassificationKind === next.initialClassificationKind &&
+    prev.initialClientName === next.initialClientName &&
+    prev.depositSubject === next.depositSubject &&
+    prev.clientAutocompleteOptions === next.clientAutocompleteOptions &&
     prev.manualCategorySuggestions === next.manualCategorySuggestions &&
     prev.fixedCategorySuggestions === next.fixedCategorySuggestions &&
     prev.fixedExpenseOptions === next.fixedExpenseOptions &&
     prev.folderSelectData === next.folderSelectData &&
     prev.canLedger === next.canLedger &&
+    prev.saveError === next.saveError &&
     prev.onClose === next.onClose &&
     prev.onSave === next.onSave &&
     prev.onOpenLedgerRegister === next.onOpenLedgerRegister &&
@@ -366,6 +478,9 @@ export const BankTransactionDetailDrawer = React.memo(function BankTransactionDe
   ledgerCategorySuggestion,
   matchStatusLabel,
   linkedSubject,
+  depositSubject,
+  initialClassificationKind,
+  initialClientName,
   initialLedgerKind,
   initialLedgerCategory,
   initialFixedExpenseId,
@@ -373,7 +488,9 @@ export const BankTransactionDetailDrawer = React.memo(function BankTransactionDe
   fixedCategorySuggestions,
   fixedExpenseOptions,
   folderSelectData,
+  clientAutocompleteOptions,
   canLedger,
+  saveError = "",
   onClose,
   onSave,
   onOpenLedgerRegister,
@@ -394,6 +511,8 @@ export const BankTransactionDetailDrawer = React.memo(function BankTransactionDe
   onOpenLedgerEditRef.current = onOpenLedgerEdit;
 
   const [folderId, setFolderId] = useState(tx.folderId || "");
+  const [classificationKind, setClassificationKind] = useState<DrawerClassificationKind>(initialClassificationKind);
+  const [clientName, setClientName] = useState(initialClientName);
   const [ledgerKind, setLedgerKind] = useState<LedgerRegisterKind>(initialLedgerKind);
   const [fixedExpenseId, setFixedExpenseId] = useState(initialFixedExpenseId);
   const [editReady, setEditReady] = useState(false);
@@ -403,9 +522,20 @@ export const BankTransactionDetailDrawer = React.memo(function BankTransactionDe
     categoryDraftRef.current = initialLedgerCategory;
     if (categoryInputRef.current) categoryInputRef.current.value = initialLedgerCategory;
     setFolderId(tx.folderId || "");
+    setClassificationKind(initialClassificationKind);
+    setClientName(initialClientName);
     setLedgerKind(initialLedgerKind);
     setFixedExpenseId(initialFixedExpenseId);
-  }, [tx.id, tx.memo, tx.folderId, initialLedgerKind, initialLedgerCategory, initialFixedExpenseId]);
+  }, [
+    tx.id,
+    tx.memo,
+    tx.folderId,
+    initialClassificationKind,
+    initialClientName,
+    initialLedgerKind,
+    initialLedgerCategory,
+    initialFixedExpenseId,
+  ]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -425,12 +555,32 @@ export const BankTransactionDetailDrawer = React.memo(function BankTransactionDe
     if (categoryInputRef.current) categoryInputRef.current.value = category;
   }, []);
 
+  const handleClassificationKindChange = useCallback(
+    (kind: DrawerClassificationKind) => {
+      setClassificationKind(kind);
+      if (kind === "card" && folderSelectData.cardOptions[0]) {
+        setFolderId(folderSelectData.cardOptions[0].id);
+      } else if (kind === "worker" && folderSelectData.workerOptions[0]) {
+        setFolderId(folderSelectData.workerOptions[0].id);
+      } else if (kind === "client") {
+        setFolderId("");
+      } else if (kind === "custom") {
+        setFolderId("");
+      } else if (kind === "unfiled") {
+        setFolderId("");
+      }
+    },
+    [folderSelectData.cardOptions, folderSelectData.workerOptions],
+  );
+
   const handleSave = useCallback(() => {
     const commitSave = () => {
       const memo = (memoTextareaRef.current?.value ?? memoDraftRef.current).trim();
       memoDraftRef.current = memo;
       const rawCategory = (categoryInputRef.current?.value ?? categoryDraftRef.current).trim();
-      const resolved = resolveDrawerCategory(memo, rawCategory, ledgerKind);
+      const resolved = isDrawerFolderClassificationKind(classificationKind)
+        ? { ledgerKind: "manual" as LedgerRegisterKind, ledgerCategory: "" }
+        : resolveDrawerCategory(memo, rawCategory, ledgerKind);
       categoryDraftRef.current = resolved.ledgerCategory;
       if (categoryInputRef.current && resolved.ledgerCategory !== rawCategory) {
         categoryInputRef.current.value = resolved.ledgerCategory;
@@ -449,6 +599,8 @@ export const BankTransactionDetailDrawer = React.memo(function BankTransactionDe
 
       onSaveRef.current({
         memo,
+        classificationKind,
+        clientName: clientName.trim(),
         folderId,
         ledgerKind: resolved.ledgerKind,
         ledgerCategory: resolved.ledgerCategory,
@@ -459,7 +611,7 @@ export const BankTransactionDetailDrawer = React.memo(function BankTransactionDe
     categoryInputRef.current?.blur();
     memoTextareaRef.current?.blur();
     window.setTimeout(commitSave, 0);
-  }, [fixedExpenseId, fixedExpenseOptions, folderId, ledgerKind]);
+  }, [classificationKind, clientName, fixedExpenseId, fixedExpenseOptions, folderId, ledgerKind]);
 
   const categoryListId =
     ledgerKind === "fixed" ? BANK_TX_FIXED_CATEGORY_LIST_ID : BANK_TX_MANUAL_CATEGORY_LIST_ID;
@@ -468,6 +620,9 @@ export const BankTransactionDetailDrawer = React.memo(function BankTransactionDe
 
   const deposit = parseBankAmount(tx.deposit);
   const withdrawal = parseBankAmount(tx.withdrawal);
+  const showClientDeposit = deposit > 0;
+  const showCardSales = deposit > 0;
+  const showWorkerPayout = withdrawal > 0;
 
   if (typeof document === "undefined") return null;
 
@@ -556,13 +711,21 @@ export const BankTransactionDetailDrawer = React.memo(function BankTransactionDe
                       draftRef={memoDraftRef}
                       textareaRef={memoTextareaRef}
                     />
-                    <DrawerFolderSelect
+                    <DrawerClassificationSection
+                      classificationKind={classificationKind}
+                      onClassificationKindChange={handleClassificationKindChange}
+                      clientName={clientName}
+                      onClientNameChange={setClientName}
+                      depositSubject={depositSubject}
                       folderId={folderId}
                       onFolderChange={setFolderId}
-                      clientOptions={folderSelectData.clientOptions}
                       cardOptions={folderSelectData.cardOptions}
                       workerOptions={folderSelectData.workerOptions}
                       customOptgroups={folderSelectData.customOptgroups}
+                      clientAutocompleteOptions={clientAutocompleteOptions}
+                      showClientDeposit={showClientDeposit}
+                      showCardSales={showCardSales}
+                      showWorkerPayout={showWorkerPayout}
                     />
                     <DrawerLedgerKindToggle ledgerKind={ledgerKind} onChange={setLedgerKind} />
                     {ledgerKind === "fixed" ? (
@@ -615,6 +778,11 @@ export const BankTransactionDetailDrawer = React.memo(function BankTransactionDe
             </div>
 
             <div className="erp-bank-tx-detail-footer">
+              {saveError ? (
+                <div className="mb-3 w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-600">
+                  {saveError}
+                </div>
+              ) : null}
               <Button
                 type="button"
                 variant="outline"

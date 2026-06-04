@@ -11,6 +11,7 @@ export type PaymentInputLog = {
   vatIncluded: boolean;
   savedBy?: string;
   paymentVoucherId?: number | string;
+  depositChannel?: "cash" | "personal";
 };
 
 export type PaymentInputLogSummary = {
@@ -37,6 +38,7 @@ type SavedVoucherLike = {
   vatType?: string;
   vatAmount?: number;
   finalAmount?: number;
+  depositChannel?: "cash" | "personal";
 };
 
 export function createPaymentInputLogsFromVouchers(
@@ -61,6 +63,7 @@ export function createPaymentInputLogsFromVouchers(
       vatIncluded,
       savedBy,
       paymentVoucherId: voucher.id,
+      depositChannel: voucher.depositChannel === "cash" ? "cash" : "personal",
     };
   });
 }

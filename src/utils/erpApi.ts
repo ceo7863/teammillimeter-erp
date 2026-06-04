@@ -27,9 +27,13 @@ export type ErpPayload = {
   paymentInputLogs?: unknown[];
   clients: unknown[];
   workers: unknown[];
+  workerMonthlyPaymentMemos?: Record<string, string>;
   auditLogs: unknown[];
   loginLogs?: unknown[];
   workerPaymentRecords?: unknown[];
+  workerPayoutVouchers?: unknown[];
+  workerMonthlyActualVouchers?: unknown[];
+  workerPayWithVatLearnRules?: unknown[];
   companyExpenses?: unknown[];
   attendanceRecords?: unknown[];
   fixedExpenses?: unknown[];
@@ -225,6 +229,24 @@ export async function saveErpData(payload: ErpPayload) {
   return apiRequest<{ ok: boolean; version: number; updatedAt: string }>("/erp", {
     method: "PUT",
     body: JSON.stringify(payload),
+  });
+}
+
+export async function saveWorkerMonthlyPaymentMemoApi(
+  workerId: number | string,
+  monthlyPaymentMemo: string,
+  version?: number,
+) {
+  return apiRequest<{
+    ok: boolean;
+    version: number;
+    updatedAt: string;
+    workerId: string;
+    monthlyPaymentMemo: string;
+    workerMonthlyPaymentMemos?: Record<string, string>;
+  }>(`/erp/workers/${encodeURIComponent(String(workerId))}/monthly-payment-memo`, {
+    method: "PATCH",
+    body: JSON.stringify({ monthlyPaymentMemo, version }),
   });
 }
 

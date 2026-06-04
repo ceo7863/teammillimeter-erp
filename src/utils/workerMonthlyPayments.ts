@@ -1,4 +1,10 @@
-import type { WorkerMasterLike, WorkerPaymentDetailRow } from "./workerPayments";
+import {
+  findWorkerMasterByListName,
+  normalizeWorkerName,
+  resolveWorkerListName,
+  type WorkerMasterLike,
+  type WorkerPaymentDetailRow,
+} from "./workerPayments";
 
 export type WorkerMonthlyPaymentRecord = {
   key: string;
@@ -52,7 +58,11 @@ export function makeWorkerMonthKey(worker: string, monthKey: string) {
   return `${monthKey}::${String(worker || "").trim()}`;
 }
 
-export function formatMonthLabel(monthKey: string) {
+export function formatMonthLabel(monthKey: string, periodLabel?: string) {
+  if (periodLabel) return periodLabel;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(monthKey || ""))) {
+    return `실지급 ${String(monthKey).replace(/-/g, ".")}`;
+  }
   const match = /^(\d{4})-(\d{2})$/.exec(String(monthKey || ""));
   if (!match) return monthKey || "-";
   return `${match[1]}\uB144 ${Number(match[2])}\uC6D4`;
@@ -109,13 +119,35 @@ export function buildWorkerMonthlyWorkerRows(
   monthKey: string,
   workersMaster: WorkerMasterLike[] = [],
 ): WorkerMonthlyWorkerRow[] {
-  const masterByName = new Map(workersMaster.map((worker) => [String(worker.name || "").trim(), worker]));
-  const grouped = aggregateWorkerMonthTotals(rows.filter((row) => String(row.date || "").slice(0, 7) === monthKey));
+  return buildWorkerMonthlyWorkerRowsForRange(rows, monthKey, workersMaster);
+}
+
+export function buildWorkerMonthlyWorkerRowsForRange(
+  rows: WorkerPaymentDetailRow[] = [],
+  monthKey: string,
+  workersMaster: WorkerMasterLike[] = [],
+  range?: { start: string; end: string },
+): WorkerMonthlyWorkerRow[] {
+  const canonicalRows = rows.map((row) => ({
+    ...row,
+    worker: resolveWorkerListName(workersMaster, row.worker) || normalizeWorkerName(row.worker),
+  }));
+  const filteredRows = range
+    ? canonicalRows.filter((row) => {
+        const date = String(row.date || "").slice(0, 10);
+        if (!date) return false;
+        if (range.start && date < range.start) return false;
+        if (range.end && date > range.end) return false;
+        return true;
+      })
+    : canonicalRows.filter((row) => String(row.date || "").slice(0, 7) === monthKey);
+
+  const grouped = aggregateWorkerMonthTotals(filteredRows);
 
   return [...grouped.entries()]
     .map(([key, totals]) => {
       const worker = key.split("::")[1] || "";
-      const master = masterByName.get(worker) || {};
+      const master = findWorkerMasterByListName(workersMaster, worker) || {};
       const feeRate = master.feeRate ?? 0;
       const grossPay = totals.grossPay;
       const fee = grossPay > 0 ? Math.round(grossPay * feeRate) : totals.fee;

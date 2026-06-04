@@ -31,21 +31,26 @@ export function formatKRW(value: number) {
   return new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 0 }).format(Number(value) || 0);
 }
 
+const KOREA_TZ = "Asia/Seoul";
+
 export function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: KOREA_TZ }).format(new Date());
 }
 
 export function monthStartISO() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  return `${todayISO().slice(0, 7)}-01`;
 }
 
 export function addDaysISO(dateStr: string, days: number) {
   if (!dateStr) return "";
-  const date = new Date(`${dateStr}T12:00:00`);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr).trim());
+  if (!match) return dateStr;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + days);
   if (Number.isNaN(date.getTime())) return dateStr;
-  date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export function getUnpaid(row: { salesAmount?: number; amount?: number; paidAmount?: number; paid?: number }) {

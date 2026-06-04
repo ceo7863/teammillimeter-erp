@@ -404,13 +404,19 @@ export async function sharePdfBlob(blob: Blob, fileName: string): Promise<ShareP
   };
 }
 
-export function openPdfBlobInNewTab(blob: Blob, fileName = "document.pdf"): boolean {
+export function openPdfBlobInNewTab(
+  blob: Blob,
+  fileName = "document.pdf",
+  previewWindow?: Window | null,
+): boolean {
   const url = URL.createObjectURL(blob);
-  const previewWindow = createPdfPreviewWindow();
-  if (previewWindow && renderPdfInPreviewWindow(previewWindow, url, fileName)) {
+  const windowRef = previewWindow ?? createPdfPreviewWindow();
+  if (windowRef && !windowRef.closed && renderPdfInPreviewWindow(windowRef, url, fileName)) {
     window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
     return true;
   }
+
+  windowRef?.close();
 
   const link = document.createElement("a");
   link.href = url;
@@ -438,6 +444,37 @@ export async function archiveGeneratedPdf(
     statementSalesIds?: Array<string | number>;
   }
 ) {
+  if (meta.sentViaLink) {
+    const existingRecords = await listPdfArchives();
+    const duplicate = findDuplicateSentStatementArchive(existingRecords, { ...meta, sentViaLink: true });
+    if (duplicate) {
+      const key = buildPdfArchiveStatementKey(duplicate);
+      const patch: PdfArchiveMetaPatch = {};
+      if (meta.statementTotalAmount != null) patch.statementTotalAmount = meta.statementTotalAmount;
+      if (meta.statementSalesIds?.length) patch.statementSalesIds = meta.statementSalesIds;
+      if (meta.shareLinkUrl) patch.shareLinkUrl = meta.shareLinkUrl;
+      const updated =
+        Object.keys(patch).length > 0 ? await updatePdfArchiveMeta(duplicate.id, patch) : duplicate;
+
+      const duplicatesToRemove = existingRecords.filter(
+        (record) =>
+          record.sentViaLink &&
+          record.id !== updated.id &&
+          buildPdfArchiveStatementKey(record) === key,
+      );
+      const finalUpdated = await migrateShareLinksFromDuplicates(updated, duplicatesToRemove);
+
+      for (const row of duplicatesToRemove) {
+        await deletePdfArchive(row.id);
+      }
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("pdf-archive-updated", { detail: finalUpdated }));
+      }
+      return finalUpdated;
+    }
+  }
+
   const saved = await savePdfArchive({
     blob: result.blob,
     fileName: result.fileName,
@@ -588,7 +625,188 @@ export async function updatePdfArchiveMeta(id: string, patch: PdfArchiveMetaPatc
   return updatePdfArchiveMetaLocal(id, patch);
 }
 
+function normalizeStatementSalesIds(ids?: Array<string | number>) {
+  if (!ids?.length) return [];
+  return [...new Set(ids.map((id) => String(id).trim()).filter(Boolean))].sort();
+}
+
+/** 보낸내역서 중복 판정: 거래처·기간·보기 방식 (매출 ID는 제외 — 링크 재발송 시 비어 있는 경우가 많음) */
+export function buildPdfArchiveStatementKey(
+  record: Pick<PdfArchiveMeta, "category" | "subjectName" | "periodStart" | "periodEnd" | "statementView">,
+) {
+  const view = record.category === "statement-client" ? record.statementView || "summary" : "";
+  return [
+    record.category,
+    String(record.subjectName || "").trim(),
+    String(record.periodStart || "").trim(),
+    String(record.periodEnd || "").trim(),
+    view,
+  ].join("|");
+}
+
+function sentStatementArchiveRank(record: PdfArchiveMeta) {
+  let score = 0;
+  if (record.linkedBankTransactionId) score += 100;
+  if (record.linkedPaymentVoucherId) score += 80;
+  if (record.statementSalesIds?.length) score += 15;
+  if (record.paymentStatus === "confirmed") score += 40;
+  else if (record.paymentStatus === "partial") score += 20;
+  if (record.shareLinkUrl) score += 10;
+  return score;
+}
+
+export function pickPreferredSentStatementArchive(group: PdfArchiveMeta[]) {
+  return [...group].sort((a, b) => {
+    const rankDiff = sentStatementArchiveRank(b) - sentStatementArchiveRank(a);
+    if (rankDiff !== 0) return rankDiff;
+    return String(b.createdAt).localeCompare(String(a.createdAt));
+  })[0];
+}
+
+function buildMergedSentStatementArchivePatch(keeper: PdfArchiveMeta, duplicates: PdfArchiveMeta[]): PdfArchiveMetaPatch | null {
+  const patch: PdfArchiveMetaPatch = {};
+  const salesIds = new Set(normalizeStatementSalesIds(keeper.statementSalesIds));
+  for (const row of duplicates) {
+    for (const id of normalizeStatementSalesIds(row.statementSalesIds)) salesIds.add(id);
+  }
+  if (salesIds.size > normalizeStatementSalesIds(keeper.statementSalesIds).length) {
+    patch.statementSalesIds = [...salesIds];
+  }
+
+  if (!keeper.linkedBankTransactionId) {
+    const linked = duplicates.find((row) => row.linkedBankTransactionId);
+    if (linked?.linkedBankTransactionId) patch.linkedBankTransactionId = linked.linkedBankTransactionId;
+  }
+  if (!keeper.linkedPaymentVoucherId) {
+    const linked = duplicates.find((row) => row.linkedPaymentVoucherId);
+    if (linked?.linkedPaymentVoucherId) patch.linkedPaymentVoucherId = linked.linkedPaymentVoucherId;
+  }
+  if (!keeper.paymentStatus || keeper.paymentStatus === "pending") {
+    const ranked = duplicates
+      .map((row) => row.paymentStatus)
+      .filter((status): status is NonNullable<PdfArchiveMeta["paymentStatus"]> => Boolean(status));
+    const best = ranked.find((status) => status === "confirmed") || ranked.find((status) => status === "partial");
+    if (best) patch.paymentStatus = best;
+  }
+  if (keeper.statementTotalAmount == null) {
+    const amount = duplicates.find((row) => row.statementTotalAmount != null)?.statementTotalAmount;
+    if (amount != null) patch.statementTotalAmount = amount;
+  }
+  if (!keeper.shareLinkUrl?.trim()) {
+    const linked = duplicates.find((row) => row.shareLinkUrl?.trim());
+    if (linked?.shareLinkUrl) patch.shareLinkUrl = linked.shareLinkUrl;
+  }
+
+  return Object.keys(patch).length ? patch : null;
+}
+
+async function migratePdfArchiveShareLinkApi(keeperId: string, duplicateId: string): Promise<PdfArchiveMeta | null> {
+  const response = await fetch(`${apiBase()}/pdf-archives/migrate-share-link`, {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ keeperId, duplicateId }),
+  });
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+  return response.json() as Promise<PdfArchiveMeta>;
+}
+
+export async function migrateShareLinksFromDuplicates(
+  keeper: PdfArchiveMeta,
+  duplicates: PdfArchiveMeta[],
+): Promise<PdfArchiveMeta> {
+  if (!duplicates.length) return keeper;
+
+  let current = keeper;
+  const patch = buildMergedSentStatementArchivePatch(current, duplicates);
+  if (patch) {
+    current = await updatePdfArchiveMeta(current.id, patch);
+  }
+
+  if (isApiModeEnabled()) {
+    for (const duplicate of duplicates) {
+      const migrated = await migratePdfArchiveShareLinkApi(current.id, duplicate.id);
+      if (migrated) current = migrated;
+    }
+  }
+
+  return current;
+}
+
+export function partitionDuplicateSentStatementArchives(records: PdfArchiveMeta[]) {
+  const sent = records.filter((record) => record.sentViaLink);
+  const nonSent = records.filter((record) => !record.sentViaLink);
+  const byKey = new Map<string, PdfArchiveMeta[]>();
+
+  for (const record of sent) {
+    const key = buildPdfArchiveStatementKey(record);
+    const list = byKey.get(key) || [];
+    list.push(record);
+    byKey.set(key, list);
+  }
+
+  const keptSent: PdfArchiveMeta[] = [];
+  const removedIds: string[] = [];
+
+  for (const group of byKey.values()) {
+    const keeper = pickPreferredSentStatementArchive(group);
+    keptSent.push(keeper);
+    for (const record of group) {
+      if (record.id !== keeper.id) removedIds.push(record.id);
+    }
+  }
+
+  keptSent.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  return { records: [...nonSent, ...keptSent], removedIds };
+}
+
+export function findDuplicateSentStatementArchive(
+  records: PdfArchiveMeta[],
+  meta: Pick<
+    PdfArchiveMeta,
+    "category" | "subjectName" | "periodStart" | "periodEnd" | "statementView" | "sentViaLink"
+  >,
+) {
+  if (!meta.sentViaLink) return null;
+  const key = buildPdfArchiveStatementKey(meta);
+  const matches = records.filter((record) => record.sentViaLink && buildPdfArchiveStatementKey(record) === key);
+  if (!matches.length) return null;
+  return pickPreferredSentStatementArchive(matches);
+}
+
+export async function cleanupDuplicateSentStatementArchives() {
+  const records = await listPdfArchives();
+  const { records: partitioned, removedIds } = partitionDuplicateSentStatementArchives(records);
+
+  const sent = records.filter((record) => record.sentViaLink);
+  const byKey = new Map<string, PdfArchiveMeta[]>();
+  for (const record of sent) {
+    const key = buildPdfArchiveStatementKey(record);
+    const list = byKey.get(key) || [];
+    list.push(record);
+    byKey.set(key, list);
+  }
+
+  let kept = partitioned;
+  for (const group of byKey.values()) {
+    if (group.length < 2) continue;
+    const keeper = pickPreferredSentStatementArchive(group);
+    const duplicates = group.filter((row) => row.id !== keeper.id);
+    const updated = await migrateShareLinksFromDuplicates(keeper, duplicates);
+    kept = kept.map((row) => (row.id === keeper.id ? updated : row));
+  }
+
+  for (const id of removedIds) {
+    await deletePdfArchive(id);
+  }
+  return { records: kept, removedCount: removedIds.length };
+}
+
 export async function listSentStatementArchives(): Promise<PdfArchiveMeta[]> {
   const records = await listPdfArchives();
-  return records.filter((record) => record.sentViaLink);
+  const { records: deduped } = partitionDuplicateSentStatementArchives(records);
+  return deduped
+    .filter((record) => record.sentViaLink)
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 }

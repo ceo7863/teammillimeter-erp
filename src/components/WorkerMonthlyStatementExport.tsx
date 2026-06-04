@@ -5,6 +5,7 @@ import { dedupeStatementRowMemos } from "@/utils/statementSheets";
 import { formatMonthLabel } from "@/utils/workerMonthlyPayments";
 import {
   buildWorkerStatementSummary,
+  sortWorkerPaymentRowsByDate,
   type WorkerMasterLike,
   type WorkerPaymentDetailRow,
 } from "@/utils/workerPayments";
@@ -46,7 +47,10 @@ export function WorkerMonthlyStatementExport({
   const sheetRef = useRef<HTMLDivElement>(null);
   const periodStart = `${monthKey}-01`;
   const periodEnd = getMonthEndISO(monthKey);
-  const displayRows = useMemo(() => dedupeStatementRowMemos(rows), [rows]);
+  const displayRows = useMemo(
+    () => sortWorkerPaymentRowsByDate(dedupeStatementRowMemos(rows)),
+    [rows],
+  );
   const summary = useMemo(() => buildWorkerStatementSummary(rows, workerInfo), [rows, workerInfo]);
   const totals = useMemo(() => buildStatementTotals(rows), [rows]);
   const safeName = worker.replace(/[\\/:*?"<>|]/g, "_");
@@ -77,9 +81,8 @@ export function WorkerMonthlyStatementExport({
         disabled={rows.length === 0}
         pdfArchiveMeta={{
           category: "statement-worker",
-          subjectName: worker,
-          periodStart,
-          periodEnd,
+          workerName: worker,
+          monthKey,
         }}
       />
     </div>

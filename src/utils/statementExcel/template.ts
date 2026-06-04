@@ -164,7 +164,8 @@ function writeClientMeta(ws: XLSX.WorkSheet, merges: XLSX.Range[], row: number, 
 
 function writeWorkerMeta(ws: XLSX.WorkSheet, merges: XLSX.Range[], row: number, payload: WorkerStatementExcelPayload) {
   const lastCol = WORKER_COLS - 1;
-  row = writeMetaRow(ws, merges, row, lastCol, "연락처", payload.meta.phone, "계좌정보", payload.meta.bankAccount);
+  row = writeMetaRow(ws, merges, row, lastCol, "연락처", payload.meta.phone, "합계", payload.meta.grossPay, true);
+  row = writeMetaRow(ws, merges, row, lastCol, "계좌정보", payload.meta.bankAccount, "수수료", payload.meta.fee, true);
   row = writeMetaPeriodRow(
     ws,
     merges,
@@ -173,11 +174,9 @@ function writeWorkerMeta(ws: XLSX.WorkSheet, merges: XLSX.Range[], row: number, 
     "시공기간",
     payload.meta.periodStart,
     payload.meta.periodEnd,
-    "합계",
-    payload.meta.grossPay
+    "실수령",
+    payload.meta.netPay
   );
-  row = writeMetaAmountOnlyRow(ws, merges, row, lastCol, "수수료", payload.meta.fee);
-  row = writeMetaAmountOnlyRow(ws, merges, row, lastCol, "실수령", payload.meta.netPay);
   return row + 1;
 }
 

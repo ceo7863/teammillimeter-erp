@@ -12,7 +12,13 @@ import {
   type ClientStatementDisplayRow,
   type ClientStatementSummary,
 } from "@/utils/statementSheets";
-import { formatKRW, formatStatementDashAmount, formatStatementDate } from "@/utils/workerPayments";
+import {
+  formatKRW,
+  formatStatementDashAmount,
+  formatWorkerStatementBankAccount,
+  formatWorkerStatementDate,
+  formatStatementDate,
+} from "@/utils/workerPayments";
 import type {
   ClientStatementExcelBodyRow,
   ClientStatementExcelPayload,
@@ -177,7 +183,7 @@ export function buildWorkerStatementExcelPayload(input: {
   const bodyRows: WorkerStatementExcelBodyRow[] = hasRows
     ? input.rows.map((row) => ({
         type: "data",
-        date: formatStatementDate(row.date),
+        date: formatWorkerStatementDate(row.date),
         client: row.client || "",
         site: row.site || "",
         quantity: row.quantity,
@@ -198,9 +204,9 @@ export function buildWorkerStatementExcelPayload(input: {
     company: buildCompanyExcelInfo(input.companyProfile),
     meta: {
       phone: workerInfo.phone || "",
-      bankAccount: [workerInfo.bank, workerInfo.account].filter(Boolean).join(" "),
-      periodStart: formatStatementDate(input.periodStart || ""),
-      periodEnd: formatStatementDate(input.periodEnd || ""),
+      bankAccount: formatWorkerStatementBankAccount(workerInfo, input.workerName),
+      periodStart: formatWorkerStatementDate(input.periodStart || ""),
+      periodEnd: formatWorkerStatementDate(input.periodEnd || ""),
       grossPay: formatKRW(input.summary.grossPay),
       fee: formatKRW(input.summary.fee),
       netPay: formatKRW(input.summary.netPay),
@@ -213,12 +219,12 @@ export function buildWorkerStatementExcelPayload(input: {
           "",
           "",
           String(input.totals.count),
-          formatKRW(input.totals.basePay),
+          formatStatementDashAmount(input.totals.basePay),
           formatStatementDashAmount(input.totals.overtime),
           formatStatementDashAmount(input.totals.lodging),
           formatStatementDashAmount(input.totals.meal),
           formatStatementDashAmount(input.totals.expense),
-          formatKRW(input.totals.totalPay),
+          formatStatementDashAmount(input.totals.totalPay),
           "",
         ]
       : null,

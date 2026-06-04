@@ -187,6 +187,7 @@ export function stripWorkerLineComputedMetrics(line: WorkerLineLike): WorkerLine
   delete next.lineBill;
   delete next.lineSpend;
   delete next.lineMargin;
+  delete next._lineKey;
   return next;
 }
 

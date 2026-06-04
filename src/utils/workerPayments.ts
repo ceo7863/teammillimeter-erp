@@ -15,6 +15,7 @@ export type WorkerCategory = "\uD300\uC6D0" | "\uC678\uC8FC";
 
 export const WORKER_CATEGORY_TEAM: WorkerCategory = "\uD300\uC6D0";
 export const WORKER_CATEGORY_OUTSOURCE: WorkerCategory = "\uC678\uC8FC";
+export const WORKER_CATEGORY_OPTIONS: WorkerCategory[] = [WORKER_CATEGORY_TEAM, WORKER_CATEGORY_OUTSOURCE];
 
 export type WorkerMasterLike = {
   id?: number | string;
@@ -27,10 +28,258 @@ export type WorkerMasterLike = {
   isActive?: boolean;
   depositNameAliases?: string;
   grade?: string;
+  hireDate?: string;
+  /** E등급 종료일(승급 시 자동 기록) — 입사일 기준 월실지급 이력 유지용 */
+  eGradeEndedAt?: string;
+  /** @deprecated workerMonthlyPaymentMemos 맵으로 이전됨 — 로드 시 마이그레이션만 사용 */
+  monthlyPaymentMemo?: string;
+  constructionCost?: number;
+  customChargeCost?: number;
+  /** 시공자 포털 로그인 ID (저장 시 서버에서만 비밀번호 해시 처리) */
+  portalLoginId?: string;
+  /** 저장 요청 시에만 전송 — 서버가 portalPasswordHash로 변환 */
+  portalPassword?: string;
 };
 
 export function normalizeWorkerName(value?: string) {
   return String(value || "").trim();
+}
+
+export function normalizeWorkerRecordId(id?: number | string | null) {
+  if (id == null || id === "") return "";
+  return String(id);
+}
+
+export function workerIdsEqual(
+  left?: number | string | null,
+  right?: number | string | null,
+) {
+  const leftKey = normalizeWorkerRecordId(left);
+  const rightKey = normalizeWorkerRecordId(right);
+  return Boolean(leftKey) && leftKey === rightKey;
+}
+
+const WORKER_MASTER_TEXT_FIELDS = [
+  "hireDate",
+  "eGradeEndedAt",
+  "grade",
+  "category",
+  "depositNameAliases",
+  "portalLoginId",
+] as const;
+
+const WORKER_MASTER_NUMERIC_FIELDS = ["customChargeCost", "constructionCost"] as const;
+
+function pickWorkerMasterNumeric(incoming?: number, local?: number) {
+  const incomingNum = parseWorkerMoney(incoming);
+  const localNum = parseWorkerMoney(local);
+  if (incomingNum > 0) return incomingNum;
+  if (localNum > 0) return localNum;
+  return incomingNum || 0;
+}
+
+function pickWorkerMasterText(serverValue?: string, localValue?: string) {
+  const serverText = String(serverValue ?? "").trim();
+  const localText = String(localValue ?? "").trim();
+  if (!serverText) return localText;
+  if (!localText) return serverText;
+  if (localText === serverText) return serverText;
+  return localText;
+}
+
+function coalesceWorkerMasterText(nextValue?: string, prevValue?: string) {
+  const nextText = String(nextValue ?? "").trim();
+  if (nextText) return nextText;
+  const prevText = String(prevValue ?? "").trim();
+  return prevText;
+}
+
+function findLocalWorkerMatch(
+  worker: WorkerMasterLike,
+  localById: Map<string, WorkerMasterLike>,
+  localByName: Map<string, WorkerMasterLike>,
+) {
+  const workerId = normalizeWorkerRecordId(worker.id);
+  if (workerId && localById.has(workerId)) {
+    return localById.get(workerId);
+  }
+  return localByName.get(normalizeWorkerName(worker.name));
+}
+
+function mergeWorkerMasterPair(incoming: WorkerMasterLike, local?: WorkerMasterLike): WorkerMasterLike {
+  if (!local) return incoming;
+  const merged: WorkerMasterLike = { ...incoming };
+  for (const key of WORKER_MASTER_TEXT_FIELDS) {
+    const value = pickWorkerMasterText(
+      incoming[key as keyof WorkerMasterLike] as string | undefined,
+      local[key as keyof WorkerMasterLike] as string | undefined,
+    );
+    if (value) {
+      (merged as Record<string, string>)[key] = value;
+    } else {
+      delete (merged as Record<string, unknown>)[key];
+    }
+  }
+  for (const key of WORKER_MASTER_NUMERIC_FIELDS) {
+    const value = pickWorkerMasterNumeric(
+      incoming[key as keyof WorkerMasterLike] as number | undefined,
+      local[key as keyof WorkerMasterLike] as number | undefined,
+    );
+    if (value > 0) {
+      (merged as Record<string, number>)[key] = value;
+    } else {
+      delete (merged as Record<string, unknown>)[key];
+    }
+  }
+  return merged;
+}
+
+/** 서버 새로고침 시 로컬에만 있는 시공자 마스터 필드가 지워지지 않도록 병합 */
+export function mergeWorkerMasterFieldsFromLocal(
+  incoming: WorkerMasterLike[] = [],
+  local: WorkerMasterLike[] = [],
+) {
+  const localById = new Map(
+    local
+      .filter((worker) => normalizeWorkerRecordId(worker.id))
+      .map((worker) => [normalizeWorkerRecordId(worker.id), worker]),
+  );
+  const localByName = new Map(local.map((worker) => [normalizeWorkerName(worker.name), worker]));
+  const seenIds = new Set<string | number>();
+  const seenNames = new Set<string>();
+
+  const merged = incoming.map((worker) => {
+    if (worker.id != null) seenIds.add(worker.id);
+    const normalizedName = normalizeWorkerName(worker.name);
+    if (normalizedName) seenNames.add(normalizedName);
+    const prev = findLocalWorkerMatch(worker, localById, localByName);
+    return mergeWorkerMasterPair(worker, prev);
+  });
+
+  for (const worker of local) {
+    const idSeen = worker.id != null && seenIds.has(worker.id);
+    const nameSeen = seenNames.has(normalizeWorkerName(worker.name));
+    if (!idSeen && !nameSeen) {
+      merged.push(worker);
+      if (worker.id != null) seenIds.add(worker.id);
+      const normalizedName = normalizeWorkerName(worker.name);
+      if (normalizedName) seenNames.add(normalizedName);
+    }
+  }
+
+  return merged;
+}
+
+/** 부분 업데이트 시 ref에 있는 입사일·등급 등 마스터 필드가 빠지지 않도록 병합 */
+export function reconcileWorkerListUpdates(
+  current: WorkerMasterLike[] = [],
+  next: WorkerMasterLike[] = [],
+) {
+  const currentById = new Map(
+    current
+      .filter((worker) => normalizeWorkerRecordId(worker.id))
+      .map((worker) => [normalizeWorkerRecordId(worker.id), worker]),
+  );
+  const nextIds = new Set(
+    next.filter((worker) => normalizeWorkerRecordId(worker.id)).map((worker) => normalizeWorkerRecordId(worker.id)),
+  );
+
+  const merged = next.map((worker) => {
+    const workerId = normalizeWorkerRecordId(worker.id);
+    const prev = workerId ? currentById.get(workerId) : undefined;
+    if (!prev) return worker;
+    return {
+      ...prev,
+      ...worker,
+      grade: coalesceWorkerMasterText(worker.grade, prev.grade) || undefined,
+      hireDate: coalesceWorkerMasterText(worker.hireDate, prev.hireDate) || undefined,
+      eGradeEndedAt: coalesceWorkerMasterText(worker.eGradeEndedAt, prev.eGradeEndedAt) || undefined,
+      category: coalesceWorkerMasterText(worker.category, prev.category) || undefined,
+      depositNameAliases:
+        coalesceWorkerMasterText(worker.depositNameAliases, prev.depositNameAliases) || undefined,
+    };
+  });
+
+  for (const worker of current) {
+    const workerId = normalizeWorkerRecordId(worker.id);
+    if (workerId && !nextIds.has(workerId)) {
+      merged.push(worker);
+    }
+  }
+
+  return merged;
+}
+
+export function stripMonthlyPaymentMemoFromWorkers(workers: WorkerMasterLike[] = []) {
+  return workers.map(({ monthlyPaymentMemo: _legacy, ...worker }) => worker);
+}
+
+/** worker.monthlyPaymentMemo → workerMonthlyPaymentMemos (1회 마이그레이션) */
+export function migrateWorkerMonthlyPaymentMemosFromWorkers(
+  workers: WorkerMasterLike[] = [],
+  memos: WorkerMonthlyPaymentMemos = {},
+): WorkerMonthlyPaymentMemos {
+  const next = { ...memos };
+  for (const worker of workers) {
+    const idKey = normalizeWorkerRecordId(worker.id);
+    const text = String(worker.monthlyPaymentMemo || "").trim();
+    if (idKey && text && !next[idKey]) next[idKey] = text;
+  }
+  return next;
+}
+
+/** @deprecated migrateWorkerMonthlyPaymentMemosFromWorkers 사용 */
+export const syncWorkerMonthlyPaymentMemosFromWorkers = migrateWorkerMonthlyPaymentMemosFromWorkers;
+
+export function readWorkerMonthlyPaymentMemo(
+  workers: WorkerMasterLike[] = [],
+  workerId?: number | string | null,
+  listName?: string,
+  memos: WorkerMonthlyPaymentMemos = {},
+) {
+  let idKey = workerId != null ? normalizeWorkerRecordId(workerId) : "";
+  if (!idKey && listName) {
+    const master = findWorkerMasterByListName(workers, listName);
+    idKey = master?.id != null ? normalizeWorkerRecordId(master.id) : "";
+  }
+  if (idKey && Object.prototype.hasOwnProperty.call(memos, idKey)) {
+    return String(memos[idKey]).trim();
+  }
+  return "";
+}
+
+export type WorkerMonthlyPaymentMemos = Record<string, string>;
+
+export function normalizeWorkerMonthlyPaymentMemos(raw: unknown): WorkerMonthlyPaymentMemos {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: WorkerMonthlyPaymentMemos = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const idKey = normalizeWorkerRecordId(key);
+    const text = String(value ?? "").trim();
+    if (idKey && text) out[idKey] = text;
+  }
+  return out;
+}
+
+export function patchWorkerMonthlyPaymentMemos(
+  memos: WorkerMonthlyPaymentMemos = {},
+  workerId?: number | string | null,
+  memo?: string,
+): WorkerMonthlyPaymentMemos {
+  const idKey = normalizeWorkerRecordId(workerId);
+  if (!idKey) return memos;
+  const trimmed = String(memo ?? "").trim();
+  const next = { ...memos };
+  if (trimmed) next[idKey] = trimmed;
+  else delete next[idKey];
+  return next;
+}
+
+export function mergeWorkerMonthlyPaymentMemosForSave(
+  existing: WorkerMonthlyPaymentMemos = {},
+  incoming: WorkerMonthlyPaymentMemos = {},
+): WorkerMonthlyPaymentMemos {
+  return { ...existing, ...incoming };
 }
 
 export function normalizeWorkerCategory(value?: string): WorkerCategory {
@@ -46,13 +295,60 @@ export function findWorkerMasterByExactName(
   return workers.find((worker) => normalizeWorkerName(worker.name) === target);
 }
 
-/** 시공자 목록의 구분(category) 필드만 사용 — 시공자명 정확히 일치할 때만 */
+function stripLeadingAPrefix(name: string) {
+  const normalized = normalizeWorkerName(name);
+  return normalized.startsWith("A") && normalized.length > 1 ? normalized.slice(1) : normalized;
+}
+
+function normalizeWorkerListMatchKey(name: string) {
+  return stripLeadingAPrefix(normalizeWorkerName(name)).replace(/\s+/g, "");
+}
+
+/** 시공자 목록 매칭: 정확한 이름 → A 접두 보정 → 입금 별칭 */
+export function findWorkerMasterByListName(
+  workers: WorkerMasterLike[] = [],
+  name?: string,
+): WorkerMasterLike | undefined {
+  const exact = findWorkerMasterByExactName(workers, name);
+  if (exact) return exact;
+
+  const target = normalizeWorkerName(name);
+  if (!target) return undefined;
+  const targetCore = stripLeadingAPrefix(target);
+  const targetKey = normalizeWorkerListMatchKey(target);
+
+  for (const worker of workers) {
+    const workerName = normalizeWorkerName(worker.name);
+    if (!workerName) continue;
+    if (stripLeadingAPrefix(workerName) === targetCore) return worker;
+    if (workerName === `A${target}`) return worker;
+    if (normalizeWorkerListMatchKey(workerName) === targetKey) return worker;
+  }
+
+  for (const worker of workers) {
+    const aliases = parseDepositNameAliases(worker.depositNameAliases);
+    if (aliases.some((alias) => normalizeWorkerName(alias) === target)) return worker;
+    if (aliases.some((alias) => normalizeWorkerListMatchKey(alias) === targetKey)) return worker;
+  }
+
+  return undefined;
+}
+
+/** 매출·지급 라벨을 시공자 목록의 표준 이름으로 변환 */
+export function resolveWorkerListName(workers: WorkerMasterLike[] = [], workerName?: string) {
+  const trimmed = normalizeWorkerName(workerName);
+  if (!trimmed) return "";
+  const master = findWorkerMasterByListName(workers, trimmed);
+  return master ? normalizeWorkerName(master.name) : trimmed;
+}
+
+/** 시공자 목록의 구분(category) 필드만 사용 */
 export function resolveWorkerCategoryFromList(
   workers: WorkerMasterLike[] = [],
   workerName: string,
   master?: WorkerMasterLike | null,
 ): WorkerCategory {
-  const source = master ?? findWorkerMasterByExactName(workers, workerName);
+  const source = master ?? findWorkerMasterByListName(workers, workerName);
   return normalizeWorkerCategory(source?.category);
 }
 
@@ -62,6 +358,10 @@ export function workerCategorySortRank(value?: string) {
 
 export function isWorkerActive(worker?: Pick<WorkerMasterLike, "isActive"> | null) {
   return worker?.isActive !== false;
+}
+
+export function filterActiveWorkers(workers: WorkerMasterLike[] = []) {
+  return workers.filter((worker) => isWorkerActive(worker));
 }
 
 export function workerActiveSortRank(worker: Pick<WorkerMasterLike, "isActive">) {
@@ -182,12 +482,114 @@ export type WorkerPaymentSummaryRow = {
 
 export function formatStatementDate(value: string) {
   if (!value) return "";
-  const parts = String(value).split("-");
-  if (parts.length !== 3) return value;
-  const year = Number(parts[0]) % 100;
-  const month = Number(parts[1]);
-  const day = Number(parts[2]);
-  return `${month}/${day}/${year}`;
+  const normalized = String(value).trim();
+  const isoMatch = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (isoMatch) {
+    const year = Number(isoMatch[1]);
+    const month = Number(isoMatch[2]);
+    const day = Number(isoMatch[3]);
+    if (!year || !month || !day) return normalized;
+    return `${year}년 ${month}월 ${day}일`;
+  }
+  return normalized;
+}
+
+/** 시공자 시공내역서: 5/22/26 형식 */
+export function formatWorkerStatementDate(value: string) {
+  if (!value) return "";
+  const normalized = String(value).trim();
+  const isoMatch = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (isoMatch) {
+    const year = Number(isoMatch[1]) % 100;
+    const month = Number(isoMatch[2]);
+    const day = Number(isoMatch[3]);
+    if (!month || !day) return normalized;
+    return `${month}/${day}/${year}`;
+  }
+  return normalized;
+}
+
+export const WORKER_STATEMENT_VAT_RATE = 0.1;
+
+export function workerStatementAmountWithVat(netAmount: number, payWithVat = false) {
+  const net = Math.round(Number(netAmount) || 0);
+  if (!payWithVat || net <= 0) return net;
+  return net + Math.round(net * WORKER_STATEMENT_VAT_RATE);
+}
+
+export function formatWorkerStatementDashAmount(netAmount: number, payWithVat = false) {
+  const amount = workerStatementAmountWithVat(netAmount, payWithVat);
+  return amount ? formatKRW(amount) : "-";
+}
+
+export function formatWorkerStatementBankAccount(workerInfo: WorkerMasterLike = {}, workerName = "") {
+  const bank = String(workerInfo.bank || "").trim();
+  const account = String(workerInfo.account || "").trim();
+  const holder = String(workerName || workerInfo.name || "").trim();
+  const core = [bank, account].filter(Boolean).join(" ");
+  if (!core && !holder) return "-";
+  if (holder) return core ? `${core} (${holder})` : holder;
+  return core;
+}
+
+export function workerStatementRowVat(netAmount: number) {
+  const net = Math.round(Number(netAmount) || 0);
+  if (net <= 0) return { net: 0, vat: 0, withVat: 0 };
+  const vat = Math.round(net * WORKER_STATEMENT_VAT_RATE);
+  return { net, vat, withVat: net + vat };
+}
+
+export function formatWorkerStatementVatAmount(netAmount: number) {
+  const { vat } = workerStatementRowVat(netAmount);
+  return vat ? formatKRW(vat) : "-";
+}
+
+export function formatWorkerStatementWithVatAmount(netAmount: number) {
+  const { withVat } = workerStatementRowVat(netAmount);
+  return withVat ? formatKRW(withVat) : "-";
+}
+
+export function buildWorkerStatementVatBreakdown(summary: { grossPay: number; netPay: number }) {
+  const gross = workerStatementRowVat(summary.grossPay);
+  const net = workerStatementRowVat(summary.netPay);
+  return {
+    grossPay: gross.net,
+    grossVatAmount: gross.vat,
+    grossPayWithVat: gross.withVat,
+    netPay: net.net,
+    netVatAmount: net.vat,
+    netPayWithVat: net.withVat,
+  };
+}
+
+type WorkerStatementPayWithVatRecord = { key?: string; payWithVat?: boolean };
+type WorkerStatementPayWithVatRule = { worker?: string; payWithVat?: boolean };
+
+export function resolveWorkerStatementPayWithVat(
+  worker: string,
+  periodAnchorDate: string,
+  records: WorkerStatementPayWithVatRecord[] = [],
+  learnRules: WorkerStatementPayWithVatRule[] = [],
+) {
+  const trimmed = normalizeWorkerName(worker);
+  if (!trimmed) return false;
+
+  const monthKey = String(periodAnchorDate || "").slice(0, 7);
+  if (/^\d{4}-\d{2}$/.test(monthKey)) {
+    const recordKey = `${monthKey}::${trimmed}`;
+    const record = records.find((row) => String(row.key || "") === recordKey);
+    if (record?.payWithVat) return true;
+  }
+
+  return Boolean(learnRules.find((row) => normalizeWorkerName(row.worker) === trimmed)?.payWithVat);
+}
+
+export function sortWorkerPaymentRowsByDate<T extends { date?: string; id?: string }>(rows: T[] = []) {
+  return [...rows].sort((a, b) => {
+    const byDate = String(a.date || "").localeCompare(String(b.date || ""));
+    if (byDate !== 0) return byDate;
+    return String(a.id || "").localeCompare(String(b.id || ""));
+  });
 }
 
 export function formatStatementDashAmount(value: number) {

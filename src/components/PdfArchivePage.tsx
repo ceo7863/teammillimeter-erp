@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import {
   clearAllPdfArchives,
+  cleanupDuplicateSentStatementArchives,
   deletePdfArchive,
   downloadPdfArchives,
   downloadPdfBlob,
@@ -16,6 +17,7 @@ import {
   sharePdfBlob,
   type PdfArchiveMeta,
 } from "@/utils/pdfArchive";
+import { createPdfPreviewWindow } from "@/utils/statementPdf";
 import { getSentStatementPaymentStatusLabel } from "@/utils/bankSentStatementMatch";
 import { isBankMatchAutoLinked, isBankMatchManualLinked } from "@/utils/bankReceivableMatch";
 import { AutoLinkBadge, ManualLinkBadge } from "@/components/AutoLinkBadge";
@@ -145,9 +147,11 @@ export function PdfArchivePage({
   const loadRecords = useCallback(async () => {
     setLoading(true);
     try {
-      const next = await listPdfArchives();
+      const { records: next, removedCount } = await cleanupDuplicateSentStatementArchives();
       setRecords(next);
-      setMessage("");
+      setMessage(
+        removedCount > 0 ? `\uC911\uBC29 \uBCF4\uB0B4\uB0B4\uC5ED\uC11C ${removedCount}\uAC74\uC744 \uC815\uB9AC\uD588\uC2B5\uB2C8\uB2E4.` : "",
+      );
     } catch (error) {
       console.error(error);
       setMessage("PDF 보관함을 불러오지 못했습니다. 서버 연결 또는 로그인 상태를 확인해 주세요.");
@@ -262,19 +266,27 @@ export function PdfArchivePage({
   };
 
   const handleOpen = async (id: string) => {
+    const previewWindow = createPdfPreviewWindow();
+    if (!previewWindow) {
+      setMessage("팝업이 차단되어 미리보기를 열 수 없습니다. 브라우저에서 팝업 허용 또는 다운로드 버튼을 사용해 주세요.");
+      return;
+    }
+
     try {
       const record = await getPdfArchiveRecord(id);
       if (!record) {
+        previewWindow.close();
         setMessage("PDF를 찾을 수 없습니다.");
         return;
       }
-      const opened = openPdfBlobInNewTab(record.blob, record.fileName);
+      const opened = openPdfBlobInNewTab(record.blob, record.fileName, previewWindow);
       if (!opened) {
         setMessage("팝업이 차단되어 미리보기를 열 수 없습니다. 브라우저에서 팝업 허용 또는 다운로드 버튼을 사용해 주세요.");
       } else {
         setMessage("");
       }
     } catch (error) {
+      previewWindow.close();
       console.error(error);
       setMessage("PDF 미리보기에 실패했습니다.");
     }

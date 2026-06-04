@@ -21,19 +21,21 @@ const SalePaymentLinkContext = createContext<SalePaymentLinkContextValue>({
 export function SalePaymentLinkProvider({
   paymentVouchers = [],
   bankTransactions = [],
+  sales = [],
   children,
 }: {
   paymentVouchers?: PaymentVoucherAutoLinkSource[];
   bankTransactions?: Array<Pick<BankTransaction, "id" | "matchAutoLinked" | "linkedPaymentVoucherId">>;
+  sales?: Array<{ id?: string | number; paid?: number }>;
   children: ReactNode;
 }) {
   const autoLinkedSaleIds = useMemo(
-    () => buildAutoLinkedSaleIdSet(paymentVouchers, bankTransactions),
-    [paymentVouchers, bankTransactions]
+    () => buildAutoLinkedSaleIdSet(paymentVouchers, bankTransactions, sales),
+    [paymentVouchers, bankTransactions, sales]
   );
   const manualLinkedSaleIds = useMemo(
-    () => buildManualLinkedSaleIdSet(paymentVouchers, bankTransactions),
-    [paymentVouchers, bankTransactions]
+    () => buildManualLinkedSaleIdSet(paymentVouchers, bankTransactions, sales),
+    [paymentVouchers, bankTransactions, sales]
   );
 
   return (

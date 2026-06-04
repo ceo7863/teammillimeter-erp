@@ -84,11 +84,18 @@ export function useBankLiveSync({
       }));
 
       const serverCount = Array.isArray(snapshot.bankTransactions) ? snapshot.bankTransactions.length : localCountRef.current;
-      const shouldApply =
+      const localCount = localCountRef.current;
+      let shouldApply =
         applyChanges &&
-        snapshot.changed &&
         Array.isArray(snapshot.bankTransactions) &&
-        (snapshot.version > sinceVersionRef.current || serverCount !== localCountRef.current);
+        (snapshot.changed
+          ? snapshot.version > sinceVersionRef.current || serverCount !== localCount
+          : localCount === 0 && serverCount > 0);
+
+      // Local import/save in flight: never overwrite with a smaller server snapshot.
+      if (shouldApply && localCount > serverCount) {
+        shouldApply = false;
+      }
 
       if (shouldApply) {
         onRemoteUpdateRef.current(snapshot);

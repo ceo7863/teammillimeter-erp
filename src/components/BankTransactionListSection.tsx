@@ -1,14 +1,20 @@
 import React, { memo, useCallback, useMemo, useRef, useState } from "react";
+import { BankTransactionMobileList } from "@/components/BankTransactionMobileList";
 import {
   BankTransactionSimpleTable,
   type BankTransactionSimpleTableLabels,
 } from "@/components/BankTransactionSimpleTable";
+import type { BankTransactionCompactRowLabels } from "@/components/BankTransactionCompactRow";
 import type { BankTransactionFolder } from "@/utils/bankTransactionFolders";
 import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "@/utils/companyLedger";
 import type { BankTransaction } from "@/utils/bankTransactions";
-import { buildBankTransactionListRowModels } from "@/utils/bankTransactionListDisplay";
+import {
+  buildBankTransactionListLookupMaps,
+  buildBankTransactionListRowModels,
+} from "@/utils/bankTransactionListDisplay";
 
-export type BankTransactionListSectionLabels = BankTransactionSimpleTableLabels & {
+export type BankTransactionListSectionLabels = BankTransactionSimpleTableLabels &
+  BankTransactionCompactRowLabels & {
   detailRowHint: string;
   unfiled: string;
   memoPlaceholder: string;
@@ -21,6 +27,7 @@ type BankTransactionListSectionProps = {
   companyExpenses: CompanyExpense[];
   fixedExpensePayments: FixedExpensePayment[];
   fixedExpenses: FixedExpense[];
+  paymentVouchers?: Array<{ bankTransactionId?: string | number; isPartialPayment?: boolean }>;
   labels: BankTransactionListSectionLabels;
   onOpenDetail: (row: BankTransaction) => void;
 };
@@ -32,6 +39,7 @@ function BankTransactionListSectionComponent({
   companyExpenses,
   fixedExpensePayments,
   fixedExpenses,
+  paymentVouchers = [],
   labels,
   onOpenDetail,
 }: BankTransactionListSectionProps) {
@@ -40,27 +48,22 @@ function BankTransactionListSectionComponent({
 
   rowByIdRef.current = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
 
+  const lookupMaps = useMemo(
+    () => buildBankTransactionListLookupMaps(companyExpenses, fixedExpensePayments, fixedExpenses),
+    [companyExpenses, fixedExpensePayments, fixedExpenses],
+  );
+
   const rowModels = useMemo(
     () =>
       buildBankTransactionListRowModels(
         rows,
         folderMap,
         ledgerCategoryFolder,
-        companyExpenses,
-        fixedExpensePayments,
-        fixedExpenses,
+        lookupMaps,
         { unfiled: labels.unfiled, memoPlaceholder: labels.memoPlaceholder },
+        paymentVouchers,
       ),
-    [
-      rows,
-      folderMap,
-      ledgerCategoryFolder,
-      companyExpenses,
-      fixedExpensePayments,
-      fixedExpenses,
-      labels.unfiled,
-      labels.memoPlaceholder,
-    ],
+    [rows, folderMap, ledgerCategoryFolder, lookupMaps, labels.unfiled, labels.memoPlaceholder, paymentVouchers],
   );
 
   const rowIds = useMemo(() => rows.map((row) => row.id), [rows]);
@@ -93,13 +96,34 @@ function BankTransactionListSectionComponent({
     [labels],
   );
 
+  const badgeLabels = useMemo(
+    (): BankTransactionCompactRowLabels => ({
+      preauthNetSettlementBadge: labels.preauthNetSettlementBadge,
+      preauthNetRefundBadge: labels.preauthNetRefundBadge,
+      preauthNetSuppressedBadge: labels.preauthNetSuppressedBadge,
+      autoLinkBadgeTitle: labels.autoLinkBadgeTitle,
+      manualLinkBadgeTitle: labels.manualLinkBadgeTitle,
+      partialPaymentBadgeTitle: labels.partialPaymentBadgeTitle,
+    }),
+    [labels],
+  );
+
   return (
     <>
       <p className="mb-2 text-xs font-semibold text-slate-500">{labels.detailRowHint}</p>
+      <BankTransactionMobileList
+        rowIds={rowIds}
+        rowModels={rowModels}
+        labels={tableLabels}
+        badgeLabels={badgeLabels}
+        selectedTxId={selectedTxId}
+        onSelect={handleSelect}
+      />
       <BankTransactionSimpleTable
         rowIds={rowIds}
         rowModels={rowModels}
         labels={tableLabels}
+        badgeLabels={badgeLabels}
         selectedTxId={selectedTxId}
         onSelect={handleSelect}
       />

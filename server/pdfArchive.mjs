@@ -239,3 +239,57 @@ export function getPdfArchiveFileByShareToken(token) {
     fileName: row.file_name,
   };
 }
+
+function extractShareTokenFromUrl(url) {
+  const match = String(url || "").match(/\/pdf-share\/([^/?#]+)/);
+  return match ? decodeURIComponent(match[1]).trim() : "";
+}
+
+/** Move share_token / share_link_url from duplicate to keeper so customer links keep working. */
+export function migratePdfArchiveShareLink(keeperId, duplicateId) {
+  if (!keeperId || !duplicateId || keeperId === duplicateId) {
+    return getPdfArchiveMetaById(keeperId);
+  }
+
+  const db = getDb();
+  const keeper = db
+    .prepare("SELECT id, share_token, share_link_url FROM pdf_archives WHERE id = ?")
+    .get(keeperId);
+  const duplicate = db
+    .prepare("SELECT id, share_token, share_link_url FROM pdf_archives WHERE id = ?")
+    .get(duplicateId);
+  if (!keeper || !duplicate) return getPdfArchiveMetaById(keeperId);
+
+  const keeperToken = String(keeper.share_token || "").trim();
+  const duplicateToken = String(duplicate.share_token || "").trim();
+  const keeperUrl = String(keeper.share_link_url || "").trim();
+  const duplicateUrl = String(duplicate.share_link_url || "").trim();
+  const effectiveDuplicateToken = duplicateToken || extractShareTokenFromUrl(duplicateUrl);
+
+  let nextToken = keeperToken;
+  let nextUrl = keeperUrl;
+
+  if (!keeperToken && effectiveDuplicateToken) {
+    nextToken = effectiveDuplicateToken;
+    if (!keeperUrl && duplicateUrl) nextUrl = duplicateUrl;
+  } else if (!keeperUrl && duplicateUrl) {
+    nextUrl = duplicateUrl;
+  }
+
+  const tokenChanged = Boolean(nextToken && nextToken !== keeperToken);
+  const urlChanged = Boolean(nextUrl && nextUrl !== keeperUrl);
+  if (!tokenChanged && !urlChanged) return getPdfArchiveMetaById(keeperId);
+
+  const apply = db.transaction(() => {
+    if (tokenChanged) {
+      db.prepare("UPDATE pdf_archives SET share_token = NULL WHERE id = ?").run(duplicateId);
+      db.prepare("UPDATE pdf_archives SET share_token = ? WHERE id = ?").run(nextToken, keeperId);
+    }
+    if (urlChanged) {
+      db.prepare("UPDATE pdf_archives SET share_link_url = ? WHERE id = ?").run(nextUrl, keeperId);
+    }
+  });
+  apply();
+
+  return getPdfArchiveMetaById(keeperId);
+}

@@ -27,6 +27,7 @@ type TableExportSectionProps = {
   title?: string;
   disabled?: boolean;
   hidePdf?: boolean;
+  hideToolbar?: boolean;
   className?: string;
   toolbarTabIndex?: number;
   tableSelector?: string;
@@ -195,6 +196,7 @@ export function TableExportSection({
   title,
   disabled = false,
   hidePdf = false,
+  hideToolbar = false,
   className = "",
   tableSelector = "table",
   exportRootSelector,
@@ -212,17 +214,19 @@ export function TableExportSection({
 
   return (
     <div className={`erp-table-export-section ${className}`.trim()} ref={rootRef}>
-      <TableExportToolbar
-        getTable={getTable}
-        getExportRoot={exportRootSelector ? getExportRoot : undefined}
-        getParsedTable={getParsedTable}
-        fileName={fileName}
-        title={title ?? fileName}
-        disabled={disabled}
-        hidePdf={hidePdf}
-        pdfArchiveMeta={pdfArchiveMeta}
-        toolbarTabIndex={toolbarTabIndex}
-      />
+      {hideToolbar ? null : (
+        <TableExportToolbar
+          getTable={getTable}
+          getExportRoot={exportRootSelector ? getExportRoot : undefined}
+          getParsedTable={getParsedTable}
+          fileName={fileName}
+          title={title ?? fileName}
+          disabled={disabled}
+          hidePdf={hidePdf}
+          pdfArchiveMeta={pdfArchiveMeta}
+          toolbarTabIndex={toolbarTabIndex}
+        />
+      )}
       {children}
     </div>
   );

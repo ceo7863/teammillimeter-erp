@@ -1,4 +1,5 @@
 import type { BankTransaction } from "./bankTransactions";
+import { hasManualClientClassificationOverride } from "./bankTransactions";
 import { isCardCompanyDeposit } from "./bankTransactionFolders";
 import type { ClientDepositMatchSource } from "./clientDepositAliases";
 import { resolveBankDepositMatchSubject, resolveDepositSubjectClientMatch } from "./clientDepositAliases";
@@ -602,4 +603,88 @@ export function bankTxHasPartialPaymentVoucher(
   return paymentVouchers.some(
     (voucher) => String(voucher.bankTransactionId || "") === tx.id && voucher.isPartialPayment,
   );
+}
+
+export type SentStatementAutoLinkDraft = {
+  txId: string;
+  client: string;
+  pdfArchiveId: string;
+  paymentStatus: "confirmed" | "partial";
+  primaryVoucherId: number | string;
+  primarySalesId?: number | string;
+  vouchers: BankPaymentVoucherDraft[];
+};
+
+/** 보낸내역서 ↔ 통장입금 고신뢰 매칭(기본 score ≥ 75)을 일괄 생성합니다. */
+export function buildHighConfidenceSentStatementAutoLinks(options: {
+  bankTransactions: BankTransaction[];
+  archives: PdfArchiveMeta[];
+  clients?: ClientDepositMatchSource[];
+  sales?: SaleLikeForStatement[];
+  paymentVouchers?: PaymentVoucherLike[];
+  onlyTransactionIds?: Set<string>;
+  minScore?: number;
+}): SentStatementAutoLinkDraft[] {
+  const {
+    bankTransactions,
+    archives,
+    clients,
+    sales,
+    paymentVouchers = [],
+    onlyTransactionIds,
+    minScore = 75,
+  } = options;
+
+  const linkedBankIds = new Set(
+    paymentVouchers.map((voucher) => String(voucher.bankTransactionId || "")).filter(Boolean),
+  );
+  const drafts: SentStatementAutoLinkDraft[] = [];
+  let workingVouchers = [...paymentVouchers];
+
+  for (const { tx, candidates } of buildAllSentStatementDepositSuggestions(
+    bankTransactions,
+    archives,
+    clients,
+    workingVouchers,
+  )) {
+    if (onlyTransactionIds && !onlyTransactionIds.has(tx.id)) continue;
+    if (tx.linkedPaymentVoucherId || linkedBankIds.has(tx.id)) continue;
+    if (hasManualClientClassificationOverride(tx)) continue;
+
+    const candidate = candidates[0];
+    if (!candidate || candidate.score < minScore) continue;
+
+    const archive = archives.find((row) => row.id === candidate.pdfArchiveId);
+    const paidSoFar = resolveStatementPaidAmount(candidate.pdfArchiveId, workingVouchers, bankTransactions);
+    const vouchers = createPaymentVouchersFromSentStatementMatch(tx, candidate, {
+      sales,
+      clients,
+      archive,
+      paymentVouchers: workingVouchers,
+    });
+    if (!vouchers.length) continue;
+
+    const appliedAmount = vouchers.reduce((sum, voucher) => sum + Number(voucher.finalAmount || 0), 0);
+    const paymentStatus = resolveArchivePaymentStatusAfterApply(
+      candidate.statementTotalAmount,
+      paidSoFar,
+      appliedAmount,
+    );
+    const primaryVoucher = vouchers[0];
+
+    drafts.push({
+      txId: tx.id,
+      client: candidate.client,
+      pdfArchiveId: candidate.pdfArchiveId,
+      paymentStatus,
+      primaryVoucherId: primaryVoucher.id,
+      primarySalesId: vouchers.length === 1 ? primaryVoucher.salesId : undefined,
+      vouchers,
+    });
+
+    workingVouchers = [...workingVouchers, ...vouchers];
+    linkedBankIds.add(tx.id);
+  }
+
+  return drafts;
 }

@@ -8,14 +8,20 @@ export function getSidebarOrderStorageKey(userId: string | number) {
 
 export function normalizeSidebarOrder(value: unknown): ErpPageKey[] | null {
   if (!Array.isArray(value)) return null;
-  const legacySet = new Set<string>(["companyLedger", "taxInvoices", "bankTransactions"]);
+  const legacyAccountingSet = new Set<string>(["companyLedger", "taxInvoices", "bankTransactions"]);
+  const legacyStatementSet = new Set<string>(["pdfArchive"]);
+  const legacyBasicInfoSet = new Set<string>(["clients", "workers", "companyProfile"]);
+  const legacyUserAdminSet = new Set<string>(["auditLog", "loginHistory"]);
   let hasAccounting = false;
+  let hasStatements = false;
+  let hasBasicInfo = false;
+  let hasUserAdmin = false;
   const unique: ErpPageKey[] = [];
   const seen = new Set<string>();
 
   for (const item of value) {
     if (typeof item !== "string") continue;
-    if (legacySet.has(item)) {
+    if (legacyAccountingSet.has(item)) {
       if (!hasAccounting) {
         hasAccounting = true;
         if (!seen.has("accounting")) {
@@ -25,8 +31,41 @@ export function normalizeSidebarOrder(value: unknown): ErpPageKey[] | null {
       }
       continue;
     }
+    if (legacyStatementSet.has(item)) {
+      if (!hasStatements) {
+        hasStatements = true;
+        if (!seen.has("statements")) {
+          seen.add("statements");
+          unique.push("statements");
+        }
+      }
+      continue;
+    }
+    if (legacyBasicInfoSet.has(item)) {
+      if (!hasBasicInfo) {
+        hasBasicInfo = true;
+        if (!seen.has("basicInfo")) {
+          seen.add("basicInfo");
+          unique.push("basicInfo");
+        }
+      }
+      continue;
+    }
+    if (legacyUserAdminSet.has(item)) {
+      if (!hasUserAdmin) {
+        hasUserAdmin = true;
+        if (!seen.has("usersAdmin")) {
+          seen.add("usersAdmin");
+          unique.push("usersAdmin");
+        }
+      }
+      continue;
+    }
     if (!isErpPageKey(item) || seen.has(item)) continue;
     if (item === "accounting") hasAccounting = true;
+    if (item === "statements") hasStatements = true;
+    if (item === "basicInfo") hasBasicInfo = true;
+    if (item === "usersAdmin") hasUserAdmin = true;
     seen.add(item);
     unique.push(item);
   }

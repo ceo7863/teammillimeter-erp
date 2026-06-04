@@ -1,4 +1,5 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, startTransition } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertCircle,
   ArrowDown,
@@ -39,6 +40,7 @@ import {
   ArrowLeft,
   ArrowLeftRight,
   BookOpen,
+  BookUser,
   UserCog,
   Megaphone,
   Receipt,
@@ -62,15 +64,16 @@ import { SalesManagementPage } from "@/components/SalesManagementPage";
 import { PaymentReceivablesPage } from "@/components/PaymentReceivablesPage";
 import { WorkerPaymentsPage } from "@/components/WorkerPaymentsPage";
 import { StatementsPage } from "@/components/StatementsPage";
-import { PdfArchivePage } from "@/components/PdfArchivePage";
 import { MyAccountModal } from "@/components/MyAccountModal";
 import { SidebarMenuOrderModal } from "@/components/SidebarMenuOrderModal";
 import { UsersAdminPage } from "@/components/UsersAdminPage";
 import { AccountingHubPage } from "@/components/AccountingHubPage";
+import { BasicInfoHubPage } from "@/components/BasicInfoHubPage";
 import { AttendancePage } from "@/components/AttendancePage";
 import { AutoLinkBadge, SalePaymentLinkBadge, SalePaymentLinkProvider } from "@/components/AutoLinkBadge";
 import { buildAutoLinkedSaleIdSet, buildManualLinkedSaleIdSet, isSaleAutoLinkedPaid, isSaleManualLinkedPaid } from "@/utils/bankReceivableMatch";
 import { ClientStatementModal } from "@/components/ClientStatementModal";
+import { CalendarClientSearchModal } from "@/components/CalendarClientSearchModal";
 import { filterClientCalendarSales, normalizeClientCalendarName } from "@/utils/clientCalendarStats";
 import { CompanyNoticeBoardPage } from "@/components/CompanyNoticeBoardPage";
 import { CompanyProfilePage } from "@/components/CompanyProfilePage";
@@ -79,14 +82,34 @@ import { formatDepositNameAliases } from "@/utils/clientDepositAliases";
 import { normalizeCompanyNotices } from "@/utils/companyNotices";
 import { normalizeWorkPosts } from "@/utils/workBoard";
 import { normalizeTaxInvoices } from "@/utils/taxInvoices";
-import { normalizeBankTransactions, type BankTransaction } from "@/utils/bankTransactions";
+import {
+  normalizeBankTransactions,
+  mergeRemoteBankTransactionRow,
+  mergeBankTransactionsUnion,
+  syncBankTransactionsForSaleClientChange,
+  type BankTransaction,
+} from "@/utils/bankTransactions";
 import { normalizeBankLedgerMatchRules, syncBankTransactionLedgerLinkFields } from "@/utils/bankCompanyLedger";
 import { syncFixedExpenseAutomation } from "@/utils/fixedExpenseAutomation";
 import { normalizeExpenseCategories, normalizeFixedExpenseCategories } from "@/utils/companyLedger";
-import { normalizeBankTransactionFolders, syncLedgerLinkedBankTransactionFolders } from "@/utils/bankTransactionFolders";
+import { normalizeBankTransactionFolders, syncLedgerLinkedBankTransactionFolders, reconcileLedgerFolderWithoutLedgerLink } from "@/utils/bankTransactionFolders";
 import { normalizeWorkerPayoutVouchers } from "@/utils/workerPayoutLedger";
-import { normalizeWorkerMonthlyActualVouchers, normalizeWorkerPayWithVatLearnRules } from "@/utils/workerMonthlyActualPayments";
+import {
+  clearOrphanWorkerMonthlyBankLinks,
+  mergeBankTransactionsWorkerMonthlyLinksFromLocal,
+  mergeWorkerMonthlyActualVouchersFromLocal,
+  normalizeWorkerMonthlyActualVouchers,
+  normalizeWorkerPayWithVatLearnRules,
+  repairMisallocatedWorkerMonthlyVouchers,
+  repairWorkerMonthlyVoucherBankEntriesFromLinks,
+  refreshVoucherPaidAmount,
+} from "@/utils/workerMonthlyActualPayments";
+import { mergeSalesByUpdatedAt } from "@/utils/erpStateMerge";
 import { migrateActivePageKey, storeAccountingTab } from "@/utils/accountingHub";
+import { migrateBasicInfoPageKey, resolveBasicInfoTabAccess, storeBasicInfoTab } from "@/utils/basicInfoHub";
+import { UserAdminHubPage } from "@/components/UserAdminHubPage";
+import { migrateUserAdminPageKey, resolveUserAdminTabAccess, storeUserAdminTab } from "@/utils/userAdminHub";
+import { migrateStatementPageKey, storeStatementTab } from "@/utils/statementHub";
 import { normalizeStatementGenerationLogs } from "@/utils/statementGenerationLogs";
 import { normalizeStatementFolders } from "@/utils/statementFolders";
 import { normalizeAttendanceRecords } from "@/utils/attendance";
@@ -104,14 +127,35 @@ import { buildClientLastSaleDateMap } from "@/utils/clientListExport";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { PageKeepAlive } from "@/components/PageKeepAlive";
 import { DesktopTableWrap, MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
-import { AutocompleteInput, AutocompleteSelect } from "@/components/AutocompleteInput";
+import { AutocompleteInput, AutocompleteSelect, BufferedTextInput } from "@/components/AutocompleteInput";
+import { focusKoreanTextInput, prepareKoreanTextInput } from "@/utils/koreanIme";
 import { buildReceivableRowsFromSales, getStatus, getUnpaid, parseMoney, formatMoneyInput, sanitizeMoneyInput } from "@/utils/receivables";
-import { getSaleStaffCount, getSaleTotalBill, getSaleWorkerLines, normalizeSalesRecords } from "@/utils/saleBilling";
+import {
+  getSaleStaffCount,
+  getSaleTotalBill,
+  getSaleWorkerLines,
+  normalizeSalesRecords,
+  resolveWorkerLineChargeAmount,
+  resolveWorkerLineUnitCost,
+} from "@/utils/saleBilling";
 import { formatWorkerNameSummary } from "@/utils/statementSheets";
 import { buildSaleDuplicateIndex, findSalesWithSameClientWorkerDate, isDuplicateSale } from "@/utils/saleDuplicates";
 import { filterNamedSuggestions } from "@/utils/autocompleteFilter";
 import { confirmDelete } from "@/utils/confirmDelete";
 import { filterSalesVoucherRows } from "@/utils/saleVoucherSearch";
+import {
+  buildSaleFromForm,
+  compactSaleForm,
+  createWorkerLine,
+  emptySaleForm,
+  enrichWorkerLineOnWorkerSelect,
+  flushSaleFormFocusedInputs,
+  reEnrichWorkerLinesForClient,
+  saleRowToForm,
+  validateSaleFormMasterRefs,
+} from "@/utils/saleForm";
+import { SaleVoucherEditModal } from "@/components/SaleVoucherEditModal";
+import { WorkerPortalView } from "@/components/WorkerPortalView";
 import { allocateNextSaleRecordIds, getSaleVoucherLabel, parseVoucherSequence } from "@/utils/saleVoucherNo";
 import {
   SALE_AUDIT_FIELDS,
@@ -124,6 +168,7 @@ import {
   snapshotPaymentForAudit,
   appendAuditLogs,
   buildAuditEntries,
+  diffAuditRecords,
   mergeAuditLogs,
 } from "@/utils/auditLog";
 import {
@@ -144,6 +189,27 @@ import {
   sumWorkerFormTotals,
 } from "@/utils/workerLineMetrics";
 import {
+  compareWorkerMastersDefault,
+  filterActiveWorkers,
+  findWorkerMasterByListName,
+  isWorkerActive,
+  mergeWorkerMasterFieldsFromLocal,
+  resolveWorkerListName,
+  reconcileWorkerListUpdates,
+  migrateWorkerMonthlyPaymentMemosFromWorkers,
+  normalizeWorkerMonthlyPaymentMemos,
+  patchWorkerMonthlyPaymentMemos,
+  mergeWorkerMonthlyPaymentMemosForSave,
+  stripMonthlyPaymentMemoFromWorkers,
+  normalizeWorkerRecordId,
+  workerIdsEqual,
+  type WorkerMonthlyPaymentMemos,
+  normalizeWorkerCategory,
+  WORKER_CATEGORY_OPTIONS,
+  WORKER_CATEGORY_OUTSOURCE,
+  workerCategorySortRank,
+} from "@/utils/workerPayments";
+import {
   clearAuthSession,
   fetchErpData,
   getAuthToken,
@@ -151,9 +217,15 @@ import {
   loadAuthUser,
   loginWithApi,
   saveErpData,
+  saveWorkerMonthlyPaymentMemoApi,
   updateSidebarOrderApi,
   type BankSyncSnapshot,
 } from "@/utils/erpApi";
+import {
+  clearWorkerPortalSession,
+  getWorkerPortalToken,
+  loginWorkerPortal,
+} from "@/utils/workerPortalApi";
 import {
   canUserAccessPage,
   getAccessiblePageDefs,
@@ -228,6 +300,21 @@ const initialWorkers = [
 const STORAGE_KEY = "teammillimeter-erp-stable-v1";
 const SESSION_USER_KEY = "teammillimeter-erp-session";
 const ACTIVE_TAB_KEY = "teammillimeter-erp-active-tab";
+
+function migrateStoredActiveTab(stored: string) {
+  const accounting = migrateActivePageKey(stored);
+  const statement = migrateStatementPageKey(accounting.page);
+  const basicInfo = migrateBasicInfoPageKey(statement.page);
+  const userAdmin = migrateUserAdminPageKey(basicInfo.page);
+  return {
+    page: userAdmin.page,
+    accountingTab: accounting.accountingTab,
+    statementTab: statement.statementTab,
+    basicInfoTab: basicInfo.basicInfoTab,
+    userAdminTab: userAdmin.userAdminTab,
+  };
+}
+
 const REMEMBER_LOGIN_ID_KEY = "teammillimeter-erp-remember-login-id";
 const REMEMBER_LOGIN_ID_FLAG_KEY = "teammillimeter-erp-remember-login-id-enabled";
 
@@ -432,84 +519,273 @@ const emptyReceivableForm = {
   memo: "",
 };
 
-const createWorkerLine = (index) => ({
-  no: index + 1,
-  worker: "",
-  quantity: "",
-  unitCost: "",
-  chargeAmount: "",
-  meal: "",
-  lodging: "",
-  expense: "",
-  overtimeHours: "",
-  overtimeCost: "30000",
-  memo: "",
+const SaleFormTotalsBar = memo(function SaleFormTotalsBar({ bill, spend, margin }) {
+  return (
+    <div className="erp-sale-form-compact-metrics erp-sale-form-compact-metrics--above-table erp-sale-form-compact-metrics--below-grid">
+      <div className="erp-sale-form-compact-metric">
+        <span className="label">청구</span>
+        <span className="value">{formatKRW(bill)}</span>
+      </div>
+      <div className="erp-sale-form-compact-metric">
+        <span className="label">지급</span>
+        <span className="value">{formatKRW(spend)}</span>
+      </div>
+      <div className={`erp-sale-form-compact-metric ${margin < 0 ? "is-negative" : "is-positive"}`}>
+        <span className="label">마진</span>
+        <span className="value">{formatKRW(margin)}</span>
+      </div>
+    </div>
+  );
 });
 
-const emptySaleForm = {
-  date: todayISO(),
-  client: "",
-  site: "",
-  paid: "",
-  memo: "",
-  officeMemo: "",
-  workers: Array.from({ length: 5 }, (_, index) => createWorkerLine(index)),
-};
-
-const compactSaleForm = () => ({
-  ...emptySaleForm,
-  workers: Array.from({ length: 8 }, (_, index) => createWorkerLine(index)),
+const SaleFormSiteField = memo(function SaleFormSiteField({
+  value,
+  locked,
+  onCommit,
+  onKeyDown,
+}) {
+  return (
+    <BufferedTextInput
+      className={`erp-input-compact${locked ? " erp-input-compact--locked" : ""}`}
+      data-sale-form-site="true"
+      value={value}
+      commitOnBlurOnly={!locked}
+      onCommit={onCommit}
+      onKeyDown={locked ? undefined : onKeyDown}
+      placeholder="현장명"
+      readOnly={locked}
+      disabled={locked}
+    />
+  );
 });
 
-function saleRowToForm(row, minWorkerRows = 8) {
-  const workerLines = row.workers?.length
-    ? row.workers.map((line, index) => {
-        const merged = { ...createWorkerLine(index), ...line };
-        if (
-          Object.prototype.hasOwnProperty.call(merged, "chargeAmount") &&
-          !hasExplicitWorkerField(merged.chargeAmount) &&
-          isLineBillStaleUnitCostFallback(merged)
-        ) {
-          return stripWorkerLineComputedMetrics(merged);
+const SaleFormMemoAfterWorkersBlock = memo(function SaleFormMemoAfterWorkersBlock({
+  memo,
+  officeMemo,
+  onSharedMemoCommit,
+  onOfficeMemoCommit,
+}) {
+  return (
+    <div className="erp-sale-form-memo-after-workers">
+      <SaleFormField label="공통비고" icon={FileText}>
+        <BufferedTextInput
+          className="erp-input-compact"
+          value={memo}
+          commitOnBlurOnly
+          onCommit={onSharedMemoCommit}
+          placeholder="시공자 공통 비고"
+        />
+      </SaleFormField>
+      <SaleFormField label="사무실메모" icon={FileText}>
+        <BufferedTextInput
+          className="erp-input-compact"
+          value={officeMemo}
+          commitOnBlurOnly
+          onCommit={onOfficeMemoCommit}
+          placeholder="사무실 메모"
+        />
+      </SaleFormField>
+    </div>
+  );
+});
+
+const SaleFormInlineHeaderFields = memo(function SaleFormInlineHeaderFields({
+  date,
+  client,
+  site,
+  paid,
+  memo,
+  officeMemo,
+  showPaidField,
+  memoAfterWorkers,
+  clients,
+  clientSiteLocked,
+  allowClientSiteUnlock,
+  onClientSiteUnlockClick,
+  onUpdate,
+  onSiteCommit,
+  onSiteKeyDown,
+  onSharedMemoChange,
+}) {
+  return (
+    <div className={`erp-sale-form-inline-grid${!showPaidField ? " erp-sale-form-inline-grid--no-paid" : ""}${allowClientSiteUnlock ? " erp-sale-form-inline-grid--client-unlock" : ""}`}>
+      <SaleFormField label="일자" icon={CalendarDays}>
+        <div className="erp-sale-form-date-wrap">
+          <Input type="date" className="erp-input-compact" value={date} onChange={(e) => onUpdate("date", e.target.value)} />
+          <button type="button" className="erp-sale-form-date-today" onClick={() => onUpdate("date", todayISO())}>
+            {"\uC624\uB298"}
+          </button>
+        </div>
+      </SaleFormField>
+      <SaleFormField
+        label="거래처"
+        icon={Building2}
+        className="erp-sale-form-field--client-unlock"
+        labelAction={
+          allowClientSiteUnlock && clientSiteLocked ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="erp-sale-form-client-change-btn"
+              onClick={onClientSiteUnlockClick}
+            >
+              <Pencil size={13} />
+              변경
+            </Button>
+          ) : null
         }
-        return merged;
-      })
-    : [{
-      ...createWorkerLine(0),
-      worker: row.worker || "",
-      quantity: "1",
-      chargeAmount: String(row.amount || ""),
-      unitCost: String(row.amount || ""),
-    }];
+      >
+        <div className="erp-sale-form-client-row">
+          {clientSiteLocked ? (
+            <Input className="erp-input-compact erp-input-compact--locked" value={client} readOnly disabled />
+          ) : (
+            <AutocompleteInput
+              value={client}
+              options={clients}
+              onChange={(value) => onUpdate("client", value)}
+              placeholder="거래처"
+              freeSolo={false}
+              inputProps={{ className: "erp-input-compact" }}
+              renderSub={(clientOption) => `${clientOption.manager || "담당자 없음"} · ${formatKRW(clientOption.constructionCost || 0)}`}
+            />
+          )}
+        </div>
+      </SaleFormField>
+      <SaleFormField label="현장" icon={MapPin} className="erp-sale-form-field--site-unlock">
+        <SaleFormSiteField
+          value={site}
+          locked={clientSiteLocked}
+          onCommit={onSiteCommit}
+          onKeyDown={onSiteKeyDown}
+        />
+      </SaleFormField>
+      {showPaidField && (
+        <SaleFormField label="입금" icon={CreditCard}>
+          <MoneyInput className="erp-input-compact" value={paid} onChange={(e) => onUpdate("paid", e.target.value)} placeholder="0" />
+        </SaleFormField>
+      )}
+      {!memoAfterWorkers && (
+        <>
+          <SaleFormField label="공통비고" icon={FileText}>
+            <Input className="erp-input-compact" value={memo} onChange={(e) => onSharedMemoChange(e.target.value)} placeholder="시공자 공통 비고" />
+          </SaleFormField>
+          <SaleFormField label="사무실메모" icon={FileText}>
+            <Input className="erp-input-compact" value={officeMemo || ""} onChange={(e) => onUpdate("officeMemo", e.target.value)} placeholder="사무실 메모" />
+          </SaleFormField>
+        </>
+      )}
+    </div>
+  );
+});
 
-  while (workerLines.length < minWorkerRows) {
-    workerLines.push(createWorkerLine(workerLines.length));
+const SaleFormCompactFooter = memo(function SaleFormCompactFooter({
+  canSave,
+  saveMessage,
+  footerStatus,
+  saveLabel,
+  onReset,
+  onSave,
+  onAddWorkerLine,
+  secondaryAction,
+  footerStartExtra,
+}) {
+  return (
+    <div className="erp-sale-form-footer erp-sale-form-footer--compact">
+      <div className="erp-sale-form-footer-start">
+        {onReset ? (
+          <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={onReset}>
+            <RotateCcw size={13} />
+            초기화
+          </Button>
+        ) : null}
+        {footerStartExtra}
+      </div>
+      <div className="erp-sale-form-footer-status">
+        {saveMessage ? (
+          <>
+            <CheckCircle2 size={14} className="text-emerald-600" />
+            <span className="text-emerald-700">{saveMessage}</span>
+          </>
+        ) : footerStatus ? (
+          <>
+            <CheckCircle2 size={14} className={canSave ? "text-emerald-600" : "text-amber-500"} />
+            <span>{footerStatus}</span>
+          </>
+        ) : (
+          <>
+            <AlertCircle size={14} className="text-amber-500" />
+            <span>등록된 거래처·시공자 선택 및 현장·청구액 입력 필요</span>
+          </>
+        )}
+      </div>
+      <div className="erp-sale-form-footer-actions">
+        {secondaryAction}
+        <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={onAddWorkerLine}>
+          <Plus size={13} />
+          행 추가
+        </Button>
+        <Button size="sm" className="h-8 rounded-lg px-4 text-xs" onClick={onSave} disabled={!canSave}>
+          <Save size={13} />
+          {saveLabel}
+        </Button>
+      </div>
+    </div>
+  );
+});
+
+const SaleFormLiveTotalsSection = memo(function SaleFormLiveTotalsSection({ workerRows, workers }) {
+  const totals = useMemo(
+    () => sumWorkerFormTotals(workerRows, workers),
+    [workerRows, workers],
+  );
+  return <SaleFormTotalsBar bill={totals.bill} spend={totals.spend} margin={totals.margin} />;
+}, (prev, next) =>
+  saleFormWorkerRowsEqual(prev.workerRows, next.workerRows)
+  && prev.workers === next.workers);
+
+function saleFormWorkerRowsEqual(a, b) {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] !== b[index]) return false;
   }
+  return true;
+}
 
+function pickSaleFormMeta(form) {
   return {
-    date: row.date || todayISO(),
-    client: row.client || "",
-    site: row.site || "",
-    paid: row.manualPaidCleared ? "" : String(row.basePaid ?? 0),
-    memo: row.memo || "",
-    officeMemo: row.officeMemo || "",
-    workers: workerLines,
+    date: form.date,
+    client: form.client,
+    site: form.site,
+    paid: form.paid,
+    memo: form.memo,
+    officeMemo: form.officeMemo,
+    createdBy: form.createdBy,
+    createdByEmail: form.createdByEmail,
+    createdAt: form.createdAt,
   };
 }
 
-function SaleFormCompactEditor({
+function buildLocalSaleForm(meta, workers) {
+  return { ...meta, workers };
+}
+
+const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
   title,
   desc,
-  form,
-  update,
-  updateWorkerLine,
-  addWorkerLine,
-  removeWorkerLine,
+  initialForm,
+  sessionKey = "",
+  form: controlledForm,
+  update: controlledUpdate,
+  updateWorkerLine: controlledUpdateWorkerLine,
+  addWorkerLine: controlledAddWorkerLine,
+  removeWorkerLine: controlledRemoveWorkerLine,
   clients,
   workers,
-  totals,
-  filledWorkerCount,
-  canSave,
+  totals: controlledTotals,
+  filledWorkerCount: controlledFilledWorkerCount,
+  canSave: controlledCanSave,
   onSave,
   saveLabel = "매출 저장",
   saveMessage = "",
@@ -521,64 +797,180 @@ function SaleFormCompactEditor({
   onReset,
   showPaidField = true,
   memoAfterWorkers = false,
-  onSharedMemoChange,
+  onSharedMemoChange: controlledOnSharedMemoChange,
   lockClientSite = false,
   allowClientSiteUnlock = false,
+  onDraftChange,
 }) {
+  const useLocalDraft = Boolean(sessionKey || initialForm);
+  const seedForm = initialForm ?? controlledForm ?? emptySaleForm();
+  const [formMeta, setFormMeta] = useState(() => pickSaleFormMeta(seedForm));
+  const [workerRows, setWorkerRows] = useState(() => seedForm.workers);
+  const formMetaRef = useRef(formMeta);
+  formMetaRef.current = formMeta;
+  const draftRef = useRef(buildLocalSaleForm(formMeta, workerRows));
+  const onDraftChangeRef = useRef(onDraftChange);
+  onDraftChangeRef.current = onDraftChange;
+  const loadedSessionKeyRef = useRef(null);
+
+  useEffect(() => {
+    if (!useLocalDraft || !initialForm || !sessionKey) return;
+    if (loadedSessionKeyRef.current === sessionKey) return;
+    loadedSessionKeyRef.current = sessionKey;
+    setFormMeta(pickSaleFormMeta(initialForm));
+    setWorkerRows(initialForm.workers);
+  }, [sessionKey, useLocalDraft, initialForm]);
+
+  useEffect(() => {
+    if (!useLocalDraft) return;
+    const next = buildLocalSaleForm(formMeta, workerRows);
+    draftRef.current = next;
+    onDraftChangeRef.current?.(next);
+  }, [useLocalDraft, formMeta, workerRows]);
+
+  const activeWorkers = useMemo(() => filterActiveWorkers(workers), [workers]);
+
+  const update = useCallback((key, value) => {
+    if (useLocalDraft) {
+      if (key === "client") {
+        const clientName = String(value ?? "").trim();
+        setFormMeta((prev) => ({ ...prev, client: value }));
+        setWorkerRows((prev) => reEnrichWorkerLinesForClient(prev, activeWorkers, clients, clientName));
+        return;
+      }
+      setFormMeta((prev) => ({ ...prev, [key]: value }));
+      return;
+    }
+    controlledUpdate?.(key, value);
+  }, [useLocalDraft, activeWorkers, clients, controlledUpdate]);
+
+  const updateSharedMemo = useCallback((value) => {
+    if (useLocalDraft) {
+      setFormMeta((prev) => {
+        const previousCommon = String(prev.memo || "").trim();
+        setWorkerRows((rows) => rows.map((line) => {
+          const lineMemo = String(line.memo || "").trim();
+          if (lineMemo && lineMemo !== previousCommon) return line;
+          return { ...line, memo: value };
+        }));
+        return { ...prev, memo: value };
+      });
+      return;
+    }
+    controlledOnSharedMemoChange?.(value);
+  }, [useLocalDraft, controlledOnSharedMemoChange]);
+
+  const updateWorkerLine = useCallback((index, key, value) => {
+    if (useLocalDraft) {
+      setWorkerRows((prev) => prev.map((line, lineIndex) => {
+        if (lineIndex !== index) return line;
+        if (key === "worker") {
+          return enrichWorkerLineOnWorkerSelect(line, activeWorkers, clients, formMetaRef.current.client, value);
+        }
+        return applyWorkerLineFieldUpdate(line, key, value);
+      }));
+      return;
+    }
+    controlledUpdateWorkerLine?.(index, key, value);
+  }, [useLocalDraft, activeWorkers, clients, controlledUpdateWorkerLine]);
+
+  const addWorkerLine = useCallback(() => {
+    if (useLocalDraft) {
+      setWorkerRows((prev) => [
+        ...prev,
+        { ...createWorkerLine(prev.length), memo: formMetaRef.current.memo || "" },
+      ]);
+      return;
+    }
+    controlledAddWorkerLine?.();
+  }, [useLocalDraft, controlledAddWorkerLine]);
+
+  const removeWorkerLine = useCallback((index) => {
+    if (useLocalDraft) {
+      setWorkerRows((prev) => (prev.length <= 1 ? prev : prev.filter((_, lineIndex) => lineIndex !== index)));
+      return;
+    }
+    controlledRemoveWorkerLine?.(index);
+  }, [useLocalDraft, controlledRemoveWorkerLine]);
+
+  const form = useLocalDraft ? buildLocalSaleForm(formMeta, workerRows) : controlledForm;
+  const onSharedMemoChange = useLocalDraft ? updateSharedMemo : controlledOnSharedMemoChange;
+  const displayWorkerRows = useLocalDraft ? workerRows : form.workers;
+  const headerMeta = useLocalDraft ? formMeta : pickSaleFormMeta(form);
+
+  const totals = useMemo(() => {
+    if (controlledTotals != null && !useLocalDraft) return controlledTotals;
+    return sumWorkerFormTotals(displayWorkerRows, activeWorkers);
+  }, [controlledTotals, useLocalDraft, displayWorkerRows, activeWorkers]);
+
+  const filledWorkerCount = useMemo(() => {
+    if (controlledFilledWorkerCount != null && !useLocalDraft) return controlledFilledWorkerCount;
+    return displayWorkerRows.filter((line) => String(line.worker || "").trim()).length;
+  }, [controlledFilledWorkerCount, useLocalDraft, displayWorkerRows]);
+
+  const canSave = useMemo(() => {
+    if (controlledCanSave != null && !useLocalDraft) return controlledCanSave;
+    const source = useLocalDraft ? formMeta : form;
+    const rows = useLocalDraft ? workerRows : form.workers;
+    return Boolean(
+      String(source.client || "").trim()
+      && String(source.site || "").trim()
+      && totals.bill > 0
+      && rows.some((line) => String(line.worker || "").trim()),
+    );
+  }, [controlledCanSave, useLocalDraft, formMeta, form, workerRows, totals.bill]);
+
+  const handleSave = useCallback(() => {
+    void flushSaleFormFocusedInputs()
+      .then(() => onSave(useLocalDraft ? draftRef.current : form));
+  }, [onSave, useLocalDraft, form]);
+
   const [clientSiteUnlocked, setClientSiteUnlocked] = useState(false);
   const [clientSiteUnlockPromptOpen, setClientSiteUnlockPromptOpen] = useState(false);
 
   useEffect(() => {
     setClientSiteUnlocked(false);
     setClientSiteUnlockPromptOpen(false);
-  }, [auditEntityId, allowClientSiteUnlock]);
+  }, [auditEntityId, allowClientSiteUnlock, sessionKey]);
 
   const clientSiteLocked = allowClientSiteUnlock ? !clientSiteUnlocked : lockClientSite;
 
+  const footerSource = useLocalDraft ? formMeta : form;
   const footerStatus = saveMessage || statusMessage || (canSave
-    ? `${form.client}${form.site ? ` · ${form.site}` : ""} · ${formatKRW(totals.bill)}`
+    ? `${footerSource.client}${footerSource.site ? ` · ${footerSource.site}` : ""} · ${formatKRW(totals.bill)}`
     : null);
   const skipToolbarTabStop = memoAfterWorkers;
 
-  const handleSiteKeyDown = (event) => {
+  const handleSiteKeyDown = useCallback((event) => {
     if (!memoAfterWorkers || isImeActive(event)) return;
     if (event.key === "Tab" && !event.shiftKey) {
       event.preventDefault();
+      update("site", event.currentTarget.value);
       focusWorkerGridCell(0, "worker", { cursorAt: "start" });
     }
-  };
+  }, [memoAfterWorkers, update]);
 
-  const handleFirstWorkerKeyDown = (event) => {
+  const handleFirstWorkerKeyDown = useCallback((event) => {
     if (!memoAfterWorkers || isImeActive(event)) return;
     if (event.key === "Tab" && event.shiftKey) {
       event.preventDefault();
       focusSaleFormSiteField();
     }
-  };
+  }, [memoAfterWorkers]);
 
-  const totalsBar = (
-    <div className="erp-sale-form-compact-metrics erp-sale-form-compact-metrics--above-table">
-      <div className="erp-sale-form-compact-metric">
-        <span className="label">청구</span>
-        <span className="value">{formatKRW(totals.bill)}</span>
-      </div>
-      <div className="erp-sale-form-compact-metric">
-        <span className="label">지급</span>
-        <span className="value">{formatKRW(totals.spend)}</span>
-      </div>
-      <div className={`erp-sale-form-compact-metric ${totals.margin < 0 ? "is-negative" : "is-positive"}`}>
-        <span className="label">마진</span>
-        <span className="value">{formatKRW(totals.margin)}</span>
-      </div>
-    </div>
+  const commitSite = useCallback((value) => update("site", value), [update]);
+  const commitSharedMemo = useCallback(
+    (value) => (onSharedMemoChange || ((nextValue) => update("memo", nextValue)))(value),
+    [onSharedMemoChange, update],
   );
+  const commitOfficeMemo = useCallback((value) => update("officeMemo", value), [update]);
 
   return (
     <>
       <div className="erp-sale-form-compact-head">
         <div>
           <h1 className="erp-sale-form-compact-title">{title}</h1>
-          <p className="erp-sale-form-compact-desc">{desc ?? `전표 입력 · 시공자 ${filledWorkerCount}/${form.workers.length}명`}</p>
+          <p className="erp-sale-form-compact-desc">{desc ?? `전표 입력 · 시공자 ${filledWorkerCount}/${displayWorkerRows.length}명`}</p>
         </div>
         <div className="erp-sale-form-compact-head-actions">
           {auditEntityId != null && (
@@ -590,80 +982,24 @@ function SaleFormCompactEditor({
 
       <Card className="erp-sale-form-card erp-sale-form-card--compact rounded-xl border-slate-200/80 shadow-sm">
         <CardContent className="p-3 md:p-4">
-          <div className={`erp-sale-form-inline-grid${!showPaidField ? " erp-sale-form-inline-grid--no-paid" : ""}${allowClientSiteUnlock ? " erp-sale-form-inline-grid--client-unlock" : ""}`}>
-            <SaleFormField label="일자" icon={CalendarDays}>
-              <div className="erp-sale-form-date-wrap">
-                <Input type="date" className="erp-input-compact" value={form.date} onChange={(e) => update("date", e.target.value)} />
-                <button type="button" className="erp-sale-form-date-today" onClick={() => update("date", todayISO())}>
-                  {"\uC624\uB298"}
-                </button>
-              </div>
-            </SaleFormField>
-            <SaleFormField
-              label="거래처"
-              icon={Building2}
-              className="erp-sale-form-field--client-unlock"
-              labelAction={
-                allowClientSiteUnlock && clientSiteLocked ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="erp-sale-form-client-change-btn"
-                    onClick={() => setClientSiteUnlockPromptOpen(true)}
-                  >
-                    <Pencil size={13} />
-                    변경
-                  </Button>
-                ) : null
-              }
-            >
-              <div className="erp-sale-form-client-row">
-                {clientSiteLocked ? (
-                  <Input className="erp-input-compact erp-input-compact--locked" value={form.client} readOnly disabled />
-                ) : (
-                  <AutocompleteInput
-                    value={form.client}
-                    options={clients}
-                    onChange={(value) => update("client", value)}
-                    placeholder="거래처"
-                    freeSolo={false}
-                    inputProps={{ className: "erp-input-compact" }}
-                    renderSub={(client) => `${client.manager || "담당자 없음"} · ${formatKRW(client.constructionCost || 0)}`}
-                  />
-                )}
-              </div>
-            </SaleFormField>
-            <SaleFormField label="현장" icon={MapPin} className="erp-sale-form-field--site-unlock">
-              <Input
-                className={`erp-input-compact${clientSiteLocked ? " erp-input-compact--locked" : ""}`}
-                data-sale-form-site="true"
-                value={form.site}
-                onChange={(e) => update("site", e.target.value)}
-                onKeyDown={clientSiteLocked ? undefined : handleSiteKeyDown}
-                placeholder="현장명"
-                readOnly={clientSiteLocked}
-                disabled={clientSiteLocked}
-              />
-            </SaleFormField>
-            {showPaidField && (
-              <SaleFormField label="입금" icon={CreditCard}>
-                <MoneyInput className="erp-input-compact" value={form.paid} onChange={(e) => update("paid", e.target.value)} placeholder="0" />
-              </SaleFormField>
-            )}
-            {!memoAfterWorkers && (
-              <>
-                <SaleFormField label="공통비고" icon={FileText}>
-                  <Input className="erp-input-compact" value={form.memo} onChange={(e) => (onSharedMemoChange || ((value) => update("memo", value)))(e.target.value)} placeholder="시공자 공통 비고" />
-                </SaleFormField>
-                <SaleFormField label="사무실메모" icon={FileText}>
-                  <Input className="erp-input-compact" value={form.officeMemo || ""} onChange={(e) => update("officeMemo", e.target.value)} placeholder="사무실 메모" />
-                </SaleFormField>
-              </>
-            )}
-          </div>
-
-          {totalsBar}
+          <SaleFormInlineHeaderFields
+            date={headerMeta.date}
+            client={headerMeta.client}
+            site={headerMeta.site}
+            paid={headerMeta.paid}
+            memo={headerMeta.memo}
+            officeMemo={headerMeta.officeMemo || ""}
+            showPaidField={showPaidField}
+            memoAfterWorkers={memoAfterWorkers}
+            clients={clients}
+            clientSiteLocked={clientSiteLocked}
+            allowClientSiteUnlock={allowClientSiteUnlock}
+            onClientSiteUnlockClick={() => setClientSiteUnlockPromptOpen(true)}
+            onUpdate={update}
+            onSiteCommit={commitSite}
+            onSiteKeyDown={handleSiteKeyDown}
+            onSharedMemoChange={commitSharedMemo}
+          />
 
           <div className="erp-sale-form-table-toolbar">
             <span className="erp-text-caption font-semibold text-slate-500">시공자 내역</span>
@@ -673,136 +1009,38 @@ function SaleFormCompactEditor({
             </Button>
           </div>
 
-          <TableExportSection fileName="매출등록_시공자" title="매출등록 시공자 내역" disabled={form.workers.length === 0} toolbarTabIndex={skipToolbarTabStop ? -1 : undefined}>
-          <div className="erp-sale-form-table-wrap erp-sale-form-table-wrap--compact">
-            <table className="erp-table erp-worker-grid-table erp-sale-form-table erp-sale-form-table--compact erp-sale-form-table--sheet">
-              <colgroup>
-                <col className="erp-col-index" />
-                <col className="erp-col-worker" />
-                <col className="erp-col-qty" />
-                <col className="erp-col-num" />
-                <col className="erp-col-num" />
-                <col className="erp-col-num" />
-                <col className="erp-col-num" />
-                <col className="erp-col-num" />
-                <col className="erp-col-num" />
-                <col className="erp-col-num" />
-                <col className="erp-col-memo" />
-                <col className="erp-col-action" />
-              </colgroup>
-              <thead>
-                <tr className="erp-sale-form-col-row">
-                  <th className="text-center">#</th>
-                  <th className="text-left">시공자</th>
-                  <th className="text-right">수량</th>
-                  <th className="text-right">지급</th>
-                  <th className="text-right">청구</th>
-                  <th className="text-right">식대</th>
-                  <th className="text-right">숙박</th>
-                  <th className="text-right">경비</th>
-                  <th className="text-right">야근</th>
-                  <th className="text-right">야근비</th>
-                  <th className="text-left">비고</th>
-                  <th className="erp-table-export-skip" />
-                </tr>
-              </thead>
-              <tbody>
-                {form.workers.map((line, index) => {
-                  const hasWorker = Boolean(String(line.worker || "").trim());
-                  return (
-                    <tr key={index} className={hasWorker ? "is-filled" : ""}>
-                      <td className="erp-sale-form-row-index text-center">{index + 1}</td>
-                      <td className="erp-grid-worker">
-                        <WorkerGridWorkerInput rowIndex={index} rowCount={form.workers.length} workers={workers} value={line.worker} onChange={(value) => updateWorkerLine(index, "worker", value)} onKeyDown={index === 0 ? handleFirstWorkerKeyDown : undefined} placeholder="시공자" className="erp-grid-input erp-input-compact" />
-                      </td>
-                      <td className="erp-grid-qty"><WorkerGridInput rowIndex={index} columnKey="quantity" rowCount={form.workers.length} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.quantity} onChange={(e) => updateWorkerLine(index, "quantity", e.target.value)} placeholder="1" /></td>
-                      <td className="erp-grid-num"><WorkerGridInput rowIndex={index} columnKey="unitCost" rowCount={form.workers.length} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.unitCost} onChange={(e) => updateWorkerLine(index, "unitCost", e.target.value)} /></td>
-                      <td className="erp-grid-num"><WorkerGridInput rowIndex={index} columnKey="chargeAmount" rowCount={form.workers.length} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.chargeAmount} onChange={(e) => updateWorkerLine(index, "chargeAmount", e.target.value)} /></td>
-                      <td className="erp-grid-num"><WorkerGridInput rowIndex={index} columnKey="meal" rowCount={form.workers.length} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.meal} onChange={(e) => updateWorkerLine(index, "meal", e.target.value)} /></td>
-                      <td className="erp-grid-num"><WorkerGridInput rowIndex={index} columnKey="lodging" rowCount={form.workers.length} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.lodging} onChange={(e) => updateWorkerLine(index, "lodging", e.target.value)} /></td>
-                      <td className="erp-grid-num"><WorkerGridInput rowIndex={index} columnKey="expense" rowCount={form.workers.length} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.expense} onChange={(e) => updateWorkerLine(index, "expense", e.target.value)} /></td>
-                      <td className="erp-grid-num"><WorkerGridInput rowIndex={index} columnKey="overtimeHours" rowCount={form.workers.length} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.overtimeHours} onChange={(e) => updateWorkerLine(index, "overtimeHours", e.target.value)} /></td>
-                      <td className="erp-grid-num"><WorkerGridInput rowIndex={index} columnKey="overtimeCost" rowCount={form.workers.length} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.overtimeCost} onChange={(e) => updateWorkerLine(index, "overtimeCost", e.target.value)} /></td>
-                      <td className="erp-sale-form-row-memo"><WorkerGridInput rowIndex={index} columnKey="memo" rowCount={form.workers.length} className="erp-grid-input erp-input-compact" value={line.memo} onChange={(e) => updateWorkerLine(index, "memo", e.target.value)} placeholder="개별 비고" /></td>
-                      <td className="erp-sale-form-row-action erp-table-export-skip text-center">
-                        <button
-                          type="button"
-                          className="erp-sale-form-row-delete"
-                          tabIndex={skipToolbarTabStop ? -1 : undefined}
-                          onClick={() => {
-                            if (!confirmDelete("이 시공자 행을 삭제할까요?")) return;
-                            removeWorkerLine(index);
-                          }}
-                          disabled={form.workers.length <= 1}
-                          aria-label="행 삭제"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          </TableExportSection>
+          <SaleFormWorkerGridSection
+            workerRows={displayWorkerRows}
+            workers={workers}
+            skipToolbarTabStop={skipToolbarTabStop}
+            hideExportToolbar={memoAfterWorkers}
+            onUpdateWorkerLine={updateWorkerLine}
+            onRemoveWorkerLine={removeWorkerLine}
+            onFirstWorkerKeyDown={memoAfterWorkers ? handleFirstWorkerKeyDown : undefined}
+          />
 
-          {memoAfterWorkers && (
-            <div className="erp-sale-form-memo-after-workers">
-              <SaleFormField label="공통비고" icon={FileText}>
-                <Input
-                  className="erp-input-compact"
-                  value={form.memo}
-                  onChange={(e) => (onSharedMemoChange || ((value) => update("memo", value)))(e.target.value)}
-                  placeholder="시공자 공통 비고"
-                />
-              </SaleFormField>
-              <SaleFormField label="사무실메모" icon={FileText}>
-                <Input className="erp-input-compact" value={form.officeMemo || ""} onChange={(e) => update("officeMemo", e.target.value)} placeholder="사무실 메모" />
-              </SaleFormField>
-            </div>
-          )}
+          <SaleFormLiveTotalsSection workerRows={displayWorkerRows} workers={activeWorkers} />
 
-          <div className="erp-sale-form-footer erp-sale-form-footer--compact">
-            <div className="erp-sale-form-footer-start">
-              {onReset ? (
-                <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={onReset}>
-                  <RotateCcw size={13} />
-                  초기화
-                </Button>
-              ) : null}
-              {footerStartExtra}
-            </div>
-            <div className="erp-sale-form-footer-status">
-              {saveMessage ? (
-                <>
-                  <CheckCircle2 size={14} className="text-emerald-600" />
-                  <span className="text-emerald-700">{saveMessage}</span>
-                </>
-              ) : footerStatus ? (
-                <>
-                  <CheckCircle2 size={14} className={canSave ? "text-emerald-600" : "text-amber-500"} />
-                  <span>{footerStatus}</span>
-                </>
-              ) : (
-                <>
-                  <AlertCircle size={14} className="text-amber-500" />
-                  <span>등록된 거래처·시공자 선택 및 현장·청구액 입력 필요</span>
-                </>
-              )}
-            </div>
-            <div className="erp-sale-form-footer-actions">
-              {secondaryAction}
-              <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={addWorkerLine}>
-                <Plus size={13} />
-                행 추가
-              </Button>
-              <Button size="sm" className="h-8 rounded-lg px-4 text-xs" onClick={onSave} disabled={!canSave}>
-                <Save size={13} />
-                {saveLabel}
-              </Button>
-            </div>
-          </div>
+          {memoAfterWorkers ? (
+            <SaleFormMemoAfterWorkersBlock
+              memo={headerMeta.memo}
+              officeMemo={headerMeta.officeMemo || ""}
+              onSharedMemoCommit={commitSharedMemo}
+              onOfficeMemoCommit={commitOfficeMemo}
+            />
+          ) : null}
+
+          <SaleFormCompactFooter
+            canSave={canSave}
+            saveMessage={saveMessage}
+            footerStatus={footerStatus}
+            saveLabel={saveLabel}
+            onReset={onReset}
+            onSave={handleSave}
+            onAddWorkerLine={addWorkerLine}
+            secondaryAction={secondaryAction}
+            footerStartExtra={footerStartExtra}
+          />
         </CardContent>
       </Card>
 
@@ -841,7 +1079,7 @@ function SaleFormCompactEditor({
       ) : null}
     </>
   );
-}
+});
 
 function formatKRW(value) {
   return new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 0 }).format(Number(value) || 0);
@@ -889,7 +1127,20 @@ function aggregateSaleCalendarStats(sale, feeMap) {
 
 const CALENDAR_CLIENT_COLORS = ["#0d9488", "#7c3aed", "#e11d48", "#ea580c", "#2563eb", "#db2777", "#059669", "#ca8a04"];
 
-const EMPTY_CALENDAR_DAY_STATS = { staff: 0, bill: 0, spend: 0, fee: 0, netPay: 0, margin: 0, count: 0, paid: 0, unpaid: 0, hasUnpaid: false, entries: [] };
+const EMPTY_CALENDAR_DAY_STATS = {
+  staff: 0,
+  bill: 0,
+  spend: 0,
+  fee: 0,
+  netPay: 0,
+  margin: 0,
+  count: 0,
+  paid: 0,
+  unpaid: 0,
+  hasUnpaid: false,
+  hasPartialPaid: false,
+  entries: [],
+};
 
 function getSalePaidAmount(sale, unpaid = getUnpaid(sale)) {
   const explicit = Number(sale.paid ?? sale.paidAmount);
@@ -907,12 +1158,21 @@ function getCalendarClientColor(client) {
   return CALENDAR_CLIENT_COLORS[hash % CALENDAR_CLIENT_COLORS.length];
 }
 
-function getCalendarPaymentBorderColor(hasUnpaid) {
-  return hasUnpaid ? "#ef4444" : "#22c55e";
+function getCalendarPaymentBorderColor(entry) {
+  if (entry.isPartialPaid) return "#f59e0b";
+  return entry.hasUnpaid ? "#ef4444" : "#22c55e";
 }
 
 function getCalendarEntryBorderStyle(entry) {
-  return { borderLeftColor: getCalendarPaymentBorderColor(entry.hasUnpaid) };
+  return { borderLeftColor: getCalendarPaymentBorderColor(entry) };
+}
+
+function getCalendarEntryPaymentState(sale) {
+  const unpaid = getUnpaid(sale);
+  const paid = Number(sale.paid ?? sale.paidAmount ?? 0) || 0;
+  const hasUnpaid = unpaid > 0 && paid <= 0;
+  const isPartialPaid = unpaid > 0 && paid > 0;
+  return { unpaid, paid, hasUnpaid, isPartialPaid };
 }
 
 function normalizeCalendarClientName(client) {
@@ -921,9 +1181,10 @@ function normalizeCalendarClientName(client) {
 
 function getCalendarDayPaymentTone(stats) {
   if (!stats?.count) return "";
-  const unpaidCount = stats.entries.filter((entry) => entry.hasUnpaid).length;
-  if (unpaidCount === 0) return "paid";
-  if (unpaidCount === stats.entries.length) return "unpaid";
+  const unpaidOnlyCount = stats.entries.filter((entry) => entry.hasUnpaid).length;
+  const partialCount = stats.entries.filter((entry) => entry.isPartialPaid).length;
+  if (unpaidOnlyCount === 0 && partialCount === 0) return "paid";
+  if (unpaidOnlyCount === stats.entries.length) return "unpaid";
   return "mixed";
 }
 
@@ -995,11 +1256,7 @@ function formatCalendarDayLabel(date) {
 function buildCalendarClientSearchRows(sales, monthKey, feeMap) {
   const map = new Map();
 
-  sales.forEach((sale) => {
-    const clientName = normalizeClientCalendarName(sale.client);
-    const date = String(sale.date || "").trim();
-    if (!date) return;
-
+  const ensureRow = (clientName) => {
     let row = map.get(clientName);
     if (!row) {
       row = {
@@ -1013,11 +1270,14 @@ function buildCalendarClientSearchRows(sales, monthKey, feeMap) {
       };
       map.set(clientName, row);
     }
+    return row;
+  };
 
-    if (date > row.latestDate) row.latestDate = date;
-
-    if (!date.startsWith(monthKey)) return;
-
+  for (const sale of sales) {
+    const date = String(sale.date || "").trim();
+    if (!date.startsWith(monthKey)) continue;
+    const clientName = normalizeClientCalendarName(sale.client);
+    const row = ensureRow(clientName);
     const stats = aggregateSaleCalendarStats(sale, feeMap);
     const unpaid = getUnpaid(sale);
     const paid = getSalePaidAmount(sale, unpaid);
@@ -1025,10 +1285,17 @@ function buildCalendarClientSearchRows(sales, monthKey, feeMap) {
     row.monthPaid += paid;
     row.monthUnpaid += unpaid;
     row.monthCount += 1;
-    if (!row.firstDateInMonth || date < row.firstDateInMonth) {
-      row.firstDateInMonth = date;
-    }
-  });
+    if (!row.firstDateInMonth || date < row.firstDateInMonth) row.firstDateInMonth = date;
+    if (date > row.latestDate) row.latestDate = date;
+  }
+
+  for (const sale of sales) {
+    const date = String(sale.date || "").trim();
+    if (!date) continue;
+    const clientName = normalizeClientCalendarName(sale.client);
+    const row = ensureRow(clientName);
+    if (date > row.latestDate) row.latestDate = date;
+  }
 
   return Array.from(map.values()).sort((a, b) => a.client.localeCompare(b.client, "ko-KR"));
 }
@@ -1052,9 +1319,10 @@ function buildCalendarDays(monthKey, sales, workers = []) {
     const key = sale.date;
     if (!acc[key]) acc[key] = { ...EMPTY_CALENDAR_DAY_STATS, entries: [] };
     const dayStats = aggregateSaleCalendarStats(sale, feeMap);
-    const unpaid = getUnpaid(sale);
-    const paid = getSalePaidAmount(sale, unpaid);
-    if (unpaid > 0) acc[key].hasUnpaid = true;
+    const paymentState = getCalendarEntryPaymentState(sale);
+    const { unpaid, paid, hasUnpaid, isPartialPaid } = paymentState;
+    if (hasUnpaid) acc[key].hasUnpaid = true;
+    if (isPartialPaid) acc[key].hasPartialPaid = true;
     acc[key].staff += dayStats.staff;
     acc[key].bill += dayStats.bill;
     acc[key].spend += dayStats.spend;
@@ -1075,7 +1343,8 @@ function buildCalendarDays(monthKey, sales, workers = []) {
       amount: Number(sale.amount ?? sale.salesAmount ?? dayStats.bill) || 0,
       paid,
       unpaid,
-      hasUnpaid: unpaid > 0,
+      hasUnpaid,
+      isPartialPaid,
       color: getCalendarClientColor(sale.client),
     });
     return acc;
@@ -1113,39 +1382,6 @@ function formatDateTime(value) {
   });
 }
 
-function buildSaleFromForm(form, currentUser = null, workers = []) {
-  const feeMap = buildWorkerFeeMap(workers);
-  const workerLines = (form.workers || [])
-    .filter((line) => line.worker)
-    .map((line) =>
-      enrichWorkerLineWithMetrics(
-        stripWorkerLineComputedMetrics(line),
-        resolveWorkerFeeRate(line, feeMap)
-      )
-    );
-  const amount = getSaleTotalBill({ workers: workerLines, amount: 0 });
-  const workerNames = workerLines.map((line) => line.worker).filter(Boolean);
-  const workerLabel = workerNames.join(", ");
-  const now = new Date().toISOString();
-
-  return {
-    date: form.date,
-    client: form.client,
-    site: form.site,
-    worker: workerLabel,
-    workers: workerLines,
-    amount,
-    paid: Math.min(parseMoney(form.paid), amount),
-    basePaid: Math.min(parseMoney(form.paid), amount),
-    memo: String(form.memo ?? "").trim(),
-    officeMemo: String(form.officeMemo ?? "").trim(),
-    createdBy: currentUser?.name || form.createdBy || "-",
-    createdByEmail: currentUser?.email || form.createdByEmail || "",
-    createdAt: form.createdAt || now,
-    updatedAt: now,
-  };
-}
-
 function applyPaymentVouchers(sales, vouchers) {
   const copied = sales.map((row) => ({
     ...row,
@@ -1163,11 +1399,27 @@ function applyPaymentVouchers(sales, vouchers) {
   };
 
   vouchers.forEach((voucher) => {
-    let remaining = parseMoney(voucher.amount);
+    let remaining = parseMoney(voucher.finalAmount ?? voucher.amount);
 
     if (voucher.salesId) {
-      const target = copied.find((row) => String(row.id) === String(voucher.salesId));
-      if (target) remaining = applyToRow(target, remaining);
+      const statementIds = voucher.statementSalesIds?.length
+        ? [...new Set([String(voucher.salesId), ...voucher.statementSalesIds.map((id) => String(id))])]
+        : [String(voucher.salesId)];
+
+      if (statementIds.length > 1) {
+        const idSet = new Set(statementIds);
+        copied
+          .filter((row) => idSet.has(String(row.id)) && !row.manualPaidCleared)
+          .sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)))
+          .forEach((row) => {
+            if (remaining <= 0) return;
+            remaining = applyToRow(row, remaining);
+          });
+      } else {
+        const target = copied.find((row) => String(row.id) === String(voucher.salesId));
+        if (target) remaining = applyToRow(target, remaining);
+      }
+
       if (remaining > 0) {
         clientCredits[voucher.client] = (clientCredits[voucher.client] || 0) + remaining;
       }
@@ -1230,6 +1482,8 @@ function Input(props) {
     onCompositionStart,
     onCompositionEnd,
     onCompositionUpdate,
+    onFocus,
+    onPointerDown,
     ...rest
   } = props;
   if (type === "date") {
@@ -1294,6 +1548,18 @@ function Input(props) {
         onChange?.(event);
         onCompositionEnd?.(event);
       }}
+      onPointerDown={(event) => {
+        if (!isNumericField) {
+          prepareKoreanTextInput(event.currentTarget);
+        }
+        onPointerDown?.(event);
+      }}
+      onFocus={(event) => {
+        if (!isNumericField) {
+          prepareKoreanTextInput(event.currentTarget);
+        }
+        onFocus?.(event);
+      }}
       className={`erp-input w-full rounded-2xl border bg-white px-3 py-2.5 text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-slate-900 md:px-4 md:py-3 ${className}`}
     />
   );
@@ -1353,23 +1619,6 @@ const workerGridIntegerColumns = new Set(["quantity"]);
 const workerGridTextColumns = new Set(["worker", "memo"]);
 
 let erpInputComposing = false;
-let erpImeAnchor = null;
-
-function ensureImeAnchor() {
-  if (typeof document === "undefined") return null;
-  if (erpImeAnchor?.isConnected) return erpImeAnchor;
-
-  const anchor = document.createElement("input");
-  anchor.type = "text";
-  anchor.lang = "ko";
-  anchor.autocomplete = "off";
-  anchor.tabIndex = -1;
-  anchor.setAttribute("aria-hidden", "true");
-  anchor.style.cssText = "position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;pointer-events:none;";
-  document.body.appendChild(anchor);
-  erpImeAnchor = anchor;
-  return anchor;
-}
 
 function filterWorkerSuggestions(workers, query, limit = 12) {
   return filterNamedSuggestions(filterActiveWorkers(workers), query, (worker) => String(worker.name || ""), limit);
@@ -1420,24 +1669,13 @@ function focusWorkerGridCell(rowIndex, columnKey, { cursorAt = "end" } = {}) {
 
   const focusTarget = () => {
     if (workerGridTextColumns.has(columnKey)) {
-      target.setAttribute("lang", "ko");
-      target.removeAttribute("inputmode");
+      focusKoreanTextInput(target);
+      requestAnimationFrame(applySelection);
+      return;
     }
-
     target.focus({ preventScroll: true });
     requestAnimationFrame(applySelection);
   };
-
-  if (workerGridTextColumns.has(columnKey)) {
-    const anchor = ensureImeAnchor();
-    if (anchor) {
-      anchor.focus({ preventScroll: true });
-      requestAnimationFrame(() => {
-        requestAnimationFrame(focusTarget);
-      });
-      return;
-    }
-  }
 
   focusTarget();
 }
@@ -1445,7 +1683,7 @@ function focusWorkerGridCell(rowIndex, columnKey, { cursorAt = "end" } = {}) {
 function focusSaleFormSiteField() {
   if (typeof document === "undefined") return;
   const target = document.querySelector('[data-sale-form-site="true"]');
-  if (target instanceof HTMLInputElement) target.focus({ preventScroll: true });
+  if (target instanceof HTMLInputElement) focusKoreanTextInput(target);
 }
 
 function handleWorkerGridKeyDown(event, rowIndex, columnKey, rowCount) {
@@ -1510,73 +1748,242 @@ function MoneyInput({ className = "", value, onChange, ...rest }) {
   );
 }
 
-function WorkerGridInput({ rowIndex, columnKey, rowCount, className = "", value, onChange, ...props }) {
+function sanitizeWorkerGridCommitValue(rawValue, columnKey) {
+  const isNumeric = workerGridNumericColumns.has(columnKey);
+  if (!isNumeric) return String(rawValue ?? "");
+  let sanitized = sanitizeMoneyInput(String(rawValue ?? ""));
+  if (workerGridIntegerColumns.has(columnKey)) {
+    sanitized = sanitized.replace(/[^\d]/g, "");
+  }
+  return sanitized;
+}
+
+const WorkerGridInput = memo(function WorkerGridInput({ rowIndex, columnKey, rowCount, className = "", value, onChange, onBlur, onKeyDown, onLiveValueChange, ...props }) {
   const isNumeric = workerGridNumericColumns.has(columnKey);
   const displayValue = isNumeric ? formatMoneyInput(value) : value;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const valueRef = useRef(value);
+  valueRef.current = value;
 
-  const handleChange = (event) => {
-    if (!isNumeric) {
-      onChange?.(event);
-      return;
-    }
+  const commitValue = useCallback(
+    (rawValue) => {
+      const sanitized = sanitizeWorkerGridCommitValue(rawValue, columnKey);
+      if (String(sanitized) === String(valueRef.current ?? "")) return;
+      onChangeRef.current?.({
+        target: { value: sanitized },
+        currentTarget: { value: sanitized },
+      });
+    },
+    [columnKey],
+  );
 
-    let sanitized = sanitizeMoneyInput(event.target.value);
-    if (workerGridIntegerColumns.has(columnKey)) {
-      sanitized = sanitized.replace(/[^\d]/g, "");
-    }
+  const flushCommit = useCallback(
+    (rawValue) => {
+      commitValue(rawValue);
+    },
+    [commitValue],
+  );
 
-    onChange?.({
-      ...event,
-      target: { ...event.target, value: sanitized },
-      currentTarget: { ...event.currentTarget, value: sanitized },
-    });
-  };
+  const handleLiveValueChange = useCallback(
+    (nextValue) => {
+      onLiveValueChange?.(nextValue);
+    },
+    [onLiveValueChange],
+  );
 
   return (
     <Input
       {...props}
       type="text"
       value={displayValue}
-      onChange={handleChange}
+      onChange={() => {}}
+      onLiveValueChange={handleLiveValueChange}
       data-worker-row={rowIndex}
       data-worker-col={columnKey}
       className={`erp-grid-input ${isNumeric ? "erp-grid-input--num" : ""} ${className}`.trim()}
-      inputMode={columnKey === "overtimeHours" ? "decimal" : isNumeric ? "numeric" : undefined}
+      onBlur={(event) => {
+        flushCommit(event.target.value);
+        onBlur?.(event);
+      }}
       onKeyDown={(event) => {
-        props.onKeyDown?.(event);
+        onKeyDown?.(event);
         if (event.defaultPrevented) return;
+        if (shouldNavigateWorkerGrid(event, columnKey)) {
+          flushCommit(event.currentTarget.value);
+        }
         if (rowIndex != null && columnKey) handleWorkerGridKeyDown(event, rowIndex, columnKey, rowCount);
       }}
     />
   );
-}
+});
 
-function WorkerGridWorkerInput({ rowIndex, rowCount, workers, value, onChange, placeholder = "시공자명", onFocus, onBlur, ...props }) {
-  const [menuOpen, setMenuOpen] = useState(false);
+const WorkerGridWorkerInput = memo(function WorkerGridWorkerInput({ rowIndex, rowCount, workers, value, onChange, placeholder = "시공자명", onFocus, onBlur, ...props }) {
+  const rootRef = useRef(null);
+  const menuRef = useRef(null);
+  const inputFocusedRef = useRef(false);
+  const [focused, setFocused] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(0);
   const [filterQuery, setFilterQuery] = useState(value ?? "");
-  const suggestions = useMemo(() => filterWorkerSuggestions(workers, filterQuery), [workers, filterQuery]);
-  const canPick = menuOpen && suggestions.length > 0 && filterQuery.trim().length > 0;
+  const [menuStyle, setMenuStyle] = useState({});
+  const workerKeyboardNavRef = useRef(false);
+  const pickedViaMenuRef = useRef(false);
+  const pickedViaMenuTimerRef = useRef(null);
+
+  const markWorkerPicked = () => {
+    pickedViaMenuRef.current = true;
+    if (pickedViaMenuTimerRef.current) window.clearTimeout(pickedViaMenuTimerRef.current);
+    pickedViaMenuTimerRef.current = window.setTimeout(() => {
+      pickedViaMenuRef.current = false;
+      pickedViaMenuTimerRef.current = null;
+    }, 300);
+  };
+
+  const suggestions = useMemo(
+    () => filterWorkerSuggestions(workers, filterQuery),
+    [workers, filterQuery],
+  );
+  const showMenu = focused && suggestions.length > 0 && filterQuery.trim().length > 0;
 
   useEffect(() => {
+    if (inputFocusedRef.current) return;
     setFilterQuery(value ?? "");
   }, [value]);
 
+  const updateMenuPosition = useCallback(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const rect = root.getBoundingClientRect();
+    const maxHeight = 160;
+    let top = rect.bottom + 2;
+    let left = Math.max(8, rect.left);
+    const width = Math.max(rect.width, 160);
+    if (left + width > window.innerWidth - 8) left = window.innerWidth - width - 8;
+    if (top + maxHeight > window.innerHeight - 8) top = Math.max(8, rect.top - maxHeight - 4);
+    setMenuStyle({
+      position: "fixed",
+      top,
+      left,
+      width,
+      maxHeight,
+      zIndex: 10000,
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!showMenu) return;
+    updateMenuPosition();
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [showMenu, updateMenuPosition]);
+
   const syncFilterQuery = (nextQuery) => {
     setFilterQuery(nextQuery);
-    if (String(nextQuery || "").trim()) setMenuOpen(true);
+    workerKeyboardNavRef.current = false;
+    if (String(nextQuery || "").trim()) setFocused(true);
     setHighlightIndex(0);
   };
 
-  const pickWorker = (worker) => {
+  const pickWorker = (worker, { focusNext = false } = {}) => {
     if (!worker) return;
+    markWorkerPicked();
     onChange(worker.name);
+    syncFilterQuery(worker.name);
     setHighlightIndex(0);
-    setMenuOpen(false);
+    workerKeyboardNavRef.current = false;
+    setFocused(false);
+    if (focusNext && rowIndex != null) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => focusWorkerGridCell(rowIndex, "quantity", { cursorAt: "start" }));
+      });
+    }
   };
+
+  const resolveWorkerBlurValue = (rawText) => {
+    const trimmed = String(rawText ?? "").trim();
+    if (!trimmed) return null;
+    const active = findActiveWorkerByName(workers, trimmed);
+    if (active) return active;
+    const master = findWorkerMasterByListName(workers, trimmed);
+    return master && isWorkerActive(master) ? master : null;
+  };
+
+  const resolveSuggestions = (inputText) => {
+    const trimmed = String(inputText ?? "").trim();
+    if (!trimmed) return [];
+    return filterWorkerSuggestions(workers, inputText);
+  };
+
+  const handleWorkerKeyDown = (event) => {
+    const inputText = String(event.currentTarget.value ?? "");
+    const liveSuggestions = resolveSuggestions(inputText);
+    const liveCanPick = liveSuggestions.length > 0 && inputText.trim().length > 0;
+    const isTabSelection = event.key === "Tab" && liveCanPick && !event.shiftKey;
+    if (isImeActive(event) && !isTabSelection) return;
+
+    if (liveCanPick && event.key === "ArrowDown") {
+      event.preventDefault();
+      workerKeyboardNavRef.current = true;
+      setHighlightIndex((prev) => (prev + 1) % liveSuggestions.length);
+      return;
+    }
+
+    if (liveCanPick && event.key === "ArrowUp") {
+      event.preventDefault();
+      workerKeyboardNavRef.current = true;
+      setHighlightIndex((prev) => (prev - 1 + liveSuggestions.length) % liveSuggestions.length);
+      return;
+    }
+
+    if (liveCanPick && event.key === "Enter") {
+      event.preventDefault();
+      pickWorker(liveSuggestions[highlightIndex] ?? liveSuggestions[0]);
+      return;
+    }
+
+    if (isTabSelection) {
+      event.preventDefault();
+      event.stopPropagation();
+      pickWorker(liveSuggestions[highlightIndex] ?? liveSuggestions[0], { focusNext: true });
+      return;
+    }
+
+    props.onKeyDown?.(event);
+  };
+
+  const dropdownMenu = showMenu ? (
+    <div
+      ref={menuRef}
+      style={menuStyle}
+      className="erp-autocomplete-menu erp-autocomplete-menu--compact erp-autocomplete-menu--portal overflow-y-auto border bg-white"
+      onMouseDown={(event) => event.preventDefault()}
+    >
+      {suggestions.map((worker, index) => (
+        <button
+          key={String(worker.id ?? worker.name)}
+          type="button"
+          className={`erp-autocomplete-option erp-autocomplete-option--inline w-full border-b text-left hover:bg-slate-50 ${highlightIndex === index ? "bg-slate-50" : ""}`}
+          onMouseEnter={() => setHighlightIndex(index)}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            pickWorker(worker);
+          }}
+        >
+          <div className="erp-autocomplete-option-label">{worker.name}</div>
+          <div className="erp-autocomplete-option-sub">
+            {`${worker.phone || "연락처 없음"} · ${formatKRW(worker.constructionCost || 0)}`}
+          </div>
+        </button>
+      ))}
+    </div>
+  ) : null;
 
   return (
-    <div className="relative">
+    <div ref={rootRef} className="relative">
       <WorkerGridInput
         {...props}
         rowIndex={rowIndex}
@@ -1587,78 +1994,214 @@ function WorkerGridWorkerInput({ rowIndex, rowCount, workers, value, onChange, p
         placeholder={placeholder}
         className="erp-grid-worker-input"
         onLiveValueChange={syncFilterQuery}
-        onChange={(event) => {
-          onChange(event.target.value);
-          syncFilterQuery(event.target.value);
-        }}
+        onChange={() => {}}
         onFocus={(event) => {
-          event.currentTarget.setAttribute("lang", "ko");
-          event.currentTarget.removeAttribute("inputmode");
-          if (String(value ?? "").length > 0) setMenuOpen(true);
+          inputFocusedRef.current = true;
+          setFocused(true);
+          prepareKoreanTextInput(event.currentTarget);
+          if (String(event.currentTarget.value ?? value ?? "").trim()) {
+            syncFilterQuery(String(event.currentTarget.value ?? value ?? ""));
+          }
           onFocus?.(event);
         }}
         onBlur={(event) => {
-          setTimeout(() => setMenuOpen(false), 150);
-          const trimmed = String(value ?? "").trim();
-          if (trimmed && !findActiveWorkerByName(workers, trimmed)) {
+          inputFocusedRef.current = false;
+          window.setTimeout(() => {
+            if (pickedViaMenuRef.current) return;
+            setFocused(false);
+          }, 150);
+          if (pickedViaMenuRef.current) {
+            onBlur?.(event);
+            return;
+          }
+          const trimmed = String(event.target.value ?? "").trim();
+          const committedName = String(value ?? "").trim();
+          if (!trimmed) {
+            if (committedName) onChange("");
+            syncFilterQuery("");
+            onBlur?.(event);
+            return;
+          }
+          if (committedName && committedName === trimmed && findActiveWorkerByName(workers, committedName)) {
+            onChange(committedName);
+            syncFilterQuery(committedName);
+            onBlur?.(event);
+            return;
+          }
+          const resolved = resolveWorkerBlurValue(trimmed);
+          if (trimmed && resolved) {
+            onChange(resolved.name);
+            syncFilterQuery(resolved.name);
+          } else if (trimmed && !resolved) {
+            if (!findActiveWorkerByName(workers, committedName)) {
+              onChange("");
+              syncFilterQuery("");
+            }
+          } else if (!trimmed && !committedName) {
             onChange("");
             syncFilterQuery("");
           }
           onBlur?.(event);
         }}
-        onKeyDown={(event) => {
-          if (isImeActive(event)) return;
-
-          if (canPick && event.key === "ArrowDown") {
-            event.preventDefault();
-            setHighlightIndex((prev) => (prev + 1) % suggestions.length);
-            return;
-          }
-
-          if (canPick && event.key === "ArrowUp") {
-            event.preventDefault();
-            setHighlightIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
-            return;
-          }
-
-          if (canPick && event.key === "Enter") {
-            event.preventDefault();
-            pickWorker(suggestions[highlightIndex] ?? suggestions[0]);
-            return;
-          }
-
-          if (canPick && event.key === "Tab") {
-            pickWorker(suggestions[highlightIndex] ?? suggestions[0]);
-          }
-
-          props.onKeyDown?.(event);
-        }}
+        onKeyDown={handleWorkerKeyDown}
       />
 
-      {canPick && (
-        <div className="erp-autocomplete-menu erp-autocomplete-menu--compact absolute z-50 min-w-[10rem] w-max max-w-[16rem] overflow-y-auto border bg-white">
-          {suggestions.map((worker, index) => (
-            <button
-              key={String(worker.id ?? worker.name)}
-              type="button"
-              className={`erp-autocomplete-option erp-autocomplete-option--inline w-full border-b text-left hover:bg-slate-50 ${highlightIndex === index ? "bg-slate-50" : ""}`}
-              onMouseEnter={() => setHighlightIndex(index)}
-              onMouseDown={(event) => {
-                event.preventDefault();
-                pickWorker(worker);
-              }}
-            >
-              <div className="erp-autocomplete-option-label">{worker.name}</div>
-              <div className="erp-autocomplete-option-sub">
-                {`${worker.phone || "연락처 없음"} · ${formatKRW(worker.constructionCost || 0)}`}
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
+      {typeof document !== "undefined" && dropdownMenu ? createPortal(dropdownMenu, document.body) : null}
     </div>
   );
-}
+});
+
+const SaleFormWorkerRow = memo(function SaleFormWorkerRow({
+  index,
+  line,
+  rowCount,
+  workers,
+  skipToolbarTabStop,
+  onUpdate,
+  removeRef,
+  isFirstRow,
+  firstWorkerKeyDownRef,
+}) {
+  const handleFirstKeyDown = useCallback((event) => {
+    if (isFirstRow) firstWorkerKeyDownRef.current?.(event);
+  }, [isFirstRow, firstWorkerKeyDownRef]);
+
+  const hasWorker = Boolean(String(line.worker || "").trim());
+
+  return (
+    <tr key={line._lineKey ?? index} className={hasWorker ? "is-filled" : ""}>
+      <td className="erp-sale-form-row-index text-center">{index + 1}</td>
+      <td className="erp-grid-worker">
+        <WorkerGridWorkerInput
+          rowIndex={index}
+          rowCount={rowCount}
+          workers={workers}
+          value={line.worker}
+          onChange={(value) => onUpdate(index, "worker", value)}
+          onKeyDown={isFirstRow ? handleFirstKeyDown : undefined}
+          placeholder="시공자"
+          className="erp-grid-input erp-input-compact"
+        />
+      </td>
+      <td className="erp-grid-qty"><WorkerGridInput rowIndex={index} columnKey="quantity" rowCount={rowCount} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.quantity} onChange={(e) => onUpdate(index, "quantity", e.target.value)} placeholder="1" /></td>
+      <td className="erp-grid-num"><WorkerGridInput rowIndex={index} columnKey="unitCost" rowCount={rowCount} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.unitCost} onChange={(e) => onUpdate(index, "unitCost", e.target.value)} /></td>
+      <td className="erp-grid-num"><WorkerGridInput rowIndex={index} columnKey="chargeAmount" rowCount={rowCount} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.chargeAmount} onChange={(e) => onUpdate(index, "chargeAmount", e.target.value)} /></td>
+      <td className="erp-grid-num"><WorkerGridInput rowIndex={index} columnKey="meal" rowCount={rowCount} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.meal} onChange={(e) => onUpdate(index, "meal", e.target.value)} /></td>
+      <td className="erp-grid-num"><WorkerGridInput rowIndex={index} columnKey="lodging" rowCount={rowCount} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.lodging} onChange={(e) => onUpdate(index, "lodging", e.target.value)} /></td>
+      <td className="erp-grid-num"><WorkerGridInput rowIndex={index} columnKey="expense" rowCount={rowCount} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.expense} onChange={(e) => onUpdate(index, "expense", e.target.value)} /></td>
+      <td className="erp-grid-num"><WorkerGridInput rowIndex={index} columnKey="overtimeHours" rowCount={rowCount} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.overtimeHours} onChange={(e) => onUpdate(index, "overtimeHours", e.target.value)} /></td>
+      <td className="erp-grid-num"><WorkerGridInput rowIndex={index} columnKey="overtimeCost" rowCount={rowCount} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.overtimeCost} onChange={(e) => onUpdate(index, "overtimeCost", e.target.value)} /></td>
+      <td className="erp-sale-form-row-memo"><WorkerGridInput rowIndex={index} columnKey="memo" rowCount={rowCount} className="erp-grid-input erp-input-compact" value={line.memo} onChange={(e) => onUpdate(index, "memo", e.target.value)} placeholder="개별 비고" /></td>
+      <td className="erp-sale-form-row-action erp-table-export-skip text-center">
+        <button
+          type="button"
+          className="erp-sale-form-row-delete"
+          tabIndex={skipToolbarTabStop ? -1 : undefined}
+          onClick={() => {
+            if (!confirmDelete("이 시공자 행을 삭제할까요?")) return;
+            removeRef.current(index);
+          }}
+          disabled={rowCount <= 1}
+          aria-label="행 삭제"
+        >
+          <Trash2 size={13} />
+        </button>
+      </td>
+    </tr>
+  );
+}, (prev, next) =>
+  prev.line === next.line
+  && prev.index === next.index
+  && prev.rowCount === next.rowCount
+  && prev.workers === next.workers
+  && prev.skipToolbarTabStop === next.skipToolbarTabStop
+  && prev.isFirstRow === next.isFirstRow);
+
+const SaleFormWorkerGridSection = memo(function SaleFormWorkerGridSection({
+  workerRows,
+  workers,
+  skipToolbarTabStop,
+  onUpdateWorkerLine,
+  onRemoveWorkerLine,
+  onFirstWorkerKeyDown,
+  hideExportToolbar = false,
+}) {
+  const updateRef = useRef(onUpdateWorkerLine);
+  updateRef.current = onUpdateWorkerLine;
+  const removeRef = useRef(onRemoveWorkerLine);
+  removeRef.current = onRemoveWorkerLine;
+  const firstWorkerKeyDownRef = useRef(onFirstWorkerKeyDown);
+  firstWorkerKeyDownRef.current = onFirstWorkerKeyDown;
+  const handleUpdate = useCallback((index, key, value) => {
+    updateRef.current(index, key, value);
+  }, []);
+  const rowCount = workerRows.length;
+
+  return (
+    <TableExportSection
+      fileName="매출등록_시공자"
+      title="매출등록 시공자 내역"
+      disabled={workerRows.length === 0}
+      hideToolbar={hideExportToolbar}
+      toolbarTabIndex={skipToolbarTabStop ? -1 : undefined}
+    >
+      <div className="erp-sale-form-table-wrap erp-sale-form-table-wrap--compact">
+        <table className="erp-table erp-worker-grid-table erp-sale-form-table erp-sale-form-table--compact erp-sale-form-table--sheet">
+          <colgroup>
+            <col className="erp-col-index" />
+            <col className="erp-col-worker" />
+            <col className="erp-col-qty" />
+            <col className="erp-col-num" />
+            <col className="erp-col-num" />
+            <col className="erp-col-num" />
+            <col className="erp-col-num" />
+            <col className="erp-col-num" />
+            <col className="erp-col-num" />
+            <col className="erp-col-num" />
+            <col className="erp-col-memo" />
+            <col className="erp-col-action" />
+          </colgroup>
+          <thead>
+            <tr className="erp-sale-form-col-row">
+              <th className="text-center">#</th>
+              <th className="text-left">시공자</th>
+              <th className="text-right">수량</th>
+              <th className="text-right">지급</th>
+              <th className="text-right">청구</th>
+              <th className="text-right">식대</th>
+              <th className="text-right">숙박</th>
+              <th className="text-right">경비</th>
+              <th className="text-right">야근</th>
+              <th className="text-right">야근비</th>
+              <th className="text-left">비고</th>
+              <th className="erp-table-export-skip" />
+            </tr>
+          </thead>
+          <tbody>
+            {workerRows.map((line, index) => (
+              <SaleFormWorkerRow
+                key={line._lineKey ?? index}
+                index={index}
+                line={line}
+                rowCount={rowCount}
+                workers={workers}
+                skipToolbarTabStop={skipToolbarTabStop}
+                onUpdate={handleUpdate}
+                removeRef={removeRef}
+                isFirstRow={index === 0}
+                firstWorkerKeyDownRef={firstWorkerKeyDownRef}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </TableExportSection>
+  );
+}, (prev, next) =>
+  saleFormWorkerRowsEqual(prev.workerRows, next.workerRows)
+  && prev.workers === next.workers
+  && prev.skipToolbarTabStop === next.skipToolbarTabStop
+  && prev.hideExportToolbar === next.hideExportToolbar);
 
 const VAT_TYPE_OPTIONS = [
   { label: "포함", value: "included" },
@@ -1670,24 +2213,11 @@ const YES_NO_OPTIONS = [
   { label: "N", value: "N" },
 ];
 
-const WORKER_CATEGORY_OPTIONS = ["팀원", "외주"];
-const WORKER_GRADE_OPTIONS = ["S", "A", "B", "C", "D"];
+const WORKER_GRADE_OPTIONS = ["S", "A", "B", "C", "D", "E"];
 
 function normalizeWorkerGrade(value) {
   const grade = String(value || "").trim().toUpperCase();
   return WORKER_GRADE_OPTIONS.includes(grade) ? grade : "";
-}
-
-function normalizeWorkerCategory(value) {
-  return String(value || "").trim() === "외주" ? "외주" : "팀원";
-}
-
-function workerCategorySortRank(value) {
-  return normalizeWorkerCategory(value) === "외주" ? 1 : 0;
-}
-
-function workerActiveSortRank(worker) {
-  return worker?.isActive === false ? 1 : 0;
 }
 
 function workerGradeSortRank(value) {
@@ -1699,11 +2229,7 @@ function workerGradeSortRank(value) {
 type WorkerListSortColumn = "name" | "grade" | "category";
 
 function compareWorkersDefault(a, b) {
-  const activeDiff = workerActiveSortRank(a) - workerActiveSortRank(b);
-  if (activeDiff !== 0) return activeDiff;
-  const rankDiff = workerCategorySortRank(a.category) - workerCategorySortRank(b.category);
-  if (rankDiff !== 0) return rankDiff;
-  return String(a.name || "").localeCompare(String(b.name || ""), "ko");
+  return compareWorkerMastersDefault(a, b);
 }
 
 function compareWorkersByColumn(a, b, column: WorkerListSortColumn, direction: SortDirection) {
@@ -1720,79 +2246,9 @@ function compareWorkersByColumn(a, b, column: WorkerListSortColumn, direction: S
   return compareWorkersDefault(a, b);
 }
 
-function isWorkerActive(worker) {
-  return worker?.isActive !== false;
-}
-
-function filterActiveWorkers(workers = []) {
-  return workers.filter((worker) => isWorkerActive(worker));
-}
-
 function findActiveWorkerByName(workers, name) {
-  const trimmed = String(name || "").trim();
-  if (!trimmed) return undefined;
-  return workers.find((worker) => worker.name === trimmed && isWorkerActive(worker));
-}
-
-function getInactiveWorkerNamesInForm(form, workers) {
-  const inactiveNames = new Set(
-    workers
-      .filter((worker) => !isWorkerActive(worker))
-      .map((worker) => String(worker.name || "").trim())
-      .filter(Boolean)
-  );
-  return [...new Set(
-    (form.workers || [])
-      .map((line) => String(line.worker || "").trim())
-      .filter((name) => name && inactiveNames.has(name))
-  )];
-}
-
-function findRegisteredClientByName(clients, name) {
-  const trimmed = String(name || "").trim();
-  if (!trimmed) return undefined;
-  return clients.find((client) => client.name === trimmed);
-}
-
-function getUnknownWorkerNamesInForm(form, workers) {
-  const knownNames = new Set(
-    workers
-      .map((worker) => String(worker.name || "").trim())
-      .filter(Boolean)
-  );
-  return [...new Set(
-    (form.workers || [])
-      .map((line) => String(line.worker || "").trim())
-      .filter((name) => name && !knownNames.has(name))
-  )];
-}
-
-function validateSaleFormMasterRefs(form, clients, workers) {
-  const clientName = String(form.client || "").trim();
-  if (clientName && !findRegisteredClientByName(clients, clientName)) {
-    return "등록된 거래처만 선택할 수 있습니다.";
-  }
-
-  const inactiveWorkers = getInactiveWorkerNamesInForm(form, workers);
-  if (inactiveWorkers.length > 0) {
-    return `비활성 시공자는 매출등록에 사용할 수 없습니다: ${inactiveWorkers.join(", ")}`;
-  }
-
-  const unknownWorkers = getUnknownWorkerNamesInForm(form, workers);
-  if (unknownWorkers.length > 0) {
-    return `등록된 시공자만 선택할 수 있습니다: ${unknownWorkers.join(", ")}`;
-  }
-
-  const hasRegisteredActiveWorker = (form.workers || []).some((line) => findActiveWorkerByName(workers, line.worker));
-  if (!hasRegisteredActiveWorker) {
-    return "등록된 활성 시공자를 한 명 이상 선택해 주세요.";
-  }
-
-  return "";
-}
-
-function isSaleFormMasterRefsValid(form, clients, workers) {
-  return validateSaleFormMasterRefs(form, clients, workers) === "";
+  const master = findWorkerMasterByListName(workers, name);
+  return master && isWorkerActive(master) ? master : undefined;
 }
 
 function syncLinkedPaymentVouchersForSale(vouchers, saleId, next: { client: string; site: string }) {
@@ -1806,6 +2262,34 @@ function syncLinkedPaymentVouchersForSale(vouchers, saleId, next: { client: stri
     return { ...voucher, client: next.client, site: next.site };
   });
   return changed ? nextVouchers : vouchers;
+}
+
+function buildSaleVoucherSaveState(
+  sales,
+  paymentVouchers,
+  bankTransactions,
+  saleId,
+  payload,
+  previousSale,
+) {
+  const saleKey = String(saleId);
+  const nextSales = sales.map((row) => (
+    String(row.id) === saleKey
+      ? { ...row, ...payload, createdBy: row.createdBy, createdByEmail: row.createdByEmail, createdAt: row.createdAt }
+      : row
+  ));
+  let nextPaymentVouchers = paymentVouchers;
+  let nextBankTransactions = bankTransactions;
+  const clientChanged = payload.client !== previousSale.client;
+  const siteChanged = payload.site !== previousSale.site;
+  if (clientChanged || siteChanged) {
+    nextPaymentVouchers = syncLinkedPaymentVouchersForSale(paymentVouchers, saleId, { client: payload.client, site: payload.site });
+    if (clientChanged) {
+      const synced = syncBankTransactionsForSaleClientChange(bankTransactions, saleId, { client: payload.client }, nextPaymentVouchers);
+      if (synced.updated > 0) nextBankTransactions = synced.transactions;
+    }
+  }
+  return { sales: nextSales, paymentVouchers: nextPaymentVouchers, bankTransactions: nextBankTransactions };
 }
 
 function SummaryCard({ title, value, sub, tone = "default", icon: Icon, compact = false }) {
@@ -1833,9 +2317,13 @@ function SummaryCard({ title, value, sub, tone = "default", icon: Icon, compact 
 const BRAND_LOGO_SRC = "/team-millimeter-login-logo.jpg";
 
 function LoginScreen({ onLogin }) {
+  const [loginTab, setLoginTab] = useState<"erp" | "portal">("erp");
+  const [portalSession, setPortalSession] = useState(() => Boolean(getWorkerPortalToken()));
   const [rememberLoginId, setRememberLoginId] = useState(loadRememberLoginIdEnabled);
   const [loginId, setLoginId] = useState(loadRememberedLoginId);
   const [password, setPassword] = useState("");
+  const [portalLoginId, setPortalLoginId] = useState("");
+  const [portalPassword, setPortalPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const apiMode = isApiModeEnabled();
@@ -1877,6 +2365,45 @@ function LoginScreen({ onLogin }) {
     setError("로그인 ID 또는 비밀번호가 맞지 않습니다.");
   };
 
+  const submitPortalLogin = async () => {
+    const trimmedId = portalLoginId.trim();
+    if (!trimmedId) {
+      setError("포털 로그인 ID를 입력해 주세요.");
+      return;
+    }
+    if (!portalPassword) {
+      setError("비밀번호를 입력해 주세요.");
+      return;
+    }
+    if (!apiMode) {
+      setError("시공내역서 포털은 서버 연동(API) 모드에서만 사용할 수 있습니다.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      await loginWorkerPortal(trimmedId, portalPassword);
+      setPortalPassword("");
+      setPortalSession(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "로그인에 실패했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (portalSession) {
+    return (
+      <WorkerPortalView
+        onLogout={() => {
+          clearWorkerPortalSession();
+          setPortalSession(false);
+          setPortalPassword("");
+        }}
+      />
+    );
+  }
+
   return (
     <div className="erp-login-page min-h-screen p-4 text-white sm:p-6" lang="ko">
       <div className="erp-login-page__glow" aria-hidden="true" />
@@ -1896,40 +2423,102 @@ function LoginScreen({ onLogin }) {
             <div className="erp-login-card-head mb-7 text-center">
               <img src={BRAND_LOGO_SRC} alt="" className="erp-login-card-logo mx-auto" aria-hidden="true" />
               <h2 className="erp-text-section font-black">로그인</h2>
-              <p className="erp-text-body mt-2 text-slate-500">ERP에 접속하려면 계정 정보를 입력하세요.</p>
+              <p className="erp-text-body mt-2 text-slate-500">
+                {loginTab === "erp"
+                  ? "ERP에 접속하려면 계정 정보를 입력하세요."
+                  : "시공자 계정으로 월별 시공내역서를 조회합니다."}
+              </p>
+            </div>
+            <div className="mb-5 flex rounded-2xl bg-slate-100 p-1">
+              <button
+                type="button"
+                className={`flex-1 rounded-xl py-2.5 text-sm font-bold transition ${
+                  loginTab === "erp" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+                }`}
+                onClick={() => {
+                  setLoginTab("erp");
+                  setError("");
+                }}
+              >
+                ERP 로그인
+              </button>
+              <button
+                type="button"
+                className={`flex-1 rounded-xl py-2.5 text-sm font-bold transition ${
+                  loginTab === "portal" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+                }`}
+                onClick={() => {
+                  setLoginTab("portal");
+                  setError("");
+                }}
+              >
+                시공내역서
+              </button>
             </div>
             <div className="space-y-4">
-              <Field label="로그인 ID">
-                <Input
-                  value={loginId}
-                  onChange={(e) => setLoginId(e.target.value.replace(/[^a-zA-Z0-9]/g, ""))}
-                  placeholder="로그인 ID"
-                  autoComplete="username"
-                  className="rounded-2xl"
-                />
-                <span className="erp-text-caption mt-1 block text-slate-400">영문과 숫자만 사용 (예: admin)</span>
-              </Field>
-              <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600">
-                <input
-                  type="checkbox"
-                  checked={rememberLoginId}
-                  onChange={(e) => setRememberLoginId(e.target.checked)}
-                />
-                로그인 ID 저장
-              </label>
-              <Field label="비밀번호">
-                <Input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="비밀번호"
-                  autoComplete="current-password"
-                  className="rounded-2xl"
-                  onKeyDown={(e) => e.key === "Enter" && !loading && submitLogin()}
-                />
-              </Field>
+              {loginTab === "erp" ? (
+                <>
+                  <Field label="로그인 ID">
+                    <Input
+                      value={loginId}
+                      onChange={(e) => setLoginId(e.target.value.replace(/[^a-zA-Z0-9]/g, ""))}
+                      placeholder="로그인 ID"
+                      autoComplete="username"
+                      className="rounded-2xl"
+                    />
+                    <span className="erp-text-caption mt-1 block text-slate-400">영문과 숫자만 사용 (예: admin)</span>
+                  </Field>
+                  <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={rememberLoginId}
+                      onChange={(e) => setRememberLoginId(e.target.checked)}
+                    />
+                    로그인 ID 저장
+                  </label>
+                  <Field label="비밀번호">
+                    <Input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="비밀번호"
+                      autoComplete="current-password"
+                      className="rounded-2xl"
+                      onKeyDown={(e) => e.key === "Enter" && !loading && submitLogin()}
+                    />
+                  </Field>
+                </>
+              ) : (
+                <>
+                  <Field label="포털 로그인 ID">
+                    <Input
+                      value={portalLoginId}
+                      onChange={(e) => setPortalLoginId(e.target.value.replace(/[^a-zA-Z0-9]/gi, "").toLowerCase())}
+                      placeholder="포털 로그인 ID"
+                      autoComplete="username"
+                      className="rounded-2xl"
+                    />
+                    <span className="erp-text-caption mt-1 block text-slate-400">관리자가 등록한 영문·숫자 ID</span>
+                  </Field>
+                  <Field label="비밀번호">
+                    <Input
+                      type="password"
+                      value={portalPassword}
+                      onChange={(e) => setPortalPassword(e.target.value)}
+                      placeholder="비밀번호"
+                      autoComplete="current-password"
+                      className="rounded-2xl"
+                      onKeyDown={(e) => e.key === "Enter" && !loading && submitPortalLogin()}
+                    />
+                  </Field>
+                </>
+              )}
               {error && <div className="erp-text-body rounded-2xl bg-red-50 px-4 py-3 font-semibold text-red-600">{error}</div>}
-              <Button className="erp-login-submit erp-text-body w-full rounded-2xl py-5 font-bold md:py-6" onClick={submitLogin} disabled={loading}>
+              <Button
+                className="erp-login-submit erp-text-body w-full rounded-2xl py-5 font-bold md:py-6"
+                onClick={loginTab === "erp" ? submitLogin : submitPortalLogin}
+                disabled={loading}
+              >
                 {loading ? "로그인 중..." : "로그인"}
               </Button>
             </div>
@@ -1952,6 +2541,7 @@ const PAGE_ICONS: Record<ErpPageKey, typeof Home> = {
   reports: BarChart3,
   statements: Download,
   pdfArchive: Archive,
+  basicInfo: BookUser,
   clients: Building2,
   workers: Users,
   accounting: Landmark,
@@ -2481,6 +3071,8 @@ function CalendarPage({
   paymentVouchers = [],
   setPaymentVouchers,
   setPaymentInputLogs,
+  bankTransactions = [],
+  setBankTransactions,
   companyProfile,
   statementGenerationLogs,
   setStatementGenerationLogs,
@@ -2488,6 +3080,7 @@ function CalendarPage({
   setStatementFolders,
   autoLinkedSaleIds = new Set(),
   manualLinkedSaleIds = new Set(),
+  onPersistSaleUpdate,
 }) {
   const { recordAudit } = useAudit();
   const { message: clientFilterNotice, showNotice: showClientFilterNotice, clearNotice: clearClientFilterNotice } = useActionNotice();
@@ -2499,9 +3092,6 @@ function CalendarPage({
   const [paymentCancelPreview, setPaymentCancelPreview] = useState(null);
   const [statementModalDraft, setStatementModalDraft] = useState(null);
   const [editingSaleId, setEditingSaleId] = useState(null);
-  const [voucherForm, setVoucherForm] = useState(emptySaleForm);
-  const [voucherDeleteConfirm, setVoucherDeleteConfirm] = useState(null);
-  const { message: voucherSaveMessage, setMessage: setVoucherSaveMessage, clearMessage: clearVoucherSaveMessage } = useSaveMessage();
   const suppressCellClickUntilRef = useRef(0);
   const preFilterRef = useRef(null);
   const entrySpotlightClickTimerRef = useRef(null);
@@ -2510,13 +3100,16 @@ function CalendarPage({
   const [spotlightClient, setSpotlightClient] = useState(null);
   const [spotlightDateIndex, setSpotlightDateIndex] = useState(0);
   const [clientSearchOpen, setClientSearchOpen] = useState(false);
-  const [clientSearchQuery, setClientSearchQuery] = useState("");
-  const [clientSearchSort, setClientSearchSort] = useState("name");
   const calendarSales = useMemo(
     () => (filteredClient ? filterClientCalendarSales(sales, filteredClient) : sales),
     [sales, filteredClient],
   );
-  const { cells, monthLabel } = useMemo(() => buildCalendarDays(monthKey, calendarSales, workers), [monthKey, calendarSales, workers]);
+  const deferredCalendarSales = useDeferredValue(calendarSales);
+  const calendarSalesForGrid = filteredClient ? calendarSales : deferredCalendarSales;
+  const { cells, monthLabel } = useMemo(
+    () => buildCalendarDays(monthKey, calendarSalesForGrid, workers),
+    [monthKey, calendarSalesForGrid, workers],
+  );
   const spotlightSummary = useMemo(() => {
     if (!spotlightClient) return null;
     const dates = new Set();
@@ -2554,34 +3147,6 @@ function CalendarPage({
     () => buildCalendarClientSearchRows(sales, monthKey, feeMap),
     [sales, monthKey, feeMap],
   );
-  const calendarClientMasterByName = useMemo(() => {
-    const map = new Map();
-    clients.forEach((client) => {
-      const name = String(client.name || "").trim();
-      if (name) map.set(name, client);
-    });
-    return map;
-  }, [clients]);
-  const filteredCalendarClientSearchRows = useMemo(() => {
-    const query = clientSearchQuery.trim().toLowerCase();
-    let rows = calendarClientSearchRows;
-    if (query) {
-      rows = rows.filter((row) => {
-        if (row.client.toLowerCase().includes(query)) return true;
-        const master = calendarClientMasterByName.get(row.client);
-        if (!master) return false;
-        return [master.manager, master.phone, master.depositNameAliases].some((value) =>
-          String(value || "").toLowerCase().includes(query),
-        );
-      });
-    }
-    if (clientSearchSort === "sales") {
-      return [...rows].sort(
-        (a, b) => b.monthBill - a.monthBill || a.client.localeCompare(b.client, "ko-KR"),
-      );
-    }
-    return [...rows].sort((a, b) => a.client.localeCompare(b.client, "ko-KR"));
-  }, [calendarClientSearchRows, calendarClientMasterByName, clientSearchQuery, clientSearchSort]);
 
   const selectedDaySales = useMemo(() => {
     if (!selectedDate) return [];
@@ -2660,6 +3225,12 @@ function CalendarPage({
     [monthTransactionDates, selectedDates],
   );
 
+  const clearClientSpotlight = () => {
+    spotlightScrollAnchorRef.current = null;
+    setSpotlightDateIndex(0);
+    setSpotlightClient(null);
+  };
+
   const toggleSpotlightClient = (clientName, anchorDate = null) => {
     const normalized = normalizeCalendarClientName(clientName);
     setSpotlightClient((current) => {
@@ -2671,6 +3242,30 @@ function CalendarPage({
       spotlightScrollAnchorRef.current = anchorDate;
       return normalized;
     });
+  };
+
+  const handleCalendarCellClick = (cell) => {
+    if (Date.now() < suppressCellClickUntilRef.current) return;
+    if (filteredClient) {
+      if (cell.stats.count > 0) toggleClientFilterDate(cell.date);
+      return;
+    }
+    if (spotlightClient) {
+      const cellHasSpotlight = cell.stats.entries.some((entry) => entry.client === spotlightClient);
+      if (!cellHasSpotlight) {
+        clearClientSpotlight();
+        return;
+      }
+      selectDate(cell.date);
+      return;
+    }
+    selectDate(cell.date);
+  };
+
+  const handleCalendarGridBackgroundClick = (event) => {
+    if (!spotlightClient || filteredClient) return;
+    if (event.target !== event.currentTarget) return;
+    clearClientSpotlight();
   };
 
   const handleEntrySpotlightClick = (event, clientName, anchorDate) => {
@@ -2698,22 +3293,18 @@ function CalendarPage({
     }
   };
 
-  const enterClientFilterFromSpotlight = (clientName, anchorDate) => {
-    const normalized = normalizeCalendarClientName(clientName);
-    if (!spotlightClient || spotlightClient !== normalized) return;
+  const enterClientFilter = (clientName, anchorDate) => {
+    const normalized = normalizeClientCalendarName(clientName);
     applyClientFilter(clientName, anchorDate);
     showClientFilterNotice(`${normalized} 거래처만 표시합니다. 날짜를 선택해 주세요.`);
   };
 
   const openClientSearch = () => {
-    setClientSearchQuery("");
-    setClientSearchSort("name");
     setClientSearchOpen(true);
   };
 
   const closeClientSearch = () => {
     setClientSearchOpen(false);
-    setClientSearchQuery("");
   };
 
   const selectClientFromSearch = (row) => {
@@ -2989,146 +3580,19 @@ function CalendarPage({
 
   const editingSale = sales.find((row) => row.id === editingSaleId);
 
-  const updateVoucherForm = (key, value) => {
-    clearVoucherSaveMessage();
-    setVoucherForm((prev) => ({ ...prev, [key]: value }));
-  };
-
-  const updateVoucherSharedMemo = (value) => {
-    clearVoucherSaveMessage();
-    setVoucherForm((prev) => {
-      const previousCommon = String(prev.memo || "").trim();
-      return {
-        ...prev,
-        memo: value,
-        workers: prev.workers.map((line) => {
-          const lineMemo = String(line.memo || "").trim();
-          if (lineMemo && lineMemo !== previousCommon) return line;
-          return { ...line, memo: value };
-        }),
-      };
-    });
-  };
-
-  const resetVoucherEdit = () => {
+  const closeVoucherEdit = useCallback(() => {
     setEditingSaleId(null);
-    setVoucherForm(emptySaleForm);
-    setVoucherDeleteConfirm(null);
-  };
+  }, []);
 
-  const closeVoucherEdit = () => {
-    resetVoucherEdit();
-    clearVoucherSaveMessage();
-  };
-
-  const openVoucherEdit = (sale) => {
-    setEditingSaleId(sale.id);
-    clearVoucherSaveMessage();
-    setVoucherForm(saleRowToForm(sale));
-  };
-
-  const updateVoucherWorkerLine = (index, key, value) => {
-    clearVoucherSaveMessage();
-    setVoucherForm((prev) => ({
-      ...prev,
-      workers: prev.workers.map((line, lineIndex) => {
-        if (lineIndex !== index) return line;
-        let nextLine = applyWorkerLineFieldUpdate(line, key, value);
-        if (key === "worker") {
-          const selectedWorker = findActiveWorkerByName(workers, value);
-          const selectedClient = clients.find((client) => client.name === prev.client);
-          nextLine.quantity = nextLine.quantity || "1";
-          nextLine.unitCost = selectedWorker?.constructionCost ? String(selectedWorker.constructionCost) : nextLine.unitCost;
-          nextLine.chargeAmount = selectedWorker?.customChargeCost ? String(selectedWorker.customChargeCost) : selectedClient?.constructionCost ? String(selectedClient.constructionCost) : nextLine.chargeAmount;
-          nextLine.overtimeCost = selectedClient?.overtimeCost ? String(selectedClient.overtimeCost) : selectedWorker?.overtimeCost ? String(selectedWorker.overtimeCost) : nextLine.overtimeCost || "30000";
-          nextLine.feeRate = selectedWorker?.feeRate ?? nextLine.feeRate ?? "";
-          nextLine = stripWorkerLineComputedMetrics(nextLine);
-        }
-        return nextLine;
-      }),
-    }));
-  };
-
-  const addVoucherWorkerLine = () => setVoucherForm((prev) => ({
-    ...prev,
-    workers: [...prev.workers, { ...createWorkerLine(prev.workers.length), memo: prev.memo || "" }],
-  }));
-
-  const removeVoucherWorkerLine = (index) => setVoucherForm((prev) => ({
-    ...prev,
-    workers: prev.workers.length <= 1 ? prev.workers : prev.workers.filter((_, lineIndex) => lineIndex !== index),
-  }));
-
-  const voucherFormTotals = useMemo(() => sumWorkerFormTotals(voucherForm.workers, workers), [voucherForm.workers, workers]);
-  const voucherFilledWorkerCount = useMemo(
-    () => voucherForm.workers.filter((line) => String(line.worker || "").trim()).length,
-    [voucherForm.workers],
-  );
-  const canSaveVoucher = Boolean(
-    voucherForm.client.trim()
-    && voucherForm.site.trim()
-    && voucherFormTotals.bill > 0
-    && isSaleFormMasterRefsValid(voucherForm, clients, workers)
-  );
-
-  const saveVoucherEdit = () => {
-    if (!editingSale) return;
-    const masterRefError = validateSaleFormMasterRefs(voucherForm, clients, workers);
-    if (masterRefError) {
-      setVoucherSaveMessage(masterRefError);
-      return;
-    }
-    const payload = buildSaleFromForm(voucherForm, currentUser, workers);
-    if (!payload.client || !payload.site || payload.amount <= 0) return;
-
-    recordAudit({
-      entityType: "sale",
-      entityId: editingSale.id,
-      entityLabel: `${payload.client} · ${payload.site}`,
-      screen: "캘린더",
-      action: "update",
-      before: snapshotSaleForAudit(editingSale),
-      after: snapshotSaleForAudit({ ...editingSale, ...payload }),
-      fields: SALE_AUDIT_FIELDS,
-      user: currentUser,
+  const openVoucherEdit = useCallback((sale) => {
+    startTransition(() => {
+      setEditingSaleId(sale.id);
     });
-
-    setSales((prev) => prev.map((row) => (
-      row.id === editingSale.id
-        ? { ...row, ...payload, createdBy: row.createdBy, createdByEmail: row.createdByEmail, createdAt: row.createdAt }
-        : row
-    )));
-    if (setPaymentVouchers && (payload.client !== editingSale.client || payload.site !== editingSale.site)) {
-      setPaymentVouchers((prev) => syncLinkedPaymentVouchersForSale(prev, editingSale.id, { client: payload.client, site: payload.site }));
-    }
-    setVoucherSaveMessage(`${payload.client} · ${payload.site} 전표가 저장되었습니다.`);
-    resetVoucherEdit();
-  };
-
-  const confirmDeleteVoucherEdit = () => {
-    if (!voucherDeleteConfirm) return;
-    const sale = voucherDeleteConfirm;
-
-    recordAudit({
-      entityType: "sale",
-      entityId: sale.id,
-      entityLabel: `${sale.client} · ${sale.site}`,
-      screen: "캘린더",
-      action: "delete",
-      before: snapshotSaleForAudit(sale),
-      fields: SALE_AUDIT_FIELDS,
-      user: currentUser,
-    });
-
-    setSales((prev) => prev.filter((row) => row.id !== sale.id));
-    setVoucherDeleteConfirm(null);
-    resetVoucherEdit();
-    setVoucherSaveMessage(`전표 ${sale.voucherNo || sale.id} (${sale.client} · ${sale.site})가 삭제되었습니다.`);
-  };
+  }, []);
 
   return (
     <div
-      className={`erp-page erp-calendar-page${selectedDate ? " has-side-panel" : ""}`}
+      className={`erp-page erp-calendar-page${selectedDate ? " has-side-panel" : ""}${filteredClient ? " is-client-filter" : ""}`}
     >
       {paymentCancelPreview ? (
         <div className="erp-ledger-modal-backdrop" onClick={closeClientFilterPaymentCancelConfirm}>
@@ -3250,109 +3714,15 @@ function CalendarPage({
         )}
       />
 
-      {clientSearchOpen ? (
-        <div className="erp-ledger-modal-backdrop" onClick={closeClientSearch}>
-          <div
-            className="erp-ledger-modal erp-ledger-modal--calendar-client-search"
-            onClick={(event) => event.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="calendar-client-search-title"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <h2 id="calendar-client-search-title" className="text-base font-bold text-slate-900 md:text-lg">
-                  거래처 검색
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  {monthLabel} 기준 · 거래처를 선택하면 해당 거래처 전표만 표시합니다.
-                </p>
-              </div>
-              <button
-                type="button"
-                className="erp-calendar-nav-btn shrink-0"
-                onClick={closeClientSearch}
-                aria-label="거래처 검색 닫기"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="mt-4">
-              <SearchBox
-                query={clientSearchQuery}
-                setQuery={setClientSearchQuery}
-                placeholder="거래처명, 담당자, 연락처, 예금주 별칭 검색"
-              />
-            </div>
-
-            <div className="erp-client-calendar-client-list mt-4">
-              <div className="erp-client-calendar-client-list-head">
-                <div className="erp-client-calendar-client-list-head-name">
-                  <button
-                    type="button"
-                    className={`erp-pivot-sort-btn erp-client-calendar-sort-btn ${clientSearchSort === "name" ? "is-active" : ""}`}
-                    onClick={() => setClientSearchSort("name")}
-                  >
-                    거래처
-                    {clientSearchSort === "name" ? <ArrowUp size={12} aria-hidden="true" /> : null}
-                  </button>
-                </div>
-                <div className="erp-client-calendar-client-list-head-amounts">
-                  <button
-                    type="button"
-                    className={`erp-pivot-sort-btn erp-client-calendar-sort-btn ${clientSearchSort === "sales" ? "is-active" : ""}`}
-                    onClick={() => setClientSearchSort("sales")}
-                  >
-                    {monthLabel} 매출
-                    {clientSearchSort === "sales" ? <ArrowDown size={12} aria-hidden="true" /> : null}
-                  </button>
-                </div>
-              </div>
-
-              <div className="erp-client-calendar-client-list-body">
-                {filteredCalendarClientSearchRows.length ? (
-                  filteredCalendarClientSearchRows.map((row) => (
-                    <button
-                      key={row.client}
-                      type="button"
-                      className={`erp-client-calendar-client-row${filteredClient === normalizeClientCalendarName(row.client) ? " is-selected" : ""}`}
-                      onClick={() => selectClientFromSearch(row)}
-                    >
-                      <div className="erp-client-calendar-client-row-inner">
-                        <span className="erp-client-calendar-client-row-name">{row.client}</span>
-                        <div className="erp-client-calendar-client-row-amounts">
-                          <span className="erp-client-calendar-client-row-sales">
-                            {row.monthCount > 0 ? formatKRW(row.monthBill) : "-"}
-                          </span>
-                          <span className="erp-client-calendar-client-row-sub">
-                            {row.monthCount > 0 ? (
-                              <>
-                                {row.monthCount}건
-                                {row.monthUnpaid > 0 ? (
-                                  <span className="is-unpaid"> · 미수 {formatKRW(row.monthUnpaid)}</span>
-                                ) : (
-                                  <span className="is-paid"> · 입금완료</span>
-                                )}
-                              </>
-                            ) : (
-                              <span className="is-zero">이번 달 전표 없음</span>
-                            )}
-                          </span>
-                        </div>
-                      </div>
-                    </button>
-                  ))
-                ) : (
-                  <p className="col-span-full px-1 py-6 text-center text-sm text-slate-500">
-                    {clientSearchQuery.trim() ? "검색 결과가 없습니다." : "표시할 거래처가 없습니다."}
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <CalendarClientSearchModal
+        open={clientSearchOpen}
+        monthLabel={monthLabel}
+        rows={calendarClientSearchRows}
+        clients={clients}
+        selectedClient={filteredClient}
+        onClose={closeClientSearch}
+        onSelect={selectClientFromSearch}
+      />
 
       <div className={`erp-calendar-summary-grid${filteredClient ? " is-client-filter-summary" : ""}`}>
         {filteredClient ? (
@@ -3535,11 +3905,7 @@ function CalendarPage({
                 <button
                   type="button"
                   className="erp-calendar-client-spotlight-dismiss"
-                  onClick={() => {
-                    spotlightScrollAnchorRef.current = null;
-                    setSpotlightDateIndex(0);
-                    setSpotlightClient(null);
-                  }}
+                  onClick={clearClientSpotlight}
                   aria-label="업체 강조 해제"
                 >
                   해제
@@ -3547,6 +3913,7 @@ function CalendarPage({
               </div>
             ) : null}
 
+            {!clientSearchOpen ? (
             <div
               ref={calendarGridRef}
               className={[
@@ -3556,9 +3923,21 @@ function CalendarPage({
               ]
                 .filter(Boolean)
                 .join(" ")}
+              onClick={handleCalendarGridBackgroundClick}
             >
               {cells.map((cell, index) => {
                 if (!cell) {
+                  if (spotlightClient && !filteredClient) {
+                    return (
+                      <button
+                        type="button"
+                        key={`empty-${index}`}
+                        className="erp-calendar-cell is-placeholder is-spotlight-dismiss-target"
+                        onClick={clearClientSpotlight}
+                        aria-label="거래처 강조 해제"
+                      />
+                    );
+                  }
                   return <div key={`empty-${index}`} className="erp-calendar-cell is-placeholder" aria-hidden="true" />;
                 }
 
@@ -3568,7 +3947,6 @@ function CalendarPage({
                 const weekendTone = weekday === 0 ? "sun" : weekday === 6 ? "sat" : "default";
                 const isSideSelected = selectedDate === cell.date;
                 const isDateChecked = filteredClient && selectedDates.includes(cell.date);
-                const isCellSelected = filteredClient ? isDateChecked : isSideSelected;
                 const paymentTone = hasData ? getCalendarDayPaymentTone(cell.stats) : "";
                 const cellHasSpotlightClient =
                   Boolean(spotlightClient) &&
@@ -3583,7 +3961,8 @@ function CalendarPage({
                   isToday ? "is-today" : "",
                   filteredClient && hasData ? "is-selectable" : "",
                   paymentTone && filteredClient ? `is-${paymentTone}` : "",
-                  isCellSelected ? "is-selected" : "",
+                  isDateChecked ? "is-checked" : "",
+                  isSideSelected ? "is-selected" : "",
                   cellHasSpotlightClient ? "is-client-spotlight-cell" : "",
                   spotlightClient && !filteredClient && spotlightDates[spotlightDateIndex] === cell.date
                     ? "is-spotlight-nav-active"
@@ -3630,7 +4009,7 @@ function CalendarPage({
                             key={`${cell.date}-${entry.saleId}`}
                             className={[
                               "erp-calendar-cell-entry",
-                              entry.hasUnpaid ? "is-unpaid" : "is-paid",
+                              entry.hasUnpaid ? "is-unpaid" : entry.isPartialPaid ? "is-partial-paid" : "is-paid",
                               filteredClient ? "erp-calendar-cell-entry--client-filter" : "",
                               !filteredClient ? "is-client-open" : "",
                               isEntrySpotlight ? "is-client-spotlight" : "",
@@ -3644,8 +4023,8 @@ function CalendarPage({
                             }}
                             title={
                               filteredClient
-                                ? `${entry.site}${entry.workerSummary ? ` · ${entry.workerSummary}` : ""}${entry.hasUnpaid ? ` · 미수 ${formatKRW(entry.unpaid)}` : " · 입금완료"}`
-                                : `${entry.client} · ${entry.site}${entry.hasUnpaid ? ` · 미수 ${formatKRW(entry.unpaid)}` : " · 입금완료"} · 행 클릭: 강조 · 강조 상태에서 더블클릭: 거래처만 보기`
+                                ? `${entry.site}${entry.workerSummary ? ` · ${entry.workerSummary}` : ""}${entry.hasUnpaid ? ` · 미수 ${formatKRW(entry.unpaid)}` : entry.isPartialPaid ? ` · 부분입금 ${formatKRW(entry.paid)} / 미수 ${formatKRW(entry.unpaid)}` : " · 입금완료"}`
+                                : `${entry.client} · ${entry.site}${entry.hasUnpaid ? ` · 미수 ${formatKRW(entry.unpaid)}` : entry.isPartialPaid ? ` · 부분입금 ${formatKRW(entry.paid)} / 미수 ${formatKRW(entry.unpaid)}` : " · 입금완료"} · 행 클릭: 강조 · 강조 상태에서 더블클릭: 거래처만 보기`
                             }
                             onClick={
                               filteredClient
@@ -3659,9 +4038,8 @@ function CalendarPage({
                                     clearTimeout(entrySpotlightClickTimerRef.current);
                                     event.stopPropagation();
                                     event.preventDefault();
-                                    if (!spotlightClient || entry.client !== spotlightClient) return;
                                     suppressCellClickUntilRef.current = Date.now() + 400;
-                                    enterClientFilterFromSpotlight(entry.client, cell.date);
+                                    enterClientFilter(entry.client, cell.date);
                                   }
                             }
                           >
@@ -3706,14 +4084,7 @@ function CalendarPage({
                     <button
                       type="button"
                       key={cell.date}
-                      onClick={() => {
-                        if (Date.now() < suppressCellClickUntilRef.current) return;
-                        if (filteredClient) {
-                          if (hasData) toggleClientFilterDate(cell.date);
-                          return;
-                        }
-                        selectDate(cell.date);
-                      }}
+                      onClick={() => handleCalendarCellClick(cell)}
                       onDoubleClick={
                         filteredClient && hasData
                           ? (event) => {
@@ -3727,11 +4098,11 @@ function CalendarPage({
                                 event.stopPropagation();
                                 event.preventDefault();
                                 suppressCellClickUntilRef.current = Date.now() + 400;
-                                enterClientFilterFromSpotlight(spotlightClient, cell.date);
+                                enterClientFilter(spotlightClient, cell.date);
                               }
                             : undefined
                       }
-                      aria-pressed={isCellSelected}
+                      aria-pressed={isDateChecked || isSideSelected}
                       className={cellClassName}
                       data-calendar-date={cell.date}
                       style={cellHasSpotlightClient ? { "--client-color": getCalendarClientColor(spotlightClient) } : undefined}
@@ -3747,6 +4118,22 @@ function CalendarPage({
                   );
                 }
 
+                if (spotlightClient && !filteredClient) {
+                  return (
+                    <button
+                      type="button"
+                      key={cell.date}
+                      onClick={clearClientSpotlight}
+                      className={`${cellClassName} is-spotlight-dismiss-target`}
+                      data-calendar-date={cell.date}
+                      aria-label={`${cell.date} · 일정 없음 · 거래처 강조 해제`}
+                      title="클릭: 거래처 강조 해제"
+                    >
+                      {cellBody}
+                    </button>
+                  );
+                }
+
                 return (
                   <div key={cell.date} className={cellClassName} data-calendar-date={cell.date} title={cell.date}>
                     {cellBody}
@@ -3754,6 +4141,11 @@ function CalendarPage({
                 );
               })}
             </div>
+            ) : (
+              <div className="erp-calendar-grid erp-calendar-grid--entries is-search-placeholder" aria-hidden="true">
+                <p className="col-span-full py-10 text-center text-sm text-slate-500">{"\uAC70\uB798\uCC98 \uAC80\uC0C9 \uC911\u2026"}</p>
+              </div>
+            )}
 
             <div className="erp-calendar-legend">
               <span className="erp-calendar-legend-item">
@@ -3763,10 +4155,14 @@ function CalendarPage({
                 <i className="erp-client-calendar-legend-dot is-unpaid" /> 미수 전표
               </span>
               <span className="erp-calendar-legend-item">
-                <i className="erp-client-calendar-legend-dot is-paid" /> 입금 전표
+                <i className="erp-client-calendar-legend-dot is-partial-paid" /> 부분입금
               </span>
               <span className="erp-calendar-legend-item">
-                <i className="erp-calendar-legend-dot is-selected" /> {filteredClient ? "날짜 선택" : "날짜 클릭 · 상세"}
+                <i className="erp-client-calendar-legend-dot is-paid" /> 입금완료
+              </span>
+              <span className="erp-calendar-legend-item">
+                <i className={filteredClient ? "erp-client-calendar-legend-dot is-checked" : "erp-calendar-legend-dot is-selected"} />{" "}
+                {filteredClient ? "날짜 선택" : "날짜 클릭 · 상세"}
               </span>
               {filteredClient ? (
                 <>
@@ -3902,11 +4298,6 @@ function CalendarPage({
             ) : null}
 
             <div className="erp-calendar-side-panel-body">
-              {voucherSaveMessage ? (
-                <div className="erp-calendar-side-save-message mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
-                  {voucherSaveMessage}
-                </div>
-              ) : null}
               {selectedDaySales.length === 0 ? (
                 <p className="erp-calendar-side-empty">해당 날짜에 등록된 전표가 없습니다.</p>
               ) : (
@@ -3915,20 +4306,24 @@ function CalendarPage({
                     const stats = aggregateSaleCalendarStats(sale, feeMap);
                     const workerLabel = sale.worker || formatWorkerNameSummary(getSaleWorkerLines(sale)) || "-";
                     const color = getCalendarClientColor(sale.client);
-                    const unpaid = getUnpaid(sale);
-                    const hasUnpaid = unpaid > 0;
+                    const { unpaid, paid, hasUnpaid, isPartialPaid } = getCalendarEntryPaymentState(sale);
+                    const paymentLabel = hasUnpaid
+                      ? `미수 ${formatKRW(unpaid)}`
+                      : isPartialPaid
+                        ? `부분입금 ${formatKRW(paid)} · 미수 ${formatKRW(unpaid)}`
+                        : "입금완료";
                     return (
                       <li key={sale.id}>
                         <button
                           type="button"
-                          className={`erp-calendar-side-card is-editable ${hasUnpaid ? "is-unpaid" : "is-paid"}${
+                          className={`erp-calendar-side-card is-editable ${hasUnpaid ? "is-unpaid" : isPartialPaid ? "is-partial-paid" : "is-paid"}${
                             !filteredClient && spotlightClient === normalizeCalendarClientName(sale.client) ? " is-client-spotlight" : ""
                           }`}
                           style={{ "--client-color": color }}
                           title={
                             filteredClient
-                              ? `${hasUnpaid ? `미수 ${formatKRW(unpaid)}` : "입금완료"} · 더블클릭: 전표 수정`
-                              : `${hasUnpaid ? `미수 ${formatKRW(unpaid)}` : "입금완료"} · 클릭: 같은 업체 일정 강조 · 더블클릭: 전표 수정`
+                              ? `${paymentLabel} · 더블클릭: 전표 수정`
+                              : `${paymentLabel} · 클릭: 같은 업체 일정 강조 · 더블클릭: 전표 수정`
                           }
                           onClick={() => {
                             if (filteredClient) return;
@@ -3979,28 +4374,6 @@ function CalendarPage({
         ) : null}
       </div>
 
-      {voucherDeleteConfirm ? (
-        <div className="erp-ledger-modal-backdrop" onClick={() => setVoucherDeleteConfirm(null)}>
-          <div className="erp-ledger-modal" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="calendar-sale-delete-title">
-            <h2 id="calendar-sale-delete-title" className="text-base font-bold text-slate-900 md:text-lg">
-              전표 삭제
-            </h2>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
-              전표 {voucherDeleteConfirm.voucherNo || voucherDeleteConfirm.id} ({voucherDeleteConfirm.client} · {voucherDeleteConfirm.site})를 삭제할까요?
-            </p>
-            <p className="mt-4 text-sm font-semibold text-slate-700">삭제 후에는 복구할 수 없습니다.</p>
-            <div className="mt-5 flex gap-2">
-              <Button variant="outline" className="flex-1 rounded-xl" onClick={() => setVoucherDeleteConfirm(null)}>
-                아니오
-              </Button>
-              <Button className="flex-1 rounded-xl bg-red-600 hover:bg-red-700" onClick={confirmDeleteVoucherEdit}>
-                삭제
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
       {statementModalDraft ? (
         <ClientStatementModal
           draft={statementModalDraft}
@@ -4017,59 +4390,19 @@ function CalendarPage({
       ) : null}
 
       {editingSale ? (
-        <div className="erp-ledger-modal-backdrop" onClick={closeVoucherEdit}>
-          <div
-            className="erp-ledger-modal erp-ledger-modal--sale-edit"
-            onClick={(event) => event.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="calendar-sale-edit-title"
-          >
-            <div className="erp-sale-form-page erp-sale-form-page--compact">
-              <SaleFormCompactEditor
-                title="매출전표 수정"
-                desc={`${editingSale.client} · ${editingSale.site} · 시공자 ${voucherFilledWorkerCount}/${voucherForm.workers.length}명`}
-                form={voucherForm}
-                update={updateVoucherForm}
-                updateWorkerLine={updateVoucherWorkerLine}
-                addWorkerLine={addVoucherWorkerLine}
-                removeWorkerLine={removeVoucherWorkerLine}
-                clients={clients}
-                workers={workers}
-                totals={voucherFormTotals}
-                filledWorkerCount={voucherFilledWorkerCount}
-                canSave={canSaveVoucher}
-                onSave={saveVoucherEdit}
-                saveLabel="전표 저장"
-                saveMessage={voucherSaveMessage}
-                auditEntityId={editingSaleId}
-                headerAction={(
-                  <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={closeVoucherEdit}>
-                    닫기
-                  </Button>
-                )}
-                footerStartExtra={(
-                  <>
-                    <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={closeVoucherEdit}>
-                      저장 안 하고 종료
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 rounded-lg border-red-200 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
-                      onClick={() => setVoucherDeleteConfirm(editingSale)}
-                    >
-                      <Trash2 size={13} />
-                      전표 삭제
-                    </Button>
-                  </>
-                )}
-                onSharedMemoChange={updateVoucherSharedMemo}
-                allowClientSiteUnlock
-              />
-            </div>
-          </div>
-        </div>
+        <SaleVoucherEditModal
+          sale={editingSale}
+          onClose={closeVoucherEdit}
+          setSales={setSales}
+          clients={clients}
+          workers={workers}
+          currentUser={currentUser}
+          setPaymentVouchers={setPaymentVouchers}
+          setBankTransactions={setBankTransactions}
+          onPersistSaleUpdate={onPersistSaleUpdate}
+          screen="캘린더"
+          SaleFormEditor={SaleFormCompactEditor}
+        />
       ) : null}
     </div>
   );
@@ -4094,7 +4427,7 @@ function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "�
       <MobileRecordList>
         {rows.length ? (
           rows.map((row) => {
-            const isSelected = selectedRowId != null && row.id === selectedRowId;
+            const isSelected = selectedRowId != null && String(row.id) === String(selectedRowId);
             const isDuplicate = isDuplicateRow?.(row);
             return (
               <MobileRecordCard
@@ -4138,7 +4471,7 @@ function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "�
         </thead>
         <tbody>
           {rows.map((row) => {
-            const isSelected = selectedRowId != null && row.id === selectedRowId;
+            const isSelected = selectedRowId != null && String(row.id) === String(selectedRowId);
             const isDuplicate = isDuplicateRow?.(row);
             return (
             <tr
@@ -4173,110 +4506,70 @@ function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "�
   );
 }
 
-function SalesRegistrationPage({ sales = [], setSales, setActive, clients, workers, currentUser }) {
+const SalesRegistrationPage = memo(function SalesRegistrationPage({
+  sales = [],
+  setSales,
+  setActive,
+  clients,
+  workers,
+  currentUser,
+  onPersistNewSale,
+}) {
   const { recordAudit } = useAudit();
   const salesRef = useRef(sales);
-  const [form, setForm] = useState(() => compactSaleForm());
+  const [formSessionKey, setFormSessionKey] = useState(0);
+  const initialForm = useMemo(() => compactSaleForm(), [formSessionKey]);
+  const draftRef = useRef(initialForm);
   const { message: saveMessage, setMessage: setSaveMessage, clearMessage: clearSaveMessage } = useSaveMessage();
   const [duplicateConfirm, setDuplicateConfirm] = useState(null);
+  const activeWorkers = useMemo(() => filterActiveWorkers(workers), [workers]);
+  const syncDraftRef = useCallback((draft) => {
+    draftRef.current = draft;
+  }, []);
 
   useEffect(() => {
     salesRef.current = sales;
   }, [sales]);
-  const update = (key, value) => {
-    clearSaveMessage();
-    setForm((prev) => ({ ...prev, [key]: value }));
-  };
 
-  const updateSharedMemo = (value) => {
-    clearSaveMessage();
-    setForm((prev) => {
-      const previousCommon = String(prev.memo || "").trim();
-      return {
-        ...prev,
-        memo: value,
-        workers: prev.workers.map((line) => {
-          const lineMemo = String(line.memo || "").trim();
-          if (lineMemo && lineMemo !== previousCommon) return line;
-          return { ...line, memo: value };
-        }),
-      };
-    });
-  };
-
-  const updateWorkerLine = (index, key, value) => {
-    clearSaveMessage();
-    setForm((prev) => ({
-      ...prev,
-      workers: prev.workers.map((line, lineIndex) => {
-        if (lineIndex !== index) return line;
-        let nextLine = applyWorkerLineFieldUpdate(line, key, value);
-        if (key === "worker") {
-          const selectedWorker = findActiveWorkerByName(workers, value);
-          const selectedClient = clients.find((client) => client.name === prev.client);
-          nextLine.quantity = nextLine.quantity || "1";
-          nextLine.unitCost = selectedWorker?.constructionCost ? String(selectedWorker.constructionCost) : nextLine.unitCost;
-          nextLine.chargeAmount = selectedWorker?.customChargeCost ? String(selectedWorker.customChargeCost) : selectedClient?.constructionCost ? String(selectedClient.constructionCost) : nextLine.chargeAmount;
-          nextLine.overtimeCost = selectedClient?.overtimeCost ? String(selectedClient.overtimeCost) : selectedWorker?.overtimeCost ? String(selectedWorker.overtimeCost) : nextLine.overtimeCost || "30000";
-          nextLine.feeRate = selectedWorker?.feeRate ?? nextLine.feeRate ?? "";
-          nextLine = stripWorkerLineComputedMetrics(nextLine);
-        }
-        return nextLine;
-      }),
-    }));
-  };
-
-  const addWorkerLine = () => setForm((prev) => ({
-    ...prev,
-    workers: [...prev.workers, { ...createWorkerLine(prev.workers.length), memo: prev.memo || "" }],
-  }));
-  const removeWorkerLine = (index) => setForm((prev) => ({ ...prev, workers: prev.workers.length <= 1 ? prev.workers : prev.workers.filter((_, lineIndex) => lineIndex !== index) }));
-
-  const totals = useMemo(() => sumWorkerFormTotals(form.workers, workers), [form.workers, workers]);
-  const filledWorkerCount = useMemo(
-    () => form.workers.filter((line) => String(line.worker || "").trim()).length,
-    [form.workers]
-  );
-  const canSave = Boolean(
-    form.client.trim()
-    && form.site.trim()
-    && totals.bill > 0
-    && isSaleFormMasterRefsValid(form, clients, workers)
-  );
-
-  const commitSave = (payload) => {
+  const commitSave = useCallback(async (payload) => {
     const { id: newId, voucherNo } = allocateNextSaleRecordIds(salesRef.current);
+    const newSale = {
+      id: newId,
+      voucherNo,
+      ...payload,
+      paid: 0,
+      basePaid: 0,
+    };
     recordAudit({
       entityType: "sale",
       entityId: newId,
       entityLabel: `${payload.client} · ${payload.site}`,
       screen: "매출등록",
       action: "create",
-      after: snapshotSaleForAudit({ ...payload, id: newId, voucherNo }),
+      after: snapshotSaleForAudit(newSale),
       fields: SALE_AUDIT_FIELDS,
       user: currentUser,
     });
-    setSales((prev) => [{
-      id: newId,
-      voucherNo,
-      ...payload,
-      paid: 0,
-      basePaid: 0,
-    }, ...prev]);
-    setForm(compactSaleForm());
+    const nextSales = [newSale, ...salesRef.current];
+    setSales(nextSales);
+    await onPersistNewSale?.(nextSales);
+    setFormSessionKey((key) => key + 1);
     setSaveMessage(`${payload.client} · ${payload.site} 매출이 저장되었습니다. 계속 등록할 수 있습니다.`);
     setDuplicateConfirm(null);
-  };
+  }, [currentUser, onPersistNewSale, recordAudit, setSales, setSaveMessage]);
 
-  const saveNewSale = () => {
-    const masterRefError = validateSaleFormMasterRefs(form, clients, workers);
+  const saveNewSale = useCallback((currentForm) => {
+    const masterRefError = validateSaleFormMasterRefs(currentForm, clients, activeWorkers);
     if (masterRefError) {
       setSaveMessage(masterRefError);
       return;
     }
 
-    const payload = buildSaleFromForm(form, currentUser, workers);
-    if (!payload.client || !payload.site || payload.amount <= 0) return;
+    const payload = buildSaleFromForm(currentForm, currentUser, activeWorkers);
+    if (!payload.client || !payload.site || payload.amount <= 0) {
+      setSaveMessage("거래처, 현장, 청구액을 확인해 주세요. 입력 중인 칸은 다른 칸을 클릭한 뒤 저장해 주세요.");
+      return;
+    }
 
     const duplicates = findSalesWithSameClientWorkerDate(salesRef.current, payload);
     if (duplicates.length > 0) {
@@ -4290,8 +4583,8 @@ function SalesRegistrationPage({ sales = [], setSales, setActive, clients, worke
       return;
     }
 
-    commitSave(payload);
-  };
+    void commitSave(payload);
+  }, [activeWorkers, clients, commitSave, currentUser, setSaveMessage]);
 
   const confirmDuplicateSave = () => {
     if (!duplicateConfirm?.payload) return;
@@ -4301,7 +4594,7 @@ function SalesRegistrationPage({ sales = [], setSales, setActive, clients, worke
   const resetForm = () => {
     clearSaveMessage();
     setDuplicateConfirm(null);
-    setForm(compactSaleForm());
+    setFormSessionKey((key) => key + 1);
   };
 
   return (
@@ -4335,27 +4628,21 @@ function SalesRegistrationPage({ sales = [], setSales, setActive, clients, worke
       ) : null}
       <SaleFormCompactEditor
         title="매출등록"
-        form={form}
-        update={update}
-        updateWorkerLine={updateWorkerLine}
-        addWorkerLine={addWorkerLine}
-        removeWorkerLine={removeWorkerLine}
+        initialForm={initialForm}
+        sessionKey={`registration-${formSessionKey}`}
         clients={clients}
-        workers={filterActiveWorkers(workers)}
-        totals={totals}
-        filledWorkerCount={filledWorkerCount}
-        canSave={canSave}
+        workers={activeWorkers}
         onSave={saveNewSale}
         onReset={resetForm}
+        onDraftChange={syncDraftRef}
         saveLabel="매출 저장"
         saveMessage={saveMessage}
         showPaidField={false}
         memoAfterWorkers={true}
-        onSharedMemoChange={updateSharedMemo}
       />
     </div>
   );
-}
+});
 
 function SearchBox({ query, setQuery, placeholder }) {
   return (
@@ -4368,14 +4655,11 @@ function SearchBox({ query, setQuery, placeholder }) {
 
 const emptyVoucherSearchFilters = { client: "", site: "", worker: "" };
 
-function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, setPaymentVouchers, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set() }) {
-  const { recordAudit } = useAudit();
+function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, setPaymentVouchers, setBankTransactions, onPersistSaleUpdate, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set() }) {
   const [searchFilters, setSearchFilters] = useState(emptyVoucherSearchFilters);
   const [dateFilter, setDateFilter] = useState({ startDate: "", endDate: "" });
-  const [selectedRowId, setSelectedRowId] = useState(null);
-  const [form, setForm] = useState(emptySaleForm);
+  const [selectedSale, setSelectedSale] = useState(null);
   const { message: saveMessage, setMessage: setSaveMessage, clearMessage: clearSaveMessage } = useSaveMessage();
-  const [deleteConfirm, setDeleteConfirm] = useState(null);
   const duplicateIndex = useMemo(() => buildSaleDuplicateIndex(sales), [sales]);
   const isDuplicateRow = (row) => isDuplicateSale(row, duplicateIndex.duplicateKeys);
   const matchedRows = useMemo(() => {
@@ -4389,45 +4673,20 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
     () => matchedRows.filter((row) => isDuplicateRow(row)).length,
     [matchedRows, duplicateIndex.duplicateKeys]
   );
-  const selectedRow = sales.find((row) => row.id === selectedRowId);
 
-  const update = (key, value) => {
+  const closeEditor = useCallback(() => {
+    setSelectedSale(null);
     clearSaveMessage();
-    setForm((prev) => ({ ...prev, [key]: value }));
-  };
+  }, [clearSaveMessage]);
 
-  const updateSharedMemo = (value) => {
+  const openVoucher = useCallback((row) => {
     clearSaveMessage();
-    setForm((prev) => {
-      const previousCommon = String(prev.memo || "").trim();
-      return {
-        ...prev,
-        memo: value,
-        workers: prev.workers.map((line) => {
-          const lineMemo = String(line.memo || "").trim();
-          if (lineMemo && lineMemo !== previousCommon) return line;
-          return { ...line, memo: value };
-        }),
-      };
-    });
-  };
-
-  const closeEditor = () => {
-    setSelectedRowId(null);
-    setForm(emptySaleForm);
-    clearSaveMessage();
-    setDeleteConfirm(null);
-  };
-
-  const openVoucher = (row) => {
-    setSelectedRowId(row.id);
-    clearSaveMessage();
-    setForm(saleRowToForm(row));
-  };
+    setSelectedSale(row);
+  }, [clearSaveMessage]);
 
   useEffect(() => {
     if (pendingVoucherId == null) return;
-    const row = sales.find((item) => item.id === pendingVoucherId);
+    const row = sales.find((item) => String(item.id) === String(pendingVoucherId));
     if (!row) {
       onPendingVoucherConsumed?.();
       return;
@@ -4436,7 +4695,7 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
     setDateFilter({ startDate: row.date || "", endDate: row.date || "" });
     openVoucher(row);
     onPendingVoucherConsumed?.();
-  }, [pendingVoucherId, sales, onPendingVoucherConsumed]);
+  }, [pendingVoucherId, sales, onPendingVoucherConsumed, openVoucher]);
 
   useEffect(() => {
     if (!pendingSearchFilter) return;
@@ -4451,176 +4710,34 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
     });
     closeEditor();
     onPendingSearchConsumed?.();
-  }, [pendingSearchFilter, onPendingSearchConsumed]);
-
-  const updateWorkerLine = (index, key, value) => {
-    clearSaveMessage();
-    setForm((prev) => ({
-      ...prev,
-      workers: prev.workers.map((line, lineIndex) => {
-        if (lineIndex !== index) return line;
-        let nextLine = applyWorkerLineFieldUpdate(line, key, value);
-        if (key === "worker") {
-          const selectedWorker = findActiveWorkerByName(workers, value);
-          const selectedClient = clients.find((client) => client.name === prev.client);
-          nextLine.quantity = nextLine.quantity || "1";
-          nextLine.unitCost = selectedWorker?.constructionCost ? String(selectedWorker.constructionCost) : nextLine.unitCost;
-          nextLine.chargeAmount = selectedWorker?.customChargeCost ? String(selectedWorker.customChargeCost) : selectedClient?.constructionCost ? String(selectedClient.constructionCost) : nextLine.chargeAmount;
-          nextLine.overtimeCost = selectedClient?.overtimeCost ? String(selectedClient.overtimeCost) : selectedWorker?.overtimeCost ? String(selectedWorker.overtimeCost) : nextLine.overtimeCost || "30000";
-          nextLine.feeRate = selectedWorker?.feeRate ?? nextLine.feeRate ?? "";
-          nextLine = stripWorkerLineComputedMetrics(nextLine);
-        }
-        return nextLine;
-      }),
-    }));
-  };
-
-  const addWorkerLine = () => setForm((prev) => ({
-    ...prev,
-    workers: [...prev.workers, { ...createWorkerLine(prev.workers.length), memo: prev.memo || "" }],
-  }));
-  const removeWorkerLine = (index) => setForm((prev) => ({ ...prev, workers: prev.workers.length <= 1 ? prev.workers : prev.workers.filter((_, lineIndex) => lineIndex !== index) }));
-
-  const formTotals = useMemo(() => sumWorkerFormTotals(form.workers, workers), [form.workers, workers]);
-  const filledWorkerCount = useMemo(
-    () => form.workers.filter((line) => String(line.worker || "").trim()).length,
-    [form.workers]
-  );
-  const canSave = Boolean(
-    form.client.trim()
-    && form.site.trim()
-    && formTotals.bill > 0
-    && isSaleFormMasterRefsValid(form, clients, workers)
-  );
-
-  const saveVoucher = () => {
-    if (!selectedRow) return;
-    const masterRefError = validateSaleFormMasterRefs(form, clients, workers);
-    if (masterRefError) {
-      setSaveMessage(masterRefError);
-      return;
-    }
-    const payload = buildSaleFromForm(form, currentUser, workers);
-    if (!payload.client || !payload.site || payload.amount <= 0) return;
-
-    recordAudit({
-      entityType: "sale",
-      entityId: selectedRow.id,
-      entityLabel: `${payload.client} · ${payload.site}`,
-      screen: "매출전표검색",
-      action: "update",
-      before: snapshotSaleForAudit(selectedRow),
-      after: snapshotSaleForAudit({ ...selectedRow, ...payload }),
-      fields: SALE_AUDIT_FIELDS,
-      user: currentUser,
-    });
-
-    setSales((prev) => prev.map((row) => row.id === selectedRow.id ? { ...row, ...payload, createdBy: row.createdBy, createdByEmail: row.createdByEmail, createdAt: row.createdAt } : row));
-    if (setPaymentVouchers && (payload.client !== selectedRow.client || payload.site !== selectedRow.site)) {
-      setPaymentVouchers((prev) => syncLinkedPaymentVouchersForSale(prev, selectedRow.id, { client: payload.client, site: payload.site }));
-    }
-    setSaveMessage(`${payload.client} · ${payload.site} 전표가 저장되었습니다.`);
-    setSelectedRowId(null);
-    setForm(emptySaleForm);
-  };
-
-  const confirmDeleteVoucher = () => {
-    if (!deleteConfirm) return;
-    const sale = deleteConfirm;
-
-    recordAudit({
-      entityType: "sale",
-      entityId: sale.id,
-      entityLabel: `${sale.client} · ${sale.site}`,
-      screen: "매출전표검색",
-      action: "delete",
-      before: snapshotSaleForAudit(sale),
-      fields: SALE_AUDIT_FIELDS,
-      user: currentUser,
-    });
-
-    setSales((prev) => prev.filter((row) => row.id !== sale.id));
-    setDeleteConfirm(null);
-    setSelectedRowId(null);
-    setForm(emptySaleForm);
-    setSaveMessage(`전표 ${sale.voucherNo || sale.id} (${sale.client} · ${sale.site})가 삭제되었습니다.`);
-  };
+  }, [pendingSearchFilter, onPendingSearchConsumed, closeEditor]);
 
   return (
-    <div className={`erp-page erp-sales-sheet-page ${selectedRow ? "erp-sale-form-page erp-sale-form-page--compact" : ""}`}>
-      {deleteConfirm ? (
-        <div className="erp-ledger-modal-backdrop" onClick={() => setDeleteConfirm(null)}>
-          <div className="erp-ledger-modal" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="sale-delete-title">
-            <h2 id="sale-delete-title" className="text-base font-bold text-slate-900 md:text-lg">
-              전표 삭제
-            </h2>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
-              전표 {deleteConfirm.voucherNo || deleteConfirm.id} ({deleteConfirm.client} · {deleteConfirm.site})를 삭제할까요?
-            </p>
-            <p className="mt-4 text-sm font-semibold text-slate-700">삭제 후에는 복구할 수 없습니다.</p>
-            <div className="mt-5 flex gap-2">
-              <Button variant="outline" className="flex-1 rounded-xl" onClick={() => setDeleteConfirm(null)}>
-                아니오
-              </Button>
-              <Button className="flex-1 rounded-xl bg-red-600 hover:bg-red-700" onClick={confirmDeleteVoucher}>
-                삭제
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-      {selectedRow ? (
-        <SaleFormCompactEditor
-          title="매출전표 수정"
-          desc={`${selectedRow.client} · ${selectedRow.site} · 시공자 ${filledWorkerCount}/${form.workers.length}명`}
-          form={form}
-          update={update}
-          updateWorkerLine={updateWorkerLine}
-          addWorkerLine={addWorkerLine}
-          removeWorkerLine={removeWorkerLine}
+    <div className="erp-page erp-sales-sheet-page">
+      {selectedSale ? (
+        <SaleVoucherEditModal
+          sale={selectedSale}
+          onClose={closeEditor}
+          setSales={setSales}
           clients={clients}
           workers={workers}
-          totals={formTotals}
-          filledWorkerCount={filledWorkerCount}
-          canSave={canSave}
-          onSave={saveVoucher}
-          saveLabel="전표 저장"
-          saveMessage={saveMessage}
-          auditEntityId={selectedRowId}
-          headerAction={(
-            <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={closeEditor}>
-              닫기
-            </Button>
-          )}
-          footerStartExtra={(
-            <>
-              <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={closeEditor}>
-                저장 안 하고 종료
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 rounded-lg border-red-200 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
-                onClick={() => setDeleteConfirm(selectedRow)}
-              >
-                <Trash2 size={13} />
-                전표 삭제
-              </Button>
-            </>
-          )}
-          onSharedMemoChange={updateSharedMemo}
-          allowClientSiteUnlock
+          currentUser={currentUser}
+          setPaymentVouchers={setPaymentVouchers}
+          setBankTransactions={setBankTransactions}
+          onPersistSaleUpdate={onPersistSaleUpdate}
+          screen="매출전표검색"
+          SaleFormEditor={SaleFormCompactEditor}
         />
-      ) : (
-        <PageTitle title="매출전표검색" desc="전표를 클릭해 열고, 매출등록과 같은 화면에서 수정합니다." />
-      )}
+      ) : null}
 
-      {saveMessage && !selectedRow && (
+      <PageTitle title="매출전표검색" desc="전표를 클릭해 열고, 매출등록과 같은 화면에서 수정합니다." />
+
+      {saveMessage ? (
         <div className="erp-sale-form-footer-status mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5">
           <CheckCircle2 size={14} className="text-emerald-600" />
           <span className="text-emerald-700">{saveMessage}</span>
         </div>
-      )}
+      ) : null}
 
       <div className="erp-sales-voucher-search mb-3">
         <div className="erp-sales-voucher-search-fields">
@@ -4691,7 +4808,7 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
       </div>
       <Card className="rounded-2xl shadow-sm">
         <CardContent className="p-4 md:p-5">
-          {selectedRow && (
+          {selectedSale && (
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className="text-sm font-bold text-slate-700">전표 목록</h2>
               <span className="text-xs text-slate-400">{matchedRows.length}건 · 다른 전표 클릭 시 바로 전환</span>
@@ -4700,7 +4817,7 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
           <SimpleSalesTable
             rows={matchedRows}
             onRowClick={openVoucher}
-            selectedRowId={selectedRowId}
+            selectedRowId={selectedSale?.id}
             exportFileName="매출전표검색"
             exportTitle="매출전표 검색"
             isDuplicateRow={isDuplicateRow}
@@ -5101,12 +5218,50 @@ function WorkerListSortHeader({
   );
 }
 
-function WorkersPage({ workers, setWorkers, companyProfile }) {
-  const { recordAudit } = useAudit();
+function appendWorkerAuditLogs(
+  prevLogs,
+  input: {
+    entityId: string | number;
+    entityLabel: string;
+    action: "create" | "update" | "delete";
+    before?: Record<string, unknown>;
+    after?: Record<string, unknown>;
+    fields: typeof WORKER_AUDIT_FIELDS;
+  },
+  currentUser,
+) {
+  const before = input.before || {};
+  const after = input.after || {};
+  const changes =
+    input.action === "create"
+      ? diffAuditRecords({}, after, input.fields)
+      : input.action === "delete"
+        ? diffAuditRecords(before, {}, input.fields)
+        : diffAuditRecords(before, after, input.fields);
+  if (!changes.length) return prevLogs;
+  return appendAuditLogs(
+    prevLogs,
+    buildAuditEntries({
+      entityType: "worker",
+      entityId: input.entityId,
+      entityLabel: input.entityLabel,
+      screen: "시공자",
+      user: currentUser,
+      action: input.action,
+      changes,
+    }),
+  );
+}
+
+function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImmediate }) {
+  const { auditLogs } = useAudit();
+  const workersRef = useRef(workers);
+  workersRef.current = workers;
   const emptyWorkerForm = {
     name: "",
     grade: "",
     category: "팀원",
+    hireDate: "",
     bank: "",
     account: "",
     phone: "",
@@ -5119,6 +5274,8 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
     feeRate: "10",
     depositNameAliases: "",
     memo: "",
+    portalLoginId: "",
+    portalPassword: "",
   };
 
   const [form, setForm] = useState(emptyWorkerForm);
@@ -5131,6 +5288,7 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
   const [inlineChargeDrafts, setInlineChargeDrafts] = useState({});
   const [constructionCostEdit, setConstructionCostEdit] = useState(null);
   const [formError, setFormError] = useState("");
+  const [scrollToWorkerId, setScrollToWorkerId] = useState<string | number | null>(null);
 
   const handleWorkerListSort = (column: WorkerListSortColumn) => {
     setListSort((prev) => {
@@ -5148,15 +5306,33 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
 
   const displayedWorkers = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const pool = q ? activeWorkers : workers;
-    return pool
-      .filter((worker) => !q || Object.values(worker).join(" ").toLowerCase().includes(q))
+    return workers
+      .filter((worker) => {
+        if (editingId != null && workerIdsEqual(worker.id, editingId)) return true;
+        if (q) {
+          if (!isWorkerActive(worker)) return false;
+          return Object.values(worker).join(" ").toLowerCase().includes(q);
+        }
+        return true;
+      })
       .sort((a, b) => (
         listSort.column
           ? compareWorkersByColumn(a, b, listSort.column, listSort.direction)
           : compareWorkersDefault(a, b)
       ));
-  }, [workers, activeWorkers, query, listSort.column, listSort.direction]);
+  }, [workers, query, listSort.column, listSort.direction, editingId]);
+
+  useEffect(() => {
+    if (scrollToWorkerId == null) return;
+    const rowId = normalizeWorkerRecordId(scrollToWorkerId);
+    if (!rowId) {
+      setScrollToWorkerId(null);
+      return;
+    }
+    const row = document.querySelector(`[data-worker-row-id="${rowId}"]`);
+    row?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    setScrollToWorkerId(null);
+  }, [scrollToWorkerId, displayedWorkers]);
 
   const exportableWorkers = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -5178,14 +5354,21 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
       total: displayedWorkers.length,
       active: activeRows.length,
       inactive: displayedWorkers.length - activeRows.length,
-      team: activeRows.filter((worker) => normalizeWorkerCategory(worker.category) === "팀원").length,
-      outsource: activeRows.filter((worker) => normalizeWorkerCategory(worker.category) === "외주").length,
+      team: activeRows.filter((worker) => normalizeWorkerCategory(worker.category) !== WORKER_CATEGORY_OUTSOURCE).length,
+      outsource: activeRows.filter((worker) => normalizeWorkerCategory(worker.category) === WORKER_CATEGORY_OUTSOURCE).length,
     };
   }, [displayedWorkers]);
 
   const updateForm = (key, value) => {
     setFormError("");
     setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const commitWorkerChange = (nextWorkers, auditInput) => {
+    const nextAuditLogs = auditInput
+      ? appendWorkerAuditLogs(auditLogs, auditInput, currentUser)
+      : undefined;
+    void onPersistWorkersImmediate?.(nextWorkers, nextAuditLogs);
   };
 
   const saveWorker = () => {
@@ -5212,13 +5395,27 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
       return;
     }
 
-    const existingWorker = editingId ? workers.find((worker) => worker.id === editingId) : null;
+    const existingWorker =
+      editingId != null
+        ? workersRef.current.find((worker) => workerIdsEqual(worker.id, editingId))
+        : null;
     const feeNumber = Number(String(form.feeRate).replace(/[^0-9.]/g, ""));
+    const prevGrade = normalizeWorkerGrade(existingWorker?.grade);
+    const nextGrade = normalizeWorkerGrade(form.grade);
+    let eGradeEndedAt = String(existingWorker?.eGradeEndedAt || "").trim();
+    if (prevGrade === "E" && nextGrade && nextGrade !== "E") {
+      eGradeEndedAt = todayISO();
+    } else if (nextGrade === "E") {
+      eGradeEndedAt = "";
+    }
     const payload = {
-      id: editingId || Date.now(),
+      ...(existingWorker || {}),
+      id: existingWorker?.id ?? editingId ?? Date.now(),
       name,
-      grade: normalizeWorkerGrade(form.grade),
+      grade: nextGrade,
       category: normalizeWorkerCategory(category),
+      hireDate: String(form.hireDate || "").trim(),
+      eGradeEndedAt,
       bank: form.bank.trim(),
       account: form.account.trim(),
       phone: form.phone.trim(),
@@ -5231,24 +5428,28 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
       feeRate: feeNumber > 1 ? feeNumber / 100 : feeNumber,
       depositNameAliases: form.depositNameAliases.trim(),
       memo: form.memo.trim(),
-      isActive: editingId ? isWorkerActive(existingWorker) : true,
+      portalLoginId: form.portalLoginId.trim().toLowerCase().replace(/[^a-z0-9]/g, "") || undefined,
+      ...(form.portalPassword.trim() ? { portalPassword: form.portalPassword.trim() } : {}),
+      isActive: existingWorker ? isWorkerActive(existingWorker) : true,
     };
 
-    recordAudit({
-      entityType: "worker",
+    const nextWorkers = existingWorker
+      ? workersRef.current.map((worker) => (workerIdsEqual(worker.id, existingWorker.id) ? payload : worker))
+      : [payload, ...workersRef.current];
+
+    commitWorkerChange(nextWorkers, {
       entityId: payload.id,
       entityLabel: payload.name,
-      screen: "시공자",
       action: editingId ? "update" : "create",
       before: existingWorker ? snapshotWorkerForAudit(existingWorker) : undefined,
       after: snapshotWorkerForAudit(payload),
       fields: WORKER_AUDIT_FIELDS,
     });
-
-    setWorkers((prev) => editingId ? prev.map((worker) => worker.id === editingId ? payload : worker) : [payload, ...prev]);
     setForm(emptyWorkerForm);
     setEditingId(null);
     setFormError("");
+    setQuery("");
+    setScrollToWorkerId(payload.id);
   };
 
   const editWorker = (worker) => {
@@ -5258,6 +5459,7 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
       name: worker.name || "",
       grade: normalizeWorkerGrade(worker.grade),
       category: normalizeWorkerCategory(worker.category),
+      hireDate: worker.hireDate || "",
       bank: worker.bank || "",
       account: worker.account || "",
       phone: worker.phone || "",
@@ -5270,69 +5472,61 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
       feeRate: String(Math.round((worker.feeRate || 0) * 100)),
       depositNameAliases: worker.depositNameAliases || "",
       memo: worker.memo || "",
+      portalLoginId: worker.portalLoginId || "",
+      portalPassword: "",
     });
     setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 0);
   };
 
   const deleteWorker = (id) => {
-    const worker = workers.find((item) => item.id === id);
+    const worker = workersRef.current.find((item) => workerIdsEqual(item.id, id));
     if (!worker) return;
     if (!confirmDelete(`시공자 "${worker.name}"을(를) 삭제할까요?`)) return;
 
-    recordAudit({
-        entityType: "worker",
+    commitWorkerChange(
+      workersRef.current.filter((item) => !workerIdsEqual(item.id, id)),
+      {
         entityId: id,
         entityLabel: worker.name,
-        screen: "시공자",
         action: "delete",
         before: snapshotWorkerForAudit(worker),
         fields: WORKER_AUDIT_FIELDS,
-    });
-    setWorkers((prev) => prev.filter((item) => item.id !== id));
+      },
+    );
   };
 
   const updateWorkerInline = (worker, value) => {
     const parsed = parseMoney(value);
     if (parsed === (worker.customChargeCost || 0)) return;
 
-    recordAudit({
-      entityType: "worker",
-      entityId: worker.id,
-      entityLabel: worker.name,
-      screen: "시공자",
-      action: "update",
-      before: snapshotWorkerForAudit(worker),
-      after: snapshotWorkerForAudit({ ...worker, customChargeCost: parsed }),
-      fields: WORKER_AUDIT_FIELDS.filter((field) => field.key === "customChargeCost"),
-    });
-
-    setWorkers((prev) => prev.map((item) => (
-      item.id === worker.id
-        ? { ...item, customChargeCost: parsed }
-        : item
-    )));
+    commitWorkerChange(
+      workersRef.current.map((item) => (workerIdsEqual(item.id, worker.id) ? { ...item, customChargeCost: parsed } : item)),
+      {
+        entityId: worker.id,
+        entityLabel: worker.name,
+        action: "update",
+        before: snapshotWorkerForAudit(worker),
+        after: snapshotWorkerForAudit({ ...worker, customChargeCost: parsed }),
+        fields: WORKER_AUDIT_FIELDS.filter((field) => field.key === "customChargeCost"),
+      },
+    );
   };
 
   const updateWorkerConstructionInline = (worker, value) => {
     const parsed = parseMoney(value);
     if (parsed === (worker.constructionCost || 0)) return;
 
-    recordAudit({
-      entityType: "worker",
-      entityId: worker.id,
-      entityLabel: worker.name,
-      screen: "시공자",
-      action: "update",
-      before: snapshotWorkerForAudit(worker),
-      after: snapshotWorkerForAudit({ ...worker, constructionCost: parsed }),
-      fields: WORKER_AUDIT_FIELDS.filter((field) => field.key === "constructionCost"),
-    });
-
-    setWorkers((prev) => prev.map((item) => (
-      item.id === worker.id
-        ? { ...item, constructionCost: parsed }
-        : item
-    )));
+    commitWorkerChange(
+      workersRef.current.map((item) => (workerIdsEqual(item.id, worker.id) ? { ...item, constructionCost: parsed } : item)),
+      {
+        entityId: worker.id,
+        entityLabel: worker.name,
+        action: "update",
+        before: snapshotWorkerForAudit(worker),
+        after: snapshotWorkerForAudit({ ...worker, constructionCost: parsed }),
+        fields: WORKER_AUDIT_FIELDS.filter((field) => field.key === "constructionCost"),
+      },
+    );
   };
 
   const openConstructionCostEdit = (worker) => {
@@ -5356,66 +5550,58 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
     const category = normalizeWorkerCategory(value);
     if (category === normalizeWorkerCategory(worker.category)) return;
 
-    recordAudit({
-      entityType: "worker",
-      entityId: worker.id,
-      entityLabel: worker.name,
-      screen: "시공자",
-      action: "update",
-      before: snapshotWorkerForAudit(worker),
-      after: snapshotWorkerForAudit({ ...worker, category }),
-      fields: WORKER_AUDIT_FIELDS.filter((field) => field.key === "category"),
-    });
-
-    setWorkers((prev) => prev.map((item) => (
-      item.id === worker.id
-        ? { ...item, category }
-        : item
-    )));
+    commitWorkerChange(
+      workersRef.current.map((item) => (workerIdsEqual(item.id, worker.id) ? { ...item, category } : item)),
+      {
+        entityId: worker.id,
+        entityLabel: worker.name,
+        action: "update",
+        before: snapshotWorkerForAudit(worker),
+        after: snapshotWorkerForAudit({ ...worker, category }),
+        fields: WORKER_AUDIT_FIELDS.filter((field) => field.key === "category"),
+      },
+    );
   };
 
   const updateWorkerGradeInline = (worker, value) => {
     const grade = normalizeWorkerGrade(value);
     if (grade === normalizeWorkerGrade(worker.grade)) return;
+    const prevGrade = normalizeWorkerGrade(worker.grade);
+    let eGradeEndedAt = String(worker.eGradeEndedAt || "").trim();
+    if (prevGrade === "E" && grade && grade !== "E") {
+      eGradeEndedAt = todayISO();
+    } else if (grade === "E") {
+      eGradeEndedAt = "";
+    }
 
-    recordAudit({
-      entityType: "worker",
-      entityId: worker.id,
-      entityLabel: worker.name,
-      screen: "시공자",
-      action: "update",
-      before: snapshotWorkerForAudit(worker),
-      after: snapshotWorkerForAudit({ ...worker, grade }),
-      fields: WORKER_AUDIT_FIELDS.filter((field) => field.key === "grade"),
-    });
-
-    setWorkers((prev) => prev.map((item) => (
-      item.id === worker.id
-        ? { ...item, grade }
-        : item
-    )));
+    commitWorkerChange(
+      workersRef.current.map((item) => (workerIdsEqual(item.id, worker.id) ? { ...item, grade, eGradeEndedAt } : item)),
+      {
+        entityId: worker.id,
+        entityLabel: worker.name,
+        action: "update",
+        before: snapshotWorkerForAudit(worker),
+        after: snapshotWorkerForAudit({ ...worker, grade, eGradeEndedAt }),
+        fields: WORKER_AUDIT_FIELDS.filter((field) => field.key === "grade" || field.key === "eGradeEndedAt"),
+      },
+    );
   };
 
   const toggleWorkerActive = (worker) => {
     const nextIsActive = !isWorkerActive(worker);
     if (nextIsActive === isWorkerActive(worker)) return;
 
-    recordAudit({
-      entityType: "worker",
-      entityId: worker.id,
-      entityLabel: worker.name,
-      screen: "시공자",
-      action: "update",
-      before: snapshotWorkerForAudit(worker),
-      after: snapshotWorkerForAudit({ ...worker, isActive: nextIsActive }),
-      fields: WORKER_AUDIT_FIELDS.filter((field) => field.key === "isActive"),
-    });
-
-    setWorkers((prev) => prev.map((item) => (
-      item.id === worker.id
-        ? { ...item, isActive: nextIsActive }
-        : item
-    )));
+    commitWorkerChange(
+      workersRef.current.map((item) => (workerIdsEqual(item.id, worker.id) ? { ...item, isActive: nextIsActive } : item)),
+      {
+        entityId: worker.id,
+        entityLabel: worker.name,
+        action: "update",
+        before: snapshotWorkerForAudit(worker),
+        after: snapshotWorkerForAudit({ ...worker, isActive: nextIsActive }),
+        fields: WORKER_AUDIT_FIELDS.filter((field) => field.key === "isActive"),
+      },
+    );
   };
 
   return (
@@ -5489,6 +5675,13 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
                 ))}
               </select>
             </AuditField>
+            <AuditField label="입사일" entityType="worker" entityId={editingId} field="hireDate">
+              <KoreanDateInput
+                className="erp-input w-full rounded-xl px-3 py-2 text-sm font-semibold"
+                value={form.hireDate}
+                onChange={(e) => updateForm("hireDate", e.target.value)}
+              />
+            </AuditField>
             <AuditField label="은행명" entityType="worker" entityId={editingId} field="bank"><Input value={form.bank} onChange={(e) => updateForm("bank", e.target.value)} placeholder="은행명" /></AuditField>
             <AuditField label="계좌번호" entityType="worker" entityId={editingId} field="account"><Input value={form.account} onChange={(e) => updateForm("account", e.target.value)} placeholder="계좌번호" /></AuditField>
             <div className="sm:col-span-2">
@@ -5507,6 +5700,28 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
             <AuditField label="야근비" entityType="worker" entityId={editingId} field="overtimeCost"><Input inputMode="numeric" value={form.overtimeCost} onChange={(e) => updateForm("overtimeCost", e.target.value)} placeholder="야근비" /></AuditField>
             <AuditField label="수수료율(%)" entityType="worker" entityId={editingId} field="feeRate"><Input inputMode="decimal" value={form.feeRate} onChange={(e) => updateForm("feeRate", e.target.value)} placeholder="10" /></AuditField>
             <div className="md:col-span-1"><AuditField label="비고" entityType="worker" entityId={editingId} field="memo"><Input value={form.memo} onChange={(e) => updateForm("memo", e.target.value)} placeholder="비고" /></AuditField></div>
+            <AuditField label="포털 로그인 ID" entityType="worker" entityId={editingId} field="portalLoginId">
+              <Input
+                value={form.portalLoginId}
+                onChange={(e) => updateForm("portalLoginId", e.target.value.replace(/[^a-zA-Z0-9]/gi, "").toLowerCase())}
+                placeholder="영문·숫자 (예: kim123)"
+                autoComplete="off"
+              />
+            </AuditField>
+            <AuditField label="포털 비밀번호" entityType="worker" entityId={editingId} field="portalPassword">
+              <Input
+                type="password"
+                value={form.portalPassword}
+                onChange={(e) => updateForm("portalPassword", e.target.value)}
+                placeholder={editingId ? "변경 시에만 입력" : "초기 비밀번호"}
+                autoComplete="new-password"
+              />
+            </AuditField>
+            <div className="sm:col-span-2 xl:col-span-4">
+              <p className="erp-text-caption text-slate-500">
+                시공자가 로그인 화면 「시공내역서」 탭에서 본인 월별 시공내역서를 조회할 때 사용합니다. 비밀번호는 저장 후 서버에만 암호화되어 보관됩니다.
+              </p>
+            </div>
           </div>
 
           <div className="mt-5 flex flex-col items-end gap-2 sm:flex-row sm:justify-end">
@@ -5517,7 +5732,7 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
         </CardContent>
       </Card>
 
-      <SearchBox query={query} setQuery={setQuery} placeholder="시공자명, 시공등급, 구분, 연락처, 예금주 별칭, 사업자등록번호, 주소, 차량번호, 은행, 계좌 검색" />
+      <SearchBox query={query} setQuery={setQuery} placeholder="시공자명, 시공등급, 구분, 입사일, 연락처, 예금주 별칭, 사업자등록번호, 주소, 차량번호, 은행, 계좌 검색" />
 
       <Card className="rounded-2xl shadow-sm">
         <CardContent className="p-4 md:p-5">
@@ -5565,6 +5780,7 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
                   <WorkerListSortHeader label="시공등급" column="grade" sort={listSort} onSort={handleWorkerListSort} align="center" />
                   <th className="text-center">상태</th>
                   <WorkerListSortHeader label="구분" column="category" sort={listSort} onSort={handleWorkerListSort} align="center" />
+                  <th className="text-left">입사일</th>
                   <th className="text-left">연락처</th>
                   <th className="text-left">계좌</th>
                   <th className="text-left">예금주 별칭</th>
@@ -5580,7 +5796,7 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
               <tbody>
                 {displayedWorkers.length === 0 ? (
                   <tr>
-                    <td colSpan={14} className="p-10 text-center text-slate-500">
+                    <td colSpan={15} className="p-10 text-center text-slate-500">
                       표시할 시공자가 없습니다.
                     </td>
                   </tr>
@@ -5588,7 +5804,11 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
                   const active = isWorkerActive(worker);
                   const category = normalizeWorkerCategory(worker.category);
                   return (
-                  <tr key={worker.id} className={`erp-workers-row border-t hover:bg-slate-50${active ? "" : " is-inactive"}`}>
+                  <tr
+                    key={normalizeWorkerRecordId(worker.id) || worker.name}
+                    data-worker-row-id={normalizeWorkerRecordId(worker.id)}
+                    className={`erp-workers-row border-t hover:bg-slate-50${active ? "" : " is-inactive"}`}
+                  >
                     <td className="erp-workers-name-cell">
                       <div className={`erp-workers-name${active ? "" : " is-muted"}`}>{worker.name}</div>
                       {worker.address ? (
@@ -5612,6 +5832,7 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
                       />
                       <AuditCellHint entityType="worker" entityId={worker.id} field="category" fieldLabel="구분" />
                     </td>
+                    <td className="whitespace-nowrap">{worker.hireDate || "-"}</td>
                     <td className="whitespace-nowrap">{worker.phone || "-"}</td>
                     <td className="erp-workers-account-cell">
                       <div>{worker.bank || "-"}</div>
@@ -5644,13 +5865,13 @@ function WorkersPage({ workers, setWorkers, companyProfile }) {
                     <td className="text-right erp-workers-charge-cell">
                       <Input
                         inputMode="numeric"
-                        value={inlineChargeDrafts[worker.id] ?? worker.customChargeCost ?? ""}
-                        onChange={(e) => setInlineChargeDrafts((prev) => ({ ...prev, [worker.id]: e.target.value }))}
+                        value={inlineChargeDrafts[normalizeWorkerRecordId(worker.id)] ?? worker.customChargeCost ?? ""}
+                        onChange={(e) => setInlineChargeDrafts((prev) => ({ ...prev, [normalizeWorkerRecordId(worker.id)]: e.target.value }))}
                         onBlur={(e) => {
                           updateWorkerInline(worker, e.target.value);
                           setInlineChargeDrafts((prev) => {
                             const next = { ...prev };
-                            delete next[worker.id];
+                            delete next[normalizeWorkerRecordId(worker.id)];
                             return next;
                           });
                         }}
@@ -6415,46 +6636,6 @@ function ReportsPage({ sales, workers = [], paymentVouchers = [], onRequestClien
   );
 }
 
-function parseClassifiedAtMs(value: string | undefined): number {
-  if (!value) return 0;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function shouldPreferLocalBankTransaction(local: BankTransaction, incoming: BankTransaction): boolean {
-  const localMs = parseClassifiedAtMs(local.classifiedAt);
-  const incomingMs = parseClassifiedAtMs(incoming.classifiedAt);
-  return (
-    localMs > incomingMs ||
-    Boolean(local.folderId && !incoming.folderId) ||
-    Boolean(local.linkedCompanyExpenseId && !incoming.linkedCompanyExpenseId) ||
-    Boolean(local.linkedFixedExpensePaymentId && !incoming.linkedFixedExpensePaymentId)
-  );
-}
-
-function mergeRemoteBankTransactionRow(local: BankTransaction, incoming: BankTransaction): BankTransaction {
-  if (!shouldPreferLocalBankTransaction(local, incoming)) {
-    return {
-      ...incoming,
-      linkedCompanyExpenseId: incoming.linkedCompanyExpenseId || local.linkedCompanyExpenseId,
-      linkedFixedExpensePaymentId: incoming.linkedFixedExpensePaymentId || local.linkedFixedExpensePaymentId,
-      folderId: incoming.folderId || local.folderId,
-      memo: incoming.memo ?? local.memo,
-      linkedSubject: incoming.linkedSubject || local.linkedSubject,
-      classifiedAt: incoming.classifiedAt || local.classifiedAt,
-    };
-  }
-  return {
-    ...incoming,
-    folderId: local.folderId ?? incoming.folderId,
-    linkedCompanyExpenseId: local.linkedCompanyExpenseId ?? incoming.linkedCompanyExpenseId,
-    linkedFixedExpensePaymentId: local.linkedFixedExpensePaymentId ?? incoming.linkedFixedExpensePaymentId,
-    memo: local.memo ?? incoming.memo,
-    linkedSubject: local.linkedSubject || incoming.linkedSubject,
-    classifiedAt: local.classifiedAt || incoming.classifiedAt,
-  };
-}
-
 export default function TeammillimeterErpMvp() {
   const apiMode = isApiModeEnabled();
   const storedData = apiMode ? null : loadStoredData();
@@ -6466,17 +6647,27 @@ export default function TeammillimeterErpMvp() {
   const erpVersionRef = useRef(0);
   const skipSaveRef = useRef(true);
   const pendingLocalEditsRef = useRef(false);
+  const workerPersistInFlightRef = useRef(false);
+  const workerPersistCooldownUntilRef = useRef(0);
+  const workerMonthlyPersistInFlightRef = useRef(false);
+  const workerMonthlyPersistCooldownUntilRef = useRef(0);
+  const workerMonthlyLinkCleanupRef = useRef(false);
   const saveDebounceTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const [active, setActive] = useState(() => {
     if (typeof window === "undefined") return "dashboard";
     const stored = window.sessionStorage.getItem(ACTIVE_TAB_KEY) || "dashboard";
-    const migrated = migrateActivePageKey(stored);
+    const migrated = migrateStoredActiveTab(stored);
     if (migrated.accountingTab) storeAccountingTab(migrated.accountingTab);
+    if (migrated.statementTab) storeStatementTab(migrated.statementTab);
+    if (migrated.basicInfoTab) storeBasicInfoTab(migrated.basicInfoTab);
+    if (migrated.userAdminTab) storeUserAdminTab(migrated.userAdminTab);
     if (migrated.page !== stored && typeof window !== "undefined") {
       window.sessionStorage.setItem(ACTIVE_TAB_KEY, migrated.page);
     }
     return migrated.page;
   });
+  const basicInfoTabAccess = useMemo(() => resolveBasicInfoTabAccess(currentUser), [currentUser]);
+  const userAdminTabAccess = useMemo(() => resolveUserAdminTabAccess(currentUser), [currentUser]);
   const [sales, setSales] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return storedData?.sales || initialSales;
@@ -6497,6 +6688,18 @@ export default function TeammillimeterErpMvp() {
     if (apiMode && sessionOnMount) return [];
     return storedData?.workers?.length >= initialWorkers.length ? storedData.workers : initialWorkers;
   });
+  const [workerMonthlyPaymentMemos, setWorkerMonthlyPaymentMemos] = useState<WorkerMonthlyPaymentMemos>(() => {
+    if (apiMode && sessionOnMount) return {};
+    const storedWorkers =
+      storedData?.workers?.length >= initialWorkers.length ? storedData.workers : initialWorkers;
+    const raw = normalizeWorkerMonthlyPaymentMemos(storedData?.workerMonthlyPaymentMemos);
+    return migrateWorkerMonthlyPaymentMemosFromWorkers(storedWorkers, raw);
+  });
+  const workersRef = useRef(workers);
+  workersRef.current = workers;
+  const workerMonthlyPaymentMemosRef = useRef(workerMonthlyPaymentMemos);
+  workerMonthlyPaymentMemosRef.current = workerMonthlyPaymentMemos;
+  const WORKER_MONTHLY_EDIT_GUARD_MS = 15000;
   const normalizedSales = useMemo(() => normalizeSalesRecords(sales, workers), [sales, workers]);
   const appliedPaymentData = useMemo(() => applyPaymentVouchers(normalizedSales, paymentVouchers), [normalizedSales, paymentVouchers]);
   const appliedSales = appliedPaymentData.sales;
@@ -6512,6 +6715,8 @@ export default function TeammillimeterErpMvp() {
     if (apiMode && sessionOnMount) return [];
     return Array.isArray(storedData?.workerPaymentRecords) ? storedData.workerPaymentRecords : [];
   });
+  const workerPaymentRecordsRef = useRef(workerPaymentRecords);
+  workerPaymentRecordsRef.current = workerPaymentRecords;
   const [workerPayoutVouchers, setWorkerPayoutVouchers] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return normalizeWorkerPayoutVouchers(storedData?.workerPayoutVouchers);
@@ -6576,13 +6781,17 @@ export default function TeammillimeterErpMvp() {
     if (apiMode && sessionOnMount) return [];
     return normalizeBankTransactions(storedData?.bankTransactions);
   });
+  const bankTransactionsRef = useRef(bankTransactions);
+  bankTransactionsRef.current = bankTransactions;
+  const workerMonthlyActualVouchersRef = useRef(workerMonthlyActualVouchers);
+  workerMonthlyActualVouchersRef.current = workerMonthlyActualVouchers;
   const autoLinkedSaleIds = useMemo(
-    () => buildAutoLinkedSaleIdSet(paymentVouchers, bankTransactions),
-    [paymentVouchers, bankTransactions]
+    () => buildAutoLinkedSaleIdSet(paymentVouchers, bankTransactions, appliedSales),
+    [paymentVouchers, bankTransactions, appliedSales]
   );
   const manualLinkedSaleIds = useMemo(
-    () => buildManualLinkedSaleIdSet(paymentVouchers, bankTransactions),
-    [paymentVouchers, bankTransactions]
+    () => buildManualLinkedSaleIdSet(paymentVouchers, bankTransactions, appliedSales),
+    [paymentVouchers, bankTransactions, appliedSales]
   );
   const [bankTransactionFolders, setBankTransactionFolders] = useState(() => {
     if (apiMode && sessionOnMount) return normalizeBankTransactionFolders([]);
@@ -6599,6 +6808,7 @@ export default function TeammillimeterErpMvp() {
   const [statementDraft, setStatementDraft] = useState<StatementDraft | null>(null);
   const [pendingVoucherEditId, setPendingVoucherEditId] = useState(null);
   const [pendingVoucherSearchFilter, setPendingVoucherSearchFilter] = useState(null);
+  const [salesManagementEditSale, setSalesManagementEditSale] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [myAccountOpen, setMyAccountOpen] = useState(false);
   const [sidebarMenuOrderOpen, setSidebarMenuOrderOpen] = useState(false);
@@ -6606,21 +6816,54 @@ export default function TeammillimeterErpMvp() {
   const receivableRowsFromSales = useMemo(() => buildReceivableRowsFromSales(appliedSales, clients), [appliedSales, clients]);
 
   const applyFetchedErpData = (data) => {
-    const nextWorkers = data.workers?.length ? data.workers : initialWorkers;
-    setSales(normalizeSalesRecords(data.sales || [], nextWorkers));
+    const preserveLocalEdits =
+      pendingLocalEditsRef.current ||
+      workerPersistInFlightRef.current ||
+      workerMonthlyPersistInFlightRef.current ||
+      Date.now() < workerPersistCooldownUntilRef.current ||
+      Date.now() < workerMonthlyPersistCooldownUntilRef.current;
+    const incomingWorkers = data.workers?.length ? data.workers : initialWorkers;
+    const preserveLocalWorkers = preserveLocalEdits;
+    const nextWorkers = preserveLocalWorkers
+      ? workersRef.current
+      : stripMonthlyPaymentMemoFromWorkers(
+          mergeWorkerMasterFieldsFromLocal(incomingWorkers, workersRef.current),
+        );
+    const workersForSales = nextWorkers;
+    setSales((prev) => normalizeSalesRecords(mergeSalesByUpdatedAt(data.sales || [], prev), workersForSales));
     setPaymentVouchers(data.paymentVouchers || []);
     setPaymentInputLogs(Array.isArray(data.paymentInputLogs) ? data.paymentInputLogs : []);
     setClients(data.clients?.length ? data.clients : initialClients);
-    setWorkers(nextWorkers);
+    if (!preserveLocalWorkers) {
+      workersRef.current = nextWorkers;
+      setWorkers(nextWorkers);
+    }
+    const incomingMemos = normalizeWorkerMonthlyPaymentMemos(data.workerMonthlyPaymentMemos);
+    const serverMemos = migrateWorkerMonthlyPaymentMemosFromWorkers(incomingWorkers, incomingMemos);
+    const nextMemos = preserveLocalWorkers
+      ? mergeWorkerMonthlyPaymentMemosForSave(serverMemos, workerMonthlyPaymentMemosRef.current)
+      : serverMemos;
+    if (!preserveLocalWorkers) {
+      workerMonthlyPaymentMemosRef.current = nextMemos;
+      setWorkerMonthlyPaymentMemos(nextMemos);
+    } else {
+      workerMonthlyPaymentMemosRef.current = nextMemos;
+      setWorkerMonthlyPaymentMemos(nextMemos);
+    }
     const migratedLogs = migrateErpLoginLogs({
       auditLogs: Array.isArray(data.auditLogs) ? data.auditLogs : [],
       loginLogs: Array.isArray(data.loginLogs) ? data.loginLogs : [],
     });
-    setAuditLogs(migratedLogs.auditLogs);
+    if (!workerPersistInFlightRef.current) {
+      setAuditLogs(migratedLogs.auditLogs);
+    }
     setLoginLogs(migratedLogs.loginLogs);
-    setWorkerPaymentRecords(Array.isArray(data.workerPaymentRecords) ? data.workerPaymentRecords : []);
+    if (!preserveLocalEdits) {
+      const nextWorkerPaymentRecords = Array.isArray(data.workerPaymentRecords) ? data.workerPaymentRecords : [];
+      workerPaymentRecordsRef.current = nextWorkerPaymentRecords;
+      setWorkerPaymentRecords(nextWorkerPaymentRecords);
+    }
     setWorkerPayoutVouchers(normalizeWorkerPayoutVouchers(data.workerPayoutVouchers));
-    setWorkerMonthlyActualVouchers(normalizeWorkerMonthlyActualVouchers(data.workerMonthlyActualVouchers));
     setWorkerPayWithVatLearnRules(normalizeWorkerPayWithVatLearnRules(data.workerPayWithVatLearnRules));
     const nextCompanyExpenses = Array.isArray(data.companyExpenses) ? data.companyExpenses : [];
     const nextFixedExpensePayments = Array.isArray(data.fixedExpensePayments) ? data.fixedExpensePayments : [];
@@ -6645,15 +6888,53 @@ export default function TeammillimeterErpMvp() {
       nextCompanyExpenses,
       nextFixedExpensePayments,
     );
+    const reconciledBankTransactions = reconcileLedgerFolderWithoutLedgerLink(syncedBankTransactions, {
+      companyExpenses: nextCompanyExpenses,
+      fixedExpensePayments: nextFixedExpensePayments,
+    });
     const ledgerFolderSync = syncLedgerLinkedBankTransactionFolders(
-      syncedBankTransactions,
+      reconciledBankTransactions.transactions,
       nextBankTransactionFolders,
       {
         companyExpenses: nextCompanyExpenses,
         fixedExpensePayments: nextFixedExpensePayments,
       },
     );
-    setBankTransactions(ledgerFolderSync.transactions);
+    const normalizedWorkerMonthlyVouchers = normalizeWorkerMonthlyActualVouchers(data.workerMonthlyActualVouchers);
+    const workerMonthlyVoucherRepair = repairMisallocatedWorkerMonthlyVouchers(normalizedWorkerMonthlyVouchers);
+    const mergedVouchers = mergeWorkerMonthlyActualVouchersFromLocal(
+      workerMonthlyVoucherRepair.vouchers,
+      workerMonthlyActualVouchersRef.current,
+    );
+    const repairedFromBankLinks = repairWorkerMonthlyVoucherBankEntriesFromLinks(
+      mergedVouchers,
+      ledgerFolderSync.transactions,
+    );
+    const refreshedVouchers = repairedFromBankLinks.map(refreshVoucherPaidAmount);
+    if (!workerMonthlyPersistInFlightRef.current) {
+      workerMonthlyActualVouchersRef.current = refreshedVouchers;
+      setWorkerMonthlyActualVouchers(refreshedVouchers);
+    }
+    const skipOrphanCleanup =
+      preserveLocalEdits ||
+      workerMonthlyPersistInFlightRef.current ||
+      Date.now() < workerMonthlyPersistCooldownUntilRef.current;
+    const workerMonthlyLinkCleanup = skipOrphanCleanup
+      ? { transactions: ledgerFolderSync.transactions, cleared: 0 }
+      : clearOrphanWorkerMonthlyBankLinks(
+          ledgerFolderSync.transactions,
+          workerMonthlyPersistInFlightRef.current
+            ? workerMonthlyActualVouchersRef.current
+            : refreshedVouchers,
+        );
+    const mergedBankTransactions = mergeBankTransactionsWorkerMonthlyLinksFromLocal(
+      workerMonthlyLinkCleanup.transactions,
+      bankTransactionsRef.current,
+    );
+    if (!workerMonthlyPersistInFlightRef.current) {
+      bankTransactionsRef.current = mergedBankTransactions;
+      setBankTransactions(mergedBankTransactions);
+    }
     setBankTransactionFolders(ledgerFolderSync.folders);
     setStatementGenerationLogs(normalizeStatementGenerationLogs(data.statementGenerationLogs));
     setStatementFolders(normalizeStatementFolders(data.statementFolders));
@@ -6688,7 +6969,47 @@ export default function TeammillimeterErpMvp() {
     };
   }, [currentUser?.id, apiMode]);
 
-  type ErpSavePatch = Partial<Omit<ReturnType<typeof buildErpSavePayloadBase>, "version">>;
+  const shouldReleasePendingLocalEdits = () =>
+    !workerPersistInFlightRef.current &&
+    !workerMonthlyPersistInFlightRef.current &&
+    Date.now() >= workerPersistCooldownUntilRef.current &&
+    Date.now() >= workerMonthlyPersistCooldownUntilRef.current;
+
+  const touchWorkerMonthlyEditGuard = () => {
+    pendingLocalEditsRef.current = true;
+    workerMonthlyPersistCooldownUntilRef.current = Date.now() + WORKER_MONTHLY_EDIT_GUARD_MS;
+  };
+
+  const syncMonthlySaveRefsFromPatch = (patch?: Record<string, unknown>) => {
+    if (!patch) return;
+    if (Array.isArray(patch.workers)) {
+      workersRef.current = patch.workers;
+    }
+    if (patch.workerMonthlyPaymentMemos && typeof patch.workerMonthlyPaymentMemos === "object") {
+      workerMonthlyPaymentMemosRef.current = normalizeWorkerMonthlyPaymentMemos(patch.workerMonthlyPaymentMemos);
+    }
+    if (Array.isArray(patch.workerMonthlyActualVouchers)) {
+      workerMonthlyActualVouchersRef.current = patch.workerMonthlyActualVouchers;
+    }
+    if (Array.isArray(patch.bankTransactions)) {
+      bankTransactionsRef.current = patch.bankTransactions;
+    }
+    if (Array.isArray(patch.workerPaymentRecords)) {
+      workerPaymentRecordsRef.current = patch.workerPaymentRecords;
+    }
+  };
+
+  const patchTouchesWorkerMonthlyData = (patch?: Record<string, unknown>) =>
+    Boolean(
+      patch &&
+        (Array.isArray(patch.workers) ||
+          Array.isArray(patch.workerMonthlyActualVouchers) ||
+          Array.isArray(patch.bankTransactions) ||
+          Array.isArray(patch.workerPaymentRecords) ||
+          (patch.workerMonthlyPaymentMemos &&
+            typeof patch.workerMonthlyPaymentMemos === "object" &&
+            !Array.isArray(patch.workerMonthlyPaymentMemos))),
+    );
 
   function buildErpSavePayloadBase() {
     return {
@@ -6696,12 +7017,13 @@ export default function TeammillimeterErpMvp() {
       paymentVouchers,
       paymentInputLogs,
       clients,
-      workers,
+      workers: stripMonthlyPaymentMemoFromWorkers(workersRef.current),
+      workerMonthlyPaymentMemos: normalizeWorkerMonthlyPaymentMemos(workerMonthlyPaymentMemosRef.current),
       auditLogs,
       loginLogs,
-      workerPaymentRecords,
+      workerPaymentRecords: workerPaymentRecordsRef.current,
       workerPayoutVouchers,
-      workerMonthlyActualVouchers,
+      workerMonthlyActualVouchers: workerMonthlyActualVouchersRef.current,
       workerPayWithVatLearnRules,
       companyExpenses,
       attendanceRecords,
@@ -6713,7 +7035,7 @@ export default function TeammillimeterErpMvp() {
       companyNotices,
       workPosts,
       taxInvoices,
-      bankTransactions,
+      bankTransactions: bankTransactionsRef.current,
       bankTransactionFolders,
       statementGenerationLogs,
       statementFolders,
@@ -6721,6 +7043,8 @@ export default function TeammillimeterErpMvp() {
       version: erpVersionRef.current,
     };
   }
+
+  type ErpSavePatch = Partial<Omit<ReturnType<typeof buildErpSavePayloadBase>, "version">>;
 
   const buildErpSavePayload = useCallback(
     (patch?: ErpSavePatch) => ({
@@ -6734,6 +7058,7 @@ export default function TeammillimeterErpMvp() {
       paymentInputLogs,
       clients,
       workers,
+      workerMonthlyPaymentMemos,
       auditLogs,
       loginLogs,
       workerPaymentRecords,
@@ -6764,7 +7089,9 @@ export default function TeammillimeterErpMvp() {
         const result = await saveErpData(savePayload);
         erpVersionRef.current = result.version;
         setErpVersion(result.version);
-        pendingLocalEditsRef.current = false;
+        if (shouldReleasePendingLocalEdits()) {
+          pendingLocalEditsRef.current = false;
+        }
         setSyncStatus("저장됨");
         return true;
       } catch (error) {
@@ -6773,6 +7100,39 @@ export default function TeammillimeterErpMvp() {
           try {
             const latest = await fetchErpData();
             erpVersionRef.current = latest.version ?? 0;
+            const mergedSales = mergeSalesByUpdatedAt(latest.sales || [], savePayload.sales || []);
+            savePayload.sales = mergedSales;
+            setSales((prev) => normalizeSalesRecords(mergeSalesByUpdatedAt(latest.sales || [], prev), latest.workers?.length ? latest.workers : workers));
+            if (Array.isArray(savePayload.workers)) {
+              setWorkers(savePayload.workers);
+            }
+            if (savePayload.workerMonthlyPaymentMemos && typeof savePayload.workerMonthlyPaymentMemos === "object") {
+              const latestMemos = normalizeWorkerMonthlyPaymentMemos(latest.workerMonthlyPaymentMemos);
+              savePayload.workerMonthlyPaymentMemos = mergeWorkerMonthlyPaymentMemosForSave(
+                latestMemos,
+                normalizeWorkerMonthlyPaymentMemos(savePayload.workerMonthlyPaymentMemos),
+              );
+              workerMonthlyPaymentMemosRef.current = savePayload.workerMonthlyPaymentMemos;
+              setWorkerMonthlyPaymentMemos(savePayload.workerMonthlyPaymentMemos);
+            }
+            if (Array.isArray(savePayload.bankTransactions)) {
+              const mergedBank = mergeBankTransactionsUnion(
+                normalizeBankTransactions(latest.bankTransactions || []),
+                normalizeBankTransactions(savePayload.bankTransactions),
+              );
+              savePayload.bankTransactions = mergedBank;
+              bankTransactionsRef.current = mergedBank;
+              setBankTransactions(mergedBank);
+            }
+            if (Array.isArray(savePayload.workerMonthlyActualVouchers)) {
+              const mergedVouchers = mergeWorkerMonthlyActualVouchersFromLocal(
+                normalizeWorkerMonthlyActualVouchers(latest.workerMonthlyActualVouchers || []),
+                normalizeWorkerMonthlyActualVouchers(savePayload.workerMonthlyActualVouchers),
+              ).map(refreshVoucherPaidAmount);
+              savePayload.workerMonthlyActualVouchers = mergedVouchers;
+              workerMonthlyActualVouchersRef.current = mergedVouchers;
+              setWorkerMonthlyActualVouchers(mergedVouchers);
+            }
             if (Array.isArray(latest.loginLogs)) {
               setLoginLogs(latest.loginLogs);
               savePayload.loginLogs = latest.loginLogs;
@@ -6786,7 +7146,9 @@ export default function TeammillimeterErpMvp() {
             const retry = await saveErpData(savePayload);
             erpVersionRef.current = retry.version;
             setErpVersion(retry.version);
-            pendingLocalEditsRef.current = false;
+            if (shouldReleasePendingLocalEdits()) {
+              pendingLocalEditsRef.current = false;
+            }
             setSyncStatus("저장됨");
             return true;
           } catch (retryError) {
@@ -6800,21 +7162,300 @@ export default function TeammillimeterErpMvp() {
         return false;
       }
     },
-    [setLoginLogs, setAuditLogs],
+    [setLoginLogs, setAuditLogs, setWorkerMonthlyPaymentMemos],
   );
 
   const flushErpSave = useCallback(
-    async (patch?: Partial<Omit<ReturnType<typeof buildErpSavePayload>, "version">>) => {
-      if (!apiMode || !currentUser || !dataReady) return;
+    async (patch?: ErpSavePatch) => {
+      if (!apiMode || !currentUser || !dataReady) return false;
+      const normalizedPatch = patch ? { ...patch } : undefined;
+      if (normalizedPatch && Array.isArray(normalizedPatch.workers)) {
+        normalizedPatch.workers = reconcileWorkerListUpdates(workersRef.current, normalizedPatch.workers);
+        workerPersistCooldownUntilRef.current = Date.now() + WORKER_MONTHLY_EDIT_GUARD_MS;
+        pendingLocalEditsRef.current = true;
+      }
+      if (patchTouchesWorkerMonthlyData(normalizedPatch)) {
+        touchWorkerMonthlyEditGuard();
+        skipSaveRef.current = true;
+        syncMonthlySaveRefsFromPatch(normalizedPatch);
+      }
+      if (normalizedPatch && Array.isArray(normalizedPatch.bankTransactions)) {
+        pendingLocalEditsRef.current = true;
+      }
       if (saveDebounceTimerRef.current) {
         window.clearTimeout(saveDebounceTimerRef.current);
         saveDebounceTimerRef.current = null;
       }
       setSyncStatus("저장 중...");
-      await persistErpSave(buildErpSavePayload(patch));
+      try {
+        const saved = await persistErpSave(buildErpSavePayload(normalizedPatch));
+        if (saved && normalizedPatch) {
+          if (Array.isArray(normalizedPatch.workers)) {
+            setWorkers(normalizedPatch.workers);
+          }
+          if (Array.isArray(normalizedPatch.bankTransactions)) {
+            setBankTransactions(normalizedPatch.bankTransactions);
+          }
+          if (
+            normalizedPatch.workerMonthlyPaymentMemos &&
+            typeof normalizedPatch.workerMonthlyPaymentMemos === "object" &&
+            !Array.isArray(normalizedPatch.workerMonthlyPaymentMemos)
+          ) {
+            const nextMemos = normalizeWorkerMonthlyPaymentMemos(normalizedPatch.workerMonthlyPaymentMemos);
+            workerMonthlyPaymentMemosRef.current = nextMemos;
+            setWorkerMonthlyPaymentMemos(nextMemos);
+          }
+        }
+        return saved;
+      } finally {
+        if (!workerPersistInFlightRef.current && !workerMonthlyPersistInFlightRef.current) {
+          if (!patchTouchesWorkerMonthlyData(normalizedPatch)) {
+            skipSaveRef.current = false;
+          }
+        }
+      }
     },
-    [apiMode, currentUser, dataReady, buildErpSavePayload, persistErpSave],
+    [apiMode, currentUser, dataReady, buildErpSavePayload, persistErpSave, setWorkers, setBankTransactions, setWorkerMonthlyPaymentMemos],
   );
+
+  const persistWorkersImmediate = useCallback(
+    async (nextWorkers, nextAuditLogs?) => {
+      workerPersistInFlightRef.current = true;
+      pendingLocalEditsRef.current = true;
+      skipSaveRef.current = true;
+      if (saveDebounceTimerRef.current) {
+        window.clearTimeout(saveDebounceTimerRef.current);
+        saveDebounceTimerRef.current = null;
+      }
+      const reconciledWorkers = reconcileWorkerListUpdates(workersRef.current, nextWorkers);
+      workersRef.current = reconciledWorkers;
+      setWorkers(reconciledWorkers);
+      if (nextAuditLogs) {
+        setAuditLogs(nextAuditLogs);
+      }
+      let saved = true;
+      try {
+        if (apiMode && currentUser && dataReady) {
+          saved = (await flushErpSave({
+            workers: reconciledWorkers,
+            ...(nextAuditLogs ? { auditLogs: nextAuditLogs } : {}),
+          })) !== false;
+          if (!saved) {
+            window.alert("시공자 저장에 실패했습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.");
+          }
+        }
+        return saved;
+      } finally {
+        workerPersistInFlightRef.current = false;
+        workerPersistCooldownUntilRef.current = Date.now() + WORKER_MONTHLY_EDIT_GUARD_MS;
+        pendingLocalEditsRef.current = true;
+        skipSaveRef.current = false;
+        window.setTimeout(() => {
+          if (workerPersistInFlightRef.current || workerMonthlyPersistInFlightRef.current) return;
+          if (Date.now() < workerPersistCooldownUntilRef.current) return;
+          if (Date.now() < workerMonthlyPersistCooldownUntilRef.current) return;
+          pendingLocalEditsRef.current = false;
+        }, WORKER_MONTHLY_EDIT_GUARD_MS);
+      }
+    },
+    [apiMode, currentUser, dataReady, flushErpSave, setAuditLogs],
+  );
+
+  const persistBankTransactionMemoUpdates = useCallback(
+    async (updates: Record<string, string>) => {
+      const entries = Object.entries(updates || {}).filter(([id]) => Boolean(String(id || "").trim()));
+      if (!entries.length) return true;
+
+      let changed = false;
+      const nextBank = bankTransactionsRef.current.map((row) => {
+        if (!Object.prototype.hasOwnProperty.call(updates, row.id)) return row;
+        const trimmed = String(updates[row.id] ?? "").trim();
+        const current = String(row.memo ?? "").trim();
+        if (trimmed === current) return row;
+        changed = true;
+        return { ...row, memo: trimmed || undefined };
+      });
+
+      if (!changed) return true;
+
+      bankTransactionsRef.current = nextBank;
+      setBankTransactions(nextBank);
+
+      if (!apiMode || !currentUser || !dataReady) return true;
+
+      skipSaveRef.current = true;
+      workerMonthlyPersistCooldownUntilRef.current = Date.now() + WORKER_MONTHLY_EDIT_GUARD_MS;
+      if (saveDebounceTimerRef.current) {
+        window.clearTimeout(saveDebounceTimerRef.current);
+        saveDebounceTimerRef.current = null;
+      }
+
+      return (await flushErpSave({ bankTransactions: nextBank })) !== false;
+    },
+    [apiMode, currentUser, dataReady, flushErpSave, setBankTransactions],
+  );
+
+  const persistWorkerMonthlyMemoImmediate = useCallback(
+    async (workerId: number | string, memo: string) => {
+      const trimmed = String(memo ?? "").trim();
+      const idKey = normalizeWorkerRecordId(workerId);
+      const currentMemo = idKey ? String(workerMonthlyPaymentMemosRef.current[idKey] ?? "").trim() : "";
+      if (trimmed === currentMemo) return true;
+
+      const nextMemos = patchWorkerMonthlyPaymentMemos(workerMonthlyPaymentMemosRef.current, workerId, trimmed);
+      workerMonthlyPaymentMemosRef.current = nextMemos;
+      setWorkerMonthlyPaymentMemos(nextMemos);
+
+      if (!apiMode || !currentUser || !dataReady) return true;
+
+      workerMonthlyPersistInFlightRef.current = true;
+      pendingLocalEditsRef.current = true;
+      skipSaveRef.current = true;
+      workerPersistCooldownUntilRef.current = Date.now() + WORKER_MONTHLY_EDIT_GUARD_MS;
+      workerMonthlyPersistCooldownUntilRef.current = Date.now() + WORKER_MONTHLY_EDIT_GUARD_MS;
+      if (saveDebounceTimerRef.current) {
+        window.clearTimeout(saveDebounceTimerRef.current);
+        saveDebounceTimerRef.current = null;
+      }
+
+      try {
+        setSyncStatus("저장 중...");
+        const saveMemo = async (version: number) =>
+          saveWorkerMonthlyPaymentMemoApi(workerId, trimmed, version);
+
+        let result;
+        try {
+          result = await saveMemo(erpVersionRef.current);
+        } catch (error) {
+          const err = error as Error & { status?: number };
+          if (err.status !== 409) throw error;
+          const latest = await fetchErpData();
+          erpVersionRef.current = latest.version ?? 0;
+          setErpVersion(latest.version ?? 0);
+          result = await saveMemo(erpVersionRef.current);
+        }
+
+        erpVersionRef.current = result.version;
+        setErpVersion(result.version);
+        if (result.workerMonthlyPaymentMemos) {
+          const confirmedMemos = normalizeWorkerMonthlyPaymentMemos(result.workerMonthlyPaymentMemos);
+          workerMonthlyPaymentMemosRef.current = confirmedMemos;
+          setWorkerMonthlyPaymentMemos(confirmedMemos);
+        }
+        setSyncStatus("저장됨");
+        return true;
+      } catch (error) {
+        console.error(error);
+        setSyncStatus("저장 실패");
+        return false;
+      } finally {
+        workerMonthlyPersistInFlightRef.current = false;
+        pendingLocalEditsRef.current = true;
+        window.setTimeout(() => {
+          if (workerPersistInFlightRef.current || workerMonthlyPersistInFlightRef.current) return;
+          if (Date.now() < workerPersistCooldownUntilRef.current) return;
+          if (Date.now() < workerMonthlyPersistCooldownUntilRef.current) return;
+          pendingLocalEditsRef.current = false;
+        }, WORKER_MONTHLY_EDIT_GUARD_MS);
+      }
+    },
+    [apiMode, currentUser, dataReady, setWorkerMonthlyPaymentMemos],
+  );
+
+  const persistWorkerMonthlyLinksImmediate = useCallback(
+    async (patch: {
+      workerMonthlyActualVouchers: ReturnType<typeof normalizeWorkerMonthlyActualVouchers>;
+      bankTransactions: BankTransaction[];
+      workerPaymentRecords?: typeof workerPaymentRecords;
+    }) => {
+      workerMonthlyPersistInFlightRef.current = true;
+      pendingLocalEditsRef.current = true;
+      workerMonthlyPersistCooldownUntilRef.current = Date.now() + WORKER_MONTHLY_EDIT_GUARD_MS;
+      skipSaveRef.current = true;
+      if (saveDebounceTimerRef.current) {
+        window.clearTimeout(saveDebounceTimerRef.current);
+        saveDebounceTimerRef.current = null;
+      }
+
+      const nextVouchers = patch.workerMonthlyActualVouchers.map(refreshVoucherPaidAmount);
+      workerMonthlyActualVouchersRef.current = nextVouchers;
+      bankTransactionsRef.current = patch.bankTransactions;
+      setWorkerMonthlyActualVouchers(nextVouchers);
+      setBankTransactions(patch.bankTransactions);
+      if (patch.workerPaymentRecords) {
+        workerPaymentRecordsRef.current = patch.workerPaymentRecords;
+        setWorkerPaymentRecords(patch.workerPaymentRecords);
+      }
+
+      try {
+        if (apiMode && currentUser && dataReady) {
+          const saved = await flushErpSave({
+            workerMonthlyActualVouchers: nextVouchers,
+            bankTransactions: patch.bankTransactions,
+            ...(patch.workerPaymentRecords ? { workerPaymentRecords: patch.workerPaymentRecords } : {}),
+          });
+          if (!saved) {
+            window.alert("월실지급 연결 저장에 실패했습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.");
+          }
+        }
+      } finally {
+        workerMonthlyPersistInFlightRef.current = false;
+        workerMonthlyPersistCooldownUntilRef.current = Date.now() + WORKER_MONTHLY_EDIT_GUARD_MS;
+        pendingLocalEditsRef.current = true;
+        window.setTimeout(() => {
+          if (workerMonthlyPersistInFlightRef.current || workerPersistInFlightRef.current) return;
+          if (Date.now() < workerMonthlyPersistCooldownUntilRef.current) return;
+          if (Date.now() < workerPersistCooldownUntilRef.current) return;
+          pendingLocalEditsRef.current = false;
+          skipSaveRef.current = false;
+        }, WORKER_MONTHLY_EDIT_GUARD_MS);
+      }
+    },
+    [apiMode, currentUser, dataReady, flushErpSave],
+  );
+
+  const persistSaleVoucherUpdate = useCallback(async (saleId, payload, previousSale) => {
+    const patch = buildSaleVoucherSaveState(sales, paymentVouchers, bankTransactions, saleId, payload, previousSale);
+    skipSaveRef.current = true;
+    setSales(patch.sales);
+    if (patch.paymentVouchers !== paymentVouchers) {
+      setPaymentVouchers(patch.paymentVouchers);
+    }
+    if (patch.bankTransactions !== bankTransactions) {
+      setBankTransactions(patch.bankTransactions);
+    }
+    try {
+      if (apiMode && currentUser && dataReady) {
+        await flushErpSave({
+          sales: patch.sales,
+          paymentVouchers: patch.paymentVouchers,
+          bankTransactions: patch.bankTransactions,
+        });
+      }
+    } finally {
+      if (!workerPersistInFlightRef.current && !workerMonthlyPersistInFlightRef.current) {
+        skipSaveRef.current = false;
+      }
+    }
+  }, [sales, paymentVouchers, bankTransactions, apiMode, currentUser, dataReady, flushErpSave]);
+
+  const persistNewSaleImmediate = useCallback(async (nextSales) => {
+    skipSaveRef.current = true;
+    try {
+      if (apiMode && currentUser && dataReady) {
+        const saved = await flushErpSave({ sales: nextSales });
+        if (saved === false) {
+          window.alert("매출 저장에 실패했습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.");
+        }
+        return saved;
+      }
+      return true;
+    } finally {
+      if (!workerPersistInFlightRef.current && !workerMonthlyPersistInFlightRef.current) {
+        skipSaveRef.current = false;
+      }
+    }
+  }, [apiMode, currentUser, dataReady, flushErpSave]);
 
   useEffect(() => {
     if (!apiMode || !dataReady) return;
@@ -6824,12 +7465,18 @@ export default function TeammillimeterErpMvp() {
 
   useEffect(() => {
     if (!apiMode) {
-      saveStoredData({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
+      saveStoredData({ sales, paymentVouchers, paymentInputLogs, clients, workers, workerMonthlyPaymentMemos, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
       return;
     }
     if (!currentUser || !dataReady) return;
-    if (skipSaveRef.current) {
+    if (
+      skipSaveRef.current &&
+      !workerPersistInFlightRef.current &&
+      !workerMonthlyPersistInFlightRef.current
+    ) {
       skipSaveRef.current = false;
+    }
+    if (skipSaveRef.current || workerPersistInFlightRef.current || workerMonthlyPersistInFlightRef.current) {
       return;
     }
     pendingLocalEditsRef.current = true;
@@ -6847,7 +7494,7 @@ export default function TeammillimeterErpMvp() {
         saveDebounceTimerRef.current = null;
       }
     };
-  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode, buildErpSavePayload, persistErpSave]);
+  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, workerMonthlyPaymentMemos, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode, buildErpSavePayload, persistErpSave]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -6857,9 +7504,12 @@ export default function TeammillimeterErpMvp() {
   useEffect(() => {
     if (active === "paymentInput") setActive("receivables");
     if (active === "clientCalendar") setActive("calendar");
-    const migrated = migrateActivePageKey(active);
+    const migrated = migrateStoredActiveTab(active);
     if (migrated.page !== active) {
       if (migrated.accountingTab) storeAccountingTab(migrated.accountingTab);
+      if (migrated.statementTab) storeStatementTab(migrated.statementTab);
+      if (migrated.basicInfoTab) storeBasicInfoTab(migrated.basicInfoTab);
+      if (migrated.userAdminTab) storeUserAdminTab(migrated.userAdminTab);
       setActive(migrated.page);
     }
   }, [active]);
@@ -7028,6 +7678,24 @@ export default function TeammillimeterErpMvp() {
   }, [apiMode, currentUser?.id]);
 
   useEffect(() => {
+    if (!dataReady || workerMonthlyLinkCleanupRef.current) return;
+    workerMonthlyLinkCleanupRef.current = true;
+    setWorkerMonthlyActualVouchers((prev) => {
+      const { vouchers, repaired } = repairMisallocatedWorkerMonthlyVouchers(prev);
+      const next = repaired ? vouchers.map(refreshVoucherPaidAmount) : prev;
+      workerMonthlyActualVouchersRef.current = next;
+      return next;
+    });
+    setBankTransactions((prev) => {
+      const vouchers = workerMonthlyActualVouchersRef.current;
+      const cleanup = clearOrphanWorkerMonthlyBankLinks(prev, vouchers);
+      if (cleanup.skipped || !cleanup.cleared) return prev;
+      bankTransactionsRef.current = cleanup.transactions;
+      return cleanup.transactions;
+    });
+  }, [dataReady]);
+
+  useEffect(() => {
     if (!dataReady || !currentUser) return;
     const result = syncFixedExpenseAutomation({
       fixedExpenses,
@@ -7067,12 +7735,19 @@ export default function TeammillimeterErpMvp() {
   }, [dataReady, currentUser, fixedExpenses, fixedExpensePayments, bankTransactions, bankLedgerRules, companyExpenses]);
 
   const applyRemoteBankSnapshot = React.useCallback(async (snapshot: BankSyncSnapshot) => {
-    skipSaveRef.current = true;
     const nextVersion = snapshot.version ?? erpVersionRef.current;
 
-    if (nextVersion > erpVersionRef.current && !pendingLocalEditsRef.current) {
+    if (
+      nextVersion > erpVersionRef.current &&
+      !pendingLocalEditsRef.current &&
+      !workerPersistInFlightRef.current &&
+      !workerMonthlyPersistInFlightRef.current &&
+      Date.now() >= workerPersistCooldownUntilRef.current &&
+      Date.now() >= workerMonthlyPersistCooldownUntilRef.current
+    ) {
       try {
         const data = await fetchErpData();
+        if (pendingLocalEditsRef.current) return;
         applyFetchedErpData(data);
         return;
       } catch (error) {
@@ -7082,13 +7757,17 @@ export default function TeammillimeterErpMvp() {
 
     erpVersionRef.current = nextVersion;
     setErpVersion(nextVersion);
+    const workerMonthlyGuard =
+      workerMonthlyPersistInFlightRef.current ||
+      Date.now() < workerMonthlyPersistCooldownUntilRef.current;
+    if (workerMonthlyGuard) {
+      return;
+    }
     if (Array.isArray(snapshot.bankTransactions)) {
       setBankTransactions((prev) => {
         const incoming = normalizeBankTransactions(snapshot.bankTransactions);
-        const merged = incoming.map((row) => {
-          const local = prev.find((item) => item.id === row.id);
-          if (!local) return row;
-          return mergeRemoteBankTransactionRow(local, row);
+        const merged = mergeBankTransactionsUnion(prev, incoming, {
+          preserveLocalOnly: pendingLocalEditsRef.current,
         });
         return syncBankTransactionLedgerLinkFields(
           merged,
@@ -7132,7 +7811,7 @@ export default function TeammillimeterErpMvp() {
 
   return (
     <AuditProvider auditLogs={auditLogs} setAuditLogs={setAuditLogs} currentUser={currentUser}>
-    <SalePaymentLinkProvider paymentVouchers={paymentVouchers} bankTransactions={bankTransactions}>
+    <SalePaymentLinkProvider paymentVouchers={paymentVouchers} bankTransactions={bankTransactions} sales={appliedSales}>
     <div className="erp-app-shell flex min-h-screen bg-slate-50 text-slate-900" lang="ko">
       <Sidebar
         active={active}
@@ -7181,6 +7860,8 @@ export default function TeammillimeterErpMvp() {
             paymentVouchers={paymentVouchers}
             setPaymentVouchers={setPaymentVouchers}
             setPaymentInputLogs={setPaymentInputLogs}
+            bankTransactions={bankTransactions}
+            setBankTransactions={setBankTransactions}
             companyProfile={companyProfile}
             statementGenerationLogs={statementGenerationLogs}
             setStatementGenerationLogs={setStatementGenerationLogs}
@@ -7188,6 +7869,7 @@ export default function TeammillimeterErpMvp() {
             setStatementFolders={setStatementFolders}
             autoLinkedSaleIds={autoLinkedSaleIds}
             manualLinkedSaleIds={manualLinkedSaleIds}
+            onPersistSaleUpdate={persistSaleVoucherUpdate}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="attendance" active={active}>
@@ -7198,10 +7880,10 @@ export default function TeammillimeterErpMvp() {
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="salesInput" active={active}>
-          <SalesRegistrationPage sales={sales} setSales={setSales} setActive={setActive} clients={clients} workers={workers} currentUser={currentUser} />
+          <SalesRegistrationPage sales={sales} setSales={setSales} setActive={setActive} clients={clients} workers={workers} currentUser={currentUser} onPersistNewSale={persistNewSaleImmediate} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="sales" active={active}>
-          <SalesManagementPage sales={appliedSales} paymentVouchers={paymentVouchers} workers={workers} setSales={setSales} setActive={setActive} currentUser={currentUser} />
+          <SalesManagementPage sales={appliedSales} paymentVouchers={paymentVouchers} workers={workers} setSales={setSales} setActive={setActive} currentUser={currentUser} onEditSale={setSalesManagementEditSale} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="salesVoucherSearch" active={active}>
           <SalesVoucherSearchPage
@@ -7211,6 +7893,8 @@ export default function TeammillimeterErpMvp() {
             workers={workers}
             currentUser={currentUser}
             setPaymentVouchers={setPaymentVouchers}
+            setBankTransactions={setBankTransactions}
+            onPersistSaleUpdate={persistSaleVoucherUpdate}
             pendingVoucherId={pendingVoucherEditId}
             pendingSearchFilter={pendingVoucherSearchFilter}
             onPendingVoucherConsumed={() => setPendingVoucherEditId(null)}
@@ -7228,6 +7912,8 @@ export default function TeammillimeterErpMvp() {
             setPaymentVouchers={setPaymentVouchers}
             paymentInputLogs={paymentInputLogs}
             setPaymentInputLogs={setPaymentInputLogs}
+            bankTransactions={bankTransactions}
+            setBankTransactions={setBankTransactions}
             currentUser={currentUser}
             autoLinkedSaleIds={autoLinkedSaleIds}
             manualLinkedSaleIds={manualLinkedSaleIds}
@@ -7236,6 +7922,7 @@ export default function TeammillimeterErpMvp() {
         <PageKeepAlive pageKey="workerPayments" active={active}>
           <WorkerPaymentsPage
             workers={workers}
+            workerMonthlyPaymentMemos={workerMonthlyPaymentMemos}
             sales={appliedSales}
             workerPaymentRecords={workerPaymentRecords}
             setWorkerPaymentRecords={setWorkerPaymentRecords}
@@ -7248,6 +7935,12 @@ export default function TeammillimeterErpMvp() {
             workerPayWithVatLearnRules={workerPayWithVatLearnRules}
             setWorkerPayWithVatLearnRules={setWorkerPayWithVatLearnRules}
             setBankTransactions={setBankTransactions}
+            setWorkers={setWorkers}
+            onPersistWorkersImmediate={persistWorkersImmediate}
+            onPersistWorkerMonthlyMemoImmediate={persistWorkerMonthlyMemoImmediate}
+            onPersistWorkerMonthlyLinksImmediate={persistWorkerMonthlyLinksImmediate}
+            onPersistBankTransactionMemoUpdates={persistBankTransactionMemoUpdates}
+            onRequestImmediateSave={flushErpSave}
             currentUser={currentUser}
           />
         </PageKeepAlive>
@@ -7301,6 +7994,7 @@ export default function TeammillimeterErpMvp() {
               bankLedgerRules,
               setBankLedgerRules,
               currentUser,
+              onRequestImmediateSave: flushErpSave,
             }}
             tax={{
               taxInvoices,
@@ -7319,14 +8013,25 @@ export default function TeammillimeterErpMvp() {
             currentUser={currentUser}
           />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="clients" active={active}>
-          <ClientsPage clients={clients} setClients={setClients} sales={appliedSales} companyProfile={companyProfile} />
-        </PageKeepAlive>
-        <PageKeepAlive pageKey="workers" active={active}>
-          <WorkersPage workers={workers} setWorkers={setWorkers} companyProfile={companyProfile} />
-        </PageKeepAlive>
-        <PageKeepAlive pageKey="companyProfile" active={active}>
-          <CompanyProfilePage companyProfile={companyProfile} setCompanyProfile={setCompanyProfile} />
+        <PageKeepAlive pageKey="basicInfo" active={active}>
+          <BasicInfoHubPage
+            isHubActive={active === "basicInfo"}
+            tabAccess={basicInfoTabAccess}
+            clientsPanel={
+              <ClientsPage clients={clients} setClients={setClients} sales={appliedSales} companyProfile={companyProfile} />
+            }
+            workersPanel={
+              <WorkersPage
+                workers={workers}
+                companyProfile={companyProfile}
+                currentUser={currentUser}
+                onPersistWorkersImmediate={persistWorkersImmediate}
+              />
+            }
+            companyPanel={
+              <CompanyProfilePage companyProfile={companyProfile} setCompanyProfile={setCompanyProfile} />
+            }
+          />
         </PageKeepAlive>
         <PageKeepAlive pageKey="reports" active={active}>
           <ReportsPage
@@ -7341,12 +8046,23 @@ export default function TeammillimeterErpMvp() {
             manualLinkedSaleIds={manualLinkedSaleIds}
           />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="auditLog" active={active}>
-          <AuditLogPage />
-        </PageKeepAlive>
-        {canUserAccessPage(currentUser, "loginHistory") ? (
-          <PageKeepAlive pageKey="loginHistory" active={active}>
-            <LoginHistoryPage loginLogs={loginLogs} />
+        {canUserAccessPage(currentUser, "usersAdmin") ? (
+          <PageKeepAlive pageKey="usersAdmin" active={active}>
+            <UserAdminHubPage
+              isHubActive={active === "usersAdmin"}
+              tabAccess={userAdminTabAccess}
+              usersPanel={
+                <UsersAdminPage
+                  currentUser={currentUser}
+                  onBackup={backupData}
+                  onRestore={restoreBackup}
+                  onExcelImport={handleExcelImport}
+                  onLoadBundledSeed={handleLoadBundledSeed}
+                />
+              }
+              auditPanel={<AuditLogPage />}
+              loginPanel={<LoginHistoryPage loginLogs={loginLogs} />}
+            />
           </PageKeepAlive>
         ) : null}
         <PageKeepAlive pageKey="statements" active={active}>
@@ -7362,24 +8078,29 @@ export default function TeammillimeterErpMvp() {
             currentUser={currentUser}
             draft={statementDraft}
             onDraftConsumed={() => setStatementDraft(null)}
+            bankTransactions={bankTransactions}
+            workerPaymentRecords={workerPaymentRecords}
+            workerPayWithVatLearnRules={workerPayWithVatLearnRules}
+            isPageActive={active === "statements"}
           />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="pdfArchive" active={active}>
-          <PdfArchivePage isActive={active === "pdfArchive"} bankTransactions={bankTransactions} />
-        </PageKeepAlive>
-        {canUserAccessPage(currentUser, "usersAdmin") ? (
-          <PageKeepAlive pageKey="usersAdmin" active={active}>
-            <UsersAdminPage
-              currentUser={currentUser}
-              onBackup={backupData}
-              onRestore={restoreBackup}
-              onExcelImport={handleExcelImport}
-              onLoadBundledSeed={handleLoadBundledSeed}
-            />
-          </PageKeepAlive>
-        ) : null}
         </main>
       </div>
+      {active === "sales" && salesManagementEditSale ? (
+        <SaleVoucherEditModal
+          sale={salesManagementEditSale}
+          onClose={() => setSalesManagementEditSale(null)}
+          setSales={setSales}
+          clients={clients}
+          workers={workers}
+          currentUser={currentUser}
+          setPaymentVouchers={setPaymentVouchers}
+          setBankTransactions={setBankTransactions}
+          onPersistSaleUpdate={persistSaleVoucherUpdate}
+          screen="매출관리"
+          SaleFormEditor={SaleFormCompactEditor}
+        />
+      ) : null}
       <MyAccountModal
         open={myAccountOpen}
         currentUser={currentUser}

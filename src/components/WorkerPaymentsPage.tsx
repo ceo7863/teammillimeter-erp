@@ -1,23 +1,12 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, ChevronLeft, ChevronRight, Copy, CreditCard, Download, FileText, Link2, Search, WalletCards } from "lucide-react";
+import React, { useMemo, useState } from "react";
+import { CheckCircle2, CreditCard, FileText, Search, WalletCards } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AutocompleteInput } from "@/components/AutocompleteInput";
-import { WorkerStatementSheet } from "@/components/WorkerStatementSheet";
-import { StatementA4Preview } from "@/components/StatementA4Preview";
 import { TableExportSection } from "@/components/TableExportSection";
-import { WorkerMonthlyStatementExport } from "@/components/WorkerMonthlyStatementExport";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
-import { createPdfPreviewWindow, downloadPdfFromHtmlElement, revokePdfBlobUrl } from "@/utils/statementPdf";
-import { archiveGeneratedPdf, archivePdfAndCreateShareLink, copyTextToClipboard } from "@/utils/pdfArchive";
+import { WorkerStatementTab } from "@/components/WorkerStatementTab";
 import {
-  buildStatementPdfCacheKey,
-  prefetchStatementPdf,
-  resolveStatementPdf,
-} from "@/utils/statementPdfCache";
-import { confirmDelete } from "@/utils/confirmDelete";
-import {
-  buildWorkerStatementSummary,
   filterSalesByDate,
   flattenSalesToWorkerPaymentRows,
   formatKRW,
@@ -26,30 +15,23 @@ import {
   summarizeWorkerPaymentRows,
   todayISO,
   type WorkerMasterLike,
+  type WorkerMonthlyPaymentMemos,
   type WorkerPaymentDetailRow,
   type WorkerPaymentSummaryRow,
 } from "@/utils/workerPayments";
-import { dedupeStatementRowMemos } from "@/utils/statementSheets";
 import {
-  buildWorkerMonthSummaries,
-  buildWorkerMonthlyWorkerRows,
-  buildWorkerPaymentRecordMap,
-  calculateWorkerPaymentVat,
   formatMonthLabel,
-  formatPaidAt,
-  makeWorkerMonthKey,
-  normalizePaidDate,
-  shiftMonthKey,
-  upsertWorkerPaymentRecord,
-  updateWorkerPaymentMemo,
-  updateWorkerPaymentPaidDate as setWorkerPaymentPaidDate,
   type WorkerMonthlyPaymentRecord,
 } from "@/utils/workerMonthlyPayments";
 import { WorkerPayoutHistoryTab } from "@/components/WorkerPayoutHistoryTab";
 import { WorkerMonthlyActualPaymentTab } from "@/components/WorkerMonthlyActualPaymentTab";
-import type {
-  WorkerMonthlyActualVoucher,
-  WorkerPayWithVatLearnRule,
+import { WorkerMonthlyPaymentTab } from "@/components/WorkerMonthlyPaymentTab";
+import {
+  buildWorkerMonthlyObligationNetPayChartRows,
+  buildWorkerMonthlyObligations,
+  summarizeWorkerMonthlyMonthHubTotals,
+  type WorkerMonthlyActualVoucher,
+  type WorkerPayWithVatLearnRule,
 } from "@/utils/workerMonthlyActualPayments";
 import type { BankTransaction } from "@/utils/bankTransactions";
 import type { BankTransactionFolder } from "@/utils/bankTransactionFolders";
@@ -150,6 +132,7 @@ function WorkerNetPayRankingChart({
 
 export function WorkerPaymentsPage({
   workers = [],
+  workerMonthlyPaymentMemos = {},
   sales = [],
   workerPaymentRecords = [],
   setWorkerPaymentRecords,
@@ -162,9 +145,16 @@ export function WorkerPaymentsPage({
   workerPayWithVatLearnRules = [],
   setWorkerPayWithVatLearnRules,
   setBankTransactions,
+  setWorkers,
+  onPersistWorkersImmediate,
+  onPersistWorkerMonthlyMemoImmediate,
+  onPersistWorkerMonthlyLinksImmediate,
+  onPersistBankTransactionMemoUpdates,
+  onRequestImmediateSave,
   currentUser,
 }: {
   workers?: WorkerMasterLike[];
+  workerMonthlyPaymentMemos?: WorkerMonthlyPaymentMemos;
   sales?: Parameters<typeof flattenSalesToWorkerPaymentRows>[0];
   workerPaymentRecords?: WorkerMonthlyPaymentRecord[];
   setWorkerPaymentRecords?: React.Dispatch<React.SetStateAction<WorkerMonthlyPaymentRecord[]>>;
@@ -177,6 +167,25 @@ export function WorkerPaymentsPage({
   workerPayWithVatLearnRules?: WorkerPayWithVatLearnRule[];
   setWorkerPayWithVatLearnRules?: React.Dispatch<React.SetStateAction<WorkerPayWithVatLearnRule[]>>;
   setBankTransactions?: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
+  setWorkers?: React.Dispatch<React.SetStateAction<WorkerMasterLike[]>>;
+  onPersistWorkersImmediate?: (nextWorkers: WorkerMasterLike[]) => boolean | void | Promise<boolean | void>;
+  onPersistWorkerMonthlyMemoImmediate?: (
+    workerId: number | string,
+    memo: string,
+  ) => boolean | Promise<boolean>;
+  onPersistWorkerMonthlyLinksImmediate?: (patch: {
+    workerMonthlyActualVouchers: WorkerMonthlyActualVoucher[];
+    bankTransactions: BankTransaction[];
+    workerPaymentRecords?: WorkerMonthlyPaymentRecord[];
+  }) => void | Promise<void>;
+  onPersistBankTransactionMemoUpdates?: (
+    updates: Record<string, string>,
+  ) => boolean | Promise<boolean>;
+  onRequestImmediateSave?: (patch: {
+    bankTransactions?: BankTransaction[];
+    workers?: WorkerMasterLike[];
+    workerMonthlyPaymentMemos?: WorkerMonthlyPaymentMemos;
+  }) => void | Promise<boolean>;
   currentUser?: { name?: string; email?: string };
 }) {
   const [activeTab, setActiveTab] = useState<WorkerPaymentTab>("summary");
@@ -184,33 +193,7 @@ export function WorkerPaymentsPage({
   const [selectedWorker, setSelectedWorker] = useState("");
   const [detailQuery, setDetailQuery] = useState("");
   const [selectedMonthKey, setSelectedMonthKey] = useState(() => monthStartISO().slice(0, 7));
-  const [monthlyUnpaidOnly, setMonthlyUnpaidOnly] = useState(false);
-  const [paymentDraftDates, setPaymentDraftDates] = useState<Record<string, string>>({});
-  const [paymentDraftVat, setPaymentDraftVat] = useState<Record<string, boolean>>({});
-  const [pdfMessage, setPdfMessage] = useState("");
-  const [pdfGenerating, setPdfGenerating] = useState(false);
-  const [statementShareLink, setStatementShareLink] = useState("");
-  const [statementSheetGenerated, setStatementSheetGenerated] = useState(false);
-  const [statementHint, setStatementHint] = useState("");
-  const pdfBlobUrlRef = useRef("");
-  const workerPrintRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => () => revokePdfBlobUrl(pdfBlobUrlRef.current), []);
-
-  useEffect(() => {
-    setStatementSheetGenerated(false);
-    setStatementHint("");
-    setPdfMessage("");
-    setStatementShareLink("");
-  }, [dateFilter.startDate, dateFilter.endDate, selectedWorker]);
-
-  useEffect(() => {
-    if (activeTab !== "statement") {
-      setStatementSheetGenerated(false);
-      setStatementHint("");
-    }
-  }, [activeTab]);
-
+  const [monthlyActualFocus, setMonthlyActualFocus] = useState<{ worker: string; voucherId?: string } | null>(null);
   const filteredSales = useMemo(
     () => filterSalesByDate(sales, dateFilter.startDate, dateFilter.endDate),
     [sales, dateFilter.endDate, dateFilter.startDate]
@@ -221,185 +204,9 @@ export function WorkerPaymentsPage({
     [sales, workers]
   );
 
-  const paymentRecordMap = useMemo(
-    () => buildWorkerPaymentRecordMap(workerPaymentRecords),
-    [workerPaymentRecords]
-  );
-
-  const monthSummaries = useMemo(
-    () => buildWorkerMonthSummaries(allDetailRows, workerPaymentRecords),
-    [allDetailRows, workerPaymentRecords]
-  );
-
-  useEffect(() => {
-    if (!monthSummaries.length) return;
-    if (!monthSummaries.some((row) => row.monthKey === selectedMonthKey)) {
-      setSelectedMonthKey(monthSummaries[0].monthKey);
-    }
-  }, [monthSummaries, selectedMonthKey]);
-
-  const selectedMonthSummary = useMemo(
-    () => monthSummaries.find((row) => row.monthKey === selectedMonthKey) || null,
-    [monthSummaries, selectedMonthKey]
-  );
-
-  const monthlyWorkerRows = useMemo(
-    () => buildWorkerMonthlyWorkerRows(allDetailRows, selectedMonthKey, workers),
-    [allDetailRows, selectedMonthKey, workers]
-  );
-
-  const visibleMonthlyWorkerRows = useMemo(() => {
-    if (!monthlyUnpaidOnly) return monthlyWorkerRows;
-    return monthlyWorkerRows.filter((row) => !paymentRecordMap.get(makeWorkerMonthKey(row.worker, selectedMonthKey))?.paid);
-  }, [monthlyUnpaidOnly, monthlyWorkerRows, paymentRecordMap, selectedMonthKey]);
-
-  const monthlyWorkerStatementRowsMap = useMemo(() => {
-    const map = new Map<string, WorkerPaymentDetailRow[]>();
-    for (const row of monthlyWorkerRows) {
-      map.set(
-        row.worker,
-        allDetailRows.filter(
-          (detailRow) => detailRow.worker === row.worker && String(detailRow.date || "").slice(0, 7) === selectedMonthKey,
-        ),
-      );
-    }
-    return map;
-  }, [allDetailRows, monthlyWorkerRows, selectedMonthKey]);
-
-  const monthlyPaidCount = useMemo(
-    () => monthlyWorkerRows.filter((row) => paymentRecordMap.get(makeWorkerMonthKey(row.worker, selectedMonthKey))?.paid).length,
-    [monthlyWorkerRows, paymentRecordMap, selectedMonthKey]
-  );
-
-  const monthlyUnpaidNetPay = useMemo(
-    () =>
-      monthlyWorkerRows.reduce((sum, row) => {
-        const paid = paymentRecordMap.get(makeWorkerMonthKey(row.worker, selectedMonthKey))?.paid;
-        return paid ? sum : sum + row.netPay;
-      }, 0),
-    [monthlyWorkerRows, paymentRecordMap, selectedMonthKey]
-  );
-
-  const monthlyPaidVatSummary = useMemo(() => {
-    let vatTotal = 0;
-    let paidWithVatCount = 0;
-    let finalPayTotal = 0;
-
-    for (const row of monthlyWorkerRows) {
-      const record = paymentRecordMap.get(makeWorkerMonthKey(row.worker, selectedMonthKey));
-      if (!record?.paid || !record.payWithVat) continue;
-      const { vatAmount, finalPayAmount } = calculateWorkerPaymentVat(row.netPay, true);
-      vatTotal += vatAmount;
-      finalPayTotal += finalPayAmount;
-      paidWithVatCount += 1;
-    }
-
-    return { vatTotal, paidWithVatCount, finalPayTotal };
-  }, [monthlyWorkerRows, paymentRecordMap, selectedMonthKey]);
-
-  const getRowPayWithVat = (worker: string, record?: WorkerMonthlyPaymentRecord) => {
-    const rowKey = makeWorkerMonthKey(worker, selectedMonthKey);
-    if (record?.paid) return Boolean(record.payWithVat);
-    return Boolean(paymentDraftVat[rowKey]);
-  };
-
-  const updatePaymentRecord = (worker: string, paid: boolean, paidAt = "", payWithVat = false) => {
-    if (!setWorkerPaymentRecords) return;
-    setWorkerPaymentRecords((prev) =>
-      upsertWorkerPaymentRecord(prev, {
-        worker,
-        monthKey: selectedMonthKey,
-        paid,
-        paidAt: paid ? paidAt || paymentDraftDates[makeWorkerMonthKey(worker, selectedMonthKey)] || undefined : undefined,
-        paidBy: currentUser?.name || currentUser?.email,
-        payWithVat: paid ? payWithVat : false,
-      }),
-    );
-  };
-
-  const updatePaymentPaidDate = (worker: string, paidAt: string) => {
-    const rowKey = makeWorkerMonthKey(worker, selectedMonthKey);
-    const record = paymentRecordMap.get(rowKey);
-    if (record?.paid) {
-      if (!setWorkerPaymentRecords) return;
-      setWorkerPaymentRecords((prev) =>
-        setWorkerPaymentPaidDate(prev, worker, selectedMonthKey, paidAt, currentUser?.name || currentUser?.email),
-      );
-      return;
-    }
-    setPaymentDraftDates((prev) => ({ ...prev, [rowKey]: paidAt }));
-  };
-
-  const confirmPayment = (worker: string) => {
-    if (!setWorkerPaymentRecords) return;
-    const rowKey = makeWorkerMonthKey(worker, selectedMonthKey);
-    const paidAt = paymentDraftDates[rowKey] || todayISO();
-    if (!paymentDraftDates[rowKey]) {
-      setPaymentDraftDates((prev) => ({ ...prev, [rowKey]: paidAt }));
-    }
-    const record = paymentRecordMap.get(rowKey);
-    updatePaymentRecord(worker, true, paidAt, getRowPayWithVat(worker, record));
-  };
-
-  const cancelPayment = (worker: string) => {
-    if (!confirmDelete(`${worker} 시공자의 지급 완료 상태를 취소할까요?`)) return;
-    const rowKey = makeWorkerMonthKey(worker, selectedMonthKey);
-    setPaymentDraftVat((prev) => {
-      const next = { ...prev };
-      delete next[rowKey];
-      return next;
-    });
-    updatePaymentRecord(worker, false);
-  };
-
-  const togglePaymentVat = (worker: string, record?: WorkerMonthlyPaymentRecord) => {
-    const rowKey = makeWorkerMonthKey(worker, selectedMonthKey);
-    const nextValue = !getRowPayWithVat(worker, record);
-    if (record?.paid) {
-      updatePaymentRecord(worker, true, record.paidAt || "", nextValue);
-      return;
-    }
-    setPaymentDraftVat((prev) => ({ ...prev, [rowKey]: nextValue }));
-  };
-
-  const getRowPaymentDate = (worker: string, record?: WorkerMonthlyPaymentRecord) => {
-    const rowKey = makeWorkerMonthKey(worker, selectedMonthKey);
-    if (record?.paid) {
-      return normalizePaidDate(record.paidAt);
-    }
-    return paymentDraftDates[rowKey] || "";
-  };
-
-  const updatePaymentMemo = (worker: string, memo: string) => {
-    if (!setWorkerPaymentRecords) return;
-    setWorkerPaymentRecords((prev) => updateWorkerPaymentMemo(prev, worker, selectedMonthKey, memo));
-  };
-
-  const markAllMonthlyPaid = (paid: boolean) => {
-    if (!setWorkerPaymentRecords) return;
-    setWorkerPaymentRecords((prev) =>
-      monthlyWorkerRows.reduce((records, row) => {
-        const rowKey = makeWorkerMonthKey(row.worker, selectedMonthKey);
-        const draftDate = paymentDraftDates[rowKey] || todayISO();
-        return upsertWorkerPaymentRecord(records, {
-          worker: row.worker,
-          monthKey: selectedMonthKey,
-          paid,
-          paidAt: paid ? draftDate : undefined,
-          paidBy: currentUser?.name || currentUser?.email,
-          payWithVat: paid ? Boolean(paymentDraftVat[rowKey]) : false,
-        });
-      }, prev),
-    );
-  };
-
-  const openWorkerMonthlyDetail = (worker: string) => {
-    const monthStart = `${selectedMonthKey}-01`;
-    const monthEndDate = new Date(Number(selectedMonthKey.slice(0, 4)), Number(selectedMonthKey.slice(5, 7)), 0);
-    const monthEnd = `${selectedMonthKey}-${String(monthEndDate.getDate()).padStart(2, "0")}`;
-    setSelectedWorker(worker);
-    setDateFilter({ startDate: monthStart, endDate: monthEnd });
-    setActiveTab("detail");
+  const openMonthlyActual = (worker: string, voucherId?: string) => {
+    setMonthlyActualFocus({ worker, voucherId });
+    setActiveTab("monthlyActual");
   };
 
   const detailRows = useMemo(
@@ -433,6 +240,87 @@ export function WorkerPaymentsPage({
     [activeSummaryRows]
   );
 
+  const monthlyObligations = useMemo(
+    () =>
+      buildWorkerMonthlyObligations(
+        allDetailRows,
+        workers,
+        workerMonthlyActualVouchers,
+        workerPaymentRecords,
+        workerPayWithVatLearnRules,
+      ),
+    [allDetailRows, workerMonthlyActualVouchers, workerPaymentRecords, workerPayWithVatLearnRules, workers],
+  );
+
+  const monthlyHubTotals = useMemo(
+    () => summarizeWorkerMonthlyMonthHubTotals(monthlyObligations, workers, selectedMonthKey),
+    [monthlyObligations, selectedMonthKey, workers],
+  );
+
+  const monthlySalesRows = useMemo(
+    () => allDetailRows.filter((row) => String(row.date || "").slice(0, 7) === selectedMonthKey),
+    [allDetailRows, selectedMonthKey],
+  );
+
+  const monthlySalesTotals = useMemo(
+    () => summarizeWorkerPaymentDetailTotals(monthlySalesRows),
+    [monthlySalesRows],
+  );
+
+  const statementMonthSummaryRows = useMemo(
+    () => summarizeWorkerPaymentRows(monthlySalesRows, workers),
+    [monthlySalesRows, workers],
+  );
+
+  const statementMonthNetPayTotal = useMemo(
+    () =>
+      statementMonthSummaryRows.reduce((sum, row) => sum + (row.lineCount > 0 ? row.netPay : 0), 0),
+    [statementMonthSummaryRows],
+  );
+
+  const statementMonthWorkerCount = useMemo(
+    () => statementMonthSummaryRows.filter((row) => row.lineCount > 0).length,
+    [statementMonthSummaryRows],
+  );
+
+  const hubMetrics = useMemo(() => {
+    if (activeTab === "monthly") {
+      return {
+        items: [
+          { label: "매출 지급", value: monthlySalesTotals.grossPay, tone: "default" as const },
+          { label: "매출 수수료", value: monthlySalesTotals.fee, tone: "danger" as const },
+          { label: "매출 실지급", value: monthlySalesTotals.netPay, tone: "default" as const },
+          { label: "월별 예정", value: monthlyHubTotals.expectedTotal, tone: "default" as const },
+          { label: "월별 지급", value: monthlyHubTotals.paidTotal, tone: "highlight" as const },
+          { label: "월별 미지급", value: monthlyHubTotals.balanceTotal, tone: "danger" as const },
+        ],
+      };
+    }
+    if (activeTab === "statement") {
+      return {
+        items: [
+          { label: "대상 시공자", value: statementMonthWorkerCount, tone: "default" as const, format: "count" as const },
+          { label: "지급합계", value: monthlySalesTotals.grossPay, tone: "default" as const },
+          { label: "실수령", value: statementMonthNetPayTotal, tone: "highlight" as const },
+        ],
+      };
+    }
+    return {
+      items: [
+        { label: "지급", value: headerTotals.grossPay, tone: "default" as const },
+        { label: "수수료", value: headerTotals.fee, tone: "danger" as const },
+        { label: "실지급", value: headerTotals.netPay, tone: "highlight" as const },
+      ],
+    };
+  }, [
+    activeTab,
+    headerTotals,
+    monthlyHubTotals,
+    monthlySalesTotals,
+    statementMonthNetPayTotal,
+    statementMonthWorkerCount,
+  ]);
+
   const workerOptions = useMemo(
     () => ["전체", ...new Set(detailRows.map((row) => row.worker).filter(Boolean))],
     [detailRows]
@@ -453,20 +341,35 @@ export function WorkerPaymentsPage({
 
   const detailTotals = useMemo(() => summarizeWorkerPaymentDetailTotals(scopedDetailRows), [scopedDetailRows]);
 
-  const chartDetailRows = useMemo(() => {
-    if (activeTab === "monthly") {
-      return allDetailRows.filter((row) => String(row.date || "").slice(0, 7) === selectedMonthKey);
-    }
-    return detailRows;
-  }, [activeTab, allDetailRows, detailRows, selectedMonthKey]);
+  const salesChartSummaryRows = useMemo(
+    () => summarizeWorkerPaymentRows(detailRows, workers),
+    [detailRows, workers],
+  );
 
-  const chartSummaryRows = useMemo(
-    () => summarizeWorkerPaymentRows(chartDetailRows, workers),
-    [chartDetailRows, workers]
+  const monthlyChartSummaryRows = useMemo(
+    () => buildWorkerMonthlyObligationNetPayChartRows(monthlyObligations, workers, selectedMonthKey),
+    [monthlyObligations, selectedMonthKey, workers],
+  );
+
+  const monthlySalesChartSummaryRows = useMemo(
+    () => summarizeWorkerPaymentRows(monthlySalesRows, workers),
+    [monthlySalesRows, workers],
+  );
+
+  const chartSummaryRows = activeTab === "monthly" ? monthlyChartSummaryRows : salesChartSummaryRows;
+
+  const monthlySalesChartNetPayTotal = useMemo(
+    () => monthlySalesChartSummaryRows.reduce((sum, row) => sum + (row.netPay > 0 ? row.netPay : 0), 0),
+    [monthlySalesChartSummaryRows],
+  );
+
+  const monthlySalesChartLineCountTotal = useMemo(
+    () => monthlySalesChartSummaryRows.reduce((sum, row) => sum + (row.netPay > 0 ? row.lineCount : 0), 0),
+    [monthlySalesChartSummaryRows],
   );
 
   const chartPeriodLabel = useMemo(() => {
-    if (activeTab === "monthly") return formatMonthLabel(selectedMonthKey);
+    if (activeTab === "monthly" || activeTab === "statement") return formatMonthLabel(selectedMonthKey);
     if (dateFilter.startDate || dateFilter.endDate) {
       return `${dateFilter.startDate || "전체"} ~ ${dateFilter.endDate || "전체"}`;
     }
@@ -474,233 +377,24 @@ export function WorkerPaymentsPage({
   }, [activeTab, dateFilter.endDate, dateFilter.startDate, selectedMonthKey]);
 
   const chartNetPayTotal = useMemo(
-    () => chartSummaryRows.reduce((sum, row) => sum + (row.netPay > 0 ? row.netPay : 0), 0),
-    [chartSummaryRows]
+    () =>
+      activeTab === "monthly"
+        ? monthlyHubTotals.netPayTotal
+        : chartSummaryRows.reduce((sum, row) => sum + (row.netPay > 0 ? row.netPay : 0), 0),
+    [activeTab, chartSummaryRows, monthlyHubTotals.netPayTotal],
   );
 
   const chartLineCountTotal = useMemo(
     () => chartSummaryRows.reduce((sum, row) => sum + (row.netPay > 0 ? row.lineCount : 0), 0),
-    [chartSummaryRows]
+    [chartSummaryRows],
   );
 
-  const statementWorker = selectedWorker && selectedWorker !== "전체" ? selectedWorker : "";
-  const statementRows = useMemo(
-    () => (statementWorker ? detailRows.filter((row) => row.worker === statementWorker) : []),
-    [detailRows, statementWorker]
-  );
-  const statementDisplayRows = useMemo(() => dedupeStatementRowMemos(statementRows), [statementRows]);
-
-  const selectedWorkerInfo = workers.find((row) => row.name === statementWorker) || {};
-  const workerStatementSummary = buildWorkerStatementSummary(statementRows, selectedWorkerInfo);
-  const workerStatementPeriodStart = dateFilter.startDate || statementRows[0]?.date || "";
-  const workerStatementPeriodEnd = dateFilter.endDate || statementRows[statementRows.length - 1]?.date || "";
-
-  const workerPrintTotals = useMemo(
-    () =>
-      statementRows.reduce(
-        (acc, row) => {
-          acc.count += 1;
-          acc.basePay += row.basePay || 0;
-          acc.overtime += row.overtime || 0;
-          acc.lodging += row.lodging || 0;
-          acc.meal += row.meal || 0;
-          acc.expense += row.expense || 0;
-          acc.totalPay += row.totalPay || 0;
-          return acc;
-        },
-        { count: 0, basePay: 0, overtime: 0, lodging: 0, meal: 0, expense: 0, totalPay: 0 }
-      ),
-    [statementRows]
-  );
+  const chartDataSourceLabel =
+    activeTab === "monthly" ? "월별 지급 예정(실지급)" : activeTab === "statement" ? "월별 매출 실지급" : "매출 기간 실지급";
 
   const openWorkerDetail = (row: WorkerPaymentSummaryRow) => {
     setSelectedWorker(row.name);
     setActiveTab("detail");
-  };
-
-  const handleGenerateStatementSheet = () => {
-    if (!statementWorker) {
-      setStatementHint("시공자를 선택해 주세요.");
-      return;
-    }
-    if (!statementRows.length) {
-      setStatementHint("선택 기간에 해당 시공자 내역이 없습니다.");
-      return;
-    }
-    setStatementHint("");
-    setPdfMessage("");
-    setStatementShareLink("");
-    setStatementSheetGenerated(true);
-  };
-
-  useEffect(() => {
-    if (!statementSheetGenerated || !statementWorker || !statementRows.length) return;
-    const timer = window.setTimeout(() => {
-      const element = workerPrintRef.current;
-      if (!element) return;
-      const safeName = statementWorker.replace(/[\\/:*?"<>|]/g, "_");
-      const periodLabel = `${dateFilter.startDate || "전체"}_${dateFilter.endDate || "전체"}`;
-      const fileName = `시공내역서_시공자_${safeName}_${periodLabel}.pdf`;
-      const cacheKey = buildStatementPdfCacheKey([
-        "worker-payment",
-        statementWorker,
-        dateFilter.startDate,
-        dateFilter.endDate,
-        statementRows.length,
-      ]);
-      prefetchStatementPdf(cacheKey, () =>
-        downloadPdfFromHtmlElement(element, fileName, { orientation: "portrait", deliver: false })
-      );
-    }, 250);
-    return () => window.clearTimeout(timer);
-  }, [statementSheetGenerated, statementWorker, statementRows.length, dateFilter.startDate, dateFilter.endDate]);
-
-  const shareWorkerStatementDownloadLink = async () => {
-    if (!statementSheetGenerated) {
-      setPdfMessage("링크보내기 전에 내역서 생성을 먼저 실행해 주세요.");
-      return;
-    }
-    if (!statementWorker) {
-      setPdfMessage("링크보내기 전에 시공자를 선택해 주세요.");
-      return;
-    }
-    if (!statementRows.length) {
-      setPdfMessage("링크로 보낼 시공자 내역이 없습니다.");
-      return;
-    }
-
-    const element = workerPrintRef.current;
-    if (!element) {
-      setPdfMessage("PDF 출력 영역을 찾을 수 없습니다. 페이지를 새로고침 후 다시 시도해 주세요.");
-      return;
-    }
-
-    const safeName = statementWorker.replace(/[\\/:*?"<>|]/g, "_");
-    const periodLabel = `${dateFilter.startDate || "전체"}_${dateFilter.endDate || "전체"}`;
-    const fileName = `시공내역서_시공자_${safeName}_${periodLabel}.pdf`;
-
-    const cacheKey = buildStatementPdfCacheKey([
-      "worker-payment",
-      statementWorker,
-      dateFilter.startDate,
-      dateFilter.endDate,
-      statementRows.length,
-    ]);
-
-    setPdfGenerating(true);
-    setPdfMessage("PDF 생성 및 링크 준비 중...");
-    setStatementShareLink("");
-
-    try {
-      const { result, fromCache } = await resolveStatementPdf(cacheKey, () =>
-        downloadPdfFromHtmlElement(element, fileName, {
-          orientation: "portrait",
-          deliver: false,
-        })
-      );
-      pdfBlobUrlRef.current = result.blobUrl;
-      setPdfMessage(fromCache ? "서버 업로드 및 링크 생성 중..." : "PDF 생성 및 링크 준비 중...");
-
-      const { shareLink } = await archivePdfAndCreateShareLink(result, {
-        category: "statement-worker",
-        subjectName: statementWorker,
-        periodStart: dateFilter.startDate,
-        periodEnd: dateFilter.endDate,
-        statementTotalAmount: workerPrintTotals.totalPay,
-        paymentStatus: "pending",
-      });
-
-      if (shareLink?.url) {
-        setStatementShareLink(shareLink.url);
-        const copied = await copyTextToClipboard(shareLink.url);
-        setPdfMessage(
-          copied
-            ? "PDF가 보낸내역서함에 저장되었습니다. 다운로드 링크가 복사되었습니다. 카톡 등에 붙여넣기 하세요."
-            : "PDF가 보낸내역서함에 저장되었습니다. 다운로드 링크가 복사되었습니다. 카톡 등에 붙여넣기 하세요. (자동 복사가 지원되지 않아 아래 링크를 직접 복사해 주세요.)"
-        );
-      } else {
-        setPdfMessage("링크보내기는 서버 연동 모드에서만 가능합니다. PDF는 보낸내역서함에 저장되었습니다.");
-      }
-    } catch (error) {
-      console.error(error);
-      setPdfMessage(error instanceof Error ? error.message : "링크보내기에 실패했습니다.");
-      setStatementShareLink("");
-    } finally {
-      setPdfGenerating(false);
-    }
-  };
-
-  const handleCopyStatementShareLink = async () => {
-    if (!statementShareLink) return;
-    try {
-      const copied = await copyTextToClipboard(statementShareLink);
-      setPdfMessage(copied ? "링크가 복사되었습니다." : "링크 복사에 실패했습니다.");
-    } catch (error) {
-      console.error(error);
-      setPdfMessage("링크 복사에 실패했습니다.");
-    }
-  };
-
-  const generateWorkerPdf = async () => {
-    if (!statementSheetGenerated) {
-      setPdfMessage("PDF 생성 전에 내역서 생성을 먼저 실행해 주세요.");
-      return;
-    }
-
-    if (!statementWorker) {
-      setPdfMessage("PDF 생성 전에 시공자를 선택해 주세요.");
-      return;
-    }
-
-    if (!statementRows.length) {
-      setPdfMessage("PDF로 보낼 시공자 내역이 없습니다.");
-      return;
-    }
-
-    const element = workerPrintRef.current;
-    if (!element) {
-      setPdfMessage("PDF 출력 영역을 찾을 수 없습니다. 페이지를 새로고침 후 다시 시도해 주세요.");
-      return;
-    }
-
-    const safeName = statementWorker.replace(/[\\/:*?"<>|]/g, "_");
-    const periodLabel = `${dateFilter.startDate || "전체"}_${dateFilter.endDate || "전체"}`;
-    const fileName = `시공내역서_시공자_${safeName}_${periodLabel}.pdf`;
-
-    revokePdfBlobUrl(pdfBlobUrlRef.current);
-    setPdfGenerating(true);
-    setPdfMessage("PDF 생성 중입니다...");
-    pdfBlobUrlRef.current = "";
-
-    const previewWindow = createPdfPreviewWindow();
-    if (!previewWindow) {
-      setPdfMessage("팝업이 차단되었습니다. 브라우저에서 팝업 허용 후 다시 시도해 주세요.");
-    }
-
-    try {
-      const result = await downloadPdfFromHtmlElement(element, fileName, {
-        orientation: "portrait",
-        previewWindow,
-      });
-      pdfBlobUrlRef.current = result.blobUrl;
-      await archiveGeneratedPdf(result, {
-        category: "statement-worker",
-        subjectName: statementWorker,
-        periodStart: dateFilter.startDate,
-        periodEnd: dateFilter.endDate,
-      });
-      setPdfMessage(
-        result.previewOpened
-          ? "PDF가 다운로드되었고 새 탭에서 열렸습니다. 보관함에도 저장되었습니다."
-          : "PDF가 다운로드되었고 보관함에 저장되었습니다. 미리보기는 PDF 보관함에서 열어 주세요."
-      );
-    } catch (error) {
-      console.error(error);
-      previewWindow?.close();
-      setPdfMessage("PDF 생성에 실패했습니다. 팝업 차단을 해제하거나 잠시 후 다시 시도해 주세요.");
-    } finally {
-      setPdfGenerating(false);
-    }
   };
 
   return (
@@ -711,18 +405,25 @@ export function WorkerPaymentsPage({
           <p className="erp-payment-hub-desc">지급 집계 · 시공자별 상세 · 내역서 PDF를 한 화면에서 처리합니다.</p>
         </div>
         <div className="erp-payment-hub-metrics">
-          <div className="erp-payment-hub-metric">
-            <span className="label">지급</span>
-            <span className="value">{formatKRW(headerTotals.grossPay)}</span>
-          </div>
-          <div className="erp-payment-hub-metric">
-            <span className="label">수수료</span>
-            <span className="value text-red-600">{formatKRW(headerTotals.fee)}</span>
-          </div>
-          <div className="erp-payment-hub-metric is-highlight">
-            <span className="label">실지급</span>
-            <span className="value text-emerald-700">{formatKRW(headerTotals.netPay)}</span>
-          </div>
+          {hubMetrics.items.map((metric) => (
+            <div
+              key={metric.label}
+              className={`erp-payment-hub-metric${metric.tone === "highlight" ? " is-highlight" : ""}`}
+            >
+              <span className="label">{metric.label}</span>
+              <span
+                className={`value${
+                  metric.tone === "danger"
+                    ? " text-red-600"
+                    : metric.tone === "highlight"
+                      ? " text-emerald-700"
+                      : ""
+                }`}
+              >
+                {"format" in metric && metric.format === "count" ? `${metric.value}명` : formatKRW(metric.value)}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -743,30 +444,7 @@ export function WorkerPaymentsPage({
             </div>
 
             <div className="erp-payment-hub-filters">
-              {activeTab === "monthly" ? (
-                <>
-                  <div className="erp-worker-month-nav">
-                    <button type="button" className="erp-worker-month-nav-btn" onClick={() => setSelectedMonthKey((prev) => shiftMonthKey(prev, -1))} aria-label="이전 달">
-                      <ChevronLeft size={16} />
-                    </button>
-                    <div className="erp-worker-month-nav-label">{formatMonthLabel(selectedMonthKey)}</div>
-                    <button type="button" className="erp-worker-month-nav-btn" onClick={() => setSelectedMonthKey((prev) => shiftMonthKey(prev, 1))} aria-label="다음 달">
-                      <ChevronRight size={16} />
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap items-end gap-2">
-                    <Button variant="outline" className="rounded-2xl" onClick={() => setSelectedMonthKey(monthStartISO().slice(0, 7))}>
-                      이번 달
-                    </Button>
-                    <Button variant={monthlyUnpaidOnly ? "default" : "outline"} className="rounded-2xl" onClick={() => setMonthlyUnpaidOnly((prev) => !prev)}>
-                      미지급만
-                    </Button>
-                    <Button variant="outline" className="rounded-2xl" onClick={() => markAllMonthlyPaid(true)} disabled={!monthlyWorkerRows.length}>
-                      전체 지급완료
-                    </Button>
-                  </div>
-                </>
-              ) : (
+              {activeTab !== "monthly" && activeTab !== "statement" ? (
                 <>
                   <Field label="시작일">
                     <KoreanDateInput
@@ -780,7 +458,7 @@ export function WorkerPaymentsPage({
                       onChange={(e) => setDateFilter((prev) => ({ ...prev, endDate: e.target.value }))}
                     />
                   </Field>
-                  {(activeTab === "detail" || activeTab === "statement") && (
+                  {activeTab === "detail" && (
                     <Field label="시공자">
                       <AutocompleteInput
                         value={selectedWorker || "전체"}
@@ -796,34 +474,16 @@ export function WorkerPaymentsPage({
                       />
                     </Field>
                   )}
-                  {activeTab === "statement" ? (
-                    <div className="flex flex-col gap-2">
-                      <div className="flex items-end gap-2">
-                        <Button variant="outline" className="rounded-2xl" onClick={() => setDateFilter({ startDate: monthStartISO(), endDate: todayISO() })}>
-                          이번 달
-                        </Button>
-                        <Button variant="outline" className="rounded-2xl" onClick={() => setDateFilter({ startDate: "", endDate: "" })}>
-                          전체
-                        </Button>
-                        <Button className="rounded-2xl" onClick={handleGenerateStatementSheet} disabled={!statementWorker}>
-                          <FileText size={16} className="mr-1" />
-                          내역서 생성
-                        </Button>
-                      </div>
-                      {statementHint && <p className="erp-text-caption font-semibold text-amber-700">{statementHint}</p>}
-                    </div>
-                  ) : (
-                    <div className="flex items-end gap-2">
-                      <Button variant="outline" className="rounded-2xl" onClick={() => setDateFilter({ startDate: monthStartISO(), endDate: todayISO() })}>
-                        이번 달
-                      </Button>
-                      <Button variant="outline" className="rounded-2xl" onClick={() => setDateFilter({ startDate: "", endDate: "" })}>
-                        전체
-                      </Button>
-                    </div>
-                  )}
+                  <div className="flex items-end gap-2">
+                    <Button variant="outline" className="rounded-2xl" onClick={() => setDateFilter({ startDate: monthStartISO(), endDate: todayISO() })}>
+                      이번 달
+                    </Button>
+                    <Button variant="outline" className="rounded-2xl" onClick={() => setDateFilter({ startDate: "", endDate: "" })}>
+                      전체
+                    </Button>
+                  </div>
                 </>
-              )}
+              ) : null}
             </div>
           </div>
         </CardContent>
@@ -911,236 +571,16 @@ export function WorkerPaymentsPage({
       )}
 
       {activeTab === "monthly" && (
-        <>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <SummaryCard
-              title="총시공비"
-              value={formatKRW(selectedMonthSummary?.totalBill || 0)}
-              sub={`${selectedMonthSummary?.workerCount || 0}명 · ${selectedMonthSummary?.lineCount || 0}건`}
-              icon={WalletCards}
-            />
-            <SummaryCard
-              title="실제마진"
-              value={formatKRW(selectedMonthSummary?.totalMargin || 0)}
-              sub="거래처 청구 − 지급 + 수수료"
-              tone={(selectedMonthSummary?.totalMargin || 0) >= 0 ? "success" : "danger"}
-              icon={CheckCircle2}
-            />
-            <SummaryCard
-              title="월 실지급"
-              value={formatKRW(selectedMonthSummary?.netPay || 0)}
-              sub={`시공자 지급 ${formatKRW(selectedMonthSummary?.grossPay || 0)} · 수수료 차감 후`}
-              icon={CreditCard}
-            />
-            <SummaryCard
-              title="부가세 지급"
-              value={formatKRW(monthlyPaidVatSummary.vatTotal)}
-              sub={
-                monthlyPaidVatSummary.paidWithVatCount
-                  ? `${monthlyPaidVatSummary.paidWithVatCount}명 · 최종 ${formatKRW(monthlyPaidVatSummary.finalPayTotal)}`
-                  : "부가세 포함 지급 없음"
-              }
-              tone={monthlyPaidVatSummary.vatTotal > 0 ? "warning" : "default"}
-              icon={CreditCard}
-            />
-            <SummaryCard
-              title="지급 완료"
-              value={`${monthlyPaidCount}/${monthlyWorkerRows.length}명`}
-              sub={monthlyWorkerRows.length ? `${Math.round((monthlyPaidCount / monthlyWorkerRows.length) * 100)}% 처리` : "대상 없음"}
-              tone="success"
-              icon={CheckCircle2}
-            />
-            <SummaryCard
-              title="미지급 잔액"
-              value={formatKRW(monthlyUnpaidNetPay)}
-              sub={`${Math.max(monthlyWorkerRows.length - monthlyPaidCount, 0)}명 미지급`}
-              tone="danger"
-              icon={CreditCard}
-            />
-          </div>
-
-          <Card className="rounded-2xl shadow-sm">
-            <CardContent className="p-4 md:p-5">
-              <h2 className="erp-text-section mb-3">월별 현황</h2>
-              <TableExportSection fileName="시공자지급_월별현황" title="시공자 지급 월별 현황" disabled={monthSummaries.length === 0}>
-                <div className="erp-table-wrap">
-                  <table className="erp-table erp-table--md">
-                    <thead className="bg-slate-100 text-slate-600">
-                      <tr>
-                        <th className="text-left">월</th>
-                        <th className="text-right">시공자</th>
-                        <th className="text-right">건수</th>
-                        <th className="text-right">총시공비</th>
-                        <th className="text-right">실제마진</th>
-                        <th className="text-right">실지급</th>
-                        <th className="text-right">지급완료</th>
-                        <th className="text-left">상태</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {monthSummaries.map((row) => {
-                        const complete = row.workerCount > 0 && row.paidWorkerCount >= row.workerCount;
-                        const partial = row.paidWorkerCount > 0 && !complete;
-                        return (
-                          <tr
-                            key={row.monthKey}
-                            className={`cursor-pointer border-t hover:bg-slate-50 ${row.monthKey === selectedMonthKey ? "is-selected" : ""}`}
-                            onClick={() => setSelectedMonthKey(row.monthKey)}
-                          >
-                            <td className="font-semibold">{row.label}</td>
-                            <td className="text-right">{row.workerCount}</td>
-                            <td className="text-right">{row.lineCount}</td>
-                            <td className="text-right">{formatKRW(row.totalBill)}</td>
-                            <td className={`text-right font-semibold ${row.totalMargin >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                              {formatKRW(row.totalMargin)}
-                            </td>
-                            <td className="text-right font-semibold">{formatKRW(row.netPay)}</td>
-                            <td className="text-right">{row.paidWorkerCount}/{row.workerCount}</td>
-                            <td>
-                              <span className={`erp-worker-month-status ${complete ? "is-paid" : partial ? "is-partial" : "is-unpaid"}`}>
-                                {complete ? "완료" : partial ? "일부" : "미지급"}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                      {monthSummaries.length === 0 && (
-                        <tr>
-                          <td colSpan={8} className="p-8 text-center text-slate-500">
-                            월별 지급 데이터가 없습니다.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </TableExportSection>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-2xl shadow-sm">
-            <CardContent className="p-4 md:p-5">
-              <div className="mb-3 flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
-                <h2 className="erp-text-section">{formatMonthLabel(selectedMonthKey)} 시공자 지급</h2>
-                <span className="erp-text-caption text-slate-500">지급일 미입력 시 오늘 날짜로 처리 · 필요 시 부가세+ 버튼</span>
-              </div>
-
-              <TableExportSection
-                fileName={`시공자지급_${selectedMonthKey}`}
-                title={`${formatMonthLabel(selectedMonthKey)} 시공자 지급`}
-                disabled={visibleMonthlyWorkerRows.length === 0}
-              >
-                <div className="erp-table-wrap">
-                  <table className="erp-table erp-table--lg">
-                    <thead className="bg-slate-100 text-slate-600">
-                      <tr>
-                        <th className="text-center">처리</th>
-                        <th className="text-left">시공자</th>
-                        <th className="text-right">건수</th>
-                        <th className="text-right">지급</th>
-                        <th className="text-right">수수료</th>
-                        <th className="text-right">실지급</th>
-                        <th className="text-center">부가세+</th>
-                        <th className="text-right">최종지급</th>
-                        <th className="text-left">지급일</th>
-                        <th className="text-left">계좌</th>
-                        <th className="text-center erp-table-export-skip">내역서</th>
-                        <th className="text-left">비고</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleMonthlyWorkerRows.map((row) => {
-                        const record = paymentRecordMap.get(makeWorkerMonthKey(row.worker, selectedMonthKey));
-                        const paid = Boolean(record?.paid);
-                        const paymentDate = getRowPaymentDate(row.worker, record);
-                        const payWithVat = getRowPayWithVat(row.worker, record);
-                        const { vatAmount, finalPayAmount } = calculateWorkerPaymentVat(row.netPay, payWithVat);
-                        return (
-                          <tr key={row.worker} className={`border-t hover:bg-slate-50 ${paid ? "erp-worker-month-row is-paid" : ""}`}>
-                            <td className="p-1">
-                              <div className="erp-worker-month-actions">
-                                {paid ? (
-                                  <>
-                                    <span className="erp-worker-month-paid-badge">지급완료</span>
-                                    <Button type="button" variant="outline" size="sm" className="h-7 rounded-lg px-2 text-xs" onClick={() => cancelPayment(row.worker)}>
-                                      취소
-                                    </Button>
-                                  </>
-                                ) : (
-                                  <Button type="button" size="sm" className="h-7 rounded-lg px-2.5 text-xs" onClick={() => confirmPayment(row.worker)}>
-                                    지급
-                                  </Button>
-                                )}
-                              </div>
-                            </td>
-                            <td className="text-left">
-                              <button type="button" className="font-bold text-slate-900 hover:underline" onClick={() => openWorkerMonthlyDetail(row.worker)}>
-                                {row.worker}
-                              </button>
-                            </td>
-                            <td className="text-right">{row.lineCount}</td>
-                            <td className="text-right">{formatKRW(row.grossPay)}</td>
-                            <td className="text-right text-red-600">{formatKRW(row.fee)}</td>
-                            <td className="text-right font-bold text-emerald-600">{formatKRW(row.netPay)}</td>
-                            <td className="p-1 text-center">
-                              <div className="erp-worker-vat-toggle flex flex-col items-center gap-1">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant={payWithVat ? "default" : "outline"}
-                                  className={`h-7 rounded-lg px-2.5 text-xs ${payWithVat ? "bg-amber-600 hover:bg-amber-700" : ""}`}
-                                  onClick={() => togglePaymentVat(row.worker, record)}
-                                  aria-pressed={payWithVat}
-                                  aria-label={`${row.worker} 부가세 포함 지급`}
-                                >
-                                  부가세+
-                                </Button>
-                                <span className="erp-text-caption text-slate-600">{payWithVat ? formatKRW(vatAmount) : "-"}</span>
-                              </div>
-                            </td>
-                            <td className="text-right font-semibold">{formatKRW(finalPayAmount)}</td>
-                            <td className="p-1">
-                              <KoreanDateInput
-                                className="erp-input-compact erp-worker-month-date"
-                                placeholder="지급일"
-                                value={paymentDate}
-                                onChange={(event) => updatePaymentPaidDate(row.worker, event.target.value)}
-                              />
-                            </td>
-                            <td className="text-left text-slate-500">{[row.bank, row.account].filter(Boolean).join(" ") || "-"}</td>
-                            <td className="p-1 erp-table-export-skip">
-                              <WorkerMonthlyStatementExport
-                                worker={row.worker}
-                                monthKey={selectedMonthKey}
-                                rows={monthlyWorkerStatementRowsMap.get(row.worker) || []}
-                                workerInfo={workers.find((workerRow) => workerRow.name === row.worker) || {}}
-                              />
-                            </td>
-                            <td className="p-1">
-                              <input
-                                className="erp-input erp-input-compact w-full min-w-[8rem]"
-                                value={record?.memo || ""}
-                                onChange={(event) => updatePaymentMemo(row.worker, event.target.value)}
-                                placeholder="메모"
-                              />
-                            </td>
-                          </tr>
-                        );
-                      })}
-                      {visibleMonthlyWorkerRows.length === 0 && (
-                        <tr>
-                          <td colSpan={12} className="p-8 text-center text-slate-500">
-                            {monthlyWorkerRows.length ? "미지급 시공자가 없습니다." : "선택한 월에 지급 내역이 없습니다."}
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </TableExportSection>
-            </CardContent>
-          </Card>
-        </>
+        <WorkerMonthlyPaymentTab
+          workers={workers}
+          sales={sales}
+          workerPaymentRecords={workerPaymentRecords}
+          workerMonthlyActualVouchers={workerMonthlyActualVouchers}
+          workerPayWithVatLearnRules={workerPayWithVatLearnRules}
+          selectedMonthKey={selectedMonthKey}
+          setSelectedMonthKey={setSelectedMonthKey}
+          onOpenMonthlyActual={openMonthlyActual}
+        />
       )}
 
       {activeTab === "detail" && (
@@ -1175,7 +615,7 @@ export function WorkerPaymentsPage({
             </div>
 
             <TableExportSection
-              fileName={statementWorker ? `시공자지급_${statementWorker}` : "시공자지급_상세"}
+              fileName={selectedWorker ? `시공자지급_${selectedWorker}` : "시공자지급_상세"}
               title="시공자 지급 상세"
               disabled={scopedDetailRows.length === 0}
             >
@@ -1240,6 +680,7 @@ export function WorkerPaymentsPage({
       {activeTab === "monthlyActual" && (
         <WorkerMonthlyActualPaymentTab
           workers={workers}
+          workerMonthlyPaymentMemos={workerMonthlyPaymentMemos}
           sales={sales}
           workerPaymentRecords={workerPaymentRecords}
           setWorkerPaymentRecords={setWorkerPaymentRecords}
@@ -1250,10 +691,19 @@ export function WorkerPaymentsPage({
           workerPayoutVouchers={workerPayoutVouchers}
           setWorkerPayoutVouchers={setWorkerPayoutVouchers}
           bankTransactions={bankTransactions}
-          setBankTransactions={setBankTransactions}
           bankTransactionFolders={bankTransactionFolders}
+          setBankTransactions={setBankTransactions}
+          setWorkers={setWorkers}
+          onPersistWorkersImmediate={onPersistWorkersImmediate}
+          onPersistWorkerMonthlyMemoImmediate={onPersistWorkerMonthlyMemoImmediate}
+          onPersistWorkerMonthlyLinksImmediate={onPersistWorkerMonthlyLinksImmediate}
+          onPersistBankTransactionMemoUpdates={onPersistBankTransactionMemoUpdates}
+          onRequestImmediateSave={onRequestImmediateSave}
           selectedMonthKey={selectedMonthKey}
           setSelectedMonthKey={setSelectedMonthKey}
+          focusWorker={monthlyActualFocus?.worker}
+          focusVoucherId={monthlyActualFocus?.voucherId || null}
+          onFocusConsumed={() => setMonthlyActualFocus(null)}
           currentUser={currentUser}
         />
       )}
@@ -1271,114 +721,61 @@ export function WorkerPaymentsPage({
       )}
 
       {activeTab === "statement" && (
-        <>
-          {!statementSheetGenerated ? (
-            <Card className="rounded-2xl border-dashed shadow-sm">
-              <CardContent className="p-10 text-center erp-text-body text-slate-500">
-                시공자와 기간을 선택한 뒤 <b className="text-slate-700">내역서 생성</b>을 누르면 시공내역서가 표시됩니다.
-              </CardContent>
-            </Card>
-          ) : (
-            <>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <SummaryCard title="지급합계" value={formatKRW(workerStatementSummary.grossPay)} sub="시공비+부대비용" icon={WalletCards} />
-            <SummaryCard title="수수료" value={formatKRW(workerStatementSummary.fee)} sub={`${Math.round((selectedWorkerInfo.feeRate || 0) * 100)}% 차감`} tone="danger" icon={CreditCard} />
-            <SummaryCard title="실수령" value={formatKRW(workerStatementSummary.netPay)} sub="합계 - 수수료" tone="success" icon={CheckCircle2} />
-          </div>
-
-          <Card className="rounded-2xl shadow-sm">
-            <CardContent className="p-4 md:p-5">
-              <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <h2 className="erp-text-section font-black">시공내역서(개인)</h2>
-                  <p className="mt-1 erp-text-body text-slate-500">엑셀 시공내역서 양식과 동일한 표로 미리보기 · PDF 생성</p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button className="rounded-2xl" onClick={generateWorkerPdf} disabled={pdfGenerating || !statementWorker || !statementRows.length}>
-                    <FileText size={16} className="mr-2" />
-                    {pdfGenerating ? "PDF 생성 중..." : "PDF 생성"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="erp-statement-share-link-btn rounded-2xl"
-                    disabled={pdfGenerating || !statementWorker || !statementRows.length || !statementSheetGenerated}
-                    onClick={() => void shareWorkerStatementDownloadLink()}
-                  >
-                    <Link2 size={16} className="mr-2" />
-                    {pdfGenerating ? "..." : "링크보내기"}
-                  </Button>
-                </div>
-              </div>
-
-              {pdfMessage && <p className="mb-3 text-sm text-slate-600">{pdfMessage}</p>}
-              {statementShareLink && (
-                <div className="erp-statement-share-link-row mb-3">
-                  <a
-                    href={statementShareLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="erp-statement-share-link-url"
-                  >
-                    {statementShareLink}
-                  </a>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="rounded-lg"
-                    onClick={() => void handleCopyStatementShareLink()}
-                  >
-                    <Copy size={14} className="mr-1" />
-                    링크 복사
-                  </Button>
-                </div>
-              )}
-
-              <TableExportSection
-                fileName={`시공내역서_시공자_${statementWorker || "미선택"}`}
-                title="시공자 시공내역서"
-                hidePdf
-                exportRootSelector="[data-pdf-export-root]"
-                tableSelector=".excel-data-table"
-                disabled={!statementWorker || !statementRows.length}
-              >
-              <div className="erp-statement-preview-wrap">
-                <StatementA4Preview
-                  layoutVersion={`w:${statementDisplayRows.length}:${statementDisplayRows.map((row) => row.id).join(",")}`}
-                >
-                  <WorkerStatementSheet
-                    ref={workerPrintRef}
-                    workerName={statementWorker || "시공자"}
-                    workerInfo={selectedWorkerInfo}
-                    periodStart={workerStatementPeriodStart}
-                    periodEnd={workerStatementPeriodEnd}
-                    summary={workerStatementSummary}
-                    rows={statementDisplayRows}
-                    totals={workerPrintTotals}
-                    emptyMessage="선택 기간에 해당 시공자 내역이 없습니다."
-                  />
-                </StatementA4Preview>
-              </div>
-              </TableExportSection>
-            </CardContent>
-          </Card>
-            </>
-          )}
-        </>
+        <WorkerStatementTab
+          allDetailRows={allDetailRows}
+          workers={workers}
+          monthKey={selectedMonthKey}
+          setMonthKey={setSelectedMonthKey}
+        />
       )}
 
-      <Card className="rounded-2xl shadow-sm">
-        <CardContent className="p-4 md:p-5">
-          <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
-            <h2 className="erp-text-section">시공자별 실지급</h2>
-            <span className="erp-text-caption text-slate-500">
-              {chartPeriodLabel} · 실지급 합계 {formatKRW(chartNetPayTotal)} · {chartLineCountTotal}건 · 상위 30명
-            </span>
-          </div>
-          <WorkerNetPayRankingChart rows={chartSummaryRows} emptyLabel={`${chartPeriodLabel} 실지급 내역이 없습니다.`} />
-        </CardContent>
-      </Card>
+      {activeTab === "monthly" ? (
+        <>
+          <Card className="rounded-2xl shadow-sm">
+            <CardContent className="p-4 md:p-5">
+              <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                <h2 className="erp-text-section">시공자별 매출 실지급</h2>
+                <span className="erp-text-caption text-slate-500">
+                  {chartPeriodLabel} · 매출 기간 실지급 · 합계 {formatKRW(monthlySalesChartNetPayTotal)} · {monthlySalesChartLineCountTotal}건 · 상위 30명
+                </span>
+              </div>
+              <WorkerNetPayRankingChart
+                rows={monthlySalesChartSummaryRows}
+                emptyLabel={`${chartPeriodLabel} 매출 실지급 내역이 없습니다.`}
+              />
+            </CardContent>
+          </Card>
+          <Card className="rounded-2xl shadow-sm">
+            <CardContent className="p-4 md:p-5">
+              <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                <h2 className="erp-text-section">시공자별 월별 지급 실지급</h2>
+                <span className="erp-text-caption text-slate-500">
+                  {chartPeriodLabel} · 월별 지급 예정(실지급) · 합계 {formatKRW(chartNetPayTotal)} · {chartLineCountTotal}건 · 상위 30명
+                </span>
+              </div>
+              <WorkerNetPayRankingChart
+                rows={monthlyChartSummaryRows}
+                emptyLabel={`${chartPeriodLabel} 월별 지급 내역이 없습니다.`}
+              />
+            </CardContent>
+          </Card>
+        </>
+      ) : (
+        <Card className="rounded-2xl shadow-sm">
+          <CardContent className="p-4 md:p-5">
+            <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+              <h2 className="erp-text-section">시공자별 실지급</h2>
+              <span className="erp-text-caption text-slate-500">
+                {chartPeriodLabel} · {chartDataSourceLabel} · 합계 {formatKRW(chartNetPayTotal)} · {chartLineCountTotal}건 · 상위 30명
+              </span>
+            </div>
+            <WorkerNetPayRankingChart
+              rows={chartSummaryRows}
+              emptyLabel={`${chartPeriodLabel} 실지급 내역이 없습니다.`}
+            />
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

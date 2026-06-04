@@ -1,4 +1,16 @@
 import type { ErpUser } from "./erpApi";
+import {
+  canAccessBasicInfoHub,
+  isLegacyBasicInfoPageKey,
+  migrateAllowedPageKeys as migrateBasicInfoAllowedPageKeys,
+  resolveBasicInfoTabAccess,
+} from "./basicInfoHub";
+import {
+  canAccessUserAdminHub,
+  isLegacyUserAdminPageKey,
+  migrateAllowedPageKeys as migrateUserAdminAllowedPageKeys,
+  resolveUserAdminTabAccess,
+} from "./userAdminHub";
 
 export const ERP_PAGE_KEYS = [
   "dashboard",
@@ -11,6 +23,7 @@ export const ERP_PAGE_KEYS = [
   "reports",
   "statements",
   "pdfArchive",
+  "basicInfo",
   "clients",
   "workers",
   "accounting",
@@ -41,15 +54,10 @@ export const ERP_PAGE_DEFS: ErpPageDef[] = [
   { key: "workerPayments", label: "시공자 지급", group: "시공" },
   { key: "reports", label: "보고서", group: "보고" },
   { key: "statements", label: "내역서", group: "보고" },
-  { key: "pdfArchive", label: "PDF 보관함", group: "보고" },
-  { key: "clients", label: "거래처", group: "기준정보" },
-  { key: "workers", label: "시공자", group: "기준정보" },
+  { key: "basicInfo", label: "기본정보", group: "기준정보" },
   { key: "accounting", label: "회계·통장", group: "회계" },
   { key: "companyNotices", label: "회사게시판", group: "게시" },
-  { key: "companyProfile", label: "회사정보", group: "설정" },
-  { key: "auditLog", label: "감사로그", group: "설정", adminOnly: true },
   { key: "usersAdmin", label: "사용자 관리", group: "관리", adminOnly: true },
-  { key: "loginHistory", label: "로그인 이력", group: "관리", adminOnly: true },
   { key: "attendance", label: "근태 관리", group: "업무" },
 ];
 
@@ -66,10 +74,8 @@ export const DEFAULT_STAFF_PAGE_KEYS: ErpPageKey[] = [
   "workerPayments",
   "reports",
   "statements",
-  "pdfArchive",
   "companyNotices",
-  "clients",
-  "workers",
+  "basicInfo",
   "attendance",
 ];
 
@@ -78,18 +84,35 @@ export function isErpPageKey(value: string): value is ErpPageKey {
 }
 
 const LEGACY_ACCOUNTING_PAGE_KEYS = ["companyLedger", "taxInvoices", "bankTransactions"] as const;
+const LEGACY_STATEMENT_PAGE_KEYS = ["pdfArchive"] as const;
 
 export function normalizeAllowedPages(pages: unknown): ErpPageKey[] | null {
   if (!Array.isArray(pages)) return null;
-  const legacySet = new Set<string>(LEGACY_ACCOUNTING_PAGE_KEYS);
-  let hasLegacy = false;
+  const legacyAccountingSet = new Set<string>(LEGACY_ACCOUNTING_PAGE_KEYS);
+  const legacyStatementSet = new Set<string>(LEGACY_STATEMENT_PAGE_KEYS);
+  let hasLegacyAccounting = false;
+  let hasLegacyStatement = false;
+  let hasLegacyBasicInfo = false;
+  let hasLegacyUserAdmin = false;
   const unique: ErpPageKey[] = [];
   const seen = new Set<string>();
 
   for (const page of pages) {
     if (typeof page !== "string") continue;
-    if (legacySet.has(page)) {
-      hasLegacy = true;
+    if (legacyAccountingSet.has(page)) {
+      hasLegacyAccounting = true;
+      continue;
+    }
+    if (legacyStatementSet.has(page)) {
+      hasLegacyStatement = true;
+      continue;
+    }
+    if (isLegacyBasicInfoPageKey(page)) {
+      hasLegacyBasicInfo = true;
+      continue;
+    }
+    if (isLegacyUserAdminPageKey(page)) {
+      hasLegacyUserAdmin = true;
       continue;
     }
     if (!isErpPageKey(page) || seen.has(page)) continue;
@@ -97,14 +120,23 @@ export function normalizeAllowedPages(pages: unknown): ErpPageKey[] | null {
     unique.push(page);
   }
 
-  if (!unique.length && !hasLegacy) return null;
-  if (hasLegacy && !unique.includes("accounting")) unique.push("accounting");
-  return unique.length ? unique : ["accounting"];
+  if (!unique.length && !hasLegacyAccounting && !hasLegacyStatement && !hasLegacyBasicInfo && !hasLegacyUserAdmin) return null;
+  if (hasLegacyAccounting && !unique.includes("accounting")) unique.push("accounting");
+  if (hasLegacyStatement && !unique.includes("statements")) unique.push("statements");
+  if (hasLegacyBasicInfo && !unique.includes("basicInfo")) unique.push("basicInfo");
+  if (hasLegacyUserAdmin && !unique.includes("usersAdmin")) unique.push("usersAdmin");
+  if (!unique.length) {
+    if (hasLegacyAccounting) return ["accounting"];
+    if (hasLegacyStatement) return ["statements"];
+    if (hasLegacyBasicInfo) return ["basicInfo"];
+    if (hasLegacyUserAdmin) return ["usersAdmin"];
+  }
+  return unique.length ? unique : null;
 }
 
 export function resolveUserAllowedPages(user: Pick<ErpUser, "role" | "allowedPages"> | null | undefined): ErpPageKey[] {
   if (!user) return [];
-  if (user.role === "admin") return [...ERP_PAGE_KEYS];
+  if (user.role === "admin") return migrateUserAdminAllowedPageKeys(migrateBasicInfoAllowedPageKeys([...ERP_PAGE_KEYS]));
 
   const custom = normalizeAllowedPages(user.allowedPages);
   if (custom?.length) return custom;
@@ -116,6 +148,13 @@ export function canUserAccessPage(
   user: Pick<ErpUser, "role" | "allowedPages"> | null | undefined,
   pageKey: string,
 ): boolean {
+  if (pageKey === "basicInfo") return canAccessBasicInfoHub(user);
+  if (pageKey === "clients") return resolveBasicInfoTabAccess(user).clients;
+  if (pageKey === "workers") return resolveBasicInfoTabAccess(user).workers;
+  if (pageKey === "companyProfile") return resolveBasicInfoTabAccess(user).company;
+  if (pageKey === "usersAdmin") return canAccessUserAdminHub(user);
+  if (pageKey === "auditLog") return resolveUserAdminTabAccess(user).audit;
+  if (pageKey === "loginHistory") return resolveUserAdminTabAccess(user).login;
   if (!isErpPageKey(pageKey)) return false;
   return resolveUserAllowedPages(user).includes(pageKey);
 }

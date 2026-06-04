@@ -2,6 +2,7 @@ import React, { memo, useLayoutEffect, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   BankTransactionCompactRow,
+  type BankTransactionCompactRowLabels,
   type BankTransactionCompactRowModel,
 } from "@/components/BankTransactionCompactRow";
 
@@ -29,6 +30,7 @@ type BankTransactionVirtualGridProps = {
   rowIds: string[];
   rowModels: Map<string, BankTransactionCompactRowModel>;
   labels: BankTransactionVirtualGridLabels;
+  badgeLabels: BankTransactionCompactRowLabels;
   selectedTxId: string | null;
   onSelect: (id: string) => void;
 };
@@ -37,6 +39,7 @@ function BankTransactionVirtualGridComponent({
   rowIds,
   rowModels,
   labels,
+  badgeLabels,
   selectedTxId,
   onSelect,
 }: BankTransactionVirtualGridProps) {
@@ -100,6 +103,7 @@ function BankTransactionVirtualGridComponent({
             >
               <BankTransactionCompactRow
                 {...model}
+                labels={badgeLabels}
                 isSelected={selectedTxId === id}
                 onSelect={(nextId) => onSelectRef.current(nextId)}
               />

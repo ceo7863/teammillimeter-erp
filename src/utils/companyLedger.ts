@@ -14,6 +14,9 @@ export type CompanyExpense = {
   id: string;
   date: string;
   category: string;
+  /** 회계·관리용 계정 내용 */
+  accountContent?: string;
+  /** 통장 거래내역·적요 (통장기록) */
   description: string;
   amount: number;
   memo?: string;
@@ -42,6 +45,7 @@ export type FixedExpensePayment = {
   date: string;
   amount: number;
   category?: string;
+  accountContent?: string;
   memo?: string;
   bankTransactionId?: string;
   createdBy?: string;
@@ -125,19 +129,37 @@ const EXPENSE_CATEGORY_ALIASES: Record<string, string> = {
   "\uC2DD\uBE44": MEAL_EXPENSE_CATEGORY_CANONICAL,
   "\uC811\uB300": MEAL_EXPENSE_CATEGORY_CANONICAL,
   "\uC811\uB300/\uC2DD\uB300": MEAL_EXPENSE_CATEGORY_CANONICAL,
+  "\uB300\uD45C\uC774\uC0AC \uAC00\uC9C0\uAE09": CEO_ADVANCE_CATEGORY,
+  "\uAC00\uC9C0\uAE09\uAE08": CEO_ADVANCE_CATEGORY,
+  "\uAC00\uC218\uAE08": CEO_RECEIVABLE_CATEGORY,
 };
 
-export function isCeoDedicatedLedgerCategory(category: string) {
+export function resolveCeoLedgerCategoryKind(category: string): "advance" | "receivable" | null {
   const raw = String(category || "").trim();
-  if (!raw) return false;
-  if (raw === CEO_RECEIVABLE_CATEGORY) return true;
-  return normalizeExpenseCategoryName(raw) === CEO_ADVANCE_CATEGORY;
+  if (!raw) return null;
+  if (raw === CEO_RECEIVABLE_CATEGORY || /^대표이사\s*가수금/u.test(raw)) return "receivable";
+  const normalized = normalizeExpenseCategoryName(raw);
+  if (normalized === CEO_RECEIVABLE_CATEGORY) return "receivable";
+  if (normalized === CEO_ADVANCE_CATEGORY || /^대표이사\s*가지급/u.test(raw)) return "advance";
+  return null;
+}
+
+export function isCeoDedicatedLedgerCategory(category: string) {
+  return resolveCeoLedgerCategoryKind(category) !== null;
+}
+
+export function shouldIncludeExpenseInMainLedger(expense: Pick<CompanyExpense, "category">) {
+  return !isCeoDedicatedLedgerCategory(expense.category);
+}
+
+export function filterMainLedgerExpenses(expenses: CompanyExpense[] = []) {
+  return expenses.filter(shouldIncludeExpenseInMainLedger);
 }
 
 export function matchesCeoLedgerTabCategory(category: string, tabCategory: string) {
-  const raw = String(category || "").trim();
-  if (tabCategory === CEO_RECEIVABLE_CATEGORY) return raw === CEO_RECEIVABLE_CATEGORY;
-  return normalizeExpenseCategoryName(raw) === tabCategory;
+  const kind = resolveCeoLedgerCategoryKind(category);
+  if (tabCategory === CEO_RECEIVABLE_CATEGORY) return kind === "receivable";
+  return kind === "advance";
 }
 
 export function filterCompanyExpensesByCategory(
@@ -200,11 +222,20 @@ export function normalizeExpenseCategories(
   const seen = new Set<string>();
   const result: string[] = [];
 
-  for (const raw of [...EXPENSE_CATEGORY_OPTIONS, ...extras, ...fromExpenses]) {
+  for (const raw of [...extras, ...fromExpenses]) {
     const category = normalizeExpenseCategoryName(raw);
     if (!category || seen.has(category)) continue;
     seen.add(category);
     result.push(category);
+  }
+
+  if (!result.length) {
+    for (const raw of EXPENSE_CATEGORY_OPTIONS) {
+      const category = normalizeExpenseCategoryName(raw);
+      if (!category || seen.has(category)) continue;
+      seen.add(category);
+      result.push(category);
+    }
   }
 
   return result;
@@ -293,13 +324,19 @@ export function getMonthKey(dateStr: string) {
   return match ? match[1] : "";
 }
 
-export function monthRangeISO(offset = 0) {
-  const now = new Date();
-  const date = new Date(now.getFullYear(), now.getMonth() + offset, 1);
-  const startDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-01`;
-  const endDateObj = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-  const endDate = `${endDateObj.getFullYear()}-${String(endDateObj.getMonth() + 1).padStart(2, "0")}-${String(endDateObj.getDate()).padStart(2, "0")}`;
+export function monthRangeForKey(monthKey: string) {
+  const startDate = `${monthKey}-01`;
+  const match = /^(\d{4})-(\d{2})$/.exec(monthKey);
+  if (!match) return { startDate, endDate: startDate };
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const lastDay = new Date(year, month, 0).getDate();
+  const endDate = `${monthKey}-${String(lastDay).padStart(2, "0")}`;
   return { startDate, endDate };
+}
+
+export function monthRangeISO(offset = 0) {
+  return monthRangeForKey(shiftMonthKey(todayISO().slice(0, 7), offset));
 }
 
 export function quarterRangeISO(quarter: 1 | 2 | 3 | 4, year = new Date().getFullYear()) {
@@ -384,12 +421,57 @@ export function formatFixedExpensePaymentDay(day?: number): string {
   return `\uB9E4\uC6D4 ${normalizeFixedExpensePaymentDay(day)}\uC77C`;
 }
 
+/** Month picker / legacy date -> YYYY-MM-01 */
+export function normalizeFixedExpenseStartDate(value?: string) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const monthMatch = /^(\d{4})-(\d{2})$/.exec(raw);
+  if (monthMatch) return `${monthMatch[1]}-${monthMatch[2]}-01`;
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (dateMatch) return `${dateMatch[1]}-${dateMatch[2]}-01`;
+  return "";
+}
+
+export function fixedExpenseStartMonthInputValue(startDate?: string) {
+  const normalized = normalizeFixedExpenseStartDate(startDate);
+  return normalized ? normalized.slice(0, 7) : "";
+}
+
+export function formatFixedExpenseStartMonthLabel(startDate?: string) {
+  const normalized = normalizeFixedExpenseStartDate(startDate);
+  if (!normalized) return "-";
+  return formatMonthLabel(normalized.slice(0, 7));
+}
+
+export function currentFixedExpenseStartMonthISO() {
+  return `${todayISO().slice(0, 7)}-01`;
+}
+
 export function isFixedActiveInMonth(expense: FixedExpense, monthKey: string) {
   if (!expense.isActive) return false;
   if (!monthKey) return true;
   const startKey = getMonthKey(expense.startDate || "");
   if (startKey && startKey > monthKey) return false;
   return true;
+}
+
+export function isFixedExpensePaymentInActivePeriod(
+  payment: FixedExpensePayment,
+  expense?: FixedExpense | null,
+) {
+  if (!expense) return true;
+  return isFixedActiveInMonth(expense, getMonthKey(payment.date));
+}
+
+/** List/history: keep bank-settled rows; hide only pre-start placeholders. */
+export function shouldDisplayFixedExpensePaymentInLedger(
+  payment: FixedExpensePayment,
+  expense: FixedExpense | null | undefined,
+  bankTransactions: BankTransaction[] = [],
+) {
+  if (!expense) return true;
+  if (isFixedExpensePaymentBankLinked(payment, bankTransactions)) return true;
+  return isFixedExpensePaymentInActivePeriod(payment, expense);
 }
 
 export function filterCompanyExpenses(
@@ -412,9 +494,11 @@ export function sumCompanyExpenses(expenses: CompanyExpense[] = []) {
 export function sumCompanyExpensesByFlow(
   expenses: CompanyExpense[] = [],
   flow: CompanyLedgerFlow = "expense",
+  options: { excludeCeoDedicated?: boolean } = {},
 ) {
   return expenses
     .filter((row) => resolveCompanyExpenseFlow(row) === flow)
+    .filter((row) => !options.excludeCeoDedicated || shouldIncludeExpenseInMainLedger(row))
     .reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
 }
 
@@ -439,7 +523,8 @@ export function sumExpensesForMonthByKind(
       (row) =>
         getMonthKey(row.date) === monthKey &&
         resolveCompanyExpenseKind(row) === kind &&
-        resolveCompanyExpenseFlow(row) === "expense",
+        resolveCompanyExpenseFlow(row) === "expense" &&
+        shouldIncludeExpenseInMainLedger(row),
     )
     .reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
   if (kind !== "fixed") return expenseTotal;
@@ -472,7 +557,9 @@ export function buildMonthlyLedgerRows(
 ): MonthlyLedgerRow[] {
   const monthKeys = collectLedgerMonthKeys(companyExpenses, fixedExpensePayments);
   return monthKeys.map((monthKey) => {
-    const manualRows = companyExpenses.filter((row) => getMonthKey(row.date) === monthKey);
+    const manualRows = companyExpenses.filter(
+      (row) => getMonthKey(row.date) === monthKey && shouldIncludeExpenseInMainLedger(row),
+    );
     const paymentRows = fixedExpensePayments.filter((row) => getMonthKey(row.date) === monthKey);
     const manualTotal = sumCompanyExpenses(
       manualRows.filter(
@@ -548,6 +635,16 @@ export function resolveFixedPaymentCategory(
   return String(category || "").trim() || "\uAE30\uD0C0";
 }
 
+export function resolveFixedPaymentAccountContent(
+  payment: FixedExpensePayment,
+  fixedExpenses: FixedExpense[] = [],
+) {
+  const override = String(payment.accountContent || "").trim();
+  if (override) return override;
+  const item = fixedExpenses.find((row) => row.id === payment.fixedExpenseId);
+  return String(item?.name || "").trim();
+}
+
 export function buildLedgerCategoryStats(
   companyExpenses: CompanyExpense[] = [],
   fixedExpensePayments: FixedExpensePayment[] = [],
@@ -577,6 +674,7 @@ export function buildLedgerCategoryStats(
 
   for (const row of rangedExpenses) {
     if (resolveCompanyExpenseFlow(row) === "income") continue;
+    if (!shouldIncludeExpenseInMainLedger(row)) continue;
     const key = touch(row.category);
     const entry = bucket.get(key)!;
     const amount = Number(row.amount) || 0;
@@ -639,11 +737,15 @@ export function buildMonthlyLedgerDetail(
   companyExpenses: CompanyExpense[] = [],
   monthKey: string,
   fixedExpensePayments: FixedExpensePayment[] = [],
+  fixedExpenses: FixedExpense[] = [],
 ): MonthlyLedgerDetail {
   const manualExpenses = companyExpenses
-    .filter((row) => getMonthKey(row.date) === monthKey)
+    .filter((row) => getMonthKey(row.date) === monthKey && shouldIncludeExpenseInMainLedger(row))
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  const fixedPayments = getFixedExpensePaymentsForMonth(fixedExpensePayments, monthKey);
+  const fixedPayments = getFixedExpensePaymentsForMonth(fixedExpensePayments, monthKey).filter((row) => {
+    const expense = fixedExpenses.find((item) => item.id === row.fixedExpenseId);
+    return isFixedExpensePaymentInActivePeriod(row, expense);
+  });
   const manualTotal = sumCompanyExpenses(
     manualExpenses.filter(
       (row) => resolveCompanyExpenseKind(row) === "variable" && resolveCompanyExpenseFlow(row) === "expense",
@@ -663,15 +765,26 @@ export function buildMonthlyLedgerDetail(
   };
 }
 
+export function getCompanyExpenseAccountContent(expense: Pick<CompanyExpense, "accountContent">) {
+  return String(expense.accountContent || "").trim();
+}
+
+export function getCompanyExpenseBankRecord(expense: Pick<CompanyExpense, "description">) {
+  return String(expense.description || "").trim();
+}
+
 export function validateCompanyExpenseInput(input: {
   date?: string;
   category?: string;
+  accountContent?: string;
   description?: string;
   amount?: unknown;
 }) {
   if (!String(input.date || "").trim()) return "\uC9C0\uCD9C \uC77C\uC790\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
   if (!String(input.category || "").trim()) return "\uCE74\uD14C\uACE0\uB9AC\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.";
-  if (!String(input.description || "").trim()) return "\uB0B4\uC6A9\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
+  if (!getCompanyExpenseAccountContent(input) && !String(input.description || "").trim()) {
+    return "\uACC4\uC815\uB0B4\uC6A9 \uB610\uB294 \uD1B5\uC7A5\uAE30\uB85D\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
+  }
   const amount = parseLedgerAmount(input.amount);
   if (amount <= 0) return "\uAE08\uC561\uC744 0\uBCF4\uB2E4 \uD06C\uAC8C \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
   return "";
@@ -683,12 +796,16 @@ export function validateFixedExpenseInput(input: {
   amount?: unknown;
   cycle?: FixedExpenseCycle;
   paymentDayOfMonth?: unknown;
+  startDate?: string;
 }) {
   if (!String(input.name || "").trim()) return "\uD56D\uBAA9 \uC774\uB984\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
   if (!String(input.category || "").trim()) return "\uCE74\uD14C\uACE0\uB9AC\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.";
   const amount = parseLedgerAmount(input.amount);
   if (amount <= 0) return "\uAE08\uC561\uC744 0\uBCF4\uB2E4 \uD06C\uAC8C \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
   if (!input.cycle) return "\uC8FC\uAE30\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.";
+  if (!normalizeFixedExpenseStartDate(input.startDate)) {
+    return "\uC2DC\uC791 \uC6D4\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.";
+  }
   if (
     input.paymentDayOfMonth !== undefined &&
     input.paymentDayOfMonth !== null &&
@@ -953,8 +1070,12 @@ export function findLinkableFixedExpensePayment(
       !isFixedExpensePaymentBankLinked(row),
   );
 
-  // Reuse the monthly auto-generated placeholder instead of creating a second payment.
-  if (monthRows.length === 1) return monthRows[0];
+  // Reuse the monthly auto-generated placeholder only when the bank amount still matches.
+  if (monthRows.length === 1) {
+    const expense = fixedExpenses.find((row) => row.id === fixedExpenseId);
+    const withdrawal = Number(tx.withdrawal || 0);
+    if (amountMatchesFixedPayment(withdrawal, monthRows[0], expense)) return monthRows[0];
+  }
 
   return null;
 }

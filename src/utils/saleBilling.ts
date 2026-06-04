@@ -110,6 +110,26 @@ export function getWorkerLineOriginalBill(line: WorkerLineLike) {
   return Math.max(bill - extras.total, 0);
 }
 
+/** 시공자 선택 시 청구단가: 시공자 개별청구단가 > 거래처 청구단가(또는 시공비) */
+export function resolveWorkerLineChargeAmount(
+  worker?: { customChargeCost?: number } | null,
+  client?: { customChargeCost?: number; constructionCost?: number; chargeCost?: number } | null,
+): string {
+  const workerCharge = parseWorkerMoney(worker?.customChargeCost);
+  if (workerCharge > 0) return String(workerCharge);
+  const clientCharge = parseWorkerMoney(
+    client?.customChargeCost ?? client?.chargeCost ?? client?.constructionCost,
+  );
+  if (clientCharge > 0) return String(clientCharge);
+  return "";
+}
+
+/** 시공자 선택 시 지급단가(시공비) */
+export function resolveWorkerLineUnitCost(worker?: { constructionCost?: number } | null): string {
+  const unitCost = parseWorkerMoney(worker?.constructionCost);
+  return unitCost > 0 ? String(unitCost) : "";
+}
+
 export function getWorkerLineChargeAmount(line: WorkerLineLike) {
   if (hasExplicitWorkerField(line.chargeAmount)) {
     return parseWorkerMoney(line.chargeAmount);
@@ -128,7 +148,7 @@ export function getWorkerLineChargeAmount(line: WorkerLineLike) {
 }
 
 export function getSaleWorkerLines(sale: SaleBillingLike): WorkerLineLike[] {
-  if (sale.workers?.length) {
+  if (Array.isArray(sale.workers) && sale.workers.length) {
     return sale.workers.filter((line) => String(line.worker || "").trim());
   }
 
