@@ -30,6 +30,19 @@ function getMonthEndISO(monthKey: string) {
   return `${monthKey}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+const PORTAL_MONTH_MIN = "2020-01";
+
+function isValidMonthKey(value: string) {
+  return /^\d{4}-\d{2}$/.test(value);
+}
+
+function resolvePortalMonthKey(preferred: string, monthsWithData: string[]) {
+  const current = currentStatementMonthKey();
+  if (isValidMonthKey(preferred) && preferred <= current) return preferred;
+  if (monthsWithData.includes(current)) return current;
+  return monthsWithData[0] || current;
+}
+
 function buildStatementTotals(rows: WorkerPaymentDetailRow[]) {
   return rows.reduce(
     (acc, row) => {
@@ -68,11 +81,7 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
       const result = await fetchWorkerPortalMonths();
       const list = result.months || [];
       setMonths(list);
-      setMonthKey((prev) => {
-        const current = currentStatementMonthKey();
-        if (!prev || !/^\d{4}-\d{2}$/.test(prev)) return current;
-        return prev;
-      });
+      setMonthKey((prev) => resolvePortalMonthKey(prev, list));
     } catch (err) {
       setError(err instanceof Error ? err.message : "\uB0B4\uC5ED\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
     } finally {
@@ -124,8 +133,11 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
     onLogout();
   };
 
-  const canShiftPrev = months.length === 0 || months.includes(shiftMonthKey(monthKey, -1));
-  const canShiftNext = months.length === 0 || months.includes(shiftMonthKey(monthKey, 1));
+  const currentMonth = currentStatementMonthKey();
+  const canShiftPrev =
+    isValidMonthKey(monthKey) && shiftMonthKey(monthKey, -1) >= PORTAL_MONTH_MIN;
+  const canShiftNext =
+    isValidMonthKey(monthKey) && shiftMonthKey(monthKey, 1) <= currentMonth;
 
   return (
     <div className="erp-login-page erp-worker-portal-page min-h-screen p-4 text-white sm:p-6" lang="ko">

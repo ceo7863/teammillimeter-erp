@@ -48,18 +48,30 @@ export function WorkerPortalStatementScaler({ children }: WorkerPortalStatementS
 
   const marginBottom = layout.scale < 1 ? layout.sheetHeight * (layout.scale - 1) : undefined;
 
+  const scaledWidth = layout.scale < 1 ? SHEET_WIDTH_PX * layout.scale : SHEET_WIDTH_PX;
+  const scaledHeight = layout.scale < 1 ? layout.sheetHeight * layout.scale : layout.sheetHeight;
+
   return (
     <div ref={viewportRef} className="erp-worker-portal-statement-viewport">
       <div
         className="erp-worker-portal-statement-scaler"
         style={{
-          width: SHEET_WIDTH_PX,
-          transform: layout.scale < 1 ? `scale(${layout.scale})` : undefined,
-          transformOrigin: "top center",
-          marginBottom,
+          width: scaledWidth,
+          height: layout.scale < 1 ? scaledHeight : undefined,
+          marginBottom: layout.scale < 1 ? undefined : marginBottom,
         }}
       >
-        <div ref={sheetRef}>{children}</div>
+        <div
+          ref={sheetRef}
+          className="erp-worker-portal-statement-scaler__sheet"
+          style={{
+            width: SHEET_WIDTH_PX,
+            transform: layout.scale < 1 ? `scale(${layout.scale})` : undefined,
+            transformOrigin: "top center",
+          }}
+        >
+          {children}
+        </div>
       </div>
     </div>
   );

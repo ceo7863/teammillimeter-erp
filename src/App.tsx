@@ -2651,7 +2651,8 @@ function LoginScreen({ onLogin }) {
               ) : null}
               {error && <div className="erp-text-body rounded-2xl bg-red-50 px-4 py-3 font-semibold text-red-600">{error}</div>}
               <Button
-                className="erp-login-submit erp-text-body w-full rounded-2xl py-5 font-bold md:py-6"
+                type="button"
+                className="erp-login-submit erp-text-body w-full rounded-2xl py-5 font-bold md:py-6 touch-manipulation"
                 onClick={
                   loginTab === "erp"
                     ? submitLogin

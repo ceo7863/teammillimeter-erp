@@ -10577,7 +10577,8 @@ body.erp-col-resizing * {
 
 .erp-login-page {
   position: relative;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   background:
     radial-gradient(circle at 12% 18%, rgba(56, 189, 248, 0.14), transparent 34%),
     radial-gradient(circle at 88% 12%, rgba(148, 163, 184, 0.12), transparent 28%),
@@ -11528,10 +11529,14 @@ button:disabled,
 }
 
 .erp-worker-portal-card-head {
+  position: relative;
+  z-index: 3;
   flex-shrink: 0;
 }
 
 .erp-worker-portal-month-nav {
+  position: relative;
+  z-index: 3;
   flex-shrink: 0;
 }
 
@@ -11545,6 +11550,12 @@ button:disabled,
 
 .erp-worker-portal-statement-scaler {
   flex-shrink: 0;
+  margin-inline: auto;
+  pointer-events: none;
+}
+
+.erp-worker-portal-statement-scaler__sheet {
+  pointer-events: auto;
 }
 
 @media (max-width: 767px) {
