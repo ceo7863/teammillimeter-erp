@@ -350,6 +350,48 @@ export function buildManualLinkedSaleIdSet(
   return collectLinkedSaleIdsFromVouchers(paymentVouchers, manualTxIds, sales);
 }
 
+export type CalendarEntryPaymentState = {
+  unpaid: number;
+  paid: number;
+  hasUnpaid: boolean;
+  isPartialPaid: boolean;
+};
+
+/** Calendar stripe/badge: honor bank auto/manual links, not only sale.paid fields. */
+export function resolveCalendarEntryPaymentState(
+  sale: {
+    id?: number | string;
+    amount?: number;
+    salesAmount?: number;
+    paid?: number;
+    paidAmount?: number;
+  },
+  options: {
+    autoLinkedSaleIds?: Set<string>;
+    manualLinkedSaleIds?: Set<string>;
+  } = {},
+): CalendarEntryPaymentState {
+  const unpaid = getUnpaid(sale);
+  const amount = Number(sale.amount ?? sale.salesAmount ?? 0) || 0;
+  const explicitPaid = Number(sale.paid ?? sale.paidAmount ?? NaN);
+  const paid =
+    Number.isFinite(explicitPaid) && explicitPaid >= 0 ? explicitPaid : Math.max(0, amount - unpaid);
+
+  const autoLinked = isSaleAutoLinkedPaid(sale.id, options.autoLinkedSaleIds ?? new Set());
+  const manualLinked = isSaleManualLinkedPaid(sale.id, options.manualLinkedSaleIds ?? new Set());
+
+  if (autoLinked || manualLinked) {
+    if (unpaid > 0 && paid > 0) {
+      return { unpaid, paid, hasUnpaid: false, isPartialPaid: true };
+    }
+    return { unpaid: 0, paid: Math.max(paid, amount), hasUnpaid: false, isPartialPaid: false };
+  }
+
+  const hasUnpaid = unpaid > 0 && paid <= 0;
+  const isPartialPaid = unpaid > 0 && paid > 0;
+  return { unpaid, paid, hasUnpaid, isPartialPaid };
+}
+
 export function isSaleAutoLinkedPaid(
   saleId: number | string | undefined | null,
   autoLinkedSaleIds: Set<string>

@@ -131,6 +131,7 @@ import { DesktopTableWrap, MobileRecordCard, MobileRecordList } from "@/componen
 import { AutocompleteInput, AutocompleteSelect, BufferedTextInput } from "@/components/AutocompleteInput";
 import { focusKoreanTextInput, prepareKoreanTextInput } from "@/utils/koreanIme";
 import { buildReceivableRowsFromSales, getStatus, getUnpaid, parseMoney, formatMoneyInput, sanitizeMoneyInput } from "@/utils/receivables";
+import { resolveCalendarEntryPaymentState } from "@/utils/bankReceivableMatch";
 import {
   getSaleStaffCount,
   getSaleTotalBill,
@@ -1171,14 +1172,6 @@ function getCalendarEntryBorderStyle(entry) {
   return { borderLeftColor: getCalendarPaymentBorderColor(entry) };
 }
 
-function getCalendarEntryPaymentState(sale) {
-  const unpaid = getUnpaid(sale);
-  const paid = Number(sale.paid ?? sale.paidAmount ?? 0) || 0;
-  const hasUnpaid = unpaid > 0 && paid <= 0;
-  const isPartialPaid = unpaid > 0 && paid > 0;
-  return { unpaid, paid, hasUnpaid, isPartialPaid };
-}
-
 function normalizeCalendarClientName(client) {
   return String(client || "").trim() || "(미지정)";
 }
@@ -1257,7 +1250,7 @@ function formatCalendarDayLabel(date) {
   return `${Number(monthText)}월 ${Number(dayText)}일 (${weekday})`;
 }
 
-function buildCalendarClientSearchRows(sales, monthKey, feeMap) {
+function buildCalendarClientSearchRows(sales, monthKey, feeMap, paymentLinkSets = {}) {
   const map = new Map();
 
   const ensureRow = (clientName) => {
@@ -1283,8 +1276,7 @@ function buildCalendarClientSearchRows(sales, monthKey, feeMap) {
     const clientName = normalizeClientCalendarName(sale.client);
     const row = ensureRow(clientName);
     const stats = aggregateSaleCalendarStats(sale, feeMap);
-    const unpaid = getUnpaid(sale);
-    const paid = getSalePaidAmount(sale, unpaid);
+    const { unpaid, paid } = resolveCalendarEntryPaymentState(sale, paymentLinkSets);
     row.monthBill += stats.bill;
     row.monthPaid += paid;
     row.monthUnpaid += unpaid;
@@ -1308,7 +1300,7 @@ function getSaleVoucherSortValue(sale) {
   return parseVoucherSequence(getSaleVoucherLabel(sale)) ?? getSaleVoucherLabel(sale);
 }
 
-function buildCalendarDays(monthKey, sales, workers = []) {
+function buildCalendarDays(monthKey, sales, workers = [], paymentLinkSets = {}) {
   const [yearText, monthText] = monthKey.split("-");
   const year = Number(yearText);
   const month = Number(monthText);
@@ -1323,7 +1315,7 @@ function buildCalendarDays(monthKey, sales, workers = []) {
     const key = sale.date;
     if (!acc[key]) acc[key] = { ...EMPTY_CALENDAR_DAY_STATS, entries: [] };
     const dayStats = aggregateSaleCalendarStats(sale, feeMap);
-    const paymentState = getCalendarEntryPaymentState(sale);
+    const paymentState = resolveCalendarEntryPaymentState(sale, paymentLinkSets);
     const { unpaid, paid, hasUnpaid, isPartialPaid } = paymentState;
     if (hasUnpaid) acc[key].hasUnpaid = true;
     if (isPartialPaid) acc[key].hasPartialPaid = true;
@@ -3256,9 +3248,13 @@ function CalendarPage({
   );
   const deferredCalendarSales = useDeferredValue(calendarSales);
   const calendarSalesForGrid = filteredClient ? calendarSales : deferredCalendarSales;
+  const paymentLinkSets = useMemo(
+    () => ({ autoLinkedSaleIds, manualLinkedSaleIds }),
+    [autoLinkedSaleIds, manualLinkedSaleIds],
+  );
   const { cells, monthLabel } = useMemo(
-    () => buildCalendarDays(monthKey, calendarSalesForGrid, workers),
-    [monthKey, calendarSalesForGrid, workers],
+    () => buildCalendarDays(monthKey, calendarSalesForGrid, workers, paymentLinkSets),
+    [monthKey, calendarSalesForGrid, workers, paymentLinkSets],
   );
   const spotlightSummary = useMemo(() => {
     if (!spotlightClient) return null;
@@ -3294,8 +3290,8 @@ function CalendarPage({
   const todayDate = todayISO();
   const feeMap = useMemo(() => buildWorkerFeeMap(workers), [workers]);
   const calendarClientSearchRows = useMemo(
-    () => buildCalendarClientSearchRows(sales, monthKey, feeMap),
-    [sales, monthKey, feeMap],
+    () => buildCalendarClientSearchRows(sales, monthKey, feeMap, paymentLinkSets),
+    [sales, monthKey, feeMap, paymentLinkSets],
   );
 
   const selectedDaySales = useMemo(() => {
@@ -4456,7 +4452,7 @@ function CalendarPage({
                     const stats = aggregateSaleCalendarStats(sale, feeMap);
                     const workerLabel = sale.worker || formatWorkerNameSummary(getSaleWorkerLines(sale)) || "-";
                     const color = getCalendarClientColor(sale.client);
-                    const { unpaid, paid, hasUnpaid, isPartialPaid } = getCalendarEntryPaymentState(sale);
+                    const { unpaid, paid, hasUnpaid, isPartialPaid } = resolveCalendarEntryPaymentState(sale, paymentLinkSets);
                     const paymentLabel = hasUnpaid
                       ? `미수 ${formatKRW(unpaid)}`
                       : isPartialPaid
