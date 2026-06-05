@@ -35,6 +35,11 @@ import { BankTransactionListSection } from "@/components/BankTransactionListSect
 import { TaxInvoiceLinkModal } from "@/components/TaxInvoiceLinkModal";
 import type { TaxInvoice } from "@/utils/taxInvoices";
 import {
+  buildBankTxTaxInvoiceLinkPatch,
+  formatTaxInvoiceEvidenceLabel,
+  pickAutoTaxInvoiceMatch,
+} from "@/utils/bankTaxInvoiceLink";
+import {
   buildBankTransactionRowDisplayCache,
   buildBankTransactionsExportTable,
 } from "@/utils/bankTransactionRowDisplay";
@@ -423,6 +428,7 @@ const L = {
   classifiedAmount: "\uBD84\uB958 \uAE08\uC561",
   erpProcess: "ERP \uCC98\uB9AC",
   evidenceFind: "\uC99D\uBE59 \uCC3E\uAE30",
+  evidenceAutoLinked: (label: string) => `\uC99D\uBE59\uC774 \uC790\uB3D9 \uC5F0\uACB0\uB418\uC5C8\uC2B5\uB2C8\uB2E4: ${label}`,
   evidencePlaceholder: "\uC138\uAE08\uACC4\uC0B0\uC11C \uC5F0\uACB0",
   accountSubjectPlaceholder: "\uACC4\uC815 \uC120\uD0DD",
   clientPlaceholder: "\uAC70\uB798\uCC98 \uC120\uD0DD",
@@ -2129,10 +2135,41 @@ export function BankTransactionsPage({
     });
   }, []);
 
-  const openTaxInvoiceModal = useCallback((tx: BankTransaction) => {
-    setTaxInvoiceModal({ tx });
-  }, []);
+  const applyTaxInvoiceLink = useCallback(
+    (tx: BankTransaction, invoiceId: string | undefined) => {
+      const invoice = invoiceId ? taxInvoices.find((row) => row.id === invoiceId) : undefined;
+      const nextRow = buildBankTxTaxInvoiceLinkPatch(tx, invoice);
+      auditBankTxUpdate(tx, nextRow);
+      const nextTransactions = bankTransactions.map((row) => (row.id === tx.id ? nextRow : row));
+      setBankTransactions(nextTransactions);
+      void onRequestImmediateSave?.({ bankTransactions: nextTransactions });
+      return { nextRow, invoice };
+    },
+    [auditBankTxUpdate, bankTransactions, onRequestImmediateSave, setBankTransactions, taxInvoices],
+  );
 
+  const openTaxInvoiceModal = useCallback(
+    (tx: BankTransaction) => {
+      if (!tx.linkedTaxInvoiceId) {
+        const auto = pickAutoTaxInvoiceMatch(tx, taxInvoices);
+        if (auto) {
+          applyTaxInvoiceLink(tx, auto.invoice.id);
+          setImportMessage(L.evidenceAutoLinked(formatTaxInvoiceEvidenceLabel(auto.invoice)));
+          return;
+        }
+      }
+      setTaxInvoiceModal({ tx });
+    },
+    [applyTaxInvoiceLink, taxInvoices],
+  );
+
+  const saveTaxInvoiceLink = (invoiceId: string | undefined) => {
+    if (!taxInvoiceModal) return;
+    const { tx } = taxInvoiceModal;
+    applyTaxInvoiceLink(tx, invoiceId);
+    setTaxInvoiceModal(null);
+    setImportMessage(L.cellSaveDone);
+  };
   const saveAccountContentModal = () => {
     if (!accountContentModal) return;
     const { tx, draft } = accountContentModal;
@@ -2167,24 +2204,6 @@ export function BankTransactionsPage({
     setBankTransactions(nextTransactions);
     setClientModal(null);
     setTxCellModalError("");
-    setImportMessage(L.cellSaveDone);
-    void onRequestImmediateSave?.({ bankTransactions: nextTransactions });
-  };
-
-  const saveTaxInvoiceLink = (invoiceId: string | undefined) => {
-    if (!taxInvoiceModal) return;
-    const { tx } = taxInvoiceModal;
-    const invoice = invoiceId ? taxInvoices.find((row) => row.id === invoiceId) : undefined;
-    const nextRow: BankTransaction = {
-      ...tx,
-      linkedTaxInvoiceId: invoiceId,
-      ledgerClientName: invoice?.client || tx.ledgerClientName,
-      linkedSubject: tx.deposit > 0 && invoice?.client ? invoice.client : tx.linkedSubject,
-    };
-    auditBankTxUpdate(tx, nextRow);
-    const nextTransactions = bankTransactions.map((row) => (row.id === tx.id ? nextRow : row));
-    setBankTransactions(nextTransactions);
-    setTaxInvoiceModal(null);
     setImportMessage(L.cellSaveDone);
     void onRequestImmediateSave?.({ bankTransactions: nextTransactions });
   };
@@ -5301,6 +5320,8 @@ export function BankTransactionsPage({
             ledgerCategories={ledgerCategories}
             accountCodes={accountCodes}
             taxInvoices={taxInvoices}
+            clients={clients}
+            workers={workers}
             paymentVouchers={paymentVouchers}
             labels={listSectionLabels}
             onEditMemo={openMemoModal}

@@ -33,6 +33,8 @@ type BankTransactionListSectionProps = {
   ledgerCategories: LedgerCategory[];
   accountCodes: AccountCode[];
   taxInvoices: TaxInvoice[];
+  clients?: Array<{ name?: string }>;
+  workers?: Array<{ name?: string }>;
   paymentVouchers?: Array<{ bankTransactionId?: string | number; isPartialPayment?: boolean }>;
   labels: BankTransactionListSectionLabels;
   onEditMemo: (row: BankTransaction) => void;
@@ -52,6 +54,8 @@ function BankTransactionListSectionComponent({
   ledgerCategories,
   accountCodes,
   taxInvoices,
+  clients = [],
+  workers = [],
   paymentVouchers = [],
   labels,
   onEditMemo,
@@ -83,6 +87,8 @@ function BankTransactionListSectionComponent({
         fixedExpenses,
         accountCodes,
         taxInvoices,
+        clients,
+        workers,
       ),
     [
       rows,
@@ -98,6 +104,8 @@ function BankTransactionListSectionComponent({
       fixedExpenses,
       accountCodes,
       taxInvoices,
+      clients,
+      workers,
     ],
   );
 
@@ -195,7 +203,17 @@ function BankTransactionListSectionComponent({
 
   return (
     <>
-      {toolbar ? <div className="mb-3 flex flex-wrap gap-2">{toolbar}</div> : null}
+      {toolbar ? <div className="mb-3 flex flex-wrap items-center gap-2">{toolbar}</div> : null}
+      <div className="mb-2 flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-500">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-block h-3 w-3 rounded bg-sky-200" />
+          {"\uAC70\uB798\uCC98"}
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-block h-3 w-3 rounded bg-orange-200" />
+          {"\uC2DC\uACF5\uC790"}
+        </span>
+      </div>
       <BankTransactionMobileList
         rowIds={rowIds}
         rowModels={rowModels}

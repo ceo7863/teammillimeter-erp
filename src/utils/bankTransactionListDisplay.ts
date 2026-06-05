@@ -56,7 +56,30 @@ export type BankTransactionListRowModel = {
   evidenceLabel: string | null;
   evidenceLinked: boolean;
   showVoucherProcessedBadge: boolean;
+  partyKind: "client" | "worker" | "none";
+  counterpartyPartyKind: "client" | "worker" | "none";
 };
+
+export function resolveBankTxPartyKind(
+  row: BankTransaction,
+  folder: BankTransactionFolder | undefined,
+  displayName: string | null,
+  clients: Array<{ name?: string }> = [],
+  workers: Array<{ name?: string }> = [],
+): "client" | "worker" | "none" {
+  if (folder?.folderType === "worker") return "worker";
+  if (folder?.folderType === "client") return "client";
+  if (row.linkedWorkerMonthlyPaymentVoucherId) return "worker";
+
+  const label = String(displayName || row.linkedSubject || "").trim();
+  if (label) {
+    if (workers.some((worker) => String(worker.name || "").trim() === label)) return "worker";
+    if (clients.some((client) => String(client.name || "").trim() === label)) return "client";
+  }
+
+  if (row.linkedPaymentVoucherId && row.deposit > 0) return "client";
+  return "none";
+}
 
 function resolveLinkedLedgerCategory(
   row: BankTransaction,
@@ -157,6 +180,8 @@ export function buildBankTransactionListRowModels(
   fixedExpenses: FixedExpense[] = [],
   accountCodes: AccountCode[] = [],
   taxInvoices: TaxInvoice[] = [],
+  clients: Array<{ name?: string }> = [],
+  workers: Array<{ name?: string }> = [],
 ): Map<string, BankTransactionListRowModel> {
   const taxInvoiceById = new Map(taxInvoices.map((row) => [row.id, row]));
   const cache = new Map<string, BankTransactionListRowModel>();
@@ -248,6 +273,14 @@ export function buildBankTransactionListRowModels(
       evidenceLabel,
       evidenceLinked: Boolean(linkedInvoice),
       showVoucherProcessedBadge: Boolean(row.linkedPaymentVoucherId && row.deposit > 0),
+      partyKind: resolveBankTxPartyKind(row, folder, clientLabel, clients, workers),
+      counterpartyPartyKind: resolveBankTxPartyKind(
+        row,
+        folder,
+        String(row.counterpartyName || "").trim() || null,
+        clients,
+        workers,
+      ),
     });
   }
 

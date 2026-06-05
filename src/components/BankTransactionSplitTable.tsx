@@ -67,6 +67,41 @@ function CellButton({
   );
 }
 
+function clientPartyCellClass(kind: BankTransactionListRowModel["partyKind"], empty: boolean) {
+  if (empty) return "border-dashed border-slate-200 text-slate-400";
+  if (kind === "client") return "border-sky-300 bg-sky-50 text-sky-900";
+  if (kind === "worker") return "border-orange-300 bg-orange-50 text-orange-900";
+  return "border-slate-200 bg-white text-slate-800";
+}
+
+function ClientCellButton({
+  value,
+  placeholder,
+  partyKind,
+  onClick,
+}: {
+  value: string | null;
+  placeholder: string;
+  partyKind: BankTransactionListRowModel["partyKind"];
+  onClick: () => void;
+}) {
+  const empty = !value?.trim();
+  const display = value?.trim() || placeholder;
+  return (
+    <button
+      type="button"
+      className={`max-w-full truncate rounded-lg border px-2 py-1 text-left text-xs font-semibold transition hover:opacity-90 ${clientPartyCellClass(partyKind, empty)}`}
+      title={display}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+    >
+      {display}
+    </button>
+  );
+}
+
 function SplitRow({
   model,
   labels,
@@ -102,8 +137,18 @@ function SplitRow({
     <tr className={`border-t hover:bg-slate-50/40 ${rowClass}`}>
       <td className="whitespace-nowrap text-xs text-slate-600">{model.dateLabel}</td>
       <td className="whitespace-nowrap text-xs font-medium text-slate-700">{model.accountLabel}</td>
-      <td className="max-w-[8rem] truncate text-xs text-slate-800" title={model.counterpartyLabel}>
-        {model.counterpartyLabel}
+      <td className="max-w-[8rem] truncate text-xs" title={model.counterpartyLabel}>
+        <span
+          className={`inline-flex max-w-full truncate rounded-md px-1.5 py-0.5 font-medium ${
+            model.counterpartyPartyKind === "worker"
+              ? "bg-orange-100 text-orange-900"
+              : model.counterpartyPartyKind === "client"
+                ? "bg-sky-100 text-sky-900"
+                : "text-slate-800"
+          }`}
+        >
+          {model.counterpartyLabel}
+        </span>
       </td>
       <td className="max-w-[10rem] truncate text-xs font-medium text-slate-900" title={model.description}>
         {model.description}
@@ -152,10 +197,10 @@ function SplitRow({
         />
       </td>
       <td className="max-w-[8rem]">
-        <CellButton
+        <ClientCellButton
           value={model.clientLabel}
           placeholder={labels.clientPlaceholder}
-          empty={!model.clientLabel}
+          partyKind={model.partyKind}
           onClick={() => onEditClient(model.id)}
         />
       </td>

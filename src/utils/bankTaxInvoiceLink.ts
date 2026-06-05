@@ -50,6 +50,8 @@ export function scoreTaxInvoiceMatch(tx: BankTransaction, invoice: TaxInvoice) {
   return score;
 }
 
+export const AUTO_TAX_INVOICE_MATCH_MIN_SCORE = 55;
+
 export function searchTaxInvoicesForBankTx(
   tx: BankTransaction,
   invoices: TaxInvoice[],
@@ -73,4 +75,30 @@ export function searchTaxInvoicesForBankTx(
       return hay.includes(q);
     })
     .sort((a, b) => b.score - a.score || String(b.invoice.issueDate).localeCompare(String(a.invoice.issueDate)));
+}
+
+export function pickAutoTaxInvoiceMatch(tx: BankTransaction, invoices: TaxInvoice[]) {
+  const ranked = searchTaxInvoicesForBankTx(tx, invoices);
+  const best = ranked[0];
+  if (!best || best.score < AUTO_TAX_INVOICE_MATCH_MIN_SCORE) return null;
+  return best;
+}
+
+export function buildBankTxTaxInvoiceLinkPatch(
+  tx: BankTransaction,
+  invoice: TaxInvoice | undefined,
+): BankTransaction {
+  if (!invoice) {
+    return {
+      ...tx,
+      linkedTaxInvoiceId: undefined,
+    };
+  }
+  const clientName = String(invoice.client || "").trim();
+  return {
+    ...tx,
+    linkedTaxInvoiceId: invoice.id,
+    ledgerClientName: clientName || tx.ledgerClientName,
+    linkedSubject: tx.deposit > 0 && clientName ? clientName : tx.linkedSubject,
+  };
 }
