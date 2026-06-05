@@ -3,6 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { BankTransactionsPage } from "@/components/BankTransactionsPage";
 import { LedgerViewerPage } from "@/components/LedgerViewerPage";
 import { TaxInvoicePage } from "@/components/TaxInvoicePage";
+import { LedgerClassificationManagePage } from "@/components/LedgerClassificationManagePage";
 import {
   readStoredAccountingTab,
   storeAccountingTab,
@@ -15,20 +16,23 @@ type AccountingHubPageProps = {
   bank: Omit<ComponentProps<typeof BankTransactionsPage>, "isPageActive" | "onNavigateToCompanyLedger">;
   ledger: ComponentProps<typeof LedgerViewerPage>;
   tax: ComponentProps<typeof TaxInvoicePage>;
+  classify: ComponentProps<typeof LedgerClassificationManagePage>;
 };
 
 const TAB_ITEMS: Array<{ key: AccountingHubTab; label: string }> = [
   { key: "bank", label: "\uD1B5\uC7A5 \u00B7 \uAC00\uACC4\uBD80" },
   { key: "ledger", label: "\uAC00\uACC4\uBD80 \uC870\uD68C" },
   { key: "tax", label: "\uACC4\uC0B0\uC11C \uBC1C\uD589" },
+  { key: "classify", label: "\uBD84\uB958 \uAD00\uB9AC" },
 ];
 
-export function AccountingHubPage({ isHubActive, initialTab, bank, ledger, tax }: AccountingHubPageProps) {
+export function AccountingHubPage({ isHubActive, initialTab, bank, ledger, tax, classify }: AccountingHubPageProps) {
   const [activeTab, setActiveTab] = useState<AccountingHubTab>(() => initialTab || readStoredAccountingTab());
   const [mountedTabs, setMountedTabs] = useState<Record<AccountingHubTab, boolean>>(() => ({
     bank: (initialTab || readStoredAccountingTab()) === "bank",
     ledger: (initialTab || readStoredAccountingTab()) === "ledger",
     tax: (initialTab || readStoredAccountingTab()) === "tax",
+    classify: (initialTab || readStoredAccountingTab()) === "classify",
   }));
 
   useEffect(() => {
@@ -90,6 +94,12 @@ export function AccountingHubPage({ isHubActive, initialTab, bank, ledger, tax }
       {mountedTabs.tax ? (
         <div className={activeTab === "tax" ? "" : "hidden"} aria-hidden={activeTab !== "tax"}>
           <TaxInvoicePage {...tax} />
+        </div>
+      ) : null}
+
+      {mountedTabs.classify ? (
+        <div className={activeTab === "classify" ? "" : "hidden"} aria-hidden={activeTab !== "classify"}>
+          <LedgerClassificationManagePage {...classify} />
         </div>
       ) : null}
     </div>

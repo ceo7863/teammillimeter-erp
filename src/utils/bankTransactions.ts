@@ -58,6 +58,10 @@ export type BankTransaction = {
   ledgerFixedExpenseId?: string;
   ledgerConfirmedAt?: string;
   ledgerConfirmedBy?: string;
+  /** \uBD84\uB958 \uAC70\uB798\uCC98\uBA85 */
+  ledgerClientName?: string;
+  /** \uC5F0\uACB0\uB41C \uC138\uAE08\uACC4\uC0B0\uC11C id */
+  linkedTaxInvoiceId?: string;
 };
 
 export function makeBankTransactionId() {
@@ -153,6 +157,8 @@ export function normalizeBankTransaction(raw: Partial<BankTransaction> & { id: s
     ledgerFixedExpenseId: raw.ledgerFixedExpenseId ? String(raw.ledgerFixedExpenseId) : undefined,
     ledgerConfirmedAt: raw.ledgerConfirmedAt ? String(raw.ledgerConfirmedAt) : undefined,
     ledgerConfirmedBy: raw.ledgerConfirmedBy ? String(raw.ledgerConfirmedBy) : undefined,
+    ledgerClientName: raw.ledgerClientName ? String(raw.ledgerClientName) : undefined,
+    linkedTaxInvoiceId: raw.linkedTaxInvoiceId ? String(raw.linkedTaxInvoiceId) : undefined,
   };
 }
 
@@ -519,6 +525,8 @@ export function mergeRemoteBankTransactionRow(local: BankTransaction, incoming: 
     ledgerFixedExpenseId: local.ledgerFixedExpenseId ?? incoming.ledgerFixedExpenseId,
     ledgerConfirmedAt: local.ledgerConfirmedAt ?? incoming.ledgerConfirmedAt,
     ledgerConfirmedBy: local.ledgerConfirmedBy ?? incoming.ledgerConfirmedBy,
+    ledgerClientName: local.ledgerClientName ?? incoming.ledgerClientName,
+    linkedTaxInvoiceId: local.linkedTaxInvoiceId ?? incoming.linkedTaxInvoiceId,
   };
 
   if (!shouldPreferLocalBankTransactionMerge(local, incoming)) {

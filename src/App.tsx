@@ -8330,6 +8330,7 @@ export default function TeammillimeterErpMvp() {
               setFixedExpenseCategories,
               ledgerCategories,
               accountCodes,
+              taxInvoices,
               currentUser,
             }}
             ledger={{
@@ -8343,6 +8344,11 @@ export default function TeammillimeterErpMvp() {
               setTaxInvoices,
               clients,
               currentUser,
+            }}
+            classify={{
+              accountCodes,
+              setAccountCodes,
+              onRequestImmediateSave: flushErpSave,
             }}
           />
         </PageKeepAlive>

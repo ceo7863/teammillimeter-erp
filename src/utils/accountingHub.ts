@@ -1,6 +1,6 @@
 import { isErpPageKey, type ErpPageKey } from "./pageAccess";
 
-export type AccountingHubTab = "bank" | "ledger" | "tax";
+export type AccountingHubTab = "bank" | "ledger" | "tax" | "classify";
 
 export const ACCOUNTING_TAB_STORAGE_KEY = "teammillimeter-erp-accounting-tab";
 
@@ -66,7 +66,7 @@ export function migrateAllowedPageKeys(pages: ErpPageKey[]): ErpPageKey[] {
 export function readStoredAccountingTab(): AccountingHubTab {
   if (typeof window === "undefined") return "bank";
   const stored = window.sessionStorage.getItem(ACCOUNTING_TAB_STORAGE_KEY);
-  if (stored === "ledger" || stored === "tax" || stored === "bank") return stored;
+  if (stored === "ledger" || stored === "tax" || stored === "bank" || stored === "classify") return stored;
   return "bank";
 }
 

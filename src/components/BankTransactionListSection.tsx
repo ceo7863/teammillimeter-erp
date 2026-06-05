@@ -1,23 +1,27 @@
 import React, { memo, useMemo, useRef, useCallback } from "react";
 import { BankTransactionMobileList } from "@/components/BankTransactionMobileList";
 import {
-  BankTransactionSimpleTable,
-  type BankTransactionSimpleTableLabels,
-} from "@/components/BankTransactionSimpleTable";
+  BankTransactionSplitTable,
+  type BankTransactionSplitTableLabels,
+} from "@/components/BankTransactionSplitTable";
 import type { BankTransactionCompactRowLabels } from "@/components/BankTransactionCompactRow";
 import type { BankTransactionFolder } from "@/utils/bankTransactionFolders";
 import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "@/utils/companyLedger";
 import type { BankTransaction } from "@/utils/bankTransactions";
-import type { LedgerCategory } from "@/utils/ledgerSystem";
+import type { AccountCode, LedgerCategory } from "@/utils/ledgerSystem";
+import type { TaxInvoice } from "@/utils/taxInvoices";
 import {
   buildBankTransactionListLookupMaps,
   buildBankTransactionListRowModels,
 } from "@/utils/bankTransactionListDisplay";
 
-export type BankTransactionListSectionLabels = BankTransactionSimpleTableLabels &
+export type BankTransactionListSectionLabels = BankTransactionSplitTableLabels &
   BankTransactionCompactRowLabels & {
-  unfiled: string;
-};
+    unfiled: string;
+    accountContentPlaceholder: string;
+    categoryPlaceholder: string;
+    fixedExpensePlaceholder: string;
+  };
 
 type BankTransactionListSectionProps = {
   rows: BankTransaction[];
@@ -27,11 +31,14 @@ type BankTransactionListSectionProps = {
   fixedExpensePayments: FixedExpensePayment[];
   fixedExpenses: FixedExpense[];
   ledgerCategories: LedgerCategory[];
+  accountCodes: AccountCode[];
+  taxInvoices: TaxInvoice[];
   paymentVouchers?: Array<{ bankTransactionId?: string | number; isPartialPayment?: boolean }>;
   labels: BankTransactionListSectionLabels;
-  onEditAccountContent: (row: BankTransaction) => void;
-  onEditCategory: (row: BankTransaction) => void;
-  onEditFixedExpense: (row: BankTransaction) => void;
+  onEditMemo: (row: BankTransaction) => void;
+  onEditAccountSubject: (row: BankTransaction) => void;
+  onEditClient: (row: BankTransaction) => void;
+  onFindEvidence: (row: BankTransaction) => void;
   toolbar?: React.ReactNode;
 };
 
@@ -43,15 +50,17 @@ function BankTransactionListSectionComponent({
   fixedExpensePayments,
   fixedExpenses,
   ledgerCategories,
+  accountCodes,
+  taxInvoices,
   paymentVouchers = [],
   labels,
-  onEditAccountContent,
-  onEditCategory,
-  onEditFixedExpense,
+  onEditMemo,
+  onEditAccountSubject,
+  onEditClient,
+  onFindEvidence,
   toolbar,
 }: BankTransactionListSectionProps) {
   const rowByIdRef = useRef(new Map<string, BankTransaction>());
-
   rowByIdRef.current = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
 
   const lookupMaps = useMemo(
@@ -72,6 +81,8 @@ function BankTransactionListSectionComponent({
         companyExpenses,
         fixedExpensePayments,
         fixedExpenses,
+        accountCodes,
+        taxInvoices,
       ),
     [
       rows,
@@ -85,51 +96,87 @@ function BankTransactionListSectionComponent({
       companyExpenses,
       fixedExpensePayments,
       fixedExpenses,
+      accountCodes,
+      taxInvoices,
     ],
   );
 
   const rowIds = useMemo(() => rows.map((row) => row.id), [rows]);
 
-  const handleEditAccountContent = useCallback(
+  const handleEditMemo = useCallback(
     (id: string) => {
       const row = rowByIdRef.current.get(id);
-      if (row) onEditAccountContent(row);
+      if (row) onEditMemo(row);
     },
-    [onEditAccountContent],
+    [onEditMemo],
   );
 
-  const handleEditCategory = useCallback(
+  const handleEditAccountSubject = useCallback(
     (id: string) => {
       const row = rowByIdRef.current.get(id);
-      if (row) onEditCategory(row);
+      if (row) onEditAccountSubject(row);
     },
-    [onEditCategory],
+    [onEditAccountSubject],
   );
 
-  const handleEditFixedExpense = useCallback(
+  const handleEditClient = useCallback(
     (id: string) => {
       const row = rowByIdRef.current.get(id);
-      if (row) onEditFixedExpense(row);
+      if (row) onEditClient(row);
     },
-    [onEditFixedExpense],
+    [onEditClient],
   );
 
-  const tableLabels = useMemo(
-    (): BankTransactionSimpleTableLabels => ({
+  const handleFindEvidence = useCallback(
+    (id: string) => {
+      const row = rowByIdRef.current.get(id);
+      if (row) onFindEvidence(row);
+    },
+    [onFindEvidence],
+  );
+
+  const splitLabels = useMemo(
+    (): BankTransactionSplitTableLabels => ({
+      bankSection: labels.bankSection,
+      classifySection: labels.classifySection,
       transactionAt: labels.transactionAt,
-      deposit: labels.deposit,
-      withdrawal: labels.withdrawal,
-      balance: labels.balance,
+      account: labels.account,
+      counterparty: labels.counterparty,
       description: labels.description,
-      accountContent: labels.accountContent,
-      category: labels.category,
-      fixedExpense: labels.fixedExpense,
-      classification: labels.classification,
-      matchStatus: labels.matchStatus,
+      amount: labels.amount,
+      memo: labels.memo,
+      evidence: labels.evidence,
+      accountSubject: labels.accountSubject,
+      client: labels.client,
+      classifiedAmount: labels.classifiedAmount,
+      erpProcess: labels.erpProcess,
       empty: labels.empty,
-      accountContentPlaceholder: labels.accountContentPlaceholder,
-      categoryPlaceholder: labels.categoryPlaceholder,
-      fixedExpensePlaceholder: labels.fixedExpensePlaceholder,
+      evidenceFind: labels.evidenceFind,
+      evidencePlaceholder: labels.evidencePlaceholder,
+      accountSubjectPlaceholder: labels.accountSubjectPlaceholder,
+      clientPlaceholder: labels.clientPlaceholder,
+      memoPlaceholder: labels.memoPlaceholder,
+      voucherProcessedBadge: labels.voucherProcessedBadge,
+    }),
+    [labels],
+  );
+
+  const mobileLabels = useMemo(
+    () => ({
+      transactionAt: labels.transactionAt,
+      deposit: labels.amount,
+      withdrawal: labels.amount,
+      balance: labels.classifiedAmount,
+      description: labels.description,
+      accountContent: labels.memo,
+      category: labels.accountSubject,
+      fixedExpense: labels.client,
+      classification: labels.evidence,
+      matchStatus: labels.erpProcess,
+      empty: labels.empty,
+      accountContentPlaceholder: labels.memoPlaceholder,
+      categoryPlaceholder: labels.accountSubjectPlaceholder,
+      fixedExpensePlaceholder: labels.clientPlaceholder,
     }),
     [labels],
   );
@@ -152,20 +199,20 @@ function BankTransactionListSectionComponent({
       <BankTransactionMobileList
         rowIds={rowIds}
         rowModels={rowModels}
-        labels={tableLabels}
+        labels={mobileLabels}
         badgeLabels={badgeLabels}
-        onEditAccountContent={handleEditAccountContent}
-        onEditCategory={handleEditCategory}
-        onEditFixedExpense={handleEditFixedExpense}
+        onEditAccountContent={handleEditMemo}
+        onEditCategory={handleEditAccountSubject}
+        onEditFixedExpense={handleEditClient}
       />
-      <BankTransactionSimpleTable
+      <BankTransactionSplitTable
         rowIds={rowIds}
         rowModels={rowModels}
-        labels={tableLabels}
-        badgeLabels={badgeLabels}
-        onEditAccountContent={handleEditAccountContent}
-        onEditCategory={handleEditCategory}
-        onEditFixedExpense={handleEditFixedExpense}
+        labels={splitLabels}
+        onEditMemo={handleEditMemo}
+        onEditAccountSubject={handleEditAccountSubject}
+        onEditClient={handleEditClient}
+        onFindEvidence={handleFindEvidence}
       />
     </>
   );

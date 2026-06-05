@@ -32,6 +32,8 @@ import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { TableExportSection, TableExportToolbar } from "@/components/TableExportSection";
 import { BankTransactionListSection } from "@/components/BankTransactionListSection";
+import { TaxInvoiceLinkModal } from "@/components/TaxInvoiceLinkModal";
+import type { TaxInvoice } from "@/utils/taxInvoices";
 import {
   buildBankTransactionRowDisplayCache,
   buildBankTransactionsExportTable,
@@ -249,6 +251,8 @@ type PageView = "list" | "reconcile";
 type TxAccountContentModal = { tx: BankTransaction; draft: string };
 type TxCategoryModal = { tx: BankTransaction; draft: string };
 type TxFixedExpenseModal = { tx: BankTransaction; draft: string };
+type TxClientModal = { tx: BankTransaction; draft: string };
+type TxTaxInvoiceModal = { tx: BankTransaction };
 
 const EMPTY_TX_SUGGESTION_MAP = new Map<string, never>();
 
@@ -408,6 +412,24 @@ const L = {
   categoryRequired: "\uCE74\uD14C\uACE0\uB9AC\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
   fixedExpenseRequired: "\uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
   cellSaveDone: "\uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.",
+  bankSection: "\uD1B5\uC7A5 \uB0B4\uC5ED",
+  classifySection: "\uBD84\uB958 \uB0B4\uC5ED",
+  account: "\uACC4\uC88C",
+  counterparty: "\uAC70\uB798\uC790\uBA85",
+  amount: "\uC785\uCD9C\uAE08\uC561",
+  evidence: "\uC99D\uBE59",
+  accountSubject: "\uACC4\uC815",
+  clientColumn: "\uAC70\uB798\uCC98",
+  classifiedAmount: "\uBD84\uB958 \uAE08\uC561",
+  erpProcess: "ERP \uCC98\uB9AC",
+  evidenceFind: "\uC99D\uBE59 \uCC3E\uAE30",
+  evidencePlaceholder: "\uC138\uAE08\uACC4\uC0B0\uC11C \uC5F0\uACB0",
+  accountSubjectPlaceholder: "\uACC4\uC815 \uC120\uD0DD",
+  clientPlaceholder: "\uAC70\uB798\uCC98 \uC120\uD0DD",
+  voucherProcessedBadge: "\uC804\uD45C\uCC98\uB9AC\uC785\uAE08",
+  editMemoTitle: "\uBA54\uBAA8 \uC218\uC815",
+  editClientTitle: "\uAC70\uB798\uCC98 \uC218\uC815",
+  clientRequired: "\uAC70\uB798\uCC98\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
   detailTitle: "\uD1B5\uC7A5 \uAC70\uB798 \uC804\uD45C",
   detailInfoSection: "\uAC70\uB798 \uC815\uBCF4",
   detailEditSection: "\uC218\uC815 \uD56D\uBAA9",
@@ -784,6 +806,7 @@ export function BankTransactionsPage({
   setFixedExpenseCategories,
   ledgerCategories = [],
   accountCodes = [],
+  taxInvoices = [],
   currentUser,
   onNavigateToCompanyLedger,
   apiMode = false,
@@ -818,6 +841,7 @@ export function BankTransactionsPage({
   setFixedExpenseCategories: React.Dispatch<React.SetStateAction<string[]>>;
   ledgerCategories?: LedgerCategory[];
   accountCodes?: AccountCode[];
+  taxInvoices?: TaxInvoice[];
   currentUser: ErpUser | null;
   onNavigateToCompanyLedger?: () => void;
   apiMode?: boolean;
@@ -904,6 +928,8 @@ export function BankTransactionsPage({
   const [accountContentModal, setAccountContentModal] = useState<TxAccountContentModal | null>(null);
   const [categoryModal, setCategoryModal] = useState<TxCategoryModal | null>(null);
   const [fixedExpenseModal, setFixedExpenseModal] = useState<TxFixedExpenseModal | null>(null);
+  const [clientModal, setClientModal] = useState<TxClientModal | null>(null);
+  const [taxInvoiceModal, setTaxInvoiceModal] = useState<TxTaxInvoiceModal | null>(null);
   const [addCategoryModalOpen, setAddCategoryModalOpen] = useState(false);
   const [addFixedExpenseModalOpen, setAddFixedExpenseModalOpen] = useState(false);
   const [addExpenseCategoryName, setAddExpenseCategoryName] = useState("");
@@ -2071,11 +2097,11 @@ export function BankTransactionsPage({
     [fixedExpensePayments],
   );
 
-  const openAccountContentModal = useCallback((tx: BankTransaction) => {
+  const openMemoModal = useCallback((tx: BankTransaction) => {
     setTxCellModalError("");
     setAccountContentModal({
       tx,
-      draft: String(tx.ledgerMemo || tx.memo || "").trim(),
+      draft: String(tx.memo || "").trim(),
     });
   }, []);
 
@@ -2095,6 +2121,18 @@ export function BankTransactionsPage({
     [resolveTxFixedExpenseDraft],
   );
 
+  const openClientModal = useCallback((tx: BankTransaction) => {
+    setTxCellModalError("");
+    setClientModal({
+      tx,
+      draft: String(tx.ledgerClientName || tx.linkedSubject || "").trim(),
+    });
+  }, []);
+
+  const openTaxInvoiceModal = useCallback((tx: BankTransaction) => {
+    setTaxInvoiceModal({ tx });
+  }, []);
+
   const saveAccountContentModal = () => {
     if (!accountContentModal) return;
     const { tx, draft } = accountContentModal;
@@ -2102,12 +2140,51 @@ export function BankTransactionsPage({
     const nextRow: BankTransaction = {
       ...tx,
       memo: nextMemo,
-      ledgerMemo: nextMemo,
     };
     auditBankTxUpdate(tx, nextRow);
     const nextTransactions = bankTransactions.map((row) => (row.id === tx.id ? nextRow : row));
     setBankTransactions(nextTransactions);
     setAccountContentModal(null);
+    setImportMessage(L.cellSaveDone);
+    void onRequestImmediateSave?.({ bankTransactions: nextTransactions });
+  };
+
+  const saveClientModal = () => {
+    if (!clientModal) return;
+    const clientName = clientModal.draft.trim();
+    if (!clientName) {
+      setTxCellModalError(L.clientRequired);
+      return;
+    }
+    const { tx } = clientModal;
+    const nextRow: BankTransaction = {
+      ...tx,
+      ledgerClientName: clientName,
+      linkedSubject: tx.deposit > 0 ? clientName : tx.linkedSubject,
+    };
+    auditBankTxUpdate(tx, nextRow);
+    const nextTransactions = bankTransactions.map((row) => (row.id === tx.id ? nextRow : row));
+    setBankTransactions(nextTransactions);
+    setClientModal(null);
+    setTxCellModalError("");
+    setImportMessage(L.cellSaveDone);
+    void onRequestImmediateSave?.({ bankTransactions: nextTransactions });
+  };
+
+  const saveTaxInvoiceLink = (invoiceId: string | undefined) => {
+    if (!taxInvoiceModal) return;
+    const { tx } = taxInvoiceModal;
+    const invoice = invoiceId ? taxInvoices.find((row) => row.id === invoiceId) : undefined;
+    const nextRow: BankTransaction = {
+      ...tx,
+      linkedTaxInvoiceId: invoiceId,
+      ledgerClientName: invoice?.client || tx.ledgerClientName,
+      linkedSubject: tx.deposit > 0 && invoice?.client ? invoice.client : tx.linkedSubject,
+    };
+    auditBankTxUpdate(tx, nextRow);
+    const nextTransactions = bankTransactions.map((row) => (row.id === tx.id ? nextRow : row));
+    setBankTransactions(nextTransactions);
+    setTaxInvoiceModal(null);
     setImportMessage(L.cellSaveDone);
     void onRequestImmediateSave?.({ bankTransactions: nextTransactions });
   };
@@ -4190,6 +4267,23 @@ export function BankTransactionsPage({
       preauthNetSettlementBadge: L.preauthNetSettlementBadge,
       preauthNetRefundBadge: L.preauthNetRefundBadge,
       preauthNetSuppressedBadge: L.preauthNetSuppressedBadge,
+      bankSection: L.bankSection,
+      classifySection: L.classifySection,
+      account: L.account,
+      counterparty: L.counterparty,
+      amount: L.amount,
+      memo: L.memo,
+      evidence: L.evidence,
+      accountSubject: L.accountSubject,
+      client: L.clientColumn,
+      classifiedAmount: L.classifiedAmount,
+      erpProcess: L.erpProcess,
+      evidenceFind: L.evidenceFind,
+      evidencePlaceholder: L.evidencePlaceholder,
+      accountSubjectPlaceholder: L.accountSubjectPlaceholder,
+      clientPlaceholder: L.clientPlaceholder,
+      memoPlaceholder: L.memoPlaceholder,
+      voucherProcessedBadge: L.voucherProcessedBadge,
     }),
     [],
   );
@@ -5205,11 +5299,14 @@ export function BankTransactionsPage({
             fixedExpensePayments={fixedExpensePayments}
             fixedExpenses={fixedExpenses}
             ledgerCategories={ledgerCategories}
+            accountCodes={accountCodes}
+            taxInvoices={taxInvoices}
             paymentVouchers={paymentVouchers}
             labels={listSectionLabels}
-            onEditAccountContent={openAccountContentModal}
-            onEditCategory={openCategoryModal}
-            onEditFixedExpense={openFixedExpenseModal}
+            onEditMemo={openMemoModal}
+            onEditAccountSubject={openCategoryModal}
+            onEditClient={openClientModal}
+            onFindEvidence={openTaxInvoiceModal}
             toolbar={
               <>
                 <Button
@@ -6335,10 +6432,10 @@ export function BankTransactionsPage({
             onMouseDown={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label={L.editAccountContentTitle}
+            aria-label={L.editMemoTitle}
           >
             <div className="mb-4 flex items-start justify-between gap-3">
-              <h2 className="erp-text-section font-bold">{L.editAccountContentTitle}</h2>
+              <h2 className="erp-text-section font-bold">{L.editMemoTitle}</h2>
               <button
                 type="button"
                 className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
@@ -6348,7 +6445,7 @@ export function BankTransactionsPage({
                 <X size={18} />
               </button>
             </div>
-            <Field label={L.accountContent}>
+            <Field label={L.memo}>
               <BufferedTextInput
                 value={accountContentModal.draft}
                 className="w-full rounded-xl"
@@ -6475,6 +6572,70 @@ export function BankTransactionsPage({
             </div>
           </div>
         </div>
+      ) : null}
+
+      {clientModal ? (
+        <div
+          className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setClientModal(null);
+          }}
+        >
+          <div
+            className="erp-ledger-modal max-w-lg"
+            onMouseDown={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={L.editClientTitle}
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <h2 className="erp-text-section font-bold">{L.editClientTitle}</h2>
+              <button type="button" className="rounded-xl p-2 text-slate-500 hover:bg-slate-100" onClick={() => setClientModal(null)}>
+                <X size={18} />
+              </button>
+            </div>
+            <Field label={L.clientColumn}>
+              <select
+                className="erp-input w-full rounded-xl"
+                value={clientModal.draft}
+                onChange={(event) => {
+                  setTxCellModalError("");
+                  setClientModal((prev) => (prev ? { ...prev, draft: event.target.value } : prev));
+                }}
+              >
+                <option value="">{L.clientPlaceholder}</option>
+                {clients
+                  .map((row) => String(row.name || "").trim())
+                  .filter(Boolean)
+                  .sort((a, b) => a.localeCompare(b, "ko"))
+                  .map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+              </select>
+            </Field>
+            {txCellModalError ? <p className="mt-3 text-sm font-semibold text-red-600">{txCellModalError}</p> : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setClientModal(null)}>
+                {L.cancel}
+              </Button>
+              <Button type="button" className="rounded-2xl" onClick={saveClientModal}>
+                {L.detailSave}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {taxInvoiceModal ? (
+        <TaxInvoiceLinkModal
+          tx={taxInvoiceModal.tx}
+          taxInvoices={taxInvoices}
+          linkedInvoiceId={taxInvoiceModal.tx.linkedTaxInvoiceId}
+          onClose={() => setTaxInvoiceModal(null)}
+          onLink={saveTaxInvoiceLink}
+        />
       ) : null}
 
       {addCategoryModalOpen ? (

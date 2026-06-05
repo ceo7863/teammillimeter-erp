@@ -10,7 +10,14 @@ import { isNetGroupSuppressed } from "@/utils/bankPreauthNetting";
 import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "@/utils/companyLedger";
 import { formatKRW } from "@/utils/companyLedger";
 import { getBankTxLedgerCategoryLabel } from "@/utils/ledgerBankBridge";
-import type { LedgerCategory } from "@/utils/ledgerSystem";
+import {
+  formatTaxInvoiceEvidenceLabel,
+  getBankTxClassifiedAmount,
+  resolveBankTxClientName,
+} from "@/utils/bankTaxInvoiceLink";
+import type { AccountCode, LedgerCategory } from "@/utils/ledgerSystem";
+import { resolveAccountCodeLabel } from "@/utils/ledgerSystem";
+import type { TaxInvoice } from "@/utils/taxInvoices";
 import {
   formatBankTransactionDateTime,
   isUnfiledClientDepositLink,
@@ -38,6 +45,17 @@ export type BankTransactionListRowModel = {
   showPartialPaymentBadge: boolean;
   netGroupRole: BankTransaction["netGroupRole"];
   rowTone: "" | "deposit" | "withdrawal" | "suppressed";
+  accountLabel: string;
+  counterpartyLabel: string;
+  signedAmountLabel: string;
+  memoLabel: string;
+  memoEmpty: boolean;
+  accountSubjectLabel: string | null;
+  clientLabel: string | null;
+  classifiedAmountLabel: string;
+  evidenceLabel: string | null;
+  evidenceLinked: boolean;
+  showVoucherProcessedBadge: boolean;
 };
 
 function resolveLinkedLedgerCategory(
@@ -137,7 +155,10 @@ export function buildBankTransactionListRowModels(
   companyExpenses: CompanyExpense[] = [],
   fixedExpensePayments: FixedExpensePayment[] = [],
   fixedExpenses: FixedExpense[] = [],
+  accountCodes: AccountCode[] = [],
+  taxInvoices: TaxInvoice[] = [],
 ): Map<string, BankTransactionListRowModel> {
+  const taxInvoiceById = new Map(taxInvoices.map((row) => [row.id, row]));
   const cache = new Map<string, BankTransactionListRowModel>();
 
   for (const row of rows) {
@@ -159,6 +180,20 @@ export function buildBankTransactionListRowModels(
       ) || legacyCategory;
     const fixedExpenseLabel = resolveFixedExpenseLabel(row, lookup);
     const accountContent = String(row.ledgerMemo || row.memo || "").trim();
+    const memoOnly = String(row.memo || "").trim();
+    const accountSubjectLabel =
+      resolveAccountCodeLabel(accountCodes, row.ledgerAccountCode) || categoryLabel;
+    const clientLabel = resolveBankTxClientName(row) || unfiledClientName || null;
+    const classifiedAmount = getBankTxClassifiedAmount(row);
+    const linkedInvoice = row.linkedTaxInvoiceId ? taxInvoiceById.get(row.linkedTaxInvoiceId) : undefined;
+    const evidenceLabel = linkedInvoice ? formatTaxInvoiceEvidenceLabel(linkedInvoice) : null;
+    const signedAmountLabel =
+      row.deposit > 0
+        ? `+${formatKRW(row.deposit)}`
+        : row.withdrawal > 0
+          ? `-${formatKRW(row.withdrawal)}`
+          : "-";
+    const accountLabel = `${row.bankName || "IBK"} ${String(row.accountNumber || "").slice(-4) || ""}`.trim();
     const classificationLabel =
       folder?.folderName ||
       (unfiledClientName || null) ||
@@ -202,6 +237,17 @@ export function buildBankTransactionListRowModels(
       showPartialPaymentBadge: matchLinked && bankTxHasPartialPaymentVoucher(row, paymentVouchers),
       netGroupRole: row.netGroupRole,
       rowTone,
+      accountLabel,
+      counterpartyLabel: String(row.counterpartyName || "-").trim() || "-",
+      signedAmountLabel,
+      memoLabel: memoOnly || labels.accountContentPlaceholder,
+      memoEmpty: !memoOnly,
+      accountSubjectLabel,
+      clientLabel,
+      classifiedAmountLabel: classifiedAmount > 0 ? formatKRW(classifiedAmount) : "-",
+      evidenceLabel,
+      evidenceLinked: Boolean(linkedInvoice),
+      showVoucherProcessedBadge: Boolean(row.linkedPaymentVoucherId && row.deposit > 0),
     });
   }
 
