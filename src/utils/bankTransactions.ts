@@ -50,6 +50,14 @@ export type BankTransaction = {
   matchAutoLinked?: boolean;
   netGroupId?: string;
   netGroupRole?: "preauth_withdrawal" | "preauth_refund" | "settlement";
+  /** 가계부 V2: none=미분류, pending=제안, confirmed=확정, exempt=가계부 제외 */
+  ledgerStatus?: "none" | "pending" | "confirmed" | "exempt";
+  ledgerCategoryId?: string;
+  ledgerAccountCode?: string;
+  ledgerMemo?: string;
+  ledgerFixedExpenseId?: string;
+  ledgerConfirmedAt?: string;
+  ledgerConfirmedBy?: string;
 };
 
 export function makeBankTransactionId() {
@@ -131,6 +139,20 @@ export function normalizeBankTransaction(raw: Partial<BankTransaction> & { id: s
       raw.netGroupRole === "settlement"
         ? raw.netGroupRole
         : undefined,
+    ledgerStatus:
+      raw.ledgerStatus === "pending" ||
+      raw.ledgerStatus === "confirmed" ||
+      raw.ledgerStatus === "exempt"
+        ? raw.ledgerStatus
+        : raw.ledgerStatus === "none"
+          ? "none"
+          : undefined,
+    ledgerCategoryId: raw.ledgerCategoryId ? String(raw.ledgerCategoryId) : undefined,
+    ledgerAccountCode: raw.ledgerAccountCode ? String(raw.ledgerAccountCode) : undefined,
+    ledgerMemo: raw.ledgerMemo ? String(raw.ledgerMemo) : undefined,
+    ledgerFixedExpenseId: raw.ledgerFixedExpenseId ? String(raw.ledgerFixedExpenseId) : undefined,
+    ledgerConfirmedAt: raw.ledgerConfirmedAt ? String(raw.ledgerConfirmedAt) : undefined,
+    ledgerConfirmedBy: raw.ledgerConfirmedBy ? String(raw.ledgerConfirmedBy) : undefined,
   };
 }
 
@@ -489,6 +511,16 @@ export function mergeBankTransactionsUnion(
 export function mergeRemoteBankTransactionRow(local: BankTransaction, incoming: BankTransaction): BankTransaction {
   const paymentMatch = mergePaymentMatchFields(local, incoming);
 
+  const ledgerMerge = {
+    ledgerStatus: local.ledgerStatus ?? incoming.ledgerStatus,
+    ledgerCategoryId: local.ledgerCategoryId ?? incoming.ledgerCategoryId,
+    ledgerAccountCode: local.ledgerAccountCode ?? incoming.ledgerAccountCode,
+    ledgerMemo: local.ledgerMemo ?? incoming.ledgerMemo,
+    ledgerFixedExpenseId: local.ledgerFixedExpenseId ?? incoming.ledgerFixedExpenseId,
+    ledgerConfirmedAt: local.ledgerConfirmedAt ?? incoming.ledgerConfirmedAt,
+    ledgerConfirmedBy: local.ledgerConfirmedBy ?? incoming.ledgerConfirmedBy,
+  };
+
   if (!shouldPreferLocalBankTransactionMerge(local, incoming)) {
     return {
       ...incoming,
@@ -501,6 +533,7 @@ export function mergeRemoteBankTransactionRow(local: BankTransaction, incoming: 
         ? local.linkedSubject ?? incoming.linkedSubject
         : incoming.linkedSubject || local.linkedSubject,
       classifiedAt: incoming.classifiedAt || local.classifiedAt,
+      ...ledgerMerge,
     };
   }
 
@@ -513,5 +546,6 @@ export function mergeRemoteBankTransactionRow(local: BankTransaction, incoming: 
     memo: local.memo ?? incoming.memo,
     linkedSubject: local.linkedSubject ?? incoming.linkedSubject,
     classifiedAt: local.classifiedAt ?? incoming.classifiedAt,
+    ...ledgerMerge,
   };
 }

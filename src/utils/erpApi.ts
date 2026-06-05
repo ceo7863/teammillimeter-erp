@@ -41,6 +41,8 @@ export type ErpPayload = {
   bankLedgerRules?: unknown[];
   expenseCategories?: unknown[];
   fixedExpenseCategories?: unknown[];
+  accountCodes?: unknown[];
+  ledgerCategories?: unknown[];
   companyNotices?: unknown[];
   workPosts?: unknown[];
   taxInvoices?: unknown[];

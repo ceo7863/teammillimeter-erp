@@ -12,14 +12,15 @@ export type BankTransactionSimpleTableLabels = {
   withdrawal: string;
   balance: string;
   description: string;
-  memo: string;
-  counterpartyName: string;
-  ledgerCategoryColumn: string;
+  accountContent: string;
+  category: string;
+  fixedExpense: string;
   classification: string;
-  counterpartyBank: string;
   matchStatus: string;
-  transactionType: string;
   empty: string;
+  accountContentPlaceholder: string;
+  categoryPlaceholder: string;
+  fixedExpensePlaceholder: string;
 };
 
 type BankTransactionSimpleTableProps = {
@@ -27,8 +28,9 @@ type BankTransactionSimpleTableProps = {
   rowModels: Map<string, BankTransactionCompactRowModel>;
   labels: BankTransactionSimpleTableLabels;
   badgeLabels: BankTransactionCompactRowLabels;
-  selectedTxId: string | null;
-  onSelect: (id: string) => void;
+  onEditAccountContent: (id: string) => void;
+  onEditCategory: (id: string) => void;
+  onEditFixedExpense: (id: string) => void;
 };
 
 function BankTransactionSimpleTableComponent({
@@ -36,8 +38,9 @@ function BankTransactionSimpleTableComponent({
   rowModels,
   labels,
   badgeLabels,
-  selectedTxId,
-  onSelect,
+  onEditAccountContent,
+  onEditCategory,
+  onEditFixedExpense,
 }: BankTransactionSimpleTableProps) {
   return (
     <DesktopTableWrap>
@@ -49,19 +52,17 @@ function BankTransactionSimpleTableComponent({
             <th className="text-right">{labels.withdrawal}</th>
             <th className="text-right">{labels.balance}</th>
             <th>{labels.description}</th>
-            <th>{labels.memo}</th>
-            <th>{labels.counterpartyName}</th>
-            <th>{labels.ledgerCategoryColumn}</th>
+            <th>{labels.accountContent}</th>
+            <th>{labels.category}</th>
+            <th>{labels.fixedExpense}</th>
             <th>{labels.classification}</th>
-            <th>{labels.counterpartyBank}</th>
             <th>{labels.matchStatus}</th>
-            <th>{labels.transactionType}</th>
           </tr>
         </thead>
         <tbody>
           {!rowIds.length ? (
             <tr>
-              <td colSpan={12} className="py-12 text-center text-slate-500">
+              <td colSpan={10} className="py-12 text-center text-slate-500">
                 {labels.empty}
               </td>
             </tr>
@@ -74,8 +75,10 @@ function BankTransactionSimpleTableComponent({
                   key={id}
                   {...model}
                   labels={badgeLabels}
-                  isSelected={selectedTxId === id}
-                  onSelect={onSelect}
+                  tableLabels={labels}
+                  onEditAccountContent={onEditAccountContent}
+                  onEditCategory={onEditCategory}
+                  onEditFixedExpense={onEditFixedExpense}
                 />
               );
             })

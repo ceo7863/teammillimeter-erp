@@ -154,17 +154,15 @@ export type BankTransactionExportLabels = {
   withdrawal: string;
   balance: string;
   description: string;
-  memo: string;
-  counterpartyName: string;
-  ledgerCategoryColumn: string;
+  accountContent: string;
+  category: string;
+  fixedExpense: string;
   classification: string;
-  counterpartyBank: string;
   matchStatus: string;
-  transactionType: string;
   assignFolder: string;
   ledgerSendTo: string;
   unfiled: string;
-  memoPlaceholder: string;
+  accountContentPlaceholder: string;
 };
 
 export function buildBankTransactionsExportTable(
@@ -180,13 +178,11 @@ export function buildBankTransactionsExportTable(
     labels.withdrawal,
     labels.balance,
     labels.description,
-    labels.memo,
-    labels.counterpartyName,
-    labels.ledgerCategoryColumn,
+    labels.accountContent,
+    labels.category,
+    labels.fixedExpense,
     labels.classification,
-    labels.counterpartyBank,
     labels.matchStatus,
-    labels.transactionType,
     labels.assignFolder,
     labels.ledgerSendTo,
   ];
@@ -206,13 +202,11 @@ export function buildBankTransactionsExportTable(
       row.withdrawal > 0 ? formatKRW(row.withdrawal) : "-",
       formatKRW(row.balanceAfter),
       row.description || "-",
-      row.memo || labels.memoPlaceholder,
-      row.counterpartyName || "-",
+      row.ledgerMemo || row.memo || labels.accountContentPlaceholder,
       ledgerCategory || "-",
+      row.ledgerFixedExpenseId || "-",
       classification,
-      row.counterpartyBank || "-",
       row.linkedPaymentVoucherId ? getBankMatchStatusLabel(row) : "-",
-      row.transactionType || "-",
       folderLabel,
       display?.canLedger ? labels.ledgerSendTo : "-",
     ];

@@ -1,8 +1,8 @@
 import React, { memo } from "react";
-import { BookOpen } from "lucide-react";
 import { AutoLinkBadge, ManualLinkBadge, PartialPaymentBadge } from "@/components/AutoLinkBadge";
 import { getBankTransactionFolderTone } from "@/utils/bankTransactionFolders";
 import type { BankTransactionListRowModel } from "@/utils/bankTransactionListDisplay";
+import type { BankTransactionSimpleTableLabels } from "@/components/BankTransactionSimpleTable";
 
 export type BankTransactionCompactRowModel = BankTransactionListRowModel;
 
@@ -17,9 +17,45 @@ export type BankTransactionCompactRowLabels = {
 
 type BankTransactionCompactRowProps = BankTransactionCompactRowModel & {
   labels: BankTransactionCompactRowLabels;
-  isSelected: boolean;
-  onSelect: (id: string) => void;
+  tableLabels: Pick<
+    BankTransactionSimpleTableLabels,
+    "accountContentPlaceholder" | "categoryPlaceholder" | "fixedExpensePlaceholder"
+  >;
+  onEditAccountContent: (id: string) => void;
+  onEditCategory: (id: string) => void;
+  onEditFixedExpense: (id: string) => void;
 };
+
+function LedgerCellButton({
+  value,
+  placeholder,
+  empty,
+  onClick,
+}: {
+  value: string | null;
+  placeholder: string;
+  empty?: boolean;
+  onClick: () => void;
+}) {
+  const display = value?.trim() || placeholder;
+  return (
+    <button
+      type="button"
+      className={`max-w-full truncate rounded-lg border px-2 py-1 text-left text-xs font-semibold transition hover:bg-slate-100 ${
+        empty || !value?.trim()
+          ? "border-dashed border-slate-200 text-slate-400"
+          : "border-slate-200 bg-white text-slate-800"
+      }`}
+      title={display}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+    >
+      {display}
+    </button>
+  );
+}
 
 function renderPreauthNetBadge(
   netGroupRole: BankTransactionListRowModel["netGroupRole"],
@@ -54,25 +90,25 @@ function BankTransactionCompactRowComponent({
   withdrawalLabel,
   balanceLabel,
   description,
-  memoLabel,
-  counterpartyLabel,
-  ledgerCategory,
-  ledgerFromFixed,
+  accountContentLabel,
+  accountContentEmpty,
+  categoryLabel,
+  fixedExpenseLabel,
   folderName,
   folderType,
   classificationLabel,
-  counterpartyBank,
   matchLinked,
   matchStatusLabel,
   showAutoLinkBadge,
   showManualLinkBadge,
   showPartialPaymentBadge,
   netGroupRole,
-  transactionType,
   rowTone,
   labels,
-  isSelected,
-  onSelect,
+  tableLabels,
+  onEditAccountContent,
+  onEditCategory,
+  onEditFixedExpense,
 }: BankTransactionCompactRowProps) {
   const rowClass =
     rowTone === "suppressed"
@@ -84,10 +120,7 @@ function BankTransactionCompactRowComponent({
           : "";
 
   return (
-    <tr
-      className={`border-t cursor-pointer hover:bg-slate-50/80 ${rowClass} ${isSelected ? "bg-sky-50 ring-1 ring-inset ring-sky-200" : ""}`}
-      onClick={() => onSelect(id)}
-    >
+    <tr className={`border-t hover:bg-slate-50/40 ${rowClass}`}>
       <td className="whitespace-nowrap text-slate-600">{dateLabel}</td>
       <td className="text-right font-semibold text-emerald-700">{depositLabel}</td>
       <td className="text-right font-semibold text-red-600">{withdrawalLabel}</td>
@@ -95,25 +128,29 @@ function BankTransactionCompactRowComponent({
       <td className="max-w-[12rem] truncate font-medium text-slate-900" title={description}>
         {description}
       </td>
-      <td className="max-w-[10rem] truncate text-xs text-slate-700" title={memoLabel}>
-        {memoLabel}
-      </td>
-      <td className="max-w-[8rem] truncate text-slate-700" title={counterpartyLabel}>
-        {counterpartyLabel}
+      <td className="max-w-[10rem]">
+        <LedgerCellButton
+          value={accountContentEmpty ? null : accountContentLabel}
+          placeholder={tableLabels.accountContentPlaceholder}
+          empty={accountContentEmpty}
+          onClick={() => onEditAccountContent(id)}
+        />
       </td>
       <td className="max-w-[8rem]">
-        {ledgerCategory ? (
-          <span
-            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold ${
-              ledgerFromFixed ? "bg-amber-100 text-amber-800" : "border border-amber-200 bg-amber-50 text-amber-900"
-            }`}
-          >
-            <BookOpen size={11} />
-            {ledgerCategory}
-          </span>
-        ) : (
-          <span className="text-xs text-slate-400">-</span>
-        )}
+        <LedgerCellButton
+          value={categoryLabel}
+          placeholder={tableLabels.categoryPlaceholder}
+          empty={!categoryLabel}
+          onClick={() => onEditCategory(id)}
+        />
+      </td>
+      <td className="max-w-[8rem]">
+        <LedgerCellButton
+          value={fixedExpenseLabel}
+          placeholder={tableLabels.fixedExpensePlaceholder}
+          empty={!fixedExpenseLabel}
+          onClick={() => onEditFixedExpense(id)}
+        />
       </td>
       <td className="max-w-[8rem]">
         {folderName && folderType ? (
@@ -124,9 +161,6 @@ function BankTransactionCompactRowComponent({
           <span className="text-xs font-semibold text-slate-400">{classificationLabel}</span>
         )}
         {netGroupRole ? <div className="mt-1">{renderPreauthNetBadge(netGroupRole, labels)}</div> : null}
-      </td>
-      <td className="max-w-[6rem] truncate text-xs text-slate-500" title={counterpartyBank}>
-        {counterpartyBank}
       </td>
       <td className="max-w-[9rem]">
         {matchLinked ? (
@@ -142,13 +176,6 @@ function BankTransactionCompactRowComponent({
           <span className="truncate text-xs text-slate-600" title={matchStatusLabel}>
             {matchStatusLabel}
           </span>
-        )}
-      </td>
-      <td className="text-xs text-slate-500">
-        {transactionType && transactionType !== "-" ? (
-          <span className="erp-bank-type-badge">{transactionType}</span>
-        ) : (
-          "-"
         )}
       </td>
     </tr>

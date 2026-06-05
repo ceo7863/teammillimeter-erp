@@ -9,8 +9,9 @@ type BankTransactionMobileListProps = {
   rowModels: Map<string, BankTransactionCompactRowModel>;
   labels: BankTransactionSimpleTableLabels;
   badgeLabels: BankTransactionCompactRowLabels;
-  selectedTxId: string | null;
-  onSelect: (id: string) => void;
+  onEditAccountContent: (id: string) => void;
+  onEditCategory: (id: string) => void;
+  onEditFixedExpense: (id: string) => void;
 };
 
 function preauthNetBadgeLabel(
@@ -28,8 +29,9 @@ function BankTransactionMobileListComponent({
   rowModels,
   labels,
   badgeLabels,
-  selectedTxId,
-  onSelect,
+  onEditAccountContent,
+  onEditCategory,
+  onEditFixedExpense,
 }: BankTransactionMobileListProps) {
   return (
     <MobileRecordList className="erp-bank-mobile-list">
@@ -56,8 +58,11 @@ function BankTransactionMobileListComponent({
           } else if (model.matchStatusLabel !== "-") {
             badges.push({ label: model.matchStatusLabel, tone: "muted" });
           }
-          if (model.ledgerCategory) {
-            badges.push({ label: model.ledgerCategory, tone: "default" });
+          if (model.categoryLabel) {
+            badges.push({ label: model.categoryLabel, tone: "default" });
+          }
+          if (model.fixedExpenseLabel) {
+            badges.push({ label: model.fixedExpenseLabel, tone: "default" });
           }
 
           return (
@@ -73,27 +78,55 @@ function BankTransactionMobileListComponent({
               }}
               fields={[
                 { label: labels.balance, value: model.balanceLabel },
-                { label: labels.counterpartyName, value: model.counterpartyLabel },
-                { label: labels.memo, value: model.memoLabel, tone: "muted" },
-                ...(model.counterpartyBank !== "-"
-                  ? [{ label: labels.counterpartyBank, value: model.counterpartyBank, tone: "muted" as const }]
-                  : []),
-                ...(model.transactionType !== "-"
-                  ? [{ label: labels.transactionType, value: model.transactionType, tone: "muted" as const }]
-                  : []),
+                {
+                  label: labels.accountContent,
+                  value: model.accountContentEmpty ? labels.accountContentPlaceholder : model.accountContentLabel,
+                  tone: "muted",
+                },
+                {
+                  label: labels.category,
+                  value: model.categoryLabel || labels.categoryPlaceholder,
+                  tone: "muted",
+                },
+                {
+                  label: labels.fixedExpense,
+                  value: model.fixedExpenseLabel || labels.fixedExpensePlaceholder,
+                  tone: "muted",
+                },
               ]}
-              selected={selectedTxId === id}
-              onClick={() => onSelect(id)}
               actions={
-                model.matchLinked ? (
-                  <div className="flex flex-wrap items-center gap-1">
-                    {model.showAutoLinkBadge ? <AutoLinkBadge title={badgeLabels.autoLinkBadgeTitle} /> : null}
-                    {model.showManualLinkBadge ? <ManualLinkBadge title={badgeLabels.manualLinkBadgeTitle} /> : null}
-                    {model.showPartialPaymentBadge ? (
-                      <PartialPaymentBadge title={badgeLabels.partialPaymentBadgeTitle} />
-                    ) : null}
-                  </div>
-                ) : undefined
+                <div className="flex flex-wrap gap-1">
+                  <button
+                    type="button"
+                    className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700"
+                    onClick={() => onEditAccountContent(id)}
+                  >
+                    {labels.accountContent}
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700"
+                    onClick={() => onEditCategory(id)}
+                  >
+                    {labels.category}
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700"
+                    onClick={() => onEditFixedExpense(id)}
+                  >
+                    {labels.fixedExpense}
+                  </button>
+                  {model.matchLinked ? (
+                    <>
+                      {model.showAutoLinkBadge ? <AutoLinkBadge title={badgeLabels.autoLinkBadgeTitle} /> : null}
+                      {model.showManualLinkBadge ? <ManualLinkBadge title={badgeLabels.manualLinkBadgeTitle} /> : null}
+                      {model.showPartialPaymentBadge ? (
+                        <PartialPaymentBadge title={badgeLabels.partialPaymentBadgeTitle} />
+                      ) : null}
+                    </>
+                  ) : null}
+                </div>
               }
             />
           );

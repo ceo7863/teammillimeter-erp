@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useMemo, useRef, useState } from "react";
+import React, { memo, useMemo, useRef, useCallback } from "react";
 import { BankTransactionMobileList } from "@/components/BankTransactionMobileList";
 import {
   BankTransactionSimpleTable,
@@ -8,6 +8,7 @@ import type { BankTransactionCompactRowLabels } from "@/components/BankTransacti
 import type { BankTransactionFolder } from "@/utils/bankTransactionFolders";
 import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "@/utils/companyLedger";
 import type { BankTransaction } from "@/utils/bankTransactions";
+import type { LedgerCategory } from "@/utils/ledgerSystem";
 import {
   buildBankTransactionListLookupMaps,
   buildBankTransactionListRowModels,
@@ -15,9 +16,7 @@ import {
 
 export type BankTransactionListSectionLabels = BankTransactionSimpleTableLabels &
   BankTransactionCompactRowLabels & {
-  detailRowHint: string;
   unfiled: string;
-  memoPlaceholder: string;
 };
 
 type BankTransactionListSectionProps = {
@@ -27,9 +26,13 @@ type BankTransactionListSectionProps = {
   companyExpenses: CompanyExpense[];
   fixedExpensePayments: FixedExpensePayment[];
   fixedExpenses: FixedExpense[];
+  ledgerCategories: LedgerCategory[];
   paymentVouchers?: Array<{ bankTransactionId?: string | number; isPartialPayment?: boolean }>;
   labels: BankTransactionListSectionLabels;
-  onOpenDetail: (row: BankTransaction) => void;
+  onEditAccountContent: (row: BankTransaction) => void;
+  onEditCategory: (row: BankTransaction) => void;
+  onEditFixedExpense: (row: BankTransaction) => void;
+  toolbar?: React.ReactNode;
 };
 
 function BankTransactionListSectionComponent({
@@ -39,11 +42,14 @@ function BankTransactionListSectionComponent({
   companyExpenses,
   fixedExpensePayments,
   fixedExpenses,
+  ledgerCategories,
   paymentVouchers = [],
   labels,
-  onOpenDetail,
+  onEditAccountContent,
+  onEditCategory,
+  onEditFixedExpense,
+  toolbar,
 }: BankTransactionListSectionProps) {
-  const [selectedTxId, setSelectedTxId] = useState<string | null>(null);
   const rowByIdRef = useRef(new Map<string, BankTransaction>());
 
   rowByIdRef.current = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
@@ -60,21 +66,52 @@ function BankTransactionListSectionComponent({
         folderMap,
         ledgerCategoryFolder,
         lookupMaps,
-        { unfiled: labels.unfiled, memoPlaceholder: labels.memoPlaceholder },
+        { unfiled: labels.unfiled, accountContentPlaceholder: labels.accountContentPlaceholder },
         paymentVouchers,
+        ledgerCategories,
+        companyExpenses,
+        fixedExpensePayments,
+        fixedExpenses,
       ),
-    [rows, folderMap, ledgerCategoryFolder, lookupMaps, labels.unfiled, labels.memoPlaceholder, paymentVouchers],
+    [
+      rows,
+      folderMap,
+      ledgerCategoryFolder,
+      lookupMaps,
+      labels.unfiled,
+      labels.accountContentPlaceholder,
+      paymentVouchers,
+      ledgerCategories,
+      companyExpenses,
+      fixedExpensePayments,
+      fixedExpenses,
+    ],
   );
 
   const rowIds = useMemo(() => rows.map((row) => row.id), [rows]);
 
-  const handleSelect = useCallback(
+  const handleEditAccountContent = useCallback(
     (id: string) => {
-      setSelectedTxId(id);
       const row = rowByIdRef.current.get(id);
-      if (row) onOpenDetail(row);
+      if (row) onEditAccountContent(row);
     },
-    [onOpenDetail],
+    [onEditAccountContent],
+  );
+
+  const handleEditCategory = useCallback(
+    (id: string) => {
+      const row = rowByIdRef.current.get(id);
+      if (row) onEditCategory(row);
+    },
+    [onEditCategory],
+  );
+
+  const handleEditFixedExpense = useCallback(
+    (id: string) => {
+      const row = rowByIdRef.current.get(id);
+      if (row) onEditFixedExpense(row);
+    },
+    [onEditFixedExpense],
   );
 
   const tableLabels = useMemo(
@@ -84,14 +121,15 @@ function BankTransactionListSectionComponent({
       withdrawal: labels.withdrawal,
       balance: labels.balance,
       description: labels.description,
-      memo: labels.memo,
-      counterpartyName: labels.counterpartyName,
-      ledgerCategoryColumn: labels.ledgerCategoryColumn,
+      accountContent: labels.accountContent,
+      category: labels.category,
+      fixedExpense: labels.fixedExpense,
       classification: labels.classification,
-      counterpartyBank: labels.counterpartyBank,
       matchStatus: labels.matchStatus,
-      transactionType: labels.transactionType,
       empty: labels.empty,
+      accountContentPlaceholder: labels.accountContentPlaceholder,
+      categoryPlaceholder: labels.categoryPlaceholder,
+      fixedExpensePlaceholder: labels.fixedExpensePlaceholder,
     }),
     [labels],
   );
@@ -110,22 +148,24 @@ function BankTransactionListSectionComponent({
 
   return (
     <>
-      <p className="mb-2 text-xs font-semibold text-slate-500">{labels.detailRowHint}</p>
+      {toolbar ? <div className="mb-3 flex flex-wrap gap-2">{toolbar}</div> : null}
       <BankTransactionMobileList
         rowIds={rowIds}
         rowModels={rowModels}
         labels={tableLabels}
         badgeLabels={badgeLabels}
-        selectedTxId={selectedTxId}
-        onSelect={handleSelect}
+        onEditAccountContent={handleEditAccountContent}
+        onEditCategory={handleEditCategory}
+        onEditFixedExpense={handleEditFixedExpense}
       />
       <BankTransactionSimpleTable
         rowIds={rowIds}
         rowModels={rowModels}
         labels={tableLabels}
         badgeLabels={badgeLabels}
-        selectedTxId={selectedTxId}
-        onSelect={handleSelect}
+        onEditAccountContent={handleEditAccountContent}
+        onEditCategory={handleEditCategory}
+        onEditFixedExpense={handleEditFixedExpense}
       />
     </>
   );

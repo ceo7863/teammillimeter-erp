@@ -126,18 +126,25 @@ import {
   runSmartAutoLedger,
 } from "@/utils/bankSmartLedger";
 import {
+  getBankTxLedgerCategoryLabel,
+  matchesBankTxLedgerScope,
+  registerBankTxWithCategoryName,
+  type LedgerScopeFilter,
+} from "@/utils/ledgerBankBridge";
+import {
+  confirmBankTransactionLedger,
+  findLedgerCategory,
+  findLedgerCategoryByName,
+  type AccountCode,
+  type LedgerCategory,
+} from "@/utils/ledgerSystem";
+import {
   AutocompleteInput,
   BufferedTextarea,
   BufferedTextInput,
   CategorySuggestInput,
   extractCategorySuggestionLabels,
 } from "@/components/AutocompleteInput";
-import {
-  BankTransactionDetailDrawer,
-  type DrawerClassificationKind,
-  type DrawerFolderSelectData,
-  isDrawerFolderClassificationKind,
-} from "@/components/BankTransactionDetailDrawer";
 import { createPaymentInputLogsFromVouchers } from "@/utils/paymentInputLogs";
 import type { ReceivableRow } from "@/utils/receivables";
 import type { ErpUser, BankSyncSnapshot } from "@/utils/erpApi";
@@ -237,39 +244,11 @@ function parseCustomFolderScope(scope: FolderScope) {
   return scope.startsWith("custom:") ? scope.slice("custom:".length) : "";
 }
 
-function resolveDrawerClassificationKind(
-  tx: BankTransaction,
-  folders: BankTransactionFolder[],
-): DrawerClassificationKind {
-  if (!tx.folderId) {
-    if (Number(tx.deposit || 0) > 0 && String(tx.linkedSubject || "").trim()) return "client";
-    return "unfiled";
-  }
-  const folder = folders.find((row) => row.id === tx.folderId);
-  if (!folder) return "custom";
-  if (folder.folderType === "client") return "client";
-  if (folder.folderType === "card") return "card";
-  if (folder.folderType === "worker") return "worker";
-  return "custom";
-}
-
-function resolveDrawerInitialClientName(
-  tx: BankTransaction,
-  kind: DrawerClassificationKind,
-  clientRows: Array<{ name?: string; depositNameAliases?: string }>,
-) {
-  if (kind !== "client") return "";
-  const linked = String(tx.linkedSubject || "").trim();
-  if (linked) return linked;
-  const subject = resolveBankDepositMatchSubject(tx);
-  if (subject) {
-    const client = findClientByDepositSubject(clientRows, subject);
-    if (client?.name) return String(client.name).trim();
-  }
-  return "";
-}
-
 type PageView = "list" | "reconcile";
+
+type TxAccountContentModal = { tx: BankTransaction; draft: string };
+type TxCategoryModal = { tx: BankTransaction; draft: string };
+type TxFixedExpenseModal = { tx: BankTransaction; draft: string };
 
 const EMPTY_TX_SUGGESTION_MAP = new Map<string, never>();
 
@@ -299,9 +278,18 @@ const LEDGER_KIND_OPTIONS: Array<{ key: LedgerRegisterKind; label: string; tone:
   { key: "fixed", label: "\uACE0\uC815\uBE44", tone: "border-slate-200 bg-white text-slate-600", activeTone: "border-amber-600 bg-amber-600 text-white" },
 ];
 
+const LEDGER_SCOPE_OPTIONS: Array<{ key: LedgerScopeFilter; label: string }> = [
+  { key: "all", label: "\uC804\uCCB4" },
+  { key: "ledger_pending", label: "\uBBF8\uBD84\uB958" },
+  { key: "ledger_done", label: "\uBD84\uB958 \uC644\uB8CC" },
+  { key: "ledger_exempt", label: "\uAC00\uACC4\uBD80 \uC81C\uC678" },
+];
+
 const L = {
-  pageTitle: "\uD1B5\uC7A5 \uAC70\uB798\uB0B4\uC5ED",
-  pageDesc: "IBK \uAE30\uC5C5\uC740\uD589 \uAC70\uB798\uB0B4\uC870 \uC5D1\uC140\uC744 \uAC00\uC838\uC640 \uC785\uCD9C\uAE08 \uD750\uB984\uC744 \uD655\uC778\uD569\uB2C8\uB2E4.",
+  pageTitle: "\uD1B5\uC7A5 \u00B7 \uAC00\uACC4\uBD80",
+  pageDesc:
+    "\uD1B5\uC7A5 \uAC70\uB798\uAC00 \uAC00\uACC4\uBD80\uC785\uB2C8\uB2E4. \uAC70\uB798\uB97C \uBD84\uB958\uD558\uACE0, \uAC00\uACC4\uBD80 \uC870\uD68C \uD0ED\uC5D0\uC11C \uD544\uD130\uB85C \uD655\uC778\uD558\uC138\uC694.",
+  ledgerScopeLabel: "\uAC00\uACC4\uBD80 \uC0C1\uD0DC",
   ibkImport: "IBK \uC5D1\uC140 \uAC00\uC838\uC624\uAE30",
   ibkImportTitle: "IBK \uAC70\uB798\uB0B4\uC5ED \uAC00\uC838\uC624\uAE30",
   ibkImportDesc: "\uAE30\uC5C5\uC740\uD589 \uC778\uD130\uB137\uB1B9\uD0B9 \uAC70\uB798\uB0B4\uC5ED \uC870\uD68C \uC5D1\uC140\uC744 \uC120\uD0DD\uD558\uC138\uC694. \uC911\uBCF5 \uAC70\uB798\uB294 \uC790\uB3D9\uC73C\uB85C \uAC74\uB108\uB701\uB2C8\uB2E4.",
@@ -401,6 +389,25 @@ const L = {
   assignFolder: "\uD3F4\uB354",
   memo: "\uBA54\uBAA8",
   memoPlaceholder: "\uBA54\uBAA8 \uC785\uB825",
+  accountContent: "\uACC4\uC815\uB0B4\uC6A9",
+  accountContentPlaceholder: "\uACC4\uC815\uB0B4\uC6A9 \uC785\uB825",
+  categoryColumn: "\uCE74\uD14C\uACE0\uB9AC",
+  categoryPlaceholder: "\uCE74\uD14C\uACE0\uB9AC \uC120\uD0DD",
+  fixedExpenseColumn: "\uACE0\uC815\uBE44\uD56D\uBAA9",
+  fixedExpensePlaceholder: "\uACE0\uC815\uBE44 \uC120\uD0DD",
+  addCategory: "\uCE74\uD14C\uACE0\uB9AC \uCD94\uAC00",
+  addFixedExpense: "\uACE0\uC815\uBE44 \uD56D\uBAA9 \uCD94\uAC00",
+  addCategoryTitle: "\uCE74\uD14C\uACE0\uB9AC \uCD94\uAC00",
+  addFixedExpenseTitle: "\uACE0\uC815\uBE44 \uD56D\uBAA9 \uCD94\uAC00",
+  editAccountContentTitle: "\uACC4\uC815\uB0B4\uC6A9 \uC218\uC815",
+  editCategoryTitle: "\uCE74\uD14C\uACE0\uB9AC \uC218\uC815",
+  editFixedExpenseTitle: "\uACE0\uC815\uBE44 \uD56D\uBAA9 \uC218\uC815",
+  newCategoryName: "\uCE74\uD14C\uACE0\uB9AC \uC774\uB984",
+  newFixedExpenseName: "\uD56D\uBAA9 \uC774\uB984",
+  newFixedExpenseCategory: "\uCE74\uD14C\uACE0\uB9AC",
+  categoryRequired: "\uCE74\uD14C\uACE0\uB9AC\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
+  fixedExpenseRequired: "\uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
+  cellSaveDone: "\uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.",
   detailTitle: "\uD1B5\uC7A5 \uAC70\uB798 \uC804\uD45C",
   detailInfoSection: "\uAC70\uB798 \uC815\uBCF4",
   detailEditSection: "\uC218\uC815 \uD56D\uBAA9",
@@ -412,7 +419,6 @@ const L = {
     "\uAC00\uACC4\uBD80 \uD3F4\uB354\uB85C \uC800\uC7A5\uD558\uB824\uBA74 \uC9C0\uCD9C \uCE74\uD14C\uACE0\uB9AC \uB610\uB294 \uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uB4F1\uB85D\uD574 \uC8FC\uC138\uC694.",
   ledgerFolderRequiresRegistration:
     "\uAC00\uACC4\uBD80 \uD3F4\uB354\uB85C \uC774\uB3D9\uD558\uB824\uBA74 \uC9C0\uCD9C\u00B7\uACE0\uC815\uBE44 \uB4F1\uB85D\uC744 \uBAFC\uC800 \uC644\uB8CC\uD574 \uC8FC\uC138\uC694.",
-  detailRowHint: "\uD589\uC744 \uD074\uB9AD\uD558\uBA74 \uC804\uD45C\uCC98\uB7FC \uC5F4\uB824 \uBA54\uBAA8\u00B7\uBD84\uB958\u00B7\uAC00\uACC4\uBD80 \uD56D\uBAA9\uC744 \uC218\uC815\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
   memoEditHint: "\uBA54\uBAA8 \u00B7 \uBD84\uB958 \u00B7 \uAC00\uACC4\uBD80 \uD56D\uBAA9\uC744 \uC218\uC815\uD55C \uB92C \uC800\uC7A5\uC744 \uB204\uB974\uBA74 \uBC18\uC601\uB429\uB2C8\uB2E4.",
   detailLedgerKindHint: "\uBCC0\uB3D9 \uC9C0\uCD9C\uC740 \uCE74\uD14C\uACE0\uB9AC\uB97C, \uACE0\uC815\uBE44\uB294 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD569\uB2C8\uB2E4.",
   classification: "\uBD84\uB958",
@@ -776,6 +782,8 @@ export function BankTransactionsPage({
   setExpenseCategories,
   fixedExpenseCategories,
   setFixedExpenseCategories,
+  ledgerCategories = [],
+  accountCodes = [],
   currentUser,
   onNavigateToCompanyLedger,
   apiMode = false,
@@ -808,6 +816,8 @@ export function BankTransactionsPage({
   setExpenseCategories: React.Dispatch<React.SetStateAction<string[]>>;
   fixedExpenseCategories: string[];
   setFixedExpenseCategories: React.Dispatch<React.SetStateAction<string[]>>;
+  ledgerCategories?: LedgerCategory[];
+  accountCodes?: AccountCode[];
   currentUser: ErpUser | null;
   onNavigateToCompanyLedger?: () => void;
   apiMode?: boolean;
@@ -829,6 +839,7 @@ export function BankTransactionsPage({
   const [periodKey, setPeriodKey] = useState<PeriodKey>("all");
   const [dateFilter, setDateFilter] = useState<DateFilter>(() => ({ startDate: "", endDate: "" }));
   const [flowFilter, setFlowFilter] = useState<BankTransactionFlowFilter>("all");
+  const [ledgerScopeFilter, setLedgerScopeFilter] = useState<LedgerScopeFilter>("all");
   const [accountFilter, setAccountFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterResetKey, setFilterResetKey] = useState(0);
@@ -890,8 +901,15 @@ export function BankTransactionsPage({
   const [preauthNetModalOpen, setPreauthNetModalOpen] = useState(false);
   const [selectedPreauthGroupKeys, setSelectedPreauthGroupKeys] = useState<string[]>([]);
   const [learnPreauthMerchants, setLearnPreauthMerchants] = useState(true);
-  const [detailTxId, setDetailTxId] = useState<string | null>(null);
-  const [detailDrawerError, setDetailDrawerError] = useState("");
+  const [accountContentModal, setAccountContentModal] = useState<TxAccountContentModal | null>(null);
+  const [categoryModal, setCategoryModal] = useState<TxCategoryModal | null>(null);
+  const [fixedExpenseModal, setFixedExpenseModal] = useState<TxFixedExpenseModal | null>(null);
+  const [addCategoryModalOpen, setAddCategoryModalOpen] = useState(false);
+  const [addFixedExpenseModalOpen, setAddFixedExpenseModalOpen] = useState(false);
+  const [addExpenseCategoryName, setAddExpenseCategoryName] = useState("");
+  const [newFixedExpenseName, setNewFixedExpenseName] = useState("");
+  const [newFixedExpenseCategory, setNewFixedExpenseCategory] = useState("");
+  const [txCellModalError, setTxCellModalError] = useState("");
   const importLedgerBatchIdsRef = useRef<Set<string>>(new Set());
   const ledgerMemoDraftRef = useRef("");
   const ledgerReviewMemoDraftRef = useRef("");
@@ -1195,18 +1213,14 @@ export function BankTransactionsPage({
   const resolveLinkedFixedPaymentForBankTx = (tx: BankTransaction) =>
     getLinkedFixedPaymentForBankTx(tx, fixedExpensePayments);
 
-  const getLedgerCategoryLabel = (row: BankTransaction) => {
-    const linkedExpense = resolveLinkedCompanyExpenseForBankTx(row);
-    if (linkedExpense?.category?.trim()) return linkedExpense.category.trim();
-
-    const linkedPayment = resolveLinkedFixedPaymentForBankTx(row);
-    if (linkedPayment) {
-      const fixedItem = fixedExpenses.find((item) => item.id === linkedPayment.fixedExpenseId);
-      if (fixedItem?.name?.trim()) return fixedItem.name.trim();
-      return fixedItem?.category?.trim() || null;
-    }
-    return null;
-  };
+  const getLedgerCategoryLabel = (row: BankTransaction) =>
+    getBankTxLedgerCategoryLabel(
+      row,
+      ledgerCategories,
+      companyExpenses,
+      fixedExpensePayments,
+      fixedExpenses,
+    );
 
   const isLedgerCategoryFromFixed = (row: BankTransaction) => {
     const linkedExpense = resolveLinkedCompanyExpenseForBankTx(row);
@@ -1750,6 +1764,20 @@ export function BankTransactionsPage({
     let nextTransactions = [...bankTransactions];
 
     for (const tx of ledgerReviewPrompt.transactions) {
+      const confirmedTx = registerBankTxWithCategoryName({
+        tx,
+        categoryName: category,
+        ledgerCategories,
+        accountCodes,
+        confirmedBy: savedBy || undefined,
+      });
+      if (confirmedTx) {
+        nextTransactions = nextTransactions.map((row) => (row.id === tx.id ? confirmedTx : row));
+        auditBankTxUpdate(tx, confirmedTx);
+        importLedgerBatchIdsRef.current.delete(tx.id);
+        continue;
+      }
+
       const expense = createCompanyExpenseFromBankTransaction(tx, category, savedBy || undefined);
       nextExpenses = [expense, ...nextExpenses];
       nextTransactions = nextTransactions.map((row) =>
@@ -2013,271 +2041,221 @@ export function BankTransactionsPage({
   const activeLedgerCategoryOptions =
     ledgerModal?.kind === "fixed" ? ledgerFixedCategoryOptions : ledgerManualCategoryOptions;
 
-  const resolveDrawerLedgerPrefill = React.useCallback(
-    (row: BankTransaction) => {
-      const linkedPayment = resolveLinkedFixedPaymentForBankTx(row);
-      if (linkedPayment) {
-        const fixedItem = fixedExpenses.find((item) => item.id === linkedPayment.fixedExpenseId);
-        return {
-          kind: "fixed" as LedgerRegisterKind,
-          fixedExpenseId: linkedPayment.fixedExpenseId,
-          category:
-            linkedPayment.category?.trim() || fixedItem?.category?.trim() || fixedItem?.name?.trim() || "",
-        };
-      }
+  const tableCategoryOptions = useMemo(() => {
+    const names = new Set<string>();
+    for (const row of ledgerCategories) {
+      if (row.isActive && row.name.trim()) names.add(row.name.trim());
+    }
+    for (const row of normalizeExpenseCategories(expenseCategories)) {
+      if (row.trim()) names.add(row.trim());
+    }
+    return [...names].sort((a, b) => a.localeCompare(b, "ko"));
+  }, [ledgerCategories, expenseCategories]);
 
-      const linkedCategory = getLedgerCategoryLabel(row);
-      if (linkedCategory) {
-        return {
-          kind: "manual" as LedgerRegisterKind,
-          fixedExpenseId: "",
-          category: linkedCategory,
-        };
-      }
-
-      const memoCategory =
-        resolveMemoLearnCategory(row.memo, expenseCategories) || resolveCategoryFromMemo(row.memo);
-      if (memoCategory) {
-        return {
-          kind: "manual" as LedgerRegisterKind,
-          fixedExpenseId: "",
-          category: memoCategory,
-        };
-      }
-
-      const classification = classifyBankTransactionForLedger(row, {
-        rules: bankLedgerRules,
-        fixedExpenses,
-        expenseCategories,
-        companyExpenses,
-        workers,
-        clients,
-      });
-      if (classification?.kind === "fixed" && classification.fixedExpenseId) {
-        const fixedItem = fixedExpenses.find((item) => item.id === classification.fixedExpenseId);
-        return {
-          kind: "fixed" as LedgerRegisterKind,
-          fixedExpenseId: classification.fixedExpenseId,
-          category:
-            classification.category?.trim() ||
-            fixedItem?.category?.trim() ||
-            fixedItem?.name?.trim() ||
-            "",
-        };
-      }
-      if (classification?.category?.trim()) {
-        return {
-          kind: "manual" as LedgerRegisterKind,
-          fixedExpenseId: "",
-          category: classification.category.trim(),
-        };
-      }
-
-      const targetKey = resolveLedgerTargetForBankTransaction(row, bankLedgerRules, fixedExpenses);
-      const parsed = parseLedgerTargetKey(targetKey);
-      const learnMatch = findBestBankLearnRuleWithScore(row, bankLedgerRules, fixedExpenses, ["fixed", "manual"]);
-      const ledgerRule = learnMatch?.rule || findMatchingBankLedgerRule(row, bankLedgerRules, fixedExpenses);
-      const kind: LedgerRegisterKind = parsed?.kind === "fixed" ? "fixed" : "manual";
-      const fixedItem =
-        parsed?.kind === "fixed" && parsed.fixedExpenseId
-          ? fixedExpenses.find((item) => item.id === parsed.fixedExpenseId)
-          : undefined;
-      const defaultFixedId =
-        fixedItem?.id || fixedExpenses.find((item) => item.isActive)?.id || "";
-      const defaultManualCategory = expenseCategories[0] || EXPENSE_CATEGORY_OPTIONS[0];
-      const defaultFixedCategory = fixedItem?.category?.trim() || FIXED_CATEGORY_OPTIONS[0];
-      const resolvedCategory =
-        kind === "manual"
-          ? (ledgerRule && "category" in ledgerRule ? ledgerRule.category : "") ||
-            (parsed?.kind === "manual" ? parsed.category || "" : "")
-          : fixedItem?.category ||
-            (ledgerRule && "category" in ledgerRule ? ledgerRule.category : "") ||
-            "";
-
-      return {
-        kind,
-        fixedExpenseId: kind === "fixed" ? defaultFixedId : "",
-        category:
-          kind === "fixed"
-            ? resolvedCategory.trim() || defaultFixedCategory
-            : resolvedCategory.trim() || defaultManualCategory,
-      };
-    },
-    [
-      bankLedgerRules,
-      companyExpenses,
-      expenseCategories,
-      fixedExpensePayments,
-      fixedExpenses,
-      clients,
-      workers,
-    ],
+  const resolveTxCategoryDraft = useCallback(
+    (tx: BankTransaction) =>
+      getLedgerCategoryLabel(tx) ||
+      resolveLedgerCategorySuggestionLabel(tx) ||
+      resolveMemoLearnCategory(tx.memo, expenseCategories) ||
+      resolveCategoryFromMemo(tx.memo) ||
+      "",
+    [expenseCategories, getLedgerCategoryLabel, resolveLedgerCategorySuggestionLabel],
   );
 
-  const canRegisterDrawerLedger = React.useCallback(
+  const resolveTxFixedExpenseDraft = useCallback(
     (tx: BankTransaction) => {
-      if (!canRegisterBankTxToCompanyLedger(tx, ledgerRegistrationContext)) return false;
-      const memoCategory = resolveMemoLearnCategory(tx.memo, expenseCategories);
-      return evaluateBankTxLedgerRegistrationGate(tx, {
-        rules: bankLedgerRules,
-        fixedExpenses,
-        expenseCategories,
-        companyExpenses,
-        workers,
-        clients,
-        memoCategorySuggestion: memoCategory
-          ? { category: memoCategory, confidence: 100, label: memoCategory }
-          : null,
-      }).allowed;
+      if (tx.ledgerFixedExpenseId) return tx.ledgerFixedExpenseId;
+      const linkedPayment = resolveLinkedFixedPaymentForBankTx(tx);
+      return linkedPayment?.fixedExpenseId || "";
     },
-    [
-      bankLedgerRules,
-      clients,
-      companyExpenses,
-      expenseCategories,
-      fixedExpenses,
-      ledgerRegistrationContext,
-      workers,
-    ],
+    [fixedExpensePayments],
   );
 
-  const resolveDetailLedgerPrefill = React.useCallback(
-    (row: BankTransaction) => {
-      const linkedPayment = resolveLinkedFixedPaymentForBankTx(row);
-      if (linkedPayment) {
-        const fixedItem = fixedExpenses.find((item) => item.id === linkedPayment.fixedExpenseId);
-        return {
-          kind: "fixed" as LedgerRegisterKind,
-          fixedExpenseId: linkedPayment.fixedExpenseId,
-          category:
-            linkedPayment.category?.trim() || fixedItem?.category?.trim() || fixedItem?.name?.trim() || "",
-        };
-      }
-      const suggestion = resolveLedgerRegistrationSuggestion(row);
-      if (isLedgerCategoryFromFixed(row) || suggestion.kind === "fixed") {
-        const fixedItem = suggestion.fixedExpenseId
-          ? fixedExpenses.find((item) => item.id === suggestion.fixedExpenseId)
-          : undefined;
-        return {
-          kind: "fixed" as LedgerRegisterKind,
-          fixedExpenseId: suggestion.fixedExpenseId || "",
-          category: suggestion.category || fixedItem?.category?.trim() || fixedItem?.name?.trim() || "",
-        };
-      }
-      return {
-        kind: "manual" as LedgerRegisterKind,
-        fixedExpenseId: "",
-        category:
-          getLedgerCategoryLabel(row) ||
-          resolveLedgerCategorySuggestionLabel(row) ||
-          resolveCategoryFromMemo(row.memo) ||
-          suggestion.category ||
-          "",
-      };
-    },
-    [
-      fixedExpenses,
-      fixedExpensePayments,
-      companyExpenses,
-      resolveLedgerRegistrationSuggestion,
-      memoCategorySuggestionByTxId,
-      ledgerSuggestionByTxId,
-    ],
-  );
-
-  const detailDrawerSnapshot = useMemo(() => {
-    if (!detailTxId) return null;
-    const tx = bankTransactions.find((row) => row.id === detailTxId);
-    if (!tx) return null;
-
-    const prefill = resolveDrawerLedgerPrefill(tx);
-    const folder =
-      tx.folderId ? bankTransactionFolders.find((row) => row.id === tx.folderId) : undefined;
-    const folderLabel = folder?.folderName || L.unfiled;
-
-    const mapFolder = (item: BankTransactionFolder) => ({
-      id: item.id,
-      label: formatFolderSelectLabel(item),
-    });
-    const customOptgroups: DrawerFolderSelectData["customOptgroups"] = [];
-    for (const root of customCategoryRoots) {
-      const ids = new Set(collectCustomCategoryFolderIds(bankTransactionFolders, root.id));
-      const options = assignableCustomFolders.filter((item) => ids.has(item.id)).map(mapFolder);
-      if (options.length) {
-        customOptgroups.push({ rootId: root.id, rootLabel: root.folderName, options });
-      }
-    }
-    const folderSelectData: DrawerFolderSelectData = {
-      clientOptions: assignableClientFolders.map(mapFolder),
-      cardOptions: assignableCardFolders.map(mapFolder),
-      workerOptions: assignableWorkerFolders.map(mapFolder),
-      customOptgroups,
-    };
-
-    const fixedExpenseOptions = (() => {
-      const options = fixedExpenseSelectOptions.map((row) => ({ label: row.label, value: row.value }));
-      if (prefill.fixedExpenseId && !options.some((row) => row.value === prefill.fixedExpenseId)) {
-        const fixedItem = fixedExpenses.find((row) => row.id === prefill.fixedExpenseId);
-        if (fixedItem) {
-          options.unshift({
-            value: fixedItem.id,
-            label: `${fixedItem.name} \u00B7 ${fixedItem.category} \u00B7 ${formatFixedExpensePaymentDay(fixedItem.paymentDayOfMonth)}`,
-          });
-        }
-      }
-      return options;
-    })();
-
-    const categories = normalizeExpenseCategories(expenseCategories);
-    const currentCategory = getLedgerCategoryLabel(tx) || prefill.category || "";
-    if (currentCategory && !categories.includes(currentCategory)) {
-      categories.unshift(currentCategory);
-    }
-    const manualCategorySuggestions = extractCategorySuggestionLabels(
-      categories.map((category) => ({ label: category, value: category })),
-    );
-    const fixedCategorySuggestions = extractCategorySuggestionLabels(
-      buildFixedCategorySelectOptions(fixedExpenses, fixedExpenseCategories, prefill.category),
-    );
-
-    const drawerCategorySuggestion = (() => {
-      if (getLedgerCategoryLabel(tx)) return null;
-      return resolveDrawerLedgerPrefill(tx).category || null;
-    })();
-
-    const initialClassificationKind = resolveDrawerClassificationKind(tx, bankTransactionFolders);
-    const initialClientName = resolveDrawerInitialClientName(tx, initialClassificationKind, clients);
-
-    return {
+  const openAccountContentModal = useCallback((tx: BankTransaction) => {
+    setTxCellModalError("");
+    setAccountContentModal({
       tx,
-      folderLabel,
-      ledgerCategoryLabel: getLedgerCategoryLabel(tx),
-      ledgerCategorySuggestion: drawerCategorySuggestion,
-      matchStatusLabel: tx.linkedPaymentVoucherId ? getBankMatchStatusLabel(tx) : "-",
-      linkedSubject: tx.linkedSubject || "",
-      depositSubject: resolveBankDepositMatchSubject(tx) || "",
-      initialClassificationKind,
-      initialClientName,
-      initialLedgerKind: prefill.kind,
-      initialLedgerCategory: prefill.category,
-      initialFixedExpenseId: prefill.fixedExpenseId,
-      manualCategorySuggestions,
-      fixedCategorySuggestions,
-      fixedExpenseOptions,
-      folderSelectData,
-      clientAutocompleteOptions,
-      canLedger: canRegisterDrawerLedger(tx),
-      showLedgerEdit: Boolean(getLedgerCategoryLabel(tx)),
-      showLedgerRegister: canRegisterDrawerLedger(tx),
-    };
-    // Freeze snapshot while drawer is open — ignore live bankTransactions updates during typing.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detailTxId]);
-
-  const closeDetailDrawer = React.useCallback(() => {
-    setDetailDrawerError("");
-    setDetailTxId(null);
+      draft: String(tx.ledgerMemo || tx.memo || "").trim(),
+    });
   }, []);
+
+  const openCategoryModal = useCallback(
+    (tx: BankTransaction) => {
+      setTxCellModalError("");
+      setCategoryModal({ tx, draft: resolveTxCategoryDraft(tx) });
+    },
+    [resolveTxCategoryDraft],
+  );
+
+  const openFixedExpenseModal = useCallback(
+    (tx: BankTransaction) => {
+      setTxCellModalError("");
+      setFixedExpenseModal({ tx, draft: resolveTxFixedExpenseDraft(tx) });
+    },
+    [resolveTxFixedExpenseDraft],
+  );
+
+  const saveAccountContentModal = () => {
+    if (!accountContentModal) return;
+    const { tx, draft } = accountContentModal;
+    const nextMemo = draft.trim() || undefined;
+    const nextRow: BankTransaction = {
+      ...tx,
+      memo: nextMemo,
+      ledgerMemo: nextMemo,
+    };
+    auditBankTxUpdate(tx, nextRow);
+    const nextTransactions = bankTransactions.map((row) => (row.id === tx.id ? nextRow : row));
+    setBankTransactions(nextTransactions);
+    setAccountContentModal(null);
+    setImportMessage(L.cellSaveDone);
+    void onRequestImmediateSave?.({ bankTransactions: nextTransactions });
+  };
+
+  const saveCategoryModal = () => {
+    if (!categoryModal) return;
+    const categoryName = categoryModal.draft.trim();
+    if (!categoryName) {
+      setTxCellModalError(L.categoryRequired);
+      return;
+    }
+    const { tx } = categoryModal;
+    const category =
+      findLedgerCategoryByName(ledgerCategories, categoryName) ||
+      findLedgerCategory(ledgerCategories, tx.ledgerCategoryId || "");
+    const ledgerMemo = tx.ledgerMemo || tx.memo;
+    let nextRow =
+      registerBankTxWithCategoryName({
+        tx,
+        categoryName,
+        ledgerCategories,
+        accountCodes,
+        confirmedBy: savedBy,
+        fixedExpenseId: tx.ledgerFixedExpenseId,
+      }) ||
+      (category
+        ? confirmBankTransactionLedger({
+            tx,
+            category,
+            accountCodes,
+            confirmedBy: savedBy,
+            fixedExpenseId: tx.ledgerFixedExpenseId,
+            memo: ledgerMemo,
+          })
+        : null);
+    if (!nextRow) {
+      setTxCellModalError(L.detailLedgerRegisterFailed);
+      return;
+    }
+    auditBankTxUpdate(tx, nextRow);
+    const nextTransactions = bankTransactions.map((row) => (row.id === tx.id ? nextRow! : row));
+    const nextExpenseCategories = mergeExpenseCategory(expenseCategories, categoryName);
+    setBankTransactions(nextTransactions);
+    setExpenseCategories(nextExpenseCategories);
+    setCategoryModal(null);
+    setTxCellModalError("");
+    setImportMessage(L.cellSaveDone);
+    void onRequestImmediateSave?.({
+      bankTransactions: nextTransactions,
+      expenseCategories: nextExpenseCategories,
+    });
+  };
+
+  const saveFixedExpenseModal = () => {
+    if (!fixedExpenseModal) return;
+    const fixedExpenseId = fixedExpenseModal.draft.trim();
+    if (!fixedExpenseId) {
+      setTxCellModalError(L.fixedExpenseRequired);
+      return;
+    }
+    const { tx } = fixedExpenseModal;
+    const fixedItem = fixedExpenses.find((row) => row.id === fixedExpenseId);
+    if (!fixedItem) {
+      setTxCellModalError(L.fixedExpenseRequired);
+      return;
+    }
+    const categoryName = fixedItem.category?.trim() || fixedItem.name?.trim() || "";
+    const category =
+      findLedgerCategoryByName(ledgerCategories, categoryName) ||
+      ledgerCategories.find((row) => row.kind === "fixed" && row.isActive);
+    if (!category) {
+      setTxCellModalError(L.detailLedgerRegisterFailed);
+      return;
+    }
+
+    let nextPayments = fixedExpensePayments;
+    let nextRow = confirmBankTransactionLedger({
+      tx,
+      category,
+      accountCodes,
+      confirmedBy: savedBy,
+      fixedExpenseId: fixedItem.id,
+      memo: tx.ledgerMemo || tx.memo,
+    });
+
+    if (Number(tx.withdrawal || 0) > 0) {
+      const assignment = assignBankTxToFixedExpensePayment({
+        tx: nextRow,
+        resolvedFixedExpenseId: fixedItem.id,
+        fixedItem,
+        payments: nextPayments,
+        fixedExpenses,
+        resolvedCategory: categoryName,
+        memo: nextRow.ledgerMemo || nextRow.memo,
+        savedBy,
+      });
+      nextPayments = assignment.payments;
+      if (assignment.paymentId) {
+        nextRow = {
+          ...nextRow,
+          linkedFixedExpensePaymentId: assignment.paymentId,
+          linkedCompanyExpenseId: undefined,
+        };
+      }
+    }
+
+    auditBankTxUpdate(tx, nextRow);
+    const nextTransactions = bankTransactions.map((row) => (row.id === tx.id ? nextRow : row));
+    setBankTransactions(nextTransactions);
+    setFixedExpensePayments(nextPayments);
+    setFixedExpenseModal(null);
+    setTxCellModalError("");
+    setImportMessage(L.cellSaveDone);
+    void onRequestImmediateSave?.({
+      bankTransactions: nextTransactions,
+      fixedExpensePayments: nextPayments,
+    });
+  };
+
+  const handleAddCategory = () => {
+    const trimmed = addExpenseCategoryName.trim();
+    if (!trimmed) return;
+    setExpenseCategories((prev) => mergeExpenseCategory(prev, trimmed));
+    setAddExpenseCategoryName("");
+    setAddCategoryModalOpen(false);
+    setImportMessage(L.cellSaveDone);
+  };
+
+  const handleAddFixedExpense = () => {
+    const name = newFixedExpenseName.trim();
+    const category = newFixedExpenseCategory.trim() || FIXED_CATEGORY_OPTIONS[0];
+    if (!name) return;
+    const nextItem: FixedExpense = {
+      id: makeLedgerId(),
+      name,
+      category,
+      amount: 0,
+      cycle: "monthly",
+      paymentDayOfMonth: 1,
+      isActive: true,
+    };
+    setFixedExpenses((prev) => [...prev, nextItem]);
+    setFixedExpenseCategories((prev) => mergeFixedExpenseCategory(prev, category));
+    setNewFixedExpenseName("");
+    setNewFixedExpenseCategory("");
+    setAddFixedExpenseModalOpen(false);
+    setImportMessage(L.cellSaveDone);
+  };
 
   const reviewLinkablePayments = useMemo(() => {
     if (!ledgerReviewPrompt || ledgerReviewPrompt.kind !== "fixed") return [];
@@ -2348,6 +2326,12 @@ export function BankTransactionsPage({
       }
     }
 
+    if (ledgerScopeFilter !== "all") {
+      scoped = scoped.filter((row) =>
+        matchesBankTxLedgerScope(row, ledgerScopeFilter, companyExpenses, fixedExpensePayments),
+      );
+    }
+
     return sortBankTransactions(scoped, { key: sort.key, direction: sort.direction });
   }, [
     ledgerSyncedTransactions,
@@ -2355,6 +2339,9 @@ export function BankTransactionsPage({
     activePeriod.startDate,
     activePeriod.endDate,
     flowFilter,
+    ledgerScopeFilter,
+    companyExpenses,
+    fixedExpensePayments,
     accountFilter,
     selectedFolderScopeIds,
     folderScope,
@@ -2833,7 +2820,7 @@ export function BankTransactionsPage({
       folderId === DEFAULT_LEDGER_CATEGORY_FOLDER_ID &&
       !isBankTransactionLinkedToCompanyLedger(tx, ledgerRegistrationContext)
     ) {
-      setDetailTxId(transactionId);
+      openCategoryModal(tx);
       setImportMessage(L.ledgerFolderRequiresRegistration);
       return;
     }
@@ -2873,574 +2860,6 @@ export function BankTransactionsPage({
     });
   };
 
-  const openBankTransactionDetail = useCallback((tx: BankTransaction) => {
-    setDetailDrawerError("");
-    setDetailTxId(tx.id);
-  }, []);
-
-  const saveBankTransactionDetail = useCallback(
-    (payload: {
-      memo: string;
-      classificationKind: DrawerClassificationKind;
-      clientName: string;
-      folderId: string;
-      ledgerKind: LedgerRegisterKind;
-      ledgerCategory: string;
-      fixedExpenseId: string;
-    }) => {
-      if (!detailTxId) return;
-      const tx = bankTransactions.find((row) => row.id === detailTxId);
-      if (!tx) return;
-
-      const finalizeLedgerState = (
-        workingTransactions: BankTransaction[],
-        nextExpenses: typeof companyExpenses,
-        nextPayments: typeof fixedExpensePayments,
-        foldersBase: typeof bankTransactionFolders,
-      ) => {
-        const folders = ensureDefaultBankTransactionFolders(foldersBase);
-        const synced = syncBankTransactionLedgerLinkFields(workingTransactions, nextExpenses, nextPayments);
-        return syncLedgerLinkedBankTransactionFolders(synced, folders, {
-          companyExpenses: nextExpenses,
-          fixedExpensePayments: nextPayments,
-        });
-      };
-
-      let nextRow: BankTransaction = { ...tx };
-      let rowChanged = false;
-      let nextTransactions = bankTransactions;
-      let nextExpenses = companyExpenses;
-      let nextPayments = fixedExpensePayments;
-      let nextRules = bankLedgerRules;
-      let nextFolders = bankTransactionFolders;
-      let nextClients = clients;
-      let expenseCategoryToMerge: string | null = null;
-      let manualLedgerRegistered = false;
-
-      const detailPrefill = resolveDetailLedgerPrefill(tx);
-      const nextMemo = payload.memo.trim() || undefined;
-      const memoChanged = String(tx.memo || "").trim() !== String(nextMemo || "").trim();
-      if (memoChanged) {
-        nextRow = { ...nextRow, memo: nextMemo };
-        rowChanged = true;
-      }
-
-      const memoLedgerDraft = isDrawerFolderClassificationKind(payload.classificationKind)
-        ? { ledgerKind: payload.ledgerKind, ledgerCategory: "" }
-        : applyMemoCategoryToLedgerDraft(
-            payload.memo,
-            {
-              ledgerKind: payload.ledgerKind,
-              ledgerCategory: payload.ledgerCategory.trim(),
-            },
-            expenseCategories,
-          );
-      const ledgerKind = memoLedgerDraft.ledgerKind;
-      let ledgerCategory = memoLedgerDraft.ledgerCategory;
-      const resolvedLedgerKind =
-        !isDrawerFolderClassificationKind(payload.classificationKind) &&
-        ledgerCategory.trim() &&
-        ledgerKind === "fixed" &&
-        !payload.fixedExpenseId.trim()
-          ? "manual"
-          : ledgerKind;
-      const categoryChanged =
-        !isDrawerFolderClassificationKind(payload.classificationKind) &&
-        detailPrefill.category.trim() !== ledgerCategory;
-      const hasManualLedgerCategory =
-        !isDrawerFolderClassificationKind(payload.classificationKind) &&
-        resolvedLedgerKind === "manual" &&
-        Boolean(ledgerCategory.trim());
-
-      let targetFolderId = payload.folderId.trim();
-      let targetLinkedSubject: string | undefined = tx.linkedSubject;
-
-      if (payload.classificationKind === "unfiled") {
-        targetFolderId = "";
-        targetLinkedSubject = undefined;
-      } else if (payload.classificationKind === "client") {
-        const clientName = payload.clientName.trim();
-        if (!clientName) {
-          setDetailDrawerError(L.clientLinkMissingClient);
-          return;
-        }
-        const subject = resolveBankDepositMatchSubject(tx);
-        if (!subject) {
-          setDetailDrawerError(L.clientLinkMissingSubject);
-          return;
-        }
-        const client = nextClients.find((row) => String(row.name || "").trim() === clientName);
-        if (!client?.id) {
-          setDetailDrawerError(L.clientLinkMissingClient);
-          return;
-        }
-        const nextAliases = appendDepositNameAlias(client.depositNameAliases, subject);
-        if (nextAliases !== client.depositNameAliases) {
-          const updatedClient = { ...client, depositNameAliases: nextAliases };
-          recordAudit({
-            entityType: "client",
-            entityId: client.id,
-            entityLabel: String(client.name || ""),
-            screen: L.pageTitle,
-            action: "update",
-            before: snapshotClientForAudit(client),
-            after: snapshotClientForAudit(updatedClient),
-            fields: CLIENT_AUDIT_FIELDS,
-            user: currentUser,
-          });
-          nextClients = nextClients.map((row) => (row.id === client.id ? updatedClient : row));
-        }
-        targetFolderId = DEFAULT_CLIENT_FOLDER_ID;
-        targetLinkedSubject = clientName;
-        nextFolders = ensureDefaultBankTransactionFolders(nextFolders);
-      } else if (payload.classificationKind === "card") {
-        targetFolderId = targetFolderId || DEFAULT_CARD_SALES_FOLDER_ID;
-      } else if (payload.classificationKind === "worker") {
-        targetFolderId = targetFolderId || DEFAULT_WORKER_FOLDER_ID;
-        const matchedWorker = findWorkerForBankTransaction(tx, workers);
-        if (matchedWorker?.name) {
-          targetLinkedSubject = String(matchedWorker.name).trim();
-        }
-      }
-
-      if (
-        !isDrawerFolderClassificationKind(payload.classificationKind) &&
-        (memoChanged || categoryChanged || hasManualLedgerCategory)
-      ) {
-        targetFolderId = DEFAULT_LEDGER_CATEGORY_FOLDER_ID;
-      }
-      const folderChanged = String(tx.folderId || "") !== targetFolderId;
-      if (folderChanged) {
-        if (targetFolderId && !canAssignBankTransactionToFolder(tx, targetFolderId, bankTransactionFolders, workers)) {
-          setDetailDrawerError(L.workerFolderAssignBlocked);
-          return;
-        }
-        nextRow = targetFolderId
-          ? {
-              ...nextRow,
-              folderId: targetFolderId,
-              classifiedAt: new Date().toISOString(),
-              linkedSubject:
-                targetLinkedSubject ||
-                nextRow.linkedSubject ||
-                nextRow.counterpartyName ||
-                nextRow.description ||
-                undefined,
-            }
-          : {
-              ...nextRow,
-              folderId: undefined,
-              linkedSubject: undefined,
-              classifiedAt: undefined,
-            };
-        rowChanged = true;
-      } else if (
-        payload.classificationKind === "client" &&
-        targetLinkedSubject &&
-        (String(tx.linkedSubject || "") !== targetLinkedSubject ||
-          String(tx.folderId || "") !== DEFAULT_CLIENT_FOLDER_ID)
-      ) {
-        nextRow = applyClientDepositLinkToTransaction(nextRow, targetLinkedSubject);
-        targetFolderId = DEFAULT_CLIENT_FOLDER_ID;
-        rowChanged = true;
-      }
-
-      if (rowChanged) {
-        auditBankTxUpdate(tx, nextRow);
-        nextTransactions = bankTransactions.map((row) => (row.id === tx.id ? nextRow : row));
-      }
-
-      if ((folderChanged || (payload.classificationKind === "client" && rowChanged)) && targetFolderId) {
-        nextRules = upsertBankLearnRule(
-          nextRules,
-          buildBankLearnRuleFromFolderAssignment(tx, targetFolderId, savedBy || undefined),
-        );
-        nextFolders = ensureDefaultBankTransactionFolders(nextFolders);
-      }
-
-      const fixedExpenseId = payload.fixedExpenseId.trim();
-      const linkedPayment = resolveLinkedFixedPaymentForBankTx(tx);
-      const linkedExpense = resolveLinkedCompanyExpenseForBankTx(tx);
-
-      if (
-        (payload.classificationKind === "client" ||
-          payload.classificationKind === "worker" ||
-          payload.classificationKind === "card") &&
-        rowChanged
-      ) {
-        let workingTransactions = nextTransactions;
-        if (linkedExpense) {
-          const cleared = clearVariableExpenseLinkForBankTx(tx.id, nextExpenses, workingTransactions);
-          nextExpenses = cleared.expenses;
-          workingTransactions = cleared.transactions;
-        }
-        if (linkedPayment) {
-          nextPayments = releaseFixedExpensePaymentBankLink(nextPayments, linkedPayment.id, tx.id);
-          workingTransactions = workingTransactions.map((row) =>
-            row.id === tx.id ? { ...row, linkedFixedExpensePaymentId: undefined } : row,
-          );
-        }
-        if (linkedExpense || linkedPayment) {
-          nextTransactions = workingTransactions.map((row) =>
-            row.id === tx.id
-              ? { ...row, linkedCompanyExpenseId: undefined, linkedFixedExpensePaymentId: undefined }
-              : row,
-          );
-        }
-      }
-
-      if (!isDrawerFolderClassificationKind(payload.classificationKind) && resolvedLedgerKind === "fixed") {
-        let resolvedFixedExpenseId = fixedExpenseId;
-        if (!resolvedFixedExpenseId && ledgerCategory) {
-          const fixedByName = fixedExpenses.find((row) => row.name.trim() === ledgerCategory.trim());
-          if (fixedByName) resolvedFixedExpenseId = fixedByName.id;
-        }
-        if (!resolvedFixedExpenseId) {
-          setDetailDrawerError(L.detailFixedItemRequired);
-          return;
-        }
-        const fixedItem = fixedExpenses.find((row) => row.id === resolvedFixedExpenseId);
-        if (!fixedItem) {
-          setDetailDrawerError(L.detailFixedItemRequired);
-          return;
-        }
-
-        const workingTx = nextTransactions.find((row) => row.id === tx.id) || nextRow;
-        let workingTransactions = nextTransactions;
-        const resolvedCategory = ledgerCategory || fixedItem.category?.trim() || "";
-
-        if (linkedExpense && linkedExpense.kind !== "fixed") {
-          const cleared = clearVariableExpenseLinkForBankTx(tx.id, nextExpenses, workingTransactions);
-          nextExpenses = cleared.expenses;
-          workingTransactions = cleared.transactions;
-          if (cleared.removedExpense) {
-            recordAudit({
-              entityType: "companyExpense",
-              entityId: cleared.removedExpense.id,
-              entityLabel: `${cleared.removedExpense.date} \u00B7 ${cleared.removedExpense.description || cleared.removedExpense.category}`,
-              screen: L.pageTitle,
-              action: "delete",
-              before: snapshotCompanyExpenseForAudit(cleared.removedExpense),
-              fields: COMPANY_EXPENSE_AUDIT_FIELDS,
-              user: currentUser,
-            });
-          }
-        }
-
-        const assignment = assignBankTxToFixedExpensePayment({
-          tx: workingTx,
-          resolvedFixedExpenseId,
-          fixedItem,
-          payments: nextPayments,
-          fixedExpenses,
-          resolvedCategory,
-          memo: nextMemo,
-          savedBy,
-        });
-        nextPayments = assignment.payments;
-        const paymentId = assignment.paymentId;
-
-        if (assignment.created && assignment.afterPayment) {
-          recordAudit({
-            entityType: "fixedExpensePayment",
-            entityId: assignment.afterPayment.id,
-            entityLabel: fixedItem.name || assignment.afterPayment.id,
-            screen: L.pageTitle,
-            action: "create",
-            after: snapshotFixedExpensePaymentForAudit(assignment.afterPayment),
-            fields: FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS,
-            user: currentUser,
-          });
-        } else if (assignment.afterPayment && assignment.beforePayment) {
-          const beforePayment = assignment.beforePayment;
-          const afterPayment = assignment.afterPayment;
-          if (
-            assignment.changedFixedItem ||
-            beforePayment.fixedExpenseId !== afterPayment.fixedExpenseId ||
-            String(beforePayment.category || "") !== String(afterPayment.category || "")
-          ) {
-            recordAudit({
-              entityType: "fixedExpensePayment",
-              entityId: afterPayment.id,
-              entityLabel: fixedItem.name || afterPayment.id,
-              screen: L.pageTitle,
-              action: "update",
-              before: snapshotFixedExpensePaymentForAudit(beforePayment),
-              after: snapshotFixedExpensePaymentForAudit(afterPayment),
-              fields: FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS,
-              user: currentUser,
-            });
-          }
-        }
-
-        if (paymentId) {
-          workingTransactions = workingTransactions.map((row) =>
-            row.id === tx.id
-              ? assignDefaultLedgerFolderToBankTransaction({
-                  ...row,
-                  linkedFixedExpensePaymentId: paymentId,
-                  linkedCompanyExpenseId: undefined,
-                })
-              : row,
-          );
-          auditBankTxUpdate(tx, workingTransactions.find((row) => row.id === tx.id) || workingTx);
-          nextTransactions = workingTransactions;
-        } else if (resolveBankTxLedgerAmount(workingTx) > 0) {
-          setDetailDrawerError(L.detailLedgerRegisterFailed);
-          return;
-        }
-      } else if (!isDrawerFolderClassificationKind(payload.classificationKind) && ledgerCategory) {
-        const workingTx = nextTransactions.find((row) => row.id === tx.id) || nextRow;
-        let workingTransactions = nextTransactions;
-
-        if (linkedPayment) {
-          nextPayments = releaseFixedExpensePaymentBankLink(nextPayments, linkedPayment.id, tx.id);
-          workingTransactions = workingTransactions.map((row) =>
-            row.id === tx.id ? { ...row, linkedFixedExpensePaymentId: undefined } : row,
-          );
-        }
-
-        const prefill = buildCompanyExpensePrefillFromBankTransaction(workingTx);
-        const currentExpense = getLinkedCompanyExpenseForBankTx(workingTx, nextExpenses);
-
-        if (currentExpense) {
-          const updates: Partial<typeof currentExpense> = {};
-          if (String(currentExpense.category || "") !== ledgerCategory) {
-            updates.category = ledgerCategory;
-          }
-          if (nextMemo !== undefined && String(currentExpense.memo || "") !== String(nextMemo || "")) {
-            updates.memo = nextMemo;
-          }
-          if (Object.keys(updates).length) {
-            const updatedExpense = { ...currentExpense, ...updates };
-            nextExpenses = nextExpenses.map((row) => (row.id === currentExpense.id ? updatedExpense : row));
-            recordAudit({
-              entityType: "companyExpense",
-              entityId: updatedExpense.id,
-              entityLabel: updatedExpense.description || ledgerCategory,
-              screen: L.pageTitle,
-              action: "update",
-              before: snapshotCompanyExpenseForAudit(currentExpense),
-              after: snapshotCompanyExpenseForAudit(updatedExpense),
-              fields: COMPANY_EXPENSE_AUDIT_FIELDS,
-              user: currentUser,
-            });
-          }
-          manualLedgerRegistered = true;
-        } else if (resolveBankTxLedgerAmount(workingTx) > 0) {
-          const validationError = validateCompanyExpenseInput({
-            date: prefill.date,
-            category: ledgerCategory,
-            description: prefill.description,
-            amount: prefill.amount,
-          });
-          if (validationError) {
-            setDetailDrawerError(validationError);
-            return;
-          }
-          const expense = createCompanyExpenseFromBankTransaction(workingTx, ledgerCategory, savedBy);
-          if (nextMemo) expense.memo = nextMemo;
-          nextExpenses = [expense, ...nextExpenses];
-          workingTransactions = workingTransactions.map((row) =>
-            row.id === tx.id
-              ? { ...row, linkedCompanyExpenseId: expense.id, linkedFixedExpensePaymentId: undefined }
-              : row,
-          );
-          recordAudit({
-            entityType: "companyExpense",
-            entityId: expense.id,
-            entityLabel: `${expense.date} \u00B7 ${expense.description || expense.category}`,
-            screen: L.pageTitle,
-            action: "create",
-            after: snapshotCompanyExpenseForAudit(expense),
-            fields: COMPANY_EXPENSE_AUDIT_FIELDS,
-            user: currentUser,
-          });
-          auditBankTxUpdate(tx, workingTransactions.find((row) => row.id === tx.id) || workingTx);
-          manualLedgerRegistered = true;
-        }
-
-        expenseCategoryToMerge = ledgerCategory;
-        nextRules = upsertBankLearnRule(
-          nextRules,
-          buildBankLearnRuleFromManualRegistration(workingTx, ledgerCategory, savedBy),
-        );
-
-        if (!manualLedgerRegistered) {
-          setDetailDrawerError(L.detailLedgerRegisterFailed);
-          return;
-        }
-
-        nextTransactions = workingTransactions.map((row) =>
-          row.id === tx.id ? assignDefaultLedgerFolderToBankTransaction(row) : row,
-        );
-      } else if (
-        !isDrawerFolderClassificationKind(payload.classificationKind) &&
-        payload.ledgerCategory.trim() &&
-        resolvedLedgerKind === "manual" &&
-        resolveBankTxLedgerAmount(tx) > 0 &&
-        !manualLedgerRegistered
-      ) {
-        setDetailDrawerError(L.detailLedgerRegisterFailed);
-        return;
-      }
-
-      if (String(tx.memo || "") !== String(nextMemo || "") && resolveBankTxLedgerAmount(tx) > 0) {
-        const memoCategory = resolveMemoLearnCategory(payload.memo, expenseCategories);
-        if (memoCategory) {
-          expenseCategoryToMerge = expenseCategoryToMerge || memoCategory;
-          nextRules = upsertBankLearnRule(
-            nextRules,
-            buildBankLearnRuleFromMemoCategory(nextRow, memoCategory, savedBy),
-          );
-        }
-        if (memoCategory && isMemoLearnAmountFlexibleCategory(memoCategory)) {
-          scheduleBackgroundLearning({ showMessage: false });
-        }
-      }
-
-      const pendingTx = nextTransactions.find((row) => row.id === tx.id) || nextRow;
-      if (
-        pendingTx.folderId === DEFAULT_LEDGER_CATEGORY_FOLDER_ID &&
-        !isBankTransactionLinkedToCompanyLedger(pendingTx, {
-          companyExpenses: nextExpenses,
-          fixedExpensePayments: nextPayments,
-        })
-      ) {
-        setDetailDrawerError(L.detailLedgerFolderRequiresRegistration);
-        return;
-      }
-
-      const folderSync = finalizeLedgerState(nextTransactions, nextExpenses, nextPayments, nextFolders);
-      const nextExpenseCategories = expenseCategoryToMerge
-        ? mergeExpenseCategory(expenseCategories, expenseCategoryToMerge)
-        : expenseCategories;
-      const resolvedFolders =
-        folderSync.folders.length !== bankTransactionFolders.length || folderSync.updated > 0
-          ? folderSync.folders
-          : nextFolders;
-
-      let finalTransactions = folderSync.transactions;
-      let autoLinkVouchers: ReturnType<typeof createPaymentVoucherFromBankMatch>[] | null = null;
-      let autoLinkLogs: ReturnType<typeof createPaymentInputLogsFromVouchers> | null = null;
-
-      const savedTx = finalTransactions.find((row) => row.id === tx.id);
-      if (
-        payload.classificationKind === "client" &&
-        savedTx?.linkedSubject &&
-        !savedTx.linkedPaymentVoucherId &&
-        !paymentVouchers.some((voucher) => voucher.bankTransactionId === tx.id)
-      ) {
-        const linkedSalesIds = new Set(
-          finalTransactions.filter((row) => row.linkedSalesId).map((row) => String(row.linkedSalesId)),
-        );
-        const candidate = findBestClientDepositReceivableMatch(
-          savedTx,
-          receivableRows,
-          savedTx.linkedSubject,
-          { linkedSalesIds, clients: nextClients },
-        );
-        if (candidate) {
-          const receivable = receivableRows.find((row) => String(row.id) === String(candidate.salesId));
-          if (receivable) {
-            const sale = sales.find((row) => String(row.id) === String(candidate.salesId));
-            const voucher = createPaymentVoucherFromBankMatch(savedTx, candidate, receivable, sale);
-            const logs = createPaymentInputLogsFromVouchers([voucher], savedBy);
-            recordAudit({
-              entityType: "paymentVoucher",
-              entityId: voucher.id,
-              entityLabel: `${voucher.client} \u00B7 ${voucher.site}`,
-              screen: L.pageTitle,
-              action: "create",
-              after: snapshotPaymentForAudit(voucher),
-              fields: PAYMENT_AUDIT_FIELDS,
-              user: currentUser,
-            });
-            const linkedTx: BankTransaction = {
-              ...savedTx,
-              linkedSalesId: receivable.id,
-              linkedPaymentVoucherId: voucher.id,
-              linkedSubject: receivable.client,
-              matchConfirmedAt: new Date().toISOString(),
-              matchConfirmedBy: savedBy,
-              matchAutoLinked: true,
-              folderId: savedTx.folderId || DEFAULT_CLIENT_FOLDER_ID,
-            };
-            auditBankTxUpdate(savedTx, linkedTx);
-            finalTransactions = finalTransactions.map((row) => (row.id === tx.id ? linkedTx : row));
-            autoLinkVouchers = [voucher];
-            autoLinkLogs = logs;
-          }
-        }
-      }
-
-      if (resolvedFolders !== bankTransactionFolders) {
-        setBankTransactionFolders(resolvedFolders);
-      }
-      if (nextClients !== clients) {
-        setClients(nextClients);
-      }
-      setCompanyExpenses(nextExpenses);
-      setFixedExpensePayments(nextPayments);
-      setBankTransactions(finalTransactions);
-      if (autoLinkVouchers && autoLinkLogs) {
-        setPaymentVouchers((prev) => [...autoLinkVouchers!, ...(prev as typeof autoLinkVouchers)]);
-        setPaymentInputLogs((prev) => [...autoLinkLogs!, ...(prev as typeof autoLinkLogs)]);
-      }
-      if (nextRules !== bankLedgerRules) {
-        setBankLedgerRules(nextRules);
-      }
-      if (expenseCategoryToMerge) {
-        setExpenseCategories(nextExpenseCategories);
-      }
-
-      setDetailDrawerError("");
-      setDetailTxId(null);
-      setImportMessage(autoLinkVouchers?.length ? L.matchDone : L.detailSaveDone);
-      void onRequestImmediateSave?.({
-        bankTransactions: finalTransactions,
-        companyExpenses: nextExpenses,
-        fixedExpensePayments: nextPayments,
-        bankTransactionFolders: resolvedFolders,
-        bankLedgerRules: nextRules,
-        expenseCategories: nextExpenseCategories,
-        clients: nextClients !== clients ? nextClients : undefined,
-        paymentVouchers: autoLinkVouchers
-          ? [...autoLinkVouchers, ...(paymentVouchers as typeof autoLinkVouchers)]
-          : undefined,
-      });
-    },
-    [
-      applyAutoLearnRules,
-      bankLedgerRules,
-      bankTransactionFolders,
-      bankTransactions,
-      clients,
-      companyExpenses,
-      currentUser,
-      detailTxId,
-      expenseCategories,
-      fixedExpensePayments,
-      fixedExpenses,
-      onRequestImmediateSave,
-      paymentVouchers,
-      receivableRows,
-      recordAudit,
-      resolveDetailLedgerPrefill,
-      sales,
-      savedBy,
-      scheduleBackgroundLearning,
-      setBankLedgerRules,
-      setBankTransactions,
-      setClients,
-      setCompanyExpenses,
-      setExpenseCategories,
-      setFixedExpensePayments,
-      setPaymentInputLogs,
-      setPaymentVouchers,
-      workers,
-    ],
-  );
 
   const runAutoClassify = () => {
     const result = autoClassifyBankTransactions(bankTransactions, clients, workers, bankTransactionFolders);
@@ -3810,21 +3229,6 @@ export function BankTransactionsPage({
     });
   };
 
-  const handleDetailLedgerEdit = React.useCallback(() => {
-    if (!detailTxId) return;
-    const tx = bankTransactions.find((row) => row.id === detailTxId);
-    if (!tx) return;
-    setDetailTxId(null);
-    openLedgerEdit(tx);
-  }, [bankTransactions, detailTxId]);
-
-  const handleDetailLedgerRegister = React.useCallback(() => {
-    if (!detailTxId) return;
-    const tx = bankTransactions.find((row) => row.id === detailTxId);
-    if (!tx) return;
-    setDetailTxId(null);
-    openLedgerRegister(tx);
-  }, [bankTransactions, detailTxId]);
 
   const setLedgerKind = (kind: LedgerRegisterKind) => {
     setLedgerModal((prev) => {
@@ -4767,20 +4171,19 @@ export function BankTransactionsPage({
     () => ({
       empty: L.empty,
       unfiled: L.unfiled,
-      memoPlaceholder: L.memoPlaceholder,
+      accountContentPlaceholder: L.accountContentPlaceholder,
+      categoryPlaceholder: L.categoryPlaceholder,
+      fixedExpensePlaceholder: L.fixedExpensePlaceholder,
       transactionAt: L.transactionAt,
       deposit: L.deposit,
       withdrawal: L.withdrawal,
       balance: L.balance,
       description: L.description,
-      memo: L.memo,
-      counterpartyName: L.counterpartyName,
-      ledgerCategoryColumn: L.ledgerCategoryColumn,
+      accountContent: L.accountContent,
+      category: L.categoryColumn,
+      fixedExpense: L.fixedExpenseColumn,
       classification: L.classification,
-      counterpartyBank: L.counterpartyBank,
       matchStatus: L.matchStatus,
-      transactionType: L.transactionType,
-      detailRowHint: L.detailRowHint,
       autoLinkBadgeTitle: L.autoLinkBadgeTitle,
       manualLinkBadgeTitle: L.manualLinkBadgeTitle,
       partialPaymentBadgeTitle: L.partialPaymentBadgeTitle,
@@ -4831,17 +4234,15 @@ export function BankTransactionsPage({
           withdrawal: L.withdrawal,
           balance: L.balance,
           description: L.description,
-          memo: L.memo,
-          counterpartyName: L.counterpartyName,
-          ledgerCategoryColumn: L.ledgerCategoryColumn,
+          accountContent: L.accountContent,
+          category: L.categoryColumn,
+          fixedExpense: L.fixedExpenseColumn,
           classification: L.classification,
-          counterpartyBank: L.counterpartyBank,
           matchStatus: L.matchStatus,
-          transactionType: L.transactionType,
           assignFolder: L.assignFolder,
           ledgerSendTo: L.ledgerSendTo,
           unfiled: L.unfiled,
-          memoPlaceholder: L.memoPlaceholder,
+          accountContentPlaceholder: L.accountContentPlaceholder,
         },
         folderMap,
         exportRowDisplayById,
@@ -5692,6 +5093,22 @@ export function BankTransactionsPage({
             />
 
             <div className="flex flex-wrap items-center gap-2">
+              <span className="mr-1 erp-text-caption font-bold text-slate-500">{L.ledgerScopeLabel}</span>
+              {LEDGER_SCOPE_OPTIONS.map((option) => (
+                <Button
+                  key={option.key}
+                  type="button"
+                  size="sm"
+                  variant={ledgerScopeFilter === option.key ? "default" : "outline"}
+                  className="rounded-xl"
+                  onClick={() => setLedgerScopeFilter(option.key)}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
               <span className="mr-1 erp-text-caption font-bold text-slate-500">{L.sortLabel}</span>
               {SORT_KEY_OPTIONS.map((option) => (
                 <Button
@@ -5751,6 +5168,7 @@ export function BankTransactionsPage({
                   setPeriodKey("all");
                   setDateFilter({ startDate: "", endDate: "" });
                   setFlowFilter("all");
+                  setLedgerScopeFilter("all");
                   setAccountFilter("");
                   setSearchQuery("");
                   setFilterResetKey((key) => key + 1);
@@ -5786,9 +5204,41 @@ export function BankTransactionsPage({
             companyExpenses={companyExpenses}
             fixedExpensePayments={fixedExpensePayments}
             fixedExpenses={fixedExpenses}
+            ledgerCategories={ledgerCategories}
             paymentVouchers={paymentVouchers}
             labels={listSectionLabels}
-            onOpenDetail={openBankTransactionDetail}
+            onEditAccountContent={openAccountContentModal}
+            onEditCategory={openCategoryModal}
+            onEditFixedExpense={openFixedExpenseModal}
+            toolbar={
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="rounded-xl"
+                  onClick={() => {
+                    setAddExpenseCategoryName("");
+                    setAddCategoryModalOpen(true);
+                  }}
+                >
+                  {L.addCategory}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="rounded-xl"
+                  onClick={() => {
+                    setNewFixedExpenseName("");
+                    setNewFixedExpenseCategory(fixedExpenseCategories[0] || FIXED_CATEGORY_OPTIONS[0]);
+                    setAddFixedExpenseModalOpen(true);
+                  }}
+                >
+                  {L.addFixedExpense}
+                </Button>
+              </>
+            }
           />
         </TableExportSection>
         </>
@@ -6873,38 +6323,263 @@ export function BankTransactionsPage({
         </div>
       ) : null}
 
-      {detailDrawerSnapshot ? (
-        <BankTransactionDetailDrawer
-          key={detailDrawerSnapshot.tx.id}
-          tx={detailDrawerSnapshot.tx}
-          folderLabel={detailDrawerSnapshot.folderLabel}
-          ledgerCategoryLabel={detailDrawerSnapshot.ledgerCategoryLabel}
-          ledgerCategorySuggestion={detailDrawerSnapshot.ledgerCategorySuggestion}
-          matchStatusLabel={detailDrawerSnapshot.matchStatusLabel}
-          linkedSubject={detailDrawerSnapshot.linkedSubject}
-          depositSubject={detailDrawerSnapshot.depositSubject}
-          initialClassificationKind={detailDrawerSnapshot.initialClassificationKind}
-          initialClientName={detailDrawerSnapshot.initialClientName}
-          initialLedgerKind={detailDrawerSnapshot.initialLedgerKind}
-          initialLedgerCategory={detailDrawerSnapshot.initialLedgerCategory}
-          initialFixedExpenseId={detailDrawerSnapshot.initialFixedExpenseId}
-          manualCategorySuggestions={detailDrawerSnapshot.manualCategorySuggestions}
-          fixedCategorySuggestions={detailDrawerSnapshot.fixedCategorySuggestions}
-          fixedExpenseOptions={detailDrawerSnapshot.fixedExpenseOptions}
-          folderSelectData={detailDrawerSnapshot.folderSelectData}
-          clientAutocompleteOptions={detailDrawerSnapshot.clientAutocompleteOptions}
-          canLedger={detailDrawerSnapshot.canLedger}
-          saveError={detailDrawerError}
-          onClose={closeDetailDrawer}
-          onSave={saveBankTransactionDetail}
-          onOpenLedgerEdit={
-            detailDrawerSnapshot.showLedgerEdit ? handleDetailLedgerEdit : undefined
-          }
-          onOpenLedgerRegister={
-            detailDrawerSnapshot.showLedgerRegister ? handleDetailLedgerRegister : undefined
-          }
-        />
+      {accountContentModal ? (
+        <div
+          className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setAccountContentModal(null);
+          }}
+        >
+          <div
+            className="erp-ledger-modal max-w-lg"
+            onMouseDown={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={L.editAccountContentTitle}
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <h2 className="erp-text-section font-bold">{L.editAccountContentTitle}</h2>
+              <button
+                type="button"
+                className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
+                onClick={() => setAccountContentModal(null)}
+                aria-label={L.cancel}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <Field label={L.accountContent}>
+              <BufferedTextInput
+                value={accountContentModal.draft}
+                className="w-full rounded-xl"
+                onDraftChange={(next) => setAccountContentModal((prev) => (prev ? { ...prev, draft: next } : prev))}
+              />
+            </Field>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setAccountContentModal(null)}>
+                {L.cancel}
+              </Button>
+              <Button type="button" className="rounded-2xl" onClick={saveAccountContentModal}>
+                {L.detailSave}
+              </Button>
+            </div>
+          </div>
+        </div>
       ) : null}
+
+      {categoryModal ? (
+        <div
+          className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setCategoryModal(null);
+          }}
+        >
+          <div
+            className="erp-ledger-modal max-w-lg"
+            onMouseDown={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={L.editCategoryTitle}
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <h2 className="erp-text-section font-bold">{L.editCategoryTitle}</h2>
+              <button
+                type="button"
+                className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
+                onClick={() => setCategoryModal(null)}
+                aria-label={L.cancel}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <Field label={L.categoryColumn}>
+              <select
+                className="erp-input w-full rounded-xl"
+                value={categoryModal.draft}
+                onChange={(event) => {
+                  setTxCellModalError("");
+                  setCategoryModal((prev) => (prev ? { ...prev, draft: event.target.value } : prev));
+                }}
+              >
+                <option value="">{L.categoryPlaceholder}</option>
+                {tableCategoryOptions.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {txCellModalError ? <p className="mt-3 text-sm font-semibold text-red-600">{txCellModalError}</p> : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setCategoryModal(null)}>
+                {L.cancel}
+              </Button>
+              <Button type="button" className="rounded-2xl" onClick={saveCategoryModal}>
+                {L.detailSave}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {fixedExpenseModal ? (
+        <div
+          className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setFixedExpenseModal(null);
+          }}
+        >
+          <div
+            className="erp-ledger-modal max-w-lg"
+            onMouseDown={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={L.editFixedExpenseTitle}
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <h2 className="erp-text-section font-bold">{L.editFixedExpenseTitle}</h2>
+              <button
+                type="button"
+                className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
+                onClick={() => setFixedExpenseModal(null)}
+                aria-label={L.cancel}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <Field label={L.fixedExpenseColumn}>
+              <select
+                className="erp-input w-full rounded-xl"
+                value={fixedExpenseModal.draft}
+                onChange={(event) => {
+                  setTxCellModalError("");
+                  setFixedExpenseModal((prev) => (prev ? { ...prev, draft: event.target.value } : prev));
+                }}
+              >
+                <option value="">{L.fixedExpensePlaceholder}</option>
+                {fixedExpenseSelectOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {txCellModalError ? <p className="mt-3 text-sm font-semibold text-red-600">{txCellModalError}</p> : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setFixedExpenseModal(null)}>
+                {L.cancel}
+              </Button>
+              <Button type="button" className="rounded-2xl" onClick={saveFixedExpenseModal}>
+                {L.detailSave}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {addCategoryModalOpen ? (
+        <div
+          className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setAddCategoryModalOpen(false);
+          }}
+        >
+          <div
+            className="erp-ledger-modal max-w-lg"
+            onMouseDown={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={L.addCategoryTitle}
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <h2 className="erp-text-section font-bold">{L.addCategoryTitle}</h2>
+              <button
+                type="button"
+                className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
+                onClick={() => setAddCategoryModalOpen(false)}
+                aria-label={L.cancel}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <Field label={L.newCategoryName}>
+              <input
+                className="erp-input w-full rounded-xl"
+                value={addExpenseCategoryName}
+                onChange={(event) => setAddExpenseCategoryName(event.target.value)}
+              />
+            </Field>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setAddCategoryModalOpen(false)}>
+                {L.cancel}
+              </Button>
+              <Button type="button" className="rounded-2xl" onClick={handleAddCategory}>
+                {L.detailSave}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {addFixedExpenseModalOpen ? (
+        <div
+          className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setAddFixedExpenseModalOpen(false);
+          }}
+        >
+          <div
+            className="erp-ledger-modal max-w-lg"
+            onMouseDown={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={L.addFixedExpenseTitle}
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <h2 className="erp-text-section font-bold">{L.addFixedExpenseTitle}</h2>
+              <button
+                type="button"
+                className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
+                onClick={() => setAddFixedExpenseModalOpen(false)}
+                aria-label={L.cancel}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <Field label={L.newFixedExpenseName}>
+                <input
+                  className="erp-input w-full rounded-xl"
+                  value={newFixedExpenseName}
+                  onChange={(event) => setNewFixedExpenseName(event.target.value)}
+                />
+              </Field>
+              <Field label={L.newFixedExpenseCategory}>
+                <select
+                  className="erp-input w-full rounded-xl"
+                  value={newFixedExpenseCategory}
+                  onChange={(event) => setNewFixedExpenseCategory(event.target.value)}
+                >
+                  {normalizeExpenseCategories(expenseCategories).map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setAddFixedExpenseModalOpen(false)}>
+                {L.cancel}
+              </Button>
+              <Button type="button" className="rounded-2xl" onClick={handleAddFixedExpense}>
+                {L.detailSave}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
     </div>
   );
 }

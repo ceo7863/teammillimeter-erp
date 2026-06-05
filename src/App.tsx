@@ -93,6 +93,12 @@ import {
 import { normalizeBankLedgerMatchRules, syncBankTransactionLedgerLinkFields } from "@/utils/bankCompanyLedger";
 import { syncFixedExpenseAutomation } from "@/utils/fixedExpenseAutomation";
 import { normalizeExpenseCategories, normalizeFixedExpenseCategories } from "@/utils/companyLedger";
+import { migrateErpLedgerV2 } from "@/utils/ledgerMigration";
+import {
+  buildDefaultLedgerCategories,
+  normalizeAccountCodes,
+  normalizeLedgerCategories,
+} from "@/utils/ledgerSystem";
 import { normalizeBankTransactionFolders, syncLedgerLinkedBankTransactionFolders, reconcileLedgerFolderWithoutLedgerLink } from "@/utils/bankTransactionFolders";
 import { normalizeWorkerPayoutVouchers } from "@/utils/workerPayoutLedger";
 import {
@@ -437,6 +443,16 @@ function downloadBackup(data) {
   URL.revokeObjectURL(url);
 }
 
+function appendClientDepositAlias(aliases, alias) {
+  const parts = String(aliases || "")
+    .split(/[,，]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (parts.includes(alias)) return parts.join(", ");
+  parts.push(alias);
+  return parts.join(", ");
+}
+
 function migrateClientName(data) {
   if (!data || typeof data !== "object") return data;
   const from = "에이치";
@@ -444,13 +460,69 @@ function migrateClientName(data) {
   const next = { ...data };
 
   if (Array.isArray(next.clients)) {
-    next.clients = next.clients.map((client) => (client.name === from ? { ...client, name: to } : client));
+    const fromClient = next.clients.find((client) => client.name === from);
+    const toClient = next.clients.find((client) => client.name === to);
+    if (fromClient && toClient) {
+      const mergedAliases = appendClientDepositAlias(toClient.depositNameAliases, from);
+      next.clients = next.clients
+        .filter((client) => client.name !== from)
+        .map((client) => (client.name === to ? { ...client, depositNameAliases: mergedAliases } : client));
+    } else {
+      next.clients = next.clients.map((client) => {
+        if (client.name !== from) return client;
+        return {
+          ...client,
+          name: to,
+          depositNameAliases: appendClientDepositAlias(client.depositNameAliases, from),
+        };
+      });
+    }
   }
   if (Array.isArray(next.sales)) {
     next.sales = next.sales.map((sale) => (sale.client === from ? { ...sale, client: to } : sale));
   }
   if (Array.isArray(next.paymentVouchers)) {
     next.paymentVouchers = next.paymentVouchers.map((voucher) => (voucher.client === from ? { ...voucher, client: to } : voucher));
+  }
+  if (Array.isArray(next.paymentInputLogs)) {
+    next.paymentInputLogs = next.paymentInputLogs.map((row) => ({
+      ...row,
+      client: row.client === from ? to : row.client,
+      memo: typeof row.memo === "string" && row.memo.includes(from) ? row.memo.replaceAll(from, to) : row.memo,
+    }));
+  }
+  if (Array.isArray(next.taxInvoices)) {
+    next.taxInvoices = next.taxInvoices.map((row) => (row.client === from ? { ...row, client: to } : row));
+  }
+  if (Array.isArray(next.bankTransactions)) {
+    next.bankTransactions = next.bankTransactions.map((row) =>
+      row.linkedSubject === from ? { ...row, linkedSubject: to } : row,
+    );
+  }
+  if (Array.isArray(next.bankTransactionFolders)) {
+    next.bankTransactionFolders = next.bankTransactionFolders.map((row) =>
+      row.folderName === from ? { ...row, folderName: to } : row,
+    );
+  }
+  if (Array.isArray(next.statementGenerationLogs)) {
+    next.statementGenerationLogs = next.statementGenerationLogs.map((row) =>
+      row.subjectName === from ? { ...row, subjectName: to } : row,
+    );
+  }
+  if (Array.isArray(next.statementFolders)) {
+    next.statementFolders = next.statementFolders.map((folder) => ({
+      ...folder,
+      folderName: typeof folder.folderName === "string" && folder.folderName.includes(from)
+        ? folder.folderName.replaceAll(from, to)
+        : folder.folderName,
+      items: Array.isArray(folder.items)
+        ? folder.items.map((item) => ({
+            ...item,
+            subjectName: item.subjectName === from ? to : item.subjectName,
+            client: item.client === from ? to : item.client,
+          }))
+        : folder.items,
+    }));
   }
   if (Array.isArray(next.auditLogs)) {
     next.auditLogs = next.auditLogs.map((entry) => {
@@ -6932,6 +7004,17 @@ export default function TeammillimeterErpMvp() {
     if (apiMode && sessionOnMount) return normalizeFixedExpenseCategories([], []);
     return normalizeFixedExpenseCategories(storedData?.fixedExpenseCategories, storedData?.fixedExpenses);
   });
+  const [accountCodes, setAccountCodes] = useState(() => {
+    if (apiMode && sessionOnMount) return normalizeAccountCodes([]);
+    return normalizeAccountCodes(storedData?.accountCodes);
+  });
+  const [ledgerCategories, setLedgerCategories] = useState(() => {
+    if (apiMode && sessionOnMount) return buildDefaultLedgerCategories([], []);
+    const expense = normalizeExpenseCategories(storedData?.expenseCategories, storedData?.companyExpenses);
+    const fixed = normalizeFixedExpenseCategories(storedData?.fixedExpenseCategories, storedData?.fixedExpenses);
+    const normalized = normalizeLedgerCategories(storedData?.ledgerCategories);
+    return normalized.length ? normalized : buildDefaultLedgerCategories(expense, fixed);
+  });
   const [companyProfile, setCompanyProfile] = useState(() => {
     if (apiMode && sessionOnMount) return DEFAULT_COMPANY_PROFILE;
     return normalizeCompanyProfile(storedData?.companyProfile);
@@ -7105,9 +7188,26 @@ export default function TeammillimeterErpMvp() {
       workerMonthlyLinkCleanup.transactions,
       bankTransactionsRef.current,
     );
+    const expenseCatsForLedger = normalizeExpenseCategories(data.expenseCategories, nextCompanyExpenses);
+    const fixedCatsForLedger = normalizeFixedExpenseCategories(
+      data.fixedExpenseCategories,
+      Array.isArray(data.fixedExpenses) ? data.fixedExpenses : [],
+    );
+    const ledgerV2 = migrateErpLedgerV2({
+      accountCodes: data.accountCodes,
+      ledgerCategories: data.ledgerCategories,
+      expenseCategories: expenseCatsForLedger,
+      fixedExpenseCategories: fixedCatsForLedger,
+      bankTransactions: mergedBankTransactions,
+      companyExpenses: nextCompanyExpenses,
+      fixedExpensePayments: nextFixedExpensePayments,
+      fixedExpenses: Array.isArray(data.fixedExpenses) ? data.fixedExpenses : [],
+    });
+    setAccountCodes(ledgerV2.accountCodes);
+    setLedgerCategories(ledgerV2.ledgerCategories);
     if (!workerMonthlyPersistInFlightRef.current) {
-      bankTransactionsRef.current = mergedBankTransactions;
-      setBankTransactions(mergedBankTransactions);
+      bankTransactionsRef.current = ledgerV2.bankTransactions;
+      setBankTransactions(ledgerV2.bankTransactions);
     }
     setBankTransactionFolders(ledgerFolderSync.folders);
     setStatementGenerationLogs(normalizeStatementGenerationLogs(data.statementGenerationLogs));
@@ -7206,6 +7306,8 @@ export default function TeammillimeterErpMvp() {
       bankLedgerRules,
       expenseCategories,
       fixedExpenseCategories,
+      accountCodes,
+      ledgerCategories,
       companyNotices,
       workPosts,
       taxInvoices,
@@ -7246,6 +7348,8 @@ export default function TeammillimeterErpMvp() {
       bankLedgerRules,
       expenseCategories,
       fixedExpenseCategories,
+      accountCodes,
+      ledgerCategories,
       companyNotices,
       workPosts,
       taxInvoices,
@@ -7694,7 +7798,7 @@ export default function TeammillimeterErpMvp() {
 
   useEffect(() => {
     if (!apiMode) {
-      saveStoredData({ sales, paymentVouchers, paymentInputLogs, clients, workers, workerMonthlyPaymentMemos, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
+      saveStoredData({ sales, paymentVouchers, paymentInputLogs, clients, workers, workerMonthlyPaymentMemos, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, accountCodes, ledgerCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
       return;
     }
     if (!currentUser || !dataReady) return;
@@ -7723,7 +7827,7 @@ export default function TeammillimeterErpMvp() {
         saveDebounceTimerRef.current = null;
       }
     };
-  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, workerMonthlyPaymentMemos, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode, buildErpSavePayload, persistErpSave]);
+  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, workerMonthlyPaymentMemos, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, accountCodes, ledgerCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode, buildErpSavePayload, persistErpSave]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -7744,7 +7848,7 @@ export default function TeammillimeterErpMvp() {
   }, [active]);
 
   const backupData = () => {
-    downloadBackup({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
+    downloadBackup({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, accountCodes, ledgerCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
   };
 
   const restoreBackup = (file) => {
@@ -7772,6 +7876,15 @@ export default function TeammillimeterErpMvp() {
         setExpenseCategories(normalizeExpenseCategories(parsed.expenseCategories, parsed.companyExpenses || []));
         setFixedExpenseCategories(
           normalizeFixedExpenseCategories(parsed.fixedExpenseCategories, parsed.fixedExpenses || []),
+        );
+        setAccountCodes(normalizeAccountCodes(parsed.accountCodes));
+        setLedgerCategories(
+          normalizeLedgerCategories(parsed.ledgerCategories).length
+            ? normalizeLedgerCategories(parsed.ledgerCategories)
+            : buildDefaultLedgerCategories(
+                normalizeExpenseCategories(parsed.expenseCategories, parsed.companyExpenses || []),
+                normalizeFixedExpenseCategories(parsed.fixedExpenseCategories, parsed.fixedExpenses || []),
+              ),
         );
         setCompanyNotices(normalizeCompanyNotices(parsed.companyNotices));
         setWorkPosts(normalizeWorkPosts(parsed.workPosts));
@@ -7816,6 +7929,15 @@ export default function TeammillimeterErpMvp() {
     setExpenseCategories(normalizeExpenseCategories(payload.expenseCategories, payload.companyExpenses || []));
     setFixedExpenseCategories(
       normalizeFixedExpenseCategories(payload.fixedExpenseCategories, payload.fixedExpenses || []),
+    );
+    setAccountCodes(normalizeAccountCodes(payload.accountCodes));
+    setLedgerCategories(
+      normalizeLedgerCategories(payload.ledgerCategories).length
+        ? normalizeLedgerCategories(payload.ledgerCategories)
+        : buildDefaultLedgerCategories(
+            normalizeExpenseCategories(payload.expenseCategories, payload.companyExpenses || []),
+            normalizeFixedExpenseCategories(payload.fixedExpenseCategories, payload.fixedExpenses || []),
+          ),
     );
     setCompanyNotices(normalizeCompanyNotices(payload.companyNotices));
     setWorkPosts(normalizeWorkPosts(payload.workPosts));
@@ -8206,25 +8328,15 @@ export default function TeammillimeterErpMvp() {
               setExpenseCategories,
               fixedExpenseCategories,
               setFixedExpenseCategories,
+              ledgerCategories,
+              accountCodes,
               currentUser,
             }}
             ledger={{
-              companyExpenses,
-              setCompanyExpenses,
-              expenseCategories,
-              setExpenseCategories,
-              fixedExpenseCategories,
-              setFixedExpenseCategories,
-              fixedExpenses,
-              setFixedExpenses,
-              fixedExpensePayments,
-              setFixedExpensePayments,
               bankTransactions,
-              setBankTransactions,
-              bankLedgerRules,
-              setBankLedgerRules,
-              currentUser,
-              onRequestImmediateSave: flushErpSave,
+              companyExpenses,
+              ledgerCategories,
+              accountCodes,
             }}
             tax={{
               taxInvoices,

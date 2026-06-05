@@ -9,6 +9,8 @@ import { getLinkedCompanyExpenseForBankTx, getLinkedFixedPaymentForBankTx } from
 import { isNetGroupSuppressed } from "@/utils/bankPreauthNetting";
 import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "@/utils/companyLedger";
 import { formatKRW } from "@/utils/companyLedger";
+import { getBankTxLedgerCategoryLabel } from "@/utils/ledgerBankBridge";
+import type { LedgerCategory } from "@/utils/ledgerSystem";
 import {
   formatBankTransactionDateTime,
   isUnfiledClientDepositLink,
@@ -22,21 +24,19 @@ export type BankTransactionListRowModel = {
   withdrawalLabel: string;
   balanceLabel: string;
   description: string;
-  memoLabel: string;
-  counterpartyLabel: string;
-  ledgerCategory: string | null;
-  ledgerFromFixed: boolean;
+  accountContentLabel: string;
+  accountContentEmpty: boolean;
+  categoryLabel: string | null;
+  fixedExpenseLabel: string | null;
   folderName: string | null;
   folderType: BankTransactionFolderType | null;
   classificationLabel: string;
-  counterpartyBank: string;
   matchLinked: boolean;
   matchStatusLabel: string;
   showAutoLinkBadge: boolean;
   showManualLinkBadge: boolean;
   showPartialPaymentBadge: boolean;
   netGroupRole: BankTransaction["netGroupRole"];
-  transactionType: string;
   rowTone: "" | "deposit" | "withdrawal" | "suppressed";
 };
 
@@ -108,15 +108,22 @@ export function buildBankTransactionListLookupMaps(
   };
 }
 
-function isLedgerCategoryFromFixed(row: BankTransaction, lookup: BankTransactionListLookupMaps) {
-  let linkedExpense = row.linkedCompanyExpenseId
-    ? lookup.companyExpenseById.get(row.linkedCompanyExpenseId)
-    : lookup.companyExpenseByTxId.get(row.id);
-  if (linkedExpense?.kind === "fixed") return true;
+function resolveFixedExpenseLabel(
+  row: BankTransaction,
+  lookup: BankTransactionListLookupMaps,
+): string | null {
+  if (row.ledgerFixedExpenseId) {
+    const item = lookup.fixedExpenseById.get(row.ledgerFixedExpenseId);
+    if (item?.name?.trim()) return item.name.trim();
+  }
   const linkedPayment = row.linkedFixedExpensePaymentId
     ? lookup.fixedPaymentById.get(row.linkedFixedExpensePaymentId)
     : lookup.fixedPaymentByTxId.get(row.id);
-  return Boolean(linkedPayment);
+  if (linkedPayment) {
+    const item = lookup.fixedExpenseById.get(linkedPayment.fixedExpenseId);
+    if (item?.name?.trim()) return item.name.trim();
+  }
+  return null;
 }
 
 export function buildBankTransactionListRowModels(
@@ -124,8 +131,12 @@ export function buildBankTransactionListRowModels(
   folderMap: Map<string, BankTransactionFolder>,
   ledgerCategoryFolder: BankTransactionFolder | undefined,
   lookup: BankTransactionListLookupMaps,
-  labels: { unfiled: string; memoPlaceholder: string },
+  labels: { unfiled: string; accountContentPlaceholder: string },
   paymentVouchers: Array<{ bankTransactionId?: string | number; isPartialPayment?: boolean }> = [],
+  ledgerCategories: LedgerCategory[] = [],
+  companyExpenses: CompanyExpense[] = [],
+  fixedExpensePayments: FixedExpensePayment[] = [],
+  fixedExpenses: FixedExpense[] = [],
 ): Map<string, BankTransactionListRowModel> {
   const cache = new Map<string, BankTransactionListRowModel>();
 
@@ -137,11 +148,21 @@ export function buildBankTransactionListRowModels(
       !folder && row.deposit > 0 && linkedSubjectName && (unfiledClientLink || row.linkedPaymentVoucherId)
         ? linkedSubjectName
         : "";
-    const ledgerCategory = resolveLinkedLedgerCategory(row, lookup);
+    const legacyCategory = resolveLinkedLedgerCategory(row, lookup);
+    const categoryLabel =
+      getBankTxLedgerCategoryLabel(
+        row,
+        ledgerCategories,
+        companyExpenses,
+        fixedExpensePayments,
+        fixedExpenses,
+      ) || legacyCategory;
+    const fixedExpenseLabel = resolveFixedExpenseLabel(row, lookup);
+    const accountContent = String(row.ledgerMemo || row.memo || "").trim();
     const classificationLabel =
       folder?.folderName ||
       (unfiledClientName || null) ||
-      (ledgerCategory && ledgerCategoryFolder ? ledgerCategoryFolder.folderName : labels.unfiled);
+      (categoryLabel && ledgerCategoryFolder ? ledgerCategoryFolder.folderName : labels.unfiled);
 
     const matchLinked = Boolean(row.linkedPaymentVoucherId);
     let matchStatusLabel = "-";
@@ -167,21 +188,19 @@ export function buildBankTransactionListRowModels(
       withdrawalLabel: row.withdrawal > 0 ? formatKRW(row.withdrawal) : "-",
       balanceLabel: formatKRW(row.balanceAfter),
       description: row.description || "-",
-      memoLabel: row.memo || labels.memoPlaceholder,
-      counterpartyLabel: row.counterpartyName || "-",
-      ledgerCategory,
-      ledgerFromFixed: ledgerCategory ? isLedgerCategoryFromFixed(row, lookup) : false,
+      accountContentLabel: accountContent || labels.accountContentPlaceholder,
+      accountContentEmpty: !accountContent,
+      categoryLabel,
+      fixedExpenseLabel,
       folderName: folder?.folderName || unfiledClientName || null,
       folderType: folder?.folderType || (unfiledClientName ? "client" : null),
       classificationLabel,
-      counterpartyBank: row.counterpartyBank || "-",
       matchLinked,
       matchStatusLabel,
       showAutoLinkBadge: matchLinked && isBankMatchAutoLinked(row),
       showManualLinkBadge: matchLinked && isBankMatchManualLinked(row),
       showPartialPaymentBadge: matchLinked && bankTxHasPartialPaymentVoucher(row, paymentVouchers),
       netGroupRole: row.netGroupRole,
-      transactionType: row.transactionType || "-",
       rowTone,
     });
   }
