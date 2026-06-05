@@ -425,7 +425,7 @@ export function WorkerMonthlyActualPaymentTab({
     onFocusConsumed?.();
   }, [focusWorker, focusVoucherId, onFocusConsumed, openWorkerDetailModal]);
 
-  const detailRows = useMemo(() => flattenSalesToWorkerPaymentRows(sales), [sales]);
+  const detailRows = useMemo(() => flattenSalesToWorkerPaymentRows(sales, workers), [sales, workers]);
 
   const allObligations = useMemo(
     () =>

@@ -7410,6 +7410,7 @@ export default function TeammillimeterErpMvp() {
       const reconciledWorkers = reconcileWorkerListUpdates(workersRef.current, nextWorkers);
       workersRef.current = reconciledWorkers;
       setWorkers(reconciledWorkers);
+      setSales((prev) => normalizeSalesRecords(prev, reconciledWorkers));
       if (nextAuditLogs) {
         setAuditLogs(nextAuditLogs);
       }
@@ -7440,6 +7441,7 @@ export default function TeammillimeterErpMvp() {
                 return rest;
               });
               setWorkers(workersRef.current);
+              setSales((prev) => normalizeSalesRecords(prev, workersRef.current));
             }
           }
           return saved;
@@ -7485,7 +7487,7 @@ export default function TeammillimeterErpMvp() {
 
       return enqueueFlush(Boolean(options?.flushNow));
     },
-    [apiMode, currentUser, dataReady, flushErpSave, setAuditLogs],
+    [apiMode, currentUser, dataReady, flushErpSave, setAuditLogs, setSales],
   );
 
   const persistBankTransactionMemoUpdates = useCallback(
