@@ -3724,7 +3724,9 @@ function CalendarPage({
     { label: "토", tone: "sat" },
   ];
 
-  const editingSale = sales.find((row) => row.id === editingSaleId);
+  const editingSale = editingSaleId == null
+    ? null
+    : sales.find((row) => String(row.id) === String(editingSaleId)) ?? null;
 
   const closeVoucherEdit = useCallback(() => {
     setEditingSaleId(null);
@@ -4319,7 +4321,7 @@ function CalendarPage({
                 <>
                   <span className="erp-calendar-legend-item erp-calendar-legend-item--desktop-only">전표 행 클릭 → 같은 업체 강조</span>
                   <span className="erp-calendar-legend-item erp-calendar-legend-item--desktop-only">강조 상태에서 행 더블클릭 → 거래처만 보기</span>
-                  <span className="erp-calendar-legend-item erp-calendar-legend-item--desktop-only">우측 전표 더블클릭 → 전표 수정</span>
+                  <span className="erp-calendar-legend-item erp-calendar-legend-item--desktop-only">우측 전표 클릭 → 전표 수정</span>
                 </>
               )}
             </div>
@@ -4466,18 +4468,8 @@ function CalendarPage({
                             !filteredClient && spotlightClient === normalizeCalendarClientName(sale.client) ? " is-client-spotlight" : ""
                           }`}
                           style={{ "--client-color": color }}
-                          title={
-                            filteredClient
-                              ? `${paymentLabel} · 더블클릭: 전표 수정`
-                              : `${paymentLabel} · 클릭: 같은 업체 일정 강조 · 더블클릭: 전표 수정`
-                          }
+                          title={`${paymentLabel} · 클릭: 전표 수정`}
                           onClick={() => {
-                            if (filteredClient) return;
-                            toggleSpotlightClient(sale.client, sale.date);
-                          }}
-                          onDoubleClick={(event) => {
-                            event.stopPropagation();
-                            event.preventDefault();
                             openVoucherEdit(sale);
                           }}
                         >
