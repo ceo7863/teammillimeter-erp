@@ -193,48 +193,13 @@ export const SaleVoucherEditModal = memo(function SaleVoucherEditModal({
       user: currentUser,
     });
 
-    setSales((prev) => prev.filter((row) => row.id !== target.id));
+    setSales((prev) => prev.filter((row) => String(row.id) !== String(target.id)));
     setDeleteConfirm(null);
     onClose();
   };
 
   const modal = (
     <>
-      {deleteConfirm ? (
-        <div className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated" onMouseDown={(event) => { if (event.target === event.currentTarget) setDeleteConfirm(null); }}>
-          <div
-            className="erp-ledger-modal"
-            onClick={(event) => event.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="sale-voucher-edit-delete-title"
-          >
-            <h2 id="sale-voucher-edit-delete-title" className="text-base font-bold text-slate-900 md:text-lg">
-              {"\uC804\uD45C \uC0AD\uC81C"}
-            </h2>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
-              {"\uC804\uD45C "}
-              {deleteConfirm.voucherNo || deleteConfirm.id}
-              {" ("}
-              {deleteConfirm.client}
-              {" \u00B7 "}
-              {deleteConfirm.site}
-              {")\uB97C \uC0AD\uC81C\uD560\uAE4C\uC694?"}
-            </p>
-            <p className="mt-4 text-sm font-semibold text-slate-700">
-              {"\uC0AD\uC81C \uD6C4\uC5D0\uB294 \uBCF5\uAD6C\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4."}
-            </p>
-            <div className="mt-5 flex gap-2">
-              <Button variant="outline" className="flex-1 rounded-xl" onClick={() => setDeleteConfirm(null)}>
-                {"\uC544\uB2C8\uC624"}
-              </Button>
-              <Button className="flex-1 rounded-xl bg-red-600 hover:bg-red-700" onClick={confirmDeleteVoucher}>
-                {"\uC0AD\uC81C"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
       <div
         className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
         onMouseDown={(event) => {
@@ -271,6 +236,7 @@ export const SaleVoucherEditModal = memo(function SaleVoucherEditModal({
                     {"\uC800\uC7A5 \uC548 \uD558\uACE0 \uC885\uB8CC"}
                   </Button>
                   <Button
+                    type="button"
                     variant="outline"
                     size="sm"
                     className="h-8 rounded-lg border-red-200 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
@@ -286,6 +252,44 @@ export const SaleVoucherEditModal = memo(function SaleVoucherEditModal({
           </div>
         </div>
       </div>
+      {deleteConfirm ? (
+        <div
+          className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated erp-ledger-modal-backdrop--top"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) setDeleteConfirm(null); }}
+        >
+          <div
+            className="erp-ledger-modal"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="sale-voucher-edit-delete-title"
+          >
+            <h2 id="sale-voucher-edit-delete-title" className="text-base font-bold text-slate-900 md:text-lg">
+              {"\uC804\uD45C \uC0AD\uC81C"}
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              {"\uC804\uD45C "}
+              {deleteConfirm.voucherNo || deleteConfirm.id}
+              {" ("}
+              {deleteConfirm.client}
+              {" \u00B7 "}
+              {deleteConfirm.site}
+              {")\uB97C \uC0AD\uC81C\uD560\uAE4C\uC694?"}
+            </p>
+            <p className="mt-4 text-sm font-semibold text-slate-700">
+              {"\uC0AD\uC81C \uD6C4\uC5D0\uB294 \uBCF5\uAD6C\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4."}
+            </p>
+            <div className="mt-5 flex gap-2">
+              <Button type="button" variant="outline" className="flex-1 rounded-xl" onClick={() => setDeleteConfirm(null)}>
+                {"\uC544\uB2C8\uC624"}
+              </Button>
+              <Button type="button" className="flex-1 rounded-xl bg-red-600 hover:bg-red-700" onClick={confirmDeleteVoucher}>
+                {"\uC0AD\uC81C"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 

@@ -9707,6 +9707,10 @@ body.erp-col-resizing * {
   z-index: 70;
 }
 
+.erp-ledger-modal-backdrop--top {
+  z-index: 80;
+}
+
 .erp-ledger-modal {
   width: min(100%, 32rem);
   max-height: calc(100vh - 2rem);
