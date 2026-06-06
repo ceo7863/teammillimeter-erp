@@ -26,8 +26,19 @@ type DisplayComment = {
   pending?: boolean;
 };
 
-function isEnterKey(event: KeyboardEvent | React.KeyboardEvent) {
-  return event.key === "Enter" || event.code === "Enter" || event.code === "NumpadEnter";
+function readDraft(textarea: HTMLTextAreaElement | null | undefined) {
+  return String(textarea?.value || "").trim();
+}
+
+function shouldSendOnEnter(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+  if (event.key !== "Enter") return false;
+  if (event.shiftKey) return false;
+  if (event.nativeEvent.isComposing) return false;
+  return true;
+}
+
+function shouldSendOnShortcut(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+  return event.key === "Enter" && (event.ctrlKey || event.metaKey);
 }
 
 export const SaleVoucherCommentsPanel = memo(function SaleVoucherCommentsPanel({
@@ -38,20 +49,16 @@ export const SaleVoucherCommentsPanel = memo(function SaleVoucherCommentsPanel({
   currentUser,
   className = "",
 }: SaleVoucherCommentsPanelProps) {
-  const [draft, setDraft] = useState("");
+  const [canSubmit, setCanSubmit] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const draftRef = useRef("");
-  const composingRef = useRef(false);
   const submittingRef = useRef(false);
-  const enterSubmitArmedRef = useRef(false);
   const onAddCommentRef = useRef(onAddComment);
   onAddCommentRef.current = onAddComment;
 
-  const syncDraft = useCallback((nextValue: string) => {
-    draftRef.current = nextValue;
-    setDraft(nextValue);
+  const syncCanSubmit = useCallback(() => {
+    setCanSubmit(readDraft(textareaRef.current).length > 0);
   }, []);
 
   const displayComments = useMemo((): DisplayComment[] => {
@@ -80,57 +87,42 @@ export const SaleVoucherCommentsPanel = memo(function SaleVoucherCommentsPanel({
 
   const submit = useCallback(async () => {
     if (submittingRef.current) return;
-    const body = draftRef.current.trim();
+    const body = readDraft(textareaRef.current);
     if (!body) return;
     submittingRef.current = true;
     setSubmitting(true);
     try {
       await onAddCommentRef.current(body);
-      syncDraft("");
+      if (textareaRef.current) {
+        textareaRef.current.value = "";
+      }
+      setCanSubmit(false);
     } finally {
       submittingRef.current = false;
       setSubmitting(false);
     }
-  }, [syncDraft]);
-
-  const submitRef = useRef(submit);
-  submitRef.current = submit;
-
-  useEffect(() => {
-    const node = textareaRef.current;
-    if (!node) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (!isEnterKey(event) || event.shiftKey) return;
-      if (event.isComposing || composingRef.current) {
-        enterSubmitArmedRef.current = false;
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      enterSubmitArmedRef.current = true;
-    };
-
-    const handleKeyUp = (event: KeyboardEvent) => {
-      if (!isEnterKey(event) || event.shiftKey) return;
-      if (event.isComposing || composingRef.current) {
-        enterSubmitArmedRef.current = false;
-        return;
-      }
-      if (!enterSubmitArmedRef.current) return;
-      enterSubmitArmedRef.current = false;
-      event.preventDefault();
-      event.stopPropagation();
-      void submitRef.current();
-    };
-
-    node.addEventListener("keydown", handleKeyDown, true);
-    node.addEventListener("keyup", handleKeyUp, true);
-    return () => {
-      node.removeEventListener("keydown", handleKeyDown, true);
-      node.removeEventListener("keyup", handleKeyUp, true);
-    };
   }, []);
+
+  const queueSubmit = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        void submit();
+      });
+    });
+  }, [submit]);
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (shouldSendOnShortcut(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      queueSubmit();
+      return;
+    }
+    if (!shouldSendOnEnter(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    queueSubmit();
+  };
 
   const authorLabel = String(currentUser?.name || currentUser?.email || "\uC0AC\uC6A9\uC790").trim() || "\uC0AC\uC6A9\uC790";
 
@@ -190,24 +182,18 @@ export const SaleVoucherCommentsPanel = memo(function SaleVoucherCommentsPanel({
             lang="ko"
             enterKeyHint="send"
             className="erp-input erp-sale-voucher-comments-input min-h-[72px] w-full rounded-xl"
-            value={draft}
-            placeholder={`${authorLabel}\uB2D8, \uCF54\uBA58\uD2B8 \uC785\uB825 (Enter \uC804\uC1A1 \u00B7 Shift+Enter \uC904\uBC14\uAFC8)`}
+            defaultValue=""
+            placeholder={`${authorLabel}\uB2D8, \uCF54\uBA58\uD2B8 \uC785\uB825 (Enter \uC804\uC1A1 \u00B7 Ctrl+Enter \uC804\uC1A1 \u00B7 Shift+Enter \uC904\uBC14\uAFC8)`}
             onPointerDown={(event) => prepareKoreanTextInput(event.currentTarget)}
             onFocus={(event) => prepareKoreanTextInput(event.currentTarget)}
-            onChange={(event) => syncDraft(event.target.value)}
-            onCompositionStart={() => {
-              composingRef.current = true;
-            }}
-            onCompositionEnd={(event) => {
-              composingRef.current = false;
-              syncDraft(event.currentTarget.value);
-            }}
+            onInput={syncCanSubmit}
+            onKeyDown={handleKeyDown}
           />
           <Button
             type="submit"
             size="sm"
             className="h-9 shrink-0 rounded-xl px-4"
-            disabled={submitting || !draft.trim()}
+            disabled={submitting || !canSubmit}
           >
             <Send size={14} />
             {"\uC804\uC1A1"}
