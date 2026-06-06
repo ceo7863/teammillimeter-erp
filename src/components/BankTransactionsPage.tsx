@@ -144,8 +144,10 @@ import {
 import { AccountSubjectPickerPopover } from "@/components/AccountSubjectPickerPopover";
 import {
   confirmBankTransactionLedger,
+  filterAccountCodesByFlow,
   findLedgerCategory,
   findLedgerCategoryByName,
+  resolveAccountCodeLabel,
   type AccountCode,
   type LedgerCategory,
 } from "@/utils/ledgerSystem";
@@ -891,7 +893,7 @@ export function BankTransactionsPage({
   const [ledgerScopeFilter, setLedgerScopeFilter] = useState<LedgerScopeFilter>("all");
   const [statusTab, setStatusTab] = useState<BankTxStatusTab>("all");
   const [clientNameFilter, setClientNameFilter] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("");
+  const [accountSubjectFilter, setAccountSubjectFilter] = useState("");
   const [groupFilter, setGroupFilter] = useState<BankTxGroupFilter>("all");
   const [evidenceFilter, setEvidenceFilter] = useState<BankTxEvidenceFilter>("all");
   const [accountFilter, setAccountFilter] = useState("");
@@ -2049,6 +2051,24 @@ export function BankTransactionsPage({
 
   const accountSummaries = useMemo(() => buildBankAccountSummaries(bankTransactions), [bankTransactions]);
 
+  const accountSubjectFilterOptions = useMemo(() => {
+    const flow = flowFilter === "deposit" ? "income" : flowFilter === "withdrawal" ? "expense" : "all";
+    return filterAccountCodesByFlow(accountCodes, flow)
+      .filter((row) => row.isActive)
+      .map((row) => ({
+        code: row.code,
+        name: resolveAccountCodeLabel(accountCodes, row.code) || row.name,
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name, "ko"));
+  }, [accountCodes, flowFilter]);
+
+  useEffect(() => {
+    if (!accountSubjectFilter) return;
+    if (!accountSubjectFilterOptions.some((row) => row.code === accountSubjectFilter)) {
+      setAccountSubjectFilter("");
+    }
+  }, [accountSubjectFilter, accountSubjectFilterOptions]);
+
   const clientAutocompleteOptions = useMemo(
     () =>
       [...clients]
@@ -2475,20 +2495,8 @@ export function BankTransactionsPage({
       });
     }
 
-    if (categoryFilter) {
-      const category = ledgerCategories.find((item) => item.id === categoryFilter);
-      scoped = scoped.filter((row) => {
-        if (row.ledgerCategoryId === categoryFilter) return true;
-        if (!category?.name) return false;
-        const label = getBankTxLedgerCategoryLabel(
-          row,
-          ledgerCategories,
-          companyExpenses,
-          fixedExpensePayments,
-          fixedExpenses,
-        );
-        return String(label || "").trim() === category.name.trim();
-      });
+    if (accountSubjectFilter) {
+      scoped = scoped.filter((row) => String(row.ledgerAccountCode || "").trim() === accountSubjectFilter);
     }
 
     if (evidenceFilter !== "all") {
@@ -2506,7 +2514,7 @@ export function BankTransactionsPage({
     statusTab,
     statusFilterContext,
     clientNameFilter,
-    categoryFilter,
+    accountSubjectFilter,
     evidenceFilter,
     companyExpenses,
     fixedExpensePayments,
@@ -4933,9 +4941,9 @@ export function BankTransactionsPage({
           accountFilter={accountFilter}
           onAccountFilterChange={setAccountFilter}
           accounts={accountSummaries}
-          categoryFilter={categoryFilter}
-          onCategoryFilterChange={setCategoryFilter}
-          categories={ledgerCategories.map((category) => ({ id: category.id, name: category.name }))}
+          accountSubjectFilter={accountSubjectFilter}
+          onAccountSubjectFilterChange={setAccountSubjectFilter}
+          accountSubjects={accountSubjectFilterOptions}
           clientFilter={clientNameFilter}
           onClientFilterChange={setClientNameFilter}
           clients={clients}
@@ -4958,8 +4966,8 @@ export function BankTransactionsPage({
             setLedgerScopeFilter("all");
             setStatusTab("all");
             setAccountFilter("");
+            setAccountSubjectFilter("");
             setClientNameFilter("");
-            setCategoryFilter("");
             setGroupFilter("all");
             setFolderScope("all");
             setSelectedFolderId("");

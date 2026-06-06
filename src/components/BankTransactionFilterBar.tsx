@@ -43,9 +43,9 @@ type BankTransactionFilterBarProps = {
   accountFilter: string;
   onAccountFilterChange: (value: string) => void;
   accounts: Array<{ accountNumber: string; bankName?: string }>;
-  categoryFilter: string;
-  onCategoryFilterChange: (value: string) => void;
-  categories: Array<{ id: string; name: string }>;
+  accountSubjectFilter: string;
+  onAccountSubjectFilterChange: (value: string) => void;
+  accountSubjects: Array<{ code: string; name: string }>;
   clientFilter: string;
   onClientFilterChange: (value: string) => void;
   clients: Array<{ name?: string }>;
@@ -95,9 +95,9 @@ export function BankTransactionFilterBar({
   accountFilter,
   onAccountFilterChange,
   accounts,
-  categoryFilter,
-  onCategoryFilterChange,
-  categories,
+  accountSubjectFilter,
+  onAccountSubjectFilterChange,
+  accountSubjects,
   clientFilter,
   onClientFilterChange,
   clients,
@@ -220,11 +220,11 @@ export function BankTransactionFilterBar({
           ))}
         </FilterSelect>
 
-        <FilterSelect label={"\uACC4\uC815"} value={categoryFilter} onChange={onCategoryFilterChange}>
+        <FilterSelect label={"\uACC4\uC815"} value={accountSubjectFilter} onChange={onAccountSubjectFilterChange}>
           <option value="">{"\uC804\uCCB4"}</option>
-          {categories.map((category) => (
-            <option key={category.id} value={category.id}>
-              {category.name}
+          {accountSubjects.map((account) => (
+            <option key={account.code} value={account.code}>
+              {account.name}
             </option>
           ))}
         </FilterSelect>
