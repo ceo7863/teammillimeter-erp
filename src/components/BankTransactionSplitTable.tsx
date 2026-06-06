@@ -198,6 +198,7 @@ const SplitRow = memo(function SplitRow({
       </td>
       <td className="erp-bank-excel-cell-wrap max-w-[8rem] p-0">
         <AccountSubjectCellButton
+          key={`${model.id}:${model.accountSubjectLabel ?? ""}`}
           triggerId={model.id}
           value={model.accountSubjectLabel}
           placeholder={labels.accountSubjectPlaceholder}
@@ -285,7 +286,7 @@ function BankTransactionSplitTableComponent({
               if (!model) return null;
               return (
                 <SplitRow
-                  key={id}
+                  key={`${id}:${model.accountSubjectLabel ?? ""}`}
                   model={model}
                   labels={labels}
                   onEditMemo={onEditMemo}

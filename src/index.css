@@ -12742,8 +12742,8 @@ button:disabled,
   background: #f8fafc;
 }
 
+/* No content-visibility here: editable 계정 cells failed to repaint after picker save. */
 .erp-bank-wehago-split-table tbody tr {
-  content-visibility: auto;
   contain-intrinsic-size: auto 44px;
 }
 

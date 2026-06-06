@@ -143,6 +143,7 @@ import {
   type LedgerScopeFilter,
 } from "@/utils/ledgerBankBridge";
 import { AccountSubjectPickerPopover } from "@/components/AccountSubjectPickerPopover";
+import { findAccountCodeByCode, formatAccountCodeLabel } from "@/utils/accountCodeTree";
 import {
   confirmBankTransactionLedger,
   filterAccountCodesByFlow,
@@ -1128,7 +1129,14 @@ export function BankTransactionsPage({
         folders,
         ledgerRegistrationContext,
       );
-      if (folderSync.updated <= 0 && reconciled.cleared <= 0) return prev;
+      if (folderSync.updated <= 0 && reconciled.cleared <= 0) {
+        const seededChanged = seeded.some(
+          (row, index) =>
+            row !== prev[index] ||
+            String(row.ledgerAccountCode || "") !== String(prev[index]?.ledgerAccountCode || ""),
+        );
+        return seededChanged ? seeded : prev;
+      }
       return folderSync.transactions;
     });
     setBankTransactionFolders((prev) => {
@@ -2350,7 +2358,10 @@ export function BankTransactionsPage({
       const nextTransactions = detached.transactions.map((row) =>
         String(row.id) === txKey ? nextRow : row,
       );
-      const optimisticLabel = resolveAccountCodeLabel(accountCodes, code) || code;
+      const optimisticLabel = (() => {
+        const row = findAccountCodeByCode(accountCodes, code);
+        return row ? formatAccountCodeLabel(row, accountCodes) : code;
+      })();
       bankTransactionsRef.current = nextTransactions;
       flushSync(() => {
         setAccountSubjectLabels((labels) => ({ ...labels, [txKey]: optimisticLabel }));
