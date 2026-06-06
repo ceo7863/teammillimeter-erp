@@ -5,7 +5,7 @@ type SaleVoucherLike = {
 
 const MAX_EXCEL_STYLE_VOUCHER = 999_999_999;
 
-/** ??? ????? id(13??)? ???? ???? ?? */
+/** voucherNo/id에서 순번 추출 (Excel 스타일 13자리 등) */
 export function parseVoucherSequence(value: unknown) {
   const text = String(value ?? "").trim();
   if (!text) return null;
@@ -16,7 +16,7 @@ export function parseVoucherSequence(value: unknown) {
   return num;
 }
 
-/** ?? ????? NO ??: ?? ???? ??? + 1 */
+/** 새 전표 NO 부여: 기존 최대 순번 + 1 */
 export function allocateNextSaleRecordIds(sales: SaleVoucherLike[] = []) {
   let maxSeq = 0;
 

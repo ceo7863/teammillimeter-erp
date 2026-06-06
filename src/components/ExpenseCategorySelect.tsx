@@ -19,7 +19,7 @@ export function ExpenseCategorySelect({
   disabled = false,
   compact = true,
   className = "",
-  "aria-label": ariaLabel = "????",
+  "aria-label": ariaLabel = "지출 카테고리",
 }: ExpenseCategorySelectProps) {
   const options = useMemo(() => buildExpenseCategorySelectOptions(categories, value), [categories, value]);
   const normalizedValue = normalizeExpenseCategoryName(value) || value;

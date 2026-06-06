@@ -11,7 +11,7 @@ export function normalizeAttendanceViewUserIds(value: unknown): number[] | null 
   return ids.length ? ids : null;
 }
 
-/** ??? ?? ?? ?? ??? ??? ??? */
+/** 팀 출근 열람 권한이 있는 사용자인지 */
 export function canBrowseTeamAttendance(user: Pick<ErpUser, "role" | "attendanceViewUserIds"> | null | undefined) {
   if (!user) return false;
   if (user.role === "admin") return true;

@@ -43,17 +43,17 @@ function heuristicClassify(tx, expenseCategories, fixedExpenses) {
   }
 
   const rules = [
-    ["??/??", ["??", "?", "??", "??", "??", "??"]],
-    ["??/??", ["??", "??", "??", "??", "??"]],
-    ["???", ["??", "kt", "skt", "lgu"]],
-    ["???", ["??", "??", "??"]],
-    ["????", ["??", "??"]],
-    ["???", ["??", "???"]],
+    ["교통/주차", ["교통", "주", "주차", "택시", "톨", "고속"]],
+    ["접대/식비", ["식", "식사", "식대", "커피", "카페"]],
+    ["통신비", ["통신", "kt", "skt", "lgu"]],
+    ["소모품", ["소모", "문구", "용품"]],
+    ["마케팅", ["광고", "마케"]],
+    ["방문/외부", ["출장", "외부"]],
   ];
 
   for (const [category, keywords] of rules) {
     if (keywords.some((keyword) => haystack.includes(keyword))) {
-      const safe = expenseCategories.includes(category) ? category : expenseCategories[0] || "??";
+      const safe = expenseCategories.includes(category) ? category : expenseCategories[0] || "기타";
       return {
         transactionId: tx.id,
         kind: "manual",
@@ -67,7 +67,7 @@ function heuristicClassify(tx, expenseCategories, fixedExpenses) {
   return {
     transactionId: tx.id,
     kind: "manual",
-    category: expenseCategories[0] || "??",
+    category: expenseCategories[0] || "기타",
     confidence: 55,
     source: "heuristic",
   };
@@ -80,18 +80,18 @@ async function classifyWithOpenAi(transactions, expenseCategories, fixedExpenses
   const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
   const fixedList = fixedExpenses
     .slice(0, 40)
-    .map((row) => `${row.id}: ${row.name} (${row.category}, ${row.amount}?)`)
+    .map((row) => `${row.id}: ${row.name} (${row.category}, ${row.amount}원)`)
     .join("\n");
 
   const prompt = [
-    "?? ?? ?? ?? ??? ??? ???? ?????.",
-    `?? ????: ${expenseCategories.join(", ")}`,
-    `??? ??:\n${fixedList || "(??)"}`,
-    "JSON ??? ??: [{\"transactionId\",\"kind\":\"manual|fixed\",\"category\",\"fixedExpenseId\",\"confidence\":0-100}]",
-    "??:",
+    "은행 출금 거래를 아래 카테고리로 분류해 주세요.",
+    `카테고리 목록: ${expenseCategories.join(", ")}`,
+    `고정비 후보:\n${fixedList || "(없음)"}`,
+    'JSON 배열 형식: [{"transactionId","kind":"manual|fixed","category","fixedExpenseId","confidence":0-100}]',
+    "거래:",
     ...transactions.map(
       (tx) =>
-        `- id=${tx.id} ??=${tx.counterpartyName || ""} ??=${tx.description || ""} ??=${tx.withdrawal}`,
+        `- id=${tx.id} 상대=${tx.counterpartyName || ""} 적요=${tx.description || ""} 출금=${tx.withdrawal}`,
     ),
   ].join("\n");
 
@@ -136,7 +136,7 @@ export async function classifyBankLedgerBatch(body) {
   const transactions = Array.isArray(body?.transactions) ? body.transactions : [];
   const expenseCategories = Array.isArray(body?.expenseCategories)
     ? body.expenseCategories.map((item) => String(item || "").trim()).filter(Boolean)
-    : ["??"];
+    : ["기타"];
   const fixedExpenses = Array.isArray(body?.fixedExpenses)
     ? body.fixedExpenses
         .map((row) => ({

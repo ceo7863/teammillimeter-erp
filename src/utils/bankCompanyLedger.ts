@@ -37,7 +37,7 @@ export type BankLearnRule = {
   folderId?: string;
   counterpartyName?: string;
   descriptionTokens: string[];
-  /** ??? ?? ? ?? ???. ?? ?? ??? ?? ?? */
+  /** 학습 시 금액도 함께 기록. 같은 금액일 때만 자동 연결 */
   amount?: number;
   createdAt: string;
   createdBy?: string;

@@ -57,7 +57,7 @@ export function normalizeCompanyProfile(raw: unknown): CompanyProfile {
   };
 }
 
-/** ??? ???(Y/N)? ?? ??? ?? ?? */
+/** 거래처 부가세(Y/N)에 따라 계좌번호 선택 */
 export function resolveStatementBankAccount(profile: CompanyProfile, clientVat?: string): string {
   const vatIncluded = String(clientVat || "Y").toUpperCase() === "Y";
   const primary = vatIncluded ? profile.bankAccountVatIncluded : profile.bankAccountVatExcluded;

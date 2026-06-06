@@ -42,7 +42,7 @@ function amountsClose(left: number, right: number, tolerance = WORKER_BANK_AMOUN
   return Math.abs(Math.round(left) - Math.round(right)) <= tolerance;
 }
 
-/** ??? ??? ?? ?? ??(???) ??. ?? ??? ?? ?? ???? ??. */
+/** 출금 우선, 없으면 입금(환불) 금액 */
 export function resolveWorkerBankPaymentAmount(tx: Pick<BankTransaction, "withdrawal" | "deposit">) {
   const withdrawal = Math.round(Number(tx.withdrawal) || 0);
   if (withdrawal > 0) return withdrawal;

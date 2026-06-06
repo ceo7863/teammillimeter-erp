@@ -139,13 +139,13 @@ export function buildClientCalendarStatsByDate(
     acc[date].totalAmount += totalAmount;
     acc[date].totalUnpaid += unpaid;
     acc[date].vouchers.push({
-      site: getClientCalendarSiteName(sale) || "??? ??",
+      site: getClientCalendarSiteName(sale) || "현장명 없음",
       amount,
       unpaid,
       hasUnpaid: unpaid > 0,
     });
     acc[date].tooltipVouchers.push({
-      site: getClientCalendarSiteName(sale) || "??? ??",
+      site: getClientCalendarSiteName(sale) || "현장명 없음",
       totalAmount,
       workerSummary: formatWorkerNameSummary(workerLines),
       mealCost: billing.mealCost,

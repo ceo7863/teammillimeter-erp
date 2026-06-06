@@ -31,7 +31,7 @@ export function groupPdfArchivesBySubject(records: PdfArchiveMeta[], sort: PdfAr
     if (!existing) {
       map.set(folderId, {
         id: folderId,
-        folderName: record.subjectName || "???",
+        folderName: record.subjectName || "이름 없음",
         folderType,
         items: [record],
         updatedAt: record.createdAt,

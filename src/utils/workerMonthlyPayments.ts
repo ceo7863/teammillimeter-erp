@@ -20,7 +20,7 @@ export type WorkerMonthlyPaymentRecord = {
   paidAt?: string;
   paidBy?: string;
   memo?: string;
-  /** ???(netPay)? ??? 10%? ?? ??? ?? */
+  /** 실지급(netPay)에 부가세 10%를 더해 지급할지 여부 */
   payWithVat?: boolean;
 };
 

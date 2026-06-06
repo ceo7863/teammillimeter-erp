@@ -233,24 +233,24 @@ export function validateSaleFormMasterRefs(
 ) {
   const clientName = String(form.client || "").trim();
   if (clientName && !findRegisteredClientByName(clients, clientName)) {
-    return "??? ???? ??? ? ????.";
+    return "등록된 거래처가 아닙니다.";
   }
 
   const inactiveWorkers = getInactiveWorkerNamesInForm(form, workers);
   if (inactiveWorkers.length > 0) {
-    return `??? ???? ????? ??? ? ????: ${inactiveWorkers.join(", ")}`;
+    return `비활성 시공자는 선택할 수 없습니다: ${inactiveWorkers.join(", ")}`;
   }
 
   const unknownWorkers = getUnknownWorkerNamesInForm(form, workers);
   if (unknownWorkers.length > 0) {
-    return `??? ???? ??? ? ????: ${unknownWorkers.join(", ")}`;
+    return `등록되지 않은 시공자입니다: ${unknownWorkers.join(", ")}`;
   }
 
   const hasRegisteredActiveWorker = (form.workers || []).some((line) =>
     findActiveWorkerByName(workers, line.worker),
   );
   if (!hasRegisteredActiveWorker) {
-    return "??? ?? ???? ? ? ?? ??? ???.";
+    return "활성 시공자를 1명 이상 선택해 주세요.";
   }
 
   return "";

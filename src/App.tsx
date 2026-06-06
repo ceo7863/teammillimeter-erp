@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   BarChart3,
+  PieChart,
   Building2,
   CalendarDays,
   Check,
@@ -68,6 +69,7 @@ import { MyAccountModal } from "@/components/MyAccountModal";
 import { SidebarMenuOrderModal } from "@/components/SidebarMenuOrderModal";
 import { UsersAdminPage } from "@/components/UsersAdminPage";
 import { AccountingHubPage } from "@/components/AccountingHubPage";
+import { AnalysisHubPage } from "@/components/AnalysisHubPage";
 import { BasicInfoHubPage } from "@/components/BasicInfoHubPage";
 import { AttendancePage } from "@/components/AttendancePage";
 import { AutoLinkBadge, SalePaymentLinkBadge, SalePaymentLinkProvider } from "@/components/AutoLinkBadge";
@@ -2759,6 +2761,7 @@ const PAGE_ICONS: Record<ErpPageKey, typeof Home> = {
   clients: Building2,
   workers: Users,
   accounting: Landmark,
+  analysis: PieChart,
   companyNotices: Megaphone,
   companyProfile: Landmark,
   auditLog: History,
@@ -8398,6 +8401,15 @@ export default function TeammillimeterErpMvp() {
               setAccountCodes,
               onRequestImmediateSave: flushErpSave,
             }}
+          />
+        </PageKeepAlive>
+        <PageKeepAlive pageKey="analysis" active={active}>
+          <AnalysisHubPage
+            isHubActive={active === "analysis"}
+            bankTransactions={bankTransactions}
+            companyExpenses={companyExpenses}
+            ledgerCategories={ledgerCategories}
+            accountCodes={accountCodes}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="companyNotices" active={active}>

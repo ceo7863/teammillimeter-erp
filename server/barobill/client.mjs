@@ -56,10 +56,10 @@ export function extractSoapResult(xml, resultTag) {
 
   const faultMatch = String(xml || "").match(/<faultstring[^>]*>([^<]*)<\/faultstring>/i);
   if (faultMatch) {
-    throw new Error(`SOAP ??: ${faultMatch[1]}`);
+    throw new Error(`SOAP 오류: ${faultMatch[1]}`);
   }
 
-  throw new Error(`${resultTag} ??? ??? ? ????.`);
+  throw new Error(`${resultTag} 응답을 읽을 수 없습니다.`);
 }
 
 export function parseNumericResult(raw) {
@@ -83,7 +83,7 @@ export const BAROBILL_TOGO_CHARGE = "CHRG";
 
 export function maskCertKey(certKey) {
   const key = String(certKey || "").trim();
-  if (!key) return "(??)";
+  if (!key) return "(없음)";
   if (key.length <= 8) return "****";
   return `${key.slice(0, 4)}...${key.slice(-4)}`;
 }
@@ -114,15 +114,15 @@ export function assertBarobillCredentials({ requireCorpNum = true, requireUserId
   const trimmedUserId = String(userId || "").trim();
 
   if (!trimmedCertKey) {
-    throw new Error("BAROBILL_CERT_KEY? ???? ?????. ??? ??????? ??? ???? .env? ??? ???.");
+    throw new Error("BAROBILL_CERT_KEY가 설정되지 않았습니다. 바로빌 개발자센터에서 발급받은 값을 .env에 설정해 주세요.");
   }
 
   if (requireCorpNum && !trimmedCorpNum) {
-    throw new Error("BAROBILL_CORP_NUM? ???? ?????. ??????? 10??(??? ??)? .env? ??? ???.");
+    throw new Error("BAROBILL_CORP_NUM이 설정되지 않았습니다. 사업자번호 10자리(하이픈 제외)를 .env에 설정해 주세요.");
   }
 
   if (requireUserId && !trimmedUserId) {
-    throw new Error("BAROBILL_USER_ID? ???? ?????. ???? ??? ?? ???? .env? ??? ???.");
+    throw new Error("BAROBILL_USER_ID가 설정되지 않았습니다. 바로빌 로그인 아이디를 .env에 설정해 주세요.");
   }
 
   return {
@@ -145,7 +145,7 @@ export async function callBarobillSoapRequest(operation, fields, options = {}) {
 
   const xml = await response.text();
   if (!response.ok) {
-    throw new Error(`??? API HTTP ${response.status}: ${xml.slice(0, 300)}`);
+    throw new Error(`바로빌 API HTTP ${response.status}: ${xml.slice(0, 300)}`);
   }
   return xml;
 }
@@ -175,7 +175,7 @@ export async function checkCertIsValid() {
   );
   const code = parseNumericResult(rawResult);
   if (code === null) {
-    throw new Error("CheckCERTIsValid ??? ???? ????.");
+    throw new Error("CheckCERTIsValid 응답을 해석할 수 없습니다.");
   }
   return code;
 }
@@ -189,7 +189,7 @@ export async function getBalanceCostAmount() {
   );
   const value = parseNumericResult(rawResult);
   if (value === null) {
-    throw new Error("GetBalanceCostAmount ??? ???? ????.");
+    throw new Error("GetBalanceCostAmount 응답을 해석할 수 없습니다.");
   }
   return value;
 }
@@ -231,9 +231,9 @@ async function describeBarobillCode(code) {
   if (code >= 0) return null;
   try {
     const message = await getErrString(code);
-    return message || `?? ?? ${code}`;
+    return message || `바로빌 오류 ${code}`;
   } catch {
-    return `?? ?? ${code}`;
+    return `바로빌 오류 ${code}`;
   }
 }
 
@@ -244,7 +244,7 @@ export async function testBarobillConnection() {
     return {
       ...status,
       connectionOk: false,
-      message: "BAROBILL_CERT_KEY? ????. .env? ???? ??? ???.",
+      message: "BAROBILL_CERT_KEY가 없습니다. .env에 인증키를 설정해 주세요.",
     };
   }
 
@@ -252,7 +252,7 @@ export async function testBarobillConnection() {
     return {
       ...status,
       connectionOk: false,
-      message: "BAROBILL_CORP_NUM? ????. ???????? ??? ? ?? ??? ???.",
+      message: "BAROBILL_CORP_NUM이 없습니다. 사업자번호를 .env에 설정해 주세요.",
     };
   }
 
@@ -264,7 +264,7 @@ export async function testBarobillConnection() {
         ...status,
         connectionOk: false,
         errCode: balance,
-        message: detail || `??? API ?? (${balance})`,
+        message: detail || `바로빌 API 오류 (${balance})`,
       };
     }
 
@@ -272,7 +272,7 @@ export async function testBarobillConnection() {
       ...status,
       connectionOk: true,
       balance,
-      message: `??? API ?? ??. ?? ??: ${balance.toLocaleString("ko-KR")}?`,
+      message: `바로빌 API 연결 성공. 잔액: ${balance.toLocaleString("ko-KR")}원`,
     };
   } catch (error) {
     return {

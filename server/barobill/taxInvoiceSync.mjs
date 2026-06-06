@@ -4,7 +4,7 @@ import { checkTaxInvoiceScrapService } from "./taxInvoiceScrap.mjs";
 
 const SOAP_NS = "http://ws.baroservice.com/";
 const COUNT_PER_PAGE = 100;
-/** ??? ??? ?? ??: 1=??, 3=?? (2=??? ? API?? ???) */
+/** 세금계산서 종류 코드: 1=과세, 3=면세 (2=영세는 이 API에서 미지원) */
 const TAX_TYPES = [1, 3];
 const DATE_TYPE_WRITE = 1;
 
@@ -46,9 +46,9 @@ function extractResultBlock(xml, resultTag) {
   }
   const faultMatch = String(xml || "").match(/<faultstring[^>]*>([^<]*)<\/faultstring>/i);
   if (faultMatch) {
-    throw new Error(`SOAP ??: ${decodeXml(faultMatch[1])}`);
+    throw new Error(`SOAP 오류: ${decodeXml(faultMatch[1])}`);
   }
-  throw new Error(`${resultTag} ??? ?? ? ????.`);
+  throw new Error(`${resultTag} 응답을 읽을 수 없습니다.`);
 }
 
 function extractInvoiceBlocks(resultBlock) {
@@ -98,7 +98,7 @@ function buildMemo(block) {
     readXmlTag(block, "Remark2"),
     readXmlTag(block, "Note"),
   ].filter(Boolean);
-  return parts.length ? parts.join(" � ") : undefined;
+  return parts.length ? parts.join(" � ") : undefined;
 }
 
 export function mapBarobillRowToImportRow(block, flowType) {
@@ -140,9 +140,9 @@ async function describeBarobillCode(code) {
   if (code >= 0) return null;
   try {
     const message = await getErrString(code);
-    return message || `?? ?? ${code}`;
+    return message || `바로빌 오류 ${code}`;
   } catch {
-    return `?? ?? ${code}`;
+    return `바로빌 오류 ${code}`;
   }
 }
 
@@ -192,7 +192,7 @@ export async function fetchDailyTaxInvoices({ flowType, baseDate, taxType = 1 })
     const page = await fetchDailyTaxInvoicePage({ flowType, baseDate, taxType, currentPage });
     if (page.errorCode !== null) {
       const detail = await describeBarobillCode(page.errorCode);
-      const error = new Error(detail || `??? API ?? (${page.errorCode})`);
+      const error = new Error(detail || `바로빌 API 오류 (${page.errorCode})`);
       error.errCode = page.errorCode;
       throw error;
     }

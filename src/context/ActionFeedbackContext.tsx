@@ -117,7 +117,7 @@ export function ActionFeedbackProvider({ children }: { children: React.ReactNode
             <button
               type="button"
               className="erp-action-feedback-toast-close"
-              aria-label="??"
+              aria-label="닫기"
               onClick={() => dismiss(item.id)}
             >
               <X size={14} />
