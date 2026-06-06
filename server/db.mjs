@@ -687,14 +687,28 @@ export function getErpState() {
   }
 
   return {
-    data: JSON.parse(row.payload),
+    data: normalizeErpPayload(JSON.parse(row.payload)),
     version: row.version,
     updatedAt: row.updated_at,
     updatedBy: row.updated_by,
   };
 }
 
+function normalizeErpPayload(payload) {
+  if (
+    payload &&
+    typeof payload === "object" &&
+    payload.data &&
+    typeof payload.data === "object" &&
+    Array.isArray(payload.data.bankTransactions)
+  ) {
+    return payload.data;
+  }
+  return payload;
+}
+
 export function saveErpState(payload, expectedVersion, updatedBy) {
+  const normalizedPayload = normalizeErpPayload(payload);
   const database = getDb();
   const current = database.prepare("SELECT version FROM erp_state WHERE id = 1").get();
 
@@ -705,7 +719,7 @@ export function saveErpState(payload, expectedVersion, updatedBy) {
         INSERT INTO erp_state (id, payload, version, updated_at, updated_by)
         VALUES (1, ?, 1, ?, ?)
       `)
-      .run(JSON.stringify(payload), updatedAt, updatedBy == null || updatedBy === "" ? "system" : String(updatedBy));
+      .run(JSON.stringify(normalizedPayload), updatedAt, updatedBy == null || updatedBy === "" ? "system" : String(updatedBy));
     return { version: 1, updatedAt };
   }
 
@@ -725,7 +739,7 @@ export function saveErpState(payload, expectedVersion, updatedBy) {
       SET payload = ?, version = ?, updated_at = ?, updated_by = ?
       WHERE id = 1
     `)
-    .run(JSON.stringify(payload), nextVersion, updatedAt, updatedByValue);
+    .run(JSON.stringify(normalizedPayload), nextVersion, updatedAt, updatedByValue);
 
   return { version: nextVersion, updatedAt };
 }

@@ -22,7 +22,17 @@ function loadBackupPayload(dbPath) {
   db.close();
   fs.unlinkSync(tmp);
   if (!row) throw new Error(`No erp_state in ${dbPath}`);
-  return { version: row.version, data: JSON.parse(row.payload) };
+  let data = JSON.parse(row.payload);
+  if (
+    data &&
+    typeof data === "object" &&
+    data.data &&
+    typeof data.data === "object" &&
+    Array.isArray(data.data.bankTransactions)
+  ) {
+    data = data.data;
+  }
+  return { version: row.version, data };
 }
 
 function mergeById(backupRows, currentRows, prefer = "backup") {
