@@ -11,8 +11,14 @@ export function resolveBankTxClientName(tx: BankTransaction) {
   return String(tx.ledgerClientName || tx.linkedSubject || "").trim() || null;
 }
 
+const PARTY_NAME_SUFFIX_PATTERN = /(\(주\)|\(유\)|주식회사|㈜|유한회사|co\.?ltd|corp|inc)/gi;
+
 function normalizePartyName(value: string) {
-  return value.replace(/\s+/g, "").replace(/\(?\)|?|????|????|\(?\)/gi, "").toLowerCase();
+  return value
+    .replace(/\s+/g, "")
+    .replace(PARTY_NAME_SUFFIX_PATTERN, "")
+    .replace(/[\uFF08\uFF09()]/g, "")
+    .toLowerCase();
 }
 
 function collectBankTxPartyNames(tx: BankTransaction) {
