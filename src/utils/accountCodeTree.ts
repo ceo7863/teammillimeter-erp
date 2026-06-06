@@ -201,3 +201,44 @@ export function groupAccountCodePickerOptions(options: AccountCodePickerOption[]
   }
   return [...map.entries()].sort(([a], [b]) => a.localeCompare(b, "ko"));
 }
+
+export type AccountCodePickerFlatItem = {
+  code: string;
+  label: string;
+  groupName: string;
+  depth: 0 | 1;
+};
+
+/** Pre-build picker rows once per flow (avoid recomputing on every popover open). */
+export function buildAccountCodePickerFlatItems(
+  accountCodes: AccountCode[],
+  flow: "income" | "expense",
+): AccountCodePickerFlatItem[] {
+  const groups = groupAccountCodePickerOptions(buildAccountCodePickerOptions(accountCodes, flow));
+  const items: AccountCodePickerFlatItem[] = [];
+  for (const [groupName, groupItems] of groups) {
+    for (const item of groupItems) {
+      items.push({
+        code: item.code,
+        label: item.label,
+        groupName,
+        depth: item.depth,
+      });
+    }
+  }
+  return items;
+}
+
+export function filterAccountCodePickerFlatItems(
+  items: AccountCodePickerFlatItem[],
+  query: string,
+): AccountCodePickerFlatItem[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return items;
+  return items.filter(
+    (item) =>
+      item.label.toLowerCase().includes(q) ||
+      item.groupName.toLowerCase().includes(q) ||
+      item.code.includes(q),
+  );
+}

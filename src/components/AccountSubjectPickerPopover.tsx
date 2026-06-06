@@ -2,14 +2,9 @@ import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, 
 import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Plus } from "lucide-react";
-import type { AccountCode } from "@/utils/ledgerSystem";
+import type { AccountCodePickerFlatItem } from "@/utils/accountCodeTree";
+import { filterAccountCodePickerFlatItems } from "@/utils/accountCodeTree";
 import {
-  buildAccountCodePickerOptions,
-  filterAccountCodesForManageView,
-  groupAccountCodePickerOptions,
-} from "@/utils/accountCodeTree";
-import {
-  getScrollParents,
   readBankTxAccountTriggerElement,
   readBankTxAccountTriggerRect,
 } from "@/utils/floatingPosition";
@@ -23,32 +18,24 @@ export type AccountSubjectPickerPopoverLabels = {
 type AccountSubjectPickerPopoverProps = {
   triggerId: string;
   selectedCode: string;
-  accountCodes: AccountCode[];
-  flow: "income" | "expense";
+  items: AccountCodePickerFlatItem[];
   labels: AccountSubjectPickerPopoverLabels;
   onSelect: (accountCode: string) => boolean | void;
   onClose: () => void;
   onAddAccount?: () => void;
 };
 
-type FlatPickerItem = {
-  code: string;
-  label: string;
-  groupName: string;
-  depth: 0 | 1;
-};
-
 type VirtualPickerRow =
   | { kind: "group"; groupName: string; key: string }
-  | { kind: "item"; item: FlatPickerItem; itemIndex: number; key: string };
+  | { kind: "item"; item: AccountCodePickerFlatItem; itemIndex: number; key: string };
 
 const EXCEL_LIST_MAX_HEIGHT = 360;
 const EXCEL_POPOVER_MIN_WIDTH = 280;
 const PICKER_GROUP_ROW_PX = 20;
 const PICKER_ITEM_ROW_PX = 21;
-const PICKER_LIST_OVERSCAN = 10;
+const PICKER_LIST_OVERSCAN = 4;
 
-function buildVirtualPickerRows(flatItems: FlatPickerItem[]): VirtualPickerRow[] {
+function buildVirtualPickerRows(flatItems: AccountCodePickerFlatItem[]): VirtualPickerRow[] {
   const rows: VirtualPickerRow[] = [];
   let lastGroup = "";
   for (let itemIndex = 0; itemIndex < flatItems.length; itemIndex += 1) {
@@ -97,8 +84,7 @@ function computeExcelPopoverStyle(anchorRect: DOMRect | null): React.CSSProperti
 export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPopover({
   triggerId,
   selectedCode,
-  accountCodes,
-  flow,
+  items,
   labels,
   onSelect,
   onClose,
@@ -115,51 +101,10 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
     computeExcelPopoverStyle(readBankTxAccountTriggerRect(triggerId)),
   );
 
-  const applyMenuStyle = useCallback((style: React.CSSProperties | null) => {
-    const el = menuRef.current;
-    if (!el || style == null) return;
-    if (typeof style.top === "number") el.style.top = `${style.top}px`;
-    if (typeof style.left === "number") el.style.left = `${style.left}px`;
-    if (typeof style.width === "number") el.style.width = `${style.width}px`;
-    if (typeof style.maxHeight === "number") el.style.maxHeight = `${style.maxHeight}px`;
-  }, []);
-
-  const readMenuStyle = useCallback(() => {
-    return computeExcelPopoverStyle(readBankTxAccountTriggerRect(triggerId));
-  }, [triggerId]);
-
-  const updatePosition = useCallback(
-    (syncState = false) => {
-      const style = readMenuStyle();
-      applyMenuStyle(style);
-      if (syncState) setMenuStyle(style);
-      return style;
-    },
-    [applyMenuStyle, readMenuStyle],
+  const flatItems = useMemo(
+    () => filterAccountCodePickerFlatItems(items, typeahead),
+    [items, typeahead],
   );
-
-  const filteredRows = useMemo(
-    () => filterAccountCodesForManageView(accountCodes, flow, typeahead),
-    [accountCodes, flow, typeahead],
-  );
-
-  const groups = useMemo(() => {
-    const options = buildAccountCodePickerOptions(filteredRows, flow);
-    return groupAccountCodePickerOptions(options);
-  }, [filteredRows, flow]);
-
-  const updatePositionRef = useRef(updatePosition);
-  updatePositionRef.current = updatePosition;
-
-  const flatItems = useMemo(() => {
-    const items: FlatPickerItem[] = [];
-    for (const [groupName, groupItems] of groups) {
-      for (const item of groupItems) {
-        items.push({ code: item.code, label: item.label, groupName, depth: item.depth });
-      }
-    }
-    return items;
-  }, [groups]);
 
   const virtualPickerRows = useMemo(() => buildVirtualPickerRows(flatItems), [flatItems]);
 
@@ -172,12 +117,25 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
     getItemKey: (index) => virtualPickerRows[index]?.key ?? index,
   });
 
-  const rowVirtualizerRef = useRef(rowVirtualizer);
-  rowVirtualizerRef.current = rowVirtualizer;
+  const updatePosition = useCallback(() => {
+    const style = computeExcelPopoverStyle(readBankTxAccountTriggerRect(triggerId));
+    const el = menuRef.current;
+    if (el && style) {
+      if (typeof style.top === "number") el.style.top = `${style.top}px`;
+      if (typeof style.left === "number") el.style.left = `${style.left}px`;
+      if (typeof style.width === "number") el.style.width = `${style.width}px`;
+      if (typeof style.maxHeight === "number") el.style.maxHeight = `${style.maxHeight}px`;
+    }
+    setMenuStyle(style);
+    return style;
+  }, [triggerId]);
 
   useLayoutEffect(() => {
-    updatePosition(true);
-  }, [updatePosition]);
+    updatePosition();
+    const triggerEl = readBankTxAccountTriggerElement(triggerId);
+    triggerEl?.classList.add("is-open");
+    return () => triggerEl?.classList.remove("is-open");
+  }, [triggerId, updatePosition]);
 
   useEffect(() => {
     const selectedIndex = flatItems.findIndex((item) => item.code === selectedCode);
@@ -186,30 +144,24 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
 
   useEffect(() => {
     let rafId = 0;
-    const scheduleUpdate = (event?: Event) => {
-      if (event?.target instanceof Node && menuRef.current?.contains(event.target)) return;
+    const scheduleUpdate = (event: Event) => {
+      if (event.target instanceof Node && menuRef.current?.contains(event.target)) return;
       if (rafId) return;
       rafId = window.requestAnimationFrame(() => {
         rafId = 0;
-        updatePositionRef.current(false);
+        updatePosition();
       });
     };
 
-    const triggerEl = readBankTxAccountTriggerElement(triggerId);
-    const scrollTargets = getScrollParents(triggerEl);
-    scrollTargets.forEach((target) => {
-      target.addEventListener("scroll", scheduleUpdate, { passive: true });
-    });
-    window.addEventListener("resize", scheduleUpdate);
+    window.addEventListener("scroll", scheduleUpdate, { capture: true, passive: true });
+    window.addEventListener("resize", scheduleUpdate, { passive: true });
 
     return () => {
       if (rafId) window.cancelAnimationFrame(rafId);
-      scrollTargets.forEach((target) => {
-        target.removeEventListener("scroll", scheduleUpdate);
-      });
+      window.removeEventListener("scroll", scheduleUpdate, true);
       window.removeEventListener("resize", scheduleUpdate);
     };
-  }, [triggerId]);
+  }, [updatePosition]);
 
   useEffect(() => {
     if (!keyboardNavRef.current) return;
@@ -218,12 +170,12 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
       (row) => row.kind === "item" && row.itemIndex === highlightedIndex,
     );
     if (targetIndex >= 0) {
-      rowVirtualizerRef.current.scrollToIndex(targetIndex, { align: "auto" });
+      rowVirtualizer.scrollToIndex(targetIndex, { align: "auto" });
     }
-  }, [highlightedIndex, virtualPickerRows]);
+  }, [highlightedIndex, virtualPickerRows, rowVirtualizer]);
 
   const pickItem = useCallback(
-    (item: FlatPickerItem | undefined) => {
+    (item: AccountCodePickerFlatItem | undefined) => {
       if (!item) return;
       const saved = onSelect(item.code);
       if (saved === false) return;
@@ -290,19 +242,7 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
       document.removeEventListener("keydown", handleKeyDown);
       if (typeaheadTimerRef.current) window.clearTimeout(typeaheadTimerRef.current);
     };
-  }, [flatItems, highlightedIndex, onClose, pickItem, typeahead]);
-
-  useEffect(() => {
-    const previousHtmlOverflow = document.documentElement.style.overflow;
-    const previousBodyOverflow = document.body.style.overflow;
-    document.documentElement.style.overflow = "hidden";
-    document.body.style.overflow = "hidden";
-
-    return () => {
-      document.documentElement.style.overflow = previousHtmlOverflow;
-      document.body.style.overflow = previousBodyOverflow;
-    };
-  }, []);
+  }, [flatItems, highlightedIndex, onClose, pickItem]);
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
@@ -344,10 +284,11 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
                 return (
                   <div
                     key={row.key}
-                    data-index={virtualRow.index}
-                    ref={rowVirtualizer.measureElement}
                     className="erp-account-picker-popover__excel-group erp-account-picker-popover__virtual-row"
-                    style={{ transform: `translateY(${virtualRow.start}px)` }}
+                    style={{
+                      height: virtualRow.size,
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
                   >
                     {row.groupName}
                   </div>
@@ -362,12 +303,13 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
                   type="button"
                   role="option"
                   aria-selected={isSelected}
-                  data-index={virtualRow.index}
-                  ref={rowVirtualizer.measureElement}
                   className={`erp-account-picker-popover__item erp-account-picker-popover__item--excel erp-account-picker-popover__virtual-row${
                     row.item.depth ? " is-child" : ""
                   }${isSelected ? " is-selected" : ""}${isActive ? " is-active" : ""}`}
-                  style={{ transform: `translateY(${virtualRow.start}px)` }}
+                  style={{
+                    height: virtualRow.size,
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
                   onPointerDown={(event) => {
                     if (event.button !== 0) return;
                     event.preventDefault();

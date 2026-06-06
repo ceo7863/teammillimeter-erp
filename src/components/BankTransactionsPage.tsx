@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback, useDeferredValue } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback, useDeferredValue, startTransition } from "react";
 import { createPortal, flushSync } from "react-dom";
 import {
   ArrowDownLeft,
@@ -143,7 +143,7 @@ import {
   type LedgerScopeFilter,
 } from "@/utils/ledgerBankBridge";
 import { AccountSubjectPickerPopover } from "@/components/AccountSubjectPickerPopover";
-import { buildAccountCodePickerOptions, findAccountCodeByCode, formatAccountCodeLabel } from "@/utils/accountCodeTree";
+import { buildAccountCodePickerFlatItems, buildAccountCodePickerOptions, findAccountCodeByCode, formatAccountCodeLabel } from "@/utils/accountCodeTree";
 import {
   confirmBankTransactionLedger,
   filterAccountCodesByFlow,
@@ -996,7 +996,12 @@ export function BankTransactionsPage({
   const [selectedPreauthGroupKeys, setSelectedPreauthGroupKeys] = useState<string[]>([]);
   const [learnPreauthMerchants, setLearnPreauthMerchants] = useState(true);
   const [accountContentModal, setAccountContentModal] = useState<TxAccountContentModal | null>(null);
-  const [accountSubjectPickerTxId, setAccountSubjectPickerTxId] = useState<string | null>(null);
+  const [accountSubjectPicker, setAccountSubjectPicker] = useState<{
+    txId: string;
+    selectedCode: string;
+    flow: "income" | "expense";
+  } | null>(null);
+  const accountSubjectPickerTxIdRef = useRef<string | null>(null);
   const [accountSubjectLabels, setAccountSubjectLabels] = useState<Record<string, string>>({});
   const accountSubjectIgnoreOpenUntilRef = useRef(0);
   const bankTransactionsRef = useRef(bankTransactions);
@@ -1083,12 +1088,22 @@ export function BankTransactionsPage({
     return syncLedgerLinkedBankTransactionFolders(synced, folders, ledgerRegistrationContext).transactions;
   }, [bankTransactions, bankTransactionFolders, companyExpenses, fixedExpensePayments, ledgerRegistrationContext]);
 
-  const accountSubjectPickerTx = useMemo(() => {
-    if (!accountSubjectPickerTxId) return null;
-    return (
-      ledgerSyncedTransactions.find((row) => String(row.id) === String(accountSubjectPickerTxId)) ?? null
-    );
-  }, [accountSubjectPickerTxId, ledgerSyncedTransactions]);
+  const accountPickerFlatItemsByFlow = useMemo(
+    () => ({
+      income: buildAccountCodePickerFlatItems(accountCodes, "income"),
+      expense: buildAccountCodePickerFlatItems(accountCodes, "expense"),
+    }),
+    [accountCodes],
+  );
+
+  const accountSubjectPickerLabels = useMemo(
+    () => ({
+      searchPlaceholder: L.accountSubjectSearchPlaceholder,
+      empty: L.accountSubjectEmpty,
+      addAccount: L.addAccountCode,
+    }),
+    [],
+  );
 
   useEffect(() => {
     setAccountSubjectLabels((prev) => {
@@ -2221,7 +2236,25 @@ export function BankTransactionsPage({
     if (Date.now() < accountSubjectIgnoreOpenUntilRef.current) return;
     setTxCellModalError("");
     const txId = String(tx.id);
-    setAccountSubjectPickerTxId((prev) => (prev === txId ? null : txId));
+    startTransition(() => {
+      setAccountSubjectPicker((prev) => {
+        if (prev?.txId === txId) {
+          accountSubjectPickerTxIdRef.current = null;
+          return null;
+        }
+        accountSubjectPickerTxIdRef.current = txId;
+        return {
+          txId,
+          selectedCode: String(tx.ledgerAccountCode || "").trim(),
+          flow: tx.deposit > 0 ? "income" : "expense",
+        };
+      });
+    });
+  }, []);
+
+  const closeAccountSubjectPicker = useCallback(() => {
+    accountSubjectPickerTxIdRef.current = null;
+    setAccountSubjectPicker(null);
   }, []);
 
   const openFixedExpenseModal = useCallback(
@@ -2368,7 +2401,8 @@ export function BankTransactionsPage({
         setBankTransactions(nextTransactions);
         setCompanyExpenses(detached.expenses);
         setFixedExpensePayments(detached.payments);
-        setAccountSubjectPickerTxId(null);
+        setAccountSubjectPicker(null);
+        accountSubjectPickerTxIdRef.current = null;
         setTxCellModalError("");
         setImportMessage(L.cellSaveDone);
       });
@@ -2392,6 +2426,20 @@ export function BankTransactionsPage({
       setFixedExpensePayments,
     ],
   );
+
+  const handleAccountSubjectPickerSelect = useCallback(
+    (accountCode: string) => {
+      const txId = accountSubjectPickerTxIdRef.current;
+      if (!txId) return false;
+      return saveAccountSubjectSelection(txId, accountCode);
+    },
+    [saveAccountSubjectSelection],
+  );
+
+  const handleNavigateToClassifyFromPicker = useCallback(() => {
+    closeAccountSubjectPicker();
+    onNavigateToClassify?.();
+  }, [closeAccountSubjectPicker, onNavigateToClassify]);
 
   const saveFixedExpenseModal = () => {
     if (!fixedExpenseModal) return;
@@ -5122,7 +5170,6 @@ export function BankTransactionsPage({
             onEditAccountSubject={openAccountSubjectModal}
             onEditClient={openClientModal}
             onFindEvidence={openTaxInvoiceModal}
-            openAccountSubjectId={accountSubjectPickerTxId ? String(accountSubjectPickerTxId) : null}
             toolbar={
               <>
                 <Button
@@ -6337,27 +6384,15 @@ export function BankTransactionsPage({
         </div>
       ) : null}
 
-      {accountSubjectPickerTx ? (
+      {accountSubjectPicker ? (
         <AccountSubjectPickerPopover
-          triggerId={accountSubjectPickerTx.id}
-          selectedCode={resolveTxAccountCodeDraft(accountSubjectPickerTx)}
-          accountCodes={accountCodes}
-          flow={accountSubjectPickerTx.deposit > 0 ? "income" : "expense"}
-          labels={{
-            searchPlaceholder: L.accountSubjectSearchPlaceholder,
-            empty: L.accountSubjectEmpty,
-            addAccount: L.addAccountCode,
-          }}
-          onSelect={(accountCode) => saveAccountSubjectSelection(accountSubjectPickerTx.id, accountCode)}
-          onClose={() => setAccountSubjectPickerTxId(null)}
-          onAddAccount={
-            onNavigateToClassify
-              ? () => {
-                  setAccountSubjectPickerTxId(null);
-                  onNavigateToClassify();
-                }
-              : undefined
-          }
+          triggerId={accountSubjectPicker.txId}
+          selectedCode={accountSubjectPicker.selectedCode}
+          items={accountPickerFlatItemsByFlow[accountSubjectPicker.flow]}
+          labels={accountSubjectPickerLabels}
+          onSelect={handleAccountSubjectPickerSelect}
+          onClose={closeAccountSubjectPicker}
+          onAddAccount={onNavigateToClassify ? handleNavigateToClassifyFromPicker : undefined}
         />
       ) : null}
 

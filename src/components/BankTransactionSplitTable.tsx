@@ -35,7 +35,6 @@ type BankTransactionSplitTableProps = {
   onEditAccountSubject: (id: string) => void;
   onEditClient: (id: string) => void;
   onFindEvidence: (id: string) => void;
-  openAccountSubjectId?: string | null;
 };
 
 function AccountSubjectCellButton({
@@ -43,14 +42,12 @@ function AccountSubjectCellButton({
   value,
   placeholder,
   empty,
-  isOpen,
   onClick,
 }: {
   triggerId: string;
   value: string | null;
   placeholder: string;
   empty?: boolean;
-  isOpen?: boolean;
   onClick: () => void;
 }) {
   const display = value?.trim() || placeholder;
@@ -58,9 +55,8 @@ function AccountSubjectCellButton({
     <button
       type="button"
       {...{ [BANK_TX_ACCOUNT_TRIGGER_ATTR]: triggerId }}
-      className={`erp-bank-excel-cell__trigger${isOpen ? " is-open" : ""}${empty || !value?.trim() ? " is-empty" : ""}`}
+      className={`erp-bank-excel-cell__trigger${empty || !value?.trim() ? " is-empty" : ""}`}
       title={display}
-      aria-expanded={isOpen}
       aria-haspopup="listbox"
       onClick={(event) => {
         event.stopPropagation();
@@ -115,7 +111,6 @@ const SplitRow = memo(function SplitRow({
   onEditAccountSubject,
   onEditClient,
   onFindEvidence,
-  openAccountSubjectId = null,
 }: {
   model: BankTransactionListRowModel;
   labels: BankTransactionSplitTableLabels;
@@ -123,7 +118,6 @@ const SplitRow = memo(function SplitRow({
   onEditAccountSubject: (id: string) => void;
   onEditClient: (id: string) => void;
   onFindEvidence: (id: string) => void;
-  openAccountSubjectId?: string | null;
 }) {
   const rowClass =
     model.rowTone === "suppressed"
@@ -203,7 +197,6 @@ const SplitRow = memo(function SplitRow({
           value={model.accountSubjectLabel}
           placeholder={labels.accountSubjectPlaceholder}
           empty={!model.accountSubjectLabel}
-          isOpen={openAccountSubjectId != null && String(openAccountSubjectId) === String(model.id)}
           onClick={() => onEditAccountSubject(model.id)}
         />
       </td>
@@ -243,7 +236,6 @@ function BankTransactionSplitTableComponent({
   onEditAccountSubject,
   onEditClient,
   onFindEvidence,
-  openAccountSubjectId = null,
 }: BankTransactionSplitTableProps) {
   return (
     <DesktopTableWrap className="erp-bank-wehago-table-wrap">
@@ -293,7 +285,6 @@ function BankTransactionSplitTableComponent({
                   onEditAccountSubject={onEditAccountSubject}
                   onEditClient={onEditClient}
                   onFindEvidence={onFindEvidence}
-                  openAccountSubjectId={openAccountSubjectId}
                 />
               );
             })
