@@ -7039,6 +7039,7 @@ export default function TeammillimeterErpMvp() {
   const bankEditCooldownUntilRef = useRef(0);
   const bankTransactionsDirtyRef = useRef(false);
   const bankSyncApplyingRef = useRef(false);
+  const bankSnapshotGenerationRef = useRef(0);
   const bankRemoteApplySkipDirtyRef = useRef(false);
   const bankRemoteApplySkipAutosaveRef = useRef(false);
   const bankImportAtRef = useRef("");
@@ -8615,6 +8616,7 @@ export default function TeammillimeterErpMvp() {
   );
 
   const beginBankRemoteSync = React.useCallback(() => {
+    bankSnapshotGenerationRef.current += 1;
     bankSyncApplyingRef.current = true;
     skipSaveRef.current = true;
     if (saveDebounceTimerRef.current) {
@@ -8625,6 +8627,8 @@ export default function TeammillimeterErpMvp() {
 
   const applyRemoteBankSnapshot = React.useCallback(
     async (data: Awaited<ReturnType<typeof fetchBankTransactionsSnapshot>>) => {
+      const generation = bankSnapshotGenerationRef.current + 1;
+      bankSnapshotGenerationRef.current = generation;
       bankSyncApplyingRef.current = true;
       skipSaveRef.current = true;
       if (saveDebounceTimerRef.current) {
@@ -8632,6 +8636,13 @@ export default function TeammillimeterErpMvp() {
         saveDebounceTimerRef.current = null;
       }
       try {
+        if (generation !== bankSnapshotGenerationRef.current) {
+          return {
+            addedCount: 0,
+            totalCount: bankTransactionsRef.current.length,
+            applied: false,
+          };
+        }
         return await applyBankTransactionsSnapshot(data);
       } finally {
         window.setTimeout(() => {
@@ -8644,14 +8655,23 @@ export default function TeammillimeterErpMvp() {
   );
 
   const forceRefreshBankFromServer = React.useCallback(async () => {
+    if (bankSyncApplyingRef.current) {
+      return { addedCount: 0, totalCount: bankTransactionsRef.current.length, applied: false };
+    }
+    const fetchGeneration = bankSnapshotGenerationRef.current;
     try {
       const data = await fetchBankTransactionsSnapshot();
+      if (fetchGeneration !== bankSnapshotGenerationRef.current) {
+        return { addedCount: 0, totalCount: bankTransactionsRef.current.length, applied: false };
+      }
       return await applyRemoteBankSnapshot(data);
     } catch (error) {
       console.error(error);
       return { addedCount: 0, totalCount: bankTransactionsRef.current.length, applied: false };
     }
   }, [applyRemoteBankSnapshot]);
+
+  const isBankRemoteSyncBusy = React.useCallback(() => bankSyncApplyingRef.current, []);
 
   const handleBankSynced = React.useCallback(
     async (syncResult?: {
@@ -8701,6 +8721,7 @@ export default function TeammillimeterErpMvp() {
   useBankAutoSync({
     enabled: apiMode && dataReady && Boolean(currentUser),
     isActive: active === "accounting" && bankTabActive,
+    isBankSyncBusy: isBankRemoteSyncBusy,
     onSyncBegin: beginBankRemoteSync,
     onSynced: handleBankSynced,
     listRefreshIntervalMs: 15000,
