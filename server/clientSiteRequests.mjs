@@ -197,6 +197,10 @@ export function submitClientSiteRequest(token, body = {}) {
     processedAt: null,
     processedBy: null,
     processNote: "",
+    receiptCompletedAt: null,
+    receiptCompletedBy: null,
+    registerCompletedAt: null,
+    registerCompletedBy: null,
     messages: [],
   };
 
@@ -340,25 +344,74 @@ export function updateClientSiteRequestStatus(id, input = {}, actor = "") {
     return { ok: false, status: 404, error: "\uC811\uC218 \uB0B4\uC5ED\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
   }
 
+  const now = new Date().toISOString();
+  const current = requests[index];
+  const actorName = String(actor || "").trim();
+  const processNote = String(input.processNote ?? current.processNote ?? "").trim().slice(0, 1000);
   const status = String(input.status || "").trim();
+  const completionStep = String(input.completionStep || "").trim();
+
+  if (completionStep === "receipt" || completionStep === "register") {
+    if (current.status !== "pending") {
+      return { ok: false, status: 400, error: "\uB300\uAE30 \uC911\uC778 \uC811\uC218\uB9CC \uC644\uB9C \uC644\uB8CC \uCC98\uB9AC\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4." };
+    }
+
+    const receiptCompletedAt = current.receiptCompletedAt || (completionStep === "receipt" ? now : null);
+    const receiptCompletedBy =
+      current.receiptCompletedBy || (completionStep === "receipt" ? actorName || current.receiptCompletedBy : null);
+    const registerCompletedAt = current.registerCompletedAt || (completionStep === "register" ? now : null);
+    const registerCompletedBy =
+      current.registerCompletedBy || (completionStep === "register" ? actorName || current.registerCompletedBy : null);
+    const bothDone = Boolean(receiptCompletedAt && registerCompletedAt);
+
+    const next = {
+      ...current,
+      status: bothDone ? "confirmed" : "pending",
+      processNote,
+      receiptCompletedAt,
+      receiptCompletedBy,
+      registerCompletedAt,
+      registerCompletedBy,
+      processedAt: bothDone ? now : null,
+      processedBy: bothDone ? actorName || current.processedBy : null,
+    };
+    requests[index] = next;
+    saveClientsAndRequests(
+      listClients(data),
+      requests,
+      actorName ? `client-site-request:step:${actorName}` : "client-site-request:step",
+    );
+    return { ok: true, request: next };
+  }
+
   if (status !== "confirmed" && status !== "rejected" && status !== "pending") {
     return { ok: false, status: 400, error: "\uCC98\uB9AC \uC0C1\uD0DC\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." };
   }
 
-  const now = new Date().toISOString();
-  const current = requests[index];
+  if (status === "confirmed") {
+    return {
+      ok: false,
+      status: 400,
+      error: "\uC811\uC218 \uC644\uB8CC\uC640 \uB4F1\uB85D \uC644\uB8CC\uB97C \uBAA8\uB450 \uD655\uC778\uD574 \uC8FC\uC138\uC694.",
+    };
+  }
+
   const next = {
     ...current,
     status,
-    processNote: String(input.processNote || current.processNote || "").trim().slice(0, 1000),
+    processNote,
     processedAt: status === "pending" ? null : now,
-    processedBy: status === "pending" ? null : String(actor || "").trim() || current.processedBy,
+    processedBy: status === "pending" ? null : actorName || current.processedBy,
+    receiptCompletedAt: status === "pending" ? null : current.receiptCompletedAt || null,
+    receiptCompletedBy: status === "pending" ? null : current.receiptCompletedBy || null,
+    registerCompletedAt: status === "pending" ? null : current.registerCompletedAt || null,
+    registerCompletedBy: status === "pending" ? null : current.registerCompletedBy || null,
   };
   requests[index] = next;
   saveClientsAndRequests(
     listClients(data),
     requests,
-    actor ? `client-site-request:status:${actor}` : "client-site-request:status",
+    actorName ? `client-site-request:status:${actorName}` : "client-site-request:status",
   );
   return { ok: true, request: next };
 }

@@ -18,6 +18,7 @@ import {
   setClientSiteRequestLinkDisabled,
   updateClientSiteRequestStatus,
   type ClientSiteRequest,
+  type ClientSiteRequestCompletionStep,
   type ClientSiteRequestLink,
   type ClientSiteRequestStatus,
 } from "@/utils/clientSiteRequests";
@@ -62,14 +63,21 @@ const L = {
   submittedAt: "\uC811\uC218",
   status: "\uC0C1\uD0DC",
   actions: "\uAD00\uB9AC",
-  confirm: "\uCC98\uB9AC \uC644\uB8CC",
+  confirm: "\uC811\uC218 \uC644\uB8CC",
+  registerComplete: "\uB4F1\uB85D \uC644\uB8CC",
   reject: "\uBC18\uB824",
   reopen: "\uB300\uAE30 \uBCF5\uADC0",
   processNotePh: "\uB0B4\uBD80 \uBA54\uBAA8 (\uAC70\uB798\uCC98 \uBE44\uACF5\uAC1C)",
   processedBy: "\uCC98\uB9AC\uC790",
+  receiptDoneBadge: "\uC811\uC218 \uC644\uB8CC",
+  registerDoneBadge: "\uB4F1\uB85D \uC644\uB8CC",
   linkCopied: "\uB9C1\uD06C\uB97C \uBCF5\uC0AC\uD588\uC2B5\uB2C8\uB2E4.",
   linkIssued: "\uB9C1\uD06C\uAC00 \uBC1C\uAE09\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
-  updated: "\uCC98\uB9AC \uC644\uB8CC.",
+  updatedReceipt: "\uC811\uC218 \uC644\uB8CC\uB97C \uD655\uC778\uD588\uC2B5\uB2C8\uB2E4.",
+  updatedRegister: "\uB4F1\uB85D \uC644\uB8CC\uB97C \uD655\uC778\uD588\uC2B5\uB2C8\uB2E4.",
+  updated: "\uCC98\uB9AC \uC644\uB8CC \uBAA9\uB85D\uC73C\uB85C \uC774\uB3D9\uD588\uC2B5\uB2C8\uB2E4.",
+  rejected: "\uBC18\uB824 \uCC98\uB9AC\uD588\uC2B5\uB2C8\uB2E4.",
+  reopened: "\uC811\uC218 \uBAA9\uB85D\uC73C\uB85C \uB418\uB?\uB838\uC2B5\uB2C8\uB2E4.",
   fail: "\uC694\uCCAD \uCC98\uB9AC\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   messageFail: "\uBA54\uC2DC\uC9C0 \uC804\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   unreadChat: "\uC0C8 \uBA54\uC2DC\uC9C0",
@@ -106,6 +114,7 @@ function RequestCard({
   onChatDraftChange,
   onSendMessage,
   onUpdateStatus,
+  onCompleteStep,
   onClientNameClick,
 }: {
   request: ClientSiteRequest;
@@ -118,8 +127,12 @@ function RequestCard({
   onChatDraftChange: (id: string, value: string) => void;
   onSendMessage: (request: ClientSiteRequest) => void;
   onUpdateStatus: (request: ClientSiteRequest, status: ClientSiteRequestStatus) => void;
+  onCompleteStep: (request: ClientSiteRequest, step: ClientSiteRequestCompletionStep) => void;
   onClientNameClick?: (request: ClientSiteRequest) => void;
 }) {
+  const receiptDone = Boolean(request.receiptCompletedAt);
+  const registerDone = Boolean(request.registerCompletedAt);
+
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -151,6 +164,16 @@ function RequestCard({
             {request.unreadByStaff ? (
               <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">
                 {L.unreadChat}
+              </span>
+            ) : null}
+            {showActions && receiptDone ? (
+              <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">
+                {L.receiptDoneBadge}
+              </span>
+            ) : null}
+            {showActions && registerDone ? (
+              <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">
+                {L.registerDoneBadge}
               </span>
             ) : null}
           </div>
@@ -188,18 +211,28 @@ function RequestCard({
               className="rounded-xl"
             />
             <div className="flex flex-wrap gap-1.5">
-              {request.status !== "confirmed" ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  className="rounded-lg"
-                  disabled={saving}
-                  onClick={() => onUpdateStatus(request, "confirmed")}
-                >
-                  <Check size={13} className="mr-1" />
-                  {L.confirm}
-                </Button>
-              ) : null}
+              <Button
+                type="button"
+                size="sm"
+                className={`rounded-lg ${receiptDone ? "bg-emerald-600 hover:bg-emerald-600" : ""}`}
+                variant={receiptDone ? "default" : "default"}
+                disabled={saving || receiptDone}
+                onClick={() => onCompleteStep(request, "receipt")}
+              >
+                <Check size={13} className="mr-1" />
+                {L.confirm}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className={`rounded-lg ${registerDone ? "bg-emerald-600 hover:bg-emerald-600" : ""}`}
+                variant={registerDone ? "default" : "outline"}
+                disabled={saving || registerDone}
+                onClick={() => onCompleteStep(request, "register")}
+              >
+                <Check size={13} className="mr-1" />
+                {L.registerComplete}
+              </Button>
               {request.status !== "rejected" ? (
                 <Button
                   type="button"
@@ -430,7 +463,30 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
         status,
         processNote: noteDrafts[request.id] ?? request.processNote ?? "",
       });
-      setMessage(L.updated);
+      setMessage(status === "rejected" ? L.rejected : L.reopened);
+      await loadAll();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : L.fail);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCompleteStep = async (request: ClientSiteRequest, step: ClientSiteRequestCompletionStep) => {
+    setSaving(true);
+    setMessage("");
+    try {
+      const updated = await updateClientSiteRequestStatus(request.id, {
+        completionStep: step,
+        processNote: noteDrafts[request.id] ?? request.processNote ?? "",
+      });
+      if (updated.status === "confirmed") {
+        setMessage(L.updated);
+      } else if (step === "receipt") {
+        setMessage(L.updatedReceipt);
+      } else {
+        setMessage(L.updatedRegister);
+      }
       await loadAll();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : L.fail);
@@ -746,6 +802,7 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
                     onChatDraftChange={(id, value) => setChatDrafts((prev) => ({ ...prev, [id]: value }))}
                     onSendMessage={handleSendStaffMessage}
                     onUpdateStatus={(row, status) => void handleUpdateStatus(row, status)}
+                    onCompleteStep={(row, step) => void handleCompleteStep(row, step)}
                     onClientNameClick={(row) =>
                       setCalendarModalClient({ clientId: row.clientId, clientName: row.clientName })
                     }

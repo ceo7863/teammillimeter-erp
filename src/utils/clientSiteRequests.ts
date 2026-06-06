@@ -27,6 +27,10 @@ export type ClientSiteRequest = {
   processedAt?: string | null;
   processedBy?: string | null;
   processNote?: string;
+  receiptCompletedAt?: string | null;
+  receiptCompletedBy?: string | null;
+  registerCompletedAt?: string | null;
+  registerCompletedBy?: string | null;
   messages?: ClientSiteRequestMessage[];
   lastMessageAt?: string;
   unreadByStaff?: boolean;
@@ -244,9 +248,15 @@ export async function setClientSiteRequestLinkDisabled(
   );
 }
 
+export type ClientSiteRequestCompletionStep = "receipt" | "register";
+
 export async function updateClientSiteRequestStatus(
   id: string,
-  input: { status: ClientSiteRequestStatus; processNote?: string },
+  input: {
+    status?: ClientSiteRequestStatus;
+    completionStep?: ClientSiteRequestCompletionStep;
+    processNote?: string;
+  },
 ): Promise<ClientSiteRequest> {
   const data = await apiRequest<{ request: ClientSiteRequest }>(`/client-site-requests/${encodeURIComponent(id)}`, {
     method: "PATCH",
