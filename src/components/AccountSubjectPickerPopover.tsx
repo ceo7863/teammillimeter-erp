@@ -182,7 +182,9 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
                         className={`erp-account-picker-popover__item${isSelected ? " is-selected" : ""}`}
                         onMouseDown={(event) => {
                           event.preventDefault();
+                          event.stopPropagation();
                           onSelect(item.code);
+                          onClose();
                         }}
                       >
                         {item.label}

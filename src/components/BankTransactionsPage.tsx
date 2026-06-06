@@ -2257,6 +2257,7 @@ export function BankTransactionsPage({
 
   const saveAccountSubjectSelection = useCallback(
     (txId: string, accountCode: string) => {
+      setAccountSubjectPicker(null);
       let nextTransactions: BankTransaction[] | null = null;
       setBankTransactions((prev) => {
         const tx = prev.find((row) => row.id === txId);
@@ -2277,7 +2278,6 @@ export function BankTransactionsPage({
         setTxCellModalError(L.detailLedgerRegisterFailed);
         return;
       }
-      setAccountSubjectPicker(null);
       setTxCellModalError("");
       setImportMessage(L.cellSaveDone);
       void onRequestImmediateSave?.({ bankTransactions: nextTransactions });
