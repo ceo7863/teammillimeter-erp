@@ -4,14 +4,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   formatSaleCommentTime,
-  listSaleComments,
   type PendingSaleComment,
   type SaleComment,
 } from "@/utils/saleComments";
 
 type SaleVoucherCommentsPanelProps = {
   saleId?: string | number | null;
-  saleComments: SaleComment[];
+  comments?: SaleComment[];
   pendingComments?: PendingSaleComment[];
   onAddComment: (body: string) => void | Promise<void>;
   currentUser?: { name?: string; email?: string } | null;
@@ -28,18 +27,20 @@ type DisplayComment = {
 
 export const SaleVoucherCommentsPanel = memo(function SaleVoucherCommentsPanel({
   saleId,
-  saleComments,
+  comments = [],
   pendingComments = [],
   onAddComment,
   currentUser,
   className = "",
 }: SaleVoucherCommentsPanelProps) {
-  const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const onAddCommentRef = useRef(onAddComment);
+  onAddCommentRef.current = onAddComment;
 
   const displayComments = useMemo((): DisplayComment[] => {
-    const persisted = listSaleComments(saleComments, saleId).map((row) => ({
+    const persisted = comments.map((row) => ({
       id: row.id,
       body: row.body,
       authorName: row.authorName,
@@ -54,7 +55,7 @@ export const SaleVoucherCommentsPanel = memo(function SaleVoucherCommentsPanel({
       pending: true,
     }));
     return [...persisted, ...pending].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
-  }, [pendingComments, saleComments, saleId]);
+  }, [comments, pendingComments]);
 
   useEffect(() => {
     const node = listRef.current;
@@ -63,16 +64,18 @@ export const SaleVoucherCommentsPanel = memo(function SaleVoucherCommentsPanel({
   }, [displayComments.length]);
 
   const submit = useCallback(async () => {
-    const body = draft.trim();
+    const body = String(textareaRef.current?.value || "").trim();
     if (!body || submitting) return;
     setSubmitting(true);
     try {
-      await onAddComment(body);
-      setDraft("");
+      await onAddCommentRef.current(body);
+      if (textareaRef.current) {
+        textareaRef.current.value = "";
+      }
     } finally {
       setSubmitting(false);
     }
-  }, [draft, onAddComment, submitting]);
+  }, [submitting]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -129,18 +132,18 @@ export const SaleVoucherCommentsPanel = memo(function SaleVoucherCommentsPanel({
 
         <div className="erp-sale-voucher-comments-compose">
           <textarea
+            ref={textareaRef}
             lang="ko"
             className="erp-input erp-sale-voucher-comments-input min-h-[72px] w-full rounded-xl"
-            value={draft}
+            defaultValue=""
             placeholder={`${authorLabel}\uB2D8, \uCF54\uBA58\uD2B8 \uC785\uB825 (Enter \uC804\uC1A1 \u00B7 Shift+Enter \uC904\uBC14\uAFC8)`}
-            onChange={(event) => setDraft(event.target.value)}
             onKeyDown={handleKeyDown}
           />
           <Button
             type="button"
             size="sm"
             className="h-9 shrink-0 rounded-xl px-4"
-            disabled={!draft.trim() || submitting}
+            disabled={submitting}
             onClick={() => void submit()}
           >
             <Send size={14} />

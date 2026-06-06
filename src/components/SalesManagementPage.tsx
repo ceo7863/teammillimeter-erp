@@ -30,6 +30,7 @@ import {
 } from "@/utils/salesSheetColumnResize";
 import type { SortDirection } from "@/utils/pivotSort";
 import { SalePaymentLinkBadge } from "@/components/AutoLinkBadge";
+import { SaleCommentBadge } from "@/components/SaleCommentBadge";
 
 const SHEET_SORTABLE_COLUMNS = new Set<SalesSheetSortColumn>(["date", "client", "site", "worker"]);
 
@@ -62,7 +63,7 @@ function buildSalesSheetDisplayRows(rows: SalesStatementRow[]): SalesSheetDispla
   });
 }
 
-function renderCell(row: SalesSheetDisplayRow, key: string) {
+function renderCell(row: SalesSheetDisplayRow, key: string, saleCommentCounts?: Map<string, number>) {
   const value = row[key as keyof SalesStatementRow];
   const column = SALES_SHEET_UI_COLUMNS.find((item) => item.key === key);
   if (!column) return "-";
@@ -97,6 +98,7 @@ function renderCell(row: SalesSheetDisplayRow, key: string) {
     return (
       <span className="erp-sales-sheet-badge-cell">
         <SalePaymentLinkBadge saleId={row.saleId} />
+        <SaleCommentBadge saleId={row.saleId} saleCommentCounts={saleCommentCounts} />
         <span>{text}</span>
       </span>
     );
@@ -237,6 +239,7 @@ export function SalesManagementPage({
   setActive,
   currentUser,
   onEditSale,
+  saleCommentCounts,
 }) {
   const { recordAudit } = useAudit();
   const [textFilters, setTextFilters] = useState(emptySalesSheetTextFilters);
@@ -565,7 +568,7 @@ export function SalesManagementPage({
                               style={column.sticky ? { left: stickyLeftByKey[column.key] } : undefined}
                               title={typeof row[column.key as keyof SalesStatementRow] === "string" ? String(row[column.key as keyof SalesStatementRow]) : undefined}
                             >
-                              {renderCell(row, column.key)}
+                              {renderCell(row, column.key, saleCommentCounts)}
                             </td>
                           );
                         })}

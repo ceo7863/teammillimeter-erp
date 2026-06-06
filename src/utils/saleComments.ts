@@ -115,3 +115,20 @@ export function formatSaleCommentTime(value: string) {
     minute: "2-digit",
   });
 }
+
+export function buildSaleCommentCountBySaleId(comments: SaleComment[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const row of comments) {
+    const key = String(row.saleId);
+    map.set(key, (map.get(key) || 0) + 1);
+  }
+  return map;
+}
+
+export function getSaleCommentCount(
+  saleCommentCounts: Map<string, number>,
+  saleId?: string | number | null,
+): number {
+  if (saleId == null || saleId === "") return 0;
+  return saleCommentCounts.get(String(saleId)) || 0;
+}

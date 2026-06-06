@@ -44,6 +44,7 @@ import {
   BookUser,
   UserCog,
   Megaphone,
+  MessageSquare,
   Receipt,
   Circle,
   UserMinus,
@@ -62,6 +63,8 @@ import { AuditField, AuditCellHint, EntityAuditButton } from "@/components/Audit
 import { AuditLogPage } from "@/components/AuditLogPage";
 import { LoginHistoryPage } from "@/components/LoginHistoryPage";
 import { SalesManagementPage } from "@/components/SalesManagementPage";
+import { SaleCommentsPage } from "@/components/SaleCommentsPage";
+import { SaleCommentBadge } from "@/components/SaleCommentBadge";
 import { PaymentReceivablesPage } from "@/components/PaymentReceivablesPage";
 import { WorkerPaymentsPage } from "@/components/WorkerPaymentsPage";
 import { StatementsPage } from "@/components/StatementsPage";
@@ -87,13 +90,15 @@ import { normalizeWorkPosts } from "@/utils/workBoard";
 import {
   appendSaleComment,
   appendSaleComments,
-  createPendingSaleComment,
+  buildSaleCommentCountBySaleId,
   createSaleComment,
   normalizeSaleComments,
-  pendingCommentsToSaleComments,
   type SaleComment,
 } from "@/utils/saleComments";
-import { SaleVoucherCommentsPanel } from "@/components/SaleVoucherCommentsPanel";
+import {
+  SaleRegistrationCommentsPanel,
+  type SaleRegistrationCommentsHandle,
+} from "@/components/SaleRegistrationCommentsPanel";
 import { normalizeTaxInvoices } from "@/utils/taxInvoices";
 import {
   normalizeBankTransactions,
@@ -2763,6 +2768,7 @@ const PAGE_ICONS: Record<ErpPageKey, typeof Home> = {
   salesInput: Plus,
   sales: FileSpreadsheet,
   salesVoucherSearch: Search,
+  saleComments: MessageSquare,
   receivables: CreditCard,
   workerPayments: WalletCards,
   reports: BarChart3,
@@ -3311,6 +3317,7 @@ function CalendarPage({
   onPersistSaleUpdate,
   saleComments = [],
   onAddSaleComment,
+  saleCommentCounts,
 }) {
   const { recordAudit } = useAudit();
   const { message: clientFilterNotice, showNotice: showClientFilterNotice, clearNotice: clearClientFilterNotice } = useActionNotice();
@@ -4307,6 +4314,9 @@ function CalendarPage({
                                 manualLinkedSaleIds={manualLinkedSaleIds}
                               />
                             ) : null}
+                            {entry.saleId ? (
+                              <SaleCommentBadge saleId={entry.saleId} saleCommentCounts={saleCommentCounts} />
+                            ) : null}
                           </li>
                           );
                         })}
@@ -4586,6 +4596,7 @@ function CalendarPage({
                                 autoLinkedSaleIds={autoLinkedSaleIds}
                                 manualLinkedSaleIds={manualLinkedSaleIds}
                               />
+                              <SaleCommentBadge saleId={sale.id} saleCommentCounts={saleCommentCounts} />
                             </div>
                           </div>
                         </button>
@@ -4648,7 +4659,7 @@ function PageTitle({ title, desc, action }) {
   );
 }
 
-function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "매출목록", exportTitle, isDuplicateRow, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set() }) {
+function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "매출목록", exportTitle, isDuplicateRow, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set(), saleCommentCounts }) {
   const title = exportTitle || exportFileName;
   return (
     <TableExportSection fileName={exportFileName} title={title} disabled={rows.length === 0}>
@@ -4657,6 +4668,7 @@ function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "�
           rows.map((row) => {
             const isSelected = selectedRowId != null && String(row.id) === String(selectedRowId);
             const isDuplicate = isDuplicateRow?.(row);
+            const commentCount = saleCommentCounts?.get(String(row.id)) || 0;
             return (
               <MobileRecordCard
                 key={row.id}
@@ -4664,6 +4676,7 @@ function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "�
                 subtitle={`${row.date} · ${row.site}${isDuplicate ? " · 중복" : ""}`}
                 selected={isSelected}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
+                badges={commentCount > 0 ? [{ label: `코멘트 ${commentCount}` }] : undefined}
                 fields={[
                   { label: "매출액", value: formatKRW(getSaleTotalBill(row)) },
                   { label: "입금", value: formatKRW(row.paid), tone: "success" },
@@ -4715,6 +4728,7 @@ function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "�
                   autoLinkedSaleIds={autoLinkedSaleIds}
                   manualLinkedSaleIds={manualLinkedSaleIds}
                 />
+                <SaleCommentBadge saleId={row.id} saleCommentCounts={saleCommentCounts} />
               </td>
               <td className="font-semibold"><span className="erp-cell-truncate inline-block max-w-[7rem] md:max-w-none">{row.client}</span></td>
               <td><span className="erp-cell-truncate inline-block max-w-[8rem] md:max-w-none">{row.site}</span></td>
@@ -4751,7 +4765,7 @@ const SalesRegistrationPage = memo(function SalesRegistrationPage({
   const draftRef = useRef(initialForm);
   const { message: saveMessage, setMessage: setSaveMessage, clearMessage: clearSaveMessage } = useSaveMessage();
   const [duplicateConfirm, setDuplicateConfirm] = useState(null);
-  const [pendingComments, setPendingComments] = useState([]);
+  const registrationCommentsRef = useRef<SaleRegistrationCommentsHandle | null>(null);
   const activeWorkers = useMemo(() => filterActiveWorkers(workers), [workers]);
   const syncDraftRef = useCallback((draft) => {
     draftRef.current = draft;
@@ -4781,18 +4795,19 @@ const SalesRegistrationPage = memo(function SalesRegistrationPage({
       user: currentUser,
     });
     const nextSales = [newSale, ...salesRef.current];
-    const flushedComments = pendingComments.length
-      ? appendSaleComments(saleComments, pendingCommentsToSaleComments(pendingComments, newId))
+    const flushedPending = registrationCommentsRef.current?.flushPending(newId) ?? [];
+    const flushedComments = flushedPending.length
+      ? appendSaleComments(saleComments, flushedPending)
       : saleComments;
     setSales(nextSales);
-    if (pendingComments.length) {
-      setPendingComments([]);
+    if (flushedPending.length) {
+      registrationCommentsRef.current?.reset();
     }
     await onPersistNewSale?.(nextSales, flushedComments);
     setFormSessionKey((key) => key + 1);
     setSaveMessage(`${payload.client} · ${payload.site} 매출이 저장되었습니다. 계속 등록할 수 있습니다.`);
     setDuplicateConfirm(null);
-  }, [currentUser, onPersistNewSale, pendingComments, recordAudit, saleComments, setSales, setSaveMessage]);
+  }, [currentUser, onPersistNewSale, recordAudit, saleComments, setSales, setSaveMessage]);
 
   const saveNewSale = useCallback((currentForm) => {
     const masterRefError = validateSaleFormMasterRefs(currentForm, clients, activeWorkers);
@@ -4830,13 +4845,9 @@ const SalesRegistrationPage = memo(function SalesRegistrationPage({
   const resetForm = () => {
     clearSaveMessage();
     setDuplicateConfirm(null);
-    setPendingComments([]);
+    registrationCommentsRef.current?.reset();
     setFormSessionKey((key) => key + 1);
   };
-
-  const handleAddComment = useCallback((body: string) => {
-    setPendingComments((prev) => [...prev, createPendingSaleComment(body, currentUser)]);
-  }, [currentUser]);
 
   return (
     <div className="erp-page erp-sale-form-page erp-sale-form-page--compact">
@@ -4881,10 +4892,8 @@ const SalesRegistrationPage = memo(function SalesRegistrationPage({
         showPaidField={false}
         memoAfterWorkers={true}
       />
-      <SaleVoucherCommentsPanel
-        saleComments={saleComments}
-        pendingComments={pendingComments}
-        onAddComment={handleAddComment}
+      <SaleRegistrationCommentsPanel
+        panelRef={registrationCommentsRef}
         currentUser={currentUser}
       />
     </div>
@@ -4902,7 +4911,7 @@ function SearchBox({ query, setQuery, placeholder }) {
 
 const emptyVoucherSearchFilters = { client: "", site: "", worker: "" };
 
-function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, setPaymentVouchers, setBankTransactions, onPersistSaleUpdate, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set(), saleComments = [], onAddSaleComment }) {
+function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, setPaymentVouchers, setBankTransactions, onPersistSaleUpdate, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set(), saleComments = [], onAddSaleComment, saleCommentCounts }) {
   const [searchFilters, setSearchFilters] = useState(emptyVoucherSearchFilters);
   const [dateFilter, setDateFilter] = useState({ startDate: "", endDate: "" });
   const [selectedSale, setSelectedSale] = useState(null);
@@ -5072,6 +5081,7 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
             isDuplicateRow={isDuplicateRow}
             autoLinkedSaleIds={autoLinkedSaleIds}
             manualLinkedSaleIds={manualLinkedSaleIds}
+            saleCommentCounts={saleCommentCounts}
           />
         </CardContent>
       </Card>
@@ -7095,6 +7105,8 @@ export default function TeammillimeterErpMvp() {
   });
   const saleCommentsRef = useRef(saleComments);
   saleCommentsRef.current = saleComments;
+  const saleCommentCountBySaleId = useMemo(() => buildSaleCommentCountBySaleId(saleComments), [saleComments]);
+  const saleCommentsSaveTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const [taxInvoices, setTaxInvoices] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return normalizeTaxInvoices(storedData?.taxInvoices);
@@ -7401,7 +7413,7 @@ export default function TeammillimeterErpMvp() {
       ledgerCategories,
       companyNotices,
       workPosts,
-      saleComments,
+      saleComments: saleCommentsRef.current,
       taxInvoices,
       bankTransactions: bankTransactionsRef.current,
       bankTransactionFolders,
@@ -7444,7 +7456,6 @@ export default function TeammillimeterErpMvp() {
       ledgerCategories,
       companyNotices,
       workPosts,
-      saleComments,
       taxInvoices,
       bankTransactions,
       bankTransactionFolders,
@@ -7898,19 +7909,100 @@ export default function TeammillimeterErpMvp() {
     }
   }, [apiMode, currentUser, dataReady, flushErpSave, setSaleComments]);
 
-  const persistSaleCommentsImmediate = useCallback(async (nextSaleComments: SaleComment[]) => {
-    setSaleComments(nextSaleComments);
+  const queueSaleCommentsPersist = useCallback((nextSaleComments: SaleComment[]) => {
     saleCommentsRef.current = nextSaleComments;
-    if (!apiMode || !currentUser || !dataReady) return true;
-    const saved = await flushErpSave({ saleComments: nextSaleComments });
-    return saved !== false;
-  }, [apiMode, currentUser, dataReady, flushErpSave]);
+    startTransition(() => setSaleComments(nextSaleComments));
+    if (!dataReady) return;
+    pendingLocalEditsRef.current = true;
+    if (saleCommentsSaveTimerRef.current) {
+      window.clearTimeout(saleCommentsSaveTimerRef.current);
+    }
+    saleCommentsSaveTimerRef.current = window.setTimeout(() => {
+      saleCommentsSaveTimerRef.current = null;
+      if (!apiMode) {
+        saveStoredData({
+          sales,
+          paymentVouchers,
+          paymentInputLogs,
+          clients,
+          workers,
+          workerMonthlyPaymentMemos,
+          auditLogs,
+          loginLogs,
+          workerPaymentRecords,
+          workerPayoutVouchers,
+          workerMonthlyActualVouchers,
+          workerPayWithVatLearnRules,
+          companyExpenses,
+          attendanceRecords,
+          fixedExpenses,
+          fixedExpensePayments,
+          bankLedgerRules,
+          expenseCategories,
+          fixedExpenseCategories,
+          accountCodes,
+          ledgerCategories,
+          companyNotices,
+          workPosts,
+          saleComments: saleCommentsRef.current,
+          taxInvoices,
+          bankTransactions,
+          bankTransactionFolders,
+          statementGenerationLogs,
+          statementFolders,
+          companyProfile,
+        });
+        return;
+      }
+      if (!currentUser) return;
+      void flushErpSave({ saleComments: saleCommentsRef.current });
+    }, 400);
+  }, [
+    apiMode,
+    currentUser,
+    dataReady,
+    flushErpSave,
+    sales,
+    paymentVouchers,
+    paymentInputLogs,
+    clients,
+    workers,
+    workerMonthlyPaymentMemos,
+    auditLogs,
+    loginLogs,
+    workerPaymentRecords,
+    workerPayoutVouchers,
+    workerMonthlyActualVouchers,
+    workerPayWithVatLearnRules,
+    companyExpenses,
+    attendanceRecords,
+    fixedExpenses,
+    fixedExpensePayments,
+    bankLedgerRules,
+    expenseCategories,
+    fixedExpenseCategories,
+    accountCodes,
+    ledgerCategories,
+    companyNotices,
+    workPosts,
+    taxInvoices,
+    bankTransactions,
+    bankTransactionFolders,
+    statementGenerationLogs,
+    statementFolders,
+    companyProfile,
+  ]);
 
-  const addSaleCommentForVoucher = useCallback(async (saleId: string | number, body: string) => {
+  const addSaleCommentForVoucher = useCallback((saleId: string | number, body: string) => {
     const comment = createSaleComment({ saleId, body, user: currentUser });
     const next = appendSaleComment(saleCommentsRef.current, comment);
-    await persistSaleCommentsImmediate(next);
-  }, [currentUser, persistSaleCommentsImmediate]);
+    queueSaleCommentsPersist(next);
+  }, [currentUser, queueSaleCommentsPersist]);
+
+  const openSaleVoucherFromComments = useCallback((saleId: string | number) => {
+    setPendingVoucherEditId(saleId);
+    setActive("salesVoucherSearch");
+  }, []);
 
   useEffect(() => {
     if (!apiMode || !dataReady) return;
@@ -7949,7 +8041,7 @@ export default function TeammillimeterErpMvp() {
         saveDebounceTimerRef.current = null;
       }
     };
-  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, workerMonthlyPaymentMemos, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, accountCodes, ledgerCategories, companyNotices, workPosts, saleComments, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode, buildErpSavePayload, persistErpSave]);
+  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, workerMonthlyPaymentMemos, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, accountCodes, ledgerCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode, buildErpSavePayload, persistErpSave]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -8349,6 +8441,7 @@ export default function TeammillimeterErpMvp() {
             onPersistSaleUpdate={persistSaleVoucherUpdate}
             saleComments={saleComments}
             onAddSaleComment={addSaleCommentForVoucher}
+            saleCommentCounts={saleCommentCountBySaleId}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="attendance" active={active}>
@@ -8371,7 +8464,7 @@ export default function TeammillimeterErpMvp() {
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="sales" active={active}>
-          <SalesManagementPage sales={appliedSales} paymentVouchers={paymentVouchers} workers={workers} setSales={setSales} setActive={setActive} currentUser={currentUser} onEditSale={setSalesManagementEditSale} />
+          <SalesManagementPage sales={appliedSales} paymentVouchers={paymentVouchers} workers={workers} setSales={setSales} setActive={setActive} currentUser={currentUser} onEditSale={setSalesManagementEditSale} saleCommentCounts={saleCommentCountBySaleId} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="salesVoucherSearch" active={active}>
           <SalesVoucherSearchPage
@@ -8391,6 +8484,14 @@ export default function TeammillimeterErpMvp() {
             manualLinkedSaleIds={manualLinkedSaleIds}
             saleComments={saleComments}
             onAddSaleComment={addSaleCommentForVoucher}
+            saleCommentCounts={saleCommentCountBySaleId}
+          />
+        </PageKeepAlive>
+        <PageKeepAlive pageKey="saleComments" active={active}>
+          <SaleCommentsPage
+            saleComments={saleComments}
+            sales={appliedSales}
+            onOpenVoucher={openSaleVoucherFromComments}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="receivables" active={active}>

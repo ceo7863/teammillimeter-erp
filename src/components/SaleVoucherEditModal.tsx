@@ -7,7 +7,7 @@ import { useAudit } from "@/context/AuditContext";
 import { useSaveMessage } from "@/hooks/useSaveMessage";
 import { SALE_AUDIT_FIELDS, snapshotSaleForAudit } from "@/utils/auditLog";
 import { syncBankTransactionsForSaleClientChange } from "@/utils/bankTransactions";
-import type { SaleComment } from "@/utils/saleComments";
+import { listSaleComments, type SaleComment } from "@/utils/saleComments";
 import {
   buildSaleFromForm,
   saleRowToForm,
@@ -98,6 +98,10 @@ export const SaleVoucherEditModal = memo(function SaleVoucherEditModal({
   const { message: saveMessage, setMessage: setSaveMessage } = useSaveMessage();
   const sessionKey = `edit-${sale.id}`;
   const initialForm = useMemo(() => saleRowToForm(sale), [sale, sessionKey]);
+  const commentsForSale = useMemo(
+    () => listSaleComments(saleComments, sale.id),
+    [saleComments, sale.id],
+  );
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -258,7 +262,7 @@ export const SaleVoucherEditModal = memo(function SaleVoucherEditModal({
             {onAddSaleComment ? (
               <SaleVoucherCommentsPanel
                 saleId={sale.id}
-                saleComments={saleComments}
+                comments={commentsForSale}
                 onAddComment={onAddSaleComment}
                 currentUser={currentUser}
               />
