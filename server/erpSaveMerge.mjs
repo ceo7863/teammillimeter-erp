@@ -50,17 +50,43 @@ function mergeMemoForSave(prev, incoming) {
   return prevText || incomingText || undefined;
 }
 
+function parseLedgerConfirmedAtMs(value) {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function mergeLedgerFieldsForSave(prev, incoming) {
+  const prevMs = parseLedgerConfirmedAtMs(prev?.ledgerConfirmedAt);
+  const incomingMs = parseLedgerConfirmedAtMs(incoming?.ledgerConfirmedAt);
+  const primary = incomingMs >= prevMs ? incoming : prev;
+  const fallback = incomingMs >= prevMs ? prev : incoming;
+
+  return {
+    ledgerStatus: primary?.ledgerStatus ?? fallback?.ledgerStatus,
+    ledgerCategoryId: primary?.ledgerCategoryId ?? fallback?.ledgerCategoryId,
+    ledgerAccountCode: primary?.ledgerAccountCode ?? fallback?.ledgerAccountCode,
+    ledgerMemo: primary?.ledgerMemo ?? fallback?.ledgerMemo,
+    ledgerFixedExpenseId: primary?.ledgerFixedExpenseId ?? fallback?.ledgerFixedExpenseId,
+    ledgerConfirmedAt: primary?.ledgerConfirmedAt ?? fallback?.ledgerConfirmedAt,
+    ledgerConfirmedBy: primary?.ledgerConfirmedBy ?? fallback?.ledgerConfirmedBy,
+    ledgerClientName: primary?.ledgerClientName ?? fallback?.ledgerClientName,
+  };
+}
+
 export function mergeBankTransactionRowForSave(prev, incoming) {
   if (!prev) return incoming;
 
   const paymentMatch = mergePaymentMatchFields(prev, incoming);
   const preferIncoming = shouldPreferIncomingClassification(prev, incoming);
   const memo = mergeMemoForSave(prev, incoming);
+  const ledgerFields = mergeLedgerFieldsForSave(prev, incoming);
 
   if (preferIncoming) {
     return {
       ...incoming,
       ...paymentMatch,
+      ...ledgerFields,
       folderId: incoming.folderId ?? prev.folderId,
       memo,
       linkedSubject: incoming.linkedSubject ?? prev.linkedSubject,
@@ -71,6 +97,7 @@ export function mergeBankTransactionRowForSave(prev, incoming) {
   return {
     ...incoming,
     ...paymentMatch,
+    ...ledgerFields,
     folderId: prev.folderId ?? incoming.folderId,
     memo,
     linkedSubject: prev.linkedSubject ?? incoming.linkedSubject,

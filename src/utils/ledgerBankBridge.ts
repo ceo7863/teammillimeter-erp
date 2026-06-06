@@ -127,6 +127,7 @@ export function assignBankTransactionAccountCode(input: {
       tx: input.tx,
       category: matchingCategory,
       accountCodes: input.accountCodes,
+      accountCode: code,
       confirmedBy: input.confirmedBy,
       fixedExpenseId: input.tx.ledgerFixedExpenseId,
       memo: input.tx.ledgerMemo || input.tx.memo,
@@ -136,6 +137,7 @@ export function assignBankTransactionAccountCode(input: {
   return {
     ...input.tx,
     ledgerStatus: "confirmed",
+    ledgerCategoryId: undefined,
     ledgerAccountCode: code,
     ledgerMemo: input.tx.ledgerMemo || input.tx.memo,
     ledgerConfirmedAt: new Date().toISOString(),

@@ -19,6 +19,7 @@ export function migrateBankTransactionLedgerFields(
 ): BankTransaction {
   if (tx.ledgerStatus === "confirmed" || tx.ledgerStatus === "exempt" || tx.ledgerStatus === "pending") {
     if (tx.ledgerCategoryId || tx.ledgerStatus === "exempt") return tx;
+    if (tx.ledgerStatus === "confirmed" && tx.ledgerAccountCode?.trim()) return tx;
   }
 
   const status = resolveBankTxLedgerStatus(tx);

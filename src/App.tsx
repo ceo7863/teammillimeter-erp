@@ -6912,6 +6912,7 @@ export default function TeammillimeterErpMvp() {
   const workerPersistCooldownUntilRef = useRef(0);
   const workerMonthlyPersistInFlightRef = useRef(false);
   const workerMonthlyPersistCooldownUntilRef = useRef(0);
+  const bankEditCooldownUntilRef = useRef(0);
   const workerMonthlyLinkCleanupRef = useRef(false);
   const saveDebounceTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const workerFlushDebounceRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
@@ -7100,7 +7101,8 @@ export default function TeammillimeterErpMvp() {
       workerPersistInFlightRef.current ||
       workerMonthlyPersistInFlightRef.current ||
       Date.now() < workerPersistCooldownUntilRef.current ||
-      Date.now() < workerMonthlyPersistCooldownUntilRef.current;
+      Date.now() < workerMonthlyPersistCooldownUntilRef.current ||
+      Date.now() < bankEditCooldownUntilRef.current;
     const incomingWorkers = data.workers?.length ? data.workers : initialWorkers;
     const nextWorkers = stripMonthlyPaymentMemoFromWorkers(
       mergeWorkerMasterFieldsFromLocal(incomingWorkers, workersRef.current),
@@ -7292,7 +7294,8 @@ export default function TeammillimeterErpMvp() {
     !workerPersistInFlightRef.current &&
     !workerMonthlyPersistInFlightRef.current &&
     Date.now() >= workerPersistCooldownUntilRef.current &&
-    Date.now() >= workerMonthlyPersistCooldownUntilRef.current;
+    Date.now() >= workerMonthlyPersistCooldownUntilRef.current &&
+    Date.now() >= bankEditCooldownUntilRef.current;
 
   const touchWorkerMonthlyEditGuard = () => {
     pendingLocalEditsRef.current = true;
@@ -7507,6 +7510,8 @@ export default function TeammillimeterErpMvp() {
         syncMonthlySaveRefsFromPatch(normalizedPatch);
       }
       if (normalizedPatch && Array.isArray(normalizedPatch.bankTransactions)) {
+        bankTransactionsRef.current = normalizedPatch.bankTransactions;
+        bankEditCooldownUntilRef.current = Date.now() + WORKER_MONTHLY_EDIT_GUARD_MS;
         pendingLocalEditsRef.current = true;
       }
       if (saveDebounceTimerRef.current) {
@@ -8140,7 +8145,8 @@ export default function TeammillimeterErpMvp() {
       !workerPersistInFlightRef.current &&
       !workerMonthlyPersistInFlightRef.current &&
       Date.now() >= workerPersistCooldownUntilRef.current &&
-      Date.now() >= workerMonthlyPersistCooldownUntilRef.current
+      Date.now() >= workerMonthlyPersistCooldownUntilRef.current &&
+      Date.now() >= bankEditCooldownUntilRef.current
     ) {
       try {
         const data = await fetchErpData();
@@ -8156,7 +8162,8 @@ export default function TeammillimeterErpMvp() {
     setErpVersion(nextVersion);
     const workerMonthlyGuard =
       workerMonthlyPersistInFlightRef.current ||
-      Date.now() < workerMonthlyPersistCooldownUntilRef.current;
+      Date.now() < workerMonthlyPersistCooldownUntilRef.current ||
+      Date.now() < bankEditCooldownUntilRef.current;
     if (workerMonthlyGuard) {
       return;
     }

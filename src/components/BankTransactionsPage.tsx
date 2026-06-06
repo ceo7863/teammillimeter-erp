@@ -2250,8 +2250,11 @@ export function BankTransactionsPage({
       return;
     }
     auditBankTxUpdate(tx, nextRow);
-    const nextTransactions = bankTransactions.map((row) => (row.id === tx.id ? nextRow : row));
-    setBankTransactions(nextTransactions);
+    let nextTransactions: BankTransaction[] = [];
+    setBankTransactions((prev) => {
+      nextTransactions = prev.map((row) => (row.id === tx.id ? nextRow : row));
+      return nextTransactions;
+    });
     setAccountSubjectModal(null);
     setTxCellModalError("");
     setImportMessage(L.cellSaveDone);

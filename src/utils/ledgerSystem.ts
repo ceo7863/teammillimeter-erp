@@ -568,11 +568,12 @@ export function confirmBankTransactionLedger(input: {
   tx: BankTransaction;
   category: LedgerCategory;
   accountCodes: AccountCode[];
+  accountCode?: string;
   memo?: string;
   fixedExpenseId?: string;
   confirmedBy?: string;
 }): BankTransaction {
-  const accountCode = input.category.accountCode || "900";
+  const accountCode = input.accountCode?.trim() || input.category.accountCode || "900";
   return {
     ...input.tx,
     ledgerStatus: "confirmed",
