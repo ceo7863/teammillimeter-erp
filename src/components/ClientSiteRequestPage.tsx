@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,7 +21,11 @@ import {
 
 const L = {
   pageTitle: "\uD604\uC7A5 \uC811\uC218",
-  pageDesc: "\uCE98\uB9B0\uB354\uC5D0\uC11C \uB0A0\uC9DC\uB97C \uC120\uD0DD\uD574 \uC811\uC218\uD558\uC138\uC694.",
+  pageDesc: "\uCE98\uB9B0\uB354\uC5D0\uC11C \uB0A0\uC9DC\uB97C \uC120\uD0DD\uD55C \uB2E4\uC74C, \uAC19\uC740 \uB0A0\uC9DC\uB97C \uD55C \uBC88 \uB354 \uB20C\uB7EC \uC811\uC218\uD558\uC138\uC694.",
+  confirmRegisterTitle: "\uC77C\uC815 \uB4F1\uB85D",
+  confirmRegisterBody: (date: string) => `${date} \uC77C\uC815\uC744 \uB4F1\uB85D\uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?`,
+  confirmRegisterYes: "\uB4F1\uB85D\uD558\uAE30",
+  confirmRegisterNo: "\uCDE8\uC18C",
   tabCalendar: "\uC811\uC218 \uCE98\uB9B0\uB354",
   tabHistory: "\uC811\uC218 \uB0B4\uC5ED \u00B7 \uCC44\uD305",
   modalTitle: "\uD604\uC7A5 \uC811\uC218",
@@ -73,6 +77,8 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
   const [calendarMonthKey, setCalendarMonthKey] = useState(getCurrentMonthKey);
   const [selectedCalendarDate, setSelectedCalendarDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [submitModalOpen, setSubmitModalOpen] = useState(false);
+  const [confirmRegisterOpen, setConfirmRegisterOpen] = useState(false);
+  const lastClickedDateRef = useRef<string | null>(null);
   const [messageDraft, setMessageDraft] = useState("");
   const [messageSending, setMessageSending] = useState(false);
   const [workDate, setWorkDate] = useState("");
@@ -132,6 +138,15 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
     return () => window.clearInterval(timer);
   }, [info, loadRequests]);
 
+  useEffect(() => {
+    if (!submitModalOpen && !confirmRegisterOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [submitModalOpen, confirmRegisterOpen]);
+
   const openSubmitModal = (date: string) => {
     setSelectedCalendarDate(date);
     setWorkDate(date);
@@ -150,14 +165,40 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
   };
 
   const handleCalendarDateSelect = (date: string) => {
+    if (lastClickedDateRef.current === date) {
+      setConfirmRegisterOpen(true);
+      return;
+    }
+
+    lastClickedDateRef.current = date;
     setSelectedCalendarDate(date);
     const dayRequests = requests.filter((row) => requestCoversWorkDate(row, date));
     if (dayRequests.length === 1) {
       setSelectedRequestId(dayRequests[0].id);
     } else if (selectedRequestId && !dayRequests.some((row) => row.id === selectedRequestId)) {
       setSelectedRequestId(dayRequests[0]?.id || "");
+    } else if (!dayRequests.length) {
+      setSelectedRequestId("");
     }
-    openSubmitModal(date);
+  };
+
+  const handleCalendarRequestSelect = (requestId: string, date?: string) => {
+    setSelectedRequestId(requestId);
+    if (date) {
+      setSelectedCalendarDate(date);
+      lastClickedDateRef.current = null;
+    }
+  };
+
+  const handleConfirmRegister = () => {
+    setConfirmRegisterOpen(false);
+    lastClickedDateRef.current = null;
+    openSubmitModal(selectedCalendarDate);
+  };
+
+  const closeConfirmRegister = () => {
+    setConfirmRegisterOpen(false);
+    lastClickedDateRef.current = null;
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -231,8 +272,8 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
 
   if (loading) {
     return (
-      <div className="erp-public-page flex min-h-screen items-center justify-center bg-slate-50 p-4">
-        <Card className="w-full max-w-lg rounded-2xl shadow-sm">
+      <div className="erp-public-page erp-client-site-request-page flex min-h-[100dvh] items-center justify-center bg-slate-50">
+        <Card className="erp-client-site-request-card w-full max-w-lg rounded-2xl shadow-sm">
           <CardContent className="p-8 text-center text-sm font-medium text-slate-500">{L.loading}</CardContent>
         </Card>
       </div>
@@ -241,8 +282,8 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
 
   if (!info) {
     return (
-      <div className="erp-public-page flex min-h-screen items-center justify-center bg-slate-50 p-4">
-        <Card className="w-full max-w-lg rounded-2xl shadow-sm">
+      <div className="erp-public-page erp-client-site-request-page flex min-h-[100dvh] items-center justify-center bg-slate-50">
+        <Card className="erp-client-site-request-card w-full max-w-lg rounded-2xl shadow-sm">
           <CardContent className="p-8 text-center text-sm font-semibold text-red-600">{error || L.loadFail}</CardContent>
         </Card>
       </div>
@@ -250,25 +291,25 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
   }
 
   return (
-    <div className="erp-public-page min-h-screen bg-slate-50 p-4 py-8">
-      <div className={`mx-auto w-full ${tab === "calendar" ? "max-w-5xl" : "max-w-2xl"}`}>
-        <Card className="rounded-2xl shadow-sm">
-          <CardContent className="space-y-5 p-6 md:p-8">
-            <div>
+    <div className="erp-public-page erp-client-site-request-page min-h-[100dvh] bg-slate-50">
+      <div className={`erp-client-site-request-shell mx-auto w-full ${tab === "calendar" ? "max-w-5xl" : "max-w-2xl"}`}>
+        <Card className="erp-client-site-request-card rounded-2xl shadow-sm">
+          <CardContent className="erp-client-site-request-card-body space-y-5">
+            <div className="erp-client-site-request-header">
               <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{info.companyName}</p>
-              <h1 className="mt-1 text-2xl font-bold text-slate-900">{L.pageTitle}</h1>
-              <p className="mt-1 text-sm text-slate-600">{L.pageDesc}</p>
+              <h1 className="mt-1 text-xl font-bold text-slate-900 sm:text-2xl">{L.pageTitle}</h1>
+              <p className="mt-1 text-sm leading-relaxed text-slate-600">{L.pageDesc}</p>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <div className="erp-client-site-request-client rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
               <div className="text-xs font-bold text-slate-500">{L.client}</div>
-              <div className="text-lg font-bold text-slate-900">{info.clientName}</div>
+              <div className="text-base font-bold text-slate-900 sm:text-lg">{info.clientName}</div>
             </div>
 
-            <div className="flex gap-2 rounded-2xl bg-slate-100 p-1">
+            <div className="erp-client-site-request-tabs flex gap-2 rounded-2xl bg-slate-100 p-1">
               <button
                 type="button"
-                className={`flex-1 rounded-xl px-3 py-2 text-sm font-bold ${tab === "calendar" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
+                className={`erp-client-site-request-tab erp-touch-target flex-1 rounded-xl px-3 py-2.5 text-sm font-bold ${tab === "calendar" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
                 onClick={() => {
                   setTab("calendar");
                   void loadRequests();
@@ -278,13 +319,14 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
               </button>
               <button
                 type="button"
-                className={`flex-1 rounded-xl px-3 py-2 text-sm font-bold ${tab === "history" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
+                className={`erp-client-site-request-tab erp-touch-target flex-1 rounded-xl px-3 py-2.5 text-sm font-bold ${tab === "history" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
                 onClick={() => {
                   setTab("history");
                   void loadRequests();
                 }}
               >
-                {L.tabHistory}
+                <span className="sm:hidden">{"\uC811\uC218 \uB0B4\uC5ED"}</span>
+                <span className="hidden sm:inline">{L.tabHistory}</span>
               </button>
             </div>
 
@@ -315,7 +357,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
                   selectedDate={selectedCalendarDate}
                   onSelectDate={handleCalendarDateSelect}
                   selectedRequestId={selectedRequestId}
-                  onSelectRequest={setSelectedRequestId}
+                  onSelectRequest={handleCalendarRequestSelect}
                 />
                 {selectedRequest ? (
                   <ClientSiteRequestChat
@@ -340,7 +382,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
                         <button
                           key={request.id}
                           type="button"
-                          className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                          className={`erp-client-site-request-history-item erp-touch-target w-full rounded-2xl border px-4 py-3.5 text-left transition ${
                             selectedRequestId === request.id
                               ? "border-slate-900 bg-slate-900 text-white"
                               : "border-slate-200 bg-white text-slate-900 hover:bg-slate-50"
@@ -382,17 +424,49 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
         </Card>
       </div>
 
-      {submitModalOpen ? (
-        <div className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated" onClick={closeSubmitModal}>
+      {confirmRegisterOpen ? (
+        <div
+          className="erp-client-site-request-modal-backdrop erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
+          onClick={closeConfirmRegister}
+        >
           <div
-            className="erp-ledger-modal"
-            style={{ width: "min(100%, 32rem)" }}
+            className="erp-client-site-request-modal erp-client-site-request-modal--confirm erp-ledger-modal"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="client-site-request-confirm-title"
+          >
+            <div className="erp-client-site-request-modal__body px-5 py-5">
+              <h2 id="client-site-request-confirm-title" className="text-lg font-bold text-slate-900">
+                {L.confirmRegisterTitle}
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-slate-600">{L.confirmRegisterBody(selectedCalendarDate)}</p>
+              <div className="erp-client-site-request-modal__actions mt-5 flex gap-2">
+                <Button type="button" variant="outline" className="erp-touch-target min-h-[44px] flex-1 rounded-2xl" onClick={closeConfirmRegister}>
+                  {L.confirmRegisterNo}
+                </Button>
+                <Button type="button" className="erp-touch-target min-h-[44px] flex-1 rounded-2xl" onClick={handleConfirmRegister}>
+                  {L.confirmRegisterYes}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {submitModalOpen ? (
+        <div
+          className="erp-client-site-request-modal-backdrop erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
+          onClick={closeSubmitModal}
+        >
+          <div
+            className="erp-client-site-request-modal erp-client-site-request-modal--submit erp-ledger-modal"
             onClick={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-labelledby="client-site-request-submit-title"
           >
-            <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
+            <div className="erp-client-site-request-modal__head flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-4 sm:px-5">
               <div>
                 <h2 id="client-site-request-submit-title" className="text-lg font-bold text-slate-900">
                   {L.modalTitle}
@@ -401,7 +475,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
               </div>
               <button
                 type="button"
-                className="rounded-xl p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+                className="erp-touch-target rounded-xl p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
                 aria-label={L.modalClose}
                 onClick={closeSubmitModal}
                 disabled={submitting}
@@ -410,7 +484,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
               </button>
             </div>
 
-            <form className="space-y-4 px-5 py-4" onSubmit={handleSubmit}>
+            <form className="erp-client-site-request-form space-y-4 px-4 py-4 sm:px-5" onSubmit={handleSubmit}>
               <div className="space-y-2">
                 <span className="block text-sm font-semibold text-slate-700">{L.workPeriod}</span>
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -481,11 +555,11 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
 
               {error ? <p className="text-sm font-semibold text-red-600">{error}</p> : null}
 
-              <div className="flex gap-2 border-t border-slate-200 pt-4">
-                <Button type="button" variant="outline" className="flex-1 rounded-2xl" disabled={submitting} onClick={closeSubmitModal}>
+              <div className="erp-client-site-request-modal__actions flex gap-2 border-t border-slate-200 pt-4">
+                <Button type="button" variant="outline" className="erp-touch-target min-h-[44px] flex-1 rounded-2xl" disabled={submitting} onClick={closeSubmitModal}>
                   {L.cancel}
                 </Button>
-                <Button type="submit" className="flex-1 rounded-2xl" disabled={submitting}>
+                <Button type="submit" className="erp-touch-target min-h-[44px] flex-1 rounded-2xl" disabled={submitting}>
                   {submitting ? L.submitting : L.submit}
                 </Button>
               </div>

@@ -16,9 +16,17 @@ import {
 const L = {
   today: "\uC624\uB298",
   monthCount: (count: number) => `\uC774\uB2EC ${count}\uAC74`,
-  emptyDay: "\uC774 \uB0A0\uC9DC\uC758 \uC811\uC218 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uCE98\uB9B0\uB354 \uB0A0\uC9DC\uB97C \uB2E4\uC2DC \uB20C\uB7EC \uC811\uC218\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+  emptyDay: "\uC120\uD0DD\uD55C \uB0A0\uC9DC\uB97C \uD55C \uBC88 \uB354 \uB20C\uB7EC \uC77C\uC815\uC744 \uB4F1\uB85D\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+  mobileHint: "\uB0A0\uC9DC \uC120\uD0DD \u2192 \uAC19\uC740 \uB0A0\uC9DC \uD55C \uBC88 \uB354 \uD074\uB9AD \uC2DC \uC811\uC218",
   workerUnit: "\uBA85",
 };
+
+function formatDayPanelLabel(date: string) {
+  const parsed = new Date(`${date}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return date;
+  const weekday = ["\uC77C", "\uC6D4", "\uD654", "\uC218", "\uBAA9", "\uAE08", "\uD1A0"][parsed.getDay()];
+  return `${parsed.getMonth() + 1}\uC6D4 ${parsed.getDate()}\uC77C (${weekday})`;
+}
 
 type ClientSiteRequestCalendarProps = {
   requests: ClientSiteRequest[];
@@ -27,7 +35,7 @@ type ClientSiteRequestCalendarProps = {
   selectedDate: string;
   onSelectDate: (date: string) => void;
   selectedRequestId: string;
-  onSelectRequest: (requestId: string) => void;
+  onSelectRequest: (requestId: string, date?: string) => void;
 };
 
 function statusTone(status: ClientSiteRequest["status"]) {
@@ -61,6 +69,7 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
 
   return (
     <div className="erp-client-request-calendar">
+      <p className="erp-client-request-calendar__mobile-hint">{L.mobileHint}</p>
       <div className="erp-calendar-toolbar">
         <div className="erp-calendar-toolbar-main">
           <button
@@ -148,10 +157,17 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
               <div className="erp-calendar-cell-head">
                 <span className="erp-calendar-cell-day">{cell.day}</span>
                 {hasData ? (
-                  <span className="erp-client-request-calendar__count">{cell.requests.length}</span>
+                  <>
+                    <span className="erp-client-request-calendar__count erp-client-request-calendar__count--desktop">
+                      {cell.requests.length}
+                    </span>
+                    <span className="erp-client-request-calendar__count erp-client-request-calendar__count--mobile">
+                      {cell.requests.length}
+                    </span>
+                  </>
                 ) : null}
               </div>
-              <div className="erp-calendar-cell-entries">
+              <div className="erp-calendar-cell-entries erp-client-request-calendar__entries">
                 {cell.requests.slice(0, 3).map((request) => (
                   <button
                     key={request.id}
@@ -165,8 +181,7 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
                       .join(" ")}
                     onClick={(event) => {
                       event.stopPropagation();
-                      onSelectDate(cell.date);
-                      onSelectRequest(request.id);
+                      onSelectRequest(request.id, cell.date);
                     }}
                   >
                     <span className="truncate">{request.siteName}</span>
@@ -188,7 +203,8 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
       {selectedDate ? (
         <div className="erp-client-request-calendar__day-panel">
           <div className="erp-client-request-calendar__day-title">
-            {selectedDate}
+            <span className="erp-client-request-calendar__day-title-full">{selectedDate}</span>
+            <span className="erp-client-request-calendar__day-title-mobile">{formatDayPanelLabel(selectedDate)}</span>
             {" \u00B7 "}
             {selectedDayRequests.length}
             {"\uAC74"}
@@ -204,7 +220,7 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
                   className={`erp-client-request-calendar__day-item ${
                     selectedRequestId === request.id ? "is-active" : ""
                   }`}
-                  onClick={() => onSelectRequest(request.id)}
+                  onClick={() => onSelectRequest(request.id, selectedDate)}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-bold">{request.siteName}</span>
