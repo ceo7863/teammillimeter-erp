@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { BankTransaction } from "@/utils/bankTransactions";
-import { formatTaxInvoiceEvidenceLabel, searchTaxInvoicesForBankTx } from "@/utils/bankTaxInvoiceLink";
+import { formatTaxInvoiceEvidenceLabel, searchTaxInvoicesForBankTx, type TaxInvoiceMatchContext } from "@/utils/bankTaxInvoiceLink";
 import { formatKRW } from "@/utils/companyLedger";
 import type { TaxInvoice } from "@/utils/taxInvoices";
 import { getTaxInvoiceKindLabel } from "@/utils/taxInvoices";
@@ -20,6 +20,7 @@ const L = {
 type TaxInvoiceLinkModalProps = {
   tx: BankTransaction;
   taxInvoices: TaxInvoice[];
+  matchContext?: TaxInvoiceMatchContext;
   linkedInvoiceId?: string;
   onClose: () => void;
   onLink: (invoiceId: string | undefined) => void;
@@ -28,6 +29,7 @@ type TaxInvoiceLinkModalProps = {
 export function TaxInvoiceLinkModal({
   tx,
   taxInvoices,
+  matchContext,
   linkedInvoiceId,
   onClose,
   onLink,
@@ -36,8 +38,8 @@ export function TaxInvoiceLinkModal({
   const amount = Math.max(Number(tx.deposit || 0), Number(tx.withdrawal || 0));
 
   const candidates = useMemo(
-    () => searchTaxInvoicesForBankTx(tx, taxInvoices, search).slice(0, 40),
-    [tx, taxInvoices, search],
+    () => searchTaxInvoicesForBankTx(tx, taxInvoices, search, matchContext).slice(0, 40),
+    [tx, taxInvoices, search, matchContext],
   );
 
   return (

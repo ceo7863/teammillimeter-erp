@@ -830,9 +830,9 @@ export function BankTransactionsPage({
   setBankTransactions: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
   bankTransactionFolders: BankTransactionFolder[];
   setBankTransactionFolders: React.Dispatch<React.SetStateAction<BankTransactionFolder[]>>;
-  clients: Array<{ id?: number | string; name?: string; manager?: string; depositNameAliases?: string }>;
-  setClients: React.Dispatch<React.SetStateAction<Array<{ id?: number | string; name?: string; manager?: string; depositNameAliases?: string; [key: string]: unknown }>>>;
-  workers: Array<{ name?: string; depositNameAliases?: string }>;
+  clients: Array<{ id?: number | string; name?: string; manager?: string; businessNo?: string; depositNameAliases?: string }>;
+  setClients: React.Dispatch<React.SetStateAction<Array<{ id?: number | string; name?: string; manager?: string; businessNo?: string; depositNameAliases?: string; [key: string]: unknown }>>>;
+  workers: Array<{ name?: string; businessNo?: string; depositNameAliases?: string }>;
   receivableRows: ReceivableRow[];
   sales: Array<{ id?: number | string; workers?: unknown[]; worker?: string; amount?: number }>;
   paymentVouchers: Array<{ id?: number | string; bankTransactionId?: string }>;
@@ -881,6 +881,7 @@ export function BankTransactionsPage({
   const [selectedFolderId, setSelectedFolderId] = useState("");
   const [folderScope, setFolderScope] = useState<FolderScope>("all");
   const [sort, setSort] = useState<BankTransactionSort>(DEFAULT_BANK_TRANSACTION_SORT);
+  const taxInvoiceMatchContext = useMemo(() => ({ clients, workers }), [clients, workers]);
   const [createFolderOpen, setCreateFolderOpen] = useState(false);
   const [createCategoryOpen, setCreateCategoryOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -2157,7 +2158,7 @@ export function BankTransactionsPage({
     (tx: BankTransaction) => {
       if (!tx.linkedTaxInvoiceId) {
         const usedInvoiceIds = collectUsedTaxInvoiceIds(bankTransactions);
-        const auto = pickAutoTaxInvoiceMatch(tx, taxInvoices, usedInvoiceIds);
+        const auto = pickAutoTaxInvoiceMatch(tx, taxInvoices, usedInvoiceIds, taxInvoiceMatchContext);
         if (auto) {
           applyTaxInvoiceLink(tx, auto.invoice.id);
           setImportMessage(L.evidenceAutoLinked(formatTaxInvoiceEvidenceLabel(auto.invoice)));
@@ -2166,7 +2167,7 @@ export function BankTransactionsPage({
       }
       setTaxInvoiceModal({ tx });
     },
-    [applyTaxInvoiceLink, bankTransactions, taxInvoices],
+    [applyTaxInvoiceLink, bankTransactions, taxInvoices, taxInvoiceMatchContext],
   );
 
   const saveTaxInvoiceLink = (invoiceId: string | undefined) => {
@@ -2461,7 +2462,10 @@ export function BankTransactionsPage({
       const scopedIds = new Set(scopeRows.map((row) => row.id));
       let linkedCount = 0;
       setBankTransactions((prev) => {
-        const result = batchAutoLinkTaxInvoiceEvidence(prev, taxInvoices, { onlyTransactionIds: scopedIds });
+        const result = batchAutoLinkTaxInvoiceEvidence(prev, taxInvoices, {
+          onlyTransactionIds: scopedIds,
+          context: taxInvoiceMatchContext,
+        });
         linkedCount = result.linkedCount;
         if (!linkedCount) return prev;
         for (const before of prev) {
@@ -2476,7 +2480,7 @@ export function BankTransactionsPage({
       });
       return linkedCount;
     },
-    [auditBankTxUpdate, onRequestImmediateSave, setBankTransactions, taxInvoices],
+    [auditBankTxUpdate, onRequestImmediateSave, setBankTransactions, taxInvoices, taxInvoiceMatchContext],
   );
 
   const evidenceAutoScopeKey = useMemo(
@@ -6719,6 +6723,7 @@ export function BankTransactionsPage({
         <TaxInvoiceLinkModal
           tx={taxInvoiceModal.tx}
           taxInvoices={taxInvoices}
+          matchContext={taxInvoiceMatchContext}
           linkedInvoiceId={taxInvoiceModal.tx.linkedTaxInvoiceId}
           onClose={() => setTaxInvoiceModal(null)}
           onLink={saveTaxInvoiceLink}

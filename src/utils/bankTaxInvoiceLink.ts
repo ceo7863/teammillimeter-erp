@@ -1,7 +1,32 @@
 import type { BankTransaction } from "./bankTransactions";
+import {
+  findClientByDepositSubject,
+  findWorkerByDepositSubject,
+  findWorkerByMasterName,
+  findWorkerForBankTransaction,
+  type WorkerDepositMatchSource,
+} from "./clientDepositAliases";
 import { formatKRW } from "./companyLedger";
 import type { TaxInvoice } from "./taxInvoices";
 import { getTaxInvoiceKindLabel } from "./taxInvoices";
+
+export type TaxInvoicePartyMaster = {
+  name?: string;
+  businessNo?: string;
+  depositNameAliases?: string;
+  manager?: string;
+};
+
+export type TaxInvoiceMatchContext = {
+  clients?: TaxInvoicePartyMaster[];
+  workers?: TaxInvoicePartyMaster[];
+};
+
+export function normalizeBusinessRegistrationNo(value: string) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (digits.length < 10) return "";
+  return digits.slice(0, 10);
+}
 
 export function getBankTxClassifiedAmount(tx: BankTransaction) {
   return Math.max(Number(tx.deposit || 0), Number(tx.withdrawal || 0));
@@ -11,7 +36,7 @@ export function resolveBankTxClientName(tx: BankTransaction) {
   return String(tx.ledgerClientName || tx.linkedSubject || "").trim() || null;
 }
 
-const PARTY_NAME_SUFFIX_PATTERN = /(\(주\)|\(유\)|주식회사|㈜|유한회사|co\.?ltd|corp|inc)/gi;
+const PARTY_NAME_SUFFIX_PATTERN = /(\(?\)|\(?\)|????|?|????|co\.?ltd|corp|inc)/gi;
 
 function normalizePartyName(value: string) {
   return value
@@ -33,6 +58,45 @@ function collectBankTxPartyNames(tx: BankTransaction) {
     .filter(Boolean);
 }
 
+function collectBusinessNoFromText(value: string, bucket: Set<string>) {
+  const text = String(value || "");
+  if (!text) return;
+  for (const match of text.matchAll(/\d{3}[-\s.]?\d{2}[-\s.]?\d{5}/g)) {
+    const normalized = normalizeBusinessRegistrationNo(match[0]);
+    if (normalized) bucket.add(normalized);
+  }
+}
+
+function addMasterBusinessNo(value: string | undefined, bucket: Set<string>) {
+  const normalized = normalizeBusinessRegistrationNo(String(value || ""));
+  if (normalized) bucket.add(normalized);
+}
+
+export function collectBankTxPartyBusinessNumbers(
+  tx: BankTransaction,
+  context: TaxInvoiceMatchContext = {},
+) {
+  const numbers = new Set<string>();
+  const clients = context.clients || [];
+  const workers = (context.workers || []) as WorkerDepositMatchSource[];
+
+  for (const subject of collectBankTxPartyNames(tx)) {
+    addMasterBusinessNo(findClientByDepositSubject(clients, subject)?.businessNo, numbers);
+    addMasterBusinessNo(findWorkerByDepositSubject(workers, subject)?.businessNo, numbers);
+    addMasterBusinessNo(findWorkerByMasterName(workers, subject)?.businessNo, numbers);
+    collectBusinessNoFromText(subject, numbers);
+  }
+
+  const matchedWorker = findWorkerForBankTransaction(tx, workers);
+  addMasterBusinessNo(matchedWorker?.businessNo, numbers);
+
+  for (const text of [tx.memo, tx.description, tx.ledgerMemo]) {
+    collectBusinessNoFromText(String(text || ""), numbers);
+  }
+
+  return numbers;
+}
+
 export function hasTaxInvoiceNameMatch(tx: BankTransaction, invoice: TaxInvoice) {
   const invClient = String(invoice.client || "").trim();
   if (!invClient) return false;
@@ -51,17 +115,55 @@ export function hasTaxInvoiceNameMatch(tx: BankTransaction, invoice: TaxInvoice)
   return false;
 }
 
+export function hasTaxInvoiceBusinessNoMatch(
+  tx: BankTransaction,
+  invoice: TaxInvoice,
+  context: TaxInvoiceMatchContext = {},
+) {
+  const invBizNo = normalizeBusinessRegistrationNo(invoice.businessNo);
+  if (!invBizNo) return false;
+  return collectBankTxPartyBusinessNumbers(tx, context).has(invBizNo);
+}
+
+export function hasTaxInvoicePartyMatch(
+  tx: BankTransaction,
+  invoice: TaxInvoice,
+  context: TaxInvoiceMatchContext = {},
+) {
+  const invBizNo = normalizeBusinessRegistrationNo(invoice.businessNo);
+  const txBizNos = collectBankTxPartyBusinessNumbers(tx, context);
+
+  if (invBizNo && txBizNos.size > 0) {
+    return txBizNos.has(invBizNo);
+  }
+
+  return hasTaxInvoiceNameMatch(tx, invoice);
+}
+
 export function formatTaxInvoiceEvidenceLabel(invoice: TaxInvoice) {
   const date = String(invoice.issueDate || "").slice(2).replace(/-/g, "-");
   const kind = getTaxInvoiceKindLabel(invoice).slice(0, 1);
   return `${kind} [${date}] ${invoice.client} ${formatKRW(invoice.totalAmount)}`;
 }
 
-export function scoreTaxInvoiceMatch(tx: BankTransaction, invoice: TaxInvoice) {
+export function scoreTaxInvoiceMatch(
+  tx: BankTransaction,
+  invoice: TaxInvoice,
+  context: TaxInvoiceMatchContext = {},
+) {
   if (invoice.status === "cancelled") return -1;
   const txAmount = getBankTxClassifiedAmount(tx);
   const amountDiff = Math.abs(txAmount - Number(invoice.totalAmount || 0));
   if (txAmount > 0 && amountDiff > Math.max(1000, txAmount * 0.02)) return 0;
+
+  const invBizNo = normalizeBusinessRegistrationNo(invoice.businessNo);
+  const txBizNos = collectBankTxPartyBusinessNumbers(tx, context);
+  const bizMatch = Boolean(invBizNo && txBizNos.has(invBizNo));
+  const nameMatch = hasTaxInvoiceNameMatch(tx, invoice);
+  const txNames = collectBankTxPartyNames(tx);
+
+  if (invBizNo && txBizNos.size > 0 && !bizMatch) return 0;
+  if ((txNames.length > 0 || invBizNo) && !nameMatch && !bizMatch) return 0;
 
   let score = 10;
   const txDate = String(tx.transactionAt || "").slice(0, 10);
@@ -74,16 +176,15 @@ export function scoreTaxInvoiceMatch(tx: BankTransaction, invoice: TaxInvoice) {
   }
 
   const invClient = String(invoice.client || "").trim();
-  if (invClient && collectBankTxPartyNames(tx).length > 0 && !hasTaxInvoiceNameMatch(tx, invoice)) {
-    return 0;
-  }
-
   const client = resolveBankTxClientName(tx);
   const counterparty = String(tx.counterpartyName || "").trim();
-  if (client && invClient && client === invClient) score += 35;
-  else if (counterparty && invClient && (counterparty.includes(invClient) || invClient.includes(counterparty))) {
+  if (bizMatch) {
+    score += 45;
+  } else if (client && invClient && client === invClient) {
+    score += 35;
+  } else if (counterparty && invClient && (counterparty.includes(invClient) || invClient.includes(counterparty))) {
     score += 25;
-  } else if (hasTaxInvoiceNameMatch(tx, invoice)) {
+  } else if (nameMatch) {
     score += 25;
   }
 
@@ -102,15 +203,17 @@ export function searchTaxInvoicesForBankTx(
   tx: BankTransaction,
   invoices: TaxInvoice[],
   query = "",
+  context: TaxInvoiceMatchContext = {},
 ) {
   const q = query.trim().toLowerCase();
   return invoices
-    .map((invoice) => ({ invoice, score: scoreTaxInvoiceMatch(tx, invoice) }))
+    .map((invoice) => ({ invoice, score: scoreTaxInvoiceMatch(tx, invoice, context) }))
     .filter((row) => row.score > 0)
     .filter((row) => {
       if (!q) return true;
       const hay = [
         row.invoice.client,
+        row.invoice.businessNo,
         row.invoice.invoiceNo,
         row.invoice.issueDate,
         String(row.invoice.totalAmount),
@@ -127,10 +230,11 @@ export function pickAutoTaxInvoiceMatch(
   tx: BankTransaction,
   invoices: TaxInvoice[],
   usedInvoiceIds: Set<string> = new Set(),
+  context: TaxInvoiceMatchContext = {},
 ) {
-  const ranked = searchTaxInvoicesForBankTx(tx, invoices).filter(
+  const ranked = searchTaxInvoicesForBankTx(tx, invoices, "", context).filter(
     (row) =>
-      !usedInvoiceIds.has(row.invoice.id) && hasTaxInvoiceNameMatch(tx, row.invoice),
+      !usedInvoiceIds.has(row.invoice.id) && hasTaxInvoicePartyMatch(tx, row.invoice, context),
   );
   const best = ranked[0];
   if (!best || best.score < AUTO_TAX_INVOICE_MATCH_MIN_SCORE) return null;
@@ -148,8 +252,9 @@ export function collectUsedTaxInvoiceIds(transactions: BankTransaction[]) {
 export function batchAutoLinkTaxInvoiceEvidence(
   transactions: BankTransaction[],
   invoices: TaxInvoice[],
-  options: { onlyTransactionIds?: Set<string> } = {},
+  options: { onlyTransactionIds?: Set<string>; context?: TaxInvoiceMatchContext } = {},
 ) {
+  const context = options.context || {};
   const usedInvoiceIds = collectUsedTaxInvoiceIds(transactions);
   const txById = new Map(transactions.map((row) => [row.id, row]));
   const candidates: Array<{ txId: string; invoice: TaxInvoice; score: number }> = [];
@@ -157,9 +262,9 @@ export function batchAutoLinkTaxInvoiceEvidence(
   for (const tx of transactions) {
     if (options.onlyTransactionIds && !options.onlyTransactionIds.has(tx.id)) continue;
     if (tx.linkedTaxInvoiceId) continue;
-    for (const row of searchTaxInvoicesForBankTx(tx, invoices)) {
+    for (const row of searchTaxInvoicesForBankTx(tx, invoices, "", context)) {
       if (row.score < AUTO_TAX_INVOICE_MATCH_MIN_SCORE) break;
-      if (!hasTaxInvoiceNameMatch(tx, row.invoice)) continue;
+      if (!hasTaxInvoicePartyMatch(tx, row.invoice, context)) continue;
       if (usedInvoiceIds.has(row.invoice.id)) continue;
       candidates.push({ txId: tx.id, invoice: row.invoice, score: row.score });
     }
