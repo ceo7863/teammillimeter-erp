@@ -5375,7 +5375,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
             />
             </div>
           </div>
-          <div className="erp-table-wrap">
+          <div className="erp-table-wrap erp-table-wrap--page-scroll">
             <table className="erp-table erp-table--lg">
               <thead className="bg-slate-100 text-slate-600">
                 <tr>

@@ -514,6 +514,12 @@ textarea {
   -webkit-overflow-scrolling: touch;
 }
 
+.erp-table-wrap--page-scroll {
+  max-height: none;
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
 .erp-table-wrap--sticky-head thead th {
   position: sticky;
   top: 0;
