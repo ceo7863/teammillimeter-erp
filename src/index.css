@@ -251,20 +251,10 @@ textarea {
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  contain: layout style paint;
 }
 
-.erp-account-picker-popover__virtual-list {
-  position: relative;
+.erp-account-picker-popover__static-list {
   width: 100%;
-}
-
-.erp-account-picker-popover__virtual-row {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  box-sizing: border-box;
 }
 
 .erp-account-picker-popover__excel-group {
