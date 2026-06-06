@@ -122,9 +122,10 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
           const isSelected = selectedDate === cell.date;
 
           return (
-            <button
+            <div
               key={cell.date}
-              type="button"
+              role="button"
+              tabIndex={0}
               className={[
                 "erp-calendar-cell",
                 "erp-calendar-cell--entries",
@@ -136,6 +137,12 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
                 .filter(Boolean)
                 .join(" ")}
               onClick={() => onSelectDate(cell.date)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelectDate(cell.date);
+                }
+              }}
             >
               <div className="erp-calendar-cell-head">
                 <span className="erp-calendar-cell-day">{cell.day}</span>
@@ -172,7 +179,7 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
                   <div className="erp-client-request-calendar__more">+{cell.requests.length - 3}</div>
                 ) : null}
               </div>
-            </button>
+            </div>
           );
         })}
       </div>

@@ -29,6 +29,8 @@ const L = {
   issueLink: "\uB9C1\uD06C \uBC1C\uAE09",
   rotateLink: "\uB9C1\uD06C \uC7AC\uBC1C\uAE09",
   copyLink: "\uB9C1\uD06C \uBCF5\uC0AC",
+  openLink: "\uB9C1\uD06C \uC5F4\uAE30",
+  linkUrl: "\uACF5\uAC1C \uB9C1\uD06C",
   disableLink: "\uC911\uB2E8",
   enableLink: "\uC7AC\uAC1C",
   linkDisabled: "\uC911\uB2E8\uB428",
@@ -94,6 +96,7 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [chatDrafts, setChatDrafts] = useState<Record<string, string>>({});
   const [chatSendingId, setChatSendingId] = useState("");
+  const [lastIssuedUrl, setLastIssuedUrl] = useState("");
 
   const clientOptions = useMemo(
     () =>
@@ -148,6 +151,7 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
     try {
       const link = await ensureClientSiteRequestLink(issueClientId);
       setMessage(L.linkIssued);
+      setLastIssuedUrl(link.url);
       await copyText(link.url);
       await loadAll();
     } catch (error) {
@@ -163,6 +167,7 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
     try {
       const link = await rotateClientSiteRequestLink(clientId);
       setMessage(L.linkIssued);
+      setLastIssuedUrl(link.url);
       await copyText(link.url);
       await loadAll();
     } catch (error) {
@@ -259,6 +264,37 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
 
         {message ? <p className="text-sm font-semibold text-blue-700">{message}</p> : null}
 
+        {lastIssuedUrl ? (
+          <div className="flex flex-col gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 sm:flex-row sm:items-center">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold text-emerald-800">{L.linkUrl}</p>
+              <a
+                href={lastIssuedUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1 block break-all text-sm font-semibold text-emerald-900 underline decoration-emerald-400 underline-offset-2 hover:text-emerald-700"
+              >
+                {lastIssuedUrl}
+              </a>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={() => void copyText(lastIssuedUrl)}>
+                <Copy size={14} className="mr-1" />
+                {L.copyLink}
+              </Button>
+              <a
+                href={lastIssuedUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="erp-ui-btn erp-ui-btn--primary erp-ui-btn--sm inline-flex items-center gap-1 rounded-xl px-3 py-2 text-sm font-semibold"
+              >
+                <Link2 size={14} />
+                {L.openLink}
+              </a>
+            </div>
+          </div>
+        ) : null}
+
         <div>
           <h3 className="mb-2 text-sm font-bold text-slate-800">{L.linksTitle}</h3>
           {loading && !links.length ? (
@@ -271,6 +307,7 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
                 <thead>
                   <tr>
                     <th>{L.client}</th>
+                    <th>{L.linkUrl}</th>
                     <th>{L.status}</th>
                     <th>{L.actions}</th>
                   </tr>
@@ -286,6 +323,17 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
                           </span>
                         ) : null}
                       </td>
+                      <td className="max-w-[280px]">
+                        <a
+                          href={link.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block truncate text-sm font-semibold text-blue-700 underline decoration-blue-300 underline-offset-2 hover:text-blue-900"
+                          title={link.url}
+                        >
+                          {link.url}
+                        </a>
+                      </td>
                       <td>
                         <span
                           className={`inline-flex rounded-full px-2 py-0.5 text-xs font-bold ${
@@ -297,6 +345,15 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
                       </td>
                       <td>
                         <div className="flex flex-wrap gap-1.5">
+                          <a
+                            href={link.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="erp-ui-btn erp-ui-btn--outline erp-ui-btn--sm inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold"
+                          >
+                            <Link2 size={13} />
+                            {L.openLink}
+                          </a>
                           <Button type="button" size="sm" variant="outline" className="rounded-lg" onClick={() => void copyText(link.url)}>
                             <Copy size={13} className="mr-1" />
                             {L.copyLink}
