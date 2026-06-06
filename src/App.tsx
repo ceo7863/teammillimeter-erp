@@ -283,6 +283,7 @@ import {
   syncLocalSidebarOrderIfNeeded,
 } from "@/utils/sidebarOrder";
 import { useClientSiteRequestPendingCount } from "@/hooks/useClientSiteRequestPendingCount";
+import { useSaleCommentReadState } from "@/hooks/useSaleCommentReadState";
 
 const initialReceivables = [
   { id: 1, client: "키친바이블", businessNo: "751-24-01200", manager: "김혁대표님", phone: "010-5775-4630", date: "2026-03-01", voucherNo: "2821-001", salesAmount: 354000, paidAmount: 354000, dueDate: "2026-03-23", memo: "마포 현장" },
@@ -2875,7 +2876,7 @@ function Sidebar({
               <Icon size={18} />
               <span className="min-w-0 flex-1">{label}</span>
               {showBadge ? (
-                <span className="erp-sidebar-nav-badge" aria-label={`대기 접수 ${badgeCount}건`}>
+                <span className="erp-sidebar-nav-badge" aria-label={`${badgeCount}건`}>
                   {badgeCount > 99 ? "99+" : badgeCount}
                 </span>
               ) : null}
@@ -3349,6 +3350,7 @@ function CalendarPage({
   saleComments = [],
   onAddSaleComment,
   saleCommentCounts,
+  saleCommentUnreadCounts,
 }) {
   const { recordAudit } = useAudit();
   const { message: clientFilterNotice, showNotice: showClientFilterNotice, clearNotice: clearClientFilterNotice } = useActionNotice();
@@ -4346,7 +4348,7 @@ function CalendarPage({
                               />
                             ) : null}
                             {entry.saleId ? (
-                              <SaleCommentBadge saleId={entry.saleId} saleCommentCounts={saleCommentCounts} />
+                              <SaleCommentBadge saleId={entry.saleId} saleCommentCounts={saleCommentCounts} saleCommentUnreadCounts={saleCommentUnreadCounts} />
                             ) : null}
                           </li>
                           );
@@ -4627,7 +4629,7 @@ function CalendarPage({
                                 autoLinkedSaleIds={autoLinkedSaleIds}
                                 manualLinkedSaleIds={manualLinkedSaleIds}
                               />
-                              <SaleCommentBadge saleId={sale.id} saleCommentCounts={saleCommentCounts} />
+                              <SaleCommentBadge saleId={sale.id} saleCommentCounts={saleCommentCounts} saleCommentUnreadCounts={saleCommentUnreadCounts} />
                             </div>
                           </div>
                         </button>
@@ -4690,7 +4692,7 @@ function PageTitle({ title, desc, action }) {
   );
 }
 
-function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "매출목록", exportTitle, isDuplicateRow, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set(), saleCommentCounts }) {
+function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "매출목록", exportTitle, isDuplicateRow, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set(), saleCommentCounts, saleCommentUnreadCounts }) {
   const title = exportTitle || exportFileName;
   return (
     <TableExportSection fileName={exportFileName} title={title} disabled={rows.length === 0}>
@@ -4700,6 +4702,7 @@ function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "�
             const isSelected = selectedRowId != null && String(row.id) === String(selectedRowId);
             const isDuplicate = isDuplicateRow?.(row);
             const commentCount = saleCommentCounts?.get(String(row.id)) || 0;
+            const unreadCommentCount = saleCommentUnreadCounts?.get(String(row.id)) || 0;
             return (
               <MobileRecordCard
                 key={row.id}
@@ -4707,7 +4710,13 @@ function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "�
                 subtitle={`${row.date} · ${row.site}${isDuplicate ? " · 중복" : ""}`}
                 selected={isSelected}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
-                badges={commentCount > 0 ? [{ label: `코멘트 ${commentCount}` }] : undefined}
+                badges={
+                  unreadCommentCount > 0
+                    ? [{ label: `새 코멘트 ${unreadCommentCount}`, tone: "danger" }]
+                    : commentCount > 0
+                      ? [{ label: `코멘트 ${commentCount}` }]
+                      : undefined
+                }
                 fields={[
                   { label: "매출액", value: formatKRW(getSaleTotalBill(row)) },
                   { label: "입금", value: formatKRW(row.paid), tone: "success" },
@@ -4759,7 +4768,7 @@ function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "�
                   autoLinkedSaleIds={autoLinkedSaleIds}
                   manualLinkedSaleIds={manualLinkedSaleIds}
                 />
-                <SaleCommentBadge saleId={row.id} saleCommentCounts={saleCommentCounts} />
+                <SaleCommentBadge saleId={row.id} saleCommentCounts={saleCommentCounts} saleCommentUnreadCounts={saleCommentUnreadCounts} />
               </td>
               <td className="font-semibold"><span className="erp-cell-truncate inline-block max-w-[7rem] md:max-w-none">{row.client}</span></td>
               <td><span className="erp-cell-truncate inline-block max-w-[8rem] md:max-w-none">{row.site}</span></td>
@@ -4942,7 +4951,7 @@ function SearchBox({ query, setQuery, placeholder }) {
 
 const emptyVoucherSearchFilters = { client: "", site: "", worker: "" };
 
-function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, setPaymentVouchers, setBankTransactions, onPersistSaleUpdate, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set(), saleComments = [], onAddSaleComment, saleCommentCounts }) {
+function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, setPaymentVouchers, setBankTransactions, onPersistSaleUpdate, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set(), saleComments = [], onAddSaleComment, saleCommentCounts, saleCommentUnreadCounts }) {
   const [searchFilters, setSearchFilters] = useState(emptyVoucherSearchFilters);
   const [dateFilter, setDateFilter] = useState({ startDate: "", endDate: "" });
   const [selectedSale, setSelectedSale] = useState(null);
@@ -5113,6 +5122,7 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
             autoLinkedSaleIds={autoLinkedSaleIds}
             manualLinkedSaleIds={manualLinkedSaleIds}
             saleCommentCounts={saleCommentCounts}
+            saleCommentUnreadCounts={saleCommentUnreadCounts}
           />
         </CardContent>
       </Card>
@@ -7199,6 +7209,16 @@ export default function TeammillimeterErpMvp() {
   const saleCommentsRef = useRef(saleComments);
   saleCommentsRef.current = saleComments;
   const saleCommentCountBySaleId = useMemo(() => buildSaleCommentCountBySaleId(saleComments), [saleComments]);
+  const {
+    unreadCount: unreadSaleCommentCount,
+    unreadCountBySaleId: saleCommentUnreadCountBySaleId,
+    markAllRead: markSaleCommentsRead,
+  } = useSaleCommentReadState(currentUser?.id, saleComments, currentUser);
+  useEffect(() => {
+    if (active === "saleComments") {
+      markSaleCommentsRead();
+    }
+  }, [active, markSaleCommentsRead]);
   const saleCommentsSaveTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const [taxInvoices, setTaxInvoices] = useState(() => {
     if (apiMode && sessionOnMount) return [];
@@ -8771,7 +8791,10 @@ export default function TeammillimeterErpMvp() {
         mobileOpen={sidebarOpen}
         onMobileClose={() => setSidebarOpen(false)}
         syncStatus={apiMode ? syncStatus : ""}
-        pageBadges={{ clientSiteRequests: clientSiteRequestPendingCount }}
+        pageBadges={{
+          clientSiteRequests: clientSiteRequestPendingCount,
+          saleComments: unreadSaleCommentCount,
+        }}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-slate-200 bg-white/95 px-3 py-3 backdrop-blur lg:hidden erp-mobile-header">
@@ -8815,6 +8838,7 @@ export default function TeammillimeterErpMvp() {
             saleComments={saleComments}
             onAddSaleComment={addSaleCommentForVoucher}
             saleCommentCounts={saleCommentCountBySaleId}
+            saleCommentUnreadCounts={saleCommentUnreadCountBySaleId}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="clientSiteRequests" active={active}>
@@ -8840,7 +8864,7 @@ export default function TeammillimeterErpMvp() {
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="sales" active={active}>
-          <SalesManagementPage sales={appliedSales} paymentVouchers={paymentVouchers} workers={workers} setSales={setSales} setActive={setActive} currentUser={currentUser} onEditSale={setSalesManagementEditSale} saleCommentCounts={saleCommentCountBySaleId} />
+          <SalesManagementPage sales={appliedSales} paymentVouchers={paymentVouchers} workers={workers} setSales={setSales} setActive={setActive} currentUser={currentUser} onEditSale={setSalesManagementEditSale} saleCommentCounts={saleCommentCountBySaleId} saleCommentUnreadCounts={saleCommentUnreadCountBySaleId} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="salesVoucherSearch" active={active}>
           <SalesVoucherSearchPage
@@ -8861,6 +8885,7 @@ export default function TeammillimeterErpMvp() {
             saleComments={saleComments}
             onAddSaleComment={addSaleCommentForVoucher}
             saleCommentCounts={saleCommentCountBySaleId}
+            saleCommentUnreadCounts={saleCommentUnreadCountBySaleId}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="saleComments" active={active}>

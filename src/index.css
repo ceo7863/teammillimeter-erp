@@ -12896,6 +12896,13 @@ button:disabled,
   vertical-align: middle;
 }
 
+.erp-sale-comment-badge.is-unread {
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  background: rgba(254, 226, 226, 0.95);
+  color: #b91c1c;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
 .erp-sales-sheet-badge-cell .erp-sale-comment-badge,
 .erp-sales-sheet-date-cell .erp-sale-comment-badge {
   margin-left: 0;

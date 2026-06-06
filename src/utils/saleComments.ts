@@ -132,3 +132,77 @@ export function getSaleCommentCount(
   if (saleId == null || saleId === "") return 0;
   return saleCommentCounts.get(String(saleId)) || 0;
 }
+
+const SALE_COMMENTS_SEEN_STORAGE_PREFIX = "erp-sale-comments-seen-at";
+
+export function getSaleCommentsSeenAt(userId?: string | number | null): string | null {
+  if (userId == null || userId === "") return null;
+  try {
+    return window.localStorage.getItem(`${SALE_COMMENTS_SEEN_STORAGE_PREFIX}:${userId}`);
+  } catch {
+    return null;
+  }
+}
+
+export function setSaleCommentsSeenAt(userId: string | number, seenAt = new Date().toISOString()) {
+  try {
+    window.localStorage.setItem(`${SALE_COMMENTS_SEEN_STORAGE_PREFIX}:${userId}`, seenAt);
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function isSaleCommentByCurrentUser(
+  comment: SaleComment,
+  currentUser?: { name?: string; email?: string; loginId?: string } | null,
+) {
+  if (!currentUser) return false;
+  const authorName = comment.authorName.trim();
+  const authorEmail = comment.authorEmail?.trim() || "";
+  const names = [currentUser.name, currentUser.loginId, currentUser.email]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  if (authorName && names.includes(authorName)) return true;
+  if (authorEmail && names.includes(authorEmail)) return true;
+  return false;
+}
+
+export function isUnreadSaleComment(
+  comment: SaleComment,
+  seenAt: string | null | undefined,
+  currentUser?: { name?: string; email?: string; loginId?: string } | null,
+) {
+  if (!seenAt) return false;
+  if (isSaleCommentByCurrentUser(comment, currentUser)) return false;
+  return String(comment.createdAt).localeCompare(String(seenAt)) > 0;
+}
+
+export function countUnreadSaleComments(
+  comments: SaleComment[],
+  seenAt: string | null | undefined,
+  currentUser?: { name?: string; email?: string; loginId?: string } | null,
+) {
+  return comments.filter((row) => isUnreadSaleComment(row, seenAt, currentUser)).length;
+}
+
+export function buildUnreadSaleCommentCountBySaleId(
+  comments: SaleComment[],
+  seenAt: string | null | undefined,
+  currentUser?: { name?: string; email?: string; loginId?: string } | null,
+): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const row of comments) {
+    if (!isUnreadSaleComment(row, seenAt, currentUser)) continue;
+    const key = String(row.saleId);
+    map.set(key, (map.get(key) || 0) + 1);
+  }
+  return map;
+}
+
+export function getUnreadSaleCommentCount(
+  unreadCounts: Map<string, number>,
+  saleId?: string | number | null,
+): number {
+  if (saleId == null || saleId === "") return 0;
+  return unreadCounts.get(String(saleId)) || 0;
+}
