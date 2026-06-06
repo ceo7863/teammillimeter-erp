@@ -26,6 +26,7 @@ export type BankTransactionListSectionLabels = BankTransactionSplitTableLabels &
 
 type BankTransactionListSectionProps = {
   rows: BankTransaction[];
+  accountSubjectLabels?: Record<string, string>;
   folderMap: Map<string, BankTransactionFolder>;
   ledgerCategoryFolder?: BankTransactionFolder;
   companyExpenses: CompanyExpense[];
@@ -48,6 +49,7 @@ type BankTransactionListSectionProps = {
 
 function BankTransactionListSectionComponent({
   rows,
+  accountSubjectLabels = {},
   folderMap,
   ledgerCategoryFolder,
   companyExpenses,
@@ -99,15 +101,22 @@ function BankTransactionListSectionComponent({
     for (const row of rows) {
       const model = patched.get(row.id);
       if (!model) continue;
+      const txKey = String(row.id);
+      const optimisticLabel = accountSubjectLabels[txKey];
       const code = String(row.ledgerAccountCode || "").trim();
       patched.set(row.id, {
         ...model,
-        accountSubjectLabel: code ? resolveAccountCodeLabel(accountCodes, code) || code : null,
+        accountSubjectLabel: optimisticLabel
+          ? optimisticLabel
+          : code
+            ? resolveAccountCodeLabel(accountCodes, code) || code
+            : null,
       });
     }
     return patched;
   }, [
       rows,
+      accountSubjectLabels,
       folderMap,
       ledgerCategoryFolder,
       lookupMaps,

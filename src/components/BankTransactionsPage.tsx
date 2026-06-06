@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback, useDeferredValue } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import {
   ArrowDownLeft,
   ArrowLeftRight,
@@ -793,6 +793,40 @@ function canLinkUnclassifiedClientDeposit(row: BankTransaction) {
   return row.deposit > 0 && !row.folderId && !isCardCompanyDeposit(row);
 }
 
+function parseLedgerConfirmedAtMs(value: string | undefined) {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/** Keep freshly assigned manual account codes when ledger sync effects run on stale prev. */
+function mergeManualLedgerAccountFieldsFromRef(
+  prev: BankTransaction[],
+  refRows: BankTransaction[],
+): BankTransaction[] {
+  const refById = new Map(refRows.map((row) => [String(row.id), row]));
+  return prev.map((row) => {
+    const refRow = refById.get(String(row.id));
+    if (!refRow) return row;
+    const refCode = String(refRow.ledgerAccountCode || "").trim();
+    const prevCode = String(row.ledgerAccountCode || "").trim();
+    const refMs = parseLedgerConfirmedAtMs(refRow.ledgerConfirmedAt);
+    const prevMs = parseLedgerConfirmedAtMs(row.ledgerConfirmedAt);
+    if (!(refMs > prevMs || (refCode && refCode !== prevCode))) return row;
+    return {
+      ...row,
+      ledgerStatus: refRow.ledgerStatus,
+      ledgerCategoryId: refRow.ledgerCategoryId,
+      ledgerAccountCode: refRow.ledgerAccountCode,
+      ledgerMemo: refRow.ledgerMemo,
+      ledgerFixedExpenseId: refRow.ledgerFixedExpenseId,
+      ledgerConfirmedAt: refRow.ledgerConfirmedAt,
+      ledgerConfirmedBy: refRow.ledgerConfirmedBy,
+      ledgerClientName: refRow.ledgerClientName,
+    };
+  });
+}
+
 function buildLedgerLinkDefaults(
   tx: BankTransaction,
   fixedExpenseId: string,
@@ -962,6 +996,7 @@ export function BankTransactionsPage({
   const [learnPreauthMerchants, setLearnPreauthMerchants] = useState(true);
   const [accountContentModal, setAccountContentModal] = useState<TxAccountContentModal | null>(null);
   const [accountSubjectPickerTxId, setAccountSubjectPickerTxId] = useState<string | null>(null);
+  const [accountSubjectLabels, setAccountSubjectLabels] = useState<Record<string, string>>({});
   const accountSubjectIgnoreOpenUntilRef = useRef(0);
   const bankTransactionsRef = useRef(bankTransactions);
   bankTransactionsRef.current = bankTransactions;
@@ -1054,11 +1089,36 @@ export function BankTransactionsPage({
     );
   }, [accountSubjectPickerTxId, ledgerSyncedTransactions]);
 
+  useEffect(() => {
+    setAccountSubjectLabels((prev) => {
+      if (!Object.keys(prev).length) return prev;
+      let changed = false;
+      const next: Record<string, string> = {};
+      for (const txId of Object.keys(prev)) {
+        const label = prev[txId];
+        const tx = bankTransactions.find((row) => String(row.id) === txId);
+        const code = String(tx?.ledgerAccountCode || "").trim();
+        if (!code) {
+          changed = true;
+          continue;
+        }
+        const resolved = resolveAccountCodeLabel(accountCodes, code) || code;
+        if (resolved !== label) {
+          next[txId] = label;
+          continue;
+        }
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [bankTransactions, accountCodes]);
+
   React.useEffect(() => {
     setBankTransactions((prev) => {
+      const seeded = mergeManualLedgerAccountFieldsFromRef(prev, bankTransactionsRef.current);
       const folders = ensureDefaultBankTransactionFolders(bankTransactionFolders);
       const synced = syncBankTransactionLedgerLinkFields(
-        prev,
+        seeded,
         companyExpenses,
         fixedExpensePayments,
       );
@@ -2290,13 +2350,17 @@ export function BankTransactionsPage({
       const nextTransactions = detached.transactions.map((row) =>
         String(row.id) === txKey ? nextRow : row,
       );
+      const optimisticLabel = resolveAccountCodeLabel(accountCodes, code) || code;
       bankTransactionsRef.current = nextTransactions;
-      setBankTransactions(nextTransactions);
-      setCompanyExpenses(detached.expenses);
-      setFixedExpensePayments(detached.payments);
-      setAccountSubjectPickerTxId(null);
-      setTxCellModalError("");
-      setImportMessage(L.cellSaveDone);
+      flushSync(() => {
+        setAccountSubjectLabels((labels) => ({ ...labels, [txKey]: optimisticLabel }));
+        setBankTransactions(nextTransactions);
+        setCompanyExpenses(detached.expenses);
+        setFixedExpensePayments(detached.payments);
+        setAccountSubjectPickerTxId(null);
+        setTxCellModalError("");
+        setImportMessage(L.cellSaveDone);
+      });
       void onRequestImmediateSave?.({
         bankTransactions: nextTransactions,
         companyExpenses: detached.expenses,
@@ -5030,6 +5094,7 @@ export function BankTransactionsPage({
         >
           <BankTransactionListSection
             rows={filteredRows}
+            accountSubjectLabels={accountSubjectLabels}
             folderMap={folderMap}
             ledgerCategoryFolder={ledgerCategoryFolder}
             companyExpenses={companyExpenses}
