@@ -4,7 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
+import { ClientSiteRequestCalendar } from "@/components/ClientSiteRequestCalendar";
 import { ClientSiteRequestChat } from "@/components/ClientSiteRequestChat";
+import { getCurrentMonthKey } from "@/utils/clientSiteRequestCalendar";
 import {
   clientSiteRequestStatusLabel,
   fetchPublicClientSiteRequestInfo,
@@ -19,6 +21,7 @@ const L = {
   pageTitle: "\uD604\uC7A5 \uC811\uC218",
   pageDesc: "\uD300\uBC00\uB9AC\uBBF8\uD130 \uC77C\uC815 \uC811\uC218 \uD398\uC774\uC9C0\uC785\uB2C8\uB2E4.",
   tabNew: "\uC0C8 \uC811\uC218",
+  tabCalendar: "\uC811\uC218 \uCE98\uB9B0\uB354",
   tabHistory: "\uC811\uC218 \uB0B4\uC5ED \u00B7 \uCC44\uD305",
   client: "\uAC70\uB798\uCC98",
   workDate: "\uC791\uC5C5 \uC77C\uC790",
@@ -48,7 +51,7 @@ type ClientSiteRequestPageProps = {
   token: string;
 };
 
-type PageTab = "new" | "history";
+type PageTab = "new" | "calendar" | "history";
 
 export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
   const [info, setInfo] = useState<PublicClientSiteRequestInfo | null>(null);
@@ -59,6 +62,8 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
   const [tab, setTab] = useState<PageTab>("new");
   const [requests, setRequests] = useState<ClientSiteRequest[]>([]);
   const [selectedRequestId, setSelectedRequestId] = useState("");
+  const [calendarMonthKey, setCalendarMonthKey] = useState(getCurrentMonthKey);
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState("");
   const [messageDraft, setMessageDraft] = useState("");
   const [messageSending, setMessageSending] = useState(false);
   const [workDate, setWorkDate] = useState("");
@@ -110,7 +115,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
   }, [info, loadRequests]);
 
   useEffect(() => {
-    if (tab !== "history" || !info) return;
+    if ((tab !== "history" && tab !== "calendar") || !info) return;
     const timer = window.setInterval(() => {
       void loadRequests();
     }, 5000);
@@ -198,7 +203,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
 
   return (
     <div className="erp-public-page min-h-screen bg-slate-50 p-4 py-8">
-      <div className="mx-auto w-full max-w-2xl">
+      <div className={`mx-auto w-full ${tab === "calendar" ? "max-w-5xl" : "max-w-2xl"}`}>
         <Card className="rounded-2xl shadow-sm">
           <CardContent className="space-y-5 p-6 md:p-8">
             <div>
@@ -219,6 +224,19 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
                 onClick={() => setTab("new")}
               >
                 {L.tabNew}
+              </button>
+              <button
+                type="button"
+                className={`flex-1 rounded-xl px-3 py-2 text-sm font-bold ${tab === "calendar" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
+                onClick={() => {
+                  setTab("calendar");
+                  if (!selectedCalendarDate) {
+                    setSelectedCalendarDate(new Date().toISOString().slice(0, 10));
+                  }
+                  void loadRequests();
+                }}
+              >
+                {L.tabCalendar}
               </button>
               <button
                 type="button"
@@ -295,6 +313,46 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
                   {submitting ? L.submitting : L.submit}
                 </Button>
               </form>
+            ) : tab === "calendar" ? (
+              <div className="space-y-4">
+                {!requests.length ? (
+                  <p className="text-sm text-slate-500">{L.emptyHistory}</p>
+                ) : (
+                  <>
+                    <ClientSiteRequestCalendar
+                      requests={requests}
+                      monthKey={calendarMonthKey}
+                      onMonthKeyChange={setCalendarMonthKey}
+                      selectedDate={selectedCalendarDate}
+                      onSelectDate={(date) => {
+                        setSelectedCalendarDate(date);
+                        const dayRequests = requests.filter((row) => row.workDate === date);
+                        if (dayRequests.length === 1) {
+                          setSelectedRequestId(dayRequests[0].id);
+                        } else if (
+                          selectedRequestId &&
+                          !dayRequests.some((row) => row.id === selectedRequestId)
+                        ) {
+                          setSelectedRequestId(dayRequests[0]?.id || "");
+                        }
+                      }}
+                      selectedRequestId={selectedRequestId}
+                      onSelectRequest={setSelectedRequestId}
+                    />
+                    {selectedRequest ? (
+                      <ClientSiteRequestChat
+                        messages={selectedRequest.messages || []}
+                        draft={messageDraft}
+                        onDraftChange={setMessageDraft}
+                        onSend={() => void handleSendMessage()}
+                        sending={messageSending}
+                        viewer="client"
+                      />
+                    ) : null}
+                  </>
+                )}
+                {error ? <p className="text-sm font-semibold text-red-600">{error}</p> : null}
+              </div>
             ) : (
               <div className="space-y-4">
                 {!requests.length ? (

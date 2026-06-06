@@ -428,6 +428,136 @@ textarea {
   border-color: #0f172a;
 }
 
+.erp-client-request-calendar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.erp-client-request-calendar__grid .erp-calendar-cell {
+  min-height: 5.5rem;
+}
+
+@media (min-width: 640px) {
+  .erp-client-request-calendar__grid .erp-calendar-cell {
+    min-height: 6.5rem;
+  }
+}
+
+.erp-client-request-calendar__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: #0f172a;
+  color: #fff;
+  font-size: 0.625rem;
+  font-weight: 800;
+}
+
+.erp-client-request-calendar__entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  width: 100%;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  background: #f8fafc;
+  color: #334155;
+}
+
+.erp-client-request-calendar__entry.is-pending {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.erp-client-request-calendar__entry.is-confirmed {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.erp-client-request-calendar__entry.is-rejected {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.erp-client-request-calendar__entry.is-active {
+  outline: 2px solid #0f172a;
+  outline-offset: 1px;
+}
+
+.erp-client-request-calendar__more {
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: #64748b;
+  padding-left: 0.25rem;
+}
+
+.erp-client-request-calendar__day-panel {
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  background: #f8fafc;
+  padding: 0.875rem;
+}
+
+.erp-client-request-calendar__day-title {
+  margin-bottom: 0.625rem;
+  font-size: 0.875rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.erp-client-request-calendar__day-item {
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.875rem;
+  background: #fff;
+  padding: 0.75rem;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.erp-client-request-calendar__day-item:hover {
+  border-color: #cbd5e1;
+}
+
+.erp-client-request-calendar__day-item.is-active {
+  border-color: #0f172a;
+  box-shadow: 0 0 0 1px #0f172a;
+}
+
+.erp-client-request-calendar__status {
+  font-size: 0.6875rem;
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+}
+
+.erp-client-request-calendar__status.is-pending {
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+.erp-client-request-calendar__status.is-confirmed {
+  background: #d1fae5;
+  color: #047857;
+}
+
+.erp-client-request-calendar__status.is-rejected {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
 .erp-autocomplete-option--inline .erp-autocomplete-option-sub {
   margin-top: 0;
   flex: 1;
