@@ -238,12 +238,16 @@ textarea {
   border-radius: 0;
   border-color: #217346;
   box-shadow: none;
+  display: flex;
+  flex-direction: column;
 }
 
 .erp-account-picker-popover__list--excel {
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 0;
   overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
+  scroll-behavior: auto;
 }
 
 .erp-account-picker-popover__excel-group {
