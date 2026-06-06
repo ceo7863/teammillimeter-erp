@@ -8717,15 +8717,10 @@ export default function TeammillimeterErpMvp() {
               fixedExpenses,
               ledgerCategories,
               accountCodes,
-            }}
-            fixed={{
-              fixedExpenses,
               setFixedExpenses,
-              fixedExpensePayments,
               setFixedExpensePayments,
               fixedExpenseCategories,
               setFixedExpenseCategories,
-              bankTransactions,
               setBankTransactions,
               setBankLedgerRules,
               currentUser,

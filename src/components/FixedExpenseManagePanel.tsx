@@ -52,6 +52,7 @@ const L = {
 };
 
 type FixedExpenseManagePanelProps = {
+  embedded?: boolean;
   fixedExpenses: FixedExpense[];
   setFixedExpenses: React.Dispatch<React.SetStateAction<FixedExpense[]>>;
   fixedExpensePayments: FixedExpensePayment[];
@@ -72,6 +73,7 @@ type FixedExpenseManagePanelProps = {
 };
 
 export function FixedExpenseManagePanel({
+  embedded = false,
   fixedExpenses,
   setFixedExpenses,
   fixedExpensePayments,
@@ -133,24 +135,19 @@ export function FixedExpenseManagePanel({
     <div className="erp-fixed-expense-manage space-y-4">
       <Card className="rounded-2xl shadow-sm">
         <CardContent className="p-4 md:p-5">
-          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <h2 className="erp-text-page-title text-slate-900">{L.title}</h2>
-              <p className="mt-1 erp-text-body text-slate-600">{L.desc}</p>
+          {!embedded ? (
+            <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h2 className="erp-text-page-title text-slate-900">{L.title}</h2>
+                <p className="mt-1 erp-text-body text-slate-600">{L.desc}</p>
+              </div>
+              <ActionButtons onOpenBankTab={onOpenBankTab} onCreate={openCreate} />
             </div>
-            <div className="flex flex-wrap gap-2">
-              {onOpenBankTab ? (
-                <Button type="button" variant="outline" className="rounded-xl" onClick={onOpenBankTab}>
-                  <ExternalLink className="mr-2 h-4 w-4" />
-                  {L.goBank}
-                </Button>
-              ) : null}
-              <Button type="button" className="rounded-xl" onClick={openCreate}>
-                <Plus className="mr-2 h-4 w-4" />
-                {L.addItem}
-              </Button>
+          ) : (
+            <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
+              <ActionButtons onOpenBankTab={onOpenBankTab} onCreate={openCreate} />
             </div>
-          </div>
+          )}
 
           {unsettledSummary.count > 0 ? (
             <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
@@ -285,6 +282,29 @@ export function FixedExpenseManagePanel({
         onOpenBankLinkView={noopBankLinkView}
         onRequestImmediateSave={onRequestImmediateSave}
       />
+    </div>
+  );
+}
+
+function ActionButtons({
+  onOpenBankTab,
+  onCreate,
+}: {
+  onOpenBankTab?: () => void;
+  onCreate: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {onOpenBankTab ? (
+        <Button type="button" variant="outline" className="rounded-xl" onClick={onOpenBankTab}>
+          <ExternalLink className="mr-2 h-4 w-4" />
+          {L.goBank}
+        </Button>
+      ) : null}
+      <Button type="button" className="rounded-xl" onClick={onCreate}>
+        <Plus className="mr-2 h-4 w-4" />
+        {L.addItem}
+      </Button>
     </div>
   );
 }

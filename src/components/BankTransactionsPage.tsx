@@ -449,7 +449,7 @@ const L = {
   addFixedExpenseTitle: "\uACE0\uC815\uBE44 \uD56D\uBAA9 \uCD94\uAC00",
   unsettledFixedBanner: (count: number, amount: number) =>
     `\uC774\uBC88 \uB2EC \uBBF8\uC5F0\uACB0 \uACE0\uC815\uBE44 ${count}\uAC74 \u00B7 ${formatKRW(amount)}\uC6D0`,
-  goFixedExpenseTab: "\uACE0\uC815\uBE44 \uAD00\uB9AC\uB85C \uC774\uB3D9",
+  goFixedExpenseTab: "\uAC00\uACC4\uBD80 \uACE0\uC815\uBE44\uB85C \uC774\uB3D9",
   editAccountContentTitle: "\uACC4\uC815\uB0B4\uC6A9 \uC218\uC815",
   editAccountSubjectTitle: "\uACC4\uC815 \uC218\uC815",
   editFixedExpenseTitle: "\uACE0\uC815\uBE44 \uD56D\uBAA9 \uC218\uC815",

@@ -1,10 +1,9 @@
 import React, { useEffect, useState, type ComponentProps } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { BankTransactionsPage } from "@/components/BankTransactionsPage";
-import { LedgerViewerPage } from "@/components/LedgerViewerPage";
+import { LedgerViewerPage, type LedgerViewerSubTab } from "@/components/LedgerViewerPage";
 import { TaxInvoicePage } from "@/components/TaxInvoicePage";
 import { LedgerClassificationManagePage } from "@/components/LedgerClassificationManagePage";
-import { FixedExpenseManagePanel } from "@/components/FixedExpenseManagePanel";
 import {
   ACCOUNTING_HUB_TABS,
   readStoredAccountingTab,
@@ -22,7 +21,6 @@ type AccountingHubPageProps = {
   ledger: ComponentProps<typeof LedgerViewerPage>;
   tax: ComponentProps<typeof TaxInvoicePage>;
   classify: ComponentProps<typeof LedgerClassificationManagePage>;
-  fixed: ComponentProps<typeof FixedExpenseManagePanel>;
 };
 
 function buildInitialMountedTabs(tab: AccountingHubTab): Record<AccountingHubTab, boolean> {
@@ -31,15 +29,15 @@ function buildInitialMountedTabs(tab: AccountingHubTab): Record<AccountingHubTab
     ledger: tab === "ledger",
     tax: tab === "tax",
     classify: tab === "classify",
-    fixed: tab === "fixed",
   };
 }
 
-export function AccountingHubPage({ isHubActive, initialTab, bank, ledger, tax, classify, fixed }: AccountingHubPageProps) {
+export function AccountingHubPage({ isHubActive, initialTab, bank, ledger, tax, classify }: AccountingHubPageProps) {
   const [activeTab, setActiveTab] = useState<AccountingHubTab>(() => initialTab || readStoredAccountingTab());
   const [mountedTabs, setMountedTabs] = useState<Record<AccountingHubTab, boolean>>(() =>
     buildInitialMountedTabs(initialTab || readStoredAccountingTab()),
   );
+  const [ledgerSubTab, setLedgerSubTab] = useState<LedgerViewerSubTab | undefined>();
 
   useEffect(() => {
     if (!initialTab) return;
@@ -56,6 +54,11 @@ export function AccountingHubPage({ isHubActive, initialTab, bank, ledger, tax, 
     setActiveTab(tab);
   };
 
+  const openLedgerFixedTab = () => {
+    setLedgerSubTab("fixed");
+    switchTab("ledger");
+  };
+
   return (
     <div className="erp-page erp-accounting-hub-page">
       <Card className="mb-4 rounded-2xl shadow-sm">
@@ -63,7 +66,7 @@ export function AccountingHubPage({ isHubActive, initialTab, bank, ledger, tax, 
           <div className="mb-4">
             <h1 className="erp-text-page-title text-slate-900">{"\uD68C\uACC4\u00B7\uD1B5\uC7A5"}</h1>
             <p className="mt-1 erp-text-body text-slate-600">
-              {"\uD1B5\uC7A5 \uAC70\uB798\uC5D0\uC11C \uBD84\uB958\uD558\uACE0, \uAC00\uACC4\uBD80 \uC870\uD68C\uC5D0\uC11C \uD544\uD130\uB85C \uD655\uC778\uD569\uB2C8\uB2E4."}
+              {"\uD1B5\uC7A5 \uAC70\uB798\uC5D0\uC11C \uBD84\uB958\uD558\uACE0, \uAC00\uACC4\uBD80 \uC870\uD68C\uC5D0\uC11C \uD655\uC815 \uB0B4\uC5ED\uACFC \uACE0\uC815\uBE44\uB97C \uAD00\uB9AC\uD569\uB2C8\uB2E4."}
             </p>
           </div>
           <div className="flex flex-wrap gap-2 rounded-2xl bg-slate-100 p-1">
@@ -88,20 +91,19 @@ export function AccountingHubPage({ isHubActive, initialTab, bank, ledger, tax, 
             isPageActive={isHubActive && activeTab === "bank"}
             onNavigateToCompanyLedger={() => switchTab("ledger")}
             onNavigateToClassify={() => switchTab("classify")}
-            onNavigateToFixedExpense={() => switchTab("fixed")}
+            onNavigateToFixedExpense={openLedgerFixedTab}
           />
         </div>
       ) : null}
 
       {mountedTabs.ledger ? (
         <div className={activeTab === "ledger" ? "" : "hidden"} aria-hidden={activeTab !== "ledger"}>
-          <LedgerViewerPage {...ledger} onOpenBankTab={() => switchTab("bank")} />
-        </div>
-      ) : null}
-
-      {mountedTabs.fixed ? (
-        <div className={activeTab === "fixed" ? "" : "hidden"} aria-hidden={activeTab !== "fixed"}>
-          <FixedExpenseManagePanel {...fixed} onOpenBankTab={() => switchTab("bank")} />
+          <LedgerViewerPage
+            {...ledger}
+            initialSubTab={ledgerSubTab}
+            onSubTabConsumed={() => setLedgerSubTab(undefined)}
+            onOpenBankTab={() => switchTab("bank")}
+          />
         </div>
       ) : null}
 
