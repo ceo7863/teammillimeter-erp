@@ -85,7 +85,7 @@ function BankTransactionMobileListComponent({
                 },
                 {
                   label: labels.category,
-                  value: model.categoryLabel || labels.categoryPlaceholder,
+                  value: model.accountSubjectLabel || labels.categoryPlaceholder,
                   tone: "muted",
                 },
                 {

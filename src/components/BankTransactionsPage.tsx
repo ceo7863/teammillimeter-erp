@@ -2237,24 +2237,27 @@ export function BankTransactionsPage({
   };
 
   const saveAccountSubjectSelection = useCallback(
-    (tx: BankTransaction, accountCode: string) => {
-      const nextRow = assignBankTransactionAccountCode({
-        tx,
-        accountCode,
-        ledgerCategories,
-        accountCodes,
-        confirmedBy: savedBy,
+    (txId: string, accountCode: string) => {
+      let nextTransactions: BankTransaction[] | null = null;
+      setBankTransactions((prev) => {
+        const tx = prev.find((row) => row.id === txId);
+        if (!tx) return prev;
+        const nextRow = assignBankTransactionAccountCode({
+          tx,
+          accountCode,
+          ledgerCategories,
+          accountCodes,
+          confirmedBy: savedBy,
+        });
+        if (!nextRow) return prev;
+        auditBankTxUpdate(tx, nextRow);
+        nextTransactions = prev.map((row) => (row.id === txId ? nextRow : row));
+        return nextTransactions;
       });
-      if (!nextRow) {
+      if (!nextTransactions) {
         setTxCellModalError(L.detailLedgerRegisterFailed);
         return;
       }
-      auditBankTxUpdate(tx, nextRow);
-      let nextTransactions: BankTransaction[] = [];
-      setBankTransactions((prev) => {
-        nextTransactions = prev.map((row) => (row.id === tx.id ? nextRow : row));
-        return nextTransactions;
-      });
       setAccountSubjectPicker(null);
       setTxCellModalError("");
       setImportMessage(L.cellSaveDone);
@@ -6233,7 +6236,7 @@ export function BankTransactionsPage({
             empty: L.accountSubjectEmpty,
             addAccount: L.addAccountCode,
           }}
-          onSelect={(accountCode) => saveAccountSubjectSelection(accountSubjectPicker.tx, accountCode)}
+          onSelect={(accountCode) => saveAccountSubjectSelection(accountSubjectPicker.tx.id, accountCode)}
           onClose={() => setAccountSubjectPicker(null)}
           onAddAccount={
             onNavigateToClassify

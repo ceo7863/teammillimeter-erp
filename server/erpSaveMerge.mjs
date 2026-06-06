@@ -59,19 +59,31 @@ function parseLedgerConfirmedAtMs(value) {
 function mergeLedgerFieldsForSave(prev, incoming) {
   const prevMs = parseLedgerConfirmedAtMs(prev?.ledgerConfirmedAt);
   const incomingMs = parseLedgerConfirmedAtMs(incoming?.ledgerConfirmedAt);
-  const primary = incomingMs >= prevMs ? incoming : prev;
-  const fallback = incomingMs >= prevMs ? prev : incoming;
+  const preferIncoming = incomingMs > prevMs;
+  const primary = preferIncoming ? incoming : prev;
+  const fallback = preferIncoming ? prev : incoming;
+  const keys = [
+    "ledgerStatus",
+    "ledgerCategoryId",
+    "ledgerAccountCode",
+    "ledgerMemo",
+    "ledgerFixedExpenseId",
+    "ledgerConfirmedAt",
+    "ledgerConfirmedBy",
+    "ledgerClientName",
+  ];
 
-  return {
-    ledgerStatus: primary?.ledgerStatus ?? fallback?.ledgerStatus,
-    ledgerCategoryId: primary?.ledgerCategoryId ?? fallback?.ledgerCategoryId,
-    ledgerAccountCode: primary?.ledgerAccountCode ?? fallback?.ledgerAccountCode,
-    ledgerMemo: primary?.ledgerMemo ?? fallback?.ledgerMemo,
-    ledgerFixedExpenseId: primary?.ledgerFixedExpenseId ?? fallback?.ledgerFixedExpenseId,
-    ledgerConfirmedAt: primary?.ledgerConfirmedAt ?? fallback?.ledgerConfirmedAt,
-    ledgerConfirmedBy: primary?.ledgerConfirmedBy ?? fallback?.ledgerConfirmedBy,
-    ledgerClientName: primary?.ledgerClientName ?? fallback?.ledgerClientName,
-  };
+  const merged = {};
+  for (const key of keys) {
+    if (primary && Object.prototype.hasOwnProperty.call(primary, key)) {
+      const value = primary[key];
+      merged[key] = value === null || value === undefined || value === "" ? undefined : value;
+    } else {
+      const value = fallback?.[key];
+      merged[key] = value === null || value === undefined || value === "" ? undefined : value;
+    }
+  }
+  return merged;
 }
 
 export function mergeBankTransactionRowForSave(prev, incoming) {

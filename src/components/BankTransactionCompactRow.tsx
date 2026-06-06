@@ -93,6 +93,7 @@ function BankTransactionCompactRowComponent({
   accountContentLabel,
   accountContentEmpty,
   categoryLabel,
+  accountSubjectLabel,
   fixedExpenseLabel,
   folderName,
   folderType,
@@ -138,9 +139,9 @@ function BankTransactionCompactRowComponent({
       </td>
       <td className="max-w-[8rem]">
         <LedgerCellButton
-          value={categoryLabel}
+          value={accountSubjectLabel}
           placeholder={tableLabels.categoryPlaceholder}
-          empty={!categoryLabel}
+          empty={!accountSubjectLabel}
           onClick={() => onEditCategory(id)}
         />
       </td>

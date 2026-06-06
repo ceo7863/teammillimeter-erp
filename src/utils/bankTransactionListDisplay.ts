@@ -207,7 +207,9 @@ export function buildBankTransactionListRowModels(
     const accountContent = String(row.ledgerMemo || row.memo || "").trim();
     const memoOnly = String(row.memo || "").trim();
     const accountSubjectLabel =
-      resolveAccountCodeLabel(accountCodes, row.ledgerAccountCode) || categoryLabel;
+      resolveAccountCodeLabel(accountCodes, row.ledgerAccountCode) ||
+      row.ledgerAccountCode?.trim() ||
+      categoryLabel;
     const clientLabel = resolveBankTxClientName(row) || unfiledClientName || null;
     const classifiedAmount = getBankTxClassifiedAmount(row);
     const linkedInvoice = row.linkedTaxInvoiceId ? taxInvoiceById.get(row.linkedTaxInvoiceId) : undefined;
