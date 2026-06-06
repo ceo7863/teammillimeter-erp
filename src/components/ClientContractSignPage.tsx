@@ -32,6 +32,10 @@ const L = {
   prevPage: "\uC774\uC804",
   nextPage: "\uB2E4\uC74C",
   pageLabel: "\uCABD",
+  legal1:
+    "\u203B \uC0C1\uAE30 \uAE08\uC561\uC740 \uBD80\uAC00\uAC00\uCE58\uC138 \uBCC4\uB3C4 \uAE30\uC900\uC774\uBA70, \uBCC4\uB3C4 \uC11C\uBA74 \uD569\uC758\uAC00 \uC5C6\uB294 \uD55C \uBCF8 \uB2E8\uAC00\uB97C \uC801\uC6A9\uD55C\uB2E4.",
+  legal2:
+    "\u203B \uBCF8 \uD611\uC57D\uC11C\uB294 \uC804\uC790\uBB38\uC11C \uBC0F \uC804\uC790\uC11C\uBA85 \uAD00\uB828 \uBC95\uB839\uC5D0 \uB530\uB77C \uC804\uC790\uC11C\uBA85\uC73C\uB85C \uCCB4\uACB0\uD560 \uC218 \uC788\uC73C\uBA70, \uC804\uC790\uC11C\uBA85\uB41C \uBB38\uC11C\uB294 \uC790\uD544\uC11C\uBA85 \uB610\uB294 \uB0A0\uC778\uD55C \uBB38\uC11C\uC640 \uB3D9\uC77C\uD55C \uD6A8\uB825\uC744 \uAC00\uC9C4\uB2E4.",
 };
 
 type ClientContractSignPageProps = {
@@ -187,6 +191,10 @@ export function ClientContractSignPage({ token }: ClientContractSignPageProps) {
 
             <Card className="rounded-2xl shadow-sm">
               <CardContent className="space-y-4 p-5">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="erp-text-caption leading-relaxed text-slate-700">{L.legal1}</p>
+                  <p className="erp-text-caption mt-2 leading-relaxed text-slate-700">{L.legal2}</p>
+                </div>
                 <div>
                   <label className="erp-text-caption mb-1 block font-semibold text-slate-600">{L.signer}</label>
                   <Input value={signedByName} onChange={(e) => setSignedByName(e.target.value)} placeholder={L.signerPh} />
