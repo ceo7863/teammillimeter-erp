@@ -49,6 +49,7 @@ import {
 import {
   barobillPreviewToHometaxPreview,
   syncBarobillTaxInvoices,
+  fetchBarobillScrapRequestUrl,
   type BarobillTaxInvoiceSyncPreview,
 } from "@/utils/barobillTaxInvoiceSync";
 import { issueBarobillTaxInvoice } from "@/utils/barobillTaxInvoiceIssue";
@@ -162,6 +163,7 @@ const L = {
   barobillSyncLoading: "\uBC14\uB85C\uBE4C\uC5D0\uC11C \uC870\uD68C \uC911\uC785\uB2C8\uB2E4...",
   barobillSyncRange: "\uC870\uD68C \uAE30\uAC04",
   barobillSyncFlowTypes: "\uC870\uD68C \uC720\uD615",
+  barobillScrapApply: "\uD648\uD0DD\uC2A4 \uC5F0\uB3D9 \uC2E0\uCCAD",
   previewRows: "\uC778\uC2DD \uAC74\uC218",
   previewTotal: "\uD30C\uC77C \uD569\uACC4",
   infoPeriod: "\uC815\uBCF4 \uAE30\uAC04",
@@ -967,6 +969,19 @@ export function TaxInvoicePage({
     setBarobillSyncMeta(null);
   };
 
+  const openBarobillScrapApply = async () => {
+    setImportLoading(true);
+    setImportError("");
+    try {
+      const result = await fetchBarobillScrapRequestUrl();
+      window.open(result.url, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : L.barobillSyncFailed);
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
   const openBarobillSyncModal = () => {
     setImportError("");
     setBarobillSyncRange(last30DaysRange());
@@ -1002,6 +1017,9 @@ export function TaxInvoicePage({
       setBarobillPreviewActive(true);
       setImportPreview(barobillPreviewToHometaxPreview(result.preview));
       setBarobillModalOpen(false);
+      if (!result.preview.rows.length && result.preview.errors.length) {
+        setImportError(result.preview.errors[0]);
+      }
     } catch (error) {
       setImportError(error instanceof Error ? error.message : L.barobillSyncFailed);
     } finally {
@@ -1657,7 +1675,18 @@ export function TaxInvoicePage({
               <p className="mt-4 text-sm font-semibold text-slate-500">{L.barobillSyncLoading}</p>
             ) : null}
 
-            <div className="mt-6 flex justify-end gap-2">
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              {isAdmin ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-2xl"
+                  disabled={importLoading}
+                  onClick={() => void openBarobillScrapApply()}
+                >
+                  {L.barobillScrapApply}
+                </Button>
+              ) : null}
               <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setBarobillModalOpen(false)}>
                 {L.cancel}
               </Button>

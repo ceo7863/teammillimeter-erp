@@ -62,6 +62,10 @@ export async function syncBarobillTaxInvoices(input: BarobillTaxInvoiceSyncReque
   });
 }
 
+export async function fetchBarobillScrapRequestUrl() {
+  return apiRequest<{ ok: boolean; url: string }>("/barobill/scrap-request-url");
+}
+
 export function barobillPreviewToHometaxPreview(preview: BarobillTaxInvoiceSyncPreview): HometaxImportPreview {
   return {
     flowType: preview.flowType,

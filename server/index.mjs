@@ -72,6 +72,7 @@ import { buildAuthorizeUrl } from "./openBankingClient.mjs";
 import { getBarobillConfigStatus, testBarobillConnection, getBarobillUrl } from "./barobill/client.mjs";
 import { syncBarobillTaxInvoices } from "./barobill/taxInvoiceSync.mjs";
 import { buildIssuedTaxInvoiceRecord, registAndIssueTaxInvoice } from "./barobill/taxInvoiceIssue.mjs";
+import { getTaxInvoiceScrapRequestUrl, refreshTaxInvoiceScrap } from "./barobill/taxInvoiceScrap.mjs";
 import { classifyBankLedgerBatch } from "./bankLedgerClassify.mjs";
 
 initDb();
@@ -751,6 +752,30 @@ app.get("/api/barobill/charge-url", authMiddleware, adminMiddleware, async (_req
     res.status(500).json({
       error: error instanceof Error ? error.message : String(error),
       errCode,
+    });
+  }
+});
+
+app.get("/api/barobill/scrap-request-url", authMiddleware, adminMiddleware, async (_req, res) => {
+  try {
+    const url = await getTaxInvoiceScrapRequestUrl();
+    res.json({ ok: true, url });
+  } catch (error) {
+    const errCode = error && typeof error === "object" && "errCode" in error ? error.errCode : undefined;
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+      errCode,
+    });
+  }
+});
+
+app.post("/api/barobill/scrap-refresh", authMiddleware, adminMiddleware, async (_req, res) => {
+  try {
+    const result = await refreshTaxInvoiceScrap();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
     });
   }
 });

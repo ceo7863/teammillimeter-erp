@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { callBarobillSoapRequest, getErrString, assertBarobillCredentials } from "./client.mjs";
+import { checkTaxInvoiceScrapService } from "./taxInvoiceScrap.mjs";
 
 const SOAP_NS = "http://ws.baroservice.com/";
 const COUNT_PER_PAGE = 100;
@@ -260,6 +261,30 @@ function dedupeRows(rows) {
 export async function fetchTaxInvoicesInRange({ startDate, endDate, flowTypes = ["purchase", "sales"] }) {
   const errors = [];
   const collected = [];
+
+  const scrapStatus = await checkTaxInvoiceScrapService();
+  if (!scrapStatus.active) {
+    errors.push(scrapStatus.message);
+    const flowLabel = flowTypes.map((f) => (f === "purchase" ? "??" : "??")).join("/");
+    return {
+      flowType: flowTypes.length === 1 ? flowTypes[0] : "sales",
+      sourceFile: "barobill-api",
+      title: `??? API ??? (${flowLabel})`,
+      earliestIssueDate: undefined,
+      latestIssueDate: undefined,
+      rows: [],
+      parsedTotals: { count: 0, supply: 0, vat: 0, total: 0 },
+      errors,
+      startDate,
+      endDate,
+      flowTypes,
+      scrapStatus,
+    };
+  }
+
+  if (scrapStatus.message && scrapStatus.code >= 0) {
+    errors.push(scrapStatus.message);
+  }
 
   for (const isoDate of iterateIsoDates(startDate, endDate)) {
     const baseDate = toBaseDate(isoDate);
