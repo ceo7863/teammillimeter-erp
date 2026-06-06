@@ -50,6 +50,7 @@ import {
   UserMinus,
   UserCheck,
   Clock,
+  ClipboardList,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -185,7 +186,7 @@ import { WorkerPortalView } from "@/components/WorkerPortalView";
 import { ClientContractSignPage } from "@/components/ClientContractSignPage";
 import { ClientSiteRequestPage } from "@/components/ClientSiteRequestPage";
 import { ClientContractsPanel } from "@/components/ClientContractsPanel";
-import { ClientSiteRequestsPanel } from "@/components/ClientSiteRequestsPanel";
+import { ClientSiteRequestsPage } from "@/components/ClientSiteRequestsPage";
 import { ClientFormModal, type ClientFormState } from "@/components/ClientFormModal";
 import { allocateNextSaleRecordIds, getSaleVoucherLabel, parseVoucherSequence } from "@/utils/saleVoucherNo";
 import {
@@ -2771,6 +2772,7 @@ function LoginScreen({ onLogin }) {
 const PAGE_ICONS: Record<ErpPageKey, typeof Home> = {
   dashboard: Home,
   calendar: CalendarDays,
+  clientSiteRequests: ClipboardList,
   attendance: Clock,
   salesInput: Plus,
   sales: FileSpreadsheet,
@@ -5429,8 +5431,6 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
           </div>
         </CardContent>
       </Card>
-
-      <ClientSiteRequestsPanel clients={clients} />
 
       <ClientContractsPanel clients={clients} />
 
@@ -8558,6 +8558,9 @@ export default function TeammillimeterErpMvp() {
             onAddSaleComment={addSaleCommentForVoucher}
             saleCommentCounts={saleCommentCountBySaleId}
           />
+        </PageKeepAlive>
+        <PageKeepAlive pageKey="clientSiteRequests" active={active}>
+          <ClientSiteRequestsPage clients={clients} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="attendance" active={active}>
           <AttendancePage
