@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from "react";
+import { AlertTriangle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { DesktopTableWrap } from "@/components/MobileRecordCard";
 import type { BankTransaction } from "@/utils/bankTransactions";
 import {
@@ -14,7 +16,9 @@ import {
 import {
   buildAccountFlowBreakdown,
   buildBankAccountPeriodSummaries,
+  buildCounterpartyFlowBreakdown,
   buildPeriodBankTotals,
+  computePeriodChangePct,
 } from "@/utils/financialAnalysis";
 import { buildAllLedgerEntries, type AccountCode, type LedgerCategory } from "@/utils/ledgerSystem";
 
@@ -25,6 +29,8 @@ const L = {
   nextMonth: "\uB2E4\uC74C \uB2EC",
   year: "\uB144",
   month: "\uC6D4",
+  dateFrom: "\uC2DC\uC791\uC77C",
+  dateTo: "\uC885\uB8CC\uC77C",
   opening: "\uAE30\uCD08",
   closing: "\uAE30\uB9D0",
   totalDeposit: "\uCD1D \uC785\uAE08",
@@ -42,7 +48,12 @@ const L = {
   balance: "\uC794\uC561",
   count: "\uAC74\uC218",
   empty: "\uD574\uB2F9 \uAE30\uAC04 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  viewAccount: "\uACC4\uC815\uBCC4",
+  viewCounterparty: "\uAC70\uB798\uCC98\uBCC4",
+  changePct: "\uC99D\uAC10\uB960",
 };
+
+type BreakdownView = "account" | "counterparty";
 
 type CashStatusPanelProps = {
   bankTransactions: BankTransaction[];
@@ -58,7 +69,18 @@ export function CashStatusPanel({
   accountCodes,
 }: CashStatusPanelProps) {
   const [monthKey, setMonthKey] = useState(getMonthKey(todayISO()));
-  const { startDate, endDate } = useMemo(() => monthRangeForKey(monthKey), [monthKey]);
+  const defaultRange = useMemo(() => monthRangeForKey(monthKey), [monthKey]);
+  const [dateFrom, setDateFrom] = useState(defaultRange.startDate);
+  const [dateTo, setDateTo] = useState(defaultRange.endDate);
+  const [breakdownView, setBreakdownView] = useState<BreakdownView>("account");
+
+  const shiftMonth = (delta: number) => {
+    const nextKey = shiftMonthKey(monthKey, delta);
+    const range = monthRangeForKey(nextKey);
+    setMonthKey(nextKey);
+    setDateFrom(range.startDate);
+    setDateTo(range.endDate);
+  };
 
   const allEntries = useMemo(
     () =>
@@ -72,23 +94,32 @@ export function CashStatusPanel({
   );
 
   const periodTotals = useMemo(
-    () => buildPeriodBankTotals(bankTransactions, startDate, endDate),
-    [bankTransactions, startDate, endDate],
+    () => buildPeriodBankTotals(bankTransactions, dateFrom, dateTo),
+    [bankTransactions, dateFrom, dateTo],
   );
 
-  const incomeRows = useMemo(
-    () => buildAccountFlowBreakdown(allEntries, accountCodes, "income", startDate, endDate),
-    [allEntries, accountCodes, startDate, endDate],
+  const changePct = useMemo(
+    () => computePeriodChangePct(periodTotals.openingBalance, periodTotals.closingBalance),
+    [periodTotals.openingBalance, periodTotals.closingBalance],
   );
 
-  const expenseRows = useMemo(
-    () => buildAccountFlowBreakdown(allEntries, accountCodes, "expense", startDate, endDate),
-    [allEntries, accountCodes, startDate, endDate],
-  );
+  const incomeRows = useMemo(() => {
+    if (breakdownView === "counterparty") {
+      return buildCounterpartyFlowBreakdown(bankTransactions, "income", dateFrom, dateTo);
+    }
+    return buildAccountFlowBreakdown(allEntries, accountCodes, "income", dateFrom, dateTo);
+  }, [breakdownView, bankTransactions, allEntries, accountCodes, dateFrom, dateTo]);
+
+  const expenseRows = useMemo(() => {
+    if (breakdownView === "counterparty") {
+      return buildCounterpartyFlowBreakdown(bankTransactions, "expense", dateFrom, dateTo);
+    }
+    return buildAccountFlowBreakdown(allEntries, accountCodes, "expense", dateFrom, dateTo);
+  }, [breakdownView, bankTransactions, allEntries, accountCodes, dateFrom, dateTo]);
 
   const accountRows = useMemo(
-    () => buildBankAccountPeriodSummaries(bankTransactions, startDate, endDate),
-    [bankTransactions, startDate, endDate],
+    () => buildBankAccountPeriodSummaries(bankTransactions, dateFrom, dateTo),
+    [bankTransactions, dateFrom, dateTo],
   );
 
   const incomeCount = incomeRows.reduce((sum, row) => sum + row.count, 0);
@@ -104,7 +135,7 @@ export function CashStatusPanel({
           </div>
 
           <div className="mb-4 flex flex-wrap items-center gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => setMonthKey(shiftMonthKey(monthKey, -1))}>
+            <Button type="button" variant="outline" size="sm" onClick={() => shiftMonth(-1)}>
               {L.prevMonth}
             </Button>
             <span className="erp-text-body min-w-[7rem] text-center font-bold">
@@ -112,19 +143,37 @@ export function CashStatusPanel({
               {L.year} {Number(monthKey.slice(5))}
               {L.month}
             </span>
-            <Button type="button" variant="outline" size="sm" onClick={() => setMonthKey(shiftMonthKey(monthKey, 1))}>
+            <Button type="button" variant="outline" size="sm" onClick={() => shiftMonth(1)}>
               {L.nextMonth}
             </Button>
-            <span className="erp-text-caption text-slate-500">
-              {startDate} ~ {endDate}
-            </span>
+            <label className="erp-text-body">
+              <span className="mb-1 block text-slate-500">{L.dateFrom}</span>
+              <KoreanDateInput
+                value={dateFrom}
+                onChange={(event) => setDateFrom(event.target.value)}
+                className="erp-input rounded-xl"
+              />
+            </label>
+            <label className="erp-text-body">
+              <span className="mb-1 block text-slate-500">{L.dateTo}</span>
+              <KoreanDateInput
+                value={dateTo}
+                onChange={(event) => setDateTo(event.target.value)}
+                className="erp-input rounded-xl"
+              />
+            </label>
           </div>
 
           <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard label={L.opening} value={formatKRW(periodTotals.openingBalance)} />
             <StatCard label={L.totalDeposit} value={formatKRW(periodTotals.totalDeposit)} tone="text-emerald-700" />
             <StatCard label={L.totalWithdrawal} value={formatKRW(periodTotals.totalWithdrawal)} tone="text-red-600" />
-            <StatCard label={L.closing} value={formatKRW(periodTotals.closingBalance)} />
+            <StatCard
+              label={L.closing}
+              value={formatKRW(periodTotals.closingBalance)}
+              subValue={formatChangePct(changePct)}
+              subTone={changePct === null ? "text-slate-500" : changePct >= 0 ? "text-emerald-700" : "text-red-600"}
+            />
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
@@ -133,6 +182,23 @@ export function CashStatusPanel({
           </div>
         </CardContent>
       </Card>
+
+      <div className="flex flex-wrap gap-2 rounded-2xl bg-slate-100 p-1">
+        <button
+          type="button"
+          onClick={() => setBreakdownView("account")}
+          className={`erp-text-body rounded-xl px-4 py-2 font-bold ${breakdownView === "account" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`}
+        >
+          {L.viewAccount}
+        </button>
+        <button
+          type="button"
+          onClick={() => setBreakdownView("counterparty")}
+          className={`erp-text-body rounded-xl px-4 py-2 font-bold ${breakdownView === "counterparty" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`}
+        >
+          {L.viewCounterparty}
+        </button>
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <FlowBreakdownCard title={`${L.incomeBreakdown} ${incomeCount}${L.caseSuffix}`} rows={incomeRows} />
@@ -182,22 +248,42 @@ export function CashStatusPanel({
   );
 }
 
-function StatCard({ label, value, tone = "text-slate-950" }: { label: string; value: string; tone?: string }) {
+function formatChangePct(value: number | null) {
+  if (value === null) return `${L.changePct} -`;
+  const sign = value > 0 ? "+" : "";
+  return `${L.changePct} ${sign}${value.toFixed(1)}%`;
+}
+
+function StatCard({
+  label,
+  value,
+  tone = "text-slate-950",
+  subValue,
+  subTone = "text-slate-500",
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+  subValue?: string;
+  subTone?: string;
+}) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4">
       <div className="erp-text-caption text-slate-500">{label}</div>
       <div className={`erp-text-section-title mt-1 font-bold ${tone}`}>{value}</div>
+      {subValue ? <div className={`erp-text-caption mt-1 font-semibold ${subTone}`}>{subValue}</div> : null}
     </div>
   );
 }
 
-function FlowBreakdownCard({
-  title,
-  rows,
-}: {
-  title: string;
-  rows: ReturnType<typeof buildAccountFlowBreakdown>;
-}) {
+type FlowRow = {
+  label: string;
+  count: number;
+  amount: number;
+  isUncategorized: boolean;
+};
+
+function FlowBreakdownCard({ title, rows }: { title: string; rows: FlowRow[] }) {
   return (
     <Card className="rounded-2xl shadow-sm">
       <CardContent className="p-4 md:p-5">
@@ -211,7 +297,8 @@ function FlowBreakdownCard({
                   row.isUncategorized ? "bg-amber-50 text-amber-900" : "bg-slate-50 text-slate-800"
                 }`}
               >
-                <span>
+                <span className="inline-flex items-center gap-1.5">
+                  {row.isUncategorized ? <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" /> : null}
                   {row.label} ({row.count})
                 </span>
                 <span className="font-bold">{formatKRW(row.amount)}</span>

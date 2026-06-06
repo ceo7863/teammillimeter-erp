@@ -7,6 +7,7 @@ import { CustomAnalysisPanel } from "@/components/analysis/CustomAnalysisPanel";
 import type { BankTransaction } from "@/utils/bankTransactions";
 import type { CompanyExpense } from "@/utils/companyLedger";
 import type { AccountCode, LedgerCategory } from "@/utils/ledgerSystem";
+import type { TaxInvoice } from "@/utils/taxInvoices";
 import {
   readStoredAnalysisTab,
   storeAnalysisTab,
@@ -26,6 +27,7 @@ export type AnalysisHubPageProps = {
   companyExpenses: CompanyExpense[];
   ledgerCategories: LedgerCategory[];
   accountCodes: AccountCode[];
+  taxInvoices: TaxInvoice[];
 };
 
 export function AnalysisHubPage({
@@ -34,6 +36,7 @@ export function AnalysisHubPage({
   companyExpenses,
   ledgerCategories,
   accountCodes,
+  taxInvoices,
 }: AnalysisHubPageProps) {
   const [activeTab, setActiveTab] = useState<AnalysisHubTab>(() => readStoredAnalysisTab());
   const [mountedTabs, setMountedTabs] = useState<Record<AnalysisHubTab, boolean>>(() => ({
@@ -53,6 +56,11 @@ export function AnalysisHubPage({
     companyExpenses,
     ledgerCategories,
     accountCodes,
+  };
+
+  const profitLossProps = {
+    ...panelProps,
+    taxInvoices,
   };
 
   return (
@@ -88,7 +96,7 @@ export function AnalysisHubPage({
 
       {mountedTabs.profitLoss ? (
         <div className={activeTab === "profitLoss" ? "" : "hidden"} aria-hidden={activeTab !== "profitLoss"}>
-          <ProfitLossPanel {...panelProps} />
+          <ProfitLossPanel {...profitLossProps} />
         </div>
       ) : null}
 

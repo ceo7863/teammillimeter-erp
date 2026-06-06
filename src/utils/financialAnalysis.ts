@@ -1,11 +1,17 @@
+import { isTertiaryAccountCode } from "./accountCodeTree";
 import { buildBankAccountSummaries, type BankTransaction } from "./bankTransactions";
-import { getMonthKey } from "./companyLedger";
+import { getMonthKey, monthRangeForKey } from "./companyLedger";
 import {
   findAccountCodeByCode,
   resolveAccountCodeLabel,
   type AccountCode,
   type LedgerEntry,
 } from "./ledgerSystem";
+import {
+  getTaxInvoiceDocumentTypeLabel,
+  getTaxInvoiceFlowLabel,
+  type TaxInvoice,
+} from "./taxInvoices";
 
 export const UNCLASSIFIED_INCOME_LABEL = "\uACC4\uC815 \uC5C6\uB294 \uC785\uAE08";
 export const UNCLASSIFIED_EXPENSE_LABEL = "\uACC4\uC815 \uC5C6\uB294 \uCD9C\uAE08";
@@ -97,6 +103,51 @@ export type AccountFlowBreakdownRow = {
   isUncategorized: boolean;
 };
 
+export function computePeriodChangePct(opening: number, closing: number): number | null {
+  if (opening === 0) return closing === 0 ? 0 : null;
+  return ((closing - opening) / Math.abs(opening)) * 100;
+}
+
+export type CounterpartyFlowBreakdownRow = {
+  label: string;
+  count: number;
+  amount: number;
+  isUncategorized: boolean;
+};
+
+export function buildCounterpartyFlowBreakdown(
+  bankTransactions: BankTransaction[],
+  flow: "income" | "expense",
+  dateFrom?: string,
+  dateTo?: string,
+): CounterpartyFlowBreakdownRow[] {
+  const uncategorizedLabel = flow === "income" ? UNCLASSIFIED_INCOME_LABEL : UNCLASSIFIED_EXPENSE_LABEL;
+  const bucket = new Map<string, CounterpartyFlowBreakdownRow>();
+
+  for (const tx of bankTransactions) {
+    if (dateFrom || dateTo) {
+      if (!inDateRange(txDate(tx), dateFrom || "", dateTo || "")) continue;
+    }
+
+    const amount = flow === "income" ? Number(tx.deposit) || 0 : Number(tx.withdrawal) || 0;
+    if (amount <= 0) continue;
+
+    const status = tx.ledgerStatus || "none";
+    const isUncategorized = status === "none" || status === "pending";
+    const counterparty = String(tx.counterpartyName || tx.description || "").trim();
+    const label = isUncategorized && !counterparty ? uncategorizedLabel : counterparty || uncategorizedLabel;
+    const key = isUncategorized && !counterparty ? "__uncategorized__" : label;
+
+    const current = bucket.get(key) || { label, count: 0, amount: 0, isUncategorized };
+    current.count += 1;
+    current.amount += amount;
+    if (isUncategorized) current.isUncategorized = true;
+    bucket.set(key, current);
+  }
+
+  return [...bucket.values()].sort((a, b) => b.amount - a.amount);
+}
+
 export function buildAccountFlowBreakdown(
   entries: LedgerEntry[],
   accountCodes: AccountCode[],
@@ -136,8 +187,19 @@ export type MonthlyAccountTreeNode = {
   key: string;
   label: string;
   parentGroup: string;
-  level: "group" | "account";
+  parentSecondaryKey?: string;
+  level: "group" | "secondary" | "tertiary";
   accountCode?: string;
+  monthlyAmounts: Record<string, number>;
+  total: number;
+};
+
+export type AccrualProfitLossTreeNode = {
+  key: string;
+  label: string;
+  flowType: "sales" | "purchase";
+  level: "group" | "documentType";
+  documentType?: TaxInvoice["documentType"];
   monthlyAmounts: Record<string, number>;
   total: number;
 };
@@ -145,6 +207,20 @@ export type MonthlyAccountTreeNode = {
 function resolveParentGroup(accountCodes: AccountCode[], code: string) {
   const row = findAccountCodeByCode(accountCodes, code);
   return row?.parentGroup || "\uAE30\uD0C0";
+}
+
+function emptyMonthlyAmounts(monthKeys: string[]) {
+  return Object.fromEntries(monthKeys.map((mk) => [mk, 0]));
+}
+
+function addMonthlyAmounts(
+  target: Record<string, number>,
+  source: Record<string, number>,
+  monthKeys: string[],
+) {
+  for (const mk of monthKeys) {
+    target[mk] = (target[mk] || 0) + (source[mk] || 0);
+  }
 }
 
 export function buildMonthlyAccountTree(
@@ -166,48 +242,99 @@ export function buildMonthlyAccountTree(
     if (isUncategorizedEntry(row)) continue;
 
     const accountCode = row.accountCode || "900";
+    const accountRow = findAccountCodeByCode(accountCodes, accountCode);
     const label = resolveAccountCodeLabel(accountCodes, accountCode) || row.accountName || accountCode;
     const parentGroup = resolveParentGroup(accountCodes, accountCode);
-    const key = accountCode;
-    const current = accountBuckets.get(key) || {
+    const current = accountBuckets.get(accountCode) || {
       parentGroup,
-      label,
+      label: accountRow?.name || label,
       accountCode,
-      monthlyAmounts: Object.fromEntries(monthKeys.map((mk) => [mk, 0])),
+      monthlyAmounts: emptyMonthlyAmounts(monthKeys),
       total: 0,
     };
     current.monthlyAmounts[monthKey] = (current.monthlyAmounts[monthKey] || 0) + row.amount;
     current.total += row.amount;
-    accountBuckets.set(key, current);
+    accountBuckets.set(accountCode, current);
   }
 
-  const groupBuckets = new Map<string, MonthlyAccountTreeNode>();
-  const accountNodes: MonthlyAccountTreeNode[] = [];
+  const tertiaryNodes: MonthlyAccountTreeNode[] = [];
+  const secondaryBuckets = new Map<
+    string,
+    {
+      parentGroup: string;
+      label: string;
+      accountCode: string;
+      monthlyAmounts: Record<string, number>;
+      total: number;
+    }
+  >();
 
   for (const item of accountBuckets.values()) {
-    accountNodes.push({
-      key: `account-${item.accountCode}`,
-      label: item.label,
-      parentGroup: item.parentGroup,
-      level: "account",
-      accountCode: item.accountCode,
-      monthlyAmounts: { ...item.monthlyAmounts },
-      total: item.total,
-    });
+    const accountRow = findAccountCodeByCode(accountCodes, item.accountCode);
+    if (accountRow && isTertiaryAccountCode(accountRow)) {
+      const parentCode = String(accountRow.parentAccountCode || "").trim();
+      const parentRow = parentCode ? findAccountCodeByCode(accountCodes, parentCode) : undefined;
+      const parentGroup = parentRow?.parentGroup || item.parentGroup;
+      tertiaryNodes.push({
+        key: `tertiary-${item.accountCode}`,
+        label: item.label,
+        parentGroup,
+        parentSecondaryKey: parentCode ? `secondary-${parentCode}` : undefined,
+        level: "tertiary",
+        accountCode: item.accountCode,
+        monthlyAmounts: { ...item.monthlyAmounts },
+        total: item.total,
+      });
 
-    const groupKey = `group-${item.parentGroup}`;
-    const group = groupBuckets.get(groupKey) || {
-      key: groupKey,
-      label: item.parentGroup,
+      const secondaryKey = parentCode || item.accountCode;
+      const secondary = secondaryBuckets.get(secondaryKey) || {
+        parentGroup,
+        label: parentRow?.name || resolveAccountCodeLabel(accountCodes, secondaryKey) || secondaryKey,
+        accountCode: secondaryKey,
+        monthlyAmounts: emptyMonthlyAmounts(monthKeys),
+        total: 0,
+      };
+      addMonthlyAmounts(secondary.monthlyAmounts, item.monthlyAmounts, monthKeys);
+      secondary.total += item.total;
+      secondaryBuckets.set(secondaryKey, secondary);
+      continue;
+    }
+
+    const secondary = secondaryBuckets.get(item.accountCode) || {
       parentGroup: item.parentGroup,
-      level: "group" as const,
-      monthlyAmounts: Object.fromEntries(monthKeys.map((mk) => [mk, 0])),
+      label: item.label,
+      accountCode: item.accountCode,
+      monthlyAmounts: emptyMonthlyAmounts(monthKeys),
       total: 0,
     };
-    for (const mk of monthKeys) {
-      group.monthlyAmounts[mk] = (group.monthlyAmounts[mk] || 0) + (item.monthlyAmounts[mk] || 0);
-    }
-    group.total += item.total;
+    addMonthlyAmounts(secondary.monthlyAmounts, item.monthlyAmounts, monthKeys);
+    secondary.total += item.total;
+    secondaryBuckets.set(item.accountCode, secondary);
+  }
+
+  const secondaryNodes: MonthlyAccountTreeNode[] = [...secondaryBuckets.values()].map((item) => ({
+    key: `secondary-${item.accountCode}`,
+    label: item.label,
+    parentGroup: item.parentGroup,
+    level: "secondary" as const,
+    accountCode: item.accountCode,
+    monthlyAmounts: { ...item.monthlyAmounts },
+    total: item.total,
+  }));
+
+  const groupBuckets = new Map<string, MonthlyAccountTreeNode>();
+  for (const secondary of secondaryNodes) {
+    const groupKey = `group-${secondary.parentGroup}`;
+    const group = groupBuckets.get(groupKey) || {
+      key: groupKey,
+      label: secondary.parentGroup,
+      parentGroup: secondary.parentGroup,
+      level: "group" as const,
+      monthlyAmounts: emptyMonthlyAmounts(monthKeys),
+      total: 0,
+    };
+    addMonthlyAmounts(group.monthlyAmounts, secondary.monthlyAmounts, monthKeys);
+    group.total += secondary.total;
     groupBuckets.set(groupKey, group);
   }
 
@@ -215,12 +342,131 @@ export function buildMonthlyAccountTree(
   const result: MonthlyAccountTreeNode[] = [];
   for (const group of groups) {
     result.push(group);
-    const children = accountNodes
+    const secondaries = secondaryNodes
       .filter((row) => row.parentGroup === group.parentGroup)
       .sort((a, b) => b.total - a.total);
-    result.push(...children);
+    for (const secondary of secondaries) {
+      result.push(secondary);
+      const tertiaries = tertiaryNodes
+        .filter((row) => row.parentSecondaryKey === secondary.key)
+        .sort((a, b) => b.total - a.total);
+      result.push(...tertiaries);
+    }
   }
   return result;
+}
+
+export function buildAccrualProfitLossTree(
+  taxInvoices: TaxInvoice[],
+  monthKeys: string[],
+): { sales: AccrualProfitLossTreeNode[]; purchase: AccrualProfitLossTreeNode[] } {
+  const monthSet = new Set(monthKeys);
+  const bucket = new Map<
+    string,
+    {
+      flowType: "sales" | "purchase";
+      documentType: TaxInvoice["documentType"];
+      monthlyAmounts: Record<string, number>;
+      total: number;
+    }
+  >();
+
+  for (const row of taxInvoices.filter((item) => item.status === "issued")) {
+    const monthKey = getMonthKey(row.issueDate);
+    if (!monthKey || !monthSet.has(monthKey)) continue;
+    const key = `${row.flowType}:${row.documentType}`;
+    const current = bucket.get(key) || {
+      flowType: row.flowType,
+      documentType: row.documentType,
+      monthlyAmounts: emptyMonthlyAmounts(monthKeys),
+      total: 0,
+    };
+    current.monthlyAmounts[monthKey] = (current.monthlyAmounts[monthKey] || 0) + row.totalAmount;
+    current.total += row.totalAmount;
+    bucket.set(key, current);
+  }
+
+  const buildFlowTree = (flowType: "sales" | "purchase"): AccrualProfitLossTreeNode[] => {
+    const flowLabel = getTaxInvoiceFlowLabel(flowType);
+    const groupKey = `group-${flowType}`;
+    const group: AccrualProfitLossTreeNode = {
+      key: groupKey,
+      label: flowLabel,
+      flowType,
+      level: "group",
+      monthlyAmounts: emptyMonthlyAmounts(monthKeys),
+      total: 0,
+    };
+
+    const children = [...bucket.values()]
+      .filter((item) => item.flowType === flowType)
+      .sort((a, b) => b.total - a.total)
+      .map((item) => {
+        addMonthlyAmounts(group.monthlyAmounts, item.monthlyAmounts, monthKeys);
+        group.total += item.total;
+        return {
+          key: `doc-${flowType}-${item.documentType}`,
+          label: getTaxInvoiceDocumentTypeLabel(item.documentType),
+          flowType,
+          level: "documentType" as const,
+          documentType: item.documentType,
+          monthlyAmounts: { ...item.monthlyAmounts },
+          total: item.total,
+        };
+      });
+
+    return group.total > 0 || children.length > 0 ? [group, ...children] : [];
+  };
+
+  return {
+    sales: buildFlowTree("sales"),
+    purchase: buildFlowTree("purchase"),
+  };
+}
+
+export type CashFlowAnalysisMonthSummary = {
+  monthKey: string;
+  openingBalance: number;
+  operatingNet: number;
+  unclassifiedNet: number;
+  closingBalance: number;
+};
+
+export function buildCashFlowAnalysisSummary(
+  bankTransactions: BankTransaction[],
+  entries: LedgerEntry[],
+  monthKeys: string[],
+): CashFlowAnalysisMonthSummary[] {
+  return monthKeys.map((monthKey) => {
+    const { startDate, endDate } = monthRangeForKey(monthKey);
+    const periodTotals = buildPeriodBankTotals(bankTransactions, startDate, endDate);
+
+    let operatingIncome = 0;
+    let operatingExpense = 0;
+    let unclassifiedNet = 0;
+
+    for (const row of entries.filter((item) => item.status === "confirmed")) {
+      const entryMonth = getMonthKey(row.date);
+      if (entryMonth !== monthKey) continue;
+      if (row.flow === "income") operatingIncome += row.amount;
+      else operatingExpense += row.amount;
+    }
+
+    for (const tx of bankTransactions) {
+      if (!inDateRange(txDate(tx), startDate, endDate)) continue;
+      const status = tx.ledgerStatus || "none";
+      if (status !== "none" && status !== "pending") continue;
+      unclassifiedNet += (Number(tx.deposit) || 0) - (Number(tx.withdrawal) || 0);
+    }
+
+    return {
+      monthKey,
+      openingBalance: periodTotals.openingBalance,
+      operatingNet: operatingIncome - operatingExpense,
+      unclassifiedNet,
+      closingBalance: periodTotals.closingBalance,
+    };
+  });
 }
 
 export type CashFlowGroupRow = {
@@ -323,7 +569,7 @@ export function collectMonthKeysFromEntries(entries: LedgerEntry[], limit = 12):
   return [...keys].sort((a, b) => b.localeCompare(a)).slice(0, limit).reverse();
 }
 
-export type CustomAnalysisGroupMode = "category" | "account" | "parentGroup";
+export type CustomAnalysisGroupMode = "category" | "account" | "parentGroup" | "counterparty";
 
 export type CustomAnalysisRow = {
   key: string;
@@ -359,6 +605,10 @@ export function buildCustomAnalysisBreakdown(
         key = row.accountCode;
         label = resolveAccountCodeLabel(accountCodes, row.accountCode) || row.accountName || row.accountCode;
       }
+    } else if (groupBy === "counterparty") {
+      const counterparty = String(row.counterpartyName || row.description || "").trim();
+      key = counterparty || "__unknown__";
+      label = counterparty || "\uBBF8\uBD84\uB958";
     } else {
       label = isUncategorizedEntry(row)
         ? "\uBBF8\uBD84\uB958"

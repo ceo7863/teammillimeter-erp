@@ -8410,6 +8410,7 @@ export default function TeammillimeterErpMvp() {
             companyExpenses={companyExpenses}
             ledgerCategories={ledgerCategories}
             accountCodes={accountCodes}
+            taxInvoices={taxInvoices}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="companyNotices" active={active}>

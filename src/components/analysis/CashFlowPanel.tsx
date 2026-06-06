@@ -1,14 +1,24 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { DesktopTableWrap } from "@/components/MobileRecordCard";
 import { formatKRW, formatMonthLabel, type CompanyExpense } from "@/utils/companyLedger";
 import type { BankTransaction } from "@/utils/bankTransactions";
-import { buildCashFlowSummary, collectMonthKeysFromEntries } from "@/utils/financialAnalysis";
+import {
+  buildCashFlowAnalysisSummary,
+  buildCashFlowSummary,
+  collectMonthKeysFromEntries,
+} from "@/utils/financialAnalysis";
 import { buildAllLedgerEntries, type AccountCode, type LedgerCategory } from "@/utils/ledgerSystem";
 
 const L = {
   title: "\uD604\uAE08\uD750\uB984\uD45C",
   desc: "\uACC4\uC815 \uADF8\uB8F9\uBCC4 \uC6D4\uBCC4 \uC785\uCD9C\uAE08\uACFC \uC21C\uD604\uAE08\uD750\uB984\uC744 \uD655\uC778\uD569\uB2C8\uB2E4.",
+  analysisTitle: "\uD604\uAE08\uD750\uB984 \uBD84\uC11D",
+  openingBalance: "\uC6D4\uCD08 \uD604\uAE08 \uC794\uACE0",
+  operatingCashFlow: "\uC601\uC5C5\uD65C\uB3D9 \uD604\uAE08\uD750\uB984",
+  unclassifiedFlow: "\uACC4\uC815 \uC5C6\uB294 \uC785\uCD9C\uAE08",
+  closingBalance: "\uC6D4\uB9D0 \uD604\uAE08 \uC794\uACE0",
+  hideEmpty: "\uBE44\uC5B4\uC788\uB294 \uACC4\uC815 \uC228\uAE30\uAE30",
   group: "\uADF8\uB8F9",
   income: "\uC785\uAE08",
   expense: "\uCD9C\uAE08",
@@ -30,6 +40,8 @@ export function CashFlowPanel({
   ledgerCategories,
   accountCodes,
 }: CashFlowPanelProps) {
+  const [hideEmpty, setHideEmpty] = useState(false);
+
   const allEntries = useMemo(
     () =>
       buildAllLedgerEntries({
@@ -43,10 +55,28 @@ export function CashFlowPanel({
 
   const monthKeys = useMemo(() => collectMonthKeysFromEntries(allEntries, 6), [allEntries]);
 
+  const analysisRows = useMemo(
+    () => buildCashFlowAnalysisSummary(bankTransactions, allEntries, monthKeys),
+    [bankTransactions, allEntries, monthKeys],
+  );
+
   const rows = useMemo(
     () => buildCashFlowSummary(allEntries, accountCodes, monthKeys),
     [allEntries, accountCodes, monthKeys],
   );
+
+  const visibleRows = useMemo(() => {
+    if (!hideEmpty) return rows;
+    return rows.filter(
+      (row) =>
+        row.totalIncome !== 0 ||
+        row.totalExpense !== 0 ||
+        row.totalNet !== 0 ||
+        monthKeys.some(
+          (mk) => (row.monthlyIncome[mk] || 0) !== 0 || (row.monthlyExpense[mk] || 0) !== 0,
+        ),
+    );
+  }, [rows, hideEmpty, monthKeys]);
 
   const totals = useMemo(() => {
     const monthlyIncome: Record<string, number> = Object.fromEntries(monthKeys.map((mk) => [mk, 0]));
@@ -54,7 +84,7 @@ export function CashFlowPanel({
     const monthlyNet: Record<string, number> = Object.fromEntries(monthKeys.map((mk) => [mk, 0]));
     let totalIncome = 0;
     let totalExpense = 0;
-    for (const row of rows) {
+    for (const row of visibleRows) {
       totalIncome += row.totalIncome;
       totalExpense += row.totalExpense;
       for (const mk of monthKeys) {
@@ -64,7 +94,19 @@ export function CashFlowPanel({
       }
     }
     return { monthlyIncome, monthlyExpense, monthlyNet, totalIncome, totalExpense, totalNet: totalIncome - totalExpense };
-  }, [rows, monthKeys]);
+  }, [visibleRows, monthKeys]);
+
+  const analysisByMonth = useMemo(
+    () => Object.fromEntries(analysisRows.map((row) => [row.monthKey, row])),
+    [analysisRows],
+  );
+
+  const summaryMetricRows = [
+    { key: "openingBalance", label: L.openingBalance },
+    { key: "operatingNet", label: L.operatingCashFlow },
+    { key: "unclassifiedNet", label: L.unclassifiedFlow },
+    { key: "closingBalance", label: L.closingBalance },
+  ] as const;
 
   return (
     <div className="space-y-4">
@@ -77,7 +119,62 @@ export function CashFlowPanel({
 
       <Card className="rounded-2xl shadow-sm">
         <CardContent className="p-4 md:p-5">
-          {rows.length ? (
+          <h3 className="erp-text-section-title mb-4 font-bold text-slate-900">{L.analysisTitle}</h3>
+          {monthKeys.length ? (
+            <DesktopTableWrap>
+              <table className="erp-table w-full">
+                <thead>
+                  <tr>
+                    <th>{L.group}</th>
+                    {monthKeys.map((mk) => (
+                      <th key={mk} className="text-right">
+                        {formatMonthLabel(mk)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {summaryMetricRows.map((metric) => (
+                    <tr key={metric.key}>
+                      <td className="font-semibold">{metric.label}</td>
+                      {monthKeys.map((mk) => {
+                        const value = analysisByMonth[mk]?.[metric.key] || 0;
+                        const tone =
+                          metric.key === "operatingNet" || metric.key === "unclassifiedNet"
+                            ? value >= 0
+                              ? "text-emerald-700"
+                              : "text-red-600"
+                            : "";
+                        return (
+                          <td key={`${metric.key}-${mk}`} className={`text-right font-semibold ${tone}`}>
+                            {value ? formatKRW(value) : "-"}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </DesktopTableWrap>
+          ) : (
+            <div className="py-8 text-center erp-text-body text-slate-500">{L.empty}</div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl shadow-sm">
+        <CardContent className="p-4 md:p-5">
+          <label className="mb-4 inline-flex items-center gap-2 erp-text-body text-slate-700">
+            <input
+              type="checkbox"
+              checked={hideEmpty}
+              onChange={(event) => setHideEmpty(event.target.checked)}
+              className="h-4 w-4 rounded border-slate-300"
+            />
+            {L.hideEmpty}
+          </label>
+
+          {visibleRows.length ? (
             <DesktopTableWrap>
               <table className="erp-table w-full">
                 <thead>
@@ -106,7 +203,7 @@ export function CashFlowPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => (
+                  {visibleRows.map((row) => (
                     <tr key={row.parentGroup}>
                       <td className="font-semibold">{row.parentGroup}</td>
                       {monthKeys.map((mk) => (

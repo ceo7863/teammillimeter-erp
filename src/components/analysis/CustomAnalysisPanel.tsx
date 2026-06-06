@@ -16,6 +16,7 @@ const L = {
   category: "\uCE74\uD14C\uACE0\uB9AC",
   account: "\uACC4\uC815",
   parentGroup: "\uACC4\uC815 \uADF8\uB8F9",
+  counterparty: "\uAC70\uB798\uCC98",
   label: "\uD56D\uBAA9",
   income: "\uC785\uAE08",
   expense: "\uCD9C\uAE08",
@@ -119,6 +120,7 @@ export function CustomAnalysisPanel({
                 <option value="category">{L.category}</option>
                 <option value="account">{L.account}</option>
                 <option value="parentGroup">{L.parentGroup}</option>
+                <option value="counterparty">{L.counterparty}</option>
               </select>
             </label>
           </div>
