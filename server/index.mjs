@@ -69,6 +69,9 @@ import {
   runOpenBankingSync,
 } from "./openBankingSync.mjs";
 import { buildAuthorizeUrl } from "./openBankingClient.mjs";
+import { getBarobillConfigStatus, testBarobillConnection } from "./barobill/client.mjs";
+import { syncBarobillTaxInvoices } from "./barobill/taxInvoiceSync.mjs";
+import { buildIssuedTaxInvoiceRecord, registAndIssueTaxInvoice } from "./barobill/taxInvoiceIssue.mjs";
 import { classifyBankLedgerBatch } from "./bankLedgerClassify.mjs";
 
 initDb();
@@ -705,6 +708,196 @@ app.post("/api/bank-sync/run", authMiddleware, async (req, res) => {
 
 app.get("/api/open-banking/status", authMiddleware, (_req, res) => {
   res.json({ status: getOpenBankingSyncStatus() });
+});
+
+app.get("/api/barobill/status", authMiddleware, adminMiddleware, async (_req, res) => {
+  const configStatus = getBarobillConfigStatus();
+  const { certKeyMasked: _masked, ...safeConfig } = configStatus;
+  try {
+    const result = await testBarobillConnection();
+    const { certKeyMasked: _resultMasked, ...safeResult } = result;
+    res.json({
+      ...safeConfig,
+      connectionOk: safeResult.connectionOk ?? false,
+      balance: safeResult.balance,
+      errCode: safeResult.errCode,
+      message: safeResult.message,
+    });
+  } catch (error) {
+    res.json({
+      ...safeConfig,
+      connectionOk: false,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+app.post("/api/barobill/tax-invoices/sync", authMiddleware, adminMiddleware, async (req, res) => {
+  const startDate = String(req.body?.startDate || "").trim();
+  const endDate = String(req.body?.endDate || "").trim();
+  const apply = Boolean(req.body?.apply);
+  const rawFlowTypes = Array.isArray(req.body?.flowTypes) ? req.body.flowTypes : ["purchase", "sales"];
+  const flowTypes = rawFlowTypes.filter((value) => value === "purchase" || value === "sales");
+
+  if (!startDate || !endDate) {
+    res.status(400).json({ error: "시작일과 종료일이 필요합니다." });
+    return;
+  }
+  if (startDate > endDate) {
+    res.status(400).json({ error: "시작일이 종료일보다 늦을 수 없습니다." });
+    return;
+  }
+  if (!flowTypes.length) {
+    res.status(400).json({ error: "매입 또는 매출 중 하나 이상을 선택해 주세요." });
+    return;
+  }
+
+  const configStatus = getBarobillConfigStatus();
+  if (!configStatus.configured) {
+    res.status(400).json({ error: "바로빌 인증키(CERTKEY)와 사업자번호가 설정되지 않았습니다." });
+    return;
+  }
+  if (!configStatus.hasUserId) {
+    res.status(400).json({ error: "바로빌 사용자 ID(BAROBILL_USER_ID)가 설정되지 않았습니다." });
+    return;
+  }
+
+  const state = getErpState();
+  const existing = Array.isArray(state.data?.taxInvoices) ? state.data.taxInvoices : [];
+  const author = {
+    name: req.user?.name || req.user?.loginId || "관리자",
+    loginId: req.user?.loginId,
+  };
+
+  try {
+    const result = await syncBarobillTaxInvoices({
+      startDate,
+      endDate,
+      flowTypes,
+      existing,
+      author,
+      apply,
+    });
+
+    if (!apply) {
+      res.json({
+        ok: true,
+        apply: false,
+        added: result.added,
+        skipped: result.skipped,
+        preview: result.preview,
+      });
+      return;
+    }
+
+    const saved = saveErpState(
+      { ...state.data, taxInvoices: result.taxInvoices },
+      req.body?.version ?? state.version,
+      req.user.loginId || req.user.name || req.user.email,
+    );
+
+    res.json({
+      ok: true,
+      apply: true,
+      added: result.added,
+      skipped: result.skipped,
+      preview: result.preview,
+      taxInvoices: saved.data.taxInvoices || result.taxInvoices,
+      version: saved.version,
+      updatedAt: saved.updatedAt,
+    });
+  } catch (error) {
+    const errCode = error && typeof error === "object" && "errCode" in error ? error.errCode : undefined;
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+      errCode,
+    });
+  }
+});
+
+app.post("/api/barobill/tax-invoices/issue", authMiddleware, adminMiddleware, async (req, res) => {
+  const apply = Boolean(req.body?.apply);
+  const documentType = req.body?.documentType === "bill" ? "bill" : "tax";
+  const supplyAmount = Math.round(Number(req.body?.supplyAmount) || 0);
+  const vatAmount = Math.round(Number(req.body?.vatAmount) || 0);
+  const totalAmount = Math.round(Number(req.body?.totalAmount) || 0);
+
+  const configStatus = getBarobillConfigStatus();
+  if (!configStatus.configured) {
+    res.status(400).json({ error: "바로빌 인증키(CERTKEY)와 사업자번호가 설정되지 않았습니다." });
+    return;
+  }
+  if (!configStatus.hasUserId) {
+    res.status(400).json({ error: "바로빌 사용자 ID(BAROBILL_USER_ID)가 설정되지 않았습니다." });
+    return;
+  }
+
+  const author = {
+    name: req.user?.name || req.user?.loginId || "관리자",
+    loginId: req.user?.loginId,
+  };
+
+  try {
+    const issueResult = await registAndIssueTaxInvoice({
+      issueDate: String(req.body?.issueDate || "").trim(),
+      client: String(req.body?.client || "").trim(),
+      businessNo: String(req.body?.businessNo || "").trim(),
+      flowType: "sales",
+      documentType,
+      supplyAmount,
+      vatAmount,
+      totalAmount,
+      itemName: req.body?.itemName ? String(req.body.itemName) : undefined,
+      memo: req.body?.memo ? String(req.body.memo) : undefined,
+      purposeType: Number(req.body?.purposeType) || 2,
+    });
+
+    const taxInvoice = buildIssuedTaxInvoiceRecord(
+      {
+        issueDate: String(req.body?.issueDate || "").trim(),
+        client: String(req.body?.client || "").trim(),
+        businessNo: String(req.body?.businessNo || "").trim(),
+        documentType,
+        supplyAmount,
+        vatAmount,
+        totalAmount,
+        memo: req.body?.memo ? String(req.body.memo) : undefined,
+      },
+      issueResult,
+      author,
+    );
+
+    if (!apply) {
+      res.json({
+        ...issueResult,
+        taxInvoice,
+      });
+      return;
+    }
+
+    const state = getErpState();
+    const existing = Array.isArray(state.data?.taxInvoices) ? state.data.taxInvoices : [];
+    const saved = saveErpState(
+      { ...state.data, taxInvoices: [taxInvoice, ...existing] },
+      req.body?.version ?? state.version,
+      req.user.loginId || req.user.name || req.user.email,
+    );
+
+    res.json({
+      ...issueResult,
+      taxInvoice,
+      taxInvoices: saved.data.taxInvoices || [taxInvoice, ...existing],
+      version: saved.version,
+      updatedAt: saved.updatedAt,
+    });
+  } catch (error) {
+    const errCode = error && typeof error === "object" && "errCode" in error ? error.errCode : undefined;
+    const isValidation = error && typeof error === "object" && "validation" in error && error.validation;
+    res.status(isValidation ? 400 : 500).json({
+      error: error instanceof Error ? error.message : String(error),
+      errCode,
+    });
+  }
 });
 
 app.get("/api/open-banking/authorize-url", authMiddleware, adminMiddleware, (_req, res) => {

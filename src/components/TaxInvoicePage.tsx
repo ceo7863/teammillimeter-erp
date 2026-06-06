@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, FileSpreadsheet, Pencil, Plus, Receipt, Search, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, FileSpreadsheet, Pencil, Plus, Receipt, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
@@ -26,6 +26,7 @@ import {
   makeTaxInvoiceId,
   normalizeTaxInvoiceDocumentType,
   normalizeTaxInvoiceFlowType,
+  normalizeTaxInvoices,
   normalizeTaxInvoiceStatus,
   parseTaxInvoiceAmount,
   resolveTaxInvoiceModalAmounts,
@@ -45,6 +46,12 @@ import {
   parseHometaxTaxInvoiceFile,
   type HometaxImportPreview,
 } from "@/utils/hometaxTaxInvoiceImport";
+import {
+  barobillPreviewToHometaxPreview,
+  syncBarobillTaxInvoices,
+  type BarobillTaxInvoiceSyncPreview,
+} from "@/utils/barobillTaxInvoiceSync";
+import { issueBarobillTaxInvoice } from "@/utils/barobillTaxInvoiceIssue";
 import { useAudit } from "@/context/AuditContext";
 import { TAX_INVOICE_AUDIT_FIELDS, snapshotTaxInvoiceForAudit } from "@/utils/auditLog";
 
@@ -144,6 +151,16 @@ const L = {
   hometaxImportSkipped: "\uAC74 \uC911\uBCF5 \uC81C\uC678",
   hometaxImportDone: "\uACC4\uC0B0\uC11C \uAC00\uC838\uC624\uAE30\uAC00 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   hometaxImportFailed: "\uC5D1\uC140\uC744 \uC77D\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  barobillSync: "\uBC14\uB85C\uBE4C \uB3D9\uAE30\uD654",
+  barobillSyncTitle: "\uBC14\uB85C\uBE4C \uD648\uD0DD\uC2A4 \uB3D9\uAE30\uD654",
+  barobillSyncDesc: "\uBC14\uB85C\uBE4C API\uB85C \uD648\uD0DD\uC2A4 \uC138\uAE08\uACC4\uC0B0\uC11C \uBAA9\uB85D\uC744 \uAC00\uC838\uC635\uB2C8\uB2E4. \uC2B9\uC778\uBC88\uD638\uAC00 \uAC19\uC740 \uAC74\uC740 \uAC74\uB108\uB701\uB2C8\uB2E4.",
+  barobillSyncPreview: "\uBBF8\uB9AC\uBCF4\uAE30",
+  barobillSyncConfirm: "\uAC00\uC838\uC624\uAE30",
+  barobillSyncDone: "\uBC14\uB85C\uBE4C \uB3D9\uAE30\uD654\uAC00 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
+  barobillSyncFailed: "\uBC14\uB85C\uBE4C \uB3D9\uAE30\uD654\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+  barobillSyncLoading: "\uBC14\uB85C\uBE4C\uC5D0\uC11C \uC870\uD68C \uC911\uC785\uB2C8\uB2E4...",
+  barobillSyncRange: "\uC870\uD68C \uAE30\uAC04",
+  barobillSyncFlowTypes: "\uC870\uD68C \uC720\uD615",
   previewRows: "\uC778\uC2DD \uAC74\uC218",
   previewTotal: "\uD30C\uC77C \uD569\uACC4",
   infoPeriod: "\uC815\uBCF4 \uAE30\uAC04",
@@ -160,6 +177,12 @@ const L = {
   cancelledOffset: "\uC0C1\uC1C0",
   cancelledRowHint: "\uCDE8\uC18C \uC804\uD45C \u00B7 \uD569\uACC4 \uC81C\uC678",
   offsetRowHint: "\uB3D9\uC77C \uAE08\uC561 \uCDE8\uC18C \uC804\uD45C\uC640 \uC0C1\uC1C0",
+  barobillIssue: "\uBC14\uB85C\uBE4C \uBC1C\uD589",
+  barobillIssueLoading: "\uBC14\uB85C\uBE4C\uC5D0 \uBC1C\uD589 \uC911\uC785\uB2C8\uB2E4...",
+  barobillIssueDone: "\uBC14\uB85C\uBE4C \uC138\uAE08\uACC4\uC0B0\uC11C \uBC1C\uD589\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
+  barobillIssueFailed: "\uBC14\uB85C\uBE4C \uBC1C\uD589\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+  barobillIssueSalesOnly: "\uB9E4\uCD9C \uACC4\uC0B0\uC11C\uB9CC \uBC14\uB85C\uBE4C \uBC1C\uD589\uC744 \uC9C0\uC6D0\uD569\uB2C8\uB2E4.",
+  barobillIssueBusinessNo: "\uAC70\uB798\uCC98 \uC0AC\uC5C5\uC790\uBC88\uD638 10\uC790\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.",
 };
 
 function getTaxInvoiceRowMeta(row: TaxInvoice, excludedIds: Set<string>) {
@@ -266,6 +289,13 @@ function isSameDateRange(a: DateFilter, b: DateFilter) {
   return a.startDate === b.startDate && a.endDate === b.endDate;
 }
 
+function last30DaysRange(): DateFilter {
+  const endDate = todayISO();
+  const start = new Date();
+  start.setDate(start.getDate() - 29);
+  return { startDate: start.toISOString().slice(0, 10), endDate };
+}
+
 export function TaxInvoicePage({
   taxInvoices,
   setTaxInvoices,
@@ -291,7 +321,15 @@ export function TaxInvoicePage({
   const [importError, setImportError] = useState("");
   const [importMessage, setImportMessage] = useState("");
   const [importLoading, setImportLoading] = useState(false);
+  const [barobillModalOpen, setBarobillModalOpen] = useState(false);
+  const [barobillSyncRange, setBarobillSyncRange] = useState<DateFilter>(() => last30DaysRange());
+  const [barobillSyncFlows, setBarobillSyncFlows] = useState<TaxInvoiceFlowType[]>(["purchase", "sales"]);
+  const [barobillPreviewActive, setBarobillPreviewActive] = useState(false);
+  const [barobillSyncMeta, setBarobillSyncMeta] = useState<BarobillTaxInvoiceSyncPreview | null>(null);
+  const [barobillIssueLoading, setBarobillIssueLoading] = useState(false);
   const hometaxInputRef = useRef<HTMLInputElement>(null);
+
+  const isAdmin = currentUser?.role === "admin";
 
   const clientOptions = useMemo(
     () => clients.map((client) => String(client.name || "")).filter(Boolean),
@@ -682,6 +720,86 @@ export function TaxInvoicePage({
   const authorName = currentUser?.name || currentUser?.loginId || "\uC0AC\uC6A9\uC790";
   const authorLoginId = currentUser?.loginId || "";
 
+  const issueViaBarobill = async () => {
+    if (!modal) return;
+    if (modal.flowType !== "sales") {
+      setFormError(L.barobillIssueSalesOnly);
+      return;
+    }
+
+    const error = validateTaxInvoiceInput({
+      issueDate: modal.issueDate,
+      client: modal.client,
+      supplyAmount: modal.supplyAmount,
+      totalAmount: modal.totalAmount,
+    });
+    if (error) {
+      setFormError(error);
+      return;
+    }
+
+    const businessDigits = String(modal.businessNo || "").replace(/\D/g, "");
+    if (businessDigits.length !== 10) {
+      setFormError(L.barobillIssueBusinessNo);
+      return;
+    }
+
+    const amounts = resolveTaxInvoiceModalAmounts(modal);
+    setBarobillIssueLoading(true);
+    setFormError("");
+    try {
+      const result = await issueBarobillTaxInvoice({
+        issueDate: modal.issueDate,
+        client: modal.client.trim(),
+        businessNo: businessDigits,
+        documentType: modal.documentType,
+        supplyAmount: amounts.supplyAmount,
+        vatAmount: amounts.vatAmount,
+        totalAmount: amounts.totalAmount,
+        itemName: modal.memo.trim() || modal.client.trim(),
+        memo: modal.memo.trim() || undefined,
+        purposeType: 2,
+      });
+
+      const issued = result.taxInvoice || {
+        id: makeTaxInvoiceId(),
+        issueDate: modal.issueDate,
+        client: modal.client.trim(),
+        businessNo: businessDigits,
+        flowType: "sales" as const,
+        documentType: modal.documentType,
+        supplyAmount: amounts.supplyAmount,
+        vatAmount: amounts.vatAmount,
+        totalAmount: amounts.totalAmount,
+        invoiceNo: result.invoiceNo || undefined,
+        memo: [modal.memo.trim(), result.mgtKey ? `MgtKey: ${result.mgtKey}` : ""].filter(Boolean).join(" · ") || undefined,
+        status: "issued" as const,
+        createdAt: new Date().toISOString(),
+        createdBy: authorName,
+        createdByLoginId: authorLoginId,
+      };
+
+      recordAudit({
+        entityType: "taxInvoice",
+        entityId: issued.id,
+        entityLabel: `${issued.client} · ${issued.issueDate}`,
+        screen: L.pageTitle,
+        action: "create",
+        after: snapshotTaxInvoiceForAudit(issued),
+        fields: TAX_INVOICE_AUDIT_FIELDS,
+        user: currentUser,
+      });
+      setTaxInvoices((prev) => [issued, ...prev]);
+      setImportMessage(result.message || L.barobillIssueDone);
+      setModal(null);
+      setFormError("");
+    } catch (issueError) {
+      setFormError(issueError instanceof Error ? issueError.message : L.barobillIssueFailed);
+    } finally {
+      setBarobillIssueLoading(false);
+    }
+  };
+
   const saveInvoice = () => {
     if (!modal) return;
     const error = validateTaxInvoiceInput({
@@ -813,14 +931,108 @@ export function TaxInvoicePage({
     }
   };
 
-  const confirmHometaxImport = () => {
+  const finishImportMessage = (preview: HometaxImportPreview, added: number, skipped: number, doneLabel: string) => {
+    const periodLabel =
+      preview.earliestIssueDate && preview.latestIssueDate
+        ? preview.earliestIssueDate === preview.latestIssueDate
+          ? ` \u00B7 ${L.infoPeriod} ${formatTaxInvoiceDate(preview.latestIssueDate)}`
+          : ` \u00B7 ${L.infoPeriod} ${formatTaxInvoiceDate(preview.earliestIssueDate)} ~ ${formatTaxInvoiceDate(preview.latestIssueDate)}`
+        : "";
+    setImportMessage(
+      `${doneLabel} (${added}${L.hometaxImportAdded}${skipped ? `, ${skipped}${L.hometaxImportSkipped}` : ""})${periodLabel}`
+    );
+  };
+
+  const closeImportPreview = () => {
+    setImportPreview(null);
+    setBarobillPreviewActive(false);
+    setBarobillSyncMeta(null);
+  };
+
+  const openBarobillSyncModal = () => {
+    setImportError("");
+    setBarobillSyncRange(last30DaysRange());
+    setBarobillSyncFlows(["purchase", "sales"]);
+    setBarobillModalOpen(true);
+  };
+
+  const toggleBarobillFlow = (flowType: TaxInvoiceFlowType) => {
+    setBarobillSyncFlows((prev) => {
+      if (prev.includes(flowType)) {
+        const next = prev.filter((item) => item !== flowType);
+        return next.length ? next : prev;
+      }
+      return [...prev, flowType];
+    });
+  };
+
+  const runBarobillPreview = async () => {
+    if (!barobillSyncRange.startDate || !barobillSyncRange.endDate) {
+      setImportError("\uC870\uD68C \uAE30\uAC04\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694.");
+      return;
+    }
+    setImportLoading(true);
+    setImportError("");
+    try {
+      const result = await syncBarobillTaxInvoices({
+        startDate: barobillSyncRange.startDate,
+        endDate: barobillSyncRange.endDate,
+        flowTypes: barobillSyncFlows,
+        apply: false,
+      });
+      setBarobillSyncMeta(result.preview);
+      setBarobillPreviewActive(true);
+      setImportPreview(barobillPreviewToHometaxPreview(result.preview));
+      setBarobillModalOpen(false);
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : L.barobillSyncFailed);
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  const confirmHometaxImport = async () => {
     if (!importPreview) return;
+
+    if (barobillPreviewActive && barobillSyncMeta) {
+      setImportLoading(true);
+      setImportError("");
+      try {
+        const result = await syncBarobillTaxInvoices({
+          startDate: barobillSyncMeta.startDate || barobillSyncRange.startDate,
+          endDate: barobillSyncMeta.endDate || barobillSyncRange.endDate,
+          flowTypes: barobillSyncMeta.flowTypes || barobillSyncFlows,
+          apply: true,
+        });
+        if (result.taxInvoices) {
+          setTaxInvoices(normalizeTaxInvoices(result.taxInvoices));
+        }
+        closeImportPreview();
+        recordSummaryAudit({
+          entityType: "taxInvoice",
+          entityId: "barobill-sync",
+          entityLabel: L.barobillSyncTitle,
+          screen: L.pageTitle,
+          action: "import",
+          fieldLabel: L.barobillSyncConfirm,
+          after: `${result.added}\uAC74 \uCD94\uAC00${result.skipped ? ` \u00B7 ${result.skipped}\uAC74 \uC81C\uC678` : ""}`,
+          user: currentUser,
+        });
+        finishImportMessage(importPreview, result.added, result.skipped, L.barobillSyncDone);
+      } catch (error) {
+        setImportError(error instanceof Error ? error.message : L.barobillSyncFailed);
+      } finally {
+        setImportLoading(false);
+      }
+      return;
+    }
+
     const result = mergeHometaxTaxInvoices(taxInvoices, importPreview, {
       name: authorName,
       loginId: authorLoginId,
     });
     setTaxInvoices(result.next);
-    setImportPreview(null);
+    closeImportPreview();
     recordSummaryAudit({
       entityType: "taxInvoice",
       entityId: "hometax-import",
@@ -831,15 +1043,7 @@ export function TaxInvoicePage({
       after: `${result.added}\uAC74 \uCD94\uAC00${result.skipped ? ` \u00B7 ${result.skipped}\uAC74 \uC81C\uC678` : ""}`,
       user: currentUser,
     });
-    const periodLabel =
-      importPreview.earliestIssueDate && importPreview.latestIssueDate
-        ? importPreview.earliestIssueDate === importPreview.latestIssueDate
-          ? ` \u00B7 ${L.infoPeriod} ${formatTaxInvoiceDate(importPreview.latestIssueDate)}`
-          : ` \u00B7 ${L.infoPeriod} ${formatTaxInvoiceDate(importPreview.earliestIssueDate)} ~ ${formatTaxInvoiceDate(importPreview.latestIssueDate)}`
-        : "";
-    setImportMessage(
-      `${L.hometaxImportDone} (${result.added}${L.hometaxImportAdded}${result.skipped ? `, ${result.skipped}${L.hometaxImportSkipped}` : ""})${periodLabel}`
-    );
+    finishImportMessage(importPreview, result.added, result.skipped, L.hometaxImportDone);
   };
 
   return (
@@ -850,6 +1054,16 @@ export function TaxInvoicePage({
           <p className="mt-1 erp-text-body text-slate-500">{L.pageDesc}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-2xl"
+            disabled={importLoading}
+            onClick={openBarobillSyncModal}
+          >
+            <RefreshCw size={16} className="mr-2" />
+            {L.barobillSync}
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -1337,11 +1551,25 @@ export function TaxInvoicePage({
                 />
               </Field>
               {formError ? <p className="text-sm font-semibold text-red-600">{formError}</p> : null}
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setModal(null)}>
+              {barobillIssueLoading ? (
+                <p className="text-sm font-semibold text-slate-500">{L.barobillIssueLoading}</p>
+              ) : null}
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setModal(null)} disabled={barobillIssueLoading}>
                   {L.cancel}
                 </Button>
-                <Button type="button" className="rounded-2xl" onClick={saveInvoice}>
+                {isAdmin && modal.flowType === "sales" ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-2xl border-blue-200 text-blue-700 hover:bg-blue-50"
+                    disabled={barobillIssueLoading}
+                    onClick={() => void issueViaBarobill()}
+                  >
+                    {L.barobillIssue}
+                  </Button>
+                ) : null}
+                <Button type="button" className="rounded-2xl" onClick={saveInvoice} disabled={barobillIssueLoading}>
                   {L.save}
                 </Button>
               </div>
@@ -1350,15 +1578,77 @@ export function TaxInvoicePage({
         </div>
       ) : null}
 
+      {barobillModalOpen ? (
+        <div className="erp-ledger-modal-backdrop" onClick={() => setBarobillModalOpen(false)}>
+          <div className="erp-ledger-modal max-w-lg" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="erp-text-section font-bold">{L.barobillSyncTitle}</h2>
+                <p className="mt-1 erp-text-caption text-slate-500">{L.barobillSyncDesc}</p>
+              </div>
+              <button type="button" className="rounded-xl p-2 text-slate-400 hover:bg-slate-100" onClick={() => setBarobillModalOpen(false)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="mb-4 grid gap-3 sm:grid-cols-2">
+              <Field label={L.periodStart}>
+                <KoreanDateInput
+                  value={barobillSyncRange.startDate}
+                  onChange={(value) => setBarobillSyncRange((prev) => ({ ...prev, startDate: value }))}
+                />
+              </Field>
+              <Field label={L.periodEnd}>
+                <KoreanDateInput
+                  value={barobillSyncRange.endDate}
+                  onChange={(value) => setBarobillSyncRange((prev) => ({ ...prev, endDate: value }))}
+                />
+              </Field>
+            </div>
+
+            <Field label={L.barobillSyncFlowTypes}>
+              <div className="flex flex-wrap gap-2">
+                {TAX_INVOICE_FLOW_OPTIONS.map((option) => {
+                  const active = barobillSyncFlows.includes(option.value);
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`rounded-2xl border px-3 py-2 text-sm font-semibold ${active ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-600"}`}
+                      onClick={() => toggleBarobillFlow(option.value)}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </Field>
+
+            {importLoading ? (
+              <p className="mt-4 text-sm font-semibold text-slate-500">{L.barobillSyncLoading}</p>
+            ) : null}
+
+            <div className="mt-6 flex justify-end gap-2">
+              <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setBarobillModalOpen(false)}>
+                {L.cancel}
+              </Button>
+              <Button type="button" className="rounded-2xl" disabled={importLoading} onClick={() => void runBarobillPreview()}>
+                {L.barobillSyncPreview}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {importPreview ? (
-        <div className="erp-ledger-modal-backdrop" onClick={() => setImportPreview(null)}>
+        <div className="erp-ledger-modal-backdrop" onClick={closeImportPreview}>
           <div className="erp-ledger-modal max-w-3xl" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <h2 className="erp-text-section font-bold">{L.hometaxImportTitle}</h2>
-                <p className="mt-1 erp-text-caption text-slate-500">{L.hometaxImportDesc}</p>
+                <h2 className="erp-text-section font-bold">{barobillPreviewActive ? L.barobillSyncTitle : L.hometaxImportTitle}</h2>
+                <p className="mt-1 erp-text-caption text-slate-500">{barobillPreviewActive ? L.barobillSyncDesc : L.hometaxImportDesc}</p>
               </div>
-              <button type="button" className="rounded-xl p-2 text-slate-400 hover:bg-slate-100" onClick={() => setImportPreview(null)}>
+              <button type="button" className="rounded-xl p-2 text-slate-400 hover:bg-slate-100" onClick={closeImportPreview}>
                 <X size={18} />
               </button>
             </div>
@@ -1390,7 +1680,11 @@ export function TaxInvoicePage({
             <div className="mb-4 grid gap-3 sm:grid-cols-2">
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <div className="erp-text-caption text-slate-500">{L.flowType}</div>
-                <div className="mt-1 font-bold text-slate-900">{getTaxInvoiceFlowLabel(importPreview.flowType)}</div>
+                <div className="mt-1 font-bold text-slate-900">
+                  {barobillPreviewActive && (barobillSyncMeta?.flowTypes?.length || 0) > 1
+                    ? `${getTaxInvoiceFlowLabel("sales")}/${getTaxInvoiceFlowLabel("purchase")}`
+                    : getTaxInvoiceFlowLabel(importPreview.flowType)}
+                </div>
                 <div className="mt-2 erp-text-caption text-slate-500">{importPreview.sourceFile}</div>
               </div>
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -1454,11 +1748,11 @@ export function TaxInvoicePage({
             ) : null}
 
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setImportPreview(null)}>
+              <Button type="button" variant="outline" className="rounded-2xl" onClick={closeImportPreview}>
                 {L.cancel}
               </Button>
-              <Button type="button" className="rounded-2xl" onClick={confirmHometaxImport}>
-                {L.hometaxImportConfirm}
+              <Button type="button" className="rounded-2xl" disabled={importLoading} onClick={() => void confirmHometaxImport()}>
+                {barobillPreviewActive ? L.barobillSyncConfirm : L.hometaxImportConfirm}
               </Button>
             </div>
           </div>

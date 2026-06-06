@@ -1,8 +1,21 @@
 import path from "path";
 import { fileURLToPath } from "url";
+import { loadEnv } from "./loadEnv.mjs";
+
+loadEnv();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
+
+const BAROBILL_TEST_WSDL = "https://testws.baroservice.com/TI.asmx?WSDL";
+const BAROBILL_PROD_WSDL = "https://ws.baroservice.com/TI.asmx?WSDL";
+
+function parseEnvBool(value, defaultValue) {
+  if (value === undefined || value === "") return defaultValue;
+  return value !== "false" && value !== "0";
+}
+
+const barobillTest = parseEnvBool(process.env.BAROBILL_TEST, true);
 
 export const config = {
   port: Number(process.env.PORT || 8080),
@@ -31,6 +44,17 @@ export const config = {
     refreshToken: process.env.OPEN_BANKING_REFRESH_TOKEN || "",
     accountMask: process.env.OPEN_BANKING_ACCOUNT_MASK || "",
     syncDays: Number(process.env.OPEN_BANKING_SYNC_DAYS || 7),
+  },
+  barobill: {
+    certKey: process.env.BAROBILL_CERT_KEY || "",
+    corpNum: process.env.BAROBILL_CORP_NUM || "",
+    userId: process.env.BAROBILL_USER_ID || "",
+    /** 공급자(자사) 대표자명 — 미설정 시 발행 API가 거절될 수 있음 */
+    ceoName: process.env.BAROBILL_CEO_NAME || "",
+    /** 공급자 담당자 이메일 — 미설정 시 발행 API가 거절될 수 있음 */
+    contactEmail: process.env.BAROBILL_CONTACT_EMAIL || "",
+    test: barobillTest,
+    wsdlUrl: barobillTest ? BAROBILL_TEST_WSDL : BAROBILL_PROD_WSDL,
   },
 };
 
