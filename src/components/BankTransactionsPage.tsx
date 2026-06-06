@@ -2464,8 +2464,10 @@ export function BankTransactionsPage({
       preparing: taxInvoiceLinkSession.preparing,
       companyProfile: ui.companyProfile,
       linkedInvoiceId: taxInvoiceLinkSession.tx.linkedTaxInvoiceId,
+      clients,
+      workers,
     });
-  }, [taxInvoiceLinkSession]);
+  }, [taxInvoiceLinkSession, clients, workers]);
 
   React.useEffect(() => () => destroyTaxInvoiceLinkPanel(), []);
   const saveAccountContentModal = () => {

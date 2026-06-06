@@ -52,6 +52,8 @@ export type TaxInvoiceLinkPanelDataProps = {
   companyProfile?: CompanyProfile;
   linkedInvoiceId?: string;
   preparing?: boolean;
+  clients?: Array<{ name?: string; businessNo?: string; depositNameAliases?: string }>;
+  workers?: Array<{ name?: string; businessNo?: string; depositNameAliases?: string }>;
 };
 
 type TaxInvoiceLinkPanelProps = TaxInvoiceLinkPanelDataProps & {
@@ -285,6 +287,8 @@ function TaxInvoiceLinkFilterBody({
   companyProfile,
   linkedInvoiceId,
   preparing,
+  clients = [],
+  workers = [],
   onLink,
   onNavigateToTaxInvoice,
 }: TaxInvoiceLinkPanelDataProps & {
@@ -331,8 +335,11 @@ function TaxInvoiceLinkFilterBody({
   ]);
 
   const rows = useMemo(
-    () => (preparing ? [] : filterTaxInvoiceLinkCatalog(catalog, debouncedSearch)),
-    [catalog, debouncedSearch, preparing],
+    () =>
+      preparing
+        ? []
+        : filterTaxInvoiceLinkCatalog(catalog, debouncedSearch, tx, { clients, workers }),
+    [catalog, debouncedSearch, preparing, tx, clients, workers],
   );
 
   return (

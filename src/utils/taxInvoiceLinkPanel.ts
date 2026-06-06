@@ -1,5 +1,12 @@
 import type { BankTransaction } from "./bankTransactions";
-import { normalizeBusinessRegistrationNo } from "./bankTaxInvoiceLink";
+import {
+  getBankTxClassifiedAmount,
+  hasTaxInvoiceBusinessNoMatch,
+  hasTaxInvoiceNameMatch,
+  normalizeBusinessRegistrationNo,
+  resolveBankTxClientName,
+  type TaxInvoiceMatchContext,
+} from "./bankTaxInvoiceLink";
 import { formatKRW } from "./companyLedger";
 import {
   buildTaxInvoiceCancellationExcludedIds,
@@ -368,12 +375,93 @@ export function buildTaxInvoiceLinkCatalog(input: {
   });
 }
 
-export function filterTaxInvoiceLinkCatalog(rows: TaxInvoiceLinkCatalogRow[], search: string) {
+export function filterTaxInvoiceLinkCatalog(
+  rows: TaxInvoiceLinkCatalogRow[],
+  search: string,
+  tx?: BankTransaction,
+  matchContext: TaxInvoiceMatchContext = {},
+) {
   const q = search.trim().toLowerCase();
-  if (!q) return rows;
-  const tokens = q.split(/\s+/).filter(Boolean);
-  if (!tokens.length) return rows;
-  return rows.filter((row) => tokens.every((token) => row.searchText.includes(token)));
+  const tokens = q ? q.split(/\s+/).filter(Boolean) : [];
+  let filtered = rows;
+  if (tokens.length) {
+    filtered = rows.filter((row) => tokens.every((token) => row.searchText.includes(token)));
+  }
+  if (!tx) return filtered;
+
+  const scoreRow = (row: TaxInvoiceLinkCatalogRow) =>
+    scoreTaxInvoiceLinkCatalogRow(tx, row, tokens, matchContext);
+
+  return [...filtered].sort((a, b) => {
+    const scoreDiff = scoreRow(b) - scoreRow(a);
+    if (scoreDiff !== 0) return scoreDiff;
+    return String(b.invoice.issueDate).localeCompare(String(a.invoice.issueDate));
+  });
+}
+
+function normalizeCatalogPartyName(value: string) {
+  return String(value || "")
+    .replace(/\s+/g, "")
+    .replace(/(\u3231|\(\uC8FC\)|\uC8FC\uC2DD\uD68C\uC0AC|\(\uC720\)|\uC720\uD55C|\uC720\uD55C\uD68C\uC0AC|co\.?ltd|corp|inc)/gi, "")
+    .replace(/[\uFF08\uFF09()]/g, "")
+    .toLowerCase();
+}
+
+function scoreTaxInvoiceLinkCatalogRow(
+  tx: BankTransaction,
+  row: TaxInvoiceLinkCatalogRow,
+  searchTokens: string[],
+  matchContext: TaxInvoiceMatchContext,
+) {
+  const invoice = row.invoice;
+  const invClient = String(invoice.client || "").trim();
+  const counterparty = String(tx.counterpartyName || "").trim();
+  const linkedClient = String(resolveBankTxClientName(tx) || "").trim();
+  let score = 0;
+
+  if (counterparty && invClient) {
+    if (counterparty === invClient) {
+      score += 500;
+    } else {
+      const normalizedCounterparty = normalizeCatalogPartyName(counterparty);
+      const normalizedClient = normalizeCatalogPartyName(invClient);
+      if (normalizedCounterparty && normalizedClient && normalizedCounterparty === normalizedClient) {
+        score += 450;
+      } else if (
+        normalizedCounterparty &&
+        normalizedClient &&
+        (normalizedCounterparty.includes(normalizedClient) || normalizedClient.includes(normalizedCounterparty))
+      ) {
+        score += 350;
+      }
+    }
+  }
+
+  if (linkedClient && invClient && linkedClient === invClient) score += 400;
+  if (hasTaxInvoiceBusinessNoMatch(tx, invoice, matchContext)) score += 380;
+  if (hasTaxInvoiceNameMatch(tx, invoice)) score += 200;
+
+  for (const token of searchTokens) {
+    const normalizedToken = normalizeCatalogPartyName(token);
+    const normalizedClient = normalizeCatalogPartyName(invClient);
+    if (normalizedToken && normalizedClient && normalizedClient.includes(normalizedToken)) {
+      score += 150;
+    } else if (invClient.toLowerCase().includes(token.toLowerCase())) {
+      score += 120;
+    } else if (row.searchText.includes(token.toLowerCase())) {
+      score += 20;
+    }
+  }
+
+  const txAmount = getBankTxClassifiedAmount(tx);
+  const totalAmount = Number(invoice.totalAmount || 0);
+  const supplyAmount = Number(invoice.supplyAmount || 0);
+  if (txAmount > 0 && Math.abs(txAmount - totalAmount) === 0) score += 50;
+  else if (txAmount > 0 && supplyAmount > 0 && Math.abs(txAmount - supplyAmount) === 0) score += 40;
+
+  if (row.unsettledAmount > 0) score += 25;
+
+  return score;
 }
 
 export function canLinkTaxInvoiceToTransaction(
