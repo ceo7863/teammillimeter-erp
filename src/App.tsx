@@ -7193,6 +7193,8 @@ export default function TeammillimeterErpMvp() {
     if (apiMode && sessionOnMount) return [];
     return normalizeTaxInvoices(storedData?.taxInvoices);
   });
+  const taxInvoicesRef = useRef(taxInvoices);
+  taxInvoicesRef.current = taxInvoices;
   const [bankTransactions, setBankTransactions] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return normalizeBankTransactions(storedData?.bankTransactions);
@@ -7696,6 +7698,8 @@ export default function TeammillimeterErpMvp() {
     },
     [apiMode, currentUser, dataReady, buildErpSavePayload, persistErpSave, setWorkers, setBankTransactions, setWorkerMonthlyPaymentMemos],
   );
+  const flushErpSaveRef = useRef(flushErpSave);
+  flushErpSaveRef.current = flushErpSave;
 
   const persistClientsImmediate = useCallback(
     async (
@@ -8440,30 +8444,39 @@ export default function TeammillimeterErpMvp() {
     );
   }, [dataReady, currentUser, fixedExpenses, fixedExpensePayments, bankTransactions, bankLedgerRules, companyExpenses]);
 
-  useEffect(() => {
-    if (!dataReady || !currentUser || !taxInvoices.length) return;
+  const taxInvoiceAutoLinkScopeKey = useMemo(
+    () => (taxInvoices.length ? buildTaxInvoiceEvidenceAutoLinkKey(bankTransactions, taxInvoices) : ""),
+    [bankTransactions, taxInvoices],
+  );
 
-    const scopeKey = buildTaxInvoiceEvidenceAutoLinkKey(bankTransactions, taxInvoices);
-    if (!scopeKey || scopeKey === taxInvoiceEvidenceAutoLinkKeyRef.current) return;
+  useEffect(() => {
+    if (!dataReady || !currentUser || !taxInvoices.length || !taxInvoiceAutoLinkScopeKey) return;
+    if (taxInvoiceAutoLinkScopeKey === taxInvoiceEvidenceAutoLinkKeyRef.current) return;
 
     if (taxInvoiceEvidenceAutoLinkTimerRef.current) {
       window.clearTimeout(taxInvoiceEvidenceAutoLinkTimerRef.current);
     }
 
+    const scheduledScopeKey = taxInvoiceAutoLinkScopeKey;
+
     taxInvoiceEvidenceAutoLinkTimerRef.current = window.setTimeout(() => {
       taxInvoiceEvidenceAutoLinkTimerRef.current = null;
-      if (pendingLocalEditsRef.current) return;
+      if (pendingLocalEditsRef.current) {
+        taxInvoiceEvidenceAutoLinkKeyRef.current = scheduledScopeKey;
+        return;
+      }
 
+      const invoices = taxInvoicesRef.current;
       const result = runTaxInvoiceEvidenceAutoLink({
-        bankTransactions,
-        taxInvoices,
-        clients,
-        workers,
+        bankTransactions: bankTransactionsRef.current,
+        taxInvoices: invoices,
+        clients: clientsRef.current,
+        workers: workersRef.current,
       });
 
       taxInvoiceEvidenceAutoLinkKeyRef.current = buildTaxInvoiceEvidenceAutoLinkKey(
         result.transactions,
-        taxInvoices,
+        invoices,
       );
 
       if (!result.linkedCount) return;
@@ -8473,7 +8486,7 @@ export default function TeammillimeterErpMvp() {
       if (result.clientsChanged) {
         setClients(result.clients);
       }
-      void flushErpSave({
+      void flushErpSaveRef.current({
         bankTransactions: result.transactions,
         ...(result.clientsChanged ? { clients: result.clients } : {}),
       }).finally(() => {
@@ -8492,7 +8505,7 @@ export default function TeammillimeterErpMvp() {
         taxInvoiceEvidenceAutoLinkTimerRef.current = null;
       }
     };
-  }, [dataReady, currentUser, bankTransactions, taxInvoices, clients, workers, flushErpSave]);
+  }, [dataReady, currentUser, taxInvoiceAutoLinkScopeKey, taxInvoices.length]);
 
   const applyRemoteBankSnapshot = React.useCallback(async (snapshot: BankSyncSnapshot) => {
     const nextVersion = snapshot.version ?? erpVersionRef.current;

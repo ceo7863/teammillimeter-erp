@@ -59,7 +59,7 @@ import {
   learnClientTaxInvoiceSplitPayments,
   shouldLearnTaxInvoiceSplitPayment,
 } from "@/utils/taxInvoiceSplitLink";
-import { runTaxInvoiceEvidenceAutoLink, buildTaxInvoiceEvidenceAutoLinkKey, learnClientTaxInvoiceExactPayments } from "@/utils/taxInvoiceEvidenceAutoLink";
+import { runTaxInvoiceEvidenceAutoLink, learnClientTaxInvoiceExactPayments } from "@/utils/taxInvoiceEvidenceAutoLink";
 import {
   buildBankTransactionRowDisplayCache,
   buildBankTransactionsExportTable,
@@ -2842,22 +2842,6 @@ export function BankTransactionsPage({
     ],
   );
 
-  const evidenceAutoScopeKey = useMemo(
-    () => buildTaxInvoiceEvidenceAutoLinkKey(bankTransactions, taxInvoices),
-    [bankTransactions, taxInvoices],
-  );
-
-  useEffect(() => {
-    if (!isPageActive || pageView !== "list" || !evidenceAutoScopeKey || !taxInvoices.length) return;
-    const timer = window.setTimeout(() => {
-      const linkedCount = runBatchEvidenceAutoLink();
-      if (linkedCount > 0) {
-        setImportMessage(L.evidenceBatchAutoLinked(linkedCount));
-      }
-    }, 700);
-    return () => window.clearTimeout(timer);
-  }, [isPageActive, pageView, evidenceAutoScopeKey, taxInvoices.length, runBatchEvidenceAutoLink]);
-
   const stats = useMemo(() => buildBankTransactionStats(filteredRows), [filteredRows]);
   const pendingBatchLedger = useMemo(
     () =>
@@ -5285,7 +5269,7 @@ export function BankTransactionsPage({
                   variant="outline"
                   className="rounded-xl"
                   onClick={() => {
-                    const linkedCount = runBatchEvidenceAutoLink(filteredRows);
+                    const linkedCount = runBatchEvidenceAutoLink();
                     setImportMessage(
                       linkedCount > 0
                         ? L.evidenceBatchAutoLinked(linkedCount)
