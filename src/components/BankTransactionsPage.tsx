@@ -465,6 +465,7 @@ const L = {
   detailSaveDone: "\uAC70\uB798 \uC815\uBCF4\uB97C \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.",
   detailFixedItemRequired: "\uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
   detailLedgerRegisterFailed: "\uAC00\uACC4\uBD80 \uB4F1\uB85D\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uC9C0\uCD9C \uCE74\uD14C\uACE0\uB9AC\uB97C \uC785\uB825\uD588\uB294\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694.",
+  accountSubjectSaveFailed: "\uACC4\uC815\uACFC\uBAA9\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uBE44\uD65C\uC131 \uACC4\uC815\uC774\uAC70\uB098 \uAC70\uB798\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
   detailLedgerFolderRequiresRegistration:
     "\uAC00\uACC4\uBD80 \uD3F4\uB354\uB85C \uC800\uC7A5\uD558\uB824\uBA74 \uC9C0\uCD9C \uCE74\uD14C\uACE0\uB9AC \uB610\uB294 \uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uB4F1\uB85D\uD574 \uC8FC\uC138\uC694.",
   ledgerFolderRequiresRegistration:
@@ -961,6 +962,8 @@ export function BankTransactionsPage({
   const [accountContentModal, setAccountContentModal] = useState<TxAccountContentModal | null>(null);
   const [accountSubjectPickerTxId, setAccountSubjectPickerTxId] = useState<string | null>(null);
   const accountSubjectIgnoreOpenUntilRef = useRef(0);
+  const bankTransactionsRef = useRef(bankTransactions);
+  bankTransactionsRef.current = bankTransactions;
   const [fixedExpenseModal, setFixedExpenseModal] = useState<TxFixedExpenseModal | null>(null);
   const [clientModal, setClientModal] = useState<TxClientModal | null>(null);
   const [taxInvoiceModal, setTaxInvoiceModal] = useState<TxTaxInvoiceModal | null>(null);
@@ -2264,35 +2267,31 @@ export function BankTransactionsPage({
       accountSubjectIgnoreOpenUntilRef.current = Date.now() + 600;
       setAccountSubjectPickerTxId(null);
 
-      let nextTransactions: BankTransaction[] | null = null;
-      let saveFailed = false;
-      setBankTransactions((prev) => {
-        const tx = prev.find((row) => row.id === txId);
-        if (!tx) {
-          saveFailed = true;
-          return prev;
-        }
-        const nextRow = assignBankTransactionAccountCode({
-          tx,
-          accountCode,
-          ledgerCategories,
-          accountCodes,
-          confirmedBy: savedBy,
-        });
-        if (!nextRow) {
-          saveFailed = true;
-          return prev;
-        }
-        auditBankTxUpdate(tx, nextRow);
-        nextTransactions = prev.map((row) => (row.id === txId ? nextRow : row));
-        return nextTransactions;
-      });
-
-      if (saveFailed || !nextTransactions) {
-        setTxCellModalError(L.detailLedgerRegisterFailed);
-        setImportMessage(L.detailLedgerRegisterFailed);
+      const prev = bankTransactionsRef.current;
+      const tx = prev.find((row) => row.id === txId);
+      if (!tx) {
+        setTxCellModalError(L.accountSubjectSaveFailed);
+        setImportMessage(L.accountSubjectSaveFailed);
         return;
       }
+
+      const nextRow = assignBankTransactionAccountCode({
+        tx,
+        accountCode,
+        ledgerCategories,
+        accountCodes,
+        confirmedBy: savedBy,
+      });
+      if (!nextRow) {
+        setTxCellModalError(L.accountSubjectSaveFailed);
+        setImportMessage(L.accountSubjectSaveFailed);
+        return;
+      }
+
+      auditBankTxUpdate(tx, nextRow);
+      const nextTransactions = prev.map((row) => (row.id === txId ? nextRow : row));
+      bankTransactionsRef.current = nextTransactions;
+      setBankTransactions(nextTransactions);
       setTxCellModalError("");
       setImportMessage(L.cellSaveDone);
       void onRequestImmediateSave?.({ bankTransactions: nextTransactions });
