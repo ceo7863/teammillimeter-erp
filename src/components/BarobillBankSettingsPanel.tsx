@@ -23,12 +23,41 @@ const L = {
   accountManage: "\uACC4\uC88C \uAD00\uB9AC",
   collecting: "\uBC14\uB85C\uBE4C\uC5D0\uC11C \uAC70\uB798\uB0B4\uC5ED\uC744 \uC218\uC9D1 \uC911\uC785\uB2C8\uB2E4. 1~3\uBD84 \uD6C4 \uB2E4\uC2DC \uAC00\uC838\uC624\uAE30\uB97C \uB20C\uB7EC \uC8FC\uC138\uC694.",
   allUpToDate: "\uC0C8 \uAC70\uB798 \uC5C6\uC74C",
-  fetchedUpToDate: (fetched: number) => `\uC870\uD68C ${fetched}\uAC74 \u00B7 \uC774\uBBF8 \uBAA8\uB450 \uBC18\uC601\uB428`,
+  fetchedUpToDate: (fetched: number, totalCount?: number) =>
+    totalCount != null
+      ? `\uBC14\uB85C\uBE4C ${fetched}\uAC74 \u00B7 \uC2E0\uADDC \uC5C6\uC74C \u00B7 \uBAA9\uB85D ${totalCount}\uAC74`
+      : `\uBC14\uB85C\uBE4C ${fetched}\uAC74 \u00B7 \uC774\uBBF8 \uBAA8\uB450 \uBC18\uC601\uB428`,
+  scrapeHint:
+    "\uBC29\uAE08 \uC785\uAE08\uC774 \uC548 \uBCF4\uC774\uBA74 \uC740\uD589 \uC218\uC9D1 \uD6C4 1~3\uBD84 \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC624\uC138\uC694.",
+};
+
+const BAROBILL_REFRESH_AT_KEY = "teammillimeter-bank-barobill-refresh-at";
+const BAROBILL_REFRESH_INTERVAL_MS = 180000;
+
+function shouldRequestBarobillRefresh(force = false) {
+  if (force) return true;
+  if (typeof window === "undefined") return false;
+  const last = Number(window.sessionStorage.getItem(BAROBILL_REFRESH_AT_KEY) || 0);
+  return !last || Date.now() - last >= BAROBILL_REFRESH_INTERVAL_MS;
+}
+
+function markBarobillRefreshRequested() {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(BAROBILL_REFRESH_AT_KEY, String(Date.now()));
+}
+
+type BankSyncedResult = {
+  totalCount?: number;
+  addedCount?: number;
+  applied?: boolean;
 };
 
 type MessageTone = "info" | "success" | "error";
 
-function formatSyncResult(result: Awaited<ReturnType<typeof syncBarobillBankNow>>): { text: string; tone: MessageTone } {
+function formatSyncResult(
+  result: Awaited<ReturnType<typeof syncBarobillBankNow>>,
+  refreshResult?: BankSyncedResult,
+): { text: string; tone: MessageTone; hint?: string } {
   if (result.collecting || result.scrapStatus?.collecting) {
     return {
       text: result.notices?.[0] || result.scrapStatus?.message || L.collecting,
@@ -46,14 +75,24 @@ function formatSyncResult(result: Awaited<ReturnType<typeof syncBarobillBankNow>
   }
   if (result.added && result.added > 0) {
     return {
-      text: `${result.added}\uAC74 \uCD94\uAC00 (${result.fetched ?? 0}\uAC74 \uC870\uD68C)`,
+      text: `${result.added}\uAC74 \uCD94\uAC00 (${result.fetched ?? 0}\uAC74 \uC870\uD68C${refreshResult?.totalCount != null ? ` \u00B7 \uBAA9\uB85D ${refreshResult.totalCount}\uAC74` : ""})`,
       tone: "success",
     };
   }
   if ((result.fetched ?? 0) > 0) {
-    return { text: L.fetchedUpToDate(result.fetched ?? 0), tone: "success" };
+    return {
+      text: L.fetchedUpToDate(result.fetched ?? 0, refreshResult?.totalCount),
+      tone: "success",
+      hint: L.scrapeHint,
+    };
   }
-  return { text: L.allUpToDate, tone: "success" };
+  return {
+    text:
+      refreshResult?.totalCount != null
+        ? `${L.allUpToDate} \u00B7 \uBAA9\uB85D ${refreshResult.totalCount}\uAC74`
+        : L.allUpToDate,
+    tone: "success",
+  };
 }
 
 export function BarobillBankSettingsPanel({
@@ -65,12 +104,13 @@ export function BarobillBankSettingsPanel({
   apiMode: boolean;
   isAdmin: boolean;
   onSyncBegin?: () => void;
-  onSynced?: (result?: { version?: number }) => void | Promise<void>;
+  onSynced?: (result?: { version?: number }) => void | Promise<BankSyncedResult | void>;
 }) {
   const [status, setStatus] = useState<BarobillBankStatus | null>(null);
   const [scrapNeedsApply, setScrapNeedsApply] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [messageHint, setMessageHint] = useState("");
   const [messageTone, setMessageTone] = useState<MessageTone>("success");
 
   const loadStatus = React.useCallback(async () => {
@@ -100,19 +140,25 @@ export function BarobillBankSettingsPanel({
   const runSync = async (refresh = false) => {
     setLoading(true);
     setMessage("");
+    setMessageHint("");
     try {
       onSyncBegin?.();
-      const result = await syncBarobillBankNow({ refresh });
-      const formatted = formatSyncResult(result);
-      setMessage(formatted.text);
-      setMessageTone(formatted.tone);
+      const requestRefresh = shouldRequestBarobillRefresh(refresh);
+      const result = await syncBarobillBankNow({ refresh: requestRefresh });
+      if (requestRefresh) markBarobillRefreshRequested();
       if (result.status) setStatus(result.status);
+      let refreshResult: BankSyncedResult | void;
       if (result.ok) {
         await loadStatus();
-        await onSynced?.({ version: result.version });
+        refreshResult = await onSynced?.({ version: result.version });
       }
+      const formatted = formatSyncResult(result, refreshResult || undefined);
+      setMessage(formatted.text);
+      setMessageHint(formatted.hint || "");
+      setMessageTone(formatted.tone);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "\uAC00\uC838\uC624\uAE30 \uC2E4\uD328");
+      setMessageHint("");
       setMessageTone("error");
     } finally {
       setLoading(false);
@@ -238,6 +284,7 @@ export function BarobillBankSettingsPanel({
         </>
       ) : null}
       {message ? <span className={`w-full text-[10px] leading-snug ${messageClass}`}>{message}</span> : null}
+      {messageHint ? <span className="w-full text-[10px] leading-snug text-amber-700">{messageHint}</span> : null}
       {metaParts.length ? (
         <span className="w-full text-[10px] leading-snug text-slate-500">{metaParts.join(" · ")}</span>
       ) : null}
