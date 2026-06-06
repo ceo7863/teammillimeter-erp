@@ -7,25 +7,25 @@ import { formatBankPeriodRangeLabel } from "@/utils/bankTransactionPagePeriod";
 import type { BankTxEvidenceFilter, BankTxGroupFilter, BankTxStatusTab } from "@/utils/bankTransactionStatusFilter";
 
 const PERIOD_TABS: Array<{ key: BankTransactionPeriodKey; label: string }> = [
-  { key: "today", label: "?" },
-  { key: "thisWeek", label: "?" },
-  { key: "thisMonth", label: "?" },
-  { key: "thisQuarter", label: "??" },
-  { key: "thisYear", label: "?" },
+  { key: "today", label: "\uC77C" },
+  { key: "thisWeek", label: "\uC8FC" },
+  { key: "thisMonth", label: "\uC6D4" },
+  { key: "thisQuarter", label: "\uBD84\uAE30" },
+  { key: "thisYear", label: "\uC5F0" },
 ];
 
 const STATUS_TABS: Array<{ key: BankTxStatusTab; label: string; countKey?: Exclude<BankTxStatusTab, "all"> }> = [
-  { key: "all", label: "??" },
-  { key: "no_account", label: "?? ??", countKey: "no_account" },
-  { key: "no_client", label: "??? ??", countKey: "no_client" },
-  { key: "no_group", label: "?? ??", countKey: "no_group" },
-  { key: "other_opex", label: "?? ????", countKey: "other_opex" },
+  { key: "all", label: "\uC804\uCCB4" },
+  { key: "no_account", label: "\uACC4\uC815 \uBBF8\uC9C0", countKey: "no_account" },
+  { key: "no_client", label: "\uAC70\uB798\uCC98 \uBBF8\uC9C0", countKey: "no_client" },
+  { key: "no_group", label: "\uADF8\uB8F9 \uBBF8\uC9C0", countKey: "no_group" },
+  { key: "other_opex", label: "\uAE30\uD0C0 \uC601\uC5C5\uBE44\uC6A9", countKey: "other_opex" },
 ];
 
 const FLOW_TABS: Array<{ key: BankTransactionFlowFilter; label: string }> = [
-  { key: "all", label: "???" },
-  { key: "deposit", label: "??" },
-  { key: "withdrawal", label: "??" },
+  { key: "all", label: "\uC804\uCCB4" },
+  { key: "deposit", label: "\uC785\uAE08" },
+  { key: "withdrawal", label: "\uCD9C\uAE08" },
 ];
 
 type BankTransactionFilterBarProps = {
@@ -122,7 +122,7 @@ export function BankTransactionFilterBar({
     <div className="erp-bank-wehago-toolbar mb-4 rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="erp-bank-wehago-toolbar__head">
         <div className="erp-bank-wehago-toolbar__title-wrap">
-          <h2 className="erp-bank-wehago-toolbar__title">?? ??</h2>
+          <h2 className="erp-bank-wehago-toolbar__title">{"\uD1B5\uC7A5 \uB0B4\uC5ED"}</h2>
           <div className="erp-dashboard-period-tabs erp-bank-wehago-period-tabs">
             {PERIOD_TABS.map((option) => (
               <button
@@ -187,7 +187,7 @@ export function BankTransactionFilterBar({
             lang="ko"
             className="erp-bank-wehago-search__input"
             value={searchDraft}
-            placeholder="??, ????, ??, ?? ??..."
+            placeholder={"\uBA54\uBAA8, \uAC70\uB798\uCC98, \uAE08\uC561 \uB4F1 \uAC80\uC0C9..."}
             onChange={(event) => setSearchDraft(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") {
@@ -211,8 +211,8 @@ export function BankTransactionFilterBar({
           ))}
         </div>
 
-        <FilterSelect label="??" value={accountFilter} onChange={onAccountFilterChange}>
-          <option value="">??</option>
+        <FilterSelect label={"\uACC4\uC88C"} value={accountFilter} onChange={onAccountFilterChange}>
+          <option value="">{"\uC804\uCCB4"}</option>
           {accounts.map((account) => (
             <option key={account.accountNumber} value={account.accountNumber}>
               {account.bankName ? `${account.bankName} ${account.accountNumber}` : account.accountNumber}
@@ -220,8 +220,8 @@ export function BankTransactionFilterBar({
           ))}
         </FilterSelect>
 
-        <FilterSelect label="??" value={categoryFilter} onChange={onCategoryFilterChange}>
-          <option value="">??</option>
+        <FilterSelect label={"\uACC4\uC815"} value={categoryFilter} onChange={onCategoryFilterChange}>
+          <option value="">{"\uC804\uCCB4"}</option>
           {categories.map((category) => (
             <option key={category.id} value={category.id}>
               {category.name}
@@ -229,8 +229,8 @@ export function BankTransactionFilterBar({
           ))}
         </FilterSelect>
 
-        <FilterSelect label="???" value={clientFilter} onChange={onClientFilterChange}>
-          <option value="">??</option>
+        <FilterSelect label={"\uAC70\uB798\uCC98"} value={clientFilter} onChange={onClientFilterChange}>
+          <option value="">{"\uC804\uCCB4"}</option>
           {clients.map((client) => {
             const name = String(client.name || "").trim();
             if (!name) return null;
@@ -242,23 +242,23 @@ export function BankTransactionFilterBar({
           })}
         </FilterSelect>
 
-        <FilterSelect label="??" value={groupFilter} onChange={(value) => onGroupFilterChange(value as BankTxGroupFilter)}>
-          <option value="all">??</option>
-          <option value="unfiled">???</option>
-          <option value="client">???</option>
-          <option value="worker">???</option>
-          <option value="card">????</option>
+        <FilterSelect label={"\uADF8\uB8F9"} value={groupFilter} onChange={(value) => onGroupFilterChange(value as BankTxGroupFilter)}>
+          <option value="all">{"\uC804\uCCB4"}</option>
+          <option value="unfiled">{"\uBBF8\uBD84\uB958"}</option>
+          <option value="client">{"\uAC70\uB798\uCC98"}</option>
+          <option value="worker">{"\uC2DC\uACF5\uC790"}</option>
+          <option value="card">{"\uCE74\uB4DC\uB9E4\uCD9C"}</option>
         </FilterSelect>
 
-        <FilterSelect label="?? ??" value={evidenceFilter} onChange={(value) => onEvidenceFilterChange(value as BankTxEvidenceFilter)}>
-          <option value="all">??</option>
-          <option value="linked">?? ??</option>
-          <option value="missing">?? ??</option>
+        <FilterSelect label={"\uC99D\uB9F9 \uC790\uB8CC"} value={evidenceFilter} onChange={(value) => onEvidenceFilterChange(value as BankTxEvidenceFilter)}>
+          <option value="all">{"\uC804\uCCB4"}</option>
+          <option value="linked">{"\uC99D\uB9F9 \uC788\uC74C"}</option>
+          <option value="missing">{"\uC99D\uB9F9 \uC5C6\uC74C"}</option>
         </FilterSelect>
 
-        <button type="button" className="erp-bank-wehago-reset" onClick={onReset} title="?? ???">
+        <button type="button" className="erp-bank-wehago-reset" onClick={onReset} title={"\uD544\uD130 \uCD08\uAE30\uD654"}>
           <RotateCcw size={14} />
-          ???
+          {"\uCD08\uAE30\uD654"}
         </button>
       </div>
     </div>
