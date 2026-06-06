@@ -258,6 +258,10 @@ function dedupeRows(rows) {
   return deduped;
 }
 
+function flowTypeLabel(flowType) {
+  return flowType === "purchase" ? "\uB9E4\uC785" : "\uB9E4\uCD9C";
+}
+
 export async function fetchTaxInvoicesInRange({ startDate, endDate, flowTypes = ["purchase", "sales"] }) {
   const errors = [];
   const collected = [];
@@ -265,11 +269,11 @@ export async function fetchTaxInvoicesInRange({ startDate, endDate, flowTypes = 
   const scrapStatus = await checkTaxInvoiceScrapService();
   if (!scrapStatus.active) {
     errors.push(scrapStatus.message);
-    const flowLabel = flowTypes.map((f) => (f === "purchase" ? "??" : "??")).join("/");
+    const flowLabel = flowTypes.map((f) => flowTypeLabel(f)).join("/");
     return {
       flowType: flowTypes.length === 1 ? flowTypes[0] : "sales",
       sourceFile: "barobill-api",
-      title: `??? API ??? (${flowLabel})`,
+      title: `\uBC14\uB85C\uBE4C API \uB3D9\uAE30\uD654 (${flowLabel})`,
       earliestIssueDate: undefined,
       latestIssueDate: undefined,
       rows: [],
@@ -306,12 +310,12 @@ export async function fetchTaxInvoicesInRange({ startDate, endDate, flowTypes = 
 
   const rows = dedupeRows(collected);
   const { earliestIssueDate, latestIssueDate } = computeIssueDateRange(rows);
-  const flowLabel = flowTypes.map((f) => (f === "purchase" ? "??" : "??")).join("/");
+  const flowLabel = flowTypes.map((f) => flowTypeLabel(f)).join("/");
 
   return {
     flowType: flowTypes.length === 1 ? flowTypes[0] : "sales",
     sourceFile: "barobill-api",
-    title: `??? ??? ??? (${flowLabel})`,
+    title: `\uBC14\uB85C\uBE4C \uBAA9\uB85D \uB3D9\uAE30\uD654 (${flowLabel})`,
     earliestIssueDate,
     latestIssueDate,
     rows,
