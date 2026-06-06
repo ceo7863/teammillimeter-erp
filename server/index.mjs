@@ -109,6 +109,9 @@ import {
   getPublicClientSiteRequestInfo,
   listClientSiteRequestLinks,
   listClientSiteRequests,
+  listPublicClientSiteRequests,
+  postPublicClientSiteRequestMessage,
+  postStaffClientSiteRequestMessage,
   rotateClientSiteRequestLink,
   setClientSiteRequestLinkDisabled,
   submitClientSiteRequest,
@@ -414,6 +417,24 @@ app.post("/api/public/client-site-request/:token", (req, res) => {
   res.status(201).json({ request: result.request });
 });
 
+app.get("/api/public/client-site-request/:token/requests", (req, res) => {
+  const result = listPublicClientSiteRequests(req.params.token);
+  if (!result.ok) {
+    res.status(result.status || 400).json({ error: result.error });
+    return;
+  }
+  res.json({ requests: result.requests });
+});
+
+app.post("/api/public/client-site-request/:token/requests/:requestId/messages", (req, res) => {
+  const result = postPublicClientSiteRequestMessage(req.params.token, req.params.requestId, req.body || {});
+  if (!result.ok) {
+    res.status(result.status || 400).json({ error: result.error });
+    return;
+  }
+  res.status(201).json({ request: { ...result.request, processNote: undefined }, message: result.message });
+});
+
 app.get("/api/client-site-requests", authMiddleware, (req, res) => {
   const rows = listClientSiteRequests({
     status: req.query.status,
@@ -430,6 +451,16 @@ app.patch("/api/client-site-requests/:id", authMiddleware, (req, res) => {
     return;
   }
   res.json({ request: result.request });
+});
+
+app.post("/api/client-site-requests/:id/messages", authMiddleware, (req, res) => {
+  const actor = req.user.loginId || req.user.name || req.user.email || "";
+  const result = postStaffClientSiteRequestMessage(req.params.id, req.body || {}, actor);
+  if (!result.ok) {
+    res.status(result.status || 400).json({ error: result.error });
+    return;
+  }
+  res.status(201).json({ request: result.request, message: result.message });
 });
 
 app.get("/api/client-site-request-links", authMiddleware, (_req, res) => {

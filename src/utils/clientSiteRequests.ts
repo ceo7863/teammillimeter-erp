@@ -2,6 +2,14 @@ import { apiRequest, isApiModeEnabled } from "@/utils/erpApi";
 
 export type ClientSiteRequestStatus = "pending" | "confirmed" | "rejected";
 
+export type ClientSiteRequestMessage = {
+  id: string;
+  sender: "client" | "staff";
+  body: string;
+  senderName?: string;
+  createdAt: string;
+};
+
 export type ClientSiteRequest = {
   id: string;
   clientId: number | string;
@@ -18,6 +26,10 @@ export type ClientSiteRequest = {
   processedAt?: string | null;
   processedBy?: string | null;
   processNote?: string;
+  messages?: ClientSiteRequestMessage[];
+  lastMessageAt?: string;
+  unreadByStaff?: boolean;
+  unreadByClient?: boolean;
 };
 
 export type ClientSiteRequestLink = {
@@ -81,6 +93,45 @@ export async function submitPublicClientSiteRequest(
   if (!response.ok) throw new Error(await parseApiError(response));
   const data = await response.json();
   return data.request as ClientSiteRequest;
+}
+
+export async function listPublicClientSiteRequests(token: string): Promise<ClientSiteRequest[]> {
+  const response = await fetch(`${apiBase()}/public/client-site-request/${encodeURIComponent(token)}/requests`);
+  if (!response.ok) throw new Error(await parseApiError(response));
+  const data = await response.json();
+  return Array.isArray(data.requests) ? data.requests : [];
+}
+
+export async function postPublicClientSiteRequestMessage(
+  token: string,
+  requestId: string,
+  input: { body: string; senderName?: string },
+): Promise<ClientSiteRequest> {
+  const response = await fetch(
+    `${apiBase()}/public/client-site-request/${encodeURIComponent(token)}/requests/${encodeURIComponent(requestId)}/messages`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+  );
+  if (!response.ok) throw new Error(await parseApiError(response));
+  const data = await response.json();
+  return data.request as ClientSiteRequest;
+}
+
+export async function postStaffClientSiteRequestMessage(
+  requestId: string,
+  input: { body: string },
+): Promise<ClientSiteRequest> {
+  const data = await apiRequest<{ request: ClientSiteRequest }>(
+    `/client-site-requests/${encodeURIComponent(requestId)}/messages`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+  return data.request;
 }
 
 export async function listClientSiteRequests(filters?: {

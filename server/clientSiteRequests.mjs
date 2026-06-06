@@ -42,6 +42,40 @@ function newRequestId() {
   return `csr-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
 }
 
+function newMessageId() {
+  return `csrm-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+}
+
+function normalizeMessages(messages) {
+  if (!Array.isArray(messages)) return [];
+  return messages
+    .filter((row) => row && typeof row === "object")
+    .map((row) => ({
+      id: String(row.id || newMessageId()),
+      sender: row.sender === "staff" ? "staff" : "client",
+      body: String(row.body || "").trim().slice(0, 2000),
+      senderName: String(row.senderName || "").trim().slice(0, 80),
+      createdAt: String(row.createdAt || new Date().toISOString()),
+    }))
+    .filter((row) => row.body)
+    .slice(-200);
+}
+
+function findRequestForToken(data, token, requestId) {
+  const client = findClientByRequestToken(data, token);
+  if (!client) return { ok: false, status: 404, error: "\uC720\uD9A8\uD558\uC9C0 \uC54A\uC740 \uC811\uC218 \uB9C1\uD06C\uC785\uB2C8\uB2E4." };
+  if (client.siteRequestLinkDisabled) {
+    return { ok: false, status: 403, error: "\uD604\uC7AC \uC811\uC218\uAC00 \uC911\uB2E8\uB41C \uB9C1\uD06C\uC785\uB2C8\uB2E4." };
+  }
+  const request = listRequests(data).find(
+    (row) => row.id === requestId && clientIdsEqual(row.clientId, client.id),
+  );
+  if (!request) {
+    return { ok: false, status: 404, error: "\uC811\uC218 \uB0B4\uC5ED\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
+  }
+  return { ok: true, client, request };
+}
+
 function normalizeDate(value) {
   const text = String(value || "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return "";
@@ -126,6 +160,7 @@ export function submitClientSiteRequest(token, body = {}) {
     processedAt: null,
     processedBy: null,
     processNote: "",
+    messages: [],
   };
 
   const requests = [request, ...listRequests(data)];
@@ -146,7 +181,112 @@ export function listClientSiteRequests(filters = {}) {
   if (clientId != null && String(clientId).trim() !== "") {
     rows = rows.filter((row) => clientIdsEqual(row.clientId, clientId));
   }
-  return rows.sort((a, b) => String(b.submittedAt || "").localeCompare(String(a.submittedAt || "")));
+  return rows
+    .map((row) => ({
+      ...row,
+      messages: normalizeMessages(row.messages),
+    }))
+    .sort((a, b) => String(b.submittedAt || "").localeCompare(String(a.submittedAt || "")));
+}
+
+export function listPublicClientSiteRequests(token) {
+  const state = getErpState();
+  const data = state.data && typeof state.data === "object" ? state.data : {};
+  const client = findClientByRequestToken(data, token);
+  if (!client) {
+    return { ok: false, status: 404, error: "\uC720\uD9A8\uD558\uC9C0 \uC54A\uC740 \uC811\uC218 \uB9C1\uD06C\uC785\uB2C8\uB2E4." };
+  }
+  if (client.siteRequestLinkDisabled) {
+    return { ok: false, status: 403, error: "\uD604\uC7AC \uC811\uC218\uAC00 \uC911\uB2E8\uB41C \uB9C1\uD06C\uC785\uB2C8\uB2E4." };
+  }
+  const rows = listRequests(data)
+    .filter((row) => clientIdsEqual(row.clientId, client.id))
+    .map((row) => ({
+      ...row,
+      messages: normalizeMessages(row.messages),
+      processNote: undefined,
+    }))
+    .sort((a, b) => String(b.submittedAt || "").localeCompare(String(a.submittedAt || "")))
+    .slice(0, 30);
+  return { ok: true, requests: rows };
+}
+
+function appendRequestMessage(data, requestId, message) {
+  const requests = listRequests(data);
+  const index = requests.findIndex((row) => row.id === requestId);
+  if (index < 0) {
+    return { ok: false, status: 404, error: "\uC811\uC218 \uB0B4\uC5ED\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
+  }
+  const current = requests[index];
+  const messages = [...normalizeMessages(current.messages), message].slice(-200);
+  const next = {
+    ...current,
+    messages,
+    lastMessageAt: message.createdAt,
+    unreadByStaff: message.sender === "client",
+    unreadByClient: message.sender === "staff",
+  };
+  requests[index] = next;
+  saveClientsAndRequests(listClients(data), requests);
+  return { ok: true, request: next, message };
+}
+
+export function postPublicClientSiteRequestMessage(token, requestId, body = {}) {
+  const state = getErpState();
+  const data = state.data && typeof state.data === "object" ? { ...state.data } : {};
+  const resolved = findRequestForToken(data, token, requestId);
+  if (!resolved.ok) return resolved;
+
+  const text = String(body.body || body.message || "").trim().slice(0, 2000);
+  if (!text) {
+    return { ok: false, status: 400, error: "\uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694." };
+  }
+
+  const message = {
+    id: newMessageId(),
+    sender: "client",
+    body: text,
+    senderName: String(body.senderName || resolved.request.contactName || resolved.client.name || "").trim().slice(0, 80),
+    createdAt: new Date().toISOString(),
+  };
+  return appendRequestMessage(data, requestId, message);
+}
+
+export function postStaffClientSiteRequestMessage(requestId, body = {}, actor = "") {
+  const state = getErpState();
+  const data = state.data && typeof state.data === "object" ? { ...state.data } : {};
+
+  const text = String(body.body || body.message || "").trim().slice(0, 2000);
+  if (!text) {
+    return { ok: false, status: 400, error: "\uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694." };
+  }
+
+  const message = {
+    id: newMessageId(),
+    sender: "staff",
+    body: text,
+    senderName: String(actor || "").trim().slice(0, 80),
+    createdAt: new Date().toISOString(),
+  };
+  return appendRequestMessage(data, requestId, message);
+}
+
+export function markClientSiteRequestRead(id, side = "staff") {
+  const state = getErpState();
+  const data = state.data && typeof state.data === "object" ? { ...state.data } : {};
+  const requests = listRequests(data);
+  const index = requests.findIndex((row) => row.id === id);
+  if (index < 0) {
+    return { ok: false, status: 404, error: "\uC811\uC218 \uB0B4\uC5ED\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
+  }
+  const current = requests[index];
+  requests[index] = {
+    ...current,
+    unreadByStaff: side === "staff" ? false : current.unreadByStaff,
+    unreadByClient: side === "client" ? false : current.unreadByClient,
+  };
+  saveClientsAndRequests(listClients(data), requests);
+  return { ok: true, request: requests[index] };
 }
 
 export function updateClientSiteRequestStatus(id, input = {}, actor = "") {

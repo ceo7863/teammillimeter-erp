@@ -10,6 +10,7 @@ import {
   ensureClientSiteRequestLink,
   listClientSiteRequestLinks,
   listClientSiteRequests,
+  postStaffClientSiteRequestMessage,
   rotateClientSiteRequestLink,
   setClientSiteRequestLinkDisabled,
   updateClientSiteRequestStatus,
@@ -17,6 +18,7 @@ import {
   type ClientSiteRequestLink,
   type ClientSiteRequestStatus,
 } from "@/utils/clientSiteRequests";
+import { ClientSiteRequestChat } from "@/components/ClientSiteRequestChat";
 
 const L = {
   apiOnly: "\uD604\uC7A5 \uC811\uC218 \uB9C1\uD06C\uB294 API \uC5F0\uB3D9 \uBAA8\uB4DC\uC5D0\uC11C \uC0AC\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
@@ -59,6 +61,8 @@ const L = {
   linkIssued: "\uB9C1\uD06C\uAC00 \uBC1C\uAE09\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   updated: "\uCC98\uB9AC \uC644\uB8CC.",
   fail: "\uC694\uCCAD \uCC98\uB9AC\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+  messageFail: "\uBA54\uC2DC\uC9C0 \uC804\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+  unreadChat: "\uC0C8 \uBA54\uC2DC\uC9C0",
 };
 
 type ClientLike = {
@@ -88,6 +92,8 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
+  const [chatDrafts, setChatDrafts] = useState<Record<string, string>>({});
+  const [chatSendingId, setChatSendingId] = useState("");
 
   const clientOptions = useMemo(
     () =>
@@ -117,6 +123,13 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
 
   useEffect(() => {
     void loadAll();
+  }, [loadAll]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void loadAll();
+    }, 8000);
+    return () => window.clearInterval(timer);
   }, [loadAll]);
 
   const copyText = async (text: string) => {
@@ -186,6 +199,22 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
       setMessage(error instanceof Error ? error.message : L.fail);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSendStaffMessage = async (request: ClientSiteRequest) => {
+    const body = (chatDrafts[request.id] || "").trim();
+    if (!body) return;
+    setChatSendingId(request.id);
+    setMessage("");
+    try {
+      await postStaffClientSiteRequestMessage(request.id, { body });
+      setChatDrafts((prev) => ({ ...prev, [request.id]: "" }));
+      await loadAll();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : L.messageFail);
+    } finally {
+      setChatSendingId("");
     }
   };
 
@@ -364,6 +393,11 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
                         >
                           {clientSiteRequestStatusLabel(request.status)}
                         </span>
+                        {request.unreadByStaff ? (
+                          <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">
+                            {L.unreadChat}
+                          </span>
+                        ) : null}
                       </div>
                       <div className="text-sm text-slate-700">
                         <span className="font-semibold">{L.workDate}:</span> {request.workDate}
@@ -443,6 +477,20 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
                       </div>
                     </div>
                   </div>
+
+                  <ClientSiteRequestChat
+                    messages={request.messages || []}
+                    draft={chatDrafts[request.id] || ""}
+                    onDraftChange={(value) =>
+                      setChatDrafts((prev) => ({
+                        ...prev,
+                        [request.id]: value,
+                      }))
+                    }
+                    onSend={() => void handleSendStaffMessage(request)}
+                    sending={chatSendingId === request.id}
+                    viewer="staff"
+                  />
                 </div>
               ))}
             </div>
