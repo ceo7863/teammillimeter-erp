@@ -60,8 +60,7 @@ export function useBankAutoSync({
     barobillTickingRef.current = true;
     try {
       onSyncBeginRef.current?.();
-      const requestRefresh = Date.now() - lastBarobillSyncAtRef.current >= barobillSyncIntervalMs;
-      const result = await syncBarobillBankNow({ refresh: requestRefresh });
+      const result = await syncBarobillBankNow({ refresh: false });
       lastBarobillSyncAtRef.current = Date.now();
       await onSyncedRef.current?.({ version: result.version });
     } catch {

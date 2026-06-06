@@ -28,23 +28,10 @@ const L = {
       ? `\uBC14\uB85C\uBE4C ${fetched}\uAC74 \u00B7 \uC2E0\uADDC \uC5C6\uC74C \u00B7 \uBAA9\uB85D ${totalCount}\uAC74`
       : `\uBC14\uB85C\uBE4C ${fetched}\uAC74 \u00B7 \uC774\uBBF8 \uBAA8\uB450 \uBC18\uC601\uB428`,
   scrapeHint:
-    "\uBC29\uAE08 \uC785\uAE08\uC774 \uC548 \uBCF4\uC774\uBA74 \uC740\uD589 \uC218\uC9D1 \uD6C4 1~3\uBD84 \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC624\uC138\uC694.",
+    "방금 입금이 안 보이면 관리자 「은행 수집 요청」 후 1~3분 뒤 다시 시도하세요.",
+  collectingAfterRefresh:
+    "은행 수집이 진행 중입니다. 1~3분 후 「지금 가져오기」를 다시 눌러 주세요.",
 };
-
-const BAROBILL_REFRESH_AT_KEY = "teammillimeter-bank-barobill-refresh-at";
-const BAROBILL_REFRESH_INTERVAL_MS = 180000;
-
-function shouldRequestBarobillRefresh(force = false) {
-  if (force) return true;
-  if (typeof window === "undefined") return false;
-  const last = Number(window.sessionStorage.getItem(BAROBILL_REFRESH_AT_KEY) || 0);
-  return !last || Date.now() - last >= BAROBILL_REFRESH_INTERVAL_MS;
-}
-
-function markBarobillRefreshRequested() {
-  if (typeof window === "undefined") return;
-  window.sessionStorage.setItem(BAROBILL_REFRESH_AT_KEY, String(Date.now()));
-}
 
 type BankSyncedResult = {
   totalCount?: number;
@@ -59,9 +46,12 @@ function formatSyncResult(
   refreshResult?: BankSyncedResult,
 ): { text: string; tone: MessageTone; hint?: string } {
   if (result.collecting || result.scrapStatus?.collecting) {
+    const notice = result.notices?.[0] || result.scrapStatus?.message || L.collecting;
+    const isRefreshPending = /수집/.test(notice) && /요청|몇\s*분/.test(notice);
     return {
-      text: result.notices?.[0] || result.scrapStatus?.message || L.collecting,
+      text: isRefreshPending ? L.collectingAfterRefresh : notice,
       tone: "info",
+      hint: refreshResult?.totalCount != null ? `현재 목록 ${refreshResult.totalCount}건` : undefined,
     };
   }
   if (!result.ok) {
@@ -143,13 +133,11 @@ export function BarobillBankSettingsPanel({
     setMessageHint("");
     try {
       onSyncBegin?.();
-      const requestRefresh = shouldRequestBarobillRefresh(refresh);
-      const result = await syncBarobillBankNow({ refresh: requestRefresh });
-      if (requestRefresh) markBarobillRefreshRequested();
+      const result = await syncBarobillBankNow({ refresh });
       if (result.status) setStatus(result.status);
       let refreshResult: BankSyncedResult | void;
-      if (result.ok) {
-        await loadStatus();
+      await loadStatus();
+      if (result.ok || result.collecting || result.reason === "sync_in_progress") {
         refreshResult = await onSynced?.({ version: result.version });
       }
       const formatted = formatSyncResult(result, refreshResult || undefined);
