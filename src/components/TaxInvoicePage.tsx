@@ -6,7 +6,7 @@ import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { AutocompleteInput } from "@/components/AutocompleteInput";
 import { TableExportSection } from "@/components/TableExportSection";
 import { DesktopTableWrap, MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
-import { formatKRW, monthRangeISO, quarterRangeISO, todayISO } from "@/utils/companyLedger";
+import { formatKRW, monthRangeForKey, monthRangeISO, quarterRangeISO, todayISO } from "@/utils/companyLedger";
 import type { ErpUser } from "@/utils/erpApi";
 import {
   calculateTaxInvoiceAmounts,
@@ -59,7 +59,7 @@ import { extractClientTaxFields, validateInvoiceePartyForIssue } from "@/utils/c
 import { useAudit } from "@/context/AuditContext";
 import { TAX_INVOICE_AUDIT_FIELDS, snapshotTaxInvoiceForAudit } from "@/utils/auditLog";
 
-type PeriodKey = "thisMonth" | "lastMonth" | "q1" | "q2" | "q3" | "q4" | "all" | "custom";
+type PeriodKey = "thisMonth" | "lastMonth" | "pickMonth" | "q1" | "q2" | "q3" | "q4" | "all" | "custom";
 type QuarterKey = "q1" | "q2" | "q3" | "q4";
 type FlowFilterKey = "all" | TaxInvoiceFlowType;
 type ViewMode = "list" | "byClientSales" | "byClientPurchase";
@@ -113,8 +113,14 @@ const VIEW_MODE_OPTIONS: Array<{ key: ViewMode; label: string }> = [
   { key: "byClientPurchase", label: "\uB9E4\uC785 \uC5C5\uCCB4\uBCC4" },
 ];
 
+const MONTH_PICK_OPTIONS = Array.from({ length: 12 }, (_, index) => index + 1);
+
+const FILTER_BUTTON_CLASS = "h-7 rounded-lg px-2.5 text-xs font-semibold";
+
+const FILTER_SELECT_CLASS = "erp-input h-7 rounded-lg border bg-white px-2 text-xs font-semibold text-slate-700";
+
 const L = {
-  pageTitle: "\uACC4\uC0B0\uC11C \uBC1C\uD589",
+  pageTitle: "\uC138\uAE08\uACC4\uC0B0\uC11C",
   pageDesc: "\uB9E4\uCD9C \uACC4\uC0B0\uC11C\uB294 \uBC14\uB85C\uBE4C \uC804\uC790 \uBC1C\uD589\uC744 \uC0AC\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uB9E4\uC785 \uB0B4\uC5ED\uC740 \uB3D9\uAE30\uD654 \uB610\uB294 \uC5D1\uC140\uB85C \uAC00\uC838\uC635\uB2C8\uB2E4.",
   add: "\uB4F1\uB85D",
   edit: "\uC218\uC815",
@@ -126,7 +132,8 @@ const L = {
   deleteConfirm: "\uC774 \uACC4\uC0B0\uC11C \uB0B4\uC5ED\uC744 \uC0AD\uC81C\uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?",
   createTitle: "\uACC4\uC0B0\uC11C \uB4F1\uB85D",
   editTitle: "\uACC4\uC0B0\uC11C \uC218\uC815",
-  periodSearch: "\uAE30\uAC04 \uAC80\uC0C9",
+  periodSearch: "\uBE84\uC8FC",
+  monthSearch: "\uC6D4\uBCC4",
   quarterSearch: "\uBD84\uAE30",
   searchYear: "\uC5F0\uB3C4",
   periodStart: "\uC2DC\uC791\uC77C",
@@ -283,9 +290,15 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function resolveActivePeriod(periodKey: PeriodKey, dateFilter: DateFilter, quarterYear: number): DateFilter {
+function resolveActivePeriod(
+  periodKey: PeriodKey,
+  dateFilter: DateFilter,
+  quarterYear: number,
+  searchMonthKey: string,
+): DateFilter {
   if (periodKey === "thisMonth") return monthRangeISO(0);
   if (periodKey === "lastMonth") return monthRangeISO(-1);
+  if (periodKey === "pickMonth") return monthRangeForKey(searchMonthKey);
   if (periodKey === "q1") return quarterRangeISO(1, quarterYear);
   if (periodKey === "q2") return quarterRangeISO(2, quarterYear);
   if (periodKey === "q3") return quarterRangeISO(3, quarterYear);
@@ -294,10 +307,19 @@ function resolveActivePeriod(periodKey: PeriodKey, dateFilter: DateFilter, quart
   return dateFilter;
 }
 
+function monthKeyFromFullRange(range: DateFilter) {
+  if (!range.startDate || !range.endDate) return null;
+  const monthKey = range.startDate.slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(monthKey)) return null;
+  return isSameDateRange(range, monthRangeForKey(monthKey)) ? monthKey : null;
+}
+
 function matchPresetPeriodKey(range: DateFilter, candidateYears: number[]) {
   if (isSameDateRange(range, monthRangeISO(0))) return { key: "thisMonth" as PeriodKey };
   if (isSameDateRange(range, monthRangeISO(-1))) return { key: "lastMonth" as PeriodKey };
   if (!range.startDate && !range.endDate) return { key: "all" as PeriodKey };
+  const monthKey = monthKeyFromFullRange(range);
+  if (monthKey) return { key: "pickMonth" as PeriodKey, searchMonthKey: monthKey };
   for (const year of candidateYears) {
     for (const option of QUARTER_OPTIONS) {
       if (isSameDateRange(range, quarterRangeISO(option.quarter, year))) {
@@ -377,6 +399,7 @@ export function TaxInvoicePage({
   const { recordAudit, recordSummaryAudit } = useAudit();
   const [periodKey, setPeriodKey] = useState<PeriodKey>("thisMonth");
   const [dateFilter, setDateFilter] = useState<DateFilter>(() => monthRangeISO(0));
+  const [searchMonthKey, setSearchMonthKey] = useState(() => todayISO().slice(0, 7));
   const [quarterYear, setQuarterYear] = useState(() => new Date().getFullYear());
   const [flowFilter, setFlowFilter] = useState<FlowFilterKey>("all");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
@@ -408,14 +431,17 @@ export function TaxInvoicePage({
   const yearOptions = useMemo(() => {
     const years = new Set(listTaxInvoiceYears(taxInvoices));
     years.add(quarterYear);
+    years.add(Number(searchMonthKey.slice(0, 4)));
     if (dateFilter.startDate) years.add(Number(dateFilter.startDate.slice(0, 4)));
     if (dateFilter.endDate) years.add(Number(dateFilter.endDate.slice(0, 4)));
     return [...years].filter((year) => Number.isFinite(year) && year > 1900).sort((a, b) => b - a);
-  }, [taxInvoices, quarterYear, dateFilter.startDate, dateFilter.endDate]);
+  }, [taxInvoices, quarterYear, searchMonthKey, dateFilter.startDate, dateFilter.endDate]);
+
+  const searchMonthYear = Number(searchMonthKey.slice(0, 4)) || new Date().getFullYear();
 
   const activePeriod = useMemo(
-    () => resolveActivePeriod(periodKey, dateFilter, quarterYear),
-    [periodKey, dateFilter, quarterYear]
+    () => resolveActivePeriod(periodKey, dateFilter, quarterYear, searchMonthKey),
+    [periodKey, dateFilter, quarterYear, searchMonthKey],
   );
 
   const filteredRows = useMemo(() => {
@@ -655,13 +681,33 @@ export function TaxInvoicePage({
 
   const applyPeriodKey = (key: PeriodKey) => {
     setPeriodKey(key);
-    if (key === "thisMonth") setDateFilter(monthRangeISO(0));
-    else if (key === "lastMonth") setDateFilter(monthRangeISO(-1));
-    else if (key === "q1") setDateFilter(quarterRangeISO(1, quarterYear));
+    if (key === "thisMonth") {
+      const monthKey = todayISO().slice(0, 7);
+      setSearchMonthKey(monthKey);
+      setDateFilter(monthRangeISO(0));
+    } else if (key === "lastMonth") {
+      const monthKey = monthRangeISO(-1).startDate.slice(0, 7);
+      setSearchMonthKey(monthKey);
+      setDateFilter(monthRangeISO(-1));
+    } else if (key === "pickMonth") {
+      setDateFilter(monthRangeForKey(searchMonthKey));
+    } else if (key === "q1") setDateFilter(quarterRangeISO(1, quarterYear));
     else if (key === "q2") setDateFilter(quarterRangeISO(2, quarterYear));
     else if (key === "q3") setDateFilter(quarterRangeISO(3, quarterYear));
     else if (key === "q4") setDateFilter(quarterRangeISO(4, quarterYear));
     else if (key === "all") setDateFilter({ startDate: "", endDate: "" });
+  };
+
+  const applySearchMonth = (year: number, month: number) => {
+    const monthKey = `${year}-${String(month).padStart(2, "0")}`;
+    setSearchMonthKey(monthKey);
+    setPeriodKey("pickMonth");
+    setDateFilter(monthRangeForKey(monthKey));
+  };
+
+  const handleSearchMonthYearChange = (year: number) => {
+    const month = periodKey === "pickMonth" ? Number(searchMonthKey.slice(5, 7)) : new Date().getMonth() + 1;
+    applySearchMonth(year, month);
   };
 
   const handleQuarterYearChange = (year: number) => {
@@ -677,14 +723,17 @@ export function TaxInvoicePage({
       const next = { ...prev, ...patch };
       const matched = matchPresetPeriodKey(next, yearOptions);
       setPeriodKey(matched.key);
+      if (matched.searchMonthKey) setSearchMonthKey(matched.searchMonthKey);
       if (matched.quarterYear) setQuarterYear(matched.quarterYear);
       return next;
     });
   };
 
   const resetSearchFilters = () => {
+    const monthKey = todayISO().slice(0, 7);
     setPeriodKey("thisMonth");
     setDateFilter(monthRangeISO(0));
+    setSearchMonthKey(monthKey);
     setQuarterYear(new Date().getFullYear());
     setFlowFilter("all");
     setQuery("");
@@ -1333,26 +1382,66 @@ export function TaxInvoicePage({
       </div>
 
       <Card className="mb-4 rounded-2xl shadow-sm">
-        <CardContent className="p-4">
-          <div className="mb-2 erp-text-caption font-semibold text-slate-500">{L.periodSearch}</div>
-          <div className="mb-3 flex flex-wrap gap-2">
-            {PERIOD_OPTIONS.map((option) => (
-              <Button
-                key={option.key}
-                type="button"
-                variant={periodKey === option.key ? "default" : "outline"}
-                className="rounded-2xl"
-                onClick={() => applyPeriodKey(option.key)}
-              >
-                {option.label}
-              </Button>
-            ))}
-          </div>
-          <div className="mb-3">
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <div className="erp-text-caption font-semibold text-slate-500">{L.quarterSearch}</div>
+        <CardContent className="p-3 md:p-4">
+          <div className="space-y-2.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 w-10 shrink-0 erp-text-caption font-semibold text-slate-500">{L.periodSearch}</span>
+              {PERIOD_OPTIONS.map((option) => (
+                <Button
+                  key={option.key}
+                  type="button"
+                  size="sm"
+                  variant={periodKey === option.key ? "default" : "outline"}
+                  className={FILTER_BUTTON_CLASS}
+                  onClick={() => applyPeriodKey(option.key)}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+
+            <div>
+              <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+                <span className="mr-1 w-10 shrink-0 erp-text-caption font-semibold text-slate-500">{L.monthSearch}</span>
+                <select
+                  className={FILTER_SELECT_CLASS}
+                  value={searchMonthYear}
+                  onChange={(event) => handleSearchMonthYearChange(Number(event.target.value))}
+                  aria-label={L.searchYear}
+                >
+                  {yearOptions.map((year) => (
+                    <option key={year} value={year}>
+                      {year}
+                      {"\uB144"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-wrap gap-1 pl-11 md:pl-[3.25rem]">
+                {MONTH_PICK_OPTIONS.map((month) => {
+                  const monthKey = `${searchMonthYear}-${String(month).padStart(2, "0")}`;
+                  const active = periodKey === "pickMonth" && searchMonthKey === monthKey;
+                  return (
+                    <Button
+                      key={monthKey}
+                      type="button"
+                      size="sm"
+                      variant={active ? "default" : "outline"}
+                      className={`${FILTER_BUTTON_CLASS} min-w-[2.75rem] px-2`}
+                      onClick={() => applySearchMonth(searchMonthYear, month)}
+                    >
+                      {month}
+                      {"\uC6D4"}
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 w-10 shrink-0 erp-text-caption font-semibold text-slate-500">{L.quarterSearch}</span>
               <select
-                className="erp-input rounded-2xl border bg-white px-3 py-2 erp-text-caption font-semibold text-slate-700"
+                className={FILTER_SELECT_CLASS}
                 value={quarterYear}
                 onChange={(event) => handleQuarterYearChange(Number(event.target.value))}
                 aria-label={L.searchYear}
@@ -1364,102 +1453,103 @@ export function TaxInvoicePage({
                   </option>
                 ))}
               </select>
-            </div>
-            <div className="flex flex-wrap gap-2">
               {QUARTER_OPTIONS.map((option) => (
                 <Button
                   key={option.key}
                   type="button"
+                  size="sm"
                   variant={periodKey === option.key ? "default" : "outline"}
-                  className="rounded-2xl"
+                  className={FILTER_BUTTON_CLASS}
                   onClick={() => applyPeriodKey(option.key)}
                 >
-                  {quarterYear}
-                  {"\uB144 "}
                   {option.label}
                 </Button>
               ))}
             </div>
-          </div>
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <KoreanDateInput
-              className="erp-input w-full rounded-2xl border px-3 py-2.5 sm:w-auto"
-              value={dateFilter.startDate}
-              onChange={(event) => handleDateFilterChange({ startDate: event.target.value })}
-              aria-label={L.periodStart}
-            />
-            <span className="erp-text-caption text-slate-400">~</span>
-            <KoreanDateInput
-              className="erp-input w-full rounded-2xl border px-3 py-2.5 sm:w-auto"
-              value={dateFilter.endDate}
-              onChange={(event) => handleDateFilterChange({ endDate: event.target.value })}
-              aria-label={L.periodEnd}
-            />
-            <Button type="button" variant="outline" className="rounded-2xl" onClick={resetSearchFilters}>
-              {L.resetFilter}
-            </Button>
-            <span className="erp-text-caption ml-auto font-semibold text-slate-500">
-              {filteredRows.length}
-              {L.count}
-            </span>
-          </div>
-          <div className="mb-3 flex flex-wrap gap-2">
-            {FLOW_FILTER_OPTIONS.map((option) => (
-              <Button
-                key={option.key}
-                type="button"
-                variant={flowFilter === option.key ? "default" : "outline"}
-                className={`rounded-2xl ${option.key === "sales" && flowFilter === option.key ? "bg-emerald-600 hover:bg-emerald-700" : ""} ${option.key === "purchase" && flowFilter === option.key ? "bg-amber-600 hover:bg-amber-700" : ""}`}
-                onClick={() => {
-                  setFlowFilter(option.key);
-                  if (option.key === "sales" && isClientView) setViewMode("byClientSales");
-                  if (option.key === "purchase" && isClientView) setViewMode("byClientPurchase");
-                  if (option.key === "all" && isClientView) setViewMode("list");
-                }}
-              >
-                {option.label}
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              <KoreanDateInput
+                className="erp-input h-8 w-full rounded-lg border px-2 text-xs sm:w-[8.5rem]"
+                value={dateFilter.startDate}
+                onChange={(event) => handleDateFilterChange({ startDate: event.target.value })}
+                aria-label={L.periodStart}
+              />
+              <span className="erp-text-caption text-slate-400">~</span>
+              <KoreanDateInput
+                className="erp-input h-8 w-full rounded-lg border px-2 text-xs sm:w-[8.5rem]"
+                value={dateFilter.endDate}
+                onChange={(event) => handleDateFilterChange({ endDate: event.target.value })}
+                aria-label={L.periodEnd}
+              />
+              <Button type="button" size="sm" variant="outline" className={FILTER_BUTTON_CLASS} onClick={resetSearchFilters}>
+                {L.resetFilter}
               </Button>
-            ))}
-          </div>
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <div className="erp-text-caption font-semibold text-slate-500">{L.viewModeLabel}</div>
-            {VIEW_MODE_OPTIONS.map((option) => (
-              <Button
-                key={option.key}
-                type="button"
-                variant={viewMode === option.key ? "default" : "outline"}
-                className={`rounded-2xl ${
-                  option.key === "byClientSales" && viewMode === option.key ? "bg-emerald-600 hover:bg-emerald-700" : ""
-                } ${option.key === "byClientPurchase" && viewMode === option.key ? "bg-amber-600 hover:bg-amber-700" : ""}`}
-                onClick={() => {
-                  setViewMode(option.key);
-                  if (option.key === "list") {
-                    setExpandedClientKeys([]);
-                  } else if (option.key === "byClientSales") {
-                    setFlowFilter("sales");
-                    setExpandedClientKeys([]);
-                  } else if (option.key === "byClientPurchase") {
-                    setFlowFilter("purchase");
-                    setExpandedClientKeys([]);
-                  }
-                }}
-              >
-                {option.label}
-              </Button>
-            ))}
-          </div>
-          {isClientView ? (
-            <p className="mb-3 erp-text-caption text-slate-500">{L.clientSummaryHint}</p>
-          ) : null}
-          <div className="relative">
-            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              className="erp-input w-full rounded-2xl border bg-white py-2.5 pl-9 pr-3"
-              placeholder={L.search}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              lang="ko"
-            />
+              <span className="erp-text-caption ml-auto font-semibold text-slate-500">
+                {filteredRows.length}
+                {L.count}
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2.5">
+              {FLOW_FILTER_OPTIONS.map((option) => (
+                <Button
+                  key={option.key}
+                  type="button"
+                  size="sm"
+                  variant={flowFilter === option.key ? "default" : "outline"}
+                  className={`${FILTER_BUTTON_CLASS} ${option.key === "sales" && flowFilter === option.key ? "bg-emerald-600 hover:bg-emerald-700" : ""} ${option.key === "purchase" && flowFilter === option.key ? "bg-amber-600 hover:bg-amber-700" : ""}`}
+                  onClick={() => {
+                    setFlowFilter(option.key);
+                    if (option.key === "sales" && isClientView) setViewMode("byClientSales");
+                    if (option.key === "purchase" && isClientView) setViewMode("byClientPurchase");
+                    if (option.key === "all" && isClientView) setViewMode("list");
+                  }}
+                >
+                  {option.label}
+                </Button>
+              ))}
+              <span className="mx-1 hidden h-4 w-px bg-slate-200 sm:inline" aria-hidden />
+              {VIEW_MODE_OPTIONS.map((option) => (
+                <Button
+                  key={option.key}
+                  type="button"
+                  size="sm"
+                  variant={viewMode === option.key ? "default" : "outline"}
+                  className={`${FILTER_BUTTON_CLASS} ${
+                    option.key === "byClientSales" && viewMode === option.key ? "bg-emerald-600 hover:bg-emerald-700" : ""
+                  } ${option.key === "byClientPurchase" && viewMode === option.key ? "bg-amber-600 hover:bg-amber-700" : ""}`}
+                  onClick={() => {
+                    setViewMode(option.key);
+                    if (option.key === "list") {
+                      setExpandedClientKeys([]);
+                    } else if (option.key === "byClientSales") {
+                      setFlowFilter("sales");
+                      setExpandedClientKeys([]);
+                    } else if (option.key === "byClientPurchase") {
+                      setFlowFilter("purchase");
+                      setExpandedClientKeys([]);
+                    }
+                  }}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+
+            {isClientView ? (
+              <p className="erp-text-caption text-slate-500">{L.clientSummaryHint}</p>
+            ) : null}
+
+            <div className="relative">
+              <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                className="erp-input h-8 w-full rounded-lg border bg-white py-2 pl-8 pr-3 text-sm"
+                placeholder={L.search}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                lang="ko"
+              />
+            </div>
           </div>
         </CardContent>
       </Card>

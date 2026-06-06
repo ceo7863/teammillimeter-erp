@@ -22,7 +22,7 @@ type AccountingHubPageProps = {
 const TAB_ITEMS: Array<{ key: AccountingHubTab; label: string }> = [
   { key: "bank", label: "\uD1B5\uC7A5 \u00B7 \uAC00\uACC4\uBD80" },
   { key: "ledger", label: "\uAC00\uACC4\uBD80 \uC870\uD68C" },
-  { key: "tax", label: "\uACC4\uC0B0\uC11C \uBC1C\uD589" },
+  { key: "tax", label: "\uC138\uAE08\uACC4\uC0B0\uC11C" },
   { key: "classify", label: "\uBD84\uB958 \uAD00\uB9AC" },
 ];
 
