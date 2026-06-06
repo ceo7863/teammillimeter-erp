@@ -1,11 +1,11 @@
 {
   "scripts": {
     "dev": "vite",
-    "dev:api": "node server/index.mjs",
+    "dev:api": "node --import tsx server/index.mjs",
     "dev:all": "concurrently \"npm run dev:api\" \"npm run dev\"",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "start": "node server/index.mjs",
+    "start": "node --import tsx server/index.mjs",
     "preview": "vite preview",
     "import:excel": "node scripts/import-excel.mjs",
     "normalize:seed": "npx tsx scripts/normalize-seed.ts",
@@ -30,6 +30,7 @@
     "react": "latest",
     "react-dom": "latest",
     "tailwindcss": "latest",
+    "tsx": "^4.22.4",
     "typescript": "latest",
     "vite": "latest",
     "xlsx": "^0.18.5",

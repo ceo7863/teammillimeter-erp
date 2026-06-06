@@ -1,6 +1,7 @@
 import { config } from "./config.mjs";
 import { getErpState, saveErpState } from "./db.mjs";
 import { mergeIbkBankImport } from "./ibkBankImport.mjs";
+import { applySentStatementAutoLinksToErpData } from "./bankSentStatementAutoLink.mjs";
 import { getBarobillBankConfigStatus } from "./barobill/bankAccountClient.mjs";
 import {
   countMergeAgainstExisting,
@@ -16,6 +17,7 @@ let lastStatus = {
   lastError: null,
   lastNotice: null,
   lastAdded: 0,
+  lastAutoLinked: 0,
   lastSkipped: 0,
   lastFetched: 0,
   lastLatestTransactionAt: null,
@@ -87,6 +89,7 @@ export async function runBarobillBankSync(options = {}) {
         lastError: null,
         lastNotice: notices.join(" ") || null,
         lastAdded: 0,
+        lastAutoLinked: 0,
         lastSkipped: 0,
         lastFetched: 0,
         lastLatestTransactionAt: null,
@@ -143,7 +146,7 @@ export async function runBarobillBankSync(options = {}) {
       lastImportToDate: toDate,
     };
 
-    const nextPayload = {
+    let nextPayload = {
       ...data,
       bankTransactions: merged.next,
       bankSyncMeta: {
@@ -151,6 +154,17 @@ export async function runBarobillBankSync(options = {}) {
         ...bankSyncMeta,
       },
     };
+
+    let autoLinkedCount = 0;
+    if (merged.addedIds?.length) {
+      const linked = await applySentStatementAutoLinksToErpData(nextPayload, {
+        onlyTransactionIds: merged.addedIds,
+        updatedBy: options.updatedBy || "barobill-bank-sync",
+      });
+      nextPayload = linked.data;
+      autoLinkedCount = linked.autoLinkedCount;
+    }
+
     saveErpState(nextPayload, state.version, options.updatedBy || "barobill-bank-sync");
 
     lastStatus = {
@@ -160,6 +174,7 @@ export async function runBarobillBankSync(options = {}) {
       lastError: fetched.errors.length ? fetched.errors.join(" ") : null,
       lastNotice: notices.length ? notices.join(" ") : null,
       lastAdded: merged.added,
+      lastAutoLinked: autoLinkedCount,
       lastSkipped: merged.skipped,
       lastFetched: preview.rows.length,
       lastLatestTransactionAt: preview.latestTransactionAt || null,
@@ -170,6 +185,7 @@ export async function runBarobillBankSync(options = {}) {
     return {
       ok: true,
       added: merged.added,
+      autoLinked: autoLinkedCount,
       skipped: merged.skipped,
       fetched: preview.rows.length,
       latestTransactionAt: preview.latestTransactionAt || null,

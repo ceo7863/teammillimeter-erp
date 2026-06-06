@@ -3,6 +3,7 @@ import path from "path";
 import { config } from "./config.mjs";
 import { getErpState, saveErpState } from "./db.mjs";
 import { mergeIbkBankImport, parseIbkBankExcelBuffer } from "./ibkBankImport.mjs";
+import { applySentStatementAutoLinksToErpData } from "./bankSentStatementAutoLink.mjs";
 
 const IBK_FILE_PATTERN = /\uAC70\uB798|transaction|ibk/i;
 
@@ -15,6 +16,7 @@ let lastStatus = {
   lastError: null,
   lastSourceFile: null,
   lastAdded: 0,
+  lastAutoLinked: 0,
   lastSkipped: 0,
   lastLatestTransactionAt: null,
 };
@@ -62,7 +64,7 @@ export async function runUnifiedBankSync(options = {}) {
   if (openResult?.ok && !openResult.skipped) {
     return { ...openResult, source: "open-banking", barobillBank: barobillResult };
   }
-  const folderResult = runBankFolderSync(options);
+  const folderResult = await runBankFolderSync(options);
   return { ...folderResult, source: "folder", barobillBank: barobillResult, openBanking: openResult };
 }
 
@@ -84,7 +86,7 @@ async function runOpenBankingSyncIfConfigured(options) {
   }
 }
 
-export function runBankFolderSync(options = {}) {
+export async function runBankFolderSync(options = {}) {
   const importDir = config.ibkBankImportDir;
   if (!importDir) {
     return { ok: false, skipped: true, reason: "IBK_BANK_IMPORT_DIR not configured" };
@@ -130,12 +132,21 @@ export function runBankFolderSync(options = {}) {
       lastImportBy: options.updatedBy || "ibk-auto-sync",
     };
 
+    let autoLinkedCount = 0;
     if (merged.added > 0 || options.forceMetaUpdate) {
-      const nextPayload = {
+      let nextPayload = {
         ...state.data,
         bankTransactions: merged.next,
         bankSyncMeta,
       };
+      if (merged.addedIds?.length) {
+        const linked = await applySentStatementAutoLinksToErpData(nextPayload, {
+          onlyTransactionIds: merged.addedIds,
+          updatedBy: options.updatedBy || "ibk-auto-sync",
+        });
+        nextPayload = linked.data;
+        autoLinkedCount = linked.autoLinkedCount;
+      }
       saveErpState(nextPayload, state.version, options.updatedBy || "ibk-auto-sync");
     } else {
       const nextPayload = {
@@ -157,6 +168,7 @@ export function runBankFolderSync(options = {}) {
       lastError: null,
       lastSourceFile: target.name,
       lastAdded: merged.added,
+      lastAutoLinked: autoLinkedCount,
       lastSkipped: merged.skipped,
       lastLatestTransactionAt: preview.latestTransactionAt || null,
     };
@@ -164,6 +176,7 @@ export function runBankFolderSync(options = {}) {
     return {
       ok: true,
       added: merged.added,
+      autoLinked: autoLinkedCount,
       skipped: merged.skipped,
       sourceFile: target.name,
       latestTransactionAt: preview.latestTransactionAt || null,

@@ -358,10 +358,13 @@ export function mergeIbkBankImport(existing, preview, options = {}) {
 
   const merged = sortMergedTransactions([...additions, ...(existing || [])]);
   const deduped = dedupeBankTransactionsByFingerprint(merged);
+  const nextIds = new Set(deduped.transactions.map((row) => row.id));
+  const addedIds = additions.map((row) => row.id).filter((id) => nextIds.has(id));
 
   return {
     next: deduped.transactions,
-    added: additions.length,
+    added: addedIds.length,
+    addedIds,
     skipped,
     deduped: deduped.removed.length,
   };
