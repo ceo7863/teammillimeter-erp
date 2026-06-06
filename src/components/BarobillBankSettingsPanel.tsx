@@ -59,11 +59,13 @@ function formatSyncResult(result: Awaited<ReturnType<typeof syncBarobillBankNow>
 export function BarobillBankSettingsPanel({
   apiMode,
   isAdmin,
+  onSyncBegin,
   onSynced,
 }: {
   apiMode: boolean;
   isAdmin: boolean;
-  onSynced?: () => void | Promise<void>;
+  onSyncBegin?: () => void;
+  onSynced?: (result?: { version?: number }) => void | Promise<void>;
 }) {
   const [status, setStatus] = useState<BarobillBankStatus | null>(null);
   const [scrapNeedsApply, setScrapNeedsApply] = useState<boolean | null>(null);
@@ -99,6 +101,7 @@ export function BarobillBankSettingsPanel({
     setLoading(true);
     setMessage("");
     try {
+      onSyncBegin?.();
       const result = await syncBarobillBankNow({ refresh });
       const formatted = formatSyncResult(result);
       setMessage(formatted.text);
@@ -106,7 +109,7 @@ export function BarobillBankSettingsPanel({
       if (result.status) setStatus(result.status);
       if (result.ok) {
         await loadStatus();
-        await onSynced?.();
+        await onSynced?.({ version: result.version });
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "\uAC00\uC838\uC624\uAE30 \uC2E4\uD328");

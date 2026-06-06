@@ -912,6 +912,7 @@ export function BankTransactionsPage({
   companyProfile,
   apiMode = false,
   erpVersion = 0,
+  onBankSyncBegin,
   onBankSynced,
   isPageActive = true,
   onRequestImmediateSave,
@@ -951,7 +952,8 @@ export function BankTransactionsPage({
   companyProfile?: import("@/utils/companyProfile").CompanyProfile;
   apiMode?: boolean;
   erpVersion?: number;
-  onBankSynced?: () => void | Promise<void>;
+  onBankSyncBegin?: () => void;
+  onBankSynced?: (result?: { version?: number }) => void | Promise<void>;
   isPageActive?: boolean;
   onRequestImmediateSave?: (patch?: {
     bankTransactions?: BankTransaction[];
@@ -4884,7 +4886,8 @@ export function BankTransactionsPage({
                   <BarobillBankSettingsPanel
                     apiMode={apiMode}
                     isAdmin={currentUser?.role === "admin"}
-                    onSynced={() => void onBankSynced?.()}
+                    onSyncBegin={onBankSyncBegin}
+                    onSynced={(result) => onBankSynced?.(result)}
                   />
                 </div>
               ) : null}

@@ -156,6 +156,7 @@ import { ClientListExport } from "@/components/ClientListExport";
 import { buildClientLastSaleDateMap } from "@/utils/clientListExport";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { PageKeepAlive } from "@/components/PageKeepAlive";
+import { useBankSyncPoll } from "@/hooks/useBankSyncPoll";
 import { DesktopTableWrap, MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
 import { AutocompleteInput, AutocompleteSelect, BufferedTextInput } from "@/components/AutocompleteInput";
 import { focusKoreanTextInput, prepareKoreanTextInput } from "@/utils/koreanIme";
@@ -7038,6 +7039,8 @@ export default function TeammillimeterErpMvp() {
   const bankTransactionsDirtyRef = useRef(false);
   const bankSyncApplyingRef = useRef(false);
   const bankRemoteApplySkipDirtyRef = useRef(false);
+  const bankImportAtRef = useRef("");
+  const [bankImportAt, setBankImportAt] = useState("");
   const workerMonthlyLinkCleanupRef = useRef(false);
   const taxInvoiceEvidenceAutoLinkKeyRef = useRef("");
   const taxInvoiceEvidenceAutoLinkTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
@@ -8553,26 +8556,16 @@ export default function TeammillimeterErpMvp() {
       let applied = false;
       if (Array.isArray(data.bankTransactions)) {
         const incoming = normalizeBankTransactions(data.bankTransactions);
-        const localById = new Map(bankTransactionsRef.current.map((row) => [row.id, row]));
-        const merged = incoming.map((row) => {
-          const local = localById.get(row.id);
-          return local ? mergeRemoteBankTransactionRow(local, row) : row;
-        });
-        if (bankTransactionsDirtyRef.current) {
-          const incomingIds = new Set(incoming.map((row) => row.id));
-          for (const row of bankTransactionsRef.current) {
-            if (!incomingIds.has(row.id)) {
-              merged.push(row);
-            }
-          }
-        }
+        const merged = bankTransactionsDirtyRef.current
+          ? mergeBankTransactionsUnion(bankTransactionsRef.current, incoming, { preserveLocalOnly: true })
+          : incoming;
         const synced = syncBankTransactionLedgerLinkFields(
           merged,
           companyExpensesRef.current,
           fixedExpensePaymentsRef.current,
         );
         bankTransactionsRef.current = synced;
-        setBankTransactions(() => synced);
+        setBankTransactions(synced.slice());
         applied = true;
       }
       if (Array.isArray(data.bankTransactionFolders)) {
@@ -8589,6 +8582,11 @@ export default function TeammillimeterErpMvp() {
         setErpVersion(data.version ?? erpVersionRef.current);
         bankTransactionsDirtyRef.current = false;
         bankRemoteApplySkipDirtyRef.current = true;
+        const importAt = String(data.bankSyncMeta?.lastImportAt || "").trim();
+        if (importAt) {
+          bankImportAtRef.current = importAt;
+          setBankImportAt(importAt);
+        }
       }
       return {
         addedCount: Math.max(0, bankTransactionsRef.current.length - beforeCount),
@@ -8598,6 +8596,11 @@ export default function TeammillimeterErpMvp() {
     },
     [],
   );
+
+  const beginBankRemoteSync = React.useCallback(() => {
+    bankSyncApplyingRef.current = true;
+    skipSaveRef.current = true;
+  }, []);
 
   const forceRefreshBankFromServer = React.useCallback(async () => {
     bankSyncApplyingRef.current = true;
@@ -8615,6 +8618,36 @@ export default function TeammillimeterErpMvp() {
       });
     }
   }, [applyBankTransactionsSnapshot, releaseRemoteBankSnapshotSaveGuard]);
+
+  const handleBankSynced = React.useCallback(
+    async (syncResult?: { version?: number }) => {
+      if (syncResult?.version != null && syncResult.version > erpVersionRef.current) {
+        erpVersionRef.current = syncResult.version;
+        setErpVersion(syncResult.version);
+      }
+      return forceRefreshBankFromServer();
+    },
+    [forceRefreshBankFromServer],
+  );
+
+  const bankLatestTransactionAt = React.useMemo(() => {
+    let latest = "";
+    for (const row of bankTransactions) {
+      const at = String(row.transactionAt || "");
+      if (at.localeCompare(latest) > 0) latest = at;
+    }
+    return latest;
+  }, [bankTransactions]);
+
+  useBankSyncPoll({
+    enabled: apiMode && dataReady && Boolean(currentUser),
+    sinceVersion: erpVersion,
+    localTransactionCount: bankTransactions.length,
+    localLatestTransactionAt: bankLatestTransactionAt,
+    localImportAt: bankImportAt,
+    onRefresh: forceRefreshBankFromServer,
+    intervalMs: 30000,
+  });
 
   useEffect(() => {
     if (!currentUser) return;
@@ -8810,7 +8843,8 @@ export default function TeammillimeterErpMvp() {
               setBankTransactionFolders,
               apiMode,
               erpVersion,
-              onBankSynced: forceRefreshBankFromServer,
+              onBankSyncBegin: beginBankRemoteSync,
+              onBankSynced: handleBankSynced,
               onRequestImmediateSave: flushErpSave,
               clients,
               setClients,
