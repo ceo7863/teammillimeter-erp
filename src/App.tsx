@@ -155,6 +155,7 @@ import { WorkerListExport } from "@/components/WorkerListExport";
 import { ClientListExport } from "@/components/ClientListExport";
 import { buildClientLastSaleDateMap } from "@/utils/clientListExport";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
+import { PageKeepAlive } from "@/components/PageKeepAlive";
 import { useBankLiveSync } from "@/hooks/useBankLiveSync";
 import { DesktopTableWrap, MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
 import { AutocompleteInput, AutocompleteSelect, BufferedTextInput } from "@/components/AutocompleteInput";
