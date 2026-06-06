@@ -124,7 +124,8 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!workDate.trim()) {
+    const normalizedWorkDate = String(workDate || "").trim();
+    if (!normalizedWorkDate) {
       setError(L.needDate);
       return;
     }
@@ -142,7 +143,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
     setError("");
     try {
       const request = await submitPublicClientSiteRequest(token, {
-        workDate: workDate.trim(),
+        workDate: normalizedWorkDate,
         siteName: siteName.trim(),
         workerCount: count,
         memo: memo.trim(),
@@ -265,7 +266,11 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
               <form className="space-y-4" onSubmit={handleSubmit}>
                 <label className="block">
                   <span className="mb-1.5 block text-sm font-semibold text-slate-700">{L.workDate}</span>
-                  <KoreanDateInput value={workDate} onChange={setWorkDate} className="w-full" />
+                  <KoreanDateInput
+                    value={workDate}
+                    onChange={(event) => setWorkDate(event.target.value)}
+                    className="w-full"
+                  />
                 </label>
                 <label className="block">
                   <span className="mb-1.5 block text-sm font-semibold text-slate-700">{L.siteName}</span>
