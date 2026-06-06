@@ -24,7 +24,7 @@ import {
 } from "@/utils/ledgerSystem";
 import { filterLedgerInboxTransactions } from "@/utils/ledgerInboxUtils";
 
-type ViewerTab = "list" | "monthly" | "category" | "account";
+type ViewerTab = "list" | "monthly" | "account";
 
 const L = {
   title: "\uAC00\uACC4\uBD80 \uC870\uD68C",
@@ -32,7 +32,6 @@ const L = {
   goBank: "\uD1B5\uC7A5\uC5D0\uC11C \uBD84\uB958\uD558\uAE30",
   list: "\uB0B4\uC5ED",
   monthly: "\uC6D4\uBCC4",
-  category: "\uCE74\uD14C\uACE0\uB9AC",
   account: "\uACC4\uC815\uACFC\uBAA9",
   prevMonth: "\uC774\uC804 \uB2EC",
   nextMonth: "\uB2E4\uC74C \uB2EC",
@@ -43,12 +42,11 @@ const L = {
   allFlow: "\uC804\uCCB4",
   expense: "\uCD9C\uAE08",
   income: "\uC785\uAE08",
-  allCategory: "\uC804\uCCB4 \uCE74\uD14C\uACE0\uB9AC",
-  search: "\uC801\uC694, \uCE74\uD14C\uACE0\uB9AC, \uACC4\uC815 \uAC80\uC0C9",
+  allAccount: "\uC804\uCCB4 \uACC4\uC815",
+  search: "\uC801\uC694, \uACC4\uC815 \uAC80\uC0C9",
   empty: "\uD655\uC815\uB41C \uAC00\uACC4\uBD80 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   date: "\uC77C\uC790",
   flow: "\uAD6C\uBD84",
-  cat: "\uCE74\uD14C\uACE0\uB9AC",
   accountCol: "\uACC4\uC815",
   descCol: "\uC801\uC694",
   amount: "\uAE08\uC561",
@@ -80,7 +78,7 @@ export function LedgerViewerPage({
   const [monthKey, setMonthKey] = useState(getMonthKey(todayISO()));
   const [allMonths, setAllMonths] = useState(false);
   const [flowFilter, setFlowFilter] = useState<LedgerFlow | "all">("all");
-  const [categoryFilter, setCategoryFilter] = useState("");
+  const [accountFilter, setAccountFilter] = useState("");
   const [search, setSearch] = useState("");
 
   const allEntries = useMemo(
@@ -110,38 +108,27 @@ export function LedgerViewerPage({
       .filter((row) => row.status === "confirmed")
       .filter((row) => (allMonths ? true : getMonthKey(row.date) === monthKey))
       .filter((row) => (flowFilter === "all" ? true : row.flow === flowFilter))
-      .filter((row) => (categoryFilter ? row.categoryId === categoryFilter : true))
+      .filter((row) => (accountFilter ? row.accountCode === accountFilter : true))
       .filter((row) => {
         if (!q) return true;
-        return [row.categoryName, row.accountCode, row.accountName, row.description, row.memo]
+        return [row.accountCode, row.accountName, row.description, row.memo]
           .filter(Boolean)
           .join(" ")
           .toLowerCase()
           .includes(q);
       });
-  }, [allEntries, allMonths, monthKey, flowFilter, categoryFilter, search]);
+  }, [allEntries, allMonths, monthKey, flowFilter, accountFilter, search]);
 
   const monthlyRows = useMemo(() => buildMonthlyLedgerSummary(allEntries), [allEntries]);
 
-  const categoryRows = useMemo(() => {
-    const bucket = new Map<string, { name: string; expense: number; income: number; count: number }>();
-    for (const row of entries) {
-      const key = row.categoryId || row.categoryName;
-      const current = bucket.get(key) || { name: row.categoryName, expense: 0, income: 0, count: 0 };
-      if (row.flow === "income") current.income += row.amount;
-      else current.expense += row.amount;
-      current.count += 1;
-      bucket.set(key, current);
-    }
-    return [...bucket.values()].sort((a, b) => b.expense + b.income - (a.expense + a.income));
-  }, [entries]);
-
   const accountRows = useMemo(() => buildAccountCodeSummary(entries, accountCodes), [entries, accountCodes]);
 
-  const activeCategories = useMemo(
-    () => ledgerCategories.filter((row) => row.isActive).sort((a, b) => a.sortOrder - b.sortOrder),
-    [ledgerCategories],
-  );
+  const accountFilterOptions = useMemo(() => {
+    const codes = new Set(entries.map((row) => row.accountCode).filter(Boolean));
+    return accountCodes
+      .filter((row) => row.isActive !== false && codes.has(row.code))
+      .sort((a, b) => a.code.localeCompare(b.code, "ko"));
+  }, [entries, accountCodes]);
 
   const expenseTotal = entries.filter((r) => r.flow === "expense").reduce((s, r) => s + r.amount, 0);
   const incomeTotal = entries.filter((r) => r.flow === "income").reduce((s, r) => s + r.amount, 0);
@@ -195,7 +182,6 @@ export function LedgerViewerPage({
           <div className="mt-4 flex flex-wrap gap-2 rounded-2xl bg-slate-100 p-1">
             <TabBtn active={activeTab === "list"} onClick={() => setActiveTab("list")} icon={<List className="h-4 w-4" />} label={L.list} />
             <TabBtn active={activeTab === "monthly"} onClick={() => setActiveTab("monthly")} icon={<BarChart3 className="h-4 w-4" />} label={L.monthly} />
-            <TabBtn active={activeTab === "category"} onClick={() => setActiveTab("category")} icon={<PieChart className="h-4 w-4" />} label={L.category} />
             <TabBtn active={activeTab === "account"} onClick={() => setActiveTab("account")} icon={<PieChart className="h-4 w-4" />} label={L.account} />
           </div>
         </CardContent>
@@ -211,14 +197,14 @@ export function LedgerViewerPage({
               className="erp-input min-w-[12rem] flex-1 rounded-xl border border-slate-200 px-3 py-2"
             />
             <select
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
+              value={accountFilter}
+              onChange={(e) => setAccountFilter(e.target.value)}
               className="erp-input rounded-xl border border-slate-200 px-3 py-2"
             >
-              <option value="">{L.allCategory}</option>
-              {activeCategories.map((row) => (
-                <option key={row.id} value={row.id}>
-                  {row.name}
+              <option value="">{L.allAccount}</option>
+              {accountFilterOptions.map((row) => (
+                <option key={row.code} value={row.code}>
+                  {row.code} {row.name}
                 </option>
               ))}
             </select>
@@ -231,7 +217,6 @@ export function LedgerViewerPage({
 
           {activeTab === "list" ? <EntryList rows={entries} bankTransactions={bankTransactions} /> : null}
           {activeTab === "monthly" ? <MonthlyTable rows={monthlyRows} /> : null}
-          {activeTab === "category" ? <CategoryTable rows={categoryRows} /> : null}
           {activeTab === "account" ? <AccountTable rows={accountRows} /> : null}
         </CardContent>
       </Card>
@@ -296,7 +281,6 @@ function EntryList({ rows, bankTransactions }: { rows: LedgerEntry[]; bankTransa
           <tr>
             <th>{L.date}</th>
             <th>{L.flow}</th>
-            <th>{L.cat}</th>
             <th>{L.accountCol}</th>
             <th>{L.descCol}</th>
             <th className="text-right">{L.amount}</th>
@@ -312,7 +296,6 @@ function EntryList({ rows, bankTransactions }: { rows: LedgerEntry[]; bankTransa
               <tr key={row.id}>
                 <td>{row.date}</td>
                 <td>{row.flow === "income" ? L.income : L.expense}</td>
-                <td>{row.categoryName}</td>
                 <td>
                   <span className="font-mono text-xs text-slate-500">{row.accountCode}</span> {row.accountName}
                 </td>
@@ -363,37 +346,6 @@ function MonthlyTable({ rows }: { rows: ReturnType<typeof buildMonthlyLedgerSumm
   );
 }
 
-function CategoryTable({
-  rows,
-}: {
-  rows: Array<{ name: string; expense: number; income: number; count: number }>;
-}) {
-  return (
-    <DesktopTableWrap>
-      <table className="erp-table w-full">
-        <thead>
-          <tr>
-            <th>{L.cat}</th>
-            <th className="text-right">{L.expense}</th>
-            <th className="text-right">{L.income}</th>
-            <th className="text-right">{L.count}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.name}>
-              <td>{row.name}</td>
-              <td className="text-right">{formatKRW(row.expense)}</td>
-              <td className="text-right">{formatKRW(row.income)}</td>
-              <td className="text-right">{row.count}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </DesktopTableWrap>
-  );
-}
-
 function AccountTable({ rows }: { rows: ReturnType<typeof buildAccountCodeSummary> }) {
   return (
     <DesktopTableWrap>
@@ -401,7 +353,6 @@ function AccountTable({ rows }: { rows: ReturnType<typeof buildAccountCodeSummar
         <thead>
           <tr>
             <th>{L.accountCol}</th>
-            <th>{L.cat}</th>
             <th className="text-right">{L.expense}</th>
             <th className="text-right">{L.income}</th>
             <th className="text-right">{L.count}</th>
@@ -413,7 +364,6 @@ function AccountTable({ rows }: { rows: ReturnType<typeof buildAccountCodeSummar
               <td>
                 <span className="font-mono">{row.accountCode}</span> {row.accountName}
               </td>
-              <td />
               <td className="text-right">{formatKRW(row.expenseTotal)}</td>
               <td className="text-right">{formatKRW(row.incomeTotal)}</td>
               <td className="text-right">{row.count}</td>
