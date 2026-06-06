@@ -11,6 +11,7 @@ export type ClientContract = {
   status: ClientContractStatus;
   originalFileName: string;
   originalStorageKey: string;
+  templateId?: string;
   signedStorageKey?: string;
   signatureDataUrl?: string;
   signToken?: string;
@@ -67,6 +68,27 @@ export function contractStatusLabel(status: ClientContractStatus) {
 export async function listClientContracts(): Promise<ClientContract[]> {
   if (!isApiModeEnabled()) return [];
   return apiRequest<ClientContract[]>("/client-contracts");
+}
+
+export type ClientContractTemplate = {
+  id: string;
+  title: string;
+  fileName: string;
+};
+
+export async function listClientContractTemplates(): Promise<ClientContractTemplate[]> {
+  if (!isApiModeEnabled()) return [];
+  return apiRequest<ClientContractTemplate[]>("/client-contracts/templates");
+}
+
+export async function generateClientContract(input: {
+  templateId: string;
+  clientName: string;
+}): Promise<ClientContract> {
+  return apiRequest<ClientContract>("/client-contracts/generate", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 export async function uploadClientContract(input: {

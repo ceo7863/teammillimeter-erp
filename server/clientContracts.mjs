@@ -1,9 +1,9 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
-import { PDFDocument, rgb } from "pdf-lib";
 import { config } from "./config.mjs";
 import { getErpState, saveErpState } from "./db.mjs";
+import { applySignatureToContractPdf, fillContractTemplate, getContractTemplate } from "./contractTemplate.mjs";
 
 const MAX_CONTRACTS = 2000;
 const MAX_SIGNATURE_LENGTH = 280_000;
@@ -123,36 +123,52 @@ export function getContractSignedFile(contract) {
   };
 }
 
-async function buildSignedPdf(originalBuffer, signatureBuffer, signedByName) {
-  const sourceDoc = await PDFDocument.load(originalBuffer);
-  const pdfDoc = await PDFDocument.create();
-  const copiedPages = await pdfDoc.copyPages(sourceDoc, sourceDoc.getPageIndices());
-  copiedPages.forEach((page) => pdfDoc.addPage(page));
-  const pages = pdfDoc.getPages();
-  const lastPage = pages[pages.length - 1];
-  const pngImage = await pdfDoc.embedPng(signatureBuffer);
-  const { width } = lastPage.getSize();
-  const sigWidth = Math.min(180, width * 0.38);
-  const sigHeight = (pngImage.height / pngImage.width) * sigWidth;
-  const x = Math.max(36, width - sigWidth - 48);
-  const y = 52;
-  lastPage.drawImage(pngImage, { x, y, width: sigWidth, height: sigHeight });
-  const label = String(signedByName || "").trim();
-  if (label) {
-    lastPage.drawText(`\uC11C\uBA85: ${label}`, {
-      x,
-      y: y + sigHeight + 8,
-      size: 10,
-      color: rgb(0.1, 0.15, 0.25),
-    });
+function findClientByName(clientName) {
+  const state = getErpState();
+  const data = state.data && typeof state.data === "object" ? state.data : {};
+  const clients = Array.isArray(data.clients) ? data.clients : [];
+  const needle = String(clientName || "").trim();
+  return clients.find((row) => String(row?.name || "").trim() === needle) || null;
+}
+
+export function resolveClientContractContact(client) {
+  if (!client) return { contactName: "", contactPhone: "" };
+  const contactName = String(client.ceoName || client.manager || "").trim();
+  const contactPhone = normalizePhone(client.phone);
+  return { contactName, contactPhone };
+}
+
+export async function createContractFromTemplate(templateId, clientName, createdBy) {
+  const name = String(clientName || "").trim();
+  if (!name) return { ok: false, status: 400, error: "\uAC70\uB798\uCC98\uBA85\uC774 \uD544\uC694\uD569\uB2C8\uB2E4." };
+
+  const client = findClientByName(name);
+  if (!client) return { ok: false, status: 404, error: "\uAC70\uB798\uCC98 \uB9C8\uC2A4\uD130\uC5D0 \uAC70\uB798\uCC98\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4." };
+
+  const { contactName, contactPhone } = resolveClientContractContact(client);
+  if (!contactPhone) {
+    return { ok: false, status: 400, error: "\uAC70\uB798\uCC98 \uB9C8\uC2A4\uD130\uC5D0 \uB300\uD45C\uC790 \uC5F0\uB77D\uCC98\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4." };
   }
-  lastPage.drawText(`\uC11C\uBA85\uC77C: ${new Date().toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}`, {
-    x,
-    y: y + sigHeight + 22,
-    size: 9,
-    color: rgb(0.35, 0.4, 0.45),
+
+  const filled = await fillContractTemplate(templateId, {
+    clientName: name,
+    contactName,
+    contactPhone,
   });
-  return Buffer.from(await pdfDoc.save());
+  if (!filled.ok) return filled;
+
+  const template = getContractTemplate(templateId);
+  const result = createContract(filled.buffer, {
+    clientName: name,
+    title: filled.title,
+    contactName,
+    contactPhone,
+    fileName: filled.fileName,
+    templateId: template?.id,
+    signatureRect: filled.signatureRect,
+    dateField: filled.dateField,
+  }, createdBy);
+  return result;
 }
 
 export function createContract(buffer, meta, createdBy) {
@@ -180,6 +196,9 @@ export function createContract(buffer, meta, createdBy) {
     status: "draft",
     originalFileName: String(meta.fileName || "contract.pdf").trim() || "contract.pdf",
     originalStorageKey,
+    templateId: meta.templateId ? String(meta.templateId) : undefined,
+    signatureRect: meta.signatureRect || undefined,
+    dateField: meta.dateField || undefined,
     createdAt: new Date().toISOString(),
     createdBy: createdBy || undefined,
   };
@@ -311,7 +330,11 @@ export async function submitContractSignature(token, input = {}) {
 
   let signedPdfBuffer;
   try {
-    signedPdfBuffer = await buildSignedPdf(originalBuffer, signatureCheck.buffer, signedByName);
+    signedPdfBuffer = await applySignatureToContractPdf(originalBuffer, signatureCheck.buffer, {
+      signatureRect: current.signatureRect,
+      dateField: current.dateField,
+      signedAt: new Date().toISOString(),
+    });
     fs.writeFileSync(contractFilePath(signedStorageKey), signedPdfBuffer);
   } catch (error) {
     console.error("[client-contracts] signed pdf build failed:", error);

@@ -101,7 +101,9 @@ import {
   getContractOriginalFile,
   getContractSignedFile,
   getContractByToken,
+  createContractFromTemplate,
 } from "./clientContracts.mjs";
+import { listContractTemplates } from "./contractTemplate.mjs";
 import { renderContractPdfPreview } from "./contractPdfRender.mjs";
 import {
   normalizeNotificationSettings,
@@ -1666,6 +1668,30 @@ app.delete("/api/pdf-archives/:id", authMiddleware, (req, res) => {
 
 app.get("/api/client-contracts", authMiddleware, (_req, res) => {
   res.json(listContracts().map(sanitizeContractForClient));
+});
+
+app.get("/api/client-contracts/templates", authMiddleware, (_req, res) => {
+  res.json(listContractTemplates());
+});
+
+app.post("/api/client-contracts/generate", authMiddleware, async (req, res) => {
+  try {
+    const templateId = String(req.body?.templateId || "unit-price-agreement").trim();
+    const clientName = String(req.body?.clientName || "").trim();
+    const result = await createContractFromTemplate(
+      templateId,
+      clientName,
+      req.user.loginId || req.user.name || req.user.email,
+    );
+    if (!result.ok) {
+      res.status(result.status || 400).json({ error: result.error });
+      return;
+    }
+    res.status(201).json(sanitizeContractForClient(result.contract));
+  } catch (error) {
+    console.error("[client-contracts] generate failed:", error);
+    res.status(500).json({ error: "\uACC4\uC57D\uC11C \uC0DD\uC131\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+  }
 });
 
 app.get("/api/client-contracts/:id", authMiddleware, (req, res) => {
