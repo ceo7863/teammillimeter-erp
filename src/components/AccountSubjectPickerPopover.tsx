@@ -199,10 +199,8 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
     (item: FlatPickerItem | undefined) => {
       if (!item) return;
       onSelect(item.code);
-      // Defer close so mouseup does not click-through to the cell trigger underneath.
-      window.setTimeout(() => onClose(), 0);
     },
-    [onClose, onSelect],
+    [onSelect],
   );
 
   useEffect(() => {
@@ -328,7 +326,7 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
                   className={`erp-account-picker-popover__item erp-account-picker-popover__item--excel${
                     isSelected ? " is-selected" : ""
                   }${isActive ? " is-active" : ""}`}
-                  onMouseDown={(event) => {
+                  onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
                     pickItem(item);

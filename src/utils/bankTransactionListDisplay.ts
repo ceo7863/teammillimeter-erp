@@ -207,6 +207,9 @@ export function buildBankTransactionListRowModels(
     const accountContent = String(row.ledgerMemo || row.memo || "").trim();
     const memoOnly = String(row.memo || "").trim();
     const accountSubjectLabel =
+      (row.ledgerStatus === "confirmed" && row.ledgerAccountCode?.trim()
+        ? resolveAccountCodeLabel(accountCodes, row.ledgerAccountCode) || row.ledgerAccountCode.trim()
+        : null) ||
       resolveAccountCodeLabel(accountCodes, row.ledgerAccountCode) ||
       row.ledgerAccountCode?.trim() ||
       categoryLabel;

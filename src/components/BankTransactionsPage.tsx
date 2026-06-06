@@ -959,9 +959,7 @@ export function BankTransactionsPage({
   const [selectedPreauthGroupKeys, setSelectedPreauthGroupKeys] = useState<string[]>([]);
   const [learnPreauthMerchants, setLearnPreauthMerchants] = useState(true);
   const [accountContentModal, setAccountContentModal] = useState<TxAccountContentModal | null>(null);
-  const [accountSubjectPicker, setAccountSubjectPicker] = useState<{
-    tx: BankTransaction;
-  } | null>(null);
+  const [accountSubjectPickerTxId, setAccountSubjectPickerTxId] = useState<string | null>(null);
   const accountSubjectIgnoreOpenUntilRef = useRef(0);
   const [fixedExpenseModal, setFixedExpenseModal] = useState<TxFixedExpenseModal | null>(null);
   const [clientModal, setClientModal] = useState<TxClientModal | null>(null);
@@ -1044,6 +1042,11 @@ export function BankTransactionsPage({
     );
     return syncLedgerLinkedBankTransactionFolders(synced, folders, ledgerRegistrationContext).transactions;
   }, [bankTransactions, bankTransactionFolders, companyExpenses, fixedExpensePayments, ledgerRegistrationContext]);
+
+  const accountSubjectPickerTx = useMemo(() => {
+    if (!accountSubjectPickerTxId) return null;
+    return ledgerSyncedTransactions.find((row) => row.id === accountSubjectPickerTxId) ?? null;
+  }, [accountSubjectPickerTxId, ledgerSyncedTransactions]);
 
   React.useEffect(() => {
     setBankTransactions((prev) => {
@@ -2163,7 +2166,7 @@ export function BankTransactionsPage({
   const openAccountSubjectModal = useCallback((tx: BankTransaction) => {
     if (Date.now() < accountSubjectIgnoreOpenUntilRef.current) return;
     setTxCellModalError("");
-    setAccountSubjectPicker((prev) => (prev?.tx.id === tx.id ? null : { tx }));
+    setAccountSubjectPickerTxId((prev) => (prev === tx.id ? null : tx.id));
   }, []);
 
   const openFixedExpenseModal = useCallback(
@@ -2258,10 +2261,17 @@ export function BankTransactionsPage({
 
   const saveAccountSubjectSelection = useCallback(
     (txId: string, accountCode: string) => {
+      accountSubjectIgnoreOpenUntilRef.current = Date.now() + 600;
+      setAccountSubjectPickerTxId(null);
+
       let nextTransactions: BankTransaction[] | null = null;
+      let saveFailed = false;
       setBankTransactions((prev) => {
         const tx = prev.find((row) => row.id === txId);
-        if (!tx) return prev;
+        if (!tx) {
+          saveFailed = true;
+          return prev;
+        }
         const nextRow = assignBankTransactionAccountCode({
           tx,
           accountCode,
@@ -2269,18 +2279,20 @@ export function BankTransactionsPage({
           accountCodes,
           confirmedBy: savedBy,
         });
-        if (!nextRow) return prev;
+        if (!nextRow) {
+          saveFailed = true;
+          return prev;
+        }
         auditBankTxUpdate(tx, nextRow);
         nextTransactions = prev.map((row) => (row.id === txId ? nextRow : row));
         return nextTransactions;
       });
-      if (!nextTransactions) {
+
+      if (saveFailed || !nextTransactions) {
         setTxCellModalError(L.detailLedgerRegisterFailed);
         setImportMessage(L.detailLedgerRegisterFailed);
         return;
       }
-      accountSubjectIgnoreOpenUntilRef.current = Date.now() + 400;
-      setAccountSubjectPicker(null);
       setTxCellModalError("");
       setImportMessage(L.cellSaveDone);
       void onRequestImmediateSave?.({ bankTransactions: nextTransactions });
@@ -5016,7 +5028,7 @@ export function BankTransactionsPage({
             onEditAccountSubject={openAccountSubjectModal}
             onEditClient={openClientModal}
             onFindEvidence={openTaxInvoiceModal}
-            openAccountSubjectId={accountSubjectPicker?.tx.id ?? null}
+            openAccountSubjectId={accountSubjectPickerTxId}
             toolbar={
               <>
                 <Button
@@ -6231,23 +6243,23 @@ export function BankTransactionsPage({
         </div>
       ) : null}
 
-      {accountSubjectPicker ? (
+      {accountSubjectPickerTx ? (
         <AccountSubjectPickerPopover
-          triggerId={accountSubjectPicker.tx.id}
-          selectedCode={resolveTxAccountCodeDraft(accountSubjectPicker.tx)}
+          triggerId={accountSubjectPickerTx.id}
+          selectedCode={resolveTxAccountCodeDraft(accountSubjectPickerTx)}
           accountCodes={accountCodes}
-          flow={accountSubjectPicker.tx.deposit > 0 ? "income" : "expense"}
+          flow={accountSubjectPickerTx.deposit > 0 ? "income" : "expense"}
           labels={{
             searchPlaceholder: L.accountSubjectSearchPlaceholder,
             empty: L.accountSubjectEmpty,
             addAccount: L.addAccountCode,
           }}
-          onSelect={(accountCode) => saveAccountSubjectSelection(accountSubjectPicker.tx.id, accountCode)}
-          onClose={() => setAccountSubjectPicker(null)}
+          onSelect={(accountCode) => saveAccountSubjectSelection(accountSubjectPickerTx.id, accountCode)}
+          onClose={() => setAccountSubjectPickerTxId(null)}
           onAddAccount={
             onNavigateToClassify
               ? () => {
-                  setAccountSubjectPicker(null);
+                  setAccountSubjectPickerTxId(null);
                   onNavigateToClassify();
                 }
               : undefined
