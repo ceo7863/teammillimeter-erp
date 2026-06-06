@@ -11,7 +11,7 @@ type BankTransactionMobileListProps = {
   labels: BankTransactionSimpleTableLabels;
   badgeLabels: BankTransactionCompactRowLabels;
   onEditAccountContent: (id: string) => void;
-  onEditCategory: (id: string) => void;
+  onEditAccountSubject: (id: string) => void;
   onEditFixedExpense: (id: string) => void;
 };
 
@@ -31,7 +31,7 @@ function BankTransactionMobileListComponent({
   labels,
   badgeLabels,
   onEditAccountContent,
-  onEditCategory,
+  onEditAccountSubject,
   onEditFixedExpense,
 }: BankTransactionMobileListProps) {
   return (
@@ -105,7 +105,7 @@ function BankTransactionMobileListComponent({
                     type="button"
                     {...{ [BANK_TX_ACCOUNT_TRIGGER_ATTR]: id }}
                     className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700"
-                    onClick={() => onEditCategory(id)}
+                    onClick={() => onEditAccountSubject(id)}
                   >
                     {labels.category}
                   </button>

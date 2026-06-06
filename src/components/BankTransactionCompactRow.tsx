@@ -22,7 +22,7 @@ type BankTransactionCompactRowProps = BankTransactionCompactRowModel & {
     "accountContentPlaceholder" | "categoryPlaceholder" | "fixedExpensePlaceholder"
   >;
   onEditAccountContent: (id: string) => void;
-  onEditCategory: (id: string) => void;
+  onEditAccountSubject: (id: string) => void;
   onEditFixedExpense: (id: string) => void;
 };
 
@@ -108,7 +108,7 @@ function BankTransactionCompactRowComponent({
   labels,
   tableLabels,
   onEditAccountContent,
-  onEditCategory,
+  onEditAccountSubject,
   onEditFixedExpense,
 }: BankTransactionCompactRowProps) {
   const rowClass =
@@ -142,7 +142,7 @@ function BankTransactionCompactRowComponent({
           value={accountSubjectLabel}
           placeholder={tableLabels.categoryPlaceholder}
           empty={!accountSubjectLabel}
-          onClick={() => onEditCategory(id)}
+          onClick={() => onEditAccountSubject(id)}
         />
       </td>
       <td className="max-w-[8rem]">

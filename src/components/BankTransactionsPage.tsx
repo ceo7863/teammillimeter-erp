@@ -74,7 +74,6 @@ import {
   makeLedgerId,
   mergeExpenseCategory,
   mergeFixedExpenseCategory,
-  buildFixedCategorySelectOptions,
   monthRangeISO,
   normalizeExpenseCategories,
   parseLedgerAmount,
@@ -139,7 +138,6 @@ import {
   getBankTxLedgerCategoryLabel,
   matchesBankTxLedgerScope,
   assignBankTransactionAccountCode,
-  registerBankTxWithCategoryName,
   type LedgerScopeFilter,
 } from "@/utils/ledgerBankBridge";
 import { AccountSubjectPickerPopover } from "@/components/AccountSubjectPickerPopover";
@@ -157,8 +155,6 @@ import {
   AutocompleteInput,
   BufferedTextarea,
   BufferedTextInput,
-  CategorySuggestInput,
-  extractCategorySuggestionLabels,
 } from "@/components/AutocompleteInput";
 import { createPaymentInputLogsFromVouchers } from "@/utils/paymentInputLogs";
 import type { ReceivableRow } from "@/utils/receivables";
@@ -310,6 +306,30 @@ const LEDGER_SCOPE_OPTIONS: Array<{ key: LedgerScopeFilter; label: string }> = [
   { key: "ledger_exempt", label: "\uAC00\uACC4\uBD80 \uC81C\uC678" },
 ];
 
+function resolveExpenseCategoryFromTxAccount(accountCodes: AccountCode[], tx: BankTransaction) {
+  const code = String(tx.ledgerAccountCode || "").trim();
+  if (!code) return "";
+  const row = findAccountCodeByCode(accountCodes, code);
+  return row?.name || resolveAccountCodeLabel(accountCodes, code) || "";
+}
+
+function resolveFixedExpenseItemCategory(fixedExpenses: FixedExpense[], fixedExpenseId: string) {
+  return fixedExpenses.find((row) => row.id === fixedExpenseId)?.category?.trim() || FIXED_CATEGORY_OPTIONS[0];
+}
+
+function formatTxAccountSubjectLabel(
+  tx: BankTransaction,
+  accountCodes: AccountCode[],
+  optimisticLabels: Record<string, string>,
+) {
+  const key = String(tx.id);
+  const optimistic = optimisticLabels[key]?.trim();
+  if (optimistic) return optimistic;
+  const code = String(tx.ledgerAccountCode || "").trim();
+  if (!code) return "";
+  return resolveAccountCodeLabel(accountCodes, code) || code;
+}
+
 const L = {
   pageTitle: "\uD1B5\uC7A5 \u00B7 \uAC00\uACC4\uBD80",
   pageDesc:
@@ -416,22 +436,14 @@ const L = {
   memoPlaceholder: "\uBA54\uBAA8 \uC785\uB825",
   accountContent: "\uACC4\uC815\uB0B4\uC6A9",
   accountContentPlaceholder: "\uACC4\uC815\uB0B4\uC6A9 \uC785\uB825",
-  categoryColumn: "\uCE74\uD14C\uACE0\uB9AC",
-  categoryPlaceholder: "\uCE74\uD14C\uACE0\uB9AC \uC120\uD0DD",
   fixedExpenseColumn: "\uACE0\uC815\uBE44\uD56D\uBAA9",
   fixedExpensePlaceholder: "\uACE0\uC815\uBE44 \uC120\uD0DD",
-  addCategory: "\uCE74\uD14C\uACE0\uB9AC \uCD94\uAC00",
   addFixedExpense: "\uACE0\uC815\uBE44 \uD56D\uBAA9 \uCD94\uAC00",
-  addCategoryTitle: "\uCE74\uD14C\uACE0\uB9AC \uCD94\uAC00",
   addFixedExpenseTitle: "\uACE0\uC815\uBE44 \uD56D\uBAA9 \uCD94\uAC00",
   editAccountContentTitle: "\uACC4\uC815\uB0B4\uC6A9 \uC218\uC815",
   editAccountSubjectTitle: "\uACC4\uC815 \uC218\uC815",
-  editCategoryTitle: "\uCE74\uD14C\uACE0\uB9AC \uC218\uC815",
   editFixedExpenseTitle: "\uACE0\uC815\uBE44 \uD56D\uBAA9 \uC218\uC815",
-  newCategoryName: "\uCE74\uD14C\uACE0\uB9AC \uC774\uB984",
   newFixedExpenseName: "\uD56D\uBAA9 \uC774\uB984",
-  newFixedExpenseCategory: "\uCE74\uD14C\uACE0\uB9AC",
-  categoryRequired: "\uCE74\uD14C\uACE0\uB9AC\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
   accountSubjectRequired: "\uACC4\uC815\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
   fixedExpenseRequired: "\uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
   cellSaveDone: "\uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.",
@@ -466,14 +478,14 @@ const L = {
   detailSave: "\uC800\uC7A5",
   detailSaveDone: "\uAC70\uB798 \uC815\uBCF4\uB97C \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.",
   detailFixedItemRequired: "\uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
-  detailLedgerRegisterFailed: "\uAC00\uACC4\uBD80 \uB4F1\uB85D\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uC9C0\uCD9C \uCE74\uD14C\uACE0\uB9AC\uB97C \uC785\uB825\uD588\uB294\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694.",
+  detailLedgerRegisterFailed: "\uAC00\uACC4\uBD80 \uB4F1\uB85D\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uACC4\uC815\uC774 \uC9C0\uC815\uB418\uC5C8\uB294\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694.",
   accountSubjectSaveFailed: "\uACC4\uC815\uACFC\uBAA9\uC744 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uBE44\uD65C\uC131 \uACC4\uC815\uC774\uAC70\uB098 \uAC70\uB798\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
   detailLedgerFolderRequiresRegistration:
-    "\uAC00\uACC4\uBD80 \uD3F4\uB354\uB85C \uC800\uC7A5\uD558\uB824\uBA74 \uC9C0\uCD9C \uCE74\uD14C\uACE0\uB9AC \uB610\uB294 \uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uB4F1\uB85D\uD574 \uC8FC\uC138\uC694.",
+    "\uAC00\uACC4\uBD80 \uD3F4\uB354\uB85C \uC800\uC7A5\uD558\uB824\uBA74 \uACC4\uC815 \uB610\uB294 \uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uB4F1\uB85D\uD574 \uC8FC\uC138\uC694.",
   ledgerFolderRequiresRegistration:
     "\uAC00\uACC4\uBD80 \uD3F4\uB354\uB85C \uC774\uB3D9\uD558\uB824\uBA74 \uC9C0\uCD9C\u00B7\uACE0\uC815\uBE44 \uB4F1\uB85D\uC744 \uBAFC\uC800 \uC644\uB8CC\uD574 \uC8FC\uC138\uC694.",
   memoEditHint: "\uBA54\uBAA8 \u00B7 \uBD84\uB958 \u00B7 \uAC00\uACC4\uBD80 \uD56D\uBAA9\uC744 \uC218\uC815\uD55C \uB92C \uC800\uC7A5\uC744 \uB204\uB974\uBA74 \uBC18\uC601\uB429\uB2C8\uB2E4.",
-  detailLedgerKindHint: "\uBCC0\uB3D9 \uC9C0\uCD9C\uC740 \uCE74\uD14C\uACE0\uB9AC\uB97C, \uACE0\uC815\uBE44\uB294 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD569\uB2C8\uB2E4.",
+  detailLedgerKindHint: "\uBCC0\uB3D9 \uC9C0\uCD9C\uC740 \uACC4\uC815\uC744, \uACE0\uC815\uBE44\uB294 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD569\uB2C8\uB2E4.",
   classification: "\uBD84\uB958",
   ledgerCategoryColumn: "\uAC00\uACC4\uBD80",
   linkedSubject: "\uC5F0\uACB0 \uC774\uB984",
@@ -555,22 +567,19 @@ const L = {
   ledgerLearnRuleBadge: (confidence: number) => `학습규칙 ${confidence}%`,
   ledgerConfidenceBlocked: (confidence: number | null) =>
     confidence != null
-      ? `매칭 신뢰도 ${Math.round(confidence)}%입니다. 회사 가계부 등록에는 ${LEDGER_REGISTRATION_MIN_CONFIDENCE_PERCENT}% 이상이 필요합니다. 메모에 카테고리를 직접 입력하면 등록할 수 있습니다.`
-      : `매칭 신뢰도가 확인되지 않아 회사 가계부로 등록할 수 없습니다. 메모에 카테고리를 직접 입력하거나 학습 규칙을 추가해 주세요.`,
+      ? `매칭 신뢰도 ${Math.round(confidence)}%입니다. 회사 가계부 등록에는 ${LEDGER_REGISTRATION_MIN_CONFIDENCE_PERCENT}% 이상이 필요합니다. 계정을 지정하면 등록할 수 있습니다.`
+      : `매칭 신뢰도가 확인되지 않아 회사 가계부로 등록할 수 없습니다. 계정을 지정하거나 학습 규칙을 추가해 주세요.`,
   ledgerSaveManualHint: "\uB2E8\uC21C\uC9C0\uCD9C\uB85C \uC800\uC7A5",
-  ledgerCategoryAddHint: "\uBAA9\uB85D\uC5D0 \uC5C6\uB294 \uCE74\uD14C\uACE0\uB9AC\uB294 \uC774\uB984\uC744 \uC785\uB825\uD558\uC138\uC694.",
   ledgerSaveFixedHint: "\uAE08\uC561\uC774 \uB9DE\uB294 \uBBF8\uC5F0\uACB0 \uB0A9\uBD80\uAC00 \uC788\uC73C\uBA74 \uC790\uB3D9 \uC5F0\uACB0\uD569\uB2C8\uB2E4",
   ledgerKind: "\uB4F1\uB85D \uC720\uD615",
   ledgerFixedItem: "\uACE0\uC815\uBE44 \uD56D\uBAA9",
-  ledgerManualCategory: "\uC9C0\uCD9C \uCE74\uD14C\uACE0\uB9AC",
-  ledgerCategory: "\uCE74\uD14C\uACE0\uB9AC",
   ledgerDescription: "\uB0B4\uC6A9",
   ledgerAmount: "\uAE08\uC561",
   ledgerMemo: "\uBA54\uBAA8",
   ledgerSave: "\uAC00\uACC4\uBD80\uB85C \uBCF4\uB0B4\uAE30",
   ledgerBatchSend: "\uAC00\uACC4\uBD80\uB85C \uBCF4\uB0B4\uAE30",
   ledgerBatchSendHint:
-    "\uD604\uC7AC \uD544\uD130 \uC911 \uC2E0\uB8B0\uB3C4 90% \uC774\uC0C1(\uBA54\uBAA8 \uCE74\uD14C\uACE0\uB9AC \uD3EC\uD568) \uCD9C\uAE08\uC744 \uD655\uC778 \uC5C6\uC774 \uAC00\uACC4\uBD80\uC5D0 \uB4F1\uB85D\uD569\uB2C8\uB2E4. \uACE0\uC815\uBE44\uB294 \uAE08\uC561 \uC77C\uCE58 \uB0A9\uBD80\uAC00 \uC788\uC73C\uBA74 \uC790\uB3D9 \uC5F0\uACB0\uD569\uB2C8\uB2E4.",
+    "\uD604\uC7AC \uD544\uD130 \uC911 \uC2E0\uB8B0\uB3C4 90% \uC774\uC0C1(\uACC4\uC815 \uC9C0\uC815 \uD3EC\uD568) \uCD9C\uAE08\uC744 \uD655\uC778 \uC5C6\uC774 \uAC00\uACC4\uBD80\uC5D0 \uB4F1\uB85D\uD569\uB2C8\uB2E4. \uACE0\uC815\uBE44\uB294 \uAE08\uC561 \uC77C\uCE58 \uB0A9\uBD80\uAC00 \uC788\uC73C\uBA74 \uC790\uB3D9 \uC5F0\uACB0\uD569\uB2C8\uB2E4.",
   ledgerBatchSending: "\uAC00\uACC4\uBD80 \uB4F1\uB85D \uC911\u2026",
   ledgerBatchBanner: (registerable: number) =>
     `\uD544\uD130 \uCD9C\uAE08 \uC911 \uAC00\uACC4\uBD80 \uB4F1\uB85D \uAC00\uB2A5 ${registerable}\uAC74`,
@@ -584,7 +593,7 @@ const L = {
   categoryPromptSave: "\uB4F1\uB85D \uBC0F \uD559\uC2B5",
   categoryPromptSkip: "\uAC74\uB108\uB700\uAE30",
   categoryPromptLater: "\uB098\uC911\uC5D0",
-  categoryPromptRequired: "\uCE74\uD14C\uACE0\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.",
+  categoryPromptRequired: "\uACC4\uC815\uC744 \uC9C0\uC815\uD574 \uC8FC\uC138\uC694.",
   categoryPromptFixedRequired: "\uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
   categoryPromptDone: (count: number) => `\uAC00\uACC4\uBD80 \uD655\uC778 \uD6C4 ${count}\uAC74 \uB4F1\uB85D`,
   categoryPromptSuggestion: (label: string, confidence: number) => `\uCD94\uCC9C: ${label} (${confidence}%)`,
@@ -941,8 +950,6 @@ export function BankTransactionsPage({
   const [sort, setSort] = useState<BankTransactionSort>(DEFAULT_BANK_TRANSACTION_SORT);
   const taxInvoiceMatchContext = useMemo(() => ({ clients, workers }), [clients, workers]);
   const [createFolderOpen, setCreateFolderOpen] = useState(false);
-  const [createCategoryOpen, setCreateCategoryOpen] = useState(false);
-  const [newCategoryName, setNewCategoryName] = useState("");
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderType, setNewFolderType] = useState<BankTransactionFolderType>("client");
   const [newFolderParentId, setNewFolderParentId] = useState("");
@@ -1011,7 +1018,6 @@ export function BankTransactionsPage({
   const [taxInvoiceModal, setTaxInvoiceModal] = useState<TxTaxInvoiceModal | null>(null);
   const [addFixedExpenseModalOpen, setAddFixedExpenseModalOpen] = useState(false);
   const [newFixedExpenseName, setNewFixedExpenseName] = useState("");
-  const [newFixedExpenseCategory, setNewFixedExpenseCategory] = useState("");
   const [txCellModalError, setTxCellModalError] = useState("");
   const importLedgerBatchIdsRef = useRef<Set<string>>(new Set());
   const ledgerMemoDraftRef = useRef("");
@@ -1347,9 +1353,14 @@ export function BankTransactionsPage({
       if (input.kind === "fixed" && input.fixedExpenseId.trim() !== suggestion.fixedExpenseId.trim()) {
         return true;
       }
-      return input.category.trim() !== suggestion.category.trim();
+      if (input.kind === "manual") {
+        const actual = resolveExpenseCategoryFromTxAccount(accountCodes, tx) || input.category.trim();
+        return actual !== suggestion.category.trim();
+      }
+      const expected = resolveFixedExpenseItemCategory(fixedExpenses, input.fixedExpenseId.trim());
+      return expected !== input.category.trim();
     },
-    [expenseCategories, resolveLedgerRegistrationSuggestion],
+    [accountCodes, expenseCategories, fixedExpenses, resolveLedgerRegistrationSuggestion],
   );
 
   const isLedgerEditModal = (modal: NonNullable<typeof ledgerModal>) =>
@@ -1770,8 +1781,11 @@ export function BankTransactionsPage({
           next,
           buildLedgerLinkDefaults(prev.transactions[0], next.fixedExpenseId, fixedExpensePayments, fixedExpenses),
         );
-      } else if (!next.category.trim()) {
-        next.category = expenseCategories[0] || EXPENSE_CATEGORY_OPTIONS[0];
+      } else {
+        next.category =
+          resolveExpenseCategoryFromTxAccount(accountCodes, prev.transactions[0]!) ||
+          expenseCategories[0] ||
+          EXPENSE_CATEGORY_OPTIONS[0];
         next.fixedExpenseId = "";
         next.linkMode = "create";
         next.linkPaymentId = "";
@@ -1798,15 +1812,11 @@ export function BankTransactionsPage({
 
     if (ledgerReviewPrompt.kind === "fixed") {
       const fixedExpenseId = ledgerReviewPrompt.fixedExpenseId.trim();
-      const category = ledgerReviewPrompt.category.trim();
       if (!fixedExpenseId) {
         setLedgerReviewPromptError(L.categoryPromptFixedRequired);
         return;
       }
-      if (!category) {
-        setLedgerReviewPromptError(L.categoryPromptRequired);
-        return;
-      }
+      const category = resolveFixedExpenseItemCategory(fixedExpenses, fixedExpenseId);
       const error = validateFixedExpensePaymentInput({
         date: ledgerReviewPrompt.date,
         fixedExpenseId,
@@ -1902,9 +1912,10 @@ export function BankTransactionsPage({
       return;
     }
 
-    const category = ledgerReviewPrompt.category.trim();
-    if (!category) {
-      setLedgerReviewPromptError(L.categoryPromptRequired);
+    const accountCode = String(firstTx.ledgerAccountCode || "").trim();
+    const category = resolveExpenseCategoryFromTxAccount(accountCodes, firstTx);
+    if (!accountCode || !category) {
+      setLedgerReviewPromptError(L.accountSubjectRequired);
       return;
     }
 
@@ -1916,9 +1927,11 @@ export function BankTransactionsPage({
     let nextTransactions = [...bankTransactions];
 
     for (const tx of ledgerReviewPrompt.transactions) {
-      const confirmedTx = registerBankTxWithCategoryName({
+      const txAccountCode = String(tx.ledgerAccountCode || "").trim();
+      if (!txAccountCode) continue;
+      const confirmedTx = assignBankTransactionAccountCode({
         tx,
-        categoryName: category,
+        accountCode: txAccountCode,
         ledgerCategories,
         accountCodes,
         confirmedBy: savedBy || undefined,
@@ -1930,7 +1943,8 @@ export function BankTransactionsPage({
         continue;
       }
 
-      const expense = createCompanyExpenseFromBankTransaction(tx, category, savedBy || undefined);
+      const txCategory = resolveExpenseCategoryFromTxAccount(accountCodes, tx) || category;
+      const expense = createCompanyExpenseFromBankTransaction(tx, txCategory, savedBy || undefined);
       nextExpenses = [expense, ...nextExpenses];
       nextTransactions = nextTransactions.map((row) =>
         row.id === tx.id
@@ -2013,6 +2027,7 @@ export function BankTransactionsPage({
     openNextLedgerReviewPrompt,
     recordAudit,
     savedBy,
+    accountCodes,
     evaluateLedgerRegistrationGate,
     isManualLedgerRegistrationOverride,
     setBankLedgerRules,
@@ -2184,32 +2199,6 @@ export function BankTransactionsPage({
         .sort((a, b) => a.label.localeCompare(b.label, "ko")),
     [fixedExpenses],
   );
-
-  const ledgerManualCategoryOptions = useMemo(() => {
-    const categories = normalizeExpenseCategories(expenseCategories);
-    const current = ledgerModal?.kind === "manual" ? ledgerModal.category?.trim() : "";
-    if (current && !categories.includes(current)) {
-      categories.unshift(current);
-    }
-    const promptCategory = ledgerReviewPrompt?.category?.trim();
-    if (promptCategory && !categories.includes(promptCategory)) {
-      categories.unshift(promptCategory);
-    }
-    return categories.map((category) => ({ label: category, value: category }));
-  }, [expenseCategories, ledgerModal?.category, ledgerModal?.kind, ledgerReviewPrompt?.category]);
-
-  const ledgerFixedCategoryOptions = useMemo(
-    () =>
-      buildFixedCategorySelectOptions(
-        fixedExpenses,
-        fixedExpenseCategories,
-        ledgerModal?.kind === "fixed" ? ledgerModal.category : "",
-      ),
-    [fixedExpenses, fixedExpenseCategories, ledgerModal?.category, ledgerModal?.kind],
-  );
-
-  const activeLedgerCategoryOptions =
-    ledgerModal?.kind === "fixed" ? ledgerFixedCategoryOptions : ledgerManualCategoryOptions;
 
   const resolveTxAccountCodeDraft = useCallback((tx: BankTransaction) => String(tx.ledgerAccountCode || "").trim(), []);
 
@@ -2505,7 +2494,7 @@ export function BankTransactionsPage({
 
   const handleAddFixedExpense = () => {
     const name = newFixedExpenseName.trim();
-    const category = newFixedExpenseCategory.trim() || FIXED_CATEGORY_OPTIONS[0];
+    const category = FIXED_CATEGORY_OPTIONS[0];
     if (!name) return;
     const nextItem: FixedExpense = {
       id: makeLedgerId(),
@@ -2519,7 +2508,6 @@ export function BankTransactionsPage({
     setFixedExpenses((prev) => [...prev, nextItem]);
     setFixedExpenseCategories((prev) => mergeFixedExpenseCategory(prev, category));
     setNewFixedExpenseName("");
-    setNewFixedExpenseCategory("");
     setAddFixedExpenseModalOpen(false);
     setImportMessage(L.cellSaveDone);
   };
@@ -2535,15 +2523,6 @@ export function BankTransactionsPage({
       fixedExpenses,
     );
   }, [fixedExpensePayments, fixedExpenses, ledgerReviewPrompt]);
-
-  const reviewCategoryOptions =
-    ledgerReviewPrompt?.kind === "fixed"
-      ? buildFixedCategorySelectOptions(
-          fixedExpenses,
-          fixedExpenseCategories,
-          ledgerReviewPrompt.category,
-        )
-      : ledgerManualCategoryOptions;
 
   const ledgerLinkablePayments = useMemo(() => {
     if (!ledgerModal || ledgerModal.kind !== "fixed") return [];
@@ -3286,35 +3265,6 @@ export function BankTransactionsPage({
     setFolderError("");
   };
 
-  const handleCreateCategory = () => {
-    const result = createBankTransactionFolder(bankTransactionFolders, {
-      folderName: newCategoryName,
-      folderType: "custom",
-    });
-    if (result.error) {
-      setFolderError(result.error);
-      return;
-    }
-    if (result.folder) {
-      recordAudit({
-        entityType: "bankFolder",
-        entityId: result.folder.id,
-        entityLabel: result.folder.folderName,
-        screen: L.pageTitle,
-        action: "create",
-        after: snapshotBankFolderForAudit(result.folder),
-        fields: BANK_FOLDER_AUDIT_FIELDS,
-        user: currentUser,
-      });
-      setSelectedFolderId(result.folder.id);
-      setFolderScope(`custom:${result.folder.id}`);
-    }
-    setBankTransactionFolders(normalizeBankTransactionFolders(result.next));
-    setCreateCategoryOpen(false);
-    setNewCategoryName("");
-    setFolderError("");
-  };
-
   const handleDeleteFolder = (folder: BankTransactionFolder) => {
     const isCategoryRoot = folder.folderType === "custom" && !folder.parentId;
     if (!confirmDelete(isCategoryRoot ? L.deleteCategoryConfirm : L.deleteFolderConfirm)) return;
@@ -3617,8 +3567,11 @@ export function BankTransactionsPage({
           next,
           buildLedgerLinkDefaults(next.tx, next.fixedExpenseId, fixedExpensePayments, fixedExpenses),
         );
-      } else if (!next.category.trim()) {
-        next.category = expenseCategories[0] || EXPENSE_CATEGORY_OPTIONS[0];
+      } else {
+        next.category =
+          resolveExpenseCategoryFromTxAccount(accountCodes, next.tx) ||
+          expenseCategories[0] ||
+          EXPENSE_CATEGORY_OPTIONS[0];
       }
       return next;
     });
@@ -3632,9 +3585,9 @@ export function BankTransactionsPage({
       (Boolean(ledgerModal.editExpenseId) && ledgerModal.kind === "fixed");
 
     if (kindChanged && ledgerModal.editPaymentId && ledgerModal.kind === "manual") {
-      const category = ledgerModal.category.trim();
-      if (!category) {
-        setLedgerFormError("\uCE74\uD14C\uACE0\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.");
+      const category = resolveExpenseCategoryFromTxAccount(accountCodes, ledgerModal.tx);
+      if (!String(ledgerModal.tx.ledgerAccountCode || "").trim() || !category) {
+        setLedgerFormError(L.accountSubjectRequired);
         return;
       }
       const error = validateCompanyExpenseInput({
@@ -3716,11 +3669,7 @@ export function BankTransactionsPage({
 
     if (kindChanged && ledgerModal.editExpenseId && ledgerModal.kind === "fixed") {
       const fixedExpenseId = ledgerModal.fixedExpenseId.trim();
-      const category = ledgerModal.category.trim();
-      if (!category) {
-        setLedgerFormError("\uCE74\uD14C\uACE0\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.");
-        return;
-      }
+      const category = resolveFixedExpenseItemCategory(fixedExpenses, fixedExpenseId);
       if (!fixedExpenseId) {
         setLedgerFormError("\uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.");
         return;
@@ -3847,11 +3796,7 @@ export function BankTransactionsPage({
 
     if (ledgerModal.kind === "fixed" && ledgerModal.editPaymentId) {
       const fixedExpenseId = ledgerModal.fixedExpenseId.trim();
-      const category = ledgerModal.category.trim();
-      if (!category) {
-        setLedgerFormError("\uCE74\uD14C\uACE0\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.");
-        return;
-      }
+      const category = resolveFixedExpenseItemCategory(fixedExpenses, fixedExpenseId);
       if (!fixedExpenseId) {
         setLedgerFormError("\uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.");
         return;
@@ -3933,9 +3878,9 @@ export function BankTransactionsPage({
     }
 
     if (ledgerModal.kind === "manual" && ledgerModal.editExpenseId) {
-      const category = ledgerModal.category.trim();
-      if (!category) {
-        setLedgerFormError("\uCE74\uD14C\uACE0\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.");
+      const category = resolveExpenseCategoryFromTxAccount(accountCodes, ledgerModal.tx);
+      if (!String(ledgerModal.tx.ledgerAccountCode || "").trim() || !category) {
+        setLedgerFormError(L.accountSubjectRequired);
         return;
       }
       const error = validateCompanyExpenseInput({
@@ -4027,11 +3972,7 @@ export function BankTransactionsPage({
 
     if (ledgerModal.kind === "fixed") {
       const fixedExpenseId = ledgerModal.fixedExpenseId.trim();
-      const category = ledgerModal.category.trim();
-      if (!category) {
-        setLedgerFormError("\uCE74\uD14C\uACE0\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.");
-        return;
-      }
+      const category = resolveFixedExpenseItemCategory(fixedExpenses, fixedExpenseId);
 
       if (!fixedExpenseId) {
         setLedgerFormError("\uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.");
@@ -4182,9 +4123,10 @@ export function BankTransactionsPage({
       return;
     }
 
-    const category = ledgerModal.category.trim();
-    if (!category) {
-      setLedgerFormError("\uCE74\uD14C\uACE0\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.");
+    const accountCode = String(ledgerModal.tx.ledgerAccountCode || "").trim();
+    const category = resolveExpenseCategoryFromTxAccount(accountCodes, ledgerModal.tx);
+    if (!accountCode || !category) {
+      setLedgerFormError(L.accountSubjectRequired);
       return;
     }
 
@@ -5216,7 +5158,6 @@ export function BankTransactionsPage({
                   className="rounded-xl"
                   onClick={() => {
                     setNewFixedExpenseName("");
-                    setNewFixedExpenseCategory(fixedExpenseCategories[0] || FIXED_CATEGORY_OPTIONS[0]);
                     setAddFixedExpenseModalOpen(true);
                   }}
                 >
@@ -5698,21 +5639,18 @@ export function BankTransactionsPage({
               <Field label={L.ledgerDate}>
                 <KoreanDateInput value={ledgerModal.date} onChange={(event) => setLedgerModal((prev) => (prev ? { ...prev, date: event.target.value } : prev))} />
               </Field>
-              <Field label={L.ledgerManualCategory}>
-                <CategorySuggestInput
-                  value={ledgerModal.category}
-                  options={activeLedgerCategoryOptions}
-                  placeholder={L.ledgerManualCategory}
-                  className="rounded-xl"
-                  onChange={(value) =>
-                    setLedgerModal((prev) => (prev ? { ...prev, category: value.trim() } : prev))
-                  }
-                />
-                <p className="mt-1.5 text-xs font-semibold text-slate-500">{L.ledgerCategoryAddHint}</p>
-                <p className="mt-1 text-xs font-semibold text-slate-500">
-                  {ledgerModal.kind === "fixed" ? L.ledgerSaveFixedHint : L.ledgerSaveManualHint}
-                </p>
-              </Field>
+              {ledgerModal.kind === "manual" ? (
+                <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm">
+                  <span className="font-semibold text-slate-600">{L.accountSubject}: </span>
+                  <span className="font-bold text-slate-900">
+                    {formatTxAccountSubjectLabel(ledgerModal.tx, accountCodes, accountSubjectLabels) ||
+                      L.accountSubjectPlaceholder}
+                  </span>
+                  <p className="mt-1 text-xs font-semibold text-slate-500">{L.ledgerSaveManualHint}</p>
+                </div>
+              ) : (
+                <p className="sm:col-span-2 text-xs font-semibold text-slate-500">{L.ledgerSaveFixedHint}</p>
+              )}
               <div className="sm:col-span-2">
                 <Field label={L.ledgerDescription}>
                   <input
@@ -6141,19 +6079,18 @@ export function BankTransactionsPage({
                   }
                 />
               </Field>
-              <Field label={ledgerReviewPrompt.kind === "fixed" ? L.ledgerCategory : L.ledgerManualCategory}>
-                <CategorySuggestInput
-                  value={ledgerReviewPrompt.category}
-                  options={reviewCategoryOptions}
-                  placeholder={L.ledgerManualCategory}
-                  className="rounded-xl"
-                  onChange={(value) => {
-                    setLedgerReviewPromptError("");
-                    setLedgerReviewPrompt((prev) => (prev ? { ...prev, category: value.trim() } : prev));
-                  }}
-                />
-                <p className="mt-1.5 text-xs font-semibold text-slate-500">{L.ledgerCategoryAddHint}</p>
-              </Field>
+              {ledgerReviewPrompt.kind === "manual" ? (
+                <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm">
+                  <span className="font-semibold text-slate-600">{L.accountSubject}: </span>
+                  <span className="font-bold text-slate-900">
+                    {formatTxAccountSubjectLabel(
+                      ledgerReviewPrompt.transactions[0]!,
+                      accountCodes,
+                      accountSubjectLabels,
+                    ) || L.accountSubjectPlaceholder}
+                  </span>
+                </div>
+              ) : null}
               <div className="sm:col-span-2">
                 <Field label={L.ledgerDescription}>
                   <input
@@ -6199,46 +6136,6 @@ export function BankTransactionsPage({
               <Button type="button" className="rounded-2xl" onClick={saveLedgerReviewPrompt}>
                 <BookOpen size={16} className="mr-2" />
                 {L.categoryPromptSave}
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {createCategoryOpen ? (
-        <div className="erp-ledger-modal-backdrop" onClick={() => setCreateCategoryOpen(false)}>
-          <div
-            className="erp-ledger-modal max-w-md"
-            onClick={(event) => event.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-          >
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="erp-text-section font-bold">{L.createCategory}</h2>
-              <button
-                type="button"
-                className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
-                onClick={() => setCreateCategoryOpen(false)}
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <p className="mb-4 text-sm text-slate-600">{L.createCategoryHint}</p>
-            <Field label={L.folderName}>
-              <input
-                className="erp-input w-full rounded-xl"
-                value={newCategoryName}
-                onChange={(event) => setNewCategoryName(event.target.value)}
-                placeholder="예: 세금, 대출금, 기타수입"
-              />
-            </Field>
-            {folderError ? <p className="mt-3 text-sm font-semibold text-red-600">{folderError}</p> : null}
-            <div className="mt-5 flex justify-end gap-2">
-              <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setCreateCategoryOpen(false)}>
-                {L.cancel}
-              </Button>
-              <Button type="button" className="rounded-2xl" onClick={handleCreateCategory}>
-                {L.saveFolder}
               </Button>
             </div>
           </div>
@@ -6528,19 +6425,6 @@ export function BankTransactionsPage({
                   value={newFixedExpenseName}
                   onChange={(event) => setNewFixedExpenseName(event.target.value)}
                 />
-              </Field>
-              <Field label={L.newFixedExpenseCategory}>
-                <select
-                  className="erp-input w-full rounded-xl"
-                  value={newFixedExpenseCategory}
-                  onChange={(event) => setNewFixedExpenseCategory(event.target.value)}
-                >
-                  {normalizeExpenseCategories(expenseCategories).map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
               </Field>
             </div>
             <div className="mt-5 flex justify-end gap-2">

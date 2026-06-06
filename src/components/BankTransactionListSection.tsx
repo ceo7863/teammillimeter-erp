@@ -243,7 +243,7 @@ function BankTransactionListSectionComponent({
         labels={mobileLabels}
         badgeLabels={badgeLabels}
         onEditAccountContent={handleEditMemo}
-        onEditCategory={handleEditAccountSubject}
+        onEditAccountSubject={handleEditAccountSubject}
         onEditFixedExpense={handleEditClient}
       />
       <BankTransactionSplitTable

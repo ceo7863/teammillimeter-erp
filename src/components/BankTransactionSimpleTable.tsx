@@ -29,7 +29,7 @@ type BankTransactionSimpleTableProps = {
   labels: BankTransactionSimpleTableLabels;
   badgeLabels: BankTransactionCompactRowLabels;
   onEditAccountContent: (id: string) => void;
-  onEditCategory: (id: string) => void;
+  onEditAccountSubject: (id: string) => void;
   onEditFixedExpense: (id: string) => void;
 };
 
@@ -39,7 +39,7 @@ function BankTransactionSimpleTableComponent({
   labels,
   badgeLabels,
   onEditAccountContent,
-  onEditCategory,
+  onEditAccountSubject,
   onEditFixedExpense,
 }: BankTransactionSimpleTableProps) {
   return (
@@ -77,7 +77,7 @@ function BankTransactionSimpleTableComponent({
                   labels={badgeLabels}
                   tableLabels={labels}
                   onEditAccountContent={onEditAccountContent}
-                  onEditCategory={onEditCategory}
+                  onEditAccountSubject={onEditAccountSubject}
                   onEditFixedExpense={onEditFixedExpense}
                 />
               );

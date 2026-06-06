@@ -2,11 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BookOpen, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  CategoryDatalistOptions,
-  UncontrolledBufferedTextarea,
-  UncontrolledCategoryInput,
-} from "@/components/AutocompleteInput";
+import { UncontrolledBufferedTextarea } from "@/components/AutocompleteInput";
 import { AutocompleteInput } from "@/components/AutocompleteInput";
 import { applyMemoCategoryToLedgerDraft } from "@/utils/bankCompanyLedger";
 import { formatKRW, normalizeExpenseCategoryName, EXPENSE_CATEGORY_OPTIONS } from "@/utils/companyLedger";
@@ -29,9 +25,6 @@ export type DrawerClientAutocompleteOption = {
   value: string;
   raw?: { manager?: string; depositNameAliases?: string };
 };
-
-export const BANK_TX_MANUAL_CATEGORY_LIST_ID = "erp-bank-tx-category-manual";
-export const BANK_TX_FIXED_CATEGORY_LIST_ID = "erp-bank-tx-category-fixed";
 
 const LEDGER_KIND_OPTIONS: Array<{ key: LedgerRegisterKind; label: string; tone: string; activeTone: string }> = [
   { key: "manual", label: "\uBCC0\uB3D9 \uC9C0\uCD9C", tone: "border-slate-200 bg-white text-slate-600", activeTone: "border-slate-900 bg-slate-900 text-white" },
@@ -56,6 +49,8 @@ const LABELS = {
   bankName: "\uC740\uD589",
   transactionType: "\uAC70\uB798\uAD6C\uBD84",
   classification: "\uBD84\uB958",
+  accountSubject: "\uACC4\uC815",
+  accountSubjectPlaceholder: "\uACC4\uC815 \uC120\uD0DD",
   ledgerCategoryColumn: "\uAC00\uACC4\uBD80",
   matchStatus: "\uBBF8\uC218 \uC5F0\uACB0",
   linkedSubject: "\uC5F0\uACB0 \uC774\uB984",
@@ -64,7 +59,7 @@ const LABELS = {
   clientFolders: "\uAC70\uB798\uCC98 \uC785\uAE08",
   cardFolders: "\uCE74\uB4DC\uB9E4\uCD9C",
   workerFolders: "\uC2DC\uACF5\uC790 \uC9C0\uCD9C",
-  detailLedgerKindHint: "\uBCC0\uB3D9 \uC9C0\uCD9C\uC740 \uCE74\uD14C\uACE0\uB9AC\uB97C, \uACE0\uC815\uBE44\uB294 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD569\uB2C8\uB2E4.",
+  detailLedgerKindHint: "\uBCC0\uB3D9 \uC9C0\uCD9C\uC740 \uACC4\uC815\uC744, \uACE0\uC815\uBE44\uB294 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD569\uB2C8\uB2E4.",
   classificationKind: "\uBD84\uB958 \uC720\uD615",
   classificationClientDeposit: "\uAC70\uB798\uCC98 \uC785\uAE08",
   classificationCardSales: "\uCE74\uB4DC\uB9E4\uCD9C",
@@ -75,9 +70,6 @@ const LABELS = {
   depositSubject: "\uD1B5\uC7A5 \uD45C\uC2DC \uC774\uB984",
   ledgerKind: "\uB4F1\uB85D \uC720\uD615",
   ledgerFixedItem: "\uACE0\uC815\uBE44 \uD56D\uBAA9",
-  ledgerManualCategory: "\uC9C0\uCD9C \uCE74\uD14C\uACE0\uB9AC",
-  ledgerCategory: "\uCE74\uD14C\uACE0\uB9AC",
-  ledgerCategoryAddHint: "\uBAA9\uB85D\uC5D0 \uC5C6\uB294 \uCE74\uD14C\uACE0\uB9AC\uB294 \uC774\uB984\uC744 \uC785\uB825\uD558\uC138\uC694.",
   ledgerSendTo: "\uAC00\uACC4\uBD80\uB85C \uBCF4\uB0B4\uAE30",
   ledgerEditTitle: "\uAC00\uACC4\uBD80 \uB4F1\uB85D \uC218\uC815",
 };
@@ -102,6 +94,7 @@ export type DrawerFolderSelectData = {
 export type BankTransactionDetailDrawerProps = {
   tx: BankTransaction;
   folderLabel: string;
+  accountSubjectLabel: string;
   ledgerCategoryLabel: string | null;
   ledgerCategorySuggestion: string | null;
   matchStatusLabel: string;
@@ -112,8 +105,6 @@ export type BankTransactionDetailDrawerProps = {
   initialLedgerKind: LedgerRegisterKind;
   initialLedgerCategory: string;
   initialFixedExpenseId: string;
-  manualCategorySuggestions: readonly string[];
-  fixedCategorySuggestions: readonly string[];
   fixedExpenseOptions: Array<{ label: string; value: string }>;
   folderSelectData: DrawerFolderSelectData;
   clientAutocompleteOptions: DrawerClientAutocompleteOption[];
@@ -149,6 +140,14 @@ function DetailReadRow({ label, value }: { label: string; value: React.ReactNode
       <dd className="erp-bank-tx-detail-value">{value}</dd>
     </div>
   );
+}
+
+function fixedCategoryFromOption(
+  options: Array<{ label: string; value: string }>,
+  fixedExpenseId: string,
+) {
+  const selected = options.find((row) => row.value === fixedExpenseId);
+  return selected?.label.split(FIXED_LABEL_SPLIT)[1]?.trim() || "";
 }
 
 const DrawerClassificationSection = React.memo(function DrawerClassificationSection({
@@ -292,25 +291,17 @@ const DrawerFixedExpenseSelect = React.memo(function DrawerFixedExpenseSelect({
   value,
   options,
   onChange,
-  onPickCategory,
 }: {
   value: string;
   options: Array<{ label: string; value: string }>;
   onChange: (value: string) => void;
-  onPickCategory: (category: string) => void;
 }) {
   return (
     <Field label={LABELS.ledgerFixedItem}>
       <select
         className="erp-input w-full rounded-xl"
         value={value}
-        onChange={(event) => {
-          const nextFixedExpenseId = event.target.value;
-          onChange(nextFixedExpenseId);
-          const selected = options.find((row) => row.value === nextFixedExpenseId);
-          const categoryFromLabel = selected?.label.split(FIXED_LABEL_SPLIT)[1]?.trim();
-          if (categoryFromLabel) onPickCategory(categoryFromLabel);
-        }}
+        onChange={(event) => onChange(event.target.value)}
       >
         <option value="">{LABELS.ledgerFixedItem}</option>
         {options.map((row) => (
@@ -373,67 +364,20 @@ const DrawerMemoField = React.memo(function DrawerMemoField({
   );
 });
 
-const DrawerCategoryField = React.memo(function DrawerCategoryField({
-  defaultCategory,
-  draftRef,
-  inputRef,
-  listId,
-  label,
-  placeholder,
-}: {
-  defaultCategory: string;
-  draftRef: React.MutableRefObject<string>;
-  inputRef: React.RefObject<HTMLInputElement | null>;
-  listId: string;
-  label: string;
-  placeholder: string;
-}) {
-  return (
-    <Field label={label}>
-      <UncontrolledCategoryInput
-        defaultValue={defaultCategory}
-        draftRef={draftRef}
-        inputRef={inputRef}
-        listId={listId}
-        className="rounded-xl"
-        placeholder={placeholder}
-      />
-      <p className="mt-1.5 text-xs font-semibold text-slate-500">{LABELS.ledgerCategoryAddHint}</p>
-    </Field>
-  );
-});
-
-const BankTxCategoryDatalistPool = React.memo(function BankTxCategoryDatalistPool({
-  manualSuggestions,
-  fixedSuggestions,
-}: {
-  manualSuggestions: readonly string[];
-  fixedSuggestions: readonly string[];
-}) {
-  if (typeof document === "undefined") return null;
-  return createPortal(
-    <>
-      <CategoryDatalistOptions listId={BANK_TX_MANUAL_CATEGORY_LIST_ID} suggestions={manualSuggestions} />
-      <CategoryDatalistOptions listId={BANK_TX_FIXED_CATEGORY_LIST_ID} suggestions={fixedSuggestions} />
-    </>,
-    document.body,
-  );
-});
-
 function resolveDrawerCategory(
   memo: string,
-  rawCategory: string,
+  seedCategory: string,
   ledgerKind: LedgerRegisterKind,
 ): { ledgerKind: LedgerRegisterKind; ledgerCategory: string } {
   const draft = applyMemoCategoryToLedgerDraft(
     memo,
-    { ledgerKind, ledgerCategory: rawCategory },
+    { ledgerKind, ledgerCategory: seedCategory },
     EXPENSE_CATEGORY_OPTIONS,
   );
   const ledgerCategory = draft.ledgerCategory
     ? normalizeExpenseCategoryName(draft.ledgerCategory)
-    : rawCategory.trim()
-      ? normalizeExpenseCategoryName(rawCategory.trim())
+    : seedCategory.trim()
+      ? normalizeExpenseCategoryName(seedCategory.trim())
       : "";
   return { ledgerKind: draft.ledgerKind, ledgerCategory };
 }
@@ -447,6 +391,7 @@ function drawerPropsEqual(
     prev.tx.memo === next.tx.memo &&
     prev.tx.folderId === next.tx.folderId &&
     prev.folderLabel === next.folderLabel &&
+    prev.accountSubjectLabel === next.accountSubjectLabel &&
     prev.ledgerCategoryLabel === next.ledgerCategoryLabel &&
     prev.ledgerCategorySuggestion === next.ledgerCategorySuggestion &&
     prev.matchStatusLabel === next.matchStatusLabel &&
@@ -458,8 +403,6 @@ function drawerPropsEqual(
     prev.initialClientName === next.initialClientName &&
     prev.depositSubject === next.depositSubject &&
     prev.clientAutocompleteOptions === next.clientAutocompleteOptions &&
-    prev.manualCategorySuggestions === next.manualCategorySuggestions &&
-    prev.fixedCategorySuggestions === next.fixedCategorySuggestions &&
     prev.fixedExpenseOptions === next.fixedExpenseOptions &&
     prev.folderSelectData === next.folderSelectData &&
     prev.canLedger === next.canLedger &&
@@ -474,6 +417,7 @@ function drawerPropsEqual(
 export const BankTransactionDetailDrawer = React.memo(function BankTransactionDetailDrawer({
   tx,
   folderLabel,
+  accountSubjectLabel,
   ledgerCategoryLabel,
   ledgerCategorySuggestion,
   matchStatusLabel,
@@ -484,8 +428,6 @@ export const BankTransactionDetailDrawer = React.memo(function BankTransactionDe
   initialLedgerKind,
   initialLedgerCategory,
   initialFixedExpenseId,
-  manualCategorySuggestions,
-  fixedCategorySuggestions,
   fixedExpenseOptions,
   folderSelectData,
   clientAutocompleteOptions,
@@ -498,8 +440,6 @@ export const BankTransactionDetailDrawer = React.memo(function BankTransactionDe
 }: BankTransactionDetailDrawerProps) {
   const memoDraftRef = useRef(tx.memo || "");
   const memoTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const categoryDraftRef = useRef(initialLedgerCategory);
-  const categoryInputRef = useRef<HTMLInputElement>(null);
   const onCloseRef = useRef(onClose);
   const onSaveRef = useRef(onSave);
   const onOpenLedgerRegisterRef = useRef(onOpenLedgerRegister);
@@ -519,8 +459,6 @@ export const BankTransactionDetailDrawer = React.memo(function BankTransactionDe
 
   useEffect(() => {
     memoDraftRef.current = tx.memo || "";
-    categoryDraftRef.current = initialLedgerCategory;
-    if (categoryInputRef.current) categoryInputRef.current.value = initialLedgerCategory;
     setFolderId(tx.folderId || "");
     setClassificationKind(initialClassificationKind);
     setClientName(initialClientName);
@@ -550,11 +488,6 @@ export const BankTransactionDetailDrawer = React.memo(function BankTransactionDe
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  const setCategoryFromFixedPick = useCallback((category: string) => {
-    categoryDraftRef.current = category;
-    if (categoryInputRef.current) categoryInputRef.current.value = category;
-  }, []);
-
   const handleClassificationKindChange = useCallback(
     (kind: DrawerClassificationKind) => {
       setClassificationKind(kind);
@@ -577,24 +510,26 @@ export const BankTransactionDetailDrawer = React.memo(function BankTransactionDe
     const commitSave = () => {
       const memo = (memoTextareaRef.current?.value ?? memoDraftRef.current).trim();
       memoDraftRef.current = memo;
-      const rawCategory = (categoryInputRef.current?.value ?? categoryDraftRef.current).trim();
-      const resolved = isDrawerFolderClassificationKind(classificationKind)
-        ? { ledgerKind: "manual" as LedgerRegisterKind, ledgerCategory: "" }
-        : resolveDrawerCategory(memo, rawCategory, ledgerKind);
-      categoryDraftRef.current = resolved.ledgerCategory;
-      if (categoryInputRef.current && resolved.ledgerCategory !== rawCategory) {
-        categoryInputRef.current.value = resolved.ledgerCategory;
+
+      let resolvedKind = ledgerKind;
+      let ledgerCategory = "";
+      if (isDrawerFolderClassificationKind(classificationKind)) {
+        resolvedKind = "manual";
+      } else if (ledgerKind === "fixed") {
+        ledgerCategory =
+          fixedCategoryFromOption(fixedExpenseOptions, fixedExpenseId.trim()) || initialLedgerCategory.trim();
+      } else {
+        const resolved = resolveDrawerCategory(memo, initialLedgerCategory, ledgerKind);
+        resolvedKind = resolved.ledgerKind;
+        ledgerCategory = resolved.ledgerCategory;
       }
 
       let resolvedFixedId = fixedExpenseId.trim();
-      if (resolved.ledgerKind === "fixed") {
-        const selected = fixedExpenseOptions.find((row) => row.value === resolvedFixedId);
-        if (!selected) {
-          const byLabel = fixedExpenseOptions.find(
-            (row) => row.label.split(FIXED_LABEL_SPLIT)[0]?.trim() === resolved.ledgerCategory,
-          );
-          if (byLabel) resolvedFixedId = byLabel.value;
-        }
+      if (resolvedKind === "fixed" && !resolvedFixedId && ledgerCategory) {
+        const byLabel = fixedExpenseOptions.find(
+          (row) => row.label.split(FIXED_LABEL_SPLIT)[0]?.trim() === ledgerCategory,
+        );
+        if (byLabel) resolvedFixedId = byLabel.value;
       }
 
       onSaveRef.current({
@@ -602,21 +537,23 @@ export const BankTransactionDetailDrawer = React.memo(function BankTransactionDe
         classificationKind,
         clientName: clientName.trim(),
         folderId,
-        ledgerKind: resolved.ledgerKind,
-        ledgerCategory: resolved.ledgerCategory,
+        ledgerKind: resolvedKind,
+        ledgerCategory,
         fixedExpenseId: resolvedFixedId,
       });
     };
 
-    categoryInputRef.current?.blur();
     memoTextareaRef.current?.blur();
     window.setTimeout(commitSave, 0);
-  }, [classificationKind, clientName, fixedExpenseId, fixedExpenseOptions, folderId, ledgerKind]);
-
-  const categoryListId =
-    ledgerKind === "fixed" ? BANK_TX_FIXED_CATEGORY_LIST_ID : BANK_TX_MANUAL_CATEGORY_LIST_ID;
-  const categoryLabel =
-    ledgerKind === "fixed" ? LABELS.ledgerCategory : LABELS.ledgerManualCategory;
+  }, [
+    classificationKind,
+    clientName,
+    fixedExpenseId,
+    fixedExpenseOptions,
+    folderId,
+    initialLedgerCategory,
+    ledgerKind,
+  ]);
 
   const deposit = parseBankAmount(tx.deposit);
   const withdrawal = parseBankAmount(tx.withdrawal);
@@ -626,183 +563,167 @@ export const BankTransactionDetailDrawer = React.memo(function BankTransactionDe
 
   if (typeof document === "undefined") return null;
 
-  return (
-    <>
-      <BankTxCategoryDatalistPool
-        manualSuggestions={manualCategorySuggestions}
-        fixedSuggestions={fixedCategorySuggestions}
-      />
-      {createPortal(
-        <div
-          className="erp-ledger-calendar-drawer-backdrop erp-ledger-calendar-drawer-backdrop--elevated"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) onCloseRef.current();
-          }}
-        >
-          <aside
-            className="erp-ledger-calendar-drawer erp-bank-tx-detail-drawer erp-calendar-side-panel"
-            aria-label={LABELS.detailTitle}
-            onMouseDown={(event) => event.stopPropagation()}
-            onClick={(event) => event.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
+  return createPortal(
+    <div
+      className="erp-ledger-calendar-drawer-backdrop erp-ledger-calendar-drawer-backdrop--elevated"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onCloseRef.current();
+      }}
+    >
+      <aside
+        className="erp-ledger-calendar-drawer erp-bank-tx-detail-drawer erp-calendar-side-panel"
+        aria-label={LABELS.detailTitle}
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
+        <div className="erp-calendar-side-panel-head">
+          <div className="min-w-0">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{LABELS.detailTitle}</p>
+            <strong className="erp-calendar-side-panel-date mt-1 block text-base">
+              {formatBankTransactionDateTime(tx.transactionAt)}
+            </strong>
+            <p className="mt-1 truncate text-sm font-semibold text-slate-900">{tx.description || "-"}</p>
+            <p className="mt-1 text-sm font-bold text-slate-900">
+              {deposit > 0 ? (
+                <span className="text-emerald-700">
+                  {LABELS.deposit} {formatKRW(deposit)}
+                </span>
+              ) : withdrawal > 0 ? (
+                <span className="text-red-600">
+                  {LABELS.withdrawal} {formatKRW(withdrawal)}
+                </span>
+              ) : (
+                "-"
+              )}
+              {" \u00B7 "}
+              {LABELS.balance} {formatKRW(tx.balanceAfter)}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="rounded-xl p-2 text-slate-400 hover:bg-slate-100"
+            onClick={() => onCloseRef.current()}
           >
-            <div className="erp-calendar-side-panel-head">
-              <div className="min-w-0">
-                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{LABELS.detailTitle}</p>
-                <strong className="erp-calendar-side-panel-date mt-1 block text-base">
-                  {formatBankTransactionDateTime(tx.transactionAt)}
-                </strong>
-                <p className="mt-1 truncate text-sm font-semibold text-slate-900">{tx.description || "-"}</p>
-                <p className="mt-1 text-sm font-bold text-slate-900">
-                  {deposit > 0 ? (
-                    <span className="text-emerald-700">
-                      {LABELS.deposit} {formatKRW(deposit)}
-                    </span>
-                  ) : withdrawal > 0 ? (
-                    <span className="text-red-600">
-                      {LABELS.withdrawal} {formatKRW(withdrawal)}
-                    </span>
-                  ) : (
-                    "-"
-                  )}
-                  {" \u00B7 "}
-                  {LABELS.balance} {formatKRW(tx.balanceAfter)}
-                </p>
-              </div>
-              <button
-                type="button"
-                className="rounded-xl p-2 text-slate-400 hover:bg-slate-100"
-                onClick={() => onCloseRef.current()}
-              >
-                <X size={18} />
-              </button>
-            </div>
+            <X size={18} />
+          </button>
+        </div>
 
-            <div className="erp-calendar-side-panel-body erp-bank-tx-detail-body">
-              <section className="erp-bank-tx-detail-section">
-                <h3 className="erp-bank-tx-detail-section-title">{LABELS.detailInfoSection}</h3>
-                <dl className="erp-bank-tx-detail-grid">
-                  <DetailReadRow label={LABELS.description} value={tx.description || "-"} />
-                  <DetailReadRow label={LABELS.counterpartyName} value={tx.counterpartyName || "-"} />
-                  <DetailReadRow label={LABELS.counterpartyBank} value={tx.counterpartyBank || "-"} />
-                  <DetailReadRow label={LABELS.accountNumber} value={tx.accountNumber || "-"} />
-                  <DetailReadRow label={LABELS.bankName} value={tx.bankName || "-"} />
-                  <DetailReadRow label={LABELS.transactionType} value={tx.transactionType || "-"} />
-                  <DetailReadRow label={LABELS.classification} value={folderLabel} />
-                  <DetailReadRow
-                    label={LABELS.ledgerCategoryColumn}
-                    value={ledgerCategoryLabel || ledgerCategorySuggestion || "-"}
+        <div className="erp-calendar-side-panel-body erp-bank-tx-detail-body">
+          <section className="erp-bank-tx-detail-section">
+            <h3 className="erp-bank-tx-detail-section-title">{LABELS.detailInfoSection}</h3>
+            <dl className="erp-bank-tx-detail-grid">
+              <DetailReadRow label={LABELS.description} value={tx.description || "-"} />
+              <DetailReadRow label={LABELS.counterpartyName} value={tx.counterpartyName || "-"} />
+              <DetailReadRow label={LABELS.counterpartyBank} value={tx.counterpartyBank || "-"} />
+              <DetailReadRow label={LABELS.accountNumber} value={tx.accountNumber || "-"} />
+              <DetailReadRow label={LABELS.bankName} value={tx.bankName || "-"} />
+              <DetailReadRow label={LABELS.transactionType} value={tx.transactionType || "-"} />
+              <DetailReadRow label={LABELS.classification} value={folderLabel} />
+              <DetailReadRow
+                label={LABELS.accountSubject}
+                value={accountSubjectLabel || LABELS.accountSubjectPlaceholder}
+              />
+              <DetailReadRow
+                label={LABELS.ledgerCategoryColumn}
+                value={ledgerCategoryLabel || ledgerCategorySuggestion || "-"}
+              />
+              <DetailReadRow label={LABELS.matchStatus} value={matchStatusLabel} />
+              {linkedSubject ? <DetailReadRow label={LABELS.linkedSubject} value={linkedSubject} /> : null}
+              {tx.memo ? <DetailReadRow label={LABELS.memo} value={tx.memo} /> : null}
+            </dl>
+          </section>
+
+          {editReady ? (
+            <section className="erp-bank-tx-detail-section">
+              <h3 className="erp-bank-tx-detail-section-title">{LABELS.detailEditSection}</h3>
+              <p className="mb-3 text-xs font-semibold text-slate-500">{LABELS.memoEditHint}</p>
+              <div className="space-y-3">
+                <DrawerMemoField
+                  key={tx.id}
+                  defaultMemo={tx.memo || ""}
+                  draftRef={memoDraftRef}
+                  textareaRef={memoTextareaRef}
+                />
+                <DrawerClassificationSection
+                  classificationKind={classificationKind}
+                  onClassificationKindChange={handleClassificationKindChange}
+                  clientName={clientName}
+                  onClientNameChange={setClientName}
+                  depositSubject={depositSubject}
+                  folderId={folderId}
+                  onFolderChange={setFolderId}
+                  cardOptions={folderSelectData.cardOptions}
+                  workerOptions={folderSelectData.workerOptions}
+                  customOptgroups={folderSelectData.customOptgroups}
+                  clientAutocompleteOptions={clientAutocompleteOptions}
+                  showClientDeposit={showClientDeposit}
+                  showCardSales={showCardSales}
+                  showWorkerPayout={showWorkerPayout}
+                />
+                <DrawerLedgerKindToggle ledgerKind={ledgerKind} onChange={setLedgerKind} />
+                {ledgerKind === "fixed" ? (
+                  <DrawerFixedExpenseSelect
+                    value={fixedExpenseId}
+                    options={fixedExpenseOptions}
+                    onChange={setFixedExpenseId}
                   />
-                  <DetailReadRow label={LABELS.matchStatus} value={matchStatusLabel} />
-                  {linkedSubject ? <DetailReadRow label={LABELS.linkedSubject} value={linkedSubject} /> : null}
-                  {tx.memo ? <DetailReadRow label={LABELS.memo} value={tx.memo} /> : null}
-                </dl>
-              </section>
-
-              {editReady ? (
-                <section className="erp-bank-tx-detail-section">
-                  <h3 className="erp-bank-tx-detail-section-title">{LABELS.detailEditSection}</h3>
-                  <p className="mb-3 text-xs font-semibold text-slate-500">{LABELS.memoEditHint}</p>
-                  <div className="space-y-3">
-                    <DrawerMemoField
-                      key={tx.id}
-                      defaultMemo={tx.memo || ""}
-                      draftRef={memoDraftRef}
-                      textareaRef={memoTextareaRef}
-                    />
-                    <DrawerClassificationSection
-                      classificationKind={classificationKind}
-                      onClassificationKindChange={handleClassificationKindChange}
-                      clientName={clientName}
-                      onClientNameChange={setClientName}
-                      depositSubject={depositSubject}
-                      folderId={folderId}
-                      onFolderChange={setFolderId}
-                      cardOptions={folderSelectData.cardOptions}
-                      workerOptions={folderSelectData.workerOptions}
-                      customOptgroups={folderSelectData.customOptgroups}
-                      clientAutocompleteOptions={clientAutocompleteOptions}
-                      showClientDeposit={showClientDeposit}
-                      showCardSales={showCardSales}
-                      showWorkerPayout={showWorkerPayout}
-                    />
-                    <DrawerLedgerKindToggle ledgerKind={ledgerKind} onChange={setLedgerKind} />
-                    {ledgerKind === "fixed" ? (
-                      <DrawerFixedExpenseSelect
-                        value={fixedExpenseId}
-                        options={fixedExpenseOptions}
-                        onChange={setFixedExpenseId}
-                        onPickCategory={setCategoryFromFixedPick}
-                      />
-                    ) : null}
-                    <DrawerCategoryField
-                      key={`${tx.id}-${ledgerKind}`}
-                      defaultCategory={initialLedgerCategory}
-                      draftRef={categoryDraftRef}
-                      inputRef={categoryInputRef}
-                      listId={categoryListId}
-                      label={categoryLabel}
-                      placeholder={categoryLabel}
-                    />
+                ) : (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm">
+                    <span className="font-semibold text-slate-600">{LABELS.accountSubject}: </span>
+                    <span className="font-bold text-slate-900">
+                      {accountSubjectLabel || LABELS.accountSubjectPlaceholder}
+                    </span>
                   </div>
-                </section>
-              ) : null}
+                )}
+              </div>
+            </section>
+          ) : null}
 
-              {canLedger || onOpenLedgerEdit ? (
-                <div className="flex flex-wrap gap-2">
-                  {onOpenLedgerEdit ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="rounded-xl border-amber-200 bg-amber-50 text-amber-900"
-                      onClick={() => onOpenLedgerEditRef.current?.()}
-                    >
-                      <BookOpen size={14} className="mr-1" />
-                      {LABELS.ledgerEditTitle}
-                    </Button>
-                  ) : null}
-                  {canLedger && onOpenLedgerRegister ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="rounded-xl border-amber-200 bg-amber-50 text-amber-900"
-                      onClick={() => onOpenLedgerRegisterRef.current?.()}
-                    >
-                      <BookOpen size={14} className="mr-1" />
-                      {LABELS.ledgerSendTo}
-                    </Button>
-                  ) : null}
-                </div>
+          {canLedger || onOpenLedgerEdit ? (
+            <div className="flex flex-wrap gap-2">
+              {onOpenLedgerEdit ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl border-amber-200 bg-amber-50 text-amber-900"
+                  onClick={() => onOpenLedgerEditRef.current?.()}
+                >
+                  <BookOpen size={14} className="mr-1" />
+                  {LABELS.ledgerEditTitle}
+                </Button>
+              ) : null}
+              {canLedger && onOpenLedgerRegister ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl border-amber-200 bg-amber-50 text-amber-900"
+                  onClick={() => onOpenLedgerRegisterRef.current?.()}
+                >
+                  <BookOpen size={14} className="mr-1" />
+                  {LABELS.ledgerSendTo}
+                </Button>
               ) : null}
             </div>
+          ) : null}
+        </div>
 
-            <div className="erp-bank-tx-detail-footer">
-              {saveError ? (
-                <div className="mb-3 w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-600">
-                  {saveError}
-                </div>
-              ) : null}
-              <Button
-                type="button"
-                variant="outline"
-                className="rounded-2xl"
-                onClick={() => onCloseRef.current()}
-              >
-                {LABELS.cancel}
-              </Button>
-              <Button
-                type="button"
-                className="rounded-2xl"
-                onClick={handleSave}
-              >
-                {LABELS.detailSave}
-              </Button>
+        <div className="erp-bank-tx-detail-footer">
+          {saveError ? (
+            <div className="mb-3 w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-600">
+              {saveError}
             </div>
-          </aside>
-        </div>,
-        document.body,
-      )}
-    </>
+          ) : null}
+          <Button type="button" variant="outline" className="rounded-2xl" onClick={() => onCloseRef.current()}>
+            {LABELS.cancel}
+          </Button>
+          <Button type="button" className="rounded-2xl" onClick={handleSave}>
+            {LABELS.detailSave}
+          </Button>
+        </div>
+      </aside>
+    </div>,
+    document.body,
   );
 }, drawerPropsEqual);
