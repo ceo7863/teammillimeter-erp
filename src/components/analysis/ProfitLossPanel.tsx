@@ -2,13 +2,13 @@ import React, { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { DesktopTableWrap } from "@/components/MobileRecordCard";
-import { formatKRW, formatMonthLabel, type CompanyExpense } from "@/utils/companyLedger";
+import { formatKRW, formatMonthLabel, type CompanyExpense, type FixedExpense, type FixedExpensePayment } from "@/utils/companyLedger";
 import type { BankTransaction } from "@/utils/bankTransactions";
 import type { TaxInvoice } from "@/utils/taxInvoices";
 import {
   buildAccrualProfitLossTree,
   buildMonthlyAccountTree,
-  collectMonthKeysFromEntries,
+  collectAnalysisMonthKeys,
   type AccrualProfitLossTreeNode,
   type MonthlyAccountTreeNode,
 } from "@/utils/financialAnalysis";
@@ -32,6 +32,8 @@ type ProfitBasis = "cash" | "accrual";
 type ProfitLossPanelProps = {
   bankTransactions: BankTransaction[];
   companyExpenses: CompanyExpense[];
+  fixedExpensePayments?: FixedExpensePayment[];
+  fixedExpenses?: FixedExpense[];
   ledgerCategories: LedgerCategory[];
   accountCodes: AccountCode[];
   taxInvoices: TaxInvoice[];
@@ -46,6 +48,8 @@ function isCashRow(row: TreeRow): row is MonthlyAccountTreeNode {
 export function ProfitLossPanel({
   bankTransactions,
   companyExpenses,
+  fixedExpensePayments,
+  fixedExpenses,
   ledgerCategories,
   accountCodes,
   taxInvoices,
@@ -58,13 +62,18 @@ export function ProfitLossPanel({
       buildAllLedgerEntries({
         bankTransactions,
         companyExpenses,
+        fixedExpensePayments,
+        fixedExpenses,
         categories: ledgerCategories,
         accountCodes,
       }),
-    [bankTransactions, companyExpenses, ledgerCategories, accountCodes],
+    [bankTransactions, companyExpenses, fixedExpensePayments, fixedExpenses, ledgerCategories, accountCodes],
   );
 
-  const monthKeys = useMemo(() => collectMonthKeysFromEntries(allEntries, 6), [allEntries]);
+  const monthKeys = useMemo(
+    () => collectAnalysisMonthKeys(allEntries, bankTransactions, taxInvoices, 6),
+    [allEntries, bankTransactions, taxInvoices],
+  );
 
   const cashIncomeTree = useMemo(
     () => buildMonthlyAccountTree(allEntries, accountCodes, monthKeys, "income"),

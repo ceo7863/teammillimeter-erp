@@ -1,6 +1,6 @@
 import { isTertiaryAccountCode } from "./accountCodeTree";
 import { buildBankAccountSummaries, type BankTransaction } from "./bankTransactions";
-import { getMonthKey, monthRangeForKey } from "./companyLedger";
+import { getMonthKey, monthRangeForKey, shiftMonthKey, todayISO } from "./companyLedger";
 import {
   findAccountCodeByCode,
   resolveAccountCodeLabel,
@@ -239,12 +239,13 @@ export function buildMonthlyAccountTree(
     if (flow && row.flow !== flow) continue;
     const monthKey = getMonthKey(row.date);
     if (!monthKey || !monthSet.has(monthKey)) continue;
-    if (isUncategorizedEntry(row)) continue;
 
     const accountCode = row.accountCode || "900";
     const accountRow = findAccountCodeByCode(accountCodes, accountCode);
     const label = resolveAccountCodeLabel(accountCodes, accountCode) || row.accountName || accountCode;
-    const parentGroup = resolveParentGroup(accountCodes, accountCode);
+    const parentGroup = isUncategorizedEntry(row)
+      ? "\uBBF8\uBD84\uB958"
+      : resolveParentGroup(accountCodes, accountCode);
     const current = accountBuckets.get(accountCode) || {
       parentGroup,
       label: accountRow?.name || label,
@@ -565,6 +566,34 @@ export function collectMonthKeysFromEntries(entries: LedgerEntry[], limit = 12):
   for (const row of entries.filter((item) => item.status === "confirmed")) {
     const mk = getMonthKey(row.date);
     if (mk) keys.add(mk);
+  }
+  return [...keys].sort((a, b) => b.localeCompare(a)).slice(0, limit).reverse();
+}
+
+export function collectAnalysisMonthKeys(
+  entries: LedgerEntry[],
+  bankTransactions: BankTransaction[],
+  taxInvoices: TaxInvoice[] = [],
+  limit = 12,
+): string[] {
+  const keys = new Set<string>();
+  for (const row of entries.filter((item) => item.status === "confirmed")) {
+    const mk = getMonthKey(row.date);
+    if (mk) keys.add(mk);
+  }
+  for (const tx of bankTransactions) {
+    const mk = getMonthKey(txDate(tx));
+    if (mk) keys.add(mk);
+  }
+  for (const row of taxInvoices.filter((item) => item.status === "issued")) {
+    const mk = getMonthKey(row.issueDate);
+    if (mk) keys.add(mk);
+  }
+  if (keys.size === 0) {
+    const current = getMonthKey(todayISO()) || todayISO().slice(0, 7);
+    for (let offset = limit - 1; offset >= 0; offset -= 1) {
+      keys.add(shiftMonthKey(current, -offset));
+    }
   }
   return [...keys].sort((a, b) => b.localeCompare(a)).slice(0, limit).reverse();
 }

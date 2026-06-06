@@ -5,7 +5,7 @@ import { ProfitLossPanel } from "@/components/analysis/ProfitLossPanel";
 import { CashFlowPanel } from "@/components/analysis/CashFlowPanel";
 import { CustomAnalysisPanel } from "@/components/analysis/CustomAnalysisPanel";
 import type { BankTransaction } from "@/utils/bankTransactions";
-import type { CompanyExpense } from "@/utils/companyLedger";
+import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "@/utils/companyLedger";
 import type { AccountCode, LedgerCategory } from "@/utils/ledgerSystem";
 import type { TaxInvoice } from "@/utils/taxInvoices";
 import {
@@ -25,6 +25,8 @@ export type AnalysisHubPageProps = {
   isHubActive: boolean;
   bankTransactions: BankTransaction[];
   companyExpenses: CompanyExpense[];
+  fixedExpensePayments?: FixedExpensePayment[];
+  fixedExpenses?: FixedExpense[];
   ledgerCategories: LedgerCategory[];
   accountCodes: AccountCode[];
   taxInvoices: TaxInvoice[];
@@ -34,6 +36,8 @@ export function AnalysisHubPage({
   isHubActive: _isHubActive,
   bankTransactions,
   companyExpenses,
+  fixedExpensePayments,
+  fixedExpenses,
   ledgerCategories,
   accountCodes,
   taxInvoices,
@@ -54,6 +58,8 @@ export function AnalysisHubPage({
   const panelProps = {
     bankTransactions,
     companyExpenses,
+    fixedExpensePayments,
+    fixedExpenses,
     ledgerCategories,
     accountCodes,
   };

@@ -8,6 +8,8 @@ import {
   EXPENSE_CATEGORY_OPTIONS,
   FIXED_CATEGORY_OPTIONS,
   type CompanyExpense,
+  type FixedExpense,
+  type FixedExpensePayment,
   formatKRW,
   getMonthKey,
 } from "./companyLedger";
@@ -287,10 +289,17 @@ export function isBankTxLedgerCandidate(tx: BankTransaction) {
   return true;
 }
 
+export type BuildLedgerEntryContext = {
+  companyExpenses?: CompanyExpense[];
+  fixedExpensePayments?: FixedExpensePayment[];
+  fixedExpenses?: FixedExpense[];
+};
+
 export function buildLedgerEntryFromBankTx(
   tx: BankTransaction,
   categories: LedgerCategory[],
   accountCodes: AccountCode[],
+  context?: BuildLedgerEntryContext,
 ): LedgerEntry | null {
   const status = resolveBankTxLedgerStatus(tx);
   if (status !== "confirmed" && status !== "pending") return null;
@@ -299,7 +308,32 @@ export function buildLedgerEntryFromBankTx(
   const amount = resolveBankTxLedgerAmount(tx);
   if (amount <= 0) return null;
 
-  const category = tx.ledgerCategoryId ? findLedgerCategory(categories, tx.ledgerCategoryId) : undefined;
+  let category = tx.ledgerCategoryId ? findLedgerCategory(categories, tx.ledgerCategoryId) : undefined;
+  let resolvedCategoryName = category?.name;
+  let fixedExpenseId = tx.ledgerFixedExpenseId;
+  let memo = tx.ledgerMemo || tx.memo;
+
+  if (!category && context) {
+    if (tx.linkedCompanyExpenseId) {
+      const expense = context.companyExpenses?.find((row) => row.id === tx.linkedCompanyExpenseId);
+      if (expense) {
+        category = findLedgerCategoryByName(categories, expense.category);
+        resolvedCategoryName = expense.category;
+        memo = expense.memo || memo;
+      }
+    }
+    if (!category && tx.linkedFixedExpensePaymentId) {
+      const payment = context.fixedExpensePayments?.find((row) => row.id === tx.linkedFixedExpensePaymentId);
+      if (payment) {
+        const fixedItem = context.fixedExpenses?.find((row) => row.id === payment.fixedExpenseId);
+        resolvedCategoryName = payment.category || fixedItem?.category || "";
+        category = findLedgerCategoryByName(categories, resolvedCategoryName);
+        fixedExpenseId = payment.fixedExpenseId;
+        memo = payment.memo || memo;
+      }
+    }
+  }
+
   if (!category && status === "pending") {
     return {
       id: `bank-${tx.id}`,
@@ -313,12 +347,39 @@ export function buildLedgerEntryFromBankTx(
       accountCode: tx.ledgerAccountCode || "",
       accountName: "",
       description: String(tx.description || tx.counterpartyName || "").trim(),
-      memo: tx.ledgerMemo || tx.memo,
-      fixedExpenseId: tx.ledgerFixedExpenseId,
+      memo,
+      fixedExpenseId,
       counterpartyName: tx.counterpartyName,
       status,
     };
   }
+
+  if (!category && status === "confirmed") {
+    const categoryName = resolvedCategoryName || UNCLASSIFIED_CATEGORY;
+    const accountCode =
+      tx.ledgerAccountCode ||
+      (resolvedCategoryName ? CATEGORY_ACCOUNT_DEFAULTS[resolvedCategoryName] : undefined) ||
+      "900";
+    const account = findAccountCode(accountCodes, accountCode);
+    return {
+      id: `bank-${tx.id}`,
+      source: "bank",
+      bankTransactionId: tx.id,
+      date: String(tx.transactionAt || "").slice(0, 10),
+      flow,
+      amount,
+      categoryId: "",
+      categoryName,
+      accountCode,
+      accountName: account?.name || accountCode,
+      description: String(tx.description || tx.counterpartyName || "").trim(),
+      memo,
+      fixedExpenseId,
+      counterpartyName: tx.counterpartyName,
+      status,
+    };
+  }
+
   if (!category) return null;
 
   const accountCode = tx.ledgerAccountCode || category.accountCode;
@@ -336,8 +397,8 @@ export function buildLedgerEntryFromBankTx(
     accountCode,
     accountName: account?.name || accountCode,
     description: String(tx.description || tx.counterpartyName || "").trim(),
-    memo: tx.ledgerMemo || tx.memo,
-    fixedExpenseId: tx.ledgerFixedExpenseId,
+    memo,
+    fixedExpenseId,
     counterpartyName: tx.counterpartyName,
     status,
   };
@@ -376,9 +437,16 @@ export function buildAllLedgerEntries(input: {
   companyExpenses: CompanyExpense[];
   categories: LedgerCategory[];
   accountCodes: AccountCode[];
+  fixedExpensePayments?: FixedExpensePayment[];
+  fixedExpenses?: FixedExpense[];
 }) {
+  const context: BuildLedgerEntryContext = {
+    companyExpenses: input.companyExpenses,
+    fixedExpensePayments: input.fixedExpensePayments,
+    fixedExpenses: input.fixedExpenses,
+  };
   const bankEntries = input.bankTransactions
-    .map((tx) => buildLedgerEntryFromBankTx(tx, input.categories, input.accountCodes))
+    .map((tx) => buildLedgerEntryFromBankTx(tx, input.categories, input.accountCodes, context))
     .filter((row): row is LedgerEntry => Boolean(row));
   const offlineEntries = input.companyExpenses
     .map((row) => buildOfflineLedgerEntry(row, input.categories, input.accountCodes))

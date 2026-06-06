@@ -8408,6 +8408,8 @@ export default function TeammillimeterErpMvp() {
             isHubActive={active === "analysis"}
             bankTransactions={bankTransactions}
             companyExpenses={companyExpenses}
+            fixedExpensePayments={fixedExpensePayments}
+            fixedExpenses={fixedExpenses}
             ledgerCategories={ledgerCategories}
             accountCodes={accountCodes}
             taxInvoices={taxInvoices}

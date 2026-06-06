@@ -1,12 +1,12 @@
 import React, { useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { DesktopTableWrap } from "@/components/MobileRecordCard";
-import { formatKRW, formatMonthLabel, type CompanyExpense } from "@/utils/companyLedger";
+import { formatKRW, formatMonthLabel, type CompanyExpense, type FixedExpense, type FixedExpensePayment } from "@/utils/companyLedger";
 import type { BankTransaction } from "@/utils/bankTransactions";
 import {
   buildCashFlowAnalysisSummary,
   buildCashFlowSummary,
-  collectMonthKeysFromEntries,
+  collectAnalysisMonthKeys,
 } from "@/utils/financialAnalysis";
 import { buildAllLedgerEntries, type AccountCode, type LedgerCategory } from "@/utils/ledgerSystem";
 
@@ -30,6 +30,8 @@ const L = {
 type CashFlowPanelProps = {
   bankTransactions: BankTransaction[];
   companyExpenses: CompanyExpense[];
+  fixedExpensePayments?: FixedExpensePayment[];
+  fixedExpenses?: FixedExpense[];
   ledgerCategories: LedgerCategory[];
   accountCodes: AccountCode[];
 };
@@ -37,6 +39,8 @@ type CashFlowPanelProps = {
 export function CashFlowPanel({
   bankTransactions,
   companyExpenses,
+  fixedExpensePayments,
+  fixedExpenses,
   ledgerCategories,
   accountCodes,
 }: CashFlowPanelProps) {
@@ -47,13 +51,18 @@ export function CashFlowPanel({
       buildAllLedgerEntries({
         bankTransactions,
         companyExpenses,
+        fixedExpensePayments,
+        fixedExpenses,
         categories: ledgerCategories,
         accountCodes,
       }),
-    [bankTransactions, companyExpenses, ledgerCategories, accountCodes],
+    [bankTransactions, companyExpenses, fixedExpensePayments, fixedExpenses, ledgerCategories, accountCodes],
   );
 
-  const monthKeys = useMemo(() => collectMonthKeysFromEntries(allEntries, 6), [allEntries]);
+  const monthKeys = useMemo(
+    () => collectAnalysisMonthKeys(allEntries, bankTransactions, [], 6),
+    [allEntries, bankTransactions],
+  );
 
   const analysisRows = useMemo(
     () => buildCashFlowAnalysisSummary(bankTransactions, allEntries, monthKeys),

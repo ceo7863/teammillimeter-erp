@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { DesktopTableWrap } from "@/components/MobileRecordCard";
-import { formatKRW, monthRangeISO, type CompanyExpense } from "@/utils/companyLedger";
+import { formatKRW, monthRangeISO, type CompanyExpense, type FixedExpense, type FixedExpensePayment } from "@/utils/companyLedger";
 import type { BankTransaction } from "@/utils/bankTransactions";
 import { buildCustomAnalysisBreakdown, type CustomAnalysisGroupMode } from "@/utils/financialAnalysis";
 import { buildAllLedgerEntries, type AccountCode, type LedgerCategory } from "@/utils/ledgerSystem";
@@ -29,6 +29,8 @@ const L = {
 type CustomAnalysisPanelProps = {
   bankTransactions: BankTransaction[];
   companyExpenses: CompanyExpense[];
+  fixedExpensePayments?: FixedExpensePayment[];
+  fixedExpenses?: FixedExpense[];
   ledgerCategories: LedgerCategory[];
   accountCodes: AccountCode[];
 };
@@ -36,6 +38,8 @@ type CustomAnalysisPanelProps = {
 export function CustomAnalysisPanel({
   bankTransactions,
   companyExpenses,
+  fixedExpensePayments,
+  fixedExpenses,
   ledgerCategories,
   accountCodes,
 }: CustomAnalysisPanelProps) {
@@ -49,10 +53,12 @@ export function CustomAnalysisPanel({
       buildAllLedgerEntries({
         bankTransactions,
         companyExpenses,
+        fixedExpensePayments,
+        fixedExpenses,
         categories: ledgerCategories,
         accountCodes,
       }),
-    [bankTransactions, companyExpenses, ledgerCategories, accountCodes],
+    [bankTransactions, companyExpenses, fixedExpensePayments, fixedExpenses, ledgerCategories, accountCodes],
   );
 
   const rows = useMemo(
