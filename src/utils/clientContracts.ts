@@ -2,6 +2,14 @@ import { apiRequest, getAuthToken, isApiModeEnabled } from "@/utils/erpApi";
 
 export type ClientContractStatus = "draft" | "sent" | "signed" | "expired";
 
+export type ContractPdfContent = {
+  basicUnitPrice?: string;
+  nightWorkRate?: string;
+  mealAllowance?: string;
+  accommodationFee?: string;
+  vehicleRate?: string;
+};
+
 export type ClientContract = {
   id: string;
   clientName: string;
@@ -12,6 +20,7 @@ export type ClientContract = {
   originalFileName: string;
   originalStorageKey: string;
   templateId?: string;
+  pdfContent?: ContractPdfContent;
   signedStorageKey?: string;
   signatureDataUrl?: string;
   signToken?: string;
@@ -74,6 +83,7 @@ export type ClientContractTemplate = {
   id: string;
   title: string;
   fileName: string;
+  defaultPdfContent?: ContractPdfContent;
 };
 
 export async function listClientContractTemplates(): Promise<ClientContractTemplate[]> {
@@ -123,6 +133,27 @@ export async function updateClientContract(
 ): Promise<ClientContract> {
   return apiRequest<ClientContract>(`/client-contracts/${encodeURIComponent(id)}`, {
     method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function getContractTemplateDefaults(templateId: string): Promise<ContractPdfContent> {
+  const result = await apiRequest<{ templateId: string; pdfContent: ContractPdfContent }>(
+    `/client-contracts/templates/${encodeURIComponent(templateId)}/defaults`,
+  );
+  return result.pdfContent;
+}
+
+export async function rebuildClientContractPdf(
+  id: string,
+  patch: {
+    contactName?: string;
+    contactPhone?: string;
+    pdfContent?: ContractPdfContent;
+  },
+): Promise<ClientContract> {
+  return apiRequest<ClientContract>(`/client-contracts/${encodeURIComponent(id)}/rebuild-pdf`, {
+    method: "POST",
     body: JSON.stringify(patch),
   });
 }

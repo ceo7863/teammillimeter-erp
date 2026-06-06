@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Copy, Eye, FileText, Link2, RefreshCw, Send, Trash2 } from "lucide-react";
+import { Copy, Eye, FileText, Link2, Pencil, RefreshCw, Send, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import {
   type ClientContractTemplate,
 } from "@/utils/clientContracts";
 import { isApiModeEnabled } from "@/utils/erpApi";
+import { ClientContractPdfEditModal } from "@/components/ClientContractPdfEditModal";
 
 const L = {
   loadFail: "\uACC4\uC57D \uBAA9\uB85D\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",
@@ -53,6 +54,7 @@ const L = {
   signedAt: "\uC11C\uBA85: ",
   signer: "\uC11C\uBA85\uC790: ",
   masterHint: "\uB300\uD45C\uC790 \uC131\uD6C4\u00B7\uC5F0\uB77D\uCC98\uB294 \uAC70\uB798\uCC98 \uB9C8\uC2A4\uD130\uC5D0\uC11C \uC790\uB3D9 \uC785\uB825\uB429\uB2C8\uB2E4.",
+  editPdf: "PDF \uC218\uC815",
 };
 
 type ClientLike = {
@@ -84,6 +86,7 @@ export function ClientContractsPanel({ clients }: ClientContractsPanelProps) {
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [lastSignUrl, setLastSignUrl] = useState("");
+  const [pdfEditContract, setPdfEditContract] = useState<ClientContract | null>(null);
 
   const copySignUrl = async (url: string) => {
     if (!url) return;
@@ -331,6 +334,18 @@ export function ClientContractsPanel({ clients }: ClientContractsPanelProps) {
                         <Button size="sm" variant="outline" className="rounded-xl" onClick={() => void openClientContractPdf(contract.id, "original")}>
                           <FileText size={14} />
                         </Button>
+                        {(contract.status === "draft" || contract.status === "expired") &&
+                        contract.templateId === DEFAULT_TEMPLATE_ID ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="rounded-xl"
+                            title={L.editPdf}
+                            onClick={() => setPdfEditContract(contract)}
+                          >
+                            <Pencil size={14} />
+                          </Button>
+                        ) : null}
                         {contract.status === "signed" ? (
                           <Button size="sm" variant="outline" className="rounded-xl" onClick={() => void openClientContractPdf(contract.id, "signed")}>
                             <Eye size={14} />
@@ -363,6 +378,17 @@ export function ClientContractsPanel({ clients }: ClientContractsPanelProps) {
           </table>
         </div>
       </CardContent>
+
+      <ClientContractPdfEditModal
+        open={!!pdfEditContract}
+        contract={pdfEditContract}
+        onClose={() => setPdfEditContract(null)}
+        onSaved={(saved) => {
+          setContracts((prev) => prev.map((row) => (row.id === saved.id ? saved : row)));
+          setPdfEditContract(saved);
+          setSuccess("PDF \uB0B4\uC6A9\uC774 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4.");
+        }}
+      />
     </Card>
   );
 }

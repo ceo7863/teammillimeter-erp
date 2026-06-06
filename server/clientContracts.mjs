@@ -3,7 +3,12 @@ import path from "path";
 import crypto from "crypto";
 import { config } from "./config.mjs";
 import { getErpState, saveErpState } from "./db.mjs";
-import { applySignatureToContractPdf, fillContractTemplate, getContractTemplate } from "./contractTemplate.mjs";
+import {
+  applySignatureToContractPdf,
+  fillContractTemplate,
+  getContractTemplate,
+  getDefaultPdfContent,
+} from "./contractTemplate.mjs";
 
 const MAX_CONTRACTS = 2000;
 const MAX_SIGNATURE_LENGTH = 280_000;
@@ -150,10 +155,12 @@ export async function createContractFromTemplate(templateId, clientName, created
     return { ok: false, status: 400, error: "\uAC70\uB798\uCC98 \uB9C8\uC2A4\uD130\uC5D0 \uB300\uD45C\uC790 \uC5F0\uB77D\uCC98\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4." };
   }
 
+  const pdfContent = getDefaultPdfContent(templateId) || undefined;
   const filled = await fillContractTemplate(templateId, {
     clientName: name,
     contactName,
     contactPhone,
+    pdfContent,
   });
   if (!filled.ok) return filled;
 
@@ -167,6 +174,7 @@ export async function createContractFromTemplate(templateId, clientName, created
     templateId: template?.id,
     signatureRect: filled.signatureRect,
     dateField: filled.dateField,
+    pdfContent: filled.pdfContent,
   }, createdBy);
   return result;
 }
@@ -199,6 +207,7 @@ export function createContract(buffer, meta, createdBy) {
     templateId: meta.templateId ? String(meta.templateId) : undefined,
     signatureRect: meta.signatureRect || undefined,
     dateField: meta.dateField || undefined,
+    pdfContent: meta.pdfContent && typeof meta.pdfContent === "object" ? meta.pdfContent : undefined,
     createdAt: new Date().toISOString(),
     createdBy: createdBy || undefined,
   };
@@ -238,6 +247,83 @@ export function updateContract(id, patch = {}, updatedBy) {
   const nextContracts = [...contracts];
   nextContracts[index] = next;
   const saved = saveErpState({ ...data, clientContracts: nextContracts }, state.version, `contract-update:${id}`);
+  return { ok: true, contract: withResolvedStatus(next), version: saved.version };
+}
+
+function canRebuildContractPdf(contract) {
+  if (!contract) return false;
+  if (contract.status === "signed") return false;
+  const resolved = resolveContractStatus(contract);
+  if (resolved === "draft" || resolved === "expired") return true;
+  return false;
+}
+
+export async function rebuildContractPdf(id, patch = {}, updatedBy) {
+  const state = getErpState();
+  const data = state.data && typeof state.data === "object" ? state.data : {};
+  const contracts = listClientContracts(data);
+  const index = contracts.findIndex((row) => row.id === id);
+  if (index < 0) return { ok: false, status: 404, error: "\uACC4\uC57D\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
+
+  const current = contracts[index];
+  if (!canRebuildContractPdf(current)) {
+    if (current.status === "signed") {
+      return { ok: false, status: 400, error: "\uC774\uBBF8 \uC11C\uBA85\uB41C \uACC4\uC57D\uC740 PDF\uB97C \uC218\uC815\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
+    }
+    return { ok: false, status: 400, error: "\uBC1C\uC1A1 \uC911\uC778 \uACC4\uC57D\uC740 PDF\uB97C \uC218\uC815\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uB9CC\uB8CC \uD6C4 \uB610\uB294 \uCD08\uC548 \uC0C1\uD0DC\uC5D0\uC11C\uB9CC \uAC00\uB2A5\uD569\uB2C8\uB2E4." };
+  }
+
+  const templateId = String(current.templateId || "").trim();
+  if (!templateId) {
+    return { ok: false, status: 400, error: "\uD15C\uD074\uB9BF \uAE30\uBC18 \uACC4\uC57D\uC774 \uC544\uB2C8\uC5B4 PDF \uB0B4\uC6A9\uC744 \uC218\uC815\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
+  }
+
+  const contactName =
+    patch.contactName != null ? String(patch.contactName).trim() || undefined : current.contactName;
+  const contactPhone =
+    patch.contactPhone != null ? normalizePhone(patch.contactPhone) || current.contactPhone : current.contactPhone;
+  if (!contactPhone) {
+    return { ok: false, status: 400, error: "\uC218\uC2E0 \uC5F0\uB77D\uCC98\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." };
+  }
+
+  const defaultContent = getDefaultPdfContent(templateId) || {};
+  const existingContent =
+    current.pdfContent && typeof current.pdfContent === "object" ? current.pdfContent : defaultContent;
+  const patchContent = patch.pdfContent && typeof patch.pdfContent === "object" ? patch.pdfContent : {};
+  const pdfContent = { ...defaultContent, ...existingContent, ...patchContent };
+
+  const filled = await fillContractTemplate(templateId, {
+    clientName: current.clientName,
+    contactName,
+    contactPhone,
+    pdfContent,
+  });
+  if (!filled.ok) return filled;
+
+  if (!current.originalStorageKey) {
+    return { ok: false, status: 500, error: "\uC6D0\uBCF8 PDF \uACBD\uB85C\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4." };
+  }
+  fs.writeFileSync(contractFilePath(current.originalStorageKey), filled.buffer);
+
+  const wasExpired = resolveContractStatus(current) === "expired";
+  const next = {
+    ...current,
+    contactName,
+    contactPhone,
+    pdfContent: filled.pdfContent,
+    updatedAt: new Date().toISOString(),
+    updatedBy: updatedBy || current.updatedBy,
+  };
+  if (wasExpired) {
+    next.status = "draft";
+    next.signToken = undefined;
+    next.tokenExpiresAt = undefined;
+    next.sentAt = undefined;
+  }
+
+  const nextContracts = [...contracts];
+  nextContracts[index] = next;
+  const saved = saveErpState({ ...data, clientContracts: nextContracts }, state.version, `contract-rebuild-pdf:${id}`);
   return { ok: true, contract: withResolvedStatus(next), version: saved.version };
 }
 

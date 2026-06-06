@@ -102,8 +102,9 @@ import {
   getContractSignedFile,
   getContractByToken,
   createContractFromTemplate,
+  rebuildContractPdf,
 } from "./clientContracts.mjs";
-import { listContractTemplates } from "./contractTemplate.mjs";
+import { getDefaultPdfContent, listContractTemplates } from "./contractTemplate.mjs";
 import { renderContractPdfPreview } from "./contractPdfRender.mjs";
 import {
   normalizeNotificationSettings,
@@ -1674,6 +1675,15 @@ app.get("/api/client-contracts/templates", authMiddleware, (_req, res) => {
   res.json(listContractTemplates());
 });
 
+app.get("/api/client-contracts/templates/:id/defaults", authMiddleware, (req, res) => {
+  const defaults = getDefaultPdfContent(req.params.id);
+  if (!defaults) {
+    res.status(404).json({ error: "\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uD15C\uD074\uB9BF\uC785\uB2C8\uB2E4." });
+    return;
+  }
+  res.json({ templateId: req.params.id, pdfContent: defaults });
+});
+
 app.post("/api/client-contracts/generate", authMiddleware, async (req, res) => {
   try {
     const templateId = String(req.body?.templateId || "unit-price-agreement").trim();
@@ -1710,6 +1720,24 @@ app.patch("/api/client-contracts/:id", authMiddleware, (req, res) => {
     return;
   }
   res.json(sanitizeContractForClient(result.contract));
+});
+
+app.post("/api/client-contracts/:id/rebuild-pdf", authMiddleware, async (req, res) => {
+  try {
+    const result = await rebuildContractPdf(
+      req.params.id,
+      req.body || {},
+      req.user.loginId || req.user.name || req.user.email,
+    );
+    if (!result.ok) {
+      res.status(result.status || 400).json({ error: result.error });
+      return;
+    }
+    res.json(sanitizeContractForClient(result.contract));
+  } catch (error) {
+    console.error("[client-contracts] rebuild-pdf failed:", error);
+    res.status(500).json({ error: "PDF \uC7AC\uC0DD\uC131\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+  }
 });
 
 app.delete("/api/client-contracts/:id", authMiddleware, (req, res) => {
