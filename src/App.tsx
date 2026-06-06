@@ -93,6 +93,7 @@ import {
   appendSaleComments,
   buildSaleCommentCountBySaleId,
   createSaleComment,
+  mergeSaleComments,
   normalizeSaleComments,
   type SaleComment,
 } from "@/utils/saleComments";
@@ -7219,7 +7220,6 @@ export default function TeammillimeterErpMvp() {
       markSaleCommentsRead();
     }
   }, [active, markSaleCommentsRead]);
-  const saleCommentsSaveTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const [taxInvoices, setTaxInvoices] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return normalizeTaxInvoices(storedData?.taxInvoices);
@@ -7329,7 +7329,12 @@ export default function TeammillimeterErpMvp() {
     );
     setCompanyNotices(normalizeCompanyNotices(data.companyNotices));
     setWorkPosts(normalizeWorkPosts(data.workPosts));
-    setSaleComments(normalizeSaleComments(data.saleComments));
+    const incomingSaleComments = normalizeSaleComments(data.saleComments);
+    const nextSaleComments = preserveLocalEdits
+        ? mergeSaleComments(incomingSaleComments, saleCommentsRef.current)
+        : incomingSaleComments;
+    setSaleComments(nextSaleComments);
+    saleCommentsRef.current = nextSaleComments;
     setTaxInvoices(normalizeTaxInvoices(data.taxInvoices));
     const nextBankTransactionFolders = normalizeBankTransactionFolders(data.bankTransactionFolders);
     const syncedBankTransactions = syncBankTransactionLedgerLinkFields(
@@ -7595,8 +7600,16 @@ export default function TeammillimeterErpMvp() {
   );
 
   const persistErpSave = useCallback(
-    async (savePayload: ReturnType<typeof buildErpSavePayload>) => {
-      if (skipSaveRef.current || bankSyncApplyingRef.current) return false;
+    async (
+      savePayload: ReturnType<typeof buildErpSavePayload>,
+      options?: { allowWhileSkipped?: boolean },
+    ) => {
+      if (
+        !options?.allowWhileSkipped &&
+        (skipSaveRef.current || bankSyncApplyingRef.current)
+      ) {
+        return false;
+      }
       try {
         const result = await saveErpData(savePayload);
         erpVersionRef.current = result.version;
@@ -7656,6 +7669,15 @@ export default function TeammillimeterErpMvp() {
             if (Array.isArray(latest.workerPortalStatementAcks)) {
               setWorkerPortalStatementAcks(latest.workerPortalStatementAcks);
             }
+            if (Array.isArray(savePayload.saleComments) || Array.isArray(latest.saleComments)) {
+              const mergedComments = mergeSaleComments(
+                normalizeSaleComments(latest.saleComments),
+                normalizeSaleComments(savePayload.saleComments || saleCommentsRef.current),
+              );
+              savePayload.saleComments = mergedComments;
+              setSaleComments(mergedComments);
+              saleCommentsRef.current = mergedComments;
+            }
             const serverAudits = Array.isArray(latest.auditLogs) ? latest.auditLogs : [];
             const mergedAudits = mergeAuditLogs(serverAudits, savePayload.auditLogs);
             savePayload.auditLogs = mergedAudits;
@@ -7710,7 +7732,9 @@ export default function TeammillimeterErpMvp() {
       }
       setSyncStatus("저장 중...");
       try {
-        const saved = await persistErpSave(buildErpSavePayload(normalizedPatch));
+        const saved = await persistErpSave(buildErpSavePayload(normalizedPatch), {
+          allowWhileSkipped: Boolean(normalizedPatch && Array.isArray(normalizedPatch.saleComments)),
+        });
         if (saved && normalizedPatch) {
           if (Array.isArray(normalizedPatch.workers)) {
             setWorkers(normalizedPatch.workers);
@@ -8096,54 +8120,52 @@ export default function TeammillimeterErpMvp() {
     }
   }, [apiMode, currentUser, dataReady, flushErpSave, setSaleComments]);
 
-  const queueSaleCommentsPersist = useCallback((nextSaleComments: SaleComment[]) => {
-    saleCommentsRef.current = nextSaleComments;
-    startTransition(() => setSaleComments(nextSaleComments));
-    if (!dataReady) return;
+  const addSaleCommentForVoucher = useCallback(async (saleId: string | number, body: string) => {
+    const comment = createSaleComment({ saleId, body, user: currentUser });
+    const next = appendSaleComment(saleCommentsRef.current, comment);
+    saleCommentsRef.current = next;
+    setSaleComments(next);
     pendingLocalEditsRef.current = true;
-    if (saleCommentsSaveTimerRef.current) {
-      window.clearTimeout(saleCommentsSaveTimerRef.current);
+    if (!apiMode) {
+      saveStoredData({
+        sales,
+        paymentVouchers,
+        paymentInputLogs,
+        clients,
+        workers,
+        workerMonthlyPaymentMemos,
+        auditLogs,
+        loginLogs,
+        workerPaymentRecords,
+        workerPayoutVouchers,
+        workerMonthlyActualVouchers,
+        workerPayWithVatLearnRules,
+        companyExpenses,
+        attendanceRecords,
+        fixedExpenses,
+        fixedExpensePayments,
+        bankLedgerRules,
+        expenseCategories,
+        fixedExpenseCategories,
+        accountCodes,
+        ledgerCategories,
+        companyNotices,
+        workPosts,
+        saleComments: next,
+        taxInvoices,
+        bankTransactions,
+        bankTransactionFolders,
+        statementGenerationLogs,
+        statementFolders,
+        companyProfile,
+      });
+      return;
     }
-    saleCommentsSaveTimerRef.current = window.setTimeout(() => {
-      saleCommentsSaveTimerRef.current = null;
-      if (!apiMode) {
-        saveStoredData({
-          sales,
-          paymentVouchers,
-          paymentInputLogs,
-          clients,
-          workers,
-          workerMonthlyPaymentMemos,
-          auditLogs,
-          loginLogs,
-          workerPaymentRecords,
-          workerPayoutVouchers,
-          workerMonthlyActualVouchers,
-          workerPayWithVatLearnRules,
-          companyExpenses,
-          attendanceRecords,
-          fixedExpenses,
-          fixedExpensePayments,
-          bankLedgerRules,
-          expenseCategories,
-          fixedExpenseCategories,
-          accountCodes,
-          ledgerCategories,
-          companyNotices,
-          workPosts,
-          saleComments: saleCommentsRef.current,
-          taxInvoices,
-          bankTransactions,
-          bankTransactionFolders,
-          statementGenerationLogs,
-          statementFolders,
-          companyProfile,
-        });
-        return;
-      }
-      if (!currentUser) return;
-      void flushErpSave({ saleComments: saleCommentsRef.current });
-    }, 400);
+    if (!currentUser || !dataReady) return;
+    const saved = await flushErpSave({ saleComments: next });
+    if (saved === false) {
+      window.alert("코멘트 저장에 실패했습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.");
+    }
   }, [
     apiMode,
     currentUser,
@@ -8179,12 +8201,6 @@ export default function TeammillimeterErpMvp() {
     statementFolders,
     companyProfile,
   ]);
-
-  const addSaleCommentForVoucher = useCallback((saleId: string | number, body: string) => {
-    const comment = createSaleComment({ saleId, body, user: currentUser });
-    const next = appendSaleComment(saleCommentsRef.current, comment);
-    queueSaleCommentsPersist(next);
-  }, [currentUser, queueSaleCommentsPersist]);
 
   const openSaleVoucherFromComments = useCallback((saleId: string | number) => {
     setPendingVoucherEditId(saleId);
@@ -8250,7 +8266,7 @@ export default function TeammillimeterErpMvp() {
         saveDebounceTimerRef.current = null;
       }
     };
-  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, workerMonthlyPaymentMemos, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, accountCodes, ledgerCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode, buildErpSavePayload, persistErpSave]);
+  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, workerMonthlyPaymentMemos, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, accountCodes, ledgerCategories, companyNotices, workPosts, saleComments, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode, buildErpSavePayload, persistErpSave]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

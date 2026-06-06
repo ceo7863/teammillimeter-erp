@@ -90,6 +90,17 @@ export function appendSaleComments(comments: SaleComment[], next: SaleComment[])
   return normalizeSaleComments([...comments, ...next]);
 }
 
+export function mergeSaleComments(server: SaleComment[], local: SaleComment[]) {
+  const merged = new Map<string, SaleComment>();
+  for (const row of normalizeSaleComments(server)) {
+    merged.set(row.id, row);
+  }
+  for (const row of normalizeSaleComments(local)) {
+    merged.set(row.id, row);
+  }
+  return normalizeSaleComments([...merged.values()]);
+}
+
 export function pendingCommentsToSaleComments(
   pending: PendingSaleComment[],
   saleId: string | number,
