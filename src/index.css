@@ -234,6 +234,103 @@ textarea {
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
 }
 
+.erp-account-picker-popover--excel {
+  border-radius: 0;
+  border-color: #217346;
+  box-shadow: none;
+}
+
+.erp-account-picker-popover__list--excel {
+  padding: 0;
+}
+
+.erp-account-picker-popover__excel-group {
+  padding: 0.2rem 0.45rem 0.05rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: #64748b;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+}
+
+.erp-account-picker-popover__excel-group:first-child {
+  border-top: none;
+}
+
+.erp-account-picker-popover__item--excel {
+  padding: 0.2rem 0.45rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.erp-account-picker-popover__item--excel.is-active {
+  background: #1d6f42;
+  color: #fff;
+}
+
+.erp-account-picker-popover__item--excel.is-selected:not(.is-active) {
+  background: #e8f5ee;
+  color: #14532d;
+}
+
+.erp-account-picker-popover__footer--excel {
+  padding: 0.25rem 0.45rem;
+  background: #f8fafc;
+}
+
+.erp-bank-excel-cell-wrap {
+  position: relative;
+  vertical-align: middle;
+}
+
+.erp-bank-excel-cell__trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 1.625rem;
+  padding: 0.15rem 0.35rem 0.15rem 0.4rem;
+  border: 1px solid transparent;
+  border-radius: 0;
+  background: #fff;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #0f172a;
+  cursor: pointer;
+}
+
+.erp-bank-excel-cell__trigger.is-empty {
+  color: #94a3b8;
+}
+
+.erp-bank-excel-cell__trigger.is-open {
+  border-color: #217346;
+  outline: 2px solid #217346;
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+.erp-bank-excel-cell__trigger:hover:not(.is-open) {
+  background: #f8fafc;
+}
+
+.erp-bank-excel-cell__label {
+  flex: 1;
+  min-width: 0;
+}
+
+.erp-bank-excel-cell__chevron {
+  flex-shrink: 0;
+  color: #64748b;
+}
+
+.erp-bank-excel-cell__trigger.is-open .erp-bank-excel-cell__chevron {
+  color: #217346;
+}
+
 .erp-account-picker-popover__search {
   display: flex;
   align-items: center;

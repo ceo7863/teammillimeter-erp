@@ -41,6 +41,7 @@ type BankTransactionListSectionProps = {
   onEditAccountSubject: (row: BankTransaction) => void;
   onEditClient: (row: BankTransaction) => void;
   onFindEvidence: (row: BankTransaction) => void;
+  openAccountSubjectId?: string | null;
   toolbar?: React.ReactNode;
 };
 
@@ -62,6 +63,7 @@ function BankTransactionListSectionComponent({
   onEditAccountSubject,
   onEditClient,
   onFindEvidence,
+  openAccountSubjectId = null,
   toolbar,
 }: BankTransactionListSectionProps) {
   const rowByIdRef = useRef(new Map<string, BankTransaction>());
@@ -231,6 +233,7 @@ function BankTransactionListSectionComponent({
         onEditAccountSubject={handleEditAccountSubject}
         onEditClient={handleEditClient}
         onFindEvidence={handleFindEvidence}
+        openAccountSubjectId={openAccountSubjectId}
       />
     </>
   );

@@ -1,5 +1,5 @@
 import React, { memo } from "react";
-import { Link2, Pencil } from "lucide-react";
+import { ChevronDown, Link2, Pencil } from "lucide-react";
 import { DesktopTableWrap } from "@/components/MobileRecordCard";
 import { BANK_TX_ACCOUNT_TRIGGER_ATTR } from "@/utils/floatingPosition";
 import type { BankTransactionListRowModel } from "@/utils/bankTransactionListDisplay";
@@ -35,6 +35,7 @@ type BankTransactionSplitTableProps = {
   onEditAccountSubject: (id: string) => void;
   onEditClient: (id: string) => void;
   onFindEvidence: (id: string) => void;
+  openAccountSubjectId?: string | null;
 };
 
 function AccountSubjectCellButton({
@@ -42,12 +43,14 @@ function AccountSubjectCellButton({
   value,
   placeholder,
   empty,
+  isOpen,
   onClick,
 }: {
   triggerId: string;
   value: string | null;
   placeholder: string;
   empty?: boolean;
+  isOpen?: boolean;
   onClick: () => void;
 }) {
   const display = value?.trim() || placeholder;
@@ -55,18 +58,17 @@ function AccountSubjectCellButton({
     <button
       type="button"
       {...{ [BANK_TX_ACCOUNT_TRIGGER_ATTR]: triggerId }}
-      className={`max-w-full truncate rounded-lg border px-2 py-1 text-left text-xs font-semibold transition hover:bg-slate-100 ${
-        empty || !value?.trim()
-          ? "border-dashed border-slate-200 text-slate-400"
-          : "border-slate-200 bg-white text-slate-800"
-      }`}
+      className={`erp-bank-excel-cell__trigger${isOpen ? " is-open" : ""}${empty || !value?.trim() ? " is-empty" : ""}`}
       title={display}
+      aria-expanded={isOpen}
+      aria-haspopup="listbox"
       onClick={(event) => {
         event.stopPropagation();
         onClick();
       }}
     >
-      {display}
+      <span className="erp-bank-excel-cell__label truncate">{display}</span>
+      <ChevronDown size={12} className="erp-bank-excel-cell__chevron" aria-hidden="true" />
     </button>
   );
 }
@@ -113,6 +115,7 @@ function SplitRow({
   onEditAccountSubject,
   onEditClient,
   onFindEvidence,
+  openAccountSubjectId = null,
 }: {
   model: BankTransactionListRowModel;
   labels: BankTransactionSplitTableLabels;
@@ -120,6 +123,7 @@ function SplitRow({
   onEditAccountSubject: (id: string) => void;
   onEditClient: (id: string) => void;
   onFindEvidence: (id: string) => void;
+  openAccountSubjectId?: string | null;
 }) {
   const rowClass =
     model.rowTone === "suppressed"
@@ -192,12 +196,13 @@ function SplitRow({
           </button>
         )}
       </td>
-      <td className="max-w-[8rem]">
+      <td className="erp-bank-excel-cell-wrap max-w-[8rem] p-0">
         <AccountSubjectCellButton
           triggerId={model.id}
           value={model.accountSubjectLabel}
           placeholder={labels.accountSubjectPlaceholder}
           empty={!model.accountSubjectLabel}
+          isOpen={openAccountSubjectId === model.id}
           onClick={() => onEditAccountSubject(model.id)}
         />
       </td>
@@ -237,6 +242,7 @@ function BankTransactionSplitTableComponent({
   onEditAccountSubject,
   onEditClient,
   onFindEvidence,
+  openAccountSubjectId = null,
 }: BankTransactionSplitTableProps) {
   return (
     <DesktopTableWrap className="erp-bank-wehago-table-wrap">
@@ -286,6 +292,7 @@ function BankTransactionSplitTableComponent({
                   onEditAccountSubject={onEditAccountSubject}
                   onEditClient={onEditClient}
                   onFindEvidence={onFindEvidence}
+                  openAccountSubjectId={openAccountSubjectId}
                 />
               );
             })

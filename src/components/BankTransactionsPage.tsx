@@ -5012,6 +5012,7 @@ export function BankTransactionsPage({
             onEditAccountSubject={openAccountSubjectModal}
             onEditClient={openClientModal}
             onFindEvidence={openTaxInvoiceModal}
+            openAccountSubjectId={accountSubjectPicker?.tx.id ?? null}
             toolbar={
               <>
                 <Button
