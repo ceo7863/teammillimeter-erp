@@ -7,15 +7,18 @@ import { PDFDocument, rgb } from "pdf-lib";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const templatesDir = path.join(__dirname, "templates");
 
+const bundledFontPath = path.join(templatesDir, "fonts", "NotoSansCJKkr-Regular.otf");
+
 const FONT_CANDIDATES = [
-  "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-  "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+  bundledFontPath,
   "/usr/share/fonts/opentype/noto/NotoSansCJKkr-Regular.otf",
   "C:\\Windows\\Fonts\\malgun.ttf",
   "C:\\Windows\\Fonts\\malgun.ttc",
+  "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+  "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
 ];
 
-/** A4 ????? ù ???(?) ?? ?? (pdf-lib, ??? origin) */
+/** A4 ????? ó ???(?) ?? ?? (pdf-lib, ??? origin) */
 const UNIT_PRICE_AGREEMENT = {
   id: "unit-price-agreement",
   title: "\uAC00\uAD6C\uC2DC\uACF5 \uB2E8\uAC00\uD611\uC57D\uC11C",
