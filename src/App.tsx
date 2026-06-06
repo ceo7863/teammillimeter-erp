@@ -7042,6 +7042,7 @@ export default function TeammillimeterErpMvp() {
   const bankRemoteApplySkipDirtyRef = useRef(false);
   const bankImportAtRef = useRef("");
   const [bankImportAt, setBankImportAt] = useState("");
+  const [bankTabActive, setBankTabActive] = useState(false);
   const workerMonthlyLinkCleanupRef = useRef(false);
   const taxInvoiceEvidenceAutoLinkKeyRef = useRef("");
   const taxInvoiceEvidenceAutoLinkTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
@@ -8576,7 +8577,7 @@ export default function TeammillimeterErpMvp() {
           fixedExpensePaymentsRef.current,
         );
         bankTransactionsRef.current = synced;
-        setBankTransactions(synced);
+        setBankTransactions(() => synced);
         applied = true;
       }
       if (Array.isArray(data.bankTransactionFolders)) {
@@ -8654,7 +8655,7 @@ export default function TeammillimeterErpMvp() {
 
   const bankLiveSync = useBankLiveSync({
     enabled: apiMode && dataReady,
-    isActive: active === "accounting",
+    isActive: active === "accounting" && bankTabActive,
     sinceVersion: erpVersion,
     localTransactionCount: bankTransactions.length,
     localLatestTransactionAt: bankLatestTransactionAt,
@@ -8851,6 +8852,7 @@ export default function TeammillimeterErpMvp() {
         <PageKeepAlive pageKey="accounting" active={active}>
           <AccountingHubPage
             isHubActive={active === "accounting"}
+            onBankTabActiveChange={setBankTabActive}
             bank={{
               bankTransactions,
               setBankTransactions,

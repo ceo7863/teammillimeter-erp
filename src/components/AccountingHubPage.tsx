@@ -14,6 +14,7 @@ import {
 type AccountingHubPageProps = {
   isHubActive: boolean;
   initialTab?: AccountingHubTab;
+  onBankTabActiveChange?: (active: boolean) => void;
   bank: Omit<
     ComponentProps<typeof BankTransactionsPage>,
     "isPageActive" | "onNavigateToCompanyLedger" | "onNavigateToClassify" | "onNavigateToFixedExpense"
@@ -32,7 +33,15 @@ function buildInitialMountedTabs(tab: AccountingHubTab): Record<AccountingHubTab
   };
 }
 
-export function AccountingHubPage({ isHubActive, initialTab, bank, ledger, tax, classify }: AccountingHubPageProps) {
+export function AccountingHubPage({
+  isHubActive,
+  initialTab,
+  onBankTabActiveChange,
+  bank,
+  ledger,
+  tax,
+  classify,
+}: AccountingHubPageProps) {
   const [activeTab, setActiveTab] = useState<AccountingHubTab>(() => initialTab || readStoredAccountingTab());
   const [mountedTabs, setMountedTabs] = useState<Record<AccountingHubTab, boolean>>(() =>
     buildInitialMountedTabs(initialTab || readStoredAccountingTab()),
@@ -89,6 +98,7 @@ export function AccountingHubPage({ isHubActive, initialTab, bank, ledger, tax, 
           <BankTransactionsPage
             {...bank}
             isPageActive={isHubActive && activeTab === "bank"}
+            onBankTabActiveChange={onBankTabActiveChange}
             onNavigateToCompanyLedger={() => switchTab("ledger")}
             onNavigateToClassify={() => switchTab("classify")}
             onNavigateToFixedExpense={openLedgerFixedTab}

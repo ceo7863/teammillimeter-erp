@@ -925,6 +925,7 @@ export function BankTransactionsPage({
   erpVersion = 0,
   bankLiveSync,
   isPageActive = true,
+  onBankTabActiveChange,
   onRequestImmediateSave,
 }: {
   bankTransactions: BankTransaction[];
@@ -964,6 +965,7 @@ export function BankTransactionsPage({
   erpVersion?: number;
   bankLiveSync?: BankLiveSyncApi;
   isPageActive?: boolean;
+  onBankTabActiveChange?: (active: boolean) => void;
   onRequestImmediateSave?: (patch?: {
     bankTransactions?: BankTransaction[];
     companyExpenses?: CompanyExpense[];
@@ -1104,6 +1106,13 @@ export function BankTransactionsPage({
   const runFolderSync = bankLiveSync?.runFolderSync ?? syncNow;
   const pullSnapshot = bankLiveSync?.pullSnapshot ?? (async () => null);
   const forceRefreshBank = bankLiveSync?.forceRefreshBank ?? pullSnapshot;
+
+  useEffect(() => {
+    onBankTabActiveChange?.(Boolean(isPageActive));
+    return () => {
+      onBankTabActiveChange?.(false);
+    };
+  }, [isPageActive, onBankTabActiveChange]);
 
   const resolveFolderLabel = React.useCallback(
     (folderId?: string) => {

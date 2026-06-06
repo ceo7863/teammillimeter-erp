@@ -358,30 +358,52 @@ export function useBankLiveSync({
 
   React.useEffect(() => {
     if (!enabled || !liveSyncEnabled || !isActive) return;
+    let ticking = false;
     const tick = async () => {
-      await refreshSyncSources();
-      const beforeCount = localCountRef.current;
-      const syncResult = await runServerBankSyncIfDue();
-      if (syncResult && barobillBankRef.current) {
+      if (ticking) return;
+      ticking = true;
+      try {
+        await refreshSyncSources();
+        const beforeCount = localCountRef.current;
+        let syncResult: Awaited<ReturnType<typeof syncBarobillBankNow>> | Awaited<
+          ReturnType<typeof runBankFolderSync>
+        > | null = null;
+        if (barobillBankRef.current) {
+          try {
+            syncResult = await syncBarobillBankNow({ refresh: false });
+          } catch {
+            syncResult = null;
+          }
+        } else {
+          syncResult = await runServerBankSyncIfDue();
+        }
         const refreshResult = await onForceRefreshRef.current?.();
+        if (refreshResult?.totalCount != null) {
+          localCountRef.current = refreshResult.totalCount;
+        }
         const added = Math.max(
           0,
           refreshResult?.addedCount ?? 0,
           syncResult && "added" in syncResult ? Number(syncResult.added) || 0 : 0,
           (refreshResult?.totalCount ?? beforeCount) - beforeCount,
         );
-        if (refreshResult?.totalCount != null) {
-          localCountRef.current = refreshResult.totalCount;
-        }
-        if (syncResult && "ok" in syncResult) {
+        if (syncResult && barobillBankRef.current && "ok" in syncResult) {
           setState((prev) => ({
             ...prev,
             lastAppliedAt: new Date().toISOString(),
             lastMessage: formatBarobillSyncMessage(syncResult as BarobillBankSyncResult, added),
           }));
+        } else if (added > 0) {
+          setState((prev) => ({
+            ...prev,
+            lastAppliedAt: new Date().toISOString(),
+            lastMessage: `${added}\uAC74 \uC790\uB3D9 \uBC18\uC601\uB428`,
+          }));
         }
+        await refreshSyncSources();
+      } finally {
+        ticking = false;
       }
-      await pullSnapshot(true);
     };
     void tick();
     const timer = window.setInterval(() => {
@@ -395,7 +417,7 @@ export function useBankLiveSync({
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [enabled, liveSyncEnabled, isActive, intervalMs, pullSnapshot, refreshSyncSources, runServerBankSyncIfDue]);
+  }, [enabled, liveSyncEnabled, isActive, intervalMs, refreshSyncSources, runServerBankSyncIfDue]);
 
   return {
     liveSyncEnabled,
