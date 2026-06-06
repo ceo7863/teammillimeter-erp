@@ -17,6 +17,9 @@ if ! fc-list :lang=ko | grep -q .; then
   sudo apt-get install -y fonts-noto-cjk
 fi
 
+echo "==> git pull"
+git pull --ff-only origin main
+
 echo "==> npm install"
 npm install
 

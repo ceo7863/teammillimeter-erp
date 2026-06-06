@@ -316,6 +316,47 @@ export function mergeWorkersForSave(existing = [], incoming = []) {
   return merged.map(({ monthlyPaymentMemo: _legacy, ...worker }) => worker);
 }
 
+function normalizeClientRecordId(id) {
+  if (id == null || id === "") return "";
+  return String(id);
+}
+
+export function mergeClientsForSave(existing = [], incoming = []) {
+  const existingById = new Map(
+    (existing || [])
+      .filter((client) => normalizeClientRecordId(client?.id))
+      .map((client) => [normalizeClientRecordId(client.id), client]),
+  );
+
+  return (incoming || []).map((client) => {
+    const clientId = normalizeClientRecordId(client?.id);
+    const prev = clientId ? existingById.get(clientId) : undefined;
+    if (!prev) return client;
+
+    const merged = { ...client };
+    const siteRequestToken =
+      String(client.siteRequestToken || "").trim() || String(prev.siteRequestToken || "").trim();
+    if (siteRequestToken) merged.siteRequestToken = siteRequestToken;
+    else delete merged.siteRequestToken;
+
+    if (client.siteRequestLinkCreatedAt || prev.siteRequestLinkCreatedAt) {
+      merged.siteRequestLinkCreatedAt = client.siteRequestLinkCreatedAt || prev.siteRequestLinkCreatedAt;
+    }
+    if (typeof client.siteRequestLinkDisabled === "boolean") {
+      merged.siteRequestLinkDisabled = client.siteRequestLinkDisabled;
+    } else if (typeof prev.siteRequestLinkDisabled === "boolean") {
+      merged.siteRequestLinkDisabled = prev.siteRequestLinkDisabled;
+    }
+    if (client.siteRequestLinkUpdatedAt || prev.siteRequestLinkUpdatedAt) {
+      merged.siteRequestLinkUpdatedAt = client.siteRequestLinkUpdatedAt || prev.siteRequestLinkUpdatedAt;
+    }
+    if (client.siteRequestLinkUpdatedBy || prev.siteRequestLinkUpdatedBy) {
+      merged.siteRequestLinkUpdatedBy = client.siteRequestLinkUpdatedBy || prev.siteRequestLinkUpdatedBy;
+    }
+    return merged;
+  });
+}
+
 export function mergeErpPaymentLinkState(existingData, incomingData) {
   const mergedBankTransactions = mergeBankTransactionsForSave(
     existingData.bankTransactions || [],
@@ -342,6 +383,9 @@ export function mergeErpPaymentLinkState(existingData, incomingData) {
 
   return {
     ...incomingData,
+    clients: mergeClientsForSave(existingData.clients || [], incomingData.clients || []),
+    clientSiteRequests: Array.isArray(existingData.clientSiteRequests) ? existingData.clientSiteRequests : [],
+    clientContracts: Array.isArray(existingData.clientContracts) ? existingData.clientContracts : [],
     workers: mergeWorkersForSave(existingData.workers || [], incomingData.workers || []),
     workerMonthlyPaymentMemos: mergeWorkerMonthlyPaymentMemosForSave(
       existingData.workerMonthlyPaymentMemos || {},
