@@ -7,24 +7,25 @@ type UseBankAutoSyncOptions = {
   isActive: boolean;
   onSyncBegin?: () => void;
   onSynced?: (result?: { version?: number }) => void | Promise<void>;
-  intervalMs?: number;
-  barobillRefreshIntervalMs?: number;
+  listRefreshIntervalMs?: number;
+  barobillSyncIntervalMs?: number;
 };
 
-/** Auto-fetch Barobill bank rows and refresh the list while the bank tab is visible. */
+/** Keep bank list fresh on the bank tab: poll server often, fetch Barobill occasionally. */
 export function useBankAutoSync({
   enabled,
   isActive,
   onSyncBegin,
   onSynced,
-  intervalMs = 15000,
-  barobillRefreshIntervalMs = 180000,
+  listRefreshIntervalMs = 15000,
+  barobillSyncIntervalMs = 180000,
 }: UseBankAutoSyncOptions) {
   const onSyncBeginRef = React.useRef(onSyncBegin);
   const onSyncedRef = React.useRef(onSynced);
   const barobillBankRef = React.useRef(false);
-  const lastBarobillRefreshAtRef = React.useRef(0);
-  const tickingRef = React.useRef(false);
+  const lastBarobillSyncAtRef = React.useRef(0);
+  const listTickingRef = React.useRef(false);
+  const barobillTickingRef = React.useRef(false);
 
   React.useEffect(() => {
     onSyncBeginRef.current = onSyncBegin;
@@ -34,46 +35,59 @@ export function useBankAutoSync({
     onSyncedRef.current = onSynced;
   }, [onSynced]);
 
-  const tick = React.useCallback(async () => {
-    if (!enabled || !isActive || tickingRef.current) return;
-    tickingRef.current = true;
+  const refreshSources = React.useCallback(async () => {
+    const snapshot = await fetchBankSyncSnapshot(0);
+    barobillBankRef.current = Boolean(snapshot.liveSyncStatus?.sources?.barobillBank);
+    return snapshot;
+  }, []);
+
+  const refreshListFromServer = React.useCallback(async () => {
+    if (!enabled || !isActive || listTickingRef.current) return;
+    listTickingRef.current = true;
     try {
-      try {
-        const snapshot = await fetchBankSyncSnapshot(0);
-        barobillBankRef.current = Boolean(snapshot.liveSyncStatus?.sources?.barobillBank);
-      } catch {
-        return;
-      }
-
       onSyncBeginRef.current?.();
-
-      if (barobillBankRef.current) {
-        try {
-          const requestRefresh =
-            Date.now() - lastBarobillRefreshAtRef.current >= barobillRefreshIntervalMs;
-          const result = await syncBarobillBankNow({ refresh: requestRefresh });
-          if (requestRefresh) {
-            lastBarobillRefreshAtRef.current = Date.now();
-          }
-          await onSyncedRef.current?.({ version: result.version });
-        } catch {
-          await onSyncedRef.current?.();
-        }
-        return;
-      }
-
       await onSyncedRef.current?.();
     } finally {
-      tickingRef.current = false;
+      listTickingRef.current = false;
     }
-  }, [enabled, isActive, barobillRefreshIntervalMs]);
+  }, [enabled, isActive]);
+
+  const syncBarobillIfDue = React.useCallback(async () => {
+    if (!enabled || !isActive || barobillTickingRef.current) return;
+    if (!barobillBankRef.current) return;
+    if (Date.now() - lastBarobillSyncAtRef.current < barobillSyncIntervalMs) return;
+
+    barobillTickingRef.current = true;
+    try {
+      onSyncBeginRef.current?.();
+      const requestRefresh = Date.now() - lastBarobillSyncAtRef.current >= barobillSyncIntervalMs;
+      const result = await syncBarobillBankNow({ refresh: requestRefresh });
+      lastBarobillSyncAtRef.current = Date.now();
+      await onSyncedRef.current?.({ version: result.version });
+    } catch {
+      await onSyncedRef.current?.();
+    } finally {
+      barobillTickingRef.current = false;
+    }
+  }, [enabled, isActive, barobillSyncIntervalMs]);
+
+  const tick = React.useCallback(async () => {
+    if (!enabled || !isActive) return;
+    try {
+      await refreshSources();
+    } catch {
+      return;
+    }
+    await refreshListFromServer();
+    void syncBarobillIfDue();
+  }, [enabled, isActive, refreshListFromServer, refreshSources, syncBarobillIfDue]);
 
   React.useEffect(() => {
     if (!enabled || !isActive) return;
     void tick();
     const timer = window.setInterval(() => {
       void tick();
-    }, intervalMs);
+    }, listRefreshIntervalMs);
     const onVisible = () => {
       if (document.visibilityState === "visible") void tick();
     };
@@ -82,5 +96,5 @@ export function useBankAutoSync({
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [enabled, isActive, intervalMs, tick]);
+  }, [enabled, isActive, listRefreshIntervalMs, tick]);
 }

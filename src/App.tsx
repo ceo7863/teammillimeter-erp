@@ -157,6 +157,7 @@ import { buildClientLastSaleDateMap } from "@/utils/clientListExport";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { PageKeepAlive } from "@/components/PageKeepAlive";
 import { useBankSyncPoll } from "@/hooks/useBankSyncPoll";
+import { useBankAutoSync } from "@/hooks/useBankAutoSync";
 import { DesktopTableWrap, MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
 import { AutocompleteInput, AutocompleteSelect, BufferedTextInput } from "@/components/AutocompleteInput";
 import { focusKoreanTextInput, prepareKoreanTextInput } from "@/utils/koreanIme";
@@ -7041,6 +7042,7 @@ export default function TeammillimeterErpMvp() {
   const bankRemoteApplySkipDirtyRef = useRef(false);
   const bankImportAtRef = useRef("");
   const [bankImportAt, setBankImportAt] = useState("");
+  const [bankTabActive, setBankTabActive] = useState(false);
   const workerMonthlyLinkCleanupRef = useRef(false);
   const taxInvoiceEvidenceAutoLinkKeyRef = useRef("");
   const taxInvoiceEvidenceAutoLinkTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
@@ -8556,16 +8558,22 @@ export default function TeammillimeterErpMvp() {
       let applied = false;
       if (Array.isArray(data.bankTransactions)) {
         const incoming = normalizeBankTransactions(data.bankTransactions);
-        const merged = bankTransactionsDirtyRef.current
-          ? mergeBankTransactionsUnion(bankTransactionsRef.current, incoming, { preserveLocalOnly: true })
+        const hasLocalBankEdits = bankTransactionsDirtyRef.current;
+        const duringRemoteSync = bankSyncApplyingRef.current;
+        const merged = hasLocalBankEdits
+          ? mergeBankTransactionsUnion(bankTransactionsRef.current, incoming, {
+              preserveLocalOnly: !duringRemoteSync,
+            })
           : incoming;
         const synced = syncBankTransactionLedgerLinkFields(
           merged,
           companyExpensesRef.current,
           fixedExpensePaymentsRef.current,
         );
+        bankTransactionsDirtyRef.current = false;
+        bankRemoteApplySkipDirtyRef.current = true;
         bankTransactionsRef.current = synced;
-        setBankTransactions(synced.slice());
+        setBankTransactions([...synced]);
         applied = true;
       }
       if (Array.isArray(data.bankTransactionFolders)) {
@@ -8580,8 +8588,6 @@ export default function TeammillimeterErpMvp() {
       if (applied) {
         erpVersionRef.current = data.version ?? erpVersionRef.current;
         setErpVersion(data.version ?? erpVersionRef.current);
-        bankTransactionsDirtyRef.current = false;
-        bankRemoteApplySkipDirtyRef.current = true;
         const importAt = String(data.bankSyncMeta?.lastImportAt || "").trim();
         if (importAt) {
           bankImportAtRef.current = importAt;
@@ -8640,13 +8646,22 @@ export default function TeammillimeterErpMvp() {
   }, [bankTransactions]);
 
   useBankSyncPoll({
-    enabled: apiMode && dataReady && Boolean(currentUser) && active !== "accounting",
+    enabled: apiMode && dataReady && Boolean(currentUser) && !(active === "accounting" && bankTabActive),
     sinceVersion: erpVersion,
     localTransactionCount: bankTransactions.length,
     localLatestTransactionAt: bankLatestTransactionAt,
     localImportAt: bankImportAt,
     onRefresh: forceRefreshBankFromServer,
     intervalMs: 30000,
+  });
+
+  useBankAutoSync({
+    enabled: apiMode && dataReady && Boolean(currentUser),
+    isActive: active === "accounting" && bankTabActive,
+    onSyncBegin: beginBankRemoteSync,
+    onSynced: handleBankSynced,
+    listRefreshIntervalMs: 15000,
+    barobillSyncIntervalMs: 180000,
   });
 
   useEffect(() => {
@@ -8836,6 +8851,7 @@ export default function TeammillimeterErpMvp() {
         <PageKeepAlive pageKey="accounting" active={active}>
           <AccountingHubPage
             isHubActive={active === "accounting"}
+            onBankTabActiveChange={setBankTabActive}
             bank={{
               bankTransactions,
               setBankTransactions,
