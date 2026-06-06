@@ -295,6 +295,8 @@ export async function fetchBarobillBankTransactionsInRange({ startDate, endDate,
     endDate,
   };
 }
+
+export function countMergeAgainstExisting(existing, preview) {
   const known = new Set(
     (existing || []).map((row) =>
       [
