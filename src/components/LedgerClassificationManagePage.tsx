@@ -4,8 +4,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { DesktopTableWrap } from "@/components/MobileRecordCard";
 import {
+  buildAccountDisplayRows,
+  filterAccountCodesForManageView,
+  isSecondaryAccountCode,
+} from "@/utils/accountCodeTree";
+import {
   DEFAULT_ACCOUNT_PARENT_GROUPS,
-  filterAccountCodesByFlow,
   type AccountCode,
   type AccountCodeFlow,
   type AccountCodeType,
@@ -24,8 +28,10 @@ const L = {
   search: "\uACC4\uC815 \uC774\uB984 \uAC80\uC0C9",
   primary: "1\uCC28",
   secondary: "2\uCC28",
+  tertiary: "3\uCC28",
   addSub: "+\uD558\uC704 \uACC4\uC815",
   addAccount: "\uACC4\uC815 \uCD94\uAC00",
+  addSubAccount: "\uD558\uC704 \uACC4\uC815 \uCD94\uAC00",
   loadStandard: "\uD45C\uC900 \uACC4\uC815 \uBD88\uB7EC\uC624\uAE30",
   loadStandardDone: (n: number) => `\uD45C\uC900 \uACC4\uC815 ${n}\uAC74\uC774 \uCD94\uAC00\uB418\uC5C8\uC2B5\uB2C8\uB2E4.`,
   loadStandardNone: "\uCD94\uAC00\uD560 \uD45C\uC900 \uACC4\uC815\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
@@ -33,6 +39,7 @@ const L = {
   code: "\uCF54\uB4DC",
   group: "1\uCC28 \uADF8\uB8F9",
   flow: "\uC785\uCD9C\uAE08",
+  parentAccount: "2\uCC28 \uACC4\uC815",
   save: "\uC800\uC7A5",
   cancel: "\uCDE8\uC18C",
   active: "\uC0AC\uC6A9",
@@ -43,6 +50,7 @@ const L = {
 
 type SidebarKey = "account" | "dept" | "client";
 type FlowFilter = "all" | "income" | "expense";
+type ModalMode = "secondary" | "tertiary";
 
 type LedgerClassificationManagePageProps = {
   accountCodes: AccountCode[];
@@ -67,32 +75,49 @@ export function LedgerClassificationManagePage({
   const [flowFilter, setFlowFilter] = useState<FlowFilter>("all");
   const [search, setSearch] = useState("");
   const [loadMessage, setLoadMessage] = useState("");
-  const [addOpen, setAddOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<ModalMode | null>(null);
+  const [parentForSub, setParentForSub] = useState<AccountCode | null>(null);
   const [draftName, setDraftName] = useState("");
   const [draftGroup, setDraftGroup] = useState<string>(DEFAULT_ACCOUNT_PARENT_GROUPS[3]);
   const [draftFlow, setDraftFlow] = useState<AccountCodeFlow>("expense");
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return filterAccountCodesByFlow(accountCodes, flowFilter)
-      .filter((row) => {
-        if (!q) return true;
-        return [row.name, row.code, row.parentGroup].filter(Boolean).join(" ").toLowerCase().includes(q);
-      })
-      .sort(
-        (a, b) =>
-          String(a.parentGroup || "").localeCompare(String(b.parentGroup || ""), "ko") ||
-          a.name.localeCompare(b.name, "ko"),
-      );
-  }, [accountCodes, flowFilter, search]);
+  const filteredCodes = useMemo(
+    () => filterAccountCodesForManageView(accountCodes, flowFilter, search),
+    [accountCodes, flowFilter, search],
+  );
+
+  const displayRows = useMemo(() => {
+    const visible = new Set(filteredCodes.map((row) => row.code));
+    return buildAccountDisplayRows(accountCodes).filter((row) => visible.has(row.account.code));
+  }, [accountCodes, filteredCodes]);
 
   const parentGroups = useMemo(() => {
     const set = new Set<string>([...DEFAULT_ACCOUNT_PARENT_GROUPS]);
     for (const row of accountCodes) {
-      if (row.parentGroup) set.add(row.parentGroup);
+      if (row.parentGroup && isSecondaryAccountCode(row)) set.add(row.parentGroup);
     }
     return [...set];
   }, [accountCodes]);
+
+  const openSecondaryModal = () => {
+    setModalMode("secondary");
+    setParentForSub(null);
+    setDraftName("");
+    setDraftGroup(DEFAULT_ACCOUNT_PARENT_GROUPS[3]);
+    setDraftFlow("expense");
+  };
+
+  const openTertiaryModal = (parent: AccountCode) => {
+    setModalMode("tertiary");
+    setParentForSub(parent);
+    setDraftName("");
+  };
+
+  const closeModal = () => {
+    setModalMode(null);
+    setParentForSub(null);
+    setDraftName("");
+  };
 
   const loadStandardAccounts = () => {
     const updated = mergeStandardAccountCodes(accountCodes) as AccountCode[];
@@ -109,20 +134,35 @@ export function LedgerClassificationManagePage({
   const saveNewAccount = () => {
     const name = draftName.trim();
     if (!name) return;
+
     const code = nextAccountCode(accountCodes);
-    const type: AccountCodeType = draftFlow === "income" ? "income" : "expense";
-    const next: AccountCode = {
-      code,
-      name,
-      type,
-      isActive: true,
-      parentGroup: draftGroup,
-      flow: draftFlow,
-    };
+    let next: AccountCode;
+
+    if (modalMode === "tertiary" && parentForSub) {
+      next = {
+        code,
+        name,
+        type: parentForSub.type,
+        isActive: true,
+        parentGroup: parentForSub.parentGroup,
+        parentAccountCode: parentForSub.code,
+        flow: parentForSub.flow,
+      };
+    } else {
+      const type: AccountCodeType = draftFlow === "income" ? "income" : "expense";
+      next = {
+        code,
+        name,
+        type,
+        isActive: true,
+        parentGroup: draftGroup,
+        flow: draftFlow,
+      };
+    }
+
     const updated = [...accountCodes, next];
     setAccountCodes(updated);
-    setAddOpen(false);
-    setDraftName("");
+    closeModal();
     void onRequestImmediateSave?.({ accountCodes: updated });
   };
 
@@ -195,7 +235,7 @@ export function LedgerClassificationManagePage({
                   <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={loadStandardAccounts}>
                     {L.loadStandard}
                   </Button>
-                  <Button type="button" size="sm" className="rounded-xl" onClick={() => setAddOpen(true)}>
+                  <Button type="button" size="sm" className="rounded-xl" onClick={openSecondaryModal}>
                     <Plus size={14} className="mr-1" />
                     {L.addAccount}
                   </Button>
@@ -208,27 +248,49 @@ export function LedgerClassificationManagePage({
                       <tr>
                         <th>{L.primary}</th>
                         <th>{L.secondary}</th>
+                        <th>{L.tertiary}</th>
                         <th>{L.code}</th>
                         <th />
                       </tr>
                     </thead>
                     <tbody>
-                      {filtered.map((row) => (
-                        <tr key={row.code} className={row.isActive ? "" : "opacity-50"}>
-                          <td className="font-medium text-slate-700">{row.parentGroup || "-"}</td>
-                          <td className="font-semibold text-slate-900">{row.name}</td>
-                          <td className="font-mono text-xs text-slate-500">{row.code}</td>
-                          <td className="text-right">
-                            <button
-                              type="button"
-                              className="text-xs font-semibold text-slate-500 hover:text-slate-800"
-                              onClick={() => toggleActive(row.code)}
-                            >
-                              {row.isActive ? L.inactive : L.active}
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {displayRows.map((row) => {
+                        const account = row.account;
+                        const isSecondary = row.kind === "secondary";
+                        return (
+                          <tr key={account.code} className={account.isActive ? "" : "opacity-50"}>
+                            <td className="font-medium text-slate-700">
+                              {isSecondary ? account.parentGroup || "-" : ""}
+                            </td>
+                            <td className="font-semibold text-slate-900">
+                              {isSecondary ? account.name : row.parentAccount?.name || "-"}
+                            </td>
+                            <td className={isSecondary ? "text-slate-400" : "font-semibold text-slate-800 pl-4"}>
+                              {isSecondary ? (
+                                <button
+                                  type="button"
+                                  className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+                                  onClick={() => openTertiaryModal(account)}
+                                >
+                                  {L.addSub}
+                                </button>
+                              ) : (
+                                account.name
+                              )}
+                            </td>
+                            <td className="font-mono text-xs text-slate-500">{account.code}</td>
+                            <td className="text-right">
+                              <button
+                                type="button"
+                                className="text-xs font-semibold text-slate-500 hover:text-slate-800"
+                                onClick={() => toggleActive(account.code)}
+                              >
+                                {account.isActive ? L.inactive : L.active}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </DesktopTableWrap>
@@ -242,56 +304,71 @@ export function LedgerClassificationManagePage({
         </Card>
       </div>
 
-      {addOpen ? (
-        <div className="erp-ledger-modal-backdrop" onClick={() => setAddOpen(false)}>
+      {modalMode ? (
+        <div className="erp-ledger-modal-backdrop" onClick={closeModal}>
           <div
             className="erp-ledger-modal max-w-md"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
           >
-            <h3 className="erp-text-section mb-4 font-bold">{L.addAccount}</h3>
+            <h3 className="erp-text-section mb-4 font-bold">
+              {modalMode === "tertiary" ? L.addSubAccount : L.addAccount}
+            </h3>
             <div className="space-y-3">
+              {modalMode === "tertiary" && parentForSub ? (
+                <p className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                  {L.parentAccount}: <span className="font-semibold text-slate-900">{parentForSub.name}</span>
+                  {parentForSub.parentGroup ? (
+                    <span className="text-slate-500"> ({parentForSub.parentGroup})</span>
+                  ) : null}
+                </p>
+              ) : null}
               <label className="block text-sm font-semibold text-slate-600">
                 {L.name}
                 <input
                   value={draftName}
                   onChange={(e) => setDraftName(e.target.value)}
                   className="erp-input mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                  autoFocus
                 />
               </label>
-              <label className="block text-sm font-semibold text-slate-600">
-                {L.group}
-                <select
-                  value={draftGroup}
-                  onChange={(e) => setDraftGroup(e.target.value)}
-                  className="erp-input mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-                >
-                  {parentGroups.map((group) => (
-                    <option key={group} value={group}>
-                      {group}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-sm font-semibold text-slate-600">
-                {L.flow}
-                <select
-                  value={draftFlow}
-                  onChange={(e) => setDraftFlow(e.target.value as AccountCodeFlow)}
-                  className="erp-input mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-                >
-                  <option value="income">{L.deposit}</option>
-                  <option value="expense">{L.withdrawal}</option>
-                  <option value="both">{L.all}</option>
-                </select>
-              </label>
+              {modalMode === "secondary" ? (
+                <>
+                  <label className="block text-sm font-semibold text-slate-600">
+                    {L.group}
+                    <select
+                      value={draftGroup}
+                      onChange={(e) => setDraftGroup(e.target.value)}
+                      className="erp-input mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                    >
+                      {parentGroups.map((group) => (
+                        <option key={group} value={group}>
+                          {group}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-sm font-semibold text-slate-600">
+                    {L.flow}
+                    <select
+                      value={draftFlow}
+                      onChange={(e) => setDraftFlow(e.target.value as AccountCodeFlow)}
+                      className="erp-input mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                    >
+                      <option value="income">{L.deposit}</option>
+                      <option value="expense">{L.withdrawal}</option>
+                      <option value="both">{L.all}</option>
+                    </select>
+                  </label>
+                </>
+              ) : null}
             </div>
             <div className="mt-4 flex justify-end gap-2">
-              <Button type="button" variant="outline" className="rounded-xl" onClick={() => setAddOpen(false)}>
+              <Button type="button" variant="outline" className="rounded-xl" onClick={closeModal}>
                 {L.cancel}
               </Button>
-              <Button type="button" className="rounded-xl" onClick={saveNewAccount}>
+              <Button type="button" className="rounded-xl" onClick={saveNewAccount} disabled={!draftName.trim()}>
                 {L.save}
               </Button>
             </div>

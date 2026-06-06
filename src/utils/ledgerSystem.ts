@@ -24,6 +24,8 @@ export type AccountCode = {
   isActive: boolean;
   /** 1\uCC28 \uADF8\uB8F9 (\uB9E4\uCD9C, \uD310\uB9E4\uBE44\uC640\uAD00\uB9AC\uBE44 \uB4F1) */
   parentGroup?: string;
+  /** 2\uCC28 \uACC4\uC815 \uCF54\uB4DC \u2014 \uC788\uC73C\uBA74 3\uCC28 \uD558\uC704 \uACC4\uC815 */
+  parentAccountCode?: string;
   flow?: AccountCodeFlow;
 };
 
@@ -79,7 +81,16 @@ export function filterAccountCodesByFlow(rows: AccountCode[], flow: "all" | "inc
   return rows.filter((row) => {
     if (!row.isActive) return false;
     const rowFlow = row.flow || (row.type === "income" ? "income" : row.type === "expense" ? "expense" : "both");
-    return rowFlow === flow || rowFlow === "both";
+    if (rowFlow === flow || rowFlow === "both") return true;
+    if (row.parentAccountCode) {
+      const parent = findAccountCodeByCode(rows, row.parentAccountCode);
+      if (parent) {
+        const parentFlow =
+          parent.flow || (parent.type === "income" ? "income" : parent.type === "expense" ? "expense" : "both");
+        return parentFlow === flow || parentFlow === "both";
+      }
+    }
+    return false;
   });
 }
 
@@ -90,7 +101,12 @@ export function findAccountCodeByCode(rows: AccountCode[], code: string) {
 export function resolveAccountCodeLabel(rows: AccountCode[], code: string | undefined) {
   if (!code) return null;
   const row = findAccountCodeByCode(rows, code);
-  return row?.name || code;
+  if (!row) return code;
+  if (row.parentAccountCode) {
+    const parent = findAccountCodeByCode(rows, row.parentAccountCode);
+    if (parent) return `${parent.name} > ${row.name}`;
+  }
+  return row.name;
 }
 
 const CATEGORY_ACCOUNT_DEFAULTS: Record<string, string> = {
@@ -132,6 +148,7 @@ export function normalizeAccountCodes(rows: unknown): AccountCode[] {
     seen.add(code);
     const type = row.type;
     const parentGroup = String(row.parentGroup || "").trim() || undefined;
+    const parentAccountCode = String(row.parentAccountCode || "").trim() || undefined;
     result.push({
       code,
       name,
@@ -141,6 +158,7 @@ export function normalizeAccountCodes(rows: unknown): AccountCode[] {
           : "expense",
       isActive: row.isActive !== false,
       parentGroup,
+      parentAccountCode,
       flow: normalizeAccountCodeFlow(row.flow),
     });
   }
@@ -416,7 +434,7 @@ export function buildAccountCodeSummary(
     const code = row.accountCode || "900";
     const current = bucket.get(code) || {
       accountCode: code,
-      accountName: findAccountCode(accountCodes, code)?.name || row.accountName || code,
+      accountName: resolveAccountCodeLabel(accountCodes, code) || row.accountName || code,
       expenseTotal: 0,
       incomeTotal: 0,
       count: 0,
