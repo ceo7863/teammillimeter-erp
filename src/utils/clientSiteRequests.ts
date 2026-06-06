@@ -91,7 +91,8 @@ export type ClientSiteRequestPublicStatusTone =
   | "register"
   | "confirmed"
   | "rejected"
-  | "cancel_pending";
+  | "cancel_pending"
+  | "cancelled";
 
 export function clientSiteRequestPublicStatusLabel(
   request: Pick<ClientSiteRequest, "status" | "receiptCompletedAt" | "registerCompletedAt">,
@@ -108,6 +109,7 @@ export function clientSiteRequestPublicStatusLabel(
 export function clientSiteRequestPublicStatusTone(
   request: Pick<ClientSiteRequest, "status" | "receiptCompletedAt" | "registerCompletedAt">,
 ): ClientSiteRequestPublicStatusTone {
+  if (request.status === "cancelled") return "cancelled";
   if (request.status === "cancel_pending") return "cancel_pending";
   if (request.status === "rejected") return "rejected";
   if (request.status === "confirmed") return "confirmed";

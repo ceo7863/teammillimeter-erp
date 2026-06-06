@@ -156,7 +156,6 @@ import { ClientListExport } from "@/components/ClientListExport";
 import { buildClientLastSaleDateMap } from "@/utils/clientListExport";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { PageKeepAlive } from "@/components/PageKeepAlive";
-import { useBankLiveSync } from "@/hooks/useBankLiveSync";
 import { DesktopTableWrap, MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
 import { AutocompleteInput, AutocompleteSelect, BufferedTextInput } from "@/components/AutocompleteInput";
 import { focusKoreanTextInput, prepareKoreanTextInput } from "@/utils/koreanIme";
@@ -260,7 +259,6 @@ import {
   saveErpData,
   saveWorkerMonthlyPaymentMemoApi,
   updateSidebarOrderApi,
-  type BankSyncSnapshot,
 } from "@/utils/erpApi";
 import {
   clearWorkerPortalSession,
@@ -7040,9 +7038,6 @@ export default function TeammillimeterErpMvp() {
   const bankTransactionsDirtyRef = useRef(false);
   const bankSyncApplyingRef = useRef(false);
   const bankRemoteApplySkipDirtyRef = useRef(false);
-  const bankImportAtRef = useRef("");
-  const [bankImportAt, setBankImportAt] = useState("");
-  const [bankTabActive, setBankTabActive] = useState(false);
   const workerMonthlyLinkCleanupRef = useRef(false);
   const taxInvoiceEvidenceAutoLinkKeyRef = useRef("");
   const taxInvoiceEvidenceAutoLinkTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
@@ -8594,11 +8589,6 @@ export default function TeammillimeterErpMvp() {
         setErpVersion(data.version ?? erpVersionRef.current);
         bankTransactionsDirtyRef.current = false;
         bankRemoteApplySkipDirtyRef.current = true;
-        const importAt = String(data.bankSyncMeta?.lastImportAt || "").trim();
-        if (importAt) {
-          bankImportAtRef.current = importAt;
-          setBankImportAt(importAt);
-        }
       }
       return {
         addedCount: Math.max(0, bankTransactionsRef.current.length - beforeCount),
@@ -8625,45 +8615,6 @@ export default function TeammillimeterErpMvp() {
       });
     }
   }, [applyBankTransactionsSnapshot, releaseRemoteBankSnapshotSaveGuard]);
-
-  const applyRemoteBankSnapshot = React.useCallback(async (_snapshot: BankSyncSnapshot) => {
-    bankSyncApplyingRef.current = true;
-    skipSaveRef.current = true;
-
-    try {
-      const data = await fetchBankTransactionsSnapshot();
-      return await applyBankTransactionsSnapshot(data);
-    } catch (error) {
-      console.error(error);
-      return { addedCount: 0, totalCount: bankTransactionsRef.current.length, applied: false };
-    } finally {
-      queueMicrotask(() => {
-        bankSyncApplyingRef.current = false;
-        releaseRemoteBankSnapshotSaveGuard();
-      });
-    }
-  }, [applyBankTransactionsSnapshot, releaseRemoteBankSnapshotSaveGuard]);
-
-  const bankLatestTransactionAt = React.useMemo(() => {
-    let latest = "";
-    for (const row of bankTransactions) {
-      const at = String(row.transactionAt || "");
-      if (at.localeCompare(latest) > 0) latest = at;
-    }
-    return latest;
-  }, [bankTransactions]);
-
-  const bankLiveSync = useBankLiveSync({
-    enabled: apiMode && dataReady,
-    isActive: active === "accounting" && bankTabActive,
-    sinceVersion: erpVersion,
-    localTransactionCount: bankTransactions.length,
-    localLatestTransactionAt: bankLatestTransactionAt,
-    localImportAt: bankImportAt,
-    onRemoteUpdate: applyRemoteBankSnapshot,
-    onForceRefresh: forceRefreshBankFromServer,
-    intervalMs: 15000,
-  });
 
   useEffect(() => {
     if (!currentUser) return;
@@ -8852,7 +8803,6 @@ export default function TeammillimeterErpMvp() {
         <PageKeepAlive pageKey="accounting" active={active}>
           <AccountingHubPage
             isHubActive={active === "accounting"}
-            onBankTabActiveChange={setBankTabActive}
             bank={{
               bankTransactions,
               setBankTransactions,
@@ -8860,7 +8810,7 @@ export default function TeammillimeterErpMvp() {
               setBankTransactionFolders,
               apiMode,
               erpVersion,
-              bankLiveSync,
+              onBankSynced: forceRefreshBankFromServer,
               onRequestImmediateSave: flushErpSave,
               clients,
               setClients,

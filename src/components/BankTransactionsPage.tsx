@@ -16,7 +16,6 @@ import {
   Landmark,
   Link2,
   ListChecks,
-  RefreshCw,
   Repeat,
   Search,
   Sparkles,
@@ -181,8 +180,7 @@ import {
 } from "@/components/AutocompleteInput";
 import { createPaymentInputLogsFromVouchers } from "@/utils/paymentInputLogs";
 import type { ReceivableRow } from "@/utils/receivables";
-import type { ErpUser, BankSyncSnapshot } from "@/utils/erpApi";
-import type { BankLiveSyncApi } from "@/hooks/useBankLiveSync";
+import type { ErpUser } from "@/utils/erpApi";
 import { BarobillBankSettingsPanel } from "@/components/BarobillBankSettingsPanel";
 import {
   buildAllBankDepositSuggestions,
@@ -375,15 +373,6 @@ const L = {
   ibkImportSkipped: "\uAC74 \uC911\uBCF5 \uC81C\uC678",
   ibkImportDone: "\uAC70\uB798\uB0B4\uC5ED \uAC00\uC838\uC624\uAE30\uAC00 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   ibkImportFailed: "\uC5D1\uC140\uC744 \uC77D\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
-  liveSyncTitle: "\uC2E4\uC2DC\uAC04 \uC5F0\uB3D9",
-  liveSyncOn: "\uC5F0\uB3D9 \uC911",
-  liveSyncOff: "\uC5F0\uB3D9 \uAE34\uAE30",
-  liveSyncNow: "\uC9C0\uAE08 \uAC00\uC838\uC624\uAE30",
-  liveSyncNowGeneric: "\uC9C0\uAE08 \uB3D9\uAE30\uD654",
-  liveSyncFolder: "\uD3F4\uB354\uC5D0\uC11C \uAC00\uC838\uC624\uAE30",
-  liveSyncHint: "\uBC14\uB85C\uBE4C \uACC4\uC88C\uB0B4\uC5AD\uC744 15\uCD08\uB9C8\uB2E4 \uC790\uB3D9 \uAC00\uC838\uC624\uACE0 \uBAA9\uB85D\uC744 \uAC31\uC2E0\uD569\uB2C8\uB2E4. \uC5F0\uB3D9 \uC2A4\uC704\uCE58\uB97C \uAE34 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
-  liveSyncLocalHint: "\uC11C\uBC84 \uBAA8\uB4DC\uC5D0\uC11C \uC2E4\uC2DC\uAC04 \uC5F0\uB3D9\uC744 \uC0AC\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uD68C\uACC4\u00B7\uD1B5\uC7A5 \u003E \uD1B5\uC7A5 \uD0ED\uC5D0\uC11C \uB3D9\uC791\uD569\uB2C8\uB2E4.",
-  liveSyncFolderDisabled: "\uC790\uB3D9 \uB3D9\uAE30\uD654 \uC18C\uC2A4\uAC00 \uC124\uC815\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.",
   previewRows: "\uC778\uC2DD \uAC74\uC218",
   previewDeposits: "\uC785\uAE08 \uD569\uACC4",
   previewWithdrawals: "\uCD9C\uAE08 \uD569\uACC4",
@@ -923,9 +912,8 @@ export function BankTransactionsPage({
   companyProfile,
   apiMode = false,
   erpVersion = 0,
-  bankLiveSync,
+  onBankSynced,
   isPageActive = true,
-  onBankTabActiveChange,
   onRequestImmediateSave,
 }: {
   bankTransactions: BankTransaction[];
@@ -963,9 +951,8 @@ export function BankTransactionsPage({
   companyProfile?: import("@/utils/companyProfile").CompanyProfile;
   apiMode?: boolean;
   erpVersion?: number;
-  bankLiveSync?: BankLiveSyncApi;
+  onBankSynced?: () => void | Promise<void>;
   isPageActive?: boolean;
-  onBankTabActiveChange?: (active: boolean) => void;
   onRequestImmediateSave?: (patch?: {
     bankTransactions?: BankTransaction[];
     companyExpenses?: CompanyExpense[];
@@ -1090,29 +1077,6 @@ export function BankTransactionsPage({
   const [sentArchives, setSentArchives] = useState<PdfArchiveMeta[]>([]);
   const ibkInputRef = useRef<HTMLInputElement>(null);
   const savedBy = currentUser?.name || currentUser?.loginId || "";
-
-  const liveSyncEnabled = bankLiveSync?.liveSyncEnabled ?? false;
-  const setLiveSyncEnabled = bankLiveSync?.setLiveSyncEnabled ?? (() => {});
-  const liveSyncState = bankLiveSync?.state ?? {
-    enabled: false,
-    polling: false,
-    lastCheckedAt: null,
-    lastAppliedAt: null,
-    lastMessage: "",
-    serverStatus: null,
-    bankSyncMeta: null,
-  };
-  const syncNow = bankLiveSync?.syncNow ?? (async () => null);
-  const runFolderSync = bankLiveSync?.runFolderSync ?? syncNow;
-  const pullSnapshot = bankLiveSync?.pullSnapshot ?? (async () => null);
-  const forceRefreshBank = bankLiveSync?.forceRefreshBank ?? pullSnapshot;
-
-  useEffect(() => {
-    onBankTabActiveChange?.(Boolean(isPageActive));
-    return () => {
-      onBankTabActiveChange?.(false);
-    };
-  }, [isPageActive, onBankTabActiveChange]);
 
   const resolveFolderLabel = React.useCallback(
     (folderId?: string) => {
@@ -4916,67 +4880,14 @@ export function BankTransactionsPage({
               <h1 className="erp-text-section font-bold text-slate-900">{L.pageTitle}</h1>
               <p className="mt-0.5 max-w-2xl text-xs leading-snug text-slate-500">{L.pageDesc}</p>
               {apiMode ? (
-                <div className="mt-2 space-y-1.5">
-                  <div className="erp-bank-sync-strip">
-                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-800">
-                      <RefreshCw size={12} className={liveSyncState.polling ? "animate-spin" : ""} />
-                      {L.liveSyncTitle}
-                    </span>
-                    <label className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={liveSyncEnabled}
-                        onChange={(event) => setLiveSyncEnabled(event.target.checked)}
-                      />
-                      {liveSyncEnabled ? L.liveSyncOn : L.liveSyncOff}
-                    </label>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-6 rounded-md px-2 text-[11px]"
-                      disabled={liveSyncState.polling || !liveSyncState.serverStatus?.enabled}
-                      onClick={() => void syncNow()}
-                    >
-                      {liveSyncState.serverStatus?.sources?.barobillBank ? L.liveSyncNow : L.liveSyncNowGeneric}
-                    </Button>
-                    {liveSyncState.serverStatus?.sources?.folder ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-6 rounded-md px-2 text-[11px]"
-                      disabled={liveSyncState.polling || !liveSyncState.serverStatus?.enabled}
-                      title={liveSyncState.serverStatus?.importDir || L.liveSyncFolderDisabled}
-                      onClick={() => void runFolderSync()}
-                    >
-                      {L.liveSyncFolder}
-                    </Button>
-                    ) : null}
-                    {liveSyncState.lastMessage ? (
-                      <span className="text-[10px] font-semibold text-emerald-700">{liveSyncState.lastMessage}</span>
-                    ) : null}
-                    {liveSyncState.bankSyncMeta?.lastImportAt ? (
-                      <span className="text-[10px] text-slate-500">
-                        {L.dataAsOf}{" "}
-                        {liveSyncState.bankSyncMeta.lastImportLatestAt
-                          ? formatBankTransactionDateTime(liveSyncState.bankSyncMeta.lastImportLatestAt)
-                          : formatBankTransactionDateTime(liveSyncState.bankSyncMeta.lastImportAt)}
-                        {liveSyncState.bankSyncMeta.lastImportSource
-                          ? ` · ${liveSyncState.bankSyncMeta.lastImportSource}`
-                          : ""}
-                      </span>
-                    ) : null}
-                  </div>
+                <div className="mt-2">
                   <BarobillBankSettingsPanel
                     apiMode={apiMode}
                     isAdmin={currentUser?.role === "admin"}
-                    onSynced={() => forceRefreshBank()}
+                    onSynced={() => void onBankSynced?.()}
                   />
                 </div>
-              ) : (
-                <p className="mt-1 text-[11px] text-slate-500">{L.liveSyncLocalHint}</p>
-              )}
+              ) : null}
             </div>
           </div>
           <div className="flex w-full shrink-0 flex-col gap-1.5 sm:w-auto sm:items-end">

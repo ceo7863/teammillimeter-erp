@@ -66,9 +66,9 @@ const L = {
   messageFail: "\uBA54\uC2DC\uC9C0 \uC804\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   cancelRequest: "\uC811\uC218 \uCDE8\uC18C \uC694\uCCAD",
   cancelConfirmTitle: "\uC811\uC218 \uCDE8\uC18C \uC694\uCCAD",
-  cancelConfirmBody: "\uC774 \uC811\uC218 \uB0B4\uC6A9\uC744 \uCDE8\uC18C \uC694\uCCAD\uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C? \uB2F4\uB2F9\uC790 \uD655\uC778 \uD6C4 \uCE98\uB9B0\uB354\uC5D0\uC11C \uC0AD\uC81C\uB429\uB2C8\uB2E4.",
+  cancelConfirmBody: "\uC774 \uC811\uC218 \uB0B4\uC6A9\uC744 \uCDE8\uC18C \uC694\uCCAD\uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C? \uB2F4\uB2F9\uC790 \uD655\uC778 \uD6C4 \uCE98\uB9B0\uB354 \uC77C\uC815\uC5D0\uC11C\uB294 \uC81C\uAC70\uB418\uC9C0\uB9CC, \uC811\uC218 \uB0B4\uC5ED\uC5D0\uB294 \uACC4\uC18D \uB0A8\uAE41\uB2C8\uB2E4.",
   cancelConfirmYes: "\uCDE8\uC18C \uC694\uCCAD",
-  cancelPendingNotice: "\uCDE8\uC18C \uC694\uCCAD \uC911\uC785\uB2C8\uB2E4. \uB2F4\uB2F9\uC790 \uD655\uC778 \uD6C4 \uCE98\uB9B0\uB354\uC5D0\uC11C \uC0AD\uC81C\uB429\uB2C8\uB2E4.",
+  cancelPendingNotice: "\uCDE8\uC18C \uC694\uCCAD \uC911\uC785\uB2C8\uB2E4. \uD655\uC778 \uD6C4 \uCE98\uB9B0\uB354 \uC77C\uC815\uC5D0\uC11C\uB294 \uC81C\uAC70\uB418\uC9C0\uB9CC, \uC811\uC218 \uB0B4\uC5ED\uC5D0\uB294 \uACC4\uC18D \uB0A8\uAE41\uB2C8\uB2E4.",
   cancelDone: "\uCDE8\uC18C \uC694\uCCAD\uC774 \uC811\uC218\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   cancelFail: "\uCDE8\uC18C \uC694\uCCAD\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   cancelling: "\uC694\uCCAD \uC911...",
@@ -133,14 +133,20 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [cancelling, setCancelling] = useState(false);
 
-  const visibleRequests = useMemo(
+  const calendarRequests = useMemo(
     () => requests.filter((row) => isClientSiteRequestVisibleOnPublicCalendar(row)),
     [requests],
   );
 
+  const historyRequests = useMemo(
+    () =>
+      [...requests].sort((a, b) => String(b.submittedAt || "").localeCompare(String(a.submittedAt || ""))),
+    [requests],
+  );
+
   const selectedRequest = useMemo(
-    () => visibleRequests.find((row) => row.id === selectedRequestId) || null,
-    [visibleRequests, selectedRequestId],
+    () => requests.find((row) => row.id === selectedRequestId) || null,
+    [requests, selectedRequestId],
   );
 
   const loadInfo = useCallback(async () => {
@@ -178,6 +184,12 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
     if (!info) return;
     void loadRequests();
   }, [info, loadRequests]);
+
+  useEffect(() => {
+    if (selectedRequest?.status === "cancelled" && tab === "calendar") {
+      setTab("history");
+    }
+  }, [selectedRequest?.status, tab]);
 
   useEffect(() => {
     if (!info) return;
@@ -221,7 +233,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
 
     lastClickedDateRef.current = date;
     setSelectedCalendarDate(date);
-    const dayRequests = visibleRequests.filter((row) => requestCoversWorkDate(row, date));
+    const dayRequests = calendarRequests.filter((row) => requestCoversWorkDate(row, date));
     if (dayRequests.length === 1) {
       setSelectedRequestId(dayRequests[0].id);
     } else if (selectedRequestId && !dayRequests.some((row) => row.id === selectedRequestId)) {
@@ -419,7 +431,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
             {tab === "calendar" ? (
               <div className="space-y-4">
                 <ClientSiteRequestCalendar
-                  requests={visibleRequests}
+                  requests={calendarRequests}
                   monthKey={calendarMonthKey}
                   onMonthKeyChange={setCalendarMonthKey}
                   selectedDate={selectedCalendarDate}
@@ -460,19 +472,21 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
               </div>
             ) : (
               <div className="space-y-4">
-                {!visibleRequests.length ? (
+                {!historyRequests.length ? (
                   <p className="text-sm text-slate-500">{L.emptyHistory}</p>
                 ) : (
                   <>
                     <div className="space-y-2">
-                      {visibleRequests.map((request) => (
+                      {historyRequests.map((request) => (
                         <button
                           key={request.id}
                           type="button"
                           className={`erp-client-site-request-history-item erp-touch-target w-full rounded-2xl border px-4 py-3.5 text-left transition ${
                             selectedRequestId === request.id
                               ? "border-slate-900 bg-slate-900 text-white"
-                              : "border-slate-200 bg-white text-slate-900 hover:bg-slate-50"
+                              : request.status === "cancelled"
+                                ? "border-slate-200 bg-slate-50 text-slate-600"
+                                : "border-slate-200 bg-white text-slate-900 hover:bg-slate-50"
                           }`}
                           onClick={() => setSelectedRequestId(request.id)}
                         >

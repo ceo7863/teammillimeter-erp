@@ -269,10 +269,9 @@ export function listPublicClientSiteRequests(token) {
   }
   const rows = listRequests(data)
     .filter((row) => clientIdsEqual(row.clientId, client.id))
-    .filter((row) => isPublicCalendarVisibleStatus(row.status))
     .map((row) => sanitizePublicClientSiteRequest(row))
     .sort((a, b) => String(b.submittedAt || "").localeCompare(String(a.submittedAt || "")))
-    .slice(0, 30);
+    .slice(0, 50);
   return { ok: true, requests: rows };
 }
 
