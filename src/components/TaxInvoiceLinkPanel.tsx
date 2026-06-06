@@ -316,6 +316,7 @@ function TaxInvoiceLinkFilterBody({
       endDate,
       ourCompanyName,
       ourBusinessNo,
+      linkingTransactionId: tx.id,
     });
   }, [
     preparing,
@@ -326,8 +327,7 @@ function TaxInvoiceLinkFilterBody({
     flowFilter,
     startDate,
     endDate,
-    ourCompanyName,
-    ourBusinessNo,
+    tx.id,
   ]);
 
   const rows = useMemo(

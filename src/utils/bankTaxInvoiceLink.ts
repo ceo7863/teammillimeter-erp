@@ -332,7 +332,7 @@ export function buildBankTxTaxInvoiceLinkPatch(
   return {
     ...tx,
     linkedTaxInvoiceId: invoice.id,
-    taxInvoiceAutoLinkDisabled: options.manual ? false : tx.taxInvoiceAutoLinkDisabled,
+    taxInvoiceAutoLinkDisabled: options.manual ? true : tx.taxInvoiceAutoLinkDisabled,
     ledgerClientName: displayClientName || tx.ledgerClientName,
     linkedSubject: tx.deposit > 0 && displayClientName ? displayClientName : tx.linkedSubject,
   };

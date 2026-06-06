@@ -35,6 +35,7 @@ let linkedIndexCache: { source: BankTransaction[]; index: TaxInvoiceLinkedPaymen
 let settlementCache: {
   invoices: TaxInvoice[];
   transactions: BankTransaction[];
+  excludeKey: string;
   allocation: Map<string, TaxInvoiceSettlementBucket>;
 } | null = null;
 
@@ -57,7 +58,9 @@ function normalizeTaxInvoiceClientKey(invoice: TaxInvoice) {
 export function buildTaxInvoiceSettlementAllocation(
   invoices: TaxInvoice[],
   transactions: BankTransaction[],
+  options: { excludeTransactionIds?: Set<string> } = {},
 ): Map<string, TaxInvoiceSettlementBucket> {
+  const excludeTransactionIds = options.excludeTransactionIds ?? new Set<string>();
   const invoiceById = new Map(invoices.map((row) => [row.id, row]));
   const result = new Map<string, TaxInvoiceSettlementBucket>();
 
@@ -99,6 +102,7 @@ export function buildTaxInvoiceSettlementAllocation(
     );
 
     for (const tx of group.txs) {
+      if (excludeTransactionIds.has(tx.id)) continue;
       let remaining =
         Number(tx.deposit || 0) > 0
           ? Number(tx.deposit || 0)
@@ -129,13 +133,23 @@ export function buildTaxInvoiceSettlementAllocation(
 export function getTaxInvoiceSettlementAllocationCached(
   invoices: TaxInvoice[],
   transactions: BankTransaction[],
+  options: { excludeTransactionIds?: Set<string> } = {},
 ) {
-  if (settlementCache?.invoices === invoices && settlementCache.transactions === transactions) {
+  const excludeKey = [...(options.excludeTransactionIds ?? [])].sort().join(",");
+  if (
+    settlementCache?.invoices === invoices &&
+    settlementCache.transactions === transactions &&
+    settlementCache.excludeKey === excludeKey
+  ) {
     return settlementCache.allocation;
   }
-  const allocation = buildTaxInvoiceSettlementAllocation(invoices, transactions);
-  settlementCache = { invoices, transactions, allocation };
+  const allocation = buildTaxInvoiceSettlementAllocation(invoices, transactions, options);
+  settlementCache = { invoices, transactions, excludeKey, allocation };
   return allocation;
+}
+
+function resolveSettlementOptions(excludeTransactionIds?: Set<string>) {
+  return excludeTransactionIds?.size ? { excludeTransactionIds } : {};
 }
 
 export function getTaxInvoiceCancellationExcludedIdsCached(invoices: TaxInvoice[]) {
@@ -199,25 +213,48 @@ export function getTaxInvoiceUnsettledAmount(
   invoice: TaxInvoice,
   transactions: BankTransaction[],
   allInvoices: TaxInvoice[] = [],
+  excludeTransactionIds?: Set<string>,
 ) {
   if (allInvoices.length) {
-    const bucket = getTaxInvoiceSettlementAllocationCached(allInvoices, transactions).get(invoice.id);
+    const bucket = getTaxInvoiceSettlementAllocationCached(
+      allInvoices,
+      transactions,
+      resolveSettlementOptions(excludeTransactionIds),
+    ).get(invoice.id);
     if (bucket) return bucket.unsettledAmount;
   }
-  const linked = getTaxInvoiceLinkedPaymentSum(transactions, invoice);
-  return Math.max(0, Number(invoice.totalAmount || 0) - linked);
+  let linked = getTaxInvoiceLinkedPaymentSum(transactions, invoice);
+  if (excludeTransactionIds?.size) {
+    for (const tx of transactions) {
+      if (!excludeTransactionIds.has(tx.id) || tx.linkedTaxInvoiceId !== invoice.id) continue;
+      linked -= Number(tx.deposit || 0) > 0 ? Number(tx.deposit || 0) : Number(tx.withdrawal || 0);
+    }
+  }
+  return Math.max(0, Number(invoice.totalAmount || 0) - Math.max(0, linked));
 }
 
 export function getTaxInvoiceAppliedPaymentAmount(
   invoice: TaxInvoice,
   transactions: BankTransaction[],
   allInvoices: TaxInvoice[] = [],
+  excludeTransactionIds?: Set<string>,
 ) {
   if (allInvoices.length) {
-    const bucket = getTaxInvoiceSettlementAllocationCached(allInvoices, transactions).get(invoice.id);
+    const bucket = getTaxInvoiceSettlementAllocationCached(
+      allInvoices,
+      transactions,
+      resolveSettlementOptions(excludeTransactionIds),
+    ).get(invoice.id);
     if (bucket) return bucket.appliedAmount;
   }
-  return getTaxInvoiceLinkedPaymentSum(transactions, invoice);
+  let linked = getTaxInvoiceLinkedPaymentSum(transactions, invoice);
+  if (excludeTransactionIds?.size) {
+    for (const tx of transactions) {
+      if (!excludeTransactionIds.has(tx.id) || tx.linkedTaxInvoiceId !== invoice.id) continue;
+      linked -= Number(tx.deposit || 0) > 0 ? Number(tx.deposit || 0) : Number(tx.withdrawal || 0);
+    }
+  }
+  return Math.max(0, linked);
 }
 
 export function buildDefaultTaxInvoiceLinkDateRange(tx: BankTransaction) {
@@ -298,22 +335,28 @@ export function buildTaxInvoiceLinkCatalog(input: {
   endDate: string;
   ourCompanyName: string;
   ourBusinessNo: string;
+  linkingTransactionId?: string;
 }): TaxInvoiceLinkCatalogRow[] {
   let rows = input.invoices.filter((row) => row.status === "issued" && !input.excludedIds.has(row.id));
   rows = filterTaxInvoicesByFlow(rows, input.flowFilter);
   rows = filterTaxInvoicesByPeriod(rows, input.startDate, input.endDate);
   rows = sortTaxInvoices(rows);
+  const excludeTransactionIds = input.linkingTransactionId
+    ? new Set([input.linkingTransactionId])
+    : undefined;
 
   return rows.map((invoice) => {
     const linkedAmount = getTaxInvoiceAppliedPaymentAmount(
       invoice,
       input.bankTransactions,
       input.invoices,
+      excludeTransactionIds,
     );
     const unsettledAmount = getTaxInvoiceUnsettledAmount(
       invoice,
       input.bankTransactions,
       input.invoices,
+      excludeTransactionIds,
     );
     return buildCatalogDisplayRow(
       invoice,

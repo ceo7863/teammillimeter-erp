@@ -2308,16 +2308,20 @@ export function BankTransactionsPage({
   }, []);
 
   const applyTaxInvoiceLink = useCallback(
-    (tx: BankTransaction, invoiceId: string | undefined) => {
+    (
+      tx: BankTransaction,
+      invoiceId: string | undefined,
+      sourceTransactions: BankTransaction[] = bankTransactions,
+    ) => {
       const invoice = invoiceId ? taxInvoices.find((row) => row.id === invoiceId) : undefined;
       const nextRow = buildBankTxTaxInvoiceLinkPatch(tx, invoice, { manual: true });
       auditBankTxUpdate(tx, nextRow);
-      let nextTransactions = bankTransactions.map((row) => (row.id === tx.id ? nextRow : row));
+      let nextTransactions = sourceTransactions.map((row) => (row.id === tx.id ? nextRow : row));
       let nextClients = clients;
 
       if (invoice) {
         nextClients = learnClientTaxInvoiceExactPayments(nextClients, invoice, nextRow);
-        if (shouldLearnTaxInvoiceSplitPayment(tx, invoice, bankTransactions)) {
+        if (shouldLearnTaxInvoiceSplitPayment(tx, invoice, sourceTransactions)) {
           nextClients = learnClientTaxInvoiceSplitPayments(nextClients, invoice);
         }
         if (nextClients !== clients) {
@@ -2396,7 +2400,9 @@ export function BankTransactionsPage({
     (invoiceId: string | undefined) => {
       const session = taxInvoiceLinkSessionRef.current;
       if (!session) return;
-      const result = applyTaxInvoiceLink(session.tx, invoiceId);
+      const liveTx =
+        session.bankTransactions.find((row) => row.id === session.tx.id) ?? session.tx;
+      const result = applyTaxInvoiceLink(liveTx, invoiceId, session.bankTransactions);
       if (!result?.nextRow || !result.nextTransactions) return;
       invalidateTaxInvoiceLinkPanelCaches();
       setTaxInvoiceLinkSession({
