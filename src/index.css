@@ -3161,6 +3161,45 @@ textarea {
     display: none !important;
   }
 
+  .erp-client-request-calendar .erp-calendar-cell-entries {
+    display: flex !important;
+    flex-direction: column;
+    gap: 0.12rem;
+    width: 100%;
+    overflow: hidden;
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+
+  .erp-client-request-calendar__entry {
+    min-width: 0;
+  }
+
+  .erp-client-request-calendar__entry-site {
+    color: inherit;
+    display: block;
+    min-width: 0;
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .erp-client-request-calendar__entry.is-pending {
+    background: #fff7ed;
+    color: #9a3412;
+  }
+
+  .erp-client-request-calendar__entry.is-confirmed {
+    background: #ecfdf5;
+    color: #047857;
+  }
+
+  .erp-client-request-calendar__entry.is-rejected {
+    background: #fef2f2;
+    color: #b91c1c;
+  }
+
   .erp-calendar-cell .erp-calendar-day {
     min-width: 1.35rem;
     height: 1.35rem;
