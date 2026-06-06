@@ -182,6 +182,7 @@ import { createPaymentInputLogsFromVouchers } from "@/utils/paymentInputLogs";
 import type { ReceivableRow } from "@/utils/receivables";
 import type { ErpUser } from "@/utils/erpApi";
 import { BarobillBankSettingsPanel } from "@/components/BarobillBankSettingsPanel";
+import { useBankAutoSync } from "@/hooks/useBankAutoSync";
 import {
   buildAllBankDepositSuggestions,
   buildBankDepositMatchCandidates,
@@ -968,6 +969,15 @@ export function BankTransactionsPage({
     paymentVouchers?: unknown[];
   }) => void | Promise<void>;
 }) {
+  useBankAutoSync({
+    enabled: apiMode,
+    isActive: isPageActive,
+    onSyncBegin: onBankSyncBegin,
+    onSynced: onBankSynced,
+    intervalMs: 15000,
+    barobillRefreshIntervalMs: 180000,
+  });
+
   const [pageView, setPageView] = useState<PageView>("list");
   const [periodKey, setPeriodKey] = useState<PeriodKey>("all");
   const [dateFilter, setDateFilter] = useState<DateFilter>(() => ({ startDate: "", endDate: "" }));

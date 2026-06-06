@@ -8640,7 +8640,7 @@ export default function TeammillimeterErpMvp() {
   }, [bankTransactions]);
 
   useBankSyncPoll({
-    enabled: apiMode && dataReady && Boolean(currentUser),
+    enabled: apiMode && dataReady && Boolean(currentUser) && active !== "accounting",
     sinceVersion: erpVersion,
     localTransactionCount: bankTransactions.length,
     localLatestTransactionAt: bankLatestTransactionAt,
