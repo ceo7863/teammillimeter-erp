@@ -96,6 +96,11 @@ function loadCompanyProfile() {
   };
 }
 
+function formatKstDateLabel(date = new Date()) {
+  const kst = new Date(date.toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
+  return `${kst.getFullYear()}\uB144 ${String(kst.getMonth() + 1).padStart(2, "0")}\uC6D4 ${String(kst.getDate()).padStart(2, "0")}\uC77C`;
+}
+
 function formatWon(value) {
   const text = String(value || "").trim();
   if (!text) return "";
@@ -195,7 +200,7 @@ function buildPricingRows(pdfContent) {
   const c = pdfContent || {};
   return [
     { label: "\uAE30\uBCF8 \uC2DC\uACF5 \uB2E8\uAC00", value: `1\uD488\uB2F9 ${formatWon(c.basicUnitPrice)}` },
-    { label: "\uD45C\uC900 \uADDC\uBB34\uC2DC\uAC04", value: "08:00 ~ 17:00" },
+    { label: "\uD45C\uC900 \uADFC\uBB34\uC2DC\uAC04", value: "08:00 ~ 17:00" },
     { label: "\uC57C\uAC04\uC791\uC5C5", value: `\uC2DC\uAC04\uB2F9 ${formatWon(c.nightWorkRate)}` },
     { label: "\uC9C0\uBC29\uCD9C\uC7A5 \uC218\uB2F9", value: "\uD604\uC7A5\uB2F9 1\uC778 1\uD488 \uCD94\uAC00 \uC801\uC6A9" },
     { label: "\uCD9C\uC7A5 \uC801\uC6A9 \uC608\uC2DC", value: "3\uC77C \uACF5\uC0AC \uC2DC : \uAE30\uBCF8 3\uD488 + \uCD9C\uC7A5 1\uD488 = \uCD1D 4\uD488" },
@@ -203,7 +208,7 @@ function buildPricingRows(pdfContent) {
       label: "\uCC28\uB7C9\uACBD\uBE44",
       value: `2\uC778 1\uB300 \uAE30\uC900 / \uC11C\uC6B8\uD1A8\uAC8C\uC774\uD2B8 \uAE30\uC900 km\uB2F9 ${formatWon(c.vehicleRate)}`,
     },
-    { label: "\uCC28\uB7C9\uACBD\uBE44 \uD3EC\uD568", value: "\uC720\uB958\uBE44, \uD86D\uD589\uB8CC, \uC8FC\uCC28\uBE44" },
+    { label: "\uCC28\uB7C9\uACBD\uBE44 \uD3EC\uD568", value: "\uC720\uB958\uBE44, \uD1B5\uD589\uB8CC, \uC8FC\uCC28\uBE44" },
     { label: "\uC2DD\uB300", value: `1\uC778 1\uC77C ${formatWon(c.mealAllowance)} (3\uC2DD \uAE30\uC900)` },
     {
       label: "\uC219\uBC15\uBE44",
@@ -286,12 +291,16 @@ async function buildUnitPriceAgreementPdf(input = {}) {
   rows.forEach((row, index) => {
     const rowTop = tableTop - rowHeight * (index + 1);
     const rowBottom = rowTop - rowHeight;
+    const valueMaxWidth = contentRight - colSplit - 24;
+    const valueLines = wrapTextLines(font, row.value, valueMaxWidth, 9.2);
     if (index % 2 === 1) {
       drawRect(page, contentLeft + 0.5, rowBottom + 0.5, contentWidth - 1, rowHeight - 1, { fill: COLORS.panelBg });
     }
     drawLine(page, contentLeft, rowBottom, contentRight, rowBottom, 0.8, COLORS.border);
     drawText(page, font, row.label, contentLeft + 12, rowBottom + 7, 9.2, COLORS.ink);
-    drawText(page, font, row.value, colSplit + 12, rowBottom + 7, 9.2, COLORS.ink);
+    valueLines.forEach((line, lineIndex) => {
+      drawText(page, font, line, colSplit + 12, rowBottom + 7 + lineIndex * 10, 9.2, COLORS.ink);
+    });
   });
 
   cursorY = tableTop - tableHeight - 16;
@@ -330,7 +339,7 @@ async function buildUnitPriceAgreementPdf(input = {}) {
     { label: "\uB2F4\uB2F9\uC790", value: `\uB300\uD45C\uC790 : ${company.ceoName}` },
     { label: "\uC0AC\uC5C5\uC790\uBC88\uD638", value: company.businessNo },
     { label: "\uC5F0\uB77D\uCC98", value: company.phone },
-    { label: "\uC18C\uC0AC\uC704\uCE58", value: company.address },
+    { label: "\uC8FC\uC18C", value: company.address, multiline: true },
     { label: "\uC5C5\uD0DC", value: `${company.bizType} / ${company.bizClass}` },
   ];
 
@@ -342,12 +351,20 @@ async function buildUnitPriceAgreementPdf(input = {}) {
   });
 
   let rightY = panelTop - 40;
+  const rightValueMaxWidth = contentRight - panelMid - 72;
   rightFields.forEach((field) => {
     drawText(page, font, field.label, panelMid + 12, rightY, 8.5, COLORS.muted);
-    const valueX = field.label === "\uC18C\uC0AC\uC704\uCE58" ? panelMid + 58 : panelMid + 72;
-    const size = field.label === "\uC18C\uC0AC\uC704\uCE58" ? 8.5 : 9.3;
-    drawText(page, font, field.value, valueX, rightY, size, COLORS.ink);
-    rightY -= field.label === "\uC18C\uC0AC\uC704\uCE58" ? 18 : 22;
+    const valueX = panelMid + 58;
+    if (field.multiline) {
+      const lines = wrapTextLines(font, field.value, rightValueMaxWidth, 8.5);
+      lines.forEach((line, lineIndex) => {
+        drawText(page, font, line, valueX, rightY - lineIndex * 11, 8.5, COLORS.ink);
+      });
+      rightY -= Math.max(22, lines.length * 11 + 8);
+    } else {
+      drawText(page, font, field.value, panelMid + 72, rightY, 9.3, COLORS.ink);
+      rightY -= 22;
+    }
   });
 
   const signatureRect = {
@@ -358,15 +375,15 @@ async function buildUnitPriceAgreementPdf(input = {}) {
   };
   drawLine(page, signatureRect.x, signatureRect.y, signatureRect.x + signatureRect.width, signatureRect.y, 0.8, COLORS.border);
 
+  const issuedDate = formatKstDateLabel(input.issuedAt ? new Date(input.issuedAt) : new Date());
   const dateField = {
     x: contentLeft,
     y: panelBottom - 28,
     size: 9.5,
-    coverWidth: 220,
+    coverWidth: 260,
     coverHeight: 14,
   };
-  drawText(page, font, "\uC791\uC131\uC77C :", contentLeft, dateField.y, dateField.size, COLORS.muted);
-  drawText(page, font, "          \uB144          \uC6D4          \uC77C", contentLeft + 42, dateField.y, dateField.size, COLORS.ink);
+  drawText(page, font, `\uC791\uC131\uC77C : ${issuedDate}`, contentLeft, dateField.y, dateField.size, COLORS.ink);
 
   if (logo) {
     const footerLogoHeight = 16;
@@ -479,7 +496,7 @@ export async function applySignatureToContractPdf(originalBuffer, signatureBuffe
 
   const kst = new Date(signedAt.toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
   const dateText = `${kst.getFullYear()}\uB144 ${String(kst.getMonth() + 1).padStart(2, "0")}\uC6D4 ${String(kst.getDate()).padStart(2, "0")}\uC77C`;
-  drawFieldWithCover(lastPage, font, dateField, dateText);
+  drawFieldWithCover(lastPage, font, dateField, `\uC791\uC131\uC77C : ${dateText}`);
 
   return Buffer.from(await pdfDoc.save());
 }
