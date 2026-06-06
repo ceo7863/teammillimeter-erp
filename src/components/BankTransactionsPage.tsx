@@ -35,7 +35,9 @@ import { BankTransactionListSection } from "@/components/BankTransactionListSect
 import { TaxInvoiceLinkModal } from "@/components/TaxInvoiceLinkModal";
 import type { TaxInvoice } from "@/utils/taxInvoices";
 import {
+  batchAutoLinkTaxInvoiceEvidence,
   buildBankTxTaxInvoiceLinkPatch,
+  collectUsedTaxInvoiceIds,
   formatTaxInvoiceEvidenceLabel,
   pickAutoTaxInvoiceMatch,
 } from "@/utils/bankTaxInvoiceLink";
@@ -429,6 +431,9 @@ const L = {
   erpProcess: "ERP \uCC98\uB9AC",
   evidenceFind: "\uC99D\uBE59 \uCC3E\uAE30",
   evidenceAutoLinked: (label: string) => `\uC99D\uBE59\uC774 \uC790\uB3D9 \uC5F0\uACB0\uB418\uC5C8\uC2B5\uB2C8\uB2E4: ${label}`,
+  evidenceAutoMatch: "\uC99D\uBE59 \uC790\uB3D9\uB9E4\uCE6D",
+  evidenceBatchAutoLinked: (count: number) => `\uC99D\uBE59 ${count}\uAC74 \uC790\uB3D9 \uC5F0\uACB0\uD588\uC2B5\uB2C8\uB2E4.`,
+  evidenceBatchAutoLinkedNone: "\uC790\uB3D9 \uB9E4\uCE6D\uB418\uB294 \uC99D\uBE59\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   evidencePlaceholder: "\uC138\uAE08\uACC4\uC0B0\uC11C \uC5F0\uACB0",
   accountSubjectPlaceholder: "\uACC4\uC815 \uC120\uD0DD",
   clientPlaceholder: "\uAC70\uB798\uCC98 \uC120\uD0DD",
@@ -2151,7 +2156,8 @@ export function BankTransactionsPage({
   const openTaxInvoiceModal = useCallback(
     (tx: BankTransaction) => {
       if (!tx.linkedTaxInvoiceId) {
-        const auto = pickAutoTaxInvoiceMatch(tx, taxInvoices);
+        const usedInvoiceIds = collectUsedTaxInvoiceIds(bankTransactions);
+        const auto = pickAutoTaxInvoiceMatch(tx, taxInvoices, usedInvoiceIds);
         if (auto) {
           applyTaxInvoiceLink(tx, auto.invoice.id);
           setImportMessage(L.evidenceAutoLinked(formatTaxInvoiceEvidenceLabel(auto.invoice)));
@@ -2160,7 +2166,7 @@ export function BankTransactionsPage({
       }
       setTaxInvoiceModal({ tx });
     },
-    [applyTaxInvoiceLink, taxInvoices],
+    [applyTaxInvoiceLink, bankTransactions, taxInvoices],
   );
 
   const saveTaxInvoiceLink = (invoiceId: string | undefined) => {
@@ -2448,6 +2454,50 @@ export function BankTransactionsPage({
     ledgerRegistrationContext,
     sort,
   ]);
+
+  const runBatchEvidenceAutoLink = useCallback(
+    (scopeRows: BankTransaction[]) => {
+      if (!taxInvoices.length || !scopeRows.length) return 0;
+      const scopedIds = new Set(scopeRows.map((row) => row.id));
+      let linkedCount = 0;
+      setBankTransactions((prev) => {
+        const result = batchAutoLinkTaxInvoiceEvidence(prev, taxInvoices, { onlyTransactionIds: scopedIds });
+        linkedCount = result.linkedCount;
+        if (!linkedCount) return prev;
+        for (const before of prev) {
+          if (!scopedIds.has(before.id)) continue;
+          const after = result.transactions.find((row) => row.id === before.id);
+          if (after && after.linkedTaxInvoiceId !== before.linkedTaxInvoiceId) {
+            auditBankTxUpdate(before, after);
+          }
+        }
+        void onRequestImmediateSave?.({ bankTransactions: result.transactions });
+        return result.transactions;
+      });
+      return linkedCount;
+    },
+    [auditBankTxUpdate, onRequestImmediateSave, setBankTransactions, taxInvoices],
+  );
+
+  const evidenceAutoScopeKey = useMemo(
+    () =>
+      filteredRows
+        .filter((row) => !row.linkedTaxInvoiceId)
+        .map((row) => row.id)
+        .join(","),
+    [filteredRows],
+  );
+
+  useEffect(() => {
+    if (!isPageActive || pageView !== "list" || !evidenceAutoScopeKey || !taxInvoices.length) return;
+    const timer = window.setTimeout(() => {
+      const linkedCount = runBatchEvidenceAutoLink(filteredRows);
+      if (linkedCount > 0) {
+        setImportMessage(L.evidenceBatchAutoLinked(linkedCount));
+      }
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [isPageActive, pageView, evidenceAutoScopeKey, taxInvoices.length, runBatchEvidenceAutoLink, filteredRows]);
 
   const stats = useMemo(() => buildBankTransactionStats(filteredRows), [filteredRows]);
   const pendingBatchLedger = useMemo(
@@ -5330,6 +5380,22 @@ export function BankTransactionsPage({
             onFindEvidence={openTaxInvoiceModal}
             toolbar={
               <>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="rounded-xl"
+                  onClick={() => {
+                    const linkedCount = runBatchEvidenceAutoLink(filteredRows);
+                    setImportMessage(
+                      linkedCount > 0
+                        ? L.evidenceBatchAutoLinked(linkedCount)
+                        : L.evidenceBatchAutoLinkedNone,
+                    );
+                  }}
+                >
+                  {L.evidenceAutoMatch}
+                </Button>
                 <Button
                   type="button"
                   size="sm"

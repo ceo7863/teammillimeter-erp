@@ -77,11 +77,67 @@ export function searchTaxInvoicesForBankTx(
     .sort((a, b) => b.score - a.score || String(b.invoice.issueDate).localeCompare(String(a.invoice.issueDate)));
 }
 
-export function pickAutoTaxInvoiceMatch(tx: BankTransaction, invoices: TaxInvoice[]) {
-  const ranked = searchTaxInvoicesForBankTx(tx, invoices);
+export function pickAutoTaxInvoiceMatch(
+  tx: BankTransaction,
+  invoices: TaxInvoice[],
+  usedInvoiceIds: Set<string> = new Set(),
+) {
+  const ranked = searchTaxInvoicesForBankTx(tx, invoices).filter(
+    (row) => !usedInvoiceIds.has(row.invoice.id),
+  );
   const best = ranked[0];
   if (!best || best.score < AUTO_TAX_INVOICE_MATCH_MIN_SCORE) return null;
   return best;
+}
+
+export function collectUsedTaxInvoiceIds(transactions: BankTransaction[]) {
+  const used = new Set<string>();
+  for (const row of transactions) {
+    if (row.linkedTaxInvoiceId) used.add(row.linkedTaxInvoiceId);
+  }
+  return used;
+}
+
+export function batchAutoLinkTaxInvoiceEvidence(
+  transactions: BankTransaction[],
+  invoices: TaxInvoice[],
+  options: { onlyTransactionIds?: Set<string> } = {},
+) {
+  const usedInvoiceIds = collectUsedTaxInvoiceIds(transactions);
+  const txById = new Map(transactions.map((row) => [row.id, row]));
+  const candidates: Array<{ txId: string; invoice: TaxInvoice; score: number }> = [];
+
+  for (const tx of transactions) {
+    if (options.onlyTransactionIds && !options.onlyTransactionIds.has(tx.id)) continue;
+    if (tx.linkedTaxInvoiceId) continue;
+    for (const row of searchTaxInvoicesForBankTx(tx, invoices)) {
+      if (row.score < AUTO_TAX_INVOICE_MATCH_MIN_SCORE) break;
+      if (usedInvoiceIds.has(row.invoice.id)) continue;
+      candidates.push({ txId: tx.id, invoice: row.invoice, score: row.score });
+    }
+  }
+
+  candidates.sort((a, b) => b.score - a.score || String(b.invoice.issueDate).localeCompare(String(a.invoice.issueDate)));
+
+  const linkedTxIds = new Set<string>();
+  let linkedCount = 0;
+  let nextTransactions = transactions;
+
+  for (const candidate of candidates) {
+    if (linkedTxIds.has(candidate.txId)) continue;
+    if (usedInvoiceIds.has(candidate.invoice.id)) continue;
+    const tx = txById.get(candidate.txId);
+    if (!tx || tx.linkedTaxInvoiceId) continue;
+
+    const nextRow = buildBankTxTaxInvoiceLinkPatch(tx, candidate.invoice);
+    nextTransactions = nextTransactions.map((row) => (row.id === tx.id ? nextRow : row));
+    txById.set(tx.id, nextRow);
+    linkedTxIds.add(candidate.txId);
+    usedInvoiceIds.add(candidate.invoice.id);
+    linkedCount += 1;
+  }
+
+  return { transactions: nextTransactions, linkedCount };
 }
 
 export function buildBankTxTaxInvoiceLinkPatch(
