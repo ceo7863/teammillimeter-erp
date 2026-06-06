@@ -13035,6 +13035,20 @@ button:disabled,
   color: #b45309;
 }
 
+.erp-tax-invoice-bank-link-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  border: 1px solid #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
 .erp-tax-invoice-amount.is-cancelled {
   color: #be123c;
   font-weight: 800;

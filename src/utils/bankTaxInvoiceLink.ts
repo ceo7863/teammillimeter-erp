@@ -249,6 +249,10 @@ export function collectUsedTaxInvoiceIds(transactions: BankTransaction[]) {
   return used;
 }
 
+export function buildLinkedTaxInvoiceIdSet(transactions: BankTransaction[]) {
+  return collectUsedTaxInvoiceIds(transactions);
+}
+
 export function batchAutoLinkTaxInvoiceEvidence(
   transactions: BankTransaction[],
   invoices: TaxInvoice[],

@@ -8804,6 +8804,7 @@ export default function TeammillimeterErpMvp() {
               taxInvoices,
               setTaxInvoices,
               clients,
+              bankTransactions,
               currentUser,
               erpVersion,
               onErpVersionChange: (version) => {

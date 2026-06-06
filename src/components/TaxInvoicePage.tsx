@@ -8,6 +8,8 @@ import { TableExportSection } from "@/components/TableExportSection";
 import { DesktopTableWrap, MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
 import { formatKRW, monthRangeForKey, monthRangeISO, quarterRangeISO, todayISO } from "@/utils/companyLedger";
 import type { ErpUser } from "@/utils/erpApi";
+import type { BankTransaction } from "@/utils/bankTransactions";
+import { buildLinkedTaxInvoiceIdSet } from "@/utils/bankTaxInvoiceLink";
 import {
   calculateTaxInvoiceAmounts,
   calculateTaxInvoiceAmountsFromTotal,
@@ -203,6 +205,7 @@ const L = {
   invoiceCount: "\uACC4\uC0B0\uC11C \uAC74\uC218",
   expandDetail: "\uC138\uBD80 \uBAA9\uB85D",
   cancelledOffset: "\uC0C1\uC1C0",
+  bankLinked: "\uD1B5\uC7A5\uC5F0\uACB0",
   cancelledRowHint: "\uCDE8\uC18C \uC804\uD45C \u00B7 \uD569\uACC4 \uC81C\uC678",
   offsetRowHint: "\uB3D9\uC77C \uAE08\uC561 \uCDE8\uC18C \uC804\uD45C\uC640 \uC0C1\uC1C0",
   barobillIssue: "\uC804\uC790 \uBC1C\uD589",
@@ -241,6 +244,34 @@ function TaxInvoiceStatusBadge({ status }: { status: TaxInvoiceStatus }) {
 
 function TaxInvoiceOffsetBadge() {
   return <span className="erp-tax-invoice-offset-badge">{L.cancelledOffset}</span>;
+}
+
+function TaxInvoiceBankLinkBadge() {
+  return <span className="erp-tax-invoice-bank-link-badge">{L.bankLinked}</span>;
+}
+
+function TaxInvoiceStatusCell({
+  row,
+  linkedTaxInvoiceIds,
+  totalExcludedIds,
+}: {
+  row: TaxInvoice;
+  linkedTaxInvoiceIds: Set<string>;
+  totalExcludedIds: Set<string>;
+}) {
+  const meta = getTaxInvoiceRowMeta(row, totalExcludedIds);
+  const bankLinked = linkedTaxInvoiceIds.has(row.id);
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-1">
+        <TaxInvoiceStatusBadge status={row.status} />
+        {bankLinked ? <TaxInvoiceBankLinkBadge /> : null}
+        {meta.isOffsetIssued ? <TaxInvoiceOffsetBadge /> : null}
+      </div>
+      {meta.isCancelled ? <div className="erp-tax-invoice-row-hint">{L.cancelledRowHint}</div> : null}
+      {meta.isOffsetIssued ? <div className="erp-tax-invoice-row-hint">{L.offsetRowHint}</div> : null}
+    </>
+  );
 }
 
 function TaxInvoiceAmountCell({ amount, cancelled }: { amount: number; cancelled?: boolean }) {
@@ -375,6 +406,7 @@ export function TaxInvoicePage({
   taxInvoices,
   setTaxInvoices,
   clients,
+  bankTransactions = [],
   currentUser,
   erpVersion = 0,
   onErpVersionChange,
@@ -392,6 +424,7 @@ export function TaxInvoicePage({
     bizClass?: string;
     manager?: string;
   }>;
+  bankTransactions?: BankTransaction[];
   currentUser: ErpUser | null;
   erpVersion?: number;
   onErpVersionChange?: (version: number) => void;
@@ -422,6 +455,11 @@ export function TaxInvoicePage({
   const hometaxInputRef = useRef<HTMLInputElement>(null);
 
   const isAdmin = currentUser?.role === "admin";
+
+  const linkedTaxInvoiceIds = useMemo(
+    () => buildLinkedTaxInvoiceIdSet(bankTransactions),
+    [bankTransactions],
+  );
 
   const clientOptions = useMemo(
     () => clients.map((client) => String(client.name || "")).filter(Boolean),
@@ -518,12 +556,7 @@ export function TaxInvoicePage({
       <td className="text-right"><TaxInvoiceAmountCell amount={row.totalAmount} cancelled={meta.isCancelled} /></td>
       <td>{row.invoiceNo || "-"}</td>
       <td>
-        <div className="flex flex-wrap items-center gap-1">
-          <TaxInvoiceStatusBadge status={row.status} />
-          {meta.isOffsetIssued ? <TaxInvoiceOffsetBadge /> : null}
-        </div>
-        {meta.isCancelled ? <div className="erp-tax-invoice-row-hint">{L.cancelledRowHint}</div> : null}
-        {meta.isOffsetIssued ? <div className="erp-tax-invoice-row-hint">{L.offsetRowHint}</div> : null}
+        <TaxInvoiceStatusCell row={row} linkedTaxInvoiceIds={linkedTaxInvoiceIds} totalExcludedIds={totalExcludedIds} />
       </td>
       <td>{row.createdBy}</td>
       <td>
@@ -543,6 +576,7 @@ export function TaxInvoicePage({
       badge={
         <span className="flex flex-wrap items-center gap-1">
           <TaxInvoiceStatusBadge status={row.status} />
+          {linkedTaxInvoiceIds.has(row.id) ? <TaxInvoiceBankLinkBadge /> : null}
           {meta.isOffsetIssued ? <TaxInvoiceOffsetBadge /> : null}
         </span>
       }
@@ -652,10 +686,11 @@ export function TaxInvoicePage({
                       <td className="text-right"><TaxInvoiceAmountCell amount={row.totalAmount} cancelled={meta.isCancelled} /></td>
                       <td className="text-xs">{row.invoiceNo || "-"}</td>
                       <td>
-                        <div className="flex flex-wrap items-center gap-1">
-                          <TaxInvoiceStatusBadge status={row.status} />
-                          {meta.isOffsetIssued ? <TaxInvoiceOffsetBadge /> : null}
-                        </div>
+                        <TaxInvoiceStatusCell
+                          row={row}
+                          linkedTaxInvoiceIds={linkedTaxInvoiceIds}
+                          totalExcludedIds={totalExcludedIds}
+                        />
                       </td>
                       <td>
                         <div className="flex gap-1">{renderInvoiceActions(row)}</div>
