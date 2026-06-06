@@ -8173,11 +8173,11 @@ export default function TeammillimeterErpMvp() {
 
   useEffect(() => {
     if (!apiMode || !dataReady) return;
-    if (skipSaveRef.current || bankSyncApplyingRef.current) return;
     if (bankRemoteApplySkipDirtyRef.current) {
       bankRemoteApplySkipDirtyRef.current = false;
       return;
     }
+    if (skipSaveRef.current || bankSyncApplyingRef.current) return;
     bankTransactionsDirtyRef.current = true;
   }, [bankTransactions, apiMode, dataReady]);
 
@@ -8189,12 +8189,19 @@ export default function TeammillimeterErpMvp() {
     if (!currentUser || !dataReady) return;
     if (
       skipSaveRef.current &&
+      !bankSyncApplyingRef.current &&
       !workerPersistInFlightRef.current &&
       !workerMonthlyPersistInFlightRef.current
     ) {
       skipSaveRef.current = false;
     }
-    if (skipSaveRef.current || workerPersistInFlightRef.current || workerMonthlyPersistInFlightRef.current || clientPersistInFlightRef.current) {
+    if (
+      skipSaveRef.current ||
+      bankSyncApplyingRef.current ||
+      workerPersistInFlightRef.current ||
+      workerMonthlyPersistInFlightRef.current ||
+      clientPersistInFlightRef.current
+    ) {
       return;
     }
     pendingLocalEditsRef.current = true;
@@ -8549,11 +8556,20 @@ export default function TeammillimeterErpMvp() {
       const beforeCount = bankTransactionsRef.current.length;
       let applied = false;
       if (Array.isArray(data.bankTransactions)) {
-        const merged = mergeBankTransactionsUnion(
-          bankTransactionsRef.current,
-          normalizeBankTransactions(data.bankTransactions),
-          { preserveLocalOnly: true },
-        );
+        const incoming = normalizeBankTransactions(data.bankTransactions);
+        const localById = new Map(bankTransactionsRef.current.map((row) => [row.id, row]));
+        const merged = incoming.map((row) => {
+          const local = localById.get(row.id);
+          return local ? mergeRemoteBankTransactionRow(local, row) : row;
+        });
+        if (bankTransactionsDirtyRef.current) {
+          const incomingIds = new Set(incoming.map((row) => row.id));
+          for (const row of bankTransactionsRef.current) {
+            if (!incomingIds.has(row.id)) {
+              merged.push(row);
+            }
+          }
+        }
         const synced = syncBankTransactionLedgerLinkFields(
           merged,
           companyExpensesRef.current,
@@ -8609,52 +8625,16 @@ export default function TeammillimeterErpMvp() {
     }
   }, [applyBankTransactionsSnapshot, releaseRemoteBankSnapshotSaveGuard]);
 
-  const applyRemoteBankSnapshot = React.useCallback(async (snapshot: BankSyncSnapshot) => {
-    const nextVersion = snapshot.version ?? erpVersionRef.current;
-    const serverCount =
-      typeof snapshot.bankTransactionCount === "number"
-        ? snapshot.bankTransactionCount
-        : Array.isArray(snapshot.bankTransactions)
-          ? snapshot.bankTransactions.length
-          : bankTransactionsRef.current.length;
-    const localCount = bankTransactionsRef.current.length;
-    const normalizeAt = (value: string) =>
-      String(value || "")
-        .trim()
-        .replace(/\.\d{3}Z?$/i, "")
-        .slice(0, 19);
-    const serverLatestAt = normalizeAt(snapshot.bankSyncMeta?.lastImportLatestAt || "");
-    let localLatestAt = "";
-    for (const row of bankTransactionsRef.current) {
-      const at = normalizeAt(String(row.transactionAt || ""));
-      if (at.localeCompare(localLatestAt) > 0) localLatestAt = at;
-    }
-    const serverImportAt = String(snapshot.bankSyncMeta?.lastImportAt || "").trim();
-    const hasNewerImport = Boolean(
-      serverLatestAt && (!localLatestAt || serverLatestAt.localeCompare(localLatestAt) > 0),
-    );
-    const importRunChanged = Boolean(
-      serverImportAt && serverImportAt !== bankImportAtRef.current,
-    );
-    const countMismatch = serverCount !== localCount;
-    const versionAdvanced = nextVersion > erpVersionRef.current;
-    const shouldRefresh =
-      countMismatch ||
-      hasNewerImport ||
-      importRunChanged ||
-      versionAdvanced ||
-      Boolean(snapshot.changed);
-
-    if (!shouldRefresh) return;
-
+  const applyRemoteBankSnapshot = React.useCallback(async (_snapshot: BankSyncSnapshot) => {
     bankSyncApplyingRef.current = true;
     skipSaveRef.current = true;
 
     try {
       const data = await fetchBankTransactionsSnapshot();
-      await applyBankTransactionsSnapshot(data);
+      return await applyBankTransactionsSnapshot(data);
     } catch (error) {
       console.error(error);
+      return { addedCount: 0, totalCount: bankTransactionsRef.current.length, applied: false };
     } finally {
       queueMicrotask(() => {
         bankSyncApplyingRef.current = false;

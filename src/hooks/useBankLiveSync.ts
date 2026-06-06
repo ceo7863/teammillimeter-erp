@@ -44,8 +44,8 @@ type UseBankLiveSyncOptions = {
   localTransactionCount: number;
   localLatestTransactionAt?: string;
   localImportAt?: string;
-  onRemoteUpdate: (snapshot: BankSyncSnapshot) => void;
-  onForceRefresh?: () => Promise<{ addedCount: number; totalCount: number } | void>;
+  onRemoteUpdate: (snapshot: BankSyncSnapshot) => Promise<{ addedCount: number; totalCount: number; applied: boolean } | void>;
+  onForceRefresh?: () => Promise<{ addedCount: number; totalCount: number; applied?: boolean } | void>;
   intervalMs?: number;
 };
 
@@ -149,19 +149,36 @@ export function useBankLiveSync({
           (snapshot.changed && snapshot.version > sinceVersionRef.current));
 
       if (shouldApply) {
-        await onRemoteUpdateRef.current(snapshot);
-        localCountRef.current = serverCount;
-        if (serverLatestAt) {
-          localLatestAtRef.current = serverLatestAt;
+        const applyResult = onForceRefreshRef.current
+          ? await onForceRefreshRef.current()
+          : await onRemoteUpdateRef.current(snapshot);
+        const appliedTotal =
+          applyResult && typeof applyResult.totalCount === "number"
+            ? applyResult.totalCount
+            : serverCount;
+        const applied =
+          applyResult && typeof applyResult === "object" && "applied" in applyResult
+            ? applyResult.applied !== false
+            : applyResult != null;
+        if (applied) {
+          localCountRef.current = appliedTotal;
+          if (serverLatestAt) {
+            localLatestAtRef.current = serverLatestAt;
+          }
+          if (serverImportAt) {
+            localImportAtRef.current = serverImportAt;
+          }
         }
-        if (serverImportAt) {
-          localImportAtRef.current = serverImportAt;
-        }
-        const added = Math.max(0, serverCount - localCount);
+        const added = Math.max(0, appliedTotal - localCount);
         setState((prev) => ({
           ...prev,
           lastAppliedAt: new Date().toISOString(),
-          lastMessage: added > 0 ? `${added}\uAC74 \uC790\uB3D9 \uBC18\uC601\uB428` : "\uC774\uBBF8 \uCD5C\uC2E0 \uC0C1\uD0DC",
+          lastMessage:
+            !applied
+              ? "\uB3D9\uAE30\uD654 \uC801\uC6A9 \uC2E4\uD328"
+              : added > 0
+                ? `${added}\uAC74 \uC790\uB3D9 \uBC18\uC601\uB428`
+                : "\uC774\uBBF8 \uCD5C\uC2E0 \uC0C1\uD0DC",
         }));
       }
 
@@ -213,6 +230,9 @@ export function useBankLiveSync({
       }
       const result = await runBankFolderSync({ refresh });
       const refreshResult = await onForceRefreshRef.current?.();
+      if (refreshResult?.totalCount != null) {
+        localCountRef.current = refreshResult.totalCount;
+      }
       await pullSnapshot(true);
       const afterCount = refreshResult?.totalCount ?? localCountRef.current;
       const added = Math.max(

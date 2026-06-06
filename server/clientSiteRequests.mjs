@@ -329,7 +329,8 @@ export function requestClientSiteRequestCancel(token, requestId) {
   if (request.status === "cancel_pending") {
     return { ok: true, request: sanitizePublicClientSiteRequest(request) };
   }
-  if (request.status !== "pending") {
+  const status = String(request.status || "");
+  if (status !== "pending" && status !== "confirmed") {
     return {
       ok: false,
       status: 400,
@@ -343,6 +344,7 @@ export function requestClientSiteRequestCancel(token, requestId) {
   const next = {
     ...requests[index],
     status: "cancel_pending",
+    cancelRestoreStatus: status,
     cancelRequestedAt: now,
     cancelRequestedBy: "client",
     unreadByStaff: true,
@@ -468,6 +470,7 @@ export function updateClientSiteRequestStatus(id, input = {}, actor = "") {
       processedBy: actorName || current.processedBy,
       cancelledAt: now,
       cancelledBy: actorName || current.cancelledBy,
+      cancelRestoreStatus: null,
       unreadByStaff: false,
     };
     requests[index] = next;
@@ -475,6 +478,26 @@ export function updateClientSiteRequestStatus(id, input = {}, actor = "") {
       listClients(data),
       requests,
       actorName ? `client-site-request:cancelled:${actorName}` : "client-site-request:cancelled",
+    );
+    return { ok: true, request: next };
+  }
+
+  if (current.status === "cancel_pending" && status === "pending") {
+    const restoreStatus = String(current.cancelRestoreStatus || "pending");
+    const next = {
+      ...current,
+      status: restoreStatus,
+      processNote,
+      cancelRequestedAt: null,
+      cancelRequestedBy: null,
+      cancelRestoreStatus: null,
+      unreadByStaff: false,
+    };
+    requests[index] = next;
+    saveClientsAndRequests(
+      listClients(data),
+      requests,
+      actorName ? `client-site-request:cancel-denied:${actorName}` : "client-site-request:cancel-denied",
     );
     return { ok: true, request: next };
   }
@@ -491,6 +514,7 @@ export function updateClientSiteRequestStatus(id, input = {}, actor = "") {
     registerCompletedBy: status === "pending" ? null : current.registerCompletedBy || null,
     cancelRequestedAt: status === "pending" ? null : current.cancelRequestedAt || null,
     cancelRequestedBy: status === "pending" ? null : current.cancelRequestedBy || null,
+    cancelRestoreStatus: status === "pending" ? null : current.cancelRestoreStatus || null,
     cancelledAt: null,
     cancelledBy: null,
   };

@@ -38,6 +38,7 @@ export type ClientSiteRequest = {
   registerCompletedBy?: string | null;
   cancelRequestedAt?: string | null;
   cancelRequestedBy?: string | null;
+  cancelRestoreStatus?: ClientSiteRequestStatus | null;
   cancelledAt?: string | null;
   cancelledBy?: string | null;
   messages?: ClientSiteRequestMessage[];
@@ -125,6 +126,12 @@ export function countsAsClientSiteRequestInbox(
   request: Pick<ClientSiteRequest, "status">,
 ) {
   return request.status === "pending" || request.status === "cancel_pending";
+}
+
+export function canClientRequestSiteRequestCancel(
+  request: Pick<ClientSiteRequest, "status">,
+) {
+  return request.status === "pending" || request.status === "confirmed";
 }
 
 export function buildClientSiteRequestPublicUrl(token: string) {

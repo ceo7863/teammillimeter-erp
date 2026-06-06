@@ -16,6 +16,7 @@ import {
   postPublicClientSiteRequestMessage,
   requestCoversWorkDate,
   requestPublicClientSiteRequestCancel,
+  canClientRequestSiteRequestCancel,
   submitPublicClientSiteRequest,
   type ClientSiteRequest,
   type PublicClientSiteRequestInfo,
@@ -428,7 +429,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
                 />
                 {selectedRequest ? (
                   <>
-                    {selectedRequest.status === "pending" ? (
+                    {canClientRequestSiteRequestCancel(selectedRequest) ? (
                       <div className="flex justify-end">
                         <Button
                           type="button"
@@ -493,7 +494,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
 
                     {selectedRequest ? (
                       <>
-                        {selectedRequest.status === "pending" ? (
+                        {canClientRequestSiteRequestCancel(selectedRequest) ? (
                           <div className="flex justify-end">
                             <Button
                               type="button"

@@ -70,6 +70,7 @@ const L = {
   confirmCancel: "\uCDE8\uC18C \uD655\uC815",
   denyCancel: "\uCDE8\uC18C \uAC70\uBD80",
   cancelRequestedBadge: "\uAC70\uB798\uCC98 \uCDE8\uC18C \uC694\uCCAD",
+  cancelRequestedFromDoneBadge: "\uCC98\uB9AC\uC644\uB8CC \uAC74 \uCDE8\uC18C \uC694\uCCAD",
   cancelled: "\uCDE8\uC18C \uC644\uB8CC \uCC98\uB9AC\uD588\uC2B5\uB2C8\uB2E4.",
   cancelDenied: "\uCDE8\uC18C \uC694\uCCAD\uC744 \uAC70\uBD80\uD588\uC2B5\uB2C8\uB2E4.",
   reopen: "\uB300\uAE30 \uBCF5\uADC0",
@@ -174,7 +175,9 @@ function RequestCard({
             </span>
             {isCancelPending ? (
               <span className="inline-flex rounded-full bg-orange-100 px-2 py-0.5 text-xs font-bold text-orange-800">
-                {L.cancelRequestedBadge}
+                {request.cancelRestoreStatus === "confirmed"
+                  ? L.cancelRequestedFromDoneBadge
+                  : L.cancelRequestedBadge}
               </span>
             ) : null}
             {request.unreadByStaff ? (
