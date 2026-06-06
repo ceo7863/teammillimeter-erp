@@ -303,6 +303,7 @@ export type BankFolderSyncResult = {
   ok: boolean;
   added?: number;
   skipped?: number;
+  fetched?: number;
   source?: string;
   sourceFile?: string;
   latestTransactionAt?: string | null;
@@ -346,8 +347,11 @@ export async function fetchBankSyncSnapshot(
   return apiRequest<BankSyncSnapshot>(`/erp/bank-sync?${params.toString()}`);
 }
 
-export async function runBankFolderSync() {
-  return apiRequest<BankFolderSyncResult>("/bank-sync/run", { method: "POST" });
+export async function runBankFolderSync(options?: { refresh?: boolean }) {
+  return apiRequest<BankFolderSyncResult>("/bank-sync/run", {
+    method: "POST",
+    body: JSON.stringify({ refresh: options?.refresh === true }),
+  });
 }
 
 export async function fetchBankSyncStatus() {

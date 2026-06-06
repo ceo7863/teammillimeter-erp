@@ -1102,6 +1102,7 @@ export function BankTransactionsPage({
   const syncNow = bankLiveSync?.syncNow ?? (async () => null);
   const runFolderSync = bankLiveSync?.runFolderSync ?? syncNow;
   const pullSnapshot = bankLiveSync?.pullSnapshot ?? (async () => null);
+  const forceRefreshBank = bankLiveSync?.forceRefreshBank ?? pullSnapshot;
 
   useEffect(() => {
     if (!apiMode || !isPageActive || !liveSyncEnabled) return;
@@ -4969,7 +4970,7 @@ export function BankTransactionsPage({
                   <BarobillBankSettingsPanel
                     apiMode={apiMode}
                     isAdmin={currentUser?.role === "admin"}
-                    onSynced={() => syncNow()}
+                    onSynced={() => forceRefreshBank()}
                   />
                 </div>
               ) : (

@@ -999,10 +999,11 @@ app.get("/api/erp/bank-sync", authMiddleware, (req, res) => {
 
 app.post("/api/bank-sync/run", authMiddleware, async (req, res) => {
   const actor = req.user.loginId || req.user.name || req.user.email || "manual-sync";
+  const requestRefresh = req.body?.refresh === true;
   const result = await runUnifiedBankSync({
     updatedBy: actor,
     forceMetaUpdate: true,
-    requestRefresh: true,
+    requestRefresh,
   });
   if (!result.ok && result.error) {
     res.status(500).json({

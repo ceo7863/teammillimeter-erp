@@ -8544,6 +8544,71 @@ export default function TeammillimeterErpMvp() {
     });
   }, []);
 
+  const applyBankTransactionsSnapshot = React.useCallback(
+    async (data: Awaited<ReturnType<typeof fetchBankTransactionsSnapshot>>) => {
+      const beforeCount = bankTransactionsRef.current.length;
+      let applied = false;
+      if (Array.isArray(data.bankTransactions)) {
+        const merged = mergeBankTransactionsUnion(
+          bankTransactionsRef.current,
+          normalizeBankTransactions(data.bankTransactions),
+          { preserveLocalOnly: true },
+        );
+        const synced = syncBankTransactionLedgerLinkFields(
+          merged,
+          companyExpensesRef.current,
+          fixedExpensePaymentsRef.current,
+        );
+        bankTransactionsRef.current = synced;
+        setBankTransactions(synced);
+        applied = true;
+      }
+      if (Array.isArray(data.bankTransactionFolders)) {
+        setBankTransactionFolders((prev) => {
+          const incoming = normalizeBankTransactionFolders(data.bankTransactionFolders);
+          const incomingIds = new Set(incoming.map((folder) => folder.id));
+          const localOnly = prev.filter((folder) => !incomingIds.has(folder.id));
+          return localOnly.length ? [...incoming, ...localOnly] : incoming;
+        });
+        applied = true;
+      }
+      if (applied) {
+        erpVersionRef.current = data.version ?? erpVersionRef.current;
+        setErpVersion(data.version ?? erpVersionRef.current);
+        bankTransactionsDirtyRef.current = false;
+        bankRemoteApplySkipDirtyRef.current = true;
+        const importAt = String(data.bankSyncMeta?.lastImportAt || "").trim();
+        if (importAt) {
+          bankImportAtRef.current = importAt;
+          setBankImportAt(importAt);
+        }
+      }
+      return {
+        addedCount: Math.max(0, bankTransactionsRef.current.length - beforeCount),
+        totalCount: bankTransactionsRef.current.length,
+        applied,
+      };
+    },
+    [],
+  );
+
+  const forceRefreshBankFromServer = React.useCallback(async () => {
+    bankSyncApplyingRef.current = true;
+    skipSaveRef.current = true;
+    try {
+      const data = await fetchBankTransactionsSnapshot();
+      return await applyBankTransactionsSnapshot(data);
+    } catch (error) {
+      console.error(error);
+      return { addedCount: 0, totalCount: bankTransactionsRef.current.length, applied: false };
+    } finally {
+      queueMicrotask(() => {
+        bankSyncApplyingRef.current = false;
+        releaseRemoteBankSnapshotSaveGuard();
+      });
+    }
+  }, [applyBankTransactionsSnapshot, releaseRemoteBankSnapshotSaveGuard]);
+
   const applyRemoteBankSnapshot = React.useCallback(async (snapshot: BankSyncSnapshot) => {
     const nextVersion = snapshot.version ?? erpVersionRef.current;
     const serverCount =
@@ -8587,47 +8652,7 @@ export default function TeammillimeterErpMvp() {
 
     try {
       const data = await fetchBankTransactionsSnapshot();
-      const incomingBank = data.bankTransactions;
-      const incomingFolders = data.bankTransactionFolders;
-      const resolvedVersion = data.version ?? nextVersion;
-
-      let applied = false;
-      if (Array.isArray(incomingBank)) {
-        const merged = mergeBankTransactionsUnion(
-          bankTransactionsRef.current,
-          normalizeBankTransactions(incomingBank),
-          { preserveLocalOnly: true },
-        );
-        const synced = syncBankTransactionLedgerLinkFields(
-          merged,
-          companyExpensesRef.current,
-          fixedExpensePaymentsRef.current,
-        );
-        bankTransactionsRef.current = synced;
-        setBankTransactions(synced);
-        applied = true;
-      }
-      if (Array.isArray(incomingFolders)) {
-        setBankTransactionFolders((prev) => {
-          const incoming = normalizeBankTransactionFolders(incomingFolders);
-          const incomingIds = new Set(incoming.map((folder) => folder.id));
-          const localOnly = prev.filter((folder) => !incomingIds.has(folder.id));
-          return localOnly.length ? [...incoming, ...localOnly] : incoming;
-        });
-        applied = true;
-      }
-
-      if (applied) {
-        erpVersionRef.current = resolvedVersion;
-        setErpVersion(resolvedVersion);
-        bankTransactionsDirtyRef.current = false;
-        bankRemoteApplySkipDirtyRef.current = true;
-        const importAt = String(data.bankSyncMeta?.lastImportAt || serverImportAt || "").trim();
-        if (importAt) {
-          bankImportAtRef.current = importAt;
-          setBankImportAt(importAt);
-        }
-      }
+      await applyBankTransactionsSnapshot(data);
     } catch (error) {
       console.error(error);
     } finally {
@@ -8636,7 +8661,7 @@ export default function TeammillimeterErpMvp() {
         releaseRemoteBankSnapshotSaveGuard();
       });
     }
-  }, [releaseRemoteBankSnapshotSaveGuard]);
+  }, [applyBankTransactionsSnapshot, releaseRemoteBankSnapshotSaveGuard]);
 
   const bankLatestTransactionAt = React.useMemo(() => {
     let latest = "";
@@ -8655,6 +8680,7 @@ export default function TeammillimeterErpMvp() {
     localLatestTransactionAt: bankLatestTransactionAt,
     localImportAt: bankImportAt,
     onRemoteUpdate: applyRemoteBankSnapshot,
+    onForceRefresh: forceRefreshBankFromServer,
     intervalMs: 15000,
   });
 

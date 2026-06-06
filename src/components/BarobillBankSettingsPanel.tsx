@@ -104,7 +104,7 @@ export function BarobillBankSettingsPanel({
       setMessage(formatted.text);
       setMessageTone(formatted.tone);
       if (result.status) setStatus(result.status);
-      if (result.ok && !result.collecting) {
+      if (result.ok) {
         await loadStatus();
         await onSynced?.();
       }
