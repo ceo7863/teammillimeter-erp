@@ -137,9 +137,14 @@ import {
 import {
   getBankTxLedgerCategoryLabel,
   matchesBankTxLedgerScope,
+  assignBankTransactionAccountCode,
   registerBankTxWithCategoryName,
   type LedgerScopeFilter,
 } from "@/utils/ledgerBankBridge";
+import {
+  buildAccountCodePickerOptions,
+  groupAccountCodePickerOptions,
+} from "@/utils/accountCodeTree";
 import {
   confirmBankTransactionLedger,
   findLedgerCategory,
@@ -257,7 +262,7 @@ function parseCustomFolderScope(scope: FolderScope) {
 type PageView = "list" | "reconcile";
 
 type TxAccountContentModal = { tx: BankTransaction; draft: string };
-type TxCategoryModal = { tx: BankTransaction; draft: string };
+type TxAccountSubjectModal = { tx: BankTransaction; draft: string };
 type TxFixedExpenseModal = { tx: BankTransaction; draft: string };
 type TxClientModal = { tx: BankTransaction; draft: string };
 type TxTaxInvoiceModal = { tx: BankTransaction };
@@ -412,12 +417,14 @@ const L = {
   addCategoryTitle: "\uCE74\uD14C\uACE0\uB9AC \uCD94\uAC00",
   addFixedExpenseTitle: "\uACE0\uC815\uBE44 \uD56D\uBAA9 \uCD94\uAC00",
   editAccountContentTitle: "\uACC4\uC815\uB0B4\uC6A9 \uC218\uC815",
+  editAccountSubjectTitle: "\uACC4\uC815 \uC218\uC815",
   editCategoryTitle: "\uCE74\uD14C\uACE0\uB9AC \uC218\uC815",
   editFixedExpenseTitle: "\uACE0\uC815\uBE44 \uD56D\uBAA9 \uC218\uC815",
   newCategoryName: "\uCE74\uD14C\uACE0\uB9AC \uC774\uB984",
   newFixedExpenseName: "\uD56D\uBAA9 \uC774\uB984",
   newFixedExpenseCategory: "\uCE74\uD14C\uACE0\uB9AC",
   categoryRequired: "\uCE74\uD14C\uACE0\uB9AC\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
+  accountSubjectRequired: "\uACC4\uC815\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
   fixedExpenseRequired: "\uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
   cellSaveDone: "\uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.",
   bankSection: "\uD1B5\uC7A5 \uB0B4\uC5ED",
@@ -939,7 +946,7 @@ export function BankTransactionsPage({
   const [selectedPreauthGroupKeys, setSelectedPreauthGroupKeys] = useState<string[]>([]);
   const [learnPreauthMerchants, setLearnPreauthMerchants] = useState(true);
   const [accountContentModal, setAccountContentModal] = useState<TxAccountContentModal | null>(null);
-  const [categoryModal, setCategoryModal] = useState<TxCategoryModal | null>(null);
+  const [accountSubjectModal, setAccountSubjectModal] = useState<TxAccountSubjectModal | null>(null);
   const [fixedExpenseModal, setFixedExpenseModal] = useState<TxFixedExpenseModal | null>(null);
   const [clientModal, setClientModal] = useState<TxClientModal | null>(null);
   const [taxInvoiceModal, setTaxInvoiceModal] = useState<TxTaxInvoiceModal | null>(null);
@@ -2080,25 +2087,32 @@ export function BankTransactionsPage({
   const activeLedgerCategoryOptions =
     ledgerModal?.kind === "fixed" ? ledgerFixedCategoryOptions : ledgerManualCategoryOptions;
 
-  const tableCategoryOptions = useMemo(() => {
-    const names = new Set<string>();
-    for (const row of ledgerCategories) {
-      if (row.isActive && row.name.trim()) names.add(row.name.trim());
-    }
-    for (const row of normalizeExpenseCategories(expenseCategories)) {
-      if (row.trim()) names.add(row.trim());
-    }
-    return [...names].sort((a, b) => a.localeCompare(b, "ko"));
-  }, [ledgerCategories, expenseCategories]);
+  const accountSubjectPickerGroups = useMemo(() => {
+    if (!accountSubjectModal) return [];
+    const flow = accountSubjectModal.tx.deposit > 0 ? "income" : "expense";
+    return groupAccountCodePickerOptions(buildAccountCodePickerOptions(accountCodes, flow));
+  }, [accountSubjectModal, accountCodes]);
 
-  const resolveTxCategoryDraft = useCallback(
-    (tx: BankTransaction) =>
-      getLedgerCategoryLabel(tx) ||
-      resolveLedgerCategorySuggestionLabel(tx) ||
-      resolveMemoLearnCategory(tx.memo, expenseCategories) ||
-      resolveCategoryFromMemo(tx.memo) ||
-      "",
-    [expenseCategories, getLedgerCategoryLabel, resolveLedgerCategorySuggestionLabel],
+  const resolveTxAccountCodeDraft = useCallback(
+    (tx: BankTransaction) => {
+      if (tx.ledgerAccountCode?.trim()) return tx.ledgerAccountCode.trim();
+      if (tx.ledgerCategoryId) {
+        const category = findLedgerCategory(ledgerCategories, tx.ledgerCategoryId);
+        if (category?.accountCode) return category.accountCode;
+      }
+      const categoryName =
+        getLedgerCategoryLabel(tx) ||
+        resolveLedgerCategorySuggestionLabel(tx) ||
+        resolveMemoLearnCategory(tx.memo, expenseCategories) ||
+        resolveCategoryFromMemo(tx.memo) ||
+        "";
+      if (categoryName) {
+        const category = findLedgerCategoryByName(ledgerCategories, categoryName);
+        if (category?.accountCode) return category.accountCode;
+      }
+      return "";
+    },
+    [expenseCategories, getLedgerCategoryLabel, ledgerCategories, resolveLedgerCategorySuggestionLabel],
   );
 
   const resolveTxFixedExpenseDraft = useCallback(
@@ -2118,12 +2132,12 @@ export function BankTransactionsPage({
     });
   }, []);
 
-  const openCategoryModal = useCallback(
+  const openAccountSubjectModal = useCallback(
     (tx: BankTransaction) => {
       setTxCellModalError("");
-      setCategoryModal({ tx, draft: resolveTxCategoryDraft(tx) });
+      setAccountSubjectModal({ tx, draft: resolveTxAccountCodeDraft(tx) });
     },
-    [resolveTxCategoryDraft],
+    [resolveTxAccountCodeDraft],
   );
 
   const openFixedExpenseModal = useCallback(
@@ -2216,53 +2230,32 @@ export function BankTransactionsPage({
     void onRequestImmediateSave?.({ bankTransactions: nextTransactions });
   };
 
-  const saveCategoryModal = () => {
-    if (!categoryModal) return;
-    const categoryName = categoryModal.draft.trim();
-    if (!categoryName) {
-      setTxCellModalError(L.categoryRequired);
+  const saveAccountSubjectModal = () => {
+    if (!accountSubjectModal) return;
+    const accountCode = accountSubjectModal.draft.trim();
+    if (!accountCode) {
+      setTxCellModalError(L.accountSubjectRequired);
       return;
     }
-    const { tx } = categoryModal;
-    const category =
-      findLedgerCategoryByName(ledgerCategories, categoryName) ||
-      findLedgerCategory(ledgerCategories, tx.ledgerCategoryId || "");
-    const ledgerMemo = tx.ledgerMemo || tx.memo;
-    let nextRow =
-      registerBankTxWithCategoryName({
-        tx,
-        categoryName,
-        ledgerCategories,
-        accountCodes,
-        confirmedBy: savedBy,
-        fixedExpenseId: tx.ledgerFixedExpenseId,
-      }) ||
-      (category
-        ? confirmBankTransactionLedger({
-            tx,
-            category,
-            accountCodes,
-            confirmedBy: savedBy,
-            fixedExpenseId: tx.ledgerFixedExpenseId,
-            memo: ledgerMemo,
-          })
-        : null);
+    const { tx } = accountSubjectModal;
+    const nextRow = assignBankTransactionAccountCode({
+      tx,
+      accountCode,
+      ledgerCategories,
+      accountCodes,
+      confirmedBy: savedBy,
+    });
     if (!nextRow) {
       setTxCellModalError(L.detailLedgerRegisterFailed);
       return;
     }
     auditBankTxUpdate(tx, nextRow);
-    const nextTransactions = bankTransactions.map((row) => (row.id === tx.id ? nextRow! : row));
-    const nextExpenseCategories = mergeExpenseCategory(expenseCategories, categoryName);
+    const nextTransactions = bankTransactions.map((row) => (row.id === tx.id ? nextRow : row));
     setBankTransactions(nextTransactions);
-    setExpenseCategories(nextExpenseCategories);
-    setCategoryModal(null);
+    setAccountSubjectModal(null);
     setTxCellModalError("");
     setImportMessage(L.cellSaveDone);
-    void onRequestImmediateSave?.({
-      bankTransactions: nextTransactions,
-      expenseCategories: nextExpenseCategories,
-    });
+    void onRequestImmediateSave?.({ bankTransactions: nextTransactions });
   };
 
   const saveFixedExpenseModal = () => {
@@ -2971,7 +2964,7 @@ export function BankTransactionsPage({
       folderId === DEFAULT_LEDGER_CATEGORY_FOLDER_ID &&
       !isBankTransactionLinkedToCompanyLedger(tx, ledgerRegistrationContext)
     ) {
-      openCategoryModal(tx);
+      openAccountSubjectModal(tx);
       setImportMessage(L.ledgerFolderRequiresRegistration);
       return;
     }
@@ -5385,7 +5378,7 @@ export function BankTransactionsPage({
             paymentVouchers={paymentVouchers}
             labels={listSectionLabels}
             onEditMemo={openMemoModal}
-            onEditAccountSubject={openCategoryModal}
+            onEditAccountSubject={openAccountSubjectModal}
             onEditClient={openClientModal}
             onFindEvidence={openTaxInvoiceModal}
             toolbar={
@@ -6561,11 +6554,11 @@ export function BankTransactionsPage({
         </div>
       ) : null}
 
-      {categoryModal ? (
+      {accountSubjectModal ? (
         <div
           className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setCategoryModal(null);
+            if (event.target === event.currentTarget) setAccountSubjectModal(null);
           }}
         >
           <div
@@ -6573,42 +6566,46 @@ export function BankTransactionsPage({
             onMouseDown={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label={L.editCategoryTitle}
+            aria-label={L.editAccountSubjectTitle}
           >
             <div className="mb-4 flex items-start justify-between gap-3">
-              <h2 className="erp-text-section font-bold">{L.editCategoryTitle}</h2>
+              <h2 className="erp-text-section font-bold">{L.editAccountSubjectTitle}</h2>
               <button
                 type="button"
                 className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
-                onClick={() => setCategoryModal(null)}
+                onClick={() => setAccountSubjectModal(null)}
                 aria-label={L.cancel}
               >
                 <X size={18} />
               </button>
             </div>
-            <Field label={L.categoryColumn}>
+            <Field label={L.accountSubject}>
               <select
                 className="erp-input w-full rounded-xl"
-                value={categoryModal.draft}
+                value={accountSubjectModal.draft}
                 onChange={(event) => {
                   setTxCellModalError("");
-                  setCategoryModal((prev) => (prev ? { ...prev, draft: event.target.value } : prev));
+                  setAccountSubjectModal((prev) => (prev ? { ...prev, draft: event.target.value } : prev));
                 }}
               >
-                <option value="">{L.categoryPlaceholder}</option>
-                {tableCategoryOptions.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
+                <option value="">{L.accountSubjectPlaceholder}</option>
+                {accountSubjectPickerGroups.map(([group, options]) => (
+                  <optgroup key={group} label={group}>
+                    {options.map((option) => (
+                      <option key={option.code} value={option.code}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </Field>
             {txCellModalError ? <p className="mt-3 text-sm font-semibold text-red-600">{txCellModalError}</p> : null}
             <div className="mt-5 flex justify-end gap-2">
-              <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setCategoryModal(null)}>
+              <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setAccountSubjectModal(null)}>
                 {L.cancel}
               </Button>
-              <Button type="button" className="rounded-2xl" onClick={saveCategoryModal}>
+              <Button type="button" className="rounded-2xl" onClick={saveAccountSubjectModal}>
                 {L.detailSave}
               </Button>
             </div>

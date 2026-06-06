@@ -103,3 +103,40 @@ export function formatAccountCodeLabel(row: AccountCode, rows: AccountCode[]) {
   const parent = findAccountCodeByCode(rows, row.parentAccountCode);
   return parent ? `${parent.name} > ${row.name}` : row.name;
 }
+
+export type AccountCodePickerOption = {
+  code: string;
+  label: string;
+  parentGroup: string;
+};
+
+export function buildAccountCodePickerOptions(
+  accountCodes: AccountCode[],
+  flow?: "income" | "expense",
+): AccountCodePickerOption[] {
+  const activeRows = accountCodes.filter((row) => row.isActive !== false);
+  const rows = buildAccountDisplayRows(activeRows).filter(({ account }) =>
+    !flow ? true : accountCodeMatchesFlow(account, activeRows, flow),
+  );
+
+  return rows
+    .map(({ account }) => ({
+      code: account.code,
+      label: formatAccountCodeLabel(account, activeRows),
+      parentGroup: account.parentGroup || "\uAE30\uD0C0",
+    }))
+    .sort(
+      (a, b) =>
+        a.parentGroup.localeCompare(b.parentGroup, "ko") || a.label.localeCompare(b.label, "ko"),
+    );
+}
+
+export function groupAccountCodePickerOptions(options: AccountCodePickerOption[]) {
+  const map = new Map<string, AccountCodePickerOption[]>();
+  for (const option of options) {
+    const current = map.get(option.parentGroup) || [];
+    current.push(option);
+    map.set(option.parentGroup, current);
+  }
+  return [...map.entries()].sort(([a], [b]) => a.localeCompare(b, "ko"));
+}

@@ -4,6 +4,7 @@ import { getLinkedCompanyExpenseForBankTx, getLinkedFixedPaymentForBankTx } from
 import { isLedgerInboxTransaction } from "./ledgerInboxUtils";
 import {
   confirmBankTransactionLedger,
+  findAccountCodeByCode,
   findLedgerCategory,
   findLedgerCategoryByName,
   resolveBankTxLedgerStatus,
@@ -103,4 +104,41 @@ export function registerBankTxWithCategoryName(input: {
     confirmedBy: input.confirmedBy,
     fixedExpenseId: input.fixedExpenseId,
   });
+}
+
+export function assignBankTransactionAccountCode(input: {
+  tx: BankTransaction;
+  accountCode: string;
+  ledgerCategories: LedgerCategory[];
+  accountCodes: AccountCode[];
+  confirmedBy?: string;
+}): BankTransaction | null {
+  const code = String(input.accountCode || "").trim();
+  if (!code) return null;
+  const account = findAccountCodeByCode(input.accountCodes, code);
+  if (!account || account.isActive === false) return null;
+
+  const matchingCategory = input.ledgerCategories.find(
+    (row) => row.isActive && String(row.accountCode || "").trim() === code,
+  );
+
+  if (matchingCategory) {
+    return confirmBankTransactionLedger({
+      tx: input.tx,
+      category: matchingCategory,
+      accountCodes: input.accountCodes,
+      confirmedBy: input.confirmedBy,
+      fixedExpenseId: input.tx.ledgerFixedExpenseId,
+      memo: input.tx.ledgerMemo || input.tx.memo,
+    });
+  }
+
+  return {
+    ...input.tx,
+    ledgerStatus: "confirmed",
+    ledgerAccountCode: code,
+    ledgerMemo: input.tx.ledgerMemo || input.tx.memo,
+    ledgerConfirmedAt: new Date().toISOString(),
+    ledgerConfirmedBy: input.confirmedBy,
+  };
 }
