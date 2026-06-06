@@ -1,6 +1,7 @@
 import React, { memo } from "react";
 import { Link2, Pencil } from "lucide-react";
 import { DesktopTableWrap } from "@/components/MobileRecordCard";
+import { BANK_TX_ACCOUNT_TRIGGER_ATTR } from "@/utils/floatingPosition";
 import type { BankTransactionListRowModel } from "@/utils/bankTransactionListDisplay";
 
 export type BankTransactionSplitTableLabels = {
@@ -31,26 +32,29 @@ type BankTransactionSplitTableProps = {
   rowModels: Map<string, BankTransactionListRowModel>;
   labels: BankTransactionSplitTableLabels;
   onEditMemo: (id: string) => void;
-  onEditAccountSubject: (id: string, anchorEl: HTMLElement) => void;
+  onEditAccountSubject: (id: string) => void;
   onEditClient: (id: string) => void;
   onFindEvidence: (id: string) => void;
 };
 
 function AccountSubjectCellButton({
+  triggerId,
   value,
   placeholder,
   empty,
   onClick,
 }: {
+  triggerId: string;
   value: string | null;
   placeholder: string;
   empty?: boolean;
-  onClick: (anchorEl: HTMLElement) => void;
+  onClick: () => void;
 }) {
   const display = value?.trim() || placeholder;
   return (
     <button
       type="button"
+      {...{ [BANK_TX_ACCOUNT_TRIGGER_ATTR]: triggerId }}
       className={`max-w-full truncate rounded-lg border px-2 py-1 text-left text-xs font-semibold transition hover:bg-slate-100 ${
         empty || !value?.trim()
           ? "border-dashed border-slate-200 text-slate-400"
@@ -59,7 +63,7 @@ function AccountSubjectCellButton({
       title={display}
       onClick={(event) => {
         event.stopPropagation();
-        onClick(event.currentTarget);
+        onClick();
       }}
     >
       {display}
@@ -113,7 +117,7 @@ function SplitRow({
   model: BankTransactionListRowModel;
   labels: BankTransactionSplitTableLabels;
   onEditMemo: (id: string) => void;
-  onEditAccountSubject: (id: string, anchorEl: HTMLElement) => void;
+  onEditAccountSubject: (id: string) => void;
   onEditClient: (id: string) => void;
   onFindEvidence: (id: string) => void;
 }) {
@@ -190,10 +194,11 @@ function SplitRow({
       </td>
       <td className="max-w-[8rem]">
         <AccountSubjectCellButton
+          triggerId={model.id}
           value={model.accountSubjectLabel}
           placeholder={labels.accountSubjectPlaceholder}
           empty={!model.accountSubjectLabel}
-          onClick={(anchorEl) => onEditAccountSubject(model.id, anchorEl)}
+          onClick={() => onEditAccountSubject(model.id)}
         />
       </td>
       <td className="max-w-[8rem]">

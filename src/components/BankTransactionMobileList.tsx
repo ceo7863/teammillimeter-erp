@@ -1,6 +1,7 @@
 import React, { memo } from "react";
 import { AutoLinkBadge, ManualLinkBadge, PartialPaymentBadge } from "@/components/AutoLinkBadge";
 import { MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
+import { BANK_TX_ACCOUNT_TRIGGER_ATTR } from "@/utils/floatingPosition";
 import type { BankTransactionCompactRowLabels, BankTransactionCompactRowModel } from "@/components/BankTransactionCompactRow";
 import type { BankTransactionSimpleTableLabels } from "@/components/BankTransactionSimpleTable";
 
@@ -105,6 +106,7 @@ function BankTransactionMobileListComponent({
                   </button>
                   <button
                     type="button"
+                    {...{ [BANK_TX_ACCOUNT_TRIGGER_ATTR]: id }}
                     className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700"
                     onClick={() => onEditCategory(id)}
                   >

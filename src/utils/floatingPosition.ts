@@ -25,6 +25,19 @@ export function getScrollParents(element: HTMLElement | null | undefined): Array
   return parents;
 }
 
+export const BANK_TX_ACCOUNT_TRIGGER_ATTR = "data-bank-tx-account-trigger";
+
+export function readBankTxAccountTriggerElement(triggerId?: string | null) {
+  if (!triggerId) return null;
+  const el = document.querySelector(`[${BANK_TX_ACCOUNT_TRIGGER_ATTR}="${CSS.escape(triggerId)}"]`);
+  return el instanceof HTMLElement && el.isConnected ? el : null;
+}
+
+export function readBankTxAccountTriggerRect(triggerId?: string | null) {
+  const el = readBankTxAccountTriggerElement(triggerId);
+  return el ? el.getBoundingClientRect() : null;
+}
+
 export function readAnchorRect(anchorEl?: HTMLElement | null) {
   if (!anchorEl?.isConnected) return null;
   return anchorEl.getBoundingClientRect();
