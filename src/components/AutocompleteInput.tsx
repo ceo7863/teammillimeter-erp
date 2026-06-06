@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   filterAutocompleteOptions,
@@ -463,7 +463,6 @@ export function AutocompleteInput({
   const useCompactMenu = compact !== false;
 
   const normalizedOptions = useMemo(() => prepareAutocompleteOptions(options), [options]);
-  const deferredInputText = useDeferredValue(inputText);
 
   const selectedOption = normalizedOptions.find((item) => item.value === value);
   const resolvedLabel = selectedOption?.label ?? String(value ?? "");
@@ -495,11 +494,11 @@ export function AutocompleteInput({
 
   const filtered = useMemo(
     () =>
-      filterAutocompleteOptions(normalizedOptions, deferredInputText, {
+      filterAutocompleteOptions(normalizedOptions, inputText, {
         limit,
         allowEmpty: openOnFocus,
       }),
-    [normalizedOptions, deferredInputText, limit, openOnFocus],
+    [normalizedOptions, inputText, limit, openOnFocus],
   );
 
   const displayOptions = useMemo(() => {

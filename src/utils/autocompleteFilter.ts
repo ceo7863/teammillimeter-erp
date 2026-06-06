@@ -78,7 +78,16 @@ export function filterAutocompleteOptions(
   for (const item of options) {
     const label = String(item.label || "").trim();
     const key = label.toLowerCase();
-    if (!label || !key.includes(q) || seen.has(key)) continue;
+    const raw = item.raw;
+    const extra =
+      raw && typeof raw === "object"
+        ? ["ceoName", "manager", "phone", "businessNo"]
+            .map((field) => String((raw as Record<string, unknown>)[field] ?? "").trim().toLowerCase())
+            .filter(Boolean)
+            .join(" ")
+        : "";
+    const haystack = extra ? `${key} ${extra}` : key;
+    if (!label || !haystack.includes(q) || seen.has(key)) continue;
     seen.add(key);
     matched.push(item);
   }
