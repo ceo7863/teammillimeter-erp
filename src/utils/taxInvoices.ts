@@ -44,6 +44,12 @@ export function makeTaxInvoiceId() {
   return `tax-inv-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+/** Deduplicate imports across Barobill vs Hometax invoiceNo formatting. */
+export function normalizeTaxInvoiceNoKey(value: unknown) {
+  const digits = String(value || "").replace(/\D/g, "");
+  return digits || String(value || "").trim().toLowerCase();
+}
+
 export function normalizeTaxInvoiceDocumentType(value: unknown): TaxInvoiceDocumentType {
   return value === "bill" ? "bill" : "tax";
 }

@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { callBarobillSoapRequest, getErrString, assertBarobillCredentials } from "./client.mjs";
 import { checkTaxInvoiceScrapService } from "./taxInvoiceScrap.mjs";
+import { normalizeTaxInvoiceNoKey } from "../../src/utils/taxInvoices.ts";
 
 const SOAP_NS = "http://ws.baroservice.com/";
 const COUNT_PER_PAGE = 100;
@@ -337,17 +338,18 @@ function makeTaxInvoiceId() {
 export function countMergeAgainstExisting(existing, rows) {
   const known = new Set(
     (existing || [])
-      .map((row) => String(row.invoiceNo || "").trim())
+      .map((row) => normalizeTaxInvoiceNoKey(row.invoiceNo))
       .filter(Boolean),
   );
   let added = 0;
   let skipped = 0;
   for (const row of rows) {
-    if (known.has(row.invoiceNo)) {
+    const invoiceKey = normalizeTaxInvoiceNoKey(row.invoiceNo);
+    if (!invoiceKey || known.has(invoiceKey)) {
       skipped += 1;
     } else {
       added += 1;
-      known.add(row.invoiceNo);
+      known.add(invoiceKey);
     }
   }
   return { added, skipped };
@@ -356,7 +358,7 @@ export function countMergeAgainstExisting(existing, rows) {
 export function mergeBarobillTaxInvoices(existing, rows, author) {
   const known = new Set(
     (existing || [])
-      .map((row) => String(row.invoiceNo || "").trim())
+      .map((row) => normalizeTaxInvoiceNoKey(row.invoiceNo))
       .filter(Boolean),
   );
 
@@ -365,11 +367,12 @@ export function mergeBarobillTaxInvoices(existing, rows, author) {
   let skipped = 0;
 
   for (const row of rows) {
-    if (known.has(row.invoiceNo)) {
+    const invoiceKey = normalizeTaxInvoiceNoKey(row.invoiceNo);
+    if (!invoiceKey || known.has(invoiceKey)) {
       skipped += 1;
       continue;
     }
-    known.add(row.invoiceNo);
+    known.add(invoiceKey);
     additions.push({
       id: makeTaxInvoiceId(),
       issueDate: row.issueDate,

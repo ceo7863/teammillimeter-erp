@@ -2,6 +2,7 @@ import * as XLSX from "xlsx";
 import { excelDateToISO } from "./excelDates";
 import {
   makeTaxInvoiceId,
+  normalizeTaxInvoiceNoKey,
   normalizeTaxInvoiceStatus,
   parseTaxInvoiceAmount,
   sumTaxInvoices,
@@ -242,8 +243,8 @@ export function mergeHometaxTaxInvoices(
 ): HometaxImportMergeResult {
   const known = new Set(
     existing
-      .map((row) => String(row.invoiceNo || "").trim())
-      .filter(Boolean)
+      .map((row) => normalizeTaxInvoiceNoKey(row.invoiceNo))
+      .filter(Boolean),
   );
 
   const now = new Date().toISOString();
@@ -251,11 +252,12 @@ export function mergeHometaxTaxInvoices(
   let skipped = 0;
 
   preview.rows.forEach((row) => {
-    if (known.has(row.invoiceNo)) {
+    const invoiceKey = normalizeTaxInvoiceNoKey(row.invoiceNo);
+    if (!invoiceKey || known.has(invoiceKey)) {
       skipped += 1;
       return;
     }
-    known.add(row.invoiceNo);
+    known.add(invoiceKey);
     additions.push({
       id: makeTaxInvoiceId(),
       issueDate: row.issueDate,
