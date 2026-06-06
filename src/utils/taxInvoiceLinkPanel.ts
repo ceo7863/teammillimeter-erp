@@ -1,4 +1,5 @@
 import type { BankTransaction } from "./bankTransactions";
+import { formatKRW } from "./companyLedger";
 import {
   buildTaxInvoiceCancellationExcludedIds,
   filterTaxInvoicesByFlow,
@@ -15,7 +16,40 @@ export type TaxInvoiceLinkCatalogRow = {
   unsettledAmount: number;
   linkedAmount: number;
   searchText: string;
+  supplyLabel: string;
+  vatLabel: string;
+  totalLabel: string;
+  unsettledLabel: string;
+  supplierBizLabel: string;
+  supplierName: string;
+  recipientBizLabel: string;
+  recipientName: string;
 };
+
+export const EMPTY_TAX_INVOICE_LINKED_INDEX: TaxInvoiceLinkedPaymentIndex = new Map();
+export const EMPTY_TAX_INVOICE_EXCLUDED_IDS = new Set<string>();
+
+let excludedIdsCache: { source: TaxInvoice[]; ids: Set<string> } | null = null;
+let linkedIndexCache: { source: BankTransaction[]; index: TaxInvoiceLinkedPaymentIndex } | null = null;
+
+export function getTaxInvoiceCancellationExcludedIdsCached(invoices: TaxInvoice[]) {
+  if (excludedIdsCache?.source === invoices) return excludedIdsCache.ids;
+  const ids = buildTaxInvoiceCancellationExcludedIds(invoices);
+  excludedIdsCache = { source: invoices, ids };
+  return ids;
+}
+
+export function getTaxInvoiceLinkedPaymentIndexCached(transactions: BankTransaction[]) {
+  if (linkedIndexCache?.source === transactions) return linkedIndexCache.index;
+  const index = buildTaxInvoiceLinkedPaymentIndex(transactions);
+  linkedIndexCache = { source: transactions, index };
+  return index;
+}
+
+export function invalidateTaxInvoiceLinkPanelCaches() {
+  excludedIdsCache = null;
+  linkedIndexCache = null;
+}
 
 export function buildTaxInvoiceLinkedPaymentIndex(transactions: BankTransaction[]): TaxInvoiceLinkedPaymentIndex {
   const index: TaxInvoiceLinkedPaymentIndex = new Map();
@@ -51,7 +85,7 @@ export function formatTaxInvoiceBusinessNo(value: string) {
 }
 
 export function getTaxInvoiceLinkedPaymentSum(transactions: BankTransaction[], invoice: TaxInvoice) {
-  return getTaxInvoiceLinkedPaymentSumFromIndex(buildTaxInvoiceLinkedPaymentIndex(transactions), invoice);
+  return getTaxInvoiceLinkedPaymentSumFromIndex(getTaxInvoiceLinkedPaymentIndexCached(transactions), invoice);
 }
 
 export function getTaxInvoiceUnsettledAmount(invoice: TaxInvoice, transactions: BankTransaction[]) {
@@ -100,6 +134,33 @@ function buildTaxInvoiceSearchText(invoice: TaxInvoice) {
     .toLowerCase();
 }
 
+function buildCatalogDisplayRow(
+  invoice: TaxInvoice,
+  unsettledAmount: number,
+  linkedAmount: number,
+  ourCompanyName: string,
+  ourBusinessNo: string,
+): TaxInvoiceLinkCatalogRow {
+  const supplierName = invoice.flowType === "purchase" ? invoice.client : ourCompanyName;
+  const supplierBiz = invoice.flowType === "purchase" ? invoice.businessNo : ourBusinessNo;
+  const recipientName = invoice.flowType === "purchase" ? ourCompanyName : invoice.client;
+  const recipientBiz = invoice.flowType === "purchase" ? ourBusinessNo : invoice.businessNo;
+  return {
+    invoice,
+    linkedAmount,
+    unsettledAmount,
+    searchText: buildTaxInvoiceSearchText(invoice),
+    supplyLabel: formatKRW(invoice.supplyAmount),
+    vatLabel: formatKRW(invoice.vatAmount),
+    totalLabel: formatKRW(invoice.totalAmount),
+    unsettledLabel: formatKRW(unsettledAmount),
+    supplierBizLabel: formatTaxInvoiceBusinessNo(supplierBiz) || "-",
+    supplierName: supplierName || "-",
+    recipientBizLabel: formatTaxInvoiceBusinessNo(recipientBiz) || "-",
+    recipientName: recipientName || "-",
+  };
+}
+
 export function buildTaxInvoiceLinkCatalog(input: {
   invoices: TaxInvoice[];
   linkedPaymentIndex: TaxInvoiceLinkedPaymentIndex;
@@ -107,6 +168,8 @@ export function buildTaxInvoiceLinkCatalog(input: {
   flowFilter: TaxInvoiceFlowType;
   startDate: string;
   endDate: string;
+  ourCompanyName: string;
+  ourBusinessNo: string;
 }): TaxInvoiceLinkCatalogRow[] {
   let rows = input.invoices.filter((row) => row.status === "issued" && !input.excludedIds.has(row.id));
   rows = filterTaxInvoicesByFlow(rows, input.flowFilter);
@@ -114,41 +177,23 @@ export function buildTaxInvoiceLinkCatalog(input: {
   rows = sortTaxInvoices(rows);
   return rows.map((invoice) => {
     const linkedAmount = getTaxInvoiceLinkedPaymentSumFromIndex(input.linkedPaymentIndex, invoice);
-    return {
+    const unsettledAmount = Math.max(0, Number(invoice.totalAmount || 0) - linkedAmount);
+    return buildCatalogDisplayRow(
       invoice,
+      unsettledAmount,
       linkedAmount,
-      unsettledAmount: Math.max(0, Number(invoice.totalAmount || 0) - linkedAmount),
-      searchText: buildTaxInvoiceSearchText(invoice),
-    };
+      input.ourCompanyName,
+      input.ourBusinessNo,
+    );
   });
 }
 
 export function filterTaxInvoiceLinkCatalog(rows: TaxInvoiceLinkCatalogRow[], search: string) {
   const q = search.trim().toLowerCase();
   if (!q) return rows;
-  return rows.filter((row) => row.searchText.includes(q));
-}
-
-/** @deprecated Use buildTaxInvoiceLinkCatalog + filterTaxInvoiceLinkCatalog */
-export function filterTaxInvoicesForLinkPanel(input: {
-  invoices: TaxInvoice[];
-  linkedPaymentIndex: TaxInvoiceLinkedPaymentIndex;
-  excludedIds?: Set<string>;
-  flowFilter: TaxInvoiceFlowType;
-  startDate: string;
-  endDate: string;
-  search: string;
-}) {
-  const excludedIds = input.excludedIds ?? buildTaxInvoiceCancellationExcludedIds(input.invoices);
-  const catalog = buildTaxInvoiceLinkCatalog({
-    invoices: input.invoices,
-    linkedPaymentIndex: input.linkedPaymentIndex,
-    excludedIds,
-    flowFilter: input.flowFilter,
-    startDate: input.startDate,
-    endDate: input.endDate,
-  });
-  return filterTaxInvoiceLinkCatalog(catalog, input.search);
+  const tokens = q.split(/\s+/).filter(Boolean);
+  if (!tokens.length) return rows;
+  return rows.filter((row) => tokens.every((token) => row.searchText.includes(token)));
 }
 
 export function canLinkTaxInvoiceToTransaction(

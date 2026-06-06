@@ -9,7 +9,6 @@ import {
   buildDefaultTaxInvoiceLinkDateRange,
   buildTaxInvoiceLinkCatalog,
   filterTaxInvoiceLinkCatalog,
-  formatTaxInvoiceBusinessNo,
   resolveDefaultTaxInvoiceFlowFilter,
   type TaxInvoiceLinkCatalogRow,
   type TaxInvoiceLinkedPaymentIndex,
@@ -36,6 +35,7 @@ const L = {
   linked: "\uC5F0\uACB0\uB428",
   noUnsettled: "\uBBF8\uC815\uC0B0 \uAE08\uC561\uC774 \uC5C6\uC5B4\uC694",
   empty: "\uC870\uAC74\uC5D0 \uB9DE\uB294 \uC138\uAE08\uACC4\uC0B0\uC11C\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  loading: "\uC138\uAE08\uACC4\uC0B0\uC11C \uBAA9\uB85D\uC744 \uBD88\uB7EC\uC624\uB294 \uC911\u2026",
   txAmount: "\uAC70\uB798 \uAE08\uC561",
   unlink: "\uC5F0\uACB0 \uD574\uC81C",
   issueHint: "\uC774 \uAC70\uB798\uB0B4\uC5ED\uC5D0 \uB300\uD574 \uC138\uAE08\uACC4\uC0B0\uC11C \uBC1C\uAE09",
@@ -43,13 +43,17 @@ const L = {
   page: (page: number, total: number) => `${page} / ${total}`,
 };
 
-export type TaxInvoiceLinkPanelProps = {
+export type TaxInvoiceLinkPanelDataProps = {
   tx: BankTransaction;
   taxInvoices: TaxInvoice[];
   linkedPaymentIndex: TaxInvoiceLinkedPaymentIndex;
   excludedIds: Set<string>;
   companyProfile?: CompanyProfile;
   linkedInvoiceId?: string;
+  preparing?: boolean;
+};
+
+type TaxInvoiceLinkPanelProps = TaxInvoiceLinkPanelDataProps & {
   onClose: () => void;
   onLink: (invoiceId: string | undefined) => void;
   onNavigateToTaxInvoice?: () => void;
@@ -98,23 +102,55 @@ function TaxInvoiceLinkSearchField({ onDebouncedChange }: { onDebouncedChange: (
   );
 }
 
-type TaxInvoiceLinkResultsProps = {
+const TaxInvoiceLinkHeader = memo(function TaxInvoiceLinkHeader({
+  tx,
+  linkedInvoiceId,
+  onClose,
+  onLink,
+}: {
   tx: BankTransaction;
-  rows: TaxInvoiceLinkCatalogRow[];
   linkedInvoiceId?: string;
-  ourCompanyName: string;
-  ourBusinessNo: string;
+  onClose: () => void;
   onLink: (invoiceId: string | undefined) => void;
-};
+}) {
+  const txAmount = getBankTxClassifiedAmount(tx);
+  return (
+    <div className="erp-tax-invoice-link-panel__head">
+      <div>
+        <h2 className="erp-text-section font-bold text-slate-900">{L.title}</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          {formatTxAt(tx.transactionAt)} {"\u00B7"}{" "}
+          {String(tx.counterpartyName || tx.description || "-").trim()} {"\u00B7"} {L.txAmount}{" "}
+          <span className="font-bold text-slate-900">{formatKRW(txAmount)}</span>
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        {linkedInvoiceId ? (
+          <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={() => onLink(undefined)}>
+            {L.unlink}
+          </Button>
+        ) : null}
+        <button type="button" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" onClick={onClose}>
+          <X size={18} />
+        </button>
+      </div>
+    </div>
+  );
+});
 
-const TaxInvoiceLinkResults = memo(function TaxInvoiceLinkResults({
+function TaxInvoiceLinkResultsTable({
   tx,
   rows,
   linkedInvoiceId,
-  ourCompanyName,
-  ourBusinessNo,
+  preparing,
   onLink,
-}: TaxInvoiceLinkResultsProps) {
+}: {
+  tx: BankTransaction;
+  rows: TaxInvoiceLinkCatalogRow[];
+  linkedInvoiceId?: string;
+  preparing?: boolean;
+  onLink: (invoiceId: string | undefined) => void;
+}) {
   const [page, setPage] = useState(1);
   const txIsWithdrawal = Number(tx.withdrawal || 0) > 0;
   const txIsDeposit = Number(tx.deposit || 0) > 0;
@@ -148,50 +184,48 @@ const TaxInvoiceLinkResults = memo(function TaxInvoiceLinkResults({
             </tr>
           </thead>
           <tbody>
-            {!pageRows.length ? (
+            {preparing ? (
+              <tr>
+                <td colSpan={9} className="py-10 text-center text-sm text-slate-500">
+                  {L.loading}
+                </td>
+              </tr>
+            ) : !pageRows.length ? (
               <tr>
                 <td colSpan={9} className="py-10 text-center text-sm text-slate-500">
                   {L.empty}
                 </td>
               </tr>
             ) : (
-              pageRows.map(({ invoice, unsettledAmount }) => {
-                const isLinked = linkedInvoiceId === invoice.id;
-                const supplierName = invoice.flowType === "purchase" ? invoice.client : ourCompanyName;
-                const supplierBiz = invoice.flowType === "purchase" ? invoice.businessNo : ourBusinessNo;
-                const recipientName = invoice.flowType === "purchase" ? ourCompanyName : invoice.client;
-                const recipientBiz = invoice.flowType === "purchase" ? ourBusinessNo : invoice.businessNo;
+              pageRows.map((row) => {
+                const isLinked = linkedInvoiceId === row.invoice.id;
                 const canLink =
-                  unsettledAmount > 0 &&
-                  ((invoice.flowType === "purchase" && txIsWithdrawal) ||
-                    (invoice.flowType === "sales" && txIsDeposit));
+                  row.unsettledAmount > 0 &&
+                  ((row.invoice.flowType === "purchase" && txIsWithdrawal) ||
+                    (row.invoice.flowType === "sales" && txIsDeposit));
 
                 return (
-                  <tr key={invoice.id} className={isLinked ? "bg-blue-50/70" : undefined}>
-                    <td className="whitespace-nowrap font-medium text-slate-800">{invoice.issueDate}</td>
+                  <tr key={row.invoice.id} className={isLinked ? "bg-blue-50/70" : undefined}>
+                    <td className="whitespace-nowrap font-medium text-slate-800">{row.invoice.issueDate}</td>
                     <td>
                       <div className="space-y-0.5">
-                        <div className="font-mono text-[11px] text-slate-500">
-                          {formatTaxInvoiceBusinessNo(supplierBiz) || "-"}
-                        </div>
-                        <div className="font-semibold text-slate-900">{supplierName || "-"}</div>
+                        <div className="font-mono text-[11px] text-slate-500">{row.supplierBizLabel}</div>
+                        <div className="font-semibold text-slate-900">{row.supplierName}</div>
                       </div>
                     </td>
                     <td>
                       <div className="space-y-0.5">
-                        <div className="font-mono text-[11px] text-slate-500">
-                          {formatTaxInvoiceBusinessNo(recipientBiz) || "-"}
-                        </div>
-                        <div className="font-semibold text-slate-900">{recipientName || "-"}</div>
+                        <div className="font-mono text-[11px] text-slate-500">{row.recipientBizLabel}</div>
+                        <div className="font-semibold text-slate-900">{row.recipientName}</div>
                       </div>
                     </td>
-                    <td className="max-w-[10rem] truncate text-slate-700" title={invoice.memo || ""}>
-                      {invoice.memo || "-"}
+                    <td className="max-w-[10rem] truncate text-slate-700" title={row.invoice.memo || ""}>
+                      {row.invoice.memo || "-"}
                     </td>
-                    <td className="text-right font-medium">{formatKRW(invoice.supplyAmount)}</td>
-                    <td className="text-right font-medium">{formatKRW(invoice.vatAmount)}</td>
-                    <td className="text-right font-semibold text-slate-900">{formatKRW(invoice.totalAmount)}</td>
-                    <td className="text-right font-semibold text-amber-700">{formatKRW(unsettledAmount)}</td>
+                    <td className="text-right font-medium">{row.supplyLabel}</td>
+                    <td className="text-right font-medium">{row.vatLabel}</td>
+                    <td className="text-right font-semibold text-slate-900">{row.totalLabel}</td>
+                    <td className="text-right font-semibold text-amber-700">{row.unsettledLabel}</td>
                     <td className="text-right">
                       {isLinked ? (
                         <span className="text-xs font-bold text-blue-700">{L.linked}</span>
@@ -199,7 +233,7 @@ const TaxInvoiceLinkResults = memo(function TaxInvoiceLinkResults({
                         <button
                           type="button"
                           className="inline-flex h-7 items-center rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white hover:bg-slate-800"
-                          onClick={() => onLink(invoice.id)}
+                          onClick={() => onLink(row.invoice.id)}
                         >
                           {L.add}
                         </button>
@@ -216,13 +250,13 @@ const TaxInvoiceLinkResults = memo(function TaxInvoiceLinkResults({
       </div>
 
       <div className="erp-tax-invoice-link-panel__footer">
-        <span>{L.count(rows.length)}</span>
+        <span>{preparing ? L.loading : L.count(rows.length)}</span>
         <div className="flex items-center gap-2">
           <span>{L.page(safePage, totalPages)}</span>
           <button
             type="button"
             className="rounded-lg border border-slate-200 p-1 text-slate-600 disabled:opacity-40"
-            disabled={safePage <= 1}
+            disabled={safePage <= 1 || preparing}
             onClick={() => setPage((prev) => Math.max(1, prev - 1))}
           >
             <ChevronLeft size={16} />
@@ -230,7 +264,7 @@ const TaxInvoiceLinkResults = memo(function TaxInvoiceLinkResults({
           <button
             type="button"
             className="rounded-lg border border-slate-200 p-1 text-slate-600 disabled:opacity-40"
-            disabled={safePage >= totalPages}
+            disabled={safePage >= totalPages || preparing}
             onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
           >
             <ChevronRight size={16} />
@@ -239,126 +273,130 @@ const TaxInvoiceLinkResults = memo(function TaxInvoiceLinkResults({
       </div>
     </div>
   );
-});
+}
 
-export function TaxInvoiceLinkPanel({
+function TaxInvoiceLinkFilterBody({
   tx,
   taxInvoices,
   linkedPaymentIndex,
   excludedIds,
   companyProfile,
   linkedInvoiceId,
-  onClose,
+  preparing,
   onLink,
   onNavigateToTaxInvoice,
-}: TaxInvoiceLinkPanelProps) {
+}: TaxInvoiceLinkPanelDataProps & {
+  onLink: (invoiceId: string | undefined) => void;
+  onNavigateToTaxInvoice?: () => void;
+}) {
   const defaultRange = useMemo(() => buildDefaultTaxInvoiceLinkDateRange(tx), [tx]);
   const [flowFilter, setFlowFilter] = useState<TaxInvoiceFlowType>(() => resolveDefaultTaxInvoiceFlowFilter(tx));
   const [startDate, setStartDate] = useState(defaultRange.startDate);
   const [endDate, setEndDate] = useState(defaultRange.endDate);
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
+  const ourCompanyName = String(companyProfile?.name || "\uC8FC\uC2DD\uD68C\uC0AC \uD300\uBC00\uB9AC\uBBF8\uD130").trim();
+  const ourBusinessNo = String(companyProfile?.businessNo || "").trim();
+
   const handleDebouncedSearch = useCallback((value: string) => {
     startTransition(() => setDebouncedSearch(value));
   }, []);
 
-  const txAmount = getBankTxClassifiedAmount(tx);
-  const ourCompanyName = String(companyProfile?.name || "\uC8FC\uC2DD\uD68C\uC0AC \uD300\uBC00\uB9AC\uBBF8\uD130").trim();
-  const ourBusinessNo = String(companyProfile?.businessNo || "").trim();
-
-  const catalog = useMemo(
-    () =>
-      buildTaxInvoiceLinkCatalog({
-        invoices: taxInvoices,
-        linkedPaymentIndex,
-        excludedIds,
-        flowFilter,
-        startDate,
-        endDate,
-      }),
-    [taxInvoices, linkedPaymentIndex, excludedIds, flowFilter, startDate, endDate],
-  );
+  const catalog = useMemo(() => {
+    if (preparing) return [];
+    return buildTaxInvoiceLinkCatalog({
+      invoices: taxInvoices,
+      linkedPaymentIndex,
+      excludedIds,
+      flowFilter,
+      startDate,
+      endDate,
+      ourCompanyName,
+      ourBusinessNo,
+    });
+  }, [
+    preparing,
+    taxInvoices,
+    linkedPaymentIndex,
+    excludedIds,
+    flowFilter,
+    startDate,
+    endDate,
+    ourCompanyName,
+    ourBusinessNo,
+  ]);
 
   const rows = useMemo(
-    () => filterTaxInvoiceLinkCatalog(catalog, debouncedSearch),
-    [catalog, debouncedSearch],
+    () => (preparing ? [] : filterTaxInvoiceLinkCatalog(catalog, debouncedSearch)),
+    [catalog, debouncedSearch, preparing],
   );
 
   return (
-    <div className="erp-tax-invoice-link-panel" role="dialog" aria-modal="true" aria-label={L.title}>
-      <div className="erp-tax-invoice-link-panel__head">
-        <div>
-          <h2 className="erp-text-section font-bold text-slate-900">{L.title}</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            {formatTxAt(tx.transactionAt)} {"\u00B7"}{" "}
-            {String(tx.counterpartyName || tx.description || "-").trim()} {"\u00B7"} {L.txAmount}{" "}
-            <span className="font-bold text-slate-900">{formatKRW(txAmount)}</span>
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {linkedInvoiceId ? (
-            <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={() => onLink(undefined)}>
-              {L.unlink}
-            </Button>
-          ) : null}
-          <button type="button" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" onClick={onClose}>
-            <X size={18} />
-          </button>
-        </div>
-      </div>
-
-      <div className="erp-tax-invoice-link-panel__body">
-        <aside className="erp-tax-invoice-link-panel__sidebar">
-          <div className="erp-tax-invoice-link-panel__flow-tabs">
-            {(["sales", "purchase"] as TaxInvoiceFlowType[]).map((key) => (
-              <button
-                key={key}
-                type="button"
-                className={flowFilter === key ? "is-active" : ""}
-                onClick={() => setFlowFilter(key)}
-              >
-                {key === "sales" ? L.sales : L.purchase}
-              </button>
-            ))}
-          </div>
-
-          <label className="erp-tax-invoice-link-panel__date-field">
-            <span>{"\uAE30\uAC04"}</span>
-            <div className="erp-tax-invoice-link-panel__date-range">
-              <input
-                type="date"
-                value={startDate}
-                onChange={(event) => setStartDate(event.target.value)}
-                className="erp-input rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
-              />
-              <span>~</span>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(event) => setEndDate(event.target.value)}
-                className="erp-input rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
-              />
-            </div>
-          </label>
-
-          <TaxInvoiceLinkSearchField onDebouncedChange={handleDebouncedSearch} />
-
-          {onNavigateToTaxInvoice ? (
-            <button type="button" className="erp-tax-invoice-link-panel__issue-btn" onClick={onNavigateToTaxInvoice}>
-              {L.issueHint}
+    <div className="erp-tax-invoice-link-panel__body">
+      <aside className="erp-tax-invoice-link-panel__sidebar">
+        <div className="erp-tax-invoice-link-panel__flow-tabs">
+          {(["sales", "purchase"] as TaxInvoiceFlowType[]).map((key) => (
+            <button
+              key={key}
+              type="button"
+              className={flowFilter === key ? "is-active" : ""}
+              onClick={() => setFlowFilter(key)}
+            >
+              {key === "sales" ? L.sales : L.purchase}
             </button>
-          ) : null}
-        </aside>
+          ))}
+        </div>
 
-        <TaxInvoiceLinkResults
-          tx={tx}
-          rows={rows}
-          linkedInvoiceId={linkedInvoiceId}
-          ourCompanyName={ourCompanyName}
-          ourBusinessNo={ourBusinessNo}
-          onLink={onLink}
-        />
-      </div>
+        <label className="erp-tax-invoice-link-panel__date-field">
+          <span>{"\uAE30\uAC04"}</span>
+          <div className="erp-tax-invoice-link-panel__date-range">
+            <input
+              type="date"
+              value={startDate}
+              onChange={(event) => setStartDate(event.target.value)}
+              className="erp-input rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
+            />
+            <span>~</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(event) => setEndDate(event.target.value)}
+              className="erp-input rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
+            />
+          </div>
+        </label>
+
+        <TaxInvoiceLinkSearchField onDebouncedChange={handleDebouncedSearch} />
+
+        {onNavigateToTaxInvoice ? (
+          <button type="button" className="erp-tax-invoice-link-panel__issue-btn" onClick={onNavigateToTaxInvoice}>
+            {L.issueHint}
+          </button>
+        ) : null}
+      </aside>
+
+      <TaxInvoiceLinkResultsTable
+        tx={tx}
+        rows={rows}
+        linkedInvoiceId={linkedInvoiceId}
+        preparing={preparing}
+        onLink={onLink}
+      />
+    </div>
+  );
+}
+
+export function TaxInvoiceLinkPanel({
+  tx,
+  linkedInvoiceId,
+  onClose,
+  onLink,
+  ...bodyProps
+}: TaxInvoiceLinkPanelProps) {
+  return (
+    <div className="erp-tax-invoice-link-panel" role="dialog" aria-modal="true" aria-label={L.title}>
+      <TaxInvoiceLinkHeader tx={tx} linkedInvoiceId={linkedInvoiceId} onClose={onClose} onLink={onLink} />
+      <TaxInvoiceLinkFilterBody tx={tx} linkedInvoiceId={linkedInvoiceId} onLink={onLink} {...bodyProps} />
     </div>
   );
 }

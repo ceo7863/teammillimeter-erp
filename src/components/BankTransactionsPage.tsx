@@ -36,10 +36,18 @@ import {
   CompanyLedgerFixedExpenseModalLayer,
   type CompanyLedgerFixedExpenseModalHandle,
 } from "@/components/CompanyLedgerFixedExpenseModalLayer";
-import { buildTaxInvoiceCancellationExcludedIds, buildTaxInvoiceLinkedPaymentIndex } from "@/utils/taxInvoiceLinkPanel";
+import {
+  buildTaxInvoiceLinkedPaymentIndex,
+  EMPTY_TAX_INVOICE_EXCLUDED_IDS,
+  EMPTY_TAX_INVOICE_LINKED_INDEX,
+  getTaxInvoiceCancellationExcludedIdsCached,
+  getTaxInvoiceLinkedPaymentIndexCached,
+  invalidateTaxInvoiceLinkPanelCaches,
+} from "@/utils/taxInvoiceLinkPanel";
 import {
   destroyTaxInvoiceLinkPanel,
   renderTaxInvoiceLinkPanel,
+  setTaxInvoiceLinkPanelHandlers,
 } from "@/components/taxInvoiceLinkPanelMount";
 import type { TaxInvoice } from "@/utils/taxInvoices";
 import {
@@ -294,6 +302,7 @@ type TaxInvoiceLinkSession = {
   taxInvoices: TaxInvoice[];
   linkedPaymentIndex: ReturnType<typeof buildTaxInvoiceLinkedPaymentIndex>;
   excludedIds: Set<string>;
+  preparing: boolean;
 };
 
 const EMPTY_TX_SUGGESTION_MAP = new Map<string, never>();
@@ -2354,8 +2363,18 @@ export function BankTransactionsPage({
       setTaxInvoiceLinkSession({
         tx,
         taxInvoices,
-        linkedPaymentIndex: buildTaxInvoiceLinkedPaymentIndex(bankTransactions),
-        excludedIds: buildTaxInvoiceCancellationExcludedIds(taxInvoices),
+        linkedPaymentIndex: EMPTY_TAX_INVOICE_LINKED_INDEX,
+        excludedIds: EMPTY_TAX_INVOICE_EXCLUDED_IDS,
+        preparing: true,
+      });
+      window.requestAnimationFrame(() => {
+        setTaxInvoiceLinkSession({
+          tx,
+          taxInvoices,
+          linkedPaymentIndex: getTaxInvoiceLinkedPaymentIndexCached(bankTransactions),
+          excludedIds: getTaxInvoiceCancellationExcludedIdsCached(taxInvoices),
+          preparing: false,
+        });
       });
     },
     [taxInvoices, bankTransactions],
@@ -2371,16 +2390,26 @@ export function BankTransactionsPage({
       if (!session) return;
       const result = applyTaxInvoiceLink(session.tx, invoiceId);
       if (!result?.nextRow || !result.nextTransactions) return;
+      invalidateTaxInvoiceLinkPanelCaches();
       setTaxInvoiceLinkSession({
         tx: result.nextRow,
         taxInvoices: session.taxInvoices,
         linkedPaymentIndex: buildTaxInvoiceLinkedPaymentIndex(result.nextTransactions),
         excludedIds: session.excludedIds,
+        preparing: false,
       });
       setImportMessage(L.cellSaveDone);
     },
     [applyTaxInvoiceLink],
   );
+
+  React.useEffect(() => {
+    setTaxInvoiceLinkPanelHandlers({
+      onClose: closeTaxInvoicePanel,
+      onLink: saveTaxInvoiceLink,
+      onNavigateToTaxInvoice: taxInvoicePanelUiRef.current.onNavigateToTaxInvoice,
+    });
+  }, [closeTaxInvoicePanel, saveTaxInvoiceLink, onNavigateToTaxInvoice]);
 
   React.useEffect(() => {
     if (!taxInvoiceLinkSession) {
@@ -2393,14 +2422,13 @@ export function BankTransactionsPage({
       taxInvoices: taxInvoiceLinkSession.taxInvoices,
       linkedPaymentIndex: taxInvoiceLinkSession.linkedPaymentIndex,
       excludedIds: taxInvoiceLinkSession.excludedIds,
+      preparing: taxInvoiceLinkSession.preparing,
       companyProfile: ui.companyProfile,
       linkedInvoiceId: taxInvoiceLinkSession.tx.linkedTaxInvoiceId,
-      onClose: closeTaxInvoicePanel,
-      onLink: saveTaxInvoiceLink,
-      onNavigateToTaxInvoice: ui.onNavigateToTaxInvoice,
     });
-    return () => destroyTaxInvoiceLinkPanel();
-  }, [taxInvoiceLinkSession, closeTaxInvoicePanel, saveTaxInvoiceLink]);
+  }, [taxInvoiceLinkSession]);
+
+  React.useEffect(() => () => destroyTaxInvoiceLinkPanel(), []);
   const saveAccountContentModal = () => {
     if (!accountContentModal) return;
     const { tx, draft } = accountContentModal;
