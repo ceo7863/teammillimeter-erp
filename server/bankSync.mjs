@@ -1,6 +1,8 @@
 import fs from "fs";
 import path from "path";
 import { config } from "./config.mjs";
+import { getBarobillBankConfigStatus } from "./barobill/bankAccountClient.mjs";
+import { getOpenBankingPublicStatus } from "./openBankingStore.mjs";
 import { getErpState, saveErpState } from "./db.mjs";
 import { mergeIbkBankImport, parseIbkBankExcelBuffer } from "./ibkBankImport.mjs";
 import { applySentStatementAutoLinksToErpData } from "./bankSentStatementAutoLink.ts";
@@ -40,11 +42,24 @@ function listImportCandidates(importDir) {
 }
 
 export function getBankSyncStatus() {
+  const barobill = getBarobillBankConfigStatus();
+  const openBanking = getOpenBankingPublicStatus();
+  const hasFolder = Boolean(config.ibkBankImportDir);
+  const enabled =
+    (barobill.enabled && barobill.configured) ||
+    (openBanking.enabled && openBanking.connected) ||
+    hasFolder;
+
   return {
     ...lastStatus,
-    enabled: Boolean(config.ibkBankImportDir),
+    enabled,
     importDir: config.ibkBankImportDir || "",
     intervalMs: config.bankSyncIntervalMs,
+    sources: {
+      barobillBank: barobill.enabled && barobill.configured,
+      openBanking: openBanking.enabled && openBanking.connected,
+      folder: hasFolder,
+    },
   };
 }
 

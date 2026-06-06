@@ -56,6 +56,8 @@ export function useBankLiveSync({
   const sinceVersionRef = React.useRef(sinceVersion);
   const localCountRef = React.useRef(localTransactionCount);
   const onRemoteUpdateRef = React.useRef(onRemoteUpdate);
+  const lastServerSyncAtRef = React.useRef(0);
+  const serverSyncIntervalRef = React.useRef(intervalMs * 9);
 
   React.useEffect(() => {
     sinceVersionRef.current = sinceVersion;
@@ -74,6 +76,9 @@ export function useBankLiveSync({
     setState((prev) => ({ ...prev, polling: true }));
     try {
       const snapshot = await fetchBankSyncSnapshot(sinceVersionRef.current);
+      if (snapshot.liveSyncStatus?.intervalMs) {
+        serverSyncIntervalRef.current = snapshot.liveSyncStatus.intervalMs;
+      }
       setState((prev) => ({
         ...prev,
         polling: false,
@@ -118,36 +123,49 @@ export function useBankLiveSync({
     }
   }, [enabled]);
 
-  const runFolderSync = React.useCallback(async () => {
+  const runServerBankSyncIfDue = React.useCallback(async () => {
     if (!enabled) return null;
-    setState((prev) => ({ ...prev, polling: true, lastMessage: "\uD3F4\uB354 \uB3D9\uAE30\uD654 \uC911..." }));
+    const syncIntervalMs = serverSyncIntervalRef.current;
+    if (Date.now() - lastServerSyncAtRef.current < syncIntervalMs) return null;
+    lastServerSyncAtRef.current = Date.now();
+    return runBankFolderSync();
+  }, [enabled]);
+
+  const syncNow = React.useCallback(async () => {
+    if (!enabled) return null;
+    setState((prev) => ({ ...prev, polling: true, lastMessage: "\uC740\uD589 \uB3D9\uAE30\uD654 \uC911..." }));
     try {
+      lastServerSyncAtRef.current = Date.now();
       const result = await runBankFolderSync();
       await pullSnapshot(true);
-      const added = result.added ?? 0;
+      const added = result?.added ?? 0;
       setState((prev) => ({
         ...prev,
         polling: false,
         lastAppliedAt: new Date().toISOString(),
         lastMessage:
           added > 0
-            ? `${added}\uAC74 \uCD94\uAC00 (${result.sourceFile || "IBK"})`
-            : result.reason === "no_files"
+            ? `${added}\uAC74 \uCD94\uAC00 (${result?.sourceFile || result?.source || "\uC740\uD589"})`
+            : result?.reason === "no_files"
               ? "\uC2E0\uADDC IBK \uC5D1\uC140 \uC5C6\uC74C"
-              : result.reason === "IBK_BANK_IMPORT_DIR not configured"
-                ? "\uC11C\uBC84\uC5D0 IBK \uD3F4\uB354\uAC00 \uC124\uC815\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4"
-                : "\uBCC0\uACBD \uC5C6\uC74C",
+              : result?.reason === "IBK_BANK_IMPORT_DIR not configured" && result?.ok === false
+                ? "\uC740\uD589 \uB3D9\uAE30\uD654 \uC644\uB8CC (\uBCC0\uACBD \uC5C6\uC74C)"
+                : result?.collecting
+                  ? "\uBC14\uB85C\uBE4C \uC218\uC9D1 \uC911\uC785\uB2C8\uB2E4"
+                  : "\uC774\uBBF8 \uCD5C\uC2E0 \uC0C1\uD0DC",
       }));
       return result;
     } catch (error) {
       setState((prev) => ({
         ...prev,
         polling: false,
-        lastMessage: error instanceof Error ? error.message : "\uD3F4\uB354 \uB3D9\uAE30\uD654 \uC2E4\uD328",
+        lastMessage: error instanceof Error ? error.message : "\uB3D9\uAE30\uD654 \uC2E4\uD328",
       }));
       return null;
     }
   }, [enabled, pullSnapshot]);
+
+  const runFolderSync = syncNow;
 
   React.useEffect(() => {
     saveBankLiveSyncEnabled(liveSyncEnabled);
@@ -155,18 +173,23 @@ export function useBankLiveSync({
 
   React.useEffect(() => {
     if (!enabled || !liveSyncEnabled || !isActive) return;
-    pullSnapshot(true);
+    const tick = async () => {
+      await runServerBankSyncIfDue();
+      await pullSnapshot(true);
+    };
+    void tick();
     const timer = window.setInterval(() => {
-      pullSnapshot(true);
+      void tick();
     }, intervalMs);
     return () => window.clearInterval(timer);
-  }, [enabled, liveSyncEnabled, isActive, intervalMs, pullSnapshot]);
+  }, [enabled, liveSyncEnabled, isActive, intervalMs, pullSnapshot, runServerBankSyncIfDue]);
 
   return {
     liveSyncEnabled,
     setLiveSyncEnabled,
     state,
     pullSnapshot,
+    syncNow,
     runFolderSync,
   };
 }

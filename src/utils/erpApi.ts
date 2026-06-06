@@ -280,6 +280,11 @@ export type BankLiveSyncStatus = {
   lastAdded?: number;
   lastSkipped?: number;
   lastLatestTransactionAt?: string | null;
+  sources?: {
+    barobillBank?: boolean;
+    openBanking?: boolean;
+    folder?: boolean;
+  };
 };
 
 export type BankSyncSnapshot = {
@@ -297,12 +302,14 @@ export type BankFolderSyncResult = {
   ok: boolean;
   added?: number;
   skipped?: number;
+  source?: string;
   sourceFile?: string;
   latestTransactionAt?: string | null;
   version?: number;
   updatedAt?: string;
   reason?: string;
   error?: string;
+  collecting?: boolean;
   bankSyncMeta?: BankSyncMeta | null;
   liveSyncStatus?: BankLiveSyncStatus | null;
 };

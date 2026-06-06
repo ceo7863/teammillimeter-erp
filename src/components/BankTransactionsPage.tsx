@@ -380,9 +380,9 @@ const L = {
   liveSyncOff: "\uC5F0\uB3D9 \uAE34\uAE30",
   liveSyncNow: "\uC9C0\uAE08 \uB3D9\uAE30\uD654",
   liveSyncFolder: "\uD3F4\uB354\uC5D0\uC11C \uAC00\uC838\uC624\uAE30",
-  liveSyncHint: "\uC11C\uBC84\uAC00 IBK \uC5D1\uC140 \uD3F4\uB354\uB97C \uC8FC\uAE30\uC801\uC73C\uB85C \uD655\uC778\uD558\uACE0, \uB2E4\uB978 PC \uBCC0\uACBD\uB3C4 \uC790\uB3D9 \uBC18\uC601\uD569\uB2C8\uB2E4.",
-  liveSyncLocalHint: "\uC11C\uBC84 \uBAA8\uB4DC\uC5D0\uC11C \uC2E4\uC2DC\uAC04 \uC5F0\uB3D9\uC744 \uC0AC\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
-  liveSyncFolderDisabled: "\uC11C\uBC84\uC5D0 IBK \uD3F4\uB354\uAC00 \uC124\uC815\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.",
+  liveSyncHint: "\uC11C\uBC84\uAC00 \uBC14\uB85C\uBE4C/\uC740\uD589 \uC5F0\uB3D9\uC744 3\uBD84\uB9C8\uB2E4 \uAC00\uC838\uC624\uACE0, \uD654\uBA74\uC740 20\uCD08\uB9C8\uB2E4 \uBC18\uC601\uD569\uB2C8\uB2E4.",
+  liveSyncLocalHint: "\uC11C\uBC84 \uBAA8\uB4DC\uC5D0\uC11C \uC2E4\uC2DC\uAC04 \uC5F0\uB3D9\uC744 \uC0AC\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uD68C\uACC4\u00B7\uD1B5\uC7A5 \u003E \uD1B5\uC7A5 \uD0ED\uC5D0\uC11C \uB3D9\uC791\uD569\uB2C8\uB2E4.",
+  liveSyncFolderDisabled: "\uC790\uB3D9 \uB3D9\uAE30\uD654 \uC18C\uC2A4\uAC00 \uC124\uC815\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.",
   previewRows: "\uC778\uC2DD \uAC74\uC218",
   previewDeposits: "\uC785\uAE08 \uD569\uACC4",
   previewWithdrawals: "\uCD9C\uAE08 \uD569\uACC4",
@@ -1095,7 +1095,7 @@ export function BankTransactionsPage({
     [onApplyRemoteBankSnapshot],
   );
 
-  const { liveSyncEnabled, setLiveSyncEnabled, state: liveSyncState, pullSnapshot, runFolderSync } = useBankLiveSync({
+  const { liveSyncEnabled, setLiveSyncEnabled, state: liveSyncState, syncNow, runFolderSync } = useBankLiveSync({
     enabled: apiMode,
     isActive: isPageActive,
     sinceVersion: erpVersion,
@@ -4924,22 +4924,24 @@ export function BankTransactionsPage({
                       size="sm"
                       variant="outline"
                       className="h-6 rounded-md px-2 text-[11px]"
-                      disabled={liveSyncState.polling}
-                      onClick={() => void pullSnapshot(true)}
+                      disabled={liveSyncState.polling || !liveSyncState.serverStatus?.enabled}
+                      onClick={() => void syncNow()}
                     >
                       {L.liveSyncNow}
                     </Button>
+                    {liveSyncState.serverStatus?.sources?.folder ? (
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
                       className="h-6 rounded-md px-2 text-[11px]"
                       disabled={liveSyncState.polling || !liveSyncState.serverStatus?.enabled}
-                      title={liveSyncState.serverStatus?.enabled ? liveSyncState.serverStatus.importDir : L.liveSyncFolderDisabled}
+                      title={liveSyncState.serverStatus?.importDir || L.liveSyncFolderDisabled}
                       onClick={() => void runFolderSync()}
                     >
                       {L.liveSyncFolder}
                     </Button>
+                    ) : null}
                     {liveSyncState.lastMessage ? (
                       <span className="text-[10px] font-semibold text-emerald-700">{liveSyncState.lastMessage}</span>
                     ) : null}
@@ -4958,7 +4960,7 @@ export function BankTransactionsPage({
                   <BarobillBankSettingsPanel
                     apiMode={apiMode}
                     isAdmin={currentUser?.role === "admin"}
-                    onSynced={() => pullSnapshot(true)}
+                    onSynced={() => syncNow()}
                   />
                 </div>
               ) : (
