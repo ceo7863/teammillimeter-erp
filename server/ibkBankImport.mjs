@@ -25,6 +25,84 @@ function buildImportFingerprint(row) {
   ].join("|");
 }
 
+function bankTransactionKeepScore(row) {
+  let score = 0;
+  if (row.linkedFixedExpensePaymentId) score += 100;
+  if (row.linkedCompanyExpenseId) score += 100;
+  if (row.linkedPaymentVoucherId) score += 100;
+  if (row.ledgerCategoryId) score += 50;
+  if (row.folderId) score += 20;
+  if (row.counterpartyName) score += 5;
+  if (row.memo) score += 2;
+  return score;
+}
+
+function mergeDuplicateBankTransactionRows(keeper, duplicate) {
+  return {
+    ...keeper,
+    counterpartyName: keeper.counterpartyName || duplicate.counterpartyName,
+    counterpartyAccount: keeper.counterpartyAccount || duplicate.counterpartyAccount,
+    counterpartyBank: keeper.counterpartyBank || duplicate.counterpartyBank,
+    memo: keeper.memo || duplicate.memo,
+    transactionType: keeper.transactionType || duplicate.transactionType,
+    ledgerCategoryId: keeper.ledgerCategoryId || duplicate.ledgerCategoryId,
+    folderId: keeper.folderId || duplicate.folderId,
+    linkedSubject: keeper.linkedSubject || duplicate.linkedSubject,
+    linkedFixedExpensePaymentId: keeper.linkedFixedExpensePaymentId || duplicate.linkedFixedExpensePaymentId,
+    linkedCompanyExpenseId: keeper.linkedCompanyExpenseId || duplicate.linkedCompanyExpenseId,
+    linkedPaymentVoucherId: keeper.linkedPaymentVoucherId || duplicate.linkedPaymentVoucherId,
+    classifiedAt: keeper.classifiedAt || duplicate.classifiedAt,
+    sourceFile: keeper.sourceFile || duplicate.sourceFile,
+  };
+}
+
+export { buildImportFingerprint };
+
+export function dedupeBankTransactionsByFingerprint(transactions = []) {
+  const groups = new Map();
+  for (const row of transactions || []) {
+    const fingerprint = buildImportFingerprint(row);
+    if (!groups.has(fingerprint)) groups.set(fingerprint, []);
+    groups.get(fingerprint).push(row);
+  }
+
+  const removed = [];
+  const next = [];
+
+  for (const [fingerprint, group] of groups) {
+    if (group.length === 1) {
+      next.push(group[0]);
+      continue;
+    }
+
+    const sorted = [...group].sort((left, right) => {
+      const scoreDiff = bankTransactionKeepScore(right) - bankTransactionKeepScore(left);
+      if (scoreDiff !== 0) return scoreDiff;
+      return String(left.createdAt || left.transactionAt || "").localeCompare(
+        String(right.createdAt || right.transactionAt || ""),
+      );
+    });
+
+    let keeper = sorted[0];
+    for (const duplicate of sorted.slice(1)) {
+      keeper = mergeDuplicateBankTransactionRows(keeper, duplicate);
+      removed.push({
+        fingerprint,
+        keptId: keeper.id,
+        removedId: duplicate.id,
+        description: duplicate.description,
+        transactionAt: duplicate.transactionAt,
+      });
+    }
+    next.push(keeper);
+  }
+
+  return {
+    transactions: sortMergedTransactions(next),
+    removed,
+  };
+}
+
 function sheetRows(wb) {
   const name = wb.SheetNames.find((item) => item.includes(SHEET_HINT)) || wb.SheetNames[0];
   if (!name) return { rows: [] };
@@ -252,9 +330,13 @@ export function mergeIbkBankImport(existing, preview, options = {}) {
     });
   });
 
+  const merged = sortMergedTransactions([...additions, ...(existing || [])]);
+  const deduped = dedupeBankTransactionsByFingerprint(merged);
+
   return {
-    next: sortMergedTransactions([...additions, ...(existing || [])]),
+    next: deduped.transactions,
     added: additions.length,
     skipped,
+    deduped: deduped.removed.length,
   };
 }

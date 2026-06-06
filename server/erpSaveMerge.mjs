@@ -1,3 +1,5 @@
+import { dedupeBankTransactionsByFingerprint } from "./ibkBankImport.mjs";
+
 function parseClassifiedAtMs(value) {
   if (!value) return 0;
   const parsed = Date.parse(value);
@@ -129,7 +131,7 @@ export function mergeBankTransactionsForSave(existing = [], incoming = []) {
       merged.push(row);
     }
   }
-  return merged;
+  return dedupeBankTransactionsByFingerprint(merged).transactions;
 }
 
 export function mergePaymentVouchersForSave(existing = [], incoming = [], bankTransactions = []) {
