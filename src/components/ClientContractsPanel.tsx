@@ -127,8 +127,27 @@ export function ClientContractsPanel({ clients }: ClientContractsPanelProps) {
     return contracts.filter((row) => row.clientName.toLowerCase().includes(query) || row.title.toLowerCase().includes(query));
   }, [contracts, filterClient]);
 
+  const clientAutocompleteOptions = useMemo(() => {
+    const rows: { name: string; ceoName?: string; manager?: string; phone?: string }[] = [];
+    for (const row of clients) {
+      const name = String(row.name || "").trim();
+      if (!name) continue;
+      rows.push({ name, ceoName: row.ceoName, manager: row.manager, phone: row.phone });
+    }
+    return rows;
+  }, [clients]);
+
+  const clientByName = useMemo(() => {
+    const map = new Map<string, ClientLike>();
+    for (const row of clients) {
+      const name = String(row.name || "").trim();
+      if (name && !map.has(name)) map.set(name, row);
+    }
+    return map;
+  }, [clients]);
+
   const applyClientPreset = (nextClientName: string) => {
-    const match = clients.find((row) => String(row.name || "").trim() === nextClientName);
+    const match = clientByName.get(nextClientName);
     setClientName(nextClientName);
     setContactName(match?.ceoName ? String(match.ceoName) : match?.manager ? String(match.manager) : "");
     setContactPhone(match?.phone ? String(match.phone) : "");
@@ -219,7 +238,7 @@ export function ClientContractsPanel({ clients }: ClientContractsPanelProps) {
         <div className="mb-2 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
           <AutocompleteSelect
             value={clientName}
-            options={clients}
+            options={clientAutocompleteOptions}
             onChange={(value) => applyClientPreset(value)}
             placeholder={L.pickClient}
             compact={false}

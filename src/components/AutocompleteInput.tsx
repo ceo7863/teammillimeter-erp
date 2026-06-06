@@ -1,8 +1,8 @@
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   filterAutocompleteOptions,
-  mapAutocompleteOptions,
+  prepareAutocompleteOptions,
 } from "@/utils/autocompleteFilter";
 import { focusKoreanTextInput, isKoreanTextInput, prepareKoreanTextInput } from "@/utils/koreanIme";
 
@@ -462,7 +462,8 @@ export function AutocompleteInput({
   const resolvedInputClassName = resolveAutocompleteInputClassName(inputProps, compact !== false);
   const useCompactMenu = compact !== false;
 
-  const normalizedOptions = useMemo(() => mapAutocompleteOptions(options), [options]);
+  const normalizedOptions = useMemo(() => prepareAutocompleteOptions(options), [options]);
+  const deferredInputText = useDeferredValue(inputText);
 
   const selectedOption = normalizedOptions.find((item) => item.value === value);
   const resolvedLabel = selectedOption?.label ?? String(value ?? "");
@@ -494,11 +495,11 @@ export function AutocompleteInput({
 
   const filtered = useMemo(
     () =>
-      filterAutocompleteOptions(normalizedOptions, inputText, {
+      filterAutocompleteOptions(normalizedOptions, deferredInputText, {
         limit,
         allowEmpty: openOnFocus,
       }),
-    [normalizedOptions, inputText, limit, openOnFocus],
+    [normalizedOptions, deferredInputText, limit, openOnFocus],
   );
 
   const displayOptions = useMemo(() => {

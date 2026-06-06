@@ -54,23 +54,28 @@ function sortAutocompleteMatches(a: AutocompleteOption, b: AutocompleteOption, q
   return aLabel.localeCompare(bLabel, "ko-KR");
 }
 
+/** Map, dedupe, and sort once — pass result to filterAutocompleteOptions. */
+export function prepareAutocompleteOptions(options: AutocompleteOptionLike[] = []): AutocompleteOption[] {
+  const deduped = dedupeAutocompleteOptions(mapAutocompleteOptions(options));
+  return deduped.sort((a, b) => sortAutocompleteMatches(a, b, ""));
+}
+
 export function filterAutocompleteOptions(
   options: AutocompleteOption[],
   query: string,
   { limit = 12, allowEmpty = false }: { limit?: number; allowEmpty?: boolean } = {}
 ): AutocompleteOption[] {
-  const deduped = dedupeAutocompleteOptions(options);
   const q = String(query || "").trim().toLowerCase();
 
   if (!q) {
     if (!allowEmpty) return [];
-    return deduped.sort((a, b) => sortAutocompleteMatches(a, b, "")).slice(0, limit);
+    return options.slice(0, limit);
   }
 
   const seen = new Set<string>();
   const matched: AutocompleteOption[] = [];
 
-  for (const item of deduped) {
+  for (const item of options) {
     const label = String(item.label || "").trim();
     const key = label.toLowerCase();
     if (!label || !key.includes(q) || seen.has(key)) continue;
