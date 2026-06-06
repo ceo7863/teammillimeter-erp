@@ -16,6 +16,7 @@ import {
 } from "@/utils/clientContracts";
 import { isApiModeEnabled } from "@/utils/erpApi";
 import { ClientContractPdfEditModal } from "@/components/ClientContractPdfEditModal";
+import { AutocompleteSelect } from "@/components/AutocompleteInput";
 
 const L = {
   loadFail: "\uACC4\uC57D \uBAA9\uB85D\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",
@@ -216,18 +217,19 @@ export function ClientContractsPanel({ clients }: ClientContractsPanelProps) {
         </div>
 
         <div className="mb-2 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
-          <select
-            className="erp-input w-full rounded-xl px-3 py-2 text-sm font-semibold"
+          <AutocompleteSelect
             value={clientName}
-            onChange={(e) => applyClientPreset(e.target.value)}
-          >
-            <option value="">{L.pickClient}</option>
-            {clients.map((client) => (
-              <option key={String(client.id ?? client.name)} value={String(client.name || "")}>
-                {client.name}
-              </option>
-            ))}
-          </select>
+            options={clients}
+            onChange={(value) => applyClientPreset(value)}
+            placeholder={L.pickClient}
+            compact={false}
+            inputProps={{ className: "erp-input w-full rounded-xl px-3 py-2 text-sm font-semibold" }}
+            renderSub={(client) => {
+              const item = client as ClientLike;
+              const contact = item.ceoName || item.manager || "\uB2F4\uB2F9\uC790 \uC5C6\uC74C";
+              return `${contact} \u00B7 ${item.phone || "\uC5F0\uB77D\uCC98 \uC5C6\uC74C"}`;
+            }}
+          />
           <select
             className="erp-input w-full rounded-xl px-3 py-2 text-sm font-semibold"
             value={templateId}
