@@ -55,14 +55,29 @@ for (const key of [
   "clients",
   "companyExpenses",
   "workerMonthlyActualVouchers",
+  "clientSiteRequests",
 ]) {
   summary.before[key] = Array.isArray(current.data[key]) ? current.data[key].length : 0;
   summary.after[key] = Array.isArray(source.data[key]) ? source.data[key].length : 0;
 }
 
+const restored = {
+  ...source.data,
+  clientSiteRequests: current.data.clientSiteRequests?.length
+    ? current.data.clientSiteRequests
+    : source.data.clientSiteRequests || [],
+  clientContracts: current.data.clientContracts?.length
+    ? current.data.clientContracts
+    : source.data.clientContracts || [],
+};
+
+summary.after.clientSiteRequests = Array.isArray(restored.clientSiteRequests)
+  ? restored.clientSiteRequests.length
+  : 0;
+
 console.log(JSON.stringify(summary, null, 2));
 
 if (dryRun) process.exit(0);
 
-const saved = saveErpState(source.data, current.version, "repair-restore-nested-snapshot");
+const saved = saveErpState(restored, current.version, "repair-restore-nested-snapshot");
 console.log(JSON.stringify({ ok: true, newVersion: saved.version }));

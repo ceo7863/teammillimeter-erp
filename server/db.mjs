@@ -702,7 +702,37 @@ function normalizeErpPayload(payload) {
     typeof payload.data === "object" &&
     Array.isArray(payload.data.bankTransactions)
   ) {
-    return payload.data;
+    const inner = { ...payload.data };
+    // Recover fields that were accidentally written on the wrapper by legacy saveErpState calls.
+    if (Array.isArray(payload.clientSiteRequests) && payload.clientSiteRequests.length) {
+      const existing = Array.isArray(inner.clientSiteRequests) ? inner.clientSiteRequests : [];
+      const seen = new Set(existing.map((row) => String(row?.id ?? "")));
+      const merged = [...existing];
+      for (const row of payload.clientSiteRequests) {
+        const id = String(row?.id ?? "");
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        merged.push(row);
+      }
+      inner.clientSiteRequests = merged;
+    } else if (!Array.isArray(inner.clientSiteRequests)) {
+      inner.clientSiteRequests = [];
+    }
+    if (Array.isArray(payload.clients) && payload.clients.length) {
+      const byId = new Map(
+        (Array.isArray(inner.clients) ? inner.clients : []).map((row) => [String(row?.id ?? ""), row]),
+      );
+      for (const row of payload.clients) {
+        const id = String(row?.id ?? "");
+        if (!id) continue;
+        byId.set(id, { ...(byId.get(id) || {}), ...row });
+      }
+      inner.clients = [...byId.values()];
+    }
+    return inner;
+  }
+  if (payload && typeof payload === "object" && !Array.isArray(payload.clientSiteRequests)) {
+    return { ...payload, clientSiteRequests: [] };
   }
   return payload;
 }
