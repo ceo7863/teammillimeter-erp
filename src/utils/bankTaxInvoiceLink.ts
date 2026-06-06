@@ -310,11 +310,23 @@ export function buildBankTxTaxInvoiceLinkPatch(
     };
   }
   const clientName = String(invoice.client || "").trim();
+  const existingSubject = String(tx.linkedSubject || tx.ledgerClientName || "").trim();
+  const keepExistingClientLabel =
+    tx.deposit > 0 &&
+    Boolean(tx.linkedPaymentVoucherId) &&
+    existingSubject &&
+    clientName &&
+    !hasTaxInvoiceNameMatch(
+      { ...tx, linkedSubject: existingSubject, ledgerClientName: existingSubject },
+      invoice,
+    );
+  const displayClientName = keepExistingClientLabel ? existingSubject : clientName || existingSubject;
+
   return {
     ...tx,
     linkedTaxInvoiceId: invoice.id,
     taxInvoiceAutoLinkDisabled: options.manual ? false : tx.taxInvoiceAutoLinkDisabled,
-    ledgerClientName: clientName || tx.ledgerClientName,
-    linkedSubject: tx.deposit > 0 && clientName ? clientName : tx.linkedSubject,
+    ledgerClientName: displayClientName || tx.ledgerClientName,
+    linkedSubject: tx.deposit > 0 && displayClientName ? displayClientName : tx.linkedSubject,
   };
 }
