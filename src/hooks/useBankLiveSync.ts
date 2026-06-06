@@ -1,5 +1,6 @@
 import React from "react";
 import { fetchBankSyncSnapshot, runBankFolderSync, type BankSyncSnapshot } from "@/utils/erpApi";
+import { syncBarobillBankNow, type BarobillBankSyncResult } from "@/utils/barobillBankApi";
 
 const LIVE_SYNC_KEY = "teammillimeter-bank-live-sync";
 
@@ -8,6 +9,29 @@ function normalizeBankSyncAt(value: string) {
     .trim()
     .replace(/\.\d{3}Z?$/i, "")
     .slice(0, 19);
+}
+
+function formatBarobillSyncMessage(result: BarobillBankSyncResult, addedCount = 0): string {
+  if (result.collecting || result.scrapStatus?.collecting) {
+    return (
+      result.notices?.[0] ||
+      result.scrapStatus?.message ||
+      "\uBC14\uB85C\uBE4C\uC5D0\uC11C \uAC70\uB798\uB0B4\uC5AD\uC744 \uC218\uC9D1 \uC911\uC785\uB2C8\uB2E4. 1~3\uBD84 \uD6C4 \uB2E4\uC2DC \uAC00\uC838\uC624\uAE30\uB97C \uB20C\uB7EC \uC8FC\uC138\uC694."
+    );
+  }
+  if (!result.ok) {
+    if (result.reason === "sync_in_progress") return "\uB3D9\uAE30\uD654\uAC00 \uC774\uBBF8 \uC9C4\uD589 \uC911\uC785\uB2C8\uB2E4.";
+    return result.error || "\uAC00\uC838\uC624\uAE30 \uC2E4\uD328";
+  }
+  const added = Math.max(0, addedCount, result.added ?? 0);
+  if (added > 0) {
+    return `${added}\uAC74 \uBC18\uC601\uB428 (\uBC14\uB85C\uBE4C)`;
+  }
+  if ((result.fetched ?? 0) > 0) {
+    return `\uC870\uD68C ${result.fetched}\uAC74 \u00B7 \uC774\uBBF8 \uCD5C\uC2E0 \uC0C1\uD0DC`;
+  }
+  if (result.notices?.length) return result.notices[0];
+  return "\uC774\uBBF8 \uCD5C\uC2E0 \uC0C1\uD0DC";
 }
 
 export function loadBankLiveSyncEnabled() {
@@ -77,6 +101,7 @@ export function useBankLiveSync({
   const localImportAtRef = React.useRef(localImportAt);
   const onRemoteUpdateRef = React.useRef(onRemoteUpdate);
   const onForceRefreshRef = React.useRef(onForceRefresh);
+  const barobillBankRef = React.useRef(false);
   const lastServerSyncAtRef = React.useRef(0);
   const serverSyncIntervalRef = React.useRef(Math.max(intervalMs * 2, 45000));
 
@@ -100,6 +125,35 @@ export function useBankLiveSync({
     onRemoteUpdateRef.current = onRemoteUpdate;
   }, [onRemoteUpdate]);
 
+  const refreshSyncSources = React.useCallback(async () => {
+    if (!enabled) return;
+    try {
+      const snapshot = await fetchBankSyncSnapshot(
+        sinceVersionRef.current,
+        localCountRef.current,
+        localLatestAtRef.current,
+        localImportAtRef.current,
+      );
+      barobillBankRef.current = Boolean(snapshot.liveSyncStatus?.sources?.barobillBank);
+      if (barobillBankRef.current) {
+        serverSyncIntervalRef.current = intervalMs;
+      } else if (snapshot.liveSyncStatus?.intervalMs) {
+        serverSyncIntervalRef.current = Math.max(
+          45000,
+          Math.min(snapshot.liveSyncStatus.intervalMs, intervalMs * 2),
+        );
+      }
+      setState((prev) => ({
+        ...prev,
+        enabled: true,
+        serverStatus: snapshot.liveSyncStatus,
+        bankSyncMeta: snapshot.bankSyncMeta,
+      }));
+    } catch {
+      // ignore source refresh errors; pullSnapshot will surface them
+    }
+  }, [enabled, intervalMs]);
+
   const pullSnapshot = React.useCallback(async (applyChanges = true) => {
     if (!enabled) return null;
     setState((prev) => ({ ...prev, polling: true }));
@@ -110,7 +164,10 @@ export function useBankLiveSync({
         localLatestAtRef.current,
         localImportAtRef.current,
       );
-      if (snapshot.liveSyncStatus?.intervalMs) {
+      barobillBankRef.current = Boolean(snapshot.liveSyncStatus?.sources?.barobillBank);
+      if (barobillBankRef.current) {
+        serverSyncIntervalRef.current = intervalMs;
+      } else if (snapshot.liveSyncStatus?.intervalMs) {
         serverSyncIntervalRef.current = Math.max(
           45000,
           Math.min(snapshot.liveSyncStatus.intervalMs, intervalMs * 2),
@@ -193,18 +250,24 @@ export function useBankLiveSync({
     }
   }, [enabled]);
 
-  const runServerBankSyncIfDue = React.useCallback(async () => {
-    if (!enabled) return null;
-    const syncIntervalMs = serverSyncIntervalRef.current;
-    if (Date.now() - lastServerSyncAtRef.current < syncIntervalMs) return null;
-    lastServerSyncAtRef.current = Date.now();
-    try {
-      return await runBankFolderSync();
-    } catch {
-      lastServerSyncAtRef.current = 0;
-      return null;
-    }
-  }, [enabled]);
+  const runServerBankSyncIfDue = React.useCallback(
+    async (options?: { refresh?: boolean }) => {
+      if (!enabled) return null;
+      const syncIntervalMs = serverSyncIntervalRef.current;
+      if (Date.now() - lastServerSyncAtRef.current < syncIntervalMs) return null;
+      lastServerSyncAtRef.current = Date.now();
+      try {
+        if (barobillBankRef.current) {
+          return await syncBarobillBankNow({ refresh: options?.refresh === true });
+        }
+        return await runBankFolderSync({ refresh: options?.refresh === true });
+      } catch {
+        lastServerSyncAtRef.current = 0;
+        return null;
+      }
+    },
+    [enabled, intervalMs],
+  );
 
   React.useEffect(() => {
     onForceRefreshRef.current = onForceRefresh;
@@ -221,14 +284,24 @@ export function useBankLiveSync({
 
   const syncNow = React.useCallback(async (options?: { refresh?: boolean }) => {
     if (!enabled) return null;
-    setState((prev) => ({ ...prev, polling: true, lastMessage: "\uC740\uD589 \uB3D9\uAE30\uD654 \uC911..." }));
+    setState((prev) => ({
+      ...prev,
+      polling: true,
+      lastMessage: barobillBankRef.current
+        ? "\uBC14\uB85C\uBE4C\uC5D0\uC11C \uAC00\uC838\uC624\uB294 \uC911..."
+        : "\uC740\uD589 \uB3D9\uAE30\uD654 \uC911...",
+    }));
     const beforeCount = localCountRef.current;
     try {
+      await refreshSyncSources();
       const refresh = options?.refresh === true;
-      if (refresh) {
-        lastServerSyncAtRef.current = Date.now();
+      let result: Awaited<ReturnType<typeof runBankFolderSync>> | BarobillBankSyncResult | null = null;
+      if (barobillBankRef.current) {
+        result = await syncBarobillBankNow({ refresh });
+      } else {
+        result = await runBankFolderSync({ refresh });
       }
-      const result = await runBankFolderSync({ refresh });
+      lastServerSyncAtRef.current = Date.now();
       const refreshResult = await onForceRefreshRef.current?.();
       if (refreshResult?.totalCount != null) {
         localCountRef.current = refreshResult.totalCount;
@@ -238,26 +311,30 @@ export function useBankLiveSync({
       const added = Math.max(
         0,
         refreshResult?.addedCount ?? 0,
-        result?.added ?? 0,
+        result && "added" in result ? Number(result.added) || 0 : 0,
         afterCount - beforeCount,
       );
-      const fetched = result?.fetched ?? 0;
       setState((prev) => ({
         ...prev,
         polling: false,
         lastAppliedAt: new Date().toISOString(),
         lastMessage:
-          added > 0
-            ? `${added}\uAC74 \uBC18\uC601\uB428${result?.source ? ` (${result.source})` : ""}`
-            : result?.collecting
-              ? "\uBC14\uB85C\uBE4C \uC218\uC9D1 \uC911\uC785\uB2C8\uB2E4. 1~3\uBD84 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."
-              : fetched > 0
-                ? `\uC870\uD68C ${fetched}\uAC74 \u00B7 \uC774\uBBF8 \uCD5C\uC2E0 \uC0C1\uD0DC`
-                : result?.reason === "no_files"
-                  ? "\uC2E0\uADDC IBK \uC5D1\uC140 \uC5C6\uC74C"
-                  : result?.reason === "IBK_BANK_IMPORT_DIR not configured" && result?.ok === false
-                    ? "\uC740\uD589 \uB3D9\uAE30\uD654 \uC644\uB8CC (\uBCC0\uACBD \uC5C6\uC74C)"
-                    : "\uC774\uBBF8 \uCD5C\uC2E0 \uC0C1\uD0DC",
+          barobillBankRef.current && result && "ok" in result
+            ? formatBarobillSyncMessage(result as BarobillBankSyncResult, added)
+            : added > 0
+              ? `${added}\uAC74 \uBC18\uC601\uB428${result && "source" in result && result.source ? ` (${result.source})` : ""}`
+              : result && "collecting" in result && result.collecting
+                ? "\uBC14\uB85C\uBE4C \uC218\uC9D1 \uC911\uC785\uB2C8\uB2E4. 1~3\uBD84 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."
+                : result && "fetched" in result && (result.fetched ?? 0) > 0
+                  ? `\uC870\uD68C ${result.fetched}\uAC74 \u00B7 \uC774\uBBF8 \uCD5C\uC2E0 \uC0C1\uD0DC`
+                  : result && "reason" in result && result.reason === "no_files"
+                    ? "\uC2E0\uADDC IBK \uC5D1\uC140 \uC5C6\uC74C"
+                    : result &&
+                        "reason" in result &&
+                        result.reason === "IBK_BANK_IMPORT_DIR not configured" &&
+                        result.ok === false
+                      ? "\uC740\uD589 \uB3D9\uAE30\uD654 \uC644\uB8CC (\uBCC0\uACBD \uC5C6\uC74C)"
+                      : "\uC774\uBBF8 \uCD5C\uC2E0 \uC0C1\uD0DC",
       }));
       return result;
     } catch (error) {
@@ -268,7 +345,7 @@ export function useBankLiveSync({
       }));
       return null;
     }
-  }, [enabled, pullSnapshot]);
+  }, [enabled, pullSnapshot, refreshSyncSources, runServerBankSyncIfDue]);
 
   const runFolderSync = React.useCallback(
     (options?: { refresh?: boolean }) => syncNow(options),
@@ -282,7 +359,28 @@ export function useBankLiveSync({
   React.useEffect(() => {
     if (!enabled || !liveSyncEnabled || !isActive) return;
     const tick = async () => {
-      await runServerBankSyncIfDue();
+      await refreshSyncSources();
+      const beforeCount = localCountRef.current;
+      const syncResult = await runServerBankSyncIfDue();
+      if (syncResult && barobillBankRef.current) {
+        const refreshResult = await onForceRefreshRef.current?.();
+        const added = Math.max(
+          0,
+          refreshResult?.addedCount ?? 0,
+          syncResult && "added" in syncResult ? Number(syncResult.added) || 0 : 0,
+          (refreshResult?.totalCount ?? beforeCount) - beforeCount,
+        );
+        if (refreshResult?.totalCount != null) {
+          localCountRef.current = refreshResult.totalCount;
+        }
+        if (syncResult && "ok" in syncResult) {
+          setState((prev) => ({
+            ...prev,
+            lastAppliedAt: new Date().toISOString(),
+            lastMessage: formatBarobillSyncMessage(syncResult as BarobillBankSyncResult, added),
+          }));
+        }
+      }
       await pullSnapshot(true);
     };
     void tick();
@@ -297,7 +395,7 @@ export function useBankLiveSync({
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [enabled, liveSyncEnabled, isActive, intervalMs, pullSnapshot, runServerBankSyncIfDue]);
+  }, [enabled, liveSyncEnabled, isActive, intervalMs, pullSnapshot, refreshSyncSources, runServerBankSyncIfDue]);
 
   return {
     liveSyncEnabled,

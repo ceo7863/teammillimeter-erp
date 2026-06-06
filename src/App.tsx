@@ -8654,7 +8654,7 @@ export default function TeammillimeterErpMvp() {
 
   const bankLiveSync = useBankLiveSync({
     enabled: apiMode && dataReady,
-    isActive: Boolean(currentUser),
+    isActive: active === "accounting",
     sinceVersion: erpVersion,
     localTransactionCount: bankTransactions.length,
     localLatestTransactionAt: bankLatestTransactionAt,

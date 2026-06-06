@@ -378,9 +378,10 @@ const L = {
   liveSyncTitle: "\uC2E4\uC2DC\uAC04 \uC5F0\uB3D9",
   liveSyncOn: "\uC5F0\uB3D9 \uC911",
   liveSyncOff: "\uC5F0\uB3D9 \uAE34\uAE30",
-  liveSyncNow: "\uC9C0\uAE08 \uB3D9\uAE30\uD654",
+  liveSyncNow: "\uC9C0\uAE08 \uAC00\uC838\uC624\uAE30",
+  liveSyncNowGeneric: "\uC9C0\uAE08 \uB3D9\uAE30\uD654",
   liveSyncFolder: "\uD3F4\uB354\uC5D0\uC11C \uAC00\uC838\uC624\uAE30",
-  liveSyncHint: "\uC11C\uBC84\uAC00 \uBC14\uB85C\uBE4C/\uC740\uD589 \uC5F0\uB3D9\uC744 3\uBD84\uB9C8\uB2E4 \uAC00\uC838\uC624\uACE0, \uD654\uBA74\uC740 20\uCD08\uB9C8\uB2E4 \uBC18\uC601\uD569\uB2C8\uB2E4.",
+  liveSyncHint: "\uBC14\uB85C\uBE4C \uACC4\uC88C\uB0B4\uC5AD\uC744 15\uCD08\uB9C8\uB2E4 \uC790\uB3D9 \uAC00\uC838\uC624\uACE0 \uBAA9\uB85D\uC744 \uAC31\uC2E0\uD569\uB2C8\uB2E4. \uC5F0\uB3D9 \uC2A4\uC704\uCE58\uB97C \uAE34 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
   liveSyncLocalHint: "\uC11C\uBC84 \uBAA8\uB4DC\uC5D0\uC11C \uC2E4\uC2DC\uAC04 \uC5F0\uB3D9\uC744 \uC0AC\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uD68C\uACC4\u00B7\uD1B5\uC7A5 \u003E \uD1B5\uC7A5 \uD0ED\uC5D0\uC11C \uB3D9\uC791\uD569\uB2C8\uB2E4.",
   liveSyncFolderDisabled: "\uC790\uB3D9 \uB3D9\uAE30\uD654 \uC18C\uC2A4\uAC00 \uC124\uC815\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.",
   previewRows: "\uC778\uC2DD \uAC74\uC218",
@@ -1103,15 +1104,6 @@ export function BankTransactionsPage({
   const runFolderSync = bankLiveSync?.runFolderSync ?? syncNow;
   const pullSnapshot = bankLiveSync?.pullSnapshot ?? (async () => null);
   const forceRefreshBank = bankLiveSync?.forceRefreshBank ?? pullSnapshot;
-
-  useEffect(() => {
-    if (!apiMode || !isPageActive || !liveSyncEnabled) return;
-    void pullSnapshot(true);
-    const timer = window.setInterval(() => {
-      void pullSnapshot(true);
-    }, 15000);
-    return () => window.clearInterval(timer);
-  }, [apiMode, isPageActive, liveSyncEnabled, pullSnapshot]);
 
   const resolveFolderLabel = React.useCallback(
     (folderId?: string) => {
@@ -4937,7 +4929,7 @@ export function BankTransactionsPage({
                       disabled={liveSyncState.polling || !liveSyncState.serverStatus?.enabled}
                       onClick={() => void syncNow()}
                     >
-                      {L.liveSyncNow}
+                      {liveSyncState.serverStatus?.sources?.barobillBank ? L.liveSyncNow : L.liveSyncNowGeneric}
                     </Button>
                     {liveSyncState.serverStatus?.sources?.folder ? (
                     <Button
