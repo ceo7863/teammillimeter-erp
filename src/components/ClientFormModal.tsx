@@ -80,7 +80,7 @@ export function ClientFormModal({
   return (
     <div className="erp-ledger-modal-backdrop" onClick={onClose}>
       <div
-        className="erp-ledger-modal erp-client-form-modal max-h-[92vh] max-w-5xl overflow-y-auto"
+        className="erp-ledger-modal erp-ledger-modal--client-form overflow-y-auto"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
