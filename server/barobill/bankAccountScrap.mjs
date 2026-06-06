@@ -68,6 +68,15 @@ export async function checkBankAccountScrapService(bankAccountNum) {
         "\uBC14\uB85C\uBE4C\uC5D0\uC11C \uACC4\uC88C \uAC70\uB798\uB0B4\uC5ED\uC744 \uC218\uC9D1 \uC911\uC785\uB2C8\uB2E4. \uC644\uB8CC \uD6C4 \uB2E4\uC2DC \uB3D9\uAE30\uD654\uD574 \uBCF4\uC138\uC694.",
     };
   }
+  if (code === -51008) {
+    return {
+      active: true,
+      collecting: true,
+      code,
+      message:
+        "\uBC14\uB85C\uBE4C\uC5D0\uC11C \uACC4\uC88C \uAC70\uB798\uB0B4\uC5AD\uC744 \uC218\uC9D1 \uC911\uC785\uB2C8\uB2E4. \uC774\uBBF8 \uC218\uC9D1\uB41C \uB0B4\uC5ED\uC740 \uC544\uB798 \uAC00\uC838\uC635\uB2C8\uB2E4.",
+    };
+  }
   if (code < 0) {
     const detail = await describeCode(code);
     return {
