@@ -9,6 +9,7 @@ export type MobileRecordField = {
 export type MobileRecordBadge = {
   label: string;
   tone?: "default" | "danger" | "success" | "muted";
+  onClick?: () => void;
 };
 
 export type MobileRecordAmount = {
@@ -102,14 +103,30 @@ export function MobileRecordCard({
 
       {badges.length > 0 ? (
         <div className="mb-3 flex flex-wrap gap-1.5">
-          {badges.map((item) => (
-            <span
-              key={item.label}
-              className={`inline-flex max-w-full truncate rounded-full px-2 py-0.5 text-[11px] font-bold ${badgeToneClass(item.tone)}`}
-            >
-              {item.label}
-            </span>
-          ))}
+          {badges.map((item) => {
+            const className = `inline-flex max-w-full truncate rounded-full px-2 py-0.5 text-[11px] font-bold ${badgeToneClass(item.tone)}`;
+            if (item.onClick) {
+              return (
+                <button
+                  key={item.label}
+                  type="button"
+                  className={`${className} cursor-pointer`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    item.onClick?.();
+                  }}
+                >
+                  {item.label}
+                </button>
+              );
+            }
+            return (
+              <span key={item.label} className={className}>
+                {item.label}
+              </span>
+            );
+          })}
         </div>
       ) : null}
 

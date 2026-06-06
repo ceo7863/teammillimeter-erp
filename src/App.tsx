@@ -66,6 +66,7 @@ import { LoginHistoryPage } from "@/components/LoginHistoryPage";
 import { SalesManagementPage } from "@/components/SalesManagementPage";
 import { SaleCommentsPage } from "@/components/SaleCommentsPage";
 import { SaleCommentBadge } from "@/components/SaleCommentBadge";
+import { SaleVoucherCommentsModal } from "@/components/SaleVoucherCommentsModal";
 import { PaymentReceivablesPage } from "@/components/PaymentReceivablesPage";
 import { WorkerPaymentsPage } from "@/components/WorkerPaymentsPage";
 import { StatementsPage } from "@/components/StatementsPage";
@@ -3352,6 +3353,7 @@ function CalendarPage({
   onAddSaleComment,
   saleCommentCounts,
   saleCommentUnreadCounts,
+  onOpenSaleComments,
 }) {
   const { recordAudit } = useAudit();
   const { message: clientFilterNotice, showNotice: showClientFilterNotice, clearNotice: clearClientFilterNotice } = useActionNotice();
@@ -4349,7 +4351,12 @@ function CalendarPage({
                               />
                             ) : null}
                             {entry.saleId ? (
-                              <SaleCommentBadge saleId={entry.saleId} saleCommentCounts={saleCommentCounts} saleCommentUnreadCounts={saleCommentUnreadCounts} />
+                              <SaleCommentBadge
+                                saleId={entry.saleId}
+                                saleCommentCounts={saleCommentCounts}
+                                saleCommentUnreadCounts={saleCommentUnreadCounts}
+                                onClick={onOpenSaleComments}
+                              />
                             ) : null}
                           </li>
                           );
@@ -4630,7 +4637,12 @@ function CalendarPage({
                                 autoLinkedSaleIds={autoLinkedSaleIds}
                                 manualLinkedSaleIds={manualLinkedSaleIds}
                               />
-                              <SaleCommentBadge saleId={sale.id} saleCommentCounts={saleCommentCounts} saleCommentUnreadCounts={saleCommentUnreadCounts} />
+                              <SaleCommentBadge
+                                saleId={sale.id}
+                                saleCommentCounts={saleCommentCounts}
+                                saleCommentUnreadCounts={saleCommentUnreadCounts}
+                                onClick={onOpenSaleComments}
+                              />
                             </div>
                           </div>
                         </button>
@@ -4693,7 +4705,7 @@ function PageTitle({ title, desc, action }) {
   );
 }
 
-function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "매출목록", exportTitle, isDuplicateRow, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set(), saleCommentCounts, saleCommentUnreadCounts }) {
+function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "매출목록", exportTitle, isDuplicateRow, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set(), saleCommentCounts, saleCommentUnreadCounts, onOpenSaleComments }) {
   const title = exportTitle || exportFileName;
   return (
     <TableExportSection fileName={exportFileName} title={title} disabled={rows.length === 0}>
@@ -4713,9 +4725,16 @@ function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "�
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
                 badges={
                   unreadCommentCount > 0
-                    ? [{ label: `새 코멘트 ${unreadCommentCount}`, tone: "danger" }]
+                    ? [{
+                        label: `새 코멘트 ${unreadCommentCount}`,
+                        tone: "danger" as const,
+                        onClick: onOpenSaleComments ? () => onOpenSaleComments(row.id) : undefined,
+                      }]
                     : commentCount > 0
-                      ? [{ label: `코멘트 ${commentCount}` }]
+                      ? [{
+                          label: `코멘트 ${commentCount}`,
+                          onClick: onOpenSaleComments ? () => onOpenSaleComments(row.id) : undefined,
+                        }]
                       : undefined
                 }
                 fields={[
@@ -4769,7 +4788,12 @@ function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "�
                   autoLinkedSaleIds={autoLinkedSaleIds}
                   manualLinkedSaleIds={manualLinkedSaleIds}
                 />
-                <SaleCommentBadge saleId={row.id} saleCommentCounts={saleCommentCounts} saleCommentUnreadCounts={saleCommentUnreadCounts} />
+                <SaleCommentBadge
+                  saleId={row.id}
+                  saleCommentCounts={saleCommentCounts}
+                  saleCommentUnreadCounts={saleCommentUnreadCounts}
+                  onClick={onOpenSaleComments}
+                />
               </td>
               <td className="font-semibold"><span className="erp-cell-truncate inline-block max-w-[7rem] md:max-w-none">{row.client}</span></td>
               <td><span className="erp-cell-truncate inline-block max-w-[8rem] md:max-w-none">{row.site}</span></td>
@@ -4952,7 +4976,7 @@ function SearchBox({ query, setQuery, placeholder }) {
 
 const emptyVoucherSearchFilters = { client: "", site: "", worker: "" };
 
-function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, setPaymentVouchers, setBankTransactions, onPersistSaleUpdate, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set(), saleComments = [], onAddSaleComment, saleCommentCounts, saleCommentUnreadCounts }) {
+function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, setPaymentVouchers, setBankTransactions, onPersistSaleUpdate, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set(), saleComments = [], onAddSaleComment, saleCommentCounts, saleCommentUnreadCounts, onOpenSaleComments }) {
   const [searchFilters, setSearchFilters] = useState(emptyVoucherSearchFilters);
   const [dateFilter, setDateFilter] = useState({ startDate: "", endDate: "" });
   const [selectedSale, setSelectedSale] = useState(null);
@@ -5124,6 +5148,7 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
             manualLinkedSaleIds={manualLinkedSaleIds}
             saleCommentCounts={saleCommentCounts}
             saleCommentUnreadCounts={saleCommentUnreadCounts}
+            onOpenSaleComments={onOpenSaleComments}
           />
         </CardContent>
       </Card>
@@ -7258,6 +7283,7 @@ export default function TeammillimeterErpMvp() {
   const [pendingVoucherEditId, setPendingVoucherEditId] = useState(null);
   const [pendingVoucherSearchFilter, setPendingVoucherSearchFilter] = useState(null);
   const [salesManagementEditSale, setSalesManagementEditSale] = useState(null);
+  const [saleCommentsViewSaleId, setSaleCommentsViewSaleId] = useState<string | number | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [myAccountOpen, setMyAccountOpen] = useState(false);
   const [sidebarMenuOrderOpen, setSidebarMenuOrderOpen] = useState(false);
@@ -8207,6 +8233,15 @@ export default function TeammillimeterErpMvp() {
     setActive("salesVoucherSearch");
   }, []);
 
+  const openSaleCommentsView = useCallback((saleId: string | number) => {
+    setSaleCommentsViewSaleId(saleId);
+  }, []);
+
+  const saleCommentsViewSale = useMemo(() => {
+    if (saleCommentsViewSaleId == null || saleCommentsViewSaleId === "") return null;
+    return appliedSales.find((row) => String(row.id) === String(saleCommentsViewSaleId)) || null;
+  }, [appliedSales, saleCommentsViewSaleId]);
+
   useEffect(() => {
     if (!apiMode || !dataReady) return;
     if (skipSaveRef.current || bankSyncApplyingRef.current) return;
@@ -8855,6 +8890,7 @@ export default function TeammillimeterErpMvp() {
             onAddSaleComment={addSaleCommentForVoucher}
             saleCommentCounts={saleCommentCountBySaleId}
             saleCommentUnreadCounts={saleCommentUnreadCountBySaleId}
+            onOpenSaleComments={openSaleCommentsView}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="clientSiteRequests" active={active}>
@@ -8880,7 +8916,7 @@ export default function TeammillimeterErpMvp() {
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="sales" active={active}>
-          <SalesManagementPage sales={appliedSales} paymentVouchers={paymentVouchers} workers={workers} setSales={setSales} setActive={setActive} currentUser={currentUser} onEditSale={setSalesManagementEditSale} saleCommentCounts={saleCommentCountBySaleId} saleCommentUnreadCounts={saleCommentUnreadCountBySaleId} />
+          <SalesManagementPage sales={appliedSales} paymentVouchers={paymentVouchers} workers={workers} setSales={setSales} setActive={setActive} currentUser={currentUser} onEditSale={setSalesManagementEditSale} saleCommentCounts={saleCommentCountBySaleId} saleCommentUnreadCounts={saleCommentUnreadCountBySaleId} onOpenSaleComments={openSaleCommentsView} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="salesVoucherSearch" active={active}>
           <SalesVoucherSearchPage
@@ -8902,6 +8938,7 @@ export default function TeammillimeterErpMvp() {
             onAddSaleComment={addSaleCommentForVoucher}
             saleCommentCounts={saleCommentCountBySaleId}
             saleCommentUnreadCounts={saleCommentUnreadCountBySaleId}
+            onOpenSaleComments={openSaleCommentsView}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="saleComments" active={active}>
@@ -9156,6 +9193,15 @@ export default function TeammillimeterErpMvp() {
           SaleFormEditor={SaleFormCompactEditor}
           saleComments={saleComments}
           onAddSaleComment={(body) => addSaleCommentForVoucher(salesManagementEditSale.id, body)}
+        />
+      ) : null}
+      {saleCommentsViewSale ? (
+        <SaleVoucherCommentsModal
+          sale={saleCommentsViewSale}
+          saleComments={saleComments}
+          currentUser={currentUser}
+          onAddSaleComment={(body) => addSaleCommentForVoucher(saleCommentsViewSale.id, body)}
+          onClose={() => setSaleCommentsViewSaleId(null)}
         />
       ) : null}
       <MyAccountModal

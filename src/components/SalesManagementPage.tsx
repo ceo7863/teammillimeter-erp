@@ -63,7 +63,13 @@ function buildSalesSheetDisplayRows(rows: SalesStatementRow[]): SalesSheetDispla
   });
 }
 
-function renderCell(row: SalesSheetDisplayRow, key: string, saleCommentCounts?: Map<string, number>, saleCommentUnreadCounts?: Map<string, number>) {
+function renderCell(
+  row: SalesSheetDisplayRow,
+  key: string,
+  saleCommentCounts?: Map<string, number>,
+  saleCommentUnreadCounts?: Map<string, number>,
+  onOpenSaleComments?: (saleId: string | number) => void,
+) {
   const value = row[key as keyof SalesStatementRow];
   const column = SALES_SHEET_UI_COLUMNS.find((item) => item.key === key);
   if (!column) return "-";
@@ -98,7 +104,12 @@ function renderCell(row: SalesSheetDisplayRow, key: string, saleCommentCounts?: 
     return (
       <span className="erp-sales-sheet-badge-cell">
         <SalePaymentLinkBadge saleId={row.saleId} />
-        <SaleCommentBadge saleId={row.saleId} saleCommentCounts={saleCommentCounts} saleCommentUnreadCounts={saleCommentUnreadCounts} />
+        <SaleCommentBadge
+          saleId={row.saleId}
+          saleCommentCounts={saleCommentCounts}
+          saleCommentUnreadCounts={saleCommentUnreadCounts}
+          onClick={onOpenSaleComments}
+        />
         <span>{text}</span>
       </span>
     );
@@ -241,6 +252,7 @@ export function SalesManagementPage({
   onEditSale,
   saleCommentCounts,
   saleCommentUnreadCounts,
+  onOpenSaleComments,
 }) {
   const { recordAudit } = useAudit();
   const [textFilters, setTextFilters] = useState(emptySalesSheetTextFilters);
@@ -569,7 +581,7 @@ export function SalesManagementPage({
                               style={column.sticky ? { left: stickyLeftByKey[column.key] } : undefined}
                               title={typeof row[column.key as keyof SalesStatementRow] === "string" ? String(row[column.key as keyof SalesStatementRow]) : undefined}
                             >
-                              {renderCell(row, column.key, saleCommentCounts, saleCommentUnreadCounts)}
+                              {renderCell(row, column.key, saleCommentCounts, saleCommentUnreadCounts, onOpenSaleComments)}
                             </td>
                           );
                         })}
