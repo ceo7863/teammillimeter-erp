@@ -15,7 +15,7 @@ const FONT_CANDIDATES = [
   "C:\\Windows\\Fonts\\malgun.ttc",
 ];
 
-/** A4 ????? ó ???(?) ?? ?? (pdf-lib, ??? origin) */
+/** A4 ????? ù ???(?) ?? ?? (pdf-lib, ??? origin) */
 const UNIT_PRICE_AGREEMENT = {
   id: "unit-price-agreement",
   title: "\uAC00\uAD6C\uC2DC\uACF5 \uB2E8\uAC00\uD611\uC57D\uC11C",
@@ -34,10 +34,13 @@ const TEMPLATE_REGISTRY = {
   [UNIT_PRICE_AGREEMENT.id]: UNIT_PRICE_AGREEMENT,
 };
 
-function resolveKoreanFontBytes() {
+function resolveKoreanFont() {
   for (const candidate of FONT_CANDIDATES) {
     if (fs.existsSync(candidate)) {
-      return fs.readFileSync(candidate);
+      return {
+        bytes: fs.readFileSync(candidate),
+        path: candidate,
+      };
     }
   }
   throw new Error("\uD55C\uAE00 \uD3F0\uD2B8\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. (Noto CJK \uB610\uB294 \uB9D1\uC740\uACE0\uB515 \uD544\uC694)");
@@ -45,8 +48,9 @@ function resolveKoreanFontBytes() {
 
 async function embedKoreanFont(pdfDoc) {
   pdfDoc.registerFontkit(fontkit);
-  const fontBytes = resolveKoreanFontBytes();
-  return pdfDoc.embedFont(fontBytes, { subset: true });
+  const { bytes, path: fontPath } = resolveKoreanFont();
+  const useSubset = !fontPath.toLowerCase().endsWith(".ttc");
+  return pdfDoc.embedFont(bytes, { subset: useSubset });
 }
 
 function drawField(page, font, spec, text) {
