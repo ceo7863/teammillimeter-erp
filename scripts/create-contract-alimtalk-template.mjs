@@ -81,6 +81,7 @@ async function main() {
       console.log("inspection cancelled");
     }
     const updated = await api("PUT", `/kakao/v2/templates/${existingId}`, {
+      channelId: config.alimtalk.senderKey,
       name: template.name,
       content: template.content,
       categoryCode: current.categoryCode || "999999",
@@ -100,6 +101,7 @@ async function main() {
   }
 
   const created = await api("POST", "/kakao/v2/templates", {
+    channelId: config.alimtalk.senderKey,
     name: template.name,
     content: template.content,
     categoryCode: "999999",
