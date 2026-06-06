@@ -59,9 +59,6 @@ function BankTransactionMobileListComponent({
           } else if (model.matchStatusLabel !== "-") {
             badges.push({ label: model.matchStatusLabel, tone: "muted" });
           }
-          if (model.categoryLabel) {
-            badges.push({ label: model.categoryLabel, tone: "default" });
-          }
           if (model.fixedExpenseLabel) {
             badges.push({ label: model.fixedExpenseLabel, tone: "default" });
           }

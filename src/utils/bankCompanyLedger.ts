@@ -270,6 +270,37 @@ export function clearVariableExpenseLinkForBankTx(
   return { expenses: nextExpenses, transactions: nextTransactions, removedExpense: linkedExpense };
 }
 
+/** Break legacy company/fixed ledger links so manual account-code assignment is not overwritten. */
+export function detachBankTxFromCompanyLedgerLinks(
+  txId: string,
+  transactions: BankTransaction[],
+  expenses: CompanyExpense[],
+  payments: FixedExpensePayment[],
+) {
+  const cleared = clearVariableExpenseLinkForBankTx(txId, expenses, transactions);
+  const nextExpenses = cleared.expenses.map((row) =>
+    row.bankTransactionId === txId ? { ...row, bankTransactionId: undefined } : row,
+  );
+  const nextPayments = payments.map((row) =>
+    row.bankTransactionId === txId ? { ...row, bankTransactionId: undefined } : row,
+  );
+  const nextTransactions = cleared.transactions.map((row) =>
+    row.id === txId
+      ? { ...row, linkedCompanyExpenseId: undefined, linkedFixedExpensePaymentId: undefined }
+      : row,
+  );
+  return {
+    expenses: nextExpenses,
+    payments: nextPayments,
+    transactions: nextTransactions,
+    removedExpense: cleared.removedExpense,
+  };
+}
+
+function hasManualBankTxAccountCode(tx: BankTransaction) {
+  return tx.ledgerStatus === "confirmed" && Boolean(String(tx.ledgerAccountCode || "").trim());
+}
+
 /** Align tx.linked* fields with ledger rows matched by bankTransactionId. */
 export function syncBankTransactionLedgerLinkFields(
   transactions: BankTransaction[],
@@ -277,6 +308,14 @@ export function syncBankTransactionLedgerLinkFields(
   payments: FixedExpensePayment[] = [],
 ) {
   return transactions.map((tx) => {
+    if (hasManualBankTxAccountCode(tx)) {
+      return {
+        ...tx,
+        linkedCompanyExpenseId: undefined,
+        linkedFixedExpensePaymentId: undefined,
+      };
+    }
+
     const expense = expenses.find((row) => row.bankTransactionId === tx.id);
     const payment = payments.find((row) => row.bankTransactionId === tx.id);
 

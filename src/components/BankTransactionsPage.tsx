@@ -104,6 +104,7 @@ import {
   buildLedgerReviewPromptGroups,
   canRegisterBankTxToCompanyLedger,
   clearVariableExpenseLinkForBankTx,
+  detachBankTxFromCompanyLedgerLinks,
   createCompanyExpenseFromBankTransaction,
   assignBankTxToFixedExpensePayment,
   findBestBankLearnRuleWithScore,
@@ -136,7 +137,6 @@ import {
 } from "@/utils/bankSmartLedger";
 import {
   getBankTxLedgerCategoryLabel,
-  getBankTxLedgerAccountCodeLabel,
   matchesBankTxLedgerScope,
   assignBankTransactionAccountCode,
   registerBankTxWithCategoryName,
@@ -2128,24 +2128,7 @@ export function BankTransactionsPage({
   const activeLedgerCategoryOptions =
     ledgerModal?.kind === "fixed" ? ledgerFixedCategoryOptions : ledgerManualCategoryOptions;
 
-  const resolveTxAccountCodeDraft = useCallback(
-    (tx: BankTransaction) => {
-      const fromLedger = getBankTxLedgerAccountCodeLabel(tx, ledgerCategories);
-      if (fromLedger) return fromLedger;
-      const categoryName =
-        getLedgerCategoryLabel(tx) ||
-        resolveLedgerCategorySuggestionLabel(tx) ||
-        resolveMemoLearnCategory(tx.memo, expenseCategories) ||
-        resolveCategoryFromMemo(tx.memo) ||
-        "";
-      if (categoryName) {
-        const category = findLedgerCategoryByName(ledgerCategories, categoryName);
-        if (category?.accountCode) return category.accountCode;
-      }
-      return "";
-    },
-    [expenseCategories, getLedgerCategoryLabel, ledgerCategories, resolveLedgerCategorySuggestionLabel],
-  );
+  const resolveTxAccountCodeDraft = useCallback((tx: BankTransaction) => String(tx.ledgerAccountCode || "").trim(), []);
 
   const resolveTxFixedExpenseDraft = useCallback(
     (tx: BankTransaction) => {
@@ -2293,16 +2276,40 @@ export function BankTransactionsPage({
       }
 
       auditBankTxUpdate(tx, nextRow);
-      const nextTransactions = prev.map((row) => (row.id === txId ? nextRow : row));
+      const mappedTransactions = prev.map((row) => (row.id === txId ? nextRow : row));
+      const detached = detachBankTxFromCompanyLedgerLinks(
+        txId,
+        mappedTransactions,
+        companyExpenses,
+        fixedExpensePayments,
+      );
+      const nextTransactions = detached.transactions.map((row) => (row.id === txId ? nextRow : row));
       bankTransactionsRef.current = nextTransactions;
       setBankTransactions(nextTransactions);
+      if (detached.expenses !== companyExpenses) setCompanyExpenses(detached.expenses);
+      if (detached.payments !== fixedExpensePayments) setFixedExpensePayments(detached.payments);
       setAccountSubjectPickerTxId(null);
       setTxCellModalError("");
       setImportMessage(L.cellSaveDone);
-      void onRequestImmediateSave?.({ bankTransactions: nextTransactions });
+      void onRequestImmediateSave?.({
+        bankTransactions: nextTransactions,
+        companyExpenses: detached.expenses,
+        fixedExpensePayments: detached.payments,
+      });
       return true;
     },
-    [accountCodes, auditBankTxUpdate, ledgerCategories, onRequestImmediateSave, savedBy, setBankTransactions],
+    [
+      accountCodes,
+      auditBankTxUpdate,
+      companyExpenses,
+      fixedExpensePayments,
+      ledgerCategories,
+      onRequestImmediateSave,
+      savedBy,
+      setBankTransactions,
+      setCompanyExpenses,
+      setFixedExpensePayments,
+    ],
   );
 
   const saveFixedExpenseModal = () => {

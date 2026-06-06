@@ -77,14 +77,10 @@ export function getBankTxLedgerCategoryLabel(
 
 export function getBankTxLedgerAccountCodeLabel(
   tx: BankTransaction,
-  ledgerCategories: LedgerCategory[],
+  _ledgerCategories: LedgerCategory[] = [],
 ): string | null {
-  if (tx.ledgerAccountCode?.trim()) return tx.ledgerAccountCode.trim();
-  if (tx.ledgerCategoryId) {
-    const category = findLedgerCategory(ledgerCategories, tx.ledgerCategoryId);
-    if (category?.accountCode) return category.accountCode;
-  }
-  return null;
+  const code = String(tx.ledgerAccountCode || "").trim();
+  return code || null;
 }
 
 export function registerBankTxWithCategoryName(input: {
@@ -118,28 +114,13 @@ export function assignBankTransactionAccountCode(input: {
   const account = findAccountCodeByCode(input.accountCodes, code);
   if (account?.isActive === false) return null;
 
-  const matchingCategory = input.ledgerCategories.find(
-    (row) => row.isActive && String(row.accountCode || "").trim() === code,
-  );
-
-  if (matchingCategory) {
-    return confirmBankTransactionLedger({
-      tx: input.tx,
-      category: matchingCategory,
-      accountCodes: input.accountCodes,
-      accountCode: code,
-      confirmedBy: input.confirmedBy,
-      fixedExpenseId: input.tx.ledgerFixedExpenseId,
-      memo: input.tx.ledgerMemo || input.tx.memo,
-    });
-  }
-
   return {
     ...input.tx,
     ledgerStatus: "confirmed",
-    ledgerCategoryId: null,
+    ledgerCategoryId: undefined,
     ledgerAccountCode: code,
     ledgerMemo: input.tx.ledgerMemo || input.tx.memo,
+    ledgerFixedExpenseId: undefined,
     ledgerConfirmedAt: new Date().toISOString(),
     ledgerConfirmedBy: input.confirmedBy,
     linkedCompanyExpenseId: undefined,

@@ -9,7 +9,7 @@ import { getLinkedCompanyExpenseForBankTx, getLinkedFixedPaymentForBankTx } from
 import { isNetGroupSuppressed } from "@/utils/bankPreauthNetting";
 import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "@/utils/companyLedger";
 import { formatKRW } from "@/utils/companyLedger";
-import { getBankTxLedgerAccountCodeLabel, getBankTxLedgerCategoryLabel } from "@/utils/ledgerBankBridge";
+import { getBankTxLedgerCategoryLabel } from "@/utils/ledgerBankBridge";
 import {
   formatTaxInvoiceEvidenceLabel,
   getBankTxClassifiedAmount,
@@ -206,10 +206,10 @@ export function buildBankTransactionListRowModels(
     const fixedExpenseLabel = resolveFixedExpenseLabel(row, lookup);
     const accountContent = String(row.ledgerMemo || row.memo || "").trim();
     const memoOnly = String(row.memo || "").trim();
-    const resolvedAccountCode = getBankTxLedgerAccountCodeLabel(row, ledgerCategories);
-    const accountSubjectLabel = resolvedAccountCode
-      ? resolveAccountCodeLabel(accountCodes, resolvedAccountCode) || resolvedAccountCode
-      : categoryLabel;
+    const accountCode = String(row.ledgerAccountCode || "").trim();
+    const accountSubjectLabel = accountCode
+      ? resolveAccountCodeLabel(accountCodes, accountCode) || accountCode
+      : null;
     const clientLabel = resolveBankTxClientName(row) || unfiledClientName || null;
     const classifiedAmount = getBankTxClassifiedAmount(row);
     const linkedInvoice = row.linkedTaxInvoiceId ? taxInvoiceById.get(row.linkedTaxInvoiceId) : undefined;
