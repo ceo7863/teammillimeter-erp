@@ -1009,9 +1009,7 @@ export function BankTransactionsPage({
   const [fixedExpenseModal, setFixedExpenseModal] = useState<TxFixedExpenseModal | null>(null);
   const [clientModal, setClientModal] = useState<TxClientModal | null>(null);
   const [taxInvoiceModal, setTaxInvoiceModal] = useState<TxTaxInvoiceModal | null>(null);
-  const [addCategoryModalOpen, setAddCategoryModalOpen] = useState(false);
   const [addFixedExpenseModalOpen, setAddFixedExpenseModalOpen] = useState(false);
-  const [addExpenseCategoryName, setAddExpenseCategoryName] = useState("");
   const [newFixedExpenseName, setNewFixedExpenseName] = useState("");
   const [newFixedExpenseCategory, setNewFixedExpenseCategory] = useState("");
   const [txCellModalError, setTxCellModalError] = useState("");
@@ -2503,15 +2501,6 @@ export function BankTransactionsPage({
       bankTransactions: nextTransactions,
       fixedExpensePayments: nextPayments,
     });
-  };
-
-  const handleAddCategory = () => {
-    const trimmed = addExpenseCategoryName.trim();
-    if (!trimmed) return;
-    setExpenseCategories((prev) => mergeExpenseCategory(prev, trimmed));
-    setAddExpenseCategoryName("");
-    setAddCategoryModalOpen(false);
-    setImportMessage(L.cellSaveDone);
   };
 
   const handleAddFixedExpense = () => {
@@ -4551,7 +4540,7 @@ export function BankTransactionsPage({
       empty: L.empty,
       unfiled: L.unfiled,
       accountContentPlaceholder: L.accountContentPlaceholder,
-      categoryPlaceholder: L.categoryPlaceholder,
+      categoryPlaceholder: L.accountSubjectPlaceholder,
       fixedExpensePlaceholder: L.fixedExpensePlaceholder,
       transactionAt: L.transactionAt,
       deposit: L.deposit,
@@ -4559,7 +4548,7 @@ export function BankTransactionsPage({
       balance: L.balance,
       description: L.description,
       accountContent: L.accountContent,
-      category: L.categoryColumn,
+      category: L.accountSubject,
       fixedExpense: L.fixedExpenseColumn,
       classification: L.classification,
       matchStatus: L.matchStatus,
@@ -4631,7 +4620,7 @@ export function BankTransactionsPage({
           balance: L.balance,
           description: L.description,
           accountContent: L.accountContent,
-          category: L.categoryColumn,
+          category: L.accountSubject,
           fixedExpense: L.fixedExpenseColumn,
           classification: L.classification,
           matchStatus: L.matchStatus,
@@ -5219,18 +5208,6 @@ export function BankTransactionsPage({
                 >
                   <Sparkles size={14} className="mr-1" />
                   {L.autoClassify}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="rounded-xl"
-                  onClick={() => {
-                    setAddExpenseCategoryName("");
-                    setAddCategoryModalOpen(true);
-                  }}
-                >
-                  {L.addCategory}
                 </Button>
                 <Button
                   type="button"
@@ -6517,50 +6494,6 @@ export function BankTransactionsPage({
           onClose={() => setTaxInvoiceModal(null)}
           onLink={saveTaxInvoiceLink}
         />
-      ) : null}
-
-      {addCategoryModalOpen ? (
-        <div
-          className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setAddCategoryModalOpen(false);
-          }}
-        >
-          <div
-            className="erp-ledger-modal max-w-lg"
-            onMouseDown={(event) => event.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label={L.addCategoryTitle}
-          >
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <h2 className="erp-text-section font-bold">{L.addCategoryTitle}</h2>
-              <button
-                type="button"
-                className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
-                onClick={() => setAddCategoryModalOpen(false)}
-                aria-label={L.cancel}
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <Field label={L.newCategoryName}>
-              <input
-                className="erp-input w-full rounded-xl"
-                value={addExpenseCategoryName}
-                onChange={(event) => setAddExpenseCategoryName(event.target.value)}
-              />
-            </Field>
-            <div className="mt-5 flex justify-end gap-2">
-              <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setAddCategoryModalOpen(false)}>
-                {L.cancel}
-              </Button>
-              <Button type="button" className="rounded-2xl" onClick={handleAddCategory}>
-                {L.detailSave}
-              </Button>
-            </div>
-          </div>
-        </div>
       ) : null}
 
       {addFixedExpenseModalOpen ? (
