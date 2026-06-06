@@ -88,7 +88,6 @@ export function AccountingHubPage({ isHubActive, initialTab, bank, ledger, tax, 
         <div className={activeTab === "bank" ? "" : "hidden"} aria-hidden={activeTab !== "bank"}>
           <BankTransactionsPage
             {...bank}
-            isPageActive={isHubActive && activeTab === "bank"}
             onNavigateToCompanyLedger={() => switchTab("ledger")}
             onNavigateToClassify={() => switchTab("classify")}
             onNavigateToFixedExpense={openLedgerFixedTab}

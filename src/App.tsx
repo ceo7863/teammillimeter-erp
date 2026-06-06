@@ -155,7 +155,7 @@ import { WorkerListExport } from "@/components/WorkerListExport";
 import { ClientListExport } from "@/components/ClientListExport";
 import { buildClientLastSaleDateMap } from "@/utils/clientListExport";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
-import { PageKeepAlive } from "@/components/PageKeepAlive";
+import { useBankLiveSync } from "@/hooks/useBankLiveSync";
 import { DesktopTableWrap, MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
 import { AutocompleteInput, AutocompleteSelect, BufferedTextInput } from "@/components/AutocompleteInput";
 import { focusKoreanTextInput, prepareKoreanTextInput } from "@/utils/koreanIme";
@@ -8557,6 +8557,15 @@ export default function TeammillimeterErpMvp() {
     }
   }, [companyExpenses, fixedExpensePayments]);
 
+  const bankLiveSync = useBankLiveSync({
+    enabled: apiMode && dataReady,
+    isActive: Boolean(currentUser),
+    sinceVersion: erpVersion,
+    localTransactionCount: bankTransactions.length,
+    onRemoteUpdate: applyRemoteBankSnapshot,
+    intervalMs: 30000,
+  });
+
   useEffect(() => {
     if (!currentUser) return;
     if (!canUserAccessPage(currentUser, active)) {
@@ -8751,7 +8760,7 @@ export default function TeammillimeterErpMvp() {
               setBankTransactionFolders,
               apiMode,
               erpVersion,
-              onApplyRemoteBankSnapshot: applyRemoteBankSnapshot,
+              bankLiveSync,
               onRequestImmediateSave: flushErpSave,
               clients,
               setClients,

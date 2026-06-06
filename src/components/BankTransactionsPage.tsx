@@ -182,7 +182,7 @@ import {
 import { createPaymentInputLogsFromVouchers } from "@/utils/paymentInputLogs";
 import type { ReceivableRow } from "@/utils/receivables";
 import type { ErpUser, BankSyncSnapshot } from "@/utils/erpApi";
-import { useBankLiveSync } from "@/hooks/useBankLiveSync";
+import type { BankLiveSyncApi } from "@/hooks/useBankLiveSync";
 import { BarobillBankSettingsPanel } from "@/components/BarobillBankSettingsPanel";
 import {
   buildAllBankDepositSuggestions,
@@ -922,8 +922,7 @@ export function BankTransactionsPage({
   companyProfile,
   apiMode = false,
   erpVersion = 0,
-  isPageActive = true,
-  onApplyRemoteBankSnapshot,
+  bankLiveSync,
   onRequestImmediateSave,
 }: {
   bankTransactions: BankTransaction[];
@@ -961,8 +960,7 @@ export function BankTransactionsPage({
   companyProfile?: import("@/utils/companyProfile").CompanyProfile;
   apiMode?: boolean;
   erpVersion?: number;
-  isPageActive?: boolean;
-  onApplyRemoteBankSnapshot?: (snapshot: BankSyncSnapshot) => void;
+  bankLiveSync?: BankLiveSyncApi;
   onRequestImmediateSave?: (patch?: {
     bankTransactions?: BankTransaction[];
     companyExpenses?: CompanyExpense[];
@@ -1088,20 +1086,19 @@ export function BankTransactionsPage({
   const ibkInputRef = useRef<HTMLInputElement>(null);
   const savedBy = currentUser?.name || currentUser?.loginId || "";
 
-  const handleRemoteBankSnapshot = React.useCallback(
-    (snapshot: BankSyncSnapshot) => {
-      onApplyRemoteBankSnapshot?.(snapshot);
-    },
-    [onApplyRemoteBankSnapshot],
-  );
-
-  const { liveSyncEnabled, setLiveSyncEnabled, state: liveSyncState, syncNow, runFolderSync } = useBankLiveSync({
-    enabled: apiMode,
-    isActive: isPageActive,
-    sinceVersion: erpVersion,
-    localTransactionCount: bankTransactions.length,
-    onRemoteUpdate: handleRemoteBankSnapshot,
-  });
+  const liveSyncEnabled = bankLiveSync?.liveSyncEnabled ?? false;
+  const setLiveSyncEnabled = bankLiveSync?.setLiveSyncEnabled ?? (() => {});
+  const liveSyncState = bankLiveSync?.state ?? {
+    enabled: false,
+    polling: false,
+    lastCheckedAt: null,
+    lastAppliedAt: null,
+    lastMessage: "",
+    serverStatus: null,
+    bankSyncMeta: null,
+  };
+  const syncNow = bankLiveSync?.syncNow ?? (async () => null);
+  const runFolderSync = bankLiveSync?.runFolderSync ?? syncNow;
 
   const resolveFolderLabel = React.useCallback(
     (folderId?: string) => {

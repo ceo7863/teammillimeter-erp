@@ -222,6 +222,10 @@ export function startBankSyncScheduler() {
     });
   }, config.bankSyncIntervalMs);
 
+  void runUnifiedBankSync({ requestRefresh: true }).catch((error) => {
+    console.error("bank sync failed:", error);
+  });
+
   if (typeof intervalHandle.unref === "function") {
     intervalHandle.unref();
   }

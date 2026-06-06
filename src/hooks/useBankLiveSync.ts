@@ -25,6 +25,11 @@ export type BankLiveSyncState = {
   bankSyncMeta: BankSyncSnapshot["bankSyncMeta"];
 };
 
+export type BankLiveSyncApi = Pick<
+  ReturnType<typeof useBankLiveSync>,
+  "liveSyncEnabled" | "setLiveSyncEnabled" | "state" | "syncNow" | "runFolderSync"
+>;
+
 type UseBankLiveSyncOptions = {
   enabled: boolean;
   isActive: boolean;
@@ -97,10 +102,11 @@ export function useBankLiveSync({
       const localCount = localCountRef.current;
       let shouldApply =
         applyChanges &&
-        Array.isArray(snapshot.bankTransactions) &&
-        (snapshot.changed
-          ? snapshot.version > sinceVersionRef.current || serverCount !== localCount
-          : localCount === 0 && serverCount > 0);
+        (Array.isArray(snapshot.bankTransactions)
+          ? snapshot.changed
+            ? snapshot.version > sinceVersionRef.current || serverCount !== localCount
+            : localCount === 0 && serverCount > 0
+          : snapshot.changed && snapshot.version > sinceVersionRef.current);
 
       // Local import/save in flight: never overwrite with a smaller server snapshot.
       if (shouldApply && localCount > serverCount) {
@@ -186,7 +192,14 @@ export function useBankLiveSync({
     const timer = window.setInterval(() => {
       void tick();
     }, intervalMs);
-    return () => window.clearInterval(timer);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [enabled, liveSyncEnabled, isActive, intervalMs, pullSnapshot, runServerBankSyncIfDue]);
 
   return {
