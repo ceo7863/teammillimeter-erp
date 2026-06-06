@@ -24,7 +24,7 @@ import {
 import {
   buildFixedExpenseMonthPaymentReport,
   type FixedExpenseMonthPaymentRow,
-} from "@/utils/fixedExpenseAutomation";
+} from "@/utils/fixedExpenseMonthReport";
 
 const L = {
   title: "\uACE0\uC815\uBE44 \uAD00\uB9AC",
