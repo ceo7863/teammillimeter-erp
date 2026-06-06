@@ -57,6 +57,19 @@ const template = {
   inspectionComment: `\uAC70\uB798\uCC98 \uACC4\uC57D \uC804\uC790\uC11C\uBA85 \uC548\uB0B4 \uC54C\uB9BC\uC785\uB2C8\uB2E4. \uC218\uC2E0\uC790\uB294 ${CO} \uAC70\uB798\uCC98 \uB2F4\uB2F9\uC790\uC774\uBA70, \uACC4\uC57D\uC11C \uD655\uC778 \uBC0F \uC804\uC790\uC11C\uBA85\uC744 \uC694\uCCAD\uD569\uB2C8\uB2E4.`,
 };
 
+const signLinkBase = `${config.alimtalk.erpBaseUrl.replace(/\/$/, "")}/sign/#{token}`;
+
+function buildButtons() {
+  return [
+    {
+      buttonType: "WL",
+      buttonName: template.buttonName,
+      linkMo: signLinkBase,
+      linkPc: signLinkBase,
+    },
+  ];
+}
+
 async function main() {
   const existingId = process.env.ALIMTALK_CONTRACT_TEMPLATE || config.alimtalk.contractTemplate;
   if (existingId) {
@@ -75,17 +88,14 @@ async function main() {
       emphasizeType: "TEXT",
       emphasizeTitle: template.emphasizeTitle,
       emphasizeSubtitle: template.emphasizeSubtitle,
-      buttons: [
-        {
-          buttonType: "WL",
-          buttonName: template.buttonName,
-          linkMo: "#{url}",
-          linkPc: "#{url}",
-        },
-      ],
+      buttons: buildButtons(),
     });
     console.log("updated:", updated.templateId || existingId);
     console.log("Set ALIMTALK_CONTRACT_TEMPLATE=" + (updated.templateId || existingId));
+    const inspected = await api("PUT", `/kakao/v2/templates/${existingId}/inspection`, {
+      comment: template.inspectionComment,
+    });
+    console.log("inspection:", inspected.status || inspected.codes?.[0]?.status || "requested");
     return;
   }
 
@@ -97,28 +107,14 @@ async function main() {
     emphasizeType: "TEXT",
     emphasizeTitle: template.emphasizeTitle,
     emphasizeSubtitle: template.emphasizeSubtitle,
-    buttons: [
-      {
-        buttonType: "WL",
-        buttonName: template.buttonName,
-        linkMo: "#{url}",
-        linkPc: "#{url}",
-      },
-    ],
+    buttons: buildButtons(),
   });
   console.log("created:", created.templateId);
   console.log("Set ALIMTALK_CONTRACT_TEMPLATE=" + created.templateId);
-  console.log("Submit inspection with:");
-  console.log(
-    JSON.stringify(
-      {
-        templateId: created.templateId,
-        comment: template.inspectionComment,
-      },
-      null,
-      2,
-    ),
-  );
+  const inspected = await api("PUT", `/kakao/v2/templates/${created.templateId}/inspection`, {
+    comment: template.inspectionComment,
+  });
+  console.log("inspection:", inspected.status || inspected.codes?.[0]?.status || "requested");
 }
 
 main().catch((error) => {

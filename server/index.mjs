@@ -1710,6 +1710,7 @@ app.post("/api/client-contracts/:id/send", authMiddleware, async (req, res) => {
     variables: {
       client: contract.clientName,
       title: contract.title,
+      token: tokenResult.token,
       url: signUrl,
     },
   });
