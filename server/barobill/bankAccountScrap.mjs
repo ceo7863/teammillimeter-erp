@@ -19,6 +19,26 @@ async function describeCode(code) {
   }
 }
 
+export async function getBankAccountScrapRegistrationStatus(bankAccountNum) {
+  const { bankAccountNum: defaultAccount } = assertBarobillBankCredentials();
+  const target = String(bankAccountNum || defaultAccount || "").replace(/\D/g, "");
+  const accounts = await listRegisteredBankAccounts();
+  const active = accounts.some((row) => String(row.bankAccountNum || "").replace(/\D/g, "") === target);
+  if (!active) {
+    return {
+      active: false,
+      code: -26001,
+      message:
+        "\uACC4\uC88C\uAC70\uB798\uB0B4\uC5ED \uC870\uD68C \uC11C\uBE44\uC2A4\uAC00 \uBC14\uB85C\uBE4C\uC5D0 \uC2E0\uCCAD\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uBC14\uB85C\uBE4C \uC6B4\uC601 \uC0AC\uC774\uD2B8\uC5D0\uC11C \uACC4\uC88C\uAC70\uB798\uB0B4\uC5ED \uC870\uD68C \uC11C\uBE44\uC2A4\uB97C \uC2E0\uCCAD\uD55C \uB2E4\uC74C \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.",
+    };
+  }
+  return {
+    active: true,
+    code: 1,
+    message: "\uACC4\uC88C\uAC70\uB798\uB0B4\uC5ED \uC870\uD68C \uC11C\uBE44\uC2A4\uAC00 \uC2E0\uCCAD\uB418\uC5B4 \uC788\uC2B5\uB2C8\uB2E4.",
+  };
+}
+
 /** \uACC4\uC88C\uAC70\uB798\uB0B4\uC5ED \uC218\uC9D1 \uC694\uCCAD (RefreshBankAccount) */
 export async function checkBankAccountScrapService(bankAccountNum) {
   const { certKey, corpNum, userId, bankAccountNum: defaultAccount } = assertBarobillBankCredentials();

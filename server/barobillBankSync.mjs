@@ -14,6 +14,7 @@ let lastStatus = {
   lastRunAt: null,
   lastSuccessAt: null,
   lastError: null,
+  lastNotice: null,
   lastAdded: 0,
   lastSkipped: 0,
   lastFetched: 0,
@@ -70,8 +71,40 @@ export async function runBarobillBankSync(options = {}) {
     }
     const fromDate = String(options.startDate || formatYmd(from)).slice(0, 10);
 
-    const fetched = await fetchBarobillBankTransactionsInRange({ startDate: fromDate, endDate: toDate });
+    const fetched = await fetchBarobillBankTransactionsInRange({
+      startDate: fromDate,
+      endDate: toDate,
+      requestRefresh: Boolean(options.requestRefresh),
+    });
     const preview = fetched.preview;
+    const notices = Array.isArray(fetched.notices) ? fetched.notices : [];
+
+    if (fetched.collecting) {
+      lastStatus = {
+        ...lastStatus,
+        lastRunAt: runAt,
+        lastSuccessAt: runAt,
+        lastError: null,
+        lastNotice: notices.join(" ") || null,
+        lastAdded: 0,
+        lastSkipped: 0,
+        lastFetched: 0,
+        lastLatestTransactionAt: null,
+        lastFromDate: fromDate,
+        lastToDate: toDate,
+      };
+      return {
+        ok: true,
+        added: 0,
+        skipped: 0,
+        fetched: 0,
+        collecting: true,
+        notices,
+        scrapStatus: fetched.scrapStatus,
+        fromDate,
+        toDate,
+      };
+    }
 
     if (options.previewOnly) {
       const { added, skipped } = countMergeAgainstExisting(
@@ -125,6 +158,7 @@ export async function runBarobillBankSync(options = {}) {
       lastRunAt: runAt,
       lastSuccessAt: runAt,
       lastError: fetched.errors.length ? fetched.errors.join(" ") : null,
+      lastNotice: notices.length ? notices.join(" ") : null,
       lastAdded: merged.added,
       lastSkipped: merged.skipped,
       lastFetched: preview.rows.length,
@@ -142,12 +176,14 @@ export async function runBarobillBankSync(options = {}) {
       fromDate,
       toDate,
       errors: fetched.errors,
+      notices,
       scrapStatus: fetched.scrapStatus,
       version: getErpState().version,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     lastStatus.lastError = message;
+    lastStatus.lastNotice = null;
     return { ok: false, error: message };
   } finally {
     syncRunning = false;

@@ -189,7 +189,7 @@ export function startBankSyncScheduler() {
   if (!hasBarobillBank && !hasOpenBanking && !hasFolder) return;
 
   intervalHandle = setInterval(() => {
-    runUnifiedBankSync().catch((error) => {
+    runUnifiedBankSync({ requestRefresh: true }).catch((error) => {
       console.error("bank sync failed:", error);
     });
   }, config.bankSyncIntervalMs);

@@ -10,6 +10,7 @@ export type BarobillBankStatus = {
   lastRunAt?: string | null;
   lastSuccessAt?: string | null;
   lastError?: string | null;
+  lastNotice?: string | null;
   lastAdded?: number;
   lastSkipped?: number;
   lastFetched?: number;
@@ -36,12 +37,16 @@ export type BarobillBankSyncResult = {
   preview?: IbkBankImportPreview;
   previewOnly?: boolean;
   errors?: string[];
+  notices?: string[];
+  collecting?: boolean;
   scrapStatus?: BarobillBankScrapStatus;
   status?: BarobillBankStatus;
   version?: number;
   updatedAt?: string | null;
   bankSyncMeta?: Record<string, unknown> | null;
   error?: string;
+  reason?: string;
+  skipped?: boolean;
 };
 
 function apiBase() {
@@ -93,6 +98,7 @@ export async function syncBarobillBankNow(input?: {
   endDate?: string;
   syncDays?: number;
   previewOnly?: boolean;
+  refresh?: boolean;
 }) {
   return apiRequest<BarobillBankSyncResult>("/barobill/bank/sync", {
     method: "POST",

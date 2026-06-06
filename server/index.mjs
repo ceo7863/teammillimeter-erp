@@ -80,6 +80,7 @@ import {
 import {
   getBankAccountManagementUrl,
   getBankAccountScrapRequestUrl,
+  getBankAccountScrapRegistrationStatus,
   listRegisteredBankAccounts,
   refreshBankAccountScrap,
 } from "./barobill/bankAccountScrap.mjs";
@@ -1304,7 +1305,7 @@ app.get("/api/barobill/bank/status", authMiddleware, (_req, res) => {
 
 app.get("/api/barobill/bank/scrap-status", authMiddleware, adminMiddleware, async (_req, res) => {
   try {
-    const result = await refreshBankAccountScrap();
+    const result = await getBankAccountScrapRegistrationStatus();
     res.json(result);
   } catch (error) {
     res.status(500).json({
@@ -1356,6 +1357,7 @@ app.post("/api/barobill/bank/sync", authMiddleware, async (req, res) => {
   const endDate = String(req.body?.endDate || "").trim() || undefined;
   const syncDays = req.body?.syncDays !== undefined ? Number(req.body.syncDays) : undefined;
   const previewOnly = Boolean(req.body?.previewOnly);
+  const requestRefresh = Boolean(req.body?.refresh);
 
   const cfg = getBarobillBankConfigStatus();
   if (!cfg.configured) {
@@ -1382,6 +1384,7 @@ app.post("/api/barobill/bank/sync", authMiddleware, async (req, res) => {
       startDate,
       endDate,
       syncDays,
+      requestRefresh,
     });
 
     if (!result.ok && result.error) {
