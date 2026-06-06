@@ -35,16 +35,17 @@ const UNIT_PRICE_AGREEMENT = {
   fileName: "\uAC00\uAD6C\uC2DC\uACF5_\uB2E8\uAC00\uD611\uC57D\uC11C_A4_1\uC7A5.pdf",
   templatePath: path.join(templatesDir, "unit-price-agreement.pdf"),
   fields: {
-    clientName: { x: 132, y: 450, size: 10.5 },
-    contactName: { x: 132, y: 432, size: 10.5 },
-    contactPhone: { x: 132, y: 414, size: 10.5 },
+    clientName: { x: 115, y: 385, size: 10.5, coverWidth: 92, coverHeight: 14 },
+    contactName: { x: 115, y: 403, size: 10.5, coverWidth: 92, coverHeight: 14 },
+    contactPhone: { x: 115, y: 421, size: 10.5, coverWidth: 92, coverHeight: 14 },
   },
+  /** pdftotext bbox on unit-price-agreement.pdf ù value cells only */
   contentFields: {
-    basicUnitPrice: { x: 440, y: 680, size: 10.5, coverWidth: 90, coverHeight: 16 },
-    nightWorkRate: { x: 440, y: 658, size: 10.5, coverWidth: 90, coverHeight: 16 },
-    mealAllowance: { x: 440, y: 636, size: 10.5, coverWidth: 90, coverHeight: 16 },
-    accommodationFee: { x: 440, y: 614, size: 10.5, coverWidth: 90, coverHeight: 16 },
-    vehicleRate: { x: 440, y: 592, size: 10.5, coverWidth: 90, coverHeight: 16 },
+    basicUnitPrice: { x: 238, y: 139, size: 10.5, coverWidth: 54, coverHeight: 12, suffixWon: true },
+    nightWorkRate: { x: 242, y: 175, size: 10.5, coverWidth: 48, coverHeight: 12, suffixWon: true },
+    vehicleRate: { x: 393, y: 229, size: 10.5, coverWidth: 40, coverHeight: 12, suffixWon: true },
+    mealAllowance: { x: 248, y: 265, size: 10.5, coverWidth: 48, coverHeight: 12, suffixWon: true },
+    accommodationFee: { x: 294, y: 283, size: 10.5, coverWidth: 54, coverHeight: 12, suffixWon: true },
   },
   signatureRect: { x: 128, y: 382, width: 150, height: 36 },
   dateField: { x: 115, y: 334, size: 10.5 },
@@ -73,26 +74,21 @@ async function embedKoreanFont(pdfDoc) {
   return pdfDoc.embedFont(bytes, { subset: useSubset });
 }
 
-function drawField(page, font, spec, text) {
-  const value = String(text || "").trim();
-  if (!value) return;
-  page.drawText(value, {
-    x: spec.x,
-    y: spec.y,
-    size: spec.size || 10.5,
-    font,
-    color: rgb(0.08, 0.1, 0.14),
-  });
+function formatOverlayText(spec, text) {
+  let value = String(text || "").trim();
+  if (!value) return "";
+  if (spec.suffixWon && !value.endsWith("\uC6D0")) value = `${value}\uC6D0`;
+  return value;
 }
 
 function drawFieldWithCover(page, font, spec, text) {
-  const value = String(text || "").trim();
+  const value = formatOverlayText(spec, text);
   if (!value) return;
   const coverWidth = spec.coverWidth || 90;
-  const coverHeight = spec.coverHeight || 16;
+  const coverHeight = spec.coverHeight || 14;
   page.drawRectangle({
-    x: spec.x - 2,
-    y: spec.y - 2,
+    x: spec.x - 1,
+    y: spec.y - 3,
     width: coverWidth,
     height: coverHeight,
     color: rgb(1, 1, 1),
@@ -140,13 +136,13 @@ export async function fillContractTemplate(templateId, input = {}) {
   const font = await embedKoreanFont(pdfDoc);
   const page = pdfDoc.getPages()[0];
 
-  drawField(page, font, template.fields.clientName, input.clientName);
-  drawField(page, font, template.fields.contactName, input.contactName);
-  drawField(page, font, template.fields.contactPhone, input.contactPhone);
+  drawFieldWithCover(page, font, template.fields.clientName, input.clientName);
+  drawFieldWithCover(page, font, template.fields.contactName, input.contactName);
+  drawFieldWithCover(page, font, template.fields.contactPhone, input.contactPhone);
 
   const defaultContent = getDefaultPdfContent(templateId) || {};
   const pdfContent = { ...defaultContent, ...(input.pdfContent || {}) };
-  if (template.contentFields) {
+  if (input.applyContentOverlay && template.contentFields) {
     for (const [key, spec] of Object.entries(template.contentFields)) {
       drawFieldWithCover(page, font, spec, pdfContent[key]);
     }
