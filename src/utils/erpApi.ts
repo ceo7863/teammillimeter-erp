@@ -292,6 +292,7 @@ export type BankSyncSnapshot = {
   updatedAt?: string | null;
   updatedBy?: string | null;
   changed: boolean;
+  bankTransactionCount?: number;
   bankTransactions?: unknown[];
   bankTransactionFolders?: unknown[];
   bankSyncMeta?: BankSyncMeta | null;
@@ -314,8 +315,12 @@ export type BankFolderSyncResult = {
   liveSyncStatus?: BankLiveSyncStatus | null;
 };
 
-export async function fetchBankSyncSnapshot(sinceVersion: number) {
-  return apiRequest<BankSyncSnapshot>(`/erp/bank-sync?sinceVersion=${encodeURIComponent(String(sinceVersion))}`);
+export async function fetchBankSyncSnapshot(sinceVersion: number, localCount?: number) {
+  const params = new URLSearchParams({ sinceVersion: String(sinceVersion) });
+  if (localCount != null && Number.isFinite(localCount)) {
+    params.set("localCount", String(localCount));
+  }
+  return apiRequest<BankSyncSnapshot>(`/erp/bank-sync?${params.toString()}`);
 }
 
 export async function runBankFolderSync() {

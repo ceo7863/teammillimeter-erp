@@ -75,7 +75,7 @@ export function useBankLiveSync({
     if (!enabled) return null;
     setState((prev) => ({ ...prev, polling: true }));
     try {
-      const snapshot = await fetchBankSyncSnapshot(sinceVersionRef.current);
+      const snapshot = await fetchBankSyncSnapshot(sinceVersionRef.current, localCountRef.current);
       if (snapshot.liveSyncStatus?.intervalMs) {
         serverSyncIntervalRef.current = snapshot.liveSyncStatus.intervalMs;
       }
@@ -88,7 +88,12 @@ export function useBankLiveSync({
         bankSyncMeta: snapshot.bankSyncMeta,
       }));
 
-      const serverCount = Array.isArray(snapshot.bankTransactions) ? snapshot.bankTransactions.length : localCountRef.current;
+      const serverCount =
+        typeof snapshot.bankTransactionCount === "number"
+          ? snapshot.bankTransactionCount
+          : Array.isArray(snapshot.bankTransactions)
+            ? snapshot.bankTransactions.length
+            : localCountRef.current;
       const localCount = localCountRef.current;
       let shouldApply =
         applyChanges &&

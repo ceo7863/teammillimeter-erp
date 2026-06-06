@@ -8531,14 +8531,9 @@ export default function TeammillimeterErpMvp() {
 
     erpVersionRef.current = nextVersion;
     setErpVersion(nextVersion);
-    const workerMonthlyGuard =
-      workerMonthlyPersistInFlightRef.current ||
-      Date.now() < workerMonthlyPersistCooldownUntilRef.current ||
-      Date.now() < bankEditCooldownUntilRef.current;
-    if (workerMonthlyGuard) {
-      return;
-    }
-    if (Array.isArray(snapshot.bankTransactions)) {
+    const bankEditGuard =
+      pendingLocalEditsRef.current || Date.now() < bankEditCooldownUntilRef.current;
+    if (Array.isArray(snapshot.bankTransactions) && !bankEditGuard) {
       setBankTransactions((prev) => {
         const incoming = normalizeBankTransactions(snapshot.bankTransactions);
         const merged = mergeBankTransactionsUnion(prev, incoming, {
@@ -8551,7 +8546,7 @@ export default function TeammillimeterErpMvp() {
         );
       });
     }
-    if (Array.isArray(snapshot.bankTransactionFolders)) {
+    if (Array.isArray(snapshot.bankTransactionFolders) && !bankEditGuard) {
       setBankTransactionFolders((prev) => {
         const incoming = normalizeBankTransactionFolders(snapshot.bankTransactionFolders);
         if (!pendingLocalEditsRef.current) return incoming;
