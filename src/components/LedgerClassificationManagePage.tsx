@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Pencil, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { DesktopTableWrap } from "@/components/MobileRecordCard";
@@ -50,6 +50,26 @@ const L = {
   stubClient: "\uAC70\uB798\uCC98 \uB9C8\uC2A4\uD130\uB294 \uAE30\uBCF8\uC815\uBCF4 \uBA54\uB274\uC5D0\uC11C \uAD00\uB9AC\uD569\uB2C8\uB2E4.",
 };
 
+function AccountNameButton({
+  account,
+  className = "",
+  onEdit,
+}: {
+  account: AccountCode;
+  className?: string;
+  onEdit: (account: AccountCode) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`text-left hover:text-blue-700 hover:underline ${className}`}
+      onClick={() => onEdit(account)}
+      title={L.rename}
+    >
+      {account.name}
+    </button>
+  );
+}
 type SidebarKey = "account" | "dept" | "client";
 type FlowFilter = "all" | "income" | "expense";
 type ModalMode = "secondary" | "tertiary" | "edit";
@@ -292,7 +312,17 @@ export function LedgerClassificationManagePage({
                               {isSecondary ? account.parentGroup || "-" : ""}
                             </td>
                             <td className="font-semibold text-slate-900">
-                              {isSecondary ? account.name : row.parentAccount?.name || "-"}
+                              {isSecondary ? (
+                                <AccountNameButton account={account} onEdit={openEditModal} />
+                              ) : row.parentAccount ? (
+                                <AccountNameButton
+                                  account={row.parentAccount}
+                                  className="text-slate-500"
+                                  onEdit={openEditModal}
+                                />
+                              ) : (
+                                "-"
+                              )}
                             </td>
                             <td className={isSecondary ? "text-slate-400" : "font-semibold text-slate-800 pl-4"}>
                               {isSecondary ? (
@@ -304,29 +334,18 @@ export function LedgerClassificationManagePage({
                                   {L.addSub}
                                 </button>
                               ) : (
-                                account.name
+                                <AccountNameButton account={account} onEdit={openEditModal} />
                               )}
                             </td>
                             <td className="font-mono text-xs text-slate-500">{account.code}</td>
                             <td className="text-right">
-                              <div className="flex items-center justify-end gap-2">
-                                <button
-                                  type="button"
-                                  className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"
-                                  onClick={() => openEditModal(account)}
-                                  title={L.rename}
-                                >
-                                  <Pencil size={12} />
-                                  {L.rename}
-                                </button>
-                                <button
-                                  type="button"
-                                  className="text-xs font-semibold text-slate-500 hover:text-slate-800"
-                                  onClick={() => toggleActive(account.code)}
-                                >
-                                  {account.isActive ? L.inactive : L.active}
-                                </button>
-                              </div>
+                              <button
+                                type="button"
+                                className="text-xs font-semibold text-slate-500 hover:text-slate-800"
+                                onClick={() => toggleActive(account.code)}
+                              >
+                                {account.isActive ? L.inactive : L.active}
+                              </button>
                             </td>
                           </tr>
                         );
