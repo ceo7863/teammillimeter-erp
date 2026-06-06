@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { clientSiteRequestStatusLabel } from "@/utils/clientSiteRequests";
 import type { ClientSiteRequest } from "@/utils/clientSiteRequests";
+import { formatClientSiteRequestWorkPeriod, requestCoversWorkDate } from "@/utils/clientSiteRequests";
 import {
   buildClientSiteRequestCalendarCells,
   countClientSiteRequestsInMonth,
@@ -55,7 +56,7 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
   const monthCount = useMemo(() => countClientSiteRequestsInMonth(monthKey, requests), [monthKey, requests]);
   const selectedDayRequests = useMemo(() => {
     if (!selectedDate) return [];
-    return requests.filter((row) => row.workDate === selectedDate);
+    return requests.filter((row) => requestCoversWorkDate(row, selectedDate));
   }, [requests, selectedDate]);
 
   return (

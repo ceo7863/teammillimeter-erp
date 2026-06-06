@@ -8,6 +8,7 @@ import { isApiModeEnabled } from "@/utils/erpApi";
 import {
   clientSiteRequestStatusLabel,
   ensureClientSiteRequestLink,
+  formatClientSiteRequestWorkPeriod,
   listClientSiteRequestLinks,
   listClientSiteRequests,
   openClientSiteRequestLink,
@@ -48,7 +49,7 @@ const L = {
   emptyLinks: "\uBC1C\uAE09\uB41C \uB9C1\uD06C\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
   emptyRequests: "\uC811\uC218 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   client: "\uAC70\uB798\uCC98",
-  workDate: "\uC791\uC5C5\uC77C",
+  workDate: "\uC791\uC5C5 \uAE30\uAC04",
   site: "\uD604\uC7A5",
   workers: "\uC778\uC6D0",
   workerUnit: "\uBA85",
@@ -537,7 +538,7 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
                         ) : null}
                       </div>
                       <div className="text-sm text-slate-700">
-                        <span className="font-semibold">{L.workDate}:</span> {request.workDate}
+                        <span className="font-semibold">{L.workDate}:</span> {formatClientSiteRequestWorkPeriod(request)}
                         <span className="mx-2 text-slate-300">|</span>
                         <span className="font-semibold">{L.site}:</span> {request.siteName}
                         <span className="mx-2 text-slate-300">|</span>

@@ -1,4 +1,5 @@
 import type { ClientSiteRequest } from "@/utils/clientSiteRequests";
+import { getClientSiteRequestWorkDateEnd, requestCoversWorkDate } from "@/utils/clientSiteRequests";
 
 export type ClientSiteRequestCalendarCell = {
   date: string;
@@ -34,11 +35,18 @@ export function shiftMonthKey(monthKey: string, delta: number) {
 export function groupClientSiteRequestsByDate(requests: ClientSiteRequest[]) {
   const map = new Map<string, ClientSiteRequest[]>();
   for (const request of requests) {
-    const date = String(request.workDate || "").trim();
-    if (!date) continue;
-    const current = map.get(date) || [];
-    current.push(request);
-    map.set(date, current);
+    const start = String(request.workDate || "").trim();
+    if (!start) continue;
+    const end = getClientSiteRequestWorkDateEnd(request);
+    let cursor = start;
+    while (cursor <= end) {
+      const current = map.get(cursor) || [];
+      current.push(request);
+      map.set(cursor, current);
+      const next = new Date(`${cursor}T12:00:00`);
+      next.setDate(next.getDate() + 1);
+      cursor = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
+    }
   }
   for (const [date, rows] of map.entries()) {
     rows.sort((a, b) => String(a.submittedAt || "").localeCompare(String(b.submittedAt || "")));
@@ -66,12 +74,28 @@ export function buildClientSiteRequestCalendarCells(
   for (let i = 0; i < startOffset; i += 1) cells.push(null);
   for (let day = 1; day <= daysInMonth; day += 1) {
     const date = `${monthKey}-${String(day).padStart(2, "0")}`;
-    cells.push({ date, day, requests: byDate.get(date) || [] });
+    const dayRequests =
+      byDate.get(date) ||
+      requests
+        .filter((request) => requestCoversWorkDate(request, date))
+        .sort((a, b) => String(a.submittedAt || "").localeCompare(String(b.submittedAt || "")));
+    cells.push({ date, day, requests: dayRequests });
   }
   while (cells.length % 7 !== 0) cells.push(null);
   return cells;
 }
 
 export function countClientSiteRequestsInMonth(monthKey: string, requests: ClientSiteRequest[]) {
-  return requests.filter((row) => String(row.workDate || "").startsWith(`${monthKey}-`)).length;
+  const [yearText, monthText] = monthKey.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return 0;
+  const monthStart = `${monthKey}-01`;
+  const monthEnd = `${monthKey}-${String(new Date(year, month, 0).getDate()).padStart(2, "0")}`;
+  return requests.filter((row) => {
+    const start = String(row.workDate || "").trim();
+    if (!start) return false;
+    const end = getClientSiteRequestWorkDateEnd(row);
+    return start <= monthEnd && end >= monthStart;
+  }).length;
 }

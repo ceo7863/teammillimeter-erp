@@ -17,6 +17,7 @@ export type ClientSiteRequest = {
   token: string;
   status: ClientSiteRequestStatus;
   workDate: string;
+  workDateEnd?: string | null;
   siteName: string;
   workerCount: number;
   memo?: string;
@@ -94,6 +95,41 @@ export function openClientSiteRequestLink(url: string) {
   return true;
 }
 
+export function getClientSiteRequestWorkDateEnd(request: { workDate?: string | null; workDateEnd?: string | null }) {
+  const start = String(request.workDate || "").trim();
+  const end = String(request.workDateEnd || "").trim();
+  if (!start) return "";
+  if (!end || end < start) return start;
+  return end;
+}
+
+export function requestCoversWorkDate(
+  request: { workDate?: string | null; workDateEnd?: string | null },
+  date: string,
+) {
+  const start = String(request.workDate || "").trim();
+  const normalizedDate = String(date || "").trim();
+  if (!start || !normalizedDate) return false;
+  const end = getClientSiteRequestWorkDateEnd(request);
+  return normalizedDate >= start && normalizedDate <= end;
+}
+
+export function formatClientSiteRequestWorkPeriod(request: { workDate?: string | null; workDateEnd?: string | null }) {
+  const start = String(request.workDate || "").trim();
+  if (!start) return "-";
+  const end = getClientSiteRequestWorkDateEnd(request);
+  if (end === start) return start;
+  return `${start} ~ ${end}`;
+}
+
+export function countDaysInclusive(start: string, end: string) {
+  const startDate = new Date(`${start}T12:00:00`);
+  const endDate = new Date(`${end}T12:00:00`);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return 0;
+  const diff = Math.floor((endDate.getTime() - startDate.getTime()) / 86400000);
+  return diff >= 0 ? diff + 1 : 0;
+}
+
 export async function fetchPublicClientSiteRequestInfo(token: string): Promise<PublicClientSiteRequestInfo> {
   const response = await fetch(`${apiBase()}/public/client-site-request/${encodeURIComponent(token)}`);
   if (!response.ok) throw new Error(await parseApiError(response));
@@ -104,6 +140,7 @@ export async function submitPublicClientSiteRequest(
   token: string,
   input: {
     workDate: string;
+    workDateEnd?: string;
     siteName: string;
     workerCount: number;
     memo?: string;

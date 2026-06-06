@@ -10,8 +10,10 @@ import { getCurrentMonthKey } from "@/utils/clientSiteRequestCalendar";
 import {
   clientSiteRequestStatusLabel,
   fetchPublicClientSiteRequestInfo,
+  formatClientSiteRequestWorkPeriod,
   listPublicClientSiteRequests,
   postPublicClientSiteRequestMessage,
+  requestCoversWorkDate,
   submitPublicClientSiteRequest,
   type ClientSiteRequest,
   type PublicClientSiteRequestInfo,
@@ -24,7 +26,11 @@ const L = {
   tabCalendar: "\uC811\uC218 \uCE98\uB9B0\uB354",
   tabHistory: "\uC811\uC218 \uB0B4\uC5ED \u00B7 \uCC44\uD305",
   client: "\uAC70\uB798\uCC98",
-  workDate: "\uC791\uC5C5 \uC77C\uC790",
+  workDate: "\uC791\uC5C5 \uC2DC\uC791\uC77C",
+  workDateEnd: "\uC791\uC5C5 \uC885\uB8CC\uC77C",
+  workPeriod: "\uC791\uC5C5 \uAE30\uAC04",
+  workPeriodHint: "\uD558\uB8E8\uB9CC \uC811\uC218\uD560 \uACBD\uC6B0 \uC885\uB8CC\uC77C\uC744 \uBE44\uC6B0\uBA74 \uC2DC\uC791\uC77C\uACFC \uAC19\uC2B5\uB2C8\uB2E4.",
+  needEndBeforeStart: "\uC885\uB8CC\uC77C\uC740 \uC2DC\uC791\uC77C\uBCF4\uB2E4 \uBE60\uB984 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
   siteName: "\uD604\uC7A5\uBA85",
   workerCount: "\uD544\uC694 \uC778\uC6D0",
   memo: "\uBE44\uACE0",
@@ -67,6 +73,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
   const [messageDraft, setMessageDraft] = useState("");
   const [messageSending, setMessageSending] = useState(false);
   const [workDate, setWorkDate] = useState("");
+  const [workDateEnd, setWorkDateEnd] = useState("");
   const [siteName, setSiteName] = useState("");
   const [workerCount, setWorkerCount] = useState("");
   const [memo, setMemo] = useState("");
@@ -125,8 +132,13 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     const normalizedWorkDate = String(workDate || "").trim();
+    const normalizedWorkDateEnd = String(workDateEnd || "").trim();
     if (!normalizedWorkDate) {
       setError(L.needDate);
+      return;
+    }
+    if (normalizedWorkDateEnd && normalizedWorkDateEnd < normalizedWorkDate) {
+      setError(L.needEndBeforeStart);
       return;
     }
     if (!siteName.trim()) {
@@ -144,6 +156,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
     try {
       const request = await submitPublicClientSiteRequest(token, {
         workDate: normalizedWorkDate,
+        workDateEnd: normalizedWorkDateEnd || undefined,
         siteName: siteName.trim(),
         workerCount: count,
         memo: memo.trim(),
@@ -153,6 +166,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
       setDoneRequestId(request.id);
       setSelectedRequestId(request.id);
       setWorkDate("");
+      setWorkDateEnd("");
       setSiteName("");
       setWorkerCount("");
       setMemo("");
@@ -264,14 +278,33 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
 
             {tab === "new" ? (
               <form className="space-y-4" onSubmit={handleSubmit}>
-                <label className="block">
-                  <span className="mb-1.5 block text-sm font-semibold text-slate-700">{L.workDate}</span>
-                  <KoreanDateInput
-                    value={workDate}
-                    onChange={(event) => setWorkDate(event.target.value)}
-                    className="w-full"
-                  />
-                </label>
+                <div className="space-y-2">
+                  <span className="block text-sm font-semibold text-slate-700">{L.workPeriod}</span>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="mb-1.5 block text-xs font-bold text-slate-500">{L.workDate}</span>
+                      <KoreanDateInput
+                        value={workDate}
+                        onChange={(event) => {
+                          const next = event.target.value;
+                          setWorkDate(next);
+                          if (workDateEnd && workDateEnd < next) setWorkDateEnd(next);
+                        }}
+                        className="w-full"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1.5 block text-xs font-bold text-slate-500">{L.workDateEnd}</span>
+                      <KoreanDateInput
+                        value={workDateEnd}
+                        onChange={(event) => setWorkDateEnd(event.target.value)}
+                        className="w-full"
+                        placeholder={L.workDateEnd}
+                      />
+                    </label>
+                  </div>
+                  <p className="text-xs text-slate-500">{L.workPeriodHint}</p>
+                </div>
                 <label className="block">
                   <span className="mb-1.5 block text-sm font-semibold text-slate-700">{L.siteName}</span>
                   <Input value={siteName} onChange={(event) => setSiteName(event.target.value)} placeholder={L.siteName} />
@@ -331,7 +364,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
                       selectedDate={selectedCalendarDate}
                       onSelectDate={(date) => {
                         setSelectedCalendarDate(date);
-                        const dayRequests = requests.filter((row) => row.workDate === date);
+                        const dayRequests = requests.filter((row) => requestCoversWorkDate(row, date));
                         if (dayRequests.length === 1) {
                           setSelectedRequestId(dayRequests[0].id);
                         } else if (
@@ -383,7 +416,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
                             </span>
                           </div>
                           <div className="mt-1 text-xs opacity-80">
-                            {request.workDate}
+                            {formatClientSiteRequestWorkPeriod(request)}
                             {" \u00B7 "}
                             {request.workerCount}
                             {"\uBA85"}

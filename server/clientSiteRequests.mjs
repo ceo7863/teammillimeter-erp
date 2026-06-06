@@ -88,6 +88,41 @@ function normalizeWorkerCount(value) {
   return num;
 }
 
+const MAX_WORK_PERIOD_DAYS = 62;
+
+function countInclusiveDays(start, end) {
+  const startDate = new Date(`${start}T12:00:00`);
+  const endDate = new Date(`${end}T12:00:00`);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return 0;
+  const diff = Math.floor((endDate.getTime() - startDate.getTime()) / 86400000);
+  return diff >= 0 ? diff + 1 : 0;
+}
+
+function normalizeWorkDateRange(startValue, endValue) {
+  const workDate = normalizeDate(startValue);
+  if (!workDate) {
+    return { ok: false, status: 400, error: "\uC791\uC5C5 \uC2DC\uC791\uC77C\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694." };
+  }
+  const normalizedEnd = normalizeDate(endValue);
+  const workDateEnd = normalizedEnd || workDate;
+  if (workDateEnd < workDate) {
+    return { ok: false, status: 400, error: "\uC885\uB8CC\uC77C\uC740 \uC2DC\uC791\uC77C\uBCF4\uB2E4 \uBE60\uB984 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
+  }
+  const dayCount = countInclusiveDays(workDate, workDateEnd);
+  if (dayCount > MAX_WORK_PERIOD_DAYS) {
+    return {
+      ok: false,
+      status: 400,
+      error: `\uC791\uC5C5 \uAE30\uAC04\uC740 \uCD5C\uB300 ${MAX_WORK_PERIOD_DAYS}\uC77C\uAE4C\uC9C0 \uC811\uC218\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.`,
+    };
+  }
+  return {
+    ok: true,
+    workDate,
+    workDateEnd: workDateEnd === workDate ? "" : workDateEnd,
+  };
+}
+
 function saveClientsAndRequests(clients, requests, updatedBy = "client-site-request") {
   const state = getErpState();
   const data = state.data && typeof state.data === "object" ? { ...state.data } : {};
@@ -126,16 +161,17 @@ export function submitClientSiteRequest(token, body = {}) {
     return { ok: false, status: 403, error: "\uD604\uC7AC \uC811\uC218\uAC00 \uC911\uB2E8\uB41C \uB9C1\uD06C\uC785\uB2C8\uB2E4." };
   }
 
-  const workDate = normalizeDate(body.workDate);
+  const workDateRange = normalizeWorkDateRange(body.workDate, body.workDateEnd);
+  if (!workDateRange.ok) {
+    return { ok: false, status: workDateRange.status || 400, error: workDateRange.error };
+  }
+  const { workDate, workDateEnd } = workDateRange;
   const siteName = String(body.siteName || "").trim();
   const workerCount = normalizeWorkerCount(body.workerCount);
   const memo = String(body.memo || "").trim().slice(0, 2000);
   const contactName = String(body.contactName || "").trim().slice(0, 80);
   const contactPhone = String(body.contactPhone || "").trim().slice(0, 40);
 
-  if (!workDate) {
-    return { ok: false, status: 400, error: "\uC791\uC5C5 \uC77C\uC790\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694." };
-  }
   if (!siteName) {
     return { ok: false, status: 400, error: "\uD604\uC7A5\uBA85\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694." };
   }
@@ -151,6 +187,7 @@ export function submitClientSiteRequest(token, body = {}) {
     token: String(token).trim(),
     status: "pending",
     workDate,
+    ...(workDateEnd ? { workDateEnd } : {}),
     siteName,
     workerCount,
     memo,
