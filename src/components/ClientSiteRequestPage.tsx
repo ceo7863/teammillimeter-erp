@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -21,10 +21,11 @@ import {
 
 const L = {
   pageTitle: "\uD604\uC7A5 \uC811\uC218",
-  pageDesc: "\uD300\uBC00\uB9AC\uBBF8\uD130 \uC77C\uC815 \uC811\uC218 \uD398\uC774\uC9C0\uC785\uB2C8\uB2E4.",
-  tabNew: "\uC0C8 \uC811\uC218",
+  pageDesc: "\uCE98\uB9B0\uB354\uC5D0\uC11C \uB0A0\uC9DC\uB97C \uC120\uD0DD\uD574 \uC811\uC218\uD558\uC138\uC694.",
   tabCalendar: "\uC811\uC218 \uCE98\uB9B0\uB354",
   tabHistory: "\uC811\uC218 \uB0B4\uC5ED \u00B7 \uCC44\uD305",
+  modalTitle: "\uD604\uC7A5 \uC811\uC218",
+  modalClose: "\uC811\uC218 \uCC3D \uB2EB\uAE30",
   client: "\uAC70\uB798\uCC98",
   workDate: "\uC791\uC5C5 \uC2DC\uC791\uC77C",
   workDateEnd: "\uC791\uC5C5 \uC885\uB8CC\uC77C",
@@ -38,6 +39,7 @@ const L = {
   contactPhone: "\uC5F0\uB77D\uCC98",
   submit: "\uC811\uC218 \uC694\uCCAD",
   submitting: "\uC811\uC218 \uC911...",
+  cancel: "\uCDE8\uC18C",
   loading: "\uB85C\uB529 \uC911...",
   loadFail: "\uC811\uC218 \uB9C1\uD06C\uB97C \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
   needDate: "\uC791\uC5C5 \uC77C\uC790\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
@@ -46,7 +48,7 @@ const L = {
   submitFail: "\uC811\uC218\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   doneTitle: "\uC811\uC218\uAC00 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4",
   doneBody: "\uB2F4\uB2F9\uC790\uC640 \uCC44\uD305\uC73C\uB85C \uC774\uC5B4\uC11C \uD655\uC778\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
-  openChat: "\uCC44\uD305 \uBC14\uB85C\uAC00\uAE30",
+  openChat: "\uCC44\uD551 \uBC14\uB85C\uAC00\uAE30",
   emptyHistory: "\uC811\uC218 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   workerCountPh: "\uC608: 5",
   memoPh: "\uC791\uC5C5 \uB0B4\uC6A9, \uC2DC\uAC04, \uD2B9\uC774\uC0AC\uD56D \uB4F1",
@@ -57,7 +59,7 @@ type ClientSiteRequestPageProps = {
   token: string;
 };
 
-type PageTab = "new" | "calendar" | "history";
+type PageTab = "calendar" | "history";
 
 export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
   const [info, setInfo] = useState<PublicClientSiteRequestInfo | null>(null);
@@ -65,11 +67,12 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [doneRequestId, setDoneRequestId] = useState("");
-  const [tab, setTab] = useState<PageTab>("new");
+  const [tab, setTab] = useState<PageTab>("calendar");
   const [requests, setRequests] = useState<ClientSiteRequest[]>([]);
   const [selectedRequestId, setSelectedRequestId] = useState("");
   const [calendarMonthKey, setCalendarMonthKey] = useState(getCurrentMonthKey);
-  const [selectedCalendarDate, setSelectedCalendarDate] = useState("");
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [submitModalOpen, setSubmitModalOpen] = useState(false);
   const [messageDraft, setMessageDraft] = useState("");
   const [messageSending, setMessageSending] = useState(false);
   const [workDate, setWorkDate] = useState("");
@@ -122,12 +125,40 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
   }, [info, loadRequests]);
 
   useEffect(() => {
-    if ((tab !== "history" && tab !== "calendar") || !info) return;
+    if (!info) return;
     const timer = window.setInterval(() => {
       void loadRequests();
     }, 5000);
     return () => window.clearInterval(timer);
-  }, [tab, info, loadRequests]);
+  }, [info, loadRequests]);
+
+  const openSubmitModal = (date: string) => {
+    setSelectedCalendarDate(date);
+    setWorkDate(date);
+    setWorkDateEnd("");
+    setSiteName("");
+    setWorkerCount("");
+    setMemo("");
+    setError("");
+    setSubmitModalOpen(true);
+  };
+
+  const closeSubmitModal = () => {
+    if (submitting) return;
+    setSubmitModalOpen(false);
+    setError("");
+  };
+
+  const handleCalendarDateSelect = (date: string) => {
+    setSelectedCalendarDate(date);
+    const dayRequests = requests.filter((row) => requestCoversWorkDate(row, date));
+    if (dayRequests.length === 1) {
+      setSelectedRequestId(dayRequests[0].id);
+    } else if (selectedRequestId && !dayRequests.some((row) => row.id === selectedRequestId)) {
+      setSelectedRequestId(dayRequests[0]?.id || "");
+    }
+    openSubmitModal(date);
+  };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -165,11 +196,13 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
       });
       setDoneRequestId(request.id);
       setSelectedRequestId(request.id);
-      setWorkDate("");
-      setWorkDateEnd("");
+      setSubmitModalOpen(false);
+      setCalendarMonthKey(normalizedWorkDate.slice(0, 7));
+      setSelectedCalendarDate(normalizedWorkDate);
       setSiteName("");
       setWorkerCount("");
       setMemo("");
+      setWorkDateEnd("");
       await loadRequests();
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : L.submitFail);
@@ -235,19 +268,9 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
             <div className="flex gap-2 rounded-2xl bg-slate-100 p-1">
               <button
                 type="button"
-                className={`flex-1 rounded-xl px-3 py-2 text-sm font-bold ${tab === "new" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
-                onClick={() => setTab("new")}
-              >
-                {L.tabNew}
-              </button>
-              <button
-                type="button"
                 className={`flex-1 rounded-xl px-3 py-2 text-sm font-bold ${tab === "calendar" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
                 onClick={() => {
                   setTab("calendar");
-                  if (!selectedCalendarDate) {
-                    setSelectedCalendarDate(new Date().toISOString().slice(0, 10));
-                  }
                   void loadRequests();
                 }}
               >
@@ -265,131 +288,46 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
               </button>
             </div>
 
-            {doneRequestId && tab === "new" ? (
+            {doneRequestId && tab === "calendar" ? (
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-center">
                 <CheckCircle2 size={32} className="mx-auto text-emerald-500" />
                 <div className="mt-2 text-base font-bold text-emerald-900">{L.doneTitle}</div>
                 <p className="mt-1 text-sm text-emerald-800">{L.doneBody}</p>
-                <Button type="button" className="mt-3 rounded-xl" onClick={() => setTab("history")}>
+                <Button
+                  type="button"
+                  className="mt-3 rounded-xl"
+                  onClick={() => {
+                    setDoneRequestId("");
+                    setTab("history");
+                  }}
+                >
                   {L.openChat}
                 </Button>
               </div>
             ) : null}
 
-            {tab === "new" ? (
-              <form className="space-y-4" onSubmit={handleSubmit}>
-                <div className="space-y-2">
-                  <span className="block text-sm font-semibold text-slate-700">{L.workPeriod}</span>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="block">
-                      <span className="mb-1.5 block text-xs font-bold text-slate-500">{L.workDate}</span>
-                      <KoreanDateInput
-                        value={workDate}
-                        onChange={(event) => {
-                          const next = event.target.value;
-                          setWorkDate(next);
-                          if (workDateEnd && workDateEnd < next) setWorkDateEnd(next);
-                        }}
-                        className="w-full"
-                      />
-                    </label>
-                    <label className="block">
-                      <span className="mb-1.5 block text-xs font-bold text-slate-500">{L.workDateEnd}</span>
-                      <KoreanDateInput
-                        value={workDateEnd}
-                        onChange={(event) => setWorkDateEnd(event.target.value)}
-                        className="w-full"
-                        placeholder={L.workDateEnd}
-                      />
-                    </label>
-                  </div>
-                  <p className="text-xs text-slate-500">{L.workPeriodHint}</p>
-                </div>
-                <label className="block">
-                  <span className="mb-1.5 block text-sm font-semibold text-slate-700">{L.siteName}</span>
-                  <Input value={siteName} onChange={(event) => setSiteName(event.target.value)} placeholder={L.siteName} />
-                </label>
-                <label className="block">
-                  <span className="mb-1.5 block text-sm font-semibold text-slate-700">{L.workerCount}</span>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={999}
-                    inputMode="numeric"
-                    value={workerCount}
-                    onChange={(event) => setWorkerCount(event.target.value)}
-                    placeholder={L.workerCountPh}
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1.5 block text-sm font-semibold text-slate-700">{L.memo}</span>
-                  <textarea
-                    className="erp-input min-h-[96px] w-full rounded-2xl border bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-900"
-                    value={memo}
-                    onChange={(event) => setMemo(event.target.value)}
-                    placeholder={L.memoPh}
-                  />
-                </label>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="block">
-                    <span className="mb-1.5 block text-sm font-semibold text-slate-700">{L.contactName}</span>
-                    <Input value={contactName} onChange={(event) => setContactName(event.target.value)} placeholder={L.contactName} />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1.5 block text-sm font-semibold text-slate-700">{L.contactPhone}</span>
-                    <Input
-                      value={contactPhone}
-                      onChange={(event) => setContactPhone(event.target.value)}
-                      placeholder="010-0000-0000"
-                    />
-                  </label>
-                </div>
-
-                {error ? <p className="text-sm font-semibold text-red-600">{error}</p> : null}
-
-                <Button type="submit" className="w-full rounded-2xl" disabled={submitting}>
-                  {submitting ? L.submitting : L.submit}
-                </Button>
-              </form>
-            ) : tab === "calendar" ? (
+            {tab === "calendar" ? (
               <div className="space-y-4">
-                {!requests.length ? (
-                  <p className="text-sm text-slate-500">{L.emptyHistory}</p>
-                ) : (
-                  <>
-                    <ClientSiteRequestCalendar
-                      requests={requests}
-                      monthKey={calendarMonthKey}
-                      onMonthKeyChange={setCalendarMonthKey}
-                      selectedDate={selectedCalendarDate}
-                      onSelectDate={(date) => {
-                        setSelectedCalendarDate(date);
-                        const dayRequests = requests.filter((row) => requestCoversWorkDate(row, date));
-                        if (dayRequests.length === 1) {
-                          setSelectedRequestId(dayRequests[0].id);
-                        } else if (
-                          selectedRequestId &&
-                          !dayRequests.some((row) => row.id === selectedRequestId)
-                        ) {
-                          setSelectedRequestId(dayRequests[0]?.id || "");
-                        }
-                      }}
-                      selectedRequestId={selectedRequestId}
-                      onSelectRequest={setSelectedRequestId}
-                    />
-                    {selectedRequest ? (
-                      <ClientSiteRequestChat
-                        messages={selectedRequest.messages || []}
-                        draft={messageDraft}
-                        onDraftChange={setMessageDraft}
-                        onSend={() => void handleSendMessage()}
-                        sending={messageSending}
-                        viewer="client"
-                      />
-                    ) : null}
-                  </>
-                )}
-                {error ? <p className="text-sm font-semibold text-red-600">{error}</p> : null}
+                <ClientSiteRequestCalendar
+                  requests={requests}
+                  monthKey={calendarMonthKey}
+                  onMonthKeyChange={setCalendarMonthKey}
+                  selectedDate={selectedCalendarDate}
+                  onSelectDate={handleCalendarDateSelect}
+                  selectedRequestId={selectedRequestId}
+                  onSelectRequest={setSelectedRequestId}
+                />
+                {selectedRequest ? (
+                  <ClientSiteRequestChat
+                    messages={selectedRequest.messages || []}
+                    draft={messageDraft}
+                    onDraftChange={setMessageDraft}
+                    onSend={() => void handleSendMessage()}
+                    sending={messageSending}
+                    viewer="client"
+                  />
+                ) : null}
+                {error && !submitModalOpen ? <p className="text-sm font-semibold text-red-600">{error}</p> : null}
               </div>
             ) : (
               <div className="space-y-4">
@@ -443,6 +381,118 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
           </CardContent>
         </Card>
       </div>
+
+      {submitModalOpen ? (
+        <div className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated" onClick={closeSubmitModal}>
+          <div
+            className="erp-ledger-modal"
+            style={{ width: "min(100%, 32rem)" }}
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="client-site-request-submit-title"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
+              <div>
+                <h2 id="client-site-request-submit-title" className="text-lg font-bold text-slate-900">
+                  {L.modalTitle}
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">{workDate || selectedCalendarDate}</p>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+                aria-label={L.modalClose}
+                onClick={closeSubmitModal}
+                disabled={submitting}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form className="space-y-4 px-5 py-4" onSubmit={handleSubmit}>
+              <div className="space-y-2">
+                <span className="block text-sm font-semibold text-slate-700">{L.workPeriod}</span>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-1.5 block text-xs font-bold text-slate-500">{L.workDate}</span>
+                    <KoreanDateInput
+                      value={workDate}
+                      onChange={(event) => {
+                        const next = event.target.value;
+                        setWorkDate(next);
+                        setSelectedCalendarDate(next);
+                        if (workDateEnd && workDateEnd < next) setWorkDateEnd(next);
+                      }}
+                      className="w-full"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1.5 block text-xs font-bold text-slate-500">{L.workDateEnd}</span>
+                    <KoreanDateInput
+                      value={workDateEnd}
+                      onChange={(event) => setWorkDateEnd(event.target.value)}
+                      className="w-full"
+                      placeholder={L.workDateEnd}
+                    />
+                  </label>
+                </div>
+                <p className="text-xs text-slate-500">{L.workPeriodHint}</p>
+              </div>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-semibold text-slate-700">{L.siteName}</span>
+                <Input value={siteName} onChange={(event) => setSiteName(event.target.value)} placeholder={L.siteName} />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-semibold text-slate-700">{L.workerCount}</span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={999}
+                  inputMode="numeric"
+                  value={workerCount}
+                  onChange={(event) => setWorkerCount(event.target.value)}
+                  placeholder={L.workerCountPh}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-semibold text-slate-700">{L.memo}</span>
+                <textarea
+                  className="erp-input min-h-[96px] w-full rounded-2xl border bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-900"
+                  value={memo}
+                  onChange={(event) => setMemo(event.target.value)}
+                  placeholder={L.memoPh}
+                />
+              </label>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-1.5 block text-sm font-semibold text-slate-700">{L.contactName}</span>
+                  <Input value={contactName} onChange={(event) => setContactName(event.target.value)} placeholder={L.contactName} />
+                </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-sm font-semibold text-slate-700">{L.contactPhone}</span>
+                  <Input
+                    value={contactPhone}
+                    onChange={(event) => setContactPhone(event.target.value)}
+                    placeholder="010-0000-0000"
+                  />
+                </label>
+              </div>
+
+              {error ? <p className="text-sm font-semibold text-red-600">{error}</p> : null}
+
+              <div className="flex gap-2 border-t border-slate-200 pt-4">
+                <Button type="button" variant="outline" className="flex-1 rounded-2xl" disabled={submitting} onClick={closeSubmitModal}>
+                  {L.cancel}
+                </Button>
+                <Button type="submit" className="flex-1 rounded-2xl" disabled={submitting}>
+                  {submitting ? L.submitting : L.submit}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
