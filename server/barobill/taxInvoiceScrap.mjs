@@ -69,7 +69,7 @@ export async function getTaxInvoiceScrapRequestUrl() {
 
   const { rawResult } = await callBarobillSoap(
     "GetTaxInvoiceScrapRequestURL",
-    { CERTKEY: certKey, CorpNum: corpNum, ID: userId, PWD: userPwd },
+    { CERTKEY: certKey, CorpNum: corpNum, UserID: userId, PWD: userPwd },
     "GetTaxInvoiceScrapRequestURLResult",
   );
 
