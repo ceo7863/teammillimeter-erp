@@ -913,6 +913,8 @@ app.get("/api/erp", authMiddleware, (_req, res) => {
     bankLedgerRules: state.data.bankLedgerRules || [],
     expenseCategories: state.data.expenseCategories || [],
     fixedExpenseCategories: state.data.fixedExpenseCategories || [],
+    accountCodes: state.data.accountCodes || [],
+    ledgerCategories: state.data.ledgerCategories || [],
     taxInvoices: state.data.taxInvoices || [],
     bankTransactions: state.data.bankTransactions || [],
     bankTransactionFolders: state.data.bankTransactionFolders || [],
@@ -1504,6 +1506,8 @@ app.put("/api/erp", authMiddleware, (req, res) => {
     bankLedgerRules,
     expenseCategories,
     fixedExpenseCategories,
+    accountCodes,
+    ledgerCategories,
     companyNotices,
     workPosts,
     saleComments,
@@ -1563,6 +1567,10 @@ app.put("/api/erp", authMiddleware, (req, res) => {
     fixedExpenseCategories: Array.isArray(fixedExpenseCategories)
       ? fixedExpenseCategories
       : existing.data.fixedExpenseCategories || [],
+    accountCodes: Array.isArray(accountCodes) ? accountCodes : existing.data.accountCodes || [],
+    ledgerCategories: Array.isArray(ledgerCategories)
+      ? ledgerCategories
+      : existing.data.ledgerCategories || [],
     companyNotices: Array.isArray(companyNotices) ? companyNotices : existing.data.companyNotices || [],
     workPosts: Array.isArray(workPosts) ? workPosts : existing.data.workPosts || [],
     saleComments: Array.isArray(saleComments) ? saleComments : existing.data.saleComments || [],
