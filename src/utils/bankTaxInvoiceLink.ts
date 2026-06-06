@@ -36,7 +36,7 @@ export function resolveBankTxClientName(tx: BankTransaction) {
   return String(tx.ledgerClientName || tx.linkedSubject || "").trim() || null;
 }
 
-const PARTY_NAME_SUFFIX_PATTERN = /(\(?\)|\(?\)|????|?|????|co\.?ltd|corp|inc)/gi;
+const PARTY_NAME_SUFFIX_PATTERN = /(\u3231|\(\uC8FC\)|\uC8FC\uC2DD\uD68C\uC0AC|\(\uC720\)|\uC720\uD55C|\uC720\uD55C\uD68C\uC0AC|co\.?ltd|corp|inc)/gi;
 
 function normalizePartyName(value: string) {
   return value
