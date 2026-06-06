@@ -32,6 +32,10 @@ import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { TableExportSection, TableExportToolbar } from "@/components/TableExportSection";
 import { BankTransactionListSection } from "@/components/BankTransactionListSection";
+import {
+  CompanyLedgerFixedExpenseModalLayer,
+  type CompanyLedgerFixedExpenseModalHandle,
+} from "@/components/CompanyLedgerFixedExpenseModalLayer";
 import { TaxInvoiceLinkModal } from "@/components/TaxInvoiceLinkModal";
 import type { TaxInvoice } from "@/utils/taxInvoices";
 import {
@@ -68,6 +72,9 @@ import {
   listLinkableFixedExpensePayments,
   formatFixedExpensePaymentDay,
   formatKRW,
+  getFixedExpensePaymentsForMonth,
+  getMonthKey,
+  isFixedExpensePaymentSettled,
   linkFixedExpensePaymentToBankTx,
   EXPENSE_CATEGORY_OPTIONS,
   FIXED_CATEGORY_OPTIONS,
@@ -440,6 +447,9 @@ const L = {
   fixedExpensePlaceholder: "\uACE0\uC815\uBE44 \uC120\uD0DD",
   addFixedExpense: "\uACE0\uC815\uBE44 \uD56D\uBAA9 \uCD94\uAC00",
   addFixedExpenseTitle: "\uACE0\uC815\uBE44 \uD56D\uBAA9 \uCD94\uAC00",
+  unsettledFixedBanner: (count: number, amount: number) =>
+    `\uC774\uBC88 \uB2EC \uBBF8\uC5F0\uACB0 \uACE0\uC815\uBE44 ${count}\uAC74 \u00B7 ${formatKRW(amount)}\uC6D0`,
+  goFixedExpenseTab: "\uACE0\uC815\uBE44 \uAD00\uB9AC\uB85C \uC774\uB3D9",
   editAccountContentTitle: "\uACC4\uC815\uB0B4\uC6A9 \uC218\uC815",
   editAccountSubjectTitle: "\uACC4\uC815 \uC218\uC815",
   editFixedExpenseTitle: "\uACE0\uC815\uBE44 \uD56D\uBAA9 \uC218\uC815",
@@ -881,6 +891,7 @@ export function BankTransactionsPage({
   currentUser,
   onNavigateToCompanyLedger,
   onNavigateToClassify,
+  onNavigateToFixedExpense,
   apiMode = false,
   erpVersion = 0,
   isPageActive = true,
@@ -917,6 +928,7 @@ export function BankTransactionsPage({
   currentUser: ErpUser | null;
   onNavigateToCompanyLedger?: () => void;
   onNavigateToClassify?: () => void;
+  onNavigateToFixedExpense?: () => void;
   apiMode?: boolean;
   erpVersion?: number;
   isPageActive?: boolean;
@@ -924,7 +936,9 @@ export function BankTransactionsPage({
   onRequestImmediateSave?: (patch?: {
     bankTransactions?: BankTransaction[];
     companyExpenses?: CompanyExpense[];
+    fixedExpenses?: FixedExpense[];
     fixedExpensePayments?: FixedExpensePayment[];
+    fixedExpenseCategories?: string[];
     bankTransactionFolders?: BankTransactionFolder[];
     bankLedgerRules?: BankLearnRule[];
     expenseCategories?: string[];
@@ -1014,10 +1028,9 @@ export function BankTransactionsPage({
   const bankTransactionsRef = useRef(bankTransactions);
   bankTransactionsRef.current = bankTransactions;
   const [fixedExpenseModal, setFixedExpenseModal] = useState<TxFixedExpenseModal | null>(null);
+  const fixedExpenseItemModalRef = useRef<CompanyLedgerFixedExpenseModalHandle>(null);
   const [clientModal, setClientModal] = useState<TxClientModal | null>(null);
   const [taxInvoiceModal, setTaxInvoiceModal] = useState<TxTaxInvoiceModal | null>(null);
-  const [addFixedExpenseModalOpen, setAddFixedExpenseModalOpen] = useState(false);
-  const [newFixedExpenseName, setNewFixedExpenseName] = useState("");
   const [txCellModalError, setTxCellModalError] = useState("");
   const importLedgerBatchIdsRef = useRef<Set<string>>(new Set());
   const ledgerMemoDraftRef = useRef("");
@@ -2492,25 +2505,33 @@ export function BankTransactionsPage({
     });
   };
 
-  const handleAddFixedExpense = () => {
-    const name = newFixedExpenseName.trim();
-    const category = FIXED_CATEGORY_OPTIONS[0];
-    if (!name) return;
-    const nextItem: FixedExpense = {
-      id: makeLedgerId(),
-      name,
-      category,
-      amount: 0,
-      cycle: "monthly",
-      paymentDayOfMonth: 1,
-      isActive: true,
-    };
-    setFixedExpenses((prev) => [...prev, nextItem]);
-    setFixedExpenseCategories((prev) => mergeFixedExpenseCategory(prev, category));
-    setNewFixedExpenseName("");
-    setAddFixedExpenseModalOpen(false);
-    setImportMessage(L.cellSaveDone);
-  };
+  const openCreateFixedExpenseItem = useCallback(() => {
+    fixedExpenseItemModalRef.current?.openCreateFixedExpense(
+      FIXED_CATEGORY_OPTIONS[0] || fixedExpenseCategories[0] || "",
+    );
+  }, [fixedExpenseCategories]);
+
+  const unsettledFixedSummary = useMemo(() => {
+    const monthKey = getMonthKey(todayISO());
+    const monthPayments = getFixedExpensePaymentsForMonth(fixedExpensePayments, monthKey);
+    let count = 0;
+    let amount = 0;
+    for (const payment of monthPayments) {
+      if (
+        isFixedExpensePaymentSettled(
+          payment,
+          fixedExpensePayments,
+          bankTransactions,
+          fixedExpenses,
+        )
+      ) {
+        continue;
+      }
+      count += 1;
+      amount += Number(payment.amount) || 0;
+    }
+    return { count, amount };
+  }, [bankTransactions, fixedExpensePayments, fixedExpenses]);
 
   const reviewLinkablePayments = useMemo(() => {
     if (!ledgerReviewPrompt || ledgerReviewPrompt.kind !== "fixed") return [];
@@ -4856,6 +4877,25 @@ export function BankTransactionsPage({
         </div>
       ) : null}
 
+      {unsettledFixedSummary.count > 0 ? (
+        <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="erp-text-body font-semibold text-amber-900">
+            {L.unsettledFixedBanner(unsettledFixedSummary.count, unsettledFixedSummary.amount)}
+          </p>
+          {onNavigateToFixedExpense ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="rounded-xl shrink-0 border-amber-300 bg-white text-amber-900 hover:bg-amber-100"
+              onClick={onNavigateToFixedExpense}
+            >
+              {L.goFixedExpenseTab}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
       {importMessage ? (
         <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 erp-text-body font-semibold text-emerald-700">
           {importMessage}
@@ -5098,6 +5138,7 @@ export function BankTransactionsPage({
             onEditMemo={openMemoModal}
             onEditAccountSubject={openAccountSubjectModal}
             onEditClient={openClientModal}
+            onEditFixedExpense={openFixedExpenseModal}
             onFindEvidence={openTaxInvoiceModal}
             toolbar={
               <>
@@ -5156,10 +5197,7 @@ export function BankTransactionsPage({
                   size="sm"
                   variant="outline"
                   className="rounded-xl"
-                  onClick={() => {
-                    setNewFixedExpenseName("");
-                    setAddFixedExpenseModalOpen(true);
-                  }}
+                  onClick={openCreateFixedExpenseItem}
                 >
                   {L.addFixedExpense}
                 </Button>
@@ -6393,51 +6431,21 @@ export function BankTransactionsPage({
         />
       ) : null}
 
-      {addFixedExpenseModalOpen ? (
-        <div
-          className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setAddFixedExpenseModalOpen(false);
-          }}
-        >
-          <div
-            className="erp-ledger-modal max-w-lg"
-            onMouseDown={(event) => event.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label={L.addFixedExpenseTitle}
-          >
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <h2 className="erp-text-section font-bold">{L.addFixedExpenseTitle}</h2>
-              <button
-                type="button"
-                className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
-                onClick={() => setAddFixedExpenseModalOpen(false)}
-                aria-label={L.cancel}
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <div className="space-y-3">
-              <Field label={L.newFixedExpenseName}>
-                <input
-                  className="erp-input w-full rounded-xl"
-                  value={newFixedExpenseName}
-                  onChange={(event) => setNewFixedExpenseName(event.target.value)}
-                />
-              </Field>
-            </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setAddFixedExpenseModalOpen(false)}>
-                {L.cancel}
-              </Button>
-              <Button type="button" className="rounded-2xl" onClick={handleAddFixedExpense}>
-                {L.detailSave}
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <CompanyLedgerFixedExpenseModalLayer
+        ref={fixedExpenseItemModalRef}
+        fixedExpenses={fixedExpenses}
+        setFixedExpenses={setFixedExpenses}
+        fixedExpenseCategories={fixedExpenseCategories}
+        setFixedExpenseCategories={setFixedExpenseCategories}
+        fixedExpensePayments={fixedExpensePayments}
+        setFixedExpensePayments={setFixedExpensePayments}
+        bankTransactions={bankTransactions}
+        setBankTransactions={setBankTransactions}
+        setBankLedgerRules={setBankLedgerRules}
+        currentUser={currentUser}
+        onOpenBankLinkView={() => {}}
+        onRequestImmediateSave={onRequestImmediateSave}
+      />
 
     </div>
   );

@@ -42,6 +42,7 @@ type BankTransactionListSectionProps = {
   onEditMemo: (row: BankTransaction) => void;
   onEditAccountSubject: (row: BankTransaction) => void;
   onEditClient: (row: BankTransaction) => void;
+  onEditFixedExpense: (row: BankTransaction) => void;
   onFindEvidence: (row: BankTransaction) => void;
   toolbar?: React.ReactNode;
 };
@@ -64,6 +65,7 @@ function BankTransactionListSectionComponent({
   onEditMemo,
   onEditAccountSubject,
   onEditClient,
+  onEditFixedExpense,
   onFindEvidence,
   toolbar,
 }: BankTransactionListSectionProps) {
@@ -158,6 +160,14 @@ function BankTransactionListSectionComponent({
     [onEditClient],
   );
 
+  const handleEditFixedExpense = useCallback(
+    (id: string) => {
+      const row = rowByIdRef.current.get(String(id));
+      if (row) onEditFixedExpense(row);
+    },
+    [onEditFixedExpense],
+  );
+
   const handleFindEvidence = useCallback(
     (id: string) => {
       const row = rowByIdRef.current.get(String(id));
@@ -188,6 +198,8 @@ function BankTransactionListSectionComponent({
       clientPlaceholder: labels.clientPlaceholder,
       memoPlaceholder: labels.memoPlaceholder,
       voucherProcessedBadge: labels.voucherProcessedBadge,
+      fixedExpense: labels.fixedExpense,
+      fixedExpensePlaceholder: labels.fixedExpensePlaceholder,
     }),
     [labels],
   );
@@ -201,13 +213,13 @@ function BankTransactionListSectionComponent({
       description: labels.description,
       accountContent: labels.memo,
       category: labels.accountSubject,
-      fixedExpense: labels.client,
+      fixedExpense: labels.fixedExpense,
       classification: labels.evidence,
       matchStatus: labels.erpProcess,
       empty: labels.empty,
       accountContentPlaceholder: labels.memoPlaceholder,
       categoryPlaceholder: labels.accountSubjectPlaceholder,
-      fixedExpensePlaceholder: labels.clientPlaceholder,
+      fixedExpensePlaceholder: labels.fixedExpensePlaceholder,
     }),
     [labels],
   );
@@ -244,7 +256,7 @@ function BankTransactionListSectionComponent({
         badgeLabels={badgeLabels}
         onEditAccountContent={handleEditMemo}
         onEditAccountSubject={handleEditAccountSubject}
-        onEditFixedExpense={handleEditClient}
+        onEditFixedExpense={handleEditFixedExpense}
       />
       <BankTransactionSplitTable
         rowIds={rowIds}
@@ -253,6 +265,7 @@ function BankTransactionListSectionComponent({
         onEditMemo={handleEditMemo}
         onEditAccountSubject={handleEditAccountSubject}
         onEditClient={handleEditClient}
+        onEditFixedExpense={handleEditFixedExpense}
         onFindEvidence={handleFindEvidence}
       />
     </>

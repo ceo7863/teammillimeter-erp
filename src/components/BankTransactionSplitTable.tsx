@@ -16,6 +16,7 @@ export type BankTransactionSplitTableLabels = {
   evidence: string;
   accountSubject: string;
   client: string;
+  fixedExpense: string;
   classifiedAmount: string;
   erpProcess: string;
   empty: string;
@@ -23,6 +24,7 @@ export type BankTransactionSplitTableLabels = {
   evidencePlaceholder: string;
   accountSubjectPlaceholder: string;
   clientPlaceholder: string;
+  fixedExpensePlaceholder: string;
   memoPlaceholder: string;
   voucherProcessedBadge: string;
 };
@@ -34,6 +36,7 @@ type BankTransactionSplitTableProps = {
   onEditMemo: (id: string) => void;
   onEditAccountSubject: (id: string) => void;
   onEditClient: (id: string) => void;
+  onEditFixedExpense: (id: string) => void;
   onFindEvidence: (id: string) => void;
 };
 
@@ -105,12 +108,41 @@ function ClientCellButton({
   );
 }
 
+function FixedExpenseCellButton({
+  value,
+  placeholder,
+  onClick,
+}: {
+  value: string | null;
+  placeholder: string;
+  onClick: () => void;
+}) {
+  const empty = !value?.trim();
+  const display = value?.trim() || placeholder;
+  return (
+    <button
+      type="button"
+      className={`max-w-full truncate rounded-lg border px-2 py-1 text-left text-xs font-semibold transition hover:opacity-90 ${
+        empty ? "border-dashed border-slate-200 text-slate-400" : "border-violet-300 bg-violet-50 text-violet-900"
+      }`}
+      title={display}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+    >
+      {display}
+    </button>
+  );
+}
+
 const SplitRow = memo(function SplitRow({
   model,
   labels,
   onEditMemo,
   onEditAccountSubject,
   onEditClient,
+  onEditFixedExpense,
   onFindEvidence,
 }: {
   model: BankTransactionListRowModel;
@@ -118,6 +150,7 @@ const SplitRow = memo(function SplitRow({
   onEditMemo: (id: string) => void;
   onEditAccountSubject: (id: string) => void;
   onEditClient: (id: string) => void;
+  onEditFixedExpense: (id: string) => void;
   onFindEvidence: (id: string) => void;
 }) {
   const rowClass =
@@ -209,6 +242,13 @@ const SplitRow = memo(function SplitRow({
           onClick={() => onEditClient(model.id)}
         />
       </td>
+      <td className="max-w-[8rem]">
+        <FixedExpenseCellButton
+          value={model.fixedExpenseLabel}
+          placeholder={labels.fixedExpensePlaceholder}
+          onClick={() => onEditFixedExpense(model.id)}
+        />
+      </td>
       <td className="whitespace-nowrap text-right text-xs font-semibold text-slate-800">
         {model.classifiedAmountLabel}
       </td>
@@ -236,18 +276,19 @@ function BankTransactionSplitTableComponent({
   onEditMemo,
   onEditAccountSubject,
   onEditClient,
+  onEditFixedExpense,
   onFindEvidence,
 }: BankTransactionSplitTableProps) {
   return (
     <DesktopTableWrap className="erp-bank-wehago-table-wrap">
-      <table id="bank-transactions-table" className="erp-table erp-bank-split-table erp-bank-wehago-split-table w-full min-w-[1280px]">
+      <table id="bank-transactions-table" className="erp-table erp-bank-split-table erp-bank-wehago-split-table w-full min-w-[1360px]">
         <thead>
           <tr className="erp-bank-wehago-split-section-row">
             <th colSpan={6} className="erp-bank-wehago-split-section erp-bank-wehago-split-section--bank">
               {labels.bankSection}
             </th>
             <th className="erp-bank-wehago-split-bridge" aria-hidden="true" />
-            <th colSpan={5} className="erp-bank-wehago-split-section erp-bank-wehago-split-section--classify">
+            <th colSpan={6} className="erp-bank-wehago-split-section erp-bank-wehago-split-section--classify">
               {labels.classifySection}
             </th>
           </tr>
@@ -262,6 +303,7 @@ function BankTransactionSplitTableComponent({
             <th>{labels.evidence}</th>
             <th>{labels.accountSubject}</th>
             <th>{labels.client}</th>
+            <th>{labels.fixedExpense}</th>
             <th className="text-right">{labels.classifiedAmount}</th>
             <th>{labels.erpProcess}</th>
           </tr>
@@ -269,7 +311,7 @@ function BankTransactionSplitTableComponent({
         <tbody>
           {!rowIds.length ? (
             <tr>
-              <td colSpan={12} className="py-12 text-center text-slate-500">
+              <td colSpan={13} className="py-12 text-center text-slate-500">
                 {labels.empty}
               </td>
             </tr>
@@ -285,6 +327,7 @@ function BankTransactionSplitTableComponent({
                   onEditMemo={onEditMemo}
                   onEditAccountSubject={onEditAccountSubject}
                   onEditClient={onEditClient}
+                  onEditFixedExpense={onEditFixedExpense}
                   onFindEvidence={onFindEvidence}
                 />
               );

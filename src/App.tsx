@@ -109,7 +109,7 @@ import {
   type BankTransaction,
 } from "@/utils/bankTransactions";
 import { normalizeBankLedgerMatchRules, syncBankTransactionLedgerLinkFields } from "@/utils/bankCompanyLedger";
-import { syncFixedExpenseAutomation } from "@/utils/fixedExpenseAutomation";
+import { syncFixedExpenseAutomation, collectFixedExpenseGenerationMonthKeys } from "@/utils/fixedExpenseAutomation";
 import { normalizeExpenseCategories, normalizeFixedExpenseCategories } from "@/utils/companyLedger";
 import { migrateErpLedgerV2 } from "@/utils/ledgerMigration";
 import {
@@ -8402,6 +8402,7 @@ export default function TeammillimeterErpMvp() {
       bankTransactions,
       bankLedgerRules,
       companyExpenses,
+      monthKeys: collectFixedExpenseGenerationMonthKeys(fixedExpenses, bankTransactions),
       createdBy: currentUser.name || currentUser.loginId || "",
     });
     if (!result.generatedCount && !result.linkedCount && !result.removedDuplicateCount) return;
@@ -8712,8 +8713,23 @@ export default function TeammillimeterErpMvp() {
             ledger={{
               bankTransactions,
               companyExpenses,
+              fixedExpensePayments,
+              fixedExpenses,
               ledgerCategories,
               accountCodes,
+            }}
+            fixed={{
+              fixedExpenses,
+              setFixedExpenses,
+              fixedExpensePayments,
+              setFixedExpensePayments,
+              fixedExpenseCategories,
+              setFixedExpenseCategories,
+              bankTransactions,
+              setBankTransactions,
+              setBankLedgerRules,
+              currentUser,
+              onRequestImmediateSave: flushErpSave,
             }}
             tax={{
               taxInvoices,

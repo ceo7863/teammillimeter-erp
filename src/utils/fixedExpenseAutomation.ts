@@ -274,6 +274,35 @@ export function reconcileLedgerBankLinks(input: {
   };
 }
 
+export function collectFixedExpenseGenerationMonthKeys(
+  fixedExpenses: FixedExpense[],
+  bankTransactions: BankTransaction[],
+) {
+  const todayMonth = todayISO().slice(0, 7);
+  const keys = new Set<string>([todayMonth]);
+
+  for (const tx of bankTransactions) {
+    const monthKey = getMonthKey(String(tx.transactionAt || "").slice(0, 10));
+    if (monthKey) keys.add(monthKey);
+  }
+
+  for (const expense of fixedExpenses) {
+    if (!expense.isActive) continue;
+    const startMonth = getMonthKey(expense.startDate || "") || todayMonth;
+    let cursor = startMonth < todayMonth ? startMonth : todayMonth;
+    const endMonth = todayMonth;
+    while (cursor <= endMonth) {
+      keys.add(cursor);
+      if (cursor === endMonth) break;
+      const [year, month] = cursor.split("-").map(Number);
+      const next = month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, "0")}`;
+      cursor = next;
+    }
+  }
+
+  return [...keys].sort();
+}
+
 export function syncFixedExpenseAutomation(input: {
   fixedExpenses: FixedExpense[];
   fixedExpensePayments: FixedExpensePayment[];
@@ -281,18 +310,29 @@ export function syncFixedExpenseAutomation(input: {
   bankLedgerRules?: BankLearnRule[];
   companyExpenses?: CompanyExpense[];
   monthKey?: string;
+  monthKeys?: string[];
   createdBy?: string;
 }) {
-  const monthKey = input.monthKey || todayISO().slice(0, 7);
-  const generated = buildMonthlyFixedExpensePayments(
-    input.fixedExpenses,
-    input.fixedExpensePayments,
-    monthKey,
-    input.createdBy,
-  );
+  const monthKeys = input.monthKeys?.length
+    ? input.monthKeys
+    : input.monthKey
+      ? [input.monthKey]
+      : collectFixedExpenseGenerationMonthKeys(input.fixedExpenses, input.bankTransactions);
 
-  let payments =
-    generated.length > 0 ? [...generated, ...input.fixedExpensePayments] : input.fixedExpensePayments;
+  let payments = input.fixedExpensePayments;
+  let generatedCount = 0;
+
+  for (const monthKey of monthKeys) {
+    const generated = buildMonthlyFixedExpensePayments(
+      input.fixedExpenses,
+      payments,
+      monthKey,
+      input.createdBy,
+    );
+    if (!generated.length) continue;
+    payments = [...generated, ...payments];
+    generatedCount += generated.length;
+  }
 
   const linkResult = autoLinkBankTransactionsToFixedPayments(
     input.bankTransactions,
@@ -312,7 +352,7 @@ export function syncFixedExpenseAutomation(input: {
   return {
     fixedExpensePayments: reconciled.fixedExpensePayments,
     bankTransactions: reconciled.bankTransactions,
-    generatedCount: generated.length,
+    generatedCount,
     linkedCount: linkResult.linkedCount + reconciled.linkedCount,
     removedDuplicateCount: reconciled.removedDuplicateCount,
   };

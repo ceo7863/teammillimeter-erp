@@ -4,7 +4,9 @@ import { BankTransactionsPage } from "@/components/BankTransactionsPage";
 import { LedgerViewerPage } from "@/components/LedgerViewerPage";
 import { TaxInvoicePage } from "@/components/TaxInvoicePage";
 import { LedgerClassificationManagePage } from "@/components/LedgerClassificationManagePage";
+import { FixedExpenseManagePanel } from "@/components/FixedExpenseManagePanel";
 import {
+  ACCOUNTING_HUB_TABS,
   readStoredAccountingTab,
   storeAccountingTab,
   type AccountingHubTab,
@@ -13,27 +15,31 @@ import {
 type AccountingHubPageProps = {
   isHubActive: boolean;
   initialTab?: AccountingHubTab;
-  bank: Omit<ComponentProps<typeof BankTransactionsPage>, "isPageActive" | "onNavigateToCompanyLedger">;
+  bank: Omit<
+    ComponentProps<typeof BankTransactionsPage>,
+    "isPageActive" | "onNavigateToCompanyLedger" | "onNavigateToClassify" | "onNavigateToFixedExpense"
+  >;
   ledger: ComponentProps<typeof LedgerViewerPage>;
   tax: ComponentProps<typeof TaxInvoicePage>;
   classify: ComponentProps<typeof LedgerClassificationManagePage>;
+  fixed: ComponentProps<typeof FixedExpenseManagePanel>;
 };
 
-const TAB_ITEMS: Array<{ key: AccountingHubTab; label: string }> = [
-  { key: "bank", label: "\uD1B5\uC7A5 \u00B7 \uAC00\uACC4\uBD80" },
-  { key: "ledger", label: "\uAC00\uACC4\uBD80 \uC870\uD68C" },
-  { key: "tax", label: "\uC138\uAE08\uACC4\uC0B0\uC11C" },
-  { key: "classify", label: "\uBD84\uB958 \uAD00\uB9AC" },
-];
+function buildInitialMountedTabs(tab: AccountingHubTab): Record<AccountingHubTab, boolean> {
+  return {
+    bank: tab === "bank",
+    ledger: tab === "ledger",
+    tax: tab === "tax",
+    classify: tab === "classify",
+    fixed: tab === "fixed",
+  };
+}
 
-export function AccountingHubPage({ isHubActive, initialTab, bank, ledger, tax, classify }: AccountingHubPageProps) {
+export function AccountingHubPage({ isHubActive, initialTab, bank, ledger, tax, classify, fixed }: AccountingHubPageProps) {
   const [activeTab, setActiveTab] = useState<AccountingHubTab>(() => initialTab || readStoredAccountingTab());
-  const [mountedTabs, setMountedTabs] = useState<Record<AccountingHubTab, boolean>>(() => ({
-    bank: (initialTab || readStoredAccountingTab()) === "bank",
-    ledger: (initialTab || readStoredAccountingTab()) === "ledger",
-    tax: (initialTab || readStoredAccountingTab()) === "tax",
-    classify: (initialTab || readStoredAccountingTab()) === "classify",
-  }));
+  const [mountedTabs, setMountedTabs] = useState<Record<AccountingHubTab, boolean>>(() =>
+    buildInitialMountedTabs(initialTab || readStoredAccountingTab()),
+  );
 
   useEffect(() => {
     if (!initialTab) return;
@@ -61,7 +67,7 @@ export function AccountingHubPage({ isHubActive, initialTab, bank, ledger, tax, 
             </p>
           </div>
           <div className="flex flex-wrap gap-2 rounded-2xl bg-slate-100 p-1">
-            {TAB_ITEMS.map((tab) => (
+            {ACCOUNTING_HUB_TABS.map((tab) => (
               <button
                 key={tab.key}
                 type="button"
@@ -82,6 +88,7 @@ export function AccountingHubPage({ isHubActive, initialTab, bank, ledger, tax, 
             isPageActive={isHubActive && activeTab === "bank"}
             onNavigateToCompanyLedger={() => switchTab("ledger")}
             onNavigateToClassify={() => switchTab("classify")}
+            onNavigateToFixedExpense={() => switchTab("fixed")}
           />
         </div>
       ) : null}
@@ -89,6 +96,12 @@ export function AccountingHubPage({ isHubActive, initialTab, bank, ledger, tax, 
       {mountedTabs.ledger ? (
         <div className={activeTab === "ledger" ? "" : "hidden"} aria-hidden={activeTab !== "ledger"}>
           <LedgerViewerPage {...ledger} onOpenBankTab={() => switchTab("bank")} />
+        </div>
+      ) : null}
+
+      {mountedTabs.fixed ? (
+        <div className={activeTab === "fixed" ? "" : "hidden"} aria-hidden={activeTab !== "fixed"}>
+          <FixedExpenseManagePanel {...fixed} onOpenBankTab={() => switchTab("bank")} />
         </div>
       ) : null}
 

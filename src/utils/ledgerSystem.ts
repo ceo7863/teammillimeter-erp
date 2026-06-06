@@ -12,6 +12,7 @@ import {
   type FixedExpensePayment,
   formatKRW,
   getMonthKey,
+  isFixedExpensePaymentBankLinked,
 } from "./companyLedger";
 import type { BankTransaction } from "./bankTransactions";
 
@@ -432,6 +433,39 @@ export function buildOfflineLedgerEntry(
   };
 }
 
+export function buildOfflineFixedPaymentLedgerEntry(
+  payment: FixedExpensePayment,
+  fixedExpenses: FixedExpense[],
+  categories: LedgerCategory[],
+  accountCodes: AccountCode[],
+): LedgerEntry | null {
+  if (isFixedExpensePaymentBankLinked(payment)) return null;
+  const amount = Number(payment.amount) || 0;
+  if (amount <= 0) return null;
+  const item = fixedExpenses.find((row) => row.id === payment.fixedExpenseId);
+  const categoryName = item?.category || "고정비";
+  const category = findLedgerCategoryByName(categories, categoryName);
+  const accountCode = category?.accountCode || CATEGORY_ACCOUNT_DEFAULTS[categoryName] || "900";
+  const account = findAccountCode(accountCodes, accountCode);
+  const monthKey = String(payment.monthKey || "").slice(0, 7);
+  const day = String(Math.max(1, Math.min(28, Number(item?.paymentDay) || 1))).padStart(2, "0");
+  const date = monthKey.length === 7 ? `${monthKey}-${day}` : String(payment.createdAt || "").slice(0, 10);
+  return {
+    id: `fixed-offline-${payment.id}`,
+    source: "offline",
+    date,
+    flow: "expense",
+    amount,
+    categoryId: category?.id || "",
+    categoryName,
+    accountCode,
+    accountName: account?.name || accountCode,
+    description: String(item?.name || categoryName).trim(),
+    memo: payment.memo,
+    status: "confirmed",
+  };
+}
+
 export function buildAllLedgerEntries(input: {
   bankTransactions: BankTransaction[];
   companyExpenses: CompanyExpense[];
@@ -451,7 +485,19 @@ export function buildAllLedgerEntries(input: {
   const offlineEntries = input.companyExpenses
     .map((row) => buildOfflineLedgerEntry(row, input.categories, input.accountCodes))
     .filter((row): row is LedgerEntry => Boolean(row));
-  return [...bankEntries, ...offlineEntries].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const fixedOfflineEntries = (input.fixedExpensePayments || [])
+    .map((row) =>
+      buildOfflineFixedPaymentLedgerEntry(
+        row,
+        input.fixedExpenses || [],
+        input.categories,
+        input.accountCodes,
+      ),
+    )
+    .filter((row): row is LedgerEntry => Boolean(row));
+  return [...bankEntries, ...offlineEntries, ...fixedOfflineEntries].sort((a, b) =>
+    String(b.date).localeCompare(String(a.date)),
+  );
 }
 
 export type MonthlyLedgerSummaryRow = {

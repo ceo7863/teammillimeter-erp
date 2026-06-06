@@ -1,6 +1,14 @@
 import { isErpPageKey, type ErpPageKey } from "./pageAccess";
 
-export type AccountingHubTab = "bank" | "ledger" | "tax" | "classify";
+export type AccountingHubTab = "bank" | "ledger" | "tax" | "classify" | "fixed";
+
+export const ACCOUNTING_HUB_TABS: Array<{ key: AccountingHubTab; label: string }> = [
+  { key: "bank", label: "\uD1B5\uC7A5 \u00B7 \uAC00\uACC4\uBD80" },
+  { key: "ledger", label: "\uAC00\uACC4\uBD80 \uC870\uD68C" },
+  { key: "fixed", label: "\uACE0\uC815\uBE44" },
+  { key: "tax", label: "\uC138\uAE08\uACC4\uC0B0\uC11C" },
+  { key: "classify", label: "\uBD84\uB958 \uAD00\uB9AC" },
+];
 
 export const ACCOUNTING_TAB_STORAGE_KEY = "teammillimeter-erp-accounting-tab";
 
@@ -66,7 +74,15 @@ export function migrateAllowedPageKeys(pages: ErpPageKey[]): ErpPageKey[] {
 export function readStoredAccountingTab(): AccountingHubTab {
   if (typeof window === "undefined") return "bank";
   const stored = window.sessionStorage.getItem(ACCOUNTING_TAB_STORAGE_KEY);
-  if (stored === "ledger" || stored === "tax" || stored === "bank" || stored === "classify") return stored;
+  if (
+    stored === "ledger" ||
+    stored === "tax" ||
+    stored === "bank" ||
+    stored === "classify" ||
+    stored === "fixed"
+  ) {
+    return stored;
+  }
   return "bank";
 }
 

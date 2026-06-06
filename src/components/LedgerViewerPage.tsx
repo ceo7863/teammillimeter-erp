@@ -10,6 +10,8 @@ import {
   shiftMonthKey,
   todayISO,
   type CompanyExpense,
+  type FixedExpense,
+  type FixedExpensePayment,
 } from "@/utils/companyLedger";
 import {
   buildAccountCodeSummary,
@@ -62,6 +64,8 @@ const L = {
 type LedgerViewerPageProps = {
   bankTransactions: BankTransaction[];
   companyExpenses: CompanyExpense[];
+  fixedExpensePayments?: FixedExpensePayment[];
+  fixedExpenses?: FixedExpense[];
   ledgerCategories: LedgerCategory[];
   accountCodes: AccountCode[];
   onOpenBankTab?: () => void;
@@ -70,6 +74,8 @@ type LedgerViewerPageProps = {
 export function LedgerViewerPage({
   bankTransactions,
   companyExpenses,
+  fixedExpensePayments = [],
+  fixedExpenses = [],
   ledgerCategories,
   accountCodes,
   onOpenBankTab,
@@ -86,10 +92,12 @@ export function LedgerViewerPage({
       buildAllLedgerEntries({
         bankTransactions,
         companyExpenses,
+        fixedExpensePayments,
+        fixedExpenses,
         categories: ledgerCategories,
         accountCodes,
       }),
-    [bankTransactions, companyExpenses, ledgerCategories, accountCodes],
+    [bankTransactions, companyExpenses, fixedExpensePayments, fixedExpenses, ledgerCategories, accountCodes],
   );
 
   const pendingCount = useMemo(
