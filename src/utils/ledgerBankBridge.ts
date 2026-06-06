@@ -1,5 +1,9 @@
 import type { BankTransaction } from "./bankTransactions";
-import { assignBankTxToFixedExpensePayment, getLinkedFixedPaymentForBankTx } from "./bankCompanyLedger";
+import {
+  assignBankTxToFixedExpensePayment,
+  getLinkedCompanyExpenseForBankTx,
+  getLinkedFixedPaymentForBankTx,
+} from "./bankCompanyLedger";
 import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "./companyLedger";
 import { isLedgerInboxTransaction } from "./ledgerInboxUtils";
 import {
