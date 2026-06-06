@@ -59,6 +59,7 @@ const L = {
   editPdf: "PDF \uC218\uC815",
   downloadSigned: "\uACC4\uC57D\uC11C \uB2E4\uC6B4\uBC1B\uAE30",
   downloadFail: "\uACC4\uC57D\uC11C \uB2E4\uC6B4\uB85C\uB4DC\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+  cannotDeleteSigned: "\uC11C\uBA85 \uC644\uB8CC\uB41C \uACC4\uC57D\uC740 \uC0AD\uC81C\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
 };
 
 type ClientLike = {
@@ -122,6 +123,14 @@ export function ClientContractsPanel({ clients }: ClientContractsPanelProps) {
 
   useEffect(() => {
     void loadContracts();
+  }, [loadContracts]);
+
+  useEffect(() => {
+    const reloadOnVisible = () => {
+      if (document.visibilityState === "visible") void loadContracts();
+    };
+    document.addEventListener("visibilitychange", reloadOnVisible);
+    return () => document.removeEventListener("visibilitychange", reloadOnVisible);
   }, [loadContracts]);
 
   const filteredContracts = useMemo(() => {
@@ -210,6 +219,10 @@ export function ClientContractsPanel({ clients }: ClientContractsPanelProps) {
   };
 
   const handleDelete = async (contract: ClientContract) => {
+    if (contract.status === "signed") {
+      setError(L.cannotDeleteSigned);
+      return;
+    }
     const msg = `"${contract.title}" \uACC4\uC57D\uC744 \uC0AD\uC81C\uD560\uAE4C\uC694?`;
     if (!window.confirm(msg)) return;
     setError("");
@@ -410,9 +423,11 @@ export function ClientContractsPanel({ clients }: ClientContractsPanelProps) {
                             <Send size={14} />
                           </Button>
                         ) : null}
-                        <Button size="sm" className="rounded-xl bg-red-600 hover:bg-red-700" onClick={() => void handleDelete(contract)}>
-                          <Trash2 size={14} />
-                        </Button>
+                        {contract.status !== "signed" ? (
+                          <Button size="sm" className="rounded-xl bg-red-600 hover:bg-red-700" onClick={() => void handleDelete(contract)}>
+                            <Trash2 size={14} />
+                          </Button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>

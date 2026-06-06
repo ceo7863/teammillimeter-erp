@@ -371,6 +371,19 @@ export function mergeClientsForSave(existing = [], incoming = []) {
   });
 }
 
+function mergeClientContractsForSave(existing = [], incoming = []) {
+  const byId = new Map();
+  for (const row of existing) {
+    const id = String(row?.id ?? "").trim();
+    if (id) byId.set(id, row);
+  }
+  for (const row of incoming) {
+    const id = String(row?.id ?? "").trim();
+    if (id) byId.set(id, { ...(byId.get(id) || {}), ...row });
+  }
+  return [...byId.values()].sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+}
+
 export function mergeErpPaymentLinkState(existingData, incomingData) {
   const mergedBankTransactions = mergeBankTransactionsForSave(
     existingData.bankTransactions || [],
@@ -399,7 +412,10 @@ export function mergeErpPaymentLinkState(existingData, incomingData) {
     ...incomingData,
     clients: mergeClientsForSave(existingData.clients || [], incomingData.clients || []),
     clientSiteRequests: Array.isArray(existingData.clientSiteRequests) ? existingData.clientSiteRequests : [],
-    clientContracts: Array.isArray(existingData.clientContracts) ? existingData.clientContracts : [],
+    clientContracts: mergeClientContractsForSave(
+      Array.isArray(existingData.clientContracts) ? existingData.clientContracts : [],
+      Array.isArray(incomingData.clientContracts) ? incomingData.clientContracts : [],
+    ),
     workers: mergeWorkersForSave(existingData.workers || [], incomingData.workers || []),
     workerMonthlyPaymentMemos: mergeWorkerMonthlyPaymentMemosForSave(
       existingData.workerMonthlyPaymentMemos || {},

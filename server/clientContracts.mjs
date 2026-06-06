@@ -15,6 +15,33 @@ const MAX_SIGNATURE_LENGTH = 280_000;
 const TOKEN_EXPIRY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_TOKEN_EXPIRY_HOURS = 24;
 
+function capClientContracts(contracts) {
+  if (contracts.length <= MAX_CONTRACTS) return contracts;
+  const signed = contracts.filter((row) => row.status === "signed");
+  const others = contracts.filter((row) => row.status !== "signed");
+  const roomForOthers = Math.max(0, MAX_CONTRACTS - signed.length);
+  return [...others.slice(0, roomForOthers), ...signed].sort((a, b) =>
+    String(b.createdAt || "").localeCompare(String(a.createdAt || "")),
+  );
+}
+
+const SAVE_RETRY_ATTEMPTS = 8;
+
+function saveClientContractsPayload(nextContracts, updatedBy) {
+  for (let attempt = 0; attempt < SAVE_RETRY_ATTEMPTS; attempt += 1) {
+    const state = getErpState();
+    const data = state.data && typeof state.data === "object" ? state.data : {};
+    try {
+      return saveErpState({ ...data, clientContracts: nextContracts }, state.version, updatedBy);
+    } catch (error) {
+      if (error?.status !== 409 || attempt === SAVE_RETRY_ATTEMPTS - 1) throw error;
+    }
+  }
+  const err = new Error("CONTRACT_SAVE_FAILED");
+  err.status = 500;
+  throw err;
+}
+
 function listClientContracts(data = {}) {
   return Array.isArray(data.clientContracts) ? data.clientContracts : [];
 }
@@ -188,9 +215,6 @@ export function createContract(buffer, meta, createdBy) {
   if (!contactPhone) return { ok: false, status: 400, error: "\uC218\uC2E0 \uC5F0\uB77D\uCC98\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." };
   if (!buffer?.length) return { ok: false, status: 400, error: "PDF \uD30C\uC77C\uC774 \uBE44\uC5B4 \uC788\uC2B5\uB2C8\uB2E4." };
 
-  const state = getErpState();
-  const data = state.data && typeof state.data === "object" ? state.data : {};
-  const contracts = listClientContracts(data);
   const id = `cc-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
   const originalStorageKey = `${id}-original.pdf`;
   fs.writeFileSync(contractFilePath(originalStorageKey), buffer);
@@ -212,9 +236,22 @@ export function createContract(buffer, meta, createdBy) {
     createdBy: createdBy || undefined,
   };
 
-  const nextContracts = [contract, ...contracts].slice(0, MAX_CONTRACTS);
-  const saved = saveErpState({ ...data, clientContracts: nextContracts }, state.version, `contract-create:${clientName}`);
-  return { ok: true, contract: withResolvedStatus(contract), version: saved.version };
+  try {
+    const state = getErpState();
+    const contracts = listClientContracts(state.data);
+    const nextContracts = capClientContracts([contract, ...contracts.filter((row) => row.id !== id)]);
+    const saved = saveClientContractsPayload(nextContracts, `contract-create:${clientName}`);
+    return { ok: true, contract: withResolvedStatus(contract), version: saved.version };
+  } catch (error) {
+    const filePath = contractFilePath(originalStorageKey);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    console.error("[client-contracts] create failed:", error);
+    return {
+      ok: false,
+      status: error?.status || 500,
+      error: "\uACC4\uC57D \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.",
+    };
+  }
 }
 
 export function updateContract(id, patch = {}, updatedBy) {
@@ -246,7 +283,7 @@ export function updateContract(id, patch = {}, updatedBy) {
 
   const nextContracts = [...contracts];
   nextContracts[index] = next;
-  const saved = saveErpState({ ...data, clientContracts: nextContracts }, state.version, `contract-update:${id}`);
+  const saved = saveClientContractsPayload(nextContracts, `contract-update:${id}`);
   return { ok: true, contract: withResolvedStatus(next), version: saved.version };
 }
 
@@ -323,7 +360,7 @@ export async function rebuildContractPdf(id, patch = {}, updatedBy) {
 
   const nextContracts = [...contracts];
   nextContracts[index] = next;
-  const saved = saveErpState({ ...data, clientContracts: nextContracts }, state.version, `contract-rebuild-pdf:${id}`);
+  const saved = saveClientContractsPayload(nextContracts, `contract-rebuild-pdf:${id}`);
   return { ok: true, contract: withResolvedStatus(next), version: saved.version };
 }
 
@@ -333,14 +370,17 @@ export function deleteContract(id) {
   const contracts = listClientContracts(data);
   const contract = contracts.find((row) => row.id === id);
   if (!contract) return { ok: false, status: 404, error: "\uACC4\uC57D\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
+  if (resolveContractStatus(contract) === "signed") {
+    return { ok: false, status: 400, error: "\uC11C\uBA85 \uC644\uB8CC\uB41C \uACC4\uC57D\uC740 \uC0AD\uC81C\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
+  }
 
-  for (const key of [contract.originalStorageKey, contract.signedStorageKey].filter(Boolean)) {
+  for (const key of [contract.originalStorageKey, contract.signedStorageKey, contract.signatureStorageKey].filter(Boolean)) {
     const filePath = contractFilePath(key);
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
   }
 
   const nextContracts = contracts.filter((row) => row.id !== id);
-  const saved = saveErpState({ ...data, clientContracts: nextContracts }, state.version, `contract-delete:${id}`);
+  const saved = saveClientContractsPayload(nextContracts, `contract-delete:${id}`);
   return { ok: true, version: saved.version };
 }
 
@@ -369,7 +409,7 @@ export function issueSignToken(id, expiryHours = DEFAULT_TOKEN_EXPIRY_HOURS) {
 
   const nextContracts = [...contracts];
   nextContracts[index] = next;
-  const saved = saveErpState({ ...data, clientContracts: nextContracts }, state.version, `contract-send:${id}`);
+  const saved = saveClientContractsPayload(nextContracts, `contract-send:${id}`);
   return {
     ok: true,
     contract: withResolvedStatus(next),
@@ -440,12 +480,21 @@ export async function submitContractSignature(token, input = {}) {
 
   const nextContracts = [...contracts];
   nextContracts[index] = next;
-  const saved = saveErpState({ ...data, clientContracts: nextContracts }, state.version, `contract-signed:${current.id}`);
-  return {
-    ok: true,
-    contract: sanitizeContractForClient(withResolvedStatus(next)),
-    version: saved.version,
-  };
+  try {
+    const saved = saveClientContractsPayload(nextContracts, `contract-signed:${current.id}`);
+    return {
+      ok: true,
+      contract: sanitizeContractForClient(withResolvedStatus(next)),
+      version: saved.version,
+    };
+  } catch (error) {
+    console.error("[client-contracts] signed save failed:", error);
+    return {
+      ok: false,
+      status: error?.status || 500,
+      error: "\uC11C\uBA85 \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.",
+    };
+  }
 }
 
 export function getPublicSignPayload(token) {
