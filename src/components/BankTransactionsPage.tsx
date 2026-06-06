@@ -963,6 +963,8 @@ export function BankTransactionsPage({
   const [accountContentModal, setAccountContentModal] = useState<TxAccountContentModal | null>(null);
   const [accountSubjectPickerTxId, setAccountSubjectPickerTxId] = useState<string | null>(null);
   const accountSubjectIgnoreOpenUntilRef = useRef(0);
+  const bankTransactionsRef = useRef(bankTransactions);
+  bankTransactionsRef.current = bankTransactions;
   const [fixedExpenseModal, setFixedExpenseModal] = useState<TxFixedExpenseModal | null>(null);
   const [clientModal, setClientModal] = useState<TxClientModal | null>(null);
   const [taxInvoiceModal, setTaxInvoiceModal] = useState<TxTaxInvoiceModal | null>(null);
@@ -2262,36 +2264,38 @@ export function BankTransactionsPage({
     (txId: string, accountCode: string): boolean => {
       accountSubjectIgnoreOpenUntilRef.current = Date.now() + 800;
 
-      let nextTransactions: BankTransaction[] | null = null;
-      let saveFailed = false;
-      setBankTransactions((prev) => {
-        const tx = prev.find((row) => row.id === txId);
-        if (!tx) {
-          saveFailed = true;
-          return prev;
-        }
-        const nextRow = assignBankTransactionAccountCode({
-          tx,
-          accountCode,
-          ledgerCategories,
-          accountCodes,
-          confirmedBy: savedBy,
-        });
-        if (!nextRow) {
-          saveFailed = true;
-          return prev;
-        }
-        auditBankTxUpdate(tx, nextRow);
-        nextTransactions = prev.map((row) => (row.id === txId ? nextRow : row));
-        return nextTransactions;
-      });
-
-      if (saveFailed || !nextTransactions) {
+      const code = String(accountCode || "").trim();
+      if (!code) {
         setTxCellModalError(L.accountSubjectSaveFailed);
         setImportMessage(L.accountSubjectSaveFailed);
         return false;
       }
 
+      const prev = bankTransactionsRef.current;
+      const tx = prev.find((row) => row.id === txId);
+      if (!tx) {
+        setTxCellModalError(L.accountSubjectSaveFailed);
+        setImportMessage(L.accountSubjectSaveFailed);
+        return false;
+      }
+
+      const nextRow = assignBankTransactionAccountCode({
+        tx,
+        accountCode: code,
+        ledgerCategories,
+        accountCodes,
+        confirmedBy: savedBy,
+      });
+      if (!nextRow) {
+        setTxCellModalError(L.accountSubjectSaveFailed);
+        setImportMessage(L.accountSubjectSaveFailed);
+        return false;
+      }
+
+      auditBankTxUpdate(tx, nextRow);
+      const nextTransactions = prev.map((row) => (row.id === txId ? nextRow : row));
+      bankTransactionsRef.current = nextTransactions;
+      setBankTransactions(nextTransactions);
       setAccountSubjectPickerTxId(null);
       setTxCellModalError("");
       setImportMessage(L.cellSaveDone);
