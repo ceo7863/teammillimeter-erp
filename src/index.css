@@ -10634,6 +10634,86 @@ body.erp-col-resizing * {
   z-index: 70;
 }
 
+.erp-bank-counterparty-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.erp-bank-counterparty-drawer {
+  width: 100%;
+  max-height: 70dvh;
+  display: flex;
+  flex-direction: column;
+  border-radius: 1rem 1rem 0 0;
+  border: 1px solid #e2e8f0;
+  border-bottom: none;
+  background: #fff;
+  box-shadow: 0 -12px 40px rgba(15, 23, 42, 0.18);
+  animation: erp-bank-counterparty-drawer-in 0.2s ease-out;
+}
+
+.erp-bank-counterparty-drawer-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 1rem 1.25rem;
+  background: #fff;
+}
+
+.erp-bank-counterparty-drawer-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.erp-bank-counterparty-drawer-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.erp-bank-counterparty-drawer-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f8fafc;
+}
+
+.erp-bank-counterparty-drawer-table th {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #64748b;
+  white-space: nowrap;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.erp-bank-counterparty-drawer-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #f1f5f9;
+  color: #0f172a;
+  vertical-align: top;
+}
+
+.erp-bank-counterparty-drawer-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+@keyframes erp-bank-counterparty-drawer-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
 .erp-bank-tx-detail-drawer {
   width: min(100%, 28rem);
   max-width: 96vw;

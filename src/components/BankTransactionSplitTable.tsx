@@ -198,7 +198,7 @@ const SplitRow = memo(function SplitRow({
           <button
             type="button"
             className={`inline-flex max-w-full truncate rounded-md px-1.5 py-0.5 font-medium underline decoration-current/30 underline-offset-2 ${counterpartyButtonClass}`}
-            title={model.counterpartyLabel}
+            title={"\uB354\uBE14\uD074\uB9AD: \uC804\uCCB4 \uB0B4\uC5ED \uBCF4\uAE30"}
             onDoubleClick={(event) => {
               event.stopPropagation();
               onFilterCounterparty?.(model.counterpartyLabel);

@@ -32,6 +32,7 @@ import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { TableExportSection, TableExportToolbar } from "@/components/TableExportSection";
 import { BankTransactionListSection } from "@/components/BankTransactionListSection";
+import { BankCounterpartyTransactionsDrawer } from "@/components/BankCounterpartyTransactionsDrawer";
 import {
   CompanyLedgerFixedExpenseModalLayer,
   type CompanyLedgerFixedExpenseModalHandle,
@@ -417,8 +418,7 @@ const L = {
   balance: "\uC794\uC561",
   description: "\uAC70\uB798\uB0B4\uC6A9",
   counterpartyName: "\uC0C1\uB300\uC608\uAE08\uC8FC",
-  counterpartyFilterBanner: (name: string) => `\uAC70\uB798\uC790\uBA85 "${name}" \uB0B4\uC5ED\uB9CC \uBCF4\uB294 \uC911`,
-  counterpartyFilterClear: "\uD544\uD130 \uD574\uC81C",
+  counterpartyDrawerTitle: (name: string) => `\uAC70\uB798\uC790 "${name}" \uC804\uCCB4 \uB0B4\uC5ED`,
   counterpartyBank: "\uC0C1\uB300\uC740\uD589",
   transactionType: "\uAC70\uB798\uAD6C\uBD84",
   accountNumber: "\uACC4\uC88C\uBC88\uD638",
@@ -983,7 +983,7 @@ export function BankTransactionsPage({
   const [ledgerScopeFilter, setLedgerScopeFilter] = useState<LedgerScopeFilter>("all");
   const [statusTab, setStatusTab] = useState<BankTxStatusTab>("all");
   const [clientNameFilter, setClientNameFilter] = useState("");
-  const [counterpartyFilter, setCounterpartyFilter] = useState<{ key: string; label: string } | null>(null);
+  const [counterpartyDrawer, setCounterpartyDrawer] = useState<{ key: string; label: string } | null>(null);
   const [accountSubjectFilter, setAccountSubjectFilter] = useState("");
   const [groupFilter, setGroupFilter] = useState<BankTxGroupFilter>("all");
   const [evidenceFilter, setEvidenceFilter] = useState<BankTxEvidenceFilter>("all");
@@ -1062,15 +1062,13 @@ export function BankTransactionsPage({
   const fixedExpenseItemModalRef = useRef<CompanyLedgerFixedExpenseModalHandle>(null);
   const [clientModal, setClientModal] = useState<TxClientModal | null>(null);
   const [taxInvoiceLinkSession, setTaxInvoiceLinkSession] = useState<TaxInvoiceLinkSession | null>(null);
-  const filterByCounterpartyName = useCallback((label: string) => {
+  const openCounterpartyDrawer = useCallback((label: string) => {
     const trimmed = String(label || "").trim();
     if (!trimmed || trimmed === "-") return;
-    setCounterpartyFilter({
+    setCounterpartyDrawer({
       key: normalizeBankTxCounterpartyKey(trimmed),
       label: trimmed,
     });
-    setPeriodKey("all");
-    setDateFilter({ startDate: "", endDate: "" });
   }, []);
   const taxInvoiceLinkSessionRef = useRef<TaxInvoiceLinkSession | null>(null);
   taxInvoiceLinkSessionRef.current = taxInvoiceLinkSession;
@@ -2801,10 +2799,6 @@ export function BankTransactionsPage({
       });
     }
 
-    if (counterpartyFilter) {
-      scoped = scoped.filter((row) => matchesBankTxCounterpartyFilter(row, counterpartyFilter.key));
-    }
-
     if (accountSubjectFilter) {
       scoped = scoped.filter((row) => String(row.ledgerAccountCode || "").trim() === accountSubjectFilter);
     }
@@ -2824,7 +2818,6 @@ export function BankTransactionsPage({
     statusTab,
     statusFilterContext,
     clientNameFilter,
-    counterpartyFilter,
     accountSubjectFilter,
     evidenceFilter,
     companyExpenses,
@@ -2841,6 +2834,14 @@ export function BankTransactionsPage({
     ledgerRegistrationContext,
     sort,
   ]);
+
+  const counterpartyDrawerRows = useMemo(() => {
+    if (!counterpartyDrawer) return [];
+    const scoped = ledgerSyncedTransactions.filter((row) =>
+      matchesBankTxCounterpartyFilter(row, counterpartyDrawer.key),
+    );
+    return sortBankTransactions(scoped, { key: "transactionAt", direction: "desc" });
+  }, [ledgerSyncedTransactions, counterpartyDrawer]);
 
   const runBatchEvidenceAutoLink = useCallback(
     () => {
@@ -5255,7 +5256,6 @@ export function BankTransactionsPage({
             setAccountFilter("");
             setAccountSubjectFilter("");
             setClientNameFilter("");
-            setCounterpartyFilter(null);
             setGroupFilter("all");
             setFolderScope("all");
             setSelectedFolderId("");
@@ -5272,18 +5272,6 @@ export function BankTransactionsPage({
           {showEmptyPeriodHint ? (
             <p className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
               {L.emptyPeriodHint}
-            </p>
-          ) : null}
-          {counterpartyFilter ? (
-            <p className="mb-3 flex flex-wrap items-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-medium text-sky-900">
-              <span>{L.counterpartyFilterBanner(counterpartyFilter.label)}</span>
-              <button
-                type="button"
-                className="rounded-lg border border-sky-300 bg-white px-2.5 py-1 text-xs font-semibold text-sky-800 hover:bg-sky-100"
-                onClick={() => setCounterpartyFilter(null)}
-              >
-                {L.counterpartyFilterClear}
-              </button>
             </p>
           ) : null}
         <div className="erp-bank-wehago-table-shell rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -5315,7 +5303,7 @@ export function BankTransactionsPage({
             onEditClient={openClientModal}
             onEditFixedExpense={openFixedExpenseModal}
             onFindEvidence={openTaxInvoiceModal}
-            onFilterCounterparty={filterByCounterpartyName}
+            onFilterCounterparty={openCounterpartyDrawer}
             toolbar={
               <>
                 <Button
@@ -6596,6 +6584,14 @@ export function BankTransactionsPage({
         </div>
       ) : null}
 
+
+      {counterpartyDrawer ? (
+        <BankCounterpartyTransactionsDrawer
+          counterpartyLabel={counterpartyDrawer.label}
+          rows={counterpartyDrawerRows}
+          onClose={() => setCounterpartyDrawer(null)}
+        />
+      ) : null}
 
       <CompanyLedgerFixedExpenseModalLayer
         ref={fixedExpenseItemModalRef}
