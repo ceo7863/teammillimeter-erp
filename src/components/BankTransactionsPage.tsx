@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback, useDeferredValue, startTransition } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback, useDeferredValue } from "react";
 import { createPortal, flushSync } from "react-dom";
 import {
   ArrowDownLeft,
@@ -2236,19 +2236,17 @@ export function BankTransactionsPage({
     if (Date.now() < accountSubjectIgnoreOpenUntilRef.current) return;
     setTxCellModalError("");
     const txId = String(tx.id);
-    startTransition(() => {
-      setAccountSubjectPicker((prev) => {
-        if (prev?.txId === txId) {
-          accountSubjectPickerTxIdRef.current = null;
-          return null;
-        }
-        accountSubjectPickerTxIdRef.current = txId;
-        return {
-          txId,
-          selectedCode: String(tx.ledgerAccountCode || "").trim(),
-          flow: tx.deposit > 0 ? "income" : "expense",
-        };
-      });
+    setAccountSubjectPicker((prev) => {
+      if (prev?.txId === txId) {
+        accountSubjectPickerTxIdRef.current = null;
+        return null;
+      }
+      accountSubjectPickerTxIdRef.current = txId;
+      return {
+        txId,
+        selectedCode: String(tx.ledgerAccountCode || "").trim(),
+        flow: tx.deposit > 0 ? "income" : "expense",
+      };
     });
   }, []);
 

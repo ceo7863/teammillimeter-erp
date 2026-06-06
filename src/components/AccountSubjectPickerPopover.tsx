@@ -81,6 +81,16 @@ function computeExcelPopoverStyle(anchorRect: DOMRect | null): React.CSSProperti
   };
 }
 
+const FALLBACK_MENU_STYLE: React.CSSProperties = {
+  position: "fixed",
+  top: 0,
+  left: 0,
+  width: EXCEL_POPOVER_MIN_WIDTH,
+  maxHeight: EXCEL_LIST_MAX_HEIGHT,
+  zIndex: 10000,
+  visibility: "hidden",
+};
+
 export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPopover({
   triggerId,
   selectedCode,
@@ -97,9 +107,8 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
   const keyboardNavRef = useRef(false);
   const [typeahead, setTypeahead] = useState("");
   const [highlightedIndex, setHighlightedIndex] = useState(0);
-  const [menuStyle, setMenuStyle] = useState<React.CSSProperties | null>(() =>
-    computeExcelPopoverStyle(readBankTxAccountTriggerRect(triggerId)),
-  );
+  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>(FALLBACK_MENU_STYLE);
+  const [positionReady, setPositionReady] = useState(false);
 
   const flatItems = useMemo(
     () => filterAccountCodePickerFlatItems(items, typeahead),
@@ -120,21 +129,42 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
   const updatePosition = useCallback(() => {
     const style = computeExcelPopoverStyle(readBankTxAccountTriggerRect(triggerId));
     const el = menuRef.current;
-    if (el && style) {
-      if (typeof style.top === "number") el.style.top = `${style.top}px`;
-      if (typeof style.left === "number") el.style.left = `${style.left}px`;
-      if (typeof style.width === "number") el.style.width = `${style.width}px`;
-      if (typeof style.maxHeight === "number") el.style.maxHeight = `${style.maxHeight}px`;
+    if (style) {
+      if (el) {
+        el.style.top = `${style.top}px`;
+        el.style.left = `${style.left}px`;
+        el.style.width = `${style.width}px`;
+        el.style.maxHeight = `${style.maxHeight}px`;
+        el.style.visibility = "visible";
+      }
+      setMenuStyle(style);
+      setPositionReady(true);
     }
-    setMenuStyle(style);
     return style;
   }, [triggerId]);
 
   useLayoutEffect(() => {
-    updatePosition();
-    const triggerEl = readBankTxAccountTriggerElement(triggerId);
-    triggerEl?.classList.add("is-open");
-    return () => triggerEl?.classList.remove("is-open");
+    let cancelled = false;
+    let attempts = 0;
+
+    const tryPosition = () => {
+      if (cancelled) return;
+      const style = updatePosition();
+      if (style) {
+        readBankTxAccountTriggerElement(triggerId)?.classList.add("is-open");
+        return;
+      }
+      attempts += 1;
+      if (attempts < 8) {
+        window.requestAnimationFrame(tryPosition);
+      }
+    };
+
+    tryPosition();
+    return () => {
+      cancelled = true;
+      readBankTxAccountTriggerElement(triggerId)?.classList.remove("is-open");
+    };
   }, [triggerId, updatePosition]);
 
   useEffect(() => {
@@ -245,7 +275,13 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
   }, [flatItems, highlightedIndex, onClose, pickItem]);
 
   useEffect(() => {
+    let armed = false;
+    const armTimer = window.setTimeout(() => {
+      armed = true;
+    }, 0);
+
     const handlePointerDown = (event: MouseEvent) => {
+      if (!armed) return;
       const target = event.target as Node;
       if (menuRef.current?.contains(target)) return;
       const triggerEl = readBankTxAccountTriggerElement(triggerId);
@@ -253,10 +289,11 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
       onClose();
     };
     document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
+    return () => {
+      window.clearTimeout(armTimer);
+      document.removeEventListener("mousedown", handlePointerDown);
+    };
   }, [onClose, triggerId]);
-
-  if (!menuStyle) return null;
 
   const virtualRows = rowVirtualizer.getVirtualItems();
 
@@ -264,7 +301,7 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
     <div
       ref={menuRef}
       style={menuStyle}
-      className="erp-account-picker-popover erp-account-picker-popover--excel"
+      className={`erp-account-picker-popover erp-account-picker-popover--excel${positionReady ? "" : " is-positioning"}`}
       role="listbox"
       aria-label={labels.searchPlaceholder}
       onMouseDown={(event) => event.stopPropagation()}

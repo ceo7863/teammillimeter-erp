@@ -58,6 +58,7 @@ function AccountSubjectCellButton({
       className={`erp-bank-excel-cell__trigger${empty || !value?.trim() ? " is-empty" : ""}`}
       title={display}
       aria-haspopup="listbox"
+      aria-expanded={false}
       onClick={(event) => {
         event.stopPropagation();
         onClick();

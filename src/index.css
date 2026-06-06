@@ -291,6 +291,11 @@ textarea {
   line-height: 1.2;
 }
 
+.erp-account-picker-popover--excel.is-positioning {
+  pointer-events: none;
+  visibility: hidden;
+}
+
 .erp-account-picker-popover__item--excel.is-child {
   padding-left: 1.1rem;
   font-weight: 400;
