@@ -11949,9 +11949,7 @@ button:disabled,
 }
 
 .erp-financial-table-wrap {
-  overflow: auto;
-  max-height: min(72vh, 680px);
-  -webkit-overflow-scrolling: touch;
+  overflow: visible;
 }
 
 .erp-financial-table {
