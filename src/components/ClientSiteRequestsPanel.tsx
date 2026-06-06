@@ -21,6 +21,7 @@ import {
   type ClientSiteRequestLink,
   type ClientSiteRequestStatus,
 } from "@/utils/clientSiteRequests";
+import { ClientSiteRequestCalendarModal } from "@/components/ClientSiteRequestCalendarModal";
 import { ClientSiteRequestChat } from "@/components/ClientSiteRequestChat";
 
 const L = {
@@ -72,6 +73,7 @@ const L = {
   fail: "\uC694\uCCAD \uCC98\uB9AC\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   messageFail: "\uBA54\uC2DC\uC9C0 \uC804\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   unreadChat: "\uC0C8 \uBA54\uC2DC\uC9C0",
+  calendarTitle: "\uC811\uC218 \uCE98\uB9B0\uB354",
 };
 
 type ClientLike = {
@@ -104,6 +106,7 @@ function RequestCard({
   onChatDraftChange,
   onSendMessage,
   onUpdateStatus,
+  onClientNameClick,
 }: {
   request: ClientSiteRequest;
   noteDrafts: Record<string, string>;
@@ -115,13 +118,25 @@ function RequestCard({
   onChatDraftChange: (id: string, value: string) => void;
   onSendMessage: (request: ClientSiteRequest) => void;
   onUpdateStatus: (request: ClientSiteRequest, status: ClientSiteRequestStatus) => void;
+  onClientNameClick?: (request: ClientSiteRequest) => void;
 }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-base font-bold text-slate-900">{request.clientName}</span>
+            {onClientNameClick ? (
+              <button
+                type="button"
+                className="text-base font-bold text-blue-700 underline decoration-blue-300 underline-offset-2 hover:text-blue-900"
+                title={L.calendarTitle}
+                onClick={() => onClientNameClick(request)}
+              >
+                {request.clientName}
+              </button>
+            ) : (
+              <span className="text-base font-bold text-slate-900">{request.clientName}</span>
+            )}
             <span
               className={`inline-flex rounded-full px-2 py-0.5 text-xs font-bold ${
                 request.status === "pending"
@@ -249,6 +264,10 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
   const [chatDrafts, setChatDrafts] = useState<Record<string, string>>({});
   const [chatSendingId, setChatSendingId] = useState("");
   const [lastIssuedUrl, setLastIssuedUrl] = useState("");
+  const [calendarModalClient, setCalendarModalClient] = useState<{
+    clientId: number | string;
+    clientName: string;
+  } | null>(null);
 
   const clientOptions = useMemo(
     () =>
@@ -309,6 +328,14 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
   const selectedIssueLink = useMemo(
     () => links.find((link) => String(link.clientId) === issueClientId) || null,
     [links, issueClientId],
+  );
+
+  const calendarModalLink = useMemo(
+    () =>
+      calendarModalClient
+        ? links.find((link) => String(link.clientId) === String(calendarModalClient.clientId)) || null
+        : null,
+    [links, calendarModalClient],
   );
 
   const copyText = async (text: string) => {
@@ -719,6 +746,9 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
                     onChatDraftChange={(id, value) => setChatDrafts((prev) => ({ ...prev, [id]: value }))}
                     onSendMessage={handleSendStaffMessage}
                     onUpdateStatus={(row, status) => void handleUpdateStatus(row, status)}
+                    onClientNameClick={(row) =>
+                      setCalendarModalClient({ clientId: row.clientId, clientName: row.clientName })
+                    }
                   />
                 ))}
               </div>
@@ -726,6 +756,16 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
           </div>
         )}
       </CardContent>
+
+      {calendarModalClient ? (
+        <ClientSiteRequestCalendarModal
+          open
+          clientId={calendarModalClient.clientId}
+          clientName={calendarModalClient.clientName}
+          link={calendarModalLink}
+          onClose={() => setCalendarModalClient(null)}
+        />
+      ) : null}
     </Card>
   );
 }
