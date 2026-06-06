@@ -348,6 +348,30 @@ app.get("/api/public/client-contracts/sign/:token/pdf", (req, res) => {
   res.sendFile(path.resolve(file.path));
 });
 
+app.get("/api/public/client-contracts/sign/:token/signed-pdf", (req, res) => {
+  const contract = getContractByToken(req.params.token);
+  if (!contract) {
+    res.status(404).send("PDF\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    return;
+  }
+  if (contract.status !== "signed") {
+    res.status(404).send("\uC11C\uBA85\uC774 \uC644\uB8CC\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.");
+    return;
+  }
+  const file = getContractSignedFile(contract);
+  if (!file) {
+    res.status(404).send("\uC11C\uBA85\uB41C PDF\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    return;
+  }
+  const encodedName = encodeURIComponent(file.fileName);
+  const disposition = req.query.download === "1" ? "attachment" : "inline";
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `${disposition}; filename*=UTF-8''${encodedName}`);
+  res.setHeader("Cache-Control", "private, max-age=3600");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.sendFile(path.resolve(file.path));
+});
+
 function sendContractPreviewResponse(req, res, { pdfPath, cacheKey, fileName }) {
   const page = Math.max(1, Number.parseInt(String(req.query.page || "1"), 10) || 1);
   const result = renderContractPdfPreview({ pdfPath, cacheKey, page });

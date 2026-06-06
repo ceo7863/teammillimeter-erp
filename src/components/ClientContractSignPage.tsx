@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { WorkerPortalSignaturePad } from "@/components/WorkerPortalSignaturePad";
 import {
+  downloadPublicSignedContractPdf,
   fetchPublicContractSignInfo,
   publicContractPreviewUrl,
   submitPublicContractSignature,
@@ -20,7 +21,11 @@ const L = {
   pageDesc: "\uD300\uBC00\uB9AC\uBBF8\uD130 \uAC70\uB798\uCC98 \uACC4\uC57D\uC11C\uC785\uB2C8\uB2E4.",
   loading: "\uACC4\uC57D\uC11C\uB97C \uBD88\uB7EC\uC624\uB294 \uC911...",
   doneTitle: "\uC11C\uBA85\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4",
-  doneBody: "\uC5D0 \uC815\uC0C1\uC801\uC73C\uB85C \uC11C\uBA85\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uCC3D\uC744 \uB2EB\uC73C\uC2DC\uBA74 \uB429\uB2C8\uB2E4.",
+  doneBody: "\uC5D0 \uC815\uC0C1\uC801\uC73C\uB85C \uC11C\uBA85\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
+  download: "\uACC4\uC57D\uC11C \uB2E4\uC6B4\uBC1B\uAE30",
+  downloading: "\uB2E4\uC6B4\uB85C\uB4DC \uC911...",
+  downloadFail: "\uACC4\uC57D\uC11C \uB2E4\uC6B4\uB85C\uB4DC\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+  downloadMissing: "\uC11C\uBA85\uB41C \uACC4\uC57D\uC11C \uD30C\uC77C\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
   client: "\uAC70\uB798\uCC98",
   contract: "\uACC4\uC57D",
   expires: "\uC11C\uBA85 \uB9C1\uD06C \uB9CC\uB8CC: ",
@@ -52,6 +57,27 @@ export function ClientContractSignPage({ token }: ClientContractSignPageProps) {
   const [signatureDataUrl, setSignatureDataUrl] = useState("");
   const [previewPage, setPreviewPage] = useState(1);
   const [previewPageCount, setPreviewPageCount] = useState(1);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
+
+  const signedComplete = done || info?.status === "signed";
+  const canDownloadSigned = signedComplete && info?.hasSignedPdf !== false;
+
+  const signedDownloadName = info?.originalFileName
+    ? info.originalFileName.replace(/\.pdf$/i, "") + "-signed.pdf"
+    : "contract-signed.pdf";
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    setDownloadError("");
+    try {
+      await downloadPublicSignedContractPdf(token, signedDownloadName);
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : L.downloadFail);
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const loadPreviewMeta = useCallback(async (page = 1) => {
     const response = await fetch(publicContractPreviewUrl(token, page), { method: "HEAD" });
@@ -66,7 +92,11 @@ export function ClientContractSignPage({ token }: ClientContractSignPageProps) {
     try {
       const result = await fetchPublicContractSignInfo(token);
       setInfo(result);
-      setSignedByName(result.contactName || "");
+      if (result.status === "signed") {
+        setDone(true);
+      } else {
+        setSignedByName(result.contactName || "");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : L.loadFail);
     } finally {
@@ -99,6 +129,11 @@ export function ClientContractSignPage({ token }: ClientContractSignPageProps) {
         signedByName: signedByName.trim(),
         signatureDataUrl,
       });
+      setInfo((prev) =>
+        prev
+          ? { ...prev, status: "signed", signedByName: signedByName.trim(), hasSignedPdf: true }
+          : prev,
+      );
       setDone(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : L.saveFail);
@@ -120,12 +155,28 @@ export function ClientContractSignPage({ token }: ClientContractSignPageProps) {
           <Card className="rounded-2xl shadow-sm">
             <CardContent className="p-8 text-center text-slate-500">{L.loading}</CardContent>
           </Card>
-        ) : done ? (
+        ) : signedComplete && info ? (
           <Card className="rounded-2xl shadow-sm">
             <CardContent className="p-8 text-center">
               <CheckCircle2 size={48} className="mx-auto text-emerald-600" />
               <h2 className="erp-text-section mt-4">{L.doneTitle}</h2>
-              <p className="erp-text-body mt-2 text-slate-600">{(info?.title || "\uACC4\uC57D\uC11C") + L.doneBody}</p>
+              <p className="erp-text-body mt-2 text-slate-600">{(info.title || "\uACC4\uC57D\uC11C") + L.doneBody}</p>
+              {info.signedByName ? (
+                <p className="erp-text-caption mt-2 text-slate-500">{L.signer}: {info.signedByName}</p>
+              ) : null}
+              {canDownloadSigned ? (
+                <Button
+                  className="mt-6 rounded-2xl px-6 py-5 text-base font-bold"
+                  onClick={() => void handleDownload()}
+                  disabled={downloading}
+                >
+                  <Download size={18} className="mr-2" />
+                  {downloading ? L.downloading : L.download}
+                </Button>
+              ) : (
+                <p className="erp-text-caption mt-4 font-semibold text-amber-700">{L.downloadMissing}</p>
+              )}
+              {downloadError ? <p className="erp-text-caption mt-3 font-semibold text-red-600">{downloadError}</p> : null}
             </CardContent>
           </Card>
         ) : error && !info ? (

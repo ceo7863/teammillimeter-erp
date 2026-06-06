@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Copy, Eye, FileText, Link2, Pencil, RefreshCw, Send, Trash2 } from "lucide-react";
+import { Copy, Download, Eye, FileText, Pencil, RefreshCw, Send, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   contractStatusLabel,
   deleteClientContract,
+  downloadClientContractPdf,
   generateClientContract,
   listClientContractTemplates,
   listClientContracts,
@@ -56,6 +57,8 @@ const L = {
   signer: "\uC11C\uBA85\uC790: ",
   masterHint: "\uB300\uD45C\uC790 \uC131\uD6C4\u00B7\uC5F0\uB77D\uCC98\uB294 \uAC70\uB798\uCC98 \uB9C8\uC2A4\uD130\uC5D0\uC11C \uC790\uB3D9 \uC785\uB825\uB429\uB2C8\uB2E4.",
   editPdf: "PDF \uC218\uC815",
+  downloadSigned: "\uACC4\uC57D\uC11C \uB2E4\uC6B4\uBC1B\uAE30",
+  downloadFail: "\uACC4\uC57D\uC11C \uB2E4\uC6B4\uB85C\uB4DC\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
 };
 
 type ClientLike = {
@@ -194,6 +197,15 @@ export function ClientContractsPanel({ clients }: ClientContractsPanelProps) {
       setError(err instanceof Error ? err.message : L.sendFail);
     } finally {
       setSendingId("");
+    }
+  };
+
+  const handleDownloadSigned = async (contract: ClientContract) => {
+    setError("");
+    try {
+      await downloadClientContractPdf(contract.id, "signed");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : L.downloadFail);
     }
   };
 
@@ -368,9 +380,20 @@ export function ClientContractsPanel({ clients }: ClientContractsPanelProps) {
                           </Button>
                         ) : null}
                         {contract.status === "signed" ? (
-                          <Button size="sm" variant="outline" className="rounded-xl" onClick={() => void openClientContractPdf(contract.id, "signed")}>
-                            <Eye size={14} />
-                          </Button>
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="rounded-xl"
+                              title={L.downloadSigned}
+                              onClick={() => void handleDownloadSigned(contract)}
+                            >
+                              <Download size={14} />
+                            </Button>
+                            <Button size="sm" variant="outline" className="rounded-xl" onClick={() => void openClientContractPdf(contract.id, "signed")}>
+                              <Eye size={14} />
+                            </Button>
+                          </>
                         ) : null}
                         {contract.signUrl ? (
                           <Button size="sm" variant="outline" className="rounded-xl" onClick={() => void copySignUrl(contract.signUrl!)} title={L.copyLink}>

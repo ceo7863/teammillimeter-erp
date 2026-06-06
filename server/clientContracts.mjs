@@ -435,7 +435,6 @@ export async function submitContractSignature(token, input = {}) {
     signatureDataUrl: signatureCheck.signatureDataUrl,
     signatureStorageKey,
     signedStorageKey: signedPdfBuffer ? signedStorageKey : undefined,
-    signToken: undefined,
     tokenExpiresAt: undefined,
   };
 
@@ -453,7 +452,20 @@ export function getPublicSignPayload(token) {
   const contract = getContractByToken(token);
   if (!contract) return { ok: false, status: 404, error: "\uC720\uD6A8\uD558\uC9C0 \uC54A\uC740 \uC11C\uBA85 \uB9C1\uD06C\uC785\uB2C8\uB2E4." };
   if (contract.status === "signed") {
-    return { ok: false, status: 409, error: "\uC774\uBBF8 \uC11C\uBA85\uC774 \uC644\uB8CC\uB41C \uACC4\uC57D\uC785\uB2C8\uB2E4." };
+    return {
+      ok: true,
+      contract: {
+        id: contract.id,
+        clientName: contract.clientName,
+        title: contract.title,
+        contactName: contract.contactName,
+        status: "signed",
+        originalFileName: contract.originalFileName,
+        signedAt: contract.signedAt,
+        signedByName: contract.signedByName,
+        hasSignedPdf: Boolean(contract.signedStorageKey),
+      },
+    };
   }
   if (isTokenExpired(contract)) {
     return { ok: false, status: 410, error: "\uC11C\uBA85 \uB9C1\uD06C\uAC00 \uB9CC\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4." };
@@ -468,6 +480,7 @@ export function getPublicSignPayload(token) {
       status: resolveContractStatus(contract),
       originalFileName: contract.originalFileName,
       tokenExpiresAt: contract.tokenExpiresAt,
+      hasSignedPdf: false,
     },
   };
 }

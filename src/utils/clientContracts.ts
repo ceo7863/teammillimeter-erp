@@ -44,7 +44,25 @@ export type PublicClientContractSignInfo = {
   status: ClientContractStatus;
   originalFileName: string;
   tokenExpiresAt?: string;
+  signedAt?: string;
+  signedByName?: string;
+  hasSignedPdf?: boolean;
 };
+
+function triggerPdfDownload(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+function parseContentDispositionFileName(response: Response, fallback: string) {
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  return match ? decodeURIComponent(match[1]) : fallback;
+}
 
 function apiBase() {
   return import.meta.env.VITE_API_BASE || "/api";
@@ -184,6 +202,18 @@ export async function openClientContractPdf(id: string, kind: "original" | "sign
   window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
 }
 
+export async function downloadClientContractPdf(id: string, kind: "original" | "signed" = "signed") {
+  const token = getAuthToken();
+  const url = clientContractFileUrl(id, kind, true);
+  const response = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+  if (!response.ok) throw new Error(await parseApiError(response));
+  const blob = await response.blob();
+  const fallback = kind === "signed" ? "contract-signed.pdf" : "contract.pdf";
+  triggerPdfDownload(blob, parseContentDispositionFileName(response, fallback));
+}
+
 export async function fetchPublicContractSignInfo(token: string): Promise<PublicClientContractSignInfo> {
   const response = await fetch(`${apiBase()}/public/client-contracts/sign/${encodeURIComponent(token)}`);
   if (!response.ok) throw new Error(await parseApiError(response));
@@ -192,6 +222,18 @@ export async function fetchPublicContractSignInfo(token: string): Promise<Public
 
 export function publicContractPdfUrl(token: string) {
   return `${apiBase()}/public/client-contracts/sign/${encodeURIComponent(token)}/pdf`;
+}
+
+export function publicSignedContractPdfUrl(token: string, download = true) {
+  const suffix = download ? "?download=1" : "";
+  return `${apiBase()}/public/client-contracts/sign/${encodeURIComponent(token)}/signed-pdf${suffix}`;
+}
+
+export async function downloadPublicSignedContractPdf(token: string, fallbackFileName = "contract-signed.pdf") {
+  const response = await fetch(publicSignedContractPdfUrl(token, true));
+  if (!response.ok) throw new Error(await parseApiError(response));
+  const blob = await response.blob();
+  triggerPdfDownload(blob, parseContentDispositionFileName(response, fallbackFileName));
 }
 
 export function publicContractPreviewUrl(token: string, page = 1) {
