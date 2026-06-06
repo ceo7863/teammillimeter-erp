@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Eye, FileText, RefreshCw, Send, Trash2, Upload } from "lucide-react";
+import { Copy, Eye, FileText, Link2, RefreshCw, Send, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -22,7 +22,11 @@ const L = {
   needPhone: "\uC218\uC2E0 \uC5F0\uB77D\uCC98\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.",
   uploaded: "\uACC4\uC57D\uC11C\uAC00 \uC5C5\uB85C\uB4DC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   uploadFail: "\uC5C5\uB85C\uB4DC\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
-  sent: "\uC54C\uB9BC\uD1A1\uC774 \uBC1C\uC1A1\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uC11C\uBA85 \uB9C1\uD06C: ",
+  sent: "\uC54C\uB9BC\uD1A1 \uBC1C\uC1A1 \uC694\uCCAD\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
+  linkCopied: "\uC11C\uBA85 \uB9C1\uD06C\uB97C \uBCF5\uC0AC\uD588\uC2B5\uB2C8\uB2E4.",
+  copyLink: "\uB9C1\uD06C \uBCF5\uC0AC",
+  openLink: "\uC11C\uBA85 \uD398\uC774\uC9C0",
+  needSend: "\uC5C5\uB85C\uB4DC\uB9CC \uD558\uBA74 \uB9C1\uD06C\uAC00 \uC0DD\uAE30\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uBAA9\uB85D \uC624\uB978\uCABD \u2708\uFE0F \uBC1C\uC1A1 \uBC84\uD2BC\uC744 \uB20C\uB7EC\uC8FC\uC138\uC694.",
   sendFail: "\uC54C\uB9BC\uD1A1 \uBC1C\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   deleted: "\uACC4\uC57D\uC774 \uC0AD\uC81C\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   deleteFail: "\uC0AD\uC81C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
@@ -81,6 +85,17 @@ export function ClientContractsPanel({ clients }: ClientContractsPanelProps) {
   const [filterClient, setFilterClient] = useState("");
   const [form, setForm] = useState(EMPTY_FORM);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [lastSignUrl, setLastSignUrl] = useState("");
+
+  const copySignUrl = async (url: string) => {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setSuccess(L.linkCopied);
+    } catch {
+      window.prompt(L.copyLink, url);
+    }
+  };
 
   const loadContracts = useCallback(async () => {
     if (!apiMode) return;
@@ -148,7 +163,7 @@ export function ClientContractsPanel({ clients }: ClientContractsPanelProps) {
       setForm(EMPTY_FORM);
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
-      setSuccess(L.uploaded);
+      setSuccess(L.uploaded + " " + L.needSend);
     } catch (err) {
       setError(err instanceof Error ? err.message : L.uploadFail);
     } finally {
@@ -162,8 +177,9 @@ export function ClientContractsPanel({ clients }: ClientContractsPanelProps) {
     setSuccess("");
     try {
       const result = await sendClientContract(contract.id);
-      setContracts((prev) => prev.map((row) => (row.id === contract.id ? result.contract : row)));
-      setSuccess(L.sent + result.signUrl);
+      setContracts((prev) => prev.map((row) => (row.id === contract.id ? { ...result.contract, signUrl: result.signUrl } : row)));
+      setLastSignUrl(result.signUrl);
+      setSuccess(L.sent);
     } catch (err) {
       setError(err instanceof Error ? err.message : L.sendFail);
     } finally {
@@ -245,6 +261,29 @@ export function ClientContractsPanel({ clients }: ClientContractsPanelProps) {
 
         {error ? <p className="erp-text-caption mb-3 font-semibold text-red-600">{error}</p> : null}
         {success ? <p className="erp-text-caption mb-3 font-semibold text-emerald-600">{success}</p> : null}
+        {lastSignUrl ? (
+          <div className="mb-4 flex flex-col gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 sm:flex-row sm:items-center">
+            <div className="min-w-0 flex-1">
+              <p className="erp-text-caption font-bold text-emerald-800">{"\uC11C\uBA85 \uB9C1\uD06C"}</p>
+              <p className="erp-text-caption mt-1 break-all text-emerald-900">{lastSignUrl}</p>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Button size="sm" variant="outline" className="rounded-xl" onClick={() => void copySignUrl(lastSignUrl)}>
+                <Copy size={14} />
+                {L.copyLink}
+              </Button>
+              <a
+                href={lastSignUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="erp-ui-btn erp-ui-btn--primary erp-ui-btn--sm inline-flex items-center gap-1 rounded-xl px-3 py-2 text-sm font-semibold"
+              >
+                <Link2 size={14} />
+                {L.openLink}
+              </a>
+            </div>
+          </div>
+        ) : null}
 
         <Input value={filterClient} onChange={(e) => setFilterClient(e.target.value)} placeholder={L.search} className="mb-3" />
 
@@ -306,6 +345,11 @@ export function ClientContractsPanel({ clients }: ClientContractsPanelProps) {
                         {contract.status === "signed" ? (
                           <Button size="sm" variant="outline" className="rounded-xl" onClick={() => void openClientContractPdf(contract.id, "signed")}>
                             <Eye size={14} />
+                          </Button>
+                        ) : null}
+                        {contract.signUrl ? (
+                          <Button size="sm" variant="outline" className="rounded-xl" onClick={() => void copySignUrl(contract.signUrl!)} title={L.copyLink}>
+                            <Copy size={14} />
                           </Button>
                         ) : null}
                         {contract.status === "draft" || contract.status === "expired" ? (

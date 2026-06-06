@@ -90,6 +90,7 @@ import { getAlimtalkStatus, sendContractAlimtalk } from "./alimtalkNotify.mjs";
 import {
   initClientContractsStore,
   listContracts,
+  sanitizeContractForClient,
   getContractById,
   createContract,
   updateContract,
@@ -1625,7 +1626,7 @@ app.delete("/api/pdf-archives/:id", authMiddleware, (req, res) => {
 });
 
 app.get("/api/client-contracts", authMiddleware, (_req, res) => {
-  res.json(listContracts());
+  res.json(listContracts().map(sanitizeContractForClient));
 });
 
 app.get("/api/client-contracts/:id", authMiddleware, (req, res) => {
@@ -1634,7 +1635,7 @@ app.get("/api/client-contracts/:id", authMiddleware, (req, res) => {
     res.status(404).json({ error: "\uACC4\uC57D\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." });
     return;
   }
-  res.json(contract);
+  res.json(sanitizeContractForClient(contract));
 });
 
 app.patch("/api/client-contracts/:id", authMiddleware, (req, res) => {
@@ -1643,7 +1644,7 @@ app.patch("/api/client-contracts/:id", authMiddleware, (req, res) => {
     res.status(result.status || 400).json({ error: result.error });
     return;
   }
-  res.json(result.contract);
+  res.json(sanitizeContractForClient(result.contract));
 });
 
 app.delete("/api/client-contracts/:id", authMiddleware, (req, res) => {
@@ -1716,7 +1717,7 @@ app.post("/api/client-contracts/:id/send", authMiddleware, async (req, res) => {
   });
 
   res.json({
-    contract: tokenResult.contract,
+    contract: sanitizeContractForClient(tokenResult.contract),
     signUrl,
     alimtalk,
   });

@@ -22,6 +22,8 @@ export type ClientContract = {
   createdBy?: string;
   updatedAt?: string;
   updatedBy?: string;
+  /** ?? ? ??? ?? URL (?? API) */
+  signUrl?: string | null;
 };
 
 export type PublicClientContractSignInfo = {

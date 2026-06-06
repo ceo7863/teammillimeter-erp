@@ -14,10 +14,15 @@ function listClientContracts(data = {}) {
   return Array.isArray(data.clientContracts) ? data.clientContracts : [];
 }
 
-function sanitizeContractForClient(contract) {
+export function sanitizeContractForClient(contract) {
   if (!contract) return null;
   const { signToken, ...rest } = contract;
-  return rest;
+  const resolved = withResolvedStatus(contract);
+  let signUrl = null;
+  if (signToken && resolved.status === "sent" && !isTokenExpired(contract)) {
+    signUrl = `${config.alimtalk.erpBaseUrl.replace(/\/$/, "")}/sign/${signToken}`;
+  }
+  return { ...rest, status: resolved.status, signUrl };
 }
 
 function contractFilePath(storageKey) {
