@@ -278,6 +278,27 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
     };
   }, [onClose, triggerId]);
 
+  useEffect(() => {
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    const previousBodyOverflow = document.body.style.overflow;
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      document.body.style.overflow = previousBodyOverflow;
+    };
+  }, []);
+
+  useEffect(() => {
+    const blockBackgroundWheel = (event: WheelEvent) => {
+      if (menuRef.current?.contains(event.target as Node)) return;
+      event.preventDefault();
+    };
+    document.addEventListener("wheel", blockBackgroundWheel, { passive: false });
+    return () => document.removeEventListener("wheel", blockBackgroundWheel);
+  }, []);
+
   return createPortal(
     <div
       ref={menuRef}
@@ -287,7 +308,11 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
       aria-label={labels.searchPlaceholder}
       onMouseDown={(event) => event.stopPropagation()}
     >
-      <div ref={listRef} className="erp-account-picker-popover__list erp-account-picker-popover__list--excel">
+      <div
+        ref={listRef}
+        className="erp-account-picker-popover__list erp-account-picker-popover__list--excel"
+        onWheel={(event) => event.stopPropagation()}
+      >
         {!flatItems.length ? (
           <p className="erp-account-picker-popover__empty">{labels.empty}</p>
         ) : (
