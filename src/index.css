@@ -249,6 +249,20 @@ textarea {
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  contain: layout style paint;
+}
+
+.erp-account-picker-popover__virtual-list {
+  position: relative;
+  width: 100%;
+}
+
+.erp-account-picker-popover__virtual-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .erp-account-picker-popover__excel-group {
@@ -12724,6 +12738,11 @@ button:disabled,
 
 .erp-bank-wehago-row:hover {
   background: #f8fafc;
+}
+
+.erp-bank-wehago-split-table tbody tr {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 44px;
 }
 
 .erp-bank-wehago-cell {

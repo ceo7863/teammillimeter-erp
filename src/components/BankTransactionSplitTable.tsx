@@ -108,7 +108,7 @@ function ClientCellButton({
   );
 }
 
-function SplitRow({
+const SplitRow = memo(function SplitRow({
   model,
   labels,
   onEditMemo,
@@ -232,7 +232,7 @@ function SplitRow({
       </td>
     </tr>
   );
-}
+});
 
 function BankTransactionSplitTableComponent({
   rowIds,
