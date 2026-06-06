@@ -1,7 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
-import { DesktopTableWrap } from "@/components/MobileRecordCard";
-import { formatKRW, formatMonthLabel, type CompanyExpense, type FixedExpense, type FixedExpensePayment } from "@/utils/companyLedger";
+import { formatMonthLabel, type CompanyExpense, type FixedExpense, type FixedExpensePayment } from "@/utils/companyLedger";
 import type { BankTransaction } from "@/utils/bankTransactions";
 import {
   buildCashFlowAnalysisSummary,
@@ -9,11 +7,22 @@ import {
   collectAnalysisMonthKeys,
 } from "@/utils/financialAnalysis";
 import { buildAllLedgerEntries, type AccountCode, type LedgerCategory } from "@/utils/ledgerSystem";
+import {
+  FinancialCheckbox,
+  FinancialEmpty,
+  FinancialPanel,
+  FinancialTableWrap,
+  FinancialToolbar,
+  formatFinancialKRW,
+  resolveFinancialMonthKeys,
+  resolveFinancialPeriodRange,
+  type FinancialPeriod,
+} from "@/components/analysis/AnalysisUi";
 
 const L = {
   title: "\uD604\uAE08\uD750\uB984\uD45C",
-  desc: "\uACC4\uC815 \uADF8\uB8F9\uBCC4 \uC6D4\uBCC4 \uC785\uCD9C\uAE08\uACFC \uC21C\uD604\uAE08\uD750\uB984\uC744 \uD655\uC778\uD569\uB2C8\uB2E4.",
   analysisTitle: "\uD604\uAE08\uD750\uB984 \uBD84\uC11D",
+  detailTitle: "\uC601\uC5C5\uD65C\uB3D9 \uD604\uAE08\uD750\uB984",
   openingBalance: "\uC6D4\uCD08 \uD604\uAE08 \uC794\uACE0",
   operatingCashFlow: "\uC601\uC5C5\uD65C\uB3D9 \uD604\uAE08\uD750\uB984",
   unclassifiedFlow: "\uACC4\uC815 \uC5C6\uB294 \uC785\uCD9C\uAE08",
@@ -45,6 +54,17 @@ export function CashFlowPanel({
   accountCodes,
 }: CashFlowPanelProps) {
   const [hideEmpty, setHideEmpty] = useState(false);
+  const [period, setPeriod] = useState<FinancialPeriod>("month");
+  const initialRange = resolveFinancialPeriodRange("month");
+  const [dateFrom, setDateFrom] = useState(initialRange.startDate);
+  const [dateTo, setDateTo] = useState(initialRange.endDate);
+
+  const handlePeriodChange = (next: FinancialPeriod) => {
+    setPeriod(next);
+    const range = resolveFinancialPeriodRange(next);
+    setDateFrom(range.startDate);
+    setDateTo(range.endDate);
+  };
 
   const allEntries = useMemo(
     () =>
@@ -59,10 +79,12 @@ export function CashFlowPanel({
     [bankTransactions, companyExpenses, fixedExpensePayments, fixedExpenses, ledgerCategories, accountCodes],
   );
 
-  const monthKeys = useMemo(
-    () => collectAnalysisMonthKeys(allEntries, bankTransactions, [], 6),
-    [allEntries, bankTransactions],
-  );
+  const monthKeys = useMemo(() => {
+    const fromEntries = collectAnalysisMonthKeys(allEntries, bankTransactions, [], 12);
+    const fromRange = resolveFinancialMonthKeys(dateFrom, dateTo, 6);
+    const merged = [...new Set([...fromRange, ...fromEntries])].sort((a, b) => a.localeCompare(b));
+    return merged.slice(-6);
+  }, [allEntries, bankTransactions, dateFrom, dateTo]);
 
   const analysisRows = useMemo(
     () => buildCashFlowAnalysisSummary(bankTransactions, allEntries, monthKeys),
@@ -118,142 +140,130 @@ export function CashFlowPanel({
   ] as const;
 
   return (
-    <div className="space-y-4">
-      <Card className="rounded-2xl shadow-sm">
-        <CardContent className="p-4 md:p-5">
-          <h2 className="erp-text-page-title text-slate-900">{L.title}</h2>
-          <p className="mt-1 erp-text-body text-slate-600">{L.desc}</p>
-        </CardContent>
-      </Card>
+    <div className="erp-financial-view">
+      <FinancialToolbar
+        title={L.title}
+        period={period}
+        onPeriodChange={handlePeriodChange}
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        onDateFromChange={setDateFrom}
+        onDateToChange={setDateTo}
+        trailing={<FinancialCheckbox checked={hideEmpty} onChange={setHideEmpty} label={L.hideEmpty} />}
+      />
 
-      <Card className="rounded-2xl shadow-sm">
-        <CardContent className="p-4 md:p-5">
-          <h3 className="erp-text-section-title mb-4 font-bold text-slate-900">{L.analysisTitle}</h3>
-          {monthKeys.length ? (
-            <DesktopTableWrap>
-              <table className="erp-table w-full">
-                <thead>
-                  <tr>
-                    <th>{L.group}</th>
-                    {monthKeys.map((mk) => (
-                      <th key={mk} className="text-right">
-                        {formatMonthLabel(mk)}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {summaryMetricRows.map((metric) => (
-                    <tr key={metric.key}>
-                      <td className="font-semibold">{metric.label}</td>
-                      {monthKeys.map((mk) => {
-                        const value = analysisByMonth[mk]?.[metric.key] || 0;
-                        const tone =
-                          metric.key === "operatingNet" || metric.key === "unclassifiedNet"
-                            ? value >= 0
-                              ? "text-emerald-700"
-                              : "text-red-600"
-                            : "";
-                        return (
-                          <td key={`${metric.key}-${mk}`} className={`text-right font-semibold ${tone}`}>
-                            {value ? formatKRW(value) : "-"}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </DesktopTableWrap>
-          ) : (
-            <div className="py-8 text-center erp-text-body text-slate-500">{L.empty}</div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="rounded-2xl shadow-sm">
-        <CardContent className="p-4 md:p-5">
-          <label className="mb-4 inline-flex items-center gap-2 erp-text-body text-slate-700">
-            <input
-              type="checkbox"
-              checked={hideEmpty}
-              onChange={(event) => setHideEmpty(event.target.checked)}
-              className="h-4 w-4 rounded border-slate-300"
-            />
-            {L.hideEmpty}
-          </label>
-
-          {visibleRows.length ? (
-            <DesktopTableWrap>
-              <table className="erp-table w-full">
-                <thead>
-                  <tr>
-                    <th rowSpan={2}>{L.group}</th>
-                    {monthKeys.map((mk) => (
-                      <th key={mk} colSpan={3} className="text-center border-b">
-                        {formatMonthLabel(mk)}
-                      </th>
-                    ))}
-                    <th colSpan={3} className="text-center border-b">
-                      {L.total}
+      <FinancialPanel title={L.analysisTitle}>
+        {monthKeys.length ? (
+          <FinancialTableWrap>
+            <table className="erp-financial-table">
+              <thead>
+                <tr>
+                  <th>{L.group}</th>
+                  {monthKeys.map((mk) => (
+                    <th key={mk} className="is-num">
+                      {formatMonthLabel(mk)}
                     </th>
-                  </tr>
-                  <tr>
-                    {monthKeys.map((mk) => (
-                      <React.Fragment key={`sub-${mk}`}>
-                        <th className="text-right text-emerald-700">{L.income}</th>
-                        <th className="text-right text-red-600">{L.expense}</th>
-                        <th className="text-right">{L.net}</th>
-                      </React.Fragment>
-                    ))}
-                    <th className="text-right text-emerald-700">{L.income}</th>
-                    <th className="text-right text-red-600">{L.expense}</th>
-                    <th className="text-right">{L.net}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleRows.map((row) => (
-                    <tr key={row.parentGroup}>
-                      <td className="font-semibold">{row.parentGroup}</td>
-                      {monthKeys.map((mk) => (
-                        <React.Fragment key={`${row.parentGroup}-${mk}`}>
-                          <td className="text-right text-emerald-700">
-                            {row.monthlyIncome[mk] ? formatKRW(row.monthlyIncome[mk]) : "-"}
-                          </td>
-                          <td className="text-right text-red-600">
-                            {row.monthlyExpense[mk] ? formatKRW(row.monthlyExpense[mk]) : "-"}
-                          </td>
-                          <td className="text-right font-semibold">
-                            {row.monthlyNet[mk] ? formatKRW(row.monthlyNet[mk]) : "-"}
-                          </td>
-                        </React.Fragment>
-                      ))}
-                      <td className="text-right font-bold text-emerald-700">{formatKRW(row.totalIncome)}</td>
-                      <td className="text-right font-bold text-red-600">{formatKRW(row.totalExpense)}</td>
-                      <td className="text-right font-bold">{formatKRW(row.totalNet)}</td>
-                    </tr>
                   ))}
-                  <tr className="bg-slate-50 font-bold">
-                    <td>{L.total}</td>
+                </tr>
+              </thead>
+              <tbody>
+                {summaryMetricRows.map((metric) => (
+                  <tr key={metric.key} className="is-summary">
+                    <td className="is-label">{metric.label}</td>
+                    {monthKeys.map((mk) => {
+                      const value = analysisByMonth[mk]?.[metric.key] || 0;
+                      return (
+                        <td
+                          key={`${metric.key}-${mk}`}
+                          className={`is-num${value < 0 ? " erp-financial-amount-negative" : ""}`}
+                        >
+                          {value ? formatFinancialKRW(value) : "-"}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </FinancialTableWrap>
+        ) : (
+          <FinancialEmpty message={L.empty} />
+        )}
+      </FinancialPanel>
+
+      <FinancialPanel title={L.detailTitle}>
+        {visibleRows.length && monthKeys.length ? (
+          <FinancialTableWrap>
+            <table className="erp-financial-table">
+              <thead>
+                <tr>
+                  <th rowSpan={2}>{L.group}</th>
+                  {monthKeys.map((mk) => (
+                    <th key={mk} colSpan={3} className="is-num">
+                      {formatMonthLabel(mk)}
+                    </th>
+                  ))}
+                  <th colSpan={3} className="is-num">
+                    {L.total}
+                  </th>
+                </tr>
+                <tr>
+                  {monthKeys.map((mk) => (
+                    <React.Fragment key={`sub-${mk}`}>
+                      <th className="is-num">{L.income}</th>
+                      <th className="is-num">{L.expense}</th>
+                      <th className="is-num">{L.net}</th>
+                    </React.Fragment>
+                  ))}
+                  <th className="is-num">{L.income}</th>
+                  <th className="is-num">{L.expense}</th>
+                  <th className="is-num">{L.net}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleRows.map((row) => (
+                  <tr key={row.parentGroup}>
+                    <td className="is-label">{row.parentGroup}</td>
                     {monthKeys.map((mk) => (
-                      <React.Fragment key={`total-${mk}`}>
-                        <td className="text-right text-emerald-700">{formatKRW(totals.monthlyIncome[mk])}</td>
-                        <td className="text-right text-red-600">{formatKRW(totals.monthlyExpense[mk])}</td>
-                        <td className="text-right">{formatKRW(totals.monthlyNet[mk])}</td>
+                      <React.Fragment key={`${row.parentGroup}-${mk}`}>
+                        <td className="is-num">{row.monthlyIncome[mk] ? formatFinancialKRW(row.monthlyIncome[mk]) : "-"}</td>
+                        <td className="is-num">{row.monthlyExpense[mk] ? formatFinancialKRW(row.monthlyExpense[mk]) : "-"}</td>
+                        <td className={`is-num${(row.monthlyNet[mk] || 0) < 0 ? " erp-financial-amount-negative" : ""}`}>
+                          {row.monthlyNet[mk] ? formatFinancialKRW(row.monthlyNet[mk]) : "-"}
+                        </td>
                       </React.Fragment>
                     ))}
-                    <td className="text-right text-emerald-700">{formatKRW(totals.totalIncome)}</td>
-                    <td className="text-right text-red-600">{formatKRW(totals.totalExpense)}</td>
-                    <td className="text-right">{formatKRW(totals.totalNet)}</td>
+                    <td className="is-num">{formatFinancialKRW(row.totalIncome)}</td>
+                    <td className="is-num">{formatFinancialKRW(row.totalExpense)}</td>
+                    <td className={`is-num${row.totalNet < 0 ? " erp-financial-amount-negative" : ""}`}>
+                      {formatFinancialKRW(row.totalNet)}
+                    </td>
                   </tr>
-                </tbody>
-              </table>
-            </DesktopTableWrap>
-          ) : (
-            <div className="py-8 text-center erp-text-body text-slate-500">{L.empty}</div>
-          )}
-        </CardContent>
-      </Card>
+                ))}
+                <tr className="is-summary">
+                  <td className="is-label">{L.total}</td>
+                  {monthKeys.map((mk) => (
+                    <React.Fragment key={`total-${mk}`}>
+                      <td className="is-num">{formatFinancialKRW(totals.monthlyIncome[mk])}</td>
+                      <td className="is-num">{formatFinancialKRW(totals.monthlyExpense[mk])}</td>
+                      <td className={`is-num${(totals.monthlyNet[mk] || 0) < 0 ? " erp-financial-amount-negative" : ""}`}>
+                        {formatFinancialKRW(totals.monthlyNet[mk])}
+                      </td>
+                    </React.Fragment>
+                  ))}
+                  <td className="is-num">{formatFinancialKRW(totals.totalIncome)}</td>
+                  <td className="is-num">{formatFinancialKRW(totals.totalExpense)}</td>
+                  <td className={`is-num${totals.totalNet < 0 ? " erp-financial-amount-negative" : ""}`}>
+                    {formatFinancialKRW(totals.totalNet)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </FinancialTableWrap>
+        ) : (
+          <FinancialEmpty message={L.empty} />
+        )}
+      </FinancialPanel>
     </div>
   );
 }

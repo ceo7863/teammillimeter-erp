@@ -11773,3 +11773,441 @@ button:disabled,
     flex: none;
   }
 }
+
+/* ── Financial analysis (Clobe / Barobill style) ── */
+
+.erp-analysis-hub-page {
+  max-width: none;
+}
+
+.erp-financial-subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  border-bottom: 1px solid #e5e7eb;
+  margin-bottom: 1rem;
+}
+
+.erp-financial-subtab {
+  padding: 0.7rem 1rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #6b7280;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+
+.erp-financial-subtab.is-active {
+  color: #111827;
+  border-bottom-color: #111827;
+}
+
+.erp-financial-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 0.85rem;
+  margin-bottom: 0.35rem;
+}
+
+.erp-financial-toolbar-title {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: #111827;
+  margin: 0;
+  margin-right: 0.25rem;
+}
+
+.erp-financial-period-group {
+  display: inline-flex;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.375rem;
+  overflow: hidden;
+  background: #fff;
+}
+
+.erp-financial-period-btn {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6b7280;
+  background: #fff;
+  border: none;
+  border-right: 1px solid #e5e7eb;
+  cursor: pointer;
+}
+
+.erp-financial-period-btn:last-child {
+  border-right: none;
+}
+
+.erp-financial-period-btn.is-active {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.erp-financial-date-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.erp-financial-date-input {
+  min-height: 1.75rem !important;
+  padding: 0.2rem 0.45rem !important;
+  font-size: 0.75rem !important;
+  border-radius: 0.375rem !important;
+  min-width: 7.5rem;
+}
+
+.erp-financial-date-sep {
+  font-size: 0.75rem;
+  color: #9ca3af;
+}
+
+.erp-financial-toolbar-trailing {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.erp-financial-summary-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem 2rem;
+  padding: 0.5rem 0 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.erp-financial-summary-item-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #6b7280;
+  margin-bottom: 0.2rem;
+}
+
+.erp-financial-summary-item-value {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: #111827;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.erp-financial-summary-item-change {
+  margin-top: 0.15rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.erp-financial-summary-item-change.is-up {
+  color: #059669;
+}
+
+.erp-financial-summary-item-change.is-down {
+  color: #dc2626;
+}
+
+.erp-financial-panel {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  margin-bottom: 0.85rem;
+  overflow: hidden;
+}
+
+.erp-financial-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.erp-financial-panel-title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.erp-financial-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.erp-financial-panel-body {
+  padding: 0;
+}
+
+.erp-financial-table-wrap {
+  overflow: auto;
+  max-height: min(72vh, 680px);
+  -webkit-overflow-scrolling: touch;
+}
+
+.erp-financial-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  min-width: 36rem;
+}
+
+.erp-financial-table th,
+.erp-financial-table td {
+  padding: 0.45rem 0.65rem;
+  border-bottom: 1px solid #f3f4f6;
+  vertical-align: middle;
+}
+
+.erp-financial-table th {
+  background: #fafafa;
+  font-weight: 600;
+  color: #374151;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  white-space: nowrap;
+}
+
+.erp-financial-table td.is-label {
+  min-width: 10rem;
+  max-width: 18rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.erp-financial-table td.is-num,
+.erp-financial-table th.is-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.erp-financial-table tr.is-group td {
+  font-weight: 700;
+  background: #fafafa;
+}
+
+.erp-financial-table tr.is-summary td {
+  font-weight: 700;
+  background: #f9fafb;
+}
+
+.erp-financial-table tr.is-section td {
+  font-weight: 700;
+  background: #fff;
+  border-top: 1px solid #e5e7eb;
+}
+
+.erp-financial-table tr.is-negative td.is-num,
+.erp-financial-amount-negative {
+  color: #dc2626;
+}
+
+.erp-financial-flow-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 900px) {
+  .erp-financial-flow-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.erp-financial-flow-col {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+@media (min-width: 900px) {
+  .erp-financial-flow-col {
+    border-bottom: none;
+    border-right: 1px solid #f3f4f6;
+  }
+
+  .erp-financial-flow-col:last-child {
+    border-right: none;
+  }
+}
+
+.erp-financial-flow-col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-weight: 700;
+  font-size: 0.8125rem;
+  padding-bottom: 0.55rem;
+  margin-bottom: 0.35rem;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.erp-financial-flow-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.erp-financial-flow-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.4rem 0;
+  font-size: 0.75rem;
+  border-bottom: 1px solid #fafafa;
+}
+
+.erp-financial-flow-row.is-warning {
+  color: #b45309;
+}
+
+.erp-financial-flow-row-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.erp-financial-flow-warning-icon {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+}
+
+.erp-financial-flow-row-amount {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.erp-financial-segment {
+  display: inline-flex;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.375rem;
+  overflow: hidden;
+  background: #fff;
+}
+
+.erp-financial-segment-btn {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6b7280;
+  background: #fff;
+  border: none;
+  border-right: 1px solid #e5e7eb;
+  cursor: pointer;
+}
+
+.erp-financial-segment-btn:last-child {
+  border-right: none;
+}
+
+.erp-financial-segment-btn.is-active {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.erp-financial-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #374151;
+  cursor: pointer;
+  user-select: none;
+}
+
+.erp-financial-checkbox input {
+  width: 0.875rem;
+  height: 0.875rem;
+  accent-color: #111827;
+}
+
+.erp-financial-tree-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-weight: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.erp-financial-indent-0 {
+  padding-left: 0;
+}
+
+.erp-financial-indent-1 {
+  padding-left: 1rem;
+}
+
+.erp-financial-indent-2 {
+  padding-left: 2rem;
+}
+
+.erp-financial-empty {
+  padding: 2.5rem 1rem;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: #6b7280;
+}
+
+.erp-financial-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.65rem 0.85rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.erp-financial-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.erp-financial-filter-field select,
+.erp-financial-filter-field .erp-input {
+  min-height: 1.75rem;
+  font-size: 0.75rem;
+  border-radius: 0.375rem;
+}
+
+.erp-financial-filter-btn {
+  min-height: 1.75rem;
+  padding: 0.25rem 0.65rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.375rem;
+  background: #fff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #374151;
+  cursor: pointer;
+}
+
+.erp-financial-filter-btn:hover {
+  background: #f9fafb;
+}

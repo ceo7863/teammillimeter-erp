@@ -1,15 +1,21 @@
 import React, { useMemo, useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
-import { DesktopTableWrap } from "@/components/MobileRecordCard";
-import { formatKRW, monthRangeISO, type CompanyExpense, type FixedExpense, type FixedExpensePayment } from "@/utils/companyLedger";
+import { monthRangeISO, type CompanyExpense, type FixedExpense, type FixedExpensePayment } from "@/utils/companyLedger";
 import type { BankTransaction } from "@/utils/bankTransactions";
 import { buildCustomAnalysisBreakdown, type CustomAnalysisGroupMode } from "@/utils/financialAnalysis";
 import { buildAllLedgerEntries, type AccountCode, type LedgerCategory } from "@/utils/ledgerSystem";
+import {
+  FinancialEmpty,
+  FinancialPanel,
+  FinancialTableWrap,
+  FinancialToolbar,
+  formatFinancialKRW,
+  resolveFinancialPeriodRange,
+  type FinancialPeriod,
+} from "@/components/analysis/AnalysisUi";
 
 const L = {
-  title: "\uB9DE\uCDA4\uBD84\uC11D",
-  desc: "\uAE30\uAC04\uACFC \uADF8\uB8F9 \uAE30\uC900\uC744 \uC120\uD0DD\uD574 \uAC00\uACC4\uBD80 \uB0B4\uC5ED\uC744 \uC9D1\uACC4\uD569\uB2C8\uB2E4.",
+  title: "\uB9DE\uCDA4 \uBD84\uC11D",
   dateFrom: "\uC2DC\uC791\uC77C",
   dateTo: "\uC885\uB8CC\uC77C",
   groupBy: "\uADF8\uB8F9 \uAE30\uC900",
@@ -24,6 +30,7 @@ const L = {
   count: "\uAC74\uC218",
   empty: "\uC870\uAC74\uC5D0 \uB9DE\uB294 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   thisMonth: "\uC774\uBC88 \uB2EC",
+  result: "\uBD84\uC11D \uACB0\uACFC",
 };
 
 type CustomAnalysisPanelProps = {
@@ -44,9 +51,17 @@ export function CustomAnalysisPanel({
   accountCodes,
 }: CustomAnalysisPanelProps) {
   const defaultRange = monthRangeISO(0);
+  const [period, setPeriod] = useState<FinancialPeriod>("month");
   const [dateFrom, setDateFrom] = useState(defaultRange.startDate);
   const [dateTo, setDateTo] = useState(defaultRange.endDate);
   const [groupBy, setGroupBy] = useState<CustomAnalysisGroupMode>("category");
+
+  const handlePeriodChange = (next: FinancialPeriod) => {
+    setPeriod(next);
+    const range = resolveFinancialPeriodRange(next);
+    setDateFrom(range.startDate);
+    setDateTo(range.endDate);
+  };
 
   const allEntries = useMemo(
     () =>
@@ -81,97 +96,91 @@ export function CustomAnalysisPanel({
 
   const applyThisMonth = () => {
     const range = monthRangeISO(0);
+    setPeriod("month");
     setDateFrom(range.startDate);
     setDateTo(range.endDate);
   };
 
   return (
-    <div className="space-y-4">
-      <Card className="rounded-2xl shadow-sm">
-        <CardContent className="p-4 md:p-5">
-          <h2 className="erp-text-page-title text-slate-900">{L.title}</h2>
-          <p className="mt-1 erp-text-body text-slate-600">{L.desc}</p>
+    <div className="erp-financial-view">
+      <FinancialToolbar
+        title={L.title}
+        period={period}
+        onPeriodChange={handlePeriodChange}
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        onDateFromChange={setDateFrom}
+        onDateToChange={setDateTo}
+      />
 
-          <div className="mt-4 flex flex-wrap items-end gap-3">
-            <label className="erp-text-body">
-              <span className="mb-1 block text-slate-600">{L.dateFrom}</span>
-              <KoreanDateInput
-                value={dateFrom}
-                onChange={(event) => setDateFrom(event.target.value)}
-                className="erp-input rounded-xl"
-              />
-            </label>
-            <label className="erp-text-body">
-              <span className="mb-1 block text-slate-600">{L.dateTo}</span>
-              <KoreanDateInput
-                value={dateTo}
-                onChange={(event) => setDateTo(event.target.value)}
-                className="erp-input rounded-xl"
-              />
-            </label>
-            <button
-              type="button"
-              onClick={applyThisMonth}
-              className="rounded-xl bg-slate-100 px-4 py-2 erp-text-body font-semibold text-slate-700"
+      <FinancialPanel title={L.title}>
+        <div className="erp-financial-filter-row">
+          <label className="erp-financial-filter-field">
+            {L.dateFrom}
+            <KoreanDateInput value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="erp-input" />
+          </label>
+          <label className="erp-financial-filter-field">
+            {L.dateTo}
+            <KoreanDateInput value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="erp-input" />
+          </label>
+          <button type="button" className="erp-financial-filter-btn" onClick={applyThisMonth}>
+            {L.thisMonth}
+          </button>
+          <label className="erp-financial-filter-field">
+            {L.groupBy}
+            <select
+              value={groupBy}
+              onChange={(e) => setGroupBy(e.target.value as CustomAnalysisGroupMode)}
+              className="erp-input border border-slate-200"
             >
-              {L.thisMonth}
-            </button>
-            <label className="erp-text-body">
-              <span className="mb-1 block text-slate-600">{L.groupBy}</span>
-              <select
-                value={groupBy}
-                onChange={(e) => setGroupBy(e.target.value as CustomAnalysisGroupMode)}
-                className="erp-input rounded-xl border border-slate-200 px-3 py-2"
-              >
-                <option value="category">{L.category}</option>
-                <option value="account">{L.account}</option>
-                <option value="parentGroup">{L.parentGroup}</option>
-                <option value="counterparty">{L.counterparty}</option>
-              </select>
-            </label>
-          </div>
-        </CardContent>
-      </Card>
+              <option value="category">{L.category}</option>
+              <option value="account">{L.account}</option>
+              <option value="parentGroup">{L.parentGroup}</option>
+              <option value="counterparty">{L.counterparty}</option>
+            </select>
+          </label>
+        </div>
 
-      <Card className="rounded-2xl shadow-sm">
-        <CardContent className="p-4 md:p-5">
-          {rows.length ? (
-            <DesktopTableWrap>
-              <table className="erp-table w-full">
-                <thead>
-                  <tr>
-                    <th>{L.label}</th>
-                    <th className="text-right">{L.income}</th>
-                    <th className="text-right">{L.expense}</th>
-                    <th className="text-right">{L.net}</th>
-                    <th className="text-right">{L.count}</th>
+        {rows.length ? (
+          <FinancialTableWrap>
+            <table className="erp-financial-table">
+              <thead>
+                <tr>
+                  <th>{L.label}</th>
+                  <th className="is-num">{L.income}</th>
+                  <th className="is-num">{L.expense}</th>
+                  <th className="is-num">{L.net}</th>
+                  <th className="is-num">{L.count}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.key}>
+                    <td className="is-label">{row.label}</td>
+                    <td className="is-num">{row.income ? formatFinancialKRW(row.income) : "-"}</td>
+                    <td className="is-num">{row.expense ? formatFinancialKRW(row.expense) : "-"}</td>
+                    <td className={`is-num${row.net < 0 ? " erp-financial-amount-negative" : ""}`}>
+                      {formatFinancialKRW(row.net)}
+                    </td>
+                    <td className="is-num">{row.count}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.key}>
-                      <td className="font-semibold">{row.label}</td>
-                      <td className="text-right text-emerald-700">{row.income ? formatKRW(row.income) : "-"}</td>
-                      <td className="text-right text-red-600">{row.expense ? formatKRW(row.expense) : "-"}</td>
-                      <td className="text-right font-bold">{formatKRW(row.net)}</td>
-                      <td className="text-right">{row.count}</td>
-                    </tr>
-                  ))}
-                  <tr className="bg-slate-50 font-bold">
-                    <td>{L.net}</td>
-                    <td className="text-right text-emerald-700">{formatKRW(totals.income)}</td>
-                    <td className="text-right text-red-600">{formatKRW(totals.expense)}</td>
-                    <td className="text-right">{formatKRW(totals.income - totals.expense)}</td>
-                    <td className="text-right">{totals.count}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </DesktopTableWrap>
-          ) : (
-            <div className="py-8 text-center erp-text-body text-slate-500">{L.empty}</div>
-          )}
-        </CardContent>
-      </Card>
+                ))}
+                <tr className="is-summary">
+                  <td className="is-label">{L.result}</td>
+                  <td className="is-num">{formatFinancialKRW(totals.income)}</td>
+                  <td className="is-num">{formatFinancialKRW(totals.expense)}</td>
+                  <td className={`is-num${totals.income - totals.expense < 0 ? " erp-financial-amount-negative" : ""}`}>
+                    {formatFinancialKRW(totals.income - totals.expense)}
+                  </td>
+                  <td className="is-num">{totals.count}</td>
+                </tr>
+              </tbody>
+            </table>
+          </FinancialTableWrap>
+        ) : (
+          <FinancialEmpty message={L.empty} />
+        )}
+      </FinancialPanel>
     </div>
   );
 }
