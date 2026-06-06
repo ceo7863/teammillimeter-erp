@@ -46,6 +46,7 @@ const L = {
 export type TaxInvoiceLinkPanelDataProps = {
   tx: BankTransaction;
   taxInvoices: TaxInvoice[];
+  bankTransactions: BankTransaction[];
   linkedPaymentIndex: TaxInvoiceLinkedPaymentIndex;
   excludedIds: Set<string>;
   companyProfile?: CompanyProfile;
@@ -278,6 +279,7 @@ function TaxInvoiceLinkResultsTable({
 function TaxInvoiceLinkFilterBody({
   tx,
   taxInvoices,
+  bankTransactions,
   linkedPaymentIndex,
   excludedIds,
   companyProfile,
@@ -306,6 +308,7 @@ function TaxInvoiceLinkFilterBody({
     if (preparing) return [];
     return buildTaxInvoiceLinkCatalog({
       invoices: taxInvoices,
+      bankTransactions,
       linkedPaymentIndex,
       excludedIds,
       flowFilter,
@@ -317,6 +320,7 @@ function TaxInvoiceLinkFilterBody({
   }, [
     preparing,
     taxInvoices,
+    bankTransactions,
     linkedPaymentIndex,
     excludedIds,
     flowFilter,

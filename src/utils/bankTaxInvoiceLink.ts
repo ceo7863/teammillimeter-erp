@@ -153,8 +153,14 @@ export function scoreTaxInvoiceMatch(
 ) {
   if (invoice.status === "cancelled") return -1;
   const txAmount = getBankTxClassifiedAmount(tx);
-  const amountDiff = Math.abs(txAmount - Number(invoice.totalAmount || 0));
-  if (txAmount > 0 && amountDiff > Math.max(1000, txAmount * 0.02)) return 0;
+  const totalAmount = Number(invoice.totalAmount || 0);
+  const supplyAmount = Number(invoice.supplyAmount || 0);
+  const amountDiffTotal = Math.abs(txAmount - totalAmount);
+  const amountDiffSupply = supplyAmount > 0 ? Math.abs(txAmount - supplyAmount) : amountDiffTotal;
+  const amountTolerance = Math.max(1000, txAmount * 0.02);
+  const matchesTotal = txAmount > 0 && amountDiffTotal <= amountTolerance;
+  const matchesSupply = txAmount > 0 && supplyAmount > 0 && amountDiffSupply === 0;
+  if (txAmount > 0 && !matchesTotal && !matchesSupply) return 0;
 
   const invBizNo = normalizeBusinessRegistrationNo(invoice.businessNo);
   const txBizNos = collectBankTxPartyBusinessNumbers(tx, context);
@@ -191,8 +197,9 @@ export function scoreTaxInvoiceMatch(
   if (tx.deposit > 0 && invoice.flowType === "sales") score += 15;
   if (tx.withdrawal > 0 && invoice.flowType === "purchase") score += 15;
 
-  if (txAmount > 0 && amountDiff === 0) score += 30;
-  else if (txAmount > 0 && amountDiff <= 100) score += 15;
+  if (txAmount > 0 && amountDiffTotal === 0) score += 30;
+  else if (txAmount > 0 && amountDiffTotal <= 100) score += 15;
+  else if (matchesSupply) score += 22;
 
   return score;
 }

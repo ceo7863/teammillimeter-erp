@@ -54,8 +54,12 @@ export function getTaxInvoiceLinkedDepositSum(transactions: BankTransaction[], i
     .reduce((sum, row) => sum + Number(row.deposit || 0), 0);
 }
 
-export function getTaxInvoiceRemainingAmount(invoice: TaxInvoice, transactions: BankTransaction[]) {
-  return getTaxInvoiceUnsettledAmount(invoice, transactions);
+export function getTaxInvoiceRemainingAmount(
+  invoice: TaxInvoice,
+  transactions: BankTransaction[],
+  allInvoices: TaxInvoice[] = [],
+) {
+  return getTaxInvoiceUnsettledAmount(invoice, transactions, allInvoices.length ? allInvoices : undefined);
 }
 
 function isWithinSplitWindow(tx: BankTransaction, invoice: TaxInvoice) {
@@ -151,7 +155,7 @@ export function findSplitTaxInvoiceLinkPlans(
   );
 
   for (const invoice of dedupeTaxInvoicesForSplitMatching(invoices)) {
-    const remaining = getTaxInvoiceRemainingAmount(invoice, transactions);
+    const remaining = getTaxInvoiceRemainingAmount(invoice, transactions, invoices);
     if (remaining <= 0) continue;
 
     const splitEnabled = isClientTaxInvoiceSplitEnabled(clients, invoice);
@@ -195,7 +199,7 @@ export function batchAutoLinkSplitTaxInvoiceEvidence(
 
   for (const plan of plans) {
     if (plan.transactions.some((row) => linkedTxIds.has(row.id))) continue;
-    const remaining = getTaxInvoiceRemainingAmount(plan.invoice, nextTransactions);
+    const remaining = getTaxInvoiceRemainingAmount(plan.invoice, nextTransactions, invoices);
     if (remaining <= 0) continue;
     const planSum = plan.transactions.reduce((sum, row) => sum + getBankTxClassifiedAmount(row), 0);
     if (Math.abs(planSum - remaining) > TAX_INVOICE_SPLIT_AMOUNT_TOLERANCE) continue;

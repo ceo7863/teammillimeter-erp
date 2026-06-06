@@ -300,6 +300,7 @@ type TxClientModal = { tx: BankTransaction; draft: string };
 type TaxInvoiceLinkSession = {
   tx: BankTransaction;
   taxInvoices: TaxInvoice[];
+  bankTransactions: BankTransaction[];
   linkedPaymentIndex: ReturnType<typeof buildTaxInvoiceLinkedPaymentIndex>;
   excludedIds: Set<string>;
   preparing: boolean;
@@ -2368,6 +2369,7 @@ export function BankTransactionsPage({
       setTaxInvoiceLinkSession({
         tx,
         taxInvoices,
+        bankTransactions,
         linkedPaymentIndex: EMPTY_TAX_INVOICE_LINKED_INDEX,
         excludedIds: EMPTY_TAX_INVOICE_EXCLUDED_IDS,
         preparing: true,
@@ -2376,6 +2378,7 @@ export function BankTransactionsPage({
         setTaxInvoiceLinkSession({
           tx,
           taxInvoices,
+          bankTransactions,
           linkedPaymentIndex: getTaxInvoiceLinkedPaymentIndexCached(bankTransactions),
           excludedIds: getTaxInvoiceCancellationExcludedIdsCached(taxInvoices),
           preparing: false,
@@ -2399,6 +2402,7 @@ export function BankTransactionsPage({
       setTaxInvoiceLinkSession({
         tx: result.nextRow,
         taxInvoices: session.taxInvoices,
+        bankTransactions: result.nextTransactions,
         linkedPaymentIndex: buildTaxInvoiceLinkedPaymentIndex(result.nextTransactions),
         excludedIds: session.excludedIds,
         preparing: false,
@@ -2425,6 +2429,7 @@ export function BankTransactionsPage({
     renderTaxInvoiceLinkPanel({
       tx: taxInvoiceLinkSession.tx,
       taxInvoices: taxInvoiceLinkSession.taxInvoices,
+      bankTransactions: taxInvoiceLinkSession.bankTransactions,
       linkedPaymentIndex: taxInvoiceLinkSession.linkedPaymentIndex,
       excludedIds: taxInvoiceLinkSession.excludedIds,
       preparing: taxInvoiceLinkSession.preparing,
