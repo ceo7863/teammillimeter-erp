@@ -1444,6 +1444,9 @@ app.post("/api/barobill/bank/sync", authMiddleware, async (req, res) => {
       ...result,
       version: saved.version,
       updatedAt: saved.updatedAt,
+      bankTransactionCount: Array.isArray(saved.data.bankTransactions) ? saved.data.bankTransactions.length : 0,
+      bankTransactions: saved.data.bankTransactions || [],
+      bankTransactionFolders: saved.data.bankTransactionFolders || [],
       bankSyncMeta: saved.data.bankSyncMeta || null,
       status: getBarobillBankSyncStatus(),
     });

@@ -39,6 +39,13 @@ type BankSyncedResult = {
   applied?: boolean;
 };
 
+type BankSyncCallbackPayload = {
+  version?: number;
+  bankTransactions?: unknown[];
+  bankTransactionFolders?: unknown[];
+  bankSyncMeta?: Record<string, unknown> | null;
+};
+
 type MessageTone = "info" | "success" | "error";
 
 function formatSyncResult(
@@ -94,7 +101,7 @@ export function BarobillBankSettingsPanel({
   apiMode: boolean;
   isAdmin: boolean;
   onSyncBegin?: () => void;
-  onSynced?: (result?: { version?: number }) => void | Promise<BankSyncedResult | void>;
+  onSynced?: (result?: BankSyncCallbackPayload) => void | Promise<BankSyncedResult | void>;
 }) {
   const [status, setStatus] = useState<BarobillBankStatus | null>(null);
   const [scrapNeedsApply, setScrapNeedsApply] = useState<boolean | null>(null);
@@ -131,24 +138,37 @@ export function BarobillBankSettingsPanel({
     setLoading(true);
     setMessage("");
     setMessageHint("");
+    let syncResult: Awaited<ReturnType<typeof syncBarobillBankNow>> | null = null;
+    let refreshResult: BankSyncedResult | void;
+    let syncError = "";
     try {
       onSyncBegin?.();
-      const result = await syncBarobillBankNow({ refresh });
-      if (result.status) setStatus(result.status);
-      let refreshResult: BankSyncedResult | void;
+      syncResult = await syncBarobillBankNow({ refresh });
+      if (syncResult.status) setStatus(syncResult.status);
       await loadStatus();
-      if (result.ok || result.collecting || result.reason === "sync_in_progress") {
-        refreshResult = await onSynced?.({ version: result.version });
-      }
-      const formatted = formatSyncResult(result, refreshResult || undefined);
-      setMessage(formatted.text);
-      setMessageHint(formatted.hint || "");
-      setMessageTone(formatted.tone);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "\uAC00\uC838\uC624\uAE30 \uC2E4\uD328");
-      setMessageHint("");
-      setMessageTone("error");
+      syncError = error instanceof Error ? error.message : "\uAC00\uC838\uC624\uAE30 \uC2E4\uD328";
     } finally {
+      try {
+        refreshResult = await onSynced?.({
+          version: syncResult?.version,
+          bankTransactions: syncResult?.bankTransactions,
+          bankTransactionFolders: syncResult?.bankTransactionFolders,
+          bankSyncMeta: syncResult?.bankSyncMeta ?? null,
+        });
+      } catch {
+        refreshResult = undefined;
+      }
+      if (syncError) {
+        setMessage(syncError);
+        setMessageHint("");
+        setMessageTone("error");
+      } else if (syncResult) {
+        const formatted = formatSyncResult(syncResult, refreshResult || undefined);
+        setMessage(formatted.text);
+        setMessageHint(formatted.hint || "");
+        setMessageTone(formatted.tone);
+      }
       setLoading(false);
     }
   };

@@ -43,6 +43,9 @@ export type BarobillBankSyncResult = {
   status?: BarobillBankStatus;
   version?: number;
   updatedAt?: string | null;
+  bankTransactionCount?: number;
+  bankTransactions?: unknown[];
+  bankTransactionFolders?: unknown[];
   bankSyncMeta?: Record<string, unknown> | null;
   error?: string;
   reason?: string;

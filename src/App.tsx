@@ -8570,7 +8570,7 @@ export default function TeammillimeterErpMvp() {
         const hasLocalBankEdits = bankTransactionsDirtyRef.current;
         const duringRemoteSync = bankSyncApplyingRef.current;
         const merged = duringRemoteSync
-          ? mergeBankTransactionsUnion(bankTransactionsRef.current, incoming, { preserveLocalOnly: false })
+          ? incoming
           : hasLocalBankEdits
             ? mergeBankTransactionsUnion(bankTransactionsRef.current, incoming, { preserveLocalOnly: true })
             : incoming;
@@ -8623,32 +8623,60 @@ export default function TeammillimeterErpMvp() {
     }
   }, []);
 
+  const applyRemoteBankSnapshot = React.useCallback(
+    async (data: Awaited<ReturnType<typeof fetchBankTransactionsSnapshot>>) => {
+      bankSyncApplyingRef.current = true;
+      skipSaveRef.current = true;
+      if (saveDebounceTimerRef.current) {
+        window.clearTimeout(saveDebounceTimerRef.current);
+        saveDebounceTimerRef.current = null;
+      }
+      try {
+        return await applyBankTransactionsSnapshot(data);
+      } finally {
+        window.setTimeout(() => {
+          bankSyncApplyingRef.current = false;
+          releaseRemoteBankSnapshotSaveGuard();
+        }, 100);
+      }
+    },
+    [applyBankTransactionsSnapshot, releaseRemoteBankSnapshotSaveGuard],
+  );
+
   const forceRefreshBankFromServer = React.useCallback(async () => {
-    bankSyncApplyingRef.current = true;
-    skipSaveRef.current = true;
     try {
       const data = await fetchBankTransactionsSnapshot();
-      return await applyBankTransactionsSnapshot(data);
+      return await applyRemoteBankSnapshot(data);
     } catch (error) {
       console.error(error);
       return { addedCount: 0, totalCount: bankTransactionsRef.current.length, applied: false };
-    } finally {
-      window.setTimeout(() => {
-        bankSyncApplyingRef.current = false;
-        releaseRemoteBankSnapshotSaveGuard();
-      }, 100);
     }
-  }, [applyBankTransactionsSnapshot, releaseRemoteBankSnapshotSaveGuard]);
+  }, [applyRemoteBankSnapshot]);
 
   const handleBankSynced = React.useCallback(
-    async (syncResult?: { version?: number }) => {
+    async (syncResult?: {
+      version?: number;
+      bankTransactions?: unknown[];
+      bankTransactionFolders?: unknown[];
+      bankSyncMeta?: { lastImportAt?: string | null } | null;
+    }) => {
       if (syncResult?.version != null && syncResult.version > erpVersionRef.current) {
         erpVersionRef.current = syncResult.version;
         setErpVersion(syncResult.version);
       }
+      if (Array.isArray(syncResult?.bankTransactions)) {
+        return applyRemoteBankSnapshot({
+          version: syncResult.version ?? erpVersionRef.current,
+          bankTransactions: syncResult.bankTransactions,
+          bankTransactionFolders: Array.isArray(syncResult.bankTransactionFolders)
+            ? syncResult.bankTransactionFolders
+            : undefined,
+          bankSyncMeta: syncResult.bankSyncMeta ?? null,
+        });
+      }
       return forceRefreshBankFromServer();
     },
-    [forceRefreshBankFromServer],
+    [applyRemoteBankSnapshot, forceRefreshBankFromServer],
   );
 
   const bankLatestTransactionAt = React.useMemo(() => {

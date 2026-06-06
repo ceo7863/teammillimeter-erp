@@ -955,7 +955,12 @@ export function BankTransactionsPage({
   erpVersion?: number;
   bankListRefreshAt?: string;
   onBankSyncBegin?: () => void;
-  onBankSynced?: (result?: { version?: number }) => void | Promise<void>;
+  onBankSynced?: (result?: {
+    version?: number;
+    bankTransactions?: unknown[];
+    bankTransactionFolders?: unknown[];
+    bankSyncMeta?: { lastImportAt?: string | null } | null;
+  }) => void | Promise<{ totalCount?: number; addedCount?: number; applied?: boolean } | void>;
   isPageActive?: boolean;
   onRequestImmediateSave?: (patch?: {
     bankTransactions?: BankTransaction[];
@@ -4901,7 +4906,7 @@ export function BankTransactionsPage({
                     apiMode={apiMode}
                     isAdmin={currentUser?.role === "admin"}
                     onSyncBegin={onBankSyncBegin}
-                    onSynced={(result) => onBankSynced?.(result)}
+                    onSynced={async (result) => await onBankSynced?.(result)}
                   />
                 </div>
               ) : null}
