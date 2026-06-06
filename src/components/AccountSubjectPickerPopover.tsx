@@ -199,7 +199,8 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
     (item: FlatPickerItem | undefined) => {
       if (!item) return;
       onSelect(item.code);
-      onClose();
+      // Defer close so mouseup does not click-through to the cell trigger underneath.
+      window.setTimeout(() => onClose(), 0);
     },
     [onClose, onSelect],
   );

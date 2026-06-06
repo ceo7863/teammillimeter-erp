@@ -142,5 +142,7 @@ export function assignBankTransactionAccountCode(input: {
     ledgerMemo: input.tx.ledgerMemo || input.tx.memo,
     ledgerConfirmedAt: new Date().toISOString(),
     ledgerConfirmedBy: input.confirmedBy,
+    linkedCompanyExpenseId: undefined,
+    linkedFixedExpensePaymentId: undefined,
   };
 }

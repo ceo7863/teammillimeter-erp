@@ -962,6 +962,7 @@ export function BankTransactionsPage({
   const [accountSubjectPicker, setAccountSubjectPicker] = useState<{
     tx: BankTransaction;
   } | null>(null);
+  const accountSubjectIgnoreOpenUntilRef = useRef(0);
   const [fixedExpenseModal, setFixedExpenseModal] = useState<TxFixedExpenseModal | null>(null);
   const [clientModal, setClientModal] = useState<TxClientModal | null>(null);
   const [taxInvoiceModal, setTaxInvoiceModal] = useState<TxTaxInvoiceModal | null>(null);
@@ -2160,6 +2161,7 @@ export function BankTransactionsPage({
   }, []);
 
   const openAccountSubjectModal = useCallback((tx: BankTransaction) => {
+    if (Date.now() < accountSubjectIgnoreOpenUntilRef.current) return;
     setTxCellModalError("");
     setAccountSubjectPicker((prev) => (prev?.tx.id === tx.id ? null : { tx }));
   }, []);
@@ -2256,7 +2258,6 @@ export function BankTransactionsPage({
 
   const saveAccountSubjectSelection = useCallback(
     (txId: string, accountCode: string) => {
-      setAccountSubjectPicker(null);
       let nextTransactions: BankTransaction[] | null = null;
       setBankTransactions((prev) => {
         const tx = prev.find((row) => row.id === txId);
@@ -2275,8 +2276,11 @@ export function BankTransactionsPage({
       });
       if (!nextTransactions) {
         setTxCellModalError(L.detailLedgerRegisterFailed);
+        setImportMessage(L.detailLedgerRegisterFailed);
         return;
       }
+      accountSubjectIgnoreOpenUntilRef.current = Date.now() + 400;
+      setAccountSubjectPicker(null);
       setTxCellModalError("");
       setImportMessage(L.cellSaveDone);
       void onRequestImmediateSave?.({ bankTransactions: nextTransactions });
