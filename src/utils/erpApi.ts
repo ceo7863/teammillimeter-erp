@@ -315,10 +315,13 @@ export type BankFolderSyncResult = {
   liveSyncStatus?: BankLiveSyncStatus | null;
 };
 
-export async function fetchBankSyncSnapshot(sinceVersion: number, localCount?: number) {
+export async function fetchBankSyncSnapshot(sinceVersion: number, localCount?: number, localLatestAt?: string) {
   const params = new URLSearchParams({ sinceVersion: String(sinceVersion) });
   if (localCount != null && Number.isFinite(localCount)) {
     params.set("localCount", String(localCount));
+  }
+  if (localLatestAt) {
+    params.set("localLatestAt", localLatestAt);
   }
   return apiRequest<BankSyncSnapshot>(`/erp/bank-sync?${params.toString()}`);
 }

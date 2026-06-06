@@ -35,6 +35,7 @@ type UseBankLiveSyncOptions = {
   isActive: boolean;
   sinceVersion: number;
   localTransactionCount: number;
+  localLatestTransactionAt?: string;
   onRemoteUpdate: (snapshot: BankSyncSnapshot) => void;
   intervalMs?: number;
 };
@@ -44,6 +45,7 @@ export function useBankLiveSync({
   isActive,
   sinceVersion,
   localTransactionCount,
+  localLatestTransactionAt = "",
   onRemoteUpdate,
   intervalMs = 20000,
 }: UseBankLiveSyncOptions) {
@@ -60,6 +62,7 @@ export function useBankLiveSync({
 
   const sinceVersionRef = React.useRef(sinceVersion);
   const localCountRef = React.useRef(localTransactionCount);
+  const localLatestAtRef = React.useRef(localLatestTransactionAt);
   const onRemoteUpdateRef = React.useRef(onRemoteUpdate);
   const lastServerSyncAtRef = React.useRef(0);
   const serverSyncIntervalRef = React.useRef(intervalMs * 9);
@@ -73,6 +76,10 @@ export function useBankLiveSync({
   }, [localTransactionCount]);
 
   React.useEffect(() => {
+    localLatestAtRef.current = localLatestTransactionAt;
+  }, [localLatestTransactionAt]);
+
+  React.useEffect(() => {
     onRemoteUpdateRef.current = onRemoteUpdate;
   }, [onRemoteUpdate]);
 
@@ -80,7 +87,11 @@ export function useBankLiveSync({
     if (!enabled) return null;
     setState((prev) => ({ ...prev, polling: true }));
     try {
-      const snapshot = await fetchBankSyncSnapshot(sinceVersionRef.current, localCountRef.current);
+      const snapshot = await fetchBankSyncSnapshot(
+        sinceVersionRef.current,
+        localCountRef.current,
+        localLatestAtRef.current,
+      );
       if (snapshot.liveSyncStatus?.intervalMs) {
         serverSyncIntervalRef.current = snapshot.liveSyncStatus.intervalMs;
       }
@@ -100,18 +111,19 @@ export function useBankLiveSync({
             ? snapshot.bankTransactions.length
             : localCountRef.current;
       const localCount = localCountRef.current;
+      const serverLatestAt = String(snapshot.bankSyncMeta?.lastImportLatestAt || "");
+      const localLatestAt = String(localLatestAtRef.current || "");
+      const hasNewerImport = Boolean(
+        serverLatestAt && (!localLatestAt || serverLatestAt.localeCompare(localLatestAt) > 0),
+      );
       let shouldApply =
         applyChanges &&
-        (Array.isArray(snapshot.bankTransactions)
-          ? snapshot.changed
-            ? snapshot.version > sinceVersionRef.current || serverCount !== localCount
-            : localCount === 0 && serverCount > 0
-          : snapshot.changed && snapshot.version > sinceVersionRef.current);
-
-      // Local import/save in flight: never overwrite with a smaller server snapshot.
-      if (shouldApply && localCount > serverCount) {
-        shouldApply = false;
-      }
+        (hasNewerImport ||
+          (Array.isArray(snapshot.bankTransactions)
+            ? snapshot.changed
+              ? snapshot.version > sinceVersionRef.current || serverCount !== localCount
+              : localCount === 0 && serverCount > 0
+            : snapshot.changed && snapshot.version > sinceVersionRef.current));
 
       if (shouldApply) {
         onRemoteUpdateRef.current(snapshot);

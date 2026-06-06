@@ -7367,10 +7367,15 @@ export default function TeammillimeterErpMvp() {
     });
     setAccountCodes(ledgerV2.accountCodes);
     setLedgerCategories(ledgerV2.ledgerCategories);
-    if (!workerMonthlyPersistInFlightRef.current) {
-      bankTransactionsRef.current = ledgerV2.bankTransactions;
-      setBankTransactions(ledgerV2.bankTransactions);
-    }
+    const preserveBankEdits =
+      pendingLocalEditsRef.current || Date.now() < bankEditCooldownUntilRef.current;
+    const nextBankTransactions = preserveBankEdits
+      ? mergeBankTransactionsUnion(bankTransactionsRef.current, ledgerV2.bankTransactions, {
+          preserveLocalOnly: true,
+        })
+      : ledgerV2.bankTransactions;
+    bankTransactionsRef.current = nextBankTransactions;
+    setBankTransactions(nextBankTransactions);
     setBankTransactionFolders(ledgerFolderSync.folders);
     setStatementGenerationLogs(normalizeStatementGenerationLogs(data.statementGenerationLogs));
     setStatementFolders(normalizeStatementFolders(data.statementFolders));
@@ -8510,16 +8515,10 @@ export default function TeammillimeterErpMvp() {
 
   const applyRemoteBankSnapshot = React.useCallback(async (snapshot: BankSyncSnapshot) => {
     const nextVersion = snapshot.version ?? erpVersionRef.current;
+    const canRefreshBank =
+      !pendingLocalEditsRef.current && Date.now() >= bankEditCooldownUntilRef.current;
 
-    if (
-      nextVersion > erpVersionRef.current &&
-      !pendingLocalEditsRef.current &&
-      !workerPersistInFlightRef.current &&
-      !workerMonthlyPersistInFlightRef.current &&
-      Date.now() >= workerPersistCooldownUntilRef.current &&
-      Date.now() >= workerMonthlyPersistCooldownUntilRef.current &&
-      Date.now() >= bankEditCooldownUntilRef.current
-    ) {
+    if (nextVersion > erpVersionRef.current && canRefreshBank) {
       try {
         const data = await fetchErpData();
         if (pendingLocalEditsRef.current) return;
@@ -8558,11 +8557,21 @@ export default function TeammillimeterErpMvp() {
     }
   }, [companyExpenses, fixedExpensePayments]);
 
+  const bankLatestTransactionAt = React.useMemo(() => {
+    let latest = "";
+    for (const row of bankTransactions) {
+      const at = String(row.transactionAt || "");
+      if (at.localeCompare(latest) > 0) latest = at;
+    }
+    return latest;
+  }, [bankTransactions]);
+
   const bankLiveSync = useBankLiveSync({
     enabled: apiMode && dataReady,
     isActive: Boolean(currentUser),
     sinceVersion: erpVersion,
     localTransactionCount: bankTransactions.length,
+    localLatestTransactionAt: bankLatestTransactionAt,
     onRemoteUpdate: applyRemoteBankSnapshot,
     intervalMs: 30000,
   });

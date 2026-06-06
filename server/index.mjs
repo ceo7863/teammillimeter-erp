@@ -947,17 +947,22 @@ app.post("/api/bank/classify-ledger", authMiddleware, async (req, res) => {
 app.get("/api/erp/bank-sync", authMiddleware, (req, res) => {
   const sinceVersion = Number(req.query.sinceVersion || 0);
   const localCount = Number(req.query.localCount ?? -1);
+  const localLatestAt = String(req.query.localLatestAt || "").trim();
   const state = getErpState();
   const transactions = state.data.bankTransactions || [];
   const transactionCount = transactions.length;
   const changed = state.version > sinceVersion;
   const countChanged = localCount >= 0 && localCount !== transactionCount;
-  const includeTransactions = changed || countChanged;
+  const serverLatestAt = String(state.data.bankSyncMeta?.lastImportLatestAt || "").trim();
+  const importChanged = Boolean(
+    serverLatestAt && (!localLatestAt || serverLatestAt.localeCompare(localLatestAt) > 0),
+  );
+  const includeTransactions = changed || countChanged || importChanged;
   res.json({
     version: state.version,
     updatedAt: state.updatedAt,
     updatedBy: state.updatedBy,
-    changed: changed || countChanged,
+    changed: changed || countChanged || importChanged,
     bankTransactionCount: transactionCount,
     bankTransactions: includeTransactions ? transactions : undefined,
     bankTransactionFolders: includeTransactions ? state.data.bankTransactionFolders || [] : undefined,
