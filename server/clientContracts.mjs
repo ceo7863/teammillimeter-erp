@@ -161,7 +161,6 @@ export async function createContractFromTemplate(templateId, clientName, created
     contactName,
     contactPhone,
     pdfContent,
-    applyContentOverlay: false,
   });
   if (!filled.ok) return filled;
 
@@ -298,7 +297,6 @@ export async function rebuildContractPdf(id, patch = {}, updatedBy) {
     contactName,
     contactPhone,
     pdfContent,
-    applyContentOverlay: true,
   });
   if (!filled.ok) return filled;
 
