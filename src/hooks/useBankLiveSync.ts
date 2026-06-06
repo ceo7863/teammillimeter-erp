@@ -116,17 +116,15 @@ export function useBankLiveSync({
       const hasNewerImport = Boolean(
         serverLatestAt && (!localLatestAt || serverLatestAt.localeCompare(localLatestAt) > 0),
       );
+      const countMismatch = serverCount !== localCount;
       let shouldApply =
         applyChanges &&
         (hasNewerImport ||
-          (Array.isArray(snapshot.bankTransactions)
-            ? snapshot.changed
-              ? snapshot.version > sinceVersionRef.current || serverCount !== localCount
-              : localCount === 0 && serverCount > 0
-            : snapshot.changed && snapshot.version > sinceVersionRef.current));
+          countMismatch ||
+          (snapshot.changed && snapshot.version > sinceVersionRef.current));
 
       if (shouldApply) {
-        onRemoteUpdateRef.current(snapshot);
+        await onRemoteUpdateRef.current(snapshot);
         const added = Math.max(0, serverCount - localCountRef.current);
         setState((prev) => ({
           ...prev,

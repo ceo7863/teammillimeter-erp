@@ -11,9 +11,11 @@ import {
   clientSiteRequestPublicStatusLabel,
   fetchPublicClientSiteRequestInfo,
   formatClientSiteRequestWorkPeriod,
+  isClientSiteRequestVisibleOnPublicCalendar,
   listPublicClientSiteRequests,
   postPublicClientSiteRequestMessage,
   requestCoversWorkDate,
+  requestPublicClientSiteRequestCancel,
   submitPublicClientSiteRequest,
   type ClientSiteRequest,
   type PublicClientSiteRequestInfo,
@@ -61,6 +63,14 @@ const L = {
   workerCountPh: "\uC608: 5",
   memoPh: "\uC791\uC5C5 \uB0B4\uC6A9, \uC2DC\uAC04, \uD2B9\uC774\uC0AC\uD56D \uB4F1",
   messageFail: "\uBA54\uC2DC\uC9C0 \uC804\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+  cancelRequest: "\uC811\uC218 \uCDE8\uC18C \uC694\uCCAD",
+  cancelConfirmTitle: "\uC811\uC218 \uCDE8\uC18C \uC694\uCCAD",
+  cancelConfirmBody: "\uC774 \uC811\uC218 \uB0B4\uC6A9\uC744 \uCDE8\uC18C \uC694\uCCAD\uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C? \uB2F4\uB2F9\uC790 \uD655\uC778 \uD6C4 \uCE98\uB9B0\uB354\uC5D0\uC11C \uC0AD\uC81C\uB429\uB2C8\uB2E4.",
+  cancelConfirmYes: "\uCDE8\uC18C \uC694\uCCAD",
+  cancelPendingNotice: "\uCDE8\uC18C \uC694\uCCAD \uC911\uC785\uB2C8\uB2E4. \uB2F4\uB2F9\uC790 \uD655\uC778 \uD6C4 \uCE98\uB9B0\uB354\uC5D0\uC11C \uC0AD\uC81C\uB429\uB2C8\uB2E4.",
+  cancelDone: "\uCDE8\uC18C \uC694\uCCAD\uC774 \uC811\uC218\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
+  cancelFail: "\uCDE8\uC18C \uC694\uCCAD\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+  cancelling: "\uC694\uCCAD \uC911...",
 };
 
 type ClientSiteRequestPageProps = {
@@ -119,10 +129,17 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
   const [memo, setMemo] = useState("");
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+
+  const visibleRequests = useMemo(
+    () => requests.filter((row) => isClientSiteRequestVisibleOnPublicCalendar(row)),
+    [requests],
+  );
 
   const selectedRequest = useMemo(
-    () => requests.find((row) => row.id === selectedRequestId) || null,
-    [requests, selectedRequestId],
+    () => visibleRequests.find((row) => row.id === selectedRequestId) || null,
+    [visibleRequests, selectedRequestId],
   );
 
   const loadInfo = useCallback(async () => {
@@ -203,7 +220,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
 
     lastClickedDateRef.current = date;
     setSelectedCalendarDate(date);
-    const dayRequests = requests.filter((row) => requestCoversWorkDate(row, date));
+    const dayRequests = visibleRequests.filter((row) => requestCoversWorkDate(row, date));
     if (dayRequests.length === 1) {
       setSelectedRequestId(dayRequests[0].id);
     } else if (selectedRequestId && !dayRequests.some((row) => row.id === selectedRequestId)) {
@@ -301,6 +318,22 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
     }
   };
 
+  const handleCancelRequest = async () => {
+    if (!selectedRequestId) return;
+    setCancelling(true);
+    setError("");
+    try {
+      await requestPublicClientSiteRequestCancel(token, selectedRequestId);
+      setCancelConfirmOpen(false);
+      setError("");
+      await loadRequests();
+    } catch (cancelError) {
+      setError(cancelError instanceof Error ? cancelError.message : L.cancelFail);
+    } finally {
+      setCancelling(false);
+    }
+  };
+
   if (loading) {
     return (
       <ClientSiteRequestShell>
@@ -385,7 +418,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
             {tab === "calendar" ? (
               <div className="space-y-4">
                 <ClientSiteRequestCalendar
-                  requests={requests}
+                  requests={visibleRequests}
                   monthKey={calendarMonthKey}
                   onMonthKeyChange={setCalendarMonthKey}
                   selectedDate={selectedCalendarDate}
@@ -394,25 +427,44 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
                   onSelectRequest={handleCalendarRequestSelect}
                 />
                 {selectedRequest ? (
-                  <ClientSiteRequestChat
-                    messages={selectedRequest.messages || []}
-                    draft={messageDraft}
-                    onDraftChange={setMessageDraft}
-                    onSend={() => void handleSendMessage()}
-                    sending={messageSending}
-                    viewer="client"
-                  />
+                  <>
+                    {selectedRequest.status === "pending" ? (
+                      <div className="flex justify-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="rounded-xl border-red-200 text-red-700"
+                          onClick={() => setCancelConfirmOpen(true)}
+                        >
+                          {L.cancelRequest}
+                        </Button>
+                      </div>
+                    ) : null}
+                    {selectedRequest.status === "cancel_pending" ? (
+                      <p className="rounded-xl bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-800">
+                        {L.cancelPendingNotice}
+                      </p>
+                    ) : null}
+                    <ClientSiteRequestChat
+                      messages={selectedRequest.messages || []}
+                      draft={messageDraft}
+                      onDraftChange={setMessageDraft}
+                      onSend={() => void handleSendMessage()}
+                      sending={messageSending}
+                      viewer="client"
+                    />
+                  </>
                 ) : null}
                 {error && !submitModalOpen ? <p className="text-sm font-semibold text-red-600">{error}</p> : null}
               </div>
             ) : (
               <div className="space-y-4">
-                {!requests.length ? (
+                {!visibleRequests.length ? (
                   <p className="text-sm text-slate-500">{L.emptyHistory}</p>
                 ) : (
                   <>
                     <div className="space-y-2">
-                      {requests.map((request) => (
+                      {visibleRequests.map((request) => (
                         <button
                           key={request.id}
                           type="button"
@@ -440,14 +492,33 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
                     </div>
 
                     {selectedRequest ? (
-                      <ClientSiteRequestChat
-                        messages={selectedRequest.messages || []}
-                        draft={messageDraft}
-                        onDraftChange={setMessageDraft}
-                        onSend={() => void handleSendMessage()}
-                        sending={messageSending}
-                        viewer="client"
-                      />
+                      <>
+                        {selectedRequest.status === "pending" ? (
+                          <div className="flex justify-end">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="rounded-xl border-red-200 text-red-700"
+                              onClick={() => setCancelConfirmOpen(true)}
+                            >
+                              {L.cancelRequest}
+                            </Button>
+                          </div>
+                        ) : null}
+                        {selectedRequest.status === "cancel_pending" ? (
+                          <p className="rounded-xl bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-800">
+                            {L.cancelPendingNotice}
+                          </p>
+                        ) : null}
+                        <ClientSiteRequestChat
+                          messages={selectedRequest.messages || []}
+                          draft={messageDraft}
+                          onDraftChange={setMessageDraft}
+                          onSend={() => void handleSendMessage()}
+                          sending={messageSending}
+                          viewer="client"
+                        />
+                      </>
                     ) : null}
                   </>
                 )}
@@ -598,6 +669,49 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
                 </Button>
               </div>
             </form>
+          </div>
+        </div>
+      ) : null}
+
+      {cancelConfirmOpen ? (
+        <div
+          className="erp-client-site-request-modal-backdrop erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
+          onClick={() => {
+            if (!cancelling) setCancelConfirmOpen(false);
+          }}
+        >
+          <div
+            className="erp-client-site-request-modal erp-client-site-request-modal--confirm erp-ledger-modal"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="client-site-request-cancel-title"
+          >
+            <div className="erp-client-site-request-modal__body px-5 py-5">
+              <h2 id="client-site-request-cancel-title" className="text-lg font-bold text-slate-900">
+                {L.cancelConfirmTitle}
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-slate-600">{L.cancelConfirmBody}</p>
+              <div className="erp-client-site-request-modal__actions mt-5 flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="erp-touch-target min-h-[44px] flex-1 rounded-2xl"
+                  disabled={cancelling}
+                  onClick={() => setCancelConfirmOpen(false)}
+                >
+                  {L.confirmRegisterNo}
+                </Button>
+                <Button
+                  type="button"
+                  className="erp-touch-target min-h-[44px] flex-1 rounded-2xl bg-red-600 hover:bg-red-700"
+                  disabled={cancelling}
+                  onClick={() => void handleCancelRequest()}
+                >
+                  {cancelling ? L.cancelling : L.cancelConfirmYes}
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
       ) : null}

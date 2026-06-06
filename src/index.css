@@ -660,6 +660,11 @@ textarea {
   color: #b91c1c;
 }
 
+.erp-client-request-calendar__entry.is-cancel_pending {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
 .erp-client-request-calendar__entry.is-active {
   outline: 2px solid #0f172a;
   outline-offset: 1px;
@@ -736,6 +741,11 @@ textarea {
 .erp-client-request-calendar__status.is-rejected {
   background: #fee2e2;
   color: #b91c1c;
+}
+
+.erp-client-request-calendar__status.is-cancel_pending {
+  background: #ffedd5;
+  color: #c2410c;
 }
 
 .erp-client-request-calendar__mobile-hint {
@@ -3383,6 +3393,11 @@ textarea {
   .erp-client-request-calendar__entry.is-rejected {
     background: #fef2f2;
     color: #b91c1c;
+  }
+
+  .erp-client-request-calendar__entry.is-cancel_pending {
+    background: #fff7ed;
+    color: #c2410c;
   }
 
   .erp-calendar-cell .erp-calendar-day {

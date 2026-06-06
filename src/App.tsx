@@ -8513,49 +8513,87 @@ export default function TeammillimeterErpMvp() {
     };
   }, [dataReady, currentUser, taxInvoiceAutoLinkScopeKey, taxInvoices.length]);
 
+  const releaseRemoteBankSnapshotSaveGuard = React.useCallback(() => {
+    queueMicrotask(() => {
+      if (!workerPersistInFlightRef.current && !workerMonthlyPersistInFlightRef.current) {
+        skipSaveRef.current = false;
+      }
+    });
+  }, []);
+
   const applyRemoteBankSnapshot = React.useCallback(async (snapshot: BankSyncSnapshot) => {
     const nextVersion = snapshot.version ?? erpVersionRef.current;
-    const canRefreshBank =
-      !pendingLocalEditsRef.current && Date.now() >= bankEditCooldownUntilRef.current;
+    const bankCooldownActive = Date.now() < bankEditCooldownUntilRef.current;
+    const incomingBank = Array.isArray(snapshot.bankTransactions) ? snapshot.bankTransactions : null;
+    const incomingFolders = Array.isArray(snapshot.bankTransactionFolders)
+      ? snapshot.bankTransactionFolders
+      : null;
+    const versionAdvanced = nextVersion > erpVersionRef.current;
 
-    if (nextVersion > erpVersionRef.current && canRefreshBank) {
+    if (versionAdvanced && !incomingBank && !bankCooldownActive) {
       try {
         const data = await fetchErpData();
-        if (pendingLocalEditsRef.current) return;
-        applyFetchedErpData(data);
+        skipSaveRef.current = true;
+        const mergedBank = mergeBankTransactionsUnion(
+          bankTransactionsRef.current,
+          normalizeBankTransactions(data.bankTransactions),
+          { preserveLocalOnly: true },
+        );
+        const syncedBank = syncBankTransactionLedgerLinkFields(
+          mergedBank,
+          companyExpensesRef.current,
+          fixedExpensePaymentsRef.current,
+        );
+        bankTransactionsRef.current = syncedBank;
+        setBankTransactions(syncedBank);
+        if (Array.isArray(data.bankTransactionFolders)) {
+          setBankTransactionFolders(normalizeBankTransactionFolders(data.bankTransactionFolders));
+        }
+        erpVersionRef.current = data.version ?? nextVersion;
+        setErpVersion(data.version ?? nextVersion);
+        releaseRemoteBankSnapshotSaveGuard();
         return;
       } catch (error) {
         console.error(error);
       }
     }
 
-    erpVersionRef.current = nextVersion;
-    setErpVersion(nextVersion);
-    const bankEditGuard =
-      pendingLocalEditsRef.current || Date.now() < bankEditCooldownUntilRef.current;
-    if (Array.isArray(snapshot.bankTransactions) && !bankEditGuard) {
+    if (bankCooldownActive) return;
+
+    let applied = false;
+    if (incomingBank) {
+      skipSaveRef.current = true;
       setBankTransactions((prev) => {
-        const incoming = normalizeBankTransactions(snapshot.bankTransactions);
+        const incoming = normalizeBankTransactions(incomingBank);
         const merged = mergeBankTransactionsUnion(prev, incoming, {
-          preserveLocalOnly: pendingLocalEditsRef.current,
+          preserveLocalOnly: true,
         });
-        return syncBankTransactionLedgerLinkFields(
+        const synced = syncBankTransactionLedgerLinkFields(
           merged,
           companyExpensesRef.current,
           fixedExpensePaymentsRef.current,
         );
+        bankTransactionsRef.current = synced;
+        return synced;
       });
+      applied = true;
     }
-    if (Array.isArray(snapshot.bankTransactionFolders) && !bankEditGuard) {
+    if (incomingFolders) {
       setBankTransactionFolders((prev) => {
-        const incoming = normalizeBankTransactionFolders(snapshot.bankTransactionFolders);
-        if (!pendingLocalEditsRef.current) return incoming;
+        const incoming = normalizeBankTransactionFolders(incomingFolders);
         const incomingIds = new Set(incoming.map((folder) => folder.id));
         const localOnly = prev.filter((folder) => !incomingIds.has(folder.id));
         return localOnly.length ? [...incoming, ...localOnly] : incoming;
       });
+      applied = true;
     }
-  }, [companyExpenses, fixedExpensePayments]);
+
+    if (applied) {
+      erpVersionRef.current = nextVersion;
+      setErpVersion(nextVersion);
+      releaseRemoteBankSnapshotSaveGuard();
+    }
+  }, [releaseRemoteBankSnapshotSaveGuard]);
 
   const bankLatestTransactionAt = React.useMemo(() => {
     let latest = "";

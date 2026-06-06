@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ErpUser } from "@/utils/erpApi";
 import { isApiModeEnabled } from "@/utils/erpApi";
-import { listClientSiteRequests } from "@/utils/clientSiteRequests";
+import { listClientSiteRequests, countsAsClientSiteRequestInbox } from "@/utils/clientSiteRequests";
 import { canUserAccessPage } from "@/utils/pageAccess";
 
 export function useClientSiteRequestPendingCount(
@@ -19,8 +19,8 @@ export function useClientSiteRequestPendingCount(
       return;
     }
     try {
-      const rows = await listClientSiteRequests({ status: "pending" });
-      setCount(rows.length);
+      const rows = await listClientSiteRequests({ status: "all" });
+      setCount(rows.filter((row) => countsAsClientSiteRequestInbox(row)).length);
     } catch {
       // ignore polling errors
     }

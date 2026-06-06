@@ -7,6 +7,7 @@ import { AutocompleteSelect } from "@/components/AutocompleteInput";
 import { isApiModeEnabled } from "@/utils/erpApi";
 import {
   clientSiteRequestStatusLabel,
+  countsAsClientSiteRequestInbox,
   ensureClientSiteRequestLink,
   formatClientSiteRequestWorkPeriod,
   listClientSiteRequestLinks,
@@ -66,6 +67,11 @@ const L = {
   confirm: "\uC811\uC218 \uC644\uB8CC",
   registerComplete: "\uB4F1\uB85D \uC644\uB8CC",
   reject: "\uBC18\uB824",
+  confirmCancel: "\uCDE8\uC18C \uD655\uC815",
+  denyCancel: "\uCDE8\uC18C \uAC70\uBD80",
+  cancelRequestedBadge: "\uAC70\uB798\uCC98 \uCDE8\uC18C \uC694\uCCAD",
+  cancelled: "\uCDE8\uC18C \uC644\uB8CC \uCC98\uB9AC\uD588\uC2B5\uB2C8\uB2E4.",
+  cancelDenied: "\uCDE8\uC18C \uC694\uCCAD\uC744 \uAC70\uBD80\uD588\uC2B5\uB2C8\uB2E4.",
   reopen: "\uB300\uAE30 \uBCF5\uADC0",
   processNotePh: "\uB0B4\uBD80 \uBA54\uBAA8 (\uAC70\uB798\uCC98 \uBE44\uACF5\uAC1C)",
   processedBy: "\uCC98\uB9AC\uC790",
@@ -132,6 +138,7 @@ function RequestCard({
 }) {
   const receiptDone = Boolean(request.receiptCompletedAt);
   const registerDone = Boolean(request.registerCompletedAt);
+  const isCancelPending = request.status === "cancel_pending";
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -154,13 +161,22 @@ function RequestCard({
               className={`inline-flex rounded-full px-2 py-0.5 text-xs font-bold ${
                 request.status === "pending"
                   ? "bg-amber-100 text-amber-800"
-                  : request.status === "confirmed"
-                    ? "bg-emerald-100 text-emerald-700"
-                    : "bg-red-100 text-red-700"
+                  : request.status === "cancel_pending"
+                    ? "bg-orange-100 text-orange-800"
+                    : request.status === "confirmed"
+                      ? "bg-emerald-100 text-emerald-700"
+                      : request.status === "cancelled"
+                        ? "bg-slate-200 text-slate-700"
+                        : "bg-red-100 text-red-700"
               }`}
             >
               {clientSiteRequestStatusLabel(request.status)}
             </span>
+            {isCancelPending ? (
+              <span className="inline-flex rounded-full bg-orange-100 px-2 py-0.5 text-xs font-bold text-orange-800">
+                {L.cancelRequestedBadge}
+              </span>
+            ) : null}
             {request.unreadByStaff ? (
               <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">
                 {L.unreadChat}
@@ -210,50 +226,78 @@ function RequestCard({
               placeholder={L.processNotePh}
               className="rounded-xl"
             />
-            <div className="flex flex-wrap gap-1.5">
-              <Button
-                type="button"
-                size="sm"
-                className={`rounded-lg ${receiptDone ? "bg-emerald-600 hover:bg-emerald-600" : ""}`}
-                variant={receiptDone ? "default" : "default"}
-                disabled={saving || receiptDone}
-                onClick={() => onCompleteStep(request, "receipt")}
-              >
-                <Check size={13} className="mr-1" />
-                {L.confirm}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                className={`rounded-lg ${registerDone ? "bg-emerald-600 hover:bg-emerald-600" : ""}`}
-                variant={registerDone ? "default" : "outline"}
-                disabled={saving || registerDone}
-                onClick={() => onCompleteStep(request, "register")}
-              >
-                <Check size={13} className="mr-1" />
-                {L.registerComplete}
-              </Button>
-              {request.status !== "rejected" ? (
+            {isCancelPending ? (
+              <div className="flex flex-wrap gap-1.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  className="rounded-lg"
+                  disabled={saving}
+                  onClick={() => onUpdateStatus(request, "cancelled")}
+                >
+                  <Check size={13} className="mr-1" />
+                  {L.confirmCancel}
+                </Button>
                 <Button
                   type="button"
                   size="sm"
                   variant="outline"
-                  className="rounded-lg border-red-200 text-red-700"
+                  className="rounded-lg"
                   disabled={saving}
-                  onClick={() => onUpdateStatus(request, "rejected")}
+                  onClick={() => onUpdateStatus(request, "pending")}
                 >
-                  <X size={13} className="mr-1" />
-                  {L.reject}
+                  <RotateCcw size={13} className="mr-1" />
+                  {L.denyCancel}
                 </Button>
-              ) : null}
-            </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  className={`rounded-lg ${receiptDone ? "bg-emerald-600 hover:bg-emerald-600" : ""}`}
+                  variant={receiptDone ? "default" : "default"}
+                  disabled={saving || receiptDone}
+                  onClick={() => onCompleteStep(request, "receipt")}
+                >
+                  <Check size={13} className="mr-1" />
+                  {L.confirm}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className={`rounded-lg ${registerDone ? "bg-emerald-600 hover:bg-emerald-600" : ""}`}
+                  variant={registerDone ? "default" : "outline"}
+                  disabled={saving || registerDone}
+                  onClick={() => onCompleteStep(request, "register")}
+                >
+                  <Check size={13} className="mr-1" />
+                  {L.registerComplete}
+                </Button>
+                {request.status !== "rejected" ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="rounded-lg border-red-200 text-red-700"
+                    disabled={saving}
+                    onClick={() => onUpdateStatus(request, "rejected")}
+                  >
+                    <X size={13} className="mr-1" />
+                    {L.reject}
+                  </Button>
+                ) : null}
+              </div>
+            )}
           </div>
         ) : (
           <div className="w-full max-w-sm">
             {request.processNote ? (
               <p className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-600">{request.processNote}</p>
             ) : null}
-            {request.status !== "pending" ? (
+            {request.status !== "pending" &&
+            request.status !== "cancel_pending" &&
+            request.status !== "cancelled" ? (
               <Button
                 type="button"
                 size="sm"
@@ -340,11 +384,17 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
   }, [loadAll]);
 
   const inboxRequests = useMemo(
-    () => requests.filter((row) => row.status === "pending"),
+    () => requests.filter((row) => countsAsClientSiteRequestInbox(row)),
     [requests],
   );
   const doneRequests = useMemo(
-    () => requests.filter((row) => row.status === "confirmed" || row.status === "rejected"),
+    () =>
+      requests.filter(
+        (row) =>
+          row.status === "confirmed" ||
+          row.status === "rejected" ||
+          row.status === "cancelled",
+      ),
     [requests],
   );
 
@@ -463,7 +513,15 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
         status,
         processNote: noteDrafts[request.id] ?? request.processNote ?? "",
       });
-      setMessage(status === "rejected" ? L.rejected : L.reopened);
+      setMessage(
+        status === "cancelled"
+          ? L.cancelled
+          : status === "pending" && request.status === "cancel_pending"
+            ? L.cancelDenied
+            : status === "rejected"
+              ? L.rejected
+              : L.reopened,
+      );
       await loadAll();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : L.fail);

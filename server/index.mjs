@@ -113,6 +113,7 @@ import {
   listPublicClientSiteRequests,
   postPublicClientSiteRequestMessage,
   postStaffClientSiteRequestMessage,
+  requestClientSiteRequestCancel,
   rotateClientSiteRequestLink,
   setClientSiteRequestLinkDisabled,
   submitClientSiteRequest,
@@ -434,6 +435,15 @@ app.post("/api/public/client-site-request/:token/requests/:requestId/messages", 
     return;
   }
   res.status(201).json({ request: { ...result.request, processNote: undefined }, message: result.message });
+});
+
+app.post("/api/public/client-site-request/:token/requests/:requestId/cancel", (req, res) => {
+  const result = requestClientSiteRequestCancel(req.params.token, req.params.requestId);
+  if (!result.ok) {
+    res.status(result.status || 400).json({ error: result.error });
+    return;
+  }
+  res.json({ request: result.request });
 });
 
 app.get("/api/client-site-requests", authMiddleware, (req, res) => {

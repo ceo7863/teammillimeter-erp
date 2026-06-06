@@ -77,10 +77,15 @@ function sanitizePublicClientSiteRequest(row) {
     submittedAt: row.submittedAt,
     receiptCompletedAt: row.receiptCompletedAt || null,
     registerCompletedAt: row.registerCompletedAt || null,
+    cancelRequestedAt: row.cancelRequestedAt || null,
     messages: normalizeMessages(row.messages),
     lastMessageAt: row.lastMessageAt,
     unreadByClient: Boolean(row.unreadByClient),
   };
+}
+
+function isPublicCalendarVisibleStatus(status) {
+  return String(status || "") !== "cancelled";
 }
 
 function findRequestForToken(data, token, requestId) {
@@ -264,6 +269,7 @@ export function listPublicClientSiteRequests(token) {
   }
   const rows = listRequests(data)
     .filter((row) => clientIdsEqual(row.clientId, client.id))
+    .filter((row) => isPublicCalendarVisibleStatus(row.status))
     .map((row) => sanitizePublicClientSiteRequest(row))
     .sort((a, b) => String(b.submittedAt || "").localeCompare(String(a.submittedAt || "")))
     .slice(0, 30);
@@ -311,6 +317,40 @@ export function postPublicClientSiteRequestMessage(token, requestId, body = {}) 
   const result = appendRequestMessage(data, requestId, message, "client-site-request:public-message");
   if (!result.ok) return result;
   return { ok: true, request: sanitizePublicClientSiteRequest(result.request), message: result.message };
+}
+
+export function requestClientSiteRequestCancel(token, requestId) {
+  const state = getErpState();
+  const data = state.data && typeof state.data === "object" ? { ...state.data } : {};
+  const resolved = findRequestForToken(data, token, requestId);
+  if (!resolved.ok) return resolved;
+
+  const { request } = resolved;
+  if (request.status === "cancel_pending") {
+    return { ok: true, request: sanitizePublicClientSiteRequest(request) };
+  }
+  if (request.status !== "pending") {
+    return {
+      ok: false,
+      status: 400,
+      error: "\uCDE8\uC18C \uC694\uCCAD\uC744 \uD560 \uC218 \uC788\uB294 \uC811\uC218\uB9CC \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
+    };
+  }
+
+  const now = new Date().toISOString();
+  const requests = listRequests(data);
+  const index = requests.findIndex((row) => row.id === requestId);
+  const next = {
+    ...requests[index],
+    status: "cancel_pending",
+    cancelRequestedAt: now,
+    cancelRequestedBy: "client",
+    unreadByStaff: true,
+  };
+  requests[index] = next;
+  saveClientsAndRequests(listClients(data), requests, "client-site-request:cancel-request");
+
+  return { ok: true, request: sanitizePublicClientSiteRequest(next) };
 }
 
 export function postStaffClientSiteRequestMessage(requestId, body = {}, actor = "") {
@@ -404,7 +444,7 @@ export function updateClientSiteRequestStatus(id, input = {}, actor = "") {
     return { ok: true, request: next };
   }
 
-  if (status !== "confirmed" && status !== "rejected" && status !== "pending") {
+  if (status !== "confirmed" && status !== "rejected" && status !== "pending" && status !== "cancelled") {
     return { ok: false, status: 400, error: "\uCC98\uB9AC \uC0C1\uD0DC\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." };
   }
 
@@ -414,6 +454,29 @@ export function updateClientSiteRequestStatus(id, input = {}, actor = "") {
       status: 400,
       error: "\uC811\uC218 \uC644\uB8CC\uC640 \uB4F1\uB85D \uC644\uB8CC\uB97C \uBAA8\uB450 \uD655\uC778\uD574 \uC8FC\uC138\uC694.",
     };
+  }
+
+  if (status === "cancelled") {
+    if (current.status !== "cancel_pending") {
+      return { ok: false, status: 400, error: "\uCDE8\uC18C \uC694\uCCAD \uC911\uC778 \uC811\uC218\uB9CC \uCDE8\uC18C \uD655\uC815\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4." };
+    }
+    const next = {
+      ...current,
+      status: "cancelled",
+      processNote,
+      processedAt: now,
+      processedBy: actorName || current.processedBy,
+      cancelledAt: now,
+      cancelledBy: actorName || current.cancelledBy,
+      unreadByStaff: false,
+    };
+    requests[index] = next;
+    saveClientsAndRequests(
+      listClients(data),
+      requests,
+      actorName ? `client-site-request:cancelled:${actorName}` : "client-site-request:cancelled",
+    );
+    return { ok: true, request: next };
   }
 
   const next = {
@@ -426,6 +489,10 @@ export function updateClientSiteRequestStatus(id, input = {}, actor = "") {
     receiptCompletedBy: status === "pending" ? null : current.receiptCompletedBy || null,
     registerCompletedAt: status === "pending" ? null : current.registerCompletedAt || null,
     registerCompletedBy: status === "pending" ? null : current.registerCompletedBy || null,
+    cancelRequestedAt: status === "pending" ? null : current.cancelRequestedAt || null,
+    cancelRequestedBy: status === "pending" ? null : current.cancelRequestedBy || null,
+    cancelledAt: null,
+    cancelledBy: null,
   };
   requests[index] = next;
   saveClientsAndRequests(
@@ -551,7 +618,7 @@ export function listClientSiteRequestLinks() {
   const data = state.data && typeof state.data === "object" ? state.data : {};
   const pendingByClient = new Map();
   for (const row of listRequests(data)) {
-    if (row.status !== "pending") continue;
+    if (row.status !== "pending" && row.status !== "cancel_pending") continue;
     const key = String(row.clientId ?? "");
     pendingByClient.set(key, (pendingByClient.get(key) || 0) + 1);
   }

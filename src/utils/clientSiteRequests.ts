@@ -1,6 +1,11 @@
 import { apiRequest, isApiModeEnabled } from "@/utils/erpApi";
 
-export type ClientSiteRequestStatus = "pending" | "confirmed" | "rejected";
+export type ClientSiteRequestStatus =
+  | "pending"
+  | "confirmed"
+  | "rejected"
+  | "cancel_pending"
+  | "cancelled";
 
 export type ClientSiteRequestMessage = {
   id: string;
@@ -31,6 +36,10 @@ export type ClientSiteRequest = {
   receiptCompletedBy?: string | null;
   registerCompletedAt?: string | null;
   registerCompletedBy?: string | null;
+  cancelRequestedAt?: string | null;
+  cancelRequestedBy?: string | null;
+  cancelledAt?: string | null;
+  cancelledBy?: string | null;
   messages?: ClientSiteRequestMessage[];
   lastMessageAt?: string;
   unreadByStaff?: boolean;
@@ -70,14 +79,24 @@ async function parseApiError(response: Response) {
 export function clientSiteRequestStatusLabel(status: ClientSiteRequestStatus) {
   if (status === "pending") return "\uC811\uC218 \uB300\uAE30";
   if (status === "confirmed") return "\uCC98\uB9AC \uC644\uB8CC";
+  if (status === "cancel_pending") return "\uCDE8\uC18C \uC694\uCCAD";
+  if (status === "cancelled") return "\uCDE8\uC18C \uC644\uB8CC";
   return "\uBC18\uB824";
 }
 
-export type ClientSiteRequestPublicStatusTone = "pending" | "receipt" | "register" | "confirmed" | "rejected";
+export type ClientSiteRequestPublicStatusTone =
+  | "pending"
+  | "receipt"
+  | "register"
+  | "confirmed"
+  | "rejected"
+  | "cancel_pending";
 
 export function clientSiteRequestPublicStatusLabel(
   request: Pick<ClientSiteRequest, "status" | "receiptCompletedAt" | "registerCompletedAt">,
 ) {
+  if (request.status === "cancelled") return "\uCDE8\uC18C \uC644\uB8CC";
+  if (request.status === "cancel_pending") return "\uCDE8\uC18C \uC694\uCCAD \uC911";
   if (request.status === "rejected") return "\uBC18\uB824";
   if (request.status === "confirmed") return "\uCC98\uB9AC \uC644\uB8CC";
   if (request.registerCompletedAt) return "\uB4F1\uB85D \uC644\uB8CC";
@@ -88,11 +107,24 @@ export function clientSiteRequestPublicStatusLabel(
 export function clientSiteRequestPublicStatusTone(
   request: Pick<ClientSiteRequest, "status" | "receiptCompletedAt" | "registerCompletedAt">,
 ): ClientSiteRequestPublicStatusTone {
+  if (request.status === "cancel_pending") return "cancel_pending";
   if (request.status === "rejected") return "rejected";
   if (request.status === "confirmed") return "confirmed";
   if (request.registerCompletedAt) return "register";
   if (request.receiptCompletedAt) return "receipt";
   return "pending";
+}
+
+export function isClientSiteRequestVisibleOnPublicCalendar(
+  request: Pick<ClientSiteRequest, "status">,
+) {
+  return request.status !== "cancelled";
+}
+
+export function countsAsClientSiteRequestInbox(
+  request: Pick<ClientSiteRequest, "status">,
+) {
+  return request.status === "pending" || request.status === "cancel_pending";
 }
 
 export function buildClientSiteRequestPublicUrl(token: string) {
@@ -202,6 +234,23 @@ export async function postPublicClientSiteRequestMessage(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
+    },
+  );
+  if (!response.ok) throw new Error(await parseApiError(response));
+  const data = await response.json();
+  return data.request as ClientSiteRequest;
+}
+
+export async function requestPublicClientSiteRequestCancel(
+  token: string,
+  requestId: string,
+): Promise<ClientSiteRequest> {
+  const response = await fetch(
+    `${apiBase()}/public/client-site-request/${encodeURIComponent(token)}/requests/${encodeURIComponent(requestId)}/cancel`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
     },
   );
   if (!response.ok) throw new Error(await parseApiError(response));
