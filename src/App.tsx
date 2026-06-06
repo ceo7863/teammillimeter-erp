@@ -184,6 +184,7 @@ import { SaleVoucherEditModal } from "@/components/SaleVoucherEditModal";
 import { WorkerPortalView } from "@/components/WorkerPortalView";
 import { ClientContractSignPage } from "@/components/ClientContractSignPage";
 import { ClientContractsPanel } from "@/components/ClientContractsPanel";
+import { ClientFormModal, type ClientFormState } from "@/components/ClientFormModal";
 import { allocateNextSaleRecordIds, getSaleVoucherLabel, parseVoucherSequence } from "@/utils/saleVoucherNo";
 import {
   SALE_AUDIT_FIELDS,
@@ -5162,7 +5163,7 @@ function appendClientAuditLogs(
 }
 
 function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersistClientsImmediate }) {
-  const emptyClientForm = {
+  const emptyClientForm: ClientFormState = {
     name: "",
     businessNo: "",
     ceoName: "",
@@ -5183,6 +5184,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
 
   const [form, setForm] = useState(emptyClientForm);
   const [editingId, setEditingId] = useState(null);
+  const [clientModalOpen, setClientModalOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [formError, setFormError] = useState("");
 
@@ -5209,6 +5211,26 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
   const updateForm = (key, value) => {
     setFormError("");
     setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const closeClientModal = () => {
+    setClientModalOpen(false);
+    setForm(emptyClientForm);
+    setEditingId(null);
+    setFormError("");
+  };
+
+  const openCreateClientModal = () => {
+    setForm(emptyClientForm);
+    setEditingId(null);
+    setFormError("");
+    setClientModalOpen(true);
+  };
+
+  const resetClientForm = () => {
+    setForm(emptyClientForm);
+    setEditingId(null);
+    setFormError("");
   };
 
   const commitClientChange = (nextClients, auditInput) => {
@@ -5282,6 +5304,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
     setForm(emptyClientForm);
     setEditingId(null);
     setFormError("");
+    setClientModalOpen(false);
   };
 
   const editClient = (client) => {
@@ -5305,6 +5328,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
       depositNameAliases: client.depositNameAliases || "",
       memo: client.memo || "",
     });
+    setClientModalOpen(true);
   };
 
   const deleteClient = (id) => {
@@ -5326,65 +5350,6 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
     <div className="erp-page">
       <PageTitle title="거래처" desc="엑셀 거래처정보 시트를 기준으로 거래처를 관리합니다." />
 
-      <Card className="rounded-2xl shadow-sm">
-        <CardContent className="p-6">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <AuditField label="거래처명" entityType="client" entityId={editingId} field="name"><Input value={form.name} onChange={(e) => updateForm("name", e.target.value)} placeholder="거래처명 (필수)" required /></AuditField>
-            <AuditField label="사업자번호" entityType="client" entityId={editingId} field="businessNo"><Input value={form.businessNo} onChange={(e) => updateForm("businessNo", e.target.value)} placeholder="사업자번호" /></AuditField>
-            <AuditField label="대표자명" entityType="client" entityId={editingId} field="ceoName"><Input value={form.ceoName} onChange={(e) => updateForm("ceoName", e.target.value)} placeholder="대표자명 (계산서)" /></AuditField>
-            <AuditField label="이메일" entityType="client" entityId={editingId} field="email"><Input type="email" value={form.email} onChange={(e) => updateForm("email", e.target.value)} placeholder="세금계산서 수신 이메일" /></AuditField>
-            <AuditField label="업태" entityType="client" entityId={editingId} field="bizType"><Input value={form.bizType} onChange={(e) => updateForm("bizType", e.target.value)} placeholder="업태" /></AuditField>
-            <AuditField label="업종" entityType="client" entityId={editingId} field="bizClass"><Input value={form.bizClass} onChange={(e) => updateForm("bizClass", e.target.value)} placeholder="업종" /></AuditField>
-            <div className="md:col-span-2">
-              <AuditField label="주소" entityType="client" entityId={editingId} field="address"><Input value={form.address} onChange={(e) => updateForm("address", e.target.value)} placeholder="사업장 주소 (계산서)" /></AuditField>
-            </div>
-            <AuditField label="담당자" entityType="client" entityId={editingId} field="manager"><Input value={form.manager} onChange={(e) => updateForm("manager", e.target.value)} placeholder="담당자" /></AuditField>
-            <AuditField label="연락처" entityType="client" entityId={editingId} field="phone"><Input value={form.phone} onChange={(e) => updateForm("phone", e.target.value)} placeholder="연락처" /></AuditField>
-            <AuditField label="시공비" entityType="client" entityId={editingId} field="constructionCost"><Input inputMode="numeric" value={form.constructionCost} onChange={(e) => updateForm("constructionCost", e.target.value)} placeholder="시공비 (필수)" required /></AuditField>
-            <AuditField label="개별청구단가(선택)" entityType="client" entityId={editingId} field="customChargeCost"><Input inputMode="numeric" value={form.customChargeCost} onChange={(e) => updateForm("customChargeCost", e.target.value)} placeholder="특정 시공자만 별도 청구시 입력" /></AuditField>
-            <AuditField label="야근비" entityType="client" entityId={editingId} field="overtimeCost"><Input inputMode="numeric" value={form.overtimeCost} onChange={(e) => updateForm("overtimeCost", e.target.value)} placeholder="야근비" /></AuditField>
-            <AuditField label="부가세" entityType="client" entityId={editingId} field="vat">
-              <select
-                className="erp-input w-full rounded-xl px-3 py-2 text-sm font-semibold"
-                value={form.vat}
-                onChange={(e) => updateForm("vat", e.target.value)}
-              >
-                {YES_NO_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </AuditField>
-            <AuditField label="식대" entityType="client" entityId={editingId} field="mealIncluded">
-              <select
-                className="erp-input w-full rounded-xl px-3 py-2 text-sm font-semibold"
-                value={form.mealIncluded}
-                onChange={(e) => updateForm("mealIncluded", e.target.value)}
-              >
-                {YES_NO_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </AuditField>
-            <div className="md:col-span-2">
-              <AuditField label="예금주 별칭" entityType="client" entityId={editingId} field="depositNameAliases">
-                <Input value={form.depositNameAliases} onChange={(e) => updateForm("depositNameAliases", e.target.value)} placeholder="통장 입금 시 표시 이름 (쉼표로 구분). 담당자명은 자동 매칭됩니다." />
-              </AuditField>
-            </div>
-            <div className="md:col-span-4">
-              <AuditField label="비고" entityType="client" entityId={editingId} field="memo">
-                <Input value={form.memo} onChange={(e) => updateForm("memo", e.target.value)} placeholder="거래처 비고" />
-              </AuditField>
-            </div>
-          </div>
-
-          <div className="mt-5 flex flex-col items-end gap-2 sm:flex-row sm:justify-end">
-            {formError ? <p className="mr-auto erp-text-caption font-semibold text-red-600">{formError}</p> : null}
-            <Button variant="outline" className="rounded-2xl" onClick={() => { setForm(emptyClientForm); setEditingId(null); setFormError(""); }}>초기화</Button>
-            <Button className="rounded-2xl" onClick={saveClient}>{editingId ? "거래처 수정" : "거래처 저장"}</Button>
-          </div>
-        </CardContent>
-      </Card>
-
       <SearchBox query={query} setQuery={setQuery} placeholder="거래처명, 담당자, 연락처, 예금주 별칭 검색" />
 
       <p className="erp-text-caption erp-client-activity-legend mb-3 flex flex-wrap items-center gap-3 text-slate-500">
@@ -5397,12 +5362,18 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
         <CardContent className="p-4 md:p-5">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <h2 className="erp-text-section">거래처 목록</h2>
-            <ClientListExport
+            <div className="flex flex-wrap items-center gap-2">
+              <Button className="rounded-2xl" onClick={openCreateClientModal}>
+                <Plus size={16} />
+                거래처 추가
+              </Button>
+              <ClientListExport
               clients={sortedClients}
               lastSaleByClient={clientLastSaleDate}
               companyProfile={companyProfile}
               disabled={sortedClients.length === 0}
             />
+            </div>
           </div>
           <div className="erp-table-wrap">
             <table className="erp-table erp-table--lg">
@@ -5458,6 +5429,17 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
       </Card>
 
       <ClientContractsPanel clients={clients} />
+
+      <ClientFormModal
+        open={clientModalOpen}
+        editingId={editingId}
+        form={form}
+        formError={formError}
+        onClose={closeClientModal}
+        onSave={saveClient}
+        onReset={resetClientForm}
+        onUpdate={updateForm}
+      />
     </div>
   );
 }
