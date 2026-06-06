@@ -10,7 +10,9 @@ import {
   ensureClientSiteRequestLink,
   listClientSiteRequestLinks,
   listClientSiteRequests,
+  openClientSiteRequestLink,
   postStaffClientSiteRequestMessage,
+  resolveClientSiteRequestLinkUrl,
   rotateClientSiteRequestLink,
   setClientSiteRequestLinkDisabled,
   updateClientSiteRequestStatus,
@@ -149,6 +151,15 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
     }
   };
 
+  const openLink = (link: { url?: string | null; token?: string | null }) => {
+    const url = resolveClientSiteRequestLinkUrl(link);
+    if (!url) {
+      setMessage(L.fail);
+      return;
+    }
+    openClientSiteRequestLink(url);
+  };
+
   const handleIssueLink = async () => {
     if (!issueClientId) return;
     setSaving(true);
@@ -156,7 +167,7 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
     try {
       const link = await ensureClientSiteRequestLink(issueClientId);
       setMessage(L.linkIssued);
-      setLastIssuedUrl(link.url);
+      setLastIssuedUrl(resolveClientSiteRequestLinkUrl(link));
       await loadAll();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : L.fail);
@@ -171,8 +182,9 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
     setMessage("");
     try {
       const link = selectedIssueLink || (await ensureClientSiteRequestLink(issueClientId));
-      setLastIssuedUrl(link.url);
-      await copyText(link.url);
+      const url = resolveClientSiteRequestLinkUrl(link);
+      setLastIssuedUrl(url);
+      await copyText(url);
       if (!selectedIssueLink) {
         setMessage(L.linkIssued);
         await loadAll();
@@ -189,9 +201,10 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
     setMessage("");
     try {
       const link = await rotateClientSiteRequestLink(clientId);
+      const url = resolveClientSiteRequestLinkUrl(link);
       setMessage(L.linkIssued);
-      setLastIssuedUrl(link.url);
-      await copyText(link.url);
+      setLastIssuedUrl(url);
+      await copyText(url);
       await loadAll();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : L.fail);
@@ -283,14 +296,13 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
           {selectedIssueLink ? (
             <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5">
               <p className="text-xs font-bold text-slate-500">{L.linkUrl}</p>
-              <a
-                href={selectedIssueLink.url}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-1 block break-all text-sm font-semibold text-blue-700 underline decoration-blue-300 underline-offset-2 hover:text-blue-900"
+              <button
+                type="button"
+                className="mt-1 block w-full break-all text-left text-sm font-semibold text-blue-700 underline decoration-blue-300 underline-offset-2 hover:text-blue-900"
+                onClick={() => openLink(selectedIssueLink)}
               >
-                {selectedIssueLink.url}
-              </a>
+                {resolveClientSiteRequestLinkUrl(selectedIssueLink)}
+              </button>
             </div>
           ) : null}
 
@@ -309,6 +321,23 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
               <Copy size={14} className="mr-1" />
               {L.copyLink}
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-xl"
+              disabled={!issueClientId || saving || (!selectedIssueLink && !lastIssuedUrl)}
+              noFeedback
+              onClick={() => {
+                if (selectedIssueLink) {
+                  openLink(selectedIssueLink);
+                  return;
+                }
+                if (lastIssuedUrl) openClientSiteRequestLink(lastIssuedUrl);
+              }}
+            >
+              <Link2 size={14} className="mr-1" />
+              {L.openLink}
+            </Button>
           </div>
         </div>
 
@@ -318,29 +347,29 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
           <div className="flex flex-col gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 sm:flex-row sm:items-center">
             <div className="min-w-0 flex-1">
               <p className="text-xs font-bold text-emerald-800">{L.linkUrl}</p>
-              <a
-                href={lastIssuedUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-1 block break-all text-sm font-semibold text-emerald-900 underline decoration-emerald-400 underline-offset-2 hover:text-emerald-700"
+              <button
+                type="button"
+                className="mt-1 block w-full break-all text-left text-sm font-semibold text-emerald-900 underline decoration-emerald-400 underline-offset-2 hover:text-emerald-700"
+                onClick={() => openClientSiteRequestLink(lastIssuedUrl)}
               >
                 {lastIssuedUrl}
-              </a>
+              </button>
             </div>
             <div className="flex shrink-0 gap-2">
               <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={() => void copyText(lastIssuedUrl)}>
                 <Copy size={14} className="mr-1" />
                 {L.copyLink}
               </Button>
-              <a
-                href={lastIssuedUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="erp-ui-btn erp-ui-btn--primary erp-ui-btn--sm inline-flex items-center gap-1 rounded-xl px-3 py-2 text-sm font-semibold"
+              <Button
+                type="button"
+                size="sm"
+                className="rounded-xl"
+                noFeedback
+                onClick={() => openClientSiteRequestLink(lastIssuedUrl)}
               >
-                <Link2 size={14} />
+                <Link2 size={14} className="mr-1" />
                 {L.openLink}
-              </a>
+              </Button>
             </div>
           </div>
         ) : null}
@@ -374,15 +403,14 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
                         ) : null}
                       </td>
                       <td className="max-w-[280px]">
-                        <a
-                          href={link.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="block truncate text-sm font-semibold text-blue-700 underline decoration-blue-300 underline-offset-2 hover:text-blue-900"
-                          title={link.url}
+                        <button
+                          type="button"
+                          className="block max-w-full truncate text-left text-sm font-semibold text-blue-700 underline decoration-blue-300 underline-offset-2 hover:text-blue-900"
+                          title={resolveClientSiteRequestLinkUrl(link)}
+                          onClick={() => openLink(link)}
                         >
-                          {link.url}
-                        </a>
+                          {resolveClientSiteRequestLinkUrl(link)}
+                        </button>
                       </td>
                       <td>
                         <span
@@ -395,16 +423,18 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
                       </td>
                       <td>
                         <div className="flex flex-wrap gap-1.5">
-                          <a
-                            href={link.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="erp-ui-btn erp-ui-btn--outline erp-ui-btn--sm inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold"
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="rounded-lg"
+                            noFeedback
+                            onClick={() => openLink(link)}
                           >
-                            <Link2 size={13} />
+                            <Link2 size={13} className="mr-1" />
                             {L.openLink}
-                          </a>
-                          <Button type="button" size="sm" variant="outline" className="rounded-lg" onClick={() => void copyText(link.url)}>
+                          </Button>
+                          <Button type="button" size="sm" variant="outline" className="rounded-lg" onClick={() => void copyText(resolveClientSiteRequestLinkUrl(link))}>
                             <Copy size={13} className="mr-1" />
                             {L.copyLink}
                           </Button>

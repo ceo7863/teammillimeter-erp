@@ -68,6 +68,32 @@ export function clientSiteRequestStatusLabel(status: ClientSiteRequestStatus) {
   return "\uBC18\uB824";
 }
 
+export function buildClientSiteRequestPublicUrl(token: string) {
+  const normalized = String(token || "").trim();
+  if (!normalized) return "";
+  const origin =
+    typeof window !== "undefined" && window.location.origin
+      ? window.location.origin.replace(/\/$/, "")
+      : "https://erp.teammillimeter.com";
+  return `${origin}/request/${encodeURIComponent(normalized)}`;
+}
+
+export function resolveClientSiteRequestLinkUrl(link: { url?: string | null; token?: string | null }) {
+  const url = String(link.url || "").trim();
+  if (url) return url;
+  return buildClientSiteRequestPublicUrl(String(link.token || "").trim());
+}
+
+export function openClientSiteRequestLink(url: string) {
+  const normalized = String(url || "").trim();
+  if (!normalized) return false;
+  const opened = window.open(normalized, "_blank", "noopener,noreferrer");
+  if (!opened) {
+    window.location.assign(normalized);
+  }
+  return true;
+}
+
 export async function fetchPublicClientSiteRequestInfo(token: string): Promise<PublicClientSiteRequestInfo> {
   const response = await fetch(`${apiBase()}/public/client-site-request/${encodeURIComponent(token)}`);
   if (!response.ok) throw new Error(await parseApiError(response));
