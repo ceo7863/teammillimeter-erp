@@ -863,8 +863,9 @@ app.post("/api/barobill/tax-invoices/sync", authMiddleware, adminMiddleware, asy
       return;
     }
 
+    const nextTaxInvoices = result.taxInvoices;
     const saved = saveErpState(
-      { ...state.data, taxInvoices: result.taxInvoices },
+      { ...(state.data || {}), taxInvoices: nextTaxInvoices },
       req.body?.version ?? state.version,
       req.user.loginId || req.user.name || req.user.email,
     );
@@ -875,7 +876,7 @@ app.post("/api/barobill/tax-invoices/sync", authMiddleware, adminMiddleware, asy
       added: result.added,
       skipped: result.skipped,
       preview: result.preview,
-      taxInvoices: saved.data.taxInvoices || result.taxInvoices,
+      taxInvoices: nextTaxInvoices,
       version: saved.version,
       updatedAt: saved.updatedAt,
     });
@@ -957,8 +958,9 @@ app.post("/api/barobill/tax-invoices/issue", authMiddleware, adminMiddleware, as
 
     const state = getErpState();
     const existing = Array.isArray(state.data?.taxInvoices) ? state.data.taxInvoices : [];
+    const nextTaxInvoices = [taxInvoice, ...existing];
     const saved = saveErpState(
-      { ...state.data, taxInvoices: [taxInvoice, ...existing] },
+      { ...(state.data || {}), taxInvoices: nextTaxInvoices },
       req.body?.version ?? state.version,
       req.user.loginId || req.user.name || req.user.email,
     );
@@ -966,7 +968,7 @@ app.post("/api/barobill/tax-invoices/issue", authMiddleware, adminMiddleware, as
     res.json({
       ...issueResult,
       taxInvoice,
-      taxInvoices: saved.data.taxInvoices || [taxInvoice, ...existing],
+      taxInvoices: nextTaxInvoices,
       version: saved.version,
       updatedAt: saved.updatedAt,
     });
@@ -1107,7 +1109,7 @@ app.post("/api/barobill/bank/sync", authMiddleware, async (req, res) => {
   }
 
   const state = getErpState();
-  const existing = Array.isArray(state.data.bankTransactions) ? state.data.bankTransactions : [];
+  const existing = Array.isArray(state.data?.bankTransactions) ? state.data.bankTransactions : [];
 
   try {
     const result = await runBarobillBankSync({

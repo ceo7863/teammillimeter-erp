@@ -93,7 +93,8 @@ export async function runBarobillBankSync(options = {}) {
     }
 
     const state = getErpState();
-    const existing = Array.isArray(state.data.bankTransactions) ? state.data.bankTransactions : [];
+    const data = state.data || {};
+    const existing = Array.isArray(data.bankTransactions) ? data.bankTransactions : [];
     const merged = mergeIbkBankImport(existing, preview, {
       importBatchId: `barobill-bank-${Date.now()}`,
     });
@@ -110,10 +111,10 @@ export async function runBarobillBankSync(options = {}) {
     };
 
     const nextPayload = {
-      ...state.data,
+      ...data,
       bankTransactions: merged.next,
       bankSyncMeta: {
-        ...(state.data.bankSyncMeta || {}),
+        ...(data.bankSyncMeta || {}),
         ...bankSyncMeta,
       },
     };
