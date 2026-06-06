@@ -19,7 +19,11 @@ import {
   type PublicClientSiteRequestInfo,
 } from "@/utils/clientSiteRequests";
 
+const BRAND_LOGO_SRC = "/team-millimeter-login-logo.jpg";
+
 const L = {
+  brandKicker: "ORDER MADE FURNITURE \u00B7 INSTALL TEAM",
+  footer: "Team Millimeter",
   pageTitle: "\uD604\uC7A5 \uC811\uC218",
   pageDesc: "\uCE98\uB9B0\uB354\uC5D0\uC11C \uB0A0\uC9DC\uB97C \uC120\uD0DD\uD55C \uB2E4\uC74C, \uAC19\uC740 \uB0A0\uC9DC\uB97C \uD55C \uBC88 \uB354 \uB20C\uB7EC \uC811\uC218\uD558\uC138\uC694.",
   confirmRegisterTitle: "\uC77C\uC815 \uB4F1\uB85D",
@@ -64,6 +68,33 @@ type ClientSiteRequestPageProps = {
 };
 
 type PageTab = "calendar" | "history";
+
+function ClientSiteRequestShell({
+  children,
+  companyName,
+}: {
+  children: React.ReactNode;
+  companyName?: string;
+}) {
+  return (
+    <div className="erp-public-page erp-client-site-request-page min-h-[100dvh]">
+      <div className="erp-client-site-request-page__glow" aria-hidden="true" />
+      <div className="erp-client-site-request-page__inner mx-auto w-full max-w-5xl">
+        <header className="erp-client-site-request-hero">
+          <img src={BRAND_LOGO_SRC} alt="TEAM MILLIMETER" className="erp-client-site-request-hero__logo" />
+          <p className="erp-client-site-request-hero__kicker">{L.brandKicker}</p>
+          <h1 className="erp-client-site-request-hero__title">{L.pageTitle}</h1>
+          <p className="erp-client-site-request-hero__desc">{L.pageDesc}</p>
+          {companyName ? (
+            <p className="erp-client-site-request-hero__company">{companyName}</p>
+          ) : null}
+        </header>
+        {children}
+        <p className="erp-client-site-request-footer">{L.footer}</p>
+      </div>
+    </div>
+  );
+}
 
 export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
   const [info, setInfo] = useState<PublicClientSiteRequestInfo | null>(null);
@@ -272,38 +303,41 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
 
   if (loading) {
     return (
-      <div className="erp-public-page erp-client-site-request-page flex min-h-[100dvh] items-center justify-center bg-slate-50">
-        <Card className="erp-client-site-request-card w-full max-w-lg rounded-2xl shadow-sm">
-          <CardContent className="p-8 text-center text-sm font-medium text-slate-500">{L.loading}</CardContent>
+      <ClientSiteRequestShell>
+        <Card className="erp-client-site-request-card">
+          <CardContent className="erp-client-site-request-card-body p-8 text-center text-sm font-medium text-slate-500">
+            {L.loading}
+          </CardContent>
         </Card>
-      </div>
+      </ClientSiteRequestShell>
     );
   }
 
   if (!info) {
     return (
-      <div className="erp-public-page erp-client-site-request-page flex min-h-[100dvh] items-center justify-center bg-slate-50">
-        <Card className="erp-client-site-request-card w-full max-w-lg rounded-2xl shadow-sm">
-          <CardContent className="p-8 text-center text-sm font-semibold text-red-600">{error || L.loadFail}</CardContent>
+      <ClientSiteRequestShell>
+        <Card className="erp-client-site-request-card">
+          <CardContent className="erp-client-site-request-card-body p-8 text-center text-sm font-semibold text-red-600">
+            {error || L.loadFail}
+          </CardContent>
         </Card>
-      </div>
+      </ClientSiteRequestShell>
     );
   }
 
   return (
-    <div className="erp-public-page erp-client-site-request-page min-h-[100dvh] bg-slate-50">
-      <div className={`erp-client-site-request-shell mx-auto w-full ${tab === "calendar" ? "max-w-5xl" : "max-w-2xl"}`}>
-        <Card className="erp-client-site-request-card rounded-2xl shadow-sm">
+    <ClientSiteRequestShell companyName={info.companyName}>
+      <div className={`erp-client-site-request-shell w-full ${tab === "calendar" ? "" : "erp-client-site-request-shell--narrow"}`}>
+        <Card className="erp-client-site-request-card">
           <CardContent className="erp-client-site-request-card-body space-y-5">
-            <div className="erp-client-site-request-header">
-              <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{info.companyName}</p>
-              <h1 className="mt-1 text-xl font-bold text-slate-900 sm:text-2xl">{L.pageTitle}</h1>
-              <p className="mt-1 text-sm leading-relaxed text-slate-600">{L.pageDesc}</p>
-            </div>
-
-            <div className="erp-client-site-request-client rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <div className="text-xs font-bold text-slate-500">{L.client}</div>
-              <div className="text-base font-bold text-slate-900 sm:text-lg">{info.clientName}</div>
+            <div className="erp-client-site-request-client">
+              <div className="erp-client-site-request-client__icon" aria-hidden="true">
+                {info.clientName.slice(0, 1)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="erp-client-site-request-client__label">{L.client}</div>
+                <div className="erp-client-site-request-client__name">{info.clientName}</div>
+              </div>
             </div>
 
             <div className="erp-client-site-request-tabs flex gap-2 rounded-2xl bg-slate-100 p-1">
@@ -567,6 +601,6 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
           </div>
         </div>
       ) : null}
-    </div>
+    </ClientSiteRequestShell>
   );
 }

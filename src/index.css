@@ -475,6 +475,11 @@ textarea {
   color: #334155;
 }
 
+.erp-client-request-calendar__entry-site {
+  min-width: 0;
+  flex: 1;
+}
+
 .erp-client-request-calendar__entry.is-pending {
   background: #fff7ed;
   color: #9a3412;
@@ -566,39 +571,211 @@ textarea {
   display: none;
 }
 
+.erp-client-request-calendar__entry-workers {
+  flex-shrink: 0;
+}
+
 .erp-client-request-calendar__day-title-mobile {
   display: none;
 }
 
 .erp-client-site-request-page {
+  position: relative;
+  overflow-x: hidden;
   min-height: 100dvh;
   padding:
-    max(0.5rem, env(safe-area-inset-top))
-    max(0.625rem, env(safe-area-inset-right))
-    max(0.75rem, env(safe-area-inset-bottom))
-    max(0.625rem, env(safe-area-inset-left));
+    max(0.75rem, env(safe-area-inset-top))
+    max(0.75rem, env(safe-area-inset-right))
+    max(1rem, env(safe-area-inset-bottom))
+    max(0.75rem, env(safe-area-inset-left));
   -webkit-tap-highlight-color: transparent;
+  background:
+    radial-gradient(circle at 10% 8%, rgba(56, 189, 248, 0.16), transparent 32%),
+    radial-gradient(circle at 92% 4%, rgba(148, 163, 184, 0.14), transparent 26%),
+    linear-gradient(165deg, #0b1220 0%, #0f172a 38%, #1e293b 100%);
+  color: #0f172a;
+}
+
+.erp-client-site-request-page__glow {
+  pointer-events: none;
+  position: absolute;
+  inset: -4rem auto auto 50%;
+  width: min(28rem, 90vw);
+  height: min(28rem, 90vw);
+  transform: translateX(-50%);
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 68%);
+  filter: blur(10px);
+}
+
+.erp-client-site-request-page__inner {
+  position: relative;
+  z-index: 1;
+}
+
+.erp-client-site-request-hero {
+  margin-bottom: 1.25rem;
+  padding-top: 0.25rem;
+  text-align: center;
+}
+
+.erp-client-site-request-hero__logo {
+  display: block;
+  width: min(5.5rem, 22vw);
+  height: auto;
+  margin: 0 auto 0.875rem;
+  border-radius: 9999px;
+  background: #fff;
+  padding: 0.55rem;
+  box-shadow:
+    0 16px 36px rgba(2, 6, 23, 0.35),
+    0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.erp-client-site-request-hero__kicker {
+  margin: 0 0 0.5rem;
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: #94a3b8;
+}
+
+.erp-client-site-request-hero__title {
+  margin: 0;
+  font-size: clamp(1.5rem, 5vw, 2rem);
+  font-weight: 900;
+  line-height: 1.25;
+  color: #f8fafc;
+}
+
+.erp-client-site-request-hero__desc {
+  margin: 0.625rem auto 0;
+  max-width: 28rem;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: #cbd5e1;
+}
+
+.erp-client-site-request-hero__company {
+  display: inline-flex;
+  margin: 0.875rem auto 0;
+  border-radius: 9999px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.45);
+  padding: 0.35rem 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #e2e8f0;
 }
 
 .erp-client-site-request-shell {
   width: 100%;
 }
 
+.erp-client-site-request-shell--narrow {
+  max-width: 42rem;
+  margin-inline: auto;
+}
+
+.erp-client-site-request-card {
+  overflow: hidden;
+  border: 0;
+  border-radius: 1.5rem;
+  background: #fff;
+  box-shadow:
+    0 24px 60px rgba(2, 6, 23, 0.28),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
 .erp-client-site-request-card-body {
-  padding: 1rem;
+  padding: 1.125rem;
+}
+
+.erp-client-site-request-client {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  border-radius: 1.125rem;
+  border: 1px solid #e2e8f0;
+  background: linear-gradient(135deg, #f8fafc 0%, #fff 100%);
+  padding: 0.875rem 1rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.erp-client-site-request-client__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #0f172a 0%, #334155 100%);
+  font-size: 1.125rem;
+  font-weight: 900;
+  color: #fff;
+}
+
+.erp-client-site-request-client__label {
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.erp-client-site-request-client__name {
+  margin-top: 0.15rem;
+  font-size: 1.0625rem;
+  font-weight: 800;
+  line-height: 1.3;
+  color: #0f172a;
+  word-break: keep-all;
+}
+
+.erp-client-site-request-tabs {
+  background: #f1f5f9;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.erp-client-site-request-tab.is-active,
+.erp-client-site-request-tabs button.bg-white {
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+}
+
+.erp-client-site-request-footer {
+  margin-top: 1.25rem;
+  text-align: center;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.85);
 }
 
 @media (min-width: 640px) {
   .erp-client-site-request-page {
     padding:
       max(1.5rem, env(safe-area-inset-top))
-      max(1rem, env(safe-area-inset-right))
+      max(1.25rem, env(safe-area-inset-right))
       max(2rem, env(safe-area-inset-bottom))
-      max(1rem, env(safe-area-inset-left));
+      max(1.25rem, env(safe-area-inset-left));
+  }
+
+  .erp-client-site-request-hero {
+    margin-bottom: 1.5rem;
+  }
+
+  .erp-client-site-request-hero__logo {
+    width: 6.25rem;
+    padding: 0.65rem;
   }
 
   .erp-client-site-request-card-body {
-    padding: 1.5rem 2rem;
+    padding: 1.5rem 1.75rem;
+  }
+
+  .erp-client-site-request-client__name {
+    font-size: 1.1875rem;
   }
 }
 
@@ -639,13 +816,8 @@ textarea {
 
 @media (max-width: 639px) {
   .erp-client-site-request-card {
-    border: none;
-    box-shadow: none;
-    background: transparent;
-  }
-
-  .erp-client-site-request-card-body {
-    padding: 0;
+    border-radius: 1.25rem;
+    box-shadow: 0 20px 44px rgba(2, 6, 23, 0.32);
   }
 
   .erp-client-site-request-tabs {
@@ -689,34 +861,59 @@ textarea {
     gap: 0.15rem;
   }
 
-  .erp-client-request-calendar__grid .erp-calendar-cell {
-    min-height: 3.35rem;
-    padding: 0.2rem 0.15rem 0.25rem;
-    border-radius: 0.55rem;
-  }
-
-  .erp-client-request-calendar__grid .erp-calendar-cell-head {
-    flex-direction: column;
-    align-items: center;
-    gap: 0.15rem;
-  }
-
   .erp-client-request-calendar__count--desktop {
     display: none !important;
   }
 
-  .erp-client-request-calendar__count--mobile {
-    display: inline-flex !important;
-    min-width: 1.1rem;
-    height: 1.1rem;
-    padding: 0 0.3rem;
-    font-size: 0.5625rem;
-    background: #ffedd5;
-    color: #c2410c;
+  .erp-client-request-calendar__grid .erp-calendar-cell {
+    min-height: 4.5rem;
+    padding: 0.25rem 0.2rem 0.3rem;
+    border-radius: 0.55rem;
+    align-items: stretch;
+  }
+
+  .erp-client-request-calendar__grid .erp-calendar-cell-head {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    gap: 0.25rem;
+    padding: 0 0.1rem;
+  }
+
+  .erp-client-request-calendar__grid .erp-calendar-cell-day {
+    font-size: 0.75rem;
   }
 
   .erp-client-request-calendar__entries {
-    display: none !important;
+    display: flex !important;
+    flex-direction: column;
+    gap: 0.12rem;
+    width: 100%;
+    margin-top: 0.12rem;
+    overflow: hidden;
+  }
+
+  .erp-client-request-calendar__entry {
+    justify-content: flex-start;
+    width: 100%;
+    padding: 0.14rem 0.28rem;
+    font-size: 0.5625rem;
+    line-height: 1.25;
+    border-radius: 0.35rem;
+  }
+
+  .erp-client-request-calendar__entry-workers {
+    display: none;
+  }
+
+  .erp-client-request-calendar__entry:nth-child(n + 3) {
+    display: none;
+  }
+
+  .erp-client-request-calendar__more {
+    font-size: 0.5rem;
+    padding-left: 0.2rem;
   }
 
   .erp-client-request-calendar__day-title-full {

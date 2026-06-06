@@ -157,14 +157,9 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
               <div className="erp-calendar-cell-head">
                 <span className="erp-calendar-cell-day">{cell.day}</span>
                 {hasData ? (
-                  <>
-                    <span className="erp-client-request-calendar__count erp-client-request-calendar__count--desktop">
-                      {cell.requests.length}
-                    </span>
-                    <span className="erp-client-request-calendar__count erp-client-request-calendar__count--mobile">
-                      {cell.requests.length}
-                    </span>
-                  </>
+                  <span className="erp-client-request-calendar__count erp-client-request-calendar__count--desktop">
+                    {cell.requests.length}
+                  </span>
                 ) : null}
               </div>
               <div className="erp-calendar-cell-entries erp-client-request-calendar__entries">
@@ -184,8 +179,8 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
                       onSelectRequest(request.id, cell.date);
                     }}
                   >
-                    <span className="truncate">{request.siteName}</span>
-                    <span className="shrink-0">
+                    <span className="erp-client-request-calendar__entry-site truncate">{request.siteName}</span>
+                    <span className="erp-client-request-calendar__entry-workers shrink-0">
                       {request.workerCount}
                       {L.workerUnit}
                     </span>
