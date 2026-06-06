@@ -289,6 +289,9 @@ export async function fetchTaxInvoicesInRange({ startDate, endDate, flowTypes = 
   if (scrapStatus.message && scrapStatus.code >= 0) {
     errors.push(scrapStatus.message);
   }
+  if (scrapStatus.collecting && scrapStatus.message) {
+    errors.push(scrapStatus.message);
+  }
 
   for (const isoDate of iterateIsoDates(startDate, endDate)) {
     const baseDate = toBaseDate(isoDate);
