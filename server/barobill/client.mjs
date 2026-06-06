@@ -69,6 +69,18 @@ export function parseNumericResult(raw) {
   return Number.isFinite(value) ? value : null;
 }
 
+function decodeXml(text) {
+  return String(text ?? "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+/** GetBaroBillURL TOGO: 요금결제 페이지 */
+export const BAROBILL_TOGO_CHARGE = "CHRG";
+
 export function maskCertKey(certKey) {
   const key = String(certKey || "").trim();
   if (!key) return "(??)";
@@ -77,10 +89,11 @@ export function maskCertKey(certKey) {
 }
 
 export function getBarobillConfigStatus() {
-  const { certKey, corpNum, userId, test, wsdlUrl } = config.barobill;
+  const { certKey, corpNum, userId, userPwd, test, wsdlUrl } = config.barobill;
   const hasCertKey = Boolean(String(certKey || "").trim());
   const hasCorpNum = Boolean(String(corpNum || "").trim());
   const hasUserId = Boolean(String(userId || "").trim());
+  const hasUserPwd = Boolean(String(userPwd || "").trim());
 
   return {
     configured: hasCertKey && hasCorpNum,
@@ -89,6 +102,7 @@ export function getBarobillConfigStatus() {
     hasCertKey,
     hasCorpNum,
     hasUserId,
+    hasUserPwd,
     certKeyMasked: maskCertKey(certKey),
   };
 }
@@ -178,6 +192,39 @@ export async function getBalanceCostAmount() {
     throw new Error("GetBalanceCostAmount ??? ???? ????.");
   }
   return value;
+}
+
+export async function getBarobillUrl(togo = BAROBILL_TOGO_CHARGE) {
+  const { certKey, corpNum, userId } = assertBarobillCredentials({ requireUserId: true });
+  const userPwd = String(config.barobill.userPwd || "").trim();
+  if (!userPwd) {
+    throw new Error("BAROBILL_USER_PWD가 설정되지 않았습니다. 바로빌 로그인 비밀번호를 .env에 설정해 주세요.");
+  }
+
+  const { rawResult } = await callBarobillSoap(
+    "GetBaroBillURL",
+    {
+      CERTKEY: certKey,
+      CorpNum: corpNum,
+      ID: userId,
+      PWD: userPwd,
+      TOGO: String(togo || BAROBILL_TOGO_CHARGE),
+    },
+    "GetBaroBillURLResult",
+  );
+
+  const result = decodeXml(String(rawResult || "").trim());
+  const asNumber = parseNumericResult(result);
+  if (asNumber !== null && asNumber < 0) {
+    const message = await describeBarobillCode(asNumber);
+    const error = new Error(message || `바로빌 오류 (${asNumber})`);
+    error.errCode = asNumber;
+    throw error;
+  }
+  if (!/^https?:\/\//i.test(result)) {
+    throw new Error(result || "바로빌 URL을 받지 못했습니다.");
+  }
+  return result;
 }
 
 async function describeBarobillCode(code) {

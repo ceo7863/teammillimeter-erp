@@ -69,7 +69,7 @@ import {
   runOpenBankingSync,
 } from "./openBankingSync.mjs";
 import { buildAuthorizeUrl } from "./openBankingClient.mjs";
-import { getBarobillConfigStatus, testBarobillConnection } from "./barobill/client.mjs";
+import { getBarobillConfigStatus, testBarobillConnection, getBarobillUrl } from "./barobill/client.mjs";
 import { syncBarobillTaxInvoices } from "./barobill/taxInvoiceSync.mjs";
 import { buildIssuedTaxInvoiceRecord, registAndIssueTaxInvoice } from "./barobill/taxInvoiceIssue.mjs";
 import { classifyBankLedgerBatch } from "./bankLedgerClassify.mjs";
@@ -728,6 +728,29 @@ app.get("/api/barobill/status", authMiddleware, adminMiddleware, async (_req, re
       ...safeConfig,
       connectionOk: false,
       message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+app.get("/api/barobill/charge-url", authMiddleware, adminMiddleware, async (_req, res) => {
+  const configStatus = getBarobillConfigStatus();
+  if (!configStatus.configured || !configStatus.hasUserId) {
+    res.status(400).json({ error: "바로빌 인증키, 사업자번호, 사용자 ID가 설정되지 않았습니다." });
+    return;
+  }
+  if (!configStatus.hasUserPwd) {
+    res.status(400).json({ error: "BAROBILL_USER_PWD(바로빌 로그인 비밀번호)가 설정되지 않았습니다." });
+    return;
+  }
+
+  try {
+    const url = await getBarobillUrl("CHRG");
+    res.json({ ok: true, url });
+  } catch (error) {
+    const errCode = error && typeof error === "object" && "errCode" in error ? error.errCode : undefined;
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+      errCode,
     });
   }
 });

@@ -52,6 +52,7 @@ import {
   type BarobillTaxInvoiceSyncPreview,
 } from "@/utils/barobillTaxInvoiceSync";
 import { issueBarobillTaxInvoice } from "@/utils/barobillTaxInvoiceIssue";
+import { fetchBarobillChargeUrl } from "@/utils/barobillChargeUrl";
 import { useAudit } from "@/context/AuditContext";
 import { TAX_INVOICE_AUDIT_FIELDS, snapshotTaxInvoiceForAudit } from "@/utils/auditLog";
 
@@ -183,6 +184,9 @@ const L = {
   barobillIssueFailed: "\uBC14\uB85C\uBE4C \uBC1C\uD589\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   barobillIssueSalesOnly: "\uB9E4\uCD9C \uACC4\uC0B0\uC11C\uB9CC \uBC14\uB85C\uBE4C \uBC1C\uD589\uC744 \uC9C0\uC6D0\uD569\uB2C8\uB2E4.",
   barobillIssueBusinessNo: "\uAC70\uB798\uCC98 \uC0AC\uC5C5\uC790\uBC88\uD638 10\uC790\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.",
+  barobillCharge: "\uC694\uAE08 \uCDA9\uC804",
+  barobillChargeLoading: "\uC694\uAE08\uCDA9\uC804 \uD398\uC774\uC9C0\uB97C \uC5F4\uACE0 \uC788\uC2B5\uB2C8\uB2E4...",
+  barobillChargeFailed: "\uC694\uAE08\uCDA9\uC804 \uD398\uC774\uC9C0\uB97C \uC5F4 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
 };
 
 function getTaxInvoiceRowMeta(row: TaxInvoice, excludedIds: Set<string>) {
@@ -327,6 +331,7 @@ export function TaxInvoicePage({
   const [barobillPreviewActive, setBarobillPreviewActive] = useState(false);
   const [barobillSyncMeta, setBarobillSyncMeta] = useState<BarobillTaxInvoiceSyncPreview | null>(null);
   const [barobillIssueLoading, setBarobillIssueLoading] = useState(false);
+  const [barobillChargeLoading, setBarobillChargeLoading] = useState(false);
   const hometaxInputRef = useRef<HTMLInputElement>(null);
 
   const isAdmin = currentUser?.role === "admin";
@@ -720,6 +725,19 @@ export function TaxInvoicePage({
   const authorName = currentUser?.name || currentUser?.loginId || "\uC0AC\uC6A9\uC790";
   const authorLoginId = currentUser?.loginId || "";
 
+  const openBarobillChargePage = async () => {
+    setBarobillChargeLoading(true);
+    setImportError("");
+    try {
+      const result = await fetchBarobillChargeUrl();
+      window.open(result.url, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : L.barobillChargeFailed);
+    } finally {
+      setBarobillChargeLoading(false);
+    }
+  };
+
   const issueViaBarobill = async () => {
     if (!modal) return;
     if (modal.flowType !== "sales") {
@@ -1054,6 +1072,17 @@ export function TaxInvoicePage({
           <p className="mt-1 erp-text-body text-slate-500">{L.pageDesc}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {isAdmin ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-2xl"
+              disabled={importLoading || barobillChargeLoading}
+              onClick={() => void openBarobillChargePage()}
+            >
+              {L.barobillCharge}
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="outline"

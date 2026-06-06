@@ -49,6 +49,8 @@ export const config = {
     certKey: process.env.BAROBILL_CERT_KEY || "",
     corpNum: process.env.BAROBILL_CORP_NUM || "",
     userId: process.env.BAROBILL_USER_ID || "",
+    /** 바로빌 사이트 링크 URL(GetBaroBillURL) 호출 시 필요 */
+    userPwd: process.env.BAROBILL_USER_PWD || "",
     /** 공급자(자사) 대표자명 — 미설정 시 발행 API가 거절될 수 있음 */
     ceoName: process.env.BAROBILL_CEO_NAME || "",
     /** 공급자 담당자 이메일 — 미설정 시 발행 API가 거절될 수 있음 */
