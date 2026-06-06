@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DesktopTableWrap } from "@/components/MobileRecordCard";
@@ -9,14 +9,17 @@ import { formatKRW } from "@/utils/companyLedger";
 import type { CompanyProfile } from "@/utils/companyProfile";
 import {
   buildDefaultTaxInvoiceLinkDateRange,
+  buildTaxInvoiceLinkedPaymentIndex,
   canLinkTaxInvoiceToTransaction,
   filterTaxInvoicesForLinkPanel,
   formatTaxInvoiceBusinessNo,
   resolveDefaultTaxInvoiceFlowFilter,
 } from "@/utils/taxInvoiceLinkPanel";
 import type { TaxInvoice, TaxInvoiceFlowType } from "@/utils/taxInvoices";
+import { buildTaxInvoiceCancellationExcludedIds } from "@/utils/taxInvoices";
 
 const PAGE_SIZE = 80;
+const SEARCH_DEBOUNCE_MS = 180;
 
 const L = {
   title: "\uC138\uAE08\uACC4\uC0B0\uC11C \uC99D\uBE59 \uC5F0\uACB0",
@@ -71,6 +74,15 @@ function PartyCell({ businessNo, name }: { businessNo: string; name: string }) {
   );
 }
 
+function useDebouncedValue<T>(value: T, delayMs: number) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
+
 export function TaxInvoiceLinkPanel({
   tx,
   taxInvoices,
@@ -87,23 +99,35 @@ export function TaxInvoiceLinkPanel({
   const [endDate, setEndDate] = useState(defaultRange.endDate);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const debouncedSearch = useDebouncedValue(search, SEARCH_DEBOUNCE_MS);
 
   const txAmount = getBankTxClassifiedAmount(tx);
   const ourCompanyName = String(companyProfile?.name || "\uC8FC\uC2DD\uD68C\uC0AC \uD300\uBC00\uB9AC\uBBF8\uD130").trim();
   const ourBusinessNo = String(companyProfile?.businessNo || "").trim();
 
+  const linkedPaymentIndex = useMemo(
+    () => buildTaxInvoiceLinkedPaymentIndex(bankTransactions),
+    [bankTransactions],
+  );
+  const excludedIds = useMemo(() => buildTaxInvoiceCancellationExcludedIds(taxInvoices), [taxInvoices]);
+
   const rows = useMemo(
     () =>
       filterTaxInvoicesForLinkPanel({
         invoices: taxInvoices,
-        transactions: bankTransactions,
+        linkedPaymentIndex,
+        excludedIds,
         flowFilter,
         startDate,
         endDate,
-        search,
+        search: debouncedSearch,
       }),
-    [taxInvoices, bankTransactions, flowFilter, startDate, endDate, search],
+    [taxInvoices, linkedPaymentIndex, excludedIds, flowFilter, startDate, endDate, debouncedSearch],
   );
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, flowFilter, startDate, endDate]);
 
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -177,10 +201,7 @@ export function TaxInvoiceLinkPanel({
 
           <input
             value={search}
-            onChange={(event) => {
-              setSearch(event.target.value);
-              setPage(1);
-            }}
+            onChange={(event) => setSearch(event.target.value)}
             placeholder={L.search}
             className="erp-input w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
           />

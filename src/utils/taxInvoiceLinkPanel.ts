@@ -9,6 +9,33 @@ import {
   type TaxInvoiceFlowType,
 } from "./taxInvoices";
 
+export type TaxInvoiceLinkedPaymentIndex = Map<string, { purchase: number; sales: number }>;
+
+export function buildTaxInvoiceLinkedPaymentIndex(transactions: BankTransaction[]): TaxInvoiceLinkedPaymentIndex {
+  const index: TaxInvoiceLinkedPaymentIndex = new Map();
+  for (const row of transactions) {
+    const invoiceId = row.linkedTaxInvoiceId;
+    if (!invoiceId) continue;
+    let bucket = index.get(invoiceId);
+    if (!bucket) {
+      bucket = { purchase: 0, sales: 0 };
+      index.set(invoiceId, bucket);
+    }
+    bucket.purchase += Math.max(0, Number(row.withdrawal || 0));
+    bucket.sales += Math.max(0, Number(row.deposit || 0));
+  }
+  return index;
+}
+
+export function getTaxInvoiceLinkedPaymentSumFromIndex(
+  index: TaxInvoiceLinkedPaymentIndex,
+  invoice: TaxInvoice,
+) {
+  const bucket = index.get(invoice.id);
+  if (!bucket) return 0;
+  return invoice.flowType === "purchase" ? bucket.purchase : bucket.sales;
+}
+
 export function formatTaxInvoiceBusinessNo(value: string) {
   const digits = String(value || "").replace(/\D/g, "");
   if (digits.length === 10) {
@@ -18,14 +45,7 @@ export function formatTaxInvoiceBusinessNo(value: string) {
 }
 
 export function getTaxInvoiceLinkedPaymentSum(transactions: BankTransaction[], invoice: TaxInvoice) {
-  return transactions
-    .filter((row) => row.linkedTaxInvoiceId === invoice.id)
-    .reduce((sum, row) => {
-      if (invoice.flowType === "purchase") {
-        return sum + Math.max(0, Number(row.withdrawal || 0));
-      }
-      return sum + Math.max(0, Number(row.deposit || 0));
-    }, 0);
+  return getTaxInvoiceLinkedPaymentSumFromIndex(buildTaxInvoiceLinkedPaymentIndex(transactions), invoice);
 }
 
 export function getTaxInvoiceUnsettledAmount(invoice: TaxInvoice, transactions: BankTransaction[]) {
@@ -61,23 +81,27 @@ export function resolveDefaultTaxInvoiceFlowFilter(tx: BankTransaction): TaxInvo
 
 export function filterTaxInvoicesForLinkPanel(input: {
   invoices: TaxInvoice[];
-  transactions: BankTransaction[];
+  linkedPaymentIndex: TaxInvoiceLinkedPaymentIndex;
+  excludedIds?: Set<string>;
   flowFilter: TaxInvoiceFlowType;
   startDate: string;
   endDate: string;
   search: string;
 }) {
-  const excludedIds = buildTaxInvoiceCancellationExcludedIds(input.invoices);
+  const excludedIds = input.excludedIds ?? buildTaxInvoiceCancellationExcludedIds(input.invoices);
   let rows = input.invoices.filter((row) => row.status === "issued" && !excludedIds.has(row.id));
   rows = filterTaxInvoicesByFlow(rows, input.flowFilter);
   rows = filterTaxInvoicesByPeriod(rows, input.startDate, input.endDate);
   rows = filterTaxInvoices(rows, input.search);
   rows = sortTaxInvoices(rows);
-  return rows.map((invoice) => ({
-    invoice,
-    unsettledAmount: getTaxInvoiceUnsettledAmount(invoice, input.transactions),
-    linkedAmount: getTaxInvoiceLinkedPaymentSum(input.transactions, invoice),
-  }));
+  return rows.map((invoice) => {
+    const linkedAmount = getTaxInvoiceLinkedPaymentSumFromIndex(input.linkedPaymentIndex, invoice);
+    return {
+      invoice,
+      unsettledAmount: Math.max(0, Number(invoice.totalAmount || 0) - linkedAmount),
+      linkedAmount,
+    };
+  });
 }
 
 export function canLinkTaxInvoiceToTransaction(
