@@ -103,6 +103,8 @@ export function useBankLiveSync({
   const onForceRefreshRef = React.useRef(onForceRefresh);
   const barobillBankRef = React.useRef(false);
   const lastServerSyncAtRef = React.useRef(0);
+  const lastBarobillRefreshAtRef = React.useRef(0);
+  const barobillRefreshIntervalRef = React.useRef(180000);
   const serverSyncIntervalRef = React.useRef(Math.max(intervalMs * 2, 45000));
 
   React.useEffect(() => {
@@ -137,6 +139,10 @@ export function useBankLiveSync({
       barobillBankRef.current = Boolean(snapshot.liveSyncStatus?.sources?.barobillBank);
       if (barobillBankRef.current) {
         serverSyncIntervalRef.current = intervalMs;
+        barobillRefreshIntervalRef.current = Math.max(
+          180000,
+          snapshot.liveSyncStatus?.intervalMs ?? 180000,
+        );
       } else if (snapshot.liveSyncStatus?.intervalMs) {
         serverSyncIntervalRef.current = Math.max(
           45000,
@@ -167,6 +173,10 @@ export function useBankLiveSync({
       barobillBankRef.current = Boolean(snapshot.liveSyncStatus?.sources?.barobillBank);
       if (barobillBankRef.current) {
         serverSyncIntervalRef.current = intervalMs;
+        barobillRefreshIntervalRef.current = Math.max(
+          180000,
+          snapshot.liveSyncStatus?.intervalMs ?? 180000,
+        );
       } else if (snapshot.liveSyncStatus?.intervalMs) {
         serverSyncIntervalRef.current = Math.max(
           45000,
@@ -370,7 +380,12 @@ export function useBankLiveSync({
         > | null = null;
         if (barobillBankRef.current) {
           try {
-            syncResult = await syncBarobillBankNow({ refresh: false });
+            const requestRefresh =
+              Date.now() - lastBarobillRefreshAtRef.current >= barobillRefreshIntervalRef.current;
+            syncResult = await syncBarobillBankNow({ refresh: requestRefresh });
+            if (requestRefresh) {
+              lastBarobillRefreshAtRef.current = Date.now();
+            }
           } catch {
             syncResult = null;
           }
