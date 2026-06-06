@@ -16,8 +16,8 @@ export function ensureKoreanImeAnchor() {
   return anchor;
 }
 
-export function prepareKoreanTextInput(input: HTMLInputElement | null | undefined) {
-  if (!(input instanceof HTMLInputElement)) return;
+export function prepareKoreanTextInput(input: HTMLInputElement | HTMLTextAreaElement | null | undefined) {
+  if (!(input instanceof HTMLInputElement) && !(input instanceof HTMLTextAreaElement)) return;
   input.setAttribute("lang", "ko");
   input.removeAttribute("inputmode");
 }

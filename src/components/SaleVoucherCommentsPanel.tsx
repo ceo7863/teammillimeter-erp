@@ -2,6 +2,7 @@ import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "
 import { MessageSquare, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { prepareKoreanTextInput } from "@/utils/koreanIme";
 import {
   formatSaleCommentTime,
   type PendingSaleComment,
@@ -25,8 +26,8 @@ type DisplayComment = {
   pending?: boolean;
 };
 
-function isImeComposing(event: React.KeyboardEvent<HTMLTextAreaElement>) {
-  return event.nativeEvent.isComposing || event.key === "Process" || event.keyCode === 229;
+function isEnterKey(event: KeyboardEvent | React.KeyboardEvent) {
+  return event.key === "Enter" || event.code === "Enter" || event.code === "NumpadEnter";
 }
 
 export const SaleVoucherCommentsPanel = memo(function SaleVoucherCommentsPanel({
@@ -37,13 +38,21 @@ export const SaleVoucherCommentsPanel = memo(function SaleVoucherCommentsPanel({
   currentUser,
   className = "",
 }: SaleVoucherCommentsPanelProps) {
+  const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const draftRef = useRef("");
   const composingRef = useRef(false);
   const submittingRef = useRef(false);
+  const enterSubmitArmedRef = useRef(false);
   const onAddCommentRef = useRef(onAddComment);
   onAddCommentRef.current = onAddComment;
+
+  const syncDraft = useCallback((nextValue: string) => {
+    draftRef.current = nextValue;
+    setDraft(nextValue);
+  }, []);
 
   const displayComments = useMemo((): DisplayComment[] => {
     const persisted = comments.map((row) => ({
@@ -71,28 +80,57 @@ export const SaleVoucherCommentsPanel = memo(function SaleVoucherCommentsPanel({
 
   const submit = useCallback(async () => {
     if (submittingRef.current) return;
-    const body = String(textareaRef.current?.value || "").trim();
+    const body = draftRef.current.trim();
     if (!body) return;
     submittingRef.current = true;
     setSubmitting(true);
     try {
       await onAddCommentRef.current(body);
-      if (textareaRef.current) {
-        textareaRef.current.value = "";
-      }
+      syncDraft("");
     } finally {
       submittingRef.current = false;
       setSubmitting(false);
     }
-  }, []);
+  }, [syncDraft]);
 
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== "Enter" || event.shiftKey) return;
-    if (composingRef.current || isImeComposing(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    void submit();
-  };
+  const submitRef = useRef(submit);
+  submitRef.current = submit;
+
+  useEffect(() => {
+    const node = textareaRef.current;
+    if (!node) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!isEnterKey(event) || event.shiftKey) return;
+      if (event.isComposing || composingRef.current) {
+        enterSubmitArmedRef.current = false;
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      enterSubmitArmedRef.current = true;
+    };
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (!isEnterKey(event) || event.shiftKey) return;
+      if (event.isComposing || composingRef.current) {
+        enterSubmitArmedRef.current = false;
+        return;
+      }
+      if (!enterSubmitArmedRef.current) return;
+      enterSubmitArmedRef.current = false;
+      event.preventDefault();
+      event.stopPropagation();
+      void submitRef.current();
+    };
+
+    node.addEventListener("keydown", handleKeyDown, true);
+    node.addEventListener("keyup", handleKeyUp, true);
+    return () => {
+      node.removeEventListener("keydown", handleKeyDown, true);
+      node.removeEventListener("keyup", handleKeyUp, true);
+    };
+  }, []);
 
   const authorLabel = String(currentUser?.name || currentUser?.email || "\uC0AC\uC6A9\uC790").trim() || "\uC0AC\uC6A9\uC790";
 
@@ -140,33 +178,41 @@ export const SaleVoucherCommentsPanel = memo(function SaleVoucherCommentsPanel({
           )}
         </div>
 
-        <div className="erp-sale-voucher-comments-compose">
+        <form
+          className="erp-sale-voucher-comments-compose"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
+        >
           <textarea
             ref={textareaRef}
             lang="ko"
             enterKeyHint="send"
             className="erp-input erp-sale-voucher-comments-input min-h-[72px] w-full rounded-xl"
-            defaultValue=""
+            value={draft}
             placeholder={`${authorLabel}\uB2D8, \uCF54\uBA58\uD2B8 \uC785\uB825 (Enter \uC804\uC1A1 \u00B7 Shift+Enter \uC904\uBC14\uAFC8)`}
+            onPointerDown={(event) => prepareKoreanTextInput(event.currentTarget)}
+            onFocus={(event) => prepareKoreanTextInput(event.currentTarget)}
+            onChange={(event) => syncDraft(event.target.value)}
             onCompositionStart={() => {
               composingRef.current = true;
             }}
-            onCompositionEnd={() => {
+            onCompositionEnd={(event) => {
               composingRef.current = false;
+              syncDraft(event.currentTarget.value);
             }}
-            onKeyDown={handleKeyDown}
           />
           <Button
-            type="button"
+            type="submit"
             size="sm"
             className="h-9 shrink-0 rounded-xl px-4"
-            disabled={submitting}
-            onClick={() => void submit()}
+            disabled={submitting || !draft.trim()}
           >
             <Send size={14} />
             {"\uC804\uC1A1"}
           </Button>
-        </div>
+        </form>
       </CardContent>
     </Card>
   );
