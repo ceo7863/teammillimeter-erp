@@ -65,7 +65,7 @@ export function useBankLiveSync({
   const localLatestAtRef = React.useRef(localLatestTransactionAt);
   const onRemoteUpdateRef = React.useRef(onRemoteUpdate);
   const lastServerSyncAtRef = React.useRef(0);
-  const serverSyncIntervalRef = React.useRef(intervalMs * 9);
+  const serverSyncIntervalRef = React.useRef(Math.max(intervalMs * 4, 60000));
 
   React.useEffect(() => {
     sinceVersionRef.current = sinceVersion;
@@ -93,7 +93,10 @@ export function useBankLiveSync({
         localLatestAtRef.current,
       );
       if (snapshot.liveSyncStatus?.intervalMs) {
-        serverSyncIntervalRef.current = snapshot.liveSyncStatus.intervalMs;
+        serverSyncIntervalRef.current = Math.max(
+          60000,
+          Math.min(snapshot.liveSyncStatus.intervalMs, intervalMs * 4),
+        );
       }
       setState((prev) => ({
         ...prev,
@@ -149,7 +152,12 @@ export function useBankLiveSync({
     const syncIntervalMs = serverSyncIntervalRef.current;
     if (Date.now() - lastServerSyncAtRef.current < syncIntervalMs) return null;
     lastServerSyncAtRef.current = Date.now();
-    return runBankFolderSync();
+    try {
+      return await runBankFolderSync();
+    } catch {
+      lastServerSyncAtRef.current = 0;
+      return null;
+    }
   }, [enabled]);
 
   const syncNow = React.useCallback(async () => {
