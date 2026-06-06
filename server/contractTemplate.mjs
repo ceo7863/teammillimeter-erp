@@ -47,8 +47,44 @@ const UNIT_PRICE_AGREEMENT = {
     mealAllowance: { x: 248, y: 265, size: 10.5, coverWidth: 48, coverHeight: 12, suffixWon: true },
     accommodationFee: { x: 294, y: 283, size: 10.5, coverWidth: 54, coverHeight: 12, suffixWon: true },
   },
-  signatureRect: { x: 128, y: 382, width: 150, height: 36 },
-  dateField: { x: 115, y: 334, size: 10.5 },
+  signatureRect: { x: 105, y: 428, width: 92, height: 22 },
+  dateField: { x: 78, y: 501, size: 10.5, coverWidth: 200, coverHeight: 14 },
+  staticTextRepairs: [
+    {
+      text: "\uAC00\uAD6C\uC2DC\uACF5 \uB2E8\uAC00\uD611\uC57D\uC11C",
+      x: 198,
+      y: 86,
+      size: 15,
+      coverWidth: 180,
+      coverHeight: 22,
+    },
+    {
+      text:
+        "\uBCF8 \uD611\uC57D\uC11C\uB294 \uBC1C\uC8FC\uCC98\uC640 \uC2DC\uACF5\uC5C5\uCCB4 \uAC04 \uAC00\uAD6C\uC2DC\uACF5 \uB2E8\uAC00 \uAE30\uC900\uC744 \uC815\uD558\uAE30 \uC704\uD558\uC5EC \uC791\uC131\uB418\uC5C8\uC73C\uBA70, \uC591 \uB2F9\uC0AC\uC790\uAC00 \uC11C\uBA85\uD568\uC73C\uB85C\uC368 \uD6A8\uB825\uC774 \uBC1C\uC0DD\uD569\uB2C8\uB2E4.",
+      x: 78,
+      y: 328,
+      size: 9,
+      coverWidth: 455,
+      coverHeight: 14,
+    },
+    {
+      text:
+        "\uC0C1\uAE30 \uB2E8\uAC00 \uBC0F \uAE30\uC900\uC740 \uD604\uC7A5 \uC5EC\uAC74, \uACF5\uC0AC \uB09C\uC774\uB3C4, \uC790\uC7AC \uC0AC\uC591 \uB4F1\uC5D0 \uB530\uB77C \uC0C1\uD638 \uD611\uC758 \uD6C4 \uC870\uC815\uB420 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+      x: 78,
+      y: 340,
+      size: 9,
+      coverWidth: 455,
+      coverHeight: 14,
+    },
+    {
+      text: "\uC791\uC131\uC77C :              \uB144              \uC6D4              \uC77C",
+      x: 78,
+      y: 501,
+      size: 10,
+      coverWidth: 200,
+      coverHeight: 14,
+    },
+  ],
 };
 
 const TEMPLATE_REGISTRY = {
@@ -122,6 +158,12 @@ export function getContractTemplate(templateId) {
   return TEMPLATE_REGISTRY[String(templateId || "").trim()] || null;
 }
 
+function drawStaticTextRepairs(page, font, template) {
+  for (const spec of template.staticTextRepairs || []) {
+    drawFieldWithCover(page, font, spec, spec.text);
+  }
+}
+
 export async function fillContractTemplate(templateId, input = {}) {
   const template = getContractTemplate(templateId);
   if (!template) {
@@ -136,6 +178,7 @@ export async function fillContractTemplate(templateId, input = {}) {
   const font = await embedKoreanFont(pdfDoc);
   const page = pdfDoc.getPages()[0];
 
+  drawStaticTextRepairs(page, font, template);
   drawFieldWithCover(page, font, template.fields.clientName, input.clientName);
   drawFieldWithCover(page, font, template.fields.contactName, input.contactName);
   drawFieldWithCover(page, font, template.fields.contactPhone, input.contactPhone);
@@ -186,13 +229,17 @@ export async function applySignatureToContractPdf(originalBuffer, signatureBuffe
 
   const kst = new Date(signedAt.toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
   const dateText = `${kst.getFullYear()}\uB144 ${String(kst.getMonth() + 1).padStart(2, "0")}\uC6D4 ${String(kst.getDate()).padStart(2, "0")}\uC77C`;
-  lastPage.drawText(dateText, {
-    x: dateField.x,
-    y: dateField.y,
-    size: dateField.size || 10.5,
-    font,
-    color: rgb(0.08, 0.1, 0.14),
-  });
+  if (dateField.coverWidth) {
+    drawFieldWithCover(lastPage, font, dateField, dateText);
+  } else {
+    lastPage.drawText(dateText, {
+      x: dateField.x,
+      y: dateField.y,
+      size: dateField.size || 10.5,
+      font,
+      color: rgb(0.08, 0.1, 0.14),
+    });
+  }
 
   return Buffer.from(await pdfDoc.save());
 }
