@@ -183,7 +183,9 @@ import {
 import { SaleVoucherEditModal } from "@/components/SaleVoucherEditModal";
 import { WorkerPortalView } from "@/components/WorkerPortalView";
 import { ClientContractSignPage } from "@/components/ClientContractSignPage";
+import { ClientSiteRequestPage } from "@/components/ClientSiteRequestPage";
 import { ClientContractsPanel } from "@/components/ClientContractsPanel";
+import { ClientSiteRequestsPanel } from "@/components/ClientSiteRequestsPanel";
 import { ClientFormModal, type ClientFormState } from "@/components/ClientFormModal";
 import { allocateNextSaleRecordIds, getSaleVoucherLabel, parseVoucherSequence } from "@/utils/saleVoucherNo";
 import {
@@ -5428,6 +5430,8 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
         </CardContent>
       </Card>
 
+      <ClientSiteRequestsPanel clients={clients} />
+
       <ClientContractsPanel clients={clients} />
 
       <ClientFormModal
@@ -6979,10 +6983,21 @@ function parseClientContractSignToken() {
   return match ? decodeURIComponent(match[1]) : "";
 }
 
+function parseClientSiteRequestToken() {
+  if (typeof window === "undefined") return "";
+  const match = window.location.pathname.match(/^\/request\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
 export default function TeammillimeterErpMvp() {
   const signToken = parseClientContractSignToken();
   if (signToken) {
     return <ClientContractSignPage token={signToken} />;
+  }
+
+  const requestToken = parseClientSiteRequestToken();
+  if (requestToken) {
+    return <ClientSiteRequestPage token={requestToken} />;
   }
 
   const apiMode = isApiModeEnabled();

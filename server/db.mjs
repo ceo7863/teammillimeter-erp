@@ -61,6 +61,7 @@ function emptyErpPayload() {
     statementGenerationLogs: [],
     statementFolders: [],
     clientContracts: [],
+    clientSiteRequests: [],
     companyProfile: null,
     notificationSettings: {
       enabled: false,

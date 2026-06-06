@@ -104,6 +104,16 @@ import {
   createContractFromTemplate,
   rebuildContractPdf,
 } from "./clientContracts.mjs";
+import {
+  ensureClientSiteRequestLink,
+  getPublicClientSiteRequestInfo,
+  listClientSiteRequestLinks,
+  listClientSiteRequests,
+  rotateClientSiteRequestLink,
+  setClientSiteRequestLinkDisabled,
+  submitClientSiteRequest,
+  updateClientSiteRequestStatus,
+} from "./clientSiteRequests.mjs";
 import { getDefaultPdfContent, listContractTemplates } from "./contractTemplate.mjs";
 import { renderContractPdfPreview } from "./contractPdfRender.mjs";
 import {
@@ -384,6 +394,78 @@ app.post("/api/public/client-contracts/sign/:token", async (req, res) => {
     console.error("[client-contracts] public sign failed:", error);
     res.status(500).json({ error: "\uC11C\uBA85 \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
   }
+});
+
+app.get("/api/public/client-site-request/:token", (req, res) => {
+  const result = getPublicClientSiteRequestInfo(req.params.token);
+  if (!result.ok) {
+    res.status(result.status || 400).json({ error: result.error });
+    return;
+  }
+  res.json(result.info);
+});
+
+app.post("/api/public/client-site-request/:token", (req, res) => {
+  const result = submitClientSiteRequest(req.params.token, req.body || {});
+  if (!result.ok) {
+    res.status(result.status || 400).json({ error: result.error });
+    return;
+  }
+  res.status(201).json({ request: result.request });
+});
+
+app.get("/api/client-site-requests", authMiddleware, (req, res) => {
+  const rows = listClientSiteRequests({
+    status: req.query.status,
+    clientId: req.query.clientId,
+  });
+  res.json(rows);
+});
+
+app.patch("/api/client-site-requests/:id", authMiddleware, (req, res) => {
+  const actor = req.user.loginId || req.user.name || req.user.email || "";
+  const result = updateClientSiteRequestStatus(req.params.id, req.body || {}, actor);
+  if (!result.ok) {
+    res.status(result.status || 400).json({ error: result.error });
+    return;
+  }
+  res.json({ request: result.request });
+});
+
+app.get("/api/client-site-request-links", authMiddleware, (_req, res) => {
+  res.json(listClientSiteRequestLinks());
+});
+
+app.post("/api/clients/:clientId/site-request-link", authMiddleware, (req, res) => {
+  const actor = req.user.loginId || req.user.name || req.user.email || "";
+  const result = ensureClientSiteRequestLink(req.params.clientId, actor);
+  if (!result.ok) {
+    res.status(result.status || 400).json({ error: result.error });
+    return;
+  }
+  res.json({ ...result, pendingCount: 0 });
+});
+
+app.post("/api/clients/:clientId/site-request-link/rotate", authMiddleware, (req, res) => {
+  const actor = req.user.loginId || req.user.name || req.user.email || "";
+  const result = rotateClientSiteRequestLink(req.params.clientId, actor);
+  if (!result.ok) {
+    res.status(result.status || 400).json({ error: result.error });
+    return;
+  }
+  res.json({ ...result, pendingCount: 0 });
+});
+
+app.patch("/api/clients/:clientId/site-request-link/disabled", authMiddleware, (req, res) => {
+  const actor = req.user.loginId || req.user.name || req.user.email || "";
+  const result = setClientSiteRequestLinkDisabled(req.params.clientId, Boolean(req.body?.disabled), actor);
+  if (!result.ok) {
+    res.status(result.status || 400).json({ error: result.error });
+    return;
+  }
+  const pendingCount =
+    listClientSiteRequests({ status: "pending", clientId: req.params.clientId }).length || 0;
+  res.json({ ...result, pendingCount });
 });
 
 app.post(
