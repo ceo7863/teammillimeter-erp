@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { WorkerPortalSignaturePad } from "@/components/WorkerPortalSignaturePad";
 import {
   fetchPublicContractSignInfo,
-  publicContractPdfUrl,
+  publicContractPreviewUrl,
   submitPublicContractSignature,
   type PublicClientContractSignInfo,
 } from "@/utils/clientContracts";
@@ -29,6 +29,9 @@ const L = {
   sign: "\uC11C\uBA85",
   saving: "\uC800\uC7A5 \uC911...",
   submit: "\uC11C\uBA85 \uC644\uB8CC",
+  prevPage: "\uC774\uC804",
+  nextPage: "\uB2E4\uC74C",
+  pageLabel: "\uCABD",
 };
 
 type ClientContractSignPageProps = {
@@ -43,6 +46,15 @@ export function ClientContractSignPage({ token }: ClientContractSignPageProps) {
   const [done, setDone] = useState(false);
   const [signedByName, setSignedByName] = useState("");
   const [signatureDataUrl, setSignatureDataUrl] = useState("");
+  const [previewPage, setPreviewPage] = useState(1);
+  const [previewPageCount, setPreviewPageCount] = useState(1);
+
+  const loadPreviewMeta = useCallback(async (page = 1) => {
+    const response = await fetch(publicContractPreviewUrl(token, page), { method: "HEAD" });
+    if (!response.ok) return;
+    setPreviewPage(Number.parseInt(response.headers.get("X-Preview-Page") || String(page), 10) || page);
+    setPreviewPageCount(Number.parseInt(response.headers.get("X-Preview-Page-Count") || "1", 10) || 1);
+  }, [token]);
 
   const loadInfo = useCallback(async () => {
     setLoading(true);
@@ -61,6 +73,11 @@ export function ClientContractSignPage({ token }: ClientContractSignPageProps) {
   useEffect(() => {
     void loadInfo();
   }, [loadInfo]);
+
+  useEffect(() => {
+    if (!info) return;
+    void loadPreviewMeta(1);
+  }, [info, loadPreviewMeta]);
 
   const handleSubmit = async () => {
     if (!signedByName.trim()) {
@@ -135,11 +152,36 @@ export function ClientContractSignPage({ token }: ClientContractSignPageProps) {
 
             <Card className="rounded-2xl shadow-sm">
               <CardContent className="p-3 sm:p-4">
-                <iframe
-                  title={info.originalFileName}
-                  src={publicContractPdfUrl(token)}
-                  className="h-[52vh] min-h-[320px] w-full rounded-xl border border-slate-200 bg-white"
+                <img
+                  alt={info.originalFileName}
+                  src={publicContractPreviewUrl(token, previewPage)}
+                  className="mx-auto w-full rounded-xl border border-slate-200 bg-white"
                 />
+                {previewPageCount > 1 ? (
+                  <div className="mt-3 flex items-center justify-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl"
+                      disabled={previewPage <= 1}
+                      onClick={() => setPreviewPage((p) => Math.max(1, p - 1))}
+                    >
+                      {L.prevPage}
+                    </Button>
+                    <span className="erp-text-caption font-semibold text-slate-600">
+                      {previewPage} / {previewPageCount} {L.pageLabel}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl"
+                      disabled={previewPage >= previewPageCount}
+                      onClick={() => setPreviewPage((p) => Math.min(previewPageCount, p + 1))}
+                    >
+                      {L.nextPage}
+                    </Button>
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
 

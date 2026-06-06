@@ -120,14 +120,15 @@ export function clientContractFileUrl(id: string, kind: "original" | "signed" = 
 
 export async function openClientContractPdf(id: string, kind: "original" | "signed" = "original") {
   const token = getAuthToken();
-  const response = await fetch(clientContractFileUrl(id, kind), {
+  const url = clientContractPreviewUrl(id, kind, 1);
+  const response = await fetch(url, {
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   });
   if (!response.ok) throw new Error(await parseApiError(response));
   const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
-  window.open(url, "_blank", "noopener,noreferrer");
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  const blobUrl = URL.createObjectURL(blob);
+  window.open(blobUrl, "_blank", "noopener,noreferrer");
+  window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
 }
 
 export async function fetchPublicContractSignInfo(token: string): Promise<PublicClientContractSignInfo> {
@@ -138,6 +139,28 @@ export async function fetchPublicContractSignInfo(token: string): Promise<Public
 
 export function publicContractPdfUrl(token: string) {
   return `${apiBase()}/public/client-contracts/sign/${encodeURIComponent(token)}/pdf`;
+}
+
+export function publicContractPreviewUrl(token: string, page = 1) {
+  const query = page > 1 ? `?page=${page}` : "";
+  return `${apiBase()}/public/client-contracts/sign/${encodeURIComponent(token)}/preview${query}`;
+}
+
+export function clientContractPreviewUrl(id: string, kind: "original" | "signed" = "original", page = 1) {
+  const params = new URLSearchParams();
+  if (kind === "signed") params.set("kind", "signed");
+  if (page > 1) params.set("page", String(page));
+  const query = params.toString();
+  return `${apiBase()}/client-contracts/${encodeURIComponent(id)}/preview${query ? `?${query}` : ""}`;
+}
+
+export async function fetchContractPreviewMeta(url: string) {
+  const response = await fetch(url, { method: "HEAD" });
+  if (!response.ok) throw new Error(await parseApiError(response));
+  return {
+    page: Number.parseInt(response.headers.get("X-Preview-Page") || "1", 10) || 1,
+    pageCount: Number.parseInt(response.headers.get("X-Preview-Page-Count") || "1", 10) || 1,
+  };
 }
 
 export async function submitPublicContractSignature(

@@ -123,7 +123,10 @@ export function getContractSignedFile(contract) {
 }
 
 async function buildSignedPdf(originalBuffer, signatureBuffer, signedByName) {
-  const pdfDoc = await PDFDocument.load(originalBuffer);
+  const sourceDoc = await PDFDocument.load(originalBuffer);
+  const pdfDoc = await PDFDocument.create();
+  const copiedPages = await pdfDoc.copyPages(sourceDoc, sourceDoc.getPageIndices());
+  copiedPages.forEach((page) => pdfDoc.addPage(page));
   const pages = pdfDoc.getPages();
   const lastPage = pages[pages.length - 1];
   const pngImage = await pdfDoc.embedPng(signatureBuffer);

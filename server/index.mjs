@@ -102,6 +102,7 @@ import {
   getContractSignedFile,
   getContractByToken,
 } from "./clientContracts.mjs";
+import { renderContractPdfPreview } from "./contractPdfRender.mjs";
 import {
   normalizeNotificationSettings,
   DEFAULT_NOTIFICATION_SETTINGS,
@@ -326,6 +327,45 @@ app.get("/api/public/client-contracts/sign/:token/pdf", (req, res) => {
   res.setHeader("Cache-Control", "private, max-age=3600");
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.sendFile(path.resolve(file.path));
+});
+
+function sendContractPreviewResponse(req, res, { pdfPath, cacheKey, fileName }) {
+  const page = Math.max(1, Number.parseInt(String(req.query.page || "1"), 10) || 1);
+  const result = renderContractPdfPreview({ pdfPath, cacheKey, page });
+  if (!result.ok) {
+    res.status(result.status || 500).send(result.error);
+    return;
+  }
+  res.setHeader("Content-Type", "image/png");
+  res.setHeader("X-Preview-Page", String(result.page));
+  res.setHeader("X-Preview-Page-Count", String(result.pageCount));
+  res.setHeader("Cache-Control", "private, max-age=3600");
+  if (fileName) {
+    res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(fileName.replace(/\.pdf$/i, "") + `-p${result.page}.png`)}`);
+  }
+  res.sendFile(path.resolve(result.path));
+}
+
+app.get("/api/public/client-contracts/sign/:token/preview", (req, res) => {
+  const contract = getContractByToken(req.params.token);
+  if (!contract) {
+    res.status(404).send("PDF\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    return;
+  }
+  if (contract.status === "signed") {
+    res.status(409).send("\uC774\uBBF8 \uC11C\uBA85\uC774 \uC644\uB8CC\uB41C \uACC4\uC57D\uC785\uB2C8\uB2E4.");
+    return;
+  }
+  const file = getContractOriginalFile(contract);
+  if (!file) {
+    res.status(404).send("PDF\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    return;
+  }
+  sendContractPreviewResponse(req, res, {
+    pdfPath: file.path,
+    cacheKey: contract.id,
+    fileName: file.fileName,
+  });
 });
 
 app.post("/api/public/client-contracts/sign/:token", async (req, res) => {
@@ -1690,6 +1730,25 @@ app.get("/api/client-contracts/:id/signed", authMiddleware, (req, res) => {
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `${disposition}; filename*=UTF-8''${encodedName}`);
   res.sendFile(path.resolve(file.path));
+});
+
+app.get("/api/client-contracts/:id/preview", authMiddleware, (req, res) => {
+  const contract = getContractById(req.params.id);
+  if (!contract) {
+    res.status(404).json({ error: "\uACC4\uC57D\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." });
+    return;
+  }
+  const kind = req.query.kind === "signed" ? "signed" : "original";
+  const file = kind === "signed" ? getContractSignedFile(contract) : getContractOriginalFile(contract);
+  if (!file) {
+    res.status(404).json({ error: "PDF\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." });
+    return;
+  }
+  sendContractPreviewResponse(req, res, {
+    pdfPath: file.path,
+    cacheKey: `${contract.id}-${kind}`,
+    fileName: file.fileName,
+  });
 });
 
 app.post("/api/client-contracts/:id/send", authMiddleware, async (req, res) => {
