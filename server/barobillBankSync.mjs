@@ -1,7 +1,7 @@
 import { config } from "./config.mjs";
 import { getErpState, saveErpState } from "./db.mjs";
 import { mergeIbkBankImport } from "./ibkBankImport.mjs";
-import { applySentStatementAutoLinksToErpData } from "./bankSentStatementAutoLink.mjs";
+import { applySentStatementAutoLinksToErpData } from "./bankSentStatementAutoLink.ts";
 import { getBarobillBankConfigStatus } from "./barobill/bankAccountClient.mjs";
 import {
   countMergeAgainstExisting,

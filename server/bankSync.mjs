@@ -3,7 +3,7 @@ import path from "path";
 import { config } from "./config.mjs";
 import { getErpState, saveErpState } from "./db.mjs";
 import { mergeIbkBankImport, parseIbkBankExcelBuffer } from "./ibkBankImport.mjs";
-import { applySentStatementAutoLinksToErpData } from "./bankSentStatementAutoLink.mjs";
+import { applySentStatementAutoLinksToErpData } from "./bankSentStatementAutoLink.ts";
 
 const IBK_FILE_PATTERN = /\uAC70\uB798|transaction|ibk/i;
 

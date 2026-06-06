@@ -27,10 +27,8 @@ echo "==> build frontend"
 npm run build
 
 echo "==> restart API (pm2)"
-if pm2 describe erp >/dev/null 2>&1; then
-  pm2 delete erp
-fi
-pm2 start npm --name erp -- start
+pm2 delete erp 2>/dev/null || true
+pm2 start server/index.mjs --name erp --node-args="--import tsx"
 
 pm2 save
 echo "==> deploy done"

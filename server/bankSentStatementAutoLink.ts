@@ -1,24 +1,14 @@
-import { tsImport } from "tsx/esm/api";
 import { listSentStatementArchiveMetas, updatePdfArchiveMeta } from "./pdfArchive.mjs";
+import { buildHighConfidenceSentStatementAutoLinks } from "../src/utils/bankSentStatementMatch.ts";
+import { createPaymentInputLogsFromVouchers } from "../src/utils/paymentInputLogs.ts";
+import { resolveAutoLinkLinkedSubject } from "../src/utils/bankTransactions.ts";
+import {
+  DEFAULT_CLIENT_FOLDER_ID,
+  DEFAULT_CARD_SALES_FOLDER_ID,
+  isCardCompanyDeposit,
+} from "../src/utils/bankTransactionFolders.ts";
 
-let utilsPromise = null;
-
-async function loadUtils() {
-  if (!utilsPromise) {
-    const parent = import.meta.url;
-    const [bankSentStatementMatch, paymentInputLogs, bankTransactions, bankTransactionFolders] =
-      await Promise.all([
-        tsImport("../src/utils/bankSentStatementMatch.ts", parent),
-        tsImport("../src/utils/paymentInputLogs.ts", parent),
-        tsImport("../src/utils/bankTransactions.ts", parent),
-        tsImport("../src/utils/bankTransactionFolders.ts", parent),
-      ]);
-    utilsPromise = { bankSentStatementMatch, paymentInputLogs, bankTransactions, bankTransactionFolders };
-  }
-  return utilsPromise;
-}
-
-function toIdSet(onlyTransactionIds) {
+function toIdSet(onlyTransactionIds?: string[] | Set<string>) {
   if (!onlyTransactionIds) return undefined;
   if (onlyTransactionIds instanceof Set) return onlyTransactionIds;
   return new Set(onlyTransactionIds);
@@ -28,28 +18,19 @@ function toIdSet(onlyTransactionIds) {
  * Mirror client IBK import auto-link: match high-confidence sent-statement deposits,
  * create vouchers/logs, update bank tx + pdf archive metadata.
  */
-export async function applySentStatementAutoLinksToErpData(data, options = {}) {
+export async function applySentStatementAutoLinksToErpData(
+  data: Record<string, unknown>,
+  options: { onlyTransactionIds?: string[] | Set<string>; updatedBy?: string } = {},
+) {
   const { onlyTransactionIds, updatedBy } = options;
-  const {
-    bankSentStatementMatch,
-    paymentInputLogs,
-    bankTransactions: bankTransactionsUtil,
-    bankTransactionFolders,
-  } = await loadUtils();
-
-  const { buildHighConfidenceSentStatementAutoLinks } = bankSentStatementMatch;
-  const { createPaymentInputLogsFromVouchers } = paymentInputLogs;
-  const { resolveAutoLinkLinkedSubject } = bankTransactionsUtil;
-  const { DEFAULT_CLIENT_FOLDER_ID, DEFAULT_CARD_SALES_FOLDER_ID, isCardCompanyDeposit } =
-    bankTransactionFolders;
 
   const archives = listSentStatementArchiveMetas();
   const autoLinks = buildHighConfidenceSentStatementAutoLinks({
     bankTransactions: Array.isArray(data.bankTransactions) ? data.bankTransactions : [],
     archives,
-    clients: data.clients || [],
-    sales: data.sales || [],
-    paymentVouchers: data.paymentVouchers || [],
+    clients: (data.clients as never[]) || [],
+    sales: (data.sales as never[]) || [],
+    paymentVouchers: (data.paymentVouchers as never[]) || [],
     onlyTransactionIds: toIdSet(onlyTransactionIds),
   });
 
@@ -63,7 +44,7 @@ export async function applySentStatementAutoLinksToErpData(data, options = {}) {
   const linkByTxId = new Map(autoLinks.map((item) => [item.txId, item]));
   const confirmedAt = new Date().toISOString();
 
-  const bankTransactions = (data.bankTransactions || []).map((row) => {
+  const bankTransactions = ((data.bankTransactions as never[]) || []).map((row) => {
     const linked = linkByTxId.get(row.id);
     if (!linked) return row;
     return {
@@ -93,8 +74,8 @@ export async function applySentStatementAutoLinksToErpData(data, options = {}) {
     data: {
       ...data,
       bankTransactions,
-      paymentVouchers: [...autoVouchers, ...(data.paymentVouchers || [])],
-      paymentInputLogs: [...autoLogs, ...(data.paymentInputLogs || [])],
+      paymentVouchers: [...autoVouchers, ...(((data.paymentVouchers as never[]) || []))],
+      paymentInputLogs: [...autoLogs, ...(((data.paymentInputLogs as never[]) || []))],
     },
     autoLinkedCount: autoLinks.length,
   };

@@ -3,7 +3,7 @@
  * Usage: npx tsx scripts/repair-barobill-auto-deposit.mts [sqlite-path] [--dry-run]
  */
 import { getDb, getErpState, saveErpState } from "../server/db.mjs";
-import { applySentStatementAutoLinksToErpData } from "../server/bankSentStatementAutoLink.mjs";
+import { applySentStatementAutoLinksToErpData } from "../server/bankSentStatementAutoLink.ts";
 
 const DRY_RUN = process.argv.includes("--dry-run");
 const sqliteArg = process.argv.find((arg) => arg.endsWith(".sqlite"));
