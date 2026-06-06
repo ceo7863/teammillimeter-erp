@@ -160,7 +160,6 @@ import { createPaymentInputLogsFromVouchers } from "@/utils/paymentInputLogs";
 import type { ReceivableRow } from "@/utils/receivables";
 import type { ErpUser, BankSyncSnapshot } from "@/utils/erpApi";
 import { useBankLiveSync } from "@/hooks/useBankLiveSync";
-import { OpenBankingSettingsPanel } from "@/components/OpenBankingSettingsPanel";
 import { BarobillBankSettingsPanel } from "@/components/BarobillBankSettingsPanel";
 import {
   buildAllBankDepositSuggestions,
@@ -4617,23 +4616,23 @@ export function BankTransactionsPage({
 
   return (
     <div className="erp-page erp-bank-transactions-page">
-      <Card className="erp-bank-hub-card mb-4 rounded-2xl shadow-sm">
-        <CardContent className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-start gap-4">
-            <div className="erp-bank-hub-icon shrink-0">
-              <Landmark size={22} />
+      <Card className="erp-bank-hub-card mb-3 rounded-xl shadow-sm">
+        <CardContent className="flex flex-col gap-2 p-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex min-w-0 items-start gap-2.5">
+            <div className="erp-bank-hub-icon erp-bank-hub-icon--slim shrink-0">
+              <Landmark size={18} />
             </div>
-            <div>
-              <h1 className="erp-text-page-title text-slate-900">{L.pageTitle}</h1>
-              <p className="mt-1 max-w-2xl erp-text-body text-slate-600">{L.pageDesc}</p>
+            <div className="min-w-0">
+              <h1 className="erp-text-section font-bold text-slate-900">{L.pageTitle}</h1>
+              <p className="mt-0.5 max-w-2xl text-xs leading-snug text-slate-500">{L.pageDesc}</p>
               {apiMode ? (
-                <div className="mt-3 rounded-2xl border border-sky-100 bg-sky-50/70 px-3 py-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center gap-1 text-xs font-bold text-sky-800">
-                      <RefreshCw size={14} className={liveSyncState.polling ? "animate-spin" : ""} />
+                <div className="mt-2 space-y-1.5">
+                  <div className="erp-bank-sync-strip">
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-800">
+                      <RefreshCw size={12} className={liveSyncState.polling ? "animate-spin" : ""} />
                       {L.liveSyncTitle}
                     </span>
-                    <label className="inline-flex items-center gap-1 text-xs font-semibold text-slate-700">
+                    <label className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-700">
                       <input
                         type="checkbox"
                         checked={liveSyncEnabled}
@@ -4645,7 +4644,7 @@ export function BankTransactionsPage({
                       type="button"
                       size="sm"
                       variant="outline"
-                      className="h-7 rounded-lg px-2 text-xs"
+                      className="h-6 rounded-md px-2 text-[11px]"
                       disabled={liveSyncState.polling}
                       onClick={() => void pullSnapshot(true)}
                     >
@@ -4655,34 +4654,28 @@ export function BankTransactionsPage({
                       type="button"
                       size="sm"
                       variant="outline"
-                      className="h-7 rounded-lg px-2 text-xs"
+                      className="h-6 rounded-md px-2 text-[11px]"
                       disabled={liveSyncState.polling || !liveSyncState.serverStatus?.enabled}
                       title={liveSyncState.serverStatus?.enabled ? liveSyncState.serverStatus.importDir : L.liveSyncFolderDisabled}
                       onClick={() => void runFolderSync()}
                     >
                       {L.liveSyncFolder}
                     </Button>
+                    {liveSyncState.lastMessage ? (
+                      <span className="text-[10px] font-semibold text-emerald-700">{liveSyncState.lastMessage}</span>
+                    ) : null}
+                    {liveSyncState.bankSyncMeta?.lastImportAt ? (
+                      <span className="text-[10px] text-slate-500">
+                        {L.dataAsOf}{" "}
+                        {liveSyncState.bankSyncMeta.lastImportLatestAt
+                          ? formatBankTransactionDateTime(liveSyncState.bankSyncMeta.lastImportLatestAt)
+                          : formatBankTransactionDateTime(liveSyncState.bankSyncMeta.lastImportAt)}
+                        {liveSyncState.bankSyncMeta.lastImportSource
+                          ? ` · ${liveSyncState.bankSyncMeta.lastImportSource}`
+                          : ""}
+                      </span>
+                    ) : null}
                   </div>
-                  <p className="mt-1 text-xs text-slate-600">{L.liveSyncHint}</p>
-                  {liveSyncState.lastMessage ? (
-                    <p className="mt-1 text-xs font-semibold text-emerald-700">{liveSyncState.lastMessage}</p>
-                  ) : null}
-                  {liveSyncState.bankSyncMeta?.lastImportAt ? (
-                    <p className="mt-1 text-xs text-slate-500">
-                      {L.dataAsOf}{" "}
-                      {liveSyncState.bankSyncMeta.lastImportLatestAt
-                        ? formatBankTransactionDateTime(liveSyncState.bankSyncMeta.lastImportLatestAt)
-                        : formatBankTransactionDateTime(liveSyncState.bankSyncMeta.lastImportAt)}
-                      {liveSyncState.bankSyncMeta.lastImportSource
-                        ? ` · ${liveSyncState.bankSyncMeta.lastImportSource}`
-                        : ""}
-                    </p>
-                  ) : null}
-                  <OpenBankingSettingsPanel
-                    apiMode={apiMode}
-                    isAdmin={currentUser?.role === "admin"}
-                    onSynced={() => pullSnapshot(true)}
-                  />
                   <BarobillBankSettingsPanel
                     apiMode={apiMode}
                     isAdmin={currentUser?.role === "admin"}
@@ -4690,11 +4683,11 @@ export function BankTransactionsPage({
                   />
                 </div>
               ) : (
-                <p className="mt-2 text-xs text-slate-500">{L.liveSyncLocalHint}</p>
+                <p className="mt-1 text-[11px] text-slate-500">{L.liveSyncLocalHint}</p>
               )}
             </div>
           </div>
-          <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:items-end">
+          <div className="flex w-full shrink-0 flex-col gap-1.5 sm:w-auto sm:items-end">
             {hasAnyData && pageView === "list" ? (
               <TableExportToolbar
                 className="erp-bank-header-export"
@@ -4707,14 +4700,15 @@ export function BankTransactionsPage({
             ) : null}
             <Button
               type="button"
-              className="w-full rounded-2xl px-5 shadow-md sm:w-auto"
+              size="sm"
+              className="w-full rounded-xl px-3 shadow-sm sm:w-auto"
               disabled={importLoading}
               onClick={() => ibkInputRef.current?.click()}
             >
               {importLoading ? (
-                <Upload size={16} className="mr-2 animate-pulse" />
+                <Upload size={14} className="mr-1.5 animate-pulse" />
               ) : (
-                <FileSpreadsheet size={16} className="mr-2" />
+                <FileSpreadsheet size={14} className="mr-1.5" />
               )}
               {L.ibkImport}
             </Button>

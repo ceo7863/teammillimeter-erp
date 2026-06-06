@@ -12,16 +12,14 @@ import {
 
 const L = {
   title: "\uBC14\uB85C\uBE4C \uACC4\uC88C\uB0B4\uC5ED \uC5F0\uB3D9",
-  desc: "\uBC14\uB85C\uBE4C \uACC4\uC88C\uAC70\uB798\uB0B4\uC5ED \uC870\uD68C API\uB85C IBK \uD1B5\uC7A5 \uAC70\uB798\uB0B4\uC5ED\uC744 \uAC00\uC838\uC635\uB2C8\uB2E4.",
   ready: "\uC0AC\uC6A9 \uAC00\uB2A5",
-  notConfigured: "\uC11C\uBC84 \uC124\uC815 \uBD80\uC871 (CERTKEY/CORP_NUM/USER_ID/BANK_ACCOUNT_NUM)",
+  notConfigured: "\uC11C\uBC84 \uC124\uC815 \uBD80\uC871",
   disabled: "\uC790\uB3D9 \uB3D9\uAE30\uD654 \uBE44\uD65C\uC131\uD654",
-  syncNow: "\uBC14\uB85C\uBE4C \uC9C0\uAE08 \uAC00\uC838\uC624\uAE30",
+  syncNow: "\uC9C0\uAE08 \uAC00\uC838\uC624\uAE30",
   lastSync: "\uB9C8\uC9C0\uBAA9 \uB3D9\uAE30\uD654",
   lastError: "\uC624\uB958",
-  scrapApply: "\uACC4\uC88C \uC870\uD68C \uC11C\uBE44\uC2A4 \uC2E0\uCCAD",
+  scrapApply: "\uC11C\uBE44\uC2A4 \uC2E0\uCCAD",
   accountManage: "\uACC4\uC88C \uAD00\uB9AC",
-  hint: "IBK \uBE60\uB978\uC870\uD68C/\uAC04\uD3B8\uC870\uD68C \uB4F1\uB85D \u2192 \uBC14\uB85C\uBE4C \uACC4\uC88C\uAC70\uB798\uB0B4\uC5ED \uC11C\uBE44\uC2A4 \uC2E0\uCCAD \u2192 \uACC4\uC88C \uB4F1\uB85D \uD6C4 \uB3D9\uAE30\uD654\uD558\uC138\uC694.",
 };
 
 export function BarobillBankSettingsPanel({
@@ -113,65 +111,55 @@ export function BarobillBankSettingsPanel({
   };
 
   const ready = Boolean(status?.configured);
+  const metaParts: string[] = [];
+  if (status?.bankAccountNum) metaParts.push(status.bankAccountNum);
+  if (!status?.enabled) metaParts.push(L.disabled);
+  if (status?.lastSuccessAt) {
+    metaParts.push(
+      `${L.lastSync}: ${new Date(status.lastSuccessAt).toLocaleString("ko-KR")}${status.lastAdded ? ` · +${status.lastAdded}\uAC74` : ""}`,
+    );
+  }
+  if (status?.lastError) metaParts.push(`${L.lastError}: ${status.lastError}`);
+  if (message) metaParts.push(message);
 
   return (
-    <div className="mt-3 rounded-2xl border border-violet-100 bg-violet-50/60 px-3 py-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="inline-flex items-center gap-1 text-xs font-bold text-violet-900">
-          <Building2 size={14} />
-          {L.title}
-        </span>
-        <span
-          className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-            ready ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"
-          }`}
+    <div className="erp-bank-integration-strip">
+      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-violet-900">
+        <Building2 size={12} />
+        {L.title}
+      </span>
+      <span
+        className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+          ready ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"
+        }`}
+      >
+        {ready ? L.ready : L.notConfigured}
+      </span>
+      {ready ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-6 rounded-md px-2 text-[11px]"
+          disabled={loading}
+          onClick={() => void handleSync()}
         >
-          {ready ? L.ready : L.notConfigured}
-        </span>
-        {ready ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-7 rounded-lg px-2 text-xs"
-            disabled={loading}
-            onClick={() => void handleSync()}
-          >
-            <RefreshCw size={12} className={`mr-1 ${loading ? "animate-spin" : ""}`} />
-            {L.syncNow}
-          </Button>
-        ) : null}
-      </div>
-      <p className="mt-1 text-xs text-slate-600">{L.desc}</p>
-      {status?.bankAccountNum ? (
-        <p className="mt-1 font-mono text-xs text-slate-500">{status.bankAccountNum}</p>
+          <RefreshCw size={11} className={`mr-1 ${loading ? "animate-spin" : ""}`} />
+          {L.syncNow}
+        </Button>
       ) : null}
-      {!status?.enabled ? <p className="mt-1 text-xs font-semibold text-amber-700">{L.disabled}</p> : null}
-      {status?.lastSuccessAt ? (
-        <p className="mt-1 text-xs text-slate-500">
-          {L.lastSync}: {new Date(status.lastSuccessAt).toLocaleString("ko-KR")}
-          {status.lastAdded ? ` \u00B7 +${status.lastAdded}\uAC74` : ""}
-        </p>
-      ) : null}
-      {status?.lastError ? (
-        <p className="mt-1 text-xs font-semibold text-red-600">
-          {L.lastError}: {status.lastError}
-        </p>
-      ) : null}
-      {message ? <p className="mt-1 text-xs font-semibold text-emerald-700">{message}</p> : null}
-
       {isAdmin && ready ? (
-        <div className="mt-3 flex flex-wrap gap-2 border-t border-violet-100 pt-3">
+        <>
           {scrapNeedsApply ? (
             <Button
               type="button"
               size="sm"
               variant="outline"
-              className="h-8 rounded-lg text-xs"
+              className="h-6 rounded-md px-2 text-[11px]"
               disabled={loading}
               onClick={() => void openScrapUrl()}
             >
-              <ExternalLink size={12} className="mr-1" />
+              <ExternalLink size={11} className="mr-1" />
               {L.scrapApply}
             </Button>
           ) : null}
@@ -179,15 +167,17 @@ export function BarobillBankSettingsPanel({
             type="button"
             size="sm"
             variant="outline"
-            className="h-8 rounded-lg text-xs"
+            className="h-6 rounded-md px-2 text-[11px]"
             disabled={loading}
             onClick={() => void openManageUrl()}
           >
-            <ExternalLink size={12} className="mr-1" />
+            <ExternalLink size={11} className="mr-1" />
             {L.accountManage}
           </Button>
-          <p className="w-full text-[11px] text-slate-500">{L.hint}</p>
-        </div>
+        </>
+      ) : null}
+      {metaParts.length ? (
+        <span className="w-full text-[10px] leading-snug text-slate-500">{metaParts.join(" · ")}</span>
       ) : null}
     </div>
   );

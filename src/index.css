@@ -12035,6 +12035,35 @@ button:disabled,
   box-shadow: 0 10px 24px rgba(37, 99, 235, 0.28);
 }
 
+.erp-bank-hub-icon--slim {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.625rem;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.22);
+}
+
+.erp-bank-sync-strip,
+.erp-bank-integration-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  border-radius: 0.625rem;
+  border: 1px solid #e2e8f0;
+  background: rgba(255, 255, 255, 0.78);
+  padding: 0.35rem 0.5rem;
+}
+
+.erp-bank-integration-strip {
+  border-color: #ddd6fe;
+  background: rgba(245, 243, 255, 0.72);
+}
+
+.erp-bank-sync-strip {
+  border-color: #bae6fd;
+  background: rgba(240, 249, 255, 0.78);
+}
+
 .erp-bank-stat-grid {
   display: grid;
   gap: 0.45rem;
