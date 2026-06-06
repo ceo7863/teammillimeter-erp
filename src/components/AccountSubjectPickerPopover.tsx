@@ -87,6 +87,46 @@ const FALLBACK_MENU_STYLE: React.CSSProperties = {
   visibility: "hidden",
 };
 
+const PickerGroupRow = memo(function PickerGroupRow({ groupName }: { groupName: string }) {
+  return <div className="erp-account-picker-popover__excel-group">{groupName}</div>;
+});
+
+const PickerItemRow = memo(function PickerItemRow({
+  item,
+  isSelected,
+  isActive,
+  itemRef,
+  onPick,
+}: {
+  item: AccountCodePickerFlatItem;
+  isSelected: boolean;
+  isActive: boolean;
+  itemRef?: React.RefObject<HTMLButtonElement | null>;
+  onPick: (item: AccountCodePickerFlatItem) => void;
+}) {
+  return (
+    <button
+      ref={isActive ? itemRef : undefined}
+      type="button"
+      role="option"
+      aria-selected={isSelected}
+      className={`erp-account-picker-popover__item erp-account-picker-popover__item--excel${
+        item.depth ? " is-child" : ""
+      }${isSelected ? " is-selected" : ""}${isActive ? " is-active" : ""}`}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onPick(item);
+      }}
+    >
+      <span className="erp-account-picker-popover__item-label" title={item.label}>
+        {item.label}
+      </span>
+    </button>
+  );
+});
+
 export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPopover({
   triggerId,
   selectedCode,
@@ -184,7 +224,7 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
   useEffect(() => {
     if (!keyboardNavRef.current) return;
     keyboardNavRef.current = false;
-    activeItemRef.current?.scrollIntoView({ block: "nearest" });
+    activeItemRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [highlightedIndex]);
 
   const pickItem = useCallback(
@@ -308,47 +348,25 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
       aria-label={labels.searchPlaceholder}
       onMouseDown={(event) => event.stopPropagation()}
     >
-      <div
-        ref={listRef}
-        className="erp-account-picker-popover__list erp-account-picker-popover__list--excel"
-        onWheel={(event) => event.stopPropagation()}
-      >
+      <div ref={listRef} className="erp-account-picker-popover__list erp-account-picker-popover__list--excel">
         {!flatItems.length ? (
           <p className="erp-account-picker-popover__empty">{labels.empty}</p>
         ) : (
           <div className="erp-account-picker-popover__static-list">
             {pickerRows.map((row) => {
               if (row.kind === "group") {
-                return (
-                  <div key={row.key} className="erp-account-picker-popover__excel-group">
-                    {row.groupName}
-                  </div>
-                );
+                return <PickerGroupRow key={row.key} groupName={row.groupName} />;
               }
 
-              const isSelected = row.item.code === selectedCode;
-              const isActive = row.itemIndex === highlightedIndex;
               return (
-                <button
+                <PickerItemRow
                   key={row.key}
-                  ref={isActive ? activeItemRef : undefined}
-                  type="button"
-                  role="option"
-                  aria-selected={isSelected}
-                  className={`erp-account-picker-popover__item erp-account-picker-popover__item--excel${
-                    row.item.depth ? " is-child" : ""
-                  }${isSelected ? " is-selected" : ""}${isActive ? " is-active" : ""}`}
-                  onPointerDown={(event) => {
-                    if (event.button !== 0) return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    pickItem(row.item);
-                  }}
-                >
-                  <span className="erp-account-picker-popover__item-label" title={row.item.label}>
-                    {row.item.label}
-                  </span>
-                </button>
+                  item={row.item}
+                  isSelected={row.item.code === selectedCode}
+                  isActive={row.itemIndex === highlightedIndex}
+                  itemRef={activeItemRef}
+                  onPick={pickItem}
+                />
               );
             })}
           </div>

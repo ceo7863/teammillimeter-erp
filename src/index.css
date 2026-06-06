@@ -249,12 +249,18 @@ textarea {
   min-height: 0;
   padding: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  scrollbar-gutter: stable;
+  transform: translateZ(0);
+  will-change: scroll-position;
 }
 
 .erp-account-picker-popover__static-list {
   width: 100%;
+  contain: layout style;
 }
 
 .erp-account-picker-popover__excel-group {
@@ -279,6 +285,8 @@ textarea {
   font-size: 0.6875rem;
   font-weight: 500;
   line-height: 1.2;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 1.25rem;
 }
 
 .erp-account-picker-popover--excel.is-positioning {
