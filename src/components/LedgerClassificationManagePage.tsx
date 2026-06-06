@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Plus } from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { DesktopTableWrap } from "@/components/MobileRecordCard";
@@ -44,13 +44,15 @@ const L = {
   cancel: "\uCDE8\uC18C",
   active: "\uC0AC\uC6A9",
   inactive: "\uBE44\uD65C\uC131",
+  rename: "\uC774\uB984 \uBCC0\uACBD",
+  renameAccount: "\uACC4\uC815\uBA85 \uBCC0\uACBD",
   stubDept: "\uBD80\uC11C/\uADF8\uB8F9 \uAD00\uB9AC\uB294 \uCD94\uD6C4 \uC9C0\uC6D0 \uC608\uC815\uC785\uB2C8\uB2E4.",
   stubClient: "\uAC70\uB798\uCC98 \uB9C8\uC2A4\uD130\uB294 \uAE30\uBCF8\uC815\uBCF4 \uBA54\uB274\uC5D0\uC11C \uAD00\uB9AC\uD569\uB2C8\uB2E4.",
 };
 
 type SidebarKey = "account" | "dept" | "client";
 type FlowFilter = "all" | "income" | "expense";
-type ModalMode = "secondary" | "tertiary";
+type ModalMode = "secondary" | "tertiary" | "edit";
 
 type LedgerClassificationManagePageProps = {
   accountCodes: AccountCode[];
@@ -77,6 +79,7 @@ export function LedgerClassificationManagePage({
   const [loadMessage, setLoadMessage] = useState("");
   const [modalMode, setModalMode] = useState<ModalMode | null>(null);
   const [parentForSub, setParentForSub] = useState<AccountCode | null>(null);
+  const [editingAccount, setEditingAccount] = useState<AccountCode | null>(null);
   const [draftName, setDraftName] = useState("");
   const [draftGroup, setDraftGroup] = useState<string>(DEFAULT_ACCOUNT_PARENT_GROUPS[3]);
   const [draftFlow, setDraftFlow] = useState<AccountCodeFlow>("expense");
@@ -102,6 +105,7 @@ export function LedgerClassificationManagePage({
   const openSecondaryModal = () => {
     setModalMode("secondary");
     setParentForSub(null);
+    setEditingAccount(null);
     setDraftName("");
     setDraftGroup(DEFAULT_ACCOUNT_PARENT_GROUPS[3]);
     setDraftFlow("expense");
@@ -110,12 +114,21 @@ export function LedgerClassificationManagePage({
   const openTertiaryModal = (parent: AccountCode) => {
     setModalMode("tertiary");
     setParentForSub(parent);
+    setEditingAccount(null);
     setDraftName("");
+  };
+
+  const openEditModal = (account: AccountCode) => {
+    setModalMode("edit");
+    setParentForSub(null);
+    setEditingAccount(account);
+    setDraftName(account.name);
   };
 
   const closeModal = () => {
     setModalMode(null);
     setParentForSub(null);
+    setEditingAccount(null);
     setDraftName("");
   };
 
@@ -128,6 +141,22 @@ export function LedgerClassificationManagePage({
     }
     setAccountCodes(updated);
     setLoadMessage(L.loadStandardDone(added));
+    void onRequestImmediateSave?.({ accountCodes: updated });
+  };
+
+  const saveRenameAccount = () => {
+    const name = draftName.trim();
+    if (!name || !editingAccount) return;
+    if (name === editingAccount.name) {
+      closeModal();
+      return;
+    }
+
+    const updated = accountCodes.map((row) =>
+      row.code === editingAccount.code ? { ...row, name } : row,
+    );
+    setAccountCodes(updated);
+    closeModal();
     void onRequestImmediateSave?.({ accountCodes: updated });
   };
 
@@ -280,13 +309,24 @@ export function LedgerClassificationManagePage({
                             </td>
                             <td className="font-mono text-xs text-slate-500">{account.code}</td>
                             <td className="text-right">
-                              <button
-                                type="button"
-                                className="text-xs font-semibold text-slate-500 hover:text-slate-800"
-                                onClick={() => toggleActive(account.code)}
-                              >
-                                {account.isActive ? L.inactive : L.active}
-                              </button>
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"
+                                  onClick={() => openEditModal(account)}
+                                  title={L.rename}
+                                >
+                                  <Pencil size={12} />
+                                  {L.rename}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="text-xs font-semibold text-slate-500 hover:text-slate-800"
+                                  onClick={() => toggleActive(account.code)}
+                                >
+                                  {account.isActive ? L.inactive : L.active}
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -313,9 +353,21 @@ export function LedgerClassificationManagePage({
             aria-modal="true"
           >
             <h3 className="erp-text-section mb-4 font-bold">
-              {modalMode === "tertiary" ? L.addSubAccount : L.addAccount}
+              {modalMode === "edit"
+                ? L.renameAccount
+                : modalMode === "tertiary"
+                  ? L.addSubAccount
+                  : L.addAccount}
             </h3>
             <div className="space-y-3">
+              {modalMode === "edit" && editingAccount ? (
+                <p className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                  {L.code}: <span className="font-mono font-semibold text-slate-900">{editingAccount.code}</span>
+                  {editingAccount.parentGroup ? (
+                    <span className="text-slate-500"> · {editingAccount.parentGroup}</span>
+                  ) : null}
+                </p>
+              ) : null}
               {modalMode === "tertiary" && parentForSub ? (
                 <p className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-600">
                   {L.parentAccount}: <span className="font-semibold text-slate-900">{parentForSub.name}</span>
@@ -368,7 +420,12 @@ export function LedgerClassificationManagePage({
               <Button type="button" variant="outline" className="rounded-xl" onClick={closeModal}>
                 {L.cancel}
               </Button>
-              <Button type="button" className="rounded-xl" onClick={saveNewAccount} disabled={!draftName.trim()}>
+              <Button
+                type="button"
+                className="rounded-xl"
+                onClick={modalMode === "edit" ? saveRenameAccount : saveNewAccount}
+                disabled={!draftName.trim()}
+              >
                 {L.save}
               </Button>
             </div>
