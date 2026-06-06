@@ -13691,6 +13691,7 @@ button:disabled,
 
 .erp-bank-transactions-page--tax-link-open {
   padding-bottom: min(52vh, 28rem);
+  pointer-events: none;
 }
 
 .erp-tax-invoice-link-panel {
@@ -13706,6 +13707,7 @@ button:disabled,
   background: #fff;
   box-shadow: 0 -12px 32px rgba(15, 23, 42, 0.12);
   contain: layout style paint;
+  pointer-events: auto;
 }
 
 .erp-tax-invoice-link-panel__head {

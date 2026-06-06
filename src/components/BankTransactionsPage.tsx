@@ -36,7 +36,11 @@ import {
   CompanyLedgerFixedExpenseModalLayer,
   type CompanyLedgerFixedExpenseModalHandle,
 } from "@/components/CompanyLedgerFixedExpenseModalLayer";
-import { TaxInvoiceLinkPanel } from "@/components/TaxInvoiceLinkPanel";
+import { buildTaxInvoiceCancellationExcludedIds, buildTaxInvoiceLinkedPaymentIndex } from "@/utils/taxInvoiceLinkPanel";
+import {
+  destroyTaxInvoiceLinkPanel,
+  renderTaxInvoiceLinkPanel,
+} from "@/components/taxInvoiceLinkPanelMount";
 import type { TaxInvoice } from "@/utils/taxInvoices";
 import {
   batchAutoLinkTaxInvoiceEvidence,
@@ -48,7 +52,6 @@ import {
   learnClientTaxInvoiceSplitPayments,
   shouldLearnTaxInvoiceSplitPayment,
 } from "@/utils/taxInvoiceSplitLink";
-import { buildTaxInvoiceLinkedPaymentIndex } from "@/utils/taxInvoiceLinkPanel";
 import {
   buildBankTransactionRowDisplayCache,
   buildBankTransactionsExportTable,
@@ -286,7 +289,12 @@ type PageView = "list" | "reconcile";
 type TxAccountContentModal = { tx: BankTransaction; draft: string };
 type TxFixedExpenseModal = { tx: BankTransaction; draft: string };
 type TxClientModal = { tx: BankTransaction; draft: string };
-type TxTaxInvoiceModal = { tx: BankTransaction };
+type TaxInvoiceLinkSession = {
+  tx: BankTransaction;
+  taxInvoices: TaxInvoice[];
+  linkedPaymentIndex: ReturnType<typeof buildTaxInvoiceLinkedPaymentIndex>;
+  excludedIds: Set<string>;
+};
 
 const EMPTY_TX_SUGGESTION_MAP = new Map<string, never>();
 
@@ -1038,11 +1046,17 @@ export function BankTransactionsPage({
   const [fixedExpenseModal, setFixedExpenseModal] = useState<TxFixedExpenseModal | null>(null);
   const fixedExpenseItemModalRef = useRef<CompanyLedgerFixedExpenseModalHandle>(null);
   const [clientModal, setClientModal] = useState<TxClientModal | null>(null);
-  const [taxInvoiceModal, setTaxInvoiceModal] = useState<TxTaxInvoiceModal | null>(null);
-  const taxInvoiceLinkedPaymentIndex = React.useMemo(
-    () => buildTaxInvoiceLinkedPaymentIndex(bankTransactions),
-    [bankTransactions],
-  );
+  const [taxInvoiceLinkSession, setTaxInvoiceLinkSession] = useState<TaxInvoiceLinkSession | null>(null);
+  const taxInvoiceLinkSessionRef = useRef<TaxInvoiceLinkSession | null>(null);
+  taxInvoiceLinkSessionRef.current = taxInvoiceLinkSession;
+  const taxInvoicePanelUiRef = useRef({
+    companyProfile,
+    onNavigateToTaxInvoice,
+  });
+  taxInvoicePanelUiRef.current = {
+    companyProfile,
+    onNavigateToTaxInvoice,
+  };
   const [txCellModalError, setTxCellModalError] = useState("");
   const importLedgerBatchIdsRef = useRef<Set<string>>(new Set());
   const ledgerMemoDraftRef = useRef("");
@@ -2321,7 +2335,7 @@ export function BankTransactionsPage({
         bankTransactions: nextTransactions,
         ...(nextClients !== clients ? { clients: nextClients } : {}),
       });
-      return { nextRow, invoice };
+      return { nextRow, invoice, nextTransactions };
     },
     [
       auditBankTxUpdate,
@@ -2337,20 +2351,56 @@ export function BankTransactionsPage({
 
   const openTaxInvoiceModal = useCallback(
     (tx: BankTransaction) => {
-      setTaxInvoiceModal({ tx });
+      setTaxInvoiceLinkSession({
+        tx,
+        taxInvoices,
+        linkedPaymentIndex: buildTaxInvoiceLinkedPaymentIndex(bankTransactions),
+        excludedIds: buildTaxInvoiceCancellationExcludedIds(taxInvoices),
+      });
     },
-    [],
+    [taxInvoices, bankTransactions],
   );
 
-  const saveTaxInvoiceLink = (invoiceId: string | undefined) => {
-    if (!taxInvoiceModal) return;
-    const { tx } = taxInvoiceModal;
-    const result = applyTaxInvoiceLink(tx, invoiceId);
-    if (result?.nextRow) {
-      setTaxInvoiceModal({ tx: result.nextRow });
+  const closeTaxInvoicePanel = useCallback(() => {
+    setTaxInvoiceLinkSession(null);
+  }, []);
+
+  const saveTaxInvoiceLink = useCallback(
+    (invoiceId: string | undefined) => {
+      const session = taxInvoiceLinkSessionRef.current;
+      if (!session) return;
+      const result = applyTaxInvoiceLink(session.tx, invoiceId);
+      if (!result?.nextRow || !result.nextTransactions) return;
+      setTaxInvoiceLinkSession({
+        tx: result.nextRow,
+        taxInvoices: session.taxInvoices,
+        linkedPaymentIndex: buildTaxInvoiceLinkedPaymentIndex(result.nextTransactions),
+        excludedIds: session.excludedIds,
+      });
+      setImportMessage(L.cellSaveDone);
+    },
+    [applyTaxInvoiceLink],
+  );
+
+  React.useEffect(() => {
+    if (!taxInvoiceLinkSession) {
+      destroyTaxInvoiceLinkPanel();
+      return;
     }
-    setImportMessage(L.cellSaveDone);
-  };
+    const ui = taxInvoicePanelUiRef.current;
+    renderTaxInvoiceLinkPanel({
+      tx: taxInvoiceLinkSession.tx,
+      taxInvoices: taxInvoiceLinkSession.taxInvoices,
+      linkedPaymentIndex: taxInvoiceLinkSession.linkedPaymentIndex,
+      excludedIds: taxInvoiceLinkSession.excludedIds,
+      companyProfile: ui.companyProfile,
+      linkedInvoiceId: taxInvoiceLinkSession.tx.linkedTaxInvoiceId,
+      onClose: closeTaxInvoicePanel,
+      onLink: saveTaxInvoiceLink,
+      onNavigateToTaxInvoice: ui.onNavigateToTaxInvoice,
+    });
+    return () => destroyTaxInvoiceLinkPanel();
+  }, [taxInvoiceLinkSession, closeTaxInvoicePanel, saveTaxInvoiceLink]);
   const saveAccountContentModal = () => {
     if (!accountContentModal) return;
     const { tx, draft } = accountContentModal;
@@ -4799,7 +4849,7 @@ export function BankTransactionsPage({
   };
 
   return (
-    <div className={`erp-page erp-bank-transactions-page${taxInvoiceModal ? " erp-bank-transactions-page--tax-link-open" : ""}`}>
+    <div className={`erp-page erp-bank-transactions-page${taxInvoiceLinkSession ? " erp-bank-transactions-page--tax-link-open" : ""}`}>
       <Card className="erp-bank-hub-card mb-3 rounded-xl shadow-sm">
         <CardContent className="flex flex-col gap-2 p-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex min-w-0 items-start gap-2.5">
@@ -6490,18 +6540,6 @@ export function BankTransactionsPage({
         </div>
       ) : null}
 
-      {taxInvoiceModal ? (
-        <TaxInvoiceLinkPanel
-          tx={taxInvoiceModal.tx}
-          taxInvoices={taxInvoices}
-          linkedPaymentIndex={taxInvoiceLinkedPaymentIndex}
-          companyProfile={companyProfile}
-          linkedInvoiceId={taxInvoiceModal.tx.linkedTaxInvoiceId}
-          onClose={() => setTaxInvoiceModal(null)}
-          onLink={saveTaxInvoiceLink}
-          onNavigateToTaxInvoice={onNavigateToTaxInvoice}
-        />
-      ) : null}
 
       <CompanyLedgerFixedExpenseModalLayer
         ref={fixedExpenseItemModalRef}

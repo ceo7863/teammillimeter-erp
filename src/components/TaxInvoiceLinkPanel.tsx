@@ -1,18 +1,13 @@
-import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
+import React, { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { DesktopTableWrap } from "@/components/MobileRecordCard";
 import type { BankTransaction } from "@/utils/bankTransactions";
-import type { TaxInvoiceMatchContext } from "@/utils/bankTaxInvoiceLink";
 import { getBankTxClassifiedAmount } from "@/utils/bankTaxInvoiceLink";
 import { formatKRW } from "@/utils/companyLedger";
 import type { CompanyProfile } from "@/utils/companyProfile";
 import {
   buildDefaultTaxInvoiceLinkDateRange,
-  buildTaxInvoiceCancellationExcludedIds,
   buildTaxInvoiceLinkCatalog,
-  canLinkTaxInvoiceToTransaction,
   filterTaxInvoiceLinkCatalog,
   formatTaxInvoiceBusinessNo,
   resolveDefaultTaxInvoiceFlowFilter,
@@ -22,7 +17,7 @@ import {
 import type { TaxInvoice, TaxInvoiceFlowType } from "@/utils/taxInvoices";
 
 const PAGE_SIZE = 50;
-const SEARCH_DEBOUNCE_MS = 250;
+const SEARCH_DEBOUNCE_MS = 200;
 
 const L = {
   title: "\uC138\uAE08\uACC4\uC0B0\uC11C \uC99D\uBE59 \uC5F0\uACB0",
@@ -48,12 +43,12 @@ const L = {
   page: (page: number, total: number) => `${page} / ${total}`,
 };
 
-type TaxInvoiceLinkPanelProps = {
+export type TaxInvoiceLinkPanelProps = {
   tx: BankTransaction;
   taxInvoices: TaxInvoice[];
   linkedPaymentIndex: TaxInvoiceLinkedPaymentIndex;
+  excludedIds: Set<string>;
   companyProfile?: CompanyProfile;
-  matchContext?: TaxInvoiceMatchContext;
   linkedInvoiceId?: string;
   onClose: () => void;
   onLink: (invoiceId: string | undefined) => void;
@@ -68,36 +63,40 @@ function formatTxAt(value: string) {
   return time ? `${date.slice(2).replace(/-/g, "-")} ${time}` : date.slice(2).replace(/-/g, "-");
 }
 
-const PartyCell = memo(function PartyCell({ businessNo, name }: { businessNo: string; name: string }) {
-  return (
-    <div className="space-y-0.5">
-      <div className="font-mono text-[11px] text-slate-500">{formatTaxInvoiceBusinessNo(businessNo) || "-"}</div>
-      <div className="font-semibold text-slate-900">{name || "-"}</div>
-    </div>
-  );
-});
-
-const TaxInvoiceLinkSearchField = memo(function TaxInvoiceLinkSearchField({
-  onDebouncedChange,
-}: {
-  onDebouncedChange: (value: string) => void;
-}) {
-  const [value, setValue] = useState("");
+function TaxInvoiceLinkSearchField({ onDebouncedChange }: { onDebouncedChange: (value: string) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const onDebouncedChangeRef = useRef(onDebouncedChange);
+  onDebouncedChangeRef.current = onDebouncedChange;
 
   useEffect(() => {
-    const timer = window.setTimeout(() => onDebouncedChange(value), SEARCH_DEBOUNCE_MS);
-    return () => window.clearTimeout(timer);
-  }, [value, onDebouncedChange]);
+    const input = inputRef.current;
+    if (!input) return;
+    let timer = 0;
+    const handleInput = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        onDebouncedChangeRef.current(input.value);
+      }, SEARCH_DEBOUNCE_MS);
+    };
+    input.addEventListener("input", handleInput);
+    return () => {
+      window.clearTimeout(timer);
+      input.removeEventListener("input", handleInput);
+    };
+  }, []);
 
   return (
     <input
-      value={value}
-      onChange={(event) => setValue(event.target.value)}
+      ref={inputRef}
+      type="search"
+      defaultValue=""
+      autoComplete="off"
+      spellCheck={false}
       placeholder={L.search}
       className="erp-input w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
     />
   );
-});
+}
 
 type TaxInvoiceLinkResultsProps = {
   tx: BankTransaction;
@@ -117,6 +116,8 @@ const TaxInvoiceLinkResults = memo(function TaxInvoiceLinkResults({
   onLink,
 }: TaxInvoiceLinkResultsProps) {
   const [page, setPage] = useState(1);
+  const txIsWithdrawal = Number(tx.withdrawal || 0) > 0;
+  const txIsDeposit = Number(tx.deposit || 0) > 0;
 
   useEffect(() => {
     setPage(1);
@@ -131,7 +132,7 @@ const TaxInvoiceLinkResults = memo(function TaxInvoiceLinkResults({
 
   return (
     <div className="erp-tax-invoice-link-panel__main">
-      <DesktopTableWrap className="erp-tax-invoice-link-panel__table-wrap">
+      <div className="erp-tax-invoice-link-panel__table-wrap overflow-auto rounded-xl border border-slate-200">
         <table className="erp-table erp-tax-invoice-link-panel__table w-full">
           <thead>
             <tr>
@@ -160,16 +161,29 @@ const TaxInvoiceLinkResults = memo(function TaxInvoiceLinkResults({
                 const supplierBiz = invoice.flowType === "purchase" ? invoice.businessNo : ourBusinessNo;
                 const recipientName = invoice.flowType === "purchase" ? ourCompanyName : invoice.client;
                 const recipientBiz = invoice.flowType === "purchase" ? ourBusinessNo : invoice.businessNo;
-                const canLink = canLinkTaxInvoiceToTransaction(tx, invoice, unsettledAmount);
+                const canLink =
+                  unsettledAmount > 0 &&
+                  ((invoice.flowType === "purchase" && txIsWithdrawal) ||
+                    (invoice.flowType === "sales" && txIsDeposit));
 
                 return (
                   <tr key={invoice.id} className={isLinked ? "bg-blue-50/70" : undefined}>
                     <td className="whitespace-nowrap font-medium text-slate-800">{invoice.issueDate}</td>
                     <td>
-                      <PartyCell businessNo={supplierBiz} name={supplierName} />
+                      <div className="space-y-0.5">
+                        <div className="font-mono text-[11px] text-slate-500">
+                          {formatTaxInvoiceBusinessNo(supplierBiz) || "-"}
+                        </div>
+                        <div className="font-semibold text-slate-900">{supplierName || "-"}</div>
+                      </div>
                     </td>
                     <td>
-                      <PartyCell businessNo={recipientBiz} name={recipientName} />
+                      <div className="space-y-0.5">
+                        <div className="font-mono text-[11px] text-slate-500">
+                          {formatTaxInvoiceBusinessNo(recipientBiz) || "-"}
+                        </div>
+                        <div className="font-semibold text-slate-900">{recipientName || "-"}</div>
+                      </div>
                     </td>
                     <td className="max-w-[10rem] truncate text-slate-700" title={invoice.memo || ""}>
                       {invoice.memo || "-"}
@@ -182,14 +196,13 @@ const TaxInvoiceLinkResults = memo(function TaxInvoiceLinkResults({
                       {isLinked ? (
                         <span className="text-xs font-bold text-blue-700">{L.linked}</span>
                       ) : canLink ? (
-                        <Button
+                        <button
                           type="button"
-                          size="sm"
-                          className="h-7 rounded-lg px-3 text-xs"
+                          className="inline-flex h-7 items-center rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white hover:bg-slate-800"
                           onClick={() => onLink(invoice.id)}
                         >
                           {L.add}
-                        </Button>
+                        </button>
                       ) : (
                         <span className="text-xs text-slate-400">{L.noUnsettled}</span>
                       )}
@@ -200,7 +213,7 @@ const TaxInvoiceLinkResults = memo(function TaxInvoiceLinkResults({
             )}
           </tbody>
         </table>
-      </DesktopTableWrap>
+      </div>
 
       <div className="erp-tax-invoice-link-panel__footer">
         <span>{L.count(rows.length)}</span>
@@ -228,10 +241,11 @@ const TaxInvoiceLinkResults = memo(function TaxInvoiceLinkResults({
   );
 });
 
-export const TaxInvoiceLinkPanel = memo(function TaxInvoiceLinkPanel({
+export function TaxInvoiceLinkPanel({
   tx,
   taxInvoices,
   linkedPaymentIndex,
+  excludedIds,
   companyProfile,
   linkedInvoiceId,
   onClose,
@@ -245,14 +259,12 @@ export const TaxInvoiceLinkPanel = memo(function TaxInvoiceLinkPanel({
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
   const handleDebouncedSearch = useCallback((value: string) => {
-    setDebouncedSearch(value);
+    startTransition(() => setDebouncedSearch(value));
   }, []);
 
   const txAmount = getBankTxClassifiedAmount(tx);
   const ourCompanyName = String(companyProfile?.name || "\uC8FC\uC2DD\uD68C\uC0AC \uD300\uBC00\uB9AC\uBBF8\uD130").trim();
   const ourBusinessNo = String(companyProfile?.businessNo || "").trim();
-
-  const excludedIds = useMemo(() => buildTaxInvoiceCancellationExcludedIds(taxInvoices), [taxInvoices]);
 
   const catalog = useMemo(
     () =>
@@ -272,7 +284,7 @@ export const TaxInvoiceLinkPanel = memo(function TaxInvoiceLinkPanel({
     [catalog, debouncedSearch],
   );
 
-  const panel = (
+  return (
     <div className="erp-tax-invoice-link-panel" role="dialog" aria-modal="true" aria-label={L.title}>
       <div className="erp-tax-invoice-link-panel__head">
         <div>
@@ -349,6 +361,4 @@ export const TaxInvoiceLinkPanel = memo(function TaxInvoiceLinkPanel({
       </div>
     </div>
   );
-
-  return createPortal(panel, document.body);
-});
+}
