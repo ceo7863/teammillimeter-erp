@@ -15,6 +15,7 @@ type BasicInfoHubPageProps = {
   clientsPanel: ReactNode;
   workersPanel: ReactNode;
   companyPanel: ReactNode;
+  onWorkersTabVisible?: () => void;
 };
 
 const TAB_ITEMS: Array<{ key: BasicInfoHubTab; label: string }> = [
@@ -38,6 +39,7 @@ export function BasicInfoHubPage({
   clientsPanel,
   workersPanel,
   companyPanel,
+  onWorkersTabVisible,
 }: BasicInfoHubPageProps) {
   const visibleTabs = useMemo(
     () => TAB_ITEMS.filter((tab) => tabAccess[tab.key === "company" ? "company" : tab.key]),
@@ -71,6 +73,11 @@ export function BasicInfoHubPage({
     setMountedTabs((prev) => (prev[activeTab] ? prev : { ...prev, [activeTab]: true }));
     storeBasicInfoTab(activeTab);
   }, [activeTab, tabAccess]);
+
+  useEffect(() => {
+    if (!isHubActive || activeTab !== "workers") return;
+    onWorkersTabVisible?.();
+  }, [isHubActive, activeTab, onWorkersTabVisible]);
 
   const switchTab = (tab: BasicInfoHubTab) => {
     setActiveTab(tab);

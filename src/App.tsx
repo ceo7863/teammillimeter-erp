@@ -7077,33 +7077,23 @@ export default function TeammillimeterErpMvp() {
       Date.now() < workerPersistCooldownUntilRef.current ||
       Date.now() < workerMonthlyPersistCooldownUntilRef.current;
     const incomingWorkers = data.workers?.length ? data.workers : initialWorkers;
-    const preserveLocalWorkers = preserveLocalEdits;
-    const nextWorkers = preserveLocalWorkers
-      ? workersRef.current
-      : stripMonthlyPaymentMemoFromWorkers(
-          mergeWorkerMasterFieldsFromLocal(incomingWorkers, workersRef.current),
-        );
+    const nextWorkers = stripMonthlyPaymentMemoFromWorkers(
+      mergeWorkerMasterFieldsFromLocal(incomingWorkers, workersRef.current),
+    );
     const workersForSales = nextWorkers;
     setSales((prev) => normalizeSalesRecords(mergeSalesByUpdatedAt(data.sales || [], prev), workersForSales));
     setPaymentVouchers(data.paymentVouchers || []);
     setPaymentInputLogs(Array.isArray(data.paymentInputLogs) ? data.paymentInputLogs : []);
     setClients(data.clients?.length ? data.clients : initialClients);
-    if (!preserveLocalWorkers) {
-      workersRef.current = nextWorkers;
-      setWorkers(nextWorkers);
-    }
+    workersRef.current = nextWorkers;
+    setWorkers(nextWorkers);
     const incomingMemos = normalizeWorkerMonthlyPaymentMemos(data.workerMonthlyPaymentMemos);
     const serverMemos = migrateWorkerMonthlyPaymentMemosFromWorkers(incomingWorkers, incomingMemos);
-    const nextMemos = preserveLocalWorkers
+    const nextMemos = preserveLocalEdits
       ? mergeWorkerMonthlyPaymentMemosForSave(serverMemos, workerMonthlyPaymentMemosRef.current)
       : serverMemos;
-    if (!preserveLocalWorkers) {
-      workerMonthlyPaymentMemosRef.current = nextMemos;
-      setWorkerMonthlyPaymentMemos(nextMemos);
-    } else {
-      workerMonthlyPaymentMemosRef.current = nextMemos;
-      setWorkerMonthlyPaymentMemos(nextMemos);
-    }
+    workerMonthlyPaymentMemosRef.current = nextMemos;
+    setWorkerMonthlyPaymentMemos(nextMemos);
     const migratedLogs = migrateErpLoginLogs({
       auditLogs: Array.isArray(data.auditLogs) ? data.auditLogs : [],
       loginLogs: Array.isArray(data.loginLogs) ? data.loginLogs : [],
@@ -7242,6 +7232,36 @@ export default function TeammillimeterErpMvp() {
       cancelled = true;
     };
   }, [currentUser?.id, apiMode]);
+
+  const syncWorkersFromServer = useCallback(async () => {
+    if (!apiMode || !dataReady) return;
+    if (
+      workerPersistInFlightRef.current ||
+      workerMonthlyPersistInFlightRef.current ||
+      Date.now() < workerPersistCooldownUntilRef.current
+    ) {
+      return;
+    }
+    try {
+      const data = await fetchErpData();
+      const incomingWorkers = data.workers?.length ? data.workers : initialWorkers;
+      const nextWorkers = stripMonthlyPaymentMemoFromWorkers(
+        mergeWorkerMasterFieldsFromLocal(incomingWorkers, workersRef.current),
+      );
+      workersRef.current = nextWorkers;
+      setWorkers(nextWorkers);
+      setSales((prev) => normalizeSalesRecords(mergeSalesByUpdatedAt(data.sales || [], prev), nextWorkers));
+      const incomingMemos = normalizeWorkerMonthlyPaymentMemos(data.workerMonthlyPaymentMemos);
+      const serverMemos = migrateWorkerMonthlyPaymentMemosFromWorkers(incomingWorkers, incomingMemos);
+      const nextMemos = mergeWorkerMonthlyPaymentMemosForSave(serverMemos, workerMonthlyPaymentMemosRef.current);
+      workerMonthlyPaymentMemosRef.current = nextMemos;
+      setWorkerMonthlyPaymentMemos(nextMemos);
+      erpVersionRef.current = data.version ?? erpVersionRef.current;
+      setErpVersion(data.version ?? erpVersionRef.current);
+    } catch (error) {
+      console.error(error);
+    }
+  }, [apiMode, dataReady]);
 
   const shouldReleasePendingLocalEdits = () =>
     !workerPersistInFlightRef.current &&
@@ -7382,6 +7402,7 @@ export default function TeammillimeterErpMvp() {
             savePayload.sales = mergedSales;
             setSales((prev) => normalizeSalesRecords(mergeSalesByUpdatedAt(latest.sales || [], prev), latest.workers?.length ? latest.workers : workers));
             if (Array.isArray(savePayload.workers)) {
+              workersRef.current = savePayload.workers;
               setWorkers(savePayload.workers);
             }
             if (savePayload.workerMonthlyPaymentMemos && typeof savePayload.workerMonthlyPaymentMemos === "object") {
@@ -8365,6 +8386,7 @@ export default function TeammillimeterErpMvp() {
           <BasicInfoHubPage
             isHubActive={active === "basicInfo"}
             tabAccess={basicInfoTabAccess}
+            onWorkersTabVisible={syncWorkersFromServer}
             clientsPanel={
               <ClientsPage clients={clients} setClients={setClients} sales={appliedSales} companyProfile={companyProfile} />
             }
