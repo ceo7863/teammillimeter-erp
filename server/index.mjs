@@ -145,6 +145,7 @@ function parseContractMetaHeader(rawMeta) {
 
 const app = express();
 app.use(cors());
+app.use(express.json({ limit: "25mb" }));
 app.use("/vendor/pdfjs", express.static(config.pdfJsDir, { maxAge: "7d", fallthrough: false }));
 
 app.get("/api/health", (_req, res) => {
@@ -443,8 +444,6 @@ app.post(
     }
   },
 );
-
-app.use(express.json({ limit: "25mb" }));
 
 app.post("/api/worker-portal/login", (req, res) => {
   const { loginId, password } = req.body || {};

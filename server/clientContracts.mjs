@@ -31,13 +31,14 @@ function contractFilePath(storageKey) {
 
 function decodeSignaturePng(signatureDataUrl) {
   const text = String(signatureDataUrl || "").trim();
-  if (!text.startsWith("data:image/png;base64,")) {
+  const prefixMatch = text.match(/^data:image\/png;base64,/i);
+  if (!prefixMatch) {
     return { ok: false, error: "\uC11C\uBA85 \uC774\uBBF8\uC9C0\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." };
   }
   if (text.length > MAX_SIGNATURE_LENGTH) {
     return { ok: false, error: "\uC11C\uBA85 \uC774\uBBF8\uC9C0\uAC00 \uB108\uBB34 \uD07D\uB2C8\uB2E4." };
   }
-  const payload = text.slice("data:image/png;base64,".length);
+  const payload = text.slice(prefixMatch[0].length);
   if (payload.length < 80) {
     return { ok: false, error: "\uC11C\uBA85\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694." };
   }
