@@ -39,7 +39,7 @@ export type LedgerViewerSubTab = "list" | "monthly" | "account" | "fixed";
 
 const L = {
   title: "\uAC00\uACC4\uBD80 \uC870\uD68C",
-  desc: "\uD655\uC815\uB41C \uAC00\uACC4\uBD80 \uB0B4\uC5ED\uACFC \uACE0\uC815\uBE44\uB97C \uAD00\uB9AC\uD569\uB2C8\uB2E4. \uBBF8\uBD84\uB958 \uD1B5\uC7A5\uC740 \uD1B5\uC7A5 \uD0ED\uC5D0\uC11C \uCC98\uB9AC\uD558\uC138\uC694.",
+  desc: "\uD655\uC815\uB41C \uD1B5\uC7A5 \uAC70\uB798 \uB0B4\uC5ED\uACFC \uACE0\uC815\uBE44 \uC5F0\uACB0\uC744 \uAD00\uB9AC\uD569\uB2C8\uB2E4. \uBBF8\uBD84\uB958 \uD1B5\uC7A5\uC740 \uD1B5\uC7A5 \uD0ED\uC5D0\uC11C \uCC98\uB9AC\uD558\uC138\uC694.",
   goBank: "\uD1B5\uC7A5\uC5D0\uC11C \uBD84\uB958\uD558\uAE30",
   list: "\uB0B4\uC5ED",
   monthly: "\uC6D4\uBCC4 \uAC00\uACC4\uBD80",
@@ -154,6 +154,7 @@ export function LedgerViewerPage({
         fixedExpenses,
         categories: ledgerCategories,
         accountCodes,
+        bankLinkedOnly: true,
       }),
     [bankTransactions, companyExpenses, fixedExpensePayments, fixedExpenses, ledgerCategories, accountCodes],
   );

@@ -467,6 +467,10 @@ export function buildOfflineFixedPaymentLedgerEntry(
   };
 }
 
+export function isBankLinkedLedgerEntry(row: LedgerEntry): boolean {
+  return row.source === "bank" && Boolean(row.bankTransactionId);
+}
+
 export function buildAllLedgerEntries(input: {
   bankTransactions: BankTransaction[];
   companyExpenses: CompanyExpense[];
@@ -474,6 +478,7 @@ export function buildAllLedgerEntries(input: {
   accountCodes: AccountCode[];
   fixedExpensePayments?: FixedExpensePayment[];
   fixedExpenses?: FixedExpense[];
+  bankLinkedOnly?: boolean;
 }) {
   const context: BuildLedgerEntryContext = {
     companyExpenses: input.companyExpenses,
@@ -496,9 +501,10 @@ export function buildAllLedgerEntries(input: {
       ),
     )
     .filter((row): row is LedgerEntry => Boolean(row));
-  return [...bankEntries, ...offlineEntries, ...fixedOfflineEntries].sort((a, b) =>
+  const rows = [...bankEntries, ...offlineEntries, ...fixedOfflineEntries].sort((a, b) =>
     String(b.date).localeCompare(String(a.date)),
   );
+  return input.bankLinkedOnly ? rows.filter(isBankLinkedLedgerEntry) : rows;
 }
 
 export type MonthlyLedgerSummaryRow = {
