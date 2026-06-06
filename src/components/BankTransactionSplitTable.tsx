@@ -199,7 +199,7 @@ const SplitRow = memo(function SplitRow({
             type="button"
             className={`inline-flex max-w-full truncate rounded-md px-1.5 py-0.5 font-medium underline decoration-current/30 underline-offset-2 ${counterpartyButtonClass}`}
             title={model.counterpartyLabel}
-            onClick={(event) => {
+            onDoubleClick={(event) => {
               event.stopPropagation();
               onFilterCounterparty?.(model.counterpartyLabel);
             }}
