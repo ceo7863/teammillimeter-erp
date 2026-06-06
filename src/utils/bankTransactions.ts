@@ -62,6 +62,8 @@ export type BankTransaction = {
   ledgerClientName?: string;
   /** \uC5F0\uACB0\uB41C \uC138\uAE08\uACC4\uC0B0\uC11C id */
   linkedTaxInvoiceId?: string;
+  /** \uC99D\uBE59 \uCC3E\uAE30\uC5D0\uC11C \uC218\uB3D9 \uC5F0\uACB0 \uD574\uC81C \u2192 \uC790\uB3D9 \uB9E4\uCE6D \uC81C\uC678 */
+  taxInvoiceAutoLinkDisabled?: boolean;
 };
 
 export function makeBankTransactionId() {
@@ -159,6 +161,7 @@ export function normalizeBankTransaction(raw: Partial<BankTransaction> & { id: s
     ledgerConfirmedBy: raw.ledgerConfirmedBy ? String(raw.ledgerConfirmedBy) : undefined,
     ledgerClientName: raw.ledgerClientName ? String(raw.ledgerClientName) : undefined,
     linkedTaxInvoiceId: raw.linkedTaxInvoiceId ? String(raw.linkedTaxInvoiceId) : undefined,
+    taxInvoiceAutoLinkDisabled: raw.taxInvoiceAutoLinkDisabled === true ? true : undefined,
   };
 }
 
@@ -526,7 +529,10 @@ export function mergeRemoteBankTransactionRow(local: BankTransaction, incoming: 
     ledgerConfirmedAt: local.ledgerConfirmedAt ?? incoming.ledgerConfirmedAt,
     ledgerConfirmedBy: local.ledgerConfirmedBy ?? incoming.ledgerConfirmedBy,
     ledgerClientName: local.ledgerClientName ?? incoming.ledgerClientName,
-    linkedTaxInvoiceId: local.linkedTaxInvoiceId ?? incoming.linkedTaxInvoiceId,
+    linkedTaxInvoiceId: local.taxInvoiceAutoLinkDisabled
+      ? local.linkedTaxInvoiceId
+      : local.linkedTaxInvoiceId ?? incoming.linkedTaxInvoiceId,
+    taxInvoiceAutoLinkDisabled: local.taxInvoiceAutoLinkDisabled ?? incoming.taxInvoiceAutoLinkDisabled,
   };
 
   if (!shouldPreferLocalBankTransactionMerge(local, incoming)) {

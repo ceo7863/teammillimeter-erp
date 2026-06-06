@@ -2145,7 +2145,7 @@ export function BankTransactionsPage({
   const applyTaxInvoiceLink = useCallback(
     (tx: BankTransaction, invoiceId: string | undefined) => {
       const invoice = invoiceId ? taxInvoices.find((row) => row.id === invoiceId) : undefined;
-      const nextRow = buildBankTxTaxInvoiceLinkPatch(tx, invoice);
+      const nextRow = buildBankTxTaxInvoiceLinkPatch(tx, invoice, { manual: true });
       auditBankTxUpdate(tx, nextRow);
       const nextTransactions = bankTransactions.map((row) => (row.id === tx.id ? nextRow : row));
       setBankTransactions(nextTransactions);
@@ -2157,7 +2157,7 @@ export function BankTransactionsPage({
 
   const openTaxInvoiceModal = useCallback(
     (tx: BankTransaction) => {
-      if (!tx.linkedTaxInvoiceId) {
+      if (!tx.linkedTaxInvoiceId && !tx.taxInvoiceAutoLinkDisabled) {
         const usedInvoiceIds = collectUsedTaxInvoiceIds(bankTransactions);
         const auto = pickAutoTaxInvoiceMatch(tx, taxInvoices, usedInvoiceIds, taxInvoiceMatchContext);
         if (auto) {
@@ -2487,7 +2487,7 @@ export function BankTransactionsPage({
   const evidenceAutoScopeKey = useMemo(
     () =>
       filteredRows
-        .filter((row) => !row.linkedTaxInvoiceId)
+        .filter((row) => !row.linkedTaxInvoiceId && !row.taxInvoiceAutoLinkDisabled)
         .map((row) => row.id)
         .join(","),
     [filteredRows],

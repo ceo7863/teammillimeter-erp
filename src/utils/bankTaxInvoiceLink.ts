@@ -261,7 +261,7 @@ export function batchAutoLinkTaxInvoiceEvidence(
 
   for (const tx of transactions) {
     if (options.onlyTransactionIds && !options.onlyTransactionIds.has(tx.id)) continue;
-    if (tx.linkedTaxInvoiceId) continue;
+    if (tx.linkedTaxInvoiceId || tx.taxInvoiceAutoLinkDisabled) continue;
     for (const row of searchTaxInvoicesForBankTx(tx, invoices, "", context)) {
       if (row.score < AUTO_TAX_INVOICE_MATCH_MIN_SCORE) break;
       if (!hasTaxInvoicePartyMatch(tx, row.invoice, context)) continue;
@@ -296,17 +296,20 @@ export function batchAutoLinkTaxInvoiceEvidence(
 export function buildBankTxTaxInvoiceLinkPatch(
   tx: BankTransaction,
   invoice: TaxInvoice | undefined,
+  options: { manual?: boolean } = {},
 ): BankTransaction {
   if (!invoice) {
     return {
       ...tx,
       linkedTaxInvoiceId: undefined,
+      taxInvoiceAutoLinkDisabled: options.manual ? true : tx.taxInvoiceAutoLinkDisabled,
     };
   }
   const clientName = String(invoice.client || "").trim();
   return {
     ...tx,
     linkedTaxInvoiceId: invoice.id,
+    taxInvoiceAutoLinkDisabled: options.manual ? false : tx.taxInvoiceAutoLinkDisabled,
     ledgerClientName: clientName || tx.ledgerClientName,
     linkedSubject: tx.deposit > 0 && clientName ? clientName : tx.linkedSubject,
   };
