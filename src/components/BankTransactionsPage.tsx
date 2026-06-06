@@ -2840,8 +2840,8 @@ export function BankTransactionsPage({
     const scoped = ledgerSyncedTransactions.filter((row) =>
       matchesBankTxCounterpartyFilter(row, counterpartyDrawer.key),
     );
-    return sortBankTransactions(scoped, { key: "transactionAt", direction: "desc" });
-  }, [ledgerSyncedTransactions, counterpartyDrawer]);
+    return sortBankTransactions(scoped, { key: sort.key, direction: sort.direction });
+  }, [ledgerSyncedTransactions, counterpartyDrawer, sort]);
 
   const runBatchEvidenceAutoLink = useCallback(
     () => {
@@ -6590,6 +6590,24 @@ export function BankTransactionsPage({
           counterpartyLabel={counterpartyDrawer.label}
           rows={counterpartyDrawerRows}
           onClose={() => setCounterpartyDrawer(null)}
+          accountSubjectLabels={accountSubjectLabels}
+          folderMap={folderMap}
+          ledgerCategoryFolder={ledgerCategoryFolder}
+          companyExpenses={companyExpenses}
+          fixedExpensePayments={fixedExpensePayments}
+          fixedExpenses={fixedExpenses}
+          ledgerCategories={ledgerCategories}
+          accountCodes={accountCodes}
+          taxInvoices={taxInvoices}
+          clients={clients}
+          workers={workers}
+          paymentVouchers={paymentVouchers}
+          labels={listSectionLabels}
+          onEditMemo={openMemoModal}
+          onEditAccountSubject={openAccountSubjectModal}
+          onEditClient={openClientModal}
+          onEditFixedExpense={openFixedExpenseModal}
+          onFindEvidence={openTaxInvoiceModal}
         />
       ) : null}
 

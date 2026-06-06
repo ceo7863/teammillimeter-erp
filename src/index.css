@@ -10645,7 +10645,7 @@ body.erp-col-resizing * {
 
 .erp-bank-counterparty-drawer {
   width: 100%;
-  max-height: 70dvh;
+  max-height: 80dvh;
   display: flex;
   flex-direction: column;
   border-radius: 1rem 1rem 0 0;
@@ -10671,38 +10671,15 @@ body.erp-col-resizing * {
   overflow: auto;
 }
 
-.erp-bank-counterparty-drawer-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.8125rem;
+.erp-bank-counterparty-drawer-table-shell {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
 }
 
-.erp-bank-counterparty-drawer-table thead {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: #f8fafc;
-}
-
-.erp-bank-counterparty-drawer-table th {
-  padding: 0.5rem 0.75rem;
-  text-align: left;
-  font-size: 0.6875rem;
-  font-weight: 700;
-  color: #64748b;
-  white-space: nowrap;
-  border-bottom: 1px solid #e2e8f0;
-}
-
-.erp-bank-counterparty-drawer-table td {
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid #f1f5f9;
-  color: #0f172a;
-  vertical-align: top;
-}
-
-.erp-bank-counterparty-drawer-table tbody tr:hover {
-  background: #f8fafc;
+.erp-bank-counterparty-drawer-table-shell .erp-bank-wehago-table-wrap {
+  overflow-x: auto;
 }
 
 @keyframes erp-bank-counterparty-drawer-in {

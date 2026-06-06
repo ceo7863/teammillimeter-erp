@@ -46,6 +46,7 @@ type BankTransactionListSectionProps = {
   onFindEvidence: (row: BankTransaction) => void;
   onFilterCounterparty?: (label: string) => void;
   toolbar?: React.ReactNode;
+  tableId?: string;
 };
 
 function BankTransactionListSectionComponent({
@@ -277,6 +278,7 @@ function BankTransactionListSectionComponent({
         onEditFixedExpense={handleEditFixedExpense}
         onFindEvidence={handleFindEvidence}
         onFilterCounterparty={onFilterCounterparty ? handleFilterCounterparty : undefined}
+        tableId={tableId}
       />
     </>
   );

@@ -39,6 +39,7 @@ type BankTransactionSplitTableProps = {
   onEditFixedExpense: (id: string) => void;
   onFindEvidence: (id: string) => void;
   onFilterCounterparty?: (label: string) => void;
+  tableId?: string;
 };
 
 function AccountSubjectCellButton({
@@ -305,10 +306,11 @@ function BankTransactionSplitTableComponent({
   onEditFixedExpense,
   onFindEvidence,
   onFilterCounterparty,
+  tableId = "bank-transactions-table",
 }: BankTransactionSplitTableProps) {
   return (
     <DesktopTableWrap className="erp-bank-wehago-table-wrap">
-      <table id="bank-transactions-table" className="erp-table erp-bank-split-table erp-bank-wehago-split-table w-full min-w-[1360px]">
+      <table id={tableId} className="erp-table erp-bank-split-table erp-bank-wehago-split-table w-full min-w-[1360px]">
         <thead>
           <tr className="erp-bank-wehago-split-section-row">
             <th colSpan={6} className="erp-bank-wehago-split-section erp-bank-wehago-split-section--bank">
