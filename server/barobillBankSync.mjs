@@ -80,34 +80,7 @@ export async function runBarobillBankSync(options = {}) {
     });
     const preview = fetched.preview;
     const notices = Array.isArray(fetched.notices) ? fetched.notices : [];
-
-    if (fetched.collecting) {
-      lastStatus = {
-        ...lastStatus,
-        lastRunAt: runAt,
-        lastSuccessAt: runAt,
-        lastError: null,
-        lastNotice: notices.join(" ") || null,
-        lastAdded: 0,
-        lastAutoLinked: 0,
-        lastSkipped: 0,
-        lastFetched: 0,
-        lastLatestTransactionAt: null,
-        lastFromDate: fromDate,
-        lastToDate: toDate,
-      };
-      return {
-        ok: true,
-        added: 0,
-        skipped: 0,
-        fetched: 0,
-        collecting: true,
-        notices,
-        scrapStatus: fetched.scrapStatus,
-        fromDate,
-        toDate,
-      };
-    }
+    const collecting = Boolean(fetched.collecting);
 
     if (options.previewOnly) {
       const { added, skipped } = countMergeAgainstExisting(
@@ -123,6 +96,7 @@ export async function runBarobillBankSync(options = {}) {
         preview,
         errors: fetched.errors,
         scrapStatus: fetched.scrapStatus,
+        collecting,
         fromDate,
         toDate,
       };
@@ -194,6 +168,7 @@ export async function runBarobillBankSync(options = {}) {
       errors: fetched.errors,
       notices,
       scrapStatus: fetched.scrapStatus,
+      collecting,
       version: getErpState().version,
     };
   } catch (error) {
