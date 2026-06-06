@@ -2308,20 +2308,18 @@ export function BankTransactionsPage({
   }, []);
 
   const applyTaxInvoiceLink = useCallback(
-    (
-      tx: BankTransaction,
-      invoiceId: string | undefined,
-      sourceTransactions: BankTransaction[] = bankTransactions,
-    ) => {
+    (tx: BankTransaction, invoiceId: string | undefined) => {
       const invoice = invoiceId ? taxInvoices.find((row) => row.id === invoiceId) : undefined;
-      const nextRow = buildBankTxTaxInvoiceLinkPatch(tx, invoice, { manual: true });
-      auditBankTxUpdate(tx, nextRow);
-      let nextTransactions = sourceTransactions.map((row) => (row.id === tx.id ? nextRow : row));
+      const prev = bankTransactionsRef.current;
+      const liveTx = prev.find((row) => row.id === tx.id) ?? tx;
+      const nextRow = buildBankTxTaxInvoiceLinkPatch(liveTx, invoice, { manual: true });
+      auditBankTxUpdate(liveTx, nextRow);
+      let nextTransactions = prev.map((row) => (row.id === tx.id ? nextRow : row));
       let nextClients = clients;
 
       if (invoice) {
         nextClients = learnClientTaxInvoiceExactPayments(nextClients, invoice, nextRow);
-        if (shouldLearnTaxInvoiceSplitPayment(tx, invoice, sourceTransactions)) {
+        if (shouldLearnTaxInvoiceSplitPayment(liveTx, invoice, prev)) {
           nextClients = learnClientTaxInvoiceSplitPayments(nextClients, invoice);
         }
         if (nextClients !== clients) {
@@ -2349,18 +2347,13 @@ export function BankTransactionsPage({
         }
       }
 
+      bankTransactionsRef.current = nextTransactions;
       setBankTransactions(nextTransactions);
-      void onRequestImmediateSave?.({
-        bankTransactions: nextTransactions,
-        ...(nextClients !== clients ? { clients: nextClients } : {}),
-      });
-      return { nextRow, invoice, nextTransactions };
+      return { nextRow, invoice, nextTransactions, nextClients };
     },
     [
       auditBankTxUpdate,
-      bankTransactions,
       clients,
-      onRequestImmediateSave,
       setBankTransactions,
       setClients,
       taxInvoices,
@@ -2368,28 +2361,44 @@ export function BankTransactionsPage({
     ],
   );
 
+  const persistTaxInvoiceLink = useCallback(
+    async (nextTransactions: BankTransaction[], nextClients: typeof clients) => {
+      await onRequestImmediateSave?.({
+        bankTransactions: nextTransactions,
+        ...(nextClients !== clients ? { clients: nextClients } : {}),
+      });
+    },
+    [clients, onRequestImmediateSave],
+  );
+
   const openTaxInvoiceModal = useCallback(
     (tx: BankTransaction) => {
+      const txId = tx.id;
       setTaxInvoiceLinkSession({
         tx,
         taxInvoices,
-        bankTransactions,
+        bankTransactions: bankTransactionsRef.current,
         linkedPaymentIndex: EMPTY_TAX_INVOICE_LINKED_INDEX,
         excludedIds: EMPTY_TAX_INVOICE_EXCLUDED_IDS,
         preparing: true,
       });
       window.requestAnimationFrame(() => {
-        setTaxInvoiceLinkSession({
-          tx,
-          taxInvoices,
-          bankTransactions,
-          linkedPaymentIndex: getTaxInvoiceLinkedPaymentIndexCached(bankTransactions),
-          excludedIds: getTaxInvoiceCancellationExcludedIdsCached(taxInvoices),
-          preparing: false,
+        setTaxInvoiceLinkSession((prev) => {
+          if (!prev || prev.tx.id !== txId || !prev.preparing) return prev;
+          const latest = bankTransactionsRef.current;
+          const liveTx = latest.find((row) => row.id === txId) ?? prev.tx;
+          return {
+            tx: liveTx,
+            taxInvoices,
+            bankTransactions: latest,
+            linkedPaymentIndex: getTaxInvoiceLinkedPaymentIndexCached(latest),
+            excludedIds: getTaxInvoiceCancellationExcludedIdsCached(taxInvoices),
+            preparing: false,
+          };
         });
       });
     },
-    [taxInvoices, bankTransactions],
+    [taxInvoices],
   );
 
   const closeTaxInvoicePanel = useCallback(() => {
@@ -2401,8 +2410,8 @@ export function BankTransactionsPage({
       const session = taxInvoiceLinkSessionRef.current;
       if (!session) return;
       const liveTx =
-        session.bankTransactions.find((row) => row.id === session.tx.id) ?? session.tx;
-      const result = applyTaxInvoiceLink(liveTx, invoiceId, session.bankTransactions);
+        bankTransactionsRef.current.find((row) => row.id === session.tx.id) ?? session.tx;
+      const result = applyTaxInvoiceLink(liveTx, invoiceId);
       if (!result?.nextRow || !result.nextTransactions) return;
       invalidateTaxInvoiceLinkPanelCaches();
       setTaxInvoiceLinkSession({
@@ -2414,8 +2423,9 @@ export function BankTransactionsPage({
         preparing: false,
       });
       setImportMessage(L.cellSaveDone);
+      void persistTaxInvoiceLink(result.nextTransactions, result.nextClients);
     },
-    [applyTaxInvoiceLink],
+    [applyTaxInvoiceLink, persistTaxInvoiceLink],
   );
 
   React.useEffect(() => {
