@@ -16,39 +16,52 @@ import {
   fixedMonthlyAmount,
   formatFixedExpensePaymentDay,
   formatKRW,
-  getFixedExpensePaymentsForMonth,
   getMonthKey,
-  isFixedExpensePaymentBankLinked,
-  isFixedExpensePaymentSettled,
   todayISO,
   type FixedExpense,
   type FixedExpensePayment,
 } from "@/utils/companyLedger";
+import {
+  buildFixedExpenseMonthPaymentReport,
+  type FixedExpenseMonthPaymentRow,
+} from "@/utils/fixedExpenseAutomation";
 
 const L = {
   title: "\uACE0\uC815\uBE44 \uAD00\uB9AC",
   desc: "\uB9E4\uC6D4 \uB098\uAC00\uB294 \uACE0\uC815\uBE44 \uD56D\uBAA9\uACFC \uB0A9\uBD80 \uAE30\uB85D\uC744 \uAD00\uB9AC\uD569\uB2C8\uB2E4. \uD1B5\uC7A5 \uCD9C\uAE08\uACFC \uC5F0\uACB0\uD558\uBA74 \uAC00\uACC4\uBD80\uC5D0 \uBC18\uC601\uB429\uB2C8\uB2E4.",
   goBank: "\uD1B5\uC7A5\uC5D0\uC11C \uC5F0\uACB0\uD558\uAE30",
   addItem: "\uACE0\uC815\uBE44 \uD56D\uBAA9 \uCD94\uAC00",
-  thisMonth: "\uC774\uBC88 \uB2EC",
   unsettledBanner: (count: number, amount: number) =>
-    `\uBBF8\uC5F0\uACB0 \uACE0\uC815\uBE44 ${count}\uAC74 \u00B7 ${formatKRW(amount)}\uC6D0 \u2014 \uD1B5\uC7A5 \uD14C\uC774\uBE14\uC758 \uACE0\uC815\uBE44 \uD56D\uBAA9 \uC5F4\uC5D0\uC11C \uC5F0\uACB0\uD558\uC138\uC694.`,
-  allSettled: "\uC774\uBC88 \uB2EC \uACE0\uC815\uBE44\uB294 \uBAA8\uB450 \uC5F0\uACB0\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
+    `\uBBF8\uB0A9\uBD80 \uACE0\uC815\uBE44 ${count}\uAC74 \u00B7 ${formatKRW(amount)}\uC6D0 \u2014 \uD1B5\uC7A5 \uD14C\uC774\uBE14\uC758 \uACE0\uC815\uBE44 \uD56D\uBAA9 \uC5F4\uC5D0\uC11C \uC5F0\uACB0\uD558\uC138\uC694.`,
+  allSettled: "\uC774\uBC88 \uB2EC \uACE0\uC815\uBE44\uB294 \uBAA8\uB450 \uB0A9\uBD80\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   itemsTitle: "\uACE0\uC815\uBE44 \uD56D\uBAA9",
   paymentsTitle: "\uC774\uBC88 \uB2EC \uB0A9\uBD80 \uAE30\uB85D",
+  expectedFixed: "\uC608\uC0C1 \uACE0\uC815\uBE44",
+  unpaidFixed: "\uBBF8\uB0A9\uBD80 \uACE0\uC815\uBE44",
+  paidFixed: "\uB0A9\uBD80 \uACE0\uC815\uBE44",
+  unpaidSection: (count: number, amount: number) =>
+    `\uBBF8\uB0A9\uBD80 \uACE0\uC815\uBE44 ${count}\uAC74 \u00B7 ${formatKRW(amount)}`,
+  paidSection: (count: number, amount: number) =>
+    `\uB0A9\uBD80 \uACE0\uC815\uBE44 ${count}\uAC74 \u00B7 ${formatKRW(amount)}`,
   name: "\uD56D\uBAA9",
   amount: "\uAE08\uC561",
   cycle: "\uC8FC\uAE30",
   paymentDay: "\uCD9C\uAE08\uC77C",
+  paymentDate: "\uB0A9\uBD80\uC608\uC815\uC77C",
   status: "\uC0C1\uD0DC",
-  linked: "\uC5F0\uACB0",
+  linked: "\uD1B5\uC7A5 \uC5F0\uACB0",
   unlinked: "\uBBF8\uC5F0\uACB0",
+  paid: "\uB0A9\uBD80 \uC644\uB8CC",
+  unpaid: "\uBBF8\uB0A9\uBD80",
   active: "\uD65C\uC131",
   inactive: "\uBE44\uD65C\uC131",
   edit: "\uC218\uC815",
   emptyItems: "\uACE0\uC815\uBE44 \uD56D\uBAA9\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uD56D\uBAA9\uC744 \uCD94\uAC00\uD558\uC138\uC694.",
-  emptyPayments: "\uC774\uBC88 \uB2EC \uB0A9\uBD80 \uAE30\uB85D\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  emptyPayments: "\uC774\uBC88 \uB2EC \uC608\uC0C1 \uACE0\uC815\uBE44\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  emptyUnpaid: "\uBBF8\uB0A9\uBD80 \uACE0\uC815\uBE44\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  emptyPaid: "\uB0A9\uBD80 \uC644\uB8CC \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   autoMemo: "\uC790\uB3D9 \uB4F1\uB85D",
+  caseSuffix: "\uAC74",
 };
 
 type FixedExpenseManagePanelProps = {
@@ -98,30 +111,25 @@ export function FixedExpenseManagePanel({
     [fixedExpenses],
   );
 
-  const monthPayments = useMemo(
-    () => getFixedExpensePaymentsForMonth(fixedExpensePayments, monthKey),
-    [fixedExpensePayments, monthKey],
+  const monthReport = useMemo(
+    () =>
+      buildFixedExpenseMonthPaymentReport({
+        fixedExpenses,
+        fixedExpensePayments,
+        bankTransactions,
+        monthKey,
+      }),
+    [bankTransactions, fixedExpensePayments, fixedExpenses, monthKey],
   );
 
-  const unsettledSummary = useMemo(() => {
-    let count = 0;
-    let amount = 0;
-    for (const payment of monthPayments) {
-      if (
-        isFixedExpensePaymentSettled(
-          payment,
-          fixedExpensePayments,
-          bankTransactions,
-          fixedExpenses,
-        )
-      ) {
-        continue;
-      }
-      count += 1;
-      amount += Number(payment.amount) || 0;
-    }
-    return { count, amount };
-  }, [bankTransactions, fixedExpensePayments, fixedExpenses, monthPayments]);
+  const unpaidRows = useMemo(
+    () => monthReport.rows.filter((row) => row.status === "unpaid"),
+    [monthReport.rows],
+  );
+  const paidRows = useMemo(
+    () => monthReport.rows.filter((row) => row.status === "paid"),
+    [monthReport.rows],
+  );
 
   const openCreate = useCallback(() => {
     modalRef.current?.openCreateFixedExpense(
@@ -149,11 +157,11 @@ export function FixedExpenseManagePanel({
             </div>
           )}
 
-          {unsettledSummary.count > 0 ? (
+          {monthReport.unpaidCount > 0 ? (
             <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
-              {L.unsettledBanner(unsettledSummary.count, unsettledSummary.amount)}
+              {L.unsettledBanner(monthReport.unpaidCount, monthReport.unpaidTotal)}
             </div>
-          ) : monthPayments.length ? (
+          ) : monthReport.expectedCount > 0 ? (
             <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-900">
               {L.allSettled}
             </div>
@@ -219,50 +227,44 @@ export function FixedExpenseManagePanel({
           <h3 className="erp-text-section mb-3 font-bold text-slate-900">
             {L.paymentsTitle} ({monthKey.slice(0, 4)}.{monthKey.slice(5)})
           </h3>
-          {!monthPayments.length ? (
+
+          {!monthReport.expectedCount ? (
             <p className="py-8 text-center text-sm text-slate-500">{L.emptyPayments}</p>
           ) : (
-            <DesktopTableWrap>
-              <table className="erp-table w-full">
-                <thead>
-                  <tr>
-                    <th>{L.name}</th>
-                    <th>{L.paymentDay}</th>
-                    <th className="text-right">{L.amount}</th>
-                    <th>{L.status}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {monthPayments.map((payment) => {
-                    const item = fixedExpenses.find((row) => row.id === payment.fixedExpenseId);
-                    const settled = isFixedExpensePaymentSettled(
-                      payment,
-                      fixedExpensePayments,
-                      bankTransactions,
-                      fixedExpenses,
-                    );
-                    const linked = isFixedExpensePaymentBankLinked(payment, bankTransactions);
-                    return (
-                      <tr key={payment.id}>
-                        <td className="font-semibold text-slate-900">{item?.name || "-"}</td>
-                        <td className="text-sm text-slate-600">{payment.date}</td>
-                        <td className="text-right font-bold text-slate-900">
-                          {formatKRW(payment.amount)}
-                        </td>
-                        <td
-                          className={`text-sm font-semibold ${settled ? "text-emerald-700" : "text-amber-700"}`}
-                        >
-                          {linked ? L.linked : settled ? L.linked : L.unlinked}
-                          {String(payment.memo || "").includes(L.autoMemo) ? (
-                            <span className="ml-1 text-xs font-medium text-slate-400">({L.autoMemo})</span>
-                          ) : null}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </DesktopTableWrap>
+            <div className="space-y-6">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <SummaryCard
+                  label={L.expectedFixed}
+                  value={formatKRW(monthReport.expectedTotal)}
+                  hint={`${monthReport.expectedCount}${L.caseSuffix}`}
+                  tone="default"
+                />
+                <SummaryCard
+                  label={L.unpaidFixed}
+                  value={formatKRW(monthReport.unpaidTotal)}
+                  hint={`${monthReport.unpaidCount}${L.caseSuffix}`}
+                  tone="warning"
+                />
+                <SummaryCard
+                  label={L.paidFixed}
+                  value={formatKRW(monthReport.paidTotal)}
+                  hint={`${monthReport.paidCount}${L.caseSuffix}`}
+                  tone="success"
+                />
+              </div>
+
+              <PaymentSection
+                title={L.unpaidSection(monthReport.unpaidCount, monthReport.unpaidTotal)}
+                rows={unpaidRows}
+                emptyLabel={L.emptyUnpaid}
+              />
+
+              <PaymentSection
+                title={L.paidSection(monthReport.paidCount, monthReport.paidTotal)}
+                rows={paidRows}
+                emptyLabel={L.emptyPaid}
+              />
+            </div>
           )}
         </CardContent>
       </Card>
@@ -283,6 +285,108 @@ export function FixedExpenseManagePanel({
         onRequestImmediateSave={onRequestImmediateSave}
       />
     </div>
+  );
+}
+
+function SummaryCard({
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+  tone: "default" | "warning" | "success";
+}) {
+  const toneClass =
+    tone === "warning"
+      ? "border-amber-200 bg-amber-50"
+      : tone === "success"
+        ? "border-emerald-200 bg-emerald-50"
+        : "border-slate-200 bg-white";
+  const valueClass =
+    tone === "warning" ? "text-amber-900" : tone === "success" ? "text-emerald-900" : "text-slate-950";
+
+  return (
+    <div className={`rounded-2xl border p-4 ${toneClass}`}>
+      <div className="erp-text-caption text-slate-500">{label}</div>
+      <div className={`erp-text-section-title mt-1 font-bold ${valueClass}`}>{value}</div>
+      <div className="erp-text-caption mt-1 text-slate-500">{hint}</div>
+    </div>
+  );
+}
+
+function PaymentSection({
+  title,
+  rows,
+  emptyLabel,
+}: {
+  title: string;
+  rows: FixedExpenseMonthPaymentRow[];
+  emptyLabel: string;
+}) {
+  return (
+    <div>
+      <h4 className="erp-text-body mb-2 font-bold text-slate-800">{title}</h4>
+      {!rows.length ? (
+        <p className="py-4 text-center text-sm text-slate-500">{emptyLabel}</p>
+      ) : (
+        <DesktopTableWrap>
+          <table className="erp-table w-full">
+            <thead>
+              <tr>
+                <th>{L.name}</th>
+                <th>{L.paymentDay}</th>
+                <th>{L.paymentDate}</th>
+                <th className="text-right">{L.amount}</th>
+                <th>{L.status}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={`${row.fixedExpenseId}:${row.status}`}>
+                  <td className="font-semibold text-slate-900">{row.name}</td>
+                  <td className="text-sm text-slate-600">{row.paymentDayLabel}</td>
+                  <td className="text-sm text-slate-600">{row.paymentDate || "-"}</td>
+                  <td className="text-right font-bold text-slate-900">
+                    {formatKRW(row.expectedAmount)}
+                  </td>
+                  <td className="text-sm font-semibold">
+                    <PaymentStatusCell row={row} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </DesktopTableWrap>
+      )}
+    </div>
+  );
+}
+
+function PaymentStatusCell({ row }: { row: FixedExpenseMonthPaymentRow }) {
+  if (row.status === "paid") {
+    return (
+      <span className="text-emerald-700">
+        {L.paid}
+        {row.bankLinked ? (
+          <span className="ml-1 text-xs font-medium text-slate-500">({L.linked})</span>
+        ) : null}
+        {row.payment && String(row.payment.memo || "").includes(L.autoMemo) ? (
+          <span className="ml-1 text-xs font-medium text-slate-400">({L.autoMemo})</span>
+        ) : null}
+      </span>
+    );
+  }
+
+  return (
+    <span className="text-amber-700">
+      {L.unpaid}
+      {row.payment ? (
+        <span className="ml-1 text-xs font-medium text-slate-500">({L.unlinked})</span>
+      ) : null}
+    </span>
   );
 }
 

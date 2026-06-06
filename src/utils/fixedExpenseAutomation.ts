@@ -14,15 +14,22 @@ import {
   bankTransactionMatchesFixedPayment,
   buildFixedExpensePaymentDate,
   findLinkableFixedExpensePayment,
+  fixedMonthlyAmount,
+  formatFixedExpensePaymentDay,
+  getFixedExpensePaymentsForMonth,
   getMonthKey,
   isFixedActiveInMonth,
   isFixedExpensePaymentBankLinked,
+  isFixedExpensePaymentSettled,
   linkFixedExpensePaymentToBankTx,
   makeLedgerId,
   pruneSettledDuplicateFixedExpensePayments,
   resolveFixedExpenseIdForBankTransaction,
   todayISO,
+  type FixedExpense,
+  type FixedExpensePayment,
 } from "./companyLedger";
+import { resolveBankTxLedgerStatus } from "./ledgerSystem";
 
 export function monthIndexFromKey(monthKey: string) {
   const match = /^(\d{4})-(\d{2})$/.exec(String(monthKey || "").trim());
@@ -78,6 +85,89 @@ export function buildMonthlyFixedExpensePayments(
       createdBy: createdBy || "system",
       createdAt,
     }));
+}
+
+export type FixedExpenseMonthPaymentRow = {
+  fixedExpenseId: string;
+  name: string;
+  category: string;
+  expectedAmount: number;
+  paymentDayLabel: string;
+  paymentDate?: string;
+  payment?: FixedExpensePayment;
+  status: "paid" | "unpaid";
+  bankLinked: boolean;
+};
+
+export type FixedExpenseMonthPaymentReport = {
+  monthKey: string;
+  expectedTotal: number;
+  expectedCount: number;
+  unpaidTotal: number;
+  unpaidCount: number;
+  paidTotal: number;
+  paidCount: number;
+  rows: FixedExpenseMonthPaymentRow[];
+};
+
+export function buildFixedExpenseMonthPaymentReport(input: {
+  fixedExpenses: FixedExpense[];
+  fixedExpensePayments: FixedExpensePayment[];
+  bankTransactions: BankTransaction[];
+  monthKey: string;
+}): FixedExpenseMonthPaymentReport {
+  const monthPayments = getFixedExpensePaymentsForMonth(input.fixedExpensePayments, input.monthKey);
+  const dueItems = input.fixedExpenses
+    .filter((expense) => isFixedExpenseDueInMonth(expense, input.monthKey))
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ko"));
+
+  const rows: FixedExpenseMonthPaymentRow[] = dueItems.map((item) => {
+    const payment = monthPayments.find((row) => row.fixedExpenseId === item.id);
+    const bankLinkedByPayment = payment
+      ? isFixedExpensePaymentBankLinked(payment, input.bankTransactions)
+      : false;
+    const bankLinkedByTx = input.bankTransactions.some(
+      (tx) =>
+        tx.ledgerFixedExpenseId === item.id &&
+        resolveBankTxLedgerStatus(tx) === "confirmed" &&
+        getMonthKey(String(tx.transactionAt || "").slice(0, 10)) === input.monthKey,
+    );
+    const bankLinked = bankLinkedByPayment || bankLinkedByTx;
+    const settled = payment
+      ? isFixedExpensePaymentSettled(
+          payment,
+          input.fixedExpensePayments,
+          input.bankTransactions,
+          input.fixedExpenses,
+        )
+      : bankLinkedByTx;
+
+    return {
+      fixedExpenseId: item.id,
+      name: String(item.name || "").trim(),
+      category: String(item.category || "").trim(),
+      expectedAmount: fixedMonthlyAmount(item),
+      paymentDayLabel: formatFixedExpensePaymentDay(item.paymentDayOfMonth),
+      paymentDate: payment?.date,
+      payment,
+      status: settled ? "paid" : "unpaid",
+      bankLinked,
+    };
+  });
+
+  const paidRows = rows.filter((row) => row.status === "paid");
+  const unpaidRows = rows.filter((row) => row.status === "unpaid");
+
+  return {
+    monthKey: input.monthKey,
+    expectedTotal: rows.reduce((sum, row) => sum + row.expectedAmount, 0),
+    expectedCount: rows.length,
+    unpaidTotal: unpaidRows.reduce((sum, row) => sum + row.expectedAmount, 0),
+    unpaidCount: unpaidRows.length,
+    paidTotal: paidRows.reduce((sum, row) => sum + row.expectedAmount, 0),
+    paidCount: paidRows.length,
+    rows,
+  };
 }
 
 function resolveFixedExpenseIdForBankTx(
