@@ -1,13 +1,15 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { BarChart3, CalendarDays, ExternalLink, List, PieChart, Repeat } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { BarChart3, CalendarDays, ExternalLink, List, PieChart, Repeat, X } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { DesktopTableWrap } from "@/components/MobileRecordCard";
 import { FixedExpenseManagePanel } from "@/components/FixedExpenseManagePanel";
+import { FixedExpenseLinkCell } from "@/components/FixedExpenseLinkCell";
 import { formatBankTransactionDateTime, type BankTransaction } from "@/utils/bankTransactions";
 import type { ErpUser } from "@/utils/erpApi";
 import type { BankLearnRule } from "@/utils/bankCompanyLedger";
 import {
+  fixedMonthlyAmount,
   formatKRW,
   getMonthKey,
   shiftMonthKey,
@@ -16,6 +18,10 @@ import {
   type FixedExpense,
   type FixedExpensePayment,
 } from "@/utils/companyLedger";
+import {
+  linkBankTransactionToFixedExpense,
+  resolveBankTxFixedExpenseDraft,
+} from "@/utils/ledgerBankBridge";
 import {
   buildAccountCodeSummary,
   buildAllLedgerEntries,
@@ -57,6 +63,13 @@ const L = {
   date: "\uC77C\uC790",
   flow: "\uAD6C\uBD84",
   accountCol: "\uACC4\uC815",
+  fixedExpenseCol: "\uACE0\uC815\uBE44",
+  fixedExpensePlaceholder: "\uACE0\uC815\uBE44 \uC120\uD0DD",
+  editFixedExpenseTitle: "\uACE0\uC815\uBE44 \uD56D\uBAA9 \uC5F0\uACB0",
+  fixedExpenseRequired: "\uACE0\uC815\uBE44 \uD56D\uBAA9\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
+  linkFailed: "\uACE0\uC815\uBE44 \uC5F0\uACB0\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+  save: "\uC800\uC7A5",
+  cancel: "\uCDE8\uC18C",
   descCol: "\uC801\uC694",
   amount: "\uAE08\uC561",
   source: "\uCD9C\uCC98",
@@ -120,6 +133,11 @@ export function LedgerViewerPage({
   const [flowFilter, setFlowFilter] = useState<LedgerFlow | "all">("all");
   const [accountFilter, setAccountFilter] = useState("");
   const [search, setSearch] = useState("");
+  const [fixedExpenseModal, setFixedExpenseModal] = useState<{ tx: BankTransaction; draft: string } | null>(null);
+  const [fixedExpenseModalError, setFixedExpenseModalError] = useState("");
+
+  const canLinkFixed = Boolean(setBankTransactions && setFixedExpensePayments);
+  const savedBy = currentUser?.name || currentUser?.email || undefined;
 
   useEffect(() => {
     if (!initialSubTab) return;
@@ -201,6 +219,80 @@ export function LedgerViewerPage({
     setMonthKey(nextMonthKey);
     setAllMonths(false);
     setActiveTab("monthly");
+  };
+
+  const fixedExpenseSelectOptions = useMemo(
+    () =>
+      [...fixedExpenses]
+        .filter((row) => row.isActive !== false)
+        .map((row) => ({
+          value: row.id,
+          label: `${row.name} (${formatKRW(fixedMonthlyAmount(row))})`,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label, "ko")),
+    [fixedExpenses],
+  );
+
+  const openFixedExpenseLinkModal = useCallback(
+    (tx: BankTransaction) => {
+      setFixedExpenseModalError("");
+      setFixedExpenseModal({
+        tx,
+        draft: resolveBankTxFixedExpenseDraft(tx, fixedExpensePayments),
+      });
+    },
+    [fixedExpensePayments],
+  );
+
+  const saveFixedExpenseLinkModal = useCallback(() => {
+    if (!fixedExpenseModal || !setBankTransactions || !setFixedExpensePayments) return;
+    const fixedExpenseId = fixedExpenseModal.draft.trim();
+    if (!fixedExpenseId) {
+      setFixedExpenseModalError(L.fixedExpenseRequired);
+      return;
+    }
+    const result = linkBankTransactionToFixedExpense({
+      tx: fixedExpenseModal.tx,
+      fixedExpenseId,
+      fixedExpenses,
+      fixedExpensePayments,
+      ledgerCategories,
+      accountCodes,
+      confirmedBy: savedBy,
+    });
+    if (!result.ok) {
+      setFixedExpenseModalError(L.linkFailed);
+      return;
+    }
+    const nextTransactions = bankTransactions.map((row) =>
+      row.id === fixedExpenseModal.tx.id ? result.tx : row,
+    );
+    setBankTransactions(nextTransactions);
+    setFixedExpensePayments(result.payments);
+    setFixedExpenseModal(null);
+    setFixedExpenseModalError("");
+    void onRequestImmediateSave?.({
+      bankTransactions: nextTransactions,
+      fixedExpensePayments: result.payments,
+    });
+  }, [
+    accountCodes,
+    bankTransactions,
+    fixedExpenseModal,
+    fixedExpensePayments,
+    fixedExpenses,
+    ledgerCategories,
+    onRequestImmediateSave,
+    savedBy,
+    setBankTransactions,
+    setFixedExpensePayments,
+  ]);
+
+  const entryListLinkProps = {
+    bankTransactions,
+    fixedExpenses,
+    canLinkFixed,
+    onEditFixedExpenseLink: openFixedExpenseLinkModal,
   };
 
   const tabItems: Array<{ key: LedgerViewerSubTab; label: string; icon: React.ReactNode }> = [
@@ -327,20 +419,76 @@ export function LedgerViewerPage({
               </div>
             ) : null}
 
-            {activeTab === "list" ? <EntryList rows={entries} bankTransactions={bankTransactions} /> : null}
+            {activeTab === "list" ? <EntryList rows={entries} {...entryListLinkProps} /> : null}
             {activeTab === "monthly" ? (
               <MonthlyLedgerBook
                 monthKey={monthKey}
                 rows={monthEntries}
                 accountRows={accountRows}
                 trendRows={monthlyRows}
-                bankTransactions={bankTransactions}
                 onSelectMonth={jumpToMonth}
+                entryListLinkProps={entryListLinkProps}
               />
             ) : null}
             {activeTab === "account" ? <AccountTable rows={accountRows} /> : null}
           </CardContent>
         </Card>
+      ) : null}
+
+      {fixedExpenseModal ? (
+        <div
+          className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setFixedExpenseModal(null);
+          }}
+        >
+          <div
+            className="erp-ledger-modal max-w-lg"
+            onMouseDown={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={L.editFixedExpenseTitle}
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <h2 className="erp-text-section font-bold">{L.editFixedExpenseTitle}</h2>
+              <button
+                type="button"
+                className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
+                onClick={() => setFixedExpenseModal(null)}
+                aria-label={L.cancel}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <label className="mb-1 block text-sm font-semibold text-slate-700">{L.fixedExpenseCol}</label>
+            <select
+              className="erp-input w-full rounded-xl"
+              value={fixedExpenseModal.draft}
+              onChange={(event) => {
+                setFixedExpenseModalError("");
+                setFixedExpenseModal((prev) => (prev ? { ...prev, draft: event.target.value } : prev));
+              }}
+            >
+              <option value="">{L.fixedExpensePlaceholder}</option>
+              {fixedExpenseSelectOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            {fixedExpenseModalError ? (
+              <p className="mt-3 text-sm font-semibold text-red-600">{fixedExpenseModalError}</p>
+            ) : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setFixedExpenseModal(null)}>
+                {L.cancel}
+              </Button>
+              <Button type="button" className="rounded-2xl" onClick={saveFixedExpenseLinkModal}>
+                {L.save}
+              </Button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );
@@ -392,7 +540,31 @@ function TabBtn({
   );
 }
 
-function EntryList({ rows, bankTransactions }: { rows: LedgerEntry[]; bankTransactions: BankTransaction[] }) {
+function resolveEntryFixedExpenseLabel(row: LedgerEntry, fixedExpenses: FixedExpense[]) {
+  if (!row.fixedExpenseId) return "";
+  return fixedExpenses.find((item) => item.id === row.fixedExpenseId)?.name?.trim() || "";
+}
+
+function canLinkEntryToFixedExpense(row: LedgerEntry, bankTx?: BankTransaction) {
+  if (row.source !== "bank" || !bankTx) return false;
+  if (row.flow !== "expense") return false;
+  return Number(bankTx.withdrawal || 0) > 0;
+}
+
+type EntryListLinkProps = {
+  bankTransactions: BankTransaction[];
+  fixedExpenses: FixedExpense[];
+  canLinkFixed: boolean;
+  onEditFixedExpenseLink: (tx: BankTransaction) => void;
+};
+
+function EntryList({
+  rows,
+  bankTransactions,
+  fixedExpenses,
+  canLinkFixed,
+  onEditFixedExpenseLink,
+}: { rows: LedgerEntry[] } & EntryListLinkProps) {
   if (!rows.length) {
     return <div className="py-10 text-center erp-text-body text-slate-500">{L.empty}</div>;
   }
@@ -404,6 +576,7 @@ function EntryList({ rows, bankTransactions }: { rows: LedgerEntry[]; bankTransa
             <th>{L.date}</th>
             <th>{L.flow}</th>
             <th>{L.accountCol}</th>
+            <th>{L.fixedExpenseCol}</th>
             <th>{L.descCol}</th>
             <th className="text-right">{L.amount}</th>
             <th>{L.source}</th>
@@ -414,12 +587,30 @@ function EntryList({ rows, bankTransactions }: { rows: LedgerEntry[]; bankTransa
             const bankTx = row.bankTransactionId
               ? bankTransactions.find((tx) => tx.id === row.bankTransactionId)
               : undefined;
+            const fixedLabel = resolveEntryFixedExpenseLabel(row, fixedExpenses);
+            const linkable = canLinkFixed && canLinkEntryToFixedExpense(row, bankTx);
+            const offlineFixed = row.source === "offline" && Boolean(row.fixedExpenseId);
             return (
               <tr key={row.id}>
                 <td>{row.date}</td>
                 <td>{row.flow === "income" ? L.income : L.expense}</td>
                 <td>
                   <span className="font-mono text-xs text-slate-500">{row.accountCode}</span> {row.accountName}
+                </td>
+                <td className="max-w-[9rem]">
+                  {linkable && bankTx ? (
+                    <FixedExpenseLinkCell
+                      value={fixedLabel}
+                      placeholder={L.fixedExpensePlaceholder}
+                      onClick={() => onEditFixedExpenseLink(bankTx)}
+                    />
+                  ) : (
+                    <FixedExpenseLinkCell
+                      value={offlineFixed ? fixedLabel : null}
+                      placeholder="-"
+                      disabled
+                    />
+                  )}
                 </td>
                 <td>{row.description}</td>
                 <td className="text-right font-bold">{formatKRW(row.amount)}</td>
@@ -444,15 +635,15 @@ function MonthlyLedgerBook({
   rows,
   accountRows,
   trendRows,
-  bankTransactions,
   onSelectMonth,
+  entryListLinkProps,
 }: {
   monthKey: string;
   rows: LedgerEntry[];
   accountRows: ReturnType<typeof buildAccountCodeSummary>;
   trendRows: ReturnType<typeof buildMonthlyLedgerSummary>;
-  bankTransactions: BankTransaction[];
   onSelectMonth: (monthKey: string) => void;
+  entryListLinkProps: EntryListLinkProps;
 }) {
   const expenseTotal = rows.filter((r) => r.flow === "expense").reduce((s, r) => s + r.amount, 0);
   const incomeTotal = rows.filter((r) => r.flow === "income").reduce((s, r) => s + r.amount, 0);
@@ -477,7 +668,7 @@ function MonthlyLedgerBook({
 
       <div>
         <h4 className="erp-text-body mb-2 font-bold text-slate-800">{L.list}</h4>
-        <EntryList rows={rows} bankTransactions={bankTransactions} />
+        <EntryList rows={rows} {...entryListLinkProps} />
       </div>
 
       <div>

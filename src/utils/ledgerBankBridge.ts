@@ -1,6 +1,6 @@
 import type { BankTransaction } from "./bankTransactions";
+import { assignBankTxToFixedExpensePayment, getLinkedFixedPaymentForBankTx } from "./bankCompanyLedger";
 import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "./companyLedger";
-import { getLinkedCompanyExpenseForBankTx, getLinkedFixedPaymentForBankTx } from "./bankCompanyLedger";
 import { isLedgerInboxTransaction } from "./ledgerInboxUtils";
 import {
   confirmBankTransactionLedger,
@@ -124,4 +124,67 @@ export function assignBankTransactionAccountCode(input: {
     linkedCompanyExpenseId: undefined,
     linkedFixedExpensePaymentId: undefined,
   };
+}
+
+export function linkBankTransactionToFixedExpense(input: {
+  tx: BankTransaction;
+  fixedExpenseId: string;
+  fixedExpenses: FixedExpense[];
+  fixedExpensePayments: FixedExpensePayment[];
+  ledgerCategories: LedgerCategory[];
+  accountCodes: AccountCode[];
+  confirmedBy?: string;
+}):
+  | { ok: true; tx: BankTransaction; payments: FixedExpensePayment[] }
+  | { ok: false; reason: "missing_item" | "missing_category" } {
+  const fixedItem = input.fixedExpenses.find((row) => row.id === input.fixedExpenseId);
+  if (!fixedItem) return { ok: false, reason: "missing_item" };
+
+  const categoryName = fixedItem.category?.trim() || fixedItem.name?.trim() || "";
+  const category =
+    findLedgerCategoryByName(input.ledgerCategories, categoryName) ||
+    input.ledgerCategories.find((row) => row.kind === "fixed" && row.isActive);
+  if (!category) return { ok: false, reason: "missing_category" };
+
+  let nextPayments = input.fixedExpensePayments;
+  let nextRow = confirmBankTransactionLedger({
+    tx: input.tx,
+    category,
+    accountCodes: input.accountCodes,
+    confirmedBy: input.confirmedBy,
+    fixedExpenseId: fixedItem.id,
+    memo: input.tx.ledgerMemo || input.tx.memo,
+  });
+
+  if (Number(input.tx.withdrawal || 0) > 0) {
+    const assignment = assignBankTxToFixedExpensePayment({
+      tx: nextRow,
+      resolvedFixedExpenseId: fixedItem.id,
+      fixedItem,
+      payments: nextPayments,
+      fixedExpenses: input.fixedExpenses,
+      resolvedCategory: categoryName,
+      memo: nextRow.ledgerMemo || nextRow.memo,
+      savedBy: input.confirmedBy,
+    });
+    nextPayments = assignment.payments;
+    if (assignment.paymentId) {
+      nextRow = {
+        ...nextRow,
+        linkedFixedExpensePaymentId: assignment.paymentId,
+        linkedCompanyExpenseId: undefined,
+      };
+    }
+  }
+
+  return { ok: true, tx: nextRow, payments: nextPayments };
+}
+
+export function resolveBankTxFixedExpenseDraft(
+  tx: BankTransaction,
+  fixedExpensePayments: FixedExpensePayment[],
+): string {
+  if (tx.ledgerFixedExpenseId) return tx.ledgerFixedExpenseId;
+  const linkedPayment = getLinkedFixedPaymentForBankTx(tx, fixedExpensePayments);
+  return linkedPayment?.fixedExpenseId || "";
 }

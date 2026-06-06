@@ -462,6 +462,7 @@ export function buildOfflineFixedPaymentLedgerEntry(
     accountName: account?.name || accountCode,
     description: String(item?.name || categoryName).trim(),
     memo: payment.memo,
+    fixedExpenseId: payment.fixedExpenseId,
     status: "confirmed",
   };
 }
