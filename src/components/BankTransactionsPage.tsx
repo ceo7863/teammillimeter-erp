@@ -6426,25 +6426,30 @@ export function BankTransactionsPage({
               </button>
             </div>
             <Field label={L.clientColumn}>
-              <select
-                className="erp-input w-full rounded-xl"
+              <AutocompleteInput
                 value={clientModal.draft}
-                onChange={(event) => {
+                onChange={(value) => {
                   setTxCellModalError("");
-                  setClientModal((prev) => (prev ? { ...prev, draft: event.target.value } : prev));
+                  setClientModal((prev) => (prev ? { ...prev, draft: String(value || "") } : prev));
                 }}
-              >
-                <option value="">{L.clientPlaceholder}</option>
-                {clients
-                  .map((row) => String(row.name || "").trim())
-                  .filter(Boolean)
-                  .sort((a, b) => a.localeCompare(b, "ko"))
-                  .map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-              </select>
+                options={clientAutocompleteOptions}
+                placeholder={L.clientPlaceholder}
+                freeSolo={false}
+                showOptionsOnFocus
+                compact={false}
+                limit={20}
+                renderSub={(raw) => {
+                  const client = raw as { manager?: string; depositNameAliases?: string };
+                  const manager = String(client?.manager || "").trim();
+                  const aliases = String(client?.depositNameAliases || "").trim();
+                  if (!manager && !aliases) return null;
+                  return (
+                    <span className="text-xs text-slate-500">
+                      {[manager, aliases].filter(Boolean).join(" \u00B7 ")}
+                    </span>
+                  );
+                }}
+              />
             </Field>
             {txCellModalError ? <p className="mt-3 text-sm font-semibold text-red-600">{txCellModalError}</p> : null}
             <div className="mt-5 flex justify-end gap-2">

@@ -581,13 +581,25 @@ export function AutocompleteInput({
   useEffect(() => {
     if (!canShowDropdown) return;
     updateMenuPosition();
-    window.addEventListener("resize", updateMenuPosition);
-    window.addEventListener("scroll", updateMenuPosition, true);
-    return () => {
-      window.removeEventListener("resize", updateMenuPosition);
-      window.removeEventListener("scroll", updateMenuPosition, true);
+
+    let rafId = 0;
+    const scheduleUpdate = (event?: Event) => {
+      if (event?.target instanceof Node && menuRef.current?.contains(event.target)) return;
+      if (rafId) return;
+      rafId = window.requestAnimationFrame(() => {
+        rafId = 0;
+        updateMenuPosition();
+      });
     };
-  }, [canShowDropdown, updateMenuPosition, displayOptions.length, inputText, highlightedIndex]);
+
+    window.addEventListener("resize", scheduleUpdate);
+    window.addEventListener("scroll", scheduleUpdate, true);
+    return () => {
+      if (rafId) window.cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", scheduleUpdate);
+      window.removeEventListener("scroll", scheduleUpdate, true);
+    };
+  }, [canShowDropdown, updateMenuPosition]);
 
   useEffect(() => {
     if (!canShowDropdown) return;
