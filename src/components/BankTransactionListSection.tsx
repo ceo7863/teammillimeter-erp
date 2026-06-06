@@ -44,6 +44,7 @@ type BankTransactionListSectionProps = {
   onEditClient: (row: BankTransaction) => void;
   onEditFixedExpense: (row: BankTransaction) => void;
   onFindEvidence: (row: BankTransaction) => void;
+  onFilterCounterparty?: (label: string) => void;
   toolbar?: React.ReactNode;
 };
 
@@ -67,6 +68,7 @@ function BankTransactionListSectionComponent({
   onEditClient,
   onEditFixedExpense,
   onFindEvidence,
+  onFilterCounterparty,
   toolbar,
 }: BankTransactionListSectionProps) {
   const rowByIdRef = useRef(new Map<string, BankTransaction>());
@@ -176,6 +178,13 @@ function BankTransactionListSectionComponent({
     [onFindEvidence],
   );
 
+  const handleFilterCounterparty = useCallback(
+    (label: string) => {
+      onFilterCounterparty?.(label);
+    },
+    [onFilterCounterparty],
+  );
+
   const splitLabels = useMemo(
     (): BankTransactionSplitTableLabels => ({
       bankSection: labels.bankSection,
@@ -267,6 +276,7 @@ function BankTransactionListSectionComponent({
         onEditClient={handleEditClient}
         onEditFixedExpense={handleEditFixedExpense}
         onFindEvidence={handleFindEvidence}
+        onFilterCounterparty={onFilterCounterparty ? handleFilterCounterparty : undefined}
       />
     </>
   );

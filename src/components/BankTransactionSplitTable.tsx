@@ -38,6 +38,7 @@ type BankTransactionSplitTableProps = {
   onEditClient: (id: string) => void;
   onEditFixedExpense: (id: string) => void;
   onFindEvidence: (id: string) => void;
+  onFilterCounterparty?: (label: string) => void;
 };
 
 function AccountSubjectCellButton({
@@ -144,6 +145,7 @@ const SplitRow = memo(function SplitRow({
   onEditClient,
   onEditFixedExpense,
   onFindEvidence,
+  onFilterCounterparty,
 }: {
   model: BankTransactionListRowModel;
   labels: BankTransactionSplitTableLabels;
@@ -152,6 +154,7 @@ const SplitRow = memo(function SplitRow({
   onEditClient: (id: string) => void;
   onEditFixedExpense: (id: string) => void;
   onFindEvidence: (id: string) => void;
+  onFilterCounterparty?: (label: string) => void;
 }) {
   const rowClass =
     model.rowTone === "suppressed"
@@ -169,22 +172,45 @@ const SplitRow = memo(function SplitRow({
         ? "font-bold text-slate-900"
         : "text-slate-500";
 
+  const counterpartyToneClass =
+    model.counterpartyPartyKind === "worker"
+      ? "bg-orange-100 text-orange-900"
+      : model.counterpartyPartyKind === "client"
+        ? "bg-sky-100 text-sky-900"
+        : "text-slate-800";
+  const counterpartyButtonClass =
+    model.counterpartyPartyKind === "worker"
+      ? "bg-orange-100 text-orange-900 hover:bg-orange-200"
+      : model.counterpartyPartyKind === "client"
+        ? "bg-sky-100 text-sky-900 hover:bg-sky-200"
+        : "text-slate-800 hover:bg-slate-100";
+  const canFilterCounterparty =
+    Boolean(onFilterCounterparty) &&
+    model.counterpartyLabel.trim() &&
+    model.counterpartyLabel.trim() !== "-";
+
   return (
     <tr className={`erp-bank-wehago-row border-t ${rowClass}`}>
       <td className="erp-bank-wehago-cell erp-bank-wehago-cell--datetime">{model.dateLabel}</td>
       <td className="erp-bank-wehago-cell erp-bank-wehago-cell--account">{model.accountLabel}</td>
       <td className="max-w-[8rem] truncate text-xs" title={model.counterpartyLabel}>
-        <span
-          className={`inline-flex max-w-full truncate rounded-md px-1.5 py-0.5 font-medium ${
-            model.counterpartyPartyKind === "worker"
-              ? "bg-orange-100 text-orange-900"
-              : model.counterpartyPartyKind === "client"
-                ? "bg-sky-100 text-sky-900"
-                : "text-slate-800"
-          }`}
-        >
-          {model.counterpartyLabel}
-        </span>
+        {canFilterCounterparty ? (
+          <button
+            type="button"
+            className={`inline-flex max-w-full truncate rounded-md px-1.5 py-0.5 font-medium underline decoration-current/30 underline-offset-2 ${counterpartyButtonClass}`}
+            title={model.counterpartyLabel}
+            onClick={(event) => {
+              event.stopPropagation();
+              onFilterCounterparty?.(model.counterpartyLabel);
+            }}
+          >
+            {model.counterpartyLabel}
+          </button>
+        ) : (
+          <span className={`inline-flex max-w-full truncate rounded-md px-1.5 py-0.5 font-medium ${counterpartyToneClass}`}>
+            {model.counterpartyLabel}
+          </span>
+        )}
       </td>
       <td className="max-w-[10rem] truncate text-xs font-medium text-slate-900" title={model.description}>
         {model.description}
@@ -278,6 +304,7 @@ function BankTransactionSplitTableComponent({
   onEditClient,
   onEditFixedExpense,
   onFindEvidence,
+  onFilterCounterparty,
 }: BankTransactionSplitTableProps) {
   return (
     <DesktopTableWrap className="erp-bank-wehago-table-wrap">
@@ -329,6 +356,7 @@ function BankTransactionSplitTableComponent({
                   onEditClient={onEditClient}
                   onEditFixedExpense={onEditFixedExpense}
                   onFindEvidence={onFindEvidence}
+                  onFilterCounterparty={onFilterCounterparty}
                 />
               );
             })

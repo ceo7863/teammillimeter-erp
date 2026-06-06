@@ -611,3 +611,21 @@ export function mergeRemoteBankTransactionRow(local: BankTransaction, incoming: 
     ...taxInvoiceMerge,
   };
 }
+
+export function normalizeBankTxCounterpartyKey(value: string) {
+  return String(value || "")
+    .replace(/\u3000/g, " ")
+    .replace(/\s+/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+export function resolveBankTxCounterpartyLabel(row: BankTransaction) {
+  return String(row.counterpartyName || row.description || "").trim();
+}
+
+export function matchesBankTxCounterpartyFilter(row: BankTransaction, filterKey: string) {
+  if (!filterKey) return true;
+  const rowKey = normalizeBankTxCounterpartyKey(resolveBankTxCounterpartyLabel(row));
+  return Boolean(rowKey) && rowKey === filterKey;
+}
