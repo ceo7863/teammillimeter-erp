@@ -61,6 +61,14 @@ function emptyErpPayload() {
     statementGenerationLogs: [],
     statementFolders: [],
     companyProfile: null,
+    notificationSettings: {
+      enabled: false,
+      dailyReportEnabled: true,
+      commentNotifyEnabled: true,
+      dailyReportHour: 8,
+      dailyReportMinute: 0,
+      recipients: [],
+    },
   };
 }
 

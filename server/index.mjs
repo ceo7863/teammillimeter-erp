@@ -85,11 +85,19 @@ import {
 } from "./barobill/bankAccountScrap.mjs";
 import { getBarobillBankConfigStatus } from "./barobill/bankAccountClient.mjs";
 import { classifyBankLedgerBatch } from "./bankLedgerClassify.mjs";
+import { buildDailyReport, formatDailyReportMessage } from "./dailyReport.mjs";
+import { getAlimtalkStatus } from "./alimtalkNotify.mjs";
+import {
+  normalizeNotificationSettings,
+  DEFAULT_NOTIFICATION_SETTINGS,
+} from "./notificationSettings.mjs";
+import { notifyNewSaleComments, runDailyReportJob, startNotificationScheduler } from "./notificationScheduler.mjs";
 
 initDb();
 initPdfArchiveStore();
 initBoardAttachmentStore();
 startBankSyncScheduler();
+startNotificationScheduler();
 
 function parsePdfMetaHeader(rawMeta) {
   const text = String(rawMeta);
@@ -661,6 +669,7 @@ app.get("/api/erp", authMiddleware, (_req, res) => {
     statementGenerationLogs: state.data.statementGenerationLogs || [],
     statementFolders: state.data.statementFolders || [],
     companyProfile: state.data.companyProfile || null,
+    notificationSettings: normalizeNotificationSettings(state.data.notificationSettings),
     version: state.version,
     updatedAt: state.updatedAt,
     updatedBy: state.updatedBy,
@@ -1253,6 +1262,7 @@ app.put("/api/erp", authMiddleware, (req, res) => {
     version,
   } = req.body || {};
   const existing = getErpState();
+  const previousSaleComments = Array.isArray(existing.data?.saleComments) ? existing.data.saleComments : [];
   const serverLoginLogs = Array.isArray(existing.data?.loginLogs) ? existing.data.loginLogs : [];
   const serverPortalAcks = Array.isArray(existing.data?.workerPortalStatementAcks)
     ? existing.data.workerPortalStatementAcks
@@ -1318,6 +1328,7 @@ app.put("/api/erp", authMiddleware, (req, res) => {
       companyProfile && typeof companyProfile === "object"
         ? companyProfile
         : existing.data.companyProfile || null,
+    notificationSettings: existing.data.notificationSettings || DEFAULT_NOTIFICATION_SETTINGS,
     workerMonthlyPaymentMemos:
       mergeWorkerMonthlyPaymentMemosForSave(
         existing.data.workerMonthlyPaymentMemos || {},
@@ -1341,6 +1352,9 @@ app.put("/api/erp", authMiddleware, (req, res) => {
 
   try {
     const saved = saveErpState(mergedPayload, version ?? null, req.user.loginId || req.user.name || req.user.email);
+    void notifyNewSaleComments(previousSaleComments, mergedPayload.saleComments, mergedPayload).catch((error) => {
+      console.error("[notify] comment alimtalk failed:", error);
+    });
     res.json({ ok: true, version: saved.version, updatedAt: saved.updatedAt });
   } catch (error) {
     if (error.status === 409) {
@@ -1352,6 +1366,60 @@ app.put("/api/erp", authMiddleware, (req, res) => {
     }
     console.error(error);
     res.status(500).json({ error: "저장에 실패했습니다." });
+  }
+});
+
+app.get("/api/notifications/status", authMiddleware, adminMiddleware, (_req, res) => {
+  res.json({ alimtalk: getAlimtalkStatus() });
+});
+
+app.get("/api/notifications/settings", authMiddleware, adminMiddleware, (_req, res) => {
+  const state = getErpState();
+  res.json({ settings: normalizeNotificationSettings(state.data?.notificationSettings) });
+});
+
+app.patch("/api/notifications/settings", authMiddleware, adminMiddleware, (req, res) => {
+  const state = getErpState();
+  const next = normalizeNotificationSettings({
+    ...normalizeNotificationSettings(state.data?.notificationSettings),
+    ...(req.body?.settings && typeof req.body.settings === "object" ? req.body.settings : req.body),
+  });
+  try {
+    const saved = saveErpState(
+      { ...(state.data || {}), notificationSettings: next },
+      req.body?.version ?? state.version,
+      req.user.loginId || req.user.name || req.user.email,
+    );
+    res.json({ ok: true, settings: next, version: saved.version, updatedAt: saved.updatedAt });
+  } catch (error) {
+    if (error.status === 409) {
+      res.status(409).json({
+        error: "다른 사용자가 먼저 저장했습니다. 새로고침 후 다시 시도해 주세요.",
+        currentVersion: error.currentVersion,
+      });
+      return;
+    }
+    console.error(error);
+    res.status(500).json({ error: "알림 설정 저장에 실패했습니다." });
+  }
+});
+
+app.get("/api/notifications/daily-report/preview", authMiddleware, adminMiddleware, (_req, res) => {
+  const state = getErpState();
+  const report = buildDailyReport(state.data || {});
+  res.json({
+    report,
+    message: formatDailyReportMessage(report, config.alimtalk.erpBaseUrl),
+  });
+});
+
+app.post("/api/notifications/daily-report/send", authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const result = await runDailyReportJob({ skipSync: Boolean(req.body?.skipSync) });
+    res.json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error instanceof Error ? error.message : "일일 보고 발송에 실패했습니다." });
   }
 });
 

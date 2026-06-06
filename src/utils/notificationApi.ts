@@ -1,0 +1,38 @@
+import { apiRequest } from "@/utils/erpApi";
+import type { NotificationSettings } from "@/utils/notificationSettings";
+
+export type AlimtalkStatus = {
+  enabled: boolean;
+  provider: string;
+  dailyTemplate: string | null;
+  commentTemplate: string | null;
+};
+
+export async function fetchNotificationStatus() {
+  return apiRequest<{ alimtalk: AlimtalkStatus }>("/notifications/status");
+}
+
+export async function fetchNotificationSettings() {
+  return apiRequest<{ settings: NotificationSettings }>("/notifications/settings");
+}
+
+export async function saveNotificationSettings(settings: NotificationSettings, version?: number) {
+  return apiRequest<{ ok: boolean; settings: NotificationSettings; version: number }>("/notifications/settings", {
+    method: "PATCH",
+    body: JSON.stringify({ settings, version }),
+  });
+}
+
+export async function previewDailyReport() {
+  return apiRequest<{ report: unknown; message: string }>("/notifications/daily-report/preview");
+}
+
+export async function sendDailyReportNow(skipSync = false) {
+  return apiRequest<{ ok: boolean; message?: string; skipped?: boolean; reason?: string }>(
+    "/notifications/daily-report/send",
+    {
+      method: "POST",
+      body: JSON.stringify({ skipSync }),
+    },
+  );
+}

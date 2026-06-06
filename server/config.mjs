@@ -45,6 +45,20 @@ export const config = {
     accountMask: process.env.OPEN_BANKING_ACCOUNT_MASK || "",
     syncDays: Number(process.env.OPEN_BANKING_SYNC_DAYS || 7),
   },
+  alimtalk: {
+    enabled: parseEnvBool(process.env.ALIMTALK_ENABLED, false),
+    schedulerEnabled: parseEnvBool(process.env.ALIMTALK_SCHEDULER_ENABLED, true),
+    provider: process.env.ALIMTALK_PROVIDER || "toast",
+    apiUrl: process.env.ALIMTALK_API_URL || "",
+    apiKey: process.env.ALIMTALK_API_KEY || "",
+    apiHeaders: process.env.ALIMTALK_API_HEADERS
+      ? JSON.parse(process.env.ALIMTALK_API_HEADERS)
+      : {},
+    senderKey: process.env.ALIMTALK_SENDER_KEY || "",
+    dailyReportTemplate: process.env.ALIMTALK_DAILY_REPORT_TEMPLATE || "",
+    commentTemplate: process.env.ALIMTALK_COMMENT_TEMPLATE || "",
+    erpBaseUrl: process.env.ERP_PUBLIC_URL || "https://erp.teammillimeter.com",
+  },
   barobill: {
     certKey: process.env.BAROBILL_CERT_KEY || "",
     corpNum: process.env.BAROBILL_CORP_NUM || "",

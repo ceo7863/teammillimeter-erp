@@ -15,10 +15,12 @@ type UserAdminHubPageProps = {
   usersPanel: ReactNode;
   auditPanel: ReactNode;
   loginPanel: ReactNode;
+  notifyPanel?: ReactNode;
 };
 
 const TAB_ITEMS: Array<{ key: UserAdminHubTab; label: string }> = [
   { key: "users", label: "\uC0AC\uC6A9\uC790 \uAD00\uB9AC" },
+  { key: "notify", label: "\uC54C\uB9BC" },
   { key: "audit", label: "\uAC10\uC0AC\uB85C\uADF8" },
   { key: "login", label: "\uB85C\uADF8\uC778 \uC774\uB825" },
 ];
@@ -26,9 +28,19 @@ const TAB_ITEMS: Array<{ key: UserAdminHubTab; label: string }> = [
 function resolveInitialTab(initialTab: UserAdminHubTab | undefined, tabAccess: UserAdminTabAccess): UserAdminHubTab {
   const candidate = initialTab || readStoredUserAdminTab();
   if (candidate === "users" && tabAccess.users) return "users";
+  if (candidate === "notify" && tabAccess.notify) return "notify";
   if (candidate === "audit" && tabAccess.audit) return "audit";
   if (candidate === "login" && tabAccess.login) return "login";
   return firstAccessibleUserAdminTab(tabAccess);
+}
+
+function emptyMountedTabs(): Record<UserAdminHubTab, boolean> {
+  return {
+    users: false,
+    audit: false,
+    login: false,
+    notify: false,
+  };
 }
 
 export function UserAdminHubPage({
@@ -38,6 +50,7 @@ export function UserAdminHubPage({
   usersPanel,
   auditPanel,
   loginPanel,
+  notifyPanel,
 }: UserAdminHubPageProps) {
   const visibleTabs = useMemo(
     () => TAB_ITEMS.filter((tab) => tabAccess[tab.key]),
@@ -48,9 +61,8 @@ export function UserAdminHubPage({
   const [mountedTabs, setMountedTabs] = useState<Record<UserAdminHubTab, boolean>>(() => {
     const initial = resolveInitialTab(initialTab, tabAccess);
     return {
-      users: initial === "users",
-      audit: initial === "audit",
-      login: initial === "login",
+      ...emptyMountedTabs(),
+      [initial]: true,
     };
   });
 
@@ -83,7 +95,7 @@ export function UserAdminHubPage({
           <div className="mb-4">
             <h1 className="erp-text-page-title text-slate-900">{"\uC0AC\uC6A9\uC790 \uAD00\uB9AC"}</h1>
             <p className="mt-1 erp-text-body text-slate-600">
-              {"\uACC4\uC815 \uAD00\uB9AC, \uAC10\uC0AC \uB85C\uADF8, \uB85C\uADF8\uC778 \uC774\uB825\uC744 \uD55C \uBA54\uB274\uC5D0\uC11C \uC804\uD658\uD569\uB2C8\uB2E4."}
+              {"\uACC4\uC815 \uAD00\uB9AC, \uC54C\uB9BC\uD1A1, \uAC10\uC0AC \uB85C\uADF8, \uB85C\uADF8\uC778 \uC774\uB825\uC744 \uD55C \uBA54\uB274\uC5D0\uC11C \uC804\uD658\uD569\uB2C8\uB2E4."}
             </p>
           </div>
           {visibleTabs.length > 1 ? (
@@ -106,6 +118,12 @@ export function UserAdminHubPage({
       {mountedTabs.users ? (
         <div className={activeTab === "users" ? "" : "hidden"} aria-hidden={activeTab !== "users"}>
           {usersPanel}
+        </div>
+      ) : null}
+
+      {mountedTabs.notify && notifyPanel ? (
+        <div className={activeTab === "notify" ? "" : "hidden"} aria-hidden={activeTab !== "notify"}>
+          {notifyPanel}
         </div>
       ) : null}
 

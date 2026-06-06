@@ -132,6 +132,7 @@ import { mergeSalesByUpdatedAt } from "@/utils/erpStateMerge";
 import { migrateActivePageKey, storeAccountingTab } from "@/utils/accountingHub";
 import { migrateBasicInfoPageKey, resolveBasicInfoTabAccess, storeBasicInfoTab } from "@/utils/basicInfoHub";
 import { UserAdminHubPage } from "@/components/UserAdminHubPage";
+import { NotificationSettingsPage } from "@/components/NotificationSettingsPage";
 import { migrateUserAdminPageKey, resolveUserAdminTabAccess, storeUserAdminTab } from "@/utils/userAdminHub";
 import { migrateStatementPageKey, storeStatementTab } from "@/utils/statementHub";
 import { normalizeStatementGenerationLogs } from "@/utils/statementGenerationLogs";
@@ -8665,6 +8666,17 @@ export default function TeammillimeterErpMvp() {
                   onExcelImport={handleExcelImport}
                   onLoadBundledSeed={handleLoadBundledSeed}
                 />
+              }
+              notifyPanel={
+                userAdminTabAccess.notify ? (
+                  <NotificationSettingsPage
+                    erpVersion={erpVersion}
+                    onErpVersionChange={(version) => {
+                      erpVersionRef.current = version;
+                      setErpVersion(version);
+                    }}
+                  />
+                ) : null
               }
               auditPanel={<AuditLogPage />}
               loginPanel={<LoginHistoryPage loginLogs={loginLogs} />}

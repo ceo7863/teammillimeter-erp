@@ -52,6 +52,7 @@ export type ErpPayload = {
   statementGenerationLogs?: unknown[];
   statementFolders?: unknown[];
   companyProfile?: CompanyProfile;
+  notificationSettings?: import("./notificationSettings").NotificationSettings;
   version?: number;
   updatedAt?: string | null;
   updatedBy?: string | null;
@@ -108,7 +109,7 @@ export function clearAuthSession() {
   window.sessionStorage.removeItem(USER_KEY);
 }
 
-async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers || {});
   if (!headers.has("Content-Type") && options.body) {
     headers.set("Content-Type", "application/json");
