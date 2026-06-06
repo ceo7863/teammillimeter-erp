@@ -1,11 +1,41 @@
+import crypto from "crypto";
 import { config } from "./config.mjs";
 
 function normalizePhone(phone) {
   return String(phone || "").replace(/\D/g, "");
 }
 
+function isSolapi() {
+  return config.alimtalk.provider === "solapi";
+}
+
 function isConfigured() {
-  return Boolean(config.alimtalk.enabled && config.alimtalk.apiUrl && config.alimtalk.senderKey);
+  if (!config.alimtalk.enabled) return false;
+  if (isSolapi()) {
+    return Boolean(config.alimtalk.apiKey && config.alimtalk.apiSecret && config.alimtalk.senderKey);
+  }
+  return Boolean(config.alimtalk.apiUrl && config.alimtalk.senderKey);
+}
+
+function solapiAuthHeader() {
+  const date = new Date()
+    .toLocaleString("sv-SE", { timeZone: "Asia/Seoul", hour12: false })
+    .replace("T", " ");
+  const salt = crypto.randomBytes(8).toString("hex");
+  const signature = crypto
+    .createHmac("sha256", config.alimtalk.apiSecret)
+    .update(date + salt)
+    .digest("hex");
+  return `HMAC-SHA256 apiKey=${config.alimtalk.apiKey}, date=${date}, salt=${salt}, signature=${signature}`;
+}
+
+function formatSolapiVariables(variables) {
+  const out = {};
+  for (const [key, value] of Object.entries(variables || {})) {
+    const name = key.startsWith("#{") ? key : key.startsWith("#") ? `#{${key.slice(1)}}` : `#{${key}}`;
+    out[name] = String(value ?? "");
+  }
+  return out;
 }
 
 async function postAlimtalk(payload) {
@@ -16,12 +46,15 @@ async function postAlimtalk(payload) {
     "Content-Type": "application/json;charset=UTF-8",
     ...(config.alimtalk.apiHeaders || {}),
   };
-  if (config.alimtalk.apiKey) {
+  if (isSolapi()) {
+    headers.Authorization = solapiAuthHeader();
+  } else if (config.alimtalk.apiKey) {
     headers.Authorization = config.alimtalk.apiKey.startsWith("Bearer ")
       ? config.alimtalk.apiKey
       : `Bearer ${config.alimtalk.apiKey}`;
   }
-  const response = await fetch(config.alimtalk.apiUrl, {
+  const apiUrl = config.alimtalk.apiUrl || "https://api.solapi.com/messages/v4/send";
+  const response = await fetch(apiUrl, {
     method: "POST",
     headers,
     body: JSON.stringify(payload),
@@ -50,6 +83,22 @@ function buildToastPayload({ phones, templateCode, variables }) {
   };
 }
 
+function buildSolapiPayload({ phones, templateCode, variables }) {
+  const kakaoVariables = formatSolapiVariables(variables);
+  return {
+    messages: phones.map((phone) => ({
+      to: normalizePhone(phone),
+      ...(config.alimtalk.smsFrom ? { from: config.alimtalk.smsFrom } : {}),
+      kakaoOptions: {
+        pfId: config.alimtalk.senderKey,
+        templateId: templateCode,
+        variables: kakaoVariables,
+        disableSms: !config.alimtalk.smsFrom,
+      },
+    })),
+  };
+}
+
 export function getAlimtalkStatus() {
   return {
     enabled: isConfigured(),
@@ -72,8 +121,9 @@ export async function sendAlimtalkTemplate({ phones, templateCode, variables }) 
     return { ok: true, dryRun: true, phones: uniquePhones };
   }
 
-  const payload =
-    config.alimtalk.provider === "toast"
+  const payload = isSolapi()
+    ? buildSolapiPayload({ phones: uniquePhones, templateCode, variables })
+    : config.alimtalk.provider === "toast"
       ? buildToastPayload({ phones: uniquePhones, templateCode, variables })
       : {
           senderKey: config.alimtalk.senderKey,

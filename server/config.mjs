@@ -48,13 +48,19 @@ export const config = {
   alimtalk: {
     enabled: parseEnvBool(process.env.ALIMTALK_ENABLED, false),
     schedulerEnabled: parseEnvBool(process.env.ALIMTALK_SCHEDULER_ENABLED, true),
-    provider: process.env.ALIMTALK_PROVIDER || "toast",
-    apiUrl: process.env.ALIMTALK_API_URL || "",
+    provider: process.env.ALIMTALK_PROVIDER || "solapi",
+    apiUrl:
+      process.env.ALIMTALK_API_URL ||
+      (process.env.ALIMTALK_PROVIDER === "toast" ? "" : "https://api.solapi.com/messages/v4/send"),
     apiKey: process.env.ALIMTALK_API_KEY || "",
+    apiSecret: process.env.ALIMTALK_API_SECRET || "",
     apiHeaders: process.env.ALIMTALK_API_HEADERS
       ? JSON.parse(process.env.ALIMTALK_API_HEADERS)
       : {},
+    /** Toast: senderKey / Solapi: 카카오 채널 pfId (KA01PF...) */
     senderKey: process.env.ALIMTALK_SENDER_KEY || "",
+    /** Solapi 알림톡 실패 시 SMS 대체발송 발신번호 */
+    smsFrom: process.env.ALIMTALK_SMS_FROM || "",
     dailyReportTemplate: process.env.ALIMTALK_DAILY_REPORT_TEMPLATE || "",
     commentTemplate: process.env.ALIMTALK_COMMENT_TEMPLATE || "",
     erpBaseUrl: process.env.ERP_PUBLIC_URL || "https://erp.teammillimeter.com",
