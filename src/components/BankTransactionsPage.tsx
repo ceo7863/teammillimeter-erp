@@ -136,6 +136,7 @@ import {
 } from "@/utils/bankSmartLedger";
 import {
   getBankTxLedgerCategoryLabel,
+  getBankTxLedgerAccountCodeLabel,
   matchesBankTxLedgerScope,
   assignBankTransactionAccountCode,
   registerBankTxWithCategoryName,
@@ -962,8 +963,6 @@ export function BankTransactionsPage({
   const [accountContentModal, setAccountContentModal] = useState<TxAccountContentModal | null>(null);
   const [accountSubjectPickerTxId, setAccountSubjectPickerTxId] = useState<string | null>(null);
   const accountSubjectIgnoreOpenUntilRef = useRef(0);
-  const bankTransactionsRef = useRef(bankTransactions);
-  bankTransactionsRef.current = bankTransactions;
   const [fixedExpenseModal, setFixedExpenseModal] = useState<TxFixedExpenseModal | null>(null);
   const [clientModal, setClientModal] = useState<TxClientModal | null>(null);
   const [taxInvoiceModal, setTaxInvoiceModal] = useState<TxTaxInvoiceModal | null>(null);
@@ -2129,11 +2128,8 @@ export function BankTransactionsPage({
 
   const resolveTxAccountCodeDraft = useCallback(
     (tx: BankTransaction) => {
-      if (tx.ledgerAccountCode?.trim()) return tx.ledgerAccountCode.trim();
-      if (tx.ledgerCategoryId) {
-        const category = findLedgerCategory(ledgerCategories, tx.ledgerCategoryId);
-        if (category?.accountCode) return category.accountCode;
-      }
+      const fromLedger = getBankTxLedgerAccountCodeLabel(tx, ledgerCategories);
+      if (fromLedger) return fromLedger;
       const categoryName =
         getLedgerCategoryLabel(tx) ||
         resolveLedgerCategorySuggestionLabel(tx) ||
@@ -2263,38 +2259,44 @@ export function BankTransactionsPage({
   };
 
   const saveAccountSubjectSelection = useCallback(
-    (txId: string, accountCode: string) => {
-      accountSubjectIgnoreOpenUntilRef.current = Date.now() + 600;
-      setAccountSubjectPickerTxId(null);
+    (txId: string, accountCode: string): boolean => {
+      accountSubjectIgnoreOpenUntilRef.current = Date.now() + 800;
 
-      const prev = bankTransactionsRef.current;
-      const tx = prev.find((row) => row.id === txId);
-      if (!tx) {
-        setTxCellModalError(L.accountSubjectSaveFailed);
-        setImportMessage(L.accountSubjectSaveFailed);
-        return;
-      }
-
-      const nextRow = assignBankTransactionAccountCode({
-        tx,
-        accountCode,
-        ledgerCategories,
-        accountCodes,
-        confirmedBy: savedBy,
+      let nextTransactions: BankTransaction[] | null = null;
+      let saveFailed = false;
+      setBankTransactions((prev) => {
+        const tx = prev.find((row) => row.id === txId);
+        if (!tx) {
+          saveFailed = true;
+          return prev;
+        }
+        const nextRow = assignBankTransactionAccountCode({
+          tx,
+          accountCode,
+          ledgerCategories,
+          accountCodes,
+          confirmedBy: savedBy,
+        });
+        if (!nextRow) {
+          saveFailed = true;
+          return prev;
+        }
+        auditBankTxUpdate(tx, nextRow);
+        nextTransactions = prev.map((row) => (row.id === txId ? nextRow : row));
+        return nextTransactions;
       });
-      if (!nextRow) {
+
+      if (saveFailed || !nextTransactions) {
         setTxCellModalError(L.accountSubjectSaveFailed);
         setImportMessage(L.accountSubjectSaveFailed);
-        return;
+        return false;
       }
 
-      auditBankTxUpdate(tx, nextRow);
-      const nextTransactions = prev.map((row) => (row.id === txId ? nextRow : row));
-      bankTransactionsRef.current = nextTransactions;
-      setBankTransactions(nextTransactions);
+      setAccountSubjectPickerTxId(null);
       setTxCellModalError("");
       setImportMessage(L.cellSaveDone);
       void onRequestImmediateSave?.({ bankTransactions: nextTransactions });
+      return true;
     },
     [accountCodes, auditBankTxUpdate, ledgerCategories, onRequestImmediateSave, savedBy, setBankTransactions],
   );

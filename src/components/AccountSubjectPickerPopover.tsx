@@ -25,7 +25,7 @@ type AccountSubjectPickerPopoverProps = {
   accountCodes: AccountCode[];
   flow: "income" | "expense";
   labels: AccountSubjectPickerPopoverLabels;
-  onSelect: (accountCode: string) => void;
+  onSelect: (accountCode: string) => boolean | void;
   onClose: () => void;
   onAddAccount?: () => void;
 };
@@ -198,9 +198,11 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
   const pickItem = useCallback(
     (item: FlatPickerItem | undefined) => {
       if (!item) return;
-      onSelect(item.code);
+      const saved = onSelect(item.code);
+      if (saved === false) return;
+      window.requestAnimationFrame(() => onClose());
     },
-    [onSelect],
+    [onClose, onSelect],
   );
 
   useEffect(() => {
@@ -326,7 +328,8 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
                   className={`erp-account-picker-popover__item erp-account-picker-popover__item--excel${
                     isSelected ? " is-selected" : ""
                   }${isActive ? " is-active" : ""}`}
-                  onClick={(event) => {
+                  onPointerDown={(event) => {
+                    if (event.button !== 0) return;
                     event.preventDefault();
                     event.stopPropagation();
                     pickItem(item);
