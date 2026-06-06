@@ -705,7 +705,7 @@ export function saveErpState(payload, expectedVersion, updatedBy) {
         INSERT INTO erp_state (id, payload, version, updated_at, updated_by)
         VALUES (1, ?, 1, ?, ?)
       `)
-      .run(JSON.stringify(payload), updatedAt, updatedBy);
+      .run(JSON.stringify(payload), updatedAt, updatedBy == null || updatedBy === "" ? "system" : String(updatedBy));
     return { version: 1, updatedAt };
   }
 
@@ -718,13 +718,14 @@ export function saveErpState(payload, expectedVersion, updatedBy) {
 
   const nextVersion = current.version + 1;
   const updatedAt = new Date().toISOString();
+  const updatedByValue = updatedBy == null || updatedBy === "" ? "system" : String(updatedBy);
   database
     .prepare(`
       UPDATE erp_state
       SET payload = ?, version = ?, updated_at = ?, updated_by = ?
       WHERE id = 1
     `)
-    .run(JSON.stringify(payload), nextVersion, updatedAt, updatedBy);
+    .run(JSON.stringify(payload), nextVersion, updatedAt, updatedByValue);
 
   return { version: nextVersion, updatedAt };
 }

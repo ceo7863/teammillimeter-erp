@@ -88,12 +88,12 @@ function normalizeWorkerCount(value) {
   return num;
 }
 
-function saveClientsAndRequests(clients, requests) {
+function saveClientsAndRequests(clients, requests, updatedBy = "client-site-request") {
   const state = getErpState();
   const data = state.data && typeof state.data === "object" ? { ...state.data } : {};
   data.clients = clients;
   data.clientSiteRequests = requests.slice(0, MAX_REQUESTS);
-  saveErpState({ ...state, data });
+  saveErpState(data, state.version, String(updatedBy || "client-site-request"));
 }
 
 export function getPublicClientSiteRequestInfo(token) {
@@ -164,7 +164,7 @@ export function submitClientSiteRequest(token, body = {}) {
   };
 
   const requests = [request, ...listRequests(data)];
-  saveClientsAndRequests(listClients(data), requests);
+  saveClientsAndRequests(listClients(data), requests, "client-site-request:submit");
 
   return { ok: true, request };
 }
@@ -211,7 +211,7 @@ export function listPublicClientSiteRequests(token) {
   return { ok: true, requests: rows };
 }
 
-function appendRequestMessage(data, requestId, message) {
+function appendRequestMessage(data, requestId, message, updatedBy = "client-site-request:message") {
   const requests = listRequests(data);
   const index = requests.findIndex((row) => row.id === requestId);
   if (index < 0) {
@@ -227,7 +227,7 @@ function appendRequestMessage(data, requestId, message) {
     unreadByClient: message.sender === "staff",
   };
   requests[index] = next;
-  saveClientsAndRequests(listClients(data), requests);
+  saveClientsAndRequests(listClients(data), requests, updatedBy);
   return { ok: true, request: next, message };
 }
 
@@ -249,7 +249,7 @@ export function postPublicClientSiteRequestMessage(token, requestId, body = {}) 
     senderName: String(body.senderName || resolved.request.contactName || resolved.client.name || "").trim().slice(0, 80),
     createdAt: new Date().toISOString(),
   };
-  return appendRequestMessage(data, requestId, message);
+  return appendRequestMessage(data, requestId, message, "client-site-request:public-message");
 }
 
 export function postStaffClientSiteRequestMessage(requestId, body = {}, actor = "") {
@@ -268,7 +268,12 @@ export function postStaffClientSiteRequestMessage(requestId, body = {}, actor = 
     senderName: String(actor || "").trim().slice(0, 80),
     createdAt: new Date().toISOString(),
   };
-  return appendRequestMessage(data, requestId, message);
+  return appendRequestMessage(
+    data,
+    requestId,
+    message,
+    actor ? `client-site-request:staff-message:${actor}` : "client-site-request:staff-message",
+  );
 }
 
 export function markClientSiteRequestRead(id, side = "staff") {
@@ -285,7 +290,7 @@ export function markClientSiteRequestRead(id, side = "staff") {
     unreadByStaff: side === "staff" ? false : current.unreadByStaff,
     unreadByClient: side === "client" ? false : current.unreadByClient,
   };
-  saveClientsAndRequests(listClients(data), requests);
+  saveClientsAndRequests(listClients(data), requests, "client-site-request:read");
   return { ok: true, request: requests[index] };
 }
 
@@ -313,7 +318,11 @@ export function updateClientSiteRequestStatus(id, input = {}, actor = "") {
     processedBy: status === "pending" ? null : String(actor || "").trim() || current.processedBy,
   };
   requests[index] = next;
-  saveClientsAndRequests(listClients(data), requests);
+  saveClientsAndRequests(
+    listClients(data),
+    requests,
+    actor ? `client-site-request:status:${actor}` : "client-site-request:status",
+  );
   return { ok: true, request: next };
 }
 
@@ -338,7 +347,11 @@ export function ensureClientSiteRequestLink(clientId, actor = "") {
     siteRequestLinkUpdatedBy: String(actor || "").trim() || client.siteRequestLinkUpdatedBy,
   };
   clients[index] = nextClient;
-  saveClientsAndRequests(clients, listRequests(data));
+  saveClientsAndRequests(
+    clients,
+    listRequests(data),
+    actor ? `client-site-request:link:${actor}` : "client-site-request:link",
+  );
 
   return {
     ok: true,
@@ -370,7 +383,11 @@ export function rotateClientSiteRequestLink(clientId, actor = "") {
     siteRequestLinkUpdatedAt: now,
     siteRequestLinkUpdatedBy: String(actor || "").trim(),
   };
-  saveClientsAndRequests(clients, listRequests(data));
+  saveClientsAndRequests(
+    clients,
+    listRequests(data),
+    actor ? `client-site-request:rotate:${actor}` : "client-site-request:rotate",
+  );
 
   return {
     ok: true,
@@ -403,7 +420,11 @@ export function setClientSiteRequestLinkDisabled(clientId, disabled, actor = "")
     siteRequestLinkUpdatedAt: now,
     siteRequestLinkUpdatedBy: String(actor || "").trim(),
   };
-  saveClientsAndRequests(clients, listRequests(data));
+  saveClientsAndRequests(
+    clients,
+    listRequests(data),
+    actor ? `client-site-request:disable:${actor}` : "client-site-request:disable",
+  );
 
   return {
     ok: true,
