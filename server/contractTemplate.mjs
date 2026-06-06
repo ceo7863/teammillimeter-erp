@@ -108,6 +108,34 @@ function drawText(page, font, text, x, y, size, color = COLORS.ink) {
   page.drawText(value, { x, y, size, font, color });
 }
 
+function wrapTextLines(font, text, maxWidth, size) {
+  const value = String(text || "").trim();
+  if (!value) return [];
+  const lines = [];
+  let current = "";
+  for (const ch of value) {
+    const next = current + ch;
+    if (font.widthOfTextAtSize(next, size) > maxWidth && current) {
+      lines.push(current);
+      current = ch;
+    } else {
+      current = next;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+function drawWrappedText(page, font, text, x, y, maxWidth, size, color, lineHeight) {
+  const lines = wrapTextLines(font, text, maxWidth, size);
+  let cursor = y;
+  for (const line of lines) {
+    drawText(page, font, line, x, cursor, size, color);
+    cursor -= lineHeight;
+  }
+  return cursor;
+}
+
 function drawLine(page, x1, y1, x2, y2, thickness = 1, color = COLORS.border) {
   page.drawLine({
     start: { x: x1, y: y1 },
@@ -244,13 +272,15 @@ async function buildUnitPriceAgreementPdf(input = {}) {
 
   cursorY = tableTop - tableHeight - 16;
   const terms = [
-    "\uBCF8 \uD611\uC57D\uC11C\uB294 \uBC1C\uC8FC\uCC98\uC640 \uC2DC\uACF5\uC5C5\uCCB4 \uAC04 \uAC00\uAD6C\uC2DC\uACF5 \uB2E8\uAC00 \uAE30\uC900\uC744 \uC815\uD558\uAE30 \uC704\uD558\uC5EC \uC791\uC131\uB418\uC5C8\uC73C\uBA70, \uC591 \uB2F9\uC0AC\uC790\uAC00 \uC11C\uBA85\uD568\uC73C\uB85C\uC368 \uD6A8\uB825\uC774 \uBC1C\uC0DD\uD569\uB2C8\uB2E4.",
-    "\uC0C1\uAE30 \uB2E8\uAC00 \uBC0F \uAE30\uC900\uC740 \uD604\uC7A5 \uC5EC\uAC74, \uACF5\uC0AC \uB09C\uC774\uB3C4, \uC790\uC7AC \uC0AC\uC591 \uB4F1\uC5D0 \uB530\uB77C \uC0C1\uD638 \uD611\uC758 \uD6C4 \uC870\uC815\uB420 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+    "\u203B \uC0C1\uAE30 \uAE08\uC561\uC740 \uBD80\uAC00\uAC00\uCE58\uC138 \uBCC4\uB3C4 \uAE30\uC900\uC774\uBA70, \uBCC4\uB3C4 \uC11C\uBA74 \uD569\uC758\uAC00 \uC5C6\uB294 \uD55C \uBCF8 \uB2E8\uAC00\uB97C \uC801\uC6A9\uD55C\uB2E4.",
+    "\u203B \uBCF8 \uD611\uC57D\uC11C\uB294 \uC804\uC790\uBB38\uC11C \uBC0F \uC804\uC790\uC11C\uBA85 \uAD00\uB828 \uBC95\uB839\uC5D0 \uB530\uB77C \uC804\uC790\uC11C\uBA85\uC73C\uB85C \uCCB4\uACB0\uD560 \uC218 \uC788\uC73C\uBA70, \uC804\uC790\uC11C\uBA85\uB41C \uBB38\uC11C\uB294 \uC790\uD544\uC11C\uBA85 \uB610\uB294 \uB0A0\uC778\uD55C \uBB38\uC11C\uC640 \uB3D9\uC77C\uD55C \uD6A8\uB825\uC744 \uAC00\uC9C4\uB2E4.",
   ];
-  terms.forEach((line) => {
-    drawText(page, font, line, contentLeft, cursorY, 8.8, COLORS.muted);
-    cursorY -= 13;
-  });
+  const termSize = 8.6;
+  const termLineHeight = 12.5;
+  for (const line of terms) {
+    cursorY = drawWrappedText(page, font, line, contentLeft, cursorY, contentWidth, termSize, COLORS.muted, termLineHeight);
+    cursorY -= 4;
+  }
 
   cursorY -= 8;
   const panelTop = cursorY;
