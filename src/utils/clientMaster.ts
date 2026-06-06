@@ -10,6 +10,27 @@ export type ClientTaxFields = {
   manager?: string;
 };
 
+export type ClientMasterLike = {
+  id?: number | string;
+  name?: string;
+  businessNo?: string;
+  ceoName?: string;
+  email?: string;
+  address?: string;
+  bizType?: string;
+  bizClass?: string;
+  manager?: string;
+  phone?: string;
+  constructionCost?: number;
+  customChargeCost?: number;
+  chargeCost?: number;
+  overtimeCost?: number;
+  vat?: string;
+  mealIncluded?: string;
+  depositNameAliases?: string;
+  memo?: string;
+};
+
 export function extractClientTaxFields(client: Record<string, unknown> | null | undefined): ClientTaxFields {
   const source = client && typeof client === "object" ? client : {};
   return {
@@ -46,4 +67,61 @@ export function validateInvoiceePartyForIssue(party: ClientTaxFields) {
     return "\uAC70\uB798\uCC98 \uC5C5\uC885\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
   }
   return null;
+}
+
+export function normalizeClientRecordId(id?: number | string | null) {
+  if (id == null || id === "") return "";
+  return String(id);
+}
+
+export function clientIdsEqual(
+  left?: number | string | null,
+  right?: number | string | null,
+) {
+  const leftKey = normalizeClientRecordId(left);
+  const rightKey = normalizeClientRecordId(right);
+  return Boolean(leftKey) && leftKey === rightKey;
+}
+
+function normalizeClientName(name?: string) {
+  return String(name || "").trim();
+}
+
+/** 서버 새로고침 시 방금 저장한 거래처 필드가 지워지지 않도록 병합 */
+export function mergeClientFieldsFromLocal(
+  incoming: ClientMasterLike[] = [],
+  local: ClientMasterLike[] = [],
+) {
+  const localById = new Map(
+    local
+      .filter((client) => normalizeClientRecordId(client.id))
+      .map((client) => [normalizeClientRecordId(client.id), client]),
+  );
+  const localByName = new Map(local.map((client) => [normalizeClientName(client.name), client]));
+  const seenIds = new Set<string>();
+  const seenNames = new Set<string>();
+
+  const merged = incoming.map((client) => {
+    const idKey = normalizeClientRecordId(client.id);
+    if (idKey) seenIds.add(idKey);
+    const nameKey = normalizeClientName(client.name);
+    if (nameKey) seenNames.add(nameKey);
+    const prev = (idKey && localById.get(idKey)) || (nameKey && localByName.get(nameKey));
+    if (!prev) return client;
+    return { ...prev, ...client };
+  });
+
+  for (const client of local) {
+    const idKey = normalizeClientRecordId(client.id);
+    const nameKey = normalizeClientName(client.name);
+    const idSeen = Boolean(idKey && seenIds.has(idKey));
+    const nameSeen = Boolean(nameKey && seenNames.has(nameKey));
+    if (!idSeen && !nameSeen) {
+      merged.push(client);
+      if (idKey) seenIds.add(idKey);
+      if (nameKey) seenNames.add(nameKey);
+    }
+  }
+
+  return merged;
 }

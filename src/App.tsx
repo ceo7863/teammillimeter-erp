@@ -239,6 +239,7 @@ import {
   WORKER_CATEGORY_OUTSOURCE,
   workerCategorySortRank,
 } from "@/utils/workerPayments";
+import { clientIdsEqual, mergeClientFieldsFromLocal } from "@/utils/clientMaster";
 import {
   clearAuthSession,
   fetchErpData,
@@ -5125,8 +5126,42 @@ function ClientActivityIcon({ lastSaleDate }: { lastSaleDate?: string }) {
   );
 }
 
-function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
-  const { recordAudit } = useAudit();
+function appendClientAuditLogs(
+  prevLogs,
+  input: {
+    entityId: string | number;
+    entityLabel: string;
+    action: "create" | "update" | "delete";
+    before?: Record<string, unknown>;
+    after?: Record<string, unknown>;
+    fields: typeof CLIENT_AUDIT_FIELDS;
+  },
+  currentUser,
+) {
+  const before = input.before || {};
+  const after = input.after || {};
+  const changes =
+    input.action === "create"
+      ? diffAuditRecords({}, after, input.fields)
+      : input.action === "delete"
+        ? diffAuditRecords(before, {}, input.fields)
+        : diffAuditRecords(before, after, input.fields);
+  if (!changes.length) return prevLogs;
+  return appendAuditLogs(
+    prevLogs,
+    buildAuditEntries({
+      entityType: "client",
+      entityId: input.entityId,
+      entityLabel: input.entityLabel,
+      screen: "거래처",
+      user: currentUser,
+      action: input.action,
+      changes,
+    }),
+  );
+}
+
+function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersistClientsImmediate }) {
   const emptyClientForm = {
     name: "",
     businessNo: "",
@@ -5142,6 +5177,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
     vat: "Y",
     mealIncluded: "Y",
     depositNameAliases: "",
+    customChargeCost: "",
     memo: "",
   };
 
@@ -5175,6 +5211,10 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
+  const commitClientChange = (nextClients, auditInput) => {
+    void onPersistClientsImmediate?.(nextClients, auditInput);
+  };
+
   const saveClient = () => {
     const name = form.name.trim();
     if (!name) {
@@ -5194,16 +5234,19 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
     }
 
     const duplicateClient = clients.find(
-      (client) => String(client.name || "").trim() === name && client.id !== editingId
+      (client) => String(client.name || "").trim() === name && !clientIdsEqual(client.id, editingId)
     );
     if (duplicateClient) {
       setFormError("이미 등록된 거래처명입니다. 다른 이름을 사용해 주세요.");
       return;
     }
 
-    const existingClient = editingId ? clients.find((client) => client.id === editingId) : null;
+    const existingClient = editingId != null
+      ? clients.find((client) => clientIdsEqual(client.id, editingId))
+      : null;
     const payload = {
-      id: editingId || Date.now(),
+      ...(existingClient || {}),
+      id: existingClient?.id ?? editingId ?? Date.now(),
       name,
       businessNo: form.businessNo.trim(),
       ceoName: form.ceoName.trim(),
@@ -5223,18 +5266,18 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
       memo: form.memo.trim(),
     };
 
-    recordAudit({
-      entityType: "client",
+    const nextClients = editingId != null
+      ? clients.map((client) => (clientIdsEqual(client.id, editingId) ? payload : client))
+      : [payload, ...clients];
+
+    commitClientChange(nextClients, {
       entityId: payload.id,
       entityLabel: payload.name,
-      screen: "거래처",
       action: editingId ? "update" : "create",
       before: existingClient ? snapshotClientForAudit(existingClient) : undefined,
       after: snapshotClientForAudit(payload),
       fields: CLIENT_AUDIT_FIELDS,
     });
-
-    setClients((prev) => editingId ? prev.map((client) => client.id === editingId ? payload : client) : [payload, ...prev]);
 
     setForm(emptyClientForm);
     setEditingId(null);
@@ -5265,20 +5308,18 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
   };
 
   const deleteClient = (id) => {
-    const client = clients.find((item) => item.id === id);
+    const client = clients.find((item) => clientIdsEqual(item.id, id));
     if (!client) return;
     if (!confirmDelete(`거래처 "${client.name}"을(를) 삭제할까요?`)) return;
 
-    recordAudit({
-        entityType: "client",
-        entityId: id,
-        entityLabel: client.name,
-        screen: "거래처",
-        action: "delete",
-        before: snapshotClientForAudit(client),
-        fields: CLIENT_AUDIT_FIELDS,
+    const nextClients = clients.filter((item) => !clientIdsEqual(item.id, id));
+    commitClientChange(nextClients, {
+      entityId: id,
+      entityLabel: client.name,
+      action: "delete",
+      before: snapshotClientForAudit(client),
+      fields: CLIENT_AUDIT_FIELDS,
     });
-    setClients((prev) => prev.filter((item) => item.id !== id));
   };
 
   return (
@@ -5369,6 +5410,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
                 <tr>
                   <th className="text-left">거래처명</th>
                   <th className="text-left">사업자번호</th>
+                  <th className="text-left">대표자</th>
                   <th className="text-left">담당자</th>
                   <th className="text-left">연락처</th>
                   <th className="text-right">시공비</th>
@@ -5390,6 +5432,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
                       </span>
                     </td>
                     <td>{client.businessNo || "-"}</td>
+                    <td>{client.ceoName || "-"}</td>
                     <td>{client.manager || "-"}</td>
                     <td>{client.phone || "-"}</td>
                     <td className="text-right font-semibold">{formatKRW(client.constructionCost)}</td>
@@ -7011,6 +7054,9 @@ export default function TeammillimeterErpMvp() {
     if (apiMode && sessionOnMount) return [];
     return storedData?.clients?.length >= initialClients.length ? storedData.clients : initialClients;
   });
+  const clientsRef = useRef(clients);
+  clientsRef.current = clients;
+  const clientPersistInFlightRef = useRef(false);
   const [workers, setWorkers] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return storedData?.workers?.length >= initialWorkers.length ? storedData.workers : initialWorkers;
@@ -7181,7 +7227,12 @@ export default function TeammillimeterErpMvp() {
     setSales((prev) => normalizeSalesRecords(mergeSalesByUpdatedAt(data.sales || [], prev), workersForSales));
     setPaymentVouchers(data.paymentVouchers || []);
     setPaymentInputLogs(Array.isArray(data.paymentInputLogs) ? data.paymentInputLogs : []);
-    setClients(data.clients?.length ? data.clients : initialClients);
+    const incomingClients = data.clients?.length ? data.clients : initialClients;
+    if (!preserveLocalEdits) {
+      setClients(incomingClients);
+    } else {
+      setClients(mergeClientFieldsFromLocal(incomingClients, clientsRef.current));
+    }
     workersRef.current = nextWorkers;
     setWorkers(nextWorkers);
     const incomingMemos = normalizeWorkerMonthlyPaymentMemos(data.workerMonthlyPaymentMemos);
@@ -7626,6 +7677,57 @@ export default function TeammillimeterErpMvp() {
     [apiMode, currentUser, dataReady, buildErpSavePayload, persistErpSave, setWorkers, setBankTransactions, setWorkerMonthlyPaymentMemos],
   );
 
+  const persistClientsImmediate = useCallback(
+    async (
+      nextClients,
+      auditInput?: {
+        entityId: string | number;
+        entityLabel: string;
+        action: "create" | "update" | "delete";
+        before?: Record<string, unknown>;
+        after?: Record<string, unknown>;
+        fields: typeof CLIENT_AUDIT_FIELDS;
+      },
+    ) => {
+      pendingLocalEditsRef.current = true;
+      skipSaveRef.current = true;
+      if (saveDebounceTimerRef.current) {
+        window.clearTimeout(saveDebounceTimerRef.current);
+        saveDebounceTimerRef.current = null;
+      }
+
+      const nextAuditLogs = auditInput
+        ? appendClientAuditLogs(auditLogs, auditInput, currentUser)
+        : undefined;
+
+      clientsRef.current = nextClients;
+      setClients(nextClients);
+      if (nextAuditLogs) {
+        setAuditLogs(nextAuditLogs);
+      }
+
+      if (!apiMode || !currentUser || !dataReady) return true;
+
+      clientPersistInFlightRef.current = true;
+      let saved = true;
+      try {
+        saved =
+          (await flushErpSave({
+            clients: nextClients,
+            ...(nextAuditLogs ? { auditLogs: nextAuditLogs } : {}),
+          })) !== false;
+        if (!saved) {
+          window.alert("거래처 저장에 실패했습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.");
+        }
+      } finally {
+        clientPersistInFlightRef.current = false;
+        skipSaveRef.current = false;
+      }
+      return saved;
+    },
+    [apiMode, currentUser, dataReady, auditLogs, flushErpSave],
+  );
+
   const persistWorkersImmediate = useCallback(
     async (
       nextWorkers,
@@ -8039,7 +8141,7 @@ export default function TeammillimeterErpMvp() {
     ) {
       skipSaveRef.current = false;
     }
-    if (skipSaveRef.current || workerPersistInFlightRef.current || workerMonthlyPersistInFlightRef.current) {
+    if (skipSaveRef.current || workerPersistInFlightRef.current || workerMonthlyPersistInFlightRef.current || clientPersistInFlightRef.current) {
       return;
     }
     pendingLocalEditsRef.current = true;
@@ -8640,7 +8742,13 @@ export default function TeammillimeterErpMvp() {
             tabAccess={basicInfoTabAccess}
             onWorkersTabVisible={syncWorkersFromServer}
             clientsPanel={
-              <ClientsPage clients={clients} setClients={setClients} sales={appliedSales} companyProfile={companyProfile} />
+              <ClientsPage
+                clients={clients}
+                setClients={setClients}
+                sales={appliedSales}
+                companyProfile={companyProfile}
+                onPersistClientsImmediate={persistClientsImmediate}
+              />
             }
             workersPanel={
               <WorkersPage
