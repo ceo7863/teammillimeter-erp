@@ -38,7 +38,18 @@ type FlatPickerItem = {
 
 const EXCEL_LIST_MAX_HEIGHT = 360;
 const EXCEL_POPOVER_MIN_WIDTH = 280;
-const EXCEL_WHEEL_SCROLL_GAIN = 1.35;
+
+function scrollActiveItemIntoView(list: HTMLElement, active: HTMLElement) {
+  const itemTop = active.offsetTop;
+  const itemBottom = itemTop + active.offsetHeight;
+  const viewTop = list.scrollTop;
+  const viewBottom = viewTop + list.clientHeight;
+  if (itemTop < viewTop) {
+    list.scrollTop = itemTop;
+  } else if (itemBottom > viewBottom) {
+    list.scrollTop = itemBottom - list.clientHeight;
+  }
+}
 
 function computeExcelPopoverStyle(anchorRect: DOMRect | null): React.CSSProperties | null {
   if (!anchorRect) return null;
@@ -181,7 +192,7 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
     const list = listRef.current;
     if (!list) return;
     const active = list.querySelector<HTMLElement>("[data-active='true']");
-    active?.scrollIntoView({ block: "nearest" });
+    if (active) scrollActiveItemIntoView(list, active);
   }, [highlightedIndex]);
 
   const pickItem = useCallback(
@@ -254,21 +265,6 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
   }, [flatItems, highlightedIndex, onClose, pickItem, typeahead]);
 
   useEffect(() => {
-    const list = listRef.current;
-    if (!list) return;
-
-    const handleListWheel = (event: WheelEvent) => {
-      event.stopPropagation();
-      if (list.scrollHeight <= list.clientHeight) return;
-      event.preventDefault();
-      list.scrollTop += event.deltaY * EXCEL_WHEEL_SCROLL_GAIN;
-    };
-
-    list.addEventListener("wheel", handleListWheel, { passive: false });
-    return () => list.removeEventListener("wheel", handleListWheel);
-  }, [flatItems.length]);
-
-  useEffect(() => {
     const previousHtmlOverflow = document.documentElement.style.overflow;
     const previousBodyOverflow = document.body.style.overflow;
     document.documentElement.style.overflow = "hidden";
@@ -305,7 +301,11 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
       aria-label={labels.searchPlaceholder}
       onMouseDown={(event) => event.stopPropagation()}
     >
-      <div ref={listRef} className="erp-account-picker-popover__list erp-account-picker-popover__list--excel">
+      <div
+        ref={listRef}
+        className="erp-account-picker-popover__list erp-account-picker-popover__list--excel"
+        onWheel={(event) => event.stopPropagation()}
+      >
         {!flatItems.length ? (
           <p className="erp-account-picker-popover__empty">{labels.empty}</p>
         ) : (
