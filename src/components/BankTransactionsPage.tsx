@@ -36,14 +36,12 @@ import {
   CompanyLedgerFixedExpenseModalLayer,
   type CompanyLedgerFixedExpenseModalHandle,
 } from "@/components/CompanyLedgerFixedExpenseModalLayer";
-import { TaxInvoiceLinkModal } from "@/components/TaxInvoiceLinkModal";
+import { TaxInvoiceLinkPanel } from "@/components/TaxInvoiceLinkPanel";
 import type { TaxInvoice } from "@/utils/taxInvoices";
 import {
   batchAutoLinkTaxInvoiceEvidence,
   buildBankTxTaxInvoiceLinkPatch,
-  collectUsedTaxInvoiceIds,
   formatTaxInvoiceEvidenceLabel,
-  pickAutoTaxInvoiceMatch,
 } from "@/utils/bankTaxInvoiceLink";
 import {
   batchAutoLinkSplitTaxInvoiceEvidence,
@@ -897,6 +895,8 @@ export function BankTransactionsPage({
   onNavigateToCompanyLedger,
   onNavigateToClassify,
   onNavigateToFixedExpense,
+  onNavigateToTaxInvoice,
+  companyProfile,
   apiMode = false,
   erpVersion = 0,
   isPageActive = true,
@@ -934,6 +934,8 @@ export function BankTransactionsPage({
   onNavigateToCompanyLedger?: () => void;
   onNavigateToClassify?: () => void;
   onNavigateToFixedExpense?: () => void;
+  onNavigateToTaxInvoice?: () => void;
+  companyProfile?: import("@/utils/companyProfile").CompanyProfile;
   apiMode?: boolean;
   erpVersion?: number;
   isPageActive?: boolean;
@@ -2330,25 +2332,18 @@ export function BankTransactionsPage({
 
   const openTaxInvoiceModal = useCallback(
     (tx: BankTransaction) => {
-      if (!tx.linkedTaxInvoiceId && !tx.taxInvoiceAutoLinkDisabled) {
-        const usedInvoiceIds = collectUsedTaxInvoiceIds(bankTransactions);
-        const auto = pickAutoTaxInvoiceMatch(tx, taxInvoices, usedInvoiceIds, taxInvoiceMatchContext);
-        if (auto) {
-          applyTaxInvoiceLink(tx, auto.invoice.id);
-          setImportMessage(L.evidenceAutoLinked(formatTaxInvoiceEvidenceLabel(auto.invoice)));
-          return;
-        }
-      }
       setTaxInvoiceModal({ tx });
     },
-    [applyTaxInvoiceLink, bankTransactions, taxInvoices, taxInvoiceMatchContext],
+    [],
   );
 
   const saveTaxInvoiceLink = (invoiceId: string | undefined) => {
     if (!taxInvoiceModal) return;
     const { tx } = taxInvoiceModal;
-    applyTaxInvoiceLink(tx, invoiceId);
-    setTaxInvoiceModal(null);
+    const result = applyTaxInvoiceLink(tx, invoiceId);
+    if (result?.nextRow) {
+      setTaxInvoiceModal({ tx: result.nextRow });
+    }
     setImportMessage(L.cellSaveDone);
   };
   const saveAccountContentModal = () => {
@@ -4799,7 +4794,7 @@ export function BankTransactionsPage({
   };
 
   return (
-    <div className="erp-page erp-bank-transactions-page">
+    <div className={`erp-page erp-bank-transactions-page${taxInvoiceModal ? " erp-bank-transactions-page--tax-link-open" : ""}`}>
       <Card className="erp-bank-hub-card mb-3 rounded-xl shadow-sm">
         <CardContent className="flex flex-col gap-2 p-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex min-w-0 items-start gap-2.5">
@@ -6491,13 +6486,16 @@ export function BankTransactionsPage({
       ) : null}
 
       {taxInvoiceModal ? (
-        <TaxInvoiceLinkModal
+        <TaxInvoiceLinkPanel
           tx={taxInvoiceModal.tx}
           taxInvoices={taxInvoices}
+          bankTransactions={bankTransactions}
+          companyProfile={companyProfile}
           matchContext={taxInvoiceMatchContext}
           linkedInvoiceId={taxInvoiceModal.tx.linkedTaxInvoiceId}
           onClose={() => setTaxInvoiceModal(null)}
           onLink={saveTaxInvoiceLink}
+          onNavigateToTaxInvoice={onNavigateToTaxInvoice}
         />
       ) : null}
 

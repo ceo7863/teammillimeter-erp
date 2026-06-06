@@ -92,6 +92,7 @@ export function AccountingHubPage({ isHubActive, initialTab, bank, ledger, tax, 
             onNavigateToCompanyLedger={() => switchTab("ledger")}
             onNavigateToClassify={() => switchTab("classify")}
             onNavigateToFixedExpense={openLedgerFixedTab}
+            onNavigateToTaxInvoice={() => switchTab("tax")}
           />
         </div>
       ) : null}

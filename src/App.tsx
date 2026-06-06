@@ -8709,6 +8709,7 @@ export default function TeammillimeterErpMvp() {
               accountCodes,
               taxInvoices,
               currentUser,
+              companyProfile,
             }}
             ledger={{
               bankTransactions,

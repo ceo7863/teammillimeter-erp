@@ -7,6 +7,7 @@ import {
   type TaxInvoiceMatchContext,
 } from "./bankTaxInvoiceLink";
 import type { TaxInvoice } from "./taxInvoices";
+import { getTaxInvoiceUnsettledAmount } from "./taxInvoiceLinkPanel";
 
 export const TAX_INVOICE_SPLIT_DAY_WINDOW = 21;
 export const TAX_INVOICE_SPLIT_MAX_PICK = 6;
@@ -54,8 +55,7 @@ export function getTaxInvoiceLinkedDepositSum(transactions: BankTransaction[], i
 }
 
 export function getTaxInvoiceRemainingAmount(invoice: TaxInvoice, transactions: BankTransaction[]) {
-  const linked = getTaxInvoiceLinkedDepositSum(transactions, invoice.id);
-  return Math.max(0, Number(invoice.totalAmount || 0) - linked);
+  return getTaxInvoiceUnsettledAmount(invoice, transactions);
 }
 
 function isWithinSplitWindow(tx: BankTransaction, invoice: TaxInvoice) {
