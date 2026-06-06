@@ -276,6 +276,7 @@ import {
   sortPageDefsByOrder,
   syncLocalSidebarOrderIfNeeded,
 } from "@/utils/sidebarOrder";
+import { useClientSiteRequestPendingCount } from "@/hooks/useClientSiteRequestPendingCount";
 
 const initialReceivables = [
   { id: 1, client: "키친바이블", businessNo: "751-24-01200", manager: "김혁대표님", phone: "010-5775-4630", date: "2026-03-01", voucherNo: "2821-001", salesAmount: 354000, paidAmount: 354000, dueDate: "2026-03-23", memo: "마포 현장" },
@@ -2806,6 +2807,7 @@ function Sidebar({
   mobileOpen,
   onMobileClose,
   syncStatus,
+  pageBadges = {},
 }) {
   const items = sortPageDefsByOrder(getAccessiblePageDefs(currentUser), sidebarOrder).map((page) => [
     page.key,
@@ -2855,11 +2857,25 @@ function Sidebar({
           <ListOrdered size={16} />
           메뉴 순서
         </button>
-        {items.map(([key, label, Icon]) => (
-          <button key={key} onClick={() => navigate(key)} className={`erp-touch-target erp-text-body flex min-h-[44px] w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left font-semibold transition lg:px-4 lg:py-3 ${active === key ? "bg-white text-slate-950" : "text-slate-300 hover:bg-slate-800"}`}>
-            <Icon size={18} /> {label}
-          </button>
-        ))}
+        {items.map(([key, label, Icon]) => {
+          const badgeCount = pageBadges[key] || 0;
+          const showBadge = badgeCount > 0 && active !== key;
+          return (
+            <button
+              key={key}
+              onClick={() => navigate(key)}
+              className={`erp-touch-target erp-text-body flex min-h-[44px] w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left font-semibold transition lg:px-4 lg:py-3 ${active === key ? "bg-white text-slate-950" : "text-slate-300 hover:bg-slate-800"}`}
+            >
+              <Icon size={18} />
+              <span className="min-w-0 flex-1">{label}</span>
+              {showBadge ? (
+                <span className="erp-sidebar-nav-badge" aria-label={`대기 접수 ${badgeCount}건`}>
+                  {badgeCount > 99 ? "99+" : badgeCount}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
       </nav>
       <div className="mt-4 shrink-0 rounded-2xl bg-slate-900 p-3 lg:mt-auto lg:p-4">
         <button
@@ -7035,6 +7051,7 @@ export default function TeammillimeterErpMvp() {
   });
   const basicInfoTabAccess = useMemo(() => resolveBasicInfoTabAccess(currentUser), [currentUser]);
   const userAdminTabAccess = useMemo(() => resolveUserAdminTabAccess(currentUser), [currentUser]);
+  const clientSiteRequestPendingCount = useClientSiteRequestPendingCount(currentUser);
   const [sales, setSales] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return storedData?.sales || initialSales;
@@ -8514,6 +8531,7 @@ export default function TeammillimeterErpMvp() {
         mobileOpen={sidebarOpen}
         onMobileClose={() => setSidebarOpen(false)}
         syncStatus={apiMode ? syncStatus : ""}
+        pageBadges={{ clientSiteRequests: clientSiteRequestPendingCount }}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-slate-200 bg-white/95 px-3 py-3 backdrop-blur lg:hidden erp-mobile-header">
