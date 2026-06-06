@@ -31,15 +31,44 @@ export function resolveAccountCodeSearchText(row: AccountCode, rows: AccountCode
   return parts.filter(Boolean).join(" ").toLowerCase();
 }
 
+function createAccountCodeIndex(rows: AccountCode[]) {
+  const activeRows = rows.filter((row) => row.isActive !== false);
+  const codeByCode = new Map(activeRows.map((row) => [row.code, row]));
+  const flowMemo = new Map<string, boolean>();
+
+  const matchesFlow = (code: string, flow: "income" | "expense"): boolean => {
+    const key = `${code}\0${flow}`;
+    const cached = flowMemo.get(key);
+    if (cached != null) return cached;
+
+    const row = codeByCode.get(code);
+    if (!row) {
+      flowMemo.set(key, false);
+      return false;
+    }
+
+    const rowFlow = row.flow || (row.type === "income" ? "income" : row.type === "expense" ? "expense" : "both");
+    let ok = rowFlow === flow || rowFlow === "both";
+    if (!ok && row.parentAccountCode) {
+      ok = matchesFlow(row.parentAccountCode, flow);
+    }
+    flowMemo.set(key, ok);
+    return ok;
+  };
+
+  const formatLabel = (row: AccountCode): string => {
+    if (!row.parentAccountCode) return row.name;
+    const parent = codeByCode.get(row.parentAccountCode);
+    return parent ? `${parent.name} > ${row.name}` : row.name;
+  };
+
+  return { activeRows, codeByCode, matchesFlow, formatLabel };
+}
+
 export function accountCodeMatchesFlow(row: AccountCode, rows: AccountCode[], flow: "income" | "expense") {
   if (!row.isActive) return false;
-  const rowFlow = row.flow || (row.type === "income" ? "income" : row.type === "expense" ? "expense" : "both");
-  if (rowFlow === flow || rowFlow === "both") return true;
-  if (row.parentAccountCode) {
-    const parent = findAccountCodeByCode(rows, row.parentAccountCode);
-    if (parent) return accountCodeMatchesFlow(parent, rows, flow);
-  }
-  return false;
+  const { matchesFlow } = createAccountCodeIndex(rows);
+  return matchesFlow(row.code, flow);
 }
 
 export function filterAccountCodesForManageView(
@@ -114,21 +143,42 @@ export function buildAccountCodePickerOptions(
   accountCodes: AccountCode[],
   flow?: "income" | "expense",
 ): AccountCodePickerOption[] {
-  const activeRows = accountCodes.filter((row) => row.isActive !== false);
+  const { activeRows, matchesFlow, formatLabel } = createAccountCodeIndex(accountCodes);
   const rows = buildAccountDisplayRows(activeRows).filter(({ account }) =>
-    !flow ? true : accountCodeMatchesFlow(account, activeRows, flow),
+    !flow ? true : matchesFlow(account.code, flow),
   );
 
   return rows
     .map(({ account }) => ({
       code: account.code,
-      label: formatAccountCodeLabel(account, activeRows),
+      label: formatLabel(account),
       parentGroup: account.parentGroup || "\uAE30\uD0C0",
     }))
     .sort(
       (a, b) =>
         a.parentGroup.localeCompare(b.parentGroup, "ko") || a.label.localeCompare(b.label, "ko"),
     );
+}
+
+export type AccountCodeAutocompleteOption = {
+  value: string;
+  label: string;
+  parentGroup: string;
+};
+
+export function buildAccountCodeAutocompleteOptionsByFlow(accountCodes: AccountCode[]) {
+  return {
+    income: buildAccountCodePickerOptions(accountCodes, "income").map((option) => ({
+      value: option.code,
+      label: option.label,
+      parentGroup: option.parentGroup,
+    })),
+    expense: buildAccountCodePickerOptions(accountCodes, "expense").map((option) => ({
+      value: option.code,
+      label: option.label,
+      parentGroup: option.parentGroup,
+    })),
+  };
 }
 
 export function groupAccountCodePickerOptions(options: AccountCodePickerOption[]) {

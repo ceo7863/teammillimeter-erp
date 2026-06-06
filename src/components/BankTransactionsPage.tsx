@@ -141,10 +141,8 @@ import {
   registerBankTxWithCategoryName,
   type LedgerScopeFilter,
 } from "@/utils/ledgerBankBridge";
-import {
-  buildAccountCodePickerOptions,
-  groupAccountCodePickerOptions,
-} from "@/utils/accountCodeTree";
+import { buildAccountCodeAutocompleteOptionsByFlow } from "@/utils/accountCodeTree";
+import { AccountSubjectEditModal } from "@/components/AccountSubjectEditModal";
 import {
   confirmBankTransactionLedger,
   findLedgerCategory,
@@ -262,7 +260,6 @@ function parseCustomFolderScope(scope: FolderScope) {
 type PageView = "list" | "reconcile";
 
 type TxAccountContentModal = { tx: BankTransaction; draft: string };
-type TxAccountSubjectModal = { tx: BankTransaction; draft: string };
 type TxFixedExpenseModal = { tx: BankTransaction; draft: string };
 type TxClientModal = { tx: BankTransaction; draft: string };
 type TxTaxInvoiceModal = { tx: BankTransaction };
@@ -946,7 +943,7 @@ export function BankTransactionsPage({
   const [selectedPreauthGroupKeys, setSelectedPreauthGroupKeys] = useState<string[]>([]);
   const [learnPreauthMerchants, setLearnPreauthMerchants] = useState(true);
   const [accountContentModal, setAccountContentModal] = useState<TxAccountContentModal | null>(null);
-  const [accountSubjectModal, setAccountSubjectModal] = useState<TxAccountSubjectModal | null>(null);
+  const [accountSubjectModalTx, setAccountSubjectModalTx] = useState<BankTransaction | null>(null);
   const [fixedExpenseModal, setFixedExpenseModal] = useState<TxFixedExpenseModal | null>(null);
   const [clientModal, setClientModal] = useState<TxClientModal | null>(null);
   const [taxInvoiceModal, setTaxInvoiceModal] = useState<TxTaxInvoiceModal | null>(null);
@@ -2087,11 +2084,10 @@ export function BankTransactionsPage({
   const activeLedgerCategoryOptions =
     ledgerModal?.kind === "fixed" ? ledgerFixedCategoryOptions : ledgerManualCategoryOptions;
 
-  const accountSubjectPickerGroups = useMemo(() => {
-    if (!accountSubjectModal) return [];
-    const flow = accountSubjectModal.tx.deposit > 0 ? "income" : "expense";
-    return groupAccountCodePickerOptions(buildAccountCodePickerOptions(accountCodes, flow));
-  }, [accountSubjectModal, accountCodes]);
+  const accountSubjectAutocompleteByFlow = useMemo(
+    () => buildAccountCodeAutocompleteOptionsByFlow(accountCodes),
+    [accountCodes],
+  );
 
   const resolveTxAccountCodeDraft = useCallback(
     (tx: BankTransaction) => {
@@ -2132,13 +2128,10 @@ export function BankTransactionsPage({
     });
   }, []);
 
-  const openAccountSubjectModal = useCallback(
-    (tx: BankTransaction) => {
-      setTxCellModalError("");
-      setAccountSubjectModal({ tx, draft: resolveTxAccountCodeDraft(tx) });
-    },
-    [resolveTxAccountCodeDraft],
-  );
+  const openAccountSubjectModal = useCallback((tx: BankTransaction) => {
+    setTxCellModalError("");
+    setAccountSubjectModalTx(tx);
+  }, []);
 
   const openFixedExpenseModal = useCallback(
     (tx: BankTransaction) => {
@@ -2230,36 +2223,32 @@ export function BankTransactionsPage({
     void onRequestImmediateSave?.({ bankTransactions: nextTransactions });
   };
 
-  const saveAccountSubjectModal = () => {
-    if (!accountSubjectModal) return;
-    const accountCode = accountSubjectModal.draft.trim();
-    if (!accountCode) {
-      setTxCellModalError(L.accountSubjectRequired);
-      return;
-    }
-    const { tx } = accountSubjectModal;
-    const nextRow = assignBankTransactionAccountCode({
-      tx,
-      accountCode,
-      ledgerCategories,
-      accountCodes,
-      confirmedBy: savedBy,
-    });
-    if (!nextRow) {
-      setTxCellModalError(L.detailLedgerRegisterFailed);
-      return;
-    }
-    auditBankTxUpdate(tx, nextRow);
-    let nextTransactions: BankTransaction[] = [];
-    setBankTransactions((prev) => {
-      nextTransactions = prev.map((row) => (row.id === tx.id ? nextRow : row));
-      return nextTransactions;
-    });
-    setAccountSubjectModal(null);
-    setTxCellModalError("");
-    setImportMessage(L.cellSaveDone);
-    void onRequestImmediateSave?.({ bankTransactions: nextTransactions });
-  };
+  const saveAccountSubjectSelection = useCallback(
+    (tx: BankTransaction, accountCode: string) => {
+      const nextRow = assignBankTransactionAccountCode({
+        tx,
+        accountCode,
+        ledgerCategories,
+        accountCodes,
+        confirmedBy: savedBy,
+      });
+      if (!nextRow) {
+        setTxCellModalError(L.detailLedgerRegisterFailed);
+        return;
+      }
+      auditBankTxUpdate(tx, nextRow);
+      let nextTransactions: BankTransaction[] = [];
+      setBankTransactions((prev) => {
+        nextTransactions = prev.map((row) => (row.id === tx.id ? nextRow : row));
+        return nextTransactions;
+      });
+      setAccountSubjectModalTx(null);
+      setTxCellModalError("");
+      setImportMessage(L.cellSaveDone);
+      void onRequestImmediateSave?.({ bankTransactions: nextTransactions });
+    },
+    [accountCodes, auditBankTxUpdate, ledgerCategories, onRequestImmediateSave, savedBy, setBankTransactions],
+  );
 
   const saveFixedExpenseModal = () => {
     if (!fixedExpenseModal) return;
@@ -6557,63 +6546,24 @@ export function BankTransactionsPage({
         </div>
       ) : null}
 
-      {accountSubjectModal ? (
-        <div
-          className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setAccountSubjectModal(null);
+      {accountSubjectModalTx ? (
+        <AccountSubjectEditModal
+          txId={accountSubjectModalTx.id}
+          initialDraft={resolveTxAccountCodeDraft(accountSubjectModalTx)}
+          options={
+            accountSubjectAutocompleteByFlow[accountSubjectModalTx.deposit > 0 ? "income" : "expense"]
+          }
+          labels={{
+            title: L.editAccountSubjectTitle,
+            accountSubject: L.accountSubject,
+            placeholder: L.accountSubjectPlaceholder,
+            cancel: L.cancel,
+            save: L.detailSave,
+            required: L.accountSubjectRequired,
           }}
-        >
-          <div
-            className="erp-ledger-modal max-w-lg"
-            onMouseDown={(event) => event.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label={L.editAccountSubjectTitle}
-          >
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <h2 className="erp-text-section font-bold">{L.editAccountSubjectTitle}</h2>
-              <button
-                type="button"
-                className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
-                onClick={() => setAccountSubjectModal(null)}
-                aria-label={L.cancel}
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <Field label={L.accountSubject}>
-              <select
-                className="erp-input w-full rounded-xl"
-                value={accountSubjectModal.draft}
-                onChange={(event) => {
-                  setTxCellModalError("");
-                  setAccountSubjectModal((prev) => (prev ? { ...prev, draft: event.target.value } : prev));
-                }}
-              >
-                <option value="">{L.accountSubjectPlaceholder}</option>
-                {accountSubjectPickerGroups.map(([group, options]) => (
-                  <optgroup key={group} label={group}>
-                    {options.map((option) => (
-                      <option key={option.code} value={option.code}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-            </Field>
-            {txCellModalError ? <p className="mt-3 text-sm font-semibold text-red-600">{txCellModalError}</p> : null}
-            <div className="mt-5 flex justify-end gap-2">
-              <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setAccountSubjectModal(null)}>
-                {L.cancel}
-              </Button>
-              <Button type="button" className="rounded-2xl" onClick={saveAccountSubjectModal}>
-                {L.detailSave}
-              </Button>
-            </div>
-          </div>
-        </div>
+          onSave={(accountCode) => saveAccountSubjectSelection(accountSubjectModalTx, accountCode)}
+          onClose={() => setAccountSubjectModalTx(null)}
+        />
       ) : null}
 
       {fixedExpenseModal ? (
