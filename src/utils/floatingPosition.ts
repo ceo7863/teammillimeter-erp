@@ -27,14 +27,36 @@ export function getScrollParents(element: HTMLElement | null | undefined): Array
 
 export const BANK_TX_ACCOUNT_TRIGGER_ATTR = "data-bank-tx-account-trigger";
 
-export function readBankTxAccountTriggerElement(triggerId?: string | null) {
-  if (!triggerId) return null;
-  const el = document.querySelector(`[${BANK_TX_ACCOUNT_TRIGGER_ATTR}="${CSS.escape(triggerId)}"]`);
-  return el instanceof HTMLElement && el.isConnected ? el : null;
+function isVisibleAnchor(el: HTMLElement) {
+  if (!el.isConnected) return false;
+  const style = window.getComputedStyle(el);
+  if (style.display === "none" || style.visibility === "hidden") return false;
+  const rect = el.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
 }
 
-export function readBankTxAccountTriggerRect(triggerId?: string | null) {
-  const el = readBankTxAccountTriggerElement(triggerId);
+export function readBankTxAccountTriggerElement(triggerId?: string | null) {
+  if (!triggerId) return null;
+  const nodes = document.querySelectorAll(`[${BANK_TX_ACCOUNT_TRIGGER_ATTR}="${CSS.escape(triggerId)}"]`);
+  for (const node of nodes) {
+    if (node instanceof HTMLElement && isVisibleAnchor(node)) return node;
+  }
+  return null;
+}
+
+export function resolveBankTxAccountTriggerElement(
+  triggerId?: string | null,
+  preferred?: HTMLElement | null,
+) {
+  if (preferred && isVisibleAnchor(preferred)) return preferred;
+  return readBankTxAccountTriggerElement(triggerId);
+}
+
+export function readBankTxAccountTriggerRect(
+  triggerId?: string | null,
+  preferred?: HTMLElement | null,
+) {
+  const el = resolveBankTxAccountTriggerElement(triggerId, preferred);
   return el ? el.getBoundingClientRect() : null;
 }
 
