@@ -251,6 +251,7 @@ import {
 import { clientIdsEqual, mergeClientFieldsFromLocal } from "@/utils/clientMaster";
 import {
   clearAuthSession,
+  fetchBankTransactionsSnapshot,
   fetchErpData,
   getAuthToken,
   isApiModeEnabled,
@@ -7039,6 +7040,8 @@ export default function TeammillimeterErpMvp() {
   const bankTransactionsDirtyRef = useRef(false);
   const bankSyncApplyingRef = useRef(false);
   const bankRemoteApplySkipDirtyRef = useRef(false);
+  const bankImportAtRef = useRef("");
+  const [bankImportAt, setBankImportAt] = useState("");
   const workerMonthlyLinkCleanupRef = useRef(false);
   const taxInvoiceEvidenceAutoLinkKeyRef = useRef("");
   const taxInvoiceEvidenceAutoLinkTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
@@ -8550,19 +8553,32 @@ export default function TeammillimeterErpMvp() {
           ? snapshot.bankTransactions.length
           : bankTransactionsRef.current.length;
     const localCount = bankTransactionsRef.current.length;
-    const serverLatestAt = String(snapshot.bankSyncMeta?.lastImportLatestAt || "").trim();
+    const normalizeAt = (value: string) =>
+      String(value || "")
+        .trim()
+        .replace(/\.\d{3}Z?$/i, "")
+        .slice(0, 19);
+    const serverLatestAt = normalizeAt(snapshot.bankSyncMeta?.lastImportLatestAt || "");
     let localLatestAt = "";
     for (const row of bankTransactionsRef.current) {
-      const at = String(row.transactionAt || "");
+      const at = normalizeAt(String(row.transactionAt || ""));
       if (at.localeCompare(localLatestAt) > 0) localLatestAt = at;
     }
+    const serverImportAt = String(snapshot.bankSyncMeta?.lastImportAt || "").trim();
     const hasNewerImport = Boolean(
       serverLatestAt && (!localLatestAt || serverLatestAt.localeCompare(localLatestAt) > 0),
+    );
+    const importRunChanged = Boolean(
+      serverImportAt && serverImportAt !== bankImportAtRef.current,
     );
     const countMismatch = serverCount !== localCount;
     const versionAdvanced = nextVersion > erpVersionRef.current;
     const shouldRefresh =
-      countMismatch || hasNewerImport || versionAdvanced || Boolean(snapshot.changed);
+      countMismatch ||
+      hasNewerImport ||
+      importRunChanged ||
+      versionAdvanced ||
+      Boolean(snapshot.changed);
 
     if (!shouldRefresh) return;
 
@@ -8570,24 +8586,13 @@ export default function TeammillimeterErpMvp() {
     skipSaveRef.current = true;
 
     try {
-      let incomingBank = Array.isArray(snapshot.bankTransactions) ? snapshot.bankTransactions : null;
-      let incomingFolders = Array.isArray(snapshot.bankTransactionFolders)
-        ? snapshot.bankTransactionFolders
-        : null;
-      let resolvedVersion = nextVersion;
-
-      const incomingCount = incomingBank?.length ?? 0;
-      if (!incomingBank || incomingCount < serverCount) {
-        const data = await fetchErpData();
-        incomingBank = data.bankTransactions;
-        if (Array.isArray(data.bankTransactionFolders)) {
-          incomingFolders = data.bankTransactionFolders;
-        }
-        resolvedVersion = data.version ?? nextVersion;
-      }
+      const data = await fetchBankTransactionsSnapshot();
+      const incomingBank = data.bankTransactions;
+      const incomingFolders = data.bankTransactionFolders;
+      const resolvedVersion = data.version ?? nextVersion;
 
       let applied = false;
-      if (incomingBank) {
+      if (Array.isArray(incomingBank)) {
         const merged = mergeBankTransactionsUnion(
           bankTransactionsRef.current,
           normalizeBankTransactions(incomingBank),
@@ -8602,7 +8607,7 @@ export default function TeammillimeterErpMvp() {
         setBankTransactions(synced);
         applied = true;
       }
-      if (incomingFolders) {
+      if (Array.isArray(incomingFolders)) {
         setBankTransactionFolders((prev) => {
           const incoming = normalizeBankTransactionFolders(incomingFolders);
           const incomingIds = new Set(incoming.map((folder) => folder.id));
@@ -8617,6 +8622,11 @@ export default function TeammillimeterErpMvp() {
         setErpVersion(resolvedVersion);
         bankTransactionsDirtyRef.current = false;
         bankRemoteApplySkipDirtyRef.current = true;
+        const importAt = String(data.bankSyncMeta?.lastImportAt || serverImportAt || "").trim();
+        if (importAt) {
+          bankImportAtRef.current = importAt;
+          setBankImportAt(importAt);
+        }
       }
     } catch (error) {
       console.error(error);
@@ -8643,6 +8653,7 @@ export default function TeammillimeterErpMvp() {
     sinceVersion: erpVersion,
     localTransactionCount: bankTransactions.length,
     localLatestTransactionAt: bankLatestTransactionAt,
+    localImportAt: bankImportAt,
     onRemoteUpdate: applyRemoteBankSnapshot,
     intervalMs: 15000,
   });

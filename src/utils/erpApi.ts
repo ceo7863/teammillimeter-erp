@@ -315,13 +315,33 @@ export type BankFolderSyncResult = {
   liveSyncStatus?: BankLiveSyncStatus | null;
 };
 
-export async function fetchBankSyncSnapshot(sinceVersion: number, localCount?: number, localLatestAt?: string) {
+export type BankTransactionsSnapshot = {
+  version: number;
+  updatedAt?: string | null;
+  bankTransactions: unknown[];
+  bankTransactionFolders?: unknown[];
+  bankSyncMeta?: BankSyncMeta | null;
+};
+
+export async function fetchBankTransactionsSnapshot() {
+  return apiRequest<BankTransactionsSnapshot>("/erp/bank-transactions");
+}
+
+export async function fetchBankSyncSnapshot(
+  sinceVersion: number,
+  localCount?: number,
+  localLatestAt?: string,
+  localImportAt?: string,
+) {
   const params = new URLSearchParams({ sinceVersion: String(sinceVersion) });
   if (localCount != null && Number.isFinite(localCount)) {
     params.set("localCount", String(localCount));
   }
   if (localLatestAt) {
     params.set("localLatestAt", localLatestAt);
+  }
+  if (localImportAt) {
+    params.set("localImportAt", localImportAt);
   }
   return apiRequest<BankSyncSnapshot>(`/erp/bank-sync?${params.toString()}`);
 }

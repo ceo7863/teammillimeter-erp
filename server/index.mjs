@@ -954,25 +954,39 @@ app.post("/api/bank/classify-ledger", authMiddleware, async (req, res) => {
   }
 });
 
+app.get("/api/erp/bank-transactions", authMiddleware, (_req, res) => {
+  const state = getErpState();
+  res.json({
+    version: state.version,
+    updatedAt: state.updatedAt,
+    bankTransactions: state.data.bankTransactions || [],
+    bankTransactionFolders: state.data.bankTransactionFolders || [],
+    bankSyncMeta: state.data.bankSyncMeta || null,
+  });
+});
+
 app.get("/api/erp/bank-sync", authMiddleware, (req, res) => {
   const sinceVersion = Number(req.query.sinceVersion || 0);
   const localCount = Number(req.query.localCount ?? -1);
   const localLatestAt = String(req.query.localLatestAt || "").trim();
+  const localImportAt = String(req.query.localImportAt || "").trim();
   const state = getErpState();
   const transactions = state.data.bankTransactions || [];
   const transactionCount = transactions.length;
   const changed = state.version > sinceVersion;
   const countChanged = localCount >= 0 && localCount !== transactionCount;
   const serverLatestAt = String(state.data.bankSyncMeta?.lastImportLatestAt || "").trim();
+  const serverImportAt = String(state.data.bankSyncMeta?.lastImportAt || "").trim();
   const importChanged = Boolean(
     serverLatestAt && (!localLatestAt || serverLatestAt.localeCompare(localLatestAt) > 0),
   );
-  const includeTransactions = changed || countChanged || importChanged;
+  const importRunChanged = Boolean(serverImportAt && serverImportAt !== localImportAt);
+  const includeTransactions = changed || countChanged || importChanged || importRunChanged;
   res.json({
     version: state.version,
     updatedAt: state.updatedAt,
     updatedBy: state.updatedBy,
-    changed: changed || countChanged || importChanged,
+    changed: changed || countChanged || importChanged || importRunChanged,
     bankTransactionCount: transactionCount,
     bankTransactions: includeTransactions ? transactions : undefined,
     bankTransactionFolders: includeTransactions ? state.data.bankTransactionFolders || [] : undefined,
@@ -985,7 +999,11 @@ app.get("/api/erp/bank-sync", authMiddleware, (req, res) => {
 
 app.post("/api/bank-sync/run", authMiddleware, async (req, res) => {
   const actor = req.user.loginId || req.user.name || req.user.email || "manual-sync";
-  const result = await runUnifiedBankSync({ updatedBy: actor, forceMetaUpdate: true });
+  const result = await runUnifiedBankSync({
+    updatedBy: actor,
+    forceMetaUpdate: true,
+    requestRefresh: true,
+  });
   if (!result.ok && result.error) {
     res.status(500).json({
       error: result.error,

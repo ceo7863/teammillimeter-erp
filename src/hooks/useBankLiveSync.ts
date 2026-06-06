@@ -3,6 +3,13 @@ import { fetchBankSyncSnapshot, runBankFolderSync, type BankSyncSnapshot } from 
 
 const LIVE_SYNC_KEY = "teammillimeter-bank-live-sync";
 
+function normalizeBankSyncAt(value: string) {
+  return String(value || "")
+    .trim()
+    .replace(/\.\d{3}Z?$/i, "")
+    .slice(0, 19);
+}
+
 export function loadBankLiveSyncEnabled() {
   if (typeof window === "undefined") return true;
   const raw = window.localStorage.getItem(LIVE_SYNC_KEY);
@@ -27,7 +34,7 @@ export type BankLiveSyncState = {
 
 export type BankLiveSyncApi = Pick<
   ReturnType<typeof useBankLiveSync>,
-  "liveSyncEnabled" | "setLiveSyncEnabled" | "state" | "syncNow" | "runFolderSync"
+  "liveSyncEnabled" | "setLiveSyncEnabled" | "state" | "pullSnapshot" | "syncNow" | "runFolderSync"
 >;
 
 type UseBankLiveSyncOptions = {
@@ -36,6 +43,7 @@ type UseBankLiveSyncOptions = {
   sinceVersion: number;
   localTransactionCount: number;
   localLatestTransactionAt?: string;
+  localImportAt?: string;
   onRemoteUpdate: (snapshot: BankSyncSnapshot) => void;
   intervalMs?: number;
 };
@@ -46,6 +54,7 @@ export function useBankLiveSync({
   sinceVersion,
   localTransactionCount,
   localLatestTransactionAt = "",
+  localImportAt = "",
   onRemoteUpdate,
   intervalMs = 20000,
 }: UseBankLiveSyncOptions) {
@@ -63,9 +72,10 @@ export function useBankLiveSync({
   const sinceVersionRef = React.useRef(sinceVersion);
   const localCountRef = React.useRef(localTransactionCount);
   const localLatestAtRef = React.useRef(localLatestTransactionAt);
+  const localImportAtRef = React.useRef(localImportAt);
   const onRemoteUpdateRef = React.useRef(onRemoteUpdate);
   const lastServerSyncAtRef = React.useRef(0);
-  const serverSyncIntervalRef = React.useRef(Math.max(intervalMs * 4, 60000));
+  const serverSyncIntervalRef = React.useRef(Math.max(intervalMs * 2, 45000));
 
   React.useEffect(() => {
     sinceVersionRef.current = sinceVersion;
@@ -80,6 +90,10 @@ export function useBankLiveSync({
   }, [localLatestTransactionAt]);
 
   React.useEffect(() => {
+    localImportAtRef.current = localImportAt;
+  }, [localImportAt]);
+
+  React.useEffect(() => {
     onRemoteUpdateRef.current = onRemoteUpdate;
   }, [onRemoteUpdate]);
 
@@ -91,11 +105,12 @@ export function useBankLiveSync({
         sinceVersionRef.current,
         localCountRef.current,
         localLatestAtRef.current,
+        localImportAtRef.current,
       );
       if (snapshot.liveSyncStatus?.intervalMs) {
         serverSyncIntervalRef.current = Math.max(
-          60000,
-          Math.min(snapshot.liveSyncStatus.intervalMs, intervalMs * 4),
+          45000,
+          Math.min(snapshot.liveSyncStatus.intervalMs, intervalMs * 2),
         );
       }
       setState((prev) => ({
@@ -114,21 +129,32 @@ export function useBankLiveSync({
             ? snapshot.bankTransactions.length
             : localCountRef.current;
       const localCount = localCountRef.current;
-      const serverLatestAt = String(snapshot.bankSyncMeta?.lastImportLatestAt || "");
-      const localLatestAt = String(localLatestAtRef.current || "");
+      const serverLatestAt = normalizeBankSyncAt(snapshot.bankSyncMeta?.lastImportLatestAt || "");
+      const localLatestAt = normalizeBankSyncAt(localLatestAtRef.current || "");
+      const serverImportAt = String(snapshot.bankSyncMeta?.lastImportAt || "").trim();
+      const localImportAtValue = String(localImportAtRef.current || "").trim();
       const hasNewerImport = Boolean(
         serverLatestAt && (!localLatestAt || serverLatestAt.localeCompare(localLatestAt) > 0),
       );
+      const importRunChanged = Boolean(serverImportAt && serverImportAt !== localImportAtValue);
       const countMismatch = serverCount !== localCount;
       let shouldApply =
         applyChanges &&
         (hasNewerImport ||
+          importRunChanged ||
           countMismatch ||
           (snapshot.changed && snapshot.version > sinceVersionRef.current));
 
       if (shouldApply) {
         await onRemoteUpdateRef.current(snapshot);
-        const added = Math.max(0, serverCount - localCountRef.current);
+        localCountRef.current = serverCount;
+        if (serverLatestAt) {
+          localLatestAtRef.current = serverLatestAt;
+        }
+        if (serverImportAt) {
+          localImportAtRef.current = serverImportAt;
+        }
+        const added = Math.max(0, serverCount - localCount);
         setState((prev) => ({
           ...prev,
           lastAppliedAt: new Date().toISOString(),
