@@ -480,6 +480,16 @@ textarea {
   flex: 1;
 }
 
+.erp-client-request-calendar__entry.is-receipt {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.erp-client-request-calendar__entry.is-register {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
 .erp-client-request-calendar__entry.is-pending {
   background: #fff7ed;
   color: #9a3412;
@@ -546,6 +556,16 @@ textarea {
   font-weight: 800;
   border-radius: 999px;
   padding: 0.15rem 0.5rem;
+}
+
+.erp-client-request-calendar__status.is-receipt {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.erp-client-request-calendar__status.is-register {
+  background: #ede9fe;
+  color: #6d28d9;
 }
 
 .erp-client-request-calendar__status.is-pending {
@@ -3183,6 +3203,16 @@ textarea {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .erp-client-request-calendar__entry.is-receipt {
+    background: #e0f2fe;
+    color: #0369a1;
+  }
+
+  .erp-client-request-calendar__entry.is-register {
+    background: #ede9fe;
+    color: #6d28d9;
   }
 
   .erp-client-request-calendar__entry.is-pending {

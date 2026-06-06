@@ -8,7 +8,7 @@ import { ClientSiteRequestCalendar } from "@/components/ClientSiteRequestCalenda
 import { ClientSiteRequestChat } from "@/components/ClientSiteRequestChat";
 import { getCurrentMonthKey } from "@/utils/clientSiteRequestCalendar";
 import {
-  clientSiteRequestStatusLabel,
+  clientSiteRequestPublicStatusLabel,
   fetchPublicClientSiteRequestInfo,
   formatClientSiteRequestWorkPeriod,
   listPublicClientSiteRequests,
@@ -426,7 +426,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
                           <div className="flex items-center justify-between gap-2">
                             <span className="font-bold">{request.siteName}</span>
                             <span className="text-xs font-semibold opacity-80">
-                              {clientSiteRequestStatusLabel(request.status)}
+                              {clientSiteRequestPublicStatusLabel(request)}
                             </span>
                           </div>
                           <div className="mt-1 text-xs opacity-80">

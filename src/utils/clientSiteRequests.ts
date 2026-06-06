@@ -73,6 +73,28 @@ export function clientSiteRequestStatusLabel(status: ClientSiteRequestStatus) {
   return "\uBC18\uB824";
 }
 
+export type ClientSiteRequestPublicStatusTone = "pending" | "receipt" | "register" | "confirmed" | "rejected";
+
+export function clientSiteRequestPublicStatusLabel(
+  request: Pick<ClientSiteRequest, "status" | "receiptCompletedAt" | "registerCompletedAt">,
+) {
+  if (request.status === "rejected") return "\uBC18\uB824";
+  if (request.status === "confirmed") return "\uCC98\uB9AC \uC644\uB8CC";
+  if (request.registerCompletedAt) return "\uB4F1\uB85D \uC644\uB8CC";
+  if (request.receiptCompletedAt) return "\uC811\uC218 \uC644\uB8CC";
+  return "\uC811\uC218 \uB300\uAE30";
+}
+
+export function clientSiteRequestPublicStatusTone(
+  request: Pick<ClientSiteRequest, "status" | "receiptCompletedAt" | "registerCompletedAt">,
+): ClientSiteRequestPublicStatusTone {
+  if (request.status === "rejected") return "rejected";
+  if (request.status === "confirmed") return "confirmed";
+  if (request.registerCompletedAt) return "register";
+  if (request.receiptCompletedAt) return "receipt";
+  return "pending";
+}
+
 export function buildClientSiteRequestPublicUrl(token: string) {
   const normalized = String(token || "").trim();
   if (!normalized) return "";

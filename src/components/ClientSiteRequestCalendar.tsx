@@ -1,7 +1,10 @@
 import React, { memo, useMemo } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { clientSiteRequestStatusLabel } from "@/utils/clientSiteRequests";
+import {
+  clientSiteRequestPublicStatusLabel,
+  clientSiteRequestPublicStatusTone,
+} from "@/utils/clientSiteRequests";
 import type { ClientSiteRequest } from "@/utils/clientSiteRequests";
 import { formatClientSiteRequestWorkPeriod, requestCoversWorkDate } from "@/utils/clientSiteRequests";
 import {
@@ -38,10 +41,8 @@ type ClientSiteRequestCalendarProps = {
   onSelectRequest: (requestId: string, date?: string) => void;
 };
 
-function statusTone(status: ClientSiteRequest["status"]) {
-  if (status === "confirmed") return "confirmed";
-  if (status === "rejected") return "rejected";
-  return "pending";
+function statusTone(request: ClientSiteRequest) {
+  return clientSiteRequestPublicStatusTone(request);
 }
 
 function todayISO() {
@@ -169,7 +170,7 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
                     type="button"
                     className={[
                       "erp-client-request-calendar__entry",
-                      `is-${statusTone(request.status)}`,
+                      `is-${statusTone(request)}`,
                       selectedRequestId === request.id ? "is-active" : "",
                     ]
                       .filter(Boolean)
@@ -219,8 +220,8 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-bold">{request.siteName}</span>
-                    <span className={`erp-client-request-calendar__status is-${statusTone(request.status)}`}>
-                      {clientSiteRequestStatusLabel(request.status)}
+                    <span className={`erp-client-request-calendar__status is-${statusTone(request)}`}>
+                      {clientSiteRequestPublicStatusLabel(request)}
                     </span>
                   </div>
                   <div className="mt-1 text-xs text-slate-500">

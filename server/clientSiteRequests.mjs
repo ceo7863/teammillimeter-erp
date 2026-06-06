@@ -61,6 +61,28 @@ function normalizeMessages(messages) {
     .slice(-200);
 }
 
+function sanitizePublicClientSiteRequest(row) {
+  return {
+    id: row.id,
+    clientId: row.clientId,
+    clientName: row.clientName,
+    status: row.status,
+    workDate: row.workDate,
+    workDateEnd: row.workDateEnd,
+    siteName: row.siteName,
+    workerCount: row.workerCount,
+    memo: row.memo,
+    contactName: row.contactName,
+    contactPhone: row.contactPhone,
+    submittedAt: row.submittedAt,
+    receiptCompletedAt: row.receiptCompletedAt || null,
+    registerCompletedAt: row.registerCompletedAt || null,
+    messages: normalizeMessages(row.messages),
+    lastMessageAt: row.lastMessageAt,
+    unreadByClient: Boolean(row.unreadByClient),
+  };
+}
+
 function findRequestForToken(data, token, requestId) {
   const client = findClientByRequestToken(data, token);
   if (!client) return { ok: false, status: 404, error: "\uC720\uD9A8\uD558\uC9C0 \uC54A\uC740 \uC811\uC218 \uB9C1\uD06C\uC785\uB2C8\uB2E4." };
@@ -207,7 +229,7 @@ export function submitClientSiteRequest(token, body = {}) {
   const requests = [request, ...listRequests(data)];
   saveClientsAndRequests(listClients(data), requests, "client-site-request:submit");
 
-  return { ok: true, request };
+  return { ok: true, request: sanitizePublicClientSiteRequest(request) };
 }
 
 export function listClientSiteRequests(filters = {}) {
@@ -242,11 +264,7 @@ export function listPublicClientSiteRequests(token) {
   }
   const rows = listRequests(data)
     .filter((row) => clientIdsEqual(row.clientId, client.id))
-    .map((row) => ({
-      ...row,
-      messages: normalizeMessages(row.messages),
-      processNote: undefined,
-    }))
+    .map((row) => sanitizePublicClientSiteRequest(row))
     .sort((a, b) => String(b.submittedAt || "").localeCompare(String(a.submittedAt || "")))
     .slice(0, 30);
   return { ok: true, requests: rows };
@@ -290,7 +308,9 @@ export function postPublicClientSiteRequestMessage(token, requestId, body = {}) 
     senderName: String(body.senderName || resolved.request.contactName || resolved.client.name || "").trim().slice(0, 80),
     createdAt: new Date().toISOString(),
   };
-  return appendRequestMessage(data, requestId, message, "client-site-request:public-message");
+  const result = appendRequestMessage(data, requestId, message, "client-site-request:public-message");
+  if (!result.ok) return result;
+  return { ok: true, request: sanitizePublicClientSiteRequest(result.request), message: result.message };
 }
 
 export function postStaffClientSiteRequestMessage(requestId, body = {}, actor = "") {
