@@ -71,6 +71,7 @@ function BankTransactionListSectionComponent({
   onFindEvidence,
   onFilterCounterparty,
   toolbar,
+  tableId,
 }: BankTransactionListSectionProps) {
   const rowByIdRef = useRef(new Map<string, BankTransaction>());
   rowByIdRef.current = useMemo(
