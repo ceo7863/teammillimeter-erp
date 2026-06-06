@@ -38,7 +38,7 @@ type BankTransactionListSectionProps = {
   paymentVouchers?: Array<{ bankTransactionId?: string | number; isPartialPayment?: boolean }>;
   labels: BankTransactionListSectionLabels;
   onEditMemo: (row: BankTransaction) => void;
-  onEditAccountSubject: (row: BankTransaction, anchorRect?: DOMRect) => void;
+  onEditAccountSubject: (row: BankTransaction, anchorEl?: HTMLElement) => void;
   onEditClient: (row: BankTransaction) => void;
   onFindEvidence: (row: BankTransaction) => void;
   toolbar?: React.ReactNode;
@@ -120,9 +120,9 @@ function BankTransactionListSectionComponent({
   );
 
   const handleEditAccountSubject = useCallback(
-    (id: string, anchorRect: DOMRect) => {
+    (id: string, anchorEl?: HTMLElement) => {
       const row = rowByIdRef.current.get(id);
-      if (row) onEditAccountSubject(row, anchorRect);
+      if (row) onEditAccountSubject(row, anchorEl);
     },
     [onEditAccountSubject],
   );

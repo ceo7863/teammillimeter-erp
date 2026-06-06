@@ -8,6 +8,7 @@ import {
   groupAccountCodePickerOptions,
 } from "@/utils/accountCodeTree";
 import { focusKoreanTextInput, prepareKoreanTextInput } from "@/utils/koreanIme";
+import { getScrollParents, readAnchorRect } from "@/utils/floatingPosition";
 
 export type AccountSubjectPickerPopoverLabels = {
   searchPlaceholder: string;
@@ -16,7 +17,7 @@ export type AccountSubjectPickerPopoverLabels = {
 };
 
 type AccountSubjectPickerPopoverProps = {
-  anchorRect?: DOMRect | null;
+  anchorEl?: HTMLElement | null;
   selectedCode: string;
   accountCodes: AccountCode[];
   flow: "income" | "expense";
@@ -66,7 +67,7 @@ function computePopoverStyle(anchorRect?: DOMRect | null): React.CSSProperties {
 }
 
 export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPopover({
-  anchorRect,
+  anchorEl,
   selectedCode,
   accountCodes,
   flow,
@@ -78,7 +79,7 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
   const menuRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
-  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>(() => computePopoverStyle(anchorRect));
+  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>(() => computePopoverStyle(readAnchorRect(anchorEl)));
 
   const filteredRows = useMemo(
     () => filterAccountCodesForManageView(accountCodes, flow, search),
@@ -91,18 +92,34 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
   }, [filteredRows, flow]);
 
   const updatePosition = useCallback(() => {
-    setMenuStyle(computePopoverStyle(anchorRect));
-  }, [anchorRect]);
+    setMenuStyle(computePopoverStyle(readAnchorRect(anchorEl)));
+  }, [anchorEl]);
 
   useEffect(() => {
     updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
+    let rafId = 0;
+    const scheduleUpdate = () => {
+      if (rafId) return;
+      rafId = window.requestAnimationFrame(() => {
+        rafId = 0;
+        updatePosition();
+      });
     };
-  }, [updatePosition]);
+
+    const scrollTargets = getScrollParents(anchorEl ?? null);
+    scrollTargets.forEach((target) => {
+      target.addEventListener("scroll", scheduleUpdate, { passive: true });
+    });
+    window.addEventListener("resize", scheduleUpdate);
+
+    return () => {
+      if (rafId) window.cancelAnimationFrame(rafId);
+      scrollTargets.forEach((target) => {
+        target.removeEventListener("scroll", scheduleUpdate);
+      });
+      window.removeEventListener("resize", scheduleUpdate);
+    };
+  }, [anchorEl, updatePosition]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

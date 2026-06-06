@@ -961,7 +961,7 @@ export function BankTransactionsPage({
   const [accountContentModal, setAccountContentModal] = useState<TxAccountContentModal | null>(null);
   const [accountSubjectPicker, setAccountSubjectPicker] = useState<{
     tx: BankTransaction;
-    anchorRect?: DOMRect | null;
+    anchorEl?: HTMLElement | null;
   } | null>(null);
   const [fixedExpenseModal, setFixedExpenseModal] = useState<TxFixedExpenseModal | null>(null);
   const [clientModal, setClientModal] = useState<TxClientModal | null>(null);
@@ -2160,9 +2160,9 @@ export function BankTransactionsPage({
     });
   }, []);
 
-  const openAccountSubjectModal = useCallback((tx: BankTransaction, anchorRect?: DOMRect | null) => {
+  const openAccountSubjectModal = useCallback((tx: BankTransaction, anchorEl?: HTMLElement | null) => {
     setTxCellModalError("");
-    setAccountSubjectPicker({ tx, anchorRect });
+    setAccountSubjectPicker({ tx, anchorEl });
   }, []);
 
   const openFixedExpenseModal = useCallback(
@@ -6229,7 +6229,7 @@ export function BankTransactionsPage({
 
       {accountSubjectPicker ? (
         <AccountSubjectPickerPopover
-          anchorRect={accountSubjectPicker.anchorRect}
+          anchorEl={accountSubjectPicker.anchorEl}
           selectedCode={resolveTxAccountCodeDraft(accountSubjectPicker.tx)}
           accountCodes={accountCodes}
           flow={accountSubjectPicker.tx.deposit > 0 ? "income" : "expense"}

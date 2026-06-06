@@ -31,7 +31,7 @@ type BankTransactionSplitTableProps = {
   rowModels: Map<string, BankTransactionListRowModel>;
   labels: BankTransactionSplitTableLabels;
   onEditMemo: (id: string) => void;
-  onEditAccountSubject: (id: string, anchorRect: DOMRect) => void;
+  onEditAccountSubject: (id: string, anchorEl: HTMLElement) => void;
   onEditClient: (id: string) => void;
   onFindEvidence: (id: string) => void;
 };
@@ -45,7 +45,7 @@ function AccountSubjectCellButton({
   value: string | null;
   placeholder: string;
   empty?: boolean;
-  onClick: (anchorRect: DOMRect) => void;
+  onClick: (anchorEl: HTMLElement) => void;
 }) {
   const display = value?.trim() || placeholder;
   return (
@@ -59,7 +59,7 @@ function AccountSubjectCellButton({
       title={display}
       onClick={(event) => {
         event.stopPropagation();
-        onClick(event.currentTarget.getBoundingClientRect());
+        onClick(event.currentTarget);
       }}
     >
       {display}
@@ -113,7 +113,7 @@ function SplitRow({
   model: BankTransactionListRowModel;
   labels: BankTransactionSplitTableLabels;
   onEditMemo: (id: string) => void;
-  onEditAccountSubject: (id: string, anchorRect: DOMRect) => void;
+  onEditAccountSubject: (id: string, anchorEl: HTMLElement) => void;
   onEditClient: (id: string) => void;
   onFindEvidence: (id: string) => void;
 }) {
@@ -193,7 +193,7 @@ function SplitRow({
           value={model.accountSubjectLabel}
           placeholder={labels.accountSubjectPlaceholder}
           empty={!model.accountSubjectLabel}
-          onClick={(anchorRect) => onEditAccountSubject(model.id, anchorRect)}
+          onClick={(anchorEl) => onEditAccountSubject(model.id, anchorEl)}
         />
       </td>
       <td className="max-w-[8rem]">
