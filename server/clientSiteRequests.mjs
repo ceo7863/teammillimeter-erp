@@ -373,7 +373,7 @@ export function updateClientSiteRequestStatus(id, input = {}, actor = "") {
 
   if (completionStep === "receipt" || completionStep === "register") {
     if (current.status !== "pending") {
-      return { ok: false, status: 400, error: "\uB300\uAE30 \uC911\uC778 \uC811\uC218\uB9CC \uC644\uB9C \uC644\uB8CC \uCC98\uB9AC\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4." };
+      return { ok: false, status: 400, error: "\uB300\uAE30 \uC911\uC778 \uC811\uC218\uB9CC \uC644\uB8CC \uCC98\uB9AC\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4." };
     }
 
     const receiptCompletedAt = current.receiptCompletedAt || (completionStep === "receipt" ? now : null);
