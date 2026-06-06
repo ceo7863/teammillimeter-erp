@@ -28,6 +28,7 @@ export type ClientMasterLike = {
   vat?: string;
   mealIncluded?: string;
   depositNameAliases?: string;
+  taxInvoiceSplitPayments?: boolean;
   memo?: string;
 };
 
