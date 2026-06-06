@@ -291,6 +291,17 @@ textarea {
   line-height: 1.2;
 }
 
+.erp-account-picker-popover__item--excel.is-child {
+  padding-left: 1.1rem;
+  font-weight: 400;
+  color: #334155;
+}
+
+.erp-account-picker-popover__item--excel.is-child.is-active,
+.erp-account-picker-popover__item--excel.is-child.is-selected:not(.is-active) {
+  color: inherit;
+}
+
 .erp-account-picker-popover__item-label {
   display: block;
   overflow: hidden;

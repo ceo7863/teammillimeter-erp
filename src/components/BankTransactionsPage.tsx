@@ -143,7 +143,7 @@ import {
   type LedgerScopeFilter,
 } from "@/utils/ledgerBankBridge";
 import { AccountSubjectPickerPopover } from "@/components/AccountSubjectPickerPopover";
-import { findAccountCodeByCode, formatAccountCodeLabel } from "@/utils/accountCodeTree";
+import { buildAccountCodePickerOptions, findAccountCodeByCode, formatAccountCodeLabel } from "@/utils/accountCodeTree";
 import {
   confirmBankTransactionLedger,
   filterAccountCodesByFlow,
@@ -2129,14 +2129,14 @@ export function BankTransactionsPage({
   const accountSummaries = useMemo(() => buildBankAccountSummaries(bankTransactions), [bankTransactions]);
 
   const accountSubjectFilterOptions = useMemo(() => {
-    const flow = flowFilter === "deposit" ? "income" : flowFilter === "withdrawal" ? "expense" : "all";
-    return filterAccountCodesByFlow(accountCodes, flow)
-      .filter((row) => row.isActive)
-      .map((row) => ({
-        code: row.code,
-        name: resolveAccountCodeLabel(accountCodes, row.code) || row.name,
-      }))
-      .sort((left, right) => left.name.localeCompare(right.name, "ko"));
+    const flow = flowFilter === "deposit" ? "income" : flowFilter === "withdrawal" ? "expense" : undefined;
+    return buildAccountCodePickerOptions(
+      accountCodes.filter((row) => row.isActive),
+      flow,
+    ).map((row) => ({
+      code: row.code,
+      name: row.depth ? `\u3000\u3000${row.label}` : row.label,
+    }));
   }, [accountCodes, flowFilter]);
 
   useEffect(() => {

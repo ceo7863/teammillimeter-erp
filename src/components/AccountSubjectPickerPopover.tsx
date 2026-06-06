@@ -35,6 +35,7 @@ type FlatPickerItem = {
   code: string;
   label: string;
   groupName: string;
+  depth: 0 | 1;
 };
 
 type VirtualPickerRow =
@@ -154,7 +155,7 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
     const items: FlatPickerItem[] = [];
     for (const [groupName, groupItems] of groups) {
       for (const item of groupItems) {
-        items.push({ code: item.code, label: item.label, groupName });
+        items.push({ code: item.code, label: item.label, groupName, depth: item.depth });
       }
     }
     return items;
@@ -364,8 +365,8 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
                   data-index={virtualRow.index}
                   ref={rowVirtualizer.measureElement}
                   className={`erp-account-picker-popover__item erp-account-picker-popover__item--excel erp-account-picker-popover__virtual-row${
-                    isSelected ? " is-selected" : ""
-                  }${isActive ? " is-active" : ""}`}
+                    row.item.depth ? " is-child" : ""
+                  }${isSelected ? " is-selected" : ""}${isActive ? " is-active" : ""}`}
                   style={{ transform: `translateY(${virtualRow.start}px)` }}
                   onPointerDown={(event) => {
                     if (event.button !== 0) return;

@@ -137,46 +137,57 @@ export type AccountCodePickerOption = {
   code: string;
   label: string;
   parentGroup: string;
+  /** 0 = 2차, 1 = 2차 하위(3차) */
+  depth: 0 | 1;
 };
 
 export function buildAccountCodePickerOptions(
   accountCodes: AccountCode[],
   flow?: "income" | "expense",
 ): AccountCodePickerOption[] {
-  const { activeRows, matchesFlow, formatLabel } = createAccountCodeIndex(accountCodes);
-  const rows = buildAccountDisplayRows(activeRows).filter(({ account }) =>
-    !flow ? true : matchesFlow(account.code, flow),
-  );
+  const { activeRows, matchesFlow } = createAccountCodeIndex(accountCodes);
+  const visibleCodes = new Set(activeRows.map((row) => row.code));
+  const result: AccountCodePickerOption[] = [];
 
-  return rows
-    .map(({ account }) => ({
+  for (const row of buildAccountDisplayRows(activeRows)) {
+    const account = row.account;
+    if (!visibleCodes.has(account.code)) continue;
+    if (flow && !matchesFlow(account.code, flow)) continue;
+    result.push({
       code: account.code,
-      label: formatLabel(account),
+      label: account.name,
       parentGroup: account.parentGroup || "\uAE30\uD0C0",
-    }))
-    .sort(
-      (a, b) =>
-        a.parentGroup.localeCompare(b.parentGroup, "ko") || a.label.localeCompare(b.label, "ko"),
-    );
+      depth: row.kind === "tertiary" ? 1 : 0,
+    });
+  }
+
+  return result;
 }
 
 export type AccountCodeAutocompleteOption = {
   value: string;
   label: string;
   parentGroup: string;
+  depth?: 0 | 1;
 };
+
+function formatAccountPickerIndentLabel(label: string, depth: 0 | 1) {
+  return depth ? `\u3000\u3000${label}` : label;
+}
 
 export function buildAccountCodeAutocompleteOptionsByFlow(accountCodes: AccountCode[]) {
   return {
     income: buildAccountCodePickerOptions(accountCodes, "income").map((option) => ({
       value: option.code,
-      label: option.label,
+      label: formatAccountPickerIndentLabel(option.label, option.depth),
       parentGroup: option.parentGroup,
+      depth: option.depth,
     })),
     expense: buildAccountCodePickerOptions(accountCodes, "expense").map((option) => ({
       value: option.code,
-      label: option.label,
+      label: formatAccountPickerIndentLabel(option.label, option.depth),
       parentGroup: option.parentGroup,
+      depth: option.depth,
     })),
   };
 }
