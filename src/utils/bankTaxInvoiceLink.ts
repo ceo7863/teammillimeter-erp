@@ -11,6 +11,40 @@ export function resolveBankTxClientName(tx: BankTransaction) {
   return String(tx.ledgerClientName || tx.linkedSubject || "").trim() || null;
 }
 
+function normalizePartyName(value: string) {
+  return value.replace(/\s+/g, "").replace(/\(?\)|?|????|????|\(?\)/gi, "").toLowerCase();
+}
+
+function collectBankTxPartyNames(tx: BankTransaction) {
+  return [
+    resolveBankTxClientName(tx),
+    tx.counterpartyName,
+    tx.memo,
+    tx.ledgerMemo,
+    tx.description,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+}
+
+export function hasTaxInvoiceNameMatch(tx: BankTransaction, invoice: TaxInvoice) {
+  const invClient = String(invoice.client || "").trim();
+  if (!invClient) return false;
+
+  const txNames = collectBankTxPartyNames(tx);
+  if (!txNames.length) return false;
+
+  const normalizedInvoice = normalizePartyName(invClient);
+  for (const txName of txNames) {
+    if (txName === invClient) return true;
+    const normalizedTx = normalizePartyName(txName);
+    if (!normalizedTx || !normalizedInvoice) continue;
+    if (normalizedTx === normalizedInvoice) return true;
+    if (normalizedTx.includes(normalizedInvoice) || normalizedInvoice.includes(normalizedTx)) return true;
+  }
+  return false;
+}
+
 export function formatTaxInvoiceEvidenceLabel(invoice: TaxInvoice) {
   const date = String(invoice.issueDate || "").slice(2).replace(/-/g, "-");
   const kind = getTaxInvoiceKindLabel(invoice).slice(0, 1);
@@ -33,11 +67,17 @@ export function scoreTaxInvoiceMatch(tx: BankTransaction, invoice: TaxInvoice) {
     else if (dayDiff <= 90) score += 8;
   }
 
+  const invClient = String(invoice.client || "").trim();
+  if (invClient && collectBankTxPartyNames(tx).length > 0 && !hasTaxInvoiceNameMatch(tx, invoice)) {
+    return 0;
+  }
+
   const client = resolveBankTxClientName(tx);
   const counterparty = String(tx.counterpartyName || "").trim();
-  const invClient = String(invoice.client || "").trim();
   if (client && invClient && client === invClient) score += 35;
   else if (counterparty && invClient && (counterparty.includes(invClient) || invClient.includes(counterparty))) {
+    score += 25;
+  } else if (hasTaxInvoiceNameMatch(tx, invoice)) {
     score += 25;
   }
 
@@ -83,7 +123,8 @@ export function pickAutoTaxInvoiceMatch(
   usedInvoiceIds: Set<string> = new Set(),
 ) {
   const ranked = searchTaxInvoicesForBankTx(tx, invoices).filter(
-    (row) => !usedInvoiceIds.has(row.invoice.id),
+    (row) =>
+      !usedInvoiceIds.has(row.invoice.id) && hasTaxInvoiceNameMatch(tx, row.invoice),
   );
   const best = ranked[0];
   if (!best || best.score < AUTO_TAX_INVOICE_MATCH_MIN_SCORE) return null;
@@ -112,6 +153,7 @@ export function batchAutoLinkTaxInvoiceEvidence(
     if (tx.linkedTaxInvoiceId) continue;
     for (const row of searchTaxInvoicesForBankTx(tx, invoices)) {
       if (row.score < AUTO_TAX_INVOICE_MATCH_MIN_SCORE) break;
+      if (!hasTaxInvoiceNameMatch(tx, row.invoice)) continue;
       if (usedInvoiceIds.has(row.invoice.id)) continue;
       candidates.push({ txId: tx.id, invoice: row.invoice, score: row.score });
     }
