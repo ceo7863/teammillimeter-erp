@@ -62,6 +62,17 @@ export async function syncBarobillTaxInvoices(input: BarobillTaxInvoiceSyncReque
   });
 }
 
+export type BarobillScrapStatus = {
+  active: boolean;
+  collecting?: boolean;
+  code?: number;
+  message?: string;
+};
+
+export async function fetchBarobillScrapStatus() {
+  return apiRequest<BarobillScrapStatus>("/barobill/scrap-status");
+}
+
 export async function fetchBarobillScrapRequestUrl() {
   return apiRequest<{ ok: boolean; url: string }>("/barobill/scrap-request-url");
 }

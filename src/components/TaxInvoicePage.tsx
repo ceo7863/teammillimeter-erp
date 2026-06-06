@@ -50,6 +50,7 @@ import {
   barobillPreviewToHometaxPreview,
   syncBarobillTaxInvoices,
   fetchBarobillScrapRequestUrl,
+  fetchBarobillScrapStatus,
   type BarobillTaxInvoiceSyncPreview,
 } from "@/utils/barobillTaxInvoiceSync";
 import { issueBarobillTaxInvoice } from "@/utils/barobillTaxInvoiceIssue";
@@ -106,7 +107,7 @@ const VIEW_MODE_OPTIONS: Array<{ key: ViewMode; label: string }> = [
 
 const L = {
   pageTitle: "\uACC4\uC0B0\uC11C \uBC1C\uD589",
-  pageDesc: "\uB9E4\uCD9C\uB7C9 \uBC0F \uB9E4\uC785 \uACC4\uC0B0\uC11C \uB0B4\uC5ED\uC744 \uAD00\uB9AC\uD569\uB2C8\uB2E4.",
+  pageDesc: "\uB9E4\uCD9C \uACC4\uC0B0\uC11C\uB294 \uBC14\uB85C\uBE4C \uC804\uC790 \uBC1C\uD589\uC744 \uC0AC\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uB9E4\uC785 \uB0B4\uC5ED\uC740 \uB3D9\uAE30\uD654 \uB610\uB294 \uC5D1\uC140\uB85C \uAC00\uC838\uC635\uB2C8\uB2E4.",
   add: "\uB4F1\uB85D",
   edit: "\uC218\uC815",
   delete: "\uC0AD\uC81C",
@@ -180,7 +181,10 @@ const L = {
   cancelledOffset: "\uC0C1\uC1C0",
   cancelledRowHint: "\uCDE8\uC18C \uC804\uD45C \u00B7 \uD569\uACC4 \uC81C\uC678",
   offsetRowHint: "\uB3D9\uC77C \uAE08\uC561 \uCDE8\uC18C \uC804\uD45C\uC640 \uC0C1\uC1C0",
-  barobillIssue: "\uBC14\uB85C\uBE4C \uBC1C\uD589",
+  barobillIssue: "\uC804\uC790 \uBC1C\uD589",
+  barobillIssueTop: "\uACC4\uC0B0\uC11C \uBC1C\uD589",
+  barobillIssueManual: "\uC218\uAE30 \uB4F1\uB85D",
+  barobillIssueHint: "\uC804\uC790 \uBC1C\uD589 \uC2DC \uBC14\uB85C\uBE4C\uC744 \uD1B5\uD574 \uAD6D\uC138\uCCAD\uC5D0 \uC804\uC1A1\uB429\uB2C8\uB2E4.",
   barobillIssueLoading: "\uBC14\uB85C\uBE4C\uC5D0 \uBC1C\uD589 \uC911\uC785\uB2C8\uB2E4...",
   barobillIssueDone: "\uBC14\uB85C\uBE4C \uC138\uAE08\uACC4\uC0B0\uC11C \uBC1C\uD589\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   barobillIssueFailed: "\uBC14\uB85C\uBE4C \uBC1C\uD589\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
@@ -307,11 +311,15 @@ export function TaxInvoicePage({
   setTaxInvoices,
   clients,
   currentUser,
+  erpVersion = 0,
+  onErpVersionChange,
 }: {
   taxInvoices: TaxInvoice[];
   setTaxInvoices: React.Dispatch<React.SetStateAction<TaxInvoice[]>>;
   clients: Array<{ name?: string; businessNo?: string }>;
   currentUser: ErpUser | null;
+  erpVersion?: number;
+  onErpVersionChange?: (version: number) => void;
 }) {
   const { recordAudit, recordSummaryAudit } = useAudit();
   const [periodKey, setPeriodKey] = useState<PeriodKey>("thisMonth");
@@ -332,6 +340,7 @@ export function TaxInvoicePage({
   const [barobillSyncFlows, setBarobillSyncFlows] = useState<TaxInvoiceFlowType[]>(["purchase", "sales"]);
   const [barobillPreviewActive, setBarobillPreviewActive] = useState(false);
   const [barobillSyncMeta, setBarobillSyncMeta] = useState<BarobillTaxInvoiceSyncPreview | null>(null);
+  const [barobillScrapNeedsApply, setBarobillScrapNeedsApply] = useState<boolean | null>(null);
   const [barobillIssueLoading, setBarobillIssueLoading] = useState(false);
   const [barobillChargeLoading, setBarobillChargeLoading] = useState(false);
   const hometaxInputRef = useRef<HTMLInputElement>(null);
@@ -674,14 +683,14 @@ export function TaxInvoicePage({
     });
   };
 
-  const openCreateModal = () => {
+  const openCreateModal = (flowType: TaxInvoiceFlowType = "sales") => {
     setFormError("");
     setModal({
       mode: "create",
       issueDate: todayISO(),
       client: "",
       businessNo: "",
-      flowType: "sales",
+      flowType,
       documentType: "tax",
       supplyAmount: "",
       totalAmount: "",
@@ -691,6 +700,8 @@ export function TaxInvoicePage({
       status: "issued",
     });
   };
+
+  const canIssueElectronically = Boolean(modal && modal.mode === "create" && modal.flowType === "sales" && isAdmin);
 
   const openEditModal = (row: TaxInvoice) => {
     setFormError("");
@@ -779,37 +790,48 @@ export function TaxInvoicePage({
         itemName: modal.memo.trim() || modal.client.trim(),
         memo: modal.memo.trim() || undefined,
         purposeType: 2,
+        apply: true,
+        version: erpVersion,
       });
 
-      const issued = result.taxInvoice || {
-        id: makeTaxInvoiceId(),
-        issueDate: modal.issueDate,
-        client: modal.client.trim(),
-        businessNo: businessDigits,
-        flowType: "sales" as const,
-        documentType: modal.documentType,
-        supplyAmount: amounts.supplyAmount,
-        vatAmount: amounts.vatAmount,
-        totalAmount: amounts.totalAmount,
-        invoiceNo: result.invoiceNo || undefined,
-        memo: [modal.memo.trim(), result.mgtKey ? `MgtKey: ${result.mgtKey}` : ""].filter(Boolean).join(" · ") || undefined,
-        status: "issued" as const,
-        createdAt: new Date().toISOString(),
-        createdBy: authorName,
-        createdByLoginId: authorLoginId,
-      };
+      const issued =
+        result.taxInvoice ||
+        ({
+          id: makeTaxInvoiceId(),
+          issueDate: modal.issueDate,
+          client: modal.client.trim(),
+          businessNo: businessDigits,
+          flowType: "sales" as const,
+          documentType: modal.documentType,
+          supplyAmount: amounts.supplyAmount,
+          vatAmount: amounts.vatAmount,
+          totalAmount: amounts.totalAmount,
+          invoiceNo: result.invoiceNo || undefined,
+          memo: [modal.memo.trim(), result.mgtKey ? `MgtKey: ${result.mgtKey}` : ""].filter(Boolean).join(" \u00B7 ") || undefined,
+          status: "issued" as const,
+          createdAt: new Date().toISOString(),
+          createdBy: authorName,
+          createdByLoginId: authorLoginId,
+        } satisfies TaxInvoice);
 
+      if (result.taxInvoices) {
+        setTaxInvoices(normalizeTaxInvoices(result.taxInvoices));
+      } else {
+        setTaxInvoices((prev) => [issued, ...prev]);
+      }
+      if (typeof result.version === "number") {
+        onErpVersionChange?.(result.version);
+      }
       recordAudit({
         entityType: "taxInvoice",
         entityId: issued.id,
-        entityLabel: `${issued.client} · ${issued.issueDate}`,
+        entityLabel: `${issued.client} \u00B7 ${issued.issueDate}`,
         screen: L.pageTitle,
         action: "create",
         after: snapshotTaxInvoiceForAudit(issued),
         fields: TAX_INVOICE_AUDIT_FIELDS,
         user: currentUser,
       });
-      setTaxInvoices((prev) => [issued, ...prev]);
       setImportMessage(result.message || L.barobillIssueDone);
       setModal(null);
       setFormError("");
@@ -982,11 +1004,21 @@ export function TaxInvoicePage({
     }
   };
 
+  const closeBarobillSyncModal = () => {
+    setBarobillModalOpen(false);
+    setBarobillScrapNeedsApply(null);
+  };
+
   const openBarobillSyncModal = () => {
     setImportError("");
     setBarobillSyncRange(last30DaysRange());
     setBarobillSyncFlows(["purchase", "sales"]);
+    setBarobillScrapNeedsApply(null);
     setBarobillModalOpen(true);
+    if (!isAdmin) return;
+    void fetchBarobillScrapStatus()
+      .then((status) => setBarobillScrapNeedsApply(!status.active))
+      .catch(() => setBarobillScrapNeedsApply(false));
   };
 
   const toggleBarobillFlow = (flowType: TaxInvoiceFlowType) => {
@@ -1093,6 +1125,17 @@ export function TaxInvoicePage({
           {isAdmin ? (
             <Button
               type="button"
+              className="rounded-2xl"
+              disabled={importLoading || barobillChargeLoading || barobillIssueLoading}
+              onClick={() => openCreateModal("sales")}
+            >
+              <Receipt size={16} className="mr-2" />
+              {L.barobillIssueTop}
+            </Button>
+          ) : null}
+          {isAdmin ? (
+            <Button
+              type="button"
               variant="outline"
               className="rounded-2xl"
               disabled={importLoading || barobillChargeLoading}
@@ -1121,7 +1164,7 @@ export function TaxInvoicePage({
             <FileSpreadsheet size={16} className="mr-2" />
             {L.hometaxImport}
           </Button>
-          <Button type="button" className="rounded-2xl" onClick={openCreateModal}>
+          <Button type="button" variant="outline" className="rounded-2xl" onClick={() => openCreateModal()}>
             <Plus size={16} className="mr-2" />
             {L.add}
           </Button>
@@ -1598,6 +1641,9 @@ export function TaxInvoicePage({
                 />
               </Field>
               {formError ? <p className="text-sm font-semibold text-red-600">{formError}</p> : null}
+              {canIssueElectronically ? (
+                <p className="text-sm text-slate-500">{L.barobillIssueHint}</p>
+              ) : null}
               {barobillIssueLoading ? (
                 <p className="text-sm font-semibold text-slate-500">{L.barobillIssueLoading}</p>
               ) : null}
@@ -1605,20 +1651,25 @@ export function TaxInvoicePage({
                 <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setModal(null)} disabled={barobillIssueLoading}>
                   {L.cancel}
                 </Button>
-                {isAdmin && modal.flowType === "sales" ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="rounded-2xl border-blue-200 text-blue-700 hover:bg-blue-50"
-                    disabled={barobillIssueLoading}
-                    onClick={() => void issueViaBarobill()}
-                  >
-                    {L.barobillIssue}
+                {canIssueElectronically ? (
+                  <>
+                    <Button type="button" variant="outline" className="rounded-2xl" disabled={barobillIssueLoading} onClick={saveInvoice}>
+                      {L.barobillIssueManual}
+                    </Button>
+                    <Button
+                      type="button"
+                      className="rounded-2xl"
+                      disabled={barobillIssueLoading}
+                      onClick={() => void issueViaBarobill()}
+                    >
+                      {L.barobillIssue}
+                    </Button>
+                  </>
+                ) : (
+                  <Button type="button" className="rounded-2xl" onClick={saveInvoice} disabled={barobillIssueLoading}>
+                    {L.save}
                   </Button>
-                ) : null}
-                <Button type="button" className="rounded-2xl" onClick={saveInvoice} disabled={barobillIssueLoading}>
-                  {L.save}
-                </Button>
+                )}
               </div>
             </div>
           </div>
@@ -1626,14 +1677,14 @@ export function TaxInvoicePage({
       ) : null}
 
       {barobillModalOpen ? (
-        <div className="erp-ledger-modal-backdrop" onClick={() => setBarobillModalOpen(false)}>
+        <div className="erp-ledger-modal-backdrop" onClick={closeBarobillSyncModal}>
           <div className="erp-ledger-modal max-w-lg" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <h2 className="erp-text-section font-bold">{L.barobillSyncTitle}</h2>
                 <p className="mt-1 erp-text-caption text-slate-500">{L.barobillSyncDesc}</p>
               </div>
-              <button type="button" className="rounded-xl p-2 text-slate-400 hover:bg-slate-100" onClick={() => setBarobillModalOpen(false)}>
+              <button type="button" className="rounded-xl p-2 text-slate-400 hover:bg-slate-100" onClick={closeBarobillSyncModal}>
                 <X size={18} />
               </button>
             </div>
@@ -1676,7 +1727,7 @@ export function TaxInvoicePage({
             ) : null}
 
             <div className="mt-6 flex flex-wrap justify-end gap-2">
-              {isAdmin ? (
+              {isAdmin && barobillScrapNeedsApply ? (
                 <Button
                   type="button"
                   variant="outline"
@@ -1687,7 +1738,7 @@ export function TaxInvoicePage({
                   {L.barobillScrapApply}
                 </Button>
               ) : null}
-              <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setBarobillModalOpen(false)}>
+              <Button type="button" variant="outline" className="rounded-2xl" onClick={closeBarobillSyncModal}>
                 {L.cancel}
               </Button>
               <Button type="button" className="rounded-2xl" disabled={importLoading} onClick={() => void runBarobillPreview()}>

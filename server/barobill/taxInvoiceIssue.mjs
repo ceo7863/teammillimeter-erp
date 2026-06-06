@@ -70,7 +70,7 @@ function generateMgtKey(issueDate) {
 function normalizeCompanyProfile(raw) {
   const source = raw && typeof raw === "object" ? raw : {};
   return {
-    name: String(source.name || "(?)?????").trim() || "(?)?????",
+    name: String(source.name || "\uD300\uBC00\uB9AC\uBBF8\uD130").trim() || "\uD300\uBC00\uB9AC\uBBF8\uD130",
     businessNo: digitsOnly(source.businessNo || ""),
     phone: String(source.phone || "").trim(),
     address: String(source.address || "").trim(),
@@ -130,7 +130,7 @@ export function buildTaxInvoiceXml(payload) {
 
   const writeDate = toBarobillDate(issueDate);
   const taxType = resolveTaxType(documentType);
-  const lineName = String(itemName || memo || "??").trim() || "??";
+  const lineName = String(itemName || memo || "\uD488\uBAA9").trim() || "\uD488\uBAA9";
   const remark = String(memo || "").trim();
 
   const invoicerXml = buildInvoicePartyXml(
@@ -183,38 +183,38 @@ export function buildTaxInvoiceXml(payload) {
 
 function validateIssueInput(input) {
   if (input.flowType && input.flowType !== "sales") {
-    return "??(???) ?????? ??? ??? ?????.";
+    return "\uB9E4\uCD9C(\uC815\uBC1C\uD589) \uACC4\uC0B0\uC11C\uB9CC \uBC14\uB85C\uBE4C \uBC1C\uD589\uC744 \uC9C0\uC6D0\uD569\uB2C8\uB2E4.";
   }
 
   const issueDate = String(input.issueDate || "").trim();
-  if (!issueDate) return "???? ??? ???.";
+  if (!issueDate) return "\uBC1C\uD589\uC77C\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
 
   const client = String(input.client || "").trim();
-  if (!client) return "???? ??? ???.";
+  if (!client) return "\uAC70\uB798\uCC98\uBA85\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
 
   const businessNo = digitsOnly(input.businessNo);
-  if (businessNo.length !== 10) return "??? ??????? 10??? ??? ???.";
+  if (businessNo.length !== 10) return "\uAC70\uB798\uCC98 \uC0AC\uC5C5\uC790\uBC88\uD638 10\uC790\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
 
   const supplyAmount = Math.round(Number(input.supplyAmount) || 0);
   const vatAmount = Math.round(Number(input.vatAmount) || 0);
   const totalAmount = Math.round(Number(input.totalAmount) || 0);
 
   if (supplyAmount <= 0 || totalAmount <= 0) {
-    return "????? ????? 0?? ?? ???.";
+    return "\uACF5\uAE09\uAC00\uC561\uACFC \uD569\uACC4\uAE08\uC561\uC740 0\uBCF4\uB2E4 \uCEE4\uC57C \uD569\uB2C8\uB2E4.";
   }
 
   const invoicer = resolveInvoicerProfile();
   if (!invoicer.corpNum || invoicer.corpNum.length !== 10) {
-    return "??? ?????(BAROBILL_CORP_NUM ?? ????)? ?????.";
+    return "\uACF5\uAE09\uC790 \uC0AC\uC5C5\uC790\uBC88\uD638(BAROBILL_CORP_NUM \uB610\uB294 \uD68C\uC0AC\uC815\uBCF4)\uAC00 \uC124\uC815\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.";
   }
   if (!invoicer.ceoName) {
-    return "??? ????? ?????. .env? BAROBILL_CEO_NAME? ????? ????? ??? ???.";
+    return "\uACF5\uAE09\uC790 \uB300\uD45C\uC790\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. .env\uC758 BAROBILL_CEO_NAME \uB610\uB294 \uD68C\uC0AC\uC815\uBCF4\uB97C \uD655\uC778\uD574 \uC8FC\uC138\uC694.";
   }
   if (!invoicer.email) {
-    return "??? ???? ?????. .env? BAROBILL_CONTACT_EMAIL? ??? ???.";
+    return "\uACF5\uAE09\uC790 \uC774\uBA54\uC77C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. .env\uC758 BAROBILL_CONTACT_EMAIL\uC744 \uC124\uCEC4\uD574 \uC8FC\uC138\uC694.";
   }
   if (!invoicer.contactId) {
-    return "??? ??? ID(BAROBILL_USER_ID)? ?????.";
+    return "\uBC14\uB85C\uBE4C \uC0AC\uC6A9\uC790 ID(BAROBILL_USER_ID)\uAC00 \uC124\uC815\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.";
   }
 
   return null;
@@ -224,9 +224,9 @@ async function describeBarobillCode(code) {
   if (code >= 0) return null;
   try {
     const message = await getErrString(code);
-    return message || `?? ?? ${code}`;
+    return message || `\uBC14\uB85C\uBE4C \uC624\uB958 ${code}`;
   } catch {
-    return `?? ?? ${code}`;
+    return `\uBC14\uB85C\uBE4C \uC624\uB958 ${code}`;
   }
 }
 
@@ -244,7 +244,7 @@ export async function getTaxInvoiceState(mgtKey) {
     if (faultMatch) {
       throw new Error(`SOAP ??: ${decodeXml(faultMatch[1])}`);
     }
-    throw new Error("????? ?? ?? ??? ??? ? ????.");
+    throw new Error("\uACC4\uC0B0\uC11C \uC0C1\uD0DC \uC870\uD68C \uACB0\uACFC\uB97C \uBD84\uC11D\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
   }
 
   return {
@@ -300,7 +300,7 @@ export async function registAndIssueTaxInvoice(input) {
       Invoice: invoiceXml,
       SendSMS: "false",
       ForceIssue: "false",
-      MailTitle: "????? ?? ??",
+      MailTitle: "\uC804\uC790\uC138\uAE08\uACC4\uC0B0\uC11C \uBC1C\uD589 \uC548\uB0B4",
     },
     { rawFieldNames: ["Invoice"] },
   );
@@ -308,12 +308,12 @@ export async function registAndIssueTaxInvoice(input) {
   const rawResult = extractSoapResult(xml, "RegistAndIssueTaxInvoiceResult");
   const code = parseNumericResult(rawResult);
   if (code === null) {
-    throw new Error("??? ?? ??? ??? ? ????.");
+    throw new Error("\uBC1C\uD589 \uACB0\uACFC \uCF54\uB4DC\uB97C \uBD84\uC11D\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
   }
 
   if (code < 0) {
     const detail = await describeBarobillCode(code);
-    const error = new Error(detail || `??? ?? ?? (${code})`);
+    const error = new Error(detail || `\uACC4\uC0B0\uC11C \uBC1C\uD589 \uC2E4\uD328 (${code})`);
     error.errCode = code;
     throw error;
   }
@@ -331,8 +331,8 @@ export async function registAndIssueTaxInvoice(input) {
     mgtKey,
     invoiceNo,
     message: invoiceNo
-      ? `?????? ???????. (????: ${invoiceNo})`
-      : "?????? ???????.",
+      ? `\uC804\uC790\uACC4\uC0B0\uC11C\uAC00 \uBC1C\uD589\uB418\uC5C8\uC2B5\uB2C8\uB2E4. (\uC2B9\uC778\uBC88\uD638: ${invoiceNo})`
+      : "\uC804\uC790\uACC4\uC0B0\uC11C\uAC00 \uBC1C\uD589\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
     errCode: undefined,
   };
 }
@@ -358,7 +358,7 @@ export function buildIssuedTaxInvoiceRecord(input, issueResult, author) {
     vatAmount: Math.round(Number(input.vatAmount) || 0),
     totalAmount: Math.round(Number(input.totalAmount) || 0),
     invoiceNo: issueResult.invoiceNo || undefined,
-    memo: memoParts.length ? memoParts.join("  ") : undefined,
+    memo: memoParts.length ? memoParts.join(" \u00B7 ") : undefined,
     status: "issued",
     createdAt: now,
     createdBy: author.name,

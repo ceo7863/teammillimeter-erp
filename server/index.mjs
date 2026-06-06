@@ -756,6 +756,17 @@ app.get("/api/barobill/charge-url", authMiddleware, adminMiddleware, async (_req
   }
 });
 
+app.get("/api/barobill/scrap-status", authMiddleware, adminMiddleware, async (_req, res) => {
+  try {
+    const result = await refreshTaxInvoiceScrap();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
 app.get("/api/barobill/scrap-request-url", authMiddleware, adminMiddleware, async (_req, res) => {
   try {
     const url = await getTaxInvoiceScrapRequestUrl();

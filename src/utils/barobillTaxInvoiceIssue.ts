@@ -13,6 +13,7 @@ export type BarobillTaxInvoiceIssueRequest = {
   memo?: string;
   purposeType?: number;
   apply?: boolean;
+  version?: number;
 };
 
 export type BarobillTaxInvoiceIssueResult = {

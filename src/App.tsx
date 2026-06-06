@@ -8365,6 +8365,11 @@ export default function TeammillimeterErpMvp() {
               setTaxInvoices,
               clients,
               currentUser,
+              erpVersion,
+              onErpVersionChange: (version) => {
+                erpVersionRef.current = version;
+                setErpVersion(version);
+              },
             }}
             classify={{
               accountCodes,
