@@ -242,15 +242,20 @@ textarea {
 
 .erp-account-picker-popover__list--excel {
   padding: 0;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .erp-account-picker-popover__excel-group {
-  padding: 0.2rem 0.45rem 0.05rem;
-  font-size: 0.625rem;
+  padding: 0.15rem 0.35rem 0.05rem;
+  font-size: 0.5625rem;
   font-weight: 700;
   color: #64748b;
   background: #f8fafc;
   border-top: 1px solid #e2e8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .erp-account-picker-popover__excel-group:first-child {
@@ -258,15 +263,28 @@ textarea {
 }
 
 .erp-account-picker-popover__item--excel {
-  padding: 0.2rem 0.45rem;
-  font-size: 0.75rem;
+  display: block;
+  padding: 0.12rem 0.35rem;
+  font-size: 0.6875rem;
   font-weight: 500;
-  line-height: 1.25;
+  line-height: 1.2;
+}
+
+.erp-account-picker-popover__item-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .erp-account-picker-popover__item--excel.is-active {
   background: #1d6f42;
   color: #fff;
+}
+
+.erp-account-picker-popover__item--excel:hover:not(.is-active) {
+  background: #ecfdf3;
+  color: #14532d;
 }
 
 .erp-account-picker-popover__item--excel.is-selected:not(.is-active) {
@@ -290,13 +308,13 @@ textarea {
   gap: 0.2rem;
   box-sizing: border-box;
   width: 100%;
-  min-height: 1.625rem;
-  padding: 0.15rem 0.35rem 0.15rem 0.4rem;
+  min-height: 1.5rem;
+  padding: 0.1rem 0.3rem 0.1rem 0.35rem;
   border: 1px solid transparent;
   border-radius: 0;
   background: #fff;
   text-align: left;
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   font-weight: 500;
   color: #0f172a;
   cursor: pointer;

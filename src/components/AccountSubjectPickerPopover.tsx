@@ -37,12 +37,13 @@ type FlatPickerItem = {
 };
 
 const EXCEL_LIST_MAX_HEIGHT = 240;
+const EXCEL_POPOVER_MIN_WIDTH = 280;
 
 function computeExcelPopoverStyle(anchorRect: DOMRect | null): React.CSSProperties | null {
   if (!anchorRect) return null;
 
   const margin = 4;
-  const width = Math.max(anchorRect.width, 96);
+  const width = Math.max(anchorRect.width, EXCEL_POPOVER_MIN_WIDTH);
   let top = anchorRect.bottom - 1;
   let left = anchorRect.left;
 
@@ -84,10 +85,34 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
   const listRef = useRef<HTMLDivElement>(null);
   const typeaheadRef = useRef("");
   const typeaheadTimerRef = useRef<number | null>(null);
+  const keyboardNavRef = useRef(false);
   const [typeahead, setTypeahead] = useState("");
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [menuStyle, setMenuStyle] = useState<React.CSSProperties | null>(() =>
     computeExcelPopoverStyle(readBankTxAccountTriggerRect(triggerId)),
+  );
+
+  const applyMenuStyle = useCallback((style: React.CSSProperties | null) => {
+    const el = menuRef.current;
+    if (!el || style == null) return;
+    if (typeof style.top === "number") el.style.top = `${style.top}px`;
+    if (typeof style.left === "number") el.style.left = `${style.left}px`;
+    if (typeof style.width === "number") el.style.width = `${style.width}px`;
+    if (typeof style.maxHeight === "number") el.style.maxHeight = `${style.maxHeight}px`;
+  }, []);
+
+  const readMenuStyle = useCallback(() => {
+    return computeExcelPopoverStyle(readBankTxAccountTriggerRect(triggerId));
+  }, [triggerId]);
+
+  const updatePosition = useCallback(
+    (syncState = false) => {
+      const style = readMenuStyle();
+      applyMenuStyle(style);
+      if (syncState) setMenuStyle(style);
+      return style;
+    },
+    [applyMenuStyle, readMenuStyle],
   );
 
   const filteredRows = useMemo(
@@ -100,6 +125,9 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
     return groupAccountCodePickerOptions(options);
   }, [filteredRows, flow]);
 
+  const updatePositionRef = useRef(updatePosition);
+  updatePositionRef.current = updatePosition;
+
   const flatItems = useMemo(() => {
     const items: FlatPickerItem[] = [];
     for (const [groupName, groupItems] of groups) {
@@ -110,12 +138,8 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
     return items;
   }, [groups]);
 
-  const updatePosition = useCallback(() => {
-    setMenuStyle(computeExcelPopoverStyle(readBankTxAccountTriggerRect(triggerId)));
-  }, [triggerId]);
-
   useLayoutEffect(() => {
-    updatePosition();
+    updatePosition(true);
   }, [updatePosition]);
 
   useEffect(() => {
@@ -125,11 +149,12 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
 
   useEffect(() => {
     let rafId = 0;
-    const scheduleUpdate = () => {
+    const scheduleUpdate = (event?: Event) => {
+      if (event?.target instanceof Node && menuRef.current?.contains(event.target)) return;
       if (rafId) return;
       rafId = window.requestAnimationFrame(() => {
         rafId = 0;
-        updatePosition();
+        updatePositionRef.current(false);
       });
     };
 
@@ -147,9 +172,11 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
       });
       window.removeEventListener("resize", scheduleUpdate);
     };
-  }, [triggerId, updatePosition]);
+  }, [triggerId]);
 
   useEffect(() => {
+    if (!keyboardNavRef.current) return;
+    keyboardNavRef.current = false;
     const list = listRef.current;
     if (!list) return;
     const active = list.querySelector<HTMLElement>("[data-active='true']");
@@ -177,12 +204,14 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
 
       if (event.key === "ArrowDown") {
         event.preventDefault();
+        keyboardNavRef.current = true;
         setHighlightedIndex((prev) => (prev + 1) % flatItems.length);
         return;
       }
 
       if (event.key === "ArrowUp") {
         event.preventDefault();
+        keyboardNavRef.current = true;
         setHighlightedIndex((prev) => (prev - 1 + flatItems.length) % flatItems.length);
         return;
       }
@@ -209,7 +238,10 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
         const matchIndex = flatItems.findIndex((item) =>
           item.label.toLowerCase().includes(nextQuery.toLowerCase()),
         );
-        if (matchIndex >= 0) setHighlightedIndex(matchIndex);
+        if (matchIndex >= 0) {
+          keyboardNavRef.current = true;
+          setHighlightedIndex(matchIndex);
+        }
       }
     };
 
@@ -219,6 +251,29 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
       if (typeaheadTimerRef.current) window.clearTimeout(typeaheadTimerRef.current);
     };
   }, [flatItems, highlightedIndex, onClose, pickItem, typeahead]);
+
+  useEffect(() => {
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    const previousBodyOverflow = document.body.style.overflow;
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+
+    const preventBackgroundScroll = (event: WheelEvent | TouchEvent) => {
+      const target = event.target;
+      if (target instanceof Node && menuRef.current?.contains(target)) return;
+      event.preventDefault();
+    };
+
+    window.addEventListener("wheel", preventBackgroundScroll, { passive: false });
+    window.addEventListener("touchmove", preventBackgroundScroll, { passive: false });
+
+    return () => {
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      document.body.style.overflow = previousBodyOverflow;
+      window.removeEventListener("wheel", preventBackgroundScroll);
+      window.removeEventListener("touchmove", preventBackgroundScroll);
+    };
+  }, []);
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
@@ -244,6 +299,7 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
       role="listbox"
       aria-label={labels.searchPlaceholder}
       onMouseDown={(event) => event.stopPropagation()}
+      onWheel={(event) => event.stopPropagation()}
     >
       <div ref={listRef} className="erp-account-picker-popover__list erp-account-picker-popover__list--excel">
         {!flatItems.length ? (
@@ -267,14 +323,15 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
                   className={`erp-account-picker-popover__item erp-account-picker-popover__item--excel${
                     isSelected ? " is-selected" : ""
                   }${isActive ? " is-active" : ""}`}
-                  onMouseEnter={() => setHighlightedIndex(index)}
                   onMouseDown={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
                     pickItem(item);
                   }}
                 >
-                  {item.label}
+                  <span className="erp-account-picker-popover__item-label" title={item.label}>
+                    {item.label}
+                  </span>
                 </button>
               </React.Fragment>
             );
