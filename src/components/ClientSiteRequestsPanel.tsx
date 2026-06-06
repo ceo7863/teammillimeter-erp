@@ -135,6 +135,11 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
     return () => window.clearInterval(timer);
   }, [loadAll]);
 
+  const selectedIssueLink = useMemo(
+    () => links.find((link) => String(link.clientId) === issueClientId) || null,
+    [links, issueClientId],
+  );
+
   const copyText = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -152,8 +157,26 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
       const link = await ensureClientSiteRequestLink(issueClientId);
       setMessage(L.linkIssued);
       setLastIssuedUrl(link.url);
-      await copyText(link.url);
       await loadAll();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : L.fail);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCopyIssueLink = async () => {
+    if (!issueClientId) return;
+    setSaving(true);
+    setMessage("");
+    try {
+      const link = selectedIssueLink || (await ensureClientSiteRequestLink(issueClientId));
+      setLastIssuedUrl(link.url);
+      await copyText(link.url);
+      if (!selectedIssueLink) {
+        setMessage(L.linkIssued);
+        await loadAll();
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : L.fail);
     } finally {
@@ -245,7 +268,7 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
           </Button>
         </div>
 
-        <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 lg:grid-cols-[1fr_auto] lg:items-end">
+        <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
           <label className="block">
             <span className="mb-1.5 block text-xs font-bold text-slate-600">{L.pickClient}</span>
             <AutocompleteSelect
@@ -256,10 +279,37 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
               inputProps={{ className: "rounded-xl" }}
             />
           </label>
-          <Button type="button" className="rounded-xl" disabled={!issueClientId || saving} onClick={() => void handleIssueLink()}>
-            <Link2 size={14} className="mr-1" />
-            {L.issueLink}
-          </Button>
+
+          {selectedIssueLink ? (
+            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+              <p className="text-xs font-bold text-slate-500">{L.linkUrl}</p>
+              <a
+                href={selectedIssueLink.url}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1 block break-all text-sm font-semibold text-blue-700 underline decoration-blue-300 underline-offset-2 hover:text-blue-900"
+              >
+                {selectedIssueLink.url}
+              </a>
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" className="rounded-xl" disabled={!issueClientId || saving} onClick={() => void handleIssueLink()}>
+              <Link2 size={14} className="mr-1" />
+              {L.issueLink}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-xl"
+              disabled={!issueClientId || saving}
+              onClick={() => void handleCopyIssueLink()}
+            >
+              <Copy size={14} className="mr-1" />
+              {L.copyLink}
+            </Button>
+          </div>
         </div>
 
         {message ? <p className="text-sm font-semibold text-blue-700">{message}</p> : null}
