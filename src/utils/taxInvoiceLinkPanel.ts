@@ -1,7 +1,6 @@
 import type { BankTransaction } from "./bankTransactions";
 import {
   buildTaxInvoiceCancellationExcludedIds,
-  filterTaxInvoices,
   filterTaxInvoicesByFlow,
   filterTaxInvoicesByPeriod,
   sortTaxInvoices,
@@ -10,6 +9,13 @@ import {
 } from "./taxInvoices";
 
 export type TaxInvoiceLinkedPaymentIndex = Map<string, { purchase: number; sales: number }>;
+
+export type TaxInvoiceLinkCatalogRow = {
+  invoice: TaxInvoice;
+  unsettledAmount: number;
+  linkedAmount: number;
+  searchText: string;
+};
 
 export function buildTaxInvoiceLinkedPaymentIndex(transactions: BankTransaction[]): TaxInvoiceLinkedPaymentIndex {
   const index: TaxInvoiceLinkedPaymentIndex = new Map();
@@ -79,6 +85,51 @@ export function resolveDefaultTaxInvoiceFlowFilter(tx: BankTransaction): TaxInvo
   return "sales";
 }
 
+function buildTaxInvoiceSearchText(invoice: TaxInvoice) {
+  return [
+    invoice.client,
+    invoice.businessNo,
+    invoice.invoiceNo || "",
+    invoice.memo || "",
+    invoice.issueDate,
+    invoice.supplyAmount,
+    invoice.vatAmount,
+    invoice.totalAmount,
+  ]
+    .join(" ")
+    .toLowerCase();
+}
+
+export function buildTaxInvoiceLinkCatalog(input: {
+  invoices: TaxInvoice[];
+  linkedPaymentIndex: TaxInvoiceLinkedPaymentIndex;
+  excludedIds: Set<string>;
+  flowFilter: TaxInvoiceFlowType;
+  startDate: string;
+  endDate: string;
+}): TaxInvoiceLinkCatalogRow[] {
+  let rows = input.invoices.filter((row) => row.status === "issued" && !input.excludedIds.has(row.id));
+  rows = filterTaxInvoicesByFlow(rows, input.flowFilter);
+  rows = filterTaxInvoicesByPeriod(rows, input.startDate, input.endDate);
+  rows = sortTaxInvoices(rows);
+  return rows.map((invoice) => {
+    const linkedAmount = getTaxInvoiceLinkedPaymentSumFromIndex(input.linkedPaymentIndex, invoice);
+    return {
+      invoice,
+      linkedAmount,
+      unsettledAmount: Math.max(0, Number(invoice.totalAmount || 0) - linkedAmount),
+      searchText: buildTaxInvoiceSearchText(invoice),
+    };
+  });
+}
+
+export function filterTaxInvoiceLinkCatalog(rows: TaxInvoiceLinkCatalogRow[], search: string) {
+  const q = search.trim().toLowerCase();
+  if (!q) return rows;
+  return rows.filter((row) => row.searchText.includes(q));
+}
+
+/** @deprecated Use buildTaxInvoiceLinkCatalog + filterTaxInvoiceLinkCatalog */
 export function filterTaxInvoicesForLinkPanel(input: {
   invoices: TaxInvoice[];
   linkedPaymentIndex: TaxInvoiceLinkedPaymentIndex;
@@ -89,19 +140,15 @@ export function filterTaxInvoicesForLinkPanel(input: {
   search: string;
 }) {
   const excludedIds = input.excludedIds ?? buildTaxInvoiceCancellationExcludedIds(input.invoices);
-  let rows = input.invoices.filter((row) => row.status === "issued" && !excludedIds.has(row.id));
-  rows = filterTaxInvoicesByFlow(rows, input.flowFilter);
-  rows = filterTaxInvoicesByPeriod(rows, input.startDate, input.endDate);
-  rows = filterTaxInvoices(rows, input.search);
-  rows = sortTaxInvoices(rows);
-  return rows.map((invoice) => {
-    const linkedAmount = getTaxInvoiceLinkedPaymentSumFromIndex(input.linkedPaymentIndex, invoice);
-    return {
-      invoice,
-      unsettledAmount: Math.max(0, Number(invoice.totalAmount || 0) - linkedAmount),
-      linkedAmount,
-    };
+  const catalog = buildTaxInvoiceLinkCatalog({
+    invoices: input.invoices,
+    linkedPaymentIndex: input.linkedPaymentIndex,
+    excludedIds,
+    flowFilter: input.flowFilter,
+    startDate: input.startDate,
+    endDate: input.endDate,
   });
+  return filterTaxInvoiceLinkCatalog(catalog, input.search);
 }
 
 export function canLinkTaxInvoiceToTransaction(
@@ -114,3 +161,5 @@ export function canLinkTaxInvoiceToTransaction(
   if (invoice.flowType === "sales" && !(Number(tx.deposit || 0) > 0)) return false;
   return true;
 }
+
+export { buildTaxInvoiceCancellationExcludedIds };

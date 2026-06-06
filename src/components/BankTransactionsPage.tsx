@@ -48,6 +48,7 @@ import {
   learnClientTaxInvoiceSplitPayments,
   shouldLearnTaxInvoiceSplitPayment,
 } from "@/utils/taxInvoiceSplitLink";
+import { buildTaxInvoiceLinkedPaymentIndex } from "@/utils/taxInvoiceLinkPanel";
 import {
   buildBankTransactionRowDisplayCache,
   buildBankTransactionsExportTable,
@@ -1038,6 +1039,10 @@ export function BankTransactionsPage({
   const fixedExpenseItemModalRef = useRef<CompanyLedgerFixedExpenseModalHandle>(null);
   const [clientModal, setClientModal] = useState<TxClientModal | null>(null);
   const [taxInvoiceModal, setTaxInvoiceModal] = useState<TxTaxInvoiceModal | null>(null);
+  const taxInvoiceLinkedPaymentIndex = React.useMemo(
+    () => buildTaxInvoiceLinkedPaymentIndex(bankTransactions),
+    [bankTransactions],
+  );
   const [txCellModalError, setTxCellModalError] = useState("");
   const importLedgerBatchIdsRef = useRef<Set<string>>(new Set());
   const ledgerMemoDraftRef = useRef("");
@@ -6489,9 +6494,8 @@ export function BankTransactionsPage({
         <TaxInvoiceLinkPanel
           tx={taxInvoiceModal.tx}
           taxInvoices={taxInvoices}
-          bankTransactions={bankTransactions}
+          linkedPaymentIndex={taxInvoiceLinkedPaymentIndex}
           companyProfile={companyProfile}
-          matchContext={taxInvoiceMatchContext}
           linkedInvoiceId={taxInvoiceModal.tx.linkedTaxInvoiceId}
           onClose={() => setTaxInvoiceModal(null)}
           onLink={saveTaxInvoiceLink}
