@@ -159,6 +159,7 @@ import type { ReceivableRow } from "@/utils/receivables";
 import type { ErpUser, BankSyncSnapshot } from "@/utils/erpApi";
 import { useBankLiveSync } from "@/hooks/useBankLiveSync";
 import { OpenBankingSettingsPanel } from "@/components/OpenBankingSettingsPanel";
+import { BarobillBankSettingsPanel } from "@/components/BarobillBankSettingsPanel";
 import {
   buildAllBankDepositSuggestions,
   buildBankDepositMatchCandidates,
@@ -4611,6 +4612,11 @@ export function BankTransactionsPage({
                     </p>
                   ) : null}
                   <OpenBankingSettingsPanel
+                    apiMode={apiMode}
+                    isAdmin={currentUser?.role === "admin"}
+                    onSynced={() => pullSnapshot(true)}
+                  />
+                  <BarobillBankSettingsPanel
                     apiMode={apiMode}
                     isAdmin={currentUser?.role === "admin"}
                     onSynced={() => pullSnapshot(true)}

@@ -55,6 +55,12 @@ export const config = {
     ceoName: process.env.BAROBILL_CEO_NAME || "",
     /** 공급자 담당자 이메일 — 미설정 시 발행 API가 거절될 수 있음 */
     contactEmail: process.env.BAROBILL_CONTACT_EMAIL || "",
+    /** 바로빌 계좌거래내역조회 대상 계좌 (하이픈 포함/미포함 모두 가능) */
+    bankAccountNum: process.env.BAROBILL_BANK_ACCOUNT_NUM || "969-046529-04-015",
+    /** 자동 동기화 시 조회 일수 */
+    bankSyncDays: Number(process.env.BAROBILL_BANK_SYNC_DAYS || 7),
+    /** false 이면 수동 동기화만 가능 */
+    bankSyncEnabled: parseEnvBool(process.env.BAROBILL_BANK_SYNC_ENABLED, true),
     test: barobillTest,
     wsdlUrl: barobillTest ? BAROBILL_TEST_WSDL : BAROBILL_PROD_WSDL,
   },

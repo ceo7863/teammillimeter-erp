@@ -47,15 +47,32 @@ export function getBankSyncStatus() {
 }
 
 export async function runUnifiedBankSync(options = {}) {
+  const barobillResult = await runBarobillBankSyncIfConfigured(options);
+  if (barobillResult?.ok && (barobillResult.added > 0 || options.forceMetaUpdate)) {
+    return { ...barobillResult, source: "barobill-bank" };
+  }
+  if (barobillResult?.ok && !barobillResult.skipped) {
+    return { ...barobillResult, source: "barobill-bank" };
+  }
+
   const openResult = await runOpenBankingSyncIfConfigured(options);
   if (openResult?.ok && (openResult.added > 0 || options.forceMetaUpdate)) {
-    return { ...openResult, source: "open-banking" };
+    return { ...openResult, source: "open-banking", barobillBank: barobillResult };
   }
   if (openResult?.ok && !openResult.skipped) {
-    return { ...openResult, source: "open-banking" };
+    return { ...openResult, source: "open-banking", barobillBank: barobillResult };
   }
   const folderResult = runBankFolderSync(options);
-  return { ...folderResult, source: "folder", openBanking: openResult };
+  return { ...folderResult, source: "folder", barobillBank: barobillResult, openBanking: openResult };
+}
+
+async function runBarobillBankSyncIfConfigured(options) {
+  try {
+    const { runBarobillBankSync } = await import("./barobillBankSync.mjs");
+    return await runBarobillBankSync(options);
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 async function runOpenBankingSyncIfConfigured(options) {
@@ -166,9 +183,10 @@ let intervalHandle = null;
 export function startBankSyncScheduler() {
   if (config.bankSyncIntervalMs <= 0) return;
   if (intervalHandle) return;
+  const hasBarobillBank = config.barobill?.bankSyncEnabled && Boolean(config.barobill?.bankAccountNum);
   const hasOpenBanking = config.openBanking?.enabled;
   const hasFolder = Boolean(config.ibkBankImportDir);
-  if (!hasOpenBanking && !hasFolder) return;
+  if (!hasBarobillBank && !hasOpenBanking && !hasFolder) return;
 
   intervalHandle = setInterval(() => {
     runUnifiedBankSync().catch((error) => {
@@ -182,6 +200,7 @@ export function startBankSyncScheduler() {
 
   console.log(
     `[bank-sync] scheduler every ${Math.round(config.bankSyncIntervalMs / 1000)}s` +
+      (hasBarobillBank ? " (barobill-bank)" : "") +
       (hasOpenBanking ? " (open-banking)" : "") +
       (hasFolder ? ` folder=${config.ibkBankImportDir}` : ""),
   );

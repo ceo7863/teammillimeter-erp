@@ -73,6 +73,17 @@ import { getBarobillConfigStatus, testBarobillConnection, getBarobillUrl } from 
 import { syncBarobillTaxInvoices } from "./barobill/taxInvoiceSync.mjs";
 import { buildIssuedTaxInvoiceRecord, registAndIssueTaxInvoice } from "./barobill/taxInvoiceIssue.mjs";
 import { getTaxInvoiceScrapRequestUrl, refreshTaxInvoiceScrap } from "./barobill/taxInvoiceScrap.mjs";
+import {
+  getBarobillBankSyncStatus,
+  runBarobillBankSync,
+} from "./barobillBankSync.mjs";
+import {
+  getBankAccountManagementUrl,
+  getBankAccountScrapRequestUrl,
+  listRegisteredBankAccounts,
+  refreshBankAccountScrap,
+} from "./barobill/bankAccountScrap.mjs";
+import { getBarobillBankConfigStatus } from "./barobill/bankAccountClient.mjs";
 import { classifyBankLedgerBatch } from "./bankLedgerClassify.mjs";
 
 initDb();
@@ -682,6 +693,7 @@ app.get("/api/erp/bank-sync", authMiddleware, (req, res) => {
     bankSyncMeta: state.data.bankSyncMeta || null,
     liveSyncStatus: getBankSyncStatus(),
     openBankingStatus: getOpenBankingSyncStatus(),
+    barobillBankStatus: getBarobillBankSyncStatus(),
   });
 });
 
@@ -693,6 +705,7 @@ app.post("/api/bank-sync/run", authMiddleware, async (req, res) => {
       error: result.error,
       liveSyncStatus: getBankSyncStatus(),
       openBankingStatus: getOpenBankingSyncStatus(),
+      barobillBankStatus: getBarobillBankSyncStatus(),
     });
     return;
   }
@@ -704,6 +717,7 @@ app.post("/api/bank-sync/run", authMiddleware, async (req, res) => {
     bankSyncMeta: state.data.bankSyncMeta || null,
     liveSyncStatus: getBankSyncStatus(),
     openBankingStatus: getOpenBankingSyncStatus(),
+    barobillBankStatus: getBarobillBankSyncStatus(),
   });
 });
 
@@ -1020,11 +1034,126 @@ app.post("/api/open-banking/sync", authMiddleware, async (req, res) => {
   });
 });
 
+app.get("/api/barobill/bank/status", authMiddleware, (_req, res) => {
+  res.json({ status: getBarobillBankSyncStatus(), config: getBarobillBankConfigStatus() });
+});
+
+app.get("/api/barobill/bank/scrap-status", authMiddleware, adminMiddleware, async (_req, res) => {
+  try {
+    const result = await refreshBankAccountScrap();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+app.get("/api/barobill/bank/scrap-request-url", authMiddleware, adminMiddleware, async (_req, res) => {
+  try {
+    const url = await getBankAccountScrapRequestUrl();
+    res.json({ ok: true, url });
+  } catch (error) {
+    const errCode = error && typeof error === "object" && "errCode" in error ? error.errCode : undefined;
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+      errCode,
+    });
+  }
+});
+
+app.get("/api/barobill/bank/management-url", authMiddleware, adminMiddleware, async (_req, res) => {
+  try {
+    const url = await getBankAccountManagementUrl();
+    res.json({ ok: true, url });
+  } catch (error) {
+    const errCode = error && typeof error === "object" && "errCode" in error ? error.errCode : undefined;
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+      errCode,
+    });
+  }
+});
+
+app.get("/api/barobill/bank/accounts", authMiddleware, adminMiddleware, async (_req, res) => {
+  try {
+    const accounts = await listRegisteredBankAccounts();
+    res.json({ ok: true, accounts });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+app.post("/api/barobill/bank/sync", authMiddleware, async (req, res) => {
+  const actor = req.user.loginId || req.user.name || req.user.email || "barobill-bank-manual";
+  const startDate = String(req.body?.startDate || "").trim() || undefined;
+  const endDate = String(req.body?.endDate || "").trim() || undefined;
+  const syncDays = req.body?.syncDays !== undefined ? Number(req.body.syncDays) : undefined;
+  const previewOnly = Boolean(req.body?.previewOnly);
+
+  const cfg = getBarobillBankConfigStatus();
+  if (!cfg.configured) {
+    res.status(400).json({
+      error: "\uBC14\uB85C\uBE4C \uACC4\uC88C \uC870\uD68C\uC758 CERTKEY, CORP_NUM, USER_ID, BANK_ACCOUNT_NUM \uC774 \uC124\uC815\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.",
+    });
+    return;
+  }
+
+  if (startDate && endDate && startDate > endDate) {
+    res.status(400).json({ error: "\uC2DC\uC791\uC77C\uC774 \uC885\uB8CC\uC77C\uBCF4\uB2E4 \uB290\uB824 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." });
+    return;
+  }
+
+  const state = getErpState();
+  const existing = Array.isArray(state.data.bankTransactions) ? state.data.bankTransactions : [];
+
+  try {
+    const result = await runBarobillBankSync({
+      updatedBy: actor,
+      forceMetaUpdate: !previewOnly,
+      previewOnly,
+      existing,
+      startDate,
+      endDate,
+      syncDays,
+    });
+
+    if (!result.ok && result.error) {
+      res.status(500).json({ ...result, status: getBarobillBankSyncStatus() });
+      return;
+    }
+
+    if (previewOnly) {
+      res.json({ ...result, status: getBarobillBankSyncStatus() });
+      return;
+    }
+
+    const saved = getErpState();
+    res.json({
+      ...result,
+      version: saved.version,
+      updatedAt: saved.updatedAt,
+      bankSyncMeta: saved.data.bankSyncMeta || null,
+      status: getBarobillBankSyncStatus(),
+    });
+  } catch (error) {
+    const errCode = error && typeof error === "object" && "errCode" in error ? error.errCode : undefined;
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+      errCode,
+      status: getBarobillBankSyncStatus(),
+    });
+  }
+});
+
 app.get("/api/bank-sync/status", authMiddleware, (_req, res) => {
   const state = getErpState();
   res.json({
     liveSyncStatus: getBankSyncStatus(),
     openBankingStatus: getOpenBankingSyncStatus(),
+    barobillBankStatus: getBarobillBankSyncStatus(),
     bankSyncMeta: state.data.bankSyncMeta || null,
     version: state.version,
     updatedAt: state.updatedAt,
