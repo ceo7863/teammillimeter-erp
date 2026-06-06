@@ -2,10 +2,12 @@ import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SaleVoucherCommentsPanel } from "@/components/SaleVoucherCommentsPanel";
 import { useAudit } from "@/context/AuditContext";
 import { useSaveMessage } from "@/hooks/useSaveMessage";
 import { SALE_AUDIT_FIELDS, snapshotSaleForAudit } from "@/utils/auditLog";
 import { syncBankTransactionsForSaleClientChange } from "@/utils/bankTransactions";
+import type { SaleComment } from "@/utils/saleComments";
 import {
   buildSaleFromForm,
   saleRowToForm,
@@ -39,6 +41,8 @@ type SaleVoucherEditModalProps = {
   ) => void | Promise<void>;
   screen?: string;
   SaleFormEditor: React.ComponentType<SaleFormEditorInjectedProps>;
+  saleComments?: SaleComment[];
+  onAddSaleComment?: (body: string) => void | Promise<void>;
 };
 
 export type SaleFormEditorInjectedProps = {
@@ -86,6 +90,8 @@ export const SaleVoucherEditModal = memo(function SaleVoucherEditModal({
   onPersistSaleUpdate,
   screen = "\uB9E4\uCD9C\uAD00\uB9AC",
   SaleFormEditor,
+  saleComments = [],
+  onAddSaleComment,
 }: SaleVoucherEditModalProps) {
   const { recordAudit } = useAudit();
   const [deleteConfirm, setDeleteConfirm] = useState<SaleRecord | null>(null);
@@ -249,6 +255,14 @@ export const SaleVoucherEditModal = memo(function SaleVoucherEditModal({
               )}
               allowClientSiteUnlock
             />
+            {onAddSaleComment ? (
+              <SaleVoucherCommentsPanel
+                saleId={sale.id}
+                saleComments={saleComments}
+                onAddComment={onAddSaleComment}
+                currentUser={currentUser}
+              />
+            ) : null}
           </div>
         </div>
       </div>

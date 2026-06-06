@@ -84,6 +84,16 @@ import { DEFAULT_COMPANY_PROFILE, normalizeCompanyProfile } from "@/utils/compan
 import { formatDepositNameAliases } from "@/utils/clientDepositAliases";
 import { normalizeCompanyNotices } from "@/utils/companyNotices";
 import { normalizeWorkPosts } from "@/utils/workBoard";
+import {
+  appendSaleComment,
+  appendSaleComments,
+  createPendingSaleComment,
+  createSaleComment,
+  normalizeSaleComments,
+  pendingCommentsToSaleComments,
+  type SaleComment,
+} from "@/utils/saleComments";
+import { SaleVoucherCommentsPanel } from "@/components/SaleVoucherCommentsPanel";
 import { normalizeTaxInvoices } from "@/utils/taxInvoices";
 import {
   normalizeBankTransactions,
@@ -575,6 +585,7 @@ function normalizeBackupPayload(raw) {
       ),
       companyNotices: normalizeCompanyNotices(raw.companyNotices),
       workPosts: normalizeWorkPosts(raw.workPosts),
+      saleComments: normalizeSaleComments(raw.saleComments),
       taxInvoices: normalizeTaxInvoices(raw.taxInvoices),
       bankTransactions: normalizeBankTransactions(raw.bankTransactions),
       bankTransactionFolders: normalizeBankTransactionFolders(raw.bankTransactionFolders),
@@ -3298,6 +3309,8 @@ function CalendarPage({
   autoLinkedSaleIds = new Set(),
   manualLinkedSaleIds = new Set(),
   onPersistSaleUpdate,
+  saleComments = [],
+  onAddSaleComment,
 }) {
   const { recordAudit } = useAudit();
   const { message: clientFilterNotice, showNotice: showClientFilterNotice, clearNotice: clearClientFilterNotice } = useActionNotice();
@@ -4615,6 +4628,8 @@ function CalendarPage({
           onPersistSaleUpdate={onPersistSaleUpdate}
           screen="캘린더"
           SaleFormEditor={SaleFormCompactEditor}
+          saleComments={saleComments}
+          onAddSaleComment={(body) => onAddSaleComment?.(editingSale.id, body)}
         />
       ) : null}
     </div>
@@ -4726,6 +4741,7 @@ const SalesRegistrationPage = memo(function SalesRegistrationPage({
   clients,
   workers,
   currentUser,
+  saleComments = [],
   onPersistNewSale,
 }) {
   const { recordAudit } = useAudit();
@@ -4735,6 +4751,7 @@ const SalesRegistrationPage = memo(function SalesRegistrationPage({
   const draftRef = useRef(initialForm);
   const { message: saveMessage, setMessage: setSaveMessage, clearMessage: clearSaveMessage } = useSaveMessage();
   const [duplicateConfirm, setDuplicateConfirm] = useState(null);
+  const [pendingComments, setPendingComments] = useState([]);
   const activeWorkers = useMemo(() => filterActiveWorkers(workers), [workers]);
   const syncDraftRef = useCallback((draft) => {
     draftRef.current = draft;
@@ -4764,12 +4781,18 @@ const SalesRegistrationPage = memo(function SalesRegistrationPage({
       user: currentUser,
     });
     const nextSales = [newSale, ...salesRef.current];
+    const flushedComments = pendingComments.length
+      ? appendSaleComments(saleComments, pendingCommentsToSaleComments(pendingComments, newId))
+      : saleComments;
     setSales(nextSales);
-    await onPersistNewSale?.(nextSales);
+    if (pendingComments.length) {
+      setPendingComments([]);
+    }
+    await onPersistNewSale?.(nextSales, flushedComments);
     setFormSessionKey((key) => key + 1);
     setSaveMessage(`${payload.client} · ${payload.site} 매출이 저장되었습니다. 계속 등록할 수 있습니다.`);
     setDuplicateConfirm(null);
-  }, [currentUser, onPersistNewSale, recordAudit, setSales, setSaveMessage]);
+  }, [currentUser, onPersistNewSale, pendingComments, recordAudit, saleComments, setSales, setSaveMessage]);
 
   const saveNewSale = useCallback((currentForm) => {
     const masterRefError = validateSaleFormMasterRefs(currentForm, clients, activeWorkers);
@@ -4807,8 +4830,13 @@ const SalesRegistrationPage = memo(function SalesRegistrationPage({
   const resetForm = () => {
     clearSaveMessage();
     setDuplicateConfirm(null);
+    setPendingComments([]);
     setFormSessionKey((key) => key + 1);
   };
+
+  const handleAddComment = useCallback((body: string) => {
+    setPendingComments((prev) => [...prev, createPendingSaleComment(body, currentUser)]);
+  }, [currentUser]);
 
   return (
     <div className="erp-page erp-sale-form-page erp-sale-form-page--compact">
@@ -4853,6 +4881,12 @@ const SalesRegistrationPage = memo(function SalesRegistrationPage({
         showPaidField={false}
         memoAfterWorkers={true}
       />
+      <SaleVoucherCommentsPanel
+        saleComments={saleComments}
+        pendingComments={pendingComments}
+        onAddComment={handleAddComment}
+        currentUser={currentUser}
+      />
     </div>
   );
 });
@@ -4868,7 +4902,7 @@ function SearchBox({ query, setQuery, placeholder }) {
 
 const emptyVoucherSearchFilters = { client: "", site: "", worker: "" };
 
-function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, setPaymentVouchers, setBankTransactions, onPersistSaleUpdate, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set() }) {
+function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, setPaymentVouchers, setBankTransactions, onPersistSaleUpdate, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set(), saleComments = [], onAddSaleComment }) {
   const [searchFilters, setSearchFilters] = useState(emptyVoucherSearchFilters);
   const [dateFilter, setDateFilter] = useState({ startDate: "", endDate: "" });
   const [selectedSale, setSelectedSale] = useState(null);
@@ -4940,6 +4974,8 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
           onPersistSaleUpdate={onPersistSaleUpdate}
           screen="매출전표검색"
           SaleFormEditor={SaleFormCompactEditor}
+          saleComments={saleComments}
+          onAddSaleComment={(body) => onAddSaleComment?.(selectedSale.id, body)}
         />
       ) : null}
 
@@ -7053,6 +7089,12 @@ export default function TeammillimeterErpMvp() {
     if (apiMode && sessionOnMount) return [];
     return normalizeWorkPosts(storedData?.workPosts);
   });
+  const [saleComments, setSaleComments] = useState(() => {
+    if (apiMode && sessionOnMount) return [];
+    return normalizeSaleComments(storedData?.saleComments);
+  });
+  const saleCommentsRef = useRef(saleComments);
+  saleCommentsRef.current = saleComments;
   const [taxInvoices, setTaxInvoices] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return normalizeTaxInvoices(storedData?.taxInvoices);
@@ -7155,6 +7197,7 @@ export default function TeammillimeterErpMvp() {
     );
     setCompanyNotices(normalizeCompanyNotices(data.companyNotices));
     setWorkPosts(normalizeWorkPosts(data.workPosts));
+    setSaleComments(normalizeSaleComments(data.saleComments));
     setTaxInvoices(normalizeTaxInvoices(data.taxInvoices));
     const nextBankTransactionFolders = normalizeBankTransactionFolders(data.bankTransactionFolders);
     const syncedBankTransactions = syncBankTransactionLedgerLinkFields(
@@ -7358,6 +7401,7 @@ export default function TeammillimeterErpMvp() {
       ledgerCategories,
       companyNotices,
       workPosts,
+      saleComments,
       taxInvoices,
       bankTransactions: bankTransactionsRef.current,
       bankTransactionFolders,
@@ -7400,6 +7444,7 @@ export default function TeammillimeterErpMvp() {
       ledgerCategories,
       companyNotices,
       workPosts,
+      saleComments,
       taxInvoices,
       bankTransactions,
       bankTransactionFolders,
@@ -7527,6 +7572,10 @@ export default function TeammillimeterErpMvp() {
           }
           if (Array.isArray(normalizedPatch.bankTransactions)) {
             setBankTransactions(normalizedPatch.bankTransactions);
+          }
+          if (Array.isArray(normalizedPatch.saleComments)) {
+            setSaleComments(normalizedPatch.saleComments);
+            saleCommentsRef.current = normalizedPatch.saleComments;
           }
           if (
             normalizedPatch.workerMonthlyPaymentMemos &&
@@ -7823,11 +7872,19 @@ export default function TeammillimeterErpMvp() {
     }
   }, [sales, paymentVouchers, bankTransactions, apiMode, currentUser, dataReady, flushErpSave]);
 
-  const persistNewSaleImmediate = useCallback(async (nextSales) => {
+  const persistNewSaleImmediate = useCallback(async (nextSales, nextSaleComments?: SaleComment[]) => {
     skipSaveRef.current = true;
     try {
+      if (Array.isArray(nextSaleComments)) {
+        setSaleComments(nextSaleComments);
+        saleCommentsRef.current = nextSaleComments;
+      }
       if (apiMode && currentUser && dataReady) {
-        const saved = await flushErpSave({ sales: nextSales });
+        const patch: { sales: typeof nextSales; saleComments?: SaleComment[] } = { sales: nextSales };
+        if (Array.isArray(nextSaleComments)) {
+          patch.saleComments = nextSaleComments;
+        }
+        const saved = await flushErpSave(patch);
         if (saved === false) {
           window.alert("매출 저장에 실패했습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.");
         }
@@ -7839,7 +7896,21 @@ export default function TeammillimeterErpMvp() {
         skipSaveRef.current = false;
       }
     }
+  }, [apiMode, currentUser, dataReady, flushErpSave, setSaleComments]);
+
+  const persistSaleCommentsImmediate = useCallback(async (nextSaleComments: SaleComment[]) => {
+    setSaleComments(nextSaleComments);
+    saleCommentsRef.current = nextSaleComments;
+    if (!apiMode || !currentUser || !dataReady) return true;
+    const saved = await flushErpSave({ saleComments: nextSaleComments });
+    return saved !== false;
   }, [apiMode, currentUser, dataReady, flushErpSave]);
+
+  const addSaleCommentForVoucher = useCallback(async (saleId: string | number, body: string) => {
+    const comment = createSaleComment({ saleId, body, user: currentUser });
+    const next = appendSaleComment(saleCommentsRef.current, comment);
+    await persistSaleCommentsImmediate(next);
+  }, [currentUser, persistSaleCommentsImmediate]);
 
   useEffect(() => {
     if (!apiMode || !dataReady) return;
@@ -7849,7 +7920,7 @@ export default function TeammillimeterErpMvp() {
 
   useEffect(() => {
     if (!apiMode) {
-      saveStoredData({ sales, paymentVouchers, paymentInputLogs, clients, workers, workerMonthlyPaymentMemos, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, accountCodes, ledgerCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
+      saveStoredData({ sales, paymentVouchers, paymentInputLogs, clients, workers, workerMonthlyPaymentMemos, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, accountCodes, ledgerCategories, companyNotices, workPosts, saleComments, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
       return;
     }
     if (!currentUser || !dataReady) return;
@@ -7878,7 +7949,7 @@ export default function TeammillimeterErpMvp() {
         saveDebounceTimerRef.current = null;
       }
     };
-  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, workerMonthlyPaymentMemos, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, accountCodes, ledgerCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode, buildErpSavePayload, persistErpSave]);
+  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, workerMonthlyPaymentMemos, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, accountCodes, ledgerCategories, companyNotices, workPosts, saleComments, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode, buildErpSavePayload, persistErpSave]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -7899,7 +7970,7 @@ export default function TeammillimeterErpMvp() {
   }, [active]);
 
   const backupData = () => {
-    downloadBackup({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, accountCodes, ledgerCategories, companyNotices, workPosts, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
+    downloadBackup({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, accountCodes, ledgerCategories, companyNotices, workPosts, saleComments, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
   };
 
   const restoreBackup = (file) => {
@@ -7939,6 +8010,7 @@ export default function TeammillimeterErpMvp() {
         );
         setCompanyNotices(normalizeCompanyNotices(parsed.companyNotices));
         setWorkPosts(normalizeWorkPosts(parsed.workPosts));
+        setSaleComments(normalizeSaleComments(parsed.saleComments));
         setTaxInvoices(normalizeTaxInvoices(parsed.taxInvoices));
         setBankTransactions(normalizeBankTransactions(parsed.bankTransactions));
         setBankTransactionFolders(normalizeBankTransactionFolders(parsed.bankTransactionFolders));
@@ -7992,6 +8064,7 @@ export default function TeammillimeterErpMvp() {
     );
     setCompanyNotices(normalizeCompanyNotices(payload.companyNotices));
     setWorkPosts(normalizeWorkPosts(payload.workPosts));
+    setSaleComments(normalizeSaleComments(payload.saleComments));
     setTaxInvoices(normalizeTaxInvoices(payload.taxInvoices));
     setBankTransactions(normalizeBankTransactions(payload.bankTransactions));
     setBankTransactionFolders(normalizeBankTransactionFolders(payload.bankTransactionFolders));
@@ -8274,6 +8347,8 @@ export default function TeammillimeterErpMvp() {
             autoLinkedSaleIds={autoLinkedSaleIds}
             manualLinkedSaleIds={manualLinkedSaleIds}
             onPersistSaleUpdate={persistSaleVoucherUpdate}
+            saleComments={saleComments}
+            onAddSaleComment={addSaleCommentForVoucher}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="attendance" active={active}>
@@ -8284,7 +8359,16 @@ export default function TeammillimeterErpMvp() {
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="salesInput" active={active}>
-          <SalesRegistrationPage sales={sales} setSales={setSales} setActive={setActive} clients={clients} workers={workers} currentUser={currentUser} onPersistNewSale={persistNewSaleImmediate} />
+          <SalesRegistrationPage
+            sales={sales}
+            setSales={setSales}
+            setActive={setActive}
+            clients={clients}
+            workers={workers}
+            currentUser={currentUser}
+            saleComments={saleComments}
+            onPersistNewSale={persistNewSaleImmediate}
+          />
         </PageKeepAlive>
         <PageKeepAlive pageKey="sales" active={active}>
           <SalesManagementPage sales={appliedSales} paymentVouchers={paymentVouchers} workers={workers} setSales={setSales} setActive={setActive} currentUser={currentUser} onEditSale={setSalesManagementEditSale} />
@@ -8305,6 +8389,8 @@ export default function TeammillimeterErpMvp() {
             onPendingSearchConsumed={() => setPendingVoucherSearchFilter(null)}
             autoLinkedSaleIds={autoLinkedSaleIds}
             manualLinkedSaleIds={manualLinkedSaleIds}
+            saleComments={saleComments}
+            onAddSaleComment={addSaleCommentForVoucher}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="receivables" active={active}>
@@ -8518,6 +8604,8 @@ export default function TeammillimeterErpMvp() {
           onPersistSaleUpdate={persistSaleVoucherUpdate}
           screen="매출관리"
           SaleFormEditor={SaleFormCompactEditor}
+          saleComments={saleComments}
+          onAddSaleComment={(body) => addSaleCommentForVoucher(salesManagementEditSale.id, body)}
         />
       ) : null}
       <MyAccountModal

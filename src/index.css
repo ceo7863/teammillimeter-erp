@@ -7526,6 +7526,58 @@ span.erp-worker-category-select.is-readonly {
   width: 1.75rem;
 }
 
+.erp-sale-voucher-comments {
+  margin-top: 0.75rem;
+}
+
+.erp-sale-voucher-comments-list {
+  margin-top: 0.75rem;
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 0.25rem 0.125rem;
+}
+
+.erp-sale-voucher-comments-item {
+  border-radius: 0.75rem;
+  border: 1px solid #e2e8f0;
+  background: rgba(248, 250, 252, 0.85);
+  padding: 0.625rem 0.75rem;
+}
+
+.erp-sale-voucher-comments-item.is-pending {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.erp-sale-voucher-comments-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.erp-sale-voucher-comments-compose {
+  margin-top: 0.75rem;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+.erp-sale-voucher-comments-input {
+  resize: vertical;
+}
+
+.erp-ledger-modal--sale-edit .erp-sale-voucher-comments {
+  margin-top: 1rem;
+}
+
+.erp-ledger-modal--sale-edit .erp-sale-voucher-comments-list {
+  max-height: 160px;
+}
+
 /* Excel-like sheet grid for compact sale form */
 .erp-sale-form-table--compact.erp-sale-form-table--sheet {
   border-collapse: collapse;

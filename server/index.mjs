@@ -657,6 +657,7 @@ app.get("/api/erp", authMiddleware, (_req, res) => {
     bankTransactionFolders: state.data.bankTransactionFolders || [],
     companyNotices: state.data.companyNotices || [],
     workPosts: state.data.workPosts || [],
+    saleComments: state.data.saleComments || [],
     statementGenerationLogs: state.data.statementGenerationLogs || [],
     statementFolders: state.data.statementFolders || [],
     companyProfile: state.data.companyProfile || null,
@@ -1241,6 +1242,7 @@ app.put("/api/erp", authMiddleware, (req, res) => {
     fixedExpenseCategories,
     companyNotices,
     workPosts,
+    saleComments,
     taxInvoices,
     bankTransactions,
     bankTransactionFolders,
@@ -1298,6 +1300,7 @@ app.put("/api/erp", authMiddleware, (req, res) => {
       : existing.data.fixedExpenseCategories || [],
     companyNotices: Array.isArray(companyNotices) ? companyNotices : existing.data.companyNotices || [],
     workPosts: Array.isArray(workPosts) ? workPosts : existing.data.workPosts || [],
+    saleComments: Array.isArray(saleComments) ? saleComments : existing.data.saleComments || [],
     taxInvoices: Array.isArray(taxInvoices) ? taxInvoices : existing.data.taxInvoices || [],
     bankTransactions: Array.isArray(bankTransactions)
       ? bankTransactions.length || !(existing.data.bankTransactions || []).length
