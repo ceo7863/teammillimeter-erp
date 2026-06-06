@@ -105,6 +105,7 @@ export function getAlimtalkStatus() {
     provider: config.alimtalk.provider,
     dailyTemplate: config.alimtalk.dailyReportTemplate || null,
     commentTemplate: config.alimtalk.commentTemplate || null,
+    contractTemplate: config.alimtalk.contractTemplate || null,
   };
 }
 
@@ -148,6 +149,14 @@ export async function sendCommentAlimtalk({ phones, variables }) {
   return sendAlimtalkTemplate({
     phones,
     templateCode: config.alimtalk.commentTemplate,
+    variables,
+  });
+}
+
+export async function sendContractAlimtalk({ phones, variables }) {
+  return sendAlimtalkTemplate({
+    phones,
+    templateCode: config.alimtalk.contractTemplate,
     variables,
   });
 }

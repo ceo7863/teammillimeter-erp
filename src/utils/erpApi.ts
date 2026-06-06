@@ -51,6 +51,7 @@ export type ErpPayload = {
   bankTransactionFolders?: unknown[];
   statementGenerationLogs?: unknown[];
   statementFolders?: unknown[];
+  clientContracts?: unknown[];
   companyProfile?: CompanyProfile;
   notificationSettings?: import("./notificationSettings").NotificationSettings;
   version?: number;

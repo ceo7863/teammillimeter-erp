@@ -86,7 +86,21 @@ import {
 import { getBarobillBankConfigStatus } from "./barobill/bankAccountClient.mjs";
 import { classifyBankLedgerBatch } from "./bankLedgerClassify.mjs";
 import { buildDailyReport, formatDailyReportMessage } from "./dailyReport.mjs";
-import { getAlimtalkStatus } from "./alimtalkNotify.mjs";
+import { getAlimtalkStatus, sendContractAlimtalk } from "./alimtalkNotify.mjs";
+import {
+  initClientContractsStore,
+  listContracts,
+  getContractById,
+  createContract,
+  updateContract,
+  deleteContract,
+  issueSignToken,
+  submitContractSignature,
+  getPublicSignPayload,
+  getContractOriginalFile,
+  getContractSignedFile,
+  getContractByToken,
+} from "./clientContracts.mjs";
 import {
   normalizeNotificationSettings,
   DEFAULT_NOTIFICATION_SETTINGS,
@@ -96,6 +110,7 @@ import { notifyNewSaleComments, runDailyReportJob, startNotificationScheduler } 
 initDb();
 initPdfArchiveStore();
 initBoardAttachmentStore();
+initClientContractsStore();
 startBankSyncScheduler();
 startNotificationScheduler();
 
@@ -109,6 +124,15 @@ function parsePdfMetaHeader(rawMeta) {
 }
 
 function parseAttachmentMetaHeader(rawMeta) {
+  const text = String(rawMeta);
+  try {
+    return JSON.parse(text);
+  } catch {
+    return JSON.parse(decodeURIComponent(text));
+  }
+}
+
+function parseContractMetaHeader(rawMeta) {
   const text = String(rawMeta);
   try {
     return JSON.parse(text);
@@ -267,6 +291,78 @@ app.post(
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: "PDF 저장에 실패했습니다." });
+    }
+  },
+);
+
+app.get("/api/public/client-contracts/sign/:token", (req, res) => {
+  const result = getPublicSignPayload(req.params.token);
+  if (!result.ok) {
+    res.status(result.status || 400).json({ error: result.error });
+    return;
+  }
+  res.json(result.contract);
+});
+
+app.get("/api/public/client-contracts/sign/:token/pdf", (req, res) => {
+  const contract = getContractByToken(req.params.token);
+  if (!contract) {
+    res.status(404).send("PDF\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    return;
+  }
+  if (contract.status === "signed") {
+    res.status(409).send("\uC774\uBBF8 \uC11C\uBA85\uC774 \uC644\uB8CC\uB41C \uACC4\uC57D\uC785\uB2C8\uB2E4.");
+    return;
+  }
+  const file = getContractOriginalFile(contract);
+  if (!file) {
+    res.status(404).send("PDF\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    return;
+  }
+  const encodedName = encodeURIComponent(file.fileName);
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodedName}`);
+  res.setHeader("Cache-Control", "private, max-age=3600");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.sendFile(path.resolve(file.path));
+});
+
+app.post("/api/public/client-contracts/sign/:token", async (req, res) => {
+  try {
+    const result = await submitContractSignature(req.params.token, req.body || {});
+    if (!result.ok) {
+      res.status(result.status || 400).json({ error: result.error });
+      return;
+    }
+    res.json({ contract: result.contract });
+  } catch (error) {
+    console.error("[client-contracts] public sign failed:", error);
+    res.status(500).json({ error: "\uC11C\uBA85 \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+  }
+});
+
+app.post(
+  "/api/client-contracts",
+  authMiddleware,
+  express.raw({ type: "application/pdf", limit: "25mb" }),
+  (req, res) => {
+    try {
+      const rawMeta = req.headers["x-contract-meta"];
+      if (!rawMeta) {
+        res.status(400).json({ error: "PDF \uBA54\uD0C0\uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4." });
+        return;
+      }
+      const meta = parseContractMetaHeader(rawMeta);
+      const buffer = Buffer.from(req.body || []);
+      const result = createContract(buffer, meta, req.user.loginId || req.user.name || req.user.email);
+      if (!result.ok) {
+        res.status(result.status || 400).json({ error: result.error });
+        return;
+      }
+      res.status(201).json(result.contract);
+    } catch (error) {
+      console.error("[client-contracts] upload failed:", error);
+      res.status(500).json({ error: "PDF \uC5C5\uB85C\uB4DC\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
     }
   },
 );
@@ -1526,6 +1622,103 @@ app.delete("/api/pdf-archives/:id", authMiddleware, (req, res) => {
     return;
   }
   res.json({ ok: true });
+});
+
+app.get("/api/client-contracts", authMiddleware, (_req, res) => {
+  res.json(listContracts());
+});
+
+app.get("/api/client-contracts/:id", authMiddleware, (req, res) => {
+  const contract = getContractById(req.params.id);
+  if (!contract) {
+    res.status(404).json({ error: "\uACC4\uC57D\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." });
+    return;
+  }
+  res.json(contract);
+});
+
+app.patch("/api/client-contracts/:id", authMiddleware, (req, res) => {
+  const result = updateContract(req.params.id, req.body || {}, req.user.loginId || req.user.name || req.user.email);
+  if (!result.ok) {
+    res.status(result.status || 400).json({ error: result.error });
+    return;
+  }
+  res.json(result.contract);
+});
+
+app.delete("/api/client-contracts/:id", authMiddleware, (req, res) => {
+  const result = deleteContract(req.params.id);
+  if (!result.ok) {
+    res.status(result.status || 400).json({ error: result.error });
+    return;
+  }
+  res.json({ ok: true, version: result.version });
+});
+
+app.get("/api/client-contracts/:id/original", authMiddleware, (req, res) => {
+  const contract = getContractById(req.params.id);
+  if (!contract) {
+    res.status(404).json({ error: "\uACC4\uC57D\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." });
+    return;
+  }
+  const file = getContractOriginalFile(contract);
+  if (!file) {
+    res.status(404).json({ error: "PDF\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." });
+    return;
+  }
+  const encodedName = encodeURIComponent(file.fileName);
+  const disposition = req.query.download === "1" ? "attachment" : "inline";
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `${disposition}; filename*=UTF-8''${encodedName}`);
+  res.sendFile(path.resolve(file.path));
+});
+
+app.get("/api/client-contracts/:id/signed", authMiddleware, (req, res) => {
+  const contract = getContractById(req.params.id);
+  if (!contract) {
+    res.status(404).json({ error: "\uACC4\uC57D\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." });
+    return;
+  }
+  const file = getContractSignedFile(contract);
+  if (!file) {
+    res.status(404).json({ error: "\uC11C\uBA85\uB41C PDF\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." });
+    return;
+  }
+  const encodedName = encodeURIComponent(file.fileName);
+  const disposition = req.query.download === "1" ? "attachment" : "inline";
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `${disposition}; filename*=UTF-8''${encodedName}`);
+  res.sendFile(path.resolve(file.path));
+});
+
+app.post("/api/client-contracts/:id/send", authMiddleware, async (req, res) => {
+  const contract = getContractById(req.params.id);
+  if (!contract) {
+    res.status(404).json({ error: "\uACC4\uC57D\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." });
+    return;
+  }
+
+  const tokenResult = issueSignToken(req.params.id, req.body?.expiryHours);
+  if (!tokenResult.ok) {
+    res.status(tokenResult.status || 400).json({ error: tokenResult.error });
+    return;
+  }
+
+  const signUrl = `${config.alimtalk.erpBaseUrl.replace(/\/$/, "")}/sign/${tokenResult.token}`;
+  const alimtalk = await sendContractAlimtalk({
+    phones: [contract.contactPhone],
+    variables: {
+      client: contract.clientName,
+      title: contract.title,
+      url: signUrl,
+    },
+  });
+
+  res.json({
+    contract: tokenResult.contract,
+    signUrl,
+    alimtalk,
+  });
 });
 
 app.get("/api/board-attachments/:id/file", authMiddleware, (req, res) => {

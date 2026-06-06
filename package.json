@@ -24,6 +24,7 @@
     "jspdf": "latest",
     "jszip": "^3.10.1",
     "lucide-react": "latest",
+    "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^3.11.174",
     "react": "latest",
     "react-dom": "latest",

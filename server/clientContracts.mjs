@@ -1,0 +1,355 @@
+import fs from "fs";
+import path from "path";
+import crypto from "crypto";
+import { PDFDocument, rgb } from "pdf-lib";
+import { config } from "./config.mjs";
+import { getErpState, saveErpState } from "./db.mjs";
+
+const MAX_CONTRACTS = 2000;
+const MAX_SIGNATURE_LENGTH = 280_000;
+const TOKEN_EXPIRY_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_TOKEN_EXPIRY_HOURS = 24;
+
+function listClientContracts(data = {}) {
+  return Array.isArray(data.clientContracts) ? data.clientContracts : [];
+}
+
+function sanitizeContractForClient(contract) {
+  if (!contract) return null;
+  const { signToken, ...rest } = contract;
+  return rest;
+}
+
+function contractFilePath(storageKey) {
+  return path.join(config.clientContractsDir, storageKey);
+}
+
+function decodeSignaturePng(signatureDataUrl) {
+  const text = String(signatureDataUrl || "").trim();
+  if (!text.startsWith("data:image/png;base64,")) {
+    return { ok: false, error: "\uC11C\uBA85 \uC774\uBBF8\uC9C0\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." };
+  }
+  if (text.length > MAX_SIGNATURE_LENGTH) {
+    return { ok: false, error: "\uC11C\uBA85 \uC774\uBBF8\uC9C0\uAC00 \uB108\uBB34 \uD07D\uB2C8\uB2E4." };
+  }
+  const payload = text.slice("data:image/png;base64,".length);
+  if (payload.length < 80) {
+    return { ok: false, error: "\uC11C\uBA85\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694." };
+  }
+  try {
+    const buffer = Buffer.from(payload, "base64");
+    if (!buffer.length) {
+      return { ok: false, error: "\uC11C\uBA85 \uC774\uBBF8\uC9C0\uAC00 \uBE44\uC5B4 \uC788\uC2B5\uB2C8\uB2E4." };
+    }
+    return { ok: true, buffer, signatureDataUrl: text };
+  } catch {
+    return { ok: false, error: "\uC11C\uBA85 \uC774\uBBF8\uC9C0\uB97C \uC77D\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
+  }
+}
+
+function normalizePhone(phone) {
+  return String(phone || "").replace(/\D/g, "");
+}
+
+function isTokenExpired(contract) {
+  if (!contract?.tokenExpiresAt) return true;
+  return Date.parse(contract.tokenExpiresAt) < Date.now();
+}
+
+function resolveContractStatus(contract) {
+  if (!contract) return "draft";
+  if (contract.status === "signed") return "signed";
+  if (contract.status === "sent" && isTokenExpired(contract)) return "expired";
+  return contract.status || "draft";
+}
+
+function withResolvedStatus(contract) {
+  return {
+    ...contract,
+    status: resolveContractStatus(contract),
+  };
+}
+
+export function initClientContractsStore() {
+  fs.mkdirSync(config.clientContractsDir, { recursive: true });
+}
+
+export function listContracts() {
+  const state = getErpState();
+  const data = state.data && typeof state.data === "object" ? state.data : {};
+  return listClientContracts(data)
+    .map(withResolvedStatus)
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+}
+
+export function getContractById(id) {
+  const contract = listContracts().find((row) => row.id === id) || null;
+  return contract ? withResolvedStatus(contract) : null;
+}
+
+export function getContractByToken(token) {
+  const state = getErpState();
+  const data = state.data && typeof state.data === "object" ? state.data : {};
+  const contract = listClientContracts(data).find((row) => row.signToken === token) || null;
+  if (!contract) return null;
+  return withResolvedStatus(contract);
+}
+
+export function getContractOriginalFile(contract) {
+  if (!contract?.originalStorageKey) return null;
+  const filePath = contractFilePath(contract.originalStorageKey);
+  if (!fs.existsSync(filePath)) return null;
+  return {
+    path: filePath,
+    fileName: contract.originalFileName || "contract.pdf",
+  };
+}
+
+export function getContractSignedFile(contract) {
+  if (!contract?.signedStorageKey) return null;
+  const filePath = contractFilePath(contract.signedStorageKey);
+  if (!fs.existsSync(filePath)) return null;
+  return {
+    path: filePath,
+    fileName: contract.originalFileName
+      ? contract.originalFileName.replace(/\.pdf$/i, "") + "-signed.pdf"
+      : "contract-signed.pdf",
+  };
+}
+
+async function buildSignedPdf(originalBuffer, signatureBuffer, signedByName) {
+  const pdfDoc = await PDFDocument.load(originalBuffer);
+  const pages = pdfDoc.getPages();
+  const lastPage = pages[pages.length - 1];
+  const pngImage = await pdfDoc.embedPng(signatureBuffer);
+  const { width } = lastPage.getSize();
+  const sigWidth = Math.min(180, width * 0.38);
+  const sigHeight = (pngImage.height / pngImage.width) * sigWidth;
+  const x = Math.max(36, width - sigWidth - 48);
+  const y = 52;
+  lastPage.drawImage(pngImage, { x, y, width: sigWidth, height: sigHeight });
+  const label = String(signedByName || "").trim();
+  if (label) {
+    lastPage.drawText(`\uC11C\uBA85: ${label}`, {
+      x,
+      y: y + sigHeight + 8,
+      size: 10,
+      color: rgb(0.1, 0.15, 0.25),
+    });
+  }
+  lastPage.drawText(`\uC11C\uBA85\uC77C: ${new Date().toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}`, {
+    x,
+    y: y + sigHeight + 22,
+    size: 9,
+    color: rgb(0.35, 0.4, 0.45),
+  });
+  return Buffer.from(await pdfDoc.save());
+}
+
+export function createContract(buffer, meta, createdBy) {
+  const clientName = String(meta.clientName || "").trim();
+  const title = String(meta.title || "").trim();
+  const contactPhone = normalizePhone(meta.contactPhone);
+  if (!clientName) return { ok: false, status: 400, error: "\uAC70\uB798\uCC98\uBA85\uC774 \uD544\uC694\uD569\uB2C8\uB2E4." };
+  if (!title) return { ok: false, status: 400, error: "\uACC4\uC57D \uC81C\uBAA9\uC774 \uD544\uC694\uD569\uB2C8\uB2E4." };
+  if (!contactPhone) return { ok: false, status: 400, error: "\uC218\uC2E0 \uC5F0\uB77D\uCC98\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." };
+  if (!buffer?.length) return { ok: false, status: 400, error: "PDF \uD30C\uC77C\uC774 \uBE44\uC5B4 \uC788\uC2B5\uB2C8\uB2E4." };
+
+  const state = getErpState();
+  const data = state.data && typeof state.data === "object" ? state.data : {};
+  const contracts = listClientContracts(data);
+  const id = `cc-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+  const originalStorageKey = `${id}-original.pdf`;
+  fs.writeFileSync(contractFilePath(originalStorageKey), buffer);
+
+  const contract = {
+    id,
+    clientName,
+    title,
+    contactName: String(meta.contactName || "").trim() || undefined,
+    contactPhone,
+    status: "draft",
+    originalFileName: String(meta.fileName || "contract.pdf").trim() || "contract.pdf",
+    originalStorageKey,
+    createdAt: new Date().toISOString(),
+    createdBy: createdBy || undefined,
+  };
+
+  const nextContracts = [contract, ...contracts].slice(0, MAX_CONTRACTS);
+  const saved = saveErpState({ ...data, clientContracts: nextContracts }, state.version, `contract-create:${clientName}`);
+  return { ok: true, contract: withResolvedStatus(contract), version: saved.version };
+}
+
+export function updateContract(id, patch = {}, updatedBy) {
+  const state = getErpState();
+  const data = state.data && typeof state.data === "object" ? state.data : {};
+  const contracts = listClientContracts(data);
+  const index = contracts.findIndex((row) => row.id === id);
+  if (index < 0) return { ok: false, status: 404, error: "\uACC4\uC57D\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
+
+  const current = contracts[index];
+  if (current.status === "signed") {
+    return { ok: false, status: 400, error: "\uC774\uBBF8 \uC11C\uBA85\uB41C \uACC4\uC57D\uC740 \uC218\uC815\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
+  }
+
+  const next = {
+    ...current,
+    title: patch.title != null ? String(patch.title).trim() || current.title : current.title,
+    contactName:
+      patch.contactName != null ? String(patch.contactName).trim() || undefined : current.contactName,
+    contactPhone:
+      patch.contactPhone != null ? normalizePhone(patch.contactPhone) || current.contactPhone : current.contactPhone,
+    updatedAt: new Date().toISOString(),
+    updatedBy: updatedBy || current.updatedBy,
+  };
+
+  if (!next.contactPhone) {
+    return { ok: false, status: 400, error: "\uC218\uC2E0 \uC5F0\uB77D\uCC98\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." };
+  }
+
+  const nextContracts = [...contracts];
+  nextContracts[index] = next;
+  const saved = saveErpState({ ...data, clientContracts: nextContracts }, state.version, `contract-update:${id}`);
+  return { ok: true, contract: withResolvedStatus(next), version: saved.version };
+}
+
+export function deleteContract(id) {
+  const state = getErpState();
+  const data = state.data && typeof state.data === "object" ? state.data : {};
+  const contracts = listClientContracts(data);
+  const contract = contracts.find((row) => row.id === id);
+  if (!contract) return { ok: false, status: 404, error: "\uACC4\uC57D\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
+
+  for (const key of [contract.originalStorageKey, contract.signedStorageKey].filter(Boolean)) {
+    const filePath = contractFilePath(key);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  }
+
+  const nextContracts = contracts.filter((row) => row.id !== id);
+  const saved = saveErpState({ ...data, clientContracts: nextContracts }, state.version, `contract-delete:${id}`);
+  return { ok: true, version: saved.version };
+}
+
+export function issueSignToken(id, expiryHours = DEFAULT_TOKEN_EXPIRY_HOURS) {
+  const state = getErpState();
+  const data = state.data && typeof state.data === "object" ? state.data : {};
+  const contracts = listClientContracts(data);
+  const index = contracts.findIndex((row) => row.id === id);
+  if (index < 0) return { ok: false, status: 404, error: "\uACC4\uC57D\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
+
+  const current = contracts[index];
+  if (current.status === "signed") {
+    return { ok: false, status: 400, error: "\uC774\uBBF8 \uC11C\uBA85\uB41C \uACC4\uC57D\uC785\uB2C8\uB2E4." };
+  }
+
+  const hours = Math.max(1, Math.min(168, Number(expiryHours) || DEFAULT_TOKEN_EXPIRY_HOURS));
+  const token = crypto.randomBytes(24).toString("hex");
+  const tokenExpiresAt = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+  const next = {
+    ...current,
+    signToken: token,
+    tokenExpiresAt,
+    status: "sent",
+    sentAt: new Date().toISOString(),
+  };
+
+  const nextContracts = [...contracts];
+  nextContracts[index] = next;
+  const saved = saveErpState({ ...data, clientContracts: nextContracts }, state.version, `contract-send:${id}`);
+  return {
+    ok: true,
+    contract: withResolvedStatus(next),
+    token,
+    tokenExpiresAt,
+    version: saved.version,
+  };
+}
+
+export async function submitContractSignature(token, input = {}) {
+  const state = getErpState();
+  const data = state.data && typeof state.data === "object" ? state.data : {};
+  const contracts = listClientContracts(data);
+  const index = contracts.findIndex((row) => row.signToken === token);
+  if (index < 0) return { ok: false, status: 404, error: "\uC720\uD6A8\uD558\uC9C0 \uC54A\uC740 \uC11C\uBA85 \uB9C1\uD06C\uC785\uB2C8\uB2E4." };
+
+  const current = contracts[index];
+  if (current.status === "signed") {
+    return { ok: false, status: 409, error: "\uC774\uBBF8 \uC11C\uBA85\uC774 \uC644\uB8CC\uB41C \uACC4\uC57D\uC785\uB2C8\uB2E4." };
+  }
+  if (isTokenExpired(current)) {
+    return { ok: false, status: 410, error: "\uC11C\uBA85 \uB9C1\uD06C\uAC00 \uB9CC\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uB2F4\uB2F9\uC790\uC5D0\uAC8C \uC7AC\uBC1C\uC1A1\uC744 \uC694\uCCAD\uD574 \uC8FC\uC138\uC694." };
+  }
+
+  const signedByName = String(input.signedByName || current.contactName || "").trim();
+  if (!signedByName) {
+    return { ok: false, status: 400, error: "\uC11C\uBA85\uC790 \uC131\uD568\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694." };
+  }
+
+  const signatureCheck = decodeSignaturePng(input.signatureDataUrl);
+  if (!signatureCheck.ok) {
+    return { ok: false, status: 400, error: signatureCheck.error };
+  }
+
+  const originalFile = getContractOriginalFile(current);
+  if (!originalFile) {
+    return { ok: false, status: 404, error: "\uC6D0\uBCF8 \uACC4\uC57D PDF\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
+  }
+
+  const originalBuffer = fs.readFileSync(originalFile.path);
+  const signatureStorageKey = `${current.id}-signature.png`;
+  const signedStorageKey = `${current.id}-signed.pdf`;
+  fs.writeFileSync(contractFilePath(signatureStorageKey), signatureCheck.buffer);
+
+  let signedPdfBuffer;
+  try {
+    signedPdfBuffer = await buildSignedPdf(originalBuffer, signatureCheck.buffer, signedByName);
+    fs.writeFileSync(contractFilePath(signedStorageKey), signedPdfBuffer);
+  } catch (error) {
+    console.error("[client-contracts] signed pdf build failed:", error);
+    signedPdfBuffer = null;
+  }
+
+  const next = {
+    ...current,
+    status: "signed",
+    signedAt: new Date().toISOString(),
+    signedByName,
+    signatureDataUrl: signatureCheck.signatureDataUrl,
+    signatureStorageKey,
+    signedStorageKey: signedPdfBuffer ? signedStorageKey : undefined,
+    signToken: undefined,
+    tokenExpiresAt: undefined,
+  };
+
+  const nextContracts = [...contracts];
+  nextContracts[index] = next;
+  const saved = saveErpState({ ...data, clientContracts: nextContracts }, state.version, `contract-signed:${current.id}`);
+  return {
+    ok: true,
+    contract: sanitizeContractForClient(withResolvedStatus(next)),
+    version: saved.version,
+  };
+}
+
+export function getPublicSignPayload(token) {
+  const contract = getContractByToken(token);
+  if (!contract) return { ok: false, status: 404, error: "\uC720\uD6A8\uD558\uC9C0 \uC54A\uC740 \uC11C\uBA85 \uB9C1\uD06C\uC785\uB2C8\uB2E4." };
+  if (contract.status === "signed") {
+    return { ok: false, status: 409, error: "\uC774\uBBF8 \uC11C\uBA85\uC774 \uC644\uB8CC\uB41C \uACC4\uC57D\uC785\uB2C8\uB2E4." };
+  }
+  if (isTokenExpired(contract)) {
+    return { ok: false, status: 410, error: "\uC11C\uBA85 \uB9C1\uD06C\uAC00 \uB9CC\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4." };
+  }
+  return {
+    ok: true,
+    contract: {
+      id: contract.id,
+      clientName: contract.clientName,
+      title: contract.title,
+      contactName: contract.contactName,
+      status: resolveContractStatus(contract),
+      originalFileName: contract.originalFileName,
+      tokenExpiresAt: contract.tokenExpiresAt,
+    },
+  };
+}

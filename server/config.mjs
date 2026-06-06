@@ -22,6 +22,7 @@ export const config = {
   jwtSecret: process.env.JWT_SECRET || "change-me-in-production-teammillimeter-erp",
   dbPath: process.env.DATABASE_PATH || path.join(rootDir, "data", "erp.sqlite"),
   pdfArchiveDir: process.env.PDF_ARCHIVE_DIR || path.join(rootDir, "data", "pdf-archives"),
+  clientContractsDir: process.env.CLIENT_CONTRACTS_DIR || path.join(rootDir, "data", "client-contracts"),
   boardAttachmentDir: process.env.BOARD_ATTACHMENT_DIR || path.join(rootDir, "data", "board-attachments"),
   distDir: process.env.DIST_DIR || path.join(rootDir, "dist"),
   pdfJsDir: path.join(rootDir, "node_modules", "pdfjs-dist", "legacy", "build"),
@@ -63,6 +64,7 @@ export const config = {
     smsFrom: process.env.ALIMTALK_SMS_FROM || "",
     dailyReportTemplate: process.env.ALIMTALK_DAILY_REPORT_TEMPLATE || "",
     commentTemplate: process.env.ALIMTALK_COMMENT_TEMPLATE || "",
+    contractTemplate: process.env.ALIMTALK_CONTRACT_TEMPLATE || "",
     erpBaseUrl: process.env.ERP_PUBLIC_URL || "https://erp.teammillimeter.com",
   },
   barobill: {

@@ -182,6 +182,8 @@ import {
 } from "@/utils/saleForm";
 import { SaleVoucherEditModal } from "@/components/SaleVoucherEditModal";
 import { WorkerPortalView } from "@/components/WorkerPortalView";
+import { ClientContractSignPage } from "@/components/ClientContractSignPage";
+import { ClientContractsPanel } from "@/components/ClientContractsPanel";
 import { allocateNextSaleRecordIds, getSaleVoucherLabel, parseVoucherSequence } from "@/utils/saleVoucherNo";
 import {
   SALE_AUDIT_FIELDS,
@@ -5411,6 +5413,8 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
           </div>
         </CardContent>
       </Card>
+
+      <ClientContractsPanel clients={clients} />
     </div>
   );
 }
@@ -6944,7 +6948,18 @@ function ReportsPage({ sales, workers = [], paymentVouchers = [], onRequestClien
   );
 }
 
+function parseClientContractSignToken() {
+  if (typeof window === "undefined") return "";
+  const match = window.location.pathname.match(/^\/sign\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
 export default function TeammillimeterErpMvp() {
+  const signToken = parseClientContractSignToken();
+  if (signToken) {
+    return <ClientContractSignPage token={signToken} />;
+  }
+
   const apiMode = isApiModeEnabled();
   const storedData = apiMode ? null : loadStoredData();
   const sessionOnMount = loadSessionUser();

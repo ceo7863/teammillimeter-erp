@@ -60,6 +60,7 @@ function emptyErpPayload() {
     bankTransactionFolders: [],
     statementGenerationLogs: [],
     statementFolders: [],
+    clientContracts: [],
     companyProfile: null,
     notificationSettings: {
       enabled: false,
