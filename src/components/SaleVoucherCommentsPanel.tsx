@@ -25,6 +25,10 @@ type DisplayComment = {
   pending?: boolean;
 };
 
+function isImeComposing(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+  return event.nativeEvent.isComposing || event.key === "Process" || event.keyCode === 229;
+}
+
 export const SaleVoucherCommentsPanel = memo(function SaleVoucherCommentsPanel({
   saleId,
   comments = [],
@@ -36,6 +40,8 @@ export const SaleVoucherCommentsPanel = memo(function SaleVoucherCommentsPanel({
   const [submitting, setSubmitting] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const composingRef = useRef(false);
+  const submittingRef = useRef(false);
   const onAddCommentRef = useRef(onAddComment);
   onAddCommentRef.current = onAddComment;
 
@@ -64,8 +70,10 @@ export const SaleVoucherCommentsPanel = memo(function SaleVoucherCommentsPanel({
   }, [displayComments.length]);
 
   const submit = useCallback(async () => {
+    if (submittingRef.current) return;
     const body = String(textareaRef.current?.value || "").trim();
-    if (!body || submitting) return;
+    if (!body) return;
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       await onAddCommentRef.current(body);
@@ -73,15 +81,17 @@ export const SaleVoucherCommentsPanel = memo(function SaleVoucherCommentsPanel({
         textareaRef.current.value = "";
       }
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
-  }, [submitting]);
+  }, []);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      void submit();
-    }
+    if (event.key !== "Enter" || event.shiftKey) return;
+    if (composingRef.current || isImeComposing(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void submit();
   };
 
   const authorLabel = String(currentUser?.name || currentUser?.email || "\uC0AC\uC6A9\uC790").trim() || "\uC0AC\uC6A9\uC790";
@@ -134,9 +144,16 @@ export const SaleVoucherCommentsPanel = memo(function SaleVoucherCommentsPanel({
           <textarea
             ref={textareaRef}
             lang="ko"
+            enterKeyHint="send"
             className="erp-input erp-sale-voucher-comments-input min-h-[72px] w-full rounded-xl"
             defaultValue=""
             placeholder={`${authorLabel}\uB2D8, \uCF54\uBA58\uD2B8 \uC785\uB825 (Enter \uC804\uC1A1 \u00B7 Shift+Enter \uC904\uBC14\uAFC8)`}
+            onCompositionStart={() => {
+              composingRef.current = true;
+            }}
+            onCompositionEnd={() => {
+              composingRef.current = false;
+            }}
             onKeyDown={handleKeyDown}
           />
           <Button
