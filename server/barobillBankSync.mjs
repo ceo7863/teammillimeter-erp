@@ -26,9 +26,19 @@ let lastStatus = {
   bankAccountNum: "",
 };
 
-function formatYmd(date = new Date()) {
-  const pad = (value) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+const KOREA_TZ = "Asia/Seoul";
+
+function formatYmdKst(date = new Date()) {
+  return date.toLocaleDateString("en-CA", { timeZone: KOREA_TZ });
+}
+
+function subtractDaysYmdKst(days, from = new Date()) {
+  const kst = new Date(from.toLocaleString("en-US", { timeZone: KOREA_TZ }));
+  kst.setDate(kst.getDate() - Math.max(0, days));
+  const y = kst.getFullYear();
+  const m = String(kst.getMonth() + 1).padStart(2, "0");
+  const d = String(kst.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 export function getBarobillBankSyncStatus() {
@@ -64,14 +74,10 @@ export async function runBarobillBankSync(options = {}) {
 
   try {
     const days = Number(options.syncDays || cfg.syncDays || 7);
-    const toDate = String(options.endDate || formatYmd(new Date())).slice(0, 10);
-    const from = options.startDate
-      ? new Date(`${options.startDate}T00:00:00`)
-      : new Date();
-    if (!options.startDate) {
-      from.setDate(from.getDate() - Math.max(1, days));
-    }
-    const fromDate = String(options.startDate || formatYmd(from)).slice(0, 10);
+    const toDate = String(options.endDate || formatYmdKst(new Date())).slice(0, 10);
+    const fromDate = options.startDate
+      ? String(options.startDate).slice(0, 10)
+      : subtractDaysYmdKst(Math.max(1, days));
 
     const fetched = await fetchBarobillBankTransactionsInRange({
       startDate: fromDate,
