@@ -202,7 +202,7 @@ function SplitRow({
           value={model.accountSubjectLabel}
           placeholder={labels.accountSubjectPlaceholder}
           empty={!model.accountSubjectLabel}
-          isOpen={openAccountSubjectId === model.id}
+          isOpen={openAccountSubjectId != null && String(openAccountSubjectId) === String(model.id)}
           onClick={() => onEditAccountSubject(model.id)}
         />
       </td>

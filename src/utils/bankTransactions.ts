@@ -103,7 +103,7 @@ export function buildImportFingerprint(row: Pick<
 
 export function normalizeBankTransaction(raw: Partial<BankTransaction> & { id: string }): BankTransaction {
   return {
-    id: raw.id,
+    id: String(raw.id),
     transactionAt: String(raw.transactionAt || new Date().toISOString()),
     withdrawal: parseBankAmount(raw.withdrawal),
     deposit: parseBankAmount(raw.deposit),

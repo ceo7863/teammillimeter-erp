@@ -277,15 +277,16 @@ export function detachBankTxFromCompanyLedgerLinks(
   expenses: CompanyExpense[],
   payments: FixedExpensePayment[],
 ) {
-  const cleared = clearVariableExpenseLinkForBankTx(txId, expenses, transactions);
+  const txKey = String(txId);
+  const cleared = clearVariableExpenseLinkForBankTx(txKey, expenses, transactions);
   const nextExpenses = cleared.expenses.map((row) =>
-    row.bankTransactionId === txId ? { ...row, bankTransactionId: undefined } : row,
+    row.bankTransactionId === txKey ? { ...row, bankTransactionId: undefined } : row,
   );
   const nextPayments = payments.map((row) =>
-    row.bankTransactionId === txId ? { ...row, bankTransactionId: undefined } : row,
+    row.bankTransactionId === txKey ? { ...row, bankTransactionId: undefined } : row,
   );
   const nextTransactions = cleared.transactions.map((row) =>
-    row.id === txId
+    String(row.id) === txKey
       ? { ...row, linkedCompanyExpenseId: undefined, linkedFixedExpensePaymentId: undefined }
       : row,
   );

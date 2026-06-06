@@ -9,6 +9,7 @@ import type { BankTransactionFolder } from "@/utils/bankTransactionFolders";
 import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "@/utils/companyLedger";
 import type { BankTransaction } from "@/utils/bankTransactions";
 import type { AccountCode, LedgerCategory } from "@/utils/ledgerSystem";
+import { resolveAccountCodeLabel } from "@/utils/ledgerSystem";
 import type { TaxInvoice } from "@/utils/taxInvoices";
 import {
   buildBankTransactionListLookupMaps,
@@ -67,32 +68,45 @@ function BankTransactionListSectionComponent({
   toolbar,
 }: BankTransactionListSectionProps) {
   const rowByIdRef = useRef(new Map<string, BankTransaction>());
-  rowByIdRef.current = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
+  rowByIdRef.current = useMemo(
+    () => new Map(rows.map((row) => [String(row.id), row])),
+    [rows],
+  );
 
   const lookupMaps = useMemo(
     () => buildBankTransactionListLookupMaps(companyExpenses, fixedExpensePayments, fixedExpenses),
     [companyExpenses, fixedExpensePayments, fixedExpenses],
   );
 
-  const rowModels = useMemo(
-    () =>
-      buildBankTransactionListRowModels(
-        rows,
-        folderMap,
-        ledgerCategoryFolder,
-        lookupMaps,
-        { unfiled: labels.unfiled, accountContentPlaceholder: labels.accountContentPlaceholder },
-        paymentVouchers,
-        ledgerCategories,
-        companyExpenses,
-        fixedExpensePayments,
-        fixedExpenses,
-        accountCodes,
-        taxInvoices,
-        clients,
-        workers,
-      ),
-    [
+  const rowModels = useMemo(() => {
+    const base = buildBankTransactionListRowModels(
+      rows,
+      folderMap,
+      ledgerCategoryFolder,
+      lookupMaps,
+      { unfiled: labels.unfiled, accountContentPlaceholder: labels.accountContentPlaceholder },
+      paymentVouchers,
+      ledgerCategories,
+      companyExpenses,
+      fixedExpensePayments,
+      fixedExpenses,
+      accountCodes,
+      taxInvoices,
+      clients,
+      workers,
+    );
+    const patched = new Map(base);
+    for (const row of rows) {
+      const model = patched.get(row.id);
+      if (!model) continue;
+      const code = String(row.ledgerAccountCode || "").trim();
+      patched.set(row.id, {
+        ...model,
+        accountSubjectLabel: code ? resolveAccountCodeLabel(accountCodes, code) || code : null,
+      });
+    }
+    return patched;
+  }, [
       rows,
       folderMap,
       ledgerCategoryFolder,
@@ -115,7 +129,7 @@ function BankTransactionListSectionComponent({
 
   const handleEditMemo = useCallback(
     (id: string) => {
-      const row = rowByIdRef.current.get(id);
+      const row = rowByIdRef.current.get(String(id));
       if (row) onEditMemo(row);
     },
     [onEditMemo],
@@ -123,7 +137,7 @@ function BankTransactionListSectionComponent({
 
   const handleEditAccountSubject = useCallback(
     (id: string) => {
-      const row = rowByIdRef.current.get(id);
+      const row = rowByIdRef.current.get(String(id));
       if (row) onEditAccountSubject(row);
     },
     [onEditAccountSubject],
@@ -131,7 +145,7 @@ function BankTransactionListSectionComponent({
 
   const handleEditClient = useCallback(
     (id: string) => {
-      const row = rowByIdRef.current.get(id);
+      const row = rowByIdRef.current.get(String(id));
       if (row) onEditClient(row);
     },
     [onEditClient],
@@ -139,7 +153,7 @@ function BankTransactionListSectionComponent({
 
   const handleFindEvidence = useCallback(
     (id: string) => {
-      const row = rowByIdRef.current.get(id);
+      const row = rowByIdRef.current.get(String(id));
       if (row) onFindEvidence(row);
     },
     [onFindEvidence],

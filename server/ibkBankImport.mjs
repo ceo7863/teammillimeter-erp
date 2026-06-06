@@ -30,6 +30,7 @@ function bankTransactionKeepScore(row) {
   if (row.linkedFixedExpensePaymentId) score += 100;
   if (row.linkedCompanyExpenseId) score += 100;
   if (row.linkedPaymentVoucherId) score += 100;
+  if (row.ledgerAccountCode) score += 120;
   if (row.ledgerCategoryId) score += 50;
   if (row.folderId) score += 20;
   if (row.counterpartyName) score += 5;
@@ -38,6 +39,25 @@ function bankTransactionKeepScore(row) {
 }
 
 function mergeDuplicateBankTransactionRows(keeper, duplicate) {
+  const keeperLedgerMs = Date.parse(keeper.ledgerConfirmedAt || "") || 0;
+  const duplicateLedgerMs = Date.parse(duplicate.ledgerConfirmedAt || "") || 0;
+  const preferDuplicateLedger = duplicateLedgerMs > keeperLedgerMs;
+  const ledgerAccountCode = preferDuplicateLedger
+    ? duplicate.ledgerAccountCode || keeper.ledgerAccountCode
+    : keeper.ledgerAccountCode || duplicate.ledgerAccountCode;
+  const ledgerStatus = preferDuplicateLedger
+    ? duplicate.ledgerStatus || keeper.ledgerStatus
+    : keeper.ledgerStatus || duplicate.ledgerStatus;
+  const ledgerCategoryId = preferDuplicateLedger
+    ? duplicate.ledgerCategoryId ?? keeper.ledgerCategoryId
+    : keeper.ledgerCategoryId ?? duplicate.ledgerCategoryId;
+  const ledgerConfirmedAt = preferDuplicateLedger
+    ? duplicate.ledgerConfirmedAt || keeper.ledgerConfirmedAt
+    : keeper.ledgerConfirmedAt || duplicate.ledgerConfirmedAt;
+  const ledgerConfirmedBy = preferDuplicateLedger
+    ? duplicate.ledgerConfirmedBy || keeper.ledgerConfirmedBy
+    : keeper.ledgerConfirmedBy || duplicate.ledgerConfirmedBy;
+
   return {
     ...keeper,
     counterpartyName: keeper.counterpartyName || duplicate.counterpartyName,
@@ -45,7 +65,13 @@ function mergeDuplicateBankTransactionRows(keeper, duplicate) {
     counterpartyBank: keeper.counterpartyBank || duplicate.counterpartyBank,
     memo: keeper.memo || duplicate.memo,
     transactionType: keeper.transactionType || duplicate.transactionType,
-    ledgerCategoryId: keeper.ledgerCategoryId || duplicate.ledgerCategoryId,
+    ledgerStatus,
+    ledgerCategoryId,
+    ledgerAccountCode,
+    ledgerConfirmedAt,
+    ledgerConfirmedBy,
+    ledgerMemo: keeper.ledgerMemo || duplicate.ledgerMemo,
+    ledgerFixedExpenseId: keeper.ledgerFixedExpenseId || duplicate.ledgerFixedExpenseId,
     folderId: keeper.folderId || duplicate.folderId,
     linkedSubject: keeper.linkedSubject || duplicate.linkedSubject,
     linkedFixedExpensePaymentId: keeper.linkedFixedExpensePaymentId || duplicate.linkedFixedExpensePaymentId,

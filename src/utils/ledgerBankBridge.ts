@@ -111,8 +111,6 @@ export function assignBankTransactionAccountCode(input: {
 }): BankTransaction | null {
   const code = String(input.accountCode || "").trim();
   if (!code) return null;
-  const account = findAccountCodeByCode(input.accountCodes, code);
-  if (account?.isActive === false) return null;
 
   return {
     ...input.tx,

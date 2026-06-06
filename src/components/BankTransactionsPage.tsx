@@ -1049,7 +1049,9 @@ export function BankTransactionsPage({
 
   const accountSubjectPickerTx = useMemo(() => {
     if (!accountSubjectPickerTxId) return null;
-    return ledgerSyncedTransactions.find((row) => row.id === accountSubjectPickerTxId) ?? null;
+    return (
+      ledgerSyncedTransactions.find((row) => String(row.id) === String(accountSubjectPickerTxId)) ?? null
+    );
   }, [accountSubjectPickerTxId, ledgerSyncedTransactions]);
 
   React.useEffect(() => {
@@ -2150,7 +2152,8 @@ export function BankTransactionsPage({
   const openAccountSubjectModal = useCallback((tx: BankTransaction) => {
     if (Date.now() < accountSubjectIgnoreOpenUntilRef.current) return;
     setTxCellModalError("");
-    setAccountSubjectPickerTxId((prev) => (prev === tx.id ? null : tx.id));
+    const txId = String(tx.id);
+    setAccountSubjectPickerTxId((prev) => (prev === txId ? null : txId));
   }, []);
 
   const openFixedExpenseModal = useCallback(
@@ -2254,8 +2257,9 @@ export function BankTransactionsPage({
         return false;
       }
 
+      const txKey = String(txId);
       const prev = bankTransactionsRef.current;
-      const tx = prev.find((row) => row.id === txId);
+      const tx = prev.find((row) => String(row.id) === txKey);
       if (!tx) {
         setTxCellModalError(L.accountSubjectSaveFailed);
         setImportMessage(L.accountSubjectSaveFailed);
@@ -2276,18 +2280,20 @@ export function BankTransactionsPage({
       }
 
       auditBankTxUpdate(tx, nextRow);
-      const mappedTransactions = prev.map((row) => (row.id === txId ? nextRow : row));
+      const mappedTransactions = prev.map((row) => (String(row.id) === txKey ? nextRow : row));
       const detached = detachBankTxFromCompanyLedgerLinks(
-        txId,
+        txKey,
         mappedTransactions,
         companyExpenses,
         fixedExpensePayments,
       );
-      const nextTransactions = detached.transactions.map((row) => (row.id === txId ? nextRow : row));
+      const nextTransactions = detached.transactions.map((row) =>
+        String(row.id) === txKey ? nextRow : row,
+      );
       bankTransactionsRef.current = nextTransactions;
       setBankTransactions(nextTransactions);
-      if (detached.expenses !== companyExpenses) setCompanyExpenses(detached.expenses);
-      if (detached.payments !== fixedExpensePayments) setFixedExpensePayments(detached.payments);
+      setCompanyExpenses(detached.expenses);
+      setFixedExpensePayments(detached.payments);
       setAccountSubjectPickerTxId(null);
       setTxCellModalError("");
       setImportMessage(L.cellSaveDone);
@@ -5040,7 +5046,7 @@ export function BankTransactionsPage({
             onEditAccountSubject={openAccountSubjectModal}
             onEditClient={openClientModal}
             onFindEvidence={openTaxInvoiceModal}
-            openAccountSubjectId={accountSubjectPickerTxId}
+            openAccountSubjectId={accountSubjectPickerTxId ? String(accountSubjectPickerTxId) : null}
             toolbar={
               <>
                 <Button
