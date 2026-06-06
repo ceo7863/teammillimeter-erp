@@ -134,9 +134,9 @@ function SplitRow({
         : "text-slate-500";
 
   return (
-    <tr className={`border-t hover:bg-slate-50/40 ${rowClass}`}>
-      <td className="whitespace-nowrap text-xs text-slate-600">{model.dateLabel}</td>
-      <td className="whitespace-nowrap text-xs font-medium text-slate-700">{model.accountLabel}</td>
+    <tr className={`erp-bank-wehago-row border-t ${rowClass}`}>
+      <td className="erp-bank-wehago-cell erp-bank-wehago-cell--datetime">{model.dateLabel}</td>
+      <td className="erp-bank-wehago-cell erp-bank-wehago-cell--account">{model.accountLabel}</td>
       <td className="max-w-[8rem] truncate text-xs" title={model.counterpartyLabel}>
         <span
           className={`inline-flex max-w-full truncate rounded-md px-1.5 py-0.5 font-medium ${
@@ -153,11 +153,11 @@ function SplitRow({
       <td className="max-w-[10rem] truncate text-xs font-medium text-slate-900" title={model.description}>
         {model.description}
       </td>
-      <td className={`whitespace-nowrap text-right text-sm ${amountClass}`}>{model.signedAmountLabel}</td>
-      <td className="max-w-[8rem]">
+      <td className={`whitespace-nowrap text-right text-sm erp-bank-wehago-amount ${amountClass}`}>{model.signedAmountLabel}</td>
+      <td className="erp-bank-wehago-cell erp-bank-wehago-split-divider max-w-[8rem]">
         <button
           type="button"
-          className="inline-flex max-w-full items-center gap-1 truncate rounded-lg border border-dashed border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+          className="erp-bank-wehago-inline-btn"
           title={model.memoLabel}
           onClick={() => onEditMemo(model.id)}
         >
@@ -165,7 +165,7 @@ function SplitRow({
           <span className="truncate">{model.memoEmpty ? labels.memoPlaceholder : model.memoLabel}</span>
         </button>
       </td>
-      <td className="w-8 text-center text-slate-300">
+      <td className="erp-bank-wehago-split-bridge text-center text-slate-300">
         <Link2 size={14} className="mx-auto opacity-40" />
       </td>
       <td className="max-w-[11rem]">
@@ -234,26 +234,26 @@ function BankTransactionSplitTableComponent({
   onFindEvidence,
 }: BankTransactionSplitTableProps) {
   return (
-    <DesktopTableWrap>
-      <table id="bank-transactions-table" className="erp-table erp-bank-split-table w-full min-w-[1280px]">
+    <DesktopTableWrap className="erp-bank-wehago-table-wrap">
+      <table id="bank-transactions-table" className="erp-table erp-bank-split-table erp-bank-wehago-split-table w-full min-w-[1280px]">
         <thead>
-          <tr className="bg-slate-100 text-left text-xs text-slate-600">
-            <th colSpan={6} className="border-r border-slate-200 bg-slate-50 text-center font-bold text-slate-700">
+          <tr className="erp-bank-wehago-split-section-row">
+            <th colSpan={6} className="erp-bank-wehago-split-section erp-bank-wehago-split-section--bank">
               {labels.bankSection}
             </th>
-            <th className="w-8 border-r border-slate-200 bg-white" />
-            <th colSpan={5} className="bg-slate-50 text-center font-bold text-slate-700">
+            <th className="erp-bank-wehago-split-bridge" aria-hidden="true" />
+            <th colSpan={5} className="erp-bank-wehago-split-section erp-bank-wehago-split-section--classify">
               {labels.classifySection}
             </th>
           </tr>
-          <tr className="bg-slate-100 text-left text-xs text-slate-600">
+          <tr className="erp-bank-wehago-split-columns-row">
             <th>{labels.transactionAt}</th>
             <th>{labels.account}</th>
             <th>{labels.counterparty}</th>
             <th>{labels.description}</th>
             <th className="text-right">{labels.amount}</th>
-            <th className="border-r border-slate-200">{labels.memo}</th>
-            <th className="w-8 border-r border-slate-200" />
+            <th className="erp-bank-wehago-split-divider">{labels.memo}</th>
+            <th className="erp-bank-wehago-split-bridge" aria-hidden="true" />
             <th>{labels.evidence}</th>
             <th>{labels.accountSubject}</th>
             <th>{labels.client}</th>

@@ -248,8 +248,23 @@ import {
   parseIbkBankFile,
   type IbkBankImportPreview,
 } from "@/utils/ibkBankImport";
+import { BankTransactionFilterBar } from "@/components/BankTransactionFilterBar";
+import { BankTransactionTableFooter } from "@/components/BankTransactionTableFooter";
+import {
+  resolveBankTransactionPeriod,
+  type BankTransactionPeriodKey,
+} from "@/utils/bankTransactionPagePeriod";
+import {
+  countBankTxStatusTabs,
+  matchesBankTxEvidenceFilter,
+  matchesBankTxStatusTab,
+  type BankTxEvidenceFilter,
+  type BankTxGroupFilter,
+  type BankTxStatusTab,
+} from "@/utils/bankTransactionStatusFilter";
+import { resolveBankTxClientName } from "@/utils/bankTaxInvoiceLink";
 
-type PeriodKey = "thisMonth" | "lastMonth" | "all" | "custom";
+type PeriodKey = BankTransactionPeriodKey;
 type DateFilter = { startDate: string; endDate: string };
 type FolderScope = "all" | "client" | "card" | "worker" | "unfiled" | `custom:${string}`;
 
@@ -265,12 +280,6 @@ type TxClientModal = { tx: BankTransaction; draft: string };
 type TxTaxInvoiceModal = { tx: BankTransaction };
 
 const EMPTY_TX_SUGGESTION_MAP = new Map<string, never>();
-
-const PERIOD_OPTIONS: Array<{ key: PeriodKey; label: string }> = [
-  { key: "thisMonth", label: "\uC774\uBC88 \uB2EC" },
-  { key: "lastMonth", label: "\uC9C0\uB09C \uB2EC" },
-  { key: "all", label: "\uC804\uCCB4" },
-];
 
 const FLOW_FILTER_OPTIONS: Array<{ key: BankTransactionFlowFilter; label: string; tone: string }> = [
   { key: "all", label: "\uC804\uCCB4", tone: "bg-slate-900 text-white" },
@@ -636,10 +645,7 @@ type DepositSuggestion =
     };
 
 function resolveActivePeriod(periodKey: PeriodKey, dateFilter: DateFilter): DateFilter {
-  if (periodKey === "thisMonth") return monthRangeISO(0);
-  if (periodKey === "lastMonth") return monthRangeISO(-1);
-  if (periodKey === "all") return { startDate: "", endDate: "" };
-  return dateFilter;
+  return resolveBankTransactionPeriod(periodKey, dateFilter);
 }
 
 function StatCard({
@@ -880,6 +886,11 @@ export function BankTransactionsPage({
   const [dateFilter, setDateFilter] = useState<DateFilter>(() => ({ startDate: "", endDate: "" }));
   const [flowFilter, setFlowFilter] = useState<BankTransactionFlowFilter>("all");
   const [ledgerScopeFilter, setLedgerScopeFilter] = useState<LedgerScopeFilter>("all");
+  const [statusTab, setStatusTab] = useState<BankTxStatusTab>("all");
+  const [clientNameFilter, setClientNameFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [groupFilter, setGroupFilter] = useState<BankTxGroupFilter>("all");
+  const [evidenceFilter, setEvidenceFilter] = useState<BankTxEvidenceFilter>("all");
   const [accountFilter, setAccountFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterResetKey, setFilterResetKey] = useState(0);
@@ -2385,6 +2396,34 @@ export function BankTransactionsPage({
     [periodKey, dateFilter]
   );
 
+  const statusFilterContext = useMemo(
+    () => ({
+      ledgerCategories,
+      companyExpenses,
+      fixedExpensePayments,
+      fixedExpenses,
+      ledgerRegistrationContext,
+    }),
+    [ledgerCategories, companyExpenses, fixedExpensePayments, fixedExpenses, ledgerRegistrationContext],
+  );
+
+  const periodScopedRows = useMemo(
+    () =>
+      filterBankTransactions(ledgerSyncedTransactions, {
+        search: "",
+        dateFrom: activePeriod.startDate,
+        dateTo: activePeriod.endDate,
+        flowType: "all",
+        accountNumber: "",
+      }),
+    [ledgerSyncedTransactions, activePeriod.startDate, activePeriod.endDate],
+  );
+
+  const statusCounts = useMemo(
+    () => countBankTxStatusTabs(periodScopedRows, statusFilterContext),
+    [periodScopedRows, statusFilterContext],
+  );
+
   const filteredRows = useMemo(() => {
     let scoped = filterBankTransactions(ledgerSyncedTransactions, {
       search: searchQuery,
@@ -2421,6 +2460,37 @@ export function BankTransactionsPage({
       );
     }
 
+    if (statusTab !== "all") {
+      scoped = scoped.filter((row) => matchesBankTxStatusTab(row, statusTab, statusFilterContext));
+    }
+
+    if (clientNameFilter) {
+      scoped = scoped.filter((row) => {
+        const name = resolveBankTxClientName(row) || String(row.linkedSubject || "").trim();
+        return name === clientNameFilter;
+      });
+    }
+
+    if (categoryFilter) {
+      const category = ledgerCategories.find((item) => item.id === categoryFilter);
+      scoped = scoped.filter((row) => {
+        if (row.ledgerCategoryId === categoryFilter) return true;
+        if (!category?.name) return false;
+        const label = getBankTxLedgerCategoryLabel(
+          row,
+          ledgerCategories,
+          companyExpenses,
+          fixedExpensePayments,
+          fixedExpenses,
+        );
+        return String(label || "").trim() === category.name.trim();
+      });
+    }
+
+    if (evidenceFilter !== "all") {
+      scoped = scoped.filter((row) => matchesBankTxEvidenceFilter(row, evidenceFilter));
+    }
+
     return sortBankTransactions(scoped, { key: sort.key, direction: sort.direction });
   }, [
     ledgerSyncedTransactions,
@@ -2429,8 +2499,15 @@ export function BankTransactionsPage({
     activePeriod.endDate,
     flowFilter,
     ledgerScopeFilter,
+    statusTab,
+    statusFilterContext,
+    clientNameFilter,
+    categoryFilter,
+    evidenceFilter,
     companyExpenses,
     fixedExpensePayments,
+    fixedExpenses,
+    ledgerCategories,
     accountFilter,
     selectedFolderScopeIds,
     folderScope,
@@ -5191,153 +5268,57 @@ export function BankTransactionsPage({
       )}
 
       {hasAnyData && pageView === "list" ? (
-        <Card className="mb-4 rounded-2xl border-slate-200 shadow-sm">
-          <CardContent className="space-y-4 p-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="mr-1 erp-text-caption font-bold text-slate-500">{L.periodLabel}</span>
-              {PERIOD_OPTIONS.map((option) => (
-                <Button
-                  key={option.key}
-                  type="button"
-                  size="sm"
-                  variant={periodKey === option.key ? "default" : "outline"}
-                  className="rounded-xl"
-                  onClick={() => setPeriodKey(option.key)}
-                >
-                  {option.label}
-                </Button>
-              ))}
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              <Field label={L.periodStart}>
-                <KoreanDateInput
-                  value={activePeriod.startDate}
-                  onChange={(event) => {
-                    setPeriodKey("custom");
-                    setDateFilter((prev) => ({ ...prev, startDate: event.target.value }));
-                  }}
-                />
-              </Field>
-              <Field label={L.periodEnd}>
-                <KoreanDateInput
-                  value={activePeriod.endDate}
-                  onChange={(event) => {
-                    setPeriodKey("custom");
-                    setDateFilter((prev) => ({ ...prev, endDate: event.target.value }));
-                  }}
-                />
-              </Field>
-              <Field label={L.accountFilter}>
-                <select
-                  className="erp-input w-full rounded-xl"
-                  value={accountFilter}
-                  onChange={(event) => setAccountFilter(event.target.value)}
-                >
-                  <option value="">{L.allAccounts}</option>
-                  {accountSummaries.map((account) => (
-                    <option key={account.accountNumber} value={account.accountNumber}>
-                      {account.accountNumber}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            </div>
-
-            <BankTransactionSearchBar
-              appliedValue={searchQuery}
-              onApply={setSearchQuery}
-              resetKey={filterResetKey}
-            />
-
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="mr-1 erp-text-caption font-bold text-slate-500">{L.ledgerScopeLabel}</span>
-              {LEDGER_SCOPE_OPTIONS.map((option) => (
-                <Button
-                  key={option.key}
-                  type="button"
-                  size="sm"
-                  variant={ledgerScopeFilter === option.key ? "default" : "outline"}
-                  className="rounded-xl"
-                  onClick={() => setLedgerScopeFilter(option.key)}
-                >
-                  {option.label}
-                </Button>
-              ))}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="mr-1 erp-text-caption font-bold text-slate-500">{L.sortLabel}</span>
-              {SORT_KEY_OPTIONS.map((option) => (
-                <Button
-                  key={option.key}
-                  type="button"
-                  size="sm"
-                  variant={sort.key === option.key ? "default" : "outline"}
-                  className="rounded-xl"
-                  onClick={() => setSort((prev) => ({ ...prev, key: option.key }))}
-                >
-                  {option.label}
-                </Button>
-              ))}
-              <span className="mx-1 hidden h-5 w-px bg-slate-200 sm:inline-block" aria-hidden="true" />
-              <Button
-                type="button"
-                size="sm"
-                variant={sort.direction === "asc" ? "default" : "outline"}
-                className="rounded-xl"
-                onClick={() => setSort((prev) => ({ ...prev, direction: "asc" }))}
-              >
-                <ArrowUp size={14} className="mr-1" />
-                {L.sortAsc}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={sort.direction === "desc" ? "default" : "outline"}
-                className="rounded-xl"
-                onClick={() => setSort((prev) => ({ ...prev, direction: "desc" }))}
-              >
-                <ArrowDown size={14} className="mr-1" />
-                {L.sortDesc}
-              </Button>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="mr-1 erp-text-caption font-bold text-slate-500">{L.flowLabel}</span>
-              {FLOW_FILTER_OPTIONS.map((option) => (
-                <Button
-                  key={option.key}
-                  type="button"
-                  size="sm"
-                  variant={flowFilter === option.key ? "default" : "outline"}
-                  className={`rounded-xl ${flowFilter === option.key && option.key !== "all" ? option.tone : ""}`}
-                  onClick={() => setFlowFilter(option.key)}
-                >
-                  {option.label}
-                </Button>
-              ))}
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="ml-auto rounded-xl text-slate-500"
-                onClick={() => {
-                  setPeriodKey("all");
-                  setDateFilter({ startDate: "", endDate: "" });
-                  setFlowFilter("all");
-                  setLedgerScopeFilter("all");
-                  setAccountFilter("");
-                  setSearchQuery("");
-                  setFilterResetKey((key) => key + 1);
-                  setSort(DEFAULT_BANK_TRANSACTION_SORT);
-                }}
-              >
-                {L.resetFilter}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <BankTransactionFilterBar
+          periodKey={periodKey}
+          onPeriodKeyChange={setPeriodKey}
+          startDate={activePeriod.startDate}
+          endDate={activePeriod.endDate}
+          onStartDateChange={(value) => setDateFilter((prev) => ({ ...prev, startDate: value }))}
+          onEndDateChange={(value) => setDateFilter((prev) => ({ ...prev, endDate: value }))}
+          statusTab={statusTab}
+          onStatusTabChange={setStatusTab}
+          statusCounts={statusCounts}
+          flowFilter={flowFilter}
+          onFlowFilterChange={setFlowFilter}
+          accountFilter={accountFilter}
+          onAccountFilterChange={setAccountFilter}
+          accounts={accountSummaries}
+          categoryFilter={categoryFilter}
+          onCategoryFilterChange={setCategoryFilter}
+          categories={ledgerCategories.map((category) => ({ id: category.id, name: category.name }))}
+          clientFilter={clientNameFilter}
+          onClientFilterChange={setClientNameFilter}
+          clients={clients}
+          groupFilter={groupFilter}
+          onGroupFilterChange={(value) => {
+            setGroupFilter(value);
+            setSelectedFolderId("");
+            if (value === "all") setFolderScope("all");
+            else setFolderScope(value);
+          }}
+          evidenceFilter={evidenceFilter}
+          onEvidenceFilterChange={setEvidenceFilter}
+          searchQuery={searchQuery}
+          onSearchQueryChange={setSearchQuery}
+          filterResetKey={filterResetKey}
+          onReset={() => {
+            setPeriodKey("all");
+            setDateFilter({ startDate: "", endDate: "" });
+            setFlowFilter("all");
+            setLedgerScopeFilter("all");
+            setStatusTab("all");
+            setAccountFilter("");
+            setClientNameFilter("");
+            setCategoryFilter("");
+            setGroupFilter("all");
+            setFolderScope("all");
+            setSelectedFolderId("");
+            setEvidenceFilter("all");
+            setSearchQuery("");
+            setFilterResetKey((key) => key + 1);
+            setSort(DEFAULT_BANK_TRANSACTION_SORT);
+          }}
+        />
       ) : null}
 
       {hasAnyData && pageView === "list" ? (
@@ -5347,6 +5328,7 @@ export function BankTransactionsPage({
               {L.emptyPeriodHint}
             </p>
           ) : null}
+        <div className="erp-bank-wehago-table-shell rounded-2xl border border-slate-200 bg-white shadow-sm">
         <TableExportSection
           fileName={`bank-transactions-${todayISO()}`}
           title={L.pageTitle}
@@ -5419,7 +5401,14 @@ export function BankTransactionsPage({
               </>
             }
           />
+          <BankTransactionTableFooter
+            count={stats.count}
+            deposits={stats.deposits}
+            withdrawals={stats.withdrawals}
+            net={stats.net}
+          />
         </TableExportSection>
+        </div>
         </>
       ) : null}
 

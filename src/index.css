@@ -11429,6 +11429,336 @@ button:disabled,
   vertical-align: middle;
 }
 
+.erp-bank-wehago-toolbar {
+  overflow: hidden;
+}
+
+.erp-bank-wehago-toolbar__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  padding: 1rem 1rem 0.75rem;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.erp-bank-wehago-toolbar__title-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+}
+
+.erp-bank-wehago-toolbar__title {
+  font-size: 1.125rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.erp-bank-wehago-period-tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.2rem;
+  border-radius: 999px;
+  background: #f1f5f9;
+}
+
+.erp-bank-wehago-period-tab {
+  min-width: 2rem;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #64748b;
+  background: transparent;
+  cursor: pointer;
+}
+
+.erp-bank-wehago-period-tab.is-active {
+  color: #0f172a;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.erp-bank-wehago-toolbar__range {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  color: #475569;
+  font-size: 0.8125rem;
+}
+
+.erp-bank-wehago-date-input {
+  min-width: 8.5rem;
+  max-width: 10rem;
+}
+
+.erp-bank-wehago-toolbar__range-label {
+  color: #94a3b8;
+  font-size: 0.75rem;
+}
+
+.erp-bank-wehago-status-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  padding: 0 1rem;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.erp-bank-wehago-status-tab {
+  position: relative;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  padding: 0.75rem 0.9rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.erp-bank-wehago-status-tab.is-active {
+  color: #2563eb;
+  border-bottom-color: #2563eb;
+}
+
+.erp-bank-wehago-status-tab__count {
+  margin-left: 0.35rem;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  color: #ef4444;
+}
+
+.erp-bank-wehago-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.85rem 1rem 1rem;
+}
+
+.erp-bank-wehago-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: min(100%, 16rem);
+  flex: 1 1 16rem;
+  min-height: 2.375rem;
+  padding: 0 0.75rem;
+  border: 1px solid #dbe3ee;
+  border-radius: 0.625rem;
+  background: #fff;
+}
+
+.erp-bank-wehago-search__icon {
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.erp-bank-wehago-search__input {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font-size: 0.8125rem;
+  color: #0f172a;
+  outline: none;
+}
+
+.erp-bank-wehago-flow-tabs {
+  display: inline-flex;
+  gap: 0.25rem;
+  padding: 0.2rem;
+  border-radius: 999px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.erp-bank-wehago-flow-tab {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #64748b;
+  background: transparent;
+  cursor: pointer;
+}
+
+.erp-bank-wehago-flow-tab.is-active {
+  color: #0f172a;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.erp-bank-wehago-filter-select {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 6.5rem;
+}
+
+.erp-bank-wehago-filter-select__label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #94a3b8;
+}
+
+.erp-bank-wehago-filter-select__control {
+  min-height: 2.125rem;
+  border: 1px solid #dbe3ee;
+  border-radius: 0.625rem;
+  padding: 0.25rem 1.75rem 0.25rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #334155;
+  background: #fff;
+}
+
+.erp-bank-wehago-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.erp-bank-wehago-table-shell {
+  overflow: hidden;
+}
+
+.erp-bank-wehago-table-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.85rem 1rem 0;
+}
+
+.erp-bank-wehago-table-wrap .erp-table-scroll-hint {
+  border: 0;
+  border-radius: 0;
+}
+
+.erp-bank-wehago-split-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f8fafc;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.erp-bank-wehago-split-section-row th {
+  top: 0;
+  z-index: 3;
+}
+
+.erp-bank-wehago-split-columns-row th {
+  top: 2rem;
+}
+
+.erp-bank-wehago-split-section {
+  padding: 0.55rem 0.75rem;
+  text-align: center;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  color: #334155;
+}
+
+.erp-bank-wehago-split-section--bank {
+  background: #f8fafc;
+  border-right: 1px solid #e2e8f0;
+}
+
+.erp-bank-wehago-split-section--classify {
+  background: #f1f5f9;
+}
+
+.erp-bank-wehago-split-bridge {
+  width: 2rem;
+  min-width: 2rem;
+  background: #fff;
+  border-left: 1px solid #e2e8f0;
+  border-right: 1px solid #e2e8f0;
+}
+
+.erp-bank-wehago-split-divider {
+  border-right: 1px solid #e2e8f0;
+}
+
+.erp-bank-wehago-row:hover {
+  background: #f8fafc;
+}
+
+.erp-bank-wehago-cell {
+  padding-top: 0.65rem;
+  padding-bottom: 0.65rem;
+  font-size: 0.75rem;
+  color: #334155;
+  vertical-align: middle;
+}
+
+.erp-bank-wehago-cell--datetime {
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.erp-bank-wehago-cell--account {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.erp-bank-wehago-amount {
+  font-size: 0.8125rem;
+}
+
+.erp-bank-wehago-inline-btn {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.25rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px dashed #dbe3ee;
+  border-radius: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  background: #fff;
+}
+
+.erp-bank-wehago-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  padding: 0.85rem 1rem;
+  border-top: 1px solid #e2e8f0;
+  background: #fcfdff;
+  font-size: 0.8125rem;
+  color: #475569;
+}
+
+.erp-bank-wehago-footer__right {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
 .erp-sale-comment-badge {
   display: inline-flex;
   align-items: center;

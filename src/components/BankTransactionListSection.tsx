@@ -203,8 +203,8 @@ function BankTransactionListSectionComponent({
 
   return (
     <>
-      {toolbar ? <div className="mb-3 flex flex-wrap items-center gap-2">{toolbar}</div> : null}
-      <div className="mb-2 flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-500">
+      {toolbar ? <div className="erp-bank-wehago-table-toolbar">{toolbar}</div> : null}
+      <div className="mb-2 hidden flex-wrap items-center gap-3 text-xs font-semibold text-slate-500 md:flex">
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-block h-3 w-3 rounded bg-sky-200" />
           {"\uAC70\uB798\uCC98"}
