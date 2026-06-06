@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { DesktopTableWrap } from "@/components/MobileRecordCard";
 import {
   buildAccountDisplayRows,
+  compareAccountParentGroups,
   filterAccountCodesForManageView,
   isSecondaryAccountCode,
 } from "@/utils/accountCodeTree";
@@ -140,7 +141,7 @@ export function LedgerClassificationManagePage({
     for (const row of accountCodes) {
       if (row.parentGroup && isSecondaryAccountCode(row)) set.add(row.parentGroup);
     }
-    return [...set];
+    return [...set].sort(compareAccountParentGroups);
   }, [accountCodes]);
 
   const openSecondaryModal = () => {

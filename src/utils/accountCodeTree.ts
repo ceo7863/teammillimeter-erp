@@ -1,5 +1,17 @@
 import type { AccountCode } from "./ledgerSystem";
 
+/** 1차 그룹 표시 우선순위 (분류 계정 관리 등) */
+const PRIORITY_PARENT_GROUPS = ["\uD310\uB9E4\uBE44\uC640\uAD00\uB9AC\uBE44"];
+
+export function compareAccountParentGroups(a: string, b: string) {
+  const aRank = PRIORITY_PARENT_GROUPS.indexOf(a);
+  const bRank = PRIORITY_PARENT_GROUPS.indexOf(b);
+  const aOrder = aRank === -1 ? PRIORITY_PARENT_GROUPS.length : aRank;
+  const bOrder = bRank === -1 ? PRIORITY_PARENT_GROUPS.length : bRank;
+  if (aOrder !== bOrder) return aOrder - bOrder;
+  return a.localeCompare(b, "ko");
+}
+
 export type AccountDisplayRow = {
   kind: "secondary" | "tertiary";
   account: AccountCode;
@@ -104,7 +116,7 @@ export function buildAccountDisplayRows(rows: AccountCode[]): AccountDisplayRow[
     .filter(isSecondaryAccountCode)
     .sort(
       (a, b) =>
-        String(a.parentGroup || "").localeCompare(String(b.parentGroup || ""), "ko") ||
+        compareAccountParentGroups(String(a.parentGroup || ""), String(b.parentGroup || "")) ||
         a.name.localeCompare(b.name, "ko"),
     );
 
@@ -199,7 +211,7 @@ export function groupAccountCodePickerOptions(options: AccountCodePickerOption[]
     current.push(option);
     map.set(option.parentGroup, current);
   }
-  return [...map.entries()].sort(([a], [b]) => a.localeCompare(b, "ko"));
+  return [...map.entries()].sort(([a], [b]) => compareAccountParentGroups(a, b));
 }
 
 export type AccountCodePickerFlatItem = {
