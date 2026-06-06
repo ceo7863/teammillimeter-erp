@@ -10,6 +10,7 @@ import {
   type AccountCodeFlow,
   type AccountCodeType,
 } from "@/utils/ledgerSystem";
+import { mergeStandardAccountCodes } from "@/utils/standardAccountCodes";
 
 const L = {
   title: "\uBD84\uB958 \uACC4\uC815 \uAD00\uB9AC",
@@ -25,6 +26,9 @@ const L = {
   secondary: "2\uCC28",
   addSub: "+\uD558\uC704 \uACC4\uC815",
   addAccount: "\uACC4\uC815 \uCD94\uAC00",
+  loadStandard: "\uD45C\uC900 \uACC4\uC815 \uBD88\uB7EC\uC624\uAE30",
+  loadStandardDone: (n: number) => `\uD45C\uC900 \uACC4\uC815 ${n}\uAC74\uC774 \uCD94\uAC00\uB418\uC5C8\uC2B5\uB2C8\uB2E4.`,
+  loadStandardNone: "\uCD94\uAC00\uD560 \uD45C\uC900 \uACC4\uC815\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   name: "\uACC4\uC815\uBA85",
   code: "\uCF54\uB4DC",
   group: "1\uCC28 \uADF8\uB8F9",
@@ -62,6 +66,7 @@ export function LedgerClassificationManagePage({
   const [sidebar, setSidebar] = useState<SidebarKey>("account");
   const [flowFilter, setFlowFilter] = useState<FlowFilter>("all");
   const [search, setSearch] = useState("");
+  const [loadMessage, setLoadMessage] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [draftGroup, setDraftGroup] = useState<string>(DEFAULT_ACCOUNT_PARENT_GROUPS[3]);
@@ -88,6 +93,18 @@ export function LedgerClassificationManagePage({
     }
     return [...set];
   }, [accountCodes]);
+
+  const loadStandardAccounts = () => {
+    const updated = mergeStandardAccountCodes(accountCodes) as AccountCode[];
+    const added = updated.length - accountCodes.length;
+    if (added <= 0) {
+      setLoadMessage(L.loadStandardNone);
+      return;
+    }
+    setAccountCodes(updated);
+    setLoadMessage(L.loadStandardDone(added));
+    void onRequestImmediateSave?.({ accountCodes: updated });
+  };
 
   const saveNewAccount = () => {
     const name = draftName.trim();
@@ -175,11 +192,15 @@ export function LedgerClassificationManagePage({
                     placeholder={L.search}
                     className="erp-input ml-auto min-w-[12rem] flex-1 rounded-xl border border-slate-200 px-3 py-2"
                   />
+                  <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={loadStandardAccounts}>
+                    {L.loadStandard}
+                  </Button>
                   <Button type="button" size="sm" className="rounded-xl" onClick={() => setAddOpen(true)}>
                     <Plus size={14} className="mr-1" />
                     {L.addAccount}
                   </Button>
                 </div>
+                {loadMessage ? <p className="mb-3 text-xs font-semibold text-emerald-700">{loadMessage}</p> : null}
 
                 <DesktopTableWrap>
                   <table className="erp-table w-full">

@@ -1,4 +1,7 @@
-import type { BankTransaction } from "./bankTransactions";
+import {
+  buildStandardAccountCodes,
+  STANDARD_ACCOUNT_PARENT_GROUPS,
+} from "./standardAccountCodes";
 import {
   CEO_ADVANCE_CATEGORY,
   CEO_RECEIVABLE_CATEGORY,
@@ -8,6 +11,7 @@ import {
   formatKRW,
   getMonthKey,
 } from "./companyLedger";
+import type { BankTransaction } from "./bankTransactions";
 
 export type AccountCodeType = "asset" | "liability" | "equity" | "income" | "expense";
 
@@ -24,10 +28,9 @@ export type AccountCode = {
 };
 
 export const DEFAULT_ACCOUNT_PARENT_GROUPS = [
-  "\uB9E4\uCD9C",
-  "\uC601\uC5C5\uC678\uC218\uC775",
-  "\uB9E4\uCD9C\uC6D0\uAC00",
-  "\uD310\uB9E4\uBE44\uC640\uAD00\uB9AC\uBE44",
+  ...STANDARD_ACCOUNT_PARENT_GROUPS,
+  "\uC790\uC0B0",
+  "\uBD80\uCC44",
 ] as const;
 
 export type LedgerCategoryKind = "expense" | "income" | "fixed" | "ceo_advance" | "ceo_receivable";
@@ -65,25 +68,7 @@ export type LedgerEntry = {
 
 export const DEFAULT_COUNTER_ACCOUNT_CODE = "101";
 
-export const DEFAULT_ACCOUNT_CODES: AccountCode[] = [
-  { code: "101", name: "\uBCF4\uD1B5\uC608\uAE08", type: "asset", isActive: true, parentGroup: "\uC790\uC0B0", flow: "both" },
-  { code: "108", name: "\uBBF8\uC218\uAE08", type: "asset", isActive: true, parentGroup: "\uC790\uC0B0", flow: "both" },
-  { code: "201", name: "\uC678\uC0C1\uB9E4\uC785\uAE08", type: "liability", isActive: true, parentGroup: "\uBD80\uCC44", flow: "both" },
-  { code: "401", name: "\uB9E4\uCD9C", type: "income", isActive: true, parentGroup: "\uB9E4\uCD9C", flow: "income" },
-  { code: "501", name: "\uAE09\uC5EC", type: "expense", isActive: true, parentGroup: "\uD310\uB9E4\uBE44\uC640\uAD00\uB9AC\uBE44", flow: "expense" },
-  { code: "504", name: "\uC5EC\uBE44\uAD50\uD86D\uBE44", type: "expense", isActive: true, parentGroup: "\uD310\uB9E4\uBE44\uC640\uAD00\uB9AC\uBE44", flow: "expense" },
-  { code: "505", name: "\uC811\uB300\uBE44", type: "expense", isActive: true, parentGroup: "\uD310\uB9E4\uBE44\uC640\uAD00\uB9AC\uBE44", flow: "expense" },
-  { code: "506", name: "\uD1B5\uC2E0\uBE44", type: "expense", isActive: true, parentGroup: "\uD310\uB9E4\uBE44\uC640\uAD00\uB9AC\uBE44", flow: "expense" },
-  { code: "510", name: "\uC784\uCC28\uB8CC", type: "expense", isActive: true, parentGroup: "\uD310\uB9E4\uBE44\uC640\uAD00\uB9AC\uBE44", flow: "expense" },
-  { code: "512", name: "\uBCF4\uD5D8\uB8CC", type: "expense", isActive: true, parentGroup: "\uD310\uB9E4\uBE44\uC640\uAD00\uB9AC\uBE44", flow: "expense" },
-  { code: "517", name: "\uC18C\uBAA8\uD488\uBE44", type: "expense", isActive: true, parentGroup: "\uD310\uB9E4\uBE44\uC640\uAD00\uB9AC\uBE44", flow: "expense" },
-  { code: "518", name: "\uC9C0\uAE09\uC218\uC218\uB8CC", type: "expense", isActive: true, parentGroup: "\uD310\uB9E4\uBE44\uC640\uAD00\uB9AC\uBE44", flow: "expense" },
-  { code: "519", name: "\uAD11\uACE0\uC120\uC804\uBE44", type: "expense", isActive: true, parentGroup: "\uD310\uB9E4\uBE44\uC640\uAD00\uB9AC\uBE44", flow: "expense" },
-  { code: "520", name: "\uC678\uC8FC\uC6A9\uC5ED\uBE44", type: "expense", isActive: true, parentGroup: "\uD310\uB9E4\uBE44\uC640\uAD00\uB9AC\uBE44", flow: "expense" },
-  { code: "521", name: "\uAC74\uBB3C\uAD00\uB9AC\uBE44", type: "expense", isActive: true, parentGroup: "\uD310\uB9E4\uBE44\uC640\uAD00\uB9AC\uBE44", flow: "expense" },
-  { code: "801", name: "\uC678\uC8FC\uBE44", type: "expense", isActive: true, parentGroup: "\uD310\uB9E4\uBE44\uC640\uAD00\uB9AC\uBE44", flow: "expense" },
-  { code: "900", name: "\uC7A1\uBE44", type: "expense", isActive: true, parentGroup: "\uD310\uB9E4\uBE44\uC640\uAD00\uB9AC\uBE44", flow: "expense" },
-];
+export const DEFAULT_ACCOUNT_CODES: AccountCode[] = buildStandardAccountCodes() as AccountCode[];
 
 export function normalizeAccountCodeFlow(value: unknown): AccountCodeFlow {
   return value === "income" || value === "expense" ? value : "both";
