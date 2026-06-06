@@ -1,0 +1,49 @@
+export type ClientTaxFields = {
+  name?: string;
+  businessNo?: string;
+  ceoName?: string;
+  email?: string;
+  address?: string;
+  phone?: string;
+  bizType?: string;
+  bizClass?: string;
+  manager?: string;
+};
+
+export function extractClientTaxFields(client: Record<string, unknown> | null | undefined): ClientTaxFields {
+  const source = client && typeof client === "object" ? client : {};
+  return {
+    name: String(source.name || "").trim(),
+    businessNo: String(source.businessNo || "").trim(),
+    ceoName: String(source.ceoName || "").trim(),
+    email: String(source.email || "").trim(),
+    address: String(source.address || "").trim(),
+    phone: String(source.phone || "").trim(),
+    bizType: String(source.bizType || "").trim(),
+    bizClass: String(source.bizClass || "").trim(),
+    manager: String(source.manager || "").trim(),
+  };
+}
+
+export function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+export function validateInvoiceePartyForIssue(party: ClientTaxFields) {
+  if (!String(party.ceoName || "").trim()) {
+    return "\uAC70\uB798\uCC98 \uB300\uD45C\uC790\uBA85\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
+  }
+  if (!String(party.address || "").trim()) {
+    return "\uAC70\uB798\uCC98 \uC8FC\uC18C\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
+  }
+  if (!isValidEmail(String(party.email || ""))) {
+    return "\uAC70\uB798\uCC98 \uC774\uBA54\uC77C\uC744 \uC62C\uBC14\uB974\uAC8C \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
+  }
+  if (!String(party.bizType || "").trim()) {
+    return "\uAC70\uB798\uCC98 \uC5C5\uD0DC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
+  }
+  if (!String(party.bizClass || "").trim()) {
+    return "\uAC70\uB798\uCC98 \uC5C5\uC885\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
+  }
+  return null;
+}

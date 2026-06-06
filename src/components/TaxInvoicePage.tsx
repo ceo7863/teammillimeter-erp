@@ -55,6 +55,7 @@ import {
 } from "@/utils/barobillTaxInvoiceSync";
 import { issueBarobillTaxInvoice } from "@/utils/barobillTaxInvoiceIssue";
 import { fetchBarobillChargeUrl } from "@/utils/barobillChargeUrl";
+import { extractClientTaxFields, validateInvoiceePartyForIssue } from "@/utils/clientMaster";
 import { useAudit } from "@/context/AuditContext";
 import { TAX_INVOICE_AUDIT_FIELDS, snapshotTaxInvoiceForAudit } from "@/utils/auditLog";
 
@@ -77,6 +78,13 @@ type InvoiceModalState = {
   amountInputSource: "supply" | "total";
   invoiceNo: string;
   memo: string;
+  itemName: string;
+  invoiceeCeoName: string;
+  invoiceeEmail: string;
+  invoiceeAddr: string;
+  invoiceePhone: string;
+  invoiceeBizType: string;
+  invoiceeBizClass: string;
   status: TaxInvoiceStatus;
 };
 
@@ -135,6 +143,15 @@ const L = {
   client: "\uAC70\uB798\uCC98",
   clientPlaceholder: "\uAC70\uB798\uCC98 \uC120\uD0DD \uB610\uB294 \uC785\uB825",
   businessNo: "\uC0AC\uC5C5\uC790\uBC88\uD638",
+  invoiceeSection: "\uAC70\uB798\uCC98(\uACF5\uAE09\uBC1B\uB294\uC790) \uC815\uBCF4",
+  invoiceeSectionHint: "\uC804\uC790 \uBC1C\uD589 \uC2DC \uD544\uC218\uC785\uB2C8\uB2E4. \uAC70\uB798\uCC98 \uB9C8\uC2A4\uD130\uC5D0 \uC800\uC7A5\uB418\uC5B4 \uC788\uC73C\uBA74 \uC790\uB3D9 \uC744\uC6B0\uAE30\uB429\uB2C8\uB2E4.",
+  ceoName: "\uB300\uD45C\uC790\uBA85",
+  email: "\uC774\uBA54\uC77C",
+  address: "\uC8FC\uC18C",
+  phone: "\uC5F0\uB77D\uCC98",
+  bizType: "\uC5C5\uD0DC",
+  bizClass: "\uC5C5\uC885",
+  itemName: "\uD488\uBAA9\uBA85",
   supplyAmount: "\uACF5\uAE09\uAC00\uC561",
   totalAmountInclVat: "\uBD80\uAC00\uC138 \uD3EC\uD568 \uAE08\uC561",
   vatAmount: "\uBD80\uAC00\uC138",
@@ -306,6 +323,32 @@ function last30DaysRange(): DateFilter {
   return { startDate: start.toISOString().slice(0, 10), endDate };
 }
 
+function emptyInvoiceeFields() {
+  return {
+    itemName: "",
+    invoiceeCeoName: "",
+    invoiceeEmail: "",
+    invoiceeAddr: "",
+    invoiceePhone: "",
+    invoiceeBizType: "",
+    invoiceeBizClass: "",
+  };
+}
+
+function applyClientToInvoiceModal(client: Record<string, unknown> | null | undefined) {
+  const profile = extractClientTaxFields(client);
+  return {
+    businessNo: profile.businessNo || "",
+    invoiceeCeoName: profile.ceoName || "",
+    invoiceeEmail: profile.email || "",
+    invoiceeAddr: profile.address || "",
+    invoiceePhone: profile.phone || "",
+    invoiceeBizType: profile.bizType || "",
+    invoiceeBizClass: profile.bizClass || "",
+    itemName: profile.name || "",
+  };
+}
+
 export function TaxInvoicePage({
   taxInvoices,
   setTaxInvoices,
@@ -316,7 +359,17 @@ export function TaxInvoicePage({
 }: {
   taxInvoices: TaxInvoice[];
   setTaxInvoices: React.Dispatch<React.SetStateAction<TaxInvoice[]>>;
-  clients: Array<{ name?: string; businessNo?: string }>;
+  clients: Array<{
+    name?: string;
+    businessNo?: string;
+    ceoName?: string;
+    email?: string;
+    address?: string;
+    phone?: string;
+    bizType?: string;
+    bizClass?: string;
+    manager?: string;
+  }>;
   currentUser: ErpUser | null;
   erpVersion?: number;
   onErpVersionChange?: (version: number) => void;
@@ -698,6 +751,7 @@ export function TaxInvoicePage({
       invoiceNo: "",
       memo: "",
       status: "issued",
+      ...emptyInvoiceeFields(),
     });
   };
 
@@ -719,17 +773,19 @@ export function TaxInvoicePage({
       invoiceNo: row.invoiceNo || "",
       memo: row.memo || "",
       status: row.status,
+      ...emptyInvoiceeFields(),
     });
   };
 
   const handleClientChange = (clientName: string) => {
     const matched = clients.find((client) => client.name === clientName);
+    const applied = applyClientToInvoiceModal(matched);
     setModal((prev) =>
       prev
         ? {
             ...prev,
             client: clientName,
-            businessNo: matched?.businessNo ? String(matched.businessNo) : prev.businessNo,
+            ...applied,
           }
         : prev
     );
@@ -775,6 +831,18 @@ export function TaxInvoicePage({
       return;
     }
 
+    const partyError = validateInvoiceePartyForIssue({
+      ceoName: modal.invoiceeCeoName,
+      email: modal.invoiceeEmail,
+      address: modal.invoiceeAddr,
+      bizType: modal.invoiceeBizType,
+      bizClass: modal.invoiceeBizClass,
+    });
+    if (partyError) {
+      setFormError(partyError);
+      return;
+    }
+
     const amounts = resolveTaxInvoiceModalAmounts(modal);
     setBarobillIssueLoading(true);
     setFormError("");
@@ -787,9 +855,15 @@ export function TaxInvoicePage({
         supplyAmount: amounts.supplyAmount,
         vatAmount: amounts.vatAmount,
         totalAmount: amounts.totalAmount,
-        itemName: modal.memo.trim() || modal.client.trim(),
+        itemName: modal.itemName.trim() || modal.memo.trim() || modal.client.trim(),
         memo: modal.memo.trim() || undefined,
         purposeType: 2,
+        invoiceeCeoName: modal.invoiceeCeoName.trim(),
+        invoiceeEmail: modal.invoiceeEmail.trim(),
+        invoiceeAddr: modal.invoiceeAddr.trim(),
+        invoiceePhone: modal.invoiceePhone.trim() || undefined,
+        invoiceeBizType: modal.invoiceeBizType.trim(),
+        invoiceeBizClass: modal.invoiceeBizClass.trim(),
         apply: true,
         version: erpVersion,
       });
@@ -1574,6 +1648,73 @@ export function TaxInvoicePage({
                   lang="ko"
                 />
               </Field>
+              {modal.flowType === "sales" ? (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-4">
+                  <div>
+                    <div className="erp-text-body font-bold text-slate-800">{L.invoiceeSection}</div>
+                    <p className="mt-1 erp-text-caption text-slate-500">{L.invoiceeSectionHint}</p>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field label={L.ceoName}>
+                      <input
+                        className="erp-input w-full rounded-2xl border bg-white px-3 py-2.5"
+                        value={modal.invoiceeCeoName}
+                        onChange={(event) => setModal((prev) => (prev ? { ...prev, invoiceeCeoName: event.target.value } : prev))}
+                        lang="ko"
+                      />
+                    </Field>
+                    <Field label={L.email}>
+                      <input
+                        type="email"
+                        className="erp-input w-full rounded-2xl border bg-white px-3 py-2.5"
+                        value={modal.invoiceeEmail}
+                        onChange={(event) => setModal((prev) => (prev ? { ...prev, invoiceeEmail: event.target.value } : prev))}
+                        lang="ko"
+                      />
+                    </Field>
+                    <Field label={L.bizType}>
+                      <input
+                        className="erp-input w-full rounded-2xl border bg-white px-3 py-2.5"
+                        value={modal.invoiceeBizType}
+                        onChange={(event) => setModal((prev) => (prev ? { ...prev, invoiceeBizType: event.target.value } : prev))}
+                        lang="ko"
+                      />
+                    </Field>
+                    <Field label={L.bizClass}>
+                      <input
+                        className="erp-input w-full rounded-2xl border bg-white px-3 py-2.5"
+                        value={modal.invoiceeBizClass}
+                        onChange={(event) => setModal((prev) => (prev ? { ...prev, invoiceeBizClass: event.target.value } : prev))}
+                        lang="ko"
+                      />
+                    </Field>
+                    <Field label={L.phone}>
+                      <input
+                        className="erp-input w-full rounded-2xl border bg-white px-3 py-2.5"
+                        value={modal.invoiceePhone}
+                        onChange={(event) => setModal((prev) => (prev ? { ...prev, invoiceePhone: event.target.value } : prev))}
+                        lang="ko"
+                      />
+                    </Field>
+                    <Field label={L.itemName}>
+                      <input
+                        className="erp-input w-full rounded-2xl border bg-white px-3 py-2.5"
+                        value={modal.itemName}
+                        onChange={(event) => setModal((prev) => (prev ? { ...prev, itemName: event.target.value } : prev))}
+                        lang="ko"
+                      />
+                    </Field>
+                  </div>
+                  <Field label={L.address}>
+                    <input
+                      className="erp-input w-full rounded-2xl border bg-white px-3 py-2.5"
+                      value={modal.invoiceeAddr}
+                      onChange={(event) => setModal((prev) => (prev ? { ...prev, invoiceeAddr: event.target.value } : prev))}
+                      lang="ko"
+                    />
+                  </Field>
+                </div>
+              ) : null}
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label={L.supplyAmount}>
                   <input

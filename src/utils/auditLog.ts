@@ -43,6 +43,11 @@ export const SALE_AUDIT_FIELDS: AuditFieldDef[] = [
 export const CLIENT_AUDIT_FIELDS: AuditFieldDef[] = [
   { key: "name", label: "거래처명" },
   { key: "businessNo", label: "사업자번호" },
+  { key: "ceoName", label: "대표자명" },
+  { key: "email", label: "이메일" },
+  { key: "address", label: "주소" },
+  { key: "bizType", label: "업태" },
+  { key: "bizClass", label: "업종" },
   { key: "manager", label: "담당자" },
   { key: "phone", label: "연락처" },
   { key: "constructionCost", label: "시공비", format: (v) => formatAuditMoney(v) },
@@ -156,6 +161,10 @@ export const COMPANY_NOTICE_AUDIT_FIELDS: AuditFieldDef[] = [
 export const COMPANY_PROFILE_AUDIT_FIELDS: AuditFieldDef[] = [
   { key: "name", label: "\uD68C\uC0AC\uBA85" },
   { key: "businessNo", label: "\uC0AC\uC5C5\uC790\uBC88\uD638" },
+  { key: "ceoName", label: "\uB300\uD45C\uC790\uBA85" },
+  { key: "email", label: "\uC774\uBA54\uC77C" },
+  { key: "bizType", label: "\uC5C5\uD0DC" },
+  { key: "bizClass", label: "\uC5C5\uC885" },
   { key: "phone", label: "\uC804\uD654\uBC88\uD638" },
   { key: "address", label: "\uC8FC\uC18C" },
   { key: "bankAccountVatIncluded", label: "\uACC4\uC88C(\uD3EC\uD568)" },

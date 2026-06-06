@@ -72,17 +72,25 @@ function normalizeCompanyProfile(raw) {
   return {
     name: String(source.name || "\uD300\uBC00\uB9AC\uBBF8\uD130").trim() || "\uD300\uBC00\uB9AC\uBBF8\uD130",
     businessNo: digitsOnly(source.businessNo || ""),
+    ceoName: String(source.ceoName || "").trim(),
+    email: String(source.email || "").trim(),
+    bizType: String(source.bizType || "").trim(),
+    bizClass: String(source.bizClass || "").trim(),
     phone: String(source.phone || "").trim(),
     address: String(source.address || "").trim(),
   };
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
 }
 
 function resolveInvoicerProfile() {
   const state = getErpState();
   const profile = normalizeCompanyProfile(state.data?.companyProfile);
   const corpNum = digitsOnly(config.barobill.corpNum || profile.businessNo);
-  const ceoName = String(config.barobill.ceoName || "").trim();
-  const email = String(config.barobill.contactEmail || "").trim();
+  const ceoName = String(config.barobill.ceoName || profile.ceoName || "").trim();
+  const email = String(config.barobill.contactEmail || profile.email || "").trim();
   const contactId = String(config.barobill.userId || "").trim();
 
   return {
@@ -94,6 +102,8 @@ function resolveInvoicerProfile() {
     email,
     addr: profile.address,
     tel: profile.phone,
+    bizType: profile.bizType,
+    bizClass: profile.bizClass,
   };
 }
 
@@ -105,6 +115,8 @@ function buildInvoicePartyXml(party, { includeMgtNum = false } = {}) {
   if (party.contactId) parts.push(`<ContactID>${escapeXml(party.contactId)}</ContactID>`);
   if (party.corpNum) parts.push(`<CorpNum>${escapeXml(party.corpNum)}</CorpNum>`);
   if (party.corpName) parts.push(`<CorpName>${escapeXml(party.corpName)}</CorpName>`);
+  if (party.bizType) parts.push(`<BizType>${escapeXml(party.bizType)}</BizType>`);
+  if (party.bizClass) parts.push(`<BizClass>${escapeXml(party.bizClass)}</BizClass>`);
   if (party.ceoName) parts.push(`<CEOName>${escapeXml(party.ceoName)}</CEOName>`);
   if (party.contactName) parts.push(`<ContactName>${escapeXml(party.contactName)}</ContactName>`);
   if (party.addr) parts.push(`<Addr>${escapeXml(party.addr)}</Addr>`);
@@ -144,6 +156,8 @@ export function buildTaxInvoiceXml(payload) {
       email: invoicer.email,
       addr: invoicer.addr,
       tel: invoicer.tel,
+      bizType: invoicer.bizType,
+      bizClass: invoicer.bizClass,
     },
     { includeMgtNum: true },
   );
@@ -151,10 +165,13 @@ export function buildTaxInvoiceXml(payload) {
   const invoiceeXml = buildInvoicePartyXml({
     corpNum: invoicee.corpNum,
     corpName: invoicee.corpName,
-    ceoName: invoicee.ceoName || "\uB300\uD45C",
-    addr: invoicee.addr || "\uC8FC\uC18C \uBBF8\uC785\uB825",
-    contactName: invoicee.contactName || invoicee.ceoName || "\uB300\uD45C",
-    email: invoicee.email || "noreply@example.com",
+    ceoName: invoicee.ceoName,
+    addr: invoicee.addr,
+    contactName: invoicee.contactName || invoicee.ceoName,
+    tel: invoicee.tel,
+    email: invoicee.email,
+    bizType: invoicee.bizType,
+    bizClass: invoicee.bizClass,
   });
 
   const lineItemXml = `<TaxInvoiceTradeLineItem>
@@ -216,6 +233,27 @@ function validateIssueInput(input) {
   if (!invoicer.contactId) {
     return "\uBC14\uB85C\uBE4C \uC0AC\uC6A9\uC790 ID(BAROBILL_USER_ID)\uAC00 \uC124\uC815\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.";
   }
+  if (!invoicer.addr) {
+    return "\uACF5\uAE09\uC790 \uC8FC\uC18C\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4. \uAE30\uBCF8\uC815\uBCF4 \u2192 \uD68C\uC0AC \uC815\uBCF4\uC5D0\uC11C \uC8FC\uC18C\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
+  }
+  if (!invoicer.bizType) {
+    return "\uACF5\uAE09\uC790 \uC5C5\uD0DC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4. \uAE30\uBCF8\uC815\uBCF4 \u2192 \uD68C\uC0AC \uC815\uBCF4\uC5D0\uC11C \uC5C5\uD0DC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
+  }
+  if (!invoicer.bizClass) {
+    return "\uACF5\uAE09\uC790 \uC5C5\uC885\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uAE30\uBCF8\uC815\uBCF4 \u2192 \uD68C\uC0AC \uC815\uBCF4\uC5D0\uC11C \uC5C5\uC885\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
+  }
+
+  const invoiceeCeoName = String(input.invoiceeCeoName || "").trim();
+  const invoiceeAddr = String(input.invoiceeAddr || "").trim();
+  const invoiceeEmail = String(input.invoiceeEmail || "").trim();
+  const invoiceeBizType = String(input.invoiceeBizType || "").trim();
+  const invoiceeBizClass = String(input.invoiceeBizClass || "").trim();
+
+  if (!invoiceeCeoName) return "\uAC70\uB798\uCC98 \uB300\uD45C\uC790\uBA85\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
+  if (!invoiceeAddr) return "\uAC70\uB798\uCC98 \uC8FC\uC18C\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
+  if (!isValidEmail(invoiceeEmail)) return "\uAC70\uB798\uCC98 \uC774\uBA54\uC77C\uC744 \uC62C\uBC14\uB974\uAC8C \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
+  if (!invoiceeBizType) return "\uAC70\uB798\uCC98 \uC5C5\uD0DC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
+  if (!invoiceeBizClass) return "\uAC70\uB798\uCC98 \uC5C5\uC885\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
 
   return null;
 }
@@ -279,9 +317,12 @@ export async function registAndIssueTaxInvoice(input) {
       corpNum: digitsOnly(input.businessNo),
       corpName: String(input.client || "").trim(),
       ceoName: String(input.invoiceeCeoName || "").trim(),
-      addr: String(input.invoiceeAddr || "").trim() || "\uC8FC\uC18C \uBBF8\uC785\uB825",
-      contactName: String(input.invoiceeContactName || "").trim(),
+      addr: String(input.invoiceeAddr || "").trim(),
+      contactName: String(input.invoiceeContactName || input.invoiceeCeoName || "").trim(),
+      tel: String(input.invoiceePhone || "").trim(),
       email: String(input.invoiceeEmail || "").trim(),
+      bizType: String(input.invoiceeBizType || "").trim(),
+      bizClass: String(input.invoiceeBizClass || "").trim(),
     },
     documentType,
     supplyAmount,

@@ -909,6 +909,13 @@ app.post("/api/barobill/tax-invoices/issue", authMiddleware, adminMiddleware, as
       itemName: req.body?.itemName ? String(req.body.itemName) : undefined,
       memo: req.body?.memo ? String(req.body.memo) : undefined,
       purposeType: Number(req.body?.purposeType) || 2,
+      invoiceeCeoName: req.body?.invoiceeCeoName ? String(req.body.invoiceeCeoName) : undefined,
+      invoiceeContactName: req.body?.invoiceeContactName ? String(req.body.invoiceeContactName) : undefined,
+      invoiceeEmail: req.body?.invoiceeEmail ? String(req.body.invoiceeEmail) : undefined,
+      invoiceeAddr: req.body?.invoiceeAddr ? String(req.body.invoiceeAddr) : undefined,
+      invoiceePhone: req.body?.invoiceePhone ? String(req.body.invoiceePhone) : undefined,
+      invoiceeBizType: req.body?.invoiceeBizType ? String(req.body.invoiceeBizType) : undefined,
+      invoiceeBizClass: req.body?.invoiceeBizClass ? String(req.body.invoiceeBizClass) : undefined,
     });
 
     const taxInvoice = buildIssuedTaxInvoiceRecord(

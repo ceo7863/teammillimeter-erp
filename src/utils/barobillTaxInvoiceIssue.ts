@@ -12,6 +12,13 @@ export type BarobillTaxInvoiceIssueRequest = {
   itemName?: string;
   memo?: string;
   purposeType?: number;
+  invoiceeCeoName?: string;
+  invoiceeContactName?: string;
+  invoiceeEmail?: string;
+  invoiceeAddr?: string;
+  invoiceePhone?: string;
+  invoiceeBizType?: string;
+  invoiceeBizClass?: string;
   apply?: boolean;
   version?: number;
 };

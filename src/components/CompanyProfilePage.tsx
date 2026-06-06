@@ -15,10 +15,15 @@ const L = {
   pageDesc:
     "\uC785\uB825\uD55C \uC815\uBCF4\uB294 \uB0B4\uC5ED\uC11C \uB4F1 \uBB38\uC11C\uC5D0 \uC790\uB3D9 \uBC18\uC601\uB429\uB2C8\uB2E4.",
   basicSection: "\uAE30\uBCF8 \uC815\uBCF4",
+  taxInvoiceSection: "\uACC4\uC0B0\uC11C \uBC1C\uD589 \uC815\uBCF4",
   bankSection: "\uACC4\uC88C \uC815\uBCF4",
   linkSection: "\uC628\uB77C\uC778 \uC815\uBCF4",
   name: "\uD68C\uC0AC\uBA85",
   businessNo: "\uC0AC\uC5C5\uC790\uBC88\uD638",
+  ceoName: "\uB300\uD45C\uC790\uBA85",
+  email: "\uC774\uBA54\uC77C",
+  bizType: "\uC5C5\uD0DC",
+  bizClass: "\uC5C5\uC885",
   phone: "\uC804\uD654\uBC88\uD638",
   fax: "\uD329\uC2A4",
   address: "\uC8FC\uC18C",
@@ -33,6 +38,7 @@ const L = {
   reset: "\uAE30\uBCF8\uAC12 \uBD88\uB7EC\uC624\uAE30",
   saved: "\uD68C\uC0AC \uC815\uBCF4\uAC00 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   autoSaveHint: "\uC785\uB825 \uD6C4 \uC790\uB3D9 \uC800\uC7A5\uB429\uB2C8\uB2E4.",
+  taxInvoiceSectionHint: "\uC804\uC790 \uACC4\uC0B0\uC11C \uBC1C\uD589 \uC2DC \uACF5\uAE09\uC790 \uC815\uBCF4\uB85C \uC0AC\uC6A9\uB429\uB2C8\uB2E4.",
   previewTitle: "\uBB38\uC11C \uD45C\uC2DC \uBBF8\uB9AC\uBCF4\uAE30",
 };
 
@@ -212,6 +218,30 @@ export function CompanyProfilePage({
           <Card className="rounded-2xl border-slate-200 shadow-sm">
             <CardContent className="space-y-4 p-4 md:p-5">
               <div className="flex items-center gap-2">
+                <Building2 size={18} className="text-slate-500" />
+                <h2 className="erp-text-section font-bold">{L.taxInvoiceSection}</h2>
+              </div>
+              <p className="erp-text-caption text-slate-500">{L.taxInvoiceSectionHint}</p>
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label={L.ceoName}>
+                  <ProfileInput value={draft.ceoName} onChange={(value) => update("ceoName", value)} placeholder="\uBC30\uC885\uC6D0" />
+                </Field>
+                <Field label={L.email}>
+                  <ProfileInput type="email" value={draft.email} onChange={(value) => update("email", value)} placeholder="tax@example.com" />
+                </Field>
+                <Field label={L.bizType}>
+                  <ProfileInput value={draft.bizType} onChange={(value) => update("bizType", value)} placeholder="\uC11C\uBE44\uC2A4" />
+                </Field>
+                <Field label={L.bizClass}>
+                  <ProfileInput value={draft.bizClass} onChange={(value) => update("bizClass", value)} placeholder="\uC778\uD14C\uB9AC\uC5B4\uC2DC\uACF5" />
+                </Field>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-2xl border-slate-200 shadow-sm">
+            <CardContent className="space-y-4 p-4 md:p-5">
+              <div className="flex items-center gap-2">
                 <Landmark size={18} className="text-slate-500" />
                 <h2 className="erp-text-section font-bold">{L.bankSection}</h2>
               </div>
@@ -260,6 +290,13 @@ export function CompanyProfilePage({
               {draft.phone ? <div className="mt-2 text-slate-300">Tel {draft.phone}</div> : null}
               {draft.fax ? <div className="text-slate-300">Fax {draft.fax}</div> : null}
               {draft.address ? <div className="mt-2 text-slate-300">{draft.address}</div> : null}
+              {draft.ceoName ? <div className="mt-2 text-slate-300">{"\uB300\uD45C "}{draft.ceoName}</div> : null}
+              {draft.bizType || draft.bizClass ? (
+                <div className="mt-2 text-slate-300">
+                  {[draft.bizType, draft.bizClass].filter(Boolean).join(" / ")}
+                </div>
+              ) : null}
+              {draft.email ? <div className="mt-2 text-slate-300">{draft.email}</div> : null}
             </div>
             <div className="space-y-2 rounded-2xl bg-white/5 p-4 text-sm">
               <div>

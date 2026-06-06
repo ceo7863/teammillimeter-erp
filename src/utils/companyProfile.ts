@@ -1,6 +1,10 @@
 export type CompanyProfile = {
   name: string;
   businessNo: string;
+  ceoName: string;
+  email: string;
+  bizType: string;
+  bizClass: string;
   phone: string;
   fax: string;
   address: string;
@@ -14,6 +18,10 @@ export type CompanyProfile = {
 export const DEFAULT_COMPANY_PROFILE: CompanyProfile = {
   name: "(\uC8FC)\uD300\uBC00\uB9AC\uBBF8\uD130",
   businessNo: "",
+  ceoName: "",
+  email: "",
+  bizType: "",
+  bizClass: "",
   phone: "",
   fax: "",
   address: "",
@@ -32,6 +40,10 @@ export function normalizeCompanyProfile(raw: unknown): CompanyProfile {
   return {
     name: String(source.name ?? DEFAULT_COMPANY_PROFILE.name).trim() || DEFAULT_COMPANY_PROFILE.name,
     businessNo: String(source.businessNo ?? "").trim(),
+    ceoName: String(source.ceoName ?? "").trim(),
+    email: String(source.email ?? "").trim(),
+    bizType: String(source.bizType ?? "").trim(),
+    bizClass: String(source.bizClass ?? "").trim(),
     phone: String(source.phone ?? "").trim(),
     fax: String(source.fax ?? "").trim(),
     address: String(source.address ?? "").trim(),

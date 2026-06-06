@@ -5078,6 +5078,11 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
   const emptyClientForm = {
     name: "",
     businessNo: "",
+    ceoName: "",
+    email: "",
+    address: "",
+    bizType: "",
+    bizClass: "",
     manager: "",
     phone: "",
     constructionCost: "",
@@ -5149,6 +5154,11 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
       id: editingId || Date.now(),
       name,
       businessNo: form.businessNo.trim(),
+      ceoName: form.ceoName.trim(),
+      email: form.email.trim(),
+      address: form.address.trim(),
+      bizType: form.bizType.trim(),
+      bizClass: form.bizClass.trim(),
       manager: form.manager.trim(),
       phone: form.phone.trim(),
       constructionCost,
@@ -5185,6 +5195,11 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
     setForm({
       name: client.name || "",
       businessNo: client.businessNo || "",
+      ceoName: client.ceoName || "",
+      email: client.email || "",
+      address: client.address || "",
+      bizType: client.bizType || "",
+      bizClass: client.bizClass || "",
       manager: client.manager || "",
       phone: client.phone || "",
       constructionCost: String(client.constructionCost || ""),
@@ -5223,6 +5238,13 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile }) {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <AuditField label="거래처명" entityType="client" entityId={editingId} field="name"><Input value={form.name} onChange={(e) => updateForm("name", e.target.value)} placeholder="거래처명 (필수)" required /></AuditField>
             <AuditField label="사업자번호" entityType="client" entityId={editingId} field="businessNo"><Input value={form.businessNo} onChange={(e) => updateForm("businessNo", e.target.value)} placeholder="사업자번호" /></AuditField>
+            <AuditField label="대표자명" entityType="client" entityId={editingId} field="ceoName"><Input value={form.ceoName} onChange={(e) => updateForm("ceoName", e.target.value)} placeholder="대표자명 (계산서)" /></AuditField>
+            <AuditField label="이메일" entityType="client" entityId={editingId} field="email"><Input type="email" value={form.email} onChange={(e) => updateForm("email", e.target.value)} placeholder="세금계산서 수신 이메일" /></AuditField>
+            <AuditField label="업태" entityType="client" entityId={editingId} field="bizType"><Input value={form.bizType} onChange={(e) => updateForm("bizType", e.target.value)} placeholder="업태" /></AuditField>
+            <AuditField label="업종" entityType="client" entityId={editingId} field="bizClass"><Input value={form.bizClass} onChange={(e) => updateForm("bizClass", e.target.value)} placeholder="업종" /></AuditField>
+            <div className="md:col-span-2">
+              <AuditField label="주소" entityType="client" entityId={editingId} field="address"><Input value={form.address} onChange={(e) => updateForm("address", e.target.value)} placeholder="사업장 주소 (계산서)" /></AuditField>
+            </div>
             <AuditField label="담당자" entityType="client" entityId={editingId} field="manager"><Input value={form.manager} onChange={(e) => updateForm("manager", e.target.value)} placeholder="담당자" /></AuditField>
             <AuditField label="연락처" entityType="client" entityId={editingId} field="phone"><Input value={form.phone} onChange={(e) => updateForm("phone", e.target.value)} placeholder="연락처" /></AuditField>
             <AuditField label="시공비" entityType="client" entityId={editingId} field="constructionCost"><Input inputMode="numeric" value={form.constructionCost} onChange={(e) => updateForm("constructionCost", e.target.value)} placeholder="시공비 (필수)" required /></AuditField>
