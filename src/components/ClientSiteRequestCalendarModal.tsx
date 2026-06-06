@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { ClientSiteRequestCalendar } from "@/components/ClientSiteRequestCalendar";
 import { getCurrentMonthKey } from "@/utils/clientSiteRequestCalendar";
 import {
+  isClientSiteRequestVisibleOnPublicCalendar,
   listClientSiteRequests,
   openClientSiteRequestLink,
   requestCoversWorkDate,
@@ -121,7 +122,10 @@ export function ClientSiteRequestCalendarModal({
               selectedDate={selectedDate}
               onSelectDate={(date) => {
                 setSelectedDate(date);
-                const dayRequests = requests.filter((row) => requestCoversWorkDate(row, date));
+                const dayRequests = requests.filter(
+                  (row) =>
+                    isClientSiteRequestVisibleOnPublicCalendar(row) && requestCoversWorkDate(row, date),
+                );
                 if (dayRequests.length === 1) {
                   setSelectedRequestId(dayRequests[0].id);
                 } else if (selectedRequestId && !dayRequests.some((row) => row.id === selectedRequestId)) {

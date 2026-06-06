@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import {
   clientSiteRequestPublicStatusLabel,
   clientSiteRequestPublicStatusTone,
+  isClientSiteRequestVisibleOnPublicCalendar,
 } from "@/utils/clientSiteRequests";
 import type { ClientSiteRequest } from "@/utils/clientSiteRequests";
 import { formatClientSiteRequestWorkPeriod, requestCoversWorkDate } from "@/utils/clientSiteRequests";
@@ -58,15 +59,22 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
   selectedRequestId,
   onSelectRequest,
 }: ClientSiteRequestCalendarProps) {
-  const cells = useMemo(
-    () => buildClientSiteRequestCalendarCells(monthKey, requests),
-    [monthKey, requests],
+  const calendarRequests = useMemo(
+    () => requests.filter((row) => isClientSiteRequestVisibleOnPublicCalendar(row)),
+    [requests],
   );
-  const monthCount = useMemo(() => countClientSiteRequestsInMonth(monthKey, requests), [monthKey, requests]);
+  const cells = useMemo(
+    () => buildClientSiteRequestCalendarCells(monthKey, calendarRequests),
+    [monthKey, calendarRequests],
+  );
+  const monthCount = useMemo(
+    () => countClientSiteRequestsInMonth(monthKey, calendarRequests),
+    [monthKey, calendarRequests],
+  );
   const selectedDayRequests = useMemo(() => {
     if (!selectedDate) return [];
-    return requests.filter((row) => requestCoversWorkDate(row, selectedDate));
-  }, [requests, selectedDate]);
+    return calendarRequests.filter((row) => requestCoversWorkDate(row, selectedDate));
+  }, [calendarRequests, selectedDate]);
 
   return (
     <div className="erp-client-request-calendar">
