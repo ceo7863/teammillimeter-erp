@@ -912,6 +912,7 @@ export function BankTransactionsPage({
   companyProfile,
   apiMode = false,
   erpVersion = 0,
+  bankListRefreshAt = "",
   onBankSyncBegin,
   onBankSynced,
   isPageActive = true,
@@ -952,6 +953,7 @@ export function BankTransactionsPage({
   companyProfile?: import("@/utils/companyProfile").CompanyProfile;
   apiMode?: boolean;
   erpVersion?: number;
+  bankListRefreshAt?: string;
   onBankSyncBegin?: () => void;
   onBankSynced?: (result?: { version?: number }) => void | Promise<void>;
   isPageActive?: boolean;
@@ -4881,6 +4883,18 @@ export function BankTransactionsPage({
             <div className="min-w-0">
               <h1 className="erp-text-section font-bold text-slate-900">{L.pageTitle}</h1>
               <p className="mt-0.5 max-w-2xl text-xs leading-snug text-slate-500">{L.pageDesc}</p>
+              {hasAnyData ? (
+                <p className="mt-1 text-[11px] font-semibold text-slate-500">
+                  {"전체 "}
+                  {bankTransactions.length}
+                  {"건 · 표시 "}
+                  {filteredRows.length}
+                  {"건"}
+                  {bankListRefreshAt
+                    ? ` · 목록 갱신 ${new Date(bankListRefreshAt).toLocaleTimeString("ko-KR")}`
+                    : ""}
+                </p>
+              ) : null}
               {apiMode ? (
                 <div className="mt-2">
                   <BarobillBankSettingsPanel
@@ -5213,6 +5227,7 @@ export function BankTransactionsPage({
           getParsedTable={getBankTransactionsExportParsed}
         >
           <BankTransactionListSection
+            key={`${erpVersion}-${bankTransactions.length}-${bankListRefreshAt || "initial"}`}
             rows={filteredRows}
             accountSubjectLabels={accountSubjectLabels}
             folderMap={folderMap}
