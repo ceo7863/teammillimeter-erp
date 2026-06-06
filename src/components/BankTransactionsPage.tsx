@@ -4952,61 +4952,6 @@ export function BankTransactionsPage({
         </CardContent>
       </Card>
 
-      {pendingSmartLedger.eligible > 0 ? (
-        <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="erp-text-body font-semibold text-violet-900">
-            {L.smartLedgerBanner(pendingSmartLedger.eligible, pendingSmartLedger.highConfidence)}
-          </p>
-          <Button
-            type="button"
-            size="sm"
-            className="rounded-xl shrink-0"
-            disabled={smartLedgerLoading}
-            title={L.smartLedgerRunHint}
-            onClick={() => void runSmartAutoLedgerFlow()}
-          >
-            <BookOpen size={14} className="mr-1" />
-            {smartLedgerLoading ? L.smartLedgerRunning : L.smartLedgerRun}
-          </Button>
-        </div>
-      ) : null}
-
-      {pendingBatchLedger > 0 ? (
-        <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="erp-text-body font-semibold text-emerald-900">{L.ledgerBatchBanner(pendingBatchLedger)}</p>
-          <Button
-            type="button"
-            size="sm"
-            className="rounded-xl shrink-0"
-            disabled={batchLedgerLoading}
-            title={L.ledgerBatchSendHint}
-            onClick={runBatchLedgerRegister}
-          >
-            <BookOpen size={14} className="mr-1" />
-            {batchLedgerLoading ? L.ledgerBatchSending : L.ledgerBatchSend}
-          </Button>
-        </div>
-      ) : null}
-
-      {unsettledFixedSummary.count > 0 ? (
-        <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="erp-text-body font-semibold text-amber-900">
-            {L.unsettledFixedBanner(unsettledFixedSummary.count, unsettledFixedSummary.amount)}
-          </p>
-          {onNavigateToFixedExpense ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="rounded-xl shrink-0 border-amber-300 bg-white text-amber-900 hover:bg-amber-100"
-              onClick={onNavigateToFixedExpense}
-            >
-              {L.goFixedExpenseTab}
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-
       {importMessage ? (
         <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 erp-text-body font-semibold text-emerald-700">
           {importMessage}
