@@ -51,7 +51,6 @@ import {
 } from "@/components/taxInvoiceLinkPanelMount";
 import type { TaxInvoice } from "@/utils/taxInvoices";
 import {
-  batchAutoLinkTaxInvoiceEvidence,
   buildBankTxTaxInvoiceLinkPatch,
   formatTaxInvoiceEvidenceLabel,
 } from "@/utils/bankTaxInvoiceLink";
@@ -60,6 +59,7 @@ import {
   learnClientTaxInvoiceSplitPayments,
   shouldLearnTaxInvoiceSplitPayment,
 } from "@/utils/taxInvoiceSplitLink";
+import { runTaxInvoiceEvidenceAutoLink, buildTaxInvoiceEvidenceAutoLinkKey, learnClientTaxInvoiceExactPayments } from "@/utils/taxInvoiceEvidenceAutoLink";
 import {
   buildBankTransactionRowDisplayCache,
   buildBankTransactionsExportTable,
@@ -2314,9 +2314,14 @@ export function BankTransactionsPage({
       let nextTransactions = bankTransactions.map((row) => (row.id === tx.id ? nextRow : row));
       let nextClients = clients;
 
-      if (invoice && shouldLearnTaxInvoiceSplitPayment(tx, invoice, bankTransactions)) {
-        nextClients = learnClientTaxInvoiceSplitPayments(clients, invoice);
-        setClients(nextClients);
+      if (invoice) {
+        nextClients = learnClientTaxInvoiceExactPayments(nextClients, invoice, nextRow);
+        if (shouldLearnTaxInvoiceSplitPayment(tx, invoice, bankTransactions)) {
+          nextClients = learnClientTaxInvoiceSplitPayments(nextClients, invoice);
+        }
+        if (nextClients !== clients) {
+          setClients(nextClients);
+        }
       }
 
       const splitResult = batchAutoLinkSplitTaxInvoiceEvidence(
@@ -2797,77 +2802,61 @@ export function BankTransactionsPage({
   ]);
 
   const runBatchEvidenceAutoLink = useCallback(
-    (scopeRows: BankTransaction[]) => {
-      if (!taxInvoices.length || !scopeRows.length) return 0;
-      const scopedIds = new Set(scopeRows.map((row) => row.id));
-      let linkedCount = 0;
-      let learnedClients: typeof clients | null = null;
+    () => {
+      if (!taxInvoices.length) return 0;
 
-      setBankTransactions((prev) => {
-        const exact = batchAutoLinkTaxInvoiceEvidence(prev, taxInvoices, {
-          onlyTransactionIds: scopedIds,
-          context: taxInvoiceMatchContext,
-        });
-        const split = batchAutoLinkSplitTaxInvoiceEvidence(
-          exact.transactions,
-          taxInvoices,
-          taxInvoiceMatchContext,
-          learnedClients ?? clients,
-          { onlyTransactionIds: scopedIds },
-        );
-        linkedCount = exact.linkedCount + split.linkedCount;
-        if (split.clients !== clients) learnedClients = split.clients;
-
-        const result = { transactions: split.transactions };
-        if (!linkedCount) return prev;
-
-        for (const before of prev) {
-          if (!scopedIds.has(before.id)) continue;
-          const after = result.transactions.find((row) => row.id === before.id);
-          if (after && after.linkedTaxInvoiceId !== before.linkedTaxInvoiceId) {
-            auditBankTxUpdate(before, after);
-          }
-        }
-        void onRequestImmediateSave?.({ bankTransactions: result.transactions });
-        return result.transactions;
+      const result = runTaxInvoiceEvidenceAutoLink({
+        bankTransactions,
+        taxInvoices,
+        clients,
+        workers,
       });
+      if (!result.linkedCount) return 0;
 
-      if (learnedClients) {
-        setClients(learnedClients);
-        void onRequestImmediateSave?.({ clients: learnedClients });
+      for (const before of bankTransactions) {
+        const after = result.transactions.find((row) => row.id === before.id);
+        if (after && after.linkedTaxInvoiceId !== before.linkedTaxInvoiceId) {
+          auditBankTxUpdate(before, after);
+        }
       }
-      return linkedCount;
+
+      setBankTransactions(result.transactions);
+      if (result.clientsChanged) {
+        setClients(result.clients);
+      }
+      void onRequestImmediateSave?.({
+        bankTransactions: result.transactions,
+        ...(result.clientsChanged ? { clients: result.clients } : {}),
+      });
+      return result.linkedCount;
     },
     [
       auditBankTxUpdate,
+      bankTransactions,
       clients,
       onRequestImmediateSave,
       setBankTransactions,
       setClients,
       taxInvoices,
-      taxInvoiceMatchContext,
+      workers,
     ],
   );
 
   const evidenceAutoScopeKey = useMemo(
-    () =>
-      filteredRows
-        .filter((row) => !row.linkedTaxInvoiceId && !row.taxInvoiceAutoLinkDisabled)
-        .map((row) => row.id)
-        .join(","),
-    [filteredRows],
+    () => buildTaxInvoiceEvidenceAutoLinkKey(bankTransactions, taxInvoices),
+    [bankTransactions, taxInvoices],
   );
 
   useEffect(() => {
     if (!isPageActive || pageView !== "list" || !evidenceAutoScopeKey || !taxInvoices.length) return;
     const timer = window.setTimeout(() => {
-      const linkedCount = runBatchEvidenceAutoLink(filteredRows);
+      const linkedCount = runBatchEvidenceAutoLink();
       if (linkedCount > 0) {
         setImportMessage(L.evidenceBatchAutoLinked(linkedCount));
       }
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [isPageActive, pageView, evidenceAutoScopeKey, taxInvoices.length, runBatchEvidenceAutoLink, filteredRows]);
+  }, [isPageActive, pageView, evidenceAutoScopeKey, taxInvoices.length, runBatchEvidenceAutoLink]);
 
   const stats = useMemo(() => buildBankTransactionStats(filteredRows), [filteredRows]);
   const pendingBatchLedger = useMemo(

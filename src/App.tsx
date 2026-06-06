@@ -110,6 +110,10 @@ import {
 } from "@/utils/bankTransactions";
 import { normalizeBankLedgerMatchRules, syncBankTransactionLedgerLinkFields } from "@/utils/bankCompanyLedger";
 import { syncFixedExpenseAutomation, collectFixedExpenseGenerationMonthKeys } from "@/utils/fixedExpenseAutomation";
+import {
+  buildTaxInvoiceEvidenceAutoLinkKey,
+  runTaxInvoiceEvidenceAutoLink,
+} from "@/utils/taxInvoiceEvidenceAutoLink";
 import { normalizeExpenseCategories, normalizeFixedExpenseCategories } from "@/utils/companyLedger";
 import { migrateErpLedgerV2 } from "@/utils/ledgerMigration";
 import {
@@ -7032,6 +7036,8 @@ export default function TeammillimeterErpMvp() {
   const workerMonthlyPersistCooldownUntilRef = useRef(0);
   const bankEditCooldownUntilRef = useRef(0);
   const workerMonthlyLinkCleanupRef = useRef(false);
+  const taxInvoiceEvidenceAutoLinkKeyRef = useRef("");
+  const taxInvoiceEvidenceAutoLinkTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const saveDebounceTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const workerFlushDebounceRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const workerFlushChainRef = useRef<Promise<boolean>>(Promise.resolve(true));
@@ -8433,6 +8439,60 @@ export default function TeammillimeterErpMvp() {
       ),
     );
   }, [dataReady, currentUser, fixedExpenses, fixedExpensePayments, bankTransactions, bankLedgerRules, companyExpenses]);
+
+  useEffect(() => {
+    if (!dataReady || !currentUser || !taxInvoices.length) return;
+
+    const scopeKey = buildTaxInvoiceEvidenceAutoLinkKey(bankTransactions, taxInvoices);
+    if (!scopeKey || scopeKey === taxInvoiceEvidenceAutoLinkKeyRef.current) return;
+
+    if (taxInvoiceEvidenceAutoLinkTimerRef.current) {
+      window.clearTimeout(taxInvoiceEvidenceAutoLinkTimerRef.current);
+    }
+
+    taxInvoiceEvidenceAutoLinkTimerRef.current = window.setTimeout(() => {
+      taxInvoiceEvidenceAutoLinkTimerRef.current = null;
+      if (pendingLocalEditsRef.current) return;
+
+      const result = runTaxInvoiceEvidenceAutoLink({
+        bankTransactions,
+        taxInvoices,
+        clients,
+        workers,
+      });
+
+      taxInvoiceEvidenceAutoLinkKeyRef.current = buildTaxInvoiceEvidenceAutoLinkKey(
+        result.transactions,
+        taxInvoices,
+      );
+
+      if (!result.linkedCount) return;
+
+      skipSaveRef.current = true;
+      setBankTransactions(result.transactions);
+      if (result.clientsChanged) {
+        setClients(result.clients);
+      }
+      void flushErpSave({
+        bankTransactions: result.transactions,
+        ...(result.clientsChanged ? { clients: result.clients } : {}),
+      }).finally(() => {
+        if (
+          !workerPersistInFlightRef.current &&
+          !workerMonthlyPersistInFlightRef.current
+        ) {
+          skipSaveRef.current = false;
+        }
+      });
+    }, 700);
+
+    return () => {
+      if (taxInvoiceEvidenceAutoLinkTimerRef.current) {
+        window.clearTimeout(taxInvoiceEvidenceAutoLinkTimerRef.current);
+        taxInvoiceEvidenceAutoLinkTimerRef.current = null;
+      }
+    };
+  }, [dataReady, currentUser, bankTransactions, taxInvoices, clients, workers, flushErpSave]);
 
   const applyRemoteBankSnapshot = React.useCallback(async (snapshot: BankSyncSnapshot) => {
     const nextVersion = snapshot.version ?? erpVersionRef.current;
