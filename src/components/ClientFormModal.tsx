@@ -1,8 +1,9 @@
-import React from "react";
-import { X } from "lucide-react";
+import React, { useState } from "react";
+import { FileSearch, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AuditField } from "@/components/AuditField";
+import { ClientBusinessRegImportModal } from "@/components/ClientBusinessRegImportModal";
 import { CLIENT_AUDIT_FIELDS } from "@/utils/auditLog";
 
 const YES_NO_OPTIONS = [
@@ -29,6 +30,7 @@ const L = {
   depositAliasesPh:
     "\uD1B5\uC7A5 \uC785\uAE08 \uC2DC \uD45C\uC2DC \uC774\uB984 (\uC27C\uD45C \uAD6C\uB3C4). \uC608\uAE08\uC8FC\uBA85\uC774 \uC790\uB3D9 \uB9E4\uCE69\uB429\uB2C8\uB2E4.",
   memoPh: "\uAC70\uB798\uCC98 \uBE44\uACE0",
+  importBusinessReg: "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D\uC5D0\uC11C \uAC00\uC838\uC624\uAE30",
 };
 
 function clientFieldLabel(key: keyof ClientFormState): string {
@@ -75,9 +77,12 @@ export function ClientFormModal({
   onReset,
   onUpdate,
 }: ClientFormModalProps) {
+  const [importOpen, setImportOpen] = useState(false);
+
   if (!open) return null;
 
   return (
+    <>
     <div className="erp-ledger-modal-backdrop" onClick={onClose}>
       <div
         className="erp-ledger-modal erp-ledger-modal--client-form overflow-y-auto"
@@ -93,6 +98,16 @@ export function ClientFormModal({
               {editingId ? L.editTitle : L.createTitle}
             </h2>
             <p className="erp-text-caption mt-1 text-slate-500">{editingId ? L.editDesc : L.createDesc}</p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-3 rounded-2xl"
+              onClick={() => setImportOpen(true)}
+            >
+              <FileSearch size={14} className="mr-1" />
+              {L.importBusinessReg}
+            </Button>
           </div>
           <button
             type="button"
@@ -216,5 +231,18 @@ export function ClientFormModal({
         </div>
       </div>
     </div>
+    <ClientBusinessRegImportModal
+      open={importOpen}
+      form={form}
+      editing={Boolean(editingId)}
+      onClose={() => setImportOpen(false)}
+      onApply={(next) => {
+        (Object.keys(next) as Array<keyof ClientFormState>).forEach((key) => {
+          if (next[key] !== form[key]) onUpdate(key, next[key]);
+        });
+        setImportOpen(false);
+      }}
+    />
+    </>
   );
 }

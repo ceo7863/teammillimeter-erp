@@ -30,6 +30,7 @@
     "react": "latest",
     "react-dom": "latest",
     "tailwindcss": "latest",
+    "tesseract.js": "^5.1.1",
     "tsx": "^4.22.4",
     "typescript": "latest",
     "vite": "latest",
