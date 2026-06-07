@@ -12,12 +12,13 @@ import { extractBusinessRegistrationDocument, revokeDocumentPreviewUrl } from "@
 
 const L = {
   title: "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D\uC5D0\uC11C \uAC00\uC838\uC624\uAE30",
-  desc: "\uBB38\uC11C\uC758 \uAE00\uC790\uB97C \uC120\uD0DD\uD558\uACE0 \uD544\uB4DC\uC5D0 \uB123\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+  desc: "\uBB38\uC11C\uC758 \uAE00\uC790\uB97C \uC218\uC815\uD558\uACE0 \uC120\uD0DD\uD574 \uD544\uB4DC\uC5D0 \uB123\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
   upload: "\uD30C\uC77C \uC120\uD0DD",
   uploadHint: "PDF \uB610\uB294 \uC774\uBBF8\uC9C0 (JPG, PNG)",
   extracting: "\uBB38\uC11C\uC758 \uAE00\uC790\uB97C \uBD84\uC11D \uC911\uC785\uB2C8\uB2E4...",
   textPanel: "\uCD94\uCD9C \uBCC0\uC778 \uAE00\uC790",
-  textHint: "\uC544\uB798 \uAE00\uC790\uB97C \uB4DC\uB798\uADF8 \uC120\uD0DD\uD55C \uB4A4 \uD544\uD5BC \uBC84\uD2BC\uC744 \uB204\uB974\uC138\uC694.",
+  textHint: "\uAE00\uC790\uB97C \uC9C1\uC811 \uC218\uC815\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uB4DC\uB798\uADF8 \uC120\uD0DD \uD6C4 \uD544\uB4DC \uBC84\uD2BC\uC744 \uB204\uB974\uAC70\uB098, \uD544\uB4DC\uB97C \uD074\uB9AD\uD55C \uB4A4 \uC120\uD0DD\uD558\uC138\uC694.",
+  resuggest: "\uC790\uB3D9 \uCD94\uCC9C \uAC31\uC2E0",
   activeField: (label: string) => `\uC120\uD0DD \uAE00\uC790 \u2192 ${label}`,
   selectionEmpty: "\uAE00\uC790\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
   fillEmptyOnly: "\uBE48 \uCE78\uB9CC \uCC44\uC6B0\uAE30 (\uAE30\uC874 \uAC12 \uC720\uC9C0)",
@@ -50,7 +51,7 @@ export function ClientBusinessRegImportModal({
   onApply,
 }: ClientBusinessRegImportModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const textPanelRef = useRef<HTMLDivElement>(null);
+  const textPanelRef = useRef<HTMLTextAreaElement>(null);
   const previewUrlRef = useRef("");
   const sourceFileRef = useRef<File | null>(null);
 
@@ -122,14 +123,41 @@ export function ClientBusinessRegImportModal({
   };
 
   const getSelectedText = () => {
+    const panel = textPanelRef.current;
+    if (!panel) return "";
+
+    const start = panel.selectionStart;
+    const end = panel.selectionEnd;
+    if (start != null && end != null && start !== end) {
+      return panel.value.slice(start, end).trim();
+    }
+
     const selection = window.getSelection();
     const text = selection?.toString().trim() || "";
-    if (!text || !textPanelRef.current) return "";
+    if (!text) return "";
     const anchor = selection?.anchorNode;
     const focus = selection?.focusNode;
     if (!anchor || !focus) return "";
-    if (!textPanelRef.current.contains(anchor) && !textPanelRef.current.contains(focus)) return "";
+    if (!panel.contains(anchor) && !panel.contains(focus)) return "";
     return text;
+  };
+
+  const applySuggestionsFromText = (text: string, replaceDraft = false) => {
+    const auto = suggestBusinessRegValues(text);
+    const filteredAuto = fillEmptyOnly
+      ? Object.fromEntries(
+          Object.entries(auto).filter(([key]) => !String(form[key as BusinessRegImportFieldKey] || "").trim()),
+        )
+      : auto;
+    setDraft((prev) => (replaceDraft ? filteredAuto : { ...filteredAuto, ...prev }));
+  };
+
+  const handleTextSelection = () => {
+    const selected = getSelectedText();
+    if (selected && activeField) {
+      assignToField(activeField, selected);
+      setActiveField(null);
+    }
   };
 
   const assignToField = (key: BusinessRegImportFieldKey, value: string) => {
@@ -237,20 +265,31 @@ export function ClientBusinessRegImportModal({
             </div>
             <div className="space-y-3">
               <div>
-                <div className="mb-1 erp-text-caption font-bold text-slate-600">{L.textPanel}</div>
-                <div
-                  ref={textPanelRef}
-                  className="erp-client-biz-reg-import-text max-h-48 overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm leading-6 text-slate-800 whitespace-pre-wrap select-text"
-                  onMouseUp={() => {
-                    const selected = getSelectedText();
-                    if (selected && activeField) {
-                      assignToField(activeField, selected);
-                      setActiveField(null);
-                    }
-                  }}
-                >
-                  {extractedText || L.selectionEmpty}
+                <div className="mb-1 flex flex-wrap items-center gap-2">
+                  <div className="erp-text-caption font-bold text-slate-600">{L.textPanel}</div>
+                  {extractedText.trim() ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="ml-auto h-7 rounded-lg px-2 text-xs"
+                      onClick={() => applySuggestionsFromText(extractedText, true)}
+                    >
+                      {L.resuggest}
+                    </Button>
+                  ) : null}
                 </div>
+                <textarea
+                  ref={textPanelRef}
+                  className="erp-client-biz-reg-import-text erp-input max-h-48 min-h-[8rem] w-full resize-y rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm leading-6 text-slate-800"
+                  value={extractedText}
+                  onChange={(event) => setExtractedText(event.target.value)}
+                  onMouseUp={handleTextSelection}
+                  onKeyUp={handleTextSelection}
+                  rows={8}
+                  lang="ko"
+                  placeholder={L.selectionEmpty}
+                />
                 <p className="mt-1 erp-text-caption text-slate-500">{L.textHint}</p>
               </div>
 
