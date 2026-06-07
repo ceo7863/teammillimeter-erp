@@ -101,7 +101,7 @@ function ClientCellButton({
   return (
     <button
       type="button"
-      className={`max-w-full truncate rounded-lg border px-2 py-1 text-left text-xs font-semibold transition hover:opacity-90 ${clientPartyCellClass(partyKind, empty)}`}
+      className={`erp-bank-wehago-cell-btn max-w-full truncate border text-left ${clientPartyCellClass(partyKind, empty)}`}
       title={display}
       onClick={(event) => {
         event.stopPropagation();
@@ -127,7 +127,7 @@ function FixedExpenseCellButton({
   return (
     <button
       type="button"
-      className={`max-w-full truncate rounded-lg border px-2 py-1 text-left text-xs font-semibold transition hover:opacity-90 ${
+      className={`erp-bank-wehago-cell-btn max-w-full truncate border text-left ${
         empty ? "border-dashed border-slate-200 text-slate-400" : "border-violet-300 bg-violet-50 text-violet-900"
       }`}
       title={display}
@@ -199,11 +199,11 @@ const SplitRow = memo(function SplitRow({
     <tr className={`erp-bank-wehago-row border-t ${rowClass}`}>
       <td className="erp-bank-wehago-cell erp-bank-wehago-cell--datetime">{model.dateLabel}</td>
       <td className="erp-bank-wehago-cell erp-bank-wehago-cell--account">{model.accountLabel}</td>
-      <td className="max-w-[8rem] truncate text-xs" title={model.counterpartyLabel}>
+      <td className="erp-bank-wehago-cell max-w-[7rem] truncate" title={model.counterpartyLabel}>
         {canFilterCounterparty ? (
           <button
             type="button"
-            className={`inline-flex max-w-full truncate rounded-md px-1.5 py-0.5 font-medium underline decoration-current/30 underline-offset-2 ${counterpartyButtonClass}`}
+            className={`erp-bank-wehago-cell-btn inline-flex max-w-full truncate underline decoration-current/30 underline-offset-2 ${counterpartyButtonClass}`}
             title={"\uB354\uBE14\uD074\uB9AD: \uC804\uCCB4 \uB0B4\uC5ED \uBCF4\uAE30"}
             onDoubleClick={(event) => {
               event.stopPropagation();
@@ -213,34 +213,34 @@ const SplitRow = memo(function SplitRow({
             {model.counterpartyLabel}
           </button>
         ) : (
-          <span className={`inline-flex max-w-full truncate rounded-md px-1.5 py-0.5 font-medium ${counterpartyToneClass}`}>
+          <span className={`erp-bank-wehago-cell-btn inline-flex max-w-full truncate border border-transparent ${counterpartyToneClass}`}>
             {model.counterpartyLabel}
           </span>
         )}
       </td>
-      <td className="max-w-[10rem] truncate text-xs font-medium text-slate-900" title={model.description}>
+      <td className="erp-bank-wehago-cell max-w-[8rem] truncate font-medium text-slate-900" title={model.description}>
         {model.description}
       </td>
-      <td className={`whitespace-nowrap text-right text-sm erp-bank-wehago-amount ${amountClass}`}>{model.signedAmountLabel}</td>
-      <td className="erp-bank-wehago-cell erp-bank-wehago-split-divider max-w-[8rem]">
+      <td className={`erp-bank-wehago-cell whitespace-nowrap text-right erp-bank-wehago-amount ${amountClass}`}>{model.signedAmountLabel}</td>
+      <td className="erp-bank-wehago-cell erp-bank-wehago-split-divider max-w-[7rem]">
         <button
           type="button"
           className="erp-bank-wehago-inline-btn"
           title={model.memoLabel}
           onClick={() => onEditMemo(model.id)}
         >
-          <Pencil size={12} className="shrink-0" />
+          <Pencil size={10} className="shrink-0" />
           <span className="truncate">{model.memoEmpty ? labels.memoPlaceholder : model.memoLabel}</span>
         </button>
       </td>
       <td className="erp-bank-wehago-split-bridge text-center text-slate-300">
-        <Link2 size={14} className="mx-auto opacity-40" />
+        <Link2 size={11} className="mx-auto opacity-40" />
       </td>
-      <td className="max-w-[11rem]">
+      <td className="erp-bank-wehago-cell max-w-[9rem]">
         {model.evidenceLinked ? (
           <button
             type="button"
-            className="max-w-full truncate rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-left text-xs font-semibold text-blue-800 hover:bg-blue-100"
+            className="erp-bank-wehago-cell-btn max-w-full truncate border border-blue-200 bg-blue-50 text-left text-blue-800 hover:bg-blue-100"
             title={model.evidenceLabel || ""}
             onClick={() => onFindEvidence(model.id)}
           >
@@ -249,14 +249,14 @@ const SplitRow = memo(function SplitRow({
         ) : (
           <button
             type="button"
-            className="rounded-lg border border-dashed border-slate-200 px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-100"
+            className="erp-bank-wehago-cell-btn border border-dashed border-slate-200 text-slate-500 hover:bg-slate-100"
             onClick={() => onFindEvidence(model.id)}
           >
             {labels.evidenceFind}
           </button>
         )}
       </td>
-      <td className="erp-bank-excel-cell-wrap max-w-[8rem] p-0">
+      <td className="erp-bank-excel-cell-wrap max-w-[7rem] p-0">
         <AccountSubjectCellButton
           key={`${model.id}:${model.accountSubjectLabel ?? ""}`}
           triggerId={model.id}
@@ -266,7 +266,7 @@ const SplitRow = memo(function SplitRow({
           onClick={() => onEditAccountSubject(model.id)}
         />
       </td>
-      <td className="max-w-[8rem]">
+      <td className="erp-bank-wehago-cell max-w-[7rem]">
         <ClientCellButton
           value={model.clientLabel}
           placeholder={labels.clientPlaceholder}
@@ -274,34 +274,34 @@ const SplitRow = memo(function SplitRow({
           onClick={() => onEditClient(model.id)}
         />
       </td>
-      <td className="max-w-[8rem]">
+      <td className="erp-bank-wehago-cell max-w-[7rem]">
         <FixedExpenseCellButton
           value={model.fixedExpenseLabel}
           placeholder={labels.fixedExpensePlaceholder}
           onClick={() => onEditFixedExpense(model.id)}
         />
       </td>
-      <td className="whitespace-nowrap text-right text-xs font-semibold text-slate-800">
+      <td className="erp-bank-wehago-cell whitespace-nowrap text-right font-semibold text-slate-800">
         {model.classifiedAmountLabel}
       </td>
-      <td className="max-w-[7rem]">
+      <td className="erp-bank-wehago-cell max-w-[6rem]">
         {model.showVoucherProcessedBadge ? (
-          <span className="inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-xs font-bold text-violet-800">
+          <span className="erp-bank-wehago-badge bg-violet-100 text-violet-800">
             {labels.voucherProcessedBadge}
           </span>
         ) : model.matchLinked ? (
-          <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">
+          <span className="erp-bank-wehago-badge bg-emerald-100 text-emerald-700">
             {model.matchStatusLabel}
           </span>
         ) : (
-          <span className="text-xs text-slate-400">-</span>
+          <span className="text-slate-400">-</span>
         )}
       </td>
-      <td className="max-w-[5.5rem] text-center">
+      <td className="erp-bank-wehago-cell max-w-[4.5rem] text-center">
         {model.rowTone === "deposit" && onIssueTaxInvoice ? (
           <button
             type="button"
-            className="rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-100"
+            className="erp-bank-wehago-cell-btn border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
             onClick={(event) => {
               event.stopPropagation();
               onIssueTaxInvoice(model.id);
@@ -310,7 +310,7 @@ const SplitRow = memo(function SplitRow({
             {labels.taxInvoiceIssueButton}
           </button>
         ) : (
-          <span className="text-xs text-slate-300">-</span>
+          <span className="text-slate-300">-</span>
         )}
       </td>
     </tr>
@@ -332,7 +332,7 @@ function BankTransactionSplitTableComponent({
 }: BankTransactionSplitTableProps) {
   return (
     <DesktopTableWrap className="erp-bank-wehago-table-wrap">
-      <table id={tableId} className="erp-table erp-bank-split-table erp-bank-wehago-split-table w-full min-w-[1360px]">
+      <table id={tableId} className="erp-table erp-bank-split-table erp-bank-wehago-split-table w-full min-w-[1180px]">
         <thead>
           <tr className="erp-bank-wehago-split-section-row">
             <th colSpan={6} className="erp-bank-wehago-split-section erp-bank-wehago-split-section--bank">

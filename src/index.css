@@ -12764,8 +12764,8 @@ button:disabled,
 .erp-bank-wehago-table-toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  padding: 0.85rem 1rem 0;
+  gap: 0.35rem;
+  padding: 0.5rem 0.75rem 0;
 }
 
 .erp-bank-wehago-table-wrap .erp-table-scroll-hint {
@@ -12778,10 +12778,15 @@ button:disabled,
   top: 0;
   z-index: 2;
   background: #f8fafc;
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   font-weight: 700;
   color: #64748b;
   white-space: nowrap;
+}
+
+.erp-bank-wehago-split-table th,
+.erp-bank-wehago-split-table td {
+  padding: 0.2rem 0.35rem;
 }
 
 .erp-bank-wehago-split-section-row th {
@@ -12790,13 +12795,13 @@ button:disabled,
 }
 
 .erp-bank-wehago-split-columns-row th {
-  top: 2rem;
+  top: 1.45rem;
 }
 
 .erp-bank-wehago-split-section {
-  padding: 0.55rem 0.75rem;
+  padding: 0.3rem 0.5rem;
   text-align: center;
-  font-size: 0.8125rem;
+  font-size: 0.6875rem;
   font-weight: 800;
   color: #334155;
 }
@@ -12811,8 +12816,10 @@ button:disabled,
 }
 
 .erp-bank-wehago-split-bridge {
-  width: 2rem;
-  min-width: 2rem;
+  width: 1.25rem;
+  min-width: 1.25rem;
+  padding-left: 0;
+  padding-right: 0;
   background: #fff;
   border-left: 1px solid #e2e8f0;
   border-right: 1px solid #e2e8f0;
@@ -12828,13 +12835,13 @@ button:disabled,
 
 /* No content-visibility here: editable 계정 cells failed to repaint after picker save. */
 .erp-bank-wehago-split-table tbody tr {
-  contain-intrinsic-size: auto 44px;
+  contain-intrinsic-size: auto 30px;
 }
 
 .erp-bank-wehago-cell {
-  padding-top: 0.65rem;
-  padding-bottom: 0.65rem;
-  font-size: 0.75rem;
+  padding-top: 0.2rem;
+  padding-bottom: 0.2rem;
+  font-size: 0.6875rem;
   color: #334155;
   vertical-align: middle;
 }
@@ -12850,24 +12857,57 @@ button:disabled,
 }
 
 .erp-bank-wehago-amount {
-  font-size: 0.8125rem;
+  font-size: 0.6875rem;
 }
 
 .erp-bank-wehago-inline-btn {
   display: inline-flex;
   max-width: 100%;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.15rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   border: 1px dashed #dbe3ee;
-  border-radius: 0.5rem;
-  padding: 0.25rem 0.5rem;
-  font-size: 0.75rem;
+  border-radius: 0.375rem;
+  padding: 0.1rem 0.35rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   color: #64748b;
   background: #fff;
+}
+
+.erp-bank-wehago-split-table .erp-bank-excel-cell__trigger {
+  min-height: 1.25rem;
+  padding: 0.05rem 0.25rem 0.05rem 0.3rem;
+  font-size: 0.625rem;
+}
+
+.erp-bank-wehago-split-table .erp-bank-wehago-cell-btn {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 0.375rem;
+  padding: 0.1rem 0.35rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.25;
+  transition: opacity 0.15s ease;
+}
+
+.erp-bank-wehago-split-table .erp-bank-wehago-cell-btn:hover {
+  opacity: 0.92;
+}
+
+.erp-bank-wehago-split-table .erp-bank-wehago-badge {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 0.05rem 0.4rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
 }
 
 .erp-bank-wehago-footer {
@@ -12875,11 +12915,11 @@ button:disabled,
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem 1rem;
-  padding: 0.85rem 1rem;
+  gap: 0.5rem 0.75rem;
+  padding: 0.5rem 0.75rem;
   border-top: 1px solid #e2e8f0;
   background: #fcfdff;
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   color: #475569;
 }
 
