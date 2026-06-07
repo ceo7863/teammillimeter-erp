@@ -42,6 +42,7 @@ export const SALE_AUDIT_FIELDS: AuditFieldDef[] = [
 
 export const CLIENT_AUDIT_FIELDS: AuditFieldDef[] = [
   { key: "name", label: "거래처명" },
+  { key: "taxInvoiceCorpName", label: "세금계산서 발행용 상호" },
   { key: "businessNo", label: "사업자번호" },
   { key: "ceoName", label: "대표자명" },
   { key: "email", label: "이메일" },
@@ -255,6 +256,7 @@ export function snapshotSaleForAudit(row: Record<string, unknown>) {
 export function snapshotClientForAudit(client: Record<string, unknown>) {
   return {
     name: client.name || "",
+    taxInvoiceCorpName: client.taxInvoiceCorpName || "",
     businessNo: client.businessNo || "",
     manager: client.manager || "",
     phone: client.phone || "",

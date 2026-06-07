@@ -10,6 +10,7 @@ import type { PdfArchiveMeta } from "@/utils/pdfArchive";
 import { findClientByDepositSubject } from "@/utils/clientDepositAliases";
 import {
   extractClientTaxFields,
+  resolveClientTaxInvoiceCorpName,
   validateInvoiceePartyForIssue,
   type ClientMasterLike,
 } from "@/utils/clientMaster";
@@ -41,7 +42,7 @@ const L = {
   businessNo: "\uC0AC\uC5C5\uC790\uBC88\uD638",
   invoiceeSection: "\uAC70\uB798\uCC98(\uACF5\uAE09\uBC1B\uB294\uC790) \uC815\uBCF4",
   invoiceeSectionHint:
-    "\uC804\uC790 \uBC1C\uD589 \uC2DC \uD544\uC218\uC785\uB2C8\uB2E4. \uAC70\uB798\uCC98 \uB9C8\uC2A4\uD130\uC5D0 \uC800\uC7A5\uB418\uC5B4 \uC788\uC73C\uBA74 \uC790\uB3D9 \uC744\uC6B0\uAE30\uB429\uB2C8\uB2E4.",
+    "\uC804\uC790 \uBC1C\uD589 \uC2DC \uD544\uC218\uC785\uB2C8\uB2E4. \uAC70\uB798\uCC98 \uB9C8\uC2A4\uD130\uC758 \uC138\uAE08\uACC4\uC0B0\uC11C \uBC1C\uD589\uC6A9 \uC0C1\uD638\uAC00 \uC788\uC73C\uBA74 \uADF8\uC774 \uC6B0\uC120 \uC801\uC6A9\uB429\uB2C8\uB2E4.",
   ceoName: "\uB300\uD45C\uC790\uBA85",
   email: "\uC774\uBA54\uC77C",
   bizType: "\uC5C5\uD0DC",
@@ -95,6 +96,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function applyClientToInvoiceDraft(client: Record<string, unknown> | null | undefined) {
   const profile = extractClientTaxFields(client);
+  const issueClientName = resolveClientTaxInvoiceCorpName(client);
   return {
     businessNo: profile.businessNo || "",
     invoiceeCeoName: profile.ceoName || "",
@@ -103,7 +105,8 @@ function applyClientToInvoiceDraft(client: Record<string, unknown> | null | unde
     invoiceePhone: profile.phone || "",
     invoiceeBizType: profile.bizType || "",
     invoiceeBizClass: profile.bizClass || "",
-    itemName: profile.name || "",
+    itemName: issueClientName || profile.name || "",
+    issueClientName,
   };
 }
 
@@ -175,11 +178,11 @@ export function buildBankTaxInvoiceIssueDraft(
   const deposit = getBankTxClassifiedAmount(tx);
   const amountDraft = buildTaxInvoiceAmountDraft(deposit, matched);
   const issueDate = String(tx.transactionAt || "").slice(0, 10) || new Date().toISOString().slice(0, 10);
-  const applied = applyClientToInvoiceDraft(matched);
+  const { issueClientName, ...applied } = applyClientToInvoiceDraft(matched);
 
   return {
     issueDate,
-    client: clientName,
+    client: issueClientName || clientName,
     memo: String(tx.description || tx.memo || "").trim(),
     ...amountDraft,
     ...applied,
@@ -200,11 +203,11 @@ export function buildPdfArchiveTaxInvoiceIssueDraft(
   const issueDate =
     String(record.periodEnd || record.createdAt || "").slice(0, 10) || new Date().toISOString().slice(0, 10);
   const memo = buildStatementPeriodMemo(record);
-  const applied = applyClientToInvoiceDraft(matched);
+  const { issueClientName, ...applied } = applyClientToInvoiceDraft(matched);
 
   return {
     issueDate,
-    client: clientName,
+    client: issueClientName || clientName,
     memo,
     ...amountDraft,
     ...applied,
@@ -269,7 +272,7 @@ export function BankTaxInvoiceIssueModal({
 
   const handleClientChange = (clientName: string) => {
     const matched = clients.find((client) => client.name === clientName);
-    const applied = applyClientToInvoiceDraft(matched);
+    const { issueClientName, ...applied } = applyClientToInvoiceDraft(matched);
     const vatIncluded = clientVatIncluded(matched);
     const amounts = vatIncluded
       ? calculateTaxInvoiceAmountsFromTotal(sourceAmount, draft?.documentType || "tax")
@@ -279,7 +282,7 @@ export function BankTaxInvoiceIssueModal({
       prev
         ? {
             ...prev,
-            client: clientName,
+            client: issueClientName || clientName,
             ...applied,
             supplyAmount: String(amounts.supplyAmount),
             totalAmount: String(amounts.totalAmount),

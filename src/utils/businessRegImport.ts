@@ -2,6 +2,7 @@ import type { ClientFormState } from "@/components/ClientFormModal";
 
 export type BusinessRegImportFieldKey =
   | "name"
+  | "taxInvoiceCorpName"
   | "businessNo"
   | "ceoName"
   | "address"
@@ -10,6 +11,7 @@ export type BusinessRegImportFieldKey =
 
 export const BUSINESS_REG_IMPORT_FIELDS: Array<{ key: BusinessRegImportFieldKey; label: string }> = [
   { key: "name", label: "\uAC70\uB798\uCC98\uBA85" },
+  { key: "taxInvoiceCorpName", label: "\uC138\uAE08\uACC4\uC0B0\uC11C \uBC1C\uD589\uC6A9 \uC0C1\uD638" },
   { key: "businessNo", label: "\uC0AC\uC5C5\uC790\uBC88\uD638" },
   { key: "ceoName", label: "\uB300\uD45C\uC790\uBA85" },
   { key: "address", label: "\uC8FC\uC18C" },
@@ -25,6 +27,17 @@ export function normalizeImportedBusinessNo(raw: string) {
 
 export function cleanImportedText(raw: string) {
   return String(raw || "").replace(/\s+/g, " ").trim();
+}
+
+/** \uC0C1\uD638(\uBC95\uC778\uBA85) \u2192 ERP \uAC70\uB798\uCC98\uBA85 \uC6A9 \uC57D\uCE6D */
+export function simplifyClientNameFromLegalName(legalName: string) {
+  const legal = cleanImportedText(legalName);
+  if (!legal) return "";
+  const simplified = legal
+    .replace(/^\(?\s*(?:\uC8FC\uC2DD\uD68C\uC0AC|\(\uC8FC\)|\u3231|\uC720\uD55C\uD68C\uC0AC|\(\uC720\))\s*/i, "")
+    .replace(/\s*\([^)]*\)\s*$/g, "")
+    .trim();
+  return cleanImportedText(simplified) || legal;
 }
 
 export function mergeBusinessRegImport(
@@ -65,9 +78,13 @@ export function suggestBusinessRegValues(text: string): Partial<Record<BusinessR
   if (ceoMatch) suggestions.ceoName = cleanImportedText(ceoMatch[1]);
 
   const nameMatch = normalized.match(
-    /(?:\uC0C1\s*\uD638|\uBC95\s*\uC778\s*\uBA85|\uC0C1\s*\uD638\s*\(\uBC95\s*\uC778\s*\uBA85\))\s*[:?]?\s*([^\n\r]{2,40})/,
+    /(?:\uC0C1\s*\uD638|\uBC95\s*\uC778\s*\uBA85|\uC0C1\s*\uD638\s*\(\uBC95\s*\uC778\s*\uBA85\))\s*[:?]?\s*([^\n\r]{2,60})/,
   );
-  if (nameMatch) suggestions.name = cleanImportedText(nameMatch[1].replace(/\(.*?\)/g, ""));
+  if (nameMatch) {
+    const legal = cleanImportedText(nameMatch[1]);
+    suggestions.taxInvoiceCorpName = legal;
+    suggestions.name = simplifyClientNameFromLegalName(legal);
+  }
 
   const addressMatch = normalized.match(
     /(?:\uC0AC\s*\uC5C5\s*\uC7A5\s*\uC18C\s*\uC7AC\s*\uC9C0|\uC0AC\s*\uC5C5\s*\uC7A5|\uC18C\s*\uC7AC\s*\uC9C0|\uC8FC\s*\uC18C)\s*[:?]?\s*([^\n\r]{5,120})/,

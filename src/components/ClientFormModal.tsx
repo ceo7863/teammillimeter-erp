@@ -29,6 +29,7 @@ const L = {
   customChargeCostPh: "\uD2B9\uC815 \uAC70\uB798\uCC98\uB9CC \uBCC4\uB3C4 \uCCAD\uAD6C\uC2DC \uC785\uB825",
   depositAliasesPh:
     "\uD1B5\uC7A5 \uC785\uAE08 \uC2DC \uD45C\uC2DC \uC774\uB984 (\uC27C\uD45C \uAD6C\uB3C4). \uC608\uAE08\uC8FC\uBA85\uC774 \uC790\uB3D9 \uB9E4\uCE69\uB429\uB2C8\uB2E4.",
+  taxInvoiceCorpNamePh: "\uBE44\uC6B0\uBA74 \uAC70\uB798\uCC98\uBA85\uC73C\uB85C \uBC1C\uD589 (\uC608: \uC8FC\uC2DD\uD68C\uC0AC OO)",
   memoPh: "\uAC70\uB798\uCC98 \uBE44\uACE0",
   importBusinessReg: "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D\uC5D0\uC11C \uAC00\uC838\uC624\uAE30",
 };
@@ -39,6 +40,7 @@ function clientFieldLabel(key: keyof ClientFormState): string {
 
 export type ClientFormState = {
   name: string;
+  taxInvoiceCorpName: string;
   businessNo: string;
   ceoName: string;
   email: string;
@@ -122,6 +124,14 @@ export function ClientFormModal({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <AuditField label={clientFieldLabel("name")} entityType="client" entityId={editingId} field="name">
             <Input lang="ko" value={form.name} onChange={(e) => onUpdate("name", e.target.value)} placeholder={L.namePh} required />
+          </AuditField>
+          <AuditField label={clientFieldLabel("taxInvoiceCorpName")} entityType="client" entityId={editingId} field="taxInvoiceCorpName">
+            <Input
+              lang="ko"
+              value={form.taxInvoiceCorpName}
+              onChange={(e) => onUpdate("taxInvoiceCorpName", e.target.value)}
+              placeholder={L.taxInvoiceCorpNamePh}
+            />
           </AuditField>
           <AuditField label={clientFieldLabel("businessNo")} entityType="client" entityId={editingId} field="businessNo">
             <Input lang="ko" value={form.businessNo} onChange={(e) => onUpdate("businessNo", e.target.value)} placeholder={clientFieldLabel("businessNo")} />

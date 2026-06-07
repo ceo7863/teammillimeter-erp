@@ -57,7 +57,7 @@ import {
 } from "@/utils/barobillTaxInvoiceSync";
 import { issueBarobillTaxInvoice } from "@/utils/barobillTaxInvoiceIssue";
 import { fetchBarobillChargeUrl } from "@/utils/barobillChargeUrl";
-import { extractClientTaxFields, validateInvoiceePartyForIssue } from "@/utils/clientMaster";
+import { extractClientTaxFields, resolveClientTaxInvoiceCorpName, validateInvoiceePartyForIssue } from "@/utils/clientMaster";
 import { useAudit } from "@/context/AuditContext";
 import { TAX_INVOICE_AUDIT_FIELDS, snapshotTaxInvoiceForAudit } from "@/utils/auditLog";
 
@@ -390,6 +390,7 @@ function emptyInvoiceeFields() {
 
 function applyClientToInvoiceModal(client: Record<string, unknown> | null | undefined) {
   const profile = extractClientTaxFields(client);
+  const issueClientName = resolveClientTaxInvoiceCorpName(client);
   return {
     businessNo: profile.businessNo || "",
     invoiceeCeoName: profile.ceoName || "",
@@ -398,7 +399,8 @@ function applyClientToInvoiceModal(client: Record<string, unknown> | null | unde
     invoiceePhone: profile.phone || "",
     invoiceeBizType: profile.bizType || "",
     invoiceeBizClass: profile.bizClass || "",
-    itemName: profile.name || "",
+    itemName: issueClientName || profile.name || "",
+    issueClientName,
   };
 }
 
@@ -415,6 +417,7 @@ export function TaxInvoicePage({
   setTaxInvoices: React.Dispatch<React.SetStateAction<TaxInvoice[]>>;
   clients: Array<{
     name?: string;
+    taxInvoiceCorpName?: string;
     businessNo?: string;
     ceoName?: string;
     email?: string;
@@ -863,12 +866,12 @@ export function TaxInvoicePage({
 
   const handleClientChange = (clientName: string) => {
     const matched = clients.find((client) => client.name === clientName);
-    const applied = applyClientToInvoiceModal(matched);
+    const { issueClientName, ...applied } = applyClientToInvoiceModal(matched);
     setModal((prev) =>
       prev
         ? {
             ...prev,
-            client: clientName,
+            client: issueClientName || clientName,
             ...applied,
           }
         : prev

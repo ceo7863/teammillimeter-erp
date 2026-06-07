@@ -1,5 +1,6 @@
 export type ClientTaxFields = {
   name?: string;
+  taxInvoiceCorpName?: string;
   businessNo?: string;
   ceoName?: string;
   email?: string;
@@ -13,6 +14,7 @@ export type ClientTaxFields = {
 export type ClientMasterLike = {
   id?: number | string;
   name?: string;
+  taxInvoiceCorpName?: string;
   businessNo?: string;
   ceoName?: string;
   email?: string;
@@ -32,10 +34,18 @@ export type ClientMasterLike = {
   memo?: string;
 };
 
+export function resolveClientTaxInvoiceCorpName(client: Record<string, unknown> | null | undefined) {
+  const source = client && typeof client === "object" ? client : {};
+  const taxName = String(source.taxInvoiceCorpName || "").trim();
+  const name = String(source.name || "").trim();
+  return taxName || name;
+}
+
 export function extractClientTaxFields(client: Record<string, unknown> | null | undefined): ClientTaxFields {
   const source = client && typeof client === "object" ? client : {};
   return {
     name: String(source.name || "").trim(),
+    taxInvoiceCorpName: String(source.taxInvoiceCorpName || "").trim(),
     businessNo: String(source.businessNo || "").trim(),
     ceoName: String(source.ceoName || "").trim(),
     email: String(source.email || "").trim(),

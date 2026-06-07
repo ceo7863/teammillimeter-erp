@@ -5227,6 +5227,7 @@ function appendClientAuditLogs(
 function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersistClientsImmediate }) {
   const emptyClientForm: ClientFormState = {
     name: "",
+    taxInvoiceCorpName: "",
     businessNo: "",
     ceoName: "",
     email: "",
@@ -5332,6 +5333,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
       ...(existingClient || {}),
       id: existingClient?.id ?? editingId ?? Date.now(),
       name,
+      taxInvoiceCorpName: form.taxInvoiceCorpName.trim(),
       businessNo: form.businessNo.trim(),
       ceoName: form.ceoName.trim(),
       email: form.email.trim(),
@@ -5374,6 +5376,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
     setEditingId(client.id);
     setForm({
       name: client.name || "",
+      taxInvoiceCorpName: client.taxInvoiceCorpName || "",
       businessNo: client.businessNo || "",
       ceoName: client.ceoName || "",
       email: client.email || "",
