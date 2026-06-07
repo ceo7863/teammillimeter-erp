@@ -5356,8 +5356,9 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
     setBusinessRegViewLocalFile(useLocal ? pendingBusinessRegFile : null);
   };
 
-  const commitClientChange = (nextClients, auditInput) => {
-    void onPersistClientsImmediate?.(nextClients, auditInput);
+  const commitClientChange = async (nextClients, auditInput) => {
+    if (!onPersistClientsImmediate) return true;
+    return onPersistClientsImmediate(nextClients, auditInput);
   };
 
   const saveClient = async () => {
@@ -5426,7 +5427,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
       ? clients.map((client) => (clientIdsEqual(client.id, editingId) ? payload : client))
       : [payload, ...clients];
 
-    commitClientChange(nextClients, {
+    const saved = await commitClientChange(nextClients, {
       entityId: payload.id,
       entityLabel: payload.name,
       action: editingId ? "update" : "create",
@@ -5434,6 +5435,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
       after: snapshotClientForAudit(payload),
       fields: CLIENT_AUDIT_FIELDS,
     });
+    if (saved === false) return;
 
     setForm(emptyClientForm);
     setEditingId(null);
@@ -7860,7 +7862,8 @@ export default function TeammillimeterErpMvp() {
       setSyncStatus("저장 중...");
       try {
         const saved = await persistErpSave(buildErpSavePayload(normalizedPatch), {
-          allowWhileSkipped: Boolean(normalizedPatch && Array.isArray(normalizedPatch.saleComments)),
+          // skipSaveRef blocks debounced autosave during local edits; explicit flush must still run.
+          allowWhileSkipped: Boolean(normalizedPatch),
         });
         if (saved && normalizedPatch) {
           if (Array.isArray(normalizedPatch.workers)) {
