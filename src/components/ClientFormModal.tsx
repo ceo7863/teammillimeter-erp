@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { FileSearch, X } from "lucide-react";
+import { FileSearch, FileText, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AuditField } from "@/components/AuditField";
@@ -32,6 +32,7 @@ const L = {
   taxInvoiceCorpNamePh: "\uBE44\uC6B0\uBA74 \uAC70\uB798\uCC98\uBA85\uC73C\uB85C \uBC1C\uD589 (\uC608: \uC8FC\uC2DD\uD68C\uC0AC OO)",
   memoPh: "\uAC70\uB798\uCC98 \uBE44\uACE0",
   importBusinessReg: "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D\uC5D0\uC11C \uAC00\uC838\uC624\uAE30",
+  viewBusinessReg: "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D",
 };
 
 function clientFieldLabel(key: keyof ClientFormState): string {
@@ -67,6 +68,9 @@ type ClientFormModalProps = {
   onSave: () => void;
   onReset: () => void;
   onUpdate: (key: keyof ClientFormState, value: string) => void;
+  businessRegAvailable?: boolean;
+  onOpenBusinessReg?: () => void;
+  onImportApply?: (next: ClientFormState, sourceFile: File | null) => void | Promise<void>;
 };
 
 export function ClientFormModal({
@@ -78,6 +82,9 @@ export function ClientFormModal({
   onSave,
   onReset,
   onUpdate,
+  businessRegAvailable = false,
+  onOpenBusinessReg,
+  onImportApply,
 }: ClientFormModalProps) {
   const [importOpen, setImportOpen] = useState(false);
 
@@ -100,16 +107,24 @@ export function ClientFormModal({
               {editingId ? L.editTitle : L.createTitle}
             </h2>
             <p className="erp-text-caption mt-1 text-slate-500">{editingId ? L.editDesc : L.createDesc}</p>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="mt-3 rounded-2xl"
-              onClick={() => setImportOpen(true)}
-            >
-              <FileSearch size={14} className="mr-1" />
-              {L.importBusinessReg}
-            </Button>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="rounded-2xl"
+                onClick={() => setImportOpen(true)}
+              >
+                <FileSearch size={14} className="mr-1" />
+                {L.importBusinessReg}
+              </Button>
+              {businessRegAvailable ? (
+                <Button type="button" variant="outline" size="sm" className="rounded-2xl" onClick={onOpenBusinessReg}>
+                  <FileText size={14} className="mr-1" />
+                  {L.viewBusinessReg}
+                </Button>
+              ) : null}
+            </div>
           </div>
           <button
             type="button"
@@ -246,11 +261,17 @@ export function ClientFormModal({
       form={form}
       editing={Boolean(editingId)}
       onClose={() => setImportOpen(false)}
-      onApply={(next) => {
-        (Object.keys(next) as Array<keyof ClientFormState>).forEach((key) => {
-          if (next[key] !== form[key]) onUpdate(key, next[key]);
-        });
-        setImportOpen(false);
+      onApply={(next, sourceFile) => {
+        void (async () => {
+          if (onImportApply) {
+            await onImportApply(next, sourceFile);
+          } else {
+            (Object.keys(next) as Array<keyof ClientFormState>).forEach((key) => {
+              if (next[key] !== form[key]) onUpdate(key, next[key]);
+            });
+          }
+          setImportOpen(false);
+        })();
       }}
     />
     </>

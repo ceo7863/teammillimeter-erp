@@ -10878,6 +10878,13 @@ body.erp-col-resizing * {
   padding: 1.25rem 1.5rem 1.5rem;
 }
 
+.erp-ledger-modal--client-biz-reg-view {
+  width: min(100%, 52rem);
+  max-width: calc(100vw - 1.5rem);
+  max-height: calc(100vh - 1.5rem);
+  padding: 1.25rem 1.5rem 1.5rem;
+}
+
 .erp-client-biz-reg-import-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);

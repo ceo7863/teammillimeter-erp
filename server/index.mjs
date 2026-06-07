@@ -57,6 +57,12 @@ import {
   getBoardAttachmentFile,
   deleteBoardAttachmentById,
 } from "./boardAttachments.mjs";
+import {
+  initClientBusinessRegStore,
+  getClientBusinessRegMeta,
+  getClientBusinessRegFile,
+  upsertClientBusinessReg,
+} from "./clientBusinessReg.mjs";
 import { buildPdfShareViewerHtml } from "./pdfShareViewer.mjs";
 import { renderPdfSharePreviewImages } from "./pdfSharePreview.mjs";
 import { buildPdfShareOgMeta } from "./pdfShareOg.mjs";
@@ -130,6 +136,7 @@ import { notifyNewSaleComments, runDailyReportJob, startNotificationScheduler } 
 initDb();
 initPdfArchiveStore();
 initBoardAttachmentStore();
+initClientBusinessRegStore();
 initClientContractsStore();
 startBankSyncScheduler();
 startNotificationScheduler();
@@ -559,6 +566,57 @@ app.post(
     }
   },
 );
+
+app.post(
+  "/api/clients/:clientId/business-reg",
+  authMiddleware,
+  express.raw({ type: () => true, limit: "20mb" }),
+  (req, res) => {
+    try {
+      const rawMeta = req.headers["x-business-reg-meta"];
+      if (!rawMeta) {
+        res.status(400).json({ error: "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uBA54\uD0C0\uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4." });
+        return;
+      }
+      const meta = parseAttachmentMetaHeader(rawMeta);
+      const buffer = Buffer.from(req.body || []);
+      const result = upsertClientBusinessReg(
+        req.params.clientId,
+        buffer,
+        meta,
+        req.user.loginId || req.user.name || req.user.email,
+      );
+      if (!result.ok) {
+        res.status(result.status || 400).json({ error: result.error });
+        return;
+      }
+      res.status(result.meta?.createdAt === result.meta?.updatedAt ? 201 : 200).json(result.meta);
+    } catch (error) {
+      console.error("[client-business-reg] upload failed:", error);
+      res.status(500).json({ error: "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+    }
+  },
+);
+
+app.get("/api/clients/:clientId/business-reg/meta", authMiddleware, (req, res) => {
+  const meta = getClientBusinessRegMeta(req.params.clientId);
+  if (!meta) {
+    res.status(404).json({ error: "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D\uC774 \uC5C6\uC2B5\uB2C8\uB2E4." });
+    return;
+  }
+  res.json(meta);
+});
+
+app.get("/api/clients/:clientId/business-reg/file", authMiddleware, (req, res) => {
+  const file = getClientBusinessRegFile(req.params.clientId);
+  if (!file) {
+    res.status(404).json({ error: "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." });
+    return;
+  }
+  res.setHeader("Content-Type", file.mimeType || "application/octet-stream");
+  res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+  res.sendFile(path.resolve(file.path));
+});
 
 app.post(
   "/api/board-attachments",

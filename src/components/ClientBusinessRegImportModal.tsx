@@ -39,7 +39,7 @@ type ClientBusinessRegImportModalProps = {
   form: ClientFormState;
   editing: boolean;
   onClose: () => void;
-  onApply: (next: ClientFormState) => void;
+  onApply: (next: ClientFormState, sourceFile: File | null) => void | Promise<void>;
 };
 
 export function ClientBusinessRegImportModal({
@@ -52,6 +52,7 @@ export function ClientBusinessRegImportModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textPanelRef = useRef<HTMLDivElement>(null);
   const previewUrlRef = useRef("");
+  const sourceFileRef = useRef<File | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -61,6 +62,7 @@ export function ClientBusinessRegImportModal({
   const [fillEmptyOnly, setFillEmptyOnly] = useState(true);
   const [activeField, setActiveField] = useState<BusinessRegImportFieldKey | null>(null);
   const [draft, setDraft] = useState<DraftPatch>({});
+  const [hasSourceFile, setHasSourceFile] = useState(false);
 
   const suggestions = useMemo(() => suggestBusinessRegValues(extractedText), [extractedText]);
 
@@ -79,6 +81,8 @@ export function ClientBusinessRegImportModal({
     setDraft({});
     setActiveField(null);
     setFillEmptyOnly(true);
+    sourceFileRef.current = null;
+    setHasSourceFile(false);
   }, [resetPreview]);
 
   useEffect(() => {
@@ -91,6 +95,8 @@ export function ClientBusinessRegImportModal({
 
   const handleFile = async (file: File | null | undefined) => {
     if (!file) return;
+    sourceFileRef.current = file;
+    setHasSourceFile(true);
     resetPreview();
     setError("");
     setMessage("");
@@ -155,12 +161,13 @@ export function ClientBusinessRegImportModal({
 
   const handleApply = () => {
     const { next, filled, skipped } = mergeBusinessRegImport(form, draft, { fillEmptyOnly });
-    onApply(next);
-    const parts = [];
-    if (filled.length) parts.push(L.applyDone(filled.length));
-    if (skipped.length && fillEmptyOnly) parts.push(L.skippedFilled(skipped.length));
-    setMessage(parts.join(" "));
-    if (filled.length) onClose();
+    void Promise.resolve(onApply(next, sourceFileRef.current)).then(() => {
+      const parts = [];
+      if (filled.length) parts.push(L.applyDone(filled.length));
+      if (skipped.length && fillEmptyOnly) parts.push(L.skippedFilled(skipped.length));
+      setMessage(parts.join(" "));
+      if (filled.length || sourceFileRef.current) onClose();
+    });
   };
 
   if (!open) return null;
@@ -304,7 +311,7 @@ export function ClientBusinessRegImportModal({
           <Button type="button" variant="outline" className="rounded-2xl" onClick={onClose}>
             {L.close}
           </Button>
-          <Button type="button" className="rounded-2xl" disabled={!Object.values(draft).some((value) => String(value || "").trim())} onClick={handleApply}>
+          <Button type="button" className="rounded-2xl" disabled={!Object.values(draft).some((value) => String(value || "").trim()) && !hasSourceFile} onClick={handleApply}>
             {L.apply}
           </Button>
         </div>

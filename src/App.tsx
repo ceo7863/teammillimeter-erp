@@ -196,6 +196,12 @@ import { ClientSiteRequestPage } from "@/components/ClientSiteRequestPage";
 import { ClientContractsPanel } from "@/components/ClientContractsPanel";
 import { ClientSiteRequestsPage } from "@/components/ClientSiteRequestsPage";
 import { ClientFormModal, type ClientFormState } from "@/components/ClientFormModal";
+import { ClientBusinessRegViewModal } from "@/components/ClientBusinessRegViewModal";
+import {
+  applyBusinessRegMetaToClient,
+  clientHasBusinessRegFile,
+  uploadClientBusinessReg,
+} from "@/utils/clientBusinessRegFile";
 import { allocateNextSaleRecordIds, getSaleVoucherLabel, parseVoucherSequence } from "@/utils/saleVoucherNo";
 import {
   SALE_AUDIT_FIELDS,
@@ -5250,6 +5256,10 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
   const [clientModalOpen, setClientModalOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [formError, setFormError] = useState("");
+  const [pendingBusinessRegFile, setPendingBusinessRegFile] = useState(null);
+  const [businessRegViewClientId, setBusinessRegViewClientId] = useState(null);
+  const [businessRegViewClientName, setBusinessRegViewClientName] = useState("");
+  const [businessRegViewLocalFile, setBusinessRegViewLocalFile] = useState(null);
 
   const filteredClients = useMemo(
     () => clients.filter((client) => Object.values(client).join(" ").toLowerCase().includes(query.toLowerCase())),
@@ -5281,6 +5291,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
     setForm(emptyClientForm);
     setEditingId(null);
     setFormError("");
+    setPendingBusinessRegFile(null);
   };
 
   const openCreateClientModal = () => {
@@ -5294,13 +5305,62 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
     setForm(emptyClientForm);
     setEditingId(null);
     setFormError("");
+    setPendingBusinessRegFile(null);
+  };
+
+  const editingClient = editingId != null ? clients.find((client) => clientIdsEqual(client.id, editingId)) : null;
+  const businessRegAvailable = Boolean(
+    clientHasBusinessRegFile(editingClient) || pendingBusinessRegFile,
+  );
+
+  const persistBusinessRegMeta = (clientId, meta, existingClient) => {
+    const patch = applyBusinessRegMetaToClient(existingClient || {}, meta);
+    const nextClients = clients.map((client) => (clientIdsEqual(client.id, clientId) ? { ...client, ...patch } : client));
+    commitClientChange(nextClients, {
+      entityId: clientId,
+      entityLabel: existingClient?.name || patch.name || "",
+      action: "update",
+      before: existingClient ? snapshotClientForAudit(existingClient) : undefined,
+      after: snapshotClientForAudit({ ...(existingClient || {}), ...patch }),
+      fields: CLIENT_AUDIT_FIELDS,
+    });
+  };
+
+  const handleImportApply = async (next, sourceFile) => {
+    setFormError("");
+    (Object.keys(next) as Array<keyof ClientFormState>).forEach((key) => {
+      if (next[key] !== form[key]) updateForm(key, next[key]);
+    });
+    if (!sourceFile) return;
+
+    setPendingBusinessRegFile(sourceFile);
+    if (editingId == null) return;
+
+    try {
+      const meta = await uploadClientBusinessReg(editingId, sourceFile);
+      persistBusinessRegMeta(editingId, meta, editingClient);
+      setPendingBusinessRegFile(null);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
+    }
+  };
+
+  const openBusinessRegView = (client) => {
+    const targetId = client?.id ?? editingId;
+    const useLocal =
+      pendingBusinessRegFile &&
+      (targetId == null || editingId == null || clientIdsEqual(targetId, editingId)) &&
+      !clientHasBusinessRegFile(client || editingClient);
+    setBusinessRegViewClientId(targetId ?? "pending");
+    setBusinessRegViewClientName(String(client?.name || form.name || ""));
+    setBusinessRegViewLocalFile(useLocal ? pendingBusinessRegFile : null);
   };
 
   const commitClientChange = (nextClients, auditInput) => {
     void onPersistClientsImmediate?.(nextClients, auditInput);
   };
 
-  const saveClient = () => {
+  const saveClient = async () => {
     const name = form.name.trim();
     if (!name) {
       setFormError("거래처명을 입력해 주세요.");
@@ -5329,7 +5389,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
     const existingClient = editingId != null
       ? clients.find((client) => clientIdsEqual(client.id, editingId))
       : null;
-    const payload = {
+    let payload = {
       ...(existingClient || {}),
       id: existingClient?.id ?? editingId ?? Date.now(),
       name,
@@ -5352,6 +5412,16 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
       memo: form.memo.trim(),
     };
 
+    if (pendingBusinessRegFile) {
+      try {
+        const meta = await uploadClientBusinessReg(payload.id, pendingBusinessRegFile);
+        payload = applyBusinessRegMetaToClient(payload, meta);
+      } catch (error) {
+        setFormError(error instanceof Error ? error.message : "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
+        return;
+      }
+    }
+
     const nextClients = editingId != null
       ? clients.map((client) => (clientIdsEqual(client.id, editingId) ? payload : client))
       : [payload, ...clients];
@@ -5368,11 +5438,13 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
     setForm(emptyClientForm);
     setEditingId(null);
     setFormError("");
+    setPendingBusinessRegFile(null);
     setClientModalOpen(false);
   };
 
   const editClient = (client) => {
     setFormError("");
+    setPendingBusinessRegFile(null);
     setEditingId(client.id);
     setForm({
       name: client.name || "",
@@ -5481,6 +5553,17 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
                     <td>{client.memo || "-"}</td>
                     <td className="erp-table-export-skip">
                       <div className="flex justify-center gap-2">
+                        {clientHasBusinessRegFile(client) ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="rounded-xl px-2 text-xs font-bold"
+                            onClick={() => openBusinessRegView(client)}
+                            title="사업자등록증 보기"
+                          >
+                            증
+                          </Button>
+                        ) : null}
                         <Button size="sm" variant="outline" className="rounded-xl" onClick={() => editClient(client)}><Pencil size={14} /></Button>
                         <Button size="sm" className="rounded-xl bg-red-600 hover:bg-red-700" onClick={() => deleteClient(client.id)}><Trash2 size={14} /></Button>
                       </div>
@@ -5501,9 +5584,24 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
         form={form}
         formError={formError}
         onClose={closeClientModal}
-        onSave={saveClient}
+        onSave={() => void saveClient()}
         onReset={resetClientForm}
         onUpdate={updateForm}
+        businessRegAvailable={businessRegAvailable}
+        onOpenBusinessReg={() => openBusinessRegView(editingClient)}
+        onImportApply={handleImportApply}
+      />
+
+      <ClientBusinessRegViewModal
+        open={businessRegViewClientId != null}
+        clientId={businessRegViewClientId === "pending" ? null : businessRegViewClientId}
+        clientName={businessRegViewClientName}
+        localFile={businessRegViewLocalFile}
+        onClose={() => {
+          setBusinessRegViewClientId(null);
+          setBusinessRegViewClientName("");
+          setBusinessRegViewLocalFile(null);
+        }}
       />
     </div>
   );
