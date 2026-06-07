@@ -22,6 +22,14 @@ import { getSentStatementPaymentStatusLabel } from "@/utils/bankSentStatementMat
 import { isBankMatchAutoLinked, isBankMatchManualLinked } from "@/utils/bankReceivableMatch";
 import { AutoLinkBadge, ManualLinkBadge } from "@/components/AutoLinkBadge";
 import type { BankTransaction } from "@/utils/bankTransactions";
+import type { ErpUser } from "@/utils/erpApi";
+import type { ClientMasterLike } from "@/utils/clientMaster";
+import type { TaxInvoice } from "@/utils/taxInvoices";
+import {
+  BankTaxInvoiceIssueModal,
+  buildPdfArchiveTaxInvoiceIssueDraft,
+  type BankTaxInvoiceIssueResult,
+} from "@/components/BankTaxInvoiceIssueModal";
 import {
   filterPdfArchiveRecords,
   getPdfArchiveFolderStats,
@@ -104,6 +112,17 @@ function isArchiveManualLinked(record: PdfArchiveMeta, bankTxById: Map<string, B
   return isBankMatchManualLinked(bankTxById.get(record.linkedBankTransactionId));
 }
 
+function canShowTaxInvoiceButton(
+  record: PdfArchiveMeta,
+  setTaxInvoices?: React.Dispatch<React.SetStateAction<TaxInvoice[]>>,
+) {
+  return (
+    Boolean(setTaxInvoices) &&
+    record.category === "statement-client" &&
+    Number(record.statementTotalAmount || 0) > 0
+  );
+}
+
 function buildPdfArchiveSummary(record: PdfArchiveMeta) {
   return [
     formatPeriod(record.periodStart, record.periodEnd),
@@ -128,9 +147,25 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 export function PdfArchivePage({
   isActive = true,
   bankTransactions = [],
+  clients = [],
+  currentUser = null,
+  taxInvoices = [],
+  setTaxInvoices,
+  erpVersion = 0,
+  onTaxInvoiceIssued,
 }: {
   isActive?: boolean;
   bankTransactions?: BankTransaction[];
+  clients?: ClientMasterLike[];
+  currentUser?: ErpUser | null;
+  taxInvoices?: TaxInvoice[];
+  setTaxInvoices?: React.Dispatch<React.SetStateAction<TaxInvoice[]>>;
+  erpVersion?: number;
+  onTaxInvoiceIssued?: (payload: {
+    taxInvoices: TaxInvoice[];
+    version?: number;
+    message?: string;
+  }) => void | Promise<void>;
 }) {
   const [records, setRecords] = useState<PdfArchiveMeta[]>([]);
   const [loading, setLoading] = useState(true);
@@ -143,6 +178,7 @@ export function PdfArchivePage({
   const [expandedFolderIds, setExpandedFolderIds] = useState<string[]>([]);
   const [bulkWorking, setBulkWorking] = useState<"download" | "clear" | null>(null);
   const [confirmAction, setConfirmAction] = useState<"download" | "clear" | null>(null);
+  const [taxInvoiceIssueRecord, setTaxInvoiceIssueRecord] = useState<PdfArchiveMeta | null>(null);
 
   const loadRecords = useCallback(async () => {
     setLoading(true);
@@ -387,6 +423,45 @@ export function PdfArchivePage({
     setConfirmAction("clear");
   };
 
+  const openTaxInvoiceIssueModal = (record: PdfArchiveMeta) => {
+    if (!setTaxInvoices || !buildPdfArchiveTaxInvoiceIssueDraft(record, clients)) return;
+    setTaxInvoiceIssueRecord(record);
+  };
+
+  const handleTaxInvoiceIssued = async (result: BankTaxInvoiceIssueResult) => {
+    setTaxInvoiceIssueRecord(null);
+    if (!setTaxInvoices) return;
+
+    const mergedTaxInvoices =
+      result.taxInvoices ||
+      (taxInvoices.some((row) => row.id === result.invoice.id)
+        ? taxInvoices
+        : [result.invoice, ...taxInvoices]);
+
+    setMessage(result.message || "\uBC14\uB85C\uBE4C \uC138\uAE08\uACC4\uC0B0\uC11C \uBC1C\uD589\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.");
+    await onTaxInvoiceIssued?.({
+      taxInvoices: mergedTaxInvoices,
+      version: result.version,
+      message: result.message,
+    });
+  };
+
+  const renderTaxInvoiceButton = (record: PdfArchiveMeta) => {
+    if (!canShowTaxInvoiceButton(record, setTaxInvoices)) return null;
+    return (
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="erp-statement-history-btn rounded-lg border-emerald-300 text-emerald-800 hover:bg-emerald-50"
+        title="\uC138\uAE08\uACC4\uC0B0\uC11C"
+        onClick={() => openTaxInvoiceIssueModal(record)}
+      >
+        {"\uBC1C\uD589"}
+      </Button>
+    );
+  };
+
   const executeConfirmedAction = async () => {
     const action = confirmAction;
     setConfirmAction(null);
@@ -475,6 +550,7 @@ export function PdfArchivePage({
                     <Link2 size={12} />
                   </Button>
                 ) : null}
+                {renderTaxInvoiceButton(record)}
                 <Button
                   type="button"
                   variant="outline"
@@ -556,6 +632,7 @@ export function PdfArchivePage({
                           >
                             <Download size={12} />
                           </Button>
+                          {renderTaxInvoiceButton(record)}
                           <Button
                             type="button"
                             variant="outline"
@@ -820,6 +897,20 @@ export function PdfArchivePage({
           </div>
         </CardContent>
       </Card>
+
+      {taxInvoiceIssueRecord && setTaxInvoices ? (
+        <BankTaxInvoiceIssueModal
+          key={taxInvoiceIssueRecord.id}
+          draft={buildPdfArchiveTaxInvoiceIssueDraft(taxInvoiceIssueRecord, clients)}
+          sourceAmount={Number(taxInvoiceIssueRecord.statementTotalAmount || 0)}
+          clients={clients}
+          currentUser={currentUser}
+          erpVersion={erpVersion}
+          setTaxInvoices={setTaxInvoices}
+          onClose={() => setTaxInvoiceIssueRecord(null)}
+          onIssued={handleTaxInvoiceIssued}
+        />
+      ) : null}
     </div>
   );
 }

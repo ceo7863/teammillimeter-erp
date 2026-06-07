@@ -9028,6 +9028,7 @@ export default function TeammillimeterErpMvp() {
               ledgerCategories,
               accountCodes,
               taxInvoices,
+              setTaxInvoices,
               currentUser,
               companyProfile,
             }}
@@ -9174,6 +9175,15 @@ export default function TeammillimeterErpMvp() {
             workerPaymentRecords={workerPaymentRecords}
             workerPayWithVatLearnRules={workerPayWithVatLearnRules}
             isPageActive={active === "statements"}
+            taxInvoices={taxInvoices}
+            setTaxInvoices={setTaxInvoices}
+            erpVersion={erpVersion}
+            onTaxInvoiceIssued={async ({ taxInvoices: nextTaxInvoices }) => {
+              const saved = await flushErpSave({ taxInvoices: nextTaxInvoices });
+              if (saved === false) {
+                window.alert("세금계산서 저장에 실패했습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.");
+              }
+            }}
           />
         </PageKeepAlive>
         </main>

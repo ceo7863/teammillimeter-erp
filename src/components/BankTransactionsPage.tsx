@@ -33,6 +33,10 @@ import { TableExportSection, TableExportToolbar } from "@/components/TableExport
 import { BankTransactionListSection } from "@/components/BankTransactionListSection";
 import { BankCounterpartyTransactionsDrawer } from "@/components/BankCounterpartyTransactionsDrawer";
 import {
+  BankTaxInvoiceIssueModal,
+  type BankTaxInvoiceIssueResult,
+} from "@/components/BankTaxInvoiceIssueModal";
+import {
   CompanyLedgerFixedExpenseModalLayer,
   type CompanyLedgerFixedExpenseModalHandle,
 } from "@/components/CompanyLedgerFixedExpenseModalLayer";
@@ -483,6 +487,8 @@ const L = {
   clientColumn: "\uAC70\uB798\uCC98",
   classifiedAmount: "\uBD84\uB958 \uAE08\uC561",
   erpProcess: "ERP \uCC98\uB9AC",
+  taxInvoiceIssue: "\uACC4\uC0B0\uC11C\uBC1C\uD589",
+  taxInvoiceIssueButton: "\uBC1C\uD589",
   evidenceFind: "\uC99D\uBE59 \uCC3E\uAE30",
   evidenceAutoLinked: (label: string) => `\uC99D\uBE59\uC774 \uC790\uB3D9 \uC5F0\uACB0\uB418\uC5C8\uC2B5\uB2C8\uB2E4: ${label}`,
   evidenceAutoMatch: "\uC99D\uBE59 \uC790\uB3D9\uB9E4\uCE6D",
@@ -904,6 +910,7 @@ export function BankTransactionsPage({
   ledgerCategories = [],
   accountCodes = [],
   taxInvoices = [],
+  setTaxInvoices,
   currentUser,
   onNavigateToCompanyLedger,
   onNavigateToClassify,
@@ -945,6 +952,7 @@ export function BankTransactionsPage({
   ledgerCategories?: LedgerCategory[];
   accountCodes?: AccountCode[];
   taxInvoices?: TaxInvoice[];
+  setTaxInvoices?: React.Dispatch<React.SetStateAction<TaxInvoice[]>>;
   currentUser: ErpUser | null;
   onNavigateToCompanyLedger?: () => void;
   onNavigateToClassify?: () => void;
@@ -973,6 +981,7 @@ export function BankTransactionsPage({
     expenseCategories?: string[];
     clients?: typeof clients;
     paymentVouchers?: unknown[];
+    taxInvoices?: TaxInvoice[];
   }) => void | Promise<void>;
 }) {
   const [pageView, setPageView] = useState<PageView>("list");
@@ -1061,6 +1070,7 @@ export function BankTransactionsPage({
   const fixedExpenseItemModalRef = useRef<CompanyLedgerFixedExpenseModalHandle>(null);
   const [clientModal, setClientModal] = useState<TxClientModal | null>(null);
   const [taxInvoiceLinkSession, setTaxInvoiceLinkSession] = useState<TaxInvoiceLinkSession | null>(null);
+  const [taxInvoiceIssueTx, setTaxInvoiceIssueTx] = useState<BankTransaction | null>(null);
   const openCounterpartyDrawer = useCallback((label: string) => {
     const trimmed = String(label || "").trim();
     if (!trimmed || trimmed === "-") return;
@@ -2305,8 +2315,9 @@ export function BankTransactionsPage({
   }, []);
 
   const applyTaxInvoiceLink = useCallback(
-    (tx: BankTransaction, invoiceId: string | undefined) => {
-      const invoice = invoiceId ? taxInvoices.find((row) => row.id === invoiceId) : undefined;
+    (tx: BankTransaction, invoiceId: string | undefined, invoiceOverride?: TaxInvoice) => {
+      const invoice =
+        invoiceOverride || (invoiceId ? taxInvoices.find((row) => row.id === invoiceId) : undefined);
       const prev = bankTransactionsRef.current;
       const liveTx = prev.find((row) => row.id === tx.id) ?? tx;
       const nextRow = buildBankTxTaxInvoiceLinkPatch(liveTx, invoice, { manual: true });
@@ -2324,9 +2335,13 @@ export function BankTransactionsPage({
         }
       }
 
+      const invoicesForSplit =
+        invoice && !taxInvoices.some((row) => row.id === invoice.id)
+          ? [invoice, ...taxInvoices]
+          : taxInvoices;
       const splitResult = batchAutoLinkSplitTaxInvoiceEvidence(
         nextTransactions,
-        taxInvoices,
+        invoicesForSplit,
         taxInvoiceMatchContext,
         nextClients,
       );
@@ -2366,6 +2381,45 @@ export function BankTransactionsPage({
       });
     },
     [clients, onRequestImmediateSave],
+  );
+
+  const openTaxInvoiceIssueModal = useCallback((tx: BankTransaction) => {
+    if (tx.deposit <= 0) return;
+    setTaxInvoiceIssueTx(tx);
+  }, []);
+
+  const handleTaxInvoiceIssued = useCallback(
+    async (result: BankTaxInvoiceIssueResult) => {
+      const tx = taxInvoiceIssueTx;
+      if (!tx || !setTaxInvoices) {
+        setTaxInvoiceIssueTx(null);
+        return;
+      }
+
+      const mergedTaxInvoices =
+        result.taxInvoices ||
+        (taxInvoices.some((row) => row.id === result.invoice.id)
+          ? taxInvoices
+          : [result.invoice, ...taxInvoices]);
+      const { nextTransactions, nextClients } = applyTaxInvoiceLink(tx, result.invoice.id, result.invoice);
+
+      await onRequestImmediateSave?.({
+        bankTransactions: nextTransactions,
+        taxInvoices: mergedTaxInvoices,
+        ...(nextClients !== clients ? { clients: nextClients } : {}),
+      });
+
+      setTaxInvoiceIssueTx(null);
+      setImportMessage(result.message || L.cellSaveDone);
+    },
+    [
+      applyTaxInvoiceLink,
+      clients,
+      onRequestImmediateSave,
+      setTaxInvoices,
+      taxInvoiceIssueTx,
+      taxInvoices,
+    ],
   );
 
   const openTaxInvoiceModal = useCallback(
@@ -4681,6 +4735,8 @@ export function BankTransactionsPage({
       client: L.clientColumn,
       classifiedAmount: L.classifiedAmount,
       erpProcess: L.erpProcess,
+      taxInvoiceIssue: L.taxInvoiceIssue,
+      taxInvoiceIssueButton: L.taxInvoiceIssueButton,
       evidenceFind: L.evidenceFind,
       evidencePlaceholder: L.evidencePlaceholder,
       accountSubjectPlaceholder: L.accountSubjectPlaceholder,
@@ -5197,6 +5253,7 @@ export function BankTransactionsPage({
             onEditClient={openClientModal}
             onEditFixedExpense={openFixedExpenseModal}
             onFindEvidence={openTaxInvoiceModal}
+            onIssueTaxInvoice={setTaxInvoices ? openTaxInvoiceIssueModal : undefined}
             onFilterCounterparty={openCounterpartyDrawer}
             toolbar={
               <>
@@ -6502,6 +6559,19 @@ export function BankTransactionsPage({
           onEditClient={openClientModal}
           onEditFixedExpense={openFixedExpenseModal}
           onFindEvidence={openTaxInvoiceModal}
+          onIssueTaxInvoice={setTaxInvoices ? openTaxInvoiceIssueModal : undefined}
+        />
+      ) : null}
+
+      {taxInvoiceIssueTx && setTaxInvoices ? (
+        <BankTaxInvoiceIssueModal
+          tx={taxInvoiceIssueTx}
+          clients={clients}
+          currentUser={currentUser}
+          erpVersion={erpVersion}
+          setTaxInvoices={setTaxInvoices}
+          onClose={() => setTaxInvoiceIssueTx(null)}
+          onIssued={handleTaxInvoiceIssued}
         />
       ) : null}
 

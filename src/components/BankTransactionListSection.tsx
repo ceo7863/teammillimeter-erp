@@ -44,6 +44,7 @@ type BankTransactionListSectionProps = {
   onEditClient: (row: BankTransaction) => void;
   onEditFixedExpense: (row: BankTransaction) => void;
   onFindEvidence: (row: BankTransaction) => void;
+  onIssueTaxInvoice?: (row: BankTransaction) => void;
   onFilterCounterparty?: (label: string) => void;
   toolbar?: React.ReactNode;
   tableId?: string;
@@ -69,6 +70,7 @@ function BankTransactionListSectionComponent({
   onEditClient,
   onEditFixedExpense,
   onFindEvidence,
+  onIssueTaxInvoice,
   onFilterCounterparty,
   toolbar,
   tableId,
@@ -180,6 +182,14 @@ function BankTransactionListSectionComponent({
     [onFindEvidence],
   );
 
+  const handleIssueTaxInvoice = useCallback(
+    (id: string) => {
+      const row = rowByIdRef.current.get(String(id));
+      if (row) onIssueTaxInvoice?.(row);
+    },
+    [onIssueTaxInvoice],
+  );
+
   const handleFilterCounterparty = useCallback(
     (label: string) => {
       onFilterCounterparty?.(label);
@@ -202,6 +212,8 @@ function BankTransactionListSectionComponent({
       client: labels.client,
       classifiedAmount: labels.classifiedAmount,
       erpProcess: labels.erpProcess,
+      taxInvoiceIssue: labels.taxInvoiceIssue,
+      taxInvoiceIssueButton: labels.taxInvoiceIssueButton,
       empty: labels.empty,
       evidenceFind: labels.evidenceFind,
       evidencePlaceholder: labels.evidencePlaceholder,
@@ -278,6 +290,7 @@ function BankTransactionListSectionComponent({
         onEditClient={handleEditClient}
         onEditFixedExpense={handleEditFixedExpense}
         onFindEvidence={handleFindEvidence}
+        onIssueTaxInvoice={onIssueTaxInvoice ? handleIssueTaxInvoice : undefined}
         onFilterCounterparty={onFilterCounterparty ? handleFilterCounterparty : undefined}
         tableId={tableId}
       />

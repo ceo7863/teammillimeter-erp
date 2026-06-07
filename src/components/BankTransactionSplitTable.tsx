@@ -19,6 +19,8 @@ export type BankTransactionSplitTableLabels = {
   fixedExpense: string;
   classifiedAmount: string;
   erpProcess: string;
+  taxInvoiceIssue: string;
+  taxInvoiceIssueButton: string;
   empty: string;
   evidenceFind: string;
   evidencePlaceholder: string;
@@ -38,6 +40,7 @@ type BankTransactionSplitTableProps = {
   onEditClient: (id: string) => void;
   onEditFixedExpense: (id: string) => void;
   onFindEvidence: (id: string) => void;
+  onIssueTaxInvoice?: (id: string) => void;
   onFilterCounterparty?: (label: string) => void;
   tableId?: string;
 };
@@ -146,6 +149,7 @@ const SplitRow = memo(function SplitRow({
   onEditClient,
   onEditFixedExpense,
   onFindEvidence,
+  onIssueTaxInvoice,
   onFilterCounterparty,
 }: {
   model: BankTransactionListRowModel;
@@ -155,6 +159,7 @@ const SplitRow = memo(function SplitRow({
   onEditClient: (id: string) => void;
   onEditFixedExpense: (id: string) => void;
   onFindEvidence: (id: string) => void;
+  onIssueTaxInvoice?: (id: string) => void;
   onFilterCounterparty?: (label: string) => void;
 }) {
   const rowClass =
@@ -292,6 +297,22 @@ const SplitRow = memo(function SplitRow({
           <span className="text-xs text-slate-400">-</span>
         )}
       </td>
+      <td className="max-w-[5.5rem] text-center">
+        {model.rowTone === "deposit" && onIssueTaxInvoice ? (
+          <button
+            type="button"
+            className="rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-100"
+            onClick={(event) => {
+              event.stopPropagation();
+              onIssueTaxInvoice(model.id);
+            }}
+          >
+            {labels.taxInvoiceIssueButton}
+          </button>
+        ) : (
+          <span className="text-xs text-slate-300">-</span>
+        )}
+      </td>
     </tr>
   );
 });
@@ -305,6 +326,7 @@ function BankTransactionSplitTableComponent({
   onEditClient,
   onEditFixedExpense,
   onFindEvidence,
+  onIssueTaxInvoice,
   onFilterCounterparty,
   tableId = "bank-transactions-table",
 }: BankTransactionSplitTableProps) {
@@ -317,7 +339,7 @@ function BankTransactionSplitTableComponent({
               {labels.bankSection}
             </th>
             <th className="erp-bank-wehago-split-bridge" aria-hidden="true" />
-            <th colSpan={6} className="erp-bank-wehago-split-section erp-bank-wehago-split-section--classify">
+            <th colSpan={7} className="erp-bank-wehago-split-section erp-bank-wehago-split-section--classify">
               {labels.classifySection}
             </th>
           </tr>
@@ -335,12 +357,13 @@ function BankTransactionSplitTableComponent({
             <th>{labels.fixedExpense}</th>
             <th className="text-right">{labels.classifiedAmount}</th>
             <th>{labels.erpProcess}</th>
+            <th>{labels.taxInvoiceIssue}</th>
           </tr>
         </thead>
         <tbody>
           {!rowIds.length ? (
             <tr>
-              <td colSpan={13} className="py-12 text-center text-slate-500">
+              <td colSpan={14} className="py-12 text-center text-slate-500">
                 {labels.empty}
               </td>
             </tr>
@@ -358,6 +381,7 @@ function BankTransactionSplitTableComponent({
                   onEditClient={onEditClient}
                   onEditFixedExpense={onEditFixedExpense}
                   onFindEvidence={onFindEvidence}
+                  onIssueTaxInvoice={onIssueTaxInvoice}
                   onFilterCounterparty={onFilterCounterparty}
                 />
               );

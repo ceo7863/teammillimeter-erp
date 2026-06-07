@@ -12,7 +12,9 @@ import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { DEFAULT_COMPANY_PROFILE, type CompanyProfile } from "@/utils/companyProfile";
 import { confirmDelete } from "@/utils/confirmDelete";
 import { archiveGeneratedPdf, archivePdfAndCreateShareLink, copyTextToClipboard, getPdfArchiveRecord, listPdfArchives, openPdfBlobInNewTab, sharePdfBlob } from "@/utils/pdfArchive";
-import { isApiModeEnabled } from "@/utils/erpApi";
+import { isApiModeEnabled, type ErpUser } from "@/utils/erpApi";
+import type { TaxInvoice } from "@/utils/taxInvoices";
+import type { ClientMasterLike } from "@/utils/clientMaster";
 import { createPdfPreviewWindow, downloadPdfFromHtmlElement, revokePdfBlobUrl } from "@/utils/statementPdf";
 import {
   buildStatementPdfCacheKey,
@@ -70,7 +72,6 @@ import {
   saleMatchesDraftIds,
   type StatementDraft,
 } from "@/utils/statementDraft";
-import type { ErpUser } from "@/utils/erpApi";
 import {
   readStoredStatementTab,
   storeStatementTab,
@@ -328,6 +329,14 @@ type StatementsPageProps = {
   workerPaymentRecords?: WorkerMonthlyPaymentRecord[];
   workerPayWithVatLearnRules?: WorkerPayWithVatLearnRule[];
   isPageActive?: boolean;
+  taxInvoices?: TaxInvoice[];
+  setTaxInvoices?: React.Dispatch<React.SetStateAction<TaxInvoice[]>>;
+  erpVersion?: number;
+  onTaxInvoiceIssued?: (payload: {
+    taxInvoices: TaxInvoice[];
+    version?: number;
+    message?: string;
+  }) => void | Promise<void>;
 };
 
 export function StatementsPage({
@@ -346,6 +355,10 @@ export function StatementsPage({
   workerPaymentRecords = [],
   workerPayWithVatLearnRules = [],
   isPageActive = true,
+  taxInvoices = [],
+  setTaxInvoices,
+  erpVersion = 0,
+  onTaxInvoiceIssued,
 }: StatementsPageProps) {
   const [statementType, setStatementType] = useState("client");
   const [clientStatementView, setClientStatementView] = useState<"summary" | "detail">("summary");
@@ -1540,6 +1553,12 @@ export function StatementsPage({
           <PdfArchivePage
             isActive={isPageActive && activePageTab === "pdf"}
             bankTransactions={bankTransactions}
+            clients={clientMaster as ClientMasterLike[]}
+            currentUser={currentUser}
+            taxInvoices={taxInvoices}
+            setTaxInvoices={setTaxInvoices}
+            erpVersion={erpVersion}
+            onTaxInvoiceIssued={onTaxInvoiceIssued}
           />
         </div>
       ) : null}
