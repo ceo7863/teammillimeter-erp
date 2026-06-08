@@ -3,7 +3,7 @@ import { getErpState, saveErpState } from "./db.mjs";
 import { sendScheduleAlimtalk } from "./alimtalkNotify.mjs";
 import { normalizeNotificationSettings } from "./notificationSettings.mjs";
 import { isScScheduleSourceConfigured, runScScheduleSync } from "./scScheduleSync.mjs";
-import { resolveWorkerPhone } from "./workerPhoneMatch.mjs";
+import { resolveWorkerPhone, resolveScScheduleParticipants } from "./workerPhoneMatch.mjs";
 
 function nowKstParts(now = new Date()) {
   const kst = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
@@ -94,11 +94,32 @@ export function formatScheduleDateTime(workDate) {
   return `${month}\uC6D4 ${day}\uC77C ${weekday}`;
 }
 
+function formatScheduleWorkerLabel(row) {
+  const name = String(row?.name || row?.participantName || "").trim();
+  if (!name) return "";
+  const phone = String(row?.phone || "").trim();
+  const vehicleNo = String(row?.vehicleNo || "").trim();
+  return [name, phone && phone !== "-" ? phone : "", vehicleNo && vehicleNo !== "-" ? vehicleNo : ""]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function formatScheduleWorkersLabel(workers, participantNames, scheduleParticipants = null) {
+  const names = Array.isArray(participantNames) ? participantNames.filter(Boolean) : [];
+  const participants =
+    Array.isArray(scheduleParticipants) && scheduleParticipants.length
+      ? scheduleParticipants
+      : resolveScScheduleParticipants(Array.isArray(workers) ? workers : [], names);
+
+  return participants.map(formatScheduleWorkerLabel).filter(Boolean).join("\n\n");
+}
+
 export function formatScheduleTemplateVars(
   schedule,
   shareToken = "",
   clientManager = "",
   participantNames = null,
+  workers = null,
 ) {
   const names = Array.isArray(participantNames)
     ? participantNames.filter(Boolean)
@@ -111,7 +132,7 @@ export function formatScheduleTemplateVars(
     client: String(schedule?.clientName || schedule?.projectName || "").trim(),
     site: String(schedule?.projectName || "").trim(),
     clientManager: manager,
-    workers: names.join(", "),
+    workers: formatScheduleWorkersLabel(workers, names, schedule?.participants),
     dateTime: formatScheduleDateTime(schedule?.workDate),
     shareToken: String(shareToken || "").trim(),
   };
@@ -189,7 +210,7 @@ export function buildScScheduleNotifyPreview(data, dateKey = tomorrowKstDateKey(
 
     const contact = resolveClientContact(clients, schedule);
     const clientManager = contact.name || resolveClientManager(clients, schedule);
-    const variables = formatScheduleTemplateVars(schedule, "", clientManager, participantNames);
+    const variables = formatScheduleTemplateVars(schedule, "", clientManager, participantNames, workers);
 
     if (!clientScheduleIds.has(schedule.id)) {
       clientScheduleIds.add(schedule.id);
@@ -270,7 +291,7 @@ export async function buildScScheduleNotifyPreviewAsync(data, dateKey = tomorrow
 
     const contact = resolveClientContact(clients, schedule);
     const clientManager = contact.name || resolveClientManager(clients, schedule);
-    const variables = formatScheduleTemplateVars(schedule, shareToken, clientManager, participantNames);
+    const variables = formatScheduleTemplateVars(schedule, shareToken, clientManager, participantNames, workers);
 
     if (!clientScheduleIds.has(schedule.id)) {
       clientScheduleIds.add(schedule.id);
@@ -403,7 +424,7 @@ export async function runScScheduleNotifyJob(options = {}) {
 
     const contact = resolveClientContact(clients, schedule);
     const clientManager = contact.name || resolveClientManager(clients, schedule);
-    const variables = formatScheduleTemplateVars(schedule, shareToken, clientManager, participantNames);
+    const variables = formatScheduleTemplateVars(schedule, shareToken, clientManager, participantNames, workers);
     const sentPhones = new Set();
 
     async function sendToPhone(phone, recipientType, recipientName) {
@@ -565,7 +586,7 @@ export async function sendScScheduleNotifyOne(scheduleId, options = {}) {
 
   const contact = resolveClientContact(clients, schedule);
   const clientManager = contact.name || resolveClientManager(clients, schedule);
-  const variables = formatScheduleTemplateVars(schedule, shareToken, clientManager, participantNames);
+  const variables = formatScheduleTemplateVars(schedule, shareToken, clientManager, participantNames, workers);
   const results = [];
   const sentPhones = new Set();
   let sentCount = 0;
