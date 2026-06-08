@@ -1,10 +1,7 @@
-import React, { lazy, Suspense, useEffect, useState, type ComponentProps } from "react";
+import React, { memo, useCallback, useEffect, useState, type ComponentProps } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { KeepAlivePanel } from "@/components/PageKeepAlive";
-
-const BankTransactionsPage = lazy(() =>
-  import("@/components/BankTransactionsPage").then((module) => ({ default: module.BankTransactionsPage })),
-);
+import { BankTransactionsPage } from "@/components/BankTransactionsPage";
 import { LedgerViewerPage, type LedgerViewerSubTab } from "@/components/LedgerViewerPage";
 import { TaxInvoicePage } from "@/components/TaxInvoicePage";
 import { LedgerClassificationManagePage } from "@/components/LedgerClassificationManagePage";
@@ -21,7 +18,7 @@ type AccountingHubPageProps = {
   initialTab?: AccountingHubTab;
   bank: Omit<
     ComponentProps<typeof BankTransactionsPage>,
-    "isPageActive" | "onNavigateToCompanyLedger" | "onNavigateToClassify" | "onNavigateToFixedExpense"
+    "isPageActive" | "onNavigateToCompanyLedger" | "onNavigateToClassify" | "onNavigateToFixedExpense" | "onNavigateToTaxInvoice"
   >;
   ledger: ComponentProps<typeof LedgerViewerPage>;
   tax: ComponentProps<typeof TaxInvoicePage>;
@@ -37,7 +34,7 @@ function buildInitialMountedTabs(tab: AccountingHubTab): Record<AccountingHubTab
   };
 }
 
-export function AccountingHubPage({
+function AccountingHubPageComponent({
   isHubActive,
   onBankTabActiveChange,
   initialTab,
@@ -73,14 +70,19 @@ export function AccountingHubPage({
     }
   }, [isHubActive, onBankTabActiveChange]);
 
-  const switchTab = (tab: AccountingHubTab) => {
+  const switchTab = useCallback((tab: AccountingHubTab) => {
     setActiveTab(tab);
-  };
+  }, []);
 
-  const openLedgerFixedTab = () => {
+  const openLedgerFixedTab = useCallback(() => {
     setLedgerSubTab("fixed");
-    switchTab("ledger");
-  };
+    setActiveTab("ledger");
+  }, []);
+
+  const navigateToLedger = useCallback(() => switchTab("ledger"), [switchTab]);
+  const navigateToClassify = useCallback(() => switchTab("classify"), [switchTab]);
+  const navigateToTaxInvoice = useCallback(() => switchTab("tax"), [switchTab]);
+  const openBankTab = useCallback(() => switchTab("bank"), [switchTab]);
 
   return (
     <div className="erp-page erp-accounting-hub-page">
@@ -109,16 +111,14 @@ export function AccountingHubPage({
 
       {mountedTabs.bank ? (
         <KeepAlivePanel active={activeTab === "bank"}>
-          <Suspense fallback={<div className="erp-page p-6 text-sm text-slate-500">{"\uD1B5\uC7A5 \uB0B4\uC5ED \uBD88\uB7EC\uC624\uB294 \uC911\u2026"}</div>}>
-            <BankTransactionsPage
-              {...bank}
-              isPageActive={isHubActive && activeTab === "bank"}
-              onNavigateToCompanyLedger={() => switchTab("ledger")}
-              onNavigateToClassify={() => switchTab("classify")}
-              onNavigateToFixedExpense={openLedgerFixedTab}
-              onNavigateToTaxInvoice={() => switchTab("tax")}
-            />
-          </Suspense>
+          <BankTransactionsPage
+            {...bank}
+            isPageActive={isHubActive && activeTab === "bank"}
+            onNavigateToCompanyLedger={navigateToLedger}
+            onNavigateToClassify={navigateToClassify}
+            onNavigateToFixedExpense={openLedgerFixedTab}
+            onNavigateToTaxInvoice={navigateToTaxInvoice}
+          />
         </KeepAlivePanel>
       ) : null}
 
@@ -128,7 +128,7 @@ export function AccountingHubPage({
             {...ledger}
             initialSubTab={ledgerSubTab}
             onSubTabConsumed={() => setLedgerSubTab(undefined)}
-            onOpenBankTab={() => switchTab("bank")}
+            onOpenBankTab={openBankTab}
           />
         </KeepAlivePanel>
       ) : null}
@@ -147,3 +147,5 @@ export function AccountingHubPage({
     </div>
   );
 }
+
+export const AccountingHubPage = memo(AccountingHubPageComponent);

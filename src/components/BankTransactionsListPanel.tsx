@@ -48,8 +48,66 @@ type BankTransactionsListPanelProps = {
   recurringFixedOpenLabel: string;
   autoClassifyLabel: string;
   addFixedExpenseLabel: string;
+  preauthNetActionCount: number;
+  recurringFixedActionCount: number;
   getBankTransactionsExportParsed: () => ReturnType<typeof import("@/utils/bankTransactionRowDisplay").buildBankTransactionsExportTable> | null;
 };
+
+const BankTransactionsListToolbar = memo(function BankTransactionsListToolbar({
+  onBatchEvidenceAutoLink,
+  onOpenPreauthNet,
+  onOpenRecurringFixed,
+  onAutoClassify,
+  onCreateFixedExpenseItem,
+  evidenceAutoMatchLabel,
+  preauthNetOpenLabel,
+  recurringFixedOpenLabel,
+  autoClassifyLabel,
+  addFixedExpenseLabel,
+  preauthNetActionCount,
+  recurringFixedActionCount,
+}: Pick<
+  BankTransactionsListPanelProps,
+  | "onBatchEvidenceAutoLink"
+  | "onOpenPreauthNet"
+  | "onOpenRecurringFixed"
+  | "onAutoClassify"
+  | "onCreateFixedExpenseItem"
+  | "evidenceAutoMatchLabel"
+  | "preauthNetOpenLabel"
+  | "recurringFixedOpenLabel"
+  | "autoClassifyLabel"
+  | "addFixedExpenseLabel"
+  | "preauthNetActionCount"
+  | "recurringFixedActionCount"
+>) {
+  return (
+    <>
+      <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={onBatchEvidenceAutoLink}>
+        {evidenceAutoMatchLabel}
+      </Button>
+      {preauthNetActionCount > 0 ? (
+        <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={onOpenPreauthNet}>
+          <ArrowLeftRight size={14} className="mr-1" />
+          {preauthNetOpenLabel} ({preauthNetActionCount})
+        </Button>
+      ) : null}
+      {recurringFixedActionCount > 0 ? (
+        <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={onOpenRecurringFixed}>
+          <Repeat size={14} className="mr-1" />
+          {recurringFixedOpenLabel} ({recurringFixedActionCount})
+        </Button>
+      ) : null}
+      <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={onAutoClassify}>
+        <Sparkles size={14} className="mr-1" />
+        {autoClassifyLabel}
+      </Button>
+      <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={onCreateFixedExpenseItem}>
+        {addFixedExpenseLabel}
+      </Button>
+    </>
+  );
+});
 
 function BankTransactionsListPanelComponent({
   rows,
@@ -89,6 +147,8 @@ function BankTransactionsListPanelComponent({
   recurringFixedOpenLabel,
   autoClassifyLabel,
   addFixedExpenseLabel,
+  preauthNetActionCount,
+  recurringFixedActionCount,
   getBankTransactionsExportParsed,
 }: BankTransactionsListPanelProps) {
   return (
@@ -130,26 +190,20 @@ function BankTransactionsListPanelComponent({
             onIssueTaxInvoice={onIssueTaxInvoice}
             onFilterCounterparty={onFilterCounterparty}
             toolbar={
-              <>
-                <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={onBatchEvidenceAutoLink}>
-                  {evidenceAutoMatchLabel}
-                </Button>
-                <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={onOpenPreauthNet}>
-                  <ArrowLeftRight size={14} className="mr-1" />
-                  {preauthNetOpenLabel}
-                </Button>
-                <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={onOpenRecurringFixed}>
-                  <Repeat size={14} className="mr-1" />
-                  {recurringFixedOpenLabel}
-                </Button>
-                <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={onAutoClassify}>
-                  <Sparkles size={14} className="mr-1" />
-                  {autoClassifyLabel}
-                </Button>
-                <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={onCreateFixedExpenseItem}>
-                  {addFixedExpenseLabel}
-                </Button>
-              </>
+              <BankTransactionsListToolbar
+                onBatchEvidenceAutoLink={onBatchEvidenceAutoLink}
+                onOpenPreauthNet={onOpenPreauthNet}
+                onOpenRecurringFixed={onOpenRecurringFixed}
+                onAutoClassify={onAutoClassify}
+                onCreateFixedExpenseItem={onCreateFixedExpenseItem}
+                evidenceAutoMatchLabel={evidenceAutoMatchLabel}
+                preauthNetOpenLabel={preauthNetOpenLabel}
+                recurringFixedOpenLabel={recurringFixedOpenLabel}
+                autoClassifyLabel={autoClassifyLabel}
+                addFixedExpenseLabel={addFixedExpenseLabel}
+                preauthNetActionCount={preauthNetActionCount}
+                recurringFixedActionCount={recurringFixedActionCount}
+              />
             }
           />
           <BankTransactionTableFooter
