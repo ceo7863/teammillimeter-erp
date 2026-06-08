@@ -1485,17 +1485,88 @@ textarea {
   white-space: nowrap;
 }
 
+.erp-csr-cal-drawer-card.is-sc-schedule {
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.erp-csr-cal-drawer-card-select {
+  display: flex;
+  gap: 0.75rem;
+  width: 100%;
+  border: 0;
+  padding: 0.75rem;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.erp-csr-cal-drawer-card-select.is-clickable:hover {
+  background: #f8fafc;
+}
+
 .erp-csr-cal-drawer-sc-workers {
-  margin-top: 0.35rem;
+  margin-top: 0;
+  padding: 0 0.75rem 0.75rem;
   display: grid;
   gap: 0.45rem;
 }
 
+.erp-csr-cal-drawer-sc-fallback-names {
+  padding: 0 0.75rem 0.75rem;
+}
+
 .erp-csr-cal-drawer-sc-worker {
+  position: relative;
+  display: flex;
+  gap: 0.35rem;
+  width: 100%;
   padding: 0.45rem 0.55rem;
   border-radius: 0.5rem;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
+}
+
+.erp-csr-cal-drawer-sc-worker.is-copied {
+  border-color: #0d9488;
+  background: #f0fdfa;
+}
+
+.erp-csr-cal-drawer-sc-worker-copy {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  margin-top: 0.05rem;
+  border: 0;
+  border-radius: 0.45rem;
+  background: #fff;
+  color: #64748b;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+  border: 1px solid #e2e8f0;
+}
+
+.erp-csr-cal-drawer-sc-worker-copy:hover {
+  color: #0f172a;
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.erp-csr-cal-drawer-sc-worker.is-copied .erp-csr-cal-drawer-sc-worker-copy {
+  color: #0f766e;
+  border-color: #99f6e4;
+  background: #ecfdf5;
+}
+
+.erp-csr-cal-drawer-sc-worker-body {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .erp-csr-cal-drawer-sc-worker-line {

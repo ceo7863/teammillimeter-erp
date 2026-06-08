@@ -1,6 +1,6 @@
-import React from "react";
+import React, { useCallback, useState } from "react";
 import { createPortal } from "react-dom";
-import { CalendarClock, CalendarPlus, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { CalendarClock, CalendarPlus, Check, ChevronLeft, ChevronRight, Copy, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   clientSiteRequestPublicStatusLabel,
@@ -10,7 +10,7 @@ import type { ClientSiteRequest, ClientSiteRequestChangeSource } from "@/utils/c
 import { formatClientSiteRequestWorkPeriod } from "@/utils/clientSiteRequests";
 import { formatClientSiteRequestDayLabel, shiftCalendarDate } from "@/utils/clientSiteRequestCalendar";
 import type { ScSchedule } from "@/utils/scSchedules";
-import { formatScScheduleHeadcount, formatScScheduleTimeRange, getScScheduleWorkerDetails } from "@/utils/scSchedules";
+import { formatScScheduleHeadcount, formatScScheduleTimeRange, formatScScheduleWorkerCopyText, getScScheduleWorkerDetails } from "@/utils/scSchedules";
 import type { WorkerMasterLike } from "@/utils/workerPayments";
 import { useBodyScrollLock } from "@/utils/bodyScrollLock";
 import { useBackdropPointerDismiss, useModalDismissGuard } from "@/utils/modalBackdrop";
@@ -26,6 +26,8 @@ const L = {
   workerName: "\uC2DC\uACF5\uC790\uBA85",
   workerPhone: "\uC804\uD654\uBC88\uD638",
   workerVehicle: "\uCC28\uB7C9\uBC88\uD638",
+  workerCopied: "\uBCF5\uC0AC\uB428",
+  workerCopyHint: "\uC2DC\uACF5\uC790 \uC815\uBCF4 \uBCF5\uC0AC",
   registerSchedule: "\uC77C\uC815 \uC811\uC218",
   changeSchedule: "\uC77C\uC815 \uBCC0\uACBD \uC694\uCCAD",
 };
@@ -68,6 +70,21 @@ export function ClientSiteRequestCalendarDayDrawer({
   const { onPointerDown, onPointerUp, isTouchDevice } = useBackdropPointerDismiss(Boolean(date), onClose);
   const { guardedClose } = useModalDismissGuard(Boolean(date));
   const closeDrawer = () => guardedClose(onClose);
+  const [copiedWorkerKey, setCopiedWorkerKey] = useState("");
+
+  const copyWorkerText = useCallback(async (workerKey: string, worker: Parameters<typeof formatScScheduleWorkerCopyText>[0]) => {
+    const text = formatScScheduleWorkerCopyText(worker);
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      return;
+    }
+    setCopiedWorkerKey(workerKey);
+    window.setTimeout(() => {
+      setCopiedWorkerKey((current) => (current === workerKey ? "" : current));
+    }, 1500);
+  }, []);
 
   useBodyScrollLock(Boolean(date));
 
@@ -144,64 +161,87 @@ export function ClientSiteRequestCalendarDayDrawer({
                       const scheduleWorkers = getScScheduleWorkerDetails(schedule, workers);
                       return (
                       <li key={`sc-${schedule.id}`}>
-                        <button
-                          type="button"
+                        <div
                           className={[
-                            "erp-csr-cal-drawer-card is-sc-schedule is-clickable",
+                            "erp-csr-cal-drawer-card is-sc-schedule",
                             selectedScScheduleId === schedule.id ? "is-active" : "",
                           ]
                             .filter(Boolean)
                             .join(" ")}
-                          onClick={() => {
-                            onSelectScSchedule?.(schedule.id, date);
-                            if (schedule.id !== selectedScScheduleId) {
-                              onSelectRequest("", date);
-                            }
-                          }}
                         >
-                          <span className="erp-csr-cal-drawer-dot is-sc-schedule" aria-hidden="true" />
-                          <div className="erp-csr-cal-drawer-card-main">
-                            <p className="erp-csr-cal-drawer-card-title">{schedule.workType}</p>
-                            <div className="erp-csr-cal-drawer-card-badges">
-                              <span className="erp-csr-cal-drawer-badge is-sc-schedule">{L.scBadge}</span>
-                              {formatScScheduleTimeRange(schedule) ? (
-                                <span className="erp-csr-cal-drawer-badge is-muted">
-                                  {formatScScheduleTimeRange(schedule)}
-                                </span>
-                              ) : null}
-                              {formatScScheduleHeadcount(schedule) ? (
-                                <span className="erp-csr-cal-drawer-badge is-muted">
-                                  {formatScScheduleHeadcount(schedule)}
-                                </span>
-                              ) : null}
+                          <button
+                            type="button"
+                            className="erp-csr-cal-drawer-card-select is-clickable"
+                            onClick={() => {
+                              onSelectScSchedule?.(schedule.id, date);
+                              if (schedule.id !== selectedScScheduleId) {
+                                onSelectRequest("", date);
+                              }
+                            }}
+                          >
+                            <span className="erp-csr-cal-drawer-dot is-sc-schedule" aria-hidden="true" />
+                            <div className="erp-csr-cal-drawer-card-main">
+                              <p className="erp-csr-cal-drawer-card-title">{schedule.workType}</p>
+                              <div className="erp-csr-cal-drawer-card-badges">
+                                <span className="erp-csr-cal-drawer-badge is-sc-schedule">{L.scBadge}</span>
+                                {formatScScheduleTimeRange(schedule) ? (
+                                  <span className="erp-csr-cal-drawer-badge is-muted">
+                                    {formatScScheduleTimeRange(schedule)}
+                                  </span>
+                                ) : null}
+                                {formatScScheduleHeadcount(schedule) ? (
+                                  <span className="erp-csr-cal-drawer-badge is-muted">
+                                    {formatScScheduleHeadcount(schedule)}
+                                  </span>
+                                ) : null}
+                              </div>
                             </div>
+                          </button>
                             {scheduleWorkers.length ? (
                                 <div className="erp-csr-cal-drawer-sc-workers">
-                                  {scheduleWorkers.map((worker) => (
-                                    <div key={`${schedule.id}-${worker.participantName}`} className="erp-csr-cal-drawer-sc-worker">
-                                      <p className="erp-csr-cal-drawer-sc-worker-line">
-                                        <span className="erp-csr-cal-drawer-sc-worker-label">{L.workerName}</span>
-                                        {" "}
-                                        {worker.name}
-                                      </p>
-                                      <p className="erp-csr-cal-drawer-sc-worker-line">
-                                        <span className="erp-csr-cal-drawer-sc-worker-label">{L.workerPhone}</span>
-                                        {" "}
-                                        {worker.phone || "-"}
-                                      </p>
-                                      <p className="erp-csr-cal-drawer-sc-worker-line">
-                                        <span className="erp-csr-cal-drawer-sc-worker-label">{L.workerVehicle}</span>
-                                        {" "}
-                                        {worker.vehicleNo || "-"}
-                                      </p>
+                                  {scheduleWorkers.map((worker) => {
+                                    const workerKey = `${schedule.id}-${worker.participantName}`;
+                                    const copied = copiedWorkerKey === workerKey;
+                                    return (
+                                    <div
+                                      key={workerKey}
+                                      className={`erp-csr-cal-drawer-sc-worker${copied ? " is-copied" : ""}`}
+                                    >
+                                      <button
+                                        type="button"
+                                        className="erp-csr-cal-drawer-sc-worker-copy"
+                                        title={copied ? L.workerCopied : L.workerCopyHint}
+                                        aria-label={copied ? L.workerCopied : L.workerCopyHint}
+                                        onClick={() => void copyWorkerText(workerKey, worker)}
+                                      >
+                                        {copied ? <Check size={13} strokeWidth={2.5} /> : <Copy size={13} strokeWidth={2.25} />}
+                                      </button>
+                                      <div className="erp-csr-cal-drawer-sc-worker-body">
+                                        <p className="erp-csr-cal-drawer-sc-worker-line">
+                                          <span className="erp-csr-cal-drawer-sc-worker-label">{L.workerName}</span>
+                                          {" "}
+                                          {worker.name}
+                                        </p>
+                                        <p className="erp-csr-cal-drawer-sc-worker-line">
+                                          <span className="erp-csr-cal-drawer-sc-worker-label">{L.workerPhone}</span>
+                                          {" "}
+                                          {worker.phone || "-"}
+                                        </p>
+                                        <p className="erp-csr-cal-drawer-sc-worker-line">
+                                          <span className="erp-csr-cal-drawer-sc-worker-label">{L.workerVehicle}</span>
+                                          {" "}
+                                          {worker.vehicleNo || "-"}
+                                        </p>
+                                      </div>
                                     </div>
-                                  ))}
+                                  );})}
                                 </div>
                               ) : schedule.participantNames?.length ? (
-                                <p className="erp-csr-cal-drawer-card-meta">{schedule.participantNames.join(", ")}</p>
+                                <p className="erp-csr-cal-drawer-card-meta erp-csr-cal-drawer-sc-fallback-names">
+                                  {schedule.participantNames.join(", ")}
+                                </p>
                               ) : null}
-                          </div>
-                        </button>
+                        </div>
                       </li>
                     );})}
                   </ul>

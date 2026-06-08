@@ -112,6 +112,15 @@ export function getScScheduleWorkerDetails(
   return resolveScScheduleWorkers(workers, schedule.participantNames || []);
 }
 
+export function formatScScheduleWorkerCopyText(worker: ScScheduleWorkerInfo) {
+  const lines = [
+    worker.name,
+    worker.phone && worker.phone !== "-" ? worker.phone : "",
+    worker.vehicleNo && worker.vehicleNo !== "-" ? worker.vehicleNo : "",
+  ].filter(Boolean);
+  return lines.join("\n");
+}
+
 export function formatScScheduleHeadcount(row: Pick<ScSchedule, "expectedHeadcount" | "participantCount">) {
   const expected = row.expectedHeadcount;
   const assigned = Number(row.participantCount || 0);
