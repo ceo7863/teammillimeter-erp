@@ -102,10 +102,9 @@ function phoneLastFour(phone) {
 
 export function maskContactPhoneHint(phone) {
   const digits = normalizePhone(phone);
-  if (digits.length < 4) return "****";
-  const last4 = digits.slice(-4);
-  if (digits.length >= 10) return `${digits.slice(0, 3)}-****-${last4}`;
-  return `****-${last4}`;
+  if (digits.length < 8) return "****-****";
+  if (digits.length >= 10) return `${digits.slice(0, 3)}-****-****`;
+  return `${digits.slice(0, 3)}-****-****`;
 }
 
 function bumpPhoneVerifyFailure(signToken) {
