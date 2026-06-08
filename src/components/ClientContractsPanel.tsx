@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Copy, Download, Eye, FileText, Pencil, RefreshCw, Send, Trash2 } from "lucide-react";
+import { Copy, Download, Eye, FileText, Link2, Pencil, RefreshCw, Send, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
