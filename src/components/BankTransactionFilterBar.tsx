@@ -93,7 +93,20 @@ function BankTransactionFilterBarComponent({
 
   useEffect(() => {
     setDraft(applied);
-  }, [applied, filterResetKey]);
+  }, [
+    applied.periodKey,
+    applied.startDate,
+    applied.endDate,
+    applied.statusTab,
+    applied.flowFilter,
+    applied.accountFilter,
+    applied.accountSubjectFilter,
+    applied.clientFilter,
+    applied.groupFilter,
+    applied.evidenceFilter,
+    applied.searchQuery,
+    filterResetKey,
+  ]);
 
   const draftPeriodRange = useMemo(
     () =>
