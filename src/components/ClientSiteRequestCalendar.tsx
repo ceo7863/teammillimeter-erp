@@ -110,11 +110,8 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
     onSelectDate(date);
   };
 
-  const closeDrawer = (options?: { keepSelectedDate?: boolean }) => {
+  const closeDrawer = () => {
     setDrawerDate(null);
-    if (!options?.keepSelectedDate) {
-      onSelectDate("");
-    }
   };
 
   const handleShiftDrawerDate = (date: string) => {
@@ -129,12 +126,12 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
 
   const handleRegisterDate = (date: string) => {
     onRegisterDate?.(date);
-    closeDrawer({ keepSelectedDate: true });
+    closeDrawer();
   };
 
   const handleChangeRequest = (source: ClientSiteRequestChangeSource) => {
     onChangeRequest?.(source);
-    closeDrawer({ keepSelectedDate: true });
+    closeDrawer();
   };
 
   const handleSelectRequest = (requestId: string, date?: string) => {

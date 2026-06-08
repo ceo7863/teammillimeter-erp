@@ -191,9 +191,8 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
       const rows = await listPublicClientSiteRequests(token);
       setRequests(rows);
       setSelectedRequestId((current) => {
-        if (current && rows.some((row) => row.id === current)) return current;
-        const visibleOnCalendar = rows.find((row) => isClientSiteRequestVisibleOnPublicCalendar(row));
-        return visibleOnCalendar?.id || "";
+        if (!current) return current;
+        return rows.some((row) => row.id === current) ? current : "";
       });
     } catch {
       // ignore polling errors
@@ -310,17 +309,20 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
   };
 
   const handleCalendarDateSelect = (date: string) => {
-    if (lastClickedDateRef.current === date) {
+    const normalizedDate = String(date || "").trim();
+    if (!normalizedDate) return;
+
+    if (lastClickedDateRef.current === normalizedDate) {
       setConfirmRegisterOpen(true);
       return;
     }
 
-    lastClickedDateRef.current = date;
-    setSelectedCalendarDate(date);
-    const scOnDate = scSchedules.filter((row) => String(row.workDate || "").slice(0, 10) === date);
+    lastClickedDateRef.current = normalizedDate;
+    setSelectedCalendarDate(normalizedDate);
+    const scOnDate = scSchedules.filter((row) => String(row.workDate || "").slice(0, 10) === normalizedDate);
     const dayRequests = filterClientSiteRequestsForCalendarDay(
-      calendarRequests.filter((row) => requestCoversWorkDate(row, date)),
-      date,
+      calendarRequests.filter((row) => requestCoversWorkDate(row, normalizedDate)),
+      normalizedDate,
       scOnDate,
     );
     if (dayRequests.length === 1) {
