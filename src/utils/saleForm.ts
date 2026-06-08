@@ -301,6 +301,66 @@ export function buildSaleFromForm(
   };
 }
 
+const WORKER_GRID_NUMERIC_COLUMNS = new Set([
+  "quantity",
+  "unitCost",
+  "chargeAmount",
+  "meal",
+  "lodging",
+  "expense",
+  "overtimeHours",
+  "overtimeCost",
+]);
+
+const WORKER_GRID_INTEGER_COLUMNS = new Set(["quantity", "overtimeHours"]);
+
+function sanitizeWorkerGridCommitValue(rawValue: unknown, columnKey: string) {
+  const isNumeric = WORKER_GRID_NUMERIC_COLUMNS.has(columnKey);
+  if (!isNumeric) return String(rawValue ?? "");
+  let sanitized = String(rawValue ?? "").replace(/[^0-9.-]/g, "");
+  if (WORKER_GRID_INTEGER_COLUMNS.has(columnKey)) {
+    sanitized = sanitized.replace(/[^\d]/g, "");
+  }
+  return sanitized;
+}
+
+/** Read pending worker-grid input values from the DOM (commit-on-blur fields). */
+export function commitWorkerGridInputsFromDom(workerRows: SaleWorkerLine[] = []): SaleWorkerLine[] {
+  if (typeof document === "undefined" || !workerRows.length) return workerRows;
+
+  let changed = false;
+  const next = workerRows.map((line) => ({ ...line }));
+
+  document
+    .querySelectorAll(".erp-sale-form-page [data-worker-row][data-worker-col]")
+    .forEach((element) => {
+      if (!(element instanceof HTMLInputElement)) return;
+
+      const rowIndex = Number(element.dataset.workerRow);
+      const columnKey = String(element.dataset.workerCol || "");
+      if (!Number.isFinite(rowIndex) || rowIndex < 0 || rowIndex >= next.length || !columnKey) return;
+
+      const sanitized = sanitizeWorkerGridCommitValue(element.value, columnKey);
+      const current = (next[rowIndex] as Record<string, unknown>)[columnKey];
+      if (String(sanitized) === String(current ?? "")) return;
+
+      next[rowIndex] = applyWorkerLineFieldUpdate(next[rowIndex], columnKey, sanitized) as SaleWorkerLine;
+      changed = true;
+    });
+
+  return changed ? next : workerRows;
+}
+
+export function buildCommittedSaleFormDraft(
+  meta: Omit<SaleFormData, "workers">,
+  workerRows: SaleWorkerLine[] = [],
+): SaleFormData {
+  return {
+    ...meta,
+    workers: commitWorkerGridInputsFromDom(workerRows),
+  };
+}
+
 export function flushSaleFormFocusedInputs() {
   if (typeof document === "undefined") return Promise.resolve();
   document

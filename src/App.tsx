@@ -186,6 +186,7 @@ import {
   createWorkerLine,
   emptySaleForm,
   enrichWorkerLineOnWorkerSelect,
+  buildCommittedSaleFormDraft,
   flushSaleFormFocusedInputs,
   reEnrichWorkerLinesForClient,
   saleRowToForm,
@@ -939,9 +940,19 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
   const formMetaRef = useRef(formMeta);
   formMetaRef.current = formMeta;
   const draftRef = useRef(buildLocalSaleForm(formMeta, workerRows));
+  const workerRowsRef = useRef(workerRows);
+  workerRowsRef.current = workerRows;
   const onDraftChangeRef = useRef(onDraftChange);
   onDraftChangeRef.current = onDraftChange;
   const loadedSessionKeyRef = useRef(null);
+
+  const syncLocalDraftRef = useCallback((meta, rows) => {
+    const next = buildLocalSaleForm(meta, rows);
+    workerRowsRef.current = rows;
+    draftRef.current = next;
+    onDraftChangeRef.current?.(next);
+    return next;
+  }, []);
 
   useEffect(() => {
     if (!useLocalDraft || !initialForm || !sessionKey) return;
@@ -992,17 +1003,21 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
 
   const updateWorkerLine = useCallback((index, key, value) => {
     if (useLocalDraft) {
-      setWorkerRows((prev) => prev.map((line, lineIndex) => {
-        if (lineIndex !== index) return line;
-        if (key === "worker") {
-          return enrichWorkerLineOnWorkerSelect(line, activeWorkers, clients, formMetaRef.current.client, value);
-        }
-        return applyWorkerLineFieldUpdate(line, key, value);
-      }));
+      setWorkerRows((prev) => {
+        const nextRows = prev.map((line, lineIndex) => {
+          if (lineIndex !== index) return line;
+          if (key === "worker") {
+            return enrichWorkerLineOnWorkerSelect(line, activeWorkers, clients, formMetaRef.current.client, value);
+          }
+          return applyWorkerLineFieldUpdate(line, key, value);
+        });
+        syncLocalDraftRef(formMetaRef.current, nextRows);
+        return nextRows;
+      });
       return;
     }
     controlledUpdateWorkerLine?.(index, key, value);
-  }, [useLocalDraft, activeWorkers, clients, controlledUpdateWorkerLine]);
+  }, [useLocalDraft, activeWorkers, clients, controlledUpdateWorkerLine, syncLocalDraftRef]);
 
   const addWorkerLine = useCallback(() => {
     if (useLocalDraft) {
@@ -1051,8 +1066,16 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
   }, [controlledCanSave, useLocalDraft, formMeta, form, workerRows, totals.bill]);
 
   const handleSave = useCallback(() => {
-    void flushSaleFormFocusedInputs()
-      .then(() => onSave(useLocalDraft ? draftRef.current : form));
+    void flushSaleFormFocusedInputs().then(() => {
+      if (useLocalDraft) {
+        const committed = buildCommittedSaleFormDraft(formMetaRef.current, workerRowsRef.current);
+        draftRef.current = committed;
+        onDraftChangeRef.current?.(committed);
+        onSave(committed);
+        return;
+      }
+      onSave(form);
+    });
   }, [onSave, useLocalDraft, form]);
 
   const [clientSiteUnlocked, setClientSiteUnlocked] = useState(false);
