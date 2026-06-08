@@ -1,19 +1,13 @@
-import React, { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import React, { useLayoutEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { Link2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ClientSiteRequestCalendar } from "@/components/ClientSiteRequestCalendar";
-import { getCurrentMonthKey, filterClientSiteRequestsForCalendarDay } from "@/utils/clientSiteRequestCalendar";
+import { ClientSiteRequestCalendarPanel } from "@/components/ClientSiteRequestCalendarPanel";
 import {
-  isClientSiteRequestVisibleOnPublicCalendar,
-  listClientSiteRequests,
   openClientSiteRequestLink,
-  requestCoversWorkDate,
   resolveClientSiteRequestLinkUrl,
-  type ClientSiteRequest,
   type ClientSiteRequestLink,
 } from "@/utils/clientSiteRequests";
-import { fetchStaffScSchedules, type ScSchedule } from "@/utils/scSchedules";
 import type { WorkerMasterLike } from "@/utils/workerPayments";
 import { useBodyScrollLock } from "@/utils/bodyScrollLock";
 import { useBackdropPointerDismiss, useModalDismissGuard } from "@/utils/modalBackdrop";
@@ -21,9 +15,6 @@ import { useBackdropPointerDismiss, useModalDismissGuard } from "@/utils/modalBa
 const L = {
   title: "\uC811\uC218 \uCE98\uB9B0\uB354",
   closeAria: "\uC811\uC218 \uCE98\uB9B0\uB354 \uB2EB\uAE30",
-  loading: "\uBD88\uB7EC\uC624\uB294 \uC911...",
-  loadFail: "\uC811\uC218 \uB0B4\uC5ED\uC744 \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
-  empty: "\uC774\uB2EC \uC811\uC218 \uB0B4\uC5ED \uB610\uB294 SC \uD655\uC815 \uC77C\uC815\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   openLink: "\uACF5\uAC1C \uD398\uC774\uC815 \uC5F4\uAE30",
 };
 
@@ -44,18 +35,10 @@ export function ClientSiteRequestCalendarModal({
   workers = [],
   onClose,
 }: ClientSiteRequestCalendarModalProps) {
-  const [requests, setRequests] = useState<ClientSiteRequest[]>([]);
-  const [scSchedules, setScSchedules] = useState<ScSchedule[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [monthKey, setMonthKey] = useState(getCurrentMonthKey);
-  const [selectedDate, setSelectedDate] = useState("");
-  const [selectedRequestId, setSelectedRequestId] = useState("");
-  const [selectedScScheduleId, setSelectedScScheduleId] = useState("");
   const { onPointerDown, onPointerUp, isTouchDevice } = useBackdropPointerDismiss(open, onClose);
   const { guardedClose } = useModalDismissGuard(open);
   const closeModal = () => guardedClose(onClose);
-  const [headerLocked, setHeaderLocked] = useState(false);
+  const [headerLocked, setHeaderLocked] = React.useState(false);
 
   useLayoutEffect(() => {
     if (!open) {
@@ -67,45 +50,11 @@ export function ClientSiteRequestCalendarModal({
     return () => window.clearTimeout(timer);
   }, [open]);
 
-  const loadCalendarData = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const [rows, schedules] = await Promise.all([
-        listClientSiteRequests({ status: "all", clientId }),
-        fetchStaffScSchedules(clientId, monthKey),
-      ]);
-      setRequests(rows);
-      setScSchedules(schedules);
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : L.loadFail);
-      setRequests([]);
-      setScSchedules([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [clientId, monthKey]);
-
-  useEffect(() => {
-    if (!open) return;
-    setMonthKey(getCurrentMonthKey());
-    setSelectedDate("");
-    setSelectedRequestId("");
-    setSelectedScScheduleId("");
-  }, [open, clientId]);
-
-  useEffect(() => {
-    if (!open) return;
-    void loadCalendarData();
-  }, [open, loadCalendarData]);
-
   useBodyScrollLock(open);
 
-  if (!open) return null;
+  const publicUrl = useMemo(() => (link ? resolveClientSiteRequestLinkUrl(link) : ""), [link]);
 
-  const publicUrl = link ? resolveClientSiteRequestLinkUrl(link) : "";
-  const hasCalendarData =
-    requests.some((row) => isClientSiteRequestVisibleOnPublicCalendar(row)) || scSchedules.length > 0;
+  if (!open) return null;
 
   const modal = (
     <div
@@ -157,48 +106,14 @@ export function ClientSiteRequestCalendarModal({
         </div>
 
         <div className="erp-client-request-calendar-modal__body">
-          {loading ? (
-            <p className="py-8 text-center text-sm text-slate-500">{L.loading}</p>
-          ) : error ? (
-            <p className="py-8 text-center text-sm font-semibold text-red-600">{error}</p>
-          ) : (
-            <>
-              {!hasCalendarData ? (
-                <p className="border-b border-slate-200 px-4 py-3 text-center text-sm text-slate-500">{L.empty}</p>
-              ) : null}
-              <ClientSiteRequestCalendar
-              fullscreen
-              requests={requests}
-              scSchedules={scSchedules}
-              workers={workers}
-              monthKey={monthKey}
-              onMonthKeyChange={setMonthKey}
-              selectedDate={selectedDate}
-              drawerElevated
-              onSelectDate={(date) => {
-                setSelectedDate(date);
-                const scOnDate = scSchedules.filter((row) => String(row.workDate || "").slice(0, 10) === date);
-                const dayRequests = filterClientSiteRequestsForCalendarDay(
-                  requests.filter(
-                    (row) =>
-                      isClientSiteRequestVisibleOnPublicCalendar(row) && requestCoversWorkDate(row, date),
-                  ),
-                  date,
-                  scOnDate,
-                );
-                if (dayRequests.length === 1) {
-                  setSelectedRequestId(dayRequests[0].id);
-                } else if (selectedRequestId && !dayRequests.some((row) => row.id === selectedRequestId)) {
-                  setSelectedRequestId(dayRequests[0]?.id || "");
-                }
-              }}
-              selectedRequestId={selectedRequestId}
-              onSelectRequest={setSelectedRequestId}
-              selectedScScheduleId={selectedScScheduleId}
-              onSelectScSchedule={setSelectedScScheduleId}
-            />
-            </>
-          )}
+          <ClientSiteRequestCalendarPanel
+            key={String(clientId)}
+            active={open}
+            clientId={clientId}
+            workers={workers}
+            drawerElevated
+            fullscreen
+          />
         </div>
       </div>
     </div>

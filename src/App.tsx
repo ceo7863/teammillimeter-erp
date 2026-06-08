@@ -12,6 +12,7 @@ import {
   PieChart,
   Building2,
   CalendarDays,
+  CalendarRange,
   Check,
   CheckCircle2,
   CreditCard,
@@ -200,6 +201,7 @@ import { ClientContractSignPage } from "@/components/ClientContractSignPage";
 import { ClientSiteRequestPage } from "@/components/ClientSiteRequestPage";
 import { ClientContractsPanel } from "@/components/ClientContractsPanel";
 import { ClientSiteRequestsPage } from "@/components/ClientSiteRequestsPage";
+import { ClientSiteRequestCalendarsPage } from "@/components/ClientSiteRequestCalendarsPage";
 import { ScScheduleAlimtalkPage } from "@/components/ScScheduleAlimtalkPage";
 import { ClientFormModal, type ClientFormState } from "@/components/ClientFormModal";
 import { ClientBusinessRegViewModal } from "@/components/ClientBusinessRegViewModal";
@@ -2826,6 +2828,7 @@ const PAGE_ICONS: Record<ErpPageKey, typeof Home> = {
   dashboard: Home,
   calendar: CalendarDays,
   clientSiteRequests: ClipboardList,
+  clientSiteRequestCalendars: CalendarRange,
   scAlimtalk: Smartphone,
   attendance: Clock,
   salesInput: Plus,
@@ -9235,6 +9238,9 @@ export default function TeammillimeterErpMvp() {
         </PageKeepAlive>
         <PageKeepAlive pageKey="clientSiteRequests" active={active}>
           <ClientSiteRequestsPage clients={clients} workers={workers} currentUser={currentUser} />
+        </PageKeepAlive>
+        <PageKeepAlive pageKey="clientSiteRequestCalendars" active={active}>
+          <ClientSiteRequestCalendarsPage workers={workers} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="scAlimtalk" active={active}>
           <ScScheduleAlimtalkPage />

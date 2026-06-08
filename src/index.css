@@ -1868,6 +1868,25 @@ textarea {
   min-height: 0;
 }
 
+.erp-client-calendars-page {
+  min-height: 0;
+}
+
+.erp-client-calendars-page .erp-client-request-calendar-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.erp-client-calendars-page .erp-client-request-calendar--fullscreen {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.erp-client-request-calendar-panel .erp-client-request-calendar--fullscreen {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 @media (min-width: 1024px) {
   .erp-client-site-request-page--calendar-desktop {
     display: flex;

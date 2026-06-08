@@ -32,6 +32,7 @@ export const ERP_PAGE_KEYS = [
   "companyNotices",
   "companyProfile",
   "clientSiteRequests",
+  "clientSiteRequestCalendars",
   "scAlimtalk",
   "auditLog",
   "usersAdmin",
@@ -52,6 +53,7 @@ export const ERP_PAGE_DEFS: ErpPageDef[] = [
   { key: "dashboard", label: "대시보드", group: "업무" },
   { key: "calendar", label: "캘린더", group: "업무" },
   { key: "clientSiteRequests", label: "현장 접수", group: "업무" },
+  { key: "clientSiteRequestCalendars", label: "업체별 캘린더", group: "업무" },
   { key: "scAlimtalk", label: "알림톡", group: "업무" },
   { key: "salesInput", label: "매출등록", group: "매출" },
   { key: "sales", label: "매출관리", group: "매출" },
@@ -76,6 +78,7 @@ export const DEFAULT_STAFF_PAGE_KEYS: ErpPageKey[] = [
   "dashboard",
   "calendar",
   "clientSiteRequests",
+  "clientSiteRequestCalendars",
   "scAlimtalk",
   "salesInput",
   "sales",
@@ -138,6 +141,9 @@ export function normalizeAllowedPages(pages: unknown): ErpPageKey[] | null {
   if (hasLegacyStatement && !unique.includes("statements")) unique.push("statements");
   if (hasLegacyBasicInfo && !unique.includes("basicInfo")) unique.push("basicInfo");
   if (hasLegacyUserAdmin && !unique.includes("usersAdmin")) unique.push("usersAdmin");
+  if (unique.includes("clientSiteRequests") && !unique.includes("clientSiteRequestCalendars")) {
+    unique.push("clientSiteRequestCalendars");
+  }
   if (!unique.length) {
     if (hasLegacyAccounting) return ["accounting"];
     if (hasLegacyStatement) return ["statements"];
