@@ -30,7 +30,7 @@ import { PartialPaymentBadge } from "@/components/AutoLinkBadge";
 import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { TableExportSection, TableExportToolbar } from "@/components/TableExportSection";
-import { BankTransactionsListPanel } from "@/components/BankTransactionsListPanel";
+import { BankTransactionsListShell } from "@/components/BankTransactionsListShell";
 import { BankCounterpartyTransactionsDrawer } from "@/components/BankCounterpartyTransactionsDrawer";
 import {
   BankTaxInvoiceIssueModal,
@@ -272,7 +272,7 @@ import {
   parseIbkBankFile,
   type IbkBankImportPreview,
 } from "@/utils/ibkBankImport";
-import { BankTransactionFilterBar, type BankTransactionAppliedFilters } from "@/components/BankTransactionFilterBar";
+import type { BankTransactionAppliedFilters } from "@/components/BankTransactionFilterBar";
 import {
   resolveBankTransactionPeriod,
   type BankTransactionPeriodKey,
@@ -3177,7 +3177,7 @@ function BankTransactionsPageComponent({
     [preauthNetModalOpen, bankTransactions, bankLedgerRules],
   );
 
-  const openPreauthNetModal = () => {
+  const openPreauthNetModal = useCallback(() => {
     const groups = detectPreauthNetGroups(bankTransactions, bankLedgerRules);
     if (!groups.length) {
       setImportMessage(L.preauthNetEmpty);
@@ -3185,7 +3185,7 @@ function BankTransactionsPageComponent({
     }
     setSelectedPreauthGroupKeys(groups.map((row) => preauthNetGroupKey(row)));
     setPreauthNetModalOpen(true);
-  };
+  }, [bankTransactions, bankLedgerRules]);
 
   const togglePreauthNetGroup = (key: string) => {
     setSelectedPreauthGroupKeys((prev) =>
@@ -3229,7 +3229,7 @@ function BankTransactionsPageComponent({
     setImportMessage(L.preauthNetDone(groups.length));
   };
 
-  const openRecurringFixedModal = () => {
+  const openRecurringFixedModal = useCallback(() => {
     const patterns = detectRecurringFixedExpensePatterns(bankTransactions, fixedExpenses);
     if (!patterns.length) {
       setImportMessage(L.recurringFixedEmpty);
@@ -3237,7 +3237,7 @@ function BankTransactionsPageComponent({
     }
     setSelectedRecurringPatternKeys(patterns.map((row) => row.key));
     setRecurringFixedModalOpen(true);
-  };
+  }, [bankTransactions, fixedExpenses]);
 
   const toggleRecurringPattern = (key: string) => {
     setSelectedRecurringPatternKeys((prev) =>
@@ -5264,21 +5264,16 @@ function BankTransactionsPageComponent({
       ) : null}
 
       {hasAnyData && pageView === "list" ? (
-        <BankTransactionFilterBar
-          applied={appliedFilters}
-          onApplySearch={handleApplySearch}
-          onApply={handleApplyFilters}
-          statusCounts={statusCounts}
-          accounts={accountSummaries}
-          accountSubjects={accountSubjectFilterOptions}
-          clients={clients}
+        <BankTransactionsListShell
+          appliedFilters={appliedFilters}
           filterResetKey={filterResetKey}
-          onReset={handleResetFilters}
-        />
-      ) : null}
-
-      {hasAnyData && pageView === "list" ? (
-        <BankTransactionsListPanel
+          statusCounts={statusCounts}
+          accountSummaries={accountSummaries}
+          accountSubjectFilterOptions={accountSubjectFilterOptions}
+          clients={clients}
+          onApplySearch={handleApplySearch}
+          onApplyFilters={handleApplyFilters}
+          onResetFilters={handleResetFilters}
           rows={filteredRows}
           isListActive={isPageActive && pageView === "list"}
           showEmptyPeriodHint={showEmptyPeriodHint}
@@ -5294,7 +5289,6 @@ function BankTransactionsPageComponent({
           ledgerCategories={ledgerCategories}
           accountCodes={accountCodes}
           taxInvoices={taxInvoices}
-          clients={clients}
           workers={workers}
           paymentVouchers={paymentVouchers}
           labels={listSectionLabels}
