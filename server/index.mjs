@@ -1091,6 +1091,38 @@ function finalizeWorkersDomainPayload(existingData, mergedData) {
   return mergedPayload;
 }
 
+function appendTaxInvoiceWithVersionRetry(taxInvoice, expectedVersion, updatedBy) {
+  let version = expectedVersion;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const state = getErpState();
+    const existing = Array.isArray(state.data?.taxInvoices) ? state.data.taxInvoices : [];
+    const nextTaxInvoices = [taxInvoice, ...existing];
+    try {
+      const saved = saveErpDomain(
+        "taxInvoices",
+        { taxInvoices: nextTaxInvoices },
+        version ?? state.version,
+        updatedBy,
+      );
+      return {
+        taxInvoices: nextTaxInvoices,
+        version: saved.version,
+        updatedAt: saved.updatedAt,
+      };
+    } catch (error) {
+      if (error?.status === 409 && attempt < 3) {
+        version = error.currentVersion ?? getErpState().version;
+        continue;
+      }
+      throw error;
+    }
+  }
+  const err = new Error("VERSION_CONFLICT");
+  err.status = 409;
+  err.currentVersion = getErpState().version;
+  throw err;
+}
+
 function handleErpSaveConflict(res, error) {
   if (error.status === 409) {
     res.status(409).json({
@@ -1453,25 +1485,20 @@ app.post("/api/barobill/tax-invoices/issue", authMiddleware, adminMiddleware, as
       return;
     }
 
-    const state = getErpState();
-    const existing = Array.isArray(state.data?.taxInvoices) ? state.data.taxInvoices : [];
-    const nextTaxInvoices = [taxInvoice, ...existing];
-    const saved = saveErpState(
-      { ...(state.data || {}), taxInvoices: nextTaxInvoices },
-      req.body?.version ?? state.version,
-      req.user.loginId || req.user.name || req.user.email,
-    );
+    const updatedBy = req.user.loginId || req.user.name || req.user.email;
+    const saved = appendTaxInvoiceWithVersionRetry(taxInvoice, req.body?.version, updatedBy);
 
     res.json({
       ...issueResult,
       taxInvoice,
-      taxInvoices: nextTaxInvoices,
+      taxInvoices: saved.taxInvoices,
       version: saved.version,
       updatedAt: saved.updatedAt,
     });
   } catch (error) {
     const errCode = error && typeof error === "object" && "errCode" in error ? error.errCode : undefined;
     const isValidation = error && typeof error === "object" && "validation" in error && error.validation;
+    if (handleErpSaveConflict(res, error)) return;
     res.status(isValidation ? 400 : 500).json({
       error: error instanceof Error ? error.message : String(error),
       errCode,
