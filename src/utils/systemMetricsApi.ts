@@ -19,6 +19,13 @@ export type SystemMetricsPm2Process = {
   uptimeMs: number | null;
 };
 
+export type SystemMetricsStorageItem = {
+  key: string;
+  label: string;
+  path: string;
+  bytes: number;
+};
+
 export type SystemMetrics = {
   generatedAt: string;
   host: {
@@ -54,6 +61,9 @@ export type SystemMetrics = {
   storage: {
     dbPath: string;
     dbBytes: number | null;
+    dataDir: string;
+    dataDirBytes: number | null;
+    breakdown: SystemMetricsStorageItem[];
   };
 };
 

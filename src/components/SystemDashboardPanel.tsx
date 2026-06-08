@@ -19,6 +19,8 @@ const L = {
   process: "Node \uD504\uB85C\uC138\uC2A4",
   pm2: "PM2 \uD504\uB85C\uC138\uC2A4",
   storage: "\uC800\uC7A5\uC18C",
+  dataDir: "data \uD3F4\uB354",
+  dataBreakdown: "ERP \uB370\uC774\uD130 \uAD6C\uC131",
   cores: "\uCF54\uC5B4",
   loadAvg: "Load avg",
   uptime: "\uAC00\uB3D9 \uC2DC\uAC04",
@@ -179,9 +181,9 @@ export function SystemDashboardPanel({ isActive }: { isActive: boolean }) {
               hint={`PID ${metrics.process.pid} | ${metrics.process.nodeVersion} | ${L.uptime} ${formatDuration(metrics.process.uptimeSeconds)}`}
             />
             <MetricCard
-              title={L.storage}
-              value={metrics.storage.dbBytes != null ? formatBytes(metrics.storage.dbBytes) : "-"}
-              hint={metrics.storage.dbPath}
+              title={L.dataDir}
+              value={metrics.storage.dataDirBytes != null ? formatBytes(metrics.storage.dataDirBytes) : "-"}
+              hint={metrics.storage.dataDir}
             />
           </div>
 
@@ -222,6 +224,38 @@ export function SystemDashboardPanel({ isActive }: { isActive: boolean }) {
                 />
               ))}
             </div>
+          ) : null}
+
+          {metrics.storage.breakdown.length ? (
+            <Card className="rounded-2xl shadow-sm">
+              <CardContent className="p-4 md:p-5">
+                <h3 className="erp-text-body font-bold text-slate-900">{L.dataBreakdown}</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  DB {metrics.storage.dbBytes != null ? formatBytes(metrics.storage.dbBytes) : "-"} | {L.dataDir}{" "}
+                  {metrics.storage.dataDirBytes != null ? formatBytes(metrics.storage.dataDirBytes) : "-"}
+                </p>
+                <DesktopTableWrap className="mt-3">
+                  <table className="erp-table erp-table--md w-full">
+                    <thead>
+                      <tr>
+                        <th className="text-left">{"\uD56D\uBAA9"}</th>
+                        <th className="text-right">{"\uC6A9\uB7C9"}</th>
+                        <th className="text-left">{"\uACBD\uB85C"}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {metrics.storage.breakdown.map((row) => (
+                        <tr key={row.key}>
+                          <td>{row.label}</td>
+                          <td className="text-right">{formatBytes(row.bytes)}</td>
+                          <td className="text-xs text-slate-500">{row.path}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </DesktopTableWrap>
+              </CardContent>
+            </Card>
           ) : null}
 
           <Card className="rounded-2xl shadow-sm">

@@ -23,6 +23,71 @@ function fileSizeSafe(filePath) {
   }
 }
 
+function directorySizeSync(dirPath) {
+  let total = 0;
+  const stack = [dirPath];
+  while (stack.length) {
+    const current = stack.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const entryPath = path.join(current, entry.name);
+      try {
+        if (entry.isDirectory()) stack.push(entryPath);
+        else if (entry.isFile()) total += fs.statSync(entryPath).size;
+      } catch {
+        // skip unreadable entries
+      }
+    }
+  }
+  return total;
+}
+
+function listDataStorageBreakdown(dataDir) {
+  const entries = [
+    { key: "db", label: "SQLite DB", target: config.dbPath, file: true },
+    { key: "pdf", label: "PDF \uC544\uCE74\uC774\uBE0C", target: config.pdfArchiveDir },
+    { key: "contracts", label: "\uACC4\uC57D\uC11C", target: config.clientContractsDir },
+    { key: "businessReg", label: "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D", target: config.clientBusinessRegDir },
+    { key: "board", label: "\uAC8C\uC2DC\uD310 \uCCA8\uBD80", target: config.boardAttachmentDir },
+  ];
+
+  const rows = [];
+  for (const entry of entries) {
+    const target = entry.target;
+    if (!target) continue;
+    let bytes = null;
+    try {
+      const stat = fs.statSync(target);
+      if (entry.file && stat.isFile()) bytes = stat.size;
+      else if (!entry.file && stat.isDirectory()) bytes = directorySizeSync(target);
+    } catch {
+      bytes = null;
+    }
+    if (bytes == null) continue;
+    rows.push({
+      key: entry.key,
+      label: entry.label,
+      path: target,
+      bytes,
+    });
+  }
+
+  let dataDirBytes = null;
+  try {
+    if (fs.statSync(dataDir).isDirectory()) dataDirBytes = directorySizeSync(dataDir);
+  } catch {
+    dataDirBytes = null;
+  }
+
+  rows.sort((a, b) => b.bytes - a.bytes);
+  return { dataDir, dataDirBytes, rows };
+}
+
 async function diskUsageForPath(label, targetPath) {
   try {
     const stats = await fs.promises.statfs(targetPath);
@@ -95,11 +160,9 @@ export async function collectSystemMetrics() {
   const procMem = process.memoryUsage();
   const dataDir = path.dirname(config.dbPath);
   const rootPath = process.platform === "win32" ? path.parse(process.cwd()).root : "/";
+  const storage = listDataStorageBreakdown(dataDir);
 
-  const diskCandidates = [
-    await diskUsageForPath("\uC11C\uBC84 \uB514\uC2A4\uD06C", rootPath),
-    await diskUsageForPath("ERP data", dataDir),
-  ].filter(Boolean);
+  const diskCandidates = [await diskUsageForPath("\uC11C\uBC84 \uB514\uC2A4\uD06C", rootPath)].filter(Boolean);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -137,6 +200,9 @@ export async function collectSystemMetrics() {
     storage: {
       dbPath: config.dbPath,
       dbBytes: fileSizeSafe(config.dbPath),
+      dataDir: storage.dataDir,
+      dataDirBytes: storage.dataDirBytes,
+      breakdown: storage.rows,
     },
   };
 }
