@@ -68,6 +68,7 @@ export const config = {
     dailyReportTemplate: process.env.ALIMTALK_DAILY_REPORT_TEMPLATE || "",
     commentTemplate: process.env.ALIMTALK_COMMENT_TEMPLATE || "",
     contractTemplate: process.env.ALIMTALK_CONTRACT_TEMPLATE || "",
+    scheduleTemplate: process.env.ALIMTALK_SCHEDULE_TEMPLATE || "",
     erpBaseUrl: process.env.ERP_PUBLIC_URL || "https://erp.teammillimeter.com",
   },
   sc: {
@@ -81,6 +82,14 @@ export const config = {
     syncIntervalMs: Number(process.env.SC_SCHEDULE_SYNC_INTERVAL_MS || 900000),
     /** 동기화 시 가져올 월 수(현재 월 기준). 기본 ±2개월 = 4개월 */
     scheduleSyncMonths: Number(process.env.SC_SCHEDULE_SYNC_MONTHS || 4),
+    /** 내일 SC 일정 시공자 알림톡 (KST) */
+    scheduleNotify: {
+      enabled: parseEnvBool(process.env.SC_SCHEDULE_NOTIFY_ENABLED, true),
+      hour: Number(process.env.SC_SCHEDULE_NOTIFY_HOUR || 18),
+      minute: Number(process.env.SC_SCHEDULE_NOTIFY_MINUTE || 0),
+    },
+    /** SC 일정 공유 링크 공개 origin (미설정 시 SC_API_BASE_URL) */
+    sharePublicUrl: process.env.SC_SHARE_PUBLIC_URL || process.env.SC_API_BASE_URL || "https://sc.teammillimeter.com",
   },
   barobill: {
     certKey: process.env.BAROBILL_CERT_KEY || "",

@@ -155,6 +155,11 @@ import {
   DEFAULT_NOTIFICATION_SETTINGS,
 } from "./notificationSettings.mjs";
 import { notifyNewSaleComments, runDailyReportJob, startNotificationScheduler } from "./notificationScheduler.mjs";
+import {
+  buildScScheduleNotifyPreview,
+  getScScheduleNotifyStatus,
+  runScScheduleNotifyJob,
+} from "./scScheduleNotify.mjs";
 
 initDb();
 runErpStartupMigrations();
@@ -2048,7 +2053,7 @@ app.put("/api/erp", authMiddleware, (req, res) => {
 });
 
 app.get("/api/notifications/status", authMiddleware, adminMiddleware, (_req, res) => {
-  res.json({ alimtalk: getAlimtalkStatus() });
+  res.json({ alimtalk: getAlimtalkStatus(), scScheduleNotify: getScScheduleNotifyStatus() });
 });
 
 app.get("/api/notifications/settings", authMiddleware, adminMiddleware, (_req, res) => {
@@ -2098,6 +2103,26 @@ app.post("/api/notifications/daily-report/send", authMiddleware, adminMiddleware
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: error instanceof Error ? error.message : "일일 보고 발송에 실패했습니다." });
+  }
+});
+
+app.get("/api/notifications/sc-schedule/preview", authMiddleware, adminMiddleware, (_req, res) => {
+  const state = getErpState();
+  const preview = buildScScheduleNotifyPreview(state.data || {});
+  res.json(preview);
+});
+
+app.post("/api/notifications/sc-schedule/send", authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const result = await runScScheduleNotifyJob({
+      force: Boolean(req.body?.force),
+      skipSync: Boolean(req.body?.skipSync),
+      targetDate: req.body?.targetDate ? String(req.body.targetDate).slice(0, 10) : undefined,
+    });
+    res.json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error instanceof Error ? error.message : "SC 일정 알림 발송에 실패했습니다." });
   }
 });
 

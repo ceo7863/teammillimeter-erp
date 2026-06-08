@@ -8,9 +8,12 @@ import {
   fetchNotificationSettings,
   fetchNotificationStatus,
   previewDailyReport,
+  previewScScheduleNotify,
   saveNotificationSettings,
   sendDailyReportNow,
+  sendScScheduleNotifyNow,
   type AlimtalkStatus,
+  type ScScheduleNotifyStatus,
 } from "@/utils/notificationApi";
 import {
   DEFAULT_NOTIFICATION_SETTINGS,
@@ -22,7 +25,7 @@ import {
 const L = {
   pageTitle: "\uC54C\uB9BC\uD1A1 \uC124\uC815",
   pageDesc:
-    "\uC77C\uC77C \uBCF4\uACE0(08:00 KST)\uC640 \uB9E4\uCD9C \uB313\uAE00 \uC54C\uB9BC\uC744 \uCE74\uCE74\uC624 \uC54C\uB9BC\uD1A1\uC73C\uB85C \uBC1C\uC1A1\uD569\uB2C8\uB2E4.",
+    "\uC77C\uC77C \uBCF4\uACE0(08:00 KST), \uB9E4\uCD9C \uB313\uAE00, \uB0B4\uC77C SC \uC77C\uC815 \uC54C\uB9BC\uC744 \uCE74\uCE74\uC624 \uC54C\uB9BC\uD1A1\uC73C\uB85C \uBC1C\uC1A1\uD569\uB2C8\uB2E4.",
   loading: "\uC124\uC815\uC744 \uBD88\uB7EC\uC624\uB294 \uC911...",
   loadError: "\uC54C\uB9BC \uC124\uC815\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",
   saveSuccess: "\uC54C\uB9BC \uC124\uC815\uC774 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
@@ -38,6 +41,11 @@ const L = {
     "\uB9E4\uC77C 08:00(KST)\uC5D0 \uC804\uC77C \uC2E4\uC801 \uC694\uC57D\uC744 \uBC1C\uC1A1\uD569\uB2C8\uB2E4.",
   commentFeature: "\uB313\uAE00 \uC54C\uB9BC",
   commentFeatureHint: "\uB9E4\uCD9C \uB313\uAE00\uC774 \uC800\uC7A5\uB418\uBA74 \uC989\uC2DC \uBC1C\uC1A1\uD569\uB2C8\uB2E4.",
+  scScheduleFeature: "SC \uB0B4\uC77C \uC77C\uC815 \uC54C\uB9BC",
+  scScheduleFeatureHint:
+    "\uB9E4\uC77C \uC124\uC815 \uC2DC\uAC01(KST)\uC5D0 \uB0B4\uC77C SC \uC77C\uC815\uC744 \uCC38\uC5EC \uC2DC\uACF5\uC790 \uC804\uD654\uB85C \uBC1C\uC1A1\uD569\uB2C8\uB2E4.",
+  scScheduleTimeLabel: "SC \uC77C\uC815 \uBC1C\uC1A1 \uC2DC\uAC01",
+  scheduleTemplate: "SC \uC77C\uC815 \uD15C\uD074\uB9BF",
   scheduleLabel: "\uC77C\uC77C \uBCF4\uACE0 \uBC1C\uC1A1 \uC2DC\uAC01",
   scheduleValue: "\uB9E4\uC77C 08:00 (KST, \uC804\uC77C \uAE30\uC900)",
   alimtalkStatus: "\uC54C\uB9BC\uD1A1 \uC5F0\uB3D9 \uC0C1\uD0DC",
@@ -64,6 +72,13 @@ const L = {
   sendTestSuccess: "\uC77C\uC77C \uBCF4\uACE0 \uD14C\uC2A4\uD2B8 \uBC1C\uC1A1\uC744 \uC694\uCCAD\uD588\uC2B5\uB2C8\uB2E4.",
   sendTestSkipped: "\uBC1C\uC1A1\uC774 \uAC74\uB108\uB701\uC5B4\uC84C\uC2B5\uB2C8\uB2E4",
   sendTestError: "\uC77C\uC77C \uBCF4\uACE0 \uD14C\uC2A4\uD2B8 \uBC1C\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+  scPreview: "SC \uC77C\uC815 \uBBF8\uB9AC\uBCF4\uAE30",
+  scPreviewTitle: "SC \uB0B4\uC77C \uC77C\uC815 \uC54C\uB9BC \uBBF8\uB9AC\uBCF4\uAE30",
+  scSendTest: "SC \uC77C\uC815 \uD14C\uC2A4\uD2B8 \uBC1C\uC1A1",
+  scSendTestConfirm:
+    "\uB0B4\uC77C SC \uC77C\uC815 \uCC38\uC5EC \uC2DC\uACF5\uC790 \uC804\uD654\uB85C \uC54C\uB9BC\uD1A1\uC744 \uBC1C\uC1A1\uD569\uB2C8\uB2E4. \uACC4\uC18D\uD560\uAE4C\uC694?",
+  scSendTestSuccess: "SC \uC77C\uC815 \uC54C\uB9BC \uD14C\uC2A4\uD2B8 \uBC1C\uC1A1\uC744 \uC694\uCCAD\uD588\uC2B5\uB2C8\uB2E4.",
+  scSendTestError: "SC \uC77C\uC815 \uC54C\uB9BC \uD14C\uC2A4\uD2B8 \uBC1C\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   previewError: "\uBBF8\uB9AC\uBCF4\uAE30\uB97C \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",
   close: "\uB2EB\uAE30",
   configured: "\uC124\uC815\uB428",
@@ -178,6 +193,7 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
   const [settings, setSettings] = useState<NotificationSettings>(DEFAULT_NOTIFICATION_SETTINGS);
   const [recipientRows, setRecipientRows] = useState<RecipientRow[]>([]);
   const [alimtalkStatus, setAlimtalkStatus] = useState<AlimtalkStatus | null>(null);
+  const [scScheduleStatus, setScScheduleStatus] = useState<ScScheduleNotifyStatus | null>(null);
   const [version, setVersion] = useState<number | undefined>(erpVersion);
   const [previewMessage, setPreviewMessage] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -195,6 +211,7 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
       setSettings(nextSettings);
       setRecipientRows(buildRecipientRows(users, nextSettings));
       setAlimtalkStatus(statusResult.alimtalk);
+      setScScheduleStatus(statusResult.scScheduleNotify || null);
     } catch (err) {
       console.error(err);
       setError(L.loadError);
@@ -275,12 +292,63 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
     }
   };
 
+  const handleScPreview = async () => {
+    setPreviewing(true);
+    setError("");
+    try {
+      const result = await previewScScheduleNotify();
+      const lines = [
+        `\uB300\uC0C1 \uC77C\uC790: ${result.targetDate}`,
+        `\uC77C\uC815 ${result.scheduleCount}\uAC74 / \uBC1C\uC1A1 \uAC00\uB2A5 ${result.notifyCount}\uBA85 / \uC804\uD654 \uC5C6\uC74C ${result.missingPhoneCount}\uBA85`,
+        "",
+        ...result.rows.map(
+          (row) =>
+            `[${row.phone || "전화없음"}] ${row.participantName} · ${row.variables.client} / ${row.variables.site} · ${row.variables.dateTime}`,
+        ),
+      ];
+      setPreviewMessage(lines.join("\n"));
+      setPreviewOpen(true);
+    } catch (err) {
+      console.error(err);
+      setError(L.previewError);
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
+  const handleScSendTest = async () => {
+    if (!window.confirm(L.scSendTestConfirm)) return;
+    setSending(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await sendScScheduleNotifyNow({ force: true, skipSync: true });
+      if (result.skipped) {
+        setMessage(L.sendTestSkipped + ": " + (result.reason || "-"));
+      } else {
+        setMessage(
+          `${L.scSendTestSuccess} (${result.targetDate || "-"}, ${result.sentCount ?? 0}\uAC74 \uBC1C\uC1A1)`,
+        );
+      }
+      const statusResult = await fetchNotificationStatus();
+      setScScheduleStatus(statusResult.scScheduleNotify || null);
+    } catch (err) {
+      console.error(err);
+      setError(L.scSendTestError);
+    } finally {
+      setSending(false);
+    }
+  };
+
   const updateRecipient = (userId: number, patch: Partial<Pick<RecipientRow, "dailyReport" | "commentNotify">>) => {
     setRecipientRows((prev) => prev.map((row) => (row.userId === userId ? { ...row, ...patch } : row)));
   };
 
   const dailyRecipientCount = recipientRows.filter((row) => row.dailyReport).length;
   const commentRecipientCount = recipientRows.filter((row) => row.commentNotify).length;
+  const scScheduleTimeLabel = scScheduleStatus
+    ? `\uB9E4\uC77C ${String(scScheduleStatus.hour).padStart(2, "0")}:${String(scScheduleStatus.minute).padStart(2, "0")} (KST, \uB0B4\uC77C \uAE30\uC900)`
+    : L.scheduleValue;
 
   return (
     <div className="erp-page erp-notification-settings-page">
@@ -344,6 +412,17 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
                   disabled={!settings.enabled}
                   onChange={(checked) => setSettings((prev) => ({ ...prev, commentNotifyEnabled: checked }))}
                 />
+                <ToggleRow
+                  label={L.scScheduleFeature}
+                  hint={L.scScheduleFeatureHint}
+                  checked={settings.scScheduleNotifyEnabled}
+                  disabled={!settings.enabled}
+                  onChange={(checked) => setSettings((prev) => ({ ...prev, scScheduleNotifyEnabled: checked }))}
+                />
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <div className="erp-text-caption font-bold text-slate-500">{L.scScheduleTimeLabel}</div>
+                  <div className="erp-text-body mt-1 font-bold text-slate-900">{scScheduleTimeLabel}</div>
+                </div>
               </div>
 
               <Card className="rounded-2xl border-slate-200 shadow-sm">
@@ -352,7 +431,7 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
                     <Smartphone className="h-4 w-4 text-slate-500" />
                     <h3 className="erp-text-body font-bold text-slate-900">{L.alimtalkStatus}</h3>
                   </div>
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                     <div className="rounded-xl bg-slate-50 px-3 py-2">
                       <div className="erp-text-caption text-slate-500">{L.alimtalkEnabled}</div>
                       <div className="mt-1">
@@ -371,6 +450,12 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
                       <div className="erp-text-caption text-slate-500">{L.commentTemplate}</div>
                       <div className="erp-text-body mt-1 font-bold text-slate-900">{alimtalkStatus?.commentTemplate || L.templateMissing}</div>
                     </div>
+                    <div className="rounded-xl bg-slate-50 px-3 py-2">
+                      <div className="erp-text-caption text-slate-500">{L.scheduleTemplate}</div>
+                      <div className="erp-text-body mt-1 font-bold text-slate-900">
+                        {alimtalkStatus?.scheduleTemplate || scScheduleStatus?.template || L.templateMissing}
+                      </div>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -383,6 +468,14 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
                 <Button type="button" variant="outline" className="rounded-xl" onClick={() => void handleSendTest()} disabled={previewing || sending || !settings.enabled}>
                   <Send className="mr-2 h-4 w-4" />
                   {L.sendTest}
+                </Button>
+                <Button type="button" variant="outline" className="rounded-xl" onClick={() => void handleScPreview()} disabled={previewing || sending}>
+                  <Eye className="mr-2 h-4 w-4" />
+                  {L.scPreview}
+                </Button>
+                <Button type="button" variant="outline" className="rounded-xl" onClick={() => void handleScSendTest()} disabled={previewing || sending || !settings.enabled}>
+                  <Send className="mr-2 h-4 w-4" />
+                  {L.scSendTest}
                 </Button>
               </div>
 

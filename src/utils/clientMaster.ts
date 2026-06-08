@@ -31,6 +31,9 @@ export type ClientMasterLike = {
   mealIncluded?: string;
   depositNameAliases?: string;
   taxInvoiceSplitPayments?: boolean;
+  businessRegFileId?: string;
+  businessRegFileName?: string;
+  businessRegUploadedAt?: string;
   memo?: string;
 };
 

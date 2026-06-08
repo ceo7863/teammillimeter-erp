@@ -71,6 +71,7 @@ function emptyErpPayload() {
       enabled: false,
       dailyReportEnabled: true,
       commentNotifyEnabled: true,
+      scScheduleNotifyEnabled: true,
       dailyReportHour: 8,
       dailyReportMinute: 0,
       recipients: [],

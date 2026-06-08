@@ -8,7 +8,7 @@
 | ?? ?? | `Desktop\teammillimeter-erp` | `Desktop\teammillimeter-office` |
 | ?? | EC2 + pm2 | **Vercel** |
 
-SC ?? ??·env·?? ??:
+SC ?? ??ï¿½envï¿½?? ??:
 
 **`C:\Users\User\Desktop\teammillimeter-office\SC_DEV_SETUP.md`**
 

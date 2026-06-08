@@ -14,8 +14,10 @@ import {
 } from "./notificationSettings.mjs";
 import { sendCommentAlimtalk, sendDailyReportAlimtalk } from "./alimtalkNotify.mjs";
 import { config } from "./config.mjs";
+import { runScScheduleNotifyJob } from "./scScheduleNotify.mjs";
 
 let lastDailyReportDateKey = null;
+let lastScScheduleNotifyDateKey = null;
 let schedulerHandle = null;
 
 function nowKstParts(now = new Date()) {
@@ -124,14 +126,36 @@ function tickScheduler() {
   const kst = nowKstParts();
   const state = getErpState();
   const settings = normalizeNotificationSettings(state.data?.notificationSettings);
-  if (!settings.enabled || !settings.dailyReportEnabled) return;
-  if (kst.hour !== settings.dailyReportHour || kst.minute !== settings.dailyReportMinute) return;
-  if (lastDailyReportDateKey === kst.dateKey) return;
-  lastDailyReportDateKey = kst.dateKey;
-  void runDailyReportJob().catch((error) => {
-    console.error("[notify] daily report failed:", error);
-    lastDailyReportDateKey = null;
-  });
+
+  if (settings.enabled && settings.dailyReportEnabled) {
+    if (kst.hour === settings.dailyReportHour && kst.minute === settings.dailyReportMinute) {
+      if (lastDailyReportDateKey !== kst.dateKey) {
+        lastDailyReportDateKey = kst.dateKey;
+        void runDailyReportJob().catch((error) => {
+          console.error("[notify] daily report failed:", error);
+          lastDailyReportDateKey = null;
+        });
+      }
+    }
+  }
+
+  const scNotify = config.sc.scheduleNotify;
+  if (
+    settings.enabled &&
+    settings.scScheduleNotifyEnabled !== false &&
+    scNotify.enabled &&
+    config.alimtalk.scheduleTemplate
+  ) {
+    if (kst.hour === scNotify.hour && kst.minute === scNotify.minute) {
+      if (lastScScheduleNotifyDateKey !== kst.dateKey) {
+        lastScScheduleNotifyDateKey = kst.dateKey;
+        void runScScheduleNotifyJob().catch((error) => {
+          console.error("[notify] sc schedule notify failed:", error);
+          lastScScheduleNotifyDateKey = null;
+        });
+      }
+    }
+  }
 }
 
 export function startNotificationScheduler() {
@@ -139,5 +163,5 @@ export function startNotificationScheduler() {
   if (!config.alimtalk.schedulerEnabled) return;
   schedulerHandle = setInterval(tickScheduler, 30_000);
   if (typeof schedulerHandle.unref === "function") schedulerHandle.unref();
-  console.log("[notify] scheduler started (daily report, KST)");
+  console.log("[notify] scheduler started (daily report + SC schedule notify, KST)");
 }

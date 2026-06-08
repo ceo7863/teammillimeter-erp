@@ -10,6 +10,7 @@ export type NotificationSettings = {
   enabled: boolean;
   dailyReportEnabled: boolean;
   commentNotifyEnabled: boolean;
+  scScheduleNotifyEnabled: boolean;
   dailyReportHour: number;
   dailyReportMinute: number;
   recipients: NotificationRecipient[];
@@ -19,6 +20,7 @@ export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   enabled: false,
   dailyReportEnabled: true,
   commentNotifyEnabled: true,
+  scScheduleNotifyEnabled: true,
   dailyReportHour: 8,
   dailyReportMinute: 0,
   recipients: [],
@@ -50,6 +52,7 @@ export function normalizeNotificationSettings(raw: unknown): NotificationSetting
     enabled: row.enabled === true,
     dailyReportEnabled: row.dailyReportEnabled !== false,
     commentNotifyEnabled: row.commentNotifyEnabled !== false,
+    scScheduleNotifyEnabled: row.scScheduleNotifyEnabled !== false,
     dailyReportHour: Number.isFinite(hour) && hour >= 0 && hour <= 23 ? hour : 8,
     dailyReportMinute: Number.isFinite(minute) && minute >= 0 && minute <= 59 ? minute : 0,
     recipients,

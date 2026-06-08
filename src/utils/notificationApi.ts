@@ -6,10 +6,26 @@ export type AlimtalkStatus = {
   provider: string;
   dailyTemplate: string | null;
   commentTemplate: string | null;
+  scheduleTemplate?: string | null;
+  contractTemplate?: string | null;
+};
+
+export type ScScheduleNotifyStatus = {
+  configured: boolean;
+  scShareConfigured: boolean;
+  enabled: boolean;
+  hour: number;
+  minute: number;
+  template: string | null;
+  lastRunAt?: string | null;
+  lastTargetDate?: string | null;
+  lastSentCount?: number;
 };
 
 export async function fetchNotificationStatus() {
-  return apiRequest<{ alimtalk: AlimtalkStatus }>("/notifications/status");
+  return apiRequest<{ alimtalk: AlimtalkStatus; scScheduleNotify?: ScScheduleNotifyStatus }>(
+    "/notifications/status",
+  );
 }
 
 export async function fetchNotificationSettings() {
@@ -33,6 +49,31 @@ export async function sendDailyReportNow(skipSync = false) {
     {
       method: "POST",
       body: JSON.stringify({ skipSync }),
+    },
+  );
+}
+
+export async function previewScScheduleNotify() {
+  return apiRequest<{
+    targetDate: string;
+    scheduleCount: number;
+    notifyCount: number;
+    missingPhoneCount: number;
+    rows: Array<{
+      scheduleId: string;
+      participantName: string;
+      phone: string | null;
+      variables: Record<string, string>;
+    }>;
+  }>("/notifications/sc-schedule/preview");
+}
+
+export async function sendScScheduleNotifyNow(options?: { force?: boolean; skipSync?: boolean }) {
+  return apiRequest<{ ok: boolean; skipped?: boolean; reason?: string; sentCount?: number; targetDate?: string }>(
+    "/notifications/sc-schedule/send",
+    {
+      method: "POST",
+      body: JSON.stringify(options || {}),
     },
   );
 }
