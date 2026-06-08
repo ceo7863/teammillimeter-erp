@@ -14,6 +14,16 @@ function waitForPaint() {
   });
 }
 
+async function waitForFonts() {
+  if (typeof document !== "undefined" && "fonts" in document) {
+    try {
+      await document.fonts.ready;
+    } catch {
+      // ignore font loading errors
+    }
+  }
+}
+
 export async function downloadTaxInvoiceCopyJpg(data: TaxInvoiceCopySheetData, fileName: string) {
   const host = document.createElement("div");
   host.style.cssText = `position:fixed;left:-20000px;top:0;width:${A4_PORTRAIT_WIDTH_PX}px;overflow:visible;background:#fff;`;
@@ -23,6 +33,7 @@ export async function downloadTaxInvoiceCopyJpg(data: TaxInvoiceCopySheetData, f
   try {
     root = createRoot(host);
     root.render(createElement(TaxInvoiceCopySheet, { data }));
+    await waitForFonts();
     await waitForPaint();
 
     const sheet = host.querySelector("[data-tax-invoice-copy-root]") as HTMLElement | null;
