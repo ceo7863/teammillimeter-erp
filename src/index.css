@@ -11653,8 +11653,13 @@ body.erp-col-resizing * {
   z-index: 100;
 }
 
-.erp-client-request-calendar-modal-backdrop[data-coarse-pointer="true"] {
+.erp-client-request-calendar-modal-backdrop[data-touch-device="true"] {
   cursor: default;
+}
+
+.erp-client-request-calendar-modal__head-actions.is-locked {
+  pointer-events: none;
+  opacity: 0.72;
 }
 
 .erp-ledger-modal {

@@ -11,8 +11,7 @@ function armSuppressUntil(ref: { current: number }, delayMs: number) {
   ref.current = performance.now() + delayMs;
 }
 
-/** Ignore backdrop dismiss briefly after open; block mobile ghost-tap close. */
-export function useBackdropCloseGuard(active: boolean, delayMs = 800) {
+export function useModalDismissGuard(active: boolean, delayMs = 900) {
   const suppressUntilRef = useRef(0);
   const wasActiveRef = useRef(false);
 
@@ -26,24 +25,43 @@ export function useBackdropCloseGuard(active: boolean, delayMs = 800) {
     armSuppressUntil(suppressUntilRef, delayMs);
   }, [active, delayMs]);
 
-  const canDismiss = useCallback(() => performance.now() >= suppressUntilRef.current, []);
-
-  return useCallback(
-    (event: PointerEvent, onClose: () => void) => {
-      if (event.target !== event.currentTarget) return;
-      if (!canDismiss()) return;
+  const guardedClose = useCallback(
+    (onClose: () => void) => {
+      if (performance.now() < suppressUntilRef.current) return;
       onClose();
     },
-    [canDismiss],
+    [],
   );
+
+  const interactionsLocked = active && performance.now() < suppressUntilRef.current;
+
+  return { guardedClose, suppressUntilRef, interactionsLocked };
 }
 
-/** Dismiss only when pointer down+up both start on backdrop (not ghost click from opener). */
-export function useBackdropPointerDismiss(active: boolean, onClose: () => void, delayMs = 800) {
+export function useIsTouchDevice() {
+  const [touch, setTouch] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const update = () => {
+      const coarse = window.matchMedia("(pointer: coarse)").matches;
+      const touchPoints = navigator.maxTouchPoints > 0;
+      setTouch(coarse || touchPoints);
+    };
+    update();
+    window.matchMedia("(pointer: coarse)").addEventListener("change", update);
+    return () => window.matchMedia("(pointer: coarse)").removeEventListener("change", update);
+  }, []);
+
+  return touch;
+}
+
+/** Dismiss backdrop only on desktop; touch devices use the close button. */
+export function useBackdropPointerDismiss(active: boolean, onClose: () => void, delayMs = 900) {
   const suppressUntilRef = useRef(0);
   const wasActiveRef = useRef(false);
   const pointerDownOnBackdropRef = useRef(false);
-  const isCoarsePointer = useIsCoarsePointer();
+  const isTouchDevice = useIsTouchDevice();
 
   if (active && !wasActiveRef.current) {
     armSuppressUntil(suppressUntilRef, delayMs);
@@ -61,34 +79,27 @@ export function useBackdropPointerDismiss(active: boolean, onClose: () => void, 
 
   const onPointerUp = useCallback(
     (event: PointerEvent) => {
-      if (isCoarsePointer) return;
+      if (isTouchDevice) return;
       if (!pointerDownOnBackdropRef.current) return;
       pointerDownOnBackdropRef.current = false;
       if (event.target !== event.currentTarget) return;
       if (performance.now() < suppressUntilRef.current) return;
       onClose();
     },
-    [isCoarsePointer, onClose],
+    [isTouchDevice, onClose],
   );
 
-  return { onPointerDown, onPointerUp, isCoarsePointer };
+  return { onPointerDown, onPointerUp, isTouchDevice };
 }
 
-export function useIsCoarsePointer() {
-  const [coarse, setCoarse] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const media = window.matchMedia("(pointer: coarse)");
-    const update = () => setCoarse(media.matches);
-    update();
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
-
-  return coarse;
-}
-
-export function deferAfterTouch(handler: () => void, delayMs = 50) {
+export function deferAfterTouch(handler: () => void, delayMs = 80) {
   window.setTimeout(handler, delayMs);
+}
+
+export function openCalendarForClient(
+  setCalendarModalClient: (value: { clientId: number | string; clientName: string }) => void,
+  clientId: number | string,
+  clientName: string,
+) {
+  deferAfterTouch(() => setCalendarModalClient({ clientId, clientName }), 80);
 }

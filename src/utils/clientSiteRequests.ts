@@ -156,9 +156,7 @@ export function openClientSiteRequestLink(url: string) {
   const normalized = String(url || "").trim();
   if (!normalized) return false;
   const opened = window.open(normalized, "_blank", "noopener,noreferrer");
-  if (!opened) {
-    window.location.assign(normalized);
-  }
+  if (!opened) return false;
   return true;
 }
 

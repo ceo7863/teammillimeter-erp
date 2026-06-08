@@ -11,7 +11,7 @@ import { formatClientSiteRequestWorkPeriod } from "@/utils/clientSiteRequests";
 import { formatClientSiteRequestDayLabel, shiftCalendarDate } from "@/utils/clientSiteRequestCalendar";
 import type { ScSchedule } from "@/utils/scSchedules";
 import { formatScScheduleHeadcount, formatScScheduleTimeRange } from "@/utils/scSchedules";
-import { useBackdropPointerDismiss } from "@/utils/modalBackdrop";
+import { useBackdropPointerDismiss, useModalDismissGuard } from "@/utils/modalBackdrop";
 
 const L = {
   close: "\uB2EB\uAE30",
@@ -48,7 +48,9 @@ export function ClientSiteRequestCalendarDayDrawer({
   onSelectRequest,
   elevated = false,
 }: ClientSiteRequestCalendarDayDrawerProps) {
-  const { onPointerDown, onPointerUp, isCoarsePointer } = useBackdropPointerDismiss(Boolean(date), onClose);
+  const { onPointerDown, onPointerUp, isTouchDevice } = useBackdropPointerDismiss(Boolean(date), onClose);
+  const { guardedClose } = useModalDismissGuard(Boolean(date));
+  const closeDrawer = () => guardedClose(onClose);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -67,7 +69,7 @@ export function ClientSiteRequestCalendarDayDrawer({
       className={`erp-csr-cal-drawer-backdrop${elevated ? " erp-csr-cal-drawer-backdrop--elevated" : ""}`}
       onPointerDown={onPointerDown}
       onPointerUp={onPointerUp}
-      data-coarse-pointer={isCoarsePointer ? "true" : undefined}
+      data-touch-device={isTouchDevice ? "true" : undefined}
     >
       <aside
         className="erp-csr-cal-drawer erp-calendar-side-panel"
@@ -98,7 +100,7 @@ export function ClientSiteRequestCalendarDayDrawer({
               <ChevronRight size={18} />
             </button>
           </div>
-          <Button variant="outline" size="sm" className="h-8 shrink-0 rounded-lg px-3 text-xs" onClick={onClose}>
+          <Button variant="outline" size="sm" className="h-8 shrink-0 rounded-lg px-3 text-xs" onClick={closeDrawer}>
             <X size={14} className="mr-1" />
             {L.close}
           </Button>

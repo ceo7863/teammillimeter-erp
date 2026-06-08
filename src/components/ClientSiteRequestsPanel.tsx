@@ -24,7 +24,7 @@ import {
   type ClientSiteRequestStatus,
 } from "@/utils/clientSiteRequests";
 import { ClientSiteRequestCalendarModal } from "@/components/ClientSiteRequestCalendarModal";
-import { deferAfterTouch } from "@/utils/modalBackdrop";
+import { deferAfterTouch, openCalendarForClient } from "@/utils/modalBackdrop";
 import { ClientSiteRequestChat } from "@/components/ClientSiteRequestChat";
 import {
   fetchScProjectMappingStatus,
@@ -176,7 +176,7 @@ function RequestCard({
 
   const openCalendar = () => {
     if (!onClientNameClick) return;
-    deferAfterTouch(() => onClientNameClick(request), 50);
+    deferAfterTouch(() => onClientNameClick(request), 80);
   };
 
   return (
@@ -605,6 +605,18 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
         ? links.find((link) => String(link.clientId) === String(calendarModalClient.clientId)) || null
         : null,
     [links, calendarModalClient],
+  );
+
+  const selectedClientLabel = useMemo(
+    () => clientOptions.find((option) => option.value === selectedClientId)?.label || "",
+    [clientOptions, selectedClientId],
+  );
+
+  const openClientCalendar = useCallback(
+    (clientId: number | string, clientName: string) => {
+      openCalendarForClient(setCalendarModalClient, clientId, clientName);
+    },
+    [],
   );
 
   const copyText = async (text: string) => {
@@ -1139,6 +1151,17 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
                         </td>
                         <td>
                           <div className="flex flex-wrap gap-1.5">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="rounded-lg"
+                              noFeedback
+                              onClick={() => openClientCalendar(link.clientId, link.clientName)}
+                            >
+                              <CalendarDays size={13} className="mr-1" />
+                              {L.calendarTitle}
+                            </Button>
                             <Button type="button" size="sm" variant="outline" className="rounded-lg" noFeedback onClick={() => openLink(link)}>
                               <Link2 size={13} className="mr-1" />
                               {L.openLink}
@@ -1199,12 +1222,39 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
                   </option>
                 ))}
               </select>
+              {selectedClientId ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="rounded-lg"
+                  noFeedback
+                  onClick={() => openClientCalendar(selectedClientId, selectedClientLabel)}
+                >
+                  <CalendarDays size={14} className="mr-1" />
+                  {L.calendarTitle}
+                </Button>
+              ) : null}
             </div>
 
             {loading && !requests.length ? (
               <p className="text-sm text-slate-500">{L.loading}</p>
             ) : activeTab === "inbox" && !inboxRequests.length ? (
-              <p className="text-sm text-slate-500">{L.emptyInbox}</p>
+              <div className="space-y-3">
+                <p className="text-sm text-slate-500">{L.emptyInbox}</p>
+                {selectedClientId ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="erp-touch-target rounded-xl"
+                    noFeedback
+                    onClick={() => openClientCalendar(selectedClientId, selectedClientLabel)}
+                  >
+                    <CalendarDays size={16} className="mr-1.5" />
+                    {L.calendarTitle}
+                  </Button>
+                ) : null}
+              </div>
             ) : activeTab === "done" && !doneRequests.length ? (
               <p className="text-sm text-slate-500">{L.emptyDone}</p>
             ) : (
@@ -1223,9 +1273,7 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
                     onSendMessage={handleSendStaffMessage}
                     onUpdateStatus={(row, status) => void handleUpdateStatus(row, status)}
                     onCompleteStep={(row, step) => void handleCompleteStep(row, step)}
-                    onClientNameClick={(row) =>
-                      setCalendarModalClient({ clientId: row.clientId, clientName: row.clientName })
-                    }
+                    onClientNameClick={(row) => openClientCalendar(row.clientId, row.clientName)}
                   />
                 ))}
               </div>

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import {
   type ClientSiteRequestLink,
 } from "@/utils/clientSiteRequests";
 import { fetchStaffScSchedules, type ScSchedule } from "@/utils/scSchedules";
-import { useBackdropPointerDismiss, deferAfterTouch } from "@/utils/modalBackdrop";
+import { useBackdropPointerDismiss, useModalDismissGuard } from "@/utils/modalBackdrop";
 
 const L = {
   title: "\uC811\uC218 \uCE98\uB9B0\uB354",
@@ -47,7 +47,20 @@ export function ClientSiteRequestCalendarModal({
   const [monthKey, setMonthKey] = useState(getCurrentMonthKey);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedRequestId, setSelectedRequestId] = useState("");
-  const { onPointerDown, onPointerUp, isCoarsePointer } = useBackdropPointerDismiss(open, onClose);
+  const { onPointerDown, onPointerUp, isTouchDevice } = useBackdropPointerDismiss(open, onClose);
+  const { guardedClose } = useModalDismissGuard(open);
+  const closeModal = () => guardedClose(onClose);
+  const [headerLocked, setHeaderLocked] = useState(false);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setHeaderLocked(false);
+      return;
+    }
+    setHeaderLocked(true);
+    const timer = window.setTimeout(() => setHeaderLocked(false), 900);
+    return () => window.clearTimeout(timer);
+  }, [open]);
 
   const loadCalendarData = useCallback(async () => {
     setLoading(true);
@@ -100,7 +113,7 @@ export function ClientSiteRequestCalendarModal({
       className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated erp-client-request-calendar-modal-backdrop"
       onPointerDown={onPointerDown}
       onPointerUp={onPointerUp}
-      data-coarse-pointer={isCoarsePointer ? "true" : undefined}
+      data-touch-device={isTouchDevice ? "true" : undefined}
     >
       <div
         className="erp-ledger-modal erp-client-request-calendar-modal"
@@ -118,14 +131,19 @@ export function ClientSiteRequestCalendarModal({
               {L.title}
             </h2>
             <p className="mt-1 text-sm font-bold text-slate-700">{clientName}</p>
+            {isTouchDevice ? (
+              <p className="mt-1 text-xs font-semibold text-slate-500">{"\uB2EB\uC744 \uB54C\uB294 \uC624\uB978\uC0C1\uB2E8 X \uBC84\uD2BC\uC744 \uC0AC\uC6A9\uD558\uC138\uC694."}</p>
+            ) : null}
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div
+            className={`erp-client-request-calendar-modal__head-actions flex shrink-0 items-center gap-2${headerLocked ? " is-locked" : ""}`}
+          >
             {publicUrl ? (
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
-                className="rounded-xl"
+                className="erp-client-request-calendar-modal__public-link rounded-xl"
                 noFeedback
                 onClick={() => openClientSiteRequestLink(publicUrl)}
               >
@@ -133,7 +151,7 @@ export function ClientSiteRequestCalendarModal({
                 {L.openLink}
               </Button>
             ) : null}
-            <button type="button" className="rounded-xl p-2 text-slate-400 hover:bg-slate-100" onClick={onClose} aria-label={L.closeAria}>
+            <button type="button" className="erp-touch-target rounded-xl p-2 text-slate-400 hover:bg-slate-100" onClick={closeModal} aria-label={L.closeAria}>
               <X size={18} />
             </button>
           </div>
@@ -144,10 +162,12 @@ export function ClientSiteRequestCalendarModal({
             <p className="py-8 text-center text-sm text-slate-500">{L.loading}</p>
           ) : error ? (
             <p className="py-8 text-center text-sm font-semibold text-red-600">{error}</p>
-          ) : !hasCalendarData ? (
-            <p className="py-8 text-center text-sm text-slate-500">{L.empty}</p>
           ) : (
-            <ClientSiteRequestCalendar
+            <>
+              {!hasCalendarData ? (
+                <p className="border-b border-slate-200 px-4 py-3 text-center text-sm text-slate-500">{L.empty}</p>
+              ) : null}
+              <ClientSiteRequestCalendar
               requests={requests}
               scSchedules={scSchedules}
               monthKey={monthKey}
@@ -174,6 +194,7 @@ export function ClientSiteRequestCalendarModal({
               selectedRequestId={selectedRequestId}
               onSelectRequest={setSelectedRequestId}
             />
+            </>
           )}
         </div>
       </div>
