@@ -2,6 +2,7 @@ import React from "react";
 import { Button } from "@/components/ui/button";
 import { formatKRW } from "@/utils/companyLedger";
 import type { TaxInvoiceIssuePreviewData } from "@/utils/taxInvoices";
+import { useBackdropPointerDismiss } from "@/utils/modalBackdrop";
 
 const L = {
   title: "\uACC4\uC0B0\uC11C \uBC1C\uD589 \uBBF8\uB9AC\uBCF4\uAE30",
@@ -51,13 +52,19 @@ export function TaxInvoiceIssuePreviewDialog({
   confirmLabel = L.issue,
   loading = false,
 }: TaxInvoiceIssuePreviewDialogProps) {
+  const { onPointerDown, onPointerUp, isTouchDevice } = useBackdropPointerDismiss(open, onClose);
+
   if (!open || !preview) return null;
 
   return (
-    <div className="erp-ledger-modal-backdrop" onClick={onClose}>
+    <div
+      className="erp-ledger-modal-backdrop"
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      data-touch-device={isTouchDevice ? "true" : undefined}
+    >
       <div
         className="erp-ledger-modal max-w-lg"
-        onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="tax-invoice-issue-preview-title"

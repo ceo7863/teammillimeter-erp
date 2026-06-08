@@ -36,8 +36,12 @@ import {
   type TaxInvoiceDocumentType,
   type TaxInvoiceIssuePreviewData,
 } from "@/utils/taxInvoices";
-import { validateBarobillTaxInvoiceIssueForm } from "@/utils/taxInvoiceIssueForm";
+import {
+  validateBarobillTaxInvoiceIssueForm,
+  validateTaxInvoiceIssuePreviewForm,
+} from "@/utils/taxInvoiceIssueForm";
 import { TaxInvoiceIssuePreviewDialog } from "@/components/TaxInvoiceIssuePreviewDialog";
+import { useBackdropPointerDismiss } from "@/utils/modalBackdrop";
 
 const L = {
   title: "\uC138\uAE08\uACC4\uC0B0\uC11C \uBC1C\uD589",
@@ -267,6 +271,12 @@ export function BankTaxInvoiceIssueModal({
   const [duplicateIssueConfirm, setDuplicateIssueConfirm] = useState<TaxInvoice[] | null>(null);
   const [issuePreviewOpen, setIssuePreviewOpen] = useState(false);
   const [issuePreviewData, setIssuePreviewData] = useState<TaxInvoiceIssuePreviewData | null>(null);
+  const { onPointerDown, onPointerUp, isTouchDevice } = useBackdropPointerDismiss(true, onClose);
+  const {
+    onPointerDown: onDuplicatePointerDown,
+    onPointerUp: onDuplicatePointerUp,
+    isTouchDevice: isDuplicateTouchDevice,
+  } = useBackdropPointerDismiss(Boolean(duplicateIssueConfirm), () => setDuplicateIssueConfirm(null));
 
   const isAdmin = currentUser?.role === "admin";
   const canIssueElectronically = Boolean(isAdmin && draft && sourceAmount > 0);
@@ -453,7 +463,7 @@ export function BankTaxInvoiceIssueModal({
 
   const openIssuePreview = () => {
     if (!draft) return;
-    const error = validateBarobillTaxInvoiceIssueForm(draft, { businessNo: L.barobillIssueBusinessNo });
+    const error = validateTaxInvoiceIssuePreviewForm(draft);
     if (error) {
       setFormError(error);
       return;
@@ -475,8 +485,13 @@ export function BankTaxInvoiceIssueModal({
 
   if (!draft) {
     return (
-      <div className="erp-ledger-modal-backdrop" onClick={onClose}>
-        <div className="erp-ledger-modal" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
+      <div
+        className="erp-ledger-modal-backdrop"
+        onPointerDown={onPointerDown}
+        onPointerUp={onPointerUp}
+        data-touch-device={isTouchDevice ? "true" : undefined}
+      >
+        <div className="erp-ledger-modal" role="dialog" aria-modal="true">
           <p className="text-sm text-slate-600">
             {unavailableMessage || (tx ? L.depositOnly : L.unavailable)}
           </p>
@@ -501,10 +516,14 @@ export function BankTaxInvoiceIssueModal({
         loading={issueLoading}
       />
       {duplicateIssueConfirm ? (
-        <div className="erp-ledger-modal-backdrop" onClick={() => setDuplicateIssueConfirm(null)}>
+        <div
+          className="erp-ledger-modal-backdrop"
+          onPointerDown={onDuplicatePointerDown}
+          onPointerUp={onDuplicatePointerUp}
+          data-touch-device={isDuplicateTouchDevice ? "true" : undefined}
+        >
           <div
             className="erp-ledger-modal"
-            onClick={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-labelledby="bank-tax-invoice-duplicate-title"
@@ -532,8 +551,13 @@ export function BankTaxInvoiceIssueModal({
           </div>
         </div>
       ) : null}
-      <div className="erp-ledger-modal-backdrop" onClick={onClose}>
-      <div className="erp-ledger-modal" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
+      <div
+        className="erp-ledger-modal-backdrop"
+        onPointerDown={onPointerDown}
+        onPointerUp={onPointerUp}
+        data-touch-device={isTouchDevice ? "true" : undefined}
+      >
+      <div className="erp-ledger-modal" role="dialog" aria-modal="true">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="erp-text-section font-bold">{L.title}</h2>
           <button type="button" className="rounded-xl p-2 text-slate-400 hover:bg-slate-100" onClick={onClose}>

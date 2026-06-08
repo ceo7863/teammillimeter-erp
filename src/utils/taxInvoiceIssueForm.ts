@@ -1,6 +1,15 @@
 import { validateInvoiceePartyForIssue } from "@/utils/clientMaster";
 import { validateTaxInvoiceInput, type TaxInvoiceIssueFormLike } from "@/utils/taxInvoices";
 
+export function validateTaxInvoiceIssuePreviewForm(draft: TaxInvoiceIssueFormLike) {
+  return validateTaxInvoiceInput({
+    issueDate: draft.issueDate,
+    client: draft.client,
+    supplyAmount: draft.supplyAmount,
+    totalAmount: draft.totalAmount,
+  });
+}
+
 export function validateBarobillTaxInvoiceIssueForm(
   draft: TaxInvoiceIssueFormLike,
   messages: { businessNo: string },

@@ -64,10 +64,14 @@ import {
 import { issueBarobillTaxInvoice } from "@/utils/barobillTaxInvoiceIssue";
 import { fetchBarobillChargeUrl } from "@/utils/barobillChargeUrl";
 import { extractClientTaxFields, resolveClientTaxInvoiceCorpName } from "@/utils/clientMaster";
-import { validateBarobillTaxInvoiceIssueForm } from "@/utils/taxInvoiceIssueForm";
+import {
+  validateBarobillTaxInvoiceIssueForm,
+  validateTaxInvoiceIssuePreviewForm,
+} from "@/utils/taxInvoiceIssueForm";
 import { TaxInvoiceIssuePreviewDialog } from "@/components/TaxInvoiceIssuePreviewDialog";
 import { useAudit } from "@/context/AuditContext";
 import { TAX_INVOICE_AUDIT_FIELDS, snapshotTaxInvoiceForAudit } from "@/utils/auditLog";
+import { useBackdropPointerDismiss } from "@/utils/modalBackdrop";
 
 type PeriodKey = "thisMonth" | "lastMonth" | "pickMonth" | "q1" | "q2" | "q3" | "q4" | "all" | "custom";
 type QuarterKey = "q1" | "q2" | "q3" | "q4";
@@ -468,6 +472,12 @@ export function TaxInvoicePage({
   const [issuePreviewOpen, setIssuePreviewOpen] = useState(false);
   const [issuePreviewData, setIssuePreviewData] = useState<TaxInvoiceIssuePreviewData | null>(null);
   const hometaxInputRef = useRef<HTMLInputElement>(null);
+  const { onPointerDown, onPointerUp, isTouchDevice } = useBackdropPointerDismiss(Boolean(modal), () => setModal(null));
+  const {
+    onPointerDown: onDuplicatePointerDown,
+    onPointerUp: onDuplicatePointerUp,
+    isTouchDevice: isDuplicateTouchDevice,
+  } = useBackdropPointerDismiss(Boolean(duplicateIssueConfirm), () => setDuplicateIssueConfirm(null));
 
   const isAdmin = currentUser?.role === "admin";
 
@@ -1025,7 +1035,7 @@ export function TaxInvoicePage({
       setFormError(L.barobillIssueSalesOnly);
       return;
     }
-    const error = validateBarobillTaxInvoiceIssueForm(modal, { businessNo: L.barobillIssueBusinessNo });
+    const error = validateTaxInvoiceIssuePreviewForm(modal);
     if (error) {
       setFormError(error);
       return;
@@ -1328,10 +1338,14 @@ export function TaxInvoicePage({
         loading={barobillIssueLoading}
       />
       {duplicateIssueConfirm ? (
-        <div className="erp-ledger-modal-backdrop" onClick={() => setDuplicateIssueConfirm(null)}>
+        <div
+          className="erp-ledger-modal-backdrop"
+          onPointerDown={onDuplicatePointerDown}
+          onPointerUp={onDuplicatePointerUp}
+          data-touch-device={isDuplicateTouchDevice ? "true" : undefined}
+        >
           <div
             className="erp-ledger-modal"
-            onClick={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-labelledby="tax-invoice-duplicate-title"
@@ -1790,8 +1804,13 @@ export function TaxInvoicePage({
       </Card>
 
       {modal ? (
-        <div className="erp-ledger-modal-backdrop" onClick={() => setModal(null)}>
-          <div className="erp-ledger-modal" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
+        <div
+          className="erp-ledger-modal-backdrop"
+          onPointerDown={onPointerDown}
+          onPointerUp={onPointerUp}
+          data-touch-device={isTouchDevice ? "true" : undefined}
+        >
+          <div className="erp-ledger-modal" role="dialog" aria-modal="true">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="erp-text-section font-bold">{modal.mode === "create" ? L.createTitle : L.editTitle}</h2>
               <button type="button" className="rounded-xl p-2 text-slate-400 hover:bg-slate-100" onClick={() => setModal(null)}>
