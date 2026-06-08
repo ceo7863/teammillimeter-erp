@@ -5268,7 +5268,6 @@ export function BankTransactionsPage({
           getParsedTable={getBankTransactionsExportParsed}
         >
           <BankTransactionListSection
-            key={`bank-list-${bankListRefreshAt || "initial"}-${bankTransactions.length}`}
             rows={deferredFilteredRows}
             accountSubjectLabels={accountSubjectLabels}
             folderMap={folderMap}

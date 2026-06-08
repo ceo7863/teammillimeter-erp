@@ -158,7 +158,9 @@ import { ClientListExport } from "@/components/ClientListExport";
 import { buildClientLastSaleDateMap } from "@/utils/clientListExport";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { PageKeepAlive } from "@/components/PageKeepAlive";
+import { ErpSyncStatusLine } from "@/components/ErpSyncStatusLine";
 import { useBankSyncPoll } from "@/hooks/useBankSyncPoll";
+import { clearErpSyncStatus, setErpSyncStatus } from "@/utils/erpSyncStatus";
 import { useBankAutoSync } from "@/hooks/useBankAutoSync";
 import { DesktopTableWrap, MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
 import { AutocompleteInput, AutocompleteSelect, BufferedTextInput } from "@/components/AutocompleteInput";
@@ -352,6 +354,7 @@ const initialWorkers = [
 const STORAGE_KEY = "teammillimeter-erp-stable-v1";
 const SESSION_USER_KEY = "teammillimeter-erp-session";
 const ACTIVE_TAB_KEY = "teammillimeter-erp-active-tab";
+const ERP_AUTOSAVE_DEBOUNCE_MS = 2500;
 
 function migrateStoredActiveTab(stored: string) {
   const accounting = migrateActivePageKey(stored);
@@ -2821,7 +2824,6 @@ function Sidebar({
   onOpenMenuOrder,
   mobileOpen,
   onMobileClose,
-  syncStatus,
   pageBadges = {},
 }) {
   const items = sortPageDefsByOrder(getAccessiblePageDefs(currentUser), sidebarOrder).map((page) => [
@@ -2902,7 +2904,7 @@ function Sidebar({
           <div className="erp-text-caption mt-1 text-slate-400">{currentUser.loginId || currentUser.email || ""}</div>
           <div className="erp-text-caption mt-1 text-slate-500">내 계정</div>
         </button>
-        {syncStatus && <div className="erp-text-caption mt-2 text-emerald-400">{syncStatus}</div>}
+        <ErpSyncStatusLine />
         <button type="button" className="erp-sidebar-footer-btn erp-text-body mt-3" onClick={onLogout}>
           <LogOut size={15} /> 로그아웃
         </button>
@@ -7166,9 +7168,16 @@ export default function TeammillimeterErpMvp() {
   const sessionOnMount = loadSessionUser();
   const [currentUser, setCurrentUser] = useState(() => sessionOnMount);
   const [dataReady, setDataReady] = useState(() => !apiMode || !sessionOnMount);
-  const [syncStatus, setSyncStatus] = useState("");
   const [erpVersion, setErpVersion] = useState(0);
   const erpVersionRef = useRef(0);
+  const publishErpVersion = useCallback((version: number) => {
+    erpVersionRef.current = version;
+    startTransition(() => {
+      setErpVersion((prev) => (prev === version ? prev : version));
+    });
+  }, []);
+  const publishErpVersionRef = useRef(publishErpVersion);
+  publishErpVersionRef.current = publishErpVersion;
   const skipSaveRef = useRef(true);
   const pendingLocalEditsRef = useRef(false);
   const workerPersistInFlightRef = useRef(false);
@@ -7545,8 +7554,7 @@ export default function TeammillimeterErpMvp() {
     setStatementGenerationLogs(normalizeStatementGenerationLogs(data.statementGenerationLogs));
     setStatementFolders(normalizeStatementFolders(data.statementFolders));
     setCompanyProfile(normalizeCompanyProfile(data.companyProfile));
-    erpVersionRef.current = data.version ?? 0;
-    setErpVersion(data.version ?? 0);
+    publishErpVersion(data.version ?? 0);
     bankTransactionsDirtyRef.current = false;
     skipSaveRef.current = true;
   };
@@ -7560,7 +7568,7 @@ export default function TeammillimeterErpMvp() {
         const data = await fetchErpData();
         if (cancelled) return;
         applyFetchedErpData(data);
-        setSyncStatus("");
+        clearErpSyncStatus();
         setDataReady(true);
       } catch (error) {
         console.error(error);
@@ -7599,8 +7607,7 @@ export default function TeammillimeterErpMvp() {
       const nextMemos = mergeWorkerMonthlyPaymentMemosForSave(serverMemos, workerMonthlyPaymentMemosRef.current);
       workerMonthlyPaymentMemosRef.current = nextMemos;
       setWorkerMonthlyPaymentMemos(nextMemos);
-      erpVersionRef.current = data.version ?? erpVersionRef.current;
-      setErpVersion(data.version ?? erpVersionRef.current);
+      publishErpVersion(data.version ?? erpVersionRef.current);
     } catch (error) {
       console.error(error);
     }
@@ -7739,24 +7746,24 @@ export default function TeammillimeterErpMvp() {
       ) {
         return false;
       }
+      setErpSyncStatus("저장 중...");
       try {
         const result = await saveErpData(savePayload);
-        erpVersionRef.current = result.version;
-        setErpVersion(result.version);
+        publishErpVersion(result.version);
         if (Array.isArray(savePayload.bankTransactions)) {
           bankTransactionsDirtyRef.current = false;
         }
         if (shouldReleasePendingLocalEdits()) {
           pendingLocalEditsRef.current = false;
         }
-        setSyncStatus("저장됨");
+        setErpSyncStatus("저장됨");
         return true;
       } catch (error) {
         const err = error as Error & { status?: number };
         if (err.status === 409) {
           try {
             const latest = await fetchErpData();
-            erpVersionRef.current = latest.version ?? 0;
+            publishErpVersion(latest.version ?? 0);
             const mergedSales = mergeSalesByUpdatedAt(latest.sales || [], savePayload.sales || []);
             savePayload.sales = mergedSales;
             setSales((prev) => normalizeSalesRecords(mergeSalesByUpdatedAt(latest.sales || [], prev), latest.workers?.length ? latest.workers : workers));
@@ -7814,21 +7821,20 @@ export default function TeammillimeterErpMvp() {
             savePayload.version = erpVersionRef.current;
             skipSaveRef.current = true;
             const retry = await saveErpData(savePayload);
-            erpVersionRef.current = retry.version;
-            setErpVersion(retry.version);
+            publishErpVersion(retry.version);
             if (shouldReleasePendingLocalEdits()) {
               pendingLocalEditsRef.current = false;
             }
-            setSyncStatus("저장됨");
+            setErpSyncStatus("저장됨");
             return true;
           } catch (retryError) {
             console.error(retryError);
-            setSyncStatus("충돌 — 새로고침 필요");
+            setErpSyncStatus("충돌 — 새로고침 필요");
             window.alert("다른 사용자가 먼저 저장했습니다. 새로고침(F5) 후 다시 시도해 주세요.");
             return false;
           }
         }
-        setSyncStatus("저장 실패");
+        setErpSyncStatus("저장 실패");
         return false;
       }
     },
@@ -7859,7 +7865,6 @@ export default function TeammillimeterErpMvp() {
         window.clearTimeout(saveDebounceTimerRef.current);
         saveDebounceTimerRef.current = null;
       }
-      setSyncStatus("저장 중...");
       try {
         const saved = await persistErpSave(buildErpSavePayload(normalizedPatch), {
           // skipSaveRef blocks debounced autosave during local edits; explicit flush must still run.
@@ -8104,7 +8109,7 @@ export default function TeammillimeterErpMvp() {
       }
 
       try {
-        setSyncStatus("저장 중...");
+        setErpSyncStatus("저장 중...");
         const saveMemo = async (version: number) =>
           saveWorkerMonthlyPaymentMemoApi(workerId, trimmed, version);
 
@@ -8115,23 +8120,21 @@ export default function TeammillimeterErpMvp() {
           const err = error as Error & { status?: number };
           if (err.status !== 409) throw error;
           const latest = await fetchErpData();
-          erpVersionRef.current = latest.version ?? 0;
-          setErpVersion(latest.version ?? 0);
+          publishErpVersion(latest.version ?? 0);
           result = await saveMemo(erpVersionRef.current);
         }
 
-        erpVersionRef.current = result.version;
-        setErpVersion(result.version);
+        publishErpVersion(result.version);
         if (result.workerMonthlyPaymentMemos) {
           const confirmedMemos = normalizeWorkerMonthlyPaymentMemos(result.workerMonthlyPaymentMemos);
           workerMonthlyPaymentMemosRef.current = confirmedMemos;
           setWorkerMonthlyPaymentMemos(confirmedMemos);
         }
-        setSyncStatus("저장됨");
+        setErpSyncStatus("저장됨");
         return true;
       } catch (error) {
         console.error(error);
-        setSyncStatus("저장 실패");
+        setErpSyncStatus("저장 실패");
         return false;
       } finally {
         workerMonthlyPersistInFlightRef.current = false;
@@ -8390,7 +8393,6 @@ export default function TeammillimeterErpMvp() {
       return;
     }
     pendingLocalEditsRef.current = true;
-    setSyncStatus("저장 중...");
     if (saveDebounceTimerRef.current) {
       window.clearTimeout(saveDebounceTimerRef.current);
     }
@@ -8398,7 +8400,7 @@ export default function TeammillimeterErpMvp() {
       saveDebounceTimerRef.current = null;
       if (skipSaveRef.current || bankSyncApplyingRef.current) return;
       void persistErpSave(buildErpSavePayload());
-    }, 900);
+    }, ERP_AUTOSAVE_DEBOUNCE_MS);
     return () => {
       if (saveDebounceTimerRef.current) {
         window.clearTimeout(saveDebounceTimerRef.current);
@@ -8585,7 +8587,7 @@ export default function TeammillimeterErpMvp() {
     if (apiMode) clearAuthSession();
     else saveSessionUser(null);
     setCurrentUser(null);
-    setSyncStatus("");
+    clearErpSyncStatus();
     setDataReady(!apiMode);
   };
 
@@ -8773,8 +8775,7 @@ export default function TeammillimeterErpMvp() {
         applied = true;
       }
       if (applied) {
-        erpVersionRef.current = data.version ?? erpVersionRef.current;
-        setErpVersion(data.version ?? erpVersionRef.current);
+        publishErpVersionRef.current(data.version ?? erpVersionRef.current);
         const importAt = String(data.bankSyncMeta?.lastImportAt || "").trim();
         if (importAt) {
           bankImportAtRef.current = importAt;
@@ -8856,8 +8857,7 @@ export default function TeammillimeterErpMvp() {
       bankSyncMeta?: { lastImportAt?: string | null } | null;
     }) => {
       if (syncResult?.version != null && syncResult.version > erpVersionRef.current) {
-        erpVersionRef.current = syncResult.version;
-        setErpVersion(syncResult.version);
+        publishErpVersion(syncResult.version);
       }
       if (Array.isArray(syncResult?.bankTransactions)) {
         return applyRemoteBankSnapshot({
@@ -8885,7 +8885,7 @@ export default function TeammillimeterErpMvp() {
 
   useBankSyncPoll({
     enabled: apiMode && dataReady && Boolean(currentUser) && !(active === "accounting" && bankTabActive),
-    sinceVersion: erpVersion,
+    sinceVersionRef: erpVersionRef,
     localTransactionCount: bankTransactions.length,
     localLatestTransactionAt: bankLatestTransactionAt,
     localImportAt: bankImportAt,
@@ -8945,7 +8945,6 @@ export default function TeammillimeterErpMvp() {
         }}
         mobileOpen={sidebarOpen}
         onMobileClose={() => setSidebarOpen(false)}
-        syncStatus={apiMode ? syncStatus : ""}
         pageBadges={{
           clientSiteRequests: clientSiteRequestPendingCount,
           saleComments: unreadSaleCommentCount,
@@ -9159,10 +9158,7 @@ export default function TeammillimeterErpMvp() {
               bankTransactions,
               currentUser,
               erpVersion,
-              onErpVersionChange: (version) => {
-                erpVersionRef.current = version;
-                setErpVersion(version);
-              },
+              onErpVersionChange: publishErpVersion,
             }}
             classify={{
               accountCodes,
@@ -9250,10 +9246,7 @@ export default function TeammillimeterErpMvp() {
                 userAdminTabAccess.notify ? (
                   <NotificationSettingsPage
                     erpVersion={erpVersion}
-                    onErpVersionChange={(version) => {
-                      erpVersionRef.current = version;
-                      setErpVersion(version);
-                    }}
+                    onErpVersionChange={publishErpVersion}
                   />
                 ) : null
               }

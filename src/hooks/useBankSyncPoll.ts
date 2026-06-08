@@ -10,7 +10,7 @@ function normalizeBankSyncAt(value: string) {
 
 type UseBankSyncPollOptions = {
   enabled: boolean;
-  sinceVersion: number;
+  sinceVersionRef: React.RefObject<number>;
   localTransactionCount: number;
   localLatestTransactionAt?: string;
   localImportAt?: string;
@@ -21,23 +21,18 @@ type UseBankSyncPollOptions = {
 /** Lightweight server-only poll; never calls Barobill or folder sync APIs. */
 export function useBankSyncPoll({
   enabled,
-  sinceVersion,
+  sinceVersionRef,
   localTransactionCount,
   localLatestTransactionAt = "",
   localImportAt = "",
   onRefresh,
   intervalMs = 30000,
 }: UseBankSyncPollOptions) {
-  const sinceVersionRef = React.useRef(sinceVersion);
   const localCountRef = React.useRef(localTransactionCount);
   const localLatestAtRef = React.useRef(localLatestTransactionAt);
   const localImportAtRef = React.useRef(localImportAt);
   const onRefreshRef = React.useRef(onRefresh);
   const tickingRef = React.useRef(false);
-
-  React.useEffect(() => {
-    sinceVersionRef.current = sinceVersion;
-  }, [sinceVersion]);
 
   React.useEffect(() => {
     localCountRef.current = localTransactionCount;
@@ -107,7 +102,7 @@ export function useBankSyncPoll({
     } finally {
       tickingRef.current = false;
     }
-  }, [enabled]);
+  }, [enabled, sinceVersionRef]);
 
   React.useEffect(() => {
     if (!enabled) return;
