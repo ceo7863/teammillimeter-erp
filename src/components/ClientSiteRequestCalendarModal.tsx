@@ -47,6 +47,7 @@ export function ClientSiteRequestCalendarModal({
   const [monthKey, setMonthKey] = useState(getCurrentMonthKey);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedRequestId, setSelectedRequestId] = useState("");
+  const handleBackdropClose = useBackdropCloseGuard(open);
 
   const loadCalendarData = useCallback(async () => {
     setLoading(true);

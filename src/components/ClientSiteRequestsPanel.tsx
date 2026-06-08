@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, Copy, Link2, RefreshCw, RotateCcw, X } from "lucide-react";
+import { CalendarDays, Check, Copy, Link2, RefreshCw, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -746,6 +746,7 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
   ];
 
   return (
+    <>
     <Card className="rounded-2xl shadow-sm">
       <CardContent className="space-y-5 p-4 md:p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -1209,6 +1210,8 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
         )}
       </CardContent>
 
+    </Card>
+
       {calendarModalClient ? (
         <ClientSiteRequestCalendarModal
           open
@@ -1218,6 +1221,6 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
           onClose={() => setCalendarModalClient(null)}
         />
       ) : null}
-    </Card>
+    </>
   );
 }
