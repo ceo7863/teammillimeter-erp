@@ -182,7 +182,7 @@ const L = {
   amountHint: "\uACF5\uAE09\uAC00\uC561 \uB610\uB294 \uBD80\uAC00\uC138 \uD3EC\uD568 \uAE08\uC561 \uC911 \uD558\uB098\uB97C \uC785\uB825\uD558\uBA74 \uC790\uB3D9 \uACC4\uC0B0\uB429\uB2C8\uB2E4.",
   invoiceNo: "\uBB38\uC11C\uBC88\uD638",
   memo: "\uBA54\uBAA8",
-  ntsSendOption: "\uAD6D\uC138\uCCAD \uC804\uC1A1",
+  ntsSendOption: "\uAD6D\uC138\uCCAD \uC804\uC1A1 (\uBC14\uB85C\uBC1C\uAE09/\uC775\uC77C\uBC1C\uAE09)",
   ntsSendOptionLoading: "\uBC14\uB85C\uBE4C \uC804\uC1A1 \uC635\uC158 \uBD88\uB7EC\uC624\uB294 \uC911...",
   status: "\uC0C1\uD0DC",
   author: "\uB4F1\uB85D\uC790",
@@ -1890,33 +1890,6 @@ export function TaxInvoicePage({
                   </select>
                 </Field>
               </div>
-              {canIssueElectronically ? (
-                <Field label={L.ntsSendOption}>
-                  <select
-                    className="erp-input w-full rounded-2xl border bg-white px-3 py-2.5"
-                    value={modal.ntsSendOption}
-                    disabled={issueOptionsLoading || !issueOptions}
-                    onChange={(event) =>
-                      setModal((prev) =>
-                        prev ? { ...prev, ntsSendOption: Number(event.target.value) || 1 } : prev,
-                      )
-                    }
-                  >
-                    {(issueOptions?.ntsSendOptions || [{ value: 1, label: "\uBC14\uB85C\uBC1C\uAE09", description: "" }]).map(
-                      (option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.description ? `${option.label} (${option.description})` : option.label}
-                        </option>
-                      ),
-                    )}
-                  </select>
-                  {issueOptionsLoading ? (
-                    <p className="mt-1 erp-text-caption text-slate-500">{L.ntsSendOptionLoading}</p>
-                  ) : issueOptionsError ? (
-                    <p className="mt-1 erp-text-caption text-rose-600">{issueOptionsError}</p>
-                  ) : null}
-                </Field>
-              ) : null}
               <Field label={L.client}>
                 <AutocompleteInput
                   className="erp-input w-full rounded-2xl border px-3 py-2.5"
@@ -2068,6 +2041,33 @@ export function TaxInvoicePage({
                 />
               </Field>
               {formError ? <p className="text-sm font-semibold text-red-600">{formError}</p> : null}
+              {canIssueElectronically ? (
+                <Field label={L.ntsSendOption}>
+                  <select
+                    className="erp-input w-full rounded-2xl border bg-white px-3 py-2.5"
+                    value={modal.ntsSendOption}
+                    disabled={issueOptionsLoading || !issueOptions}
+                    onChange={(event) =>
+                      setModal((prev) =>
+                        prev ? { ...prev, ntsSendOption: Number(event.target.value) || 1 } : prev,
+                      )
+                    }
+                  >
+                    {(issueOptions?.ntsSendOptions || [{ value: 1, label: "\uBC14\uB85C\uBC1C\uAE09", description: "" }]).map(
+                      (option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.description ? `${option.label} (${option.description})` : option.label}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                  {issueOptionsLoading ? (
+                    <p className="mt-1 erp-text-caption text-slate-500">{L.ntsSendOptionLoading}</p>
+                  ) : issueOptionsError ? (
+                    <p className="mt-1 erp-text-caption text-rose-600">{issueOptionsError}</p>
+                  ) : null}
+                </Field>
+              ) : null}
               {canIssueElectronically ? (
                 <p className="text-sm text-slate-500">{L.barobillIssueHint}</p>
               ) : null}
