@@ -103,7 +103,7 @@ const L = {
   scSync: "SC \uB3D9\uAE30\uD654",
   scSyncing: "\uB3D9\uAE30\uD654 \uC911...",
   scSyncDone: (count: number) => `SC \uC77C\uC815 ${count}\uAC74 \uB3D9\uAE30\uD654\uD588\uC2B5\uB2C8\uB2E4.`,
-  scSyncNotConfigured: "SC_DATABASE_URL \uBBF8\uC124\uC815",
+  scSyncNotConfigured: "SC \uB3D9\uAE30\uD654 \uC124\uC815 \uBBF8\uC644\uB8CC",
   scMapping: "SC \uAC70\uB798\uCC98 \uB9E4\uCE6D",
   scMappingTitle: "SC \uAC70\uB798\uCC98 \uC218\uB3D9 \uB9E4\uCE6D",
   scMappingDesc:

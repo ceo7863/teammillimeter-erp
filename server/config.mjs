@@ -71,6 +71,9 @@ export const config = {
   sc: {
     /** SC(office) PostgreSQL read-only connection — Vercel/Neon DATABASE_URL */
     databaseUrl: process.env.SC_DATABASE_URL || "",
+    /** SC HTTP export (when DB URL is unavailable on ERP server) */
+    apiBaseUrl: process.env.SC_API_BASE_URL || "https://sc.teammillimeter.com",
+    syncSecret: process.env.SC_SYNC_SECRET || "",
     syncEnabled: parseEnvBool(process.env.SC_SCHEDULE_SYNC_ENABLED, true),
     /** 자동 동기화 주기(ms). 기본 15분 */
     syncIntervalMs: Number(process.env.SC_SCHEDULE_SYNC_INTERVAL_MS || 900000),

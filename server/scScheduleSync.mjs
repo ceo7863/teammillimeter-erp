@@ -70,6 +70,48 @@ function syncWindowMonths() {
   return { ranges, start: first.start, end: last.end };
 }
 
+export function isScScheduleSourceConfigured() {
+  if (String(config.sc.databaseUrl || "").trim()) return true;
+  return (
+    Boolean(String(config.sc.apiBaseUrl || "").trim()) &&
+    Boolean(String(config.sc.syncSecret || "").trim())
+  );
+}
+
+async function fetchScDataFromApi(start, end) {
+  const base = String(config.sc.apiBaseUrl || "").trim().replace(/\/$/, "");
+  const secret = String(config.sc.syncSecret || "").trim();
+  if (!base || !secret) {
+    throw new Error("SC API sync is not configured");
+  }
+  const startKey = formatUtcDate(start);
+  const endKey = formatUtcDate(end);
+  const url = `${base}/api/erp/schedule-export?start=${encodeURIComponent(startKey)}&end=${encodeURIComponent(endKey)}`;
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${secret}` },
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`SC API ${response.status}${body ? `: ${body.slice(0, 200)}` : ""}`);
+  }
+  return response.json();
+}
+
+async function loadScProjectsAndSchedules(start, end) {
+  if (String(config.sc.databaseUrl || "").trim()) {
+    return withScPool(async (pool) => ({
+      projects: await fetchScProjects(pool),
+      schedules: await fetchScSchedules(pool, start, end),
+    }));
+  }
+  const payload = await fetchScDataFromApi(start, end);
+  return {
+    projects: Array.isArray(payload?.projects) ? payload.projects : [],
+    schedules: Array.isArray(payload?.schedules) ? payload.schedules : [],
+  };
+}
+
 async function withScPool(callback) {
   const url = String(config.sc.databaseUrl || "").trim();
   if (!url) {
@@ -253,8 +295,10 @@ function buildScProjectMappingStatus(clients, projects) {
 async function resolveScProjectsForMapping(data) {
   const stored = listStoredScProjects(data);
   if (stored.length) return stored;
-  if (!String(config.sc.databaseUrl || "").trim()) return [];
-  return withScPool(fetchScProjects);
+  if (!isScScheduleSourceConfigured()) return [];
+  const { start, end } = syncWindowMonths();
+  const result = await loadScProjectsAndSchedules(start, end);
+  return result.projects;
 }
 
 export async function listScProjectMappingStatus() {
@@ -265,7 +309,7 @@ export async function listScProjectMappingStatus() {
   const status = buildScProjectMappingStatus(clients, projects);
   return {
     ok: true,
-    configured: Boolean(String(config.sc.databaseUrl || "").trim()),
+    configured: isScScheduleSourceConfigured(),
     ...status,
   };
 }
@@ -492,7 +536,7 @@ export function getScScheduleSyncStatus() {
   const state = getErpState();
   const meta = state.data?.scScheduleSyncMeta || {};
   return {
-    configured: Boolean(String(config.sc.databaseUrl || "").trim()),
+    configured: isScScheduleSourceConfigured(),
     enabled: config.sc.syncEnabled,
     intervalMs: config.sc.syncIntervalMs,
     ...meta,
@@ -503,7 +547,7 @@ export async function runScScheduleSync(options = {}) {
   if (!config.sc.syncEnabled) {
     return { ok: false, skipped: true, reason: "sc_sync_disabled" };
   }
-  if (!String(config.sc.databaseUrl || "").trim()) {
+  if (!isScScheduleSourceConfigured()) {
     return { ok: false, skipped: true, reason: "not_configured" };
   }
   if (syncRunning) {
@@ -514,11 +558,7 @@ export async function runScScheduleSync(options = {}) {
   const runAt = new Date().toISOString();
   try {
     const { start, end } = syncWindowMonths();
-    const result = await withScPool(async (pool) => {
-      const projects = await fetchScProjects(pool);
-      const schedules = await fetchScSchedules(pool, start, end);
-      return { projects, schedules };
-    });
+    const result = await loadScProjectsAndSchedules(start, end);
 
     const state = getErpState();
     const data = state.data || {};
@@ -592,7 +632,7 @@ export function listStoredScSchedules({ clientId, monthKey } = {}) {
 export function startScScheduleSyncScheduler() {
   if (intervalHandle) return;
   if (!config.sc.syncEnabled || config.sc.syncIntervalMs <= 0) return;
-  if (!String(config.sc.databaseUrl || "").trim()) return;
+  if (!isScScheduleSourceConfigured()) return;
 
   intervalHandle = setInterval(() => {
     void runScScheduleSync({ updatedBy: "sc-schedule-sync:scheduler" }).catch((error) => {
