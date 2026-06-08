@@ -14,6 +14,7 @@ import {
   type ClientSiteRequestLink,
 } from "@/utils/clientSiteRequests";
 import { fetchStaffScSchedules, type ScSchedule } from "@/utils/scSchedules";
+import { useBodyScrollLock } from "@/utils/bodyScrollLock";
 import { useBackdropPointerDismiss, useModalDismissGuard } from "@/utils/modalBackdrop";
 
 const L = {
@@ -93,14 +94,7 @@ export function ClientSiteRequestCalendarModal({
     void loadCalendarData();
   }, [open, loadCalendarData]);
 
-  useEffect(() => {
-    if (!open) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [open]);
+  useBodyScrollLock(open);
 
   if (!open) return null;
 

@@ -2,6 +2,8 @@
 
 html {
   font-size: clamp(13px, 12px + 0.28vw, 14px);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 @media (min-width: 1280px) {
@@ -1995,7 +1997,11 @@ textarea {
 }
 
 @media (max-width: 767px) {
-  .erp-input:not(.erp-input-compact) {
+  .erp-input:not(.erp-input-compact),
+  .erp-page .erp-input:not(.erp-input-compact),
+  .erp-page .erp-date-input-trigger:not(.erp-input-compact),
+  .erp-page select:not(.erp-input-compact),
+  .erp-page textarea {
     font-size: 16px;
   }
 
@@ -2006,9 +2012,7 @@ textarea {
   .erp-payment-hub-filters .erp-input,
   .erp-payment-hub-filters .erp-date-input-trigger,
   .erp-statement-filters .erp-input,
-  .erp-statement-filters .erp-date-input-trigger,
-  .erp-page .erp-input:not(.erp-input-compact),
-  .erp-page .erp-date-input-trigger:not(.erp-input-compact) {
+  .erp-statement-filters .erp-date-input-trigger {
     font-size: 0.75rem;
   }
 }
