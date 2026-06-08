@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { History, X } from "lucide-react";
 import { useAudit } from "@/context/AuditContext";
 import { formatAuditDateTime, type AuditLogEntry } from "@/utils/auditLog";
@@ -70,8 +70,17 @@ function AuditHistoryModal({
 }
 
 export function AuditField({ label, entityType, entityId, field, children, className = "" }: AuditFieldProps) {
-  const { getFieldHistory, getLatestFieldAudit } = useAudit();
+  const { auditLogs, getFieldHistory, getLatestFieldAudit } = useAudit();
   const [open, setOpen] = useState(false);
+
+  const history = useMemo(
+    () => (entityId == null || entityId === "" ? [] : getFieldHistory(entityType, entityId, field)),
+    [auditLogs, entityId, entityType, field, getFieldHistory],
+  );
+  const latest = useMemo(
+    () => (entityId == null || entityId === "" ? null : getLatestFieldAudit(entityType, entityId, field)),
+    [auditLogs, entityId, entityType, field, getLatestFieldAudit],
+  );
 
   if (entityId == null || entityId === "") {
     return (
@@ -81,9 +90,6 @@ export function AuditField({ label, entityType, entityId, field, children, class
       </label>
     );
   }
-
-  const history = getFieldHistory(entityType, entityId, field);
-  const latest = getLatestFieldAudit(entityType, entityId, field);
 
   return (
     <>
@@ -164,13 +170,19 @@ export function AuditCellHint({
   field: string;
   fieldLabel: string;
 }) {
-  const { getFieldHistory, getLatestFieldAudit } = useAudit();
+  const { auditLogs, getFieldHistory, getLatestFieldAudit } = useAudit();
   const [open, setOpen] = useState(false);
 
-  if (entityId == null || entityId === "") return null;
+  const history = useMemo(
+    () => (entityId == null || entityId === "" ? [] : getFieldHistory(entityType, entityId, field)),
+    [auditLogs, entityId, entityType, field, getFieldHistory],
+  );
+  const latest = useMemo(
+    () => (entityId == null || entityId === "" ? null : getLatestFieldAudit(entityType, entityId, field)),
+    [auditLogs, entityId, entityType, field, getLatestFieldAudit],
+  );
 
-  const history = getFieldHistory(entityType, entityId, field);
-  const latest = getLatestFieldAudit(entityType, entityId, field);
+  if (entityId == null || entityId === "") return null;
   if (!history.length) return null;
 
   return (

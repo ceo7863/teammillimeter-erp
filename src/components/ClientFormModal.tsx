@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { memo, useCallback, useState } from "react";
 import { FileSearch, FileText, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -77,7 +77,7 @@ type ClientFormModalProps = {
   onImportApply?: (next: ClientFormState, sourceFile: File | null) => void | Promise<void>;
 };
 
-export function ClientFormModal({
+export const ClientFormModal = memo(function ClientFormModal({
   open,
   editingId,
   form,
@@ -91,6 +91,10 @@ export function ClientFormModal({
   onImportApply,
 }: ClientFormModalProps) {
   const [importOpen, setImportOpen] = useState(false);
+  const handleContactsChange = useCallback(
+    (contacts: ClientContact[]) => onUpdate("contacts", contacts),
+    [onUpdate],
+  );
 
   if (!open) return null;
 
@@ -174,10 +178,7 @@ export function ClientFormModal({
           </div>
           <div className="sm:col-span-2 xl:col-span-4">
             <AuditField label={L.contactsLabel} entityType="client" entityId={editingId} field="manager">
-              <ClientContactsEditor
-                contacts={form.contacts}
-                onChange={(contacts) => onUpdate("contacts", contacts)}
-              />
+              <ClientContactsEditor contacts={form.contacts} onChange={handleContactsChange} />
             </AuditField>
           </div>
           <AuditField label={clientFieldLabel("constructionCost")} entityType="client" entityId={editingId} field="constructionCost">
@@ -282,4 +283,4 @@ export function ClientFormModal({
     />
     </>
   );
-}
+});

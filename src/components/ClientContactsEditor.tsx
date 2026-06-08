@@ -1,4 +1,4 @@
-import React from "react";
+import React, { memo, useCallback, useRef } from "react";
 import { Plus, Star, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,30 +21,49 @@ type ClientContactsEditorProps = {
   onChange: (contacts: ClientContact[]) => void;
 };
 
-export function ClientContactsEditor({ contacts, onChange }: ClientContactsEditorProps) {
-  const rows = contacts.length ? contacts : [{ id: newClientContactId(), name: "", phone: "", isPrimary: true }];
+function createEmptyContactRow(): ClientContact {
+  return { id: newClientContactId(), name: "", phone: "", isPrimary: true };
+}
 
-  const updateRow = (index: number, patch: Partial<ClientContact>) => {
-    onChange(rows.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)));
-  };
+export const ClientContactsEditor = memo(function ClientContactsEditor({
+  contacts,
+  onChange,
+}: ClientContactsEditorProps) {
+  const fallbackRowRef = useRef<ClientContact>(createEmptyContactRow());
+  const rows = contacts.length ? contacts : [fallbackRowRef.current];
 
-  const setPrimary = (index: number) => {
-    onChange(rows.map((row, rowIndex) => ({ ...row, isPrimary: rowIndex === index })));
-  };
+  const updateRow = useCallback(
+    (index: number, patch: Partial<ClientContact>) => {
+      onChange(rows.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)));
+    },
+    [onChange, rows],
+  );
 
-  const removeRow = (index: number) => {
-    const next = rows.filter((_, rowIndex) => rowIndex !== index);
-    if (!next.length) {
-      onChange([{ id: newClientContactId(), name: "", phone: "", isPrimary: true }]);
-      return;
-    }
-    if (!next.some((row) => row.isPrimary)) next[0] = { ...next[0], isPrimary: true };
-    onChange(next);
-  };
+  const setPrimary = useCallback(
+    (index: number) => {
+      onChange(rows.map((row, rowIndex) => ({ ...row, isPrimary: rowIndex === index })));
+    },
+    [onChange, rows],
+  );
 
-  const addRow = () => {
+  const removeRow = useCallback(
+    (index: number) => {
+      const next = rows.filter((_, rowIndex) => rowIndex !== index);
+      if (!next.length) {
+        const emptyRow = createEmptyContactRow();
+        fallbackRowRef.current = emptyRow;
+        onChange([emptyRow]);
+        return;
+      }
+      if (!next.some((row) => row.isPrimary)) next[0] = { ...next[0], isPrimary: true };
+      onChange(next);
+    },
+    [onChange, rows],
+  );
+
+  const addRow = useCallback(() => {
     onChange([...rows, { id: newClientContactId(), name: "", phone: "", isPrimary: false }]);
-  };
+  }, [onChange, rows]);
 
   return (
     <div className="erp-client-contacts-editor">
@@ -107,4 +126,4 @@ export function ClientContactsEditor({ contacts, onChange }: ClientContactsEdito
       </Button>
     </div>
   );
-}
+});

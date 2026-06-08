@@ -5277,8 +5277,94 @@ function appendClientAuditLogs(
   );
 }
 
-function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersistClientsImmediate }) {
-  const emptyClientForm: ClientFormState = {
+const ClientListTable = memo(function ClientListTable({
+  clients,
+  lastSaleByClient,
+  onEdit,
+  onDelete,
+  onOpenBusinessRegView,
+}: {
+  clients: Array<Record<string, unknown>>;
+  lastSaleByClient: Map<string, string>;
+  onEdit: (client: Record<string, unknown>) => void;
+  onDelete: (id: string | number) => void;
+  onOpenBusinessRegView: (client: Record<string, unknown>) => void;
+}) {
+  return (
+    <div className="erp-table-wrap erp-table-wrap--page-scroll">
+      <table className="erp-table erp-table--lg">
+        <thead className="bg-slate-100 text-slate-600">
+          <tr>
+            <th className="text-left">거래처명</th>
+            <th className="text-left">사업자번호</th>
+            <th className="text-left">대표자</th>
+            <th className="text-left">담당자</th>
+            <th className="text-left">연락처</th>
+            <th className="text-right">시공비</th>
+            <th className="text-right">야근비</th>
+            <th className="text-center">부가세</th>
+            <th className="text-center">식대</th>
+            <th className="text-left">예금주 별칭</th>
+            <th className="text-left">비고</th>
+            <th className="text-center erp-table-export-skip">관리</th>
+          </tr>
+        </thead>
+        <tbody>
+          {clients.map((client) => (
+            <tr key={String(client.id)} className="border-t hover:bg-slate-50">
+              <td className="font-bold text-left">
+                <span className="inline-flex items-center gap-1.5">
+                  <ClientActivityIcon lastSaleDate={lastSaleByClient.get(String(client.name || ""))} />
+                  {String(client.name || "")}
+                </span>
+              </td>
+              <td>{String(client.businessNo || "-")}</td>
+              <td>{String(client.ceoName || "-")}</td>
+              <td>{String(client.manager || "-")}</td>
+              <td>{String(client.phone || "-")}</td>
+              <td className="text-right font-semibold">{formatKRW(client.constructionCost)}</td>
+              <td className="text-right">{formatKRW(client.overtimeCost)}</td>
+              <td className="text-center">{String(client.vat || "")}</td>
+              <td className="text-center">{String(client.mealIncluded || "")}</td>
+              <td className="max-w-[180px] truncate text-slate-600" title={formatDepositNameAliases(String(client.depositNameAliases || ""))}>
+                {formatDepositNameAliases(String(client.depositNameAliases || "")) || "-"}
+              </td>
+              <td>{String(client.memo || "-")}</td>
+              <td className="erp-table-export-skip">
+                <div className="flex justify-center gap-2">
+                  {clientHasBusinessRegFile(client) ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl px-2 text-xs font-bold"
+                      onClick={() => onOpenBusinessRegView(client)}
+                      title="사업자등록증 보기"
+                    >
+                      증
+                    </Button>
+                  ) : null}
+                  <Button size="sm" variant="outline" className="rounded-xl" onClick={() => onEdit(client)}>
+                    <Pencil size={14} />
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="rounded-xl bg-red-600 hover:bg-red-700"
+                    onClick={() => onDelete(client.id as string | number)}
+                  >
+                    <Trash2 size={14} />
+                  </Button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+});
+
+function createEmptyClientForm(): ClientFormState {
+  return {
     name: "",
     taxInvoiceCorpName: "",
     businessNo: "",
@@ -5298,8 +5384,10 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
     customChargeCost: "",
     memo: "",
   };
+}
 
-  const [form, setForm] = useState(emptyClientForm);
+function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersistClientsImmediate }) {
+  const [form, setForm] = useState(createEmptyClientForm);
   const [editingId, setEditingId] = useState(null);
   const [clientModalOpen, setClientModalOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -5329,32 +5417,32 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
 
   const clientLastSaleDate = useMemo(() => buildClientLastSaleDateMap(sales), [sales]);
 
-  const updateForm = (key, value) => {
+  const updateForm = useCallback((key, value) => {
     setFormError("");
     setForm((prev) => ({ ...prev, [key]: value }));
-  };
+  }, []);
 
-  const closeClientModal = () => {
+  const closeClientModal = useCallback(() => {
     setClientModalOpen(false);
-    setForm(emptyClientForm);
+    setForm(createEmptyClientForm());
     setEditingId(null);
     setFormError("");
     setPendingBusinessRegFile(null);
-  };
+  }, []);
 
-  const openCreateClientModal = () => {
-    setForm(emptyClientForm);
+  const openCreateClientModal = useCallback(() => {
+    setForm(createEmptyClientForm());
     setEditingId(null);
     setFormError("");
     setClientModalOpen(true);
-  };
+  }, []);
 
-  const resetClientForm = () => {
-    setForm(emptyClientForm);
+  const resetClientForm = useCallback(() => {
+    setForm(createEmptyClientForm());
     setEditingId(null);
     setFormError("");
     setPendingBusinessRegFile(null);
-  };
+  }, []);
 
   const editingClient = editingId != null ? clients.find((client) => clientIdsEqual(client.id, editingId)) : null;
   const businessRegAvailable = Boolean(
@@ -5393,7 +5481,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
     }
   };
 
-  const openBusinessRegView = (client) => {
+  const openBusinessRegView = useCallback((client) => {
     const targetId = client?.id ?? editingId;
     const useLocal =
       pendingBusinessRegFile &&
@@ -5402,7 +5490,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
     setBusinessRegViewClientId(targetId ?? "pending");
     setBusinessRegViewClientName(String(client?.name || form.name || ""));
     setBusinessRegViewLocalFile(useLocal ? pendingBusinessRegFile : null);
-  };
+  }, [editingId, pendingBusinessRegFile, editingClient, form.name]);
 
   const commitClientChange = async (nextClients, auditInput) => {
     if (!onPersistClientsImmediate) return true;
@@ -5490,14 +5578,14 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
     });
     if (saved === false) return;
 
-    setForm(emptyClientForm);
+    setForm(createEmptyClientForm());
     setEditingId(null);
     setFormError("");
     setPendingBusinessRegFile(null);
     setClientModalOpen(false);
   };
 
-  const editClient = (client) => {
+  const editClient = useCallback((client) => {
     setFormError("");
     setPendingBusinessRegFile(null);
     setEditingId(client.id);
@@ -5522,9 +5610,9 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
       memo: client.memo || "",
     });
     setClientModalOpen(true);
-  };
+  }, []);
 
-  const deleteClient = (id) => {
+  const deleteClient = useCallback((id) => {
     const client = clients.find((item) => clientIdsEqual(item.id, id));
     if (!client) return;
     if (!confirmDelete(`거래처 "${client.name}"을(를) 삭제할까요?`)) return;
@@ -5537,7 +5625,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
       before: snapshotClientForAudit(client),
       fields: CLIENT_AUDIT_FIELDS,
     });
-  };
+  }, [clients]);
 
   return (
     <div className="erp-page">
@@ -5568,67 +5656,13 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
             />
             </div>
           </div>
-          <div className="erp-table-wrap erp-table-wrap--page-scroll">
-            <table className="erp-table erp-table--lg">
-              <thead className="bg-slate-100 text-slate-600">
-                <tr>
-                  <th className="text-left">거래처명</th>
-                  <th className="text-left">사업자번호</th>
-                  <th className="text-left">대표자</th>
-                  <th className="text-left">담당자</th>
-                  <th className="text-left">연락처</th>
-                  <th className="text-right">시공비</th>
-                  <th className="text-right">야근비</th>
-                  <th className="text-center">부가세</th>
-                  <th className="text-center">식대</th>
-                  <th className="text-left">예금주 별칭</th>
-                  <th className="text-left">비고</th>
-                  <th className="text-center erp-table-export-skip">관리</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedClients.map((client) => (
-                  <tr key={client.id} className="border-t hover:bg-slate-50">
-                    <td className="font-bold text-left">
-                      <span className="inline-flex items-center gap-1.5">
-                        <ClientActivityIcon lastSaleDate={clientLastSaleDate.get(client.name)} />
-                        {client.name}
-                      </span>
-                    </td>
-                    <td>{client.businessNo || "-"}</td>
-                    <td>{client.ceoName || "-"}</td>
-                    <td>{client.manager || "-"}</td>
-                    <td>{client.phone || "-"}</td>
-                    <td className="text-right font-semibold">{formatKRW(client.constructionCost)}</td>
-                    <td className="text-right">{formatKRW(client.overtimeCost)}</td>
-                    <td className="text-center">{client.vat}</td>
-                    <td className="text-center">{client.mealIncluded}</td>
-                    <td className="max-w-[180px] truncate text-slate-600" title={formatDepositNameAliases(client.depositNameAliases)}>
-                      {formatDepositNameAliases(client.depositNameAliases) || "-"}
-                    </td>
-                    <td>{client.memo || "-"}</td>
-                    <td className="erp-table-export-skip">
-                      <div className="flex justify-center gap-2">
-                        {clientHasBusinessRegFile(client) ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="rounded-xl px-2 text-xs font-bold"
-                            onClick={() => openBusinessRegView(client)}
-                            title="사업자등록증 보기"
-                          >
-                            증
-                          </Button>
-                        ) : null}
-                        <Button size="sm" variant="outline" className="rounded-xl" onClick={() => editClient(client)}><Pencil size={14} /></Button>
-                        <Button size="sm" className="rounded-xl bg-red-600 hover:bg-red-700" onClick={() => deleteClient(client.id)}><Trash2 size={14} /></Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ClientListTable
+            clients={sortedClients}
+            lastSaleByClient={clientLastSaleDate}
+            onEdit={editClient}
+            onDelete={deleteClient}
+            onOpenBusinessRegView={openBusinessRegView}
+          />
         </CardContent>
       </Card>
 
