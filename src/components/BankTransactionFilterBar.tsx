@@ -118,9 +118,13 @@ function BankTransactionFilterBarComponent({
   );
 
   const hasPendingFilters = useMemo(() => {
-    const { searchQuery: _search, ...draftRest } = draft;
-    const { searchQuery: _appliedSearch, ...appliedRest } = applied;
-    return JSON.stringify(draftRest) !== JSON.stringify(appliedRest);
+    return (
+      draft.accountFilter !== applied.accountFilter ||
+      draft.accountSubjectFilter !== applied.accountSubjectFilter ||
+      draft.clientFilter !== applied.clientFilter ||
+      draft.groupFilter !== applied.groupFilter ||
+      draft.evidenceFilter !== applied.evidenceFilter
+    );
   }, [draft, applied]);
 
   const hasPendingSearch = draft.searchQuery.trim() !== applied.searchQuery;
@@ -136,6 +140,20 @@ function BankTransactionFilterBarComponent({
     });
   };
 
+  const applyDraftNow = (patch: Partial<BankTransactionAppliedFilters>) => {
+    const next: BankTransactionAppliedFilters = {
+      ...draft,
+      ...patch,
+      searchQuery: draft.searchQuery.trim(),
+    };
+    if (patch.periodKey && patch.periodKey !== "custom") {
+      next.startDate = "";
+      next.endDate = "";
+    }
+    setDraft(next);
+    onApply(next);
+  };
+
   return (
     <div className="erp-bank-wehago-toolbar mb-4 rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="erp-bank-wehago-toolbar__head">
@@ -147,7 +165,7 @@ function BankTransactionFilterBarComponent({
                 key={option.key}
                 type="button"
                 className={`erp-bank-wehago-period-tab ${draft.periodKey === option.key ? "is-active" : ""}`}
-                onClick={() => setDraft((prev) => ({ ...prev, periodKey: option.key }))}
+                onClick={() => applyDraftNow({ periodKey: option.key })}
               >
                 {option.label}
               </button>
@@ -194,7 +212,7 @@ function BankTransactionFilterBarComponent({
               key={option.key}
               type="button"
               className={`erp-bank-wehago-status-tab ${draft.statusTab === option.key ? "is-active" : ""}`}
-              onClick={() => setDraft((prev) => ({ ...prev, statusTab: option.key }))}
+              onClick={() => applyDraftNow({ statusTab: option.key })}
             >
               {option.label}
               {countLabel ? <span className="erp-bank-wehago-status-tab__count">{countLabel}</span> : null}
@@ -237,7 +255,7 @@ function BankTransactionFilterBarComponent({
               key={option.key}
               type="button"
               className={`erp-bank-wehago-flow-tab ${draft.flowFilter === option.key ? "is-active" : ""}`}
-              onClick={() => setDraft((prev) => ({ ...prev, flowFilter: option.key }))}
+              onClick={() => applyDraftNow({ flowFilter: option.key })}
             >
               {option.label}
             </button>
@@ -324,7 +342,7 @@ function BankTransactionFilterBarComponent({
       </div>
 
       <p className="erp-bank-wehago-filter-hint">
-        {"\uAC80\uC0C9\uC740 \uAC80\uC0C9 \uBC84\uD2BC\uC744, \uAE30\uAC04\u00B7\uC785\uCD9C\uAE08\u00B7\uC120\uD0DD \uD544\uD130\uB294 \uC801\uC6A9 \uBC84\uD2BC\uC744 \uB20C\uB7EC \uBAA9\uB85D\uC744 \uAC31\uC2E0\uD569\uB2C8\uB2E4."}
+        {"\uAE30\uAC04\u00B7\uC0C1\uD0DC\u00B7\uC785\uCD9C\uAE08\uC740 \uBC84\uD2BC \uD074\uB9AD \uC2DC \uBC14\uB85C \uC801\uC6A9\uB429\uB2C8\uB2E4. \uACC4\uC88C\u00B7\uAC70\uB798\uCC98 \uB4F1 \uC120\uD0DD \uD544\uD130\uC640 \uAC80\uC0C9\uC740 \uAC01\uAC01 \uC801\uC6A9 \uBC84\uD2BC\uC744 \uB20C\uB7EC \uC8FC\uC138\uC694."}
       </p>
     </div>
   );
