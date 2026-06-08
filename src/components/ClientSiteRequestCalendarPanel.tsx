@@ -25,6 +25,7 @@ type ClientSiteRequestCalendarPanelProps = {
   className?: string;
   monthKey?: string;
   onMonthKeyChange?: (monthKey: string) => void;
+  scAlimtalkEnabled?: boolean;
 };
 
 export function ClientSiteRequestCalendarPanel({
@@ -36,6 +37,7 @@ export function ClientSiteRequestCalendarPanel({
   className = "",
   monthKey: controlledMonthKey,
   onMonthKeyChange,
+  scAlimtalkEnabled = false,
 }: ClientSiteRequestCalendarPanelProps) {
   const [internalMonthKey, setInternalMonthKey] = useState(getCurrentMonthKey);
   const monthKey = controlledMonthKey ?? internalMonthKey;
@@ -106,6 +108,7 @@ export function ClientSiteRequestCalendarPanel({
             onMonthKeyChange={setMonthKey}
             selectedDate={selectedDate}
             drawerElevated={drawerElevated}
+            scAlimtalkEnabled={scAlimtalkEnabled}
             onSelectDate={(date) => {
               setSelectedDate(date);
               const scOnDate = scSchedules.filter((row) => String(row.workDate || "").slice(0, 10) === date);

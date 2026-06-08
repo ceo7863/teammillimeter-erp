@@ -1423,6 +1423,44 @@ textarea {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.erp-csr-cal-drawer-card-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem 0.85rem 0.35rem;
+}
+
+.erp-csr-cal-drawer-card.is-sc-schedule .erp-csr-cal-drawer-card-select {
+  padding-top: 0.35rem;
+}
+
+.erp-csr-cal-drawer-card.is-sc-schedule .erp-csr-cal-drawer-card-badges {
+  margin-top: 0;
+}
+
+.erp-csr-cal-drawer-alimtalk-btn {
+  border-color: #cbd5e1;
+  background: #fff;
+}
+
+.erp-csr-cal-drawer-alimtalk-msg {
+  margin: 0;
+  padding: 0 0.85rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.erp-csr-cal-drawer-alimtalk-msg.is-success {
+  color: #047857;
+}
+
+.erp-csr-cal-drawer-alimtalk-msg.is-error {
+  color: #b91c1c;
 }
 
 .erp-csr-cal-drawer-card-badges {

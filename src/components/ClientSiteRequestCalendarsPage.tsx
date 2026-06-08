@@ -206,6 +206,7 @@ export function ClientSiteRequestCalendarsPage({ sales = [], workers = [] }: Cli
                   workers={workers}
                   drawerElevated
                   fullscreen
+                  scAlimtalkEnabled
                   monthKey={monthKey}
                   onMonthKeyChange={setMonthKey}
                 />

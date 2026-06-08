@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from "react";
 import { createPortal } from "react-dom";
-import { CalendarClock, CalendarPlus, Check, ChevronLeft, ChevronRight, Copy, X } from "lucide-react";
+import { CalendarClock, CalendarPlus, Check, ChevronLeft, ChevronRight, Copy, Smartphone, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   clientSiteRequestPublicStatusLabel,
@@ -12,6 +12,7 @@ import { formatClientSiteRequestDayLabel, shiftCalendarDate } from "@/utils/clie
 import type { ScSchedule } from "@/utils/scSchedules";
 import { formatScScheduleHeadcount, formatScScheduleTimeRange, formatScScheduleWorkerCopyText, getScScheduleWorkerDetails } from "@/utils/scSchedules";
 import type { WorkerMasterLike } from "@/utils/workerPayments";
+import { sendScScheduleNotifyOne } from "@/utils/notificationApi";
 import { useBodyScrollLock } from "@/utils/bodyScrollLock";
 import { useBackdropPointerDismiss, useModalDismissGuard } from "@/utils/modalBackdrop";
 
@@ -30,6 +31,16 @@ const L = {
   workerCopyHint: "\uC2DC\uACF5\uC790 \uC815\uBCF4 \uBCF5\uC0AC",
   registerSchedule: "\uC77C\uC815 \uC811\uC218",
   changeSchedule: "\uC77C\uC815 \uBCC0\uACBD \uC694\uCCAD",
+  alimtalkSend: "\uC54C\uB9BC\uD1A1 \uBCF4\uB0B4\uAE30",
+  alimtalkSending: "\uBC1C\uC1A1 \uC911...",
+  alimtalkConfirm: (label: string) =>
+    `${label} \uAC70\uB798\uCC98 \uB2F4\uB2F9\uC790\uC5D0\uAC8C \uC77C\uC815 \uC54C\uB9BC\uD1A1\uC744 \uBCF4\uB0BD\uB2C8\uB2E4. \uACC4\uC18D\uD560\uAE4C\uC694?`,
+  alimtalkSent: "\uAC70\uB798\uCC98 \uB2F4\uB2F9\uC790\uC5D0\uAC8C \uC54C\uB9BC\uD1A1\uC744 \uBCF4\uB0C4\uC2B5\uB2C8\uB2E4.",
+  alimtalkFailed: "\uC54C\uB9BC\uD1A1 \uBC1C\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+  alimtalkError: "\uC54C\uB9BC\uD1A1 \uBC1C\uC1A1 \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.",
+  alimtalkNotConfigured: "\uC54C\uB9BC\uD1A1 \uBC1C\uC1A1 \uC124\uC815\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  alimtalkNoClientPhone: "\uAC70\uB798\uCC98 \uB2F4\uB2F9\uC790 \uC804\uD654\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  alimtalkNoWorkers: "\uBC30\uC815\uB41C \uC2DC\uACF5\uC790\uAC00 \uC5C6\uC5B4 \uC54C\uB9BC\uD1A1\uC744 \uBCF4\uB098\uC904 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
 };
 
 type ClientSiteRequestCalendarDayDrawerProps = {
@@ -46,6 +57,7 @@ type ClientSiteRequestCalendarDayDrawerProps = {
   onRegisterDate?: (date: string) => void;
   onChangeRequest?: (source: ClientSiteRequestChangeSource) => void;
   elevated?: boolean;
+  scAlimtalkEnabled?: boolean;
 };
 
 function statusTone(request: ClientSiteRequest) {
@@ -66,11 +78,14 @@ export function ClientSiteRequestCalendarDayDrawer({
   onRegisterDate,
   onChangeRequest,
   elevated = false,
+  scAlimtalkEnabled = false,
 }: ClientSiteRequestCalendarDayDrawerProps) {
   const { onPointerDown, onPointerUp, isTouchDevice } = useBackdropPointerDismiss(Boolean(date), onClose);
   const { guardedClose } = useModalDismissGuard(Boolean(date));
   const closeDrawer = () => guardedClose(onClose);
   const [copiedWorkerKey, setCopiedWorkerKey] = useState("");
+  const [sendingAlimtalkId, setSendingAlimtalkId] = useState("");
+  const [alimtalkMessages, setAlimtalkMessages] = useState<Record<string, string>>({});
 
   const copyWorkerText = useCallback(async (workerKey: string, worker: Parameters<typeof formatScScheduleWorkerCopyText>[0]) => {
     const text = formatScScheduleWorkerCopyText(worker);
@@ -85,6 +100,56 @@ export function ClientSiteRequestCalendarDayDrawer({
       setCopiedWorkerKey((current) => (current === workerKey ? "" : current));
     }, 1500);
   }, []);
+
+  const handleSendAlimtalk = useCallback(async (schedule: ScSchedule) => {
+    const scheduleId = String(schedule.id || "").trim();
+    if (!scheduleId || sendingAlimtalkId) return;
+
+    const label =
+      String(schedule.clientName || schedule.projectName || schedule.workType || "").trim() || "\uAC70\uB798\uCC98";
+    if (!window.confirm(L.alimtalkConfirm(label))) return;
+
+    setSendingAlimtalkId(scheduleId);
+    setAlimtalkMessages((current) => ({ ...current, [scheduleId]: "" }));
+    try {
+      const result = await sendScScheduleNotifyOne(scheduleId, {
+        skipSync: true,
+        recipientTypes: ["client"],
+      });
+
+      if (result.skipped && result.reason === "not-configured") {
+        setAlimtalkMessages((current) => ({ ...current, [scheduleId]: L.alimtalkNotConfigured }));
+        return;
+      }
+      if (result.skippedNoParticipants) {
+        setAlimtalkMessages((current) => ({ ...current, [scheduleId]: L.alimtalkNoWorkers }));
+        return;
+      }
+      if (result.error && !result.skipped) {
+        setAlimtalkMessages((current) => ({ ...current, [scheduleId]: result.error || L.alimtalkFailed }));
+        return;
+      }
+
+      const clientResult = result.results?.find((row) => row.recipientType === "client");
+      if (clientResult?.reason === "no-client-phone") {
+        setAlimtalkMessages((current) => ({ ...current, [scheduleId]: L.alimtalkNoClientPhone }));
+        return;
+      }
+      if ((result.sentCount || 0) > 0) {
+        setAlimtalkMessages((current) => ({ ...current, [scheduleId]: L.alimtalkSent }));
+        return;
+      }
+
+      setAlimtalkMessages((current) => ({
+        ...current,
+        [scheduleId]: clientResult?.reason ? L.alimtalkFailed : L.alimtalkFailed,
+      }));
+    } catch {
+      setAlimtalkMessages((current) => ({ ...current, [scheduleId]: L.alimtalkError }));
+    } finally {
+      setSendingAlimtalkId("");
+    }
+  }, [sendingAlimtalkId]);
 
   useBodyScrollLock(Boolean(date));
 
@@ -159,6 +224,8 @@ export function ClientSiteRequestCalendarDayDrawer({
                   <ul className="erp-csr-cal-drawer-list">
                     {scSchedules.map((schedule) => {
                       const scheduleWorkers = getScScheduleWorkerDetails(schedule, workers);
+                      const scheduleId = String(schedule.id || "");
+                      const alimtalkMessage = alimtalkMessages[scheduleId] || "";
                       return (
                       <li key={`sc-${schedule.id}`}>
                         <div
@@ -169,6 +236,22 @@ export function ClientSiteRequestCalendarDayDrawer({
                             .filter(Boolean)
                             .join(" ")}
                         >
+                          <div className="erp-csr-cal-drawer-card-title-row">
+                            <p className="erp-csr-cal-drawer-card-title">{schedule.workType}</p>
+                            {scAlimtalkEnabled ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="erp-csr-cal-drawer-alimtalk-btn h-8 shrink-0 rounded-lg px-2.5 text-xs"
+                                disabled={Boolean(sendingAlimtalkId)}
+                                onClick={() => void handleSendAlimtalk(schedule)}
+                              >
+                                <Smartphone size={13} className="mr-1" />
+                                {sendingAlimtalkId === scheduleId ? L.alimtalkSending : L.alimtalkSend}
+                              </Button>
+                            ) : null}
+                          </div>
                           <button
                             type="button"
                             className="erp-csr-cal-drawer-card-select is-clickable"
@@ -181,7 +264,6 @@ export function ClientSiteRequestCalendarDayDrawer({
                           >
                             <span className="erp-csr-cal-drawer-dot is-sc-schedule" aria-hidden="true" />
                             <div className="erp-csr-cal-drawer-card-main">
-                              <p className="erp-csr-cal-drawer-card-title">{schedule.workType}</p>
                               <div className="erp-csr-cal-drawer-card-badges">
                                 <span className="erp-csr-cal-drawer-badge is-sc-schedule">{L.scBadge}</span>
                                 {formatScScheduleTimeRange(schedule) ? (
@@ -197,6 +279,15 @@ export function ClientSiteRequestCalendarDayDrawer({
                               </div>
                             </div>
                           </button>
+                          {alimtalkMessage ? (
+                            <p
+                              className={`erp-csr-cal-drawer-alimtalk-msg${
+                                alimtalkMessage === L.alimtalkSent ? " is-success" : " is-error"
+                              }`}
+                            >
+                              {alimtalkMessage}
+                            </p>
+                          ) : null}
                             {scheduleWorkers.length ? (
                                 <div className="erp-csr-cal-drawer-sc-workers">
                                   {scheduleWorkers.map((worker) => {

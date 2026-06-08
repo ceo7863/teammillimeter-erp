@@ -573,6 +573,11 @@ export async function sendScScheduleNotifyOne(scheduleId, options = {}) {
   const phoneFilter = Array.isArray(options.phones)
     ? new Set(options.phones.map((phone) => normalizeNotifyPhone(phone)).filter(Boolean))
     : null;
+  const recipientTypes = Array.isArray(options.recipientTypes) && options.recipientTypes.length
+    ? new Set(options.recipientTypes.map((value) => String(value || "").trim()).filter(Boolean))
+    : null;
+  const sendClient = !recipientTypes || recipientTypes.has("client");
+  const sendWorkers = !recipientTypes || recipientTypes.has("worker");
 
   async function sendToPhone(phone, recipientType, recipientName) {
     const normalized = normalizeNotifyPhone(phone);
@@ -609,35 +614,38 @@ export async function sendScScheduleNotifyOne(scheduleId, options = {}) {
     return true;
   }
 
-  if (contact.phone) {
-    if (!phoneFilter || phoneFilter.has(normalizeNotifyPhone(contact.phone))) {
-      await sendToPhone(contact.phone, "client", contact.name || contact.clientName);
-    } else {
+  if (sendClient) {
+    if (contact.phone) {
+      if (!phoneFilter || phoneFilter.has(normalizeNotifyPhone(contact.phone))) {
+        await sendToPhone(contact.phone, "client", contact.name || contact.clientName);
+      } else {
+        results.push({
+          recipientType: "client",
+          participantName: contact.name || contact.clientName,
+          phone: normalizeNotifyPhone(contact.phone),
+          ok: false,
+          skipped: true,
+          reason: "not-selected",
+          shareUrl,
+          variables,
+        });
+      }
+    } else if (!phoneFilter) {
       results.push({
         recipientType: "client",
         participantName: contact.name || contact.clientName,
-        phone: normalizeNotifyPhone(contact.phone),
+        phone: null,
         ok: false,
         skipped: true,
-        reason: "not-selected",
+        reason: "no-client-phone",
         shareUrl,
         variables,
       });
     }
-  } else if (!phoneFilter) {
-    results.push({
-      recipientType: "client",
-      participantName: contact.name || contact.clientName,
-      phone: null,
-      ok: false,
-      skipped: true,
-      reason: "no-client-phone",
-      shareUrl,
-      variables,
-    });
   }
 
-  for (const participantName of participantNames) {
+  if (sendWorkers) {
+    for (const participantName of participantNames) {
     const phone = resolveWorkerPhone(workers, participantName);
     if (!phone) {
       if (!phoneFilter) {
@@ -669,6 +677,7 @@ export async function sendScScheduleNotifyOne(scheduleId, options = {}) {
       continue;
     }
     await sendToPhone(phone, "worker", participantName);
+    }
   }
 
   const failedCount = results.filter((row) => !row.ok).length;

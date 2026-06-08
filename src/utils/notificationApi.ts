@@ -107,6 +107,7 @@ export type ScScheduleNotifyOneResult = {
   shareError?: string | null;
   sentCount?: number;
   failedCount?: number;
+  skippedNoParticipants?: boolean;
   notifyCount?: number;
   missingPhoneCount?: number;
   variables?: Record<string, string>;
@@ -124,7 +125,7 @@ export type ScScheduleNotifyOneResult = {
 
 export async function sendScScheduleNotifyOne(
   scheduleId: string,
-  options?: { skipSync?: boolean; phones?: string[] },
+  options?: { skipSync?: boolean; phones?: string[]; recipientTypes?: Array<"client" | "worker"> },
 ) {
   return apiRequest<ScScheduleNotifyOneResult>("/notifications/sc-schedule/send-one", {
     method: "POST",

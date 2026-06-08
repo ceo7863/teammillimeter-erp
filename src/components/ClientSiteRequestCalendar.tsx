@@ -49,6 +49,7 @@ type ClientSiteRequestCalendarProps = {
   onChangeRequest?: (source: ClientSiteRequestChangeSource) => void;
   drawerElevated?: boolean;
   fullscreen?: boolean;
+  scAlimtalkEnabled?: boolean;
 };
 
 function statusTone(request: ClientSiteRequest) {
@@ -75,6 +76,7 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
   onChangeRequest,
   drawerElevated = false,
   fullscreen = false,
+  scAlimtalkEnabled = false,
 }: ClientSiteRequestCalendarProps) {
   const [drawerDate, setDrawerDate] = useState<string | null>(null);
 
@@ -302,6 +304,7 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
           onRegisterDate={onRegisterDate ? handleRegisterDate : undefined}
           onChangeRequest={onChangeRequest ? handleChangeRequest : undefined}
           elevated={drawerElevated}
+          scAlimtalkEnabled={scAlimtalkEnabled}
         />
       ) : null}
     </div>

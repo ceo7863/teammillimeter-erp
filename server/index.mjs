@@ -2330,6 +2330,7 @@ app.post("/api/notifications/sc-schedule/send-one", authMiddleware, async (req, 
     const result = await sendScScheduleNotifyOne(scheduleId, {
       skipSync: Boolean(req.body?.skipSync),
       phones: Array.isArray(req.body?.phones) ? req.body.phones : undefined,
+      recipientTypes: Array.isArray(req.body?.recipientTypes) ? req.body.recipientTypes : undefined,
       updatedBy: req.user.loginId || req.user.name || req.user.email || "sc-schedule-send-one",
     });
     if (result.notFound) {

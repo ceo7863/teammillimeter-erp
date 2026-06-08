@@ -113,6 +113,7 @@ export function ClientSiteRequestCalendarModal({
             workers={workers}
             drawerElevated
             fullscreen
+            scAlimtalkEnabled
           />
         </div>
       </div>
