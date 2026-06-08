@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarDays, Check, Copy, Link2, RefreshCw, RotateCcw, X } from "lucide-react";
+import { CalendarDays, Check, Copy, Eye, Link2, RefreshCw, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -25,6 +25,7 @@ import {
   type ClientSiteRequestStatus,
 } from "@/utils/clientSiteRequests";
 import { ClientSiteRequestCalendarModal } from "@/components/ClientSiteRequestCalendarModal";
+import { ScScheduleNotifyPreviewModal } from "@/components/ScScheduleNotifyPreviewModal";
 import { deferAfterTouch, openCalendarForClient } from "@/utils/modalBackdrop";
 import { ClientSiteRequestChat } from "@/components/ClientSiteRequestChat";
 import {
@@ -123,6 +124,7 @@ const L = {
   scRemoveMapping: "\uB9E4\uCE6D \uD574\uC81C",
   scMappingSaved: "SC \uAC70\uB798\uCC98 \uB9E4\uCE6D\uC744 \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.",
   scMappingRemoved: "SC \uAC70\uB798\uCC98 \uB9E4\uCE6D\uC744 \uD574\uC81C\uD588\uC2B5\uB2C8\uB2E4.",
+  scSchedulePreview: "SC \uC77C\uC815 \uBBF8\uB9AC\uBCF4\uAE30",
   scPickMappingClient: "ERP \uAC70\uB798\uCC98 \uC120\uD0DD",
 };
 
@@ -422,6 +424,7 @@ export function ClientSiteRequestsPanel({ clients, isAdmin = false }: ClientSite
   const [scMappingStatus, setScMappingStatus] = useState<ScProjectMappingStatus | null>(null);
   const [scMappingLoading, setScMappingLoading] = useState(false);
   const [scMappingDrafts, setScMappingDrafts] = useState<Record<string, string>>({});
+  const [scPreviewOpen, setScPreviewOpen] = useState(false);
 
   const clientOptions = useMemo(
     () =>
@@ -828,6 +831,12 @@ export function ClientSiteRequestsPanel({ clients, isAdmin = false }: ClientSite
             <RefreshCw size={14} className={`mr-1 ${scSyncing ? "animate-spin" : ""}`} />
             {scSyncing ? L.scSyncing : L.scSync}
           </Button>
+          {isAdmin ? (
+            <Button type="button" variant="outline" className="rounded-xl" onClick={() => setScPreviewOpen(true)}>
+              <Eye size={14} className="mr-1" />
+              {L.scSchedulePreview}
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant={scMappingOpen ? "default" : "outline"}
@@ -1298,9 +1307,12 @@ export function ClientSiteRequestsPanel({ clients, isAdmin = false }: ClientSite
           clientId={calendarModalClient.clientId}
           clientName={calendarModalClient.clientName}
           link={calendarModalLink}
-          canSendScAlimtalk={isAdmin}
           onClose={() => setCalendarModalClient(null)}
         />
+      ) : null}
+
+      {isAdmin && scPreviewOpen ? (
+        <ScScheduleNotifyPreviewModal open onClose={() => setScPreviewOpen(false)} />
       ) : null}
     </>
   );

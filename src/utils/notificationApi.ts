@@ -53,32 +53,34 @@ export async function sendDailyReportNow(skipSync = false) {
   );
 }
 
+export type ScScheduleNotifyPreview = {
+  targetDate: string;
+  scheduleCount: number;
+  notifyCount: number;
+  workerNotifyCount?: number;
+  clientNotifyCount?: number;
+  missingPhoneCount: number;
+  missingClientPhoneCount?: number;
+  scheduleLinks?: Array<{
+    scheduleId: string;
+    clientName: string;
+    projectName: string;
+    shareUrl: string;
+    shareToken: string;
+    error: string | null;
+  }>;
+  rows: Array<{
+    recipientType?: "client" | "worker";
+    scheduleId: string;
+    participantName: string;
+    phone: string | null;
+    shareUrl?: string;
+    variables: Record<string, string>;
+  }>;
+};
+
 export async function previewScScheduleNotify() {
-  return apiRequest<{
-    targetDate: string;
-    scheduleCount: number;
-    notifyCount: number;
-    workerNotifyCount?: number;
-    clientNotifyCount?: number;
-    missingPhoneCount: number;
-    missingClientPhoneCount?: number;
-    scheduleLinks?: Array<{
-      scheduleId: string;
-      clientName: string;
-      projectName: string;
-      shareUrl: string;
-      shareToken: string;
-      error: string | null;
-    }>;
-    rows: Array<{
-      recipientType?: "client" | "worker";
-      scheduleId: string;
-      participantName: string;
-      phone: string | null;
-      shareUrl?: string;
-      variables: Record<string, string>;
-    }>;
-  }>("/notifications/sc-schedule/preview");
+  return apiRequest<ScScheduleNotifyPreview>("/notifications/sc-schedule/preview");
 }
 
 export async function sendScScheduleNotifyNow(options?: { force?: boolean; skipSync?: boolean }) {
@@ -120,7 +122,10 @@ export type ScScheduleNotifyOneResult = {
   }>;
 };
 
-export async function sendScScheduleNotifyOne(scheduleId: string, options?: { skipSync?: boolean }) {
+export async function sendScScheduleNotifyOne(
+  scheduleId: string,
+  options?: { skipSync?: boolean; phones?: string[] },
+) {
   return apiRequest<ScScheduleNotifyOneResult>("/notifications/sc-schedule/send-one", {
     method: "POST",
     body: JSON.stringify({ scheduleId, ...(options || {}) }),

@@ -570,9 +570,26 @@ export async function sendScScheduleNotifyOne(scheduleId, options = {}) {
   const sentPhones = new Set();
   let sentCount = 0;
 
+  const phoneFilter = Array.isArray(options.phones)
+    ? new Set(options.phones.map((phone) => normalizeNotifyPhone(phone)).filter(Boolean))
+    : null;
+
   async function sendToPhone(phone, recipientType, recipientName) {
     const normalized = normalizeNotifyPhone(phone);
     if (!normalized) return false;
+    if (phoneFilter && !phoneFilter.has(normalized)) {
+      results.push({
+        recipientType,
+        participantName: recipientName,
+        phone: normalized,
+        ok: false,
+        skipped: true,
+        reason: "not-selected",
+        shareUrl,
+        variables,
+      });
+      return false;
+    }
     if (sentPhones.has(normalized)) return false;
     sentPhones.add(normalized);
     const result = await sendScheduleAlimtalk({ phones: [normalized], variables });
@@ -593,8 +610,21 @@ export async function sendScScheduleNotifyOne(scheduleId, options = {}) {
   }
 
   if (contact.phone) {
-    await sendToPhone(contact.phone, "client", contact.name || contact.clientName);
-  } else {
+    if (!phoneFilter || phoneFilter.has(normalizeNotifyPhone(contact.phone))) {
+      await sendToPhone(contact.phone, "client", contact.name || contact.clientName);
+    } else {
+      results.push({
+        recipientType: "client",
+        participantName: contact.name || contact.clientName,
+        phone: normalizeNotifyPhone(contact.phone),
+        ok: false,
+        skipped: true,
+        reason: "not-selected",
+        shareUrl,
+        variables,
+      });
+    }
+  } else if (!phoneFilter) {
     results.push({
       recipientType: "client",
       participantName: contact.name || contact.clientName,
@@ -610,13 +640,29 @@ export async function sendScScheduleNotifyOne(scheduleId, options = {}) {
   for (const participantName of participantNames) {
     const phone = resolveWorkerPhone(workers, participantName);
     if (!phone) {
+      if (!phoneFilter) {
+        results.push({
+          recipientType: "worker",
+          participantName,
+          phone: null,
+          ok: false,
+          skipped: true,
+          reason: "no-phone",
+          shareUrl,
+          variables,
+        });
+      }
+      continue;
+    }
+    const normalized = normalizeNotifyPhone(phone);
+    if (phoneFilter && !phoneFilter.has(normalized)) {
       results.push({
         recipientType: "worker",
         participantName,
-        phone: null,
+        phone: normalized,
         ok: false,
         skipped: true,
-        reason: "no-phone",
+        reason: "not-selected",
         shareUrl,
         variables,
       });

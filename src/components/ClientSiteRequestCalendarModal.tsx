@@ -31,7 +31,6 @@ type ClientSiteRequestCalendarModalProps = {
   clientId: number | string;
   clientName: string;
   link: ClientSiteRequestLink | null;
-  canSendScAlimtalk?: boolean;
   onClose: () => void;
 };
 
@@ -40,7 +39,6 @@ export function ClientSiteRequestCalendarModal({
   clientId,
   clientName,
   link,
-  canSendScAlimtalk = false,
   onClose,
 }: ClientSiteRequestCalendarModalProps) {
   const [requests, setRequests] = useState<ClientSiteRequest[]>([]);
@@ -193,7 +191,6 @@ export function ClientSiteRequestCalendarModal({
               onSelectRequest={setSelectedRequestId}
               selectedScScheduleId={selectedScScheduleId}
               onSelectScSchedule={setSelectedScScheduleId}
-              canSendScAlimtalk={canSendScAlimtalk}
             />
             </>
           )}
