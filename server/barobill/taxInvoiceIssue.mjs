@@ -20,6 +20,20 @@ const DEFAULT_INVOICER_BIZ = {
   bizClass: "\uAC00\uAD6C\uC2DC\uACF5",
 };
 
+/** Barobill IssueTaxInvoice NTSSendOption: 1=즉시전송, 2=익일전송 */
+export const BAROBILL_NTS_SEND_OPTION_CATALOG = [
+  {
+    value: 1,
+    label: "\uBC14\uB85C\uBC1C\uAE09",
+    description: "\uBC1C\uD589 \uC989\uC2DC \uAD6D\uC138\uCCAD \uC804\uC1A1",
+  },
+  {
+    value: 2,
+    label: "\uC775\uC77C\uBC1C\uAE09",
+    description: "\uBC1C\uD589 \uD6C4 \uC775\uC77C 14\uC2DC \uAD6D\uC138\uCCAD \uC790\uB3D9 \uC804\uC1A1",
+  },
+];
+
 function decodeXml(text) {
   return String(text ?? "")
     .replace(/&amp;/g, "&")
@@ -272,6 +286,117 @@ async function describeBarobillCode(code) {
   }
 }
 
+function parseNtsSendOptionValue(value) {
+  const parsed = Number(value);
+  return parsed === 1 || parsed === 2 ? parsed : null;
+}
+
+export async function getBarobillNtsSendSettings() {
+  const { certKey, corpNum } = assertBarobillCredentials();
+  const xml = await callBarobillSoapRequest("GetNTSSendOption", {
+    CERTKEY: certKey,
+    CorpNum: corpNum,
+  });
+
+  const resultBlock = extractResultBlock(xml, "GetNTSSendOptionResult");
+  if (!resultBlock) {
+    const faultMatch = String(xml || "").match(/<faultstring[^>]*>([^<]*)<\/faultstring>/i);
+    if (faultMatch) {
+      throw new Error(`SOAP \uC624\uB958: ${decodeXml(faultMatch[1])}`);
+    }
+    throw new Error("\uAD6D\uC138\uCCAD \uC804\uC1A1 \uC124\uC815 \uC870\uD68C \uACB0\uACFC\uB97C \uBD84\uC11D\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+  }
+
+  const taxationDefault = parseNtsSendOptionValue(readXmlTag(resultBlock, "TaxationOption")) || 1;
+  const taxExemptionDefault = parseNtsSendOptionValue(readXmlTag(resultBlock, "TaxExemptionOption")) || 1;
+
+  return {
+    ntsSendOptions: BAROBILL_NTS_SEND_OPTION_CATALOG,
+    accountDefaults: {
+      taxation: taxationDefault,
+      taxExemption: taxExemptionDefault,
+    },
+  };
+}
+
+export async function getTaxInvoiceIssueOptions(documentType = "tax") {
+  const settings = await getBarobillNtsSendSettings();
+  const normalizedType = documentType === "bill" ? "bill" : "tax";
+  const defaultNtsSendOption =
+    normalizedType === "bill" ? settings.accountDefaults.taxExemption : settings.accountDefaults.taxation;
+
+  return {
+    ...settings,
+    defaultNtsSendOption,
+  };
+}
+
+function resolveIssueNtsSendOption(input, accountDefaults) {
+  const explicit = parseNtsSendOptionValue(input.ntsSendOption);
+  if (explicit) return explicit;
+
+  const documentType = input.documentType === "bill" ? "bill" : "tax";
+  return documentType === "bill" ? accountDefaults.taxExemption : accountDefaults.taxation;
+}
+
+async function registTaxInvoiceDraft({ certKey, corpNum, invoiceXml }) {
+  const xml = await callBarobillSoapRequest(
+    "RegistTaxInvoice",
+    {
+      CERTKEY: certKey,
+      CorpNum: corpNum,
+      Invoice: invoiceXml,
+    },
+    { rawFieldNames: ["Invoice"] },
+  );
+
+  const rawResult = extractSoapResult(xml, "RegistTaxInvoiceResult");
+  const code = parseNumericResult(rawResult);
+  if (code === null) {
+    throw new Error("\uACC4\uC0B0\uC11C \uC800\uC7A5 \uACB0\uACFC \uCF54\uB4DC\uB97C \uBD84\uC11D\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+  }
+  if (code < 0) {
+    const detail = await describeBarobillCode(code);
+    const error = new Error(detail || `\uACC4\uC0B0\uC11C \uC800\uC7A5 \uC2E4\uD328 (${code})`);
+    error.errCode = code;
+    throw error;
+  }
+  return code;
+}
+
+async function issueRegisteredTaxInvoice({
+  certKey,
+  corpNum,
+  mgtKey,
+  ntsSendOption,
+  sendSms = false,
+  forceIssue = false,
+  mailTitle = "\uC804\uC790\uC138\uAE08\uACC4\uC0B0\uC11C \uBC1C\uD589 \uC548\uB0B4",
+}) {
+  const xml = await callBarobillSoapRequest("IssueTaxInvoice", {
+    CERTKEY: certKey,
+    CorpNum: corpNum,
+    MgtKey: mgtKey,
+    SendSMS: sendSms ? "true" : "false",
+    NTSSendOption: String(ntsSendOption),
+    ForceIssue: forceIssue ? "true" : "false",
+    MailTitle: mailTitle,
+  });
+
+  const rawResult = extractSoapResult(xml, "IssueTaxInvoiceResult");
+  const code = parseNumericResult(rawResult);
+  if (code === null) {
+    throw new Error("\uACC4\uC0B0\uC11C \uBC1C\uD589 \uACB0\uACFC \uCF54\uB4DC\uB97C \uBD84\uC11D\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+  }
+  if (code < 0) {
+    const detail = await describeBarobillCode(code);
+    const error = new Error(detail || `\uACC4\uC0B0\uC11C \uBC1C\uD589 \uC2E4\uD328 (${code})`);
+    error.errCode = code;
+    throw error;
+  }
+  return code;
+}
+
 export async function getTaxInvoiceState(mgtKey) {
   const { certKey, corpNum } = assertBarobillCredentials();
   const xml = await callBarobillSoapRequest("GetTaxInvoiceState", {
@@ -337,31 +462,19 @@ export async function registAndIssueTaxInvoice(input) {
     purposeType: input.purposeType,
   });
 
-  const xml = await callBarobillSoapRequest(
-    "RegistAndIssueTaxInvoice",
-    {
-      CERTKEY: certKey,
-      CorpNum: corpNum,
-      Invoice: invoiceXml,
-      SendSMS: "false",
-      ForceIssue: "false",
-      MailTitle: "\uC804\uC790\uC138\uAE08\uACC4\uC0B0\uC11C \uBC1C\uD589 \uC548\uB0B4",
-    },
-    { rawFieldNames: ["Invoice"] },
-  );
+  const { accountDefaults } = await getBarobillNtsSendSettings();
+  const ntsSendOption = resolveIssueNtsSendOption(input, accountDefaults);
 
-  const rawResult = extractSoapResult(xml, "RegistAndIssueTaxInvoiceResult");
-  const code = parseNumericResult(rawResult);
-  if (code === null) {
-    throw new Error("\uBC1C\uD589 \uACB0\uACFC \uCF54\uB4DC\uB97C \uBD84\uC11D\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
-  }
-
-  if (code < 0) {
-    const detail = await describeBarobillCode(code);
-    const error = new Error(detail || `\uACC4\uC0B0\uC11C \uBC1C\uD589 \uC2E4\uD328 (${code})`);
-    error.errCode = code;
-    throw error;
-  }
+  await registTaxInvoiceDraft({ certKey, corpNum, invoiceXml });
+  await issueRegisteredTaxInvoice({
+    certKey,
+    corpNum,
+    mgtKey,
+    ntsSendOption,
+    sendSms: Boolean(input.sendSms),
+    forceIssue: Boolean(input.forceIssue),
+    mailTitle: String(input.mailTitle || "\uC804\uC790\uC138\uAE08\uACC4\uC0B0\uC11C \uBC1C\uD589 \uC548\uB0B4").trim(),
+  });
 
   let invoiceNo;
   try {

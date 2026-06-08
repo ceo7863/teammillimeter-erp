@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
@@ -42,6 +42,7 @@ import {
 } from "@/utils/taxInvoiceIssueForm";
 import { TaxInvoiceIssuePreviewDialog } from "@/components/TaxInvoiceIssuePreviewDialog";
 import { useBackdropPointerDismiss } from "@/utils/modalBackdrop";
+import { useBarobillTaxInvoiceIssueOptions } from "@/hooks/useBarobillTaxInvoiceIssueOptions";
 
 const L = {
   title: "\uC138\uAE08\uACC4\uC0B0\uC11C \uBC1C\uD589",
@@ -65,6 +66,8 @@ const L = {
   vatAmount: "\uBD80\uAC00\uC138",
   amountHint: "\uACF5\uAE09\uAC00\uC561 \uB610\uB294 \uD569\uACC4 \uC911 \uD558\uB098\uB97C \uC785\uB825\uD558\uBA74 \uB098\uBA38\uC9C0 \uAE08\uC561\uC774 \uC790\uB3D9 \uACC4\uC0B0\uB429\uB2C8\uB2E4.",
   memo: "\uBA54\uBAA8",
+  ntsSendOption: "\uAD6D\uC138\uCCAD \uC804\uC1A1",
+  ntsSendOptionLoading: "\uBC14\uB85C\uBE4C \uC804\uC1A1 \uC635\uC158 \uBD88\uB7EC\uC624\uB294 \uC911...",
   cancel: "\uCDE8\uC18C",
   barobillIssue: "\uC804\uC790 \uBC1C\uD589",
   barobillIssueHint: "\uC804\uC790 \uBC1C\uD589 \uC2DC \uBC14\uB85C\uBE4C\uC744 \uD1B5\uD574 \uAD6D\uC138\uCCAD\uC5D0 \uC804\uC1A1\uB429\uB2C8\uB2E4.",
@@ -94,6 +97,7 @@ export type TaxInvoiceIssueDraft = {
   invoiceePhone: string;
   invoiceeBizType: string;
   invoiceeBizClass: string;
+  ntsSendOption: number;
 };
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -195,6 +199,7 @@ export function buildBankTaxInvoiceIssueDraft(
     issueDate,
     client: issueClientName || clientName,
     memo: String(tx.description || tx.memo || "").trim(),
+    ntsSendOption: 1,
     ...amountDraft,
     ...applied,
   };
@@ -220,6 +225,7 @@ export function buildPdfArchiveTaxInvoiceIssueDraft(
     issueDate,
     client: issueClientName || clientName,
     memo,
+    ntsSendOption: 1,
     ...amountDraft,
     ...applied,
   };
@@ -280,6 +286,26 @@ export function BankTaxInvoiceIssueModal({
 
   const isAdmin = currentUser?.role === "admin";
   const canIssueElectronically = Boolean(isAdmin && draft && sourceAmount > 0);
+  const {
+    issueOptions,
+    loading: issueOptionsLoading,
+    error: issueOptionsError,
+    resolveDefault,
+    getLabel,
+  } = useBarobillTaxInvoiceIssueOptions(canIssueElectronically, draft?.documentType || "tax");
+  const ntsDefaultAppliedRef = useRef(false);
+
+  useEffect(() => {
+    ntsDefaultAppliedRef.current = false;
+  }, [draft?.documentType]);
+
+  useEffect(() => {
+    if (!issueOptions || !draft || !canIssueElectronically || ntsDefaultAppliedRef.current) return;
+    ntsDefaultAppliedRef.current = true;
+    setDraft((prev) =>
+      prev ? { ...prev, ntsSendOption: issueOptions.defaultNtsSendOption } : prev,
+    );
+  }, [issueOptions, draft, canIssueElectronically]);
 
   const clientOptions = useMemo(
     () => clients.map((client) => String(client.name || "")).filter(Boolean),
@@ -348,6 +374,7 @@ export function BankTaxInvoiceIssueModal({
       return {
         ...prev,
         documentType,
+        ntsSendOption: resolveDefault(documentType),
         supplyAmount:
           parseTaxInvoiceAmount(prev.supplyAmount) > 0 || parseTaxInvoiceAmount(prev.totalAmount) > 0
             ? String(amounts.supplyAmount)
@@ -382,6 +409,7 @@ export function BankTaxInvoiceIssueModal({
         itemName: resolveTaxInvoiceItemName(draft.itemName),
         memo: draft.memo.trim() || undefined,
         purposeType: 2,
+        ntsSendOption: draft.ntsSendOption,
         invoiceeCeoName: draft.invoiceeCeoName.trim(),
         invoiceeEmail: draft.invoiceeEmail.trim(),
         invoiceeAddr: draft.invoiceeAddr.trim(),
@@ -469,7 +497,11 @@ export function BankTaxInvoiceIssueModal({
       return;
     }
     setFormError("");
-    setIssuePreviewData(buildTaxInvoiceIssuePreviewData(draft));
+    setIssuePreviewData(
+      buildTaxInvoiceIssuePreviewData(draft, {
+        ntsSendOptionLabel: getLabel(draft.ntsSendOption),
+      }),
+    );
     setIssuePreviewOpen(true);
   };
 
@@ -587,6 +619,33 @@ export function BankTaxInvoiceIssueModal({
               </select>
             </Field>
           </div>
+          {canIssueElectronically ? (
+            <Field label={L.ntsSendOption}>
+              <select
+                className="erp-input w-full rounded-2xl border bg-white px-3 py-2.5"
+                value={draft.ntsSendOption}
+                disabled={issueOptionsLoading || !issueOptions}
+                onChange={(event) =>
+                  setDraft((prev) =>
+                    prev ? { ...prev, ntsSendOption: Number(event.target.value) || 1 } : prev,
+                  )
+                }
+              >
+                {(issueOptions?.ntsSendOptions || [{ value: 1, label: "\uBC14\uB85C\uBC1C\uAE09", description: "" }]).map(
+                  (option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.description ? `${option.label} (${option.description})` : option.label}
+                    </option>
+                  ),
+                )}
+              </select>
+              {issueOptionsLoading ? (
+                <p className="mt-1 erp-text-caption text-slate-500">{L.ntsSendOptionLoading}</p>
+              ) : issueOptionsError ? (
+                <p className="mt-1 erp-text-caption text-rose-600">{issueOptionsError}</p>
+              ) : null}
+            </Field>
+          ) : null}
           <Field label={L.client}>
             <AutocompleteInput
               value={draft.client}

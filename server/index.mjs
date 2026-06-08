@@ -88,7 +88,7 @@ import {
 import { buildAuthorizeUrl } from "./openBankingClient.mjs";
 import { getBarobillConfigStatus, testBarobillConnection, getBarobillUrl } from "./barobill/client.mjs";
 import { syncBarobillTaxInvoices } from "./barobill/taxInvoiceSync.mjs";
-import { buildIssuedTaxInvoiceRecord, registAndIssueTaxInvoice } from "./barobill/taxInvoiceIssue.mjs";
+import { buildIssuedTaxInvoiceRecord, getTaxInvoiceIssueOptions, registAndIssueTaxInvoice } from "./barobill/taxInvoiceIssue.mjs";
 import { getTaxInvoiceScrapRequestUrl, refreshTaxInvoiceScrap } from "./barobill/taxInvoiceScrap.mjs";
 import {
   getBarobillBankSyncStatus,
@@ -1497,6 +1497,26 @@ app.post("/api/barobill/tax-invoices/sync", authMiddleware, adminMiddleware, asy
   }
 });
 
+app.get("/api/barobill/tax-invoices/issue-options", authMiddleware, adminMiddleware, async (req, res) => {
+  const configStatus = getBarobillConfigStatus();
+  if (!configStatus.configured) {
+    res.status(400).json({ error: "바로빌 인증키(CERTKEY)와 사업자번호가 설정되지 않았습니다." });
+    return;
+  }
+
+  try {
+    const documentType = req.query?.documentType === "bill" ? "bill" : "tax";
+    const options = await getTaxInvoiceIssueOptions(documentType);
+    res.json(options);
+  } catch (error) {
+    const errCode = error && typeof error === "object" && "errCode" in error ? error.errCode : undefined;
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+      errCode,
+    });
+  }
+});
+
 app.post("/api/barobill/tax-invoices/issue", authMiddleware, adminMiddleware, async (req, res) => {
   const apply = Boolean(req.body?.apply);
   const documentType = req.body?.documentType === "bill" ? "bill" : "tax";
@@ -1539,6 +1559,7 @@ app.post("/api/barobill/tax-invoices/issue", authMiddleware, adminMiddleware, as
       invoiceePhone: req.body?.invoiceePhone ? String(req.body.invoiceePhone) : undefined,
       invoiceeBizType: req.body?.invoiceeBizType ? String(req.body.invoiceeBizType) : undefined,
       invoiceeBizClass: req.body?.invoiceeBizClass ? String(req.body.invoiceeBizClass) : undefined,
+      ntsSendOption: Number(req.body?.ntsSendOption) || undefined,
     });
 
     const taxInvoice = buildIssuedTaxInvoiceRecord(

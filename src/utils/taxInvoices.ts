@@ -62,6 +62,7 @@ export type TaxInvoiceIssueFormLike = {
   invoiceePhone: string;
   invoiceeBizType: string;
   invoiceeBizClass: string;
+  ntsSendOption?: number;
 };
 
 export type TaxInvoiceIssuePreviewData = {
@@ -74,6 +75,7 @@ export type TaxInvoiceIssuePreviewData = {
   vatAmount: number;
   totalAmount: number;
   memo: string;
+  ntsSendOptionLabel?: string;
   invoiceeCeoName: string;
   invoiceeEmail: string;
   invoiceeAddr: string;
@@ -82,7 +84,10 @@ export type TaxInvoiceIssuePreviewData = {
   invoiceeBizClass: string;
 };
 
-export function buildTaxInvoiceIssuePreviewData(draft: TaxInvoiceIssueFormLike): TaxInvoiceIssuePreviewData {
+export function buildTaxInvoiceIssuePreviewData(
+  draft: TaxInvoiceIssueFormLike,
+  options?: { ntsSendOptionLabel?: string },
+): TaxInvoiceIssuePreviewData {
   const amounts = resolveTaxInvoiceModalAmounts(draft);
   const documentTypeLabel =
     TAX_INVOICE_DOCUMENT_OPTIONS.find((option) => option.value === draft.documentType)?.label ||
@@ -97,6 +102,7 @@ export function buildTaxInvoiceIssuePreviewData(draft: TaxInvoiceIssueFormLike):
     vatAmount: amounts.vatAmount,
     totalAmount: amounts.totalAmount,
     memo: draft.memo.trim(),
+    ntsSendOptionLabel: options?.ntsSendOptionLabel,
     invoiceeCeoName: draft.invoiceeCeoName.trim(),
     invoiceeEmail: draft.invoiceeEmail.trim(),
     invoiceeAddr: draft.invoiceeAddr.trim(),

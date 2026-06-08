@@ -17,6 +17,7 @@ const L = {
   vatAmount: "\uBD80\uAC00\uC138",
   totalAmount: "\uD569\uACC4",
   memo: "\uBA54\uBAA8",
+  ntsSendOption: "\uAD6D\uC138\uCCAD \uC804\uC1A1",
   invoiceeSection: "\uAC70\uB798\uCC98(\uACF5\uAE09\uBC1B\uB294\uC790)",
   ceoName: "\uB300\uD45C\uC790\uBA85",
   email: "\uC774\uBA54\uC77C",
@@ -81,6 +82,7 @@ export function TaxInvoiceIssuePreviewDialog({
           <PreviewRow label={L.supplyAmount} value={formatKRW(preview.supplyAmount)} />
           <PreviewRow label={L.vatAmount} value={formatKRW(preview.vatAmount)} />
           <PreviewRow label={L.totalAmount} value={formatKRW(preview.totalAmount)} />
+          {preview.ntsSendOptionLabel ? <PreviewRow label={L.ntsSendOption} value={preview.ntsSendOptionLabel} /> : null}
           {preview.memo ? <PreviewRow label={L.memo} value={preview.memo} /> : null}
         </div>
         <div className="mt-4">
