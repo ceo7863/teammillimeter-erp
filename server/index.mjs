@@ -157,6 +157,7 @@ import {
 import { notifyNewSaleComments, runDailyReportJob, startNotificationScheduler } from "./notificationScheduler.mjs";
 import {
   buildScScheduleNotifyPreview,
+  buildScScheduleNotifyPreviewAsync,
   getScScheduleNotifyStatus,
   runScScheduleNotifyJob,
 } from "./scScheduleNotify.mjs";
@@ -2106,10 +2107,15 @@ app.post("/api/notifications/daily-report/send", authMiddleware, adminMiddleware
   }
 });
 
-app.get("/api/notifications/sc-schedule/preview", authMiddleware, adminMiddleware, (_req, res) => {
-  const state = getErpState();
-  const preview = buildScScheduleNotifyPreview(state.data || {});
-  res.json(preview);
+app.get("/api/notifications/sc-schedule/preview", authMiddleware, adminMiddleware, async (_req, res) => {
+  try {
+    const state = getErpState();
+    const preview = await buildScScheduleNotifyPreviewAsync(state.data || {});
+    res.json(preview);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error instanceof Error ? error.message : "SC 일정 미리보기에 실패했습니다." });
+  }
 });
 
 app.post("/api/notifications/sc-schedule/send", authMiddleware, adminMiddleware, async (req, res) => {

@@ -157,6 +157,16 @@ export async function ensureScScheduleShareLink(scheduleId) {
   };
 }
 
+function buildScShareUrl(shareToken) {
+  const token = String(shareToken || "").trim();
+  if (!token) return "";
+  const base = String(config.sc.sharePublicUrl || config.sc.apiBaseUrl || "https://sc.teammillimeter.com").replace(
+    /\/$/,
+    "",
+  );
+  return `${base}/share/schedules/${encodeURIComponent(token)}`;
+}
+
 export function buildScScheduleNotifyPreview(data, dateKey = tomorrowKstDateKey()) {
   const workers = listWorkers(data);
   const clients = listClients(data);
@@ -214,6 +224,89 @@ export function buildScScheduleNotifyPreview(data, dateKey = tomorrowKstDateKey(
     clientNotifyCount: withPhone.filter((row) => row.recipientType === "client").length,
     missingPhoneCount: rows.filter((row) => !row.phone).length,
     missingClientPhoneCount: rows.filter((row) => row.recipientType === "client" && !row.phone).length,
+    rows,
+  };
+}
+
+export async function buildScScheduleNotifyPreviewAsync(data, dateKey = tomorrowKstDateKey()) {
+  const workers = listWorkers(data);
+  const clients = listClients(data);
+  const schedules = filterSchedulesForDate(listScSchedules(data), dateKey);
+  const rows = [];
+  const scheduleLinks = [];
+  const clientScheduleIds = new Set();
+
+  for (const schedule of schedules) {
+    const participantNames = Array.isArray(schedule.participantNames)
+      ? schedule.participantNames.filter(Boolean)
+      : [];
+    if (!participantNames.length) continue;
+
+    let shareToken = "";
+    let shareUrl = "";
+    if (isScScheduleSourceConfigured()) {
+      const share = await ensureScScheduleShareLink(schedule.id);
+      if (share.ok && share.shareToken) {
+        shareToken = share.shareToken;
+        shareUrl = String(share.url || buildScShareUrl(shareToken)).trim();
+      }
+      scheduleLinks.push({
+        scheduleId: schedule.id,
+        clientName: String(schedule.clientName || "").trim(),
+        projectName: String(schedule.projectName || "").trim(),
+        shareUrl,
+        shareToken,
+        error: share.ok ? null : String(share.error || share.reason || "share-link-failed"),
+      });
+    }
+
+    const contact = resolveClientContact(clients, schedule);
+    const clientManager = contact.name || resolveClientManager(clients, schedule);
+    const variables = formatScheduleTemplateVars(schedule, shareToken, clientManager);
+
+    if (!clientScheduleIds.has(schedule.id)) {
+      clientScheduleIds.add(schedule.id);
+      rows.push({
+        recipientType: "client",
+        scheduleId: schedule.id,
+        workDate: schedule.workDate,
+        clientName: schedule.clientName,
+        projectName: schedule.projectName,
+        clientManager: variables.clientManager,
+        participantName: contact.name || variables.clientManager,
+        phone: contact.phone || null,
+        shareUrl,
+        variables,
+      });
+    }
+
+    for (const participantName of participantNames) {
+      const phone = resolveWorkerPhone(workers, participantName);
+      rows.push({
+        recipientType: "worker",
+        scheduleId: schedule.id,
+        workDate: schedule.workDate,
+        clientName: schedule.clientName,
+        projectName: schedule.projectName,
+        clientManager: variables.clientManager,
+        participantName,
+        phone,
+        shareUrl,
+        variables,
+      });
+    }
+  }
+
+  const withPhone = rows.filter((row) => row.phone);
+  return {
+    targetDate: dateKey,
+    scheduleCount: schedules.length,
+    notifyCount: withPhone.length,
+    workerNotifyCount: withPhone.filter((row) => row.recipientType === "worker").length,
+    clientNotifyCount: withPhone.filter((row) => row.recipientType === "client").length,
+    missingPhoneCount: rows.filter((row) => !row.phone).length,
+    missingClientPhoneCount: rows.filter((row) => row.recipientType === "client" && !row.phone).length,
+    scheduleLinks,
     rows,
   };
 }

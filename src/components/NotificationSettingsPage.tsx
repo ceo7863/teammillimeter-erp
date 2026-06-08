@@ -196,6 +196,7 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
   const [scScheduleStatus, setScScheduleStatus] = useState<ScScheduleNotifyStatus | null>(null);
   const [version, setVersion] = useState<number | undefined>(erpVersion);
   const [previewMessage, setPreviewMessage] = useState("");
+  const [previewTitle, setPreviewTitle] = useState(L.previewTitle);
   const [previewOpen, setPreviewOpen] = useState(false);
 
   const loadAll = useCallback(async () => {
@@ -262,6 +263,7 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
     setError("");
     try {
       const result = await previewDailyReport();
+      setPreviewTitle(L.previewTitle);
       setPreviewMessage(result.message || "");
       setPreviewOpen(true);
     } catch (err) {
@@ -300,7 +302,17 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
       const lines = [
         `\uB300\uC0C1 \uC77C\uC790: ${result.targetDate}`,
         `\uC77C\uC815 ${result.scheduleCount}\uAC74 / \uBC1C\uC1A1 \uAC00\uB2A5 ${result.notifyCount}\uBA85 (\uAC70\uB798\uCC98 ${result.clientNotifyCount ?? 0}\uBA85 \u00B7 \uC2DC\uACF5 ${result.workerNotifyCount ?? 0}\uBA85) / \uC804\uD654 \uC5C6\uC74C ${result.missingPhoneCount}\uBA85`,
+      ];
+      if (result.scheduleLinks?.length) {
+        lines.push("", "=== \uC77C\uC815 \uB9C1\uD06C ===");
+        for (const link of result.scheduleLinks) {
+          const label = link.clientName || link.projectName || link.scheduleId;
+          lines.push(`${label}: ${link.shareUrl || `(\uB9C1\uD06C \uC0DD\uC131 \uC2E4\uD328${link.error ? `: ${link.error}` : ""})`}`);
+        }
+      }
+      lines.push(
         "",
+        "=== \uBC1C\uC1A1 \uB300\uC0C1 ===",
         ...result.rows.map((row) => {
           const role = row.recipientType === "client" ? "\uAC70\uB798\uCC98" : "\uC2DC\uACF5";
           const manager =
@@ -313,7 +325,8 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
               : row.participantName;
           return `[${role} ${row.phone || "\uC804\uD654\uC5C6\uC74C"}] ${who} \u00B7 ${row.variables.client} \u00B7 ${manager} \u00B7 ${row.variables.dateTime}`;
         }),
-      ];
+      );
+      setPreviewTitle(L.scPreviewTitle);
       setPreviewMessage(lines.join("\n"));
       setPreviewOpen(true);
     } catch (err) {
@@ -552,7 +565,7 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
       {previewOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
-            <h3 className="erp-text-body mb-3 font-bold text-slate-900">{L.previewTitle}</h3>
+            <h3 className="erp-text-body mb-3 font-bold text-slate-900">{previewTitle}</h3>
             <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-2xl bg-slate-50 p-4 text-sm text-slate-800">
               {previewMessage}
             </pre>

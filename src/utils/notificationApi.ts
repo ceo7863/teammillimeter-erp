@@ -62,11 +62,20 @@ export async function previewScScheduleNotify() {
     clientNotifyCount?: number;
     missingPhoneCount: number;
     missingClientPhoneCount?: number;
+    scheduleLinks?: Array<{
+      scheduleId: string;
+      clientName: string;
+      projectName: string;
+      shareUrl: string;
+      shareToken: string;
+      error: string | null;
+    }>;
     rows: Array<{
       recipientType?: "client" | "worker";
       scheduleId: string;
       participantName: string;
       phone: string | null;
+      shareUrl?: string;
       variables: Record<string, string>;
     }>;
   }>("/notifications/sc-schedule/preview");
