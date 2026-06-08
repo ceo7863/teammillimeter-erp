@@ -979,6 +979,9 @@ textarea {
 }
 
 .erp-client-request-calendar-modal {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
 }
 
@@ -990,12 +993,17 @@ textarea {
 }
 
 .erp-client-request-calendar-modal__head {
+  flex-shrink: 0;
   padding: 1rem 1rem 0.75rem;
   border-bottom: 1px solid #e2e8f0;
 }
 
 .erp-client-request-calendar-modal__body {
+  flex: 1 1 auto;
   min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* SC-style client site request calendar */
@@ -1499,6 +1507,22 @@ textarea {
     border-radius: 1rem 1rem 0 0;
     box-shadow: 0 -12px 40px rgba(15, 23, 42, 0.18);
     animation: erp-bank-counterparty-drawer-in 0.2s ease-out;
+  }
+
+  .erp-client-request-calendar-modal {
+    max-height: min(92dvh, calc(100vh - env(safe-area-inset-top)));
+  }
+
+  .erp-client-request-calendar-modal__body {
+    min-height: 16rem;
+  }
+
+  .erp-client-request-calendar-modal .erp-csr-cal-board {
+    min-height: 14rem;
+  }
+
+  .erp-client-request-calendar-modal .erp-csr-cal-grid {
+    min-height: 14rem;
   }
 }
 

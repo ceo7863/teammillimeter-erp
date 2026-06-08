@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ClientSiteRequestCalendar } from "@/components/ClientSiteRequestCalendar";
@@ -77,18 +78,32 @@ export function ClientSiteRequestCalendarModal({
     void loadCalendarData();
   }, [open, loadCalendarData]);
 
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open]);
+
   if (!open) return null;
 
   const publicUrl = link ? resolveClientSiteRequestLinkUrl(link) : "";
   const hasCalendarData =
     requests.some((row) => isClientSiteRequestVisibleOnPublicCalendar(row)) || scSchedules.length > 0;
 
-  return (
-    <div className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated" onClick={onClose}>
+  const modal = (
+    <div
+      className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <div
         className="erp-ledger-modal erp-client-request-calendar-modal"
         style={{ width: "min(100%, 48rem)", padding: 0 }}
-        onClick={(event) => event.stopPropagation()}
+        onMouseDown={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="client-site-request-calendar-title"
@@ -160,4 +175,6 @@ export function ClientSiteRequestCalendarModal({
       </div>
     </div>
   );
+
+  return typeof document !== "undefined" ? createPortal(modal, document.body) : modal;
 }
