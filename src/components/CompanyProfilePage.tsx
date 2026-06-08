@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Building2, Globe, Landmark, ListVideo, Save, Share2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -86,79 +86,87 @@ function ProfileInput({
 export function CompanyProfilePage({
   companyProfile,
   setCompanyProfile,
+  onPersistCompanyProfile,
 }: {
   companyProfile: CompanyProfile;
   setCompanyProfile: React.Dispatch<React.SetStateAction<CompanyProfile>>;
+  onPersistCompanyProfile?: (profile: CompanyProfile) => Promise<boolean>;
 }) {
   const { recordAudit } = useAudit();
   const [draft, setDraft] = useState(() => normalizeCompanyProfile(companyProfile));
   const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     setDraft(normalizeCompanyProfile(companyProfile));
   }, [companyProfile]);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const next = normalizeCompanyProfile(draft);
+  const commitProfile = useCallback(
+    async (nextInput: CompanyProfile) => {
+      const next = normalizeCompanyProfile(nextInput);
       const current = normalizeCompanyProfile(companyProfile);
       const changed = (Object.keys(next) as Array<keyof CompanyProfile>).some((key) => next[key] !== current[key]);
-      if (changed) {
-        recordAudit({
-          entityType: "companyProfile",
-          entityId: "company",
-          entityLabel: L.pageTitle,
-          screen: L.pageTitle,
-          action: "update",
-          before: snapshotCompanyProfileForAudit(current),
-          after: snapshotCompanyProfileForAudit(next),
-          fields: COMPANY_PROFILE_AUDIT_FIELDS,
-        });
-        setCompanyProfile(next);
+      if (!changed) {
         setMessage(L.saved);
+        return true;
       }
+
+      recordAudit({
+        entityType: "companyProfile",
+        entityId: "company",
+        entityLabel: L.pageTitle,
+        screen: L.pageTitle,
+        action: "update",
+        before: snapshotCompanyProfileForAudit(current),
+        after: snapshotCompanyProfileForAudit(next),
+        fields: COMPANY_PROFILE_AUDIT_FIELDS,
+      });
+      setCompanyProfile(next);
+      setDraft(next);
+
+      if (!onPersistCompanyProfile) {
+        setMessage(L.saved);
+        return true;
+      }
+
+      setSaving(true);
+      setError("");
+      try {
+        const saved = await onPersistCompanyProfile(next);
+        if (!saved) {
+          setError("\uC11C\uBC84 \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.");
+          return false;
+        }
+        setMessage(L.saved);
+        return true;
+      } finally {
+        setSaving(false);
+      }
+    },
+    [companyProfile, onPersistCompanyProfile, recordAudit, setCompanyProfile],
+  );
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void commitProfile(draft);
     }, 600);
     return () => window.clearTimeout(timer);
-  }, [draft, companyProfile, setCompanyProfile, recordAudit]);
+  }, [draft, commitProfile]);
 
   const update = (key: keyof CompanyProfile, value: string) => {
+    setMessage("");
+    setError("");
     setDraft((prev) => ({ ...prev, [key]: value }));
   };
 
   const saveProfile = () => {
-    const next = normalizeCompanyProfile(draft);
-    const current = normalizeCompanyProfile(companyProfile);
-    recordAudit({
-      entityType: "companyProfile",
-      entityId: "company",
-      entityLabel: L.pageTitle,
-      screen: L.pageTitle,
-      action: "update",
-      before: snapshotCompanyProfileForAudit(current),
-      after: snapshotCompanyProfileForAudit(next),
-      fields: COMPANY_PROFILE_AUDIT_FIELDS,
-    });
-    setCompanyProfile(next);
-    setDraft(next);
-    setMessage(L.saved);
+    void commitProfile(draft);
   };
 
   const resetProfile = () => {
     if (!window.confirm("\uAE30\uBCF8 \uAC12\uC73C\uB85C \uB418\uB3CC\uB9B4\uAE4C\uC694?")) return;
-    const next = { ...DEFAULT_COMPANY_PROFILE };
-    recordAudit({
-      entityType: "companyProfile",
-      entityId: "company",
-      entityLabel: L.pageTitle,
-      screen: L.pageTitle,
-      action: "update",
-      before: snapshotCompanyProfileForAudit(normalizeCompanyProfile(companyProfile)),
-      after: snapshotCompanyProfileForAudit(next),
-      fields: COMPANY_PROFILE_AUDIT_FIELDS,
-    });
-    setDraft(next);
-    setCompanyProfile(next);
-    setMessage(L.saved);
+    void commitProfile({ ...DEFAULT_COMPANY_PROFILE });
   };
 
   return (
@@ -170,11 +178,11 @@ export function CompanyProfilePage({
           <p className="erp-text-caption mt-1 text-slate-400">{L.autoSaveHint}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" className="rounded-2xl" onClick={resetProfile}>
+          <Button variant="outline" className="rounded-2xl" onClick={resetProfile} disabled={saving}>
             {L.reset}
           </Button>
-          <Button className="rounded-2xl" onClick={saveProfile}>
-            <Save size={16} /> {L.save}
+          <Button className="rounded-2xl" onClick={saveProfile} disabled={saving}>
+            <Save size={16} /> {saving ? "\uC800\uC7A5 \uC911..." : L.save}
           </Button>
         </div>
       </div>
@@ -182,6 +190,11 @@ export function CompanyProfilePage({
       {message ? (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 erp-text-body font-semibold text-emerald-700">
           {message}
+        </div>
+      ) : null}
+      {error ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 erp-text-body font-semibold text-red-700">
+          {error}
         </div>
       ) : null}
 

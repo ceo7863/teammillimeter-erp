@@ -25,6 +25,11 @@ import {
 } from "@/utils/clientSiteRequests";
 import { ClientSiteRequestCalendarModal } from "@/components/ClientSiteRequestCalendarModal";
 import { ClientSiteRequestChat } from "@/components/ClientSiteRequestChat";
+import {
+  fetchScScheduleSyncStatus,
+  runScScheduleSyncNow,
+  type ScScheduleSyncStatus,
+} from "@/utils/scSchedules";
 
 const L = {
   apiOnly: "\uD604\uC7A5 \uC811\uC218 \uB9C1\uD06C\uB294 API \uC5F0\uB3D9 \uBAA8\uB4DC\uC5D0\uC11C \uC0AC\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
@@ -89,6 +94,10 @@ const L = {
   messageFail: "\uBA54\uC2DC\uC9C0 \uC804\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   unreadChat: "\uC0C8 \uBA54\uC2DC\uC9C0",
   calendarTitle: "\uC811\uC218 \uCE98\uB9B0\uB354",
+  scSync: "SC \uB3D9\uAE30\uD654",
+  scSyncing: "\uB3D9\uAE30\uD654 \uC911...",
+  scSyncDone: (count: number) => `SC \uC77C\uC815 ${count}\uAC74 \uB3D9\uAE30\uD654\uD588\uC2B5\uB2C8\uB2E4.`,
+  scSyncNotConfigured: "SC_DATABASE_URL \uBBF8\uC124\uC815",
 };
 
 type ClientLike = {
@@ -348,6 +357,8 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
     clientId: number | string;
     clientName: string;
   } | null>(null);
+  const [scSyncStatus, setScSyncStatus] = useState<ScScheduleSyncStatus | null>(null);
+  const [scSyncing, setScSyncing] = useState(false);
 
   const clientOptions = useMemo(
     () =>
@@ -378,6 +389,42 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
   useEffect(() => {
     void loadAll();
   }, [loadAll]);
+
+  const loadScSyncStatus = useCallback(async () => {
+    if (!apiMode) return;
+    try {
+      const status = await fetchScScheduleSyncStatus();
+      setScSyncStatus(status);
+    } catch {
+      setScSyncStatus(null);
+    }
+  }, [apiMode]);
+
+  useEffect(() => {
+    void loadScSyncStatus();
+  }, [loadScSyncStatus]);
+
+  const handleScSync = useCallback(async () => {
+    if (!apiMode || scSyncing) return;
+    setScSyncing(true);
+    setMessage("");
+    try {
+      const result = await runScScheduleSyncNow();
+      if (result.skipped && result.reason === "not_configured") {
+        setMessage(L.scSyncNotConfigured);
+      } else if (result.ok === false && result.error) {
+        setMessage(result.error);
+      } else {
+        setMessage(L.scSyncDone(Number(result.lastScheduleCount || 0)));
+      }
+      await loadScSyncStatus();
+      await loadAll();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : L.fail);
+    } finally {
+      setScSyncing(false);
+    }
+  }, [apiMode, scSyncing, loadAll, loadScSyncStatus]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -608,6 +655,21 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
           <Button type="button" variant="outline" className="rounded-xl" onClick={() => void loadAll()} disabled={loading || saving}>
             <RefreshCw size={14} className={`mr-1 ${loading ? "animate-spin" : ""}`} />
             {L.refresh}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-xl"
+            onClick={() => void handleScSync()}
+            disabled={loading || saving || scSyncing || scSyncStatus?.configured === false}
+            title={
+              scSyncStatus?.lastSuccessAt
+                ? `\uB9C8\uC9C0\uB9C9 \uB3D9\uAE30\uD654: ${scSyncStatus.lastSuccessAt}`
+                : undefined
+            }
+          >
+            <RefreshCw size={14} className={`mr-1 ${scSyncing ? "animate-spin" : ""}`} />
+            {scSyncing ? L.scSyncing : L.scSync}
           </Button>
         </div>
 

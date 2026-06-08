@@ -15,6 +15,10 @@ const ISSUE_DIRECTION_SALES = 1;
 const TAX_INVOICE_TYPE_NORMAL = 1;
 const TAX_CALC_TYPE_MANUAL = 1;
 const DEFAULT_PURPOSE_TYPE = 2;
+const DEFAULT_INVOICER_BIZ = {
+  bizType: "\uAC74\uC124\uC5C5",
+  bizClass: "\uAC00\uAD6C\uC2DC\uACF5",
+};
 
 function decodeXml(text) {
   return String(text ?? "")
@@ -74,8 +78,8 @@ function normalizeCompanyProfile(raw) {
     businessNo: digitsOnly(source.businessNo || ""),
     ceoName: String(source.ceoName || "").trim(),
     email: String(source.email || "").trim(),
-    bizType: String(source.bizType || "").trim(),
-    bizClass: String(source.bizClass || "").trim(),
+    bizType: String(source.bizType || DEFAULT_INVOICER_BIZ.bizType).trim() || DEFAULT_INVOICER_BIZ.bizType,
+    bizClass: String(source.bizClass || DEFAULT_INVOICER_BIZ.bizClass).trim() || DEFAULT_INVOICER_BIZ.bizClass,
     phone: String(source.phone || "").trim(),
     address: String(source.address || "").trim(),
   };
@@ -102,8 +106,8 @@ function resolveInvoicerProfile() {
     email,
     addr: profile.address,
     tel: profile.phone,
-    bizType: profile.bizType,
-    bizClass: profile.bizClass,
+    bizType: String(config.barobill.bizType || profile.bizType || DEFAULT_INVOICER_BIZ.bizType).trim(),
+    bizClass: String(config.barobill.bizClass || profile.bizClass || DEFAULT_INVOICER_BIZ.bizClass).trim(),
   };
 }
 

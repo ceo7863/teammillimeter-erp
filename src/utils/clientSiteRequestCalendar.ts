@@ -1,10 +1,12 @@
 import type { ClientSiteRequest } from "@/utils/clientSiteRequests";
 import { getClientSiteRequestWorkDateEnd, requestCoversWorkDate } from "@/utils/clientSiteRequests";
+import type { ScSchedule } from "@/utils/scSchedules";
 
 export type ClientSiteRequestCalendarCell = {
   date: string;
   day: number;
   requests: ClientSiteRequest[];
+  scSchedules: ScSchedule[];
 };
 
 const WEEKDAY_LABELS = ["\uC77C", "\uC6D4", "\uD654", "\uC218", "\uBAA9", "\uAE08", "\uD1A0"];
@@ -55,9 +57,26 @@ export function groupClientSiteRequestsByDate(requests: ClientSiteRequest[]) {
   return map;
 }
 
+export function groupScSchedulesByDate(schedules: ScSchedule[]) {
+  const map = new Map<string, ScSchedule[]>();
+  for (const row of schedules) {
+    const date = String(row.workDate || "").slice(0, 10);
+    if (!date) continue;
+    const current = map.get(date) || [];
+    current.push(row);
+    map.set(date, current);
+  }
+  for (const [date, rows] of map.entries()) {
+    rows.sort((a, b) => String(a.startTime || "").localeCompare(String(b.startTime || "")));
+    map.set(date, rows);
+  }
+  return map;
+}
+
 export function buildClientSiteRequestCalendarCells(
   monthKey: string,
   requests: ClientSiteRequest[],
+  scSchedules: ScSchedule[] = [],
 ): Array<ClientSiteRequestCalendarCell | null> {
   const [yearText, monthText] = monthKey.split("-");
   const year = Number(yearText);
@@ -65,6 +84,7 @@ export function buildClientSiteRequestCalendarCells(
   if (!Number.isFinite(year) || !Number.isFinite(month)) return [];
 
   const byDate = groupClientSiteRequestsByDate(requests);
+  const scByDate = groupScSchedulesByDate(scSchedules);
   const firstDay = new Date(year, month - 1, 1);
   const lastDay = new Date(year, month, 0);
   const startOffset = firstDay.getDay();
@@ -79,7 +99,12 @@ export function buildClientSiteRequestCalendarCells(
       requests
         .filter((request) => requestCoversWorkDate(request, date))
         .sort((a, b) => String(a.submittedAt || "").localeCompare(String(b.submittedAt || "")));
-    cells.push({ date, day, requests: dayRequests });
+    cells.push({
+      date,
+      day,
+      requests: dayRequests,
+      scSchedules: scByDate.get(date) || [],
+    });
   }
   while (cells.length % 7 !== 0) cells.push(null);
   return cells;
@@ -98,4 +123,8 @@ export function countClientSiteRequestsInMonth(monthKey: string, requests: Clien
     const end = getClientSiteRequestWorkDateEnd(row);
     return start <= monthEnd && end >= monthStart;
   }).length;
+}
+
+export function countScSchedulesInMonth(monthKey: string, schedules: ScSchedule[]) {
+  return schedules.filter((row) => String(row.workDate || "").slice(0, 7) === monthKey).length;
 }

@@ -64,6 +64,8 @@ function emptyErpPayload() {
     statementFolders: [],
     clientContracts: [],
     clientSiteRequests: [],
+    scSchedules: [],
+    scScheduleSyncMeta: null,
     companyProfile: null,
     notificationSettings: {
       enabled: false,

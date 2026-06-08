@@ -68,6 +68,15 @@ export const config = {
     contractTemplate: process.env.ALIMTALK_CONTRACT_TEMPLATE || "",
     erpBaseUrl: process.env.ERP_PUBLIC_URL || "https://erp.teammillimeter.com",
   },
+  sc: {
+    /** SC(office) PostgreSQL read-only connection — Vercel/Neon DATABASE_URL */
+    databaseUrl: process.env.SC_DATABASE_URL || "",
+    syncEnabled: parseEnvBool(process.env.SC_SCHEDULE_SYNC_ENABLED, true),
+    /** 자동 동기화 주기(ms). 기본 15분 */
+    syncIntervalMs: Number(process.env.SC_SCHEDULE_SYNC_INTERVAL_MS || 900000),
+    /** 동기화 시 가져올 월 수(현재 월 기준). 기본 ±2개월 = 4개월 */
+    scheduleSyncMonths: Number(process.env.SC_SCHEDULE_SYNC_MONTHS || 4),
+  },
   barobill: {
     certKey: process.env.BAROBILL_CERT_KEY || "",
     corpNum: process.env.BAROBILL_CORP_NUM || "",
@@ -78,6 +87,10 @@ export const config = {
     ceoName: process.env.BAROBILL_CEO_NAME || "",
     /** 공급자 담당자 이메일 — 미설정 시 발행 API가 거절될 수 있음 */
     contactEmail: process.env.BAROBILL_CONTACT_EMAIL || "",
+    /** 공급자 업태 — 미설정 시 회사정보 또는 기본값(건설업) */
+    bizType: process.env.BAROBILL_BIZ_TYPE || "",
+    /** 공급자 업종 — 미설정 시 회사정보 또는 기본값(가구시공) */
+    bizClass: process.env.BAROBILL_BIZ_CLASS || "",
     /** 바로빌 계좌거래내역조회 대상 계좌 (하이픈 포함/미포함 모두 가능) */
     bankAccountNum: process.env.BAROBILL_BANK_ACCOUNT_NUM || "969-046529-04-015",
     /** 자동 동기화 시 조회 일수 */

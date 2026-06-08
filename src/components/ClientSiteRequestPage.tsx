@@ -21,6 +21,7 @@ import {
   type ClientSiteRequest,
   type PublicClientSiteRequestInfo,
 } from "@/utils/clientSiteRequests";
+import { fetchPublicScSchedules, type ScSchedule } from "@/utils/scSchedules";
 
 const BRAND_LOGO_SRC = "/team-millimeter-login-logo.jpg";
 
@@ -115,6 +116,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
   const [doneRequestId, setDoneRequestId] = useState("");
   const [tab, setTab] = useState<PageTab>("calendar");
   const [requests, setRequests] = useState<ClientSiteRequest[]>([]);
+  const [scSchedules, setScSchedules] = useState<ScSchedule[]>([]);
   const [selectedRequestId, setSelectedRequestId] = useState("");
   const [calendarMonthKey, setCalendarMonthKey] = useState(getCurrentMonthKey);
   const [selectedCalendarDate, setSelectedCalendarDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -176,6 +178,15 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
     }
   }, [token]);
 
+  const loadScSchedules = useCallback(async () => {
+    try {
+      const rows = await fetchPublicScSchedules(token, calendarMonthKey);
+      setScSchedules(rows);
+    } catch {
+      setScSchedules([]);
+    }
+  }, [token, calendarMonthKey]);
+
   useEffect(() => {
     void loadInfo();
   }, [loadInfo]);
@@ -184,6 +195,11 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
     if (!info) return;
     void loadRequests();
   }, [info, loadRequests]);
+
+  useEffect(() => {
+    if (!info) return;
+    void loadScSchedules();
+  }, [info, loadScSchedules]);
 
   useEffect(() => {
     if (selectedRequest?.status === "cancelled" && tab === "calendar") {
@@ -432,6 +448,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
               <div className="space-y-4">
                 <ClientSiteRequestCalendar
                   requests={calendarRequests}
+                  scSchedules={scSchedules}
                   monthKey={calendarMonthKey}
                   onMonthKeyChange={setCalendarMonthKey}
                   selectedDate={selectedCalendarDate}

@@ -11,15 +11,23 @@ import { formatClientSiteRequestWorkPeriod, requestCoversWorkDate } from "@/util
 import {
   buildClientSiteRequestCalendarCells,
   countClientSiteRequestsInMonth,
+  countScSchedulesInMonth,
   formatClientSiteRequestMonthLabel,
   getClientSiteRequestWeekdayLabels,
   getCurrentMonthKey,
   shiftMonthKey,
 } from "@/utils/clientSiteRequestCalendar";
+import type { ScSchedule } from "@/utils/scSchedules";
+import { formatScScheduleHeadcount, formatScScheduleTimeRange } from "@/utils/scSchedules";
 
 const L = {
   today: "\uC624\uB298",
-  monthCount: (count: number) => `\uC774\uB2EC ${count}\uAC74`,
+  monthCount: (requestCount: number, scCount: number) => {
+    if (requestCount > 0 && scCount > 0) return `\uC774\uB2EC \uC811\uC218 ${requestCount}\uAC74 \u00B7 \uD655\uC815 ${scCount}\uAC74`;
+    if (scCount > 0) return `\uC774\uB2EC \uD655\uC815 ${scCount}\uAC74`;
+    return `\uC774\uB2EC ${requestCount}\uAC74`;
+  },
+  scBadge: "\uD655\uC815",
   emptyDay: "\uC120\uD0DD\uD55C \uB0A0\uC9DC\uB97C \uD55C \uBC88 \uB354 \uB20C\uB7EC \uC77C\uC815\uC744 \uB4F1\uB85D\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
   mobileHint: "\uB0A0\uC9DC \uC120\uD0DD \u2192 \uAC19\uC740 \uB0A0\uC9DC \uD55C \uBC88 \uB354 \uD074\uB9AD \uC2DC \uC811\uC218",
   workerUnit: "\uBA85",
@@ -34,6 +42,7 @@ function formatDayPanelLabel(date: string) {
 
 type ClientSiteRequestCalendarProps = {
   requests: ClientSiteRequest[];
+  scSchedules?: ScSchedule[];
   monthKey: string;
   onMonthKeyChange: (monthKey: string) => void;
   selectedDate: string;
@@ -52,6 +61,7 @@ function todayISO() {
 
 export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar({
   requests,
+  scSchedules = [],
   monthKey,
   onMonthKeyChange,
   selectedDate,
@@ -64,17 +74,22 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
     [requests],
   );
   const cells = useMemo(
-    () => buildClientSiteRequestCalendarCells(monthKey, calendarRequests),
-    [monthKey, calendarRequests],
+    () => buildClientSiteRequestCalendarCells(monthKey, calendarRequests, scSchedules),
+    [monthKey, calendarRequests, scSchedules],
   );
-  const monthCount = useMemo(
-    () => countClientSiteRequestsInMonth(monthKey, calendarRequests),
-    [monthKey, calendarRequests],
-  );
+  const monthCountLabel = useMemo(() => {
+    const requestCount = countClientSiteRequestsInMonth(monthKey, calendarRequests);
+    const scCount = countScSchedulesInMonth(monthKey, scSchedules);
+    return L.monthCount(requestCount, scCount);
+  }, [monthKey, calendarRequests, scSchedules]);
   const selectedDayRequests = useMemo(() => {
     if (!selectedDate) return [];
     return calendarRequests.filter((row) => requestCoversWorkDate(row, selectedDate));
   }, [calendarRequests, selectedDate]);
+  const selectedDayScSchedules = useMemo(() => {
+    if (!selectedDate) return [];
+    return scSchedules.filter((row) => String(row.workDate || "").slice(0, 10) === selectedDate);
+  }, [scSchedules, selectedDate]);
 
   return (
     <div className="erp-client-request-calendar">
@@ -114,7 +129,7 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
             {L.today}
           </Button>
         </div>
-        <div className="text-xs font-bold text-slate-500">{L.monthCount(monthCount)}</div>
+        <div className="text-xs font-bold text-slate-500">{monthCountLabel}</div>
       </div>
 
       <div className="erp-calendar-weekdays">
@@ -137,8 +152,12 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
           const weekday = new Date(`${cell.date}T12:00:00`).getDay();
           const weekendTone = weekday === 0 ? "sun" : weekday === 6 ? "sat" : "default";
           const isToday = cell.date === todayISO();
-          const hasData = cell.requests.length > 0;
+          const entryCount = cell.requests.length + cell.scSchedules.length;
+          const hasData = entryCount > 0;
           const isSelected = selectedDate === cell.date;
+          const visibleRequests = cell.requests.slice(0, 3);
+          const scSlots = Math.max(0, 3 - visibleRequests.length);
+          const visibleSc = cell.scSchedules.slice(0, scSlots);
 
           return (
             <div
@@ -167,12 +186,12 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
                 <span className="erp-calendar-cell-day">{cell.day}</span>
                 {hasData ? (
                   <span className="erp-client-request-calendar__count erp-client-request-calendar__count--desktop">
-                    {cell.requests.length}
+                    {entryCount}
                   </span>
                 ) : null}
               </div>
               <div className="erp-calendar-cell-entries erp-client-request-calendar__entries">
-                {cell.requests.slice(0, 3).map((request) => (
+                {visibleRequests.map((request) => (
                   <button
                     key={request.id}
                     type="button"
@@ -195,8 +214,20 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
                     </span>
                   </button>
                 ))}
-                {cell.requests.length > 3 ? (
-                  <div className="erp-client-request-calendar__more">+{cell.requests.length - 3}</div>
+                {visibleSc.map((schedule) => (
+                  <div
+                    key={`sc-${schedule.id}`}
+                    className="erp-client-request-calendar__entry is-sc-schedule"
+                    title={L.scBadge}
+                  >
+                    <span className="erp-client-request-calendar__entry-site truncate">{schedule.workType}</span>
+                    <span className="erp-client-request-calendar__entry-workers shrink-0">
+                      {formatScScheduleHeadcount(schedule) || formatScScheduleTimeRange(schedule)}
+                    </span>
+                  </div>
+                ))}
+                {entryCount > 3 ? (
+                  <div className="erp-client-request-calendar__more">+{entryCount - 3}</div>
                 ) : null}
               </div>
             </div>
@@ -210,13 +241,28 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
             <span className="erp-client-request-calendar__day-title-full">{selectedDate}</span>
             <span className="erp-client-request-calendar__day-title-mobile">{formatDayPanelLabel(selectedDate)}</span>
             {" \u00B7 "}
-            {selectedDayRequests.length}
+            {selectedDayRequests.length + selectedDayScSchedules.length}
             {"\uAC74"}
           </div>
-          {!selectedDayRequests.length ? (
+          {!selectedDayRequests.length && !selectedDayScSchedules.length ? (
             <p className="text-sm text-slate-500">{L.emptyDay}</p>
           ) : (
             <div className="space-y-2">
+              {selectedDayScSchedules.map((schedule) => (
+                <div key={`sc-panel-${schedule.id}`} className="erp-client-request-calendar__day-item is-sc-schedule">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold">{schedule.workType}</span>
+                    <span className="erp-client-request-calendar__status is-sc-schedule">{L.scBadge}</span>
+                  </div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {formatScScheduleTimeRange(schedule)}
+                    {formatScScheduleHeadcount(schedule) ? ` \u00B7 ${formatScScheduleHeadcount(schedule)}` : ""}
+                    {schedule.participantNames?.length
+                      ? ` \u00B7 ${schedule.participantNames.join(", ")}`
+                      : ""}
+                  </div>
+                </div>
+              ))}
               {selectedDayRequests.map((request) => (
                 <button
                   key={request.id}
@@ -233,8 +279,7 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
                     </span>
                   </div>
                   <div className="mt-1 text-xs text-slate-500">
-                    {request.workerCount}
-                    {L.workerUnit}
+                    {formatClientSiteRequestWorkPeriod(request)}
                     {request.contactName ? ` \u00B7 ${request.contactName}` : ""}
                   </div>
                 </button>

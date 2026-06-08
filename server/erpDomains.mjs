@@ -40,6 +40,8 @@ export const ERP_DOMAIN_FIELDS = {
     "notificationSettings",
     "clientSiteRequests",
     "clientContracts",
+    "scSchedules",
+    "scScheduleSyncMeta",
   ],
 };
 
@@ -216,6 +218,11 @@ export function mergeErpDomainForSave(existingData, domain, incomingPartial) {
         clientContracts: Array.isArray(incoming.clientContracts)
           ? incoming.clientContracts
           : existing.clientContracts || [],
+        scSchedules: Array.isArray(incoming.scSchedules) ? incoming.scSchedules : existing.scSchedules || [],
+        scScheduleSyncMeta:
+          incoming.scScheduleSyncMeta && typeof incoming.scScheduleSyncMeta === "object"
+            ? incoming.scScheduleSyncMeta
+            : existing.scScheduleSyncMeta,
       };
     default:
       return existing;

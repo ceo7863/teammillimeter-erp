@@ -136,6 +136,13 @@ import {
   submitClientSiteRequest,
   updateClientSiteRequestStatus,
 } from "./clientSiteRequests.mjs";
+import {
+  getScScheduleSyncStatus,
+  listPublicScSchedulesForToken,
+  listStaffScSchedulesForClient,
+  runScScheduleSync,
+  startScScheduleSyncScheduler,
+} from "./scScheduleSync.mjs";
 import { getDefaultPdfContent, listContractTemplates } from "./contractTemplate.mjs";
 import { renderContractPdfPreview } from "./contractPdfRender.mjs";
 import {
@@ -152,6 +159,7 @@ initClientBusinessRegStore();
 initClientContractsStore();
 startBankSyncScheduler();
 startNotificationScheduler();
+startScScheduleSyncScheduler();
 
 function parsePdfMetaHeader(rawMeta) {
   const text = String(rawMeta);
@@ -487,6 +495,54 @@ app.post("/api/public/client-site-request/:token/requests/:requestId/cancel", (r
     return;
   }
   res.json({ request: result.request });
+});
+
+app.get("/api/public/client-site-request/:token/sc-schedules", (req, res) => {
+  const monthKey = String(req.query.month || "").trim();
+  const result = listPublicScSchedulesForToken(req.params.token, monthKey);
+  if (!result.ok) {
+    res.status(result.status || 400).json({ error: result.error });
+    return;
+  }
+  res.json({ schedules: result.schedules });
+});
+
+app.get("/api/sc-schedules/sync-status", authMiddleware, (_req, res) => {
+  res.json(getScScheduleSyncStatus());
+});
+
+app.post("/api/sc-schedules/sync", authMiddleware, async (req, res) => {
+  const actor = req.user.loginId || req.user.name || req.user.email || "staff";
+  try {
+    const result = await runScScheduleSync({ updatedBy: `sc-schedule-sync:${actor}` });
+    if (!result.ok) {
+      res.status(result.skipped ? 409 : 500).json(result);
+      return;
+    }
+    res.json(result);
+  } catch (error) {
+    console.error("[sc-schedule-sync] manual sync failed:", error);
+    res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+app.get("/api/sc-schedules", authMiddleware, (req, res) => {
+  const clientId = req.query.clientId;
+  const monthKey = String(req.query.month || "").trim();
+  if (clientId == null || clientId === "") {
+    res.status(400).json({ error: "clientId is required" });
+    return;
+  }
+  const result = listStaffScSchedulesForClient(clientId, monthKey);
+  if (!result.ok) {
+    res.status(result.status || 400).json({ error: result.error });
+    return;
+  }
+  res.json({
+    schedules: result.schedules,
+    scProjectId: result.scProjectId,
+    scProjectName: result.scProjectName,
+  });
 });
 
 app.get("/api/client-site-requests", authMiddleware, (req, res) => {

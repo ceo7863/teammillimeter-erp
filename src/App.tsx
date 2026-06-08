@@ -7596,11 +7596,15 @@ export default function TeammillimeterErpMvp() {
     setBankTransactionFolders(ledgerFolderSync.folders);
     setStatementGenerationLogs(normalizeStatementGenerationLogs(data.statementGenerationLogs));
     setStatementFolders(normalizeStatementFolders(data.statementFolders));
-    setCompanyProfile(normalizeCompanyProfile(data.companyProfile));
+    const normalizedCompanyProfile = normalizeCompanyProfile(data.companyProfile);
+    setCompanyProfile(normalizedCompanyProfile);
     publishErpVersion(data.version ?? 0);
     bankTransactionsDirtyRef.current = false;
     skipSaveRef.current = true;
-    rememberSavedDomainSnapshotsFromPayload(data);
+    rememberSavedDomainSnapshotsFromPayload({
+      ...data,
+      companyProfile: normalizedCompanyProfile,
+    });
   };
 
   useEffect(() => {
@@ -8091,6 +8095,31 @@ export default function TeammillimeterErpMvp() {
       return saved;
     },
     [apiMode, currentUser, dataReady, auditLogs, flushErpSave],
+  );
+
+  const persistCompanyProfileImmediate = useCallback(
+    async (nextProfile: import("@/utils/companyProfile").CompanyProfile) => {
+      pendingLocalEditsRef.current = true;
+      skipSaveRef.current = true;
+      if (saveDebounceTimerRef.current) {
+        window.clearTimeout(saveDebounceTimerRef.current);
+        saveDebounceTimerRef.current = null;
+      }
+
+      const normalized = normalizeCompanyProfile(nextProfile);
+      setCompanyProfile(normalized);
+
+      if (!apiMode || !currentUser || !dataReady) return true;
+
+      let saved = true;
+      try {
+        saved = (await flushErpSave({ companyProfile: normalized })) !== false;
+      } finally {
+        skipSaveRef.current = false;
+      }
+      return saved;
+    },
+    [apiMode, currentUser, dataReady, flushErpSave],
   );
 
   const persistWorkersImmediate = useCallback(
@@ -9381,7 +9410,11 @@ export default function TeammillimeterErpMvp() {
               />
             }
             companyPanel={
-              <CompanyProfilePage companyProfile={companyProfile} setCompanyProfile={setCompanyProfile} />
+              <CompanyProfilePage
+                companyProfile={companyProfile}
+                setCompanyProfile={setCompanyProfile}
+                onPersistCompanyProfile={persistCompanyProfileImmediate}
+              />
             }
           />
         </PageKeepAlive>

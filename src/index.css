@@ -680,6 +680,18 @@ textarea {
   color: #c2410c;
 }
 
+.erp-client-request-calendar__entry.is-sc-schedule,
+.erp-client-request-calendar__day-item.is-sc-schedule {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px dashed #93c5fd;
+}
+
+.erp-client-request-calendar__status.is-sc-schedule {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
 .erp-client-request-calendar__entry.is-active {
   outline: 2px solid #0f172a;
   outline-offset: 1px;

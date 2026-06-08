@@ -367,6 +367,13 @@ export function mergeClientsForSave(existing = [], incoming = []) {
     if (client.siteRequestLinkUpdatedBy || prev.siteRequestLinkUpdatedBy) {
       merged.siteRequestLinkUpdatedBy = client.siteRequestLinkUpdatedBy || prev.siteRequestLinkUpdatedBy;
     }
+
+    const scProjectId = String(client.scProjectId || "").trim() || String(prev.scProjectId || "").trim();
+    if (scProjectId) merged.scProjectId = scProjectId;
+    else delete merged.scProjectId;
+    const scProjectName = String(client.scProjectName || "").trim() || String(prev.scProjectName || "").trim();
+    if (scProjectName) merged.scProjectName = scProjectName;
+    else delete merged.scProjectName;
     return merged;
   });
 }

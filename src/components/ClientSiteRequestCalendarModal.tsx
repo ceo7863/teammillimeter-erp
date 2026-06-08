@@ -12,14 +12,15 @@ import {
   type ClientSiteRequest,
   type ClientSiteRequestLink,
 } from "@/utils/clientSiteRequests";
+import { fetchStaffScSchedules, type ScSchedule } from "@/utils/scSchedules";
 
 const L = {
   title: "\uC811\uC218 \uCE98\uB9B0\uB354",
   closeAria: "\uC811\uC218 \uCE98\uB9B0\uB354 \uB2EB\uAE30",
   loading: "\uBD88\uB7EC\uC624\uB294 \uC911...",
   loadFail: "\uC811\uC218 \uB0B4\uC5ED\uC744 \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
-  empty: "\uC811\uC218 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
-  openLink: "\uACF5\uAC1C \uD398\uC774\uC785 \uC5F4\uAE30",
+  empty: "\uC774\uB2EC \uC811\uC218 \uB0B4\uC5ED \uB610\uB294 SC \uD655\uC815 \uC77C\uC815\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  openLink: "\uACF5\uAC1C \uD398\uC774\uC815 \uC5F4\uAE30",
 };
 
 type ClientSiteRequestCalendarModalProps = {
@@ -38,37 +39,49 @@ export function ClientSiteRequestCalendarModal({
   onClose,
 }: ClientSiteRequestCalendarModalProps) {
   const [requests, setRequests] = useState<ClientSiteRequest[]>([]);
+  const [scSchedules, setScSchedules] = useState<ScSchedule[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [monthKey, setMonthKey] = useState(getCurrentMonthKey);
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [selectedRequestId, setSelectedRequestId] = useState("");
 
-  const loadRequests = useCallback(async () => {
+  const loadCalendarData = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const rows = await listClientSiteRequests({ status: "all", clientId });
+      const [rows, schedules] = await Promise.all([
+        listClientSiteRequests({ status: "all", clientId }),
+        fetchStaffScSchedules(clientId, monthKey),
+      ]);
       setRequests(rows);
+      setScSchedules(schedules);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : L.loadFail);
       setRequests([]);
+      setScSchedules([]);
     } finally {
       setLoading(false);
     }
-  }, [clientId]);
+  }, [clientId, monthKey]);
 
   useEffect(() => {
     if (!open) return;
     setMonthKey(getCurrentMonthKey());
     setSelectedDate(new Date().toISOString().slice(0, 10));
     setSelectedRequestId("");
-    void loadRequests();
-  }, [open, clientId, loadRequests]);
+  }, [open, clientId]);
+
+  useEffect(() => {
+    if (!open) return;
+    void loadCalendarData();
+  }, [open, loadCalendarData]);
 
   if (!open) return null;
 
   const publicUrl = link ? resolveClientSiteRequestLinkUrl(link) : "";
+  const hasCalendarData =
+    requests.some((row) => isClientSiteRequestVisibleOnPublicCalendar(row)) || scSchedules.length > 0;
 
   return (
     <div className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated" onClick={onClose}>
@@ -112,11 +125,12 @@ export function ClientSiteRequestCalendarModal({
             <p className="py-8 text-center text-sm text-slate-500">{L.loading}</p>
           ) : error ? (
             <p className="py-8 text-center text-sm font-semibold text-red-600">{error}</p>
-          ) : !requests.length ? (
+          ) : !hasCalendarData ? (
             <p className="py-8 text-center text-sm text-slate-500">{L.empty}</p>
           ) : (
             <ClientSiteRequestCalendar
               requests={requests}
+              scSchedules={scSchedules}
               monthKey={monthKey}
               onMonthKeyChange={setMonthKey}
               selectedDate={selectedDate}
