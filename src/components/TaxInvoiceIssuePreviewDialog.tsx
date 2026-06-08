@@ -59,7 +59,7 @@ export function TaxInvoiceIssuePreviewDialog({
 
   return (
     <div
-      className="erp-ledger-modal-backdrop"
+      className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
       onPointerDown={onPointerDown}
       onPointerUp={onPointerUp}
       data-touch-device={isTouchDevice ? "true" : undefined}
