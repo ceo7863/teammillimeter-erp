@@ -34,6 +34,7 @@ export type ClientMasterLike = {
   businessRegFileId?: string;
   businessRegFileName?: string;
   businessRegUploadedAt?: string;
+  contacts?: Array<{ id?: string; name?: string; phone?: string; isPrimary?: boolean }>;
   memo?: string;
 };
 

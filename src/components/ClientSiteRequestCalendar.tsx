@@ -17,6 +17,7 @@ import {
 import type { ScSchedule } from "@/utils/scSchedules";
 import { formatScScheduleHeadcount, formatScScheduleTimeRange } from "@/utils/scSchedules";
 import type { WorkerMasterLike } from "@/utils/workerPayments";
+import type { ClientMasterLike } from "@/utils/clientMaster";
 import { ClientSiteRequestCalendarDayDrawer } from "@/components/ClientSiteRequestCalendarDayDrawer";
 
 const L = {
@@ -37,6 +38,7 @@ type ClientSiteRequestCalendarProps = {
   requests: ClientSiteRequest[];
   scSchedules?: ScSchedule[];
   workers?: WorkerMasterLike[];
+  clients?: ClientMasterLike[];
   monthKey: string;
   onMonthKeyChange: (monthKey: string) => void;
   selectedDate: string;
@@ -64,6 +66,7 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
   requests,
   scSchedules = [],
   workers = [],
+  clients = [],
   monthKey,
   onMonthKeyChange,
   selectedDate,
@@ -295,6 +298,7 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
           requests={drawerRequests}
           scSchedules={drawerScSchedules}
           workers={workers}
+          clients={clients}
           selectedRequestId={selectedRequestId}
           selectedScScheduleId={selectedScScheduleId}
           onClose={closeDrawer}

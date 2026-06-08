@@ -9,6 +9,7 @@ import {
   type ClientSiteRequestLink,
 } from "@/utils/clientSiteRequests";
 import type { WorkerMasterLike } from "@/utils/workerPayments";
+import type { ClientMasterLike } from "@/utils/clientMaster";
 import { useBodyScrollLock } from "@/utils/bodyScrollLock";
 import { useBackdropPointerDismiss, useModalDismissGuard } from "@/utils/modalBackdrop";
 
@@ -24,6 +25,7 @@ type ClientSiteRequestCalendarModalProps = {
   clientName: string;
   link: ClientSiteRequestLink | null;
   workers?: WorkerMasterLike[];
+  clients?: ClientMasterLike[];
   onClose: () => void;
 };
 
@@ -33,6 +35,7 @@ export function ClientSiteRequestCalendarModal({
   clientName,
   link,
   workers = [],
+  clients = [],
   onClose,
 }: ClientSiteRequestCalendarModalProps) {
   const { onPointerDown, onPointerUp, isTouchDevice } = useBackdropPointerDismiss(open, onClose);
@@ -111,6 +114,7 @@ export function ClientSiteRequestCalendarModal({
             active={open}
             clientId={clientId}
             workers={workers}
+            clients={clients}
             drawerElevated
             fullscreen
             scAlimtalkEnabled

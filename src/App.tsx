@@ -267,6 +267,11 @@ import {
 } from "@/utils/workerPayments";
 import { clientIdsEqual, mergeClientFieldsFromLocal } from "@/utils/clientMaster";
 import {
+  clientContactsToFormRows,
+  normalizeClientContactInput,
+  syncClientLegacyContactFields,
+} from "@/utils/clientContacts";
+import {
   clearAuthSession,
   fetchBankTransactionsSnapshot,
   fetchErpData,
@@ -5284,6 +5289,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
     bizClass: "",
     manager: "",
     phone: "",
+    contacts: clientContactsToFormRows(null),
     constructionCost: "",
     overtimeCost: "30000",
     vat: "Y",
@@ -5443,8 +5449,6 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
       address: form.address.trim(),
       bizType: form.bizType.trim(),
       bizClass: form.bizClass.trim(),
-      manager: form.manager.trim(),
-      phone: form.phone.trim(),
       constructionCost,
       customChargeCost: parseMoney(form.customChargeCost || form.constructionCost),
       chargeCost: parseMoney(form.chargeCost || form.constructionCost),
@@ -5453,6 +5457,13 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
       mealIncluded: form.mealIncluded,
       depositNameAliases: form.depositNameAliases.trim(),
       memo: form.memo.trim(),
+    };
+    const contactFields = syncClientLegacyContactFields(normalizeClientContactInput(form.contacts));
+    payload = {
+      ...payload,
+      contacts: contactFields.contacts,
+      manager: contactFields.manager,
+      phone: contactFields.phone,
     };
 
     if (pendingBusinessRegFile) {
@@ -5501,6 +5512,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
       bizClass: client.bizClass || "",
       manager: client.manager || "",
       phone: client.phone || "",
+      contacts: clientContactsToFormRows(client),
       constructionCost: String(client.constructionCost || ""),
       customChargeCost: String(client.customChargeCost || client.chargeCost || ""),
       overtimeCost: String(client.overtimeCost || "30000"),
@@ -9240,7 +9252,7 @@ export default function TeammillimeterErpMvp() {
           <ClientSiteRequestsPage clients={clients} workers={workers} currentUser={currentUser} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="clientSiteRequestCalendars" active={active} className="erp-page-keep-alive--fill">
-          <ClientSiteRequestCalendarsPage sales={appliedSales} workers={workers} />
+          <ClientSiteRequestCalendarsPage sales={appliedSales} workers={workers} clients={clients} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="scAlimtalk" active={active}>
           <ScScheduleAlimtalkPage />

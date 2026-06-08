@@ -9,6 +9,7 @@ import {
 } from "@/utils/clientSiteRequests";
 import { fetchStaffScSchedules, type ScSchedule } from "@/utils/scSchedules";
 import type { WorkerMasterLike } from "@/utils/workerPayments";
+import type { ClientMasterLike } from "@/utils/clientMaster";
 
 const L = {
   loading: "\uBD88\uB7EC\uC624\uB294 \uC911...",
@@ -20,6 +21,7 @@ type ClientSiteRequestCalendarPanelProps = {
   clientId: number | string;
   active?: boolean;
   workers?: WorkerMasterLike[];
+  clients?: ClientMasterLike[];
   drawerElevated?: boolean;
   fullscreen?: boolean;
   className?: string;
@@ -32,6 +34,7 @@ export function ClientSiteRequestCalendarPanel({
   clientId,
   active = true,
   workers = [],
+  clients = [],
   drawerElevated = false,
   fullscreen = true,
   className = "",
@@ -104,6 +107,7 @@ export function ClientSiteRequestCalendarPanel({
             requests={requests}
             scSchedules={scSchedules}
             workers={workers}
+            clients={clients}
             monthKey={monthKey}
             onMonthKeyChange={setMonthKey}
             selectedDate={selectedDate}

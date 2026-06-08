@@ -1463,6 +1463,16 @@ textarea {
   color: #b91c1c;
 }
 
+.erp-csr-cal-alimtalk-modal-backdrop {
+  z-index: 12050;
+}
+
+.erp-csr-cal-alimtalk-modal {
+  width: min(100%, 28rem);
+  max-height: min(88vh, 36rem);
+  overflow: auto;
+}
+
 .erp-csr-cal-drawer-card-badges {
   display: flex;
   flex-wrap: wrap;

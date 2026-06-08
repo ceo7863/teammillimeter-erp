@@ -11,7 +11,18 @@ export type ScSchedule = {
   participantNames?: string[];
   participants?: ScScheduleWorkerInfo[];
   participantCount?: number;
+  clientId?: number | string;
+  clientName?: string;
+  projectName?: string;
+  siteManagerName?: string;
   source?: "sc";
+};
+
+export type ScScheduleClientContact = {
+  clientName: string;
+  managerName: string;
+  phoneDisplay: string;
+  phoneNormalized: string;
 };
 
 export type ScScheduleSyncStatus = {
@@ -120,6 +131,11 @@ export function formatScScheduleWorkerCopyText(worker: ScScheduleWorkerInfo) {
   ].filter(Boolean);
   return lines.join("\n");
 }
+
+export {
+  listScScheduleClientContacts,
+  resolveScScheduleClientContact,
+} from "@/utils/clientContacts";
 
 export function formatScScheduleHeadcount(row: Pick<ScSchedule, "expectedHeadcount" | "participantCount">) {
   const expected = row.expectedHeadcount;

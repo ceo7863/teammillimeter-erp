@@ -4,7 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AuditField } from "@/components/AuditField";
 import { ClientBusinessRegImportModal } from "@/components/ClientBusinessRegImportModal";
+import { ClientContactsEditor } from "@/components/ClientContactsEditor";
 import { CLIENT_AUDIT_FIELDS } from "@/utils/auditLog";
+import type { ClientContact } from "@/utils/clientContacts";
 
 const YES_NO_OPTIONS = [
   { label: "Y", value: "Y" },
@@ -50,6 +52,7 @@ export type ClientFormState = {
   bizClass: string;
   manager: string;
   phone: string;
+  contacts: ClientContact[];
   constructionCost: string;
   overtimeCost: string;
   vat: string;
@@ -67,7 +70,7 @@ type ClientFormModalProps = {
   onClose: () => void;
   onSave: () => void;
   onReset: () => void;
-  onUpdate: (key: keyof ClientFormState, value: string) => void;
+  onUpdate: (key: keyof ClientFormState, value: ClientFormState[keyof ClientFormState]) => void;
   businessRegAvailable?: boolean;
   onOpenBusinessReg?: () => void;
   onImportApply?: (next: ClientFormState, sourceFile: File | null) => void | Promise<void>;
@@ -169,10 +172,10 @@ export function ClientFormModal({
             </AuditField>
           </div>
           <AuditField label={clientFieldLabel("manager")} entityType="client" entityId={editingId} field="manager">
-            <Input lang="ko" value={form.manager} onChange={(e) => onUpdate("manager", e.target.value)} placeholder={clientFieldLabel("manager")} />
-          </AuditField>
-          <AuditField label={clientFieldLabel("phone")} entityType="client" entityId={editingId} field="phone">
-            <Input lang="ko" value={form.phone} onChange={(e) => onUpdate("phone", e.target.value)} placeholder={clientFieldLabel("phone")} />
+            <ClientContactsEditor
+              contacts={form.contacts}
+              onChange={(contacts) => onUpdate("contacts", contacts)}
+            />
           </AuditField>
           <AuditField label={clientFieldLabel("constructionCost")} entityType="client" entityId={editingId} field="constructionCost">
             <Input

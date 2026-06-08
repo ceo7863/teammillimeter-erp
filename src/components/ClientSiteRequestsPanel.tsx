@@ -1232,6 +1232,7 @@ export function ClientSiteRequestsPanel({ clients, workers = [], isAdmin = false
           clientName={calendarModalClient.clientName}
           link={calendarModalLink}
           workers={workers}
+          clients={clients}
           onClose={() => setCalendarModalClient(null)}
         />
       ) : null}

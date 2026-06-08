@@ -4,6 +4,14 @@ import { sendScheduleAlimtalk } from "./alimtalkNotify.mjs";
 import { normalizeNotificationSettings } from "./notificationSettings.mjs";
 import { isScScheduleSourceConfigured, runScScheduleSync } from "./scScheduleSync.mjs";
 import { resolveWorkerPhone, resolveScScheduleParticipants } from "./workerPhoneMatch.mjs";
+import {
+  findClientForSchedule,
+  normalizeNotifyPhone,
+  resolveClientContact,
+  resolveClientContacts,
+} from "./clientContacts.mjs";
+
+export { resolveClientContact };
 
 function nowKstParts(now = new Date()) {
   const kst = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
@@ -30,34 +38,6 @@ function listWorkers(data) {
 
 function listClients(data) {
   return Array.isArray(data?.clients) ? data.clients : [];
-}
-
-function normalizeNotifyPhone(phone) {
-  return String(phone || "").replace(/\D/g, "");
-}
-
-function findClientForSchedule(clients, schedule) {
-  const list = Array.isArray(clients) ? clients : [];
-  const clientId = schedule?.clientId;
-  const nameHint = String(schedule?.clientName || schedule?.projectName || "").trim();
-  let match = list.find((row) => String(row?.id ?? "") === String(clientId ?? ""));
-  if (!match && nameHint) {
-    match = list.find((row) => String(row?.name || "").trim() === nameHint);
-  }
-  return match || null;
-}
-
-export function resolveClientContact(clients, schedule) {
-  const match = findClientForSchedule(clients, schedule);
-  const manager = match ? String(match.manager || match.ceoName || "").trim() : "";
-  const fromSc = String(schedule?.siteManagerName || "").trim();
-  return {
-    clientName: match
-      ? String(match.name || "").trim()
-      : String(schedule?.clientName || schedule?.projectName || "").trim(),
-    name: manager || fromSc || "",
-    phone: match ? normalizeNotifyPhone(match.phone) : "",
-  };
 }
 
 export function resolveClientManager(clients, scheduleOrClientId, clientName = "") {
@@ -92,6 +72,62 @@ export function formatScheduleDateTime(workDate) {
   }).format(new Date(`${date}T12:00:00+09:00`));
   const [, month, day] = date.split("-").map(Number);
   return `${month}\uC6D4 ${day}\uC77C ${weekday}`;
+}
+
+function pushClientNotifyPreviewRows(rows, schedule, clients, shareToken, participantNames, workers, clientScheduleIds, shareUrl = "") {
+  const clientContacts = resolveClientContacts(clients, schedule);
+  const fallbackManager = resolveClientManager(clients, schedule);
+  const defaultVariables = formatScheduleTemplateVars(
+    schedule,
+    shareToken,
+    fallbackManager,
+    participantNames,
+    workers,
+  );
+
+  if (!clientScheduleIds.has(schedule.id)) {
+    clientScheduleIds.add(schedule.id);
+    if (!clientContacts.length) {
+      rows.push({
+        recipientType: "client",
+        scheduleId: schedule.id,
+        workDate: schedule.workDate,
+        clientName: schedule.clientName,
+        projectName: schedule.projectName,
+        clientManager: defaultVariables.clientManager,
+        participantName: fallbackManager || defaultVariables.clientManager,
+        workerNames: defaultVariables.workers,
+        phone: null,
+        variables: defaultVariables,
+        shareUrl,
+      });
+      return;
+    }
+
+    for (const contact of clientContacts) {
+      const clientManager = contact.name || fallbackManager;
+      const variables = formatScheduleTemplateVars(
+        schedule,
+        shareToken,
+        clientManager,
+        participantNames,
+        workers,
+      );
+      rows.push({
+        recipientType: "client",
+        scheduleId: schedule.id,
+        workDate: schedule.workDate,
+        clientName: schedule.clientName,
+        projectName: schedule.projectName,
+        clientManager: variables.clientManager,
+        participantName: contact.name || variables.clientManager,
+        workerNames: variables.workers,
+        phone: contact.phone || null,
+        variables,
+        shareUrl,
+      });
+    }
+  }
 }
 
 function formatScheduleWorkerLabel(row) {
@@ -208,25 +244,10 @@ export function buildScScheduleNotifyPreview(data, dateKey = tomorrowKstDateKey(
       : [];
     if (!participantNames.length) continue;
 
-    const contact = resolveClientContact(clients, schedule);
-    const clientManager = contact.name || resolveClientManager(clients, schedule);
-    const variables = formatScheduleTemplateVars(schedule, "", clientManager, participantNames, workers);
+    const fallbackManager = resolveClientManager(clients, schedule);
+    const variables = formatScheduleTemplateVars(schedule, "", fallbackManager, participantNames, workers);
 
-    if (!clientScheduleIds.has(schedule.id)) {
-      clientScheduleIds.add(schedule.id);
-      rows.push({
-        recipientType: "client",
-        scheduleId: schedule.id,
-        workDate: schedule.workDate,
-        clientName: schedule.clientName,
-        projectName: schedule.projectName,
-        clientManager: variables.clientManager,
-        participantName: contact.name || variables.clientManager,
-        workerNames: variables.workers,
-        phone: contact.phone || null,
-        variables,
-      });
-    }
+    pushClientNotifyPreviewRows(rows, schedule, clients, "", participantNames, workers, clientScheduleIds);
 
     for (const participantName of participantNames) {
       const phone = resolveWorkerPhone(workers, participantName);
@@ -289,26 +310,10 @@ export async function buildScScheduleNotifyPreviewAsync(data, dateKey = tomorrow
       });
     }
 
-    const contact = resolveClientContact(clients, schedule);
-    const clientManager = contact.name || resolveClientManager(clients, schedule);
-    const variables = formatScheduleTemplateVars(schedule, shareToken, clientManager, participantNames, workers);
+    const fallbackManager = resolveClientManager(clients, schedule);
+    const variables = formatScheduleTemplateVars(schedule, shareToken, fallbackManager, participantNames, workers);
 
-    if (!clientScheduleIds.has(schedule.id)) {
-      clientScheduleIds.add(schedule.id);
-      rows.push({
-        recipientType: "client",
-        scheduleId: schedule.id,
-        workDate: schedule.workDate,
-        clientName: schedule.clientName,
-        projectName: schedule.projectName,
-        clientManager: variables.clientManager,
-        participantName: contact.name || variables.clientManager,
-        workerNames: variables.workers,
-        phone: contact.phone || null,
-        shareUrl,
-        variables,
-      });
-    }
+    pushClientNotifyPreviewRows(rows, schedule, clients, shareToken, participantNames, workers, clientScheduleIds, shareUrl);
 
     for (const participantName of participantNames) {
       const phone = resolveWorkerPhone(workers, participantName);
@@ -422,17 +427,16 @@ export async function runScScheduleNotifyJob(options = {}) {
       }
     }
 
-    const contact = resolveClientContact(clients, schedule);
-    const clientManager = contact.name || resolveClientManager(clients, schedule);
-    const variables = formatScheduleTemplateVars(schedule, shareToken, clientManager, participantNames, workers);
+    const fallbackManager = resolveClientManager(clients, schedule);
+    const variables = formatScheduleTemplateVars(schedule, shareToken, fallbackManager, participantNames, workers);
     const sentPhones = new Set();
 
-    async function sendToPhone(phone, recipientType, recipientName) {
+    async function sendToPhone(phone, recipientType, recipientName, messageVariables = variables) {
       const normalized = normalizeNotifyPhone(phone);
       if (!normalized) return false;
       if (sentPhones.has(normalized)) return false;
       sentPhones.add(normalized);
-      const result = await sendScheduleAlimtalk({ phones: [normalized], variables });
+      const result = await sendScheduleAlimtalk({ phones: [normalized], variables: messageVariables });
       if (result.ok !== false && !result.skipped) sentCount += 1;
       results.push({
         scheduleId: schedule.id,
@@ -445,18 +449,32 @@ export async function runScScheduleNotifyJob(options = {}) {
       return true;
     }
 
-    if (contact.phone) {
-      await sendToPhone(contact.phone, "client", contact.name || contact.clientName);
-    } else {
+    const clientContacts = resolveClientContacts(clients, schedule);
+    let clientPhoneSent = false;
+    for (const contact of clientContacts) {
+      if (!contact.phone) {
+        results.push({
+          scheduleId: schedule.id,
+          recipientType: "client",
+          participantName: contact.name || contact.clientName,
+          ok: false,
+          skipped: true,
+          reason: "no-client-phone",
+        });
+        continue;
+      }
+      clientPhoneSent = true;
+      const contactVariables = formatScheduleTemplateVars(
+        schedule,
+        shareToken,
+        contact.name || fallbackManager,
+        participantNames,
+        workers,
+      );
+      await sendToPhone(contact.phone, "client", contact.name || contact.clientName, contactVariables);
+    }
+    if (!clientPhoneSent) {
       skippedNoClientPhone += 1;
-      results.push({
-        scheduleId: schedule.id,
-        recipientType: "client",
-        participantName: contact.name || contact.clientName,
-        ok: false,
-        skipped: true,
-        reason: "no-client-phone",
-      });
     }
 
     for (const participantName of participantNames) {
@@ -584,9 +602,8 @@ export async function sendScScheduleNotifyOne(scheduleId, options = {}) {
     }
   }
 
-  const contact = resolveClientContact(clients, schedule);
-  const clientManager = contact.name || resolveClientManager(clients, schedule);
-  const variables = formatScheduleTemplateVars(schedule, shareToken, clientManager, participantNames, workers);
+  const fallbackManager = resolveClientManager(clients, schedule);
+  const variables = formatScheduleTemplateVars(schedule, shareToken, fallbackManager, participantNames, workers);
   const results = [];
   const sentPhones = new Set();
   let sentCount = 0;
@@ -600,7 +617,7 @@ export async function sendScScheduleNotifyOne(scheduleId, options = {}) {
   const sendClient = !recipientTypes || recipientTypes.has("client");
   const sendWorkers = !recipientTypes || recipientTypes.has("worker");
 
-  async function sendToPhone(phone, recipientType, recipientName) {
+  async function sendToPhone(phone, recipientType, recipientName, messageVariables = variables) {
     const normalized = normalizeNotifyPhone(phone);
     if (!normalized) return false;
     if (phoneFilter && !phoneFilter.has(normalized)) {
@@ -612,13 +629,13 @@ export async function sendScScheduleNotifyOne(scheduleId, options = {}) {
         skipped: true,
         reason: "not-selected",
         shareUrl,
-        variables,
+        variables: messageVariables,
       });
       return false;
     }
     if (sentPhones.has(normalized)) return false;
     sentPhones.add(normalized);
-    const result = await sendScheduleAlimtalk({ phones: [normalized], variables });
+    const result = await sendScheduleAlimtalk({ phones: [normalized], variables: messageVariables });
     const delivered = result.ok !== false && !result.skipped;
     if (delivered) sentCount += 1;
     results.push({
@@ -630,38 +647,65 @@ export async function sendScScheduleNotifyOne(scheduleId, options = {}) {
       reason: result.skipped ? result.reason : result.ok === false ? result.error : undefined,
       result,
       shareUrl,
-      variables,
+      variables: messageVariables,
     });
     return true;
   }
 
   if (sendClient) {
-    if (contact.phone) {
-      if (!phoneFilter || phoneFilter.has(normalizeNotifyPhone(contact.phone))) {
-        await sendToPhone(contact.phone, "client", contact.name || contact.clientName);
-      } else {
+    const clientContacts = resolveClientContacts(clients, schedule);
+    if (!clientContacts.length) {
+      if (!phoneFilter) {
         results.push({
           recipientType: "client",
-          participantName: contact.name || contact.clientName,
-          phone: normalizeNotifyPhone(contact.phone),
+          participantName: fallbackManager,
+          phone: null,
           ok: false,
           skipped: true,
-          reason: "not-selected",
+          reason: "no-client-phone",
           shareUrl,
           variables,
         });
       }
-    } else if (!phoneFilter) {
-      results.push({
-        recipientType: "client",
-        participantName: contact.name || contact.clientName,
-        phone: null,
-        ok: false,
-        skipped: true,
-        reason: "no-client-phone",
-        shareUrl,
-        variables,
-      });
+    } else {
+      for (const contact of clientContacts) {
+        const contactVariables = formatScheduleTemplateVars(
+          schedule,
+          shareToken,
+          contact.name || fallbackManager,
+          participantNames,
+          workers,
+        );
+        if (!contact.phone) {
+          if (!phoneFilter) {
+            results.push({
+              recipientType: "client",
+              participantName: contact.name || contact.clientName,
+              phone: null,
+              ok: false,
+              skipped: true,
+              reason: "no-client-phone",
+              shareUrl,
+              variables: contactVariables,
+            });
+          }
+          continue;
+        }
+        if (phoneFilter && !phoneFilter.has(normalizeNotifyPhone(contact.phone))) {
+          results.push({
+            recipientType: "client",
+            participantName: contact.name || contact.clientName,
+            phone: normalizeNotifyPhone(contact.phone),
+            ok: false,
+            skipped: true,
+            reason: "not-selected",
+            shareUrl,
+            variables: contactVariables,
+          });
+          continue;
+        }
+        await sendToPhone(contact.phone, "client", contact.name || contact.clientName, contactVariables);
+      }
     }
   }
 

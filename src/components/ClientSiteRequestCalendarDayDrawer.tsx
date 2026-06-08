@@ -11,8 +11,10 @@ import { formatClientSiteRequestWorkPeriod } from "@/utils/clientSiteRequests";
 import { formatClientSiteRequestDayLabel, shiftCalendarDate } from "@/utils/clientSiteRequestCalendar";
 import type { ScSchedule } from "@/utils/scSchedules";
 import { formatScScheduleHeadcount, formatScScheduleTimeRange, formatScScheduleWorkerCopyText, getScScheduleWorkerDetails } from "@/utils/scSchedules";
+import type { ClientMasterLike } from "@/utils/clientMaster";
 import type { WorkerMasterLike } from "@/utils/workerPayments";
 import { sendScScheduleNotifyOne } from "@/utils/notificationApi";
+import { ClientSiteRequestAlimtalkSendModal } from "@/components/ClientSiteRequestAlimtalkSendModal";
 import { useBodyScrollLock } from "@/utils/bodyScrollLock";
 import { useBackdropPointerDismiss, useModalDismissGuard } from "@/utils/modalBackdrop";
 
@@ -33,8 +35,6 @@ const L = {
   changeSchedule: "\uC77C\uC815 \uBCC0\uACBD \uC694\uCCAD",
   alimtalkSend: "\uC54C\uB9BC\uD1A1 \uBCF4\uB0B4\uAE30",
   alimtalkSending: "\uBC1C\uC1A1 \uC911...",
-  alimtalkConfirm: (label: string) =>
-    `${label} \uAC70\uB798\uCC98 \uB2F4\uB2F9\uC790\uC5D0\uAC8C \uC77C\uC815 \uC54C\uB9BC\uD1A1\uC744 \uBCF4\uB0BD\uB2C8\uB2E4. \uACC4\uC18D\uD560\uAE4C\uC694?`,
   alimtalkSent: "\uAC70\uB798\uCC98 \uB2F4\uB2F9\uC790\uC5D0\uAC8C \uC54C\uB9BC\uD1A1\uC744 \uBCF4\uB0C4\uC2B5\uB2C8\uB2E4.",
   alimtalkFailed: "\uC54C\uB9BC\uD1A1 \uBC1C\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   alimtalkError: "\uC54C\uB9BC\uD1A1 \uBC1C\uC1A1 \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.",
@@ -48,6 +48,7 @@ type ClientSiteRequestCalendarDayDrawerProps = {
   requests: ClientSiteRequest[];
   scSchedules: ScSchedule[];
   workers?: WorkerMasterLike[];
+  clients?: ClientMasterLike[];
   selectedRequestId: string;
   selectedScScheduleId?: string;
   onClose: () => void;
@@ -69,6 +70,7 @@ export function ClientSiteRequestCalendarDayDrawer({
   requests,
   scSchedules,
   workers = [],
+  clients = [],
   selectedRequestId,
   selectedScScheduleId = "",
   onClose,
@@ -86,6 +88,7 @@ export function ClientSiteRequestCalendarDayDrawer({
   const [copiedWorkerKey, setCopiedWorkerKey] = useState("");
   const [sendingAlimtalkId, setSendingAlimtalkId] = useState("");
   const [alimtalkMessages, setAlimtalkMessages] = useState<Record<string, string>>({});
+  const [alimtalkTargetSchedule, setAlimtalkTargetSchedule] = useState<ScSchedule | null>(null);
 
   const copyWorkerText = useCallback(async (workerKey: string, worker: Parameters<typeof formatScScheduleWorkerCopyText>[0]) => {
     const text = formatScScheduleWorkerCopyText(worker);
@@ -101,13 +104,16 @@ export function ClientSiteRequestCalendarDayDrawer({
     }, 1500);
   }, []);
 
-  const handleSendAlimtalk = useCallback(async (schedule: ScSchedule) => {
+  const handleSendAlimtalk = useCallback((schedule: ScSchedule) => {
     const scheduleId = String(schedule.id || "").trim();
     if (!scheduleId || sendingAlimtalkId) return;
+    setAlimtalkTargetSchedule(schedule);
+  }, [sendingAlimtalkId]);
 
-    const label =
-      String(schedule.clientName || schedule.projectName || schedule.workType || "").trim() || "\uAC70\uB798\uCC98";
-    if (!window.confirm(L.alimtalkConfirm(label))) return;
+  const handleConfirmAlimtalk = useCallback(async (phones: string[]) => {
+    const schedule = alimtalkTargetSchedule;
+    const scheduleId = String(schedule?.id || "").trim();
+    if (!scheduleId || !phones.length) return;
 
     setSendingAlimtalkId(scheduleId);
     setAlimtalkMessages((current) => ({ ...current, [scheduleId]: "" }));
@@ -115,6 +121,7 @@ export function ClientSiteRequestCalendarDayDrawer({
       const result = await sendScScheduleNotifyOne(scheduleId, {
         skipSync: true,
         recipientTypes: ["client"],
+        phones,
       });
 
       if (result.skipped && result.reason === "not-configured") {
@@ -130,26 +137,27 @@ export function ClientSiteRequestCalendarDayDrawer({
         return;
       }
 
-      const clientResult = result.results?.find((row) => row.recipientType === "client");
-      if (clientResult?.reason === "no-client-phone") {
+      const clientResults = (result.results || []).filter((row) => row.recipientType === "client");
+      if (!clientResults.some((row) => row.ok) && clientResults.some((row) => row.reason === "no-client-phone")) {
         setAlimtalkMessages((current) => ({ ...current, [scheduleId]: L.alimtalkNoClientPhone }));
         return;
       }
       if ((result.sentCount || 0) > 0) {
         setAlimtalkMessages((current) => ({ ...current, [scheduleId]: L.alimtalkSent }));
+        setAlimtalkTargetSchedule(null);
         return;
       }
 
       setAlimtalkMessages((current) => ({
         ...current,
-        [scheduleId]: clientResult?.reason ? L.alimtalkFailed : L.alimtalkFailed,
+        [scheduleId]: L.alimtalkFailed,
       }));
     } catch {
       setAlimtalkMessages((current) => ({ ...current, [scheduleId]: L.alimtalkError }));
     } finally {
       setSendingAlimtalkId("");
     }
-  }, [sendingAlimtalkId]);
+  }, [alimtalkTargetSchedule]);
 
   useBodyScrollLock(Boolean(date));
 
@@ -245,7 +253,7 @@ export function ClientSiteRequestCalendarDayDrawer({
                                 variant="outline"
                                 className="erp-csr-cal-drawer-alimtalk-btn h-8 shrink-0 rounded-lg px-2.5 text-xs"
                                 disabled={Boolean(sendingAlimtalkId)}
-                                onClick={() => void handleSendAlimtalk(schedule)}
+                                onClick={() => handleSendAlimtalk(schedule)}
                               >
                                 <Smartphone size={13} className="mr-1" />
                                 {sendingAlimtalkId === scheduleId ? L.alimtalkSending : L.alimtalkSend}
@@ -411,6 +419,17 @@ export function ClientSiteRequestCalendarDayDrawer({
           </div>
         ) : null}
       </aside>
+      <ClientSiteRequestAlimtalkSendModal
+        open={Boolean(alimtalkTargetSchedule)}
+        schedule={alimtalkTargetSchedule}
+        clients={clients}
+        sending={Boolean(sendingAlimtalkId)}
+        onClose={() => {
+          if (sendingAlimtalkId) return;
+          setAlimtalkTargetSchedule(null);
+        }}
+        onConfirm={(phones) => void handleConfirmAlimtalk(phones)}
+      />
     </div>,
     document.body,
   );

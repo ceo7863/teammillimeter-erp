@@ -17,6 +17,7 @@ import {
 import { formatClientSiteRequestMonthLabel, getCurrentMonthKey } from "@/utils/clientSiteRequestCalendar";
 import { formatKRW } from "@/utils/receivables";
 import type { WorkerMasterLike } from "@/utils/workerPayments";
+import type { ClientMasterLike } from "@/utils/clientMaster";
 
 const L = {
   title: "\uC5C5\uCCB4\uBCC4 \uCE98\uB9B0\uB354",
@@ -35,9 +36,10 @@ const L = {
 type ClientSiteRequestCalendarsPageProps = {
   sales?: ClientCalendarSaleLike[];
   workers?: WorkerMasterLike[];
+  clients?: ClientMasterLike[];
 };
 
-export function ClientSiteRequestCalendarsPage({ sales = [], workers = [] }: ClientSiteRequestCalendarsPageProps) {
+export function ClientSiteRequestCalendarsPage({ sales = [], workers = [], clients = [] }: ClientSiteRequestCalendarsPageProps) {
   const [links, setLinks] = useState<ClientSiteRequestLink[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -204,6 +206,7 @@ export function ClientSiteRequestCalendarsPage({ sales = [], workers = [] }: Cli
                   key={String(selectedLink.clientId)}
                   clientId={selectedLink.clientId}
                   workers={workers}
+                  clients={clients}
                   drawerElevated
                   fullscreen
                   scAlimtalkEnabled
