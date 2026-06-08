@@ -39,6 +39,73 @@ export const TAX_INVOICE_STATUS_OPTIONS: Array<{ value: TaxInvoiceStatus; label:
   { value: "cancelled", label: "\uCDE8\uC18C" },
 ];
 
+export const DEFAULT_TAX_INVOICE_ITEM_NAME = "\uAC00\uAD6C\uC2DC\uACF5";
+
+export function resolveTaxInvoiceItemName(value?: string) {
+  const trimmed = String(value || "").trim();
+  return trimmed || DEFAULT_TAX_INVOICE_ITEM_NAME;
+}
+
+export type TaxInvoiceIssueFormLike = {
+  issueDate: string;
+  client: string;
+  businessNo: string;
+  documentType: TaxInvoiceDocumentType;
+  supplyAmount: string;
+  totalAmount: string;
+  amountInputSource?: "supply" | "total";
+  memo: string;
+  itemName: string;
+  invoiceeCeoName: string;
+  invoiceeEmail: string;
+  invoiceeAddr: string;
+  invoiceePhone: string;
+  invoiceeBizType: string;
+  invoiceeBizClass: string;
+};
+
+export type TaxInvoiceIssuePreviewData = {
+  issueDate: string;
+  documentTypeLabel: string;
+  client: string;
+  businessNo: string;
+  itemName: string;
+  supplyAmount: number;
+  vatAmount: number;
+  totalAmount: number;
+  memo: string;
+  invoiceeCeoName: string;
+  invoiceeEmail: string;
+  invoiceeAddr: string;
+  invoiceePhone: string;
+  invoiceeBizType: string;
+  invoiceeBizClass: string;
+};
+
+export function buildTaxInvoiceIssuePreviewData(draft: TaxInvoiceIssueFormLike): TaxInvoiceIssuePreviewData {
+  const amounts = resolveTaxInvoiceModalAmounts(draft);
+  const documentTypeLabel =
+    TAX_INVOICE_DOCUMENT_OPTIONS.find((option) => option.value === draft.documentType)?.label ||
+    draft.documentType;
+  return {
+    issueDate: draft.issueDate,
+    documentTypeLabel,
+    client: draft.client.trim(),
+    businessNo: String(draft.businessNo || "").replace(/\D/g, ""),
+    itemName: resolveTaxInvoiceItemName(draft.itemName),
+    supplyAmount: amounts.supplyAmount,
+    vatAmount: amounts.vatAmount,
+    totalAmount: amounts.totalAmount,
+    memo: draft.memo.trim(),
+    invoiceeCeoName: draft.invoiceeCeoName.trim(),
+    invoiceeEmail: draft.invoiceeEmail.trim(),
+    invoiceeAddr: draft.invoiceeAddr.trim(),
+    invoiceePhone: draft.invoiceePhone.trim(),
+    invoiceeBizType: draft.invoiceeBizType.trim(),
+    invoiceeBizClass: draft.invoiceeBizClass.trim(),
+  };
+}
+
 export function makeTaxInvoiceId() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return `tax-inv-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;

@@ -13,6 +13,7 @@ import { buildLinkedTaxInvoiceIdSet } from "@/utils/bankTaxInvoiceLink";
 import {
   calculateTaxInvoiceAmounts,
   calculateTaxInvoiceAmountsFromTotal,
+  DEFAULT_TAX_INVOICE_ITEM_NAME,
   buildTaxInvoiceStats,
   buildTaxInvoiceClientSummaries,
   buildTaxInvoiceCancellationExcludedIds,
@@ -32,6 +33,8 @@ import {
   normalizeTaxInvoiceStatus,
   parseTaxInvoiceAmount,
   resolveTaxInvoiceModalAmounts,
+  resolveTaxInvoiceItemName,
+  buildTaxInvoiceIssuePreviewData,
   sortTaxInvoices,
   TAX_INVOICE_DOCUMENT_OPTIONS,
   TAX_INVOICE_FLOW_OPTIONS,
@@ -43,6 +46,7 @@ import {
   type TaxInvoiceClientSummary,
   type TaxInvoiceDocumentType,
   type TaxInvoiceFlowType,
+  type TaxInvoiceIssuePreviewData,
   type TaxInvoiceStatus,
 } from "@/utils/taxInvoices";
 import {
@@ -59,7 +63,9 @@ import {
 } from "@/utils/barobillTaxInvoiceSync";
 import { issueBarobillTaxInvoice } from "@/utils/barobillTaxInvoiceIssue";
 import { fetchBarobillChargeUrl } from "@/utils/barobillChargeUrl";
-import { extractClientTaxFields, resolveClientTaxInvoiceCorpName, validateInvoiceePartyForIssue } from "@/utils/clientMaster";
+import { extractClientTaxFields, resolveClientTaxInvoiceCorpName } from "@/utils/clientMaster";
+import { validateBarobillTaxInvoiceIssueForm } from "@/utils/taxInvoiceIssueForm";
+import { TaxInvoiceIssuePreviewDialog } from "@/components/TaxInvoiceIssuePreviewDialog";
 import { useAudit } from "@/context/AuditContext";
 import { TAX_INVOICE_AUDIT_FIELDS, snapshotTaxInvoiceForAudit } from "@/utils/auditLog";
 
@@ -215,6 +221,7 @@ const L = {
   barobillIssueManual: "\uC218\uAE30 \uB4F1\uB85D",
   barobillIssueHint: "\uC804\uC790 \uBC1C\uD589 \uC2DC \uBC14\uB85C\uBE4C\uC744 \uD1B5\uD574 \uAD6D\uC138\uCCAD\uC5D0 \uC804\uC1A1\uB429\uB2C8\uB2E4.",
   barobillIssueLoading: "\uBC14\uB85C\uBE4C\uC5D0 \uBC1C\uD589 \uC911\uC785\uB2C8\uB2E4...",
+  issuePreview: "\uBBF8\uB9AC\uBCF4\uAE30",
   barobillIssueDone: "\uBC14\uB85C\uBE4C \uC138\uAE08\uACC4\uC0B0\uC11C \uBC1C\uD589\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   barobillIssueFailed: "\uBC14\uB85C\uBE4C \uBC1C\uD589\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   barobillIssueSalesOnly: "\uB9E4\uCD9C \uACC4\uC0B0\uC11C\uB9CC \uBC14\uB85C\uBE4C \uBC1C\uD589\uC744 \uC9C0\uC6D0\uD569\uB2C8\uB2E4.",
@@ -380,7 +387,7 @@ function last30DaysRange(): DateFilter {
 
 function emptyInvoiceeFields() {
   return {
-    itemName: "",
+    itemName: DEFAULT_TAX_INVOICE_ITEM_NAME,
     invoiceeCeoName: "",
     invoiceeEmail: "",
     invoiceeAddr: "",
@@ -401,7 +408,7 @@ function applyClientToInvoiceModal(client: Record<string, unknown> | null | unde
     invoiceePhone: profile.phone || "",
     invoiceeBizType: profile.bizType || "",
     invoiceeBizClass: profile.bizClass || "",
-    itemName: issueClientName || profile.name || "",
+    itemName: DEFAULT_TAX_INVOICE_ITEM_NAME,
     issueClientName,
   };
 }
@@ -458,6 +465,8 @@ export function TaxInvoicePage({
   const [barobillIssueLoading, setBarobillIssueLoading] = useState(false);
   const [barobillChargeLoading, setBarobillChargeLoading] = useState(false);
   const [duplicateIssueConfirm, setDuplicateIssueConfirm] = useState<TaxInvoice[] | null>(null);
+  const [issuePreviewOpen, setIssuePreviewOpen] = useState(false);
+  const [issuePreviewData, setIssuePreviewData] = useState<TaxInvoiceIssuePreviewData | null>(null);
   const hometaxInputRef = useRef<HTMLInputElement>(null);
 
   const isAdmin = currentUser?.role === "admin";
@@ -913,7 +922,7 @@ export function TaxInvoicePage({
         supplyAmount: amounts.supplyAmount,
         vatAmount: amounts.vatAmount,
         totalAmount: amounts.totalAmount,
-        itemName: modal.itemName.trim() || modal.memo.trim() || modal.client.trim(),
+        itemName: resolveTaxInvoiceItemName(modal.itemName),
         memo: modal.memo.trim() || undefined,
         purposeType: 2,
         invoiceeCeoName: modal.invoiceeCeoName.trim(),
@@ -981,35 +990,13 @@ export function TaxInvoicePage({
       return;
     }
 
-    const error = validateTaxInvoiceInput({
-      issueDate: modal.issueDate,
-      client: modal.client,
-      supplyAmount: modal.supplyAmount,
-      totalAmount: modal.totalAmount,
-    });
+    const error = validateBarobillTaxInvoiceIssueForm(modal, { businessNo: L.barobillIssueBusinessNo });
     if (error) {
       setFormError(error);
       return;
     }
 
     const businessDigits = String(modal.businessNo || "").replace(/\D/g, "");
-    if (businessDigits.length !== 10) {
-      setFormError(L.barobillIssueBusinessNo);
-      return;
-    }
-
-    const partyError = validateInvoiceePartyForIssue({
-      ceoName: modal.invoiceeCeoName,
-      email: modal.invoiceeEmail,
-      address: modal.invoiceeAddr,
-      bizType: modal.invoiceeBizType,
-      bizClass: modal.invoiceeBizClass,
-    });
-    if (partyError) {
-      setFormError(partyError);
-      return;
-    }
-
     const amounts = resolveTaxInvoiceModalAmounts(modal);
     const duplicates = findDuplicateTaxInvoicesForBarobillIssue(
       taxInvoices,
@@ -1030,6 +1017,27 @@ export function TaxInvoicePage({
     }
 
     await performBarobillIssue();
+  };
+
+  const openIssuePreview = () => {
+    if (!modal) return;
+    if (modal.flowType !== "sales") {
+      setFormError(L.barobillIssueSalesOnly);
+      return;
+    }
+    const error = validateBarobillTaxInvoiceIssueForm(modal, { businessNo: L.barobillIssueBusinessNo });
+    if (error) {
+      setFormError(error);
+      return;
+    }
+    setFormError("");
+    setIssuePreviewData(buildTaxInvoiceIssuePreviewData(modal));
+    setIssuePreviewOpen(true);
+  };
+
+  const confirmIssueFromPreview = () => {
+    setIssuePreviewOpen(false);
+    void issueViaBarobill();
   };
 
   const confirmDuplicateBarobillIssue = () => {
@@ -1311,6 +1319,14 @@ export function TaxInvoicePage({
 
   return (
     <div className="erp-page erp-tax-invoice-page">
+      <TaxInvoiceIssuePreviewDialog
+        open={issuePreviewOpen}
+        preview={issuePreviewData}
+        onClose={() => setIssuePreviewOpen(false)}
+        onConfirm={canIssueElectronically ? confirmIssueFromPreview : undefined}
+        confirmLabel={L.barobillIssue}
+        loading={barobillIssueLoading}
+      />
       {duplicateIssueConfirm ? (
         <div className="erp-ledger-modal-backdrop" onClick={() => setDuplicateIssueConfirm(null)}>
           <div
@@ -1990,6 +2006,15 @@ export function TaxInvoicePage({
                   <>
                     <Button type="button" variant="outline" className="rounded-2xl" disabled={barobillIssueLoading} onClick={saveInvoice}>
                       {L.barobillIssueManual}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="rounded-2xl"
+                      disabled={barobillIssueLoading}
+                      onClick={openIssuePreview}
+                    >
+                      {L.issuePreview}
                     </Button>
                     <Button
                       type="button"
