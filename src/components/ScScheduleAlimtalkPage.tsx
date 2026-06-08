@@ -1,17 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCw, Send, X } from "lucide-react";
+import { RefreshCw, Send, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   previewScScheduleNotify,
   sendScScheduleNotifyOne,
   type ScScheduleNotifyOneResult,
   type ScScheduleNotifyPreview,
 } from "@/utils/notificationApi";
-import { useBodyScrollLock } from "@/utils/bodyScrollLock";
 
 const L = {
-  title: "SC \uB0B4\uC77C \uC77C\uC815 \uBBF8\uB9AC\uBCF4\uAE30",
-  close: "\uB2EB\uAE30",
+  pageTitle: "\uC54C\uB9BC\uD1A1",
+  pageDesc: "SC \uB0B4\uC77C \uC2DC\uACF5 \uC77C\uC815 \uBBF8\uB9AC\uBCF4\uAE30 \uBC0F \uAC1C\uBCC4 \uBC1C\uC1A1",
+  sectionTitle: "SC \uB0B4\uC77C \uC77C\uC815",
   loading: "\uBD88\uB7EC\uC624\uB294 \uC911...",
   loadError: "\uBBF8\uB9AC\uBCF4\uAE30\uB97C \uBD88\uB7EC\uC624\uC838 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   empty: "\uB0B4\uC77C \uBC1C\uC1A1 \uB300\uC0C1 SC \uC77C\uC815\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
@@ -95,20 +96,13 @@ function buildDefaultSelection(preview: ScScheduleNotifyPreview) {
   return next;
 }
 
-type ScScheduleNotifyPreviewModalProps = {
-  open: boolean;
-  onClose: () => void;
-};
-
-export function ScScheduleNotifyPreviewModal({ open, onClose }: ScScheduleNotifyPreviewModalProps) {
+export function ScScheduleAlimtalkPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<ScScheduleNotifyPreview | null>(null);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [sendingScheduleId, setSendingScheduleId] = useState("");
   const [sendResults, setSendResults] = useState<Record<string, ScScheduleNotifyOneResult>>({});
-
-  useBodyScrollLock(open);
 
   const loadPreview = useCallback(async () => {
     setLoading(true);
@@ -129,9 +123,8 @@ export function ScScheduleNotifyPreviewModal({ open, onClose }: ScScheduleNotify
   }, []);
 
   useEffect(() => {
-    if (!open) return;
     void loadPreview();
-  }, [open, loadPreview]);
+  }, [loadPreview]);
 
   const groups = useMemo(() => (preview ? buildScheduleGroups(preview) : []), [preview]);
 
@@ -171,30 +164,35 @@ export function ScScheduleNotifyPreviewModal({ open, onClose }: ScScheduleNotify
     }
   };
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl bg-white shadow-xl">
-        <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
-          <div>
-            <h3 className="erp-text-body font-bold text-slate-900">{L.title}</h3>
-            {preview ? (
-              <p className="erp-text-caption mt-1 text-slate-500">
-                {L.summary(
-                  preview.targetDate,
-                  preview.scheduleCount,
-                  preview.notifyCount,
-                  preview.missingPhoneCount,
-                )}
-              </p>
-            ) : null}
-          </div>
-          <div className="flex items-center gap-2">
+    <div className="erp-page">
+      <div className="mb-4">
+        <h1 className="erp-text-page-title flex items-center gap-2 text-slate-900">
+          <Smartphone className="h-6 w-6" />
+          {L.pageTitle}
+        </h1>
+        <p className="erp-text-caption mt-1 text-slate-500">{L.pageDesc}</p>
+      </div>
+
+      <Card className="rounded-2xl shadow-sm">
+        <CardContent className="p-4 md:p-5">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="erp-text-body font-bold text-slate-900">{L.sectionTitle}</h2>
+              {preview ? (
+                <p className="erp-text-caption mt-1 text-slate-500">
+                  {L.summary(
+                    preview.targetDate,
+                    preview.scheduleCount,
+                    preview.notifyCount,
+                    preview.missingPhoneCount,
+                  )}
+                </p>
+              ) : null}
+            </div>
             <Button
               type="button"
               variant="outline"
-              size="sm"
               className="rounded-xl"
               onClick={() => void loadPreview()}
               disabled={loading}
@@ -202,18 +200,8 @@ export function ScScheduleNotifyPreviewModal({ open, onClose }: ScScheduleNotify
               <RefreshCw size={14} className={`mr-1 ${loading ? "animate-spin" : ""}`} />
               {L.refresh}
             </Button>
-            <button
-              type="button"
-              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
-              onClick={onClose}
-              aria-label={L.close}
-            >
-              <X size={18} />
-            </button>
           </div>
-        </div>
 
-        <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
           {loading && !preview ? <p className="text-sm text-slate-500">{L.loading}</p> : null}
           {error ? <p className="mb-3 text-sm font-semibold text-red-700">{error}</p> : null}
 
@@ -235,10 +223,10 @@ export function ScScheduleNotifyPreviewModal({ open, onClose }: ScScheduleNotify
                 <section key={group.scheduleId} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                      <h4 className="text-sm font-bold text-slate-900">
+                      <h3 className="text-sm font-bold text-slate-900">
                         {group.clientName || "-"}
                         {group.projectName ? ` \u00B7 ${group.projectName}` : ""}
-                      </h4>
+                      </h3>
                       <p className="mt-1 text-xs text-slate-600">
                         {[manager, group.variables.dateTime, workers].filter(Boolean).join(" \u00B7 ")}
                       </p>
@@ -311,14 +299,8 @@ export function ScScheduleNotifyPreviewModal({ open, onClose }: ScScheduleNotify
               );
             })}
           </div>
-        </div>
-
-        <div className="flex justify-end border-t border-slate-100 px-5 py-4">
-          <Button type="button" variant="outline" className="rounded-xl" onClick={onClose}>
-            {L.close}
-          </Button>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

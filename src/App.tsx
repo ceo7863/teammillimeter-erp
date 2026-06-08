@@ -51,6 +51,7 @@ import {
   UserCheck,
   Clock,
   ClipboardList,
+  Smartphone,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -199,6 +200,7 @@ import { ClientContractSignPage } from "@/components/ClientContractSignPage";
 import { ClientSiteRequestPage } from "@/components/ClientSiteRequestPage";
 import { ClientContractsPanel } from "@/components/ClientContractsPanel";
 import { ClientSiteRequestsPage } from "@/components/ClientSiteRequestsPage";
+import { ScScheduleAlimtalkPage } from "@/components/ScScheduleAlimtalkPage";
 import { ClientFormModal, type ClientFormState } from "@/components/ClientFormModal";
 import { ClientBusinessRegViewModal } from "@/components/ClientBusinessRegViewModal";
 import {
@@ -2824,6 +2826,7 @@ const PAGE_ICONS: Record<ErpPageKey, typeof Home> = {
   dashboard: Home,
   calendar: CalendarDays,
   clientSiteRequests: ClipboardList,
+  scAlimtalk: Smartphone,
   attendance: Clock,
   salesInput: Plus,
   sales: FileSpreadsheet,
@@ -9232,6 +9235,9 @@ export default function TeammillimeterErpMvp() {
         </PageKeepAlive>
         <PageKeepAlive pageKey="clientSiteRequests" active={active}>
           <ClientSiteRequestsPage clients={clients} currentUser={currentUser} />
+        </PageKeepAlive>
+        <PageKeepAlive pageKey="scAlimtalk" active={active}>
+          <ScScheduleAlimtalkPage />
         </PageKeepAlive>
         <PageKeepAlive pageKey="attendance" active={active}>
           <AttendancePage
