@@ -14173,6 +14173,47 @@ button:disabled,
   color: #1d4ed8;
 }
 
+.erp-tax-invoice-nts-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.erp-tax-invoice-nts-badge.is-pending {
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.erp-tax-invoice-nts-badge.is-sending {
+  border: 1px solid #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.erp-tax-invoice-nts-badge.is-sent {
+  border: 1px solid #86efac;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.erp-tax-invoice-nts-badge.is-failed {
+  border: 1px solid #fda4af;
+  background: #ffe4e6;
+  color: #be123c;
+}
+
+.erp-tax-invoice-nts-badge.is-unknown {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #64748b;
+}
+
 .erp-tax-invoice-amount.is-cancelled {
   color: #be123c;
   font-weight: 800;

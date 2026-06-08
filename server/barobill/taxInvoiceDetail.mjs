@@ -2,7 +2,7 @@ import {
   assertBarobillCredentials,
   callBarobillSoapRequest,
 } from "./client.mjs";
-import { getTaxInvoiceState } from "./taxInvoiceIssue.mjs";
+import { getTaxInvoiceStateDetail } from "./taxInvoiceState.mjs";
 
 function decodeXml(text) {
   return String(text ?? "")
@@ -138,7 +138,7 @@ export async function fetchBarobillTaxInvoiceDetail(mgtKey) {
   let invoiceNo = readNtsSendKeyFromXml(resultBlock) || readNtsSendKeyFromXml(xml);
   if (!invoiceNo) {
     try {
-      const state = await getTaxInvoiceState(trimmedKey);
+      const state = await getTaxInvoiceStateDetail(trimmedKey);
       invoiceNo = state.ntsSendKey || "";
     } catch {
       invoiceNo = "";

@@ -17,6 +17,11 @@ export type TaxInvoice = {
   invoiceNo?: string;
   memo?: string;
   status: TaxInvoiceStatus;
+  barobillMgtKey?: string;
+  barobillNtsSendOption?: number;
+  barobillState?: number;
+  barobillNtsSendState?: number;
+  barobillStatusCheckedAt?: string;
   createdAt: string;
   updatedAt?: string;
   createdBy: string;
@@ -135,6 +140,11 @@ export function normalizeTaxInvoiceStatus(value: unknown): TaxInvoiceStatus {
   return value === "cancelled" ? "cancelled" : "issued";
 }
 
+/** Issued invoices with a positive total can export a copy JPG for sharing. */
+export function canDownloadTaxInvoiceCopy(row: Pick<TaxInvoice, "status" | "totalAmount">) {
+  return normalizeTaxInvoiceStatus(row.status) === "issued" && row.totalAmount > 0;
+}
+
 export function getTaxInvoiceDocumentTypeLabel(type: TaxInvoiceDocumentType) {
   return TAX_INVOICE_DOCUMENT_OPTIONS.find((item) => item.value === type)?.label || TAX_INVOICE_DOCUMENT_OPTIONS[0].label;
 }
@@ -220,6 +230,18 @@ export function normalizeTaxInvoice(raw: Partial<TaxInvoice> & { id: string }): 
     invoiceNo: raw.invoiceNo ? String(raw.invoiceNo) : undefined,
     memo: raw.memo ? String(raw.memo) : undefined,
     status: normalizeTaxInvoiceStatus(raw.status),
+    barobillMgtKey: raw.barobillMgtKey ? String(raw.barobillMgtKey) : undefined,
+    barobillNtsSendOption:
+      typeof raw.barobillNtsSendOption === "number" && Number.isFinite(raw.barobillNtsSendOption)
+        ? raw.barobillNtsSendOption
+        : undefined,
+    barobillState:
+      typeof raw.barobillState === "number" && Number.isFinite(raw.barobillState) ? raw.barobillState : undefined,
+    barobillNtsSendState:
+      typeof raw.barobillNtsSendState === "number" && Number.isFinite(raw.barobillNtsSendState)
+        ? raw.barobillNtsSendState
+        : undefined,
+    barobillStatusCheckedAt: raw.barobillStatusCheckedAt ? String(raw.barobillStatusCheckedAt) : undefined,
     createdAt: String(raw.createdAt || new Date().toISOString()),
     updatedAt: raw.updatedAt ? String(raw.updatedAt) : undefined,
     createdBy: String(raw.createdBy || ""),

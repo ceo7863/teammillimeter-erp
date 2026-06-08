@@ -9,6 +9,7 @@ import {
   getErrString,
   parseNumericResult,
 } from "./client.mjs";
+import { getTaxInvoiceStateDetail } from "./taxInvoiceState.mjs";
 
 const SOAP_NS = "http://ws.baroservice.com/";
 const ISSUE_DIRECTION_SALES = 1;
@@ -398,28 +399,24 @@ async function issueRegisteredTaxInvoice({
 }
 
 export async function getTaxInvoiceState(mgtKey) {
-  const { certKey, corpNum } = assertBarobillCredentials();
-  const xml = await callBarobillSoapRequest("GetTaxInvoiceState", {
-    CERTKEY: certKey,
-    CorpNum: corpNum,
-    MgtKey: String(mgtKey || "").trim(),
-  });
+  return getTaxInvoiceStateDetail(mgtKey);
+}
 
-  const resultBlock = extractResultBlock(xml, "GetTaxInvoiceStateResult");
-  if (!resultBlock) {
-    const faultMatch = String(xml || "").match(/<faultstring[^>]*>([^<]*)<\/faultstring>/i);
-    if (faultMatch) {
-      throw new Error(`SOAP ??: ${decodeXml(faultMatch[1])}`);
-    }
-    throw new Error("\uACC4\uC0B0\uC11C \uC0C1\uD0DC \uC870\uD68C \uACB0\uACFC\uB97C \uBD84\uC11D\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+function buildIssueResultMessage(invoiceNo, ntsSendState) {
+  const base = "\uC804\uC790\uACC4\uC0B0\uC11C\uAC00 \uBC1C\uD589\uB418\uC5C8\uC2B5\uB2C8\uB2E4.";
+  const state = Number(ntsSendState) || 0;
+  const approvalNo = String(invoiceNo || "").trim();
+
+  if (state === 4) {
+    return approvalNo
+      ? `${base} (\uAD6D\uC138\uCCAD \uC804\uC1A1\uC644\uB8CC \u00B7 \uC2B9\uC778\uBC88\uD638: ${approvalNo})`
+      : `${base} (\uAD6D\uC138\uCCAD \uC804\uC1A1\uC644\uB8CC)`;
   }
-
-  return {
-    mgtKey: readXmlTag(resultBlock, "MgtKey") || String(mgtKey || "").trim(),
-    ntsSendKey: readXmlTag(resultBlock, "NTSSendKey") || undefined,
-    barobillState: Number(readXmlTag(resultBlock, "BarobillState")) || 0,
-    ntsSendState: Number(readXmlTag(resultBlock, "NTSSendState")) || 0,
-  };
+  if (state === 2) return `${base} (\uAD6D\uC138\uCCAD \uC804\uC1A1 \uC911)`;
+  if (state === 3 || state === 5) return `${base} (\uAD6D\uC138\uCCAD \uC804\uC1A1 \uC2E4\uD328)`;
+  if (state === 1) return `${base} (\uBC1C\uAE09\uC644\uB8CC \u00B7 \uAD6D\uC138\uCCAD \uBBF8\uC804\uC1A1)`;
+  if (approvalNo) return `${base} (\uC2B9\uC778\uBC88\uD638: ${approvalNo})`;
+  return base;
 }
 
 export async function registAndIssueTaxInvoice(input) {
@@ -477,9 +474,13 @@ export async function registAndIssueTaxInvoice(input) {
   });
 
   let invoiceNo;
+  let barobillState = 0;
+  let ntsSendState = 0;
   try {
-    const state = await getTaxInvoiceState(mgtKey);
+    const state = await getTaxInvoiceStateDetail(mgtKey);
     invoiceNo = state.ntsSendKey;
+    barobillState = state.barobillState;
+    ntsSendState = state.ntsSendState;
   } catch {
     invoiceNo = undefined;
   }
@@ -488,9 +489,10 @@ export async function registAndIssueTaxInvoice(input) {
     ok: true,
     mgtKey,
     invoiceNo,
-    message: invoiceNo
-      ? `\uC804\uC790\uACC4\uC0B0\uC11C\uAC00 \uBC1C\uD589\uB418\uC5C8\uC2B5\uB2C8\uB2E4. (\uC2B9\uC778\uBC88\uD638: ${invoiceNo})`
-      : "\uC804\uC790\uACC4\uC0B0\uC11C\uAC00 \uBC1C\uD589\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
+    ntsSendOption,
+    barobillState,
+    ntsSendState,
+    message: buildIssueResultMessage(invoiceNo, ntsSendState),
     errCode: undefined,
   };
 }
@@ -518,6 +520,13 @@ export function buildIssuedTaxInvoiceRecord(input, issueResult, author) {
     invoiceNo: issueResult.invoiceNo || undefined,
     memo: memoParts.length ? memoParts.join(" \u00B7 ") : undefined,
     status: "issued",
+    barobillMgtKey: issueResult.mgtKey || undefined,
+    barobillNtsSendOption:
+      typeof issueResult.ntsSendOption === "number" ? issueResult.ntsSendOption : undefined,
+    barobillState: typeof issueResult.barobillState === "number" ? issueResult.barobillState : undefined,
+    barobillNtsSendState:
+      typeof issueResult.ntsSendState === "number" ? issueResult.ntsSendState : undefined,
+    barobillStatusCheckedAt: now,
     createdAt: now,
     createdBy: author.name,
     createdByLoginId: author.loginId,

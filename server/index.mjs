@@ -90,6 +90,7 @@ import { getBarobillConfigStatus, testBarobillConnection, getBarobillUrl } from 
 import { syncBarobillTaxInvoices } from "./barobill/taxInvoiceSync.mjs";
 import { buildIssuedTaxInvoiceRecord, getTaxInvoiceIssueOptions, registAndIssueTaxInvoice } from "./barobill/taxInvoiceIssue.mjs";
 import { fetchBarobillTaxInvoiceDetail } from "./barobill/taxInvoiceDetail.mjs";
+import { refreshBarobillTaxInvoiceStates } from "./barobill/taxInvoiceState.mjs";
 import { getTaxInvoiceScrapRequestUrl, refreshTaxInvoiceScrap } from "./barobill/taxInvoiceScrap.mjs";
 import {
   getBarobillBankSyncStatus,
@@ -1519,6 +1520,107 @@ app.get("/api/barobill/tax-invoices/copy-data", authMiddleware, async (req, res)
     res.status(500).json({
       error: error instanceof Error ? error.message : String(error),
       errCode,
+    });
+  }
+});
+
+function extractBarobillMgtKeyFromMemo(memo) {
+  const match = String(memo || "").match(/MgtKey:\s*([^\s·]+)/i);
+  return match?.[1]?.trim() || "";
+}
+
+function resolveBarobillMgtKeyFromInvoice(row) {
+  return String(row?.barobillMgtKey || "").trim() || extractBarobillMgtKeyFromMemo(row?.memo);
+}
+
+app.post("/api/barobill/tax-invoices/refresh-states", authMiddleware, adminMiddleware, async (req, res) => {
+  const configStatus = getBarobillConfigStatus();
+  if (!configStatus.configured) {
+    res.status(400).json({ error: "바로빌 인증키(CERTKEY)와 사업자번호가 설정되지 않았습니다." });
+    return;
+  }
+  if (!configStatus.hasUserId) {
+    res.status(400).json({ error: "바로빌 사용자 ID(BAROBILL_USER_ID)가 설정되지 않았습니다." });
+    return;
+  }
+
+  const invoiceIds = Array.isArray(req.body?.invoiceIds)
+    ? req.body.invoiceIds.map((value) => String(value || "").trim()).filter(Boolean)
+    : [];
+  const limit = Math.min(Math.max(Number(req.body?.limit) || 40, 1), 100);
+
+  const state = getErpState();
+  const existing = Array.isArray(state.data?.taxInvoices) ? state.data.taxInvoices : [];
+  const targetPool = invoiceIds.length
+    ? existing.filter((row) => invoiceIds.includes(String(row.id || "")))
+    : existing.filter(
+        (row) =>
+          row?.flowType === "sales" &&
+          row?.status === "issued" &&
+          resolveBarobillMgtKeyFromInvoice(row),
+      );
+
+  const targets = targetPool.slice(0, limit);
+  const mgtKeyByInvoiceId = new Map();
+  for (const row of targets) {
+    const mgtKey = resolveBarobillMgtKeyFromInvoice(row);
+    if (mgtKey) mgtKeyByInvoiceId.set(String(row.id), mgtKey);
+  }
+
+  if (mgtKeyByInvoiceId.size === 0) {
+    res.json({
+      ok: true,
+      updated: 0,
+      checked: 0,
+      taxInvoices: existing,
+      version: state.version,
+      updatedAt: state.updatedAt,
+    });
+    return;
+  }
+
+  try {
+    const refreshed = await refreshBarobillTaxInvoiceStates([...new Set(mgtKeyByInvoiceId.values())]);
+    const refreshedByMgtKey = new Map(refreshed.filter((row) => row.ok).map((row) => [row.mgtKey, row]));
+    const now = new Date().toISOString();
+    const targetIds = new Set(mgtKeyByInvoiceId.keys());
+    let updated = 0;
+
+    const nextTaxInvoices = existing.map((row) => {
+      if (!targetIds.has(String(row.id))) return row;
+      const mgtKey = mgtKeyByInvoiceId.get(String(row.id));
+      const detail = refreshedByMgtKey.get(mgtKey);
+      if (!detail) return row;
+      updated += 1;
+      return {
+        ...row,
+        barobillMgtKey: mgtKey,
+        barobillState: detail.barobillState,
+        barobillNtsSendState: detail.ntsSendState,
+        invoiceNo: detail.ntsSendKey || row.invoiceNo,
+        barobillStatusCheckedAt: now,
+      };
+    });
+
+    const updatedBy = req.user.loginId || req.user.name || req.user.email;
+    const saved = saveErpState(
+      { ...(state.data || {}), taxInvoices: nextTaxInvoices },
+      req.body?.version ?? state.version,
+      updatedBy,
+    );
+
+    res.json({
+      ok: true,
+      updated,
+      checked: mgtKeyByInvoiceId.size,
+      failed: refreshed.filter((row) => !row.ok).length,
+      taxInvoices: nextTaxInvoices,
+      version: saved.version,
+      updatedAt: saved.updatedAt,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
     });
   }
 });

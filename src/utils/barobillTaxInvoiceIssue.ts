@@ -43,10 +43,24 @@ export type BarobillTaxInvoiceIssueResult = {
   ok: boolean;
   mgtKey: string;
   invoiceNo?: string;
+  ntsSendOption?: number;
+  barobillState?: number;
+  ntsSendState?: number;
   message: string;
   errCode?: number;
   taxInvoice?: TaxInvoice;
   taxInvoices?: TaxInvoice[];
+  version?: number;
+  updatedAt?: string | null;
+  error?: string;
+};
+
+export type BarobillTaxInvoiceRefreshStatesResult = {
+  ok: boolean;
+  updated: number;
+  checked: number;
+  failed?: number;
+  taxInvoices: TaxInvoice[];
   version?: number;
   updatedAt?: string | null;
   error?: string;
@@ -105,5 +119,16 @@ export async function issueBarobillTaxInvoice(input: BarobillTaxInvoiceIssueRequ
   return apiRequest<BarobillTaxInvoiceIssueResult>("/barobill/tax-invoices/issue", {
     method: "POST",
     body: JSON.stringify(input),
+  });
+}
+
+export async function refreshBarobillTaxInvoiceStates(input?: {
+  invoiceIds?: string[];
+  limit?: number;
+  version?: number;
+}) {
+  return apiRequest<BarobillTaxInvoiceRefreshStatesResult>("/barobill/tax-invoices/refresh-states", {
+    method: "POST",
+    body: JSON.stringify(input || {}),
   });
 }

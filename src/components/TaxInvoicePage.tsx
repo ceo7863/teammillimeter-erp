@@ -35,6 +35,7 @@ import {
   resolveTaxInvoiceModalAmounts,
   resolveTaxInvoiceItemName,
   buildTaxInvoiceIssuePreviewData,
+  canDownloadTaxInvoiceCopy,
   sortTaxInvoices,
   TAX_INVOICE_DOCUMENT_OPTIONS,
   TAX_INVOICE_FLOW_OPTIONS,
@@ -61,7 +62,8 @@ import {
   fetchBarobillScrapStatus,
   type BarobillTaxInvoiceSyncPreview,
 } from "@/utils/barobillTaxInvoiceSync";
-import { issueBarobillTaxInvoice } from "@/utils/barobillTaxInvoiceIssue";
+import { issueBarobillTaxInvoice, refreshBarobillTaxInvoiceStates } from "@/utils/barobillTaxInvoiceIssue";
+import { getBarobillNtsTransmissionDisplay, isBarobillIssuedTaxInvoice } from "@/utils/barobillTaxInvoiceStatus";
 import { fetchBarobillChargeUrl } from "@/utils/barobillChargeUrl";
 import { extractClientTaxFields, resolveClientTaxInvoiceCorpName } from "@/utils/clientMaster";
 import {
@@ -210,6 +212,8 @@ const L = {
   barobillSyncLoading: "\uBC14\uB85C\uBE4C\uC5D0\uC11C \uC870\uD68C \uC911\uC785\uB2C8\uB2E4...",
   barobillSyncRange: "\uC870\uD68C \uAE30\uAC04",
   barobillSyncFlowTypes: "\uC870\uD68C \uC720\uD615",
+  ntsStatusRefresh: "\uAD6D\uC138\uCCAD \uC0C1\uD0DC",
+  ntsStatusRefreshLoading: "\uAD6D\uC138\uCCAD \uC0C1\uD0DC \uC870\uD68C \uC911...",
   barobillScrapApply: "\uD648\uD0DD\uC2A4 \uC5F0\uB3D9 \uC2E0\uCCAD",
   previewRows: "\uC778\uC2DD \uAC74\uC218",
   previewTotal: "\uD30C\uC77C \uD569\uACC4",
@@ -274,6 +278,16 @@ function TaxInvoiceBankLinkBadge() {
   return <span className="erp-tax-invoice-bank-link-badge">{L.bankLinked}</span>;
 }
 
+function TaxInvoiceNtsTransmissionBadge({ row }: { row: TaxInvoice }) {
+  const display = getBarobillNtsTransmissionDisplay(row);
+  if (!display) return null;
+  return (
+    <span className={`erp-tax-invoice-nts-badge is-${display.tone}`} title={display.title}>
+      {display.label}
+    </span>
+  );
+}
+
 function TaxInvoiceStatusCell({
   row,
   linkedTaxInvoiceIds,
@@ -289,6 +303,7 @@ function TaxInvoiceStatusCell({
     <>
       <div className="flex flex-wrap items-center gap-1">
         <TaxInvoiceStatusBadge status={row.status} />
+        <TaxInvoiceNtsTransmissionBadge row={row} />
         {bankLinked ? <TaxInvoiceBankLinkBadge /> : null}
         {meta.isOffsetIssued ? <TaxInvoiceOffsetBadge /> : null}
       </div>
@@ -429,10 +444,6 @@ function applyClientToInvoiceModal(client: Record<string, unknown> | null | unde
   };
 }
 
-function canDownloadTaxInvoiceCopy(row: TaxInvoice) {
-  return row.flowType === "sales" && row.status === "issued";
-}
-
 export function TaxInvoicePage({
   taxInvoices,
   setTaxInvoices,
@@ -490,6 +501,8 @@ export function TaxInvoicePage({
   const [issuePreviewOpen, setIssuePreviewOpen] = useState(false);
   const [issuePreviewData, setIssuePreviewData] = useState<TaxInvoiceIssuePreviewData | null>(null);
   const [copyJpgLoadingId, setCopyJpgLoadingId] = useState<string | null>(null);
+  const [ntsStatusRefreshLoading, setNtsStatusRefreshLoading] = useState(false);
+  const ntsAutoRefreshKeyRef = useRef("");
   const hometaxInputRef = useRef<HTMLInputElement>(null);
   const { onPointerDown, onPointerUp, isTouchDevice } = useBackdropPointerDismiss(Boolean(modal), () => setModal(null));
   const {
@@ -586,6 +599,50 @@ export function TaxInvoicePage({
 
   const isClientView = viewMode === "byClientSales" || viewMode === "byClientPurchase";
 
+  const barobillNtsRefreshTargetIds = useMemo(() => {
+    return filteredRows
+      .filter((row) => isBarobillIssuedTaxInvoice(row) && row.status === "issued")
+      .filter((row) => {
+        const state = row.barobillNtsSendState;
+        if (state === 4 || state === 3 || state === 5) return false;
+        if (typeof state !== "number") return true;
+        const checkedAt = row.barobillStatusCheckedAt ? Date.parse(row.barobillStatusCheckedAt) : 0;
+        return !checkedAt || Date.now() - checkedAt > 60 * 60 * 1000;
+      })
+      .slice(0, 30)
+      .map((row) => row.id);
+  }, [filteredRows]);
+
+  const refreshBarobillNtsStatuses = async (invoiceIds?: string[]) => {
+    if (!isAdmin || ntsStatusRefreshLoading) return;
+    setNtsStatusRefreshLoading(true);
+    try {
+      const result = await refreshBarobillTaxInvoiceStates({
+        invoiceIds,
+        limit: invoiceIds?.length || 40,
+        version: erpVersion,
+      });
+      if (Array.isArray(result.taxInvoices)) {
+        setTaxInvoices(normalizeTaxInvoices(result.taxInvoices));
+      }
+      if (typeof result.version === "number" && onErpVersionChange) {
+        onErpVersionChange(result.version);
+      }
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : L.barobillSyncFailed);
+    } finally {
+      setNtsStatusRefreshLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isAdmin || barobillNtsRefreshTargetIds.length === 0) return;
+    const refreshKey = barobillNtsRefreshTargetIds.join(",");
+    if (ntsAutoRefreshKeyRef.current === refreshKey) return;
+    ntsAutoRefreshKeyRef.current = refreshKey;
+    void refreshBarobillNtsStatuses(barobillNtsRefreshTargetIds);
+  }, [barobillNtsRefreshTargetIds, isAdmin]);
+
   const toggleClientExpanded = (key: string) => {
     setExpandedClientKeys((prev) => (prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key]));
   };
@@ -671,6 +728,7 @@ export function TaxInvoicePage({
       badge={
         <span className="flex flex-wrap items-center gap-1">
           <TaxInvoiceStatusBadge status={row.status} />
+          <TaxInvoiceNtsTransmissionBadge row={row} />
           {linkedTaxInvoiceIds.has(row.id) ? <TaxInvoiceBankLinkBadge /> : null}
           {meta.isOffsetIssued ? <TaxInvoiceOffsetBadge /> : null}
         </span>
@@ -1484,6 +1542,18 @@ export function TaxInvoicePage({
               onClick={() => void openBarobillChargePage()}
             >
               {L.barobillCharge}
+            </Button>
+          ) : null}
+          {isAdmin ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-2xl"
+              disabled={importLoading || ntsStatusRefreshLoading}
+              onClick={() => void refreshBarobillNtsStatuses()}
+            >
+              <RefreshCw size={16} className={`mr-2 ${ntsStatusRefreshLoading ? "animate-spin" : ""}`} />
+              {ntsStatusRefreshLoading ? L.ntsStatusRefreshLoading : L.ntsStatusRefresh}
             </Button>
           ) : null}
           <Button
