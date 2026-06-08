@@ -301,10 +301,13 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
         `\uB300\uC0C1 \uC77C\uC790: ${result.targetDate}`,
         `\uC77C\uC815 ${result.scheduleCount}\uAC74 / \uBC1C\uC1A1 \uAC00\uB2A5 ${result.notifyCount}\uBA85 / \uC804\uD654 \uC5C6\uC74C ${result.missingPhoneCount}\uBA85`,
         "",
-        ...result.rows.map(
-          (row) =>
-            `[${row.phone || "전화없음"}] ${row.participantName} · ${row.variables.client} / ${row.variables.site} · ${row.variables.clientManager} · ${row.variables.dateTime}`,
-        ),
+        ...result.rows.map((row) => {
+          const manager =
+            row.variables?.clientManager && row.variables.clientManager !== "-"
+              ? `\uB2F4\uB2F9 ${row.variables.clientManager}`
+              : "\uB2F4\uB2F9 \uC5C6\uC74C";
+          return `[${row.phone || "\uC804\uD654\uC5C6\uC74C"}] ${row.participantName} \u00B7 ${row.variables.client} \u00B7 ${manager} \u00B7 ${row.variables.dateTime}`;
+        }),
       ];
       setPreviewMessage(lines.join("\n"));
       setPreviewOpen(true);

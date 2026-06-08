@@ -158,7 +158,8 @@ async function fetchScSchedules(pool, startDate, endDate) {
       s."endTime",
       s."workType",
       s."expectedHeadcount",
-      p.name AS project_name
+      p.name AS project_name,
+      p."siteManagerName" AS site_manager_name
     FROM schedules s
     JOIN projects p ON p.id = s."projectId"
     WHERE s."workDate" >= $1
@@ -200,6 +201,7 @@ async function fetchScSchedules(pool, startDate, endDate) {
       id,
       scProjectId: String(row.projectId),
       projectName: String(row.project_name || "").trim(),
+      siteManagerName: String(row.site_manager_name || "").trim(),
       workDate,
       startTime: String(row.startTime || "").trim(),
       endTime: row.endTime ? String(row.endTime).trim() : "",
@@ -438,6 +440,7 @@ function attachClientToSchedules(schedules, clients) {
         scProjectId: row.scProjectId,
         clientId: client.id,
         clientName: String(client.name || row.projectName || "").trim(),
+        siteManagerName: String(row.siteManagerName || "").trim(),
         projectName: row.projectName,
         workDate: row.workDate,
         startTime: row.startTime,

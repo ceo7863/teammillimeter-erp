@@ -32,11 +32,25 @@ function listClients(data) {
   return Array.isArray(data?.clients) ? data.clients : [];
 }
 
-export function resolveClientManager(clients, clientId) {
+export function resolveClientManager(clients, scheduleOrClientId, clientName = "") {
   const list = Array.isArray(clients) ? clients : [];
-  const match = list.find((row) => String(row?.id ?? "") === String(clientId ?? ""));
-  if (!match) return "";
-  return String(match.manager || match.ceoName || "").trim();
+  const schedule =
+    scheduleOrClientId && typeof scheduleOrClientId === "object" ? scheduleOrClientId : null;
+  const clientId = schedule ? schedule.clientId : scheduleOrClientId;
+  const nameHint = schedule
+    ? String(schedule.clientName || schedule.projectName || "").trim()
+    : String(clientName || "").trim();
+
+  let match = list.find((row) => String(row?.id ?? "") === String(clientId ?? ""));
+  if (!match && nameHint) {
+    match = list.find((row) => String(row?.name || "").trim() === nameHint);
+  }
+
+  const fromClient = match
+    ? String(match.manager || match.ceoName || "").trim()
+    : "";
+  const fromSc = schedule ? String(schedule.siteManagerName || "").trim() : "";
+  return fromClient || fromSc || "";
 }
 
 function listScSchedules(data) {
@@ -134,7 +148,7 @@ export function buildScScheduleNotifyPreview(data, dateKey = tomorrowKstDateKey(
       : [];
     if (!participantNames.length) continue;
 
-    const clientManager = resolveClientManager(clients, schedule.clientId);
+    const clientManager = resolveClientManager(clients, schedule);
     const variables = formatScheduleTemplateVars(schedule, "", clientManager);
 
     for (const participantName of participantNames) {
@@ -241,7 +255,7 @@ export async function runScScheduleNotifyJob(options = {}) {
       }
     }
 
-    const clientManager = resolveClientManager(clients, schedule.clientId);
+    const clientManager = resolveClientManager(clients, schedule);
     const variables = formatScheduleTemplateVars(schedule, shareToken, clientManager);
 
     for (const participantName of participantNames) {
