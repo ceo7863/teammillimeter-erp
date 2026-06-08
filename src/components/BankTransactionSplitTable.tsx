@@ -1,7 +1,7 @@
 import React, { memo } from "react";
 import { ChevronDown, Link2, Pencil } from "lucide-react";
 import { DesktopTableWrap } from "@/components/MobileRecordCard";
-import { useBankWindowVirtualizer } from "@/hooks/useBankWindowVirtualizer";
+import { useBankContainerVirtualizer } from "@/hooks/useBankContainerVirtualizer";
 import { BANK_TX_ACCOUNT_TRIGGER_ATTR } from "@/utils/floatingPosition";
 import type { BankTransactionListRowModel } from "@/utils/bankTransactionListDisplay";
 
@@ -32,9 +32,10 @@ export type BankTransactionSplitTableLabels = {
   voucherProcessedBadge: string;
 };
 
-const BANK_SPLIT_ROW_ESTIMATE_PX = 38;
-const BANK_SPLIT_OVERSCAN = 4;
-const BANK_SPLIT_VIRTUAL_MIN = 1;
+const BANK_SPLIT_ROW_ESTIMATE_PX = 40;
+const BANK_SPLIT_OVERSCAN = 6;
+const BANK_SPLIT_VIRTUAL_MIN = 50;
+const BANK_SPLIT_SCROLL_CLASS = "max-h-[calc(100vh-13rem)] overflow-auto overscroll-contain";
 const BANK_SPLIT_COL_SPAN = 14;
 
 type BankTransactionSplitTableProps = {
@@ -338,7 +339,7 @@ function BankTransactionSplitTableComponent({
 }: BankTransactionSplitTableProps) {
   const useVirtualRows = rowIds.length >= BANK_SPLIT_VIRTUAL_MIN;
 
-  const { anchorRef, virtualizer: rowVirtualizer } = useBankWindowVirtualizer({
+  const { scrollRef, virtualizer: rowVirtualizer } = useBankContainerVirtualizer({
     count: rowIds.length,
     enabled: useVirtualRows,
     estimateSize: () => BANK_SPLIT_ROW_ESTIMATE_PX,
@@ -402,7 +403,10 @@ function BankTransactionSplitTableComponent({
 
   return (
     <DesktopTableWrap className="erp-bank-wehago-table-wrap">
-      <div ref={anchorRef} className="erp-bank-table-scroll erp-bank-table-scroll--page">
+      <div
+        ref={scrollRef}
+        className={`erp-bank-table-scroll ${useVirtualRows ? BANK_SPLIT_SCROLL_CLASS : "erp-bank-table-scroll--page"}`}
+      >
         <table id={tableId} className="erp-table erp-bank-split-table erp-bank-wehago-split-table w-full min-w-[1180px]">
           {tableHead}
           <tbody>

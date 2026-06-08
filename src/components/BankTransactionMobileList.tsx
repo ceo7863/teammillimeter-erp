@@ -1,14 +1,15 @@
 import React, { memo } from "react";
 import { AutoLinkBadge, ManualLinkBadge, PartialPaymentBadge } from "@/components/AutoLinkBadge";
 import { MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
-import { useBankWindowVirtualizer } from "@/hooks/useBankWindowVirtualizer";
+import { useBankContainerVirtualizer } from "@/hooks/useBankContainerVirtualizer";
 import { BANK_TX_ACCOUNT_TRIGGER_ATTR } from "@/utils/floatingPosition";
 import type { BankTransactionCompactRowLabels, BankTransactionCompactRowModel } from "@/components/BankTransactionCompactRow";
 import type { BankTransactionSimpleTableLabels } from "@/components/BankTransactionSimpleTable";
 
 const BANK_MOBILE_CARD_ESTIMATE_PX = 132;
-const BANK_MOBILE_OVERSCAN = 3;
-const BANK_MOBILE_VIRTUAL_MIN = 1;
+const BANK_MOBILE_OVERSCAN = 4;
+const BANK_MOBILE_VIRTUAL_MIN = 30;
+const BANK_MOBILE_SCROLL_CLASS = "max-h-[calc(100vh-12rem)] overflow-auto overscroll-contain";
 
 type BankTransactionMobileListProps = {
   rowIds: string[];
@@ -140,7 +141,7 @@ function BankTransactionMobileListComponent({
 }: BankTransactionMobileListProps) {
   const useVirtualRows = rowIds.length >= BANK_MOBILE_VIRTUAL_MIN;
 
-  const { anchorRef, virtualizer: rowVirtualizer } = useBankWindowVirtualizer({
+  const { scrollRef, virtualizer: rowVirtualizer } = useBankContainerVirtualizer({
     count: rowIds.length,
     enabled: useVirtualRows,
     estimateSize: () => BANK_MOBILE_CARD_ESTIMATE_PX,
@@ -182,7 +183,10 @@ function BankTransactionMobileListComponent({
     virtualRows.length > 0 ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end : 0;
 
   return (
-    <div ref={anchorRef} className="erp-bank-mobile-list erp-bank-mobile-scroll erp-bank-mobile-scroll--page space-y-3 md:hidden">
+    <div
+      ref={scrollRef}
+      className={`erp-bank-mobile-list erp-bank-mobile-scroll space-y-3 md:hidden ${useVirtualRows ? BANK_MOBILE_SCROLL_CLASS : "erp-bank-mobile-scroll--page"}`}
+    >
       {paddingTop > 0 ? <div aria-hidden="true" style={{ height: paddingTop }} /> : null}
       {virtualRows.map((virtualRow) => {
         const id = rowIds[virtualRow.index]!;
