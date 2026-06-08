@@ -266,6 +266,11 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
     }
   };
 
+  const handleRegisterFromDrawer = (date: string) => {
+    lastClickedDateRef.current = null;
+    openSubmitModal(date);
+  };
+
   const handleConfirmRegister = () => {
     setConfirmRegisterOpen(false);
     lastClickedDateRef.current = null;
@@ -457,6 +462,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
                   onSelectDate={handleCalendarDateSelect}
                   selectedRequestId={selectedRequestId}
                   onSelectRequest={handleCalendarRequestSelect}
+                  onRegisterDate={handleRegisterFromDrawer}
                 />
                 {selectedRequest ? (
                   <>

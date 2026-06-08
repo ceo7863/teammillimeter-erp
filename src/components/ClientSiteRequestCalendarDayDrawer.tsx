@@ -1,6 +1,6 @@
 import React from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { CalendarPlus, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   clientSiteRequestPublicStatusLabel,
@@ -22,6 +22,7 @@ const L = {
   sectionRequests: "\uC811\uC218 \uC694\uCCAD",
   sectionSc: "SC \uD655\uC815 \uC77C\uC815",
   scBadge: "\uD655\uC815",
+  registerSchedule: "\uC77C\uC815 \uC811\uC218",
 };
 
 type ClientSiteRequestCalendarDayDrawerProps = {
@@ -32,6 +33,7 @@ type ClientSiteRequestCalendarDayDrawerProps = {
   onClose: () => void;
   onShiftDate: (date: string) => void;
   onSelectRequest: (requestId: string, date?: string) => void;
+  onRegisterDate?: (date: string) => void;
   elevated?: boolean;
 };
 
@@ -47,6 +49,7 @@ export function ClientSiteRequestCalendarDayDrawer({
   onClose,
   onShiftDate,
   onSelectRequest,
+  onRegisterDate,
   elevated = false,
 }: ClientSiteRequestCalendarDayDrawerProps) {
   const { onPointerDown, onPointerUp, isTouchDevice } = useBackdropPointerDismiss(Boolean(date), onClose);
@@ -67,7 +70,7 @@ export function ClientSiteRequestCalendarDayDrawer({
       data-touch-device={isTouchDevice ? "true" : undefined}
     >
       <aside
-        className="erp-csr-cal-drawer erp-calendar-side-panel"
+        className="erp-csr-cal-drawer erp-calendar-side-panel erp-csr-cal-drawer--with-foot"
         role="dialog"
         aria-modal="true"
         aria-label={`${date} \uC77C\uC815`}
@@ -182,6 +185,19 @@ export function ClientSiteRequestCalendarDayDrawer({
             </div>
           )}
         </div>
+
+        {onRegisterDate ? (
+          <div className="erp-csr-cal-drawer-foot">
+            <Button
+              type="button"
+              className="erp-touch-target erp-csr-cal-drawer-register-btn w-full rounded-xl"
+              onClick={() => onRegisterDate(date)}
+            >
+              <CalendarPlus size={16} className="mr-1.5" />
+              {L.registerSchedule}
+            </Button>
+          </div>
+        ) : null}
       </aside>
     </div>,
     document.body,

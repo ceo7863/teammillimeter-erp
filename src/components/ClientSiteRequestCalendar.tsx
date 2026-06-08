@@ -41,6 +41,7 @@ type ClientSiteRequestCalendarProps = {
   onSelectDate: (date: string) => void;
   selectedRequestId: string;
   onSelectRequest: (requestId: string, date?: string) => void;
+  onRegisterDate?: (date: string) => void;
   drawerElevated?: boolean;
 };
 
@@ -61,6 +62,7 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
   onSelectDate,
   selectedRequestId,
   onSelectRequest,
+  onRegisterDate,
   drawerElevated = false,
 }: ClientSiteRequestCalendarProps) {
   const [drawerDate, setDrawerDate] = useState<string | null>(null);
@@ -97,9 +99,11 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
     onSelectDate(date);
   };
 
-  const closeDrawer = () => {
+  const closeDrawer = (options?: { keepSelectedDate?: boolean }) => {
     setDrawerDate(null);
-    onSelectDate("");
+    if (!options?.keepSelectedDate) {
+      onSelectDate("");
+    }
   };
 
   const handleShiftDrawerDate = (date: string) => {
@@ -110,6 +114,11 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
     if (monthKeyFromDate !== monthKey) {
       onMonthKeyChange(monthKeyFromDate);
     }
+  };
+
+  const handleRegisterDate = (date: string) => {
+    onRegisterDate?.(date);
+    closeDrawer({ keepSelectedDate: true });
   };
 
   return (
@@ -255,6 +264,7 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
           onClose={closeDrawer}
           onShiftDate={handleShiftDrawerDate}
           onSelectRequest={onSelectRequest}
+          onRegisterDate={onRegisterDate ? handleRegisterDate : undefined}
           elevated={drawerElevated}
         />
       ) : null}

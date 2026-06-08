@@ -1267,6 +1267,12 @@ textarea {
   background: #fff;
 }
 
+.erp-csr-cal-drawer--with-foot {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .erp-csr-cal-drawer-head {
   display: flex;
   align-items: center;
@@ -1293,8 +1299,23 @@ textarea {
 }
 
 .erp-csr-cal-drawer-body {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
   padding: 0;
+}
+
+.erp-csr-cal-drawer-foot {
+  flex-shrink: 0;
+  padding: 0.75rem 1rem max(0.75rem, env(safe-area-inset-bottom));
+  border-top: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #f8fafc 0%, #fff 100%);
+}
+
+.erp-csr-cal-drawer-register-btn {
+  min-height: 2.75rem;
+  font-size: 0.875rem;
+  font-weight: 700;
 }
 
 .erp-csr-cal-drawer-sections {
