@@ -1868,7 +1868,34 @@ textarea {
   min-height: 0;
 }
 
+.erp-app-shell > .flex.min-w-0.flex-1.flex-col {
+  min-height: 0;
+}
+
+.erp-app-shell > .flex.min-w-0.flex-1.flex-col > main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.erp-page-keep-alive--fill {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .erp-client-calendars-page {
+  min-height: 0;
+  flex: 1 1 auto;
+  gap: 0.75rem;
+}
+
+.erp-client-calendars-page__head {
+  margin-bottom: 0;
+}
+
+.erp-client-calendars-page__body {
   min-height: 0;
 }
 
@@ -1882,9 +1909,44 @@ textarea {
   min-height: 0;
 }
 
+.erp-client-calendars-page__calendar {
+  min-height: 0;
+}
+
+@media (max-width: 1023px) {
+  .erp-client-calendars-page__calendar {
+    min-height: min(68dvh, 52rem);
+  }
+}
+
 .erp-client-request-calendar-panel .erp-client-request-calendar--fullscreen {
   flex: 1 1 auto;
   min-height: 0;
+}
+
+.erp-client-calendars-page__list-items {
+  align-content: flex-start;
+}
+
+.erp-client-calendars-page__chip {
+  max-width: 100%;
+}
+
+@media (min-width: 1024px) {
+  .erp-client-calendars-page {
+    height: 100%;
+    max-height: 100%;
+  }
+
+  .erp-client-calendars-page__body {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .erp-client-calendars-page__calendar {
+    min-height: 0;
+  }
 }
 
 @media (min-width: 1024px) {

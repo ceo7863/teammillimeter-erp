@@ -4,6 +4,7 @@ type PageKeepAliveProps = {
   pageKey: string;
   active: string;
   children: React.ReactNode;
+  className?: string;
 };
 
 /** Hub/tab panels: cache last active tree while hidden to skip parent re-renders. */
@@ -32,7 +33,7 @@ export function KeepAlivePanel({
 }
 
 /** Mount only the active sidebar route — prevents visited menus from piling up in the DOM. */
-export function PageKeepAlive({ pageKey, active, children }: PageKeepAliveProps) {
+export function PageKeepAlive({ pageKey, active, children, className = "" }: PageKeepAliveProps) {
   if (active !== pageKey) return null;
-  return <div className="min-w-0">{children}</div>;
+  return <div className={`min-w-0 ${className}`.trim()}>{children}</div>;
 }

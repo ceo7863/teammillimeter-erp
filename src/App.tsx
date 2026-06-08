@@ -9239,8 +9239,8 @@ export default function TeammillimeterErpMvp() {
         <PageKeepAlive pageKey="clientSiteRequests" active={active}>
           <ClientSiteRequestsPage clients={clients} workers={workers} currentUser={currentUser} />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="clientSiteRequestCalendars" active={active}>
-          <ClientSiteRequestCalendarsPage workers={workers} />
+        <PageKeepAlive pageKey="clientSiteRequestCalendars" active={active} className="erp-page-keep-alive--fill">
+          <ClientSiteRequestCalendarsPage sales={appliedSales} workers={workers} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="scAlimtalk" active={active}>
           <ScScheduleAlimtalkPage />

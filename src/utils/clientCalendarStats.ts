@@ -162,3 +162,15 @@ export function filterClientCalendarSales(sales: ClientCalendarSaleLike[], clien
   if (!clientName) return [];
   return sales.filter((sale) => matchesClientCalendarName(sale, clientName));
 }
+
+export function buildClientMonthlySalesTotals(sales: ClientCalendarSaleLike[], monthKey: string) {
+  const totals = new Map<string, number>();
+  sales.forEach((sale) => {
+    const date = String(sale.date || "").trim();
+    if (!date.startsWith(monthKey)) return;
+    const client = normalizeClientCalendarName(sale.client);
+    const bill = getSaleTotalBill(sale) || getClientCalendarSaleAmount(sale);
+    totals.set(client, (totals.get(client) || 0) + bill);
+  });
+  return totals;
+}

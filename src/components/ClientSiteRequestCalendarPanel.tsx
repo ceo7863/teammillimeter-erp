@@ -23,6 +23,8 @@ type ClientSiteRequestCalendarPanelProps = {
   drawerElevated?: boolean;
   fullscreen?: boolean;
   className?: string;
+  monthKey?: string;
+  onMonthKeyChange?: (monthKey: string) => void;
 };
 
 export function ClientSiteRequestCalendarPanel({
@@ -32,12 +34,16 @@ export function ClientSiteRequestCalendarPanel({
   drawerElevated = false,
   fullscreen = true,
   className = "",
+  monthKey: controlledMonthKey,
+  onMonthKeyChange,
 }: ClientSiteRequestCalendarPanelProps) {
+  const [internalMonthKey, setInternalMonthKey] = useState(getCurrentMonthKey);
+  const monthKey = controlledMonthKey ?? internalMonthKey;
+  const setMonthKey = onMonthKeyChange ?? setInternalMonthKey;
   const [requests, setRequests] = useState<ClientSiteRequest[]>([]);
   const [scSchedules, setScSchedules] = useState<ScSchedule[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [monthKey, setMonthKey] = useState(getCurrentMonthKey);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedRequestId, setSelectedRequestId] = useState("");
   const [selectedScScheduleId, setSelectedScScheduleId] = useState("");
@@ -64,11 +70,13 @@ export function ClientSiteRequestCalendarPanel({
 
   useEffect(() => {
     if (!active) return;
-    setMonthKey(getCurrentMonthKey());
+    if (controlledMonthKey == null) {
+      setInternalMonthKey(getCurrentMonthKey());
+    }
     setSelectedDate("");
     setSelectedRequestId("");
     setSelectedScScheduleId("");
-  }, [active, clientId]);
+  }, [active, clientId, controlledMonthKey]);
 
   useEffect(() => {
     if (!active) return;

@@ -9,12 +9,20 @@ import {
   resolveClientSiteRequestLinkUrl,
   type ClientSiteRequestLink,
 } from "@/utils/clientSiteRequests";
+import {
+  buildClientMonthlySalesTotals,
+  normalizeClientCalendarName,
+  type ClientCalendarSaleLike,
+} from "@/utils/clientCalendarStats";
+import { formatClientSiteRequestMonthLabel, getCurrentMonthKey } from "@/utils/clientSiteRequestCalendar";
+import { formatKRW } from "@/utils/receivables";
 import type { WorkerMasterLike } from "@/utils/workerPayments";
 
 const L = {
   title: "\uC5C5\uCCB4\uBCC4 \uCE98\uB9B0\uB354",
   desc: "\uB9C1\uD06C\uAC00 \uBC1C\uAE09\uB41C \uAC70\uB798\uCC98 \uC811\uC218 \uCE98\uB9B0\uB354\uB97C \uD655\uC778\uD569\uB2C8\uB2E4.",
   search: "\uAC70\uB798\uCC98\uBA85 \uAC80\uC0C9",
+  sortHint: "\uB2F9\uC6D4 \uB9E4\uCD9C \uB192\uC740 \uC21C",
   loading: "\uBAA9\uB85D\uC744 \uBD88\uB7EC\uC624\uB294 \uC911...",
   loadFail: "\uBAA9\uB85D\uC744 \uBD88\uB7EC\uC62C \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
   empty: "\uB9C1\uD06C\uAC00 \uBC1C\uAE09\uB41C \uAC70\uB798\uCC98\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
@@ -25,29 +33,24 @@ const L = {
 };
 
 type ClientSiteRequestCalendarsPageProps = {
+  sales?: ClientCalendarSaleLike[];
   workers?: WorkerMasterLike[];
 };
 
-export function ClientSiteRequestCalendarsPage({ workers = [] }: ClientSiteRequestCalendarsPageProps) {
+export function ClientSiteRequestCalendarsPage({ sales = [], workers = [] }: ClientSiteRequestCalendarsPageProps) {
   const [links, setLinks] = useState<ClientSiteRequestLink[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [selectedClientId, setSelectedClientId] = useState<string>("");
+  const [monthKey, setMonthKey] = useState(getCurrentMonthKey);
 
   const loadLinks = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
       const rows = await listClientSiteRequestLinks();
-      const sorted = [...rows].sort((a, b) =>
-        String(a.clientName || "").localeCompare(String(b.clientName || ""), "ko"),
-      );
-      setLinks(sorted);
-      setSelectedClientId((current) => {
-        if (current && sorted.some((row) => String(row.clientId) === current)) return current;
-        return sorted[0] ? String(sorted[0].clientId) : "";
-      });
+      setLinks(rows);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : L.loadFail);
       setLinks([]);
@@ -61,37 +64,69 @@ export function ClientSiteRequestCalendarsPage({ workers = [] }: ClientSiteReque
     void loadLinks();
   }, [loadLinks]);
 
+  const monthlySalesByClient = useMemo(
+    () => buildClientMonthlySalesTotals(sales, monthKey),
+    [sales, monthKey],
+  );
+
+  const sortedLinks = useMemo(() => {
+    return [...links].sort((a, b) => {
+      const aBill = monthlySalesByClient.get(normalizeClientCalendarName(a.clientName)) || 0;
+      const bBill = monthlySalesByClient.get(normalizeClientCalendarName(b.clientName)) || 0;
+      if (bBill !== aBill) return bBill - aBill;
+      return String(a.clientName || "").localeCompare(String(b.clientName || ""), "ko");
+    });
+  }, [links, monthlySalesByClient]);
+
+  useEffect(() => {
+    if (!sortedLinks.length) {
+      setSelectedClientId("");
+      return;
+    }
+    setSelectedClientId((current) =>
+      current && sortedLinks.some((row) => String(row.clientId) === current)
+        ? current
+        : String(sortedLinks[0].clientId),
+    );
+  }, [sortedLinks]);
+
   const filteredLinks = useMemo(() => {
     const query = search.trim().toLowerCase();
-    if (!query) return links;
-    return links.filter((link) => String(link.clientName || "").toLowerCase().includes(query));
-  }, [links, search]);
+    if (!query) return sortedLinks;
+    return sortedLinks.filter((link) => String(link.clientName || "").toLowerCase().includes(query));
+  }, [sortedLinks, search]);
 
   const selectedLink = useMemo(
-    () => links.find((link) => String(link.clientId) === selectedClientId) || null,
-    [links, selectedClientId],
+    () => sortedLinks.find((link) => String(link.clientId) === selectedClientId) || null,
+    [sortedLinks, selectedClientId],
   );
 
   const publicUrl = selectedLink ? resolveClientSiteRequestLinkUrl(selectedLink) : "";
+  const monthLabel = formatClientSiteRequestMonthLabel(monthKey);
 
   return (
     <div className="erp-page erp-client-calendars-page flex min-h-0 flex-1 flex-col">
-      <div className="mb-4 shrink-0">
+      <div className="erp-client-calendars-page__head shrink-0">
         <h1 className="erp-text-page-title text-slate-900">{L.title}</h1>
         <p className="mt-1 erp-text-body text-slate-600">{L.desc}</p>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4">
-        <Card className="shrink-0 rounded-2xl shadow-sm">
+      <div className="erp-client-calendars-page__body flex min-h-0 flex-1 flex-col gap-4">
+        <Card className="erp-client-calendars-page__list shrink-0 rounded-2xl shadow-sm">
           <CardContent className="p-3 md:p-4">
-            <div className="relative">
-              <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder={L.search}
-                className="erp-input w-full rounded-xl border border-slate-200 py-2.5 pl-9 pr-3 text-sm"
-              />
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative min-w-[12rem] flex-1">
+                <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder={L.search}
+                  className="erp-input w-full rounded-xl border border-slate-200 py-2.5 pl-9 pr-3 text-sm"
+                />
+              </div>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
+                {monthLabel} {L.sortHint}
+              </span>
             </div>
 
             {loading ? (
@@ -101,41 +136,46 @@ export function ClientSiteRequestCalendarsPage({ workers = [] }: ClientSiteReque
             ) : !filteredLinks.length ? (
               <p className="mt-3 text-sm text-slate-500">{links.length ? L.search : L.empty}</p>
             ) : (
-              <ul className="mt-3 max-h-52 space-y-1 overflow-y-auto overscroll-contain md:max-h-60">
+              <div className="erp-client-calendars-page__list-items mt-3 flex flex-wrap gap-2">
                 {filteredLinks.map((link) => {
                   const active = String(link.clientId) === selectedClientId;
+                  const monthBill = monthlySalesByClient.get(normalizeClientCalendarName(link.clientName)) || 0;
                   return (
-                    <li key={String(link.clientId)}>
-                      <button
-                        type="button"
-                        className={`erp-touch-target flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-bold transition ${
-                          active ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100"
-                        }`}
-                        onClick={() => setSelectedClientId(String(link.clientId))}
-                      >
-                        <span className="min-w-0 truncate">{link.clientName}</span>
-                        <span className="flex shrink-0 items-center gap-1.5 text-xs font-semibold opacity-80">
-                          {link.disabled ? (
-                            <span className={`rounded-full px-2 py-0.5 ${active ? "bg-white/15" : "bg-slate-200 text-slate-600"}`}>
-                              {L.disabled}
-                            </span>
-                          ) : null}
-                          {link.pendingCount > 0 ? (
-                            <span className={`rounded-full px-2 py-0.5 ${active ? "bg-amber-400 text-amber-950" : "bg-amber-100 text-amber-800"}`}>
-                              {L.pending} {link.pendingCount}
-                            </span>
-                          ) : null}
+                    <button
+                      key={String(link.clientId)}
+                      type="button"
+                      className={`erp-client-calendars-page__chip erp-touch-target inline-flex max-w-full items-center gap-1.5 rounded-full border px-3 py-2 text-left text-sm font-bold transition ${
+                        active
+                          ? "border-slate-900 bg-slate-900 text-white"
+                          : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                      }`}
+                      onClick={() => setSelectedClientId(String(link.clientId))}
+                    >
+                      <span className="min-w-0 truncate">{link.clientName}</span>
+                      {monthBill > 0 ? (
+                        <span className={`shrink-0 text-xs font-semibold ${active ? "text-slate-200" : "text-slate-500"}`}>
+                          {formatKRW(monthBill)}
                         </span>
-                      </button>
-                    </li>
+                      ) : null}
+                      {link.disabled ? (
+                        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${active ? "bg-white/15 text-white" : "bg-slate-200 text-slate-600"}`}>
+                          {L.disabled}
+                        </span>
+                      ) : null}
+                      {link.pendingCount > 0 ? (
+                        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${active ? "bg-amber-400 text-amber-950" : "bg-amber-100 text-amber-800"}`}>
+                          {L.pending} {link.pendingCount}
+                        </span>
+                      ) : null}
+                    </button>
                   );
                 })}
-              </ul>
+              </div>
             )}
           </CardContent>
         </Card>
 
-        <Card className="flex min-h-[28rem] flex-1 flex-col rounded-2xl shadow-sm">
+        <Card className="erp-client-calendars-page__calendar flex min-h-[32rem] flex-1 flex-col rounded-2xl shadow-sm">
           <CardContent className="flex min-h-0 flex-1 flex-col p-3 md:p-4">
             {selectedLink ? (
               <>
@@ -166,6 +206,8 @@ export function ClientSiteRequestCalendarsPage({ workers = [] }: ClientSiteReque
                   workers={workers}
                   drawerElevated
                   fullscreen
+                  monthKey={monthKey}
+                  onMonthKeyChange={setMonthKey}
                 />
               </>
             ) : (
