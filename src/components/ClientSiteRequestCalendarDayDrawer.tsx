@@ -10,7 +10,7 @@ import type { ClientSiteRequest, ClientSiteRequestChangeSource } from "@/utils/c
 import { formatClientSiteRequestWorkPeriod } from "@/utils/clientSiteRequests";
 import { formatClientSiteRequestDayLabel, shiftCalendarDate } from "@/utils/clientSiteRequestCalendar";
 import type { ScSchedule } from "@/utils/scSchedules";
-import { formatScScheduleHeadcount, formatScScheduleTimeRange, resolveScScheduleWorkers } from "@/utils/scSchedules";
+import { formatScScheduleHeadcount, formatScScheduleTimeRange, getScScheduleWorkerDetails } from "@/utils/scSchedules";
 import type { WorkerMasterLike } from "@/utils/workerPayments";
 import { useBodyScrollLock } from "@/utils/bodyScrollLock";
 import { useBackdropPointerDismiss, useModalDismissGuard } from "@/utils/modalBackdrop";
@@ -140,7 +140,9 @@ export function ClientSiteRequestCalendarDayDrawer({
                 <section className="erp-csr-cal-drawer-section">
                   <h3 className="erp-csr-cal-drawer-section-title">{L.sectionSc}</h3>
                   <ul className="erp-csr-cal-drawer-list">
-                    {scSchedules.map((schedule) => (
+                    {scSchedules.map((schedule) => {
+                      const scheduleWorkers = getScScheduleWorkerDetails(schedule, workers);
+                      return (
                       <li key={`sc-${schedule.id}`}>
                         <button
                           type="button"
@@ -173,10 +175,9 @@ export function ClientSiteRequestCalendarDayDrawer({
                                 </span>
                               ) : null}
                             </div>
-                            {schedule.participantNames?.length ? (
-                              workers.length ? (
+                            {scheduleWorkers.length ? (
                                 <div className="erp-csr-cal-drawer-sc-workers">
-                                  {resolveScScheduleWorkers(workers, schedule.participantNames).map((worker) => (
+                                  {scheduleWorkers.map((worker) => (
                                     <div key={`${schedule.id}-${worker.participantName}`} className="erp-csr-cal-drawer-sc-worker">
                                       <p className="erp-csr-cal-drawer-sc-worker-line">
                                         <span className="erp-csr-cal-drawer-sc-worker-label">{L.workerName}</span>
@@ -196,14 +197,13 @@ export function ClientSiteRequestCalendarDayDrawer({
                                     </div>
                                   ))}
                                 </div>
-                              ) : (
+                              ) : schedule.participantNames?.length ? (
                                 <p className="erp-csr-cal-drawer-card-meta">{schedule.participantNames.join(", ")}</p>
-                              )
-                            ) : null}
+                              ) : null}
                           </div>
                         </button>
                       </li>
-                    ))}
+                    );})}
                   </ul>
                 </section>
               ) : null}

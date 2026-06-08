@@ -56,3 +56,19 @@ export function resolveWorkerPhone(workers, participantName) {
   const phone = normalizePhone(worker.phone);
   return phone || null;
 }
+
+export function resolveScScheduleParticipants(workers, participantNames = []) {
+  return participantNames
+    .map((participantName) => String(participantName || "").trim())
+    .filter(Boolean)
+    .map((participantName) => {
+      const master = findWorkerByListName(workers, participantName);
+      const phone = String(master?.phone || "").trim();
+      return {
+        participantName,
+        name: String(master?.name || participantName).trim(),
+        phone,
+        vehicleNo: String(master?.vehicleNo || "").trim(),
+      };
+    });
+}

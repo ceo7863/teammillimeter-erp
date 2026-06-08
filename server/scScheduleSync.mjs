@@ -1,5 +1,6 @@
 import { config } from "./config.mjs";
 import { getErpState, saveErpState } from "./db.mjs";
+import { resolveScScheduleParticipants } from "./workerPhoneMatch.mjs";
 
 const COMPANY_SUFFIX_RE = /(\u3231|\(\uC8FC\)|\uC8FC\uC2DD\uD68C\uC0AC|\(\uC720\)|\uC720\uD55C|\uC720\uD55C\uD68C\uC0AC|co\.?ltd|corp|inc)/gi;
 
@@ -489,7 +490,8 @@ export function filterScSchedulesForClient(schedules, clientId, monthKey) {
   });
 }
 
-export function sanitizePublicScSchedule(row) {
+export function sanitizePublicScSchedule(row, workers = []) {
+  const participantNames = Array.isArray(row.participantNames) ? row.participantNames : [];
   return {
     id: row.id,
     workDate: row.workDate,
@@ -497,7 +499,8 @@ export function sanitizePublicScSchedule(row) {
     endTime: row.endTime,
     workType: row.workType,
     expectedHeadcount: row.expectedHeadcount,
-    participantNames: Array.isArray(row.participantNames) ? row.participantNames : [],
+    participantNames,
+    participants: resolveScScheduleParticipants(workers, participantNames),
     participantCount: Number(row.participantCount || 0),
     source: "sc",
   };
@@ -514,7 +517,10 @@ export function listPublicScSchedulesForToken(token, monthKey) {
     return { ok: false, status: 403, error: "\uD604\uC7AC \uC811\uC218\uAC00 \uC911\uB2E8\uB41C \uB9C1\uD06C\uC785\uB2C8\uB2E4." };
   }
   const month = String(monthKey || "").trim();
-  const rows = filterScSchedulesForClient(listScSchedules(data), client.id, month).map(sanitizePublicScSchedule);
+  const workers = Array.isArray(data.workers) ? data.workers : [];
+  const rows = filterScSchedulesForClient(listScSchedules(data), client.id, month).map((row) =>
+    sanitizePublicScSchedule(row, workers),
+  );
   return { ok: true, schedules: rows };
 }
 
@@ -526,7 +532,14 @@ export function listStaffScSchedulesForClient(clientId, monthKey) {
     return { ok: false, status: 404, error: "\uAC70\uB798\uCC98\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
   }
   const month = String(monthKey || "").trim();
-  const rows = filterScSchedulesForClient(listScSchedules(data), client.id, month);
+  const workers = Array.isArray(data.workers) ? data.workers : [];
+  const rows = filterScSchedulesForClient(listScSchedules(data), client.id, month).map((row) => {
+    const participantNames = Array.isArray(row.participantNames) ? row.participantNames : [];
+    return {
+      ...row,
+      participants: resolveScScheduleParticipants(workers, participantNames),
+    };
+  });
   return {
     ok: true,
     schedules: rows,

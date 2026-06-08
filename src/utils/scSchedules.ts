@@ -9,6 +9,7 @@ export type ScSchedule = {
   workType: string;
   expectedHeadcount?: number | null;
   participantNames?: string[];
+  participants?: ScScheduleWorkerInfo[];
   participantCount?: number;
   source?: "sc";
 };
@@ -99,6 +100,16 @@ export function resolveScScheduleWorkers(
         vehicleNo: String(master?.vehicleNo || "").trim(),
       };
     });
+}
+
+export function getScScheduleWorkerDetails(
+  schedule: Pick<ScSchedule, "participants" | "participantNames">,
+  workers: WorkerMasterLike[] = [],
+): ScScheduleWorkerInfo[] {
+  if (Array.isArray(schedule.participants) && schedule.participants.length) {
+    return schedule.participants;
+  }
+  return resolveScScheduleWorkers(workers, schedule.participantNames || []);
 }
 
 export function formatScScheduleHeadcount(row: Pick<ScSchedule, "expectedHeadcount" | "participantCount">) {
