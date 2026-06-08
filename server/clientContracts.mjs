@@ -141,10 +141,10 @@ function validatePhoneLastFour(contract, inputLast4) {
     return { ok: false, status: 400, error: "\uB4F1\uB85D\uB41C \uC218\uC2E0 \uC5F0\uB77D\uCC98\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4." };
   }
   if (given.length !== 4) {
-    return { ok: false, status: 400, error: "\uD734\uB300\uD3F0 \uBC88\uD638 \uB204\uC801 4\uC790\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694." };
+    return { ok: false, status: 400, error: "\uD578\uB4DC\uD3F0 \uB4A4 4\uC790\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694." };
   }
   if (given !== expected) {
-    return { ok: false, status: 403, error: "\uD734\uB300\uD3F0 \uBC88\uD638 \uB204\uC801 4\uC790\uB9AC\uAC00 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." };
+    return { ok: false, status: 403, error: "\uD578\uB4DC\uD3F0 \uB4A4 4\uC790\uB9AC\uAC00 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." };
   }
   return { ok: true };
 }
@@ -194,7 +194,7 @@ export function requireContractPhoneVerified(signToken) {
   return {
     ok: false,
     status: 403,
-    error: "\uC218\uC2E0 \uD734\uB300\uD3F0 \uBC88\uD638 \uB204\uC801 4\uC790\uB9AC \uD655\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.",
+    error: "\uD578\uB4DC\uD3F0 \uB4A4 4\uC790\uB9AC \uC785\uB825\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.",
   };
 }
 
