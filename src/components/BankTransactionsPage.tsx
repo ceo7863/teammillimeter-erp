@@ -1225,6 +1225,7 @@ export function BankTransactionsPage({
   }, [bankTransactions, accountCodes]);
 
   React.useEffect(() => {
+    if (!isPageActive) return;
     setBankTransactions((prev) => {
       const seeded = mergeManualLedgerAccountFieldsFromRef(prev, bankTransactionsRef.current);
       const folders = ensureDefaultBankTransactionFolders(bankTransactionFolders);
@@ -1254,7 +1255,7 @@ export function BankTransactionsPage({
       if (folders.length === prev.length) return prev;
       return folders;
     });
-  }, [companyExpenses, fixedExpensePayments, bankTransactionFolders, ledgerRegistrationContext, setBankTransactions, setBankTransactionFolders]);
+  }, [companyExpenses, fixedExpensePayments, bankTransactionFolders, ledgerRegistrationContext, setBankTransactions, setBankTransactionFolders, isPageActive]);
 
   const needsHeavyBankClassification = Boolean(
     ledgerModal ||

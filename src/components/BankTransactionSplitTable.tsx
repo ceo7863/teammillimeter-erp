@@ -1,4 +1,5 @@
-import React, { memo } from "react";
+import React, { memo, useLayoutEffect, useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, Link2, Pencil } from "lucide-react";
 import { DesktopTableWrap } from "@/components/MobileRecordCard";
 import { BANK_TX_ACCOUNT_TRIGGER_ATTR } from "@/utils/floatingPosition";
@@ -30,6 +31,12 @@ export type BankTransactionSplitTableLabels = {
   memoPlaceholder: string;
   voucherProcessedBadge: string;
 };
+
+const BANK_SPLIT_ROW_ESTIMATE_PX = 38;
+const BANK_SPLIT_OVERSCAN = 10;
+const BANK_SPLIT_VIRTUAL_MIN = 40;
+const BANK_SPLIT_SCROLL_HEIGHT_CLASS = "h-[min(72vh,960px)]";
+const BANK_SPLIT_COL_SPAN = 14;
 
 type BankTransactionSplitTableProps = {
   rowIds: string[];
@@ -330,65 +337,112 @@ function BankTransactionSplitTableComponent({
   onFilterCounterparty,
   tableId = "bank-transactions-table",
 }: BankTransactionSplitTableProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const useVirtualRows = rowIds.length >= BANK_SPLIT_VIRTUAL_MIN;
+
+  const rowVirtualizer = useVirtualizer({
+    count: useVirtualRows ? rowIds.length : 0,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => BANK_SPLIT_ROW_ESTIMATE_PX,
+    overscan: BANK_SPLIT_OVERSCAN,
+    getItemKey: (index) => rowIds[index] ?? index,
+  });
+
+  useLayoutEffect(() => {
+    if (!useVirtualRows) return;
+    rowVirtualizer.measure();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rowIds.length, useVirtualRows]);
+
+  const renderRow = (id: string) => {
+    const model = rowModels.get(id);
+    if (!model) return null;
+    return (
+      <SplitRow
+        key={`${id}:${model.accountSubjectLabel ?? ""}`}
+        model={model}
+        labels={labels}
+        onEditMemo={onEditMemo}
+        onEditAccountSubject={onEditAccountSubject}
+        onEditClient={onEditClient}
+        onEditFixedExpense={onEditFixedExpense}
+        onFindEvidence={onFindEvidence}
+        onIssueTaxInvoice={onIssueTaxInvoice}
+        onFilterCounterparty={onFilterCounterparty}
+      />
+    );
+  };
+
+  const tableHead = (
+    <thead>
+      <tr className="erp-bank-wehago-split-section-row">
+        <th colSpan={6} className="erp-bank-wehago-split-section erp-bank-wehago-split-section--bank">
+          {labels.bankSection}
+        </th>
+        <th className="erp-bank-wehago-split-bridge" aria-hidden="true" />
+        <th colSpan={7} className="erp-bank-wehago-split-section erp-bank-wehago-split-section--classify">
+          {labels.classifySection}
+        </th>
+      </tr>
+      <tr className="erp-bank-wehago-split-columns-row">
+        <th>{labels.transactionAt}</th>
+        <th>{labels.account}</th>
+        <th>{labels.counterparty}</th>
+        <th>{labels.description}</th>
+        <th className="text-right">{labels.amount}</th>
+        <th className="erp-bank-wehago-split-divider">{labels.memo}</th>
+        <th className="erp-bank-wehago-split-bridge" aria-hidden="true" />
+        <th>{labels.evidence}</th>
+        <th>{labels.accountSubject}</th>
+        <th>{labels.client}</th>
+        <th>{labels.fixedExpense}</th>
+        <th className="text-right">{labels.classifiedAmount}</th>
+        <th>{labels.erpProcess}</th>
+        <th>{labels.taxInvoiceIssue}</th>
+      </tr>
+    </thead>
+  );
+
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
+  const paddingBottom =
+    virtualRows.length > 0 ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end : 0;
+
   return (
     <DesktopTableWrap className="erp-bank-wehago-table-wrap">
-      <table id={tableId} className="erp-table erp-bank-split-table erp-bank-wehago-split-table w-full min-w-[1180px]">
-        <thead>
-          <tr className="erp-bank-wehago-split-section-row">
-            <th colSpan={6} className="erp-bank-wehago-split-section erp-bank-wehago-split-section--bank">
-              {labels.bankSection}
-            </th>
-            <th className="erp-bank-wehago-split-bridge" aria-hidden="true" />
-            <th colSpan={7} className="erp-bank-wehago-split-section erp-bank-wehago-split-section--classify">
-              {labels.classifySection}
-            </th>
-          </tr>
-          <tr className="erp-bank-wehago-split-columns-row">
-            <th>{labels.transactionAt}</th>
-            <th>{labels.account}</th>
-            <th>{labels.counterparty}</th>
-            <th>{labels.description}</th>
-            <th className="text-right">{labels.amount}</th>
-            <th className="erp-bank-wehago-split-divider">{labels.memo}</th>
-            <th className="erp-bank-wehago-split-bridge" aria-hidden="true" />
-            <th>{labels.evidence}</th>
-            <th>{labels.accountSubject}</th>
-            <th>{labels.client}</th>
-            <th>{labels.fixedExpense}</th>
-            <th className="text-right">{labels.classifiedAmount}</th>
-            <th>{labels.erpProcess}</th>
-            <th>{labels.taxInvoiceIssue}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {!rowIds.length ? (
-            <tr>
-              <td colSpan={14} className="py-12 text-center text-slate-500">
-                {labels.empty}
-              </td>
-            </tr>
-          ) : (
-            rowIds.map((id) => {
-              const model = rowModels.get(id);
-              if (!model) return null;
-              return (
-                <SplitRow
-                  key={`${id}:${model.accountSubjectLabel ?? ""}`}
-                  model={model}
-                  labels={labels}
-                  onEditMemo={onEditMemo}
-                  onEditAccountSubject={onEditAccountSubject}
-                  onEditClient={onEditClient}
-                  onEditFixedExpense={onEditFixedExpense}
-                  onFindEvidence={onFindEvidence}
-                  onIssueTaxInvoice={onIssueTaxInvoice}
-                  onFilterCounterparty={onFilterCounterparty}
-                />
-              );
-            })
-          )}
-        </tbody>
-      </table>
+      <div
+        ref={scrollRef}
+        className={`erp-bank-table-scroll ${BANK_SPLIT_SCROLL_HEIGHT_CLASS} overflow-auto overscroll-contain`}
+      >
+        <table id={tableId} className="erp-table erp-bank-split-table erp-bank-wehago-split-table w-full min-w-[1180px]">
+          {tableHead}
+          <tbody>
+            {!rowIds.length ? (
+              <tr>
+                <td colSpan={BANK_SPLIT_COL_SPAN} className="py-12 text-center text-slate-500">
+                  {labels.empty}
+                </td>
+              </tr>
+            ) : useVirtualRows ? (
+              <>
+                {paddingTop > 0 ? (
+                  <tr aria-hidden="true">
+                    <td colSpan={BANK_SPLIT_COL_SPAN} style={{ height: paddingTop, padding: 0, border: 0 }} />
+                  </tr>
+                ) : null}
+                {virtualRows.map((virtualRow) => renderRow(rowIds[virtualRow.index]!))}
+                {paddingBottom > 0 ? (
+                  <tr aria-hidden="true">
+                    <td colSpan={BANK_SPLIT_COL_SPAN} style={{ height: paddingBottom, padding: 0, border: 0 }} />
+                  </tr>
+                ) : null}
+              </>
+            ) : (
+              rowIds.map((id) => renderRow(id))
+            )}
+          </tbody>
+        </table>
+      </div>
     </DesktopTableWrap>
   );
 }

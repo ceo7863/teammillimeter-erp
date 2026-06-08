@@ -103,6 +103,7 @@ function BankTransactionListSectionComponent({
       clients,
       workers,
     );
+    if (!Object.keys(accountSubjectLabels).length) return base;
     const patched = new Map(base);
     for (const row of rows) {
       const model = patched.get(row.id);
