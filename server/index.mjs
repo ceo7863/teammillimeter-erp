@@ -89,6 +89,7 @@ import { buildAuthorizeUrl } from "./openBankingClient.mjs";
 import { getBarobillConfigStatus, testBarobillConnection, getBarobillUrl } from "./barobill/client.mjs";
 import { syncBarobillTaxInvoices } from "./barobill/taxInvoiceSync.mjs";
 import { buildIssuedTaxInvoiceRecord, getTaxInvoiceIssueOptions, registAndIssueTaxInvoice } from "./barobill/taxInvoiceIssue.mjs";
+import { fetchBarobillTaxInvoiceDetail } from "./barobill/taxInvoiceDetail.mjs";
 import { getTaxInvoiceScrapRequestUrl, refreshTaxInvoiceScrap } from "./barobill/taxInvoiceScrap.mjs";
 import {
   getBarobillBankSyncStatus,
@@ -1488,6 +1489,31 @@ app.post("/api/barobill/tax-invoices/sync", authMiddleware, adminMiddleware, asy
       version: saved.version,
       updatedAt: saved.updatedAt,
     });
+  } catch (error) {
+    const errCode = error && typeof error === "object" && "errCode" in error ? error.errCode : undefined;
+    res.status(500).json({
+      error: error instanceof Error ? error.message : String(error),
+      errCode,
+    });
+  }
+});
+
+app.get("/api/barobill/tax-invoices/copy-data", authMiddleware, async (req, res) => {
+  const mgtKey = String(req.query?.mgtKey || "").trim();
+  if (!mgtKey) {
+    res.status(400).json({ error: "MgtKey가 필요합니다." });
+    return;
+  }
+
+  const configStatus = getBarobillConfigStatus();
+  if (!configStatus.configured) {
+    res.status(400).json({ error: "바로빌 인증키(CERTKEY)와 사업자번호가 설정되지 않았습니다." });
+    return;
+  }
+
+  try {
+    const detail = await fetchBarobillTaxInvoiceDetail(mgtKey);
+    res.json(detail);
   } catch (error) {
     const errCode = error && typeof error === "object" && "errCode" in error ? error.errCode : undefined;
     res.status(500).json({

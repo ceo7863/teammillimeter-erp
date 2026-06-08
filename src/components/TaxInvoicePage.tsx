@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, FileSpreadsheet, Pencil, Plus, Receipt, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, FileSpreadsheet, ImageDown, Pencil, Plus, Receipt, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
@@ -73,6 +73,10 @@ import { useAudit } from "@/context/AuditContext";
 import { TAX_INVOICE_AUDIT_FIELDS, snapshotTaxInvoiceForAudit } from "@/utils/auditLog";
 import { useBackdropPointerDismiss } from "@/utils/modalBackdrop";
 import { useBarobillTaxInvoiceIssueOptions } from "@/hooks/useBarobillTaxInvoiceIssueOptions";
+import { DEFAULT_COMPANY_PROFILE, type CompanyProfile } from "@/utils/companyProfile";
+import { buildTaxInvoiceCopyFileName } from "@/utils/taxInvoiceCopyData";
+import { resolveTaxInvoiceCopySheetData } from "@/utils/taxInvoiceCopyFetch";
+import { downloadTaxInvoiceCopyJpg } from "@/utils/taxInvoiceCopyImage";
 
 type PeriodKey = "thisMonth" | "lastMonth" | "pickMonth" | "q1" | "q2" | "q3" | "q4" | "all" | "custom";
 type QuarterKey = "q1" | "q2" | "q3" | "q4";
@@ -237,6 +241,9 @@ const L = {
   barobillCharge: "\uC694\uAE08 \uCDA9\uC804",
   barobillChargeLoading: "\uC694\uAE08\uCDA9\uC804 \uD398\uC774\uC9C0\uB97C \uC5F4\uACE0 \uC788\uC2B5\uB2C8\uB2E4...",
   barobillChargeFailed: "\uC694\uAE08\uCDA9\uC804 \uD398\uC774\uC9C0\uB97C \uC5F4 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  copyJpg: "JPG \uC800\uC7A5",
+  copyJpgLoading: "JPG \uC0DD\uC131 \uC911...",
+  copyJpgFailed: "JPG \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
 };
 
 function getTaxInvoiceRowMeta(row: TaxInvoice, excludedIds: Set<string>) {
@@ -422,12 +429,17 @@ function applyClientToInvoiceModal(client: Record<string, unknown> | null | unde
   };
 }
 
+function canDownloadTaxInvoiceCopy(row: TaxInvoice) {
+  return row.flowType === "sales" && row.status === "issued";
+}
+
 export function TaxInvoicePage({
   taxInvoices,
   setTaxInvoices,
   clients,
   bankTransactions = [],
   currentUser,
+  companyProfile = DEFAULT_COMPANY_PROFILE,
   erpVersion = 0,
   onErpVersionChange,
 }: {
@@ -447,6 +459,7 @@ export function TaxInvoicePage({
   }>;
   bankTransactions?: BankTransaction[];
   currentUser: ErpUser | null;
+  companyProfile?: CompanyProfile;
   erpVersion?: number;
   onErpVersionChange?: (version: number) => void;
 }) {
@@ -476,6 +489,7 @@ export function TaxInvoicePage({
   const [duplicateIssueConfirm, setDuplicateIssueConfirm] = useState<TaxInvoice[] | null>(null);
   const [issuePreviewOpen, setIssuePreviewOpen] = useState(false);
   const [issuePreviewData, setIssuePreviewData] = useState<TaxInvoiceIssuePreviewData | null>(null);
+  const [copyJpgLoadingId, setCopyJpgLoadingId] = useState<string | null>(null);
   const hometaxInputRef = useRef<HTMLInputElement>(null);
   const { onPointerDown, onPointerUp, isTouchDevice } = useBackdropPointerDismiss(Boolean(modal), () => setModal(null));
   const {
@@ -576,8 +590,38 @@ export function TaxInvoicePage({
     setExpandedClientKeys((prev) => (prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key]));
   };
 
+  const handleDownloadCopyJpg = async (row: TaxInvoice) => {
+    if (!canDownloadTaxInvoiceCopy(row) || copyJpgLoadingId) return;
+    setCopyJpgLoadingId(row.id);
+    try {
+      const sheetData = await resolveTaxInvoiceCopySheetData({
+        invoice: row,
+        companyProfile,
+        clients,
+      });
+      await downloadTaxInvoiceCopyJpg(sheetData, buildTaxInvoiceCopyFileName(row));
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : L.copyJpgFailed);
+    } finally {
+      setCopyJpgLoadingId(null);
+    }
+  };
+
   const renderInvoiceActions = (row: TaxInvoice) => (
     <>
+      {canDownloadTaxInvoiceCopy(row) ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="rounded-xl"
+          disabled={copyJpgLoadingId === row.id}
+          onClick={() => void handleDownloadCopyJpg(row)}
+        >
+          <ImageDown size={14} className="mr-1" />
+          {copyJpgLoadingId === row.id ? L.copyJpgLoading : L.copyJpg}
+        </Button>
+      ) : null}
       <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={() => openEditModal(row)}>
         <Pencil size={14} className="mr-1" />
         {L.edit}
@@ -1012,6 +1056,17 @@ export function TaxInvoicePage({
       setImportMessage(result.message || L.barobillIssueDone);
       setModal(null);
       setFormError("");
+
+      try {
+        const sheetData = await resolveTaxInvoiceCopySheetData({
+          invoice: issued,
+          companyProfile,
+          clients,
+        });
+        await downloadTaxInvoiceCopyJpg(sheetData, buildTaxInvoiceCopyFileName(issued));
+      } catch {
+        // JPG auto-save is best-effort after issue
+      }
     } catch (issueError) {
       setFormError(issueError instanceof Error ? issueError.message : L.barobillIssueFailed);
     } finally {

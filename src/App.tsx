@@ -9361,6 +9361,7 @@ export default function TeammillimeterErpMvp() {
               clients,
               bankTransactions,
               currentUser,
+              companyProfile,
               erpVersion,
               onErpVersionChange: publishErpVersion,
             }}

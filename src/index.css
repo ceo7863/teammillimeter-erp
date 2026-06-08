@@ -14976,3 +14976,174 @@ button:disabled,
     max-height: min(70vh, 34rem);
   }
 }
+
+/* Tax invoice copy sheet (JPG export) */
+.erp-tax-invoice-copy-sheet {
+  box-sizing: border-box;
+  padding: 28px 32px 24px;
+  background: #fff;
+  color: #0f172a;
+  font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.tax-copy-header {
+  text-align: center;
+  margin-bottom: 18px;
+}
+
+.tax-copy-title {
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  color: #1e3a8a;
+}
+
+.tax-copy-subtitle {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.tax-copy-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.tax-copy-meta-label {
+  display: inline-block;
+  min-width: 4.5rem;
+  margin-right: 8px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.tax-copy-meta-value {
+  font-weight: 600;
+}
+
+.tax-copy-parties {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.tax-copy-party {
+  border: 2px solid #cbd5e1;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.tax-copy-party--supplier {
+  border-color: #93c5fd;
+}
+
+.tax-copy-party--buyer {
+  border-color: #fca5a5;
+}
+
+.tax-copy-party-label {
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+  color: #fff;
+}
+
+.tax-copy-party--supplier .tax-copy-party-label {
+  background: #2563eb;
+}
+
+.tax-copy-party--buyer .tax-copy-party-label {
+  background: #dc2626;
+}
+
+.tax-copy-party-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.tax-copy-party-table th,
+.tax-copy-party-table td {
+  border: 1px solid #e2e8f0;
+  padding: 5px 6px;
+  vertical-align: top;
+}
+
+.tax-copy-party-table th {
+  width: 3.2rem;
+  background: #f1f5f9;
+  font-weight: 700;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.tax-copy-items {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+
+.tax-copy-items th,
+.tax-copy-items td {
+  border: 1px solid #94a3b8;
+  padding: 8px 10px;
+}
+
+.tax-copy-items th {
+  background: #eff6ff;
+  font-weight: 800;
+  color: #1e3a8a;
+  text-align: center;
+}
+
+.tax-copy-items td.num,
+.tax-copy-items tfoot td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.tax-copy-items tfoot td.label {
+  text-align: center;
+  font-weight: 800;
+  background: #f8fafc;
+}
+
+.tax-copy-items tfoot td.total {
+  color: #047857;
+}
+
+.tax-copy-memo {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.tax-copy-memo-label {
+  display: inline-block;
+  min-width: 2.5rem;
+  margin-right: 8px;
+  font-weight: 800;
+  color: #475569;
+}
+
+.tax-copy-footer {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 10px;
+  color: #94a3b8;
+}

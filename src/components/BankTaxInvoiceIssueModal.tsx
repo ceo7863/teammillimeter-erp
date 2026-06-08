@@ -43,6 +43,10 @@ import {
 import { TaxInvoiceIssuePreviewDialog } from "@/components/TaxInvoiceIssuePreviewDialog";
 import { useBackdropPointerDismiss } from "@/utils/modalBackdrop";
 import { useBarobillTaxInvoiceIssueOptions } from "@/hooks/useBarobillTaxInvoiceIssueOptions";
+import { DEFAULT_COMPANY_PROFILE, type CompanyProfile } from "@/utils/companyProfile";
+import { buildTaxInvoiceCopyFileName } from "@/utils/taxInvoiceCopyData";
+import { resolveTaxInvoiceCopySheetData } from "@/utils/taxInvoiceCopyFetch";
+import { downloadTaxInvoiceCopyJpg } from "@/utils/taxInvoiceCopyImage";
 
 const L = {
   title: "\uC138\uAE08\uACC4\uC0B0\uC11C \uBC1C\uD589",
@@ -241,6 +245,7 @@ export type BankTaxInvoiceIssueResult = {
 type BankTaxInvoiceIssueModalProps = {
   clients: ClientMasterLike[];
   currentUser: ErpUser | null;
+  companyProfile?: CompanyProfile;
   erpVersion?: number;
   taxInvoices: TaxInvoice[];
   setTaxInvoices: React.Dispatch<React.SetStateAction<TaxInvoice[]>>;
@@ -259,6 +264,7 @@ export function BankTaxInvoiceIssueModal({
   unavailableMessage,
   clients,
   currentUser,
+  companyProfile = DEFAULT_COMPANY_PROFILE,
   erpVersion = 0,
   taxInvoices,
   setTaxInvoices,
@@ -460,6 +466,17 @@ export function BankTaxInvoiceIssueModal({
         version: result.version,
         message: result.message || L.barobillIssueDone,
       });
+
+      try {
+        const sheetData = await resolveTaxInvoiceCopySheetData({
+          invoice: issued,
+          companyProfile,
+          clients,
+        });
+        await downloadTaxInvoiceCopyJpg(sheetData, buildTaxInvoiceCopyFileName(issued));
+      } catch {
+        // JPG auto-save is best-effort after issue
+      }
     } catch (issueError) {
       setFormError(issueError instanceof Error ? issueError.message : L.barobillIssueFailed);
     } finally {

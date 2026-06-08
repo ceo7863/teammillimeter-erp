@@ -6567,6 +6567,7 @@ function BankTransactionsPageComponent({
           tx={taxInvoiceIssueTx}
           clients={clients}
           currentUser={currentUser}
+          companyProfile={companyProfile}
           erpVersion={erpVersion}
           taxInvoices={taxInvoices}
           setTaxInvoices={setTaxInvoices}
