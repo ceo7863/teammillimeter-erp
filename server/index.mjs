@@ -2342,6 +2342,9 @@ app.post("/api/client-contracts/:id/send", authMiddleware, async (req, res) => {
       url: signUrl,
     },
   });
+  if (!alimtalk.ok && !alimtalk.dryRun && !alimtalk.skipped) {
+    console.error("[client-contracts] alimtalk send failed:", contract.id, alimtalk);
+  }
 
   res.json({
     contract: sanitizeContractForClient(tokenResult.contract),

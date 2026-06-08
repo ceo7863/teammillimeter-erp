@@ -53,7 +53,11 @@ async function postAlimtalk(payload) {
       ? config.alimtalk.apiKey
       : `Bearer ${config.alimtalk.apiKey}`;
   }
-  const apiUrl = config.alimtalk.apiUrl || "https://api.solapi.com/messages/v4/send";
+  const apiUrl =
+    config.alimtalk.apiUrl ||
+    (isSolapi()
+      ? "https://api.solapi.com/messages/v4/send-many/detail"
+      : "https://api.solapi.com/messages/v4/send");
   const response = await fetch(apiUrl, {
     method: "POST",
     headers,
@@ -134,6 +138,9 @@ export async function sendAlimtalkTemplate({ phones, templateCode, variables }) 
         };
 
   const result = await postAlimtalk(payload);
+  if (!result.ok) {
+    console.error("[alimtalk] send failed:", templateCode, uniquePhones.join(", "), result.status, result.body);
+  }
   return { ...result, phones: uniquePhones, templateCode };
 }
 

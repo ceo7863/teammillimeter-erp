@@ -53,7 +53,9 @@ export const config = {
     provider: process.env.ALIMTALK_PROVIDER || "solapi",
     apiUrl:
       process.env.ALIMTALK_API_URL ||
-      (process.env.ALIMTALK_PROVIDER === "toast" ? "" : "https://api.solapi.com/messages/v4/send"),
+      (process.env.ALIMTALK_PROVIDER === "toast"
+        ? ""
+        : "https://api.solapi.com/messages/v4/send-many/detail"),
     apiKey: process.env.ALIMTALK_API_KEY || "",
     apiSecret: process.env.ALIMTALK_API_SECRET || "",
     apiHeaders: process.env.ALIMTALK_API_HEADERS
