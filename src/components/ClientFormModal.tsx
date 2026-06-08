@@ -33,6 +33,7 @@ const L = {
     "\uD1B5\uC7A5 \uC785\uAE08 \uC2DC \uD45C\uC2DC \uC774\uB984 (\uC27C\uD45C \uAD6C\uB3C4). \uC608\uAE08\uC8FC\uBA85\uC774 \uC790\uB3D9 \uB9E4\uCE69\uB429\uB2C8\uB2E4.",
   taxInvoiceCorpNamePh: "\uBE44\uC6B0\uBA74 \uAC70\uB798\uCC98\uBA85\uC73C\uB85C \uBC1C\uD589 (\uC608: \uC8FC\uC2DD\uD68C\uC0AC OO)",
   memoPh: "\uAC70\uB798\uCC98 \uBE44\uACE0",
+  contactsLabel: "\uB2F4\uB2F9\uC790 \uC5F0\uB77D\uCC98",
   importBusinessReg: "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D\uC5D0\uC11C \uAC00\uC838\uC624\uAE30",
   viewBusinessReg: "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D",
 };
@@ -171,12 +172,14 @@ export function ClientFormModal({
               <Input lang="ko" value={form.address} onChange={(e) => onUpdate("address", e.target.value)} placeholder={L.addressPh} />
             </AuditField>
           </div>
-          <AuditField label={clientFieldLabel("manager")} entityType="client" entityId={editingId} field="manager">
-            <ClientContactsEditor
-              contacts={form.contacts}
-              onChange={(contacts) => onUpdate("contacts", contacts)}
-            />
-          </AuditField>
+          <div className="sm:col-span-2 xl:col-span-4">
+            <AuditField label={L.contactsLabel} entityType="client" entityId={editingId} field="manager">
+              <ClientContactsEditor
+                contacts={form.contacts}
+                onChange={(contacts) => onUpdate("contacts", contacts)}
+              />
+            </AuditField>
+          </div>
           <AuditField label={clientFieldLabel("constructionCost")} entityType="client" entityId={editingId} field="constructionCost">
             <Input
               lang="ko"

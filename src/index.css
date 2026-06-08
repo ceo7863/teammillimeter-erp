@@ -12357,6 +12357,67 @@ body.erp-col-resizing * {
   padding: 1rem 1.125rem 1.125rem;
 }
 
+.erp-client-contacts-editor-desc {
+  margin: 0 0 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.erp-client-contacts-editor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.erp-client-contacts-editor-row {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #f8fafc;
+  padding: 0.85rem;
+}
+
+.erp-client-contacts-editor-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .erp-client-contacts-editor-fields {
+    grid-template-columns: minmax(0, 1fr) minmax(12rem, 16rem);
+  }
+}
+
+.erp-client-contacts-editor-field {
+  display: block;
+  min-width: 0;
+}
+
+.erp-client-contacts-editor-field--phone {
+  min-width: 12rem;
+}
+
+.erp-client-contacts-editor-label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.erp-client-contacts-editor-field--phone .erp-input {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.erp-client-contacts-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
 .erp-ledger-modal--client-biz-reg-import {
   width: min(100%, 56rem);
   max-width: calc(100vw - 1.5rem);

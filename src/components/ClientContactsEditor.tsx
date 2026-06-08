@@ -6,7 +6,6 @@ import type { ClientContact } from "@/utils/clientContacts";
 import { newClientContactId } from "@/utils/clientContacts";
 
 const L = {
-  title: "\uB2F4\uB2F9\uC790 \uC5F0\uB77D\uCC98",
   desc: "\uC54C\uB9BC\uD1A1 \uBC1C\uC1A1 \uB300\uC0C1 \uB2F4\uB2F9\uC790\uB97C \uB4F1\uB85D\uD569\uB2C8\uB2E4.",
   name: "\uB2F4\uB2F9\uC790\uBA85",
   phone: "\uC804\uD654\uBC88\uD638",
@@ -48,54 +47,57 @@ export function ClientContactsEditor({ contacts, onChange }: ClientContactsEdito
   };
 
   return (
-    <div className="md:col-span-2">
-      <div className="mb-2">
-        <div className="text-sm font-bold text-slate-800">{L.title}</div>
-        <p className="mt-1 text-xs font-medium text-slate-500">{L.desc}</p>
-      </div>
-      <div className="space-y-2">
+    <div className="erp-client-contacts-editor">
+      <p className="erp-client-contacts-editor-desc">{L.desc}</p>
+      <div className="erp-client-contacts-editor-list">
         {rows.map((row, index) => (
-          <div key={row.id} className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] md:items-end">
-            <label className="block min-w-0">
-              <span className="mb-1 block text-xs font-semibold text-slate-500">{L.name}</span>
-              <Input
-                lang="ko"
-                value={row.name}
-                onChange={(event) => updateRow(index, { name: event.target.value })}
-                placeholder={L.namePh}
-              />
-            </label>
-            <label className="block min-w-0">
-              <span className="mb-1 block text-xs font-semibold text-slate-500">{L.phone}</span>
-              <Input
-                lang="ko"
-                value={row.phone}
-                onChange={(event) => updateRow(index, { phone: event.target.value })}
-                placeholder={L.phonePh}
-              />
-            </label>
-            <Button
-              type="button"
-              variant={row.isPrimary ? "default" : "outline"}
-              size="sm"
-              className="h-10 rounded-xl px-3 text-xs"
-              onClick={() => setPrimary(index)}
-              title={L.primary}
-            >
-              <Star size={14} className={row.isPrimary ? "mr-1 fill-current" : "mr-1"} />
-              {L.primary}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-10 rounded-xl px-3 text-xs"
-              onClick={() => removeRow(index)}
-              disabled={rows.length === 1}
-              aria-label={L.remove}
-            >
-              <Trash2 size={14} />
-            </Button>
+          <div key={row.id} className="erp-client-contacts-editor-row">
+            <div className="erp-client-contacts-editor-fields">
+              <label className="erp-client-contacts-editor-field">
+                <span className="erp-client-contacts-editor-label">{L.name}</span>
+                <Input
+                  lang="ko"
+                  value={row.name}
+                  onChange={(event) => updateRow(index, { name: event.target.value })}
+                  placeholder={L.namePh}
+                />
+              </label>
+              <label className="erp-client-contacts-editor-field erp-client-contacts-editor-field--phone">
+                <span className="erp-client-contacts-editor-label">{L.phone}</span>
+                <Input
+                  lang="ko"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  value={row.phone}
+                  onChange={(event) => updateRow(index, { phone: event.target.value })}
+                  placeholder={L.phonePh}
+                />
+              </label>
+            </div>
+            <div className="erp-client-contacts-editor-actions">
+              <Button
+                type="button"
+                variant={row.isPrimary ? "default" : "outline"}
+                size="sm"
+                className="h-10 shrink-0 rounded-xl px-3 text-xs"
+                onClick={() => setPrimary(index)}
+                title={L.primary}
+              >
+                <Star size={14} className={row.isPrimary ? "mr-1 fill-current" : "mr-1"} />
+                {L.primary}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-10 shrink-0 rounded-xl px-3 text-xs"
+                onClick={() => removeRow(index)}
+                disabled={rows.length === 1}
+                aria-label={L.remove}
+              >
+                <Trash2 size={14} />
+              </Button>
+            </div>
           </div>
         ))}
       </div>
