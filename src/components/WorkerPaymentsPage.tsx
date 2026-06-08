@@ -6,6 +6,8 @@ import { AutocompleteInput } from "@/components/AutocompleteInput";
 import { TableExportSection } from "@/components/TableExportSection";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { WorkerStatementTab } from "@/components/WorkerStatementTab";
+import { WorkerAssignmentFairnessTab } from "@/components/WorkerAssignmentFairnessTab";
+import { buildWorkerAssignmentFairness } from "@/utils/workerAssignmentFairness";
 import {
   filterSalesByDate,
   flattenSalesToWorkerPaymentRows,
@@ -38,13 +40,21 @@ import type { BankTransactionFolder } from "@/utils/bankTransactionFolders";
 import type { WorkerPayoutVoucher } from "@/utils/workerPayoutLedger";
 import type { WorkerPortalStatementAck } from "@/utils/workerPortalAcknowledgment";
 
-type WorkerPaymentTab = "summary" | "detail" | "monthly" | "monthlyActual" | "statement" | "payoutHistory";
+type WorkerPaymentTab =
+  | "summary"
+  | "detail"
+  | "monthly"
+  | "monthlyActual"
+  | "statement"
+  | "payoutHistory"
+  | "assignmentFairness";
 
 const TAB_ITEMS: Array<{ key: WorkerPaymentTab; label: string }> = [
   { key: "summary", label: "지급 집계" },
   { key: "monthly", label: "월별 지급" },
   { key: "monthlyActual", label: "\uC6D4 \uC2E4\uC9C0\uAE09" },
   { key: "detail", label: "시공자별 상세" },
+  { key: "assignmentFairness", label: "\uBC30\uCE58\uACF5\uC815\uB3C4" },
   { key: "payoutHistory", label: "\uC9C0\uAE09\uB0B4\uC5ED" },
   { key: "statement", label: "내역서 / PDF" },
 ];
@@ -286,6 +296,11 @@ export function WorkerPaymentsPage({
     [statementMonthSummaryRows],
   );
 
+  const assignmentFairness = useMemo(
+    () => buildWorkerAssignmentFairness(statementMonthSummaryRows, selectedMonthKey),
+    [selectedMonthKey, statementMonthSummaryRows],
+  );
+
   const hubMetrics = useMemo(() => {
     if (activeTab === "monthly") {
       return {
@@ -308,6 +323,36 @@ export function WorkerPaymentsPage({
         ],
       };
     }
+    if (activeTab === "assignmentFairness") {
+      return {
+        items: [
+          {
+            label: "월 평균 참여",
+            value: assignmentFairness.summary.averageLineCount,
+            tone: "default" as const,
+            format: "lineCount" as const,
+          },
+          {
+            label: "평균 이하",
+            value: assignmentFairness.summary.belowAverageCount,
+            tone: "warning" as const,
+            format: "count" as const,
+          },
+          {
+            label: "평균 이상",
+            value: assignmentFairness.summary.aboveAverageCount,
+            tone: "highlight" as const,
+            format: "count" as const,
+          },
+          {
+            label: "총 참여",
+            value: assignmentFairness.summary.totalLineCount,
+            tone: "default" as const,
+            format: "lineCount" as const,
+          },
+        ],
+      };
+    }
     return {
       items: [
         { label: "지급", value: headerTotals.grossPay, tone: "default" as const },
@@ -322,6 +367,7 @@ export function WorkerPaymentsPage({
     monthlySalesTotals,
     statementMonthNetPayTotal,
     statementMonthWorkerCount,
+    assignmentFairness,
   ]);
 
   const workerOptions = useMemo(
@@ -423,7 +469,11 @@ export function WorkerPaymentsPage({
                       : ""
                 }`}
               >
-                {"format" in metric && metric.format === "count" ? `${metric.value}명` : formatKRW(metric.value)}
+                {"format" in metric && metric.format === "count"
+                  ? `${metric.value}명`
+                  : "format" in metric && metric.format === "lineCount"
+                    ? `${metric.value}건`
+                    : formatKRW(metric.value)}
               </span>
             </div>
           ))}
@@ -447,7 +497,9 @@ export function WorkerPaymentsPage({
             </div>
 
             <div className="erp-payment-hub-filters">
-              {activeTab !== "monthly" && activeTab !== "statement" ? (
+              {activeTab !== "monthly" &&
+              activeTab !== "statement" &&
+              activeTab !== "assignmentFairness" ? (
                 <>
                   <Field label="시작일">
                     <KoreanDateInput
@@ -734,6 +786,15 @@ export function WorkerPaymentsPage({
         />
       )}
 
+      {activeTab === "assignmentFairness" && (
+        <WorkerAssignmentFairnessTab
+          monthKey={selectedMonthKey}
+          setMonthKey={setSelectedMonthKey}
+          monthlyDetailRows={monthlySalesRows}
+          workers={workers}
+        />
+      )}
+
       {activeTab === "monthly" ? (
         <>
           <Card className="rounded-2xl shadow-sm">
@@ -765,7 +826,7 @@ export function WorkerPaymentsPage({
             </CardContent>
           </Card>
         </>
-      ) : (
+      ) : activeTab !== "assignmentFairness" ? (
         <Card className="rounded-2xl shadow-sm">
           <CardContent className="p-4 md:p-5">
             <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
@@ -780,7 +841,7 @@ export function WorkerPaymentsPage({
             />
           </CardContent>
         </Card>
-      )}
+      ) : null}
     </div>
   );
 }
