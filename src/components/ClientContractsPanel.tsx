@@ -26,6 +26,7 @@ const L = {
   generated: "\uACC4\uC57D\uC11C\uAC00 \uC0DD\uC131\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   generateFail: "\uACC4\uC57D\uC11C \uC0DD\uC131\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   sent: "\uC54C\uB9BC\uD1A1 \uBC1C\uC1A1 \uC694\uCCAD\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
+  sentLinkOnly: "\uC11C\uBA85 \uB9C1\uD06C\uAC00 \uC0DD\uC131\uB418\uC5C8\uC2B5\uB2C8\uB2E4. (\uC54C\uB9BC\uD1A1 \uC790\uB3D9 \uBC1C\uC1A1\uC740 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uB9C1\uD06C \uBCF5\uC0AC\uB97C \uC774\uC6A9\uD574 \uC8FC\uC138\uC694.)",
   linkCopied: "\uC11C\uBA85 \uB9C1\uD06C\uB97C \uBCF5\uC0AC\uD588\uC2B5\uB2C8\uB2E4.",
   copyLink: "\uB9C1\uD06C \uBCF5\uC0AC",
   openLink: "\uC11C\uBA85 \uD398\uC774\uC9C0",
@@ -201,7 +202,8 @@ export function ClientContractsPanel({ clients }: ClientContractsPanelProps) {
       const result = await sendClientContract(contract.id);
       setContracts((prev) => prev.map((row) => (row.id === contract.id ? { ...result.contract, signUrl: result.signUrl } : row)));
       setLastSignUrl(result.signUrl);
-      setSuccess(L.sent);
+      const alimtalkOk = result.alimtalk?.ok !== false && !result.alimtalk?.skipped && !result.alimtalk?.dryRun;
+      setSuccess(alimtalkOk ? L.sent : L.sentLinkOnly);
     } catch (err) {
       setError(err instanceof Error ? err.message : L.sendFail);
     } finally {

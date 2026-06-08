@@ -180,7 +180,11 @@ export async function deleteClientContract(id: string): Promise<void> {
   await apiRequest(`/client-contracts/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
-export async function sendClientContract(id: string): Promise<{ contract: ClientContract; signUrl: string }> {
+export async function sendClientContract(id: string): Promise<{
+  contract: ClientContract;
+  signUrl: string;
+  alimtalk?: { ok?: boolean; dryRun?: boolean; skipped?: boolean; reason?: string };
+}> {
   return apiRequest(`/client-contracts/${encodeURIComponent(id)}/send`, { method: "POST" });
 }
 
