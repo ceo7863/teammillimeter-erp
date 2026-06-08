@@ -202,12 +202,6 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
   }, [info, loadScSchedules]);
 
   useEffect(() => {
-    if (selectedRequest?.status === "cancelled" && tab === "calendar") {
-      setTab("history");
-    }
-  }, [selectedRequest?.status, tab]);
-
-  useEffect(() => {
     if (!info) return;
     const timer = window.setInterval(() => {
       void loadRequests();
@@ -413,6 +407,9 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
                 className={`erp-client-site-request-tab erp-touch-target flex-1 rounded-xl px-3 py-2.5 text-sm font-bold ${tab === "calendar" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
                 onClick={() => {
                   setTab("calendar");
+                  if (selectedRequest?.status === "cancelled") {
+                    setSelectedRequestId("");
+                  }
                   void loadRequests();
                 }}
               >
