@@ -259,6 +259,85 @@ export function buildBankTransactionListRowModel(
         ? "withdrawal"
         : "";
 
+  return buildBankTransactionListRowModelFromParts(row, {
+    folder,
+    unfiledClientName,
+    categoryLabel,
+    fixedExpenseLabel,
+    accountContent,
+    memoOnly,
+    accountSubjectLabel,
+    clientLabel,
+    classifiedAmount,
+    linkedInvoice,
+    evidenceLabel,
+    signedAmountLabel,
+    accountLabel,
+    classificationLabel,
+    matchLinked,
+    matchStatusLabel,
+    suppressed,
+    rowTone,
+    labels,
+    paymentVouchers,
+    clients,
+    workers,
+  });
+}
+
+type BankTransactionListRowModelParts = {
+  folder: BankTransactionFolder | undefined;
+  unfiledClientName: string;
+  categoryLabel: string | null;
+  fixedExpenseLabel: string | null;
+  accountContent: string;
+  memoOnly: string;
+  accountSubjectLabel: string | null;
+  clientLabel: string | null;
+  classifiedAmount: number;
+  linkedInvoice: TaxInvoice | undefined;
+  evidenceLabel: string | null;
+  signedAmountLabel: string;
+  accountLabel: string;
+  classificationLabel: string;
+  matchLinked: boolean;
+  matchStatusLabel: string;
+  suppressed: boolean;
+  rowTone: BankTransactionListRowModel["rowTone"];
+  labels: { accountContentPlaceholder: string };
+  paymentVouchers: Array<{ bankTransactionId?: string | number; isPartialPayment?: boolean }>;
+  clients: Array<{ name?: string }>;
+  workers: Array<{ name?: string }>;
+};
+
+function buildBankTransactionListRowModelFromParts(
+  row: BankTransaction,
+  parts: BankTransactionListRowModelParts,
+): BankTransactionListRowModel {
+  const {
+    folder,
+    unfiledClientName,
+    categoryLabel,
+    fixedExpenseLabel,
+    accountContent,
+    memoOnly,
+    accountSubjectLabel,
+    clientLabel,
+    classifiedAmount,
+    linkedInvoice,
+    evidenceLabel,
+    signedAmountLabel,
+    accountLabel,
+    classificationLabel,
+    matchLinked,
+    matchStatusLabel,
+    rowTone,
+    labels,
+    paymentVouchers,
+    clients,
+    workers,
+  } = parts;
+
   return {
     id: row.id,
     dateLabel: formatBankTransactionDateTime(row.transactionAt),
@@ -300,6 +379,73 @@ export function buildBankTransactionListRowModel(
       workers,
     ),
   };
+}
+
+/** Stable fingerprint for per-row model cache invalidation (tx fields + linked enrichment). */
+export function buildBankTransactionListRowFingerprint(
+  row: BankTransaction,
+  context: BankTransactionListRowBuildContext,
+  optimisticAccountSubjectLabel = "",
+): string {
+  const { lookup, folderMap, taxInvoiceById, paymentVouchers, ledgerCategoryFolder } = context;
+  const folder = row.folderId ? folderMap.get(row.folderId) : undefined;
+
+  const linked: string[] = [];
+  const expense =
+    (row.linkedCompanyExpenseId && lookup.companyExpenseById.get(row.linkedCompanyExpenseId)) ||
+    lookup.companyExpenseByTxId.get(row.id);
+  if (expense) {
+    linked.push(`ce:${expense.id}:${expense.category}:${expense.kind}:${expense.amount}`);
+  }
+  const payment =
+    (row.linkedFixedExpensePaymentId && lookup.fixedPaymentById.get(row.linkedFixedExpensePaymentId)) ||
+    lookup.fixedPaymentByTxId.get(row.id);
+  if (payment) {
+    const fixedItem = lookup.fixedExpenseById.get(payment.fixedExpenseId);
+    linked.push(
+      `fp:${payment.id}:${payment.fixedExpenseId}:${fixedItem?.name ?? ""}:${fixedItem?.category ?? ""}`,
+    );
+  }
+  const invoice = row.linkedTaxInvoiceId ? taxInvoiceById.get(row.linkedTaxInvoiceId) : undefined;
+  if (invoice) {
+    linked.push(`ti:${invoice.id}:${invoice.issueDate}:${invoice.totalAmount}`);
+  }
+  if (bankTxHasPartialPaymentVoucher(row, paymentVouchers)) {
+    linked.push("pp:1");
+  }
+
+  const tx = [
+    row.transactionAt,
+    row.deposit,
+    row.withdrawal,
+    row.balanceAfter,
+    row.description,
+    row.memo,
+    row.counterpartyName,
+    row.folderId,
+    folder?.folderName,
+    folder?.folderType,
+    row.linkedSubject,
+    row.linkedPaymentVoucherId,
+    row.linkedWorkerMonthlyPaymentVoucherId,
+    row.linkedCompanyExpenseId,
+    row.linkedFixedExpensePaymentId,
+    row.linkedTaxInvoiceId,
+    row.ledgerAccountCode,
+    optimisticAccountSubjectLabel,
+    row.ledgerMemo,
+    row.ledgerClientName,
+    row.ledgerFixedExpenseId,
+    row.netGroupRole,
+    row.matchAutoLinked,
+    row.ledgerStatus,
+    row.ledgerCategoryId,
+    ledgerCategoryFolder?.folderName,
+  ]
+    .map((value) => String(value ?? ""))
+    .join("\0");
+
+  return `${tx}|${linked.join(",")}`;
 }
 
 export function buildBankTransactionListRowModels(

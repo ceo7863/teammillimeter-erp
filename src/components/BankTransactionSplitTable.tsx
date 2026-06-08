@@ -38,6 +38,47 @@ const BANK_SPLIT_VIRTUAL_MIN = 50;
 const BANK_SPLIT_SCROLL_CLASS = "max-h-[calc(100vh-13rem)] overflow-auto overscroll-contain";
 const BANK_SPLIT_COL_SPAN = 14;
 
+function splitRowModelsEqual(
+  prev: BankTransactionListRowModel,
+  next: BankTransactionListRowModel,
+): boolean {
+  if (prev === next) return true;
+  return (
+    prev.id === next.id &&
+    prev.dateLabel === next.dateLabel &&
+    prev.accountLabel === next.accountLabel &&
+    prev.counterpartyLabel === next.counterpartyLabel &&
+    prev.counterpartyPartyKind === next.counterpartyPartyKind &&
+    prev.description === next.description &&
+    prev.signedAmountLabel === next.signedAmountLabel &&
+    prev.memoLabel === next.memoLabel &&
+    prev.memoEmpty === next.memoEmpty &&
+    prev.evidenceLabel === next.evidenceLabel &&
+    prev.evidenceLinked === next.evidenceLinked &&
+    prev.accountSubjectLabel === next.accountSubjectLabel &&
+    prev.clientLabel === next.clientLabel &&
+    prev.partyKind === next.partyKind &&
+    prev.fixedExpenseLabel === next.fixedExpenseLabel &&
+    prev.classifiedAmountLabel === next.classifiedAmountLabel &&
+    prev.showVoucherProcessedBadge === next.showVoucherProcessedBadge &&
+    prev.matchLinked === next.matchLinked &&
+    prev.matchStatusLabel === next.matchStatusLabel &&
+    prev.rowTone === next.rowTone
+  );
+}
+
+type SplitRowProps = {
+  model: BankTransactionListRowModel;
+  labels: BankTransactionSplitTableLabels;
+  onEditMemo: (id: string) => void;
+  onEditAccountSubject: (id: string) => void;
+  onEditClient: (id: string) => void;
+  onEditFixedExpense: (id: string) => void;
+  onFindEvidence: (id: string) => void;
+  onIssueTaxInvoice?: (id: string) => void;
+  onFilterCounterparty?: (label: string) => void;
+};
+
 type BankTransactionSplitTableProps = {
   rowIds: string[];
   getRowModel: (id: string) => BankTransactionListRowModel | undefined;
@@ -148,6 +189,20 @@ function FixedExpenseCellButton({
   );
 }
 
+function splitRowPropsAreEqual(prev: SplitRowProps, next: SplitRowProps): boolean {
+  return (
+    splitRowModelsEqual(prev.model, next.model) &&
+    prev.labels === next.labels &&
+    prev.onEditMemo === next.onEditMemo &&
+    prev.onEditAccountSubject === next.onEditAccountSubject &&
+    prev.onEditClient === next.onEditClient &&
+    prev.onEditFixedExpense === next.onEditFixedExpense &&
+    prev.onFindEvidence === next.onFindEvidence &&
+    prev.onIssueTaxInvoice === next.onIssueTaxInvoice &&
+    prev.onFilterCounterparty === next.onFilterCounterparty
+  );
+}
+
 const SplitRow = memo(function SplitRow({
   model,
   labels,
@@ -158,17 +213,7 @@ const SplitRow = memo(function SplitRow({
   onFindEvidence,
   onIssueTaxInvoice,
   onFilterCounterparty,
-}: {
-  model: BankTransactionListRowModel;
-  labels: BankTransactionSplitTableLabels;
-  onEditMemo: (id: string) => void;
-  onEditAccountSubject: (id: string) => void;
-  onEditClient: (id: string) => void;
-  onEditFixedExpense: (id: string) => void;
-  onFindEvidence: (id: string) => void;
-  onIssueTaxInvoice?: (id: string) => void;
-  onFilterCounterparty?: (label: string) => void;
-}) {
+}: SplitRowProps) {
   const rowClass =
     model.rowTone === "suppressed"
       ? "is-preauth-suppressed opacity-60 bg-slate-50/80"
@@ -322,7 +367,7 @@ const SplitRow = memo(function SplitRow({
       </td>
     </tr>
   );
-});
+}, splitRowPropsAreEqual);
 
 function BankTransactionSplitTableComponent({
   rowIds,
@@ -352,7 +397,7 @@ function BankTransactionSplitTableComponent({
     if (!model) return null;
     return (
       <SplitRow
-        key={`${id}:${model.accountSubjectLabel ?? ""}`}
+        key={id}
         model={model}
         labels={labels}
         onEditMemo={onEditMemo}

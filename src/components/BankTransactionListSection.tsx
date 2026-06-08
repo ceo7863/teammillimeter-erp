@@ -1,4 +1,4 @@
-import React, { memo, useMemo, useRef, useCallback } from "react";
+import React, { memo, useEffect, useMemo, useRef, useCallback } from "react";
 import { BankTransactionMobileList } from "@/components/BankTransactionMobileList";
 import {
   BankTransactionSplitTable,
@@ -13,6 +13,7 @@ import { resolveAccountCodeLabel } from "@/utils/ledgerSystem";
 import type { TaxInvoice } from "@/utils/taxInvoices";
 import {
   buildBankTransactionListLookupMaps,
+  buildBankTransactionListRowFingerprint,
   buildBankTransactionListRowModel,
   type BankTransactionListRowBuildContext,
   type BankTransactionListRowModel,
@@ -129,32 +130,32 @@ function BankTransactionListSectionComponent({
     workers,
   ]);
 
-  const rowModelCacheRef = useRef(new Map<string, BankTransactionListRowModel>());
-  const rowModelCacheKeyRef = useRef("");
+  const rowModelCacheRef = useRef(
+    new Map<string, { fingerprint: string; model: BankTransactionListRowModel }>(),
+  );
 
-  const rowModelCacheKey = useMemo(() => {
-    if (!rows.length) return "";
-    const first = rows[0]?.id ?? "";
-    const last = rows[rows.length - 1]?.id ?? "";
-    const subjectKeys = Object.keys(accountSubjectLabels).sort().join(",");
-    return `${rows.length}:${first}:${last}:${subjectKeys}`;
-  }, [rows, accountSubjectLabels]);
-
-  if (rowModelCacheKeyRef.current !== rowModelCacheKey) {
-    rowModelCacheKeyRef.current = rowModelCacheKey;
-    rowModelCacheRef.current = new Map();
-  }
+  useEffect(() => {
+    const activeIds = new Set(rows.map((row) => row.id));
+    for (const id of rowModelCacheRef.current.keys()) {
+      if (!activeIds.has(id)) rowModelCacheRef.current.delete(id);
+    }
+  }, [rows]);
 
   const getRowModel = useCallback(
     (id: string): BankTransactionListRowModel | undefined => {
-      const cached = rowModelCacheRef.current.get(id);
-      if (cached) return cached;
-
       const row = rowByIdRef.current.get(String(id));
       if (!row || !rowBuildContext) return undefined;
 
-      let model = buildBankTransactionListRowModel(row, rowBuildContext);
       const optimisticLabel = accountSubjectLabels[id];
+      const fingerprint = buildBankTransactionListRowFingerprint(
+        row,
+        rowBuildContext,
+        optimisticLabel ?? "",
+      );
+      const cached = rowModelCacheRef.current.get(id);
+      if (cached?.fingerprint === fingerprint) return cached.model;
+
+      let model = buildBankTransactionListRowModel(row, rowBuildContext);
       if (optimisticLabel) {
         model = { ...model, accountSubjectLabel: optimisticLabel };
       } else {
@@ -167,7 +168,7 @@ function BankTransactionListSectionComponent({
         }
       }
 
-      rowModelCacheRef.current.set(id, model);
+      rowModelCacheRef.current.set(id, { fingerprint, model });
       return model;
     },
     [rowBuildContext, accountSubjectLabels, accountCodes],

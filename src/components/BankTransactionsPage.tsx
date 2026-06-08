@@ -2782,7 +2782,7 @@ function BankTransactionsPageComponent({
 
   const activePeriod = useMemo(
     () => resolveActivePeriod(periodKey, dateFilter),
-    [periodKey, dateFilter]
+    [periodKey, dateFilter.startDate, dateFilter.endDate]
   );
 
   const deferredSort = useDeferredValue(sort);
@@ -2877,6 +2877,7 @@ function BankTransactionsPageComponent({
     isPageActive,
     ledgerSyncedTransactions,
     searchQuery,
+    periodKey,
     activePeriod.startDate,
     activePeriod.endDate,
     flowFilter,
@@ -2900,8 +2901,6 @@ function BankTransactionsPageComponent({
     ledgerRegistrationContext,
     deferredSort,
   ]);
-
-  const deferredFilteredRows = useDeferredValue(filteredRows);
 
   const counterpartyDrawerRows = useMemo(() => {
     if (!counterpartyDrawer) return [];
@@ -3124,40 +3123,36 @@ function BankTransactionsPageComponent({
   }, []);
 
   const handleApplyFilters = useCallback((filters: BankTransactionAppliedFilters) => {
-    startTransition(() => {
-      setPeriodKey(filters.periodKey);
-      setDateFilter({ startDate: filters.startDate, endDate: filters.endDate });
-      setStatusTab(filters.statusTab);
-      setFlowFilter(filters.flowFilter);
-      setAccountFilter(filters.accountFilter);
-      setAccountSubjectFilter(filters.accountSubjectFilter);
-      setClientNameFilter(filters.clientFilter);
-      setGroupFilter(filters.groupFilter);
-      setSelectedFolderId("");
-      setFolderScope(filters.groupFilter === "all" ? "all" : filters.groupFilter);
-      setEvidenceFilter(filters.evidenceFilter);
-      setSearchQuery(filters.searchQuery);
-    });
+    setPeriodKey(filters.periodKey);
+    setDateFilter({ startDate: filters.startDate, endDate: filters.endDate });
+    setStatusTab(filters.statusTab);
+    setFlowFilter(filters.flowFilter);
+    setAccountFilter(filters.accountFilter);
+    setAccountSubjectFilter(filters.accountSubjectFilter);
+    setClientNameFilter(filters.clientFilter);
+    setGroupFilter(filters.groupFilter);
+    setSelectedFolderId("");
+    setFolderScope(filters.groupFilter === "all" ? "all" : filters.groupFilter);
+    setEvidenceFilter(filters.evidenceFilter);
+    setSearchQuery(filters.searchQuery);
   }, []);
 
   const handleResetFilters = useCallback(() => {
-    startTransition(() => {
-      setPeriodKey("thisMonth");
-      setDateFilter({ startDate: "", endDate: "" });
-      setFlowFilter("all");
-      setLedgerScopeFilter("all");
-      setStatusTab("all");
-      setAccountFilter("");
-      setAccountSubjectFilter("");
-      setClientNameFilter("");
-      setGroupFilter("all");
-      setFolderScope("all");
-      setSelectedFolderId("");
-      setEvidenceFilter("all");
-      setSearchQuery("");
-      setFilterResetKey((key) => key + 1);
-      setSort(DEFAULT_BANK_TRANSACTION_SORT);
-    });
+    setPeriodKey("thisMonth");
+    setDateFilter({ startDate: "", endDate: "" });
+    setFlowFilter("all");
+    setLedgerScopeFilter("all");
+    setStatusTab("all");
+    setAccountFilter("");
+    setAccountSubjectFilter("");
+    setClientNameFilter("");
+    setGroupFilter("all");
+    setFolderScope("all");
+    setSelectedFolderId("");
+    setEvidenceFilter("all");
+    setSearchQuery("");
+    setFilterResetKey((key) => key + 1);
+    setSort(DEFAULT_BANK_TRANSACTION_SORT);
   }, []);
 
   const preauthNetActionCount = useMemo(() => {
@@ -5287,7 +5282,7 @@ function BankTransactionsPageComponent({
 
       {hasAnyData && pageView === "list" ? (
         <BankTransactionsListPanel
-          rows={deferredFilteredRows}
+          rows={filteredRows}
           isListActive={isPageActive && pageView === "list"}
           showEmptyPeriodHint={showEmptyPeriodHint}
           emptyPeriodHint={L.emptyPeriodHint}

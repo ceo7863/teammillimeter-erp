@@ -28,6 +28,7 @@ export function useBankContainerVirtualizer({
 
   useLayoutEffect(() => {
     if (!enabled) return;
+    virtualizer.scrollToOffset(0);
     virtualizer.measure();
   }, [count, enabled, virtualizer]);
 
