@@ -54,6 +54,7 @@ const template = {
 
 \uAC70\uB798\uCC98: #{client}
 \uD604\uC7A5: #{site}
+\uB2F4\uB2F9\uC790: #{clientManager}
 \uC77C\uC815: #{dateTime}
 \uC2DC\uACF5: #{workers}
 

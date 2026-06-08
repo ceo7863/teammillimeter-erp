@@ -28,6 +28,17 @@ function listWorkers(data) {
   return Array.isArray(data?.workers) ? data.workers : [];
 }
 
+function listClients(data) {
+  return Array.isArray(data?.clients) ? data.clients : [];
+}
+
+export function resolveClientManager(clients, clientId) {
+  const list = Array.isArray(clients) ? clients : [];
+  const match = list.find((row) => String(row?.id ?? "") === String(clientId ?? ""));
+  if (!match) return "";
+  return String(match.manager || match.ceoName || "").trim();
+}
+
 function listScSchedules(data) {
   return Array.isArray(data?.scSchedules) ? data.scSchedules : [];
 }
@@ -48,13 +59,16 @@ export function formatScheduleDateTime(workDate) {
   return `${month}\uC6D4 ${day}\uC77C ${weekday}`;
 }
 
-export function formatScheduleTemplateVars(schedule, shareToken = "") {
+export function formatScheduleTemplateVars(schedule, shareToken = "", clientManager = "") {
   const participantNames = Array.isArray(schedule?.participantNames)
     ? schedule.participantNames.filter(Boolean)
     : [];
+  const manager =
+    String(clientManager || schedule?.clientManager || "").trim() || "-";
   return {
     client: String(schedule?.clientName || schedule?.projectName || "").trim(),
     site: String(schedule?.projectName || "").trim(),
+    clientManager: manager,
     workers: participantNames.join(", "),
     dateTime: formatScheduleDateTime(schedule?.workDate),
     shareToken: String(shareToken || "").trim(),
@@ -110,6 +124,7 @@ export async function ensureScScheduleShareLink(scheduleId) {
 
 export function buildScScheduleNotifyPreview(data, dateKey = tomorrowKstDateKey()) {
   const workers = listWorkers(data);
+  const clients = listClients(data);
   const schedules = filterSchedulesForDate(listScSchedules(data), dateKey);
   const rows = [];
 
@@ -119,6 +134,9 @@ export function buildScScheduleNotifyPreview(data, dateKey = tomorrowKstDateKey(
       : [];
     if (!participantNames.length) continue;
 
+    const clientManager = resolveClientManager(clients, schedule.clientId);
+    const variables = formatScheduleTemplateVars(schedule, "", clientManager);
+
     for (const participantName of participantNames) {
       const phone = resolveWorkerPhone(workers, participantName);
       rows.push({
@@ -126,9 +144,10 @@ export function buildScScheduleNotifyPreview(data, dateKey = tomorrowKstDateKey(
         workDate: schedule.workDate,
         clientName: schedule.clientName,
         projectName: schedule.projectName,
+        clientManager: variables.clientManager,
         participantName,
         phone,
-        variables: formatScheduleTemplateVars(schedule),
+        variables,
       });
     }
   }
@@ -194,6 +213,7 @@ export async function runScScheduleNotifyJob(options = {}) {
   const freshState = getErpState();
   const data = freshState.data || {};
   const workers = listWorkers(data);
+  const clients = listClients(data);
   const schedules = filterSchedulesForDate(listScSchedules(data), targetDate);
   const results = [];
   let sentCount = 0;
@@ -221,7 +241,8 @@ export async function runScScheduleNotifyJob(options = {}) {
       }
     }
 
-    const variables = formatScheduleTemplateVars(schedule, shareToken);
+    const clientManager = resolveClientManager(clients, schedule.clientId);
+    const variables = formatScheduleTemplateVars(schedule, shareToken, clientManager);
 
     for (const participantName of participantNames) {
       const phone = resolveWorkerPhone(workers, participantName);

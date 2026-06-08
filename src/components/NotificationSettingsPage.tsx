@@ -303,7 +303,7 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
         "",
         ...result.rows.map(
           (row) =>
-            `[${row.phone || "전화없음"}] ${row.participantName} · ${row.variables.client} / ${row.variables.site} · ${row.variables.dateTime}`,
+            `[${row.phone || "전화없음"}] ${row.participantName} · ${row.variables.client} / ${row.variables.site} · ${row.variables.clientManager} · ${row.variables.dateTime}`,
         ),
       ];
       setPreviewMessage(lines.join("\n"));
