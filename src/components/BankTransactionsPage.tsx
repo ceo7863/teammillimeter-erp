@@ -1070,7 +1070,9 @@ function BankTransactionsPageComponent({
     fixedExpensePayments?: typeof fixedExpensePayments;
   } | null>(null);
   const bankTransactionsRef = useRef(bankTransactions);
-  bankTransactionsRef.current = bankTransactions;
+  useEffect(() => {
+    bankTransactionsRef.current = bankTransactions;
+  }, [bankTransactions]);
   const taxInvoicesRef = useRef(taxInvoices);
   taxInvoicesRef.current = taxInvoices;
   const [fixedExpenseModal, setFixedExpenseModal] = useState<TxFixedExpenseModal | null>(null);
@@ -3119,7 +3121,7 @@ function BankTransactionsPageComponent({
   );
 
   const handleApplySearch = useCallback((value: string) => {
-    startTransition(() => setSearchQuery(value));
+    setSearchQuery(String(value || "").trim());
   }, []);
 
   const handleApplyFilters = useCallback((filters: BankTransactionAppliedFilters) => {

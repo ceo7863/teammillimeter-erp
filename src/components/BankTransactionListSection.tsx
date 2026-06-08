@@ -131,15 +131,32 @@ function BankTransactionListSectionComponent({
   ]);
 
   const rowModelCacheRef = useRef(
-    new Map<string, { fingerprint: string; model: BankTransactionListRowModel }>(),
+    new Map<string, { fingerprint: string; sourceRow: BankTransaction; model: BankTransactionListRowModel }>(),
+  );
+
+  const rowsDataSignature = useMemo(
+    () =>
+      rows
+        .map((row) =>
+          [
+            row.id,
+            row.linkedTaxInvoiceId ?? "",
+            row.memo ?? "",
+            row.ledgerMemo ?? "",
+            row.ledgerClientName ?? "",
+            row.linkedSubject ?? "",
+            row.ledgerAccountCode ?? "",
+            row.linkedCompanyExpenseId ?? "",
+            row.linkedFixedExpensePaymentId ?? "",
+          ].join(":"),
+        )
+        .join("|"),
+    [rows],
   );
 
   useEffect(() => {
-    const activeIds = new Set(rows.map((row) => row.id));
-    for (const id of rowModelCacheRef.current.keys()) {
-      if (!activeIds.has(id)) rowModelCacheRef.current.delete(id);
-    }
-  }, [rows]);
+    rowModelCacheRef.current.clear();
+  }, [rowsDataSignature]);
 
   const getRowModel = useCallback(
     (id: string): BankTransactionListRowModel | undefined => {
@@ -153,7 +170,7 @@ function BankTransactionListSectionComponent({
         optimisticLabel ?? "",
       );
       const cached = rowModelCacheRef.current.get(id);
-      if (cached?.fingerprint === fingerprint) return cached.model;
+      if (cached?.fingerprint === fingerprint && cached.sourceRow === row) return cached.model;
 
       let model = buildBankTransactionListRowModel(row, rowBuildContext);
       if (optimisticLabel) {
@@ -168,7 +185,7 @@ function BankTransactionListSectionComponent({
         }
       }
 
-      rowModelCacheRef.current.set(id, { fingerprint, model });
+      rowModelCacheRef.current.set(id, { fingerprint, sourceRow: row, model });
       return model;
     },
     [rowBuildContext, accountSubjectLabels, accountCodes],

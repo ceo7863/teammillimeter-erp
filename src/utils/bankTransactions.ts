@@ -239,8 +239,13 @@ export function filterBankTransactions(
       row.counterpartyBank || "",
       row.counterpartyAccount || "",
       row.memo || "",
+      row.ledgerMemo || "",
+      row.ledgerClientName || "",
+      row.linkedSubject || "",
       row.transactionType || "",
       row.accountNumber,
+      row.deposit > 0 ? String(row.deposit) : "",
+      row.withdrawal > 0 ? String(row.withdrawal) : "",
     ]
       .join(" ")
       .toLowerCase();
