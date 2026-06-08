@@ -89,8 +89,14 @@ async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T
     }
   }
   if (!response.ok) {
-    const err = new Error(String(data.error || `API ${response.status}`)) as Error & { errCode?: number };
+    const err = new Error(String(data.error || `API ${response.status}`)) as Error & {
+      errCode?: number;
+      status?: number;
+      currentVersion?: number;
+    };
     if (typeof data.errCode === "number") err.errCode = data.errCode;
+    err.status = response.status;
+    if (typeof data.currentVersion === "number") err.currentVersion = data.currentVersion;
     throw err;
   }
   return data as T;
@@ -127,8 +133,19 @@ export async function refreshBarobillTaxInvoiceStates(input?: {
   limit?: number;
   version?: number;
 }) {
-  return apiRequest<BarobillTaxInvoiceRefreshStatesResult>("/barobill/tax-invoices/refresh-states", {
-    method: "POST",
-    body: JSON.stringify(input || {}),
-  });
+  try {
+    return await apiRequest<BarobillTaxInvoiceRefreshStatesResult>("/barobill/tax-invoices/refresh-states", {
+      method: "POST",
+      body: JSON.stringify(input || {}),
+    });
+  } catch (error) {
+    const err = error as Error & { status?: number; currentVersion?: number };
+    if (err.status === 409 && typeof err.currentVersion === "number") {
+      return apiRequest<BarobillTaxInvoiceRefreshStatesResult>("/barobill/tax-invoices/refresh-states", {
+        method: "POST",
+        body: JSON.stringify({ ...(input || {}), version: err.currentVersion }),
+      });
+    }
+    throw error;
+  }
 }

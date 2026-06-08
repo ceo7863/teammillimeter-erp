@@ -1533,6 +1533,60 @@ function resolveBarobillMgtKeyFromInvoice(row) {
   return String(row?.barobillMgtKey || "").trim() || extractBarobillMgtKeyFromMemo(row?.memo);
 }
 
+function applyBarobillStatusPatches(existing, mgtKeyByInvoiceId, refreshedByMgtKey) {
+  const now = new Date().toISOString();
+  const targetIds = new Set(mgtKeyByInvoiceId.keys());
+  let updated = 0;
+  const nextTaxInvoices = existing.map((row) => {
+    if (!targetIds.has(String(row.id))) return row;
+    const mgtKey = mgtKeyByInvoiceId.get(String(row.id));
+    const detail = refreshedByMgtKey.get(mgtKey);
+    if (!detail) return row;
+    updated += 1;
+    return {
+      ...row,
+      barobillMgtKey: mgtKey,
+      barobillState: detail.barobillState,
+      barobillNtsSendState: detail.ntsSendState,
+      invoiceNo: detail.ntsSendKey || row.invoiceNo,
+      barobillStatusCheckedAt: now,
+    };
+  });
+  return { nextTaxInvoices, updated };
+}
+
+function saveBarobillTaxInvoiceStatusRefresh({ mgtKeyByInvoiceId, refreshedByMgtKey, expectedVersion, updatedBy }) {
+  let version = expectedVersion;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const state = getErpState();
+    const existing = Array.isArray(state.data?.taxInvoices) ? state.data.taxInvoices : [];
+    const { nextTaxInvoices, updated } = applyBarobillStatusPatches(existing, mgtKeyByInvoiceId, refreshedByMgtKey);
+    try {
+      const saved = saveErpState(
+        { ...(state.data || {}), taxInvoices: nextTaxInvoices },
+        version ?? state.version,
+        updatedBy,
+      );
+      return {
+        nextTaxInvoices,
+        updated,
+        version: saved.version,
+        updatedAt: saved.updatedAt,
+      };
+    } catch (error) {
+      if (error?.status === 409 && attempt < 3) {
+        version = error.currentVersion ?? getErpState().version;
+        continue;
+      }
+      throw error;
+    }
+  }
+  const err = new Error("VERSION_CONFLICT");
+  err.status = 409;
+  err.currentVersion = getErpState().version;
+  throw err;
+}
+
 app.post("/api/barobill/tax-invoices/refresh-states", authMiddleware, adminMiddleware, async (req, res) => {
   const configStatus = getBarobillConfigStatus();
   if (!configStatus.configured) {
@@ -1582,43 +1636,25 @@ app.post("/api/barobill/tax-invoices/refresh-states", authMiddleware, adminMiddl
   try {
     const refreshed = await refreshBarobillTaxInvoiceStates([...new Set(mgtKeyByInvoiceId.values())]);
     const refreshedByMgtKey = new Map(refreshed.filter((row) => row.ok).map((row) => [row.mgtKey, row]));
-    const now = new Date().toISOString();
-    const targetIds = new Set(mgtKeyByInvoiceId.keys());
-    let updated = 0;
-
-    const nextTaxInvoices = existing.map((row) => {
-      if (!targetIds.has(String(row.id))) return row;
-      const mgtKey = mgtKeyByInvoiceId.get(String(row.id));
-      const detail = refreshedByMgtKey.get(mgtKey);
-      if (!detail) return row;
-      updated += 1;
-      return {
-        ...row,
-        barobillMgtKey: mgtKey,
-        barobillState: detail.barobillState,
-        barobillNtsSendState: detail.ntsSendState,
-        invoiceNo: detail.ntsSendKey || row.invoiceNo,
-        barobillStatusCheckedAt: now,
-      };
-    });
-
     const updatedBy = req.user.loginId || req.user.name || req.user.email;
-    const saved = saveErpState(
-      { ...(state.data || {}), taxInvoices: nextTaxInvoices },
-      req.body?.version ?? state.version,
+    const saved = saveBarobillTaxInvoiceStatusRefresh({
+      mgtKeyByInvoiceId,
+      refreshedByMgtKey,
+      expectedVersion: req.body?.version,
       updatedBy,
-    );
+    });
 
     res.json({
       ok: true,
-      updated,
+      updated: saved.updated,
       checked: mgtKeyByInvoiceId.size,
       failed: refreshed.filter((row) => !row.ok).length,
-      taxInvoices: nextTaxInvoices,
+      taxInvoices: saved.nextTaxInvoices,
       version: saved.version,
       updatedAt: saved.updatedAt,
     });
   } catch (error) {
+    if (handleErpSaveConflict(res, error)) return;
     res.status(500).json({
       error: error instanceof Error ? error.message : String(error),
     });

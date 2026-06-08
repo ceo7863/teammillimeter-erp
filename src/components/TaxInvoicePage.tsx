@@ -214,6 +214,7 @@ const L = {
   barobillSyncFlowTypes: "\uC870\uD68C \uC720\uD615",
   ntsStatusRefresh: "\uAD6D\uC138\uCCAD \uC0C1\uD0DC",
   ntsStatusRefreshLoading: "\uAD6D\uC138\uCCAD \uC0C1\uD0DC \uC870\uD68C \uC911...",
+  versionConflict: "\uB2E4\uB978 \uC800\uC7A5 \uC774\uD6C4 \uB370\uC774\uD130\uAC00 \uBCC0\uACBD\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uC0C8\uB85C\uACE0\uCE68 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.",
   barobillScrapApply: "\uD648\uD0DD\uC2A4 \uC5F0\uB3D9 \uC2E0\uCCAD",
   previewRows: "\uC778\uC2DD \uAC74\uC218",
   previewTotal: "\uD30C\uC77C \uD569\uACC4",
@@ -613,7 +614,7 @@ export function TaxInvoicePage({
       .map((row) => row.id);
   }, [filteredRows]);
 
-  const refreshBarobillNtsStatuses = async (invoiceIds?: string[]) => {
+  const refreshBarobillNtsStatuses = async (invoiceIds?: string[], options?: { silent?: boolean }) => {
     if (!isAdmin || ntsStatusRefreshLoading) return;
     setNtsStatusRefreshLoading(true);
     try {
@@ -629,7 +630,10 @@ export function TaxInvoicePage({
         onErpVersionChange(result.version);
       }
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : L.barobillSyncFailed);
+      const err = error as Error & { status?: number };
+      if (!options?.silent) {
+        window.alert(err.status === 409 ? L.versionConflict : err.message || L.barobillSyncFailed);
+      }
     } finally {
       setNtsStatusRefreshLoading(false);
     }
@@ -640,7 +644,7 @@ export function TaxInvoicePage({
     const refreshKey = barobillNtsRefreshTargetIds.join(",");
     if (ntsAutoRefreshKeyRef.current === refreshKey) return;
     ntsAutoRefreshKeyRef.current = refreshKey;
-    void refreshBarobillNtsStatuses(barobillNtsRefreshTargetIds);
+    void refreshBarobillNtsStatuses(barobillNtsRefreshTargetIds, { silent: true });
   }, [barobillNtsRefreshTargetIds, isAdmin]);
 
   const toggleClientExpanded = (key: string) => {
