@@ -89,6 +89,116 @@ function normalizePhone(phone) {
   return String(phone || "").replace(/\D/g, "");
 }
 
+const PHONE_VERIFY_TTL_MS = 30 * 60 * 1000;
+const PHONE_VERIFY_MAX_FAILURES = 5;
+const PHONE_VERIFY_LOCK_MS = 15 * 60 * 1000;
+const phoneVerifySessions = new Map();
+const phoneVerifyFailures = new Map();
+
+function phoneLastFour(phone) {
+  const digits = normalizePhone(phone);
+  return digits.length >= 4 ? digits.slice(-4) : "";
+}
+
+export function maskContactPhoneHint(phone) {
+  const digits = normalizePhone(phone);
+  if (digits.length < 4) return "****";
+  const last4 = digits.slice(-4);
+  if (digits.length >= 10) return `${digits.slice(0, 3)}-****-${last4}`;
+  return `****-${last4}`;
+}
+
+function bumpPhoneVerifyFailure(signToken) {
+  const now = Date.now();
+  const row = phoneVerifyFailures.get(signToken);
+  if (!row || now > row.resetAt) {
+    phoneVerifyFailures.set(signToken, { count: 1, resetAt: now + PHONE_VERIFY_LOCK_MS });
+    return;
+  }
+  row.count += 1;
+}
+
+function phoneVerifyRateLimited(signToken) {
+  const row = phoneVerifyFailures.get(signToken);
+  if (!row) return null;
+  if (Date.now() > row.resetAt) {
+    phoneVerifyFailures.delete(signToken);
+    return null;
+  }
+  if (row.count >= PHONE_VERIFY_MAX_FAILURES) {
+    return {
+      ok: false,
+      status: 429,
+      error: "\uC778\uC99D \uC2DC\uB3C4 \uD69F\uC218\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.",
+    };
+  }
+  return null;
+}
+
+function validatePhoneLastFour(contract, inputLast4) {
+  const expected = phoneLastFour(contract?.contactPhone);
+  const given = String(inputLast4 || "").replace(/\D/g, "").slice(-4);
+  if (!expected) {
+    return { ok: false, status: 400, error: "\uB4F1\uB85D\uB41C \uC218\uC2E0 \uC5F0\uB77D\uCC98\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4." };
+  }
+  if (given.length !== 4) {
+    return { ok: false, status: 400, error: "\uD734\uB300\uD3F0 \uBC88\uD638 \uB204\uC801 4\uC790\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694." };
+  }
+  if (given !== expected) {
+    return { ok: false, status: 403, error: "\uD734\uB300\uD3F0 \uBC88\uD638 \uB204\uC801 4\uC790\uB9AC\uAC00 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." };
+  }
+  return { ok: true };
+}
+
+export function isContractPhoneVerified(signToken) {
+  const expiresAt = phoneVerifySessions.get(signToken);
+  if (!expiresAt) return false;
+  if (Date.now() > expiresAt) {
+    phoneVerifySessions.delete(signToken);
+    return false;
+  }
+  return true;
+}
+
+export function verifyContractPhoneLastFour(signToken, inputLast4) {
+  const contract = getContractByToken(signToken);
+  if (!contract) {
+    return { ok: false, status: 404, error: "\uC720\uD6A8\uD558\uC9C0 \uC54A\uC740 \uC11C\uBA85 \uB9C1\uD06C\uC785\uB2C8\uB2E4." };
+  }
+  if (contract.status === "signed") {
+    return { ok: false, status: 409, error: "\uC774\uBBF8 \uC11C\uBA85\uC774 \uC644\uB8CC\uB41C \uACC4\uC57D\uC785\uB2C8\uB2E4." };
+  }
+  if (isTokenExpired(contract)) {
+    return { ok: false, status: 410, error: "\uC11C\uBA85 \uB9C1\uD06C\uAC00 \uB9CC\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4." };
+  }
+
+  const rateLimited = phoneVerifyRateLimited(signToken);
+  if (rateLimited) return rateLimited;
+
+  const check = validatePhoneLastFour(contract, inputLast4);
+  if (!check.ok) {
+    bumpPhoneVerifyFailure(signToken);
+    return check;
+  }
+
+  phoneVerifyFailures.delete(signToken);
+  phoneVerifySessions.set(signToken, Date.now() + PHONE_VERIFY_TTL_MS);
+  return {
+    ok: true,
+    phoneVerified: true,
+    contactPhoneHint: maskContactPhoneHint(contract.contactPhone),
+  };
+}
+
+export function requireContractPhoneVerified(signToken) {
+  if (isContractPhoneVerified(signToken)) return null;
+  return {
+    ok: false,
+    status: 403,
+    error: "\uC218\uC2E0 \uD734\uB300\uD3F0 \uBC88\uD638 \uB204\uC801 4\uC790\uB9AC \uD655\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.",
+  };
+}
+
 function isTokenExpired(contract) {
   if (!contract?.tokenExpiresAt) return true;
   return Date.parse(contract.tokenExpiresAt) < Date.now();
@@ -434,6 +544,14 @@ export async function submitContractSignature(token, input = {}) {
     return { ok: false, status: 410, error: "\uC11C\uBA85 \uB9C1\uD06C\uAC00 \uB9CC\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uB2F4\uB2F9\uC790\uC5D0\uAC8C \uC7AC\uBC1C\uC1A1\uC744 \uC694\uCCAD\uD574 \uC8FC\uC138\uC694." };
   }
 
+  const phoneCheck = validatePhoneLastFour(current, input.phoneLast4);
+  if (!phoneCheck.ok) {
+    bumpPhoneVerifyFailure(token);
+    return phoneCheck;
+  }
+  phoneVerifyFailures.delete(token);
+  phoneVerifySessions.set(token, Date.now() + PHONE_VERIFY_TTL_MS);
+
   const signedByName = String(input.signedByName || current.contactName || "").trim();
   if (!signedByName) {
     return { ok: false, status: 400, error: "\uC11C\uBA85\uC790 \uC131\uD568\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694." };
@@ -526,6 +644,8 @@ export function getPublicSignPayload(token) {
       clientName: contract.clientName,
       title: contract.title,
       contactName: contract.contactName,
+      contactPhoneHint: maskContactPhoneHint(contract.contactPhone),
+      phoneVerified: isContractPhoneVerified(token),
       status: resolveContractStatus(contract),
       originalFileName: contract.originalFileName,
       tokenExpiresAt: contract.tokenExpiresAt,

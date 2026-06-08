@@ -41,6 +41,8 @@ export type PublicClientContractSignInfo = {
   clientName: string;
   title: string;
   contactName?: string;
+  contactPhoneHint?: string;
+  phoneVerified?: boolean;
   status: ClientContractStatus;
   originalFileName: string;
   tokenExpiresAt?: string;
@@ -262,9 +264,22 @@ export async function fetchContractPreviewMeta(url: string) {
   };
 }
 
+export async function verifyPublicContractPhone(
+  token: string,
+  phoneLast4: string,
+): Promise<{ phoneVerified: boolean; contactPhoneHint?: string }> {
+  const response = await fetch(`${apiBase()}/public/client-contracts/sign/${encodeURIComponent(token)}/verify-phone`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phoneLast4 }),
+  });
+  if (!response.ok) throw new Error(await parseApiError(response));
+  return response.json();
+}
+
 export async function submitPublicContractSignature(
   token: string,
-  input: { signedByName: string; signatureDataUrl: string },
+  input: { signedByName: string; signatureDataUrl: string; phoneLast4: string },
 ): Promise<{ contract: PublicClientContractSignInfo }> {
   const response = await fetch(`${apiBase()}/public/client-contracts/sign/${encodeURIComponent(token)}`, {
     method: "POST",

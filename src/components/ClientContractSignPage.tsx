@@ -9,6 +9,7 @@ import {
   fetchPublicContractSignInfo,
   publicContractPreviewUrl,
   submitPublicContractSignature,
+  verifyPublicContractPhone,
   type PublicClientContractSignInfo,
 } from "@/utils/clientContracts";
 
@@ -41,6 +42,14 @@ const L = {
     "\u203B \uC0C1\uAE30 \uAE08\uC561\uC740 \uBD80\uAC00\uAC00\uCE58\uC138 \uBCC4\uB3C4 \uAE30\uC900\uC774\uBA70, \uBCC4\uB3C4 \uC11C\uBA74 \uD569\uC758\uAC00 \uC5C6\uB294 \uD55C \uBCF8 \uB2E8\uAC00\uB97C \uC801\uC6A9\uD55C\uB2E4.",
   legal2:
     "\u203B \uBCF8 \uD611\uC57D\uC11C\uB294 \uC804\uC790\uBB38\uC11C \uBC0F \uC804\uC790\uC11C\uBA85 \uAD00\uB828 \uBC95\uB839\uC5D0 \uB530\uB77C \uC804\uC790\uC11C\uBA85\uC73C\uB85C \uCCB4\uACB0\uD560 \uC218 \uC788\uC73C\uBA70, \uC804\uC790\uC11C\uBA85\uB41C \uBB38\uC11C\uB294 \uC790\uD544\uC11C\uBA85 \uB610\uB294 \uB0A0\uC778\uD55C \uBB38\uC11C\uC640 \uB3D9\uC77C\uD55C \uD6A8\uB825\uC744 \uAC00\uC9C4\uB2E4.",
+  phoneVerifyTitle: "\uC218\uC2E0 \uD734\uB300\uD3F0 \uD655\uC778",
+  phoneVerifyDesc: "\uC54C\uB9BC\uD1A1\uC744 \uBC1B\uC740 \uD734\uB300\uD3F0 \uBC88\uD638 \uB204\uC801 4\uC790\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.",
+  phoneLast4: "\uB204\uC801 4\uC790\uB9AC",
+  phoneLast4Ph: "0000",
+  phoneVerifyBtn: "\uD655\uC778",
+  phoneVerifying: "\uD655\uC778 \uC911...",
+  needPhoneLast4: "\uD734\uB300\uD3F0 \uBC88\uD638 \uB204\uC801 4\uC790\uB9AC\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.",
+  phoneVerifyFail: "\uD734\uB300\uD3F0 \uBC88\uD638 \uB204\uC801 4\uC790\uB9AC\uAC00 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
 };
 
 type ClientContractSignPageProps = {
@@ -59,8 +68,12 @@ export function ClientContractSignPage({ token }: ClientContractSignPageProps) {
   const [previewPageCount, setPreviewPageCount] = useState(1);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState("");
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [phoneLast4, setPhoneLast4] = useState("");
+  const [phoneVerifying, setPhoneVerifying] = useState(false);
 
   const signedComplete = done || info?.status === "signed";
+  const canViewContract = signedComplete || phoneVerified;
   const canDownloadSigned = signedComplete && info?.hasSignedPdf !== false;
 
   const signedDownloadName = info?.originalFileName
@@ -94,8 +107,10 @@ export function ClientContractSignPage({ token }: ClientContractSignPageProps) {
       setInfo(result);
       if (result.status === "signed") {
         setDone(true);
+        setPhoneVerified(true);
       } else {
         setSignedByName(result.contactName || "");
+        setPhoneVerified(Boolean(result.phoneVerified));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : L.loadFail);
@@ -109,11 +124,39 @@ export function ClientContractSignPage({ token }: ClientContractSignPageProps) {
   }, [loadInfo]);
 
   useEffect(() => {
-    if (!info) return;
+    if (!info || !canViewContract) return;
     void loadPreviewMeta(1);
-  }, [info, loadPreviewMeta]);
+  }, [info, canViewContract, loadPreviewMeta]);
+
+  const handleVerifyPhone = async () => {
+    const digits = phoneLast4.replace(/\D/g, "").slice(-4);
+    if (digits.length !== 4) {
+      setError(L.needPhoneLast4);
+      return;
+    }
+    setPhoneVerifying(true);
+    setError("");
+    try {
+      const result = await verifyPublicContractPhone(token, digits);
+      setPhoneVerified(true);
+      setPhoneLast4(digits);
+      setInfo((prev) =>
+        prev
+          ? { ...prev, phoneVerified: true, contactPhoneHint: result.contactPhoneHint || prev.contactPhoneHint }
+          : prev,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : L.phoneVerifyFail);
+    } finally {
+      setPhoneVerifying(false);
+    }
+  };
 
   const handleSubmit = async () => {
+    if (!phoneLast4 || phoneLast4.replace(/\D/g, "").length !== 4) {
+      setError(L.needPhoneLast4);
+      return;
+    }
     if (!signedByName.trim()) {
       setError(L.needName);
       return;
@@ -128,6 +171,7 @@ export function ClientContractSignPage({ token }: ClientContractSignPageProps) {
       await submitPublicContractSignature(token, {
         signedByName: signedByName.trim(),
         signatureDataUrl,
+        phoneLast4: phoneLast4.replace(/\D/g, "").slice(-4),
       });
       setInfo((prev) =>
         prev
@@ -205,6 +249,40 @@ export function ClientContractSignPage({ token }: ClientContractSignPageProps) {
               </CardContent>
             </Card>
 
+            {!canViewContract ? (
+              <Card className="rounded-2xl shadow-sm">
+                <CardContent className="space-y-4 p-5">
+                  <div>
+                    <h2 className="erp-text-body font-bold text-slate-900">{L.phoneVerifyTitle}</h2>
+                    <p className="erp-text-caption mt-1 text-slate-600">{L.phoneVerifyDesc}</p>
+                    {info.contactPhoneHint ? (
+                      <p className="erp-text-caption mt-2 font-semibold text-slate-700">{info.contactPhoneHint}</p>
+                    ) : null}
+                  </div>
+                  <div>
+                    <label className="erp-text-caption mb-1 block font-semibold text-slate-600">{L.phoneLast4}</label>
+                    <Input
+                      value={phoneLast4}
+                      onChange={(e) => setPhoneLast4(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                      placeholder={L.phoneLast4Ph}
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={4}
+                      className="max-w-[10rem] text-center text-lg tracking-[0.35em]"
+                    />
+                  </div>
+                  {error ? <p className="erp-text-caption font-semibold text-red-600">{error}</p> : null}
+                  <Button
+                    className="w-full rounded-2xl py-5 text-base font-bold"
+                    onClick={() => void handleVerifyPhone()}
+                    disabled={phoneVerifying}
+                  >
+                    {phoneVerifying ? L.phoneVerifying : L.phoneVerifyBtn}
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <>
             <Card className="rounded-2xl shadow-sm">
               <CardContent className="p-3 sm:p-4">
                 <img
@@ -260,6 +338,8 @@ export function ClientContractSignPage({ token }: ClientContractSignPageProps) {
                 </Button>
               </CardContent>
             </Card>
+              </>
+            )}
           </div>
         ) : null}
       </div>

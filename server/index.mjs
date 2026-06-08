@@ -121,6 +121,8 @@ import {
   getContractByToken,
   createContractFromTemplate,
   rebuildContractPdf,
+  verifyContractPhoneLastFour,
+  requireContractPhoneVerified,
 } from "./clientContracts.mjs";
 import {
   ensureClientSiteRequestLink,
@@ -355,6 +357,18 @@ app.get("/api/public/client-contracts/sign/:token", (req, res) => {
   res.json(result.contract);
 });
 
+app.post("/api/public/client-contracts/sign/:token/verify-phone", (req, res) => {
+  const result = verifyContractPhoneLastFour(req.params.token, req.body?.phoneLast4);
+  if (!result.ok) {
+    res.status(result.status || 400).json({ error: result.error });
+    return;
+  }
+  res.json({
+    phoneVerified: true,
+    contactPhoneHint: result.contactPhoneHint,
+  });
+});
+
 app.get("/api/public/client-contracts/sign/:token/pdf", (req, res) => {
   const contract = getContractByToken(req.params.token);
   if (!contract) {
@@ -363,6 +377,11 @@ app.get("/api/public/client-contracts/sign/:token/pdf", (req, res) => {
   }
   if (contract.status === "signed") {
     res.status(409).send("\uC774\uBBF8 \uC11C\uBA85\uC774 \uC644\uB8CC\uB41C \uACC4\uC57D\uC785\uB2C8\uB2E4.");
+    return;
+  }
+  const phoneGate = requireContractPhoneVerified(req.params.token);
+  if (phoneGate) {
+    res.status(phoneGate.status || 403).send(phoneGate.error);
     return;
   }
   const file = getContractOriginalFile(contract);
@@ -427,6 +446,11 @@ app.get("/api/public/client-contracts/sign/:token/preview", (req, res) => {
   }
   if (contract.status === "signed") {
     res.status(409).send("\uC774\uBBF8 \uC11C\uBA85\uC774 \uC644\uB8CC\uB41C \uACC4\uC57D\uC785\uB2C8\uB2E4.");
+    return;
+  }
+  const phoneGate = requireContractPhoneVerified(req.params.token);
+  if (phoneGate) {
+    res.status(phoneGate.status || 403).send(phoneGate.error);
     return;
   }
   const file = getContractOriginalFile(contract);
