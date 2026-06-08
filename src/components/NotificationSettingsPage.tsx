@@ -43,7 +43,7 @@ const L = {
   commentFeatureHint: "\uB9E4\uCD9C \uB313\uAE00\uC774 \uC800\uC7A5\uB418\uBA74 \uC989\uC2DC \uBC1C\uC1A1\uD569\uB2C8\uB2E4.",
   scScheduleFeature: "SC \uB0B4\uC77C \uC77C\uC815 \uC54C\uB9BC",
   scScheduleFeatureHint:
-    "\uB9E4\uC77C \uC124\uC815 \uC2DC\uAC01(KST)\uC5D0 \uB0B4\uC77C SC \uC77C\uC815\uC744 \uCC38\uC5EC \uC2DC\uACF5\uC790 \uC804\uD654\uB85C \uBC1C\uC1A1\uD569\uB2C8\uB2E4.",
+    "\uB9E4\uC77C \uC124\uC815 \uC2DC\uAC01(KST)\uC5D0 \uB0B4\uC77C SC \uC77C\uC815\uC744 \uAC70\uB798\uCC98 \uB2F4\uB2F9\uC790\uC640 \uCC38\uC5EC \uC2DC\uACF5\uC790 \uC804\uD654\uB85C \uBC1C\uC1A1\uD569\uB2C8\uB2E4.",
   scScheduleTimeLabel: "SC \uC77C\uC815 \uBC1C\uC1A1 \uC2DC\uAC01",
   scheduleTemplate: "SC \uC77C\uC815 \uD15C\uD074\uB9BF",
   scheduleLabel: "\uC77C\uC77C \uBCF4\uACE0 \uBC1C\uC1A1 \uC2DC\uAC01",
@@ -76,7 +76,7 @@ const L = {
   scPreviewTitle: "SC \uB0B4\uC77C \uC77C\uC815 \uC54C\uB9BC \uBBF8\uB9AC\uBCF4\uAE30",
   scSendTest: "SC \uC77C\uC815 \uD14C\uC2A4\uD2B8 \uBC1C\uC1A1",
   scSendTestConfirm:
-    "\uB0B4\uC77C SC \uC77C\uC815 \uCC38\uC5EC \uC2DC\uACF5\uC790 \uC804\uD654\uB85C \uC54C\uB9BC\uD1A1\uC744 \uBC1C\uC1A1\uD569\uB2C8\uB2E4. \uACC4\uC18D\uD560\uAE4C\uC694?",
+    "\uB0B4\uC77C SC \uC77C\uC815 \uC54C\uB9BC\uC744 \uAC70\uB798\uCC98 \uB2F4\uB2F9\uC790\uC640 \uCC38\uC5EC \uC2DC\uACF5\uC790 \uC804\uD654\uB85C \uBC1C\uC1A1\uD569\uB2C8\uB2E4. \uACC4\uC18D\uD560\uAE4C\uC694?",
   scSendTestSuccess: "SC \uC77C\uC815 \uC54C\uB9BC \uD14C\uC2A4\uD2B8 \uBC1C\uC1A1\uC744 \uC694\uCCAD\uD588\uC2B5\uB2C8\uB2E4.",
   scSendTestError: "SC \uC77C\uC815 \uC54C\uB9BC \uD14C\uC2A4\uD2B8 \uBC1C\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   previewError: "\uBBF8\uB9AC\uBCF4\uAE30\uB97C \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",
@@ -299,14 +299,19 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
       const result = await previewScScheduleNotify();
       const lines = [
         `\uB300\uC0C1 \uC77C\uC790: ${result.targetDate}`,
-        `\uC77C\uC815 ${result.scheduleCount}\uAC74 / \uBC1C\uC1A1 \uAC00\uB2A5 ${result.notifyCount}\uBA85 / \uC804\uD654 \uC5C6\uC74C ${result.missingPhoneCount}\uBA85`,
+        `\uC77C\uC815 ${result.scheduleCount}\uAC74 / \uBC1C\uC1A1 \uAC00\uB2A5 ${result.notifyCount}\uBA85 (\uAC70\uB798\uCC98 ${result.clientNotifyCount ?? 0}\uBA85 \u00B7 \uC2DC\uACF5 ${result.workerNotifyCount ?? 0}\uBA85) / \uC804\uD654 \uC5C6\uC74C ${result.missingPhoneCount}\uBA85`,
         "",
         ...result.rows.map((row) => {
+          const role = row.recipientType === "client" ? "\uAC70\uB798\uCC98" : "\uC2DC\uACF5";
           const manager =
             row.variables?.clientManager && row.variables.clientManager !== "-"
               ? `\uB2F4\uB2F9 ${row.variables.clientManager}`
               : "\uB2F4\uB2F9 \uC5C6\uC74C";
-          return `[${row.phone || "\uC804\uD654\uC5C6\uC74C"}] ${row.participantName} \u00B7 ${row.variables.client} \u00B7 ${manager} \u00B7 ${row.variables.dateTime}`;
+          const who =
+            row.recipientType === "client"
+              ? row.participantName || row.variables.client
+              : row.participantName;
+          return `[${role} ${row.phone || "\uC804\uD654\uC5C6\uC74C"}] ${who} \u00B7 ${row.variables.client} \u00B7 ${manager} \u00B7 ${row.variables.dateTime}`;
         }),
       ];
       setPreviewMessage(lines.join("\n"));

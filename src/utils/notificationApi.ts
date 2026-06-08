@@ -58,8 +58,12 @@ export async function previewScScheduleNotify() {
     targetDate: string;
     scheduleCount: number;
     notifyCount: number;
+    workerNotifyCount?: number;
+    clientNotifyCount?: number;
     missingPhoneCount: number;
+    missingClientPhoneCount?: number;
     rows: Array<{
+      recipientType?: "client" | "worker";
       scheduleId: string;
       participantName: string;
       phone: string | null;
