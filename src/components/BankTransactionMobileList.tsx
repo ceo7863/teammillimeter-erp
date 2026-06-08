@@ -7,8 +7,8 @@ import type { BankTransactionCompactRowLabels, BankTransactionCompactRowModel } 
 import type { BankTransactionSimpleTableLabels } from "@/components/BankTransactionSimpleTable";
 
 const BANK_MOBILE_CARD_ESTIMATE_PX = 132;
-const BANK_MOBILE_OVERSCAN = 4;
-const BANK_MOBILE_VIRTUAL_MIN = 30;
+const BANK_MOBILE_OVERSCAN = 3;
+const BANK_MOBILE_VIRTUAL_MIN = 18;
 const BANK_MOBILE_SCROLL_HEIGHT_CLASS = "h-[min(72vh,960px)]";
 
 type BankTransactionMobileListProps = {

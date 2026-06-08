@@ -33,8 +33,8 @@ export type BankTransactionSplitTableLabels = {
 };
 
 const BANK_SPLIT_ROW_ESTIMATE_PX = 38;
-const BANK_SPLIT_OVERSCAN = 10;
-const BANK_SPLIT_VIRTUAL_MIN = 40;
+const BANK_SPLIT_OVERSCAN = 4;
+const BANK_SPLIT_VIRTUAL_MIN = 18;
 const BANK_SPLIT_SCROLL_HEIGHT_CLASS = "h-[min(72vh,960px)]";
 const BANK_SPLIT_COL_SPAN = 14;
 

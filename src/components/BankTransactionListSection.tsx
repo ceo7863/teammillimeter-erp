@@ -14,6 +14,7 @@ import type { TaxInvoice } from "@/utils/taxInvoices";
 import {
   buildBankTransactionListLookupMaps,
   buildBankTransactionListRowModels,
+  type BankTransactionListRowModel,
 } from "@/utils/bankTransactionListDisplay";
 
 export type BankTransactionListSectionLabels = BankTransactionSplitTableLabels &
@@ -26,6 +27,7 @@ export type BankTransactionListSectionLabels = BankTransactionSplitTableLabels &
 
 type BankTransactionListSectionProps = {
   rows: BankTransaction[];
+  isListActive?: boolean;
   accountSubjectLabels?: Record<string, string>;
   folderMap: Map<string, BankTransactionFolder>;
   ledgerCategoryFolder?: BankTransactionFolder;
@@ -52,6 +54,7 @@ type BankTransactionListSectionProps = {
 
 function BankTransactionListSectionComponent({
   rows,
+  isListActive = true,
   accountSubjectLabels = {},
   folderMap,
   ledgerCategoryFolder,
@@ -82,11 +85,15 @@ function BankTransactionListSectionComponent({
   );
 
   const lookupMaps = useMemo(
-    () => buildBankTransactionListLookupMaps(companyExpenses, fixedExpensePayments, fixedExpenses),
-    [companyExpenses, fixedExpensePayments, fixedExpenses],
+    () =>
+      isListActive && rows.length
+        ? buildBankTransactionListLookupMaps(companyExpenses, fixedExpensePayments, fixedExpenses)
+        : null,
+    [isListActive, rows.length, companyExpenses, fixedExpensePayments, fixedExpenses],
   );
 
   const rowModels = useMemo(() => {
+    if (!isListActive || !rows.length || !lookupMaps) return new Map<string, BankTransactionListRowModel>();
     const base = buildBankTransactionListRowModels(
       rows,
       folderMap,
@@ -122,24 +129,24 @@ function BankTransactionListSectionComponent({
     }
     return patched;
   }, [
-      rows,
-      accountSubjectLabels,
-      folderMap,
-      ledgerCategoryFolder,
-      lookupMaps,
-      labels.unfiled,
-      labels.accountContentPlaceholder,
-      paymentVouchers,
-      ledgerCategories,
-      companyExpenses,
-      fixedExpensePayments,
-      fixedExpenses,
-      accountCodes,
-      taxInvoices,
-      clients,
-      workers,
-    ],
-  );
+    rows,
+    accountSubjectLabels,
+    folderMap,
+    ledgerCategoryFolder,
+    lookupMaps,
+    labels.unfiled,
+    labels.accountContentPlaceholder,
+    paymentVouchers,
+    ledgerCategories,
+    companyExpenses,
+    fixedExpensePayments,
+    fixedExpenses,
+    accountCodes,
+    taxInvoices,
+    clients,
+    workers,
+    isListActive,
+  ]);
 
   const rowIds = useMemo(() => rows.map((row) => row.id), [rows]);
 

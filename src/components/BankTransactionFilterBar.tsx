@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { memo, useEffect, useState } from "react";
 import { CalendarDays, RotateCcw, Search } from "lucide-react";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import type { BankTransactionFlowFilter } from "@/utils/bankTransactions";
@@ -80,7 +80,7 @@ function FilterSelect({
   );
 }
 
-export function BankTransactionFilterBar({
+function BankTransactionFilterBarComponent({
   periodKey,
   onPeriodKeyChange,
   startDate,
@@ -264,3 +264,5 @@ export function BankTransactionFilterBar({
     </div>
   );
 }
+
+export const BankTransactionFilterBar = memo(BankTransactionFilterBarComponent);

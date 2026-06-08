@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback, useDeferredValue } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback, useDeferredValue, startTransition } from "react";
 import { createPortal } from "react-dom";
 import {
   ArrowDownLeft,
@@ -312,6 +312,7 @@ type TaxInvoiceLinkSession = {
 };
 
 const EMPTY_TX_SUGGESTION_MAP = new Map<string, never>();
+const EMPTY_BANK_TRANSACTION_ROWS: BankTransaction[] = [];
 
 const FLOW_FILTER_OPTIONS: Array<{ key: BankTransactionFlowFilter; label: string; tone: string }> = [
   { key: "all", label: "\uC804\uCCB4", tone: "bg-slate-900 text-white" },
@@ -985,7 +986,7 @@ export function BankTransactionsPage({
   }) => void | Promise<void>;
 }) {
   const [pageView, setPageView] = useState<PageView>("list");
-  const [periodKey, setPeriodKey] = useState<PeriodKey>("all");
+  const [periodKey, setPeriodKey] = useState<PeriodKey>("thisMonth");
   const [dateFilter, setDateFilter] = useState<DateFilter>(() => ({ startDate: "", endDate: "" }));
   const [flowFilter, setFlowFilter] = useState<BankTransactionFlowFilter>("all");
   const [ledgerScopeFilter, setLedgerScopeFilter] = useState<LedgerScopeFilter>("all");
@@ -1145,6 +1146,7 @@ export function BankTransactionsPage({
   );
 
   const ledgerSyncedTransactions = useMemo(() => {
+    if (!isPageActive) return bankTransactions;
     const folders = ensureDefaultBankTransactionFolders(bankTransactionFolders);
     const synced = syncBankTransactionLedgerLinkFields(
       bankTransactions,
@@ -1152,7 +1154,7 @@ export function BankTransactionsPage({
       fixedExpensePayments,
     );
     return syncLedgerLinkedBankTransactionFolders(synced, folders, ledgerRegistrationContext).transactions;
-  }, [bankTransactions, bankTransactionFolders, companyExpenses, fixedExpensePayments, ledgerRegistrationContext]);
+  }, [bankTransactions, bankTransactionFolders, companyExpenses, fixedExpensePayments, ledgerRegistrationContext, isPageActive]);
 
   const accountPickerFlatItemsByFlow = useMemo(
     () => ({
@@ -1324,15 +1326,18 @@ export function BankTransactionsPage({
 
   const pendingSmartLedger = useMemo(
     () =>
-      countPendingSmartLedger(bankTransactions, {
-        ...ledgerRegistrationContext,
-        rules: bankLedgerRules,
-        fixedExpenses,
-        expenseCategories,
-        workers,
-        clients,
-      }),
+      isPageActive
+        ? countPendingSmartLedger(bankTransactions, {
+            ...ledgerRegistrationContext,
+            rules: bankLedgerRules,
+            fixedExpenses,
+            expenseCategories,
+            workers,
+            clients,
+          })
+        : 0,
     [
+      isPageActive,
       bankTransactions,
       ledgerRegistrationContext,
       bankLedgerRules,
@@ -1672,6 +1677,7 @@ export function BankTransactionsPage({
 
   const scheduleBackgroundLearning = React.useCallback(
     (options: { onlyTransactionIds?: Set<string>; showMessage?: boolean } = {}) => {
+      if (!isPageActive) return;
       if (backgroundLearningTimerRef.current) {
         window.clearTimeout(backgroundLearningTimerRef.current);
       }
@@ -1679,7 +1685,7 @@ export function BankTransactionsPage({
         applyBackgroundLearningRef.current(options);
       }, 350);
     },
-    [],
+    [isPageActive],
   );
 
   const buildReviewPromptFromTx = React.useCallback(
@@ -2141,10 +2147,12 @@ export function BankTransactionsPage({
   }, []);
 
   useEffect(() => {
+    if (!isPageActive) return;
     void loadSentArchives();
-  }, [loadSentArchives]);
+  }, [loadSentArchives, isPageActive]);
 
   useEffect(() => {
+    if (!isPageActive) return;
     if (!bankLedgerRules.length && !memoLearnRules.length) return;
     scheduleBackgroundLearning();
     return () => {
@@ -2157,6 +2165,7 @@ export function BankTransactionsPage({
   }, [bankLedgerRules, memoLearnRules]);
 
   useEffect(() => {
+    if (!isPageActive) return;
     if (!bankTransactions.length) return;
     scheduleBackgroundLearning();
     return () => {
@@ -2798,6 +2807,22 @@ export function BankTransactionsPage({
     [periodKey, dateFilter]
   );
 
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const deferredFlowFilter = useDeferredValue(flowFilter);
+  const deferredLedgerScopeFilter = useDeferredValue(ledgerScopeFilter);
+  const deferredStatusTab = useDeferredValue(statusTab);
+  const deferredClientNameFilter = useDeferredValue(clientNameFilter);
+  const deferredAccountSubjectFilter = useDeferredValue(accountSubjectFilter);
+  const deferredEvidenceFilter = useDeferredValue(evidenceFilter);
+  const deferredAccountFilter = useDeferredValue(accountFilter);
+  const deferredFolderScope = useDeferredValue(folderScope);
+  const deferredSelectedFolderScopeIds = useDeferredValue(selectedFolderScopeIds);
+  const deferredSort = useDeferredValue(sort);
+
+  const applyFilterTransition = useCallback((update: () => void) => {
+    startTransition(update);
+  }, []);
+
   const statusFilterContext = useMemo(
     () => ({
       ledgerCategories,
@@ -2827,86 +2852,89 @@ export function BankTransactionsPage({
   );
 
   const filteredRows = useMemo(() => {
+    if (!isPageActive) return EMPTY_BANK_TRANSACTION_ROWS;
+
     let scoped = filterBankTransactions(ledgerSyncedTransactions, {
-      search: searchQuery,
+      search: deferredSearchQuery,
       dateFrom: activePeriod.startDate,
       dateTo: activePeriod.endDate,
-      flowType: flowFilter,
-      accountNumber: accountFilter,
+      flowType: deferredFlowFilter,
+      accountNumber: deferredAccountFilter,
     });
 
-    if (selectedFolderScopeIds) {
-      scoped = scoped.filter((row) => row.folderId && selectedFolderScopeIds.has(row.folderId));
-    } else if (folderScope === "unfiled") {
+    if (deferredSelectedFolderScopeIds) {
+      scoped = scoped.filter((row) => row.folderId && deferredSelectedFolderScopeIds.has(row.folderId));
+    } else if (deferredFolderScope === "unfiled") {
       scoped = scoped.filter((row) => isBankTransactionUnfiled(row, ledgerRegistrationContext));
-    } else if (folderScope === "client") {
+    } else if (deferredFolderScope === "client") {
       const ids = new Set(clientFolders.map((folder) => folder.id));
       scoped = scoped.filter((row) => row.folderId && ids.has(row.folderId));
-    } else if (folderScope === "card") {
+    } else if (deferredFolderScope === "card") {
       const ids = new Set(cardFolders.map((folder) => folder.id));
       scoped = scoped.filter((row) => row.folderId && ids.has(row.folderId));
-    } else if (folderScope === "worker") {
+    } else if (deferredFolderScope === "worker") {
       const ids = new Set(workerFolders.map((folder) => folder.id));
       scoped = scoped.filter((row) => row.folderId && ids.has(row.folderId));
     } else {
-      const customRootId = parseCustomFolderScope(folderScope);
+      const customRootId = parseCustomFolderScope(deferredFolderScope);
       if (customRootId) {
         const ids = new Set(collectCustomCategoryFolderIds(bankTransactionFolders, customRootId));
         scoped = scoped.filter((row) => row.folderId && ids.has(row.folderId));
       }
     }
 
-    if (ledgerScopeFilter !== "all") {
+    if (deferredLedgerScopeFilter !== "all") {
       scoped = scoped.filter((row) =>
-        matchesBankTxLedgerScope(row, ledgerScopeFilter, companyExpenses, fixedExpensePayments),
+        matchesBankTxLedgerScope(row, deferredLedgerScopeFilter, companyExpenses, fixedExpensePayments),
       );
     }
 
-    if (statusTab !== "all") {
-      scoped = scoped.filter((row) => matchesBankTxStatusTab(row, statusTab, statusFilterContext));
+    if (deferredStatusTab !== "all") {
+      scoped = scoped.filter((row) => matchesBankTxStatusTab(row, deferredStatusTab, statusFilterContext));
     }
 
-    if (clientNameFilter) {
+    if (deferredClientNameFilter) {
       scoped = scoped.filter((row) => {
         const name = resolveBankTxClientName(row) || String(row.linkedSubject || "").trim();
-        return name === clientNameFilter;
+        return name === deferredClientNameFilter;
       });
     }
 
-    if (accountSubjectFilter) {
-      scoped = scoped.filter((row) => String(row.ledgerAccountCode || "").trim() === accountSubjectFilter);
+    if (deferredAccountSubjectFilter) {
+      scoped = scoped.filter((row) => String(row.ledgerAccountCode || "").trim() === deferredAccountSubjectFilter);
     }
 
-    if (evidenceFilter !== "all") {
-      scoped = scoped.filter((row) => matchesBankTxEvidenceFilter(row, evidenceFilter));
+    if (deferredEvidenceFilter !== "all") {
+      scoped = scoped.filter((row) => matchesBankTxEvidenceFilter(row, deferredEvidenceFilter));
     }
 
-    return sortBankTransactions(scoped, { key: sort.key, direction: sort.direction });
+    return sortBankTransactions(scoped, { key: deferredSort.key, direction: deferredSort.direction });
   }, [
+    isPageActive,
     ledgerSyncedTransactions,
-    searchQuery,
+    deferredSearchQuery,
     activePeriod.startDate,
     activePeriod.endDate,
-    flowFilter,
-    ledgerScopeFilter,
-    statusTab,
+    deferredFlowFilter,
+    deferredLedgerScopeFilter,
+    deferredStatusTab,
     statusFilterContext,
-    clientNameFilter,
-    accountSubjectFilter,
-    evidenceFilter,
+    deferredClientNameFilter,
+    deferredAccountSubjectFilter,
+    deferredEvidenceFilter,
     companyExpenses,
     fixedExpensePayments,
     fixedExpenses,
     ledgerCategories,
-    accountFilter,
-    selectedFolderScopeIds,
-    folderScope,
+    deferredAccountFilter,
+    deferredSelectedFolderScopeIds,
+    deferredFolderScope,
     clientFolders,
     cardFolders,
     workerFolders,
     bankTransactionFolders,
     ledgerRegistrationContext,
-    sort,
+    deferredSort,
   ]);
 
   const deferredFilteredRows = useDeferredValue(filteredRows);
@@ -3108,13 +3136,13 @@ export function BankTransactionsPage({
   ]);
 
   const recurringFixedPatterns = useMemo(
-    () => detectRecurringFixedExpensePatterns(bankTransactions, fixedExpenses),
-    [bankTransactions, fixedExpenses],
+    () => (isPageActive ? detectRecurringFixedExpensePatterns(bankTransactions, fixedExpenses) : []),
+    [isPageActive, bankTransactions, fixedExpenses],
   );
 
   const preauthNetGroups = useMemo(
-    () => detectPreauthNetGroups(bankTransactions, bankLedgerRules),
-    [bankTransactions, bankLedgerRules],
+    () => (isPageActive ? detectPreauthNetGroups(bankTransactions, bankLedgerRules) : []),
+    [isPageActive, bankTransactions, bankLedgerRules],
   );
 
   const openPreauthNetModal = () => {
@@ -5201,53 +5229,61 @@ export function BankTransactionsPage({
       {hasAnyData && pageView === "list" ? (
         <BankTransactionFilterBar
           periodKey={periodKey}
-          onPeriodKeyChange={setPeriodKey}
+          onPeriodKeyChange={(key) => applyFilterTransition(() => setPeriodKey(key))}
           startDate={activePeriod.startDate}
           endDate={activePeriod.endDate}
-          onStartDateChange={(value) => setDateFilter((prev) => ({ ...prev, startDate: value }))}
-          onEndDateChange={(value) => setDateFilter((prev) => ({ ...prev, endDate: value }))}
+          onStartDateChange={(value) =>
+            applyFilterTransition(() => setDateFilter((prev) => ({ ...prev, startDate: value })))
+          }
+          onEndDateChange={(value) =>
+            applyFilterTransition(() => setDateFilter((prev) => ({ ...prev, endDate: value })))
+          }
           statusTab={statusTab}
-          onStatusTabChange={setStatusTab}
+          onStatusTabChange={(tab) => applyFilterTransition(() => setStatusTab(tab))}
           statusCounts={statusCounts}
           flowFilter={flowFilter}
-          onFlowFilterChange={setFlowFilter}
+          onFlowFilterChange={(value) => applyFilterTransition(() => setFlowFilter(value))}
           accountFilter={accountFilter}
-          onAccountFilterChange={setAccountFilter}
+          onAccountFilterChange={(value) => applyFilterTransition(() => setAccountFilter(value))}
           accounts={accountSummaries}
           accountSubjectFilter={accountSubjectFilter}
-          onAccountSubjectFilterChange={setAccountSubjectFilter}
+          onAccountSubjectFilterChange={(value) => applyFilterTransition(() => setAccountSubjectFilter(value))}
           accountSubjects={accountSubjectFilterOptions}
           clientFilter={clientNameFilter}
-          onClientFilterChange={setClientNameFilter}
+          onClientFilterChange={(value) => applyFilterTransition(() => setClientNameFilter(value))}
           clients={clients}
           groupFilter={groupFilter}
           onGroupFilterChange={(value) => {
-            setGroupFilter(value);
-            setSelectedFolderId("");
-            if (value === "all") setFolderScope("all");
-            else setFolderScope(value);
+            applyFilterTransition(() => {
+              setGroupFilter(value);
+              setSelectedFolderId("");
+              if (value === "all") setFolderScope("all");
+              else setFolderScope(value);
+            });
           }}
           evidenceFilter={evidenceFilter}
-          onEvidenceFilterChange={setEvidenceFilter}
+          onEvidenceFilterChange={(value) => applyFilterTransition(() => setEvidenceFilter(value))}
           searchQuery={searchQuery}
-          onSearchQueryChange={setSearchQuery}
+          onSearchQueryChange={(value) => applyFilterTransition(() => setSearchQuery(value))}
           filterResetKey={filterResetKey}
           onReset={() => {
-            setPeriodKey("all");
-            setDateFilter({ startDate: "", endDate: "" });
-            setFlowFilter("all");
-            setLedgerScopeFilter("all");
-            setStatusTab("all");
-            setAccountFilter("");
-            setAccountSubjectFilter("");
-            setClientNameFilter("");
-            setGroupFilter("all");
-            setFolderScope("all");
-            setSelectedFolderId("");
-            setEvidenceFilter("all");
-            setSearchQuery("");
-            setFilterResetKey((key) => key + 1);
-            setSort(DEFAULT_BANK_TRANSACTION_SORT);
+            startTransition(() => {
+              setPeriodKey("thisMonth");
+              setDateFilter({ startDate: "", endDate: "" });
+              setFlowFilter("all");
+              setLedgerScopeFilter("all");
+              setStatusTab("all");
+              setAccountFilter("");
+              setAccountSubjectFilter("");
+              setClientNameFilter("");
+              setGroupFilter("all");
+              setFolderScope("all");
+              setSelectedFolderId("");
+              setEvidenceFilter("all");
+              setSearchQuery("");
+              setFilterResetKey((key) => key + 1);
+              setSort(DEFAULT_BANK_TRANSACTION_SORT);
+            });
           }}
         />
       ) : null}
@@ -5270,6 +5306,7 @@ export function BankTransactionsPage({
         >
           <BankTransactionListSection
             rows={deferredFilteredRows}
+            isListActive={isPageActive && pageView === "list"}
             accountSubjectLabels={accountSubjectLabels}
             folderMap={folderMap}
             ledgerCategoryFolder={ledgerCategoryFolder}
