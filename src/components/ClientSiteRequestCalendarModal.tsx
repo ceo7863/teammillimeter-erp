@@ -14,6 +14,7 @@ import {
   type ClientSiteRequestLink,
 } from "@/utils/clientSiteRequests";
 import { fetchStaffScSchedules, type ScSchedule } from "@/utils/scSchedules";
+import { useBackdropCloseGuard } from "@/utils/modalBackdrop";
 
 const L = {
   title: "\uC811\uC218 \uCE98\uB9B0\uB354",
@@ -95,15 +96,13 @@ export function ClientSiteRequestCalendarModal({
 
   const modal = (
     <div
-      className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+      className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated erp-client-request-calendar-modal-backdrop"
+      onClick={(event) => handleBackdropClose(event, onClose)}
     >
       <div
         className="erp-ledger-modal erp-client-request-calendar-modal"
         style={{ width: "min(100%, 48rem)", padding: 0 }}
-        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="client-site-request-calendar-title"

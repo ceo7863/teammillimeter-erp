@@ -181,9 +181,13 @@ function RequestCard({
             {onClientNameClick ? (
               <button
                 type="button"
-                className="text-base font-bold text-blue-700 underline decoration-blue-300 underline-offset-2 hover:text-blue-900"
+                className="erp-touch-target text-base font-bold text-blue-700 underline decoration-blue-300 underline-offset-2 hover:text-blue-900"
                 title={L.calendarTitle}
-                onClick={() => onClientNameClick(request)}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  window.setTimeout(() => onClientNameClick(request), 0);
+                }}
               >
                 {request.clientName}
               </button>

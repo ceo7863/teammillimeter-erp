@@ -1249,7 +1249,7 @@ textarea {
 }
 
 .erp-csr-cal-drawer-backdrop--elevated {
-  z-index: 80;
+  z-index: 110;
 }
 
 .erp-csr-cal-drawer {
@@ -11647,6 +11647,10 @@ body.erp-col-resizing * {
 
 .erp-ledger-modal-backdrop--top {
   z-index: 80;
+}
+
+.erp-client-request-calendar-modal-backdrop {
+  z-index: 100;
 }
 
 .erp-ledger-modal {
