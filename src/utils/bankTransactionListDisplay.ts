@@ -13,6 +13,7 @@ import { getBankTxLedgerCategoryLabel } from "@/utils/ledgerBankBridge";
 import {
   formatTaxInvoiceEvidenceLabel,
   getBankTxClassifiedAmount,
+  isBankTxClientHidden,
   resolveBankTxClientName,
 } from "@/utils/bankTaxInvoiceLink";
 import type { AccountCode, LedgerCategory } from "@/utils/ledgerSystem";
@@ -226,7 +227,8 @@ export function buildBankTransactionListRowModel(
   const accountSubjectLabel = accountCode
     ? resolveAccountCodeLabel(accountCodes, accountCode) || accountCode
     : null;
-  const clientLabel = resolveBankTxClientName(row) || unfiledClientName || null;
+  const clientHidden = isBankTxClientHidden(row);
+  const clientLabel = clientHidden ? null : resolveBankTxClientName(row) || unfiledClientName || null;
   const classifiedAmount = getBankTxClassifiedAmount(row);
   const linkedInvoice = row.linkedTaxInvoiceId ? taxInvoiceById.get(row.linkedTaxInvoiceId) : undefined;
   const evidenceLabel = linkedInvoice ? formatTaxInvoiceEvidenceLabel(linkedInvoice) : null;

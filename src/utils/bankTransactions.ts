@@ -164,7 +164,12 @@ export function normalizeBankTransaction(raw: Partial<BankTransaction> & { id: s
     ledgerFixedExpenseId: raw.ledgerFixedExpenseId ? String(raw.ledgerFixedExpenseId) : undefined,
     ledgerConfirmedAt: raw.ledgerConfirmedAt ? String(raw.ledgerConfirmedAt) : undefined,
     ledgerConfirmedBy: raw.ledgerConfirmedBy ? String(raw.ledgerConfirmedBy) : undefined,
-    ledgerClientName: raw.ledgerClientName ? String(raw.ledgerClientName) : undefined,
+    ledgerClientName:
+      raw.ledgerClientName === ""
+        ? ""
+        : raw.ledgerClientName
+          ? String(raw.ledgerClientName)
+          : undefined,
     linkedTaxInvoiceId: raw.linkedTaxInvoiceId ? String(raw.linkedTaxInvoiceId) : undefined,
     taxInvoiceAutoLinkDisabled: raw.taxInvoiceAutoLinkDisabled === true ? true : undefined,
   };
@@ -460,7 +465,8 @@ function parseLedgerConfirmedAtMs(value: string | undefined) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function normalizeLedgerMergeValue(value: unknown) {
+function normalizeLedgerMergeValue(value: unknown, key?: (typeof LEDGER_MERGE_FIELD_KEYS)[number]) {
+  if (key === "ledgerClientName" && value === "") return "";
   if (value === null || value === undefined || value === "") return undefined;
   return value;
 }
@@ -471,9 +477,9 @@ function pickLedgerMergeField(
   key: (typeof LEDGER_MERGE_FIELD_KEYS)[number],
 ) {
   if (primary && Object.prototype.hasOwnProperty.call(primary, key)) {
-    return normalizeLedgerMergeValue(primary[key]);
+    return normalizeLedgerMergeValue(primary[key], key);
   }
-  return normalizeLedgerMergeValue(fallback?.[key]);
+  return normalizeLedgerMergeValue(fallback?.[key], key);
 }
 
 export function mergeBankTransactionLedgerFields(local: LedgerMergeRow, incoming: LedgerMergeRow): LedgerMergeRow {

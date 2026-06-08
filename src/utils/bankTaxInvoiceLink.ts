@@ -32,7 +32,12 @@ export function getBankTxClassifiedAmount(tx: BankTransaction) {
   return Math.max(Number(tx.deposit || 0), Number(tx.withdrawal || 0));
 }
 
+export function isBankTxClientHidden(tx: Pick<BankTransaction, "ledgerClientName">) {
+  return tx.ledgerClientName === "";
+}
+
 export function resolveBankTxClientName(tx: BankTransaction) {
+  if (isBankTxClientHidden(tx)) return null;
   return String(tx.ledgerClientName || tx.linkedSubject || "").trim() || null;
 }
 

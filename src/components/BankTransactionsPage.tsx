@@ -2339,7 +2339,10 @@ function BankTransactionsPageComponent({
     setTxCellModalError("");
     setClientModal({
       tx,
-      draft: String(tx.ledgerClientName || tx.linkedSubject || "").trim(),
+      draft:
+        tx.ledgerClientName === ""
+          ? ""
+          : String(tx.ledgerClientName || tx.linkedSubject || "").trim(),
     });
   }, []);
 
@@ -2556,18 +2559,18 @@ function BankTransactionsPageComponent({
     if (!clientModal) return;
     const clientName = clientModal.draft.trim();
     const { tx } = clientModal;
+    const confirmedAt = new Date().toISOString();
     const nextRow: BankTransaction = clientName
       ? {
           ...tx,
           ledgerClientName: clientName,
+          ledgerConfirmedAt: confirmedAt,
           linkedSubject: tx.deposit > 0 ? clientName : tx.linkedSubject,
         }
       : {
           ...tx,
-          ledgerClientName: undefined,
-          ...(Number(tx.deposit || 0) > 0
-            ? { linkedSubject: undefined, classifiedAt: tx.matchConfirmedAt ? tx.classifiedAt : undefined }
-            : {}),
+          ledgerClientName: "",
+          ledgerConfirmedAt: confirmedAt,
         };
     auditBankTxUpdate(tx, nextRow);
     const nextTransactions = bankTransactions.map((row) => (row.id === tx.id ? nextRow : row));
