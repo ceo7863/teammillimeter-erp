@@ -179,8 +179,9 @@ function BankTransactionsListPanelComponent({
             ledgerCategories={ledgerCategories}
             accountCodes={accountCodes}
             taxInvoices={taxInvoices}
-            clients={clients}
-            paymentVouchers={paymentVouchers}
+        clients={clients}
+        workers={workers}
+        paymentVouchers={paymentVouchers}
             labels={labels}
             onEditMemo={onEditMemo}
             onEditAccountSubject={onEditAccountSubject}
@@ -236,10 +237,10 @@ function bankTransactionsListPanelPropsAreEqual(
   if (prev.autoClassifyLabel !== next.autoClassifyLabel) return false;
   if (prev.addFixedExpenseLabel !== next.addFixedExpenseLabel) return false;
 
-  if (prev.stats.count !== next.stats.count) return false;
-  if (prev.stats.deposits !== next.stats.deposits) return false;
-  if (prev.stats.withdrawals !== next.stats.withdrawals) return false;
-  if (prev.stats.net !== next.stats.net) return false;
+  if ((prev.stats?.count ?? 0) !== (next.stats?.count ?? 0)) return false;
+  if ((prev.stats?.deposits ?? 0) !== (next.stats?.deposits ?? 0)) return false;
+  if ((prev.stats?.withdrawals ?? 0) !== (next.stats?.withdrawals ?? 0)) return false;
+  if ((prev.stats?.net ?? 0) !== (next.stats?.net ?? 0)) return false;
 
   if (prev.rows !== next.rows) {
     if (prev.rows.length !== next.rows.length) return false;

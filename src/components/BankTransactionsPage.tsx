@@ -2267,6 +2267,11 @@ function BankTransactionsPageComponent({
     [clients]
   );
 
+  const clientModalAutocompleteOptions = useMemo(
+    () => [{ label: "\ube44\uc6b0\uae30", value: "", raw: null }, ...clientAutocompleteOptions],
+    [clientAutocompleteOptions],
+  );
+
   const fixedExpenseSelectOptions = useMemo(
     () =>
       fixedExpenses
@@ -2550,16 +2555,20 @@ function BankTransactionsPageComponent({
   const saveClientModal = () => {
     if (!clientModal) return;
     const clientName = clientModal.draft.trim();
-    if (!clientName) {
-      setTxCellModalError(L.clientRequired);
-      return;
-    }
     const { tx } = clientModal;
-    const nextRow: BankTransaction = {
-      ...tx,
-      ledgerClientName: clientName,
-      linkedSubject: tx.deposit > 0 ? clientName : tx.linkedSubject,
-    };
+    const nextRow: BankTransaction = clientName
+      ? {
+          ...tx,
+          ledgerClientName: clientName,
+          linkedSubject: tx.deposit > 0 ? clientName : tx.linkedSubject,
+        }
+      : {
+          ...tx,
+          ledgerClientName: undefined,
+          ...(Number(tx.deposit || 0) > 0
+            ? { linkedSubject: undefined, classifiedAt: tx.matchConfirmedAt ? tx.classifiedAt : undefined }
+            : {}),
+        };
     auditBankTxUpdate(tx, nextRow);
     const nextTransactions = bankTransactions.map((row) => (row.id === tx.id ? nextRow : row));
     setBankTransactions(nextTransactions);
@@ -6490,7 +6499,7 @@ function BankTransactionsPageComponent({
                   setTxCellModalError("");
                   setClientModal((prev) => (prev ? { ...prev, draft: String(value || "") } : prev));
                 }}
-                options={clientAutocompleteOptions}
+                options={clientModalAutocompleteOptions}
                 placeholder={L.clientPlaceholder}
                 freeSolo={false}
                 showOptionsOnFocus

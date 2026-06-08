@@ -1,4 +1,4 @@
-const CACHE_NAME = "teammillimeter-erp-shell-v1";
+const CACHE_NAME = "teammillimeter-erp-shell-v2";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());

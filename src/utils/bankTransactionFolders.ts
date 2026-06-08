@@ -442,7 +442,7 @@ function validateFolderParent(
   if (parent.folderType !== folderType) return "\uC0C1\uC704 \uD3F4\uB354\uB294 \uAC19\uC740 \uAD6C\uBD84\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4.";
   if (folderId) {
     const descendants = new Set(collectDescendantFolderIds(folders, folderId));
-    if (descendants.includes(parentId)) return "\uD558\uC704 \uD3F4\uB354\uB97C \uC0C1\uC704 \uD3F4\uB354\uB85C \uC124\uC815\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.";
+    if (descendants.has(parentId)) return "\uD558\uC704 \uD3F4\uB354\uB97C \uC0C1\uC704 \uD3F4\uB354\uB85C \uC124\uC815\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.";
   }
   return "";
 }

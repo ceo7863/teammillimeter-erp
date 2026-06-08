@@ -317,11 +317,11 @@ function BankTransactionFilterBarComponent({
           onChange={(value) => setDraft((prev) => ({ ...prev, clientFilter: value }))}
         >
           <option value="">{"\uC804\uCCB4"}</option>
-          {clients.map((client) => {
+          {clients.map((client, index) => {
             const name = String(client.name || "").trim();
             if (!name) return null;
             return (
-              <option key={name} value={name}>
+              <option key={`${name}-${index}`} value={name}>
                 {name}
               </option>
             );
