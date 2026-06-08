@@ -10,6 +10,7 @@ import {
   countsAsClientSiteRequestInbox,
   ensureClientSiteRequestLink,
   formatClientSiteRequestWorkPeriod,
+  isClientSiteRequestChangeRequest,
   listClientSiteRequestLinks,
   listClientSiteRequests,
   openClientSiteRequestLink,
@@ -246,7 +247,7 @@ function RequestCard({
                 {L.unreadChat}
               </span>
             ) : null}
-            {request.changeFromRequestId ? (
+            {isClientSiteRequestChangeRequest(request) ? (
               <span className="inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-xs font-bold text-violet-700">
                 {L.changeRequestedBadge}
               </span>

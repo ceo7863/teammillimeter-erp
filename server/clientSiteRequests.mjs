@@ -78,6 +78,8 @@ function sanitizePublicClientSiteRequest(row) {
     receiptCompletedAt: row.receiptCompletedAt || null,
     registerCompletedAt: row.registerCompletedAt || null,
     cancelRequestedAt: row.cancelRequestedAt || null,
+    changeFromRequestId: row.changeFromRequestId || null,
+    requestKind: row.requestKind === "change" ? "change" : null,
     messages: normalizeMessages(row.messages),
     lastMessageAt: row.lastMessageAt,
     unreadByClient: Boolean(row.unreadByClient),
@@ -227,6 +229,7 @@ export function submitClientSiteRequest(token, body = {}) {
     finalMemo = [`[\uC77C\uC815 \uBCC0\uACBD \uC694\uCCAD] ${changeSourceSummary}`, memo].filter(Boolean).join("\n").trim();
   }
 
+  const isChangeRequest = Boolean(linkedChangeFromRequestId || changeSourceSummary);
   const now = new Date().toISOString();
   const request = {
     id: newRequestId(),
@@ -251,6 +254,7 @@ export function submitClientSiteRequest(token, body = {}) {
     registerCompletedBy: null,
     messages: [],
     ...(linkedChangeFromRequestId ? { changeFromRequestId: linkedChangeFromRequestId } : {}),
+    ...(isChangeRequest ? { requestKind: "change" } : {}),
   };
 
   const requests = [request, ...listRequests(data)];

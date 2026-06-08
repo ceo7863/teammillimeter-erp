@@ -12,6 +12,7 @@ import {
   fetchPublicClientSiteRequestInfo,
   formatClientSiteRequestWorkPeriod,
   isClientSiteRequestVisibleOnPublicCalendar,
+  isClientSiteRequestChangeRequest,
   listPublicClientSiteRequests,
   postPublicClientSiteRequestMessage,
   requestCoversWorkDate,
@@ -78,6 +79,7 @@ const L = {
   changeModalDesc: "\uBCC0\uACBD\uD560 \uC0C8 \uC77C\uC815\uACFC \uC815\uBCF4\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.",
   changeSubmit: "\uBCC0\uACBD \uC811\uC218 \uC694\uCCAD",
   changeFromLabel: (label: string) => `\uAE30\uC874 \uC77C\uC815: ${label}`,
+  changeDone: "\uC77C\uC815 \uBCC0\uACBD \uC694\uCCAD\uC774 \uC811\uC218\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uC811\uC218 \uB0B4\uC5ED\uC5D0\uC11C \uD655\uC778\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
 };
 
 type ClientSiteRequestPageProps = {
@@ -118,6 +120,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [doneRequestId, setDoneRequestId] = useState("");
   const [tab, setTab] = useState<PageTab>("calendar");
   const [requests, setRequests] = useState<ClientSiteRequest[]>([]);
@@ -386,6 +389,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
     setSubmitting(true);
     setError("");
     try {
+      const wasChange = submitMode === "change";
       const request = await submitPublicClientSiteRequest(token, {
         workDate: normalizedWorkDate,
         workDateEnd: normalizedWorkDateEnd || undefined,
@@ -400,15 +404,22 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
             ? { changeSourceSummary: changeSourceRef.current.summary }
             : {}),
       });
-      setDoneRequestId(request.id);
-      setSelectedRequestId(request.id);
+      if (wasChange) {
+        setDoneRequestId("");
+        setSelectedRequestId(request.id);
+        setTab("history");
+        setNotice(L.changeDone);
+      } else {
+        setDoneRequestId(request.id);
+        setSelectedRequestId(request.id);
+        setCalendarMonthKey(normalizedWorkDate.slice(0, 7));
+        setSelectedCalendarDate(normalizedWorkDate);
+      }
       setSelectedScScheduleId("");
       setSubmitModalOpen(false);
       setSubmitMode("new");
       changeSourceRef.current = null;
       setChangeSourceLabel("");
-      setCalendarMonthKey(normalizedWorkDate.slice(0, 7));
-      setSelectedCalendarDate(normalizedWorkDate);
       setSiteName("");
       setWorkerCount("");
       setMemo("");
@@ -588,6 +599,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
               </div>
             ) : (
               <div className="space-y-4">
+                {notice ? <p className="text-sm font-semibold text-blue-700">{notice}</p> : null}
                 {!historyRequests.length ? (
                   <p className="text-sm text-slate-500">{L.emptyHistory}</p>
                 ) : (

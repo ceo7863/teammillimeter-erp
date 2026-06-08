@@ -47,6 +47,7 @@ export type ClientSiteRequest = {
   unreadByStaff?: boolean;
   unreadByClient?: boolean;
   changeFromRequestId?: string | null;
+  requestKind?: "schedule" | "change" | null;
 };
 
 export type ClientSiteRequestChangeSource =
@@ -101,8 +102,14 @@ export type ClientSiteRequestPublicStatusTone =
   | "cancelled";
 
 export function clientSiteRequestPublicStatusLabel(
-  request: Pick<ClientSiteRequest, "status" | "receiptCompletedAt" | "registerCompletedAt">,
+  request: Pick<
+    ClientSiteRequest,
+    "status" | "receiptCompletedAt" | "registerCompletedAt" | "changeFromRequestId" | "requestKind" | "memo"
+  >,
 ) {
+  if (isClientSiteRequestChangeRequest(request) && request.status === "pending") {
+    return "\uC77C\uC815 \uBCC0\uACBD \uC694\uCCAD";
+  }
   if (request.status === "cancelled") return "\uCDE8\uC18C \uC644\uB8CC";
   if (request.status === "cancel_pending") return "\uCDE8\uC18C \uC694\uCCAD \uC911";
   if (request.status === "rejected") return "\uBC18\uB824";
@@ -124,10 +131,20 @@ export function clientSiteRequestPublicStatusTone(
   return "pending";
 }
 
-export function isClientSiteRequestVisibleOnPublicCalendar(
-  request: Pick<ClientSiteRequest, "status">,
+export function isClientSiteRequestChangeRequest(
+  request: Pick<ClientSiteRequest, "changeFromRequestId" | "requestKind" | "memo">,
 ) {
-  return request.status !== "cancelled";
+  if (request.requestKind === "change") return true;
+  if (request.changeFromRequestId) return true;
+  return String(request.memo || "").trimStart().startsWith("[\uC77C\uC815 \uBCC0\uACBD \uC694\uCCAD]");
+}
+
+export function isClientSiteRequestVisibleOnPublicCalendar(
+  request: Pick<ClientSiteRequest, "status" | "changeFromRequestId" | "requestKind" | "memo">,
+) {
+  if (request.status === "cancelled") return false;
+  if (isClientSiteRequestChangeRequest(request)) return false;
+  return true;
 }
 
 export function countsAsClientSiteRequestInbox(
