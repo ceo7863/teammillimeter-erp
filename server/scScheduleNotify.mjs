@@ -37,7 +37,7 @@ export function filterSchedulesForDate(schedules, dateKey) {
   return schedules.filter((row) => String(row?.workDate || "").slice(0, 10) === target);
 }
 
-export function formatScheduleDateTime(workDate, startTime, endTime) {
+export function formatScheduleDateTime(workDate) {
   const date = String(workDate || "").slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return "";
   const weekday = new Intl.DateTimeFormat("ko-KR", {
@@ -45,10 +45,7 @@ export function formatScheduleDateTime(workDate, startTime, endTime) {
     weekday: "short",
   }).format(new Date(`${date}T12:00:00+09:00`));
   const [, month, day] = date.split("-").map(Number);
-  const start = String(startTime || "").trim();
-  const end = String(endTime || "").trim();
-  const timePart = start && end ? `${start}~${end}` : start || end || "";
-  return `${month}? ${day}? ${weekday}${timePart ? ` · ${timePart}` : ""}`;
+  return `${month}\uC6D4 ${day}\uC77C ${weekday}`;
 }
 
 export function formatScheduleTemplateVars(schedule, shareToken = "") {
@@ -59,7 +56,7 @@ export function formatScheduleTemplateVars(schedule, shareToken = "") {
     client: String(schedule?.clientName || schedule?.projectName || "").trim(),
     site: String(schedule?.projectName || "").trim(),
     workers: participantNames.join(", "),
-    dateTime: formatScheduleDateTime(schedule?.workDate, schedule?.startTime, schedule?.endTime),
+    dateTime: formatScheduleDateTime(schedule?.workDate),
     shareToken: String(shareToken || "").trim(),
   };
 }
