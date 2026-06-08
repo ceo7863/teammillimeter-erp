@@ -269,6 +269,18 @@ textarea {
   contain: layout style;
 }
 
+.erp-account-picker-popover__virtual-list {
+  width: 100%;
+  contain: layout style;
+}
+
+.erp-account-picker-popover__virtual-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
 .erp-account-picker-popover__excel-group {
   padding: 0.15rem 0.35rem 0.05rem;
   font-size: 0.5625rem;

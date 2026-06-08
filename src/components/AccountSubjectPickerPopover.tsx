@@ -1,5 +1,6 @@
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Plus } from "lucide-react";
 import type { AccountCodePickerFlatItem } from "@/utils/accountCodeTree";
 import { filterAccountCodePickerFlatItems } from "@/utils/accountCodeTree";
@@ -30,6 +31,9 @@ type VirtualPickerRow =
 
 const EXCEL_LIST_MAX_HEIGHT = 360;
 const EXCEL_POPOVER_MIN_WIDTH = 280;
+const PICKER_VIRTUAL_THRESHOLD = 48;
+const PICKER_GROUP_ROW_PX = 24;
+const PICKER_ITEM_ROW_PX = 30;
 
 function buildVirtualPickerRows(flatItems: AccountCodePickerFlatItem[]): VirtualPickerRow[] {
   const rows: VirtualPickerRow[] = [];
@@ -153,6 +157,33 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
   );
 
   const pickerRows = useMemo(() => buildVirtualPickerRows(flatItems), [flatItems]);
+  const useVirtualPicker = pickerRows.length > PICKER_VIRTUAL_THRESHOLD;
+
+  const pickItem = useCallback(
+    (item: AccountCodePickerFlatItem | undefined) => {
+      if (!item) return;
+      const saved = onSelect(item.code);
+      if (saved === false) return;
+      window.requestAnimationFrame(() => onClose());
+    },
+    [onClose, onSelect],
+  );
+
+  const rowVirtualizer = useVirtualizer({
+    count: useVirtualPicker ? pickerRows.length : 0,
+    getScrollElement: () => listRef.current,
+    estimateSize: (index) =>
+      pickerRows[index]?.kind === "group" ? PICKER_GROUP_ROW_PX : PICKER_ITEM_ROW_PX,
+    overscan: 10,
+    getItemKey: (index) => pickerRows[index]?.key ?? index,
+  });
+
+  const highlightedPickerRowIndex = useMemo(() => {
+    const index = pickerRows.findIndex(
+      (row) => row.kind === "item" && row.itemIndex === highlightedIndex,
+    );
+    return index >= 0 ? index : 0;
+  }, [highlightedIndex, pickerRows]);
 
   const updatePosition = useCallback(() => {
     const style = computeExcelPopoverStyle(readBankTxAccountTriggerRect(triggerId));
@@ -224,18 +255,12 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
   useEffect(() => {
     if (!keyboardNavRef.current) return;
     keyboardNavRef.current = false;
+    if (useVirtualPicker) {
+      rowVirtualizer.scrollToIndex(highlightedPickerRowIndex, { align: "auto" });
+      return;
+    }
     activeItemRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [highlightedIndex]);
-
-  const pickItem = useCallback(
-    (item: AccountCodePickerFlatItem | undefined) => {
-      if (!item) return;
-      const saved = onSelect(item.code);
-      if (saved === false) return;
-      window.requestAnimationFrame(() => onClose());
-    },
-    [onClose, onSelect],
-  );
+  }, [highlightedIndex, highlightedPickerRowIndex, rowVirtualizer, useVirtualPicker]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -351,6 +376,42 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
       <div ref={listRef} className="erp-account-picker-popover__list erp-account-picker-popover__list--excel">
         {!flatItems.length ? (
           <p className="erp-account-picker-popover__empty">{labels.empty}</p>
+        ) : useVirtualPicker ? (
+          <div
+            className="erp-account-picker-popover__virtual-list"
+            style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const row = pickerRows[virtualRow.index];
+              if (!row) return null;
+              if (row.kind === "group") {
+                return (
+                  <div
+                    key={virtualRow.key}
+                    className="erp-account-picker-popover__virtual-row"
+                    style={{ transform: `translateY(${virtualRow.start}px)` }}
+                  >
+                    <PickerGroupRow groupName={row.groupName} />
+                  </div>
+                );
+              }
+              return (
+                <div
+                  key={virtualRow.key}
+                  className="erp-account-picker-popover__virtual-row"
+                  style={{ transform: `translateY(${virtualRow.start}px)` }}
+                >
+                  <PickerItemRow
+                    item={row.item}
+                    isSelected={row.item.code === selectedCode}
+                    isActive={row.itemIndex === highlightedIndex}
+                    itemRef={activeItemRef}
+                    onPick={pickItem}
+                  />
+                </div>
+              );
+            })}
+          </div>
         ) : (
           <div className="erp-account-picker-popover__static-list">
             {pickerRows.map((row) => {

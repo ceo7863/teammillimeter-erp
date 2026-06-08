@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback, useDeferredValue } from "react";
-import { createPortal, flushSync } from "react-dom";
+import { createPortal } from "react-dom";
 import {
   ArrowDownLeft,
   ArrowLeftRight,
@@ -1064,6 +1064,12 @@ export function BankTransactionsPage({
   const accountSubjectPickerTxIdRef = useRef<string | null>(null);
   const [accountSubjectLabels, setAccountSubjectLabels] = useState<Record<string, string>>({});
   const accountSubjectIgnoreOpenUntilRef = useRef(0);
+  const bankAccountSaveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bankAccountSavePatchRef = useRef<{
+    bankTransactions: BankTransaction[];
+    companyExpenses?: typeof companyExpenses;
+    fixedExpensePayments?: typeof fixedExpensePayments;
+  } | null>(null);
   const bankTransactionsRef = useRef(bankTransactions);
   bankTransactionsRef.current = bankTransactions;
   const [fixedExpenseModal, setFixedExpenseModal] = useState<TxFixedExpenseModal | null>(null);
@@ -1163,6 +1169,35 @@ export function BankTransactionsPage({
       addAccount: L.addAccountCode,
     }),
     [],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (bankAccountSaveDebounceRef.current) {
+        window.clearTimeout(bankAccountSaveDebounceRef.current);
+      }
+    };
+  }, []);
+
+  const queueBankAccountSubjectSave = useCallback(
+    (patch: {
+      bankTransactions: BankTransaction[];
+      companyExpenses?: typeof companyExpenses;
+      fixedExpensePayments?: typeof fixedExpensePayments;
+    }) => {
+      bankAccountSavePatchRef.current = patch;
+      if (bankAccountSaveDebounceRef.current) {
+        window.clearTimeout(bankAccountSaveDebounceRef.current);
+      }
+      bankAccountSaveDebounceRef.current = window.setTimeout(() => {
+        bankAccountSaveDebounceRef.current = null;
+        const pending = bankAccountSavePatchRef.current;
+        bankAccountSavePatchRef.current = null;
+        if (!pending) return;
+        void onRequestImmediateSave?.(pending);
+      }, 400);
+    },
+    [onRequestImmediateSave],
   );
 
   useEffect(() => {
@@ -2595,17 +2630,15 @@ export function BankTransactionsPage({
         return row ? formatAccountCodeLabel(row, accountCodes) : code;
       })();
       bankTransactionsRef.current = nextTransactions;
-      flushSync(() => {
-        setAccountSubjectLabels((labels) => ({ ...labels, [txKey]: optimisticLabel }));
-        setBankTransactions(nextTransactions);
-        setCompanyExpenses(detached.expenses);
-        setFixedExpensePayments(detached.payments);
-        setAccountSubjectPicker(null);
-        accountSubjectPickerTxIdRef.current = null;
-        setTxCellModalError("");
-        setImportMessage(L.cellSaveDone);
-      });
-      void onRequestImmediateSave?.({
+      setAccountSubjectLabels((labels) => ({ ...labels, [txKey]: optimisticLabel }));
+      setBankTransactions(nextTransactions);
+      setCompanyExpenses(detached.expenses);
+      setFixedExpensePayments(detached.payments);
+      setAccountSubjectPicker(null);
+      accountSubjectPickerTxIdRef.current = null;
+      setTxCellModalError("");
+      setImportMessage(L.cellSaveDone);
+      queueBankAccountSubjectSave({
         bankTransactions: nextTransactions,
         companyExpenses: detached.expenses,
         fixedExpensePayments: detached.payments,
@@ -2618,7 +2651,7 @@ export function BankTransactionsPage({
       companyExpenses,
       fixedExpensePayments,
       ledgerCategories,
-      onRequestImmediateSave,
+      queueBankAccountSubjectSave,
       savedBy,
       setBankTransactions,
       setCompanyExpenses,
@@ -2874,6 +2907,8 @@ export function BankTransactionsPage({
     ledgerRegistrationContext,
     sort,
   ]);
+
+  const deferredFilteredRows = useDeferredValue(filteredRows);
 
   const counterpartyDrawerRows = useMemo(() => {
     if (!counterpartyDrawer) return [];
@@ -5233,8 +5268,8 @@ export function BankTransactionsPage({
           getParsedTable={getBankTransactionsExportParsed}
         >
           <BankTransactionListSection
-            key={`${erpVersion}-${bankTransactions.length}-${bankListRefreshAt || "initial"}`}
-            rows={filteredRows}
+            key={`bank-list-${bankListRefreshAt || "initial"}-${bankTransactions.length}`}
+            rows={deferredFilteredRows}
             accountSubjectLabels={accountSubjectLabels}
             folderMap={folderMap}
             ledgerCategoryFolder={ledgerCategoryFolder}
