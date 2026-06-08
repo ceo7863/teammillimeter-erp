@@ -116,7 +116,7 @@ export function ClientSiteRequestCalendarModal({
     >
       <div
         className="erp-ledger-modal erp-client-request-calendar-modal"
-        style={{ width: "min(100%, 48rem)", padding: 0 }}
+        style={{ padding: 0 }}
         onPointerDown={(event) => event.stopPropagation()}
         onPointerUp={(event) => event.stopPropagation()}
         onClick={(event) => event.stopPropagation()}
@@ -167,6 +167,7 @@ export function ClientSiteRequestCalendarModal({
                 <p className="border-b border-slate-200 px-4 py-3 text-center text-sm text-slate-500">{L.empty}</p>
               ) : null}
               <ClientSiteRequestCalendar
+              fullscreen
               requests={requests}
               scSchedules={scSchedules}
               workers={workers}

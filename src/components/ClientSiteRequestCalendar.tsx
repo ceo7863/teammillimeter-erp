@@ -48,6 +48,7 @@ type ClientSiteRequestCalendarProps = {
   onRegisterDate?: (date: string) => void;
   onChangeRequest?: (source: ClientSiteRequestChangeSource) => void;
   drawerElevated?: boolean;
+  fullscreen?: boolean;
 };
 
 function statusTone(request: ClientSiteRequest) {
@@ -73,6 +74,7 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
   onRegisterDate,
   onChangeRequest,
   drawerElevated = false,
+  fullscreen = false,
 }: ClientSiteRequestCalendarProps) {
   const [drawerDate, setDrawerDate] = useState<string | null>(null);
 
@@ -148,7 +150,9 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
   };
 
   return (
-    <div className="erp-client-request-calendar erp-client-request-calendar--sc">
+    <div
+      className={`erp-client-request-calendar erp-client-request-calendar--sc${fullscreen ? " erp-client-request-calendar--fullscreen" : ""}`}
+    >
       <p className="erp-csr-cal-mobile-hint">{L.mobileHint}</p>
 
       <div className="erp-csr-cal-nav">
@@ -201,7 +205,12 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
           ))}
         </div>
 
-        <div className="erp-csr-cal-grid" style={{ gridTemplateRows: `repeat(${rowCount}, minmax(4.5rem, 1fr))` }}>
+        <div
+          className="erp-csr-cal-grid"
+          style={{
+            gridTemplateRows: `repeat(${rowCount}, minmax(${fullscreen ? "0, 1fr" : "4.5rem, 1fr"}))`,
+          }}
+        >
           {cells.map((cell, index) => {
             if (!cell) {
               return <div key={`empty-${index}`} className="erp-csr-cal-cell is-placeholder" aria-hidden="true" />;

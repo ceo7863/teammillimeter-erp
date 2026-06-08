@@ -91,12 +91,16 @@ type PageTab = "calendar" | "history";
 function ClientSiteRequestShell({
   children,
   companyName,
+  calendarDesktop = false,
 }: {
   children: React.ReactNode;
   companyName?: string;
+  calendarDesktop?: boolean;
 }) {
   return (
-    <div className="erp-public-page erp-client-site-request-page min-h-[100dvh]">
+    <div
+      className={`erp-public-page erp-client-site-request-page${calendarDesktop ? " erp-client-site-request-page--calendar-desktop" : ""} min-h-[100dvh]`}
+    >
       <div className="erp-client-site-request-page__glow" aria-hidden="true" />
       <div className="erp-client-site-request-page__inner mx-auto w-full max-w-5xl">
         <header className="erp-client-site-request-hero">
@@ -491,7 +495,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
   }
 
   return (
-    <ClientSiteRequestShell companyName={info.companyName}>
+    <ClientSiteRequestShell companyName={info.companyName} calendarDesktop={tab === "calendar"}>
       <div className={`erp-client-site-request-shell w-full ${tab === "calendar" ? "" : "erp-client-site-request-shell--narrow"}`}>
         <Card className="erp-client-site-request-card">
           <CardContent className="erp-client-site-request-card-body space-y-5">
@@ -551,8 +555,9 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
             ) : null}
 
             {tab === "calendar" ? (
-              <div className="space-y-4">
+              <div className="erp-client-site-request-calendar-wrap space-y-4">
                 <ClientSiteRequestCalendar
+                  fullscreen
                   requests={calendarRequests}
                   scSchedules={scSchedules}
                   monthKey={calendarMonthKey}
