@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { KeepAlivePanel } from "@/components/PageKeepAlive";
 import { CashStatusPanel } from "@/components/analysis/CashStatusPanel";
 import { ProfitLossPanel } from "@/components/analysis/ProfitLossPanel";
 import { CashFlowPanel } from "@/components/analysis/CashFlowPanel";
@@ -84,27 +85,27 @@ export function AnalysisHubPage({
       </nav>
 
       {mountedTabs.cashStatus ? (
-        <div className={activeTab === "cashStatus" ? "" : "hidden"} aria-hidden={activeTab !== "cashStatus"}>
+        <KeepAlivePanel active={activeTab === "cashStatus"}>
           <CashStatusPanel {...panelProps} />
-        </div>
+        </KeepAlivePanel>
       ) : null}
 
       {mountedTabs.profitLoss ? (
-        <div className={activeTab === "profitLoss" ? "" : "hidden"} aria-hidden={activeTab !== "profitLoss"}>
+        <KeepAlivePanel active={activeTab === "profitLoss"}>
           <ProfitLossPanel {...profitLossProps} />
-        </div>
+        </KeepAlivePanel>
       ) : null}
 
       {mountedTabs.cashFlow ? (
-        <div className={activeTab === "cashFlow" ? "" : "hidden"} aria-hidden={activeTab !== "cashFlow"}>
+        <KeepAlivePanel active={activeTab === "cashFlow"}>
           <CashFlowPanel {...panelProps} />
-        </div>
+        </KeepAlivePanel>
       ) : null}
 
       {mountedTabs.custom ? (
-        <div className={activeTab === "custom" ? "" : "hidden"} aria-hidden={activeTab !== "custom"}>
+        <KeepAlivePanel active={activeTab === "custom"}>
           <CustomAnalysisPanel {...panelProps} />
-        </div>
+        </KeepAlivePanel>
       ) : null}
     </div>
   );

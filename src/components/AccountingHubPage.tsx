@@ -1,5 +1,6 @@
 import React, { useEffect, useState, type ComponentProps } from "react";
 import { Card, CardContent } from "@/components/ui/card";
+import { KeepAlivePanel } from "@/components/PageKeepAlive";
 import { BankTransactionsPage } from "@/components/BankTransactionsPage";
 import { LedgerViewerPage, type LedgerViewerSubTab } from "@/components/LedgerViewerPage";
 import { TaxInvoicePage } from "@/components/TaxInvoicePage";
@@ -104,7 +105,7 @@ export function AccountingHubPage({
       </Card>
 
       {mountedTabs.bank ? (
-        <div className={activeTab === "bank" ? "" : "hidden"} aria-hidden={activeTab !== "bank"}>
+        <KeepAlivePanel active={activeTab === "bank"}>
           <BankTransactionsPage
             {...bank}
             isPageActive={isHubActive && activeTab === "bank"}
@@ -113,30 +114,30 @@ export function AccountingHubPage({
             onNavigateToFixedExpense={openLedgerFixedTab}
             onNavigateToTaxInvoice={() => switchTab("tax")}
           />
-        </div>
+        </KeepAlivePanel>
       ) : null}
 
       {mountedTabs.ledger ? (
-        <div className={activeTab === "ledger" ? "" : "hidden"} aria-hidden={activeTab !== "ledger"}>
+        <KeepAlivePanel active={activeTab === "ledger"}>
           <LedgerViewerPage
             {...ledger}
             initialSubTab={ledgerSubTab}
             onSubTabConsumed={() => setLedgerSubTab(undefined)}
             onOpenBankTab={() => switchTab("bank")}
           />
-        </div>
+        </KeepAlivePanel>
       ) : null}
 
       {mountedTabs.tax ? (
-        <div className={activeTab === "tax" ? "" : "hidden"} aria-hidden={activeTab !== "tax"}>
+        <KeepAlivePanel active={activeTab === "tax"}>
           <TaxInvoicePage {...tax} />
-        </div>
+        </KeepAlivePanel>
       ) : null}
 
       {mountedTabs.classify ? (
-        <div className={activeTab === "classify" ? "" : "hidden"} aria-hidden={activeTab !== "classify"}>
+        <KeepAlivePanel active={activeTab === "classify"}>
           <LedgerClassificationManagePage {...classify} />
-        </div>
+        </KeepAlivePanel>
       ) : null}
     </div>
   );

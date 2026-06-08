@@ -2814,7 +2814,7 @@ const PAGE_ICONS: Record<ErpPageKey, typeof Home> = {
   loginHistory: LogIn,
 };
 
-function Sidebar({
+function SidebarComponent({
   active,
   setActive,
   currentUser,
@@ -2913,6 +2913,8 @@ function Sidebar({
     </>
   );
 }
+
+const Sidebar = memo(SidebarComponent);
 
 function DashboardAnnualLineChart({ months }) {
   const lineColor = "#0f172a";
@@ -7216,7 +7218,7 @@ export default function TeammillimeterErpMvp() {
   });
   const basicInfoTabAccess = useMemo(() => resolveBasicInfoTabAccess(currentUser), [currentUser]);
   const userAdminTabAccess = useMemo(() => resolveUserAdminTabAccess(currentUser), [currentUser]);
-  const clientSiteRequestPendingCount = useClientSiteRequestPendingCount(currentUser);
+  const clientSiteRequestPendingCount = useClientSiteRequestPendingCount(currentUser, { pollMs: 30000 });
   const [sales, setSales] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return storedData?.sales || initialSales;
@@ -8899,7 +8901,7 @@ export default function TeammillimeterErpMvp() {
     isBankSyncBusy: isBankRemoteSyncBusy,
     onSyncBegin: beginBankRemoteSync,
     onSynced: handleBankSynced,
-    listRefreshIntervalMs: 15000,
+    listRefreshIntervalMs: 30000,
     barobillSyncIntervalMs: 60000,
   });
 
@@ -8925,6 +8927,14 @@ export default function TeammillimeterErpMvp() {
 
   const activeLabel = getPageLabel(active);
 
+  const sidebarPageBadges = useMemo(
+    () => ({
+      clientSiteRequests: clientSiteRequestPendingCount,
+      saleComments: unreadSaleCommentCount,
+    }),
+    [clientSiteRequestPendingCount, unreadSaleCommentCount],
+  );
+
   return (
     <AuditProvider auditLogs={auditLogs} setAuditLogs={setAuditLogs} currentUser={currentUser}>
     <SalePaymentLinkProvider paymentVouchers={paymentVouchers} bankTransactions={bankTransactions} sales={appliedSales}>
@@ -8945,10 +8955,7 @@ export default function TeammillimeterErpMvp() {
         }}
         mobileOpen={sidebarOpen}
         onMobileClose={() => setSidebarOpen(false)}
-        pageBadges={{
-          clientSiteRequests: clientSiteRequestPendingCount,
-          saleComments: unreadSaleCommentCount,
-        }}
+        pageBadges={sidebarPageBadges}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-slate-200 bg-white/95 px-3 py-3 backdrop-blur lg:hidden erp-mobile-header">

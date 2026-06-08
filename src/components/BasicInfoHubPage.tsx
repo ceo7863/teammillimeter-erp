@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Card, CardContent } from "@/components/ui/card";
+import { KeepAlivePanel } from "@/components/PageKeepAlive";
 import {
   firstAccessibleBasicInfoTab,
   readStoredBasicInfoTab,
@@ -111,21 +112,15 @@ export function BasicInfoHubPage({
       </Card>
 
       {mountedTabs.clients ? (
-        <div className={activeTab === "clients" ? "" : "hidden"} aria-hidden={activeTab !== "clients"}>
-          {clientsPanel}
-        </div>
+        <KeepAlivePanel active={activeTab === "clients"}>{clientsPanel}</KeepAlivePanel>
       ) : null}
 
       {mountedTabs.workers ? (
-        <div className={activeTab === "workers" ? "" : "hidden"} aria-hidden={activeTab !== "workers"}>
-          {workersPanel}
-        </div>
+        <KeepAlivePanel active={activeTab === "workers"}>{workersPanel}</KeepAlivePanel>
       ) : null}
 
       {mountedTabs.company ? (
-        <div className={activeTab === "company" ? "" : "hidden"} aria-hidden={activeTab !== "company"}>
-          {companyPanel}
-        </div>
+        <KeepAlivePanel active={activeTab === "company"}>{companyPanel}</KeepAlivePanel>
       ) : null}
     </div>
   );

@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useMemo } from "react";
+import React, { createContext, useCallback, useContext, useMemo, useRef } from "react";
 import {
   appendAuditLogs,
   buildAuditEntries,
@@ -57,12 +57,17 @@ export function AuditProvider({
   currentUser: AuditUser;
   children: React.ReactNode;
 }) {
+  const auditLogsRef = useRef(auditLogs);
+  auditLogsRef.current = auditLogs;
+  const currentUserRef = useRef(currentUser);
+  currentUserRef.current = currentUser;
+
   const recordAuditEntries = useCallback(
     (entries: AuditLogEntry[]) => {
       if (!entries.length) return;
       setAuditLogs((prev) => appendAuditLogs(prev, entries));
     },
-    [setAuditLogs]
+    [setAuditLogs],
   );
 
   const recordAudit = useCallback(
@@ -83,14 +88,14 @@ export function AuditProvider({
         entityId: input.entityId,
         entityLabel: input.entityLabel,
         screen: input.screen,
-        user: input.user ?? currentUser,
+        user: input.user ?? currentUserRef.current,
         action: input.action,
         changes,
       });
 
       recordAuditEntries(entries);
     },
-    [currentUser, recordAuditEntries]
+    [recordAuditEntries],
   );
 
   const recordSummaryAudit = useCallback(
@@ -107,23 +112,25 @@ export function AuditProvider({
     }) => {
       recordAuditEntries(buildSummaryAuditEntry(input));
     },
-    [recordAuditEntries]
+    [recordAuditEntries],
   );
 
   const value = useMemo(
     () => ({
-      auditLogs,
+      get auditLogs() {
+        return auditLogsRef.current;
+      },
       recordAudit,
       recordAuditEntries,
       recordSummaryAudit,
       getFieldHistory: (entityType: string, entityId: string | number, field: string) =>
-        getAuditHistory(auditLogs, { entityType, entityId, field }),
+        getAuditHistory(auditLogsRef.current, { entityType, entityId, field }),
       getLatestFieldAudit: (entityType: string, entityId: string | number, field: string) =>
-        getLatestAuditEntry(auditLogs, { entityType, entityId, field }),
+        getLatestAuditEntry(auditLogsRef.current, { entityType, entityId, field }),
       getEntityHistory: (entityType: string, entityId: string | number) =>
-        getAuditHistory(auditLogs, { entityType, entityId }),
+        getAuditHistory(auditLogsRef.current, { entityType, entityId }),
     }),
-    [auditLogs, recordAudit, recordAuditEntries, recordSummaryAudit]
+    [recordAudit, recordAuditEntries, recordSummaryAudit],
   );
 
   return <AuditContext.Provider value={value}>{children}</AuditContext.Provider>;
