@@ -6,7 +6,7 @@ type PageKeepAliveProps = {
   children: React.ReactNode;
 };
 
-/** Renders a cached element tree while hidden so App state updates skip inactive routes. */
+/** Hub/tab panels: cache last active tree while hidden to skip parent re-renders. */
 export function KeepAlivePanel({
   active,
   children,
@@ -31,16 +31,8 @@ export function KeepAlivePanel({
   );
 }
 
-/** Hide inactive routes instead of unmounting so form/filter state survives tab switches. */
+/** Mount only the active sidebar route — prevents visited menus from piling up in the DOM. */
 export function PageKeepAlive({ pageKey, active, children }: PageKeepAliveProps) {
-  const everMountedRef = useRef(active === pageKey);
-  const isActive = active === pageKey;
-
-  if (isActive) {
-    everMountedRef.current = true;
-  }
-
-  if (!everMountedRef.current) return null;
-
-  return <KeepAlivePanel active={isActive}>{children}</KeepAlivePanel>;
+  if (active !== pageKey) return null;
+  return <div className="min-w-0">{children}</div>;
 }
