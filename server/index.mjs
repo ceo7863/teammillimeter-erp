@@ -160,6 +160,7 @@ import {
   buildScScheduleNotifyPreviewAsync,
   getScScheduleNotifyStatus,
   runScScheduleNotifyJob,
+  sendScScheduleNotifyOne,
 } from "./scScheduleNotify.mjs";
 
 initDb();
@@ -2129,6 +2130,32 @@ app.post("/api/notifications/sc-schedule/send", authMiddleware, adminMiddleware,
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: error instanceof Error ? error.message : "SC 일정 알림 발송에 실패했습니다." });
+  }
+});
+
+app.post("/api/notifications/sc-schedule/send-one", authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const scheduleId = String(req.body?.scheduleId || "").trim();
+    if (!scheduleId) {
+      res.status(400).json({ error: "scheduleId\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
+      return;
+    }
+    const result = await sendScScheduleNotifyOne(scheduleId, {
+      skipSync: Boolean(req.body?.skipSync),
+      updatedBy: req.user.loginId || req.user.name || req.user.email || "sc-schedule-send-one",
+    });
+    if (result.notFound) {
+      res.status(404).json(result);
+      return;
+    }
+    if (!result.ok && result.error && !result.skipped) {
+      res.status(400).json(result);
+      return;
+    }
+    res.json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error instanceof Error ? error.message : "SC \uC77C\uC815 \uC54C\uB9BC \uBC1C\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
   }
 });
 

@@ -90,3 +90,39 @@ export async function sendScScheduleNotifyNow(options?: { force?: boolean; skipS
     },
   );
 }
+
+export type ScScheduleNotifyOneResult = {
+  ok: boolean;
+  skipped?: boolean;
+  reason?: string;
+  error?: string;
+  scheduleId?: string;
+  workDate?: string;
+  clientName?: string;
+  projectName?: string;
+  shareUrl?: string;
+  shareToken?: string;
+  shareError?: string | null;
+  sentCount?: number;
+  failedCount?: number;
+  notifyCount?: number;
+  missingPhoneCount?: number;
+  variables?: Record<string, string>;
+  results?: Array<{
+    recipientType: "client" | "worker";
+    participantName: string;
+    phone: string | null;
+    ok: boolean;
+    skipped?: boolean;
+    reason?: string;
+    shareUrl?: string;
+    variables?: Record<string, string>;
+  }>;
+};
+
+export async function sendScScheduleNotifyOne(scheduleId: string, options?: { skipSync?: boolean }) {
+  return apiRequest<ScScheduleNotifyOneResult>("/notifications/sc-schedule/send-one", {
+    method: "POST",
+    body: JSON.stringify({ scheduleId, ...(options || {}) }),
+  });
+}

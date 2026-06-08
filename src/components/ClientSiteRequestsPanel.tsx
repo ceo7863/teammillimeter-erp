@@ -136,6 +136,7 @@ type LinkClassFilter = "all" | "active" | "disabled";
 
 type ClientSiteRequestsPanelProps = {
   clients: ClientLike[];
+  isAdmin?: boolean;
 };
 
 function formatDateTime(value?: string | null) {
@@ -395,7 +396,7 @@ function RequestCard({
   );
 }
 
-export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProps) {
+export function ClientSiteRequestsPanel({ clients, isAdmin = false }: ClientSiteRequestsPanelProps) {
   const apiMode = isApiModeEnabled();
   const [activeTab, setActiveTab] = useState<PanelTab>("inbox");
   const [links, setLinks] = useState<ClientSiteRequestLink[]>([]);
@@ -1297,6 +1298,7 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
           clientId={calendarModalClient.clientId}
           clientName={calendarModalClient.clientName}
           link={calendarModalLink}
+          canSendScAlimtalk={isAdmin}
           onClose={() => setCalendarModalClient(null)}
         />
       ) : null}

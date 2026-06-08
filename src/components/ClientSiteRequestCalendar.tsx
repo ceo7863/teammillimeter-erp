@@ -45,6 +45,7 @@ type ClientSiteRequestCalendarProps = {
   onSelectScSchedule?: (scheduleId: string, date?: string) => void;
   onRegisterDate?: (date: string) => void;
   onChangeRequest?: (source: ClientSiteRequestChangeSource) => void;
+  canSendScAlimtalk?: boolean;
   drawerElevated?: boolean;
 };
 
@@ -69,6 +70,7 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
   onSelectScSchedule,
   onRegisterDate,
   onChangeRequest,
+  canSendScAlimtalk = false,
   drawerElevated = false,
 }: ClientSiteRequestCalendarProps) {
   const [drawerDate, setDrawerDate] = useState<string | null>(null);
@@ -291,6 +293,7 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
           onSelectScSchedule={onSelectScSchedule ? handleSelectScSchedule : undefined}
           onRegisterDate={onRegisterDate ? handleRegisterDate : undefined}
           onChangeRequest={onChangeRequest ? handleChangeRequest : undefined}
+          canSendScAlimtalk={canSendScAlimtalk}
           elevated={drawerElevated}
         />
       ) : null}

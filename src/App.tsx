@@ -9231,7 +9231,7 @@ export default function TeammillimeterErpMvp() {
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="clientSiteRequests" active={active}>
-          <ClientSiteRequestsPage clients={clients} />
+          <ClientSiteRequestsPage clients={clients} currentUser={currentUser} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="attendance" active={active}>
           <AttendancePage

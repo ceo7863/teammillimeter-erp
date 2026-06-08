@@ -506,3 +506,151 @@ export async function runScScheduleNotifyJob(options = {}) {
     ...nextMeta,
   };
 }
+
+export async function sendScScheduleNotifyOne(scheduleId, options = {}) {
+  if (!isScScheduleNotifyConfigured()) {
+    return { ok: false, skipped: true, reason: "not-configured" };
+  }
+
+  const id = String(scheduleId || "").trim();
+  if (!id) {
+    return { ok: false, error: "scheduleId\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." };
+  }
+
+  if (!options.skipSync && config.sc.syncEnabled && isScScheduleSourceConfigured()) {
+    try {
+      await runScScheduleSync({ updatedBy: options.updatedBy || "sc-schedule-send-one" });
+    } catch (error) {
+      console.warn("[sc-schedule-send-one] sync failed:", error?.message || error);
+    }
+  }
+
+  const freshState = getErpState();
+  const data = freshState.data || {};
+  const workers = listWorkers(data);
+  const clients = listClients(data);
+  const schedule = listScSchedules(data).find((row) => String(row?.id ?? "") === id);
+
+  if (!schedule) {
+    return { ok: false, notFound: true, error: "\uC77C\uC815\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
+  }
+
+  const participantNames = Array.isArray(schedule.participantNames)
+    ? schedule.participantNames.filter(Boolean)
+    : [];
+  if (!participantNames.length) {
+    return {
+      ok: false,
+      scheduleId: id,
+      workDate: schedule.workDate,
+      clientName: String(schedule.clientName || "").trim(),
+      projectName: String(schedule.projectName || "").trim(),
+      error: "\uCC38\uC5EC \uC2DC\uACF5\uC790\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
+      skippedNoParticipants: true,
+    };
+  }
+
+  let shareToken = "";
+  let shareUrl = "";
+  let shareError = null;
+  if (isScScheduleSourceConfigured()) {
+    const share = await ensureScScheduleShareLink(schedule.id);
+    if (share.ok && share.shareToken) {
+      shareToken = share.shareToken;
+      shareUrl = String(share.url || buildScShareUrl(shareToken)).trim();
+    } else if (!share.skipped) {
+      shareError = String(share.error || share.reason || "share-link-failed");
+    }
+  }
+
+  const contact = resolveClientContact(clients, schedule);
+  const clientManager = contact.name || resolveClientManager(clients, schedule);
+  const variables = formatScheduleTemplateVars(schedule, shareToken, clientManager, participantNames);
+  const results = [];
+  const sentPhones = new Set();
+  let sentCount = 0;
+
+  async function sendToPhone(phone, recipientType, recipientName) {
+    const normalized = normalizeNotifyPhone(phone);
+    if (!normalized) return false;
+    if (sentPhones.has(normalized)) return false;
+    sentPhones.add(normalized);
+    const result = await sendScheduleAlimtalk({ phones: [normalized], variables });
+    const delivered = result.ok !== false && !result.skipped;
+    if (delivered) sentCount += 1;
+    results.push({
+      recipientType,
+      participantName: recipientName,
+      phone: normalized,
+      ok: delivered,
+      skipped: Boolean(result.skipped),
+      reason: result.skipped ? result.reason : result.ok === false ? result.error : undefined,
+      result,
+      shareUrl,
+      variables,
+    });
+    return true;
+  }
+
+  if (contact.phone) {
+    await sendToPhone(contact.phone, "client", contact.name || contact.clientName);
+  } else {
+    results.push({
+      recipientType: "client",
+      participantName: contact.name || contact.clientName,
+      phone: null,
+      ok: false,
+      skipped: true,
+      reason: "no-client-phone",
+      shareUrl,
+      variables,
+    });
+  }
+
+  for (const participantName of participantNames) {
+    const phone = resolveWorkerPhone(workers, participantName);
+    if (!phone) {
+      results.push({
+        recipientType: "worker",
+        participantName,
+        phone: null,
+        ok: false,
+        skipped: true,
+        reason: "no-phone",
+        shareUrl,
+        variables,
+      });
+      continue;
+    }
+    await sendToPhone(phone, "worker", participantName);
+  }
+
+  const failedCount = results.filter((row) => !row.ok).length;
+
+  console.log(
+    "[sc-schedule-send-one]",
+    id,
+    schedule.workDate,
+    "sent",
+    sentCount,
+    "failed",
+    failedCount,
+  );
+
+  return {
+    ok: true,
+    scheduleId: id,
+    workDate: schedule.workDate,
+    clientName: String(schedule.clientName || "").trim(),
+    projectName: String(schedule.projectName || "").trim(),
+    shareUrl,
+    shareToken,
+    shareError,
+    sentCount,
+    failedCount,
+    notifyCount: results.filter((row) => row.phone).length,
+    missingPhoneCount: results.filter((row) => !row.phone).length,
+    results,
+    variables,
+  };
+}

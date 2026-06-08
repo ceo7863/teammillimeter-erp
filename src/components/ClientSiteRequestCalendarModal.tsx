@@ -31,6 +31,7 @@ type ClientSiteRequestCalendarModalProps = {
   clientId: number | string;
   clientName: string;
   link: ClientSiteRequestLink | null;
+  canSendScAlimtalk?: boolean;
   onClose: () => void;
 };
 
@@ -39,6 +40,7 @@ export function ClientSiteRequestCalendarModal({
   clientId,
   clientName,
   link,
+  canSendScAlimtalk = false,
   onClose,
 }: ClientSiteRequestCalendarModalProps) {
   const [requests, setRequests] = useState<ClientSiteRequest[]>([]);
@@ -48,6 +50,7 @@ export function ClientSiteRequestCalendarModal({
   const [monthKey, setMonthKey] = useState(getCurrentMonthKey);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedRequestId, setSelectedRequestId] = useState("");
+  const [selectedScScheduleId, setSelectedScScheduleId] = useState("");
   const { onPointerDown, onPointerUp, isTouchDevice } = useBackdropPointerDismiss(open, onClose);
   const { guardedClose } = useModalDismissGuard(open);
   const closeModal = () => guardedClose(onClose);
@@ -87,6 +90,7 @@ export function ClientSiteRequestCalendarModal({
     setMonthKey(getCurrentMonthKey());
     setSelectedDate("");
     setSelectedRequestId("");
+    setSelectedScScheduleId("");
   }, [open, clientId]);
 
   useEffect(() => {
@@ -187,6 +191,9 @@ export function ClientSiteRequestCalendarModal({
               }}
               selectedRequestId={selectedRequestId}
               onSelectRequest={setSelectedRequestId}
+              selectedScScheduleId={selectedScScheduleId}
+              onSelectScSchedule={setSelectedScScheduleId}
+              canSendScAlimtalk={canSendScAlimtalk}
             />
             </>
           )}

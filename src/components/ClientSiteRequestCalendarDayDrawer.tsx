@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useState } from "react";
 import { createPortal } from "react-dom";
-import { CalendarClock, CalendarPlus, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { CalendarClock, CalendarPlus, ChevronLeft, ChevronRight, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { sendScScheduleNotifyOne, type ScScheduleNotifyOneResult } from "@/utils/notificationApi";
 import {
   clientSiteRequestPublicStatusLabel,
   clientSiteRequestPublicStatusTone,
@@ -24,6 +25,18 @@ const L = {
   scBadge: "\uD655\uC815",
   registerSchedule: "\uC77C\uC815 \uC811\uC218",
   changeSchedule: "\uC77C\uC815 \uBCC0\uACBD \uC694\uCCAD",
+  sendAlimtalk: "\uC54C\uB9BC\uD1A1 \uBC1C\uC1A1",
+  sendAlimtalkConfirm:
+    "\uC120\uD0DD\uD55C SC \uC77C\uC815 \uC54C\uB9BC\uC744 \uAC70\uB798\uCC98 \uB2F4\uB2F9\uC790\uC640 \uCC38\uC5EC \uC2DC\uACF5\uC790 \uC804\uD654\uB85C \uBC1C\uC1A1\uD569\uB2C8\uB2E4. \uACC4\uC18D\uD560\uAE4C\uC694?",
+  sendAlimtalkSending: "\uBC1C\uC1A1 \uC911...",
+  sendAlimtalkError: "\uC54C\uB9BC\uD1A1 \uBC1C\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+  sendAlimtalkResultTitle: "SC \uC77C\uC815 \uC54C\uB9BC\uD1A1 \uBC1C\uC1A1 \uACB0\uACFC",
+  sendAlimtalkSkipped: "\uBC1C\uC1A1\uC774 \uAC74\uB108\uB701\uC5B4\uC84C\uC2B5\uB2C8\uB2E4",
+  recipientClient: "\uAC70\uB798\uCC98",
+  recipientWorker: "\uC2DC\uACF5",
+  noPhone: "\uC804\uD654\uC5C6\uC74C",
+  sentOk: "\uBC1C\uC1A1",
+  sentFail: "\uC2E4\uD328",
 };
 
 type ClientSiteRequestCalendarDayDrawerProps = {
@@ -38,6 +51,7 @@ type ClientSiteRequestCalendarDayDrawerProps = {
   onSelectScSchedule?: (scheduleId: string, date?: string) => void;
   onRegisterDate?: (date: string) => void;
   onChangeRequest?: (source: ClientSiteRequestChangeSource) => void;
+  canSendScAlimtalk?: boolean;
   elevated?: boolean;
 };
 
@@ -57,11 +71,15 @@ export function ClientSiteRequestCalendarDayDrawer({
   onSelectScSchedule,
   onRegisterDate,
   onChangeRequest,
+  canSendScAlimtalk = false,
   elevated = false,
 }: ClientSiteRequestCalendarDayDrawerProps) {
   const { onPointerDown, onPointerUp, isTouchDevice } = useBackdropPointerDismiss(Boolean(date), onClose);
   const { guardedClose } = useModalDismissGuard(Boolean(date));
   const closeDrawer = () => guardedClose(onClose);
+  const [sendingAlimtalk, setSendingAlimtalk] = useState(false);
+  const [alimtalkError, setAlimtalkError] = useState("");
+  const [alimtalkResult, setAlimtalkResult] = useState<ScScheduleNotifyOneResult | null>(null);
 
   useBodyScrollLock(Boolean(date));
 
@@ -71,6 +89,55 @@ export function ClientSiteRequestCalendarDayDrawer({
   const selectedRequest = requests.find((row) => row.id === selectedRequestId) || null;
   const selectedScSchedule = scSchedules.find((row) => row.id === selectedScScheduleId) || null;
   const canChangeRequest = Boolean(onChangeRequest && (selectedRequest || selectedScSchedule));
+  const canSendAlimtalk = Boolean(canSendScAlimtalk && selectedScSchedule);
+
+  const formatAlimtalkResultMessage = (result: ScScheduleNotifyOneResult) => {
+    const lines = [
+      `${result.clientName || result.projectName || result.scheduleId || "-"}`,
+      `${result.workDate || "-"} / ${result.sentCount ?? 0}\uAC74 \uBC1C\uC1A1 / ${result.failedCount ?? 0}\uAC74 \uC2E4\uD328`,
+    ];
+    if (result.shareUrl) {
+      lines.push(`\uACF5\uC720 \uB9C1\uD06C: ${result.shareUrl}`);
+    } else if (result.shareError) {
+      lines.push(`\uACF5\uC720 \uB9C1\uD06C \uC0DD\uC131 \uC2E4\uD328: ${result.shareError}`);
+    }
+    if (result.results?.length) {
+      lines.push("", "=== \uBC1C\uC1A1 \uB300\uC0C1 ===");
+      for (const row of result.results) {
+        const role = row.recipientType === "client" ? L.recipientClient : L.recipientWorker;
+        const status = row.ok ? L.sentOk : L.sentFail;
+        lines.push(`[${role} ${row.phone || L.noPhone}] ${row.participantName} - ${status}${row.reason ? ` (${row.reason})` : ""}`);
+      }
+    }
+    return lines.join("\n");
+  };
+
+  const handleSendAlimtalk = async () => {
+    if (!selectedScSchedule || sendingAlimtalk) return;
+    if (!window.confirm(L.sendAlimtalkConfirm)) return;
+    setSendingAlimtalk(true);
+    setAlimtalkError("");
+    try {
+      const result = await sendScScheduleNotifyOne(selectedScSchedule.id, { skipSync: true });
+      if (result.skipped) {
+        setAlimtalkResult({
+          ...result,
+          error: `${L.sendAlimtalkSkipped}: ${result.reason || "-"}`,
+        });
+        return;
+      }
+      if (!result.ok && result.error) {
+        setAlimtalkError(result.error);
+        return;
+      }
+      setAlimtalkResult(result);
+    } catch (error) {
+      console.error(error);
+      setAlimtalkError(L.sendAlimtalkError);
+    } finally {
+      setSendingAlimtalk(false);
+    }
+  };
 
   const handleChangeRequest = () => {
     if (!onChangeRequest) return;
@@ -224,8 +291,20 @@ export function ClientSiteRequestCalendarDayDrawer({
           )}
         </div>
 
-        {onRegisterDate || canChangeRequest ? (
+        {onRegisterDate || canChangeRequest || canSendAlimtalk ? (
           <div className="erp-csr-cal-drawer-foot">
+            {canSendAlimtalk ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="erp-touch-target erp-csr-cal-drawer-register-btn w-full rounded-xl"
+                disabled={sendingAlimtalk}
+                onClick={() => void handleSendAlimtalk()}
+              >
+                <Send size={16} className="mr-1.5" />
+                {sendingAlimtalk ? L.sendAlimtalkSending : L.sendAlimtalk}
+              </Button>
+            ) : null}
             {canChangeRequest ? (
               <Button
                 type="button"
@@ -239,7 +318,7 @@ export function ClientSiteRequestCalendarDayDrawer({
             {onRegisterDate ? (
               <Button
                 type="button"
-                variant={canChangeRequest ? "outline" : "default"}
+                variant={canChangeRequest || canSendAlimtalk ? "outline" : "default"}
                 className="erp-touch-target erp-csr-cal-drawer-register-btn w-full rounded-xl"
                 onClick={() => onRegisterDate(date)}
               >
@@ -250,6 +329,35 @@ export function ClientSiteRequestCalendarDayDrawer({
           </div>
         ) : null}
       </aside>
+
+      {alimtalkError ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+            <p className="text-sm font-semibold text-red-700">{alimtalkError}</p>
+            <div className="mt-4 flex justify-end">
+              <Button type="button" variant="outline" className="rounded-xl" onClick={() => setAlimtalkError("")}>
+                {L.close}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {alimtalkResult ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="erp-text-body mb-3 font-bold text-slate-900">{L.sendAlimtalkResultTitle}</h3>
+            <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-2xl bg-slate-50 p-4 text-sm text-slate-800">
+              {alimtalkResult.error || formatAlimtalkResultMessage(alimtalkResult)}
+            </pre>
+            <div className="mt-4 flex justify-end">
+              <Button type="button" variant="outline" className="rounded-xl" onClick={() => setAlimtalkResult(null)}>
+                {L.close}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>,
     document.body,
   );

@@ -3,9 +3,10 @@ import { ClientSiteRequestsPanel } from "@/components/ClientSiteRequestsPanel";
 
 type ClientSiteRequestsPageProps = {
   clients: Array<{ id?: number | string; name?: string }>;
+  currentUser?: { role?: string } | null;
 };
 
-export function ClientSiteRequestsPage({ clients }: ClientSiteRequestsPageProps) {
+export function ClientSiteRequestsPage({ clients, currentUser }: ClientSiteRequestsPageProps) {
   return (
     <div className="erp-page">
       <div className="mb-5">
@@ -14,7 +15,7 @@ export function ClientSiteRequestsPage({ clients }: ClientSiteRequestsPageProps)
           {"\uC811\uC218 \uBAA9\uB85D \uCC98\uB9AC, \uC644\uB8CC \uB0B4\uC5ED \uD655\uC778, \uAC70\uB798\uCC98\uBCC4 \uB9C1\uD06C \uAD00\uB9AC\uB97C \uD569\uB2C8\uB2E4."}
         </p>
       </div>
-      <ClientSiteRequestsPanel clients={clients} />
+      <ClientSiteRequestsPanel clients={clients} isAdmin={currentUser?.role === "admin"} />
     </div>
   );
 }
