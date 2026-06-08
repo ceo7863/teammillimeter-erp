@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Link2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ClientSiteRequestCalendar } from "@/components/ClientSiteRequestCalendar";
-import { getCurrentMonthKey } from "@/utils/clientSiteRequestCalendar";
+import { getCurrentMonthKey, filterClientSiteRequestsForCalendarDay } from "@/utils/clientSiteRequestCalendar";
 import {
   isClientSiteRequestVisibleOnPublicCalendar,
   listClientSiteRequests,
@@ -43,7 +43,7 @@ export function ClientSiteRequestCalendarModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [monthKey, setMonthKey] = useState(getCurrentMonthKey);
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [selectedDate, setSelectedDate] = useState("");
   const [selectedRequestId, setSelectedRequestId] = useState("");
 
   const loadCalendarData = useCallback(async () => {
@@ -68,7 +68,7 @@ export function ClientSiteRequestCalendarModal({
   useEffect(() => {
     if (!open) return;
     setMonthKey(getCurrentMonthKey());
-    setSelectedDate(new Date().toISOString().slice(0, 10));
+    setSelectedDate("");
     setSelectedRequestId("");
   }, [open, clientId]);
 
@@ -86,14 +86,14 @@ export function ClientSiteRequestCalendarModal({
   return (
     <div className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated" onClick={onClose}>
       <div
-        className="erp-ledger-modal"
-        style={{ width: "min(100%, 64rem)" }}
+        className="erp-ledger-modal erp-client-request-calendar-modal"
+        style={{ width: "min(100%, 48rem)", padding: 0 }}
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="client-site-request-calendar-title"
       >
-        <div className="flex items-start justify-between gap-3">
+        <div className="erp-client-request-calendar-modal__head flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 id="client-site-request-calendar-title" className="text-base font-bold text-slate-900 md:text-lg">
               {L.title}
@@ -120,7 +120,7 @@ export function ClientSiteRequestCalendarModal({
           </div>
         </div>
 
-        <div className="mt-4">
+        <div className="erp-client-request-calendar-modal__body">
           {loading ? (
             <p className="py-8 text-center text-sm text-slate-500">{L.loading}</p>
           ) : error ? (
@@ -134,11 +134,17 @@ export function ClientSiteRequestCalendarModal({
               monthKey={monthKey}
               onMonthKeyChange={setMonthKey}
               selectedDate={selectedDate}
+              drawerElevated
               onSelectDate={(date) => {
                 setSelectedDate(date);
-                const dayRequests = requests.filter(
-                  (row) =>
-                    isClientSiteRequestVisibleOnPublicCalendar(row) && requestCoversWorkDate(row, date),
+                const scOnDate = scSchedules.filter((row) => String(row.workDate || "").slice(0, 10) === date);
+                const dayRequests = filterClientSiteRequestsForCalendarDay(
+                  requests.filter(
+                    (row) =>
+                      isClientSiteRequestVisibleOnPublicCalendar(row) && requestCoversWorkDate(row, date),
+                  ),
+                  date,
+                  scOnDate,
                 );
                 if (dayRequests.length === 1) {
                   setSelectedRequestId(dayRequests[0].id);

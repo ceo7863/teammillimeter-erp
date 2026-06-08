@@ -34,6 +34,20 @@ export function shiftMonthKey(monthKey: string, delta: number) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
+export function shiftCalendarDate(date: string, deltaDays: number) {
+  const parsed = new Date(`${date}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return date;
+  parsed.setDate(parsed.getDate() + deltaDays);
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+}
+
+export function formatClientSiteRequestDayLabel(date: string) {
+  const parsed = new Date(`${date}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return date;
+  const weekday = ["\uC77C", "\uC6D4", "\uD654", "\uC218", "\uBAA9", "\uAE08", "\uD1A0"][parsed.getDay()];
+  return `${parsed.getMonth() + 1}\uC6D4 ${parsed.getDate()}\uC77C (${weekday})`;
+}
+
 export function groupClientSiteRequestsByDate(requests: ClientSiteRequest[]) {
   const map = new Map<string, ClientSiteRequest[]>();
   for (const request of requests) {
@@ -73,6 +87,25 @@ export function groupScSchedulesByDate(schedules: ScSchedule[]) {
   return map;
 }
 
+/** SC 일정이 있는 날짜의 ERP 접수는 캘린더에서 숨김 (SC 확정 일정만 표시). */
+export function shouldHideClientSiteRequestOnCalendarDate(
+  request: Pick<ClientSiteRequest, "workDate" | "workDateEnd">,
+  date: string,
+  scSchedulesOnDate: ScSchedule[],
+) {
+  if (!scSchedulesOnDate.length) return false;
+  return requestCoversWorkDate(request, date);
+}
+
+export function filterClientSiteRequestsForCalendarDay(
+  requests: ClientSiteRequest[],
+  date: string,
+  scSchedulesOnDate: ScSchedule[],
+) {
+  if (!scSchedulesOnDate.length) return requests;
+  return requests.filter((request) => !shouldHideClientSiteRequestOnCalendarDate(request, date, scSchedulesOnDate));
+}
+
 export function buildClientSiteRequestCalendarCells(
   monthKey: string,
   requests: ClientSiteRequest[],
@@ -94,35 +127,39 @@ export function buildClientSiteRequestCalendarCells(
   for (let i = 0; i < startOffset; i += 1) cells.push(null);
   for (let day = 1; day <= daysInMonth; day += 1) {
     const date = `${monthKey}-${String(day).padStart(2, "0")}`;
-    const dayRequests =
+    const scOnDate = scByDate.get(date) || [];
+    const dayRequests = filterClientSiteRequestsForCalendarDay(
       byDate.get(date) ||
-      requests
-        .filter((request) => requestCoversWorkDate(request, date))
-        .sort((a, b) => String(a.submittedAt || "").localeCompare(String(b.submittedAt || "")));
+        requests
+          .filter((request) => requestCoversWorkDate(request, date))
+          .sort((a, b) => String(a.submittedAt || "").localeCompare(String(b.submittedAt || ""))),
+      date,
+      scOnDate,
+    );
     cells.push({
       date,
       day,
       requests: dayRequests,
-      scSchedules: scByDate.get(date) || [],
+      scSchedules: scOnDate,
     });
   }
   while (cells.length % 7 !== 0) cells.push(null);
   return cells;
 }
 
-export function countClientSiteRequestsInMonth(monthKey: string, requests: ClientSiteRequest[]) {
-  const [yearText, monthText] = monthKey.split("-");
-  const year = Number(yearText);
-  const month = Number(monthText);
-  if (!Number.isFinite(year) || !Number.isFinite(month)) return 0;
-  const monthStart = `${monthKey}-01`;
-  const monthEnd = `${monthKey}-${String(new Date(year, month, 0).getDate()).padStart(2, "0")}`;
-  return requests.filter((row) => {
-    const start = String(row.workDate || "").trim();
-    if (!start) return false;
-    const end = getClientSiteRequestWorkDateEnd(row);
-    return start <= monthEnd && end >= monthStart;
-  }).length;
+export function countClientSiteRequestsInMonth(
+  monthKey: string,
+  requests: ClientSiteRequest[],
+  scSchedules: ScSchedule[] = [],
+) {
+  const seen = new Set<string>();
+  for (const cell of buildClientSiteRequestCalendarCells(monthKey, requests, scSchedules)) {
+    if (!cell) continue;
+    for (const request of cell.requests) {
+      seen.add(request.id);
+    }
+  }
+  return seen.size;
 }
 
 export function countScSchedulesInMonth(monthKey: string, schedules: ScSchedule[]) {

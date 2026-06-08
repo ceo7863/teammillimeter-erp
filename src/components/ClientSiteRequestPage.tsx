@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { ClientSiteRequestCalendar } from "@/components/ClientSiteRequestCalendar";
 import { ClientSiteRequestChat } from "@/components/ClientSiteRequestChat";
-import { getCurrentMonthKey } from "@/utils/clientSiteRequestCalendar";
+import { filterClientSiteRequestsForCalendarDay, getCurrentMonthKey } from "@/utils/clientSiteRequestCalendar";
 import {
   clientSiteRequestPublicStatusLabel,
   fetchPublicClientSiteRequestInfo,
@@ -249,7 +249,12 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
 
     lastClickedDateRef.current = date;
     setSelectedCalendarDate(date);
-    const dayRequests = calendarRequests.filter((row) => requestCoversWorkDate(row, date));
+    const scOnDate = scSchedules.filter((row) => String(row.workDate || "").slice(0, 10) === date);
+    const dayRequests = filterClientSiteRequestsForCalendarDay(
+      calendarRequests.filter((row) => requestCoversWorkDate(row, date)),
+      date,
+      scOnDate,
+    );
     if (dayRequests.length === 1) {
       setSelectedRequestId(dayRequests[0].id);
     } else if (selectedRequestId && !dayRequests.some((row) => row.id === selectedRequestId)) {
