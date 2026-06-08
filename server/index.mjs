@@ -77,6 +77,8 @@ import {
 import { buildPdfShareViewerHtml } from "./pdfShareViewer.mjs";
 import { renderPdfSharePreviewImages } from "./pdfSharePreview.mjs";
 import { buildPdfShareOgMeta } from "./pdfShareOg.mjs";
+import { buildClientSiteRequestOgMeta } from "./clientSiteRequestShareOg.mjs";
+import { buildClientSiteRequestSharePreviewHtml } from "./clientSiteRequestSharePreview.mjs";
 import { getBankSyncStatus, runBankFolderSync, startBankSyncScheduler, runUnifiedBankSync } from "./bankSync.mjs";
 import {
   getOpenBankingSyncStatus,
@@ -2646,9 +2648,32 @@ app.use("/api", (req, res) => {
 });
 
 if (fs.existsSync(config.distDir)) {
+  const spaIndexPath = path.join(config.distDir, "index.html");
+
+  app.get("/request/:token", (req, res) => {
+    const result = getPublicClientSiteRequestInfo(req.params.token);
+    if (!result.ok) {
+      res.sendFile(spaIndexPath);
+      return;
+    }
+
+    const origin = buildPublicRequestOrigin(req);
+    const sharePageUrl = `${origin}/request/${encodeURIComponent(req.params.token)}`;
+    const og = buildClientSiteRequestOgMeta({
+      clientName: result.info.clientName,
+      sharePageUrl,
+      origin,
+    });
+
+    const indexHtml = fs.readFileSync(spaIndexPath, "utf8");
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store");
+    res.send(buildClientSiteRequestSharePreviewHtml(indexHtml, { title: og.ogTitle, og }));
+  });
+
   app.use(express.static(config.distDir));
   app.get(/^(?!\/api).*/, (_req, res) => {
-    res.sendFile(path.join(config.distDir, "index.html"));
+    res.sendFile(spaIndexPath);
   });
 }
 

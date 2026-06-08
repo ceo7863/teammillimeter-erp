@@ -1012,13 +1012,14 @@ export function ClientSiteRequestsPanel({ clients, isAdmin = false }: ClientSite
                 {selectedIssueLink ? (
                   <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5">
                     <p className="text-xs font-bold text-slate-500">{L.linkUrl}</p>
-                    <button
-                      type="button"
+                    <a
+                      href={resolveClientSiteRequestLinkUrl(selectedIssueLink)}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="mt-1 block w-full break-all text-left text-sm font-semibold text-blue-700 underline decoration-blue-300 underline-offset-2 hover:text-blue-900"
-                      onClick={() => openLink(selectedIssueLink)}
                     >
                       {resolveClientSiteRequestLinkUrl(selectedIssueLink)}
-                    </button>
+                    </a>
                   </div>
                 ) : null}
 
@@ -1139,14 +1140,15 @@ export function ClientSiteRequestsPanel({ clients, isAdmin = false }: ClientSite
                           ) : null}
                         </td>
                         <td className="max-w-[280px]">
-                          <button
-                            type="button"
+                          <a
+                            href={resolveClientSiteRequestLinkUrl(link)}
+                            target="_blank"
+                            rel="noopener noreferrer"
                             className="block max-w-full truncate text-left text-sm font-semibold text-blue-700 underline decoration-blue-300 underline-offset-2 hover:text-blue-900"
                             title={resolveClientSiteRequestLinkUrl(link)}
-                            onClick={() => openLink(link)}
                           >
                             {resolveClientSiteRequestLinkUrl(link)}
-                          </button>
+                          </a>
                         </td>
                         <td>
                           <span
@@ -1165,7 +1167,7 @@ export function ClientSiteRequestsPanel({ clients, isAdmin = false }: ClientSite
                               variant="outline"
                               className="rounded-lg"
                               noFeedback
-                              onClick={() => openClientCalendar(link.clientId, link.clientName)}
+                              onClick={() => openLink(link)}
                             >
                               <CalendarDays size={13} className="mr-1" />
                               {L.calendarTitle}
