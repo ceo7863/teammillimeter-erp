@@ -5,6 +5,7 @@ import type { ClientFormState } from "@/components/ClientFormModal";
 import {
   BUSINESS_REG_IMPORT_FIELDS,
   mergeBusinessRegImport,
+  normalizeImportedBusinessNo,
   suggestBusinessRegValues,
   type BusinessRegImportFieldKey,
 } from "@/utils/businessRegImport";
@@ -28,6 +29,8 @@ const L = {
   emptyField: "\uBE48 \uCE78",
   apply: "\uD3FC\uC5D0 \uBC18\uC601",
   close: "\uB2EB\uAE30",
+  pickFromText: "\uAE00\uC790 \uC120\uD0DD",
+  draftPlaceholder: (label: string) => `${label} \uC785\uB825 \uB610\uB294 \uC218\uC815`,
   noFile: "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uD30C\uC77C\uC744 \uC62C\uB824 \uC8FC\uC138\uC694.",
   applyDone: (count: number) => `${count}\uAC1C \uD544\uB4DC\uB97C \uCC44\uC6CC \uC788\uC2B5\uB2C8\uB2E4.`,
   skippedFilled: (count: number) => `${count}\uAC1C \uD544\uB4DC\uB294 \uAE30\uC874 \uAC12\uC774 \uC788\uC5B4 \uAC74\uB108\uB700\uC2B5\uB2C8\uB2E4.`,
@@ -171,6 +174,20 @@ export function ClientBusinessRegImportModal({
     setMessage("");
   };
 
+  const updateDraftField = (key: BusinessRegImportFieldKey, value: string) => {
+    setDraft((prev) => ({ ...prev, [key]: value }));
+    setMessage("");
+  };
+
+  const commitDraftField = (key: BusinessRegImportFieldKey) => {
+    if (key !== "businessNo") return;
+    setDraft((prev) => {
+      const raw = String(prev[key] || "").trim();
+      if (!raw) return prev;
+      return { ...prev, [key]: normalizeImportedBusinessNo(raw) };
+    });
+  };
+
   const handleFieldClick = (key: BusinessRegImportFieldKey) => {
     const selected = getSelectedText();
     if (selected) {
@@ -310,35 +327,52 @@ export function ClientBusinessRegImportModal({
                 </div>
               ) : null}
 
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {BUSINESS_REG_IMPORT_FIELDS.map(({ key, label }) => {
                   const current = String(form[key] || "").trim();
-                  const pending = String(draft[key] || "").trim();
+                  const pending = String(draft[key] ?? "").trim();
                   const isEmpty = !current;
+                  const isActive = activeField === key;
                   return (
-                    <button
+                    <div
                       key={key}
-                      type="button"
-                      className={`rounded-xl border px-3 py-2 text-left transition ${
-                        activeField === key
+                      className={`rounded-xl border px-3 py-2 transition ${
+                        isActive
                           ? "border-sky-400 bg-sky-50 ring-2 ring-sky-200"
                           : pending
                             ? "border-emerald-300 bg-emerald-50"
-                            : "border-slate-200 bg-white hover:bg-slate-50"
+                            : "border-slate-200 bg-white"
                       }`}
-                      onClick={() => handleFieldClick(key)}
                     >
-                      <div className="flex items-center gap-2">
+                      <div className="mb-1 flex items-center gap-2">
                         <span className="text-xs font-bold text-slate-800">{label}</span>
                         {isEmpty ? (
                           <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500">{L.emptyField}</span>
                         ) : null}
+                        <button
+                          type="button"
+                          className={`ml-auto rounded-lg px-2 py-0.5 text-[10px] font-bold ${
+                            isActive ? "bg-sky-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                          }`}
+                          onClick={() => handleFieldClick(key)}
+                        >
+                          {L.pickFromText}
+                        </button>
                       </div>
-                      <div className="mt-1 truncate text-xs text-slate-500">
+                      <div className="truncate text-xs text-slate-500">
                         {L.currentValue}: {current || "-"}
                       </div>
-                      {pending ? <div className="mt-0.5 truncate text-xs font-semibold text-emerald-700">{pending}</div> : null}
-                    </button>
+                      <input
+                        type="text"
+                        lang="ko"
+                        className="erp-input mt-2 w-full rounded-lg border bg-white px-2.5 py-2 text-sm font-semibold text-slate-800"
+                        value={draft[key] ?? ""}
+                        placeholder={L.draftPlaceholder(label)}
+                        onChange={(event) => updateDraftField(key, event.target.value)}
+                        onFocus={() => setActiveField(key)}
+                        onBlur={() => commitDraftField(key)}
+                      />
+                    </div>
                   );
                 })}
               </div>
