@@ -231,8 +231,16 @@ export function ScScheduleAlimtalkPage() {
                         {[manager, group.variables.dateTime, workers].filter(Boolean).join(" \u00B7 ")}
                       </p>
                       {group.shareUrl ? (
-                        <p className="mt-2 break-all text-xs text-blue-700">
-                          {L.link}: {group.shareUrl}
+                        <p className="mt-2 text-xs">
+                          {L.link}:{" "}
+                          <a
+                            href={group.shareUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="break-all text-blue-700 underline hover:text-blue-900"
+                          >
+                            {group.shareUrl}
+                          </a>
                         </p>
                       ) : group.shareError ? (
                         <p className="mt-2 text-xs text-red-600">
