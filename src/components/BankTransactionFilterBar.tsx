@@ -1,9 +1,12 @@
-import React, { memo, useEffect, useState } from "react";
+import React, { memo, useEffect, useMemo, useState } from "react";
 import { CalendarDays, RotateCcw, Search } from "lucide-react";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import type { BankTransactionFlowFilter } from "@/utils/bankTransactions";
 import type { BankTransactionPeriodKey } from "@/utils/bankTransactionPagePeriod";
-import { formatBankPeriodRangeLabel } from "@/utils/bankTransactionPagePeriod";
+import {
+  formatBankPeriodRangeLabel,
+  resolveBankTransactionPeriod,
+} from "@/utils/bankTransactionPagePeriod";
 import type { BankTxEvidenceFilter, BankTxGroupFilter, BankTxStatusTab } from "@/utils/bankTransactionStatusFilter";
 
 const PERIOD_TABS: Array<{ key: BankTransactionPeriodKey; label: string }> = [
@@ -28,33 +31,28 @@ const FLOW_TABS: Array<{ key: BankTransactionFlowFilter; label: string }> = [
   { key: "withdrawal", label: "\uCD9C\uAE08" },
 ];
 
-type BankTransactionFilterBarProps = {
+export type BankTransactionAppliedFilters = {
   periodKey: BankTransactionPeriodKey;
-  onPeriodKeyChange: (key: BankTransactionPeriodKey) => void;
   startDate: string;
   endDate: string;
-  onStartDateChange: (value: string) => void;
-  onEndDateChange: (value: string) => void;
   statusTab: BankTxStatusTab;
-  onStatusTabChange: (tab: BankTxStatusTab) => void;
-  statusCounts: Partial<Record<Exclude<BankTxStatusTab, "all">, number>>;
   flowFilter: BankTransactionFlowFilter;
-  onFlowFilterChange: (value: BankTransactionFlowFilter) => void;
   accountFilter: string;
-  onAccountFilterChange: (value: string) => void;
-  accounts: Array<{ accountNumber: string; bankName?: string }>;
   accountSubjectFilter: string;
-  onAccountSubjectFilterChange: (value: string) => void;
-  accountSubjects: Array<{ code: string; name: string }>;
   clientFilter: string;
-  onClientFilterChange: (value: string) => void;
-  clients: Array<{ name?: string }>;
   groupFilter: BankTxGroupFilter;
-  onGroupFilterChange: (value: BankTxGroupFilter) => void;
   evidenceFilter: BankTxEvidenceFilter;
-  onEvidenceFilterChange: (value: BankTxEvidenceFilter) => void;
   searchQuery: string;
-  onSearchQueryChange: (value: string) => void;
+};
+
+type BankTransactionFilterBarProps = {
+  applied: BankTransactionAppliedFilters;
+  onApply: (filters: BankTransactionAppliedFilters) => void;
+  onApplySearch: (searchQuery: string) => void;
+  statusCounts: Partial<Record<Exclude<BankTxStatusTab, "all">, number>>;
+  accounts: Array<{ accountNumber: string; bankName?: string }>;
+  accountSubjects: Array<{ code: string; name: string }>;
+  clients: Array<{ name?: string }>;
   filterResetKey: number;
   onReset: () => void;
 };
@@ -81,42 +79,49 @@ function FilterSelect({
 }
 
 function BankTransactionFilterBarComponent({
-  periodKey,
-  onPeriodKeyChange,
-  startDate,
-  endDate,
-  onStartDateChange,
-  onEndDateChange,
-  statusTab,
-  onStatusTabChange,
+  applied,
+  onApply,
+  onApplySearch,
   statusCounts,
-  flowFilter,
-  onFlowFilterChange,
-  accountFilter,
-  onAccountFilterChange,
   accounts,
-  accountSubjectFilter,
-  onAccountSubjectFilterChange,
   accountSubjects,
-  clientFilter,
-  onClientFilterChange,
   clients,
-  groupFilter,
-  onGroupFilterChange,
-  evidenceFilter,
-  onEvidenceFilterChange,
-  searchQuery,
-  onSearchQueryChange,
   filterResetKey,
   onReset,
 }: BankTransactionFilterBarProps) {
-  const [searchDraft, setSearchDraft] = useState(searchQuery);
+  const [draft, setDraft] = useState<BankTransactionAppliedFilters>(applied);
 
   useEffect(() => {
-    setSearchDraft(searchQuery);
-  }, [searchQuery, filterResetKey]);
+    setDraft(applied);
+  }, [applied, filterResetKey]);
 
-  const applySearch = () => onSearchQueryChange(searchDraft.trim());
+  const draftPeriodRange = useMemo(
+    () =>
+      resolveBankTransactionPeriod(draft.periodKey, {
+        startDate: draft.startDate,
+        endDate: draft.endDate,
+      }),
+    [draft.periodKey, draft.startDate, draft.endDate],
+  );
+
+  const hasPendingFilters = useMemo(() => {
+    const { searchQuery: _search, ...draftRest } = draft;
+    const { searchQuery: _appliedSearch, ...appliedRest } = applied;
+    return JSON.stringify(draftRest) !== JSON.stringify(appliedRest);
+  }, [draft, applied]);
+
+  const hasPendingSearch = draft.searchQuery.trim() !== applied.searchQuery;
+
+  const applySearch = () => {
+    onApplySearch(draft.searchQuery.trim());
+  };
+
+  const applyFilters = () => {
+    onApply({
+      ...draft,
+      searchQuery: draft.searchQuery.trim(),
+    });
+  };
 
   return (
     <div className="erp-bank-wehago-toolbar mb-4 rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -128,8 +133,8 @@ function BankTransactionFilterBarComponent({
               <button
                 key={option.key}
                 type="button"
-                className={`erp-bank-wehago-period-tab ${periodKey === option.key ? "is-active" : ""}`}
-                onClick={() => onPeriodKeyChange(option.key)}
+                className={`erp-bank-wehago-period-tab ${draft.periodKey === option.key ? "is-active" : ""}`}
+                onClick={() => setDraft((prev) => ({ ...prev, periodKey: option.key }))}
               >
                 {option.label}
               </button>
@@ -140,23 +145,29 @@ function BankTransactionFilterBarComponent({
           <CalendarDays size={16} className="text-slate-400" aria-hidden="true" />
           <KoreanDateInput
             className="erp-bank-wehago-date-input"
-            value={startDate}
+            value={draftPeriodRange.startDate}
             onChange={(event) => {
-              onPeriodKeyChange("custom");
-              onStartDateChange(event.target.value);
+              setDraft((prev) => ({
+                ...prev,
+                periodKey: "custom",
+                startDate: event.target.value,
+              }));
             }}
           />
           <span className="text-slate-400">-</span>
           <KoreanDateInput
             className="erp-bank-wehago-date-input"
-            value={endDate}
+            value={draftPeriodRange.endDate}
             onChange={(event) => {
-              onPeriodKeyChange("custom");
-              onEndDateChange(event.target.value);
+              setDraft((prev) => ({
+                ...prev,
+                periodKey: "custom",
+                endDate: event.target.value,
+              }));
             }}
           />
           <span className="erp-bank-wehago-toolbar__range-label">
-            {formatBankPeriodRangeLabel({ startDate, endDate })}
+            {formatBankPeriodRangeLabel(draftPeriodRange)}
           </span>
         </div>
       </div>
@@ -169,8 +180,8 @@ function BankTransactionFilterBarComponent({
             <button
               key={option.key}
               type="button"
-              className={`erp-bank-wehago-status-tab ${statusTab === option.key ? "is-active" : ""}`}
-              onClick={() => onStatusTabChange(option.key)}
+              className={`erp-bank-wehago-status-tab ${draft.statusTab === option.key ? "is-active" : ""}`}
+              onClick={() => setDraft((prev) => ({ ...prev, statusTab: option.key }))}
             >
               {option.label}
               {countLabel ? <span className="erp-bank-wehago-status-tab__count">{countLabel}</span> : null}
@@ -180,22 +191,31 @@ function BankTransactionFilterBarComponent({
       </div>
 
       <div className="erp-bank-wehago-filter-row">
-        <div className="erp-bank-wehago-search">
-          <Search size={16} className="erp-bank-wehago-search__icon" aria-hidden="true" />
-          <input
-            type="text"
-            lang="ko"
-            className="erp-bank-wehago-search__input"
-            value={searchDraft}
-            placeholder={"\uBA54\uBAA8, \uAC70\uB798\uCC98, \uAE08\uC561 \uB4F1 \uAC80\uC0C9..."}
-            onChange={(event) => setSearchDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                applySearch();
-              }
-            }}
-          />
+        <div className="erp-bank-wehago-search-wrap">
+          <div className="erp-bank-wehago-search">
+            <Search size={16} className="erp-bank-wehago-search__icon" aria-hidden="true" />
+            <input
+              type="text"
+              lang="ko"
+              className="erp-bank-wehago-search__input"
+              value={draft.searchQuery}
+              placeholder={"\uBA54\uBAA8, \uAC70\uB798\uCC98, \uAE08\uC561 \uB4F1 \uAC80\uC0C9..."}
+              onChange={(event) => setDraft((prev) => ({ ...prev, searchQuery: event.target.value }))}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  applySearch();
+                }
+              }}
+            />
+          </div>
+          <button
+            type="button"
+            className={`erp-bank-wehago-action-btn ${hasPendingSearch ? "is-pending" : ""}`}
+            onClick={applySearch}
+          >
+            {"\uAC80\uC0C9"}
+          </button>
         </div>
 
         <div className="erp-bank-wehago-flow-tabs">
@@ -203,15 +223,19 @@ function BankTransactionFilterBarComponent({
             <button
               key={option.key}
               type="button"
-              className={`erp-bank-wehago-flow-tab ${flowFilter === option.key ? "is-active" : ""}`}
-              onClick={() => onFlowFilterChange(option.key)}
+              className={`erp-bank-wehago-flow-tab ${draft.flowFilter === option.key ? "is-active" : ""}`}
+              onClick={() => setDraft((prev) => ({ ...prev, flowFilter: option.key }))}
             >
               {option.label}
             </button>
           ))}
         </div>
 
-        <FilterSelect label={"\uACC4\uC88C"} value={accountFilter} onChange={onAccountFilterChange}>
+        <FilterSelect
+          label={"\uACC4\uC88C"}
+          value={draft.accountFilter}
+          onChange={(value) => setDraft((prev) => ({ ...prev, accountFilter: value }))}
+        >
           <option value="">{"\uC804\uCCB4"}</option>
           {accounts.map((account) => (
             <option key={account.accountNumber} value={account.accountNumber}>
@@ -220,7 +244,11 @@ function BankTransactionFilterBarComponent({
           ))}
         </FilterSelect>
 
-        <FilterSelect label={"\uACC4\uC815"} value={accountSubjectFilter} onChange={onAccountSubjectFilterChange}>
+        <FilterSelect
+          label={"\uACC4\uC815"}
+          value={draft.accountSubjectFilter}
+          onChange={(value) => setDraft((prev) => ({ ...prev, accountSubjectFilter: value }))}
+        >
           <option value="">{"\uC804\uCCB4"}</option>
           {accountSubjects.map((account) => (
             <option key={account.code} value={account.code}>
@@ -229,7 +257,11 @@ function BankTransactionFilterBarComponent({
           ))}
         </FilterSelect>
 
-        <FilterSelect label={"\uAC70\uB798\uCC98"} value={clientFilter} onChange={onClientFilterChange}>
+        <FilterSelect
+          label={"\uAC70\uB798\uCC98"}
+          value={draft.clientFilter}
+          onChange={(value) => setDraft((prev) => ({ ...prev, clientFilter: value }))}
+        >
           <option value="">{"\uC804\uCCB4"}</option>
           {clients.map((client) => {
             const name = String(client.name || "").trim();
@@ -242,7 +274,11 @@ function BankTransactionFilterBarComponent({
           })}
         </FilterSelect>
 
-        <FilterSelect label={"\uADF8\uB8F9"} value={groupFilter} onChange={(value) => onGroupFilterChange(value as BankTxGroupFilter)}>
+        <FilterSelect
+          label={"\uADF8\uB8F9"}
+          value={draft.groupFilter}
+          onChange={(value) => setDraft((prev) => ({ ...prev, groupFilter: value as BankTxGroupFilter }))}
+        >
           <option value="all">{"\uC804\uCCB4"}</option>
           <option value="unfiled">{"\uBBF8\uBD84\uB958"}</option>
           <option value="client">{"\uAC70\uB798\uCC98"}</option>
@@ -250,17 +286,33 @@ function BankTransactionFilterBarComponent({
           <option value="card">{"\uCE74\uB4DC\uB9E4\uCD9C"}</option>
         </FilterSelect>
 
-        <FilterSelect label={"\uC99D\uB9F9 \uC790\uB8CC"} value={evidenceFilter} onChange={(value) => onEvidenceFilterChange(value as BankTxEvidenceFilter)}>
+        <FilterSelect
+          label={"\uC99D\uB9F9 \uC790\uB8CC"}
+          value={draft.evidenceFilter}
+          onChange={(value) => setDraft((prev) => ({ ...prev, evidenceFilter: value as BankTxEvidenceFilter }))}
+        >
           <option value="all">{"\uC804\uCCB4"}</option>
           <option value="linked">{"\uC99D\uB9F9 \uC788\uC74C"}</option>
           <option value="missing">{"\uC99D\uB9F9 \uC5C6\uC74C"}</option>
         </FilterSelect>
+
+        <button
+          type="button"
+          className={`erp-bank-wehago-action-btn erp-bank-wehago-action-btn--primary ${hasPendingFilters ? "is-pending" : ""}`}
+          onClick={applyFilters}
+        >
+          {"\uC801\uC6A9"}
+        </button>
 
         <button type="button" className="erp-bank-wehago-reset" onClick={onReset} title={"\uD544\uD130 \uCD08\uAE30\uD654"}>
           <RotateCcw size={14} />
           {"\uCD08\uAE30\uD654"}
         </button>
       </div>
+
+      <p className="erp-bank-wehago-filter-hint">
+        {"\uAC80\uC0C9\uC740 \uAC80\uC0C9 \uBC84\uD2BC\uC744, \uAE30\uAC04\u00B7\uC785\uCD9C\uAE08\u00B7\uC120\uD0DD \uD544\uD130\uB294 \uC801\uC6A9 \uBC84\uD2BC\uC744 \uB20C\uB7EC \uBAA9\uB85D\uC744 \uAC31\uC2E0\uD569\uB2C8\uB2E4."}
+      </p>
     </div>
   );
 }

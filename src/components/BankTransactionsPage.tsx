@@ -2807,21 +2807,7 @@ export function BankTransactionsPage({
     [periodKey, dateFilter]
   );
 
-  const deferredSearchQuery = useDeferredValue(searchQuery);
-  const deferredFlowFilter = useDeferredValue(flowFilter);
-  const deferredLedgerScopeFilter = useDeferredValue(ledgerScopeFilter);
-  const deferredStatusTab = useDeferredValue(statusTab);
-  const deferredClientNameFilter = useDeferredValue(clientNameFilter);
-  const deferredAccountSubjectFilter = useDeferredValue(accountSubjectFilter);
-  const deferredEvidenceFilter = useDeferredValue(evidenceFilter);
-  const deferredAccountFilter = useDeferredValue(accountFilter);
-  const deferredFolderScope = useDeferredValue(folderScope);
-  const deferredSelectedFolderScopeIds = useDeferredValue(selectedFolderScopeIds);
   const deferredSort = useDeferredValue(sort);
-
-  const applyFilterTransition = useCallback((update: () => void) => {
-    startTransition(update);
-  }, []);
 
   const statusFilterContext = useMemo(
     () => ({
@@ -2855,80 +2841,80 @@ export function BankTransactionsPage({
     if (!isPageActive) return EMPTY_BANK_TRANSACTION_ROWS;
 
     let scoped = filterBankTransactions(ledgerSyncedTransactions, {
-      search: deferredSearchQuery,
+      search: searchQuery,
       dateFrom: activePeriod.startDate,
       dateTo: activePeriod.endDate,
-      flowType: deferredFlowFilter,
-      accountNumber: deferredAccountFilter,
+      flowType: flowFilter,
+      accountNumber: accountFilter,
     });
 
-    if (deferredSelectedFolderScopeIds) {
-      scoped = scoped.filter((row) => row.folderId && deferredSelectedFolderScopeIds.has(row.folderId));
-    } else if (deferredFolderScope === "unfiled") {
+    if (selectedFolderScopeIds) {
+      scoped = scoped.filter((row) => row.folderId && selectedFolderScopeIds.has(row.folderId));
+    } else if (folderScope === "unfiled") {
       scoped = scoped.filter((row) => isBankTransactionUnfiled(row, ledgerRegistrationContext));
-    } else if (deferredFolderScope === "client") {
+    } else if (folderScope === "client") {
       const ids = new Set(clientFolders.map((folder) => folder.id));
       scoped = scoped.filter((row) => row.folderId && ids.has(row.folderId));
-    } else if (deferredFolderScope === "card") {
+    } else if (folderScope === "card") {
       const ids = new Set(cardFolders.map((folder) => folder.id));
       scoped = scoped.filter((row) => row.folderId && ids.has(row.folderId));
-    } else if (deferredFolderScope === "worker") {
+    } else if (folderScope === "worker") {
       const ids = new Set(workerFolders.map((folder) => folder.id));
       scoped = scoped.filter((row) => row.folderId && ids.has(row.folderId));
     } else {
-      const customRootId = parseCustomFolderScope(deferredFolderScope);
+      const customRootId = parseCustomFolderScope(folderScope);
       if (customRootId) {
         const ids = new Set(collectCustomCategoryFolderIds(bankTransactionFolders, customRootId));
         scoped = scoped.filter((row) => row.folderId && ids.has(row.folderId));
       }
     }
 
-    if (deferredLedgerScopeFilter !== "all") {
+    if (ledgerScopeFilter !== "all") {
       scoped = scoped.filter((row) =>
-        matchesBankTxLedgerScope(row, deferredLedgerScopeFilter, companyExpenses, fixedExpensePayments),
+        matchesBankTxLedgerScope(row, ledgerScopeFilter, companyExpenses, fixedExpensePayments),
       );
     }
 
-    if (deferredStatusTab !== "all") {
-      scoped = scoped.filter((row) => matchesBankTxStatusTab(row, deferredStatusTab, statusFilterContext));
+    if (statusTab !== "all") {
+      scoped = scoped.filter((row) => matchesBankTxStatusTab(row, statusTab, statusFilterContext));
     }
 
-    if (deferredClientNameFilter) {
+    if (clientNameFilter) {
       scoped = scoped.filter((row) => {
         const name = resolveBankTxClientName(row) || String(row.linkedSubject || "").trim();
-        return name === deferredClientNameFilter;
+        return name === clientNameFilter;
       });
     }
 
-    if (deferredAccountSubjectFilter) {
-      scoped = scoped.filter((row) => String(row.ledgerAccountCode || "").trim() === deferredAccountSubjectFilter);
+    if (accountSubjectFilter) {
+      scoped = scoped.filter((row) => String(row.ledgerAccountCode || "").trim() === accountSubjectFilter);
     }
 
-    if (deferredEvidenceFilter !== "all") {
-      scoped = scoped.filter((row) => matchesBankTxEvidenceFilter(row, deferredEvidenceFilter));
+    if (evidenceFilter !== "all") {
+      scoped = scoped.filter((row) => matchesBankTxEvidenceFilter(row, evidenceFilter));
     }
 
     return sortBankTransactions(scoped, { key: deferredSort.key, direction: deferredSort.direction });
   }, [
     isPageActive,
     ledgerSyncedTransactions,
-    deferredSearchQuery,
+    searchQuery,
     activePeriod.startDate,
     activePeriod.endDate,
-    deferredFlowFilter,
-    deferredLedgerScopeFilter,
-    deferredStatusTab,
+    flowFilter,
+    ledgerScopeFilter,
+    statusTab,
     statusFilterContext,
-    deferredClientNameFilter,
-    deferredAccountSubjectFilter,
-    deferredEvidenceFilter,
+    clientNameFilter,
+    accountSubjectFilter,
+    evidenceFilter,
     companyExpenses,
     fixedExpensePayments,
     fixedExpenses,
     ledgerCategories,
-    deferredAccountFilter,
-    deferredSelectedFolderScopeIds,
-    deferredFolderScope,
+    accountFilter,
+    selectedFolderScopeIds,
+    folderScope,
     clientFolders,
     cardFolders,
     workerFolders,
@@ -5228,43 +5214,42 @@ export function BankTransactionsPage({
 
       {hasAnyData && pageView === "list" ? (
         <BankTransactionFilterBar
-          periodKey={periodKey}
-          onPeriodKeyChange={(key) => applyFilterTransition(() => setPeriodKey(key))}
-          startDate={activePeriod.startDate}
-          endDate={activePeriod.endDate}
-          onStartDateChange={(value) =>
-            applyFilterTransition(() => setDateFilter((prev) => ({ ...prev, startDate: value })))
-          }
-          onEndDateChange={(value) =>
-            applyFilterTransition(() => setDateFilter((prev) => ({ ...prev, endDate: value })))
-          }
-          statusTab={statusTab}
-          onStatusTabChange={(tab) => applyFilterTransition(() => setStatusTab(tab))}
-          statusCounts={statusCounts}
-          flowFilter={flowFilter}
-          onFlowFilterChange={(value) => applyFilterTransition(() => setFlowFilter(value))}
-          accountFilter={accountFilter}
-          onAccountFilterChange={(value) => applyFilterTransition(() => setAccountFilter(value))}
-          accounts={accountSummaries}
-          accountSubjectFilter={accountSubjectFilter}
-          onAccountSubjectFilterChange={(value) => applyFilterTransition(() => setAccountSubjectFilter(value))}
-          accountSubjects={accountSubjectFilterOptions}
-          clientFilter={clientNameFilter}
-          onClientFilterChange={(value) => applyFilterTransition(() => setClientNameFilter(value))}
-          clients={clients}
-          groupFilter={groupFilter}
-          onGroupFilterChange={(value) => {
-            applyFilterTransition(() => {
-              setGroupFilter(value);
+          applied={{
+            periodKey,
+            startDate: dateFilter.startDate,
+            endDate: dateFilter.endDate,
+            statusTab,
+            flowFilter,
+            accountFilter,
+            accountSubjectFilter,
+            clientFilter: clientNameFilter,
+            groupFilter,
+            evidenceFilter,
+            searchQuery,
+          }}
+          onApplySearch={(value) => {
+            startTransition(() => setSearchQuery(value));
+          }}
+          onApply={(filters) => {
+            startTransition(() => {
+              setPeriodKey(filters.periodKey);
+              setDateFilter({ startDate: filters.startDate, endDate: filters.endDate });
+              setStatusTab(filters.statusTab);
+              setFlowFilter(filters.flowFilter);
+              setAccountFilter(filters.accountFilter);
+              setAccountSubjectFilter(filters.accountSubjectFilter);
+              setClientNameFilter(filters.clientFilter);
+              setGroupFilter(filters.groupFilter);
               setSelectedFolderId("");
-              if (value === "all") setFolderScope("all");
-              else setFolderScope(value);
+              setFolderScope(filters.groupFilter === "all" ? "all" : filters.groupFilter);
+              setEvidenceFilter(filters.evidenceFilter);
+              setSearchQuery(filters.searchQuery);
             });
           }}
-          evidenceFilter={evidenceFilter}
-          onEvidenceFilterChange={(value) => applyFilterTransition(() => setEvidenceFilter(value))}
-          searchQuery={searchQuery}
-          onSearchQueryChange={(value) => applyFilterTransition(() => setSearchQuery(value))}
+          statusCounts={statusCounts}
+          accounts={accountSummaries}
+          accountSubjects={accountSubjectFilterOptions}
+          clients={clients}
           filterResetKey={filterResetKey}
           onReset={() => {
             startTransition(() => {
