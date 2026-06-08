@@ -36,6 +36,8 @@ const L = {
   sendError: "\uC54C\uB9BC\uD1A1 \uBC1C\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   sendResult: (sent: number, failed: number) => `${sent}\uAC74 \uBC1C\uC1A1 / ${failed}\uAC74 \uC2E4\uD328`,
   refresh: "\uC0C8\uB85C\uACE0\uCE68",
+  selectAll: "\uC804\uCCB4 \uC120\uD0DD",
+  deselectAll: "\uC804\uCCB4 \uD574\uC81C",
 };
 
 type ScheduleGroup = {
@@ -132,6 +134,33 @@ export function ScScheduleAlimtalkPage() {
     setSelected((prev) => ({ ...prev, [key]: checked }));
   };
 
+  const setScheduleSelection = (rows: ScScheduleNotifyPreview["rows"], checked: boolean) => {
+    setSelected((prev) => {
+      const next = { ...prev };
+      for (const row of rows) {
+        if (!row.phone) continue;
+        const key = recipientKey(row.scheduleId, row.phone, row.participantName, row.recipientType);
+        next[key] = checked;
+      }
+      return next;
+    });
+  };
+
+  const selectAllRecipients = () => {
+    if (!preview) return;
+    setSelected(buildDefaultSelection(preview));
+  };
+
+  const deselectAllRecipients = () => {
+    setSelected((prev) => {
+      const next = { ...prev };
+      for (const key of Object.keys(next)) {
+        next[key] = false;
+      }
+      return next;
+    });
+  };
+
   const handleSendSchedule = async (group: ScheduleGroup) => {
     if (sendingScheduleId) return;
     const phones = group.rows
@@ -190,16 +219,42 @@ export function ScScheduleAlimtalkPage() {
                 </p>
               ) : null}
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-xl"
-              onClick={() => void loadPreview()}
-              disabled={loading}
-            >
-              <RefreshCw size={14} className={`mr-1 ${loading ? "animate-spin" : ""}`} />
-              {L.refresh}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {preview && groups.length > 0 ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl"
+                    onClick={selectAllRecipients}
+                    disabled={loading}
+                  >
+                    {L.selectAll}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl"
+                    onClick={deselectAllRecipients}
+                    disabled={loading}
+                  >
+                    {L.deselectAll}
+                  </Button>
+                </>
+              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-xl"
+                onClick={() => void loadPreview()}
+                disabled={loading}
+              >
+                <RefreshCw size={14} className={`mr-1 ${loading ? "animate-spin" : ""}`} />
+                {L.refresh}
+              </Button>
+            </div>
           </div>
 
           {loading && !preview ? <p className="text-sm text-slate-500">{L.loading}</p> : null}
@@ -269,7 +324,26 @@ export function ScScheduleAlimtalkPage() {
 
                   {group.rows.length ? (
                     <div className="mt-4">
-                      <p className="mb-2 text-xs font-bold text-slate-700">{L.recipients}</p>
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-bold text-slate-700">{L.recipients}</p>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            className="text-xs font-semibold text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline"
+                            onClick={() => setScheduleSelection(group.rows, true)}
+                          >
+                            {L.selectAll}
+                          </button>
+                          <span className="text-xs text-slate-300">|</span>
+                          <button
+                            type="button"
+                            className="text-xs font-semibold text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline"
+                            onClick={() => setScheduleSelection(group.rows, false)}
+                          >
+                            {L.deselectAll}
+                          </button>
+                        </div>
+                      </div>
                       <ul className="space-y-2">
                         {group.rows.map((row) => {
                           const role = row.recipientType === "client" ? L.client : L.worker;
