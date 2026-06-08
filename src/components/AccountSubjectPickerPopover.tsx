@@ -174,7 +174,7 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
     getScrollElement: () => listRef.current,
     estimateSize: (index) =>
       pickerRows[index]?.kind === "group" ? PICKER_GROUP_ROW_PX : PICKER_ITEM_ROW_PX,
-    overscan: 10,
+    overscan: 5,
     getItemKey: (index) => pickerRows[index]?.key ?? index,
   });
 
@@ -256,10 +256,10 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
     if (!keyboardNavRef.current) return;
     keyboardNavRef.current = false;
     if (useVirtualPicker) {
-      rowVirtualizer.scrollToIndex(highlightedPickerRowIndex, { align: "auto" });
+      rowVirtualizer.scrollToIndex(highlightedPickerRowIndex, { align: "auto", behavior: "auto" });
       return;
     }
-    activeItemRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    activeItemRef.current?.scrollIntoView({ block: "nearest", behavior: "auto" });
   }, [highlightedIndex, highlightedPickerRowIndex, rowVirtualizer, useVirtualPicker]);
 
   useEffect(() => {
@@ -373,7 +373,11 @@ export const AccountSubjectPickerPopover = memo(function AccountSubjectPickerPop
       aria-label={labels.searchPlaceholder}
       onMouseDown={(event) => event.stopPropagation()}
     >
-      <div ref={listRef} className="erp-account-picker-popover__list erp-account-picker-popover__list--excel">
+      <div
+        ref={listRef}
+        className="erp-account-picker-popover__list erp-account-picker-popover__list--excel"
+        onWheel={(event) => event.stopPropagation()}
+      >
         {!flatItems.length ? (
           <p className="erp-account-picker-popover__empty">{labels.empty}</p>
         ) : useVirtualPicker ? (

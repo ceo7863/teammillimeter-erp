@@ -258,10 +258,7 @@ textarea {
   overflow-x: hidden;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  scroll-behavior: smooth;
   scrollbar-gutter: stable;
-  transform: translateZ(0);
-  will-change: scroll-position;
 }
 
 .erp-account-picker-popover__static-list {
