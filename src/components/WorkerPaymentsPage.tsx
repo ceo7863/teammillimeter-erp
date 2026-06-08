@@ -8,6 +8,7 @@ import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { WorkerStatementTab } from "@/components/WorkerStatementTab";
 import { WorkerAssignmentFairnessTab } from "@/components/WorkerAssignmentFairnessTab";
 import { buildWorkerAssignmentFairness, summarizeWorkerAssignmentFairnessRows } from "@/utils/workerAssignmentFairness";
+import { shiftMonthKey } from "@/utils/workerMonthlyPayments";
 import {
   filterSalesByDate,
   flattenSalesToWorkerPaymentRows,
@@ -296,14 +297,29 @@ export function WorkerPaymentsPage({
     [statementMonthSummaryRows],
   );
 
+  const assignmentFairnessPrevMonthKey = useMemo(
+    () => shiftMonthKey(selectedMonthKey, -1),
+    [selectedMonthKey],
+  );
+
+  const assignmentFairnessPrevSalesRows = useMemo(
+    () => allDetailRows.filter((row) => String(row.date || "").slice(0, 7) === assignmentFairnessPrevMonthKey),
+    [allDetailRows, assignmentFairnessPrevMonthKey],
+  );
+
   const assignmentFairnessSummaryRows = useMemo(
     () => summarizeWorkerAssignmentFairnessRows(monthlySalesRows, workers),
     [monthlySalesRows, workers],
   );
 
+  const assignmentFairnessPrevSummaryRows = useMemo(
+    () => summarizeWorkerAssignmentFairnessRows(assignmentFairnessPrevSalesRows, workers),
+    [assignmentFairnessPrevSalesRows, workers],
+  );
+
   const assignmentFairness = useMemo(
-    () => buildWorkerAssignmentFairness(assignmentFairnessSummaryRows, selectedMonthKey),
-    [assignmentFairnessSummaryRows, selectedMonthKey],
+    () => buildWorkerAssignmentFairness(assignmentFairnessSummaryRows, selectedMonthKey, assignmentFairnessPrevSummaryRows),
+    [assignmentFairnessPrevSummaryRows, assignmentFairnessSummaryRows, selectedMonthKey],
   );
 
   const hubMetrics = useMemo(() => {
@@ -338,7 +354,7 @@ export function WorkerPaymentsPage({
             format: "count" as const,
           },
           {
-            label: "\uC6D4 \uD3C9\uADFC \uCC38\uC5EC",
+            label: "2\uAC1C\uC6D4 \uD3C9\uADFC",
             value: assignmentFairness.summary.averageLineCount,
             tone: "default" as const,
             format: "lineCount" as const,
@@ -356,8 +372,8 @@ export function WorkerPaymentsPage({
             format: "count" as const,
           },
           {
-            label: "총 참여",
-            value: assignmentFairness.summary.totalLineCount,
+            label: "2\uAC1C\uC6D4 \uCD1D \uCC38\uC5EC",
+            value: assignmentFairness.summary.totalTwoMonthLineCount,
             tone: "default" as const,
             format: "lineCount" as const,
           },
@@ -801,7 +817,7 @@ export function WorkerPaymentsPage({
         <WorkerAssignmentFairnessTab
           monthKey={selectedMonthKey}
           setMonthKey={setSelectedMonthKey}
-          monthlyDetailRows={monthlySalesRows}
+          allDetailRows={allDetailRows}
           workers={workers}
         />
       )}

@@ -5439,6 +5439,48 @@ textarea {
   background: linear-gradient(180deg, #059669, #34d399);
 }
 
+.erp-worker-fairness-chart-bar.is-prev {
+  background: linear-gradient(180deg, #64748b, #94a3b8);
+}
+
+.erp-worker-fairness-chart-stack {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  width: 0.625rem;
+  min-height: 2px;
+}
+
+.erp-worker-fairness-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.erp-worker-fairness-chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.erp-worker-fairness-chart-legend-swatch {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 0.15rem;
+}
+
+.erp-worker-fairness-chart-legend-swatch.is-prev {
+  background: linear-gradient(180deg, #64748b, #94a3b8);
+}
+
+.erp-worker-fairness-chart-legend-swatch.is-current {
+  background: linear-gradient(180deg, #475569, #94a3b8);
+}
+
 .erp-worker-fairness-priority {
   display: inline-flex;
   align-items: center;

@@ -7,6 +7,7 @@ import {
   summarizeWorkerPaymentRows,
   type WorkerPaymentDetailRow,
 } from "@/utils/workerPayments";
+import { shiftMonthKey } from "@/utils/workerMonthlyPayments";
 
 export type WorkerAssignmentPriority = "high" | "normal" | "low";
 
@@ -14,7 +15,8 @@ export type WorkerAssignmentFairnessRow = {
   workerId?: number | string;
   name: string;
   lineCount: number;
-  netPay: number;
+  prevMonthLineCount: number;
+  twoMonthLineCount: number;
   averageLineCount: number;
   deltaFromAverage: number;
   priority: WorkerAssignmentPriority;
@@ -23,6 +25,7 @@ export type WorkerAssignmentFairnessRow = {
 
 export type WorkerAssignmentFairnessSummary = {
   monthKey: string;
+  prevMonthKey: string;
   averageLineCount: number;
   teamWorkerCount: number;
   activeWorkerCount: number;
@@ -30,6 +33,8 @@ export type WorkerAssignmentFairnessSummary = {
   aboveAverageCount: number;
   maxAbsDelta: number;
   totalLineCount: number;
+  totalPrevLineCount: number;
+  totalTwoMonthLineCount: number;
 };
 
 function roundAverage(value: number) {
@@ -55,38 +60,58 @@ export function formatWorkerAssignmentDelta(deltaFromAverage: number) {
   return rounded > 0 ? `+${rounded}` : String(rounded);
 }
 
+function sortFairnessRows(a: WorkerAssignmentFairnessRow, b: WorkerAssignmentFairnessRow) {
+  const priorityOrder = { high: 0, normal: 1, low: 2 };
+  const priorityDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
+  if (priorityDiff !== 0) return priorityDiff;
+  if (a.deltaFromAverage !== b.deltaFromAverage) return a.deltaFromAverage - b.deltaFromAverage;
+  return a.name.localeCompare(b.name, "ko");
+}
+
 export function buildWorkerAssignmentFairness(
   summaryRows: WorkerPaymentSummaryRow[],
   monthKey: string,
+  prevSummaryRows: WorkerPaymentSummaryRow[] = [],
 ): { summary: WorkerAssignmentFairnessSummary; rows: WorkerAssignmentFairnessRow[] } {
-  const activeRows = summaryRows.filter((row) => row.lineCount > 0);
-  const totalLineCount = activeRows.reduce((sum, row) => sum + row.lineCount, 0);
+  const prevMonthKey = shiftMonthKey(monthKey, -1);
+  const prevByName = new Map(
+    prevSummaryRows.map((row) => [normalizeWorkerName(row.name), row.lineCount]),
+  );
+
+  const enrichedRows = summaryRows.map((row) => {
+    const prevMonthLineCount = prevByName.get(normalizeWorkerName(row.name)) ?? 0;
+    return {
+      row,
+      prevMonthLineCount,
+      twoMonthLineCount: row.lineCount + prevMonthLineCount,
+    };
+  });
+
+  const activeRows = enrichedRows.filter((entry) => entry.twoMonthLineCount > 0);
+  const totalTwoMonthLineCount = activeRows.reduce((sum, entry) => sum + entry.twoMonthLineCount, 0);
+  const totalLineCount = enrichedRows.reduce((sum, entry) => sum + entry.row.lineCount, 0);
+  const totalPrevLineCount = enrichedRows.reduce((sum, entry) => sum + entry.prevMonthLineCount, 0);
   const activeWorkerCount = activeRows.length;
   const averageLineCount =
-    activeWorkerCount > 0 ? roundAverage(totalLineCount / activeWorkerCount) : 0;
+    activeWorkerCount > 0 ? roundAverage(totalTwoMonthLineCount / activeWorkerCount) : 0;
 
-  const rows = summaryRows
-    .map((row) => {
-      const deltaFromAverage = roundAverage(row.lineCount - averageLineCount);
+  const rows = enrichedRows
+    .map(({ row, prevMonthLineCount, twoMonthLineCount }) => {
+      const deltaFromAverage = roundAverage(twoMonthLineCount - averageLineCount);
       const { priority, priorityLabel } = resolveWorkerAssignmentPriority(deltaFromAverage);
       return {
         workerId: row.workerId,
         name: row.name,
         lineCount: row.lineCount,
-        netPay: row.netPay,
+        prevMonthLineCount,
+        twoMonthLineCount,
         averageLineCount,
         deltaFromAverage,
         priority,
         priorityLabel,
       };
     })
-    .sort((a, b) => {
-      const priorityOrder = { high: 0, normal: 1, low: 2 };
-      const priorityDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
-      if (priorityDiff !== 0) return priorityDiff;
-      if (a.deltaFromAverage !== b.deltaFromAverage) return a.deltaFromAverage - b.deltaFromAverage;
-      return a.name.localeCompare(b.name, "ko");
-    });
+    .sort(sortFairnessRows);
 
   const belowAverageCount = rows.filter((row) => row.deltaFromAverage <= -0.5).length;
   const aboveAverageCount = rows.filter((row) => row.deltaFromAverage >= 0.5).length;
@@ -95,6 +120,7 @@ export function buildWorkerAssignmentFairness(
   return {
     summary: {
       monthKey,
+      prevMonthKey,
       averageLineCount,
       teamWorkerCount: summaryRows.length,
       activeWorkerCount,
@@ -102,6 +128,8 @@ export function buildWorkerAssignmentFairness(
       aboveAverageCount,
       maxAbsDelta: roundAverage(maxAbsDelta),
       totalLineCount,
+      totalPrevLineCount,
+      totalTwoMonthLineCount,
     },
     rows,
   };
@@ -145,4 +173,11 @@ export function summarizeWorkerAssignmentFairnessRows(
       );
     })
     .filter((row): row is WorkerPaymentSummaryRow => Boolean(row) && rosterNames.has(row.name));
+}
+
+export function filterWorkerAssignmentFairnessDetailRows(
+  detailRows: WorkerPaymentDetailRow[] = [],
+  monthKey: string,
+) {
+  return detailRows.filter((row) => String(row.date || "").slice(0, 7) === monthKey);
 }
