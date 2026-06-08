@@ -75,13 +75,13 @@ export function TaxInvoiceCopySheet({ data }: { data: TaxInvoiceCopySheetData })
       </div>
 
       <div className="tax-copy-meta">
-        <div>
+        <div className="tax-copy-meta-item">
           <span className="tax-copy-meta-label">{L.issueDate}</span>
           <span className="tax-copy-meta-value">{data.issueDate || "-"}</span>
         </div>
-        <div>
+        <div className="tax-copy-meta-item tax-copy-meta-item--approval">
           <span className="tax-copy-meta-label">{L.invoiceNo}</span>
-          <span className="tax-copy-meta-value">{data.invoiceNo || "-"}</span>
+          <span className="tax-copy-meta-value tax-copy-meta-value--approval">{data.invoiceNo || "-"}</span>
         </div>
       </div>
 

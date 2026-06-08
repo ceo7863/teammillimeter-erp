@@ -14181,6 +14181,33 @@ button:disabled,
   font-variant-numeric: tabular-nums;
 }
 
+.erp-tax-invoice-page .erp-table td:last-child > .flex {
+  flex-wrap: wrap;
+}
+
+.erp-tax-invoice-page .erp-table th:last-child,
+.erp-tax-invoice-page .erp-table td:last-child {
+  min-width: 12.5rem;
+  white-space: normal;
+}
+
+.erp-tax-invoice-page .erp-table thead th:last-child,
+.erp-tax-invoice-page .erp-table tbody td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: #fff;
+  box-shadow: -4px 0 8px -4px rgba(15, 23, 42, 0.1);
+}
+
+.erp-tax-invoice-page .erp-table tbody tr.is-cancelled td:last-child {
+  background: #fff1f2;
+}
+
+.erp-tax-invoice-page .erp-table tbody tr.is-offset td:last-child {
+  background: #fffbeb;
+}
+
 .erp-tax-invoice-row-hint {
   margin-top: 0.2rem;
   font-size: 0.6875rem;
@@ -15008,9 +15035,9 @@ button:disabled,
 }
 
 .tax-copy-meta {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   margin-bottom: 14px;
   padding: 10px 12px;
   border: 1px solid #cbd5e1;
@@ -15018,16 +15045,37 @@ button:disabled,
   background: #f8fafc;
 }
 
+.tax-copy-meta-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.tax-copy-meta-item--approval {
+  flex-wrap: wrap;
+}
+
 .tax-copy-meta-label {
   display: inline-block;
   min-width: 4.5rem;
-  margin-right: 8px;
+  flex-shrink: 0;
   font-weight: 700;
   color: #475569;
 }
 
 .tax-copy-meta-value {
   font-weight: 600;
+}
+
+.tax-copy-meta-value--approval {
+  flex: 1;
+  min-width: 0;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  word-break: break-all;
+  line-height: 1.5;
 }
 
 .tax-copy-parties {

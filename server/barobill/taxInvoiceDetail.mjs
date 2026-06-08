@@ -97,6 +97,17 @@ function readFirstLineItemName(resultBlock) {
   return readXmlTag(match[1], "Name");
 }
 
+function readNtsSendKeyFromXml(xml) {
+  const direct = readXmlTag(xml, "NTSSendKey");
+  if (direct) return direct;
+  const matches = [...String(xml || "").matchAll(/<(?:[^:]+:)?NTSSendKey>([^<]*)<\/(?:[^:]+:)?NTSSendKey>/gi)];
+  for (let index = matches.length - 1; index >= 0; index -= 1) {
+    const value = decodeXml(matches[index][1]).trim();
+    if (value) return value;
+  }
+  return "";
+}
+
 function buildMemo(resultBlock) {
   return [readXmlTag(resultBlock, "Remark1"), readXmlTag(resultBlock, "Remark2"), readXmlTag(resultBlock, "Remark3")]
     .filter(Boolean)
@@ -124,12 +135,14 @@ export async function fetchBarobillTaxInvoiceDetail(mgtKey) {
   const taxType = Number(readXmlTag(resultBlock, "TaxType")) || 1;
   const documentType = taxType === 3 ? "bill" : "tax";
 
-  let invoiceNo = readXmlTag(resultBlock, "InvoiceKey") || readXmlTag(resultBlock, "SerialNum");
-  try {
-    const state = await getTaxInvoiceState(trimmedKey);
-    if (state.ntsSendKey) invoiceNo = state.ntsSendKey;
-  } catch {
-    // keep parsed invoiceNo
+  let invoiceNo = readNtsSendKeyFromXml(resultBlock) || readNtsSendKeyFromXml(xml);
+  if (!invoiceNo) {
+    try {
+      const state = await getTaxInvoiceState(trimmedKey);
+      invoiceNo = state.ntsSendKey || "";
+    } catch {
+      invoiceNo = "";
+    }
   }
 
   return {

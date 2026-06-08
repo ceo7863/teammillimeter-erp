@@ -6,6 +6,7 @@ import type { TaxInvoice } from "@/utils/taxInvoices";
 import {
   buildTaxInvoiceCopySheetDataFromBarobill,
   buildTaxInvoiceCopySheetDataFromLocal,
+  resolveTaxInvoiceApprovalNo,
   type BarobillTaxInvoiceCopyDetail,
   type TaxInvoiceCopySheetData,
 } from "@/utils/taxInvoiceCopyData";
@@ -36,10 +37,17 @@ export async function resolveTaxInvoiceCopySheetData(input: {
   companyProfile: CompanyProfile;
   clients?: ClientMasterLike[];
 }): Promise<TaxInvoiceCopySheetData> {
+  const localInvoiceNo = String(input.invoice.invoiceNo || "").trim();
   const mgtKey = extractBarobillMgtKeyFromMemo(input.invoice.memo);
   if (mgtKey) {
     const detail = await fetchBarobillTaxInvoiceCopyDetail(mgtKey);
-    if (detail) return buildTaxInvoiceCopySheetDataFromBarobill(detail);
+    if (detail) {
+      const sheet = buildTaxInvoiceCopySheetDataFromBarobill(detail);
+      sheet.invoiceNo = resolveTaxInvoiceApprovalNo(localInvoiceNo, detail.invoiceNo);
+      return sheet;
+    }
   }
-  return buildTaxInvoiceCopySheetDataFromLocal(input);
+  const sheet = buildTaxInvoiceCopySheetDataFromLocal(input);
+  sheet.invoiceNo = resolveTaxInvoiceApprovalNo(localInvoiceNo, sheet.invoiceNo);
+  return sheet;
 }

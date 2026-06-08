@@ -99,6 +99,39 @@ function resolveItemNameFromMemo(memo?: string) {
   return cleaned || DEFAULT_TAX_INVOICE_ITEM_NAME;
 }
 
+/** 24-digit NTS approval numbers are shown as 8-8-8 groups for readability. */
+export function formatTaxInvoiceApprovalNo(value?: string) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length === 24) {
+    return `${digits.slice(0, 8)}-${digits.slice(8, 16)}-${digits.slice(16, 24)}`;
+  }
+  return raw;
+}
+
+function looksLikeInternalBarobillKey(value: string) {
+  const raw = String(value || "").trim();
+  if (!raw) return true;
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length >= 20) return false;
+  if (/^[A-Za-z]/.test(raw) && digits.length < 12) return true;
+  return digits.length > 0 && digits.length < 12;
+}
+
+export function resolveTaxInvoiceApprovalNo(local?: string, remote?: string) {
+  const localVal = String(local || "").trim();
+  const remoteVal = String(remote || "").trim();
+  const localDigits = localVal.replace(/\D/g, "");
+  const remoteDigits = remoteVal.replace(/\D/g, "");
+
+  if (localDigits.length >= 20) return formatTaxInvoiceApprovalNo(localVal);
+  if (remoteDigits.length >= 20) return formatTaxInvoiceApprovalNo(remoteVal);
+  if (localVal) return formatTaxInvoiceApprovalNo(localVal);
+  if (remoteVal && !looksLikeInternalBarobillKey(remoteVal)) return formatTaxInvoiceApprovalNo(remoteVal);
+  return "";
+}
+
 export function buildTaxInvoiceCopySheetDataFromLocal(input: {
   invoice: TaxInvoice;
   companyProfile: CompanyProfile;
@@ -115,7 +148,7 @@ export function buildTaxInvoiceCopySheetDataFromLocal(input: {
   return {
     title: getTaxInvoiceDocumentTypeLabel(invoice.documentType),
     issueDate: formatIssueDate(invoice.issueDate),
-    invoiceNo: String(invoice.invoiceNo || "").trim(),
+    invoiceNo: resolveTaxInvoiceApprovalNo(invoice.invoiceNo),
     itemName: input.itemName || resolveItemNameFromMemo(invoice.memo),
     memo: stripMgtKeyMemo(invoice.memo),
     supplier: partyFromProfile(companyProfile),
@@ -132,7 +165,7 @@ export function buildTaxInvoiceCopySheetDataFromBarobill(detail: BarobillTaxInvo
   return {
     title: detail.documentType === "bill" ? "\uACC4\uC0B0\uC11C" : "\uC138\uAE08\uACC4\uC0B0\uC11C",
     issueDate: formatIssueDate(detail.issueDate),
-    invoiceNo: detail.invoiceNo,
+    invoiceNo: resolveTaxInvoiceApprovalNo(undefined, detail.invoiceNo),
     itemName: detail.itemName || DEFAULT_TAX_INVOICE_ITEM_NAME,
     memo: detail.memo,
     supplier: detail.supplier,
