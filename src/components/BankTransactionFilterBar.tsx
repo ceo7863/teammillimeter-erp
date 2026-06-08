@@ -57,6 +57,19 @@ type BankTransactionFilterBarProps = {
   onReset: () => void;
 };
 
+function normalizeCustomRange(startDate: string, endDate: string) {
+  const start = String(startDate || "").trim();
+  const end = String(endDate || "").trim();
+  if (start && end && start > end) {
+    return { startDate: end, endDate: start };
+  }
+  return { startDate: start, endDate: end };
+}
+
+function isValidISODate(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || "").trim());
+}
+
 function FilterSelect({
   label,
   value,
@@ -154,6 +167,24 @@ function BankTransactionFilterBarComponent({
     onApply(next);
   };
 
+  const applyCustomPeriod = (patch: Partial<Pick<BankTransactionAppliedFilters, "startDate" | "endDate">>) => {
+    const normalized = normalizeCustomRange(
+      patch.startDate ?? draft.startDate,
+      patch.endDate ?? draft.endDate,
+    );
+    const next: BankTransactionAppliedFilters = {
+      ...draft,
+      periodKey: "custom",
+      startDate: normalized.startDate,
+      endDate: normalized.endDate,
+      searchQuery: draft.searchQuery.trim(),
+    };
+    setDraft(next);
+    if (isValidISODate(next.startDate) || isValidISODate(next.endDate)) {
+      onApply(next);
+    }
+  };
+
   return (
     <div className="erp-bank-wehago-toolbar mb-4 rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="erp-bank-wehago-toolbar__head">
@@ -178,11 +209,7 @@ function BankTransactionFilterBarComponent({
             className="erp-bank-wehago-date-input"
             value={draftPeriodRange.startDate}
             onChange={(event) => {
-              setDraft((prev) => ({
-                ...prev,
-                periodKey: "custom",
-                startDate: event.target.value,
-              }));
+              applyCustomPeriod({ startDate: event.target.value });
             }}
           />
           <span className="text-slate-400">-</span>
@@ -190,11 +217,7 @@ function BankTransactionFilterBarComponent({
             className="erp-bank-wehago-date-input"
             value={draftPeriodRange.endDate}
             onChange={(event) => {
-              setDraft((prev) => ({
-                ...prev,
-                periodKey: "custom",
-                endDate: event.target.value,
-              }));
+              applyCustomPeriod({ endDate: event.target.value });
             }}
           />
           <span className="erp-bank-wehago-toolbar__range-label">
@@ -342,7 +365,7 @@ function BankTransactionFilterBarComponent({
       </div>
 
       <p className="erp-bank-wehago-filter-hint">
-        {"\uAE30\uAC04\u00B7\uC0C1\uD0DC\u00B7\uC785\uCD9C\uAE08\uC740 \uBC84\uD2BC \uD074\uB9AD \uC2DC \uBC14\uB85C \uC801\uC6A9\uB429\uB2C8\uB2E4. \uACC4\uC88C\u00B7\uAC70\uB798\uCC98 \uB4F1 \uC120\uD0DD \uD544\uD130\uC640 \uAC80\uC0C9\uC740 \uAC01\uAC01 \uC801\uC6A9 \uBC84\uD2BC\uC744 \uB20C\uB7EC \uC8FC\uC138\uC694."}
+        {"\uAE30\uAC04\u00B7\uC0C1\uD0DC\u00B7\uC785\uCD9C\uAE08\u00B7\uB0A0\uC9DC \uBC94\uC704\uB294 \uC120\uD0DD \uC2DC \uBC14\uB85C \uC801\uC6A9\uB429\uB2C8\uB2E4. \uACC4\uC88C\u00B7\uAC70\uB798\uCC98 \uB4F1 \uC120\uD0DD \uD544\uD130\uC640 \uAC80\uC0C9\uC740 \uAC01\uAC01 \uC801\uC6A9 \uBC84\uD2BC\uC744 \uB20C\uB7EC \uC8FC\uC138\uC694."}
       </p>
     </div>
   );
