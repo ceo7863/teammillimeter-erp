@@ -264,6 +264,12 @@ import {
   clearAuthSession,
   fetchBankTransactionsSnapshot,
   fetchErpData,
+  fetchErpDomains,
+  fetchErpVersion,
+  findDirtyErpDomains,
+  buildErpDomainChunk,
+  patchErpDomains,
+  ERP_SAVE_DOMAIN_NAMES,
   getAuthToken,
   isApiModeEnabled,
   loadAuthUser,
@@ -271,6 +277,7 @@ import {
   saveErpData,
   saveWorkerMonthlyPaymentMemoApi,
   updateSidebarOrderApi,
+  type ErpSaveDomain,
 } from "@/utils/erpApi";
 import {
   clearWorkerPortalSession,
@@ -354,7 +361,8 @@ const initialWorkers = [
 const STORAGE_KEY = "teammillimeter-erp-stable-v1";
 const SESSION_USER_KEY = "teammillimeter-erp-session";
 const ACTIVE_TAB_KEY = "teammillimeter-erp-active-tab";
-const ERP_AUTOSAVE_DEBOUNCE_MS = 2500;
+const ERP_AUTOSAVE_DEBOUNCE_MS = 10000;
+const ERP_VERSION_POLL_MS = 20000;
 
 function migrateStoredActiveTab(stored: string) {
   const accounting = migrateActivePageKey(stored);
@@ -7200,6 +7208,7 @@ export default function TeammillimeterErpMvp() {
   const taxInvoiceEvidenceAutoLinkKeyRef = useRef("");
   const taxInvoiceEvidenceAutoLinkTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const saveDebounceTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const lastSavedDomainSnapshotsRef = useRef<Record<string, string>>({});
   const workerFlushDebounceRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const workerFlushChainRef = useRef<Promise<boolean>>(Promise.resolve(true));
   const pendingWorkerFlushRef = useRef<{ workers: typeof initialWorkers; auditLogs?: unknown } | null>(null);
@@ -7404,6 +7413,14 @@ export default function TeammillimeterErpMvp() {
   const [sidebarOrder, setSidebarOrder] = useState(() => resolveSidebarOrder(currentUser));
   const receivableRowsFromSales = useMemo(() => buildReceivableRowsFromSales(appliedSales, clients), [appliedSales, clients]);
 
+  const rememberSavedDomainSnapshotsFromPayload = (payload: Record<string, unknown>) => {
+    const next: Record<string, string> = { ...lastSavedDomainSnapshotsRef.current };
+    for (const domain of ERP_SAVE_DOMAIN_NAMES) {
+      next[domain] = JSON.stringify(buildErpDomainChunk(domain, payload as import("@/utils/erpApi").ErpPayload));
+    }
+    lastSavedDomainSnapshotsRef.current = next;
+  };
+
   const applyFetchedErpData = (data) => {
     const preserveLocalEdits =
       pendingLocalEditsRef.current ||
@@ -7559,6 +7576,7 @@ export default function TeammillimeterErpMvp() {
     publishErpVersion(data.version ?? 0);
     bankTransactionsDirtyRef.current = false;
     skipSaveRef.current = true;
+    rememberSavedDomainSnapshotsFromPayload(data);
   };
 
   useEffect(() => {
@@ -7585,6 +7603,51 @@ export default function TeammillimeterErpMvp() {
       cancelled = true;
     };
   }, [currentUser?.id, apiMode]);
+
+  useEffect(() => {
+    if (!apiMode || !currentUser?.id || !dataReady) return;
+    let cancelled = false;
+
+    const isUserIdleForRemoteRefresh = () =>
+      !pendingLocalEditsRef.current &&
+      !saveDebounceTimerRef.current &&
+      !workerPersistInFlightRef.current &&
+      !workerMonthlyPersistInFlightRef.current &&
+      !clientPersistInFlightRef.current &&
+      !bankSyncApplyingRef.current &&
+      Date.now() >= workerPersistCooldownUntilRef.current &&
+      Date.now() >= workerMonthlyPersistCooldownUntilRef.current &&
+      Date.now() >= bankEditCooldownUntilRef.current;
+
+    const pollVersion = async () => {
+      if (cancelled || !isUserIdleForRemoteRefresh()) return;
+      try {
+        const meta = await fetchErpVersion();
+        if (cancelled || meta.version <= erpVersionRef.current) return;
+        if (!isUserIdleForRemoteRefresh()) return;
+        const data = await fetchErpData();
+        if (cancelled) return;
+        applyFetchedErpData(data);
+        clearErpSyncStatus();
+      } catch (error) {
+        console.error(error);
+      }
+    };
+
+    void pollVersion();
+    const timer = window.setInterval(() => {
+      void pollVersion();
+    }, ERP_VERSION_POLL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void pollVersion();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [apiMode, currentUser?.id, dataReady]);
 
   const syncWorkersFromServer = useCallback(async () => {
     if (!apiMode || !dataReady) return;
@@ -7748,13 +7811,95 @@ export default function TeammillimeterErpMvp() {
       ) {
         return false;
       }
+      const includeBank = Array.isArray(savePayload.bankTransactions);
+      const dirtyDomains = findDirtyErpDomains(savePayload, lastSavedDomainSnapshotsRef.current, {
+        includeBank,
+      });
+      if (!dirtyDomains.length) {
+        setErpSyncStatus("저장됨");
+        return true;
+      }
+
+      const buildPatchDomains = () => {
+        const domains: Partial<Record<ErpSaveDomain, Record<string, unknown>>> = {};
+        for (const domain of dirtyDomains) {
+          domains[domain] = buildErpDomainChunk(domain, savePayload);
+        }
+        return domains;
+      };
+
+      const applyPartialDomainRefresh = (latest: Partial<import("@/utils/erpApi").ErpPayload>) => {
+        if (latest.sales || latest.paymentVouchers || latest.paymentInputLogs || latest.saleComments) {
+          const mergedSales = mergeSalesByUpdatedAt(latest.sales || [], savePayload.sales || []);
+          savePayload.sales = mergedSales;
+          setSales((prev) =>
+            normalizeSalesRecords(mergeSalesByUpdatedAt(latest.sales || [], prev), latest.workers?.length ? latest.workers : workers),
+          );
+        }
+        if (Array.isArray(latest.clients)) {
+          setClients(mergeClientFieldsFromLocal(latest.clients, clientsRef.current));
+        }
+        if (Array.isArray(latest.workers)) {
+          workersRef.current = latest.workers;
+          setWorkers(latest.workers);
+        }
+        if (latest.workerMonthlyPaymentMemos && typeof latest.workerMonthlyPaymentMemos === "object") {
+          const latestMemos = normalizeWorkerMonthlyPaymentMemos(latest.workerMonthlyPaymentMemos);
+          savePayload.workerMonthlyPaymentMemos = mergeWorkerMonthlyPaymentMemosForSave(
+            latestMemos,
+            normalizeWorkerMonthlyPaymentMemos(savePayload.workerMonthlyPaymentMemos),
+          );
+          workerMonthlyPaymentMemosRef.current = savePayload.workerMonthlyPaymentMemos;
+          setWorkerMonthlyPaymentMemos(savePayload.workerMonthlyPaymentMemos);
+        }
+        if (Array.isArray(latest.bankTransactions)) {
+          const mergedBank = mergeBankTransactionsUnion(
+            normalizeBankTransactions(latest.bankTransactions || []),
+            normalizeBankTransactions(savePayload.bankTransactions || bankTransactionsRef.current),
+          );
+          savePayload.bankTransactions = mergedBank;
+          bankTransactionsRef.current = mergedBank;
+          setBankTransactions(mergedBank);
+        }
+        if (Array.isArray(latest.workerMonthlyActualVouchers)) {
+          const mergedVouchers = mergeWorkerMonthlyActualVouchersFromLocal(
+            normalizeWorkerMonthlyActualVouchers(latest.workerMonthlyActualVouchers || []),
+            normalizeWorkerMonthlyActualVouchers(savePayload.workerMonthlyActualVouchers || []),
+          ).map(refreshVoucherPaidAmount);
+          savePayload.workerMonthlyActualVouchers = mergedVouchers;
+          workerMonthlyActualVouchersRef.current = mergedVouchers;
+          setWorkerMonthlyActualVouchers(mergedVouchers);
+        }
+        if (Array.isArray(latest.loginLogs)) {
+          setLoginLogs(latest.loginLogs);
+          savePayload.loginLogs = latest.loginLogs;
+        }
+        if (Array.isArray(latest.saleComments) || Array.isArray(savePayload.saleComments)) {
+          const mergedComments = mergeSaleComments(
+            normalizeSaleComments(latest.saleComments),
+            normalizeSaleComments(savePayload.saleComments || saleCommentsRef.current),
+          );
+          savePayload.saleComments = mergedComments;
+          setSaleComments(mergedComments);
+          saleCommentsRef.current = mergedComments;
+        }
+        const serverAudits = Array.isArray(latest.auditLogs) ? latest.auditLogs : [];
+        const mergedAudits = mergeAuditLogs(serverAudits, savePayload.auditLogs);
+        savePayload.auditLogs = mergedAudits;
+        setAuditLogs(mergedAudits);
+      };
+
       setErpSyncStatus("저장 중...");
       try {
-        const result = await saveErpData(savePayload);
+        const result = await patchErpDomains({
+          expectedVersion: savePayload.version,
+          domains: buildPatchDomains(),
+        });
         publishErpVersion(result.version);
-        if (Array.isArray(savePayload.bankTransactions)) {
+        if (includeBank) {
           bankTransactionsDirtyRef.current = false;
         }
+        rememberSavedDomainSnapshotsFromPayload(savePayload);
         if (shouldReleasePendingLocalEdits()) {
           pendingLocalEditsRef.current = false;
         }
@@ -7764,83 +7909,49 @@ export default function TeammillimeterErpMvp() {
         const err = error as Error & { status?: number };
         if (err.status === 409) {
           try {
-            const latest = await fetchErpData();
+            const latest = await fetchErpDomains(dirtyDomains);
             publishErpVersion(latest.version ?? 0);
-            const mergedSales = mergeSalesByUpdatedAt(latest.sales || [], savePayload.sales || []);
-            savePayload.sales = mergedSales;
-            setSales((prev) => normalizeSalesRecords(mergeSalesByUpdatedAt(latest.sales || [], prev), latest.workers?.length ? latest.workers : workers));
-            if (Array.isArray(savePayload.workers)) {
-              workersRef.current = savePayload.workers;
-              setWorkers(savePayload.workers);
-            }
-            if (savePayload.workerMonthlyPaymentMemos && typeof savePayload.workerMonthlyPaymentMemos === "object") {
-              const latestMemos = normalizeWorkerMonthlyPaymentMemos(latest.workerMonthlyPaymentMemos);
-              savePayload.workerMonthlyPaymentMemos = mergeWorkerMonthlyPaymentMemosForSave(
-                latestMemos,
-                normalizeWorkerMonthlyPaymentMemos(savePayload.workerMonthlyPaymentMemos),
-              );
-              workerMonthlyPaymentMemosRef.current = savePayload.workerMonthlyPaymentMemos;
-              setWorkerMonthlyPaymentMemos(savePayload.workerMonthlyPaymentMemos);
-            }
-            if (Array.isArray(savePayload.bankTransactions)) {
-              const mergedBank = mergeBankTransactionsUnion(
-                normalizeBankTransactions(latest.bankTransactions || []),
-                normalizeBankTransactions(savePayload.bankTransactions),
-              );
-              savePayload.bankTransactions = mergedBank;
-              bankTransactionsRef.current = mergedBank;
-              setBankTransactions(mergedBank);
-            }
-            if (Array.isArray(savePayload.workerMonthlyActualVouchers)) {
-              const mergedVouchers = mergeWorkerMonthlyActualVouchersFromLocal(
-                normalizeWorkerMonthlyActualVouchers(latest.workerMonthlyActualVouchers || []),
-                normalizeWorkerMonthlyActualVouchers(savePayload.workerMonthlyActualVouchers),
-              ).map(refreshVoucherPaidAmount);
-              savePayload.workerMonthlyActualVouchers = mergedVouchers;
-              workerMonthlyActualVouchersRef.current = mergedVouchers;
-              setWorkerMonthlyActualVouchers(mergedVouchers);
-            }
-            if (Array.isArray(latest.loginLogs)) {
-              setLoginLogs(latest.loginLogs);
-              savePayload.loginLogs = latest.loginLogs;
-            }
-            if (Array.isArray(latest.workerPortalStatementAcks)) {
-              setWorkerPortalStatementAcks(latest.workerPortalStatementAcks);
-            }
-            if (Array.isArray(savePayload.saleComments) || Array.isArray(latest.saleComments)) {
-              const mergedComments = mergeSaleComments(
-                normalizeSaleComments(latest.saleComments),
-                normalizeSaleComments(savePayload.saleComments || saleCommentsRef.current),
-              );
-              savePayload.saleComments = mergedComments;
-              setSaleComments(mergedComments);
-              saleCommentsRef.current = mergedComments;
-            }
-            const serverAudits = Array.isArray(latest.auditLogs) ? latest.auditLogs : [];
-            const mergedAudits = mergeAuditLogs(serverAudits, savePayload.auditLogs);
-            savePayload.auditLogs = mergedAudits;
-            setAuditLogs(mergedAudits);
+            applyPartialDomainRefresh(latest);
             savePayload.version = erpVersionRef.current;
             skipSaveRef.current = true;
-            const retry = await saveErpData(savePayload);
+            const retry = await patchErpDomains({
+              expectedVersion: savePayload.version,
+              domains: buildPatchDomains(),
+            });
             publishErpVersion(retry.version);
+            rememberSavedDomainSnapshotsFromPayload(savePayload);
             if (shouldReleasePendingLocalEdits()) {
               pendingLocalEditsRef.current = false;
             }
             setErpSyncStatus("저장됨");
             return true;
           } catch (retryError) {
-            console.error(retryError);
-            setErpSyncStatus("충돌 — 새로고침 필요");
-            window.alert("다른 사용자가 먼저 저장했습니다. 새로고침(F5) 후 다시 시도해 주세요.");
-            return false;
+            try {
+              const latest = await fetchErpData();
+              publishErpVersion(latest.version ?? 0);
+              applyPartialDomainRefresh(latest);
+              savePayload.version = erpVersionRef.current;
+              const retryPut = await saveErpData(savePayload);
+              publishErpVersion(retryPut.version);
+              rememberSavedDomainSnapshotsFromPayload(savePayload);
+              if (shouldReleasePendingLocalEdits()) {
+                pendingLocalEditsRef.current = false;
+              }
+              setErpSyncStatus("저장됨");
+              return true;
+            } catch (finalError) {
+              console.error(finalError || retryError);
+              setErpSyncStatus("충돌 — 새로고침 필요");
+              window.alert("다른 사용자가 먼저 저장했습니다. 새로고침(F5) 후 다시 시도해 주세요.");
+              return false;
+            }
           }
         }
         setErpSyncStatus("저장 실패");
         return false;
       }
     },
-    [setLoginLogs, setAuditLogs, setWorkerMonthlyPaymentMemos],
+    [setLoginLogs, setAuditLogs, setWorkerMonthlyPaymentMemos, rememberSavedDomainSnapshotsFromPayload],
   );
 
   const flushErpSave = useCallback(

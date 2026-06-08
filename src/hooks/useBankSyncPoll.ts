@@ -76,9 +76,8 @@ export function useBankSyncPoll({
       );
       const importRunChanged = Boolean(serverImportAt && serverImportAt !== localImportAtValue);
       const countMismatch = serverCount !== localCountRef.current;
-      const versionAdvanced = snapshot.version > sinceVersionRef.current;
       const shouldRefresh =
-        snapshot.changed || countMismatch || hasNewerImport || importRunChanged || versionAdvanced;
+        snapshot.changed || countMismatch || hasNewerImport || importRunChanged;
 
       if (!shouldRefresh) return;
 

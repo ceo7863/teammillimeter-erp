@@ -1,4 +1,11 @@
 import { mergeErpPaymentLinkState, mergeWorkerMonthlyPaymentMemosForSave } from "./erpSaveMerge.mjs";
+import {
+  ERP_DOMAIN_FIELDS,
+  ERP_DOMAIN_NAMES,
+  mergeErpDomainForSave,
+  pickDomainPayload,
+  resolveErpDomainName,
+} from "./erpDomains.mjs";
 import express from "express";
 import cors from "cors";
 import fs from "fs";
@@ -7,7 +14,11 @@ import { config } from "./config.mjs";
 import {
   initDb,
   getErpState,
+  getErpVersionMeta,
   saveErpState,
+  saveErpDomain,
+  saveErpDomains,
+  runErpStartupMigrations,
   listUsers,
   createUser,
   updateUser,
@@ -134,6 +145,7 @@ import {
 import { notifyNewSaleComments, runDailyReportJob, startNotificationScheduler } from "./notificationScheduler.mjs";
 
 initDb();
+runErpStartupMigrations();
 initPdfArchiveStore();
 initBoardAttachmentStore();
 initClientBusinessRegStore();
@@ -970,57 +982,100 @@ function ensureWorkerMonthlyPaymentMemos(data = {}) {
   return { workerMonthlyPaymentMemos, workers: strippedWorkers, migrated };
 }
 
-app.get("/api/erp", authMiddleware, (_req, res) => {
-  const state = getErpState();
-  const { workerMonthlyPaymentMemos, workers, migrated } = ensureWorkerMonthlyPaymentMemos(state.data || {});
-  if (migrated) {
-    try {
-      saveErpState(
-        { ...state.data, workers, workerMonthlyPaymentMemos },
-        state.version,
-        "memo-migration",
-      );
-    } catch (error) {
-      console.error("[workerMonthlyPaymentMemos] migration save failed", error);
-    }
-  }
-  res.json({
-    sales: state.data.sales || [],
-    paymentVouchers: state.data.paymentVouchers || [],
-    paymentInputLogs: state.data.paymentInputLogs || [],
-    clients: state.data.clients || [],
+function buildErpApiResponse(state, workersOverride = null, workerMonthlyPaymentMemosOverride = null) {
+  const data = state.data || {};
+  const workers = workersOverride ?? data.workers ?? [];
+  const workerMonthlyPaymentMemos =
+    workerMonthlyPaymentMemosOverride ?? data.workerMonthlyPaymentMemos ?? {};
+  return {
+    sales: data.sales || [],
+    paymentVouchers: data.paymentVouchers || [],
+    paymentInputLogs: data.paymentInputLogs || [],
+    clients: data.clients || [],
     workers: sanitizeWorkersForClient(workers),
     workerMonthlyPaymentMemos,
-    auditLogs: state.data.auditLogs || [],
-    loginLogs: state.data.loginLogs || [],
-    workerPortalStatementAcks: state.data.workerPortalStatementAcks || [],
-    workerPaymentRecords: state.data.workerPaymentRecords || [],
-    workerPayoutVouchers: state.data.workerPayoutVouchers || [],
-    workerMonthlyActualVouchers: state.data.workerMonthlyActualVouchers || [],
-    workerPayWithVatLearnRules: state.data.workerPayWithVatLearnRules || [],
-    companyExpenses: state.data.companyExpenses || [],
-    attendanceRecords: state.data.attendanceRecords || [],
-    fixedExpenses: state.data.fixedExpenses || [],
-    fixedExpensePayments: state.data.fixedExpensePayments || [],
-    bankLedgerRules: state.data.bankLedgerRules || [],
-    expenseCategories: state.data.expenseCategories || [],
-    fixedExpenseCategories: state.data.fixedExpenseCategories || [],
-    accountCodes: state.data.accountCodes || [],
-    ledgerCategories: state.data.ledgerCategories || [],
-    taxInvoices: state.data.taxInvoices || [],
-    bankTransactions: state.data.bankTransactions || [],
-    bankTransactionFolders: state.data.bankTransactionFolders || [],
-    companyNotices: state.data.companyNotices || [],
-    workPosts: state.data.workPosts || [],
-    saleComments: state.data.saleComments || [],
-    statementGenerationLogs: state.data.statementGenerationLogs || [],
-    statementFolders: state.data.statementFolders || [],
-    companyProfile: state.data.companyProfile || null,
-    notificationSettings: normalizeNotificationSettings(state.data.notificationSettings),
+    auditLogs: data.auditLogs || [],
+    loginLogs: data.loginLogs || [],
+    workerPortalStatementAcks: data.workerPortalStatementAcks || [],
+    workerPaymentRecords: data.workerPaymentRecords || [],
+    workerPayoutVouchers: data.workerPayoutVouchers || [],
+    workerMonthlyActualVouchers: data.workerMonthlyActualVouchers || [],
+    workerPayWithVatLearnRules: data.workerPayWithVatLearnRules || [],
+    companyExpenses: data.companyExpenses || [],
+    attendanceRecords: data.attendanceRecords || [],
+    fixedExpenses: data.fixedExpenses || [],
+    fixedExpensePayments: data.fixedExpensePayments || [],
+    bankLedgerRules: data.bankLedgerRules || [],
+    expenseCategories: data.expenseCategories || [],
+    fixedExpenseCategories: data.fixedExpenseCategories || [],
+    accountCodes: data.accountCodes || [],
+    ledgerCategories: data.ledgerCategories || [],
+    taxInvoices: data.taxInvoices || [],
+    bankTransactions: data.bankTransactions || [],
+    bankTransactionFolders: data.bankTransactionFolders || [],
+    companyNotices: data.companyNotices || [],
+    workPosts: data.workPosts || [],
+    saleComments: data.saleComments || [],
+    statementGenerationLogs: data.statementGenerationLogs || [],
+    statementFolders: data.statementFolders || [],
+    companyProfile: data.companyProfile || null,
+    notificationSettings: normalizeNotificationSettings(data.notificationSettings),
     version: state.version,
     updatedAt: state.updatedAt,
     updatedBy: state.updatedBy,
-  });
+  };
+}
+
+function finalizeWorkersDomainPayload(existingData, mergedData) {
+  const existingWorkers = existingData?.workers || [];
+  const mergedPayload = mergeErpPaymentLinkState(existingData || {}, mergedData || {});
+  mergedPayload.workers = stripMonthlyPaymentMemoFromWorkers(
+    processWorkersPortalCredentials(mergedPayload.workers || [], existingWorkers),
+  );
+  return mergedPayload;
+}
+
+function handleErpSaveConflict(res, error) {
+  if (error.status === 409) {
+    res.status(409).json({
+      error: "다른 사용자가 먼저 저장했습니다. 새로고침 후 다시 시도해 주세요.",
+      currentVersion: error.currentVersion,
+    });
+    return true;
+  }
+  return false;
+}
+
+app.get("/api/erp/version", authMiddleware, (_req, res) => {
+  res.json(getErpVersionMeta());
+});
+
+app.get("/api/erp/domains", authMiddleware, (req, res) => {
+  const raw = String(req.query.domains || "").trim();
+  const requested = raw
+    ? raw
+        .split(",")
+        .map((name) => resolveErpDomainName(name.trim()))
+        .filter(Boolean)
+    : ERP_DOMAIN_NAMES;
+  const unique = [...new Set(requested)];
+  const state = getErpState(unique);
+  const body = buildErpApiResponse(state);
+  const filtered = { version: body.version, updatedAt: body.updatedAt, updatedBy: body.updatedBy };
+  for (const domain of unique) {
+    for (const field of ERP_DOMAIN_FIELDS[domain] || []) {
+      if (Object.prototype.hasOwnProperty.call(body, field)) {
+        filtered[field] = body[field];
+      }
+    }
+  }
+  res.json(filtered);
+});
+
+app.get("/api/erp", authMiddleware, (_req, res) => {
+  const state = getErpState();
+  const { workerMonthlyPaymentMemos, workers } = ensureWorkerMonthlyPaymentMemos(state.data || {});
+  res.json(buildErpApiResponse(state, workers, workerMonthlyPaymentMemos));
 });
 
 app.post("/api/bank/classify-ledger", authMiddleware, async (req, res) => {
@@ -1055,7 +1110,6 @@ app.get("/api/erp/bank-sync", authMiddleware, (req, res) => {
   const state = getErpState();
   const transactions = state.data.bankTransactions || [];
   const transactionCount = transactions.length;
-  const changed = state.version > sinceVersion;
   const countChanged = localCount >= 0 && localCount !== transactionCount;
   const serverLatestAt = String(state.data.bankSyncMeta?.lastImportLatestAt || "").trim();
   const serverImportAt = String(state.data.bankSyncMeta?.lastImportAt || "").trim();
@@ -1063,15 +1117,15 @@ app.get("/api/erp/bank-sync", authMiddleware, (req, res) => {
     serverLatestAt && (!localLatestAt || serverLatestAt.localeCompare(localLatestAt) > 0),
   );
   const importRunChanged = Boolean(serverImportAt && serverImportAt !== localImportAt);
-  const includeTransactions = changed || countChanged || importChanged || importRunChanged;
+  const bankDataChanged = countChanged || importChanged || importRunChanged;
   res.json({
     version: state.version,
     updatedAt: state.updatedAt,
     updatedBy: state.updatedBy,
-    changed: changed || countChanged || importChanged || importRunChanged,
+    changed: bankDataChanged,
     bankTransactionCount: transactionCount,
-    bankTransactions: includeTransactions ? transactions : undefined,
-    bankTransactionFolders: includeTransactions ? state.data.bankTransactionFolders || [] : undefined,
+    bankTransactions: bankDataChanged ? transactions : undefined,
+    bankTransactionFolders: bankDataChanged ? state.data.bankTransactionFolders || [] : undefined,
     bankSyncMeta: state.data.bankSyncMeta || null,
     liveSyncStatus: getBankSyncStatus(),
     openBankingStatus: getOpenBankingSyncStatus(),
@@ -1608,6 +1662,87 @@ app.patch("/api/erp/workers/:workerId/monthly-payment-memo", authMiddleware, (re
     }
     console.error(error);
     res.status(500).json({ error: "비고 저장에 실패했습니다." });
+  }
+});
+
+app.patch("/api/erp/domains", authMiddleware, async (req, res) => {
+  const { expectedVersion, domains } = req.body || {};
+  if (!domains || typeof domains !== "object" || Array.isArray(domains)) {
+    res.status(400).json({ error: "domains 객체가 필요합니다." });
+    return;
+  }
+
+  const domainNames = Object.keys(domains).filter((name) => ERP_DOMAIN_FIELDS[name]);
+  if (!domainNames.length) {
+    res.status(400).json({ error: "저장할 도메인이 없습니다." });
+    return;
+  }
+
+  const state = getErpState();
+  let merged = state.data || {};
+  for (const domain of domainNames) {
+    merged = mergeErpDomainForSave(merged, domain, domains[domain]);
+  }
+
+  if (domainNames.includes("workers") || domainNames.includes("bankTransactions")) {
+    merged = finalizeWorkersDomainPayload(state.data || {}, merged);
+  }
+
+  const domainPayloads = {};
+  for (const domain of domainNames) {
+    domainPayloads[domain] = pickDomainPayload(merged, domain);
+  }
+
+  const actor = req.user.loginId || req.user.name || req.user.email;
+  try {
+    const saved = await saveErpDomains(domainPayloads, expectedVersion ?? state.version, actor);
+    if (domainNames.includes("sales") && Array.isArray(merged.saleComments)) {
+      const previousSaleComments = Array.isArray(state.data?.saleComments) ? state.data.saleComments : [];
+      void notifyNewSaleComments(previousSaleComments, merged.saleComments, merged).catch((error) => {
+        console.error("[notify] comment alimtalk failed:", error);
+      });
+    }
+    res.json({ ok: true, version: saved.version, updatedAt: saved.updatedAt, domains: saved.domains });
+  } catch (error) {
+    if (handleErpSaveConflict(res, error)) return;
+    console.error(error);
+    res.status(500).json({ error: "저장에 실패했습니다." });
+  }
+});
+
+app.patch("/api/erp/:domain", authMiddleware, async (req, res) => {
+  const domain = resolveErpDomainName(req.params.domain);
+  if (!domain) {
+    res.status(404).json({ error: "알 수 없는 ERP 도메인입니다." });
+    return;
+  }
+
+  const { expectedVersion, data } = req.body || {};
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    res.status(400).json({ error: "data 객체가 필요합니다." });
+    return;
+  }
+
+  const state = getErpState();
+  let merged = mergeErpDomainForSave(state.data || {}, domain, data);
+  if (domain === "workers" || domain === "bankTransactions") {
+    merged = finalizeWorkersDomainPayload(state.data || {}, merged);
+  }
+
+  const actor = req.user.loginId || req.user.name || req.user.email;
+  try {
+    const saved = await saveErpDomain(domain, pickDomainPayload(merged, domain), expectedVersion ?? state.version, actor);
+    if (domain === "sales" && Array.isArray(merged.saleComments)) {
+      const previousSaleComments = Array.isArray(state.data?.saleComments) ? state.data.saleComments : [];
+      void notifyNewSaleComments(previousSaleComments, merged.saleComments, merged).catch((error) => {
+        console.error("[notify] comment alimtalk failed:", error);
+      });
+    }
+    res.json({ ok: true, version: saved.version, updatedAt: saved.updatedAt, domain: saved.domain });
+  } catch (error) {
+    if (handleErpSaveConflict(res, error)) return;
+    console.error(error);
+    res.status(500).json({ error: "저장에 실패했습니다." });
   }
 });
 

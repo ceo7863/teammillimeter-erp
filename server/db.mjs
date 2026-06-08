@@ -3,6 +3,8 @@ import path from "path";
 import { DatabaseSync } from "node:sqlite";
 import bcrypt from "bcryptjs";
 import { config, seedUsers } from "./config.mjs";
+import { ERP_DOMAIN_FIELDS, ERP_DOMAIN_NAMES, pickDomainPayload } from "./erpDomains.mjs";
+import { queueCoalescedWrite } from "./erpWriteQueue.mjs";
 
 let db;
 
@@ -278,16 +280,138 @@ function seedUsersIfNeeded(database) {
   }
 }
 
+function splitPayloadIntoDomains(payload) {
+  const domains = {};
+  for (const domain of ERP_DOMAIN_NAMES) {
+    domains[domain] = pickDomainPayload(payload, domain) || {};
+  }
+  return domains;
+}
+
+function writeDomainRows(database, domains, updatedAt) {
+  const stamp = updatedAt || new Date().toISOString();
+  const upsert = database.prepare(`
+    INSERT INTO erp_domain_state (domain, payload, updated_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(domain) DO UPDATE SET
+      payload = excluded.payload,
+      updated_at = excluded.updated_at
+  `);
+  for (const [domain, chunk] of Object.entries(domains)) {
+    upsert.run(domain, JSON.stringify(chunk), stamp);
+  }
+}
+
+function seedEmptyDomainRows(database, updatedAt) {
+  writeDomainRows(database, splitPayloadIntoDomains(emptyErpPayload()), updatedAt);
+}
+
+function assemblePayloadFromDomainRows(database) {
+  const rows = database.prepare("SELECT domain, payload FROM erp_domain_state").all();
+  if (!rows.length) return null;
+
+  const payload = emptyErpPayload();
+  for (const row of rows) {
+    let chunk = {};
+    try {
+      chunk = JSON.parse(row.payload);
+    } catch {
+      chunk = {};
+    }
+    Object.assign(payload, chunk);
+  }
+  return normalizeErpPayload(payload);
+}
+
+function migrateLegacyBlobToDomains(database) {
+  const domainCount = database.prepare("SELECT COUNT(*) AS c FROM erp_domain_state").get().c;
+  if (domainCount > 0) return false;
+
+  const row = database.prepare("SELECT payload, updated_at FROM erp_state WHERE id = 1").get();
+  if (!row?.payload) {
+    seedEmptyDomainRows(database, new Date().toISOString());
+    return true;
+  }
+
+  let payload = normalizeErpPayload(JSON.parse(row.payload));
+  payload = applyWorkerMonthlyPaymentMemoMigration(payload).payload;
+  writeDomainRows(database, splitPayloadIntoDomains(payload), row.updated_at || new Date().toISOString());
+  return true;
+}
+
+function normalizeWorkerRecordId(id) {
+  if (id == null || id === "") return "";
+  return String(id);
+}
+
+function normalizeWorkerMonthlyPaymentMemos(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out = {};
+  for (const [key, value] of Object.entries(raw)) {
+    const idKey = normalizeWorkerRecordId(key);
+    const text = String(value ?? "").trim();
+    if (idKey && text) out[idKey] = text;
+  }
+  return out;
+}
+
+function syncWorkerMonthlyPaymentMemosFromWorkers(workers = [], memos = {}) {
+  const next = { ...memos };
+  for (const worker of workers) {
+    const idKey = normalizeWorkerRecordId(worker?.id);
+    const text = String(worker?.monthlyPaymentMemo || "").trim();
+    if (idKey && text && !next[idKey]) next[idKey] = text;
+  }
+  return next;
+}
+
+function stripMonthlyPaymentMemoFromWorkers(workers = []) {
+  return workers.map(({ monthlyPaymentMemo: _legacy, portalPassword: _pw, ...worker }) => worker);
+}
+
+function applyWorkerMonthlyPaymentMemoMigration(data = {}) {
+  const workers = Array.isArray(data.workers) ? data.workers : [];
+  const storedMemos = normalizeWorkerMonthlyPaymentMemos(data.workerMonthlyPaymentMemos);
+  const workerMonthlyPaymentMemos = syncWorkerMonthlyPaymentMemosFromWorkers(workers, storedMemos);
+  const strippedWorkers = stripMonthlyPaymentMemoFromWorkers(workers);
+  const migrated =
+    JSON.stringify(workerMonthlyPaymentMemos) !== JSON.stringify(storedMemos) ||
+    workers.some((worker) => String(worker?.monthlyPaymentMemo || "").trim());
+  return {
+    migrated,
+    payload: migrated
+      ? { ...data, workers: strippedWorkers, workerMonthlyPaymentMemos }
+      : data,
+  };
+}
+
+export function runErpStartupMigrations() {
+  const database = getDb();
+  migrateLegacyBlobToDomains(database);
+
+  const state = getErpState();
+  const { migrated, payload } = applyWorkerMonthlyPaymentMemoMigration(state.data || {});
+  if (!migrated) return;
+
+  try {
+    saveErpState(payload, state.version, "memo-migration");
+  } catch (error) {
+    console.error("[workerMonthlyPaymentMemos] startup migration save failed", error);
+  }
+}
+
 function seedErpIfNeeded(database) {
   const row = database.prepare("SELECT payload FROM erp_state WHERE id = 1").get();
+  const domainCount = database.prepare("SELECT COUNT(*) AS c FROM erp_domain_state").get().c;
   if (row?.payload) {
     const parsed = JSON.parse(row.payload);
     if (
+      domainCount > 0 ||
       (parsed.sales?.length || 0) +
         (parsed.clients?.length || 0) +
         (parsed.workers?.length || 0) +
         (parsed.paymentVouchers?.length || 0) >
-      0
+        0
     ) {
       return;
     }
@@ -295,6 +419,7 @@ function seedErpIfNeeded(database) {
 
   const seed = readJsonSeed() || emptyErpPayload();
   const payload = {
+    ...emptyErpPayload(),
     sales: seed.sales || [],
     paymentVouchers: seed.paymentVouchers || [],
     paymentInputLogs: seed.paymentInputLogs || [],
@@ -331,6 +456,7 @@ function seedErpIfNeeded(database) {
         updated_by = excluded.updated_by
     `)
     .run(JSON.stringify(payload), now, "system");
+  writeDomainRows(database, splitPayloadIntoDomains(payload), now);
 }
 
 export function initDb() {
@@ -356,11 +482,18 @@ export function initDb() {
       updated_at TEXT NOT NULL,
       updated_by TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS erp_domain_state (
+      domain TEXT PRIMARY KEY,
+      payload TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
 
   migrateUsersTable(db);
   seedUsersIfNeeded(db);
   seedErpIfNeeded(db);
+  migrateLegacyBlobToDomains(db);
   return db;
 }
 
@@ -677,7 +810,39 @@ export function recordLoginLog(user) {
   return { entry, version: saved.version };
 }
 
-export function getErpState() {
+export function getErpVersionMeta() {
+  const row = getDb().prepare("SELECT version, updated_at, updated_by FROM erp_state WHERE id = 1").get();
+  if (!row) {
+    return { version: 0, updatedAt: null, updatedBy: null };
+  }
+  return {
+    version: row.version,
+    updatedAt: row.updated_at,
+    updatedBy: row.updated_by,
+  };
+}
+
+export function getErpDomainPayloads(domainNames = ERP_DOMAIN_NAMES) {
+  const names = Array.isArray(domainNames) ? domainNames.filter(Boolean) : ERP_DOMAIN_NAMES;
+  if (!names.length) return {};
+
+  const placeholders = names.map(() => "?").join(", ");
+  const rows = getDb()
+    .prepare(`SELECT domain, payload FROM erp_domain_state WHERE domain IN (${placeholders})`)
+    .all(...names);
+
+  const map = {};
+  for (const row of rows) {
+    try {
+      map[row.domain] = JSON.parse(row.payload);
+    } catch {
+      map[row.domain] = {};
+    }
+  }
+  return map;
+}
+
+export function getErpState(domainNames = null) {
   const row = getDb()
     .prepare("SELECT payload, version, updated_at, updated_by FROM erp_state WHERE id = 1")
     .get();
@@ -686,8 +851,27 @@ export function getErpState() {
     return { data: emptyErpPayload(), version: 0, updatedAt: null, updatedBy: null };
   }
 
+  let data = assemblePayloadFromDomainRows(getDb());
+  if (!data) {
+    data = normalizeErpPayload(JSON.parse(row.payload));
+  } else if (domainNames?.length) {
+    const allowedFields = new Set();
+    for (const domain of domainNames) {
+      for (const field of ERP_DOMAIN_FIELDS[domain] || []) {
+        allowedFields.add(field);
+      }
+    }
+    const full = data;
+    data = emptyErpPayload();
+    for (const field of allowedFields) {
+      if (Object.prototype.hasOwnProperty.call(full, field)) {
+        data[field] = full[field];
+      }
+    }
+  }
+
   return {
-    data: normalizeErpPayload(JSON.parse(row.payload)),
+    data,
     version: row.version,
     updatedAt: row.updated_at,
     updatedBy: row.updated_by,
@@ -737,19 +921,21 @@ function normalizeErpPayload(payload) {
   return payload;
 }
 
-export function saveErpState(payload, expectedVersion, updatedBy) {
+function saveErpStateImmediate(payload, expectedVersion, updatedBy) {
   const normalizedPayload = normalizeErpPayload(payload);
   const database = getDb();
   const current = database.prepare("SELECT version FROM erp_state WHERE id = 1").get();
 
   if (!current) {
     const updatedAt = new Date().toISOString();
+    const updatedByValue = updatedBy == null || updatedBy === "" ? "system" : String(updatedBy);
     database
       .prepare(`
         INSERT INTO erp_state (id, payload, version, updated_at, updated_by)
         VALUES (1, ?, 1, ?, ?)
       `)
-      .run(JSON.stringify(normalizedPayload), updatedAt, updatedBy == null || updatedBy === "" ? "system" : String(updatedBy));
+      .run(JSON.stringify(normalizedPayload), updatedAt, updatedByValue);
+    writeDomainRows(database, splitPayloadIntoDomains(normalizedPayload), updatedAt);
     return { version: 1, updatedAt };
   }
 
@@ -763,15 +949,138 @@ export function saveErpState(payload, expectedVersion, updatedBy) {
   const nextVersion = current.version + 1;
   const updatedAt = new Date().toISOString();
   const updatedByValue = updatedBy == null || updatedBy === "" ? "system" : String(updatedBy);
-  database
-    .prepare(`
-      UPDATE erp_state
-      SET payload = ?, version = ?, updated_at = ?, updated_by = ?
-      WHERE id = 1
-    `)
-    .run(JSON.stringify(normalizedPayload), nextVersion, updatedAt, updatedByValue);
+  const tx = database.transaction(() => {
+    database
+      .prepare(`
+        UPDATE erp_state
+        SET payload = ?, version = ?, updated_at = ?, updated_by = ?
+        WHERE id = 1
+      `)
+      .run(JSON.stringify(normalizedPayload), nextVersion, updatedAt, updatedByValue);
+    writeDomainRows(database, splitPayloadIntoDomains(normalizedPayload), updatedAt);
+  });
+  tx();
 
   return { version: nextVersion, updatedAt };
+}
+
+export function saveErpState(payload, expectedVersion, updatedBy) {
+  return saveErpStateImmediate(payload, expectedVersion, updatedBy);
+}
+
+export function saveErpDomain(domain, domainPayload, expectedVersion, updatedBy) {
+  if (!ERP_DOMAIN_FIELDS[domain]) {
+    const err = new Error("UNKNOWN_DOMAIN");
+    err.status = 400;
+    throw err;
+  }
+  return queueCoalescedWrite(`erp:domain:${domain}`, { domain, domainPayload, expectedVersion, updatedBy }, async ({
+    domain: nextDomain,
+    domainPayload: nextDomainPayload,
+    expectedVersion: nextExpectedVersion,
+    updatedBy: nextUpdatedBy,
+  }) => {
+    const database = getDb();
+    const current = database.prepare("SELECT version FROM erp_state WHERE id = 1").get();
+    if (!current) {
+      const err = new Error("ERP_NOT_INITIALIZED");
+      err.status = 500;
+      throw err;
+    }
+    if (nextExpectedVersion != null && current.version !== nextExpectedVersion) {
+      const err = new Error("VERSION_CONFLICT");
+      err.status = 409;
+      err.currentVersion = current.version;
+      throw err;
+    }
+
+    const assembled = assemblePayloadFromDomainRows(database) || emptyErpPayload();
+    const merged = { ...assembled, ...nextDomainPayload };
+    const chunk = pickDomainPayload(merged, nextDomain) || nextDomainPayload;
+    const nextVersion = current.version + 1;
+    const updatedAt = new Date().toISOString();
+    const updatedByValue = nextUpdatedBy == null || nextUpdatedBy === "" ? "system" : String(nextUpdatedBy);
+
+    const tx = database.transaction(() => {
+      database
+        .prepare(`
+          INSERT INTO erp_domain_state (domain, payload, updated_at)
+          VALUES (?, ?, ?)
+          ON CONFLICT(domain) DO UPDATE SET
+            payload = excluded.payload,
+            updated_at = excluded.updated_at
+        `)
+        .run(nextDomain, JSON.stringify(chunk), updatedAt);
+
+      const fullPayload = assemblePayloadFromDomainRows(database) || merged;
+      database
+        .prepare(`
+          UPDATE erp_state
+          SET payload = ?, version = ?, updated_at = ?, updated_by = ?
+          WHERE id = 1
+        `)
+        .run(JSON.stringify(normalizeErpPayload(fullPayload)), nextVersion, updatedAt, updatedByValue);
+    });
+    tx();
+
+    return { version: nextVersion, updatedAt, domain: nextDomain };
+  });
+}
+
+export function saveErpDomains(domainPayloads, expectedVersion, updatedBy) {
+  const domains = Object.keys(domainPayloads || {}).filter((name) => ERP_DOMAIN_FIELDS[name]);
+  if (!domains.length) {
+    const err = new Error("NO_DOMAINS");
+    err.status = 400;
+    throw err;
+  }
+  return queueCoalescedWrite(
+    `erp:domains:${domains.sort().join(",")}`,
+    { domainPayloads, expectedVersion, updatedBy },
+    async ({ domainPayloads: nextDomainPayloads, expectedVersion: nextExpectedVersion, updatedBy: nextUpdatedBy }) => {
+      const database = getDb();
+      const current = database.prepare("SELECT version FROM erp_state WHERE id = 1").get();
+      if (!current) {
+        const err = new Error("ERP_NOT_INITIALIZED");
+        err.status = 500;
+        throw err;
+      }
+      if (nextExpectedVersion != null && current.version !== nextExpectedVersion) {
+        const err = new Error("VERSION_CONFLICT");
+        err.status = 409;
+        err.currentVersion = current.version;
+        throw err;
+      }
+
+      const assembled = assemblePayloadFromDomainRows(database) || emptyErpPayload();
+      let merged = assembled;
+      for (const domain of domains) {
+        merged = { ...merged, ...nextDomainPayloads[domain] };
+      }
+
+      const nextVersion = current.version + 1;
+      const updatedAt = new Date().toISOString();
+      const updatedByValue = nextUpdatedBy == null || nextUpdatedBy === "" ? "system" : String(nextUpdatedBy);
+      const domainRows = {};
+      for (const domain of domains) {
+        domainRows[domain] = pickDomainPayload(merged, domain) || nextDomainPayloads[domain];
+      }
+
+      const tx = database.transaction(() => {
+        writeDomainRows(database, domainRows, updatedAt);
+        database
+          .prepare(`
+            UPDATE erp_state
+            SET payload = ?, version = ?, updated_at = ?, updated_by = ?
+            WHERE id = 1
+          `)
+          .run(JSON.stringify(normalizeErpPayload(merged)), nextVersion, updatedAt, updatedByValue);
+      });
+      tx();
+
+      return { version: nextVersion, updatedAt, domains };
+    },
+  );
 }
 
 export function listAttendanceViewableUsers(viewerId) {

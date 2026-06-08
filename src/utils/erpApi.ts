@@ -230,6 +230,115 @@ export async function fetchErpData() {
   return apiRequest<ErpPayload>("/erp");
 }
 
+export type ErpVersionMeta = {
+  version: number;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+};
+
+export async function fetchErpVersion() {
+  return apiRequest<ErpVersionMeta>("/erp/version");
+}
+
+export const ERP_SAVE_DOMAIN_NAMES = [
+  "sales",
+  "clients",
+  "workers",
+  "bankTransactions",
+  "taxInvoices",
+  "companyProfile",
+  "settings",
+] as const;
+
+export type ErpSaveDomain = (typeof ERP_SAVE_DOMAIN_NAMES)[number];
+
+export function buildErpDomainChunk(domain: ErpSaveDomain, payload: ErpPayload) {
+  switch (domain) {
+    case "sales":
+      return {
+        sales: payload.sales || [],
+        paymentVouchers: payload.paymentVouchers || [],
+        paymentInputLogs: payload.paymentInputLogs || [],
+        saleComments: payload.saleComments || [],
+      };
+    case "clients":
+      return { clients: payload.clients || [] };
+    case "workers":
+      return {
+        workers: payload.workers || [],
+        workerMonthlyPaymentMemos: payload.workerMonthlyPaymentMemos || {},
+        workerPaymentRecords: payload.workerPaymentRecords || [],
+        workerPayoutVouchers: payload.workerPayoutVouchers || [],
+        workerMonthlyActualVouchers: payload.workerMonthlyActualVouchers || [],
+        workerPayWithVatLearnRules: payload.workerPayWithVatLearnRules || [],
+      };
+    case "bankTransactions":
+      return {
+        bankTransactions: payload.bankTransactions || [],
+        bankTransactionFolders: payload.bankTransactionFolders || [],
+      };
+    case "taxInvoices":
+      return { taxInvoices: payload.taxInvoices || [] };
+    case "companyProfile":
+      return { companyProfile: payload.companyProfile ?? null };
+    case "settings":
+      return {
+        auditLogs: payload.auditLogs || [],
+        loginLogs: payload.loginLogs || [],
+        companyExpenses: payload.companyExpenses || [],
+        attendanceRecords: payload.attendanceRecords || [],
+        fixedExpenses: payload.fixedExpenses || [],
+        fixedExpensePayments: payload.fixedExpensePayments || [],
+        bankLedgerRules: payload.bankLedgerRules || [],
+        expenseCategories: payload.expenseCategories || [],
+        fixedExpenseCategories: payload.fixedExpenseCategories || [],
+        accountCodes: payload.accountCodes || [],
+        ledgerCategories: payload.ledgerCategories || [],
+        companyNotices: payload.companyNotices || [],
+        workPosts: payload.workPosts || [],
+        statementGenerationLogs: payload.statementGenerationLogs || [],
+        statementFolders: payload.statementFolders || [],
+      };
+    default:
+      return {};
+  }
+}
+
+export function findDirtyErpDomains(
+  payload: ErpPayload,
+  lastSaved: Record<string, string>,
+  options?: { includeBank?: boolean },
+) {
+  const dirty: ErpSaveDomain[] = [];
+  for (const domain of ERP_SAVE_DOMAIN_NAMES) {
+    if (domain === "bankTransactions" && !options?.includeBank) continue;
+    const chunk = buildErpDomainChunk(domain, payload);
+    const serialized = JSON.stringify(chunk);
+    if (serialized !== lastSaved[domain]) {
+      dirty.push(domain);
+    }
+  }
+  return dirty;
+}
+
+export async function fetchErpDomains(domains: ErpSaveDomain[]) {
+  const params = new URLSearchParams({ domains: domains.join(",") });
+  return apiRequest<Partial<ErpPayload> & ErpVersionMeta>(`/erp/domains?${params.toString()}`);
+}
+
+export async function patchErpDomains(input: {
+  expectedVersion?: number;
+  domains: Partial<Record<ErpSaveDomain, Record<string, unknown>>>;
+}) {
+  return apiRequest<{ ok: boolean; version: number; updatedAt: string; domains?: ErpSaveDomain[] }>(
+    "/erp/domains",
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    },
+  );
+}
+
 export async function saveErpData(payload: ErpPayload) {
   return apiRequest<{ ok: boolean; version: number; updatedAt: string }>("/erp", {
     method: "PUT",
