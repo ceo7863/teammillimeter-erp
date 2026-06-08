@@ -94,17 +94,24 @@ export function formatScheduleDateTime(workDate) {
   return `${month}\uC6D4 ${day}\uC77C ${weekday}`;
 }
 
-export function formatScheduleTemplateVars(schedule, shareToken = "", clientManager = "") {
-  const participantNames = Array.isArray(schedule?.participantNames)
-    ? schedule.participantNames.filter(Boolean)
-    : [];
+export function formatScheduleTemplateVars(
+  schedule,
+  shareToken = "",
+  clientManager = "",
+  participantNames = null,
+) {
+  const names = Array.isArray(participantNames)
+    ? participantNames.filter(Boolean)
+    : Array.isArray(schedule?.participantNames)
+      ? schedule.participantNames.filter(Boolean)
+      : [];
   const manager =
     String(clientManager || schedule?.clientManager || "").trim() || "-";
   return {
     client: String(schedule?.clientName || schedule?.projectName || "").trim(),
     site: String(schedule?.projectName || "").trim(),
     clientManager: manager,
-    workers: participantNames.join(", "),
+    workers: names.join(", "),
     dateTime: formatScheduleDateTime(schedule?.workDate),
     shareToken: String(shareToken || "").trim(),
   };
@@ -182,7 +189,7 @@ export function buildScScheduleNotifyPreview(data, dateKey = tomorrowKstDateKey(
 
     const contact = resolveClientContact(clients, schedule);
     const clientManager = contact.name || resolveClientManager(clients, schedule);
-    const variables = formatScheduleTemplateVars(schedule, "", clientManager);
+    const variables = formatScheduleTemplateVars(schedule, "", clientManager, participantNames);
 
     if (!clientScheduleIds.has(schedule.id)) {
       clientScheduleIds.add(schedule.id);
@@ -194,6 +201,7 @@ export function buildScScheduleNotifyPreview(data, dateKey = tomorrowKstDateKey(
         projectName: schedule.projectName,
         clientManager: variables.clientManager,
         participantName: contact.name || variables.clientManager,
+        workerNames: variables.workers,
         phone: contact.phone || null,
         variables,
       });
@@ -262,7 +270,7 @@ export async function buildScScheduleNotifyPreviewAsync(data, dateKey = tomorrow
 
     const contact = resolveClientContact(clients, schedule);
     const clientManager = contact.name || resolveClientManager(clients, schedule);
-    const variables = formatScheduleTemplateVars(schedule, shareToken, clientManager);
+    const variables = formatScheduleTemplateVars(schedule, shareToken, clientManager, participantNames);
 
     if (!clientScheduleIds.has(schedule.id)) {
       clientScheduleIds.add(schedule.id);
@@ -274,6 +282,7 @@ export async function buildScScheduleNotifyPreviewAsync(data, dateKey = tomorrow
         projectName: schedule.projectName,
         clientManager: variables.clientManager,
         participantName: contact.name || variables.clientManager,
+        workerNames: variables.workers,
         phone: contact.phone || null,
         shareUrl,
         variables,
@@ -394,7 +403,7 @@ export async function runScScheduleNotifyJob(options = {}) {
 
     const contact = resolveClientContact(clients, schedule);
     const clientManager = contact.name || resolveClientManager(clients, schedule);
-    const variables = formatScheduleTemplateVars(schedule, shareToken, clientManager);
+    const variables = formatScheduleTemplateVars(schedule, shareToken, clientManager, participantNames);
     const sentPhones = new Set();
 
     async function sendToPhone(phone, recipientType, recipientName) {

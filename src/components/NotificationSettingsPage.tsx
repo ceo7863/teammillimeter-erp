@@ -319,11 +319,17 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
             row.variables?.clientManager && row.variables.clientManager !== "-"
               ? `\uB2F4\uB2F9 ${row.variables.clientManager}`
               : "\uB2F4\uB2F9 \uC5C6\uC74C";
-          const who =
+          const contact =
             row.recipientType === "client"
               ? row.participantName || row.variables.client
               : row.participantName;
-          return `[${role} ${row.phone || "\uC804\uD654\uC5C6\uC74C"}] ${who} \u00B7 ${row.variables.client} \u00B7 ${manager} \u00B7 ${row.variables.dateTime}`;
+          const workers =
+            row.variables?.workers
+              ? `\uC2DC\uACF5 ${row.variables.workers}`
+              : "\uC2DC\uACF5 \uC5C6\uC74C";
+          const parts = [contact, row.variables.client, manager, row.variables.dateTime];
+          if (row.recipientType === "client") parts.push(workers);
+          return `[${role} ${row.phone || "\uC804\uD654\uC5C6\uC74C"}] ${parts.join(" \u00B7 ")}`;
         }),
       );
       setPreviewTitle(L.scPreviewTitle);
