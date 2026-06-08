@@ -6568,6 +6568,7 @@ function BankTransactionsPageComponent({
           clients={clients}
           currentUser={currentUser}
           erpVersion={erpVersion}
+          taxInvoices={taxInvoices}
           setTaxInvoices={setTaxInvoices}
           onClose={() => setTaxInvoiceIssueTx(null)}
           onIssued={handleTaxInvoiceIssued}

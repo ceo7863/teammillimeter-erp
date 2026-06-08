@@ -22,6 +22,8 @@ import {
 import {
   calculateTaxInvoiceAmounts,
   calculateTaxInvoiceAmountsFromTotal,
+  findDuplicateTaxInvoicesForBarobillIssue,
+  formatDuplicateTaxInvoiceIssueSummary,
   makeTaxInvoiceId,
   normalizeTaxInvoiceDocumentType,
   normalizeTaxInvoices,
@@ -226,6 +228,7 @@ type BankTaxInvoiceIssueModalProps = {
   clients: ClientMasterLike[];
   currentUser: ErpUser | null;
   erpVersion?: number;
+  taxInvoices: TaxInvoice[];
   setTaxInvoices: React.Dispatch<React.SetStateAction<TaxInvoice[]>>;
   onClose: () => void;
   onIssued: (result: BankTaxInvoiceIssueResult) => void | Promise<void>;
@@ -243,6 +246,7 @@ export function BankTaxInvoiceIssueModal({
   clients,
   currentUser,
   erpVersion = 0,
+  taxInvoices,
   setTaxInvoices,
   onClose,
   onIssued,
@@ -256,6 +260,7 @@ export function BankTaxInvoiceIssueModal({
   const [draft, setDraft] = useState<TaxInvoiceIssueDraft | null>(initialDraft);
   const [formError, setFormError] = useState("");
   const [issueLoading, setIssueLoading] = useState(false);
+  const [duplicateIssueConfirm, setDuplicateIssueConfirm] = useState<TaxInvoice[] | null>(null);
 
   const isAdmin = currentUser?.role === "admin";
   const canIssueElectronically = Boolean(isAdmin && draft && sourceAmount > 0);
@@ -339,38 +344,10 @@ export function BankTaxInvoiceIssueModal({
     });
   };
 
-  const issueViaBarobill = async () => {
+  const performBarobillIssue = async () => {
     if (!draft) return;
 
-    const error = validateTaxInvoiceInput({
-      issueDate: draft.issueDate,
-      client: draft.client,
-      supplyAmount: draft.supplyAmount,
-      totalAmount: draft.totalAmount,
-    });
-    if (error) {
-      setFormError(error);
-      return;
-    }
-
     const businessDigits = String(draft.businessNo || "").replace(/\D/g, "");
-    if (businessDigits.length !== 10) {
-      setFormError(L.barobillIssueBusinessNo);
-      return;
-    }
-
-    const partyError = validateInvoiceePartyForIssue({
-      ceoName: draft.invoiceeCeoName,
-      email: draft.invoiceeEmail,
-      address: draft.invoiceeAddr,
-      bizType: draft.invoiceeBizType,
-      bizClass: draft.invoiceeBizClass,
-    });
-    if (partyError) {
-      setFormError(partyError);
-      return;
-    }
-
     const amounts = resolveTaxInvoiceModalAmounts(draft);
     const authorName = currentUser?.name || currentUser?.loginId || "\uC0AC\uC6A9\uC790";
     const authorLoginId = currentUser?.loginId || "";
@@ -440,6 +417,61 @@ export function BankTaxInvoiceIssueModal({
     }
   };
 
+  const issueViaBarobill = async () => {
+    if (!draft) return;
+
+    const error = validateTaxInvoiceInput({
+      issueDate: draft.issueDate,
+      client: draft.client,
+      supplyAmount: draft.supplyAmount,
+      totalAmount: draft.totalAmount,
+    });
+    if (error) {
+      setFormError(error);
+      return;
+    }
+
+    const businessDigits = String(draft.businessNo || "").replace(/\D/g, "");
+    if (businessDigits.length !== 10) {
+      setFormError(L.barobillIssueBusinessNo);
+      return;
+    }
+
+    const partyError = validateInvoiceePartyForIssue({
+      ceoName: draft.invoiceeCeoName,
+      email: draft.invoiceeEmail,
+      address: draft.invoiceeAddr,
+      bizType: draft.invoiceeBizType,
+      bizClass: draft.invoiceeBizClass,
+    });
+    if (partyError) {
+      setFormError(partyError);
+      return;
+    }
+
+    const amounts = resolveTaxInvoiceModalAmounts(draft);
+    const duplicates = findDuplicateTaxInvoicesForBarobillIssue(taxInvoices, {
+      issueDate: draft.issueDate,
+      client: draft.client.trim(),
+      businessNo: businessDigits,
+      documentType: draft.documentType,
+      supplyAmount: amounts.supplyAmount,
+      vatAmount: amounts.vatAmount,
+      totalAmount: amounts.totalAmount,
+    });
+    if (duplicates.length > 0) {
+      setDuplicateIssueConfirm(duplicates);
+      return;
+    }
+
+    await performBarobillIssue();
+  };
+
+  const confirmDuplicateBarobillIssue = () => {
+    setDuplicateIssueConfirm(null);
+    void performBarobillIssue();
+  };
+
   if (!draft) {
     return (
       <div className="erp-ledger-modal-backdrop" onClick={onClose}>
@@ -458,7 +490,40 @@ export function BankTaxInvoiceIssueModal({
   }
 
   return (
-    <div className="erp-ledger-modal-backdrop" onClick={onClose}>
+    <>
+      {duplicateIssueConfirm ? (
+        <div className="erp-ledger-modal-backdrop" onClick={() => setDuplicateIssueConfirm(null)}>
+          <div
+            className="erp-ledger-modal"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bank-tax-invoice-duplicate-title"
+          >
+            <h2 id="bank-tax-invoice-duplicate-title" className="text-base font-bold text-slate-900 md:text-lg">
+              {"\uB3D9\uC77C \uACC4\uC0B0\uC11C \uD655\uC778"}
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              {"\uAC19\uC740 \uC77C\uC790\u00B7\uAC70\uB798\uCC98\u00B7\uAE08\uC561\uC758 \uACC4\uC0B0\uC11C\uAC00 \uC774\uBBF8 \uC788\uC2B5\uB2C8\uB2E4."}
+            </p>
+            <div className="mt-4 space-y-2 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-700">
+              {formatDuplicateTaxInvoiceIssueSummary(duplicateIssueConfirm).map((line) => (
+                <div key={line}>{line}</div>
+              ))}
+            </div>
+            <p className="mt-4 text-sm font-semibold text-slate-700">{"\uADF8\uB798\uB3C4 \uBC1C\uD589\uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?"}</p>
+            <div className="mt-5 flex gap-2">
+              <Button variant="outline" className="flex-1 rounded-xl" onClick={() => setDuplicateIssueConfirm(null)}>
+                {"\uC544\uB2C8\uC624"}
+              </Button>
+              <Button className="flex-1 rounded-xl" onClick={confirmDuplicateBarobillIssue}>
+                {"\uC608, \uBC1C\uD589"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      <div className="erp-ledger-modal-backdrop" onClick={onClose}>
       <div className="erp-ledger-modal" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="erp-text-section font-bold">{L.title}</h2>
@@ -650,5 +715,6 @@ export function BankTaxInvoiceIssueModal({
         </div>
       </div>
     </div>
+    </>
   );
 }

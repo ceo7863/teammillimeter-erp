@@ -906,6 +906,7 @@ export function PdfArchivePage({
           clients={clients}
           currentUser={currentUser}
           erpVersion={erpVersion}
+          taxInvoices={taxInvoices}
           setTaxInvoices={setTaxInvoices}
           onClose={() => setTaxInvoiceIssueRecord(null)}
           onIssued={handleTaxInvoiceIssued}

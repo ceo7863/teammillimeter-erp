@@ -22,8 +22,35 @@ export type ScScheduleSyncStatus = {
   lastProjectCount?: number;
   lastScheduleCount?: number;
   lastMappedClientCount?: number;
+  lastUnmappedProjectCount?: number;
+  lastDroppedScheduleCount?: number;
   windowStart?: string;
   windowEnd?: string;
+};
+
+export type ScProjectMappingRow = {
+  scProjectId: string;
+  scProjectName: string;
+  clientId?: number | string;
+  clientName?: string;
+  manual?: boolean;
+  updatedAt?: string | null;
+};
+
+export type ScUnmappedProjectRow = {
+  scProjectId: string;
+  scProjectName: string;
+  address?: string;
+};
+
+export type ScProjectMappingStatus = {
+  ok?: boolean;
+  configured: boolean;
+  mappings: ScProjectMappingRow[];
+  unmapped: ScUnmappedProjectRow[];
+  projectCount: number;
+  mappedCount: number;
+  unmappedCount: number;
 };
 
 function apiBase() {
@@ -88,4 +115,37 @@ export async function runScScheduleSyncNow() {
   return apiRequest<
     ScScheduleSyncStatus & { ok?: boolean; error?: string; skipped?: boolean; reason?: string }
   >("/sc-schedules/sync", { method: "POST" });
+}
+
+export async function fetchScProjectMappingStatus(): Promise<ScProjectMappingStatus> {
+  if (!isApiModeEnabled()) {
+    return {
+      configured: false,
+      mappings: [],
+      unmapped: [],
+      projectCount: 0,
+      mappedCount: 0,
+      unmappedCount: 0,
+    };
+  }
+  return apiRequest<ScProjectMappingStatus>("/sc-schedules/project-mappings");
+}
+
+export async function saveScProjectClientMapping(scProjectId: string, clientId: number | string) {
+  if (!isApiModeEnabled()) {
+    throw new Error("SC \uAC70\uB798\uCC98 \uB9E4\uCE6D\uC740 API \uBAA8\uB4DC\uC5D0\uC11C\uB9CC \uC0AC\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.");
+  }
+  return apiRequest<{ ok?: boolean; error?: string }>(`/sc-schedules/project-mappings/${encodeURIComponent(scProjectId)}`, {
+    method: "PUT",
+    body: JSON.stringify({ clientId }),
+  });
+}
+
+export async function removeScProjectClientMapping(scProjectId: string) {
+  if (!isApiModeEnabled()) {
+    throw new Error("SC \uAC70\uB798\uCC98 \uB9E4\uCE6D\uC740 API \uBAA8\uB4DC\uC5D0\uC11C\uB9CC \uC0AC\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.");
+  }
+  return apiRequest<{ ok?: boolean; error?: string }>(`/sc-schedules/project-mappings/${encodeURIComponent(scProjectId)}`, {
+    method: "DELETE",
+  });
 }

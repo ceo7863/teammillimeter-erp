@@ -386,3 +386,63 @@ export function formatTaxInvoiceDate(iso: string) {
   if (!iso) return "-";
   return iso.slice(0, 10);
 }
+
+export type BarobillIssueDuplicateInput = {
+  issueDate: string;
+  client: string;
+  businessNo: string;
+  documentType: TaxInvoiceDocumentType;
+  supplyAmount: number;
+  vatAmount: number;
+  totalAmount: number;
+};
+
+function matchesBarobillIssueParty(
+  input: Pick<BarobillIssueDuplicateInput, "client" | "businessNo">,
+  row: Pick<TaxInvoice, "client" | "businessNo" | "flowType">,
+) {
+  const inputDigits = String(input.businessNo || "").replace(/\D/g, "");
+  const rowDigits = String(row.businessNo || "").replace(/\D/g, "");
+  if (inputDigits && rowDigits && inputDigits === rowDigits) return true;
+
+  const inputKey = buildTaxInvoiceClientGroupKey({
+    client: input.client,
+    businessNo: input.businessNo,
+    flowType: "sales",
+  });
+  const rowKey = buildTaxInvoiceClientGroupKey(row);
+  return inputKey === rowKey;
+}
+
+export function findDuplicateTaxInvoicesForBarobillIssue(
+  rows: TaxInvoice[],
+  input: BarobillIssueDuplicateInput,
+  excludeId?: string,
+) {
+  return rows.filter((row) => {
+    if (excludeId && row.id === excludeId) return false;
+    if (row.flowType !== "sales") return false;
+    if (row.status === "cancelled") return false;
+    if (row.issueDate !== input.issueDate) return false;
+    if (row.documentType !== input.documentType) return false;
+    if (row.supplyAmount !== input.supplyAmount) return false;
+    if (row.totalAmount !== input.totalAmount) return false;
+    if (input.documentType === "tax" && row.vatAmount !== input.vatAmount) return false;
+    if (!matchesBarobillIssueParty(input, row)) return false;
+    return true;
+  });
+}
+
+export function formatDuplicateTaxInvoiceIssueSummary(matches: TaxInvoice[]) {
+  return matches.map((row) => {
+    const parts = [
+      `\uC77C\uC790: ${formatTaxInvoiceDate(row.issueDate)}`,
+      `\uAC70\uB798\uCC98: ${row.client || "-"}`,
+      `\uD569\uACC4: ${row.totalAmount.toLocaleString("ko-KR")}\uC6D0`,
+    ];
+    if (row.invoiceNo) {
+      parts.push(`\uACC4\uC0B0\uC11C\uBC88\uD638: ${row.invoiceNo}`);
+    }
+    return parts.join(" \u00B7 ");
+  });
+}

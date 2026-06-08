@@ -20,6 +20,25 @@ function listClients(data) {
   return Array.isArray(data.clients) ? data.clients : [];
 }
 
+function clientIdsEqual(a, b) {
+  return String(a ?? "") === String(b ?? "");
+}
+
+function listStoredScProjects(data) {
+  const meta = data?.scScheduleSyncMeta;
+  return Array.isArray(meta?.lastScProjects) ? meta.lastScProjects : [];
+}
+
+function clearClientScProjectFields(client) {
+  const next = { ...client };
+  delete next.scProjectId;
+  delete next.scProjectName;
+  delete next.scProjectMappingManual;
+  delete next.scProjectMappingUpdatedAt;
+  delete next.scProjectMappingUpdatedBy;
+  return next;
+}
+
 function listScSchedules(data) {
   return Array.isArray(data.scSchedules) ? data.scSchedules : [];
 }
@@ -175,6 +194,10 @@ export function autoMapScProjectsToClients(clients, projects) {
       };
     }
 
+    if (client.scProjectMappingManual) {
+      return client;
+    }
+
     const matched = projectByKey.get(normalizeScClientName(clientName));
     if (!matched) return client;
     mappedCount += 1;
@@ -186,6 +209,167 @@ export function autoMapScProjectsToClients(clients, projects) {
   });
 
   return { clients: nextClients, mappedCount };
+}
+
+function buildScProjectMappingStatus(clients, projects) {
+  const mappedProjectIds = new Set();
+  const mappings = [];
+
+  for (const client of clients) {
+    const projectId = String(client.scProjectId || "").trim();
+    if (!projectId) continue;
+    mappedProjectIds.add(projectId);
+    const project = projects.find((row) => row.id === projectId);
+    mappings.push({
+      scProjectId: projectId,
+      scProjectName: String(client.scProjectName || project?.name || "").trim(),
+      clientId: client.id,
+      clientName: String(client.name || "").trim(),
+      manual: Boolean(client.scProjectMappingManual),
+      updatedAt: client.scProjectMappingUpdatedAt || null,
+    });
+  }
+
+  mappings.sort((a, b) => a.scProjectName.localeCompare(b.scProjectName, "ko"));
+
+  const unmapped = projects
+    .filter((project) => !mappedProjectIds.has(project.id))
+    .map((project) => ({
+      scProjectId: project.id,
+      scProjectName: project.name,
+      address: project.address || "",
+    }))
+    .sort((a, b) => a.scProjectName.localeCompare(b.scProjectName, "ko"));
+
+  return {
+    mappings,
+    unmapped,
+    projectCount: projects.length,
+    mappedCount: mappings.length,
+    unmappedCount: unmapped.length,
+  };
+}
+
+async function resolveScProjectsForMapping(data) {
+  const stored = listStoredScProjects(data);
+  if (stored.length) return stored;
+  if (!String(config.sc.databaseUrl || "").trim()) return [];
+  return withScPool(fetchScProjects);
+}
+
+export async function listScProjectMappingStatus() {
+  const state = getErpState();
+  const data = state.data || {};
+  const clients = listClients(data);
+  const projects = await resolveScProjectsForMapping(data);
+  const status = buildScProjectMappingStatus(clients, projects);
+  return {
+    ok: true,
+    configured: Boolean(String(config.sc.databaseUrl || "").trim()),
+    ...status,
+  };
+}
+
+function applyScProjectClientMapping(clients, scProjectId, clientId, projectName, actor = "") {
+  const normalizedProjectId = String(scProjectId || "").trim();
+  if (!normalizedProjectId) {
+    return { ok: false, status: 400, error: "\uC720\uD6A8\uD558\uC9C0 \uC54A\uC740 SC \uD504\uB85C\uC81D\uD2B8\uC785\uB2C8\uB2E4." };
+  }
+
+  const nextClients = clients.map((client) => {
+    if (String(client.scProjectId || "").trim() === normalizedProjectId && !clientIdsEqual(client.id, clientId)) {
+      return clearClientScProjectFields(client);
+    }
+    return client;
+  });
+
+  const targetIndex = nextClients.findIndex((client) => clientIdsEqual(client.id, clientId));
+  if (targetIndex < 0) {
+    return { ok: false, status: 404, error: "\uAC70\uB798\uCC98\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
+  }
+
+  const now = new Date().toISOString();
+  nextClients[targetIndex] = {
+    ...nextClients[targetIndex],
+    scProjectId: normalizedProjectId,
+    scProjectName: String(projectName || nextClients[targetIndex].scProjectName || "").trim(),
+    scProjectMappingManual: true,
+    scProjectMappingUpdatedAt: now,
+    scProjectMappingUpdatedBy: String(actor || "").trim() || nextClients[targetIndex].scProjectMappingUpdatedBy,
+  };
+
+  return { ok: true, clients: nextClients };
+}
+
+export async function setScProjectClientMapping(scProjectId, clientId, actor = "") {
+  const state = getErpState();
+  const data = state.data && typeof state.data === "object" ? { ...state.data } : {};
+  const projects = await resolveScProjectsForMapping(data);
+  const normalizedProjectId = String(scProjectId || "").trim();
+  const project = projects.find((row) => row.id === normalizedProjectId);
+  if (!project) {
+    return { ok: false, status: 404, error: "SC \uD504\uB85C\uC81D\uD2B8\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. SC \uB3D9\uAE30\uD654\uB97C \uBA3C\uC800 \uC2E4\uD589\uD574 \uC8FC\uC138\uC694." };
+  }
+
+  const applied = applyScProjectClientMapping(listClients(data), normalizedProjectId, clientId, project.name, actor);
+  if (!applied.ok) return applied;
+
+  saveErpState(
+    {
+      ...data,
+      clients: applied.clients,
+      scScheduleSyncMeta: {
+        ...(data.scScheduleSyncMeta || {}),
+        lastScProjects: projects.length ? projects : data.scScheduleSyncMeta?.lastScProjects || [],
+      },
+    },
+    state.version,
+    actor ? `sc-project-mapping:set:${actor}` : "sc-project-mapping:set",
+  );
+
+  const syncResult = await runScScheduleSync({
+    updatedBy: actor ? `sc-project-mapping:${actor}` : "sc-project-mapping",
+  });
+  return {
+    ok: true,
+    scProjectId: normalizedProjectId,
+    clientId,
+    sync: syncResult,
+  };
+}
+
+export async function clearScProjectClientMapping(scProjectId, actor = "") {
+  const state = getErpState();
+  const data = state.data && typeof state.data === "object" ? { ...state.data } : {};
+  const normalizedProjectId = String(scProjectId || "").trim();
+  if (!normalizedProjectId) {
+    return { ok: false, status: 400, error: "\uC720\uD6A8\uD558\uC9C0 \uC54A\uC740 SC \uD504\uB85C\uC81D\uD2B8\uC785\uB2C8\uB2E4." };
+  }
+
+  let found = false;
+  const nextClients = listClients(data).map((client) => {
+    if (String(client.scProjectId || "").trim() !== normalizedProjectId) return client;
+    found = true;
+    return clearClientScProjectFields(client);
+  });
+  if (!found) {
+    return { ok: false, status: 404, error: "SC \uD504\uB85C\uC81D\uD2B8 \uB9E4\uCE6D\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
+  }
+
+  saveErpState(
+    { ...data, clients: nextClients },
+    state.version,
+    actor ? `sc-project-mapping:clear:${actor}` : "sc-project-mapping:clear",
+  );
+
+  const syncResult = await runScScheduleSync({
+    updatedBy: actor ? `sc-project-mapping-clear:${actor}` : "sc-project-mapping-clear",
+  });
+  return {
+    ok: true,
+    scProjectId: normalizedProjectId,
+    sync: syncResult,
+  };
 }
 
 function buildProjectToClientMap(clients) {
@@ -341,6 +525,7 @@ export async function runScScheduleSync(options = {}) {
     const mapped = autoMapScProjectsToClients(listClients(data), result.projects);
     const enriched = attachClientToSchedules(result.schedules, mapped.clients);
     const mergedSchedules = mergeSchedulesInWindow(listScSchedules(data), enriched, start, end);
+    const mappingStatus = buildScProjectMappingStatus(mapped.clients, result.projects);
 
     const nextMeta = {
       lastRunAt: runAt,
@@ -349,6 +534,9 @@ export async function runScScheduleSync(options = {}) {
       lastProjectCount: result.projects.length,
       lastScheduleCount: enriched.length,
       lastMappedClientCount: mapped.mappedCount,
+      lastUnmappedProjectCount: mappingStatus.unmappedCount,
+      lastDroppedScheduleCount: Math.max(0, result.schedules.length - enriched.length),
+      lastScProjects: result.projects,
       windowStart: formatUtcDate(start),
       windowEnd: formatUtcDate(new Date(end.getTime() - 86400000)),
     };

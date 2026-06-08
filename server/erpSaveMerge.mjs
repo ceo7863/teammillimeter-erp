@@ -374,6 +374,23 @@ export function mergeClientsForSave(existing = [], incoming = []) {
     const scProjectName = String(client.scProjectName || "").trim() || String(prev.scProjectName || "").trim();
     if (scProjectName) merged.scProjectName = scProjectName;
     else delete merged.scProjectName;
+    if (typeof client.scProjectMappingManual === "boolean") {
+      merged.scProjectMappingManual = client.scProjectMappingManual;
+    } else if (typeof prev.scProjectMappingManual === "boolean") {
+      merged.scProjectMappingManual = prev.scProjectMappingManual;
+    } else {
+      delete merged.scProjectMappingManual;
+    }
+    if (client.scProjectMappingUpdatedAt || prev.scProjectMappingUpdatedAt) {
+      merged.scProjectMappingUpdatedAt = client.scProjectMappingUpdatedAt || prev.scProjectMappingUpdatedAt;
+    } else {
+      delete merged.scProjectMappingUpdatedAt;
+    }
+    if (client.scProjectMappingUpdatedBy || prev.scProjectMappingUpdatedBy) {
+      merged.scProjectMappingUpdatedBy = client.scProjectMappingUpdatedBy || prev.scProjectMappingUpdatedBy;
+    } else {
+      delete merged.scProjectMappingUpdatedBy;
+    }
     return merged;
   });
 }

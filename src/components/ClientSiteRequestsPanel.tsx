@@ -26,9 +26,15 @@ import {
 import { ClientSiteRequestCalendarModal } from "@/components/ClientSiteRequestCalendarModal";
 import { ClientSiteRequestChat } from "@/components/ClientSiteRequestChat";
 import {
+  fetchScProjectMappingStatus,
   fetchScScheduleSyncStatus,
+  removeScProjectClientMapping,
   runScScheduleSyncNow,
+  saveScProjectClientMapping,
+  type ScProjectMappingRow,
+  type ScProjectMappingStatus,
   type ScScheduleSyncStatus,
+  type ScUnmappedProjectRow,
 } from "@/utils/scSchedules";
 
 const L = {
@@ -98,6 +104,23 @@ const L = {
   scSyncing: "\uB3D9\uAE30\uD654 \uC911...",
   scSyncDone: (count: number) => `SC \uC77C\uC815 ${count}\uAC74 \uB3D9\uAE30\uD654\uD588\uC2B5\uB2C8\uB2E4.`,
   scSyncNotConfigured: "SC_DATABASE_URL \uBBF8\uC124\uC815",
+  scMapping: "SC \uAC70\uB798\uCC98 \uB9E4\uCE6D",
+  scMappingTitle: "SC \uAC70\uB798\uCC98 \uC218\uB3D9 \uB9E4\uCE6D",
+  scMappingDesc:
+    "\uC790\uB3D9 \uB9E4\uCE6D\uB418\uC9C0 \uC54A\uC740 SC \uD504\uB85C\uC81D\uD2B8\uB97C ERP \uAC70\uB798\uCC98\uC640 \uC5F0\uACB0\uD569\uB2C8\uB2E4.",
+  scProject: "SC \uD504\uB85C\uC81D\uD2B8",
+  scMappedClient: "\uC5F0\uACB0 \uAC70\uB798\uCC98",
+  scMappingType: "\uB9E4\uCE6D",
+  scMappingManual: "\uC218\uB3D9",
+  scMappingAuto: "\uC790\uB3D9",
+  scUnmapped: (count: number) => `\uBBF8\uB9E4\uCE6D ${count}\uAC74`,
+  scUnmappedEmpty: "\uBBF8\uB9E4\uCE6D SC \uD504\uB85C\uC81D\uD2B8\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  scMappedEmpty: "\uB4F1\uB85D\uB41C SC \uAC70\uB798\uCC98 \uB9E4\uCE6D\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  scSaveMapping: "\uB9E4\uCE6D \uC800\uC7A5",
+  scRemoveMapping: "\uB9E4\uCE6D \uD574\uC81C",
+  scMappingSaved: "SC \uAC70\uB798\uCC98 \uB9E4\uCE6D\uC744 \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.",
+  scMappingRemoved: "SC \uAC70\uB798\uCC98 \uB9E4\uCE6D\uC744 \uD574\uC81C\uD588\uC2B5\uB2C8\uB2E4.",
+  scPickMappingClient: "ERP \uAC70\uB798\uCC98 \uC120\uD0DD",
 };
 
 type ClientLike = {
@@ -359,6 +382,10 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
   } | null>(null);
   const [scSyncStatus, setScSyncStatus] = useState<ScScheduleSyncStatus | null>(null);
   const [scSyncing, setScSyncing] = useState(false);
+  const [scMappingOpen, setScMappingOpen] = useState(false);
+  const [scMappingStatus, setScMappingStatus] = useState<ScProjectMappingStatus | null>(null);
+  const [scMappingLoading, setScMappingLoading] = useState(false);
+  const [scMappingDrafts, setScMappingDrafts] = useState<Record<string, string>>({});
 
   const clientOptions = useMemo(
     () =>
@@ -404,6 +431,25 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
     void loadScSyncStatus();
   }, [loadScSyncStatus]);
 
+  const loadScMappingStatus = useCallback(async () => {
+    if (!apiMode) return;
+    setScMappingLoading(true);
+    try {
+      const status = await fetchScProjectMappingStatus();
+      setScMappingStatus(status);
+    } catch {
+      setScMappingStatus(null);
+    } finally {
+      setScMappingLoading(false);
+    }
+  }, [apiMode]);
+
+  useEffect(() => {
+    if (scMappingOpen) {
+      void loadScMappingStatus();
+    }
+  }, [scMappingOpen, loadScMappingStatus]);
+
   const handleScSync = useCallback(async () => {
     if (!apiMode || scSyncing) return;
     setScSyncing(true);
@@ -418,13 +464,75 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
         setMessage(L.scSyncDone(Number(result.lastScheduleCount || 0)));
       }
       await loadScSyncStatus();
+      if (scMappingOpen) {
+        await loadScMappingStatus();
+      }
       await loadAll();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : L.fail);
     } finally {
       setScSyncing(false);
     }
-  }, [apiMode, scSyncing, loadAll, loadScSyncStatus]);
+  }, [apiMode, scSyncing, loadAll, loadScSyncStatus, scMappingOpen, loadScMappingStatus]);
+
+  const handleSaveScMapping = async (project: ScUnmappedProjectRow) => {
+    const clientId = scMappingDrafts[project.scProjectId] || "";
+    if (!clientId) return;
+    setSaving(true);
+    setMessage("");
+    try {
+      await saveScProjectClientMapping(project.scProjectId, clientId);
+      setMessage(L.scMappingSaved);
+      setScMappingDrafts((prev) => {
+        const next = { ...prev };
+        delete next[project.scProjectId];
+        return next;
+      });
+      await loadScMappingStatus();
+      await loadScSyncStatus();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : L.fail);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUpdateScMapping = async (mapping: ScProjectMappingRow) => {
+    const clientId = scMappingDrafts[`mapped:${mapping.scProjectId}`] || "";
+    if (!clientId || String(mapping.clientId ?? "") === clientId) return;
+    setSaving(true);
+    setMessage("");
+    try {
+      await saveScProjectClientMapping(mapping.scProjectId, clientId);
+      setMessage(L.scMappingSaved);
+      setScMappingDrafts((prev) => {
+        const next = { ...prev };
+        delete next[`mapped:${mapping.scProjectId}`];
+        return next;
+      });
+      await loadScMappingStatus();
+      await loadScSyncStatus();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : L.fail);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRemoveScMapping = async (mapping: ScProjectMappingRow) => {
+    setSaving(true);
+    setMessage("");
+    try {
+      await removeScProjectClientMapping(mapping.scProjectId);
+      setMessage(L.scMappingRemoved);
+      await loadScMappingStatus();
+      await loadScSyncStatus();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : L.fail);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -671,9 +779,169 @@ export function ClientSiteRequestsPanel({ clients }: ClientSiteRequestsPanelProp
             <RefreshCw size={14} className={`mr-1 ${scSyncing ? "animate-spin" : ""}`} />
             {scSyncing ? L.scSyncing : L.scSync}
           </Button>
+          <Button
+            type="button"
+            variant={scMappingOpen ? "default" : "outline"}
+            className="rounded-xl"
+            onClick={() => setScMappingOpen((prev) => !prev)}
+            disabled={loading || saving || scSyncStatus?.configured === false}
+          >
+            <Link2 size={14} className="mr-1" />
+            {L.scMapping}
+            {scSyncStatus?.lastUnmappedProjectCount ? ` (${scSyncStatus.lastUnmappedProjectCount})` : ""}
+          </Button>
         </div>
 
         {message ? <p className="text-sm font-semibold text-blue-700">{message}</p> : null}
+
+        {scMappingOpen ? (
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">{L.scMappingTitle}</h3>
+                <p className="mt-1 text-xs text-slate-500">{L.scMappingDesc}</p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="rounded-xl"
+                onClick={() => void loadScMappingStatus()}
+                disabled={scMappingLoading || saving}
+              >
+                <RefreshCw size={13} className={`mr-1 ${scMappingLoading ? "animate-spin" : ""}`} />
+                {L.refresh}
+              </Button>
+            </div>
+
+            {scMappingLoading && !scMappingStatus ? (
+              <p className="mt-3 text-sm text-slate-500">{L.loading}</p>
+            ) : (
+              <div className="mt-4 space-y-4">
+                <div>
+                  <div className="mb-2 flex items-center gap-2">
+                    <h4 className="text-xs font-bold text-slate-700">{L.scUnmapped(scMappingStatus?.unmappedCount || 0)}</h4>
+                  </div>
+                  {!scMappingStatus?.unmapped.length ? (
+                    <p className="text-sm text-slate-500">{L.scUnmappedEmpty}</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {scMappingStatus.unmapped.map((project) => (
+                        <div
+                          key={project.scProjectId}
+                          className="flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50/70 p-3 lg:flex-row lg:items-center"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-bold text-slate-900">{project.scProjectName}</p>
+                            {project.address ? <p className="text-xs text-slate-500">{project.address}</p> : null}
+                          </div>
+                          <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center lg:max-w-md">
+                            <AutocompleteSelect
+                              value={scMappingDrafts[project.scProjectId] || ""}
+                              options={clientOptions}
+                              placeholder={L.scPickMappingClient}
+                              onChange={(value) =>
+                                setScMappingDrafts((prev) => ({ ...prev, [project.scProjectId]: value }))
+                              }
+                              inputProps={{ className: "rounded-xl" }}
+                            />
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="rounded-xl"
+                              disabled={!scMappingDrafts[project.scProjectId] || saving}
+                              onClick={() => void handleSaveScMapping(project)}
+                            >
+                              {L.scSaveMapping}
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <h4 className="mb-2 text-xs font-bold text-slate-700">
+                    {"\uB4F1\uB85D\uB41C \uB9E4\uCE6D"} ({scMappingStatus?.mappedCount || 0})
+                  </h4>
+                  {!scMappingStatus?.mappings.length ? (
+                    <p className="text-sm text-slate-500">{L.scMappedEmpty}</p>
+                  ) : (
+                    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                      <table className="erp-table w-full min-w-[640px] text-sm">
+                        <thead>
+                          <tr>
+                            <th>{L.scProject}</th>
+                            <th>{L.scMappedClient}</th>
+                            <th>{L.scMappingType}</th>
+                            <th>{L.actions}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {scMappingStatus.mappings.map((mapping) => {
+                            const editKey = `mapped:${mapping.scProjectId}`;
+                            const editClientId = scMappingDrafts[editKey] ?? String(mapping.clientId ?? "");
+                            const canUpdate =
+                              Boolean(editClientId) && String(mapping.clientId ?? "") !== editClientId;
+                            return (
+                              <tr key={mapping.scProjectId}>
+                                <td className="font-semibold text-slate-900">{mapping.scProjectName}</td>
+                                <td>
+                                  <AutocompleteSelect
+                                    value={editClientId}
+                                    options={clientOptions}
+                                    placeholder={L.scPickMappingClient}
+                                    onChange={(value) =>
+                                      setScMappingDrafts((prev) => ({ ...prev, [editKey]: value }))
+                                    }
+                                    inputProps={{ className: "rounded-xl min-w-[180px]" }}
+                                  />
+                                </td>
+                                <td>
+                                  <span
+                                    className={`inline-flex rounded-full px-2 py-0.5 text-xs font-bold ${
+                                      mapping.manual ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"
+                                    }`}
+                                  >
+                                    {mapping.manual ? L.scMappingManual : L.scMappingAuto}
+                                  </span>
+                                </td>
+                                <td>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      className="rounded-lg"
+                                      disabled={!canUpdate || saving}
+                                      onClick={() => void handleUpdateScMapping(mapping)}
+                                    >
+                                      {L.scSaveMapping}
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="rounded-lg"
+                                      disabled={saving}
+                                      onClick={() => void handleRemoveScMapping(mapping)}
+                                    >
+                                      {L.scRemoveMapping}
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : null}
 
         {activeTab === "links" ? (
           <div className="space-y-4">

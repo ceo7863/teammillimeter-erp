@@ -36,6 +36,8 @@ import {
   TAX_INVOICE_DOCUMENT_OPTIONS,
   TAX_INVOICE_FLOW_OPTIONS,
   TAX_INVOICE_STATUS_OPTIONS,
+  findDuplicateTaxInvoicesForBarobillIssue,
+  formatDuplicateTaxInvoiceIssueSummary,
   validateTaxInvoiceInput,
   type TaxInvoice,
   type TaxInvoiceClientSummary,
@@ -455,6 +457,7 @@ export function TaxInvoicePage({
   const [barobillScrapNeedsApply, setBarobillScrapNeedsApply] = useState<boolean | null>(null);
   const [barobillIssueLoading, setBarobillIssueLoading] = useState(false);
   const [barobillChargeLoading, setBarobillChargeLoading] = useState(false);
+  const [duplicateIssueConfirm, setDuplicateIssueConfirm] = useState<TaxInvoice[] | null>(null);
   const hometaxInputRef = useRef<HTMLInputElement>(null);
 
   const isAdmin = currentUser?.role === "admin";
@@ -894,42 +897,10 @@ export function TaxInvoicePage({
     }
   };
 
-  const issueViaBarobill = async () => {
+  const performBarobillIssue = async () => {
     if (!modal) return;
-    if (modal.flowType !== "sales") {
-      setFormError(L.barobillIssueSalesOnly);
-      return;
-    }
-
-    const error = validateTaxInvoiceInput({
-      issueDate: modal.issueDate,
-      client: modal.client,
-      supplyAmount: modal.supplyAmount,
-      totalAmount: modal.totalAmount,
-    });
-    if (error) {
-      setFormError(error);
-      return;
-    }
 
     const businessDigits = String(modal.businessNo || "").replace(/\D/g, "");
-    if (businessDigits.length !== 10) {
-      setFormError(L.barobillIssueBusinessNo);
-      return;
-    }
-
-    const partyError = validateInvoiceePartyForIssue({
-      ceoName: modal.invoiceeCeoName,
-      email: modal.invoiceeEmail,
-      address: modal.invoiceeAddr,
-      bizType: modal.invoiceeBizType,
-      bizClass: modal.invoiceeBizClass,
-    });
-    if (partyError) {
-      setFormError(partyError);
-      return;
-    }
-
     const amounts = resolveTaxInvoiceModalAmounts(modal);
     setBarobillIssueLoading(true);
     setFormError("");
@@ -1001,6 +972,69 @@ export function TaxInvoicePage({
     } finally {
       setBarobillIssueLoading(false);
     }
+  };
+
+  const issueViaBarobill = async () => {
+    if (!modal) return;
+    if (modal.flowType !== "sales") {
+      setFormError(L.barobillIssueSalesOnly);
+      return;
+    }
+
+    const error = validateTaxInvoiceInput({
+      issueDate: modal.issueDate,
+      client: modal.client,
+      supplyAmount: modal.supplyAmount,
+      totalAmount: modal.totalAmount,
+    });
+    if (error) {
+      setFormError(error);
+      return;
+    }
+
+    const businessDigits = String(modal.businessNo || "").replace(/\D/g, "");
+    if (businessDigits.length !== 10) {
+      setFormError(L.barobillIssueBusinessNo);
+      return;
+    }
+
+    const partyError = validateInvoiceePartyForIssue({
+      ceoName: modal.invoiceeCeoName,
+      email: modal.invoiceeEmail,
+      address: modal.invoiceeAddr,
+      bizType: modal.invoiceeBizType,
+      bizClass: modal.invoiceeBizClass,
+    });
+    if (partyError) {
+      setFormError(partyError);
+      return;
+    }
+
+    const amounts = resolveTaxInvoiceModalAmounts(modal);
+    const duplicates = findDuplicateTaxInvoicesForBarobillIssue(
+      taxInvoices,
+      {
+        issueDate: modal.issueDate,
+        client: modal.client.trim(),
+        businessNo: businessDigits,
+        documentType: modal.documentType,
+        supplyAmount: amounts.supplyAmount,
+        vatAmount: amounts.vatAmount,
+        totalAmount: amounts.totalAmount,
+      },
+      modal.mode === "edit" ? modal.id : undefined,
+    );
+    if (duplicates.length > 0) {
+      setDuplicateIssueConfirm(duplicates);
+      return;
+    }
+
+    await performBarobillIssue();
+  };
+
+  const confirmDuplicateBarobillIssue = () => {
+    setDuplicateIssueConfirm(null);
+    void performBarobillIssue();
   };
 
   const saveInvoice = () => {
@@ -1277,6 +1311,38 @@ export function TaxInvoicePage({
 
   return (
     <div className="erp-page erp-tax-invoice-page">
+      {duplicateIssueConfirm ? (
+        <div className="erp-ledger-modal-backdrop" onClick={() => setDuplicateIssueConfirm(null)}>
+          <div
+            className="erp-ledger-modal"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="tax-invoice-duplicate-title"
+          >
+            <h2 id="tax-invoice-duplicate-title" className="text-base font-bold text-slate-900 md:text-lg">
+              {"\uB3D9\uC77C \uACC4\uC0B0\uC11C \uD655\uC778"}
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              {"\uAC19\uC740 \uC77C\uC790\u00B7\uAC70\uB798\uCC98\u00B7\uAE08\uC561\uC758 \uACC4\uC0B0\uC11C\uAC00 \uC774\uBBF8 \uC788\uC2B5\uB2C8\uB2E4."}
+            </p>
+            <div className="mt-4 space-y-2 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-700">
+              {formatDuplicateTaxInvoiceIssueSummary(duplicateIssueConfirm).map((line) => (
+                <div key={line}>{line}</div>
+              ))}
+            </div>
+            <p className="mt-4 text-sm font-semibold text-slate-700">{"\uADF8\uB798\uB3C4 \uBC1C\uD589\uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?"}</p>
+            <div className="mt-5 flex gap-2">
+              <Button variant="outline" className="flex-1 rounded-xl" onClick={() => setDuplicateIssueConfirm(null)}>
+                {"\uC544\uB2C8\uC624"}
+              </Button>
+              <Button className="flex-1 rounded-xl" onClick={confirmDuplicateBarobillIssue}>
+                {"\uC608, \uBC1C\uD589"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="erp-text-page-title">{L.pageTitle}</h1>
