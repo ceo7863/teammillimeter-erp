@@ -2846,9 +2846,9 @@ function Sidebar({
         />
       )}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-[min(18rem,88vw)] shrink-0 flex-col bg-slate-950 p-4 text-white transition-transform duration-200 sm:p-5 lg:static lg:z-auto lg:min-h-screen lg:w-64 lg:translate-x-0 xl:w-72 ${mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}
+        className={`fixed inset-y-0 left-0 z-50 flex w-[min(16rem,88vw)] shrink-0 flex-col bg-slate-950 p-3 text-white transition-transform duration-200 sm:p-4 lg:static lg:z-auto lg:min-h-screen lg:w-52 lg:translate-x-0 lg:p-3 xl:w-56 ${mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}
       >
-      <div className="mb-6 flex items-start justify-between gap-3 lg:mb-8">
+      <div className="mb-4 flex items-start justify-between gap-2 lg:mb-5">
         <div className="erp-sidebar-brand min-w-0">
           <div className="erp-sidebar-logo-wrap">
             <img
@@ -2863,13 +2863,13 @@ function Sidebar({
           <X size={20} />
         </button>
       </div>
-      <nav className="flex-1 space-y-1 overflow-y-auto lg:space-y-2">
+      <nav className="flex-1 space-y-0.5 overflow-y-auto lg:space-y-1">
         <button
           type="button"
-          className="erp-sidebar-menu-order-btn erp-text-caption mb-2 flex min-h-[40px] w-full items-center justify-center gap-2 rounded-2xl border border-slate-700 px-3 py-2 font-semibold text-slate-300 transition hover:border-slate-500 hover:bg-slate-800 hover:text-white"
+          className="erp-sidebar-menu-order-btn erp-text-caption mb-1.5 flex min-h-[36px] w-full items-center justify-center gap-1.5 rounded-xl border border-slate-700 px-2.5 py-1.5 font-semibold text-slate-300 transition hover:border-slate-500 hover:bg-slate-800 hover:text-white lg:min-h-[2rem]"
           onClick={onOpenMenuOrder}
         >
-          <ListOrdered size={16} />
+          <ListOrdered size={15} />
           메뉴 순서
         </button>
         {items.map(([key, label, Icon]) => {
@@ -2879,9 +2879,9 @@ function Sidebar({
             <button
               key={key}
               onClick={() => navigate(key)}
-              className={`erp-touch-target erp-text-body flex min-h-[44px] w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left font-semibold transition lg:px-4 lg:py-3 ${active === key ? "bg-white text-slate-950" : "text-slate-300 hover:bg-slate-800"}`}
+              className={`erp-touch-target erp-text-body flex min-h-[44px] w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left font-semibold transition lg:min-h-[2.125rem] lg:gap-2 lg:px-3 lg:py-1.5 ${active === key ? "bg-white text-slate-950" : "text-slate-300 hover:bg-slate-800"}`}
             >
-              <Icon size={18} />
+              <Icon size={16} />
               <span className="min-w-0 flex-1">{label}</span>
               {showBadge ? (
                 <span className="erp-sidebar-nav-badge" aria-label={`${badgeCount}건`}>
@@ -2892,10 +2892,10 @@ function Sidebar({
           );
         })}
       </nav>
-      <div className="mt-4 shrink-0 rounded-2xl bg-slate-900 p-3 lg:mt-auto lg:p-4">
+      <div className="mt-3 shrink-0 rounded-xl bg-slate-900 p-2.5 lg:mt-auto lg:p-3">
         <button
           type="button"
-          className="erp-sidebar-account-btn w-full rounded-xl px-2 py-2 text-left transition hover:bg-slate-800"
+          className="erp-sidebar-account-btn w-full rounded-lg px-1.5 py-1.5 text-left transition hover:bg-slate-800"
           onClick={onOpenMyAccount}
         >
           <div className="erp-text-body font-bold">{currentUser.name}</div>
@@ -2903,8 +2903,8 @@ function Sidebar({
           <div className="erp-text-caption mt-1 text-slate-500">내 계정</div>
         </button>
         {syncStatus && <div className="erp-text-caption mt-2 text-emerald-400">{syncStatus}</div>}
-        <button type="button" className="erp-sidebar-footer-btn erp-text-body mt-4" onClick={onLogout}>
-          <LogOut size={16} /> 로그아웃
+        <button type="button" className="erp-sidebar-footer-btn erp-text-body mt-3" onClick={onLogout}>
+          <LogOut size={15} /> 로그아웃
         </button>
       </div>
     </aside>
@@ -8966,7 +8966,7 @@ export default function TeammillimeterErpMvp() {
             <div className="truncate erp-text-caption text-slate-500">{activeLabel}</div>
           </div>
         </header>
-        <main className="min-w-0 flex-1 p-3 sm:p-4 lg:p-6">
+        <main className="min-w-0 flex-1 p-2.5 sm:p-3 lg:p-4">
         <PageKeepAlive pageKey="dashboard" active={active}>
           <Dashboard sales={appliedSales} paymentVouchers={paymentVouchers} workers={workers} />
         </PageKeepAlive>
