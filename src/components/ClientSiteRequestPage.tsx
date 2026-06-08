@@ -19,6 +19,7 @@ import {
   canClientRequestSiteRequestCancel,
   submitPublicClientSiteRequest,
   type ClientSiteRequest,
+  type ClientSiteRequestChangeSource,
   type PublicClientSiteRequestInfo,
 } from "@/utils/clientSiteRequests";
 import { fetchPublicScSchedules, type ScSchedule } from "@/utils/scSchedules";
@@ -73,6 +74,10 @@ const L = {
   cancelDone: "\uCDE8\uC18C \uC694\uCCAD\uC774 \uC811\uC218\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   cancelFail: "\uCDE8\uC18C \uC694\uCCAD\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   cancelling: "\uC694\uCCAD \uC911...",
+  changeModalTitle: "\uC77C\uC815 \uBCC0\uACBD \uC694\uCCAD",
+  changeModalDesc: "\uBCC0\uACBD\uD560 \uC0C8 \uC77C\uC815\uACFC \uC815\uBCF4\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.",
+  changeSubmit: "\uBCC0\uACBD \uC811\uC218 \uC694\uCCAD",
+  changeFromLabel: (label: string) => `\uAE30\uC874 \uC77C\uC815: ${label}`,
 };
 
 type ClientSiteRequestPageProps = {
@@ -134,6 +139,10 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
   const [contactPhone, setContactPhone] = useState("");
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [selectedScScheduleId, setSelectedScScheduleId] = useState("");
+  const [submitMode, setSubmitMode] = useState<"new" | "change">("new");
+  const [changeSourceLabel, setChangeSourceLabel] = useState("");
+  const changeSourceRef = useRef<{ requestId?: string; summary?: string } | null>(null);
 
   const calendarRequests = useMemo(
     () => requests.filter((row) => isClientSiteRequestVisibleOnPublicCalendar(row)),
@@ -237,6 +246,9 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
   }, [submitModalOpen, confirmRegisterOpen]);
 
   const openSubmitModal = (date: string) => {
+    setSubmitMode("new");
+    changeSourceRef.current = null;
+    setChangeSourceLabel("");
     setSelectedCalendarDate(date);
     setWorkDate(date);
     setWorkDateEnd("");
@@ -247,9 +259,46 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
     setSubmitModalOpen(true);
   };
 
+  const openChangeRequestModal = (source: ClientSiteRequestChangeSource) => {
+    setSubmitMode("change");
+    setSelectedScScheduleId(source.kind === "sc" ? source.schedule.id : "");
+    setSelectedCalendarDate(source.date);
+    setWorkDate(source.date);
+    setWorkDateEnd("");
+    setError("");
+
+    if (source.kind === "request") {
+      const request = source.request;
+      setSelectedRequestId(request.id);
+      setSiteName(request.siteName);
+      setWorkerCount(String(request.workerCount));
+      setMemo("");
+      setContactName(request.contactName || "");
+      setContactPhone(request.contactPhone || "");
+      const label = `${formatClientSiteRequestWorkPeriod(request)} \u00B7 ${request.siteName}`;
+      setChangeSourceLabel(label);
+      changeSourceRef.current = { requestId: request.id, summary: label };
+    } else {
+      const schedule = source.schedule;
+      const headcount = schedule.expectedHeadcount ?? schedule.participantCount ?? 1;
+      setSiteName(schedule.workType);
+      setWorkerCount(String(Math.max(1, Number(headcount) || 1)));
+      setMemo("");
+      const timeLabel = [schedule.startTime, schedule.endTime].filter(Boolean).join("\u2013");
+      const label = `SC ${source.date}${timeLabel ? ` ${timeLabel}` : ""} \u00B7 ${schedule.workType}`;
+      setChangeSourceLabel(label);
+      changeSourceRef.current = { summary: label };
+    }
+
+    setSubmitModalOpen(true);
+  };
+
   const closeSubmitModal = () => {
     if (submitting) return;
     setSubmitModalOpen(false);
+    setSubmitMode("new");
+    changeSourceRef.current = null;
+    setChangeSourceLabel("");
     setError("");
   };
 
@@ -277,7 +326,19 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
   };
 
   const handleCalendarRequestSelect = (requestId: string, date?: string) => {
+    setSelectedScScheduleId("");
     setSelectedRequestId(requestId);
+    if (date) {
+      setSelectedCalendarDate(date);
+      lastClickedDateRef.current = null;
+    }
+  };
+
+  const handleCalendarScScheduleSelect = (scheduleId: string, date?: string) => {
+    setSelectedScScheduleId(scheduleId);
+    if (scheduleId) {
+      setSelectedRequestId("");
+    }
     if (date) {
       setSelectedCalendarDate(date);
       lastClickedDateRef.current = null;
@@ -333,10 +394,19 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
         memo: memo.trim(),
         contactName: contactName.trim(),
         contactPhone: contactPhone.trim(),
+        ...(changeSourceRef.current?.requestId
+          ? { changeFromRequestId: changeSourceRef.current.requestId }
+          : changeSourceRef.current?.summary
+            ? { changeSourceSummary: changeSourceRef.current.summary }
+            : {}),
       });
       setDoneRequestId(request.id);
       setSelectedRequestId(request.id);
+      setSelectedScScheduleId("");
       setSubmitModalOpen(false);
+      setSubmitMode("new");
+      changeSourceRef.current = null;
+      setChangeSourceLabel("");
       setCalendarMonthKey(normalizedWorkDate.slice(0, 7));
       setSelectedCalendarDate(normalizedWorkDate);
       setSiteName("");
@@ -480,7 +550,10 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
                   onSelectDate={handleCalendarDateSelect}
                   selectedRequestId={selectedRequestId}
                   onSelectRequest={handleCalendarRequestSelect}
+                  selectedScScheduleId={selectedScScheduleId}
+                  onSelectScSchedule={handleCalendarScScheduleSelect}
                   onRegisterDate={handleRegisterFromDrawer}
+                  onChangeRequest={openChangeRequestModal}
                 />
                 {calendarSelectedRequest ? (
                   <>
@@ -632,9 +705,16 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
             <div className="erp-client-site-request-modal__head flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-4 sm:px-5">
               <div>
                 <h2 id="client-site-request-submit-title" className="text-lg font-bold text-slate-900">
-                  {L.modalTitle}
+                  {submitMode === "change" ? L.changeModalTitle : L.modalTitle}
                 </h2>
-                <p className="mt-1 text-sm text-slate-500">{workDate || selectedCalendarDate}</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  {submitMode === "change" ? L.changeModalDesc : workDate || selectedCalendarDate}
+                </p>
+                {submitMode === "change" && changeSourceLabel ? (
+                  <p className="mt-2 rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600">
+                    {L.changeFromLabel(changeSourceLabel)}
+                  </p>
+                ) : null}
               </div>
               <button
                 type="button"
@@ -723,7 +803,7 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
                   {L.cancel}
                 </Button>
                 <Button type="submit" className="erp-touch-target min-h-[44px] flex-1 rounded-2xl" disabled={submitting}>
-                  {submitting ? L.submitting : L.submit}
+                  {submitting ? L.submitting : submitMode === "change" ? L.changeSubmit : L.submit}
                 </Button>
               </div>
             </form>

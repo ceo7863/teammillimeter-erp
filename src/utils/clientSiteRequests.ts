@@ -1,4 +1,5 @@
 import { apiRequest, isApiModeEnabled } from "@/utils/erpApi";
+import type { ScSchedule } from "@/utils/scSchedules";
 
 export type ClientSiteRequestStatus =
   | "pending"
@@ -45,7 +46,12 @@ export type ClientSiteRequest = {
   lastMessageAt?: string;
   unreadByStaff?: boolean;
   unreadByClient?: boolean;
+  changeFromRequestId?: string | null;
 };
+
+export type ClientSiteRequestChangeSource =
+  | { kind: "request"; date: string; request: ClientSiteRequest }
+  | { kind: "sc"; date: string; schedule: ScSchedule };
 
 export type ClientSiteRequestLink = {
   clientId: number | string;
@@ -211,6 +217,8 @@ export async function submitPublicClientSiteRequest(
     memo?: string;
     contactName?: string;
     contactPhone?: string;
+    changeFromRequestId?: string;
+    changeSourceSummary?: string;
   },
 ): Promise<ClientSiteRequest> {
   const response = await fetch(`${apiBase()}/public/client-site-request/${encodeURIComponent(token)}`, {

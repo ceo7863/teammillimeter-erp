@@ -206,6 +206,27 @@ export function submitClientSiteRequest(token, body = {}) {
     return { ok: false, status: 400, error: "\uD544\uC694 \uC778\uC6D0\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694." };
   }
 
+  const changeFromRequestId = String(body.changeFromRequestId || "").trim();
+  const changeSourceSummary = String(body.changeSourceSummary || "").trim().slice(0, 500);
+  let linkedChangeFromRequestId = "";
+  let finalMemo = memo;
+  if (changeFromRequestId) {
+    const sourceRequest = listRequests(data).find(
+      (row) => row.id === changeFromRequestId && clientIdsEqual(row.clientId, client.id),
+    );
+    if (sourceRequest) {
+      linkedChangeFromRequestId = sourceRequest.id;
+      const oldPeriod =
+        sourceRequest.workDateEnd && sourceRequest.workDateEnd !== sourceRequest.workDate
+          ? `${sourceRequest.workDate} ~ ${sourceRequest.workDateEnd}`
+          : String(sourceRequest.workDate || "");
+      const prefix = `[\uC77C\uC815 \uBCC0\uACBD \uC694\uCCAD] \uAE30\uC874 ${oldPeriod} \u00B7 ${String(sourceRequest.siteName || "").trim()}`;
+      finalMemo = [prefix, changeSourceSummary, memo].filter(Boolean).join("\n").trim();
+    }
+  } else if (changeSourceSummary) {
+    finalMemo = [`[\uC77C\uC815 \uBCC0\uACBD \uC694\uCCAD] ${changeSourceSummary}`, memo].filter(Boolean).join("\n").trim();
+  }
+
   const now = new Date().toISOString();
   const request = {
     id: newRequestId(),
@@ -217,7 +238,7 @@ export function submitClientSiteRequest(token, body = {}) {
     ...(workDateEnd ? { workDateEnd } : {}),
     siteName,
     workerCount,
-    memo,
+    memo: finalMemo.slice(0, 2000),
     contactName,
     contactPhone,
     submittedAt: now,
@@ -229,6 +250,7 @@ export function submitClientSiteRequest(token, body = {}) {
     registerCompletedAt: null,
     registerCompletedBy: null,
     messages: [],
+    ...(linkedChangeFromRequestId ? { changeFromRequestId: linkedChangeFromRequestId } : {}),
   };
 
   const requests = [request, ...listRequests(data)];

@@ -2,7 +2,7 @@ import React, { memo, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { clientSiteRequestPublicStatusTone, isClientSiteRequestVisibleOnPublicCalendar } from "@/utils/clientSiteRequests";
-import type { ClientSiteRequest } from "@/utils/clientSiteRequests";
+import type { ClientSiteRequest, ClientSiteRequestChangeSource } from "@/utils/clientSiteRequests";
 import { requestCoversWorkDate } from "@/utils/clientSiteRequests";
 import {
   buildClientSiteRequestCalendarCells,
@@ -41,7 +41,10 @@ type ClientSiteRequestCalendarProps = {
   onSelectDate: (date: string) => void;
   selectedRequestId: string;
   onSelectRequest: (requestId: string, date?: string) => void;
+  selectedScScheduleId?: string;
+  onSelectScSchedule?: (scheduleId: string, date?: string) => void;
   onRegisterDate?: (date: string) => void;
+  onChangeRequest?: (source: ClientSiteRequestChangeSource) => void;
   drawerElevated?: boolean;
 };
 
@@ -62,7 +65,10 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
   onSelectDate,
   selectedRequestId,
   onSelectRequest,
+  selectedScScheduleId = "",
+  onSelectScSchedule,
   onRegisterDate,
+  onChangeRequest,
   drawerElevated = false,
 }: ClientSiteRequestCalendarProps) {
   const [drawerDate, setDrawerDate] = useState<string | null>(null);
@@ -119,6 +125,23 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
   const handleRegisterDate = (date: string) => {
     onRegisterDate?.(date);
     closeDrawer({ keepSelectedDate: true });
+  };
+
+  const handleChangeRequest = (source: ClientSiteRequestChangeSource) => {
+    onChangeRequest?.(source);
+    closeDrawer({ keepSelectedDate: true });
+  };
+
+  const handleSelectRequest = (requestId: string, date?: string) => {
+    onSelectScSchedule?.("");
+    onSelectRequest(requestId, date);
+  };
+
+  const handleSelectScSchedule = (scheduleId: string, date?: string) => {
+    if (scheduleId) {
+      onSelectRequest("", date);
+    }
+    onSelectScSchedule?.(scheduleId, date);
   };
 
   return (
@@ -229,7 +252,7 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
                       onClick={(event) => {
                         event.stopPropagation();
                         openDrawer(cell.date);
-                        onSelectRequest(request.id, cell.date);
+                        handleSelectRequest(request.id, cell.date);
                       }}
                     >
                       <span className="erp-csr-cal-chip-label">{request.siteName}</span>
@@ -261,10 +284,13 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
           requests={drawerRequests}
           scSchedules={drawerScSchedules}
           selectedRequestId={selectedRequestId}
+          selectedScScheduleId={selectedScScheduleId}
           onClose={closeDrawer}
           onShiftDate={handleShiftDrawerDate}
-          onSelectRequest={onSelectRequest}
+          onSelectRequest={handleSelectRequest}
+          onSelectScSchedule={onSelectScSchedule ? handleSelectScSchedule : undefined}
           onRegisterDate={onRegisterDate ? handleRegisterDate : undefined}
+          onChangeRequest={onChangeRequest ? handleChangeRequest : undefined}
           elevated={drawerElevated}
         />
       ) : null}

@@ -1,12 +1,12 @@
 import React from "react";
 import { createPortal } from "react-dom";
-import { CalendarPlus, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { CalendarClock, CalendarPlus, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   clientSiteRequestPublicStatusLabel,
   clientSiteRequestPublicStatusTone,
 } from "@/utils/clientSiteRequests";
-import type { ClientSiteRequest } from "@/utils/clientSiteRequests";
+import type { ClientSiteRequest, ClientSiteRequestChangeSource } from "@/utils/clientSiteRequests";
 import { formatClientSiteRequestWorkPeriod } from "@/utils/clientSiteRequests";
 import { formatClientSiteRequestDayLabel, shiftCalendarDate } from "@/utils/clientSiteRequestCalendar";
 import type { ScSchedule } from "@/utils/scSchedules";
@@ -23,6 +23,7 @@ const L = {
   sectionSc: "SC \uD655\uC815 \uC77C\uC815",
   scBadge: "\uD655\uC815",
   registerSchedule: "\uC77C\uC815 \uC811\uC218",
+  changeSchedule: "\uC77C\uC815 \uBCC0\uACBD \uC694\uCCAD",
 };
 
 type ClientSiteRequestCalendarDayDrawerProps = {
@@ -30,10 +31,13 @@ type ClientSiteRequestCalendarDayDrawerProps = {
   requests: ClientSiteRequest[];
   scSchedules: ScSchedule[];
   selectedRequestId: string;
+  selectedScScheduleId?: string;
   onClose: () => void;
   onShiftDate: (date: string) => void;
   onSelectRequest: (requestId: string, date?: string) => void;
+  onSelectScSchedule?: (scheduleId: string, date?: string) => void;
   onRegisterDate?: (date: string) => void;
+  onChangeRequest?: (source: ClientSiteRequestChangeSource) => void;
   elevated?: boolean;
 };
 
@@ -46,10 +50,13 @@ export function ClientSiteRequestCalendarDayDrawer({
   requests,
   scSchedules,
   selectedRequestId,
+  selectedScScheduleId = "",
   onClose,
   onShiftDate,
   onSelectRequest,
+  onSelectScSchedule,
   onRegisterDate,
+  onChangeRequest,
   elevated = false,
 }: ClientSiteRequestCalendarDayDrawerProps) {
   const { onPointerDown, onPointerUp, isTouchDevice } = useBackdropPointerDismiss(Boolean(date), onClose);
@@ -61,6 +68,20 @@ export function ClientSiteRequestCalendarDayDrawer({
   if (typeof document === "undefined") return null;
 
   const totalCount = requests.length + scSchedules.length;
+  const selectedRequest = requests.find((row) => row.id === selectedRequestId) || null;
+  const selectedScSchedule = scSchedules.find((row) => row.id === selectedScScheduleId) || null;
+  const canChangeRequest = Boolean(onChangeRequest && (selectedRequest || selectedScSchedule));
+
+  const handleChangeRequest = () => {
+    if (!onChangeRequest) return;
+    if (selectedRequest) {
+      onChangeRequest({ kind: "request", date, request: selectedRequest });
+      return;
+    }
+    if (selectedScSchedule) {
+      onChangeRequest({ kind: "sc", date, schedule: selectedScSchedule });
+    }
+  };
 
   return createPortal(
     <div
@@ -115,7 +136,21 @@ export function ClientSiteRequestCalendarDayDrawer({
                   <ul className="erp-csr-cal-drawer-list">
                     {scSchedules.map((schedule) => (
                       <li key={`sc-${schedule.id}`}>
-                        <div className="erp-csr-cal-drawer-card is-sc-schedule">
+                        <button
+                          type="button"
+                          className={[
+                            "erp-csr-cal-drawer-card is-sc-schedule is-clickable",
+                            selectedScScheduleId === schedule.id ? "is-active" : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" ")}
+                          onClick={() => {
+                            onSelectScSchedule?.(schedule.id, date);
+                            if (schedule.id !== selectedScScheduleId) {
+                              onSelectRequest("", date);
+                            }
+                          }}
+                        >
                           <span className="erp-csr-cal-drawer-dot is-sc-schedule" aria-hidden="true" />
                           <div className="erp-csr-cal-drawer-card-main">
                             <p className="erp-csr-cal-drawer-card-title">{schedule.workType}</p>
@@ -136,7 +171,7 @@ export function ClientSiteRequestCalendarDayDrawer({
                               <p className="erp-csr-cal-drawer-card-meta">{schedule.participantNames.join(", ")}</p>
                             ) : null}
                           </div>
-                        </div>
+                        </button>
                       </li>
                     ))}
                   </ul>
@@ -154,7 +189,10 @@ export function ClientSiteRequestCalendarDayDrawer({
                           className={`erp-csr-cal-drawer-card is-clickable ${
                             selectedRequestId === request.id ? "is-active" : ""
                           }`}
-                          onClick={() => onSelectRequest(request.id, date)}
+                          onClick={() => {
+                            onSelectScSchedule?.("");
+                            onSelectRequest(request.id, date);
+                          }}
                         >
                           <span
                             className={`erp-csr-cal-drawer-dot is-${statusTone(request)}`}
@@ -186,16 +224,29 @@ export function ClientSiteRequestCalendarDayDrawer({
           )}
         </div>
 
-        {onRegisterDate ? (
+        {onRegisterDate || canChangeRequest ? (
           <div className="erp-csr-cal-drawer-foot">
-            <Button
-              type="button"
-              className="erp-touch-target erp-csr-cal-drawer-register-btn w-full rounded-xl"
-              onClick={() => onRegisterDate(date)}
-            >
-              <CalendarPlus size={16} className="mr-1.5" />
-              {L.registerSchedule}
-            </Button>
+            {canChangeRequest ? (
+              <Button
+                type="button"
+                className="erp-touch-target erp-csr-cal-drawer-register-btn w-full rounded-xl"
+                onClick={handleChangeRequest}
+              >
+                <CalendarClock size={16} className="mr-1.5" />
+                {L.changeSchedule}
+              </Button>
+            ) : null}
+            {onRegisterDate ? (
+              <Button
+                type="button"
+                variant={canChangeRequest ? "outline" : "default"}
+                className="erp-touch-target erp-csr-cal-drawer-register-btn w-full rounded-xl"
+                onClick={() => onRegisterDate(date)}
+              >
+                <CalendarPlus size={16} className="mr-1.5" />
+                {L.registerSchedule}
+              </Button>
+            ) : null}
           </div>
         ) : null}
       </aside>

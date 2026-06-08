@@ -83,6 +83,7 @@ const L = {
   denyCancel: "\uCDE8\uC18C \uAC70\uBD80",
   cancelRequestedBadge: "\uAC70\uB798\uCC98 \uCDE8\uC18C \uC694\uCCAD",
   cancelRequestedFromDoneBadge: "\uCC98\uB9AC\uC644\uB8CC \uAC74 \uCDE8\uC18C \uC694\uCCAD",
+  changeRequestedBadge: "\uC77C\uC815 \uBCC0\uACBD \uC694\uCCAD",
   cancelled: "\uCDE8\uC18C \uC644\uB8CC \uCC98\uB9AC\uD588\uC2B5\uB2C8\uB2E4.",
   cancelDenied: "\uCDE8\uC18C \uC694\uCCAD\uC744 \uAC70\uBD80\uD588\uC2B5\uB2C8\uB2E4.",
   reopen: "\uB300\uAE30 \uBCF5\uADC0",
@@ -243,6 +244,11 @@ function RequestCard({
             {request.unreadByStaff ? (
               <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">
                 {L.unreadChat}
+              </span>
+            ) : null}
+            {request.changeFromRequestId ? (
+              <span className="inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-xs font-bold text-violet-700">
+                {L.changeRequestedBadge}
               </span>
             ) : null}
             {showActions && receiptDone ? (

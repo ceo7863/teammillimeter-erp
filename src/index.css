@@ -1307,6 +1307,9 @@ textarea {
 
 .erp-csr-cal-drawer-foot {
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
   padding: 0.75rem 1rem max(0.75rem, env(safe-area-inset-bottom));
   border-top: 1px solid #e2e8f0;
   background: linear-gradient(180deg, #f8fafc 0%, #fff 100%);
@@ -1362,6 +1365,11 @@ textarea {
 .erp-csr-cal-drawer-card.is-clickable:hover {
   background: #f8fafc;
   border-color: #cbd5e1;
+}
+
+.erp-csr-cal-drawer-card.is-sc-schedule.is-clickable.is-active {
+  border-color: #0d9488;
+  background: #f0fdfa;
 }
 
 .erp-csr-cal-drawer-card.is-active {
