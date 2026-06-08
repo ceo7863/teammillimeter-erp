@@ -132,8 +132,8 @@ export function ClientSiteRequestAlimtalkSendModal({
                 return (
                   <li key={key}>
                     <label
-                      className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 ${
-                        disabled ? "border-slate-200 bg-slate-50 text-slate-400" : "border-slate-200 bg-white"
+                      className={`erp-csr-cal-alimtalk-contact-row${
+                        disabled ? " is-disabled" : ""
                       }`}
                     >
                       <input
@@ -143,12 +143,14 @@ export function ClientSiteRequestAlimtalkSendModal({
                         disabled={disabled || sending}
                         onChange={(event) => toggle(key, event.target.checked)}
                       />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-bold text-slate-900">
+                      <span className="erp-csr-cal-alimtalk-contact-body">
+                        <span className="erp-csr-cal-alimtalk-contact-name">
                           {row.name || "-"}
-                          {row.isPrimary ? ` ${L.primaryBadge}` : ""}
+                          {row.isPrimary ? (
+                            <span className="erp-csr-cal-alimtalk-contact-primary">{L.primaryBadge.trim()}</span>
+                          ) : null}
                         </span>
-                        <span className="mt-1 block text-xs text-slate-500">
+                        <span className="erp-csr-cal-alimtalk-contact-phone">
                           {L.phone}: {row.phoneDisplay || L.noPhone}
                         </span>
                       </span>

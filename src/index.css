@@ -1465,12 +1465,84 @@ textarea {
 
 .erp-csr-cal-alimtalk-modal-backdrop {
   z-index: 12050;
+  padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right))
+    max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
 }
 
 .erp-csr-cal-alimtalk-modal {
-  width: min(100%, 28rem);
-  max-height: min(88vh, 36rem);
+  width: min(100%, 24rem);
+  max-height: min(88vh, 40rem);
   overflow: auto;
+}
+
+@media (min-width: 480px) {
+  .erp-csr-cal-alimtalk-modal {
+    width: min(100%, 36rem);
+  }
+}
+
+.erp-csr-cal-alimtalk-contact-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  cursor: pointer;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #fff;
+  padding: 0.85rem 0.9rem;
+}
+
+.erp-csr-cal-alimtalk-contact-row.is-disabled {
+  cursor: default;
+  border-color: #e2e8f0;
+  background: #f8fafc;
+  color: #94a3b8;
+}
+
+.erp-csr-cal-alimtalk-contact-row input[type="checkbox"] {
+  margin-top: 0.2rem;
+  flex-shrink: 0;
+}
+
+.erp-csr-cal-alimtalk-contact-body {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.erp-csr-cal-alimtalk-contact-name {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.45;
+  color: #0f172a;
+}
+
+.erp-csr-cal-alimtalk-contact-row.is-disabled .erp-csr-cal-alimtalk-contact-name {
+  color: inherit;
+}
+
+.erp-csr-cal-alimtalk-contact-primary {
+  display: inline-block;
+  margin-left: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.erp-csr-cal-alimtalk-contact-phone {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: #64748b;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.erp-csr-cal-alimtalk-contact-row.is-disabled .erp-csr-cal-alimtalk-contact-phone {
+  color: inherit;
 }
 
 .erp-csr-cal-drawer-card-badges {
