@@ -52,7 +52,7 @@ export const ERP_PAGE_DEFS: ErpPageDef[] = [
   { key: "dashboard", label: "대시보드", group: "업무" },
   { key: "calendar", label: "캘린더", group: "업무" },
   { key: "clientSiteRequests", label: "현장 접수", group: "업무" },
-  { key: "scAlimtalk", label: "알림톡", group: "업무", adminOnly: true },
+  { key: "scAlimtalk", label: "알림톡", group: "업무" },
   { key: "salesInput", label: "매출등록", group: "매출" },
   { key: "sales", label: "매출관리", group: "매출" },
   { key: "salesVoucherSearch", label: "매출전표검색", group: "매출" },
@@ -76,6 +76,7 @@ export const DEFAULT_STAFF_PAGE_KEYS: ErpPageKey[] = [
   "dashboard",
   "calendar",
   "clientSiteRequests",
+  "scAlimtalk",
   "salesInput",
   "sales",
   "salesVoucherSearch",
@@ -165,7 +166,6 @@ export function canUserAccessPage(
   if (pageKey === "workers") return resolveBasicInfoTabAccess(user).workers;
   if (pageKey === "companyProfile") return resolveBasicInfoTabAccess(user).company;
   if (pageKey === "usersAdmin") return canAccessUserAdminHub(user);
-  if (pageKey === "scAlimtalk") return user?.role === "admin";
   if (pageKey === "auditLog") return resolveUserAdminTabAccess(user).audit;
   if (pageKey === "loginHistory") return resolveUserAdminTabAccess(user).login;
   if (!isErpPageKey(pageKey)) return false;

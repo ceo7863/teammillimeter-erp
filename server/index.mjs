@@ -2108,7 +2108,7 @@ app.post("/api/notifications/daily-report/send", authMiddleware, adminMiddleware
   }
 });
 
-app.get("/api/notifications/sc-schedule/preview", authMiddleware, adminMiddleware, async (_req, res) => {
+app.get("/api/notifications/sc-schedule/preview", authMiddleware, async (_req, res) => {
   try {
     const state = getErpState();
     const preview = await buildScScheduleNotifyPreviewAsync(state.data || {});
@@ -2133,7 +2133,7 @@ app.post("/api/notifications/sc-schedule/send", authMiddleware, adminMiddleware,
   }
 });
 
-app.post("/api/notifications/sc-schedule/send-one", authMiddleware, adminMiddleware, async (req, res) => {
+app.post("/api/notifications/sc-schedule/send-one", authMiddleware, async (req, res) => {
   try {
     const scheduleId = String(req.body?.scheduleId || "").trim();
     if (!scheduleId) {
