@@ -12960,7 +12960,14 @@ button:disabled,
 
 /* No content-visibility here: editable 계정 cells failed to repaint after picker save. */
 .erp-bank-wehago-split-table tbody tr {
+  content-visibility: visible;
   contain-intrinsic-size: auto 30px;
+}
+
+/* Virtualized inner scroll: content-visibility breaks spacer rows and row repaint on scroll. */
+.erp-bank-table-scroll:not(.erp-bank-table-scroll--page) tbody tr {
+  content-visibility: visible;
+  contain-intrinsic-size: auto;
 }
 
 .erp-bank-wehago-cell {
