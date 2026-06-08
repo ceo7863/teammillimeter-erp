@@ -218,4 +218,64 @@ function BankTransactionsListPanelComponent({
   );
 }
 
-export const BankTransactionsListPanel = memo(BankTransactionsListPanelComponent);
+function bankTransactionsListPanelPropsAreEqual(
+  prev: BankTransactionsListPanelProps,
+  next: BankTransactionsListPanelProps,
+): boolean {
+  if (prev.isListActive !== next.isListActive) return false;
+  if (prev.showEmptyPeriodHint !== next.showEmptyPeriodHint) return false;
+  if (prev.emptyPeriodHint !== next.emptyPeriodHint) return false;
+  if (prev.exportFileName !== next.exportFileName) return false;
+  if (prev.exportTitle !== next.exportTitle) return false;
+  if (prev.labels !== next.labels) return false;
+  if (prev.preauthNetActionCount !== next.preauthNetActionCount) return false;
+  if (prev.recurringFixedActionCount !== next.recurringFixedActionCount) return false;
+  if (prev.evidenceAutoMatchLabel !== next.evidenceAutoMatchLabel) return false;
+  if (prev.preauthNetOpenLabel !== next.preauthNetOpenLabel) return false;
+  if (prev.recurringFixedOpenLabel !== next.recurringFixedOpenLabel) return false;
+  if (prev.autoClassifyLabel !== next.autoClassifyLabel) return false;
+  if (prev.addFixedExpenseLabel !== next.addFixedExpenseLabel) return false;
+
+  if (prev.stats.count !== next.stats.count) return false;
+  if (prev.stats.deposits !== next.stats.deposits) return false;
+  if (prev.stats.withdrawals !== next.stats.withdrawals) return false;
+  if (prev.stats.net !== next.stats.net) return false;
+
+  if (prev.rows !== next.rows) {
+    if (prev.rows.length !== next.rows.length) return false;
+    for (let i = 0; i < prev.rows.length; i += 1) {
+      if (prev.rows[i] !== next.rows[i]) return false;
+    }
+  }
+
+  if (prev.accountSubjectLabels !== next.accountSubjectLabels) return false;
+  if (prev.folderMap !== next.folderMap) return false;
+  if (prev.ledgerCategoryFolder !== next.ledgerCategoryFolder) return false;
+  if (prev.companyExpenses !== next.companyExpenses) return false;
+  if (prev.fixedExpensePayments !== next.fixedExpensePayments) return false;
+  if (prev.fixedExpenses !== next.fixedExpenses) return false;
+  if (prev.ledgerCategories !== next.ledgerCategories) return false;
+  if (prev.accountCodes !== next.accountCodes) return false;
+  if (prev.taxInvoices !== next.taxInvoices) return false;
+  if (prev.clients !== next.clients) return false;
+  if (prev.workers !== next.workers) return false;
+  if (prev.paymentVouchers !== next.paymentVouchers) return false;
+
+  if (prev.onEditMemo !== next.onEditMemo) return false;
+  if (prev.onEditAccountSubject !== next.onEditAccountSubject) return false;
+  if (prev.onEditClient !== next.onEditClient) return false;
+  if (prev.onEditFixedExpense !== next.onEditFixedExpense) return false;
+  if (prev.onFindEvidence !== next.onFindEvidence) return false;
+  if (prev.onIssueTaxInvoice !== next.onIssueTaxInvoice) return false;
+  if (prev.onFilterCounterparty !== next.onFilterCounterparty) return false;
+  if (prev.onBatchEvidenceAutoLink !== next.onBatchEvidenceAutoLink) return false;
+  if (prev.onOpenPreauthNet !== next.onOpenPreauthNet) return false;
+  if (prev.onOpenRecurringFixed !== next.onOpenRecurringFixed) return false;
+  if (prev.onAutoClassify !== next.onAutoClassify) return false;
+  if (prev.onCreateFixedExpenseItem !== next.onCreateFixedExpenseItem) return false;
+  if (prev.getBankTransactionsExportParsed !== next.getBankTransactionsExportParsed) return false;
+
+  return true;
+}
+
+export const BankTransactionsListPanel = memo(BankTransactionsListPanelComponent, bankTransactionsListPanelPropsAreEqual);

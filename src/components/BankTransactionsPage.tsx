@@ -25,7 +25,7 @@ import {
   Wallet,
   X,
 } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
+import { BankListRefreshAtSuffix, useBankSyncMeta } from "@/contexts/BankSyncMetaContext";
 import { PartialPaymentBadge } from "@/components/AutoLinkBadge";
 import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
@@ -917,8 +917,6 @@ function BankTransactionsPageComponent({
   onNavigateToTaxInvoice,
   companyProfile,
   apiMode = false,
-  erpVersion = 0,
-  bankListRefreshAt = "",
   onBankSyncBegin,
   onBankSynced,
   isPageActive = true,
@@ -959,8 +957,6 @@ function BankTransactionsPageComponent({
   onNavigateToTaxInvoice?: () => void;
   companyProfile?: import("@/utils/companyProfile").CompanyProfile;
   apiMode?: boolean;
-  erpVersion?: number;
-  bankListRefreshAt?: string;
   onBankSyncBegin?: () => void;
   onBankSynced?: (result?: {
     version?: number;
@@ -983,6 +979,7 @@ function BankTransactionsPageComponent({
     taxInvoices?: TaxInvoice[];
   }) => void | Promise<void>;
 }) {
+  const { erpVersion } = useBankSyncMeta();
   const [pageView, setPageView] = useState<PageView>("list");
   const [periodKey, setPeriodKey] = useState<PeriodKey>("thisMonth");
   const [dateFilter, setDateFilter] = useState<DateFilter>(() => ({ startDate: "", endDate: "" }));
@@ -5057,9 +5054,7 @@ function BankTransactionsPageComponent({
                   {"건 · 표시 "}
                   {filteredRows.length}
                   {"건"}
-                  {bankListRefreshAt
-                    ? ` · 목록 갱신 ${new Date(bankListRefreshAt).toLocaleTimeString("ko-KR")}`
-                    : ""}
+                  <BankListRefreshAtSuffix />
                 </p>
               ) : null}
               {apiMode ? (
@@ -6649,11 +6644,6 @@ function bankTransactionsPagePropsAreEqual(
   }
   for (const key of BANK_PAGE_HANDLER_PROP_KEYS) {
     if (prev[key] !== next[key]) return false;
-  }
-
-  if (next.isPageActive) {
-    if (prev.bankListRefreshAt !== next.bankListRefreshAt) return false;
-    if (prev.erpVersion !== next.erpVersion) return false;
   }
 
   return true;

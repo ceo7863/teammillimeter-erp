@@ -73,6 +73,7 @@ import { StatementsPage } from "@/components/StatementsPage";
 import { MyAccountModal } from "@/components/MyAccountModal";
 import { SidebarMenuOrderModal } from "@/components/SidebarMenuOrderModal";
 import { UsersAdminPage } from "@/components/UsersAdminPage";
+import { BankSyncMetaProvider } from "@/contexts/BankSyncMetaContext";
 import { AccountingHubPage } from "@/components/AccountingHubPage";
 import { AnalysisHubPage } from "@/components/AnalysisHubPage";
 import { BasicInfoHubPage } from "@/components/BasicInfoHubPage";
@@ -9061,8 +9062,6 @@ export default function TeammillimeterErpMvp() {
       bankTransactionFolders,
       setBankTransactionFolders,
       apiMode,
-      erpVersion,
-      bankListRefreshAt,
       onBankSyncBegin: beginBankRemoteSync,
       onBankSynced: handleBankSynced,
       onRequestImmediateSave: flushErpSave,
@@ -9097,8 +9096,6 @@ export default function TeammillimeterErpMvp() {
       bankTransactions,
       bankTransactionFolders,
       apiMode,
-      erpVersion,
-      bankListRefreshAt,
       beginBankRemoteSync,
       handleBankSynced,
       flushErpSave,
@@ -9302,10 +9299,11 @@ export default function TeammillimeterErpMvp() {
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="accounting" active={active}>
-          <AccountingHubPage
-            isHubActive={active === "accounting"}
-            onBankTabActiveChange={setBankTabActive}
-            bank={accountingBankHubProps}
+          <BankSyncMetaProvider erpVersion={erpVersion} bankListRefreshAt={bankListRefreshAt}>
+            <AccountingHubPage
+              isHubActive={active === "accounting"}
+              onBankTabActiveChange={setBankTabActive}
+              bank={accountingBankHubProps}
             ledger={{
               bankTransactions,
               companyExpenses,
@@ -9337,6 +9335,7 @@ export default function TeammillimeterErpMvp() {
               onRequestImmediateSave: flushErpSave,
             }}
           />
+          </BankSyncMetaProvider>
         </PageKeepAlive>
         <PageKeepAlive pageKey="analysis" active={active}>
           <AnalysisHubPage
