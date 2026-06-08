@@ -1,7 +1,7 @@
 import { isErpPageKey, type ErpPageKey } from "./pageAccess";
 import type { ErpUser } from "./erpApi";
 
-export type UserAdminHubTab = "users" | "audit" | "login" | "notify";
+export type UserAdminHubTab = "users" | "audit" | "login" | "notify" | "system";
 
 export const USER_ADMIN_TAB_STORAGE_KEY = "teammillimeter-erp-user-admin-tab";
 
@@ -19,6 +19,7 @@ export type UserAdminTabAccess = {
   audit: boolean;
   login: boolean;
   notify: boolean;
+  system: boolean;
 };
 
 export function isLegacyUserAdminPageKey(value: string): value is LegacyUserAdminPageKey {
@@ -47,7 +48,15 @@ export function migrateAllowedPageKeys(pages: ErpPageKey[]): ErpPageKey[] {
 export function readStoredUserAdminTab(): UserAdminHubTab {
   if (typeof window === "undefined") return "users";
   const stored = window.sessionStorage.getItem(USER_ADMIN_TAB_STORAGE_KEY);
-  if (stored === "users" || stored === "audit" || stored === "login" || stored === "notify") return stored;
+  if (
+    stored === "users" ||
+    stored === "audit" ||
+    stored === "login" ||
+    stored === "notify" ||
+    stored === "system"
+  ) {
+    return stored;
+  }
   return "users";
 }
 
@@ -59,8 +68,10 @@ export function storeUserAdminTab(tab: UserAdminHubTab) {
 export function resolveUserAdminTabAccess(
   user: Pick<ErpUser, "role" | "allowedPages"> | null | undefined,
 ): UserAdminTabAccess {
-  if (!user) return { users: false, audit: false, login: false, notify: false };
-  if (user.role === "admin") return { users: true, audit: true, login: true, notify: true };
+  if (!user) return { users: false, audit: false, login: false, notify: false, system: false };
+  if (user.role === "admin") {
+    return { users: true, audit: true, login: true, notify: true, system: true };
+  }
 
   const rawPages = user.allowedPages;
   if (Array.isArray(rawPages) && rawPages.length) {
@@ -71,19 +82,21 @@ export function resolveUserAdminTabAccess(
       audit: hasHub || rawSet.has("auditLog"),
       login: hasHub || rawSet.has("loginHistory"),
       notify: false,
+      system: false,
     };
   }
 
-  return { users: false, audit: false, login: false, notify: false };
+  return { users: false, audit: false, login: false, notify: false, system: false };
 }
 
 export function canAccessUserAdminHub(user: Pick<ErpUser, "role" | "allowedPages"> | null | undefined): boolean {
   const access = resolveUserAdminTabAccess(user);
-  return access.users || access.audit || access.login || access.notify;
+  return access.users || access.audit || access.login || access.notify || access.system;
 }
 
 export function firstAccessibleUserAdminTab(access: UserAdminTabAccess): UserAdminHubTab {
   if (access.users) return "users";
+  if (access.system) return "system";
   if (access.notify) return "notify";
   if (access.audit) return "audit";
   return "login";

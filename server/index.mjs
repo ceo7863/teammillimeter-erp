@@ -107,7 +107,8 @@ import {
 } from "./barobill/bankAccountScrap.mjs";
 import { getBarobillBankConfigStatus } from "./barobill/bankAccountClient.mjs";
 import { classifyBankLedgerBatch } from "./bankLedgerClassify.mjs";
-import { buildDailyReport, formatDailyReportMessage } from "./dailyReport.mjs";
+import { buildDailyReport, formatDailyReportMessage, yesterdayDateKey } from "./dailyReport.mjs";
+import { collectSystemMetrics } from "./systemMetrics.mjs";
 import { getAlimtalkStatus, sendContractAlimtalk } from "./alimtalkNotify.mjs";
 import {
   initClientContractsStore,
@@ -211,6 +212,16 @@ app.use("/vendor/pdfjs", express.static(config.pdfJsDir, { maxAge: "7d", fallthr
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, service: "teammillimeter-erp-api" });
+});
+
+app.get("/api/system/metrics", authMiddleware, adminMiddleware, async (_req, res) => {
+  try {
+    const metrics = await collectSystemMetrics();
+    res.json({ metrics });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "\uC11C\uBC84 \uC815\uBCF4\uB97C \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4." });
+  }
 });
 
 function buildBoardPreview(data) {

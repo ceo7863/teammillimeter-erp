@@ -7,7 +7,7 @@ function formatKrw(value) {
   return `${Math.round(Number(value) || 0).toLocaleString("ko-KR")}${"\uC6D0"}`;
 }
 
-function yesterdayDateKey(now = new Date()) {
+export function yesterdayDateKey(now = new Date()) {
   const kst = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
   kst.setDate(kst.getDate() - 1);
   const y = kst.getFullYear();
