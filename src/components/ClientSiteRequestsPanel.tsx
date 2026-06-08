@@ -179,18 +179,32 @@ function RequestCard({
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             {onClientNameClick ? (
-              <button
-                type="button"
-                className="erp-touch-target text-base font-bold text-blue-700 underline decoration-blue-300 underline-offset-2 hover:text-blue-900"
-                title={L.calendarTitle}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  window.setTimeout(() => onClientNameClick(request), 0);
-                }}
-              >
-                {request.clientName}
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="erp-touch-target text-base font-bold text-blue-700 underline decoration-blue-300 underline-offset-2 hover:text-blue-900"
+                  title={L.calendarTitle}
+                  data-no-action-feedback=""
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    window.setTimeout(() => onClientNameClick(request), 0);
+                  }}
+                >
+                  {request.clientName}
+                </button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="rounded-lg lg:hidden"
+                  noFeedback
+                  onClick={() => onClientNameClick(request)}
+                >
+                  <CalendarDays size={14} className="mr-1" />
+                  {L.calendarTitle}
+                </Button>
+              </>
             ) : (
               <span className="text-base font-bold text-slate-900">{request.clientName}</span>
             )}
