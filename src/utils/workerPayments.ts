@@ -333,6 +333,14 @@ export function normalizeWorkerCategory(value?: string): WorkerCategory {
   return String(value || "").trim() === WORKER_CATEGORY_OUTSOURCE ? WORKER_CATEGORY_OUTSOURCE : WORKER_CATEGORY_TEAM;
 }
 
+export function isWorkerExplicitTeamMember(worker?: Pick<WorkerMasterLike, "category"> | null) {
+  return String(worker?.category || "").trim() === WORKER_CATEGORY_TEAM;
+}
+
+export function isWorkerExplicitOutsourceMember(worker?: Pick<WorkerMasterLike, "category"> | null) {
+  return String(worker?.category || "").trim() === WORKER_CATEGORY_OUTSOURCE;
+}
+
 export function findWorkerMasterByExactName(
   workers: WorkerMasterLike[] = [],
   name?: string,
