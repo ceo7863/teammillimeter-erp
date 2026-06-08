@@ -1,10 +1,12 @@
 import type { ClientFormState } from "@/components/ClientFormModal";
+import { isValidEmail } from "@/utils/clientMaster";
 
 export type BusinessRegImportFieldKey =
   | "name"
   | "taxInvoiceCorpName"
   | "businessNo"
   | "ceoName"
+  | "email"
   | "address"
   | "bizType"
   | "bizClass";
@@ -14,6 +16,7 @@ export const BUSINESS_REG_IMPORT_FIELDS: Array<{ key: BusinessRegImportFieldKey;
   { key: "taxInvoiceCorpName", label: "\uC138\uAE08\uACC4\uC0B0\uC11C \uBC1C\uD589\uC6A9 \uC0C1\uD638" },
   { key: "businessNo", label: "\uC0AC\uC5C5\uC790\uBC88\uD638" },
   { key: "ceoName", label: "\uB300\uD45C\uC790\uBA85" },
+  { key: "email", label: "\uC774\uBA54\uC77C" },
   { key: "address", label: "\uC8FC\uC18C" },
   { key: "bizType", label: "\uC5C5\uD0DC" },
   { key: "bizClass", label: "\uC5C5\uC885" },
@@ -84,6 +87,21 @@ export function suggestBusinessRegValues(text: string): Partial<Record<BusinessR
     const legal = cleanImportedText(nameMatch[1]);
     suggestions.taxInvoiceCorpName = legal;
     suggestions.name = simplifyClientNameFromLegalName(legal);
+  }
+
+  const emailLabelMatch = normalized.match(
+    /(?:\uC774\s*\uBA54\s*\uC77C|E-?mail)\s*[:?]?\s*([^\s\n\r]{3,80})/i,
+  );
+  if (emailLabelMatch) {
+    const candidate = cleanImportedText(emailLabelMatch[1]);
+    if (isValidEmail(candidate)) suggestions.email = candidate;
+  }
+  if (!suggestions.email) {
+    const emailMatch = normalized.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/);
+    if (emailMatch) {
+      const candidate = cleanImportedText(emailMatch[0]);
+      if (isValidEmail(candidate)) suggestions.email = candidate;
+    }
   }
 
   const addressMatch = normalized.match(
