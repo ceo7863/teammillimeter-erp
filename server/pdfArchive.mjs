@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { config } from "./config.mjs";
-import { getDb } from "./db.mjs";
+import { getDb, runInTransaction } from "./db.mjs";
 
 function parseStatementSalesIds(raw) {
   if (!raw) return undefined;
@@ -280,7 +280,7 @@ export function migratePdfArchiveShareLink(keeperId, duplicateId) {
   const urlChanged = Boolean(nextUrl && nextUrl !== keeperUrl);
   if (!tokenChanged && !urlChanged) return getPdfArchiveMetaById(keeperId);
 
-  const apply = db.transaction(() => {
+  runInTransaction(db, () => {
     if (tokenChanged) {
       db.prepare("UPDATE pdf_archives SET share_token = NULL WHERE id = ?").run(duplicateId);
       db.prepare("UPDATE pdf_archives SET share_token = ? WHERE id = ?").run(nextToken, keeperId);
@@ -289,7 +289,6 @@ export function migratePdfArchiveShareLink(keeperId, duplicateId) {
       db.prepare("UPDATE pdf_archives SET share_link_url = ? WHERE id = ?").run(nextUrl, keeperId);
     }
   });
-  apply();
 
   return getPdfArchiveMetaById(keeperId);
 }

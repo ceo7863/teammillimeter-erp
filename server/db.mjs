@@ -502,6 +502,30 @@ export function getDb() {
   return db;
 }
 
+/** node:sqlite DatabaseSync has no .transaction(); use SQL BEGIN/COMMIT/ROLLBACK. */
+export function runInTransaction(database, callback) {
+  const nested = database.isTransaction;
+  if (!nested) {
+    database.exec("BEGIN IMMEDIATE");
+  }
+  try {
+    const result = callback();
+    if (!nested) {
+      database.exec("COMMIT");
+    }
+    return result;
+  } catch (error) {
+    if (!nested) {
+      try {
+        database.exec("ROLLBACK");
+      } catch {
+        // ignore rollback failure after primary error
+      }
+    }
+    throw error;
+  }
+}
+
 const USER_SELECT = `
   SELECT id, login_id, email, password_hash, name, phone, role, is_active, allowed_pages, sidebar_order, attendance_view_user_ids, created_at, updated_at
   FROM users
@@ -949,7 +973,7 @@ function saveErpStateImmediate(payload, expectedVersion, updatedBy) {
   const nextVersion = current.version + 1;
   const updatedAt = new Date().toISOString();
   const updatedByValue = updatedBy == null || updatedBy === "" ? "system" : String(updatedBy);
-  const tx = database.transaction(() => {
+  runInTransaction(database, () => {
     database
       .prepare(`
         UPDATE erp_state
@@ -959,7 +983,6 @@ function saveErpStateImmediate(payload, expectedVersion, updatedBy) {
       .run(JSON.stringify(normalizedPayload), nextVersion, updatedAt, updatedByValue);
     writeDomainRows(database, splitPayloadIntoDomains(normalizedPayload), updatedAt);
   });
-  tx();
 
   return { version: nextVersion, updatedAt };
 }
@@ -1001,7 +1024,7 @@ export function saveErpDomain(domain, domainPayload, expectedVersion, updatedBy)
     const updatedAt = new Date().toISOString();
     const updatedByValue = nextUpdatedBy == null || nextUpdatedBy === "" ? "system" : String(nextUpdatedBy);
 
-    const tx = database.transaction(() => {
+    runInTransaction(database, () => {
       database
         .prepare(`
           INSERT INTO erp_domain_state (domain, payload, updated_at)
@@ -1021,7 +1044,6 @@ export function saveErpDomain(domain, domainPayload, expectedVersion, updatedBy)
         `)
         .run(JSON.stringify(normalizeErpPayload(fullPayload)), nextVersion, updatedAt, updatedByValue);
     });
-    tx();
 
     return { version: nextVersion, updatedAt, domain: nextDomain };
   });
@@ -1066,7 +1088,7 @@ export function saveErpDomains(domainPayloads, expectedVersion, updatedBy) {
         domainRows[domain] = pickDomainPayload(merged, domain) || nextDomainPayloads[domain];
       }
 
-      const tx = database.transaction(() => {
+      runInTransaction(database, () => {
         writeDomainRows(database, domainRows, updatedAt);
         database
           .prepare(`
@@ -1076,7 +1098,6 @@ export function saveErpDomains(domainPayloads, expectedVersion, updatedBy) {
           `)
           .run(JSON.stringify(normalizeErpPayload(merged)), nextVersion, updatedAt, updatedByValue);
       });
-      tx();
 
       return { version: nextVersion, updatedAt, domains };
     },
