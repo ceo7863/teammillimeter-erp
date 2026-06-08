@@ -11,7 +11,7 @@ import { formatClientSiteRequestWorkPeriod } from "@/utils/clientSiteRequests";
 import { formatClientSiteRequestDayLabel, shiftCalendarDate } from "@/utils/clientSiteRequestCalendar";
 import type { ScSchedule } from "@/utils/scSchedules";
 import { formatScScheduleHeadcount, formatScScheduleTimeRange } from "@/utils/scSchedules";
-import { useBackdropCloseGuard } from "@/utils/modalBackdrop";
+import { useBackdropPointerDismiss } from "@/utils/modalBackdrop";
 
 const L = {
   close: "\uB2EB\uAE30",
@@ -48,7 +48,7 @@ export function ClientSiteRequestCalendarDayDrawer({
   onSelectRequest,
   elevated = false,
 }: ClientSiteRequestCalendarDayDrawerProps) {
-  const handleBackdropClose = useBackdropCloseGuard(Boolean(date));
+  const { onPointerDown, onPointerUp, isCoarsePointer } = useBackdropPointerDismiss(Boolean(date), onClose);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -65,13 +65,17 @@ export function ClientSiteRequestCalendarDayDrawer({
   return createPortal(
     <div
       className={`erp-csr-cal-drawer-backdrop${elevated ? " erp-csr-cal-drawer-backdrop--elevated" : ""}`}
-      onClick={(event) => handleBackdropClose(event, onClose)}
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      data-coarse-pointer={isCoarsePointer ? "true" : undefined}
     >
       <aside
         className="erp-csr-cal-drawer erp-calendar-side-panel"
         role="dialog"
         aria-modal="true"
         aria-label={`${date} \uC77C\uC815`}
+        onPointerDown={(event) => event.stopPropagation()}
+        onPointerUp={(event) => event.stopPropagation()}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="erp-csr-cal-drawer-head">

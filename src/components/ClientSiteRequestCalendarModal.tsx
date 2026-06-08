@@ -14,7 +14,7 @@ import {
   type ClientSiteRequestLink,
 } from "@/utils/clientSiteRequests";
 import { fetchStaffScSchedules, type ScSchedule } from "@/utils/scSchedules";
-import { useBackdropCloseGuard } from "@/utils/modalBackdrop";
+import { useBackdropPointerDismiss, deferAfterTouch } from "@/utils/modalBackdrop";
 
 const L = {
   title: "\uC811\uC218 \uCE98\uB9B0\uB354",
@@ -47,7 +47,7 @@ export function ClientSiteRequestCalendarModal({
   const [monthKey, setMonthKey] = useState(getCurrentMonthKey);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedRequestId, setSelectedRequestId] = useState("");
-  const handleBackdropClose = useBackdropCloseGuard(open);
+  const { onPointerDown, onPointerUp, isCoarsePointer } = useBackdropPointerDismiss(open, onClose);
 
   const loadCalendarData = useCallback(async () => {
     setLoading(true);
@@ -98,11 +98,15 @@ export function ClientSiteRequestCalendarModal({
   const modal = (
     <div
       className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated erp-client-request-calendar-modal-backdrop"
-      onClick={(event) => handleBackdropClose(event, onClose)}
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      data-coarse-pointer={isCoarsePointer ? "true" : undefined}
     >
       <div
         className="erp-ledger-modal erp-client-request-calendar-modal"
         style={{ width: "min(100%, 48rem)", padding: 0 }}
+        onPointerDown={(event) => event.stopPropagation()}
+        onPointerUp={(event) => event.stopPropagation()}
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"

@@ -24,6 +24,7 @@ import {
   type ClientSiteRequestStatus,
 } from "@/utils/clientSiteRequests";
 import { ClientSiteRequestCalendarModal } from "@/components/ClientSiteRequestCalendarModal";
+import { deferAfterTouch } from "@/utils/modalBackdrop";
 import { ClientSiteRequestChat } from "@/components/ClientSiteRequestChat";
 import {
   fetchScProjectMappingStatus,
@@ -173,6 +174,11 @@ function RequestCard({
   const registerDone = Boolean(request.registerCompletedAt);
   const isCancelPending = request.status === "cancel_pending";
 
+  const openCalendar = () => {
+    if (!onClientNameClick) return;
+    deferAfterTouch(() => onClientNameClick(request), 50);
+  };
+
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -188,7 +194,7 @@ function RequestCard({
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                    window.setTimeout(() => onClientNameClick(request), 0);
+                    openCalendar();
                   }}
                 >
                   {request.clientName}
@@ -199,7 +205,11 @@ function RequestCard({
                   variant="outline"
                   className="rounded-lg lg:hidden"
                   noFeedback
-                  onClick={() => onClientNameClick(request)}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    openCalendar();
+                  }}
                 >
                   <CalendarDays size={14} className="mr-1" />
                   {L.calendarTitle}

@@ -11653,6 +11653,10 @@ body.erp-col-resizing * {
   z-index: 100;
 }
 
+.erp-client-request-calendar-modal-backdrop[data-coarse-pointer="true"] {
+  cursor: default;
+}
+
 .erp-ledger-modal {
   width: min(100%, 32rem);
   max-height: calc(100vh - 2rem);
