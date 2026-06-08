@@ -167,6 +167,141 @@ function resolveFixedExpenseLabel(
   return null;
 }
 
+export type BankTransactionListRowBuildContext = {
+  folderMap: Map<string, BankTransactionFolder>;
+  ledgerCategoryFolder: BankTransactionFolder | undefined;
+  lookup: BankTransactionListLookupMaps;
+  labels: { unfiled: string; accountContentPlaceholder: string };
+  paymentVouchers: Array<{ bankTransactionId?: string | number; isPartialPayment?: boolean }>;
+  ledgerCategories: LedgerCategory[];
+  companyExpenses: CompanyExpense[];
+  fixedExpensePayments: FixedExpensePayment[];
+  fixedExpenses: FixedExpense[];
+  accountCodes: AccountCode[];
+  taxInvoiceById: Map<string, TaxInvoice>;
+  clients: Array<{ name?: string }>;
+  workers: Array<{ name?: string }>;
+};
+
+export function buildBankTransactionListRowModel(
+  row: BankTransaction,
+  context: BankTransactionListRowBuildContext,
+): BankTransactionListRowModel {
+  const {
+    folderMap,
+    ledgerCategoryFolder,
+    lookup,
+    labels,
+    paymentVouchers,
+    ledgerCategories,
+    companyExpenses,
+    fixedExpensePayments,
+    fixedExpenses,
+    accountCodes,
+    taxInvoiceById,
+    clients,
+    workers,
+  } = context;
+
+  const folder = row.folderId ? folderMap.get(row.folderId) : undefined;
+  const unfiledClientLink = isUnfiledClientDepositLink(row);
+  const linkedSubjectName = String(row.linkedSubject || "").trim();
+  const unfiledClientName =
+    !folder && row.deposit > 0 && linkedSubjectName && (unfiledClientLink || row.linkedPaymentVoucherId)
+      ? linkedSubjectName
+      : "";
+  const legacyCategory = resolveLinkedLedgerCategory(row, lookup);
+  const categoryLabel =
+    getBankTxLedgerCategoryLabel(
+      row,
+      ledgerCategories,
+      companyExpenses,
+      fixedExpensePayments,
+      fixedExpenses,
+    ) || legacyCategory;
+  const fixedExpenseLabel = resolveFixedExpenseLabel(row, lookup);
+  const accountContent = String(row.ledgerMemo || row.memo || "").trim();
+  const memoOnly = String(row.memo || "").trim();
+  const accountCode = String(row.ledgerAccountCode || "").trim();
+  const accountSubjectLabel = accountCode
+    ? resolveAccountCodeLabel(accountCodes, accountCode) || accountCode
+    : null;
+  const clientLabel = resolveBankTxClientName(row) || unfiledClientName || null;
+  const classifiedAmount = getBankTxClassifiedAmount(row);
+  const linkedInvoice = row.linkedTaxInvoiceId ? taxInvoiceById.get(row.linkedTaxInvoiceId) : undefined;
+  const evidenceLabel = linkedInvoice ? formatTaxInvoiceEvidenceLabel(linkedInvoice) : null;
+  const signedAmountLabel =
+    row.deposit > 0
+      ? `+${formatKRW(row.deposit)}`
+      : row.withdrawal > 0
+        ? `-${formatKRW(row.withdrawal)}`
+        : "-";
+  const accountLabel = `${row.bankName || "IBK"} ${String(row.accountNumber || "").slice(-4) || ""}`.trim();
+  const classificationLabel =
+    folder?.folderName ||
+    (unfiledClientName || null) ||
+    (categoryLabel && ledgerCategoryFolder ? ledgerCategoryFolder.folderName : labels.unfiled);
+
+  const matchLinked = Boolean(row.linkedPaymentVoucherId);
+  let matchStatusLabel = "-";
+  if (matchLinked) {
+    matchStatusLabel = getBankMatchStatusLabel(row);
+  } else if (row.deposit > 0) {
+    matchStatusLabel = "\uBBF8\uC5F0\uACB0";
+  }
+
+  const suppressed = isNetGroupSuppressed(row);
+  const rowTone: BankTransactionListRowModel["rowTone"] = suppressed
+    ? "suppressed"
+    : row.deposit > 0
+      ? "deposit"
+      : row.withdrawal > 0
+        ? "withdrawal"
+        : "";
+
+  return {
+    id: row.id,
+    dateLabel: formatBankTransactionDateTime(row.transactionAt),
+    depositLabel: row.deposit > 0 ? formatKRW(row.deposit) : "-",
+    withdrawalLabel: row.withdrawal > 0 ? formatKRW(row.withdrawal) : "-",
+    balanceLabel: formatKRW(row.balanceAfter),
+    description: row.description || "-",
+    accountContentLabel: accountContent || labels.accountContentPlaceholder,
+    accountContentEmpty: !accountContent,
+    categoryLabel,
+    fixedExpenseLabel,
+    folderName: folder?.folderName || unfiledClientName || null,
+    folderType: folder?.folderType || (unfiledClientName ? "client" : null),
+    classificationLabel,
+    matchLinked,
+    matchStatusLabel,
+    showAutoLinkBadge: matchLinked && isBankMatchAutoLinked(row),
+    showManualLinkBadge: matchLinked && isBankMatchManualLinked(row),
+    showPartialPaymentBadge: matchLinked && bankTxHasPartialPaymentVoucher(row, paymentVouchers),
+    netGroupRole: row.netGroupRole,
+    rowTone,
+    accountLabel,
+    counterpartyLabel: String(row.counterpartyName || "-").trim() || "-",
+    signedAmountLabel,
+    memoLabel: memoOnly || labels.accountContentPlaceholder,
+    memoEmpty: !memoOnly,
+    accountSubjectLabel,
+    clientLabel,
+    classifiedAmountLabel: classifiedAmount > 0 ? formatKRW(classifiedAmount) : "-",
+    evidenceLabel,
+    evidenceLinked: Boolean(linkedInvoice),
+    showVoucherProcessedBadge: Boolean(row.linkedPaymentVoucherId && row.deposit > 0),
+    partyKind: resolveBankTxPartyKind(row, folder, clientLabel, clients, workers),
+    counterpartyPartyKind: resolveBankTxPartyKind(
+      row,
+      folder,
+      String(row.counterpartyName || "").trim() || null,
+      clients,
+      workers,
+    ),
+  };
+}
+
 export function buildBankTransactionListRowModels(
   rows: BankTransaction[],
   folderMap: Map<string, BankTransactionFolder>,
@@ -183,108 +318,24 @@ export function buildBankTransactionListRowModels(
   clients: Array<{ name?: string }> = [],
   workers: Array<{ name?: string }> = [],
 ): Map<string, BankTransactionListRowModel> {
-  const taxInvoiceById = new Map(taxInvoices.map((row) => [row.id, row]));
+  const context: BankTransactionListRowBuildContext = {
+    folderMap,
+    ledgerCategoryFolder,
+    lookup,
+    labels,
+    paymentVouchers,
+    ledgerCategories,
+    companyExpenses,
+    fixedExpensePayments,
+    fixedExpenses,
+    accountCodes,
+    taxInvoiceById: new Map(taxInvoices.map((row) => [row.id, row])),
+    clients,
+    workers,
+  };
   const cache = new Map<string, BankTransactionListRowModel>();
-
   for (const row of rows) {
-    const folder = row.folderId ? folderMap.get(row.folderId) : undefined;
-    const unfiledClientLink = isUnfiledClientDepositLink(row);
-    const linkedSubjectName = String(row.linkedSubject || "").trim();
-    const unfiledClientName =
-      !folder && row.deposit > 0 && linkedSubjectName && (unfiledClientLink || row.linkedPaymentVoucherId)
-        ? linkedSubjectName
-        : "";
-    const legacyCategory = resolveLinkedLedgerCategory(row, lookup);
-    const categoryLabel =
-      getBankTxLedgerCategoryLabel(
-        row,
-        ledgerCategories,
-        companyExpenses,
-        fixedExpensePayments,
-        fixedExpenses,
-      ) || legacyCategory;
-    const fixedExpenseLabel = resolveFixedExpenseLabel(row, lookup);
-    const accountContent = String(row.ledgerMemo || row.memo || "").trim();
-    const memoOnly = String(row.memo || "").trim();
-    const accountCode = String(row.ledgerAccountCode || "").trim();
-    const accountSubjectLabel = accountCode
-      ? resolveAccountCodeLabel(accountCodes, accountCode) || accountCode
-      : null;
-    const clientLabel = resolveBankTxClientName(row) || unfiledClientName || null;
-    const classifiedAmount = getBankTxClassifiedAmount(row);
-    const linkedInvoice = row.linkedTaxInvoiceId ? taxInvoiceById.get(row.linkedTaxInvoiceId) : undefined;
-    const evidenceLabel = linkedInvoice ? formatTaxInvoiceEvidenceLabel(linkedInvoice) : null;
-    const signedAmountLabel =
-      row.deposit > 0
-        ? `+${formatKRW(row.deposit)}`
-        : row.withdrawal > 0
-          ? `-${formatKRW(row.withdrawal)}`
-          : "-";
-    const accountLabel = `${row.bankName || "IBK"} ${String(row.accountNumber || "").slice(-4) || ""}`.trim();
-    const classificationLabel =
-      folder?.folderName ||
-      (unfiledClientName || null) ||
-      (categoryLabel && ledgerCategoryFolder ? ledgerCategoryFolder.folderName : labels.unfiled);
-
-    const matchLinked = Boolean(row.linkedPaymentVoucherId);
-    let matchStatusLabel = "-";
-    if (matchLinked) {
-      matchStatusLabel = getBankMatchStatusLabel(row);
-    } else if (row.deposit > 0) {
-      matchStatusLabel = "\uBBF8\uC5F0\uACB0";
-    }
-
-    const suppressed = isNetGroupSuppressed(row);
-    const rowTone: BankTransactionListRowModel["rowTone"] = suppressed
-      ? "suppressed"
-      : row.deposit > 0
-        ? "deposit"
-        : row.withdrawal > 0
-          ? "withdrawal"
-          : "";
-
-    cache.set(row.id, {
-      id: row.id,
-      dateLabel: formatBankTransactionDateTime(row.transactionAt),
-      depositLabel: row.deposit > 0 ? formatKRW(row.deposit) : "-",
-      withdrawalLabel: row.withdrawal > 0 ? formatKRW(row.withdrawal) : "-",
-      balanceLabel: formatKRW(row.balanceAfter),
-      description: row.description || "-",
-      accountContentLabel: accountContent || labels.accountContentPlaceholder,
-      accountContentEmpty: !accountContent,
-      categoryLabel,
-      fixedExpenseLabel,
-      folderName: folder?.folderName || unfiledClientName || null,
-      folderType: folder?.folderType || (unfiledClientName ? "client" : null),
-      classificationLabel,
-      matchLinked,
-      matchStatusLabel,
-      showAutoLinkBadge: matchLinked && isBankMatchAutoLinked(row),
-      showManualLinkBadge: matchLinked && isBankMatchManualLinked(row),
-      showPartialPaymentBadge: matchLinked && bankTxHasPartialPaymentVoucher(row, paymentVouchers),
-      netGroupRole: row.netGroupRole,
-      rowTone,
-      accountLabel,
-      counterpartyLabel: String(row.counterpartyName || "-").trim() || "-",
-      signedAmountLabel,
-      memoLabel: memoOnly || labels.accountContentPlaceholder,
-      memoEmpty: !memoOnly,
-      accountSubjectLabel,
-      clientLabel,
-      classifiedAmountLabel: classifiedAmount > 0 ? formatKRW(classifiedAmount) : "-",
-      evidenceLabel,
-      evidenceLinked: Boolean(linkedInvoice),
-      showVoucherProcessedBadge: Boolean(row.linkedPaymentVoucherId && row.deposit > 0),
-      partyKind: resolveBankTxPartyKind(row, folder, clientLabel, clients, workers),
-      counterpartyPartyKind: resolveBankTxPartyKind(
-        row,
-        folder,
-        String(row.counterpartyName || "").trim() || null,
-        clients,
-        workers,
-      ),
-    });
+    cache.set(row.id, buildBankTransactionListRowModel(row, context));
   }
-
   return cache;
 }

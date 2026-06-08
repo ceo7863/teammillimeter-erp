@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback, useDeferredValue, startTransition } from "react";
+import React, { memo, useEffect, useMemo, useRef, useState, useCallback, useDeferredValue, startTransition } from "react";
 import { createPortal } from "react-dom";
 import {
   ArrowDownLeft,
@@ -30,7 +30,7 @@ import { PartialPaymentBadge } from "@/components/AutoLinkBadge";
 import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { TableExportSection, TableExportToolbar } from "@/components/TableExportSection";
-import { BankTransactionListSection } from "@/components/BankTransactionListSection";
+import { BankTransactionsListPanel } from "@/components/BankTransactionsListPanel";
 import { BankCounterpartyTransactionsDrawer } from "@/components/BankCounterpartyTransactionsDrawer";
 import {
   BankTaxInvoiceIssueModal,
@@ -155,7 +155,6 @@ import { buildLedgerClassificationMap, classifyBankTransactionForLedger, evaluat
 import {
   batchRegisterHighConfidenceBankTxToLedger,
   countBatchRegisterableLedger,
-  countPendingSmartLedger,
   formatBatchLedgerRegisterMessage,
   formatSmartLedgerRunMessage,
   runSmartAutoLedger,
@@ -273,8 +272,8 @@ import {
   parseIbkBankFile,
   type IbkBankImportPreview,
 } from "@/utils/ibkBankImport";
-import { BankTransactionFilterBar } from "@/components/BankTransactionFilterBar";
-import { BankTransactionTableFooter } from "@/components/BankTransactionTableFooter";
+import { BankTransactionFilterBar, type BankTransactionAppliedFilters } from "@/components/BankTransactionFilterBar";
+import { bankTransactionsPagePropsAreEqual } from "@/utils/bankTransactionsPagePropsEqual";
 import {
   resolveBankTransactionPeriod,
   type BankTransactionPeriodKey,
@@ -883,7 +882,7 @@ function buildLedgerLinkDefaults(
   return { linkMode: "link" as const, linkPaymentId: linkable[0].id };
 }
 
-export function BankTransactionsPage({
+function BankTransactionsPageComponent({
   bankTransactions,
   setBankTransactions,
   bankTransactionFolders,
@@ -1073,6 +1072,8 @@ export function BankTransactionsPage({
   } | null>(null);
   const bankTransactionsRef = useRef(bankTransactions);
   bankTransactionsRef.current = bankTransactions;
+  const taxInvoicesRef = useRef(taxInvoices);
+  taxInvoicesRef.current = taxInvoices;
   const [fixedExpenseModal, setFixedExpenseModal] = useState<TxFixedExpenseModal | null>(null);
   const fixedExpenseItemModalRef = useRef<CompanyLedgerFixedExpenseModalHandle>(null);
   const [clientModal, setClientModal] = useState<TxClientModal | null>(null);
@@ -1228,35 +1229,38 @@ export function BankTransactionsPage({
 
   React.useEffect(() => {
     if (!isPageActive) return;
-    setBankTransactions((prev) => {
-      const seeded = mergeManualLedgerAccountFieldsFromRef(prev, bankTransactionsRef.current);
-      const folders = ensureDefaultBankTransactionFolders(bankTransactionFolders);
-      const synced = syncBankTransactionLedgerLinkFields(
-        seeded,
-        companyExpenses,
-        fixedExpensePayments,
-      );
-      const reconciled = reconcileLedgerFolderWithoutLedgerLink(synced, ledgerRegistrationContext);
-      const folderSync = syncLedgerLinkedBankTransactionFolders(
-        reconciled.transactions,
-        folders,
-        ledgerRegistrationContext,
-      );
-      if (folderSync.updated <= 0 && reconciled.cleared <= 0) {
-        const seededChanged = seeded.some(
-          (row, index) =>
-            row !== prev[index] ||
-            String(row.ledgerAccountCode || "") !== String(prev[index]?.ledgerAccountCode || ""),
+    const timer = window.setTimeout(() => {
+      setBankTransactions((prev) => {
+        const seeded = mergeManualLedgerAccountFieldsFromRef(prev, bankTransactionsRef.current);
+        const folders = ensureDefaultBankTransactionFolders(bankTransactionFolders);
+        const synced = syncBankTransactionLedgerLinkFields(
+          seeded,
+          companyExpenses,
+          fixedExpensePayments,
         );
-        return seededChanged ? seeded : prev;
-      }
-      return folderSync.transactions;
-    });
-    setBankTransactionFolders((prev) => {
-      const folders = ensureDefaultBankTransactionFolders(prev);
-      if (folders.length === prev.length) return prev;
-      return folders;
-    });
+        const reconciled = reconcileLedgerFolderWithoutLedgerLink(synced, ledgerRegistrationContext);
+        const folderSync = syncLedgerLinkedBankTransactionFolders(
+          reconciled.transactions,
+          folders,
+          ledgerRegistrationContext,
+        );
+        if (folderSync.updated <= 0 && reconciled.cleared <= 0) {
+          const seededChanged = seeded.some(
+            (row, index) =>
+              row !== prev[index] ||
+              String(row.ledgerAccountCode || "") !== String(prev[index]?.ledgerAccountCode || ""),
+          );
+          return seededChanged ? seeded : prev;
+        }
+        return folderSync.transactions;
+      });
+      setBankTransactionFolders((prev) => {
+        const folders = ensureDefaultBankTransactionFolders(prev);
+        if (folders.length === prev.length) return prev;
+        return folders;
+      });
+    }, 120);
+    return () => window.clearTimeout(timer);
   }, [companyExpenses, fixedExpensePayments, bankTransactionFolders, ledgerRegistrationContext, setBankTransactions, setBankTransactionFolders, isPageActive]);
 
   const needsHeavyBankClassification = Boolean(
@@ -1322,30 +1326,6 @@ export function BankTransactionsPage({
         ? buildFolderClassificationSuggestionMap(bankTransactions, clients, workers)
         : EMPTY_TX_SUGGESTION_MAP,
     [needsHeavyBankClassification, bankTransactions, clients, workers],
-  );
-
-  const pendingSmartLedger = useMemo(
-    () =>
-      isPageActive
-        ? countPendingSmartLedger(bankTransactions, {
-            ...ledgerRegistrationContext,
-            rules: bankLedgerRules,
-            fixedExpenses,
-            expenseCategories,
-            workers,
-            clients,
-          })
-        : 0,
-    [
-      isPageActive,
-      bankTransactions,
-      ledgerRegistrationContext,
-      bankLedgerRules,
-      fixedExpenses,
-      expenseCategories,
-      workers,
-      clients,
-    ],
   );
 
   const canRegisterLedger = (tx: BankTransaction) =>
@@ -2467,35 +2447,34 @@ export function BankTransactionsPage({
     ],
   );
 
-  const openTaxInvoiceModal = useCallback(
-    (tx: BankTransaction) => {
-      const txId = tx.id;
-      setTaxInvoiceLinkSession({
-        tx,
-        taxInvoices,
-        bankTransactions: bankTransactionsRef.current,
-        linkedPaymentIndex: EMPTY_TAX_INVOICE_LINKED_INDEX,
-        excludedIds: EMPTY_TAX_INVOICE_EXCLUDED_IDS,
-        preparing: true,
+  const openTaxInvoiceModal = useCallback((tx: BankTransaction) => {
+    const txId = tx.id;
+    const latestTaxInvoices = taxInvoicesRef.current;
+    setTaxInvoiceLinkSession({
+      tx,
+      taxInvoices: latestTaxInvoices,
+      bankTransactions: bankTransactionsRef.current,
+      linkedPaymentIndex: EMPTY_TAX_INVOICE_LINKED_INDEX,
+      excludedIds: EMPTY_TAX_INVOICE_EXCLUDED_IDS,
+      preparing: true,
+    });
+    window.requestAnimationFrame(() => {
+      setTaxInvoiceLinkSession((prev) => {
+        if (!prev || prev.tx.id !== txId || !prev.preparing) return prev;
+        const latest = bankTransactionsRef.current;
+        const liveTx = latest.find((row) => row.id === txId) ?? prev.tx;
+        const invoices = taxInvoicesRef.current;
+        return {
+          tx: liveTx,
+          taxInvoices: invoices,
+          bankTransactions: latest,
+          linkedPaymentIndex: getTaxInvoiceLinkedPaymentIndexCached(latest),
+          excludedIds: getTaxInvoiceCancellationExcludedIdsCached(invoices),
+          preparing: false,
+        };
       });
-      window.requestAnimationFrame(() => {
-        setTaxInvoiceLinkSession((prev) => {
-          if (!prev || prev.tx.id !== txId || !prev.preparing) return prev;
-          const latest = bankTransactionsRef.current;
-          const liveTx = latest.find((row) => row.id === txId) ?? prev.tx;
-          return {
-            tx: liveTx,
-            taxInvoices,
-            bankTransactions: latest,
-            linkedPaymentIndex: getTaxInvoiceLinkedPaymentIndexCached(latest),
-            excludedIds: getTaxInvoiceCancellationExcludedIdsCached(taxInvoices),
-            preparing: false,
-          };
-        });
-      });
-    },
-    [taxInvoices],
-  );
+    });
+  }, []);
 
   const closeTaxInvoicePanel = useCallback(() => {
     setTaxInvoiceLinkSession(null);
@@ -2974,36 +2953,28 @@ export function BankTransactionsPage({
     ],
   );
 
+  const handleBatchEvidenceAutoLink = useCallback(() => {
+    const linkedCount = runBatchEvidenceAutoLink();
+    setImportMessage(
+      linkedCount > 0 ? L.evidenceBatchAutoLinked(linkedCount) : L.evidenceBatchAutoLinkedNone,
+    );
+  }, [runBatchEvidenceAutoLink]);
+
   const stats = useMemo(() => buildBankTransactionStats(filteredRows), [filteredRows]);
-  const pendingBatchLedger = useMemo(
-    () =>
-      countBatchRegisterableLedger(bankTransactions, {
-        fixedExpensePayments,
-        companyExpenses,
-        bankLedgerRules: effectiveBankLedgerRules,
-        fixedExpenses,
-        expenseCategories,
-        workers,
-        clients,
-        onlyTransactionIds: new Set(filteredRows.map((row) => row.id)),
-        memoCategorySuggestions: memoCategorySuggestionByTxId,
-      }),
-    [
-      bankTransactions,
-      filteredRows,
+  const topCounterparties = useMemo(() => buildTopCounterpartySummaries(filteredRows, 5), [filteredRows]);
+
+  const runBatchLedgerRegister = React.useCallback(() => {
+    const pendingBatchLedger = countBatchRegisterableLedger(bankTransactions, {
       fixedExpensePayments,
       companyExpenses,
-      effectiveBankLedgerRules,
+      bankLedgerRules: effectiveBankLedgerRules,
       fixedExpenses,
       expenseCategories,
       workers,
       clients,
-      memoCategorySuggestionByTxId,
-    ],
-  );
-  const topCounterparties = useMemo(() => buildTopCounterpartySummaries(filteredRows, 5), [filteredRows]);
-
-  const runBatchLedgerRegister = React.useCallback(() => {
+      onlyTransactionIds: new Set(filteredRows.map((row) => row.id)),
+      memoCategorySuggestions: memoCategorySuggestionByTxId,
+    });
     if (batchLedgerLoading || pendingBatchLedger <= 0) return;
     setBatchLedgerLoading(true);
     setImportError("");
@@ -3050,7 +3021,6 @@ export function BankTransactionsPage({
     }
   }, [
     batchLedgerLoading,
-    pendingBatchLedger,
     filteredRows,
     bankTransactions,
     fixedExpensePayments,
@@ -3069,7 +3039,7 @@ export function BankTransactionsPage({
   const deferredBankTransactions = useDeferredValue(bankTransactions);
 
   const depositSuggestions = useMemo(() => {
-    if (pageView !== "list") return [];
+    if (pageView !== "reconcile") return [];
     const sentByTxId = new Map(
       buildAllSentStatementDepositSuggestions(deferredBankTransactions, sentArchives, clients, paymentVouchers).map(
         (row) => [row.tx.id, row.candidates],
@@ -3121,14 +3091,97 @@ export function BankTransactionsPage({
     periodKey,
   ]);
 
+  const appliedFilters = useMemo(
+    (): BankTransactionAppliedFilters => ({
+      periodKey,
+      startDate: dateFilter.startDate,
+      endDate: dateFilter.endDate,
+      statusTab,
+      flowFilter,
+      accountFilter,
+      accountSubjectFilter,
+      clientFilter: clientNameFilter,
+      groupFilter,
+      evidenceFilter,
+      searchQuery,
+    }),
+    [
+      periodKey,
+      dateFilter.startDate,
+      dateFilter.endDate,
+      statusTab,
+      flowFilter,
+      accountFilter,
+      accountSubjectFilter,
+      clientNameFilter,
+      groupFilter,
+      evidenceFilter,
+      searchQuery,
+    ],
+  );
+
+  const handleApplySearch = useCallback((value: string) => {
+    startTransition(() => setSearchQuery(value));
+  }, []);
+
+  const handleApplyFilters = useCallback((filters: BankTransactionAppliedFilters) => {
+    startTransition(() => {
+      setPeriodKey(filters.periodKey);
+      setDateFilter({ startDate: filters.startDate, endDate: filters.endDate });
+      setStatusTab(filters.statusTab);
+      setFlowFilter(filters.flowFilter);
+      setAccountFilter(filters.accountFilter);
+      setAccountSubjectFilter(filters.accountSubjectFilter);
+      setClientNameFilter(filters.clientFilter);
+      setGroupFilter(filters.groupFilter);
+      setSelectedFolderId("");
+      setFolderScope(filters.groupFilter === "all" ? "all" : filters.groupFilter);
+      setEvidenceFilter(filters.evidenceFilter);
+      setSearchQuery(filters.searchQuery);
+    });
+  }, []);
+
+  const handleResetFilters = useCallback(() => {
+    startTransition(() => {
+      setPeriodKey("thisMonth");
+      setDateFilter({ startDate: "", endDate: "" });
+      setFlowFilter("all");
+      setLedgerScopeFilter("all");
+      setStatusTab("all");
+      setAccountFilter("");
+      setAccountSubjectFilter("");
+      setClientNameFilter("");
+      setGroupFilter("all");
+      setFolderScope("all");
+      setSelectedFolderId("");
+      setEvidenceFilter("all");
+      setSearchQuery("");
+      setFilterResetKey((key) => key + 1);
+      setSort(DEFAULT_BANK_TRANSACTION_SORT);
+    });
+  }, []);
+
+  const preauthNetActionCount = useMemo(() => {
+    if (!isPageActive || pageView !== "list") return 0;
+    return detectPreauthNetGroups(bankTransactions, bankLedgerRules).length;
+  }, [isPageActive, pageView, bankTransactions, bankLedgerRules]);
+
+  const recurringFixedActionCount = useMemo(() => {
+    if (!isPageActive || pageView !== "list") return 0;
+    return detectRecurringFixedExpensePatterns(bankTransactions, fixedExpenses).length;
+  }, [isPageActive, pageView, bankTransactions, fixedExpenses]);
+
   const recurringFixedPatterns = useMemo(
-    () => (isPageActive ? detectRecurringFixedExpensePatterns(bankTransactions, fixedExpenses) : []),
-    [isPageActive, bankTransactions, fixedExpenses],
+    () =>
+      recurringFixedModalOpen
+        ? detectRecurringFixedExpensePatterns(bankTransactions, fixedExpenses)
+        : [],
+    [recurringFixedModalOpen, bankTransactions, fixedExpenses],
   );
 
   const preauthNetGroups = useMemo(
-    () => (isPageActive ? detectPreauthNetGroups(bankTransactions, bankLedgerRules) : []),
-    [isPageActive, bankTransactions, bankLedgerRules],
+    () => (preauthNetModalOpen ? detectPreauthNetGroups(bankTransactions, bankLedgerRules) : []),
+    [preauthNetModalOpen, bankTransactions, bankLedgerRules],
   );
 
   const openPreauthNetModal = () => {
@@ -3482,7 +3535,7 @@ export function BankTransactionsPage({
   };
 
 
-  const runAutoClassify = () => {
+  const runAutoClassify = useCallback(() => {
     const result = autoClassifyBankTransactions(bankTransactions, clients, workers, bankTransactionFolders);
     setBankTransactions(result.next);
     setBankTransactionFolders(result.folders);
@@ -3499,7 +3552,14 @@ export function BankTransactionsPage({
       });
     }
     setImportMessage(`${result.updated}${L.autoClassifyDone}`);
-  };
+  }, [
+    bankTransactions,
+    bankTransactionFolders,
+    clients,
+    workers,
+    currentUser,
+    recordSummaryAudit,
+  ]);
 
   const openCreateFolderModal = (folderType: BankTransactionFolderType, parentId = "") => {
     setNewFolderType(folderType);
@@ -5214,177 +5274,61 @@ export function BankTransactionsPage({
 
       {hasAnyData && pageView === "list" ? (
         <BankTransactionFilterBar
-          applied={{
-            periodKey,
-            startDate: dateFilter.startDate,
-            endDate: dateFilter.endDate,
-            statusTab,
-            flowFilter,
-            accountFilter,
-            accountSubjectFilter,
-            clientFilter: clientNameFilter,
-            groupFilter,
-            evidenceFilter,
-            searchQuery,
-          }}
-          onApplySearch={(value) => {
-            startTransition(() => setSearchQuery(value));
-          }}
-          onApply={(filters) => {
-            startTransition(() => {
-              setPeriodKey(filters.periodKey);
-              setDateFilter({ startDate: filters.startDate, endDate: filters.endDate });
-              setStatusTab(filters.statusTab);
-              setFlowFilter(filters.flowFilter);
-              setAccountFilter(filters.accountFilter);
-              setAccountSubjectFilter(filters.accountSubjectFilter);
-              setClientNameFilter(filters.clientFilter);
-              setGroupFilter(filters.groupFilter);
-              setSelectedFolderId("");
-              setFolderScope(filters.groupFilter === "all" ? "all" : filters.groupFilter);
-              setEvidenceFilter(filters.evidenceFilter);
-              setSearchQuery(filters.searchQuery);
-            });
-          }}
+          applied={appliedFilters}
+          onApplySearch={handleApplySearch}
+          onApply={handleApplyFilters}
           statusCounts={statusCounts}
           accounts={accountSummaries}
           accountSubjects={accountSubjectFilterOptions}
           clients={clients}
           filterResetKey={filterResetKey}
-          onReset={() => {
-            startTransition(() => {
-              setPeriodKey("thisMonth");
-              setDateFilter({ startDate: "", endDate: "" });
-              setFlowFilter("all");
-              setLedgerScopeFilter("all");
-              setStatusTab("all");
-              setAccountFilter("");
-              setAccountSubjectFilter("");
-              setClientNameFilter("");
-              setGroupFilter("all");
-              setFolderScope("all");
-              setSelectedFolderId("");
-              setEvidenceFilter("all");
-              setSearchQuery("");
-              setFilterResetKey((key) => key + 1);
-              setSort(DEFAULT_BANK_TRANSACTION_SORT);
-            });
-          }}
+          onReset={handleResetFilters}
         />
       ) : null}
 
       {hasAnyData && pageView === "list" ? (
-        <>
-          {showEmptyPeriodHint ? (
-            <p className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
-              {L.emptyPeriodHint}
-            </p>
-          ) : null}
-        <div className="erp-bank-wehago-table-shell rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <TableExportSection
-          fileName={`bank-transactions-${todayISO()}`}
-          title={L.pageTitle}
-          disabled={!filteredRows.length}
-          hideToolbar
-          tableSelector="#bank-transactions-table"
-          getParsedTable={getBankTransactionsExportParsed}
-        >
-          <BankTransactionListSection
-            rows={deferredFilteredRows}
-            isListActive={isPageActive && pageView === "list"}
-            accountSubjectLabels={accountSubjectLabels}
-            folderMap={folderMap}
-            ledgerCategoryFolder={ledgerCategoryFolder}
-            companyExpenses={companyExpenses}
-            fixedExpensePayments={fixedExpensePayments}
-            fixedExpenses={fixedExpenses}
-            ledgerCategories={ledgerCategories}
-            accountCodes={accountCodes}
-            taxInvoices={taxInvoices}
-            clients={clients}
-            workers={workers}
-            paymentVouchers={paymentVouchers}
-            labels={listSectionLabels}
-            onEditMemo={openMemoModal}
-            onEditAccountSubject={openAccountSubjectModal}
-            onEditClient={openClientModal}
-            onEditFixedExpense={openFixedExpenseModal}
-            onFindEvidence={openTaxInvoiceModal}
-            onIssueTaxInvoice={setTaxInvoices ? openTaxInvoiceIssueModal : undefined}
-            onFilterCounterparty={openCounterpartyDrawer}
-            toolbar={
-              <>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="rounded-xl"
-                  onClick={() => {
-                    const linkedCount = runBatchEvidenceAutoLink();
-                    setImportMessage(
-                      linkedCount > 0
-                        ? L.evidenceBatchAutoLinked(linkedCount)
-                        : L.evidenceBatchAutoLinkedNone,
-                    );
-                  }}
-                >
-                  {L.evidenceAutoMatch}
-                </Button>
-                {preauthNetGroups.length ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="rounded-xl"
-                    onClick={openPreauthNetModal}
-                  >
-                    <ArrowLeftRight size={14} className="mr-1" />
-                    {L.preauthNetOpen} ({preauthNetGroups.length})
-                  </Button>
-                ) : null}
-                {recurringFixedPatterns.length ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="rounded-xl"
-                    onClick={openRecurringFixedModal}
-                  >
-                    <Repeat size={14} className="mr-1" />
-                    {L.recurringFixedOpen} ({recurringFixedPatterns.length})
-                  </Button>
-                ) : null}
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="rounded-xl"
-                  onClick={runAutoClassify}
-                >
-                  <Sparkles size={14} className="mr-1" />
-                  {L.autoClassify}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="rounded-xl"
-                  onClick={openCreateFixedExpenseItem}
-                >
-                  {L.addFixedExpense}
-                </Button>
-              </>
-            }
-          />
-          <BankTransactionTableFooter
-            count={stats.count}
-            deposits={stats.deposits}
-            withdrawals={stats.withdrawals}
-            net={stats.net}
-          />
-        </TableExportSection>
-        </div>
-        </>
+        <BankTransactionsListPanel
+          rows={deferredFilteredRows}
+          isListActive={isPageActive && pageView === "list"}
+          showEmptyPeriodHint={showEmptyPeriodHint}
+          emptyPeriodHint={L.emptyPeriodHint}
+          exportFileName={`bank-transactions-${todayISO()}`}
+          exportTitle={L.pageTitle}
+          accountSubjectLabels={accountSubjectLabels}
+          folderMap={folderMap}
+          ledgerCategoryFolder={ledgerCategoryFolder}
+          companyExpenses={companyExpenses}
+          fixedExpensePayments={fixedExpensePayments}
+          fixedExpenses={fixedExpenses}
+          ledgerCategories={ledgerCategories}
+          accountCodes={accountCodes}
+          taxInvoices={taxInvoices}
+          clients={clients}
+          workers={workers}
+          paymentVouchers={paymentVouchers}
+          labels={listSectionLabels}
+          stats={stats}
+          onEditMemo={openMemoModal}
+          onEditAccountSubject={openAccountSubjectModal}
+          onEditClient={openClientModal}
+          onEditFixedExpense={openFixedExpenseModal}
+          onFindEvidence={openTaxInvoiceModal}
+          onIssueTaxInvoice={setTaxInvoices ? openTaxInvoiceIssueModal : undefined}
+          onFilterCounterparty={openCounterpartyDrawer}
+          onBatchEvidenceAutoLink={handleBatchEvidenceAutoLink}
+          onOpenPreauthNet={openPreauthNetModal}
+          onOpenRecurringFixed={openRecurringFixedModal}
+          onAutoClassify={runAutoClassify}
+          onCreateFixedExpenseItem={openCreateFixedExpenseItem}
+          preauthNetActionCount={preauthNetActionCount}
+          recurringFixedActionCount={recurringFixedActionCount}
+          evidenceAutoMatchLabel={L.evidenceAutoMatch}
+          preauthNetOpenLabel={L.preauthNetOpen}
+          recurringFixedOpenLabel={L.recurringFixedOpen}
+          autoClassifyLabel={L.autoClassify}
+          addFixedExpenseLabel={L.addFixedExpense}
+          getBankTransactionsExportParsed={getBankTransactionsExportParsed}
+        />
       ) : null}
 
       {importPreview ? (
@@ -6651,3 +6595,5 @@ export function BankTransactionsPage({
     </div>
   );
 }
+
+export const BankTransactionsPage = memo(BankTransactionsPageComponent, bankTransactionsPagePropsAreEqual);

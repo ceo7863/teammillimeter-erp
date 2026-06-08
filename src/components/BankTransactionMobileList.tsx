@@ -8,11 +8,11 @@ import type { BankTransactionSimpleTableLabels } from "@/components/BankTransact
 
 const BANK_MOBILE_CARD_ESTIMATE_PX = 132;
 const BANK_MOBILE_OVERSCAN = 3;
-const BANK_MOBILE_VIRTUAL_MIN = 18;
+const BANK_MOBILE_VIRTUAL_MIN = 1;
 
 type BankTransactionMobileListProps = {
   rowIds: string[];
-  rowModels: Map<string, BankTransactionCompactRowModel>;
+  getRowModel: (id: string) => BankTransactionCompactRowModel | undefined;
   labels: BankTransactionSimpleTableLabels;
   badgeLabels: BankTransactionCompactRowLabels;
   onEditAccountContent: (id: string) => void;
@@ -131,7 +131,7 @@ function renderMobileCard(
 
 function BankTransactionMobileListComponent({
   rowIds,
-  rowModels,
+  getRowModel,
   labels,
   badgeLabels,
   onEditAccountContent,
@@ -160,7 +160,7 @@ function BankTransactionMobileListComponent({
     return (
       <MobileRecordList className="erp-bank-mobile-list">
         {rowIds.map((id) => {
-          const model = rowModels.get(id);
+          const model = getRowModel(id);
           if (!model) return null;
           return renderMobileCard(
             id,
@@ -186,7 +186,7 @@ function BankTransactionMobileListComponent({
       {paddingTop > 0 ? <div aria-hidden="true" style={{ height: paddingTop }} /> : null}
       {virtualRows.map((virtualRow) => {
         const id = rowIds[virtualRow.index]!;
-        const model = rowModels.get(id);
+        const model = getRowModel(id);
         if (!model) return null;
         return renderMobileCard(
           id,

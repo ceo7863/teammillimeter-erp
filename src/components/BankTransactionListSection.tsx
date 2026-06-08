@@ -13,7 +13,8 @@ import { resolveAccountCodeLabel } from "@/utils/ledgerSystem";
 import type { TaxInvoice } from "@/utils/taxInvoices";
 import {
   buildBankTransactionListLookupMaps,
-  buildBankTransactionListRowModels,
+  buildBankTransactionListRowModel,
+  type BankTransactionListRowBuildContext,
   type BankTransactionListRowModel,
 } from "@/utils/bankTransactionListDisplay";
 
@@ -92,48 +93,29 @@ function BankTransactionListSectionComponent({
     [isListActive, rows.length, companyExpenses, fixedExpensePayments, fixedExpenses],
   );
 
-  const rowModels = useMemo(() => {
-    if (!isListActive || !rows.length || !lookupMaps) return new Map<string, BankTransactionListRowModel>();
-    const base = buildBankTransactionListRowModels(
-      rows,
+  const rowBuildContext = useMemo((): BankTransactionListRowBuildContext | null => {
+    if (!isListActive || !rows.length || !lookupMaps) return null;
+    return {
       folderMap,
       ledgerCategoryFolder,
-      lookupMaps,
-      { unfiled: labels.unfiled, accountContentPlaceholder: labels.accountContentPlaceholder },
+      lookup: lookupMaps,
+      labels: { unfiled: labels.unfiled, accountContentPlaceholder: labels.accountContentPlaceholder },
       paymentVouchers,
       ledgerCategories,
       companyExpenses,
       fixedExpensePayments,
       fixedExpenses,
       accountCodes,
-      taxInvoices,
+      taxInvoiceById: new Map(taxInvoices.map((row) => [row.id, row])),
       clients,
       workers,
-    );
-    if (!Object.keys(accountSubjectLabels).length) return base;
-    const patched = new Map(base);
-    for (const row of rows) {
-      const model = patched.get(row.id);
-      if (!model) continue;
-      const txKey = String(row.id);
-      const optimisticLabel = accountSubjectLabels[txKey];
-      const code = String(row.ledgerAccountCode || "").trim();
-      patched.set(row.id, {
-        ...model,
-        accountSubjectLabel: optimisticLabel
-          ? optimisticLabel
-          : code
-            ? resolveAccountCodeLabel(accountCodes, code) || code
-            : null,
-      });
-    }
-    return patched;
+    };
   }, [
-    rows,
-    accountSubjectLabels,
+    isListActive,
+    rows.length,
+    lookupMaps,
     folderMap,
     ledgerCategoryFolder,
-    lookupMaps,
     labels.unfiled,
     labels.accountContentPlaceholder,
     paymentVouchers,
@@ -145,8 +127,51 @@ function BankTransactionListSectionComponent({
     taxInvoices,
     clients,
     workers,
-    isListActive,
   ]);
+
+  const rowModelCacheRef = useRef(new Map<string, BankTransactionListRowModel>());
+  const rowModelCacheKeyRef = useRef("");
+
+  const rowModelCacheKey = useMemo(() => {
+    if (!rows.length) return "";
+    const first = rows[0]?.id ?? "";
+    const last = rows[rows.length - 1]?.id ?? "";
+    const subjectKeys = Object.keys(accountSubjectLabels).sort().join(",");
+    return `${rows.length}:${first}:${last}:${subjectKeys}`;
+  }, [rows, accountSubjectLabels]);
+
+  if (rowModelCacheKeyRef.current !== rowModelCacheKey) {
+    rowModelCacheKeyRef.current = rowModelCacheKey;
+    rowModelCacheRef.current = new Map();
+  }
+
+  const getRowModel = useCallback(
+    (id: string): BankTransactionListRowModel | undefined => {
+      const cached = rowModelCacheRef.current.get(id);
+      if (cached) return cached;
+
+      const row = rowByIdRef.current.get(String(id));
+      if (!row || !rowBuildContext) return undefined;
+
+      let model = buildBankTransactionListRowModel(row, rowBuildContext);
+      const optimisticLabel = accountSubjectLabels[id];
+      if (optimisticLabel) {
+        model = { ...model, accountSubjectLabel: optimisticLabel };
+      } else {
+        const code = String(row.ledgerAccountCode || "").trim();
+        if (code) {
+          const resolved = resolveAccountCodeLabel(accountCodes, code) || code;
+          if (resolved !== model.accountSubjectLabel) {
+            model = { ...model, accountSubjectLabel: resolved };
+          }
+        }
+      }
+
+      rowModelCacheRef.current.set(id, model);
+      return model;
+    },
+    [rowBuildContext, accountSubjectLabels, accountCodes],
+  );
 
   const rowIds = useMemo(() => rows.map((row) => row.id), [rows]);
 
@@ -282,7 +307,7 @@ function BankTransactionListSectionComponent({
       </div>
       <BankTransactionMobileList
         rowIds={rowIds}
-        rowModels={rowModels}
+        getRowModel={getRowModel}
         labels={mobileLabels}
         badgeLabels={badgeLabels}
         onEditAccountContent={handleEditMemo}
@@ -291,7 +316,7 @@ function BankTransactionListSectionComponent({
       />
       <BankTransactionSplitTable
         rowIds={rowIds}
-        rowModels={rowModels}
+        getRowModel={getRowModel}
         labels={splitLabels}
         onEditMemo={handleEditMemo}
         onEditAccountSubject={handleEditAccountSubject}

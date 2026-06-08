@@ -34,12 +34,12 @@ export type BankTransactionSplitTableLabels = {
 
 const BANK_SPLIT_ROW_ESTIMATE_PX = 38;
 const BANK_SPLIT_OVERSCAN = 4;
-const BANK_SPLIT_VIRTUAL_MIN = 18;
+const BANK_SPLIT_VIRTUAL_MIN = 1;
 const BANK_SPLIT_COL_SPAN = 14;
 
 type BankTransactionSplitTableProps = {
   rowIds: string[];
-  rowModels: Map<string, BankTransactionListRowModel>;
+  getRowModel: (id: string) => BankTransactionListRowModel | undefined;
   labels: BankTransactionSplitTableLabels;
   onEditMemo: (id: string) => void;
   onEditAccountSubject: (id: string) => void;
@@ -325,7 +325,7 @@ const SplitRow = memo(function SplitRow({
 
 function BankTransactionSplitTableComponent({
   rowIds,
-  rowModels,
+  getRowModel,
   labels,
   onEditMemo,
   onEditAccountSubject,
@@ -347,7 +347,7 @@ function BankTransactionSplitTableComponent({
   });
 
   const renderRow = (id: string) => {
-    const model = rowModels.get(id);
+    const model = getRowModel(id);
     if (!model) return null;
     return (
       <SplitRow

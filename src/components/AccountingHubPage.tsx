@@ -1,7 +1,10 @@
-import React, { useEffect, useState, type ComponentProps } from "react";
+import React, { lazy, Suspense, useEffect, useState, type ComponentProps } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { KeepAlivePanel } from "@/components/PageKeepAlive";
-import { BankTransactionsPage } from "@/components/BankTransactionsPage";
+
+const BankTransactionsPage = lazy(() =>
+  import("@/components/BankTransactionsPage").then((module) => ({ default: module.BankTransactionsPage })),
+);
 import { LedgerViewerPage, type LedgerViewerSubTab } from "@/components/LedgerViewerPage";
 import { TaxInvoicePage } from "@/components/TaxInvoicePage";
 import { LedgerClassificationManagePage } from "@/components/LedgerClassificationManagePage";
@@ -106,14 +109,16 @@ export function AccountingHubPage({
 
       {mountedTabs.bank ? (
         <KeepAlivePanel active={activeTab === "bank"}>
-          <BankTransactionsPage
-            {...bank}
-            isPageActive={isHubActive && activeTab === "bank"}
-            onNavigateToCompanyLedger={() => switchTab("ledger")}
-            onNavigateToClassify={() => switchTab("classify")}
-            onNavigateToFixedExpense={openLedgerFixedTab}
-            onNavigateToTaxInvoice={() => switchTab("tax")}
-          />
+          <Suspense fallback={<div className="erp-page p-6 text-sm text-slate-500">{"\uD1B5\uC7A5 \uB0B4\uC5ED \uBD88\uB7EC\uC624\uB294 \uC911\u2026"}</div>}>
+            <BankTransactionsPage
+              {...bank}
+              isPageActive={isHubActive && activeTab === "bank"}
+              onNavigateToCompanyLedger={() => switchTab("ledger")}
+              onNavigateToClassify={() => switchTab("classify")}
+              onNavigateToFixedExpense={openLedgerFixedTab}
+              onNavigateToTaxInvoice={() => switchTab("tax")}
+            />
+          </Suspense>
         </KeepAlivePanel>
       ) : null}
 
