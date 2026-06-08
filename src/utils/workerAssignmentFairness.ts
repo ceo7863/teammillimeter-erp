@@ -1,4 +1,13 @@
-import type { WorkerPaymentSummaryRow } from "@/utils/workerPayments";
+import type { WorkerMasterLike, WorkerPaymentSummaryRow } from "@/utils/workerPayments";
+import {
+  compareWorkerMastersDefault,
+  filterActiveWorkers,
+  normalizeWorkerCategory,
+  normalizeWorkerName,
+  summarizeWorkerPaymentRows,
+  WORKER_CATEGORY_TEAM,
+  type WorkerPaymentDetailRow,
+} from "@/utils/workerPayments";
 
 export type WorkerAssignmentPriority = "high" | "normal" | "low";
 
@@ -16,6 +25,7 @@ export type WorkerAssignmentFairnessRow = {
 export type WorkerAssignmentFairnessSummary = {
   monthKey: string;
   averageLineCount: number;
+  teamWorkerCount: number;
   activeWorkerCount: number;
   belowAverageCount: number;
   aboveAverageCount: number;
@@ -87,6 +97,7 @@ export function buildWorkerAssignmentFairness(
     summary: {
       monthKey,
       averageLineCount,
+      teamWorkerCount: summaryRows.length,
       activeWorkerCount,
       belowAverageCount,
       aboveAverageCount,
@@ -95,4 +106,46 @@ export function buildWorkerAssignmentFairness(
     },
     rows,
   };
+}
+
+export function listWorkerAssignmentFairnessTeamWorkers(workers: WorkerMasterLike[] = []) {
+  return filterActiveWorkers(workers).filter(
+    (worker) => normalizeWorkerCategory(worker.category) === WORKER_CATEGORY_TEAM,
+  );
+}
+
+export function summarizeWorkerAssignmentFairnessRows(
+  monthlyDetailRows: WorkerPaymentDetailRow[] = [],
+  workers: WorkerMasterLike[] = [],
+): WorkerPaymentSummaryRow[] {
+  const teamWorkers = listWorkerAssignmentFairnessTeamWorkers(workers);
+  const rosterNames = new Set(
+    teamWorkers.map((worker) => normalizeWorkerName(worker.name)).filter(Boolean),
+  );
+  const summarizedByName = new Map(
+    summarizeWorkerPaymentRows(monthlyDetailRows, teamWorkers).map((row) => [normalizeWorkerName(row.name), row]),
+  );
+
+  return [...teamWorkers]
+    .sort(compareWorkerMastersDefault)
+    .map((worker) => {
+      const name = normalizeWorkerName(worker.name);
+      if (!name) return null;
+      return (
+        summarizedByName.get(name) || {
+          workerId: worker.id,
+          name,
+          phone: worker.phone,
+          bank: worker.bank,
+          account: worker.account,
+          feeRate: worker.feeRate ?? 0,
+          lineCount: 0,
+          headcount: 0,
+          grossPay: 0,
+          fee: 0,
+          netPay: 0,
+        }
+      );
+    })
+    .filter((row): row is WorkerPaymentSummaryRow => Boolean(row) && rosterNames.has(row.name));
 }

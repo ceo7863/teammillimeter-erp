@@ -7,7 +7,7 @@ import { TableExportSection } from "@/components/TableExportSection";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { WorkerStatementTab } from "@/components/WorkerStatementTab";
 import { WorkerAssignmentFairnessTab } from "@/components/WorkerAssignmentFairnessTab";
-import { buildWorkerAssignmentFairness } from "@/utils/workerAssignmentFairness";
+import { buildWorkerAssignmentFairness, summarizeWorkerAssignmentFairnessRows } from "@/utils/workerAssignmentFairness";
 import {
   filterSalesByDate,
   flattenSalesToWorkerPaymentRows,
@@ -296,9 +296,14 @@ export function WorkerPaymentsPage({
     [statementMonthSummaryRows],
   );
 
+  const assignmentFairnessSummaryRows = useMemo(
+    () => summarizeWorkerAssignmentFairnessRows(monthlySalesRows, workers),
+    [monthlySalesRows, workers],
+  );
+
   const assignmentFairness = useMemo(
-    () => buildWorkerAssignmentFairness(statementMonthSummaryRows, selectedMonthKey),
-    [selectedMonthKey, statementMonthSummaryRows],
+    () => buildWorkerAssignmentFairness(assignmentFairnessSummaryRows, selectedMonthKey),
+    [assignmentFairnessSummaryRows, selectedMonthKey],
   );
 
   const hubMetrics = useMemo(() => {
@@ -327,7 +332,13 @@ export function WorkerPaymentsPage({
       return {
         items: [
           {
-            label: "월 평균 참여",
+            label: "\uD300\uC6D0",
+            value: assignmentFairness.summary.teamWorkerCount,
+            tone: "default" as const,
+            format: "count" as const,
+          },
+          {
+            label: "\uC6D4 \uD3C9\uADFC \uCC38\uC5EC",
             value: assignmentFairness.summary.averageLineCount,
             tone: "default" as const,
             format: "lineCount" as const,

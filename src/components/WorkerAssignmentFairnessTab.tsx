@@ -5,9 +5,10 @@ import { TableExportSection } from "@/components/TableExportSection";
 import {
   buildWorkerAssignmentFairness,
   formatWorkerAssignmentDelta,
+  summarizeWorkerAssignmentFairnessRows,
   type WorkerAssignmentFairnessRow,
 } from "@/utils/workerAssignmentFairness";
-import { formatKRW, summarizeWorkerPaymentRows, type WorkerPaymentDetailRow } from "@/utils/workerPayments";
+import { formatKRW, type WorkerPaymentDetailRow } from "@/utils/workerPayments";
 import { formatMonthLabel } from "@/utils/workerMonthlyPayments";
 
 const LABEL_COUNT = "\uAC74";
@@ -19,8 +20,9 @@ const LABEL_PRIORITY = "\uBC30\uCE58 \uC6B0\uC120\uC21C\uC704";
 const LABEL_PARTICIPATION = "\uCC38\uC5EC\uAC74\uC218";
 const LABEL_BASE_MONTH = "\uAE30\uC900 \uC6D4";
 const LABEL_AVG = "\uD3C9\uADFC";
-const LABEL_ACTIVE = "\uD65C\uC131";
+const LABEL_ACTIVE = "\uCC38\uC5EC";
 const LABEL_PEOPLE = "\uBA85";
+const LABEL_TEAM = "\uD300\uC6D0";
 const LABEL_BELOW_AVG = "\uD3C9\uADFC \uC774\uD558";
 const LABEL_ABOVE_AVG = "\uD3C9\uADFC \uC774\uC0C1";
 const LABEL_TOTAL_PARTICIPATION = "\uCD1D \uCC38\uC5EC";
@@ -30,11 +32,11 @@ const LABEL_ASSIGN_ADJUST = "\uBC30\uCE58 \uC5EC\uC720 \uB610\uB294 \uC870\uC815
 const LABEL_MONTH_AVG_PARTICIPATION = "\uC6D4 \uD3C9\uADFC \uCC38\uC5EC";
 const LABEL_BY_WORKER = "\uC2DC\uACF5\uC790\uBCF4 \uCC38\uC5EC \uAC74\uC218";
 const LABEL_FAIRNESS = "\uBC30\uCE58 \uACF5\uC815\uB3C4";
-const LABEL_TOP30 = "\uC0C1\uC704 30\uBA85";
-const LABEL_NO_DATA = "\uCC38\uC5EC \uAC74\uC218 \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.";
-const LABEL_NO_MONTH_DATA = "\uC120\uD0DD\uD55C \uC6D4\uC5D0 \uC2DC\uACF5\uC790 \uCC38\uC5EC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.";
+const LABEL_ALL_WORKERS = LABEL_TEAM;
+const LABEL_NO_DATA = "\uD300\uC6D0 \uCC38\uC5EC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.";
+const LABEL_NO_MONTH_DATA = "\uC120\uD0DD\uD55C \uC6D4\uC5D0 \uD300\uC6D0 \uCC38\uC5EC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.";
 const LABEL_DESC =
-  "\uB9E4\uCD9C \uC804\uD45C \uAE30\uC900 \uCC38\uC5EC \uAC74\uC218(1\uD589=1\uAC74)\uB85C \uC6D4 \uD3C9\uADFC\uC744 \uACC4\uC0B0\uD558\uACE0, \uB2E4\uC74C \uD604\uC7A5 \uBC30\uCE58 \uC6B0\uC120\uC21C\uC704\uB97C \uC81C\uC548\uD569\uB2C8\uB2E4.";
+  "\uC2DC\uACF5\uC790 \uB9C8\uC2A4\uD130 \uD65C\uC131 \uD300\uC6D0\uB9CC \uB300\uC0C1\uC73C\uB85C, \uB9E4\uCD9C \uC804\uD45C \uCC38\uC5EC \uAC74\uC218(1\uD589=1\uAC74)\uAE30\uC900 \uC6D4 \uD3C9\uADFC\uACFC \uBC30\uCE58 \uC6B0\uC120\uC21C\uC704\uB97C \uC81C\uC548\uD569\uB2C8\uB2E4.";
 
 function SummaryCard({
   title,
@@ -85,19 +87,13 @@ function PriorityBadge({ row }: { row: WorkerAssignmentFairnessRow }) {
 function WorkerParticipationFairnessChart({
   rows,
   averageLineCount,
-  limit = 30,
 }: {
   rows: WorkerAssignmentFairnessRow[];
   averageLineCount: number;
-  limit?: number;
 }) {
-  const visibleRows = useMemo(
-    () => rows.filter((row) => row.lineCount > 0).slice(0, limit),
-    [rows, limit],
-  );
   const maxLineCount = useMemo(
-    () => Math.max(...visibleRows.map((row) => row.lineCount), averageLineCount, 1),
-    [visibleRows, averageLineCount],
+    () => Math.max(...rows.map((row) => row.lineCount), averageLineCount, 1),
+    [rows, averageLineCount],
   );
 
   const barHeight = (value: number) => {
@@ -107,7 +103,7 @@ function WorkerParticipationFairnessChart({
 
   const averageHeight = averageLineCount > 0 ? Math.max((averageLineCount / maxLineCount) * 100, 4) : 0;
 
-  if (!visibleRows.length) {
+  if (!rows.length) {
     return <p className="erp-text-body py-8 text-center text-slate-500">{LABEL_NO_DATA}</p>;
   }
 
@@ -126,9 +122,9 @@ function WorkerParticipationFairnessChart({
       </div>
       <div
         className="erp-worker-netpay-chart-grid"
-        style={{ ["--worker-netpay-count" as string]: String(visibleRows.length) }}
+        style={{ ["--worker-netpay-count" as string]: String(rows.length) }}
       >
-        {visibleRows.map((row) => (
+        {rows.map((row) => (
           <div
             key={row.name}
             className="erp-worker-netpay-chart-col"
@@ -161,10 +157,10 @@ export function WorkerAssignmentFairnessTab({
   monthKey: string;
   setMonthKey: (value: string) => void;
   monthlyDetailRows: WorkerPaymentDetailRow[];
-  workers: Parameters<typeof summarizeWorkerPaymentRows>[1];
+  workers: Parameters<typeof summarizeWorkerAssignmentFairnessRows>[1];
 }) {
   const summaryRows = useMemo(
-    () => summarizeWorkerPaymentRows(monthlyDetailRows, workers),
+    () => summarizeWorkerAssignmentFairnessRows(monthlyDetailRows, workers),
     [monthlyDetailRows, workers],
   );
 
@@ -172,15 +168,6 @@ export function WorkerAssignmentFairnessTab({
     () => buildWorkerAssignmentFairness(summaryRows, monthKey),
     [summaryRows, monthKey],
   );
-
-  const exportRows = rows.map((row) => ({
-    [LABEL_WORKER]: row.name,
-    [LABEL_PARTICIPATION]: row.lineCount,
-    [LABEL_MONTH_AVG]: summary.averageLineCount,
-    [LABEL_VS_AVG]: formatWorkerAssignmentDelta(row.deltaFromAverage),
-    [LABEL_NET_PAY]: row.netPay,
-    [LABEL_PRIORITY]: row.priorityLabel,
-  }));
 
   return (
     <>
@@ -205,7 +192,7 @@ export function WorkerAssignmentFairnessTab({
         <SummaryCard
           title={LABEL_MONTH_AVG_PARTICIPATION}
           value={`${summary.averageLineCount}${LABEL_COUNT}`}
-          sub={`${formatMonthLabel(monthKey)} \u00B7 ${LABEL_ACTIVE} ${summary.activeWorkerCount}${LABEL_PEOPLE}`}
+          sub={`${formatMonthLabel(monthKey)} \u00B7 ${LABEL_TEAM} ${summary.teamWorkerCount}${LABEL_PEOPLE} \u00B7 ${LABEL_ACTIVE} ${summary.activeWorkerCount}${LABEL_PEOPLE}`}
           icon={Scale}
         />
         <SummaryCard
@@ -236,7 +223,8 @@ export function WorkerAssignmentFairnessTab({
             <h2 className="erp-text-section">{LABEL_BY_WORKER}</h2>
             <span className="erp-text-caption text-slate-500">
               {formatMonthLabel(monthKey)} \u00B7 {LABEL_AVG} {summary.averageLineCount}
-              {LABEL_COUNT} \u00B7 {LABEL_TOP30}
+              {LABEL_COUNT} \u00B7 {LABEL_ALL_WORKERS} {rows.length}
+              {LABEL_PEOPLE}
             </span>
           </div>
           <WorkerParticipationFairnessChart rows={rows} averageLineCount={summary.averageLineCount} />
@@ -249,9 +237,14 @@ export function WorkerAssignmentFairnessTab({
             fileName={`\uC2DC\uACF5\uC790_\uBC30\uCE58\uACF5\uC815\uB3C4_${monthKey}`}
             title={`\uC2DC\uACF5\uC790 ${LABEL_FAIRNESS}`}
             disabled={rows.length === 0}
-            rows={exportRows}
           >
-            <div className="erp-table-wrap">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <span className="erp-text-caption text-slate-500">
+                {formatMonthLabel(monthKey)} \u00B7 {LABEL_ALL_WORKERS} {rows.length}
+                {LABEL_PEOPLE}
+              </span>
+            </div>
+            <div className="erp-table-wrap erp-table-wrap--page-scroll erp-table-wrap--sticky-head">
               <table className="erp-table erp-table--lg">
                 <thead className="bg-slate-100 text-slate-600">
                   <tr>
