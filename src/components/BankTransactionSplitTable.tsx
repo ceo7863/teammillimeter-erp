@@ -1,7 +1,7 @@
-import React, { memo, useLayoutEffect, useRef } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import React, { memo } from "react";
 import { ChevronDown, Link2, Pencil } from "lucide-react";
 import { DesktopTableWrap } from "@/components/MobileRecordCard";
+import { useBankWindowVirtualizer } from "@/hooks/useBankWindowVirtualizer";
 import { BANK_TX_ACCOUNT_TRIGGER_ATTR } from "@/utils/floatingPosition";
 import type { BankTransactionListRowModel } from "@/utils/bankTransactionListDisplay";
 
@@ -35,7 +35,6 @@ export type BankTransactionSplitTableLabels = {
 const BANK_SPLIT_ROW_ESTIMATE_PX = 38;
 const BANK_SPLIT_OVERSCAN = 4;
 const BANK_SPLIT_VIRTUAL_MIN = 18;
-const BANK_SPLIT_SCROLL_HEIGHT_CLASS = "h-[min(72vh,960px)]";
 const BANK_SPLIT_COL_SPAN = 14;
 
 type BankTransactionSplitTableProps = {
@@ -337,22 +336,15 @@ function BankTransactionSplitTableComponent({
   onFilterCounterparty,
   tableId = "bank-transactions-table",
 }: BankTransactionSplitTableProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
   const useVirtualRows = rowIds.length >= BANK_SPLIT_VIRTUAL_MIN;
 
-  const rowVirtualizer = useVirtualizer({
-    count: useVirtualRows ? rowIds.length : 0,
-    getScrollElement: () => scrollRef.current,
+  const { anchorRef, virtualizer: rowVirtualizer } = useBankWindowVirtualizer({
+    count: rowIds.length,
+    enabled: useVirtualRows,
     estimateSize: () => BANK_SPLIT_ROW_ESTIMATE_PX,
     overscan: BANK_SPLIT_OVERSCAN,
     getItemKey: (index) => rowIds[index] ?? index,
   });
-
-  useLayoutEffect(() => {
-    if (!useVirtualRows) return;
-    rowVirtualizer.measure();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rowIds.length, useVirtualRows]);
 
   const renderRow = (id: string) => {
     const model = rowModels.get(id);
@@ -410,10 +402,7 @@ function BankTransactionSplitTableComponent({
 
   return (
     <DesktopTableWrap className="erp-bank-wehago-table-wrap">
-      <div
-        ref={scrollRef}
-        className={`erp-bank-table-scroll ${BANK_SPLIT_SCROLL_HEIGHT_CLASS} overflow-auto overscroll-contain`}
-      >
+      <div ref={anchorRef} className="erp-bank-table-scroll erp-bank-table-scroll--page">
         <table id={tableId} className="erp-table erp-bank-split-table erp-bank-wehago-split-table w-full min-w-[1180px]">
           {tableHead}
           <tbody>

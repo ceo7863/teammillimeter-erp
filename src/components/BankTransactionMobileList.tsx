@@ -1,7 +1,7 @@
-import React, { memo, useLayoutEffect, useRef } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import React, { memo } from "react";
 import { AutoLinkBadge, ManualLinkBadge, PartialPaymentBadge } from "@/components/AutoLinkBadge";
 import { MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
+import { useBankWindowVirtualizer } from "@/hooks/useBankWindowVirtualizer";
 import { BANK_TX_ACCOUNT_TRIGGER_ATTR } from "@/utils/floatingPosition";
 import type { BankTransactionCompactRowLabels, BankTransactionCompactRowModel } from "@/components/BankTransactionCompactRow";
 import type { BankTransactionSimpleTableLabels } from "@/components/BankTransactionSimpleTable";
@@ -9,7 +9,6 @@ import type { BankTransactionSimpleTableLabels } from "@/components/BankTransact
 const BANK_MOBILE_CARD_ESTIMATE_PX = 132;
 const BANK_MOBILE_OVERSCAN = 3;
 const BANK_MOBILE_VIRTUAL_MIN = 18;
-const BANK_MOBILE_SCROLL_HEIGHT_CLASS = "h-[min(72vh,960px)]";
 
 type BankTransactionMobileListProps = {
   rowIds: string[];
@@ -139,22 +138,15 @@ function BankTransactionMobileListComponent({
   onEditAccountSubject,
   onEditFixedExpense,
 }: BankTransactionMobileListProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
   const useVirtualRows = rowIds.length >= BANK_MOBILE_VIRTUAL_MIN;
 
-  const rowVirtualizer = useVirtualizer({
-    count: useVirtualRows ? rowIds.length : 0,
-    getScrollElement: () => scrollRef.current,
+  const { anchorRef, virtualizer: rowVirtualizer } = useBankWindowVirtualizer({
+    count: rowIds.length,
+    enabled: useVirtualRows,
     estimateSize: () => BANK_MOBILE_CARD_ESTIMATE_PX,
     overscan: BANK_MOBILE_OVERSCAN,
     getItemKey: (index) => rowIds[index] ?? index,
   });
-
-  useLayoutEffect(() => {
-    if (!useVirtualRows) return;
-    rowVirtualizer.measure();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rowIds.length, useVirtualRows]);
 
   if (!rowIds.length) {
     return (
@@ -190,10 +182,7 @@ function BankTransactionMobileListComponent({
     virtualRows.length > 0 ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end : 0;
 
   return (
-    <div
-      ref={scrollRef}
-      className={`erp-bank-mobile-list erp-bank-mobile-scroll ${BANK_MOBILE_SCROLL_HEIGHT_CLASS} space-y-3 overflow-auto overscroll-contain md:hidden`}
-    >
+    <div ref={anchorRef} className="erp-bank-mobile-list erp-bank-mobile-scroll erp-bank-mobile-scroll--page space-y-3 md:hidden">
       {paddingTop > 0 ? <div aria-hidden="true" style={{ height: paddingTop }} /> : null}
       {virtualRows.map((virtualRow) => {
         const id = rowIds[virtualRow.index]!;

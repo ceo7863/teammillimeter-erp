@@ -12871,7 +12871,19 @@ button:disabled,
 }
 
 .erp-bank-wehago-table-shell {
-  overflow: hidden;
+  overflow: visible;
+}
+
+.erp-bank-table-scroll--page,
+.erp-bank-mobile-scroll--page {
+  overflow: visible;
+  max-height: none;
+  height: auto;
+}
+
+.erp-bank-transactions-page .erp-table-scroll-hint {
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
 .erp-bank-wehago-table-toolbar {
