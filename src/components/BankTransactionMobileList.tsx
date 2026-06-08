@@ -1,13 +1,16 @@
 import React, { memo } from "react";
 import { AutoLinkBadge, ManualLinkBadge, PartialPaymentBadge } from "@/components/AutoLinkBadge";
 import { MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
-import { useBankContainerVirtualizer } from "@/hooks/useBankContainerVirtualizer";
+import {
+  fallbackBankVirtualWindow,
+  useBankContainerVirtualizer,
+} from "@/hooks/useBankContainerVirtualizer";
 import { BANK_TX_ACCOUNT_TRIGGER_ATTR } from "@/utils/floatingPosition";
 import type { BankTransactionCompactRowLabels, BankTransactionCompactRowModel } from "@/components/BankTransactionCompactRow";
 import type { BankTransactionSimpleTableLabels } from "@/components/BankTransactionSimpleTable";
 
 const BANK_MOBILE_CARD_ESTIMATE_PX = 132;
-const BANK_MOBILE_OVERSCAN = 4;
+const BANK_MOBILE_OVERSCAN = 8;
 const BANK_MOBILE_VIRTUAL_MIN = 30;
 const BANK_MOBILE_SCROLL_CLASS = "max-h-[calc(100vh-12rem)] overflow-auto overscroll-contain";
 
@@ -177,7 +180,17 @@ function BankTransactionMobileListComponent({
     );
   }
 
-  const virtualRows = rowVirtualizer.getVirtualItems();
+  const rawVirtualRows = rowVirtualizer.getVirtualItems();
+  const virtualRows =
+    rawVirtualRows.length === 0 && rowIds.length > 0
+      ? fallbackBankVirtualWindow(
+          rowIds.length,
+          rowVirtualizer.scrollOffset,
+          BANK_MOBILE_CARD_ESTIMATE_PX,
+          BANK_MOBILE_OVERSCAN,
+          scrollRef.current?.clientHeight ?? 720,
+        )
+      : rawVirtualRows;
   const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
   const paddingBottom =
     virtualRows.length > 0 ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end : 0;

@@ -1,7 +1,10 @@
 import React, { memo } from "react";
 import { ChevronDown, Link2, Pencil } from "lucide-react";
 import { DesktopTableWrap } from "@/components/MobileRecordCard";
-import { useBankContainerVirtualizer } from "@/hooks/useBankContainerVirtualizer";
+import {
+  fallbackBankVirtualWindow,
+  useBankContainerVirtualizer,
+} from "@/hooks/useBankContainerVirtualizer";
 import { BANK_TX_ACCOUNT_TRIGGER_ATTR } from "@/utils/floatingPosition";
 import type { BankTransactionListRowModel } from "@/utils/bankTransactionListDisplay";
 
@@ -32,8 +35,8 @@ export type BankTransactionSplitTableLabels = {
   voucherProcessedBadge: string;
 };
 
-const BANK_SPLIT_ROW_ESTIMATE_PX = 40;
-const BANK_SPLIT_OVERSCAN = 6;
+const BANK_SPLIT_ROW_ESTIMATE_PX = 44;
+const BANK_SPLIT_OVERSCAN = 10;
 const BANK_SPLIT_VIRTUAL_MIN = 50;
 const BANK_SPLIT_SCROLL_CLASS = "max-h-[calc(100vh-13rem)] overflow-auto overscroll-contain";
 const BANK_SPLIT_COL_SPAN = 14;
@@ -441,7 +444,17 @@ function BankTransactionSplitTableComponent({
     </thead>
   );
 
-  const virtualRows = rowVirtualizer.getVirtualItems();
+  const rawVirtualRows = rowVirtualizer.getVirtualItems();
+  const virtualRows =
+    useVirtualRows && rawVirtualRows.length === 0 && rowIds.length > 0
+      ? fallbackBankVirtualWindow(
+          rowIds.length,
+          rowVirtualizer.scrollOffset,
+          BANK_SPLIT_ROW_ESTIMATE_PX,
+          BANK_SPLIT_OVERSCAN,
+          scrollRef.current?.clientHeight ?? 720,
+        )
+      : rawVirtualRows;
   const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
   const paddingBottom =
     virtualRows.length > 0 ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end : 0;
