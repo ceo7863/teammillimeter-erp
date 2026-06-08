@@ -8912,6 +8912,14 @@ export default function TeammillimeterErpMvp() {
     }
   }, [currentUser, active]);
 
+  const sidebarPageBadges = useMemo(
+    () => ({
+      clientSiteRequests: clientSiteRequestPendingCount,
+      saleComments: unreadSaleCommentCount,
+    }),
+    [clientSiteRequestPendingCount, unreadSaleCommentCount],
+  );
+
   if (!currentUser) return <LoginScreen onLogin={handleLogin} />;
 
   if (apiMode && !dataReady) {
@@ -8926,14 +8934,6 @@ export default function TeammillimeterErpMvp() {
   }
 
   const activeLabel = getPageLabel(active);
-
-  const sidebarPageBadges = useMemo(
-    () => ({
-      clientSiteRequests: clientSiteRequestPendingCount,
-      saleComments: unreadSaleCommentCount,
-    }),
-    [clientSiteRequestPendingCount, unreadSaleCommentCount],
-  );
 
   return (
     <AuditProvider auditLogs={auditLogs} setAuditLogs={setAuditLogs} currentUser={currentUser}>
