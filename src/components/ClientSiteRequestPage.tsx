@@ -151,6 +151,11 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
     [requests, selectedRequestId],
   );
 
+  const calendarSelectedRequest = useMemo(() => {
+    if (!selectedRequest || !isClientSiteRequestVisibleOnPublicCalendar(selectedRequest)) return null;
+    return selectedRequest;
+  }, [selectedRequest]);
+
   const loadInfo = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -171,7 +176,8 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
       setRequests(rows);
       setSelectedRequestId((current) => {
         if (current && rows.some((row) => row.id === current)) return current;
-        return rows[0]?.id || "";
+        const visibleOnCalendar = rows.find((row) => isClientSiteRequestVisibleOnPublicCalendar(row));
+        return visibleOnCalendar?.id || "";
       });
     } catch {
       // ignore polling errors
@@ -200,6 +206,18 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
     if (!info) return;
     void loadScSchedules();
   }, [info, loadScSchedules]);
+
+  useEffect(() => {
+    if (tab !== "calendar" || !selectedRequestId) return;
+    if (!calendarRequests.some((row) => row.id === selectedRequestId)) {
+      setSelectedRequestId("");
+    }
+  }, [tab, selectedRequestId, calendarRequests]);
+
+  useEffect(() => {
+    if (tab !== "history" || selectedRequestId || !historyRequests.length) return;
+    setSelectedRequestId(historyRequests[0].id);
+  }, [tab, selectedRequestId, historyRequests]);
 
   useEffect(() => {
     if (!info) return;
@@ -464,9 +482,9 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
                   onSelectRequest={handleCalendarRequestSelect}
                   onRegisterDate={handleRegisterFromDrawer}
                 />
-                {selectedRequest ? (
+                {calendarSelectedRequest ? (
                   <>
-                    {canClientRequestSiteRequestCancel(selectedRequest) ? (
+                    {canClientRequestSiteRequestCancel(calendarSelectedRequest) ? (
                       <div className="flex justify-end">
                         <Button
                           type="button"
@@ -478,13 +496,13 @@ export function ClientSiteRequestPage({ token }: ClientSiteRequestPageProps) {
                         </Button>
                       </div>
                     ) : null}
-                    {selectedRequest.status === "cancel_pending" ? (
+                    {calendarSelectedRequest.status === "cancel_pending" ? (
                       <p className="rounded-xl bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-800">
                         {L.cancelPendingNotice}
                       </p>
                     ) : null}
                     <ClientSiteRequestChat
-                      messages={selectedRequest.messages || []}
+                      messages={calendarSelectedRequest.messages || []}
                       draft={messageDraft}
                       onDraftChange={setMessageDraft}
                       onSend={() => void handleSendMessage()}
