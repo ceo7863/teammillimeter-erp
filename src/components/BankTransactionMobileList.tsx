@@ -1,18 +1,9 @@
 import React, { memo } from "react";
 import { AutoLinkBadge, ManualLinkBadge, PartialPaymentBadge } from "@/components/AutoLinkBadge";
 import { MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
-import {
-  fallbackBankVirtualWindow,
-  useBankContainerVirtualizer,
-} from "@/hooks/useBankContainerVirtualizer";
 import { BANK_TX_ACCOUNT_TRIGGER_ATTR } from "@/utils/floatingPosition";
 import type { BankTransactionCompactRowLabels, BankTransactionCompactRowModel } from "@/components/BankTransactionCompactRow";
 import type { BankTransactionSimpleTableLabels } from "@/components/BankTransactionSimpleTable";
-
-const BANK_MOBILE_CARD_ESTIMATE_PX = 132;
-const BANK_MOBILE_OVERSCAN = 8;
-const BANK_MOBILE_VIRTUAL_MIN = 30;
-const BANK_MOBILE_SCROLL_CLASS = "max-h-[calc(100vh-12rem)] overflow-auto overscroll-contain";
 
 type BankTransactionMobileListProps = {
   rowIds: string[];
@@ -142,16 +133,6 @@ function BankTransactionMobileListComponent({
   onEditAccountSubject,
   onEditFixedExpense,
 }: BankTransactionMobileListProps) {
-  const useVirtualRows = rowIds.length >= BANK_MOBILE_VIRTUAL_MIN;
-
-  const { scrollRef, virtualizer: rowVirtualizer } = useBankContainerVirtualizer({
-    count: rowIds.length,
-    enabled: useVirtualRows,
-    estimateSize: () => BANK_MOBILE_CARD_ESTIMATE_PX,
-    overscan: BANK_MOBILE_OVERSCAN,
-    getItemKey: (index) => rowIds[index] ?? index,
-  });
-
   if (!rowIds.length) {
     return (
       <MobileRecordList className="erp-bank-mobile-list">
@@ -160,49 +141,9 @@ function BankTransactionMobileListComponent({
     );
   }
 
-  if (!useVirtualRows) {
-    return (
-      <MobileRecordList className="erp-bank-mobile-list">
-        {rowIds.map((id) => {
-          const model = getRowModel(id);
-          if (!model) return null;
-          return renderMobileCard(
-            id,
-            model,
-            labels,
-            badgeLabels,
-            onEditAccountContent,
-            onEditAccountSubject,
-            onEditFixedExpense,
-          );
-        })}
-      </MobileRecordList>
-    );
-  }
-
-  const rawVirtualRows = rowVirtualizer.getVirtualItems();
-  const virtualRows =
-    rawVirtualRows.length === 0 && rowIds.length > 0
-      ? fallbackBankVirtualWindow(
-          rowIds.length,
-          rowVirtualizer.scrollOffset,
-          BANK_MOBILE_CARD_ESTIMATE_PX,
-          BANK_MOBILE_OVERSCAN,
-          scrollRef.current?.clientHeight ?? 720,
-        )
-      : rawVirtualRows;
-  const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
-  const paddingBottom =
-    virtualRows.length > 0 ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end : 0;
-
   return (
-    <div
-      ref={scrollRef}
-      className={`erp-bank-mobile-list erp-bank-mobile-scroll space-y-3 md:hidden ${useVirtualRows ? BANK_MOBILE_SCROLL_CLASS : "erp-bank-mobile-scroll--page"}`}
-    >
-      {paddingTop > 0 ? <div aria-hidden="true" style={{ height: paddingTop }} /> : null}
-      {virtualRows.map((virtualRow) => {
-        const id = rowIds[virtualRow.index]!;
+    <MobileRecordList className="erp-bank-mobile-list erp-bank-mobile-scroll erp-bank-mobile-scroll--page space-y-3 md:hidden">
+      {rowIds.map((id) => {
         const model = getRowModel(id);
         if (!model) return null;
         return renderMobileCard(
@@ -215,8 +156,7 @@ function BankTransactionMobileListComponent({
           onEditFixedExpense,
         );
       })}
-      {paddingBottom > 0 ? <div aria-hidden="true" style={{ height: paddingBottom }} /> : null}
-    </div>
+    </MobileRecordList>
   );
 }
 

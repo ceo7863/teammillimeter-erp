@@ -12881,6 +12881,12 @@ button:disabled,
   height: auto;
 }
 
+.erp-bank-table-scroll--page tbody tr,
+.erp-bank-mobile-scroll--page .erp-bank-mobile-card {
+  content-visibility: visible;
+  contain-intrinsic-size: auto;
+}
+
 .erp-bank-transactions-page .erp-table-scroll-hint {
   overflow-x: auto;
   overflow-y: visible;

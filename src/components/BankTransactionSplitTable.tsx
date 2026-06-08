@@ -1,10 +1,6 @@
 import React, { memo } from "react";
 import { ChevronDown, Link2, Pencil } from "lucide-react";
 import { DesktopTableWrap } from "@/components/MobileRecordCard";
-import {
-  fallbackBankVirtualWindow,
-  useBankContainerVirtualizer,
-} from "@/hooks/useBankContainerVirtualizer";
 import { BANK_TX_ACCOUNT_TRIGGER_ATTR } from "@/utils/floatingPosition";
 import type { BankTransactionListRowModel } from "@/utils/bankTransactionListDisplay";
 
@@ -35,10 +31,6 @@ export type BankTransactionSplitTableLabels = {
   voucherProcessedBadge: string;
 };
 
-const BANK_SPLIT_ROW_ESTIMATE_PX = 44;
-const BANK_SPLIT_OVERSCAN = 10;
-const BANK_SPLIT_VIRTUAL_MIN = 50;
-const BANK_SPLIT_SCROLL_CLASS = "max-h-[calc(100vh-13rem)] overflow-auto overscroll-contain";
 const BANK_SPLIT_COL_SPAN = 14;
 
 function splitRowModelsEqual(
@@ -385,16 +377,6 @@ function BankTransactionSplitTableComponent({
   onFilterCounterparty,
   tableId = "bank-transactions-table",
 }: BankTransactionSplitTableProps) {
-  const useVirtualRows = rowIds.length >= BANK_SPLIT_VIRTUAL_MIN;
-
-  const { scrollRef, virtualizer: rowVirtualizer } = useBankContainerVirtualizer({
-    count: rowIds.length,
-    enabled: useVirtualRows,
-    estimateSize: () => BANK_SPLIT_ROW_ESTIMATE_PX,
-    overscan: BANK_SPLIT_OVERSCAN,
-    getItemKey: (index) => rowIds[index] ?? index,
-  });
-
   const renderRow = (id: string) => {
     const model = getRowModel(id);
     if (!model) return null;
@@ -444,27 +426,9 @@ function BankTransactionSplitTableComponent({
     </thead>
   );
 
-  const rawVirtualRows = rowVirtualizer.getVirtualItems();
-  const virtualRows =
-    useVirtualRows && rawVirtualRows.length === 0 && rowIds.length > 0
-      ? fallbackBankVirtualWindow(
-          rowIds.length,
-          rowVirtualizer.scrollOffset,
-          BANK_SPLIT_ROW_ESTIMATE_PX,
-          BANK_SPLIT_OVERSCAN,
-          scrollRef.current?.clientHeight ?? 720,
-        )
-      : rawVirtualRows;
-  const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
-  const paddingBottom =
-    virtualRows.length > 0 ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end : 0;
-
   return (
     <DesktopTableWrap className="erp-bank-wehago-table-wrap">
-      <div
-        ref={scrollRef}
-        className={`erp-bank-table-scroll ${useVirtualRows ? BANK_SPLIT_SCROLL_CLASS : "erp-bank-table-scroll--page"}`}
-      >
+      <div className="erp-bank-table-scroll erp-bank-table-scroll--page">
         <table id={tableId} className="erp-table erp-bank-split-table erp-bank-wehago-split-table w-full min-w-[1180px]">
           {tableHead}
           <tbody>
@@ -474,20 +438,6 @@ function BankTransactionSplitTableComponent({
                   {labels.empty}
                 </td>
               </tr>
-            ) : useVirtualRows ? (
-              <>
-                {paddingTop > 0 ? (
-                  <tr aria-hidden="true">
-                    <td colSpan={BANK_SPLIT_COL_SPAN} style={{ height: paddingTop, padding: 0, border: 0 }} />
-                  </tr>
-                ) : null}
-                {virtualRows.map((virtualRow) => renderRow(rowIds[virtualRow.index]!))}
-                {paddingBottom > 0 ? (
-                  <tr aria-hidden="true">
-                    <td colSpan={BANK_SPLIT_COL_SPAN} style={{ height: paddingBottom, padding: 0, border: 0 }} />
-                  </tr>
-                ) : null}
-              </>
             ) : (
               rowIds.map((id) => renderRow(id))
             )}
