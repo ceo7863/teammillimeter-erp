@@ -10,7 +10,8 @@ import type { ClientSiteRequest, ClientSiteRequestChangeSource } from "@/utils/c
 import { formatClientSiteRequestWorkPeriod } from "@/utils/clientSiteRequests";
 import { formatClientSiteRequestDayLabel, shiftCalendarDate } from "@/utils/clientSiteRequestCalendar";
 import type { ScSchedule } from "@/utils/scSchedules";
-import { formatScScheduleHeadcount, formatScScheduleTimeRange } from "@/utils/scSchedules";
+import { formatScScheduleHeadcount, formatScScheduleTimeRange, resolveScScheduleWorkers } from "@/utils/scSchedules";
+import type { WorkerMasterLike } from "@/utils/workerPayments";
 import { useBodyScrollLock } from "@/utils/bodyScrollLock";
 import { useBackdropPointerDismiss, useModalDismissGuard } from "@/utils/modalBackdrop";
 
@@ -22,6 +23,9 @@ const L = {
   sectionRequests: "\uC811\uC218 \uC694\uCCAD",
   sectionSc: "SC \uD655\uC815 \uC77C\uC815",
   scBadge: "\uD655\uC815",
+  workerName: "\uC2DC\uACF5\uC790\uBA85",
+  workerPhone: "\uC804\uD654\uBC88\uD638",
+  workerVehicle: "\uCC28\uB7C9\uBC88\uD638",
   registerSchedule: "\uC77C\uC815 \uC811\uC218",
   changeSchedule: "\uC77C\uC815 \uBCC0\uACBD \uC694\uCCAD",
 };
@@ -30,6 +34,7 @@ type ClientSiteRequestCalendarDayDrawerProps = {
   date: string;
   requests: ClientSiteRequest[];
   scSchedules: ScSchedule[];
+  workers?: WorkerMasterLike[];
   selectedRequestId: string;
   selectedScScheduleId?: string;
   onClose: () => void;
@@ -49,6 +54,7 @@ export function ClientSiteRequestCalendarDayDrawer({
   date,
   requests,
   scSchedules,
+  workers = [],
   selectedRequestId,
   selectedScScheduleId = "",
   onClose,
@@ -168,7 +174,31 @@ export function ClientSiteRequestCalendarDayDrawer({
                               ) : null}
                             </div>
                             {schedule.participantNames?.length ? (
-                              <p className="erp-csr-cal-drawer-card-meta">{schedule.participantNames.join(", ")}</p>
+                              workers.length ? (
+                                <div className="erp-csr-cal-drawer-sc-workers">
+                                  {resolveScScheduleWorkers(workers, schedule.participantNames).map((worker) => (
+                                    <div key={`${schedule.id}-${worker.participantName}`} className="erp-csr-cal-drawer-sc-worker">
+                                      <p className="erp-csr-cal-drawer-sc-worker-line">
+                                        <span className="erp-csr-cal-drawer-sc-worker-label">{L.workerName}</span>
+                                        {" "}
+                                        {worker.name}
+                                      </p>
+                                      <p className="erp-csr-cal-drawer-sc-worker-line">
+                                        <span className="erp-csr-cal-drawer-sc-worker-label">{L.workerPhone}</span>
+                                        {" "}
+                                        {worker.phone || "-"}
+                                      </p>
+                                      <p className="erp-csr-cal-drawer-sc-worker-line">
+                                        <span className="erp-csr-cal-drawer-sc-worker-label">{L.workerVehicle}</span>
+                                        {" "}
+                                        {worker.vehicleNo || "-"}
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="erp-csr-cal-drawer-card-meta">{schedule.participantNames.join(", ")}</p>
+                              )
                             ) : null}
                           </div>
                         </button>

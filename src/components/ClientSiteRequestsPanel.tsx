@@ -38,6 +38,7 @@ import {
   type ScScheduleSyncStatus,
   type ScUnmappedProjectRow,
 } from "@/utils/scSchedules";
+import type { WorkerMasterLike } from "@/utils/workerPayments";
 
 const L = {
   apiOnly: "\uD604\uC7A5 \uC811\uC218 \uB9C1\uD06C\uB294 API \uC5F0\uB3D9 \uBAA8\uB4DC\uC5D0\uC11C \uC0AC\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
@@ -136,6 +137,7 @@ type LinkClassFilter = "all" | "active" | "disabled";
 
 type ClientSiteRequestsPanelProps = {
   clients: ClientLike[];
+  workers?: WorkerMasterLike[];
   isAdmin?: boolean;
 };
 
@@ -396,7 +398,7 @@ function RequestCard({
   );
 }
 
-export function ClientSiteRequestsPanel({ clients, isAdmin = false }: ClientSiteRequestsPanelProps) {
+export function ClientSiteRequestsPanel({ clients, workers = [], isAdmin = false }: ClientSiteRequestsPanelProps) {
   const apiMode = isApiModeEnabled();
   const [activeTab, setActiveTab] = useState<PanelTab>("inbox");
   const [links, setLinks] = useState<ClientSiteRequestLink[]>([]);
@@ -1300,6 +1302,7 @@ export function ClientSiteRequestsPanel({ clients, isAdmin = false }: ClientSite
           clientId={calendarModalClient.clientId}
           clientName={calendarModalClient.clientName}
           link={calendarModalLink}
+          workers={workers}
           onClose={() => setCalendarModalClient(null)}
         />
       ) : null}

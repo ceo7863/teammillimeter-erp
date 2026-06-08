@@ -1485,6 +1485,36 @@ textarea {
   white-space: nowrap;
 }
 
+.erp-csr-cal-drawer-sc-workers {
+  margin-top: 0.35rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.erp-csr-cal-drawer-sc-worker {
+  padding: 0.45rem 0.55rem;
+  border-radius: 0.5rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.erp-csr-cal-drawer-sc-worker-line {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #475569;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.erp-csr-cal-drawer-sc-worker-line + .erp-csr-cal-drawer-sc-worker-line {
+  margin-top: 0.15rem;
+}
+
+.erp-csr-cal-drawer-sc-worker-label {
+  font-weight: 700;
+  color: #64748b;
+}
+
 @media (max-width: 639px) {
   .erp-csr-cal-mobile-hint {
     display: block;

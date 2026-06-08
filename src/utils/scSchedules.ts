@@ -1,4 +1,5 @@
 import { apiRequest, isApiModeEnabled } from "@/utils/erpApi";
+import { findWorkerMasterByListName, type WorkerMasterLike } from "@/utils/workerPayments";
 
 export type ScSchedule = {
   id: string;
@@ -72,6 +73,32 @@ export function formatScScheduleTimeRange(row: Pick<ScSchedule, "startTime" | "e
   const end = String(row.endTime || "").trim();
   if (start && end) return `${start}\u2013${end}`;
   return start || end || "";
+}
+
+export type ScScheduleWorkerInfo = {
+  participantName: string;
+  name: string;
+  phone: string;
+  vehicleNo: string;
+};
+
+/** SC participant name → 시공자 마스터 (이름·전화·차량번호) */
+export function resolveScScheduleWorkers(
+  workers: WorkerMasterLike[] = [],
+  participantNames: string[] = [],
+): ScScheduleWorkerInfo[] {
+  return participantNames
+    .map((participantName) => String(participantName || "").trim())
+    .filter(Boolean)
+    .map((participantName) => {
+      const master = findWorkerMasterByListName(workers, participantName);
+      return {
+        participantName,
+        name: String(master?.name || participantName).trim(),
+        phone: String(master?.phone || "").trim(),
+        vehicleNo: String(master?.vehicleNo || "").trim(),
+      };
+    });
 }
 
 export function formatScScheduleHeadcount(row: Pick<ScSchedule, "expectedHeadcount" | "participantCount">) {

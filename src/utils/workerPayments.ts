@@ -21,6 +21,7 @@ export type WorkerMasterLike = {
   id?: number | string;
   name?: string;
   phone?: string;
+  vehicleNo?: string;
   bank?: string;
   account?: string;
   feeRate?: number;

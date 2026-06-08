@@ -14,6 +14,7 @@ import {
   type ClientSiteRequestLink,
 } from "@/utils/clientSiteRequests";
 import { fetchStaffScSchedules, type ScSchedule } from "@/utils/scSchedules";
+import type { WorkerMasterLike } from "@/utils/workerPayments";
 import { useBodyScrollLock } from "@/utils/bodyScrollLock";
 import { useBackdropPointerDismiss, useModalDismissGuard } from "@/utils/modalBackdrop";
 
@@ -31,6 +32,7 @@ type ClientSiteRequestCalendarModalProps = {
   clientId: number | string;
   clientName: string;
   link: ClientSiteRequestLink | null;
+  workers?: WorkerMasterLike[];
   onClose: () => void;
 };
 
@@ -39,6 +41,7 @@ export function ClientSiteRequestCalendarModal({
   clientId,
   clientName,
   link,
+  workers = [],
   onClose,
 }: ClientSiteRequestCalendarModalProps) {
   const [requests, setRequests] = useState<ClientSiteRequest[]>([]);
@@ -166,6 +169,7 @@ export function ClientSiteRequestCalendarModal({
               <ClientSiteRequestCalendar
               requests={requests}
               scSchedules={scSchedules}
+              workers={workers}
               monthKey={monthKey}
               onMonthKeyChange={setMonthKey}
               selectedDate={selectedDate}
