@@ -25,6 +25,7 @@ import {
   Wallet,
   X,
 } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 import { BankListRefreshAtSuffix, useBankSyncMeta } from "@/contexts/BankSyncMetaContext";
 import { PartialPaymentBadge } from "@/components/AutoLinkBadge";
 import { Button } from "@/components/ui/button";
