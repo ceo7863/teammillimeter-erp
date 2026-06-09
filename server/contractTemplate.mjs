@@ -74,10 +74,11 @@ function resolveKoreanFont() {
   throw new Error("\uD55C\uAE00 \uD3F0\uD2B8\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. (Noto CJK \uB610\uB294 \uB9D1\uC740\uACE0\uB515 \uD544\uC694)");
 }
 
-async function embedKoreanFont(pdfDoc) {
+async function embedKoreanFont(pdfDoc, options = {}) {
   pdfDoc.registerFontkit(fontkit);
   const { bytes, path: fontPath } = resolveKoreanFont();
-  const useSubset = !fontPath.toLowerCase().endsWith(".ttc");
+  const preferSubset = options.subset !== false;
+  const useSubset = preferSubset && !fontPath.toLowerCase().endsWith(".ttc");
   return pdfDoc.embedFont(bytes, { subset: useSubset });
 }
 
@@ -397,7 +398,11 @@ async function buildUnitPriceAgreementPdf(input = {}) {
     });
   }
 
-  const buffer = Buffer.from(await pdfDoc.save());
+  const buffer = Buffer.from(
+    await pdfDoc.save({
+      useObjectStreams: false,
+    }),
+  );
   return {
     ok: true,
     buffer,
@@ -476,11 +481,7 @@ export async function applySignatureToContractPdf(originalBuffer, signatureBuffe
   const dateField = options.dateField || { x: 46, y: 128, size: 9.5, coverWidth: 220, coverHeight: 14 };
   const signedAt = options.signedAt ? new Date(options.signedAt) : new Date();
 
-  const sourceDoc = await PDFDocument.load(originalBuffer);
-  const pdfDoc = await PDFDocument.create();
-  const copiedPages = await pdfDoc.copyPages(sourceDoc, sourceDoc.getPageIndices());
-  copiedPages.forEach((page) => pdfDoc.addPage(page));
-
+  const pdfDoc = await PDFDocument.load(originalBuffer, { ignoreEncryption: true, updateMetadata: false });
   const font = await embedKoreanFont(pdfDoc);
   const lastPage = pdfDoc.getPages()[pdfDoc.getPageCount() - 1];
   const pngImage = await pdfDoc.embedPng(signatureBuffer);
@@ -498,5 +499,10 @@ export async function applySignatureToContractPdf(originalBuffer, signatureBuffe
   const dateText = `${kst.getFullYear()}\uB144 ${String(kst.getMonth() + 1).padStart(2, "0")}\uC6D4 ${String(kst.getDate()).padStart(2, "0")}\uC77C`;
   drawFieldWithCover(lastPage, font, dateField, `\uC791\uC131\uC77C : ${dateText}`);
 
-  return Buffer.from(await pdfDoc.save());
+  return Buffer.from(
+    await pdfDoc.save({
+      useObjectStreams: false,
+      updateFieldAppearances: false,
+    }),
+  );
 }
