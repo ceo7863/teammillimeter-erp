@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
+import { File } from "node:buffer";
 import { config } from "./config.mjs";
 
 export function solapiAuthHeader() {
@@ -57,9 +58,9 @@ export async function fetchAlimtalkCategoryCode() {
 
 export async function uploadAlimtalkTemplateImage(filePath, fileName = "team-millimeter-logo.jpg") {
   const buffer = fs.readFileSync(filePath);
-  const blob = new Blob([buffer], { type: "image/jpeg" });
+  const file = new File([buffer], fileName, { type: "image/jpeg" });
   const form = new FormData();
-  form.append("file", blob, fileName);
+  form.append("file", file);
   form.append("type", "KAKAO");
   const result = await solapiRequest("POST", "/storage/v1/files", form);
   const imageId = result?.fileId || result?.imageId || result?.image?.fileId || result?.image?.imageId;
