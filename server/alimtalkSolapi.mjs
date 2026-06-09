@@ -57,6 +57,9 @@ export async function fetchAlimtalkCategoryCode() {
 }
 
 export async function uploadAlimtalkTemplateImage(filePath, fileName = "team-millimeter-logo.jpg") {
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`image file not found: ${filePath}`);
+  }
   const auth = solapiAuthHeader();
   const output = execFileSync(
     "curl",
@@ -65,10 +68,10 @@ export async function uploadAlimtalkTemplateImage(filePath, fileName = "team-mil
       "https://api.solapi.com/storage/v1/files",
       "-H",
       `Authorization: ${auth}`,
-      "-F",
-      `file=@${filePath};filename=${fileName};type=image/jpeg`,
-      "-F",
-      "type=KAKAO",
+      "--form",
+      `file=@${filePath};type=image/jpeg;filename=${fileName}`,
+      "--form",
+      "type=ATA",
     ],
     { encoding: "utf8" },
   );
