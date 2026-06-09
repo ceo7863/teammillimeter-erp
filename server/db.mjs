@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import bcrypt from "bcryptjs";
 import { config, seedUsers } from "./config.mjs";
 import { ERP_DOMAIN_FIELDS, ERP_DOMAIN_NAMES, pickDomainPayload } from "./erpDomains.mjs";
-import { queueCoalescedWrite } from "./erpWriteQueue.mjs";
+import { migrateClientAichiToMiumu, needsClientAichiToMiumuMigration } from "./migrateClientAichiToMiumu.mjs";
 
 let db;
 
@@ -396,14 +396,28 @@ export function runErpStartupMigrations() {
   const database = getDb();
   migrateLegacyBlobToDomains(database);
 
-  const state = getErpState();
-  const { migrated, payload } = applyWorkerMonthlyPaymentMemoMigration(state.data || {});
-  if (!migrated) return;
+  let state = getErpState();
+  let payload = state.data || {};
+  let version = state.version;
+  let changed = false;
+
+  const memoMigration = applyWorkerMonthlyPaymentMemoMigration(payload);
+  if (memoMigration.migrated) {
+    payload = memoMigration.payload;
+    changed = true;
+  }
+
+  if (needsClientAichiToMiumuMigration(payload)) {
+    migrateClientAichiToMiumu(payload, { updatePdfArchives: true, getDb: () => database });
+    changed = true;
+  }
+
+  if (!changed) return;
 
   try {
-    saveErpState(payload, state.version, "memo-migration");
+    saveErpState(payload, version, "startup-migration");
   } catch (error) {
-    console.error("[workerMonthlyPaymentMemos] startup migration save failed", error);
+    console.error("[startup-migration] save failed", error);
   }
 }
 

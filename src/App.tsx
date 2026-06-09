@@ -521,12 +521,14 @@ function migrateClientName(data) {
   const from = "에이치";
   const to = "미무";
   const next = { ...data };
+  const fromClientBefore = Array.isArray(next.clients) ? next.clients.find((client) => client.name === from) : null;
+  const toClientBefore = Array.isArray(next.clients) ? next.clients.find((client) => client.name === to) : null;
+  const fromClientId = fromClientBefore?.id;
+  const toClientId = toClientBefore?.id;
 
   if (Array.isArray(next.clients)) {
-    const fromClient = next.clients.find((client) => client.name === from);
-    const toClient = next.clients.find((client) => client.name === to);
-    if (fromClient && toClient) {
-      const mergedAliases = appendClientDepositAlias(toClient.depositNameAliases, from);
+    if (fromClientBefore && toClientBefore) {
+      const mergedAliases = appendClientDepositAlias(toClientBefore.depositNameAliases, from);
       next.clients = next.clients
         .filter((client) => client.name !== from)
         .map((client) => (client.name === to ? { ...client, depositNameAliases: mergedAliases } : client));
@@ -586,6 +588,37 @@ function migrateClientName(data) {
           }))
         : folder.items,
     }));
+  }
+  if (Array.isArray(next.clientContracts)) {
+    next.clientContracts = next.clientContracts.map((row) =>
+      row.clientName === from ? { ...row, clientName: to } : row,
+    );
+  }
+  if (Array.isArray(next.clientSiteRequests)) {
+    next.clientSiteRequests = next.clientSiteRequests.map((row) => {
+      const matchesFrom =
+        row.clientName === from ||
+        (fromClientId != null && String(row.clientId) === String(fromClientId));
+      if (!matchesFrom) return row;
+      return {
+        ...row,
+        clientName: to,
+        clientId: toClientId != null ? toClientId : row.clientId,
+      };
+    });
+  }
+  if (Array.isArray(next.scSchedules)) {
+    next.scSchedules = next.scSchedules.map((row) => ({
+      ...row,
+      clientName: row.clientName === from ? to : row.clientName,
+      projectName: row.projectName === from ? to : row.projectName,
+    }));
+  }
+  if (Array.isArray(next.clients)) {
+    next.clients = next.clients.map((row) => {
+      if (row.name !== to) return row;
+      return row.scProjectName === from ? { ...row, scProjectName: to } : row;
+    });
   }
   if (Array.isArray(next.auditLogs)) {
     next.auditLogs = next.auditLogs.map((entry) => {
