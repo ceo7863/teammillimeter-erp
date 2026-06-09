@@ -3,11 +3,8 @@ import type { BankLearnRule } from "./bankCompanyLedger";
 import type { BankTransactionFolder } from "./bankTransactionFolders";
 import type { CompanyExpense, FixedExpensePayment } from "./companyLedger";
 import { filterBankLearnDescriptionTokens } from "./bankLearnTokens";
-import {
-  applyPreauthNetGroups,
-  detectPreauthNetGroups,
-  isNetGroupSuppressed,
-} from "./bankPreauthNetting";
+import { isBankTxExpenseReversal } from "./bankTxExpenseReversal";
+import { isNetGroupSuppressed } from "./bankPreauthNetting";
 
 const BUILDING_MGMT_KEY = /\uAD00\uB9AC|140|141|932|\uACE0\uC591\uC0BC\uC1A1|\uAC74\uBB3C/i;
 
@@ -74,7 +71,7 @@ export function removeSuppressedPreauthLedgerEntries(
   const nextExpenses = expenses.filter((row) => !row.bankTransactionId || !suppressedIds.has(row.bankTransactionId));
   const nextPayments = payments.filter((row) => !row.bankTransactionId || !suppressedIds.has(row.bankTransactionId));
   const nextTransactions = transactions.map((tx) => {
-    if (!suppressedIds.has(tx.id)) return tx;
+    if (!suppressedIds.has(tx.id) || isBankTxExpenseReversal(tx)) return tx;
     return {
       ...tx,
       linkedCompanyExpenseId: undefined,

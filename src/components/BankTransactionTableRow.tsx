@@ -208,9 +208,9 @@ function BankTransactionTableRowComponent({
       <td className="max-w-[14rem]">
         <span
           className={`block truncate text-xs ${row.memo ? "font-medium text-slate-800" : "text-slate-400"}`}
-          title={row.memo || labels.memoPlaceholder}
+          title={row.memo || undefined}
         >
-          {row.memo || labels.memoPlaceholder}
+          {row.memo || ""}
         </span>
       </td>
       <td className="text-slate-700">

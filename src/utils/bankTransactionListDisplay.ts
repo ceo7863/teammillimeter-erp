@@ -6,6 +6,7 @@ import {
 import { bankTxHasPartialPaymentVoucher } from "@/utils/bankSentStatementMatch";
 import type { BankTransactionFolder, BankTransactionFolderType } from "@/utils/bankTransactionFolders";
 import { getLinkedCompanyExpenseForBankTx, getLinkedFixedPaymentForBankTx } from "@/utils/bankCompanyLedger";
+import { isBankTxExpenseReversal } from "@/utils/bankTxExpenseReversal";
 import { isNetGroupSuppressed } from "@/utils/bankPreauthNetting";
 import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "@/utils/companyLedger";
 import { formatKRW } from "@/utils/companyLedger";
@@ -230,14 +231,18 @@ export function buildBankTransactionListRowModel(
     : null;
   const clientHidden = isBankTxClientHidden(row);
   const clientLabel = clientHidden ? null : resolveBankTxClientName(row) || unfiledClientName || null;
-  const classifiedAmount = getBankTxClassifiedAmount(row);
+  const expenseReversal = isBankTxExpenseReversal(row);
+  const classifiedAmount = expenseReversal
+    ? -Number(row.deposit || 0)
+    : getBankTxClassifiedAmount(row);
   const linkedInvoiceLabels = getBankTxLinkedTaxInvoiceIds(row)
     .map((id) => taxInvoiceById.get(id))
     .filter((invoice): invoice is TaxInvoice => Boolean(invoice))
     .map((invoice) => formatTaxInvoiceEvidenceLabel(invoice));
   const evidenceLabel = linkedInvoiceLabels.length ? linkedInvoiceLabels.join(" · ") : null;
-  const signedAmountLabel =
-    row.deposit > 0
+  const signedAmountLabel = expenseReversal
+    ? `-${formatKRW(row.deposit)}`
+    : row.deposit > 0
       ? `+${formatKRW(row.deposit)}`
       : row.withdrawal > 0
         ? `-${formatKRW(row.withdrawal)}`
@@ -256,13 +261,13 @@ export function buildBankTransactionListRowModel(
     matchStatusLabel = "\uBBF8\uC5F0\uACB0";
   }
 
-  const suppressed = isNetGroupSuppressed(row);
+  const suppressed = isNetGroupSuppressed(row) && !expenseReversal;
   const rowTone: BankTransactionListRowModel["rowTone"] = suppressed
     ? "suppressed"
-    : row.deposit > 0
-      ? "deposit"
-      : row.withdrawal > 0
-        ? "withdrawal"
+    : expenseReversal || row.withdrawal > 0
+      ? "withdrawal"
+      : row.deposit > 0
+        ? "deposit"
         : "";
 
   return buildBankTransactionListRowModelFromParts(row, {
@@ -372,7 +377,7 @@ function buildBankTransactionListRowModelFromParts(
     memoEmpty: !memoOnly,
     accountSubjectLabel,
     clientLabel,
-    classifiedAmountLabel: classifiedAmount > 0 ? formatKRW(classifiedAmount) : "-",
+    classifiedAmountLabel: classifiedAmount !== 0 ? formatKRW(classifiedAmount) : "-",
     evidenceLabel,
     evidenceLinked: Boolean(linkedInvoice),
     showVoucherProcessedBadge: Boolean(row.linkedPaymentVoucherId && row.deposit > 0),

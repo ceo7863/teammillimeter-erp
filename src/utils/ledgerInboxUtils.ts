@@ -1,4 +1,5 @@
 import type { BankTransaction } from "./bankTransactions";
+import { isBankTxExpenseReversal } from "./bankTxExpenseReversal";
 import { getMonthKey } from "./companyLedger";
 import {
   resolveBankTxLedgerAmount,
@@ -32,7 +33,11 @@ function normalizeGroupLabel(tx: BankTransaction) {
 export function isLedgerInboxTransaction(tx: BankTransaction) {
   const status = resolveBankTxLedgerStatus(tx);
   if (status !== "none" && status !== "pending") return false;
-  if (resolveBankTxLedgerAmount(tx) <= 0) return false;
+  if (isBankTxExpenseReversal(tx)) {
+    if (Number(tx.deposit || 0) <= 0) return false;
+  } else if (resolveBankTxLedgerAmount(tx) <= 0) {
+    return false;
+  }
   if (tx.linkedSalesId || tx.linkedPaymentVoucherId || tx.linkedWorkerMonthlyPaymentVoucherId) return false;
   return true;
 }

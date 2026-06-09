@@ -2,8 +2,13 @@ import { isCheckCardBankTransaction, type BankTransaction } from "./bankTransact
 import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "./companyLedger";
 import { canAssignBankTransactionToFolder, syncLedgerLinkedBankTransactionFolders, type BankTransactionFolder } from "./bankTransactionFolders";
 import type { WorkerDepositMatchSource } from "./clientDepositAliases";
+import { isBankTxExpenseReversal } from "./bankTxExpenseReversal";
 import { isNetGroupSuppressed } from "./bankPreauthNetting";
 import { filterBankLearnDescriptionTokens, isBankLearnStopToken } from "./bankLearnTokens";
+import {
+  resolveBankTxLedgerAmount as resolveLedgerSystemBankTxAmount,
+  resolveBankTxLedgerFlow as resolveLedgerSystemBankTxFlow,
+} from "./ledgerSystem";
 import {
   EXPENSE_CATEGORY_OPTIONS,
   bankTransactionMatchesFixedPayment,
@@ -356,8 +361,14 @@ export function canRegisterBankTxToCompanyLedger(
   context: BankLedgerRegistrationContext = {},
   options: { allowVariableLinked?: boolean } = {},
 ) {
-  if (isNetGroupSuppressed(tx)) return false;
-  if (tx.folderId || resolveBankTxLedgerAmount(tx) <= 0) return false;
+  if (isNetGroupSuppressed(tx) && !isBankTxExpenseReversal(tx)) return false;
+  if (tx.folderId) return false;
+  const ledgerAmount = resolveBankTxLedgerAmount(tx);
+  if (isBankTxExpenseReversal(tx)) {
+    if (ledgerAmount >= 0) return false;
+  } else if (ledgerAmount <= 0) {
+    return false;
+  }
   if (options.allowVariableLinked && isBankTransactionLinkedToVariableExpenseOnly(tx, context)) {
     return true;
   }
@@ -1909,14 +1920,12 @@ export function guessLedgerTargetFromBankTransaction(
   return manualLedgerTargetKey(prefill.category);
 }
 
-export function resolveBankTxLedgerAmount(tx: { withdrawal?: number; deposit?: number }) {
-  const withdrawal = Number(tx.withdrawal || 0);
-  const deposit = Number(tx.deposit || 0);
-  return withdrawal > 0 ? withdrawal : deposit > 0 ? deposit : 0;
+export function resolveBankTxLedgerAmount(tx: BankTransaction) {
+  return resolveLedgerSystemBankTxAmount(tx);
 }
 
-export function resolveBankTxLedgerFlow(tx: { withdrawal?: number; deposit?: number }) {
-  return Number(tx.withdrawal || 0) > 0 ? "expense" : "income";
+export function resolveBankTxLedgerFlow(tx: BankTransaction) {
+  return resolveLedgerSystemBankTxFlow(tx) || "income";
 }
 
 /** Bank-linked fixed payment memo: prefer tx prefill, then fixed item name. */

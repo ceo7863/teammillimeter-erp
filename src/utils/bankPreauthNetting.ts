@@ -1,5 +1,6 @@
 import type { BankLearnRule } from "./bankCompanyLedger";
 import { filterBankLearnDescriptionTokens } from "./bankLearnTokens";
+import { isCancellationOrCorrectionTransaction } from "./bankTxExpenseReversal";
 import { makeLedgerId } from "./companyLedger";
 import { makeBankTransactionId, type BankTransaction } from "./bankTransactions";
 
@@ -32,14 +33,7 @@ export function preauthNetGroupKey(group: PreauthNetGroup) {
   return [group.preauthWithdrawalTx.id, group.refundTx.id, group.settlementTx?.id ?? ""].join(":");
 }
 
-export function isCancellationOrCorrectionTransaction(tx: BankTransaction) {
-  const haystack = [tx.transactionType, tx.description, tx.memo]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase()
-    .replace(/\s+/g, "");
-  return haystack.includes("\uCDE8\uC18C") || haystack.includes("\uC815\uC815");
-}
+export { isBankTxExpenseReversal, isCancellationOrCorrectionTransaction } from "./bankTxExpenseReversal";
 
 function preauthMerchantsCompatible(left: BankTransaction, right: BankTransaction) {
   const leftName = normalizePreauthCounterpartyName(left).toLowerCase().replace(/\s+/g, "");

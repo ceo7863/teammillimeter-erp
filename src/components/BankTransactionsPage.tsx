@@ -81,6 +81,7 @@ import {
   detectPreauthNetGroups,
   filterPreauthNetGroupsForAutoApply,
   filterPreauthNetGroupsNeedingApply,
+  isBankTxExpenseReversal,
   isNetGroupSuppressed,
   preauthNetGroupKey,
 } from "@/utils/bankPreauthNetting";
@@ -1332,13 +1333,14 @@ function BankTransactionsPageComponent({
   );
 
   const canRegisterLedger = (tx: BankTransaction) =>
-    !isNetGroupSuppressed(tx) && canRegisterBankTxToCompanyLedger(tx, ledgerRegistrationContext);
+    (isBankTxExpenseReversal(tx) || !isNetGroupSuppressed(tx)) &&
+    canRegisterBankTxToCompanyLedger(tx, ledgerRegistrationContext);
 
   const isVariableExpenseLinkedOnly = (tx: BankTransaction) =>
     isBankTransactionLinkedToVariableExpenseOnly(tx, ledgerRegistrationContext);
 
   const canRegisterFixedLedger = (tx: BankTransaction) =>
-    !isNetGroupSuppressed(tx) &&
+    (isBankTxExpenseReversal(tx) || !isNetGroupSuppressed(tx)) &&
     canRegisterBankTxToCompanyLedger(tx, ledgerRegistrationContext, { allowVariableLinked: true });
 
   const evaluateLedgerRegistrationGate = React.useCallback(
@@ -2321,7 +2323,7 @@ function BankTransactionsPageComponent({
       return {
         txId,
         selectedCode: String(tx.ledgerAccountCode || "").trim(),
-        flow: tx.deposit > 0 ? "income" : "expense",
+        flow: isBankTxExpenseReversal(tx) ? "expense" : tx.deposit > 0 ? "income" : "expense",
       };
     });
   }, []);

@@ -14,6 +14,7 @@ import {
   getMonthKey,
   isFixedExpensePaymentBankLinked,
 } from "./companyLedger";
+import { isBankTxExpenseReversal } from "./bankTxExpenseReversal";
 import type { BankTransaction } from "./bankTransactions";
 
 export type AccountCodeType = "asset" | "liability" | "equity" | "income" | "expense";
@@ -249,13 +250,19 @@ export function findLedgerCategoryByName(categories: LedgerCategory[], name: str
   return categories.find((row) => row.name === trimmed && row.isActive);
 }
 
-export function resolveBankTxLedgerFlow(tx: Pick<BankTransaction, "withdrawal" | "deposit">): LedgerFlow | null {
+export function resolveBankTxLedgerFlow(
+  tx: Pick<BankTransaction, "withdrawal" | "deposit" | "netGroupRole" | "transactionType" | "description" | "memo">,
+): LedgerFlow | null {
+  if (isBankTxExpenseReversal(tx as BankTransaction)) return "expense";
   if (Number(tx.withdrawal || 0) > 0) return "expense";
   if (Number(tx.deposit || 0) > 0) return "income";
   return null;
 }
 
-export function resolveBankTxLedgerAmount(tx: Pick<BankTransaction, "withdrawal" | "deposit">) {
+export function resolveBankTxLedgerAmount(
+  tx: Pick<BankTransaction, "withdrawal" | "deposit" | "netGroupRole" | "transactionType" | "description" | "memo">,
+) {
+  if (isBankTxExpenseReversal(tx as BankTransaction)) return -Number(tx.deposit || 0);
   const flow = resolveBankTxLedgerFlow(tx);
   if (flow === "expense") return Number(tx.withdrawal || 0);
   if (flow === "income") return Number(tx.deposit || 0);
@@ -284,6 +291,10 @@ export function resolveBankTxLedgerStatus(tx: BankTransaction): BankLedgerStatus
 }
 
 export function isBankTxLedgerCandidate(tx: BankTransaction) {
+  if (isBankTxExpenseReversal(tx)) {
+    if (resolveBankTxLedgerStatus(tx) === "exempt") return false;
+    return Number(tx.deposit || 0) > 0;
+  }
   if (isPreauthNetSuppressed(tx)) return false;
   if (resolveBankTxLedgerAmount(tx) <= 0) return false;
   if (resolveBankTxLedgerStatus(tx) === "exempt") return false;
@@ -307,7 +318,7 @@ export function buildLedgerEntryFromBankTx(
   const flow = resolveBankTxLedgerFlow(tx);
   if (!flow) return null;
   const amount = resolveBankTxLedgerAmount(tx);
-  if (amount <= 0) return null;
+  if (amount === 0) return null;
 
   let category = tx.ledgerCategoryId ? findLedgerCategory(categories, tx.ledgerCategoryId) : undefined;
   let resolvedCategoryName = category?.name;
