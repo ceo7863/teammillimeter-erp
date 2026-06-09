@@ -2363,9 +2363,9 @@ function BankTransactionsPageComponent({
       const liveTx = prev.find((row) => row.id === tx.id) ?? tx;
       let nextRow: BankTransaction;
       if (mode === "clear" || !invoiceId) {
-        nextRow = clearBankTxTaxInvoiceLinks(liveTx, { manual: true });
+        nextRow = clearBankTxTaxInvoiceLinks(liveTx, { manual: true, taxInvoices });
       } else if (mode === "remove") {
-        nextRow = removeBankTxTaxInvoiceLink(liveTx, invoiceId, { manual: true });
+        nextRow = removeBankTxTaxInvoiceLink(liveTx, invoiceId, { manual: true, taxInvoices });
       } else if (invoice) {
         nextRow = addBankTxTaxInvoiceLink(liveTx, invoice, { manual: true });
       } else {

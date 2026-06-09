@@ -283,6 +283,12 @@ function syncLinkedTaxInvoiceFields(
   };
 }
 
+function resolveTaxInvoicesById(invoices: TaxInvoice[] | undefined, ids: string[]) {
+  if (!invoices?.length || !ids.length) return [] as TaxInvoice[];
+  const byId = new Map(invoices.map((invoice) => [invoice.id, invoice]));
+  return ids.map((id) => byId.get(id)).filter((invoice): invoice is TaxInvoice => Boolean(invoice));
+}
+
 function applyInvoiceClientFields(
   tx: BankTransaction,
   invoice: TaxInvoice,
@@ -307,10 +313,76 @@ function applyInvoiceClientFields(
   };
 }
 
+function fieldMatchesRemovedInvoiceClient(
+  tx: BankTransaction,
+  fieldValue: string,
+  removedInvoices: TaxInvoice[],
+) {
+  if (!fieldValue || !removedInvoices.length) return false;
+  const probe = { ...tx, linkedSubject: fieldValue, ledgerClientName: fieldValue };
+  return removedInvoices.some((invoice) => hasTaxInvoiceNameMatch(probe, invoice));
+}
+
+function shouldKeepClientLabelAfterUnlink(tx: BankTransaction, removedInvoices: TaxInvoice[]) {
+  const existingSubject = String(tx.linkedSubject || tx.ledgerClientName || "").trim();
+  if (!existingSubject || !removedInvoices.length) return false;
+  return (
+    tx.deposit > 0 &&
+    Boolean(tx.linkedPaymentVoucherId) &&
+    !fieldMatchesRemovedInvoiceClient(tx, existingSubject, removedInvoices)
+  );
+}
+
+function clearInvoiceDerivedClientFields(
+  tx: BankTransaction,
+  removedInvoices: TaxInvoice[],
+): BankTransaction {
+  if (!removedInvoices.length || shouldKeepClientLabelAfterUnlink(tx, removedInvoices)) {
+    return tx;
+  }
+
+  const ledgerClientName = String(tx.ledgerClientName ?? "").trim();
+  const linkedSubject = String(tx.linkedSubject ?? "").trim();
+  let next = tx;
+
+  if (ledgerClientName && fieldMatchesRemovedInvoiceClient(tx, ledgerClientName, removedInvoices)) {
+    next = { ...next, ledgerClientName: undefined };
+  }
+  if (tx.deposit > 0 && linkedSubject && fieldMatchesRemovedInvoiceClient(tx, linkedSubject, removedInvoices)) {
+    next = { ...next, linkedSubject: undefined };
+  }
+  return next;
+}
+
+function revertInvoiceClientFieldsAfterUnlink(
+  tx: BankTransaction,
+  options: {
+    removedInvoiceIds: string[];
+    remainingInvoiceIds: string[];
+    taxInvoices?: TaxInvoice[];
+  },
+): BankTransaction {
+  const { removedInvoiceIds, remainingInvoiceIds, taxInvoices } = options;
+  const removedInvoices = resolveTaxInvoicesById(taxInvoices, removedInvoiceIds);
+  if (!removedInvoices.length) return tx;
+
+  const remainingInvoices = resolveTaxInvoicesById(taxInvoices, remainingInvoiceIds);
+  if (remainingInvoices.length > 0) {
+    return applyInvoiceClientFields(tx, remainingInvoices[0]);
+  }
+
+  return clearInvoiceDerivedClientFields(tx, removedInvoices);
+}
+
+export type BankTxTaxInvoiceLinkOptions = {
+  manual?: boolean;
+  taxInvoices?: TaxInvoice[];
+};
+
 export function addBankTxTaxInvoiceLink(
   tx: BankTransaction,
   invoice: TaxInvoice,
-  options: { manual?: boolean } = {},
+  options: BankTxTaxInvoiceLinkOptions = {},
 ): BankTransaction {
   const ids = getBankTxLinkedTaxInvoiceIds(tx);
   const nextIds = ids.includes(invoice.id) ? ids : [...ids, invoice.id];
@@ -330,36 +402,50 @@ export function addBankTxTaxInvoiceLink(
 export function removeBankTxTaxInvoiceLink(
   tx: BankTransaction,
   invoiceId: string,
-  options: { manual?: boolean } = {},
+  options: BankTxTaxInvoiceLinkOptions = {},
 ): BankTransaction {
-  const nextIds = getBankTxLinkedTaxInvoiceIds(tx).filter((id) => id !== invoiceId);
-  return syncLinkedTaxInvoiceFields(
+  const prevIds = getBankTxLinkedTaxInvoiceIds(tx);
+  const nextIds = prevIds.filter((id) => id !== invoiceId);
+  let next = syncLinkedTaxInvoiceFields(
     {
       ...tx,
       taxInvoiceAutoLinkDisabled: options.manual ? true : tx.taxInvoiceAutoLinkDisabled,
     },
     nextIds.length ? nextIds : undefined,
   );
+  next = revertInvoiceClientFieldsAfterUnlink(next, {
+    removedInvoiceIds: [invoiceId],
+    remainingInvoiceIds: nextIds,
+    taxInvoices: options.taxInvoices,
+  });
+  return next;
 }
 
 export function clearBankTxTaxInvoiceLinks(
   tx: BankTransaction,
-  options: { manual?: boolean } = {},
+  options: BankTxTaxInvoiceLinkOptions = {},
 ): BankTransaction {
-  return syncLinkedTaxInvoiceFields(
+  const removedInvoiceIds = getBankTxLinkedTaxInvoiceIds(tx);
+  let next = syncLinkedTaxInvoiceFields(
     {
       ...tx,
       taxInvoiceAutoLinkDisabled: options.manual ? true : tx.taxInvoiceAutoLinkDisabled,
     },
     undefined,
   );
+  next = revertInvoiceClientFieldsAfterUnlink(next, {
+    removedInvoiceIds,
+    remainingInvoiceIds: [],
+    taxInvoices: options.taxInvoices,
+  });
+  return next;
 }
 
 export function toggleBankTxTaxInvoiceLink(
   tx: BankTransaction,
   invoice: TaxInvoice | undefined,
   invoiceId?: string,
-  options: { manual?: boolean } = {},
+  options: BankTxTaxInvoiceLinkOptions = {},
 ): BankTransaction {
   if (!invoice && !invoiceId) {
     return clearBankTxTaxInvoiceLinks(tx, options);
@@ -434,7 +520,7 @@ export function batchAutoLinkTaxInvoiceEvidence(
 export function buildBankTxTaxInvoiceLinkPatch(
   tx: BankTransaction,
   invoice: TaxInvoice | undefined,
-  options: { manual?: boolean } = {},
+  options: BankTxTaxInvoiceLinkOptions = {},
 ): BankTransaction {
   if (!invoice) {
     return clearBankTxTaxInvoiceLinks(tx, options);
