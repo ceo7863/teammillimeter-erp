@@ -6,10 +6,6 @@ import { isBankTxExpenseReversal } from "./bankTxExpenseReversal";
 import { isNetGroupSuppressed } from "./bankPreauthNetting";
 import { filterBankLearnDescriptionTokens, isBankLearnStopToken } from "./bankLearnTokens";
 import {
-  resolveBankTxLedgerAmount as resolveLedgerSystemBankTxAmount,
-  resolveBankTxLedgerFlow as resolveLedgerSystemBankTxFlow,
-} from "./ledgerSystem";
-import {
   EXPENSE_CATEGORY_OPTIONS,
   bankTransactionMatchesFixedPayment,
   findLinkableFixedExpensePayment,
@@ -1921,11 +1917,15 @@ export function guessLedgerTargetFromBankTransaction(
 }
 
 export function resolveBankTxLedgerAmount(tx: BankTransaction) {
-  return resolveLedgerSystemBankTxAmount(tx);
+  if (isBankTxExpenseReversal(tx)) return -Number(tx.deposit || 0);
+  const withdrawal = Number(tx.withdrawal || 0);
+  const deposit = Number(tx.deposit || 0);
+  return withdrawal > 0 ? withdrawal : deposit > 0 ? deposit : 0;
 }
 
 export function resolveBankTxLedgerFlow(tx: BankTransaction) {
-  return resolveLedgerSystemBankTxFlow(tx) || "income";
+  if (isBankTxExpenseReversal(tx)) return "expense" as const;
+  return Number(tx.withdrawal || 0) > 0 ? ("expense" as const) : ("income" as const);
 }
 
 /** Bank-linked fixed payment memo: prefer tx prefill, then fixed item name. */

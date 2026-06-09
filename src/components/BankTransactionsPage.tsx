@@ -81,10 +81,10 @@ import {
   detectPreauthNetGroups,
   filterPreauthNetGroupsForAutoApply,
   filterPreauthNetGroupsNeedingApply,
-  isBankTxExpenseReversal,
   isNetGroupSuppressed,
   preauthNetGroupKey,
 } from "@/utils/bankPreauthNetting";
+import { isBankTxExpenseReversal } from "@/utils/bankTxExpenseReversal";
 import { removeBankTransactionsByAccountNumber } from "@/utils/bankDataRepair";
 import { runBackgroundBankLedgerLearning } from "@/utils/bankBackgroundLearning";
 import {
