@@ -60,35 +60,10 @@ export async function uploadAlimtalkTemplateImage(filePath, fileName = "team-mil
     throw new Error(`image file not found: ${filePath}`);
   }
   const fileBuffer = fs.readFileSync(filePath);
-  const boundary = `----SolapiBoundary${crypto.randomBytes(12).toString("hex")}`;
-  const chunks = [];
-  const pushText = (text) => chunks.push(Buffer.from(text, "utf8"));
-  pushText(`--${boundary}\r\nContent-Disposition: form-data; name="type"\r\n\r\nATA\r\n`);
-  pushText(
-    `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: image/jpeg\r\n\r\n`,
-  );
-  chunks.push(fileBuffer);
-  pushText(`\r\n--${boundary}--\r\n`);
-  const body = Buffer.concat(chunks);
-  const response = await fetch("https://api.solapi.com/storage/v1/files", {
-    method: "POST",
-    headers: {
-      Authorization: solapiAuthHeader(),
-      "Content-Type": `multipart/form-data; boundary=${boundary}`,
-      "Content-Length": String(body.length),
-    },
-    body,
-  });
-  const text = await response.text();
-  let result = null;
-  try {
-    result = text ? JSON.parse(text) : null;
-  } catch {
-    result = text;
-  }
-  if (!response.ok) {
-    throw new Error(`POST /storage/v1/files ${response.status}: ${JSON.stringify(result)}`);
-  }
+  const form = new FormData();
+  form.append("file", new Blob([fileBuffer], { type: "image/jpeg" }), fileName);
+  form.append("type", "ATA");
+  const result = await solapiRequest("POST", "/storage/v1/files", form);
   if (result?.errorCode || result?.errorMessage) {
     throw new Error(`image upload failed: ${JSON.stringify(result)}`);
   }
