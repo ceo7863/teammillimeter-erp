@@ -1,5 +1,4 @@
 import crypto from "crypto";
-import { execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { config } from "./config.mjs";
@@ -60,26 +59,35 @@ export async function uploadAlimtalkTemplateImage(filePath, fileName = "team-mil
   if (!fs.existsSync(filePath)) {
     throw new Error(`image file not found: ${filePath}`);
   }
-  const auth = solapiAuthHeader();
-  const output = execFileSync(
-    "curl",
-    [
-      "-sS",
-      "https://api.solapi.com/storage/v1/files",
-      "-H",
-      `Authorization: ${auth}`,
-      "--form",
-      `file=@${filePath};type=image/jpeg;filename=${fileName}`,
-      "--form",
-      "type=ATA",
-    ],
-    { encoding: "utf8" },
+  const fileBuffer = fs.readFileSync(filePath);
+  const boundary = `----SolapiBoundary${crypto.randomBytes(12).toString("hex")}`;
+  const chunks = [];
+  const pushText = (text) => chunks.push(Buffer.from(text, "utf8"));
+  pushText(`--${boundary}\r\nContent-Disposition: form-data; name="type"\r\n\r\nATA\r\n`);
+  pushText(
+    `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: image/jpeg\r\n\r\n`,
   );
+  chunks.push(fileBuffer);
+  pushText(`\r\n--${boundary}--\r\n`);
+  const body = Buffer.concat(chunks);
+  const response = await fetch("https://api.solapi.com/storage/v1/files", {
+    method: "POST",
+    headers: {
+      Authorization: solapiAuthHeader(),
+      "Content-Type": `multipart/form-data; boundary=${boundary}`,
+      "Content-Length": String(body.length),
+    },
+    body,
+  });
+  const text = await response.text();
   let result = null;
   try {
-    result = JSON.parse(output);
+    result = text ? JSON.parse(text) : null;
   } catch {
-    throw new Error(`image upload parse failed: ${output}`);
+    result = text;
+  }
+  if (!response.ok) {
+    throw new Error(`POST /storage/v1/files ${response.status}: ${JSON.stringify(result)}`);
   }
   if (result?.errorCode || result?.errorMessage) {
     throw new Error(`image upload failed: ${JSON.stringify(result)}`);
