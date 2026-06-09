@@ -14531,8 +14531,9 @@ button:disabled,
 }
 
 .erp-bank-wehago-inline-btn {
-  display: inline-flex;
-  max-width: 100%;
+  display: flex;
+  width: 100%;
+  min-height: 1.35rem;
   align-items: center;
   gap: 0.15rem;
   overflow: hidden;
@@ -14545,6 +14546,7 @@ button:disabled,
   font-weight: 600;
   color: #64748b;
   background: #fff;
+  cursor: pointer;
 }
 
 .erp-bank-wehago-split-table .erp-bank-excel-cell__trigger {

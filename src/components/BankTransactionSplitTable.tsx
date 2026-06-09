@@ -272,12 +272,12 @@ const SplitRow = memo(function SplitRow({
       <td className="erp-bank-wehago-cell erp-bank-wehago-split-divider max-w-[7rem]">
         <button
           type="button"
-          className="erp-bank-wehago-inline-btn"
+          className="erp-bank-wehago-inline-btn erp-bank-memo-trigger"
           title={model.memoEmpty ? undefined : model.memoLabel}
           onClick={() => onEditMemo(model.id)}
         >
           <Pencil size={10} className="shrink-0" />
-          <span className="truncate">{model.memoEmpty ? "" : model.memoLabel}</span>
+          <span className="min-w-0 flex-1 truncate text-left">{model.memoEmpty ? "" : model.memoLabel}</span>
         </button>
       </td>
       <td className="erp-bank-wehago-split-bridge text-center text-slate-300">
