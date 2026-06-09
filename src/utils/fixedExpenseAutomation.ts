@@ -16,6 +16,7 @@ import {
   findLinkableFixedExpensePayment,
   getMonthKey,
   isFixedExpensePaymentBankLinked,
+  isFixedExpensePaymentSettled,
   linkFixedExpensePaymentToBankTx,
   makeLedgerId,
   pruneSettledDuplicateFixedExpensePayments,
@@ -307,6 +308,14 @@ export function syncFixedExpenseAutomation(input: {
       payments,
       monthKey,
       input.createdBy,
+    ).filter(
+      (payment) =>
+        !isFixedExpensePaymentSettled(
+          payment,
+          payments,
+          input.bankTransactions,
+          input.fixedExpenses,
+        ),
     );
     if (!generated.length) continue;
     payments = [...generated, ...payments];

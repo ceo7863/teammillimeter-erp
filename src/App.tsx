@@ -7273,6 +7273,7 @@ export default function TeammillimeterErpMvp() {
   const bankEditCooldownUntilRef = useRef(0);
   const bankTransactionsDirtyRef = useRef(false);
   const bankSyncApplyingRef = useRef(false);
+  const fixedExpenseAutomationAppliedRef = useRef("");
   const bankSnapshotGenerationRef = useRef(0);
   const bankRemoteApplySkipDirtyRef = useRef(false);
   const bankRemoteApplySkipAutosaveRef = useRef(false);
@@ -8847,21 +8848,40 @@ export default function TeammillimeterErpMvp() {
   }, [dataReady]);
 
   useEffect(() => {
-    if (!dataReady || !currentUser) return;
+    if (!dataReady || !currentUser || bankSyncApplyingRef.current) return;
+    const payments = fixedExpensePaymentsRef.current;
+    const bank = bankTransactionsRef.current;
     const result = syncFixedExpenseAutomation({
       fixedExpenses,
-      fixedExpensePayments,
-      bankTransactions,
+      fixedExpensePayments: payments,
+      bankTransactions: bank,
       bankLedgerRules,
-      companyExpenses,
-      monthKeys: collectFixedExpenseGenerationMonthKeys(fixedExpenses, bankTransactions),
+      companyExpenses: companyExpensesRef.current,
+      monthKeys: collectFixedExpenseGenerationMonthKeys(fixedExpenses, bank),
       createdBy: currentUser.name || currentUser.loginId || "",
     });
     if (!result.generatedCount && !result.linkedCount && !result.removedDuplicateCount) return;
+
+    const fingerprint = [
+      result.generatedCount,
+      result.linkedCount,
+      result.removedDuplicateCount,
+      result.fixedExpensePayments.length,
+      result.fixedExpensePayments
+        .map((row) => `${row.fixedExpenseId}:${String(row.date || "").slice(0, 7)}:${row.bankTransactionId || ""}`)
+        .sort()
+        .join("|"),
+    ].join("#");
+    if (fixedExpenseAutomationAppliedRef.current === fingerprint) return;
+    fixedExpenseAutomationAppliedRef.current = fingerprint;
+
+    fixedExpensePaymentsRef.current = result.fixedExpensePayments;
+    bankTransactionsRef.current = result.bankTransactions;
     setFixedExpensePayments(result.fixedExpensePayments);
     setBankTransactions(result.bankTransactions);
-    const parts: string[] = [];
-    if (result.generatedCount) parts.push(`\uACE0\uC815\uBE44 \uB0A9\uBD80 ${result.generatedCount}\uAC74 \uC0DD\uC131`);
+
+    if (!result.generatedCount) return;
+    const parts: string[] = [`\uACE0\uC815\uBE44 \uB0A9\uBD80 ${result.generatedCount}\uAC74 \uC0DD\uC131`];
     if (result.linkedCount) parts.push(`\uD1B5\uC7A5 ${result.linkedCount}\uAC74 \uC5F0\uACB0`);
     setAuditLogs((prev) =>
       appendAuditLogs(
@@ -8884,7 +8904,7 @@ export default function TeammillimeterErpMvp() {
         }),
       ),
     );
-  }, [dataReady, currentUser, fixedExpenses, fixedExpensePayments, bankTransactions, bankLedgerRules, companyExpenses]);
+  }, [dataReady, currentUser, fixedExpenses, bankLedgerRules, companyExpenses, bankListRefreshAt]);
 
   const taxInvoiceAutoLinkScopeKey = useMemo(
     () => (taxInvoices.length ? buildTaxInvoiceEvidenceAutoLinkKey(bankTransactions, taxInvoices) : ""),
