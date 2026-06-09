@@ -141,7 +141,7 @@ export function formatDailyReportTemplateVars(report) {
     salesTaxCount: String(report.taxSales.count),
     salesTaxAmount: formatKrw(report.taxSales.total),
     purchaseTaxCount: String(report.taxPurchase.count),
-    purchaseTaxAmount: formatKrw(report.purchaseTax.total),
+    purchaseTaxAmount: formatKrw(report.taxPurchase.total),
     bankDeposit: formatKrw(report.bank.deposits),
     bankWithdrawal: formatKrw(report.bank.withdrawals),
     bankBalance: formatKrw(report.bank.balance),
