@@ -1,7 +1,8 @@
 import React, { memo, useEffect, useMemo, useState } from "react";
-import { CalendarDays, RotateCcw, Search } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, RotateCcw, Search } from "lucide-react";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import type { LedgerFlow } from "@/utils/ledgerSystem";
+import { formatMonthLabel, getMonthKey, monthRangeForKey, shiftMonthKey, todayISO } from "@/utils/companyLedger";
 import {
   formatBankPeriodRangeLabel,
   resolveBankTransactionPeriod,
@@ -35,6 +36,7 @@ export type LedgerViewerAppliedFilters = {
   periodKey: BankTransactionPeriodKey;
   startDate: string;
   endDate: string;
+  viewMonthKey: string;
   flowFilter: LedgerFlow | "all";
   fixedExpenseFilter: LedgerFixedExpenseFilter;
   accountFilter: string;
@@ -45,11 +47,23 @@ export const DEFAULT_LEDGER_VIEWER_FILTERS: LedgerViewerAppliedFilters = {
   periodKey: "thisMonth",
   startDate: "",
   endDate: "",
+  viewMonthKey: getMonthKey(todayISO()),
   flowFilter: "all",
   fixedExpenseFilter: "all",
   accountFilter: "",
   searchQuery: "",
 };
+
+export function resolveLedgerViewerPeriod(filters: LedgerViewerAppliedFilters) {
+  if (filters.periodKey === "thisMonth") {
+    const monthKey = filters.viewMonthKey || getMonthKey(todayISO());
+    return monthRangeForKey(monthKey);
+  }
+  return resolveBankTransactionPeriod(filters.periodKey, {
+    startDate: filters.startDate,
+    endDate: filters.endDate,
+  });
+}
 
 function normalizeCustomRange(startDate: string, endDate: string) {
   const start = String(startDate || "").trim();
@@ -110,6 +124,7 @@ function LedgerViewerFilterBarComponent({
     applied.periodKey,
     applied.startDate,
     applied.endDate,
+    applied.viewMonthKey,
     applied.flowFilter,
     applied.fixedExpenseFilter,
     applied.accountFilter,
@@ -117,14 +132,9 @@ function LedgerViewerFilterBarComponent({
     filterResetKey,
   ]);
 
-  const draftPeriodRange = useMemo(
-    () =>
-      resolveBankTransactionPeriod(draft.periodKey, {
-        startDate: draft.startDate,
-        endDate: draft.endDate,
-      }),
-    [draft.periodKey, draft.startDate, draft.endDate],
-  );
+  const draftPeriodRange = useMemo(() => resolveLedgerViewerPeriod(draft), [draft]);
+  const activeViewMonthKey = draft.viewMonthKey || getMonthKey(todayISO());
+  const isCurrentViewMonth = activeViewMonthKey === getMonthKey(todayISO());
 
   const hasPendingFilters = draft.accountFilter !== applied.accountFilter;
 
@@ -150,6 +160,9 @@ function LedgerViewerFilterBarComponent({
     if (patch.periodKey && patch.periodKey !== "custom") {
       next.startDate = "";
       next.endDate = "";
+      if (patch.periodKey === "thisMonth" && !next.viewMonthKey) {
+        next.viewMonthKey = getMonthKey(todayISO());
+      }
     }
     setDraft(next);
     onApply(next);
@@ -173,6 +186,10 @@ function LedgerViewerFilterBarComponent({
     }
   };
 
+  const shiftViewMonth = (offset: number) => {
+    applyDraftNow({ viewMonthKey: shiftMonthKey(activeViewMonthKey, offset) });
+  };
+
   return (
     <div className="erp-bank-wehago-toolbar mb-4 rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="erp-bank-wehago-toolbar__head">
@@ -192,22 +209,55 @@ function LedgerViewerFilterBarComponent({
           </div>
         </div>
         <div className="erp-bank-wehago-toolbar__range">
-          <CalendarDays size={16} className="text-slate-400" aria-hidden="true" />
-          <KoreanDateInput
-            className="erp-bank-wehago-date-input"
-            value={draftPeriodRange.startDate}
-            onChange={(event) => {
-              applyCustomPeriod({ startDate: event.target.value });
-            }}
-          />
-          <span className="text-slate-400">-</span>
-          <KoreanDateInput
-            className="erp-bank-wehago-date-input"
-            value={draftPeriodRange.endDate}
-            onChange={(event) => {
-              applyCustomPeriod({ endDate: event.target.value });
-            }}
-          />
+          {draft.periodKey === "thisMonth" ? (
+            <div className="erp-worker-month-nav">
+              <button
+                type="button"
+                className="erp-worker-month-nav-btn"
+                aria-label={"\uC774\uC804 \uB2EC"}
+                onClick={() => shiftViewMonth(-1)}
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <div className="erp-worker-month-nav-label">{formatMonthLabel(activeViewMonthKey)}</div>
+              <button
+                type="button"
+                className="erp-worker-month-nav-btn"
+                aria-label={"\uB2E4\uC74C \uB2EC"}
+                onClick={() => shiftViewMonth(1)}
+              >
+                <ChevronRight size={18} />
+              </button>
+              {!isCurrentViewMonth ? (
+                <button
+                  type="button"
+                  className="erp-bank-wehago-action-btn ml-1"
+                  onClick={() => applyDraftNow({ viewMonthKey: getMonthKey(todayISO()) })}
+                >
+                  {"\uC774\uBC88 \uB2EC"}
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <>
+              <CalendarDays size={16} className="text-slate-400" aria-hidden="true" />
+              <KoreanDateInput
+                className="erp-bank-wehago-date-input"
+                value={draftPeriodRange.startDate}
+                onChange={(event) => {
+                  applyCustomPeriod({ startDate: event.target.value });
+                }}
+              />
+              <span className="text-slate-400">-</span>
+              <KoreanDateInput
+                className="erp-bank-wehago-date-input"
+                value={draftPeriodRange.endDate}
+                onChange={(event) => {
+                  applyCustomPeriod({ endDate: event.target.value });
+                }}
+              />
+            </>
+          )}
           <span className="erp-bank-wehago-toolbar__range-label">{formatBankPeriodRangeLabel(draftPeriodRange)}</span>
         </div>
       </div>

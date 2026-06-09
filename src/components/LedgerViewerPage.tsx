@@ -39,9 +39,9 @@ import {
   LedgerViewerFilterBar,
   matchesLedgerFixedExpenseFilter,
   matchesLedgerViewerPeriod,
+  resolveLedgerViewerPeriod,
   type LedgerViewerAppliedFilters,
 } from "@/components/LedgerViewerFilterBar";
-import { resolveBankTransactionPeriod } from "@/utils/bankTransactionPagePeriod";
 
 export type LedgerViewerSubTab = "list" | "monthly" | "account" | "fixed";
 
@@ -179,14 +179,7 @@ export function LedgerViewerPage({
     [bankTransactions],
   );
 
-  const listPeriodRange = useMemo(
-    () =>
-      resolveBankTransactionPeriod(listFilters.periodKey, {
-        startDate: listFilters.startDate,
-        endDate: listFilters.endDate,
-      }),
-    [listFilters.periodKey, listFilters.startDate, listFilters.endDate],
-  );
+  const listPeriodRange = useMemo(() => resolveLedgerViewerPeriod(listFilters), [listFilters]);
 
   const gap = useMemo(
     () =>
@@ -194,12 +187,12 @@ export function LedgerViewerPage({
         bankTransactions,
         allEntries,
         activeTab === "list" && listFilters.periodKey === "thisMonth"
-          ? getMonthKey(todayISO())
+          ? listFilters.viewMonthKey || getMonthKey(todayISO())
           : activeTab === "list"
             ? undefined
             : monthKey,
       ),
-    [bankTransactions, allEntries, activeTab, listFilters.periodKey, monthKey],
+    [bankTransactions, allEntries, activeTab, listFilters.periodKey, listFilters.viewMonthKey, monthKey],
   );
 
   const periodScopedEntries = useMemo(
