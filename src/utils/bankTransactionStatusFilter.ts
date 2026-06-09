@@ -90,9 +90,11 @@ export function countBankTxStatusTabs(
 
 export type BankTxEvidenceFilter = "all" | "linked" | "missing";
 
+import { bankTxHasLinkedTaxInvoice } from "@/utils/bankTaxInvoiceLink";
+
 export function matchesBankTxEvidenceFilter(tx: BankTransaction, filter: BankTxEvidenceFilter) {
   if (filter === "all") return true;
-  const linked = Boolean(String(tx.linkedTaxInvoiceId || "").trim());
+  const linked = bankTxHasLinkedTaxInvoice(tx);
   return filter === "linked" ? linked : !linked;
 }
 

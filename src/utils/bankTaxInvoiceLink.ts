@@ -253,10 +253,132 @@ export function pickAutoTaxInvoiceMatch(
   return best;
 }
 
+export function getBankTxLinkedTaxInvoiceIds(tx: Pick<BankTransaction, "linkedTaxInvoiceId" | "linkedTaxInvoiceIds">) {
+  if (Array.isArray(tx.linkedTaxInvoiceIds)) {
+    const ids = tx.linkedTaxInvoiceIds.map((id) => String(id || "").trim()).filter(Boolean);
+    if (ids.length) return [...new Set(ids)];
+  }
+  if (tx.linkedTaxInvoiceId) return [String(tx.linkedTaxInvoiceId)];
+  return [];
+}
+
+export function bankTxHasLinkedTaxInvoice(
+  tx: Pick<BankTransaction, "linkedTaxInvoiceId" | "linkedTaxInvoiceIds">,
+  invoiceId?: string,
+) {
+  const ids = getBankTxLinkedTaxInvoiceIds(tx);
+  if (!invoiceId) return ids.length > 0;
+  return ids.includes(invoiceId);
+}
+
+function syncLinkedTaxInvoiceFields(
+  tx: BankTransaction,
+  linkedTaxInvoiceIds: string[] | undefined,
+): BankTransaction {
+  const ids = linkedTaxInvoiceIds?.length ? [...new Set(linkedTaxInvoiceIds)] : undefined;
+  return {
+    ...tx,
+    linkedTaxInvoiceIds: ids,
+    linkedTaxInvoiceId: ids?.[0],
+  };
+}
+
+function applyInvoiceClientFields(
+  tx: BankTransaction,
+  invoice: TaxInvoice,
+): BankTransaction {
+  const clientName = String(invoice.client || "").trim();
+  const existingSubject = String(tx.linkedSubject || tx.ledgerClientName || "").trim();
+  const keepExistingClientLabel =
+    tx.deposit > 0 &&
+    Boolean(tx.linkedPaymentVoucherId) &&
+    existingSubject &&
+    clientName &&
+    !hasTaxInvoiceNameMatch(
+      { ...tx, linkedSubject: existingSubject, ledgerClientName: existingSubject },
+      invoice,
+    );
+  const displayClientName = keepExistingClientLabel ? existingSubject : clientName || existingSubject;
+
+  return {
+    ...tx,
+    ledgerClientName: displayClientName || tx.ledgerClientName,
+    linkedSubject: tx.deposit > 0 && displayClientName ? displayClientName : tx.linkedSubject,
+  };
+}
+
+export function addBankTxTaxInvoiceLink(
+  tx: BankTransaction,
+  invoice: TaxInvoice,
+  options: { manual?: boolean } = {},
+): BankTransaction {
+  const ids = getBankTxLinkedTaxInvoiceIds(tx);
+  const nextIds = ids.includes(invoice.id) ? ids : [...ids, invoice.id];
+  let next = syncLinkedTaxInvoiceFields(
+    {
+      ...tx,
+      taxInvoiceAutoLinkDisabled: options.manual ? true : tx.taxInvoiceAutoLinkDisabled,
+    },
+    nextIds,
+  );
+  if (!ids.length) {
+    next = applyInvoiceClientFields(next, invoice);
+  }
+  return next;
+}
+
+export function removeBankTxTaxInvoiceLink(
+  tx: BankTransaction,
+  invoiceId: string,
+  options: { manual?: boolean } = {},
+): BankTransaction {
+  const nextIds = getBankTxLinkedTaxInvoiceIds(tx).filter((id) => id !== invoiceId);
+  return syncLinkedTaxInvoiceFields(
+    {
+      ...tx,
+      taxInvoiceAutoLinkDisabled: options.manual ? true : tx.taxInvoiceAutoLinkDisabled,
+    },
+    nextIds.length ? nextIds : undefined,
+  );
+}
+
+export function clearBankTxTaxInvoiceLinks(
+  tx: BankTransaction,
+  options: { manual?: boolean } = {},
+): BankTransaction {
+  return syncLinkedTaxInvoiceFields(
+    {
+      ...tx,
+      taxInvoiceAutoLinkDisabled: options.manual ? true : tx.taxInvoiceAutoLinkDisabled,
+    },
+    undefined,
+  );
+}
+
+export function toggleBankTxTaxInvoiceLink(
+  tx: BankTransaction,
+  invoice: TaxInvoice | undefined,
+  invoiceId?: string,
+  options: { manual?: boolean } = {},
+): BankTransaction {
+  if (!invoice && !invoiceId) {
+    return clearBankTxTaxInvoiceLinks(tx, options);
+  }
+  const id = invoice?.id || invoiceId;
+  if (!id) return clearBankTxTaxInvoiceLinks(tx, options);
+  if (bankTxHasLinkedTaxInvoice(tx, id)) {
+    return removeBankTxTaxInvoiceLink(tx, id, options);
+  }
+  if (!invoice) return tx;
+  return addBankTxTaxInvoiceLink(tx, invoice, options);
+}
+
 export function collectUsedTaxInvoiceIds(transactions: BankTransaction[]) {
   const used = new Set<string>();
   for (const row of transactions) {
-    if (row.linkedTaxInvoiceId) used.add(row.linkedTaxInvoiceId);
+    for (const id of getBankTxLinkedTaxInvoiceIds(row)) {
+      used.add(id);
+    }
   }
   return used;
 }
@@ -277,7 +399,7 @@ export function batchAutoLinkTaxInvoiceEvidence(
 
   for (const tx of transactions) {
     if (options.onlyTransactionIds && !options.onlyTransactionIds.has(tx.id)) continue;
-    if (tx.linkedTaxInvoiceId || tx.taxInvoiceAutoLinkDisabled) continue;
+    if (bankTxHasLinkedTaxInvoice(tx) || tx.taxInvoiceAutoLinkDisabled) continue;
     for (const row of searchTaxInvoicesForBankTx(tx, invoices, "", context)) {
       if (row.score < AUTO_TAX_INVOICE_MATCH_MIN_SCORE) break;
       if (!hasTaxInvoicePartyMatch(tx, row.invoice, context)) continue;
@@ -296,7 +418,7 @@ export function batchAutoLinkTaxInvoiceEvidence(
     if (linkedTxIds.has(candidate.txId)) continue;
     if (usedInvoiceIds.has(candidate.invoice.id)) continue;
     const tx = txById.get(candidate.txId);
-    if (!tx || tx.linkedTaxInvoiceId) continue;
+    if (!tx || bankTxHasLinkedTaxInvoice(tx)) continue;
 
     const nextRow = buildBankTxTaxInvoiceLinkPatch(tx, candidate.invoice);
     nextTransactions = nextTransactions.map((row) => (row.id === tx.id ? nextRow : row));
@@ -315,30 +437,7 @@ export function buildBankTxTaxInvoiceLinkPatch(
   options: { manual?: boolean } = {},
 ): BankTransaction {
   if (!invoice) {
-    return {
-      ...tx,
-      linkedTaxInvoiceId: undefined,
-      taxInvoiceAutoLinkDisabled: options.manual ? true : tx.taxInvoiceAutoLinkDisabled,
-    };
+    return clearBankTxTaxInvoiceLinks(tx, options);
   }
-  const clientName = String(invoice.client || "").trim();
-  const existingSubject = String(tx.linkedSubject || tx.ledgerClientName || "").trim();
-  const keepExistingClientLabel =
-    tx.deposit > 0 &&
-    Boolean(tx.linkedPaymentVoucherId) &&
-    existingSubject &&
-    clientName &&
-    !hasTaxInvoiceNameMatch(
-      { ...tx, linkedSubject: existingSubject, ledgerClientName: existingSubject },
-      invoice,
-    );
-  const displayClientName = keepExistingClientLabel ? existingSubject : clientName || existingSubject;
-
-  return {
-    ...tx,
-    linkedTaxInvoiceId: invoice.id,
-    taxInvoiceAutoLinkDisabled: options.manual ? true : tx.taxInvoiceAutoLinkDisabled,
-    ledgerClientName: displayClientName || tx.ledgerClientName,
-    linkedSubject: tx.deposit > 0 && displayClientName ? displayClientName : tx.linkedSubject,
-  };
+  return addBankTxTaxInvoiceLink(tx, invoice, options);
 }

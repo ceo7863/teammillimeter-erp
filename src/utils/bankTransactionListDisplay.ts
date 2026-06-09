@@ -13,6 +13,7 @@ import { getBankTxLedgerCategoryLabel } from "@/utils/ledgerBankBridge";
 import {
   formatTaxInvoiceEvidenceLabel,
   getBankTxClassifiedAmount,
+  getBankTxLinkedTaxInvoiceIds,
   isBankTxClientHidden,
   resolveBankTxClientName,
 } from "@/utils/bankTaxInvoiceLink";
@@ -230,8 +231,11 @@ export function buildBankTransactionListRowModel(
   const clientHidden = isBankTxClientHidden(row);
   const clientLabel = clientHidden ? null : resolveBankTxClientName(row) || unfiledClientName || null;
   const classifiedAmount = getBankTxClassifiedAmount(row);
-  const linkedInvoice = row.linkedTaxInvoiceId ? taxInvoiceById.get(row.linkedTaxInvoiceId) : undefined;
-  const evidenceLabel = linkedInvoice ? formatTaxInvoiceEvidenceLabel(linkedInvoice) : null;
+  const linkedInvoiceLabels = getBankTxLinkedTaxInvoiceIds(row)
+    .map((id) => taxInvoiceById.get(id))
+    .filter((invoice): invoice is TaxInvoice => Boolean(invoice))
+    .map((invoice) => formatTaxInvoiceEvidenceLabel(invoice));
+  const evidenceLabel = linkedInvoiceLabels.length ? linkedInvoiceLabels.join(" · ") : null;
   const signedAmountLabel =
     row.deposit > 0
       ? `+${formatKRW(row.deposit)}`
@@ -408,9 +412,11 @@ export function buildBankTransactionListRowFingerprint(
       `fp:${payment.id}:${payment.fixedExpenseId}:${fixedItem?.name ?? ""}:${fixedItem?.category ?? ""}`,
     );
   }
-  const invoice = row.linkedTaxInvoiceId ? taxInvoiceById.get(row.linkedTaxInvoiceId) : undefined;
-  if (invoice) {
-    linked.push(`ti:${invoice.id}:${invoice.issueDate}:${invoice.totalAmount}`);
+  for (const invoiceId of getBankTxLinkedTaxInvoiceIds(row)) {
+    const invoice = taxInvoiceById.get(invoiceId);
+    if (invoice) {
+      linked.push(`ti:${invoice.id}:${invoice.issueDate}:${invoice.totalAmount}`);
+    }
   }
   if (bankTxHasPartialPaymentVoucher(row, paymentVouchers)) {
     linked.push("pp:1");
@@ -432,7 +438,7 @@ export function buildBankTransactionListRowFingerprint(
     row.linkedWorkerMonthlyPaymentVoucherId,
     row.linkedCompanyExpenseId,
     row.linkedFixedExpensePaymentId,
-    row.linkedTaxInvoiceId,
+    getBankTxLinkedTaxInvoiceIds(row).join(","),
     row.ledgerAccountCode,
     optimisticAccountSubjectLabel,
     row.ledgerMemo,

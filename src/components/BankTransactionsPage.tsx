@@ -57,6 +57,10 @@ import {
 import type { TaxInvoice } from "@/utils/taxInvoices";
 import {
   buildBankTxTaxInvoiceLinkPatch,
+  clearBankTxTaxInvoiceLinks,
+  addBankTxTaxInvoiceLink,
+  removeBankTxTaxInvoiceLink,
+  getBankTxLinkedTaxInvoiceIds,
   formatTaxInvoiceEvidenceLabel,
 } from "@/utils/bankTaxInvoiceLink";
 import {
@@ -2347,12 +2351,26 @@ function BankTransactionsPageComponent({
   }, []);
 
   const applyTaxInvoiceLink = useCallback(
-    (tx: BankTransaction, invoiceId: string | undefined, invoiceOverride?: TaxInvoice) => {
+    (
+      tx: BankTransaction,
+      invoiceId: string | undefined,
+      invoiceOverride?: TaxInvoice,
+      mode: "add" | "remove" | "clear" = invoiceId ? "add" : "clear",
+    ) => {
       const invoice =
         invoiceOverride || (invoiceId ? taxInvoices.find((row) => row.id === invoiceId) : undefined);
       const prev = bankTransactionsRef.current;
       const liveTx = prev.find((row) => row.id === tx.id) ?? tx;
-      const nextRow = buildBankTxTaxInvoiceLinkPatch(liveTx, invoice, { manual: true });
+      let nextRow: BankTransaction;
+      if (mode === "clear" || !invoiceId) {
+        nextRow = clearBankTxTaxInvoiceLinks(liveTx, { manual: true });
+      } else if (mode === "remove") {
+        nextRow = removeBankTxTaxInvoiceLink(liveTx, invoiceId, { manual: true });
+      } else if (invoice) {
+        nextRow = addBankTxTaxInvoiceLink(liveTx, invoice, { manual: true });
+      } else {
+        return null;
+      }
       auditBankTxUpdate(liveTx, nextRow);
       let nextTransactions = prev.map((row) => (row.id === tx.id ? nextRow : row));
       let nextClients = clients;
@@ -2380,7 +2398,7 @@ function BankTransactionsPageComponent({
       if (splitResult.linkedCount > 0) {
         for (const before of nextTransactions) {
           const after = splitResult.transactions.find((row) => row.id === before.id);
-          if (after && after.linkedTaxInvoiceId !== before.linkedTaxInvoiceId) {
+          if (after && getBankTxLinkedTaxInvoiceIds(after).join("|") !== getBankTxLinkedTaxInvoiceIds(before).join("|")) {
             auditBankTxUpdate(before, after);
           }
         }
@@ -2488,12 +2506,12 @@ function BankTransactionsPageComponent({
   }, []);
 
   const saveTaxInvoiceLink = useCallback(
-    (invoiceId: string | undefined) => {
+    (invoiceId: string | undefined, mode: "add" | "remove" | "clear" = invoiceId ? "add" : "clear") => {
       const session = taxInvoiceLinkSessionRef.current;
       if (!session) return;
       const liveTx =
         bankTransactionsRef.current.find((row) => row.id === session.tx.id) ?? session.tx;
-      const result = applyTaxInvoiceLink(liveTx, invoiceId);
+      const result = applyTaxInvoiceLink(liveTx, invoiceId, undefined, mode);
       if (!result?.nextRow || !result.nextTransactions) return;
       invalidateTaxInvoiceLinkPanelCaches();
       setTaxInvoiceLinkSession({
@@ -2513,7 +2531,9 @@ function BankTransactionsPageComponent({
   React.useEffect(() => {
     setTaxInvoiceLinkPanelHandlers({
       onClose: closeTaxInvoicePanel,
-      onLink: saveTaxInvoiceLink,
+      onLink: (invoiceId) => saveTaxInvoiceLink(invoiceId, "add"),
+      onUnlink: (invoiceId) => saveTaxInvoiceLink(invoiceId, "remove"),
+      onUnlinkAll: () => saveTaxInvoiceLink(undefined, "clear"),
       onNavigateToTaxInvoice: taxInvoicePanelUiRef.current.onNavigateToTaxInvoice,
     });
   }, [closeTaxInvoicePanel, saveTaxInvoiceLink, onNavigateToTaxInvoice]);
@@ -2532,7 +2552,7 @@ function BankTransactionsPageComponent({
       excludedIds: taxInvoiceLinkSession.excludedIds,
       preparing: taxInvoiceLinkSession.preparing,
       companyProfile: ui.companyProfile,
-      linkedInvoiceId: taxInvoiceLinkSession.tx.linkedTaxInvoiceId,
+      linkedInvoiceIds: getBankTxLinkedTaxInvoiceIds(taxInvoiceLinkSession.tx),
       clients,
       workers,
     });

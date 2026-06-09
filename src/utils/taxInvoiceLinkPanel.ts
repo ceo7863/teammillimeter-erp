@@ -1,6 +1,7 @@
 import type { BankTransaction } from "./bankTransactions";
 import {
   getBankTxClassifiedAmount,
+  getBankTxLinkedTaxInvoiceIds,
   hasTaxInvoiceBusinessNoMatch,
   hasTaxInvoiceNameMatch,
   normalizeBusinessRegistrationNo,
@@ -89,12 +90,15 @@ export function buildTaxInvoiceSettlementAllocation(
   }
 
   for (const tx of transactions) {
-    const linkedId = tx.linkedTaxInvoiceId;
-    if (!linkedId) continue;
-    const invoice = invoiceById.get(linkedId);
-    if (!invoice || invoice.status === "cancelled") continue;
-    const key = normalizeTaxInvoiceClientKey(invoice);
-    clientGroups.get(key)?.txs.push(tx);
+    const linkedIds = getBankTxLinkedTaxInvoiceIds(tx);
+    if (!linkedIds.length) continue;
+    const primary = invoiceById.get(linkedIds[0]);
+    if (!primary || primary.status === "cancelled") continue;
+    const key = normalizeTaxInvoiceClientKey(primary);
+    const group = clientGroups.get(key);
+    if (group && !group.txs.some((row) => row.id === tx.id)) {
+      group.txs.push(tx);
+    }
   }
 
   for (const group of clientGroups.values()) {
@@ -116,10 +120,12 @@ export function buildTaxInvoiceSettlementAllocation(
           : Math.max(0, Number(tx.withdrawal || 0));
       if (remaining <= 0) continue;
 
-      const linkedId = String(tx.linkedTaxInvoiceId || "");
+      const linkedIds = getBankTxLinkedTaxInvoiceIds(tx);
       const priorityOrder = [
-        ...group.invoices.filter((row) => row.id === linkedId),
-        ...group.invoices.filter((row) => row.id !== linkedId),
+        ...linkedIds
+          .map((id) => group.invoices.find((row) => row.id === id))
+          .filter((row): row is TaxInvoice => Boolean(row)),
+        ...group.invoices.filter((row) => !linkedIds.includes(row.id)),
       ];
 
       for (const invoice of priorityOrder) {
@@ -182,15 +188,23 @@ export function invalidateTaxInvoiceLinkPanelCaches() {
 export function buildTaxInvoiceLinkedPaymentIndex(transactions: BankTransaction[]): TaxInvoiceLinkedPaymentIndex {
   const index: TaxInvoiceLinkedPaymentIndex = new Map();
   for (const row of transactions) {
-    const invoiceId = row.linkedTaxInvoiceId;
-    if (!invoiceId) continue;
-    let bucket = index.get(invoiceId);
-    if (!bucket) {
-      bucket = { purchase: 0, sales: 0 };
-      index.set(invoiceId, bucket);
+    const linkedIds = getBankTxLinkedTaxInvoiceIds(row);
+    if (!linkedIds.length) continue;
+    const amount =
+      Number(row.deposit || 0) > 0
+        ? Number(row.deposit || 0)
+        : Math.max(0, Number(row.withdrawal || 0));
+    if (amount <= 0) continue;
+    const share = Math.round(amount / linkedIds.length);
+    for (const invoiceId of linkedIds) {
+      let bucket = index.get(invoiceId);
+      if (!bucket) {
+        bucket = { purchase: 0, sales: 0 };
+        index.set(invoiceId, bucket);
+      }
+      if (Number(row.deposit || 0) > 0) bucket.sales += share;
+      else bucket.purchase += share;
     }
-    bucket.purchase += Math.max(0, Number(row.withdrawal || 0));
-    bucket.sales += Math.max(0, Number(row.deposit || 0));
   }
   return index;
 }
@@ -233,7 +247,7 @@ export function getTaxInvoiceUnsettledAmount(
   let linked = getTaxInvoiceLinkedPaymentSum(transactions, invoice);
   if (excludeTransactionIds?.size) {
     for (const tx of transactions) {
-      if (!excludeTransactionIds.has(tx.id) || tx.linkedTaxInvoiceId !== invoice.id) continue;
+      if (!excludeTransactionIds.has(tx.id) || !getBankTxLinkedTaxInvoiceIds(tx).includes(invoice.id)) continue;
       linked -= Number(tx.deposit || 0) > 0 ? Number(tx.deposit || 0) : Number(tx.withdrawal || 0);
     }
   }
@@ -257,7 +271,7 @@ export function getTaxInvoiceAppliedPaymentAmount(
   let linked = getTaxInvoiceLinkedPaymentSum(transactions, invoice);
   if (excludeTransactionIds?.size) {
     for (const tx of transactions) {
-      if (!excludeTransactionIds.has(tx.id) || tx.linkedTaxInvoiceId !== invoice.id) continue;
+      if (!excludeTransactionIds.has(tx.id) || !getBankTxLinkedTaxInvoiceIds(tx).includes(invoice.id)) continue;
       linked -= Number(tx.deposit || 0) > 0 ? Number(tx.deposit || 0) : Number(tx.withdrawal || 0);
     }
   }

@@ -33,6 +33,8 @@ const L = {
   unsettled: "\uBBF8\uC815\uC0B0 \uAE08\uC561",
   add: "\uCD94\uAC00",
   linked: "\uC5F0\uACB0\uB428",
+  unlinkOne: "\uD574\uC81C",
+  linkedCount: (count: number) => `\uC5F0\uACB0 ${count}\uAC74`,
   noUnsettled: "\uBBF8\uC815\uC0B0 \uAE08\uC561\uC774 \uC5C6\uC5B4\uC694",
   empty: "\uC870\uAC74\uC5D0 \uB9DE\uB294 \uC138\uAE08\uACC4\uC0B0\uC11C\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
   loading: "\uC138\uAE08\uACC4\uC0B0\uC11C \uBAA9\uB85D\uC744 \uBD88\uB7EC\uC624\uB294 \uC911\u2026",
@@ -50,7 +52,7 @@ export type TaxInvoiceLinkPanelDataProps = {
   linkedPaymentIndex: TaxInvoiceLinkedPaymentIndex;
   excludedIds: Set<string>;
   companyProfile?: CompanyProfile;
-  linkedInvoiceId?: string;
+  linkedInvoiceIds?: string[];
   preparing?: boolean;
   clients?: Array<{ name?: string; businessNo?: string; depositNameAliases?: string }>;
   workers?: Array<{ name?: string; businessNo?: string; depositNameAliases?: string }>;
@@ -58,7 +60,9 @@ export type TaxInvoiceLinkPanelDataProps = {
 
 type TaxInvoiceLinkPanelProps = TaxInvoiceLinkPanelDataProps & {
   onClose: () => void;
-  onLink: (invoiceId: string | undefined) => void;
+  onLink: (invoiceId: string) => void;
+  onUnlink: (invoiceId: string) => void;
+  onUnlinkAll: () => void;
   onNavigateToTaxInvoice?: () => void;
 };
 
@@ -107,14 +111,14 @@ function TaxInvoiceLinkSearchField({ onDebouncedChange }: { onDebouncedChange: (
 
 const TaxInvoiceLinkHeader = memo(function TaxInvoiceLinkHeader({
   tx,
-  linkedInvoiceId,
+  linkedInvoiceIds = [],
   onClose,
-  onLink,
+  onUnlinkAll,
 }: {
   tx: BankTransaction;
-  linkedInvoiceId?: string;
+  linkedInvoiceIds?: string[];
   onClose: () => void;
-  onLink: (invoiceId: string | undefined) => void;
+  onUnlinkAll: () => void;
 }) {
   const txAmount = getBankTxClassifiedAmount(tx);
   return (
@@ -125,11 +129,14 @@ const TaxInvoiceLinkHeader = memo(function TaxInvoiceLinkHeader({
           {formatTxAt(tx.transactionAt)} {"\u00B7"}{" "}
           {String(tx.counterpartyName || tx.description || "-").trim()} {"\u00B7"} {L.txAmount}{" "}
           <span className="font-bold text-slate-900">{formatKRW(txAmount)}</span>
+          {linkedInvoiceIds.length ? (
+            <span className="ml-2 font-semibold text-blue-700">{L.linkedCount(linkedInvoiceIds.length)}</span>
+          ) : null}
         </p>
       </div>
       <div className="flex items-center gap-2">
-        {linkedInvoiceId ? (
-          <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={() => onLink(undefined)}>
+        {linkedInvoiceIds.length ? (
+          <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={onUnlinkAll}>
             {L.unlink}
           </Button>
         ) : null}
@@ -144,15 +151,17 @@ const TaxInvoiceLinkHeader = memo(function TaxInvoiceLinkHeader({
 function TaxInvoiceLinkResultsTable({
   tx,
   rows,
-  linkedInvoiceId,
+  linkedInvoiceIds = [],
   preparing,
   onLink,
+  onUnlink,
 }: {
   tx: BankTransaction;
   rows: TaxInvoiceLinkCatalogRow[];
-  linkedInvoiceId?: string;
+  linkedInvoiceIds?: string[];
   preparing?: boolean;
-  onLink: (invoiceId: string | undefined) => void;
+  onLink: (invoiceId: string) => void;
+  onUnlink: (invoiceId: string) => void;
 }) {
   const [page, setPage] = useState(1);
   const txIsWithdrawal = Number(tx.withdrawal || 0) > 0;
@@ -201,8 +210,9 @@ function TaxInvoiceLinkResultsTable({
               </tr>
             ) : (
               pageRows.map((row) => {
-                const isLinked = linkedInvoiceId === row.invoice.id;
+                const isLinked = linkedInvoiceIds.includes(row.invoice.id);
                 const canLink =
+                  !isLinked &&
                   row.unsettledAmount > 0 &&
                   ((row.invoice.flowType === "purchase" && txIsWithdrawal) ||
                     (row.invoice.flowType === "sales" && txIsDeposit));
@@ -231,7 +241,13 @@ function TaxInvoiceLinkResultsTable({
                     <td className="text-right font-semibold text-amber-700">{row.unsettledLabel}</td>
                     <td className="text-right">
                       {isLinked ? (
-                        <span className="text-xs font-bold text-blue-700">{L.linked}</span>
+                        <button
+                          type="button"
+                          className="inline-flex h-7 items-center rounded-lg border border-blue-200 bg-white px-3 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+                          onClick={() => onUnlink(row.invoice.id)}
+                        >
+                          {L.unlinkOne}
+                        </button>
                       ) : canLink ? (
                         <button
                           type="button"
@@ -285,14 +301,16 @@ function TaxInvoiceLinkFilterBody({
   linkedPaymentIndex,
   excludedIds,
   companyProfile,
-  linkedInvoiceId,
+  linkedInvoiceIds = [],
   preparing,
   clients = [],
   workers = [],
   onLink,
+  onUnlink,
   onNavigateToTaxInvoice,
 }: TaxInvoiceLinkPanelDataProps & {
-  onLink: (invoiceId: string | undefined) => void;
+  onLink: (invoiceId: string) => void;
+  onUnlink: (invoiceId: string) => void;
   onNavigateToTaxInvoice?: () => void;
 }) {
   const defaultRange = useMemo(() => buildDefaultTaxInvoiceLinkDateRange(tx), [tx]);
@@ -389,9 +407,10 @@ function TaxInvoiceLinkFilterBody({
       <TaxInvoiceLinkResultsTable
         tx={tx}
         rows={rows}
-        linkedInvoiceId={linkedInvoiceId}
+        linkedInvoiceIds={linkedInvoiceIds}
         preparing={preparing}
         onLink={onLink}
+        onUnlink={onUnlink}
       />
     </div>
   );
@@ -399,15 +418,28 @@ function TaxInvoiceLinkFilterBody({
 
 export function TaxInvoiceLinkPanel({
   tx,
-  linkedInvoiceId,
+  linkedInvoiceIds,
   onClose,
   onLink,
+  onUnlink,
+  onUnlinkAll,
   ...bodyProps
 }: TaxInvoiceLinkPanelProps) {
   return (
     <div className="erp-tax-invoice-link-panel" role="dialog" aria-modal="true" aria-label={L.title}>
-      <TaxInvoiceLinkHeader tx={tx} linkedInvoiceId={linkedInvoiceId} onClose={onClose} onLink={onLink} />
-      <TaxInvoiceLinkFilterBody tx={tx} linkedInvoiceId={linkedInvoiceId} onLink={onLink} {...bodyProps} />
+      <TaxInvoiceLinkHeader
+        tx={tx}
+        linkedInvoiceIds={linkedInvoiceIds}
+        onClose={onClose}
+        onUnlinkAll={onUnlinkAll}
+      />
+      <TaxInvoiceLinkFilterBody
+        tx={tx}
+        linkedInvoiceIds={linkedInvoiceIds}
+        onLink={onLink}
+        onUnlink={onUnlink}
+        {...bodyProps}
+      />
     </div>
   );
 }

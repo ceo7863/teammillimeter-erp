@@ -2,6 +2,7 @@ import type { BankTransaction } from "./bankTransactions";
 import {
   buildBankTxTaxInvoiceLinkPatch,
   getBankTxClassifiedAmount,
+  getBankTxLinkedTaxInvoiceIds,
   hasTaxInvoicePartyMatch,
   normalizeBusinessRegistrationNo,
   type TaxInvoiceMatchContext,
@@ -50,7 +51,7 @@ export function isClientTaxInvoiceSplitEnabled(
 
 export function getTaxInvoiceLinkedDepositSum(transactions: BankTransaction[], invoiceId: string) {
   return transactions
-    .filter((row) => row.linkedTaxInvoiceId === invoiceId && Number(row.deposit || 0) > 0)
+    .filter((row) => getBankTxLinkedTaxInvoiceIds(row).includes(invoiceId) && Number(row.deposit || 0) > 0)
     .reduce((sum, row) => sum + Number(row.deposit || 0), 0);
 }
 
@@ -78,7 +79,7 @@ export function collectSplitTaxInvoiceCandidates(
 ) {
   return transactions.filter((tx) => {
     if (options.onlyTransactionIds && !options.onlyTransactionIds.has(tx.id)) return false;
-    if (tx.linkedTaxInvoiceId || tx.taxInvoiceAutoLinkDisabled) return false;
+    if (getBankTxLinkedTaxInvoiceIds(tx).length || tx.taxInvoiceAutoLinkDisabled) return false;
     if (Number(tx.deposit || 0) <= 0) return false;
     if (invoice.flowType === "sales" && !(tx.deposit > 0)) return false;
     if (invoice.flowType === "purchase" && !(tx.withdrawal > 0)) return false;
@@ -151,7 +152,7 @@ export function findSplitTaxInvoiceLinkPlans(
 ): TaxInvoiceSplitLinkPlan[] {
   const plans: TaxInvoiceSplitLinkPlan[] = [];
   const usedTxIds = new Set(
-    transactions.filter((row) => row.linkedTaxInvoiceId).map((row) => row.id),
+    transactions.filter((row) => getBankTxLinkedTaxInvoiceIds(row).length).map((row) => row.id),
   );
 
   for (const invoice of dedupeTaxInvoicesForSplitMatching(invoices)) {
@@ -206,7 +207,7 @@ export function batchAutoLinkSplitTaxInvoiceEvidence(
 
     for (const tx of plan.transactions) {
       const current = txById.get(tx.id);
-      if (!current || current.linkedTaxInvoiceId) continue;
+      if (!current || getBankTxLinkedTaxInvoiceIds(current).length) continue;
       const nextRow = buildBankTxTaxInvoiceLinkPatch(current, plan.invoice);
       nextTransactions = nextTransactions.map((row) => (row.id === tx.id ? nextRow : row));
       txById.set(tx.id, nextRow);
@@ -253,7 +254,7 @@ export function shouldLearnTaxInvoiceSplitPayment(
   const total = Number(invoice.totalAmount || 0);
   if (txAmount > 0 && txAmount < total - TAX_INVOICE_SPLIT_AMOUNT_TOLERANCE) return true;
   const otherLinked = transactions.some(
-    (row) => row.id !== tx.id && row.linkedTaxInvoiceId === invoice.id,
+    (row) => row.id !== tx.id && getBankTxLinkedTaxInvoiceIds(row).includes(invoice.id),
   );
   return otherLinked;
 }

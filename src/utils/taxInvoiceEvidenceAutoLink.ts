@@ -1,6 +1,7 @@
 import type { BankTransaction } from "./bankTransactions";
 import {
   batchAutoLinkTaxInvoiceEvidence,
+  getBankTxLinkedTaxInvoiceIds,
   type TaxInvoiceMatchContext,
 } from "./bankTaxInvoiceLink";
 import { appendDepositNameAlias } from "./clientDepositAliases";
@@ -83,13 +84,17 @@ function learnClientsFromNewExactLinks(
 ) {
   let next = clients;
   for (const afterTx of after) {
-    if (!afterTx.linkedTaxInvoiceId) continue;
+    const afterIds = getBankTxLinkedTaxInvoiceIds(afterTx);
+    if (!afterIds.length) continue;
     const beforeTx = before.find((row) => row.id === afterTx.id);
-    if (beforeTx?.linkedTaxInvoiceId) continue;
-    const invoice = invoices.find((row) => row.id === afterTx.linkedTaxInvoiceId);
-    if (!invoice) continue;
-    next = learnClientTaxInvoiceExactPayments(next, invoice, afterTx);
-    next = learnClientTaxInvoiceSplitPayments(next, invoice);
+    const beforeIds = beforeTx ? getBankTxLinkedTaxInvoiceIds(beforeTx) : [];
+    const newIds = afterIds.filter((id) => !beforeIds.includes(id));
+    for (const invoiceId of newIds) {
+      const invoice = invoices.find((row) => row.id === invoiceId);
+      if (!invoice) continue;
+      next = learnClientTaxInvoiceExactPayments(next, invoice, afterTx);
+      next = learnClientTaxInvoiceSplitPayments(next, invoice);
+    }
   }
   return next;
 }
@@ -99,7 +104,7 @@ export function buildTaxInvoiceEvidenceAutoLinkKey(
   invoices: TaxInvoice[],
 ) {
   const unlinked = transactions
-    .filter((row) => !row.linkedTaxInvoiceId && !row.taxInvoiceAutoLinkDisabled)
+    .filter((row) => !getBankTxLinkedTaxInvoiceIds(row).length && !row.taxInvoiceAutoLinkDisabled)
     .map((row) => row.id)
     .sort()
     .join(",");

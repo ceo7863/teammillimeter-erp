@@ -1,5 +1,18 @@
 import { compareSortValues, type SortDirection } from "./pivotSort";
 
+function normalizeLinkedTaxInvoiceIds(raw: Partial<BankTransaction>) {
+  if (Array.isArray(raw.linkedTaxInvoiceIds)) {
+    const ids = raw.linkedTaxInvoiceIds.map((id) => String(id || "").trim()).filter(Boolean);
+    return ids.length ? [...new Set(ids)] : undefined;
+  }
+  if (raw.linkedTaxInvoiceId) return [String(raw.linkedTaxInvoiceId)];
+  return undefined;
+}
+
+function resolvePrimaryLinkedTaxInvoiceId(raw: Partial<BankTransaction>) {
+  return normalizeLinkedTaxInvoiceIds(raw)?.[0];
+}
+
 function isPreauthNetTotalsSuppressed(row: BankTransaction) {
   return row.netGroupRole === "preauth_withdrawal" || row.netGroupRole === "preauth_refund";
 }
@@ -60,8 +73,10 @@ export type BankTransaction = {
   ledgerConfirmedBy?: string;
   /** \uBD84\uB958 \uAC70\uB798\uCC98\uBA85 */
   ledgerClientName?: string;
-  /** \uC5F0\uACB0\uB41C \uC138\uAE08\uACC4\uC0B0\uC11C id */
+  /** \uC5F0\uACB0\uB41C \uC138\uAE08\uACC4\uC0B0\uC11C id (\uCCAB \uBC88\uC9F8, \uD558\uC704 \uD638\uD658) */
   linkedTaxInvoiceId?: string;
+  /** \uC5F0\uACB0\uB41C \uC138\uAE08\uACC4\uC0B0\uC11C id \uBAA9\uB85D (\uD55C \uAC70\uB798\uC5D0 \uBCF5\uC218 \uACC4\uC0B0\uC11C) */
+  linkedTaxInvoiceIds?: string[];
   /** \uC99D\uBE59 \uCC3E\uAE30\uC5D0\uC11C \uC218\uB3D9 \uC5F0\uACB0 \uD574\uC81C \u2192 \uC790\uB3D9 \uB9E4\uCE6D \uC81C\uC678 */
   taxInvoiceAutoLinkDisabled?: boolean;
 };
@@ -170,7 +185,8 @@ export function normalizeBankTransaction(raw: Partial<BankTransaction> & { id: s
         : raw.ledgerClientName
           ? String(raw.ledgerClientName)
           : undefined,
-    linkedTaxInvoiceId: raw.linkedTaxInvoiceId ? String(raw.linkedTaxInvoiceId) : undefined,
+    linkedTaxInvoiceIds: normalizeLinkedTaxInvoiceIds(raw),
+    linkedTaxInvoiceId: resolvePrimaryLinkedTaxInvoiceId(raw),
     taxInvoiceAutoLinkDisabled: raw.taxInvoiceAutoLinkDisabled === true ? true : undefined,
   };
 }
@@ -586,6 +602,9 @@ export function mergeRemoteBankTransactionRow(local: BankTransaction, incoming: 
 
   const ledgerMerge = mergeBankTransactionLedgerFields(local, incoming);
   const taxInvoiceMerge = {
+    linkedTaxInvoiceIds: local.taxInvoiceAutoLinkDisabled
+      ? local.linkedTaxInvoiceIds
+      : local.linkedTaxInvoiceIds ?? incoming.linkedTaxInvoiceIds,
     linkedTaxInvoiceId: local.taxInvoiceAutoLinkDisabled
       ? local.linkedTaxInvoiceId
       : local.linkedTaxInvoiceId ?? incoming.linkedTaxInvoiceId,
