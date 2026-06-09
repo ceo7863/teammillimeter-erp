@@ -59,11 +59,12 @@ export async function uploadAlimtalkTemplateImage(filePath, fileName = "team-mil
   if (!fs.existsSync(filePath)) {
     throw new Error(`image file not found: ${filePath}`);
   }
-  const fileBuffer = fs.readFileSync(filePath);
-  const form = new FormData();
-  form.append("file", new Blob([fileBuffer], { type: "image/jpeg" }), fileName);
-  form.append("type", "ATA");
-  const result = await solapiRequest("POST", "/storage/v1/files", form);
+  const encodedFile = fs.readFileSync(filePath).toString("base64");
+  const result = await solapiRequest("POST", "/storage/v1/files", {
+    file: encodedFile,
+    type: "ATA",
+    name: fileName,
+  });
   if (result?.errorCode || result?.errorMessage) {
     throw new Error(`image upload failed: ${JSON.stringify(result)}`);
   }
