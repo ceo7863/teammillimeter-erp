@@ -9,7 +9,7 @@ import { EntityAuditButton } from "@/components/AuditField";
 import { TableExportSection } from "@/components/TableExportSection";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { PAYMENT_AUDIT_FIELDS, snapshotPaymentForAudit } from "@/utils/auditLog";
-import { confirmDelete } from "@/utils/confirmDelete";
+import { clearBankTransactionPaymentMatch, type BankTransaction } from "@/utils/bankTransactions";
 import {
   RECEIVABLE_STATUS_OPTIONS,
   formatKRW,
@@ -494,15 +494,7 @@ export function PaymentReceivablesPage({
         setBankTransactions((prev) =>
           prev.map((row) =>
             String(row.id || "") === bankTxId && String(row.linkedPaymentVoucherId || "") === String(id)
-              ? {
-                  ...row,
-                  linkedPaymentVoucherId: undefined,
-                  linkedPdfArchiveId: undefined,
-                  linkedSalesId: undefined,
-                  matchConfirmedAt: undefined,
-                  matchConfirmedBy: undefined,
-                  matchAutoLinked: undefined,
-                }
+              ? clearBankTransactionPaymentMatch(row as BankTransaction)
               : row,
           ),
         );

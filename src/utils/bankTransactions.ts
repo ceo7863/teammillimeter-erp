@@ -412,9 +412,24 @@ export function applyManualClientLinkToTransaction(tx: BankTransaction, clientNa
   };
 }
 
+/** 입금·증빙 연결 해제 시 거래처/시공자 표시명을 함께 비움 */
+export function clearBankTransactionClientLabel(tx: BankTransaction): BankTransaction {
+  const next: BankTransaction = {
+    ...tx,
+    linkedSubject: undefined,
+  };
+  if (tx.ledgerClientName === "") {
+    return next;
+  }
+  return {
+    ...next,
+    ledgerClientName: undefined,
+  };
+}
+
 export function clearBankTransactionPaymentMatch(tx: BankTransaction): BankTransaction {
   return {
-    ...tx,
+    ...clearBankTransactionClientLabel(tx),
     linkedPaymentVoucherId: undefined,
     linkedPdfArchiveId: undefined,
     linkedSalesId: undefined,

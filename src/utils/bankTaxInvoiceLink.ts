@@ -313,12 +313,28 @@ function applyInvoiceClientFields(
   };
 }
 
+function invoiceClientMatchesStoredField(invoice: TaxInvoice, fieldValue: string) {
+  const field = String(fieldValue || "").trim();
+  const client = String(invoice.client || "").trim();
+  if (!field || !client) return false;
+  if (field === client) return true;
+  const normalizedField = normalizePartyName(field);
+  const normalizedClient = normalizePartyName(client);
+  if (!normalizedField || !normalizedClient) return false;
+  if (normalizedField === normalizedClient) return true;
+  if (normalizedField.includes(normalizedClient) || normalizedClient.includes(normalizedField)) return true;
+  return false;
+}
+
 function fieldMatchesRemovedInvoiceClient(
   tx: BankTransaction,
   fieldValue: string,
   removedInvoices: TaxInvoice[],
 ) {
   if (!fieldValue || !removedInvoices.length) return false;
+  if (removedInvoices.some((invoice) => invoiceClientMatchesStoredField(invoice, fieldValue))) {
+    return true;
+  }
   const probe = { ...tx, linkedSubject: fieldValue, ledgerClientName: fieldValue };
   return removedInvoices.some((invoice) => hasTaxInvoiceNameMatch(probe, invoice));
 }
@@ -348,10 +364,23 @@ function clearInvoiceDerivedClientFields(
   if (ledgerClientName && fieldMatchesRemovedInvoiceClient(tx, ledgerClientName, removedInvoices)) {
     next = { ...next, ledgerClientName: undefined };
   }
-  if (tx.deposit > 0 && linkedSubject && fieldMatchesRemovedInvoiceClient(tx, linkedSubject, removedInvoices)) {
+  if (linkedSubject && fieldMatchesRemovedInvoiceClient(tx, linkedSubject, removedInvoices)) {
     next = { ...next, linkedSubject: undefined };
   }
   return next;
+}
+
+function resolveRemovedInvoices(
+  removedInvoiceIds: string[],
+  taxInvoices: TaxInvoice[] | undefined,
+  removedInvoice?: TaxInvoice,
+) {
+  const resolved = resolveTaxInvoicesById(taxInvoices, removedInvoiceIds);
+  if (resolved.length) return resolved;
+  if (removedInvoice && removedInvoiceIds.includes(removedInvoice.id)) {
+    return [removedInvoice];
+  }
+  return resolved;
 }
 
 function revertInvoiceClientFieldsAfterUnlink(
@@ -360,10 +389,11 @@ function revertInvoiceClientFieldsAfterUnlink(
     removedInvoiceIds: string[];
     remainingInvoiceIds: string[];
     taxInvoices?: TaxInvoice[];
+    removedInvoice?: TaxInvoice;
   },
 ): BankTransaction {
-  const { removedInvoiceIds, remainingInvoiceIds, taxInvoices } = options;
-  const removedInvoices = resolveTaxInvoicesById(taxInvoices, removedInvoiceIds);
+  const { removedInvoiceIds, remainingInvoiceIds, taxInvoices, removedInvoice } = options;
+  const removedInvoices = resolveRemovedInvoices(removedInvoiceIds, taxInvoices, removedInvoice);
   if (!removedInvoices.length) return tx;
 
   const remainingInvoices = resolveTaxInvoicesById(taxInvoices, remainingInvoiceIds);
@@ -377,6 +407,7 @@ function revertInvoiceClientFieldsAfterUnlink(
 export type BankTxTaxInvoiceLinkOptions = {
   manual?: boolean;
   taxInvoices?: TaxInvoice[];
+  removedInvoice?: TaxInvoice;
 };
 
 export function addBankTxTaxInvoiceLink(
@@ -417,6 +448,7 @@ export function removeBankTxTaxInvoiceLink(
     removedInvoiceIds: [invoiceId],
     remainingInvoiceIds: nextIds,
     taxInvoices: options.taxInvoices,
+    removedInvoice: options.removedInvoice,
   });
   return next;
 }

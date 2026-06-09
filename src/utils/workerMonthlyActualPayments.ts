@@ -1,5 +1,8 @@
-import type { BankTransaction } from "./bankTransactions";
-import { mergeRemoteBankTransactionRow } from "./bankTransactions";
+import {
+  clearBankTransactionClientLabel,
+  mergeRemoteBankTransactionRow,
+  type BankTransaction,
+} from "./bankTransactions";
 import {
   compareWorkerFolderRows,
   compareWorkerMastersDefault,
@@ -1735,7 +1738,7 @@ export function cancelWorkerMonthlyActualVoucher(
   const nextBankTransactions = bankTransactions.map((row) => {
     const linkedVoucherId = String(row.linkedWorkerMonthlyPaymentVoucherId || "").trim();
     if (!linkedBankTxIds.has(row.id) && linkedVoucherId !== voucherId) return row;
-    const { linkedWorkerMonthlyPaymentVoucherId: _removed, ...rest } = row;
+    const { linkedWorkerMonthlyPaymentVoucherId: _removed, ...rest } = clearBankTransactionClientLabel(row);
     return rest;
   });
 

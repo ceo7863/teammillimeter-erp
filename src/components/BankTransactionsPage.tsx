@@ -2367,7 +2367,12 @@ function BankTransactionsPageComponent({
       if (mode === "clear" || !invoiceId) {
         nextRow = clearBankTxTaxInvoiceLinks(liveTx, { manual: true, taxInvoices });
       } else if (mode === "remove") {
-        nextRow = removeBankTxTaxInvoiceLink(liveTx, invoiceId, { manual: true, taxInvoices });
+        const removedInvoice = invoiceId ? taxInvoices.find((row) => row.id === invoiceId) : undefined;
+        nextRow = removeBankTxTaxInvoiceLink(liveTx, invoiceId, {
+          manual: true,
+          taxInvoices,
+          removedInvoice,
+        });
       } else if (invoice) {
         nextRow = addBankTxTaxInvoiceLink(liveTx, invoice, { manual: true });
       } else {
@@ -2592,6 +2597,7 @@ function BankTransactionsPageComponent({
       : {
           ...tx,
           ledgerClientName: "",
+          linkedSubject: undefined,
           ledgerConfirmedAt: confirmedAt,
         };
     auditBankTxUpdate(tx, nextRow);
