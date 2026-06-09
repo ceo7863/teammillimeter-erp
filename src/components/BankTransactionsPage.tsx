@@ -257,6 +257,7 @@ import {
   buildBankAccountSummaries,
   buildBankTransactionStats,
   buildImportFingerprint,
+  applyManualClientClearToTransaction,
   buildTopCounterpartySummaries,
   filterBankTransactions,
   formatBankTransactionDateTime,
@@ -2585,23 +2586,20 @@ function BankTransactionsPageComponent({
   const saveClientModal = () => {
     if (!clientModal) return;
     const clientName = clientModal.draft.trim();
-    const { tx } = clientModal;
+    const liveTx = bankTransactionsRef.current.find((row) => row.id === clientModal.tx.id) ?? clientModal.tx;
     const confirmedAt = new Date().toISOString();
     const nextRow: BankTransaction = clientName
       ? {
-          ...tx,
+          ...liveTx,
           ledgerClientName: clientName,
           ledgerConfirmedAt: confirmedAt,
-          linkedSubject: tx.deposit > 0 ? clientName : tx.linkedSubject,
+          linkedSubject: liveTx.deposit > 0 ? clientName : liveTx.linkedSubject,
+          classifiedAt: confirmedAt,
         }
-      : {
-          ...tx,
-          ledgerClientName: "",
-          linkedSubject: undefined,
-          ledgerConfirmedAt: confirmedAt,
-        };
-    auditBankTxUpdate(tx, nextRow);
-    const nextTransactions = bankTransactions.map((row) => (row.id === tx.id ? nextRow : row));
+      : applyManualClientClearToTransaction(liveTx, confirmedAt);
+    auditBankTxUpdate(liveTx, nextRow);
+    const nextTransactions = bankTransactionsRef.current.map((row) => (row.id === liveTx.id ? nextRow : row));
+    bankTransactionsRef.current = nextTransactions;
     setBankTransactions(nextTransactions);
     setClientModal(null);
     setTxCellModalError("");
@@ -6532,7 +6530,8 @@ function BankTransactionsPageComponent({
                 }}
                 options={clientModalAutocompleteOptions}
                 placeholder={L.clientPlaceholder}
-                freeSolo={false}
+                freeSolo
+                commitFreeSoloOnBlur={false}
                 showOptionsOnFocus
                 compact={false}
                 limit={20}

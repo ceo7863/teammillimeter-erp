@@ -77,15 +77,25 @@ function mergeLedgerFieldsForSave(prev, incoming) {
 
   const merged = {};
   for (const key of keys) {
-    if (primary && Object.prototype.hasOwnProperty.call(primary, key)) {
-      const value = primary[key];
-      merged[key] = value === null || value === undefined || value === "" ? undefined : value;
-    } else {
-      const value = fallback?.[key];
-      merged[key] = value === null || value === undefined || value === "" ? undefined : value;
+    const readValue = (row) => {
+      if (!row || !Object.prototype.hasOwnProperty.call(row, key)) return undefined;
+      return row[key];
+    };
+    const primaryValue = readValue(primary);
+    const fallbackValue = readValue(fallback);
+    const value = primaryValue !== undefined ? primaryValue : fallbackValue;
+    if (key === "ledgerClientName" && value === "") {
+      merged[key] = "";
+      continue;
     }
+    merged[key] = value === null || value === undefined || value === "" ? undefined : value;
   }
   return merged;
+}
+
+function resolveLinkedSubjectForSave(prev, incoming, ledgerFields, preferIncoming) {
+  if (ledgerFields.ledgerClientName === "") return undefined;
+  return preferIncoming ? incoming.linkedSubject ?? prev.linkedSubject : prev.linkedSubject ?? incoming.linkedSubject;
 }
 
 export function mergeBankTransactionRowForSave(prev, incoming) {
@@ -95,6 +105,7 @@ export function mergeBankTransactionRowForSave(prev, incoming) {
   const preferIncoming = shouldPreferIncomingClassification(prev, incoming);
   const memo = mergeMemoForSave(prev, incoming);
   const ledgerFields = mergeLedgerFieldsForSave(prev, incoming);
+  const linkedSubject = resolveLinkedSubjectForSave(prev, incoming, ledgerFields, preferIncoming);
 
   if (preferIncoming) {
     return {
@@ -103,7 +114,7 @@ export function mergeBankTransactionRowForSave(prev, incoming) {
       ...ledgerFields,
       folderId: incoming.folderId ?? prev.folderId,
       memo,
-      linkedSubject: incoming.linkedSubject ?? prev.linkedSubject,
+      linkedSubject,
       classifiedAt: incoming.classifiedAt ?? prev.classifiedAt,
     };
   }
@@ -114,7 +125,7 @@ export function mergeBankTransactionRowForSave(prev, incoming) {
     ...ledgerFields,
     folderId: prev.folderId ?? incoming.folderId,
     memo,
-    linkedSubject: prev.linkedSubject ?? incoming.linkedSubject,
+    linkedSubject,
     classifiedAt: prev.classifiedAt ?? incoming.classifiedAt,
   };
 }

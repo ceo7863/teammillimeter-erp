@@ -412,6 +412,17 @@ export function applyManualClientLinkToTransaction(tx: BankTransaction, clientNa
   };
 }
 
+/** 거래처 모달에서 비우기 — ledgerClientName "" 로 숨김 표시, linkedSubject 제거 */
+export function applyManualClientClearToTransaction(tx: BankTransaction, confirmedAt = new Date().toISOString()): BankTransaction {
+  return {
+    ...tx,
+    ledgerClientName: "",
+    linkedSubject: undefined,
+    ledgerConfirmedAt: confirmedAt,
+    classifiedAt: confirmedAt,
+  };
+}
+
 /** 입금·증빙 연결 해제 시 거래처/시공자 표시명을 함께 비움 */
 export function clearBankTransactionClientLabel(tx: BankTransaction): BankTransaction {
   const next: BankTransaction = {
@@ -612,10 +623,28 @@ export function mergeBankTransactionsUnion(
   return merged;
 }
 
+function resolveMergedLinkedSubject(
+  local: BankTransaction,
+  incoming: BankTransaction,
+  ledgerMerge: LedgerMergeRow,
+): string | undefined {
+  if (ledgerMerge.ledgerClientName === "") return undefined;
+
+  if (!shouldPreferLocalBankTransactionMerge(local, incoming)) {
+    if (hasManualClientClassificationOverride(local)) {
+      return local.linkedSubject ?? incoming.linkedSubject;
+    }
+    return incoming.linkedSubject || local.linkedSubject;
+  }
+
+  return local.linkedSubject ?? incoming.linkedSubject;
+}
+
 export function mergeRemoteBankTransactionRow(local: BankTransaction, incoming: BankTransaction): BankTransaction {
   const paymentMatch = mergePaymentMatchFields(local, incoming);
 
   const ledgerMerge = mergeBankTransactionLedgerFields(local, incoming);
+  const linkedSubject = resolveMergedLinkedSubject(local, incoming, ledgerMerge);
   const taxInvoiceMerge = {
     linkedTaxInvoiceIds: local.taxInvoiceAutoLinkDisabled
       ? local.linkedTaxInvoiceIds
@@ -634,9 +663,7 @@ export function mergeRemoteBankTransactionRow(local: BankTransaction, incoming: 
       linkedFixedExpensePaymentId: incoming.linkedFixedExpensePaymentId || local.linkedFixedExpensePaymentId,
       folderId: incoming.folderId || local.folderId,
       memo: incoming.memo ?? local.memo,
-      linkedSubject: hasManualClientClassificationOverride(local)
-        ? local.linkedSubject ?? incoming.linkedSubject
-        : incoming.linkedSubject || local.linkedSubject,
+      linkedSubject,
       classifiedAt: incoming.classifiedAt || local.classifiedAt,
       ...ledgerMerge,
       ...taxInvoiceMerge,
@@ -650,7 +677,7 @@ export function mergeRemoteBankTransactionRow(local: BankTransaction, incoming: 
     linkedCompanyExpenseId: local.linkedCompanyExpenseId ?? incoming.linkedCompanyExpenseId,
     linkedFixedExpensePaymentId: local.linkedFixedExpensePaymentId ?? incoming.linkedFixedExpensePaymentId,
     memo: local.memo ?? incoming.memo,
-    linkedSubject: local.linkedSubject ?? incoming.linkedSubject,
+    linkedSubject,
     classifiedAt: local.classifiedAt ?? incoming.classifiedAt,
     ...ledgerMerge,
     ...taxInvoiceMerge,
