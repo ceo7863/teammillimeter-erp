@@ -235,10 +235,11 @@ export function buildBankTransactionListRowModel(
   const classifiedAmount = expenseReversal
     ? -Number(row.deposit || 0)
     : getBankTxClassifiedAmount(row);
-  const linkedInvoiceLabels = getBankTxLinkedTaxInvoiceIds(row)
+  const linkedInvoices = getBankTxLinkedTaxInvoiceIds(row)
     .map((id) => taxInvoiceById.get(id))
-    .filter((invoice): invoice is TaxInvoice => Boolean(invoice))
-    .map((invoice) => formatTaxInvoiceEvidenceLabel(invoice));
+    .filter((invoice): invoice is TaxInvoice => Boolean(invoice));
+  const linkedInvoice = linkedInvoices[0];
+  const linkedInvoiceLabels = linkedInvoices.map((invoice) => formatTaxInvoiceEvidenceLabel(invoice));
   const evidenceLabel = linkedInvoiceLabels.length ? linkedInvoiceLabels.join(" · ") : null;
   const signedAmountLabel = expenseReversal
     ? `-${formatKRW(row.deposit)}`
