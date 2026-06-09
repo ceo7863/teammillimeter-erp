@@ -159,7 +159,7 @@ import {
   normalizeNotificationSettings,
   DEFAULT_NOTIFICATION_SETTINGS,
 } from "./notificationSettings.mjs";
-import { notifyNewSaleComments, runDailyReportJob, startNotificationScheduler } from "./notificationScheduler.mjs";
+import { notifyNewSaleComments, runCommentNotifyTestJob, runDailyReportJob, startNotificationScheduler } from "./notificationScheduler.mjs";
 import {
   buildScScheduleNotifyPreview,
   buildScScheduleNotifyPreviewAsync,
@@ -2298,11 +2298,25 @@ app.get("/api/notifications/daily-report/preview", authMiddleware, adminMiddlewa
 
 app.post("/api/notifications/daily-report/send", authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const result = await runDailyReportJob({ skipSync: Boolean(req.body?.skipSync) });
+    const result = await runDailyReportJob({
+      skipSync: Boolean(req.body?.skipSync),
+      force: true,
+      settingsOverride: req.body?.settings,
+    });
     res.json(result);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: error instanceof Error ? error.message : "일일 보고 발송에 실패했습니다." });
+  }
+});
+
+app.post("/api/notifications/comment/send-test", authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const result = await runCommentNotifyTestJob({ settingsOverride: req.body?.settings });
+    res.json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error instanceof Error ? error.message : "댓글 알림 테스트 발송에 실패했습니다." });
   }
 });
 
@@ -2320,9 +2334,10 @@ app.get("/api/notifications/sc-schedule/preview", authMiddleware, async (_req, r
 app.post("/api/notifications/sc-schedule/send", authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const result = await runScScheduleNotifyJob({
-      force: Boolean(req.body?.force),
+      force: true,
       skipSync: Boolean(req.body?.skipSync),
       targetDate: req.body?.targetDate ? String(req.body.targetDate).slice(0, 10) : undefined,
+      settingsOverride: req.body?.settings,
     });
     res.json(result);
   } catch (error) {

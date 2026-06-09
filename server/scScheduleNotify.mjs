@@ -1,7 +1,10 @@
 import { config } from "./config.mjs";
 import { getErpState, saveErpState } from "./db.mjs";
 import { sendScheduleAlimtalk } from "./alimtalkNotify.mjs";
-import { normalizeNotificationSettings } from "./notificationSettings.mjs";
+import {
+  normalizeNotificationSettings,
+  scScheduleNotifyModeAllowsRecipientType,
+} from "./notificationSettings.mjs";
 import { isScScheduleSourceConfigured, runScScheduleSync } from "./scScheduleSync.mjs";
 import { resolveWorkerPhone, resolveScScheduleParticipants } from "./workerPhoneMatch.mjs";
 import {
@@ -265,16 +268,21 @@ export function buildScScheduleNotifyPreview(data, dateKey = tomorrowKstDateKey(
     }
   }
 
-  const withPhone = rows.filter((row) => row.phone);
+  const settings = normalizeNotificationSettings(data?.notificationSettings);
+  const filteredRows = rows.filter((row) =>
+    scScheduleNotifyModeAllowsRecipientType(settings.scScheduleNotifyMode, row.recipientType),
+  );
+  const withPhone = filteredRows.filter((row) => row.phone);
   return {
     targetDate: dateKey,
     scheduleCount: schedules.length,
     notifyCount: withPhone.length,
     workerNotifyCount: withPhone.filter((row) => row.recipientType === "worker").length,
     clientNotifyCount: withPhone.filter((row) => row.recipientType === "client").length,
-    missingPhoneCount: rows.filter((row) => !row.phone).length,
-    missingClientPhoneCount: rows.filter((row) => row.recipientType === "client" && !row.phone).length,
-    rows,
+    missingPhoneCount: filteredRows.filter((row) => !row.phone).length,
+    missingClientPhoneCount: filteredRows.filter((row) => row.recipientType === "client" && !row.phone).length,
+    scScheduleNotifyMode: settings.scScheduleNotifyMode,
+    rows: filteredRows,
   };
 }
 
@@ -332,17 +340,22 @@ export async function buildScScheduleNotifyPreviewAsync(data, dateKey = tomorrow
     }
   }
 
-  const withPhone = rows.filter((row) => row.phone);
+  const settings = normalizeNotificationSettings(data?.notificationSettings);
+  const filteredRows = rows.filter((row) =>
+    scScheduleNotifyModeAllowsRecipientType(settings.scScheduleNotifyMode, row.recipientType),
+  );
+  const withPhone = filteredRows.filter((row) => row.phone);
   return {
     targetDate: dateKey,
     scheduleCount: schedules.length,
     notifyCount: withPhone.length,
     workerNotifyCount: withPhone.filter((row) => row.recipientType === "worker").length,
     clientNotifyCount: withPhone.filter((row) => row.recipientType === "client").length,
-    missingPhoneCount: rows.filter((row) => !row.phone).length,
-    missingClientPhoneCount: rows.filter((row) => row.recipientType === "client" && !row.phone).length,
+    missingPhoneCount: filteredRows.filter((row) => !row.phone).length,
+    missingClientPhoneCount: filteredRows.filter((row) => row.recipientType === "client" && !row.phone).length,
+    scScheduleNotifyMode: settings.scScheduleNotifyMode,
     scheduleLinks,
-    rows,
+    rows: filteredRows,
   };
 }
 
@@ -354,12 +367,14 @@ export function getScScheduleNotifyStatus() {
   const state = getErpState();
   const meta = state.data?.scScheduleNotifyMeta || {};
   const notify = config.sc.scheduleNotify;
+  const settings = normalizeNotificationSettings(state.data?.notificationSettings);
   return {
     configured: isScScheduleNotifyConfigured(),
     scShareConfigured: isScScheduleSourceConfigured(),
     enabled: notify.enabled,
-    hour: notify.hour,
-    minute: notify.minute,
+    hour: settings.scScheduleNotifyHour,
+    minute: settings.scScheduleNotifyMinute,
+    scScheduleNotifyMode: settings.scScheduleNotifyMode,
     template: config.alimtalk.scheduleTemplate || null,
     ...meta,
   };
@@ -367,7 +382,8 @@ export function getScScheduleNotifyStatus() {
 
 export async function runScScheduleNotifyJob(options = {}) {
   const notify = config.sc.scheduleNotify;
-  if (!notify.enabled) {
+  const forTest = options.force === true;
+  if (!forTest && !notify.enabled) {
     return { ok: false, skipped: true, reason: "disabled" };
   }
   if (!isScScheduleNotifyConfigured()) {
@@ -375,8 +391,8 @@ export async function runScScheduleNotifyJob(options = {}) {
   }
 
   const state = getErpState();
-  const settings = normalizeNotificationSettings(state.data?.notificationSettings);
-  if (!settings.enabled || settings.scScheduleNotifyEnabled === false) {
+  const settings = normalizeNotificationSettings(options.settingsOverride ?? state.data?.notificationSettings);
+  if (!forTest && (!settings.enabled || settings.scScheduleNotifyEnabled === false)) {
     return { ok: false, skipped: true, reason: "settings-disabled" };
   }
 
@@ -397,6 +413,9 @@ export async function runScScheduleNotifyJob(options = {}) {
 
   const freshState = getErpState();
   const data = freshState.data || {};
+  const notifyMode = settings.scScheduleNotifyMode;
+  const sendClients = scScheduleNotifyModeAllowsRecipientType(notifyMode, "client");
+  const sendWorkers = scScheduleNotifyModeAllowsRecipientType(notifyMode, "worker");
   const workers = listWorkers(data);
   const clients = listClients(data);
   const schedules = filterSchedulesForDate(listScSchedules(data), targetDate);
@@ -449,50 +468,54 @@ export async function runScScheduleNotifyJob(options = {}) {
       return true;
     }
 
-    const clientContacts = resolveClientContacts(clients, schedule);
-    let clientPhoneSent = false;
-    for (const contact of clientContacts) {
-      if (!contact.phone) {
-        results.push({
-          scheduleId: schedule.id,
-          recipientType: "client",
-          participantName: contact.name || contact.clientName,
-          ok: false,
-          skipped: true,
-          reason: "no-client-phone",
-        });
-        continue;
+    if (sendClients) {
+      const clientContacts = resolveClientContacts(clients, schedule);
+      let clientPhoneSent = false;
+      for (const contact of clientContacts) {
+        if (!contact.phone) {
+          results.push({
+            scheduleId: schedule.id,
+            recipientType: "client",
+            participantName: contact.name || contact.clientName,
+            ok: false,
+            skipped: true,
+            reason: "no-client-phone",
+          });
+          continue;
+        }
+        clientPhoneSent = true;
+        const contactVariables = formatScheduleTemplateVars(
+          schedule,
+          shareToken,
+          contact.name || fallbackManager,
+          participantNames,
+          workers,
+        );
+        await sendToPhone(contact.phone, "client", contact.name || contact.clientName, contactVariables);
       }
-      clientPhoneSent = true;
-      const contactVariables = formatScheduleTemplateVars(
-        schedule,
-        shareToken,
-        contact.name || fallbackManager,
-        participantNames,
-        workers,
-      );
-      await sendToPhone(contact.phone, "client", contact.name || contact.clientName, contactVariables);
-    }
-    if (!clientPhoneSent) {
-      skippedNoClientPhone += 1;
+      if (!clientPhoneSent) {
+        skippedNoClientPhone += 1;
+      }
     }
 
-    for (const participantName of participantNames) {
-      const phone = resolveWorkerPhone(workers, participantName);
-      if (!phone) {
-        skippedNoPhone += 1;
-        results.push({
-          scheduleId: schedule.id,
-          recipientType: "worker",
-          participantName,
-          ok: false,
-          skipped: true,
-          reason: "no-phone",
-        });
-        continue;
-      }
+    if (sendWorkers) {
+      for (const participantName of participantNames) {
+        const phone = resolveWorkerPhone(workers, participantName);
+        if (!phone) {
+          skippedNoPhone += 1;
+          results.push({
+            scheduleId: schedule.id,
+            recipientType: "worker",
+            participantName,
+            ok: false,
+            skipped: true,
+            reason: "no-phone",
+          });
+          continue;
+        }
 
-      await sendToPhone(phone, "worker", participantName);
+        await sendToPhone(phone, "worker", participantName);
+      }
     }
   }
 
@@ -608,14 +631,23 @@ export async function sendScScheduleNotifyOne(scheduleId, options = {}) {
   const sentPhones = new Set();
   let sentCount = 0;
 
+  const settings = normalizeNotificationSettings(data?.notificationSettings);
   const phoneFilter = Array.isArray(options.phones)
     ? new Set(options.phones.map((phone) => normalizeNotifyPhone(phone)).filter(Boolean))
     : null;
-  const recipientTypes = Array.isArray(options.recipientTypes) && options.recipientTypes.length
-    ? new Set(options.recipientTypes.map((value) => String(value || "").trim()).filter(Boolean))
-    : null;
-  const sendClient = !recipientTypes || recipientTypes.has("client");
-  const sendWorkers = !recipientTypes || recipientTypes.has("worker");
+  const explicitRecipientTypes =
+    Array.isArray(options.recipientTypes) && options.recipientTypes.length
+      ? options.recipientTypes.map((value) => String(value || "").trim()).filter(Boolean)
+      : null;
+  const modeRecipientTypes =
+    settings.scScheduleNotifyMode === "client"
+      ? ["client"]
+      : settings.scScheduleNotifyMode === "worker"
+        ? ["worker"]
+        : ["client", "worker"];
+  const recipientTypes = new Set(explicitRecipientTypes || modeRecipientTypes);
+  const sendClient = recipientTypes.has("client");
+  const sendWorkers = recipientTypes.has("worker");
 
   async function sendToPhone(phone, recipientType, recipientName, messageVariables = variables) {
     const normalized = normalizeNotifyPhone(phone);

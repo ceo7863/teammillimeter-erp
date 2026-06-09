@@ -6,6 +6,8 @@ export type NotificationRecipient = {
   commentNotify?: boolean;
 };
 
+export type ScScheduleNotifyMode = "both" | "client" | "worker";
+
 export type NotificationSettings = {
   enabled: boolean;
   dailyReportEnabled: boolean;
@@ -13,7 +15,14 @@ export type NotificationSettings = {
   scScheduleNotifyEnabled: boolean;
   dailyReportHour: number;
   dailyReportMinute: number;
+  scScheduleNotifyHour: number;
+  scScheduleNotifyMinute: number;
+  /** User-linked recipients with per-type flags */
   recipients: NotificationRecipient[];
+  /** Additional daily-report phones not tied to ERP users */
+  dailyReportExtraPhones: string[];
+  /** Who receives tomorrow SC schedule alimtalk */
+  scScheduleNotifyMode: ScScheduleNotifyMode;
 };
 
 export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
@@ -23,14 +32,44 @@ export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   scScheduleNotifyEnabled: true,
   dailyReportHour: 8,
   dailyReportMinute: 0,
+  scScheduleNotifyHour: 18,
+  scScheduleNotifyMinute: 0,
   recipients: [],
+  dailyReportExtraPhones: [],
+  scScheduleNotifyMode: "both",
 };
+
+export function normalizePhoneList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of value) {
+    const phone = String(item || "").replace(/\D/g, "");
+    if (phone.length >= 10 && !seen.has(phone)) {
+      seen.add(phone);
+      out.push(phone);
+    }
+  }
+  return out;
+}
+
+function normalizeScScheduleNotifyMode(value: unknown): ScScheduleNotifyMode {
+  if (value === "client" || value === "worker") return value;
+  return "both";
+}
+
+function clampSchedulePart(value: unknown, max: number, fallback: number) {
+  const num = Number(value);
+  return Number.isFinite(num) && num >= 0 && num <= max ? num : fallback;
+}
 
 export function normalizeNotificationSettings(raw: unknown): NotificationSettings {
   if (!raw || typeof raw !== "object") return { ...DEFAULT_NOTIFICATION_SETTINGS, recipients: [] };
   const row = raw as Partial<NotificationSettings>;
   const hour = Number(row.dailyReportHour);
   const minute = Number(row.dailyReportMinute);
+  const scHour = Number(row.scScheduleNotifyHour);
+  const scMinute = Number(row.scScheduleNotifyMinute);
   const recipients = Array.isArray(row.recipients)
     ? row.recipients
         .map((item) => {
@@ -53,8 +92,12 @@ export function normalizeNotificationSettings(raw: unknown): NotificationSetting
     dailyReportEnabled: row.dailyReportEnabled !== false,
     commentNotifyEnabled: row.commentNotifyEnabled !== false,
     scScheduleNotifyEnabled: row.scScheduleNotifyEnabled !== false,
-    dailyReportHour: Number.isFinite(hour) && hour >= 0 && hour <= 23 ? hour : 8,
-    dailyReportMinute: Number.isFinite(minute) && minute >= 0 && minute <= 59 ? minute : 0,
+    dailyReportHour: clampSchedulePart(hour, 23, 8),
+    dailyReportMinute: clampSchedulePart(minute, 59, 0),
+    scScheduleNotifyHour: clampSchedulePart(scHour, 23, 18),
+    scScheduleNotifyMinute: clampSchedulePart(scMinute, 59, 0),
     recipients,
+    dailyReportExtraPhones: normalizePhoneList(row.dailyReportExtraPhones),
+    scScheduleNotifyMode: normalizeScScheduleNotifyMode(row.scScheduleNotifyMode),
   };
 }

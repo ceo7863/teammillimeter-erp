@@ -74,7 +74,11 @@ function emptyErpPayload() {
       scScheduleNotifyEnabled: true,
       dailyReportHour: 8,
       dailyReportMinute: 0,
+      scScheduleNotifyHour: 18,
+      scScheduleNotifyMinute: 0,
       recipients: [],
+      dailyReportExtraPhones: [],
+      scScheduleNotifyMode: "both",
     },
   };
 }

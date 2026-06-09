@@ -10,6 +10,7 @@ import {
   type BusinessRegImportFieldKey,
 } from "@/utils/businessRegImport";
 import { extractBusinessRegistrationDocument, revokeDocumentPreviewUrl } from "@/utils/documentTextExtract";
+import { isStaleDynamicImportError } from "@/utils/dynamicImport";
 
 const L = {
   title: "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D\uC5D0\uC11C \uAC00\uC838\uC624\uAE30",
@@ -32,6 +33,9 @@ const L = {
   pickFromText: "\uAE00\uC790 \uC120\uD0DD",
   draftPlaceholder: (label: string) => `${label} \uC785\uB825 \uB610\uB294 \uC218\uC815`,
   noFile: "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uD30C\uC77C\uC744 \uC62C\uB824 \uC8FC\uC138\uC694.",
+  staleChunkError:
+    "\uC571\uC774 \uC5C5\uB370\uC774\uD2B8\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uC790\uB3D9 \uC0C8\uB85C\uACE0\uCE68 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uAC70\uB098, Ctrl+Shift+R \uB85C \uC0C8\uB85C\uACE0\uCE68 \uD574 \uC8FC\uC138\uC694.",
+  extractError: "\uBB38\uC11C \uBD84\uC11D\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   applyDone: (count: number) => `${count}\uAC1C \uD544\uB4DC\uB97C \uCC44\uC6CC \uC788\uC2B5\uB2C8\uB2E4.`,
   skippedFilled: (count: number) => `${count}\uAC1C \uD544\uB4DC\uB294 \uAE30\uC874 \uAC12\uC774 \uC788\uC5B4 \uAC74\uB108\uB700\uC2B5\uB2C8\uB2E4.`,
 };
@@ -119,7 +123,11 @@ export function ClientBusinessRegImportModal({
         : auto;
       setDraft((prev) => ({ ...filteredAuto, ...prev }));
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "\uBB38\uC11C \uBD84\uC11D\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
+      if (isStaleDynamicImportError(loadError)) {
+        setError(L.staleChunkError);
+      } else {
+        setError(loadError instanceof Error ? loadError.message : L.extractError);
+      }
     } finally {
       setLoading(false);
     }

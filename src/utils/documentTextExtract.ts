@@ -1,3 +1,5 @@
+import { importWithStaleChunkReload } from "./dynamicImport";
+
 export type DocumentExtractResult = {
   text: string;
   previewUrl: string;
@@ -7,8 +9,10 @@ export type DocumentExtractResult = {
 const MIN_PDF_TEXT_CHARS = 24;
 
 async function loadPdfJs() {
-  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.js");
-  const workerSrc = (await import("pdfjs-dist/legacy/build/pdf.worker.min.js?url")).default;
+  const pdfjs = await importWithStaleChunkReload(() => import("pdfjs-dist/legacy/build/pdf.js"));
+  const workerSrc = (
+    await importWithStaleChunkReload(() => import("pdfjs-dist/legacy/build/pdf.worker.min.js?url"))
+  ).default;
   pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
   return pdfjs;
 }
@@ -51,7 +55,7 @@ async function extractPdfText(pdfjs: Awaited<ReturnType<typeof loadPdfJs>>, data
 }
 
 async function ocrCanvas(canvas: HTMLCanvasElement) {
-  const { createWorker } = await import("tesseract.js");
+  const { createWorker } = await importWithStaleChunkReload(() => import("tesseract.js"));
   const worker = await createWorker("kor");
   try {
     const result = await worker.recognize(canvas);

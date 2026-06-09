@@ -68,12 +68,13 @@ async function syncFreshData(existingData) {
 
 export async function runDailyReportJob(options = {}) {
   const state = getErpState();
-  const settings = normalizeNotificationSettings(state.data?.notificationSettings);
-  if (!settings.enabled || !settings.dailyReportEnabled) {
+  const settings = normalizeNotificationSettings(options.settingsOverride ?? state.data?.notificationSettings);
+  const forTest = options.force === true;
+  if (!forTest && (!settings.enabled || !settings.dailyReportEnabled)) {
     return { ok: false, skipped: true, reason: "disabled" };
   }
 
-  const phones = listDailyReportPhones(settings);
+  const phones = listDailyReportPhones(settings, { forTest });
   if (!phones.length) {
     return { ok: false, skipped: true, reason: "no-recipients" };
   }
@@ -87,7 +88,15 @@ export async function runDailyReportJob(options = {}) {
   const variables = formatDailyReportTemplateVars(report);
   const result = await sendDailyReportAlimtalk({ phones, variables });
   console.log("[notify] daily report sent", report.dateKey, result.ok ? "ok" : result);
-  return { ok: result.ok !== false, report, result, message: variables.reportBody };
+  return {
+    ok: result.ok !== false && !result.skipped,
+    skipped: result.skipped,
+    reason: result.reason,
+    dryRun: result.dryRun,
+    report,
+    result,
+    message: variables.reportBody,
+  };
 }
 
 export async function notifyNewSaleComments(previousComments, nextComments, erpData) {
@@ -122,6 +131,28 @@ export async function notifyNewSaleComments(previousComments, nextComments, erpD
   return { ok: true, results };
 }
 
+export async function runCommentNotifyTestJob(options = {}) {
+  const state = getErpState();
+  const settings = normalizeNotificationSettings(options.settingsOverride ?? state.data?.notificationSettings);
+  const phones = listCommentNotifyPhones(settings, { forTest: true });
+  if (!phones.length) {
+    return { ok: false, skipped: true, reason: "no-recipients" };
+  }
+  const variables = formatCommentTemplateVars({
+    sale: { client: "\uD14C\uC2A4\uD2B8 \uAC70\uB798\uCC98", site: "\uD14C\uC2A4\uD2B8 \uD604\uC7A5" },
+    comment: { authorName: "ERP", body: "\uC54C\uB9BC\uD1A1 \uD14C\uC2A4\uD2B8 \uBC1C\uC1A1\uC785\uB2C8\uB2E4." },
+  });
+  const result = await sendCommentAlimtalk({ phones, variables });
+  return {
+    ok: result.ok !== false && !result.skipped,
+    skipped: result.skipped,
+    reason: result.reason,
+    dryRun: result.dryRun,
+    result,
+    message: variables.message,
+  };
+}
+
 function tickScheduler() {
   const kst = nowKstParts();
   const state = getErpState();
@@ -146,7 +177,7 @@ function tickScheduler() {
     scNotify.enabled &&
     config.alimtalk.scheduleTemplate
   ) {
-    if (kst.hour === scNotify.hour && kst.minute === scNotify.minute) {
+    if (kst.hour === settings.scScheduleNotifyHour && kst.minute === settings.scScheduleNotifyMinute) {
       if (lastScScheduleNotifyDateKey !== kst.dateKey) {
         lastScScheduleNotifyDateKey = kst.dateKey;
         void runScScheduleNotifyJob().catch((error) => {

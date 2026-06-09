@@ -16,6 +16,7 @@ export type ScScheduleNotifyStatus = {
   enabled: boolean;
   hour: number;
   minute: number;
+  scScheduleNotifyMode?: "both" | "client" | "worker";
   template: string | null;
   lastRunAt?: string | null;
   lastTargetDate?: string | null;
@@ -43,12 +44,16 @@ export async function previewDailyReport() {
   return apiRequest<{ report: unknown; message: string }>("/notifications/daily-report/preview");
 }
 
-export async function sendDailyReportNow(skipSync = false) {
-  return apiRequest<{ ok: boolean; message?: string; skipped?: boolean; reason?: string }>(
+export async function sendDailyReportNow(options?: { skipSync?: boolean; settings?: NotificationSettings }) {
+  return apiRequest<{ ok: boolean; message?: string; skipped?: boolean; reason?: string; dryRun?: boolean }>(
     "/notifications/daily-report/send",
     {
       method: "POST",
-      body: JSON.stringify({ skipSync }),
+      body: JSON.stringify({
+        skipSync: options?.skipSync ?? true,
+        force: true,
+        settings: options?.settings,
+      }),
     },
   );
 }
@@ -61,6 +66,7 @@ export type ScScheduleNotifyPreview = {
   clientNotifyCount?: number;
   missingPhoneCount: number;
   missingClientPhoneCount?: number;
+  scScheduleNotifyMode?: "both" | "client" | "worker";
   scheduleLinks?: Array<{
     scheduleId: string;
     clientName: string;
@@ -83,13 +89,24 @@ export async function previewScScheduleNotify() {
   return apiRequest<ScScheduleNotifyPreview>("/notifications/sc-schedule/preview");
 }
 
-export async function sendScScheduleNotifyNow(options?: { force?: boolean; skipSync?: boolean }) {
-  return apiRequest<{ ok: boolean; skipped?: boolean; reason?: string; sentCount?: number; targetDate?: string }>(
+export async function sendScScheduleNotifyNow(options?: {
+  force?: boolean;
+  skipSync?: boolean;
+  settings?: NotificationSettings;
+}) {
+  return apiRequest<{ ok: boolean; skipped?: boolean; reason?: string; sentCount?: number; targetDate?: string; dryRun?: boolean }>(
     "/notifications/sc-schedule/send",
     {
       method: "POST",
-      body: JSON.stringify(options || {}),
+      body: JSON.stringify({ force: true, ...(options || {}) }),
     },
+  );
+}
+
+export async function sendCommentNotifyTest(settings?: NotificationSettings) {
+  return apiRequest<{ ok: boolean; skipped?: boolean; reason?: string; message?: string; dryRun?: boolean }>(
+    "/notifications/comment/send-test",
+    { method: "POST", body: JSON.stringify({ settings }) },
   );
 }
 
