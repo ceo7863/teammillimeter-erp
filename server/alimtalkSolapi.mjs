@@ -1,7 +1,7 @@
 import crypto from "crypto";
+import { execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
-import { File } from "node:buffer";
 import { config } from "./config.mjs";
 
 export function solapiAuthHeader() {
@@ -57,12 +57,30 @@ export async function fetchAlimtalkCategoryCode() {
 }
 
 export async function uploadAlimtalkTemplateImage(filePath, fileName = "team-millimeter-logo.jpg") {
-  const buffer = fs.readFileSync(filePath);
-  const file = new File([buffer], fileName, { type: "image/jpeg" });
-  const form = new FormData();
-  form.append("file", file);
-  form.append("type", "KAKAO");
-  const result = await solapiRequest("POST", "/storage/v1/files", form);
+  const auth = solapiAuthHeader();
+  const output = execFileSync(
+    "curl",
+    [
+      "-sS",
+      "https://api.solapi.com/storage/v1/files",
+      "-H",
+      `Authorization: ${auth}`,
+      "-F",
+      `file=@${filePath};filename=${fileName};type=image/jpeg`,
+      "-F",
+      "type=KAKAO",
+    ],
+    { encoding: "utf8" },
+  );
+  let result = null;
+  try {
+    result = JSON.parse(output);
+  } catch {
+    throw new Error(`image upload parse failed: ${output}`);
+  }
+  if (result?.errorCode || result?.errorMessage) {
+    throw new Error(`image upload failed: ${JSON.stringify(result)}`);
+  }
   const imageId = result?.fileId || result?.imageId || result?.image?.fileId || result?.image?.imageId;
   if (!imageId) {
     throw new Error(`image upload returned no fileId: ${JSON.stringify(result)}`);
