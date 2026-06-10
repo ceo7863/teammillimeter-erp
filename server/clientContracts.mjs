@@ -3,6 +3,7 @@ import path from "path";
 import crypto from "crypto";
 import { config } from "./config.mjs";
 import { getErpState, saveErpState } from "./db.mjs";
+import { normalizeClientContacts } from "./clientContacts.mjs";
 import {
   applySignatureToContractPdf,
   fillContractTemplate,
@@ -274,8 +275,14 @@ function findClientByName(clientName) {
 
 export function resolveClientContractContact(client) {
   if (!client) return { contactName: "", contactPhone: "" };
-  const contactName = String(client.ceoName || client.manager || "").trim();
-  const contactPhone = normalizePhone(client.phone);
+  const contacts = normalizeClientContacts(client);
+  const primary =
+    contacts.find((row) => row.isPrimary && row.phone) ||
+    contacts.find((row) => row.phone) ||
+    contacts.find((row) => row.isPrimary) ||
+    contacts[0];
+  const contactName = String(primary?.name || client.ceoName || client.manager || "").trim();
+  const contactPhone = normalizePhone(primary?.phone || client.phone);
   return { contactName, contactPhone };
 }
 

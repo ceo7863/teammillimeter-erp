@@ -14149,6 +14149,9 @@ button:disabled,
 
 .erp-bank-wehago-toolbar {
   overflow: hidden;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 2px 8px rgba(15, 23, 42, 0.03);
 }
 
 .erp-bank-wehago-toolbar__head {
@@ -14318,6 +14321,78 @@ button:disabled,
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25);
 }
 
+.erp-bank-display-settings {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.erp-bank-display-settings__trigger {
+  display: inline-flex;
+  align-items: center;
+}
+
+.erp-bank-display-settings__menu {
+  min-width: 11.5rem;
+  padding: 0.35rem 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+.erp-bank-display-settings__menu--portal {
+  z-index: 10000;
+}
+
+.erp-bank-display-settings__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.45rem 0.85rem;
+  cursor: pointer;
+}
+
+.erp-bank-display-settings__label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #334155;
+  white-space: nowrap;
+}
+
+.erp-bank-display-toggle {
+  position: relative;
+  flex-shrink: 0;
+  width: 2.25rem;
+  height: 1.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: #cbd5e1;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.erp-bank-display-toggle.is-on {
+  background: #14b8a6;
+}
+
+.erp-bank-display-toggle__thumb {
+  position: absolute;
+  top: 0.125rem;
+  left: 0.125rem;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.18);
+  transition: transform 0.15s ease;
+}
+
+.erp-bank-display-toggle.is-on .erp-bank-display-toggle__thumb {
+  transform: translateX(1rem);
+}
+
 .erp-bank-wehago-filter-hint {
   margin: 0;
   padding: 0 1rem 0.85rem;
@@ -14403,7 +14478,11 @@ button:disabled,
 }
 
 .erp-bank-wehago-table-shell {
-  overflow: visible;
+  overflow: hidden;
+  border-radius: 1rem;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.05),
+    0 4px 14px rgba(15, 23, 42, 0.04);
 }
 
 .erp-bank-table-scroll--page,
@@ -14427,13 +14506,113 @@ button:disabled,
 .erp-bank-wehago-table-toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
-  padding: 0.5rem 0.75rem 0;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid #eef2f7;
+  background: linear-gradient(180deg, #f8fafc 0%, #fff 100%);
+}
+
+.erp-bank-wehago-table-toolbar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
 }
 
 .erp-bank-wehago-table-wrap .erp-table-scroll-hint {
   border: 0;
   border-radius: 0;
+}
+
+.erp-bank-wehago-split-table {
+  table-layout: fixed;
+}
+
+.erp-bank-wehago-split-table col.erp-bank-col-datetime {
+  width: 5.25rem;
+}
+
+.erp-bank-wehago-split-table col.erp-bank-col-account {
+  width: 4.25rem;
+}
+
+.erp-bank-wehago-split-table col.erp-bank-col-counterparty {
+  width: 5.25rem;
+}
+
+.erp-bank-wehago-split-table col.erp-bank-col-description {
+  width: 5.25rem;
+}
+
+.erp-bank-wehago-split-table col.erp-bank-col-amount {
+  width: 4.75rem;
+}
+
+.erp-bank-wehago-split-table col.erp-bank-col-balance,
+.erp-bank-wehago-split-table col.erp-bank-col-tx-type,
+.erp-bank-wehago-split-table col.erp-bank-col-folder {
+  width: 4.75rem;
+}
+
+.erp-bank-wehago-split-table col.erp-bank-col-memo {
+  width: 10rem;
+}
+
+.erp-bank-wehago-split-table col.erp-bank-col-bridge {
+  width: 1.25rem;
+}
+
+.erp-bank-wehago-split-table col.erp-bank-col-evidence {
+  width: 4.5rem;
+}
+
+.erp-bank-wehago-split-table col.erp-bank-col-account-subject,
+.erp-bank-wehago-split-table col.erp-bank-col-client {
+  width: 5.5rem;
+}
+
+.erp-bank-wehago-split-table col.erp-bank-col-fixed {
+  width: 4.25rem;
+}
+
+.erp-bank-wehago-split-table col.erp-bank-col-classified {
+  width: 4.75rem;
+}
+
+.erp-bank-wehago-split-table col.erp-bank-col-process {
+  width: 3.75rem;
+}
+
+.erp-bank-wehago-split-table col.erp-bank-col-tax {
+  width: 4.5rem;
+}
+
+.erp-bank-wehago-col-evidence,
+.erp-bank-wehago-cell--evidence {
+  width: 4.5rem;
+  max-width: 4.5rem;
+  overflow: hidden;
+}
+
+.erp-bank-wehago-cell--evidence .erp-bank-wehago-cell-btn {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding-left: 0.2rem;
+  padding-right: 0.2rem;
+  font-size: 0.625rem;
+}
+
+.erp-bank-wehago-cell--description,
+.erp-bank-wehago-cell--fixed,
+.erp-bank-wehago-cell--process {
+  overflow: hidden;
+}
+
+.erp-bank-wehago-cell--memo {
+  max-width: 10rem;
 }
 
 .erp-bank-wehago-split-table thead th {
@@ -14449,33 +14628,41 @@ button:disabled,
 
 .erp-bank-wehago-split-table th,
 .erp-bank-wehago-split-table td {
-  padding: 0.2rem 0.35rem;
+  padding: 0.35rem 0.5rem;
 }
 
 .erp-bank-wehago-split-section-row th {
   top: 0;
   z-index: 3;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .erp-bank-wehago-split-columns-row th {
-  top: 1.45rem;
+  top: 1.75rem;
+  border-bottom: 2px solid #e2e8f0;
+  padding-top: 0.45rem;
+  padding-bottom: 0.45rem;
+  color: #475569;
+  letter-spacing: 0.01em;
 }
 
 .erp-bank-wehago-split-section {
-  padding: 0.3rem 0.5rem;
+  padding: 0.45rem 0.65rem;
   text-align: center;
   font-size: 0.6875rem;
   font-weight: 800;
-  color: #334155;
+  letter-spacing: 0.03em;
 }
 
 .erp-bank-wehago-split-section--bank {
-  background: #f8fafc;
-  border-right: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #eff6ff 0%, #f8fafc 100%);
+  border-right: 1px solid #bfdbfe;
+  color: #1d4ed8;
 }
 
 .erp-bank-wehago-split-section--classify {
-  background: #f1f5f9;
+  background: linear-gradient(180deg, #f5f3ff 0%, #faf5ff 100%);
+  color: #6d28d9;
 }
 
 .erp-bank-wehago-split-bridge {
@@ -14483,23 +14670,28 @@ button:disabled,
   min-width: 1.25rem;
   padding-left: 0;
   padding-right: 0;
-  background: #fff;
-  border-left: 1px solid #e2e8f0;
-  border-right: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #f8fafc 0%, #fff 45%, #faf5ff 100%);
+  border-left: 2px solid #e2e8f0;
+  border-right: 2px solid #e2e8f0;
 }
 
 .erp-bank-wehago-split-divider {
   border-right: 1px solid #e2e8f0;
 }
 
-.erp-bank-wehago-row:hover {
-  background: #f8fafc;
-}
-
 /* No content-visibility here: editable 계정 cells failed to repaint after picker save. */
 .erp-bank-wehago-split-table tbody tr {
   content-visibility: visible;
   contain-intrinsic-size: auto 30px;
+  transition: background-color 0.12s ease;
+}
+
+.erp-bank-wehago-split-table tbody tr:nth-child(even) {
+  background: rgba(248, 250, 252, 0.55);
+}
+
+.erp-bank-wehago-row:hover {
+  background: #f1f5f9 !important;
 }
 
 /* Virtualized inner scroll: content-visibility breaks spacer rows and row repaint on scroll. */
@@ -14524,6 +14716,21 @@ button:disabled,
 .erp-bank-wehago-cell--account {
   font-weight: 600;
   white-space: nowrap;
+}
+
+.erp-bank-account-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+}
+
+.erp-bank-brand-icon {
+  flex-shrink: 0;
+  width: 1.125rem;
+  height: 1.125rem;
+  border-radius: 0.25rem;
+  object-fit: contain;
 }
 
 .erp-bank-wehago-amount {
@@ -14588,17 +14795,88 @@ button:disabled,
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem 0.75rem;
-  padding: 0.5rem 0.75rem;
+  padding: 0.65rem 1rem;
   border-top: 1px solid #e2e8f0;
-  background: #fcfdff;
+  background: linear-gradient(180deg, #f8fafc 0%, #fff 100%);
   font-size: 0.75rem;
   color: #475569;
+}
+
+.erp-bank-wehago-footer__left {
+  font-weight: 600;
 }
 
 .erp-bank-wehago-footer__right {
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
+  gap: 0.5rem;
+}
+
+.erp-bank-wehago-footer__stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.erp-bank-wehago-footer__stat strong {
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.erp-bank-split-empty {
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.erp-bank-split-empty .erp-bank-empty-body {
+  padding: 2.75rem 1.5rem;
+}
+
+.erp-bank-legend {
+  display: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  padding: 0.35rem 1rem 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+@media (min-width: 768px) {
+  .erp-bank-legend {
+    display: flex;
+  }
+}
+
+.erp-bank-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.erp-bank-legend__swatch {
+  display: inline-block;
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 0.2rem;
+}
+
+.erp-bank-legend__swatch--client {
+  background: #bae6fd;
+}
+
+.erp-bank-legend__swatch--worker {
+  background: #fed7aa;
 }
 
 .erp-sale-comment-badge {
@@ -15697,6 +15975,138 @@ button:disabled,
   font-weight: 700;
   color: #1d4ed8;
   cursor: pointer;
+}
+
+.erp-tax-invoice-link-panel__party-hint-line {
+  margin: 0;
+  padding: 0.45rem 0.55rem 0.45rem 0.65rem;
+  border-radius: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  line-height: 1.35;
+  border-left: 3px solid transparent;
+}
+
+.erp-tax-invoice-link-panel__party-hint-line--sales {
+  color: #0369a1;
+  background: #f0f9ff;
+  border-left-color: #38bdf8;
+}
+
+.erp-tax-invoice-link-panel__party-hint-line--purchase {
+  color: #6d28d9;
+  background: #f5f3ff;
+  border-left-color: #a78bfa;
+}
+
+.erp-tax-invoice-link-panel__party-hint-line--worker {
+  color: #c2410c;
+  background: #fff7ed;
+  border-left-color: #fb923c;
+}
+
+.erp-tax-invoice-link-panel__search {
+  position: relative;
+}
+
+.erp-tax-invoice-link-panel__search-icon {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.erp-tax-invoice-link-panel__search-input {
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #fff;
+  padding: 0.5rem 0.75rem 0.5rem 2.25rem;
+  font-size: 0.8125rem;
+  color: #0f172a;
+}
+
+.erp-tax-invoice-link-panel__search-input:focus {
+  outline: none;
+  border-color: #94a3b8;
+  box-shadow: 0 0 0 2px rgba(148, 163, 184, 0.15);
+}
+
+.erp-tax-invoice-link-panel__search--party .erp-tax-invoice-link-panel__search-input {
+  border-width: 2px;
+  font-weight: 700;
+}
+
+.erp-tax-invoice-link-panel__search--party.erp-tax-invoice-link-panel__search--sales .erp-tax-invoice-link-panel__search-input {
+  border-color: #7dd3fc;
+  background: #f8fcff;
+}
+
+.erp-tax-invoice-link-panel__search--party.erp-tax-invoice-link-panel__search--sales .erp-tax-invoice-link-panel__search-icon {
+  color: #0284c7;
+}
+
+.erp-tax-invoice-link-panel__search--party.erp-tax-invoice-link-panel__search--purchase .erp-tax-invoice-link-panel__search-input {
+  border-color: #c4b5fd;
+  background: #faf5ff;
+}
+
+.erp-tax-invoice-link-panel__search--party.erp-tax-invoice-link-panel__search--purchase .erp-tax-invoice-link-panel__search-icon {
+  color: #7c3aed;
+}
+
+.erp-tax-invoice-link-panel__search--party.erp-tax-invoice-link-panel__search--worker .erp-tax-invoice-link-panel__search-input {
+  border-color: #fdba74;
+  background: #fffbf5;
+}
+
+.erp-tax-invoice-link-panel__search--party.erp-tax-invoice-link-panel__search--worker .erp-tax-invoice-link-panel__search-icon {
+  color: #ea580c;
+}
+
+.erp-bank-evidence-find--plain {
+  border: 1px dashed #cbd5e1;
+  color: #64748b;
+  background: #fff;
+}
+
+.erp-bank-evidence-find--plain:hover {
+  background: #f8fafc;
+}
+
+.erp-bank-evidence-find--sales {
+  border: 1px solid #7dd3fc;
+  color: #0369a1;
+  background: #f0f9ff;
+  font-weight: 700;
+}
+
+.erp-bank-evidence-find--sales:hover {
+  background: #e0f2fe;
+}
+
+.erp-bank-evidence-find--purchase {
+  border: 1px solid #c4b5fd;
+  color: #6d28d9;
+  background: #f5f3ff;
+  font-weight: 700;
+}
+
+.erp-bank-evidence-find--purchase:hover {
+  background: #ede9fe;
+}
+
+.erp-bank-evidence-find--worker {
+  border: 1px solid #fdba74;
+  color: #c2410c;
+  background: #fff7ed;
+  font-weight: 700;
+}
+
+.erp-bank-evidence-find--worker:hover {
+  background: #ffedd5;
 }
 
 .erp-tax-invoice-link-panel__main {

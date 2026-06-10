@@ -15,9 +15,11 @@ import {
 import { sendCommentAlimtalk, sendDailyReportAlimtalk } from "./alimtalkNotify.mjs";
 import { config } from "./config.mjs";
 import { runScScheduleNotifyJob } from "./scScheduleNotify.mjs";
+import { weekRangeISO, runScWeeklyBriefingNotifyJob } from "./scWeeklyBriefingNotify.mjs";
 
 let lastDailyReportDateKey = null;
 let lastScScheduleNotifyDateKey = null;
+let lastScWeeklyBriefingWeekKey = null;
 let schedulerHandle = null;
 
 function nowKstParts(now = new Date()) {
@@ -153,6 +155,11 @@ export async function runCommentNotifyTestJob(options = {}) {
   };
 }
 
+function kstDayOfWeek(now = new Date()) {
+  const kst = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
+  return kst.getDay();
+}
+
 function tickScheduler() {
   const kst = nowKstParts();
   const state = getErpState();
@@ -187,6 +194,28 @@ function tickScheduler() {
       }
     }
   }
+
+  if (
+    settings.enabled &&
+    settings.scWeeklyBriefingNotifyEnabled !== false &&
+    config.alimtalk.weeklyBriefingTemplate
+  ) {
+    const weekday = kstDayOfWeek();
+    if (
+      weekday === settings.scWeeklyBriefingWeekday &&
+      kst.hour === settings.scWeeklyBriefingHour &&
+      kst.minute === settings.scWeeklyBriefingMinute
+    ) {
+      const { startDate: weekStart } = weekRangeISO(kst.dateKey);
+      if (lastScWeeklyBriefingWeekKey !== weekStart) {
+        lastScWeeklyBriefingWeekKey = weekStart;
+        void runScWeeklyBriefingNotifyJob({ weekStart }).catch((error) => {
+          console.error("[notify] weekly briefing failed:", error);
+          lastScWeeklyBriefingWeekKey = null;
+        });
+      }
+    }
+  }
 }
 
 export function startNotificationScheduler() {
@@ -194,5 +223,5 @@ export function startNotificationScheduler() {
   if (!config.alimtalk.schedulerEnabled) return;
   schedulerHandle = setInterval(tickScheduler, 30_000);
   if (typeof schedulerHandle.unref === "function") schedulerHandle.unref();
-  console.log("[notify] scheduler started (daily report + SC schedule notify, KST)");
+  console.log("[notify] scheduler started (daily report + SC schedule + weekly briefing, KST)");
 }

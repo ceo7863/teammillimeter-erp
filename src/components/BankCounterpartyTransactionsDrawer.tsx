@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { BankTransactionListSection } from "@/components/BankTransactionListSection";
+import { loadBankTransactionColumnVisibility } from "@/utils/bankTransactionColumnVisibility";
 import { formatKRW } from "@/utils/companyLedger";
 import { parseBankAmount, type BankTransaction } from "@/utils/bankTransactions";
 
@@ -26,6 +27,8 @@ export const BankCounterpartyTransactionsDrawer = React.memo(function BankCounte
 }: BankCounterpartyTransactionsDrawerProps) {
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+
+  const columnVisibility = useMemo(() => loadBankTransactionColumnVisibility(), []);
 
   const totals = useMemo(() => {
     let depositTotal = 0;
@@ -92,6 +95,7 @@ export const BankCounterpartyTransactionsDrawer = React.memo(function BankCounte
             <BankTransactionListSection
               {...listSectionProps}
               rows={rows}
+              columnVisibility={columnVisibility}
               tableId="bank-counterparty-drawer-table"
             />
           </div>

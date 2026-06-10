@@ -19,16 +19,36 @@ import {
   resolveCompanyExpenseFlow,
   resolveFixedExpenseIdForBankTransaction,
 } from "./companyLedger";
+import type {
+  BankLearnCondition,
+  BankLearnConditionGroup,
+  BankLearnRuleDirection,
+} from "./bankLearnCustomRules";
+import {
+  normalizeBankLearnConditionGroups,
+  normalizeCustomBankLearnRuleDirection,
+} from "./bankLearnCustomRules";
+import {
+  buildBankLedgerAccountSelectOptions,
+  findLedgerCategoryIdForAccountCode,
+  migrateExpenseCategoryToAccountCode,
+  resolveCompanyExpenseCategoryFromAccount,
+} from "./bankLedgerAccounts";
+import { findAccountCodeByCode } from "./accountCodeTree";
+import type { AccountCode, LedgerCategory } from "./ledgerSystem";
+import { resolveFixedExpenseAccountCode } from "./ledgerSystem";
 
 export type LedgerTargetKind = "manual" | "fixed";
 
 export type ParsedLedgerTarget = {
   kind: LedgerTargetKind;
+  /** @deprecated legacy expense category label */
   category?: string;
+  accountCode?: string;
   fixedExpenseId?: string;
 };
 
-export type BankLearnRuleKind = "fixed" | "manual" | "folder" | "preauth_net";
+export type BankLearnRuleKind = "fixed" | "manual" | "folder" | "preauth_net" | "custom";
 
 export type BankLearnRule = {
   id: string;
@@ -43,7 +63,17 @@ export type BankLearnRule = {
   createdAt: string;
   createdBy?: string;
   sourceBankTransactionId?: string;
+  /** 사용자 정의 분류 규칙 */
+  name?: string;
+  direction?: BankLearnRuleDirection;
+  conditionGroups?: BankLearnConditionGroup[];
+  ledgerCategoryId?: string;
+  actionClientName?: string;
+  /** 분류 계정 관리(accountCodes)의 계정 코드 */
+  accountCode?: string;
 };
+
+export const CUSTOM_BANK_LEARN_RULE_MIN_SCORE = 18;
 
 /** @deprecated Use BankLearnRule with kind "fixed" */
 export type BankLedgerMatchRule = BankLearnRule & { kind: "fixed"; fixedExpenseId: string };
@@ -123,6 +153,7 @@ export function assignBankTxToFixedExpensePayment(input: {
   fixedItem: FixedExpense;
   payments: FixedExpensePayment[];
   fixedExpenses: FixedExpense[];
+  ledgerCategories?: LedgerCategory[];
   resolvedCategory: string;
   memo?: string;
   savedBy?: string;
@@ -303,12 +334,69 @@ function hasManualBankTxAccountCode(tx: BankTransaction) {
   return tx.ledgerStatus === "confirmed" && Boolean(String(tx.ledgerAccountCode || "").trim());
 }
 
+export function resolveBankTxLedgerAccountCode(
+  tx: BankTransaction,
+  input: {
+    fixedExpenses?: FixedExpense[];
+    fixedExpensePayments?: FixedExpensePayment[];
+    ledgerCategories?: LedgerCategory[];
+  } = {},
+): string {
+  const direct = String(tx.ledgerAccountCode || "").trim();
+  if (direct) return direct;
+
+  const fixedExpenses = input.fixedExpenses || [];
+  const fixedExpensePayments = input.fixedExpensePayments || [];
+  const ledgerCategories = input.ledgerCategories || [];
+  const payment = getLinkedFixedPaymentForBankTx(tx, fixedExpensePayments);
+  const fixedExpenseId =
+    String(tx.ledgerFixedExpenseId || "").trim() || String(payment?.fixedExpenseId || "").trim();
+  if (!fixedExpenseId) return "";
+
+  const fixedItem = fixedExpenses.find((row) => row.id === fixedExpenseId);
+  return resolveFixedExpenseAccountCode(fixedItem, ledgerCategories);
+}
+
+export function enrichBankTransactionLedgerFromFixedLink(
+  tx: BankTransaction,
+  fixedExpenses: FixedExpense[] = [],
+  fixedExpensePayments: FixedExpensePayment[] = [],
+  ledgerCategories: LedgerCategory[] = [],
+): BankTransaction {
+  if (String(tx.ledgerAccountCode || "").trim()) return tx;
+
+  const accountCode = resolveBankTxLedgerAccountCode(tx, {
+    fixedExpenses,
+    fixedExpensePayments,
+    ledgerCategories,
+  });
+  if (!accountCode) return tx;
+
+  const payment = getLinkedFixedPaymentForBankTx(tx, fixedExpensePayments);
+  const fixedExpenseId =
+    String(tx.ledgerFixedExpenseId || "").trim() || String(payment?.fixedExpenseId || "").trim() || undefined;
+
+  return {
+    ...tx,
+    ledgerStatus: tx.ledgerStatus === "exempt" ? tx.ledgerStatus : "confirmed",
+    ledgerAccountCode: accountCode,
+    ledgerFixedExpenseId: fixedExpenseId || tx.ledgerFixedExpenseId,
+  };
+}
+
 /** Align tx.linked* fields with ledger rows matched by bankTransactionId. */
 export function syncBankTransactionLedgerLinkFields(
   transactions: BankTransaction[],
   expenses: CompanyExpense[] = [],
   payments: FixedExpensePayment[] = [],
+  enrich?: {
+    fixedExpenses?: FixedExpense[];
+    ledgerCategories?: LedgerCategory[];
+  },
 ) {
+  const fixedExpenses = enrich?.fixedExpenses || [];
+  const ledgerCategories = enrich?.ledgerCategories || [];
+
   return transactions.map((tx) => {
     if (hasManualBankTxAccountCode(tx)) {
       return {
@@ -322,11 +410,16 @@ export function syncBankTransactionLedgerLinkFields(
     const payment = payments.find((row) => row.bankTransactionId === tx.id);
 
     if (payment) {
-      return {
-        ...tx,
-        linkedFixedExpensePaymentId: payment.id,
-        linkedCompanyExpenseId: undefined,
-      };
+      return enrichBankTransactionLedgerFromFixedLink(
+        {
+          ...tx,
+          linkedFixedExpensePaymentId: payment.id,
+          linkedCompanyExpenseId: undefined,
+        },
+        fixedExpenses,
+        payments,
+        ledgerCategories,
+      );
     }
 
     if (expense) {
@@ -344,11 +437,16 @@ export function syncBankTransactionLedgerLinkFields(
       ? payments.find((row) => row.id === tx.linkedFixedExpensePaymentId)
       : undefined;
 
-    return {
-      ...tx,
-      linkedCompanyExpenseId: linkedExpense?.id,
-      linkedFixedExpensePaymentId: linkedPayment?.id,
-    };
+    return enrichBankTransactionLedgerFromFixedLink(
+      {
+        ...tx,
+        linkedCompanyExpenseId: linkedExpense?.id,
+        linkedFixedExpensePaymentId: linkedPayment?.id,
+      },
+      fixedExpenses,
+      payments,
+      ledgerCategories,
+    );
   });
 }
 
@@ -608,12 +706,15 @@ export function fixedLedgerTargetKey(fixedExpenseId: string) {
   return `fixed:${fixedExpenseId}`;
 }
 
-export function parseLedgerTargetKey(key: string): ParsedLedgerTarget | null {
+export function parseLedgerTargetKey(key: string, accountCodes: AccountCode[] = []): ParsedLedgerTarget | null {
   const text = String(key || "").trim();
   if (text.startsWith("manual:")) {
-    const category = text.slice("manual:".length);
-    if (!category) return null;
-    return { kind: "manual", category };
+    const value = text.slice("manual:".length);
+    if (!value) return null;
+    if (accountCodes.length && findAccountCodeByCode(accountCodes, value)) {
+      return { kind: "manual", accountCode: value };
+    }
+    return { kind: "manual", category: value, accountCode: value };
   }
   if (text.startsWith("fixed:")) {
     const fixedExpenseId = text.slice("fixed:".length);
@@ -625,12 +726,12 @@ export function parseLedgerTargetKey(key: string): ParsedLedgerTarget | null {
 
 export function buildLedgerTargetOptions(
   fixedExpenses: FixedExpense[] = [],
-  expenseCategories: string[] = EXPENSE_CATEGORY_OPTIONS,
+  accountCodes: AccountCode[] = [],
 ) {
-  const manualOptions = expenseCategories.map((category) => ({
-    value: manualLedgerTargetKey(category),
-    label: `[\uC9C0\uCD9C] ${category}`,
-    raw: { kind: "manual" as const, category },
+  const manualOptions = buildBankLedgerAccountSelectOptions(accountCodes).map((option) => ({
+    value: manualLedgerTargetKey(option.value),
+    label: `[\uC9C0\uCD9C] ${option.label}`,
+    raw: { kind: "manual" as const, accountCode: option.value },
   }));
   const fixedOptions = fixedExpenses
     .filter((row) => row.isActive)
@@ -643,9 +744,12 @@ export function buildLedgerTargetOptions(
   return [...manualOptions, ...fixedOptions];
 }
 
-export function getLedgerTargetLabel(key: string, fixedExpenses: FixedExpense[] = []) {
-  const parsed = parseLedgerTargetKey(key);
+export function getLedgerTargetLabel(key: string, fixedExpenses: FixedExpense[] = [], accountCodes: AccountCode[] = []) {
+  const parsed = parseLedgerTargetKey(key, accountCodes);
   if (!parsed) return String(key || "");
+  if (parsed.kind === "manual" && parsed.accountCode) {
+    return `[\uC9C0\uCD9C] ${parsed.accountCode}`;
+  }
   if (parsed.kind === "manual" && parsed.category) {
     return `[\uC9C0\uCD9C] ${parsed.category}`;
   }
@@ -703,10 +807,149 @@ function sanitizeLearnRuleRow(rule: BankLearnRule): BankLearnRule {
   };
 }
 
+function syncCustomRuleLegacyFields(rule: BankLearnRule): BankLearnRule {
+  if (rule.kind !== "custom") return rule;
+  const tokens = new Set<string>();
+  let counterpartyName = rule.counterpartyName;
+  for (const group of rule.conditionGroups || []) {
+    for (const condition of group.conditions) {
+      if (condition.field === "counterpartyName" && condition.values[0] && !counterpartyName) {
+        counterpartyName = condition.values[0];
+      }
+      for (const value of condition.values) {
+        if (condition.field !== "amount") tokens.add(value);
+      }
+    }
+  }
+  return {
+    ...rule,
+    counterpartyName,
+    descriptionTokens: filterBankLearnDescriptionTokens([...tokens, ...(rule.descriptionTokens || [])]),
+    category: rule.category ? normalizeExpenseCategoryName(rule.category) : undefined,
+  };
+}
+
+function getCustomConditionFieldValue(tx: BankTransaction, field: BankLearnCondition["field"]) {
+  switch (field) {
+    case "counterpartyName":
+      return String(tx.counterpartyName || "");
+    case "description":
+      return String(tx.description || "");
+    case "memo":
+      return String(tx.memo || "");
+    case "amount":
+      return String(Math.max(Number(tx.deposit || 0), Number(tx.withdrawal || 0)) || "");
+    default:
+      return "";
+  }
+}
+
+function customConditionMatches(tx: BankTransaction, condition: BankLearnCondition) {
+  if (!condition.values.length) return true;
+  const raw = getCustomConditionFieldValue(tx, condition.field);
+  if (condition.field === "amount") {
+    return condition.values.some((value) => raw === value);
+  }
+  const haystack = normalizeMatchText(raw);
+  const tokens = condition.values.map((value) => normalizeMatchText(value)).filter((value) => value.length >= 1);
+  if (!tokens.length) return false;
+  if (condition.operator === "equals_any") {
+    return tokens.some((token) => haystack === token);
+  }
+  return tokens.some((token) => token.length >= 2 && haystack.includes(token));
+}
+
+export function bankLearnRuleDirectionMatches(tx: BankTransaction, direction: BankLearnRuleDirection = "all") {
+  if (direction === "deposit") return Number(tx.deposit || 0) > 0;
+  if (direction === "withdrawal") return Number(tx.withdrawal || 0) > 0;
+  return true;
+}
+
+function bankLearnConditionGroupMatches(tx: BankTransaction, group: BankLearnConditionGroup) {
+  if (!group.conditions.length) return false;
+  return group.conditions.every((condition) => customConditionMatches(tx, condition));
+}
+
+export function matchesCustomBankLearnRuleConditions(tx: BankTransaction, rule: BankLearnRule) {
+  if (rule.kind !== "custom") return false;
+  if (!bankLearnRuleDirectionMatches(tx, rule.direction || "all")) return false;
+  const groups = rule.conditionGroups || [];
+  if (!groups.length) return false;
+  return groups.some((group) => bankLearnConditionGroupMatches(tx, group));
+}
+
+function scoreCustomBankLearnRule(tx: BankTransaction, rule: BankLearnRule) {
+  if (rule.kind !== "custom") return 0;
+  if (!matchesCustomBankLearnRuleConditions(tx, rule)) return 0;
+  let score = CUSTOM_BANK_LEARN_RULE_MIN_SCORE;
+  const haystack = buildBankLedgerMatchHaystack(tx);
+  for (const group of rule.conditionGroups || []) {
+    for (const condition of group.conditions) {
+      for (const value of condition.values) {
+        const token = normalizeMatchText(value);
+        if (token.length >= 2 && haystack.includes(token)) score += 2;
+      }
+    }
+  }
+  return score;
+}
+
+export function applyCustomRuleMetadataToTransaction(tx: BankTransaction, rule: BankLearnRule): BankTransaction {
+  if (rule.kind !== "custom" || !matchesCustomBankLearnRuleConditions(tx, rule)) return tx;
+  let next = tx;
+  if (rule.actionClientName) {
+    next = {
+      ...next,
+      ledgerClientName: rule.actionClientName,
+      linkedSubject: rule.actionClientName,
+    };
+  }
+  const accountCode = String(rule.accountCode || "").trim();
+  if (accountCode) {
+    next = {
+      ...next,
+      ledgerAccountCode: accountCode,
+      ledgerStatus: next.ledgerStatus === "confirmed" ? next.ledgerStatus : "pending",
+    };
+  } else if (rule.ledgerCategoryId) {
+    next = {
+      ...next,
+      ledgerCategoryId: rule.ledgerCategoryId,
+      ledgerStatus: next.ledgerStatus === "confirmed" ? next.ledgerStatus : "pending",
+    };
+  }
+  return next;
+}
+
+export function applyCustomBankLearnRuleMetadata(transactions: BankTransaction[], rules: BankLearnRule[]) {
+  const customRules = rules.filter((rule) => rule.kind === "custom");
+  if (!customRules.length) return { transactions, updatedCount: 0 };
+  let updatedCount = 0;
+  const next = transactions.map((tx) => {
+    let patched = tx;
+    for (const rule of customRules) {
+      const after = applyCustomRuleMetadataToTransaction(patched, rule);
+      if (after !== patched) {
+        patched = after;
+        updatedCount += 1;
+      }
+    }
+    return patched;
+  });
+  return { transactions: next, updatedCount };
+}
+
 function inferLearnRuleKind(raw: Partial<BankLearnRule>): BankLearnRuleKind {
-  if (raw.kind === "fixed" || raw.kind === "manual" || raw.kind === "folder" || raw.kind === "preauth_net") {
+  if (
+    raw.kind === "fixed" ||
+    raw.kind === "manual" ||
+    raw.kind === "folder" ||
+    raw.kind === "preauth_net" ||
+    raw.kind === "custom"
+  ) {
     return raw.kind;
   }
+  if (Array.isArray(raw.conditionGroups) && raw.conditionGroups.length) return "custom";
   if (raw.folderId) return "folder";
   if (raw.category && !raw.fixedExpenseId) return "manual";
   return "fixed";
@@ -721,18 +964,27 @@ export function normalizeBankLearnRules(rows: unknown[]): BankLearnRule[] {
       const kind = inferLearnRuleKind(raw);
       const counterpartyName = String(raw.counterpartyName || "").trim();
       const category =
-        kind === "manual"
+        kind === "manual" || kind === "custom"
           ? normalizeExpenseCategoryName(String(raw.category || "").trim())
           : String(raw.category || "").trim();
       const fixedExpenseId = String(raw.fixedExpenseId || "").trim();
       const folderId = String(raw.folderId || "").trim();
       const amount = Number(raw.amount);
 
+      const conditionGroups =
+        kind === "custom" ? normalizeBankLearnConditionGroups(raw.conditionGroups) : undefined;
+
       return {
         id: String(raw.id),
         kind,
-        fixedExpenseId: kind === "fixed" && fixedExpenseId ? fixedExpenseId : undefined,
-        category: kind === "manual" && category ? category : undefined,
+        fixedExpenseId:
+          (kind === "fixed" || kind === "custom") && fixedExpenseId ? fixedExpenseId : undefined,
+        category:
+          (kind === "manual" || kind === "custom") && category
+            ? normalizeExpenseCategoryName(category)
+            : kind === "manual" && category
+              ? category
+              : undefined,
         folderId: kind === "folder" && folderId ? folderId : undefined,
         counterpartyName: counterpartyName || undefined,
         descriptionTokens: Array.isArray(raw.descriptionTokens)
@@ -747,15 +999,34 @@ export function normalizeBankLearnRules(rows: unknown[]): BankLearnRule[] {
         createdAt: String(raw.createdAt || new Date().toISOString()),
         createdBy: raw.createdBy ? String(raw.createdBy) : undefined,
         sourceBankTransactionId: raw.sourceBankTransactionId ? String(raw.sourceBankTransactionId) : undefined,
+        name: raw.name ? String(raw.name).trim() : undefined,
+        direction: kind === "custom" ? normalizeCustomBankLearnRuleDirection(raw.direction) : undefined,
+        conditionGroups,
+        ledgerCategoryId:
+          kind === "custom" && raw.ledgerCategoryId ? String(raw.ledgerCategoryId).trim() : undefined,
+        actionClientName:
+          kind === "custom" && raw.actionClientName ? String(raw.actionClientName).trim() : undefined,
+        accountCode:
+          kind === "custom" || kind === "manual"
+            ? String(raw.accountCode || "").trim() ||
+              (category ? migrateExpenseCategoryToAccountCode(category) : undefined)
+            : undefined,
       };
     })
     .map(sanitizeLearnRuleRow)
+    .map(syncCustomRuleLegacyFields)
     .filter((rule) => {
       if (rule.kind === "fixed") return Boolean(rule.fixedExpenseId);
-      if (rule.kind === "manual") return Boolean(rule.category);
+      if (rule.kind === "manual") return Boolean(rule.accountCode || rule.category);
       if (rule.kind === "folder") return Boolean(rule.folderId);
       if (rule.kind === "preauth_net") {
         return Boolean(rule.counterpartyName) || rule.descriptionTokens.length > 0;
+      }
+      if (rule.kind === "custom") {
+        const hasAction = Boolean(
+          rule.accountCode || rule.category || rule.fixedExpenseId || rule.ledgerCategoryId || rule.actionClientName,
+        );
+        return Boolean(rule.conditionGroups?.length) && hasAction;
       }
       return false;
     });
@@ -812,10 +1083,12 @@ export function buildBankLearnRuleFromManualRegistration(
   category: string,
   createdBy?: string,
 ): BankLearnRule {
+  const accountCode = String(tx.ledgerAccountCode || "").trim() || undefined;
   return {
     id: makeLedgerId(),
     kind: "manual",
     category,
+    accountCode,
     ...buildLearnRuleBase(tx, createdBy),
   };
 }
@@ -1249,10 +1522,18 @@ function learnRuleUpsertKey(rule: BankLearnRule) {
     return `manual:${rule.category}:${counterpartyKey}`;
   }
   if (rule.kind === "preauth_net") return `preauth_net:${counterpartyKey}`;
+  if (rule.kind === "custom") return `custom:${rule.id}`;
   return `folder:${rule.folderId}:${counterpartyKey}`;
 }
 
 export function upsertBankLearnRule(rules: BankLearnRule[], incoming: BankLearnRule): BankLearnRule[] {
+  if (incoming.kind === "custom") {
+    const normalized = syncCustomRuleLegacyFields(incoming);
+    const index = rules.findIndex((rule) => rule.id === normalized.id);
+    if (index < 0) return [normalized, ...rules];
+    return [normalized, ...rules.filter((_, idx) => idx !== index)];
+  }
+
   const incomingKey = learnRuleUpsertKey(incoming);
   const index = rules.findIndex((rule) => learnRuleUpsertKey(rule) === incomingKey);
 
@@ -1325,6 +1606,9 @@ function isLearnRuleActive(rule: BankLearnRule, fixedExpenses: FixedExpense[] = 
   if (rule.kind === "manual") {
     return Boolean(String(rule.category || "").trim());
   }
+  if (rule.kind === "custom") {
+    return Boolean(rule.conditionGroups?.length);
+  }
   return Boolean(rule.folderId);
 }
 
@@ -1333,6 +1617,7 @@ export function scoreBankLearnRule(
   rule: BankLearnRule,
   fixedExpenses: FixedExpense[] = [],
 ) {
+  if (rule.kind === "custom") return scoreCustomBankLearnRule(tx, rule);
   if (!isLearnRuleActive(rule, fixedExpenses)) return 0;
   if (rule.kind === "fixed" && isCheckCardBankTransaction(tx)) return 0;
   if (rule.kind === "fixed" && !fixedLearnRuleAmountMatches(tx, rule, fixedExpenses)) return 0;
@@ -1407,7 +1692,12 @@ export function findBestBankLearnRuleWithScore(
     if (!best || score > best.score) best = { rule, score };
   }
   if (!best) return null;
-  const minScore = best.rule.kind === "fixed" ? FIXED_AUTO_LEARN_MIN_SCORE : AUTO_LEARN_MIN_SCORE;
+  const minScore =
+    best.rule.kind === "fixed"
+      ? FIXED_AUTO_LEARN_MIN_SCORE
+      : best.rule.kind === "custom"
+        ? CUSTOM_BANK_LEARN_RULE_MIN_SCORE
+        : AUTO_LEARN_MIN_SCORE;
   if (best.score < minScore) return null;
   return best;
 }
@@ -1597,6 +1887,10 @@ export function resolveLedgerTargetForBankTransaction(
   rules: BankLearnRule[] = [],
   fixedExpenses: FixedExpense[] = [],
 ) {
+  const customRule = findBestBankLearnRule(tx, rules, fixedExpenses, ["custom"]);
+  if (customRule?.fixedExpenseId) return fixedLedgerTargetKey(customRule.fixedExpenseId);
+  if (customRule?.category) return manualLedgerTargetKey(customRule.category);
+
   const fixedRule = findBestBankLearnRule(tx, rules, fixedExpenses, ["fixed"]);
   if (fixedRule?.fixedExpenseId) return fixedLedgerTargetKey(fixedRule.fixedExpenseId);
 
@@ -1648,16 +1942,22 @@ export function autoApplyBankLearnRules(
     bankTransactionFolders?: BankTransactionFolder[];
     /** Which learn-rule kinds to auto-apply. Default: fixed, manual, folder. */
     applyKinds?: BankLearnRuleKind[];
+    accountCodes?: AccountCode[];
+    ledgerCategories?: LedgerCategory[];
   } = {},
 ): AutoApplyBankLearnResult {
-  const applyKinds = options.applyKinds ?? (["fixed", "manual", "folder"] as BankLearnRuleKind[]);
-  const applyLedgerKinds = applyKinds.filter((kind) => kind === "fixed" || kind === "manual") as Array<
-    "fixed" | "manual"
-  >;
+  const applyKinds = options.applyKinds ?? (["fixed", "manual", "folder", "custom"] as BankLearnRuleKind[]);
+  const applyLedgerKinds = applyKinds.filter(
+    (kind) => kind === "fixed" || kind === "manual" || kind === "custom",
+  ) as Array<"fixed" | "manual" | "custom">;
   const applyFolderRules = applyKinds.includes("folder");
   const newPayments: FixedExpensePayment[] = [];
   const newExpenses: CompanyExpense[] = [];
   const paymentLinks = new Map<string, string>();
+  const ledgerPatches = new Map<
+    string,
+    Pick<BankTransaction, "ledgerStatus" | "ledgerAccountCode" | "ledgerFixedExpenseId">
+  >();
   const expenseLinks = new Map<string, string>();
   const folderUpdates = new Map<string, { folderId: string; linkedSubject?: string }>();
   let workingPayments = [...existingPayments];
@@ -1698,10 +1998,24 @@ export function autoApplyBankLearnRules(
       }
 
       const ledgerRule = learnMatch.rule;
-      if (ledgerRule?.kind === "fixed" && ledgerRule.fixedExpenseId && !isCheckCardBankTransaction(tx)) {
+      if (ledgerRule?.kind === "custom" && String(ledgerRule.accountCode || "").trim()) {
+        continue;
+      }
+      const ledgerFixedExpenseId =
+        ledgerRule?.kind === "fixed" || ledgerRule?.kind === "custom" ? ledgerRule.fixedExpenseId : undefined;
+      const ledgerCategory =
+        ledgerRule?.kind === "manual" || ledgerRule?.kind === "custom"
+          ? ledgerRule.accountCode && options.accountCodes?.length
+            ? resolveCompanyExpenseCategoryFromAccount(options.accountCodes, ledgerRule.accountCode)
+            : ledgerRule.category
+          : undefined;
+
+      if (ledgerFixedExpenseId && !isCheckCardBankTransaction(tx)) {
         const fixedExpenseId =
-          resolveFixedExpenseIdForBankTransaction(tx, fixedExpenses, ledgerRule.fixedExpenseId) ||
-          ledgerRule.fixedExpenseId;
+          resolveFixedExpenseIdForBankTransaction(tx, fixedExpenses, ledgerFixedExpenseId) ||
+          ledgerFixedExpenseId;
+        const fixedItem = fixedExpenses.find((row) => row.id === fixedExpenseId);
+        const fixedAccountCode = resolveFixedExpenseAccountCode(fixedItem, options.ledgerCategories || []);
         if (
           hasConflictingSiblingFixedExpenseLink(
             tx,
@@ -1721,8 +2035,19 @@ export function autoApplyBankLearnRules(
         );
 
         if (existingPayment) {
-          workingPayments = linkFixedExpensePaymentToBankTx(workingPayments, existingPayment.id, tx.id, tx);
+          const mappedTx: BankTransaction = {
+            ...tx,
+            ledgerStatus: "confirmed",
+            ledgerAccountCode: fixedAccountCode,
+            ledgerFixedExpenseId: fixedExpenseId,
+          };
+          workingPayments = linkFixedExpensePaymentToBankTx(workingPayments, existingPayment.id, tx.id, mappedTx);
           paymentLinks.set(tx.id, existingPayment.id);
+          ledgerPatches.set(tx.id, {
+            ledgerStatus: "confirmed",
+            ledgerAccountCode: fixedAccountCode,
+            ledgerFixedExpenseId: fixedExpenseId,
+          });
           continue;
         }
 
@@ -1742,16 +2067,21 @@ export function autoApplyBankLearnRules(
         newPayments.push(payment);
         workingPayments = [payment, ...workingPayments];
         paymentLinks.set(tx.id, paymentId);
+        ledgerPatches.set(tx.id, {
+          ledgerStatus: "confirmed",
+          ledgerAccountCode: fixedAccountCode,
+          ledgerFixedExpenseId: fixedExpenseId,
+        });
         continue;
       }
 
-      if (ledgerRule?.kind === "manual" && ledgerRule.category) {
+      if (ledgerCategory) {
         const prefill = buildCompanyExpensePrefillFromBankTransaction(tx);
         const expenseId = makeLedgerId();
         const expense: CompanyExpense = {
           id: expenseId,
           date: prefill.date,
-          category: ledgerRule.category,
+          category: ledgerCategory,
           description: prefill.description,
           amount: parseLedgerAmount(prefill.amount),
           memo: prefill.memo,
@@ -1784,9 +2114,21 @@ export function autoApplyBankLearnRules(
 
   const allExpenses = [...newExpenses, ...existingExpenses];
   const allPayments = workingPayments;
+  const shouldApplyCustomMetadata = applyKinds.includes("custom");
 
   if (!newPayments.length && !newExpenses.length && !folderUpdates.size) {
-    const syncedOnly = syncBankTransactionLedgerLinkFields(transactions, allExpenses, allPayments);
+    let syncedOnly: BankTransaction[] = syncBankTransactionLedgerLinkFields(
+      transactions,
+      allExpenses,
+      allPayments,
+      {
+        fixedExpenses,
+        ledgerCategories: options.ledgerCategories || [],
+      },
+    );
+    if (shouldApplyCustomMetadata) {
+      syncedOnly = applyCustomBankLearnRuleMetadata(syncedOnly, rules).transactions;
+    }
     const linksChanged = syncedOnly.some(
       (row, index) =>
         row.linkedCompanyExpenseId !== transactions[index]?.linkedCompanyExpenseId ||
@@ -1835,7 +2177,15 @@ export function autoApplyBankLearnRules(
   const allNewPayments = [...newPayments];
   let nextTransactions = transactions.map((tx) => {
     const paymentId = paymentLinks.get(tx.id);
-    if (paymentId) return { ...tx, linkedFixedExpensePaymentId: paymentId, linkedCompanyExpenseId: undefined };
+    const ledgerPatch = ledgerPatches.get(tx.id);
+    if (paymentId) {
+      return {
+        ...tx,
+        ...ledgerPatch,
+        linkedFixedExpensePaymentId: paymentId,
+        linkedCompanyExpenseId: undefined,
+      };
+    }
 
     const expenseId = expenseLinks.get(tx.id);
     if (expenseId) return { ...tx, linkedCompanyExpenseId: expenseId, linkedFixedExpensePaymentId: undefined };
@@ -1852,7 +2202,13 @@ export function autoApplyBankLearnRules(
 
     return tx;
   });
-  nextTransactions = syncBankTransactionLedgerLinkFields(nextTransactions, allExpenses, allPayments);
+  nextTransactions = syncBankTransactionLedgerLinkFields(nextTransactions, allExpenses, allPayments, {
+    fixedExpenses,
+    ledgerCategories: options.ledgerCategories || [],
+  });
+  if (shouldApplyCustomMetadata) {
+    nextTransactions = applyCustomBankLearnRuleMetadata(nextTransactions, rules).transactions;
+  }
 
   const fixedCount = newPayments.length + newExpenses.filter((row) => row.kind === "fixed").length;
   const manualCount = newExpenses.filter((row) => row.kind !== "fixed").length;

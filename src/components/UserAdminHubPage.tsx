@@ -22,7 +22,6 @@ type UserAdminHubPageProps = {
 const TAB_ITEMS: Array<{ key: UserAdminHubTab; label: string }> = [
   { key: "users", label: "\uC0AC\uC6A9\uC790 \uAD00\uB9AC" },
   { key: "system", label: "\uC11C\uBC84 \uB9AC\uC18C\uC2A4" },
-  { key: "notify", label: "\uC54C\uB9BC" },
   { key: "audit", label: "\uAC10\uC0AC\uB85C\uADF8" },
   { key: "login", label: "\uB85C\uADF8\uC778 \uC774\uB825" },
 ];
@@ -99,7 +98,7 @@ export function UserAdminHubPage({
           <div className="mb-4">
             <h1 className="erp-text-page-title text-slate-900">{"\uC0AC\uC6A9\uC790 \uAD00\uB9AC"}</h1>
             <p className="mt-1 erp-text-body text-slate-600">
-              {"\uACC4\uC815 \uAD00\uB9AC, \uC11C\uBC84 \uB9AC\uC18C\uC2A4, \uC54C\uB9BC\uD1A1, \uAC10\uC0AC \uB85C\uADF8, \uB85C\uADF8\uC778 \uC774\uB825\uC744 \uD55C \uBA54\uB274\uC5D0\uC11C \uC804\uD658\uD569\uB2C8\uB2E4."}
+              {"\uACC4\uC815 \uAD00\uB9AC, \uC11C\uBC84 \uB9AC\uC18C\uC2A4, \uAC10\uC0AC \uB85C\uADF8, \uB85C\uADF8\uC778 \uC774\uB825\uC744 \uD55C \uBA54\uB274\uC5D0\uC11C \uC804\uD658\uD569\uB2C8\uB2E4. \uC54C\uB9BC\uD1A1 \uC124\uC815\uC740 \uC54C\uB9BC\uD1A1 \uBA54\uB274\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694."}
             </p>
           </div>
           {visibleTabs.length > 1 ? (

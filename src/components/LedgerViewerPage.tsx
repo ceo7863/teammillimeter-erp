@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { BarChart3, CalendarDays, ExternalLink, List, PieChart, Repeat, X } from "lucide-react";
+import { ExternalLink, List, Repeat, X, BarChart3 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { DesktopTableWrap } from "@/components/MobileRecordCard";
@@ -12,7 +12,7 @@ import {
   fixedMonthlyAmount,
   formatKRW,
   getMonthKey,
-  shiftMonthKey,
+  isCeoDedicatedLedgerCategory,
   todayISO,
   type CompanyExpense,
   type FixedExpense,
@@ -23,16 +23,18 @@ import {
   resolveBankTxFixedExpenseDraft,
 } from "@/utils/ledgerBankBridge";
 import {
-  buildAccountCodeSummary,
   buildAllLedgerEntries,
   buildLedgerGapSummary,
-  buildMonthlyLedgerSummary,
   formatLedgerGapLine,
+  splitVariableLedgerExpenseRows,
   type AccountCode,
   type LedgerCategory,
   type LedgerEntry,
   type LedgerFlow,
 } from "@/utils/ledgerSystem";
+import type { AnalysisHubTab } from "@/utils/analysisHub";
+import type { ClientDepositMatchSource, WorkerDepositMatchSource } from "@/utils/clientDepositAliases";
+import type { BankTransactionFolder } from "@/utils/bankTransactionFolders";
 import { filterLedgerInboxTransactions } from "@/utils/ledgerInboxUtils";
 import {
   DEFAULT_LEDGER_VIEWER_FILTERS,
@@ -43,30 +45,17 @@ import {
   type LedgerViewerAppliedFilters,
 } from "@/components/LedgerViewerFilterBar";
 
-export type LedgerViewerSubTab = "list" | "monthly" | "account" | "fixed";
+export type LedgerViewerSubTab = "list" | "fixed";
 
 const L = {
   title: "\uAC00\uACC4\uBD80 \uC870\uD68C",
   desc: "\uD655\uC815\uB41C \uD1B5\uC7A5 \uAC70\uB798 \uB0B4\uC5ED\uACFC \uACE0\uC815\uBE44 \uC5F0\uACB0\uC744 \uAD00\uB9AC\uD569\uB2C8\uB2E4. \uBBF8\uBD84\uB958 \uD1B5\uC7A5\uC740 \uD1B5\uC7A5 \uD0ED\uC5D0\uC11C \uCC98\uB9AC\uD558\uC138\uC694.",
   goBank: "\uD1B5\uC7A5\uC5D0\uC11C \uBD84\uB958\uD558\uAE30",
+  openAnalysis: "\uBD84\uC11D\uC5D0\uC11C \uBCF4\uAE30",
   list: "\uB0B4\uC5ED",
-  monthly: "\uC6D4\uBCC4 \uAC00\uACC4\uBD80",
-  account: "\uACC4\uC815\uACFC\uBAA9",
   fixed: "\uACE0\uC815\uBE44",
-  monthlyBookTitle: (year: string, month: number) => `${year}\uB144 ${month}\uC6D4 \uAC00\uACC4\uBD80`,
-  monthlyTrend: "\uC6D4\uBCC4 \uCD94\uC774",
-  monthlyTrendHint: "\uD589\uC744 \uD074\uB9AD\uD558\uBA74 \uD574\uB2F9 \uC6D4 \uAC00\uACC4\uBD80\uB85C \uC774\uB3D9\uD569\uB2C8\uB2E4.",
-  prevMonth: "\uC774\uC804 \uB2EC",
-  nextMonth: "\uB2E4\uC74C \uB2EC",
-  year: "\uB144",
-  month: "\uC6D4",
-  allMonths: "\uC804\uCCB4 \uAE30\uAC04",
-  thisMonth: "\uC774\uBC88 \uB2EC\uB9CC",
-  allFlow: "\uC804\uCCB4",
   expense: "\uCD9C\uAE08",
   income: "\uC785\uAE08",
-  allAccount: "\uC804\uCCB4 \uACC4\uC815",
-  search: "\uC801\uC694, \uACC4\uC815 \uAC80\uC0C9",
   empty: "\uD655\uC815\uB41C \uAC00\uACC4\uBD80 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   date: "\uC77C\uC790",
   flow: "\uAD6C\uBD84",
@@ -88,9 +77,12 @@ const L = {
   total: "\uD569\uACC4",
   caseSuffix: "\uAC74",
   fixedExpenseSection: "\uACE0\uC815\uBE44",
+  clientVendorExpenseSection: "\uC5C5\uCC98 \uCD9C\uAE08",
   variableExpenseSection: "\uC77C\uBC18 \uCD9C\uAE08",
   fixedExpenseTotal: (count: number, amount: number) =>
     `\uACE0\uC815\uBE44 ${count}${"\uAC74"} \u00B7 ${formatKRW(amount)}`,
+  clientVendorExpenseTotal: (count: number, amount: number) =>
+    `\uC5C5\uCC98 ${count}${"\uAC74"} \u00B7 ${formatKRW(amount)}`,
   variableExpenseTotal: (count: number, amount: number) =>
     `\uC77C\uBC18 ${count}${"\uAC74"} \u00B7 ${formatKRW(amount)}`,
 };
@@ -98,11 +90,15 @@ const L = {
 type LedgerViewerPageProps = {
   bankTransactions: BankTransaction[];
   companyExpenses: CompanyExpense[];
+  clients?: ClientDepositMatchSource[];
+  workers?: WorkerDepositMatchSource[];
+  bankTransactionFolders?: BankTransactionFolder[];
   fixedExpensePayments?: FixedExpensePayment[];
   fixedExpenses?: FixedExpense[];
   ledgerCategories: LedgerCategory[];
   accountCodes: AccountCode[];
   onOpenBankTab?: () => void;
+  onOpenAnalysis?: (tab?: AnalysisHubTab) => void;
   initialSubTab?: LedgerViewerSubTab;
   onSubTabConsumed?: () => void;
   setFixedExpenses?: React.Dispatch<React.SetStateAction<FixedExpense[]>>;
@@ -123,11 +119,15 @@ type LedgerViewerPageProps = {
 export function LedgerViewerPage({
   bankTransactions,
   companyExpenses,
+  clients = [],
+  workers = [],
+  bankTransactionFolders = [],
   fixedExpensePayments = [],
   fixedExpenses = [],
   ledgerCategories,
   accountCodes,
   onOpenBankTab,
+  onOpenAnalysis,
   initialSubTab,
   onSubTabConsumed,
   setFixedExpenses,
@@ -142,12 +142,8 @@ export function LedgerViewerPage({
   const canManageFixed =
     Boolean(setFixedExpenses && setFixedExpensePayments && setFixedExpenseCategories && setBankTransactions);
   const [activeTab, setActiveTab] = useState<LedgerViewerSubTab>("list");
-  const [monthKey, setMonthKey] = useState(getMonthKey(todayISO()));
   const [listFilters, setListFilters] = useState<LedgerViewerAppliedFilters>(DEFAULT_LEDGER_VIEWER_FILTERS);
   const [filterResetKey, setFilterResetKey] = useState(0);
-  const [flowFilter, setFlowFilter] = useState<LedgerFlow | "all">("all");
-  const [accountFilter, setAccountFilter] = useState("");
-  const [search, setSearch] = useState("");
   const [fixedExpenseModal, setFixedExpenseModal] = useState<{ tx: BankTransaction; draft: string } | null>(null);
   const [fixedExpenseModalError, setFixedExpenseModalError] = useState("");
 
@@ -186,13 +182,11 @@ export function LedgerViewerPage({
       buildLedgerGapSummary(
         bankTransactions,
         allEntries,
-        activeTab === "list" && listFilters.periodKey === "thisMonth"
+        listFilters.periodKey === "thisMonth"
           ? listFilters.viewMonthKey || getMonthKey(todayISO())
-          : activeTab === "list"
-            ? undefined
-            : monthKey,
+          : undefined,
       ),
-    [bankTransactions, allEntries, activeTab, listFilters.periodKey, listFilters.viewMonthKey, monthKey],
+    [bankTransactions, allEntries, listFilters.periodKey, listFilters.viewMonthKey],
   );
 
   const periodScopedEntries = useMemo(
@@ -234,77 +228,34 @@ export function LedgerViewerPage({
       });
   }, [periodScopedEntries, listFilters]);
 
-  const entries = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return allEntries
-      .filter((row) => row.status === "confirmed")
-      .filter((row) => (flowFilter === "all" ? true : row.flow === flowFilter))
-      .filter((row) => (accountFilter ? row.accountCode === accountFilter : true))
-      .filter((row) => {
-        if (!q) return true;
-        return [row.accountCode, row.accountName, row.description, row.memo]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase()
-          .includes(q);
-      });
-  }, [allEntries, flowFilter, accountFilter, search]);
-
-  const monthEntries = useMemo(
-    () =>
-      allEntries
-        .filter((row) => row.status === "confirmed")
-        .filter((row) => getMonthKey(row.date) === monthKey),
-    [allEntries, monthKey],
-  );
-
-  const monthlyRows = useMemo(() => buildMonthlyLedgerSummary(allEntries), [allEntries]);
-
-  const accountRows = useMemo(
-    () =>
-      buildAccountCodeSummary(
-        activeTab === "monthly" ? monthEntries : activeTab === "list" ? listEntries : entries,
-        accountCodes,
-      ),
-    [activeTab, monthEntries, listEntries, entries, accountCodes],
-  );
-
-  const accountFilterOptions = useMemo(() => {
-    const source = activeTab === "monthly" ? monthEntries : activeTab === "list" ? periodScopedEntries : entries;
-    const codes = new Set(source.map((row) => row.accountCode).filter(Boolean));
-    return accountCodes
-      .filter((row) => row.isActive !== false && codes.has(row.code))
-      .sort((a, b) => a.code.localeCompare(b.code, "ko"));
-  }, [activeTab, monthEntries, periodScopedEntries, entries, accountCodes]);
-
-  const expenseTotal = (activeTab === "monthly" ? monthEntries : activeTab === "list" ? listEntries : entries)
-    .filter((r) => r.flow === "expense")
-    .reduce((s, r) => s + r.amount, 0);
-  const incomeTotal = (activeTab === "monthly" ? monthEntries : activeTab === "list" ? listEntries : entries)
-    .filter((r) => r.flow === "income")
-    .reduce((s, r) => s + r.amount, 0);
+  const expenseTotal = periodScopedEntries.filter((r) => r.flow === "expense").reduce((s, r) => s + r.amount, 0);
+  const incomeTotal = periodScopedEntries.filter((r) => r.flow === "income").reduce((s, r) => s + r.amount, 0);
 
   const listExpenseSplit = useMemo(() => {
     const expenseRows = listEntries.filter((row) => row.flow === "expense");
     const fixedRows = expenseRows.filter((row) => Boolean(row.fixedExpenseId));
     const variableRows = expenseRows.filter((row) => !row.fixedExpenseId);
+    const { clientVendorRows, generalRows } = splitVariableLedgerExpenseRows(
+      variableRows,
+      clients,
+      bankTransactions,
+      workers,
+      bankTransactionFolders,
+    );
     return {
       fixedRows,
-      variableRows,
+      clientVendorRows,
+      generalRows,
       fixedTotal: fixedRows.reduce((sum, row) => sum + row.amount, 0),
-      variableTotal: variableRows.reduce((sum, row) => sum + row.amount, 0),
+      clientVendorTotal: clientVendorRows.reduce((sum, row) => sum + row.amount, 0),
+      generalTotal: generalRows.reduce((sum, row) => sum + row.amount, 0),
     };
-  }, [listEntries]);
+  }, [listEntries, clients, workers, bankTransactionFolders, bankTransactions]);
 
   const resetListFilters = useCallback(() => {
     setListFilters(DEFAULT_LEDGER_VIEWER_FILTERS);
     setFilterResetKey((prev) => prev + 1);
   }, []);
-
-  const jumpToMonth = (nextMonthKey: string) => {
-    setMonthKey(nextMonthKey);
-    setActiveTab("monthly");
-  };
 
   const fixedExpenseSelectOptions = useMemo(
     () =>
@@ -323,10 +274,10 @@ export function LedgerViewerPage({
       setFixedExpenseModalError("");
       setFixedExpenseModal({
         tx,
-        draft: resolveBankTxFixedExpenseDraft(tx, fixedExpensePayments),
+        draft: resolveBankTxFixedExpenseDraft(tx, fixedExpensePayments, fixedExpenses),
       });
     },
-    [fixedExpensePayments],
+    [fixedExpensePayments, fixedExpenses],
   );
 
   const saveFixedExpenseLinkModal = useCallback(() => {
@@ -375,15 +326,16 @@ export function LedgerViewerPage({
 
   const entryListLinkProps = {
     bankTransactions,
+    bankTransactionFolders,
     fixedExpenses,
+    clients,
+    workers,
     canLinkFixed,
     onEditFixedExpenseLink: openFixedExpenseLinkModal,
   };
 
   const tabItems: Array<{ key: LedgerViewerSubTab; label: string; icon: React.ReactNode }> = [
     { key: "list", label: L.list, icon: <List className="h-4 w-4" /> },
-    { key: "monthly", label: L.monthly, icon: <CalendarDays className="h-4 w-4" /> },
-    { key: "account", label: L.account, icon: <PieChart className="h-4 w-4" /> },
   ];
   if (canManageFixed) {
     tabItems.push({ key: "fixed", label: L.fixed, icon: <Repeat className="h-4 w-4" /> });
@@ -398,13 +350,26 @@ export function LedgerViewerPage({
               <h2 className="erp-text-page-title text-slate-900">{L.title}</h2>
               <p className="mt-1 erp-text-body text-slate-600">{L.desc}</p>
             </div>
-            {onOpenBankTab ? (
-              <Button type="button" variant="outline" className="shrink-0 rounded-xl" onClick={onOpenBankTab}>
-                <ExternalLink className="mr-2 h-4 w-4" />
-                {L.goBank}
-                {pendingCount > 0 ? ` (${pendingCount}${L.caseSuffix})` : ""}
-              </Button>
-            ) : null}
+            <div className="flex flex-wrap gap-2">
+              {onOpenAnalysis ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="shrink-0 rounded-xl"
+                  onClick={() => onOpenAnalysis("accountSummary")}
+                >
+                  <BarChart3 className="mr-2 h-4 w-4" />
+                  {L.openAnalysis}
+                </Button>
+              ) : null}
+              {onOpenBankTab ? (
+                <Button type="button" variant="outline" className="shrink-0 rounded-xl" onClick={onOpenBankTab}>
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  {L.goBank}
+                  {pendingCount > 0 ? ` (${pendingCount}${L.caseSuffix})` : ""}
+                </Button>
+              ) : null}
+            </div>
           </div>
 
           {activeTab !== "fixed" ? (
@@ -417,24 +382,6 @@ export function LedgerViewerPage({
                 <StatCard label={L.expense} value={formatKRW(expenseTotal)} />
                 <StatCard label={L.income} value={formatKRW(incomeTotal)} />
                 <StatCard label={L.net} value={formatKRW(incomeTotal - expenseTotal)} />
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                {activeTab !== "list" ? (
-                  <>
-                    <Button type="button" variant="outline" size="sm" onClick={() => setMonthKey(shiftMonthKey(monthKey, -1))}>
-                      {L.prevMonth}
-                    </Button>
-                    <span className="erp-text-body min-w-[7rem] text-center font-bold">
-                      {monthKey.slice(0, 4)}
-                      {L.year} {Number(monthKey.slice(5))}
-                      {L.month}
-                    </span>
-                    <Button type="button" variant="outline" size="sm" onClick={() => setMonthKey(shiftMonthKey(monthKey, 1))}>
-                      {L.nextMonth}
-                    </Button>
-                  </>
-                ) : null}
               </div>
             </>
           ) : null}
@@ -461,6 +408,8 @@ export function LedgerViewerPage({
           fixedExpensePayments={fixedExpensePayments}
           setFixedExpensePayments={setFixedExpensePayments!}
           fixedExpenseCategories={fixedExpenseCategories}
+          accountCodes={accountCodes}
+          ledgerCategories={ledgerCategories}
           setFixedExpenseCategories={setFixedExpenseCategories!}
           bankTransactions={bankTransactions}
           setBankTransactions={setBankTransactions!}
@@ -471,75 +420,48 @@ export function LedgerViewerPage({
         />
       ) : null}
 
-      {activeTab !== "fixed" ? (
+      {activeTab === "list" ? (
         <Card className="rounded-2xl shadow-sm">
           <CardContent className="p-4">
-            {activeTab === "list" ? (
-              <>
-                <LedgerViewerFilterBar
-                  applied={listFilters}
-                  onApply={setListFilters}
-                  onApplySearch={(searchQuery) => setListFilters((prev) => ({ ...prev, searchQuery }))}
-                  accountSubjects={listAccountFilterOptions}
-                  fixedCounts={fixedExpenseFilterCounts}
-                  filterResetKey={filterResetKey}
-                  onReset={resetListFilters}
-                />
-                {(listExpenseSplit.fixedRows.length > 0 || listExpenseSplit.variableRows.length > 0) &&
-                listFilters.flowFilter !== "income" &&
-                listFilters.fixedExpenseFilter === "all" ? (
-                  <div className="mb-4 grid gap-3 sm:grid-cols-2">
-                    <StatCard
-                      label={L.fixedExpenseSection}
-                      value={L.fixedExpenseTotal(listExpenseSplit.fixedRows.length, listExpenseSplit.fixedTotal)}
-                    />
-                    <StatCard
-                      label={L.variableExpenseSection}
-                      value={L.variableExpenseTotal(listExpenseSplit.variableRows.length, listExpenseSplit.variableTotal)}
-                    />
-                  </div>
+            <LedgerViewerFilterBar
+              applied={listFilters}
+              onApply={setListFilters}
+              onApplySearch={(searchQuery) => setListFilters((prev) => ({ ...prev, searchQuery }))}
+              accountSubjects={listAccountFilterOptions}
+              fixedCounts={fixedExpenseFilterCounts}
+              filterResetKey={filterResetKey}
+              onReset={resetListFilters}
+            />
+            {(listExpenseSplit.fixedRows.length > 0 ||
+              listExpenseSplit.clientVendorRows.length > 0 ||
+              listExpenseSplit.generalRows.length > 0) &&
+            listFilters.flowFilter !== "income" &&
+            listFilters.fixedExpenseFilter === "all" ? (
+              <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {listExpenseSplit.fixedRows.length > 0 ? (
+                  <StatCard
+                    label={L.fixedExpenseSection}
+                    value={L.fixedExpenseTotal(listExpenseSplit.fixedRows.length, listExpenseSplit.fixedTotal)}
+                  />
                 ) : null}
-                <EntryList rows={listEntries} flowFilter={listFilters.flowFilter} {...entryListLinkProps} />
-              </>
-            ) : null}
-            {activeTab === "monthly" ? (
-              <MonthlyLedgerBook
-                monthKey={monthKey}
-                rows={monthEntries}
-                accountRows={accountRows}
-                trendRows={monthlyRows}
-                onSelectMonth={jumpToMonth}
-                entryListLinkProps={entryListLinkProps}
-              />
-            ) : null}
-            {activeTab === "account" ? (
-              <div className="mb-4 flex flex-wrap gap-2">
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder={L.search}
-                  className="erp-input min-w-[12rem] flex-1 rounded-xl border border-slate-200 px-3 py-2"
-                />
-                <select
-                  value={accountFilter}
-                  onChange={(e) => setAccountFilter(e.target.value)}
-                  className="erp-input rounded-xl border border-slate-200 px-3 py-2"
-                >
-                  <option value="">{L.allAccount}</option>
-                  {accountFilterOptions.map((row) => (
-                    <option key={row.code} value={row.code}>
-                      {row.code} {row.name}
-                    </option>
-                  ))}
-                </select>
-                <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
-                  <FilterChip active={flowFilter === "all"} onClick={() => setFlowFilter("all")} label={L.allFlow} />
-                  <FilterChip active={flowFilter === "expense"} onClick={() => setFlowFilter("expense")} label={L.expense} />
-                  <FilterChip active={flowFilter === "income"} onClick={() => setFlowFilter("income")} label={L.income} />
-                </div>
+                {listExpenseSplit.clientVendorRows.length > 0 ? (
+                  <StatCard
+                    label={L.clientVendorExpenseSection}
+                    value={L.clientVendorExpenseTotal(
+                      listExpenseSplit.clientVendorRows.length,
+                      listExpenseSplit.clientVendorTotal,
+                    )}
+                  />
+                ) : null}
+                {listExpenseSplit.generalRows.length > 0 ? (
+                  <StatCard
+                    label={L.variableExpenseSection}
+                    value={L.variableExpenseTotal(listExpenseSplit.generalRows.length, listExpenseSplit.generalTotal)}
+                  />
+                ) : null}
               </div>
             ) : null}
-            {activeTab === "account" ? <AccountTable rows={accountRows} /> : null}
+            <EntryList rows={listEntries} flowFilter={listFilters.flowFilter} {...entryListLinkProps} />
           </CardContent>
         </Card>
       ) : null}
@@ -612,18 +534,6 @@ function StatCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function FilterChip({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${active ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`}
-    >
-      {label}
-    </button>
-  );
-}
-
 function TabBtn({
   active,
   onClick,
@@ -657,12 +567,17 @@ function resolveEntryFixedExpenseLabel(row: LedgerEntry, fixedExpenses: FixedExp
 function canLinkEntryToFixedExpense(row: LedgerEntry, bankTx?: BankTransaction) {
   if (row.source !== "bank" || !bankTx) return false;
   if (row.flow !== "expense") return false;
-  return Number(bankTx.withdrawal || 0) > 0;
+  if (Number(bankTx.withdrawal || 0) <= 0) return false;
+  if (isCeoDedicatedLedgerCategory(row.accountName)) return false;
+  return true;
 }
 
 type EntryListLinkProps = {
   bankTransactions: BankTransaction[];
+  bankTransactionFolders: BankTransactionFolder[];
   fixedExpenses: FixedExpense[];
+  clients: ClientDepositMatchSource[];
+  workers: WorkerDepositMatchSource[];
   canLinkFixed: boolean;
   onEditFixedExpenseLink: (tx: BankTransaction) => void;
 };
@@ -671,11 +586,14 @@ function EntryList({
   rows,
   flowFilter = "all",
   bankTransactions,
+  bankTransactionFolders,
   fixedExpenses,
+  clients,
+  workers,
   canLinkFixed,
   onEditFixedExpenseLink,
 }: { rows: LedgerEntry[]; flowFilter?: LedgerFlow | "all" } & EntryListLinkProps) {
-  const { fixedRows, variableRows, otherRows } = useMemo(() => {
+  const { fixedRows, clientVendorRows, generalRows, otherRows } = useMemo(() => {
     const fixed: LedgerEntry[] = [];
     const variable: LedgerEntry[] = [];
     const other: LedgerEntry[] = [];
@@ -687,10 +605,19 @@ function EntryList({
         other.push(row);
       }
     }
-    return { fixedRows: fixed, variableRows: variable, otherRows: other };
-  }, [rows]);
+    const { clientVendorRows: clientRows, generalRows: general } = splitVariableLedgerExpenseRows(
+      variable,
+      clients,
+      bankTransactions,
+      workers,
+      bankTransactionFolders,
+    );
+    return { fixedRows: fixed, clientVendorRows: clientRows, generalRows: general, otherRows: other };
+  }, [rows, clients, workers, bankTransactionFolders, bankTransactions]);
 
-  const showExpenseSplit = flowFilter !== "income" && (fixedRows.length > 0 || variableRows.length > 0);
+  const showExpenseSplit =
+    flowFilter !== "income" &&
+    (fixedRows.length > 0 || clientVendorRows.length > 0 || generalRows.length > 0);
   const sections = showExpenseSplit
     ? [
         {
@@ -704,13 +631,23 @@ function EntryList({
           tone: "bg-amber-50/80",
         },
         {
+          key: "client-vendor",
+          title: L.clientVendorExpenseSection,
+          subtitle: L.clientVendorExpenseTotal(
+            clientVendorRows.length,
+            clientVendorRows.reduce((sum, row) => sum + row.amount, 0),
+          ),
+          rows: clientVendorRows,
+          tone: "bg-sky-50/60",
+        },
+        {
           key: "variable",
           title: L.variableExpenseSection,
           subtitle: L.variableExpenseTotal(
-            variableRows.length,
-            variableRows.reduce((sum, row) => sum + row.amount, 0),
+            generalRows.length,
+            generalRows.reduce((sum, row) => sum + row.amount, 0),
           ),
-          rows: variableRows,
+          rows: generalRows,
           tone: "bg-white",
         },
         ...(flowFilter === "all" && otherRows.length
@@ -821,131 +758,5 @@ function EntryListRow({
         )}
       </td>
     </tr>
-  );
-}
-
-function MonthlyLedgerBook({
-  monthKey,
-  rows,
-  accountRows,
-  trendRows,
-  onSelectMonth,
-  entryListLinkProps,
-}: {
-  monthKey: string;
-  rows: LedgerEntry[];
-  accountRows: ReturnType<typeof buildAccountCodeSummary>;
-  trendRows: ReturnType<typeof buildMonthlyLedgerSummary>;
-  onSelectMonth: (monthKey: string) => void;
-  entryListLinkProps: EntryListLinkProps;
-}) {
-  const expenseTotal = rows.filter((r) => r.flow === "expense").reduce((s, r) => s + r.amount, 0);
-  const incomeTotal = rows.filter((r) => r.flow === "income").reduce((s, r) => s + r.amount, 0);
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h3 className="erp-text-section mb-1 font-bold text-slate-900">
-          {L.monthlyBookTitle(monthKey.slice(0, 4), Number(monthKey.slice(5)))}
-        </h3>
-        <p className="erp-text-caption text-slate-500">
-          {L.expense} {formatKRW(expenseTotal)} · {L.income} {formatKRW(incomeTotal)} · {L.net}{" "}
-          {formatKRW(incomeTotal - expenseTotal)} · {rows.length}
-          {L.caseSuffix}
-        </p>
-      </div>
-
-      <div>
-        <h4 className="erp-text-body mb-2 font-bold text-slate-800">{L.accountCol}</h4>
-        <AccountTable rows={accountRows} />
-      </div>
-
-      <div>
-        <h4 className="erp-text-body mb-2 font-bold text-slate-800">{L.list}</h4>
-        <EntryList rows={rows} {...entryListLinkProps} />
-      </div>
-
-      <div>
-        <div className="mb-2 flex items-center gap-2">
-          <BarChart3 className="h-4 w-4 text-slate-500" />
-          <h4 className="erp-text-body font-bold text-slate-800">{L.monthlyTrend}</h4>
-        </div>
-        <p className="erp-text-caption mb-3 text-slate-500">{L.monthlyTrendHint}</p>
-        <MonthlyTrendTable rows={trendRows} activeMonthKey={monthKey} onSelectMonth={onSelectMonth} />
-      </div>
-    </div>
-  );
-}
-
-function MonthlyTrendTable({
-  rows,
-  activeMonthKey,
-  onSelectMonth,
-}: {
-  rows: ReturnType<typeof buildMonthlyLedgerSummary>;
-  activeMonthKey: string;
-  onSelectMonth: (monthKey: string) => void;
-}) {
-  return (
-    <DesktopTableWrap>
-      <table className="erp-table w-full">
-        <thead>
-          <tr>
-            <th>{L.monthly}</th>
-            <th className="text-right">{L.expense}</th>
-            <th className="text-right">{L.income}</th>
-            <th className="text-right">{L.net}</th>
-            <th className="text-right">{L.count}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr
-              key={row.monthKey}
-              className={`cursor-pointer ${row.monthKey === activeMonthKey ? "bg-slate-50" : "hover:bg-slate-50/70"}`}
-              onClick={() => onSelectMonth(row.monthKey)}
-            >
-              <td className="font-semibold text-slate-900">{row.label}</td>
-              <td className="text-right">{formatKRW(row.expenseTotal)}</td>
-              <td className="text-right">{formatKRW(row.incomeTotal)}</td>
-              <td className="text-right font-bold">{formatKRW(row.netTotal)}</td>
-              <td className="text-right">{row.count}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </DesktopTableWrap>
-  );
-}
-
-function AccountTable({ rows }: { rows: ReturnType<typeof buildAccountCodeSummary> }) {
-  if (!rows.length) {
-    return <div className="py-6 text-center erp-text-body text-slate-500">{L.empty}</div>;
-  }
-  return (
-    <DesktopTableWrap>
-      <table className="erp-table w-full">
-        <thead>
-          <tr>
-            <th>{L.accountCol}</th>
-            <th className="text-right">{L.expense}</th>
-            <th className="text-right">{L.income}</th>
-            <th className="text-right">{L.count}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.accountCode}>
-              <td>
-                <span className="font-mono">{row.accountCode}</span> {row.accountName}
-              </td>
-              <td className="text-right">{formatKRW(row.expenseTotal)}</td>
-              <td className="text-right">{formatKRW(row.incomeTotal)}</td>
-              <td className="text-right">{row.count}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </DesktopTableWrap>
   );
 }

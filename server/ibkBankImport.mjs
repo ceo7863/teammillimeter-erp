@@ -58,6 +58,19 @@ function mergeDuplicateBankTransactionRows(keeper, duplicate) {
     ? duplicate.ledgerConfirmedBy || keeper.ledgerConfirmedBy
     : keeper.ledgerConfirmedBy || duplicate.ledgerConfirmedBy;
 
+  const linkedTaxInvoiceIds = [
+    ...new Set(
+      [
+        ...(Array.isArray(keeper.linkedTaxInvoiceIds) ? keeper.linkedTaxInvoiceIds : []),
+        ...(Array.isArray(duplicate.linkedTaxInvoiceIds) ? duplicate.linkedTaxInvoiceIds : []),
+        keeper.linkedTaxInvoiceId,
+        duplicate.linkedTaxInvoiceId,
+      ]
+        .map((id) => String(id || "").trim())
+        .filter(Boolean),
+    ),
+  ];
+
   return {
     ...keeper,
     counterpartyName: keeper.counterpartyName || duplicate.counterpartyName,
@@ -79,6 +92,12 @@ function mergeDuplicateBankTransactionRows(keeper, duplicate) {
     linkedPaymentVoucherId: keeper.linkedPaymentVoucherId || duplicate.linkedPaymentVoucherId,
     classifiedAt: keeper.classifiedAt || duplicate.classifiedAt,
     sourceFile: keeper.sourceFile || duplicate.sourceFile,
+    ...(linkedTaxInvoiceIds.length
+      ? {
+          linkedTaxInvoiceIds,
+          linkedTaxInvoiceId: linkedTaxInvoiceIds[0],
+        }
+      : {}),
   };
 }
 

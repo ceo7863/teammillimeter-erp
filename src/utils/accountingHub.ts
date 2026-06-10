@@ -89,3 +89,17 @@ export function storeAccountingTab(tab: AccountingHubTab) {
   if (typeof window === "undefined") return;
   window.sessionStorage.setItem(ACCOUNTING_TAB_STORAGE_KEY, tab);
 }
+
+export const BANK_LEDGER_SCOPE_PREF_KEY = "teammillimeter-erp-bank-ledger-scope-pref";
+
+export function storeBankLedgerScopePref(scope: "ledger_pending") {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(BANK_LEDGER_SCOPE_PREF_KEY, scope);
+}
+
+export function consumeBankLedgerScopePref(): "ledger_pending" | null {
+  if (typeof window === "undefined") return null;
+  const stored = window.sessionStorage.getItem(BANK_LEDGER_SCOPE_PREF_KEY);
+  if (stored) window.sessionStorage.removeItem(BANK_LEDGER_SCOPE_PREF_KEY);
+  return stored === "ledger_pending" ? "ledger_pending" : null;
+}

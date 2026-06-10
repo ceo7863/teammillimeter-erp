@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link2, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { CategorySuggestInput } from "@/components/AutocompleteInput";
+import { buildAccountCodePickerOptions, findAccountCodeByCode, formatAccountCodeLabel } from "@/utils/accountCodeTree";
 import {
   FIXED_CYCLE_OPTIONS,
-  buildFixedCategorySelectOptions,
   currentFixedExpenseStartMonthISO,
   fixedExpenseStartMonthInputValue,
   formatFixedExpensePaymentDay,
@@ -13,6 +12,7 @@ import {
   type FixedExpense,
   type FixedExpenseCycle,
 } from "@/utils/companyLedger";
+import { resolveFixedExpenseAccountCode, type AccountCode, type LedgerCategory } from "@/utils/ledgerSystem";
 
 const PAYMENT_DAY_OPTIONS = Array.from({ length: 31 }, (_, index) => String(index + 1));
 
@@ -20,7 +20,7 @@ export type FixedExpenseModalState = {
   mode: "create" | "edit";
   id?: string;
   name: string;
-  category: string;
+  accountCode: string;
   amount: string;
   cycle: FixedExpenseCycle;
   paymentDayOfMonth: string;
@@ -33,8 +33,8 @@ export type FixedExpenseModalLabels = {
   addFixedItem: string;
   editFixedItem: string;
   itemName: string;
-  category: string;
-  categoryHint: string;
+  accountCode: string;
+  accountCodeHint: string;
   amountWon: string;
   cycle: string;
   paymentDay: string;
@@ -69,11 +69,11 @@ function Input({
   );
 }
 
-export function emptyFixedExpenseForm(category: string): FixedExpenseModalState {
+export function emptyFixedExpenseForm(): FixedExpenseModalState {
   return {
     mode: "create",
     name: "",
-    category,
+    accountCode: "",
     amount: "",
     cycle: "monthly",
     paymentDayOfMonth: "1",
@@ -83,12 +83,15 @@ export function emptyFixedExpenseForm(category: string): FixedExpenseModalState 
   };
 }
 
-export function fixedExpenseRowToModalState(row: FixedExpense): FixedExpenseModalState {
+export function fixedExpenseRowToModalState(
+  row: FixedExpense,
+  ledgerCategories: LedgerCategory[] = [],
+): FixedExpenseModalState {
   return {
     mode: "edit",
     id: row.id,
     name: row.name,
-    category: row.category,
+    accountCode: resolveFixedExpenseAccountCode(row, ledgerCategories),
     amount: String(row.amount || ""),
     cycle: row.cycle,
     paymentDayOfMonth: String(normalizeFixedExpensePaymentDay(row.paymentDayOfMonth)),
@@ -101,8 +104,7 @@ export function fixedExpenseRowToModalState(row: FixedExpense): FixedExpenseModa
 type CompanyLedgerFixedExpenseModalProps = {
   initial: FixedExpenseModalState;
   sessionKey: string;
-  fixedExpenses: FixedExpense[];
-  fixedExpenseCategories: string[];
+  accountCodes: AccountCode[];
   formError: string;
   labels: FixedExpenseModalLabels;
   onClose: () => void;
@@ -114,8 +116,7 @@ type CompanyLedgerFixedExpenseModalProps = {
 export const CompanyLedgerFixedExpenseModal = React.memo(function CompanyLedgerFixedExpenseModal({
   initial,
   sessionKey,
-  fixedExpenses,
-  fixedExpenseCategories,
+  accountCodes,
   formError,
   labels: L,
   onClose,
@@ -129,9 +130,9 @@ export const CompanyLedgerFixedExpenseModal = React.memo(function CompanyLedgerF
     setDraft(initial);
   }, [sessionKey, initial]);
 
-  const fixedCategorySelectOptions = useMemo(
-    () => buildFixedCategorySelectOptions(fixedExpenses, fixedExpenseCategories, draft.category),
-    [draft.category, fixedExpenseCategories, fixedExpenses],
+  const accountCodeOptions = useMemo(
+    () => buildAccountCodePickerOptions(accountCodes, "expense"),
+    [accountCodes],
   );
 
   return (
@@ -154,16 +155,28 @@ export const CompanyLedgerFixedExpenseModal = React.memo(function CompanyLedgerF
           <Field label={L.itemName}>
             <Input value={draft.name} onChange={(e) => setDraft((prev) => ({ ...prev, name: e.target.value }))} />
           </Field>
-          <Field label={L.category}>
-            <CategorySuggestInput
-              key={draft.id || "create"}
-              value={draft.category}
-              options={fixedCategorySelectOptions}
-              placeholder={L.category}
-              className="rounded-xl"
-              onChange={(value) => setDraft((prev) => ({ ...prev, category: value.trim() }))}
-            />
-            <p className="mt-1.5 text-xs font-semibold text-slate-500">{L.categoryHint}</p>
+          <Field label={L.accountCode}>
+            <select
+              className="erp-input w-full rounded-2xl border bg-white px-3 py-2.5 text-slate-900 outline-none transition focus:border-slate-900 md:px-4 md:py-3"
+              value={draft.accountCode}
+              onChange={(e) => setDraft((prev) => ({ ...prev, accountCode: e.target.value }))}
+            >
+              {!draft.accountCode ? (
+                <option value="">{"\uACC4\uC815\uACFC\uBAA9\uC744 \uC120\uD0DD\uD558\uC138\uC694"}</option>
+              ) : null}
+              {accountCodeOptions.map((option) => {
+                const account = findAccountCodeByCode(accountCodes, option.code);
+                const label = account
+                  ? `${option.code} · ${formatAccountCodeLabel(account, accountCodes)}`
+                  : `${option.code} · ${option.label}`;
+                return (
+                  <option key={option.code} value={option.code}>
+                    {label}
+                  </option>
+                );
+              })}
+            </select>
+            <p className="mt-1.5 text-xs font-semibold text-slate-500">{L.accountCodeHint}</p>
           </Field>
           <Field label={L.amountWon}>
             <Input

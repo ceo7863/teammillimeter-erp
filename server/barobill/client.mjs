@@ -227,14 +227,18 @@ export async function getBarobillUrl(togo = BAROBILL_TOGO_CHARGE) {
   return result;
 }
 
-async function describeBarobillCode(code) {
+export async function describeBarobillCode(code) {
   if (code >= 0) return null;
+  if (code === -10002 && !config.barobill.test) {
+    return "바로빌 운영 API 인증에 실패했습니다(-10002). 현재 BAROBILL_CERT_KEY가 테스트용이면 BAROBILL_TEST=true로 설정하거나, 바로빌 운영 사이트에서 발급한 운영용 인증키로 교체해 주세요.";
+  }
   try {
     const message = await getErrString(code);
-    return message || `바로빌 오류 ${code}`;
+    if (message && message !== String(code)) return message;
   } catch {
-    return `바로빌 오류 ${code}`;
+    // fall through
   }
+  return `바로빌 오류 ${code}`;
 }
 
 export async function testBarobillConnection() {

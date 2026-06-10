@@ -5,7 +5,6 @@ import {
 } from "@/utils/bankReceivableMatch";
 import { bankTxHasPartialPaymentVoucher } from "@/utils/bankSentStatementMatch";
 import type { BankTransactionFolder, BankTransactionFolderType } from "@/utils/bankTransactionFolders";
-import { getLinkedCompanyExpenseForBankTx, getLinkedFixedPaymentForBankTx } from "@/utils/bankCompanyLedger";
 import { isBankTxExpenseReversal } from "@/utils/bankTxExpenseReversal";
 import { isNetGroupSuppressed } from "@/utils/bankPreauthNetting";
 import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "@/utils/companyLedger";
@@ -20,19 +19,25 @@ import {
 } from "@/utils/bankTaxInvoiceLink";
 import type { AccountCode, LedgerCategory } from "@/utils/ledgerSystem";
 import { resolveAccountCodeLabel } from "@/utils/ledgerSystem";
-import type { TaxInvoice } from "@/utils/taxInvoices";
+import type { TaxInvoice, TaxInvoiceCancellationPairInfo } from "@/utils/taxInvoices";
+import { buildTaxInvoiceCancellationPairIndex } from "@/utils/taxInvoices";
 import {
   formatBankTransactionDateTime,
+  formatBankTransactionDateTimeCompact,
   isUnfiledClientDepositLink,
   type BankTransaction,
 } from "@/utils/bankTransactions";
+import { resolveBankAccountDisplayLabel } from "@/utils/bankBrandIcon";
+import { resolveBankTxLedgerAccountCode } from "@/utils/bankCompanyLedger";
 
 export type BankTransactionListRowModel = {
   id: string;
   dateLabel: string;
+  dateTitle: string;
   depositLabel: string;
   withdrawalLabel: string;
   balanceLabel: string;
+  transactionTypeLabel: string;
   description: string;
   accountContentLabel: string;
   accountContentEmpty: boolean;
@@ -48,6 +53,7 @@ export type BankTransactionListRowModel = {
   showPartialPaymentBadge: boolean;
   netGroupRole: BankTransaction["netGroupRole"];
   rowTone: "" | "deposit" | "withdrawal" | "suppressed";
+  bankName: string;
   accountLabel: string;
   counterpartyLabel: string;
   signedAmountLabel: string;
@@ -97,13 +103,7 @@ function resolveLinkedLedgerCategory(
   }
   if (linkedExpense?.category?.trim()) return linkedExpense.category.trim();
 
-  let linkedPayment: FixedExpensePayment | undefined;
-  if (row.linkedFixedExpensePaymentId) {
-    linkedPayment = lookup.fixedPaymentById.get(row.linkedFixedExpensePaymentId);
-  }
-  if (!linkedPayment) {
-    linkedPayment = lookup.fixedPaymentByTxId.get(row.id);
-  }
+  const linkedPayment = resolveLinkedFixedPaymentFromLookup(row, lookup);
   if (linkedPayment) {
     const fixedItem = lookup.fixedExpenseById.get(linkedPayment.fixedExpenseId);
     if (fixedItem?.name?.trim()) return fixedItem.name.trim();
@@ -152,17 +152,27 @@ export function buildBankTransactionListLookupMaps(
   };
 }
 
+function resolveLinkedFixedPaymentFromLookup(
+  row: BankTransaction,
+  lookup: BankTransactionListLookupMaps,
+): FixedExpensePayment | undefined {
+  if (row.linkedFixedExpensePaymentId) {
+    const linked = lookup.fixedPaymentById.get(row.linkedFixedExpensePaymentId);
+    if (linked) return linked;
+  }
+  return lookup.fixedPaymentByTxId.get(row.id);
+}
+
 function resolveFixedExpenseLabel(
   row: BankTransaction,
   lookup: BankTransactionListLookupMaps,
 ): string | null {
-  if (row.ledgerFixedExpenseId) {
-    const item = lookup.fixedExpenseById.get(row.ledgerFixedExpenseId);
+  const ledgerFixedId = String(row.ledgerFixedExpenseId || "").trim();
+  if (ledgerFixedId) {
+    const item = lookup.fixedExpenseById.get(ledgerFixedId);
     if (item?.name?.trim()) return item.name.trim();
   }
-  const linkedPayment = row.linkedFixedExpensePaymentId
-    ? lookup.fixedPaymentById.get(row.linkedFixedExpensePaymentId)
-    : lookup.fixedPaymentByTxId.get(row.id);
+  const linkedPayment = resolveLinkedFixedPaymentFromLookup(row, lookup);
   if (linkedPayment) {
     const item = lookup.fixedExpenseById.get(linkedPayment.fixedExpenseId);
     if (item?.name?.trim()) return item.name.trim();
@@ -182,6 +192,7 @@ export type BankTransactionListRowBuildContext = {
   fixedExpenses: FixedExpense[];
   accountCodes: AccountCode[];
   taxInvoiceById: Map<string, TaxInvoice>;
+  taxInvoiceCancellationPairIndex: Map<string, TaxInvoiceCancellationPairInfo>;
   clients: Array<{ name?: string }>;
   workers: Array<{ name?: string }>;
 };
@@ -202,6 +213,7 @@ export function buildBankTransactionListRowModel(
     fixedExpenses,
     accountCodes,
     taxInvoiceById,
+    taxInvoiceCancellationPairIndex,
     clients,
     workers,
   } = context;
@@ -225,7 +237,12 @@ export function buildBankTransactionListRowModel(
   const fixedExpenseLabel = resolveFixedExpenseLabel(row, lookup);
   const accountContent = String(row.ledgerMemo || row.memo || "").trim();
   const memoOnly = String(row.memo || "").trim();
-  const accountCode = String(row.ledgerAccountCode || "").trim();
+  const accountCode =
+    resolveBankTxLedgerAccountCode(row, {
+      fixedExpenses,
+      fixedExpensePayments,
+      ledgerCategories,
+    }) || "";
   const accountSubjectLabel = accountCode
     ? resolveAccountCodeLabel(accountCodes, accountCode) || accountCode
     : null;
@@ -239,7 +256,9 @@ export function buildBankTransactionListRowModel(
     .map((id) => taxInvoiceById.get(id))
     .filter((invoice): invoice is TaxInvoice => Boolean(invoice));
   const linkedInvoice = linkedInvoices[0];
-  const linkedInvoiceLabels = linkedInvoices.map((invoice) => formatTaxInvoiceEvidenceLabel(invoice));
+  const linkedInvoiceLabels = linkedInvoices.map((invoice) =>
+    formatTaxInvoiceEvidenceLabel(invoice, { cancellationPairIndex: taxInvoiceCancellationPairIndex }),
+  );
   const evidenceLabel = linkedInvoiceLabels.length ? linkedInvoiceLabels.join(" · ") : null;
   const signedAmountLabel = expenseReversal
     ? `-${formatKRW(row.deposit)}`
@@ -248,7 +267,8 @@ export function buildBankTransactionListRowModel(
       : row.withdrawal > 0
         ? `-${formatKRW(row.withdrawal)}`
         : "-";
-  const accountLabel = `${row.bankName || "IBK"} ${String(row.accountNumber || "").slice(-4) || ""}`.trim();
+  const bankName = String(row.bankName || "IBK").trim() || "IBK";
+  const accountLabel = resolveBankAccountDisplayLabel(bankName, row.accountNumber);
   const classificationLabel =
     folder?.folderName ||
     (unfiledClientName || null) ||
@@ -285,6 +305,7 @@ export function buildBankTransactionListRowModel(
     evidenceLabel,
     signedAmountLabel,
     accountLabel,
+    bankName,
     classificationLabel,
     matchLinked,
     matchStatusLabel,
@@ -311,6 +332,7 @@ type BankTransactionListRowModelParts = {
   evidenceLabel: string | null;
   signedAmountLabel: string;
   accountLabel: string;
+  bankName: string;
   classificationLabel: string;
   matchLinked: boolean;
   matchStatusLabel: string;
@@ -340,6 +362,7 @@ function buildBankTransactionListRowModelFromParts(
     evidenceLabel,
     signedAmountLabel,
     accountLabel,
+    bankName,
     classificationLabel,
     matchLinked,
     matchStatusLabel,
@@ -352,10 +375,12 @@ function buildBankTransactionListRowModelFromParts(
 
   return {
     id: row.id,
-    dateLabel: formatBankTransactionDateTime(row.transactionAt),
+    dateLabel: formatBankTransactionDateTimeCompact(row.transactionAt),
+    dateTitle: formatBankTransactionDateTime(row.transactionAt),
     depositLabel: row.deposit > 0 ? formatKRW(row.deposit) : "-",
     withdrawalLabel: row.withdrawal > 0 ? formatKRW(row.withdrawal) : "-",
     balanceLabel: formatKRW(row.balanceAfter),
+    transactionTypeLabel: String(row.transactionType || "").trim() || "-",
     description: row.description || "-",
     accountContentLabel: accountContent || labels.accountContentPlaceholder,
     accountContentEmpty: !accountContent,
@@ -371,6 +396,7 @@ function buildBankTransactionListRowModelFromParts(
     showPartialPaymentBadge: matchLinked && bankTxHasPartialPaymentVoucher(row, paymentVouchers),
     netGroupRole: row.netGroupRole,
     rowTone,
+    bankName,
     accountLabel,
     counterpartyLabel: String(row.counterpartyName || "-").trim() || "-",
     signedAmountLabel,
@@ -409,9 +435,7 @@ export function buildBankTransactionListRowFingerprint(
   if (expense) {
     linked.push(`ce:${expense.id}:${expense.category}:${expense.kind}:${expense.amount}`);
   }
-  const payment =
-    (row.linkedFixedExpensePaymentId && lookup.fixedPaymentById.get(row.linkedFixedExpensePaymentId)) ||
-    lookup.fixedPaymentByTxId.get(row.id);
+  const payment = resolveLinkedFixedPaymentFromLookup(row, lookup);
   if (payment) {
     const fixedItem = lookup.fixedExpenseById.get(payment.fixedExpenseId);
     linked.push(

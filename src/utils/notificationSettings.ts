@@ -17,6 +17,11 @@ export type NotificationSettings = {
   dailyReportMinute: number;
   scScheduleNotifyHour: number;
   scScheduleNotifyMinute: number;
+  scWeeklyBriefingNotifyEnabled: boolean;
+  /** 0=일 ... 6=토 (KST) */
+  scWeeklyBriefingWeekday: number;
+  scWeeklyBriefingHour: number;
+  scWeeklyBriefingMinute: number;
   /** User-linked recipients with per-type flags */
   recipients: NotificationRecipient[];
   /** Additional daily-report phones not tied to ERP users */
@@ -34,6 +39,10 @@ export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   dailyReportMinute: 0,
   scScheduleNotifyHour: 18,
   scScheduleNotifyMinute: 0,
+  scWeeklyBriefingNotifyEnabled: true,
+  scWeeklyBriefingWeekday: 1,
+  scWeeklyBriefingHour: 9,
+  scWeeklyBriefingMinute: 0,
   recipients: [],
   dailyReportExtraPhones: [],
   scScheduleNotifyMode: "both",
@@ -70,6 +79,9 @@ export function normalizeNotificationSettings(raw: unknown): NotificationSetting
   const minute = Number(row.dailyReportMinute);
   const scHour = Number(row.scScheduleNotifyHour);
   const scMinute = Number(row.scScheduleNotifyMinute);
+  const weeklyHour = Number(row.scWeeklyBriefingHour);
+  const weeklyMinute = Number(row.scWeeklyBriefingMinute);
+  const weeklyWeekday = Number(row.scWeeklyBriefingWeekday);
   const recipients = Array.isArray(row.recipients)
     ? row.recipients
         .map((item) => {
@@ -96,6 +108,13 @@ export function normalizeNotificationSettings(raw: unknown): NotificationSetting
     dailyReportMinute: clampSchedulePart(minute, 59, 0),
     scScheduleNotifyHour: clampSchedulePart(scHour, 23, 18),
     scScheduleNotifyMinute: clampSchedulePart(scMinute, 59, 0),
+    scWeeklyBriefingNotifyEnabled: row.scWeeklyBriefingNotifyEnabled !== false,
+    scWeeklyBriefingWeekday:
+      Number.isFinite(weeklyWeekday) && weeklyWeekday >= 0 && weeklyWeekday <= 6
+        ? weeklyWeekday
+        : DEFAULT_NOTIFICATION_SETTINGS.scWeeklyBriefingWeekday,
+    scWeeklyBriefingHour: clampSchedulePart(weeklyHour, 23, DEFAULT_NOTIFICATION_SETTINGS.scWeeklyBriefingHour),
+    scWeeklyBriefingMinute: clampSchedulePart(weeklyMinute, 59, DEFAULT_NOTIFICATION_SETTINGS.scWeeklyBriefingMinute),
     recipients,
     dailyReportExtraPhones: normalizePhoneList(row.dailyReportExtraPhones),
     scScheduleNotifyMode: normalizeScScheduleNotifyMode(row.scScheduleNotifyMode),

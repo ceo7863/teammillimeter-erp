@@ -8,6 +8,7 @@ export type AlimtalkStatus = {
   commentTemplate: string | null;
   scheduleTemplate?: string | null;
   contractTemplate?: string | null;
+  weeklyBriefingTemplate?: string | null;
 };
 
 export type ScScheduleNotifyStatus = {
@@ -23,10 +24,24 @@ export type ScScheduleNotifyStatus = {
   lastSentCount?: number;
 };
 
+export type ScWeeklyBriefingNotifyStatus = {
+  enabled: boolean;
+  template: string | null;
+  scheduleEnabled?: boolean;
+  weekday?: number;
+  hour?: number;
+  minute?: number;
+  lastWeekStart?: string | null;
+  lastSentAt?: string | null;
+  lastSentCount?: number | null;
+};
+
 export async function fetchNotificationStatus() {
-  return apiRequest<{ alimtalk: AlimtalkStatus; scScheduleNotify?: ScScheduleNotifyStatus }>(
-    "/notifications/status",
-  );
+  return apiRequest<{
+    alimtalk: AlimtalkStatus;
+    scScheduleNotify?: ScScheduleNotifyStatus;
+    scWeeklyBriefing?: ScWeeklyBriefingNotifyStatus;
+  }>("/notifications/status");
 }
 
 export async function fetchNotificationSettings() {
@@ -147,5 +162,120 @@ export async function sendScScheduleNotifyOne(
   return apiRequest<ScScheduleNotifyOneResult>("/notifications/sc-schedule/send-one", {
     method: "POST",
     body: JSON.stringify({ scheduleId, ...(options || {}) }),
+  });
+}
+
+export type ScWeeklyBriefingSiteEntry = {
+  siteKey: string;
+  siteName: string;
+  siteManagerName?: string;
+  dateRange: string;
+  headcounts: string;
+  dayEntries: Array<{ date: string; headcount: number }>;
+  scheduleIds: string[];
+  scheduleCount: number;
+};
+
+export type ScWeeklyBriefingPreview = {
+  weekStart: string;
+  weekEnd: string;
+  weekLabel: string;
+  scheduleCount: number;
+  clientCount: number;
+  siteCount: number;
+  notifyCount: number;
+  missingPhoneCount: number;
+  templateConfigured: boolean;
+  groups: Array<{
+    groupKey: string;
+    clientId: string;
+    clientName: string;
+    siteName: string;
+    siteManagerName?: string;
+    clientManager: string;
+    dateRange: string;
+    headcounts: string;
+    weekLabel: string;
+    sites: ScWeeklyBriefingSiteEntry[];
+    siteCount: number;
+    dayEntries: Array<{ date: string; headcount: number }>;
+    scheduleIds: string[];
+    scheduleCount: number;
+    variables: Record<string, string>;
+    notifyCount: number;
+    missingPhoneCount: number;
+    recipientRows: Array<{
+      recipientType: "client";
+      participantName: string;
+      phone: string | null;
+      contactId?: string | null;
+      variables: Record<string, string>;
+    }>;
+  }>;
+};
+
+export type ScWeeklyBriefingSendResult = {
+  ok: boolean;
+  skipped?: boolean;
+  reason?: string;
+  error?: string;
+  notFound?: boolean;
+  groupKey?: string;
+  weekStart?: string;
+  weekEnd?: string;
+  clientName?: string;
+  siteName?: string;
+  dateRange?: string;
+  headcounts?: string;
+  sentCount?: number;
+  failedCount?: number;
+  notifyCount?: number;
+  missingPhoneCount?: number;
+  variables?: Record<string, string>;
+  results?: Array<{
+    recipientType: "client";
+    participantName: string;
+    phone: string | null;
+    ok: boolean;
+    skipped?: boolean;
+    reason?: string;
+    variables?: Record<string, string>;
+  }>;
+};
+
+export async function previewScWeeklyBriefing(weekStart?: string) {
+  const query = weekStart ? `?weekStart=${encodeURIComponent(weekStart)}` : "";
+  return apiRequest<ScWeeklyBriefingPreview>(`/notifications/sc-weekly-briefing/preview${query}`);
+}
+
+export async function sendScWeeklyBriefingGroup(
+  groupKey: string,
+  options?: { weekStart?: string; weekEnd?: string; skipSync?: boolean; phones?: string[] },
+) {
+  return apiRequest<ScWeeklyBriefingSendResult>("/notifications/sc-weekly-briefing/send", {
+    method: "POST",
+    body: JSON.stringify({ groupKey, ...(options || {}) }),
+  });
+}
+
+export async function sendScWeeklyBriefingNotifyNow(options?: {
+  skipSync?: boolean;
+  weekStart?: string;
+  settings?: NotificationSettings;
+}) {
+  return apiRequest<{
+    ok: boolean;
+    skipped?: boolean;
+    reason?: string;
+    weekStart?: string;
+    weekEnd?: string;
+    weekLabel?: string;
+    sentCount?: number;
+    failedCount?: number;
+    clientCount?: number;
+    siteCount?: number;
+  }>("/notifications/sc-weekly-briefing/send-all", {
+    method: "POST",
+    body: JSON.stringify({ force: true, ...(options || {}) }),
   });
 }

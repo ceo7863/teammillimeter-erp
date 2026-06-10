@@ -1,4 +1,4 @@
-﻿import React, { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, startTransition } from "react";
+import React, { Fragment, memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, startTransition } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertCircle,
@@ -53,6 +53,7 @@ import {
   Clock,
   ClipboardList,
   Smartphone,
+  Sparkles,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -139,10 +140,10 @@ import {
   refreshVoucherPaidAmount,
 } from "@/utils/workerMonthlyActualPayments";
 import { mergeSalesByUpdatedAt } from "@/utils/erpStateMerge";
-import { migrateActivePageKey, storeAccountingTab } from "@/utils/accountingHub";
-import { migrateBasicInfoPageKey, resolveBasicInfoTabAccess, storeBasicInfoTab } from "@/utils/basicInfoHub";
+import { migrateActivePageKey, storeAccountingTab, storeBankLedgerScopePref, type AccountingHubTab } from "@/utils/accountingHub";
+import { storeAnalysisNavTab, storeAnalysisTab, type AnalysisHubTab } from "@/utils/analysisHub";
+import { migrateBasicInfoPageKey, resolveBasicInfoTabAccess, storeBasicInfoTab, type BasicInfoHubTab } from "@/utils/basicInfoHub";
 import { UserAdminHubPage } from "@/components/UserAdminHubPage";
-import { NotificationSettingsPage } from "@/components/NotificationSettingsPage";
 import { migrateUserAdminPageKey, resolveUserAdminTabAccess, storeUserAdminTab } from "@/utils/userAdminHub";
 import { migrateStatementPageKey, storeStatementTab } from "@/utils/statementHub";
 import { normalizeStatementGenerationLogs } from "@/utils/statementGenerationLogs";
@@ -171,6 +172,8 @@ import { focusKoreanTextInput, prepareKoreanTextInput } from "@/utils/koreanIme"
 import { buildReceivableRowsFromSales, getStatus, getUnpaid, parseMoney, formatMoneyInput, sanitizeMoneyInput } from "@/utils/receivables";
 import { resolveCalendarEntryPaymentState } from "@/utils/bankReceivableMatch";
 import {
+  fitWorkerChargesToClientTarget,
+  formatAiFitHeadcountMemo,
   getSaleStaffCount,
   getSaleTotalBill,
   getSaleWorkerLines,
@@ -181,14 +184,18 @@ import {
 import { formatWorkerNameSummary } from "@/utils/statementSheets";
 import { buildSaleDuplicateIndex, findSalesWithSameClientWorkerDate, isDuplicateSale } from "@/utils/saleDuplicates";
 import { filterNamedSuggestions } from "@/utils/autocompleteFilter";
-import { confirmDelete } from "@/utils/confirmDelete";
+import { buildSaleFormFromScSchedule, detectScScheduleChargeHeadcountWarning, isScScheduleRegistered } from "@/utils/scScheduleSaleImport";
+import { DEFAULT_SALE_AI_RULES, normalizeSaleAiRules } from "@/utils/saleAiRules";
+import { fetchStaffScSchedulesForMonth } from "@/utils/scSchedules";
+import { confirmDelete, confirmWorkerPermanentDelete } from "@/utils/confirmDelete";
 import { filterSalesVoucherRows } from "@/utils/saleVoucherSearch";
 import {
+  applySaleWorkerLineUpdate,
   buildSaleFromForm,
   compactSaleForm,
+  commitWorkerGridInputsFromDom,
   createWorkerLine,
   emptySaleForm,
-  enrichWorkerLineOnWorkerSelect,
   buildCommittedSaleFormDraft,
   flushSaleFormFocusedInputs,
   reEnrichWorkerLinesForClient,
@@ -202,12 +209,19 @@ import { ClientSiteRequestPage } from "@/components/ClientSiteRequestPage";
 import { ClientContractsPanel } from "@/components/ClientContractsPanel";
 import { ClientSiteRequestsPage } from "@/components/ClientSiteRequestsPage";
 import { ClientSiteRequestCalendarsPage } from "@/components/ClientSiteRequestCalendarsPage";
+import { CalendarScScheduleImportModal } from "@/components/CalendarScScheduleImportModal";
+import { SaleAiRulesButton, SaleAiRulesModal } from "@/components/SaleAiRulesModal";
 import { ScScheduleAlimtalkPage } from "@/components/ScScheduleAlimtalkPage";
 import { ClientFormModal, type ClientFormState } from "@/components/ClientFormModal";
+import { WorkerFormModal, createEmptyWorkerForm } from "@/components/WorkerFormModal";
+import { WorkerProbationAlertBanner } from "@/components/WorkerProbationAlertBanner";
+import { consumeWorkerScrollTarget, storeWorkerScrollTarget } from "@/utils/workerProbationAlerts";
 import { ClientBusinessRegViewModal } from "@/components/ClientBusinessRegViewModal";
 import {
   applyBusinessRegMetaToClient,
   clientHasBusinessRegFile,
+  deleteClientBusinessReg,
+  fetchClientBusinessRegMeta,
   uploadClientBusinessReg,
 } from "@/utils/clientBusinessRegFile";
 import { allocateNextSaleRecordIds, getSaleVoucherLabel, parseVoucherSequence } from "@/utils/saleVoucherNo";
@@ -231,7 +245,6 @@ import {
   migrateErpLoginLogs,
 } from "@/utils/loginLogs";
 import {
-  applyWorkerLineFieldUpdate,
   buildWorkerFeeMap,
   calculateWorkerLineAmounts,
   calculateWorkerLineMetrics,
@@ -250,8 +263,10 @@ import {
   findWorkerMasterByListName,
   isWorkerActive,
   mergeWorkerMasterFieldsFromLocal,
+  mergeIncomingWorkerMasterList,
   resolveWorkerListName,
   reconcileWorkerListUpdates,
+  resolveIncomingWorkerMasterList,
   migrateWorkerMonthlyPaymentMemosFromWorkers,
   normalizeWorkerMonthlyPaymentMemos,
   patchWorkerMonthlyPaymentMemos,
@@ -264,8 +279,9 @@ import {
   WORKER_CATEGORY_OPTIONS,
   WORKER_CATEGORY_OUTSOURCE,
   workerCategorySortRank,
+  type WorkerMasterLike,
 } from "@/utils/workerPayments";
-import { clientIdsEqual, mergeClientFieldsFromLocal } from "@/utils/clientMaster";
+import { clientIdsEqual, clientActiveSortRank, filterActiveClients, isClientActive, mergeClientFieldsFromLocal } from "@/utils/clientMaster";
 import {
   clientContactsToFormRows,
   normalizeClientContactInput,
@@ -304,10 +320,13 @@ import {
   type ErpPageKey,
 } from "@/utils/pageAccess";
 import {
+  cacheSidebarHiddenFromUser,
   cacheSidebarOrderFromUser,
+  resolveSidebarHidden,
   resolveSidebarOrder,
+  resolveVisibleSidebarPages,
+  saveSidebarHidden,
   saveSidebarOrder,
-  sortPageDefsByOrder,
   syncLocalSidebarOrderIfNeeded,
 } from "@/utils/sidebarOrder";
 import { useClientSiteRequestPendingCount } from "@/hooks/useClientSiteRequestPendingCount";
@@ -861,6 +880,7 @@ const SaleFormCompactFooter = memo(function SaleFormCompactFooter({
   onReset,
   onSave,
   onAddWorkerLine,
+  onFitWorkerCharges,
   secondaryAction,
   footerStartExtra,
 }) {
@@ -895,6 +915,12 @@ const SaleFormCompactFooter = memo(function SaleFormCompactFooter({
       </div>
       <div className="erp-sale-form-footer-actions">
         {secondaryAction}
+        {onFitWorkerCharges ? (
+          <Button variant="outline" size="sm" className="h-8 gap-1 rounded-lg text-xs" onClick={onFitWorkerCharges}>
+            <Sparkles size={13} />
+            AI맞춤
+          </Button>
+        ) : null}
         <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={onAddWorkerLine}>
           <Plus size={13} />
           행 추가
@@ -975,6 +1001,7 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
   lockClientSite = false,
   allowClientSiteUnlock = false,
   onDraftChange,
+  chargeTargetHeadcount = null,
 }) {
   const useLocalDraft = Boolean(sessionKey || initialForm);
   const seedForm = initialForm ?? controlledForm ?? emptySaleForm();
@@ -1030,15 +1057,7 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
 
   const updateSharedMemo = useCallback((value) => {
     if (useLocalDraft) {
-      setFormMeta((prev) => {
-        const previousCommon = String(prev.memo || "").trim();
-        setWorkerRows((rows) => rows.map((line) => {
-          const lineMemo = String(line.memo || "").trim();
-          if (lineMemo && lineMemo !== previousCommon) return line;
-          return { ...line, memo: value };
-        }));
-        return { ...prev, memo: value };
-      });
+      setFormMeta((prev) => ({ ...prev, memo: value }));
       return;
     }
     controlledOnSharedMemoChange?.(value);
@@ -1049,10 +1068,14 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
       setWorkerRows((prev) => {
         const nextRows = prev.map((line, lineIndex) => {
           if (lineIndex !== index) return line;
-          if (key === "worker") {
-            return enrichWorkerLineOnWorkerSelect(line, activeWorkers, clients, formMetaRef.current.client, value);
-          }
-          return applyWorkerLineFieldUpdate(line, key, value);
+          return applySaleWorkerLineUpdate(
+            line,
+            key,
+            value,
+            activeWorkers,
+            clients,
+            formMetaRef.current.client,
+          );
         });
         syncLocalDraftRef(formMetaRef.current, nextRows);
         return nextRows;
@@ -1066,12 +1089,57 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
     if (useLocalDraft) {
       setWorkerRows((prev) => [
         ...prev,
-        { ...createWorkerLine(prev.length), memo: formMetaRef.current.memo || "" },
+        createWorkerLine(prev.length),
       ]);
       return;
     }
     controlledAddWorkerLine?.();
   }, [useLocalDraft, controlledAddWorkerLine]);
+
+  const form = useLocalDraft ? buildLocalSaleForm(formMeta, workerRows) : controlledForm;
+
+  const fitWorkerCharges = useCallback(() => {
+    void flushSaleFormFocusedInputs().then(() => {
+      const clientName = String(formMetaRef.current.client || "").trim();
+      if (!clientName) {
+        window.alert("거래처를 먼저 선택해 주세요.");
+        return;
+      }
+      const selectedClient = clients.find((client) => client.name === clientName);
+      const sourceRows = useLocalDraft ? workerRowsRef.current : (form?.workers ?? []);
+      const committedRows = commitWorkerGridInputsFromDom(sourceRows);
+      const targetHeadcount = Number.isFinite(Number(chargeTargetHeadcount)) && Number(chargeTargetHeadcount) > 0
+        ? Math.floor(Number(chargeTargetHeadcount))
+        : undefined;
+      const result = fitWorkerChargesToClientTarget(committedRows, selectedClient, { targetHeadcount });
+      if (result.targetChargeTotal <= 0) {
+        window.alert("거래처 청구단가가 없어 목표 금액을 계산할 수 없습니다.");
+        return;
+      }
+      if (!result.changed) {
+        window.alert(
+          `조정할 청구 초과분이 없습니다.\n목표: ${formatKRW(result.targetChargeTotal)} / 현재 청구합: ${formatKRW(result.actualChargeTotalBefore)}`,
+        );
+        return;
+      }
+      if (useLocalDraft) {
+        const memoText = formatAiFitHeadcountMemo(result.deployHeadcount, result.chargeHeadcount);
+        const nextMeta = { ...formMetaRef.current, memo: memoText };
+        setFormMeta(nextMeta);
+        setWorkerRows(result.lines);
+        syncLocalDraftRef(nextMeta, result.lines);
+      } else {
+        result.lines.forEach((line, index) => {
+          if (line.chargeAmount !== sourceRows[index]?.chargeAmount) {
+            controlledUpdateWorkerLine?.(index, "chargeAmount", line.chargeAmount);
+          }
+        });
+        controlledOnSharedMemoChange?.(
+          formatAiFitHeadcountMemo(result.deployHeadcount, result.chargeHeadcount),
+        );
+      }
+    });
+  }, [chargeTargetHeadcount, clients, controlledForm, controlledOnSharedMemoChange, controlledUpdateWorkerLine, form, syncLocalDraftRef, useLocalDraft]);
 
   const removeWorkerLine = useCallback((index) => {
     if (useLocalDraft) {
@@ -1081,7 +1149,6 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
     controlledRemoveWorkerLine?.(index);
   }, [useLocalDraft, controlledRemoveWorkerLine]);
 
-  const form = useLocalDraft ? buildLocalSaleForm(formMeta, workerRows) : controlledForm;
   const onSharedMemoChange = useLocalDraft ? updateSharedMemo : controlledOnSharedMemoChange;
   const displayWorkerRows = useLocalDraft ? workerRows : form.workers;
   const headerMeta = useLocalDraft ? formMeta : pickSaleFormMeta(form);
@@ -1199,10 +1266,6 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
 
           <div className="erp-sale-form-table-toolbar">
             <span className="erp-text-caption font-semibold text-slate-500">시공자 내역</span>
-            <Button variant="outline" size="sm" className="h-7 rounded-lg px-2 text-xs" tabIndex={skipToolbarTabStop ? -1 : undefined} onClick={addWorkerLine}>
-              <Plus size={12} />
-              행 추가
-            </Button>
           </div>
 
           <SaleFormWorkerGridSection
@@ -1234,6 +1297,7 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
             onReset={onReset}
             onSave={handleSave}
             onAddWorkerLine={addWorkerLine}
+            onFitWorkerCharges={fitWorkerCharges}
             secondaryAction={secondaryAction}
             footerStartExtra={footerStartExtra}
           />
@@ -2895,6 +2959,7 @@ function SidebarComponent({
   setActive,
   currentUser,
   sidebarOrder,
+  sidebarHidden,
   onLogout,
   onOpenMyAccount,
   onOpenMenuOrder,
@@ -2902,7 +2967,7 @@ function SidebarComponent({
   onMobileClose,
   pageBadges = {},
 }) {
-  const items = sortPageDefsByOrder(getAccessiblePageDefs(currentUser), sidebarOrder).map((page) => [
+  const items = resolveVisibleSidebarPages(currentUser, sidebarOrder, sidebarHidden).map((page) => [
     page.key,
     page.label,
     PAGE_ICONS[page.key],
@@ -2948,7 +3013,7 @@ function SidebarComponent({
           onClick={onOpenMenuOrder}
         >
           <ListOrdered size={15} />
-          메뉴 순서
+          메뉴 설정
         </button>
         {items.map(([key, label, Icon]) => {
           const badgeCount = pageBadges[key] || 0;
@@ -3440,9 +3505,12 @@ function CalendarPage({
   saleCommentCounts,
   saleCommentUnreadCounts,
   onOpenSaleComments,
+  onPersistNewSale,
+  saleAiRules = DEFAULT_SALE_AI_RULES,
 }) {
   const { recordAudit } = useAudit();
   const { message: clientFilterNotice, showNotice: showClientFilterNotice, clearNotice: clearClientFilterNotice } = useActionNotice();
+  const { message: calendarNewSaleMessage, setMessage: setCalendarNewSaleMessage, clearMessage: clearCalendarNewSaleMessage } = useSaveMessage();
   const [monthKey, setMonthKey] = useState(() => todayISO().slice(0, 7));
   const [selectedDate, setSelectedDate] = useState("");
   const [filteredClient, setFilteredClient] = useState(null);
@@ -3451,6 +3519,17 @@ function CalendarPage({
   const [paymentCancelPreview, setPaymentCancelPreview] = useState(null);
   const [statementModalDraft, setStatementModalDraft] = useState(null);
   const [editingSaleId, setEditingSaleId] = useState(null);
+  const [calendarNewSaleOpen, setCalendarNewSaleOpen] = useState(false);
+  const [calendarNewSaleSessionKey, setCalendarNewSaleSessionKey] = useState(0);
+  const [calendarNewSaleDuplicateConfirm, setCalendarNewSaleDuplicateConfirm] = useState(null);
+  const [calendarNewSaleChargeConfirm, setCalendarNewSaleChargeConfirm] = useState(null);
+  const [calendarNewSalePrefill, setCalendarNewSalePrefill] = useState(null);
+  const [monthScSchedules, setMonthScSchedules] = useState([]);
+  const [scImportOpen, setScImportOpen] = useState(false);
+  const [calendarScExpectedHeadcount, setCalendarScExpectedHeadcount] = useState(null);
+  const calendarImportScScheduleIdRef = useRef("");
+  const calendarImportScExpectedHeadcountRef = useRef<number | null>(null);
+  const salesRef = useRef(sales);
   const suppressCellClickUntilRef = useRef(0);
   const preFilterRef = useRef(null);
   const entrySpotlightClickTimerRef = useRef(null);
@@ -3506,9 +3585,64 @@ function CalendarPage({
   }, [spotlightClient, cells]);
   const todayDate = todayISO();
   const feeMap = useMemo(() => buildWorkerFeeMap(workers), [workers]);
+  const selectableClients = useMemo(() => filterActiveClients(clients), [clients]);
+  const activeWorkers = useMemo(() => filterActiveWorkers(workers), [workers]);
+  const filteredClientName = useMemo(() => {
+    if (!filteredClient) return "";
+    const match = clients.find(
+      (row) => normalizeClientCalendarName(String(row.name || "")) === filteredClient,
+    );
+    return String(match?.name || filteredClient).trim();
+  }, [filteredClient, clients]);
+  const calendarNewSaleInitialForm = useMemo(() => {
+    if (calendarNewSalePrefill) return calendarNewSalePrefill;
+    return {
+      ...compactSaleForm(),
+      date: selectedDate || todayISO(),
+      client: filteredClientName,
+    };
+  }, [calendarNewSalePrefill, calendarNewSaleSessionKey, selectedDate, filteredClientName]);
+
+  const selectedDayScSchedules = useMemo(() => {
+    if (!selectedDate) return [];
+    return monthScSchedules.filter((row) => {
+      if (String(row.workDate || "").slice(0, 10) !== selectedDate) return false;
+      if (filteredClient) {
+        return normalizeClientCalendarName(String(row.clientName || "")) === filteredClient;
+      }
+      return true;
+    });
+  }, [monthScSchedules, selectedDate, filteredClient]);
+
+  useEffect(() => {
+    let active = true;
+    void fetchStaffScSchedulesForMonth(monthKey)
+      .then((rows) => {
+        if (active) setMonthScSchedules(rows);
+      })
+      .catch(() => {
+        if (active) setMonthScSchedules([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [monthKey]);
+
+  const inactiveClientNames = useMemo(
+    () =>
+      new Set(
+        clients
+          .filter((row) => !isClientActive(row))
+          .map((row) => normalizeClientCalendarName(String(row.name || ""))),
+      ),
+    [clients],
+  );
   const calendarClientSearchRows = useMemo(
-    () => buildCalendarClientSearchRows(sales, monthKey, feeMap, paymentLinkSets),
-    [sales, monthKey, feeMap, paymentLinkSets],
+    () =>
+      buildCalendarClientSearchRows(sales, monthKey, feeMap, paymentLinkSets).filter(
+        (row) => !inactiveClientNames.has(row.client),
+      ),
+    [sales, monthKey, feeMap, paymentLinkSets, inactiveClientNames],
   );
 
   const selectedDaySales = useMemo(() => {
@@ -3532,6 +3666,10 @@ function CalendarPage({
       { staff: 0, bill: 0, netPay: 0, margin: 0, count: 0 },
     );
   }, [selectedDate, selectedDaySales, feeMap]);
+
+  useEffect(() => {
+    salesRef.current = sales;
+  }, [sales]);
 
   useEffect(() => {
     if (selectedDate && !selectedDate.startsWith(monthKey)) setSelectedDate("");
@@ -3611,11 +3749,16 @@ function CalendarPage({
     if (Date.now() < suppressCellClickUntilRef.current) return;
     if (filteredClient) {
       if (cell.stats.count > 0) toggleClientFilterDate(cell.date);
+      else selectDate(cell.date);
       return;
     }
     if (spotlightClient) {
       const cellHasSpotlight = cell.stats.entries.some((entry) => entry.client === spotlightClient);
-      if (!cellHasSpotlight) {
+      if (cellHasSpotlight) {
+        selectDate(cell.date);
+        return;
+      }
+      if (cell.stats.count > 0) {
         clearClientSpotlight();
         return;
       }
@@ -3955,6 +4098,151 @@ function CalendarPage({
     });
   }, []);
 
+  const closeCalendarNewSaleModal = useCallback(() => {
+    setCalendarNewSaleOpen(false);
+    setCalendarNewSaleDuplicateConfirm(null);
+    setCalendarNewSaleChargeConfirm(null);
+    calendarImportScScheduleIdRef.current = "";
+    calendarImportScExpectedHeadcountRef.current = null;
+    setCalendarScExpectedHeadcount(null);
+    setCalendarNewSalePrefill(null);
+    clearCalendarNewSaleMessage();
+  }, [clearCalendarNewSaleMessage]);
+
+  const openCalendarNewSaleModal = useCallback(() => {
+    if (!selectedDate) return;
+    calendarImportScScheduleIdRef.current = "";
+    calendarImportScExpectedHeadcountRef.current = null;
+    setCalendarScExpectedHeadcount(null);
+    setCalendarNewSalePrefill(null);
+    setCalendarNewSaleSessionKey((key) => key + 1);
+    clearCalendarNewSaleMessage();
+    setCalendarNewSaleDuplicateConfirm(null);
+    setCalendarNewSaleChargeConfirm(null);
+    setCalendarNewSaleOpen(true);
+  }, [selectedDate, clearCalendarNewSaleMessage]);
+
+  const openCalendarNewSaleFromScSchedule = useCallback(
+    (schedule) => {
+      const scheduleId = String(schedule?.id || "").trim();
+      if (!scheduleId) return;
+      if (isScScheduleRegistered(salesRef.current, scheduleId)) {
+        setCalendarNewSaleMessage("이미 등록된 스케줄입니다.");
+        return;
+      }
+      calendarImportScScheduleIdRef.current = scheduleId;
+      const expectedHeadcount = Number(schedule?.expectedHeadcount);
+      const normalizedExpected =
+        Number.isFinite(expectedHeadcount) && expectedHeadcount > 0 ? expectedHeadcount : null;
+      calendarImportScExpectedHeadcountRef.current = normalizedExpected;
+      setCalendarScExpectedHeadcount(normalizedExpected);
+      setCalendarNewSalePrefill(
+        buildSaleFormFromScSchedule(schedule, activeWorkers, selectableClients, salesRef.current, saleAiRules),
+      );
+      setCalendarNewSaleSessionKey((key) => key + 1);
+      clearCalendarNewSaleMessage();
+      setCalendarNewSaleDuplicateConfirm(null);
+      setCalendarNewSaleOpen(true);
+      setScImportOpen(false);
+    },
+    [activeWorkers, clearCalendarNewSaleMessage, saleAiRules, selectableClients, setCalendarNewSaleMessage],
+  );
+
+  const commitCalendarNewSale = useCallback(
+    async (payload) => {
+      const importScheduleId = String(calendarImportScScheduleIdRef.current || "").trim();
+      const { id: newId, voucherNo } = allocateNextSaleRecordIds(salesRef.current);
+      const newSale = {
+        id: newId,
+        voucherNo,
+        ...payload,
+        paid: 0,
+        basePaid: 0,
+        ...(importScheduleId ? { scScheduleId: importScheduleId } : {}),
+      };
+      recordAudit({
+        entityType: "sale",
+        entityId: newId,
+        entityLabel: `${payload.client} · ${payload.site}`,
+        screen: "캘린더",
+        action: "create",
+        after: snapshotSaleForAudit(newSale),
+        fields: SALE_AUDIT_FIELDS,
+        user: currentUser,
+      });
+      const nextSales = [newSale, ...salesRef.current];
+      setSales(nextSales);
+      await onPersistNewSale?.(nextSales);
+      setCalendarNewSaleSessionKey((key) => key + 1);
+      setCalendarNewSaleOpen(false);
+      setCalendarNewSaleDuplicateConfirm(null);
+      setCalendarNewSaleChargeConfirm(null);
+      calendarImportScScheduleIdRef.current = "";
+      calendarImportScExpectedHeadcountRef.current = null;
+      setCalendarScExpectedHeadcount(null);
+      setCalendarNewSalePrefill(null);
+      setCalendarNewSaleMessage(`${payload.client} · ${payload.site} 매출이 저장되었습니다.`);
+    },
+    [currentUser, onPersistNewSale, recordAudit, setCalendarNewSaleMessage, setSales],
+  );
+
+  const proceedCalendarNewSaleSave = useCallback(
+    (payload) => {
+      const chargeWarning = detectScScheduleChargeHeadcountWarning(
+        payload,
+        calendarImportScExpectedHeadcountRef.current,
+        clients,
+      );
+      if (chargeWarning) {
+        setCalendarNewSaleChargeConfirm({ payload, warning: chargeWarning });
+        return;
+      }
+      void commitCalendarNewSale(payload);
+    },
+    [clients, commitCalendarNewSale],
+  );
+
+  const saveCalendarNewSale = useCallback(
+    (currentForm) => {
+      const importScheduleId = String(calendarImportScScheduleIdRef.current || "").trim();
+      if (importScheduleId && isScScheduleRegistered(salesRef.current, importScheduleId)) {
+        setCalendarNewSaleMessage("이미 등록된 스케줄입니다.");
+        return;
+      }
+
+      const masterRefError = validateSaleFormMasterRefs(currentForm, selectableClients, activeWorkers);
+      if (masterRefError) {
+        setCalendarNewSaleMessage(masterRefError);
+        return;
+      }
+
+      const payload = buildSaleFromForm(currentForm, currentUser, activeWorkers);
+      if (!payload.client || !payload.site || payload.amount <= 0) {
+        setCalendarNewSaleMessage(
+          "거래처, 현장, 청구액을 확인해 주세요. 입력 중인 칸은 다른 칸을 클릭한 뒤 저장해 주세요.",
+        );
+        return;
+      }
+
+      const duplicates = findSalesWithSameClientWorkerDate(salesRef.current, payload);
+      if (duplicates.length > 0) {
+        const workerNames = getSaleWorkerLines(payload)
+          .map((line) => String(line.worker || "").trim())
+          .filter(Boolean)
+          .sort((a, b) => a.localeCompare(b, "ko"))
+          .join(", ");
+        const existingSites = [...new Set(duplicates.map((row) => String(row.site || "").trim()).filter(Boolean))].join(
+          ", ",
+        );
+        setCalendarNewSaleDuplicateConfirm({ payload, workerNames, existingSites });
+        return;
+      }
+
+      proceedCalendarNewSaleSave(payload);
+    },
+    [activeWorkers, currentUser, proceedCalendarNewSaleSave, selectableClients, setCalendarNewSaleMessage],
+  );
+
   return (
     <div
       className={`erp-page erp-calendar-page${selectedDate ? " has-side-panel" : ""}${filteredClient ? " is-client-filter" : ""}`}
@@ -4083,7 +4371,7 @@ function CalendarPage({
         open={clientSearchOpen}
         monthLabel={monthLabel}
         rows={calendarClientSearchRows}
-        clients={clients}
+        clients={selectableClients}
         selectedClient={filteredClient}
         onClose={closeClientSearch}
         onSelect={selectClientFromSearch}
@@ -4325,6 +4613,7 @@ function CalendarPage({
                   hasData ? "has-data" : "is-empty",
                   isToday ? "is-today" : "",
                   filteredClient && hasData ? "is-selectable" : "",
+                  !filteredClient || !hasData ? "is-day-openable" : "",
                   paymentTone && filteredClient ? `is-${paymentTone}` : "",
                   isDateChecked ? "is-checked" : "",
                   isSideSelected ? "is-selected" : "",
@@ -4452,65 +4741,43 @@ function CalendarPage({
                   </>
                 );
 
-                if (hasData || isToday) {
-                  return (
-                    <button
-                      type="button"
-                      key={cell.date}
-                      onClick={() => handleCalendarCellClick(cell)}
-                      onDoubleClick={
-                        filteredClient && hasData
+                return (
+                  <button
+                    type="button"
+                    key={cell.date}
+                    onClick={() => handleCalendarCellClick(cell)}
+                    onDoubleClick={
+                      filteredClient && hasData
+                        ? (event) => {
+                            event.stopPropagation();
+                            event.preventDefault();
+                            suppressCellClickUntilRef.current = Date.now() + 400;
+                            selectDate(cell.date);
+                          }
+                        : !filteredClient && spotlightClient && cellHasSpotlightClient
                           ? (event) => {
                               event.stopPropagation();
                               event.preventDefault();
                               suppressCellClickUntilRef.current = Date.now() + 400;
-                              selectDate(cell.date);
+                              enterClientFilter(spotlightClient, cell.date);
                             }
-                          : !filteredClient && spotlightClient && cellHasSpotlightClient
-                            ? (event) => {
-                                event.stopPropagation();
-                                event.preventDefault();
-                                suppressCellClickUntilRef.current = Date.now() + 400;
-                                enterClientFilter(spotlightClient, cell.date);
-                              }
-                            : undefined
-                      }
-                      aria-pressed={isDateChecked || isSideSelected}
-                      className={cellClassName}
-                      data-calendar-date={cell.date}
-                      style={cellHasSpotlightClient ? { "--client-color": getCalendarClientColor(spotlightClient) } : undefined}
-                      aria-label={`${cell.date} · ${hasData ? `${cell.stats.count}건` : "일정 없음"}`}
-                      title={
-                        filteredClient && hasData
-                          ? "클릭: 날짜 선택 · 더블클릭: 일자 상세"
                           : undefined
-                      }
-                    >
-                      {cellBody}
-                    </button>
-                  );
-                }
-
-                if (spotlightClient && !filteredClient) {
-                  return (
-                    <button
-                      type="button"
-                      key={cell.date}
-                      onClick={clearClientSpotlight}
-                      className={`${cellClassName} is-spotlight-dismiss-target`}
-                      data-calendar-date={cell.date}
-                      aria-label={`${cell.date} · 일정 없음 · 거래처 강조 해제`}
-                      title="클릭: 거래처 강조 해제"
-                    >
-                      {cellBody}
-                    </button>
-                  );
-                }
-
-                return (
-                  <div key={cell.date} className={cellClassName} data-calendar-date={cell.date} title={cell.date}>
+                    }
+                    aria-pressed={isDateChecked || isSideSelected}
+                    className={cellClassName}
+                    data-calendar-date={cell.date}
+                    style={cellHasSpotlightClient ? { "--client-color": getCalendarClientColor(spotlightClient) } : undefined}
+                    aria-label={`${cell.date} · ${hasData ? `${cell.stats.count}건` : "일정 없음"}`}
+                    title={
+                      filteredClient && hasData
+                        ? "클릭: 날짜 선택 · 더블클릭: 일자 상세"
+                        : !hasData
+                          ? "클릭: 일자 상세"
+                          : undefined
+                    }
+                  >
                     {cellBody}
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -4535,7 +4802,7 @@ function CalendarPage({
               </span>
               <span className="erp-calendar-legend-item">
                 <i className={filteredClient ? "erp-client-calendar-legend-dot is-checked" : "erp-calendar-legend-dot is-selected"} />{" "}
-                {filteredClient ? "날짜 선택" : "날짜 클릭 · 상세"}
+                {filteredClient ? "날짜 선택 · 빈 날짜 클릭 상세" : "날짜 클릭 · 상세"}
               </span>
               {filteredClient ? (
                 <>
@@ -4620,7 +4887,7 @@ function CalendarPage({
             aria-label="상세 패널 닫기"
             onClick={() => setSelectedDate("")}
           />
-          <aside className="erp-calendar-side-panel" aria-label={`${selectedDate} 상세`}>
+          <aside className="erp-calendar-side-panel erp-calendar-side-panel--with-foot" aria-label={`${selectedDate} 상세`}>
             <div className="erp-calendar-side-panel-head">
               <div className="erp-calendar-side-panel-nav">
                 <button type="button" className="erp-calendar-nav-btn" onClick={() => shiftSelectedDate(-1)} aria-label="이전 날짜">
@@ -4738,6 +5005,31 @@ function CalendarPage({
                 </ul>
               )}
             </div>
+
+            <div className="erp-calendar-side-panel-foot">
+              <div className="grid gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="erp-touch-target w-full rounded-xl"
+                  onClick={() => setScImportOpen(true)}
+                >
+                  <CalendarDays size={16} className="mr-1.5" />
+                  SC 스케줄 가져오기
+                </Button>
+                <Button
+                  type="button"
+                  className="erp-touch-target w-full rounded-xl"
+                  onClick={openCalendarNewSaleModal}
+                >
+                  <Receipt size={16} className="mr-1.5" />
+                  매출전표 등록
+                </Button>
+              </div>
+              {calendarNewSaleMessage ? (
+                <p className="erp-calendar-side-panel-foot-msg">{calendarNewSaleMessage}</p>
+              ) : null}
+            </div>
           </aside>
           </>
         ) : null}
@@ -4758,12 +5050,166 @@ function CalendarPage({
         />
       ) : null}
 
+      {scImportOpen ? (
+        <CalendarScScheduleImportModal
+          open={scImportOpen}
+          dateLabel={selectedDate ? formatCalendarDayLabel(selectedDate) : ""}
+          schedules={selectedDayScSchedules}
+          sales={sales}
+          workers={workers}
+          onClose={() => setScImportOpen(false)}
+          onSelect={openCalendarNewSaleFromScSchedule}
+        />
+      ) : null}
+
+      {calendarNewSaleDuplicateConfirm ? (
+        <div
+          className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated erp-ledger-modal-backdrop--top"
+          onClick={() => setCalendarNewSaleDuplicateConfirm(null)}
+        >
+          <div
+            className="erp-ledger-modal"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="calendar-sale-duplicate-title"
+          >
+            <h2 id="calendar-sale-duplicate-title" className="text-base font-bold text-slate-900 md:text-lg">
+              중복 전표 확인
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-slate-600">같은 일자·거래처·시공자 전표가 이미 있습니다.</p>
+            <div className="mt-4 space-y-1 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-700">
+              <div>일자: {calendarNewSaleDuplicateConfirm.payload.date}</div>
+              <div>거래처: {calendarNewSaleDuplicateConfirm.payload.client}</div>
+              <div>시공자: {calendarNewSaleDuplicateConfirm.workerNames || "-"}</div>
+              {calendarNewSaleDuplicateConfirm.existingSites ? (
+                <div>기존 현장: {calendarNewSaleDuplicateConfirm.existingSites}</div>
+              ) : null}
+            </div>
+            <p className="mt-4 text-sm font-semibold text-slate-700">그래도 저장하시겠습니까?</p>
+            <div className="mt-5 flex gap-2">
+              <Button variant="outline" className="flex-1 rounded-xl" onClick={() => setCalendarNewSaleDuplicateConfirm(null)}>
+                아니오
+              </Button>
+              <Button
+                className="flex-1 rounded-xl"
+                onClick={() => {
+                  const payload = calendarNewSaleDuplicateConfirm.payload;
+                  setCalendarNewSaleDuplicateConfirm(null);
+                  proceedCalendarNewSaleSave(payload);
+                }}
+              >
+                예, 저장
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {calendarNewSaleChargeConfirm ? (
+        <div
+          className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated erp-ledger-modal-backdrop--top"
+          onClick={() => setCalendarNewSaleChargeConfirm(null)}
+        >
+          <div
+            className="erp-ledger-modal"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="calendar-sale-charge-title"
+          >
+            <h2 id="calendar-sale-charge-title" className="text-base font-bold text-slate-900 md:text-lg">
+              청구금액 확인
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              요청인원에 비해 청구금액이 많을 수 있습니다. 진행하시겠습니까?
+            </p>
+            <div className="mt-4 space-y-1 rounded-xl bg-amber-50 px-4 py-3 text-sm text-slate-700">
+              <div>
+                SC 요청 인원: <strong>{calendarNewSaleChargeConfirm.warning.requestedHeadcount}명</strong>
+                {" · "}
+                등록 인원: <strong>{calendarNewSaleChargeConfirm.warning.actualHeadcount}명</strong>
+              </div>
+              <div>
+                요청 인원 기준 청구합:{" "}
+                <strong>{formatKRW(calendarNewSaleChargeConfirm.warning.requestedChargeTotal)}</strong>
+              </div>
+              <div>
+                입력 청구합(청구단가 기준):{" "}
+                <strong className="text-amber-800">
+                  {formatKRW(calendarNewSaleChargeConfirm.warning.actualChargeTotal)}
+                </strong>
+              </div>
+              <div>
+                과청구금액(차액):{" "}
+                <strong className="text-red-700">
+                  {formatKRW(calendarNewSaleChargeConfirm.warning.overchargeAmount)}
+                </strong>
+              </div>
+            </div>
+            <div className="mt-5 flex gap-2">
+              <Button variant="outline" className="flex-1 rounded-xl" onClick={() => setCalendarNewSaleChargeConfirm(null)}>
+                취소
+              </Button>
+              <Button
+                className="flex-1 rounded-xl"
+                onClick={() => {
+                  const payload = calendarNewSaleChargeConfirm.payload;
+                  setCalendarNewSaleChargeConfirm(null);
+                  void commitCalendarNewSale(payload);
+                }}
+              >
+                진행
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {calendarNewSaleOpen ? (
+        <div className="erp-ledger-modal-backdrop" onClick={closeCalendarNewSaleModal}>
+          <div
+            className="erp-ledger-modal erp-ledger-modal--sale-edit erp-calendar-new-sale-modal"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="calendar-new-sale-title"
+          >
+            <div className="erp-calendar-new-sale-modal-head">
+              <h2 id="calendar-new-sale-title" className="text-base font-bold text-slate-900 md:text-lg">
+                매출전표 등록
+              </h2>
+              <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={closeCalendarNewSaleModal}>
+                <X size={14} className="mr-1" />
+                닫기
+              </Button>
+            </div>
+            <div className="erp-sale-form-page erp-sale-form-page--compact">
+              <SaleFormCompactEditor
+                title="매출전표 등록"
+                desc={selectedDate ? `${formatCalendarDayLabel(selectedDate)} 일자 매출을 등록합니다.` : undefined}
+                initialForm={calendarNewSaleInitialForm}
+                sessionKey={`calendar-new-sale-${calendarNewSaleSessionKey}`}
+                clients={selectableClients}
+                workers={activeWorkers}
+                onSave={saveCalendarNewSale}
+                saveLabel="매출 저장"
+                saveMessage={calendarNewSaleMessage}
+                showPaidField={false}
+                memoAfterWorkers={true}
+                chargeTargetHeadcount={calendarScExpectedHeadcount}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {editingSale ? (
         <SaleVoucherEditModal
           sale={editingSale}
           onClose={closeVoucherEdit}
           setSales={setSales}
-          clients={clients}
+          clients={selectableClients}
           workers={workers}
           currentUser={currentUser}
           setPaymentVouchers={setPaymentVouchers}
@@ -4908,10 +5354,14 @@ const SalesRegistrationPage = memo(function SalesRegistrationPage({
   currentUser,
   saleComments = [],
   onPersistNewSale,
+  saleAiRules = DEFAULT_SALE_AI_RULES,
+  onSaveSaleAiRules,
 }) {
   const { recordAudit } = useAudit();
   const salesRef = useRef(sales);
   const [formSessionKey, setFormSessionKey] = useState(0);
+  const [aiRulesOpen, setAiRulesOpen] = useState(false);
+  const [aiRulesSaving, setAiRulesSaving] = useState(false);
   const initialForm = useMemo(() => compactSaleForm(), [formSessionKey]);
   const draftRef = useRef(initialForm);
   const { message: saveMessage, setMessage: setSaveMessage, clearMessage: clearSaveMessage } = useSaveMessage();
@@ -5000,6 +5450,16 @@ const SalesRegistrationPage = memo(function SalesRegistrationPage({
     setFormSessionKey((key) => key + 1);
   };
 
+  const handleSaveAiRules = useCallback(async (nextRules) => {
+    setAiRulesSaving(true);
+    try {
+      await onSaveSaleAiRules?.(nextRules);
+      setAiRulesOpen(false);
+    } finally {
+      setAiRulesSaving(false);
+    }
+  }, [onSaveSaleAiRules]);
+
   return (
     <div className="erp-page erp-sale-form-page erp-sale-form-page--compact">
       {duplicateConfirm ? (
@@ -5042,6 +5502,14 @@ const SalesRegistrationPage = memo(function SalesRegistrationPage({
         saveMessage={saveMessage}
         showPaidField={false}
         memoAfterWorkers={true}
+        headerAction={<SaleAiRulesButton onClick={() => setAiRulesOpen(true)} />}
+      />
+      <SaleAiRulesModal
+        open={aiRulesOpen}
+        rules={saleAiRules}
+        saving={aiRulesSaving}
+        onClose={() => setAiRulesOpen(false)}
+        onSave={handleSaveAiRules}
       />
       <SaleRegistrationCommentsPanel
         panelRef={registrationCommentsRef}
@@ -5316,12 +5784,14 @@ const ClientListTable = memo(function ClientListTable({
   onEdit,
   onDelete,
   onOpenBusinessRegView,
+  onToggleActive,
 }: {
   clients: Array<Record<string, unknown>>;
   lastSaleByClient: Map<string, string>;
   onEdit: (client: Record<string, unknown>) => void;
   onDelete: (id: string | number) => void;
   onOpenBusinessRegView: (client: Record<string, unknown>) => void;
+  onToggleActive: (client: Record<string, unknown>) => void;
 }) {
   return (
     <div className="erp-table-wrap erp-table-wrap--page-scroll">
@@ -5329,6 +5799,7 @@ const ClientListTable = memo(function ClientListTable({
         <thead className="bg-slate-100 text-slate-600">
           <tr>
             <th className="text-left">거래처명</th>
+            <th className="text-center">상태</th>
             <th className="text-left">사업자번호</th>
             <th className="text-left">대표자</th>
             <th className="text-left">담당자</th>
@@ -5343,13 +5814,18 @@ const ClientListTable = memo(function ClientListTable({
           </tr>
         </thead>
         <tbody>
-          {clients.map((client) => (
-            <tr key={String(client.id)} className="border-t hover:bg-slate-50">
-              <td className="font-bold text-left">
+          {clients.map((client) => {
+            const active = isClientActive(client as { isActive?: boolean });
+            return (
+            <tr key={String(client.id)} className={`border-t hover:bg-slate-50${active ? "" : " is-inactive"}`}>
+              <td className={`font-bold text-left${active ? "" : " text-slate-400"}`}>
                 <span className="inline-flex items-center gap-1.5">
                   <ClientActivityIcon lastSaleDate={lastSaleByClient.get(String(client.name || ""))} />
                   {String(client.name || "")}
                 </span>
+              </td>
+              <td className="text-center">
+                <WorkerStatusBadge active={active} />
               </td>
               <td>{String(client.businessNo || "-")}</td>
               <td>{String(client.ceoName || "-")}</td>
@@ -5376,6 +5852,17 @@ const ClientListTable = memo(function ClientListTable({
                       증
                     </Button>
                   ) : null}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className={`erp-workers-action-btn ${active ? "is-deactivate" : "is-activate"}`}
+                    onClick={() => onToggleActive(client)}
+                    title={active ? "비활성화" : "활성화"}
+                    aria-label={active ? "비활성화" : "활성화"}
+                  >
+                    {active ? <UserMinus size={14} /> : <UserCheck size={14} />}
+                  </Button>
                   <Button size="sm" variant="outline" className="rounded-xl" onClick={() => onEdit(client)}>
                     <Pencil size={14} />
                   </Button>
@@ -5389,7 +5876,8 @@ const ClientListTable = memo(function ClientListTable({
                 </div>
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -5425,6 +5913,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
   const [clientModalOpen, setClientModalOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [formError, setFormError] = useState("");
+  const [isClientSaving, setIsClientSaving] = useState(false);
   const [pendingBusinessRegFile, setPendingBusinessRegFile] = useState(null);
   const [businessRegViewClientId, setBusinessRegViewClientId] = useState(null);
   const [businessRegViewClientName, setBusinessRegViewClientName] = useState("");
@@ -5443,12 +5932,25 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
       salesByClient.set(name, (salesByClient.get(name) || 0) + getSaleTotalBill(sale));
     }
     return [...filteredClients].sort((a, b) => {
+      const activeDiff = clientActiveSortRank(a as { isActive?: boolean }) - clientActiveSortRank(b as { isActive?: boolean });
+      if (activeDiff !== 0) return activeDiff;
       const diff = (salesByClient.get(b.name) || 0) - (salesByClient.get(a.name) || 0);
       return diff || String(a.name || "").localeCompare(String(b.name || ""), "ko");
     });
   }, [filteredClients, sales]);
 
   const clientLastSaleDate = useMemo(() => buildClientLastSaleDateMap(sales), [sales]);
+
+  const clientStats = useMemo(() => {
+    const activeCount = sortedClients.filter((client) => isClientActive(client as { isActive?: boolean })).length;
+    return {
+      total: sortedClients.length,
+      active: activeCount,
+      inactive: sortedClients.length - activeCount,
+    };
+  }, [sortedClients]);
+
+  const selectableClients = useMemo(() => filterActiveClients(clients as never[]), [clients]);
 
   const updateForm = useCallback((key, value) => {
     setFormError("");
@@ -5525,12 +6027,28 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
     setBusinessRegViewLocalFile(useLocal ? pendingBusinessRegFile : null);
   }, [editingId, pendingBusinessRegFile, editingClient, form.name]);
 
+  const handleDeleteBusinessReg = useCallback(async () => {
+    if (businessRegViewLocalFile) {
+      setPendingBusinessRegFile(null);
+      setBusinessRegViewLocalFile(null);
+      return;
+    }
+
+    const targetId = businessRegViewClientId;
+    if (targetId == null || targetId === "pending") return;
+
+    const existingClient = clients.find((client) => clientIdsEqual(client.id, targetId));
+    await deleteClientBusinessReg(targetId);
+    persistBusinessRegMeta(targetId, null, existingClient);
+  }, [businessRegViewClientId, businessRegViewLocalFile, clients]);
+
   const commitClientChange = async (nextClients, auditInput) => {
     if (!onPersistClientsImmediate) return true;
     return onPersistClientsImmediate(nextClients, auditInput);
   };
 
   const saveClient = async () => {
+    if (isClientSaving) return;
     const name = form.name.trim();
     if (!name) {
       setFormError("거래처명을 입력해 주세요.");
@@ -5578,6 +6096,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
       mealIncluded: form.mealIncluded,
       depositNameAliases: form.depositNameAliases.trim(),
       memo: form.memo.trim(),
+      isActive: existingClient?.isActive !== false,
     };
     const contactFields = syncClientLegacyContactFields(normalizeClientContactInput(form.contacts));
     payload = {
@@ -5587,35 +6106,40 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
       phone: contactFields.phone,
     };
 
-    if (pendingBusinessRegFile) {
-      try {
-        const meta = await uploadClientBusinessReg(payload.id, pendingBusinessRegFile);
-        payload = applyBusinessRegMetaToClient(payload, meta);
-      } catch (error) {
-        setFormError(error instanceof Error ? error.message : "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
-        return;
+    setIsClientSaving(true);
+    try {
+      if (pendingBusinessRegFile) {
+        try {
+          const meta = await uploadClientBusinessReg(payload.id, pendingBusinessRegFile);
+          payload = applyBusinessRegMetaToClient(payload, meta);
+        } catch (error) {
+          setFormError(error instanceof Error ? error.message : "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
+          return;
+        }
       }
+
+      const nextClients = editingId != null
+        ? clients.map((client) => (clientIdsEqual(client.id, editingId) ? payload : client))
+        : [payload, ...clients];
+
+      const saved = await commitClientChange(nextClients, {
+        entityId: payload.id,
+        entityLabel: payload.name,
+        action: editingId ? "update" : "create",
+        before: existingClient ? snapshotClientForAudit(existingClient) : undefined,
+        after: snapshotClientForAudit(payload),
+        fields: CLIENT_AUDIT_FIELDS,
+      });
+      if (saved === false) return;
+
+      setForm(createEmptyClientForm());
+      setEditingId(null);
+      setFormError("");
+      setPendingBusinessRegFile(null);
+      setClientModalOpen(false);
+    } finally {
+      setIsClientSaving(false);
     }
-
-    const nextClients = editingId != null
-      ? clients.map((client) => (clientIdsEqual(client.id, editingId) ? payload : client))
-      : [payload, ...clients];
-
-    const saved = await commitClientChange(nextClients, {
-      entityId: payload.id,
-      entityLabel: payload.name,
-      action: editingId ? "update" : "create",
-      before: existingClient ? snapshotClientForAudit(existingClient) : undefined,
-      after: snapshotClientForAudit(payload),
-      fields: CLIENT_AUDIT_FIELDS,
-    });
-    if (saved === false) return;
-
-    setForm(createEmptyClientForm());
-    setEditingId(null);
-    setFormError("");
-    setPendingBusinessRegFile(null);
-    setClientModalOpen(false);
   };
 
   const editClient = useCallback((client) => {
@@ -5643,7 +6167,22 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
       memo: client.memo || "",
     });
     setClientModalOpen(true);
-  }, []);
+
+    if (isApiModeEnabled() && !clientHasBusinessRegFile(client)) {
+      void (async () => {
+        try {
+          const meta = await fetchClientBusinessRegMeta(client.id);
+          if (!meta) return;
+          const nextClients = clients.map((row) =>
+            clientIdsEqual(row.id, client.id) ? applyBusinessRegMetaToClient(row, meta) : row,
+          );
+          setClients(nextClients);
+        } catch {
+          // ignore lookup errors; view button stays hidden when no file exists
+        }
+      })();
+    }
+  }, [clients, setClients]);
 
   const deleteClient = useCallback((id) => {
     const client = clients.find((item) => clientIdsEqual(item.id, id));
@@ -5660,9 +6199,30 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
     });
   }, [clients]);
 
+  const toggleClientActive = useCallback((client) => {
+    const nextIsActive = !isClientActive(client);
+    const existingClient = clients.find((item) => clientIdsEqual(item.id, client.id));
+    if (!existingClient) return;
+
+    const nextClients = clients.map((item) =>
+      clientIdsEqual(item.id, client.id) ? { ...item, isActive: nextIsActive } : item,
+    );
+    commitClientChange(nextClients, {
+      entityId: client.id,
+      entityLabel: client.name,
+      action: "update",
+      before: snapshotClientForAudit(existingClient),
+      after: snapshotClientForAudit({ ...existingClient, isActive: nextIsActive }),
+      fields: CLIENT_AUDIT_FIELDS.filter((field) => field.key === "isActive"),
+    });
+  }, [clients]);
+
   return (
     <div className="erp-page">
-      <PageTitle title="거래처" desc="엑셀 거래처정보 시트를 기준으로 거래처를 관리합니다." />
+      <PageTitle
+        title="거래처"
+        desc="엑셀 거래처정보 시트를 기준으로 거래처를 관리합니다. 비활성 거래처는 이 목록에서만 보이며, 다른 메뉴의 검색·선택 목록에는 나타나지 않습니다."
+      />
 
       <SearchBox query={query} setQuery={setQuery} placeholder="거래처명, 담당자, 연락처, 예금주 별칭 검색" />
 
@@ -5675,7 +6235,12 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
       <Card className="rounded-2xl shadow-sm">
         <CardContent className="p-4 md:p-5">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <h2 className="erp-text-section">거래처 목록</h2>
+            <div>
+              <h2 className="erp-text-section">거래처 목록</h2>
+              <p className="erp-text-caption mt-1 text-slate-500">
+                전체 <b>{clientStats.total}</b> · 활성 <b className="text-emerald-700">{clientStats.active}</b> · 비활성 <b className="text-slate-500">{clientStats.inactive}</b>
+              </p>
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button className="rounded-2xl" onClick={openCreateClientModal}>
                 <Plus size={16} />
@@ -5695,17 +6260,19 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
             onEdit={editClient}
             onDelete={deleteClient}
             onOpenBusinessRegView={openBusinessRegView}
+            onToggleActive={toggleClientActive}
           />
         </CardContent>
       </Card>
 
-      <ClientContractsPanel clients={clients} />
+      <ClientContractsPanel clients={selectableClients} />
 
       <ClientFormModal
         open={clientModalOpen}
         editingId={editingId}
         form={form}
         formError={formError}
+        saving={isClientSaving}
         onClose={closeClientModal}
         onSave={() => void saveClient()}
         onReset={resetClientForm}
@@ -5725,6 +6292,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
           setBusinessRegViewClientName("");
           setBusinessRegViewLocalFile(null);
         }}
+        onDelete={handleDeleteBusinessReg}
       />
     </div>
   );
@@ -5873,29 +6441,10 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
   const { auditLogs } = useAudit();
   const workersRef = useRef(workers);
   workersRef.current = workers;
-  const emptyWorkerForm = {
-    name: "",
-    grade: "",
-    category: "팀원",
-    hireDate: "",
-    bank: "",
-    account: "",
-    phone: "",
-    businessNo: "",
-    address: "",
-    vehicleNo: "",
-    constructionCost: "",
-    customChargeCost: "",
-    overtimeCost: "30000",
-    feeRate: "10",
-    depositNameAliases: "",
-    memo: "",
-    portalLoginId: "",
-    portalPassword: "",
-  };
 
-  const [form, setForm] = useState(emptyWorkerForm);
+  const [form, setForm] = useState(createEmptyWorkerForm);
   const [editingId, setEditingId] = useState(null);
+  const [workerModalOpen, setWorkerModalOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [listSort, setListSort] = useState<{ column: WorkerListSortColumn | null; direction: SortDirection }>({
     column: null,
@@ -5905,6 +6454,11 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
   const [constructionCostEdit, setConstructionCostEdit] = useState(null);
   const [formError, setFormError] = useState("");
   const [scrollToWorkerId, setScrollToWorkerId] = useState<string | number | null>(null);
+
+  useEffect(() => {
+    const targetId = consumeWorkerScrollTarget();
+    if (targetId) setScrollToWorkerId(targetId);
+  }, []);
 
   const handleWorkerListSort = (column: WorkerListSortColumn) => {
     setListSort((prev) => {
@@ -5975,10 +6529,30 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
     };
   }, [displayedWorkers]);
 
-  const updateForm = (key, value) => {
+  const updateForm = useCallback((key, value) => {
     setFormError("");
     setForm((prev) => ({ ...prev, [key]: value }));
-  };
+  }, []);
+
+  const closeWorkerModal = useCallback(() => {
+    setWorkerModalOpen(false);
+    setForm(createEmptyWorkerForm());
+    setEditingId(null);
+    setFormError("");
+  }, []);
+
+  const openCreateWorkerModal = useCallback(() => {
+    setForm(createEmptyWorkerForm());
+    setEditingId(null);
+    setFormError("");
+    setWorkerModalOpen(true);
+  }, []);
+
+  const resetWorkerForm = useCallback(() => {
+    setForm(createEmptyWorkerForm());
+    setEditingId(null);
+    setFormError("");
+  }, []);
 
   const commitWorkerChange = (nextWorkers, auditInput, options?: { flushNow?: boolean }) => {
     const nextAuditLogs = auditInput
@@ -6068,9 +6642,10 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
       },
       { flushNow: true },
     );
-    setForm(emptyWorkerForm);
+    setForm(createEmptyWorkerForm());
     setEditingId(null);
     setFormError("");
+    setWorkerModalOpen(false);
     setQuery("");
     setScrollToWorkerId(payloadWithCharge.id);
   };
@@ -6098,13 +6673,13 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
       portalLoginId: worker.portalLoginId || "",
       portalPassword: "",
     });
-    setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 0);
+    setWorkerModalOpen(true);
   };
 
   const deleteWorker = (id) => {
     const worker = workersRef.current.find((item) => workerIdsEqual(item.id, id));
     if (!worker) return;
-    if (!confirmDelete(`시공자 "${worker.name}"을(를) 삭제할까요?`)) return;
+    if (!confirmWorkerPermanentDelete(worker.name)) return;
 
     commitWorkerChange(
       workersRef.current.filter((item) => !workerIdsEqual(item.id, id)),
@@ -6230,10 +6805,15 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
   return (
     <div className="erp-page">
       {constructionCostEdit ? (
-        <div className="erp-ledger-modal-backdrop" onClick={closeConstructionCostEdit}>
+        <div
+          className="erp-ledger-modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeConstructionCostEdit();
+          }}
+        >
           <div
             className="erp-ledger-modal"
-            onClick={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-labelledby="worker-construction-cost-title"
@@ -6270,91 +6850,6 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
       ) : null}
       <PageTitle title="시공자" desc="엑셀 기본정보 시트를 기준으로 시공자 정보를 관리합니다." />
 
-      <Card className="rounded-2xl shadow-sm">
-        <CardContent className="p-6">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <AuditField label="시공자명" entityType="worker" entityId={editingId} field="name"><Input value={form.name} onChange={(e) => updateForm("name", e.target.value)} placeholder="시공자명 (필수)" required /></AuditField>
-            <AuditField label="시공등급" entityType="worker" entityId={editingId} field="grade">
-              <select
-                className="erp-input w-full rounded-xl px-3 py-2 text-sm font-semibold"
-                value={form.grade}
-                onChange={(e) => updateForm("grade", e.target.value)}
-              >
-                <option value="">선택 안 함</option>
-                {WORKER_GRADE_OPTIONS.map((option) => (
-                  <option key={option} value={option}>{option}</option>
-                ))}
-              </select>
-            </AuditField>
-            <AuditField label="구분" entityType="worker" entityId={editingId} field="category">
-              <select
-                className="erp-input w-full rounded-xl px-3 py-2 text-sm font-semibold"
-                value={form.category}
-                onChange={(e) => updateForm("category", e.target.value)}
-                required
-              >
-                {WORKER_CATEGORY_OPTIONS.map((option) => (
-                  <option key={option} value={option}>{option}</option>
-                ))}
-              </select>
-            </AuditField>
-            <AuditField label="입사일" entityType="worker" entityId={editingId} field="hireDate">
-              <KoreanDateInput
-                className="erp-input w-full rounded-xl px-3 py-2 text-sm font-semibold"
-                value={form.hireDate}
-                onChange={(e) => updateForm("hireDate", e.target.value)}
-              />
-            </AuditField>
-            <AuditField label="은행명" entityType="worker" entityId={editingId} field="bank"><Input value={form.bank} onChange={(e) => updateForm("bank", e.target.value)} placeholder="은행명" /></AuditField>
-            <AuditField label="계좌번호" entityType="worker" entityId={editingId} field="account"><Input value={form.account} onChange={(e) => updateForm("account", e.target.value)} placeholder="계좌번호" /></AuditField>
-            <div className="sm:col-span-2">
-              <AuditField label="예금주 별칭" entityType="worker" entityId={editingId} field="depositNameAliases">
-                <Input value={form.depositNameAliases} onChange={(e) => updateForm("depositNameAliases", e.target.value)} placeholder="통장 입·출금 시 표시 이름 (쉼표로 구분)" />
-              </AuditField>
-            </div>
-            <AuditField label="연락처" entityType="worker" entityId={editingId} field="phone"><Input value={form.phone} onChange={(e) => updateForm("phone", e.target.value)} placeholder="연락처" /></AuditField>
-            <AuditField label="사업자등록번호" entityType="worker" entityId={editingId} field="businessNo"><Input value={form.businessNo} onChange={(e) => updateForm("businessNo", e.target.value)} placeholder="123-45-67890" /></AuditField>
-            <AuditField label="차량번호" entityType="worker" entityId={editingId} field="vehicleNo"><Input value={form.vehicleNo} onChange={(e) => updateForm("vehicleNo", e.target.value)} placeholder="12가3456" /></AuditField>
-            <div className="sm:col-span-2 xl:col-span-4">
-              <AuditField label="주소" entityType="worker" entityId={editingId} field="address"><Input value={form.address} onChange={(e) => updateForm("address", e.target.value)} placeholder="주소" /></AuditField>
-            </div>
-            <AuditField label="시공비" entityType="worker" entityId={editingId} field="constructionCost"><Input inputMode="numeric" value={form.constructionCost} onChange={(e) => updateForm("constructionCost", e.target.value)} placeholder="시공비 (필수)" required /></AuditField>
-            <AuditField label="개별청구단가" entityType="worker" entityId={editingId} field="customChargeCost"><Input inputMode="numeric" value={form.customChargeCost} onChange={(e) => updateForm("customChargeCost", e.target.value)} placeholder="비워두면 거래처 기본단가 적용" /></AuditField>
-            <AuditField label="야근비" entityType="worker" entityId={editingId} field="overtimeCost"><Input inputMode="numeric" value={form.overtimeCost} onChange={(e) => updateForm("overtimeCost", e.target.value)} placeholder="야근비" /></AuditField>
-            <AuditField label="수수료율(%)" entityType="worker" entityId={editingId} field="feeRate"><Input inputMode="decimal" value={form.feeRate} onChange={(e) => updateForm("feeRate", e.target.value)} placeholder="10" /></AuditField>
-            <div className="md:col-span-1"><AuditField label="비고" entityType="worker" entityId={editingId} field="memo"><Input value={form.memo} onChange={(e) => updateForm("memo", e.target.value)} placeholder="비고" /></AuditField></div>
-            <AuditField label="포털 로그인 ID" entityType="worker" entityId={editingId} field="portalLoginId">
-              <Input
-                value={form.portalLoginId}
-                onChange={(e) => updateForm("portalLoginId", e.target.value.replace(/[^a-zA-Z0-9]/gi, "").toLowerCase())}
-                placeholder="영문·숫자 (예: kim123)"
-                autoComplete="off"
-              />
-            </AuditField>
-            <AuditField label="포털 비밀번호" entityType="worker" entityId={editingId} field="portalPassword">
-              <Input
-                type="password"
-                value={form.portalPassword}
-                onChange={(e) => updateForm("portalPassword", e.target.value)}
-                placeholder={editingId ? "변경 시에만 입력" : "초기 비밀번호"}
-                autoComplete="new-password"
-              />
-            </AuditField>
-            <div className="sm:col-span-2 xl:col-span-4">
-              <p className="erp-text-caption text-slate-500">
-                시공자가 로그인 화면 「시공내역서」 탭에서 본인 월별 시공내역서를 조회할 때 사용합니다. 비밀번호는 저장 후 서버에만 암호화되어 보관됩니다.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-5 flex flex-col items-end gap-2 sm:flex-row sm:justify-end">
-            {formError ? <p className="mr-auto erp-text-caption font-semibold text-red-600">{formError}</p> : null}
-            <Button variant="outline" className="rounded-2xl" onClick={() => { setForm(emptyWorkerForm); setEditingId(null); setFormError(""); }}>초기화</Button>
-            <Button className="rounded-2xl" onClick={saveWorker}>{editingId ? "시공자 수정" : "시공자 저장"}</Button>
-          </div>
-        </CardContent>
-      </Card>
-
       <SearchBox query={query} setQuery={setQuery} placeholder="시공자명, 시공등급, 구분, 입사일, 연락처, 예금주 별칭, 사업자등록번호, 주소, 차량번호, 은행, 계좌 검색" />
 
       <Card className="rounded-2xl shadow-sm">
@@ -6365,11 +6860,17 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
               <p className="erp-text-caption mt-1 text-slate-500">{workerListSortHint}</p>
             </div>
             <div className="flex flex-col items-stretch gap-3 sm:items-end">
-              <WorkerListExport
-                workers={exportableWorkers}
-                companyProfile={companyProfile}
-                disabled={exportableWorkers.length === 0}
-              />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button className="rounded-2xl" onClick={openCreateWorkerModal}>
+                  <Plus size={16} />
+                  시공자 등록
+                </Button>
+                <WorkerListExport
+                  workers={exportableWorkers}
+                  companyProfile={companyProfile}
+                  disabled={exportableWorkers.length === 0}
+                />
+              </div>
               <div className="erp-workers-summary">
                 <span>전체 <b>{workerStats.total}</b></span>
                 <span>활성 <b className="text-emerald-700">{workerStats.active}</b></span>
@@ -6380,7 +6881,7 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
             </div>
           </div>
 
-          <div className="erp-table-wrap erp-workers-table-wrap">
+          <div className="erp-table-wrap erp-workers-table-wrap erp-table-wrap--page-scroll erp-table-wrap--sticky-head">
             <table className="erp-table erp-workers-table">
               <colgroup>
                 <col className="col-name" />
@@ -6541,8 +7042,8 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
                           variant="outline"
                           className="erp-workers-action-btn is-delete"
                           onClick={() => deleteWorker(worker.id)}
-                          title="삭제"
-                          aria-label="삭제"
+                          title="완전 삭제 (이름 입력 필요)"
+                          aria-label="완전 삭제"
                         >
                           <Trash2 size={14} />
                         </Button>
@@ -6556,6 +7057,17 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
           </div>
         </CardContent>
       </Card>
+
+      <WorkerFormModal
+        open={workerModalOpen}
+        editingId={editingId}
+        form={form}
+        formError={formError}
+        onClose={closeWorkerModal}
+        onSave={saveWorker}
+        onReset={resetWorkerForm}
+        onUpdate={updateForm}
+      />
     </div>
   );
 }
@@ -7337,6 +7849,46 @@ export default function TeammillimeterErpMvp() {
   });
   const basicInfoTabAccess = useMemo(() => resolveBasicInfoTabAccess(currentUser), [currentUser]);
   const userAdminTabAccess = useMemo(() => resolveUserAdminTabAccess(currentUser), [currentUser]);
+  const [basicInfoNavTab, setBasicInfoNavTab] = useState<BasicInfoHubTab | undefined>();
+  const [accountingNavTab, setAccountingNavTab] = useState<AccountingHubTab | undefined>();
+  const [analysisNavTab, setAnalysisNavTab] = useState<AnalysisHubTab | undefined>();
+  const [workerProbationAlertCount, setWorkerProbationAlertCount] = useState(0);
+
+  const openUnclassifiedFromAnalysis = useCallback(() => {
+    storeBankLedgerScopePref("ledger_pending");
+    storeAccountingTab("bank");
+    setAccountingNavTab("bank");
+    setActive("accounting");
+    setSidebarOpen(false);
+  }, []);
+
+  const openAnalysisTab = useCallback((tab: AnalysisHubTab = "accountSummary") => {
+    storeAnalysisNavTab(tab);
+    storeAnalysisTab(tab);
+    setAnalysisNavTab(tab);
+    setActive("analysis");
+    setSidebarOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (active === "accounting" && accountingNavTab) {
+      setAccountingNavTab(undefined);
+    }
+  }, [active, accountingNavTab]);
+
+  useEffect(() => {
+    if (active === "analysis" && analysisNavTab) {
+      setAnalysisNavTab(undefined);
+    }
+  }, [active, analysisNavTab]);
+
+  const openWorkersFromProbationAlert = useCallback((workerId?: string) => {
+    storeBasicInfoTab("workers");
+    setBasicInfoNavTab("workers");
+    if (workerId) storeWorkerScrollTarget(workerId);
+    setActive("basicInfo");
+    setSidebarOpen(false);
+  }, []);
   const clientSiteRequestPendingCount = useClientSiteRequestPendingCount(currentUser, { pollMs: 30000 });
   const [sales, setSales] = useState(() => {
     if (apiMode && sessionOnMount) return [];
@@ -7354,9 +7906,11 @@ export default function TeammillimeterErpMvp() {
     if (apiMode && sessionOnMount) return [];
     return storedData?.clients?.length >= initialClients.length ? storedData.clients : initialClients;
   });
+  const activeClients = useMemo(() => filterActiveClients(clients), [clients]);
   const clientsRef = useRef(clients);
   clientsRef.current = clients;
   const clientPersistInFlightRef = useRef(false);
+  const clientEditCooldownUntilRef = useRef(0);
   const [workers, setWorkers] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return storedData?.workers?.length >= initialWorkers.length ? storedData.workers : initialWorkers;
@@ -7449,9 +8003,17 @@ export default function TeammillimeterErpMvp() {
     const normalized = normalizeLedgerCategories(storedData?.ledgerCategories);
     return normalized.length ? normalized : buildDefaultLedgerCategories(expense, fixed);
   });
+  const fixedExpensesRef = useRef(fixedExpenses);
+  const ledgerCategoriesRef = useRef(ledgerCategories);
+  fixedExpensesRef.current = fixedExpenses;
+  ledgerCategoriesRef.current = ledgerCategories;
   const [companyProfile, setCompanyProfile] = useState(() => {
     if (apiMode && sessionOnMount) return DEFAULT_COMPANY_PROFILE;
     return normalizeCompanyProfile(storedData?.companyProfile);
+  });
+  const [saleAiRules, setSaleAiRules] = useState(() => {
+    if (apiMode && sessionOnMount) return { ...DEFAULT_SALE_AI_RULES };
+    return normalizeSaleAiRules(storedData?.saleAiRules);
   });
   const [companyNotices, setCompanyNotices] = useState(() => {
     if (apiMode && sessionOnMount) return [];
@@ -7521,6 +8083,7 @@ export default function TeammillimeterErpMvp() {
   const [myAccountOpen, setMyAccountOpen] = useState(false);
   const [sidebarMenuOrderOpen, setSidebarMenuOrderOpen] = useState(false);
   const [sidebarOrder, setSidebarOrder] = useState(() => resolveSidebarOrder(currentUser));
+  const [sidebarHidden, setSidebarHidden] = useState<ErpPageKey[]>(() => resolveSidebarHidden(currentUser) || []);
   const receivableRowsFromSales = useMemo(() => buildReceivableRowsFromSales(appliedSales, clients), [appliedSales, clients]);
 
   const rememberSavedDomainSnapshotsFromPayload = (payload: Record<string, unknown>) => {
@@ -7536,12 +8099,18 @@ export default function TeammillimeterErpMvp() {
       pendingLocalEditsRef.current ||
       workerPersistInFlightRef.current ||
       workerMonthlyPersistInFlightRef.current ||
+      clientPersistInFlightRef.current ||
       Date.now() < workerPersistCooldownUntilRef.current ||
       Date.now() < workerMonthlyPersistCooldownUntilRef.current ||
-      Date.now() < bankEditCooldownUntilRef.current;
-    const incomingWorkers = data.workers?.length ? data.workers : initialWorkers;
+      Date.now() < bankEditCooldownUntilRef.current ||
+      Date.now() < clientEditCooldownUntilRef.current;
+    const incomingWorkers = resolveIncomingWorkerMasterList(
+      data.workers,
+      workersRef.current,
+      initialWorkers,
+    );
     const nextWorkers = stripMonthlyPaymentMemoFromWorkers(
-      mergeWorkerMasterFieldsFromLocal(incomingWorkers, workersRef.current),
+      mergeIncomingWorkerMasterList(incomingWorkers, workersRef.current),
     );
     const workersForSales = nextWorkers;
     setSales((prev) => normalizeSalesRecords(mergeSalesByUpdatedAt(data.sales || [], prev), workersForSales));
@@ -7604,10 +8173,18 @@ export default function TeammillimeterErpMvp() {
     saleCommentsRef.current = nextSaleComments;
     setTaxInvoices(normalizeTaxInvoices(data.taxInvoices));
     const nextBankTransactionFolders = normalizeBankTransactionFolders(data.bankTransactionFolders);
+    const nextFixedExpenses = Array.isArray(data.fixedExpenses) ? data.fixedExpenses : [];
+    const nextLedgerCategories = normalizeLedgerCategories(data.ledgerCategories).length
+      ? normalizeLedgerCategories(data.ledgerCategories)
+      : buildDefaultLedgerCategories(
+          normalizeExpenseCategories(data.expenseCategories, nextCompanyExpenses),
+          normalizeFixedExpenseCategories(data.fixedExpenseCategories, nextFixedExpenses),
+        );
     const syncedBankTransactions = syncBankTransactionLedgerLinkFields(
       normalizeBankTransactions(data.bankTransactions),
       nextCompanyExpenses,
       nextFixedExpensePayments,
+      { fixedExpenses: nextFixedExpenses, ledgerCategories: nextLedgerCategories },
     );
     const reconciledBankTransactions = reconcileLedgerFolderWithoutLedgerLink(syncedBankTransactions, {
       companyExpenses: nextCompanyExpenses,
@@ -7684,11 +8261,15 @@ export default function TeammillimeterErpMvp() {
     setStatementFolders(normalizeStatementFolders(data.statementFolders));
     const normalizedCompanyProfile = normalizeCompanyProfile(data.companyProfile);
     setCompanyProfile(normalizedCompanyProfile);
+    setSaleAiRules(normalizeSaleAiRules(data.saleAiRules));
     publishErpVersion(data.version ?? 0);
     bankTransactionsDirtyRef.current = false;
     skipSaveRef.current = true;
     rememberSavedDomainSnapshotsFromPayload({
       ...data,
+      bankTransactions: nextBankTransactions,
+      accountCodes: ledgerV2.accountCodes,
+      ledgerCategories: ledgerV2.ledgerCategories,
       companyProfile: normalizedCompanyProfile,
     });
   };
@@ -7731,7 +8312,8 @@ export default function TeammillimeterErpMvp() {
       !bankSyncApplyingRef.current &&
       Date.now() >= workerPersistCooldownUntilRef.current &&
       Date.now() >= workerMonthlyPersistCooldownUntilRef.current &&
-      Date.now() >= bankEditCooldownUntilRef.current;
+      Date.now() >= bankEditCooldownUntilRef.current &&
+      Date.now() >= clientEditCooldownUntilRef.current;
 
     const pollVersion = async () => {
       if (cancelled || !isUserIdleForRemoteRefresh()) return;
@@ -7774,9 +8356,13 @@ export default function TeammillimeterErpMvp() {
     }
     try {
       const data = await fetchErpData();
-      const incomingWorkers = data.workers?.length ? data.workers : initialWorkers;
+      const incomingWorkers = resolveIncomingWorkerMasterList(
+        data.workers,
+        workersRef.current,
+        initialWorkers,
+      );
       const nextWorkers = stripMonthlyPaymentMemoFromWorkers(
-        mergeWorkerMasterFieldsFromLocal(incomingWorkers, workersRef.current),
+        mergeIncomingWorkerMasterList(incomingWorkers, workersRef.current),
       );
       workersRef.current = nextWorkers;
       setWorkers(nextWorkers);
@@ -7795,9 +8381,11 @@ export default function TeammillimeterErpMvp() {
   const shouldReleasePendingLocalEdits = () =>
     !workerPersistInFlightRef.current &&
     !workerMonthlyPersistInFlightRef.current &&
+    !clientPersistInFlightRef.current &&
     Date.now() >= workerPersistCooldownUntilRef.current &&
     Date.now() >= workerMonthlyPersistCooldownUntilRef.current &&
-    Date.now() >= bankEditCooldownUntilRef.current;
+    Date.now() >= bankEditCooldownUntilRef.current &&
+    Date.now() >= clientEditCooldownUntilRef.current;
 
   const touchWorkerMonthlyEditGuard = () => {
     pendingLocalEditsRef.current = true;
@@ -7807,7 +8395,10 @@ export default function TeammillimeterErpMvp() {
   const syncMonthlySaveRefsFromPatch = (patch?: Record<string, unknown>) => {
     if (!patch) return;
     if (Array.isArray(patch.workers)) {
-      workersRef.current = patch.workers;
+      workersRef.current = reconcileWorkerListUpdates(
+        workersRef.current,
+        patch.workers as WorkerMasterLike[],
+      );
     }
     if (patch.workerMonthlyPaymentMemos && typeof patch.workerMonthlyPaymentMemos === "object") {
       workerMonthlyPaymentMemosRef.current = normalizeWorkerMonthlyPaymentMemos(patch.workerMonthlyPaymentMemos);
@@ -7869,6 +8460,7 @@ export default function TeammillimeterErpMvp() {
       statementGenerationLogs,
       statementFolders,
       companyProfile,
+      saleAiRules,
       version: erpVersionRef.current,
     };
   }
@@ -7911,13 +8503,14 @@ export default function TeammillimeterErpMvp() {
       statementGenerationLogs,
       statementFolders,
       companyProfile,
+      saleAiRules,
     ],
   );
 
   const persistErpSave = useCallback(
     async (
       savePayload: ReturnType<typeof buildErpSavePayload>,
-      options?: { allowWhileSkipped?: boolean },
+      options?: { allowWhileSkipped?: boolean; forceDomains?: ErpSaveDomain[] },
     ) => {
       if (
         !options?.allowWhileSkipped &&
@@ -7929,6 +8522,13 @@ export default function TeammillimeterErpMvp() {
       const dirtyDomains = findDirtyErpDomains(savePayload, lastSavedDomainSnapshotsRef.current, {
         includeBank,
       });
+      if (options?.forceDomains?.length) {
+        for (const domain of options.forceDomains) {
+          if (!dirtyDomains.includes(domain)) {
+            dirtyDomains.push(domain);
+          }
+        }
+      }
       if (!dirtyDomains.length) {
         setErpSyncStatus("저장됨");
         return true;
@@ -7950,12 +8550,16 @@ export default function TeammillimeterErpMvp() {
             normalizeSalesRecords(mergeSalesByUpdatedAt(latest.sales || [], prev), latest.workers?.length ? latest.workers : workers),
           );
         }
-        if (Array.isArray(latest.clients)) {
+        if (Array.isArray(latest.clients) && !clientPersistInFlightRef.current) {
           setClients(mergeClientFieldsFromLocal(latest.clients, clientsRef.current));
         }
-        if (Array.isArray(latest.workers)) {
-          workersRef.current = latest.workers;
-          setWorkers(latest.workers);
+        if (Array.isArray(latest.workers) && !workerPersistInFlightRef.current) {
+          const mergedWorkers = stripMonthlyPaymentMemoFromWorkers(
+            mergeIncomingWorkerMasterList(latest.workers, workersRef.current),
+          );
+          workersRef.current = mergedWorkers;
+          setWorkers(mergedWorkers);
+          savePayload.workers = mergedWorkers;
         }
         if (latest.workerMonthlyPaymentMemos && typeof latest.workerMonthlyPaymentMemos === "object") {
           const latestMemos = normalizeWorkerMonthlyPaymentMemos(latest.workerMonthlyPaymentMemos);
@@ -8088,6 +8692,16 @@ export default function TeammillimeterErpMvp() {
         bankEditCooldownUntilRef.current = Date.now() + WORKER_MONTHLY_EDIT_GUARD_MS;
         pendingLocalEditsRef.current = true;
       }
+      const forceDomains: ErpSaveDomain[] = [];
+      if (normalizedPatch && Array.isArray(normalizedPatch.clients)) {
+        forceDomains.push("clients");
+      }
+      if (normalizedPatch && Array.isArray(normalizedPatch.auditLogs)) {
+        forceDomains.push("settings");
+      }
+      if (normalizedPatch && normalizedPatch.saleAiRules) {
+        forceDomains.push("settings");
+      }
       if (saveDebounceTimerRef.current) {
         window.clearTimeout(saveDebounceTimerRef.current);
         saveDebounceTimerRef.current = null;
@@ -8096,6 +8710,7 @@ export default function TeammillimeterErpMvp() {
         const saved = await persistErpSave(buildErpSavePayload(normalizedPatch), {
           // skipSaveRef blocks debounced autosave during local edits; explicit flush must still run.
           allowWhileSkipped: Boolean(normalizedPatch),
+          ...(forceDomains.length ? { forceDomains } : {}),
         });
         if (saved && normalizedPatch) {
           if (Array.isArray(normalizedPatch.workers)) {
@@ -8117,10 +8732,17 @@ export default function TeammillimeterErpMvp() {
             workerMonthlyPaymentMemosRef.current = nextMemos;
             setWorkerMonthlyPaymentMemos(nextMemos);
           }
+          if (normalizedPatch.saleAiRules) {
+            setSaleAiRules(normalizeSaleAiRules(normalizedPatch.saleAiRules));
+          }
         }
         return saved;
       } finally {
-        if (!workerPersistInFlightRef.current && !workerMonthlyPersistInFlightRef.current) {
+        if (
+          !workerPersistInFlightRef.current &&
+          !workerMonthlyPersistInFlightRef.current &&
+          !clientPersistInFlightRef.current
+        ) {
           if (!patchTouchesWorkerMonthlyData(normalizedPatch)) {
             skipSaveRef.current = false;
           }
@@ -8163,6 +8785,7 @@ export default function TeammillimeterErpMvp() {
 
       if (!apiMode || !currentUser || !dataReady) return true;
 
+      clientEditCooldownUntilRef.current = Date.now() + WORKER_MONTHLY_EDIT_GUARD_MS;
       clientPersistInFlightRef.current = true;
       let saved = true;
       try {
@@ -8479,6 +9102,19 @@ export default function TeammillimeterErpMvp() {
     }
   }, [sales, paymentVouchers, bankTransactions, apiMode, currentUser, dataReady, flushErpSave]);
 
+  const saveSaleAiRules = useCallback(async (nextRules) => {
+    const normalized = normalizeSaleAiRules(nextRules);
+    setSaleAiRules(normalized);
+    if (apiMode && currentUser && dataReady) {
+      const saved = await flushErpSave({ saleAiRules: normalized });
+      if (saved === false) {
+        window.alert("AI 규칙 저장에 실패했습니다. 다시 시도해 주세요.");
+      }
+      return saved;
+    }
+    return true;
+  }, [apiMode, currentUser, dataReady, flushErpSave]);
+
   const persistNewSaleImmediate = useCallback(async (nextSales, nextSaleComments?: SaleComment[]) => {
     skipSaveRef.current = true;
     try {
@@ -8631,7 +9267,8 @@ export default function TeammillimeterErpMvp() {
       skipSaveRef.current &&
       !bankSyncApplyingRef.current &&
       !workerPersistInFlightRef.current &&
-      !workerMonthlyPersistInFlightRef.current
+      !workerMonthlyPersistInFlightRef.current &&
+      !clientPersistInFlightRef.current
     ) {
       skipSaveRef.current = false;
     }
@@ -8830,8 +9467,11 @@ export default function TeammillimeterErpMvp() {
     }
     setCurrentUser(nextUser);
     const order = resolveSidebarOrder(nextUser);
+    const hidden = resolveSidebarHidden(nextUser) || [];
     setSidebarOrder(order);
+    setSidebarHidden(hidden);
     cacheSidebarOrderFromUser(nextUser);
+    cacheSidebarHiddenFromUser(nextUser);
     if (!apiMode) saveSessionUser(nextUser);
   };
 
@@ -8845,9 +9485,21 @@ export default function TeammillimeterErpMvp() {
 
   useEffect(() => {
     const order = resolveSidebarOrder(currentUser);
+    const hidden = resolveSidebarHidden(currentUser) || [];
     setSidebarOrder(order);
+    setSidebarHidden(hidden);
     cacheSidebarOrderFromUser(currentUser);
-  }, [currentUser?.id, currentUser?.sidebarOrder]);
+    cacheSidebarHiddenFromUser(currentUser);
+  }, [currentUser?.id, currentUser?.sidebarOrder, currentUser?.sidebarHidden]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const visible = resolveVisibleSidebarPages(currentUser, sidebarOrder, sidebarHidden);
+    if (!visible.length) return;
+    if (!visible.some((page) => page.key === active)) {
+      setActive(visible[0].key);
+    }
+  }, [active, currentUser, sidebarOrder, sidebarHidden]);
 
   useEffect(() => {
     if (!apiMode || !currentUser?.id) return;
@@ -8889,6 +9541,7 @@ export default function TeammillimeterErpMvp() {
       fixedExpensePayments: payments,
       bankTransactions: bank,
       bankLedgerRules,
+      ledgerCategories,
       companyExpenses: companyExpensesRef.current,
       monthKeys: collectFixedExpenseGenerationMonthKeys(fixedExpenses, bank),
       createdBy: currentUser.name || currentUser.loginId || "",
@@ -9027,6 +9680,10 @@ export default function TeammillimeterErpMvp() {
           merged,
           companyExpensesRef.current,
           fixedExpensePaymentsRef.current,
+          {
+            fixedExpenses: fixedExpensesRef.current,
+            ledgerCategories: ledgerCategoriesRef.current,
+          },
         );
         bankTransactionsDirtyRef.current = false;
         bankRemoteApplySkipDirtyRef.current = true;
@@ -9185,8 +9842,11 @@ export default function TeammillimeterErpMvp() {
     () => ({
       clientSiteRequests: clientSiteRequestPendingCount,
       saleComments: unreadSaleCommentCount,
+      ...(workerProbationAlertCount > 0 && basicInfoTabAccess.workers
+        ? { basicInfo: workerProbationAlertCount }
+        : {}),
     }),
-    [clientSiteRequestPendingCount, unreadSaleCommentCount],
+    [basicInfoTabAccess.workers, clientSiteRequestPendingCount, unreadSaleCommentCount, workerProbationAlertCount],
   );
 
   const accountingBankHubProps = useMemo(
@@ -9199,7 +9859,7 @@ export default function TeammillimeterErpMvp() {
       onBankSyncBegin: beginBankRemoteSync,
       onBankSynced: handleBankSynced,
       onRequestImmediateSave: flushErpSave,
-      clients,
+      clients: activeClients,
       setClients,
       workers,
       receivableRows: receivableRowsFromSales,
@@ -9233,7 +9893,7 @@ export default function TeammillimeterErpMvp() {
       beginBankRemoteSync,
       handleBankSynced,
       flushErpSave,
-      clients,
+      activeClients,
       workers,
       receivableRowsFromSales,
       appliedSales,
@@ -9276,6 +9936,7 @@ export default function TeammillimeterErpMvp() {
         setActive={setActive}
         currentUser={currentUser}
         sidebarOrder={sidebarOrder}
+        sidebarHidden={sidebarHidden}
         onLogout={handleLogout}
         onOpenMyAccount={() => {
           setMyAccountOpen(true);
@@ -9305,6 +9966,13 @@ export default function TeammillimeterErpMvp() {
           </div>
         </header>
         <main className="min-w-0 flex-1 p-2.5 sm:p-3 lg:p-4">
+        {basicInfoTabAccess.workers ? (
+          <WorkerProbationAlertBanner
+            workers={workers}
+            onOpenWorkers={openWorkersFromProbationAlert}
+            onVisibleCountChange={setWorkerProbationAlertCount}
+          />
+        ) : null}
         <PageKeepAlive pageKey="dashboard" active={active}>
           <Dashboard sales={appliedSales} paymentVouchers={paymentVouchers} workers={workers} />
         </PageKeepAlive>
@@ -9333,16 +10001,23 @@ export default function TeammillimeterErpMvp() {
             saleCommentCounts={saleCommentCountBySaleId}
             saleCommentUnreadCounts={saleCommentUnreadCountBySaleId}
             onOpenSaleComments={openSaleCommentsView}
+            onPersistNewSale={persistNewSaleImmediate}
+            saleAiRules={saleAiRules}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="clientSiteRequests" active={active}>
-          <ClientSiteRequestsPage clients={clients} workers={workers} currentUser={currentUser} />
+          <ClientSiteRequestsPage clients={activeClients} workers={workers} currentUser={currentUser} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="clientSiteRequestCalendars" active={active} className="erp-page-keep-alive--fill">
-          <ClientSiteRequestCalendarsPage sales={appliedSales} workers={workers} clients={clients} />
+          <ClientSiteRequestCalendarsPage sales={appliedSales} workers={workers} clients={activeClients} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="scAlimtalk" active={active}>
-          <ScScheduleAlimtalkPage />
+          <ScScheduleAlimtalkPage
+            erpVersion={erpVersion}
+            onErpVersionChange={publishErpVersion}
+            canManageSettings={currentUser?.role === "admin"}
+            clients={activeClients}
+          />
         </PageKeepAlive>
         <PageKeepAlive pageKey="attendance" active={active}>
           <AttendancePage
@@ -9356,11 +10031,13 @@ export default function TeammillimeterErpMvp() {
             sales={sales}
             setSales={setSales}
             setActive={setActive}
-            clients={clients}
+            clients={activeClients}
             workers={workers}
             currentUser={currentUser}
             saleComments={saleComments}
             onPersistNewSale={persistNewSaleImmediate}
+            saleAiRules={saleAiRules}
+            onSaveSaleAiRules={saveSaleAiRules}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="sales" active={active}>
@@ -9370,7 +10047,7 @@ export default function TeammillimeterErpMvp() {
           <SalesVoucherSearchPage
             sales={appliedSales}
             setSales={setSales}
-            clients={clients}
+            clients={activeClients}
             workers={workers}
             currentUser={currentUser}
             setPaymentVouchers={setPaymentVouchers}
@@ -9400,7 +10077,7 @@ export default function TeammillimeterErpMvp() {
           <PaymentReceivablesPage
             sales={appliedSales}
             receivableRows={receivableRowsFromSales}
-            clients={clients}
+            clients={activeClients}
             paymentVouchers={paymentVouchers}
             setPaymentVouchers={setPaymentVouchers}
             paymentInputLogs={paymentInputLogs}
@@ -9442,11 +10119,15 @@ export default function TeammillimeterErpMvp() {
           <BankSyncMetaProvider erpVersion={erpVersion} bankListRefreshAt={bankListRefreshAt}>
             <AccountingHubPage
               isHubActive={active === "accounting"}
+              initialTab={accountingNavTab}
               onBankTabActiveChange={setBankTabActive}
               bank={accountingBankHubProps}
             ledger={{
               bankTransactions,
               companyExpenses,
+              clients: activeClients,
+              workers,
+              bankTransactionFolders,
               fixedExpensePayments,
               fixedExpenses,
               ledgerCategories,
@@ -9459,11 +10140,12 @@ export default function TeammillimeterErpMvp() {
               setBankLedgerRules,
               currentUser,
               onRequestImmediateSave: flushErpSave,
+              onOpenAnalysis: openAnalysisTab,
             }}
             tax={{
               taxInvoices,
               setTaxInvoices,
-              clients,
+              clients: activeClients,
               bankTransactions,
               currentUser,
               companyProfile,
@@ -9481,6 +10163,7 @@ export default function TeammillimeterErpMvp() {
         <PageKeepAlive pageKey="analysis" active={active}>
           <AnalysisHubPage
             isHubActive={active === "analysis"}
+            initialTab={analysisNavTab}
             bankTransactions={bankTransactions}
             companyExpenses={companyExpenses}
             fixedExpensePayments={fixedExpensePayments}
@@ -9488,6 +10171,7 @@ export default function TeammillimeterErpMvp() {
             ledgerCategories={ledgerCategories}
             accountCodes={accountCodes}
             taxInvoices={taxInvoices}
+            onOpenUnclassifiedInbox={openUnclassifiedFromAnalysis}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="companyNotices" active={active}>
@@ -9502,6 +10186,7 @@ export default function TeammillimeterErpMvp() {
         <PageKeepAlive pageKey="basicInfo" active={active}>
           <BasicInfoHubPage
             isHubActive={active === "basicInfo"}
+            initialTab={basicInfoNavTab}
             tabAccess={basicInfoTabAccess}
             onWorkersTabVisible={syncWorkersFromServer}
             clientsPanel={
@@ -9557,14 +10242,6 @@ export default function TeammillimeterErpMvp() {
                   onLoadBundledSeed={handleLoadBundledSeed}
                 />
               }
-              notifyPanel={
-                userAdminTabAccess.notify ? (
-                  <NotificationSettingsPage
-                    erpVersion={erpVersion}
-                    onErpVersionChange={publishErpVersion}
-                  />
-                ) : null
-              }
               auditPanel={<AuditLogPage />}
               loginPanel={<LoginHistoryPage loginLogs={loginLogs} />}
             />
@@ -9605,7 +10282,7 @@ export default function TeammillimeterErpMvp() {
           sale={salesManagementEditSale}
           onClose={() => setSalesManagementEditSale(null)}
           setSales={setSales}
-          clients={clients}
+          clients={activeClients}
           workers={workers}
           currentUser={currentUser}
           setPaymentVouchers={setPaymentVouchers}
@@ -9640,19 +10317,23 @@ export default function TeammillimeterErpMvp() {
         open={sidebarMenuOrderOpen}
         pages={getAccessiblePageDefs(currentUser)}
         savedOrder={sidebarOrder}
+        savedHidden={sidebarHidden}
         apiMode={apiMode}
         onClose={() => setSidebarMenuOrderOpen(false)}
-        onSave={async (order) => {
+        onSave={async ({ order, hidden }) => {
           if (currentUser?.id == null) return;
           saveSidebarOrder(currentUser.id, order);
+          saveSidebarHidden(currentUser.id, hidden);
           setSidebarOrder(order);
+          setSidebarHidden(hidden);
           if (apiMode) {
-            const user = await updateSidebarOrderApi(order);
+            const user = await updateSidebarOrderApi({ sidebarOrder: order, sidebarHidden: hidden });
             setCurrentUser(user);
             cacheSidebarOrderFromUser(user);
+            cacheSidebarHiddenFromUser(user);
             return;
           }
-          const nextUser = { ...currentUser, sidebarOrder: order };
+          const nextUser = { ...currentUser, sidebarOrder: order, sidebarHidden: hidden };
           setCurrentUser(nextUser);
           saveSessionUser(nextUser);
         }}

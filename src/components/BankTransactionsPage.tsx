@@ -32,6 +32,8 @@ import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { TableExportSection, TableExportToolbar } from "@/components/TableExportSection";
 import { BankTransactionsListShell } from "@/components/BankTransactionsListShell";
+import { BankLedgerClassificationRulesModal } from "@/components/BankLedgerClassificationRulesModal";
+import { listEditableCustomBankLearnRules } from "@/utils/bankLearnCustomRules";
 import { BankCounterpartyTransactionsDrawer } from "@/components/BankCounterpartyTransactionsDrawer";
 import {
   BankTaxInvoiceIssueModal,
@@ -171,6 +173,8 @@ import {
   assignBankTransactionAccountCode,
   type LedgerScopeFilter,
 } from "@/utils/ledgerBankBridge";
+import { checkBankTxAccountCodeConflict } from "@/utils/ledgerAccountConflict";
+import { consumeBankLedgerScopePref } from "@/utils/accountingHub";
 import { AccountSubjectPickerPopover } from "@/components/AccountSubjectPickerPopover";
 import { buildAccountCodePickerFlatItems, buildAccountCodePickerOptions, findAccountCodeByCode, formatAccountCodeLabel } from "@/utils/accountCodeTree";
 import {
@@ -178,6 +182,7 @@ import {
   filterAccountCodesByFlow,
   findLedgerCategory,
   findLedgerCategoryByName,
+  resolveFixedExpenseAccountCode,
   resolveAccountCodeLabel,
   type AccountCode,
   type LedgerCategory,
@@ -421,6 +426,7 @@ const L = {
   counterpartyDrawerTitle: (name: string) => `\uAC70\uB798\uC790 "${name}" \uC804\uCCB4 \uB0B4\uC5ED`,
   counterpartyBank: "\uC0C1\uB300\uC740\uD589",
   transactionType: "\uAC70\uB798\uAD6C\uBD84",
+  columnTransactionType: "\uAC70\uB798 \uC720\uD615",
   accountNumber: "\uACC4\uC88C\uBC88\uD638",
   bankName: "\uC740\uD589",
   accountHolder: "\uC608\uAE08\uC8FC",
@@ -487,6 +493,10 @@ const L = {
   classifySection: "\uBD84\uB958 \uB0B4\uC5ED",
   account: "\uACC4\uC88C",
   counterparty: "\uAC70\uB798\uC790\uBA85",
+  columnBalanceAfter: "\uD1B5\uC7A5 \uC794\uC561",
+  columnBankBalance: "\uD1B5\uC7A5 \uC794\uC561",
+  columnFolder: "\uADF8\uB8F9",
+  displaySettings: "\uD45C\uC2DC \uC124\uC815",
   amount: "\uC785\uCD9C\uAE08\uC561",
   evidence: "\uC99D\uBE59",
   accountSubject: "\uACC4\uC815",
@@ -529,6 +539,7 @@ const L = {
   linkedSubject: "\uC5F0\uACB0 \uC774\uB984",
   workerFolderAssignBlocked: "\uC2DC\uACF5\uC790 \uBAA9\uB85D\uC5D0 \uB4F1\uB85D\uB41C \uC0C1\uB300\uC608\uAE08\uC8FC \uC774\uB984\uC778 \uCD9C\uAE08\uB9CC \uC2DC\uACF5\uC790 \uC9C0\uCD9C\uB85C \uBD84\uB958\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
   autoClassify: "\uC790\uB3D9 \uBD84\uB958",
+  classificationRules: "\uBD84\uB958 \uADDC\uCE59",
   autoClassifyDone: "\uAC74\uC744 \uC790\uB3D9 \uBD84\uB958\uD588\uC2B5\uB2C8\uB2E4.",
   folderScopeClient: "\uAC70\uB798\uCC98",
   folderScopeCard: "\uCE74\uB4DC\uB9E4\uCD9C",
@@ -1056,6 +1067,7 @@ function BankTransactionsPageComponent({
   const [recurringFixedModalOpen, setRecurringFixedModalOpen] = useState(false);
   const [selectedRecurringPatternKeys, setSelectedRecurringPatternKeys] = useState<string[]>([]);
   const [preauthNetModalOpen, setPreauthNetModalOpen] = useState(false);
+  const [classificationRulesModalOpen, setClassificationRulesModalOpen] = useState(false);
   const [selectedPreauthGroupKeys, setSelectedPreauthGroupKeys] = useState<string[]>([]);
   const [learnPreauthMerchants, setLearnPreauthMerchants] = useState(true);
   const [accountContentModal, setAccountContentModal] = useState<TxAccountContentModal | null>(null);
@@ -1158,6 +1170,7 @@ function BankTransactionsPageComponent({
       bankTransactions,
       companyExpenses,
       fixedExpensePayments,
+      { fixedExpenses, ledgerCategories },
     );
     return syncLedgerLinkedBankTransactionFolders(synced, folders, ledgerRegistrationContext).transactions;
   }, [bankTransactions, bankTransactionFolders, companyExpenses, fixedExpensePayments, ledgerRegistrationContext, isPageActive]);
@@ -1242,6 +1255,7 @@ function BankTransactionsPageComponent({
           seeded,
           companyExpenses,
           fixedExpensePayments,
+          { fixedExpenses, ledgerCategories },
         );
         const reconciled = reconcileLedgerFolderWithoutLedgerLink(synced, ledgerRegistrationContext);
         const folderSync = syncLedgerLinkedBankTransactionFolders(
@@ -1383,7 +1397,7 @@ function BankTransactionsPageComponent({
       const suggestion = ledgerSuggestionByTxId.get(tx.id);
       const targetKey = suggestion?.targetKey || resolveLedgerTargetForBankTransaction(tx, bankLedgerRules, fixedExpenses);
       const parsed = parseLedgerTargetKey(targetKey);
-      const learnMatch = findBestBankLearnRuleWithScore(tx, bankLedgerRules, fixedExpenses, ["fixed", "manual"]);
+      const learnMatch = findBestBankLearnRuleWithScore(tx, bankLedgerRules, fixedExpenses, ["custom", "fixed", "manual"]);
       const ledgerRule = learnMatch?.rule || findMatchingBankLedgerRule(tx, bankLedgerRules, fixedExpenses);
       const kind: LedgerRegisterKind = parsed?.kind === "fixed" ? "fixed" : "manual";
       const fixedItem =
@@ -1688,7 +1702,7 @@ function BankTransactionsPageComponent({
       const targetKey =
         suggestion?.targetKey || resolveLedgerTargetForBankTransaction(tx, bankLedgerRules, fixedExpenses);
       const parsed = parseLedgerTargetKey(targetKey);
-      const learnMatch = findBestBankLearnRuleWithScore(tx, bankLedgerRules, fixedExpenses, ["fixed", "manual"]);
+      const learnMatch = findBestBankLearnRuleWithScore(tx, bankLedgerRules, fixedExpenses, ["custom", "fixed", "manual"]);
       const ledgerRule = learnMatch?.rule || findMatchingBankLedgerRule(tx, bankLedgerRules, fixedExpenses);
       const kind: LedgerRegisterKind = parsed?.kind === "fixed" ? "fixed" : "manual";
       const fixedItem =
@@ -2131,6 +2145,12 @@ function BankTransactionsPageComponent({
       console.error(error);
     }
   }, []);
+
+  useEffect(() => {
+    if (!isPageActive) return;
+    const scopePref = consumeBankLedgerScopePref();
+    if (scopePref) setLedgerScopeFilter(scopePref);
+  }, [isPageActive]);
 
   useEffect(() => {
     if (!isPageActive) return;
@@ -2626,6 +2646,21 @@ function BankTransactionsPageComponent({
         setImportMessage(L.accountSubjectSaveFailed);
         return false;
       }
+      const conflict = checkBankTxAccountCodeConflict({
+        tx,
+        nextAccountCode: code,
+        fixedExpensePayments,
+        fixedExpenses,
+        ledgerCategories,
+      });
+      if (conflict.hasConflict && !conflict.requiresConfirmation) {
+        setTxCellModalError(conflict.message || L.accountSubjectSaveFailed);
+        setImportMessage(conflict.message || L.accountSubjectSaveFailed);
+        return false;
+      }
+      if (conflict.requiresConfirmation && !window.confirm(conflict.message || L.accountSubjectSaveFailed)) {
+        return false;
+      }
 
       const nextRow = assignBankTransactionAccountCode({
         tx,
@@ -2722,10 +2757,12 @@ function BankTransactionsPageComponent({
     }
 
     let nextPayments = fixedExpensePayments;
+    const fixedAccountCode = resolveFixedExpenseAccountCode(fixedItem, ledgerCategories);
     let nextRow = confirmBankTransactionLedger({
       tx,
       category,
       accountCodes,
+      accountCode: fixedAccountCode,
       confirmedBy: savedBy,
       fixedExpenseId: fixedItem.id,
       memo: tx.ledgerMemo || tx.memo,
@@ -2738,6 +2775,7 @@ function BankTransactionsPageComponent({
         fixedItem,
         payments: nextPayments,
         fixedExpenses,
+        ledgerCategories,
         resolvedCategory: categoryName,
         memo: nextRow.ledgerMemo || nextRow.memo,
         savedBy,
@@ -2766,10 +2804,8 @@ function BankTransactionsPageComponent({
   };
 
   const openCreateFixedExpenseItem = useCallback(() => {
-    fixedExpenseItemModalRef.current?.openCreateFixedExpense(
-      FIXED_CATEGORY_OPTIONS[0] || fixedExpenseCategories[0] || "",
-    );
-  }, [fixedExpenseCategories]);
+    fixedExpenseItemModalRef.current?.openCreateFixedExpense();
+  }, []);
 
   const unsettledFixedSummary = useMemo(() => {
     const monthKey = getMonthKey(todayISO());
@@ -3192,6 +3228,11 @@ function BankTransactionsPageComponent({
     setFilterResetKey((key) => key + 1);
     setSort(DEFAULT_BANK_TRANSACTION_SORT);
   }, []);
+
+  const customClassificationRulesCount = useMemo(
+    () => listEditableCustomBankLearnRules(bankLedgerRules).length,
+    [bankLedgerRules],
+  );
 
   const preauthNetActionCount = useMemo(() => {
     if (!isPageActive || pageView !== "list") return 0;
@@ -3824,7 +3865,7 @@ function BankTransactionsPageComponent({
     const suggestion = ledgerSuggestionByTxId.get(tx.id);
     const targetKey = suggestion?.targetKey || resolveLedgerTargetForBankTransaction(tx, bankLedgerRules, fixedExpenses);
     const parsed = parseLedgerTargetKey(targetKey);
-    const learnMatch = findBestBankLearnRuleWithScore(tx, bankLedgerRules, fixedExpenses, ["fixed", "manual"]);
+    const learnMatch = findBestBankLearnRuleWithScore(tx, bankLedgerRules, fixedExpenses, ["custom", "fixed", "manual"]);
     const ledgerRule = learnMatch?.rule || findMatchingBankLedgerRule(tx, bankLedgerRules, fixedExpenses);
     const kind: LedgerRegisterKind = variableOnlyLinked
       ? "fixed"
@@ -4467,6 +4508,7 @@ function BankTransactionsPageComponent({
           ),
           nextExpenses,
           nextPayments,
+          { fixedExpenses, ledgerCategories },
         ),
         ensureDefaultBankTransactionFolders(bankTransactionFolders),
         { companyExpenses: nextExpenses, fixedExpensePayments: nextPayments },
@@ -4557,6 +4599,7 @@ function BankTransactionsPageComponent({
         ),
         nextExpenses,
         fixedExpensePayments,
+        { fixedExpenses, ledgerCategories },
       ),
       ensureDefaultBankTransactionFolders(bankTransactionFolders),
       { companyExpenses: nextExpenses, fixedExpensePayments },
@@ -4870,12 +4913,16 @@ function BankTransactionsPageComponent({
       classifySection: L.classifySection,
       account: L.account,
       counterparty: L.counterparty,
+      balanceAfter: L.columnBalanceAfter,
+      transactionType: L.columnTransactionType,
+      folder: L.columnFolder,
+      title: L.displaySettings,
       amount: L.amount,
       memo: L.memo,
       evidence: L.evidence,
       accountSubject: L.accountSubject,
       client: L.clientColumn,
-      classifiedAmount: L.classifiedAmount,
+      bankBalance: L.columnBankBalance,
       erpProcess: L.erpProcess,
       taxInvoiceIssue: L.taxInvoiceIssue,
       taxInvoiceIssueButton: L.taxInvoiceIssueButton,
@@ -5343,7 +5390,10 @@ function BankTransactionsPageComponent({
           onOpenPreauthNet={openPreauthNetModal}
           onOpenRecurringFixed={openRecurringFixedModal}
           onAutoClassify={runAutoClassify}
+          onOpenClassificationRules={() => setClassificationRulesModalOpen(true)}
           onCreateFixedExpenseItem={openCreateFixedExpenseItem}
+          classificationRulesLabel={L.classificationRules}
+          classificationRulesCount={customClassificationRulesCount}
           preauthNetActionCount={preauthNetActionCount}
           recurringFixedActionCount={recurringFixedActionCount}
           evidenceAutoMatchLabel={L.evidenceAutoMatch}
@@ -5983,6 +6033,25 @@ function BankTransactionsPageComponent({
         </div>
       ) : null}
 
+      <BankLedgerClassificationRulesModal
+        open={classificationRulesModalOpen}
+        onClose={() => setClassificationRulesModalOpen(false)}
+        bankLedgerRules={bankLedgerRules}
+        setBankLedgerRules={setBankLedgerRules}
+        bankTransactions={bankTransactions}
+        setBankTransactions={setBankTransactions}
+        companyExpenses={companyExpenses}
+        setCompanyExpenses={setCompanyExpenses}
+        fixedExpensePayments={fixedExpensePayments}
+        setFixedExpensePayments={setFixedExpensePayments}
+        fixedExpenses={fixedExpenses}
+        accountCodes={accountCodes}
+        ledgerCategories={ledgerCategories}
+        clients={clients}
+        savedBy={savedBy}
+        onMessage={setImportMessage}
+      />
+
       {recurringFixedModalOpen ? (
         <div
           className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
@@ -6608,6 +6677,7 @@ function BankTransactionsPageComponent({
         fixedExpenses={fixedExpenses}
         setFixedExpenses={setFixedExpenses}
         fixedExpenseCategories={fixedExpenseCategories}
+        accountCodes={accountCodes}
         setFixedExpenseCategories={setFixedExpenseCategories}
         fixedExpensePayments={fixedExpensePayments}
         setFixedExpensePayments={setFixedExpensePayments}

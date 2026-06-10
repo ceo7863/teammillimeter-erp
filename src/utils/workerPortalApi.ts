@@ -39,6 +39,16 @@ export type WorkerPortalStatementPayload = {
   workerInfo: WorkerMasterLike;
   summary: { grossPay: number; fee: number; netPay: number };
   companyProfile: CompanyProfile | null;
+  probationActive?: boolean;
+  statementStartDate?: string;
+};
+
+export type WorkerPortalMonthsPayload = {
+  months: string[];
+  workerName: string;
+  probationActive?: boolean;
+  statementStartDate?: string;
+  probationEndDate?: string;
 };
 
 async function portalRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -89,7 +99,7 @@ export async function changeWorkerPortalPassword(
 }
 
 export async function fetchWorkerPortalMonths() {
-  return portalRequest<{ months: string[]; workerName: string }>("/worker-portal/months");
+  return portalRequest<WorkerPortalMonthsPayload>("/worker-portal/months");
 }
 
 export async function fetchWorkerPortalStatement(monthKey: string) {

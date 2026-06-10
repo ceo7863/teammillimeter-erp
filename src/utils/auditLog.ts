@@ -58,6 +58,7 @@ export const CLIENT_AUDIT_FIELDS: AuditFieldDef[] = [
   { key: "mealIncluded", label: "식대" },
   { key: "depositNameAliases", label: "예금주 별칭" },
   { key: "memo", label: "비고" },
+  { key: "isActive", label: "상태", format: (v) => (v === false ? "비활성" : "활성") },
 ];
 
 export const WORKER_AUDIT_FIELDS: AuditFieldDef[] = [
@@ -95,6 +96,7 @@ export const COMPANY_EXPENSE_AUDIT_FIELDS: AuditFieldDef[] = [
 export const FIXED_EXPENSE_AUDIT_FIELDS: AuditFieldDef[] = [
   { key: "name", label: "항목명" },
   { key: "category", label: "분류" },
+  { key: "accountCode", label: "계정과목" },
   { key: "amount", label: "금액", format: (v) => formatAuditMoney(v) },
   { key: "cycle", label: "주기" },
   { key: "isActive", label: "상태", format: (v) => (v === false ? "비활성" : "활성") },
@@ -308,6 +310,7 @@ export function snapshotFixedExpenseForAudit(expense: Record<string, unknown>) {
   return {
     name: expense.name || "",
     category: expense.category || "",
+    accountCode: expense.accountCode || "",
     amount: expense.amount ?? 0,
     cycle: expense.cycle || "",
     isActive: expense.isActive !== false,

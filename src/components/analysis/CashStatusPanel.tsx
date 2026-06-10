@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import type { BankTransaction } from "@/utils/bankTransactions";
-import type { CompanyExpense } from "@/utils/companyLedger";
+import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "@/utils/companyLedger";
 import {
   buildAccountFlowBreakdown,
   buildBankAccountPeriodSummaries,
@@ -49,6 +49,8 @@ type BreakdownView = "account" | "counterparty";
 type CashStatusPanelProps = {
   bankTransactions: BankTransaction[];
   companyExpenses: CompanyExpense[];
+  fixedExpensePayments?: FixedExpensePayment[];
+  fixedExpenses?: FixedExpense[];
   ledgerCategories: LedgerCategory[];
   accountCodes: AccountCode[];
 };
@@ -56,6 +58,8 @@ type CashStatusPanelProps = {
 export function CashStatusPanel({
   bankTransactions,
   companyExpenses,
+  fixedExpensePayments,
+  fixedExpenses,
   ledgerCategories,
   accountCodes,
 }: CashStatusPanelProps) {
@@ -77,10 +81,12 @@ export function CashStatusPanel({
       buildAllLedgerEntries({
         bankTransactions,
         companyExpenses,
+        fixedExpensePayments,
+        fixedExpenses,
         categories: ledgerCategories,
         accountCodes,
       }),
-    [bankTransactions, companyExpenses, ledgerCategories, accountCodes],
+    [bankTransactions, companyExpenses, fixedExpensePayments, fixedExpenses, ledgerCategories, accountCodes],
   );
 
   const periodTotals = useMemo(

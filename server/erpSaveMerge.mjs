@@ -1,4 +1,5 @@
 import { dedupeBankTransactionsByFingerprint } from "./ibkBankImport.mjs";
+import { preserveMissingWorkersInList } from "../src/utils/workerPayments.ts";
 
 function parseClassifiedAtMs(value) {
   if (!value) return 0;
@@ -58,6 +59,25 @@ function parseLedgerConfirmedAtMs(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+const LEDGER_COALESCE_NON_EMPTY_KEYS = new Set([
+  "ledgerAccountCode",
+  "ledgerMemo",
+  "ledgerCategoryId",
+  "ledgerFixedExpenseId",
+  "ledgerStatus",
+]);
+
+function normalizeLedgerMergeValue(value, key) {
+  if (key === "ledgerClientName" && value === "") return "";
+  if (value === null || value === undefined || value === "") return undefined;
+  return value;
+}
+
+function readLedgerMergeValue(row, key) {
+  if (!row || !Object.prototype.hasOwnProperty.call(row, key)) return undefined;
+  return normalizeLedgerMergeValue(row[key], key);
+}
+
 function mergeLedgerFieldsForSave(prev, incoming) {
   const prevMs = parseLedgerConfirmedAtMs(prev?.ledgerConfirmedAt);
   const incomingMs = parseLedgerConfirmedAtMs(incoming?.ledgerConfirmedAt);
@@ -77,20 +97,55 @@ function mergeLedgerFieldsForSave(prev, incoming) {
 
   const merged = {};
   for (const key of keys) {
-    const readValue = (row) => {
-      if (!row || !Object.prototype.hasOwnProperty.call(row, key)) return undefined;
-      return row[key];
-    };
-    const primaryValue = readValue(primary);
-    const fallbackValue = readValue(fallback);
-    const value = primaryValue !== undefined ? primaryValue : fallbackValue;
+    const primaryValue = readLedgerMergeValue(primary, key);
+    const fallbackValue = readLedgerMergeValue(fallback, key);
+    let value;
+    if (LEDGER_COALESCE_NON_EMPTY_KEYS.has(key)) {
+      value = primaryValue !== undefined ? primaryValue : fallbackValue;
+    } else if (key === "ledgerClientName") {
+      if (primary && Object.prototype.hasOwnProperty.call(primary, key)) {
+        value = primaryValue;
+      } else {
+        value = fallbackValue;
+      }
+    } else {
+      value = primaryValue !== undefined ? primaryValue : fallbackValue;
+    }
     if (key === "ledgerClientName" && value === "") {
       merged[key] = "";
       continue;
     }
-    merged[key] = value === null || value === undefined || value === "" ? undefined : value;
+    merged[key] = value === undefined ? undefined : value;
   }
   return merged;
+}
+
+function normalizeLinkedTaxInvoiceIds(row) {
+  if (!row) return [];
+  if (Array.isArray(row.linkedTaxInvoiceIds)) {
+    return [...new Set(row.linkedTaxInvoiceIds.map((id) => String(id || "").trim()).filter(Boolean))];
+  }
+  if (row.linkedTaxInvoiceId) return [String(row.linkedTaxInvoiceId)];
+  return [];
+}
+
+function mergeTaxInvoiceLinkFieldsForSave(prev, incoming) {
+  if (incoming?.taxInvoiceAutoLinkDisabled) {
+    const incomingIds = normalizeLinkedTaxInvoiceIds(incoming);
+    return {
+      linkedTaxInvoiceIds: incomingIds.length ? incomingIds : undefined,
+      linkedTaxInvoiceId: incomingIds[0],
+      taxInvoiceAutoLinkDisabled: true,
+    };
+  }
+  const prevIds = normalizeLinkedTaxInvoiceIds(prev);
+  const incomingIds = normalizeLinkedTaxInvoiceIds(incoming);
+  const ids = [...new Set([...prevIds, ...incomingIds])];
+  return {
+    linkedTaxInvoiceIds: ids.length ? ids : undefined,
+    linkedTaxInvoiceId: ids[0],
+    taxInvoiceAutoLinkDisabled: incoming?.taxInvoiceAutoLinkDisabled ?? prev?.taxInvoiceAutoLinkDisabled,
+  };
 }
 
 function resolveLinkedSubjectForSave(prev, incoming, ledgerFields, preferIncoming) {
@@ -105,6 +160,7 @@ export function mergeBankTransactionRowForSave(prev, incoming) {
   const preferIncoming = shouldPreferIncomingClassification(prev, incoming);
   const memo = mergeMemoForSave(prev, incoming);
   const ledgerFields = mergeLedgerFieldsForSave(prev, incoming);
+  const taxInvoiceFields = mergeTaxInvoiceLinkFieldsForSave(prev, incoming);
   const linkedSubject = resolveLinkedSubjectForSave(prev, incoming, ledgerFields, preferIncoming);
 
   if (preferIncoming) {
@@ -112,6 +168,7 @@ export function mergeBankTransactionRowForSave(prev, incoming) {
       ...incoming,
       ...paymentMatch,
       ...ledgerFields,
+      ...taxInvoiceFields,
       folderId: incoming.folderId ?? prev.folderId,
       memo,
       linkedSubject,
@@ -123,6 +180,7 @@ export function mergeBankTransactionRowForSave(prev, incoming) {
     ...incoming,
     ...paymentMatch,
     ...ledgerFields,
+    ...taxInvoiceFields,
     folderId: prev.folderId ?? incoming.folderId,
     memo,
     linkedSubject,
@@ -288,11 +346,6 @@ export function mergeWorkersForSave(existing = [], incoming = []) {
       .filter((worker) => normalizeWorkerRecordId(worker?.id))
       .map((worker) => [normalizeWorkerRecordId(worker.id), worker]),
   );
-  const incomingIds = new Set(
-    (incoming || [])
-      .filter((worker) => normalizeWorkerRecordId(worker?.id))
-      .map((worker) => normalizeWorkerRecordId(worker.id)),
-  );
 
   const merged = (incoming || []).map((worker) => {
     const workerId = normalizeWorkerRecordId(worker?.id);
@@ -321,6 +374,13 @@ export function mergeWorkersForSave(existing = [], incoming = []) {
       depositNameAliases: coalesce(worker.depositNameAliases, prev.depositNameAliases) || undefined,
       portalLoginId: coalesce(worker.portalLoginId, prev.portalLoginId) || undefined,
       portalPasswordHash: worker.portalPasswordHash || prev.portalPasswordHash || undefined,
+      phone: coalesce(worker.phone, prev.phone) || undefined,
+      vehicleNo: coalesce(worker.vehicleNo, prev.vehicleNo) || undefined,
+      address: coalesce(worker.address, prev.address) || undefined,
+      businessNo: coalesce(worker.businessNo, prev.businessNo) || undefined,
+      bank: coalesce(worker.bank, prev.bank) || undefined,
+      account: coalesce(worker.account, prev.account) || undefined,
+      memo: coalesce(worker.memo, prev.memo) || undefined,
     };
     if (customChargeCost != null) {
       merged.customChargeCost = customChargeCost;
@@ -330,15 +390,10 @@ export function mergeWorkersForSave(existing = [], incoming = []) {
     return merged;
   });
 
-  for (const worker of existing || []) {
-    const workerId = normalizeWorkerRecordId(worker?.id);
-    if (workerId && !incomingIds.has(workerId)) {
-      merged.push(worker);
-    }
-  }
+  const withMissingRestored = preserveMissingWorkersInList(existing || [], merged);
 
   // portalPassword는 index.mjs에서 processWorkersPortalCredentials 후 제거
-  return merged.map(({ monthlyPaymentMemo: _legacy, ...worker }) => worker);
+  return withMissingRestored.map(({ monthlyPaymentMemo: _legacy, ...worker }) => worker);
 }
 
 function normalizeClientRecordId(id) {
@@ -402,6 +457,50 @@ export function mergeClientsForSave(existing = [], incoming = []) {
     } else {
       delete merged.scProjectMappingUpdatedBy;
     }
+
+    const coalesceText = (nextValue, prevValue) => {
+      const nextText = String(nextValue ?? "").trim();
+      if (nextText) return nextText;
+      return String(prevValue ?? "").trim();
+    };
+
+    const prevContacts = Array.isArray(prev.contacts)
+      ? prev.contacts.filter((row) => row && (row.name || row.phone))
+      : [];
+    const incomingContacts = Array.isArray(client.contacts)
+      ? client.contacts.filter((row) => row && (row.name || row.phone))
+      : [];
+    if (incomingContacts.length) {
+      merged.contacts = incomingContacts;
+    } else if (prevContacts.length) {
+      merged.contacts = prevContacts;
+    } else {
+      delete merged.contacts;
+    }
+
+    const manager = coalesceText(client.manager, prev.manager);
+    const phone = coalesceText(client.phone, prev.phone);
+    if (manager) merged.manager = manager;
+    else delete merged.manager;
+    if (phone) merged.phone = phone;
+    else delete merged.phone;
+
+    const businessRegFileId =
+      coalesceText(client.businessRegFileId, prev.businessRegFileId);
+    if (businessRegFileId) {
+      merged.businessRegFileId = businessRegFileId;
+      const businessRegFileName = coalesceText(client.businessRegFileName, prev.businessRegFileName);
+      if (businessRegFileName) merged.businessRegFileName = businessRegFileName;
+      else delete merged.businessRegFileName;
+      const businessRegUploadedAt = client.businessRegUploadedAt || prev.businessRegUploadedAt;
+      if (businessRegUploadedAt) merged.businessRegUploadedAt = businessRegUploadedAt;
+      else delete merged.businessRegUploadedAt;
+    } else {
+      delete merged.businessRegFileId;
+      delete merged.businessRegFileName;
+      delete merged.businessRegUploadedAt;
+    }
+
     return merged;
   });
 }

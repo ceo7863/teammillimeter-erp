@@ -5,6 +5,7 @@ import {
   hasExplicitWorkerField,
   parseWorkerMoney,
   resolveWorkerFeeRate,
+  stripWorkerLineComputedMetrics,
   usesChargeAmountForBill,
   type WorkerLineLike,
 } from "./workerLineMetrics";
@@ -145,6 +146,160 @@ export function getWorkerLineChargeAmount(line: WorkerLineLike) {
   }
   // lineBill도 없는 아주 오래된 행만 지급단가 참고
   return parseWorkerMoney(line.unitCost);
+}
+
+/** 시공자 1줄 청구단가×인원 (식대·경비·야근 등 부대비용 제외) */
+export function getWorkerLineChargeOnlyTotal(line: WorkerLineLike) {
+  const quantity = parseWorkerMoney(line.quantity || "1") || 1;
+  return quantity * getWorkerLineChargeAmount(line);
+}
+
+/** 등록된 시공자 줄 순서대로 최대 headcount명분 청구합계 */
+export function sumWorkerLinesChargeOnlyForHeadcount(lines: WorkerLineLike[], headcount: number) {
+  const limit = Math.max(0, Math.floor(Number(headcount) || 0));
+  if (!limit) return 0;
+
+  let remaining = limit;
+  let sum = 0;
+  for (const line of lines) {
+    if (remaining <= 0) break;
+    const quantity = parseWorkerMoney(line.quantity || "1") || 1;
+    const take = Math.min(quantity, remaining);
+    sum += take * getWorkerLineChargeAmount(line);
+    remaining -= take;
+  }
+  return sum;
+}
+
+export type ClientChargeTargetClient = {
+  customChargeCost?: number;
+  constructionCost?: number;
+  chargeCost?: number;
+} | null | undefined;
+
+/** 거래처 청구단가 × 등록 인원 — SC 일정 경고와 동일한 목표 청구 합계 */
+export function resolveClientChargeTargetTotal(
+  lines: WorkerLineLike[],
+  client?: ClientChargeTargetClient,
+  headcount?: number,
+) {
+  const staffCount = headcount ?? getSaleStaffCount({ workers: lines });
+  if (staffCount <= 0) return 0;
+
+  const clientUnitCharge = parseWorkerMoney(resolveWorkerLineChargeAmount(null, client));
+  if (clientUnitCharge > 0) {
+    return staffCount * clientUnitCharge;
+  }
+  return sumWorkerLinesChargeOnlyForHeadcount(lines, staffCount);
+}
+
+export type FitWorkerChargesResult<T extends WorkerLineLike = WorkerLineLike> = {
+  lines: T[];
+  targetChargeTotal: number;
+  actualChargeTotalBefore: number;
+  actualChargeTotalAfter: number;
+  reducedAmount: number;
+  deployHeadcount: number;
+  chargeHeadcount: number;
+  changed: boolean;
+};
+
+export function formatAiFitHeadcountMemo(deployHeadcount: number, chargeHeadcount: number) {
+  return `${deployHeadcount}명투입 ${chargeHeadcount}명청구`;
+}
+
+/**
+ * 청구단가 합이 거래처 목표를 초과할 때, 지급단가(unitCost)가 낮은 시공자부터
+ * chargeAmount를 줄여 목표 청구 합계에 맞춥니다.
+ */
+export function fitWorkerChargesToClientTarget<T extends WorkerLineLike>(
+  lines: T[],
+  client?: ClientChargeTargetClient,
+  options?: { targetHeadcount?: number },
+): FitWorkerChargesResult<T> {
+  const filledLines = lines.filter((line) => String(line.worker || "").trim());
+  const emptyResult = (nextLines: T[]) => ({
+    lines: nextLines,
+    targetChargeTotal: 0,
+    actualChargeTotalBefore: 0,
+    actualChargeTotalAfter: 0,
+    reducedAmount: 0,
+    deployHeadcount: 0,
+    chargeHeadcount: 0,
+    changed: false,
+  });
+
+  if (!filledLines.length) {
+    return emptyResult(lines);
+  }
+
+  const actualHeadcount = getSaleStaffCount({ workers: filledLines });
+  const targetHeadcount = options?.targetHeadcount ?? actualHeadcount;
+  if (actualHeadcount <= 0 || targetHeadcount <= 0) {
+    return emptyResult(lines);
+  }
+
+  const targetChargeTotal = resolveClientChargeTargetTotal(filledLines, client, targetHeadcount);
+  const actualChargeTotalBefore = sumWorkerLinesChargeOnlyForHeadcount(filledLines, actualHeadcount);
+
+  if (targetChargeTotal <= 0 || actualChargeTotalBefore <= targetChargeTotal) {
+    return {
+      lines,
+      targetChargeTotal,
+      actualChargeTotalBefore,
+      actualChargeTotalAfter: actualChargeTotalBefore,
+      reducedAmount: 0,
+      deployHeadcount: actualHeadcount,
+      chargeHeadcount: targetHeadcount,
+      changed: false,
+    };
+  }
+
+  let excess = actualChargeTotalBefore - targetChargeTotal;
+  const reductionOrder = lines
+    .map((line, index) => {
+      if (!String(line.worker || "").trim()) return null;
+      const quantity = parseWorkerMoney(line.quantity || "1") || 1;
+      const chargeAmount = getWorkerLineChargeAmount(line);
+      const chargeContribution = quantity * chargeAmount;
+      if (chargeContribution <= 0) return null;
+      return {
+        index,
+        unitCost: parseWorkerMoney(line.unitCost),
+        chargeContribution,
+        quantity,
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry != null)
+    .sort((a, b) => a.unitCost - b.unitCost || a.index - b.index);
+
+  const nextLines = lines.map((line) => ({ ...line }));
+  for (const entry of reductionOrder) {
+    if (excess <= 0) break;
+    const reduction = Math.min(excess, entry.chargeContribution);
+    const newContribution = entry.chargeContribution - reduction;
+    const newChargeAmount = entry.quantity > 0 ? Math.round(newContribution / entry.quantity) : 0;
+    nextLines[entry.index] = {
+      ...stripWorkerLineComputedMetrics(nextLines[entry.index]),
+      chargeAmount: String(Math.max(0, newChargeAmount)),
+    } as T;
+    excess -= reduction;
+  }
+
+  const filledAfter = nextLines.filter((line) => String(line.worker || "").trim());
+  const actualChargeTotalAfter = sumWorkerLinesChargeOnlyForHeadcount(filledAfter, actualHeadcount);
+  const reducedAmount = actualChargeTotalBefore - actualChargeTotalAfter;
+
+  return {
+    lines: nextLines,
+    targetChargeTotal,
+    actualChargeTotalBefore,
+    actualChargeTotalAfter,
+    reducedAmount,
+    deployHeadcount: actualHeadcount,
+    chargeHeadcount: targetHeadcount,
+    changed: reducedAmount > 0,
+  };
 }
 
 export function getSaleWorkerLines(sale: SaleBillingLike): WorkerLineLike[] {

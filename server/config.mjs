@@ -69,6 +69,7 @@ export const config = {
     commentTemplate: process.env.ALIMTALK_COMMENT_TEMPLATE || "",
     contractTemplate: process.env.ALIMTALK_CONTRACT_TEMPLATE || "",
     scheduleTemplate: process.env.ALIMTALK_SCHEDULE_TEMPLATE || "",
+    weeklyBriefingTemplate: process.env.ALIMTALK_WEEKLY_BRIEFING_TEMPLATE || "",
     erpBaseUrl: process.env.ERP_PUBLIC_URL || "https://erp.teammillimeter.com",
   },
   sc: {

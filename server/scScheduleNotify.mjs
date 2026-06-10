@@ -5,6 +5,7 @@ import {
   normalizeNotificationSettings,
   scScheduleNotifyModeAllowsRecipientType,
 } from "./notificationSettings.mjs";
+import { resolveScScheduleSiteName } from "./scScheduleSiteName.mjs";
 import { isScScheduleSourceConfigured, runScScheduleSync } from "./scScheduleSync.mjs";
 import { resolveWorkerPhone, resolveScScheduleParticipants } from "./workerPhoneMatch.mjs";
 import {
@@ -12,9 +13,10 @@ import {
   normalizeNotifyPhone,
   resolveClientContact,
   resolveClientContacts,
+  resolveClientManagerName,
 } from "./clientContacts.mjs";
 
-export { resolveClientContact };
+export { resolveClientContact, resolveClientManagerName };
 
 function nowKstParts(now = new Date()) {
   const kst = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
@@ -45,7 +47,7 @@ function listClients(data) {
 
 export function resolveClientManager(clients, scheduleOrClientId, clientName = "") {
   if (scheduleOrClientId && typeof scheduleOrClientId === "object") {
-    return resolveClientContact(clients, scheduleOrClientId).name;
+    return resolveClientManagerName(clients, scheduleOrClientId);
   }
   const list = Array.isArray(clients) ? clients : [];
   let match = list.find((row) => String(row?.id ?? "") === String(scheduleOrClientId ?? ""));
@@ -169,7 +171,7 @@ export function formatScheduleTemplateVars(
     String(clientManager || schedule?.clientManager || "").trim() || "-";
   return {
     client: String(schedule?.clientName || schedule?.projectName || "").trim(),
-    site: String(schedule?.projectName || "").trim(),
+    site: resolveScScheduleSiteName(schedule),
     clientManager: manager,
     workers: formatScheduleWorkersLabel(workers, names, schedule?.participants),
     dateTime: formatScheduleDateTime(schedule?.workDate),

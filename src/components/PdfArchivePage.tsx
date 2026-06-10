@@ -22,7 +22,7 @@ import { getSentStatementPaymentStatusLabel } from "@/utils/bankSentStatementMat
 import { isBankMatchAutoLinked, isBankMatchManualLinked } from "@/utils/bankReceivableMatch";
 import { AutoLinkBadge, ManualLinkBadge } from "@/components/AutoLinkBadge";
 import type { BankTransaction } from "@/utils/bankTransactions";
-import type { ErpUser } from "@/utils/erpApi";
+import { isApiModeEnabled, type ErpUser } from "@/utils/erpApi";
 import type { ClientMasterLike } from "@/utils/clientMaster";
 import type { TaxInvoice } from "@/utils/taxInvoices";
 import {
@@ -39,7 +39,7 @@ import {
   type PdfArchiveFolder,
   type PdfArchiveFolderSort,
 } from "@/utils/pdfArchiveFolders";
-import { isApiModeEnabled } from "@/utils/erpApi";
+import { formatKRW } from "@/utils/receivables";
 
 function formatArchiveDate(value: string) {
   if (!value) return "-";
@@ -73,11 +73,29 @@ function paymentStatusTone(status?: PdfArchiveMeta["paymentStatus"]) {
 }
 
 type SentStatementPaymentSort = "recent" | "pending-first" | "confirmed-first";
+type SentStatementPaymentFilter = "all" | "pending" | "confirmed";
 
 function sentPaymentStatusRank(status?: PdfArchiveMeta["paymentStatus"]) {
   if (status === "confirmed") return 2;
   if (status === "partial") return 1;
   return 0;
+}
+
+function isSentStatementPaymentConfirmed(status?: PdfArchiveMeta["paymentStatus"]) {
+  return status === "confirmed";
+}
+
+function isSentStatementPaymentPending(status?: PdfArchiveMeta["paymentStatus"]) {
+  return !isSentStatementPaymentConfirmed(status);
+}
+
+export function matchesSentStatementPaymentFilter(
+  record: Pick<PdfArchiveMeta, "paymentStatus">,
+  filter: SentStatementPaymentFilter,
+) {
+  if (filter === "all") return true;
+  if (filter === "confirmed") return isSentStatementPaymentConfirmed(record.paymentStatus);
+  return isSentStatementPaymentPending(record.paymentStatus);
 }
 
 function sortSentStatementRecords(records: PdfArchiveMeta[], sort: SentStatementPaymentSort) {
@@ -100,6 +118,10 @@ function sortSentStatementRecords(records: PdfArchiveMeta[], sort: SentStatement
     return String(b.createdAt).localeCompare(String(a.createdAt));
   });
   return sorted;
+}
+
+function sumSentStatementTotalAmount(records: PdfArchiveMeta[]) {
+  return records.reduce((sum, record) => sum + Math.round(Number(record.statementTotalAmount || 0)), 0);
 }
 
 function isArchiveAutoLinked(record: PdfArchiveMeta, bankTxById: Map<string, BankTransaction>) {
@@ -175,6 +197,7 @@ export function PdfArchivePage({
   const [endDate, setEndDate] = useState("");
   const [folderSort, setFolderSort] = useState<PdfArchiveFolderSort>("updated");
   const [sentPaymentSort, setSentPaymentSort] = useState<SentStatementPaymentSort>("recent");
+  const [sentPaymentFilter, setSentPaymentFilter] = useState<SentStatementPaymentFilter>("all");
   const [expandedFolderIds, setExpandedFolderIds] = useState<string[]>([]);
   const [bulkWorking, setBulkWorking] = useState<"download" | "clear" | null>(null);
   const [confirmAction, setConfirmAction] = useState<"download" | "clear" | null>(null);
@@ -232,18 +255,34 @@ export function PdfArchivePage({
   );
 
   const sentRecords = useMemo(
-    () => sortSentStatementRecords(filteredRecords.filter((record) => record.sentViaLink), sentPaymentSort),
-    [filteredRecords, sentPaymentSort],
+    () =>
+      sortSentStatementRecords(
+        filteredRecords.filter(
+          (record) => record.sentViaLink && matchesSentStatementPaymentFilter(record, sentPaymentFilter),
+        ),
+        sentPaymentSort,
+      ),
+    [filteredRecords, sentPaymentFilter, sentPaymentSort],
+  );
+
+  const sentRecordsAll = useMemo(
+    () => filteredRecords.filter((record) => record.sentViaLink),
+    [filteredRecords],
   );
 
   const sentPaymentStats = useMemo(() => {
-    const sent = filteredRecords.filter((record) => record.sentViaLink);
+    const sent = sentRecordsAll;
+    const pendingRecords = sent.filter((record) => isSentStatementPaymentPending(record.paymentStatus));
+    const confirmedRecords = sent.filter((record) => isSentStatementPaymentConfirmed(record.paymentStatus));
     return {
-      pending: sent.filter((record) => !record.paymentStatus || record.paymentStatus === "pending").length,
+      all: sent.length,
+      pending: pendingRecords.length,
       partial: sent.filter((record) => record.paymentStatus === "partial").length,
-      confirmed: sent.filter((record) => record.paymentStatus === "confirmed").length,
+      confirmed: confirmedRecords.length,
+      pendingAmount: sumSentStatementTotalAmount(pendingRecords),
+      confirmedAmount: sumSentStatementTotalAmount(confirmedRecords),
     };
-  }, [filteredRecords]);
+  }, [sentRecordsAll]);
 
   const bankTxById = useMemo(
     () => new Map(bankTransactions.map((row) => [row.id, row])),
@@ -286,6 +325,7 @@ export function PdfArchivePage({
     setQuery("");
     setStartDate("");
     setEndDate("");
+    setSentPaymentFilter("all");
   };
 
   const toggleFolderExpanded = (folderId: string) => {
@@ -479,7 +519,13 @@ export function PdfArchivePage({
       return <p className="erp-statement-folder-empty">{"\uBD88\uB7EC\uC624\uB294 \uC911..."}</p>;
     }
     if (!sentRecords.length) {
-      return <p className="erp-statement-folder-empty">{"\uB9C1\uD06C \uBCF4\uB0B4\uAE30\uB85C \uBC1C\uC1A1\uD55C \uB0B4\uC5ED\uC11C\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4."}</p>;
+      const emptyLabel =
+        sentPaymentFilter === "pending"
+          ? "\uC785\uAE08\uB300\uAE30 \uB0B4\uC5ED\uC11C\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4."
+          : sentPaymentFilter === "confirmed"
+            ? "\uC785\uAE08\uD655\uC778 \uB0B4\uC5ED\uC11C\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4."
+            : "\uB9C1\uD06C \uBCF4\uB0B4\uAE30\uB85C \uBC1C\uC1A1\uD55C \uB0B4\uC5ED\uC11C\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.";
+      return <p className="erp-statement-folder-empty">{emptyLabel}</p>;
     }
 
     return (
@@ -841,25 +887,85 @@ export function PdfArchivePage({
           ) : (
             <div className="space-y-4">
               <section className="rounded-2xl border border-violet-200 bg-violet-50/30 p-3 md:p-4">
-                <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="mb-3 flex flex-col gap-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <h4 className="erp-statement-folder-column-title">{"\uBCF4\uB0B8\uB0B4\uC5ED\uC11C\uD568"}</h4>
                     <span className="erp-statement-folder-column-count">{sentRecords.length}</span>
-                    <span className="text-xs text-slate-500">
-                      {"\uC785\uAE08\uB300\uAE30 "}{sentPaymentStats.pending}
-                      {" \u00B7 \uBD80\uBD84\uC785\uAE08 "}{sentPaymentStats.partial}
-                      {" \u00B7 \uC785\uAE08\uD655\uC778 "}{sentPaymentStats.confirmed}
-                    </span>
+                    {sentPaymentFilter !== "all" ? (
+                      <span className="text-xs text-slate-500">
+                        {"\uC804\uCCB4 "}
+                        {sentPaymentStats.all}
+                        {"\uAC74 \uC911"}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-500">
+                        {"\uC785\uAE08\uB300\uAE30 "}
+                        {sentPaymentStats.pending}
+                        {sentPaymentStats.partial > 0 ? ` (\uBD80\uBD84 ${sentPaymentStats.partial})` : ""}
+                        {" \u00B7 \uC785\uAE08\uD655\uC778 "}
+                        {sentPaymentStats.confirmed}
+                      </span>
+                    )}
                   </div>
-                  <select
-                    className="erp-statement-folder-sort erp-input w-full rounded-lg border px-2 py-1 erp-text-caption sm:w-auto"
-                    value={sentPaymentSort}
-                    onChange={(event) => setSentPaymentSort(event.target.value as SentStatementPaymentSort)}
-                  >
-                    <option value="recent">{"\uC815\uB840 \u00B7 \uCD5C\uADFC\uC21C"}</option>
-                    <option value="pending-first">{"\uC815\uB840 \u00B7 \uC785\uAE08\uB300\uAE30 \uBA3C\uC800"}</option>
-                    <option value="confirmed-first">{"\uC815\uB840 \u00B7 \uC785\uAE08\uD655\uC778 \uBA3C\uC800"}</option>
-                  </select>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className={`erp-statement-view-btn ${sentPaymentFilter === "all" ? "is-active" : ""}`}
+                        onClick={() => setSentPaymentFilter("all")}
+                      >
+                        {"\uC804\uCCB4 "}
+                        {sentPaymentStats.all}
+                      </button>
+                      <button
+                        type="button"
+                        className={`erp-statement-view-btn ${sentPaymentFilter === "pending" ? "is-active" : ""}`}
+                        onClick={() => setSentPaymentFilter("pending")}
+                      >
+                        {"\uC785\uAE08\uB300\uAE30 "}
+                        {sentPaymentStats.pending}
+                      </button>
+                      <button
+                        type="button"
+                        className={`erp-statement-view-btn ${sentPaymentFilter === "confirmed" ? "is-active" : ""}`}
+                        onClick={() => setSentPaymentFilter("confirmed")}
+                      >
+                        {"\uC785\uAE08\uD655\uC778 "}
+                        {sentPaymentStats.confirmed}
+                      </button>
+                    </div>
+                    <select
+                      className="erp-statement-folder-sort erp-input w-full rounded-lg border px-2 py-1 erp-text-caption sm:w-auto"
+                      value={sentPaymentSort}
+                      onChange={(event) => setSentPaymentSort(event.target.value as SentStatementPaymentSort)}
+                    >
+                      <option value="recent">{"\uC815\uB840 \u00B7 \uCD5C\uADFC\uC21C"}</option>
+                      <option value="pending-first">{"\uC815\uB840 \u00B7 \uC785\uAE08\uB300\uAE30 \uBA3C\uC800"}</option>
+                      <option value="confirmed-first">{"\uC815\uB840 \u00B7 \uC785\uAE08\uD655\uC778 \uBA3C\uC800"}</option>
+                    </select>
+                  </div>
+                  <div className="erp-receivable-totals-bar erp-pdf-archive-sent-totals-bar">
+                    <div className="erp-receivable-totals-group">
+                      <div className="erp-receivable-totals-items">
+                        <div className="erp-receivable-totals-item">
+                          <span>{"\uC785\uAE08\uB300\uAE30 \uCD1D\uACC4"}</span>
+                          <b className="text-amber-800">{formatKRW(sentPaymentStats.pendingAmount)}</b>
+                          <span className="text-xs font-normal text-slate-500">
+                            ({sentPaymentStats.pending}
+                            {"\uAC74"})
+                          </span>
+                        </div>
+                        <div className="erp-receivable-totals-item">
+                          <span>{"\uC785\uAE08\uD655\uC778 \uCD1D\uACC4"}</span>
+                          <b className="text-emerald-700">{formatKRW(sentPaymentStats.confirmedAmount)}</b>
+                          <span className="text-xs font-normal text-slate-500">
+                            ({sentPaymentStats.confirmed}
+                            {"\uAC74"})
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 {renderSentStatementList()}
               </section>

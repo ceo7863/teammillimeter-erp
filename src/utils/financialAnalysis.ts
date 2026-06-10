@@ -1,10 +1,19 @@
 import { isTertiaryAccountCode } from "./accountCodeTree";
 import { buildBankAccountSummaries, type BankTransaction } from "./bankTransactions";
-import { getMonthKey, monthRangeForKey, shiftMonthKey, todayISO } from "./companyLedger";
+import {
+  getMonthKey,
+  monthRangeForKey,
+  shiftMonthKey,
+  todayISO,
+  type FixedExpense,
+  type FixedExpensePayment,
+} from "./companyLedger";
 import {
   findAccountCodeByCode,
   resolveAccountCodeLabel,
+  resolveFixedExpenseAccountCode,
   type AccountCode,
+  type LedgerCategory,
   type LedgerEntry,
 } from "./ledgerSystem";
 import {
@@ -598,7 +607,243 @@ export function collectAnalysisMonthKeys(
   return [...keys].sort((a, b) => b.localeCompare(a)).slice(0, limit).reverse();
 }
 
-export type CustomAnalysisGroupMode = "category" | "account" | "parentGroup" | "counterparty";
+export type CustomAnalysisGroupMode =
+  | "account"
+  | "classificationAccount"
+  | "fixedItem"
+  | "parentGroup"
+  | "counterparty"
+  | "category";
+
+export type PeriodAccountSummaryRow = {
+  accountCode: string;
+  accountName: string;
+  parentGroup: string;
+  income: number;
+  expense: number;
+  net: number;
+  count: number;
+  isUncategorized: boolean;
+};
+
+export type LedgerSourceBreakdownRow = {
+  key: string;
+  label: string;
+  income: number;
+  expense: number;
+  count: number;
+};
+
+export type FixedExpenseAnalysisRow = {
+  key: string;
+  itemId: string;
+  itemName: string;
+  classificationAccount: string;
+  accountCode: string;
+  accountLabel: string;
+  amount: number;
+  paymentCount: number;
+  bankLinkedCount: number;
+};
+
+function filterConfirmedEntriesInRange(entries: LedgerEntry[], dateFrom: string, dateTo: string) {
+  return entries.filter(
+    (row) => row.status === "confirmed" && inDateRange(row.date, dateFrom || "", dateTo || ""),
+  );
+}
+
+export function buildPeriodAccountSummary(
+  entries: LedgerEntry[],
+  accountCodes: AccountCode[],
+  dateFrom: string,
+  dateTo: string,
+): PeriodAccountSummaryRow[] {
+  const bucket = new Map<string, PeriodAccountSummaryRow>();
+
+  for (const row of filterConfirmedEntriesInRange(entries, dateFrom, dateTo)) {
+    const uncategorized = isUncategorizedEntry(row);
+    const accountCode = uncategorized ? "900" : String(row.accountCode || "900").trim();
+    const accountName = uncategorized
+      ? row.flow === "income"
+        ? UNCLASSIFIED_INCOME_LABEL
+        : UNCLASSIFIED_EXPENSE_LABEL
+      : resolveAccountCodeLabel(accountCodes, accountCode) || row.accountName || accountCode;
+    const parentGroup = uncategorized ? "\uBBF8\uBD84\uB958" : resolveParentGroup(accountCodes, accountCode);
+    const current = bucket.get(accountCode) || {
+      accountCode,
+      accountName,
+      parentGroup,
+      income: 0,
+      expense: 0,
+      net: 0,
+      count: 0,
+      isUncategorized: uncategorized,
+    };
+    if (row.flow === "income") current.income += row.amount;
+    else current.expense += row.amount;
+    current.net = current.income - current.expense;
+    current.count += 1;
+    bucket.set(accountCode, current);
+  }
+
+  return [...bucket.values()].sort((a, b) => b.expense + b.income - (a.expense + a.income));
+}
+
+export function buildLedgerSourceBreakdown(
+  entries: LedgerEntry[],
+  dateFrom: string,
+  dateTo: string,
+): LedgerSourceBreakdownRow[] {
+  const bucket = new Map<string, LedgerSourceBreakdownRow>();
+
+  for (const row of filterConfirmedEntriesInRange(entries, dateFrom, dateTo)) {
+    const key = row.fixedExpenseId ? "fixed" : row.source === "bank" ? "bank" : "manual";
+    const label = row.fixedExpenseId
+      ? "\uACE0\uC815\uBE44"
+      : row.source === "bank"
+        ? "\uD1B5\uC7A5 \uC5F0\uB3D9"
+        : "\uC218\uAE30 \uBCC0\uB3D9";
+    const current = bucket.get(key) || { key, label, income: 0, expense: 0, count: 0 };
+    if (row.flow === "income") current.income += row.amount;
+    else current.expense += row.amount;
+    current.count += 1;
+    bucket.set(key, current);
+  }
+
+  return [...bucket.values()].sort((a, b) => b.expense + b.income - (a.expense + a.income));
+}
+
+export function buildFixedExpenseAnalysisRows(
+  fixedExpenses: FixedExpense[],
+  fixedExpensePayments: FixedExpensePayment[],
+  ledgerCategories: LedgerCategory[],
+  accountCodes: AccountCode[],
+  dateFrom: string,
+  dateTo: string,
+): FixedExpenseAnalysisRow[] {
+  const itemById = new Map(fixedExpenses.map((row) => [row.id, row]));
+  const bucket = new Map<string, FixedExpenseAnalysisRow>();
+
+  for (const payment of fixedExpensePayments) {
+    if (!inDateRange(String(payment.date || "").slice(0, 10), dateFrom, dateTo)) continue;
+    const item = itemById.get(payment.fixedExpenseId);
+    if (!item) continue;
+
+    const accountCode = resolveFixedExpenseAccountCode(item, ledgerCategories);
+    const accountLabel = resolveAccountCodeLabel(accountCodes, accountCode) || accountCode;
+    const classificationAccount = String(item.category || payment.category || "").trim() || "-";
+    const key = item.id;
+    const current = bucket.get(key) || {
+      key,
+      itemId: item.id,
+      itemName: item.name,
+      classificationAccount,
+      accountCode,
+      accountLabel,
+      amount: 0,
+      paymentCount: 0,
+      bankLinkedCount: 0,
+    };
+    current.amount += Number(payment.amount) || 0;
+    current.paymentCount += 1;
+    if (payment.bankTransactionId) current.bankLinkedCount += 1;
+    bucket.set(key, current);
+  }
+
+  return [...bucket.values()].sort((a, b) => b.amount - a.amount);
+}
+
+export type AccountTrendSeries = {
+  accountCode: string;
+  label: string;
+  monthlyAmounts: Record<string, number>;
+  total: number;
+};
+
+export function buildAccountTrendSeries(
+  entries: LedgerEntry[],
+  accountCodes: AccountCode[],
+  monthKeys: string[],
+  selectedAccountCodes: string[],
+  flow?: "income" | "expense",
+): AccountTrendSeries[] {
+  const selected = new Set(selectedAccountCodes);
+  if (!selected.size || !monthKeys.length) return [];
+
+  const monthSet = new Set(monthKeys);
+  const buckets = new Map<string, AccountTrendSeries>();
+
+  for (const code of selected) {
+    const accountRow = findAccountCodeByCode(accountCodes, code);
+    buckets.set(code, {
+      accountCode: code,
+      label: accountRow?.name || resolveAccountCodeLabel(accountCodes, code) || code,
+      monthlyAmounts: emptyMonthlyAmounts(monthKeys),
+      total: 0,
+    });
+  }
+
+  for (const row of entries.filter((item) => item.status === "confirmed")) {
+    if (flow && row.flow !== flow) continue;
+    const monthKey = getMonthKey(row.date);
+    if (!monthKey || !monthSet.has(monthKey)) continue;
+
+    const accountCode = String(row.accountCode || "900").trim();
+    const current = buckets.get(accountCode);
+    if (!current) continue;
+
+    current.monthlyAmounts[monthKey] = (current.monthlyAmounts[monthKey] || 0) + row.amount;
+    current.total += row.amount;
+  }
+
+  return [...buckets.values()].sort((a, b) => a.accountCode.localeCompare(b.accountCode, "ko"));
+}
+
+export type MonthlyAccountTrendRow = {
+  monthKey: string;
+  label: string;
+  expense: number;
+  income: number;
+  net: number;
+};
+
+export function buildMonthlyAccountTrendRows(
+  entries: LedgerEntry[],
+  monthKeys: string[],
+  selectedAccountCodes: string[],
+): MonthlyAccountTrendRow[] {
+  const selected = new Set(selectedAccountCodes);
+  if (!selected.size || !monthKeys.length) return [];
+
+  const monthSet = new Set(monthKeys);
+  const buckets = new Map<string, MonthlyAccountTrendRow>();
+
+  for (const mk of monthKeys) {
+    buckets.set(mk, {
+      monthKey: mk,
+      label: `${Number(mk.slice(5))}\uC6D4`,
+      expense: 0,
+      income: 0,
+      net: 0,
+    });
+  }
+
+  for (const row of entries.filter((item) => item.status === "confirmed")) {
+    const monthKey = getMonthKey(row.date);
+    if (!monthKey || !monthSet.has(monthKey)) continue;
+    const accountCode = String(row.accountCode || "900").trim();
+    if (!selected.has(accountCode)) continue;
+
+    const bucket = buckets.get(monthKey);
+    if (!bucket) continue;
+
+    if (row.flow === "income") bucket.income += row.amount;
+    else bucket.expense += row.amount;
+    bucket.net = bucket.income - bucket.expense;
+  }
+
+  return monthKeys.map((mk) => buckets.get(mk)!);
+}
 
 export type CustomAnalysisRow = {
   key: string;
@@ -615,17 +860,30 @@ export function buildCustomAnalysisBreakdown(
   dateFrom: string,
   dateTo: string,
   groupBy: CustomAnalysisGroupMode,
+  fixedExpenses: FixedExpense[] = [],
 ): CustomAnalysisRow[] {
   const bucket = new Map<string, CustomAnalysisRow>();
+  const fixedById = new Map(fixedExpenses.map((row) => [row.id, row]));
 
-  for (const row of entries.filter((item) => item.status === "confirmed")) {
-    if (!inDateRange(row.date, dateFrom, dateTo)) continue;
-
+  for (const row of filterConfirmedEntriesInRange(entries, dateFrom, dateTo)) {
     let key: string;
     let label: string;
     if (groupBy === "category") {
       key = row.categoryId || row.categoryName;
       label = row.categoryName || "\uBBF8\uBD84\uB958";
+    } else if (groupBy === "classificationAccount") {
+      const fixedItem = row.fixedExpenseId ? fixedById.get(row.fixedExpenseId) : undefined;
+      label = fixedItem?.category?.trim() || row.categoryName || "\uBBF8\uBD84\uB958";
+      key = label;
+    } else if (groupBy === "fixedItem") {
+      const fixedItem = row.fixedExpenseId ? fixedById.get(row.fixedExpenseId) : undefined;
+      if (fixedItem) {
+        key = fixedItem.id;
+        label = fixedItem.name;
+      } else {
+        key = row.id;
+        label = row.description || row.categoryName || "\uBCC0\uB3D9 \uC9C0\uCD9C";
+      }
     } else if (groupBy === "account") {
       if (isUncategorizedEntry(row)) {
         key = "__uncategorized__";

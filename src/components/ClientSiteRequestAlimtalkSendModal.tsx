@@ -6,6 +6,13 @@ import type { ClientMasterLike } from "@/utils/clientMaster";
 import { listScScheduleClientContacts } from "@/utils/clientContacts";
 import type { ScSchedule } from "@/utils/scSchedules";
 import { useBodyScrollLock } from "@/utils/bodyScrollLock";
+import {
+  buildScScheduleAlimtalkClientContactSelection,
+  normalizeScScheduleAlimtalkClientKey,
+  saveScScheduleAlimtalkClientContactPref,
+  saveScScheduleAlimtalkClientContactPrefs,
+  scScheduleAlimtalkContactPrefKey,
+} from "@/utils/scScheduleAlimtalkRecipientPrefs";
 
 const L = {
   title: "\uC54C\uB9BC\uD1A1 \uBCF4\uB0B4\uAE30",
@@ -49,16 +56,25 @@ export function ClientSiteRequestAlimtalkSendModal({
     [clients, schedule],
   );
   const reachable = useMemo(() => contacts.filter((row) => row.phoneNormalized), [contacts]);
+  const clientKey = useMemo(
+    () => normalizeScScheduleAlimtalkClientKey(schedule?.clientId, contacts[0]?.clientName || schedule?.clientName),
+    [schedule?.clientId, schedule?.clientName, contacts],
+  );
   const [selected, setSelected] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    if (!open) return;
-    const next: Record<string, boolean> = {};
-    for (const row of reachable) {
-      next[contactKey(row.contactId, row.phoneNormalized)] = true;
-    }
-    setSelected(next);
-  }, [open, schedule?.id, reachable]);
+    if (!open || !clientKey) return;
+    setSelected(
+      buildScScheduleAlimtalkClientContactSelection(
+        clientKey,
+        reachable.map((row) => ({
+          contactId: row.contactId,
+          phoneNormalized: row.phoneNormalized,
+          name: row.name,
+        })),
+      ),
+    );
+  }, [open, schedule?.id, clientKey, reachable]);
 
   useBodyScrollLock(open);
 
@@ -69,16 +85,30 @@ export function ClientSiteRequestAlimtalkSendModal({
     String(schedule.clientName || schedule.projectName || schedule.workType || "").trim() ||
     "-";
 
-  const toggle = (key: string, checked: boolean) => {
-    setSelected((current) => ({ ...current, [key]: checked }));
+  const toggle = (row: (typeof contacts)[number], checked: boolean) => {
+    const uiKey = contactKey(row.contactId, row.phoneNormalized);
+    setSelected((current) => ({ ...current, [uiKey]: checked }));
+    if (!clientKey) return;
+    saveScScheduleAlimtalkClientContactPref(
+      clientKey,
+      scScheduleAlimtalkContactPrefKey(row.contactId, row.phoneNormalized, row.name),
+      checked,
+    );
   };
 
   const selectAll = () => {
     const next: Record<string, boolean> = {};
+    const entries: Array<{ contactKey: string; selected: boolean }> = [];
     for (const row of reachable) {
-      next[contactKey(row.contactId, row.phoneNormalized)] = true;
+      const uiKey = contactKey(row.contactId, row.phoneNormalized);
+      next[uiKey] = true;
+      entries.push({
+        contactKey: scScheduleAlimtalkContactPrefKey(row.contactId, row.phoneNormalized, row.name),
+        selected: true,
+      });
     }
     setSelected(next);
+    if (clientKey) saveScScheduleAlimtalkClientContactPrefs(clientKey, entries);
   };
 
   const handleConfirm = () => {
@@ -88,6 +118,15 @@ export function ClientSiteRequestAlimtalkSendModal({
     if (!phones.length) {
       window.alert(L.noneSelected);
       return;
+    }
+    if (clientKey) {
+      saveScScheduleAlimtalkClientContactPrefs(
+        clientKey,
+        reachable.map((row) => ({
+          contactKey: scScheduleAlimtalkContactPrefKey(row.contactId, row.phoneNormalized, row.name),
+          selected: Boolean(selected[contactKey(row.contactId, row.phoneNormalized)]),
+        })),
+      );
     }
     onConfirm(phones);
   };
@@ -141,7 +180,7 @@ export function ClientSiteRequestAlimtalkSendModal({
                         className="mt-1"
                         checked={Boolean(selected[key])}
                         disabled={disabled || sending}
-                        onChange={(event) => toggle(key, event.target.checked)}
+                                onChange={(event) => toggle(row, event.target.checked)}
                       />
                       <span className="erp-csr-cal-alimtalk-contact-body">
                         <span className="erp-csr-cal-alimtalk-contact-name">

@@ -309,6 +309,15 @@ export function formatBankTransactionDateTime(iso: string) {
   return text.slice(0, 10);
 }
 
+/** 통장 목록 등 좁은 칸용 (연 2자리) */
+export function formatBankTransactionDateTimeCompact(iso: string) {
+  if (!iso) return "-";
+  const text = String(iso);
+  if (text.length >= 16) return `${text.slice(2, 10)} ${text.slice(11, 16)}`;
+  if (text.length >= 10) return text.slice(2, 10);
+  return text;
+}
+
 export type BankAccountSummary = {
   accountNumber: string;
   bankName: string;
@@ -513,15 +522,64 @@ function normalizeLedgerMergeValue(value: unknown, key?: (typeof LEDGER_MERGE_FI
   return value;
 }
 
+const LEDGER_COALESCE_NON_EMPTY_KEYS = new Set([
+  "ledgerAccountCode",
+  "ledgerMemo",
+  "ledgerCategoryId",
+  "ledgerFixedExpenseId",
+  "ledgerStatus",
+]);
+
 function pickLedgerMergeField(
   primary: LedgerMergeRow,
   fallback: LedgerMergeRow,
   key: (typeof LEDGER_MERGE_FIELD_KEYS)[number],
 ) {
-  if (primary && Object.prototype.hasOwnProperty.call(primary, key)) {
-    return normalizeLedgerMergeValue(primary[key], key);
+  const primaryValue =
+    primary && Object.prototype.hasOwnProperty.call(primary, key)
+      ? normalizeLedgerMergeValue(primary[key], key)
+      : undefined;
+  const fallbackValue = normalizeLedgerMergeValue(fallback?.[key], key);
+
+  if (key === "ledgerClientName") {
+    if (primary && Object.prototype.hasOwnProperty.call(primary, key)) {
+      return primaryValue;
+    }
+    return fallbackValue;
   }
-  return normalizeLedgerMergeValue(fallback?.[key], key);
+
+  if (LEDGER_COALESCE_NON_EMPTY_KEYS.has(key)) {
+    return primaryValue !== undefined ? primaryValue : fallbackValue;
+  }
+
+  return primaryValue !== undefined ? primaryValue : fallbackValue;
+}
+
+function mergeTaxInvoiceLinkFields(local: BankTransaction, incoming: BankTransaction) {
+  if (incoming.taxInvoiceAutoLinkDisabled) {
+    const incomingIds = normalizeLinkedTaxInvoiceIds(incoming) || [];
+    return {
+      linkedTaxInvoiceIds: incomingIds.length ? incomingIds : undefined,
+      linkedTaxInvoiceId: incomingIds[0],
+      taxInvoiceAutoLinkDisabled: true,
+    };
+  }
+  if (local.taxInvoiceAutoLinkDisabled) {
+    const localIds = normalizeLinkedTaxInvoiceIds(local) || [];
+    return {
+      linkedTaxInvoiceIds: localIds.length ? localIds : undefined,
+      linkedTaxInvoiceId: localIds[0],
+      taxInvoiceAutoLinkDisabled: true,
+    };
+  }
+  const localIds = normalizeLinkedTaxInvoiceIds(local) || [];
+  const incomingIds = normalizeLinkedTaxInvoiceIds(incoming) || [];
+  const ids = [...new Set([...localIds, ...incomingIds])];
+  return {
+    linkedTaxInvoiceIds: ids.length ? ids : undefined,
+    linkedTaxInvoiceId: ids[0],
+    taxInvoiceAutoLinkDisabled: local.taxInvoiceAutoLinkDisabled ?? incoming.taxInvoiceAutoLinkDisabled,
+  };
 }
 
 export function mergeBankTransactionLedgerFields(local: LedgerMergeRow, incoming: LedgerMergeRow): LedgerMergeRow {
@@ -645,15 +703,7 @@ export function mergeRemoteBankTransactionRow(local: BankTransaction, incoming: 
 
   const ledgerMerge = mergeBankTransactionLedgerFields(local, incoming);
   const linkedSubject = resolveMergedLinkedSubject(local, incoming, ledgerMerge);
-  const taxInvoiceMerge = {
-    linkedTaxInvoiceIds: local.taxInvoiceAutoLinkDisabled
-      ? local.linkedTaxInvoiceIds
-      : local.linkedTaxInvoiceIds ?? incoming.linkedTaxInvoiceIds,
-    linkedTaxInvoiceId: local.taxInvoiceAutoLinkDisabled
-      ? local.linkedTaxInvoiceId
-      : local.linkedTaxInvoiceId ?? incoming.linkedTaxInvoiceId,
-    taxInvoiceAutoLinkDisabled: local.taxInvoiceAutoLinkDisabled ?? incoming.taxInvoiceAutoLinkDisabled,
-  };
+  const taxInvoiceMerge = mergeTaxInvoiceLinkFields(local, incoming);
 
   if (!shouldPreferLocalBankTransactionMerge(local, incoming)) {
     return {

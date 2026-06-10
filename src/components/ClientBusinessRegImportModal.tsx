@@ -4,13 +4,23 @@ import { Button } from "@/components/ui/button";
 import type { ClientFormState } from "@/components/ClientFormModal";
 import {
   BUSINESS_REG_IMPORT_FIELDS,
+  buildBusinessRegSuggestionDisplay,
+  buildBusinessRegSuggestions,
+  extractImportedBizClassCandidates,
+  extractImportedBizTypeCandidates,
+  cleanImportedText,
+  extractImportedCeoNameCandidates,
+  extractImportedEmailCandidates,
   mergeBusinessRegImport,
+  normalizeImportedBizField,
+  normalizeImportedCeoName,
+  normalizeImportedEmail,
   normalizeImportedBusinessNo,
-  suggestBusinessRegValues,
   type BusinessRegImportFieldKey,
 } from "@/utils/businessRegImport";
 import { extractBusinessRegistrationDocument, revokeDocumentPreviewUrl } from "@/utils/documentTextExtract";
 import { isStaleDynamicImportError } from "@/utils/dynamicImport";
+import { useBackdropPointerDismiss } from "@/utils/modalBackdrop";
 
 const L = {
   title: "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D\uC5D0\uC11C \uAC00\uC838\uC624\uAE30",
@@ -72,7 +82,15 @@ export function ClientBusinessRegImportModal({
   const [draft, setDraft] = useState<DraftPatch>({});
   const [hasSourceFile, setHasSourceFile] = useState(false);
 
-  const suggestions = useMemo(() => suggestBusinessRegValues(extractedText), [extractedText]);
+  const suggestions = useMemo(
+    () => buildBusinessRegSuggestionDisplay(extractedText, draft),
+    [extractedText, draft],
+  );
+  const emailCandidates = useMemo(() => extractImportedEmailCandidates(extractedText), [extractedText]);
+  const ceoNameCandidates = useMemo(() => extractImportedCeoNameCandidates(extractedText), [extractedText]);
+  const bizTypeCandidates = useMemo(() => extractImportedBizTypeCandidates(extractedText), [extractedText]);
+  const bizClassCandidates = useMemo(() => extractImportedBizClassCandidates(extractedText), [extractedText]);
+  const { onPointerDown, onPointerUp, isTouchDevice } = useBackdropPointerDismiss(open, onClose);
 
   const resetPreview = useCallback(() => {
     if (previewUrlRef.current) revokeDocumentPreviewUrl(previewUrlRef.current);
@@ -115,7 +133,7 @@ export function ClientBusinessRegImportModal({
       previewUrlRef.current = result.previewUrl;
       setPreviewUrl(result.previewUrl);
       setExtractedText(result.text);
-      const auto = suggestBusinessRegValues(result.text);
+      const auto = buildBusinessRegSuggestions(result.text);
       const filteredAuto = fillEmptyOnly
         ? Object.fromEntries(
             Object.entries(auto).filter(([key]) => !String(form[key as BusinessRegImportFieldKey] || "").trim()),
@@ -154,7 +172,7 @@ export function ClientBusinessRegImportModal({
   };
 
   const applySuggestionsFromText = (text: string, replaceDraft = false) => {
-    const auto = suggestBusinessRegValues(text);
+    const auto = buildBusinessRegSuggestions(text);
     const filteredAuto = fillEmptyOnly
       ? Object.fromEntries(
           Object.entries(auto).filter(([key]) => !String(form[key as BusinessRegImportFieldKey] || "").trim()),
@@ -172,7 +190,14 @@ export function ClientBusinessRegImportModal({
   };
 
   const assignToField = (key: BusinessRegImportFieldKey, value: string) => {
-    const trimmed = value.trim();
+    const trimmed =
+      key === "email"
+        ? normalizeImportedEmail(value)
+        : key === "ceoName"
+          ? normalizeImportedCeoName(value)
+          : key === "bizType" || key === "bizClass"
+            ? normalizeImportedBizField(value)
+            : cleanImportedText(value);
     if (!trimmed) return;
     if (fillEmptyOnly && String(form[key] || "").trim()) {
       setMessage(L.skippedFilled(1));
@@ -188,12 +213,37 @@ export function ClientBusinessRegImportModal({
   };
 
   const commitDraftField = (key: BusinessRegImportFieldKey) => {
-    if (key !== "businessNo") return;
-    setDraft((prev) => {
-      const raw = String(prev[key] || "").trim();
-      if (!raw) return prev;
-      return { ...prev, [key]: normalizeImportedBusinessNo(raw) };
-    });
+    if (key === "businessNo") {
+      setDraft((prev) => {
+        const raw = String(prev[key] || "").trim();
+        if (!raw) return prev;
+        return { ...prev, [key]: normalizeImportedBusinessNo(raw) };
+      });
+      return;
+    }
+    if (key === "email") {
+      setDraft((prev) => {
+        const raw = String(prev[key] || "").trim();
+        if (!raw) return prev;
+        return { ...prev, [key]: normalizeImportedEmail(raw) };
+      });
+      return;
+    }
+    if (key === "ceoName") {
+      setDraft((prev) => {
+        const raw = String(prev[key] || "").trim();
+        if (!raw) return prev;
+        return { ...prev, [key]: normalizeImportedCeoName(raw) };
+      });
+      return;
+    }
+    if (key === "bizType" || key === "bizClass") {
+      setDraft((prev) => {
+        const raw = String(prev[key] || "").trim();
+        if (!raw) return prev;
+        return { ...prev, [key]: normalizeImportedBizField(raw) };
+      });
+    }
   };
 
   const handleFieldClick = (key: BusinessRegImportFieldKey) => {
@@ -226,10 +276,15 @@ export function ClientBusinessRegImportModal({
   if (!open) return null;
 
   return (
-    <div className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated" onClick={onClose}>
+    <div
+      className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      data-touch-device={isTouchDevice ? "true" : undefined}
+    >
       <div
         className="erp-ledger-modal erp-ledger-modal--client-biz-reg-import overflow-y-auto"
-        onClick={(event) => event.stopPropagation()}
+        onPointerDown={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
         lang="ko"
@@ -317,6 +372,94 @@ export function ClientBusinessRegImportModal({
                 />
                 <p className="mt-1 erp-text-caption text-slate-500">{L.textHint}</p>
               </div>
+
+              {ceoNameCandidates.length > 1 ? (
+                <div className="rounded-xl border border-violet-200 bg-violet-50 p-3">
+                  <div className="mb-2 erp-text-caption font-bold text-violet-900">대표자/성명 줄에서 찾은 이름</div>
+                  <div className="space-y-2">
+                    {ceoNameCandidates.map(({ name }) => (
+                      <div key={name} className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="truncate text-slate-700">{name}</span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="ml-auto h-7 rounded-lg px-2 text-xs"
+                          onClick={() => assignToField("ceoName", name)}
+                        >
+                          {L.applySuggestion}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {emailCandidates.length ? (
+                <div className="rounded-xl border border-sky-200 bg-sky-50 p-3">
+                  <div className="mb-2 erp-text-caption font-bold text-sky-900">@ 포함 줄에서 찾은 이메일</div>
+                  <div className="space-y-2">
+                    {emailCandidates.map(({ email }) => (
+                      <div key={email} className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="truncate text-slate-700">{email}</span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="ml-auto h-7 rounded-lg px-2 text-xs"
+                          onClick={() => assignToField("email", email)}
+                        >
+                          {L.applySuggestion}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {bizTypeCandidates.length ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                  <div className="mb-2 erp-text-caption font-bold text-emerald-900">업태 후보</div>
+                  <div className="space-y-2">
+                    {bizTypeCandidates.map(({ value }) => (
+                      <div key={value} className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="truncate text-slate-700">{value}</span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="ml-auto h-7 rounded-lg px-2 text-xs"
+                          onClick={() => assignToField("bizType", value)}
+                        >
+                          {L.applySuggestion}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {bizClassCandidates.length ? (
+                <div className="rounded-xl border border-teal-200 bg-teal-50 p-3">
+                  <div className="mb-2 erp-text-caption font-bold text-teal-900">업종 후보</div>
+                  <div className="space-y-2">
+                    {bizClassCandidates.map(({ value }) => (
+                      <div key={value} className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="truncate text-slate-700">{value}</span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="ml-auto h-7 rounded-lg px-2 text-xs"
+                          onClick={() => assignToField("bizClass", value)}
+                        >
+                          {L.applySuggestion}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               {Object.keys(suggestions).length ? (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">

@@ -85,6 +85,7 @@ import {
   CompanyLedgerFixedExpenseModalLayer,
   type CompanyLedgerFixedExpenseModalHandle,
 } from "@/components/CompanyLedgerFixedExpenseModalLayer";
+import { FixedExpenseBankLinkModal } from "@/components/FixedExpenseBankLinkModal";
 import { AutocompleteInput, CategorySuggestInput } from "@/components/AutocompleteInput";
 import { CompanyLedgerCalendar } from "@/components/CompanyLedgerCalendar";
 import type { LedgerCalendarEntry } from "@/utils/ledgerCalendar";
@@ -349,53 +350,6 @@ function isManualRecordTypeSwitch(modal: ManualModalState) {
 type ManualLedgerRow =
   | { type: "expense"; row: CompanyExpense }
   | { type: "fixedPayment"; row: FixedExpensePayment };
-
-type FixedExpenseBankLinkRow = {
-  paymentId: string;
-  paymentDate: string;
-  paymentAmount: number;
-  linked: boolean;
-  bankTransactionId?: string;
-  bankAt?: string;
-  bankWithdrawal?: number;
-  bankDescription?: string;
-  bankCounterparty?: string;
-};
-
-function buildFixedExpenseBankLinkRows(
-  fixedExpenseId: string,
-  payments: FixedExpensePayment[],
-  bankTransactions: BankTransaction[],
-  options: { paymentId?: string } = {},
-): FixedExpenseBankLinkRow[] {
-  const bankById = new Map(bankTransactions.map((row) => [row.id, row]));
-  const bankByPaymentId = new Map(
-    bankTransactions
-      .filter((row) => row.linkedFixedExpensePaymentId)
-      .map((row) => [String(row.linkedFixedExpensePaymentId), row]),
-  );
-
-  return payments
-    .filter((row) => row.fixedExpenseId === fixedExpenseId)
-    .filter((row) => (options.paymentId ? row.id === options.paymentId : true))
-    .sort((a, b) => String(b.date).localeCompare(String(a.date)))
-    .map((payment) => {
-      const tx =
-        (payment.bankTransactionId ? bankById.get(payment.bankTransactionId) : undefined) ||
-        bankByPaymentId.get(payment.id);
-      return {
-        paymentId: payment.id,
-        paymentDate: payment.date,
-        paymentAmount: Number(payment.amount) || 0,
-        linked: Boolean(tx),
-        bankTransactionId: tx?.id,
-        bankAt: tx?.transactionAt,
-        bankWithdrawal: tx?.withdrawal,
-        bankDescription: tx?.description,
-        bankCounterparty: tx?.counterpartyName,
-      };
-    });
-}
 
 const PAYMENT_DAY_OPTIONS = Array.from({ length: 31 }, (_, index) => String(index + 1));
 
@@ -1527,16 +1481,6 @@ export function CompanyLedgerPage({
     };
   }, [manualModal, bankLinkModalOpen, bankLinkView]);
 
-  const bankLinkViewRows = useMemo(() => {
-    if (!bankLinkView) return [];
-    return buildFixedExpenseBankLinkRows(
-      bankLinkView.fixedExpenseId,
-      fixedExpensePayments || [],
-      bankTransactions,
-      { paymentId: bankLinkView.paymentId },
-    );
-  }, [bankLinkView, fixedExpensePayments, bankTransactions]);
-
   const currentMonthKey = todayISO().slice(0, 7);
   const periodFilter = useMemo(() => ledgerDateFilter(periodKey), [periodKey]);
   const periodLabel = useMemo(() => ledgerPeriodLabel(periodKey), [periodKey]);
@@ -1964,9 +1908,7 @@ export function CompanyLedgerPage({
   };
 
   const openCreateFixedExpense = () => {
-    fixedExpenseModalRef.current?.openCreateFixedExpense(
-      fixedExpenseCategories[0] || FIXED_CATEGORY_OPTIONS[0],
-    );
+    fixedExpenseModalRef.current?.openCreateFixedExpense();
   };
 
   const openEditFixedExpense = (row: FixedExpense) => {
@@ -2233,7 +2175,9 @@ export function CompanyLedgerPage({
     if (!setBankTransactions) return;
     setBankTransactions((prev) =>
       prev.map((tx) =>
-        tx.linkedFixedExpensePaymentId === paymentId ? { ...tx, linkedFixedExpensePaymentId: undefined } : tx,
+        tx.linkedFixedExpensePaymentId === paymentId
+          ? { ...tx, linkedFixedExpensePaymentId: undefined, ledgerFixedExpenseId: undefined }
+          : tx,
       ),
     );
   };
@@ -3988,111 +3932,16 @@ export function CompanyLedgerPage({
           )
         : null}
 
-      {bankLinkView && typeof document !== "undefined"
-        ? createPortal(
-            <div
-              className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
-              onMouseDown={(event) => {
-                if (event.target === event.currentTarget) setBankLinkView(null);
-              }}
-            >
-              <div
-                className="erp-ledger-modal erp-ledger-modal--bank-links"
-                onMouseDown={(event) => event.stopPropagation()}
-                onClick={(event) => event.stopPropagation()}
-                role="dialog"
-                aria-modal="true"
-                aria-label={L.viewBankLinksTitle}
-              >
-                <div className="erp-bank-links-modal-head">
-                  <div className="min-w-0">
-                    <h2 className="erp-text-section font-bold">{L.viewBankLinksTitle}</h2>
-                    <p className="mt-1 erp-text-caption text-slate-500">{L.viewBankLinksDesc}</p>
-                    <p className="mt-2 truncate text-sm font-bold text-slate-900">{bankLinkView.title}</p>
-                  </div>
-                  <button
-                    type="button"
-                    className="shrink-0 rounded-xl p-2 text-slate-400 hover:bg-slate-100"
-                    onClick={() => setBankLinkView(null)}
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
-
-                <div className="erp-bank-links-table-wrap">
-                  <table className="erp-bank-links-table">
-                    <colgroup>
-                      <col className="erp-bank-links-table__col-date" />
-                      <col className="erp-bank-links-table__col-amount" />
-                      <col className="erp-bank-links-table__col-status" />
-                      <col className="erp-bank-links-table__col-tx" />
-                      <col className="erp-bank-links-table__col-amount" />
-                      <col className="erp-bank-links-table__col-desc" />
-                      <col className="erp-bank-links-table__col-party" />
-                    </colgroup>
-                    <thead>
-                      <tr>
-                        <th>{L.viewBankLinksPaymentDate}</th>
-                        <th className="text-right">{L.viewBankLinksPaymentAmount}</th>
-                        <th>{L.viewBankLinksStatus}</th>
-                        <th>{L.viewBankLinksTxAt}</th>
-                        <th className="text-right">{L.viewBankLinksWithdrawal}</th>
-                        <th>{L.viewBankLinksDescription}</th>
-                        <th>{L.viewBankLinksCounterparty}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {bankLinkViewRows.length ? (
-                        bankLinkViewRows.map((row) => (
-                          <tr key={row.paymentId}>
-                            <td>{row.paymentDate}</td>
-                            <td className="text-right font-semibold text-rose-600">
-                              {formatKRW(row.paymentAmount)}
-                            </td>
-                            <td>
-                              <span
-                                className={
-                                  row.linked ? "font-semibold text-emerald-700" : "font-semibold text-amber-700"
-                                }
-                              >
-                                {row.linked ? L.viewBankLinksLinked : L.viewBankLinksUnlinked}
-                              </span>
-                            </td>
-                            <td className="text-slate-600">
-                              {row.bankAt ? formatBankTransactionDateTime(row.bankAt) : "-"}
-                            </td>
-                            <td className="text-right font-semibold text-red-600">
-                              {row.bankWithdrawal ? formatKRW(row.bankWithdrawal) : "-"}
-                            </td>
-                            <td className="font-medium text-slate-900" title={row.bankDescription || undefined}>
-                              {row.bankDescription || "-"}
-                            </td>
-                            <td className="text-slate-700" title={row.bankCounterparty || undefined}>
-                              {row.bankCounterparty || "-"}
-                            </td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={7} className="erp-bank-links-table__empty">
-                            {L.viewBankLinksEmpty}
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="erp-bank-links-modal-foot">
-                  <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setBankLinkView(null)}>
-                    {L.cancel}
-                  </Button>
-                </div>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
+      {bankLinkView ? (
+        <FixedExpenseBankLinkModal
+          fixedExpenseId={bankLinkView.fixedExpenseId}
+          title={bankLinkView.title}
+          paymentId={bankLinkView.paymentId}
+          fixedExpensePayments={fixedExpensePayments || []}
+          bankTransactions={bankTransactions}
+          onClose={() => setBankLinkView(null)}
+        />
+      ) : null}
 
       <ExpenseCategoryManageModal
         open={categoryManageOpen}

@@ -1,7 +1,7 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { config } from "./config.mjs";
-import { findUserByLoginId, findUserByEmail, parseSidebarOrder, parseAttendanceViewUserIds } from "./db.mjs";
+import { findUserByLoginId, findUserByEmail, parseSidebarHidden, parseSidebarOrder, parseAttendanceViewUserIds } from "./db.mjs";
 
 function publicEmail(email) {
   const value = String(email || "").trim();
@@ -53,6 +53,7 @@ export function authenticateUser(identifier, password) {
       }
     })(),
     sidebarOrder: parseSidebarOrder(user.sidebar_order),
+    sidebarHidden: parseSidebarHidden(user.sidebar_hidden),
     attendanceViewUserIds: parseAttendanceViewUserIds(user.attendance_view_user_ids),
   };
 }

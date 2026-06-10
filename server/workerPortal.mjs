@@ -2,6 +2,13 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { config } from "./config.mjs";
 import { getErpState, saveErpState } from "./db.mjs";
+import {
+  getWorkerPortalStatementStartDate,
+  getWorkerProbationEndDate,
+  isWorkerInProbationForPortal,
+  resolveWorkerPortalCalendarMonthPeriod,
+  saleDateEligibleForWorkerPortal,
+} from "../src/utils/workerPortalProbation.ts";
 
 const MAX_PORTAL_LOGIN_LOGS = 3000;
 
@@ -237,7 +244,9 @@ function calculateWorkerLineMetrics(line, feeRate = 0) {
 }
 
 function saleWorkerLines(sale) {
-  if (sale.workers?.length) return sale.workers;
+  if (sale.workers?.length) {
+    return sale.workers.filter((line) => String(line.worker || "").trim());
+  }
   if (!sale.worker) return [];
   return String(sale.worker || "")
     .split(",")
@@ -249,7 +258,7 @@ function saleWorkerLines(sale) {
       meal: "",
       overtimeHours: "",
       overtimeCost: "30000",
-      memo: sale.memo || "",
+      memo: "",
     }))
     .filter((line) => line.worker);
 }
@@ -294,7 +303,7 @@ function flattenSalesToWorkerPaymentRows(sales = [], workersMaster = []) {
         netPay: totalPay - fee,
         bill: metrics.bill,
         margin: metrics.margin,
-        memo: String(line.memo || sale.memo || "").trim(),
+        memo: String(line.memo || "").trim(),
       };
     });
   });
@@ -313,13 +322,24 @@ function lineBelongsToWorker(lineWorker, canonicalName, workers) {
   return resolved === canonicalName || normalizeWorkerName(lineWorker) === canonicalName;
 }
 
-export function buildWorkerPortalMonths(workerName, sales = [], workers = []) {
+function resolveWorkerPortalRecord(workers = [], workerName) {
   const canonicalName = resolveWorkerListName(workers, workerName) || normalizeWorkerName(workerName);
+  const workerRecord =
+    workers.find((w) => normalizeWorkerName(w.name) === canonicalName) ||
+    findWorkerMasterByListName(workers, canonicalName);
+  return { canonicalName, workerRecord };
+}
+
+export function buildWorkerPortalMonths(workerName, sales = [], workers = []) {
+  const { canonicalName, workerRecord } = resolveWorkerPortalRecord(workers, workerName);
+  if (isWorkerInProbationForPortal(workerRecord)) return [];
+
   const months = new Set();
   for (const sale of sales) {
     const date = String(sale.date || "");
     const monthKey = date.slice(0, 7);
     if (!/^\d{4}-\d{2}$/.test(monthKey)) continue;
+    if (!saleDateEligibleForWorkerPortal(date, workerRecord)) continue;
     const lines = saleWorkerLines(sale);
     if (lines.some((line) => lineBelongsToWorker(line.worker, canonicalName, workers))) {
       months.add(monthKey);
@@ -328,19 +348,64 @@ export function buildWorkerPortalMonths(workerName, sales = [], workers = []) {
   return [...months].sort((a, b) => b.localeCompare(a));
 }
 
+export function buildWorkerPortalProbationMeta(workerName, workers = []) {
+  const { workerRecord } = resolveWorkerPortalRecord(workers, workerName);
+  const probationActive = isWorkerInProbationForPortal(workerRecord);
+  const statementStartDate = getWorkerPortalStatementStartDate(workerRecord);
+  const probationEndDate = getWorkerProbationEndDate(workerRecord);
+  return { probationActive, statementStartDate, probationEndDate };
+}
+
 export function buildWorkerPortalStatement(workerName, monthKey, erpState = {}) {
   const workers = Array.isArray(erpState.workers) ? erpState.workers : [];
   const sales = Array.isArray(erpState.sales) ? erpState.sales : [];
-  const canonicalName = resolveWorkerListName(workers, workerName) || normalizeWorkerName(workerName);
-  const workerRecord =
-    workers.find((w) => normalizeWorkerName(w.name) === canonicalName) ||
-    findWorkerMasterByListName(workers, canonicalName);
+  const { canonicalName, workerRecord } = resolveWorkerPortalRecord(workers, workerName);
 
-  const periodStart = `${monthKey}-01`;
-  const match = /^(\d{4})-(\d{2})$/.exec(String(monthKey || ""));
-  const periodEnd = match
-    ? `${monthKey}-${String(new Date(Number(match[1]), Number(match[2]), 0).getDate()).padStart(2, "0")}`
-    : monthKey;
+  const resolvedPeriod = resolveWorkerPortalCalendarMonthPeriod(monthKey, workerRecord);
+  const periodStart = resolvedPeriod?.periodStart || `${monthKey}-01`;
+  const periodEnd = resolvedPeriod?.periodEnd || monthKey;
+
+  if (!resolvedPeriod || isWorkerInProbationForPortal(workerRecord)) {
+    const workerInfo = workerRecord
+      ? {
+          id: workerRecord.id,
+          name: normalizeWorkerName(workerRecord.name),
+          phone: String(workerRecord.phone || "").trim(),
+          bank: String(workerRecord.bank || "").trim(),
+          account: String(workerRecord.account || "").trim(),
+          feeRate: normalizeFeeRate(workerRecord.feeRate),
+          grade: String(workerRecord.grade || "").trim(),
+          category: String(workerRecord.category || "").trim(),
+        }
+      : { name: canonicalName, feeRate: 0 };
+
+    return {
+      workerName: canonicalName,
+      monthKey,
+      periodStart,
+      periodEnd,
+      rows: [],
+      workerInfo,
+      summary: { grossPay: 0, fee: 0, netPay: 0 },
+      companyProfile:
+        erpState.companyProfile && typeof erpState.companyProfile === "object"
+          ? {
+              name: String(erpState.companyProfile.name || "").trim(),
+              businessNo: String(erpState.companyProfile.businessNo || "").trim(),
+              phone: String(erpState.companyProfile.phone || "").trim(),
+              fax: String(erpState.companyProfile.fax || "").trim(),
+              address: String(erpState.companyProfile.address || "").trim(),
+              bankAccountVatIncluded: String(erpState.companyProfile.bankAccountVatIncluded || "").trim(),
+              bankAccountVatExcluded: String(erpState.companyProfile.bankAccountVatExcluded || "").trim(),
+              website: String(erpState.companyProfile.website || "").trim(),
+              instagram: String(erpState.companyProfile.instagram || "").trim(),
+              youtube: String(erpState.companyProfile.youtube || "").trim(),
+            }
+          : null,
+      probationActive: isWorkerInProbationForPortal(workerRecord),
+      statementStartDate: getWorkerPortalStatementStartDate(workerRecord),
+    };
+  }
 
   const monthSales = filterSalesByDate(sales, periodStart, periodEnd).filter((sale) =>
     saleWorkerLines(sale).some((line) => lineBelongsToWorker(line.worker, canonicalName, workers)),
@@ -392,6 +457,8 @@ export function buildWorkerPortalStatement(workerName, monthKey, erpState = {}) 
     workerInfo,
     summary,
     companyProfile,
+    probationActive: false,
+    statementStartDate: getWorkerPortalStatementStartDate(workerRecord),
   };
 }
 

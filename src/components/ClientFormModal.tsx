@@ -68,6 +68,7 @@ type ClientFormModalProps = {
   editingId: number | string | null;
   form: ClientFormState;
   formError: string;
+  saving?: boolean;
   onClose: () => void;
   onSave: () => void;
   onReset: () => void;
@@ -82,6 +83,7 @@ export const ClientFormModal = memo(function ClientFormModal({
   editingId,
   form,
   formError,
+  saving = false,
   onClose,
   onSave,
   onReset,
@@ -254,10 +256,10 @@ export const ClientFormModal = memo(function ClientFormModal({
 
         <div className="mt-5 flex flex-col items-end gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:justify-end">
           {formError ? <p className="mr-auto erp-text-caption font-semibold text-red-600">{formError}</p> : null}
-          <Button variant="outline" className="rounded-2xl" onClick={onReset}>
+          <Button variant="outline" className="rounded-2xl" onClick={onReset} disabled={saving}>
             {L.reset}
           </Button>
-          <Button className="rounded-2xl" onClick={onSave}>
+          <Button className="rounded-2xl" onClick={onSave} disabled={saving}>
             {editingId ? L.save : L.create}
           </Button>
         </div>

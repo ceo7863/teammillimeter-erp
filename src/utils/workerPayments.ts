@@ -60,6 +60,41 @@ export function workerIdsEqual(
   return Boolean(leftKey) && leftKey === rightKey;
 }
 
+export function workerListIdentityKey(worker?: Pick<WorkerMasterLike, "id" | "name"> | null) {
+  const id = normalizeWorkerRecordId(worker?.id);
+  if (id) return `id:${id}`;
+  const name = normalizeWorkerName(worker?.name).replace(/\s+/g, "");
+  return name ? `name:${name.toLowerCase()}` : "";
+}
+
+/** 병합 결과에서 빠진 기존 시공자를 id·이름 기준으로 다시 붙입니다. */
+export function preserveMissingWorkersInList(
+  existing: WorkerMasterLike[] = [],
+  merged: WorkerMasterLike[] = [],
+) {
+  const seen = new Set(merged.map((worker) => workerListIdentityKey(worker)).filter(Boolean));
+  const next = [...merged];
+  for (const worker of existing) {
+    const key = workerListIdentityKey(worker);
+    if (!key || seen.has(key)) continue;
+    next.push(worker);
+    seen.add(key);
+  }
+  return next;
+}
+
+export function resolveIncomingWorkerMasterList(
+  serverWorkers: unknown,
+  localWorkers: WorkerMasterLike[] = [],
+  seedWorkers: WorkerMasterLike[] = [],
+) {
+  if (Array.isArray(serverWorkers) && serverWorkers.length > 0) {
+    return serverWorkers as WorkerMasterLike[];
+  }
+  if (localWorkers.length > 0) return localWorkers;
+  return seedWorkers;
+}
+
 const WORKER_MASTER_TEXT_FIELDS = [
   "hireDate",
   "eGradeEndedAt",
@@ -102,11 +137,9 @@ export function applyWorkerCustomChargeCostFromForm(worker: WorkerMasterLike, fo
 
 export function applyWorkerCustomChargeCostFromInline(worker: WorkerMasterLike, rawValue: string) {
   const trimmed = String(rawValue ?? "").trim();
+  const current = parseWorkerMoney(worker.customChargeCost);
   if (!trimmed) {
-    if (worker.customChargeCost == null) return worker;
-    const next: WorkerMasterLike = { ...worker };
-    delete next.customChargeCost;
-    return next;
+    return worker;
   }
   const parsed = parseWorkerMoney(trimmed);
   if (parsed <= 0) {
@@ -135,6 +168,60 @@ function coalesceWorkerMasterText(nextValue?: string, prevValue?: string) {
   return prevText;
 }
 
+
+/** 단일 시공자 마스터 병합 — 빈 incoming 값이 기존 입사일·등급·단가를 지우지 않도록 */
+export function mergeWorkerMasterRecord(
+  prev?: WorkerMasterLike | null,
+  incoming?: WorkerMasterLike | null,
+  options?: { preferLocalOnConflict?: boolean },
+): WorkerMasterLike {
+  if (!incoming) return { ...(prev || {}) };
+  if (!prev) return { ...incoming };
+
+  const preferLocal = options?.preferLocalOnConflict === true;
+  const merged: WorkerMasterLike = {
+    ...prev,
+    ...incoming,
+    id: incoming.id ?? prev.id,
+    name: coalesceWorkerMasterText(incoming.name, prev.name) || prev.name || incoming.name,
+    isActive: incoming.isActive !== undefined ? incoming.isActive : prev.isActive,
+  };
+
+  for (const key of WORKER_MASTER_TEXT_FIELDS) {
+    const incomingVal = incoming[key as keyof WorkerMasterLike] as string | undefined;
+    const prevVal = prev[key as keyof WorkerMasterLike] as string | undefined;
+    const value = preferLocal ? pickWorkerMasterText(incomingVal, prevVal) : coalesceWorkerMasterText(incomingVal, prevVal);
+    if (value) {
+      (merged as Record<string, string>)[key] = value;
+    } else {
+      delete (merged as Record<string, unknown>)[key];
+    }
+  }
+
+  for (const key of WORKER_MASTER_NUMERIC_FIELDS) {
+    const incomingVal = incoming[key as keyof WorkerMasterLike] as number | undefined;
+    const prevVal = prev[key as keyof WorkerMasterLike] as number | undefined;
+    const value = preferLocal
+      ? key === "customChargeCost"
+        ? pickWorkerCustomChargeCost(incomingVal, prevVal)
+        : pickWorkerMasterNumeric(incomingVal, prevVal)
+      : key === "customChargeCost"
+        ? pickWorkerCustomChargeCost(incomingVal, prevVal)
+        : pickWorkerMasterNumeric(incomingVal, prevVal);
+    if (value > 0) {
+      (merged as Record<string, number>)[key] = value;
+    } else {
+      delete (merged as Record<string, unknown>)[key];
+    }
+  }
+
+  if (incoming.portalPasswordHash || prev.portalPasswordHash) {
+    merged.portalPasswordHash = incoming.portalPasswordHash || prev.portalPasswordHash;
+  }
+
+  return merged;
+}
+
 function findLocalWorkerMatch(
   worker: WorkerMasterLike,
   localById: Map<string, WorkerMasterLike>,
@@ -149,30 +236,7 @@ function findLocalWorkerMatch(
 
 function mergeWorkerMasterPair(incoming: WorkerMasterLike, local?: WorkerMasterLike): WorkerMasterLike {
   if (!local) return incoming;
-  const merged: WorkerMasterLike = { ...incoming };
-  for (const key of WORKER_MASTER_TEXT_FIELDS) {
-    const value = pickWorkerMasterText(
-      incoming[key as keyof WorkerMasterLike] as string | undefined,
-      local[key as keyof WorkerMasterLike] as string | undefined,
-    );
-    if (value) {
-      (merged as Record<string, string>)[key] = value;
-    } else {
-      delete (merged as Record<string, unknown>)[key];
-    }
-  }
-  for (const key of WORKER_MASTER_NUMERIC_FIELDS) {
-    const value = pickWorkerMasterNumeric(
-      incoming[key as keyof WorkerMasterLike] as number | undefined,
-      local[key as keyof WorkerMasterLike] as number | undefined,
-    );
-    if (value > 0) {
-      (merged as Record<string, number>)[key] = value;
-    } else {
-      delete (merged as Record<string, unknown>)[key];
-    }
-  }
-  return merged;
+  return mergeWorkerMasterRecord(local, incoming, { preferLocalOnConflict: true });
 }
 
 /** 서버 새로고침 시 로컬에만 있는 시공자 마스터 필드가 지워지지 않도록 병합 */
@@ -211,6 +275,13 @@ export function mergeWorkerMasterFieldsFromLocal(
   return merged;
 }
 
+export function mergeIncomingWorkerMasterList(
+  incoming: WorkerMasterLike[] = [],
+  local: WorkerMasterLike[] = [],
+) {
+  return preserveMissingWorkersInList(local, mergeWorkerMasterFieldsFromLocal(incoming, local));
+}
+
 /** 부분 업데이트 시 ref에 있는 입사일·등급 등 마스터 필드가 빠지지 않도록 병합 */
 export function reconcileWorkerListUpdates(
   current: WorkerMasterLike[] = [],
@@ -221,41 +292,13 @@ export function reconcileWorkerListUpdates(
       .filter((worker) => normalizeWorkerRecordId(worker.id))
       .map((worker) => [normalizeWorkerRecordId(worker.id), worker]),
   );
-  const nextIds = new Set(
-    next.filter((worker) => normalizeWorkerRecordId(worker.id)).map((worker) => normalizeWorkerRecordId(worker.id)),
-  );
-
   const merged = next.map((worker) => {
     const workerId = normalizeWorkerRecordId(worker.id);
     const prev = workerId ? currentById.get(workerId) : undefined;
-    if (!prev) return worker;
-    const customChargeCost = pickWorkerCustomChargeCost(worker.customChargeCost, prev.customChargeCost);
-    const merged: WorkerMasterLike = {
-      ...prev,
-      ...worker,
-      grade: coalesceWorkerMasterText(worker.grade, prev.grade) || undefined,
-      hireDate: coalesceWorkerMasterText(worker.hireDate, prev.hireDate) || undefined,
-      eGradeEndedAt: coalesceWorkerMasterText(worker.eGradeEndedAt, prev.eGradeEndedAt) || undefined,
-      category: coalesceWorkerMasterText(worker.category, prev.category) || undefined,
-      depositNameAliases:
-        coalesceWorkerMasterText(worker.depositNameAliases, prev.depositNameAliases) || undefined,
-    };
-    if (customChargeCost > 0) {
-      merged.customChargeCost = customChargeCost;
-    } else {
-      delete merged.customChargeCost;
-    }
-    return merged;
+    return prev ? mergeWorkerMasterRecord(prev, worker) : worker;
   });
 
-  for (const worker of current) {
-    const workerId = normalizeWorkerRecordId(worker.id);
-    if (workerId && !nextIds.has(workerId)) {
-      merged.push(worker);
-    }
-  }
-
-  return merged;
+  return preserveMissingWorkersInList(current, merged);
 }
 
 export function stripMonthlyPaymentMemoFromWorkers(workers: WorkerMasterLike[] = []) {
@@ -550,6 +593,20 @@ export function formatStatementDate(value: string) {
   return normalized;
 }
 
+/** 시공비내역서 표 시공일: 6/1 형식 */
+export function formatStatementTableDate(value: string) {
+  if (!value) return "";
+  const normalized = String(value).trim();
+  const isoMatch = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (isoMatch) {
+    const month = Number(isoMatch[2]);
+    const day = Number(isoMatch[3]);
+    if (!month || !day) return normalized;
+    return `${month}/${day}`;
+  }
+  return normalized;
+}
+
 /** 시공자 시공내역서: 5/22/26 형식 */
 export function formatWorkerStatementDate(value: string) {
   if (!value) return "";
@@ -671,7 +728,9 @@ export function filterSalesByDate(sales: SaleLike[] = [], startDate = "", endDat
 }
 
 function saleWorkerLines(sale: SaleLike): WorkerLineLike[] {
-  if (sale.workers?.length) return sale.workers;
+  if (sale.workers?.length) {
+    return sale.workers.filter((line) => String(line.worker || "").trim());
+  }
   if (!sale.worker) return [];
 
   return String(sale.worker || "")
@@ -684,7 +743,7 @@ function saleWorkerLines(sale: SaleLike): WorkerLineLike[] {
       meal: "",
       overtimeHours: "",
       overtimeCost: "30000",
-      memo: sale.memo || "",
+      memo: "",
     }))
     .filter((line) => line.worker);
 }
@@ -733,7 +792,7 @@ export function flattenSalesToWorkerPaymentRows(
         netPay: totalPay - fee,
         bill: metrics.bill,
         margin: metrics.margin,
-        memo: String(line.memo || sale.memo || "").trim(),
+        memo: String(line.memo || "").trim(),
       };
     });
   });

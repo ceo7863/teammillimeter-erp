@@ -4,6 +4,8 @@ import {
   getBankTxLinkedTaxInvoiceIds,
   hasTaxInvoiceBusinessNoMatch,
   hasTaxInvoiceNameMatch,
+  hasTaxInvoicePartyMatch,
+  hasTaxInvoiceRoomConflict,
   normalizeBusinessRegistrationNo,
   resolveBankTxClientName,
   type TaxInvoiceMatchContext,
@@ -455,6 +457,9 @@ function scoreTaxInvoiceLinkCatalogRow(
   if (hasTaxInvoiceBusinessNoMatch(tx, invoice, matchContext)) score += 380;
   if (hasTaxInvoiceNameMatch(tx, invoice)) score += 200;
 
+  if (hasTaxInvoiceRoomConflict(tx, invoice)) score -= 800;
+  else if (!hasTaxInvoicePartyMatch(tx, invoice, matchContext)) score -= 500;
+
   for (const token of searchTokens) {
     const normalizedToken = normalizeCatalogPartyName(token);
     const normalizedClient = normalizeCatalogPartyName(invClient);
@@ -482,10 +487,13 @@ export function canLinkTaxInvoiceToTransaction(
   tx: BankTransaction,
   invoice: TaxInvoice,
   unsettledAmount: number,
+  matchContext: TaxInvoiceMatchContext = {},
 ) {
   if (unsettledAmount <= 0) return false;
   if (invoice.flowType === "purchase" && !(Number(tx.withdrawal || 0) > 0)) return false;
   if (invoice.flowType === "sales" && !(Number(tx.deposit || 0) > 0)) return false;
+  if (hasTaxInvoiceRoomConflict(tx, invoice)) return false;
+  if (!hasTaxInvoicePartyMatch(tx, invoice, matchContext)) return false;
   return true;
 }
 

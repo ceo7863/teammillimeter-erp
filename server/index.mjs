@@ -30,6 +30,7 @@ import {
   updateSelfSidebarOrder,
   verifyUserPassword,
   parseSidebarOrder,
+  parseSidebarHidden,
   parseAttendanceViewUserIds,
   recordLoginLog,
 } from "./db.mjs";
@@ -37,6 +38,7 @@ import { authenticateUser, authMiddleware, adminMiddleware, signToken } from "./
 import {
   authenticateWorkerPortal,
   buildWorkerPortalMonths,
+  buildWorkerPortalProbationMeta,
   buildWorkerPortalStatement,
   changeWorkerPortalPassword,
   processWorkersPortalCredentials,
@@ -73,6 +75,8 @@ import {
   getClientBusinessRegMeta,
   getClientBusinessRegFile,
   upsertClientBusinessReg,
+  deleteClientBusinessReg,
+  enrichClientsWithBusinessRegMeta,
 } from "./clientBusinessReg.mjs";
 import { buildPdfShareViewerHtml } from "./pdfShareViewer.mjs";
 import { renderPdfSharePreviewImages } from "./pdfSharePreview.mjs";
@@ -109,6 +113,8 @@ import { getBarobillBankConfigStatus } from "./barobill/bankAccountClient.mjs";
 import { classifyBankLedgerBatch } from "./bankLedgerClassify.mjs";
 import { buildDailyReport, formatDailyReportMessage, yesterdayDateKey } from "./dailyReport.mjs";
 import { collectSystemMetrics } from "./systemMetrics.mjs";
+import { collectErpBackupStatus } from "./erpBackupStatus.mjs";
+import { restoreErpBackupSnapshot, scheduleErpProcessRestart } from "./erpBackupRestore.mjs";
 import { getAlimtalkStatus, sendContractAlimtalk } from "./alimtalkNotify.mjs";
 import {
   initClientContractsStore,
@@ -149,6 +155,7 @@ import {
   listPublicScSchedulesForToken,
   listScProjectMappingStatus,
   listStaffScSchedulesForClient,
+  listStaffScSchedulesForMonth,
   runScScheduleSync,
   setScProjectClientMapping,
   startScScheduleSyncScheduler,
@@ -159,6 +166,7 @@ import {
   normalizeNotificationSettings,
   DEFAULT_NOTIFICATION_SETTINGS,
 } from "./notificationSettings.mjs";
+import { normalizeSaleAiRules } from "./saleAiRules.mjs";
 import { notifyNewSaleComments, runCommentNotifyTestJob, runDailyReportJob, startNotificationScheduler } from "./notificationScheduler.mjs";
 import {
   buildScScheduleNotifyPreview,
@@ -167,6 +175,12 @@ import {
   runScScheduleNotifyJob,
   sendScScheduleNotifyOne,
 } from "./scScheduleNotify.mjs";
+import {
+  buildScWeeklyBriefingPreviewAsync,
+  getScWeeklyBriefingNotifyStatus,
+  runScWeeklyBriefingNotifyJob,
+  sendScWeeklyBriefingGroup,
+} from "./scWeeklyBriefingNotify.mjs";
 
 initDb();
 runErpStartupMigrations();
@@ -221,6 +235,31 @@ app.get("/api/system/metrics", authMiddleware, adminMiddleware, async (_req, res
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "\uC11C\uBC84 \uC815\uBCF4\uB97C \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4." });
+  }
+});
+
+app.get("/api/admin/backup-status", authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const logTail = Number(req.query.logTail) || 100;
+    const status = collectErpBackupStatus({ logTail });
+    res.json({ status });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "\uBC31\uC5C5 \uB85C\uADF8\uB97C \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4." });
+  }
+});
+
+app.post("/api/admin/backup-restore", authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const date = String(req.body?.date || "").trim();
+    const result = await restoreErpBackupSnapshot(date);
+    res.json({ ok: true, result });
+    scheduleErpProcessRestart();
+  } catch (error) {
+    console.error(error);
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "\uBC31\uC5C5 \uBCF5\uC6D0\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+    });
   }
 });
 
@@ -623,8 +662,17 @@ app.delete("/api/sc-schedules/project-mappings/:scProjectId", authMiddleware, as
 app.get("/api/sc-schedules", authMiddleware, (req, res) => {
   const clientId = req.query.clientId;
   const monthKey = String(req.query.month || "").trim();
+  if (!monthKey) {
+    res.status(400).json({ error: "month is required" });
+    return;
+  }
   if (clientId == null || clientId === "") {
-    res.status(400).json({ error: "clientId is required" });
+    const result = listStaffScSchedulesForMonth(monthKey);
+    if (!result.ok) {
+      res.status(result.status || 400).json({ error: result.error });
+      return;
+    }
+    res.json({ schedules: result.schedules });
     return;
   }
   const result = listStaffScSchedulesForClient(clientId, monthKey);
@@ -780,6 +828,20 @@ app.get("/api/clients/:clientId/business-reg/file", authMiddleware, (req, res) =
   res.sendFile(path.resolve(file.path));
 });
 
+app.delete("/api/clients/:clientId/business-reg", authMiddleware, (req, res) => {
+  try {
+    const result = deleteClientBusinessReg(req.params.clientId);
+    if (!result.ok) {
+      res.status(result.status || 400).json({ error: result.error });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("[client-business-reg] delete failed:", error);
+    res.status(500).json({ error: "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uC0AD\uC81C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+  }
+});
+
 app.post(
   "/api/board-attachments",
   authMiddleware,
@@ -879,7 +941,8 @@ app.get("/api/worker-portal/months", workerPortalAuthMiddleware, (req, res) => {
   const sales = state.data?.sales || [];
   const workers = state.data?.workers || [];
   const months = buildWorkerPortalMonths(req.workerPortal.workerName, sales, workers);
-  res.json({ months, workerName: req.workerPortal.workerName });
+  const probation = buildWorkerPortalProbationMeta(req.workerPortal.workerName, workers);
+  res.json({ months, workerName: req.workerPortal.workerName, ...probation });
 });
 
 app.get("/api/worker-portal/statement", workerPortalAuthMiddleware, (req, res) => {
@@ -940,6 +1003,7 @@ app.post("/api/auth/login", (req, res) => {
       phone: user.phone,
       allowedPages: user.allowedPages,
       sidebarOrder: user.sidebarOrder,
+      sidebarHidden: user.sidebarHidden,
       attendanceViewUserIds: user.attendanceViewUserIds,
     },
   });
@@ -966,6 +1030,7 @@ function formatAuthUserResponse(userId) {
       }
     })(),
     sidebarOrder: parseSidebarOrder(row.sidebar_order),
+    sidebarHidden: parseSidebarHidden(row.sidebar_hidden),
     attendanceViewUserIds: parseAttendanceViewUserIds(row.attendance_view_user_ids),
   };
 }
@@ -992,6 +1057,7 @@ app.patch("/api/auth/me", authMiddleware, (req, res) => {
         role: user.role,
         allowedPages: user.allowedPages,
         sidebarOrder: user.sidebarOrder,
+        sidebarHidden: user.sidebarHidden,
         attendanceViewUserIds: user.attendanceViewUserIds,
       },
     });
@@ -1002,7 +1068,12 @@ app.patch("/api/auth/me", authMiddleware, (req, res) => {
 
 app.patch("/api/auth/me/sidebar-order", authMiddleware, (req, res) => {
   try {
-    const user = updateSelfSidebarOrder(req.user.sub, req.body?.sidebarOrder ?? null);
+    const body = req.body || {};
+    const user = updateSelfSidebarOrder(
+      req.user.sub,
+      body.sidebarOrder !== undefined ? body.sidebarOrder : undefined,
+      body.sidebarHidden !== undefined ? body.sidebarHidden : undefined,
+    );
     res.json({
       user: {
         id: user.id,
@@ -1013,6 +1084,7 @@ app.patch("/api/auth/me/sidebar-order", authMiddleware, (req, res) => {
         role: user.role,
         allowedPages: user.allowedPages,
         sidebarOrder: user.sidebarOrder,
+        sidebarHidden: user.sidebarHidden,
         attendanceViewUserIds: user.attendanceViewUserIds,
       },
     });
@@ -1141,7 +1213,7 @@ function buildErpApiResponse(state, workersOverride = null, workerMonthlyPayment
     sales: data.sales || [],
     paymentVouchers: data.paymentVouchers || [],
     paymentInputLogs: data.paymentInputLogs || [],
-    clients: data.clients || [],
+    clients: enrichClientsWithBusinessRegMeta(data.clients || []),
     workers: sanitizeWorkersForClient(workers),
     workerMonthlyPaymentMemos,
     auditLogs: data.auditLogs || [],
@@ -1170,6 +1242,7 @@ function buildErpApiResponse(state, workersOverride = null, workerMonthlyPayment
     statementFolders: data.statementFolders || [],
     companyProfile: data.companyProfile || null,
     notificationSettings: normalizeNotificationSettings(data.notificationSettings),
+    saleAiRules: normalizeSaleAiRules(data.saleAiRules),
     version: state.version,
     updatedAt: state.updatedAt,
     updatedBy: state.updatedBy,
@@ -2253,7 +2326,7 @@ app.put("/api/erp", authMiddleware, (req, res) => {
 });
 
 app.get("/api/notifications/status", authMiddleware, adminMiddleware, (_req, res) => {
-  res.json({ alimtalk: getAlimtalkStatus(), scScheduleNotify: getScScheduleNotifyStatus() });
+  res.json({ alimtalk: getAlimtalkStatus(), scScheduleNotify: getScScheduleNotifyStatus(), scWeeklyBriefing: getScWeeklyBriefingNotifyStatus() });
 });
 
 app.get("/api/notifications/settings", authMiddleware, adminMiddleware, (_req, res) => {
@@ -2371,6 +2444,62 @@ app.post("/api/notifications/sc-schedule/send-one", authMiddleware, async (req, 
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: error instanceof Error ? error.message : "SC \uC77C\uC815 \uC54C\uB9BC \uBC1C\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+  }
+});
+
+app.get("/api/notifications/sc-weekly-briefing/preview", authMiddleware, async (req, res) => {
+  try {
+    const weekStart = req.query?.weekStart ? String(req.query.weekStart).slice(0, 10) : undefined;
+    const preview = await buildScWeeklyBriefingPreviewAsync({ weekStart });
+    res.json(preview);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error instanceof Error ? error.message : "\uC8FC\uAC04 \uD604\uC7A5 \uBE0C\uB9AC\uD551 \uBBF8\uB9AC\uBCF4\uAE30\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+  }
+});
+
+app.post("/api/notifications/sc-weekly-briefing/send", authMiddleware, async (req, res) => {
+  try {
+    const groupKey = String(req.body?.groupKey || "").trim();
+    if (!groupKey) {
+      res.status(400).json({ error: "groupKey\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." });
+      return;
+    }
+    const result = await sendScWeeklyBriefingGroup(groupKey, {
+      weekStart: req.body?.weekStart ? String(req.body.weekStart).slice(0, 10) : undefined,
+      weekEnd: req.body?.weekEnd ? String(req.body.weekEnd).slice(0, 10) : undefined,
+      skipSync: Boolean(req.body?.skipSync),
+      phones: Array.isArray(req.body?.phones) ? req.body.phones : undefined,
+      updatedBy: req.user.loginId || req.user.name || req.user.email || "sc-weekly-briefing-send",
+    });
+    if (result.notFound) {
+      res.status(404).json(result);
+      return;
+    }
+    if (!result.ok && result.error && !result.skipped) {
+      res.status(400).json(result);
+      return;
+    }
+    res.json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error instanceof Error ? error.message : "\uC8FC\uAC04 \uD604\uC7A5 \uBE0C\uB9AC\uD551 \uBC1C\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+  }
+});
+
+app.post("/api/notifications/sc-weekly-briefing/send-all", authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const result = await runScWeeklyBriefingNotifyJob({
+      force: true,
+      skipSync: Boolean(req.body?.skipSync),
+      weekStart: req.body?.weekStart ? String(req.body.weekStart).slice(0, 10) : undefined,
+      settingsOverride: req.body?.settings,
+      updatedBy: req.user.loginId || req.user.name || req.user.email || "sc-weekly-briefing-send-all",
+    });
+    res.json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error instanceof Error ? error.message : "\uC8FC\uAC04 \uBE0C\uB9AC\uD551 \uC790\uB3D9 \uBC1C\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
   }
 });
 

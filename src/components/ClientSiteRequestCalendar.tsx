@@ -15,7 +15,7 @@ import {
   shiftMonthKey,
 } from "@/utils/clientSiteRequestCalendar";
 import type { ScSchedule } from "@/utils/scSchedules";
-import { formatScScheduleHeadcount, formatScScheduleTimeRange } from "@/utils/scSchedules";
+import { formatScScheduleHeadcount } from "@/utils/scSchedules";
 import type { WorkerMasterLike } from "@/utils/workerPayments";
 import type { ClientMasterLike } from "@/utils/clientMaster";
 import { ClientSiteRequestCalendarDayDrawer } from "@/components/ClientSiteRequestCalendarDayDrawer";
@@ -279,9 +279,7 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
                   {visibleSc.map((schedule) => (
                     <div key={`sc-${schedule.id}`} className="erp-csr-cal-chip is-sc-schedule" title={L.scBadge}>
                       <span className="erp-csr-cal-chip-label">{schedule.workType}</span>
-                      <span className="erp-csr-cal-chip-meta">
-                        {formatScScheduleHeadcount(schedule) || formatScScheduleTimeRange(schedule)}
-                      </span>
+                      <span className="erp-csr-cal-chip-meta">{formatScScheduleHeadcount(schedule)}</span>
                     </div>
                   ))}
                   {entryCount > 3 ? <span className="erp-csr-cal-more">+{entryCount - 3}{"\uAC74"}</span> : null}

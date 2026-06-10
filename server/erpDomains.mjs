@@ -38,6 +38,7 @@ export const ERP_DOMAIN_FIELDS = {
     "statementGenerationLogs",
     "statementFolders",
     "notificationSettings",
+    "saleAiRules",
     "clientSiteRequests",
     "clientContracts",
     "scSchedules",
@@ -212,6 +213,10 @@ export function mergeErpDomainForSave(existingData, domain, incomingPartial) {
           incoming.notificationSettings && typeof incoming.notificationSettings === "object"
             ? incoming.notificationSettings
             : existing.notificationSettings,
+        saleAiRules:
+          incoming.saleAiRules && typeof incoming.saleAiRules === "object"
+            ? incoming.saleAiRules
+            : existing.saleAiRules,
         clientSiteRequests: Array.isArray(incoming.clientSiteRequests)
           ? incoming.clientSiteRequests
           : existing.clientSiteRequests || [],

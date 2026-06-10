@@ -10,7 +10,7 @@ import type { ClientSiteRequest, ClientSiteRequestChangeSource } from "@/utils/c
 import { formatClientSiteRequestWorkPeriod } from "@/utils/clientSiteRequests";
 import { formatClientSiteRequestDayLabel, shiftCalendarDate } from "@/utils/clientSiteRequestCalendar";
 import type { ScSchedule } from "@/utils/scSchedules";
-import { formatScScheduleHeadcount, formatScScheduleTimeRange, formatScScheduleWorkerCopyText, getScScheduleWorkerDetails } from "@/utils/scSchedules";
+import { formatScScheduleHeadcount, formatScScheduleWorkLogSummary, formatScScheduleWorkerCopyText, getScScheduleWorkerDetails } from "@/utils/scSchedules";
 import type { ClientMasterLike } from "@/utils/clientMaster";
 import type { WorkerMasterLike } from "@/utils/workerPayments";
 import { sendScScheduleNotifyOne } from "@/utils/notificationApi";
@@ -26,6 +26,7 @@ const L = {
   sectionRequests: "\uC811\uC218 \uC694\uCCAD",
   sectionSc: "SC \uD655\uC815 \uC77C\uC815",
   scBadge: "\uD655\uC815",
+  workLog: "\uADFC\uBB34",
   workerName: "\uC2DC\uACF5\uC790\uBA85",
   workerPhone: "\uC804\uD654\uBC88\uD638",
   workerVehicle: "\uCC28\uB7C9\uBC88\uD638",
@@ -234,6 +235,7 @@ export function ClientSiteRequestCalendarDayDrawer({
                       const scheduleWorkers = getScScheduleWorkerDetails(schedule, workers);
                       const scheduleId = String(schedule.id || "");
                       const alimtalkMessage = alimtalkMessages[scheduleId] || "";
+                      const workLogSummary = formatScScheduleWorkLogSummary(schedule);
                       return (
                       <li key={`sc-${schedule.id}`}>
                         <div
@@ -274,9 +276,9 @@ export function ClientSiteRequestCalendarDayDrawer({
                             <div className="erp-csr-cal-drawer-card-main">
                               <div className="erp-csr-cal-drawer-card-badges">
                                 <span className="erp-csr-cal-drawer-badge is-sc-schedule">{L.scBadge}</span>
-                                {formatScScheduleTimeRange(schedule) ? (
-                                  <span className="erp-csr-cal-drawer-badge is-muted">
-                                    {formatScScheduleTimeRange(schedule)}
+                                {workLogSummary ? (
+                                  <span className="erp-csr-cal-drawer-badge is-work-log" title={L.workLog}>
+                                    {L.workLog} {workLogSummary}
                                   </span>
                                 ) : null}
                                 {formatScScheduleHeadcount(schedule) ? (

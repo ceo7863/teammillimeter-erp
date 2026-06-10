@@ -12,7 +12,7 @@ import {
 import { DEFAULT_COMPANY_PROFILE, resolveStatementBankAccount, type CompanyProfile } from "@/utils/companyProfile";
 import { getStatementFillerRowCount } from "@/utils/statementSheetLayout";
 import { buildClientStatementExcelPayload, serializeStatementExcelPayload } from "@/utils/statementExcel";
-import { formatKRW, formatStatementDashAmount, formatStatementDate } from "@/utils/workerPayments";
+import { formatKRW, formatStatementDashAmount, formatStatementDate, formatStatementTableDate } from "@/utils/workerPayments";
 
 type ClientStatementSheetProps = {
   clientName: string;
@@ -191,7 +191,7 @@ export const ClientStatementSheet = React.forwardRef<HTMLDivElement, ClientState
                 <React.Fragment key={site.id}>
                   <tr>
                     <td rowSpan={groupRowSpan} className="excel-date-cell excel-date-cell-rowspan">
-                      {formatStatementDate(site.date || "")}
+                      {formatStatementTableDate(site.date || "")}
                     </td>
                     <StatementFitTd tdClassName="excel-text-cell excel-site-cell excel-site-line" align="left">
                       {site.site || ""}

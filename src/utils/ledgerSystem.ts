@@ -14,8 +14,21 @@ import {
   getMonthKey,
   isFixedExpensePaymentBankLinked,
 } from "./companyLedger";
+import { getLinkedFixedPaymentForBankTx } from "./bankCompanyLedger";
 import { isBankTxExpenseReversal } from "./bankTxExpenseReversal";
 import type { BankTransaction } from "./bankTransactions";
+import {
+  findClientByDepositSubject,
+  findWorkerByDepositSubject,
+  findWorkerForBankTransaction,
+  resolveBankDepositMatchSubject,
+  type ClientDepositMatchSource,
+  type WorkerDepositMatchSource,
+} from "./clientDepositAliases";
+import { isWorkerBankTransactionFolder, type BankTransactionFolder } from "./bankTransactionFolders";
+
+/** 외주용역비 등 업체·외주 지급 계정 */
+export const VENDOR_OUTSOURCE_ACCOUNT_CODE = "520";
 
 export type AccountCodeType = "asset" | "liability" | "equity" | "income" | "expense";
 
@@ -113,7 +126,7 @@ export function resolveAccountCodeLabel(rows: AccountCode[], code: string | unde
   return row.name;
 }
 
-const CATEGORY_ACCOUNT_DEFAULTS: Record<string, string> = {
+export const CATEGORY_ACCOUNT_DEFAULTS: Record<string, string> = {
   [EXPENSE_CATEGORY_OPTIONS[0]]: "517",
   [EXPENSE_CATEGORY_OPTIONS[1]]: "504",
   [EXPENSE_CATEGORY_OPTIONS[2]]: "505",
@@ -250,6 +263,37 @@ export function findLedgerCategoryByName(categories: LedgerCategory[], name: str
   return categories.find((row) => row.name === trimmed && row.isActive);
 }
 
+export function resolveFixedExpenseAccountCode(
+  fixedItem: Pick<FixedExpense, "category" | "accountCode"> | null | undefined,
+  categories: LedgerCategory[] = [],
+) {
+  const overrideCode = String(fixedItem?.accountCode || "").trim();
+  if (overrideCode) return overrideCode;
+  const categoryName = String(fixedItem?.category || "").trim();
+  const category = categoryName ? findLedgerCategoryByName(categories, categoryName) : undefined;
+  if (category?.accountCode) return category.accountCode;
+  return CATEGORY_ACCOUNT_DEFAULTS[categoryName] || "900";
+}
+
+export function inferFixedExpenseCategoryFromAccountCode(
+  accountCode: string,
+  categories: LedgerCategory[] = [],
+) {
+  const code = String(accountCode || "").trim();
+  if (!code) return FIXED_CATEGORY_OPTIONS.at(-1) || "\uAE30\uD0C0";
+
+  const fixedCategory = categories.find(
+    (row) => row.isActive && row.kind === "fixed" && row.accountCode === code,
+  );
+  if (fixedCategory) return fixedCategory.name;
+
+  for (const name of FIXED_CATEGORY_OPTIONS) {
+    if (CATEGORY_ACCOUNT_DEFAULTS[name] === code) return name;
+  }
+
+  return FIXED_CATEGORY_OPTIONS.at(-1) || "\uAE30\uD0C0";
+}
+
 export function resolveBankTxLedgerFlow(
   tx: Pick<BankTransaction, "withdrawal" | "deposit" | "netGroupRole" | "transactionType" | "description" | "memo">,
 ): LedgerFlow | null {
@@ -334,8 +378,8 @@ export function buildLedgerEntryFromBankTx(
         memo = expense.memo || memo;
       }
     }
-    if (!category && tx.linkedFixedExpensePaymentId) {
-      const payment = context.fixedExpensePayments?.find((row) => row.id === tx.linkedFixedExpensePaymentId);
+    if (!category && context.fixedExpensePayments?.length) {
+      const payment = getLinkedFixedPaymentForBankTx(tx, context.fixedExpensePayments);
       if (payment) {
         const fixedItem = context.fixedExpenses?.find((row) => row.id === payment.fixedExpenseId);
         resolvedCategoryName = payment.category || fixedItem?.category || "";
@@ -343,6 +387,21 @@ export function buildLedgerEntryFromBankTx(
         fixedExpenseId = payment.fixedExpenseId;
         memo = payment.memo || memo;
       }
+    }
+  }
+
+  if (
+    fixedExpenseId &&
+    context?.fixedExpenses &&
+    !context.fixedExpenses.some((row) => row.id === fixedExpenseId)
+  ) {
+    fixedExpenseId = undefined;
+  }
+
+  if (!fixedExpenseId && context?.fixedExpensePayments?.length) {
+    const payment = getLinkedFixedPaymentForBankTx(tx, context.fixedExpensePayments);
+    if (payment) {
+      fixedExpenseId = payment.fixedExpenseId;
     }
   }
 
@@ -456,10 +515,10 @@ export function buildOfflineFixedPaymentLedgerEntry(
   const item = fixedExpenses.find((row) => row.id === payment.fixedExpenseId);
   const categoryName = item?.category || "고정비";
   const category = findLedgerCategoryByName(categories, categoryName);
-  const accountCode = category?.accountCode || CATEGORY_ACCOUNT_DEFAULTS[categoryName] || "900";
+  const accountCode = resolveFixedExpenseAccountCode(item, categories);
   const account = findAccountCode(accountCodes, accountCode);
-  const monthKey = String(payment.monthKey || "").slice(0, 7);
-  const day = String(Math.max(1, Math.min(28, Number(item?.paymentDay) || 1))).padStart(2, "0");
+  const monthKey = String(getMonthKey(payment.date) || "").slice(0, 7);
+  const day = String(Math.max(1, Math.min(28, Number(item?.paymentDayOfMonth) || 1))).padStart(2, "0");
   const date = monthKey.length === 7 ? `${monthKey}-${day}` : String(payment.createdAt || "").slice(0, 10);
   return {
     id: `fixed-offline-${payment.id}`,
@@ -480,6 +539,79 @@ export function buildOfflineFixedPaymentLedgerEntry(
 
 export function isBankLinkedLedgerEntry(row: LedgerEntry): boolean {
   return row.source === "bank" && Boolean(row.bankTransactionId);
+}
+
+function ledgerEntryMatchSubject(
+  entry: LedgerEntry,
+  bankTransactionById?: Map<string, BankTransaction>,
+) {
+  if (entry.source === "bank" && entry.bankTransactionId && bankTransactionById) {
+    const tx = bankTransactionById.get(entry.bankTransactionId);
+    if (tx) {
+      return [
+        tx.ledgerClientName,
+        tx.linkedSubject,
+        resolveBankDepositMatchSubject(tx),
+      ]
+        .map((part) => String(part || "").trim())
+        .filter(Boolean)
+        .join(" ");
+    }
+  }
+  return [entry.counterpartyName, entry.description, entry.memo]
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
+/** 가계부 출금 중 거래처·시공자(외주)·업체성 지급과 매칭되는 항목 */
+export function isClientMatchedLedgerExpenseEntry(
+  entry: LedgerEntry,
+  clients: ClientDepositMatchSource[],
+  bankTransactions: BankTransaction[] = [],
+  workers: WorkerDepositMatchSource[] = [],
+  bankTransactionFolders: BankTransactionFolder[] = [],
+) {
+  if (entry.flow !== "expense" || entry.fixedExpenseId) return false;
+  const bankById = new Map(bankTransactions.map((tx) => [tx.id, tx]));
+  const subject = ledgerEntryMatchSubject(entry, bankById);
+  if (subject && findClientByDepositSubject(clients, subject)) return true;
+  if (subject && findWorkerByDepositSubject(workers, subject)) return true;
+
+  if (entry.source === "bank" && entry.bankTransactionId) {
+    const tx = bankById.get(entry.bankTransactionId);
+    if (!tx) return false;
+    if (tx.folderId && isWorkerBankTransactionFolder(bankTransactionFolders, tx.folderId)) return true;
+    if (findWorkerForBankTransaction(tx, workers)) return true;
+    if (String(tx.ledgerAccountCode || entry.accountCode || "") === VENDOR_OUTSOURCE_ACCOUNT_CODE) {
+      const payee = String(tx.counterpartyName || tx.linkedSubject || entry.counterpartyName || "").trim();
+      if (payee.length >= 2) return true;
+    }
+  }
+
+  const offlineSubject = [entry.description, entry.memo, entry.counterpartyName].filter(Boolean).join(" ");
+  if (offlineSubject.includes("\uC678\uC8FC") || offlineSubject.includes("\uC6A9\uC5ED")) return true;
+
+  return false;
+}
+
+export function splitVariableLedgerExpenseRows(
+  rows: LedgerEntry[],
+  clients: ClientDepositMatchSource[],
+  bankTransactions: BankTransaction[] = [],
+  workers: WorkerDepositMatchSource[] = [],
+  bankTransactionFolders: BankTransactionFolder[] = [],
+) {
+  const clientVendorRows: LedgerEntry[] = [];
+  const generalRows: LedgerEntry[] = [];
+  for (const row of rows) {
+    if (isClientMatchedLedgerExpenseEntry(row, clients, bankTransactions, workers, bankTransactionFolders)) {
+      clientVendorRows.push(row);
+    } else {
+      generalRows.push(row);
+    }
+  }
+  return { clientVendorRows, generalRows };
 }
 
 export function buildAllLedgerEntries(input: {

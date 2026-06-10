@@ -138,7 +138,9 @@ export function getSaleUnpaid(row: SaleLike) {
 }
 
 function saleWorkerLines(sale: SaleLike): WorkerLineLike[] {
-  if (Array.isArray(sale.workers) && sale.workers.length) return sale.workers;
+  if (Array.isArray(sale.workers) && sale.workers.length) {
+    return sale.workers.filter((line) => String(line.worker || "").trim());
+  }
   if (!sale.worker) return [];
   return [{
     worker: sale.worker,
@@ -156,11 +158,9 @@ function paymentSummaryForSale(vouchers: PaymentVoucherLike[], saleId: number | 
   return { paymentDate, paymentAmount };
 }
 
-/** 시공자 행 비고: 개별 비고 우선, 없으면 공통비고를 모든 시공자에 분배 */
-function resolveWorkerRowMemo(saleMemo: string, lineMemo: string) {
-  const individual = String(lineMemo || "").trim();
-  const common = String(saleMemo || "").trim();
-  return individual || common;
+/** 시공자 행 비고: 개별(시공자행) 비고만 — 공통비고는 sharedMemo 열·거래처내역서 전용 */
+function resolveWorkerRowMemo(_saleMemo: string, lineMemo: string) {
+  return String(lineMemo || "").trim();
 }
 
 export function flattenSalesToStatementRows(

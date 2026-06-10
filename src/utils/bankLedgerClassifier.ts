@@ -26,6 +26,7 @@ export type BankLedgerClassification = {
   targetKey: string;
   kind: "manual" | "fixed";
   category?: string;
+  accountCode?: string;
   fixedExpenseId?: string;
   confidence: number;
   source: BankLedgerClassificationSource;
@@ -155,6 +156,7 @@ export function classifyBankTransactionForLedger(
     rules?: BankLearnRule[];
     fixedExpenses?: FixedExpense[];
     expenseCategories?: string[];
+    accountCodes?: import("./ledgerSystem").AccountCode[];
     companyExpenses?: CompanyExpense[];
     workers?: WorkerDepositMatchSource[];
     clients?: ClientDepositMatchSource[];
@@ -166,6 +168,48 @@ export function classifyBankTransactionForLedger(
   const fixedExpenses = input.fixedExpenses || [];
   const expenseCategories = input.expenseCategories || EXPENSE_CATEGORY_OPTIONS;
   const companyExpenses = input.companyExpenses || [];
+
+  const learnCustom = findBestBankLearnRuleWithScore(tx, rules, fixedExpenses, ["custom"]);
+  if (learnCustom?.rule.fixedExpenseId) {
+    const fixedRow = fixedExpenses.find((row) => row.id === learnCustom.rule.fixedExpenseId);
+    return {
+      targetKey: fixedLedgerTargetKey(learnCustom.rule.fixedExpenseId),
+      kind: "fixed",
+      fixedExpenseId: learnCustom.rule.fixedExpenseId,
+      category: fixedRow?.category || learnCustom.rule.category,
+      confidence: formatLearnRuleConfidencePercent(learnCustom.score),
+      source: "learn_rule",
+      label: fixedRow ? `[\uACE0\uC815\uBE44] ${fixedRow.name}` : "[\uACE0\uC815\uBE44]",
+      reasons: [learnCustom.rule.name || "\uBD84\uB958 \uADDC\uCE59"],
+    };
+  }
+  if (learnCustom?.rule.accountCode) {
+    const accountCode = learnCustom.rule.accountCode;
+    const accountLabel =
+      input.accountCodes?.find((row) => row.code === accountCode)?.name || accountCode;
+    return {
+      targetKey: manualLedgerTargetKey(accountCode),
+      kind: "manual",
+      accountCode,
+      category: accountLabel,
+      confidence: formatLearnRuleConfidencePercent(learnCustom.score),
+      source: "learn_rule",
+      label: `[\uC9C0\uCD9C] ${accountCode} ${accountLabel}`,
+      reasons: [learnCustom.rule.name || "\uBD84\uB958 \uADDC\uCE59"],
+    };
+  }
+  if (learnCustom?.rule.category) {
+    const manualCategory = normalizeExpenseCategoryName(learnCustom.rule.category);
+    return {
+      targetKey: manualLedgerTargetKey(manualCategory),
+      kind: "manual",
+      category: manualCategory,
+      confidence: formatLearnRuleConfidencePercent(learnCustom.score),
+      source: "learn_rule",
+      label: `[\uC9C0\uCD9C] ${learnCustom.rule.category}`,
+      reasons: [learnCustom.rule.name || "\uBD84\uB958 \uADDC\uCE59"],
+    };
+  }
 
   const learnFixed = findBestBankLearnRuleWithScore(tx, rules, fixedExpenses, ["fixed"]);
   if (learnFixed?.rule.fixedExpenseId) {
@@ -269,7 +313,7 @@ export function resolveBankTxLedgerMatchConfidence(
     tx,
     input.rules || [],
     input.fixedExpenses || [],
-    ["fixed", "manual"],
+    ["custom", "fixed", "manual"],
   );
   if (learnMatch) {
     return formatLearnRuleConfidencePercent(learnMatch.score);

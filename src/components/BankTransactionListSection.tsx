@@ -1,5 +1,6 @@
 import React, { memo, useEffect, useMemo, useRef, useCallback } from "react";
 import { BankTransactionMobileList } from "@/components/BankTransactionMobileList";
+import type { BankTransactionDisplaySettingsLabels } from "@/components/BankTransactionDisplaySettings";
 import {
   BankTransactionSplitTable,
   type BankTransactionSplitTableLabels,
@@ -11,6 +12,7 @@ import type { BankTransaction } from "@/utils/bankTransactions";
 import type { AccountCode, LedgerCategory } from "@/utils/ledgerSystem";
 import { resolveAccountCodeLabel } from "@/utils/ledgerSystem";
 import type { TaxInvoice } from "@/utils/taxInvoices";
+import { buildTaxInvoiceCancellationPairIndex } from "@/utils/taxInvoices";
 import {
   buildBankTransactionListLookupMaps,
   buildBankTransactionListRowFingerprint,
@@ -18,6 +20,7 @@ import {
   type BankTransactionListRowBuildContext,
   type BankTransactionListRowModel,
 } from "@/utils/bankTransactionListDisplay";
+import type { BankTransactionColumnVisibility } from "@/utils/bankTransactionColumnVisibility";
 
 export type BankTransactionListSectionLabels = BankTransactionSplitTableLabels &
   BankTransactionCompactRowLabels & {
@@ -25,7 +28,7 @@ export type BankTransactionListSectionLabels = BankTransactionSplitTableLabels &
     accountContentPlaceholder: string;
     categoryPlaceholder: string;
     fixedExpensePlaceholder: string;
-  };
+  } & BankTransactionDisplaySettingsLabels;
 
 type BankTransactionListSectionProps = {
   rows: BankTransaction[];
@@ -43,6 +46,7 @@ type BankTransactionListSectionProps = {
   workers?: Array<{ name?: string }>;
   paymentVouchers?: Array<{ bankTransactionId?: string | number; isPartialPayment?: boolean }>;
   labels: BankTransactionListSectionLabels;
+  columnVisibility: BankTransactionColumnVisibility;
   onEditMemo: (row: BankTransaction) => void;
   onEditAccountSubject: (row: BankTransaction) => void;
   onEditClient: (row: BankTransaction) => void;
@@ -70,6 +74,7 @@ function BankTransactionListSectionComponent({
   workers = [],
   paymentVouchers = [],
   labels,
+  columnVisibility,
   onEditMemo,
   onEditAccountSubject,
   onEditClient,
@@ -108,6 +113,7 @@ function BankTransactionListSectionComponent({
       fixedExpenses,
       accountCodes,
       taxInvoiceById: new Map(taxInvoices.map((row) => [row.id, row])),
+      taxInvoiceCancellationPairIndex: buildTaxInvoiceCancellationPairIndex(taxInvoices),
       clients,
       workers,
     };
@@ -141,6 +147,7 @@ function BankTransactionListSectionComponent({
           [
             row.id,
             row.linkedTaxInvoiceId ?? "",
+            (Array.isArray(row.linkedTaxInvoiceIds) ? row.linkedTaxInvoiceIds.join(",") : ""),
             row.memo ?? "",
             row.ledgerMemo ?? "",
             row.ledgerClientName ?? "",
@@ -255,13 +262,16 @@ function BankTransactionListSectionComponent({
       transactionAt: labels.transactionAt,
       account: labels.account,
       counterparty: labels.counterparty,
+      balanceAfter: labels.balanceAfter,
+      transactionType: labels.transactionType,
+      folder: labels.folder,
       description: labels.description,
       amount: labels.amount,
       memo: labels.memo,
       evidence: labels.evidence,
       accountSubject: labels.accountSubject,
       client: labels.client,
-      classifiedAmount: labels.classifiedAmount,
+      bankBalance: labels.bankBalance,
       erpProcess: labels.erpProcess,
       taxInvoiceIssue: labels.taxInvoiceIssue,
       taxInvoiceIssueButton: labels.taxInvoiceIssueButton,
@@ -283,7 +293,7 @@ function BankTransactionListSectionComponent({
       transactionAt: labels.transactionAt,
       deposit: labels.amount,
       withdrawal: labels.amount,
-      balance: labels.classifiedAmount,
+      balance: labels.bankBalance,
       description: labels.description,
       accountContent: labels.memo,
       category: labels.accountSubject,
@@ -313,13 +323,13 @@ function BankTransactionListSectionComponent({
   return (
     <>
       {toolbar ? <div className="erp-bank-wehago-table-toolbar">{toolbar}</div> : null}
-      <div className="mb-2 hidden flex-wrap items-center gap-3 text-xs font-semibold text-slate-500 md:flex">
-        <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-3 w-3 rounded bg-sky-200" />
+      <div className="erp-bank-legend">
+        <span className="erp-bank-legend__item">
+          <span className="erp-bank-legend__swatch erp-bank-legend__swatch--client" />
           {"\uAC70\uB798\uCC98"}
         </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-3 w-3 rounded bg-orange-200" />
+        <span className="erp-bank-legend__item">
+          <span className="erp-bank-legend__swatch erp-bank-legend__swatch--worker" />
           {"\uC2DC\uACF5\uC790"}
         </span>
       </div>
@@ -343,6 +353,7 @@ function BankTransactionListSectionComponent({
         onFindEvidence={handleFindEvidence}
         onIssueTaxInvoice={onIssueTaxInvoice ? handleIssueTaxInvoice : undefined}
         onFilterCounterparty={onFilterCounterparty ? handleFilterCounterparty : undefined}
+        columnVisibility={columnVisibility}
         tableId={tableId}
       />
     </>

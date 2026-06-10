@@ -1,18 +1,23 @@
 import React, { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { BankTransaction } from "@/utils/bankTransactions";
-import { getBankTxClassifiedAmount } from "@/utils/bankTaxInvoiceLink";
+import {
+  findWorkerForBankTransaction,
+} from "@/utils/clientDepositAliases";
+import { getBankTxClassifiedAmount, resolveBankTxClientName, type BankTxEvidenceAccentTone } from "@/utils/bankTaxInvoiceLink";
 import { formatKRW } from "@/utils/companyLedger";
 import type { CompanyProfile } from "@/utils/companyProfile";
 import {
   buildDefaultTaxInvoiceLinkDateRange,
   buildTaxInvoiceLinkCatalog,
+  canLinkTaxInvoiceToTransaction,
   filterTaxInvoiceLinkCatalog,
   resolveDefaultTaxInvoiceFlowFilter,
   type TaxInvoiceLinkCatalogRow,
   type TaxInvoiceLinkedPaymentIndex,
 } from "@/utils/taxInvoiceLinkPanel";
+import type { TaxInvoiceMatchContext } from "@/utils/bankTaxInvoiceLink";
 import type { TaxInvoice, TaxInvoiceFlowType } from "@/utils/taxInvoices";
 
 const PAGE_SIZE = 50;
@@ -43,6 +48,8 @@ const L = {
   issueHint: "\uC774 \uAC70\uB798\uB0B4\uC5ED\uC5D0 \uB300\uD574 \uC138\uAE08\uACC4\uC0B0\uC11C \uBC1C\uAE09",
   count: (n: number) => `\uC138\uAE08\uACC4\uC0B0\uC11C ${n.toLocaleString("ko-KR")}\uAC74`,
   page: (page: number, total: number) => `${page} / ${total}`,
+  partyEvidenceFindClient: (name: string) => `\uAC70\uB798\uCC98 \u00B7 ${name} \uC99D\uBE59 \uCC3E\uAE30`,
+  partyEvidenceFindWorker: (name: string) => `\uC2DC\uACF5\uC790 \u00B7 ${name} \uC99D\uBE59 \uCC3E\uAE30`,
 };
 
 export type TaxInvoiceLinkPanelDataProps = {
@@ -74,7 +81,45 @@ function formatTxAt(value: string) {
   return time ? `${date.slice(2).replace(/-/g, "-")} ${time}` : date.slice(2).replace(/-/g, "-");
 }
 
-function TaxInvoiceLinkSearchField({ onDebouncedChange }: { onDebouncedChange: (value: string) => void }) {
+function resolveLinkPartyHint(
+  tx: BankTransaction,
+  _clients: TaxInvoiceLinkPanelDataProps["clients"] = [],
+  workers: TaxInvoiceLinkPanelDataProps["workers"] = [],
+  linkedInvoiceIds: string[],
+): { tone: BankTxEvidenceAccentTone; name: string } | null {
+  if (linkedInvoiceIds.length > 0) return null;
+  if (tx.ledgerClientName === "") return null;
+
+  const selectedName = String(resolveBankTxClientName(tx) || "").trim();
+  if (selectedName) {
+    const isWorker = workers.some((worker) => String(worker.name || "").trim() === selectedName);
+    if (isWorker) return { tone: "worker", name: selectedName };
+    const tone: BankTxEvidenceAccentTone =
+      Number(tx.withdrawal || 0) > 0 ? "purchase" : "sales";
+    return { tone, name: selectedName };
+  }
+
+  if (tx.linkedWorkerMonthlyPaymentVoucherId) {
+    const matchedWorker = findWorkerForBankTransaction(tx, workers);
+    if (matchedWorker?.name) {
+      return { tone: "worker", name: String(matchedWorker.name).trim() };
+    }
+  }
+
+  return null;
+}
+
+function TaxInvoiceLinkSearchField({
+  onDebouncedChange,
+  defaultQuery = "",
+  partyKind,
+  inputKey,
+}: {
+  onDebouncedChange: (value: string) => void;
+  defaultQuery?: string;
+  partyKind?: BankTxEvidenceAccentTone;
+  inputKey: string;
+}) {
   const inputRef = useRef<HTMLInputElement>(null);
   const onDebouncedChangeRef = useRef(onDebouncedChange);
   onDebouncedChangeRef.current = onDebouncedChange;
@@ -90,22 +135,29 @@ function TaxInvoiceLinkSearchField({ onDebouncedChange }: { onDebouncedChange: (
       }, SEARCH_DEBOUNCE_MS);
     };
     input.addEventListener("input", handleInput);
+    onDebouncedChangeRef.current(defaultQuery);
     return () => {
       window.clearTimeout(timer);
       input.removeEventListener("input", handleInput);
     };
-  }, []);
+  }, [defaultQuery, inputKey]);
 
   return (
-    <input
-      ref={inputRef}
-      type="search"
-      defaultValue=""
-      autoComplete="off"
-      spellCheck={false}
-      placeholder={L.search}
-      className="erp-input w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-    />
+    <div
+      className={`erp-tax-invoice-link-panel__search${partyKind ? ` erp-tax-invoice-link-panel__search--party erp-tax-invoice-link-panel__search--${partyKind}` : ""}`}
+    >
+      <Search size={16} className="erp-tax-invoice-link-panel__search-icon" aria-hidden="true" />
+      <input
+        key={inputKey}
+        ref={inputRef}
+        type="search"
+        defaultValue={defaultQuery}
+        autoComplete="off"
+        spellCheck={false}
+        placeholder={L.search}
+        className="erp-tax-invoice-link-panel__search-input"
+      />
+    </div>
   );
 }
 
@@ -153,6 +205,7 @@ function TaxInvoiceLinkResultsTable({
   rows,
   linkedInvoiceIds = [],
   preparing,
+  matchContext = {},
   onLink,
   onUnlink,
 }: {
@@ -160,6 +213,7 @@ function TaxInvoiceLinkResultsTable({
   rows: TaxInvoiceLinkCatalogRow[];
   linkedInvoiceIds?: string[];
   preparing?: boolean;
+  matchContext?: TaxInvoiceMatchContext;
   onLink: (invoiceId: string) => void;
   onUnlink: (invoiceId: string) => void;
 }) {
@@ -213,7 +267,7 @@ function TaxInvoiceLinkResultsTable({
                 const isLinked = linkedInvoiceIds.includes(row.invoice.id);
                 const canLink =
                   !isLinked &&
-                  row.unsettledAmount > 0 &&
+                  canLinkTaxInvoiceToTransaction(tx, row.invoice, row.unsettledAmount, matchContext) &&
                   ((row.invoice.flowType === "purchase" && txIsWithdrawal) ||
                     (row.invoice.flowType === "sales" && txIsDeposit));
 
@@ -317,7 +371,11 @@ function TaxInvoiceLinkFilterBody({
   const [flowFilter, setFlowFilter] = useState<TaxInvoiceFlowType>(() => resolveDefaultTaxInvoiceFlowFilter(tx));
   const [startDate, setStartDate] = useState(defaultRange.startDate);
   const [endDate, setEndDate] = useState(defaultRange.endDate);
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const partyHint = useMemo(
+    () => resolveLinkPartyHint(tx, clients, workers, linkedInvoiceIds),
+    [tx, clients, workers, linkedInvoiceIds],
+  );
+  const [debouncedSearch, setDebouncedSearch] = useState(() => partyHint?.name || "");
 
   const ourCompanyName = String(companyProfile?.name || "\uC8FC\uC2DD\uD68C\uC0AC \uD300\uBC00\uB9AC\uBBF8\uD130").trim();
   const ourBusinessNo = String(companyProfile?.businessNo || "").trim();
@@ -395,7 +453,23 @@ function TaxInvoiceLinkFilterBody({
           </div>
         </label>
 
-        <TaxInvoiceLinkSearchField onDebouncedChange={handleDebouncedSearch} />
+        {partyHint ? (
+          <p
+            className={`erp-tax-invoice-link-panel__party-hint-line erp-tax-invoice-link-panel__party-hint-line--${partyHint.tone}`}
+          >
+            {partyHint.tone === "worker"
+              ? L.partyEvidenceFindWorker(partyHint.name)
+              : L.partyEvidenceFindClient(partyHint.name)}
+          </p>
+        ) : null}
+
+        <TaxInvoiceLinkSearchField
+          key={`${tx.id}:${partyHint?.name || ""}`}
+          inputKey={`${tx.id}:${partyHint?.name || ""}`}
+          defaultQuery={partyHint?.name || ""}
+          partyKind={partyHint?.tone}
+          onDebouncedChange={handleDebouncedSearch}
+        />
 
         {onNavigateToTaxInvoice ? (
           <button type="button" className="erp-tax-invoice-link-panel__issue-btn" onClick={onNavigateToTaxInvoice}>
@@ -409,6 +483,7 @@ function TaxInvoiceLinkFilterBody({
         rows={rows}
         linkedInvoiceIds={linkedInvoiceIds}
         preparing={preparing}
+        matchContext={{ clients, workers }}
         onLink={onLink}
         onUnlink={onUnlink}
       />

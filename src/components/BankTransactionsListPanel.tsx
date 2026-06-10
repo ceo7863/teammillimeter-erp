@@ -1,10 +1,17 @@
-import React, { memo } from "react";
-import { ArrowLeftRight, Repeat, Sparkles } from "lucide-react";
+import React, { memo, useCallback, useState } from "react";
+import { ArrowLeftRight, ListChecks, Repeat, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { BankTransactionDisplaySettings } from "@/components/BankTransactionDisplaySettings";
 import { BankTransactionListSection, type BankTransactionListSectionLabels } from "@/components/BankTransactionListSection";
 import { BankTransactionTableFooter } from "@/components/BankTransactionTableFooter";
 import { TableExportSection } from "@/components/TableExportSection";
 import type { BankTransactionFolder } from "@/utils/bankTransactionFolders";
+import {
+  loadBankTransactionColumnVisibility,
+  saveBankTransactionColumnVisibility,
+  type BankTransactionColumnVisibility,
+  type BankTransactionDisplayColumnKey,
+} from "@/utils/bankTransactionColumnVisibility";
 import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "@/utils/companyLedger";
 import type { BankTransaction } from "@/utils/bankTransactions";
 import type { AccountCode, LedgerCategory } from "@/utils/ledgerSystem";
@@ -42,7 +49,10 @@ type BankTransactionsListPanelProps = {
   onOpenPreauthNet: () => void;
   onOpenRecurringFixed: () => void;
   onAutoClassify: () => void;
+  onOpenClassificationRules?: () => void;
   onCreateFixedExpenseItem: () => void;
+  classificationRulesLabel?: string;
+  classificationRulesCount?: number;
   evidenceAutoMatchLabel: string;
   preauthNetOpenLabel: string;
   recurringFixedOpenLabel: string;
@@ -58,7 +68,10 @@ const BankTransactionsListToolbar = memo(function BankTransactionsListToolbar({
   onOpenPreauthNet,
   onOpenRecurringFixed,
   onAutoClassify,
+  onOpenClassificationRules,
   onCreateFixedExpenseItem,
+  classificationRulesLabel,
+  classificationRulesCount = 0,
   evidenceAutoMatchLabel,
   preauthNetOpenLabel,
   recurringFixedOpenLabel,
@@ -66,13 +79,19 @@ const BankTransactionsListToolbar = memo(function BankTransactionsListToolbar({
   addFixedExpenseLabel,
   preauthNetActionCount,
   recurringFixedActionCount,
+  columnVisibility,
+  displaySettingsLabels,
+  onColumnVisibilityChange,
 }: Pick<
   BankTransactionsListPanelProps,
   | "onBatchEvidenceAutoLink"
   | "onOpenPreauthNet"
   | "onOpenRecurringFixed"
   | "onAutoClassify"
+  | "onOpenClassificationRules"
   | "onCreateFixedExpenseItem"
+  | "classificationRulesLabel"
+  | "classificationRulesCount"
   | "evidenceAutoMatchLabel"
   | "preauthNetOpenLabel"
   | "recurringFixedOpenLabel"
@@ -80,31 +99,49 @@ const BankTransactionsListToolbar = memo(function BankTransactionsListToolbar({
   | "addFixedExpenseLabel"
   | "preauthNetActionCount"
   | "recurringFixedActionCount"
->) {
+> & {
+  columnVisibility: BankTransactionColumnVisibility;
+  displaySettingsLabels: BankTransactionListSectionLabels;
+  onColumnVisibilityChange: (key: BankTransactionDisplayColumnKey, visible: boolean) => void;
+}) {
   return (
     <>
-      <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={onBatchEvidenceAutoLink}>
-        {evidenceAutoMatchLabel}
-      </Button>
-      {preauthNetActionCount > 0 ? (
-        <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={onOpenPreauthNet}>
-          <ArrowLeftRight size={14} className="mr-1" />
-          {preauthNetOpenLabel} ({preauthNetActionCount})
+      <BankTransactionDisplaySettings
+        visibility={columnVisibility}
+        labels={displaySettingsLabels}
+        onChange={onColumnVisibilityChange}
+      />
+      <div className="erp-bank-wehago-table-toolbar__actions">
+        <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={onBatchEvidenceAutoLink}>
+          {evidenceAutoMatchLabel}
         </Button>
-      ) : null}
-      {recurringFixedActionCount > 0 ? (
-        <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={onOpenRecurringFixed}>
-          <Repeat size={14} className="mr-1" />
-          {recurringFixedOpenLabel} ({recurringFixedActionCount})
+        {preauthNetActionCount > 0 ? (
+          <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={onOpenPreauthNet}>
+            <ArrowLeftRight size={14} className="mr-1" />
+            {preauthNetOpenLabel} ({preauthNetActionCount})
+          </Button>
+        ) : null}
+        {recurringFixedActionCount > 0 ? (
+          <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={onOpenRecurringFixed}>
+            <Repeat size={14} className="mr-1" />
+            {recurringFixedOpenLabel} ({recurringFixedActionCount})
+          </Button>
+        ) : null}
+        {onOpenClassificationRules ? (
+          <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={onOpenClassificationRules}>
+            <ListChecks size={14} className="mr-1" />
+            {classificationRulesLabel || "분류 규칙"}
+            {classificationRulesCount > 0 ? ` (${classificationRulesCount})` : ""}
+          </Button>
+        ) : null}
+        <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={onAutoClassify}>
+          <Sparkles size={14} className="mr-1" />
+          {autoClassifyLabel}
         </Button>
-      ) : null}
-      <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={onAutoClassify}>
-        <Sparkles size={14} className="mr-1" />
-        {autoClassifyLabel}
-      </Button>
-      <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={onCreateFixedExpenseItem}>
-        {addFixedExpenseLabel}
-      </Button>
+        <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={onCreateFixedExpenseItem}>
+          {addFixedExpenseLabel}
+        </Button>
+      </div>
     </>
   );
 });
@@ -141,7 +178,10 @@ function BankTransactionsListPanelComponent({
   onOpenPreauthNet,
   onOpenRecurringFixed,
   onAutoClassify,
+  onOpenClassificationRules,
   onCreateFixedExpenseItem,
+  classificationRulesLabel,
+  classificationRulesCount = 0,
   evidenceAutoMatchLabel,
   preauthNetOpenLabel,
   recurringFixedOpenLabel,
@@ -151,6 +191,19 @@ function BankTransactionsListPanelComponent({
   recurringFixedActionCount,
   getBankTransactionsExportParsed,
 }: BankTransactionsListPanelProps) {
+  const [columnVisibility, setColumnVisibility] = useState(loadBankTransactionColumnVisibility);
+
+  const handleColumnVisibilityChange = useCallback(
+    (key: BankTransactionDisplayColumnKey, visible: boolean) => {
+      setColumnVisibility((prev) => {
+        const next = { ...prev, [key]: visible };
+        saveBankTransactionColumnVisibility(next);
+        return next;
+      });
+    },
+    [],
+  );
+
   return (
     <>
       {showEmptyPeriodHint ? (
@@ -158,7 +211,7 @@ function BankTransactionsListPanelComponent({
           {emptyPeriodHint}
         </p>
       ) : null}
-      <div className="erp-bank-wehago-table-shell rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="erp-bank-wehago-table-shell border border-slate-200 bg-white">
         <TableExportSection
           fileName={exportFileName}
           title={exportTitle}
@@ -183,6 +236,7 @@ function BankTransactionsListPanelComponent({
         workers={workers}
         paymentVouchers={paymentVouchers}
             labels={labels}
+            columnVisibility={columnVisibility}
             onEditMemo={onEditMemo}
             onEditAccountSubject={onEditAccountSubject}
             onEditClient={onEditClient}
@@ -196,7 +250,10 @@ function BankTransactionsListPanelComponent({
                 onOpenPreauthNet={onOpenPreauthNet}
                 onOpenRecurringFixed={onOpenRecurringFixed}
                 onAutoClassify={onAutoClassify}
+                onOpenClassificationRules={onOpenClassificationRules}
                 onCreateFixedExpenseItem={onCreateFixedExpenseItem}
+                classificationRulesLabel={classificationRulesLabel}
+                classificationRulesCount={classificationRulesCount}
                 evidenceAutoMatchLabel={evidenceAutoMatchLabel}
                 preauthNetOpenLabel={preauthNetOpenLabel}
                 recurringFixedOpenLabel={recurringFixedOpenLabel}
@@ -204,6 +261,9 @@ function BankTransactionsListPanelComponent({
                 addFixedExpenseLabel={addFixedExpenseLabel}
                 preauthNetActionCount={preauthNetActionCount}
                 recurringFixedActionCount={recurringFixedActionCount}
+                columnVisibility={columnVisibility}
+                displaySettingsLabels={labels}
+                onColumnVisibilityChange={handleColumnVisibilityChange}
               />
             }
           />
@@ -235,6 +295,8 @@ function bankTransactionsListPanelPropsAreEqual(
   if (prev.preauthNetOpenLabel !== next.preauthNetOpenLabel) return false;
   if (prev.recurringFixedOpenLabel !== next.recurringFixedOpenLabel) return false;
   if (prev.autoClassifyLabel !== next.autoClassifyLabel) return false;
+  if (prev.classificationRulesLabel !== next.classificationRulesLabel) return false;
+  if (prev.classificationRulesCount !== next.classificationRulesCount) return false;
   if (prev.addFixedExpenseLabel !== next.addFixedExpenseLabel) return false;
 
   if ((prev.stats?.count ?? 0) !== (next.stats?.count ?? 0)) return false;
@@ -273,6 +335,7 @@ function bankTransactionsListPanelPropsAreEqual(
   if (prev.onOpenPreauthNet !== next.onOpenPreauthNet) return false;
   if (prev.onOpenRecurringFixed !== next.onOpenRecurringFixed) return false;
   if (prev.onAutoClassify !== next.onAutoClassify) return false;
+  if (prev.onOpenClassificationRules !== next.onOpenClassificationRules) return false;
   if (prev.onCreateFixedExpenseItem !== next.onCreateFixedExpenseItem) return false;
   if (prev.getBankTransactionsExportParsed !== next.getBankTransactionsExportParsed) return false;
 

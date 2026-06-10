@@ -89,6 +89,44 @@ export function createWorkerLine(index: number): SaleWorkerLine {
   };
 }
 
+/** 시공자 미입력 행 — 공통비고·야근 등 데이터를 넣지 않도록 필드 초기화 */
+export function resetUnfilledWorkerLine(line: SaleWorkerLine): SaleWorkerLine {
+  return {
+    ...createWorkerLine((line.no || 1) - 1),
+    _lineKey: line._lineKey,
+    no: line.no,
+  };
+}
+
+function resolveWorkerLineOvertimeRate(
+  workers: Array<{ name?: string; overtimeCost?: number }>,
+  clients: Array<{ name?: string; overtimeCost?: number }>,
+  clientName: string,
+  workerName: string,
+) {
+  const selectedWorker = findActiveWorkerByName(workers, workerName);
+  const selectedClient = clients.find((client) => client.name === clientName);
+  return selectedClient?.overtimeCost ?? selectedWorker?.overtimeCost ?? 30000;
+}
+
+/** 시공자·야근시간이 있으면 야근단가를 자동 채워 야근비(시간×단가)가 계산되도록 함 */
+export function syncWorkerLineOvertimeRate(
+  line: SaleWorkerLine,
+  workers: Array<{ name?: string; overtimeCost?: number }>,
+  clients: Array<{ name?: string; overtimeCost?: number }>,
+  clientName: string,
+): SaleWorkerLine {
+  const workerName = String(line.worker || "").trim();
+  const hours = parseMoney(line.overtimeHours);
+  if (!workerName || hours <= 0) return line;
+
+  const rate = resolveWorkerLineOvertimeRate(workers, clients, clientName, workerName);
+  const currentRate = parseMoney(line.overtimeCost);
+  if (currentRate > 0) return line;
+
+  return { ...line, overtimeCost: String(rate) };
+}
+
 export function saleRowToForm(row: Record<string, unknown>, minWorkerRows = 8): SaleFormData {
   const rawWorkers = row.workers;
   let workerLines: SaleWorkerLine[];
@@ -96,6 +134,9 @@ export function saleRowToForm(row: Record<string, unknown>, minWorkerRows = 8): 
   if (Array.isArray(rawWorkers) && rawWorkers.length > 0) {
     workerLines = rawWorkers.map((line, index) => {
       const source = line && typeof line === "object" ? (line as SaleWorkerLine) : {};
+      if (!String(source.worker || "").trim()) {
+        return { ...createWorkerLine(index), _lineKey: source._lineKey, no: source.no ?? index + 1 };
+      }
       const merged = { ...createWorkerLine(index), ...source };
       if (
         Object.prototype.hasOwnProperty.call(merged, "chargeAmount") &&
@@ -158,6 +199,10 @@ export function enrichWorkerLineOnWorkerSelect(
   rawWorkerName: string,
 ) {
   const workerName = resolveWorkerListName(workers, rawWorkerName) || rawWorkerName;
+  if (!String(workerName || "").trim()) {
+    return resetUnfilledWorkerLine(line);
+  }
+
   let nextLine = applyWorkerLineFieldUpdate(line, "worker", workerName);
   const selectedWorker = findActiveWorkerByName(workers, workerName);
   const selectedClient = clients.find((client) => client.name === clientName);
@@ -172,7 +217,27 @@ export function enrichWorkerLineOnWorkerSelect(
       ? String(selectedWorker.overtimeCost)
       : nextLine.overtimeCost || "30000";
   nextLine.feeRate = selectedWorker?.feeRate ?? nextLine.feeRate ?? "";
+  nextLine = syncWorkerLineOvertimeRate(nextLine, workers, clients, clientName);
   return stripWorkerLineComputedMetrics(nextLine);
+}
+
+export function applySaleWorkerLineUpdate(
+  line: SaleWorkerLine,
+  key: string,
+  value: unknown,
+  workers: Array<{ name?: string; feeRate?: number; overtimeCost?: number; constructionCost?: number }>,
+  clients: Array<{ name?: string; overtimeCost?: number; constructionCost?: number }>,
+  clientName: string,
+) {
+  if (key === "worker") {
+    return enrichWorkerLineOnWorkerSelect(line, workers, clients, clientName, String(value ?? ""));
+  }
+
+  let nextLine = applyWorkerLineFieldUpdate(line, key, value) as SaleWorkerLine;
+  if (key === "overtimeHours" || key === "overtimeCost") {
+    nextLine = syncWorkerLineOvertimeRate(nextLine, workers, clients, clientName);
+  }
+  return nextLine;
 }
 
 export function reEnrichWorkerLinesForClient(
@@ -211,6 +276,17 @@ function findRegisteredClientByName(clients: Array<{ name?: string }>, name: str
   return clients.find((client) => client.name === trimmed);
 }
 
+function getInactiveClientNamesInForm(form: SaleFormData, clients: Array<{ name?: string; isActive?: boolean }>) {
+  const inactiveNames = new Set(
+    clients
+      .filter((client) => client.isActive === false)
+      .map((client) => String(client.name || "").trim())
+      .filter(Boolean),
+  );
+  const clientName = String(form.client || "").trim();
+  return clientName && inactiveNames.has(clientName) ? [clientName] : [];
+}
+
 function getUnknownWorkerNamesInForm(form: SaleFormData, workers: Array<{ name?: string }>) {
   const knownNames = new Set(
     workers
@@ -234,6 +310,11 @@ export function validateSaleFormMasterRefs(
   const clientName = String(form.client || "").trim();
   if (clientName && !findRegisteredClientByName(clients, clientName)) {
     return "등록된 거래처가 아닙니다.";
+  }
+
+  const inactiveClients = getInactiveClientNamesInForm(form, clients);
+  if (inactiveClients.length > 0) {
+    return `비활성 거래처는 선택할 수 없습니다: ${inactiveClients.join(", ")}`;
   }
 
   const inactiveWorkers = getInactiveWorkerNamesInForm(form, workers);

@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useRef } from "react";
-import { ExternalLink, Pencil, Plus } from "lucide-react";
+import { ExternalLink, Plus } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { DesktopTableWrap } from "@/components/MobileRecordCard";
@@ -10,8 +10,9 @@ import {
 import type { ErpUser } from "@/utils/erpApi";
 import type { BankLearnRule } from "@/utils/bankCompanyLedger";
 import type { BankTransaction } from "@/utils/bankTransactions";
+import type { AccountCode, LedgerCategory } from "@/utils/ledgerSystem";
+import { resolveAccountCodeLabel, resolveFixedExpenseAccountCode } from "@/utils/ledgerSystem";
 import {
-  FIXED_CATEGORY_OPTIONS,
   fixedCycleLabel,
   fixedMonthlyAmount,
   formatFixedExpensePaymentDay,
@@ -44,6 +45,7 @@ const L = {
   paidSection: (count: number, amount: number) =>
     `\uB0A9\uBD80 \uACE0\uC815\uBE44 ${count}\uAC74 \u00B7 ${formatKRW(amount)}`,
   name: "\uD56D\uBAA9",
+  account: "\uACC4\uC815\uACFC\uBAA9",
   amount: "\uAE08\uC561",
   cycle: "\uC8FC\uAE30",
   paymentDay: "\uCD9C\uAE08\uC77C",
@@ -55,7 +57,6 @@ const L = {
   unpaid: "\uBBF8\uB0A9\uBD80",
   active: "\uD65C\uC131",
   inactive: "\uBE44\uD65C\uC131",
-  edit: "\uC218\uC815",
   emptyItems: "\uACE0\uC815\uBE44 \uD56D\uBAA9\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uD56D\uBAA9\uC744 \uCD94\uAC00\uD558\uC138\uC694.",
   emptyPayments: "\uC774\uBC88 \uB2EC \uC608\uC0C1 \uACE0\uC815\uBE44\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
   emptyUnpaid: "\uBBF8\uB0A9\uBD80 \uACE0\uC815\uBE44\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
@@ -71,6 +72,8 @@ type FixedExpenseManagePanelProps = {
   fixedExpensePayments: FixedExpensePayment[];
   setFixedExpensePayments: React.Dispatch<React.SetStateAction<FixedExpensePayment[]>>;
   fixedExpenseCategories: string[];
+  accountCodes: AccountCode[];
+  ledgerCategories?: LedgerCategory[];
   setFixedExpenseCategories: React.Dispatch<React.SetStateAction<string[]>>;
   bankTransactions: BankTransaction[];
   setBankTransactions: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
@@ -92,6 +95,8 @@ export function FixedExpenseManagePanel({
   fixedExpensePayments,
   setFixedExpensePayments,
   fixedExpenseCategories,
+  accountCodes,
+  ledgerCategories = [],
   setFixedExpenseCategories,
   bankTransactions,
   setBankTransactions,
@@ -132,12 +137,21 @@ export function FixedExpenseManagePanel({
   );
 
   const openCreate = useCallback(() => {
-    modalRef.current?.openCreateFixedExpense(
-      FIXED_CATEGORY_OPTIONS[0] || fixedExpenseCategories[0] || "",
-    );
-  }, [fixedExpenseCategories]);
+    modalRef.current?.openCreateFixedExpense();
+  }, []);
 
-  const noopBankLinkView = useCallback(() => {}, []);
+  const openEdit = useCallback((row: FixedExpense) => {
+    modalRef.current?.openEditFixedExpense(row);
+  }, []);
+
+  const resolveItemAccountLabel = useCallback(
+    (row: FixedExpense) => {
+      const accountCode = resolveFixedExpenseAccountCode(row, ledgerCategories);
+      const accountName = resolveAccountCodeLabel(accountCodes, accountCode) || accountCode;
+      return { accountCode, accountName };
+    },
+    [accountCodes, ledgerCategories],
+  );
 
   return (
     <div className="erp-fixed-expense-manage space-y-4">
@@ -180,17 +194,36 @@ export function FixedExpenseManagePanel({
                 <thead>
                   <tr>
                     <th>{L.name}</th>
+                    <th>{L.account}</th>
                     <th className="text-right">{L.amount}</th>
                     <th>{L.cycle}</th>
                     <th>{L.paymentDay}</th>
                     <th>{L.status}</th>
-                    <th />
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedItems.map((row) => (
-                    <tr key={row.id} className={row.isActive ? "" : "opacity-50"}>
+                  {sortedItems.map((row) => {
+                    const account = resolveItemAccountLabel(row);
+                    return (
+                    <tr
+                      key={row.id}
+                      className={`cursor-pointer hover:bg-slate-50/80 ${row.isActive ? "" : "opacity-50"}`}
+                      onClick={() => openEdit(row)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          openEdit(row);
+                        }
+                      }}
+                      tabIndex={0}
+                      role="button"
+                      aria-label={row.name}
+                    >
                       <td className="font-semibold text-slate-900">{row.name}</td>
+                      <td className="text-sm text-slate-700">
+                        <span className="font-mono text-xs text-slate-500">{account.accountCode}</span>{" "}
+                        {account.accountName}
+                      </td>
                       <td className="text-right font-bold text-slate-900">
                         {formatKRW(fixedMonthlyAmount(row))}
                       </td>
@@ -201,20 +234,9 @@ export function FixedExpenseManagePanel({
                       <td className="text-sm font-semibold text-slate-600">
                         {row.isActive ? L.active : L.inactive}
                       </td>
-                      <td className="text-right">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="rounded-lg"
-                          onClick={() => modalRef.current?.openEditFixedExpense(row)}
-                        >
-                          <Pencil className="mr-1 h-3.5 w-3.5" />
-                          {L.edit}
-                        </Button>
-                      </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </DesktopTableWrap>
@@ -274,6 +296,8 @@ export function FixedExpenseManagePanel({
         fixedExpenses={fixedExpenses}
         setFixedExpenses={setFixedExpenses}
         fixedExpenseCategories={fixedExpenseCategories}
+        accountCodes={accountCodes}
+        ledgerCategories={ledgerCategories}
         setFixedExpenseCategories={setFixedExpenseCategories}
         fixedExpensePayments={fixedExpensePayments}
         setFixedExpensePayments={setFixedExpensePayments}
@@ -281,7 +305,6 @@ export function FixedExpenseManagePanel({
         setBankTransactions={setBankTransactions}
         setBankLedgerRules={setBankLedgerRules}
         currentUser={currentUser}
-        onOpenBankLinkView={noopBankLinkView}
         onRequestImmediateSave={onRequestImmediateSave}
       />
     </div>

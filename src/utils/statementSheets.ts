@@ -184,7 +184,9 @@ export function collectClientStatementSiteMemo(sale: ClientStatementSaleLike): s
   };
 
   push(sale.memo);
-  getSaleWorkerLines(sale).forEach((line) => push(line.memo));
+  getSaleWorkerLines(sale).forEach((line) => {
+    if (String(line.worker || "").trim()) push(line.memo);
+  });
 
   return parts.join(" / ");
 }

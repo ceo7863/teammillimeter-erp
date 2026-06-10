@@ -15,6 +15,7 @@ import { archiveGeneratedPdf, archivePdfAndCreateShareLink, copyTextToClipboard,
 import { isApiModeEnabled, type ErpUser } from "@/utils/erpApi";
 import type { TaxInvoice } from "@/utils/taxInvoices";
 import type { ClientMasterLike } from "@/utils/clientMaster";
+import { isClientActive } from "@/utils/clientMaster";
 import { createPdfPreviewWindow, downloadPdfFromHtmlElement, revokePdfBlobUrl } from "@/utils/statementPdf";
 import {
   buildStatementPdfCacheKey,
@@ -487,7 +488,24 @@ export function StatementsPage({
   const hasClientSelection = Boolean(client && client !== "\uC804\uCCB4");
   const hasWorkerSelection = Boolean(worker && worker !== "\uC804\uCCB4");
 
-  const clientOptions = [...new Set(sales.map((row) => String(row.client || "")).filter(Boolean))];
+  const inactiveClientNames = useMemo(
+    () =>
+      new Set(
+        clientMaster
+          .filter((row) => !isClientActive(row as ClientMasterLike))
+          .map((row) => String(row.name || "").trim())
+          .filter(Boolean),
+      ),
+    [clientMaster],
+  );
+
+  const clientOptions = useMemo(
+    () =>
+      [...new Set(sales.map((row) => String(row.client || "")).filter(Boolean))].filter(
+        (name) => !inactiveClientNames.has(name),
+      ),
+    [sales, inactiveClientNames],
+  );
   const workerOptions = [
     ...new Set(
       sales
@@ -531,7 +549,7 @@ export function StatementsPage({
     ? dateFilteredSales
         .flatMap((sale) => {
           const workers = sale.workers as Array<Record<string, unknown>> | undefined;
-          const lines = workers?.length
+          const lines = (workers?.length
             ? workers
             : String(sale.worker || "")
                 .split(",")
@@ -543,9 +561,9 @@ export function StatementsPage({
                   meal: "",
                   overtimeHours: "",
                   overtimeCost: "30000",
-                  memo: sale.memo || "",
+                  memo: "",
                 }))
-                .filter((line) => line.worker);
+          ).filter((line) => String(line.worker || "").trim());
 
           return lines.map((line) => {
             const calculated = calculateWorkerLine(line as never);
@@ -572,7 +590,7 @@ export function StatementsPage({
               overtime,
               totalPay: calculated.spend,
               amount: calculated.spend,
-              memo: String(line.memo || sale.memo || ""),
+              memo: String(line.memo || ""),
             };
           });
         })

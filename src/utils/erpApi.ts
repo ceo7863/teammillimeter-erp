@@ -13,6 +13,7 @@ export type ErpUser = {
   isActive?: boolean;
   allowedPages?: string[] | null;
   sidebarOrder?: string[] | null;
+  sidebarHidden?: string[] | null;
   attendanceViewUserIds?: number[] | null;
 };
 
@@ -54,6 +55,7 @@ export type ErpPayload = {
   clientContracts?: unknown[];
   companyProfile?: CompanyProfile;
   notificationSettings?: import("./notificationSettings").NotificationSettings;
+  saleAiRules?: import("@/utils/saleAiRules").SaleAiRules;
   version?: number;
   updatedAt?: string | null;
   updatedBy?: string | null;
@@ -176,10 +178,14 @@ export async function changeSelfPasswordApi(currentPassword: string, password: s
   });
 }
 
-export async function updateSidebarOrderApi(sidebarOrder: string[]) {
+export async function updateSidebarOrderApi(payload: { sidebarOrder?: string[]; sidebarHidden?: string[] }) {
+  const body =
+    typeof payload === "object" && payload != null && !Array.isArray(payload)
+      ? payload
+      : { sidebarOrder: payload as string[] };
   const result = await apiRequest<{ user: ErpUser }>("/auth/me/sidebar-order", {
     method: "PATCH",
-    body: JSON.stringify({ sidebarOrder }),
+    body: JSON.stringify(body),
   });
   const token = getAuthToken();
   if (token) saveAuthSession(token, result.user);
@@ -298,6 +304,8 @@ export function buildErpDomainChunk(domain: ErpSaveDomain, payload: ErpPayload) 
         workPosts: payload.workPosts || [],
         statementGenerationLogs: payload.statementGenerationLogs || [],
         statementFolders: payload.statementFolders || [],
+        notificationSettings: payload.notificationSettings,
+        saleAiRules: payload.saleAiRules,
       };
     default:
       return {};

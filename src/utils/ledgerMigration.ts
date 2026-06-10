@@ -8,6 +8,7 @@ import {
   normalizeAccountCodes,
   normalizeLedgerCategories,
   resolveBankTxLedgerStatus,
+  resolveFixedExpenseAccountCode,
 } from "./ledgerSystem";
 
 export function migrateBankTransactionLedgerFields(
@@ -41,17 +42,20 @@ export function migrateBankTransactionLedgerFields(
     }
   }
 
-  if (tx.linkedFixedExpensePaymentId) {
-    const payment = fixedExpensePayments.find((row) => row.id === tx.linkedFixedExpensePaymentId);
+  if (tx.linkedFixedExpensePaymentId || fixedExpensePayments.some((row) => row.bankTransactionId === tx.id)) {
+    const payment =
+      fixedExpensePayments.find((row) => row.id === tx.linkedFixedExpensePaymentId) ||
+      fixedExpensePayments.find((row) => row.bankTransactionId === tx.id);
     if (payment) {
       const fixedItem = fixedExpenses.find((row) => row.id === payment.fixedExpenseId);
       const categoryName = payment.category || fixedItem?.category || "";
       const category = findLedgerCategoryByName(categories, categoryName);
+      const accountCode = resolveFixedExpenseAccountCode(fixedItem, categories);
       return {
         ...tx,
         ledgerStatus: "confirmed",
         ledgerCategoryId: category?.id,
-        ledgerAccountCode: category?.accountCode,
+        ledgerAccountCode: accountCode,
         ledgerFixedExpenseId: payment.fixedExpenseId,
         ledgerMemo: payment.memo || tx.ledgerMemo,
         ledgerConfirmedAt: payment.createdAt || tx.ledgerConfirmedAt,

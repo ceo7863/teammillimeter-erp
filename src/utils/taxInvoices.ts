@@ -315,9 +315,20 @@ export function matchesTaxInvoiceCancellationPair(
   return true;
 }
 
-/** 취소 전표와 동일 금액·거래처의 발행 전표를 짝지어 합계에서 제외할 id 집합 */
-export function buildTaxInvoiceCancellationExcludedIds(rows: TaxInvoice[]) {
+export type TaxInvoiceCancellationPairRole = "cancelled" | "offset";
+
+export type TaxInvoiceCancellationPairInfo = {
+  role: TaxInvoiceCancellationPairRole;
+  pairedId: string;
+  pairedInvoiceNo: string;
+  pairedIssueDate: string;
+};
+
+export type TaxInvoiceCancellationView = "all" | "active" | "cancellation";
+
+function buildTaxInvoiceCancellationState(rows: TaxInvoice[]) {
   const excluded = new Set<string>();
+  const pairIndex = new Map<string, TaxInvoiceCancellationPairInfo>();
   const usedIssuedIds = new Set<string>();
   const issuedRows = rows.filter((row) => row.status === "issued");
   const cancelledRows = [...rows.filter((row) => row.status === "cancelled")].sort((a, b) => {
@@ -345,10 +356,56 @@ export function buildTaxInvoiceCancellationExcludedIds(rows: TaxInvoice[]) {
     if (paired) {
       excluded.add(paired.id);
       usedIssuedIds.add(paired.id);
+      pairIndex.set(cancelled.id, {
+        role: "cancelled",
+        pairedId: paired.id,
+        pairedInvoiceNo: String(paired.invoiceNo || "").trim(),
+        pairedIssueDate: String(paired.issueDate || "").trim(),
+      });
+      pairIndex.set(paired.id, {
+        role: "offset",
+        pairedId: cancelled.id,
+        pairedInvoiceNo: String(cancelled.invoiceNo || "").trim(),
+        pairedIssueDate: String(cancelled.issueDate || "").trim(),
+      });
     }
   });
 
-  return excluded;
+  return { excluded, pairIndex };
+}
+
+/** 취소 전표와 동일 금액·거래처의 발행 전표를 짝지어 합계에서 제외할 id 집합 */
+export function buildTaxInvoiceCancellationExcludedIds(rows: TaxInvoice[]) {
+  return buildTaxInvoiceCancellationState(rows).excluded;
+}
+
+export function buildTaxInvoiceCancellationPairIndex(rows: TaxInvoice[]) {
+  return buildTaxInvoiceCancellationState(rows).pairIndex;
+}
+
+export function countTaxInvoiceCancellationRows(rows: TaxInvoice[]) {
+  const excluded = buildTaxInvoiceCancellationExcludedIds(rows);
+  let cancelled = 0;
+  let offset = 0;
+  for (const row of rows) {
+    if (row.status === "cancelled") cancelled += 1;
+    else if (row.status === "issued" && excluded.has(row.id)) offset += 1;
+  }
+  return { cancelled, offset, excludedTotal: cancelled + offset };
+}
+
+export function filterTaxInvoicesByCancellationView(
+  rows: TaxInvoice[],
+  view: TaxInvoiceCancellationView,
+) {
+  if (view === "all") return rows;
+  const excluded = buildTaxInvoiceCancellationExcludedIds(rows);
+  if (view === "active") {
+    return rows.filter((row) => row.status === "issued" && !excluded.has(row.id));
+  }
+  return rows.filter(
+    (row) => row.status === "cancelled" || (row.status === "issued" && excluded.has(row.id)),
+  );
 }
 
 export function isTaxInvoiceIncludedInTotals(row: TaxInvoice, rows: TaxInvoice[]) {

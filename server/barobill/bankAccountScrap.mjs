@@ -1,5 +1,5 @@
 import { config } from "../config.mjs";
-import { getErrString } from "./client.mjs";
+import { describeBarobillCode } from "./client.mjs";
 import {
   assertBarobillBankCredentials,
   callBankAccountSoap,
@@ -9,15 +9,6 @@ import {
   extractResultBlock,
   readXmlTag,
 } from "./bankAccountClient.mjs";
-
-async function describeCode(code) {
-  if (code >= 0) return null;
-  try {
-    return await getErrString(code);
-  } catch {
-    return `\uBC14\uB85C\uBE4C \uC624\uB958 (${code})`;
-  }
-}
 
 export async function getBankAccountScrapRegistrationStatus(bankAccountNum) {
   const { bankAccountNum: defaultAccount } = assertBarobillBankCredentials();
@@ -78,7 +69,7 @@ export async function checkBankAccountScrapService(bankAccountNum) {
     };
   }
   if (code < 0) {
-    const detail = await describeCode(code);
+    const detail = await describeBarobillCode(code);
     return {
       active: false,
       code,
@@ -128,7 +119,7 @@ async function resolveBarobillUrlResult(rawResult, fallbackMessage) {
   const result = decodeXml(String(rawResult || "").trim());
   const asNumber = Number(result);
   if (Number.isFinite(asNumber) && asNumber < 0) {
-    const detail = await describeCode(asNumber);
+    const detail = await describeBarobillCode(asNumber);
     const error = new Error(detail || fallbackMessage);
     error.errCode = asNumber;
     throw error;

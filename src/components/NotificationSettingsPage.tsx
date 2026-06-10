@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bell, Eye, RefreshCw, Send, Smartphone } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,12 +9,15 @@ import {
   fetchNotificationStatus,
   previewDailyReport,
   previewScScheduleNotify,
+  previewScWeeklyBriefing,
   saveNotificationSettings,
   sendCommentNotifyTest,
   sendDailyReportNow,
   sendScScheduleNotifyNow,
+  sendScWeeklyBriefingNotifyNow,
   type AlimtalkStatus,
   type ScScheduleNotifyStatus,
+  type ScWeeklyBriefingNotifyStatus,
 } from "@/utils/notificationApi";
 import {
   DEFAULT_NOTIFICATION_SETTINGS,
@@ -47,6 +50,19 @@ const L = {
   scScheduleFeature: "SC \uB0B4\uC77C \uC77C\uC815 \uC54C\uB9BC",
   scScheduleFeatureHint:
     "\uB9E4\uC77C \uC124\uC815 \uC2DC\uAC01(KST)\uC5D0 \uB0B4\uC77C SC \uC77C\uC815\uC744 \uAC70\uB798\uCC98 \uB2F4\uB2F9\uC790\uC640 \uCC38\uC5EC \uC2DC\uACF5\uC790 \uC804\uD654\uB85C \uBC1C\uC1A1\uD569\uB2C8\uB2E4.",
+  weeklyBriefingFeature: "\uC8FC\uAC04 \uD604\uC7A5 \uBE0C\uB9AC\uD551",
+  weeklyBriefingFeatureHint:
+    "\uC774\uBC88 \uC8FC SC \uC77C\uC815\uC744 \uAC70\uB798\uCC98 \uB2F4\uB2F9\uC790 \uC804\uD654\uB85C \uBC1C\uC1A1\uD569\uB2C8\uB2E4. \uBC1C\uC1A1 \uD0ED\uC5D0\uC11C \uC218\uC2E0\uC790\uB97C \uC120\uD0DD\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+  weeklyBriefingWeekdayLabel: "\uBC1C\uC1A1 \uC694\uC77C",
+  weeklyBriefingTimeLabel: "\uBC1C\uC1A1 \uC2DC\uAC01",
+  weeklyBriefingScheduleHint: "\uC774\uBC88 \uC8FC \uC77C\uC815 \uAE30\uC900",
+  weeklyPreview: "\uC8FC\uAC04 \uBE0C\uB9AC\uD551 \uBBF8\uB9AC\uBCF4\uAE30",
+  weeklyPreviewTitle: "\uC774\uBC88 \uC8FC \uD604\uC7A5 \uBE0C\uB9AC\uD551 \uBBF8\uB9AC\uBCF4\uAE30",
+  weeklySendTest: "\uC8FC\uAC04 \uBE0C\uB9AC\uD551 \uD14C\uC2A4\uD2B8 \uBC1C\uC1A1",
+  weeklySendTestConfirm:
+    "\uC774\uBC88 \uC8FC \uD604\uC7A5 \uBE0C\uB9AC\uD551\uC744 \uAC70\uB798\uCC98 \uB2F4\uB2F9 \uC804\uD654\uB85C \uC790\uB3D9 \uBC1C\uC1A1\uD569\uB2C8\uB2E4. \uACC4\uC18D\uD560\uAE4C\uC694?",
+  weeklySendTestSuccess: "\uC8FC\uAC04 \uBE0C\uB9AC\uD551 \uD14C\uC2A4\uD2B8 \uBC1C\uC1A1\uC744 \uC694\uCCAD\uD588\uC2B5\uB2C8\uB2E4.",
+  weeklySendTestError: "\uC8FC\uAC04 \uBE0C\uB9AC\uD551 \uD14C\uC2A4\uD2B8 \uBC1C\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   scScheduleTimeLabel: "SC \uC77C\uC815 \uBC1C\uC1A1 \uC2DC\uAC01",
   scheduleLabel: "\uBC1C\uC1A1 \uC2DC\uAC01 (KST)",
   scheduleHintDaily: "\uC804\uC77C \uAE30\uC900 \uC694\uC57D",
@@ -59,6 +75,7 @@ const L = {
   scheduleValue: "\uB9E4\uC77C 08:00 (KST, \uC804\uC77C \uAE30\uC900)",
   alimtalkStatus: "\uC54C\uB9BC\uD1A1 \uC5F0\uB3D9 \uC0C1\uD0DC",
   scheduleTemplate: "SC \uC77C\uC815 \uD15C\uD074\uB9BF",
+  weeklyBriefingTemplate: "\uC8FC\uAC04 \uD604\uC7A5 \uBE0C\uB9AC\uD551 \uD15C\uD074\uB9BF",
   alimtalkEnabled: "API \uC5F0\uB3D9",
   alimtalkDisabled: "\uBBF8\uC5F0\uB3D9 (dry-run)",
   provider: "\uC81C\uACF5\uC790",
@@ -149,7 +166,7 @@ function formatTestSuccessMessage(base: string, result: { message?: string; dryR
   return base;
 }
 
-type NotifyBusyKey = "daily-preview" | "daily-send" | "comment-send" | "sc-preview" | "sc-send" | null;
+type NotifyBusyKey = "daily-preview" | "daily-send" | "comment-send" | "sc-preview" | "sc-send" | "weekly-preview" | "weekly-send" | null;
 
 type RecipientRow = NotificationRecipient & {
   loginId?: string;
@@ -173,6 +190,21 @@ function formatPhoneDisplay(phone: string) {
 
 function formatScheduleTimeLabel(hour: number, minute: number) {
   return `\uB9E4\uC77C ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} (KST)`;
+}
+
+const WEEKDAY_OPTIONS = [
+  { value: 0, label: "\uC77C\uC694\uC77C" },
+  { value: 1, label: "\uC6D4\uC694\uC77C" },
+  { value: 2, label: "\uD654\uC694\uC77C" },
+  { value: 3, label: "\uC218\uC694\uC77C" },
+  { value: 4, label: "\uBAA9\uC694\uC77C" },
+  { value: 5, label: "\uAE08\uC694\uC77C" },
+  { value: 6, label: "\uD1A0\uC694\uC77C" },
+] as const;
+
+function formatWeeklyScheduleLabel(weekday: number, hour: number, minute: number) {
+  const dayLabel = WEEKDAY_OPTIONS.find((row) => row.value === weekday)?.label || "\uC6D4\uC694\uC77C";
+  return `\uB9E4\uC8FC ${dayLabel} ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} (KST)`;
 }
 
 function toTimeInputValue(hour: number, minute: number) {
@@ -200,6 +232,7 @@ function NotificationFeatureCard({
   onScheduleChange,
   scheduleDisabled,
   sendTestDisabled,
+  hideSchedule,
   onPreview,
   onSendTest,
   previewLabel,
@@ -219,6 +252,7 @@ function NotificationFeatureCard({
   onScheduleChange?: (value: string) => void;
   scheduleDisabled?: boolean;
   sendTestDisabled?: boolean;
+  hideSchedule?: boolean;
   onPreview?: () => void;
   onSendTest?: () => void;
   previewLabel: string;
@@ -243,7 +277,7 @@ function NotificationFeatureCard({
         </span>
       </label>
 
-      {scheduleLabel && scheduleValue != null && onScheduleChange ? (
+      {scheduleLabel && scheduleValue != null && onScheduleChange && !hideSchedule ? (
         <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
           <span className="erp-text-caption font-bold text-slate-500">{scheduleLabel}</span>
           <input
@@ -521,11 +555,12 @@ function recipientsFromRows(rows: RecipientRow[]): NotificationRecipient[] {
 }
 
 type NotificationSettingsPageProps = {
+  embedded?: boolean;
   erpVersion?: number;
   onErpVersionChange?: (version: number) => void;
 };
 
-export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: NotificationSettingsPageProps) {
+export function NotificationSettingsPage({ embedded = false, erpVersion, onErpVersionChange }: NotificationSettingsPageProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState<NotifyBusyKey>(null);
@@ -535,12 +570,17 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
   const [recipientRows, setRecipientRows] = useState<RecipientRow[]>([]);
   const [alimtalkStatus, setAlimtalkStatus] = useState<AlimtalkStatus | null>(null);
   const [scScheduleStatus, setScScheduleStatus] = useState<ScScheduleNotifyStatus | null>(null);
+  const [scWeeklyBriefingStatus, setScWeeklyBriefingStatus] = useState<ScWeeklyBriefingNotifyStatus | null>(null);
   const [version, setVersion] = useState<number | undefined>(erpVersion);
   const [previewMessage, setPreviewMessage] = useState("");
   const [previewTitle, setPreviewTitle] = useState(L.previewTitle);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const readyForAutosaveRef = useRef(false);
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipAutosaveOnceRef = useRef(true);
 
   const loadAll = useCallback(async () => {
+    readyForAutosaveRef.current = false;
     setLoading(true);
     setError("");
     try {
@@ -554,13 +594,49 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
       setRecipientRows(buildRecipientRows(users, nextSettings));
       setAlimtalkStatus(statusResult.alimtalk);
       setScScheduleStatus(statusResult.scScheduleNotify || null);
+      setScWeeklyBriefingStatus(statusResult.scWeeklyBriefing || null);
     } catch (err) {
       console.error(err);
       setError(L.loadError);
     } finally {
       setLoading(false);
+      skipAutosaveOnceRef.current = true;
+      readyForAutosaveRef.current = true;
     }
   }, []);
+
+  const persistSettings = useCallback(
+    async (payload: NotificationSettings, options?: { showSuccessMessage?: boolean }) => {
+      setSaving(true);
+      setError("");
+      if (options?.showSuccessMessage) setMessage("");
+      try {
+        const result = await saveNotificationSettings(payload, version);
+        const nextSettings = normalizeNotificationSettings(result.settings);
+        readyForAutosaveRef.current = false;
+        skipAutosaveOnceRef.current = true;
+        setSettings(nextSettings);
+        setVersion(result.version);
+        onErpVersionChange?.(result.version);
+        if (options?.showSuccessMessage) setMessage(L.saveSuccess);
+        return true;
+      } catch (err) {
+        console.error(err);
+        const status = (err as { status?: number })?.status;
+        if (status === 409) {
+          setError(L.conflictError);
+          await loadAll();
+        } else {
+          setError(L.saveError);
+        }
+        return false;
+      } finally {
+        setSaving(false);
+        readyForAutosaveRef.current = true;
+      }
+    },
+    [version, onErpVersionChange, loadAll],
+  );
 
   useEffect(() => {
     void loadAll();
@@ -570,38 +646,37 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
     if (typeof erpVersion === "number") setVersion(erpVersion);
   }, [erpVersion]);
 
+  useEffect(() => {
+    if (!readyForAutosaveRef.current || loading) return;
+    if (skipAutosaveOnceRef.current) {
+      skipAutosaveOnceRef.current = false;
+      return;
+    }
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(() => {
+      void persistSettings({
+        ...settings,
+        recipients: recipientsFromRows(recipientRows),
+      });
+    }, 800);
+    return () => {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    };
+  }, [settings, recipientRows, loading, persistSettings]);
+
   const buildTestSettingsPayload = (): NotificationSettings => ({
     ...settings,
     recipients: recipientsFromRows(recipientRows),
   });
 
   const handleSave = async () => {
-    setSaving(true);
-    setError("");
-    setMessage("");
-    const payload: NotificationSettings = {
-      ...settings,
-      recipients: recipientsFromRows(recipientRows),
-    };
-    try {
-      const result = await saveNotificationSettings(payload, version);
-      const nextSettings = normalizeNotificationSettings(result.settings);
-      setSettings(nextSettings);
-      setVersion(result.version);
-      onErpVersionChange?.(result.version);
-      setMessage(L.saveSuccess);
-    } catch (err) {
-      console.error(err);
-      const status = (err as { status?: number })?.status;
-      if (status === 409) {
-        setError(L.conflictError);
-        await loadAll();
-      } else {
-        setError(L.saveError);
-      }
-    } finally {
-      setSaving(false);
-    }
+    await persistSettings(
+      {
+        ...settings,
+        recipients: recipientsFromRows(recipientRows),
+      },
+      { showSuccessMessage: true },
+    );
   };
 
   const handlePreview = async () => {
@@ -742,9 +817,68 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
       }
       const statusResult = await fetchNotificationStatus();
       setScScheduleStatus(statusResult.scScheduleNotify || null);
+      setScWeeklyBriefingStatus(statusResult.scWeeklyBriefing || null);
     } catch (err) {
       console.error(err);
       setError(L.scSendTestError);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleWeeklyPreview = async () => {
+    setBusy("weekly-preview");
+    setError("");
+    try {
+      const preview = await previewScWeeklyBriefing();
+      const lines = preview.groups.flatMap((group) => {
+        const manager =
+          group.clientManager && group.clientManager !== "-"
+            ? L.manager(group.clientManager)
+            : L.noManager;
+        const sites = (group.sites || []).map((site) => `${site.siteName} ${site.dateRange} ${site.headcounts}`).join(" / ");
+        return [`${group.clientName} \u00B7 ${manager}`, sites || group.siteName, `수신 ${group.notifyCount}명`];
+      });
+      setPreviewTitle(L.weeklyPreviewTitle);
+      setPreviewMessage(
+        lines.length
+          ? [`${preview.weekLabel}`, ...lines].join("\n")
+          : `${preview.weekLabel}\n이번 주 발송 대상 일정이 없습니다.`,
+      );
+      setPreviewOpen(true);
+    } catch (err) {
+      console.error(err);
+      setError(L.previewError);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleWeeklySendTest = async () => {
+    if (!window.confirm(L.weeklySendTestConfirm)) return;
+    setBusy("weekly-send");
+    setError("");
+    setMessage("");
+    try {
+      const result = await sendScWeeklyBriefingNotifyNow({
+        skipSync: true,
+        settings: buildTestSettingsPayload(),
+      });
+      if (result.skipped) {
+        setMessage(formatTestSkipReason(result.reason));
+      } else if ((result.sentCount ?? 0) === 0) {
+        setMessage(L.sendTestSkippedNoSchedules);
+      } else {
+        setMessage(
+          `${L.weeklySendTestSuccess} (${result.weekLabel || result.weekStart || "-"}, ${result.sentCount ?? 0}\uAC74 \uBC1C\uC1A1)`,
+        );
+      }
+      const statusResult = await fetchNotificationStatus();
+      setScScheduleStatus(statusResult.scScheduleNotify || null);
+      setScWeeklyBriefingStatus(statusResult.scWeeklyBriefing || null);
+    } catch (err) {
+      console.error(err);
+      setError(L.weeklySendTestError);
     } finally {
       setBusy(null);
     }
@@ -762,6 +896,16 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
     setSettings((prev) => ({ ...prev, scScheduleNotifyHour: parsed.hour, scScheduleNotifyMinute: parsed.minute }));
   };
 
+  const updateWeeklySchedule = (value: string) => {
+    const parsed = parseTimeInputValue(value);
+    if (!parsed) return;
+    setSettings((prev) => ({
+      ...prev,
+      scWeeklyBriefingHour: parsed.hour,
+      scWeeklyBriefingMinute: parsed.minute,
+    }));
+  };
+
   const updateRecipient = (userId: number, patch: Partial<Pick<RecipientRow, "dailyReport" | "commentNotify">>) => {
     setRecipientRows((prev) => prev.map((row) => (row.userId === userId ? { ...row, ...patch } : row)));
   };
@@ -772,19 +916,27 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
   const featureDisabled = !settings.enabled;
   const dailyScheduleValue = toTimeInputValue(settings.dailyReportHour, settings.dailyReportMinute);
   const scScheduleValue = toTimeInputValue(settings.scScheduleNotifyHour, settings.scScheduleNotifyMinute);
+  const weeklyScheduleValue = toTimeInputValue(settings.scWeeklyBriefingHour, settings.scWeeklyBriefingMinute);
 
   return (
-    <div className="erp-page erp-notification-settings-page">
-      <Card className="mb-4 rounded-2xl shadow-sm">
+    <div className={embedded ? "" : "erp-page erp-notification-settings-page"}>
+      <Card className={`${embedded ? "" : "mb-4 "}rounded-2xl shadow-sm`}>
         <CardContent className="p-4 md:p-5">
           <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="erp-text-page-title flex items-center gap-2 text-slate-900">
-                <Bell className="h-5 w-5" />
-                {L.pageTitle}
-              </h2>
-              <p className="mt-1 erp-text-body text-slate-600">{L.pageDesc}</p>
-            </div>
+            {!embedded ? (
+              <div>
+                <h2 className="erp-text-page-title flex items-center gap-2 text-slate-900">
+                  <Bell className="h-5 w-5" />
+                  {L.pageTitle}
+                </h2>
+                <p className="mt-1 erp-text-body text-slate-600">{L.pageDesc}</p>
+              </div>
+            ) : (
+              <div>
+                <h2 className="erp-text-body font-bold text-slate-900">{L.pageTitle}</h2>
+                <p className="mt-1 erp-text-caption text-slate-500">{L.pageDesc}</p>
+              </div>
+            )}
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" className="rounded-xl" onClick={() => void loadAll()} disabled={loading || saving}>
                 <RefreshCw className="mr-2 h-4 w-4" />
@@ -885,6 +1037,63 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
                 </NotificationFeatureCard>
 
                 <NotificationFeatureCard
+                  label={L.weeklyBriefingFeature}
+                  hint={`${L.weeklyBriefingFeatureHint} (${formatWeeklyScheduleLabel(
+                    settings.scWeeklyBriefingWeekday,
+                    settings.scWeeklyBriefingHour,
+                    settings.scWeeklyBriefingMinute,
+                  )})`}
+                  checked={settings.scWeeklyBriefingNotifyEnabled}
+                  disabled={featureDisabled}
+                  onCheckedChange={(checked) =>
+                    setSettings((prev) => ({ ...prev, scWeeklyBriefingNotifyEnabled: checked }))
+                  }
+                  hideSchedule
+                  onPreview={() => void handleWeeklyPreview()}
+                  onSendTest={() => void handleWeeklySendTest()}
+                  previewLabel={L.weeklyPreview}
+                  sendTestLabel={L.weeklySendTest}
+                  previewing={busy === "weekly-preview"}
+                  sending={busy === "weekly-send"}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="erp-text-caption font-bold text-slate-500">{L.weeklyBriefingWeekdayLabel}</span>
+                    <select
+                      className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-900"
+                      value={settings.scWeeklyBriefingWeekday}
+                      disabled={featureDisabled || !settings.scWeeklyBriefingNotifyEnabled}
+                      onChange={(event) =>
+                        setSettings((prev) => ({
+                          ...prev,
+                          scWeeklyBriefingWeekday: Number(event.target.value),
+                        }))
+                      }
+                    >
+                      {WEEKDAY_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="erp-text-caption font-bold text-slate-500">{L.weeklyBriefingTimeLabel}</span>
+                    <input
+                      type="time"
+                      className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-900"
+                      value={weeklyScheduleValue}
+                      disabled={featureDisabled || !settings.scWeeklyBriefingNotifyEnabled}
+                      onChange={(event) => updateWeeklySchedule(event.target.value)}
+                    />
+                    <span className="erp-text-caption text-slate-400">{L.weeklyBriefingScheduleHint}</span>
+                  </div>
+                  {scWeeklyBriefingStatus?.lastSentAt ? (
+                    <p className="erp-text-caption text-slate-500">
+                      마지막 자동 발송: {scWeeklyBriefingStatus.lastWeekStart || "-"} (
+                      {scWeeklyBriefingStatus.lastSentCount ?? 0}건)
+                    </p>
+                  ) : null}
+                </NotificationFeatureCard>
+
+                <NotificationFeatureCard
                   label={L.commentFeature}
                   hint={L.commentFeatureHint}
                   checked={settings.commentNotifyEnabled}
@@ -921,7 +1130,7 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
                     <Smartphone className="h-4 w-4 text-slate-500" />
                     <h3 className="erp-text-body font-bold text-slate-900">{L.alimtalkStatus}</h3>
                   </div>
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                     <div className="rounded-xl bg-slate-50 px-3 py-2">
                       <div className="erp-text-caption text-slate-500">{L.alimtalkEnabled}</div>
                       <div className="mt-1">
@@ -944,6 +1153,12 @@ export function NotificationSettingsPage({ erpVersion, onErpVersionChange }: Not
                       <div className="erp-text-caption text-slate-500">{L.scheduleTemplate}</div>
                       <div className="erp-text-body mt-1 font-bold text-slate-900">
                         {alimtalkStatus?.scheduleTemplate || scScheduleStatus?.template || L.templateMissing}
+                      </div>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 px-3 py-2">
+                      <div className="erp-text-caption text-slate-500">{L.weeklyBriefingTemplate}</div>
+                      <div className="erp-text-body mt-1 font-bold text-slate-900">
+                        {alimtalkStatus?.weeklyBriefingTemplate || scWeeklyBriefingStatus?.template || L.templateMissing}
                       </div>
                     </div>
                   </div>

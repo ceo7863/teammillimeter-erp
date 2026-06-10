@@ -6,8 +6,8 @@ import {
   findWorkerForBankTransaction,
   type WorkerDepositMatchSource,
 } from "./clientDepositAliases";
-import { formatKRW } from "./companyLedger";
-import type { TaxInvoice } from "./taxInvoices";
+import { extractFixedExpenseRoomKey, formatKRW } from "./companyLedger";
+import type { TaxInvoice, TaxInvoiceCancellationPairInfo } from "./taxInvoices";
 import { getTaxInvoiceKindLabel } from "./taxInvoices";
 
 export type TaxInvoicePartyMaster = {
@@ -41,6 +41,20 @@ export function resolveBankTxClientName(tx: BankTransaction) {
   return String(tx.ledgerClientName || tx.linkedSubject || "").trim() || null;
 }
 
+/** 입금=매출(sales), 출금=매입(purchase), 시공자=worker — 증빙·거래처 강조색 구분 */
+export type BankTxEvidenceAccentTone = "sales" | "purchase" | "worker";
+
+export function resolveBankTxEvidenceAccentTone(
+  tx: Pick<BankTransaction, "deposit" | "withdrawal">,
+  partyKind: "client" | "worker" | "none",
+): BankTxEvidenceAccentTone | null {
+  if (partyKind === "worker") return "worker";
+  if (partyKind !== "client") return null;
+  if (Number(tx.withdrawal || 0) > 0) return "purchase";
+  if (Number(tx.deposit || 0) > 0) return "sales";
+  return null;
+}
+
 const PARTY_NAME_SUFFIX_PATTERN = /(\u3231|\(\uC8FC\)|\uC8FC\uC2DD\uD68C\uC0AC|\(\uC720\)|\uC720\uD55C|\uC720\uD55C\uD68C\uC0AC|co\.?ltd|corp|inc)/gi;
 
 function normalizePartyName(value: string) {
@@ -61,6 +75,35 @@ function collectBankTxPartyNames(tx: BankTransaction) {
   ]
     .map((value) => String(value || "").trim())
     .filter(Boolean);
+}
+
+function collectBankTxRoomKey(tx: BankTransaction) {
+  const haystack = [tx.description, tx.memo, tx.counterpartyName].filter(Boolean).join(" ");
+  return extractFixedExpenseRoomKey(haystack);
+}
+
+export function extractTaxInvoiceRoomKey(invoice: TaxInvoice) {
+  const haystack = [invoice.memo, invoice.client].filter(Boolean).join(" ");
+  return extractFixedExpenseRoomKey(haystack);
+}
+
+function isManagementFeeTaxInvoice(invoice: TaxInvoice) {
+  const haystack = [invoice.memo, invoice.client].filter(Boolean).join(" ").toLowerCase();
+  return haystack.includes("\uad00\ub9ac\ube44") || haystack.includes("b") && /\d+\s*\ud638/.test(haystack);
+}
+
+/** 140호 통장 vs 141호 세금계산서 같은 호수 불일치 차단 */
+export function hasTaxInvoiceRoomConflict(tx: BankTransaction, invoice: TaxInvoice) {
+  const txRoom = collectBankTxRoomKey(tx);
+  const invRoom = extractTaxInvoiceRoomKey(invoice);
+  if (!txRoom || !invRoom) return false;
+  return txRoom !== invRoom;
+}
+
+function resolveTaxInvoiceAutoAmountTolerance(txAmount: number) {
+  if (txAmount >= 100_000) return Math.max(500, txAmount * 0.01);
+  if (txAmount >= 20_000) return Math.max(400, txAmount * 0.015);
+  return Math.max(300, txAmount * 0.02);
 }
 
 function collectBusinessNoFromText(value: string, bucket: Set<string>) {
@@ -135,6 +178,8 @@ export function hasTaxInvoicePartyMatch(
   invoice: TaxInvoice,
   context: TaxInvoiceMatchContext = {},
 ) {
+  if (hasTaxInvoiceRoomConflict(tx, invoice)) return false;
+
   const invBizNo = normalizeBusinessRegistrationNo(invoice.businessNo);
   const txBizNos = collectBankTxPartyBusinessNumbers(tx, context);
 
@@ -145,10 +190,18 @@ export function hasTaxInvoicePartyMatch(
   return hasTaxInvoiceNameMatch(tx, invoice);
 }
 
-export function formatTaxInvoiceEvidenceLabel(invoice: TaxInvoice) {
+export function formatTaxInvoiceEvidenceLabel(
+  invoice: TaxInvoice,
+  options: { cancellationPairIndex?: Map<string, TaxInvoiceCancellationPairInfo> } = {},
+) {
   const date = String(invoice.issueDate || "").slice(2).replace(/-/g, "-");
-  const kind = getTaxInvoiceKindLabel(invoice).slice(0, 1);
-  return `${kind} [${date}] ${invoice.client} ${formatKRW(invoice.totalAmount)}`;
+  const client = String(invoice.client || "").trim() || "-";
+  const flowPrefix = invoice.flowType === "purchase" ? `\uC785[${client}]` : `\uCD9C[${client}]`;
+  let label = `${flowPrefix} [${date}] ${formatKRW(invoice.totalAmount)}`;
+  if (invoice.status === "cancelled") return `${label} \u00B7 \uCDE8\uC18C`;
+  const pair = options.cancellationPairIndex?.get(invoice.id);
+  if (pair?.role === "offset") return `${label} \u00B7 \uC0C1\uC1C0`;
+  return label;
 }
 
 export function scoreTaxInvoiceMatch(
@@ -162,10 +215,12 @@ export function scoreTaxInvoiceMatch(
   const supplyAmount = Number(invoice.supplyAmount || 0);
   const amountDiffTotal = Math.abs(txAmount - totalAmount);
   const amountDiffSupply = supplyAmount > 0 ? Math.abs(txAmount - supplyAmount) : amountDiffTotal;
-  const amountTolerance = Math.max(1000, txAmount * 0.02);
+  const amountTolerance = resolveTaxInvoiceAutoAmountTolerance(txAmount);
   const matchesTotal = txAmount > 0 && amountDiffTotal <= amountTolerance;
   const matchesSupply = txAmount > 0 && supplyAmount > 0 && amountDiffSupply === 0;
   if (txAmount > 0 && !matchesTotal && !matchesSupply) return 0;
+
+  if (hasTaxInvoiceRoomConflict(tx, invoice)) return 0;
 
   const invBizNo = normalizeBusinessRegistrationNo(invoice.businessNo);
   const txBizNos = collectBankTxPartyBusinessNumbers(tx, context);
@@ -205,6 +260,11 @@ export function scoreTaxInvoiceMatch(
   if (txAmount > 0 && amountDiffTotal === 0) score += 30;
   else if (txAmount > 0 && amountDiffTotal <= 100) score += 15;
   else if (matchesSupply) score += 22;
+
+  const txRoom = collectBankTxRoomKey(tx);
+  const invRoom = extractTaxInvoiceRoomKey(invoice);
+  if (txRoom && invRoom && txRoom === invRoom) score += 35;
+  else if (isManagementFeeTaxInvoice(invoice) && invRoom && !txRoom) score -= 12;
 
   return score;
 }
@@ -420,7 +480,7 @@ export function addBankTxTaxInvoiceLink(
   let next = syncLinkedTaxInvoiceFields(
     {
       ...tx,
-      taxInvoiceAutoLinkDisabled: options.manual ? true : tx.taxInvoiceAutoLinkDisabled,
+      taxInvoiceAutoLinkDisabled: tx.taxInvoiceAutoLinkDisabled,
     },
     nextIds,
   );

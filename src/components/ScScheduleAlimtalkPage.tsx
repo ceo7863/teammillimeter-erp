@@ -1,17 +1,34 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCw, Send, Smartphone } from "lucide-react";
+import { RefreshCw, Send, Smartphone, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { ScAlimtalkClientContactPickerModal } from "@/components/ScAlimtalkClientContactPickerModal";
+import type { ClientMasterLike } from "@/utils/clientMaster";
 import {
   previewScScheduleNotify,
   sendScScheduleNotifyOne,
   type ScScheduleNotifyOneResult,
   type ScScheduleNotifyPreview,
 } from "@/utils/notificationApi";
+import {
+  isScScheduleAlimtalkClientContactInPool,
+  normalizeScScheduleAlimtalkClientKey,
+  resolveScScheduleAlimtalkClientContactSelected,
+  resolveScScheduleAlimtalkWorkerSelected,
+  saveScScheduleAlimtalkClientContactPref,
+  saveScScheduleAlimtalkClientContactPrefs,
+  saveScScheduleAlimtalkWorkerPref,
+  scScheduleAlimtalkContactPrefKey,
+  scScheduleAlimtalkWorkerPrefKey,
+} from "@/utils/scScheduleAlimtalkRecipientPrefs";
+import { ScWeeklyBriefingSection } from "@/components/ScWeeklyBriefingSection";
+import { NotificationSettingsPage } from "@/components/NotificationSettingsPage";
 
 const L = {
   pageTitle: "\uC54C\uB9BC\uD1A1",
-  pageDesc: "SC \uB0B4\uC77C \uC2DC\uACF5 \uC77C\uC815 \uBBF8\uB9AC\uBCF4\uAE30 \uBC0F \uAC1C\uBCC4 \uBC1C\uC1A1",
+  pageDesc: "SC \uC77C\uC815 \uBC0F \uC8FC\uAC04 \uD604\uC7A5 \uBE0C\uB9AC\uD551 \uC54C\uB9BC\uD1A1 \uBC1C\uC1A1 \uBC0F \uC790\uB3D9 \uBC1C\uC1A1 \uC124\uC815",
+  tabSend: "\uBC1C\uC1A1",
+  tabSettings: "\uC124\uC815",
   sectionTitle: "SC \uB0B4\uC77C \uC77C\uC815",
   loading: "\uBD88\uB7EC\uC624\uB294 \uC911...",
   loadError: "\uBBF8\uB9AC\uBCF4\uAE30\uB97C \uBD88\uB7EC\uC624\uC838 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
@@ -38,6 +55,8 @@ const L = {
   refresh: "\uC0C8\uB85C\uACE0\uCE68",
   selectAll: "\uC804\uCCB4 \uC120\uD0DD",
   deselectAll: "\uC804\uCCB4 \uD574\uC81C",
+  clientContacts: "\uC5C5\uCCB4\uB2F4\uB2F9",
+  pickerEmpty: "\uC5C5\uCCB4\uB2F4\uB2F9\uC5D0\uC11C \uBC1C\uC1A1 \uB300\uC0C1\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
 };
 
 type ScheduleGroup = {
@@ -89,22 +108,84 @@ function recipientKey(
   return `${scheduleId}:${recipientType || "x"}:${phone || participantName}`;
 }
 
-function buildDefaultSelection(preview: ScScheduleNotifyPreview) {
+type NotifyRow = ScScheduleNotifyPreview["rows"][number];
+
+function rowClientKey(row: NotifyRow, clientName?: string) {
+  return normalizeScScheduleAlimtalkClientKey(null, clientName || row.variables?.client);
+}
+
+function rowContactKey(row: NotifyRow) {
+  return scScheduleAlimtalkContactPrefKey(undefined, row.phone, row.participantName);
+}
+
+function isClientRecipientInPool(row: NotifyRow, clientName?: string) {
+  if (row.recipientType !== "client" || !row.phone) return false;
+  return isScScheduleAlimtalkClientContactInPool(rowClientKey(row, clientName), rowContactKey(row));
+}
+
+function isRecipientVisible(row: NotifyRow, clientName?: string) {
+  if (row.recipientType === "worker") return true;
+  return isClientRecipientInPool(row, clientName);
+}
+
+function visibleScheduleRecipients(rows: NotifyRow[], clientName?: string) {
+  return rows.filter((row) => isRecipientVisible(row, clientName));
+}
+
+function visibleClientRecipients(rows: NotifyRow[], clientName?: string) {
+  return rows.filter((row) => isClientRecipientInPool(row, clientName));
+}
+
+function buildScheduleSelectionState(rows: NotifyRow[], clientName?: string) {
   const next: Record<string, boolean> = {};
-  for (const row of preview.rows) {
+  for (const row of rows) {
     if (!row.phone) continue;
-    next[recipientKey(row.scheduleId, row.phone, row.participantName, row.recipientType)] = true;
+    const key = recipientKey(row.scheduleId, row.phone, row.participantName, row.recipientType);
+    if (row.recipientType === "client") {
+      if (!isClientRecipientInPool(row, clientName)) continue;
+      next[key] = resolveScScheduleAlimtalkClientContactSelected(
+        rowClientKey(row, clientName),
+        rowContactKey(row),
+        true,
+      );
+      continue;
+    }
+    next[key] = resolveScScheduleAlimtalkWorkerSelected(
+      scScheduleAlimtalkWorkerPrefKey(row.phone, row.participantName),
+      true,
+    );
   }
   return next;
 }
 
-export function ScScheduleAlimtalkPage() {
+function buildInitialSelection(preview: ScScheduleNotifyPreview) {
+  return buildScheduleSelectionState(preview.rows);
+}
+
+type ScScheduleAlimtalkPageProps = {
+  erpVersion?: number;
+  onErpVersionChange?: (version: number) => void;
+  canManageSettings?: boolean;
+  clients?: ClientMasterLike[];
+};
+
+export function ScScheduleAlimtalkPage({
+  erpVersion,
+  onErpVersionChange,
+  canManageSettings = false,
+  clients = [],
+}: ScScheduleAlimtalkPageProps) {
+  const [activeTab, setActiveTab] = useState<"send" | "settings">("send");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<ScScheduleNotifyPreview | null>(null);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [sendingScheduleId, setSendingScheduleId] = useState("");
   const [sendResults, setSendResults] = useState<Record<string, ScScheduleNotifyOneResult>>({});
+  const [contactPicker, setContactPicker] = useState<{
+    clientName: string;
+    scheduleId: string;
+  } | null>(null);
 
   const loadPreview = useCallback(async () => {
     setLoading(true);
@@ -113,7 +194,7 @@ export function ScScheduleAlimtalkPage() {
     try {
       const result = await previewScScheduleNotify();
       setPreview(result);
-      setSelected(buildDefaultSelection(result));
+      setSelected(buildInitialSelection(result));
     } catch (loadError) {
       console.error(loadError);
       setPreview(null);
@@ -130,32 +211,108 @@ export function ScScheduleAlimtalkPage() {
 
   const groups = useMemo(() => (preview ? buildScheduleGroups(preview) : []), [preview]);
 
-  const toggleRecipient = (key: string, checked: boolean) => {
+  const toggleRecipient = (row: ScScheduleNotifyPreview["rows"][number], checked: boolean) => {
+    const key = recipientKey(row.scheduleId, row.phone, row.participantName, row.recipientType);
     setSelected((prev) => ({ ...prev, [key]: checked }));
+    if (row.recipientType === "client") {
+      const clientKey = rowClientKey(row);
+      const contactKey = rowContactKey(row);
+      saveScScheduleAlimtalkClientContactPref(clientKey, contactKey, checked);
+      return;
+    }
+    saveScScheduleAlimtalkWorkerPref(
+      scScheduleAlimtalkWorkerPrefKey(row.phone, row.participantName),
+      checked,
+    );
   };
 
-  const setScheduleSelection = (rows: ScScheduleNotifyPreview["rows"], checked: boolean) => {
+  const setScheduleSelection = (rows: NotifyRow[], checked: boolean, clientName?: string) => {
     setSelected((prev) => {
       const next = { ...prev };
-      for (const row of rows) {
+      const clientEntries = new Map<string, Array<{ contactKey: string; selected: boolean }>>();
+      for (const row of visibleScheduleRecipients(rows, clientName)) {
         if (!row.phone) continue;
         const key = recipientKey(row.scheduleId, row.phone, row.participantName, row.recipientType);
         next[key] = checked;
+        if (row.recipientType === "client") {
+          const clientKey = rowClientKey(row, clientName);
+          const contactKey = rowContactKey(row);
+          const list = clientEntries.get(clientKey) || [];
+          list.push({ contactKey, selected: checked });
+          clientEntries.set(clientKey, list);
+          continue;
+        }
+        saveScScheduleAlimtalkWorkerPref(
+          scScheduleAlimtalkWorkerPrefKey(row.phone, row.participantName),
+          checked,
+        );
+      }
+      for (const [clientKey, entries] of clientEntries) {
+        saveScScheduleAlimtalkClientContactPrefs(clientKey, entries);
       }
       return next;
     });
   };
 
+  const handleContactPickerSaved = (scheduleId: string) => {
+    const group = groups.find((item) => item.scheduleId === scheduleId);
+    if (!group) return;
+    setSelected((prev) => ({ ...prev, ...buildScheduleSelectionState(group.rows, group.clientName) }));
+  };
+
   const selectAllRecipients = () => {
     if (!preview) return;
-    setSelected(buildDefaultSelection(preview));
+    const next: Record<string, boolean> = {};
+    const clientEntries = new Map<string, Array<{ contactKey: string; selected: boolean }>>();
+    for (const row of preview.rows) {
+      if (!row.phone) continue;
+      const key = recipientKey(row.scheduleId, row.phone, row.participantName, row.recipientType);
+      next[key] = true;
+      if (row.recipientType === "client") {
+        const clientKey = rowClientKey(row);
+        const contactKey = rowContactKey(row);
+        const list = clientEntries.get(clientKey) || [];
+        list.push({ contactKey, selected: true });
+        clientEntries.set(clientKey, list);
+        continue;
+      }
+      saveScScheduleAlimtalkWorkerPref(
+        scScheduleAlimtalkWorkerPrefKey(row.phone, row.participantName),
+        true,
+      );
+    }
+    for (const [clientKey, entries] of clientEntries) {
+      saveScScheduleAlimtalkClientContactPrefs(clientKey, entries);
+    }
+    setSelected(next);
   };
 
   const deselectAllRecipients = () => {
     setSelected((prev) => {
       const next = { ...prev };
+      const clientEntries = new Map<string, Array<{ contactKey: string; selected: boolean }>>();
       for (const key of Object.keys(next)) {
         next[key] = false;
+      }
+      if (preview) {
+        for (const row of preview.rows) {
+          if (!row.phone) continue;
+          if (row.recipientType === "client") {
+            const clientKey = rowClientKey(row);
+            const contactKey = rowContactKey(row);
+            const list = clientEntries.get(clientKey) || [];
+            list.push({ contactKey, selected: false });
+            clientEntries.set(clientKey, list);
+            continue;
+          }
+          saveScScheduleAlimtalkWorkerPref(
+            scScheduleAlimtalkWorkerPrefKey(row.phone, row.participantName),
+            false,
+          );
+        }
+        for (const [clientKey, entries] of clientEntries) {
+          saveScScheduleAlimtalkClientContactPrefs(clientKey, entries);
+        }
       }
       return next;
     });
@@ -163,9 +320,9 @@ export function ScScheduleAlimtalkPage() {
 
   const handleSendSchedule = async (group: ScheduleGroup) => {
     if (sendingScheduleId) return;
-    const phones = group.rows
+    const visibleRows = visibleScheduleRecipients(group.rows, group.clientName);
+    const phones = visibleRows
       .filter((row) => {
-        if (!row.phone) return false;
         const key = recipientKey(row.scheduleId, row.phone, row.participantName, row.recipientType);
         return selected[key];
       })
@@ -176,6 +333,28 @@ export function ScScheduleAlimtalkPage() {
     }
     const label = group.clientName || group.projectName || group.scheduleId;
     if (!window.confirm(L.sendConfirm(label))) return;
+
+    const clientEntries = new Map<string, Array<{ contactKey: string; selected: boolean }>>();
+    for (const row of visibleRows) {
+      if (!row.phone) continue;
+      const key = recipientKey(row.scheduleId, row.phone, row.participantName, row.recipientType);
+      const checked = Boolean(selected[key]);
+      if (row.recipientType === "client") {
+        const clientKey = rowClientKey(row);
+        const contactKey = rowContactKey(row);
+        const list = clientEntries.get(clientKey) || [];
+        list.push({ contactKey, selected: checked });
+        clientEntries.set(clientKey, list);
+        continue;
+      }
+      saveScScheduleAlimtalkWorkerPref(
+        scScheduleAlimtalkWorkerPrefKey(row.phone, row.participantName),
+        checked,
+      );
+    }
+    for (const [clientKey, entries] of clientEntries) {
+      saveScScheduleAlimtalkClientContactPrefs(clientKey, entries);
+    }
 
     setSendingScheduleId(group.scheduleId);
     setError("");
@@ -201,8 +380,42 @@ export function ScScheduleAlimtalkPage() {
           {L.pageTitle}
         </h1>
         <p className="erp-text-caption mt-1 text-slate-500">{L.pageDesc}</p>
+        {canManageSettings ? (
+          <div className="mt-4 flex flex-wrap gap-2 rounded-2xl bg-slate-100 p-1">
+            <button
+              type="button"
+              onClick={() => setActiveTab("send")}
+              className={`erp-text-body rounded-xl px-4 py-2 font-bold ${
+                activeTab === "send" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"
+              }`}
+            >
+              {L.tabSend}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("settings")}
+              className={`erp-text-body rounded-xl px-4 py-2 font-bold ${
+                activeTab === "settings" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"
+              }`}
+            >
+              {L.tabSettings}
+            </button>
+          </div>
+        ) : null}
       </div>
 
+      {canManageSettings ? (
+        <div hidden={activeTab !== "settings"}>
+          <NotificationSettingsPage
+            embedded
+            erpVersion={erpVersion}
+            onErpVersionChange={onErpVersionChange}
+          />
+        </div>
+      ) : null}
+
+      <div hidden={activeTab === "settings" && canManageSettings}>
+        <>
       <Card className="rounded-2xl shadow-sm">
         <CardContent className="p-4 md:p-5">
           <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -273,6 +486,9 @@ export function ScScheduleAlimtalkPage() {
               const workers = group.variables.workers ? L.workers(group.variables.workers) : L.noWorkers;
               const sendResult = sendResults[group.scheduleId];
               const isSending = sendingScheduleId === group.scheduleId;
+              const visibleRows = visibleScheduleRecipients(group.rows, group.clientName);
+              const visibleClientRows = visibleClientRecipients(group.rows, group.clientName);
+              const workerRows = group.rows.filter((row) => row.recipientType === "worker");
 
               return (
                 <section key={group.scheduleId} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
@@ -325,56 +541,104 @@ export function ScScheduleAlimtalkPage() {
                   {group.rows.length ? (
                     <div className="mt-4">
                       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-xs font-bold text-slate-700">{L.recipients}</p>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            className="text-xs font-semibold text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline"
-                            onClick={() => setScheduleSelection(group.rows, true)}
-                          >
-                            {L.selectAll}
-                          </button>
-                          <span className="text-xs text-slate-300">|</span>
-                          <button
-                            type="button"
-                            className="text-xs font-semibold text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline"
-                            onClick={() => setScheduleSelection(group.rows, false)}
-                          >
-                            {L.deselectAll}
-                          </button>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-xs font-bold text-slate-700">{L.recipients}</p>
+                          {group.clientName ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 rounded-lg px-2 text-xs"
+                              onClick={() =>
+                                setContactPicker({
+                                  clientName: group.clientName,
+                                  scheduleId: group.scheduleId,
+                                })
+                              }
+                            >
+                              <Users size={12} className="mr-1" />
+                              {L.clientContacts}
+                            </Button>
+                          ) : null}
                         </div>
+                        {visibleRows.length > 0 ? (
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              className="text-xs font-semibold text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline"
+                              onClick={() => setScheduleSelection(group.rows, true, group.clientName)}
+                            >
+                              {L.selectAll}
+                            </button>
+                            <span className="text-xs text-slate-300">|</span>
+                            <button
+                              type="button"
+                              className="text-xs font-semibold text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline"
+                              onClick={() => setScheduleSelection(group.rows, false, group.clientName)}
+                            >
+                              {L.deselectAll}
+                            </button>
+                          </div>
+                        ) : null}
                       </div>
-                      <ul className="space-y-2">
-                        {group.rows.map((row) => {
-                          const role = row.recipientType === "client" ? L.client : L.worker;
-                          const key = recipientKey(
-                            row.scheduleId,
-                            row.phone,
-                            row.participantName,
-                            row.recipientType,
-                          );
-                          const contact =
-                            row.recipientType === "client"
-                              ? row.participantName || row.variables.client
-                              : row.participantName;
-                          const disabled = !row.phone;
-                          return (
-                            <li key={key} className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm">
-                              <input
-                                type="checkbox"
-                                checked={Boolean(selected[key])}
-                                disabled={disabled}
-                                onChange={(event) => toggleRecipient(key, event.target.checked)}
-                                aria-label={`${role} ${contact}`}
-                              />
-                              <span className="font-medium text-slate-800">
-                                [{role}] {contact}
-                              </span>
-                              <span className="text-slate-500">{row.phone || L.noPhone}</span>
-                            </li>
-                          );
-                        })}
-                      </ul>
+                      {visibleClientRows.length === 0 && workerRows.length === 0 ? (
+                        <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                          {L.pickerEmpty}
+                        </p>
+                      ) : (
+                        <ul className="space-y-2">
+                          {visibleClientRows.map((row) => {
+                            const role = L.client;
+                            const key = recipientKey(
+                              row.scheduleId,
+                              row.phone,
+                              row.participantName,
+                              row.recipientType,
+                            );
+                            const contact = row.participantName || row.variables.client;
+                            return (
+                              <li key={key} className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(selected[key])}
+                                  onChange={(event) => toggleRecipient(row, event.target.checked)}
+                                  aria-label={`${role} ${contact}`}
+                                />
+                                <span className="font-medium text-slate-800">
+                                  [{role}] {contact}
+                                </span>
+                                <span className="text-slate-500">{row.phone}</span>
+                              </li>
+                            );
+                          })}
+                          {workerRows.map((row) => {
+                            const role = L.worker;
+                            const key = recipientKey(
+                              row.scheduleId,
+                              row.phone,
+                              row.participantName,
+                              row.recipientType,
+                            );
+                            const contact = row.participantName;
+                            const disabled = !row.phone;
+                            return (
+                              <li key={key} className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(selected[key])}
+                                  disabled={disabled}
+                                  onChange={(event) => toggleRecipient(row, event.target.checked)}
+                                  aria-label={`${role} ${contact}`}
+                                />
+                                <span className="font-medium text-slate-800">
+                                  [{role}] {contact}
+                                </span>
+                                <span className="text-slate-500">{row.phone || L.noPhone}</span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
                     </div>
                   ) : null}
                 </section>
@@ -383,6 +647,19 @@ export function ScScheduleAlimtalkPage() {
           </div>
         </CardContent>
       </Card>
+
+      <ScWeeklyBriefingSection clients={clients} />
+      <ScAlimtalkClientContactPickerModal
+        open={Boolean(contactPicker)}
+        clientName={contactPicker?.clientName || ""}
+        clients={clients}
+        onClose={() => setContactPicker(null)}
+        onSaved={() => {
+          if (contactPicker?.scheduleId) handleContactPickerSaved(contactPicker.scheduleId);
+        }}
+      />
+        </>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run on AWS server after git pull: bash scripts/deploy-server.sh
 # Production: https://erp.teammillimeter.com  EC2: ubuntu@52.78.74.101
+# Manual tar/scp deploys: always exclude .env (e.g. tar --exclude=.env) so prod secrets are not overwritten.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -27,8 +28,11 @@ echo "==> build frontend"
 npm run build
 
 echo "==> restart API (pm2)"
-pm2 delete erp 2>/dev/null || true
-pm2 start server/index.mjs --name erp --node-args="--import tsx"
+if pm2 describe erp >/dev/null 2>&1; then
+  pm2 restart erp
+else
+  pm2 start server/index.mjs --name erp --node-args="--import tsx"
+fi
 
 pm2 save
 echo "==> deploy done"

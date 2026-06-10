@@ -1,4 +1,4 @@
-import { callBarobillSoap, getErrString, assertBarobillCredentials } from "./client.mjs";
+import { callBarobillSoap, assertBarobillCredentials, describeBarobillCode } from "./client.mjs";
 import { config } from "../config.mjs";
 
 function decodeXml(text) {
@@ -8,15 +8,6 @@ function decodeXml(text) {
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'");
-}
-
-async function describeCode(code) {
-  if (code >= 0) return null;
-  try {
-    return await getErrString(code);
-  } catch {
-    return `\uBC14\uB85C\uBE4C \uC624\uB958 (${code})`;
-  }
 }
 
 /** \uD648\uD0DD\uC2A4 \uC2A4\uD06C\uB798\uD551 \uC11C\uBE44\uC2A4 \uC2E0\uCCAD \uC5EC\uBD80 \uD655\uC778 (RefreshTaxInvoiceScrap) */
@@ -46,7 +37,7 @@ export async function checkTaxInvoiceScrapService() {
     };
   }
   if (code < 0) {
-    const detail = await describeCode(code);
+    const detail = await describeBarobillCode(code);
     return {
       active: false,
       code,
@@ -76,7 +67,7 @@ export async function getTaxInvoiceScrapRequestUrl() {
   const result = decodeXml(String(rawResult || "").trim());
   const asNumber = Number(result);
   if (Number.isFinite(asNumber) && asNumber < 0) {
-    const detail = await describeCode(asNumber);
+    const detail = await describeBarobillCode(asNumber);
     const error = new Error(detail || `\uD648\uD0DD\uC2A4 \uC5F0\uB3D9 \uC2E0\uCCAD URL \uC870\uD68C \uC2E4\uD328 (${asNumber})`);
     error.errCode = asNumber;
     throw error;

@@ -1,9 +1,14 @@
-import { isErpPageKey, type ErpPageDef, type ErpPageKey } from "./pageAccess";
+import { getAccessiblePageDefs, isErpPageKey, type ErpPageDef, type ErpPageKey } from "./pageAccess";
 
 const STORAGE_PREFIX = "teammillimeter-erp-sidebar-order";
+const HIDDEN_STORAGE_PREFIX = "teammillimeter-erp-sidebar-hidden";
 
 export function getSidebarOrderStorageKey(userId: string | number) {
   return `${STORAGE_PREFIX}:${userId}`;
+}
+
+export function getSidebarHiddenStorageKey(userId: string | number) {
+  return `${HIDDEN_STORAGE_PREFIX}:${userId}`;
 }
 
 export function normalizeSidebarOrder(value: unknown): ErpPageKey[] | null {
@@ -73,6 +78,18 @@ export function normalizeSidebarOrder(value: unknown): ErpPageKey[] | null {
   return unique.length ? unique : null;
 }
 
+export function normalizeSidebarHidden(value: unknown): ErpPageKey[] | null {
+  if (!Array.isArray(value)) return null;
+  const unique: ErpPageKey[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== "string" || !isErpPageKey(item) || seen.has(item)) continue;
+    seen.add(item);
+    unique.push(item);
+  }
+  return unique.length ? unique : null;
+}
+
 export function loadSidebarOrder(userId: string | number | null | undefined): ErpPageKey[] | null {
   if (userId == null || typeof window === "undefined") return null;
   try {
@@ -94,6 +111,27 @@ export function saveSidebarOrder(userId: string | number, order: ErpPageKey[]) {
   window.localStorage.setItem(getSidebarOrderStorageKey(userId), JSON.stringify(normalized));
 }
 
+export function loadSidebarHidden(userId: string | number | null | undefined): ErpPageKey[] | null {
+  if (userId == null || typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(getSidebarHiddenStorageKey(userId));
+    if (!raw) return null;
+    return normalizeSidebarHidden(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+export function saveSidebarHidden(userId: string | number, hidden: ErpPageKey[]) {
+  if (typeof window === "undefined") return;
+  const normalized = normalizeSidebarHidden(hidden);
+  if (!normalized?.length) {
+    window.localStorage.removeItem(getSidebarHiddenStorageKey(userId));
+    return;
+  }
+  window.localStorage.setItem(getSidebarHiddenStorageKey(userId), JSON.stringify(normalized));
+}
+
 export function resolveSidebarOrder(
   user: { id?: string | number; sidebarOrder?: unknown } | null | undefined,
 ): ErpPageKey[] | null {
@@ -102,21 +140,45 @@ export function resolveSidebarOrder(
   return loadSidebarOrder(user?.id);
 }
 
+export function resolveSidebarHidden(
+  user: { id?: string | number; sidebarHidden?: unknown } | null | undefined,
+): ErpPageKey[] | null {
+  if (user?.sidebarHidden !== undefined) {
+    return normalizeSidebarHidden(user.sidebarHidden) || [];
+  }
+  return loadSidebarHidden(user?.id);
+}
+
 export function cacheSidebarOrderFromUser(user: { id?: string | number; sidebarOrder?: unknown } | null | undefined) {
   if (user?.id == null) return;
   const order = normalizeSidebarOrder(user.sidebarOrder);
   if (order) saveSidebarOrder(user.id, order);
 }
 
-export async function syncLocalSidebarOrderIfNeeded<T extends { id?: string | number; sidebarOrder?: unknown }>(
+export function cacheSidebarHiddenFromUser(user: { id?: string | number; sidebarHidden?: unknown } | null | undefined) {
+  if (user?.id == null) return;
+  if (user.sidebarHidden === undefined) return;
+  const hidden = normalizeSidebarHidden(user.sidebarHidden) || [];
+  if (hidden.length) saveSidebarHidden(user.id, hidden);
+  else clearSidebarHidden(user.id);
+}
+
+export async function syncLocalSidebarOrderIfNeeded<T extends { id?: string | number; sidebarOrder?: unknown; sidebarHidden?: unknown }>(
   user: T,
-  updateApi: (order: ErpPageKey[]) => Promise<T>,
+  updateApi: (payload: { sidebarOrder?: ErpPageKey[]; sidebarHidden?: ErpPageKey[] }) => Promise<T>,
 ): Promise<T> {
-  if (normalizeSidebarOrder(user.sidebarOrder)) return user;
+  const hasServerOrder = normalizeSidebarOrder(user.sidebarOrder);
   const localOrder = loadSidebarOrder(user.id);
-  if (!localOrder) return user;
+  const localHidden = loadSidebarHidden(user.id);
+  const needsOrderSync = !hasServerOrder && !!localOrder;
+  const needsHiddenSync = user.sidebarHidden === undefined && !!localHidden;
+  if (!needsOrderSync && !needsHiddenSync) return user;
+
   try {
-    return await updateApi(localOrder);
+    return await updateApi({
+      ...(needsOrderSync && localOrder ? { sidebarOrder: localOrder } : {}),
+      ...(needsHiddenSync && localHidden ? { sidebarHidden: localHidden } : {}),
+    });
   } catch {
     return user;
   }
@@ -125,6 +187,25 @@ export async function syncLocalSidebarOrderIfNeeded<T extends { id?: string | nu
 export function clearSidebarOrder(userId: string | number) {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(getSidebarOrderStorageKey(userId));
+}
+
+export function clearSidebarHidden(userId: string | number) {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(getSidebarHiddenStorageKey(userId));
+}
+
+export function filterPageDefsByHidden(pages: ErpPageDef[], hidden: ErpPageKey[] | null | undefined): ErpPageDef[] {
+  if (!hidden?.length) return pages;
+  const hiddenSet = new Set(hidden);
+  return pages.filter((page) => !hiddenSet.has(page.key));
+}
+
+export function resolveVisibleSidebarPages(
+  user: { role?: string; allowedPages?: unknown } | null | undefined,
+  order: ErpPageKey[] | null | undefined,
+  hidden: ErpPageKey[] | null | undefined,
+): ErpPageDef[] {
+  return filterPageDefsByHidden(sortPageDefsByOrder(getAccessiblePageDefs(user), order), hidden);
 }
 
 export function sortPageDefsByOrder(pages: ErpPageDef[], order: ErpPageKey[] | null | undefined): ErpPageDef[] {
@@ -144,6 +225,14 @@ export function sortPageDefsByOrder(pages: ErpPageDef[], order: ErpPageKey[] | n
   const attendancePage = sorted.find((page) => page.key === "attendance");
   if (!attendancePage) return sorted;
   return [...sorted.filter((page) => page.key !== "attendance"), attendancePage];
+}
+
+export function buildSidebarHiddenDraft(
+  pages: ErpPageDef[],
+  savedHidden: ErpPageKey[] | null | undefined,
+): ErpPageKey[] {
+  const accessibleSet = new Set(pages.map((page) => page.key));
+  return (savedHidden || []).filter((key) => accessibleSet.has(key));
 }
 
 export function buildSidebarOrderDraft(pages: ErpPageDef[], savedOrder: ErpPageKey[] | null | undefined): ErpPageKey[] {

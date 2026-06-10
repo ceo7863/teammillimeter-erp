@@ -548,6 +548,26 @@ export function listStaffScSchedulesForClient(clientId, monthKey) {
   };
 }
 
+export function listStaffScSchedulesForMonth(monthKey) {
+  const state = getErpState();
+  const data = state.data || {};
+  const month = String(monthKey || "").trim();
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    return { ok: false, status: 400, error: "month must be YYYY-MM" };
+  }
+  const workers = Array.isArray(data.workers) ? data.workers : [];
+  const rows = listScSchedules(data)
+    .filter((row) => String(row.workDate || "").slice(0, 7) === month)
+    .map((row) => {
+      const participantNames = Array.isArray(row.participantNames) ? row.participantNames : [];
+      return {
+        ...row,
+        participants: resolveScScheduleParticipants(workers, participantNames),
+      };
+    });
+  return { ok: true, schedules: rows };
+}
+
 export function getScScheduleSyncStatus() {
   const state = getErpState();
   const meta = state.data?.scScheduleSyncMeta || {};

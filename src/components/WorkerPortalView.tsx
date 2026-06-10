@@ -28,11 +28,12 @@ import {
 } from "@/utils/workerPayments";
 import { downloadWorkerStatementSheetPdf } from "@/utils/statementExport";
 
-function getMonthEndISO(monthKey: string) {
-  const match = /^(\d{4})-(\d{2})$/.exec(String(monthKey || ""));
-  if (!match) return monthKey;
-  const date = new Date(Number(match[1]), Number(match[2]), 0);
-  return `${monthKey}-${String(date.getDate()).padStart(2, "0")}`;
+function buildProbationPortalMessage(probationEndDate: string) {
+  if (!probationEndDate) {
+    return "\uC218\uC2B5\uAE30\uAC04 \uC911\uC774\uC5B4 \uC2DC\uACF5\uB0B4\uC5ED\uC11C\uB97C \uC870\uD68C\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.";
+  }
+  const label = probationEndDate.replace(/-/g, ".");
+  return `\uC218\uC2B5\uAE30\uAC04(${label})\uC774 \uC885\uB8CC\uB41C \uD6C4\uBD80\uD130 \uC2DC\uACF5\uB0B4\uC5ED\uC11C\uB97C \uC870\uD68C\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.`;
 }
 
 const PORTAL_MONTH_MIN = "2020-01";
@@ -72,6 +73,10 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
   const workerName = getWorkerPortalWorkerName();
   const [months, setMonths] = useState<string[]>([]);
   const [monthKey, setMonthKey] = useState(currentStatementMonthKey);
+  const [periodStart, setPeriodStart] = useState("");
+  const [periodEnd, setPeriodEnd] = useState("");
+  const [probationActive, setProbationActive] = useState(false);
+  const [probationEndDate, setProbationEndDate] = useState("");
   const [rows, setRows] = useState<WorkerPaymentDetailRow[]>([]);
   const [workerInfo, setWorkerInfo] = useState({});
   const [companyProfile, setCompanyProfile] = useState(DEFAULT_COMPANY_PROFILE);
@@ -99,6 +104,8 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
       const result = await fetchWorkerPortalMonths();
       const list = result.months || [];
       setMonths(list);
+      setProbationActive(Boolean(result.probationActive));
+      setProbationEndDate(String(result.probationEndDate || ""));
       setMonthKey((prev) => resolvePortalMonthKey(prev, list));
     } catch (err) {
       setError(err instanceof Error ? err.message : "\uB0B4\uC5ED\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
@@ -127,6 +134,9 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
         if (cancelled) return;
         setRows(payload.rows || []);
         setWorkerInfo(payload.workerInfo || {});
+        setPeriodStart(String(payload.periodStart || ""));
+        setPeriodEnd(String(payload.periodEnd || ""));
+        setProbationActive(Boolean(payload.probationActive));
         setCompanyProfile(
           payload.companyProfile ? normalizeCompanyProfile(payload.companyProfile) : DEFAULT_COMPANY_PROFILE,
         );
@@ -149,8 +159,6 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
   );
   const summary = useMemo(() => buildWorkerStatementSummary(rows, workerInfo), [rows, workerInfo]);
   const totals = useMemo(() => buildStatementTotals(rows), [rows]);
-  const periodStart = monthKey ? `${monthKey}-01` : "";
-  const periodEnd = monthKey ? getMonthEndISO(monthKey) : "";
 
   const handleLogout = () => {
     clearWorkerPortalSession();
@@ -213,6 +221,7 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
               <p className="erp-text-body text-slate-500">{"\uBD88\uB7EC\uC624\uB294 \uC911\u2026"}</p>
             ) : (
               <>
+                {!probationActive ? (
                 <div className="erp-worker-portal-month-nav mb-6 flex flex-wrap items-center justify-center gap-2">
                   <button
                     type="button"
@@ -236,8 +245,15 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
                     <ChevronRight size={16} />
                   </button>
                 </div>
+                ) : null}
 
-                {months.length === 0 && !statementLoading ? (
+                {probationActive ? (
+                  <p className="erp-text-body rounded-2xl bg-amber-50 px-4 py-6 text-center font-semibold text-amber-800">
+                    {buildProbationPortalMessage(probationEndDate)}
+                  </p>
+                ) : null}
+
+                {!probationActive && months.length === 0 && !statementLoading ? (
                   <p className="erp-text-body rounded-2xl bg-slate-50 px-4 py-6 text-center text-slate-600">
                     {"\uD45C\uC2DC\uD560 \uC2DC\uACF5 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."}
                   </p>
@@ -251,7 +267,7 @@ export function WorkerPortalView({ onLogout }: WorkerPortalViewProps) {
 
                 {statementLoading ? (
                   <p className="erp-text-body text-slate-500">{"\uB0B4\uC5ED\uC11C \uBD88\uB7EC\uC624\uB294 \uC911\u2026"}</p>
-                ) : monthKey ? (
+                ) : !probationActive && monthKey ? (
                   <div className="erp-worker-portal-statement-shell rounded-2xl border bg-white p-2 shadow-inner">
                     <WorkerPortalStatementScaler>
                       <StatementA4Preview layoutVersion={statementLayoutVersion}>

@@ -6,6 +6,7 @@ import {
   KeyRound,
   Pencil,
   RefreshCw,
+  RotateCcw,
   Search,
   Shield,
   UserCheck,
@@ -33,6 +34,7 @@ import {
   getPageAccessGroups,
   type ErpPageKey,
 } from "@/utils/pageAccess";
+import { fetchErpBackupStatus, restoreErpBackupSnapshot as restoreErpBackupSnapshotApi, type ErpBackupStatus } from "@/utils/backupStatusApi";
 
 const LOGIN_ID_RE = /^[a-zA-Z0-9]+$/;
 
@@ -93,6 +95,25 @@ const L = {
   backupRestore: "\uBC31\uC5C5 \uBD88\uB7EC\uC624\uAE30",
   excelImport: "\uC5D1\uC140 \uBD88\uB7EC\uC624\uAE30",
   bundledSeed: "\uBC88\uB4EC \uB370\uC774\uD130 \uC801\uC6A9",
+  backupLogTitle: "\uC790\uB3D9 \uBC31\uC5C5 \uB85C\uADF8",
+  backupLogDesc: "\uC11C\uBC84 \uC790\uC815 \uBC31\uC5C5(cron) \uC2E4\uD589 \uB0B4\uC5ED\uACFC \uBCF4\uAD00 \uC911\uC778 \uC2A4\uB0B9\uC12F\uC785\uB2C8\uB2E4.",
+  backupLogRefresh: "\uB85C\uADF8 \uC0C8\uB85C\uACE0\uCE68",
+  backupLogLoading: "\uBC31\uC5C5 \uB85C\uADF8\uB97C \uBD88\uB7EC\uC624\uB294 \uC911...",
+  backupLogEmpty: "\uBC31\uC5C5 \uB85C\uADF8\uAC00 \uC544\uC9C1 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  backupLogLoadError: "\uBC31\uC5C5 \uB85C\uADF8\uB97C \uBD88\uB7EC\uC624\uC838 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",
+  backupSchedule: "\uC2A4\uCF00\uC904",
+  backupRetain: "\uBCF4\uAD00 \uAE30\uAC04",
+  backupSnapshots: "\uBCF4\uAD00 \uC911\uC778 \uBC31\uC5C5",
+  backupSnapshotDate: "\uB0A0\uC9DC",
+  backupSnapshotSize: "\uC6A9\uB7C9",
+  backupSnapshotCreated: "\uC0DD\uC131 \uC2DC\uAC01",
+  backupSnapshotEmpty: "\uBCF4\uAD00 \uC911\uC778 \uBC31\uC5C5 \uC2A4\uB0B9\uC12F\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  backupRestore: "\uBCF5\uC6D0",
+  backupRestoring: "\uBCF5\uC6D0 \uC911...",
+  backupRestoreConfirm:
+    "{date} \uBC31\uC5C5\uC73C\uB85C \uBCF5\uC6D0\uD569\uB2C8\uB2E4. \uD604\uC7AC \uB370\uC774\uD130\uB294 \uC0AC\uB77C\uC9C0\uACE0 \uC11C\uBC84\uAC00 \uC7AC\uC2DC\uC791\uD569\uB2C8\uB2E4. \uACC4\uC18D\uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?",
+  backupRestoreSuccess: "{date} \uBC31\uC5C5 \uBCF5\uC6D0 \uC644\uB8CC. \uC11C\uBC84\uB97C \uC7AC\uC2DC\uC791\uD569\uB2C8\uB2E4.",
+  backupRestoreError: "\uBC31\uC5C5 \uBCF5\uC6D0\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   pageAccess: "\uD398\uC774\uC9C0 \uC811\uADFC",
   pageAccessHint: "\uC77C\uBC18 \uACC4\uC815\uC774 \uBA54\uB274\uC5D0\uC11C \uBCFC \uC218 \uC788\uB294 \uD398\uC774\uC9C0\uB97C \uC120\uD0DD\uD569\uB2C8\uB2E4.",
   pageAccessAdminHint: "\uAD00\uB9AC\uC790\uB294 \uBAA8\uB4E0 \uD398\uC774\uC9C0\uC5D0 \uC811\uADFC\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
@@ -284,6 +305,25 @@ function AttendanceViewUserPicker({
   );
 }
 
+function formatBackupBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "-";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return `${value >= 100 || unitIndex === 0 ? Math.round(value) : value.toFixed(1)} ${units[unitIndex]}`;
+}
+
+function formatBackupTimestamp(value: string | null) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("ko-KR", { hour12: false });
+}
+
 export function UsersAdminPage({
   currentUser,
   onBackup,
@@ -303,6 +343,25 @@ export function UsersAdminPage({
   const [selectedUser, setSelectedUser] = useState<ErpUserRecord | null>(null);
   const [form, setForm] = useState<UserFormState>(emptyForm);
   const [submitting, setSubmitting] = useState(false);
+  const [backupStatus, setBackupStatus] = useState<ErpBackupStatus | null>(null);
+  const [backupLogLoading, setBackupLogLoading] = useState(true);
+  const [backupLogError, setBackupLogError] = useState("");
+  const [restoringBackupDate, setRestoringBackupDate] = useState("");
+
+  const loadBackupStatus = useCallback(async () => {
+    setBackupLogLoading(true);
+    setBackupLogError("");
+    try {
+      const { status } = await fetchErpBackupStatus(120);
+      setBackupStatus(status);
+    } catch (err) {
+      console.error(err);
+      setBackupLogError(L.backupLogLoadError);
+      setBackupStatus(null);
+    } finally {
+      setBackupLogLoading(false);
+    }
+  }, []);
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -318,9 +377,28 @@ export function UsersAdminPage({
     }
   }, []);
 
+  const handleRestoreBackup = async (date: string) => {
+    const confirmMessage = L.backupRestoreConfirm.replace("{date}", date);
+    if (!window.confirm(confirmMessage)) return;
+
+    setRestoringBackupDate(date);
+    setBackupLogError("");
+    try {
+      await restoreErpBackupSnapshotApi(date);
+      setMessage(L.backupRestoreSuccess.replace("{date}", date));
+      window.setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } catch (err) {
+      setBackupLogError(err instanceof Error ? err.message : L.backupRestoreError);
+      setRestoringBackupDate("");
+    }
+  };
+
   useEffect(() => {
     loadUsers();
-  }, [loadUsers]);
+    void loadBackupStatus();
+  }, [loadUsers, loadBackupStatus]);
 
   const filteredUsers = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -652,6 +730,105 @@ export function UsersAdminPage({
               event.target.value = "";
             }}
           />
+        </CardContent>
+      </Card>
+
+      <Card className="mb-5 rounded-2xl border-slate-200 shadow-sm">
+        <CardContent className="p-4 md:p-5">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="erp-text-section font-bold text-slate-900">{L.backupLogTitle}</h2>
+              <p className="erp-text-caption mt-1 text-slate-500">{L.backupLogDesc}</p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="shrink-0 whitespace-nowrap rounded-2xl"
+              onClick={() => void loadBackupStatus()}
+              disabled={backupLogLoading}
+            >
+              <RefreshCw size={16} className={backupLogLoading ? "animate-spin" : ""} /> {L.backupLogRefresh}
+            </Button>
+          </div>
+
+          {backupLogError ? (
+            <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 erp-text-body font-semibold text-red-600">
+              {backupLogError}
+            </div>
+          ) : null}
+
+          {backupLogLoading && !backupStatus ? (
+            <p className="erp-text-body text-slate-500">{L.backupLogLoading}</p>
+          ) : backupStatus ? (
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p className="erp-text-caption font-semibold text-slate-500">{L.backupSchedule}</p>
+                  <p className="mt-1 erp-text-body font-bold text-slate-900">
+                    {backupStatus.scheduleLabel}
+                  </p>
+                  <p className="mt-1 erp-text-caption text-slate-500">{backupStatus.cronExpression}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p className="erp-text-caption font-semibold text-slate-500">{L.backupRetain}</p>
+                  <p className="mt-1 erp-text-body font-bold text-slate-900">{backupStatus.retainDays}일</p>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="mb-2 erp-text-body font-bold text-slate-800">{L.backupSnapshots}</h3>
+                {backupStatus.snapshots.length ? (
+                  <DesktopTableWrap className="rounded-2xl border border-slate-200">
+                    <table className="erp-users-table w-full">
+                      <thead>
+                        <tr>
+                          <th>{L.backupSnapshotDate}</th>
+                          <th>{L.backupSnapshotSize}</th>
+                          <th>{L.backupSnapshotCreated}</th>
+                          <th>{L.actions}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {backupStatus.snapshots.map((snapshot) => (
+                          <tr key={snapshot.date}>
+                            <td className="font-semibold text-slate-900">{snapshot.date}</td>
+                            <td>{formatBackupBytes(snapshot.totalBytes)}</td>
+                            <td className="text-slate-600">{formatBackupTimestamp(snapshot.createdAt)}</td>
+                            <td>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-8 rounded-lg text-xs"
+                                disabled={Boolean(restoringBackupDate)}
+                                onClick={() => void handleRestoreBackup(snapshot.date)}
+                              >
+                                <RotateCcw size={13} className={restoringBackupDate === snapshot.date ? "animate-spin" : ""} />
+                                {restoringBackupDate === snapshot.date ? L.backupRestoring : L.backupRestore}
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </DesktopTableWrap>
+                ) : (
+                  <p className="erp-text-body text-slate-500">{L.backupSnapshotEmpty}</p>
+                )}
+              </div>
+
+              <div>
+                <h3 className="mb-2 erp-text-body font-bold text-slate-800">{L.backupLogTitle}</h3>
+                <div className="erp-users-backup-log">
+                  {backupStatus.logLines.length ? (
+                    <pre>{backupStatus.logLines.join("\n")}</pre>
+                  ) : (
+                    <p className="erp-text-body text-slate-500">{L.backupLogEmpty}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

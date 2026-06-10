@@ -36,7 +36,20 @@ export type ClientMasterLike = {
   businessRegUploadedAt?: string;
   contacts?: Array<{ id?: string; name?: string; phone?: string; isPrimary?: boolean }>;
   memo?: string;
+  isActive?: boolean;
 };
+
+export function isClientActive(client?: Pick<ClientMasterLike, "isActive"> | null) {
+  return client?.isActive !== false;
+}
+
+export function filterActiveClients(clients: ClientMasterLike[] = []) {
+  return clients.filter((client) => isClientActive(client));
+}
+
+export function clientActiveSortRank(client: Pick<ClientMasterLike, "isActive">) {
+  return isClientActive(client) ? 0 : 1;
+}
 
 export function resolveClientTaxInvoiceCorpName(client: Record<string, unknown> | null | undefined) {
   const source = client && typeof client === "object" ? client : {};
@@ -102,6 +115,111 @@ function normalizeClientName(name?: string) {
   return String(name || "").trim();
 }
 
+const CLIENT_MASTER_TEXT_FIELDS = [
+  "name",
+  "taxInvoiceCorpName",
+  "businessNo",
+  "ceoName",
+  "email",
+  "address",
+  "bizType",
+  "bizClass",
+  "manager",
+  "phone",
+  "vat",
+  "mealIncluded",
+  "depositNameAliases",
+  "businessRegFileId",
+  "businessRegFileName",
+  "businessRegUploadedAt",
+  "memo",
+] as const;
+
+const CLIENT_MASTER_NUMERIC_FIELDS = [
+  "constructionCost",
+  "customChargeCost",
+  "chargeCost",
+  "overtimeCost",
+] as const;
+
+function pickClientMasterText(incoming?: string, local?: string) {
+  const incomingText = String(incoming ?? "").trim();
+  if (incomingText) return incomingText;
+  const localText = String(local ?? "").trim();
+  return localText || undefined;
+}
+
+function pickClientMasterNumeric(incoming?: number, local?: number) {
+  const incomingNum = Number(incoming);
+  const localNum = Number(local);
+  if (Number.isFinite(incomingNum)) return incomingNum;
+  if (Number.isFinite(localNum)) return localNum;
+  return undefined;
+}
+
+function findLocalClientMatch(
+  client: ClientMasterLike,
+  localById: Map<string, ClientMasterLike>,
+  localByName: Map<string, ClientMasterLike>,
+) {
+  const idKey = normalizeClientRecordId(client.id);
+  if (idKey && localById.has(idKey)) {
+    return localById.get(idKey);
+  }
+  return localByName.get(normalizeClientName(client.name));
+}
+
+function mergeClientMasterPair(incoming: ClientMasterLike, local?: ClientMasterLike): ClientMasterLike {
+  if (!local) return incoming;
+  const merged: ClientMasterLike = { ...incoming };
+  for (const key of CLIENT_MASTER_TEXT_FIELDS) {
+    const value = pickClientMasterText(
+      incoming[key as keyof ClientMasterLike] as string | undefined,
+      local[key as keyof ClientMasterLike] as string | undefined,
+    );
+    if (value) {
+      (merged as Record<string, string>)[key] = value;
+    } else {
+      delete (merged as Record<string, unknown>)[key];
+    }
+  }
+  for (const key of CLIENT_MASTER_NUMERIC_FIELDS) {
+    const value = pickClientMasterNumeric(
+      incoming[key as keyof ClientMasterLike] as number | undefined,
+      local[key as keyof ClientMasterLike] as number | undefined,
+    );
+    if (value != null && Number.isFinite(value)) {
+      (merged as Record<string, number>)[key] = value;
+    } else {
+      delete (merged as Record<string, unknown>)[key];
+    }
+  }
+
+  const incomingContacts = Array.isArray(incoming.contacts)
+    ? incoming.contacts.filter((row) => row && (row.name || row.phone))
+    : [];
+  const prevContacts = Array.isArray(local.contacts)
+    ? local.contacts.filter((row) => row && (row.name || row.phone))
+    : [];
+  if (incomingContacts.length) merged.contacts = incomingContacts;
+  else if (prevContacts.length) merged.contacts = prevContacts;
+  else delete merged.contacts;
+
+  if (incoming.isActive !== undefined) merged.isActive = incoming.isActive;
+  else if (local.isActive !== undefined) merged.isActive = local.isActive;
+  else delete merged.isActive;
+
+  if (incoming.taxInvoiceSplitPayments !== undefined) {
+    merged.taxInvoiceSplitPayments = incoming.taxInvoiceSplitPayments;
+  } else if (local.taxInvoiceSplitPayments !== undefined) {
+    merged.taxInvoiceSplitPayments = local.taxInvoiceSplitPayments;
+  } else {
+    delete merged.taxInvoiceSplitPayments;
+  }
+
+  return merged;
+}
+
 /** 서버 새로고침 시 방금 저장한 거래처 필드가 지워지지 않도록 병합 */
 export function mergeClientFieldsFromLocal(
   incoming: ClientMasterLike[] = [],
@@ -121,9 +239,8 @@ export function mergeClientFieldsFromLocal(
     if (idKey) seenIds.add(idKey);
     const nameKey = normalizeClientName(client.name);
     if (nameKey) seenNames.add(nameKey);
-    const prev = (idKey && localById.get(idKey)) || (nameKey && localByName.get(nameKey));
-    if (!prev) return client;
-    return { ...prev, ...client };
+    const prev = findLocalClientMatch(client, localById, localByName);
+    return mergeClientMasterPair(client, prev);
   });
 
   for (const client of local) {

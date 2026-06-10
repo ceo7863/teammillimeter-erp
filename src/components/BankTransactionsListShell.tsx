@@ -52,7 +52,10 @@ export type BankTransactionsListShellProps = {
   onOpenPreauthNet: () => void;
   onOpenRecurringFixed: () => void;
   onAutoClassify: () => void;
+  onOpenClassificationRules?: () => void;
   onCreateFixedExpenseItem: () => void;
+  classificationRulesLabel?: string;
+  classificationRulesCount?: number;
   preauthNetActionCount: number;
   recurringFixedActionCount: number;
   evidenceAutoMatchLabel: string;
@@ -106,7 +109,10 @@ function BankTransactionsListShellComponent(props: BankTransactionsListShellProp
     onOpenPreauthNet,
     onOpenRecurringFixed,
     onAutoClassify,
+    onOpenClassificationRules,
     onCreateFixedExpenseItem,
+    classificationRulesLabel,
+    classificationRulesCount,
     preauthNetActionCount,
     recurringFixedActionCount,
     evidenceAutoMatchLabel,
@@ -162,7 +168,10 @@ function BankTransactionsListShellComponent(props: BankTransactionsListShellProp
         onOpenPreauthNet={onOpenPreauthNet}
         onOpenRecurringFixed={onOpenRecurringFixed}
         onAutoClassify={onAutoClassify}
+        onOpenClassificationRules={onOpenClassificationRules}
         onCreateFixedExpenseItem={onCreateFixedExpenseItem}
+        classificationRulesLabel={classificationRulesLabel}
+        classificationRulesCount={classificationRulesCount}
         preauthNetActionCount={preauthNetActionCount}
         recurringFixedActionCount={recurringFixedActionCount}
         evidenceAutoMatchLabel={evidenceAutoMatchLabel}
@@ -192,6 +201,8 @@ function bankTransactionsListShellPropsAreEqual(
   if (prev.preauthNetOpenLabel !== next.preauthNetOpenLabel) return false;
   if (prev.recurringFixedOpenLabel !== next.recurringFixedOpenLabel) return false;
   if (prev.autoClassifyLabel !== next.autoClassifyLabel) return false;
+  if (prev.classificationRulesLabel !== next.classificationRulesLabel) return false;
+  if (prev.classificationRulesCount !== next.classificationRulesCount) return false;
   if (prev.addFixedExpenseLabel !== next.addFixedExpenseLabel) return false;
   if (prev.labels !== next.labels) return false;
   if (prev.appliedFilters !== next.appliedFilters) return false;
@@ -233,6 +244,7 @@ function bankTransactionsListShellPropsAreEqual(
   if (prev.onOpenPreauthNet !== next.onOpenPreauthNet) return false;
   if (prev.onOpenRecurringFixed !== next.onOpenRecurringFixed) return false;
   if (prev.onAutoClassify !== next.onAutoClassify) return false;
+  if (prev.onOpenClassificationRules !== next.onOpenClassificationRules) return false;
   if (prev.onCreateFixedExpenseItem !== next.onCreateFixedExpenseItem) return false;
   if (prev.getBankTransactionsExportParsed !== next.getBankTransactionsExportParsed) return false;
 

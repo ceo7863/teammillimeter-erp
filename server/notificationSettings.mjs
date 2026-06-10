@@ -9,10 +9,20 @@ const DEFAULT_NOTIFICATION_SETTINGS = {
   dailyReportMinute: 0,
   scScheduleNotifyHour: 18,
   scScheduleNotifyMinute: 0,
+  scWeeklyBriefingNotifyEnabled: true,
+  scWeeklyBriefingWeekday: 1,
+  scWeeklyBriefingHour: 9,
+  scWeeklyBriefingMinute: 0,
   recipients: [],
   dailyReportExtraPhones: [],
   scScheduleNotifyMode: "both",
 };
+
+function normalizeWeekday(value) {
+  const num = Number(value);
+  if (Number.isFinite(num) && num >= 0 && num <= 6) return num;
+  return DEFAULT_NOTIFICATION_SETTINGS.scWeeklyBriefingWeekday;
+}
 
 function normalizePhoneList(value) {
   if (!Array.isArray(value)) return [];
@@ -61,6 +71,8 @@ export function normalizeNotificationSettings(raw) {
   const minute = Number(raw.dailyReportMinute);
   const scHour = Number(raw.scScheduleNotifyHour);
   const scMinute = Number(raw.scScheduleNotifyMinute);
+  const weeklyHour = Number(raw.scWeeklyBriefingHour);
+  const weeklyMinute = Number(raw.scWeeklyBriefingMinute);
   const scHourFallback = raw.scScheduleNotifyHour == null ? config.sc.scheduleNotify.hour : 18;
   const scMinuteFallback = raw.scScheduleNotifyMinute == null ? config.sc.scheduleNotify.minute : 0;
   const recipients = Array.isArray(raw.recipients)
@@ -75,6 +87,10 @@ export function normalizeNotificationSettings(raw) {
     dailyReportMinute: clampSchedulePart(minute, 59, 0),
     scScheduleNotifyHour: clampSchedulePart(scHour, 23, scHourFallback),
     scScheduleNotifyMinute: clampSchedulePart(scMinute, 59, scMinuteFallback),
+    scWeeklyBriefingNotifyEnabled: raw.scWeeklyBriefingNotifyEnabled !== false,
+    scWeeklyBriefingWeekday: normalizeWeekday(raw.scWeeklyBriefingWeekday),
+    scWeeklyBriefingHour: clampSchedulePart(weeklyHour, 23, DEFAULT_NOTIFICATION_SETTINGS.scWeeklyBriefingHour),
+    scWeeklyBriefingMinute: clampSchedulePart(weeklyMinute, 59, DEFAULT_NOTIFICATION_SETTINGS.scWeeklyBriefingMinute),
     recipients,
     dailyReportExtraPhones: normalizePhoneList(raw.dailyReportExtraPhones),
     scScheduleNotifyMode: normalizeScScheduleNotifyMode(raw.scScheduleNotifyMode),

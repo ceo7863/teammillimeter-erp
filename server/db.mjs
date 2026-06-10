@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import bcrypt from "bcryptjs";
 import { config, seedUsers } from "./config.mjs";
 import { ERP_DOMAIN_FIELDS, ERP_DOMAIN_NAMES, pickDomainPayload } from "./erpDomains.mjs";
+import { queueCoalescedWrite } from "./erpWriteQueue.mjs";
 import { migrateClientAichiToMiumu, needsClientAichiToMiumuMigration } from "./migrateClientAichiToMiumu.mjs";
 
 let db;
@@ -80,6 +81,14 @@ function emptyErpPayload() {
       dailyReportExtraPhones: [],
       scScheduleNotifyMode: "both",
     },
+    saleAiRules: {
+      shortShiftMaxHours: 5,
+      shortShiftBaseAmount: 50000,
+      shortShiftHourlyAmount: 50000,
+      overtimeBaseHour: 17,
+      overtimeStartHour: 19,
+      normalEndHour: 18,
+    },
   };
 }
 
@@ -132,6 +141,10 @@ function migrateUsersTable(database) {
 
   if (!colNames.has("sidebar_order")) {
     database.exec(`ALTER TABLE users ADD COLUMN sidebar_order TEXT;`);
+  }
+
+  if (!colNames.has("sidebar_hidden")) {
+    database.exec(`ALTER TABLE users ADD COLUMN sidebar_hidden TEXT;`);
   }
 
   if (!colNames.has("attendance_view_user_ids")) {
@@ -187,7 +200,15 @@ export function parseSidebarOrder(raw) {
   return parseJsonStringArray(raw);
 }
 
+export function parseSidebarHidden(raw) {
+  return parseJsonStringArray(raw);
+}
+
 function serializeSidebarOrder(pages) {
+  return serializeJsonStringArray(pages);
+}
+
+function serializeSidebarHidden(pages) {
   return serializeJsonStringArray(pages);
 }
 
@@ -203,6 +224,7 @@ function formatUserRow(row) {
     isActive: Boolean(row.is_active),
     allowedPages: parseAllowedPages(row.allowed_pages),
     sidebarOrder: parseSidebarOrder(row.sidebar_order),
+    sidebarHidden: parseSidebarHidden(row.sidebar_hidden),
     attendanceViewUserIds: parseAttendanceViewUserIds(row.attendance_view_user_ids),
     createdAt: row.created_at,
     updatedAt: row.updated_at || null,
@@ -548,7 +570,7 @@ export function runInTransaction(database, callback) {
 }
 
 const USER_SELECT = `
-  SELECT id, login_id, email, password_hash, name, phone, role, is_active, allowed_pages, sidebar_order, attendance_view_user_ids, created_at, updated_at
+  SELECT id, login_id, email, password_hash, name, phone, role, is_active, allowed_pages, sidebar_order, sidebar_hidden, attendance_view_user_ids, created_at, updated_at
   FROM users
 `;
 
@@ -745,7 +767,7 @@ export function updateSelfProfile(userId, { name, phone, email }) {
   return formatUserRow(findUserById(existing.id));
 }
 
-export function updateSelfSidebarOrder(userId, sidebarOrder) {
+export function updateSelfSidebarOrder(userId, sidebarOrder, sidebarHidden) {
   const existing = findUserById(Number(userId));
   if (!existing) {
     const err = new Error("사용자를 찾을 수 없습니다.");
@@ -753,20 +775,40 @@ export function updateSelfSidebarOrder(userId, sidebarOrder) {
     throw err;
   }
 
-  if (sidebarOrder != null && !Array.isArray(sidebarOrder)) {
+  if (sidebarOrder !== undefined && sidebarOrder != null && !Array.isArray(sidebarOrder)) {
     const err = new Error("메뉴 순서 형식이 올바르지 않습니다.");
     err.status = 400;
     throw err;
+  }
+
+  if (sidebarHidden !== undefined && sidebarHidden != null && !Array.isArray(sidebarHidden)) {
+    const err = new Error("숨김 메뉴 형식이 올바르지 않습니다.");
+    err.status = 400;
+    throw err;
+  }
+
+  const fields = [];
+  const values = [];
+  if (sidebarOrder !== undefined) {
+    fields.push("sidebar_order = ?");
+    values.push(serializeSidebarOrder(sidebarOrder));
+  }
+  if (sidebarHidden !== undefined) {
+    fields.push("sidebar_hidden = ?");
+    values.push(serializeSidebarHidden(sidebarHidden));
+  }
+  if (!fields.length) {
+    return formatUserRow(findUserById(existing.id));
   }
 
   const now = new Date().toISOString();
   getDb()
     .prepare(`
       UPDATE users
-      SET sidebar_order = ?, updated_at = ?
+      SET ${fields.join(", ")}, updated_at = ?
       WHERE id = ?
     `)
-    .run(serializeSidebarOrder(sidebarOrder), now, existing.id);
+    .run(...values, now, existing.id);
 
   return formatUserRow(findUserById(existing.id));
 }

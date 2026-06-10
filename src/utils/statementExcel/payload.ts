@@ -18,6 +18,7 @@ import {
   formatWorkerStatementBankAccount,
   formatWorkerStatementDate,
   formatStatementDate,
+  formatStatementTableDate,
 } from "@/utils/workerPayments";
 import type {
   ClientStatementExcelBodyRow,
@@ -69,7 +70,7 @@ function buildClientBodyRows(rows: ClientStatementDisplayRow[], emptyMessage: st
     const { site } = group;
     bodyRows.push({
       type: "site",
-      date: formatStatementDate(site.date || ""),
+      date: formatStatementTableDate(site.date || ""),
       site: site.site || "",
       staffCount: site.staffCount || 0,
       totalConstructionCost: formatStatementDashAmount(site.totalConstructionCost || 0),

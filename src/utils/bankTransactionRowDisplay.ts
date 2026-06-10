@@ -47,13 +47,11 @@ function resolveLedgerCategoryLabel(
   }
   if (linkedExpense?.category?.trim()) return linkedExpense.category.trim();
 
-  let linkedPayment: FixedExpensePayment | undefined;
-  if (row.linkedFixedExpensePaymentId) {
-    linkedPayment = fixedPaymentById.get(row.linkedFixedExpensePaymentId);
-  }
-  if (!linkedPayment) {
-    linkedPayment = fixedPaymentByTxId.get(row.id);
-  }
+  const linkedPayment = resolveLinkedFixedPaymentFromLookup(
+    row,
+    fixedPaymentById,
+    fixedPaymentByTxId,
+  );
   if (linkedPayment) {
     const fixedItem = fixedExpenseById.get(linkedPayment.fixedExpenseId);
     if (fixedItem?.name?.trim()) return fixedItem.name.trim();
@@ -77,14 +75,21 @@ function isLedgerCategoryFromFixed(
     linkedExpense = companyExpenseByTxId.get(row.id);
   }
   if (linkedExpense?.kind === "fixed") return true;
-  let linkedPayment: FixedExpensePayment | undefined;
+  return Boolean(
+    resolveLinkedFixedPaymentFromLookup(row, fixedPaymentById, fixedPaymentByTxId),
+  );
+}
+
+function resolveLinkedFixedPaymentFromLookup(
+  row: BankTransaction,
+  fixedPaymentById: Map<string, FixedExpensePayment>,
+  fixedPaymentByTxId: Map<string, FixedExpensePayment>,
+): FixedExpensePayment | undefined {
   if (row.linkedFixedExpensePaymentId) {
-    linkedPayment = fixedPaymentById.get(row.linkedFixedExpensePaymentId);
+    const linked = fixedPaymentById.get(row.linkedFixedExpensePaymentId);
+    if (linked) return linked;
   }
-  if (!linkedPayment) {
-    linkedPayment = fixedPaymentByTxId.get(row.id);
-  }
-  return Boolean(linkedPayment);
+  return fixedPaymentByTxId.get(row.id);
 }
 
 export function buildBankTransactionRowDisplayCache({

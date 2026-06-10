@@ -73,6 +73,11 @@ async function postAlimtalk(payload) {
   if (!response.ok) {
     return { ok: false, status: response.status, body };
   }
+  const failed = Array.isArray(body?.failedMessageList) ? body.failedMessageList : [];
+  if (failed.length) {
+    const error = failed.map((row) => row.statusMessage || row.statusCode).filter(Boolean).join("; ");
+    return { ok: false, status: failed[0]?.statusCode || response.status, body, error };
+  }
   return { ok: true, status: response.status, body };
 }
 
@@ -111,6 +116,7 @@ export function getAlimtalkStatus() {
     commentTemplate: config.alimtalk.commentTemplate || null,
     contractTemplate: config.alimtalk.contractTemplate || null,
     scheduleTemplate: config.alimtalk.scheduleTemplate || null,
+    weeklyBriefingTemplate: config.alimtalk.weeklyBriefingTemplate || null,
   };
 }
 
@@ -173,6 +179,14 @@ export async function sendScheduleAlimtalk({ phones, variables }) {
   return sendAlimtalkTemplate({
     phones,
     templateCode: config.alimtalk.scheduleTemplate,
+    variables,
+  });
+}
+
+export async function sendWeeklyBriefingAlimtalk({ phones, variables }) {
+  return sendAlimtalkTemplate({
+    phones,
+    templateCode: config.alimtalk.weeklyBriefingTemplate,
     variables,
   });
 }

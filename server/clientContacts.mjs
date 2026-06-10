@@ -85,13 +85,26 @@ export function findClientForSchedule(clients, schedule) {
   return match || null;
 }
 
-export function resolveClientContacts(clients, schedule) {
+export function resolveClientManagerName(clients, schedule) {
+  const match = findClientForSchedule(clients, schedule);
+  if (!match) return "";
+  const contacts = normalizeClientContacts(match);
+  const primary =
+    contacts.find((row) => row.isPrimary && row.name) ||
+    contacts.find((row) => row.name) ||
+    contacts[0];
+  if (primary?.name) return primary.name;
+  return String(match.manager || match.ceoName || "").trim();
+}
+
+export function resolveClientContacts(clients, schedule, options = {}) {
   const match = findClientForSchedule(clients, schedule);
   const clientName = match
     ? String(match.name || "").trim()
     : String(schedule?.clientName || schedule?.projectName || "").trim();
   const contacts = normalizeClientContacts(match);
   const siteManager = String(schedule?.siteManagerName || "").trim();
+  const excludeSiteManager = options.excludeSiteManager === true;
 
   if (contacts.length) {
     return contacts.map((contact) => ({
@@ -104,7 +117,7 @@ export function resolveClientContacts(clients, schedule) {
     }));
   }
 
-  if (siteManager) {
+  if (siteManager && !excludeSiteManager) {
     return [
       {
         clientName,
@@ -131,8 +144,8 @@ export function resolveClientContacts(clients, schedule) {
     : [];
 }
 
-export function resolveClientContact(clients, schedule) {
-  const rows = resolveClientContacts(clients, schedule);
+export function resolveClientContact(clients, schedule, options = {}) {
+  const rows = resolveClientContacts(clients, schedule, options);
   const primary = rows.find((row) => row.isPrimary) || rows.find((row) => row.phone) || rows[0];
   return {
     clientName: primary?.clientName || "",

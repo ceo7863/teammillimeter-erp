@@ -1,0 +1,10 @@
+import { getDb, getErpState } from "../server/db.mjs";
+getDb();
+const s = getErpState();
+const tax = s.data.taxInvoices || [];
+const bank = s.data.bankTransactions || [];
+console.log("version", s.version);
+console.log("tax", tax.length, "latest", tax.map((r) => String(r.issueDate || r.writtenDate || "").slice(0, 10)).sort().pop());
+console.log("bank", bank.length, "latest", bank.map((r) => String(r.transactionAt || "").slice(0, 10)).sort().pop());
+console.log("juneTax", tax.filter((r) => String(r.issueDate || r.writtenDate || "").startsWith("2026-06")).length);
+console.log("juneBank", bank.filter((r) => String(r.transactionAt || "").startsWith("2026-06")).length);

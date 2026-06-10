@@ -3,6 +3,8 @@ import {
   assignBankTxToFixedExpensePayment,
   getLinkedCompanyExpenseForBankTx,
   getLinkedFixedPaymentForBankTx,
+  enrichBankTransactionLedgerFromFixedLink,
+  resolveBankTxLedgerAccountCode,
 } from "./bankCompanyLedger";
 import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "./companyLedger";
 import { isLedgerInboxTransaction } from "./ledgerInboxUtils";
@@ -11,6 +13,7 @@ import {
   findAccountCodeByCode,
   findLedgerCategory,
   findLedgerCategoryByName,
+  resolveFixedExpenseAccountCode,
   resolveBankTxLedgerStatus,
   type AccountCode,
   type LedgerCategory,
@@ -81,9 +84,15 @@ export function getBankTxLedgerCategoryLabel(
 
 export function getBankTxLedgerAccountCodeLabel(
   tx: BankTransaction,
-  _ledgerCategories: LedgerCategory[] = [],
+  ledgerCategories: LedgerCategory[] = [],
+  fixedExpenses: FixedExpense[] = [],
+  fixedExpensePayments: FixedExpensePayment[] = [],
 ): string | null {
-  const code = String(tx.ledgerAccountCode || "").trim();
+  const code = resolveBankTxLedgerAccountCode(tx, {
+    ledgerCategories,
+    fixedExpenses,
+    fixedExpensePayments,
+  });
   return code || null;
 }
 
@@ -151,10 +160,12 @@ export function linkBankTransactionToFixedExpense(input: {
   if (!category) return { ok: false, reason: "missing_category" };
 
   let nextPayments = input.fixedExpensePayments;
+  const fixedAccountCode = resolveFixedExpenseAccountCode(fixedItem, input.ledgerCategories);
   let nextRow = confirmBankTransactionLedger({
     tx: input.tx,
     category,
     accountCodes: input.accountCodes,
+    accountCode: fixedAccountCode,
     confirmedBy: input.confirmedBy,
     fixedExpenseId: fixedItem.id,
     memo: input.tx.ledgerMemo || input.tx.memo,
@@ -167,6 +178,7 @@ export function linkBankTransactionToFixedExpense(input: {
       fixedItem,
       payments: nextPayments,
       fixedExpenses: input.fixedExpenses,
+      ledgerCategories: input.ledgerCategories,
       resolvedCategory: categoryName,
       memo: nextRow.ledgerMemo || nextRow.memo,
       savedBy: input.confirmedBy,
@@ -187,8 +199,14 @@ export function linkBankTransactionToFixedExpense(input: {
 export function resolveBankTxFixedExpenseDraft(
   tx: BankTransaction,
   fixedExpensePayments: FixedExpensePayment[],
+  fixedExpenses: FixedExpense[] = [],
 ): string {
-  if (tx.ledgerFixedExpenseId) return tx.ledgerFixedExpenseId;
   const linkedPayment = getLinkedFixedPaymentForBankTx(tx, fixedExpensePayments);
+  if (tx.ledgerFixedExpenseId) {
+    const valid =
+      !fixedExpenses.length ||
+      fixedExpenses.some((row) => row.id === tx.ledgerFixedExpenseId);
+    if (valid) return tx.ledgerFixedExpenseId;
+  }
   return linkedPayment?.fixedExpenseId || "";
 }

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { AlertCircle, CheckCircle2, CreditCard, Search, Trash2, WalletCards } from "lucide-react";
+import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, CreditCard, Search, Trash2, WalletCards } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useAudit } from "@/context/AuditContext";
@@ -34,6 +34,7 @@ import {
   type PaymentDepositChannel,
 } from "@/utils/paymentDepositChannel";
 import { SalePaymentLinkBadge, PartialPaymentBadge } from "@/components/AutoLinkBadge";
+import { formatMonthLabel, monthRangeForKey, shiftMonthKey } from "@/utils/companyLedger";
 
 type PaymentTab = "input" | "receivables" | "history" | "log";
 
@@ -73,6 +74,14 @@ type PaymentDraft = {
   memo?: string;
   depositChannel?: PaymentDepositChannel;
 };
+
+function monthKeyFromDateRange(startDate: string, endDate: string) {
+  if (!startDate || !endDate) return null;
+  const monthKey = startDate.slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(monthKey)) return null;
+  const range = monthRangeForKey(monthKey);
+  return range.startDate === startDate && range.endDate === endDate ? monthKey : null;
+}
 
 const TAB_ITEMS: Array<{ key: PaymentTab; label: string }> = [
   { key: "input", label: "입금 입력" },
@@ -243,6 +252,7 @@ export function PaymentReceivablesPage({
   const [logQuery, setLogQuery] = useState("");
   const [selectedLogSummaryId, setSelectedLogSummaryId] = useState<string | null>(null);
   const [receivableQuery, setReceivableQuery] = useState("");
+  const [receivableMonthKey, setReceivableMonthKey] = useState(() => monthStartISO().slice(0, 7));
   const [statusFilter, setStatusFilter] = useState("전체");
   const [hideCompleted, setHideCompleted] = useState(true);
   const [unpaidOnly, setUnpaidOnly] = useState(true);
@@ -251,6 +261,24 @@ export function PaymentReceivablesPage({
   const [defaultDepositChannel, setDefaultDepositChannel] = useState<PaymentDepositChannel>("personal");
 
   const updateFilter = (key: keyof typeof filters, value: string) => setFilters((prev) => ({ ...prev, [key]: value }));
+
+  const currentMonthKey = todayISO().slice(0, 7);
+
+  const applyReceivableMonth = (monthKey: string) => {
+    const { startDate, endDate } = monthRangeForKey(monthKey);
+    setReceivableMonthKey(monthKey);
+    setFilters((prev) => ({ ...prev, startDate, endDate }));
+  };
+
+  const resetFilters = () => {
+    setReceivableMonthKey(currentMonthKey);
+    setFilters({ startDate: monthStartISO(), endDate: todayISO(), client: "" });
+  };
+
+  useEffect(() => {
+    const matched = monthKeyFromDateRange(filters.startDate, filters.endDate);
+    if (matched) setReceivableMonthKey(matched);
+  }, [filters.startDate, filters.endDate]);
 
   useEffect(() => {
     if (tab !== "log") setSelectedLogSummaryId(null);
@@ -837,6 +865,37 @@ export function PaymentReceivablesPage({
       <Card className="rounded-xl border-slate-200/80 shadow-sm">
         <CardContent className="p-3 md:p-4">
           <div className="erp-payment-hub-filters">
+            {tab === "receivables" && (
+              <div className="erp-worker-month-nav">
+                <button
+                  type="button"
+                  className="erp-worker-month-nav-btn"
+                  aria-label="이전 달"
+                  onClick={() => applyReceivableMonth(shiftMonthKey(receivableMonthKey, -1))}
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <div className="erp-worker-month-nav-label">{formatMonthLabel(receivableMonthKey)}</div>
+                <button
+                  type="button"
+                  className="erp-worker-month-nav-btn"
+                  aria-label="다음 달"
+                  onClick={() => applyReceivableMonth(shiftMonthKey(receivableMonthKey, 1))}
+                >
+                  <ChevronRight size={18} />
+                </button>
+                {receivableMonthKey !== currentMonthKey ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="ml-1 h-8 rounded-lg text-xs"
+                    onClick={() => applyReceivableMonth(currentMonthKey)}
+                  >
+                    이번 달
+                  </Button>
+                ) : null}
+              </div>
+            )}
             <label className="erp-payment-hub-filter">
               <span>시작</span>
               <KoreanDateInput className="erp-input-compact" value={filters.startDate} onChange={(e) => updateFilter("startDate", e.target.value)} />
@@ -894,7 +953,7 @@ export function PaymentReceivablesPage({
                 />
               </>
             )}
-            <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={() => setFilters({ startDate: monthStartISO(), endDate: todayISO(), client: "" })}>
+            <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={resetFilters}>
               초기화
             </Button>
             {tab === "input" && (
@@ -1268,7 +1327,7 @@ export function PaymentReceivablesPage({
             <SummaryCard
               title="총매출"
               value={formatKRW(clientSummaryTotals.sales)}
-              sub={`${clientSummaryTotals.clients}개 거래처 · 전표 ${clientSummaryTotals.count}건`}
+              sub={`${formatMonthLabel(receivableMonthKey)} · ${clientSummaryTotals.clients}개 거래처 · 전표 ${clientSummaryTotals.count}건`}
               icon={WalletCards}
             />
             <SummaryCard

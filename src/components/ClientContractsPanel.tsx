@@ -16,6 +16,7 @@ import {
   type ClientContractTemplate,
 } from "@/utils/clientContracts";
 import { isApiModeEnabled } from "@/utils/erpApi";
+import { normalizeClientContacts, normalizeClientContactPhoneDigits } from "@/utils/clientContacts";
 import { ClientContractPdfEditModal } from "@/components/ClientContractPdfEditModal";
 import { AutocompleteSelect } from "@/components/AutocompleteInput";
 
@@ -27,6 +28,7 @@ const L = {
   generateFail: "\uACC4\uC57D\uC11C \uC0DD\uC131\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   sent: "\uC54C\uB9BC\uD1A1 \uBC1C\uC1A1 \uC694\uCCAD\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   sentLinkOnly: "\uC11C\uBA85 \uB9C1\uD06C\uAC00 \uC0DD\uC131\uB418\uC5C8\uC2B5\uB2C8\uB2E4. (\uC54C\uB9BC\uD1A1 \uC790\uB3D9 \uBC1C\uC1A1\uC740 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uB9C1\uD06C \uBCF5\uC0AC\uB97C \uC774\uC6A9\uD574 \uC8FC\uC138\uC694.)",
+  alimtalkTemplateRejected: "\uACC4\uC57D \uC54C\uB9BC\uD1A1 \uD15C\uD50C\uB9BF\uC774 \uC2B9\uC778 \uB300\uAE30 \uC911\uC774\uAC70\uB098 \uBC18\uB824\uB418\uC5B4 \uC54C\uB9BC\uD1A1\uC744 \uBCF4\uB0B4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC11C\uBA85 \uB9C1\uD06C\uB97C \uBCF5\uC0AC\uD574 \uC804\uB2EC\uD574 \uC8FC\uC138\uC694.",
   linkCopied: "\uC11C\uBA85 \uB9C1\uD06C\uB97C \uBCF5\uC0AC\uD588\uC2B5\uB2C8\uB2E4.",
   copyLink: "\uB9C1\uD06C \uBCF5\uC0AC",
   openLink: "\uC11C\uBA85 \uD398\uC774\uC9C0",
@@ -69,6 +71,7 @@ type ClientLike = {
   ceoName?: string;
   manager?: string;
   phone?: string;
+  contacts?: Array<{ id?: string; name?: string; phone?: string; isPrimary?: boolean }>;
 };
 
 type ClientContractsPanelProps = {
@@ -162,8 +165,14 @@ export function ClientContractsPanel({ clients }: ClientContractsPanelProps) {
   const applyClientPreset = (nextClientName: string) => {
     const match = clientByName.get(nextClientName);
     setClientName(nextClientName);
-    setContactName(match?.ceoName ? String(match.ceoName) : match?.manager ? String(match.manager) : "");
-    setContactPhone(match?.phone ? String(match.phone) : "");
+    const contacts = normalizeClientContacts(match || null);
+    const primary =
+      contacts.find((row) => row.isPrimary && row.phone) ||
+      contacts.find((row) => row.phone) ||
+      contacts.find((row) => row.isPrimary) ||
+      contacts[0];
+    setContactName(primary?.name || (match?.ceoName ? String(match.ceoName) : match?.manager ? String(match.manager) : ""));
+    setContactPhone(primary?.phone || (match?.phone ? String(match.phone) : ""));
   };
 
   const handleGenerate = async () => {
@@ -171,7 +180,7 @@ export function ClientContractsPanel({ clients }: ClientContractsPanelProps) {
       setError(L.needClient);
       return;
     }
-    if (!contactPhone.trim()) {
+    if (!contactPhone.trim() && !normalizeClientContactPhoneDigits(contactPhone)) {
       setError(L.needPhone);
       return;
     }
@@ -203,7 +212,13 @@ export function ClientContractsPanel({ clients }: ClientContractsPanelProps) {
       setContracts((prev) => prev.map((row) => (row.id === contract.id ? { ...result.contract, signUrl: result.signUrl } : row)));
       setLastSignUrl(result.signUrl);
       const alimtalkOk = result.alimtalk?.ok !== false && !result.alimtalk?.skipped && !result.alimtalk?.dryRun;
-      setSuccess(alimtalkOk ? L.sent : L.sentLinkOnly);
+      const templateError =
+        String(result.alimtalk?.error || "").includes("\uD15C\uD50C\uB9BF") ||
+        String(result.alimtalk?.error || "").includes("1042");
+      setSuccess(alimtalkOk ? L.sent : templateError ? L.alimtalkTemplateRejected : L.sentLinkOnly);
+      if (!alimtalkOk && result.alimtalk?.error) {
+        setError(result.alimtalk.error);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : L.sendFail);
     } finally {

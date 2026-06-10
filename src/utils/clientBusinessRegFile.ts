@@ -198,6 +198,36 @@ export async function fetchClientBusinessRegBlob(clientId: string | number) {
   return fetchBlobLocal(clientId);
 }
 
+async function deleteLocal(clientId: string | number) {
+  const db = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error || new Error("\uC0AD\uC81C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4."));
+    };
+    tx.objectStore(STORE).delete(String(clientId));
+  });
+}
+
+async function deleteApi(clientId: string | number) {
+  const response = await fetch(`${apiBase()}/clients/${encodeURIComponent(String(clientId))}/business-reg`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (response.status === 404) return;
+  if (!response.ok) throw new Error(await parseApiError(response));
+}
+
+export async function deleteClientBusinessReg(clientId: string | number) {
+  if (isApiModeEnabled()) return deleteApi(clientId);
+  return deleteLocal(clientId);
+}
+
 export function isPdfMimeType(mimeType: string) {
   return String(mimeType || "").includes("pdf");
 }

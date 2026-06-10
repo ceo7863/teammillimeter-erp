@@ -17,6 +17,9 @@ import {
   buildTaxInvoiceStats,
   buildTaxInvoiceClientSummaries,
   buildTaxInvoiceCancellationExcludedIds,
+  buildTaxInvoiceCancellationPairIndex,
+  countTaxInvoiceCancellationRows,
+  filterTaxInvoicesByCancellationView,
   filterTaxInvoices,
   filterTaxInvoicesByFlow,
   filterTaxInvoicesByPeriod,
@@ -44,6 +47,8 @@ import {
   formatDuplicateTaxInvoiceIssueSummary,
   validateTaxInvoiceInput,
   type TaxInvoice,
+  type TaxInvoiceCancellationPairInfo,
+  type TaxInvoiceCancellationView,
   type TaxInvoiceClientSummary,
   type TaxInvoiceDocumentType,
   type TaxInvoiceFlowType,
@@ -85,6 +90,12 @@ type QuarterKey = "q1" | "q2" | "q3" | "q4";
 type FlowFilterKey = "all" | TaxInvoiceFlowType;
 type ViewMode = "list" | "byClientSales" | "byClientPurchase";
 type DateFilter = { startDate: string; endDate: string };
+
+const CANCELLATION_VIEW_OPTIONS: Array<{ key: TaxInvoiceCancellationView; label: string }> = [
+  { key: "all", label: "\uC804\uCCB4" },
+  { key: "active", label: "\uC720\uD9A8\uB9CC" },
+  { key: "cancellation", label: "\uCDE8\uC18C\u00B7\uC0C1\uC1C0" },
+];
 
 type InvoiceModalState = {
   mode: "create" | "edit";
@@ -232,7 +243,11 @@ const L = {
   cancelledOffset: "\uC0C1\uC1C0",
   bankLinked: "\uD1B5\uC7A5\uC5F0\uACB0",
   cancelledRowHint: "\uCDE8\uC18C \uC804\uD45C \u00B7 \uD569\uACC4 \uC81C\uC678",
+  cancelledPairHint: (invoiceNo: string) => `\uCDE8\uC18C \uC804\uD45C \u00B7 \uC9D1 \uBC1C\uD589: ${invoiceNo}`,
   offsetRowHint: "\uB3D9\uC77C \uAE08\uC561 \uCDE8\uC18C \uC804\uD45C\uC640 \uC0C1\uC1C0",
+  offsetPairHint: (invoiceNo: string) => `\uCDE8\uC18C\uC5D0 \uC758\uD574 \uC0C1\uC1C0 \u00B7 \uCDE8\uC18C \uC804\uD45C: ${invoiceNo}`,
+  cancellationSummary: (cancelled: number, offset: number) =>
+    `\uCDE8\uC18C ${cancelled}\uAC74 \u00B7 \uC0C1\uC1C0 ${offset}\uAC74\uC740 \uD569\uACC4\uC5D0\uC11C \uC81C\uC678\uB429\uB2C8\uB2E4.`,
   barobillIssue: "\uC804\uC790 \uBC1C\uD589",
   barobillIssueTop: "\uACC4\uC0B0\uC11C \uBC1C\uD589",
   barobillIssueManual: "\uC218\uAE30 \uB4F1\uB85D",
@@ -289,16 +304,34 @@ function TaxInvoiceNtsTransmissionBadge({ row }: { row: TaxInvoice }) {
   );
 }
 
+function resolveTaxInvoiceRowHint(
+  row: TaxInvoice,
+  meta: ReturnType<typeof getTaxInvoiceRowMeta>,
+  pair?: TaxInvoiceCancellationPairInfo,
+) {
+  if (meta.isCancelled) {
+    return pair?.pairedInvoiceNo ? L.cancelledPairHint(pair.pairedInvoiceNo) : L.cancelledRowHint;
+  }
+  if (meta.isOffsetIssued) {
+    return pair?.pairedInvoiceNo ? L.offsetPairHint(pair.pairedInvoiceNo) : L.offsetRowHint;
+  }
+  return "";
+}
+
 function TaxInvoiceStatusCell({
   row,
   linkedTaxInvoiceIds,
   totalExcludedIds,
+  cancellationPairIndex,
 }: {
   row: TaxInvoice;
   linkedTaxInvoiceIds: Set<string>;
   totalExcludedIds: Set<string>;
+  cancellationPairIndex: Map<string, TaxInvoiceCancellationPairInfo>;
 }) {
   const meta = getTaxInvoiceRowMeta(row, totalExcludedIds);
+  const pair = cancellationPairIndex.get(row.id);
+  const hint = resolveTaxInvoiceRowHint(row, meta, pair);
   const bankLinked = linkedTaxInvoiceIds.has(row.id);
   return (
     <>
@@ -308,8 +341,7 @@ function TaxInvoiceStatusCell({
         {bankLinked ? <TaxInvoiceBankLinkBadge /> : null}
         {meta.isOffsetIssued ? <TaxInvoiceOffsetBadge /> : null}
       </div>
-      {meta.isCancelled ? <div className="erp-tax-invoice-row-hint">{L.cancelledRowHint}</div> : null}
-      {meta.isOffsetIssued ? <div className="erp-tax-invoice-row-hint">{L.offsetRowHint}</div> : null}
+      {hint ? <div className="erp-tax-invoice-row-hint">{hint}</div> : null}
     </>
   );
 }
@@ -481,6 +513,7 @@ export function TaxInvoicePage({
   const [searchMonthKey, setSearchMonthKey] = useState(() => todayISO().slice(0, 7));
   const [quarterYear, setQuarterYear] = useState(() => new Date().getFullYear());
   const [flowFilter, setFlowFilter] = useState<FlowFilterKey>("all");
+  const [cancellationView, setCancellationView] = useState<TaxInvoiceCancellationView>("all");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [expandedClientKeys, setExpandedClientKeys] = useState<string[]>([]);
   const [query, setQuery] = useState("");
@@ -561,21 +594,32 @@ export function TaxInvoicePage({
     [periodKey, dateFilter, quarterYear, searchMonthKey],
   );
 
+  const periodScopedRows = useMemo(() => {
+    return filterTaxInvoicesByPeriod(taxInvoices, activePeriod.startDate, activePeriod.endDate);
+  }, [taxInvoices, activePeriod.startDate, activePeriod.endDate]);
+
+  const cancellationPairIndex = useMemo(
+    () => buildTaxInvoiceCancellationPairIndex(periodScopedRows),
+    [periodScopedRows],
+  );
+
+  const cancellationCounts = useMemo(
+    () => countTaxInvoiceCancellationRows(periodScopedRows),
+    [periodScopedRows],
+  );
+
   const filteredRows = useMemo(() => {
-    const scoped = filterTaxInvoicesByPeriod(taxInvoices, activePeriod.startDate, activePeriod.endDate);
-    const byFlow = filterTaxInvoicesByFlow(scoped, flowFilter);
-    return sortTaxInvoices(filterTaxInvoices(byFlow, query));
-  }, [taxInvoices, activePeriod.startDate, activePeriod.endDate, flowFilter, query]);
+    const byFlow = filterTaxInvoicesByFlow(periodScopedRows, flowFilter);
+    const searched = sortTaxInvoices(filterTaxInvoices(byFlow, query));
+    return filterTaxInvoicesByCancellationView(searched, cancellationView);
+  }, [periodScopedRows, flowFilter, query, cancellationView]);
 
   const totalExcludedIds = useMemo(
     () => buildTaxInvoiceCancellationExcludedIds(filteredRows),
     [filteredRows],
   );
 
-  const stats = useMemo(() => {
-    const scoped = filterTaxInvoicesByPeriod(taxInvoices, activePeriod.startDate, activePeriod.endDate);
-    return buildTaxInvoiceStats(scoped);
-  }, [taxInvoices, activePeriod.startDate, activePeriod.endDate]);
+  const stats = useMemo(() => buildTaxInvoiceStats(periodScopedRows), [periodScopedRows]);
 
   const clientSummaries = useMemo(() => buildTaxInvoiceClientSummaries(filteredRows), [filteredRows]);
 
@@ -712,7 +756,7 @@ export function TaxInvoicePage({
       <td className="text-right"><TaxInvoiceAmountCell amount={row.totalAmount} cancelled={meta.isCancelled} /></td>
       <td>{row.invoiceNo || "-"}</td>
       <td>
-        <TaxInvoiceStatusCell row={row} linkedTaxInvoiceIds={linkedTaxInvoiceIds} totalExcludedIds={totalExcludedIds} />
+        <TaxInvoiceStatusCell row={row} linkedTaxInvoiceIds={linkedTaxInvoiceIds} totalExcludedIds={totalExcludedIds} cancellationPairIndex={cancellationPairIndex} />
       </td>
       <td>{row.createdBy}</td>
       <td>
@@ -724,6 +768,8 @@ export function TaxInvoicePage({
 
   const renderInvoiceMobileCard = (row: TaxInvoice) => {
     const meta = getTaxInvoiceRowMeta(row, totalExcludedIds);
+    const pair = cancellationPairIndex.get(row.id);
+    const hint = resolveTaxInvoiceRowHint(row, meta, pair);
     return (
     <MobileRecordCard
       key={row.id}
@@ -756,11 +802,9 @@ export function TaxInvoicePage({
           tone: meta.isCancelled ? "danger" : meta.isOffsetIssued ? "muted" : "success",
         },
         { label: L.businessNo, value: row.businessNo || "-", tone: "muted" },
-        ...(meta.isCancelled
-          ? [{ label: L.status, value: L.cancelledRowHint, tone: "danger" as const }]
-          : meta.isOffsetIssued
-            ? [{ label: L.status, value: L.offsetRowHint, tone: "muted" as const }]
-            : []),
+        ...(hint
+          ? [{ label: L.status, value: hint, tone: (meta.isCancelled ? "danger" : "muted") as const }]
+          : []),
       ]}
       actions={renderInvoiceActions(row)}
     />
@@ -847,6 +891,7 @@ export function TaxInvoicePage({
                           row={row}
                           linkedTaxInvoiceIds={linkedTaxInvoiceIds}
                           totalExcludedIds={totalExcludedIds}
+                          cancellationPairIndex={cancellationPairIndex}
                         />
                       </td>
                       <td>
@@ -1827,6 +1872,26 @@ export function TaxInvoicePage({
                   {option.label}
                 </Button>
               ))}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2.5">
+              {CANCELLATION_VIEW_OPTIONS.map((option) => (
+                <Button
+                  key={option.key}
+                  type="button"
+                  size="sm"
+                  variant={cancellationView === option.key ? "default" : "outline"}
+                  className={FILTER_BUTTON_CLASS}
+                  onClick={() => setCancellationView(option.key)}
+                >
+                  {option.label}
+                </Button>
+              ))}
+              {cancellationCounts.excludedTotal ? (
+                <span className="erp-text-caption ml-1 font-semibold text-slate-500">
+                  {L.cancellationSummary(cancellationCounts.cancelled, cancellationCounts.offset)}
+                </span>
+              ) : null}
             </div>
 
             {isClientView ? (

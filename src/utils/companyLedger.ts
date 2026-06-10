@@ -1,5 +1,6 @@
 import { formatKRW, todayISO } from "./receivables";
 import { formatMonthLabel, shiftMonthKey } from "./workerMonthlyPayments";
+import type { BankTransaction } from "./bankTransactions";
 
 export { formatKRW, formatMonthLabel, shiftMonthKey, todayISO };
 
@@ -31,6 +32,8 @@ export type FixedExpense = {
   id: string;
   name: string;
   category: string;
+  /** 고정비 항목별 계정과목 오버라이드 (미지정 시 카테고리 기본값 사용) */
+  accountCode?: string;
   amount: number;
   cycle: FixedExpenseCycle;
   paymentDayOfMonth?: number;
@@ -793,13 +796,14 @@ export function validateCompanyExpenseInput(input: {
 export function validateFixedExpenseInput(input: {
   name?: string;
   category?: string;
+  accountCode?: string;
   amount?: unknown;
   cycle?: FixedExpenseCycle;
   paymentDayOfMonth?: unknown;
   startDate?: string;
 }) {
   if (!String(input.name || "").trim()) return "\uD56D\uBAA9 \uC774\uB984\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
-  if (!String(input.category || "").trim()) return "\uCE74\uD14C\uACE0\uB9AC\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.";
+  if (!String(input.accountCode || "").trim()) return "\uACC4\uC815\uACFC\uBAA9\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.";
   const amount = parseLedgerAmount(input.amount);
   if (amount <= 0) return "\uAE08\uC561\uC744 0\uBCF4\uB2E4 \uD06C\uAC8C \uC785\uB825\uD574 \uC8FC\uC138\uC694.";
   if (!input.cycle) return "\uC8FC\uAE30\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.";
@@ -903,7 +907,13 @@ export function resolveFixedExpenseIdForBankTransaction(
 
 function resolveBankTransactionForFixedPayment(
   payment: FixedExpensePayment,
-  bankTransactions: Array<{ id?: string; linkedFixedExpensePaymentId?: string }>,
+  bankTransactions: Array<{
+    id?: string;
+    linkedFixedExpensePaymentId?: string;
+    description?: string;
+    counterpartyName?: string;
+    memo?: string;
+  }>,
 ) {
   const directId = String(payment.bankTransactionId || "").trim();
   if (directId) {
@@ -1095,7 +1105,9 @@ export function linkFixedExpensePaymentToBankTx(
   bankTransactionId: string,
   syncFromBank?: { transactionAt?: string; withdrawal?: number },
 ) {
-  const sync = syncFromBank ? resolveFixedPaymentFieldsFromBankTx(syncFromBank) : {};
+  const sync: { amount?: number; date?: string } = syncFromBank
+    ? resolveFixedPaymentFieldsFromBankTx(syncFromBank)
+    : {};
   return payments.map((row) => {
     if (row.id !== paymentId) return row;
     return {

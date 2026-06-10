@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from "react";
-import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { monthRangeISO, type CompanyExpense, type FixedExpense, type FixedExpensePayment } from "@/utils/companyLedger";
 import type { BankTransaction } from "@/utils/bankTransactions";
 import { buildCustomAnalysisBreakdown, type CustomAnalysisGroupMode } from "@/utils/financialAnalysis";
@@ -16,11 +15,11 @@ import {
 
 const L = {
   title: "\uB9DE\uCDA4 \uBD84\uC11D",
-  dateFrom: "\uC2DC\uC791\uC77C",
-  dateTo: "\uC885\uB8CC\uC77C",
   groupBy: "\uADF8\uB8F9 \uAE30\uC900",
-  category: "\uCE74\uD14C\uACE0\uB9AC",
-  account: "\uACC4\uC815",
+  account: "\uACC4\uC815\uACFC\uBAA9",
+  classificationAccount: "\uBD84\uB958\uACC4\uC815",
+  fixedItem: "\uACE0\uC815\uBE44 \uD56D\uBAA9",
+  category: "\uCE74\uD14C\uACE0\uB9AC (\uBCC0\uB3D9)",
   parentGroup: "\uACC4\uC815 \uADF8\uB8F9",
   counterparty: "\uAC70\uB798\uCC98",
   label: "\uD56D\uBAA9",
@@ -29,7 +28,6 @@ const L = {
   net: "\uC21C\uC561",
   count: "\uAC74\uC218",
   empty: "\uC870\uAC74\uC5D0 \uB9DE\uB294 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
-  thisMonth: "\uC774\uBC88 \uB2EC",
   result: "\uBD84\uC11D \uACB0\uACFC",
 };
 
@@ -54,7 +52,7 @@ export function CustomAnalysisPanel({
   const [period, setPeriod] = useState<FinancialPeriod>("month");
   const [dateFrom, setDateFrom] = useState(defaultRange.startDate);
   const [dateTo, setDateTo] = useState(defaultRange.endDate);
-  const [groupBy, setGroupBy] = useState<CustomAnalysisGroupMode>("category");
+  const [groupBy, setGroupBy] = useState<CustomAnalysisGroupMode>("account");
 
   const handlePeriodChange = (next: FinancialPeriod) => {
     setPeriod(next);
@@ -77,8 +75,8 @@ export function CustomAnalysisPanel({
   );
 
   const rows = useMemo(
-    () => buildCustomAnalysisBreakdown(allEntries, accountCodes, dateFrom, dateTo, groupBy),
-    [allEntries, accountCodes, dateFrom, dateTo, groupBy],
+    () => buildCustomAnalysisBreakdown(allEntries, accountCodes, dateFrom, dateTo, groupBy, fixedExpenses),
+    [allEntries, accountCodes, dateFrom, dateTo, groupBy, fixedExpenses],
   );
 
   const totals = useMemo(
@@ -93,13 +91,6 @@ export function CustomAnalysisPanel({
       ),
     [rows],
   );
-
-  const applyThisMonth = () => {
-    const range = monthRangeISO(0);
-    setPeriod("month");
-    setDateFrom(range.startDate);
-    setDateTo(range.endDate);
-  };
 
   return (
     <div className="erp-financial-view">
@@ -116,27 +107,18 @@ export function CustomAnalysisPanel({
       <FinancialPanel title={L.title}>
         <div className="erp-financial-filter-row">
           <label className="erp-financial-filter-field">
-            {L.dateFrom}
-            <KoreanDateInput value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="erp-input" />
-          </label>
-          <label className="erp-financial-filter-field">
-            {L.dateTo}
-            <KoreanDateInput value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="erp-input" />
-          </label>
-          <button type="button" className="erp-financial-filter-btn" onClick={applyThisMonth}>
-            {L.thisMonth}
-          </button>
-          <label className="erp-financial-filter-field">
             {L.groupBy}
             <select
               value={groupBy}
               onChange={(e) => setGroupBy(e.target.value as CustomAnalysisGroupMode)}
               className="erp-input border border-slate-200"
             >
-              <option value="category">{L.category}</option>
               <option value="account">{L.account}</option>
+              <option value="classificationAccount">{L.classificationAccount}</option>
+              <option value="fixedItem">{L.fixedItem}</option>
               <option value="parentGroup">{L.parentGroup}</option>
               <option value="counterparty">{L.counterparty}</option>
+              <option value="category">{L.category}</option>
             </select>
           </label>
         </div>

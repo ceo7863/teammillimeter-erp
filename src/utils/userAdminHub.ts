@@ -70,7 +70,7 @@ export function resolveUserAdminTabAccess(
 ): UserAdminTabAccess {
   if (!user) return { users: false, audit: false, login: false, notify: false, system: false };
   if (user.role === "admin") {
-    return { users: true, audit: true, login: true, notify: true, system: true };
+    return { users: true, audit: true, login: true, notify: false, system: true };
   }
 
   const rawPages = user.allowedPages;

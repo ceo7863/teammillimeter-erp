@@ -1,11 +1,13 @@
 import { isCheckCardBankTransaction, type BankTransaction } from "./bankTransactions";
 import type { BankTransactionFolder } from "./bankTransactionFolders";
 import type { BankLearnRule } from "./bankCompanyLedger";
+import { resolveFixedExpenseAccountCode, type LedgerCategory } from "./ledgerSystem";
 import {
   findMatchingBankLedgerRule,
   getLinkedCompanyExpenseForBankTx,
   isBankTransactionLinkedToCompanyLedger,
   syncBankTransactionLedgerLinkFields,
+  enrichBankTransactionLedgerFromFixedLink,
 } from "./bankCompanyLedger";
 import { runSmartAutoLedgerSync } from "./bankSmartLedger";
 import type { ClientDepositMatchSource, WorkerDepositMatchSource } from "./clientDepositAliases";
@@ -80,6 +82,7 @@ export function autoLinkBankTransactionsToFixedPayments(
   options: {
     onlyTransactionIds?: Set<string>;
     companyExpenses?: CompanyExpense[];
+    ledgerCategories?: LedgerCategory[];
   } = {},
 ) {
   let nextPayments = payments;
@@ -103,10 +106,19 @@ export function autoLinkBankTransactionsToFixedPayments(
     const payment = findLinkableFixedExpensePayment(tx, fixedExpenseId, nextPayments, fixedExpenses);
     if (!payment) return tx;
 
+    const fixedItem = fixedExpenses.find((row) => row.id === payment.fixedExpenseId);
+    const accountCode = resolveFixedExpenseAccountCode(fixedItem, options.ledgerCategories || []);
     nextPayments = linkFixedExpensePaymentToBankTx(nextPayments, payment.id, tx.id, tx);
     linkedCount += 1;
 
-    return { ...tx, linkedFixedExpensePaymentId: payment.id, linkedCompanyExpenseId: undefined };
+    return {
+      ...tx,
+      linkedFixedExpensePaymentId: payment.id,
+      linkedCompanyExpenseId: undefined,
+      ledgerStatus: "confirmed" as const,
+      ledgerFixedExpenseId: payment.fixedExpenseId,
+      ledgerAccountCode: accountCode,
+    };
   });
 
   return {
@@ -148,6 +160,7 @@ export function reconcileLedgerBankLinks(input: {
   fixedExpensePayments: FixedExpensePayment[];
   companyExpenses: CompanyExpense[];
   fixedExpenses: FixedExpense[];
+  ledgerCategories?: LedgerCategory[];
 }) {
   let payments = [...input.fixedExpensePayments];
   const companyExpenses = [...input.companyExpenses];
@@ -155,6 +168,7 @@ export function reconcileLedgerBankLinks(input: {
     input.bankTransactions,
     companyExpenses,
     payments,
+    { fixedExpenses: input.fixedExpenses, ledgerCategories: input.ledgerCategories || [] },
   );
   let linkedCount = 0;
   let removedDuplicateCount = 0;
@@ -173,13 +187,21 @@ export function reconcileLedgerBankLinks(input: {
     return linkFixedExpensePaymentToBankTx([payment], payment.id, tx.id, tx)[0];
   });
 
-  transactions = syncBankTransactionLedgerLinkFields(transactions, companyExpenses, payments);
+  transactions = syncBankTransactionLedgerLinkFields(transactions, companyExpenses, payments, {
+    fixedExpenses: input.fixedExpenses,
+    ledgerCategories: input.ledgerCategories || [],
+  });
 
   const tryLinkPaymentToTx = (payment: FixedExpensePayment, tx: BankTransaction) => {
     payments = linkFixedExpensePaymentToBankTx(payments, payment.id, tx.id, tx);
     transactions = transactions.map((row) =>
       row.id === tx.id
-        ? { ...row, linkedFixedExpensePaymentId: payment.id, linkedCompanyExpenseId: undefined }
+        ? enrichBankTransactionLedgerFromFixedLink(
+            { ...row, linkedFixedExpensePaymentId: payment.id, linkedCompanyExpenseId: undefined },
+            input.fixedExpenses,
+            payments,
+            input.ledgerCategories || [],
+          )
         : row,
     );
     linkedCount += 1;
@@ -288,6 +310,7 @@ export function syncFixedExpenseAutomation(input: {
   fixedExpensePayments: FixedExpensePayment[];
   bankTransactions: BankTransaction[];
   bankLedgerRules?: BankLearnRule[];
+  ledgerCategories?: LedgerCategory[];
   companyExpenses?: CompanyExpense[];
   monthKey?: string;
   monthKeys?: string[];
@@ -327,7 +350,7 @@ export function syncFixedExpenseAutomation(input: {
     payments,
     input.fixedExpenses,
     input.bankLedgerRules || [],
-    { companyExpenses: input.companyExpenses },
+    { companyExpenses: input.companyExpenses, ledgerCategories: input.ledgerCategories },
   );
 
   const reconciled = reconcileLedgerBankLinks({
@@ -365,6 +388,7 @@ export function refreshCompanyLedgerFromBankTransactions(input: {
   fixedExpensePayments: FixedExpensePayment[];
   companyExpenses: CompanyExpense[];
   bankLedgerRules?: BankLearnRule[];
+  ledgerCategories?: LedgerCategory[];
   bankTransactionFolders?: BankTransactionFolder[];
   expenseCategories?: string[];
   clients?: ClientDepositMatchSource[];
@@ -399,7 +423,7 @@ export function refreshCompanyLedgerFromBankTransactions(input: {
     payments,
     input.fixedExpenses,
     rules,
-    { companyExpenses: input.companyExpenses },
+    { companyExpenses: input.companyExpenses, ledgerCategories: input.ledgerCategories },
   );
 
   payments = linkResult.payments;
