@@ -2,7 +2,9 @@ import { config } from "./config.mjs";
 import { findUserById } from "./db.mjs";
 import {
   isChatGuideQuery,
+  isChatGuidePdfQuery,
   formatChatGuideAnswer,
+  formatChatGuidePdfAnswer,
   buildChatActionsFromChatGuide,
 } from "./erpChatGuide.mjs";
 import {
@@ -513,16 +515,13 @@ export async function handleErpChat({ messages, user: tokenUser }) {
   let engine = "rules";
   const casualQuery = isCasualConversationQuery(question);
 
-  if (isChatGuideQuery(question)) {
+  if (isChatGuidePdfQuery(question)) {
+    answer = formatChatGuidePdfAnswer();
+    chatActions = buildChatActionsFromChatGuide();
+  } else if (isChatGuideQuery(question)) {
     answer = formatChatGuideAnswer();
-    chatActions = buildChatActionsFromChatGuide();
   } else if (isChatGreeting(question)) {
-    answer = [
-      formatGreetingAnswer(),
-      "",
-      "\uC790\uC138\uD55C \uBA85\uB839\uC5B4 \uBAA9\uB85D\uC740 \uC0AC\uC6A9 \uAC00\uC774\uB4DC PDF\uB97C \uC5F4\uC5B4 \uB4DC\uB838\uC5B4\uC694.",
-    ].join("\n");
-    chatActions = buildChatActionsFromChatGuide();
+    answer = formatGreetingAnswer();
   } else if (isWeatherQuery(question)) {
     const weatherResult = await toolGetWeather({ rawQuery: question });
     if (weatherResult?.ok) {
