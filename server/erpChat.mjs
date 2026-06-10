@@ -10,6 +10,9 @@ import {
   formatContactAnswer,
   formatWorkerAnswer,
   formatClientContactsAnswer,
+  formatSaleVoucherAnswer,
+  buildChatActionsFromSaleVoucher,
+  tryRuleBasedVoucherOpen,
 } from "./erpChatTools.mjs";
 import { appendErpChatLog, listErpChatLogs, listErpChatLogsAdmin, clearErpChatLogsForUser } from "./erpChatStore.mjs";
 import { appendErpChatAuditLog } from "./erpChatAudit.mjs";
@@ -23,6 +26,7 @@ const SYSTEM_PROMPT = [
   "\uAC70\uB798\uCC98 \uC774\uB984\uC774 \uBAA8\uD638\uD558\uBA74 search_client \uD6C4 \uD655\uC778\uD558\uC138\uC694.",
   `\uC624\uB298 \uB0A0\uC9DC(\uD55C\uAD6D): ${todayISO()}`,
   "\uB2F5\uBCC0\uC740 \uC9C1\uC811\uC801\uC774\uACE0 \uAC04\uACB0\uD558\uAC8C \uD55C\uAD6D\uC5B4\uB85C \uC791\uC131\uD558\uC138\uC694.",
+  "\uC804\uD45C \uC5F4\uAE30 \uC694\uCCAD\uC740 find_sale_voucher \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "\uC77C\uC815 \uC870\uD68C \uC2DC \uAC70\uC218\uC640 \uD568\uAED8 \uBAA9\uB85D\uC744 \uBE84\uB81B \uD615\uD0DC\uB85C \uC791\uC131\uD558\uC138\uC694. \uAC70\uB798\uCC98+\uAE30\uAC04 \uC9C8\uBB38(\uC608: \uD0A4\uCE9C\uC81C\uB2C8\uC2A4 \uC774\uBC88\uC8FC \uC77C\uC815)\uC740 clientName\uACFC \uC774\uBC88\uC8FC\uB97C \uC9C0\uC815\uD558\uC138\uC694.",
 ].join("\n");
 
@@ -113,6 +117,9 @@ function formatToolResultsAsAnswer(toolsUsed) {
       case "get_worker_info":
         lines.push(formatWorkerAnswer(result));
         break;
+      case "find_sale_voucher":
+        lines.push(formatSaleVoucherAnswer(result));
+        break;
       default:
         break;
     }
@@ -140,6 +147,7 @@ export async function handleErpChat({ messages, user: tokenUser }) {
 
   const toolsUsed = [];
   let answer = "";
+  let chatActions = [];
   let engine = "rules";
 
   if (config.openAiConfigured) {
@@ -185,7 +193,13 @@ export async function handleErpChat({ messages, user: tokenUser }) {
   }
 
   if (!answer) {
-    answer = tryRuleBasedChat(question, user) || "";
+    const voucherOpenResult = tryRuleBasedVoucherOpen(question);
+    if (voucherOpenResult) {
+      answer = formatSaleVoucherAnswer(voucherOpenResult);
+      chatActions = buildChatActionsFromSaleVoucher(voucherOpenResult);
+    } else {
+      answer = tryRuleBasedChat(question, user) || "";
+    }
   }
 
   if (!answer && toolsUsed.length) {
@@ -195,6 +209,12 @@ export async function handleErpChat({ messages, user: tokenUser }) {
   const scheduleUsed = toolsUsed.find((row) => row.name === "get_schedule_count" && row.result?.ok);
   if (scheduleUsed) {
     answer = formatScheduleAnswer(scheduleUsed.result);
+  }
+
+  const saleVoucherUsed = toolsUsed.find((row) => row.name === "find_sale_voucher" && row.result?.ok);
+  if (saleVoucherUsed) {
+    answer = formatSaleVoucherAnswer(saleVoucherUsed.result);
+    chatActions = buildChatActionsFromSaleVoucher(saleVoucherUsed.result);
   }
 
   if (!answer) {
@@ -221,6 +241,7 @@ export async function handleErpChat({ messages, user: tokenUser }) {
     engine,
     logId: logRow?.id,
     toolsUsed: toolsUsed.map((row) => row.name),
+    actions: chatActions,
   };
 }
 

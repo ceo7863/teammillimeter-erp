@@ -5,6 +5,7 @@ import {
   clearErpChatHistoryApi,
   fetchErpChatHistory,
   sendErpChatMessage,
+  type ErpChatAction,
   type ErpChatMessage,
 } from "@/utils/erpChatApi";
 import { ERP_CHAT_LABELS } from "@/utils/erpChatLabels";
@@ -15,6 +16,7 @@ const STORAGE_KEY = "teammillimeter-erp-chat-session";
 type ErpChatWidgetProps = {
   currentUser: ErpUser | null;
   enabled?: boolean;
+  onAction?: (action: ErpChatAction) => void;
 };
 
 function loadSessionMessages(): ErpChatMessage[] {
@@ -34,7 +36,7 @@ function saveSessionMessages(messages: ErpChatMessage[]) {
   window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-40)));
 }
 
-export function ErpChatWidget({ currentUser, enabled = true }: ErpChatWidgetProps) {
+export function ErpChatWidget({ currentUser, enabled = true, onAction }: ErpChatWidgetProps) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<ErpChatMessage[]>(() => loadSessionMessages());
@@ -107,6 +109,11 @@ export function ErpChatWidget({ currentUser, enabled = true }: ErpChatWidgetProp
         }
         const answer = result.answer || "";
         setMessages((prev) => [...prev, { role: "assistant", content: answer }]);
+        if (result.actions?.length) {
+          for (const action of result.actions) {
+            onAction?.(action);
+          }
+        }
         if (autoSpeak && ttsSupported) {
           speak(answer);
         }
@@ -118,7 +125,7 @@ export function ErpChatWidget({ currentUser, enabled = true }: ErpChatWidgetProp
         setLoading(false);
       }
     },
-    [autoSpeak, canUse, loading, messages, speak, stopListening, ttsSupported],
+    [autoSpeak, canUse, loading, messages, onAction, speak, stopListening, ttsSupported],
   );
 
   sendMessageRef.current = sendMessage;

@@ -517,6 +517,138 @@ export function toolGetWorkerInfo({ name }, user) {
   };
 }
 
+export function parseMonthDayDateFromText(text, anchorYear) {
+  const year = Number(anchorYear) || Number(todayISO().slice(0, 4));
+  const md = String(text || "").match(/(\d{1,2})\s*\uC6D4\s*(\d{1,2})\s*\uC77C/);
+  if (md) {
+    const month = String(md[1]).padStart(2, "0");
+    const day = String(md[2]).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+  const iso = String(text || "").match(/\d{4}-\d{2}-\d{2}/);
+  return iso ? iso[0] : "";
+}
+
+export function extractOpenVoucherQuery(text) {
+  const raw = String(text || "").trim();
+  const date = parseMonthDayDateFromText(raw);
+  let clientName = "";
+
+  const leading = raw.match(/^(.+?)\s+\d{1,2}\s*\uC6D4/);
+  if (leading) clientName = leading[1].trim();
+
+  if (!clientName) {
+    clientName = raw
+      .replace(/\d{1,2}\s*\uC6D4\s*\d{1,2}\s*\uC77C/g, "")
+      .replace(/\d{4}-\d{2}-\d{2}/g, "")
+      .replace(
+        /\uC804\uD45C|\uB9E4\uCD9C|\uC5F4\uC5B4|\uC5F4\uAE30|\uC774\uB3D9|\uCC44|\uBCF4\uAE30|\uCC3E|\uC870\uD68C|\uC918|\uC785\uB2C8\uCE74|\?/g,
+        "",
+      )
+      .trim();
+  }
+
+  return { clientName, date };
+}
+
+export function toolFindSaleVoucher({ clientName, date, site, year }) {
+  const state = getErpState(["sales", "clients"]);
+  const data = state.data || {};
+  const sales = Array.isArray(data.sales) ? data.sales : [];
+  const clients = Array.isArray(data.clients) ? data.clients : [];
+  const query = String(clientName || "").trim();
+  let dateKey = String(date || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+    dateKey = parseMonthDayDateFromText(String(date || ""), year);
+  }
+
+  if (!query) {
+    return { ok: false, error: "\uAC70\uB798\uCC98 \uC774\uB984\uC774 \uD544\uC694\uD569\uB2C8\uB2E4." };
+  }
+  if (!dateKey) {
+    return { ok: false, error: "\uB0A0\uC9DC(\uC608: 6\uC6D41\uC77C \uB610\uB294 YYYY-MM-DD)\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." };
+  }
+
+  const matchedClients = findClientsByQuery(clients, query);
+  const clientFilterKeys = buildClientFilterKeys(query, matchedClients);
+  const siteKey = site ? normalizeMatchKey(site) : "";
+
+  let rows = sales.filter((sale) => {
+    const saleDate = String(sale.date || "").slice(0, 10);
+    if (saleDate !== dateKey) return false;
+    if (!saleMatchesClientFilter(sale.client, matchedClients, clientFilterKeys)) return false;
+    if (siteKey && !labelMatchesClientKeys(sale.site, new Set([siteKey]))) return false;
+    return true;
+  });
+
+  rows.sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
+
+  const mapped = rows.slice(0, 15).map((sale) => ({
+    id: sale.id,
+    voucherNo: String(sale.voucherNo || sale.id || ""),
+    client: String(sale.client || ""),
+    site: String(sale.site || ""),
+    date: String(sale.date || "").slice(0, 10),
+    amount: Number(sale.amount) || 0,
+  }));
+
+  return {
+    ok: true,
+    clientName: matchedClients[0]?.name || query,
+    date: dateKey,
+    count: rows.length,
+    sales: mapped,
+    openSaleId: rows.length === 1 ? rows[0]?.id ?? null : null,
+  };
+}
+
+export function tryRuleBasedVoucherOpen(message) {
+  const text = String(message || "").trim();
+  if (!text.includes("\uC804\uD45C")) return null;
+  if (!/(?:\uC5F4|\uBD10|\uCC28|\uC774\uB3D9|\uD655\uC778)/.test(text)) return null;
+  const { clientName, date } = extractOpenVoucherQuery(text);
+  if (!clientName || !date) return null;
+  return toolFindSaleVoucher({ clientName, date });
+}
+
+export function buildChatActionsFromSaleVoucher(result) {
+  if (!result?.ok) return [];
+  if (result.openSaleId != null && result.openSaleId !== "") {
+    return [{ type: "open_sale_voucher", saleId: result.openSaleId }];
+  }
+  if (result.count > 1 && result.date && result.clientName) {
+    return [
+      {
+        type: "open_sale_voucher_search",
+        client: result.clientName,
+        startDate: result.date,
+        endDate: result.date,
+      },
+    ];
+  }
+  return [];
+}
+
+export function formatSaleVoucherAnswer(data) {
+  if (!data.ok) return data.error || "\uC804\uD45C \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  if (data.count === 0) {
+    return `${data.clientName} ${data.date} \uC804\uD45C\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.`;
+  }
+  if (data.count === 1) {
+    const row = data.sales[0];
+    return `${row.client} / ${row.site || "-"} \uC804\uD45C(${row.voucherNo || row.id})\uB97C \uC5F4\uC5B4 \uC904\uB2C8\uB2E4.\n${data.date} \u00B7 ${formatKRW(row.amount)}\uC6D0`;
+  }
+  const lines = [`${data.clientName} ${data.date} \uC804\uD45C ${data.count}\uAC74\uC785\uB2C8\uB2E4.`];
+  data.sales.forEach((row, index) => {
+    lines.push(`${index + 1}. ${row.voucherNo || row.id} / ${row.site || "-"} \u00B7 ${formatKRW(row.amount)}\uC6D0`);
+  });
+  if (data.count > data.sales.length) {
+    lines.push(`\u2026 \uC678 ${data.count - data.sales.length}\uAC74`);
+  }
+  lines.push("\uB9E4\uCD9C\uC804\uD45C\uAC80\uC0C9\uC73C\uB85C \uC774\uB3D9\uD569\uB2C8\uB2E4.");
+  return lines.join("\n");
+}
+
 export const ERP_CHAT_TOOL_DEFINITIONS = [
   {
     type: "function",
@@ -595,6 +727,22 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
   {
     type: "function",
     function: {
+      name: "find_sale_voucher",
+      description: "\uAC70\uB798\uCC98\uC640 \uB0A0\uC9DC\uB85C \uB9E4\uCD9C \uC804\uD45C\uB97C \uCC3E\uC2B5\uB2C8\uB2E4. \uC804\uD45C \uC5F4\uAE30 \uC694\uCCAD \uC2DC \uC0AC\uC6A9\uD558\uC138\uC694.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientName: { type: "string", description: "\uAC70\uB798\uCC98 \uC774\uB984 (\uC608: \uCEE4\uC2A4\uD798, \uC778\uB514\uD37C)" },
+          date: { type: "string", description: "YYYY-MM-DD \uB610\uB294 6\uC6D41\uC77C \uD615\uD0DC \uB0A0\uC9DC" },
+          site: { type: "string", description: "\uD604\uC7A5\uBA85 (\uC120\uD0DD)" },
+        },
+        required: ["clientName", "date"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_worker_info",
       description: "\uC2DC\uACF5\uC790 \uAE30\uBCF8 \uC815\uBCF4(\uC774\uB984, \uAD6C\uBD84, \uCC28\uB7C9\uBC88\uD638, \uC804\uD654\uBC88\uD638)\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4.",
       parameters: {
@@ -622,6 +770,8 @@ export function executeErpChatTool(name, args, user) {
       return toolSearchClient(args || {});
     case "get_worker_info":
       return toolGetWorkerInfo(args || {}, user);
+    case "find_sale_voucher":
+      return toolFindSaleVoucher(args || {});
     default:
       return { ok: false, error: `\uC54C \uC218 \uC5C6\uB294 \uB3C4\uAD6C: ${name}` };
   }

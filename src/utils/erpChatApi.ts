@@ -14,12 +14,17 @@ export type ErpChatLog = {
   createdAt: string;
 };
 
+export type ErpChatAction =
+  | { type: "open_sale_voucher"; saleId: string | number }
+  | { type: "open_sale_voucher_search"; client: string; startDate: string; endDate: string };
+
 export type ErpChatResponse = {
   ok: boolean;
   answer?: string;
   engine?: string;
   logId?: number;
   toolsUsed?: string[];
+  actions?: ErpChatAction[];
   error?: string;
 };
 

@@ -9229,6 +9229,24 @@ export default function TeammillimeterErpMvp() {
     setActive("salesVoucherSearch");
   }, []);
 
+  const handleErpChatAction = useCallback(
+    (action: import("@/utils/erpChatApi").ErpChatAction) => {
+      if (action.type === "open_sale_voucher") {
+        openSaleVoucherFromComments(action.saleId);
+        return;
+      }
+      if (action.type === "open_sale_voucher_search") {
+        setPendingVoucherSearchFilter({
+          client: action.client,
+          startDate: action.startDate,
+          endDate: action.endDate,
+        });
+        setActive("salesVoucherSearch");
+      }
+    },
+    [openSaleVoucherFromComments],
+  );
+
   const openSaleCommentsView = useCallback((saleId: string | number) => {
     setSaleCommentsViewSaleId(saleId);
   }, []);
@@ -10348,7 +10366,9 @@ export default function TeammillimeterErpMvp() {
           saveSessionUser(nextUser);
         }}
       />
-      {apiMode && currentUser ? <ErpChatWidget currentUser={currentUser} enabled={dataReady} /> : null}
+      {apiMode && currentUser ? (
+        <ErpChatWidget currentUser={currentUser} enabled={dataReady} onAction={handleErpChatAction} />
+      ) : null}
     </div>
     </SalePaymentLinkProvider>
     </AuditProvider>
