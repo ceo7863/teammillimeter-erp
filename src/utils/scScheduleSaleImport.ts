@@ -49,12 +49,14 @@ export function resolveScScheduleSiteName(schedule: Pick<ScSchedule, "workType" 
 export function buildScheduleWorkMemo(
   effectiveTimes: Pick<{ startTime: string; endTime: string }, "startTime" | "endTime">,
   workHours: number | null,
+  fromWorkLog = false,
 ) {
+  const prefix = fromWorkLog ? "\uADFC\uBB34\uAE30\uB85D" : "\uC608\uC815";
   const range = formatScScheduleTimeRange(effectiveTimes);
   const hoursLabel = workHours != null ? formatScheduleWorkHoursLabel(workHours) : "";
-  if (range && hoursLabel) return `\uC791\uC5C5 ${range} (${hoursLabel}\uC2DC\uAC04)`;
-  if (range) return `\uC791\uC5C5 ${range}`;
-  if (hoursLabel) return `\uC791\uC5C5 ${hoursLabel}\uC2DC\uAC04`;
+  if (range && hoursLabel) return `${prefix} ${range} (${hoursLabel}\uC2DC\uAC04)`;
+  if (range) return `${prefix} ${range}`;
+  if (hoursLabel) return `${prefix} ${hoursLabel}\uC2DC\uAC04`;
   return "";
 }
 
@@ -164,12 +166,13 @@ function applyScheduleBillingRules(
   workHours: number | null,
   overtimeHours: number,
   rules: SaleAiRules,
+  fromWorkLog = false,
 ) {
   const next = { ...line };
   const isShortShift =
     workHours != null && workHours > 0 && workHours < rules.shortShiftMaxHours;
   const hasOvertime = overtimeHours > 0;
-  const workMemo = buildScheduleWorkMemo(effectiveTimes, workHours);
+  const workMemo = buildScheduleWorkMemo(effectiveTimes, workHours, fromWorkLog);
 
   if (isShortShift && workHours != null) {
     const shortCharge = String(computeShortShiftChargeAmount(workHours, rules));
@@ -229,7 +232,14 @@ export function buildSaleFormFromScSchedule(
       workerName,
     );
 
-    line = applyScheduleBillingRules(line, effectiveTimes, workHours, overtimeHours, rules);
+    line = applyScheduleBillingRules(
+      line,
+      effectiveTimes,
+      workHours,
+      overtimeHours,
+      rules,
+      effectiveTimes.fromWorkLog,
+    );
     return line;
   });
 

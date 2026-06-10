@@ -44,6 +44,25 @@ function listScSchedules(data) {
   return Array.isArray(data.scSchedules) ? data.scSchedules : [];
 }
 
+function normalizeScScheduleWorkLog(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const startTime = String(raw.startTime || "").trim();
+  const endTime = String(raw.endTime || "").trim();
+  if (!startTime || !endTime) return null;
+  const durationRaw = raw.durationMinutes ?? raw.duration;
+  const durationMinutes =
+    durationRaw == null || durationRaw === "" ? null : Math.max(0, Number(durationRaw) || 0);
+  return {
+    startTime,
+    endTime,
+    ...(durationMinutes != null && durationMinutes > 0 ? { durationMinutes } : {}),
+  };
+}
+
+function normalizeWorkLogFromScheduleRow(row) {
+  return normalizeScScheduleWorkLog(row?.workLog);
+}
+
 function monthRangeUtc(year, month) {
   const start = new Date(Date.UTC(year, month - 1, 1));
   const end = new Date(Date.UTC(year, month, 1));
@@ -194,10 +213,36 @@ async function fetchScSchedules(pool, startDate, endDate) {
     participantsBySchedule.set(key, bucket);
   }
 
+  const workLogsBySchedule = new Map();
+  try {
+    const { rows: workLogRows } = await pool.query(
+      `
+      SELECT wl."scheduleId", wl."startTime", wl."endTime", wl.duration
+      FROM work_logs wl
+      WHERE wl."scheduleId" = ANY($1::text[])
+      `,
+      [scheduleIds],
+    );
+    for (const row of workLogRows) {
+      const workLog = normalizeScScheduleWorkLog({
+        startTime: row.startTime,
+        endTime: row.endTime,
+        durationMinutes: row.duration,
+      });
+      if (workLog) workLogsBySchedule.set(String(row.scheduleId), workLog);
+    }
+  } catch (error) {
+    const message = String(error?.message || error || "");
+    if (!message.includes('relation "work_logs" does not exist')) {
+      throw error;
+    }
+  }
+
   return rows.map((row) => {
     const id = String(row.id);
     const participantNames = participantsBySchedule.get(id) || [];
     const workDate = row.workDate instanceof Date ? formatUtcDate(row.workDate) : String(row.workDate || "").slice(0, 10);
+    const workLog = workLogsBySchedule.get(id) || null;
     return {
       id,
       scProjectId: String(row.projectId),
@@ -211,6 +256,7 @@ async function fetchScSchedules(pool, startDate, endDate) {
         row.expectedHeadcount == null || row.expectedHeadcount === "" ? null : Number(row.expectedHeadcount),
       participantNames,
       participantCount: participantNames.length,
+      ...(workLog ? { workLog } : {}),
     };
   });
 }
@@ -436,6 +482,7 @@ function attachClientToSchedules(schedules, clients) {
     .map((row) => {
       const client = projectToClient.get(row.scProjectId);
       if (!client) return null;
+      const workLog = normalizeWorkLogFromScheduleRow(row);
       return {
         id: row.id,
         scProjectId: row.scProjectId,
@@ -450,6 +497,7 @@ function attachClientToSchedules(schedules, clients) {
         expectedHeadcount: row.expectedHeadcount,
         participantNames: row.participantNames,
         participantCount: row.participantCount,
+        ...(workLog ? { workLog } : {}),
         syncedAt,
       };
     })
@@ -492,6 +540,7 @@ export function filterScSchedulesForClient(schedules, clientId, monthKey) {
 
 export function sanitizePublicScSchedule(row, workers = []) {
   const participantNames = Array.isArray(row.participantNames) ? row.participantNames : [];
+  const workLog = normalizeWorkLogFromScheduleRow(row);
   return {
     id: row.id,
     workDate: row.workDate,
@@ -502,6 +551,7 @@ export function sanitizePublicScSchedule(row, workers = []) {
     participantNames,
     participants: resolveScScheduleParticipants(workers, participantNames),
     participantCount: Number(row.participantCount || 0),
+    ...(workLog ? { workLog } : {}),
     source: "sc",
   };
 }

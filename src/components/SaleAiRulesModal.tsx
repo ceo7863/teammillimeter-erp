@@ -145,7 +145,7 @@ export function SaleAiRulesModal({ open, rules, saving = false, onClose, onSave 
             </div>
             <p className="erp-sale-ai-rules-preview">{buildShortShiftFormulaPreview(normalized)}</p>
             <p className="erp-sale-ai-rules-preview-sub">
-              {"\uC608: 2\uC2DC\uAC04 \uADFC\uBB34 \u2192 "}
+              {"\uC608: 2\uC2DC\uAC04 \uADFC\uBB34\uAE30\uB85D \u2192 "}
               {sampleShortCharge.toLocaleString("ko-KR")}
               {"\uC6D0"}
             </p>

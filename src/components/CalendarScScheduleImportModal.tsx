@@ -20,7 +20,7 @@ const L = {
   alreadyRegistered: "\uC774\uBBF8 \uB4F1\uB85D\uB41C \uC2A4\uCF00\uC904\uC785\uB2C8\uB2E4.",
   close: "\uB2EB\uAE30",
   scBadge: "\uD655\uC815",
-  workLog: "\uADFC\uBB34",
+  workLog: "\uADFC\uBB34\uAE30\uB85D",
   workers: (names: string) => names || "-",
 };
 

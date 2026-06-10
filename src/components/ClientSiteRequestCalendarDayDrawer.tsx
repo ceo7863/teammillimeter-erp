@@ -26,7 +26,7 @@ const L = {
   sectionRequests: "\uC811\uC218 \uC694\uCCAD",
   sectionSc: "SC \uD655\uC815 \uC77C\uC815",
   scBadge: "\uD655\uC815",
-  workLog: "\uADFC\uBB34",
+  workLog: "\uADFC\uBB34\uAE30\uB85D",
   workerName: "\uC2DC\uACF5\uC790\uBA85",
   workerPhone: "\uC804\uD654\uBC88\uD638",
   workerVehicle: "\uCC28\uB7C9\uBC88\uD638",

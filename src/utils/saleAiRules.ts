@@ -96,7 +96,7 @@ export function formatScheduleWorkHoursLabel(workHours: number) {
 export function buildShortShiftFormulaPreview(rules: SaleAiRules = DEFAULT_SALE_AI_RULES) {
   const base = rules.shortShiftBaseAmount.toLocaleString("ko-KR");
   const hourly = rules.shortShiftHourlyAmount.toLocaleString("ko-KR");
-  return `${base}\uC6D0 + ${hourly}\uC6D0 \u00D7 \uADFC\uBB34\uC2DC\uAC04 (${rules.shortShiftMaxHours}\uC2DC\uAC04 \uBBF8\uB9CC)`;
+  return `${base}\uC6D0 + ${hourly}\uC6D0 \u00D7 \uADFC\uBB34\uAE30\uB85D (${rules.shortShiftMaxHours}\uC2DC\uAC04 \uBBF8\uB9CC)`;
 }
 
 export function buildOvertimeFormulaPreview(rules: SaleAiRules = DEFAULT_SALE_AI_RULES) {
