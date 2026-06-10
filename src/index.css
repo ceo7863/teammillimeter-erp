@@ -16429,41 +16429,15 @@ button:disabled,
   color: #0f172a;
 }
 
-.erp-chat-panel__body {
-  flex: 1 1 auto;
-  overflow: auto;
-  padding: 0.85rem;
-  background: #f8fafc;
-}
-
-.erp-chat-empty {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.erp-chat-suggestions {
-  display: grid;
-  gap: 0.5rem;
-}
-
-.erp-chat-suggestion {
-  border: 1px solid #dbeafe;
-  border-radius: 0.85rem;
+.erp-chat-icon-btn--active {
   background: #eff6ff;
-  padding: 0.65rem 0.75rem;
-  text-align: left;
-  font-size: 0.8125rem;
-  color: #1e3a8a;
-  cursor: pointer;
-}
-
-.erp-chat-suggestion:hover {
-  background: #dbeafe;
+  color: #2563eb;
 }
 
 .erp-chat-bubble {
   max-width: 92%;
   margin-bottom: 0.65rem;
+  position: relative;
 }
 
 .erp-chat-bubble--user {
@@ -16494,6 +16468,100 @@ button:disabled,
   border: 1px solid #e2e8f0;
   background: #fff;
   color: #0f172a;
+}
+
+.erp-chat-speak-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0.25rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: transparent;
+  padding: 0.2rem 0.35rem;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.erp-chat-speak-btn:hover {
+  background: #f1f5f9;
+  color: #2563eb;
+}
+
+.erp-chat-listening {
+  border-top: 1px solid #dbeafe;
+  background: #eff6ff;
+  padding: 0.35rem 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #1d4ed8;
+}
+
+.erp-chat-voice-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.85rem;
+  background: #fff;
+  color: #64748b;
+  padding: 0.65rem 0.75rem;
+  cursor: pointer;
+}
+
+.erp-chat-voice-btn:hover {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.erp-chat-voice-btn--active {
+  border-color: #fca5a5;
+  background: #fef2f2;
+  color: #dc2626;
+  animation: erp-chat-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes erp-chat-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(220, 38, 38, 0);
+  }
+}
+
+.erp-chat-panel__body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 0.85rem;
+  background: #f8fafc;
+}
+
+.erp-chat-empty {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.erp-chat-suggestions {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.erp-chat-suggestion {
+  border: 1px solid #dbeafe;
+  border-radius: 0.85rem;
+  background: #eff6ff;
+  padding: 0.65rem 0.75rem;
+  text-align: left;
+  font-size: 0.8125rem;
+  color: #1e3a8a;
+  cursor: pointer;
+}
+
+.erp-chat-suggestion:hover {
+  background: #dbeafe;
 }
 
 .erp-chat-error {
