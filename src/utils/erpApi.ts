@@ -3,6 +3,29 @@ import type { CompanyProfile } from "./companyProfile";
 const TOKEN_KEY = "teammillimeter-erp-token";
 const USER_KEY = "teammillimeter-erp-session";
 
+function readPersistedAuthItem(key: string) {
+  if (typeof window === "undefined") return "";
+  const local = window.localStorage.getItem(key);
+  if (local) return local;
+  const session = window.sessionStorage.getItem(key);
+  if (!session) return "";
+  window.localStorage.setItem(key, session);
+  window.sessionStorage.removeItem(key);
+  return session;
+}
+
+function writePersistedAuthItem(key: string, value: string) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(key, value);
+  window.sessionStorage.removeItem(key);
+}
+
+function removePersistedAuthItem(key: string) {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(key);
+  window.sessionStorage.removeItem(key);
+}
+
 export type ErpUser = {
   id: number;
   loginId: string;
@@ -86,20 +109,17 @@ function apiBase() {
 }
 
 export function getAuthToken() {
-  if (typeof window === "undefined") return "";
-  return window.sessionStorage.getItem(TOKEN_KEY) || "";
+  return readPersistedAuthItem(TOKEN_KEY);
 }
 
 export function saveAuthSession(token: string, user: ErpUser) {
-  if (typeof window === "undefined") return;
-  window.sessionStorage.setItem(TOKEN_KEY, token);
-  window.sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+  writePersistedAuthItem(TOKEN_KEY, token);
+  writePersistedAuthItem(USER_KEY, JSON.stringify(user));
 }
 
 export function loadAuthUser(): ErpUser | null {
-  if (typeof window === "undefined") return null;
   try {
-    const raw = window.sessionStorage.getItem(USER_KEY);
+    const raw = readPersistedAuthItem(USER_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -107,9 +127,8 @@ export function loadAuthUser(): ErpUser | null {
 }
 
 export function clearAuthSession() {
-  if (typeof window === "undefined") return;
-  window.sessionStorage.removeItem(TOKEN_KEY);
-  window.sessionStorage.removeItem(USER_KEY);
+  removePersistedAuthItem(TOKEN_KEY);
+  removePersistedAuthItem(USER_KEY);
 }
 
 export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
