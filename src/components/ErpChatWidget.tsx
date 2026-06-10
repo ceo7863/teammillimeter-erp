@@ -57,6 +57,7 @@ export function ErpChatWidget({
     speechSupported,
     ttsSupported,
     listening,
+    voiceCapturing,
     interimText,
     speaking,
     autoSpeak,
@@ -65,8 +66,7 @@ export function ErpChatWidget({
     stopSpeaking,
     toggleAutoSpeak,
     stopListening,
-    beginPushToTalk,
-    endPushToTalk,
+    toggleVoiceCapture,
   } = useErpChatVoice({
     onFinalTranscript: (text) => {
       void sendMessageRef.current(text);
@@ -159,7 +159,7 @@ export function ErpChatWidget({
 
   const inputValue = draft;
   const displayError = error || voiceError;
-  const listeningPreview = listening ? String(interimText || "").trim() : "";
+  const listeningPreview = voiceCapturing ? String(interimText || "").trim() : "";
 
   if (!canUse) return null;
 
@@ -276,9 +276,9 @@ export function ErpChatWidget({
           </div>
 
           {displayError ? <div className="erp-chat-error">{displayError}</div> : null}
-          {listening ? (
+          {voiceCapturing ? (
             <div className="erp-chat-listening">
-              {ERP_CHAT_LABELS.listening}
+              {listening ? ERP_CHAT_LABELS.listening : ERP_CHAT_LABELS.voiceReadyToSend}
               {listeningPreview ? <div className="erp-chat-listening__preview">{listeningPreview}</div> : null}
             </div>
           ) : null}
@@ -293,15 +293,12 @@ export function ErpChatWidget({
             {speechSupported ? (
               <button
                 type="button"
-                className={`erp-chat-voice-btn ${listening ? "erp-chat-voice-btn--active" : ""}`}
+                className={`erp-chat-voice-btn ${listening || voiceCapturing ? "erp-chat-voice-btn--active" : ""}`}
                 disabled={loading}
-                title={listening ? ERP_CHAT_LABELS.voiceStop : ERP_CHAT_LABELS.voiceStart}
-                aria-label={listening ? ERP_CHAT_LABELS.voiceStop : ERP_CHAT_LABELS.voiceStart}
-                aria-pressed={listening}
-                onClick={() => {
-                  if (listening) endPushToTalk();
-                  else beginPushToTalk();
-                }}
+                title={voiceCapturing ? ERP_CHAT_LABELS.voiceStop : ERP_CHAT_LABELS.voiceStart}
+                aria-label={voiceCapturing ? ERP_CHAT_LABELS.voiceStop : ERP_CHAT_LABELS.voiceStart}
+                aria-pressed={listening || voiceCapturing}
+                onClick={() => toggleVoiceCapture()}
               >
                 {listening ? <Mic size={18} /> : <Mic size={16} />}
               </button>
