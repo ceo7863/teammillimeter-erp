@@ -116,6 +116,11 @@ async function callOpenAiChat(messages, tools) {
   return res.json();
 }
 
+function isOpenAiQuotaError(error) {
+  const msg = String(error?.message || error || "");
+  return /OpenAI 429|exceeded your current quota|insufficient_quota|billing details/i.test(msg);
+}
+
 function buildUserContext(user) {
   return {
     id: user?.sub,
@@ -315,40 +320,46 @@ export async function handleErpChat({ messages, user: tokenUser }) {
     const chatMessages = [{ role: "system", content: SYSTEM_PROMPT }, ...safeMessages];
     let guard = 0;
 
-    while (guard < 6) {
-      guard += 1;
-      const data = await callOpenAiChat(chatMessages, ERP_CHAT_ALL_TOOL_DEFINITIONS);
-      const choice = data?.choices?.[0]?.message;
-      if (!choice) break;
+    try {
+      while (guard < 6) {
+        guard += 1;
+        const data = await callOpenAiChat(chatMessages, ERP_CHAT_ALL_TOOL_DEFINITIONS);
+        const choice = data?.choices?.[0]?.message;
+        if (!choice) break;
 
-      const toolCalls = Array.isArray(choice.tool_calls) ? choice.tool_calls : [];
-      if (!toolCalls.length) {
-        answer = String(choice.content || "").trim();
-        break;
-      }
-
-      chatMessages.push({
-        role: "assistant",
-        content: choice.content || "",
-        tool_calls: toolCalls,
-      });
-
-      for (const call of toolCalls) {
-        const fnName = call?.function?.name;
-        let args = {};
-        try {
-          args = JSON.parse(call?.function?.arguments || "{}");
-        } catch {
-          args = {};
+        const toolCalls = Array.isArray(choice.tool_calls) ? choice.tool_calls : [];
+        if (!toolCalls.length) {
+          answer = String(choice.content || "").trim();
+          break;
         }
-        const result = executeChatTool(fnName, args, user, question);
-        toolsUsed.push({ name: fnName, args, result });
+
         chatMessages.push({
-          role: "tool",
-          tool_call_id: call.id,
-          content: JSON.stringify(result),
+          role: "assistant",
+          content: choice.content || "",
+          tool_calls: toolCalls,
         });
+
+        for (const call of toolCalls) {
+          const fnName = call?.function?.name;
+          let args = {};
+          try {
+            args = JSON.parse(call?.function?.arguments || "{}");
+          } catch {
+            args = {};
+          }
+          const result = executeChatTool(fnName, args, user, question);
+          toolsUsed.push({ name: fnName, args, result });
+          chatMessages.push({
+            role: "tool",
+            tool_call_id: call.id,
+            content: JSON.stringify(result),
+          });
+        }
       }
+    } catch (error) {
+      if (!isOpenAiQuotaError(error)) throw error;
+      engine = "rules";
+      answer = "";
     }
   }
 
