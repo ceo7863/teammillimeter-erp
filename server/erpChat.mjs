@@ -52,8 +52,8 @@ import { appendErpChatLog, listErpChatLogs, listErpChatLogsAdmin, clearErpChatLo
 import { appendErpChatAuditLog } from "./erpChatAudit.mjs";
 
 const SYSTEM_PROMPT = [
-  "\uB2F9\uC2E0\uC740 TeamMillimeter ERP \uC5B4\uC2DC\uC2A4\uD134\uD2B8\uC785\uB2C8\uB2E4.",
-  "\uC870\uD68C\uB098 \uD654\uBA74 \uC774\uB3D9 \uC694\uCCAD\uC5D0\uB294 \uBC18\uB4DC\uC2DC \uB3C4\uAD6C\uB97C \uD638\uCD9C\uD558\uC138\uC694. \uAE30\uC5B5\uC5D0 \uC758\uD574 \uB2F5\uD558\uC9C0 \uB9C8\uC138\uC694.",
+  "\uB2F9\uC2E0\uC740 TeamMillimeter ERP \uC5B4\uC2DC\uC2A4\uD134\uD2B8\uC785\uB2C8\uB2E4. \uC778\uC0AC\u00B7\uC77C\uC0C1 \uB300\uD654\u00B7\uAC00\uBCCD\uC740 \uC9C8\uBB38\uC5D0\uB294 \uB3C4\uAD6C \uC5C6\uC774 \uCE5C\uADFC\uD558\uACE0 \uC790\uC5F0\uC2A4\uB7FD\uAC8C \uB2F5\uD558\uC138\uC694.",
+  "\uAC70\uB798\uCC98 \uC870\uD68C, \uBBF8\uC218\u00B7\uC77C\uC815\u00B7\uC785\uAE08\u00B7\uC804\uD654\uBC88\uD638, \uD654\uBA74 \uC5F4\uAE30 \uB4F1 ERP \uC5C5\uBB34 \uC694\uCCAD\uC5D0\uB9CC \uB3C4\uAD6C\uB97C \uD638\uCD9C\uD558\uC138\uC694. \uAE08\uC561\u00B7\uAC74\uC218\u00B7\uC804\uD654\uBC88\uD638\u00B7\uCC28\uB7C9\uBC88\uD638\uB294 \uB3C4\uAD6C \uACB0\uACFC\uB97C \uAE30\uC900\uC73C\uB85C\uB9CC \uB2F5\uD558\uACE0 \uCD94\uCE21\uD558\uC9C0 \uB9C8\uC138\uC694.",
   "\uAE08\uC561, \uAC74\uC218, \uC804\uD654\uBC88\uD638, \uCC28\uB7C9\uBC88\uD638\uB294 \uB3C4\uAD6C \uACB0\uACFC\uB97C \uAE30\uC900\uC73C\uB85C\uB9CC \uB2F5\uD558\uACE0 \uCD94\uCE21\uD558\uC9C0 \uB9C8\uC138\uC694.",
   "\uAC70\uB798\uCC98 \uB2F4\uB2F9\uC790 \uC870\uD68C\uB294 get_client_contacts, \uB2F4\uB2F9\uC790 \uC778\uC0C1 \uC870\uD68C\uB294 lookup_contact \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "\uC2DC\uACF5\uC790 \uCC28\uB7C9\uBC88\uD638(\'\uCC28\uBC88\uD638\', \'\uCC28\uB7C9 \uBC88\uD638\' \uD3EC\uD568)\uB294 get_worker_info\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uC774\uB984\uC740 \uCC28\uB7C9\uBC88\uD638 \uC55E\uB098 \uB4A4 \uC5B4\uB290 \uCABD\uC774\uB4E0 \uAD00\uACC4\uC5C6\uC2B5\uB2C8\uB2E4. name\uC5D0 \uCD94\uCD9C\uB41C \uC2DC\uACF5\uC790 \uC774\uB984\uB9CC \uC804\uB2EC\uD558\uC138\uC694.",
@@ -114,6 +114,40 @@ async function callOpenAiChat(messages, tools) {
   }
 
   return res.json();
+}
+
+const CASUAL_SYSTEM_PROMPT = [
+  "\uB2F9\uC2E0\uC740 TeamMillimeter ERP \uC5B4\uC2DC\uC2A4\uD134\uD2B8\uC785\uB2C8\uB2E4.",
+  "\uC778\uC0AC, \uAC10\uC815 \uACF5\uC720, \uAC00\uBCCD\uC740 \uC9C8\uBB38\uC5D0 \uCE5C\uADFC\uD558\uACE0 \uC790\uC5F0\uC2A4\uB7FD\uAC8C \uB300\uD654\uD558\uC138\uC694.",
+  "\uBAA8\uB974\uB294 \uC0AC\uC2E4\uC740 \uC9C0\uC5B4\uB0B4\uC9C0 \uB9C8\uC138\uC694. ERP \uC5C5\uBB34(\uBBF8\uC218, \uC77C\uC815, \uD654\uBA74 \uC5F4\uAE30 \uB4F1)\uB294 \uAD6C\uCCB4\uC801\uC73C\uB85C \uC801\uC73C\uBA74 \uB3C4\uC640\uB4DC\uB9B4 \uC218 \uC788\uB2E4\uACE0 \uC548\uB0B4\uD558\uC138\uC694.",
+  "\uB2F5\uBCC0\uC740 \uC9C1\uC811\uC801\uC774\uACE0 \uAC04\uACB0\uD558\uAC8C \uD55C\uAD6D\uC5B4\uB85C \uC791\uC131\uD558\uC138\uC694.",
+].join("\n");
+
+async function callOpenAiCasualReply(messages) {
+  const apiKey = process.env.OPENAI_API_KEY || "";
+  if (!apiKey) return null;
+
+  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.7,
+      messages: [{ role: "system", content: CASUAL_SYSTEM_PROMPT }, ...messages],
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`OpenAI ${res.status}: ${text.slice(0, 200)}`);
+  }
+
+  const data = await res.json();
+  return String(data?.choices?.[0]?.message?.content || "").trim() || null;
 }
 
 function isOpenAiRecoverableError(error) {
@@ -338,13 +372,17 @@ export async function handleErpChat({ messages, user: tokenUser }) {
 
         const toolCalls = Array.isArray(choice.tool_calls) ? choice.tool_calls : [];
         if (!toolCalls.length) {
+          const gptText = String(choice.content || "").trim();
+          if (gptText) {
+            answer = gptText;
+            break;
+          }
           const ruleOpen = tryRuleBasedOpenFromQuestion(question);
           if (ruleOpen) {
             answer = ruleOpen.answer;
             chatActions = ruleOpen.chatActions;
             break;
           }
-          answer = String(choice.content || "").trim();
           break;
         }
 
@@ -483,9 +521,7 @@ export async function handleErpChat({ messages, user: tokenUser }) {
     answer = formatListErpPagesAnswer(listPagesUsed.result);
   }
 
-  const openAiTextOnly = Boolean(answer) && toolsUsed.length === 0;
-
-  if (chatActions.length === 0) {
+  if (!answer && chatActions.length === 0) {
     const openResult = tryRuleBasedOpenFromQuestion(question);
     if (openResult) {
       answer = openResult.answer;
@@ -493,9 +529,18 @@ export async function handleErpChat({ messages, user: tokenUser }) {
     }
   }
 
-  if ((!answer || openAiTextOnly) && !chatActions.length) {
+  if (!answer && !chatActions.length) {
     const infoAnswer = tryRuleBasedChat(question, user);
     if (infoAnswer) answer = infoAnswer;
+  }
+
+  if (!answer && config.openAiConfigured) {
+    try {
+      const casualReply = await callOpenAiCasualReply(safeMessages);
+      if (casualReply) answer = casualReply;
+    } catch (error) {
+      if (!isOpenAiRecoverableError(error)) throw error;
+    }
   }
 
   if (!answer) {
