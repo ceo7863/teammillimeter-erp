@@ -16,7 +16,8 @@ export type ErpChatLog = {
 
 export type ErpChatAction =
   | { type: "open_sale_voucher"; saleId: string | number }
-  | { type: "open_sale_voucher_search"; client: string; startDate: string; endDate: string };
+  | { type: "open_sale_voucher_search"; client: string; startDate: string; endDate: string }
+  | { type: "open_client_calendar"; clientName: string; anchorDate: string };
 
 export type ErpChatResponse = {
   ok: boolean;

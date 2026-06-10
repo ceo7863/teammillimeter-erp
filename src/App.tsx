@@ -3508,6 +3508,8 @@ function CalendarPage({
   onOpenSaleComments,
   onPersistNewSale,
   saleAiRules = DEFAULT_SALE_AI_RULES,
+  pendingClientFilter = null,
+  onPendingClientFilterConsumed,
 }) {
   const { recordAudit } = useAudit();
   const { message: clientFilterNotice, showNotice: showClientFilterNotice, clearNotice: clearClientFilterNotice } = useActionNotice();
@@ -3805,6 +3807,12 @@ function CalendarPage({
     applyClientFilter(clientName, anchorDate);
     showClientFilterNotice(`${normalized} 거래처만 표시합니다. 날짜를 선택해 주세요.`);
   };
+
+  useEffect(() => {
+    if (!pendingClientFilter?.clientName) return;
+    enterClientFilter(pendingClientFilter.clientName, pendingClientFilter.anchorDate || todayISO());
+    onPendingClientFilterConsumed?.();
+  }, [pendingClientFilter, onPendingClientFilterConsumed]);
 
   const openClientSearch = () => {
     setClientSearchOpen(true);
@@ -8078,6 +8086,7 @@ export default function TeammillimeterErpMvp() {
   const [statementDraft, setStatementDraft] = useState<StatementDraft | null>(null);
   const [pendingVoucherEditId, setPendingVoucherEditId] = useState(null);
   const [pendingVoucherSearchFilter, setPendingVoucherSearchFilter] = useState(null);
+  const [pendingCalendarClientFilter, setPendingCalendarClientFilter] = useState(null);
   const [salesManagementEditSale, setSalesManagementEditSale] = useState(null);
   const [saleCommentsViewSaleId, setSaleCommentsViewSaleId] = useState<string | number | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -9242,6 +9251,14 @@ export default function TeammillimeterErpMvp() {
           endDate: action.endDate,
         });
         setActive("salesVoucherSearch");
+        return;
+      }
+      if (action.type === "open_client_calendar") {
+        setPendingCalendarClientFilter({
+          clientName: action.clientName,
+          anchorDate: action.anchorDate,
+        });
+        setActive("calendar");
       }
     },
     [openSaleVoucherFromComments],
@@ -10031,6 +10048,8 @@ export default function TeammillimeterErpMvp() {
             onOpenSaleComments={openSaleCommentsView}
             onPersistNewSale={persistNewSaleImmediate}
             saleAiRules={saleAiRules}
+            pendingClientFilter={pendingCalendarClientFilter}
+            onPendingClientFilterConsumed={() => setPendingCalendarClientFilter(null)}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="clientSiteRequests" active={active}>

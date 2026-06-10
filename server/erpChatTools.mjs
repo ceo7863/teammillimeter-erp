@@ -649,6 +649,75 @@ export function formatSaleVoucherAnswer(data) {
   return lines.join("\n");
 }
 
+export function extractCalendarClientQuery(text) {
+  const raw = String(text || "").trim();
+  const possessive = raw.match(/^(.+?)\uC758/);
+  if (possessive) return possessive[1].trim();
+  return raw
+    .replace(/\uCE04\uB9B0\uB354|\uCE98\uBCC0\uB354|\uB2EC\uB825|\uC77C\uC815|\uAC70\uB798\uCC98|\uC5F4|\uC774\uB3D9|\uBD10|\uCC28|\uC918|\?/g, "")
+    .trim();
+}
+
+export function toolOpenClientCalendar({ clientName }) {
+  const state = getErpState(["sales", "clients"]);
+  const data = state.data || {};
+  const sales = Array.isArray(data.sales) ? data.sales : [];
+  const clients = Array.isArray(data.clients) ? data.clients : [];
+  const query = String(clientName || "").trim();
+  if (!query) {
+    return { ok: false, error: "\uAC70\uB798\uCC98 \uC774\uB984\uC774 \uD544\uC694\uD569\uB2C8\uB2E4." };
+  }
+
+  const matchedClients = findClientsByQuery(clients, query);
+  if (!matchedClients.length) {
+    return { ok: false, error: `"${query}" \uAC70\uB798\uCC98\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+  }
+
+  const clientFilterKeys = buildClientFilterKeys(query, matchedClients);
+  const resolvedName = String(matchedClients[0]?.name || query).trim();
+  const clientSales = sales
+    .filter((sale) => saleMatchesClientFilter(sale.client, matchedClients, clientFilterKeys))
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+  const anchorDate = String(clientSales[0]?.date || todayISO()).slice(0, 10);
+
+  return {
+    ok: true,
+    clientName: resolvedName,
+    anchorDate,
+    saleCount: clientSales.length,
+  };
+}
+
+export function tryRuleBasedCalendarOpen(message) {
+  const text = String(message || "").trim();
+  if (!text.includes("\uCE04\uB9B0\uB354") && !text.includes("\uCE98\uBCC0\uB354")) return null;
+  if (!/(?:\uC5F4|\uBD10|\uCC28|\uC774\uB3D9|\uD655\uC778|\uC918)/.test(text)) return null;
+  const clientName = extractCalendarClientQuery(text);
+  if (!clientName) return null;
+  return toolOpenClientCalendar({ clientName });
+}
+
+export function buildChatActionsFromCalendarOpen(result) {
+  if (!result?.ok || !result.clientName) return [];
+  return [
+    {
+      type: "open_client_calendar",
+      clientName: result.clientName,
+      anchorDate: result.anchorDate || todayISO(),
+    },
+  ];
+}
+
+export function formatCalendarOpenAnswer(data) {
+  if (!data.ok) return data.error || "\uCE04\uB9B0\uB354 \uC774\uB3D9\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  const monthHint = String(data.anchorDate || "").slice(0, 7);
+  const saleHint =
+    data.saleCount > 0
+      ? ` \uCD5C\uADFC \uC804\uD45C \uAE30\uC900 ${monthHint}\uC6D4\uC744 \uD45C\uC2DC\uD569\uB2C8\uB2E4.`
+      : " \uC804\uD45C\uAC00 \uC5C6\uC5B4 \uC774\uBC88 \uB2EC\uC744 \uD45C\uC2DC\uD569\uB2C8\uB2E4.";
+  return `${data.clientName} \uAC70\uB798\uCC98 \uCE04\uB9B0\uB354\uB97C \uC5F4\uC5B4 \uC904\uB2C8\uB2E4.${saleHint}`;
+}
+
 export const ERP_CHAT_TOOL_DEFINITIONS = [
   {
     type: "function",
@@ -727,6 +796,20 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
   {
     type: "function",
     function: {
+      name: "open_client_calendar",
+      description: "\uAC70\uB798\uCC98 \uCE84\uB9B0\uB354(\uC77C\uC815 \uCE98\uBCC0\uB354)\uB97C \uD574\uB2F9 \uAC70\uB798\uCC98 \uD544\uD130\uB85C \uC5F4\uC796\uB2C8\uB2E4.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientName: { type: "string", description: "\uAC70\uB798\uCC98 \uC774\uB984 (\uC608: \uC778\uB514\uD37C, \uCEE4\uC2A4\uD798)" },
+        },
+        required: ["clientName"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "find_sale_voucher",
       description: "\uAC70\uB798\uCC98\uC640 \uB0A0\uC9DC\uB85C \uB9E4\uCD9C \uC804\uD45C\uB97C \uCC3E\uC2B5\uB2C8\uB2E4. \uC804\uD45C \uC5F4\uAE30 \uC694\uCCAD \uC2DC \uC0AC\uC6A9\uD558\uC138\uC694.",
       parameters: {
@@ -772,6 +855,8 @@ export function executeErpChatTool(name, args, user) {
       return toolGetWorkerInfo(args || {}, user);
     case "find_sale_voucher":
       return toolFindSaleVoucher(args || {});
+    case "open_client_calendar":
+      return toolOpenClientCalendar(args || {});
     default:
       return { ok: false, error: `\uC54C \uC218 \uC5C6\uB294 \uB3C4\uAD6C: ${name}` };
   }
