@@ -46,6 +46,7 @@ export type BankTransactionsListShellProps = {
   onEditClient: (row: BankTransaction) => void;
   onEditFixedExpense: (row: BankTransaction) => void;
   onFindEvidence: (row: BankTransaction) => void;
+  onFindErpProcess: (row: BankTransaction) => void;
   onIssueTaxInvoice?: (row: BankTransaction) => void;
   onFilterCounterparty: (label: string) => void;
   onBatchEvidenceAutoLink: () => void;
@@ -103,6 +104,7 @@ function BankTransactionsListShellComponent(props: BankTransactionsListShellProp
     onEditClient,
     onEditFixedExpense,
     onFindEvidence,
+    onFindErpProcess,
     onIssueTaxInvoice,
     onFilterCounterparty,
     onBatchEvidenceAutoLink,
@@ -162,6 +164,7 @@ function BankTransactionsListShellComponent(props: BankTransactionsListShellProp
         onEditClient={onEditClient}
         onEditFixedExpense={onEditFixedExpense}
         onFindEvidence={onFindEvidence}
+        onFindErpProcess={onFindErpProcess}
         onIssueTaxInvoice={onIssueTaxInvoice}
         onFilterCounterparty={onFilterCounterparty}
         onBatchEvidenceAutoLink={onBatchEvidenceAutoLink}
@@ -238,6 +241,7 @@ function bankTransactionsListShellPropsAreEqual(
   if (prev.onEditClient !== next.onEditClient) return false;
   if (prev.onEditFixedExpense !== next.onEditFixedExpense) return false;
   if (prev.onFindEvidence !== next.onFindEvidence) return false;
+  if (prev.onFindErpProcess !== next.onFindErpProcess) return false;
   if (prev.onIssueTaxInvoice !== next.onIssueTaxInvoice) return false;
   if (prev.onFilterCounterparty !== next.onFilterCounterparty) return false;
   if (prev.onBatchEvidenceAutoLink !== next.onBatchEvidenceAutoLink) return false;

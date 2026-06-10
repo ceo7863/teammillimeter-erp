@@ -198,7 +198,7 @@ import type { ErpUser } from "@/utils/erpApi";
 import { BarobillBankSettingsPanel } from "@/components/BarobillBankSettingsPanel";
 import {
   buildAllBankDepositSuggestions,
-  buildBankDepositMatchCandidates,
+  buildBankDepositManualLinkCandidates,
   createPaymentVoucherFromBankMatch,
   findBestClientDepositReceivableMatch,
   getBankMatchStatusLabel,
@@ -503,6 +503,8 @@ const L = {
   clientColumn: "\uAC70\uB798\uCC98",
   classifiedAmount: "\uBD84\uB958 \uAE08\uC561",
   erpProcess: "ERP \uCC98\uB9AC",
+  erpFind: "ERP \uC785\uAE08 \uCC3E\uAE30",
+  erpDepositLinkTitle: "ERP \uC785\uAE08 \uC5F0\uACB0",
   taxInvoiceIssue: "\uACC4\uC0B0\uC11C\uBC1C\uD589",
   taxInvoiceIssueButton: "\uBC1C\uD589",
   evidenceFind: "\uC99D\uBE59 \uCC3E\uAE30",
@@ -2527,6 +2529,11 @@ function BankTransactionsPageComponent({
         };
       });
     });
+  }, []);
+
+  const openErpLinkModal = useCallback((tx: BankTransaction) => {
+    if (tx.deposit <= 0) return;
+    setLinkModalTx(tx);
   }, []);
 
   const closeTaxInvoicePanel = useCallback(() => {
@@ -4924,6 +4931,7 @@ function BankTransactionsPageComponent({
       client: L.clientColumn,
       bankBalance: L.columnBankBalance,
       erpProcess: L.erpProcess,
+      erpFind: L.erpFind,
       taxInvoiceIssue: L.taxInvoiceIssue,
       taxInvoiceIssueButton: L.taxInvoiceIssueButton,
       evidenceFind: L.evidenceFind,
@@ -5384,6 +5392,7 @@ function BankTransactionsPageComponent({
           onEditClient={openClientModal}
           onEditFixedExpense={openFixedExpenseModal}
           onFindEvidence={openTaxInvoiceModal}
+          onFindErpProcess={openErpLinkModal}
           onIssueTaxInvoice={setTaxInvoices ? openTaxInvoiceIssueModal : undefined}
           onFilterCounterparty={openCounterpartyDrawer}
           onBatchEvidenceAutoLink={handleBatchEvidenceAutoLink}
@@ -5626,7 +5635,7 @@ function BankTransactionsPageComponent({
           >
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <h2 className="erp-text-section font-bold">{L.selectSentStatement}</h2>
+                <h2 className="erp-text-section font-bold">{L.erpDepositLinkTitle}</h2>
                 <p className="mt-1 text-sm text-emerald-700">
                   {formatKRW(linkModalTx.deposit)}
                   {" \u00B7 "}
@@ -5638,72 +5647,83 @@ function BankTransactionsPageComponent({
               </button>
             </div>
             <div className="max-h-96 space-y-2 overflow-auto">
-              {buildSentStatementMatchCandidates(linkModalTx, sentArchives, {
-                minScore: 0,
-                limit: 30,
-                clients,
-                paymentVouchers,
-                bankTransactions,
-              }).map((candidate) => (
-                <button
-                  key={candidate.pdfArchiveId}
-                  type="button"
-                  className="w-full rounded-xl border border-violet-200 bg-violet-50/40 px-4 py-3 text-left hover:border-violet-300 hover:bg-violet-50"
-                  onClick={() => void confirmSentStatementMatch(linkModalTx, candidate)}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-bold text-slate-900">{candidate.client}</span>
-                    <span className="flex items-center gap-1">
-                      {candidate.paymentStatus === "partial" ? <PartialPaymentBadge /> : null}
-                      <span className="text-xs font-bold text-violet-700">
-                        {L.matchScore} {candidate.score}
-                      </span>
-                    </span>
-                  </div>
-                  <div className="mt-1 text-sm text-slate-600">
-                    {L.statementTotal} {formatKRW(candidate.statementTotalAmount)}
-                    {" \u00B7 "}
-                    {L.sentAt} {String(candidate.sentAt || "").slice(0, 10)}
-                  </div>
-                  {candidate.paymentStatus === "partial" ? (
-                    <div className="mt-1 text-xs font-semibold text-amber-700">
-                      {L.partialStatementMatchHint(candidate.paymentAmount, candidate.statementRemainingAmount)}
-                    </div>
-                  ) : null}
-                </button>
-              ))}
-              {buildSentStatementMatchCandidates(linkModalTx, sentArchives, {
-                minScore: 0,
-                limit: 30,
-                clients,
-                paymentVouchers,
-                bankTransactions,
-              }).length > 0 &&
-              buildBankDepositMatchCandidates(linkModalTx, receivableRows, { minScore: 0, limit: 30, clients }).length > 0 ? (
-                <div className="py-2 text-center text-xs font-semibold text-slate-400">{L.selectReceivable}</div>
-              ) : null}
-              {buildBankDepositMatchCandidates(linkModalTx, receivableRows, { minScore: 0, limit: 30, clients }).map((candidate) => (
-                <button
-                  key={String(candidate.salesId)}
-                  type="button"
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-left hover:border-blue-300 hover:bg-blue-50"
-                  onClick={() => confirmDepositMatch(linkModalTx, candidate)}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-bold text-slate-900">{candidate.client}</span>
-                    <span className="text-xs font-bold text-blue-700">
-                      {L.matchScore} {candidate.score}
-                    </span>
-                  </div>
-                  <div className="mt-1 text-sm text-slate-600">
-                    {candidate.site || "-"}
-                    {" \u00B7 "}
-                    {L.unpaidAmount} {formatKRW(candidate.unpaid)}
-                    {" \u00B7 "}
-                    {candidate.voucherNo || candidate.salesId}
-                  </div>
-                </button>
-              ))}
+              {(() => {
+                const sentCandidates = buildSentStatementMatchCandidates(linkModalTx, sentArchives, {
+                  minScore: 0,
+                  limit: 30,
+                  clients,
+                  paymentVouchers,
+                  bankTransactions,
+                });
+                const receivableCandidates = buildBankDepositManualLinkCandidates(linkModalTx, receivableRows, {
+                  minScore: 0,
+                  limit: 30,
+                  clients,
+                });
+                return (
+                  <>
+                    {sentCandidates.length > 0 ? (
+                      <div className="pb-1 text-xs font-semibold text-slate-500">{L.selectSentStatement}</div>
+                    ) : null}
+                    {sentCandidates.map((candidate) => (
+                      <button
+                        key={candidate.pdfArchiveId}
+                        type="button"
+                        className="w-full rounded-xl border border-violet-200 bg-violet-50/40 px-4 py-3 text-left hover:border-violet-300 hover:bg-violet-50"
+                        onClick={() => void confirmSentStatementMatch(linkModalTx, candidate)}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-bold text-slate-900">{candidate.client}</span>
+                          <span className="flex items-center gap-1">
+                            {candidate.paymentStatus === "partial" ? <PartialPaymentBadge /> : null}
+                            <span className="text-xs font-bold text-violet-700">
+                              {L.matchScore} {candidate.score}
+                            </span>
+                          </span>
+                        </div>
+                        <div className="mt-1 text-sm text-slate-600">
+                          {L.statementTotal} {formatKRW(candidate.statementTotalAmount)}
+                          {" \u00B7 "}
+                          {L.sentAt} {String(candidate.sentAt || "").slice(0, 10)}
+                        </div>
+                        {candidate.paymentStatus === "partial" ? (
+                          <div className="mt-1 text-xs font-semibold text-amber-700">
+                            {L.partialStatementMatchHint(candidate.paymentAmount, candidate.statementRemainingAmount)}
+                          </div>
+                        ) : null}
+                      </button>
+                    ))}
+                    {sentCandidates.length > 0 && receivableCandidates.length > 0 ? (
+                      <div className="py-2 text-center text-xs font-semibold text-slate-400">{L.selectReceivable}</div>
+                    ) : null}
+                    {receivableCandidates.length > 0 && sentCandidates.length === 0 ? (
+                      <div className="pb-1 text-xs font-semibold text-slate-500">{L.selectReceivable}</div>
+                    ) : null}
+                    {receivableCandidates.map((candidate) => (
+                      <button
+                        key={String(candidate.salesId)}
+                        type="button"
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-left hover:border-blue-300 hover:bg-blue-50"
+                        onClick={() => confirmDepositMatch(linkModalTx, candidate)}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-bold text-slate-900">{candidate.client}</span>
+                          <span className="text-xs font-bold text-blue-700">
+                            {L.matchScore} {candidate.score}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-sm text-slate-600">
+                          {candidate.site || "-"}
+                          {" \u00B7 "}
+                          {L.unpaidAmount} {formatKRW(candidate.unpaid)}
+                          {" \u00B7 "}
+                          {candidate.voucherNo || candidate.salesId}
+                        </div>
+                      </button>
+                    ))}
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -6654,6 +6674,7 @@ function BankTransactionsPageComponent({
           onEditClient={openClientModal}
           onEditFixedExpense={openFixedExpenseModal}
           onFindEvidence={openTaxInvoiceModal}
+          onFindErpProcess={openErpLinkModal}
           onIssueTaxInvoice={setTaxInvoices ? openTaxInvoiceIssueModal : undefined}
         />
       ) : null}

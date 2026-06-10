@@ -193,6 +193,162 @@ export function buildBankDepositMatchCandidates(
     .slice(0, limit);
 }
 
+function resolveManualLinkPaymentDraft(deposit: number, unpaid: number) {
+  const withVat = unpaid + Math.round(unpaid * 0.1);
+  if (deposit === unpaid) {
+    return {
+      paymentAmount: unpaid,
+      vatType: "excluded" as const,
+      vatAmount: 0,
+      finalAmount: unpaid,
+    };
+  }
+  if (deposit === withVat) {
+    return {
+      paymentAmount: unpaid,
+      vatType: "included" as const,
+      vatAmount: withVat - unpaid,
+      finalAmount: withVat,
+    };
+  }
+  if (deposit < unpaid) {
+    return {
+      paymentAmount: deposit,
+      vatType: "excluded" as const,
+      vatAmount: 0,
+      finalAmount: deposit,
+    };
+  }
+  const vatAmount = Math.max(0, deposit - unpaid);
+  return {
+    paymentAmount: unpaid,
+    vatType: (vatAmount > 0 ? "included" : "excluded") as "included" | "excluded",
+    vatAmount,
+    finalAmount: deposit,
+  };
+}
+
+function scoreAmountProximity(deposit: number, unpaid: number) {
+  const withVat = unpaid + Math.round(unpaid * 0.1);
+  const targets = [unpaid, withVat];
+  let best = { score: 2, reason: "\uAE08\uC561 \uBD88\uC77C\uCE58" };
+
+  for (const target of targets) {
+    const diff = Math.abs(deposit - target);
+    if (diff === 0) {
+      return { score: 45, reason: "\uBBF8\uC218\uAE08\uACFC \uC815\uD655 \uC77C\uCE58" };
+    }
+    const tolerance2 = Math.max(1000, Math.round(unpaid * 0.02));
+    const tolerance5 = Math.max(5000, Math.round(unpaid * 0.05));
+    const tolerance15 = Math.max(50000, Math.round(unpaid * 0.15));
+    if (diff <= tolerance2) {
+      best = { score: Math.max(best.score, 35), reason: "\uAE08\uC561 \uADFC\uC0AC \uC77C\uCE58" };
+    } else if (diff <= tolerance5) {
+      best = { score: Math.max(best.score, 22), reason: "\uAE08\uC561 \uC720\uC0AC" };
+    } else if (diff <= tolerance15) {
+      best = { score: Math.max(best.score, 12), reason: "\uAE08\uC561 \uCC28\uC774 \uC788\uC74C" };
+    } else {
+      const ratio = diff / Math.max(target, 1);
+      if (ratio <= 0.3) {
+        best = { score: Math.max(best.score, 8), reason: "\uAE08\uC561 \uCC28\uC774 \uC788\uC74C" };
+      }
+    }
+  }
+
+  return best;
+}
+
+/** Manual ERP link modal: client-matched receivables without requiring exact deposit amount. */
+export function buildBankDepositManualLinkCandidates(
+  tx: BankTransaction,
+  receivables: ReceivableRow[],
+  options: {
+    linkedSalesIds?: Set<string>;
+    minScore?: number;
+    limit?: number;
+    clients?: ClientDepositMatchSource[];
+  } = {},
+) {
+  if (tx.deposit <= 0 || tx.linkedPaymentVoucherId || isCardCompanyDeposit(tx)) return [];
+
+  const deposit = tx.deposit;
+  const txDate = String(tx.transactionAt || "").slice(0, 10);
+  const subject = resolveBankDepositMatchSubject(tx);
+  const linkedSalesIds = options.linkedSalesIds || new Set<string>();
+  const clients = options.clients;
+  const minScore = options.minScore ?? 0;
+  const limit = options.limit ?? 30;
+
+  const candidates: BankDepositMatchCandidate[] = [];
+
+  for (const row of receivables) {
+    const unpaid = getUnpaid(row);
+    if (unpaid <= 0) continue;
+    if (linkedSalesIds.has(String(row.id))) continue;
+    if (txDate && row.date && txDate < row.date) continue;
+
+    const nameMatch = resolveClientNameMatch(subject, row.client, tx, clients);
+    if (!nameMatch.matched) continue;
+
+    let score = nameMatch.scoreBonus;
+    const reasons = [nameMatch.reason];
+
+    const exactAmountMatch = resolvePaymentAmount(deposit, unpaid);
+    if (exactAmountMatch) {
+      score += exactAmountMatch.score;
+      reasons.push(exactAmountMatch.reason);
+    } else {
+      const proximity = scoreAmountProximity(deposit, unpaid);
+      score += proximity.score;
+      reasons.push(proximity.reason);
+    }
+
+    if (row.site && includesDepositName(subject, row.site)) {
+      score += 10;
+      reasons.push("\uD604\uC7A5\uBA85 \uC77C\uCE68");
+    }
+
+    const dayGap = daysBetween(row.date, txDate);
+    if (dayGap >= 0 && dayGap <= 30) {
+      score += 10;
+      reasons.push("\uC785\uAE08 \uC2DC\uAE30 \uC801\uC808");
+    } else if (dayGap <= 60) {
+      score += 5;
+    }
+
+    const paymentDraft = exactAmountMatch
+      ? {
+          paymentAmount: exactAmountMatch.paymentAmount,
+          vatType: exactAmountMatch.vatType,
+          vatAmount: exactAmountMatch.vatAmount,
+          finalAmount: exactAmountMatch.finalAmount,
+        }
+      : resolveManualLinkPaymentDraft(deposit, unpaid);
+
+    candidates.push({
+      salesId: row.id,
+      client: row.client,
+      site: row.site,
+      voucherNo: row.voucherNo,
+      saleDate: row.date,
+      unpaid,
+      salesAmount: row.salesAmount,
+      paidAmount: row.paidAmount,
+      score,
+      reasons,
+      paymentAmount: paymentDraft.paymentAmount,
+      vatType: paymentDraft.vatType,
+      vatAmount: paymentDraft.vatAmount,
+      finalAmount: paymentDraft.finalAmount,
+    });
+  }
+
+  return candidates
+    .filter((row) => row.score >= minScore)
+    .sort((a, b) => b.score - a.score || b.unpaid - a.unpaid)
+    .slice(0, limit);
+}
+
 export function findBestClientDepositReceivableMatch(
   tx: BankTransaction,
   receivables: ReceivableRow[],

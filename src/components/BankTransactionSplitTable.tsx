@@ -31,6 +31,7 @@ export type BankTransactionSplitTableLabels = {
   taxInvoiceIssueButton: string;
   empty: string;
   evidenceFind: string;
+  erpFind: string;
   evidencePlaceholder: string;
   accountSubjectPlaceholder: string;
   clientPlaceholder: string;
@@ -107,6 +108,7 @@ type SplitRowProps = {
   onEditClient: (id: string) => void;
   onEditFixedExpense: (id: string) => void;
   onFindEvidence: (id: string) => void;
+  onFindErpProcess: (id: string) => void;
   onIssueTaxInvoice?: (id: string) => void;
   onFilterCounterparty?: (label: string) => void;
 };
@@ -121,6 +123,7 @@ type BankTransactionSplitTableProps = {
   onEditClient: (id: string) => void;
   onEditFixedExpense: (id: string) => void;
   onFindEvidence: (id: string) => void;
+  onFindErpProcess: (id: string) => void;
   onIssueTaxInvoice?: (id: string) => void;
   onFilterCounterparty?: (label: string) => void;
   tableId?: string;
@@ -270,6 +273,7 @@ function splitRowPropsAreEqual(prev: SplitRowProps, next: SplitRowProps): boolea
     prev.onEditClient === next.onEditClient &&
     prev.onEditFixedExpense === next.onEditFixedExpense &&
     prev.onFindEvidence === next.onFindEvidence &&
+    prev.onFindErpProcess === next.onFindErpProcess &&
     prev.onIssueTaxInvoice === next.onIssueTaxInvoice &&
     prev.onFilterCounterparty === next.onFilterCounterparty
   );
@@ -332,6 +336,10 @@ const SplitRow = memo(function SplitRow({
   const clientAccentTone = resolveBankTxEvidenceAccentTone(rowAmounts, model.partyKind);
   const evidenceFindTone =
     !model.evidenceLinked && model.clientLabel?.trim()
+      ? resolveBankTxEvidenceAccentTone(rowAmounts, model.partyKind)
+      : null;
+  const erpFindTone =
+    !model.matchLinked && model.rowTone === "deposit" && model.clientLabel?.trim()
       ? resolveBankTxEvidenceAccentTone(rowAmounts, model.partyKind)
       : null;
 
@@ -453,13 +461,32 @@ const SplitRow = memo(function SplitRow({
       ) : null}
       <td className="erp-bank-wehago-cell erp-bank-wehago-cell--process">
         {model.showVoucherProcessedBadge ? (
-          <span className="erp-bank-wehago-badge bg-violet-100 text-violet-800">
+          <button
+            type="button"
+            className="erp-bank-wehago-cell-btn erp-bank-wehago-badge bg-violet-100 text-violet-800 hover:bg-violet-200"
+            title={labels.erpFind}
+            onClick={() => onFindErpProcess(model.id)}
+          >
             {labels.voucherProcessedBadge}
-          </span>
+          </button>
         ) : model.matchLinked ? (
-          <span className="erp-bank-wehago-badge bg-emerald-100 text-emerald-700">
+          <button
+            type="button"
+            className="erp-bank-wehago-cell-btn max-w-full truncate border border-emerald-200 bg-emerald-100 text-left text-emerald-700 hover:bg-emerald-200"
+            title={model.matchStatusLabel}
+            onClick={() => onFindErpProcess(model.id)}
+          >
             {model.matchStatusLabel}
-          </span>
+          </button>
+        ) : model.rowTone === "deposit" ? (
+          <button
+            type="button"
+            className={`erp-bank-wehago-cell-btn erp-bank-evidence-find${erpFindTone ? ` erp-bank-evidence-find--${erpFindTone}` : " erp-bank-evidence-find--plain"}`}
+            title={labels.erpFind}
+            onClick={() => onFindErpProcess(model.id)}
+          >
+            찾기
+          </button>
         ) : (
           <span className="text-slate-400">-</span>
         )}
@@ -494,6 +521,7 @@ function BankTransactionSplitTableComponent({
   onEditClient,
   onEditFixedExpense,
   onFindEvidence,
+  onFindErpProcess,
   onIssueTaxInvoice,
   onFilterCounterparty,
   tableId = "bank-transactions-table",
@@ -547,6 +575,7 @@ function BankTransactionSplitTableComponent({
         onEditClient={onEditClient}
         onEditFixedExpense={onEditFixedExpense}
         onFindEvidence={onFindEvidence}
+        onFindErpProcess={onFindErpProcess}
         onIssueTaxInvoice={onIssueTaxInvoice}
         onFilterCounterparty={onFilterCounterparty}
       />
