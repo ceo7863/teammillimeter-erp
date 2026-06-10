@@ -843,27 +843,79 @@ export function extractCalendarClientQuery(text) {
   return extractNameBeforeKeyword(expanded, ERP_CALENDAR_KEYWORD_PATTERN);
 }
 
+export function extractScScheduleClientQuery(text) {
+  const expanded = expandSynonymsForExtraction(String(text || "").trim());
+  let name = extractNameBeforeIntent(expanded, "scSchedule");
+  if (!name && /\uC77C\uC815/.test(expanded) && !includesErpCalendarKeyword(expanded)) {
+    name = extractNameBeforeKeyword(expanded, /\uC77C\uC815/);
+  }
+  return stripPeriodFromClientQuery(String(name || "").trim());
+}
+
 export function toolOpenScSchedule() {
   const url = String(config.sc?.apiBaseUrl || config.sc?.sharePublicUrl || "https://sc.teammillimeter.com").replace(/\/$/, "");
-  return { ok: true, url };
+  return { ok: true, kind: "sc", url };
+}
+
+export function toolOpenClientSiteRequestCalendar({ clientName }) {
+  const state = getErpState(["clients"]);
+  const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
+  const query = String(clientName || "").trim();
+  if (!query) {
+    return { ok: false, error: "\uAC70\uB798\uCC98 \uC774\uB984\uC774 \uD544\uC694\uD569\uB2C8\uB2E4." };
+  }
+
+  const matchedClients = findClientsByQuery(clients, query);
+  if (!matchedClients.length) {
+    return { ok: false, error: `"${query}" \uAC70\uB798\uCC98\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+  }
+
+  const resolvedName = String(matchedClients[0]?.name || query).trim();
+  const clientId = matchedClients[0]?.id;
+  return {
+    ok: true,
+    kind: "clientSiteCalendar",
+    clientName: resolvedName,
+    clientId: clientId != null && clientId !== "" ? clientId : undefined,
+  };
 }
 
 export function tryRuleBasedScScheduleOpen(message) {
   const text = String(message || "").trim();
-  if (!includesScScheduleKeyword(text)) return null;
+  const clientName = extractScScheduleClientQuery(text);
+  const hasScheduleKeyword = includesScScheduleKeyword(text);
+  const hasClientScheduleKeyword =
+    Boolean(clientName) && /\uC77C\uC815/.test(text) && !includesErpCalendarKeyword(text);
+  if (!hasScheduleKeyword && !hasClientScheduleKeyword) return null;
   if (!hasChatOpenVerb(text)) return null;
   if (includesErpCalendarKeyword(text)) return null;
+  if (clientName) {
+    return toolOpenClientSiteRequestCalendar({ clientName });
+  }
   return toolOpenScSchedule();
 }
 
 export function buildChatActionsFromScScheduleOpen(result) {
-  if (!result?.ok || !result.url) return [];
+  if (!result?.ok) return [];
+  if (result.kind === "clientSiteCalendar" || (result.clientName && !result.url)) {
+    return [
+      {
+        type: "open_client_site_request_calendar",
+        clientName: result.clientName,
+        clientId: result.clientId,
+      },
+    ];
+  }
+  if (!result.url) return [];
   return [{ type: "open_sc_schedule", url: result.url }];
 }
 
 export function formatScScheduleOpenAnswer(data) {
-  if (!data.ok) return data.error || "SC \uC2A4\uCF00\uC904 \uC774\uB3D9\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
-  return "SC \uC2A4\uCF00\uC904\uC744 \uC5F4\uC5B4 \uC904\uB2C8\uB2E4.";
+  if (!data.ok) return data.error || "\uC2A4\uCF00\uC904 \uC774\uB3D9\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  if (data.kind === "clientSiteCalendar" || (data.clientName && !data.url)) {
+    return `${data.clientName} \uC5C5\uCCB4\uBCC4 \uCE98\uB9B0\uB354(\uD604\uC7A5 \uC811\uC218)\uB97C \uC5F4\uC5B4 \uC904\uB2C8\uB2E4.`;
+  }
+  return "SC \uC2A4\uCF00\uC904 \uC0AC\uC774\uD2B8\uB97C \uC5F4\uC5B4 \uC904\uB2C8\uB2E4.";
 }
 
 export function toolOpenClientCalendar({ clientName }) {
@@ -1552,10 +1604,24 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "open_sc_schedule",
-      description: "SC(sc.teammillimeter.com) \uC2A4\uCF00\uC904 \uC0AC\uC774\uD2B8\uB97C \uC5F4\uC796\uB2C8\uB2E4. '\uC2A4\uCF00\uC904 \uC5F4\uC5B4', 'SC \uC5F4\uC5B4' \uC694\uCCAD \uC2DC \uC0AC\uC6A9.",
+      description: "SC(sc.teammillimeter.com) \uC2A4\uCF00\uC904 \uC0AC\uC774\uD2B8\uB97C \uC5F4\uC796\uB2C8\uB2E4. \uAC70\uB798\uCC98 \uC774\uB984 \uC5C6\uC774 '\uC2A4\uCF00\uC904 \uC5F4\uC5B4', 'SC \uC5F4\uC5B4' \uC694\uCCAD \uC2DC \uC0AC\uC6A9.",
       parameters: {
         type: "object",
         properties: {},
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "open_client_site_request_calendar",
+      description: "\uAC70\uB798\uCC98 \uC5C5\uCCB4\uBCC4 \uCE98\uB9B0\uB354(\uD604\uC7A5 \uC811\uC218 \uC2A4\uCF00\uC904)\uB97C \uC5F4\uC796\uB2C8\uB2E4. '\uC778\uB514\uD37C \uC2A4\uCF00\uC904 \uC5F4\uC5B4', '\uC778\uB514\uD37C \uC77C\uC815 \uC5F4\uC5B4' \uCC98\uB7FC \uAC70\uB798\uCC98+\uC2A4\uCF00\uC904/\uC77C\uC815 \uC694\uCCAD \uC2DC \uC0AC\uC6A9.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientName: { type: "string", description: "\uAC70\uB798\uCC98 \uC774\uB984 (\uC608: \uC778\uB514\uD37C)" },
+        },
+        required: ["clientName"],
       },
     },
   },
@@ -1686,6 +1752,12 @@ export function executeErpChatTool(name, args, user, question) {
       return toolOpenClientCalendar(args || {});
     case "open_sc_schedule":
       return toolOpenScSchedule();
+    case "open_client_site_request_calendar": {
+      const parsed = rawQuestion ? extractScScheduleClientQuery(rawQuestion) : "";
+      return toolOpenClientSiteRequestCalendar({
+        clientName: args?.clientName || parsed,
+      });
+    }
     case "open_worker_construction_cost_statement":
       return toolOpenWorkerConstructionCostStatement(args || {});
     case "open_client_construction_cost_statement":

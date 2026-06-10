@@ -63,7 +63,7 @@ const SYSTEM_PROMPT = [
   "\uB2F5\uBCC0\uC740 \uC9C1\uC811\uC801\uC774\uACE0 \uAC04\uACB0\uD558\uAC8C \uD55C\uAD6D\uC5B4\uB85C \uC791\uC131\uD558\uC138\uC694.",
   "\uC804\uD45C \uC5F4\uAE30 \uC694\uCCAD\uC740 find_sale_voucher \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "\uAC70\uB798\uCC98 \uCE98\uB9B0\uB354/\uB2EC\uB825 \uC5F4\uAE30(\uC608: \uC778\uB514\uD37C \uCE98\uB9B0\uB354 \uC5F4\uC5B4\uC918, \uB2EC\uB825 \uC5F4\uC5B4)\uC740 open_client_calendar \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
-  "SC \uC2A4\uCF00\uC904/\uC77C\uC815 \uC5F4\uAE30(\uC608: \uC2A4\uCF00\uC904 \uC5F4\uC5B4, SC \uC5F4\uC5B4)\uC740 open_sc_schedule \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. '\uC77C\uC815' \uC870\uD68C \uC804\uC6A9 \uC694\uCCAD\uC740 get_schedule_count\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
+  "SC \uC2A4\uCF00\uC904/\uC77C\uC815 \uC5F4\uAE30: \uAC70\uB798\uCC98 \uC774\uB984 \uC788\uC73C\uBA74 open_client_site_request_calendar(\uC608: \uC778\uB514\uD37C \uC2A4\uCF00\uC904 \uC5F4\uC5B4 \u2192 \uC5C5\uCCB4\uBCC4 \uCE98\uB9B0\uB354), \uAC70\uB798\uCC98 \uC5C6\uC774 \uC804\uCCB4 SC \uC774\uBA74 open_sc_schedule. '\uC77C\uC815' \uC870\uD68C \uC804\uC6A9 \uC694\uCCAD(\uC5F4\uAE30 \uC544\uB2D8)\uC740 get_schedule_count.",
   "\uC2DC\uACF5\uC790 \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C/\uC2DC\uACF5\uB0B4\uC5ED\uC11C \uC5F4\uAE30(\uC608: \uAE40\uBBFC\uC131 5\uC6D4 \uC2DC\uACF5\uB0B4\uC5ED\uC11C \uC5F4\uC5B4\uC918, \uAE40\uBBFC\uC131 \uC774\uBC88\uB2EC \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C)\uC740 open_worker_construction_cost_statement \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uC6D4 \uC9C0\uC815 \uC5C6\uC73C\uBA74 \uC774\uBC88 \uB2EC, \uB144\uB3C4 \uC5C6\uC73C\uBA74 \uC62C\uD574\uB97C \uAE30\uBCF8\uC73C\uB85C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "\uAC70\uB798\uCC98 \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C \uC0DD\uC131 \uBC0F \uC5F4\uAE30(\uC608: \uC778\uB514\uD37C \uC774\uBC88\uB2EC \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C)\uC740 open_client_construction_cost_statement \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "\uAC70\uB798\uCC98 \uC785\uAE08\uB0B4\uC5ED \uC5F4\uAE30(\uC608: \uC778\uB514\uD37C \uC785\uAE08\uB0B4\uC5ED \uC5F4\uC5B4\uC918, \uC778\uB514\uD37C 5\uC6D4 \uC785\uAE08\uB0B4\uC5ED, \uC778\uB514\uD37C \uBAA8\uB4E0 \uC785\uAE08\uB0B4\uC5ED)\uC740 open_client_deposit_history \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. '\uC5F4\uC5B4\uC918' \uC5C6\uC774 \uC785\uAE08\uB0B4\uC5ED\uB9CC \uC801\uC5B4\uB3C4 \uD655\uC778 \uC694\uCCAD\uC785\uB2C8\uB2E4. 5\uC6D4 \uB4F1 \uAE30\uAC04\uC740 period/startDate/endDate\uB85C \uC804\uB2EC\uD558\uC138\uC694. '\uBAA8\uB4E0', '\uC804\uCCB4'\uC740 allHistory=true.",
@@ -172,6 +172,9 @@ function formatToolResultsAsAnswer(toolsUsed) {
         lines.push(formatCalendarOpenAnswer(result));
         break;
       case "open_sc_schedule":
+        lines.push(formatScScheduleOpenAnswer(result));
+        break;
+      case "open_client_site_request_calendar":
         lines.push(formatScScheduleOpenAnswer(result));
         break;
       case "open_worker_construction_cost_statement":
@@ -409,6 +412,14 @@ export async function handleErpChat({ messages, user: tokenUser }) {
   if (scScheduleUsed) {
     answer = formatScScheduleOpenAnswer(scScheduleUsed.result);
     chatActions = buildChatActionsFromScScheduleOpen(scScheduleUsed.result);
+  }
+
+  const clientSiteCalendarUsed = toolsUsed.find(
+    (row) => row.name === "open_client_site_request_calendar" && row.result?.ok,
+  );
+  if (clientSiteCalendarUsed) {
+    answer = formatScScheduleOpenAnswer(clientSiteCalendarUsed.result);
+    chatActions = buildChatActionsFromScScheduleOpen(clientSiteCalendarUsed.result);
   }
 
   const workerStatementUsed = toolsUsed.find(

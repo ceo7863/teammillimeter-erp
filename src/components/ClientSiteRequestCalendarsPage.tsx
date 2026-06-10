@@ -37,9 +37,17 @@ type ClientSiteRequestCalendarsPageProps = {
   sales?: ClientCalendarSaleLike[];
   workers?: WorkerMasterLike[];
   clients?: ClientMasterLike[];
+  pendingClientFilter?: { clientName?: string; clientId?: string | number } | null;
+  onPendingClientFilterConsumed?: () => void;
 };
 
-export function ClientSiteRequestCalendarsPage({ sales = [], workers = [], clients = [] }: ClientSiteRequestCalendarsPageProps) {
+export function ClientSiteRequestCalendarsPage({
+  sales = [],
+  workers = [],
+  clients = [],
+  pendingClientFilter = null,
+  onPendingClientFilterConsumed,
+}: ClientSiteRequestCalendarsPageProps) {
   const [links, setLinks] = useState<ClientSiteRequestLink[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -65,6 +73,30 @@ export function ClientSiteRequestCalendarsPage({ sales = [], workers = [], clien
   useEffect(() => {
     void loadLinks();
   }, [loadLinks]);
+
+  useEffect(() => {
+    if (!pendingClientFilter?.clientName && pendingClientFilter?.clientId == null) return;
+    const query = String(pendingClientFilter.clientName || "").trim();
+    if (query) setSearch(query);
+
+    const targetId =
+      pendingClientFilter.clientId != null && pendingClientFilter.clientId !== ""
+        ? String(pendingClientFilter.clientId)
+        : "";
+    if (targetId && links.some((row) => String(row.clientId) === targetId)) {
+      setSelectedClientId(targetId);
+      onPendingClientFilterConsumed?.();
+      return;
+    }
+
+    if (!query || !links.length) return;
+    const normalizedQuery = query.toLowerCase();
+    const matched =
+      links.find((row) => String(row.clientName || "").trim().toLowerCase() === normalizedQuery) ||
+      links.find((row) => String(row.clientName || "").toLowerCase().includes(normalizedQuery));
+    if (matched) setSelectedClientId(String(matched.clientId));
+    onPendingClientFilterConsumed?.();
+  }, [pendingClientFilter, links, onPendingClientFilterConsumed]);
 
   const monthlySalesByClient = useMemo(
     () => buildClientMonthlySalesTotals(sales, monthKey),

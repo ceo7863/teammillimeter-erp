@@ -8101,6 +8101,10 @@ export default function TeammillimeterErpMvp() {
   const [pendingVoucherEditId, setPendingVoucherEditId] = useState(null);
   const [pendingVoucherSearchFilter, setPendingVoucherSearchFilter] = useState(null);
   const [pendingCalendarClientFilter, setPendingCalendarClientFilter] = useState(null);
+  const [pendingClientSiteRequestCalendarFilter, setPendingClientSiteRequestCalendarFilter] = useState<{
+    clientName?: string;
+    clientId?: string | number;
+  } | null>(null);
   const [pendingReceivablesNav, setPendingReceivablesNav] = useState<{
     tab?: "input" | "receivables" | "history" | "log";
     clientName?: string;
@@ -9300,6 +9304,14 @@ export default function TeammillimeterErpMvp() {
         if (url) window.open(url, "_blank", "noopener,noreferrer");
         return;
       }
+      if (action.type === "open_client_site_request_calendar") {
+        setPendingClientSiteRequestCalendarFilter({
+          clientName: action.clientName,
+          clientId: action.clientId,
+        });
+        setActive("clientSiteRequestCalendars");
+        return;
+      }
       if (action.type === "open_client_calendar") {
         setPendingCalendarClientFilter({
           clientName: action.clientName,
@@ -9378,6 +9390,11 @@ export default function TeammillimeterErpMvp() {
           setPendingCalendarClientFilter({
             clientName: action.clientName,
             anchorDate: action.startDate || todayISO(),
+          });
+        }
+        if (action.clientName && action.page === "clientSiteRequestCalendars") {
+          setPendingClientSiteRequestCalendarFilter({
+            clientName: action.clientName,
           });
         }
         if (action.accountingTab === "tax" && action.clientName) {
@@ -10185,7 +10202,13 @@ export default function TeammillimeterErpMvp() {
           <ClientSiteRequestsPage clients={activeClients} workers={workers} currentUser={currentUser} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="clientSiteRequestCalendars" active={active} className="erp-page-keep-alive--fill">
-          <ClientSiteRequestCalendarsPage sales={appliedSales} workers={workers} clients={activeClients} />
+          <ClientSiteRequestCalendarsPage
+            sales={appliedSales}
+            workers={workers}
+            clients={activeClients}
+            pendingClientFilter={pendingClientSiteRequestCalendarFilter}
+            onPendingClientFilterConsumed={() => setPendingClientSiteRequestCalendarFilter(null)}
+          />
         </PageKeepAlive>
         <PageKeepAlive pageKey="scAlimtalk" active={active}>
           <ScScheduleAlimtalkPage

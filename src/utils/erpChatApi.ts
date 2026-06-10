@@ -41,6 +41,7 @@ export type ErpChatAction =
       endDate: string;
     }
   | { type: "open_sc_schedule"; url: string }
+  | { type: "open_client_site_request_calendar"; clientName: string; clientId?: string | number }
   | {
       type: "navigate_erp";
       page: string;
