@@ -68,6 +68,7 @@ import { AuditLogPage } from "@/components/AuditLogPage";
 import { ErpChatWidget } from "@/components/ErpChatWidget";
 import { ErpChatStandalonePage } from "@/components/ErpChatStandalonePage";
 import { consumePendingChatAction } from "@/utils/erpChatPendingAction";
+import { openErpChatGuidePdf, type ErpChatAction } from "@/utils/erpChatApi";
 import { parseErpChatStandaloneRoute } from "@/utils/erpChatRoute";
 import { LoginHistoryPage } from "@/components/LoginHistoryPage";
 import { SalesManagementPage } from "@/components/SalesManagementPage";
@@ -9299,7 +9300,11 @@ export default function TeammillimeterErpMvp() {
   }, []);
 
   const handleErpChatAction = useCallback(
-    (action: import("@/utils/erpChatApi").ErpChatAction) => {
+    (action: ErpChatAction) => {
+      if (action.type === "open_chat_guide_pdf") {
+        void openErpChatGuidePdf().catch(() => {});
+        return;
+      }
       if (action.type === "open_sale_voucher") {
         openSaleVoucherFromComments(action.saleId);
         return;

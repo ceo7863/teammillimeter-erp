@@ -10,6 +10,7 @@ import {
 import { ERP_CHAT_LABELS } from "@/utils/erpChatLabels";
 import { stashPendingChatAction } from "@/utils/erpChatPendingAction";
 import type { ErpChatAction } from "@/utils/erpChatApi";
+import { openErpChatGuidePdf } from "@/utils/erpChatApi";
 
 export function ErpChatStandalonePage() {
   const [currentUser, setCurrentUser] = useState<ErpUser | null>(() => {
@@ -40,6 +41,10 @@ export function ErpChatStandalonePage() {
   }, [loginId, password]);
 
   const handleAction = useCallback((action: ErpChatAction) => {
+    if (action.type === "open_chat_guide_pdf") {
+      void openErpChatGuidePdf().catch(() => {});
+      return;
+    }
     stashPendingChatAction(action);
     window.location.href = "/";
   }, []);

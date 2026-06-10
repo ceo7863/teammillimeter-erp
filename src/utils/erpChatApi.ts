@@ -1,4 +1,8 @@
-import { apiRequest } from "@/utils/erpApi";
+import { apiRequest, getAuthToken } from "@/utils/erpApi";
+
+function erpApiBase() {
+  return import.meta.env.VITE_API_BASE || "/api";
+}
 
 export type ErpChatMessage = {
   role: "user" | "assistant";
@@ -77,7 +81,8 @@ export type ErpChatAction =
       bankSearchQuery?: string;
       taxSearchQuery?: string;
       taxBankLinkFilter?: "unlinked" | "linked";
-    };
+    }
+  | { type: "open_chat_guide_pdf" };
 
 export type ErpChatResponse = {
   ok: boolean;
@@ -106,4 +111,27 @@ export async function clearErpChatHistoryApi() {
 
 export async function fetchErpChatAudit(limit = 100) {
   return apiRequest<{ logs: ErpChatLog[] }>(`/erp/chat/audit?limit=${limit}`);
+}
+
+export async function openErpChatGuidePdf() {
+  const headers = new Headers();
+  const token = getAuthToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const response = await fetch(`${erpApiBase()}/erp/chat/guide-pdf`, { headers });
+  if (!response.ok) {
+    let message = "PDF를 불러올 수 없습니다.";
+    try {
+      const data = (await response.json()) as { error?: string };
+      if (data.error) message = data.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  window.open(url, "_blank", "noopener,noreferrer");
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }

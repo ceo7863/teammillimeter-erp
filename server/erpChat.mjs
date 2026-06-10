@@ -1,6 +1,11 @@
 import { config } from "./config.mjs";
 import { findUserById } from "./db.mjs";
 import {
+  isChatGuideQuery,
+  formatChatGuideAnswer,
+  buildChatActionsFromChatGuide,
+} from "./erpChatGuide.mjs";
+import {
   ERP_CHAT_TOOL_DEFINITIONS,
   executeErpChatTool,
   toolGetWorkerInfo,
@@ -8,6 +13,8 @@ import {
   tryRuleBasedChat,
   tryRuleBasedTotalsQuery,
   tryRuleBasedPriorityQuery,
+  isChatGreeting,
+  formatGreetingAnswer,
   formatUnpaidListAnswer,
   isCasualConversationQuery,
   formatCasualFallbackAnswer,
@@ -506,7 +513,17 @@ export async function handleErpChat({ messages, user: tokenUser }) {
   let engine = "rules";
   const casualQuery = isCasualConversationQuery(question);
 
-  if (isWeatherQuery(question)) {
+  if (isChatGuideQuery(question)) {
+    answer = formatChatGuideAnswer();
+    chatActions = buildChatActionsFromChatGuide();
+  } else if (isChatGreeting(question)) {
+    answer = [
+      formatGreetingAnswer(),
+      "",
+      "\uC790\uC138\uD55C \uBA85\uB839\uC5B4 \uBAA9\uB85D\uC740 \uC0AC\uC6A9 \uAC00\uC774\uB4DC PDF\uB97C \uC5F4\uC5B4 \uB4DC\uB838\uC5B4\uC694.",
+    ].join("\n");
+    chatActions = buildChatActionsFromChatGuide();
+  } else if (isWeatherQuery(question)) {
     const weatherResult = await toolGetWeather({ rawQuery: question });
     if (weatherResult?.ok) {
       answer = formatWeatherAnswer(weatherResult);

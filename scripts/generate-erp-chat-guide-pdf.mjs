@@ -1,0 +1,342 @@
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import fontkit from "@pdf-lib/fontkit";
+import { PDFDocument, rgb } from "pdf-lib";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const rootDir = path.resolve(__dirname, "..");
+const outputPath = path.join(rootDir, "docs", "ERP-AI-Chat-Guide.pdf");
+
+const FONT_CANDIDATES = [
+  path.join(rootDir, "server", "templates", "fonts", "NotoSansCJKkr-Regular.otf"),
+  "C:\\Windows\\Fonts\\malgun.ttf",
+  "/usr/share/fonts/opentype/noto/NotoSansCJKkr-Regular.otf",
+];
+
+const PAGE = { width: 595.28, height: 841.89, margin: 48, bottom: 56 };
+const COLORS = {
+  ink: rgb(0.06, 0.09, 0.16),
+  muted: rgb(0.35, 0.42, 0.5),
+  accent: rgb(0.08, 0.35, 0.72),
+  line: rgb(0.88, 0.9, 0.94),
+  exampleBg: rgb(0.96, 0.98, 1),
+};
+
+const SECTIONS = [
+  {
+    title: "1. \uC2DC\uC791\uD558\uAE30",
+    body: [
+      "ERP \uD654\uBA74 \uC6B0\uCE21 \uD558\uB2E8 \uCC57\uBD07\uC5D0 \uD55C\uAD6D\uC5B4\uB85C \uC790\uC5F0\uC2A4\uB7FD\uAC8C \uC9C8\uBB38\uD558\uBA74 \uB429\uB2C8\uB2E4.",
+      "\u300C\uC5F4\uC5B4\u300D\u300C\uBCF4\uC5EC\uC918\u300D\u300C\uCC3E\uC544\u300D\u300C\uC5BC\uB9C8\u300D\u300C\uC788\uC5B4?\u300D \uAC19\uC740 \uD45C\uD604\uC744 \uADF8\uB300\uB85C \uC0AC\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+      "\uAC70\uB798\uCC98 \uC774\uB984(\uC608: \uC778\uB514\uD37C)\uACFC \uC2DC\uACF5\uC790 \uC774\uB984(\uC608: \uAC15\uD0DC\uC6D0)\uC740 ERP \uB9C8\uC2A4\uD130 \uAE30\uC900\uC73C\uB85C \uC790\uB3D9 \uAD6C\uBD84\uD569\uB2C8\uB2E4.",
+      "\uAE30\uAC04: \uC624\uB298, \uC5B4\uC81C, \uB0B4\uC77C, \uC774\uBC88\uB2EC, 5\uC6D4, 6\uC6D4 2\uC77C, 2026-06-11 \uB4F1",
+    ],
+    examples: ["\uC548\uB155", "\uBB50 \uD560 \uC218 \uC788\uC5B4?", "\uB3C4\uC6C0\uB9D0"],
+  },
+  {
+    title: "2. \uBBF8\uC218 \u00B7 \uB9E4\uCD9C \u00B7 \uC785\uAE08",
+    body: ["\uAE08\uC561 \uC870\uD68C\uB294 \uB2F5\uBCC0\uB9CC, \uD654\uBA74 \uC774\uB3D9\uC740 \u300C\uC5F4\uC5B4\u300D\uB97C \uBD99\uC785\uB2C8\uB2E4."],
+    examples: [
+      "\uC778\uB514\uD37C \uBBF8\uC218",
+      "\uC774\uBC88\uB2EC \uBBF8\uC218 \uBAA9\uB85D",
+      "5\uC6D4 \uBBF8\uC218 \uBAA9\uB85D",
+      "\uC624\uB298 \uB9E4\uCD9C \uC5BC\uB9C8",
+      "\uC5B4\uC81C \uB9E4\uCD9C \uC5BC\uB9C8",
+      "\uC774\uBC88\uB2EC \uB9E4\uCD9C \uD569\uACC4",
+      "\uC774\uBC88\uB2EC \uB9E4\uCD9C \uC5BC\uB9C8",
+      "5\uC6D4 \uB9E4\uCD9C",
+      "\uC624\uB298 \uC785\uAE08\uC561",
+      "\uC774\uBC88\uB2EC \uC785\uAE08 \uD569\uACC4",
+      "\uC778\uB514\uD37C \uC624\uB298 \uC785\uAE08 \uC5BC\uB9C8",
+    ],
+  },
+  {
+    title: "3. \uC5F0\uB77D\uCC98 \u00B7 \uACC4\uC88C \u00B7 \uCC28\uB7C9",
+    body: [
+      "\uAC70\uB798\uCC98 \uB2F4\uB2F9\uC790\uB294 \uAC70\uB798\uCC98\uBA85+\uB2F4\uB2F9\uC790\uBA85\uC73C\uB85C, \uC2DC\uACF5\uC790\uB294 \uC2DC\uACF5\uC790\uBA85\uC73C\uB85C \uC870\uD68C\uD569\uB2C8\uB2E4.",
+      "\uC804\uD654\uBC88\uD638 \uAD8C\uD55C\uC774 \uC5C6\uB294 \uC0AC\uC6A9\uC790\uB294 \uBC88\uD638\uAC00 \uC81C\uD55C\uB420 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+    ],
+    examples: [
+      "\uC778\uB514\uD37C \uB2F4\uB2F9\uC790",
+      "\uC778\uB514\uD37C \uAE40\uD76C\uAD6D \uC804\uD654",
+      "\uAC15\uD0DC\uC6D0 \uC5F0\uB77D\uCC98",
+      "\uAC15\uD0DC\uC6D0 \uACC4\uC88C\uBC88\uD638",
+      "\uBC15\uC885\uADDC \uCC28\uB7C9\uBC88\uD638",
+      "\uBC15\uC885\uADDC \uCC28\uBC88",
+    ],
+  },
+  {
+    title: "4. \uD604\uC7A5 \u00B7 \uC77C\uC815",
+    body: [
+      "\uAC70\uB798\uCC98\uC758 \uD2B9\uC815 \uB0A0\uC9DC \uD604\uC7A5/\uC77C\uC815\uC744 SC \uC77C\uC815, \uB9E4\uCD9C \uC804\uD45C, \uD604\uC7A5 \uC811\uC218 \uAE30\uC900\uC73C\uB85C \uC870\uD68C\uD569\uB2C8\uB2E4.",
+      "\u300C\uC624\uB298\u300D\uC774 \uC788\uC73C\uBA74 \uC624\uB298 \uB0A0\uC9DC \uAE30\uC900\uC785\uB2C8\uB2E4.",
+    ],
+    examples: [
+      "\uC624\uB298 \uC778\uB514\uD37C \uD604\uC7A5\uC740?",
+      "\uC624\uB298 \uC778\uB514\uD37C \uC77C\uC815\uC740?",
+      "6\uC6D4 2\uC77C \uC778\uB514\uD37C \uD604\uC7A5 \uC5B4\uB514\uC57C",
+      "\uC5D0\uC2F7\uAD00 \uC624\uB298 \uD604\uC7A5",
+      "\uC778\uB514\uD37C \uC774\uBC88\uC8FC \uC77C\uC815",
+      "\uBC30\uC885\uC6D0 \uC624\uB298 \uC77C\uC815",
+      "\uC624\uB298 \uC77C\uC815",
+    ],
+  },
+  {
+    title: "5. \uB0B4\uC5ED\uC11C \u00B7 \uC804\uD45C",
+    body: ["\uBBF8\uC218 \uC804\uD45C \uAE30\uC900 \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C \uC0DD\uC131, \uB9C1\uD06C \uACF5\uC720, \uC804\uD45C \uC5F4\uAE30\uB97C \uC9C0\uC6D0\uD569\uB2C8\uB2E4."],
+    examples: [
+      "\uC778\uB514\uD37C \uC774\uBC88\uB2EC \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C",
+      "\uAE40\uBBFC\uC131 5\uC6D4 \uB0B4\uC5ED\uC11C \uC5F4\uC5B4",
+      "\uAE40\uBBFC\uC131 5\uC6D4 \uC2DC\uACF5\uB0B4\uC5ED\uC11C \uC5F4\uC5B4",
+      "\uC778\uB514\uD37C \uBBF8\uC218 \uC804\uD45C \uB0B4\uC5ED\uC11C \uB9C1\uD06C\uB85C \uB9CC\uB4E4\uC5B4",
+      "\uC778\uB514\uD37C \uBBF8\uC218 \uC804\uD45C \uB0B4\uC5ED\uC11C \uB9C1\uD06C\uB85C \uB9CC\uB4E4\uC5B4",
+      "6\uC6D4 2\uC77C \uC778\uB514\uD37C \uC804\uD45C \uC5F4\uC5B4",
+      "\uB0B4\uC5ED\uC11C \uBCF4\uB0C8\uB294\uB370 \uC785\uAE08 \uC548 \uB4E4\uC5B4\uC628 \uAC70",
+    ],
+  },
+  {
+    title: "6. \uACC4\uC0B0\uC11C \u00B7 \uC138\uAE08\uACC4\uC0B0\uC11C",
+    body: [
+      "\uAE08\uC561/\uD569\uACC4 \uC870\uD68C\uC640 \uD654\uBA74 \uC5F4\uAE30/\uAC80\uC0C9\uC744 \uAD6C\uBD84\uD569\uB2C8\uB2E4.",
+      "\uAE30\uAC04 \uC5C6\uC774 \uAC80\uC0C9\uD558\uBA74 \uC804\uCCB4 \uAE30\uAC04, \uC6D4\uC774 \uC788\uC73C\uBA74 \uD574\uB2F9 \uC6D4\uB9CC \uD544\uD130\uB429\uB2C8\uB2E4.",
+    ],
+    examples: [
+      "\uC624\uB298 \uB9E4\uC785 \uACC4\uC0B0\uC11C \uAE08\uC561",
+      "\uC774\uBC88\uB2EC \uB9E4\uCD9C \uACC4\uC0B0\uC11C \uD569\uACC4",
+      "\uC778\uB514\uD37C \uC774\uBC88\uB2EC \uACC4\uC0B0\uC11C \uBC1C\uD589\uD55C\uC801 \uC788\uB098?",
+      "\uC624\uB298 \uACC4\uC0B0\uC11C \uB4E4\uC5B4\uC628\uB370",
+      "\uC778\uB514\uD37C \uACC4\uC0B0\uC11C \uCC3E\uC544",
+      "\uC778\uB514\uD37C \uACC4\uC0B0\uC11C \uBCF4\uC5EC\uC918",
+      "5\uC6D4 \uACC4\uC0B0\uC11C\uC5D0\uC11C \uC778\uB514\uD37C \uAC80\uC0C9",
+      "\uD1B5\uC7A5\uC5F0\uACB0 \uC548\uB41C \uACC4\uC0B0\uC11C \uBCF4\uC5EC\uC918",
+      "\uC778\uB514\uD37C \uC138\uAE08\uACC4\uC0B0\uC11C \uB0B4\uC5ED \uC5F4\uC5B4",
+    ],
+  },
+  {
+    title: "7. \uC785\uAE08\uB0B4\uC5ED \u00B7 \uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D",
+    examples: [
+      "\uC778\uB514\uD37C \uC785\uAE08\uB0B4\uC5ED \uC5F4\uC5B4",
+      "\uC778\uB514\uD37C 5\uC6D4 \uC785\uAE08\uB0B4\uC5ED",
+      "\uC778\uB514\uD37C \uBAA8\uB450 \uC785\uAE08\uB0B4\uC5ED",
+      "\uC778\uB514\uD37C \uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uC788\uC5B4?",
+      "\uC778\uB514\uD37C \uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uC5F4\uC5B4",
+    ],
+  },
+  {
+    title: "8. \uD1B5\uC7A5(\uC740\uD589 \uB0B4\uC5ED)",
+    body: ["\uD1B5\uC7A5 \uD654\uBA74 \uC774\uB3D9, \uAC80\uC0C9, \uACC4\uC815 \uC5F4\uB9CC \uBCF4\uAE30\uB97C \uC9C0\uC6D0\uD569\uB2C8\uB2E4."],
+    examples: [
+      "5\uC6D4 \uD1B5\uC7A5 \uC5F4\uC5B4",
+      "\uD1B5\uC7A5\uB0B4\uC5ED\uC5D0\uC11C \uC778\uB514\uD37C \uCC3E\uC544",
+      "5\uC6D4 \uD1B5\uC7A5\uC5D0\uC11C OO \uAC80\uC0C9",
+      "\uACC4\uC815\uB9CC \uBCF4\uC5EC\uC918",
+      "5\uC6D4 \uACC4\uC815\uB9CC \uBCF4\uC5EC",
+    ],
+  },
+  {
+    title: "9. ERP \uD654\uBA74 \uC774\uB3D9",
+    body: ["\uB300\uC2DC\uBCF4\uB4DC, \uD64D\uAE08, \uD1B5\uC7A5, \uC138\uAE08\uACC4\uC0B0\uC11C, \uBD84\uC11D, \uADFC\uD0DC \uB4F1 \uBA54\uB274\uB85C \uC774\uB3D9\uD569\uB2C8\uB2E4."],
+    examples: [
+      "\uD1B5\uC7A5 \uC5F4\uC5B4",
+      "\uC138\uAE08\uACC4\uC0B0\uC11C \uC5F4\uC5B4",
+      "\uBD84\uC11D \uC5F4\uC5B4",
+      "\uC778\uB514\uD37C \uCE98\uB9B0\uB354 \uC5F4\uC5B4",
+      "\uB2EC\uB825 \uC5F4\uC5B4",
+    ],
+  },
+  {
+    title: "10. SC \uC2A4\uCF00\uC904 \u00B7 \uAC70\uB798\uCC98 \uCE98\uB9B0\uB354",
+    body: [
+      "\u300Csc \uC2A4\uCF00\uC904 \uC5F4\uC5B4\u300D\uB294 SC \uC804\uCCB4 \uC0AC\uC774\uD2B8\uB85C \uC774\uB3D9\uD569\uB2C8\uB2E4.",
+      "\uAC70\uB798\uCC98 \uC774\uB984+\uC2A4\uCF00\uC904/\uC77C\uC815\uC774\uBA74 \uD574\uB2F9 \uC5C5\uCCB4 \uD604\uC7A5 \uC811\uC218 \uCE98\uB9B0\uB354\uB85C \uC774\uB3D9\uD569\uB2C8\uB2E4.",
+    ],
+    examples: [
+      "sc \uC2A4\uCF00\uC904 \uC5F4\uC5B4",
+      "SC \uC2A4\uCF00\uC904 \uC5F4\uC5B4",
+      "\uC778\uB514\uD37C \uC2A4\uCF00\uC904 \uC5F4\uC5B4",
+      "\uC778\uB514\uD37C \uC77C\uC815 \uC5F4\uC5B4",
+    ],
+  },
+  {
+    title: "11. \uAE30\uD0C0",
+    examples: [
+      "\uC624\uB298 \uB0A0\uC528",
+      "\uBD80\uC0B0 \uB0B4\uC77C \uB0A0\uC528",
+      "\uC778\uB514\uD37C \uAC80\uC0C9",
+    ],
+  },
+  {
+    title: "12. \uC0AC\uC6A9 \uD301",
+    body: [
+      "\u2022 \uAC70\uB798\uCC98/\uC2DC\uACF5\uC790 \uC774\uB984\uC740 ERP\uC5D0 \uB4F1\uB85D\uB41C \uC774\uB984\uACFC \uBE44\uC2AC\uD558\uAC8C \uB9D0\uD574\uB3C4 \uB429\uB2C8\uB2E4.",
+      "\u2022 \u300C\uC5F4\uC5B4\u300D\u300C\uBCF4\uC5EC\uC918\u300D \u2192 \uD654\uBA74 \uC774\uB3D9 / \u300C\uC5BC\uB9C8\u300D\u300C\uD569\uACC4\u300D \u2192 \uC22B\uC790\uB9CC \uB2F5\uBCC0",
+      "\u2022 \u300C\uD604\uC7A5\u300D\u300C\uC77C\uC815\u300D \u2192 \uD574\uB2F9 \uB0A0\uC9DC \uBC30\uC815 \uC7A5\uC18C\u00B7\uC2A4\uCF00\uC904 \uC870\uD68C",
+      "\u2022 SC \uC77C\uC815\uC774 \uC548 \uB098\uC624\uBA74 ERP\uC5D0\uC11C SC \uC77C\uC815 \uB3D9\uAE30\uD654\uC640 \uD504\uB85C\uC81D\uD2B8\u2194\uAC70\uB798\uCC98 \uB9E4\uD551\uC744 \uD655\uC778\uD558\uC138\uC694.",
+      "\u2022 \uCC57\uBD07\uC740 ERP \uB370\uC774\uD130 \uAE30\uC900\uC774\uBA70, \uAD8C\uD55C\uC5D0 \uB530\uB77C \uC77C\uBD80 \uC815\uBCF4(\uC804\uD654\uBC88\uD638 \uB4F1)\uAC00 \uC81C\uD55C\uB420 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+    ],
+  },
+];
+
+function resolveKoreanFont() {
+  for (const candidate of FONT_CANDIDATES) {
+    if (fs.existsSync(candidate)) return fs.readFileSync(candidate);
+  }
+  throw new Error("\uD55C\uAE00 \uD3F0\uD2B8\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+}
+
+function wrapTextLines(font, text, maxWidth, size) {
+  const value = String(text || "").trim();
+  if (!value) return [];
+  const lines = [];
+  let current = "";
+  for (const ch of value) {
+    const next = current + ch;
+    if (font.widthOfTextAtSize(next, size) > maxWidth && current) {
+      lines.push(current);
+      current = ch === " " ? "" : ch;
+    } else {
+      current = next;
+    }
+  }
+  if (current.trim()) lines.push(current.trim());
+  return lines;
+}
+
+function formatKstDateLabel(date = new Date()) {
+  const kst = new Date(date.toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
+  return `${kst.getFullYear()}\uB144 ${String(kst.getMonth() + 1).padStart(2, "0")}\uC6D4 ${String(kst.getDate()).padStart(2, "0")}\uC77C`;
+}
+
+class PdfWriter {
+  constructor(pdfDoc, font) {
+    this.pdfDoc = pdfDoc;
+    this.font = font;
+    this.page = pdfDoc.addPage([PAGE.width, PAGE.height]);
+    this.y = PAGE.height - PAGE.margin;
+    this.contentWidth = PAGE.width - PAGE.margin * 2;
+  }
+
+  ensureSpace(height) {
+    if (this.y - height >= PAGE.bottom) return;
+    this.page = this.pdfDoc.addPage([PAGE.width, PAGE.height]);
+    this.y = PAGE.height - PAGE.margin;
+  }
+
+  drawText(text, size, color = COLORS.ink, gap = 6) {
+    const lines = wrapTextLines(this.font, text, this.contentWidth, size);
+    for (const line of lines) {
+      this.ensureSpace(size + gap);
+      this.page.drawText(line, {
+        x: PAGE.margin,
+        y: this.y,
+        size,
+        font: this.font,
+        color,
+      });
+      this.y -= size + gap;
+    }
+  }
+
+  drawHeading(text) {
+    this.ensureSpace(28);
+    this.y -= 8;
+    this.page.drawText(text, {
+      x: PAGE.margin,
+      y: this.y,
+      size: 13,
+      font: this.font,
+      color: COLORS.accent,
+    });
+    this.y -= 22;
+    this.page.drawLine({
+      start: { x: PAGE.margin, y: this.y + 8 },
+      end: { x: PAGE.width - PAGE.margin, y: this.y + 8 },
+      thickness: 0.8,
+      color: COLORS.line,
+    });
+    this.y -= 6;
+  }
+
+  drawExample(text) {
+    const size = 9.5;
+    const lineHeight = 14;
+    const padX = 10;
+    const padY = 8;
+    const lines = wrapTextLines(this.font, `\u25B8 ${text}`, this.contentWidth - padX * 2, size);
+    const boxHeight = lines.length * lineHeight + padY * 2;
+    this.ensureSpace(boxHeight + 4);
+    const boxBottom = this.y - boxHeight;
+    this.page.drawRectangle({
+      x: PAGE.margin,
+      y: boxBottom,
+      width: this.contentWidth,
+      height: boxHeight,
+      color: COLORS.exampleBg,
+      borderColor: COLORS.line,
+      borderWidth: 0.6,
+    });
+    let cursor = this.y - padY - 2;
+    for (const line of lines) {
+      this.page.drawText(line, {
+        x: PAGE.margin + padX,
+        y: cursor,
+        size,
+        font: this.font,
+        color: COLORS.ink,
+      });
+      cursor -= lineHeight;
+    }
+    this.y = boxBottom - 6;
+  }
+}
+
+async function buildGuidePdf() {
+  const pdfDoc = await PDFDocument.create();
+  pdfDoc.registerFontkit(fontkit);
+  const fontBytes = resolveKoreanFont();
+  const font = await pdfDoc.embedFont(fontBytes, { subset: true });
+  const writer = new PdfWriter(pdfDoc, font);
+
+  writer.drawText("TeamMillimeter ERP", 11, COLORS.muted, 4);
+  writer.drawText("AI \uCC57\uBD07 \uC0AC\uC6A9 \uAC00\uC774\uB4DC", 22, COLORS.ink, 8);
+  writer.drawText(
+    `\uC791\uC131\uC77C: ${formatKstDateLabel()}  \u00B7  \uC790\uC5F0\uC5B4 \uBA85\uB839\uC5B4 \uBAA8\uC74C`,
+    10,
+    COLORS.muted,
+    16,
+  );
+
+  writer.drawText(
+    "ERP \uCC57\uBD07\uC740 \uBBF8\uC218, \uC77C\uC815, \uD604\uC7A5, \uACC4\uC0B0\uC11C, \uD1B5\uC7A5, \uB0B4\uC5ED\uC11C \uB4F1 \uC5C5\uBB34\uB97C \uB9D0\uB85C \uC694\uCCAD\uD558\uBA74 \uC870\uD68C\uD558\uAC70\uB098 \uD574\uB2F9 \uD654\uBA74\uC73C\uB85C \uC774\uB3D9\uD574 \uC90D\uB2C8\uB2E4. \uC544\uB798 \uC608\uC2DC\uB97C \uADF8\uB300\uB85C \uC785\uB825\uD558\uAC70\uB098 \uBE44\uC2AC\uD558\uAC8C \uB9D0\uD574\uB3C4 \uB429\uB2C8\uB2E4.",
+    10.5,
+    COLORS.ink,
+    10,
+  );
+
+  for (const section of SECTIONS) {
+    writer.drawHeading(section.title);
+    for (const paragraph of section.body || []) {
+      writer.drawText(paragraph, 10, COLORS.ink, 8);
+    }
+    for (const example of section.examples || []) {
+      writer.drawExample(example);
+    }
+    writer.y -= 4;
+  }
+
+  return pdfDoc.save();
+}
+
+async function main() {
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  const bytes = await buildGuidePdf();
+  fs.writeFileSync(outputPath, bytes);
+  console.log(`PDF saved: ${outputPath}`);
+  console.log(`Size: ${(bytes.length / 1024).toFixed(1)} KB`);
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

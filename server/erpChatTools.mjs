@@ -4766,10 +4766,6 @@ export function tryRuleBasedChat(message, user) {
   const text = String(message || "").trim();
   if (!text) return null;
 
-  if (isChatGreeting(text)) {
-    return formatGreetingAnswer();
-  }
-
   const lookupAnswer = tryRuleBasedLookupQuery(text);
   if (lookupAnswer) return lookupAnswer;
 

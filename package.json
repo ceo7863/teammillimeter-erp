@@ -12,7 +12,8 @@
     "audit:billing": "node scripts/audit-sale-billing.mjs",
     "reseed:db": "node scripts/reseed-db.mjs",
     "deploy:prod": "powershell -ExecutionPolicy Bypass -File scripts/deploy-prod.ps1",
-    "icons": "node scripts/generate-pwa-icons.mjs"
+    "icons": "node scripts/generate-pwa-icons.mjs",
+    "generate:chat-guide-pdf": "node scripts/generate-erp-chat-guide-pdf.mjs"
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",

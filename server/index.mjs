@@ -117,6 +117,7 @@ import {
   getErpChatAudit,
   clearErpChatHistory,
 } from "./erpChat.mjs";
+import { getChatGuidePdfPath } from "./erpChatGuide.mjs";
 import { initErpChatStore } from "./erpChatStore.mjs";
 import { buildDailyReport, formatDailyReportMessage, yesterdayDateKey } from "./dailyReport.mjs";
 import { collectSystemMetrics } from "./systemMetrics.mjs";
@@ -1385,6 +1386,17 @@ app.delete("/api/erp/chat/history", authMiddleware, (req, res) => {
 app.get("/api/erp/chat/audit", authMiddleware, adminMiddleware, (req, res) => {
   const limit = Number(req.query.limit || 100);
   res.json({ logs: getErpChatAudit(limit) });
+});
+
+app.get("/api/erp/chat/guide-pdf", authMiddleware, (_req, res) => {
+  const filePath = getChatGuidePdfPath();
+  if (!filePath) {
+    res.status(404).json({ ok: false, error: "\uC0AC\uC6A9 \uAC00\uC774\uB4DC PDF\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." });
+    return;
+  }
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", 'inline; filename="ERP-AI-Chat-Guide.pdf"');
+  res.sendFile(filePath);
 });
 
 app.get("/api/erp/bank-transactions", authMiddleware, (_req, res) => {
