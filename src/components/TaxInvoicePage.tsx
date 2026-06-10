@@ -97,6 +97,14 @@ const CANCELLATION_VIEW_OPTIONS: Array<{ key: TaxInvoiceCancellationView; label:
   { key: "cancellation", label: "\uCDE8\uC18C\u00B7\uC0C1\uC1C0" },
 ];
 
+type TaxInvoiceBankLinkFilter = "all" | "linked" | "unlinked";
+
+const BANK_LINK_FILTER_OPTIONS: Array<{ key: TaxInvoiceBankLinkFilter; label: string }> = [
+  { key: "all", label: "\uC804\uCCB4" },
+  { key: "unlinked", label: "\uD1B5\uC7A5\uBBF8\uC5F0\uACB0" },
+  { key: "linked", label: "\uD1B5\uC7A5\uC5F0\uACB0" },
+];
+
 type InvoiceModalState = {
   mode: "create" | "edit";
   id?: string;
@@ -511,6 +519,7 @@ export function TaxInvoicePage({
   pendingClientFilter?: {
     clientName?: string;
     searchQuery?: string;
+    bankLinkFilter?: "linked" | "unlinked";
     startDate?: string;
     endDate?: string;
     periodKey?: "all" | "custom";
@@ -524,6 +533,7 @@ export function TaxInvoicePage({
   const [quarterYear, setQuarterYear] = useState(() => new Date().getFullYear());
   const [flowFilter, setFlowFilter] = useState<FlowFilterKey>("all");
   const [cancellationView, setCancellationView] = useState<TaxInvoiceCancellationView>("all");
+  const [bankLinkFilter, setBankLinkFilter] = useState<TaxInvoiceBankLinkFilter>("all");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [expandedClientKeys, setExpandedClientKeys] = useState<string[]>([]);
   const [query, setQuery] = useState("");
@@ -571,9 +581,16 @@ export function TaxInvoicePage({
   }, [modal?.documentType]);
 
   useEffect(() => {
-    if (!pendingClientFilter?.clientName && !pendingClientFilter?.searchQuery) return;
+    if (
+      !pendingClientFilter?.clientName &&
+      !pendingClientFilter?.searchQuery &&
+      !pendingClientFilter?.bankLinkFilter
+    ) {
+      return;
+    }
     const searchText = String(pendingClientFilter.searchQuery || pendingClientFilter.clientName || "").trim();
     if (searchText) setQuery(searchText);
+    if (pendingClientFilter.bankLinkFilter) setBankLinkFilter(pendingClientFilter.bankLinkFilter);
     if (pendingClientFilter.periodKey === "all") {
       setPeriodKey("all");
       setDateFilter({ startDate: "", endDate: "" });
@@ -639,8 +656,14 @@ export function TaxInvoicePage({
   const filteredRows = useMemo(() => {
     const byFlow = filterTaxInvoicesByFlow(periodScopedRows, flowFilter);
     const searched = sortTaxInvoices(filterTaxInvoices(byFlow, query));
-    return filterTaxInvoicesByCancellationView(searched, cancellationView);
-  }, [periodScopedRows, flowFilter, query, cancellationView]);
+    const byBankLink =
+      bankLinkFilter === "all"
+        ? searched
+        : bankLinkFilter === "linked"
+          ? searched.filter((row) => linkedTaxInvoiceIds.has(row.id))
+          : searched.filter((row) => !linkedTaxInvoiceIds.has(row.id));
+    return filterTaxInvoicesByCancellationView(byBankLink, cancellationView);
+  }, [periodScopedRows, flowFilter, query, bankLinkFilter, linkedTaxInvoiceIds, cancellationView]);
 
   const totalExcludedIds = useMemo(
     () => buildTaxInvoiceCancellationExcludedIds(filteredRows),
@@ -1896,6 +1919,21 @@ export function TaxInvoicePage({
                       setExpandedClientKeys([]);
                     }
                   }}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2.5">
+              {BANK_LINK_FILTER_OPTIONS.map((option) => (
+                <Button
+                  key={option.key}
+                  type="button"
+                  size="sm"
+                  variant={bankLinkFilter === option.key ? "default" : "outline"}
+                  className={FILTER_BUTTON_CLASS}
+                  onClick={() => setBankLinkFilter(option.key)}
                 >
                   {option.label}
                 </Button>

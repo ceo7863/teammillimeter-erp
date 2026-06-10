@@ -76,6 +76,7 @@ export type ErpChatAction =
       bankColumnPreset?: "account_only";
       bankSearchQuery?: string;
       taxSearchQuery?: string;
+      taxBankLinkFilter?: "unlinked" | "linked";
     };
 
 export type ErpChatResponse = {

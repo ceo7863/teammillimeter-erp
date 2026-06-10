@@ -9427,7 +9427,15 @@ export default function TeammillimeterErpMvp() {
             clientName: action.clientName,
           });
         }
-        if (action.accountingTab === "tax" && action.taxSearchQuery) {
+        if (action.accountingTab === "tax" && action.taxBankLinkFilter) {
+          setPendingTaxInvoiceClientFilter({
+            bankLinkFilter: action.taxBankLinkFilter,
+            startDate: action.startDate,
+            endDate: action.endDate,
+            periodKey: action.startDate && action.endDate ? "custom" : "all",
+          });
+        }
+        if (action.accountingTab === "tax" && action.taxSearchQuery && !action.taxBankLinkFilter) {
           setPendingTaxInvoiceClientFilter({
             searchQuery: action.taxSearchQuery,
             startDate: action.startDate,

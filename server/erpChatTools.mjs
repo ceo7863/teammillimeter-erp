@@ -3564,9 +3564,85 @@ export function extractTaxInvoiceSearchQuery(text) {
   return null;
 }
 
+function isTaxInvoiceBankUnlinkedHint(text) {
+  const compact = String(text || "").replace(/\s+/g, "");
+  return (
+    /\uD1B5\uC7A5(?:\uC5F0\uACB0|\uC5F0\uB3D9)(?:\uC548|\uC6A9|\uBBF8)/.test(compact) ||
+    /\uD1B5\uC7A5\uBBF8(?:\uC5F0\uACB0|\uC5F0\uB3D9)/.test(compact)
+  );
+}
+
+function isTaxInvoiceBankLinkedHint(text) {
+  const compact = String(text || "").replace(/\s+/g, "");
+  if (isTaxInvoiceBankUnlinkedHint(text)) return false;
+  return /\uD1B5\uC7A5(?:\uC5F0\uACB0|\uC5F0\uB3D9)(?:\uB428|\uB41C|\uD55C|\uC788)/.test(compact);
+}
+
+export function isTaxInvoiceBankLinkViewQuery(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  if (!includesTaxInvoiceKeyword(raw)) return false;
+  if (isTaxInvoiceSummaryQuery(raw)) return false;
+  if (!isTaxInvoiceBankUnlinkedHint(raw) && !isTaxInvoiceBankLinkedHint(raw)) return false;
+  const hasOpenVerb = hasChatOpenVerb(raw) || TAX_SEARCH_VERB_PATTERN.test(raw);
+  return hasOpenVerb;
+}
+
+export function tryRuleBasedTaxInvoiceBankLinkView(message) {
+  const text = String(message || "").trim();
+  if (!isTaxInvoiceBankLinkViewQuery(text)) return null;
+  const bankLinkFilter = isTaxInvoiceBankUnlinkedHint(text) ? "unlinked" : "linked";
+  if (textHasTaxInvoiceSearchPeriod(text)) {
+    const period = resolveStatementPeriodFromInput(text);
+    return {
+      ok: true,
+      bankLinkFilter,
+      startDate: period.startDate,
+      endDate: period.endDate,
+      periodLabel: period.label,
+      periodKey: "custom",
+    };
+  }
+  return {
+    ok: true,
+    bankLinkFilter,
+    periodKey: "all",
+  };
+}
+
+export function buildChatActionsFromTaxInvoiceBankLinkView(result) {
+  if (!result?.ok || !result.bankLinkFilter) return [];
+  const action = {
+    type: "navigate_erp",
+    page: "accounting",
+    label: "\uC138\uAE08\uACC4\uC0B0\uC11C",
+    accountingTab: "tax",
+    taxBankLinkFilter: result.bankLinkFilter,
+  };
+  if (result.startDate && result.endDate) {
+    action.startDate = result.startDate;
+    action.endDate = result.endDate;
+  }
+  return [action];
+}
+
+export function formatTaxInvoiceBankLinkViewAnswer(data) {
+  if (!data?.ok || !data.bankLinkFilter) {
+    return data?.error || "\uC138\uAE08\uACC4\uC0B0\uC11C \uD544\uD130 \uC774\uB3D9\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  }
+  const period = data.periodLabel
+    ? ` (${data.periodLabel})`
+    : data.periodKey === "all"
+      ? " (\uC804\uCCB4 \uAE30\uAC04)"
+      : "";
+  const label = data.bankLinkFilter === "unlinked" ? "\uD1B5\uC7A5 \uBBF8\uC5F0\uACB0" : "\uD1B5\uC7A5 \uC5F0\uACB0";
+  return `\uC138\uAE08\uACC4\uC0B0\uC11C${period}\uC5D0\uC11C ${label} \uACC4\uC0B0\uC11C\uB97C \uBCF4\uC5EC\uB4DC\uB9BD\uB2C8\uB2E4.`;
+}
+
 export function isTaxInvoiceSearchQuery(text) {
   const raw = String(text || "").trim();
   if (!raw) return false;
+  if (isTaxInvoiceBankLinkViewQuery(raw)) return false;
   if (!includesTaxInvoiceKeyword(raw)) return false;
   if (isTaxInvoiceSummaryQuery(raw)) return false;
   if (isClientTaxInvoiceIssuedQuery(raw)) return false;

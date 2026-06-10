@@ -211,6 +211,7 @@ export function toolNavigateErp({
   bankColumnPreset,
   bankSearchQuery,
   taxSearchQuery,
+  taxBankLinkFilter,
   message,
 }) {
   const entry = resolveNavEntryByTarget(target);
@@ -239,6 +240,7 @@ export function toolNavigateErp({
   let navEndDate = endDate || undefined;
   const resolvedBankSearchQuery = String(bankSearchQuery || "").trim();
   const resolvedTaxSearchQuery = String(taxSearchQuery || "").trim();
+  const resolvedTaxBankLinkFilter = String(taxBankLinkFilter || "").trim();
   if (entry.accountingTab === "bank" || entry.id === "accounting_bank") {
     const hasExplicitPeriod = Boolean(startDate || endDate || String(period || "").trim());
     if (!resolvedBankSearchQuery || hasExplicitPeriod) {
@@ -262,6 +264,12 @@ export function toolNavigateErp({
   }
   if (resolvedTaxSearchQuery && (entry.accountingTab === "tax" || entry.id === "accounting_tax")) {
     navExtras.taxSearchQuery = resolvedTaxSearchQuery;
+  }
+  if (
+    (resolvedTaxBankLinkFilter === "unlinked" || resolvedTaxBankLinkFilter === "linked") &&
+    (entry.accountingTab === "tax" || entry.id === "accounting_tax")
+  ) {
+    navExtras.taxBankLinkFilter = resolvedTaxBankLinkFilter;
   }
 
   return {
@@ -411,6 +419,11 @@ export const NAVIGATE_ERP_TOOL_DEFINITION = {
         taxSearchQuery: {
           type: "string",
           description: "\uC138\uAE08\uACC4\uC0B0\uC11C \uAC80\uC0C9\uC5B4 (\uC608: \uAC70\uB798\uCC98\uBA85, \uC0AC\uC5C5\uC790\uBC88\uD638, \uACC4\uC0B0\uC11C \uBC88\uD638)",
+        },
+        taxBankLinkFilter: {
+          type: "string",
+          enum: ["unlinked", "linked"],
+          description: "\uD1B5\uC7A5 \uC5F0\uACB0 \uC5EC\uBD80 \uD544\uD130 (unlinked=\uBBF8\uC5F0\uACB0, linked=\uC5F0\uACB0\uB428)",
         },
       },
       required: ["target"],
