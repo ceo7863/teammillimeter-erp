@@ -314,6 +314,13 @@ function FolderSearchInput({
   );
 }
 
+type PendingWorkerStatementFilter = {
+  workerName: string;
+  startDate: string;
+  endDate: string;
+  autoGenerate?: boolean;
+};
+
 type StatementsPageProps = {
   sales: Array<Record<string, unknown>>;
   clientMaster?: Array<Record<string, unknown>>;
@@ -326,6 +333,8 @@ type StatementsPageProps = {
   currentUser?: ErpUser | null;
   draft?: StatementDraft | null;
   onDraftConsumed?: () => void;
+  pendingWorkerStatementFilter?: PendingWorkerStatementFilter | null;
+  onPendingWorkerStatementFilterConsumed?: () => void;
   bankTransactions?: ComponentProps<typeof PdfArchivePage>["bankTransactions"];
   workerPaymentRecords?: WorkerMonthlyPaymentRecord[];
   workerPayWithVatLearnRules?: WorkerPayWithVatLearnRule[];
@@ -352,6 +361,8 @@ export function StatementsPage({
   currentUser = null,
   draft = null,
   onDraftConsumed,
+  pendingWorkerStatementFilter = null,
+  onPendingWorkerStatementFilterConsumed,
   bankTransactions = [],
   workerPaymentRecords = [],
   workerPayWithVatLearnRules = [],
@@ -447,6 +458,33 @@ export function StatementsPage({
       }
     }, 0);
   };
+
+  useEffect(() => {
+    if (!pendingWorkerStatementFilter?.workerName) return;
+    restoringHistoryRef.current = true;
+    setActivePageTab("create");
+    setStatementType("worker");
+    setWorker(pendingWorkerStatementFilter.workerName);
+    setDateFilter({
+      startDate: pendingWorkerStatementFilter.startDate || "",
+      endDate: pendingWorkerStatementFilter.endDate || "",
+    });
+    setWorkerStatementGenerated(false);
+    setClientStatementGenerated(false);
+    setStatementHint("");
+    setPdfMessage("");
+    setStatementShareLink("");
+    autoGeneratePendingRef.current = Boolean(pendingWorkerStatementFilter.autoGenerate);
+
+    window.setTimeout(() => {
+      restoringHistoryRef.current = false;
+      if (autoGeneratePendingRef.current) {
+        setAutoGenerateTick((tick) => tick + 1);
+      }
+    }, 0);
+
+    onPendingWorkerStatementFilterConsumed?.();
+  }, [pendingWorkerStatementFilter, onPendingWorkerStatementFilterConsumed]);
 
   useEffect(() => {
     const effectiveDraft = draft ?? peekStatementDraft();
@@ -761,27 +799,45 @@ export function StatementsPage({
 
   useEffect(() => {
     if (!autoGeneratePendingRef.current) return;
-    if (statementType !== "client" || !hasClientSelection) return;
 
-    autoGeneratePendingRef.current = false;
+    if (statementType === "client" && hasClientSelection) {
+      autoGeneratePendingRef.current = false;
 
-    const rows = dateFilteredSales
-      .filter((row) => matchesClientName(row, client))
-      .filter((row) => matchesStatementSaleFilter(row));
+      const rows = dateFilteredSales
+        .filter((row) => matchesClientName(row, client))
+        .filter((row) => matchesStatementSaleFilter(row));
 
-    if (!rows.length) {
-      setStatementHint(shouldFilterUnpaid ? L.noUnpaidRows : "\uC120\uD0DD \uAE30\uAC04\uC5D0 \uD574\uB2F9 \uAC70\uB798\uCC98 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
-      setClientStatementGenerated(false);
+      if (!rows.length) {
+        setStatementHint(shouldFilterUnpaid ? L.noUnpaidRows : "\uC120\uD0DD \uAE30\uAC04\uC5D0 \uD574\uB2F9 \uAC70\uB798\uCC98 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
+        setClientStatementGenerated(false);
+        return;
+      }
+
+      setStatementHint(shouldFilterUnpaid ? L.unpaidOnlyHint(rows.length) : "");
+      setPdfMessage("");
+      setClientStatementIssuedDate(todayISO());
+      setClientStatementGenerated(true);
+      recordGenerationLog("client", client, rows.length);
+      clearStatementDraftStash();
+      onDraftConsumedRef.current?.();
       return;
     }
 
-    setStatementHint(shouldFilterUnpaid ? L.unpaidOnlyHint(rows.length) : "");
-    setPdfMessage("");
-    setClientStatementIssuedDate(todayISO());
-    setClientStatementGenerated(true);
-    recordGenerationLog("client", client, rows.length);
-    clearStatementDraftStash();
-    onDraftConsumedRef.current?.();
+    if (statementType === "worker" && hasWorkerSelection) {
+      autoGeneratePendingRef.current = false;
+
+      if (!workerRows.length) {
+        setStatementHint("\uC120\uD0DD \uAE30\uAC04\uC5D0 \uD574\uB2F9 \uC2DC\uACF5\uC790 \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
+        setWorkerStatementGenerated(false);
+        return;
+      }
+
+      setStatementHint("");
+      setPdfMessage("");
+      setStatementShareLink("");
+      setWorkerStatementGenerated(true);
+      recordGenerationLog("worker", worker, workerRows.length);
+    }
   }, [autoGenerateTick]);
 
   const handleGenerateStatement = () => {

@@ -16,7 +16,28 @@ import {
   formatCalendarOpenAnswer,
   buildChatActionsFromCalendarOpen,
   tryRuleBasedCalendarOpen,
+  formatWorkerStatementOpenAnswer,
+  buildChatActionsFromWorkerStatementOpen,
+  tryRuleBasedWorkerStatementOpen,
+  tryRuleBasedStatementOpen,
+  tryRuleBasedDepositOpen,
+  tryRuleBasedTaxInvoiceOpen,
+  formatClientStatementOpenAnswer,
+  buildChatActionsFromClientStatementOpen,
+  formatDepositOpenAnswer,
+  buildChatActionsFromDepositOpen,
+  formatTaxInvoiceOpenAnswer,
+  buildChatActionsFromTaxInvoiceOpen,
 } from "./erpChatTools.mjs";
+import {
+  toolNavigateErp,
+  toolListErpPages,
+  tryRuleBasedNavigateOpen,
+  formatNavigateAnswer,
+  buildChatActionsFromNavigateResult,
+  NAVIGATE_ERP_TOOL_DEFINITION,
+  LIST_ERP_PAGES_TOOL_DEFINITION,
+} from "./erpChatNavigate.mjs";
 import { appendErpChatLog, listErpChatLogs, listErpChatLogsAdmin, clearErpChatLogsForUser } from "./erpChatStore.mjs";
 import { appendErpChatAuditLog } from "./erpChatAudit.mjs";
 
@@ -31,6 +52,11 @@ const SYSTEM_PROMPT = [
   "\uB2F5\uBCC0\uC740 \uC9C1\uC811\uC801\uC774\uACE0 \uAC04\uACB0\uD558\uAC8C \uD55C\uAD6D\uC5B4\uB85C \uC791\uC131\uD558\uC138\uC694.",
   "\uC804\uD45C \uC5F4\uAE30 \uC694\uCCAD\uC740 find_sale_voucher \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "\uAC70\uB798\uCC98 \uCE04\uB9B0\uB354 \uC5F4\uAE30(\uC608: \uC778\uB514\uD37C \uCE04\uB9B0\uB354 \uC5F4\uC5B4\uC918)\uC740 open_client_calendar \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
+  "\uC2DC\uACF5\uC790 \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C/\uC2DC\uACF5\uB0B4\uC5ED\uC11C \uC5F4\uAE30(\uC608: \uAE40\uBBFC\uC131 5\uC6D4 \uC2DC\uACF5\uB0B4\uC5ED\uC11C \uC5F4\uC5B4\uC918, \uAE40\uBBFC\uC131 \uC774\uBC88\uB2EC \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C)\uC740 open_worker_construction_cost_statement \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uC6D4 \uC9C0\uC815 \uC5C6\uC73C\uBA74 \uC774\uBC88 \uB2EC, \uB144\uB3C4 \uC5C6\uC73C\uBA74 \uC62C\uD574\uB97C \uAE30\uBCF8\uC73C\uB85C \uC0AC\uC6A9\uD558\uC138\uC694.",
+  "\uAC70\uB798\uCC98 \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C \uC0DD\uC131 \uBC0F \uC5F4\uAE30(\uC608: \uC778\uB514\uD37C \uC774\uBC88\uB2EC \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C)\uC740 open_client_construction_cost_statement \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
+  "\uAC70\uB798\uCC98 \uC785\uAE08\uB0B4\uC5ED \uC5F4\uAE30(\uC608: \uC778\uB514\uD37C \uC785\uAE08\uB0B4\uC5ED \uC5F4\uC5B4\uC918)\uC740 open_client_deposit_history \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
+  "\uAC70\uB798\uCC98 \uC138\uAE08\uACC4\uC0B0\uC11C \uB0B4\uC5ED \uC5F4\uAE30(\uC608: \uC778\uB514\uD37C \uC138\uAE08\uACC4\uC0B0\uC11C \uB0B4\uC5ED \uC5F4\uC5B4\uC918)\uC740 open_client_tax_invoice_history \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
+  "ERP \uBA54\uB274/\uD654\uBA74 \uC774\uB3D9(\uB300\uC2DC\uBCF4\uB4DC, \uD86D\uAE08, \uD1B5\uC7A5, \uBD84\uC11D, \uADFC\uD009 \uB4F1)\uC740 navigate_erp \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uD654\uBA74 \uBAA9\uB85D\uC740 list_erp_pages.",
   "\uC77C\uC815 \uC870\uD68C \uC2DC \uAC70\uC218\uC640 \uD568\uAED8 \uBAA9\uB85D\uC744 \uBE84\uB81B \uD615\uD0DC\uB85C \uC791\uC131\uD558\uC138\uC694. \uAC70\uB798\uCC98+\uAE30\uAC04 \uC9C8\uBB38(\uC608: \uD0A4\uCE9C\uC81C\uB2C8\uC2A4 \uC774\uBC88\uC8FC \uC77C\uC815)\uC740 clientName\uACFC \uC774\uBC88\uC8FC\uB97C \uC9C0\uC815\uD558\uC138\uC694.",
 ].join("\n");
 
@@ -127,11 +153,53 @@ function formatToolResultsAsAnswer(toolsUsed) {
       case "open_client_calendar":
         lines.push(formatCalendarOpenAnswer(result));
         break;
+      case "open_worker_construction_cost_statement":
+        lines.push(formatWorkerStatementOpenAnswer(result));
+        break;
+      case "open_client_construction_cost_statement":
+        lines.push(formatClientStatementOpenAnswer(result));
+        break;
+      case "open_client_deposit_history":
+        lines.push(formatDepositOpenAnswer(result));
+        break;
+      case "open_client_tax_invoice_history":
+        lines.push(formatTaxInvoiceOpenAnswer(result));
+        break;
+      case "navigate_erp":
+        lines.push(formatNavigateAnswer(result));
+        break;
+      case "list_erp_pages":
+        if (result.pages?.length) {
+          lines.push(
+            result.pages
+              .slice(0, 20)
+              .map((page) => `- ${page.label} (${page.id})`)
+              .join("\n"),
+          );
+          if (result.pages.length > 20) lines.push(`\u2026 \uC678 ${result.pages.length - 20}\uAC74`);
+        }
+        break;
       default:
         break;
     }
   }
   return lines.filter(Boolean).join("\n\n").trim();
+}
+
+const ERP_CHAT_ALL_TOOL_DEFINITIONS = [
+  ...ERP_CHAT_TOOL_DEFINITIONS,
+  NAVIGATE_ERP_TOOL_DEFINITION,
+  LIST_ERP_PAGES_TOOL_DEFINITION,
+];
+
+function executeChatTool(fnName, args, user, question) {
+  if (fnName === "navigate_erp") {
+    return toolNavigateErp({ ...(args || {}), message: question });
+  }
+  if (fnName === "list_erp_pages") {
+    return toolListErpPages();
+  }
+  return executeErpChatTool(fnName, args, user);
 }
 
 export async function handleErpChat({ messages, user: tokenUser }) {
@@ -164,7 +232,7 @@ export async function handleErpChat({ messages, user: tokenUser }) {
 
     while (guard < 6) {
       guard += 1;
-      const data = await callOpenAiChat(chatMessages, ERP_CHAT_TOOL_DEFINITIONS);
+      const data = await callOpenAiChat(chatMessages, ERP_CHAT_ALL_TOOL_DEFINITIONS);
       const choice = data?.choices?.[0]?.message;
       if (!choice) break;
 
@@ -188,7 +256,7 @@ export async function handleErpChat({ messages, user: tokenUser }) {
         } catch {
           args = {};
         }
-        const result = executeErpChatTool(fnName, args, user);
+        const result = executeChatTool(fnName, args, user, question);
         toolsUsed.push({ name: fnName, args, result });
         chatMessages.push({
           role: "tool",
@@ -210,7 +278,36 @@ export async function handleErpChat({ messages, user: tokenUser }) {
         answer = formatCalendarOpenAnswer(calendarOpenResult);
         chatActions = buildChatActionsFromCalendarOpen(calendarOpenResult);
       } else {
-        answer = tryRuleBasedChat(question, user) || "";
+        const depositOpenResult = tryRuleBasedDepositOpen(question);
+        if (depositOpenResult) {
+          answer = formatDepositOpenAnswer(depositOpenResult);
+          chatActions = buildChatActionsFromDepositOpen(depositOpenResult);
+        } else {
+          const taxOpenResult = tryRuleBasedTaxInvoiceOpen(question);
+          if (taxOpenResult) {
+            answer = formatTaxInvoiceOpenAnswer(taxOpenResult);
+            chatActions = buildChatActionsFromTaxInvoiceOpen(taxOpenResult);
+          } else {
+            const statementOpenResult = tryRuleBasedStatementOpen(question);
+            if (statementOpenResult) {
+              if (statementOpenResult.clientName) {
+                answer = formatClientStatementOpenAnswer(statementOpenResult);
+                chatActions = buildChatActionsFromClientStatementOpen(statementOpenResult);
+              } else {
+                answer = formatWorkerStatementOpenAnswer(statementOpenResult);
+                chatActions = buildChatActionsFromWorkerStatementOpen(statementOpenResult);
+              }
+            } else {
+              const navigateOpenResult = tryRuleBasedNavigateOpen(question);
+              if (navigateOpenResult) {
+                answer = formatNavigateAnswer(navigateOpenResult);
+                chatActions = buildChatActionsFromNavigateResult(navigateOpenResult);
+              } else {
+                answer = tryRuleBasedChat(question, user) || "";
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -234,6 +331,42 @@ export async function handleErpChat({ messages, user: tokenUser }) {
   if (calendarUsed) {
     answer = formatCalendarOpenAnswer(calendarUsed.result);
     chatActions = buildChatActionsFromCalendarOpen(calendarUsed.result);
+  }
+
+  const workerStatementUsed = toolsUsed.find(
+    (row) => row.name === "open_worker_construction_cost_statement" && row.result?.ok,
+  );
+  if (workerStatementUsed) {
+    answer = formatWorkerStatementOpenAnswer(workerStatementUsed.result);
+    chatActions = buildChatActionsFromWorkerStatementOpen(workerStatementUsed.result);
+  }
+
+  const clientStatementUsed = toolsUsed.find(
+    (row) => row.name === "open_client_construction_cost_statement" && row.result?.ok,
+  );
+  if (clientStatementUsed) {
+    answer = formatClientStatementOpenAnswer(clientStatementUsed.result);
+    chatActions = buildChatActionsFromClientStatementOpen(clientStatementUsed.result);
+  }
+
+  const depositUsed = toolsUsed.find((row) => row.name === "open_client_deposit_history" && row.result?.ok);
+  if (depositUsed) {
+    answer = formatDepositOpenAnswer(depositUsed.result);
+    chatActions = buildChatActionsFromDepositOpen(depositUsed.result);
+  }
+
+  const taxInvoiceUsed = toolsUsed.find(
+    (row) => row.name === "open_client_tax_invoice_history" && row.result?.ok,
+  );
+  if (taxInvoiceUsed) {
+    answer = formatTaxInvoiceOpenAnswer(taxInvoiceUsed.result);
+    chatActions = buildChatActionsFromTaxInvoiceOpen(taxInvoiceUsed.result);
+  }
+
+  const navigateUsed = toolsUsed.find((row) => row.name === "navigate_erp" && row.result?.ok);
+  if (navigateUsed) {
+    answer = formatNavigateAnswer(navigateUsed.result);
+    chatActions = buildChatActionsFromNavigateResult(navigateUsed.result);
   }
 
   if (!answer) {

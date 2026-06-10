@@ -17,7 +17,58 @@ export type ErpChatLog = {
 export type ErpChatAction =
   | { type: "open_sale_voucher"; saleId: string | number }
   | { type: "open_sale_voucher_search"; client: string; startDate: string; endDate: string }
-  | { type: "open_client_calendar"; clientName: string; anchorDate: string };
+  | { type: "open_client_calendar"; clientName: string; anchorDate: string }
+  | {
+      type: "open_worker_construction_cost_statement";
+      workerName: string;
+      startDate: string;
+      endDate: string;
+      autoGenerate?: boolean;
+    }
+  | {
+      type: "open_client_statement";
+      client: string;
+      startDate: string;
+      endDate: string;
+      saleIds: Array<string | number>;
+      autoGenerate?: boolean;
+    }
+  | { type: "open_client_deposit_history"; clientName: string }
+  | {
+      type: "open_client_tax_invoice_history";
+      clientName: string;
+      startDate: string;
+      endDate: string;
+    }
+  | {
+      type: "navigate_erp";
+      page: string;
+      label?: string;
+      accountingTab?: "bank" | "ledger" | "tax" | "classify";
+      basicInfoTab?: "clients" | "workers" | "company";
+      analysisTab?:
+        | "accountSummary"
+        | "profitLoss"
+        | "fixedExpense"
+        | "accountTrend"
+        | "cashStatus"
+        | "cashFlow"
+        | "custom";
+      userAdminTab?: "users" | "audit" | "login" | "notify" | "system";
+      receivablesTab?: "input" | "receivables" | "history" | "log";
+      workerPaymentsTab?:
+        | "summary"
+        | "detail"
+        | "monthly"
+        | "monthlyActual"
+        | "statement"
+        | "payoutHistory"
+        | "assignmentFairness";
+      clientName?: string;
+      workerName?: string;
+      startDate?: string;
+      endDate?: string;
+    };
 
 export type ErpChatResponse = {
   ok: boolean;

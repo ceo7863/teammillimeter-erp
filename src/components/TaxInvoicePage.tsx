@@ -486,6 +486,8 @@ export function TaxInvoicePage({
   companyProfile = DEFAULT_COMPANY_PROFILE,
   erpVersion = 0,
   onErpVersionChange,
+  pendingClientFilter = null,
+  onPendingClientFilterConsumed,
 }: {
   taxInvoices: TaxInvoice[];
   setTaxInvoices: React.Dispatch<React.SetStateAction<TaxInvoice[]>>;
@@ -506,6 +508,8 @@ export function TaxInvoicePage({
   companyProfile?: CompanyProfile;
   erpVersion?: number;
   onErpVersionChange?: (version: number) => void;
+  pendingClientFilter?: { clientName: string; startDate?: string; endDate?: string } | null;
+  onPendingClientFilterConsumed?: () => void;
 }) {
   const { recordAudit, recordSummaryAudit } = useAudit();
   const [periodKey, setPeriodKey] = useState<PeriodKey>("thisMonth");
@@ -559,6 +563,21 @@ export function TaxInvoicePage({
   useEffect(() => {
     ntsDefaultAppliedRef.current = false;
   }, [modal?.documentType]);
+
+  useEffect(() => {
+    if (!pendingClientFilter?.clientName) return;
+    const clientName = pendingClientFilter.clientName;
+    setQuery(clientName);
+    if (pendingClientFilter.startDate && pendingClientFilter.endDate) {
+      setPeriodKey("custom");
+      setDateFilter({
+        startDate: pendingClientFilter.startDate,
+        endDate: pendingClientFilter.endDate,
+      });
+      setSearchMonthKey(String(pendingClientFilter.startDate).slice(0, 7));
+    }
+    onPendingClientFilterConsumed?.();
+  }, [pendingClientFilter, onPendingClientFilterConsumed]);
 
   useEffect(() => {
     if (!issueOptions || !modal || !canIssueElectronically || ntsDefaultAppliedRef.current) return;

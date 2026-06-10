@@ -145,6 +145,7 @@ import { migrateActivePageKey, storeAccountingTab, storeBankLedgerScopePref, typ
 import { storeAnalysisNavTab, storeAnalysisTab, type AnalysisHubTab } from "@/utils/analysisHub";
 import { migrateBasicInfoPageKey, resolveBasicInfoTabAccess, storeBasicInfoTab, type BasicInfoHubTab } from "@/utils/basicInfoHub";
 import { UserAdminHubPage } from "@/components/UserAdminHubPage";
+import { type UserAdminHubTab } from "@/utils/userAdminHub";
 import { migrateUserAdminPageKey, resolveUserAdminTabAccess, storeUserAdminTab } from "@/utils/userAdminHub";
 import { migrateStatementPageKey, storeStatementTab } from "@/utils/statementHub";
 import { normalizeStatementGenerationLogs } from "@/utils/statementGenerationLogs";
@@ -7859,6 +7860,7 @@ export default function TeammillimeterErpMvp() {
   const basicInfoTabAccess = useMemo(() => resolveBasicInfoTabAccess(currentUser), [currentUser]);
   const userAdminTabAccess = useMemo(() => resolveUserAdminTabAccess(currentUser), [currentUser]);
   const [basicInfoNavTab, setBasicInfoNavTab] = useState<BasicInfoHubTab | undefined>();
+  const [userAdminNavTab, setUserAdminNavTab] = useState<UserAdminHubTab | undefined>();
   const [accountingNavTab, setAccountingNavTab] = useState<AccountingHubTab | undefined>();
   const [analysisNavTab, setAnalysisNavTab] = useState<AnalysisHubTab | undefined>();
   const [workerProbationAlertCount, setWorkerProbationAlertCount] = useState(0);
@@ -7890,6 +7892,18 @@ export default function TeammillimeterErpMvp() {
       setAnalysisNavTab(undefined);
     }
   }, [active, analysisNavTab]);
+
+  useEffect(() => {
+    if (active === "basicInfo" && basicInfoNavTab) {
+      setBasicInfoNavTab(undefined);
+    }
+  }, [active, basicInfoNavTab]);
+
+  useEffect(() => {
+    if (active === "usersAdmin" && userAdminNavTab) {
+      setUserAdminNavTab(undefined);
+    }
+  }, [active, userAdminNavTab]);
 
   const openWorkersFromProbationAlert = useCallback((workerId?: string) => {
     storeBasicInfoTab("workers");
@@ -8087,6 +8101,27 @@ export default function TeammillimeterErpMvp() {
   const [pendingVoucherEditId, setPendingVoucherEditId] = useState(null);
   const [pendingVoucherSearchFilter, setPendingVoucherSearchFilter] = useState(null);
   const [pendingCalendarClientFilter, setPendingCalendarClientFilter] = useState(null);
+  const [pendingReceivablesNav, setPendingReceivablesNav] = useState<{
+    tab?: "input" | "receivables" | "history" | "log";
+    clientName?: string;
+  } | null>(null);
+  const [pendingWorkerPaymentsTab, setPendingWorkerPaymentsTab] = useState<
+    | "summary"
+    | "detail"
+    | "monthly"
+    | "monthlyActual"
+    | "statement"
+    | "payoutHistory"
+    | "assignmentFairness"
+    | null
+  >(null);
+  const [pendingTaxInvoiceClientFilter, setPendingTaxInvoiceClientFilter] = useState(null);
+  const [pendingWorkerStatementFilter, setPendingWorkerStatementFilter] = useState<{
+    workerName: string;
+    startDate: string;
+    endDate: string;
+    autoGenerate?: boolean;
+  } | null>(null);
   const [salesManagementEditSale, setSalesManagementEditSale] = useState(null);
   const [saleCommentsViewSaleId, setSaleCommentsViewSaleId] = useState<string | number | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -9259,6 +9294,72 @@ export default function TeammillimeterErpMvp() {
           anchorDate: action.anchorDate,
         });
         setActive("calendar");
+        return;
+      }
+      if (action.type === "open_worker_construction_cost_statement") {
+        setPendingWorkerStatementFilter({
+          workerName: action.workerName,
+          startDate: action.startDate,
+          endDate: action.endDate,
+          autoGenerate: action.autoGenerate,
+        });
+        setActive("statements");
+        return;
+      }
+      if (action.type === "open_client_statement") {
+        const draft = {
+          statementType: "client" as const,
+          client: action.client,
+          startDate: action.startDate,
+          endDate: action.endDate,
+          unpaidOnly: false,
+          autoGenerate: action.autoGenerate !== false,
+          saleIds: Array.isArray(action.saleIds) ? action.saleIds : [],
+          createdAt: Date.now(),
+          source: "client-calendar" as const,
+        };
+        stashStatementDraft(draft);
+        setStatementDraft(draft);
+        setActive("statements");
+        return;
+      }
+      if (action.type === "open_client_deposit_history") {
+        setPendingReceivablesNav({
+          tab: "history",
+          clientName: action.clientName,
+        });
+        setActive("receivables");
+        return;
+      }
+      if (action.type === "open_client_tax_invoice_history") {
+        setPendingTaxInvoiceClientFilter({
+          clientName: action.clientName,
+          startDate: action.startDate,
+          endDate: action.endDate,
+        });
+        setAccountingNavTab("tax");
+        setActive("accounting");
+        return;
+      }
+      if (action.type === "navigate_erp") {
+        if (action.accountingTab) setAccountingNavTab(action.accountingTab);
+        if (action.basicInfoTab) setBasicInfoNavTab(action.basicInfoTab);
+        if (action.analysisTab) setAnalysisNavTab(action.analysisTab);
+        if (action.userAdminTab) setUserAdminNavTab(action.userAdminTab);
+        if (action.workerPaymentsTab) setPendingWorkerPaymentsTab(action.workerPaymentsTab);
+        if (action.receivablesTab || action.clientName) {
+          setPendingReceivablesNav({
+            tab: action.receivablesTab,
+            clientName: action.clientName,
+          });
+        }
+        if (action.clientName && action.page === "calendar") {
+          setPendingCalendarClientFilter({
+            clientName: action.clientName,
+            anchorDate: action.startDate || todayISO(),
+          });
+        }
+        setActive(action.page as ErpPageKey);
       }
     },
     [openSaleVoucherFromComments],
@@ -10134,6 +10235,8 @@ export default function TeammillimeterErpMvp() {
             currentUser={currentUser}
             autoLinkedSaleIds={autoLinkedSaleIds}
             manualLinkedSaleIds={manualLinkedSaleIds}
+            pendingReceivablesNav={pendingReceivablesNav}
+            onPendingReceivablesNavConsumed={() => setPendingReceivablesNav(null)}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="workerPayments" active={active}>
@@ -10160,6 +10263,8 @@ export default function TeammillimeterErpMvp() {
             onPersistBankTransactionMemoUpdates={persistBankTransactionMemoUpdates}
             onRequestImmediateSave={flushErpSave}
             currentUser={currentUser}
+            initialTab={pendingWorkerPaymentsTab}
+            onInitialTabConsumed={() => setPendingWorkerPaymentsTab(null)}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="accounting" active={active}>
@@ -10198,6 +10303,8 @@ export default function TeammillimeterErpMvp() {
               companyProfile,
               erpVersion,
               onErpVersionChange: publishErpVersion,
+              pendingClientFilter: pendingTaxInvoiceClientFilter,
+              onPendingClientFilterConsumed: () => setPendingTaxInvoiceClientFilter(null),
             }}
             classify={{
               accountCodes,
@@ -10279,6 +10386,7 @@ export default function TeammillimeterErpMvp() {
           <PageKeepAlive pageKey="usersAdmin" active={active}>
             <UserAdminHubPage
               isHubActive={active === "usersAdmin"}
+              initialTab={userAdminNavTab}
               tabAccess={userAdminTabAccess}
               usersPanel={
                 <UsersAdminPage
@@ -10307,6 +10415,8 @@ export default function TeammillimeterErpMvp() {
             currentUser={currentUser}
             draft={statementDraft}
             onDraftConsumed={() => setStatementDraft(null)}
+            pendingWorkerStatementFilter={pendingWorkerStatementFilter}
+            onPendingWorkerStatementFilterConsumed={() => setPendingWorkerStatementFilter(null)}
             bankTransactions={bankTransactions}
             workerPaymentRecords={workerPaymentRecords}
             workerPayWithVatLearnRules={workerPayWithVatLearnRules}

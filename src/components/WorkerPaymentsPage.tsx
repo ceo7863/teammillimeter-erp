@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, CreditCard, FileText, Search, WalletCards } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -165,6 +165,8 @@ export function WorkerPaymentsPage({
   onPersistBankTransactionMemoUpdates,
   onRequestImmediateSave,
   currentUser,
+  initialTab,
+  onInitialTabConsumed,
 }: {
   workers?: WorkerMasterLike[];
   workerPortalStatementAcks?: WorkerPortalStatementAck[];
@@ -201,13 +203,22 @@ export function WorkerPaymentsPage({
     workerMonthlyPaymentMemos?: WorkerMonthlyPaymentMemos;
   }) => void | Promise<boolean>;
   currentUser?: { name?: string; email?: string };
+  initialTab?: WorkerPaymentTab | null;
+  onInitialTabConsumed?: () => void;
 }) {
-  const [activeTab, setActiveTab] = useState<WorkerPaymentTab>("summary");
+  const [activeTab, setActiveTab] = useState<WorkerPaymentTab>(() => initialTab || "summary");
   const [dateFilter, setDateFilter] = useState({ startDate: monthStartISO(), endDate: todayISO() });
   const [selectedWorker, setSelectedWorker] = useState("");
   const [detailQuery, setDetailQuery] = useState("");
   const [selectedMonthKey, setSelectedMonthKey] = useState(() => monthStartISO().slice(0, 7));
   const [monthlyActualFocus, setMonthlyActualFocus] = useState<{ worker: string; voucherId?: string } | null>(null);
+
+  useEffect(() => {
+    if (!initialTab) return;
+    setActiveTab(initialTab);
+    onInitialTabConsumed?.();
+  }, [initialTab, onInitialTabConsumed]);
+
   const filteredSales = useMemo(
     () => filterSalesByDate(sales, dateFilter.startDate, dateFilter.endDate),
     [sales, dateFilter.endDate, dateFilter.startDate]

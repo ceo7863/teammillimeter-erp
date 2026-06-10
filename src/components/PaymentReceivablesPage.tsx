@@ -226,6 +226,10 @@ export function PaymentReceivablesPage({
   currentUser,
   autoLinkedSaleIds = new Set<string>(),
   manualLinkedSaleIds = new Set<string>(),
+  pendingHistoryFilter = null,
+  pendingReceivablesNav = null,
+  onPendingHistoryFilterConsumed,
+  onPendingReceivablesNavConsumed,
 }: {
   sales?: SaleLike[];
   receivableRows?: ReceivableRow[];
@@ -239,6 +243,10 @@ export function PaymentReceivablesPage({
   currentUser: { name?: string; email?: string } | null;
   autoLinkedSaleIds?: Set<string>;
   manualLinkedSaleIds?: Set<string>;
+  pendingHistoryFilter?: { clientName: string } | null;
+  pendingReceivablesNav?: { tab?: PaymentTab; clientName?: string } | null;
+  onPendingHistoryFilterConsumed?: () => void;
+  onPendingReceivablesNavConsumed?: () => void;
 }) {
   const { recordAudit } = useAudit();
   const [tab, setTab] = useState<PaymentTab>("input");
@@ -274,6 +282,18 @@ export function PaymentReceivablesPage({
     setReceivableMonthKey(currentMonthKey);
     setFilters({ startDate: monthStartISO(), endDate: todayISO(), client: "" });
   };
+
+  useEffect(() => {
+    const nav = pendingReceivablesNav || (pendingHistoryFilter?.clientName ? { tab: "history" as const, clientName: pendingHistoryFilter.clientName } : null);
+    if (!nav) return;
+    if (nav.tab) setTab(nav.tab);
+    if (nav.clientName) {
+      setFilters((prev) => ({ ...prev, client: nav.clientName || "" }));
+      if (nav.tab === "history" || !nav.tab) setHistoryQuery(nav.clientName);
+    }
+    onPendingReceivablesNavConsumed?.();
+    onPendingHistoryFilterConsumed?.();
+  }, [pendingReceivablesNav, pendingHistoryFilter, onPendingReceivablesNavConsumed, onPendingHistoryFilterConsumed]);
 
   useEffect(() => {
     const matched = monthKeyFromDateRange(filters.startDate, filters.endDate);
