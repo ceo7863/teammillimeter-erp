@@ -84,6 +84,14 @@ export function ErpChatStandalonePage({ autoVoice = true }: ErpChatStandalonePag
               {loggingIn ? ERP_CHAT_LABELS.standaloneLoginSubmitting : ERP_CHAT_LABELS.standaloneLoginSubmit}
             </button>
           </div>
+          <div className="erp-chat-standalone-install mt-6 border-t border-slate-800 pt-4">
+            <div className="text-xs font-semibold text-slate-300">{ERP_CHAT_LABELS.standaloneInstallTitle}</div>
+            <ol className="mt-2 list-decimal space-y-2 pl-4 text-xs leading-relaxed text-slate-400">
+              <li>{ERP_CHAT_LABELS.standaloneInstallShortcut}</li>
+              <li>{ERP_CHAT_LABELS.standaloneInstallRemove}</li>
+              <li>{ERP_CHAT_LABELS.standaloneInstallBookmark}</li>
+            </ol>
+          </div>
         </div>
       </div>
     );

@@ -20,7 +20,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   </React.StrictMode>,
 );
 
-if ("serviceWorker" in navigator) {
+if ("serviceWorker" in navigator && !/^\/chat\/?$/i.test(window.location.pathname)) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js").catch(() => {
       // PWA optional — ignore registration failures in dev.
