@@ -16,6 +16,9 @@ const STORAGE_KEY = "teammillimeter-erp-chat-session";
 type ErpChatWidgetProps = {
   currentUser: ErpUser | null;
   enabled?: boolean;
+  standalone?: boolean;
+  defaultOpen?: boolean;
+  autoStartVoice?: boolean;
   onAction?: (action: ErpChatAction) => void;
 };
 
@@ -36,8 +39,16 @@ function saveSessionMessages(messages: ErpChatMessage[]) {
   window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-40)));
 }
 
-export function ErpChatWidget({ currentUser, enabled = true, onAction }: ErpChatWidgetProps) {
-  const [open, setOpen] = useState(false);
+export function ErpChatWidget({
+  currentUser,
+  enabled = true,
+  standalone = false,
+  defaultOpen = false,
+  autoStartVoice = false,
+  onAction,
+}: ErpChatWidgetProps) {
+  const [open, setOpen] = useState(defaultOpen || standalone);
+  const autoVoiceStartedRef = useRef(false);
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<ErpChatMessage[]>(() => loadSessionMessages());
   const [loading, setLoading] = useState(false);
@@ -90,6 +101,13 @@ export function ErpChatWidget({ currentUser, enabled = true, onAction }: ErpChat
   }, [messages, open, loading]);
 
   const canUse = Boolean(currentUser && enabled);
+
+  useEffect(() => {
+    if (!autoStartVoice || !open || !speechSupported || autoVoiceStartedRef.current || !canUse) return;
+    autoVoiceStartedRef.current = true;
+    const timer = window.setTimeout(() => beginPushToTalk(), 350);
+    return () => window.clearTimeout(timer);
+  }, [autoStartVoice, open, speechSupported, beginPushToTalk, canUse]);
 
   const sendMessage = useCallback(
     async (text: string) => {
@@ -156,7 +174,7 @@ export function ErpChatWidget({ currentUser, enabled = true, onAction }: ErpChat
 
   return (
     <>
-      {!open ? (
+      {!standalone && !open ? (
         <button
           type="button"
           className="erp-chat-fab"
@@ -169,7 +187,12 @@ export function ErpChatWidget({ currentUser, enabled = true, onAction }: ErpChat
       ) : null}
 
       {open ? (
-        <div className="erp-chat-panel" role="dialog" aria-modal="true" aria-label={ERP_CHAT_LABELS.title}>
+        <div
+          className={`erp-chat-panel${standalone ? " erp-chat-panel--standalone" : ""}`}
+          role="dialog"
+          aria-modal="true"
+          aria-label={ERP_CHAT_LABELS.title}
+        >
           <div className="erp-chat-panel__head">
             <div className="erp-chat-panel__title">
               <Bot size={18} />
@@ -198,18 +221,20 @@ export function ErpChatWidget({ currentUser, enabled = true, onAction }: ErpChat
               >
                 <Trash2 size={16} />
               </button>
-              <button
-                type="button"
-                className="erp-chat-icon-btn"
-                onClick={() => {
-                  stopListening();
-                  stopSpeaking();
-                  setOpen(false);
-                }}
-                aria-label={ERP_CHAT_LABELS.close}
-              >
-                <X size={18} />
-              </button>
+              {!standalone ? (
+                <button
+                  type="button"
+                  className="erp-chat-icon-btn"
+                  onClick={() => {
+                    stopListening();
+                    stopSpeaking();
+                    setOpen(false);
+                  }}
+                  aria-label={ERP_CHAT_LABELS.close}
+                >
+                  <X size={18} />
+                </button>
+              ) : null}
             </div>
           </div>
 

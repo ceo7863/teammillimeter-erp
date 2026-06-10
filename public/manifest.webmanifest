@@ -22,5 +22,20 @@
       "type": "image/svg+xml",
       "purpose": "maskable"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "AI 음성 챗",
+      "short_name": "AI 음성",
+      "description": "ERP AI 음성 챗봇 (측면 버튼용)",
+      "url": "/chat?voice=1",
+      "icons": [
+        {
+          "src": "/icon.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ]
+    }
   ]
 }

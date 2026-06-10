@@ -16632,3 +16632,40 @@ button:disabled,
   }
 }
 
+.erp-chat-panel--standalone {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.erp-chat-standalone {
+  position: relative;
+}
+
+.erp-chat-standalone__body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.erp-chat-standalone__body .erp-chat-panel--standalone {
+  flex: 1;
+  min-height: 0;
+}
+
+.erp-chat-standalone-login .erp-chat-input {
+  background: rgb(15 23 42);
+  border-color: rgb(51 65 85);
+  color: #fff;
+}
+
+.erp-chat-standalone-login .erp-chat-error {
+  margin-top: 0;
+}
+

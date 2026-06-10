@@ -66,6 +66,9 @@ import { AuditProvider, useAudit } from "@/context/AuditContext";
 import { AuditField, AuditCellHint, EntityAuditButton } from "@/components/AuditField";
 import { AuditLogPage } from "@/components/AuditLogPage";
 import { ErpChatWidget } from "@/components/ErpChatWidget";
+import { ErpChatStandalonePage } from "@/components/ErpChatStandalonePage";
+import { consumePendingChatAction } from "@/utils/erpChatPendingAction";
+import { parseErpChatStandaloneRoute } from "@/utils/erpChatRoute";
 import { LoginHistoryPage } from "@/components/LoginHistoryPage";
 import { SalesManagementPage } from "@/components/SalesManagementPage";
 import { SaleCommentsPage } from "@/components/SaleCommentsPage";
@@ -7804,6 +7807,11 @@ export default function TeammillimeterErpMvp() {
     return <ClientSiteRequestPage token={requestToken} />;
   }
 
+  const chatRoute = parseErpChatStandaloneRoute();
+  if (chatRoute) {
+    return <ErpChatStandalonePage autoVoice={chatRoute.autoVoice} />;
+  }
+
   const apiMode = isApiModeEnabled();
   const storedData = apiMode ? null : loadStoredData();
   const sessionOnMount = loadSessionUser();
@@ -9409,6 +9417,12 @@ export default function TeammillimeterErpMvp() {
     },
     [openSaleVoucherFromComments],
   );
+
+  useEffect(() => {
+    if (!dataReady || !currentUser) return;
+    const action = consumePendingChatAction();
+    if (action) handleErpChatAction(action);
+  }, [dataReady, currentUser, handleErpChatAction]);
 
   const openSaleCommentsView = useCallback((saleId: string | number) => {
     setSaleCommentsViewSaleId(saleId);
