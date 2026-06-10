@@ -1,7 +1,12 @@
 import type { BankTransaction } from "./bankTransactions";
 import { isCardCompanyDeposit } from "./bankTransactionFolders";
 import type { ClientDepositMatchSource } from "./clientDepositAliases";
-import { includesDepositName, resolveBankDepositMatchSubject, resolveDepositSubjectClientMatch } from "./clientDepositAliases";
+import {
+  findClientByDepositSubject,
+  includesDepositName,
+  resolveBankDepositMatchSubject,
+  resolveDepositSubjectClientMatch,
+} from "./clientDepositAliases";
 import type { ReceivableRow } from "./receivables";
 import { getUnpaid } from "./receivables";
 
@@ -56,9 +61,17 @@ function resolveClientNameMatch(
   clients?: ClientDepositMatchSource[]
 ) {
   const clientRecord = clientRecordForName(clients, clientName);
-  return resolveDepositSubjectClientMatch(subject, clientName, clientRecord, {
+  const result = resolveDepositSubjectClientMatch(subject, clientName, clientRecord, {
     linkedSubject: tx.linkedSubject,
   });
+  if (result.matched) return result;
+
+  const trimmedClientName = String(clientName || "").trim();
+  const aliasClient = findClientByDepositSubject(clients || [], subject);
+  if (trimmedClientName && aliasClient?.name && String(aliasClient.name).trim() === trimmedClientName) {
+    return { matched: true, scoreBonus: 33, reason: "\uC608\uAE08\uC8FC \uBCC4\uCE59 \uC77C\uCE58" };
+  }
+  return result;
 }
 
 function daysBetween(fromDate: string, toDate: string) {

@@ -2,6 +2,7 @@ export type ClientDepositMatchSource = {
   name?: string;
   manager?: string;
   depositNameAliases?: string;
+  taxInvoiceCorpName?: string;
 };
 
 /** @deprecated use ClientDepositMatchSource */
@@ -256,6 +257,8 @@ export function depositSubjectMatchesClientManager(subject: string, client: Clie
 
 export function depositSubjectMatchesClient(subject: string, client: ClientDepositMatchSource) {
   if (depositSubjectMatchesNameAndAliases(subject, String(client.name || ""), client.depositNameAliases)) return true;
+  const taxInvoiceCorpName = String(client.taxInvoiceCorpName || "").trim();
+  if (taxInvoiceCorpName && includesDepositName(subject, taxInvoiceCorpName)) return true;
   if (clientManagerMatchesSubject(subject, client)) return true;
   return false;
 }

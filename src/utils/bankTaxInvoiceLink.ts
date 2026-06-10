@@ -4,6 +4,9 @@ import {
   findWorkerByDepositSubject,
   findWorkerByMasterName,
   findWorkerForBankTransaction,
+  resolveBankDepositMatchSubject,
+  resolveClientNameForDepositSubject,
+  type ClientDepositMatchSource,
   type WorkerDepositMatchSource,
 } from "./clientDepositAliases";
 import { extractFixedExpenseRoomKey, formatKRW } from "./companyLedger";
@@ -14,6 +17,7 @@ export type TaxInvoicePartyMaster = {
   name?: string;
   businessNo?: string;
   depositNameAliases?: string;
+  taxInvoiceCorpName?: string;
   manager?: string;
 };
 
@@ -352,6 +356,7 @@ function resolveTaxInvoicesById(invoices: TaxInvoice[] | undefined, ids: string[
 function applyInvoiceClientFields(
   tx: BankTransaction,
   invoice: TaxInvoice,
+  clients?: ClientDepositMatchSource[],
 ): BankTransaction {
   const clientName = String(invoice.client || "").trim();
   const existingSubject = String(tx.linkedSubject || tx.ledgerClientName || "").trim();
@@ -364,7 +369,13 @@ function applyInvoiceClientFields(
       { ...tx, linkedSubject: existingSubject, ledgerClientName: existingSubject },
       invoice,
     );
-  const displayClientName = keepExistingClientLabel ? existingSubject : clientName || existingSubject;
+  const resolvedClientName =
+    clients?.length
+      ? resolveClientNameForDepositSubject(resolveBankDepositMatchSubject(tx), clients, clientName)
+      : undefined;
+  const displayClientName = keepExistingClientLabel
+    ? existingSubject
+    : resolvedClientName || clientName || existingSubject;
 
   return {
     ...tx,
@@ -450,15 +461,16 @@ function revertInvoiceClientFieldsAfterUnlink(
     remainingInvoiceIds: string[];
     taxInvoices?: TaxInvoice[];
     removedInvoice?: TaxInvoice;
+    clients?: ClientDepositMatchSource[];
   },
 ): BankTransaction {
-  const { removedInvoiceIds, remainingInvoiceIds, taxInvoices, removedInvoice } = options;
+  const { removedInvoiceIds, remainingInvoiceIds, taxInvoices, removedInvoice, clients } = options;
   const removedInvoices = resolveRemovedInvoices(removedInvoiceIds, taxInvoices, removedInvoice);
   if (!removedInvoices.length) return tx;
 
   const remainingInvoices = resolveTaxInvoicesById(taxInvoices, remainingInvoiceIds);
   if (remainingInvoices.length > 0) {
-    return applyInvoiceClientFields(tx, remainingInvoices[0]);
+    return applyInvoiceClientFields(tx, remainingInvoices[0], clients);
   }
 
   return clearInvoiceDerivedClientFields(tx, removedInvoices);
@@ -468,6 +480,7 @@ export type BankTxTaxInvoiceLinkOptions = {
   manual?: boolean;
   taxInvoices?: TaxInvoice[];
   removedInvoice?: TaxInvoice;
+  clients?: ClientDepositMatchSource[];
 };
 
 export function addBankTxTaxInvoiceLink(
@@ -485,7 +498,7 @@ export function addBankTxTaxInvoiceLink(
     nextIds,
   );
   if (!ids.length) {
-    next = applyInvoiceClientFields(next, invoice);
+    next = applyInvoiceClientFields(next, invoice, options.clients);
   }
   return next;
 }
@@ -509,6 +522,7 @@ export function removeBankTxTaxInvoiceLink(
     remainingInvoiceIds: nextIds,
     taxInvoices: options.taxInvoices,
     removedInvoice: options.removedInvoice,
+    clients: options.clients,
   });
   return next;
 }
@@ -529,6 +543,7 @@ export function clearBankTxTaxInvoiceLinks(
     removedInvoiceIds,
     remainingInvoiceIds: [],
     taxInvoices: options.taxInvoices,
+    clients: options.clients,
   });
   return next;
 }
@@ -598,7 +613,7 @@ export function batchAutoLinkTaxInvoiceEvidence(
     const tx = txById.get(candidate.txId);
     if (!tx || bankTxHasLinkedTaxInvoice(tx)) continue;
 
-    const nextRow = buildBankTxTaxInvoiceLinkPatch(tx, candidate.invoice);
+    const nextRow = buildBankTxTaxInvoiceLinkPatch(tx, candidate.invoice, { clients: context.clients });
     nextTransactions = nextTransactions.map((row) => (row.id === tx.id ? nextRow : row));
     txById.set(tx.id, nextRow);
     linkedTxIds.add(candidate.txId);

@@ -2388,16 +2388,17 @@ function BankTransactionsPageComponent({
       const liveTx = prev.find((row) => row.id === tx.id) ?? tx;
       let nextRow: BankTransaction;
       if (mode === "clear" || !invoiceId) {
-        nextRow = clearBankTxTaxInvoiceLinks(liveTx, { manual: true, taxInvoices });
+        nextRow = clearBankTxTaxInvoiceLinks(liveTx, { manual: true, taxInvoices, clients });
       } else if (mode === "remove") {
         const removedInvoice = invoiceId ? taxInvoices.find((row) => row.id === invoiceId) : undefined;
         nextRow = removeBankTxTaxInvoiceLink(liveTx, invoiceId, {
           manual: true,
           taxInvoices,
           removedInvoice,
+          clients,
         });
       } else if (invoice) {
-        nextRow = addBankTxTaxInvoiceLink(liveTx, invoice, { manual: true });
+        nextRow = addBankTxTaxInvoiceLink(liveTx, invoice, { manual: true, clients });
       } else {
         return null;
       }

@@ -208,7 +208,7 @@ export function batchAutoLinkSplitTaxInvoiceEvidence(
     for (const tx of plan.transactions) {
       const current = txById.get(tx.id);
       if (!current || getBankTxLinkedTaxInvoiceIds(current).length) continue;
-      const nextRow = buildBankTxTaxInvoiceLinkPatch(current, plan.invoice);
+      const nextRow = buildBankTxTaxInvoiceLinkPatch(current, plan.invoice, { clients: context.clients });
       nextTransactions = nextTransactions.map((row) => (row.id === tx.id ? nextRow : row));
       txById.set(tx.id, nextRow);
       linkedTxIds.add(tx.id);

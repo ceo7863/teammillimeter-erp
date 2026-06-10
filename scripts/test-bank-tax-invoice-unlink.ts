@@ -97,4 +97,35 @@ assert(resolveBankTxClientName(withdrawalTx) === CLIENT_A, "withdrawal link shou
 withdrawalTx = removeBankTxTaxInvoiceLink(withdrawalTx, "inv-a", { taxInvoices, removedInvoice: invoiceA });
 assert(resolveBankTxClientName(withdrawalTx) === null, "withdrawal unlink should clear invoice client");
 
+const ERP_CLIENT = "\uD0A4\uCE5C\uC81C\uB2C8\uC2A4";
+const DEPOSIT_ALIAS = "\uC8FC\uC2DD\uD68C\uC0AC \uC18C\uC911\uD55C\uC9D1";
+const DEPOSIT_COUNTERPARTY = "\uC8FC\uC2DD\uD68C\uC0AC\uC18C\uC911\uD55C\uC9D1";
+const aliasClients = [
+  {
+    name: ERP_CLIENT,
+    depositNameAliases: DEPOSIT_ALIAS,
+  },
+];
+const aliasInvoice = makeInvoice({ id: "inv-alias", client: DEPOSIT_ALIAS });
+let aliasTx = makeTx({ counterpartyName: DEPOSIT_COUNTERPARTY, description: DEPOSIT_COUNTERPARTY });
+aliasTx = addBankTxTaxInvoiceLink(aliasTx, aliasInvoice, { clients: aliasClients });
+assert(
+  resolveBankTxClientName(aliasTx) === ERP_CLIENT,
+  "link should resolve ERP client name via deposit alias",
+);
+
+const taxCorpClients = [
+  {
+    name: ERP_CLIENT,
+    taxInvoiceCorpName: DEPOSIT_ALIAS,
+  },
+];
+const taxCorpInvoice = makeInvoice({ id: "inv-tax-corp", client: DEPOSIT_ALIAS });
+let taxCorpTx = makeTx({ counterpartyName: DEPOSIT_COUNTERPARTY, description: DEPOSIT_COUNTERPARTY });
+taxCorpTx = addBankTxTaxInvoiceLink(taxCorpTx, taxCorpInvoice, { clients: taxCorpClients });
+assert(
+  resolveBankTxClientName(taxCorpTx) === ERP_CLIENT,
+  "link should resolve ERP client name via taxInvoiceCorpName",
+);
+
 console.log("bank tax invoice unlink tests passed");
