@@ -549,6 +549,36 @@ function extractClientNameFromContactQuery(text) {
     .trim();
 }
 
+const WORKER_VEHICLE_QUERY_PATTERN =
+  /\uCC28\uB7C9|\uCC28\s*\uBC88\uD638|\uB108\uBBC0\uBC84|\uB118\uBC84/;
+
+export function isWorkerVehicleQuery(text) {
+  return WORKER_VEHICLE_QUERY_PATTERN.test(String(text || ""));
+}
+
+export function extractWorkerNameFromVehicleQuery(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return "";
+
+  const possessive = raw.match(/^(.+?)\uC758/);
+  if (possessive && isWorkerVehicleQuery(raw)) {
+    return possessive[1].replace(/\s+/g, " ").trim();
+  }
+
+  const attached = raw.match(
+    /^(.+?)(?:\uCC28\uB7C9(?:\s*\uBC88\uD638)?|\uCC28\s*\uBC88\uD638|\uB108\uBBC0\uBC84|\uB118\uBC84|\uB2E4\uB2C8)/,
+  );
+  if (attached) return attached[1].replace(/\s+/g, " ").trim();
+
+  return raw
+    .replace(/\uCC28\uB7C9(?:\s*\uBC88\uD638)?|\uCC28\s*\uBC88\uD638|\uB108\uBBC0\uBC84|\uB118\uBC84|\uB2E4\uB2C8/g, "")
+    .replace(/\uBC88\uD638/g, "")
+    .replace(/(?:\uB294|\uC740|\uC918|\uC54C\uB824|\uC870\uD68C|\uD655\uC778|\?)/g, "")
+    .replace(/\uC758$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function tryClientContactsOrPersonLookup(name, user) {
   const query = String(name || "").trim();
   if (!query) return null;
@@ -582,7 +612,9 @@ export function toolGetWorkerInfo({ name }, user) {
   const canViewPhone = canUserViewContactPhones(user);
   const state = getErpState(["workers"]);
   const workers = Array.isArray(state.data?.workers) ? state.data.workers : [];
-  const worker = findWorkerByListName(workers, String(name || "").trim());
+  const rawName = String(name || "").trim();
+  const query = isWorkerVehicleQuery(rawName) ? extractWorkerNameFromVehicleQuery(rawName) : rawName;
+  const worker = findWorkerByListName(workers, query);
   if (!worker) {
     return { ok: false, error: "\uC2DC\uACF5\uC790\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
   }
@@ -1359,7 +1391,7 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "get_worker_info",
-      description: "\uC2DC\uACF5\uC790 \uAE30\uBCF8 \uC815\uBCF4(\uC774\uB984, \uAD6C\uBD84, \uCC28\uB7C9\uBC88\uD638, \uC804\uD654\uBC88\uD638)\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4.",
+      description: "\uC2DC\uACF5\uC790 \uAE30\uBCF8 \uC815\uBCF4(\uC774\uB984, \uAD6C\uBD84, \uCC28\uB7C9\uBC88\uD638, \uC804\uD654\uBC88\uD638)\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4. '\uCC28\uBC88\uD638', '\uCC28\uB7C9 \uBC88\uD638', '\uCC28\uB7C9\uBC88\uD638' \uBAA8\uB450 \uCC28\uB7C9\uBC88\uD638 \uC870\uD68C\uB85C \uCC98\uB9AC\uD558\uC138\uC694.",
       parameters: {
         type: "object",
         properties: {
@@ -1480,7 +1512,6 @@ export function tryRuleBasedChat(message, user) {
   const kwPhone = "\uC804\uD654";
   const kwContact = "\uC5F0\uB77D\uCC98";
   const kwNumber = "\uBC88\uD638";
-  const kwVehicle = "\uCC28\uB7C9";
   const kwManager = "\uB2F4\uB2F9";
 
   if (text.includes(kwUnpaid)) {
@@ -1531,17 +1562,8 @@ export function tryRuleBasedChat(message, user) {
     return formatScheduleAnswer(toolGetScheduleCount({ date }));
   }
 
-  if (text.includes(kwVehicle)) {
-    let name = "";
-    const possessive = text.match(/^(.+?)\uC758/);
-    if (possessive) name = possessive[1].trim();
-    if (!name) {
-      name = text
-        .replace(/\uCC28\uB7C9\uBC88\uD638|\uCC28\uB7C9|\uB2E4\uB2C8|\uB108\uBBC0\uBC84|\uB118\uBC84/g, "")
-        .replace(/(?:\uB294|\uC740|\uC918|\uC54C\uB824|\uC870\uD68C|\uD655\uC778|\?)/g, "")
-        .replace(/\uC758$/g, "")
-        .trim();
-    }
+  if (isWorkerVehicleQuery(text)) {
+    const name = extractWorkerNameFromVehicleQuery(text);
     if (name) {
       return formatWorkerAnswer(toolGetWorkerInfo({ name }, user));
     }
