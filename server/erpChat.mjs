@@ -6,6 +6,8 @@ import {
   toolGetWorkerInfo,
   todayISO,
   tryRuleBasedChat,
+  isCasualConversationQuery,
+  formatCasualFallbackAnswer,
   formatUnpaidAnswer,
   formatScheduleAnswer,
   formatContactAnswer,
@@ -118,6 +120,7 @@ async function callOpenAiChat(messages, tools) {
 const CASUAL_SYSTEM_PROMPT = [
   "\uB2F9\uC2E0\uC740 TeamMillimeter ERP \uC5B4\uC2DC\uC2A4\uD134\uD2B8\uC785\uB2C8\uB2E4.",
   "\uC778\uC0AC, \uAC10\uC815 \uACF5\uC720, \uAC00\uBCCD\uC740 \uC9C8\uBB38\uC5D0 \uCE5C\uADFC\uD558\uACE0 \uC790\uC5F0\uC2A4\uB7FD\uAC8C \uB300\uD654\uD558\uC138\uC694.",
+  "\uC2E4\uC2DC\uAC04 \uB0A0\uC528\u00B7\uC704\uCE58 \uB370\uC774\uD130\uB294 \uC5F0\uACB0\uB418\uC5B4 \uC788\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uB098\uC27D\uC774 \uC815\uD655\uD788 \uBAA8\uB978\uB2E4\uACE0 \uB9D0\uD558\uACE0, \uAE30\uC0C1\uCCAD\u00B7\uB124\uC774\uBC84 \uB0A0\uC528 \uB4F1 \uC678\uBD80 \uC571 \uC548\uB0B4\uB97C \uC81C\uC548\uD558\uC138\uC694.",
   "\uBAA8\uB974\uB294 \uC0AC\uC2E4\uC740 \uC9C0\uC5B4\uB0B4\uC9C0 \uB9C8\uC138\uC694. ERP \uC5C5\uBB34(\uBBF8\uC218, \uC77C\uC815, \uD654\uBA74 \uC5F4\uAE30 \uB4F1)\uB294 \uAD6C\uCCB4\uC801\uC73C\uB85C \uC801\uC73C\uBA74 \uB3C4\uC640\uB4DC\uB9B4 \uC218 \uC788\uB2E4\uACE0 \uC548\uB0B4\uD558\uC138\uC694.",
   "\uB2F5\uBCC0\uC740 \uC9C1\uC811\uC801\uC774\uACE0 \uAC04\uACB0\uD558\uAC8C \uD55C\uAD6D\uC5B4\uB85C \uC791\uC131\uD558\uC138\uC694.",
 ].join("\n");
@@ -356,8 +359,22 @@ export async function handleErpChat({ messages, user: tokenUser }) {
   let answer = "";
   let chatActions = [];
   let engine = "rules";
+  const casualQuery = isCasualConversationQuery(question);
 
-  if (config.openAiConfigured) {
+  if (config.openAiConfigured && casualQuery) {
+    engine = "openai";
+    try {
+      const casualReply = await callOpenAiCasualReply(safeMessages);
+      if (casualReply) {
+        answer = casualReply;
+      }
+    } catch (error) {
+      if (!isOpenAiRecoverableError(error)) throw error;
+      engine = "rules";
+    }
+  }
+
+  if (config.openAiConfigured && !answer && !casualQuery) {
     engine = "openai";
     const chatMessages = [{ role: "system", content: SYSTEM_PROMPT }, ...safeMessages];
     let guard = 0;
@@ -435,7 +452,7 @@ export async function handleErpChat({ messages, user: tokenUser }) {
   }
 
   const scheduleUsed = toolsUsed.find((row) => row.name === "get_schedule_count" && row.result?.ok);
-  if (scheduleUsed) {
+  if (scheduleUsed && !casualQuery) {
     answer = formatScheduleAnswer(scheduleUsed.result);
   }
 
@@ -529,11 +546,13 @@ export async function handleErpChat({ messages, user: tokenUser }) {
   }
 
   if (!answer && !chatActions.length) {
-    const infoAnswer = tryRuleBasedChat(question, user);
+    const infoAnswer = casualQuery
+      ? formatCasualFallbackAnswer(question) || tryRuleBasedChat(question, user)
+      : tryRuleBasedChat(question, user);
     if (infoAnswer) answer = infoAnswer;
   }
 
-  if (!answer && config.openAiConfigured) {
+  if (!answer && config.openAiConfigured && !casualQuery) {
     try {
       const casualReply = await callOpenAiCasualReply(safeMessages);
       if (casualReply) answer = casualReply;

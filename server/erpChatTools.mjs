@@ -1801,6 +1801,33 @@ export function isChatGreeting(message) {
   return CHAT_GREETING_PATTERN.test(normalized);
 }
 
+const CASUAL_ERP_BLOCK_PATTERN =
+  /미수|입금|출금|통장|계좌|세금계산서|전표|일정|스케줄|캘린더|달력|열어|열어줘|조회|거래처|시공|차량|차번|연락처|전화|담당|내역서|시공비|매출|분석|근태|대시보드|홈금/i;
+
+export function isCasualConversationQuery(message) {
+  const raw = String(message || "").trim();
+  if (!raw) return false;
+  if (isChatGreeting(raw)) return true;
+
+  const normalized = raw.replace(/\s+/g, "");
+  if (CASUAL_ERP_BLOCK_PATTERN.test(normalized)) return false;
+
+  return /(?:날씨|weather|기온|미세먼지|우산|비올|눈올|체감온도)|(?:심심|농담|재밌|지루|기분|피곤|힘들|행복)|(?:어때|어떄|어떠|뭐해|뭐하|추천)|(?:고마워|감사|미안)|(?:ㅋㅋ|ㅎㅎ)/i.test(
+    normalized,
+  );
+}
+
+export function formatCasualFallbackAnswer(message) {
+  const normalized = String(message || "").replace(/\s+/g, "");
+  if (/(?:날씨|weather|기온|미세먼지|우산|비올|눈올)/i.test(normalized)) {
+    return [
+      "실시간 날씨는 ERP 챗봇에서 확인할 수 없어요.",
+      "기상청 앱이나 네이버·다음 날씨에서 보시면 가장 정확합니다.",
+    ].join("\n");
+  }
+  return null;
+}
+
 export function formatGreetingAnswer() {
   return [
     "안녕하세요! TeamMillimeter ERP 어시스턴트입니다.",
