@@ -12295,6 +12295,10 @@ body.erp-col-resizing * {
   z-index: 100;
 }
 
+.erp-ledger-modal-backdrop--bank-erp-top {
+  z-index: 15000;
+}
+
 .erp-client-request-calendar-modal-backdrop {
   z-index: 100;
 }

@@ -291,6 +291,7 @@ const SplitRow = memo(function SplitRow({
   onEditClient,
   onEditFixedExpense,
   onFindEvidence,
+  onFindErpProcess,
   onIssueTaxInvoice,
   onFilterCounterparty,
 }: SplitRowProps) {
@@ -475,7 +476,10 @@ const SplitRow = memo(function SplitRow({
             type="button"
             className="erp-bank-wehago-cell-btn erp-bank-wehago-badge bg-violet-100 text-violet-800 hover:bg-violet-200"
             title={labels.erpFind}
-            onClick={() => onFindErpProcess(model.id)}
+            onClick={(event) => {
+              event.stopPropagation();
+              onFindErpProcess(model.id);
+            }}
           >
             {labels.voucherProcessedBadge}
           </button>
@@ -484,7 +488,10 @@ const SplitRow = memo(function SplitRow({
             type="button"
             className="erp-bank-wehago-cell-btn max-w-full truncate border border-emerald-200 bg-emerald-100 text-left text-emerald-700 hover:bg-emerald-200"
             title={model.matchStatusLabel}
-            onClick={() => onFindErpProcess(model.id)}
+            onClick={(event) => {
+              event.stopPropagation();
+              onFindErpProcess(model.id);
+            }}
           >
             {model.matchStatusLabel}
           </button>
@@ -493,7 +500,10 @@ const SplitRow = memo(function SplitRow({
             type="button"
             className="erp-bank-wehago-cell-btn max-w-full truncate border border-orange-200 bg-orange-100 text-left text-orange-800 hover:bg-orange-200"
             title={model.workerErpStatusLabel}
-            onClick={() => onFindErpProcess(model.id)}
+            onClick={(event) => {
+              event.stopPropagation();
+              onFindErpProcess(model.id);
+            }}
           >
             {model.workerErpStatusLabel}
           </button>
@@ -502,7 +512,10 @@ const SplitRow = memo(function SplitRow({
             type="button"
             className={`erp-bank-wehago-cell-btn erp-bank-evidence-find${erpFindTone ? ` erp-bank-evidence-find--${erpFindTone}` : " erp-bank-evidence-find--plain"}`}
             title={labels.erpFind}
-            onClick={() => onFindErpProcess(model.id)}
+            onClick={(event) => {
+              event.stopPropagation();
+              onFindErpProcess(model.id);
+            }}
           >
             찾기
           </button>
@@ -511,7 +524,10 @@ const SplitRow = memo(function SplitRow({
             type="button"
             className={`erp-bank-wehago-cell-btn erp-bank-evidence-find erp-bank-evidence-find--${workerErpFindTone || "plain"}`}
             title={labels.erpWorkerFind}
-            onClick={() => onFindErpProcess(model.id)}
+            onClick={(event) => {
+              event.stopPropagation();
+              onFindErpProcess(model.id);
+            }}
           >
             찾기
           </button>

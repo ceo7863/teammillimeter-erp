@@ -247,9 +247,14 @@ function BankTransactionListSectionComponent({
     [onFindEvidence],
   );
 
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+
   const handleFindErpProcess = useCallback(
     (id: string) => {
-      const row = rowByIdRef.current.get(String(id));
+      const row =
+        rowByIdRef.current.get(String(id)) ||
+        rowsRef.current.find((item) => String(item.id) === String(id));
       if (row) onFindErpProcess(row);
     },
     [onFindErpProcess],
@@ -293,6 +298,7 @@ function BankTransactionListSectionComponent({
       empty: labels.empty,
       evidenceFind: labels.evidenceFind,
       erpFind: labels.erpFind,
+      erpWorkerFind: labels.erpWorkerFind,
       evidencePlaceholder: labels.evidencePlaceholder,
       accountSubjectPlaceholder: labels.accountSubjectPlaceholder,
       clientPlaceholder: labels.clientPlaceholder,

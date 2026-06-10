@@ -1,5 +1,4 @@
 import React, { memo, useEffect, useMemo, useRef, useState, useCallback, useDeferredValue, startTransition } from "react";
-import { createPortal } from "react-dom";
 import {
   ArrowDownLeft,
   ArrowLeftRight,
@@ -32,6 +31,12 @@ import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { TableExportSection, TableExportToolbar } from "@/components/TableExportSection";
 import { BankTransactionsListShell } from "@/components/BankTransactionsListShell";
+import {
+  BankErpDepositLinkModal,
+  BankErpWorkerLinkModal,
+  resolveBankErpDepositAmount,
+  resolveBankErpWithdrawalAmount,
+} from "@/components/BankErpLinkModals";
 import { BankLedgerClassificationRulesModal } from "@/components/BankLedgerClassificationRulesModal";
 import { listEditableCustomBankLearnRules } from "@/utils/bankLearnCustomRules";
 import { BankCounterpartyTransactionsDrawer } from "@/components/BankCounterpartyTransactionsDrawer";
@@ -2577,13 +2582,14 @@ function BankTransactionsPageComponent({
     if (taxInvoiceLinkSessionRef.current) {
       setTaxInvoiceLinkSession(null);
     }
-    if (liveTx.deposit > 0) {
+    const depositAmount = resolveBankErpDepositAmount(liveTx);
+    if (depositAmount > 0) {
       setWorkerLinkModal(null);
       setLinkModalTx(liveTx);
       return;
     }
     const workerName = resolveBankTxWorkerName(liveTx, bankTransactionFolders, workers);
-    if (liveTx.withdrawal > 0 && workerName) {
+    if (resolveBankErpWithdrawalAmount(liveTx) > 0 && workerName) {
       setLinkModalTx(null);
       setWorkerLinkModal({ tx: liveTx, workerName });
     }
@@ -5777,236 +5783,50 @@ function BankTransactionsPageComponent({
         </div>
       ) : null}
 
-      {linkModalTx
-        ? createPortal(
-            <div
-              className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--bank-erp"
-              onClick={() => setLinkModalTx(null)}
-            >
-              <div
-                className="erp-ledger-modal max-w-2xl"
-                onClick={(event) => event.stopPropagation()}
-                role="dialog"
-                aria-modal="true"
-              >
-                <div className="mb-4 flex items-center justify-between">
-                  <div>
-                    <h2 className="erp-text-section font-bold">{L.erpDepositLinkTitle}</h2>
-                    <p className="mt-1 text-sm text-emerald-700">
-                      {formatKRW(linkModalTx.deposit)}
-                      {" \u00B7 "}
-                      {formatBankTransactionDateTime(linkModalTx.transactionAt)}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
-                    onClick={() => setLinkModalTx(null)}
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
-                <div className="max-h-96 space-y-2 overflow-auto">
-                  {(() => {
-                    const sentCandidates = buildSentStatementMatchCandidates(linkModalTx, sentArchives, {
-                      minScore: 0,
-                      limit: 30,
-                      clients,
-                      paymentVouchers,
-                      bankTransactions,
-                    });
-                    const receivableCandidates = buildBankDepositManualLinkCandidates(linkModalTx, receivableRows, {
-                      minScore: 0,
-                      limit: 30,
-                      clients,
-                    });
-                    if (!sentCandidates.length && !receivableCandidates.length) {
-                      return (
-                        <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                          {L.erpDepositLinkEmpty}
-                        </p>
-                      );
-                    }
-                    return (
-                      <>
-                        {sentCandidates.length > 0 ? (
-                          <div className="pb-1 text-xs font-semibold text-slate-500">{L.selectSentStatement}</div>
-                        ) : null}
-                        {sentCandidates.map((candidate) => (
-                          <button
-                            key={candidate.pdfArchiveId}
-                            type="button"
-                            className="w-full rounded-xl border border-violet-200 bg-violet-50/40 px-4 py-3 text-left hover:border-violet-300 hover:bg-violet-50"
-                            onClick={() => void confirmSentStatementMatch(linkModalTx, candidate)}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-bold text-slate-900">{candidate.client}</span>
-                              <span className="flex items-center gap-1">
-                                {candidate.paymentStatus === "partial" ? <PartialPaymentBadge /> : null}
-                                <span className="text-xs font-bold text-violet-700">
-                                  {L.matchScore} {candidate.score}
-                                </span>
-                              </span>
-                            </div>
-                            <div className="mt-1 text-sm text-slate-600">
-                              {L.statementTotal} {formatKRW(candidate.statementTotalAmount)}
-                              {" \u00B7 "}
-                              {L.sentAt} {String(candidate.sentAt || "").slice(0, 10)}
-                            </div>
-                            {candidate.paymentStatus === "partial" ? (
-                              <div className="mt-1 text-xs font-semibold text-amber-700">
-                                {L.partialStatementMatchHint(
-                                  candidate.paymentAmount,
-                                  candidate.statementRemainingAmount,
-                                )}
-                              </div>
-                            ) : null}
-                          </button>
-                        ))}
-                        {sentCandidates.length > 0 && receivableCandidates.length > 0 ? (
-                          <div className="py-2 text-center text-xs font-semibold text-slate-400">
-                            {L.selectReceivable}
-                          </div>
-                        ) : null}
-                        {receivableCandidates.length > 0 && sentCandidates.length === 0 ? (
-                          <div className="pb-1 text-xs font-semibold text-slate-500">{L.selectReceivable}</div>
-                        ) : null}
-                        {receivableCandidates.map((candidate) => (
-                          <button
-                            key={String(candidate.salesId)}
-                            type="button"
-                            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-left hover:border-blue-300 hover:bg-blue-50"
-                            onClick={() => confirmDepositMatch(linkModalTx, candidate)}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-bold text-slate-900">{candidate.client}</span>
-                              <span className="text-xs font-bold text-blue-700">
-                                {L.matchScore} {candidate.score}
-                              </span>
-                            </div>
-                            <div className="mt-1 text-sm text-slate-600">
-                              {candidate.site || "-"}
-                              {" \u00B7 "}
-                              {L.unpaidAmount} {formatKRW(candidate.unpaid)}
-                              {" \u00B7 "}
-                              {candidate.voucherNo || candidate.salesId}
-                            </div>
-                          </button>
-                        ))}
-                      </>
-                    );
-                  })()}
-                </div>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
+      {linkModalTx ? (
+        <BankErpDepositLinkModal
+          tx={linkModalTx}
+          labels={{
+            title: L.erpDepositLinkTitle,
+            empty: L.erpDepositLinkEmpty,
+            selectSentStatement: L.selectSentStatement,
+            selectReceivable: L.selectReceivable,
+            matchScore: L.matchScore,
+            statementTotal: L.statementTotal,
+            sentAt: L.sentAt,
+            unpaidAmount: L.unpaidAmount,
+            partialStatementMatchHint: L.partialStatementMatchHint,
+          }}
+          sentArchives={sentArchives}
+          receivableRows={receivableRows}
+          clients={clients}
+          paymentVouchers={paymentVouchers}
+          bankTransactions={bankTransactions}
+          onClose={() => setLinkModalTx(null)}
+          onConfirmSentStatement={(candidate) => void confirmSentStatementMatch(linkModalTx, candidate)}
+          onConfirmReceivable={(candidate) => confirmDepositMatch(linkModalTx, candidate)}
+        />
+      ) : null}
 
-      {workerLinkModal
-        ? createPortal(
-            <div
-              className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--bank-erp"
-              onClick={() => setWorkerLinkModal(null)}
-            >
-          <div
-            className="erp-ledger-modal max-w-2xl"
-            onClick={(event) => event.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-          >
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h2 className="erp-text-section font-bold">{L.erpWorkerLinkTitle}</h2>
-                <p className="mt-1 text-sm text-orange-800">
-                  {workerLinkModal.workerName}
-                  {" · "}
-                  {formatKRW(Math.round(Number(workerLinkModal.tx.withdrawal) || 0))}
-                  {" · "}
-                  {formatBankTransactionDateTime(workerLinkModal.tx.transactionAt)}
-                </p>
-              </div>
-              <button
-                type="button"
-                className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
-                onClick={() => setWorkerLinkModal(null)}
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <div className="max-h-96 space-y-2 overflow-auto">
-              {(() => {
-                const linkedId = String(workerLinkModal.tx.linkedWorkerMonthlyPaymentVoucherId || "").trim();
-                if (linkedId) {
-                  const linkedVoucher = workerMonthlyActualVouchers.find((row) => row.id === linkedId);
-                  return (
-                    <p className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-900">
-                      {linkedVoucher
-                        ? `${formatMonthLabel(linkedVoucher.monthKey)} ${linkedVoucher.worker} 실지급에 연결되어 있습니다.`
-                        : "시공자 실지급에 연결되어 있습니다."}
-                    </p>
-                  );
-                }
-
-                const candidates = buildWorkerBankManualLinkCandidates(
-                  workerLinkModal.tx,
-                  workerMonthlyObligations,
-                  bankTransactionFolders,
-                  workers,
-                  { minScore: 0, limit: 30, worker: workerLinkModal.workerName },
-                );
-
-                if (!candidates.length) {
-                  return (
-                    <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                      연결 가능한 월별 실지급 후보가 없습니다. 시공자 지급 화면에서 해당 월 실지급을 먼저 확인해 주세요.
-                    </p>
-                  );
-                }
-
-                return (
-                  <>
-                    <div className="pb-1 text-xs font-semibold text-slate-500">{L.selectWorkerObligation}</div>
-                    {candidates.map((candidate) => (
-                      <button
-                        key={`${candidate.obligation.worker}-${candidate.obligation.monthKey}`}
-                        type="button"
-                        className="w-full rounded-xl border border-orange-200 bg-orange-50/40 px-4 py-3 text-left hover:border-orange-300 hover:bg-orange-50"
-                        onClick={() =>
-                          confirmWorkerMonthlyLink(
-                            workerLinkModal.tx,
-                            candidate,
-                            workerLinkModal.workerName,
-                          )
-                        }
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-bold text-slate-900">
-                            {formatMonthLabel(candidate.obligation.monthKey)} · {candidate.obligation.worker}
-                          </span>
-                          <span className="text-xs font-bold text-orange-700">
-                            {L.matchScore} {candidate.score}
-                          </span>
-                        </div>
-                        <div className="mt-1 text-sm text-slate-600">
-                          미지급 {formatKRW(candidate.obligation.balance)}
-                          {" · "}
-                          예정 {formatKRW(candidate.obligation.expectedFinalAmount)}
-                        </div>
-                        {candidate.reasons.length ? (
-                          <div className="mt-1 text-xs text-slate-500">{candidate.reasons.join(" · ")}</div>
-                        ) : null}
-                      </button>
-                    ))}
-                  </>
-                );
-              })()}
-            </div>
-          </div>
-            </div>,
-            document.body,
-          )
-        : null}
+      {workerLinkModal ? (
+        <BankErpWorkerLinkModal
+          tx={workerLinkModal.tx}
+          workerName={workerLinkModal.workerName}
+          labels={{
+            title: L.erpWorkerLinkTitle,
+            selectWorkerObligation: L.selectWorkerObligation,
+            matchScore: L.matchScore,
+          }}
+          workerMonthlyActualVouchers={workerMonthlyActualVouchers}
+          workerMonthlyObligations={workerMonthlyObligations}
+          bankTransactionFolders={bankTransactionFolders}
+          workers={workers}
+          onClose={() => setWorkerLinkModal(null)}
+          onConfirmWorkerLink={(candidate) =>
+            confirmWorkerMonthlyLink(workerLinkModal.tx, candidate, workerLinkModal.workerName)
+          }
+        />
+      ) : null}
 
       {ledgerModal ? (
         <div className="erp-ledger-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setLedgerModal(null); }}>
