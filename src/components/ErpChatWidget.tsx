@@ -157,8 +157,9 @@ export function ErpChatWidget({
     return currentUser.role === "admin" ? ERP_CHAT_LABELS.admin : currentUser.name || currentUser.loginId;
   }, [currentUser]);
 
-  const inputValue = listening ? interimText || draft : draft;
+  const inputValue = draft;
   const displayError = error || voiceError;
+  const listeningPreview = listening ? String(interimText || "").trim() : "";
 
   if (!canUse) return null;
 
@@ -275,7 +276,12 @@ export function ErpChatWidget({
           </div>
 
           {displayError ? <div className="erp-chat-error">{displayError}</div> : null}
-          {listening ? <div className="erp-chat-listening">{ERP_CHAT_LABELS.listening}</div> : null}
+          {listening ? (
+            <div className="erp-chat-listening">
+              {ERP_CHAT_LABELS.listening}
+              {listeningPreview ? <div className="erp-chat-listening__preview">{listeningPreview}</div> : null}
+            </div>
+          ) : null}
 
           <form
             className="erp-chat-panel__foot"
@@ -292,25 +298,10 @@ export function ErpChatWidget({
                 title={listening ? ERP_CHAT_LABELS.voiceStop : ERP_CHAT_LABELS.voiceStart}
                 aria-label={listening ? ERP_CHAT_LABELS.voiceStop : ERP_CHAT_LABELS.voiceStart}
                 aria-pressed={listening}
-                onPointerDown={(event) => {
-                  event.preventDefault();
-                  event.currentTarget.setPointerCapture(event.pointerId);
-                  beginPushToTalk();
+                onClick={() => {
+                  if (listening) endPushToTalk();
+                  else beginPushToTalk();
                 }}
-                onPointerUp={(event) => {
-                  event.preventDefault();
-                  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                    event.currentTarget.releasePointerCapture(event.pointerId);
-                  }
-                  endPushToTalk();
-                }}
-                onPointerCancel={(event) => {
-                  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                    event.currentTarget.releasePointerCapture(event.pointerId);
-                  }
-                  endPushToTalk();
-                }}
-                onContextMenu={(event) => event.preventDefault()}
               >
                 {listening ? <Mic size={18} /> : <Mic size={16} />}
               </button>
@@ -321,15 +312,21 @@ export function ErpChatWidget({
               value={inputValue}
               onChange={(event) => {
                 stopSpeaking();
+                if (listening) stopListening();
                 setDraft(event.target.value);
               }}
+              onFocus={() => {
+                if (listening) stopListening();
+              }}
               placeholder={ERP_CHAT_LABELS.placeholder}
-              disabled={loading || listening}
+              disabled={loading}
+              enterKeyHint="send"
+              autoComplete="off"
             />
             <button
               type="submit"
               className="erp-chat-send"
-              disabled={loading || !inputValue.trim() || listening}
+              disabled={loading || !inputValue.trim()}
               aria-label={ERP_CHAT_LABELS.send}
             >
               <Send size={16} />

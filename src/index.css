@@ -16497,6 +16497,13 @@ button:disabled,
   color: #1d4ed8;
 }
 
+.erp-chat-listening__preview {
+  margin-top: 0.35rem;
+  font-weight: 500;
+  color: #1e3a8a;
+  word-break: break-word;
+}
+
 .erp-chat-voice-btn {
   display: inline-flex;
   align-items: center;
@@ -16593,7 +16600,10 @@ button:disabled,
   border: 1px solid #cbd5e1;
   border-radius: 0.85rem;
   padding: 0.65rem 0.75rem;
-  font-size: 0.875rem;
+  font-size: 1rem;
+  color: #0f172a;
+  background: #fff;
+  -webkit-text-fill-color: #0f172a;
 }
 
 .erp-chat-input:focus {
@@ -16642,6 +16652,23 @@ button:disabled,
   max-height: none;
   border-radius: 0;
   box-shadow: none;
+  color: #0f172a;
+}
+
+.erp-chat-panel--standalone .erp-chat-panel__head,
+.erp-chat-panel--standalone .erp-chat-panel__body,
+.erp-chat-panel--standalone .erp-chat-panel__foot {
+  color: #0f172a;
+}
+
+.erp-chat-panel--standalone .erp-chat-input {
+  color: #0f172a;
+  background: #fff;
+  -webkit-text-fill-color: #0f172a;
+}
+
+.erp-chat-panel--standalone .erp-chat-panel__foot {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
 }
 
 .erp-chat-standalone {
