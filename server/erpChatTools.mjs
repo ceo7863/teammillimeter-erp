@@ -511,13 +511,18 @@ export function toolLookupContact({ name }, user) {
   };
 }
 
-export function toolGetClientContacts({ clientName }, user) {
+export function toolGetClientContacts({ clientName, personName }, user) {
   const canViewPhone = canUserViewContactPhones(user);
   const state = getErpState(["clients"]);
   const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
   const query = String(clientName || "").trim();
+  const personQuery = String(personName || "").trim();
   if (!query) {
     return { ok: false, error: "\uAC70\uB798\uCC98 \uC774\uB984\uC774 \uD544\uC694\uD569\uB2C8\uB2E4." };
+  }
+
+  if (personQuery) {
+    return toolLookupClientContact({ clientName: query, personName: personQuery }, user);
   }
 
   const matchedClients = findClientsByQuery(clients, query);
@@ -561,9 +566,105 @@ function extractClientNameFromContactQuery(text) {
     .trim();
 }
 
+export function parseClientPersonContactQuery(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+
+  const cleaned = raw
+    .replace(/\uAC70\uB798\uCC98|\uB2F4\uB2F9\uC790|\uB2F4\uB2F9|\uC804\uD654\uBC88\uD638|\uC804\uD654|\uC5F0\uB77D\uCC98|\uD734\uB300\uD3F0|\uBC88\uD638|\uC870\uD68C|\uC54C\uB824|\uC918|\uD655\uC778|\uC8FC\uC138\uC694|\uAD6C\uD574|\uC8FC\uC138\uC694/g, "")
+    .replace(/(?:\uB294|\uC740|\uB97C|\uC758|\?|!)/g, "")
+    .trim();
+
+  const parts = cleaned.split(/\s+/).filter(Boolean);
+  if (parts.length < 2) return null;
+
+  const state = getErpState(["clients"]);
+  const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
+
+  for (let splitAt = parts.length - 1; splitAt >= 1; splitAt -= 1) {
+    const clientQuery = parts.slice(0, splitAt).join(" ");
+    const personName = parts.slice(splitAt).join(" ");
+    if (!personName || personName.length < 2) continue;
+    const matchedClients = findClientsByQuery(clients, clientQuery);
+    if (matchedClients.length) {
+      return {
+        clientName: String(matchedClients[0].name || clientQuery),
+        personName,
+        clientQuery,
+      };
+    }
+  }
+
+  return null;
+}
+
+export function toolLookupClientContact({ clientName, personName }, user) {
+  const canViewPhone = canUserViewContactPhones(user);
+  const state = getErpState(["clients"]);
+  const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
+  const clientQuery = String(clientName || "").trim();
+  const personQuery = String(personName || "").trim();
+  if (!clientQuery || !personQuery) {
+    return { ok: false, error: "\uAC70\uB798\uCC98 \uC774\uB984\uACFC \uB2F4\uB2F9\uC790 \uC774\uB984\uC774 \uD544\uC694\uD569\uB2C8\uB2E4." };
+  }
+
+  const matchedClients = findClientsByQuery(clients, clientQuery);
+  if (!matchedClients.length) {
+    return { ok: false, error: `"${clientQuery}" \uAC70\uB798\uCC98\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+  }
+
+  const personKey = normalizeMatchKey(personQuery);
+  for (const client of matchedClients) {
+    const contacts = resolveClientContacts(client);
+    for (const contact of contacts) {
+      if (nameMatchesQuery(contact.name, personKey)) {
+        return {
+          ok: true,
+          clientName: String(client.name || ""),
+          personName: contact.name,
+          phone: canViewPhone ? contact.phone || "" : null,
+          phoneRestricted: !canViewPhone,
+          isPrimary: Boolean(contact.isPrimary),
+        };
+      }
+    }
+
+    for (const managerName of splitManagerNames(client.manager)) {
+      if (nameMatchesQuery(managerName, personKey)) {
+        const phone = String(client.phone || "").trim();
+        return {
+          ok: true,
+          clientName: String(client.name || ""),
+          personName: managerName,
+          phone: canViewPhone ? phone : null,
+          phoneRestricted: !canViewPhone,
+          isPrimary: true,
+        };
+      }
+    }
+  }
+
+  return {
+    ok: false,
+    error: `${matchedClients[0]?.name || clientQuery} ${personQuery} \uB2F4\uB2F9\uC790\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.`,
+  };
+}
+
+export function formatClientContactLookupAnswer(data) {
+  if (!data?.ok) return data?.error || "\uB2F4\uB2F9\uC790 \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  const phone = data.phoneRestricted ? "\uC804\uD654\uBC88\uD638 \uC870\uD68C \uAD8C\uD55C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4." : data.phone || "-";
+  const primary = data.isPrimary ? " (\uC8FC\uB2F4\uB2F9)" : "";
+  return `\uAC70\uB798\uCC98 ${data.clientName} \uB2F4\uB2F9 ${data.personName}${primary}: ${phone}`;
+}
+
 function tryClientContactsOrPersonLookup(name, user) {
   const query = String(name || "").trim();
   if (!query) return null;
+
+  const parsed = parseClientPersonContactQuery(query);
+  if (parsed) {
+    return formatClientContactLookupAnswer(toolLookupClientContact(parsed, user));
+  }
 
   const state = getErpState(["clients"]);
   const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
@@ -1562,11 +1663,13 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "get_client_contacts",
-      description: "\uAC70\uB798\uCC98 \uC774\uB984(\uB610\uB294 \uBCC4\uCE59)\uC73C\uB85C \uB2F4\uB2F9\uC790 \uBAA9\uB85D\uACFC \uC804\uD654\uBC88\uD638\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4.",
+      description:
+        "\uAC70\uB798\uCC98 \uC774\uB984(\uB610\uB294 \uBCC4\uCE59)\uC73C\uB85C \uB2F4\uB2F9\uC790 \uBAA9\uB85D\uACFC \uC804\uD654\uBC88\uD638\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4. '\uC778\uB514\uD37C \uAE40\uD718\uAD6D \uC804\uD654\uBC88\uD638'\uCC98\uB7FC \uAC70\uB798\uCC98+\uB2F4\uB2F9\uC790 \uC774\uB984 \uC870\uD569 \uC2DC personName\uC744 \uC0AC\uC6A9\uD558\uC138\uC694.",
       parameters: {
         type: "object",
         properties: {
           clientName: { type: "string", description: "\uAC70\uB798\uCC98 \uC774\uB984 \uB610\uB294 \uBCC4\uCE59 (\uC608: \uC778\uB514\uD37C, \uD0A4\uCE9C\uC81C\uB2C8\uC2A4)" },
+          personName: { type: "string", description: "\uB2F4\uB2F9\uC790 \uC778\uC0C1 (\uC608: \uAE40\uD718\uAD6D). \uAC70\uB798\uCC98+\uB2F4\uB2F9\uC790 \uC804\uD654 \uC870\uD68C \uC2DC \uC9C0\uC815." },
         },
         required: ["clientName"],
       },
@@ -1915,6 +2018,13 @@ export function tryRuleBasedChat(message, user) {
     }
   }
 
+  if (text.includes(kwManager) || text.includes(kwPhone) || text.includes(kwContact) || text.includes(kwNumber)) {
+    const parsed = parseClientPersonContactQuery(text);
+    if (parsed) {
+      return formatClientContactLookupAnswer(toolLookupClientContact(parsed, user));
+    }
+  }
+
   if (text.includes(kwManager)) {
     const clientName = extractClientNameFromContactQuery(text);
     if (clientName) {
@@ -2030,6 +2140,9 @@ export function formatContactAnswer(data) {
 
 export function formatClientContactsAnswer(data) {
   if (!data.ok) return data.error || "\uAC70\uB798\uCC98 \uB2F4\uB2F9\uC790 \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  if (data.personName && data.clientName && !Array.isArray(data.clients)) {
+    return formatClientContactLookupAnswer(data);
+  }
   const lines = [];
   for (const client of data.clients || []) {
     lines.push(`\uAC70\uB798\uCC98 ${client.clientName}`);
