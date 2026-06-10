@@ -52,6 +52,12 @@ import {
 } from "./erpChatNavigate.mjs";
 import { appendErpChatLog, listErpChatLogs, listErpChatLogsAdmin, clearErpChatLogsForUser } from "./erpChatStore.mjs";
 import { appendErpChatAuditLog } from "./erpChatAudit.mjs";
+import {
+  isWeatherQuery,
+  toolGetWeather,
+  formatWeatherAnswer,
+  GET_WEATHER_TOOL_DEFINITION,
+} from "./erpChatWeather.mjs";
 
 const SYSTEM_PROMPT = [
   "\uB2F9\uC2E0\uC740 TeamMillimeter ERP \uC5B4\uC2DC\uC2A4\uD134\uD2B8\uC785\uB2C8\uB2E4. \uC778\uC0AC\u00B7\uC77C\uC0C1 \uB300\uD654\u00B7\uAC00\uBCCD\uC740 \uC9C8\uBB38\uC5D0\uB294 \uB3C4\uAD6C \uC5C6\uC774 \uCE5C\uADFC\uD558\uACE0 \uC790\uC5F0\uC2A4\uB7FD\uAC8C \uB2F5\uD558\uC138\uC694.",
@@ -71,6 +77,7 @@ const SYSTEM_PROMPT = [
   "\uD1B5\uC7A5/\uACC4\uC88C \uC5F4\uAE30(\uC608: 5\uC6D4 \uD1B5\uC7A5 \uC5F4\uC5B4, 5\uC6D4\uB2EC \uD1B5\uC7A5 \uC5F4\uC5B4\uC918)\uC740 navigate_erp target=accounting_bank \uC640 \uAE30\uAC04\uC744 \uC801\uC6A9\uD558\uC138\uC694.",
   "\uAC70\uB798\uCC98 \uC138\uAE08\uACC4\uC0B0\uC11C \uB0B4\uC5ED \uC5F4\uAE30(\uC608: \uC778\uB514\uD37C \uC138\uAE08\uACC4\uC0B0\uC11C \uB0B4\uC5ED \uC5F4\uC5B4\uC918)\uC740 open_client_tax_invoice_history \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "ERP \uBA54\uB274/\uD654\uBA74 \uC774\uB3D9(\uB300\uC2DC\uBCF4\uB4DC, \uD86D\uAE08, \uD1B5\uC7A5, \uBD84\uC11D, \uADFC\uD009 \uB4F1)\uC740 navigate_erp \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uD654\uBA74 \uBAA9\uB85D\uC740 list_erp_pages.",
+  "\uB0A0\uC528 \uC9C8\uBB38(\uC624\uB298 \uB0A0\uC528, \uBD80\uC0B0 \uB0B4\uC77C \uB0A0\uC528 \uB4F1)\uC740 get_weather \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "\uC77C\uC815 \uC870\uD68C \uC2DC \uAC70\uC218\uC640 \uD568\uAED8 \uBAA9\uB85D\uC744 \uBE84\uB81B \uD615\uD0DC\uB85C \uC791\uC131\uD558\uC138\uC694. \uAC70\uB798\uCC98+\uAE30\uAC04 \uC9C8\uBB38(\uC608: \uD0A4\uCE9C\uC81C\uB2C8\uC2A4 \uC774\uBC88\uC8FC \uC77C\uC815)\uC740 clientName\uACFC \uC774\uBC88\uC8FC\uB97C \uC9C0\uC815\uD558\uC138\uC694.",
 ].join("\n");
 
@@ -120,7 +127,7 @@ async function callOpenAiChat(messages, tools) {
 const CASUAL_SYSTEM_PROMPT = [
   "\uB2F9\uC2E0\uC740 TeamMillimeter ERP \uC5B4\uC2DC\uC2A4\uD134\uD2B8\uC785\uB2C8\uB2E4.",
   "\uC778\uC0AC, \uAC10\uC815 \uACF5\uC720, \uAC00\uBCCD\uC740 \uC9C8\uBB38\uC5D0 \uCE5C\uADFC\uD558\uACE0 \uC790\uC5F0\uC2A4\uB7FD\uAC8C \uB300\uD654\uD558\uC138\uC694.",
-  "\uC2E4\uC2DC\uAC04 \uB0A0\uC528\u00B7\uC704\uCE58 \uB370\uC774\uD130\uB294 \uC5F0\uACB0\uB418\uC5B4 \uC788\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uB098\uC27D\uC774 \uC815\uD655\uD788 \uBAA8\uB978\uB2E4\uACE0 \uB9D0\uD558\uACE0, \uAE30\uC0C1\uCCAD\u00B7\uB124\uC774\uBC84 \uB0A0\uC528 \uB4F1 \uC678\uBD80 \uC571 \uC548\uB0B4\uB97C \uC81C\uC548\uD558\uC138\uC694.",
+  "\uC2E4\uC2DC\uAC04 \uB0A0\uC528\uB294 get_weather \uB3C4\uAD6C \uACB0\uACFC\uB97C \uAE30\uC900\uC73C\uB85C \uB2F5\uD558\uC138\uC694.",
   "\uBAA8\uB974\uB294 \uC0AC\uC2E4\uC740 \uC9C0\uC5B4\uB0B4\uC9C0 \uB9C8\uC138\uC694. ERP \uC5C5\uBB34(\uBBF8\uC218, \uC77C\uC815, \uD654\uBA74 \uC5F4\uAE30 \uB4F1)\uB294 \uAD6C\uCCB4\uC801\uC73C\uB85C \uC801\uC73C\uBA74 \uB3C4\uC640\uB4DC\uB9B4 \uC218 \uC788\uB2E4\uACE0 \uC548\uB0B4\uD558\uC138\uC694.",
   "\uB2F5\uBCC0\uC740 \uC9C1\uC811\uC801\uC774\uACE0 \uAC04\uACB0\uD558\uAC8C \uD55C\uAD6D\uC5B4\uB85C \uC791\uC131\uD558\uC138\uC694.",
 ].join("\n");
@@ -246,11 +253,12 @@ function formatToolResultsAsAnswer(toolsUsed) {
 
 const ERP_CHAT_ALL_TOOL_DEFINITIONS = [
   ...ERP_CHAT_TOOL_DEFINITIONS,
+  GET_WEATHER_TOOL_DEFINITION,
   NAVIGATE_ERP_TOOL_DEFINITION,
   LIST_ERP_PAGES_TOOL_DEFINITION,
 ];
 
-function executeChatTool(fnName, args, user, question) {
+async function executeChatTool(fnName, args, user, question) {
   if (fnName === "navigate_erp") {
     return toolNavigateErp({ ...(args || {}), message: question });
   }
@@ -259,6 +267,9 @@ function executeChatTool(fnName, args, user, question) {
   }
   if (fnName === "get_worker_info") {
     return toolGetWorkerInfo({ name: args?.name || question, rawQuery: question }, user);
+  }
+  if (fnName === "get_weather") {
+    return toolGetWeather({ ...(args || {}), rawQuery: args?.rawQuery || question });
   }
   return executeErpChatTool(fnName, args, user, question);
 }
@@ -361,7 +372,15 @@ export async function handleErpChat({ messages, user: tokenUser }) {
   let engine = "rules";
   const casualQuery = isCasualConversationQuery(question);
 
-  if (config.openAiConfigured && casualQuery) {
+  if (isWeatherQuery(question)) {
+    const weatherResult = await toolGetWeather({ rawQuery: question });
+    if (weatherResult?.ok) {
+      answer = formatWeatherAnswer(weatherResult);
+      engine = "weather";
+    }
+  }
+
+  if (config.openAiConfigured && casualQuery && !answer) {
     engine = "openai";
     try {
       const casualReply = await callOpenAiCasualReply(safeMessages);
@@ -416,7 +435,7 @@ export async function handleErpChat({ messages, user: tokenUser }) {
           } catch {
             args = {};
           }
-          const result = executeChatTool(fnName, args, user, question);
+          const result = await executeChatTool(fnName, args, user, question);
           toolsUsed.push({ name: fnName, args, result });
           chatMessages.push({
             role: "tool",
@@ -454,6 +473,11 @@ export async function handleErpChat({ messages, user: tokenUser }) {
   const scheduleUsed = toolsUsed.find((row) => row.name === "get_schedule_count" && row.result?.ok);
   if (scheduleUsed && !casualQuery) {
     answer = formatScheduleAnswer(scheduleUsed.result);
+  }
+
+  const weatherUsed = toolsUsed.find((row) => row.name === "get_weather" && row.result?.ok);
+  if (weatherUsed) {
+    answer = formatWeatherAnswer(weatherUsed.result);
   }
 
   const saleVoucherUsed = toolsUsed.find((row) => row.name === "find_sale_voucher" && row.result?.ok);
@@ -546,10 +570,16 @@ export async function handleErpChat({ messages, user: tokenUser }) {
   }
 
   if (!answer && !chatActions.length) {
-    const infoAnswer = casualQuery
-      ? formatCasualFallbackAnswer(question) || tryRuleBasedChat(question, user)
-      : tryRuleBasedChat(question, user);
-    if (infoAnswer) answer = infoAnswer;
+    if (isWeatherQuery(question)) {
+      const weatherResult = await toolGetWeather({ rawQuery: question });
+      if (weatherResult?.ok) answer = formatWeatherAnswer(weatherResult);
+    }
+    if (!answer) {
+      const infoAnswer = casualQuery
+        ? formatCasualFallbackAnswer(question) || tryRuleBasedChat(question, user)
+        : tryRuleBasedChat(question, user);
+      if (infoAnswer) answer = infoAnswer;
+    }
   }
 
   if (!answer && config.openAiConfigured && !casualQuery) {
