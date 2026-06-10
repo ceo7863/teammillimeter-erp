@@ -210,6 +210,34 @@ function scheduleMatchesClientFilter(schedule, matchedClients, keys) {
   return labels.some((label) => labelMatchesClientKeys(label, keys));
 }
 
+function scheduleMatchesWorkerFilter(schedule, workerName, workers) {
+  const worker = findWorkerByListName(workers, workerName);
+  if (!worker) return false;
+  const targetName = String(worker.name || workerName || "").trim();
+  const participantNames = Array.isArray(schedule?.participantNames) ? schedule.participantNames : [];
+  return participantNames.some((name) => {
+    const matched = findWorkerByListName(workers, name);
+    if (matched && String(matched.name || "").trim() === targetName) return true;
+    return String(name || "").trim() === targetName;
+  });
+}
+
+function resolveScheduleNameFilter(text, clients, workers) {
+  const extracted = extractClientNameFromScheduleQuery(text);
+  if (!extracted) return {};
+
+  const worker = findWorkerByListName(workers, extracted);
+  const matchedClients = findClientsByQuery(clients, extracted);
+
+  if (worker) {
+    return { workerName: String(worker.name || extracted).trim() };
+  }
+  if (matchedClients.length) {
+    return { clientName: String(matchedClients[0]?.name || extracted).trim() };
+  }
+  return {};
+}
+
 function saleMatchesClientFilter(clientName, matchedClients, keys) {
   return labelMatchesClientKeys(clientName, keys);
 }
@@ -371,12 +399,13 @@ export function toolGetClientUnpaid({ clientName }) {
   };
 }
 
-export function toolGetScheduleCount({ date, startDate, endDate, clientName, limit = 30 }) {
-  const state = getErpState(["sales", "settings", "clients"]);
+export function toolGetScheduleCount({ date, startDate, endDate, clientName, workerName, limit = 30 }) {
+  const state = getErpState(["sales", "settings", "clients", "workers"]);
   const data = state.data || {};
   const sales = Array.isArray(data.sales) ? data.sales : [];
   const scSchedules = Array.isArray(data.scSchedules) ? data.scSchedules : [];
   const clients = Array.isArray(data.clients) ? data.clients : [];
+  const workers = Array.isArray(data.workers) ? data.workers : [];
   const maxRows = Math.min(Math.max(Number(limit) || 30, 1), 50);
 
   let rangeStart = String(startDate || "").slice(0, 10);
@@ -393,8 +422,14 @@ export function toolGetScheduleCount({ date, startDate, endDate, clientName, lim
   }
 
   const clientQuery = String(clientName || "").trim();
+  const workerQuery = String(workerName || "").trim();
   let matchedClients = [];
   let clientFilterKeys = null;
+  let resolvedWorkerName = "";
+  if (workerQuery) {
+    const worker = findWorkerByListName(workers, workerQuery);
+    resolvedWorkerName = String(worker?.name || workerQuery).trim();
+  }
   if (clientQuery) {
     matchedClients = findClientsByQuery(clients, clientQuery);
     clientFilterKeys = buildClientFilterKeys(clientQuery, matchedClients);
@@ -406,7 +441,10 @@ export function toolGetScheduleCount({ date, startDate, endDate, clientName, lim
   });
   let scRows = filterSchedulesForWeek(scSchedules, rangeStart, rangeEnd);
 
-  if (clientFilterKeys) {
+  if (resolvedWorkerName) {
+    salesRows = salesRows.filter((row) => saleHasWorker(row, resolvedWorkerName));
+    scRows = scRows.filter((row) => scheduleMatchesWorkerFilter(row, resolvedWorkerName, workers));
+  } else if (clientFilterKeys) {
     salesRows = salesRows.filter((row) => saleMatchesClientFilter(row.client, matchedClients, clientFilterKeys));
     scRows = scRows.filter((row) => scheduleMatchesClientFilter(row, matchedClients, clientFilterKeys));
   }
@@ -426,7 +464,9 @@ export function toolGetScheduleCount({ date, startDate, endDate, clientName, lim
     startDate: rangeStart,
     endDate: rangeEnd,
     clientName: resolvedClientName,
-    filteredByClient: Boolean(clientQuery),
+    workerName: resolvedWorkerName,
+    filteredByClient: Boolean(clientQuery && !resolvedWorkerName),
+    filteredByWorker: Boolean(resolvedWorkerName),
     salesCount: salesRows.length,
     scScheduleCount: scRows.length,
     totalCount: salesRows.length + scRows.length,
@@ -1640,6 +1680,7 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
           startDate: { type: "string", description: "\uAE30\uAC04 \uC2DC\uC791\uC77C YYYY-MM-DD" },
           endDate: { type: "string", description: "\uAE30\uAC04 \uC885\uB8CC\uC77C YYYY-MM-DD" },
           clientName: { type: "string", description: "\uAC70\uB798\uCC98 \uC774\uB984 \uB610\uB294 \uBCC4\uCE59 (\uC608: \uD0A4\uCE9C\uC81C\uB2C8\uC2A4)" },
+          workerName: { type: "string", description: "\uC2DC\uACF5\uC790 \uC774\uB984 (\uC608: \uBC30\uC885\uC6D0). SC \uCC38\uC5EC\uC790 \uAE30\uC900." },
           limit: { type: "number", description: "\uBAA9\uB85D \uCD5C\uB300 \uAC74\uC218 (\uAE30\uBCF8 30)" },
         },
       },
@@ -1981,7 +2022,7 @@ export function tryRuleBasedChat(message, user) {
   }
 
   if ((text.includes(kwSchedule) || text.includes(kwSc)) && !(hasChatOpenVerb(text) && includesScScheduleKeyword(text))) {
-    const clientName = extractClientNameFromScheduleQuery(text);
+    const extractedName = extractClientNameFromScheduleQuery(text);
     const range = resolveDateRangeFromInput(text);
     const hasWeekKeyword =
       text.includes("\uC774\uBC88\uC8FC") ||
@@ -1990,13 +2031,21 @@ export function tryRuleBasedChat(message, user) {
       text.includes("\uC9C0\uB09C\uC8FC") ||
       text.includes("\uAE08\uC8FC");
 
-    if (clientName || hasWeekKeyword) {
+    if (extractedName || hasWeekKeyword) {
+      const lookupState = getErpState(["clients", "workers"]);
+      const lookupData = lookupState.data || {};
+      const nameFilter = resolveScheduleNameFilter(
+        text,
+        Array.isArray(lookupData.clients) ? lookupData.clients : [],
+        Array.isArray(lookupData.workers) ? lookupData.workers : [],
+      );
       return formatScheduleAnswer(
         toolGetScheduleCount({
           date: hasWeekKeyword ? text : range.startDate,
           startDate: range.startDate,
           endDate: range.endDate,
-          clientName: clientName || undefined,
+          clientName: nameFilter.clientName,
+          workerName: nameFilter.workerName,
         }),
       );
     }
@@ -2059,16 +2108,23 @@ export function formatUnpaidAnswer(data) {
 
 export function formatScheduleAnswer(data) {
   if (!data.ok) return "\uC77C\uC815 \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
-  const title = data.filteredByClient && data.clientName ? `${data.clientName} ${data.date}` : String(data.date || "");
+  const title =
+    data.filteredByWorker && data.workerName
+      ? `${data.workerName} ${data.date}`
+      : data.filteredByClient && data.clientName
+        ? `${data.clientName} ${data.date}`
+        : String(data.date || "");
   const lines = [
     `${title} \uC77C\uC815: \uB9E4\uCD9C ${data.salesCount}\uAC74, SC \uC77C\uC815 ${data.scScheduleCount}\uAC74 (\uD569\uACC4 ${data.totalCount}\uAC74)`,
   ];
 
   if (data.totalCount === 0) {
     lines.push(
-      data.filteredByClient
-        ? `\n${data.clientName || "\uD574\uB2F9 \uAC70\uB798\uCC98"}\uC758 \uB4F1\uB85D\uB41C \uC77C\uC815\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`
-        : "\n\uB4F1\uB85D\uB41C \uC77C\uC815\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+      data.filteredByWorker
+        ? `\n${data.workerName || "\uD574\uB2F9 \uC2DC\uACF5\uC790"}\uC758 \uB4F1\uB85D\uB41C \uC77C\uC815\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`
+        : data.filteredByClient
+          ? `\n${data.clientName || "\uD574\uB2F9 \uAC70\uB798\uCC98"}\uC758 \uB4F1\uB85D\uB41C \uC77C\uC815\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`
+          : "\n\uB4F1\uB85D\uB41C \uC77C\uC815\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
     );
     return lines.join("\n");
   }
