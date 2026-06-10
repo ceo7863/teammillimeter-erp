@@ -1665,7 +1665,8 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
   },
 ];
 
-export function executeErpChatTool(name, args, user) {
+export function executeErpChatTool(name, args, user, question) {
+  const rawQuestion = String(question || args?.rawQuery || "").trim();
   switch (name) {
     case "get_client_unpaid":
       return toolGetClientUnpaid(args || {});
@@ -1689,10 +1690,25 @@ export function executeErpChatTool(name, args, user) {
       return toolOpenWorkerConstructionCostStatement(args || {});
     case "open_client_construction_cost_statement":
       return toolOpenClientConstructionCostStatement(args || {});
-    case "open_client_deposit_history":
-      return toolOpenClientDepositHistory(args || {});
-    case "open_client_tax_invoice_history":
-      return toolOpenClientTaxInvoiceHistory(args || {});
+    case "open_client_deposit_history": {
+      const parsed = rawQuestion ? extractDepositHistoryQuery(rawQuestion) : {};
+      const merged = { ...(args || {}) };
+      if (!merged.clientName && parsed.clientName) merged.clientName = parsed.clientName;
+      if (merged.allHistory !== true && parsed.allHistory) merged.allHistory = parsed.allHistory;
+      if (!merged.startDate && parsed.startDate) merged.startDate = parsed.startDate;
+      if (!merged.endDate && parsed.endDate) merged.endDate = parsed.endDate;
+      if (!merged.period && rawQuestion) merged.period = rawQuestion;
+      return toolOpenClientDepositHistory(merged);
+    }
+    case "open_client_tax_invoice_history": {
+      const parsed = rawQuestion ? extractTaxInvoiceHistoryQuery(rawQuestion) : {};
+      const merged = { ...(args || {}) };
+      if (!merged.clientName && parsed.clientName) merged.clientName = parsed.clientName;
+      if (!merged.startDate && parsed.startDate) merged.startDate = parsed.startDate;
+      if (!merged.endDate && parsed.endDate) merged.endDate = parsed.endDate;
+      if (!merged.period && rawQuestion) merged.period = rawQuestion;
+      return toolOpenClientTaxInvoiceHistory(merged);
+    }
     default:
       return { ok: false, error: `\uC54C \uC218 \uC5C6\uB294 \uB3C4\uAD6C: ${name}` };
   }

@@ -37,7 +37,6 @@ import {
   formatTaxInvoiceOpenAnswer,
   buildChatActionsFromTaxInvoiceOpen,
 } from "./erpChatTools.mjs";
-import { chatIncludesIntent } from "./erpChatFuzzy.mjs";
 import {
   toolNavigateErp,
   toolListErpPages,
@@ -67,7 +66,7 @@ const SYSTEM_PROMPT = [
   "SC \uC2A4\uCF00\uC904/\uC77C\uC815 \uC5F4\uAE30(\uC608: \uC2A4\uCF00\uC904 \uC5F4\uC5B4, SC \uC5F4\uC5B4)\uC740 open_sc_schedule \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. '\uC77C\uC815' \uC870\uD68C \uC804\uC6A9 \uC694\uCCAD\uC740 get_schedule_count\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "\uC2DC\uACF5\uC790 \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C/\uC2DC\uACF5\uB0B4\uC5ED\uC11C \uC5F4\uAE30(\uC608: \uAE40\uBBFC\uC131 5\uC6D4 \uC2DC\uACF5\uB0B4\uC5ED\uC11C \uC5F4\uC5B4\uC918, \uAE40\uBBFC\uC131 \uC774\uBC88\uB2EC \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C)\uC740 open_worker_construction_cost_statement \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uC6D4 \uC9C0\uC815 \uC5C6\uC73C\uBA74 \uC774\uBC88 \uB2EC, \uB144\uB3C4 \uC5C6\uC73C\uBA74 \uC62C\uD574\uB97C \uAE30\uBCF8\uC73C\uB85C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "\uAC70\uB798\uCC98 \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C \uC0DD\uC131 \uBC0F \uC5F4\uAE30(\uC608: \uC778\uB514\uD37C \uC774\uBC88\uB2EC \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C)\uC740 open_client_construction_cost_statement \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
-  "\uAC70\uB798\uCC98 \uC785\uAE08\uB0B4\uC5ED \uC5F4\uAE30(\uC608: \uC778\uB514\uD37C \uC785\uAE08\uB0B4\uC5ED \uC5F4\uC5B4\uC918, \uC778\uB514\uD37C \uBAA8\uB4E0 \uC785\uAE08\uB0B4\uC5ED \uC804\uCCB4)\uC740 open_client_deposit_history \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. '\uBAA8\uB4E0', '\uC804\uCCB4'\uC740 \uAE30\uAC04 \uD544\uD130 \uC5C6\uC774 \uC804\uCCB4 \uB0B4\uC5ED\uC744 \uC5F4\uC5B4\uC918\uC694.",
+  "\uAC70\uB798\uCC98 \uC785\uAE08\uB0B4\uC5ED \uC5F4\uAE30(\uC608: \uC778\uB514\uD37C \uC785\uAE08\uB0B4\uC5ED \uC5F4\uC5B4\uC918, \uC778\uB514\uD37C 5\uC6D4 \uC785\uAE08\uB0B4\uC5ED, \uC778\uB514\uD37C \uBAA8\uB4E0 \uC785\uAE08\uB0B4\uC5ED)\uC740 open_client_deposit_history \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. '\uC5F4\uC5B4\uC918' \uC5C6\uC774 \uC785\uAE08\uB0B4\uC5ED\uB9CC \uC801\uC5B4\uB3C4 \uD655\uC778 \uC694\uCCAD\uC785\uB2C8\uB2E4. 5\uC6D4 \uB4F1 \uAE30\uAC04\uC740 period/startDate/endDate\uB85C \uC804\uB2EC\uD558\uC138\uC694. '\uBAA8\uB4E0', '\uC804\uCCB4'\uC740 allHistory=true.",
   "\uD1B5\uC7A5/\uACC4\uC88C \uC5F4\uAE30(\uC608: 5\uC6D4 \uD1B5\uC7A5 \uC5F4\uC5B4, 5\uC6D4\uB2EC \uD1B5\uC7A5 \uC5F4\uC5B4\uC918)\uC740 navigate_erp target=accounting_bank \uC640 \uAE30\uAC04\uC744 \uC801\uC6A9\uD558\uC138\uC694.",
   "\uAC70\uB798\uCC98 \uC138\uAE08\uACC4\uC0B0\uC11C \uB0B4\uC5ED \uC5F4\uAE30(\uC608: \uC778\uB514\uD37C \uC138\uAE08\uACC4\uC0B0\uC11C \uB0B4\uC5ED \uC5F4\uC5B4\uC918)\uC740 open_client_tax_invoice_history \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "ERP \uBA54\uB274/\uD654\uBA74 \uC774\uB3D9(\uB300\uC2DC\uBCF4\uB4DC, \uD86D\uAE08, \uD1B5\uC7A5, \uBD84\uC11D, \uADFC\uD009 \uB4F1)\uC740 navigate_erp \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uD654\uBA74 \uBAA9\uB85D\uC740 list_erp_pages.",
@@ -216,7 +215,7 @@ function executeChatTool(fnName, args, user, question) {
   if (fnName === "get_worker_info") {
     return toolGetWorkerInfo({ name: args?.name || question, rawQuery: question }, user);
   }
-  return executeErpChatTool(fnName, args, user);
+  return executeErpChatTool(fnName, args, user, question);
 }
 
 function tryRuleBasedOpenFromQuestion(question) {
@@ -330,6 +329,12 @@ export async function handleErpChat({ messages, user: tokenUser }) {
 
         const toolCalls = Array.isArray(choice.tool_calls) ? choice.tool_calls : [];
         if (!toolCalls.length) {
+          const ruleOpen = tryRuleBasedOpenFromQuestion(question);
+          if (ruleOpen) {
+            answer = ruleOpen.answer;
+            chatActions = ruleOpen.chatActions;
+            break;
+          }
           answer = String(choice.content || "").trim();
           break;
         }
@@ -463,20 +468,17 @@ export async function handleErpChat({ messages, user: tokenUser }) {
 
   const openAiTextOnly = Boolean(answer) && toolsUsed.length === 0;
 
-  if ((!answer || openAiTextOnly) && !chatActions.length) {
-    const infoAnswer = tryRuleBasedChat(question, user);
-    if (infoAnswer) answer = infoAnswer;
-  }
-
-  if (
-    chatActions.length === 0 &&
-    (hasChatOpenVerb(question) || chatIncludesIntent(question, "depositHistory"))
-  ) {
+  if (chatActions.length === 0) {
     const openResult = tryRuleBasedOpenFromQuestion(question);
     if (openResult) {
       answer = openResult.answer;
       chatActions = openResult.chatActions;
     }
+  }
+
+  if ((!answer || openAiTextOnly) && !chatActions.length) {
+    const infoAnswer = tryRuleBasedChat(question, user);
+    if (infoAnswer) answer = infoAnswer;
   }
 
   if (!answer) {
