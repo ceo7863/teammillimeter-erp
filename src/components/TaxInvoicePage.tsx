@@ -508,7 +508,13 @@ export function TaxInvoicePage({
   companyProfile?: CompanyProfile;
   erpVersion?: number;
   onErpVersionChange?: (version: number) => void;
-  pendingClientFilter?: { clientName: string; startDate?: string; endDate?: string } | null;
+  pendingClientFilter?: {
+    clientName?: string;
+    searchQuery?: string;
+    startDate?: string;
+    endDate?: string;
+    periodKey?: "all" | "custom";
+  } | null;
   onPendingClientFilterConsumed?: () => void;
 }) {
   const { recordAudit, recordSummaryAudit } = useAudit();
@@ -565,10 +571,13 @@ export function TaxInvoicePage({
   }, [modal?.documentType]);
 
   useEffect(() => {
-    if (!pendingClientFilter?.clientName) return;
-    const clientName = pendingClientFilter.clientName;
-    setQuery(clientName);
-    if (pendingClientFilter.startDate && pendingClientFilter.endDate) {
+    if (!pendingClientFilter?.clientName && !pendingClientFilter?.searchQuery) return;
+    const searchText = String(pendingClientFilter.searchQuery || pendingClientFilter.clientName || "").trim();
+    if (searchText) setQuery(searchText);
+    if (pendingClientFilter.periodKey === "all") {
+      setPeriodKey("all");
+      setDateFilter({ startDate: "", endDate: "" });
+    } else if (pendingClientFilter.startDate && pendingClientFilter.endDate) {
       setPeriodKey("custom");
       setDateFilter({
         startDate: pendingClientFilter.startDate,

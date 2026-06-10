@@ -75,6 +75,7 @@ export type ErpChatAction =
       endDate?: string;
       bankColumnPreset?: "account_only";
       bankSearchQuery?: string;
+      taxSearchQuery?: string;
     };
 
 export type ErpChatResponse = {

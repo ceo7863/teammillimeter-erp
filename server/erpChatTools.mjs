@@ -3494,9 +3494,142 @@ export function tryRuleBasedDepositOpen(message) {
   return toolOpenClientDepositHistory({ clientName, allHistory, startDate, endDate });
 }
 
+const TAX_INVOICE_KEYWORD_PATTERN = /(?:\uC138\uAE08\s*\uACC4\uC0B0\uC11C|\uACC4\uC0B0\uC11C)/;
+const TAX_SEARCH_VERB_PATTERN = /(?:\uCC3E|\uAC80\uC0C9|\uC870\uD68C)/;
+
+function includesTaxInvoiceKeyword(text) {
+  const raw = String(text || "");
+  return chatIncludesIntent(raw, "taxInvoice") || TAX_INVOICE_KEYWORD_PATTERN.test(raw);
+}
+
+function textHasTaxInvoiceSearchPeriod(text) {
+  const raw = String(text || "").trim();
+  return (
+    chatHasMonthKeyword(raw) ||
+    /(?:\uC624\uB298|\uC5B4\uC81C|\uB0B4\uC77C|\uBAA8\uB798|\uC774\uBC88\uC8FC|\uAE08\uC8FC|\d{4}-\d{2}-\d{2}|\d{1,2}\s*\uC77C(?:\s*(?:\uC5D0\uC11C|\uBD80\uD130|~|\-)\s*\d{1,2}\s*\uC77C)?)/.test(
+      raw,
+    )
+  );
+}
+
+function stripTaxInvoiceSearchNoise(value) {
+  return String(value || "")
+    .replace(CHAT_MONTH_KEYWORD_STRIP_PATTERN, "")
+    .replace(/(?:\uC138\uAE08\s*)?\uACC4\uC0B0\uC11C|\uC138\uAE08\uACC4\uC0B0\uC11C/g, "")
+    .replace(
+      /(?:\uC624\uB298|\uC5B4\uC81C|\uB0B4\uC77C|\uBAA8\uB798|\uC774\uBC88\uC8FC|\uAE08\uC8FC|\d{4}-\d{2}-\d{2}|\d{1,2}\s*\uC77C(?:\s*(?:\uC5D0\uC11C|\uBD80\uD130|~|\-)\s*\d{1,2}\s*\uC77C)?)/g,
+      "",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function extractTaxInvoiceSearchQuery(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+
+  const quotedMatch = raw.match(
+    /(?:\uC138\uAE08\s*)?\uACC4\uC0B0\uC11C(?:\uC5D0\uC11C|\uB9AC)?\s*[""\u300C\u300E''"]([^""\u300D\u300F''"]+)[""\u300D\u300F''"]\s*(?:\uCC3E|\uAC80\uC0C9)/,
+  );
+  if (quotedMatch?.[1]) return quotedMatch[1].trim();
+
+  const fromMatch = raw.match(
+    /(?:\uC138\uAE08\s*)?\uACC4\uC0B0\uC11C(?:\uC5D0\uC11C|\uB9AC)?\s+(.+?)\s*(?:\uCC3E\uC544(?:\uC918|\uC8FC\uC138\uC694|\uC694)?|\uAC80\uC0C9(?:\uD574(?:\uC918|\uC8FC\uC138\uC694|\uC694)?)?)/,
+  );
+  if (fromMatch?.[1]) {
+    const query = stripTaxInvoiceSearchNoise(fromMatch[1]);
+    if (query) return query;
+  }
+
+  const beforeMatch = raw.match(
+    /(.+?)\s*(?:\uC138\uAE08\s*)?\uACC4\uC0B0\uC11C\s*(?:\uCC3E|\uAC80\uC0C9|\uC870\uD68C|\uC5F4|\uBCF4\uC5EC|\uBCF4\uAE30|\uBCF4\uC5EC\uC918|\uC5F4\uC5B4|\uC5F4\uC5B4\uC918)/,
+  );
+  if (beforeMatch?.[1]) {
+    const query = stripTaxInvoiceSearchNoise(beforeMatch[1]);
+    if (query) return query;
+  }
+
+  const looseMatch = raw.match(/(?:\uC138\uAE08\s*)?\uACC4\uC0B0\uC11C\s*(?:\uC5D0\uC11C|\uB9AC)?\s*(.+?)\s*(?:\uCC3E|\uAC80\uC0C9)/);
+  if (looseMatch?.[1]) {
+    const query = stripTaxInvoiceSearchNoise(looseMatch[1]);
+    if (query) return query;
+  }
+
+  if (hasChatOpenVerb(raw) && !/\uB0B4\uC5ED/.test(raw)) {
+    const expanded = expandSynonymsForExtraction(raw);
+    const clientName = extractNameBeforeIntent(expanded, "taxInvoice");
+    if (clientName) return clientName;
+  }
+
+  return null;
+}
+
+export function isTaxInvoiceSearchQuery(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  if (!includesTaxInvoiceKeyword(raw)) return false;
+  if (isTaxInvoiceSummaryQuery(raw)) return false;
+  if (isClientTaxInvoiceIssuedQuery(raw)) return false;
+  if (/\uB0B4\uC5ED/.test(raw) && !TAX_SEARCH_VERB_PATTERN.test(raw)) return false;
+  const hasSearchVerb =
+    TAX_SEARCH_VERB_PATTERN.test(raw) || (hasChatOpenVerb(raw) && !/\uB0B4\uC5ED/.test(raw));
+  if (!hasSearchVerb) return false;
+  return Boolean(extractTaxInvoiceSearchQuery(raw));
+}
+
+export function tryRuleBasedTaxInvoiceSearch(message) {
+  const text = String(message || "").trim();
+  if (!isTaxInvoiceSearchQuery(text)) return null;
+  const searchQuery = extractTaxInvoiceSearchQuery(text);
+  if (!searchQuery) return null;
+  if (textHasTaxInvoiceSearchPeriod(text)) {
+    const period = resolveStatementPeriodFromInput(text);
+    return {
+      ok: true,
+      searchQuery,
+      startDate: period.startDate,
+      endDate: period.endDate,
+      periodLabel: period.label,
+      periodKey: "custom",
+    };
+  }
+  return {
+    ok: true,
+    searchQuery,
+    periodKey: "all",
+  };
+}
+
+export function buildChatActionsFromTaxInvoiceSearch(result) {
+  if (!result?.ok || !result.searchQuery) return [];
+  const action = {
+    type: "navigate_erp",
+    page: "accounting",
+    label: "\uC138\uAE08\uACC4\uC0B0\uC11C",
+    accountingTab: "tax",
+    taxSearchQuery: result.searchQuery,
+  };
+  if (result.startDate && result.endDate) {
+    action.startDate = result.startDate;
+    action.endDate = result.endDate;
+  }
+  return [action];
+}
+
+export function formatTaxInvoiceSearchAnswer(data) {
+  if (!data?.ok || !data.searchQuery) return data?.error || "\uC138\uAE08\uACC4\uC0B0\uC11C \uAC80\uC0C9\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  const period = data.periodLabel
+    ? ` (${data.periodLabel})`
+    : data.periodKey === "all"
+      ? " (\uC804\uCCB4 \uAE30\uAC04)"
+      : "";
+  return `\uC138\uAE08\uACC4\uC0B0\uC11C${period}\uC5D0\uC11C "${data.searchQuery}"\uC744(\uB97C) \uAC80\uC0C9\uD569\uB2C8\uB2E4.`;
+}
+
 export function tryRuleBasedTaxInvoiceOpen(message) {
   const text = String(message || "").trim();
   if (!chatIncludesIntent(text, "taxInvoice")) return null;
+  if (isTaxInvoiceSearchQuery(text)) return null;
   if (!hasChatOpenVerb(text) && !/\uB0B4\uC5ED/.test(text)) return null;
   const { clientName, startDate, endDate } = extractTaxInvoiceHistoryQuery(text);
   if (!clientName) return null;

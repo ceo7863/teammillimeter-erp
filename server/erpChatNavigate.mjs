@@ -210,6 +210,7 @@ export function toolNavigateErp({
   period,
   bankColumnPreset,
   bankSearchQuery,
+  taxSearchQuery,
   message,
 }) {
   const entry = resolveNavEntryByTarget(target);
@@ -237,6 +238,7 @@ export function toolNavigateErp({
   let navStartDate = startDate || undefined;
   let navEndDate = endDate || undefined;
   const resolvedBankSearchQuery = String(bankSearchQuery || "").trim();
+  const resolvedTaxSearchQuery = String(taxSearchQuery || "").trim();
   if (entry.accountingTab === "bank" || entry.id === "accounting_bank") {
     const hasExplicitPeriod = Boolean(startDate || endDate || String(period || "").trim());
     if (!resolvedBankSearchQuery || hasExplicitPeriod) {
@@ -257,6 +259,9 @@ export function toolNavigateErp({
   }
   if (resolvedBankSearchQuery && (entry.accountingTab === "bank" || entry.id === "accounting_bank")) {
     navExtras.bankSearchQuery = resolvedBankSearchQuery;
+  }
+  if (resolvedTaxSearchQuery && (entry.accountingTab === "tax" || entry.id === "accounting_tax")) {
+    navExtras.taxSearchQuery = resolvedTaxSearchQuery;
   }
 
   return {
@@ -402,6 +407,10 @@ export const NAVIGATE_ERP_TOOL_DEFINITION = {
         bankSearchQuery: {
           type: "string",
           description: "\uD1B5\uC7A5 \uB0B4\uC5ED \uAC80\uC0C9\uC5B4 (\uC608: \uAC70\uB798\uCC98\uBA85, \uBA54\uBAA8 \uD0A4\uC6CC\uB4DC)",
+        },
+        taxSearchQuery: {
+          type: "string",
+          description: "\uC138\uAE08\uACC4\uC0B0\uC11C \uAC80\uC0C9\uC5B4 (\uC608: \uAC70\uB798\uCC98\uBA85, \uC0AC\uC5C5\uC790\uBC88\uD638, \uACC4\uC0B0\uC11C \uBC88\uD638)",
         },
       },
       required: ["target"],

@@ -42,6 +42,7 @@ import {
   tryRuleBasedStatementOpen,
   tryRuleBasedDepositOpen,
   tryRuleBasedTaxInvoiceOpen,
+  tryRuleBasedTaxInvoiceSearch,
   tryRuleBasedBankOpen,
   tryRuleBasedBankSearch,
   tryRuleBasedBankAccountColumnView,
@@ -50,6 +51,8 @@ import {
   buildChatActionsFromBankOpen,
   formatBankSearchAnswer,
   buildChatActionsFromBankSearch,
+  formatTaxInvoiceSearchAnswer,
+  buildChatActionsFromTaxInvoiceSearch,
   formatClientStatementOpenAnswer,
   buildChatActionsFromClientStatementOpen,
   formatDepositOpenAnswer,
@@ -109,6 +112,7 @@ const SYSTEM_PROMPT = [
   "\uD1B5\uC7A5 \uAC80\uC0C9(\uC608: \uD1B5\uC7A5\uB0B4\uC5ED\uC5D0\uC11C XXX \uCC3E\uC544\uC918, 5\uC6D4 \uD1B5\uC7A5\uC5D0\uC11C XXX \uAC80\uC0C9)\uC740 navigate_erp target=accounting_bank \uC640 bankSearchQuery\uB97C \uC801\uC6A9\uD558\uC138\uC694. \uAE30\uAC04 \uC5C6\uC774 \uCC3E\uAE30\uBA74 \uC804\uCCB4 \uAE30\uAC04, \uC6D4 \uC788\uC73C\uBA74 period/startDate/endDate\uB97C \uC801\uC6A9\uD558\uC138\uC694.",
   "\uB9E4\uC785/\uB9E4\uCD9C \uACC4\uC0B0\uC11C\u00B7\uC138\uAE08\uACC4\uC0B0\uC11C \uD569\uACC4/\uAE08\uC561 \uC870\uD68C(\uC608: \uC624\uB298 \uB9E4\uC785 \uACC4\uC0B0\uC11C \uAE08\uC561, \uC624\uB298 \uACC4\uC0B0\uC11C \uB4E4\uC5B4\uC628\uB370, \uC774\uBC88\uB2EC \uB9E4\uCD9C \uACC4\uC0B0\uC11C \uD569\uACC4)\uC740 get_tax_invoice_summary \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. '\uB4E4\uC5B4\uC628'\uC740 \uB9E4\uC785, \uD654\uBA74 \uC5F4\uAE30\uAC00 \uC544\uB2CC \uAE08\uC561 \uC870\uD68C \uC804\uC6A9\uC785\uB2C8\uB2E4.",
   "\uAC70\uB798\uCC98 \uC138\uAE08\uACC4\uC0B0\uC11C \uB0B4\uC5ED \uC5F4\uAE30(\uC608: \uC778\uB514\uD37C \uC138\uAE08\uACC4\uC0B0\uC11C \uB0B4\uC5ED \uC5F4\uC5B4\uC918)\uC740 open_client_tax_invoice_history \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
+  "\uC138\uAE08\uACC4\uC0B0\uC11C \uAC80\uC0C9(\uC608: \uC778\uB514\uD37C \uACC4\uC0B0\uC11C \uCC3E\uC544\uC918, \uACC4\uC0B0\uC11C\uC5D0\uC11C XXX \uAC80\uC0C9, 5\uC6D4 \uACC4\uC0B0\uC11C\uC5D0\uC11C XXX \uCC3E\uAE30)\uC740 navigate_erp target=accounting_tax \uC640 taxSearchQuery\uB97C \uC801\uC6A9\uD558\uC138\uC694. \uAE30\uAC04 \uC5C6\uC774 \uCC3E\uAE30\uBA74 \uC804\uCCB4 \uAE30\uAC04, \uC6D4 \uC788\uC73C\uBA74 period/startDate/endDate\uB97C \uC801\uC6A9\uD558\uC138\uC694.",
   "ERP \uBA54\uB274/\uD654\uBA74 \uC774\uB3D9(\uB300\uC2DC\uBCF4\uB4DC, \uD86D\uAE08, \uD1B5\uC7A5, \uBD84\uC11D, \uADFC\uD009 \uB4F1)\uC740 navigate_erp \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uD654\uBA74 \uBAA9\uB85D\uC740 list_erp_pages.",
   "\uB0A0\uC528 \uC9C8\uBB38(\uC624\uB298 \uB0A0\uC528, \uBD80\uC0B0 \uB0B4\uC77C \uB0A0\uC528 \uB4F1)\uC740 get_weather \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "\uC77C\uC815 \uC870\uD68C \uC2DC \uAC70\uC218\uC640 \uD568\uAED8 \uBAA9\uB85D\uC744 \uBE84\uB81B \uD615\uD0DC\uB85C \uC791\uC131\uD558\uC138\uC694. \uAC70\uB798\uCC98+\uAE30\uAC04 \uC9C8\uBB38(\uC608: \uD0A4\uCE9C\uC81C\uB2C8\uC2A4 \uC774\uBC88\uC8FC \uC77C\uC815)\uC740 clientName\uACFC \uC774\uBC88\uC8FC\uB97C \uC9C0\uC815\uD558\uC138\uC694.",
@@ -382,6 +386,14 @@ function tryRuleBasedOpenFromQuestion(question) {
     return {
       answer: formatDepositOpenAnswer(depositOpenResult),
       chatActions: buildChatActionsFromDepositOpen(depositOpenResult),
+    };
+  }
+
+  const taxSearchResult = tryRuleBasedTaxInvoiceSearch(question);
+  if (taxSearchResult) {
+    return {
+      answer: formatTaxInvoiceSearchAnswer(taxSearchResult),
+      chatActions: buildChatActionsFromTaxInvoiceSearch(taxSearchResult),
     };
   }
 
@@ -761,8 +773,35 @@ export async function handleErpChat({ messages, user: tokenUser }) {
     bankNavHandled = true;
   }
 
+  const taxNavUsed = toolsUsed.find(
+    (row) =>
+      row.name === "navigate_erp" &&
+      row.result?.ok &&
+      (row.result?.nav?.accountingTab === "tax" || row.args?.target === "accounting_tax"),
+  );
+  let taxNavHandled = false;
+  if (taxNavUsed?.result?.nav?.taxSearchQuery) {
+    const { taxSearchQuery, startDate, endDate } = taxNavUsed.result.nav;
+    answer = formatTaxInvoiceSearchAnswer({
+      ok: true,
+      searchQuery: taxSearchQuery,
+      startDate,
+      endDate,
+      periodLabel: startDate && endDate ? `${startDate}~${endDate}` : undefined,
+      periodKey: startDate && endDate ? "custom" : "all",
+    });
+    chatActions = buildChatActionsFromTaxInvoiceSearch({
+      ok: true,
+      searchQuery: taxSearchQuery,
+      startDate,
+      endDate,
+      periodKey: startDate && endDate ? "custom" : "all",
+    });
+    taxNavHandled = true;
+  }
+
   const navigateUsed = toolsUsed.find((row) => row.name === "navigate_erp" && row.result?.ok);
-  if (navigateUsed && !bankNavHandled) {
+  if (navigateUsed && !bankNavHandled && !taxNavHandled) {
     answer = formatNavigateAnswer(navigateUsed.result);
     chatActions = buildChatActionsFromNavigateResult(navigateUsed.result);
   }
