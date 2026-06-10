@@ -383,7 +383,7 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "get_worker_info",
-      description: "\uC2DC\uACF5\uC790 \uAE30\uBCF8 \uC815\uBCF4(\uC774\uB984, \uAD6C\uBD84, \uC804\uD654\uBC88\uD638)\uB97C \uC870\uD68C\uD569\uB2C8\uB4DC\uB2C8\uB2E4.",
+      description: "\uC2DC\uACF5\uC790 \uAE30\uBCF8 \uC815\uBCF4(\uC774\uB984, \uAD6C\uBD84, \uC804\uD654\uBC88\uD638)\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4.",
       parameters: {
         type: "object",
         properties: {

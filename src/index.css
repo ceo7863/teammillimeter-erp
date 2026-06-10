@@ -16480,9 +16480,9 @@ button:disabled,
   word-break: break-word;
   border-radius: 0.95rem;
   padding: 0.65rem 0.8rem;
-  font-family: inherit;
   font-size: 0.8125rem;
   line-height: 1.45;
+  font-family: inherit;
 }
 
 .erp-chat-bubble--user .erp-chat-bubble__text {

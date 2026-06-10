@@ -5,6 +5,9 @@ import {
   executeErpChatTool,
   todayISO,
   tryRuleBasedChat,
+  formatUnpaidAnswer,
+  formatScheduleAnswer,
+  formatContactAnswer,
 } from "./erpChatTools.mjs";
 import { appendErpChatLog, listErpChatLogs, listErpChatLogsAdmin, clearErpChatLogsForUser } from "./erpChatStore.mjs";
 import { appendErpChatAuditLog } from "./erpChatAudit.mjs";
@@ -68,6 +71,47 @@ function buildUserContext(user) {
     name: user?.name,
     role: user?.role,
   };
+}
+
+function formatToolResultsAsAnswer(toolsUsed) {
+  const lines = [];
+  for (const row of toolsUsed) {
+    const result = row.result;
+    if (!result || result.ok === false) {
+      if (result?.error) lines.push(String(result.error));
+      continue;
+    }
+    switch (row.name) {
+      case "get_client_unpaid":
+        lines.push(formatUnpaidAnswer(result));
+        break;
+      case "get_schedule_count":
+        lines.push(formatScheduleAnswer(result));
+        break;
+      case "lookup_contact":
+        lines.push(formatContactAnswer(result));
+        break;
+      case "search_client":
+        if (result.clients?.length) {
+          lines.push(
+            result.clients
+              .map((client) => `- ${client.name}${client.manager ? ` (${client.manager})` : ""}`)
+              .join("\n"),
+          );
+        } else {
+          lines.push(`"${result.query}"\uC640(\uACFC) \uC77C\uCE58\uD558\uB294 \uAC70\uB798\uCC98\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+        }
+        break;
+      case "get_worker_info":
+        lines.push(
+          `\uC2DC\uACF5\uC790 ${result.name}${result.category ? ` (${result.category})` : ""}: ${result.phoneRestricted ? "\uC804\uD654\uBC88\uD638 \uC870\uD68C \uAD8C\uD55C \uC5C6\uC2B5\uB2C8\uB2E4." : result.phone || "-"}`,
+        );
+        break;
+      default:
+        break;
+    }
+  }
+  return lines.filter(Boolean).join("\n\n").trim();
 }
 
 export async function handleErpChat({ messages, user: tokenUser }) {
@@ -139,9 +183,7 @@ export async function handleErpChat({ messages, user: tokenUser }) {
   }
 
   if (!answer && toolsUsed.length) {
-    answer = toolsUsed
-      .map((row) => `${row.name}: ${JSON.stringify(row.result)}`)
-      .join("\n");
+    answer = formatToolResultsAsAnswer(toolsUsed);
   }
 
   if (!answer) {
