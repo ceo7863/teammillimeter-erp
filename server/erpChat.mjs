@@ -116,9 +116,15 @@ async function callOpenAiChat(messages, tools) {
   return res.json();
 }
 
-function isOpenAiQuotaError(error) {
+function isOpenAiRecoverableError(error) {
   const msg = String(error?.message || error || "");
-  return /OpenAI 429|exceeded your current quota|insufficient_quota|billing details/i.test(msg);
+  return (
+    /OpenAI (429|500|502|503|504|529)\b/.test(msg) ||
+    /exceeded your current quota|insufficient_quota|billing details/i.test(msg) ||
+    /server had an error processing your request|temporarily unavailable|overloaded|internal server error/i.test(
+      msg,
+    )
+  );
 }
 
 function buildUserContext(user) {
@@ -366,7 +372,7 @@ export async function handleErpChat({ messages, user: tokenUser }) {
         }
       }
     } catch (error) {
-      if (!isOpenAiQuotaError(error)) throw error;
+      if (!isOpenAiRecoverableError(error)) throw error;
       engine = "rules";
       answer = "";
     }
