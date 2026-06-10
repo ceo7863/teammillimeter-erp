@@ -8,7 +8,10 @@ import {
   chatIncludesIntent,
   findIntentKeywordSpan,
   expandSynonymsForExtraction,
+  levenshtein,
+  maxEditDistanceFor,
 } from "./erpChatFuzzy.mjs";
+import { normalizeScClientName } from "./scScheduleSync.mjs";
 import {
   isWorkerVehicleQuery,
   extractWorkerNameFromVehicleQuery,
@@ -81,7 +84,10 @@ function nameMatchesQuery(candidate, queryKey) {
   const key = normalizePersonMatchKey(candidate);
   const query = normalizePersonMatchKey(queryKey);
   if (!key || !query) return false;
-  return key === query || key.includes(query) || query.includes(key);
+  if (key === query || key.includes(query) || query.includes(key)) return true;
+  const minLen = Math.min(key.length, query.length);
+  if (minLen >= 2 && levenshtein(key, query) <= maxEditDistanceFor(query)) return true;
+  return false;
 }
 
 export function resolveDateFromInput(input) {
@@ -235,6 +241,24 @@ function scheduleMatchesClientFilter(schedule, matchedClients, keys) {
       if (String(client.id ?? "") === clientId) return true;
     }
   }
+
+  const scheduleProjectId = String(schedule?.scProjectId ?? "").trim();
+  if (scheduleProjectId) {
+    for (const client of matchedClients) {
+      if (String(client.scProjectId ?? "").trim() === scheduleProjectId) return true;
+    }
+  }
+
+  const projectKey = normalizeScClientName(schedule?.projectName);
+  if (projectKey) {
+    for (const client of matchedClients) {
+      const clientKey = normalizeScClientName(client.name);
+      if (!clientKey) continue;
+      if (clientKey === projectKey || clientKey.includes(projectKey) || projectKey.includes(clientKey)) return true;
+      if (levenshtein(clientKey, projectKey) <= maxEditDistanceFor(clientKey)) return true;
+    }
+  }
+
   const labels = [schedule?.projectName, schedule?.clientName].filter(Boolean);
   return labels.some((label) => labelMatchesClientKeys(label, keys));
 }
@@ -1382,13 +1406,19 @@ export function extractCalendarClientQuery(text) {
   return extractNameBeforeKeyword(expanded, ERP_CALENDAR_KEYWORD_PATTERN);
 }
 
+function isScScheduleProductLabel(name) {
+  return /^sc$/i.test(String(name || "").trim());
+}
+
 export function extractScScheduleClientQuery(text) {
   const expanded = expandSynonymsForExtraction(String(text || "").trim());
   let name = extractNameBeforeIntent(expanded, "scSchedule");
   if (!name && /\uC77C\uC815/.test(expanded) && !includesErpCalendarKeyword(expanded)) {
     name = extractNameBeforeKeyword(expanded, /\uC77C\uC815/);
   }
-  return stripPeriodFromClientQuery(String(name || "").trim());
+  name = stripPeriodFromClientQuery(String(name || "").trim());
+  if (isScScheduleProductLabel(name)) return "";
+  return name;
 }
 
 export function toolOpenScSchedule() {
@@ -1428,7 +1458,7 @@ export function tryRuleBasedScScheduleOpen(message) {
   if (!hasScheduleKeyword && !hasClientScheduleKeyword) return null;
   if (!hasChatOpenVerb(text)) return null;
   if (includesErpCalendarKeyword(text)) return null;
-  if (clientName) {
+  if (clientName && !isScScheduleProductLabel(clientName)) {
     return toolOpenClientSiteRequestCalendar({ clientName });
   }
   return toolOpenScSchedule();
@@ -2601,10 +2631,20 @@ export function tryRuleBasedPersonBankAccountQuery(message) {
 
 function resolveScScheduleSiteName(schedule) {
   const workType = String(schedule?.workType || "").trim();
-  if (workType) return workType;
   const siteName = String(schedule?.siteName || "").trim();
+  const projectName = String(schedule?.projectName || "").trim();
+  const clientName = String(schedule?.clientName || "").trim();
+  const projectKey = normalizeScClientName(projectName);
+  const clientKey = normalizeScClientName(clientName);
+
+  if (workType) {
+    const workTypeKey = normalizeScClientName(workType);
+    if (!projectKey || workTypeKey !== projectKey) return workType;
+    if (!clientKey || workTypeKey !== clientKey) return workType;
+  }
   if (siteName) return siteName;
-  return String(schedule?.projectName || "").trim();
+  if (projectName) return projectName;
+  return "";
 }
 
 function clientSiteRequestCoversDate(request, date) {
@@ -2621,7 +2661,8 @@ function stripClientSiteOnDateQueryNoise(text) {
     .replace(/\d{4}-\d{2}-\d{2}/g, "")
     .replace(/\uC624\uB298|\uC5B4\uC81C|\uB0B4\uC77C|\uBAA8\uB798/g, "")
     .replace(/\uD604\uC7A5|\uC5B4\uB514|\uC704\uCE58|\uC7A5\uC18C|\uAC70\uB798\uCC98|\uC77C\uC815|\uC2A4\uCF00\uC904/g, "")
-    .replace(/(?:\uC788(?:\uC5B4|\uB098|\uC744|\uC744\uAE4C)|\uC5BC\uB9C8|\?|\uC54C\uB824|\uC918|\uC870\uD68C|\uD655\uC778)/g, "")
+    .replace(/(?:\uC788(?:\uC5B4|\uB098|\uC744|\uC744\uAE4C)|\uC5BC\uB9C8|[?!.])/g, "")
+    .replace(/(?:\uC54C\uB824|\uC918|\uC870\uD68C|\uD655\uC778)/g, "")
     .replace(/(?:\uB294|\uC740|\uB97C|\uC758|\uC744|\uC758\uAC70|\uAFBC|\uC5D0\uC11C|\uAC00|\uC774)/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -2629,11 +2670,14 @@ function stripClientSiteOnDateQueryNoise(text) {
 
 export function isClientSiteOnDateQuery(text) {
   const raw = String(text || "").trim();
+  const compact = raw.replace(/\s+/g, "");
   if (!/\uD604\uC7A5/.test(raw)) return false;
   if (hasChatOpenVerb(raw)) return false;
   if (/(?:\uC5B4\uB514|\uC5B4\uB514\uC57C|\uC704\uCE58|\uC7A5\uC18C|\uC5B4\uB290|\uC5B4\uB290\uAC70|\uC5B4\uB290\uAC70\uCC98)/.test(raw)) return true;
   if (/\d{1,2}\s*\uC6D4\s*\d{1,2}\s*\uC77C/.test(raw) || /\d{4}-\d{2}-\d{2}/.test(raw)) return true;
   if (/\uC624\uB298|\uC5B4\uC81C|\uB0B4\uC77C|\uBAA8\uB798/.test(raw)) return true;
+  if (/(?:\uC624\uB298|\uC5B4\uC81C|\uB0B4\uC77C)\uD604\uC7A5/.test(compact)) return true;
+  if (/\uD604\uC7A5(?:\uC740|\uC774|\uC740|\uC11C|\uC694|\?)/.test(compact)) return true;
   return false;
 }
 
@@ -2643,6 +2687,9 @@ export function extractClientSiteOnDateQuery(text) {
   let date = parseMonthDayDateFromText(expanded);
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     date = resolveDateFromInput(expanded);
+  }
+  if (!/(?:\uC624\uB298|\uC5B4\uC81C|\uB0B4\uC77C|\uBAA8\uB798|\d{1,2}\s*\uC6D4|\d{4}-\d{2}-\d{2})/.test(expanded)) {
+    date = todayISO();
   }
 
   const state = getErpState(["clients", "workers"]);

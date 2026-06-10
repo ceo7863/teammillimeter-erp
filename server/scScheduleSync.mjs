@@ -1,6 +1,7 @@
 import { config } from "./config.mjs";
 import { getErpState, saveErpState } from "./db.mjs";
 import { resolveScScheduleParticipants } from "./workerPhoneMatch.mjs";
+import { levenshtein, maxEditDistanceFor } from "./erpChatFuzzy.mjs";
 
 const COMPANY_SUFFIX_RE = /(\u3231|\(\uC8FC\)|\uC8FC\uC2DD\uD68C\uC0AC|\(\uC720\)|\uC720\uD55C|\uC720\uD55C\uD68C\uC0AC|co\.?ltd|corp|inc)/gi;
 
@@ -261,6 +262,35 @@ async function fetchScSchedules(pool, startDate, endDate) {
   });
 }
 
+function findScProjectForClientName(clientName, projects) {
+  const clientKey = normalizeScClientName(clientName);
+  if (!clientKey) return null;
+
+  const exact = projects.find((project) => normalizeScClientName(project.name) === clientKey);
+  if (exact) return exact;
+
+  let best = null;
+  let bestScore = Infinity;
+  for (const project of projects) {
+    const projectKey = normalizeScClientName(project.name);
+    if (!projectKey) continue;
+    if (clientKey.includes(projectKey) || projectKey.includes(clientKey)) {
+      const score = Math.abs(clientKey.length - projectKey.length);
+      if (score < bestScore) {
+        bestScore = score;
+        best = project;
+      }
+      continue;
+    }
+    const distance = levenshtein(clientKey, projectKey);
+    if (distance <= maxEditDistanceFor(clientKey) && distance < bestScore) {
+      bestScore = distance;
+      best = project;
+    }
+  }
+  return best;
+}
+
 export function autoMapScProjectsToClients(clients, projects) {
   const projectByKey = new Map();
   for (const project of projects) {
@@ -289,7 +319,7 @@ export function autoMapScProjectsToClients(clients, projects) {
       return client;
     }
 
-    const matched = projectByKey.get(normalizeScClientName(clientName));
+    const matched = projectByKey.get(normalizeScClientName(clientName)) || findScProjectForClientName(clientName, projects);
     if (!matched) return client;
     mappedCount += 1;
     return {
@@ -478,30 +508,37 @@ function buildProjectToClientMap(clients) {
 function attachClientToSchedules(schedules, clients) {
   const projectToClient = buildProjectToClientMap(clients);
   const syncedAt = new Date().toISOString();
-  return schedules
-    .map((row) => {
-      const client = projectToClient.get(row.scProjectId);
-      if (!client) return null;
-      const workLog = normalizeWorkLogFromScheduleRow(row);
+  return schedules.map((row) => {
+    const client = projectToClient.get(row.scProjectId);
+    const workLog = normalizeWorkLogFromScheduleRow(row);
+    const base = {
+      id: row.id,
+      scProjectId: row.scProjectId,
+      siteManagerName: String(row.siteManagerName || "").trim(),
+      projectName: row.projectName,
+      workDate: row.workDate,
+      startTime: row.startTime,
+      endTime: row.endTime || null,
+      workType: row.workType,
+      expectedHeadcount: row.expectedHeadcount,
+      participantNames: row.participantNames,
+      participantCount: row.participantCount,
+      ...(workLog ? { workLog } : {}),
+      syncedAt,
+    };
+    if (!client) {
       return {
-        id: row.id,
-        scProjectId: row.scProjectId,
-        clientId: client.id,
-        clientName: String(client.name || row.projectName || "").trim(),
-        siteManagerName: String(row.siteManagerName || "").trim(),
-        projectName: row.projectName,
-        workDate: row.workDate,
-        startTime: row.startTime,
-        endTime: row.endTime || null,
-        workType: row.workType,
-        expectedHeadcount: row.expectedHeadcount,
-        participantNames: row.participantNames,
-        participantCount: row.participantCount,
-        ...(workLog ? { workLog } : {}),
-        syncedAt,
+        ...base,
+        clientId: null,
+        clientName: "",
       };
-    })
-    .filter(Boolean);
+    }
+    return {
+      ...base,
+      clientId: client.id,
+      clientName: String(client.name || row.projectName || "").trim(),
+    };
+  });
 }
 
 function mergeSchedulesInWindow(existing, incoming, windowStart, windowEnd) {
