@@ -3,7 +3,7 @@
   "name": "TM ERP AI",
   "short_name": "AI \uCC57",
   "description": "\uD300\uBC00\uB9AC\uBBF8\uD130 ERP AI \uC74C\uC131 \uCC57\uBD07",
-  "start_url": "/chat?voice=1",
+  "start_url": "/chat",
   "scope": "/chat",
   "display": "standalone",
   "orientation": "any",

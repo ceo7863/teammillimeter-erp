@@ -7809,7 +7809,7 @@ export default function TeammillimeterErpMvp() {
 
   const chatRoute = parseErpChatStandaloneRoute();
   if (chatRoute) {
-    return <ErpChatStandalonePage autoVoice={chatRoute.autoVoice} />;
+    return <ErpChatStandalonePage />;
   }
 
   const apiMode = isApiModeEnabled();

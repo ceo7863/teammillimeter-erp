@@ -18,7 +18,6 @@ type ErpChatWidgetProps = {
   enabled?: boolean;
   standalone?: boolean;
   defaultOpen?: boolean;
-  autoStartVoice?: boolean;
   onAction?: (action: ErpChatAction) => void;
 };
 
@@ -44,11 +43,9 @@ export function ErpChatWidget({
   enabled = true,
   standalone = false,
   defaultOpen = false,
-  autoStartVoice = false,
   onAction,
 }: ErpChatWidgetProps) {
   const [open, setOpen] = useState(defaultOpen || standalone);
-  const autoVoiceStartedRef = useRef(false);
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<ErpChatMessage[]>(() => loadSessionMessages());
   const [loading, setLoading] = useState(false);
@@ -101,13 +98,6 @@ export function ErpChatWidget({
   }, [messages, open, loading]);
 
   const canUse = Boolean(currentUser && enabled);
-
-  useEffect(() => {
-    if (!autoStartVoice || !open || !speechSupported || autoVoiceStartedRef.current || !canUse) return;
-    autoVoiceStartedRef.current = true;
-    const timer = window.setTimeout(() => beginPushToTalk(), 350);
-    return () => window.clearTimeout(timer);
-  }, [autoStartVoice, open, speechSupported, beginPushToTalk, canUse]);
 
   const sendMessage = useCallback(
     async (text: string) => {

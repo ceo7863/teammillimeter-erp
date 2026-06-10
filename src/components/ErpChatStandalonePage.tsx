@@ -11,11 +11,7 @@ import { ERP_CHAT_LABELS } from "@/utils/erpChatLabels";
 import { stashPendingChatAction } from "@/utils/erpChatPendingAction";
 import type { ErpChatAction } from "@/utils/erpChatApi";
 
-type ErpChatStandalonePageProps = {
-  autoVoice?: boolean;
-};
-
-export function ErpChatStandalonePage({ autoVoice = true }: ErpChatStandalonePageProps) {
+export function ErpChatStandalonePage() {
   const [currentUser, setCurrentUser] = useState<ErpUser | null>(() => {
     const user = loadAuthUser();
     return user && getAuthToken() ? user : null;
@@ -118,7 +114,6 @@ export function ErpChatStandalonePage({ autoVoice = true }: ErpChatStandalonePag
           enabled
           standalone
           defaultOpen
-          autoStartVoice={autoVoice}
           onAction={handleAction}
         />
       </div>

@@ -40,7 +40,7 @@
       "name": "AI \uC74C\uC131 \uCC57",
       "short_name": "AI \uC74C\uC131",
       "description": "ERP AI \uC74C\uC131 \uCC57\uBD07",
-      "url": "/chat?voice=1",
+      "url": "/chat",
       "icons": [
         {
           "src": "/icon-chat-192.png",
