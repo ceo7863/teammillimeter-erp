@@ -12291,6 +12291,10 @@ body.erp-col-resizing * {
   z-index: 80;
 }
 
+.erp-ledger-modal-backdrop--bank-erp {
+  z-index: 100;
+}
+
 .erp-client-request-calendar-modal-backdrop {
   z-index: 100;
 }
@@ -15877,7 +15881,6 @@ button:disabled,
 
 .erp-bank-transactions-page--tax-link-open {
   padding-bottom: min(52vh, 28rem);
-  pointer-events: none;
 }
 
 .erp-tax-invoice-link-panel {

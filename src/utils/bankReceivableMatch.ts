@@ -71,6 +71,12 @@ function resolveClientNameMatch(
   if (trimmedClientName && aliasClient?.name && String(aliasClient.name).trim() === trimmedClientName) {
     return { matched: true, scoreBonus: 33, reason: "\uC608\uAE08\uC8FC \uBCC4\uCE59 \uC77C\uCE58" };
   }
+
+  const ledgerClient = String(tx.ledgerClientName || "").trim();
+  if (trimmedClientName && ledgerClient && ledgerClient === trimmedClientName) {
+    return { matched: true, scoreBonus: 28, reason: "\uAC70\uB798\uCC98 \uD544\uB4DC \uC77C\uCE58" };
+  }
+
   return result;
 }
 

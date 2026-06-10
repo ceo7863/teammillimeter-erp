@@ -521,6 +521,8 @@ const L = {
   erpFind: "ERP \uC785\uAE08 \uCC3E\uAE30",
   erpWorkerFind: "\uC2DC\uACF5\uC790 \uC2E4\uC9C0\uAE09 \uCC3E\uAE30",
   erpDepositLinkTitle: "ERP \uC785\uAE08 \uC5F0\uACB0",
+  erpDepositLinkEmpty:
+    "\uC5F0\uACB0 \uAC00\uB2A5\uD55C \uB0B4\uC5ED\uC11C \uB610\uB294 \uBBF8\uC218 \uB9E4\uCD9C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uAC70\uB798\uCC98 \uBBF8\uC218 \uB9E4\uCD9C\uC744 \uBA38\uC800 \uB4F1\uB85D\uD574 \uC8FC\uC138\uC694.",
   erpWorkerLinkTitle: "\uC2DC\uACF5\uC790 \uC2E4\uC9C0\uAE09 \uC5F0\uACB0",
   selectWorkerObligation: "\uC6D4\uBCC4 \uC2E4\uC9C0\uAE09 \uC120\uD0DD",
   workerMatchDone: "\uC2DC\uACF5\uC790 \uC2E4\uC9C0\uAE09\uC5D0 \uC5F0\uACB0\uD588\uC2B5\uB2C8\uB2E4.",
@@ -2571,15 +2573,19 @@ function BankTransactionsPageComponent({
   }, []);
 
   const openErpLinkModal = useCallback((tx: BankTransaction) => {
-    if (tx.deposit > 0) {
+    const liveTx = bankTransactionsRef.current.find((row) => row.id === tx.id) ?? tx;
+    if (taxInvoiceLinkSessionRef.current) {
+      setTaxInvoiceLinkSession(null);
+    }
+    if (liveTx.deposit > 0) {
       setWorkerLinkModal(null);
-      setLinkModalTx(tx);
+      setLinkModalTx(liveTx);
       return;
     }
-    const workerName = resolveBankTxWorkerName(tx, bankTransactionFolders, workers);
-    if (tx.withdrawal > 0 && workerName) {
+    const workerName = resolveBankTxWorkerName(liveTx, bankTransactionFolders, workers);
+    if (liveTx.withdrawal > 0 && workerName) {
       setLinkModalTx(null);
-      setWorkerLinkModal({ tx, workerName });
+      setWorkerLinkModal({ tx: liveTx, workerName });
     }
   }, [bankTransactionFolders, workers]);
 
@@ -5771,112 +5777,138 @@ function BankTransactionsPageComponent({
         </div>
       ) : null}
 
-      {linkModalTx ? (
-        <div className="erp-ledger-modal-backdrop" onClick={() => setLinkModalTx(null)}>
-          <div
-            className="erp-ledger-modal max-w-2xl"
-            onClick={(event) => event.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-          >
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h2 className="erp-text-section font-bold">{L.erpDepositLinkTitle}</h2>
-                <p className="mt-1 text-sm text-emerald-700">
-                  {formatKRW(linkModalTx.deposit)}
-                  {" \u00B7 "}
-                  {formatBankTransactionDateTime(linkModalTx.transactionAt)}
-                </p>
-              </div>
-              <button type="button" className="rounded-xl p-2 text-slate-500 hover:bg-slate-100" onClick={() => setLinkModalTx(null)}>
-                <X size={18} />
-              </button>
-            </div>
-            <div className="max-h-96 space-y-2 overflow-auto">
-              {(() => {
-                const sentCandidates = buildSentStatementMatchCandidates(linkModalTx, sentArchives, {
-                  minScore: 0,
-                  limit: 30,
-                  clients,
-                  paymentVouchers,
-                  bankTransactions,
-                });
-                const receivableCandidates = buildBankDepositManualLinkCandidates(linkModalTx, receivableRows, {
-                  minScore: 0,
-                  limit: 30,
-                  clients,
-                });
-                return (
-                  <>
-                    {sentCandidates.length > 0 ? (
-                      <div className="pb-1 text-xs font-semibold text-slate-500">{L.selectSentStatement}</div>
-                    ) : null}
-                    {sentCandidates.map((candidate) => (
-                      <button
-                        key={candidate.pdfArchiveId}
-                        type="button"
-                        className="w-full rounded-xl border border-violet-200 bg-violet-50/40 px-4 py-3 text-left hover:border-violet-300 hover:bg-violet-50"
-                        onClick={() => void confirmSentStatementMatch(linkModalTx, candidate)}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-bold text-slate-900">{candidate.client}</span>
-                          <span className="flex items-center gap-1">
-                            {candidate.paymentStatus === "partial" ? <PartialPaymentBadge /> : null}
-                            <span className="text-xs font-bold text-violet-700">
-                              {L.matchScore} {candidate.score}
-                            </span>
-                          </span>
-                        </div>
-                        <div className="mt-1 text-sm text-slate-600">
-                          {L.statementTotal} {formatKRW(candidate.statementTotalAmount)}
-                          {" \u00B7 "}
-                          {L.sentAt} {String(candidate.sentAt || "").slice(0, 10)}
-                        </div>
-                        {candidate.paymentStatus === "partial" ? (
-                          <div className="mt-1 text-xs font-semibold text-amber-700">
-                            {L.partialStatementMatchHint(candidate.paymentAmount, candidate.statementRemainingAmount)}
+      {linkModalTx
+        ? createPortal(
+            <div
+              className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--bank-erp"
+              onClick={() => setLinkModalTx(null)}
+            >
+              <div
+                className="erp-ledger-modal max-w-2xl"
+                onClick={(event) => event.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+              >
+                <div className="mb-4 flex items-center justify-between">
+                  <div>
+                    <h2 className="erp-text-section font-bold">{L.erpDepositLinkTitle}</h2>
+                    <p className="mt-1 text-sm text-emerald-700">
+                      {formatKRW(linkModalTx.deposit)}
+                      {" \u00B7 "}
+                      {formatBankTransactionDateTime(linkModalTx.transactionAt)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
+                    onClick={() => setLinkModalTx(null)}
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="max-h-96 space-y-2 overflow-auto">
+                  {(() => {
+                    const sentCandidates = buildSentStatementMatchCandidates(linkModalTx, sentArchives, {
+                      minScore: 0,
+                      limit: 30,
+                      clients,
+                      paymentVouchers,
+                      bankTransactions,
+                    });
+                    const receivableCandidates = buildBankDepositManualLinkCandidates(linkModalTx, receivableRows, {
+                      minScore: 0,
+                      limit: 30,
+                      clients,
+                    });
+                    if (!sentCandidates.length && !receivableCandidates.length) {
+                      return (
+                        <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                          {L.erpDepositLinkEmpty}
+                        </p>
+                      );
+                    }
+                    return (
+                      <>
+                        {sentCandidates.length > 0 ? (
+                          <div className="pb-1 text-xs font-semibold text-slate-500">{L.selectSentStatement}</div>
+                        ) : null}
+                        {sentCandidates.map((candidate) => (
+                          <button
+                            key={candidate.pdfArchiveId}
+                            type="button"
+                            className="w-full rounded-xl border border-violet-200 bg-violet-50/40 px-4 py-3 text-left hover:border-violet-300 hover:bg-violet-50"
+                            onClick={() => void confirmSentStatementMatch(linkModalTx, candidate)}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-bold text-slate-900">{candidate.client}</span>
+                              <span className="flex items-center gap-1">
+                                {candidate.paymentStatus === "partial" ? <PartialPaymentBadge /> : null}
+                                <span className="text-xs font-bold text-violet-700">
+                                  {L.matchScore} {candidate.score}
+                                </span>
+                              </span>
+                            </div>
+                            <div className="mt-1 text-sm text-slate-600">
+                              {L.statementTotal} {formatKRW(candidate.statementTotalAmount)}
+                              {" \u00B7 "}
+                              {L.sentAt} {String(candidate.sentAt || "").slice(0, 10)}
+                            </div>
+                            {candidate.paymentStatus === "partial" ? (
+                              <div className="mt-1 text-xs font-semibold text-amber-700">
+                                {L.partialStatementMatchHint(
+                                  candidate.paymentAmount,
+                                  candidate.statementRemainingAmount,
+                                )}
+                              </div>
+                            ) : null}
+                          </button>
+                        ))}
+                        {sentCandidates.length > 0 && receivableCandidates.length > 0 ? (
+                          <div className="py-2 text-center text-xs font-semibold text-slate-400">
+                            {L.selectReceivable}
                           </div>
                         ) : null}
-                      </button>
-                    ))}
-                    {sentCandidates.length > 0 && receivableCandidates.length > 0 ? (
-                      <div className="py-2 text-center text-xs font-semibold text-slate-400">{L.selectReceivable}</div>
-                    ) : null}
-                    {receivableCandidates.length > 0 && sentCandidates.length === 0 ? (
-                      <div className="pb-1 text-xs font-semibold text-slate-500">{L.selectReceivable}</div>
-                    ) : null}
-                    {receivableCandidates.map((candidate) => (
-                      <button
-                        key={String(candidate.salesId)}
-                        type="button"
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-left hover:border-blue-300 hover:bg-blue-50"
-                        onClick={() => confirmDepositMatch(linkModalTx, candidate)}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-bold text-slate-900">{candidate.client}</span>
-                          <span className="text-xs font-bold text-blue-700">
-                            {L.matchScore} {candidate.score}
-                          </span>
-                        </div>
-                        <div className="mt-1 text-sm text-slate-600">
-                          {candidate.site || "-"}
-                          {" \u00B7 "}
-                          {L.unpaidAmount} {formatKRW(candidate.unpaid)}
-                          {" \u00B7 "}
-                          {candidate.voucherNo || candidate.salesId}
-                        </div>
-                      </button>
-                    ))}
-                  </>
-                );
-              })()}
-            </div>
-          </div>
-        </div>
-      ) : null}
+                        {receivableCandidates.length > 0 && sentCandidates.length === 0 ? (
+                          <div className="pb-1 text-xs font-semibold text-slate-500">{L.selectReceivable}</div>
+                        ) : null}
+                        {receivableCandidates.map((candidate) => (
+                          <button
+                            key={String(candidate.salesId)}
+                            type="button"
+                            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-left hover:border-blue-300 hover:bg-blue-50"
+                            onClick={() => confirmDepositMatch(linkModalTx, candidate)}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-bold text-slate-900">{candidate.client}</span>
+                              <span className="text-xs font-bold text-blue-700">
+                                {L.matchScore} {candidate.score}
+                              </span>
+                            </div>
+                            <div className="mt-1 text-sm text-slate-600">
+                              {candidate.site || "-"}
+                              {" \u00B7 "}
+                              {L.unpaidAmount} {formatKRW(candidate.unpaid)}
+                              {" \u00B7 "}
+                              {candidate.voucherNo || candidate.salesId}
+                            </div>
+                          </button>
+                        ))}
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
 
-      {workerLinkModal ? (
-        <div className="erp-ledger-modal-backdrop" onClick={() => setWorkerLinkModal(null)}>
+      {workerLinkModal
+        ? createPortal(
+            <div
+              className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--bank-erp"
+              onClick={() => setWorkerLinkModal(null)}
+            >
           <div
             className="erp-ledger-modal max-w-2xl"
             onClick={(event) => event.stopPropagation()}
@@ -5971,8 +6003,10 @@ function BankTransactionsPageComponent({
               })()}
             </div>
           </div>
-        </div>
-      ) : null}
+            </div>,
+            document.body,
+          )
+        : null}
 
       {ledgerModal ? (
         <div className="erp-ledger-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setLedgerModal(null); }}>
