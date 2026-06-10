@@ -2630,21 +2630,55 @@ export function tryRuleBasedPersonBankAccountQuery(message) {
 }
 
 function resolveScScheduleSiteName(schedule) {
-  const workType = String(schedule?.workType || "").trim();
-  const siteName = String(schedule?.siteName || "").trim();
-  const projectName = String(schedule?.projectName || "").trim();
-  const clientName = String(schedule?.clientName || "").trim();
-  const projectKey = normalizeScClientName(projectName);
-  const clientKey = normalizeScClientName(clientName);
+  const preview = mapScPreviewRow(schedule);
+  const projectKey = normalizeScClientName(preview.projectName);
+  const clientKey = normalizeScClientName(schedule?.clientName || "");
+  const candidates = [preview.siteName, preview.workType]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
 
-  if (workType) {
-    const workTypeKey = normalizeScClientName(workType);
-    if (!projectKey || workTypeKey !== projectKey) return workType;
-    if (!clientKey || workTypeKey !== clientKey) return workType;
+  for (const label of candidates) {
+    const key = normalizeScClientName(label);
+    if (!key) continue;
+    if (projectKey && key === projectKey) continue;
+    if (clientKey && key === clientKey) continue;
+    return label;
   }
-  if (siteName) return siteName;
-  if (projectName) return projectName;
+
+  if (preview.timeRange) return preview.timeRange;
+  if (preview.participants) return preview.participants.split(",")[0].trim();
+  if (preview.projectName && normalizeScClientName(preview.projectName) !== clientKey) {
+    return preview.projectName;
+  }
   return "";
+}
+
+function formatClientSiteDateLabel(dateKey) {
+  const key = String(dateKey || "").slice(0, 10);
+  const today = todayISO();
+  if (key === today) return `\uC624\uB298 (${key})`;
+  if (key === addDaysISO(today, -1)) return `\uC5B4\uC81C (${key})`;
+  if (key === addDaysISO(today, 1)) return `\uB0B4\uC77C (${key})`;
+  return key;
+}
+
+function resolveClientSiteOnDateFromText(text) {
+  const raw = String(text || "").trim();
+  const monthDay = parseMonthDayDateFromText(raw);
+  if (monthDay && /^\d{4}-\d{2}-\d{2}$/.test(monthDay)) return monthDay;
+  const iso = raw.match(/\d{4}-\d{2}-\d{2}/);
+  if (iso) return iso[0];
+  if (/\uC624\uB298/.test(raw)) return todayISO();
+  if (/\uC5B4\uC81C/.test(raw)) return addDaysISO(todayISO(), -1);
+  if (/\uB0B4\uC77C/.test(raw)) return addDaysISO(todayISO(), 1);
+  if (/\uBAA8\uB798/.test(raw)) return addDaysISO(todayISO(), 2);
+  return todayISO();
+}
+
+function includesClientSiteScheduleKeyword(text) {
+  const raw = String(text || "");
+  if (/\uD604\uC7A5/.test(raw)) return true;
+  return /\uC77C\uC815/.test(raw) && !includesScScheduleKeyword(raw);
 }
 
 function clientSiteRequestCoversDate(request, date) {
@@ -2671,26 +2705,22 @@ function stripClientSiteOnDateQueryNoise(text) {
 export function isClientSiteOnDateQuery(text) {
   const raw = String(text || "").trim();
   const compact = raw.replace(/\s+/g, "");
-  if (!/\uD604\uC7A5/.test(raw)) return false;
+  if (!includesClientSiteScheduleKeyword(raw)) return false;
   if (hasChatOpenVerb(raw)) return false;
   if (/(?:\uC5B4\uB514|\uC5B4\uB514\uC57C|\uC704\uCE58|\uC7A5\uC18C|\uC5B4\uB290|\uC5B4\uB290\uAC70|\uC5B4\uB290\uAC70\uCC98)/.test(raw)) return true;
   if (/\d{1,2}\s*\uC6D4\s*\d{1,2}\s*\uC77C/.test(raw) || /\d{4}-\d{2}-\d{2}/.test(raw)) return true;
   if (/\uC624\uB298|\uC5B4\uC81C|\uB0B4\uC77C|\uBAA8\uB798/.test(raw)) return true;
   if (/(?:\uC624\uB298|\uC5B4\uC81C|\uB0B4\uC77C)\uD604\uC7A5/.test(compact)) return true;
+  if (/(?:\uC624\uB298|\uC5B4\uC81C|\uB0B4\uC77C)\uC77C\uC815/.test(compact)) return true;
   if (/\uD604\uC7A5(?:\uC740|\uC774|\uC740|\uC11C|\uC694|\?)/.test(compact)) return true;
+  if (/\uC77C\uC815(?:\uC740|\uC774|\uC740|\uC11C|\uC694|\?)/.test(compact)) return true;
   return false;
 }
 
 export function extractClientSiteOnDateQuery(text) {
   const raw = String(text || "").trim();
   const expanded = normalizeChatMonthText(expandSynonymsForExtraction(raw));
-  let date = parseMonthDayDateFromText(expanded);
-  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    date = resolveDateFromInput(expanded);
-  }
-  if (!/(?:\uC624\uB298|\uC5B4\uC81C|\uB0B4\uC77C|\uBAA8\uB798|\d{1,2}\s*\uC6D4|\d{4}-\d{2}-\d{2})/.test(expanded)) {
-    date = todayISO();
-  }
+  const date = resolveClientSiteOnDateFromText(expanded);
 
   const state = getErpState(["clients", "workers"]);
   const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
@@ -2755,7 +2785,8 @@ export function toolGetClientSiteOnDate({ clientName, date }) {
   for (const schedule of scSchedules) {
     if (String(schedule?.workDate || "").slice(0, 10) !== dateKey) continue;
     if (!scheduleMatchesClientFilter(schedule, matchedClients, clientFilterKeys)) continue;
-    pushSite(resolveScScheduleSiteName(schedule), "SC \uC77C\uC815");
+    const siteLabel = resolveScScheduleSiteName(schedule);
+    pushSite(siteLabel || "SC \uC77C\uC815", "SC \uC77C\uC815");
   }
 
   for (const sale of sales) {
@@ -2785,10 +2816,11 @@ export function toolGetClientSiteOnDate({ clientName, date }) {
 
 export function formatClientSiteOnDateAnswer(data) {
   if (!data.ok) return data.error || "\uD604\uC7A5 \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  const dateLabel = formatClientSiteDateLabel(data.date);
   if (!data.siteCount) {
-    return `${data.clientName} ${data.date} \uB4F1\uB85D\uB41C \uD604\uC7A5\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`;
+    return `${data.clientName} ${dateLabel} \uB4F1\uB85D\uB41C \uD604\uC7A5/\uC77C\uC815\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`;
   }
-  const lines = [`${data.clientName} ${data.date} \uD604\uC7A5:`];
+  const lines = [`${data.clientName} ${dateLabel} \uD604\uC7A5/\uC77C\uC815:`];
   for (const row of data.sites || []) {
     lines.push(`- ${row.siteName}${row.source ? ` (${row.source})` : ""}`);
   }
@@ -2799,9 +2831,18 @@ export function tryRuleBasedClientSiteOnDateQuery(message) {
   const text = String(message || "").trim();
   if (!isClientSiteOnDateQuery(text)) return null;
   const parsed = extractClientSiteOnDateQuery(text);
-  return formatClientSiteOnDateAnswer(
-    toolGetClientSiteOnDate({ clientName: parsed.clientName, date: parsed.date }),
-  );
+  const result = toolGetClientSiteOnDate({ clientName: parsed.clientName, date: parsed.date });
+  if (result.ok && !result.siteCount) {
+    const scheduleResult = toolGetScheduleCount({
+      clientName: parsed.clientName,
+      startDate: parsed.date,
+      endDate: parsed.date,
+    });
+    if (scheduleResult.ok && scheduleResult.totalCount > 0) {
+      return formatScheduleAnswer(scheduleResult);
+    }
+  }
+  return formatClientSiteOnDateAnswer(result);
 }
 
 function stripClientBusinessRegQueryNoise(text) {
@@ -4131,7 +4172,7 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
     function: {
       name: "get_client_site_on_date",
       description:
-        "\uAC70\uB798\uCC98\uC758 \uD14C\uC815 \uB0A0\uC9DC \uD604\uC7A5 \uC704\uCE58\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4. \uC608: 6\uC6D4 2\uC77C \uC778\uB514\uD37C \uD604\uC7A5 \uC5B4\uB514\uC57C. SC \uC77C\uC815, \uB9E4\uCD9C \uC804\uD45C, \uD604\uC7A5 \uC811\uC218 \uAE30\uC900.",
+        "\uAC70\uB798\uCC98\uC758 \uD14C\uC815 \uB0A0\uC9DC \uD604\uC7A5/\uC77C\uC815 \uC704\uCE58\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4. \uC608: \uC624\uB298 \uC778\uB514\uD37C \uD604\uC7A5, 6\uC6D4 2\uC77C \uC778\uB514\uD37C \uC77C\uC815 \uC5B4\uB514\uC57C. SC \uC77C\uC815, \uB9E4\uCD9C \uC804\uD45C, \uD604\uC7A5 \uC811\uC218 \uAE30\uC900. '\uC624\uB298'\uC774 \uC788\uC73C\uBA74 \uC624\uB298 \uB0A0\uC9DC\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
       parameters: {
         type: "object",
         properties: {
@@ -4472,8 +4513,8 @@ export function executeErpChatTool(name, args, user, question) {
     case "get_client_site_on_date": {
       const parsed = rawQuestion ? extractClientSiteOnDateQuery(rawQuestion) : {};
       return toolGetClientSiteOnDate({
-        clientName: args?.clientName || parsed.clientName,
-        date: args?.date || parsed.date,
+        clientName: parsed.clientName || args?.clientName,
+        date: parsed.date || args?.date,
       });
     }
     case "get_statement_sent_unpaid":
