@@ -225,8 +225,49 @@ export function toolListErpPages() {
   };
 }
 
+export function formatListErpPagesAnswer(data) {
+  if (!data?.ok || !data.pages?.length) {
+    return "\uD654\uBA74 \uBAA9\uB85D\uC744 \uBD88\uB7EC\uC624\uC218 \uC5C6\uC2B5\uB2C8\uB2E4.";
+  }
+  const lines = [
+    "\uCC57\uBD07\uC5D0\uC11C \uC5F4 \uC218 \uC788\uB294 \uD654\uBA74 \uC608\uC2DC\uC785\uB2C8\uB2E4. \"~ \uC5F4\uC5B4\uC918\" \uB610\uB294 \"~ \uC5F4\uC5B4\" \uB77C\uACE0 \uB9D0\uD574 \uC8FC\uC138\uC694.",
+    "",
+  ];
+  const seen = new Set();
+  for (const row of data.pages) {
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    const hint = row.aliases?.[0] || row.label;
+    lines.push(`\u00B7 ${row.label} \u2014 "${hint} \uC5F4\uC5B4\uC918"`);
+  }
+  lines.push(
+    "",
+    "\uAC70\uB798\uCC98/\uC2DC\uACF5\uC790 \uC774\uB984\uC744 \uBD99\uC774\uBA74 \uD544\uD130\uB3C4 \uB429\uB2C8\uB2E4.",
+    "\uC608: \"\uC778\uB514\uD37C \uCE04\uB9B0\uB354 \uC5F4\uC5B4\uC918\", \"\uAE40\uBBFC\uC131 5\uC6D4 \uC2DC\uACF5\uB0B4\uC5ED\uC11C \uC5F4\uC5B4\uC918\"",
+  );
+  return lines.join("\n");
+}
+
+export function tryRuleBasedListErpPages(message) {
+  const raw = String(message || "").trim();
+  if (!raw) return null;
+  const normalized = raw.replace(/\s+/g, "");
+
+  const asksPageList =
+    /\uC5B4\uB290.*\uD654\uBA74|\uD654\uBA74.*\uC5F4.*\uC218|\uC5F4.*\uC218.*\uD654\uBA74|\uD654\uBA74.*\uBAA9\uB85D|\uBA54\uB274.*\uBAA9\uB85D|\uBA54\uB274.*\uC5F4|\uBB34\uC2A8.*\uC5F4|\uC5B4\uB090.*\uC5F4|\uC5F4\s*\uC218\s*\uC788|\uC5F4\uC218\uC788|\uAC00\uB2A5.*\uD654\uBA74|\uD654\uBA74.*\uC788|\uD654\uBA74.*\uC124\uBA85|\uC5B4\uB290.*\uBA54\uB274|\uBA54\uB274.*\uC124\uBA85/.test(
+      normalized,
+    ) ||
+    /\uC5B4\uB290.*\uC5F4|\uBB34\uC2A8.*\uD654\uBA74|\uD654\uBA74.*\uC5BC\uB9C8|\uD654\uBA74.*\uC5E7\uAC70|\uC5F4\s*\uC218\s*\uC788\uB294|\uC5F4\uC218\uC788\uB294/.test(
+      normalized,
+    );
+
+  if (!asksPageList) return null;
+  return toolListErpPages();
+}
+
 export function tryRuleBasedNavigateOpen(message) {
   const text = String(message || "").trim();
+  if (tryRuleBasedListErpPages(text)) return null;
   if (!OPEN_VERB.test(text)) return null;
 
   if (

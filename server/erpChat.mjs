@@ -33,6 +33,8 @@ import {
   toolNavigateErp,
   toolListErpPages,
   tryRuleBasedNavigateOpen,
+  tryRuleBasedListErpPages,
+  formatListErpPagesAnswer,
   formatNavigateAnswer,
   buildChatActionsFromNavigateResult,
   NAVIGATE_ERP_TOOL_DEFINITION,
@@ -169,15 +171,7 @@ function formatToolResultsAsAnswer(toolsUsed) {
         lines.push(formatNavigateAnswer(result));
         break;
       case "list_erp_pages":
-        if (result.pages?.length) {
-          lines.push(
-            result.pages
-              .slice(0, 20)
-              .map((page) => `- ${page.label} (${page.id})`)
-              .join("\n"),
-          );
-          if (result.pages.length > 20) lines.push(`\u2026 \uC678 ${result.pages.length - 20}\uAC74`);
-        }
+        lines.push(formatListErpPagesAnswer(result));
         break;
       default:
         break;
@@ -268,6 +262,10 @@ export async function handleErpChat({ messages, user: tokenUser }) {
   }
 
   if (!answer) {
+    const listPagesResult = tryRuleBasedListErpPages(question);
+    if (listPagesResult) {
+      answer = formatListErpPagesAnswer(listPagesResult);
+    } else {
     const voucherOpenResult = tryRuleBasedVoucherOpen(question);
     if (voucherOpenResult) {
       answer = formatSaleVoucherAnswer(voucherOpenResult);
@@ -309,6 +307,7 @@ export async function handleErpChat({ messages, user: tokenUser }) {
           }
         }
       }
+    }
     }
   }
 
@@ -369,10 +368,15 @@ export async function handleErpChat({ messages, user: tokenUser }) {
     chatActions = buildChatActionsFromNavigateResult(navigateUsed.result);
   }
 
+  const listPagesUsed = toolsUsed.find((row) => row.name === "list_erp_pages" && row.result?.ok);
+  if (listPagesUsed) {
+    answer = formatListErpPagesAnswer(listPagesUsed.result);
+  }
+
   if (!answer) {
     answer = config.openAiConfigured
       ? "\uC9C8\uBB38\uC744 \uC774\uD574\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uBBF8\uC218, \uC77C\uC815, \uC804\uD654\uBC88\uD638, \uCC28\uB7C9\uBC88\uD638 \uC911 \uD558\uB098\uB97C \uAD6C\uCCB4\uC801\uC73C\uB85C \uC801\uC5B4 \uC8FC\uC138\uC694."
-      : "\uC624\uD508AI \uC124\uC815\uC774 \uC5C6\uC5B4 \uADDC\uCE59 \uAE30\uBC18 \uB2F5\uBCC0\uB9CC \uC0AC\uC6A9 \uC911\uC785\uB2C8\uB2E4. \uC608: \uC778\uB514\uD37C \uBBF8\uC218, \uB0B4\uC77C \uC77C\uC815 \uAC74\uC218, \uAE40\uBBFC\uC131 \uCC28\uB7C9\uBC88\uD638";
+      : "\uC624\uD508AI \uC124\uC815\uC774 \uC5C6\uC5B4 \uADDC\uCE59 \uAE30\uBC18 \uB2F5\uBCC0\uB9CC \uC0AC\uC6A9 \uC911\uC785\uB2C8\uB2E4. \uC608: \uC778\uB514\uD37C \uBBF8\uC218, \uB0B4\uC77C \uC77C\uC815, \"\uC5B4\uB290 \uD654\uBA74 \uC5F4 \uC218 \uC788\uC5B4?\"";
   }
 
   const logRow = appendErpChatLog({
