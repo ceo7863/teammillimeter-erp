@@ -11,29 +11,41 @@
   "lang": "ko",
   "icons": [
     {
-      "src": "/icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
       "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     },
     {
       "src": "/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "maskable"
+      "purpose": "any"
     }
   ],
   "shortcuts": [
     {
-      "name": "AI 음성 챗",
-      "short_name": "AI 음성",
-      "description": "ERP AI 음성 챗봇 (측면 버튼용)",
+      "name": "AI \uC74C\uC131 \uCC57",
+      "short_name": "AI \uC74C\uC131",
+      "description": "ERP AI \uC74C\uC131 \uCC57\uBD07",
       "url": "/chat?voice=1",
       "icons": [
         {
-          "src": "/icon.svg",
-          "sizes": "any",
-          "type": "image/svg+xml"
+          "src": "/icon-chat-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
         }
       ]
     }

@@ -21,10 +21,16 @@
         if (appleTitle) appleTitle.content = "TM ERP AI";
         var description = document.querySelector('meta[name="description"]');
         if (description) description.content = "팀밀리미터 ERP AI 음성 챗봇";
+        var theme = document.querySelector('meta[name="theme-color"]');
+        if (theme) theme.content = "#4c1d95";
+        var icon = document.querySelector('link[rel="icon"]');
+        if (icon) icon.href = "/icon-chat.svg";
+        var appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
+        if (appleIcon) appleIcon.href = "/icon-chat-192.png";
       })();
     </script>
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
     <title>TeamMillimeter ERP</title>
   </head>
   <body lang="ko">
