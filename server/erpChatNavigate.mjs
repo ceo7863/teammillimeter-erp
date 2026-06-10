@@ -184,6 +184,8 @@ function trySpecializedNavigate({ entry, text, clientName, workerName, startDate
     return toolOpenClientDepositHistory({
       clientName: resolvedClient,
       allHistory: depositQuery.allHistory,
+      startDate: depositQuery.startDate,
+      endDate: depositQuery.endDate,
       period,
     });
   }

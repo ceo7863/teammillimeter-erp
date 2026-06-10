@@ -244,7 +244,13 @@ export function PaymentReceivablesPage({
   autoLinkedSaleIds?: Set<string>;
   manualLinkedSaleIds?: Set<string>;
   pendingHistoryFilter?: { clientName: string } | null;
-  pendingReceivablesNav?: { tab?: PaymentTab; clientName?: string; allHistory?: boolean } | null;
+  pendingReceivablesNav?: {
+    tab?: PaymentTab;
+    clientName?: string;
+    allHistory?: boolean;
+    startDate?: string;
+    endDate?: string;
+  } | null;
   onPendingHistoryFilterConsumed?: () => void;
   onPendingReceivablesNavConsumed?: () => void;
 }) {
@@ -290,6 +296,15 @@ export function PaymentReceivablesPage({
     if (nav.clientName) {
       if (nav.allHistory) {
         setFilters((prev) => ({ ...prev, client: nav.clientName || "", startDate: "", endDate: "" }));
+      } else if (nav.startDate && nav.endDate) {
+        setFilters((prev) => ({
+          ...prev,
+          client: nav.clientName || "",
+          startDate: nav.startDate,
+          endDate: nav.endDate,
+        }));
+        const matched = monthKeyFromDateRange(nav.startDate, nav.endDate);
+        if (matched) setReceivableMonthKey(matched);
       } else {
         setFilters((prev) => ({ ...prev, client: nav.clientName || "" }));
       }

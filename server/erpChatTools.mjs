@@ -1107,8 +1107,23 @@ export function isDepositHistoryAllPeriodQuery(text) {
 }
 
 function stripDepositHistoryClientName(name) {
+  return stripPeriodFromClientQuery(
+    String(name || "")
+      .replace(/(?:\uBAA8\uB4E0|\uC804\uCCB4|\uC804\uBD80)\s*/g, "")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
+}
+
+function stripPeriodFromClientQuery(name) {
   return String(name || "")
-    .replace(/(?:\uBAA8\uB4E0|\uC804\uCCB4|\uC804\uBD80)\s*/g, "")
+    .replace(
+      /\uC774\uBC88\uB2EC|\uC774\uBC88 \uB2EC|\uC774\uB2EC|\uB2F9\uC6D4|\uC9C0\uB09C\uB2EC|\uC9C0\uB09C \uB2EC|\uC800\uBC88\uB2EC|\uC804\uC6D4|\uB2E4\uC74C\uB2EC|\uB2E4\uC74C \uB2EC/g,
+      "",
+    )
+    .replace(/(?:(\d{4})\s*\uB144\s*)?(\d{1,2})\s*\uC6D4(?:\uB2EC)?/g, "")
+    .replace(/\d{1,2}\s*\uC77C/g, "")
+    .replace(/\d{4}-\d{2}-\d{2}/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -1116,9 +1131,16 @@ function stripDepositHistoryClientName(name) {
 export function extractDepositHistoryQuery(text) {
   const raw = String(text || "").trim();
   const expanded = expandSynonymsForExtraction(raw);
+  const range = resolveStatementPeriodFromInput(expanded);
   const allHistory = isDepositHistoryAllPeriodQuery(expanded);
   const clientName = stripDepositHistoryClientName(extractNameBeforeIntent(expanded, "depositHistory"));
-  return { clientName, allHistory };
+  return {
+    clientName,
+    allHistory,
+    startDate: allHistory ? "" : range.startDate,
+    endDate: allHistory ? "" : range.endDate,
+    periodLabel: allHistory ? "" : range.label,
+  };
 }
 
 export function extractTaxInvoiceHistoryQuery(text) {
@@ -1190,7 +1212,7 @@ export function toolOpenClientConstructionCostStatement({ clientName, startDate,
   };
 }
 
-export function toolOpenClientDepositHistory({ clientName, allHistory, period }) {
+export function toolOpenClientDepositHistory({ clientName, allHistory, startDate, endDate, period }) {
   const state = getErpState(["clients", "paymentVouchers"]);
   const data = state.data || {};
   const clients = Array.isArray(data.clients) ? data.clients : [];
@@ -1207,18 +1229,39 @@ export function toolOpenClientDepositHistory({ clientName, allHistory, period })
 
   const clientFilterKeys = buildClientFilterKeys(query, matchedClients);
   const resolvedName = String(matchedClients[0]?.name || query).trim();
-  const depositCount = paymentVouchers.filter((voucher) =>
-    labelMatchesClientKeys(voucher?.client, clientFilterKeys),
-  ).length;
   const showAllHistory =
     allHistory === true ||
     /^(?:\uC804\uCCB4|\uBAA8\uB4E0|\uC804\uBD80|all)$/i.test(String(period || "").trim());
+
+  let rangeStart = String(startDate || "").slice(0, 10);
+  let rangeEnd = String(endDate || "").slice(0, 10);
+  let periodLabel = "";
+  if (!showAllHistory && (!rangeStart || !rangeEnd)) {
+    const parsed = resolveStatementPeriodFromInput(String(period || "").trim() || "\uC774\uBC88\uB2EC");
+    rangeStart = parsed.startDate;
+    rangeEnd = parsed.endDate;
+    periodLabel = parsed.label;
+  } else if (!showAllHistory && rangeStart && rangeEnd) {
+    periodLabel = rangeStart === rangeEnd ? rangeStart : `${rangeStart}~${rangeEnd}`;
+  }
+
+  const depositCount = paymentVouchers.filter((voucher) => {
+    if (!labelMatchesClientKeys(voucher?.client, clientFilterKeys)) return false;
+    if (showAllHistory) return true;
+    const voucherDate = String(voucher?.date || "").slice(0, 10);
+    if (rangeStart && voucherDate < rangeStart) return false;
+    if (rangeEnd && voucherDate > rangeEnd) return false;
+    return true;
+  }).length;
 
   return {
     ok: true,
     clientName: resolvedName,
     depositCount,
     allHistory: showAllHistory,
+    startDate: showAllHistory ? undefined : rangeStart,
+    endDate: showAllHistory ? undefined : rangeEnd,
+    periodLabel,
   };
 }
 
@@ -1297,10 +1340,9 @@ export function tryRuleBasedDepositOpen(message) {
   if (!chatIncludesIntent(text, "depositHistory")) {
     return null;
   }
-  if (!hasChatOpenVerb(text)) return null;
-  const { clientName, allHistory } = extractDepositHistoryQuery(text);
+  const { clientName, allHistory, startDate, endDate } = extractDepositHistoryQuery(text);
   if (!clientName) return null;
-  return toolOpenClientDepositHistory({ clientName, allHistory });
+  return toolOpenClientDepositHistory({ clientName, allHistory, startDate, endDate });
 }
 
 export function tryRuleBasedTaxInvoiceOpen(message) {
@@ -1371,6 +1413,8 @@ export function buildChatActionsFromDepositOpen(result) {
       type: "open_client_deposit_history",
       clientName: result.clientName,
       allHistory: result.allHistory === true,
+      startDate: result.startDate,
+      endDate: result.endDate,
     },
   ];
 }
@@ -1398,9 +1442,14 @@ export function formatClientStatementOpenAnswer(data) {
 
 export function formatDepositOpenAnswer(data) {
   if (!data.ok) return data.error || "\uC785\uAE08\uB0B4\uC5ED \uC774\uB3D9\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  const period = data.periodLabel || (data.startDate && data.endDate ? `${data.startDate}~${data.endDate}` : "");
   const countHint =
-    data.depositCount > 0 ? ` (\uC804\uCCB4 ${data.depositCount}\uAC74${data.allHistory ? "" : " \uC911 \uD544\uD130"})` : "";
-  const periodHint = data.allHistory ? " \uC804\uCCB4 \uAE30\uAC04" : "";
+    data.depositCount > 0
+      ? ` (${period || (data.allHistory ? "\uC804\uCCB4" : "")} ${data.depositCount}\uAC74)`
+      : period
+        ? ` (${period})`
+        : "";
+  const periodHint = data.allHistory ? " \uC804\uCCB4 \uAE30\uAC04" : period ? ` (${period})` : "";
   return `${data.clientName} \uAC70\uB798\uCC98 \uC785\uAE08\uB0B4\uC5ED${periodHint}\uC744 \uC5F4\uC5B4 \uC904\uB2C8\uB2E4.${countHint}`;
 }
 
@@ -1589,7 +1638,9 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
         properties: {
           clientName: { type: "string", description: "\uAC70\uB798\uCC98 \uC774\uB984 (\uC608: \uC778\uB514\uD37C)" },
           allHistory: { type: "boolean", description: "\uC804\uCCB4 \uAE30\uAC04 \uC785\uAE08\uB0B4\uC5ED (\uBAA8\uB4E0/\uC804\uCCB4 \uC694\uCCAD \uC2DC true)" },
-          period: { type: "string", description: "\uC804\uCCB4, \uBAA8\uB4E0, \uC774\uBC88\uB2EC \uB4F1 (\uC120\uD0DD)" },
+          startDate: { type: "string", description: "\uAE30\uAC04 \uC2DC\uC791\uC77C YYYY-MM-DD (\uC120\uD0DD)" },
+          endDate: { type: "string", description: "\uAE30\uAC04 \uC885\uB8CC\uC77C YYYY-MM-DD (\uC120\uD0DD)" },
+          period: { type: "string", description: "\uC804\uCCB4, \uBAA8\uB4E0, 5\uC6D4, \uC774\uBC88\uB2EC \uB4F1 (\uC120\uD0DD)" },
         },
         required: ["clientName"],
       },

@@ -37,6 +37,7 @@ import {
   formatTaxInvoiceOpenAnswer,
   buildChatActionsFromTaxInvoiceOpen,
 } from "./erpChatTools.mjs";
+import { chatIncludesIntent } from "./erpChatFuzzy.mjs";
 import {
   toolNavigateErp,
   toolListErpPages,
@@ -467,7 +468,10 @@ export async function handleErpChat({ messages, user: tokenUser }) {
     if (infoAnswer) answer = infoAnswer;
   }
 
-  if (chatActions.length === 0 && hasChatOpenVerb(question)) {
+  if (
+    chatActions.length === 0 &&
+    (hasChatOpenVerb(question) || chatIncludesIntent(question, "depositHistory"))
+  ) {
     const openResult = tryRuleBasedOpenFromQuestion(question);
     if (openResult) {
       answer = openResult.answer;

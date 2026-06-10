@@ -8105,6 +8105,8 @@ export default function TeammillimeterErpMvp() {
     tab?: "input" | "receivables" | "history" | "log";
     clientName?: string;
     allHistory?: boolean;
+    startDate?: string;
+    endDate?: string;
   } | null>(null);
   const [pendingWorkerPaymentsTab, setPendingWorkerPaymentsTab] = useState<
     | "summary"
@@ -9338,6 +9340,8 @@ export default function TeammillimeterErpMvp() {
           tab: "history",
           clientName: action.clientName,
           allHistory: action.allHistory === true,
+          startDate: action.startDate,
+          endDate: action.endDate,
         });
         setActive("receivables");
         return;

@@ -33,7 +33,7 @@ export type ErpChatAction =
       saleIds: Array<string | number>;
       autoGenerate?: boolean;
     }
-  | { type: "open_client_deposit_history"; clientName: string; allHistory?: boolean }
+  | { type: "open_client_deposit_history"; clientName: string; allHistory?: boolean; startDate?: string; endDate?: string }
   | {
       type: "open_client_tax_invoice_history";
       clientName: string;
