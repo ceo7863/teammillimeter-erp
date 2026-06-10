@@ -1791,9 +1791,36 @@ export function tryRuleBasedInfoQuery(message, user) {
   return tryRuleBasedChat(message, user);
 }
 
+const CHAT_GREETING_PATTERN =
+  /^(?:안녕(?:하세요|하십니까)?|반가(?:워|워요|웠습니다)?|하이|헬로(?:우)?|hello|hi|hey|굿모닝|good(?:morning|afternoon|evening)|ㅎㅇ)(?:[!?.,~…]*)$/i;
+
+export function isChatGreeting(message) {
+  const raw = String(message || "").trim();
+  if (!raw) return false;
+  const normalized = raw.replace(/\s+/g, "");
+  return CHAT_GREETING_PATTERN.test(normalized);
+}
+
+export function formatGreetingAnswer() {
+  return [
+    "안녕하세요! TeamMillimeter ERP 어시스턴트입니다.",
+    "",
+    "다음과 같이 도와드릴 수 있어요.",
+    "· 거래처 미수, 일정, 담당자/시공자 연락처·차량번호 조회",
+    "· 거래처 입금내역, 세금계산서, 시공비내역서 열기",
+    "· 캘린더, SC 스케줄, 통장, 전표 등 ERP 화면 이동",
+    "",
+    '예: "인디퍼 미수", "내일 일정", "인디퍼 입금내역 열어줘", "어떤 화면 열 수 있어?"',
+  ].join("\n");
+}
+
 export function tryRuleBasedChat(message, user) {
   const text = String(message || "").trim();
   if (!text) return null;
+
+  if (isChatGreeting(text)) {
+    return formatGreetingAnswer();
+  }
 
   const kwUnpaid = "\uBBF8\uC218";
   const kwTomorrow = "\uB0B4\uC77C";
