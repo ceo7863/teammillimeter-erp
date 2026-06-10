@@ -58,7 +58,10 @@ try {
 
   Write-Host "==> Pre-flight OK (HEAD $localHead)"
   Write-Host "==> Deploying to production (server-side git pull + build)..."
-  ssh -i $Key -o StrictHostKeyChecking=no $Remote "cd ~/teammillimeter-erp && bash scripts/deploy-server.sh"
+  ssh -i $Key -o StrictHostKeyChecking=no $Remote "cd ~/teammillimeter-erp && git fetch origin main && git reset --hard origin/main && bash scripts/deploy-server.sh"
+  if ($LASTEXITCODE -ne 0) {
+    Write-Error "Remote deploy failed (exit $LASTEXITCODE)."
+  }
   Write-Host "==> Deploy done"
 }
 finally {
