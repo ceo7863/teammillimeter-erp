@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Loader2, MessageCircle, Mic, MicOff, Send, Trash2, Volume2, VolumeX, X } from "lucide-react";
+import { Bot, Loader2, MessageCircle, Mic, Send, Trash2, Volume2, VolumeX, X } from "lucide-react";
 import type { ErpUser } from "@/utils/erpApi";
 import {
   clearErpChatHistoryApi,
@@ -53,11 +53,12 @@ export function ErpChatWidget({ currentUser, enabled = true, onAction }: ErpChat
     speaking,
     autoSpeak,
     voiceError,
-    toggleListening,
     speak,
     stopSpeaking,
     toggleAutoSpeak,
     stopListening,
+    beginPushToTalk,
+    endPushToTalk,
   } = useErpChatVoice({
     onFinalTranscript: (text) => {
       void sendMessageRef.current(text);
@@ -216,6 +217,9 @@ export function ErpChatWidget({ currentUser, enabled = true, onAction }: ErpChat
             {!messages.length ? (
               <div className="erp-chat-empty">
                 <p className="text-sm text-slate-600">{ERP_CHAT_LABELS.intro}</p>
+                {speechSupported ? (
+                  <p className="text-xs text-slate-500">{ERP_CHAT_LABELS.voiceHoldHint}</p>
+                ) : null}
                 <div className="erp-chat-suggestions">
                   {ERP_CHAT_LABELS.suggestions.map((item) => (
                     <button key={item} type="button" className="erp-chat-suggestion" onClick={() => void sendMessage(item)}>
@@ -269,13 +273,31 @@ export function ErpChatWidget({ currentUser, enabled = true, onAction }: ErpChat
               <button
                 type="button"
                 className={`erp-chat-voice-btn ${listening ? "erp-chat-voice-btn--active" : ""}`}
-                onClick={toggleListening}
                 disabled={loading}
                 title={listening ? ERP_CHAT_LABELS.voiceStop : ERP_CHAT_LABELS.voiceStart}
                 aria-label={listening ? ERP_CHAT_LABELS.voiceStop : ERP_CHAT_LABELS.voiceStart}
                 aria-pressed={listening}
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                  beginPushToTalk();
+                }}
+                onPointerUp={(event) => {
+                  event.preventDefault();
+                  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                    event.currentTarget.releasePointerCapture(event.pointerId);
+                  }
+                  endPushToTalk();
+                }}
+                onPointerCancel={(event) => {
+                  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                    event.currentTarget.releasePointerCapture(event.pointerId);
+                  }
+                  endPushToTalk();
+                }}
+                onContextMenu={(event) => event.preventDefault()}
               >
-                {listening ? <MicOff size={16} /> : <Mic size={16} />}
+                {listening ? <Mic size={18} /> : <Mic size={16} />}
               </button>
             ) : null}
             <input

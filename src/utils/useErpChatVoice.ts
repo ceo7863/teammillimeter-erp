@@ -57,6 +57,9 @@ export function useErpChatVoice(options?: {
   onFinalRef.current = options?.onFinalTranscript;
 
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+  const pushToTalkActiveRef = useRef(false);
+  const accumulatedRef = useRef("");
+  const interimRef = useRef("");
   const [listening, setListening] = useState(false);
   const [interimText, setInterimText] = useState("");
   const [speaking, setSpeaking] = useState(false);
@@ -100,72 +103,123 @@ export function useErpChatVoice(options?: {
   );
 
   const stopListening = useCallback(() => {
+    pushToTalkActiveRef.current = false;
     recognitionRef.current?.stop();
     setListening(false);
   }, []);
 
-  const startListening = useCallback(() => {
-    setVoiceError("");
-    if (!speechSupported || typeof window === "undefined") {
-      setVoiceError(ERP_CHAT_LABELS.voiceUnsupported);
-      return;
-    }
+  const attachRecognitionHandlers = useCallback(
+    (recognition: SpeechRecognitionInstance, pushToTalk: boolean) => {
+      recognition.onresult = (event) => {
+        let interim = "";
+        let finalText = "";
+        for (let index = 0; index < event.results.length; index += 1) {
+          const chunk = event.results[index]?.[0]?.transcript || "";
+          if (event.results[index]?.isFinal) finalText += chunk;
+          else interim += chunk;
+        }
 
-    stopSpeaking();
-    const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Ctor) {
-      setVoiceError(ERP_CHAT_LABELS.voiceUnsupported);
-      return;
-    }
+        if (pushToTalk) {
+          accumulatedRef.current = finalText;
+          interimRef.current = finalText + interim;
+          setInterimText(interimRef.current);
+          return;
+        }
 
-    recognitionRef.current?.abort();
-    const recognition = new Ctor();
-    recognition.lang = "ko-KR";
-    recognition.continuous = false;
-    recognition.interimResults = true;
+        setInterimText(finalText || interim);
+        if (finalText.trim()) {
+          onFinalRef.current?.(finalText.trim());
+        }
+      };
 
-    recognition.onresult = (event) => {
-      let interim = "";
-      let finalText = "";
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
-        const chunk = event.results[index]?.[0]?.transcript || "";
-        if (event.results[index]?.isFinal) finalText += chunk;
-        else interim += chunk;
+      recognition.onerror = (event) => {
+        if (event.error === "not-allowed") {
+          setVoiceError(ERP_CHAT_LABELS.micDenied);
+        } else if (event.error !== "aborted") {
+          setVoiceError(ERP_CHAT_LABELS.voiceUnsupported);
+        }
+        pushToTalkActiveRef.current = false;
+        setListening(false);
+      };
+
+      recognition.onend = () => {
+        if (pushToTalkActiveRef.current) {
+          try {
+            recognition.start();
+          } catch {
+            pushToTalkActiveRef.current = false;
+            setListening(false);
+            setInterimText("");
+          }
+          return;
+        }
+        setListening(false);
+        setInterimText("");
+      };
+    },
+    [],
+  );
+
+  const startListening = useCallback(
+    (pushToTalk = false) => {
+      setVoiceError("");
+      if (!speechSupported || typeof window === "undefined") {
+        setVoiceError(ERP_CHAT_LABELS.voiceUnsupported);
+        return;
       }
-      setInterimText(finalText || interim);
-      if (finalText.trim()) {
-        onFinalRef.current?.(finalText.trim());
-      }
-    };
 
-    recognition.onerror = (event) => {
-      if (event.error === "not-allowed") {
-        setVoiceError(ERP_CHAT_LABELS.micDenied);
-      } else if (event.error !== "aborted") {
+      stopSpeaking();
+      const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!Ctor) {
+        setVoiceError(ERP_CHAT_LABELS.voiceUnsupported);
+        return;
+      }
+
+      recognitionRef.current?.abort();
+      const recognition = new Ctor();
+      recognition.lang = "ko-KR";
+      recognition.continuous = pushToTalk;
+      recognition.interimResults = true;
+
+      pushToTalkActiveRef.current = pushToTalk;
+      accumulatedRef.current = "";
+      interimRef.current = "";
+      attachRecognitionHandlers(recognition, pushToTalk);
+
+      recognitionRef.current = recognition;
+      setListening(true);
+      setInterimText("");
+      try {
+        recognition.start();
+      } catch {
+        pushToTalkActiveRef.current = false;
+        setListening(false);
         setVoiceError(ERP_CHAT_LABELS.voiceUnsupported);
       }
-      setListening(false);
-    };
+    },
+    [attachRecognitionHandlers, speechSupported, stopSpeaking],
+  );
 
-    recognition.onend = () => {
-      setListening(false);
-      setInterimText("");
-    };
+  const beginPushToTalk = useCallback(() => {
+    if (listening) return;
+    startListening(true);
+  }, [listening, startListening]);
 
-    recognitionRef.current = recognition;
-    setListening(true);
+  const endPushToTalk = useCallback(() => {
+    if (!pushToTalkActiveRef.current && !listening) return;
+    pushToTalkActiveRef.current = false;
+    const text = String(interimRef.current || accumulatedRef.current || "").trim();
+    recognitionRef.current?.stop();
+    setListening(false);
     setInterimText("");
-    try {
-      recognition.start();
-    } catch {
-      setListening(false);
-      setVoiceError(ERP_CHAT_LABELS.voiceUnsupported);
-    }
-  }, [speechSupported, stopSpeaking]);
+    accumulatedRef.current = "";
+    interimRef.current = "";
+    if (text) onFinalRef.current?.(text);
+  }, [listening]);
 
   const toggleListening = useCallback(() => {
     if (listening) stopListening();
-    else startListening();
+    else startListening(false);
   }, [listening, startListening, stopListening]);
 
   const toggleAutoSpeak = useCallback(() => {
@@ -188,6 +242,8 @@ export function useErpChatVoice(options?: {
     setVoiceError,
     startListening,
     stopListening,
+    beginPushToTalk,
+    endPushToTalk,
     toggleListening,
     speak,
     stopSpeaking,

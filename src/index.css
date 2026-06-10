@@ -16502,6 +16502,11 @@ button:disabled,
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  min-width: 48px;
+  min-height: 48px;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
   border: 1px solid #cbd5e1;
   border-radius: 0.85rem;
   background: #fff;
