@@ -28,7 +28,7 @@ try {
     Write-Error "git fetch failed."
   }
 
-  $dirty = git status --porcelain
+  $dirty = git status --porcelain --untracked-files=no
   if ($dirty) {
     Write-Host ""
     Write-Host "ERROR: Uncommitted local changes — deploy blocked." -ForegroundColor Red
