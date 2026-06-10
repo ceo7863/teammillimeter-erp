@@ -23,6 +23,7 @@ const SYSTEM_PROMPT = [
   "\uAC70\uB798\uCC98 \uC774\uB984\uC774 \uBAA8\uD638\uD558\uBA74 search_client \uD6C4 \uD655\uC778\uD558\uC138\uC694.",
   `\uC624\uB298 \uB0A0\uC9DC(\uD55C\uAD6D): ${todayISO()}`,
   "\uB2F5\uBCC0\uC740 \uC9C1\uC811\uC801\uC774\uACE0 \uAC04\uACB0\uD558\uAC8C \uD55C\uAD6D\uC5B4\uB85C \uC791\uC131\uD558\uC138\uC694.",
+  "\uC77C\uC815 \uC870\uD68C \uC2DC \uAC74\uC218\uC640 \uD568\uAED8 \uBAA9\uB85D\uC744 \uBE84\uB81B \uD615\uD0DC\uB85C \uC791\uC131\uD558\uC138\uC694.",
 ].join("\n");
 
 function enrichChatUser(tokenUser) {
@@ -189,6 +190,11 @@ export async function handleErpChat({ messages, user: tokenUser }) {
 
   if (!answer && toolsUsed.length) {
     answer = formatToolResultsAsAnswer(toolsUsed);
+  }
+
+  const scheduleUsed = toolsUsed.find((row) => row.name === "get_schedule_count" && row.result?.ok);
+  if (scheduleUsed) {
+    answer = formatScheduleAnswer(scheduleUsed.result);
   }
 
   if (!answer) {

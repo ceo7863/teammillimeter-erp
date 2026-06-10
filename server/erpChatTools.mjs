@@ -193,12 +193,13 @@ export function toolGetClientUnpaid({ clientName }) {
   };
 }
 
-export function toolGetScheduleCount({ date }) {
+export function toolGetScheduleCount({ date, limit = 30 }) {
   const state = getErpState(["sales", "settings"]);
   const data = state.data || {};
   const sales = Array.isArray(data.sales) ? data.sales : [];
   const scSchedules = Array.isArray(data.scSchedules) ? data.scSchedules : [];
   const dateKey = resolveDateFromInput(date);
+  const maxRows = Math.min(Math.max(Number(limit) || 30, 1), 50);
 
   const salesRows = sales.filter((row) => String(row.date || "").slice(0, 10) === dateKey);
   const scRows = scSchedules.filter((row) => String(row.workDate || "").slice(0, 10) === dateKey);
@@ -209,16 +210,28 @@ export function toolGetScheduleCount({ date }) {
     salesCount: salesRows.length,
     scScheduleCount: scRows.length,
     totalCount: salesRows.length + scRows.length,
-    salesPreview: salesRows.slice(0, 10).map((row) => ({
+    salesPreview: salesRows.slice(0, maxRows).map((row) => ({
       client: String(row.client || ""),
       site: String(row.site || ""),
+      worker: String(row.worker || ""),
       amount: Number(row.amount) || 0,
     })),
-    scPreview: scRows.slice(0, 10).map((row) => ({
-      projectName: String(row.projectName || row.clientName || ""),
-      siteName: String(row.siteName || ""),
-      participantCount: Array.isArray(row.participantNames) ? row.participantNames.length : 0,
-    })),
+    scPreview: scRows.slice(0, maxRows).map((row) => {
+      const participantNames = Array.isArray(row.participantNames)
+        ? row.participantNames.map((name) => String(name || "").trim()).filter(Boolean)
+        : [];
+      const start = String(row.startTime || "").trim();
+      const end = String(row.endTime || "").trim();
+      const timeRange = start && end ? `${start}-${end}` : start || end || "";
+      return {
+        projectName: String(row.projectName || row.clientName || ""),
+        siteName: String(row.siteName || ""),
+        workType: String(row.workType || ""),
+        timeRange,
+        participants: participantNames.join(", "),
+        participantCount: participantNames.length,
+      };
+    }),
   };
 }
 
@@ -410,11 +423,12 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "get_schedule_count",
-      description: "\uD2B9\uC815 \uB0A0\uC9DC(\uC624\uB298/\uB0B4\uC77C/\uBAA8\uB798 \uB610\uB294 YYYY-MM-DD)\uC758 \uB9E4\uCD9C \uC77C\uC815 \uAC74\uC218\uC640 SC \uC77C\uC815 \uAC74\uC218\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4.",
+      description: "\uD2B9\uC815 \uB0A0\uC9DC(\uC624\uB298/\uB0B4\uC77C/\uBAA8\uB798 \uB610\uB294 YYYY-MM-DD)\uC758 \uB9E4\uCD9C \uC77C\uC815\uACFC SC \uC77C\uC815 \uBAA9\uB85D\uC744 \uC870\uD68C\uD569\uB2C8\uB2E4.",
       parameters: {
         type: "object",
         properties: {
           date: { type: "string", description: "\uC624\uB298, \uB0B4\uC77C, \uBAA8\uB798 \uB610\uB294 YYYY-MM-DD" },
+          limit: { type: "number", description: "\uBAA9\uB85D \uCD5C\uB300 \uAC74\uC218 (\uAE30\uBCF8 30)" },
         },
       },
     },
@@ -591,7 +605,46 @@ export function formatUnpaidAnswer(data) {
 
 export function formatScheduleAnswer(data) {
   if (!data.ok) return "\uC77C\uC815 \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
-  return `${data.date} \uC77C\uC815: \uB9E4\uCD9C ${data.salesCount}\uAC74, SC \uC77C\uC815 ${data.scScheduleCount}\uAC74 (\uD569\uACC4 ${data.totalCount}\uAC74)`;
+  const lines = [
+    `${data.date} \uC77C\uC815: \uB9E4\uCD9C ${data.salesCount}\uAC74, SC \uC77C\uC815 ${data.scScheduleCount}\uAC74 (\uD569\uACC4 ${data.totalCount}\uAC74)`,
+  ];
+
+  if (data.totalCount === 0) {
+    lines.push("\n\uB4F1\uB85D\uB41C \uC77C\uC815\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    return lines.join("\n");
+  }
+
+  const salesPreview = Array.isArray(data.salesPreview) ? data.salesPreview : [];
+  if (data.salesCount > 0) {
+    lines.push("\n[\uB9E4\uCD9C \uC77C\uC815]");
+    salesPreview.forEach((row, index) => {
+      const amount = row.amount ? ` \u00B7 ${formatKRW(row.amount)}\uC6D0` : "";
+      const worker = row.worker ? ` \u00B7 ${row.worker}` : "";
+      lines.push(`${index + 1}. ${row.client || "-"} / ${row.site || "-"}${worker}${amount}`);
+    });
+    if (data.salesCount > salesPreview.length) {
+      lines.push(`\u2026 \uC678 ${data.salesCount - salesPreview.length}\uAC74`);
+    }
+  }
+
+  const scPreview = Array.isArray(data.scPreview) ? data.scPreview : [];
+  if (data.scScheduleCount > 0) {
+    lines.push("\n[SC \uC77C\uC815]");
+    scPreview.forEach((row, index) => {
+      const parts = [row.projectName || "-"];
+      if (row.timeRange) parts.push(row.timeRange);
+      if (row.siteName) parts.push(row.siteName);
+      if (row.workType) parts.push(row.workType);
+      if (row.participants) parts.push(row.participants);
+      else if (row.participantCount) parts.push(`${row.participantCount}\uBA85`);
+      lines.push(`${index + 1}. ${parts.join(" \u00B7 ")}`);
+    });
+    if (data.scScheduleCount > scPreview.length) {
+      lines.push(`\u2026 \uC678 ${data.scScheduleCount - scPreview.length}\uAC74`);
+    }
+  }
+
+  return lines.join("\n");
 }
 
 export function formatContactAnswer(data) {
