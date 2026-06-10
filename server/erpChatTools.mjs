@@ -1,6 +1,18 @@
 import { getErpState } from "./db.mjs";
+import { config } from "./config.mjs";
 import { findWorkerByListName } from "./workerPhoneMatch.mjs";
 import { weekRangeISO, filterSchedulesForWeek } from "./scWeeklyBriefingNotify.mjs";
+import {
+  chatIncludesIntent,
+  findIntentKeywordSpan,
+  expandSynonymsForExtraction,
+} from "./erpChatFuzzy.mjs";
+import {
+  isWorkerVehicleQuery,
+  extractWorkerNameFromVehicleQuery,
+} from "./erpChatVehicleExtract.mjs";
+
+export { isWorkerVehicleQuery, extractWorkerNameFromVehicleQuery } from "./erpChatVehicleExtract.mjs";
 
 const KOREA_TZ = "Asia/Seoul";
 
@@ -102,7 +114,7 @@ export function resolveMonthRangeFromInput(input) {
     const range = monthRangeISO(1);
     return { ...range, label: `\uB2E4\uC74C \uB2EC (${range.startDate}~${range.endDate})` };
   }
-  const yearMonthMatch = raw.match(/(?:(\d{4})\s*\uB144\s*)?(\d{1,2})\s*\uC6D4/);
+  const yearMonthMatch = raw.match(/(?:(\d{4})\s*\uB144\s*)?(\d{1,2})\s*\uC6D4(?:\uB2EC)?/);
   if (yearMonthMatch) {
     const todayMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(todayISO());
     const year = yearMonthMatch[1] ? Number(yearMonthMatch[1]) : Number(todayMatch?.[1] || new Date().getFullYear());
@@ -549,36 +561,6 @@ function extractClientNameFromContactQuery(text) {
     .trim();
 }
 
-const WORKER_VEHICLE_QUERY_PATTERN =
-  /\uCC28\uB7C9|\uCC28\s*\uBC88\uD638|\uB108\uBBC0\uBC84|\uB118\uBC84/;
-
-export function isWorkerVehicleQuery(text) {
-  return WORKER_VEHICLE_QUERY_PATTERN.test(String(text || ""));
-}
-
-export function extractWorkerNameFromVehicleQuery(text) {
-  const raw = String(text || "").trim();
-  if (!raw) return "";
-
-  const possessive = raw.match(/^(.+?)\uC758/);
-  if (possessive && isWorkerVehicleQuery(raw)) {
-    return possessive[1].replace(/\s+/g, " ").trim();
-  }
-
-  const attached = raw.match(
-    /^(.+?)(?:\uCC28\uB7C9(?:\s*\uBC88\uD638)?|\uCC28\s*\uBC88\uD638|\uB108\uBBC0\uBC84|\uB118\uBC84|\uB2E4\uB2C8)/,
-  );
-  if (attached) return attached[1].replace(/\s+/g, " ").trim();
-
-  return raw
-    .replace(/\uCC28\uB7C9(?:\s*\uBC88\uD638)?|\uCC28\s*\uBC88\uD638|\uB108\uBBC0\uBC84|\uB118\uBC84|\uB2E4\uB2C8/g, "")
-    .replace(/\uBC88\uD638/g, "")
-    .replace(/(?:\uB294|\uC740|\uC918|\uC54C\uB824|\uC870\uD68C|\uD655\uC778|\?)/g, "")
-    .replace(/\uC758$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function tryClientContactsOrPersonLookup(name, user) {
   const query = String(name || "").trim();
   if (!query) return null;
@@ -608,13 +590,26 @@ export function toolSearchClient({ query, limit = 10 }) {
   };
 }
 
-export function toolGetWorkerInfo({ name }, user) {
+export function toolGetWorkerInfo({ name, rawQuery }, user) {
   const canViewPhone = canUserViewContactPhones(user);
   const state = getErpState(["workers"]);
   const workers = Array.isArray(state.data?.workers) ? state.data.workers : [];
   const rawName = String(name || "").trim();
-  const query = isWorkerVehicleQuery(rawName) ? extractWorkerNameFromVehicleQuery(rawName) : rawName;
-  const worker = findWorkerByListName(workers, query);
+  const rawQueryStr = String(rawQuery || "").trim();
+  const vehicleSource = isWorkerVehicleQuery(rawName)
+    ? rawName
+    : isWorkerVehicleQuery(rawQueryStr)
+      ? rawQueryStr
+      : "";
+  let query = vehicleSource ? extractWorkerNameFromVehicleQuery(vehicleSource) : rawName;
+  let worker = findWorkerByListName(workers, query);
+  if (!worker && rawQueryStr && isWorkerVehicleQuery(rawQueryStr)) {
+    const reextracted = extractWorkerNameFromVehicleQuery(rawQueryStr);
+    if (reextracted && reextracted !== query) {
+      worker = findWorkerByListName(workers, reextracted);
+      if (worker) query = reextracted;
+    }
+  }
   if (!worker) {
     return { ok: false, error: "\uC2DC\uACF5\uC790\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
   }
@@ -785,11 +780,90 @@ function extractNameBeforeKeyword(text, keywordPattern) {
     .trim();
 }
 
+export function extractNameBeforeIntent(text, intentKey) {
+  const raw = String(text || "").trim();
+  if (!raw) return "";
+
+  const span = findIntentKeywordSpan(raw, intentKey);
+  if (!span) return "";
+
+  const possessive = raw.match(/^(.+?)\uC758/);
+  if (possessive && span.start > 0) return possessive[1].trim();
+
+  const before = raw.slice(0, span.start).trim();
+  if (before) {
+    return before
+      .replace(/\uAC70\uB798\uCC98/g, "")
+      .replace(TRAILING_CHAT_ACTION_SUFFIX, "")
+      .trim();
+  }
+
+  return raw
+    .slice(span.end)
+    .replace(/\uAC70\uB798\uCC98/g, "")
+    .replace(TRAILING_CHAT_ACTION_SUFFIX, "")
+    .trim();
+}
+
+const ERP_CALENDAR_KEYWORD_PATTERN =
+  /\uCE98\uB9B0\uB354|\uCE04\uB9B0\uB354|\uCE98\uBCC0\uB354|\uB2EC\uB825/;
+
+const SC_SCHEDULE_KEYWORD_PATTERN =
+  /\uC2A4\uCF00\uC904|(?:^|\s)SC(?:\s|$|\uC2A4\uCF00\uC904|\uC77C\uC815)|SC\s*\uC2A4\uCF00\uC904|SC\s*\uC77C\uC815|SC\uC2A4\uCF00\uC904|SC\uC77C\uC815/i;
+
+const CHAT_OPEN_VERB_PATTERN = /(?:\uC5F4|\uBD10|\uCC28|\uC774\uB3D9|\uD655\uC778|\uC918|\uC870\uD68C|\uBCF4\uAE30|\uBCF4\uC5EC)/;
+
+export function hasChatOpenVerb(text) {
+  const raw = String(text || "");
+  return chatIncludesIntent(raw, "openVerb") || CHAT_OPEN_VERB_PATTERN.test(raw);
+}
+
+export function includesErpCalendarKeyword(text) {
+  const raw = String(text || "");
+  return chatIncludesIntent(raw, "calendar") || ERP_CALENDAR_KEYWORD_PATTERN.test(raw);
+}
+
+export function includesCalendarKeyword(text) {
+  return includesErpCalendarKeyword(text);
+}
+
+export function includesScScheduleKeyword(text) {
+  const raw = String(text || "");
+  if (chatIncludesIntent(raw, "scSchedule")) return true;
+  if (/\uC2A4\uCF00\uC904/.test(raw)) return true;
+  if (/(?:^|\s)SC(?:\s|$|\uC2A4\uCF00\uC904|\uC77C\uC815)/i.test(raw)) return true;
+  const compact = raw.replace(/\s+/g, "");
+  return /SC(?:\uC2A4\uCF00\uC904|\uC77C\uC815)/i.test(compact);
+}
+
 export function extractCalendarClientQuery(text) {
-  return extractNameBeforeKeyword(
-    text,
-    /\uCE04\uB9B0\uB354|\uCE98\uBCC0\uB354|\uB2EC\uB825|\uC77C\uC815/,
-  );
+  const expanded = expandSynonymsForExtraction(text);
+  const byIntent = extractNameBeforeIntent(expanded, "calendar");
+  if (byIntent) return byIntent;
+  return extractNameBeforeKeyword(expanded, ERP_CALENDAR_KEYWORD_PATTERN);
+}
+
+export function toolOpenScSchedule() {
+  const url = String(config.sc?.apiBaseUrl || config.sc?.sharePublicUrl || "https://sc.teammillimeter.com").replace(/\/$/, "");
+  return { ok: true, url };
+}
+
+export function tryRuleBasedScScheduleOpen(message) {
+  const text = String(message || "").trim();
+  if (!includesScScheduleKeyword(text)) return null;
+  if (!hasChatOpenVerb(text)) return null;
+  if (includesErpCalendarKeyword(text)) return null;
+  return toolOpenScSchedule();
+}
+
+export function buildChatActionsFromScScheduleOpen(result) {
+  if (!result?.ok || !result.url) return [];
+  return [{ type: "open_sc_schedule", url: result.url }];
+}
+
+export function formatScScheduleOpenAnswer(data) {
+  if (!data.ok) return data.error || "SC \uC2A4\uCF00\uC904 \uC774\uB3D9\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  return "SC \uC2A4\uCF00\uC904\uC744 \uC5F4\uC5B4 \uC904\uB2C8\uB2E4.";
 }
 
 export function toolOpenClientCalendar({ clientName }) {
@@ -799,7 +873,7 @@ export function toolOpenClientCalendar({ clientName }) {
   const clients = Array.isArray(data.clients) ? data.clients : [];
   const query = String(clientName || "").trim();
   if (!query) {
-    return { ok: false, error: "\uAC70\uB798\uCC98 \uC774\uB984\uC774 \uD544\uC694\uD569\uB2C8\uB2E4." };
+    return { ok: true, pageOnly: true, anchorDate: todayISO(), saleCount: 0 };
   }
 
   const matchedClients = findClientsByQuery(clients, query);
@@ -824,15 +898,20 @@ export function toolOpenClientCalendar({ clientName }) {
 
 export function tryRuleBasedCalendarOpen(message) {
   const text = String(message || "").trim();
-  if (!text.includes("\uCE04\uB9B0\uB354") && !text.includes("\uCE98\uBCC0\uB354")) return null;
-  if (!/(?:\uC5F4|\uBD10|\uCC28|\uC774\uB3D9|\uD655\uC778|\uC918)/.test(text)) return null;
+  if (!includesErpCalendarKeyword(text)) return null;
+  if (!hasChatOpenVerb(text)) return null;
   const clientName = extractCalendarClientQuery(text);
-  if (!clientName) return null;
-  return toolOpenClientCalendar({ clientName });
+  if (clientName) {
+    return toolOpenClientCalendar({ clientName });
+  }
+  return { ok: true, pageOnly: true, anchorDate: todayISO(), saleCount: 0 };
 }
 
 export function buildChatActionsFromCalendarOpen(result) {
-  if (!result?.ok || !result.clientName) return [];
+  if (!result?.ok) return [];
+  if (result.pageOnly || !result.clientName) {
+    return [{ type: "navigate_erp", page: "calendar", label: "\uCE98\uB9B0\uB354" }];
+  }
   return [
     {
       type: "open_client_calendar",
@@ -843,13 +922,14 @@ export function buildChatActionsFromCalendarOpen(result) {
 }
 
 export function formatCalendarOpenAnswer(data) {
-  if (!data.ok) return data.error || "\uCE04\uB9B0\uB354 \uC774\uB3D9\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  if (!data.ok) return data.error || "\uCE98\uB9B0\uB354 \uC774\uB3D9\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  if (data.pageOnly) return "\uCE98\uB9B0\uB354\uC744 \uC5F4\uC5B4 \uC904\uB2C8\uB2E4.";
   const monthHint = String(data.anchorDate || "").slice(0, 7);
   const saleHint =
     data.saleCount > 0
       ? ` \uCD5C\uADFC \uC804\uD45C \uAE30\uC900 ${monthHint}\uC6D4\uC744 \uD45C\uC2DC\uD569\uB2C8\uB2E4.`
       : " \uC804\uD45C\uAC00 \uC5C6\uC5B4 \uC774\uBC88 \uB2EC\uC744 \uD45C\uC2DC\uD569\uB2C8\uB2E4.";
-  return `${data.clientName} \uAC70\uB798\uCC98 \uCE04\uB9B0\uB354\uB97C \uC5F4\uC5B4 \uC904\uB2C8\uB2E4.${saleHint}`;
+  return `${data.clientName} \uAC70\uB798\uCC98 \uCE98\uB9B0\uB354\uB97C \uC5F4\uC5B4 \uC904\uB2C8\uB2E4.${saleHint}`;
 }
 
 function saleHasWorker(sale, workerName) {
@@ -1006,8 +1086,10 @@ function stripStatementQueryNoise(raw) {
 
 export function extractClientStatementQuery(text) {
   const raw = String(text || "").trim();
-  const range = resolveStatementPeriodFromInput(raw);
-  let clientName = stripStatementQueryNoise(raw);
+  const expanded = expandSynonymsForExtraction(raw);
+  const range = resolveStatementPeriodFromInput(expanded);
+  let clientName = extractNameBeforeIntent(expanded, "constructionStatement");
+  if (!clientName) clientName = stripStatementQueryNoise(expanded);
   const possessive = raw.match(/^(.+?)\uC758/);
   if (possessive) clientName = possessive[1].trim();
   return {
@@ -1018,21 +1100,32 @@ export function extractClientStatementQuery(text) {
   };
 }
 
+export function isDepositHistoryAllPeriodQuery(text) {
+  const raw = String(text || "");
+  if (!chatIncludesIntent(raw, "depositHistory")) return false;
+  return /(?:\uBAA8\uB4E0|\uC804\uCCB4|\uC804\uBD80)/.test(raw);
+}
+
+function stripDepositHistoryClientName(name) {
+  return String(name || "")
+    .replace(/(?:\uBAA8\uB4E0|\uC804\uCCB4|\uC804\uBD80)\s*/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function extractDepositHistoryQuery(text) {
-  const clientName = extractNameBeforeKeyword(
-    text,
-    /\uC785\uAE08\s*\uB0B4\uC5ED|\uC785\uAE08\uB0B4\uC5ED/,
-  );
-  return { clientName };
+  const raw = String(text || "").trim();
+  const expanded = expandSynonymsForExtraction(raw);
+  const allHistory = isDepositHistoryAllPeriodQuery(expanded);
+  const clientName = stripDepositHistoryClientName(extractNameBeforeIntent(expanded, "depositHistory"));
+  return { clientName, allHistory };
 }
 
 export function extractTaxInvoiceHistoryQuery(text) {
   const raw = String(text || "").trim();
-  const range = resolveStatementPeriodFromInput(raw);
-  const clientName = extractNameBeforeKeyword(
-    raw,
-    /\uC138\uAE08\uACC4\uC0B0\uC11C\s*\uB0B4\uC5ED|\uC138\uAE08\uACC4\uC0B0\uC11C|\uACC4\uC0B0\uC11C/,
-  );
+  const expanded = expandSynonymsForExtraction(raw);
+  const range = resolveStatementPeriodFromInput(expanded);
+  const clientName = extractNameBeforeIntent(expanded, "taxInvoice");
   return {
     clientName,
     startDate: range.startDate,
@@ -1097,7 +1190,7 @@ export function toolOpenClientConstructionCostStatement({ clientName, startDate,
   };
 }
 
-export function toolOpenClientDepositHistory({ clientName }) {
+export function toolOpenClientDepositHistory({ clientName, allHistory, period }) {
   const state = getErpState(["clients", "paymentVouchers"]);
   const data = state.data || {};
   const clients = Array.isArray(data.clients) ? data.clients : [];
@@ -1117,11 +1210,15 @@ export function toolOpenClientDepositHistory({ clientName }) {
   const depositCount = paymentVouchers.filter((voucher) =>
     labelMatchesClientKeys(voucher?.client, clientFilterKeys),
   ).length;
+  const showAllHistory =
+    allHistory === true ||
+    /^(?:\uC804\uCCB4|\uBAA8\uB4E0|\uC804\uBD80|all)$/i.test(String(period || "").trim());
 
   return {
     ok: true,
     clientName: resolvedName,
     depositCount,
+    allHistory: showAllHistory,
   };
 }
 
@@ -1173,14 +1270,10 @@ export function toolOpenClientTaxInvoiceHistory({ clientName, startDate, endDate
 
 export function tryRuleBasedClientStatementOpen(message) {
   const text = String(message || "").trim();
-  if (
-    !text.includes("\uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C") &&
-    !text.includes("\uC2DC\uACF5\uB0B4\uC5ED\uC11C") &&
-    !text.includes("\uC2DC\uACF5\uBE44 \uB0B4\uC5ED\uC11C")
-  ) {
+  if (!chatIncludesIntent(text, "constructionStatement")) {
     return null;
   }
-  if (!/(?:\uC5F4|\uBD10|\uCC28|\uC774\uB3D9|\uD655\uC778|\uC918|\uC0DD\uC131|\uBCF4\uAE30)/.test(text)) return null;
+  if (!hasChatOpenVerb(text) && !/(?:\uC0DD\uC131)/.test(text)) return null;
   const { clientName, startDate, endDate } = extractClientStatementQuery(text);
   if (!clientName) return null;
   const result = toolOpenClientConstructionCostStatement({ clientName, startDate, endDate });
@@ -1201,26 +1294,60 @@ export function tryRuleBasedStatementOpen(message) {
 
 export function tryRuleBasedDepositOpen(message) {
   const text = String(message || "").trim();
-  if (
-    !text.includes("\uC785\uAE08\uB0B4\uC5ED") &&
-    !text.includes("\uC785\uAE08 \uB0B4\uC5ED") &&
-    !text.includes("\uC785\uAE08\uB0B4\uC5ED")
-  ) {
+  if (!chatIncludesIntent(text, "depositHistory")) {
     return null;
   }
-  if (!/(?:\uC5F4|\uBD10|\uCC28|\uC774\uB3D9|\uD655\uC778|\uC918|\uBCF4\uAE30)/.test(text)) return null;
-  const { clientName } = extractDepositHistoryQuery(text);
+  if (!hasChatOpenVerb(text)) return null;
+  const { clientName, allHistory } = extractDepositHistoryQuery(text);
   if (!clientName) return null;
-  return toolOpenClientDepositHistory({ clientName });
+  return toolOpenClientDepositHistory({ clientName, allHistory });
 }
 
 export function tryRuleBasedTaxInvoiceOpen(message) {
   const text = String(message || "").trim();
-  if (!text.includes("\uC138\uAE08\uACC4\uC0B0\uC11C") && !text.includes("\uACC4\uC0B0\uC11C")) return null;
-  if (!/(?:\uC5F4|\uBD10|\uCC28|\uC774\uB3D9|\uD655\uC778|\uC918|\uBCF4\uAE30|\uB0B4\uC5ED)/.test(text)) return null;
+  if (!chatIncludesIntent(text, "taxInvoice")) return null;
+  if (!hasChatOpenVerb(text) && !/\uB0B4\uC5ED/.test(text)) return null;
   const { clientName, startDate, endDate } = extractTaxInvoiceHistoryQuery(text);
   if (!clientName) return null;
   return toolOpenClientTaxInvoiceHistory({ clientName, startDate, endDate });
+}
+
+export function includesBankKeyword(text) {
+  const raw = String(text || "");
+  return chatIncludesIntent(raw, "bank", { excludeIntents: ["depositHistory"] });
+}
+
+export function tryRuleBasedBankOpen(message) {
+  const text = String(message || "").trim();
+  if (!includesBankKeyword(text)) return null;
+  if (!hasChatOpenVerb(text)) return null;
+  const period = resolveStatementPeriodFromInput(text);
+  return {
+    ok: true,
+    startDate: period.startDate,
+    endDate: period.endDate,
+    periodLabel: period.label,
+  };
+}
+
+export function buildChatActionsFromBankOpen(result) {
+  if (!result?.ok) return [];
+  return [
+    {
+      type: "navigate_erp",
+      page: "accounting",
+      label: "\uD1B5\uC7A5",
+      accountingTab: "bank",
+      startDate: result.startDate,
+      endDate: result.endDate,
+    },
+  ];
+}
+
+export function formatBankOpenAnswer(data) {
+  if (!data.ok) return data.error || "\uD1B5\uC7A5 \uC774\uB3D9\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  const period = data.periodLabel || `${data.startDate}~${data.endDate}`;
+  return `\uD1B5\uC7A5 \uB0B4\uC5ED(${period})\uC744 \uC5F4\uC5B4 \uC904\uB2C8\uB2E4.`;
 }
 
 export function buildChatActionsFromClientStatementOpen(result) {
@@ -1243,6 +1370,7 @@ export function buildChatActionsFromDepositOpen(result) {
     {
       type: "open_client_deposit_history",
       clientName: result.clientName,
+      allHistory: result.allHistory === true,
     },
   ];
 }
@@ -1271,8 +1399,9 @@ export function formatClientStatementOpenAnswer(data) {
 export function formatDepositOpenAnswer(data) {
   if (!data.ok) return data.error || "\uC785\uAE08\uB0B4\uC5ED \uC774\uB3D9\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
   const countHint =
-    data.depositCount > 0 ? ` (\uC804\uCCB4 ${data.depositCount}\uAC74 \uC911 \uD544\uD130)` : "";
-  return `${data.clientName} \uAC70\uB798\uCC98 \uC785\uAE08\uB0B4\uC5ED\uC744 \uC5F4\uC5B4 \uC904\uB2C8\uB2E4.${countHint}`;
+    data.depositCount > 0 ? ` (\uC804\uCCB4 ${data.depositCount}\uAC74${data.allHistory ? "" : " \uC911 \uD544\uD130"})` : "";
+  const periodHint = data.allHistory ? " \uC804\uCCB4 \uAE30\uAC04" : "";
+  return `${data.clientName} \uAC70\uB798\uCC98 \uC785\uAE08\uB0B4\uC5ED${periodHint}\uC744 \uC5F4\uC5B4 \uC904\uB2C8\uB2E4.${countHint}`;
 }
 
 export function formatTaxInvoiceOpenAnswer(data) {
@@ -1361,13 +1490,23 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "open_client_calendar",
-      description: "\uAC70\uB798\uCC98 \uCE84\uB9B0\uB354(\uC77C\uC815 \uCE98\uBCC0\uB354)\uB97C \uD574\uB2F9 \uAC70\uB798\uCC98 \uD544\uD130\uB85C \uC5F4\uC796\uB2C8\uB2E4.",
+      description: "ERP \uCE98\uB9B0\uB354/\uB2EC\uB825 \uD654\uBA74\uC744 \uC5F4\uC796\uB2C8\uB2E4. '\uC778\uB514\uD37C \uCE98\uB9B0\uB354 \uC5F4\uC5B4' \uCC98\uB7FC \uAC70\uB798\uCC98 \uD544\uD130 \uC801\uC6A9. SC \uC2A4\uCF00\uC904\uC740 open_sc_schedule \uC0AC\uC6A9.",
       parameters: {
         type: "object",
         properties: {
-          clientName: { type: "string", description: "\uAC70\uB798\uCC98 \uC774\uB984 (\uC608: \uC778\uB514\uD37C, \uCEE4\uC2A4\uD798)" },
+          clientName: { type: "string", description: "\uAC70\uB798\uCC98 \uC774\uB984 (\uC608: \uC778\uB514\uD37C, \uCEE4\uC2A4\uD798). \uBE44\uC6B0\uBA74 ERP \uCE98\uB9B0\uB354 \uC804\uCCB4 \uC624\uD508." },
         },
-        required: ["clientName"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "open_sc_schedule",
+      description: "SC(sc.teammillimeter.com) \uC2A4\uCF00\uC904 \uC0AC\uC774\uD2B8\uB97C \uC5F4\uC796\uB2C8\uB2E4. '\uC2A4\uCF00\uC904 \uC5F4\uC5B4', 'SC \uC5F4\uC5B4' \uC694\uCCAD \uC2DC \uC0AC\uC6A9.",
+      parameters: {
+        type: "object",
+        properties: {},
       },
     },
   },
@@ -1391,11 +1530,16 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "get_worker_info",
-      description: "\uC2DC\uACF5\uC790 \uAE30\uBCF8 \uC815\uBCF4(\uC774\uB984, \uAD6C\uBD84, \uCC28\uB7C9\uBC88\uD638, \uC804\uD654\uBC88\uD638)\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4. '\uCC28\uBC88\uD638', '\uCC28\uB7C9 \uBC88\uD638', '\uCC28\uB7C9\uBC88\uD638' \uBAA8\uB450 \uCC28\uB7C9\uBC88\uD638 \uC870\uD68C\uB85C \uCC98\uB9AC\uD558\uC138\uC694.",
+      description:
+        "\uC2DC\uACF5\uC790 \uAE30\uBCF8 \uC815\uBCF4(\uC774\uB984, \uAD6C\uBD84, \uCC28\uB7C9\uBC88\uD638, \uC804\uD654\uBC88\uD638)\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4. '\uCC28\uBC88\uD638', '\uCC28\uB7C9\uBC88\uD638', '\uCC28\uB7C9 \uBC88\uD638' \uBAA8\uB450 \uCC28\uB7C9\uBC88\uD638 \uC870\uD68C\uC785\uB2C8\uB2E4. \uC2DC\uACF5\uC790 \uC774\uB984\uC740 \uCC28\uB7C9\uBC88\uD638 \uC55E\uB098 \uB4A4\uC5D0 \uC62C \uC218 \uC788\uC2B5\uB2C8\uB2E4(\uC608: '\uBC15\uC900\uADDC \uCC28\uB7C9\uBC88\uD638', '\uCC28\uB7C9\uBC88\uD638 \uBC15\uC900\uADDC'). name\uC5D0 \uCD94\uCD9C\uB41C \uC2DC\uACF5\uC790 \uC774\uB984\uB9CC \uC804\uB2EC\uD558\uC138\uC694.",
       parameters: {
         type: "object",
         properties: {
-          name: { type: "string" },
+          name: {
+            type: "string",
+            description:
+              "\uCC28\uB7C9\uBC88\uD638 \uC870\uD68C \uC2DC\uACF5\uC790 \uC774\uB984 (\uC608: '\uBC15\uC900\uADDC \uCC28\uB7C9\uBC88\uD638' \u2192 '\uBC15\uC900\uADDC')",
+          },
         },
         required: ["name"],
       },
@@ -1439,11 +1583,13 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "open_client_deposit_history",
-      description: "\uAC70\uB798\uCC98 \uC785\uAE08\uB0B4\uC5ED \uD654\uBA74\uC744 \uC5F4\uC796\uB2C8\uB2E4. \uC608: \uC778\uB514\uD37C \uC785\uAE08\uB0B4\uC5ED \uC5F4\uC5B4\uC918.",
+      description: "\uAC70\uB798\uCC98 \uC785\uAE08\uB0B4\uC5ED \uD654\uBA74\uC744 \uC5F4\uC796\uB2C8\uB2E4. '\uBAA8\uB4E0', '\uC804\uCCB4' \uC785\uAE08\uB0B4\uC5ED\uC740 \uAE30\uAC04 \uD544\uD130 \uC5C6\uC774 \uC804\uCCB4 \uB0B4\uC5ED\uC744 \uC5F4\uC5B4\uC918\uC694.",
       parameters: {
         type: "object",
         properties: {
           clientName: { type: "string", description: "\uAC70\uB798\uCC98 \uC774\uB984 (\uC608: \uC778\uB514\uD37C)" },
+          allHistory: { type: "boolean", description: "\uC804\uCCB4 \uAE30\uAC04 \uC785\uAE08\uB0B4\uC5ED (\uBAA8\uB4E0/\uC804\uCCB4 \uC694\uCCAD \uC2DC true)" },
+          period: { type: "string", description: "\uC804\uCCB4, \uBAA8\uB4E0, \uC774\uBC88\uB2EC \uB4F1 (\uC120\uD0DD)" },
         },
         required: ["clientName"],
       },
@@ -1486,6 +1632,8 @@ export function executeErpChatTool(name, args, user) {
       return toolFindSaleVoucher(args || {});
     case "open_client_calendar":
       return toolOpenClientCalendar(args || {});
+    case "open_sc_schedule":
+      return toolOpenScSchedule();
     case "open_worker_construction_cost_statement":
       return toolOpenWorkerConstructionCostStatement(args || {});
     case "open_client_construction_cost_statement":
@@ -1497,6 +1645,11 @@ export function executeErpChatTool(name, args, user) {
     default:
       return { ok: false, error: `\uC54C \uC218 \uC5C6\uB294 \uB3C4\uAD6C: ${name}` };
   }
+}
+
+/** Info-query rule paths (vehicle, unpaid, schedule, contacts) without open/navigation. */
+export function tryRuleBasedInfoQuery(message, user) {
+  return tryRuleBasedChat(message, user);
 }
 
 export function tryRuleBasedChat(message, user) {
@@ -1514,7 +1667,7 @@ export function tryRuleBasedChat(message, user) {
   const kwNumber = "\uBC88\uD638";
   const kwManager = "\uB2F4\uB2F9";
 
-  if (text.includes(kwUnpaid)) {
+  if (chatIncludesIntent(text, "unpaid") || text.includes(kwUnpaid)) {
     let clientName = "";
     const possessive = text.match(/^(.+?)\uC758/);
     if (possessive) clientName = possessive[1].trim();
@@ -1531,7 +1684,7 @@ export function tryRuleBasedChat(message, user) {
     }
   }
 
-  if (text.includes(kwSchedule) || text.includes(kwSc)) {
+  if ((text.includes(kwSchedule) || text.includes(kwSc)) && !(hasChatOpenVerb(text) && includesScScheduleKeyword(text))) {
     const clientName = extractClientNameFromScheduleQuery(text);
     const range = resolveDateRangeFromInput(text);
     const hasWeekKeyword =

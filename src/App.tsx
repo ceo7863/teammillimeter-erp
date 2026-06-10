@@ -8104,6 +8104,7 @@ export default function TeammillimeterErpMvp() {
   const [pendingReceivablesNav, setPendingReceivablesNav] = useState<{
     tab?: "input" | "receivables" | "history" | "log";
     clientName?: string;
+    allHistory?: boolean;
   } | null>(null);
   const [pendingWorkerPaymentsTab, setPendingWorkerPaymentsTab] = useState<
     | "summary"
@@ -8116,6 +8117,10 @@ export default function TeammillimeterErpMvp() {
     | null
   >(null);
   const [pendingTaxInvoiceClientFilter, setPendingTaxInvoiceClientFilter] = useState(null);
+  const [pendingBankDateFilter, setPendingBankDateFilter] = useState<{
+    startDate: string;
+    endDate: string;
+  } | null>(null);
   const [pendingWorkerStatementFilter, setPendingWorkerStatementFilter] = useState<{
     workerName: string;
     startDate: string;
@@ -9288,6 +9293,11 @@ export default function TeammillimeterErpMvp() {
         setActive("salesVoucherSearch");
         return;
       }
+      if (action.type === "open_sc_schedule") {
+        const url = String(action.url || "https://sc.teammillimeter.com").trim();
+        if (url) window.open(url, "_blank", "noopener,noreferrer");
+        return;
+      }
       if (action.type === "open_client_calendar") {
         setPendingCalendarClientFilter({
           clientName: action.clientName,
@@ -9327,6 +9337,7 @@ export default function TeammillimeterErpMvp() {
         setPendingReceivablesNav({
           tab: "history",
           clientName: action.clientName,
+          allHistory: action.allHistory === true,
         });
         setActive("receivables");
         return;
@@ -9347,6 +9358,12 @@ export default function TeammillimeterErpMvp() {
         if (action.analysisTab) setAnalysisNavTab(action.analysisTab);
         if (action.userAdminTab) setUserAdminNavTab(action.userAdminTab);
         if (action.workerPaymentsTab) setPendingWorkerPaymentsTab(action.workerPaymentsTab);
+        if (action.accountingTab === "bank" && action.startDate && action.endDate) {
+          setPendingBankDateFilter({
+            startDate: action.startDate,
+            endDate: action.endDate,
+          });
+        }
         if (action.receivablesTab || action.clientName) {
           setPendingReceivablesNav({
             tab: action.receivablesTab,
@@ -9357,6 +9374,13 @@ export default function TeammillimeterErpMvp() {
           setPendingCalendarClientFilter({
             clientName: action.clientName,
             anchorDate: action.startDate || todayISO(),
+          });
+        }
+        if (action.accountingTab === "tax" && action.clientName) {
+          setPendingTaxInvoiceClientFilter({
+            clientName: action.clientName,
+            startDate: action.startDate,
+            endDate: action.endDate,
           });
         }
         setActive(action.page as ErpPageKey);
@@ -10273,6 +10297,8 @@ export default function TeammillimeterErpMvp() {
               isHubActive={active === "accounting"}
               initialTab={accountingNavTab}
               onBankTabActiveChange={setBankTabActive}
+              pendingBankDateFilter={pendingBankDateFilter}
+              onPendingBankDateFilterConsumed={() => setPendingBankDateFilter(null)}
               bank={accountingBankHubProps}
             ledger={{
               bankTransactions,

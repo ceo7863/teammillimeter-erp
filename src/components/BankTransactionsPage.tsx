@@ -972,6 +972,8 @@ function BankTransactionsPageComponent({
   workerPaymentRecords = [],
   workerPayWithVatLearnRules = [],
   onPersistWorkerMonthlyLinksImmediate,
+  pendingBankDateFilter = null,
+  onPendingBankDateFilterConsumed,
 }: {
   bankTransactions: BankTransaction[];
   setBankTransactions: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
@@ -1038,6 +1040,8 @@ function BankTransactionsPageComponent({
     bankTransactions: BankTransaction[];
     workerPaymentRecords?: WorkerMonthlyPaymentRecord[];
   }) => void | Promise<void>;
+  pendingBankDateFilter?: { startDate: string; endDate: string } | null;
+  onPendingBankDateFilterConsumed?: () => void;
 }) {
   const { erpVersion } = useBankSyncMeta();
   const [pageView, setPageView] = useState<PageView>("list");
@@ -1054,6 +1058,18 @@ function BankTransactionsPageComponent({
   const [accountFilter, setAccountFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterResetKey, setFilterResetKey] = useState(0);
+
+  useEffect(() => {
+    if (!pendingBankDateFilter?.startDate && !pendingBankDateFilter?.endDate) return;
+    setPeriodKey("custom");
+    setDateFilter({
+      startDate: pendingBankDateFilter.startDate || "",
+      endDate: pendingBankDateFilter.endDate || "",
+    });
+    setFilterResetKey((key) => key + 1);
+    onPendingBankDateFilterConsumed?.();
+  }, [pendingBankDateFilter, onPendingBankDateFilterConsumed]);
+
   const [selectedFolderId, setSelectedFolderId] = useState("");
   const [folderScope, setFolderScope] = useState<FolderScope>("all");
   const [sort, setSort] = useState<BankTransactionSort>(DEFAULT_BANK_TRANSACTION_SORT);

@@ -16,9 +16,11 @@ type AccountingHubPageProps = {
   isHubActive: boolean;
   onBankTabActiveChange?: (active: boolean) => void;
   initialTab?: AccountingHubTab;
+  pendingBankDateFilter?: { startDate: string; endDate: string } | null;
+  onPendingBankDateFilterConsumed?: () => void;
   bank: Omit<
     ComponentProps<typeof BankTransactionsPage>,
-    "isPageActive" | "onNavigateToCompanyLedger" | "onNavigateToClassify" | "onNavigateToFixedExpense" | "onNavigateToTaxInvoice"
+    "isPageActive" | "onNavigateToCompanyLedger" | "onNavigateToClassify" | "onNavigateToFixedExpense" | "onNavigateToTaxInvoice" | "pendingBankDateFilter" | "onPendingBankDateFilterConsumed"
   >;
   ledger: ComponentProps<typeof LedgerViewerPage>;
   tax: ComponentProps<typeof TaxInvoicePage>;
@@ -38,6 +40,8 @@ function AccountingHubPageComponent({
   isHubActive,
   onBankTabActiveChange,
   initialTab,
+  pendingBankDateFilter = null,
+  onPendingBankDateFilterConsumed,
   bank,
   ledger,
   tax,
@@ -113,6 +117,8 @@ function AccountingHubPageComponent({
         <KeepAlivePanel active={activeTab === "bank"}>
           <BankTransactionsPage
             {...bank}
+            pendingBankDateFilter={pendingBankDateFilter}
+            onPendingBankDateFilterConsumed={onPendingBankDateFilterConsumed}
             isPageActive={isHubActive && activeTab === "bank"}
             onNavigateToCompanyLedger={navigateToLedger}
             onNavigateToClassify={navigateToClassify}

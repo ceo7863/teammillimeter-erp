@@ -1,3 +1,4 @@
+import { chatIncludesIntent } from "./erpChatFuzzy.mjs";
 import {
   toolOpenClientCalendar,
   toolOpenClientConstructionCostStatement,
@@ -8,6 +9,9 @@ import {
   extractWorkerStatementQuery,
   extractDepositHistoryQuery,
   extractTaxInvoiceHistoryQuery,
+  includesCalendarKeyword,
+  includesErpCalendarKeyword,
+  resolveStatementPeriodFromInput,
   buildChatActionsFromCalendarOpen,
   buildChatActionsFromClientStatementOpen,
   buildChatActionsFromDepositOpen,
@@ -25,9 +29,9 @@ const OPEN_VERB = /(?:\uC5F4|\uBD10|\uCC28|\uC774\uB3D9|\uD655\uC778|\uC918|\uBC
 /** @type {Array<{ id: string; page: string; label: string; aliases: string[]; accountingTab?: string; basicInfoTab?: string; analysisTab?: string; userAdminTab?: string; receivablesTab?: string; workerPaymentsTab?: string; special?: string }>} */
 export const ERP_NAV_ENTRIES = [
   { id: "dashboard", page: "dashboard", label: "\uB300\uC784\uBCF4\uB4DC", aliases: ["\uB300\uC784\uBCF4\uB4DC", "\uD648", "\uBA54\uC778"] },
-  { id: "calendar", page: "calendar", label: "\uCE04\uB9B0\uB354", aliases: ["\uCE04\uB9B0\uB354", "\uCE98\uBCC0\uB354", "\uC77C\uC815", "\uB2EC\uB825"], special: "calendar" },
+  { id: "calendar", page: "calendar", label: "\uCE98\uB9B0\uB354", aliases: ["\uCE98\uB9B0\uB354", "\uCE04\uB9B0\uB354", "\uCE98\uBCC0\uB354", "\uB2EC\uB825"], special: "calendar" },
   { id: "clientSiteRequests", page: "clientSiteRequests", label: "\uD604\uC7A5 \uC811\uC218", aliases: ["\uD604\uC7A5 \uC811\uC218", "\uD604\uC7A5\uC811\uC218"] },
-  { id: "clientSiteRequestCalendars", page: "clientSiteRequestCalendars", label: "\uC5C5\uCCB4\uBCC4 \uCE04\uB9B0\uB354", aliases: ["\uC5C5\uCCB4\uBCC4 \uCE04\uB9B0\uB354", "\uC5C5\uCCB4\uBCC4\uCE98\uBCC0\uB354"] },
+  { id: "clientSiteRequestCalendars", page: "clientSiteRequestCalendars", label: "\uC5C5\uCCB4\uBCC4 \uCE98\uB9B0\uB354", aliases: ["\uC5C5\uCCB4\uBCC4 \uCE98\uB9B0\uB354", "\uC5C5\uCCB4\uBCC4 \uCE04\uB9B0\uB354", "\uC5C5\uCCB4\uBCC4\uCE98\uBCC0\uB354"] },
   { id: "scAlimtalk", page: "scAlimtalk", label: "\uC54C\uB9BC\uD1A1", aliases: ["\uC54C\uB9BC\uD1A1", "SC \uC54C\uB9BC\uD1A1", "SC\uC54C\uB9BC\uD1A1"] },
   { id: "attendance", page: "attendance", label: "\uADFC\uD009 \uAD00\uB9AC", aliases: ["\uADFC\uD009", "\uADFC\uD009 \uAD00\uB9AC", "\uADFC\uD839"] },
   { id: "salesInput", page: "salesInput", label: "\uB9E4\uCD9C\uB4F1\uB85D", aliases: ["\uB9E4\uCD9C\uB4F1\uB85D", "\uB9E4\uCD9C \uB4F1\uB85D"] },
@@ -96,6 +100,12 @@ export function resolveNavEntryByTarget(target) {
   return null;
 }
 
+const FUZZY_NAV_INTENT_MAP = [
+  { intent: "bank", entryId: "accounting_bank", alias: "통장" },
+  { intent: "calendar", entryId: "calendar", alias: "캘린더" },
+  { intent: "taxInvoice", entryId: "accounting_tax", alias: "세금계산서" },
+];
+
 export function matchNavEntryFromMessage(text) {
   const raw = String(text || "").trim();
   const normalized = normalizeNavText(raw);
@@ -105,6 +115,14 @@ export function matchNavEntryFromMessage(text) {
     if (!normalized.includes(normalizeNavText(alias))) continue;
     return { entry, alias };
   }
+
+  for (const { intent, entryId, alias } of FUZZY_NAV_INTENT_MAP) {
+    const options = intent === "bank" ? { excludeIntents: ["depositHistory"] } : {};
+    if (!chatIncludesIntent(raw, intent, options)) continue;
+    const entry = ID_INDEX.get(entryId);
+    if (entry) return { entry, alias };
+  }
+
   return null;
 }
 
@@ -131,7 +149,12 @@ function hasStatementKeywords(text) {
 }
 
 function trySpecializedNavigate({ entry, text, clientName, workerName, startDate, endDate, period }) {
-  const resolvedClient = clientName || extractClientStatementQuery(text).clientName || extractDepositHistoryQuery(text).clientName || extractTaxInvoiceHistoryQuery(text).clientName;
+  const depositQuery = extractDepositHistoryQuery(text);
+  const resolvedClient =
+    clientName ||
+    extractClientStatementQuery(text).clientName ||
+    depositQuery.clientName ||
+    extractTaxInvoiceHistoryQuery(text).clientName;
   const resolvedWorker = workerName || extractWorkerStatementQuery(text).workerName;
   const clientPeriod = extractClientStatementQuery(text);
   const workerPeriod = extractWorkerStatementQuery(text);
@@ -158,7 +181,11 @@ function trySpecializedNavigate({ entry, text, clientName, workerName, startDate
     return toolOpenClientCalendar({ clientName: resolvedClient });
   }
   if ((entry.special === "deposit" || entry.receivablesTab === "history") && resolvedClient) {
-    return toolOpenClientDepositHistory({ clientName: resolvedClient });
+    return toolOpenClientDepositHistory({
+      clientName: resolvedClient,
+      allHistory: depositQuery.allHistory,
+      period,
+    });
   }
   if ((entry.special === "taxInvoice" || entry.accountingTab === "tax") && resolvedClient) {
     return toolOpenClientTaxInvoiceHistory({
@@ -195,14 +222,22 @@ export function toolNavigateErp({ target, clientName, workerName, startDate, end
     return { ...specialized, navKind: "specialized" };
   }
 
+  let navStartDate = startDate || undefined;
+  let navEndDate = endDate || undefined;
+  if (entry.accountingTab === "bank" || entry.id === "accounting_bank") {
+    const parsed = resolveStatementPeriodFromInput(String(period || contextText || "").trim());
+    navStartDate = navStartDate || parsed.startDate;
+    navEndDate = navEndDate || parsed.endDate;
+  }
+
   return {
     ok: true,
     navKind: "page",
     nav: buildNavPayload(entry, {
       clientName: clientName || undefined,
       workerName: workerName || undefined,
-      startDate: startDate || undefined,
-      endDate: endDate || undefined,
+      startDate: navStartDate,
+      endDate: navEndDate,
     }),
   };
 }
@@ -243,7 +278,7 @@ export function formatListErpPagesAnswer(data) {
   lines.push(
     "",
     "\uAC70\uB798\uCC98/\uC2DC\uACF5\uC790 \uC774\uB984\uC744 \uBD99\uC774\uBA74 \uD544\uD130\uB3C4 \uB429\uB2C8\uB2E4.",
-    "\uC608: \"\uC778\uB514\uD37C \uCE04\uB9B0\uB354 \uC5F4\uC5B4\uC918\", \"\uAE40\uBBFC\uC131 5\uC6D4 \uC2DC\uACF5\uB0B4\uC5ED\uC11C \uC5F4\uC5B4\uC918\"",
+    "\uC608: \"\uC778\uB514\uD37C \uCE98\uB9B0\uB354 \uC5F4\uC5B4\uC918\", \"\uAE40\uBBFC\uC131 5\uC6D4 \uC2DC\uACF5\uB0B4\uC5ED\uC11C \uC5F4\uC5B4\uC918\"",
   );
   return lines.join("\n");
 }
@@ -271,13 +306,10 @@ export function tryRuleBasedNavigateOpen(message) {
   if (!OPEN_VERB.test(text)) return null;
 
   if (
-    text.includes("\uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C") ||
-    text.includes("\uC2DC\uACF5\uB0B4\uC5ED\uC11C") ||
-    text.includes("\uC2DC\uACF5\uBE44 \uB0B4\uC5ED\uC11C") ||
-    (text.includes("\uC785\uAE08\uB0B4\uC5ED") && !text.includes("\uC785\uAE08 \uC785\uB825")) ||
-    (text.includes("\uC785\uAE08 \uB0B4\uC5ED") && !text.includes("\uC785\uAE08 \uC785\uB825")) ||
-    (text.includes("\uC138\uAE08\uACC4\uC0B0\uC11C") && text.includes("\uB0B4\uC5ED")) ||
-    (text.includes("\uCE04\uB9B0\uB354") && /(?:\uC5F4|\uBD10|\uCC28|\uC774\uB3D9)/.test(text))
+    chatIncludesIntent(text, "constructionStatement") ||
+    (chatIncludesIntent(text, "depositHistory") && !text.includes("\uC785\uAE08 \uC785\uB825")) ||
+    (chatIncludesIntent(text, "taxInvoice") && (/\uB0B4\uC5ED/.test(text) || OPEN_VERB.test(text))) ||
+    (includesErpCalendarKeyword(text) && OPEN_VERB.test(text))
   ) {
     return null;
   }
@@ -324,7 +356,7 @@ export const NAVIGATE_ERP_TOOL_DEFINITION = {
   function: {
     name: "navigate_erp",
     description:
-      "ERP \uBA54\uB274/\uD654\uBA74\uC744 \uC5F4\uC796\uB2C8\uB2E4. \uB300\uC2DC\uBCF4\uB4DC, \uCE04\uB9B0\uB354, \uD86D\uAE08/\uBBF8\uC218\uAE08, \uD1B5\uC7A5, \uC138\uAE08\uACC4\uC0B0\uC11C, \uBD84\uC11D, \uB0B4\uC5ED\uC11C, \uADFC\uD009 \uB4F1 \uC804\uCCB4 \uD654\uBA74. \uAC70\uB798\uCC98/\uC2DC\uACF5\uC790/\uAE30\uAC04\uC774 \uC788\uC73C\uBA74 \uD544\uD130 \uC801\uC6A9. list_erp_pages\uB85C \uD654\uBA74 \uBAA9\uB85D \uC870\uD68C.",
+      "ERP \uBA54\uB274/\uD654\uBA74\uC744 \uC5F4\uC796\uB2C8\uB2E4. \uB300\uC2DC\uBCF4\uB4DC, \uCE98\uB9B0\uB354, \uD86D\uAE08/\uBBF8\uC218\uAE08, \uD1B5\uC7A5, \uC138\uAE08\uACC4\uC0B0\uC11C, \uBD84\uC11D, \uB0B4\uC5ED\uC11C, \uADFC\uD009 \uB4F1 \uC804\uCCB4 \uD654\uBA74. \uAC70\uB798\uCC98/\uC2DC\uACF5\uC790/\uAE30\uAC04\uC774 \uC788\uC73C\uBA74 \uD544\uD130 \uC801\uC6A9. list_erp_pages\uB85C \uD654\uBA74 \uBAA9\uB85D \uC870\uD68C.",
     parameters: {
       type: "object",
       properties: {
