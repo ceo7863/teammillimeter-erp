@@ -974,6 +974,10 @@ function BankTransactionsPageComponent({
   onPersistWorkerMonthlyLinksImmediate,
   pendingBankDateFilter = null,
   onPendingBankDateFilterConsumed,
+  pendingBankColumnPreset = null,
+  onPendingBankColumnPresetConsumed,
+  pendingBankSearchQuery = null,
+  onPendingBankSearchQueryConsumed,
 }: {
   bankTransactions: BankTransaction[];
   setBankTransactions: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
@@ -1042,6 +1046,10 @@ function BankTransactionsPageComponent({
   }) => void | Promise<void>;
   pendingBankDateFilter?: { startDate: string; endDate: string } | null;
   onPendingBankDateFilterConsumed?: () => void;
+  pendingBankColumnPreset?: "account_only" | null;
+  onPendingBankColumnPresetConsumed?: () => void;
+  pendingBankSearchQuery?: string | null;
+  onPendingBankSearchQueryConsumed?: () => void;
 }) {
   const { erpVersion } = useBankSyncMeta();
   const [pageView, setPageView] = useState<PageView>("list");
@@ -1069,6 +1077,21 @@ function BankTransactionsPageComponent({
     setFilterResetKey((key) => key + 1);
     onPendingBankDateFilterConsumed?.();
   }, [pendingBankDateFilter, onPendingBankDateFilterConsumed]);
+
+  useEffect(() => {
+    if (!pendingBankSearchQuery) return;
+    setSearchQuery(pendingBankSearchQuery);
+    if (!pendingBankDateFilter?.startDate && !pendingBankDateFilter?.endDate) {
+      setPeriodKey("all");
+      setDateFilter({ startDate: "", endDate: "" });
+    }
+    setFilterResetKey((key) => key + 1);
+    onPendingBankSearchQueryConsumed?.();
+  }, [
+    pendingBankSearchQuery,
+    pendingBankDateFilter,
+    onPendingBankSearchQueryConsumed,
+  ]);
 
   const [selectedFolderId, setSelectedFolderId] = useState("");
   const [folderScope, setFolderScope] = useState<FolderScope>("all");
@@ -5534,6 +5557,8 @@ function BankTransactionsPageComponent({
         <BankTransactionsListShell
           appliedFilters={appliedFilters}
           filterResetKey={filterResetKey}
+          pendingColumnPreset={pendingBankColumnPreset}
+          onPendingColumnPresetConsumed={onPendingBankColumnPresetConsumed}
           statusCounts={statusCounts}
           accountSummaries={accountSummaries}
           accountSubjectFilterOptions={accountSubjectFilterOptions}

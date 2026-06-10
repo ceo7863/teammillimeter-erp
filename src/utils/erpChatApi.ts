@@ -70,6 +70,8 @@ export type ErpChatAction =
       workerName?: string;
       startDate?: string;
       endDate?: string;
+      bankColumnPreset?: "account_only";
+      bankSearchQuery?: string;
     };
 
 export type ErpChatResponse = {

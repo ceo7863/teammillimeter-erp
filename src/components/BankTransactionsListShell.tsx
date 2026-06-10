@@ -4,6 +4,7 @@ import {
   type BankTransactionAppliedFilters,
 } from "@/components/BankTransactionFilterBar";
 import { BankTransactionsListPanel } from "@/components/BankTransactionsListPanel";
+import type { BankTransactionColumnPreset } from "@/utils/bankTransactionColumnVisibility";
 import type { BankTransactionListSectionLabels } from "@/components/BankTransactionListSection";
 import type { BankTransactionFolder } from "@/utils/bankTransactionFolders";
 import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "@/utils/companyLedger";
@@ -16,6 +17,8 @@ import type { BankTxStatusTab } from "@/utils/bankTransactionStatusFilter";
 export type BankTransactionsListShellProps = {
   appliedFilters: BankTransactionAppliedFilters;
   filterResetKey: number;
+  pendingColumnPreset?: BankTransactionColumnPreset | null;
+  onPendingColumnPresetConsumed?: () => void;
   statusCounts: Partial<Record<Exclude<BankTxStatusTab, "all">, number>>;
   accountSummaries: Array<{ accountNumber: string; bankName?: string }>;
   accountSubjectFilterOptions: Array<{ code: string; name: string }>;
@@ -75,6 +78,8 @@ function BankTransactionsListShellComponent(props: BankTransactionsListShellProp
   const {
     appliedFilters,
     filterResetKey,
+    pendingColumnPreset,
+    onPendingColumnPresetConsumed,
     statusCounts,
     accountSummaries,
     accountSubjectFilterOptions,
@@ -144,6 +149,8 @@ function BankTransactionsListShellComponent(props: BankTransactionsListShellProp
       <BankTransactionsListPanel
         rows={rows}
         isListActive={isListActive}
+        pendingColumnPreset={pendingColumnPreset}
+        onPendingColumnPresetConsumed={onPendingColumnPresetConsumed}
         showEmptyPeriodHint={showEmptyPeriodHint}
         emptyPeriodHint={emptyPeriodHint}
         exportFileName={exportFileName}

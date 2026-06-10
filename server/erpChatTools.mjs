@@ -1,5 +1,7 @@
 import { getErpState } from "./db.mjs";
 import { config } from "./config.mjs";
+import { getClientBusinessRegMeta } from "./clientBusinessReg.mjs";
+import { listSentStatementArchiveMetas } from "./pdfArchive.mjs";
 import { findWorkerByListName } from "./workerPhoneMatch.mjs";
 import { weekRangeISO, filterSchedulesForWeek } from "./scWeeklyBriefingNotify.mjs";
 import {
@@ -32,6 +34,22 @@ export function addDaysISO(dateStr, days) {
 
 export function formatKRW(value) {
   return new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 0 }).format(Math.round(Number(value) || 0));
+}
+
+function normalizeChatMonthText(text) {
+  return String(text || "")
+    .replace(/(\d{1,2})\s*\uC6D4\s*\uB2EC/g, "$1\uC6D4")
+    .replace(/(\d{1,2})\s*\uC6D4\uB2EC/g, "$1\uC6D4");
+}
+
+const CHAT_MONTH_KEYWORD_PATTERN =
+  /\uC774\uBC88\uB2EC|\uC774\uBC88\s*\uB2EC|\uC774\uB2EC|\uB2F9\uC6D4|\uC800\uBC88\s*\uB2EC|\uC800\uBC88\uB2EC|\uC9C0\uB09C\s*\uB2EC|\uC9C0\uB09C\uB2EC|\uC804\uC6D4|\uB2E4\uC74C\s*\uB2EC|\uB2E4\uC74C\uB2EC|(?:(?:\d{4})\s*\uB144\s*)?(?:\d{1,2})\s*\uC6D4(?:\uB2EC)?/;
+
+const CHAT_MONTH_KEYWORD_STRIP_PATTERN =
+  /\uC774\uBC88\uB2EC|\uC774\uBC88 \uB2EC|\uC774\uB2EC|\uB2F9\uC6D4|\uC800\uBC88 \uB2EC|\uC800\uBC88\uB2EC|\uC9C0\uB09C \uB2EC|\uC9C0\uB09C\uB2EC|\uC804\uC6D4|\uB2E4\uC74C \uB2EC|\uB2E4\uC74C\uB2EC/g;
+
+function chatHasMonthKeyword(text) {
+  return CHAT_MONTH_KEYWORD_PATTERN.test(String(text || ""));
 }
 
 function normalizeMatchKey(value) {
@@ -69,9 +87,11 @@ function nameMatchesQuery(candidate, queryKey) {
 export function resolveDateFromInput(input) {
   const raw = String(input || "").trim();
   const today = todayISO();
-  if (!raw || raw === "\uC624\uB298" || raw.toLowerCase() === "today") return today;
-  if (raw === "\uB0B4\uC77C" || raw.toLowerCase() === "tomorrow") return addDaysISO(today, 1);
-  if (raw === "\uBAA8\uB798") return addDaysISO(today, 2);
+  if (!raw) return today;
+  if (raw.includes("\uC5B4\uC81C") || raw.toLowerCase() === "yesterday") return addDaysISO(today, -1);
+  if (raw.includes("\uC624\uB298") || raw.toLowerCase() === "today") return today;
+  if (raw.includes("\uB0B4\uC77C") || raw.toLowerCase() === "tomorrow") return addDaysISO(today, 1);
+  if (raw.includes("\uBAA8\uB798")) return addDaysISO(today, 2);
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
   return today;
 }
@@ -90,7 +110,7 @@ export function monthRangeISO(offset = 0) {
 }
 
 export function resolveMonthRangeFromInput(input) {
-  const raw = String(input || "").trim();
+  const raw = normalizeChatMonthText(String(input || "").trim());
   if (
     !raw ||
     raw.includes("\uC774\uBC88\uB2EC") ||
@@ -102,9 +122,15 @@ export function resolveMonthRangeFromInput(input) {
     return { ...range, label: `\uC774\uBC88 \uB2EC (${range.startDate}~${range.endDate})` };
   }
   if (
+    raw.includes("\uC800\uBC88\uB2EC") ||
+    raw.includes("\uC800\uBC88 \uB2EC")
+  ) {
+    const range = monthRangeISO(-1);
+    return { ...range, label: `\uC800\uBC88 \uB2EC (${range.startDate}~${range.endDate})` };
+  }
+  if (
     raw.includes("\uC9C0\uB09C\uB2EC") ||
     raw.includes("\uC9C0\uB09C \uB2EC") ||
-    raw.includes("\uC800\uBC88\uB2EC") ||
     raw.includes("\uC804\uC6D4")
   ) {
     const range = monthRangeISO(-1);
@@ -122,7 +148,10 @@ export function resolveMonthRangeFromInput(input) {
     const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
     const endDateObj = new Date(year, month, 0);
     const endDate = `${endDateObj.getFullYear()}-${String(endDateObj.getMonth() + 1).padStart(2, "0")}-${String(endDateObj.getDate()).padStart(2, "0")}`;
-    return { startDate, endDate, label: `${year}\uB144 ${month}\uC6D4 (${startDate}~${endDate})` };
+    const label = yearMonthMatch[1]
+      ? `${year}\uB144 ${month}\uC6D4 (${startDate}~${endDate})`
+      : `${month}\uC6D4 (${startDate}~${endDate})`;
+    return { startDate, endDate, label };
   }
   const iso = raw.match(/\d{4}-\d{2}-\d{2}/);
   if (iso) {
@@ -223,19 +252,78 @@ function scheduleMatchesWorkerFilter(schedule, workerName, workers) {
 }
 
 function resolveScheduleNameFilter(text, clients, workers) {
+  const entities = resolveChatEntitiesFromText(text, clients, workers);
+  if (entities.workerName && !entities.clientName) {
+    return { workerName: entities.workerName };
+  }
+  if (entities.clientName && !entities.workerName) {
+    return { clientName: entities.clientName };
+  }
+  if (entities.clientName && entities.workerName) {
+    if (/\uD604\uC7A5|\uAC70\uB798\uCC98|\uBBF8\uC218|\uACC4\uC0B0\uC11C|\uC785\uAE08|\uB0B4\uC5ED\uC11C|\uC0AC\uC5C5\uC790/.test(text)) {
+      return { clientName: entities.clientName };
+    }
+    return { workerName: entities.workerName };
+  }
+
   const extracted = extractClientNameFromScheduleQuery(text);
   if (!extracted) return {};
 
-  const worker = findWorkerByListName(workers, extracted);
-  const matchedClients = findClientsByQuery(clients, extracted);
-
-  if (worker) {
-    return { workerName: String(worker.name || extracted).trim() };
-  }
-  if (matchedClients.length) {
-    return { clientName: String(matchedClients[0]?.name || extracted).trim() };
-  }
+  const resolved = resolveChatEntityKind(extracted, clients, workers);
+  if (resolved.kind === "worker") return { workerName: resolved.name };
+  if (resolved.kind === "client") return { clientName: resolved.name };
   return {};
+}
+
+function isConstructionStatementQuery(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  if (chatIncludesIntent(raw, "depositHistory") || chatIncludesIntent(raw, "taxInvoice")) return false;
+  if (chatIncludesIntent(raw, "constructionStatement")) return true;
+  return raw.includes("\uB0B4\uC5ED\uC11C");
+}
+
+function hasWorkerStatementContext(text) {
+  return /(?:\uC2DC\uACF5\uC790|\uC2DC\uACF5\uBE44|\uC2DC\uACF5\uB0B4\uC5ED|\uC2DC\uACF5)/.test(String(text || ""));
+}
+
+function hasClientStatementContext(text) {
+  return String(text || "").includes("\uAC70\uB798\uCC98");
+}
+
+function resolveStatementNameFilter(text, clients, workers) {
+  const entities = resolveChatEntitiesFromText(text, clients, workers);
+  if (entities.workerName && !entities.clientName) {
+    return { workerName: entities.workerName };
+  }
+  if (entities.clientName && !entities.workerName) {
+    return { clientName: entities.clientName };
+  }
+  if (entities.clientName && entities.workerName) {
+    if (hasClientStatementContext(text) && !hasWorkerStatementContext(text)) {
+      return { clientName: entities.clientName };
+    }
+    if (hasWorkerStatementContext(text) && !hasClientStatementContext(text)) {
+      return { workerName: entities.workerName };
+    }
+    return { workerName: entities.workerName };
+  }
+
+  const workerParsed = extractWorkerStatementQuery(text);
+  const clientParsed = extractClientStatementQuery(text);
+  const nameQuery = (workerParsed.workerName || clientParsed.clientName || "").trim();
+  if (!nameQuery) return {};
+
+  const resolved = resolveChatEntityKind(nameQuery, clients, workers);
+  if (resolved.kind === "worker") return { workerName: resolved.name };
+  if (resolved.kind === "client") return { clientName: resolved.name };
+  if (resolved.kind === "ambiguous") {
+    if (hasClientStatementContext(text) && !hasWorkerStatementContext(text)) {
+      return { clientName: String(resolved.client?.name || nameQuery).trim() };
+    }
+    return { workerName: String(resolved.worker?.name || nameQuery).trim() };
+  }
+  return { unresolvedName: nameQuery };
 }
 
 function saleMatchesClientFilter(clientName, matchedClients, keys) {
@@ -306,6 +394,104 @@ function findClientsByQuery(clients, query) {
     seen.add(id);
     return true;
   });
+}
+
+function labelMentionedInText(text, label) {
+  const raw = String(text || "");
+  const labelStr = String(label || "").trim();
+  if (!labelStr) return false;
+  if (raw.includes(labelStr)) return true;
+  const textKey = normalizeMatchKey(raw);
+  const labelKey = normalizeMatchKey(labelStr);
+  return labelKey.length >= 2 && textKey.includes(labelKey);
+}
+
+function dedupeEntitiesById(entities, idSelector) {
+  const seen = new Set();
+  return entities.filter((entity) => {
+    const id = idSelector(entity);
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+export function findClientsMentionedInText(text, clients = []) {
+  const hits = [];
+  for (const client of clients) {
+    const labels = [
+      client.name,
+      client.taxInvoiceCorpName,
+      ...parseAliasList(client.depositNameAliases),
+    ].filter(Boolean);
+    let matchLen = 0;
+    for (const label of labels) {
+      if (labelMentionedInText(text, label)) {
+        matchLen = Math.max(matchLen, normalizeMatchKey(label).length);
+      }
+    }
+    if (matchLen > 0) hits.push({ entity: client, matchLen });
+  }
+  hits.sort((a, b) => b.matchLen - a.matchLen);
+  return dedupeEntitiesById(
+    hits.map((row) => row.entity),
+    (client) => String(client.id ?? client.name),
+  );
+}
+
+export function findWorkersMentionedInText(text, workers = []) {
+  const hits = [];
+  for (const worker of workers) {
+    const labels = [worker.name, ...parseAliasList(worker.depositNameAliases)].filter(Boolean);
+    let matchLen = 0;
+    for (const label of labels) {
+      if (labelMentionedInText(text, label)) {
+        matchLen = Math.max(matchLen, normalizePersonMatchKey(label).length);
+      }
+    }
+    if (matchLen > 0) hits.push({ entity: worker, matchLen });
+  }
+  hits.sort((a, b) => b.matchLen - a.matchLen);
+  return dedupeEntitiesById(
+    hits.map((row) => row.entity),
+    (worker) => String(worker.id ?? worker.name),
+  );
+}
+
+export function resolveChatEntityKind(nameQuery, clients = [], workers = []) {
+  const query = String(nameQuery || "").trim();
+  if (!query) return { kind: "unknown" };
+
+  const worker = findWorkerByListName(workers, query);
+  const clientMatches = findClientsByQuery(clients, query);
+
+  if (worker && !clientMatches.length) {
+    return { kind: "worker", name: String(worker.name || query).trim(), worker };
+  }
+  if (clientMatches.length && !worker) {
+    return { kind: "client", name: String(clientMatches[0]?.name || query).trim(), client: clientMatches[0] };
+  }
+  if (worker && clientMatches.length) {
+    return {
+      kind: "ambiguous",
+      name: query,
+      worker,
+      client: clientMatches[0],
+    };
+  }
+  return { kind: "unknown", name: query };
+}
+
+export function resolveChatEntitiesFromText(text, clients = [], workers = []) {
+  const raw = String(text || "").trim();
+  const mentionedClients = findClientsMentionedInText(raw, clients);
+  const mentionedWorkers = findWorkersMentionedInText(raw, workers);
+  return {
+    clientName: mentionedClients[0] ? String(mentionedClients[0].name || "").trim() : "",
+    workerName: mentionedWorkers[0] ? String(mentionedWorkers[0].name || "").trim() : "",
+    clients: mentionedClients,
+    workers: mentionedWorkers,
+  };
 }
 
 function resolveClientContacts(client) {
@@ -397,6 +583,218 @@ export function toolGetClientUnpaid({ clientName }) {
     totalUnpaidFormatted: formatKRW(totalUnpaid),
     rows: unpaidRows.slice(0, 20),
   };
+}
+
+function stripUnpaidListQueryNoise(text) {
+  return String(text || "")
+    .replace(/\uBBF8\uC218(?:\uAE08)?/g, "")
+    .replace(/\uD604\uC7AC/g, "")
+    .replace(/\uC624\uB298|\uC5B4\uC81C|\uB0B4\uC77C|\uBAA8\uB798/g, "")
+    .replace(/\uC774\uBC88\uC8FC|\uB2E4\uC74C\uC8FC|\uC800\uBC88\uC8FC|\uC9C0\uB09C\uC8FC|\uAE08\uC8FC/g, "")
+    .replace(CHAT_MONTH_KEYWORD_STRIP_PATTERN, "")
+    .replace(/(?:(\d{4})\s*\uB144\s*)?(\d{1,2})\s*\uC6D4(?:\uB2EC)?/g, "")
+    .replace(/\d{4}-\d{2}-\d{2}/g, "")
+    .replace(/(?:\uBAA8\uB4E0|\uC804\uCCB4|\uC804\uBD80|\uB9AC\uC2A4\uD2B8|\uBAA9\uB85D|\uD604\uD669|\uB0B4\uC5ED|\uC870\uD68C|\uD655\uC778|\uC54C\uB824|\uC918|\?)/g, "")
+    .replace(/(?:\uB97C|\uC740|\uB294|\uC758|\uC744)/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractUnpaidClientNameFromQuery(text) {
+  const raw = String(text || "").trim();
+  const possessive = raw.match(/^(.+?)\uC758/);
+  if (possessive) return possessive[1].trim();
+  const stripped = stripUnpaidListQueryNoise(normalizeChatMonthText(expandSynonymsForExtraction(raw)));
+  if (!stripped) return "";
+  const state = getErpState(["clients"]);
+  const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
+  const matched = findClientsByQuery(clients, stripped);
+  if (matched.length) return String(matched[0]?.name || stripped).trim();
+  return stripped;
+}
+
+export function isUnpaidListQuery(text) {
+  const raw = String(text || "").trim();
+  if (!raw.includes("\uBBF8\uC218")) return false;
+  if (hasChatOpenVerb(raw) && raw.includes("\uBBF8\uC218\uAE08")) return false;
+
+  const hasPeriod =
+    chatHasMonthKeyword(raw) ||
+    /(?:\uC624\uB298|\uC5B4\uC81C|\uB0B4\uC77C|\uBAA8\uB798|\uC774\uBC88\uC8FC|\uAE08\uC8FC|\d{4}-\d{2}-\d{2})/.test(raw);
+  const hasListHint = /(?:\uBAA8\uB4E0|\uC804\uCCB4|\uC804\uBD80|\uB9AC\uC2A4\uD2B8|\uBAA9\uB85D|\uD604\uD669|\uB0B4\uC5ED|\uBBF8\uC218\s*\uB9AC\uC2A4\uD2B8)/.test(raw);
+  const clientName = extractUnpaidClientNameFromQuery(raw);
+
+  if (clientName && !hasPeriod && !hasListHint) return false;
+  if (hasPeriod || hasListHint) return true;
+  if (!clientName && hasListHint) return true;
+  return false;
+}
+
+export function extractUnpaidListQuery(text) {
+  const raw = String(text || "").trim();
+  const expanded = normalizeChatMonthText(expandSynonymsForExtraction(raw));
+  const hasMonthKeyword = chatHasMonthKeyword(expanded);
+  const hasWeekKeyword = /\uC774\uBC88\uC8FC|\uAE08\uC8FC|\uB2E4\uC74C\uC8FC|\uC800\uBC88\uC8FC|\uC9C0\uB09C\uC8FC/.test(expanded);
+  const hasSingleDayKeyword = /\uC624\uB298|\uC5B4\uC81C|\uB0B4\uC77C|\uBAA8\uB798/.test(expanded);
+  const hasListHint = /(?:\uBAA8\uB4E0|\uC804\uCCB4|\uC804\uBD80|\uB9AC\uC2A4\uD2B8|\uBAA9\uB85D|\uD604\uD669|\uB0B4\uC5ED|\uBBF8\uC218\s*\uB9AC\uC2A4\uD2B8)/.test(expanded);
+
+  let range = null;
+  if (hasMonthKeyword && !hasWeekKeyword && !hasSingleDayKeyword) {
+    range = resolveMonthRangeFromInput(expanded);
+  } else if (hasWeekKeyword) {
+    range = resolveDateRangeFromInput(expanded);
+  } else if (hasSingleDayKeyword || /\d{4}-\d{2}-\d{2}/.test(expanded)) {
+    range = resolveDateRangeFromInput(expanded);
+  } else if (hasListHint) {
+    range = null;
+  } else {
+    range = resolveMonthRangeFromInput(expanded);
+  }
+
+  let clientName = "";
+  const possessive = raw.match(/^(.+?)\uC758/);
+  if (possessive) clientName = possessive[1].trim();
+  if (!clientName) {
+    clientName = stripUnpaidListQueryNoise(expanded);
+    if (clientName) {
+      const state = getErpState(["clients"]);
+      const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
+      const matched = findClientsByQuery(clients, clientName);
+      if (matched.length) {
+        clientName = String(matched[0]?.name || clientName).trim();
+      } else {
+        clientName = "";
+      }
+    }
+  }
+
+  return {
+    clientName,
+    startDate: range?.startDate,
+    endDate: range?.endDate,
+    periodLabel: range?.label,
+    rawPeriodHint: detectDepositDayHint(expanded),
+    allUnpaid: !range,
+  };
+}
+
+export function toolGetUnpaidList({ startDate, endDate, clientName, period, rawQuery, limit = 30 }) {
+  const state = getErpState(["clients", "sales"]);
+  const data = state.data || {};
+  const sales = Array.isArray(data.sales) ? data.sales : [];
+  const clients = Array.isArray(data.clients) ? data.clients : [];
+  const rawText = normalizeChatMonthText(String(rawQuery || period || "").trim());
+  const maxRows = Math.min(Math.max(Number(limit) || 30, 1), 50);
+
+  let rangeStart = startDate ? String(startDate).slice(0, 10) : "";
+  let rangeEnd = endDate ? String(endDate).slice(0, 10) : "";
+  let periodLabel = "";
+  let rawPeriodHint = "";
+  let allUnpaid = false;
+
+  if (!rangeStart || !rangeEnd) {
+    const parsed = extractUnpaidListQuery(rawText || "\uC774\uBC88\uB2EC \uBBF8\uC218 \uBAA9\uB85D");
+    rangeStart = parsed.startDate || "";
+    rangeEnd = parsed.endDate || "";
+    periodLabel = parsed.periodLabel || "";
+    rawPeriodHint = parsed.rawPeriodHint || "";
+    allUnpaid = parsed.allUnpaid;
+    if (!clientName && parsed.clientName) clientName = parsed.clientName;
+  } else {
+    periodLabel = rangeStart === rangeEnd ? rangeStart : `${rangeStart}~${rangeEnd}`;
+    rawPeriodHint = detectDepositDayHint(rawText);
+  }
+
+  let clientFilterKeys = null;
+  let resolvedClientName = "";
+  const query = String(clientName || "").trim();
+  if (query) {
+    const matchedClients = findClientsByQuery(clients, query);
+    if (!matchedClients.length) {
+      return { ok: false, error: `"${query}" \uAC70\uB798\uCC98\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    }
+    clientFilterKeys = buildClientFilterKeys(query, matchedClients);
+    resolvedClientName = String(matchedClients[0]?.name || query).trim();
+  }
+
+  const unpaidRows = sales
+    .map((sale) => ({
+      id: sale.id,
+      date: String(sale.date || "").slice(0, 10),
+      client: String(sale.client || ""),
+      site: String(sale.site || ""),
+      amount: Number(sale.amount) || 0,
+      paid: Number(sale.paid ?? sale.basePaid ?? 0) || 0,
+      unpaid: getUnpaid(sale),
+    }))
+    .filter((row) => {
+      if (row.unpaid <= 0) return false;
+      if (rangeStart && row.date < rangeStart) return false;
+      if (rangeEnd && row.date > rangeEnd) return false;
+      if (clientFilterKeys && !labelMatchesClientKeys(row.client, clientFilterKeys)) return false;
+      return true;
+    })
+    .sort((a, b) => b.unpaid - a.unpaid || String(b.date).localeCompare(String(a.date)));
+
+  const totalUnpaid = unpaidRows.reduce((sum, row) => sum + row.unpaid, 0);
+
+  return {
+    ok: true,
+    startDate: rangeStart || undefined,
+    endDate: rangeEnd || undefined,
+    periodLabel,
+    rawPeriodHint,
+    allUnpaid,
+    clientName: resolvedClientName || undefined,
+    unpaidCount: unpaidRows.length,
+    totalUnpaid,
+    totalUnpaidFormatted: formatKRW(totalUnpaid),
+    rows: unpaidRows.slice(0, maxRows),
+  };
+}
+
+export function formatUnpaidListAnswer(data) {
+  if (!data.ok) return data.error || "\uBBF8\uC218 \uBAA9\uB85D \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+
+  const title = data.allUnpaid
+    ? "\uC804\uCCB4"
+    : buildDepositPeriodTitle({
+        startDate: data.startDate,
+        endDate: data.endDate,
+        periodLabel: data.periodLabel,
+        rawPeriodHint: data.rawPeriodHint,
+      });
+  const clientPrefix = data.clientName ? `${data.clientName} ` : "";
+
+  if (data.unpaidCount === 0) {
+    return `${clientPrefix}${title} \uBBF8\uC218 \uB9E4\uCD9C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`;
+  }
+
+  const lines = [
+    `${clientPrefix}${title} \uBBF8\uC218 \uD569\uACC4: ${data.totalUnpaidFormatted}\uC6D0 (${data.unpaidCount}\uAC74)`,
+  ];
+  for (const row of data.rows || []) {
+    const site = row.site ? ` / ${row.site}` : "";
+    lines.push(`- ${row.client}${site} (${row.date}): ${formatKRW(row.unpaid)}\uC6D0`);
+  }
+  if (data.unpaidCount > (data.rows || []).length) {
+    lines.push(`\u2026 \uC678 ${data.unpaidCount - (data.rows || []).length}\uAC74`);
+  }
+  return lines.join("\n");
+}
+
+export function tryRuleBasedUnpaidListQuery(message) {
+  const text = String(message || "").trim();
+  if (!isUnpaidListQuery(text)) return null;
+  const parsed = extractUnpaidListQuery(text);
+  return formatUnpaidListAnswer(
+    toolGetUnpaidList({
+      startDate: parsed.startDate,
+      endDate: parsed.endDate,
+      clientName: parsed.clientName,
+      rawQuery: text,
+    }),
+  );
 }
 
 export function toolGetScheduleCount({ date, startDate, endDate, clientName, workerName, limit = 30 }) {
@@ -1225,18 +1623,9 @@ export function toolOpenWorkerConstructionCostStatement({ workerName, startDate,
 }
 
 export function tryRuleBasedWorkerStatementOpen(message) {
-  const text = String(message || "").trim();
-  if (
-    !text.includes("\uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C") &&
-    !text.includes("\uC2DC\uACF5\uB0B4\uC5ED\uC11C") &&
-    !text.includes("\uC2DC\uACF5\uBE44 \uB0B4\uC5ED\uC11C")
-  ) {
-    return null;
-  }
-  if (!/(?:\uC5F4|\uBD10|\uCC28|\uC774\uB3D9|\uD655\uC778|\uC918|\uC0DD\uC131|\uBCF4\uAE30)/.test(text)) return null;
-  const { workerName, startDate, endDate } = extractWorkerStatementQuery(text);
-  if (!workerName) return null;
-  return toolOpenWorkerConstructionCostStatement({ workerName, startDate, endDate });
+  const result = tryRuleBasedStatementOpen(message);
+  if (result?.workerName) return result;
+  return null;
 }
 
 export function buildChatActionsFromWorkerStatementOpen(result) {
@@ -1334,6 +1723,1326 @@ export function extractDepositHistoryQuery(text) {
     endDate: allHistory ? "" : range.endDate,
     periodLabel: allHistory ? "" : range.label,
   };
+}
+
+export function isDepositTotalQuery(text) {
+  const raw = String(text || "").trim();
+  if (!raw.includes("\uC785\uAE08")) return false;
+  if (chatIncludesIntent(raw, "depositHistory")) return false;
+  if (hasChatOpenVerb(raw) && /\uB0B4\uC5ED/.test(raw)) return false;
+  if (/\uC785\uAE08\s*(?:\uC561|\uD569\uACC4|\uCD1D(?:\uC561)?|\uAE08\uC561|\uC591)/.test(raw)) return true;
+  if (
+    /(?:\uD569\uACC4|\uCD1D\uC561|\uC591|\uC5BC\uB9C8|\uB410|\uB420|\uB41C|\uB420\uC9C0|\uB410\uC9C0)/.test(raw) &&
+    raw.includes("\uC785\uAE08")
+  ) {
+    return true;
+  }
+  if (/\uB0B4\uC5ED/.test(raw)) return false;
+  if (
+    /(?:\uC624\uB298|\uB0B4\uC77C|\uBAA8\uB798|\uC774\uBC88\uB2EC|\uC774\uBC88\s*\uB2EC|\uC774\uBC88\uC8FC|\uAE08\uC8FC|\uB2F9\uC6D4|\uC9C0\uB09C\uB2EC|\uC804\uC6D4)/.test(
+      raw,
+    ) &&
+    raw.includes("\uC785\uAE08")
+  ) {
+    return true;
+  }
+  if (/\d{4}-\d{2}-\d{2}/.test(raw) && raw.includes("\uC785\uAE08")) return true;
+  if (/(?:\d{1,2})\s*\uC6D4/.test(raw) && raw.includes("\uC785\uAE08")) return true;
+  return false;
+}
+
+function stripDepositTotalQueryNoise(text) {
+  return String(text || "")
+    .replace(/\uC785\uAE08\s*(?:\uC561|\uD569\uACC4|\uCD1D(?:\uC561)?|\uAE08\uC561|\uC591)/g, "")
+    .replace(/\uC785\uAE08/g, "")
+    .replace(/\uC624\uB298|\uB0B4\uC77C|\uBAA8\uB798/g, "")
+    .replace(/\uC774\uBC88\uC8FC|\uB2E4\uC74C\uC8FC|\uC800\uBC88\uC8FC|\uC9C0\uB09C\uC8FC|\uAE08\uC8FC/g, "")
+    .replace(
+      /\uC774\uBC88\uB2EC|\uC774\uBC88 \uB2EC|\uC774\uB2EC|\uB2F9\uC6D4|\uC9C0\uB09C\uB2EC|\uC9C0\uB09C \uB2EC|\uC800\uBC88\uB2EC|\uC804\uC6D4|\uB2E4\uC74C\uB2EC|\uB2E4\uC74C \uB2EC/g,
+      "",
+    )
+    .replace(/(?:(\d{4})\s*\uB144\s*)?(\d{1,2})\s*\uC6D4(?:\uB2EC)?/g, "")
+    .replace(/\d{4}-\d{2}-\d{2}/g, "")
+    .replace(
+      /(?:\uD569\uACC4|\uCD1D\uC561|\uC591|\uAE08\uC561|\uC5BC\uB9C8|\uB418|\uB420|\uB41C|\uC870\uD68C|\uD655\uC778|\uC54C\uB824|\uC918|\?)/g,
+      "",
+    )
+    .replace(/(?:\uB97C|\uC740|\uB294|\uC758|\uC744)/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function detectDepositDayHint(text) {
+  const raw = String(text || "");
+  if (raw.includes("\uC624\uB298")) return "\uC624\uB298";
+  if (raw.includes("\uC5B4\uC81C")) return "\uC5B4\uC81C";
+  if (raw.includes("\uB0B4\uC77C")) return "\uB0B4\uC77C";
+  if (raw.includes("\uBAA8\uB798")) return "\uBAA8\uB798";
+  return "";
+}
+
+export function extractDepositTotalQuery(text) {
+  const raw = String(text || "").trim();
+  const expanded = expandSynonymsForExtraction(raw);
+  const hasMonthKeyword =
+    /\uC774\uBC88\uB2EC|\uC774\uBC88\s*\uB2EC|\uC774\uB2EC|\uB2F9\uC6D4|\uC9C0\uB09C\uB2EC|\uC9C0\uB09C\s*\uB2EC|\uC800\uBC88\uB2EC|\uC804\uC6D4|\uB2E4\uC74C\uB2EC|\uB2E4\uC74C\s*\uB2EC|(?:\d{4})\s*\uB144\s*(?:\d{1,2})\s*\uC6D4|(?:\d{1,2})\s*\uC6D4(?:\uB2EC)?/.test(
+      expanded,
+    );
+  const hasWeekKeyword = /\uC774\uBC88\uC8FC|\uAE08\uC8FC|\uB2E4\uC74C\uC8FC|\uC800\uBC88\uC8FC|\uC9C0\uB09C\uC8FC/.test(expanded);
+  const hasSingleDayKeyword = /\uC624\uB298|\uC5B4\uC81C|\uB0B4\uC77C|\uBAA8\uB798/.test(expanded);
+
+  let range;
+  let periodKind = "day";
+  if (hasMonthKeyword && !hasWeekKeyword && !hasSingleDayKeyword) {
+    range = resolveMonthRangeFromInput(expanded);
+    periodKind = "month";
+  } else {
+    range = resolveDateRangeFromInput(expanded);
+    periodKind = range.startDate === range.endDate ? "day" : "range";
+  }
+
+  let clientName = "";
+  const possessive = raw.match(/^(.+?)\uC758/);
+  if (possessive) clientName = possessive[1].trim();
+  if (!clientName) {
+    clientName = stripDepositTotalQueryNoise(expanded);
+    if (clientName) {
+      const state = getErpState(["clients"]);
+      const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
+      const matched = findClientsByQuery(clients, clientName);
+      if (matched.length) {
+        clientName = String(matched[0]?.name || clientName).trim();
+      }
+    }
+  }
+
+  return {
+    clientName,
+    startDate: range.startDate,
+    endDate: range.endDate,
+    periodLabel: range.label,
+    periodKind,
+    rawPeriodHint: detectDepositDayHint(expanded),
+  };
+}
+
+function buildDepositPeriodTitle(data) {
+  const { startDate, endDate, periodLabel, rawPeriodHint } = data;
+  const hint = String(rawPeriodHint || "").trim();
+  if (startDate === endDate) {
+    if (hint === "\uC624\uB298") return `\uC624\uB298(${startDate})`;
+    if (hint === "\uC5B4\uC81C") return `\uC5B4\uC81C(${startDate})`;
+    if (hint === "\uB0B4\uC77C") return `\uB0B4\uC77C(${startDate})`;
+    if (hint === "\uBAA8\uB798") return `\uBAA8\uB798(${startDate})`;
+    return `${startDate}`;
+  }
+  if (periodLabel) return periodLabel;
+  return `${startDate}~${endDate}`;
+}
+
+export function toolGetDepositTotal({ date, startDate, endDate, clientName, period, rawQuery }) {
+  const state = getErpState(["clients", "paymentVouchers"]);
+  const data = state.data || {};
+  const paymentVouchers = Array.isArray(data.paymentVouchers) ? data.paymentVouchers : [];
+  const clients = Array.isArray(data.clients) ? data.clients : [];
+  const rawText = String(rawQuery || period || date || "").trim();
+
+  let rangeStart = String(startDate || "").slice(0, 10);
+  let rangeEnd = String(endDate || "").slice(0, 10);
+  let periodLabel = "";
+  let periodKind = "day";
+  let rawPeriodHint = "";
+
+  if (date && !rangeStart && !rangeEnd) {
+    const single = resolveDateFromInput(date);
+    rangeStart = single;
+    rangeEnd = single;
+    rawPeriodHint = String(date).trim();
+    periodLabel = single;
+  }
+
+  if (!rangeStart || !rangeEnd) {
+    const parsed = extractDepositTotalQuery(rawText || "\uC624\uB298");
+    rangeStart = parsed.startDate;
+    rangeEnd = parsed.endDate;
+    periodLabel = parsed.periodLabel;
+    periodKind = parsed.periodKind;
+    rawPeriodHint = parsed.rawPeriodHint;
+    if (!clientName && parsed.clientName) clientName = parsed.clientName;
+  } else {
+    periodLabel = rangeStart === rangeEnd ? rangeStart : `${rangeStart}~${rangeEnd}`;
+    periodKind = rangeStart === rangeEnd ? "day" : "range";
+    rawPeriodHint = detectDepositDayHint(rawText);
+  }
+
+  let clientFilterKeys = null;
+  let resolvedClientName = "";
+  const query = String(clientName || "").trim();
+  if (query) {
+    const matchedClients = findClientsByQuery(clients, query);
+    if (!matchedClients.length) {
+      return { ok: false, error: `"${query}" \uAC70\uB798\uCC98\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    }
+    clientFilterKeys = buildClientFilterKeys(query, matchedClients);
+    resolvedClientName = String(matchedClients[0]?.name || query).trim();
+  }
+
+  const round = (value) => Math.round(Number(value) || 0);
+  const rows = [];
+
+  for (const voucher of paymentVouchers) {
+    const voucherDate = String(voucher?.date || "").slice(0, 10);
+    if (rangeStart && voucherDate < rangeStart) continue;
+    if (rangeEnd && voucherDate > rangeEnd) continue;
+    if (clientFilterKeys && !labelMatchesClientKeys(voucher?.client, clientFilterKeys)) continue;
+
+    const amount = round(voucher.amount);
+    const vatAmount = round(voucher.vatAmount);
+    const finalAmount = round(voucher.finalAmount ?? voucher.amount);
+    rows.push({
+      client: String(voucher?.client || "-").trim(),
+      site: String(voucher?.site || "").trim(),
+      date: voucherDate,
+      amount,
+      vatAmount,
+      finalAmount,
+    });
+  }
+
+  rows.sort((a, b) => b.finalAmount - a.finalAmount || String(b.date).localeCompare(String(a.date)));
+
+  const totals = rows.reduce(
+    (acc, row) => {
+      acc.count += 1;
+      acc.supply += row.amount;
+      acc.vat += row.vatAmount;
+      acc.final += row.finalAmount;
+      return acc;
+    },
+    { count: 0, supply: 0, vat: 0, final: 0 },
+  );
+
+  return {
+    ok: true,
+    startDate: rangeStart,
+    endDate: rangeEnd,
+    periodLabel,
+    periodKind,
+    rawPeriodHint,
+    clientName: resolvedClientName || undefined,
+    depositCount: totals.count,
+    totalFinal: totals.final,
+    totalSupply: totals.supply,
+    totalVat: totals.vat,
+    rows,
+  };
+}
+
+export function formatDepositTotalAnswer(data) {
+  if (!data.ok) return data.error || "\uC785\uAE08 \uD569\uACC4 \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+
+  const title = buildDepositPeriodTitle(data);
+  const clientPrefix = data.clientName ? `${data.clientName} ` : "";
+
+  if (data.depositCount === 0) {
+    return `${clientPrefix}${title} \uB4F1\uB85D\uB41C \uC785\uAE08\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`;
+  }
+
+  const lines = [
+    `${clientPrefix}${title} \uC785\uAE08 \uD569\uACC4: ${formatKRW(data.totalFinal)}\uC6D0 (${data.depositCount}\uAC74)`,
+    `\uACF5\uAE09\uAC00: ${formatKRW(data.totalSupply)}\uC6D0 \u00B7 \uBD80\uAC00\uC138: ${formatKRW(data.totalVat)}\uC6D0`,
+  ];
+
+  const preview = (data.rows || []).slice(0, 10);
+  preview.forEach((row) => {
+    const site = row.site ? ` / ${row.site}` : "";
+    lines.push(`- ${row.client}${site}: ${formatKRW(row.finalAmount)}\uC6D0`);
+  });
+  if (data.depositCount > preview.length) {
+    lines.push(`\u2026 \uC678 ${data.depositCount - preview.length}\uAC74`);
+  }
+  return lines.join("\n");
+}
+
+export function isSalesTotalQuery(text) {
+  const raw = String(text || "").trim();
+  if (!raw.includes("\uB9E4\uCD9C")) return false;
+  if (/(?:\uC138\uAE08\s*\uACC4\uC0B0\uC11C|\uACC4\uC0B0\uC11C)/.test(raw)) return false;
+  if (isTaxInvoiceSummaryQuery(raw)) return false;
+  if (
+    (raw.includes("\uC77C\uC815") || raw.includes("\uC2A4\uCF00\uC904")) &&
+    !/(?:\uAE08\uC561|\uD569\uACC4|\uC591|\uC5BC\uB9C8|\uC561|\uC5BC\uB9C8\?)/.test(raw)
+  ) {
+    return false;
+  }
+  if (/\uB9E4\uCD9C\s*(?:\uC561|\uD569\uACC4|\uCD1D(?:\uC561)?|\uAE08\uC561|\uC591)/.test(raw)) return true;
+  if (
+    /(?:\uD569\uACC4|\uCD1D\uC561|\uC591|\uC5BC\uB9C8|\uB410|\uB420|\uB41C|\uC5BC\uB9C8)/.test(raw) &&
+    raw.includes("\uB9E4\uCD9C")
+  ) {
+    return true;
+  }
+  if (
+    /(?:\uC624\uB298|\uC5B4\uC81C|\uB0B4\uC77C|\uBAA8\uB798|\uC774\uBC88\uB2EC|\uC774\uBC88\s*\uB2EC|\uC774\uB2EC|\uB2F9\uC6D4|\uC9C0\uB09C\uB2EC|\uC804\uC6D4|\uB2E4\uC74C\uB2EC|\uC774\uBC88\uC8FC|\uAE08\uC8FC|\d{4}-\d{2}-\d{2}|(?:\d{1,2})\s*\uC6D4(?:\uB2EC)?)/.test(
+      raw,
+    ) &&
+    raw.includes("\uB9E4\uCD9C")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function stripSalesTotalQueryNoise(text) {
+  return String(text || "")
+    .replace(/\uB9E4\uCD9C\s*(?:\uC561|\uD569\uACC4|\uCD1D(?:\uC561)?|\uAE08\uC561|\uC591)/g, "")
+    .replace(/\uB9E4\uCD9C/g, "")
+    .replace(/\uC624\uB298|\uC5B4\uC81C|\uB0B4\uC77C|\uBAA8\uB798/g, "")
+    .replace(/\uC774\uBC88\uC8FC|\uB2E4\uC74C\uC8FC|\uC800\uBC88\uC8FC|\uC9C0\uB09C\uC8FC|\uAE08\uC8FC/g, "")
+    .replace(
+      /\uC774\uBC88\uB2EC|\uC774\uBC88 \uB2EC|\uC774\uB2EC|\uB2F9\uC6D4|\uC9C0\uB09C\uB2EC|\uC9C0\uB09C \uB2EC|\uC800\uBC88\uB2EC|\uC804\uC6D4|\uB2E4\uC74C\uB2EC|\uB2E4\uC74C \uB2EC/g,
+      "",
+    )
+    .replace(/(?:(\d{4})\s*\uB144\s*)?(\d{1,2})\s*\uC6D4(?:\uB2EC)?/g, "")
+    .replace(/\d{4}-\d{2}-\d{2}/g, "")
+    .replace(
+      /(?:\uD569\uACC4|\uCD1D\uC561|\uC591|\uAE08\uC561|\uC5BC\uB9C8|\uB418|\uB420|\uB41C|\uC870\uD68C|\uD655\uC778|\uC54C\uB824|\uC918|\?)/g,
+      "",
+    )
+    .replace(/(?:\uB97C|\uC740|\uB294|\uC758|\uC744)/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function extractSalesTotalQuery(text) {
+  const raw = String(text || "").trim();
+  const expanded = normalizeChatMonthText(expandSynonymsForExtraction(raw));
+  const hasMonthKeyword =
+    /\uC774\uBC88\uB2EC|\uC774\uBC88\s*\uB2EC|\uC774\uB2EC|\uB2F9\uC6D4|\uC9C0\uB09C\uB2EC|\uC9C0\uB09C\s*\uB2EC|\uC800\uBC88\uB2EC|\uC804\uC6D4|\uB2E4\uC74C\uB2EC|\uB2E4\uC74C\s*\uB2EC|(?:\d{4})\s*\uB144\s*(?:\d{1,2})\s*\uC6D4|(?:\d{1,2})\s*\uC6D4(?:\uB2EC)?/.test(
+      expanded,
+    );
+  const hasWeekKeyword = /\uC774\uBC88\uC8FC|\uAE08\uC8FC|\uB2E4\uC74C\uC8FC|\uC800\uBC88\uC8FC|\uC9C0\uB09C\uC8FC/.test(expanded);
+  const hasSingleDayKeyword = /\uC624\uB298|\uC5B4\uC81C|\uB0B4\uC77C|\uBAA8\uB798/.test(expanded);
+
+  let range;
+  if (hasMonthKeyword && !hasWeekKeyword && !hasSingleDayKeyword) {
+    range = resolveMonthRangeFromInput(expanded);
+  } else {
+    range = resolveDateRangeFromInput(expanded);
+  }
+
+  let clientName = "";
+  const possessive = raw.match(/^(.+?)\uC758/);
+  if (possessive) clientName = possessive[1].trim();
+  if (!clientName) {
+    clientName = stripSalesTotalQueryNoise(expanded);
+    if (clientName) {
+      const state = getErpState(["clients"]);
+      const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
+      const matched = findClientsByQuery(clients, clientName);
+      if (matched.length) {
+        clientName = String(matched[0]?.name || clientName).trim();
+      }
+    }
+  }
+
+  return {
+    clientName,
+    startDate: range.startDate,
+    endDate: range.endDate,
+    periodLabel: range.label,
+    rawPeriodHint: detectDepositDayHint(expanded),
+  };
+}
+
+export function toolGetSalesTotal({ date, startDate, endDate, clientName, period, rawQuery }) {
+  const state = getErpState(["clients", "sales"]);
+  const data = state.data || {};
+  const sales = Array.isArray(data.sales) ? data.sales : [];
+  const clients = Array.isArray(data.clients) ? data.clients : [];
+  const rawText = String(rawQuery || period || date || "").trim();
+
+  let rangeStart = String(startDate || "").slice(0, 10);
+  let rangeEnd = String(endDate || "").slice(0, 10);
+  let periodLabel = "";
+  let rawPeriodHint = "";
+
+  if (date && !rangeStart && !rangeEnd) {
+    const single = resolveDateFromInput(date);
+    rangeStart = single;
+    rangeEnd = single;
+    rawPeriodHint = String(date).trim();
+    periodLabel = single;
+  }
+
+  if (!rangeStart || !rangeEnd) {
+    const parsed = extractSalesTotalQuery(rawText || "\uC624\uB298");
+    rangeStart = parsed.startDate;
+    rangeEnd = parsed.endDate;
+    periodLabel = parsed.periodLabel;
+    rawPeriodHint = parsed.rawPeriodHint;
+    if (!clientName && parsed.clientName) clientName = parsed.clientName;
+  } else {
+    periodLabel = rangeStart === rangeEnd ? rangeStart : `${rangeStart}~${rangeEnd}`;
+    rawPeriodHint = detectDepositDayHint(rawText);
+  }
+
+  let clientFilterKeys = null;
+  let resolvedClientName = "";
+  const query = String(clientName || "").trim();
+  if (query) {
+    const matchedClients = findClientsByQuery(clients, query);
+    if (!matchedClients.length) {
+      return { ok: false, error: `"${query}" \uAC70\uB798\uCC98\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    }
+    clientFilterKeys = buildClientFilterKeys(query, matchedClients);
+    resolvedClientName = String(matchedClients[0]?.name || query).trim();
+  }
+
+  const round = (value) => Math.round(Number(value) || 0);
+  const rows = [];
+
+  for (const sale of sales) {
+    const saleDate = String(sale?.date || "").slice(0, 10);
+    if (rangeStart && saleDate < rangeStart) continue;
+    if (rangeEnd && saleDate > rangeEnd) continue;
+    if (clientFilterKeys && !labelMatchesClientKeys(sale?.client, clientFilterKeys)) continue;
+
+    const amount = round(sale.amount);
+    rows.push({
+      client: String(sale?.client || "-").trim(),
+      site: String(sale?.site || "").trim(),
+      date: saleDate,
+      amount,
+      voucherNo: String(sale?.voucherNo || sale?.id || "").trim(),
+    });
+  }
+
+  rows.sort((a, b) => b.amount - a.amount || String(b.date).localeCompare(String(a.date)));
+
+  const totalAmount = rows.reduce((sum, row) => sum + row.amount, 0);
+
+  return {
+    ok: true,
+    startDate: rangeStart,
+    endDate: rangeEnd,
+    periodLabel,
+    rawPeriodHint,
+    clientName: resolvedClientName || undefined,
+    salesCount: rows.length,
+    totalAmount,
+    rows,
+  };
+}
+
+export function formatSalesTotalAnswer(data) {
+  if (!data.ok) return data.error || "\uB9E4\uCD9C \uD569\uACC4 \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+
+  const title = buildDepositPeriodTitle(data);
+  const clientPrefix = data.clientName ? `${data.clientName} ` : "";
+
+  if (data.salesCount === 0) {
+    return `${clientPrefix}${title} \uB9E4\uCD9C \uC804\uD45C\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`;
+  }
+
+  const lines = [
+    `${clientPrefix}${title} \uB9E4\uCD9C \uD569\uACC4: ${formatKRW(data.totalAmount)}\uC6D0 (${data.salesCount}\uAC74)`,
+  ];
+
+  const preview = (data.rows || []).slice(0, 10);
+  preview.forEach((row) => {
+    const site = row.site ? ` / ${row.site}` : "";
+    lines.push(`- ${row.client}${site}: ${formatKRW(row.amount)}\uC6D0`);
+  });
+  if (data.salesCount > preview.length) {
+    lines.push(`\u2026 \uC678 ${data.salesCount - preview.length}\uAC74`);
+  }
+  return lines.join("\n");
+}
+
+function parseTaxInvoiceFlowTypeFromText(text) {
+  const raw = String(text || "");
+  const hasPurchase =
+    /\uB9E4\uC785/.test(raw) ||
+    /(?:\uB4E4\uC5B4(?:\uC628|\uC788|\uC558|\uC11C|\uC5B4|\uC5C8|\uB358)?|\uBC1B(?:\uC740|\uC740|\uC740\uC74C|\uC740\uC5B4|\uC740\uB294)?|\uC218\uCC98|\uC218\uC785)/.test(
+      raw,
+    );
+  const hasSales =
+    /\uB9E4\uCD9C/.test(raw) ||
+    /(?:\uB098(?:\uAC04|\uAC94|\uC900|\uAC04\uB294|\uAC94\uC11C|\uC11C)?|\uBCF4(?:\uB0C4|\uB09C|\uB0C4\uB294|\uB0B4|\uB0B8)?|\uCCAD\uAD6C|\uBC1C\uAE09\uD55C)/.test(
+      raw,
+    );
+  if (hasPurchase && !hasSales) return "purchase";
+  if (hasSales && !hasPurchase) return "sales";
+  return null;
+}
+
+function parseTaxInvoiceDocumentTypeFromText(text) {
+  const raw = String(text || "");
+  if (/\uC138\uAE08\s*\uACC4\uC0B0\uC11C/.test(raw)) return "tax";
+  if (/\uACC4\uC0B0\uC11C/.test(raw)) return "bill";
+  return null;
+}
+
+function buildTaxInvoiceFlowTypeLabel(flowType) {
+  if (flowType === "purchase") return "\uB9E4\uC785";
+  if (flowType === "sales") return "\uB9E4\uCD9C";
+  return "\uB9E4\uC785\u00B7\uB9E4\uCD9C";
+}
+
+function buildTaxInvoiceDocumentTypeLabel(documentType) {
+  if (documentType === "tax") return "\uC138\uAE08\uACC4\uC0B0\uC11C";
+  if (documentType === "bill") return "\uACC4\uC0B0\uC11C";
+  return "\uC138\uAE08\uACC4\uC0B0\uC11C\u00B7\uACC4\uC0B0\uC11C";
+}
+
+function stripTaxInvoiceSummaryQueryNoise(text) {
+  return String(text || "")
+    .replace(/\uC138\uAE08\s*\uACC4\uC0B0\uC11C|\uACC4\uC0B0\uC11C/g, "")
+    .replace(/\uB9E4\uC785|\uB9E4\uCD9C/g, "")
+    .replace(/\uC624\uB298|\uB0B4\uC77C|\uBAA8\uB798/g, "")
+    .replace(/\uC774\uBC88\uC8FC|\uB2E4\uC74C\uC8FC|\uC800\uBC88\uC8FC|\uC9C0\uB09C\uC8FC|\uAE08\uC8FC/g, "")
+    .replace(
+      /\uC774\uBC88\uB2EC|\uC774\uBC88 \uB2EC|\uC774\uB2EC|\uB2F9\uC6D4|\uC9C0\uB09C\uB2EC|\uC9C0\uB09C \uB2EC|\uC800\uBC88\uB2EC|\uC804\uC6D4|\uB2E4\uC74C\uB2EC|\uB2E4\uC74C \uB2EC/g,
+      "",
+    )
+    .replace(/(?:(\d{4})\s*\uB144\s*)?(\d{1,2})\s*\uC6D4(?:\uB2EC)?/g, "")
+    .replace(/\d{4}-\d{2}-\d{2}/g, "")
+    .replace(
+      /(?:\uAE08\uC561|\uD569\uACC4|\uCD1D\uC561|\uC591|\uC5BC\uB9C8|\uB4E4\uC5B4\uC628|\uB4E4\uC5B4|\uC628|\uBC1C\uD589|\uAC74\uC218|\uC870\uD68C|\uD655\uC778|\uC54C\uB824|\uC918|\?)/g,
+      "",
+    )
+    .replace(/(?:\uB97C|\uC740|\uB294|\uC758|\uC744|\uC5D0\uC11C|\uACF3)/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function isTaxInvoiceSummaryQuery(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  if (!/(?:\uC138\uAE08\s*\uACC4\uC0B0\uC11C|\uACC4\uC0B0\uC11C)/.test(raw)) return false;
+
+  if (/\uB0B4\uC5ED/.test(raw) && hasChatOpenVerb(raw)) return false;
+  if (hasChatOpenVerb(raw) && chatIncludesIntent(raw, "taxInvoice")) {
+    const { clientName } = extractTaxInvoiceHistoryQuery(raw);
+    if (clientName) return false;
+  }
+  if (
+    chatIncludesIntent(raw, "taxInvoice") &&
+    /\uB0B4\uC5ED/.test(raw) &&
+    !/(?:\uAE08\uC561|\uD569\uACC4|\uC591|\uC5BC\uB9C8|\uB4E4\uC5B4\uC628|\uB4E4\uC5B4|\uBC1C\uD589|\uB4E4\uC5B4)/.test(raw)
+  ) {
+    return false;
+  }
+
+  const hasFlowKeyword = /(?:\uB9E4\uC785|\uB9E4\uCD9C)/.test(raw);
+  const hasDirectionHint = /(?:\uB4E4\uC5B4(?:\uC628|\uC788|\uC558|\uC11C|\uC5B4|\uC5C8|\uB358)?|\uBC1B(?:\uC740|\uC740|\uC740\uC74C|\uC740\uC5B4|\uC740\uB294)?|\uC218\uCC98|\uB098(?:\uAC04|\uAC94|\uC900|\uAC04\uB294|\uAC94\uC11C|\uC11C)?|\uBCF4(?:\uB0C4|\uB09C|\uB0B4|\uB0B8)?|\uCCAD\uAD6C)/.test(
+    raw,
+  );
+  const hasPeriodHint =
+    /(?:\uC624\uB298|\uB0B4\uC77C|\uBAA8\uB798|\uC774\uBC88\uB2EC|\uC774\uBC88\s*\uB2EC|\uC774\uB2EC|\uB2F9\uC6D4|\uC9C0\uB09C\uB2EC|\uC804\uC6D4|\uB2E4\uC74C\uB2EC|\uC774\uBC88\uC8FC|\uAE08\uC8FC|\d{4}-\d{2}-\d{2}|(?:\d{1,2})\s*\uC6D4)/.test(
+      raw,
+    );
+  const hasAmountHint = /(?:\uAE08\uC561|\uD569\uACC4|\uC591|\uC5BC\uB9C8|\uBC1C\uD589|\uAC74|\uC5B4\uB514|\uC5B4\uB514\uC11C|\uC5B4\uB290|\uC5B4\uB290\uAC70\uCC98|\uC5B4\uB290\uAC70)/.test(
+    raw,
+  );
+  const hasCasualAsk = /(?:\uB370|\uC8E0|\uC9C0|\uB098|\uC788|\uC788\uC5B4|\uC788\uB294|\uC788\uB098|\uC788\uC744|\uC788\uC744\uAE4C|\uC788\uC744\uAE4C\?)/.test(
+    raw.replace(/\s+/g, ""),
+  );
+
+  if (hasDirectionHint) return true;
+  if (hasFlowKeyword && (hasPeriodHint || hasAmountHint || hasCasualAsk)) return true;
+  if (hasPeriodHint && (hasAmountHint || hasDirectionHint || hasCasualAsk)) return true;
+  if (hasFlowKeyword && hasAmountHint) return true;
+  return false;
+}
+
+export function extractTaxInvoiceSummaryQuery(text) {
+  const raw = String(text || "").trim();
+  const expanded = expandSynonymsForExtraction(raw);
+  const hasMonthKeyword =
+    /\uC774\uBC88\uB2EC|\uC774\uBC88\s*\uB2EC|\uC774\uB2EC|\uB2F9\uC6D4|\uC9C0\uB09C\uB2EC|\uC9C0\uB09C\s*\uB2EC|\uC800\uBC88\uB2EC|\uC804\uC6D4|\uB2E4\uC74C\uB2EC|\uB2E4\uC74C\s*\uB2EC|(?:\d{4})\s*\uB144\s*(?:\d{1,2})\s*\uC6D4|(?:\d{1,2})\s*\uC6D4(?:\uB2EC)?/.test(
+      expanded,
+    );
+  const hasWeekKeyword = /\uC774\uBC88\uC8FC|\uAE08\uC8FC|\uB2E4\uC74C\uC8FC|\uC800\uBC88\uC8FC|\uC9C0\uB09C\uC8FC/.test(expanded);
+  const hasSingleDayKeyword = /\uC624\uB298|\uC5B4\uC81C|\uB0B4\uC77C|\uBAA8\uB798/.test(expanded);
+
+  let range;
+  if (hasMonthKeyword && !hasWeekKeyword && !hasSingleDayKeyword) {
+    range = resolveMonthRangeFromInput(expanded);
+  } else {
+    range = resolveDateRangeFromInput(expanded);
+  }
+
+  let clientName = "";
+  const possessive = raw.match(/^(.+?)\uC758/);
+  if (possessive) clientName = possessive[1].trim();
+  if (!clientName) {
+    clientName = stripTaxInvoiceSummaryQueryNoise(expanded);
+    if (clientName) {
+      const state = getErpState(["clients"]);
+      const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
+      const matched = findClientsByQuery(clients, clientName);
+      if (matched.length) {
+        clientName = String(matched[0]?.name || clientName).trim();
+      }
+    }
+  }
+
+  return {
+    clientName,
+    startDate: range.startDate,
+    endDate: range.endDate,
+    periodLabel: range.label,
+    flowType: parseTaxInvoiceFlowTypeFromText(expanded),
+    documentType: parseTaxInvoiceDocumentTypeFromText(expanded),
+    rawPeriodHint: detectDepositDayHint(expanded),
+  };
+}
+
+function buildTaxInvoicePeriodTitle(data) {
+  const { startDate, endDate, periodLabel, rawPeriodHint } = data;
+  const hint = String(rawPeriodHint || "").trim();
+  if (startDate === endDate) {
+    if (hint === "\uC624\uB298") return `\uC624\uB298(${startDate})`;
+    if (hint === "\uC5B4\uC81C") return `\uC5B4\uC81C(${startDate})`;
+    if (hint === "\uB0B4\uC77C") return `\uB0B4\uC77C(${startDate})`;
+    if (hint === "\uBAA8\uB798") return `\uBAA8\uB798(${startDate})`;
+    return `${startDate}`;
+  }
+  if (periodLabel) return periodLabel;
+  return `${startDate}~${endDate}`;
+}
+
+export function toolGetTaxInvoiceSummary({
+  date,
+  startDate,
+  endDate,
+  flowType,
+  documentType,
+  clientName,
+  period,
+  rawQuery,
+}) {
+  const state = getErpState(["clients", "taxInvoices"]);
+  const data = state.data || {};
+  const taxInvoices = Array.isArray(data.taxInvoices) ? data.taxInvoices : [];
+  const clients = Array.isArray(data.clients) ? data.clients : [];
+  const rawText = String(rawQuery || period || date || "").trim();
+
+  let rangeStart = String(startDate || "").slice(0, 10);
+  let rangeEnd = String(endDate || "").slice(0, 10);
+  let periodLabel = "";
+  let rawPeriodHint = "";
+  let resolvedFlowType = flowType === "purchase" || flowType === "sales" ? flowType : null;
+  let resolvedDocumentType = documentType === "tax" || documentType === "bill" ? documentType : null;
+
+  if (date && !rangeStart && !rangeEnd) {
+    const single = resolveDateFromInput(date);
+    rangeStart = single;
+    rangeEnd = single;
+    rawPeriodHint = String(date).trim();
+    periodLabel = single;
+  }
+
+  if (!rangeStart || !rangeEnd) {
+    const parsed = extractTaxInvoiceSummaryQuery(rawText || "\uC624\uB298");
+    rangeStart = parsed.startDate;
+    rangeEnd = parsed.endDate;
+    periodLabel = parsed.periodLabel;
+    rawPeriodHint = parsed.rawPeriodHint;
+    if (!clientName && parsed.clientName) clientName = parsed.clientName;
+    if (!resolvedFlowType && parsed.flowType) resolvedFlowType = parsed.flowType;
+    if (!resolvedDocumentType && parsed.documentType) resolvedDocumentType = parsed.documentType;
+  } else {
+    periodLabel = rangeStart === rangeEnd ? rangeStart : `${rangeStart}~${rangeEnd}`;
+    rawPeriodHint = detectDepositDayHint(rawText);
+    if (!resolvedFlowType) resolvedFlowType = parseTaxInvoiceFlowTypeFromText(rawText);
+    if (!resolvedDocumentType) resolvedDocumentType = parseTaxInvoiceDocumentTypeFromText(rawText);
+  }
+
+  let clientFilterKeys = null;
+  let resolvedClientName = "";
+  const query = String(clientName || "").trim();
+  if (query) {
+    const matchedClients = findClientsByQuery(clients, query);
+    if (!matchedClients.length) {
+      return { ok: false, error: `"${query}" \uAC70\uB798\uCC98\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    }
+    clientFilterKeys = buildClientFilterKeys(query, matchedClients);
+    resolvedClientName = String(matchedClients[0]?.name || query).trim();
+  }
+
+  const round = (value) => Math.round(Number(value) || 0);
+  const rows = [];
+
+  for (const invoice of taxInvoices) {
+    if (String(invoice?.status || "") !== "issued") continue;
+    const issueDate = String(invoice?.issueDate || "").slice(0, 10);
+    if (rangeStart && issueDate < rangeStart) continue;
+    if (rangeEnd && issueDate > rangeEnd) continue;
+    if (resolvedFlowType && invoice?.flowType !== resolvedFlowType) continue;
+    if (resolvedDocumentType && invoice?.documentType !== resolvedDocumentType) continue;
+    if (clientFilterKeys && !labelMatchesClientKeys(invoice?.client, clientFilterKeys)) continue;
+
+    rows.push({
+      client: String(invoice?.client || "-").trim(),
+      supplyAmount: round(invoice?.supplyAmount),
+      vatAmount: round(invoice?.vatAmount),
+      totalAmount: round(invoice?.totalAmount),
+      documentType: invoice?.documentType === "bill" ? "bill" : "tax",
+      issueDate,
+    });
+  }
+
+  rows.sort(
+    (a, b) => b.totalAmount - a.totalAmount || String(b.issueDate).localeCompare(String(a.issueDate)),
+  );
+
+  const totals = rows.reduce(
+    (acc, row) => {
+      acc.count += 1;
+      acc.supply += row.supplyAmount;
+      acc.vat += row.vatAmount;
+      acc.amount += row.totalAmount;
+      return acc;
+    },
+    { count: 0, supply: 0, vat: 0, amount: 0 },
+  );
+
+  return {
+    ok: true,
+    periodLabel,
+    startDate: rangeStart,
+    endDate: rangeEnd,
+    rawPeriodHint,
+    clientName: resolvedClientName || undefined,
+    flowType: resolvedFlowType,
+    documentType: resolvedDocumentType,
+    flowTypeLabel: buildTaxInvoiceFlowTypeLabel(resolvedFlowType),
+    documentTypeLabel: buildTaxInvoiceDocumentTypeLabel(resolvedDocumentType),
+    count: totals.count,
+    totalSupply: totals.supply,
+    totalVat: totals.vat,
+    totalAmount: totals.amount,
+    rows,
+  };
+}
+
+export function formatTaxInvoiceSummaryAnswer(data) {
+  if (!data.ok) return data.error || "\uC138\uAE08\uACC4\uC0B0\uC11C \uD569\uACC4 \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+
+  const title = buildTaxInvoicePeriodTitle(data);
+  const clientPrefix = data.clientName ? `${data.clientName} ` : "";
+  const typeLabel = `${data.flowTypeLabel} ${data.documentTypeLabel}`.trim();
+
+  if (data.count === 0) {
+    return `${clientPrefix}${title} \uBC1C\uD589\uB41C ${typeLabel}\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`;
+  }
+
+  const lines = [
+    `${clientPrefix}${title} ${typeLabel}: ${data.count}\uAC74 \u00B7 \uD569\uACC4 ${formatKRW(data.totalAmount)}\uC6D0`,
+  ];
+
+  const byClient = new Map();
+  for (const row of data.rows || []) {
+    const key = row.client || "-";
+    const prev = byClient.get(key) || { client: key, totalAmount: 0 };
+    prev.totalAmount += row.totalAmount;
+    byClient.set(key, prev);
+  }
+  const clientRows = [...byClient.values()].sort((a, b) => b.totalAmount - a.totalAmount);
+  clientRows.slice(0, 15).forEach((row) => {
+    lines.push(`- ${row.client}: ${formatKRW(row.totalAmount)}\uC6D0`);
+  });
+  if (clientRows.length > 15) {
+    lines.push(`\u2026 \uC678 ${clientRows.length - 15}\uAC70\uB798\uCC98`);
+  }
+
+  lines.push(`\uACF5\uAE09\uAC00 ${formatKRW(data.totalSupply)}\uC6D0 \u00B7 \uBD80\uAC00\uC138 ${formatKRW(data.totalVat)}\uC6D0`);
+  return lines.join("\n");
+}
+
+function findWorkersByQuery(workers, query) {
+  const queryKey = normalizePersonMatchKey(query);
+  if (!queryKey) return [];
+  const matches = [];
+  for (const worker of workers) {
+    const labels = [worker.name, ...parseAliasList(worker.depositNameAliases)].filter(Boolean);
+    if (labels.some((label) => nameMatchesQuery(label, queryKey))) {
+      matches.push(worker);
+    }
+  }
+  const seen = new Set();
+  return matches.filter((worker) => {
+    const id = String(worker.id ?? worker.name);
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+function stripPersonBankAccountQueryNoise(text) {
+  return String(text || "")
+    .replace(/\uACC4\uC88C(?:\uBC88\uD638)?|\uD1B5\uC7A5(?:\uBC88\uD638)?/g, "")
+    .replace(/\uC804\uD654|\uC5F0\uB77D\uCC98|\uCC28(?:\uBC88|\uB7C9)(?:\uBC88\uD638)?/g, "")
+    .replace(/(?:\uC54C\uB824|\uC918|\uC870\uD68C|\uD655\uC778|\?)/g, "")
+    .replace(/(?:\uB97C|\uC740|\uB294|\uC758|\uC744|\uC758\uAC70|\uAFBC)/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function isPersonBankAccountQuery(text) {
+  const raw = String(text || "").trim();
+  if (!/(?:\uACC4\uC88C(?:\uBC88\uD638)?|\uD1B5\uC7A5(?:\uBC88\uD638)?)/.test(raw)) return false;
+  if (hasChatOpenVerb(raw)) return false;
+  if (chatIncludesIntent(raw, "bank")) return false;
+  if (/\uC785\uAE08\uB0B4\uC5ED|\uC785\uAE08\s*\uC561|\uC785\uAE08\s*\uD569\uACC4/.test(raw)) return false;
+  return true;
+}
+
+export function extractPersonBankAccountQuery(text) {
+  const raw = String(text || "").trim();
+  const state = getErpState(["workers", "clients"]);
+  const workers = Array.isArray(state.data?.workers) ? state.data.workers : [];
+  const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
+  const entities = resolveChatEntitiesFromText(raw, clients, workers);
+
+  if (entities.workerName) {
+    return { personName: entities.workerName, entityKind: "worker" };
+  }
+  if (entities.clientName) {
+    return { personName: entities.clientName, entityKind: "client" };
+  }
+
+  let personName = stripPersonBankAccountQueryNoise(expandSynonymsForExtraction(raw));
+  if (personName) {
+    const resolved = resolveChatEntityKind(personName, clients, workers);
+    if (resolved.kind === "worker") personName = resolved.name;
+    else if (resolved.kind === "client") personName = resolved.name;
+  }
+  return { personName, entityKind: resolveChatEntityKind(personName, clients, workers).kind };
+}
+
+export function toolGetPersonBankAccount({ personName, entityKind }) {
+  const state = getErpState(["workers", "clients"]);
+  const workers = Array.isArray(state.data?.workers) ? state.data.workers : [];
+  const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
+  const query = String(personName || "").trim();
+  if (!query) {
+    return { ok: false, error: "\uC774\uB984\uC774 \uD544\uC694\uD569\uB2C8\uB2E4." };
+  }
+
+  const preferWorker = entityKind === "worker";
+  const preferClient = entityKind === "client";
+
+  const workerMatches = preferClient ? [] : findWorkersByQuery(workers, query);
+  if (workerMatches.length) {
+    return {
+      ok: true,
+      query,
+      matchCount: workerMatches.length,
+      matches: workerMatches.slice(0, 5).map((worker) => ({
+        kind: "worker",
+        name: String(worker.name || ""),
+        bank: String(worker.bank || "").trim(),
+        account: String(worker.account || "").trim(),
+        isActive: worker.isActive !== false,
+      })),
+    };
+  }
+
+  const clientMatches = findClientsByQuery(clients, query);
+  if (!preferWorker && clientMatches.length) {
+    return {
+      ok: true,
+      query,
+      matchCount: clientMatches.length,
+      matches: clientMatches.slice(0, 3).map((client) => ({
+        kind: "client",
+        name: String(client.name || ""),
+        bank: "",
+        account: "",
+        note: "\uAC70\uB798\uCC98 \uBAA9\uB85D\uC5D0\uB294 \uACC4\uC88C \uC815\uBCF4\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
+      })),
+    };
+  }
+
+  return { ok: false, error: `"${query}"\uC744(\uB97C) \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+}
+
+export function formatPersonBankAccountAnswer(data) {
+  if (!data.ok) return data.error || "\uACC4\uC88C \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  if (!data.matchCount) return `"${data.query}"\uC758 \uACC4\uC88C \uC815\uBCF4\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.`;
+
+  const lines = [];
+  for (const row of data.matches || []) {
+    if (row.kind === "client") {
+      lines.push(`${row.name}: ${row.note || "\uACC4\uC88C \uC815\uBCF4 \uC5C6\uC2B5\uB2C8\uB2E4."}`);
+      continue;
+    }
+    const bank = row.bank || "-";
+    const account = row.account || "-";
+    const inactive = row.isActive === false ? " (\uBE44\uD65C\uC131)" : "";
+    lines.push(`${row.name}${inactive}: ${bank} ${account}`.trim());
+  }
+  if (data.matchCount > (data.matches || []).length) {
+    lines.push(`\u2026 \uC678 ${data.matchCount - (data.matches || []).length}\uBA85`);
+  }
+  return lines.join("\n");
+}
+
+export function tryRuleBasedPersonBankAccountQuery(message) {
+  const text = String(message || "").trim();
+  if (!isPersonBankAccountQuery(text)) return null;
+  const parsed = extractPersonBankAccountQuery(text);
+  return formatPersonBankAccountAnswer(toolGetPersonBankAccount({ personName: parsed.personName }));
+}
+
+function resolveScScheduleSiteName(schedule) {
+  const workType = String(schedule?.workType || "").trim();
+  if (workType) return workType;
+  const siteName = String(schedule?.siteName || "").trim();
+  if (siteName) return siteName;
+  return String(schedule?.projectName || "").trim();
+}
+
+function clientSiteRequestCoversDate(request, date) {
+  const start = String(request?.workDate || "").slice(0, 10);
+  const end = String(request?.workDateEnd || request?.workDate || "").slice(0, 10);
+  if (!start) return false;
+  return date >= start && date <= end;
+}
+
+function stripClientSiteOnDateQueryNoise(text) {
+  return String(text || "")
+    .replace(/\d{1,2}\s*\uC6D4\s*\d{1,2}\s*\uC77C/g, "")
+    .replace(/(?:(\d{4})\s*\uB144\s*)?(\d{1,2})\s*\uC6D4(?:\uB2EC)?/g, "")
+    .replace(/\d{4}-\d{2}-\d{2}/g, "")
+    .replace(/\uC624\uB298|\uC5B4\uC81C|\uB0B4\uC77C|\uBAA8\uB798/g, "")
+    .replace(/\uD604\uC7A5|\uC5B4\uB514|\uC704\uCE58|\uC7A5\uC18C|\uAC70\uB798\uCC98|\uC77C\uC815|\uC2A4\uCF00\uC904/g, "")
+    .replace(/(?:\uC788(?:\uC5B4|\uB098|\uC744|\uC744\uAE4C)|\uC5BC\uB9C8|\?|\uC54C\uB824|\uC918|\uC870\uD68C|\uD655\uC778)/g, "")
+    .replace(/(?:\uB294|\uC740|\uB97C|\uC758|\uC744|\uC758\uAC70|\uAFBC|\uC5D0\uC11C|\uAC00|\uC774)/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function isClientSiteOnDateQuery(text) {
+  const raw = String(text || "").trim();
+  if (!/\uD604\uC7A5/.test(raw)) return false;
+  if (hasChatOpenVerb(raw)) return false;
+  if (/(?:\uC5B4\uB514|\uC5B4\uB514\uC57C|\uC704\uCE58|\uC7A5\uC18C|\uC5B4\uB290|\uC5B4\uB290\uAC70|\uC5B4\uB290\uAC70\uCC98)/.test(raw)) return true;
+  if (/\d{1,2}\s*\uC6D4\s*\d{1,2}\s*\uC77C/.test(raw) || /\d{4}-\d{2}-\d{2}/.test(raw)) return true;
+  if (/\uC624\uB298|\uC5B4\uC81C|\uB0B4\uC77C|\uBAA8\uB798/.test(raw)) return true;
+  return false;
+}
+
+export function extractClientSiteOnDateQuery(text) {
+  const raw = String(text || "").trim();
+  const expanded = normalizeChatMonthText(expandSynonymsForExtraction(raw));
+  let date = parseMonthDayDateFromText(expanded);
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    date = resolveDateFromInput(expanded);
+  }
+
+  const state = getErpState(["clients", "workers"]);
+  const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
+  const workers = Array.isArray(state.data?.workers) ? state.data.workers : [];
+  const entities = resolveChatEntitiesFromText(expanded, clients, workers);
+
+  let clientName = entities.clientName;
+  if (!clientName) {
+    clientName = stripClientSiteOnDateQueryNoise(expanded);
+    if (clientName) {
+      const resolved = resolveChatEntityKind(clientName, clients, workers);
+      if (resolved.kind === "client") clientName = resolved.name;
+      else if (resolved.kind === "worker") clientName = "";
+      else {
+        const matched = findClientsByQuery(clients, clientName);
+        if (matched.length) clientName = String(matched[0]?.name || clientName).trim();
+        else clientName = "";
+      }
+    }
+  }
+
+  return { clientName, date };
+}
+
+export function toolGetClientSiteOnDate({ clientName, date }) {
+  const state = getErpState(["sales", "clients", "scSchedules", "clientSiteRequests"]);
+  const data = state.data || {};
+  const sales = Array.isArray(data.sales) ? data.sales : [];
+  const scSchedules = Array.isArray(data.scSchedules) ? data.scSchedules : [];
+  const clientSiteRequests = Array.isArray(data.clientSiteRequests) ? data.clientSiteRequests : [];
+  const clients = Array.isArray(data.clients) ? data.clients : [];
+
+  const query = String(clientName || "").trim();
+  const dateKey = String(date || "").slice(0, 10);
+  if (!query) {
+    return { ok: false, error: "\uAC70\uB798\uCC98 \uC774\uB984\uC774 \uD544\uC694\uD569\uB2C8\uB2E4." };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+    return { ok: false, error: "\uB0A0\uC9DC(\uC608: 6\uC6D42\uC77C \uB610\uB294 YYYY-MM-DD)\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." };
+  }
+
+  const matchedClients = findClientsByQuery(clients, query);
+  if (!matchedClients.length) {
+    return { ok: false, error: `"${query}" \uAC70\uB798\uCC98\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+  }
+  const clientFilterKeys = buildClientFilterKeys(query, matchedClients);
+  const clientIds = new Set(matchedClients.map((client) => String(client.id ?? "")).filter(Boolean));
+  const resolvedClientName = String(matchedClients[0]?.name || query).trim();
+
+  const sites = [];
+  const seen = new Set();
+
+  const pushSite = (siteName, source) => {
+    const name = String(siteName || "").trim();
+    if (!name) return;
+    const key = `${source}:${name}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    sites.push({ siteName: name, source });
+  };
+
+  for (const schedule of scSchedules) {
+    if (String(schedule?.workDate || "").slice(0, 10) !== dateKey) continue;
+    if (!scheduleMatchesClientFilter(schedule, matchedClients, clientFilterKeys)) continue;
+    pushSite(resolveScScheduleSiteName(schedule), "SC \uC77C\uC815");
+  }
+
+  for (const sale of sales) {
+    if (String(sale?.date || "").slice(0, 10) !== dateKey) continue;
+    if (!saleMatchesClientFilter(sale.client, matchedClients, clientFilterKeys)) continue;
+    pushSite(sale.site, "\uB9E4\uCD9C \uC804\uD45C");
+  }
+
+  for (const request of clientSiteRequests) {
+    if (!clientSiteRequestCoversDate(request, dateKey)) continue;
+    const requestClientId = String(request?.clientId ?? "");
+    const requestMatches =
+      (requestClientId && clientIds.has(requestClientId)) ||
+      labelMatchesClientKeys(request?.clientName, clientFilterKeys);
+    if (!requestMatches) continue;
+    pushSite(request.siteName, "\uD604\uC7A5 \uC811\uC218");
+  }
+
+  return {
+    ok: true,
+    clientName: resolvedClientName,
+    date: dateKey,
+    siteCount: sites.length,
+    sites,
+  };
+}
+
+export function formatClientSiteOnDateAnswer(data) {
+  if (!data.ok) return data.error || "\uD604\uC7A5 \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  if (!data.siteCount) {
+    return `${data.clientName} ${data.date} \uB4F1\uB85D\uB41C \uD604\uC7A5\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`;
+  }
+  const lines = [`${data.clientName} ${data.date} \uD604\uC7A5:`];
+  for (const row of data.sites || []) {
+    lines.push(`- ${row.siteName}${row.source ? ` (${row.source})` : ""}`);
+  }
+  return lines.join("\n");
+}
+
+export function tryRuleBasedClientSiteOnDateQuery(message) {
+  const text = String(message || "").trim();
+  if (!isClientSiteOnDateQuery(text)) return null;
+  const parsed = extractClientSiteOnDateQuery(text);
+  return formatClientSiteOnDateAnswer(
+    toolGetClientSiteOnDate({ clientName: parsed.clientName, date: parsed.date }),
+  );
+}
+
+function stripClientBusinessRegQueryNoise(text) {
+  return String(text || "")
+    .replace(/\uC0AC\uC5C5\uC790\s*\uB4F1\uB85D(?:\uC99D)?/g, "")
+    .replace(/(?:\uC788(?:\uC5B4|\uB098|\uC744|\uC744\uAE4C)|\uB4F1\uB85D|\uC5C5\uB85C\uB4DC|\uD30C\uC77C|\uC788\uB098|\?|\uC54C\uB824|\uC918|\uC870\uD68C|\uD655\uC778)/g, "")
+    .replace(/(?:\uB294|\uC740|\uB294|\uC758|\uC744|\uC758\uAC70|\uAFBC)/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function isClientBusinessRegQuery(text) {
+  return /\uC0AC\uC5C5\uC790\s*\uB4F1\uB85D(?:\uC99D)?/.test(String(text || ""));
+}
+
+export function extractClientBusinessRegQuery(text) {
+  const raw = String(text || "").trim();
+  const state = getErpState(["clients", "workers"]);
+  const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
+  const workers = Array.isArray(state.data?.workers) ? state.data.workers : [];
+  const entities = resolveChatEntitiesFromText(raw, clients, workers);
+
+  let clientName = entities.clientName;
+  if (!clientName) {
+    const possessive = raw.match(/^(.+?)\uC758/);
+    if (possessive) clientName = possessive[1].trim();
+  }
+  if (!clientName) {
+    clientName = stripClientBusinessRegQueryNoise(expandSynonymsForExtraction(raw));
+    if (clientName) {
+      const resolved = resolveChatEntityKind(clientName, clients, workers);
+      if (resolved.kind === "client") clientName = resolved.name;
+      else clientName = "";
+    }
+  }
+  return { clientName };
+}
+
+export function toolGetClientBusinessReg({ clientName }) {
+  const state = getErpState(["clients"]);
+  const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
+  const query = String(clientName || "").trim();
+  if (!query) {
+    return { ok: false, error: "\uAC70\uB798\uCC98 \uC774\uB984\uC774 \uD544\uC694\uD569\uB2C8\uB2E4." };
+  }
+  const matchedClients = findClientsByQuery(clients, query);
+  if (!matchedClients.length) {
+    return { ok: false, error: `"${query}" \uAC70\uB798\uCC98\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+  }
+  const client = matchedClients[0];
+  const resolvedName = String(client?.name || query).trim();
+  const businessNo = String(client?.businessNo || "").trim();
+  const meta = getClientBusinessRegMeta(String(client?.id ?? ""));
+  return {
+    ok: true,
+    clientName: resolvedName,
+    businessNo,
+    hasFile: Boolean(meta),
+    fileName: meta?.fileName || "",
+    uploadedAt: meta?.updatedAt || "",
+  };
+}
+
+export function formatClientBusinessRegAnswer(data) {
+  if (!data.ok) return data.error || "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  if (!data.businessNo && !data.hasFile) {
+    return `${data.clientName} \uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D/\uC0AC\uC5C5\uC790\uBC88\uD638\uAC00 \uB4F1\uB85D\uB418\uC5B4 \uC788\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`;
+  }
+  const lines = [`${data.clientName} \uC0AC\uC5C5\uC790\uB4F1\uB85D \uC815\uBCF4:`];
+  if (data.businessNo) lines.push(`- \uC0AC\uC5C5\uC790\uB4F1\uB85D\uBC88\uD638: ${data.businessNo}`);
+  if (data.hasFile) {
+    const uploaded = data.uploadedAt ? ` (${String(data.uploadedAt).slice(0, 10)})` : "";
+    lines.push(`- \uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uD30C\uC77C: ${data.fileName}${uploaded}`);
+  } else if (data.businessNo) {
+    lines.push(`- \uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uD30C\uC77C: \uC5C6\uC74C (\uBC88\uD638\uB9CC \uB4F1\uB85D)`);
+  }
+  return lines.join("\n");
+}
+
+export function tryRuleBasedClientBusinessRegQuery(message) {
+  const text = String(message || "").trim();
+  if (!isClientBusinessRegQuery(text)) return null;
+  const parsed = extractClientBusinessRegQuery(text);
+  return formatClientBusinessRegAnswer(toolGetClientBusinessReg({ clientName: parsed.clientName }));
+}
+
+export function isClientTaxInvoiceIssuedQuery(text) {
+  const raw = String(text || "").trim();
+  if (!/(?:\uC138\uAE08\s*\uACC4\uC0B0\uC11C|\uACC4\uC0B0\uC11C)/.test(raw)) return false;
+  if (hasChatOpenVerb(raw) && /\uB0B4\uC5ED/.test(raw)) return false;
+  const compact = raw.replace(/\s+/g, "");
+  const issuedAsk =
+    /\uBC1C\uD589(?:\uD55C\uC801|\uD588|\uD55C)?/.test(compact) ||
+    /\uD55C\uC801/.test(compact) ||
+    /\uC788(?:\uC5B4|\uB098|\uC744\uAE4C|\uC2B5\uB2C8\uAE4C)/.test(compact);
+  if (!issuedAsk) return false;
+  if (/(?:\uAE08\uC561|\uD569\uACC4|\uC5BC\uB9C8)/.test(raw) && !/(?:\uC788(?:\uC5B4|\uB098)|\uD55C\uC801|\uBC1C\uD589)/.test(compact)) {
+    return false;
+  }
+  return true;
+}
+
+export function formatClientTaxInvoiceIssuedAnswer(data) {
+  if (!data.ok) return data.error || "\uACC4\uC0B0\uC11C \uBC1C\uD589 \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  const title = buildTaxInvoicePeriodTitle(data);
+  const clientPrefix = data.clientName ? `${data.clientName} ` : "";
+  const typeLabel = `${data.flowTypeLabel} ${data.documentTypeLabel}`.trim();
+  if (data.count === 0) {
+    return `${clientPrefix}${title} ${typeLabel} \uBC1C\uD589 \uC774\uB825\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`;
+  }
+  const lines = [
+    `\uB124, ${clientPrefix}${title} ${typeLabel} ${data.count}\uAC74 \uBC1C\uD589\uD588\uC2B5\uB2C8\uB2E4. \uD569\uACC4 ${formatKRW(data.totalAmount)}\uC6D0`,
+  ];
+  for (const row of (data.rows || []).slice(0, 10)) {
+    lines.push(`- ${String(row.issueDate || "").slice(0, 10)}: ${formatKRW(row.totalAmount)}\uC6D0`);
+  }
+  if (data.count > 10) lines.push(`\u2026 \uC678 ${data.count - 10}\uAC74`);
+  return lines.join("\n");
+}
+
+export function tryRuleBasedClientTaxInvoiceIssuedQuery(message) {
+  const text = String(message || "").trim();
+  if (!isClientTaxInvoiceIssuedQuery(text)) return null;
+  const parsed = extractTaxInvoiceSummaryQuery(text);
+  return formatClientTaxInvoiceIssuedAnswer(
+    toolGetTaxInvoiceSummary({
+      startDate: parsed.startDate,
+      endDate: parsed.endDate,
+      clientName: parsed.clientName,
+      flowType: parsed.flowType,
+      documentType: parsed.documentType,
+      rawQuery: text,
+    }),
+  );
+}
+
+export function isStatementSentUnpaidQuery(text) {
+  const raw = String(text || "").trim();
+  if (!/\uB0B4\uC5ED\uC11C/.test(raw)) return false;
+  const sent = /(?:\uBCF4\uB0C4|\uBCF4\uB099|\uBCF4\uB0C8|\uC804\uC1A1|\uB9C1\uD06C|\uBC1C\uC1A1)/.test(raw);
+  const notPaid =
+    /(?:\uC785\uAE08\s*(?:\uC548|\uC5C6|\uBABB)|\uBBF8\uC218|\uC548\s*\uB4E4|\uC548\s*\uB418|\uC544\uC9C1)/.test(raw);
+  return sent && notPaid;
+}
+
+function collectUnpaidSalesFromArchive(archive, sales, salesById, clients, seenSaleIds, unpaidRows) {
+  const subjectName = String(archive?.subjectName || "").trim();
+  const matchedClients = findClientsByQuery(clients, subjectName);
+  const clientFilterKeys = buildClientFilterKeys(subjectName, matchedClients);
+
+  const pushSale = (sale, statementPeriod) => {
+    const saleId = String(sale?.id ?? "");
+    if (!saleId || seenSaleIds.has(saleId)) return;
+    const unpaid = getUnpaid(sale);
+    if (unpaid <= 0) return;
+    seenSaleIds.add(saleId);
+    unpaidRows.push({
+      client: String(sale.client || subjectName || ""),
+      site: String(sale.site || ""),
+      date: String(sale.date || "").slice(0, 10),
+      unpaid,
+      statementPeriod,
+      sentAt: String(archive?.createdAt || "").slice(0, 10),
+    });
+  };
+
+  const statementPeriod =
+    archive?.periodStart && archive?.periodEnd
+      ? `${archive.periodStart}~${archive.periodEnd}`
+      : String(archive?.periodStart || archive?.periodEnd || "");
+
+  const saleIds = Array.isArray(archive?.statementSalesIds) ? archive.statementSalesIds : [];
+  if (saleIds.length) {
+    for (const id of saleIds) {
+      const sale = salesById.get(String(id));
+      if (sale) pushSale(sale, statementPeriod);
+    }
+    return;
+  }
+
+  if (!matchedClients.length) return;
+  const matchedSales = filterClientSalesInRange(
+    sales,
+    matchedClients,
+    clientFilterKeys,
+    archive?.periodStart,
+    archive?.periodEnd,
+  );
+  for (const sale of matchedSales) pushSale(sale, statementPeriod);
+}
+
+export function toolGetStatementSentUnpaid({ clientName, limit = 30 }) {
+  const state = getErpState(["sales", "clients"]);
+  const sales = Array.isArray(state.data?.sales) ? state.data.sales : [];
+  const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
+  const maxRows = Math.min(Math.max(Number(limit) || 30, 1), 50);
+  const salesById = new Map(sales.map((sale) => [String(sale.id), sale]));
+
+  let clientFilterKeys = null;
+  let resolvedClientName = "";
+  const query = String(clientName || "").trim();
+  if (query) {
+    const matchedClients = findClientsByQuery(clients, query);
+    if (!matchedClients.length) {
+      return { ok: false, error: `"${query}" \uAC70\uB798\uCC98\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    }
+    clientFilterKeys = buildClientFilterKeys(query, matchedClients);
+    resolvedClientName = String(matchedClients[0]?.name || query).trim();
+  }
+
+  const archives = listSentStatementArchiveMetas().filter((archive) => {
+    if (archive.category !== "statement-client") return false;
+    if (!archive.sentViaLink) return false;
+    if (archive.paymentStatus === "confirmed") return false;
+    if (clientFilterKeys && !labelMatchesClientKeys(archive.subjectName, clientFilterKeys)) return false;
+    return true;
+  });
+
+  const unpaidRows = [];
+  const seenSaleIds = new Set();
+  for (const archive of archives) {
+    collectUnpaidSalesFromArchive(archive, sales, salesById, clients, seenSaleIds, unpaidRows);
+  }
+
+  unpaidRows.sort((a, b) => b.unpaid - a.unpaid || String(b.date).localeCompare(String(a.date)));
+  const totalUnpaid = unpaidRows.reduce((sum, row) => sum + row.unpaid, 0);
+
+  return {
+    ok: true,
+    clientName: resolvedClientName || undefined,
+    statementCount: archives.length,
+    unpaidCount: unpaidRows.length,
+    totalUnpaid,
+    rows: unpaidRows.slice(0, maxRows),
+  };
+}
+
+export function formatStatementSentUnpaidAnswer(data) {
+  if (!data.ok) return data.error || "\uB0B4\uC5ED\uC11C \uBBF8\uC785\uAE08 \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  const prefix = data.clientName ? `${data.clientName} ` : "";
+  if (data.unpaidCount === 0) {
+    return `${prefix}\uB0B4\uC5ED\uC11C \uBCF4\uB0C8\uC9C0\uB9CC \uC544\uC9C1 \uBBF8\uC785\uAE08\uC778 \uB9E4\uCD9C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`;
+  }
+  const lines = [
+    `${prefix}\uB0B4\uC5ED\uC11C \uBCF4\uB0C8\uC9C0\uB9CC \uBBF8\uC785\uAE08 \uD569\uACC4: ${formatKRW(data.totalUnpaid)}\uC6D0 (${data.unpaidCount}\uAC74, \uB0B4\uC5ED\uC11C ${data.statementCount}\uAC74 \uAE30\uC900)`,
+  ];
+  for (const row of data.rows || []) {
+    const site = row.site ? ` / ${row.site}` : "";
+    const period = row.statementPeriod ? ` [${row.statementPeriod}]` : "";
+    lines.push(`- ${row.client}${site} (${row.date}): ${formatKRW(row.unpaid)}\uC6D0${period}`);
+  }
+  if (data.unpaidCount > (data.rows || []).length) {
+    lines.push(`\u2026 \uC678 ${data.unpaidCount - (data.rows || []).length}\uAC74`);
+  }
+  return lines.join("\n");
+}
+
+export function tryRuleBasedStatementSentUnpaidQuery(message) {
+  const text = String(message || "").trim();
+  if (!isStatementSentUnpaidQuery(text)) return null;
+  let clientName = "";
+  const possessive = text.match(/^(.+?)\uC758/);
+  if (possessive) clientName = possessive[1].trim();
+  if (!clientName) {
+    clientName = text
+      .replace(/\uB0B4\uC5ED\uC11C/g, "")
+      .replace(/(?:\uBCF4\uB0C4|\uBCF4\uB099|\uBCF4\uB0C8|\uC804\uC1A1|\uC785\uAE08|\uBBF8\uC218|\uC5B4\uB514|\uC5B4\uB290|\uC5B4\uB290\uAC70|\?)/g, "")
+      .replace(/(?:\uB294|\uC740|\uB294|\uC758|\uC744|\uC544\uC9C1|\uC548|\uC5C6|\uBABB|\uB4E4|\uB418)/g, "")
+      .trim();
+    if (clientName) {
+      const state = getErpState(["clients"]);
+      const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
+      const matched = findClientsByQuery(clients, clientName);
+      if (matched.length) clientName = String(matched[0]?.name || clientName).trim();
+      else clientName = "";
+    }
+  }
+  return formatStatementSentUnpaidAnswer(toolGetStatementSentUnpaid({ clientName: clientName || undefined }));
+}
+
+export function tryRuleBasedLookupQuery(message) {
+  return (
+    tryRuleBasedStatementSentUnpaidQuery(message) ||
+    tryRuleBasedClientSiteOnDateQuery(message) ||
+    tryRuleBasedPersonBankAccountQuery(message) ||
+    tryRuleBasedClientBusinessRegQuery(message) ||
+    tryRuleBasedClientTaxInvoiceIssuedQuery(message)
+  );
 }
 
 export function extractTaxInvoiceHistoryQuery(text) {
@@ -1505,27 +3214,63 @@ export function toolOpenClientTaxInvoiceHistory({ clientName, startDate, endDate
 }
 
 export function tryRuleBasedClientStatementOpen(message) {
-  const text = String(message || "").trim();
-  if (!chatIncludesIntent(text, "constructionStatement")) {
-    return null;
-  }
-  if (!hasChatOpenVerb(text) && !/(?:\uC0DD\uC131)/.test(text)) return null;
-  const { clientName, startDate, endDate } = extractClientStatementQuery(text);
-  if (!clientName) return null;
-  const result = toolOpenClientConstructionCostStatement({ clientName, startDate, endDate });
-  if (!result.ok) return result;
-  const state = getErpState(["clients", "workers"]);
-  const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
-  const workers = Array.isArray(state.data?.workers) ? state.data.workers : [];
-  if (!findClientsByQuery(clients, clientName).length) return null;
-  if (findWorkerByListName(workers, clientName)) return null;
-  return result;
+  const result = tryRuleBasedStatementOpen(message);
+  if (result?.clientName) return result;
+  return null;
 }
 
 export function tryRuleBasedStatementOpen(message) {
-  const clientResult = tryRuleBasedClientStatementOpen(message);
-  if (clientResult) return clientResult;
-  return tryRuleBasedWorkerStatementOpen(message);
+  const text = String(message || "").trim();
+  if (!isConstructionStatementQuery(text)) return null;
+  if (!hasChatOpenVerb(text) && !/(?:\uC0DD\uC131|\uB0B4\uC5ED)/.test(text)) return null;
+
+  const state = getErpState(["clients", "workers"]);
+  const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
+  const workers = Array.isArray(state.data?.workers) ? state.data.workers : [];
+  const nameFilter = resolveStatementNameFilter(text, clients, workers);
+  const workerPeriod = extractWorkerStatementQuery(text);
+  const clientPeriod = extractClientStatementQuery(text);
+  const startDate = workerPeriod.startDate || clientPeriod.startDate;
+  const endDate = workerPeriod.endDate || clientPeriod.endDate;
+
+  if (nameFilter.workerName) {
+    return toolOpenWorkerConstructionCostStatement({
+      workerName: nameFilter.workerName,
+      startDate,
+      endDate,
+    });
+  }
+  if (nameFilter.clientName) {
+    return toolOpenClientConstructionCostStatement({
+      clientName: nameFilter.clientName,
+      startDate,
+      endDate,
+    });
+  }
+  if (!nameFilter.unresolvedName) return null;
+
+  if (hasWorkerStatementContext(text) && !hasClientStatementContext(text)) {
+    return toolOpenWorkerConstructionCostStatement({
+      workerName: nameFilter.unresolvedName,
+      startDate,
+      endDate,
+    });
+  }
+
+  const clientResult = toolOpenClientConstructionCostStatement({
+    clientName: nameFilter.unresolvedName,
+    startDate,
+    endDate,
+  });
+  if (clientResult.ok) return clientResult;
+  if (hasWorkerStatementContext(text)) {
+    return toolOpenWorkerConstructionCostStatement({
+      workerName: nameFilter.unresolvedName,
+      startDate,
+      endDate,
+    });
+  }
+  return null;
 }
 
 export function tryRuleBasedDepositOpen(message) {
@@ -1552,6 +3297,140 @@ export function includesBankKeyword(text) {
   return chatIncludesIntent(raw, "bank", { excludeIntents: ["depositHistory"] });
 }
 
+export function isBankAccountColumnOnlyQuery(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  const compact = raw.replace(/\s+/g, "");
+  if (!/\uACC4\uC815\uB9CC/.test(compact)) return false;
+  if (/^\uACC4\uC815\uB9CC/.test(compact)) return true;
+  if (/\uD1B5\uC7A5(?:\uB0B4\uC5ED)?\uACC4\uC815\uB9CC/.test(compact)) return true;
+  if (/\uACC4\uC815\uB9CC(?:\uBCF4\uC5EC|\uBCF4\uAE30|\uD45C\uC2DC)/.test(compact)) return true;
+  if (/(?:\uBCF4\uC5EC|\uBCF4\uAE30|\uD45C\uC2DC)/.test(raw)) return true;
+  if (includesBankKeyword(raw)) return true;
+  return false;
+}
+
+const BANK_SEARCH_VERB_PATTERN = /(?:\uCC3E|\uAC80\uC0C9|\uC870\uD68C)/;
+
+function textHasBankSearchPeriod(text) {
+  const raw = String(text || "").trim();
+  return (
+    chatHasMonthKeyword(raw) ||
+    /(?:\uC624\uB298|\uC5B4\uC81C|\uB0B4\uC77C|\uBAA8\uB798|\uC774\uBC88\uC8FC|\uAE08\uC8FC|\d{4}-\d{2}-\d{2}|\d{1,2}\s*\uC77C(?:\s*(?:\uC5D0\uC11C|\uBD80\uD130|~|\-)\s*\d{1,2}\s*\uC77C)?)/.test(
+      raw,
+    )
+  );
+}
+
+function stripBankSearchPeriodNoise(value) {
+  return String(value || "")
+    .replace(CHAT_MONTH_KEYWORD_STRIP_PATTERN, "")
+    .replace(
+      /(?:\uC624\uB298|\uC5B4\uC81C|\uB0B4\uC77C|\uBAA8\uB798|\uC774\uBC88\uC8FC|\uAE08\uC8FC|\d{4}-\d{2}-\d{2}|\d{1,2}\s*\uC77C(?:\s*(?:\uC5D0\uC11C|\uBD80\uD130|~|\-)\s*\d{1,2}\s*\uC77C)?)/g,
+      "",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function extractBankSearchQuery(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+
+  const quotedMatch = raw.match(
+    /\uD1B5\uC7A5(?:\uB0B4\uC5ED)?(?:\uC5D0\uC11C|\uB9AC)?\s*[""\u300C\u300E''"]([^""\u300D\u300F''"]+)[""\u300D\u300F''"]\s*(?:\uCC3E|\uAC80\uC0C9)/,
+  );
+  if (quotedMatch?.[1]) return quotedMatch[1].trim();
+
+  const fromMatch = raw.match(
+    /\uD1B5\uC7A5(?:\uB0B4\uC5ED)?(?:\uC5D0\uC11C|\uB9AC)?\s+(.+?)\s*(?:\uCC3E\uC544(?:\uC918|\uC8FC\uC138\uC694|\uC694)?|\uAC80\uC0C9(?:\uD574(?:\uC918|\uC8FC\uC138\uC694|\uC694)?)?)/,
+  );
+  if (fromMatch?.[1]) {
+    const query = stripBankSearchPeriodNoise(fromMatch[1]);
+    if (query) return query;
+  }
+
+  const looseMatch = raw.match(/\uD1B5\uC7A5(?:\uB0B4\uC5ED)?\s*(?:\uC5D0\uC11C|\uB9AC)?\s*(.+?)\s*(?:\uCC3E|\uAC80\uC0C9)/);
+  if (looseMatch?.[1]) {
+    const query = stripBankSearchPeriodNoise(looseMatch[1]);
+    if (query) return query;
+  }
+
+  return null;
+}
+
+export function isBankSearchQuery(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  if (!includesBankKeyword(raw)) return false;
+  if (!BANK_SEARCH_VERB_PATTERN.test(raw)) return false;
+  if (hasChatOpenVerb(raw) && !/(?:\uCC3E|\uAC80\uC0C9)/.test(raw)) return false;
+  if (isBankAccountColumnOnlyQuery(raw)) return false;
+  return Boolean(extractBankSearchQuery(raw));
+}
+
+export function tryRuleBasedBankSearch(message) {
+  const text = String(message || "").trim();
+  if (!isBankSearchQuery(text)) return null;
+  const searchQuery = extractBankSearchQuery(text);
+  if (!searchQuery) return null;
+  if (textHasBankSearchPeriod(text)) {
+    const period = resolveStatementPeriodFromInput(text);
+    return {
+      ok: true,
+      searchQuery,
+      startDate: period.startDate,
+      endDate: period.endDate,
+      periodLabel: period.label,
+      periodKey: "custom",
+    };
+  }
+  return {
+    ok: true,
+    searchQuery,
+    periodKey: "all",
+  };
+}
+
+export function buildChatActionsFromBankSearch(result) {
+  if (!result?.ok || !result.searchQuery) return [];
+  const action = {
+    type: "navigate_erp",
+    page: "accounting",
+    label: "\uD1B5\uC7A5",
+    accountingTab: "bank",
+    bankSearchQuery: result.searchQuery,
+  };
+  if (result.startDate && result.endDate) {
+    action.startDate = result.startDate;
+    action.endDate = result.endDate;
+  }
+  return [action];
+}
+
+export function formatBankSearchAnswer(data) {
+  if (!data?.ok || !data.searchQuery) return data?.error || "\uD1B5\uC7A5 \uAC80\uC0C9\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  const period = data.periodLabel
+    ? ` (${data.periodLabel})`
+    : data.periodKey === "all"
+      ? " (\uC804\uCCB4 \uAE30\uAC04)"
+      : "";
+  return `\uD1B5\uC7A5 \uB0B4\uC5ED${period}\uC5D0\uC11C "${data.searchQuery}"\uC744(\uB97C) \uAC80\uC0C9\uD569\uB2C8\uB2E4.`;
+}
+
+export function tryRuleBasedBankAccountColumnView(message) {
+  const text = String(message || "").trim();
+  if (!isBankAccountColumnOnlyQuery(text)) return null;
+  const period = resolveStatementPeriodFromInput(text);
+  return {
+    ok: true,
+    startDate: period.startDate,
+    endDate: period.endDate,
+    periodLabel: period.label,
+    accountColumnOnly: true,
+  };
+}
+
 export function tryRuleBasedBankOpen(message) {
   const text = String(message || "").trim();
   if (!includesBankKeyword(text)) return null;
@@ -1567,20 +3446,25 @@ export function tryRuleBasedBankOpen(message) {
 
 export function buildChatActionsFromBankOpen(result) {
   if (!result?.ok) return [];
-  return [
-    {
-      type: "navigate_erp",
-      page: "accounting",
-      label: "\uD1B5\uC7A5",
-      accountingTab: "bank",
-      startDate: result.startDate,
-      endDate: result.endDate,
-    },
-  ];
+  const action = {
+    type: "navigate_erp",
+    page: "accounting",
+    label: "\uD1B5\uC7A5",
+    accountingTab: "bank",
+    startDate: result.startDate,
+    endDate: result.endDate,
+  };
+  if (result.accountColumnOnly) {
+    action.bankColumnPreset = "account_only";
+  }
+  return [action];
 }
 
 export function formatBankOpenAnswer(data) {
   if (!data.ok) return data.error || "\uD1B5\uC7A5 \uC774\uB3D9\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  if (data.accountColumnOnly) {
+    return "\uD1B5\uC7A5 \uB0B4\uC5ED\uC5D0\uC11C \uACC4\uC815 \uC5F4\uB9CC \uBCF4\uC774\uB3C4\uB85D \uC5F4\uC5B4 \uB4DC\uB9BD\uB2C8\uB2E4.";
+  }
   const period = data.periodLabel || `${data.startDate}~${data.endDate}`;
   return `\uD1B5\uC7A5 \uB0B4\uC5ED(${period})\uC744 \uC5F4\uC5B4 \uC904\uB2C8\uB2E4.`;
 }
@@ -1671,6 +3555,80 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
   {
     type: "function",
     function: {
+      name: "get_unpaid_list",
+      description:
+        "\uAE30\uAC04\uBCC4 \uBBF8\uC218(\uBBF8\uC218\uAE08) \uBAA9\uB85D\uACFC \uD569\uACC4\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4. \uC608: \uC774\uBC88\uB2EC \uBBF8\uC218 \uB9AC\uC2A4\uD2B8, \uC800\uBC88\uB2EC \uBBF8\uC218\uBAA9\uB85D, 5\uC6D4 \uBBF8\uC218 \uBAA9\uB85D, \uC778\uB514\uD37C \uC774\uBC88\uB2EC \uBBF8\uC218. \uAC70\uB798\uCC98 \uC804\uCCB4 \uD604\uC7AC \uBBF8\uC218\uB294 get_client_unpaid(\uAC70\uB798\uCC98 \uC774\uB984 \uD544\uC218)\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
+      parameters: {
+        type: "object",
+        properties: {
+          startDate: { type: "string", description: "\uAE30\uAC04 \uC2DC\uC791 YYYY-MM-DD" },
+          endDate: { type: "string", description: "\uAE30\uAC04 \uC885\uB8CC YYYY-MM-DD" },
+          clientName: { type: "string", description: "\uAC70\uB798\uCC98 \uC774\uB984 (\uC120\uD0DD)" },
+          period: { type: "string", description: "\uC774\uBC88\uB2EC, 5\uC6D4, \uC774\uBC88\uC8FC, \uC804\uCCB4 \uBBF8\uC218 \uBAA9\uB85D \uB4F1" },
+          limit: { type: "number", description: "\uBAA9\uB85D \uCD5C\uB300 \uAC74\uC218 (\uAE30\uBCF8 30)" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_deposit_total",
+      description:
+        "\uAE30\uAC04\uBCC4 \uC785\uAE08 \uD569\uACC4(\uAE08\uC561)\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4. \uC608: \uC624\uB298 \uC785\uAE08\uC561, \uC774\uBC88\uB2EC \uC785\uAE08 \uD569\uACC4, \uC778\uB514\uD37C 5\uC6D4 \uC785\uAE08 \uC5BC\uB9C8. \uC785\uAE08\uB0B4\uC5ED \uD654\uBA74 \uC5F4\uAE30\uB294 open_client_deposit_history\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
+      parameters: {
+        type: "object",
+        properties: {
+          date: { type: "string", description: "\uC624\uB298, \uB0B4\uC77C, YYYY-MM-DD (\uB2E8\uC77C\uC77C)" },
+          startDate: { type: "string", description: "\uAE30\uAC04 \uC2DC\uC791 YYYY-MM-DD" },
+          endDate: { type: "string", description: "\uAE30\uAC04 \uC885\uB8CC YYYY-MM-DD" },
+          clientName: { type: "string", description: "\uAC70\uB798\uCC98 \uC774\uB984 (\uC120\uD0DD)" },
+          period: { type: "string", description: "\uC624\uB298, \uC774\uBC88\uB2EC, \uC774\uBC88\uC8FC, 5\uC6D4 \uB4F1 (\uC120\uD0DD)" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_sales_total",
+      description:
+        "\uAE30\uAC04\uBCC4 \uB9E4\uCD9C(\uC804\uD45C) \uAE08\uC561 \uD569\uACC4\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4. \uC608: \uC624\uB298 \uB9E4\uCD9C, \uC5B4\uC81C \uB9E4\uCD9C \uC5BC\uB9C8, \uC774\uBC88\uB2EC \uB9E4\uCD9C \uD569\uACC4, \uC778\uB514\uD37C 5\uC6D4 \uB9E4\uCD9C. \uACC4\uC0B0\uC11C/\uC138\uAE08\uACC4\uC0B0\uC11C\uB294 get_tax_invoice_summary\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
+      parameters: {
+        type: "object",
+        properties: {
+          date: { type: "string", description: "\uC624\uB298, \uC5B4\uC81C, \uB0B4\uC77C, YYYY-MM-DD (\uB2E8\uC77C\uC77C)" },
+          startDate: { type: "string", description: "\uAE30\uAC04 \uC2DC\uC791 YYYY-MM-DD" },
+          endDate: { type: "string", description: "\uAE30\uAC04 \uC885\uB8CC YYYY-MM-DD" },
+          clientName: { type: "string", description: "\uAC70\uB798\uCC98 \uC774\uB984 (\uC120\uD0DD)" },
+          period: { type: "string", description: "\uC624\uB298, \uC5B4\uC81C, \uC774\uBC88\uB2EC, \uC774\uBC88\uC8FC, 5\uC6D4 \uB4F1 (\uC120\uD0DD)" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_tax_invoice_summary",
+      description:
+        "\uAE30\uAC04\uBCC4 \uB9E4\uC785/\uB9E4\uCD9C \uACC4\uC0B0\uC11C\u00B7\uC138\uAE08\uACC4\uC0B0\uC11C \uD569\uACC4(\uAE08\uC561)\uC744 \uC870\uD68C\uD569\uB2C8\uB2E4. \uC608: \uC624\uB298 \uB9E4\uC785 \uACC4\uC0B0\uC11C \uAE08\uC561, \uC774\uBC88\uB2EC \uB9E4\uCD9C \uACC4\uC0B0\uC11C \uD569\uACC4, \uC624\uB298 \uB9E4\uC785 \uC138\uAE08\uACC4\uC0B0\uC11C. \uAC70\uB798\uCC98 \uB0B4\uC5ED \uD654\uBA74 \uC5F4\uAE30\uB294 open_client_tax_invoice_history\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
+      parameters: {
+        type: "object",
+        properties: {
+          date: { type: "string", description: "\uC624\uB298, \uB0B4\uC77C, YYYY-MM-DD (\uB2E8\uC77C\uC77C)" },
+          startDate: { type: "string", description: "\uAE30\uAC04 \uC2DC\uC791 YYYY-MM-DD" },
+          endDate: { type: "string", description: "\uAE30\uAC04 \uC885\uB8CC YYYY-MM-DD" },
+          flowType: { type: "string", description: "purchase(\uB9E4\uC785) \uB610\uB294 sales(\uB9E4\uCD9C)" },
+          documentType: { type: "string", description: "tax(\uC138\uAE08\uACC4\uC0B0\uC11C) \uB610\uB294 bill(\uACC4\uC0B0\uC11C)" },
+          clientName: { type: "string", description: "\uAC70\uB798\uCC98 \uC774\uB984 (\uC120\uD0DD)" },
+          period: { type: "string", description: "\uC624\uB298, \uC774\uBC88\uB2EC, \uC774\uBC88\uC8FC, 5\uC6D4 \uB4F1 (\uC120\uD0DD)" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_schedule_count",
       description: "\uB0A0\uC9DC \uB610\uB294 \uAE30\uAC04(\uC624\uB298/\uB0B4\uC77C/\uC774\uBC88\uC8FC/\uB2E4\uC74C\uC8FC/YYYY-MM-DD)\uACFC \uAC70\uB798\uCC98 \uC774\uB984(\uC120\uD0DD)\uC73C\uB85C \uB9E4\uCD9C\uC77C\uC815\uACFC SC \uC77C\uC815 \uBAA9\uB85D\uC744 \uC870\uD68C\uD569\uB2C8\uB2E4.",
       parameters: {
@@ -1682,6 +3640,84 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
           clientName: { type: "string", description: "\uAC70\uB798\uCC98 \uC774\uB984 \uB610\uB294 \uBCC4\uCE59 (\uC608: \uD0A4\uCE9C\uC81C\uB2C8\uC2A4)" },
           workerName: { type: "string", description: "\uC2DC\uACF5\uC790 \uC774\uB984 (\uC608: \uBC30\uC885\uC6D0). SC \uCC38\uC5EC\uC790 \uAE30\uC900." },
           limit: { type: "number", description: "\uBAA9\uB85D \uCD5C\uB300 \uAC74\uC218 (\uAE30\uBCF8 30)" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_person_bank_account",
+      description:
+        "\uC2DC\uACF5\uC790 \uB610\uB294 \uAC70\uB798\uCC98 \uC774\uB984\uC73C\uB85C \uACC4\uC88C(\uC740\uD589/\uACC4\uC88C\uBC88\uD638)\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4. \uC608: \uAC15\uD0DC\uC6D0 \uACC4\uC88C\uBC88\uD638 \uC54C\uB824\uC918. \uD1B5\uC7A5 \uD654\uBA74 \uC5F4\uAE30\uAC00 \uC544\uB2CC \uACC4\uC88C \uC815\uBCF4 \uC870\uD68C \uC804\uC6A9\uC785\uB2C8\uB2E4.",
+      parameters: {
+        type: "object",
+        properties: {
+          personName: { type: "string", description: "\uC2DC\uACF5\uC790 \uB610\uB294 \uAC70\uB798\uCC98 \uC774\uB984" },
+        },
+        required: ["personName"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_client_site_on_date",
+      description:
+        "\uAC70\uB798\uCC98\uC758 \uD14C\uC815 \uB0A0\uC9DC \uD604\uC7A5 \uC704\uCE58\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4. \uC608: 6\uC6D4 2\uC77C \uC778\uB514\uD37C \uD604\uC7A5 \uC5B4\uB514\uC57C. SC \uC77C\uC815, \uB9E4\uCD9C \uC804\uD45C, \uD604\uC7A5 \uC811\uC218 \uAE30\uC900.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientName: { type: "string", description: "\uAC70\uB798\uCC98 \uC774\uB984 (\uC608: \uC778\uB514\uD37C)" },
+          date: { type: "string", description: "YYYY-MM-DD \uB610\uB294 6\uC6D42\uC77C \uD615\uD0DC" },
+        },
+        required: ["clientName", "date"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_statement_sent_unpaid",
+      description:
+        "\uB0B4\uC5ED\uC11C(\uB9C1\uD06C) \uBCF4\uB0C8\uC9C0\uB9CC \uC544\uC9C1 \uBBF8\uC785\uAE08\uC778 \uB9E4\uCD9C \uBAA9\uB85D\uC744 \uC870\uD68C\uD569\uB2C8\uB2E4. \uC608: \uB0B4\uC5ED\uC11C \uBCF4\uB0C8\uB294\uB370 \uC785\uAE08 \uC548 \uB4E4\uC5B4\uC628 \uAC70 \uC5B4\uB514.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientName: { type: "string", description: "\uAC70\uB798\uCC98 \uC774\uB984 (\uC120\uD0DD)" },
+          limit: { type: "number", description: "\uBAA9\uB85D \uCD5C\uB300 \uAC74\uC218 (\uAE30\uBCF8 30)" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_client_business_reg",
+      description:
+        "\uAC70\uB798\uCC98 \uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uD30C\uC77C \uBC0F \uC0AC\uC5C5\uC790\uB4F1\uB85D\uBC88\uD638 \uB4F1\uB85D \uC5EC\uBD80\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4. \uC608: \uC778\uB514\uD37C \uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uC788\uC5B4?",
+      parameters: {
+        type: "object",
+        properties: {
+          clientName: { type: "string", description: "\uAC70\uB798\uCC98 \uC774\uB984 (\uC608: \uC778\uB514\uD37C)" },
+        },
+        required: ["clientName"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_client_tax_invoice_issued",
+      description:
+        "\uAC70\uB798\uCC98\uC758 \uAE30\uAC04\uBCC4 \uACC4\uC0B0\uC11C/\uC138\uAE08\uACC4\uC0B0\uC11C \uBC1C\uD589 \uC5EC\uBD80\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4. \uC608: \uC778\uB514\uD37C \uC774\uBC88\uB2EC \uACC4\uC0B0\uC11C \uBC1C\uD589\uD55C\uC801 \uC788\uB098?",
+      parameters: {
+        type: "object",
+        properties: {
+          clientName: { type: "string", description: "\uAC70\uB798\uCC98 \uC774\uB984 (\uC120\uD0DD)" },
+          startDate: { type: "string", description: "\uAE30\uAC04 \uC2DC\uC791 YYYY-MM-DD" },
+          endDate: { type: "string", description: "\uAE30\uAC04 \uC885\uB8CC YYYY-MM-DD" },
+          period: { type: "string", description: "\uC774\uBC88\uB2EC, 5\uC6D4 \uB4F1" },
         },
       },
     },
@@ -1808,7 +3844,8 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "open_worker_construction_cost_statement",
-      description: "\uC2DC\uACF5\uC790 \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C/\uC2DC\uACF5\uB0B4\uC5ED\uC11C(\uAC1C\uC778 \uC2DC\uACF5\uB0B4\uC5ED\uC11C)\uB97C \uC5F4\uC796\uB2C8\uB2E4. \uC608: \uAE40\uBBFC\uC131 5\uC6D4 \uC2DC\uACF5\uB0B4\uC5ED\uC11C \uC5F4\uC5B4\uC918, \uAE40\uBBFC\uC131 \uC774\uBC88\uB2EC \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C.",
+      description:
+        "\uC2DC\uACF5\uC790 \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C/\uC2DC\uACF5\uB0B4\uC5ED\uC11C/\uB0B4\uC5ED\uC11C(\uAC1C\uC778 \uC2DC\uACF5\uB0B4\uC5ED\uC11C)\uB97C \uC5F4\uC796\uB2C8\uB2E4. \uC2DC\uACF5\uC790 \uBAA9\uB85D\uC5D0 \uC788\uB294 \uC774\uB984\uC774\uBA74 \uAC70\uB798\uCC98 \uB0B4\uC5ED\uC11C\uAC00 \uC544\uB2CC \uC774 \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uC608: \uAE40\uBBFC\uC131 5\uC6D4 \uB0B4\uC5ED\uC11C, \uAE40\uBBFC\uC131 5\uC6D4 \uC2DC\uACF5\uB0B4\uC5ED\uC11C \uC5F4\uC5B4\uC918, \uAE40\uBBFC\uC131 \uC774\uBC88\uB2EC \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C.",
       parameters: {
         type: "object",
         properties: {
@@ -1825,7 +3862,8 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "open_client_construction_cost_statement",
-      description: "\uAC70\uB798\uCC98 \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C\uB97C \uC0DD\uC131\uD574 \uC5F4\uC796\uB2C8\uB2E4. \uC608: \uC778\uB514\uD37C \uC774\uBC88\uB2EC \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C, \uC778\uB514\uD37C \uC774\uBC88\uB2EC 15\uC77C~30\uC77C \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C.",
+      description:
+        "\uAC70\uB798\uCC98 \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C\uB97C \uC0DD\uC131\uD574 \uC5F4\uC796\uB2C8\uB2E4. \uC2DC\uACF5\uC790 \uBAA9\uB85D \uC774\uB984\uC774\uBA74 open_worker_construction_cost_statement\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uC608: \uC778\uB514\uD37C \uC774\uBC88\uB2EC \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C, \uC778\uB514\uD37C \uC774\uBC88\uB2EC 15\uC77C~30\uC77C \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C.",
       parameters: {
         type: "object",
         properties: {
@@ -1880,8 +3918,80 @@ export function executeErpChatTool(name, args, user, question) {
   switch (name) {
     case "get_client_unpaid":
       return toolGetClientUnpaid(args || {});
+    case "get_unpaid_list": {
+      const parsed = rawQuestion ? extractUnpaidListQuery(rawQuestion) : {};
+      const merged = { ...(args || {}) };
+      if (!merged.clientName && parsed.clientName) merged.clientName = parsed.clientName;
+      if (!merged.startDate && parsed.startDate) merged.startDate = parsed.startDate;
+      if (!merged.endDate && parsed.endDate) merged.endDate = parsed.endDate;
+      if (!merged.rawQuery && rawQuestion) merged.rawQuery = rawQuestion;
+      if (!merged.period && rawQuestion) merged.period = rawQuestion;
+      return toolGetUnpaidList(merged);
+    }
+    case "get_deposit_total": {
+      const parsed = rawQuestion ? extractDepositTotalQuery(rawQuestion) : {};
+      const merged = { ...(args || {}) };
+      if (!merged.clientName && parsed.clientName) merged.clientName = parsed.clientName;
+      if (!merged.startDate && parsed.startDate) merged.startDate = parsed.startDate;
+      if (!merged.endDate && parsed.endDate) merged.endDate = parsed.endDate;
+      if (!merged.rawQuery && rawQuestion) merged.rawQuery = rawQuestion;
+      if (!merged.period && rawQuestion) merged.period = rawQuestion;
+      return toolGetDepositTotal(merged);
+    }
+    case "get_sales_total": {
+      const parsed = rawQuestion ? extractSalesTotalQuery(rawQuestion) : {};
+      const merged = { ...(args || {}) };
+      if (!merged.clientName && parsed.clientName) merged.clientName = parsed.clientName;
+      if (!merged.startDate && parsed.startDate) merged.startDate = parsed.startDate;
+      if (!merged.endDate && parsed.endDate) merged.endDate = parsed.endDate;
+      if (!merged.rawQuery && rawQuestion) merged.rawQuery = rawQuestion;
+      if (!merged.period && rawQuestion) merged.period = rawQuestion;
+      return toolGetSalesTotal(merged);
+    }
+    case "get_tax_invoice_summary": {
+      const parsed = rawQuestion ? extractTaxInvoiceSummaryQuery(rawQuestion) : {};
+      const merged = { ...(args || {}) };
+      if (!merged.clientName && parsed.clientName) merged.clientName = parsed.clientName;
+      if (!merged.startDate && parsed.startDate) merged.startDate = parsed.startDate;
+      if (!merged.endDate && parsed.endDate) merged.endDate = parsed.endDate;
+      if (!merged.flowType && parsed.flowType) merged.flowType = parsed.flowType;
+      if (!merged.documentType && parsed.documentType) merged.documentType = parsed.documentType;
+      if (!merged.rawQuery && rawQuestion) merged.rawQuery = rawQuestion;
+      if (!merged.period && rawQuestion) merged.period = rawQuestion;
+      return toolGetTaxInvoiceSummary(merged);
+    }
     case "get_schedule_count":
       return toolGetScheduleCount(args || {});
+    case "get_person_bank_account": {
+      const parsed = rawQuestion ? extractPersonBankAccountQuery(rawQuestion) : {};
+      return toolGetPersonBankAccount({
+        personName: args?.personName || parsed.personName,
+        entityKind: parsed.entityKind,
+      });
+    }
+    case "get_client_site_on_date": {
+      const parsed = rawQuestion ? extractClientSiteOnDateQuery(rawQuestion) : {};
+      return toolGetClientSiteOnDate({
+        clientName: args?.clientName || parsed.clientName,
+        date: args?.date || parsed.date,
+      });
+    }
+    case "get_statement_sent_unpaid":
+      return toolGetStatementSentUnpaid(args || {});
+    case "get_client_business_reg": {
+      const parsed = rawQuestion ? extractClientBusinessRegQuery(rawQuestion) : {};
+      return toolGetClientBusinessReg({ clientName: args?.clientName || parsed.clientName });
+    }
+    case "get_client_tax_invoice_issued": {
+      const parsed = rawQuestion ? extractTaxInvoiceSummaryQuery(rawQuestion) : {};
+      const merged = { ...(args || {}) };
+      if (!merged.clientName && parsed.clientName) merged.clientName = parsed.clientName;
+      if (!merged.startDate && parsed.startDate) merged.startDate = parsed.startDate;
+      if (!merged.endDate && parsed.endDate) merged.endDate = parsed.endDate;
+      if (!merged.rawQuery && rawQuestion) merged.rawQuery = rawQuestion;
+      if (!merged.period && rawQuestion) merged.period = rawQuestion;
+      return toolGetTaxInvoiceSummary(merged);
+    }
     case "lookup_contact":
       return toolLookupContact(args || {}, user);
     case "get_client_contacts":
@@ -1902,10 +4012,57 @@ export function executeErpChatTool(name, args, user, question) {
         clientName: args?.clientName || parsed,
       });
     }
-    case "open_worker_construction_cost_statement":
-      return toolOpenWorkerConstructionCostStatement(args || {});
-    case "open_client_construction_cost_statement":
-      return toolOpenClientConstructionCostStatement(args || {});
+    case "open_worker_construction_cost_statement": {
+      const parsed = rawQuestion ? extractWorkerStatementQuery(rawQuestion) : {};
+      const merged = { ...(args || {}) };
+      if (!merged.workerName && parsed.workerName) merged.workerName = parsed.workerName;
+      if (!merged.startDate && parsed.startDate) merged.startDate = parsed.startDate;
+      if (!merged.endDate && parsed.endDate) merged.endDate = parsed.endDate;
+      if (!merged.period && rawQuestion) merged.period = rawQuestion;
+      return toolOpenWorkerConstructionCostStatement(merged);
+    }
+    case "open_client_construction_cost_statement": {
+      const parsed = rawQuestion ? extractClientStatementQuery(rawQuestion) : {};
+      const merged = { ...(args || {}) };
+      if (!merged.clientName && parsed.clientName) merged.clientName = parsed.clientName;
+      if (!merged.startDate && parsed.startDate) merged.startDate = parsed.startDate;
+      if (!merged.endDate && parsed.endDate) merged.endDate = parsed.endDate;
+      if (!merged.period && rawQuestion) merged.period = rawQuestion;
+
+      const lookupState = getErpState(["clients", "workers"]);
+      const lookupClients = Array.isArray(lookupState.data?.clients) ? lookupState.data.clients : [];
+      const lookupWorkers = Array.isArray(lookupState.data?.workers) ? lookupState.data.workers : [];
+      const resolveText = rawQuestion || merged.clientName || "";
+      const nameFilter = resolveStatementNameFilter(resolveText, lookupClients, lookupWorkers);
+
+      if (nameFilter.workerName) {
+        const workerPeriod = rawQuestion ? extractWorkerStatementQuery(rawQuestion) : {};
+        return toolOpenWorkerConstructionCostStatement({
+          workerName: nameFilter.workerName,
+          startDate: merged.startDate || workerPeriod.startDate,
+          endDate: merged.endDate || workerPeriod.endDate,
+          period: merged.period,
+        });
+      }
+
+      const result = toolOpenClientConstructionCostStatement({
+        ...merged,
+        clientName: nameFilter.clientName || merged.clientName,
+      });
+      if (!result.ok && merged.clientName) {
+        const worker = findWorkerByListName(lookupWorkers, merged.clientName);
+        if (worker) {
+          const workerPeriod = rawQuestion ? extractWorkerStatementQuery(rawQuestion) : {};
+          return toolOpenWorkerConstructionCostStatement({
+            workerName: String(worker.name || merged.clientName).trim(),
+            startDate: merged.startDate || workerPeriod.startDate,
+            endDate: merged.endDate || workerPeriod.endDate,
+            period: merged.period,
+          });
+        }
+      }
+      return result;
+    }
     case "open_client_deposit_history": {
       const parsed = rawQuestion ? extractDepositHistoryQuery(rawQuestion) : {};
       const merged = { ...(args || {}) };
@@ -1972,16 +4129,83 @@ export function formatCasualFallbackAnswer(message) {
   return null;
 }
 
+export function tryRuleBasedTotalsQuery(message) {
+  const text = String(message || "").trim();
+  if (!text) return null;
+
+  if (isDepositTotalQuery(text)) {
+    const parsed = extractDepositTotalQuery(text);
+    return formatDepositTotalAnswer(
+      toolGetDepositTotal({
+        startDate: parsed.startDate,
+        endDate: parsed.endDate,
+        clientName: parsed.clientName,
+        rawQuery: text,
+      }),
+    );
+  }
+
+  if (isTaxInvoiceSummaryQuery(text)) {
+    if (isClientTaxInvoiceIssuedQuery(text)) {
+      const parsed = extractTaxInvoiceSummaryQuery(text);
+      return formatClientTaxInvoiceIssuedAnswer(
+        toolGetTaxInvoiceSummary({
+          startDate: parsed.startDate,
+          endDate: parsed.endDate,
+          clientName: parsed.clientName,
+          flowType: parsed.flowType,
+          documentType: parsed.documentType,
+          rawQuery: text,
+        }),
+      );
+    }
+    const parsed = extractTaxInvoiceSummaryQuery(text);
+    return formatTaxInvoiceSummaryAnswer(
+      toolGetTaxInvoiceSummary({
+        startDate: parsed.startDate,
+        endDate: parsed.endDate,
+        clientName: parsed.clientName,
+        flowType: parsed.flowType,
+        documentType: parsed.documentType,
+        rawQuery: text,
+      }),
+    );
+  }
+
+  if (isSalesTotalQuery(text)) {
+    const parsed = extractSalesTotalQuery(text);
+    return formatSalesTotalAnswer(
+      toolGetSalesTotal({
+        startDate: parsed.startDate,
+        endDate: parsed.endDate,
+        clientName: parsed.clientName,
+        rawQuery: text,
+      }),
+    );
+  }
+
+  return null;
+}
+
+export function tryRuleBasedPriorityQuery(message) {
+  return (
+    tryRuleBasedLookupQuery(message) ||
+    tryRuleBasedTotalsQuery(message) ||
+    tryRuleBasedUnpaidListQuery(message)
+  );
+}
+
 export function formatGreetingAnswer() {
   return [
     "안녕하세요! TeamMillimeter ERP 어시스턴트입니다.",
     "",
     "다음과 같이 도와드릴 수 있어요.",
-    "· 거래처 미수, 일정, 담당자/시공자 연락처·차량번호 조회",
-    "· 거래처 입금내역, 세금계산서, 시공비내역서 열기",
+    "· 거래처·기간별 미수 목록, 일정, 오늘/어제/기간별 매출·입금·계산서 합계, 담당자/시공자 연락처·차량번호·계좌번호 조회",
+    "· 거래처 현장(날짜별), 사업자등록증, 계산서 발행 여부, 내역서 발송 후 미입금 조회",
+    "· 거래처 입금내역, 세금계산서 내역, 시공비내역서 열기",
     "· 캘린더, SC 스케줄, 통장, 전표 등 ERP 화면 이동",
     "",
-    '예: "인디퍼 미수", "내일 일정", "인디퍼 입금내역 열어줘", "어떤 화면 열 수 있어?"',
+    '예: "인디퍼 미수", "강태원 계좌번호", "6월 2일 인디퍼 현장 어디야", "내역서 보냈는데 입금 안들어온데", "인디퍼 사업자등록증 있어?", "인디퍼 이번달 계산서 발행한적 있나?", "이번달 매출 얼마", "오늘 입금액"',
   ].join("\n");
 }
 
@@ -1992,6 +4216,15 @@ export function tryRuleBasedChat(message, user) {
   if (isChatGreeting(text)) {
     return formatGreetingAnswer();
   }
+
+  const lookupAnswer = tryRuleBasedLookupQuery(text);
+  if (lookupAnswer) return lookupAnswer;
+
+  const totalsAnswer = tryRuleBasedTotalsQuery(text);
+  if (totalsAnswer) return totalsAnswer;
+
+  const unpaidListAnswer = tryRuleBasedUnpaidListQuery(text);
+  if (unpaidListAnswer) return unpaidListAnswer;
 
   const kwUnpaid = "\uBBF8\uC218";
   const kwTomorrow = "\uB0B4\uC77C";
@@ -2021,7 +4254,11 @@ export function tryRuleBasedChat(message, user) {
     }
   }
 
-  if ((text.includes(kwSchedule) || text.includes(kwSc)) && !(hasChatOpenVerb(text) && includesScScheduleKeyword(text))) {
+  if (
+    !isClientSiteOnDateQuery(text) &&
+    (text.includes(kwSchedule) || text.includes(kwSc)) &&
+    !(hasChatOpenVerb(text) && includesScScheduleKeyword(text))
+  ) {
     const extractedName = extractClientNameFromScheduleQuery(text);
     const range = resolveDateRangeFromInput(text);
     const hasWeekKeyword =
@@ -2067,7 +4304,10 @@ export function tryRuleBasedChat(message, user) {
     }
   }
 
-  if (text.includes(kwManager) || text.includes(kwPhone) || text.includes(kwContact) || text.includes(kwNumber)) {
+  if (
+    !isPersonBankAccountQuery(text) &&
+    (text.includes(kwManager) || text.includes(kwPhone) || text.includes(kwContact) || text.includes(kwNumber))
+  ) {
     const parsed = parseClientPersonContactQuery(text);
     if (parsed) {
       return formatClientContactLookupAnswer(toolLookupClientContact(parsed, user));
@@ -2081,7 +4321,7 @@ export function tryRuleBasedChat(message, user) {
     }
   }
 
-  if (text.includes(kwPhone) || text.includes(kwContact) || text.includes(kwNumber)) {
+  if (!isPersonBankAccountQuery(text) && (text.includes(kwPhone) || text.includes(kwContact) || text.includes(kwNumber))) {
     const name = extractClientNameFromContactQuery(text);
     if (name) {
       return tryClientContactsOrPersonLookup(name, user);

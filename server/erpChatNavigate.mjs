@@ -201,7 +201,17 @@ function trySpecializedNavigate({ entry, text, clientName, workerName, startDate
   return null;
 }
 
-export function toolNavigateErp({ target, clientName, workerName, startDate, endDate, period, message }) {
+export function toolNavigateErp({
+  target,
+  clientName,
+  workerName,
+  startDate,
+  endDate,
+  period,
+  bankColumnPreset,
+  bankSearchQuery,
+  message,
+}) {
   const entry = resolveNavEntryByTarget(target);
   if (!entry) {
     return {
@@ -226,21 +236,33 @@ export function toolNavigateErp({ target, clientName, workerName, startDate, end
 
   let navStartDate = startDate || undefined;
   let navEndDate = endDate || undefined;
+  const resolvedBankSearchQuery = String(bankSearchQuery || "").trim();
   if (entry.accountingTab === "bank" || entry.id === "accounting_bank") {
-    const parsed = resolveStatementPeriodFromInput(String(period || contextText || "").trim());
-    navStartDate = navStartDate || parsed.startDate;
-    navEndDate = navEndDate || parsed.endDate;
+    const hasExplicitPeriod = Boolean(startDate || endDate || String(period || "").trim());
+    if (!resolvedBankSearchQuery || hasExplicitPeriod) {
+      const parsed = resolveStatementPeriodFromInput(String(period || contextText || "").trim());
+      navStartDate = navStartDate || parsed.startDate;
+      navEndDate = navEndDate || parsed.endDate;
+    }
+  }
+
+  const navExtras = {
+    clientName: clientName || undefined,
+    workerName: workerName || undefined,
+    startDate: navStartDate,
+    endDate: navEndDate,
+  };
+  if (bankColumnPreset === "account_only" && (entry.accountingTab === "bank" || entry.id === "accounting_bank")) {
+    navExtras.bankColumnPreset = "account_only";
+  }
+  if (resolvedBankSearchQuery && (entry.accountingTab === "bank" || entry.id === "accounting_bank")) {
+    navExtras.bankSearchQuery = resolvedBankSearchQuery;
   }
 
   return {
     ok: true,
     navKind: "page",
-    nav: buildNavPayload(entry, {
-      clientName: clientName || undefined,
-      workerName: workerName || undefined,
-      startDate: navStartDate,
-      endDate: navEndDate,
-    }),
+    nav: buildNavPayload(entry, navExtras),
   };
 }
 
@@ -372,6 +394,15 @@ export const NAVIGATE_ERP_TOOL_DEFINITION = {
         startDate: { type: "string", description: "YYYY-MM-DD (\uC120\uD0DD)" },
         endDate: { type: "string", description: "YYYY-MM-DD (\uC120\uD0DD)" },
         period: { type: "string", description: "\uC774\uBC88\uB2EC, 5\uC6D4 \uB4F1 (\uC120\uD0DD)" },
+        bankColumnPreset: {
+          type: "string",
+          enum: ["account_only"],
+          description: "\uD1B5\uC7A5 \uD654\uBA74 \uC5F4 \uC2DC \uACC4\uC815 \uC5F4\uB9CC \uD45C\uC2DC (\uC120\uD0DD)",
+        },
+        bankSearchQuery: {
+          type: "string",
+          description: "\uD1B5\uC7A5 \uB0B4\uC5ED \uAC80\uC0C9\uC5B4 (\uC608: \uAC70\uB798\uCC98\uBA85, \uBA54\uBAA8 \uD0A4\uC6CC\uB4DC)",
+        },
       },
       required: ["target"],
     },

@@ -8135,6 +8135,8 @@ export default function TeammillimeterErpMvp() {
     startDate: string;
     endDate: string;
   } | null>(null);
+  const [pendingBankColumnPreset, setPendingBankColumnPreset] = useState<"account_only" | null>(null);
+  const [pendingBankSearchQuery, setPendingBankSearchQuery] = useState<string | null>(null);
   const [pendingWorkerStatementFilter, setPendingWorkerStatementFilter] = useState<{
     workerName: string;
     startDate: string;
@@ -9382,6 +9384,12 @@ export default function TeammillimeterErpMvp() {
         if (action.analysisTab) setAnalysisNavTab(action.analysisTab);
         if (action.userAdminTab) setUserAdminNavTab(action.userAdminTab);
         if (action.workerPaymentsTab) setPendingWorkerPaymentsTab(action.workerPaymentsTab);
+        if (action.accountingTab === "bank" && action.bankColumnPreset === "account_only") {
+          setPendingBankColumnPreset("account_only");
+        }
+        if (action.accountingTab === "bank" && action.bankSearchQuery) {
+          setPendingBankSearchQuery(action.bankSearchQuery);
+        }
         if (action.accountingTab === "bank" && action.startDate && action.endDate) {
           setPendingBankDateFilter({
             startDate: action.startDate,
@@ -10340,6 +10348,10 @@ export default function TeammillimeterErpMvp() {
               onBankTabActiveChange={setBankTabActive}
               pendingBankDateFilter={pendingBankDateFilter}
               onPendingBankDateFilterConsumed={() => setPendingBankDateFilter(null)}
+              pendingBankColumnPreset={pendingBankColumnPreset}
+              onPendingBankColumnPresetConsumed={() => setPendingBankColumnPreset(null)}
+              pendingBankSearchQuery={pendingBankSearchQuery}
+              onPendingBankSearchQueryConsumed={() => setPendingBankSearchQuery(null)}
               bank={accountingBankHubProps}
             ledger={{
               bankTransactions,

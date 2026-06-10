@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useState } from "react";
+import React, { memo, useCallback, useEffect, useState } from "react";
 import { ArrowLeftRight, ListChecks, Repeat, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BankTransactionDisplaySettings } from "@/components/BankTransactionDisplaySettings";
@@ -7,8 +7,10 @@ import { BankTransactionTableFooter } from "@/components/BankTransactionTableFoo
 import { TableExportSection } from "@/components/TableExportSection";
 import type { BankTransactionFolder } from "@/utils/bankTransactionFolders";
 import {
+  buildBankTransactionColumnVisibilityFromPreset,
   loadBankTransactionColumnVisibility,
   saveBankTransactionColumnVisibility,
+  type BankTransactionColumnPreset,
   type BankTransactionColumnVisibility,
   type BankTransactionDisplayColumnKey,
 } from "@/utils/bankTransactionColumnVisibility";
@@ -21,6 +23,8 @@ import type { WorkerMonthlyActualVoucher } from "@/utils/workerMonthlyActualPaym
 type BankTransactionsListPanelProps = {
   rows: BankTransaction[];
   isListActive: boolean;
+  pendingColumnPreset?: BankTransactionColumnPreset | null;
+  onPendingColumnPresetConsumed?: () => void;
   showEmptyPeriodHint: boolean;
   emptyPeriodHint: string;
   exportFileName: string;
@@ -152,6 +156,8 @@ const BankTransactionsListToolbar = memo(function BankTransactionsListToolbar({
 function BankTransactionsListPanelComponent({
   rows,
   isListActive,
+  pendingColumnPreset = null,
+  onPendingColumnPresetConsumed,
   showEmptyPeriodHint,
   emptyPeriodHint,
   exportFileName,
@@ -197,6 +203,14 @@ function BankTransactionsListPanelComponent({
   getBankTransactionsExportParsed,
 }: BankTransactionsListPanelProps) {
   const [columnVisibility, setColumnVisibility] = useState(loadBankTransactionColumnVisibility);
+
+  useEffect(() => {
+    if (!pendingColumnPreset) return;
+    const next = buildBankTransactionColumnVisibilityFromPreset(pendingColumnPreset);
+    setColumnVisibility(next);
+    saveBankTransactionColumnVisibility(next);
+    onPendingColumnPresetConsumed?.();
+  }, [pendingColumnPreset, onPendingColumnPresetConsumed]);
 
   const handleColumnVisibilityChange = useCallback(
     (key: BankTransactionDisplayColumnKey, visible: boolean) => {
@@ -291,6 +305,7 @@ function bankTransactionsListPanelPropsAreEqual(
   next: BankTransactionsListPanelProps,
 ): boolean {
   if (prev.isListActive !== next.isListActive) return false;
+  if (prev.pendingColumnPreset !== next.pendingColumnPreset) return false;
   if (prev.showEmptyPeriodHint !== next.showEmptyPeriodHint) return false;
   if (prev.emptyPeriodHint !== next.emptyPeriodHint) return false;
   if (prev.exportFileName !== next.exportFileName) return false;

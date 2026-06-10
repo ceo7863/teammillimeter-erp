@@ -6,12 +6,23 @@ import {
   toolGetWorkerInfo,
   todayISO,
   tryRuleBasedChat,
+  tryRuleBasedTotalsQuery,
+  tryRuleBasedPriorityQuery,
+  formatUnpaidListAnswer,
   isCasualConversationQuery,
   formatCasualFallbackAnswer,
   formatUnpaidAnswer,
+  formatDepositTotalAnswer,
+  formatSalesTotalAnswer,
+  formatTaxInvoiceSummaryAnswer,
   formatScheduleAnswer,
   formatContactAnswer,
   formatWorkerAnswer,
+  formatPersonBankAccountAnswer,
+  formatClientSiteOnDateAnswer,
+  formatStatementSentUnpaidAnswer,
+  formatClientBusinessRegAnswer,
+  formatClientTaxInvoiceIssuedAnswer,
   formatClientContactsAnswer,
   parseClientPersonContactQuery,
   toolLookupClientContact,
@@ -32,9 +43,13 @@ import {
   tryRuleBasedDepositOpen,
   tryRuleBasedTaxInvoiceOpen,
   tryRuleBasedBankOpen,
+  tryRuleBasedBankSearch,
+  tryRuleBasedBankAccountColumnView,
   hasChatOpenVerb,
   formatBankOpenAnswer,
   buildChatActionsFromBankOpen,
+  formatBankSearchAnswer,
+  buildChatActionsFromBankSearch,
   formatClientStatementOpenAnswer,
   buildChatActionsFromClientStatementOpen,
   formatDepositOpenAnswer,
@@ -65,8 +80,11 @@ import {
 const SYSTEM_PROMPT = [
   "\uB2F9\uC2E0\uC740 TeamMillimeter ERP \uC5B4\uC2DC\uC2A4\uD134\uD2B8\uC785\uB2C8\uB2E4. \uC778\uC0AC\u00B7\uC77C\uC0C1 \uB300\uD654\u00B7\uAC00\uBCCD\uC740 \uC9C8\uBB38\uC5D0\uB294 \uB3C4\uAD6C \uC5C6\uC774 \uCE5C\uADFC\uD558\uACE0 \uC790\uC5F0\uC2A4\uB7FD\uAC8C \uB2F5\uD558\uC138\uC694.",
   "\uAC70\uB798\uCC98 \uC870\uD68C, \uBBF8\uC218\u00B7\uC77C\uC815\u00B7\uC785\uAE08\u00B7\uC804\uD654\uBC88\uD638, \uD654\uBA74 \uC5F4\uAE30 \uB4F1 ERP \uC5C5\uBB34 \uC694\uCCAD\uC5D0\uB9CC \uB3C4\uAD6C\uB97C \uD638\uCD9C\uD558\uC138\uC694. \uAE08\uC561\u00B7\uAC74\uC218\u00B7\uC804\uD654\uBC88\uD638\u00B7\uCC28\uB7C9\uBC88\uD638\uB294 \uB3C4\uAD6C \uACB0\uACFC\uB97C \uAE30\uC900\uC73C\uB85C\uB9CC \uB2F5\uD558\uACE0 \uCD94\uCE21\uD558\uC9C0 \uB9C8\uC138\uC694.",
+  "\uAC70\uB798\uCC98 \uBBF8\uC218(\uC778\uB514\uD37C \uBBF8\uC218)\uC740 get_client_unpaid, \uAE30\uAC04\uBCC4 \uBBF8\uC218 \uBAA9\uB85D(\uC774\uBC88\uB2EC/\uC800\uBC88\uB2EC \uBBF8\uC218 \uB9AC\uC2A4\uD2B8, 5\uC6D4 \uBBF8\uC218 \uBAA9\uB85D)\uC740 get_unpaid_list \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
+  "\uAC70\uB798\uCC98\uBA85(\uC608: \uC778\uB514\uD37C)\uACFC \uC2DC\uACF5\uC790\uBA85(\uC608: \uAC15\uD0DC\uC6D0)\uC740 ERP \uB9C8\uC2A4\uD130 \uAE30\uC900\uC73C\uB85C \uAD6C\uBD84\uD569\uB2C8\uB2E4. \uC778\uB514\uD37C=\uAC70\uB798\uCC98, \uAC15\uD0DC\uC6D0=\uC2DC\uACF5\uC790 \uBCC0\uC218\uC785\uB2C8\uB2E4.",
   "\uAC70\uB798\uCC98 \uB2F4\uB2F9\uC790 \uC870\uD68C\uB294 get_client_contacts, \uB2F4\uB2F9\uC790 \uC778\uC0C1 \uC870\uD68C\uB294 lookup_contact \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. '\uC778\uB514\uD37C \uAE40\uD718\uAD6D \uC804\uD654'\uCC98\uB7FC \uAC70\uB798\uCC98+\uB2F4\uB2F9\uC790 \uC774\uB984\uC774 \uD568\uAED8 \uC788\uC73C\uBA74 get_client_contacts\uC758 clientName\uACFC personName\uC744 \uBD84\uB824 \uC804\uB2EC\uD558\uC138\uC694. \uC2DC\uACF5\uC790\uAC00 \uC544\uB2CC \uAC70\uB798\uCC98 \uB2F4\uB2F9\uC790\uC5D0\uB294 get_worker_info\uB97C \uC0AC\uC6A9\uD558\uC9C0 \uB9C8\uC138\uC694.",
-  "\uC2DC\uACF5\uC790 \uCC28\uB7C9\uBC88\uD638(\'\uCC28\uBC88\uD638\', \'\uCC28\uB7C9 \uBC88\uD638\' \uD3EC\uD568)\uB294 get_worker_info\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uC774\uB984\uC740 \uCC28\uB7C9\uBC88\uD638 \uC55E\uB098 \uB4A4 \uC5B4\uB290 \uCABD\uC774\uB4E0 \uAD00\uACC4\uC5C6\uC2B5\uB2C8\uB2E4. name\uC5D0 \uCD94\uCD9C\uB41C \uC2DC\uACF5\uC790 \uC774\uB984\uB9CC \uC804\uB2EC\uD558\uC138\uC694.",
+  "\uC2DC\uACF5\uC790 \uCC28\uB7C9\uBC88\uD638(\'\uCC28\uBC88\uD638\', \'\uCC28\uB7C9 \uBC88\uD638\' \uD3EC\uD568)\uB294 get_worker_info\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uC2DC\uACF5\uC790/\uAC70\uB798\uCC98 \uACC4\uC88C(\uC740\uD589/\uACC4\uC88C\uBC88\uD638) \uC870\uD68C\uB294 get_person_bank_account \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
+  "\uAC70\uB798\uCC98 \uD604\uC7A5 \uC704\uCE58(\uC608: 6\uC6D4 2\uC77C \uC778\uB514\uD37C \uD604\uC7A5 \uC5B4\uB514\uC57C)\uB294 get_client_site_on_date, \uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uC5EC\uBD80\uB294 get_client_business_reg, \uACC4\uC0B0\uC11C \uBC1C\uD589 \uC5EC\uBD80(\uC788\uB098/\uD55C\uC801 \uC788\uB098)\uB294 get_client_tax_invoice_issued, \uB0B4\uC5ED\uC11C \uBCF4\uB0C8\uC9C0\uB9CC \uBBF8\uC785\uAE08 \uC870\uD68C\uB294 get_statement_sent_unpaid \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "\uBE44\uC815\uD615 \uD55C\uAD6D\uC5B4, \uC624\uD0C0, \uB2E8\uC5B4 \uC21C\uC11C \uBCC0\uD658(\'\uBC15\uC900\uADDC \uCC28\uB7C9\uBC88\uD638\' / '\uCC28\uB7C9\uBC88\uD638 \uBC15\uC900\uADDC', '\uD1B5\uC7A5' / '\uACC4\uC88C')\uB97C \uC790\uC5F0\uC2A4\uB7FD\uAC8C \uC774\uD574\uD558\uC138\uC694.",
   "\uAC70\uB798\uCC98 \uC774\uB984\uC774 \uBAA8\uD638\uD558\uBA74 search_client \uD6C4 \uD655\uC778\uD558\uC138\uC694.",
   `\uC624\uB298 \uB0A0\uC9DC(\uD55C\uAD6D): ${todayISO()}`,
@@ -74,10 +92,15 @@ const SYSTEM_PROMPT = [
   "\uC804\uD45C \uC5F4\uAE30 \uC694\uCCAD\uC740 find_sale_voucher \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "\uAC70\uB798\uCC98 \uCE98\uB9B0\uB354/\uB2EC\uB825 \uC5F4\uAE30(\uC608: \uC778\uB514\uD37C \uCE98\uB9B0\uB354 \uC5F4\uC5B4\uC918, \uB2EC\uB825 \uC5F4\uC5B4)\uC740 open_client_calendar \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "SC \uC2A4\uCF00\uC904/\uC77C\uC815 \uC5F4\uAE30: \uAC70\uB798\uCC98 \uC774\uB984 \uC788\uC73C\uBA74 open_client_site_request_calendar(\uC608: \uC778\uB514\uD37C \uC2A4\uCF00\uC904 \uC5F4\uC5B4 \u2192 \uC5C5\uCCB4\uBCC4 \uCE98\uB9B0\uB354), \uAC70\uB798\uCC98 \uC5C6\uC774 \uC804\uCCB4 SC \uC774\uBA74 open_sc_schedule. '\uC77C\uC815' \uC870\uD68C \uC804\uC6A9 \uC694\uCCAD(\uC5F4\uAE30 \uC544\uB2D8)\uC740 get_schedule_count. \uC2DC\uACF5\uC790 \uC774\uB984+\uC77C\uC815(\uC608: \uBC30\uC885\uC6D0 \uC624\uB298 \uC77C\uC815)\uC740 get_schedule_count(workerName).",
-  "\uC2DC\uACF5\uC790 \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C/\uC2DC\uACF5\uB0B4\uC5ED\uC11C \uC5F4\uAE30(\uC608: \uAE40\uBBFC\uC131 5\uC6D4 \uC2DC\uACF5\uB0B4\uC5ED\uC11C \uC5F4\uC5B4\uC918, \uAE40\uBBFC\uC131 \uC774\uBC88\uB2EC \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C)\uC740 open_worker_construction_cost_statement \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uC6D4 \uC9C0\uC815 \uC5C6\uC73C\uBA74 \uC774\uBC88 \uB2EC, \uB144\uB3C4 \uC5C6\uC73C\uBA74 \uC62C\uD574\uB97C \uAE30\uBCF8\uC73C\uB85C \uC0AC\uC6A9\uD558\uC138\uC694.",
-  "\uAC70\uB798\uCC98 \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C \uC0DD\uC131 \uBC0F \uC5F4\uAE30(\uC608: \uC778\uB514\uD37C \uC774\uBC88\uB2EC \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C)\uC740 open_client_construction_cost_statement \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
+  "\uC2DC\uACF5\uC790 \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C/\uC2DC\uACF5\uB0B4\uC5ED\uC11C/\uB0B4\uC5ED\uC11C \uC5F4\uAE30(\uC608: \uAE40\uBBFC\uC131 5\uC6D4 \uB0B4\uC5ED\uC11C, \uAE40\uBBFC\uC131 5\uC6D4 \uC2DC\uACF5\uB0B4\uC5ED\uC11C \uC5F4\uC5B4\uC918, \uAE40\uBBFC\uC131 \uC774\uBC88\uB2EC \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C)\uC740 open_worker_construction_cost_statement \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uC2DC\uACF5\uC790 \uBAA9\uB85D\uC5D0 \uC788\uB294 \uC774\uB984\uC774\uBA74 \uAC70\uB798\uCC98 \uB0B4\uC5ED\uC11C\uAC00 \uC544\uB2CC \uC2DC\uACF5\uC790 \uB0B4\uC5ED\uC11C\uC785\uB2C8\uB2E4. \uC6D4 \uC9C0\uC815 \uC5C6\uC73C\uBA74 \uC774\uBC88 \uB2EC, \uB144\uB3C4 \uC5C6\uC73C\uBA74 \uC62C\uD574\uB97C \uAE30\uBCF8\uC73C\uB85C \uC0AC\uC6A9\uD558\uC138\uC694.",
+  "\uAC70\uB798\uCC98 \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C \uC0DD\uC131 \uBC0F \uC5F4\uAE30(\uC608: \uC778\uB514\uD37C \uC774\uBC88\uB2EC \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C)\uC740 open_client_construction_cost_statement \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uAC70\uB798\uCC98 \uBAA9\uB85D\uC5D0 \uC788\uB294 \uC774\uB984\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4.",
+  "\uC785\uAE08 \uD569\uACC4/\uAE08\uC561 \uC870\uD68C(\uC608: \uC624\uB298 \uC785\uAE08\uC561, \uC774\uBC88\uB2EC \uC785\uAE08 \uD569\uACC4, \uC778\uB514\uD37C \uC624\uB298 \uC785\uAE08 \uC5BC\uB9C8)\uC740 get_deposit_total \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uD654\uBA74 \uC5F4\uAE30\uAC00 \uC544\uB2CC \uAE08\uC561 \uC870\uD68C \uC804\uC6A9\uC785\uB2C8\uB2E4.",
+  "\uB9E4\uCD9C(\uC804\uD45C) \uAE08\uC561 \uC870\uD68C(\uC608: \uC624\uB298 \uB9E4\uCD9C, \uC5B4\uC81C \uB9E4\uCD9C \uC5BC\uB9C8, \uC774\uBC88\uB2EC \uB9E4\uCD9C \uD569\uACC4, 5\uC6D4\uB2EC \uB9E4\uCD9C \uC5BC\uB9C8, 5\uC6D4 \uB9E4\uCD9C)\uC740 get_sales_total \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uACC4\uC0B0\uC11C/\uC138\uAE08\uACC4\uC0B0\uC11C\uB294 get_tax_invoice_summary\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "\uAC70\uB798\uCC98 \uC785\uAE08\uB0B4\uC5ED \uC5F4\uAE30(\uC608: \uC778\uB514\uD37C \uC785\uAE08\uB0B4\uC5ED \uC5F4\uC5B4\uC918, \uC778\uB514\uD37C 5\uC6D4 \uC785\uAE08\uB0B4\uC5ED, \uC778\uB514\uD37C \uBAA8\uB4E0 \uC785\uAE08\uB0B4\uC5ED)\uC740 open_client_deposit_history \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. '\uC5F4\uC5B4\uC918' \uC5C6\uC774 \uC785\uAE08\uB0B4\uC5ED\uB9CC \uC801\uC5B4\uB3C4 \uD655\uC778 \uC694\uCCAD\uC785\uB2C8\uB2E4. 5\uC6D4 \uB4F1 \uAE30\uAC04\uC740 period/startDate/endDate\uB85C \uC804\uB2EC\uD558\uC138\uC694. '\uBAA8\uB4E0', '\uC804\uCCB4'\uC740 allHistory=true.",
   "\uD1B5\uC7A5/\uACC4\uC88C \uC5F4\uAE30(\uC608: 5\uC6D4 \uD1B5\uC7A5 \uC5F4\uC5B4, 5\uC6D4\uB2EC \uD1B5\uC7A5 \uC5F4\uC5B4\uC918)\uC740 navigate_erp target=accounting_bank \uC640 \uAE30\uAC04\uC744 \uC801\uC6A9\uD558\uC138\uC694.",
+  "\uD1B5\uC7A5 \uACC4\uC815 \uC5F4\uB9CC \uBCF4\uAE30(\uC608: \uACC4\uC815\uB9CC \uBCF4\uC5EC\uC918, \uD1B5\uC7A5 \uACC4\uC815\uB9CC, 5\uC6D4 \uACC4\uC815\uB9CC \uBCF4\uC5EC)\uC740 navigate_erp target=accounting_bank \uC640 bankColumnPreset=account_only\uB97C \uC801\uC6A9\uD558\uC138\uC694. '\uC5F4\uC5B4\uC918' \uC5C6\uC774 '\uBCF4\uC5EC'\uB9CC \uC788\uC5B4\uB3C4 \uB41C\uB2E4.",
+  "\uD1B5\uC7A5 \uAC80\uC0C9(\uC608: \uD1B5\uC7A5\uB0B4\uC5ED\uC5D0\uC11C XXX \uCC3E\uC544\uC918, 5\uC6D4 \uD1B5\uC7A5\uC5D0\uC11C XXX \uAC80\uC0C9)\uC740 navigate_erp target=accounting_bank \uC640 bankSearchQuery\uB97C \uC801\uC6A9\uD558\uC138\uC694. \uAE30\uAC04 \uC5C6\uC774 \uCC3E\uAE30\uBA74 \uC804\uCCB4 \uAE30\uAC04, \uC6D4 \uC788\uC73C\uBA74 period/startDate/endDate\uB97C \uC801\uC6A9\uD558\uC138\uC694.",
+  "\uB9E4\uC785/\uB9E4\uCD9C \uACC4\uC0B0\uC11C\u00B7\uC138\uAE08\uACC4\uC0B0\uC11C \uD569\uACC4/\uAE08\uC561 \uC870\uD68C(\uC608: \uC624\uB298 \uB9E4\uC785 \uACC4\uC0B0\uC11C \uAE08\uC561, \uC624\uB298 \uACC4\uC0B0\uC11C \uB4E4\uC5B4\uC628\uB370, \uC774\uBC88\uB2EC \uB9E4\uCD9C \uACC4\uC0B0\uC11C \uD569\uACC4)\uC740 get_tax_invoice_summary \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. '\uB4E4\uC5B4\uC628'\uC740 \uB9E4\uC785, \uD654\uBA74 \uC5F4\uAE30\uAC00 \uC544\uB2CC \uAE08\uC561 \uC870\uD68C \uC804\uC6A9\uC785\uB2C8\uB2E4.",
   "\uAC70\uB798\uCC98 \uC138\uAE08\uACC4\uC0B0\uC11C \uB0B4\uC5ED \uC5F4\uAE30(\uC608: \uC778\uB514\uD37C \uC138\uAE08\uACC4\uC0B0\uC11C \uB0B4\uC5ED \uC5F4\uC5B4\uC918)\uC740 open_client_tax_invoice_history \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "ERP \uBA54\uB274/\uD654\uBA74 \uC774\uB3D9(\uB300\uC2DC\uBCF4\uB4DC, \uD86D\uAE08, \uD1B5\uC7A5, \uBD84\uC11D, \uADFC\uD009 \uB4F1)\uC740 navigate_erp \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uD654\uBA74 \uBAA9\uB85D\uC740 list_erp_pages.",
   "\uB0A0\uC528 \uC9C8\uBB38(\uC624\uB298 \uB0A0\uC528, \uBD80\uC0B0 \uB0B4\uC77C \uB0A0\uC528 \uB4F1)\uC740 get_weather \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
@@ -194,6 +217,18 @@ function formatToolResultsAsAnswer(toolsUsed) {
       case "get_client_unpaid":
         lines.push(formatUnpaidAnswer(result));
         break;
+      case "get_unpaid_list":
+        lines.push(formatUnpaidListAnswer(result));
+        break;
+      case "get_deposit_total":
+        lines.push(formatDepositTotalAnswer(result));
+        break;
+      case "get_sales_total":
+        lines.push(formatSalesTotalAnswer(result));
+        break;
+      case "get_tax_invoice_summary":
+        lines.push(formatTaxInvoiceSummaryAnswer(result));
+        break;
       case "get_schedule_count":
         lines.push(formatScheduleAnswer(result));
         break;
@@ -221,6 +256,21 @@ function formatToolResultsAsAnswer(toolsUsed) {
           lines.push(formatWorkerAnswer(result));
         }
         break;
+      case "get_person_bank_account":
+        lines.push(formatPersonBankAccountAnswer(result));
+        break;
+      case "get_client_site_on_date":
+        lines.push(formatClientSiteOnDateAnswer(result));
+        break;
+      case "get_statement_sent_unpaid":
+        lines.push(formatStatementSentUnpaidAnswer(result));
+        break;
+      case "get_client_business_reg":
+        lines.push(formatClientBusinessRegAnswer(result));
+        break;
+      case "get_client_tax_invoice_issued":
+        lines.push(formatClientTaxInvoiceIssuedAnswer(result));
+        break;
       case "find_sale_voucher":
         lines.push(formatSaleVoucherAnswer(result));
         break;
@@ -237,7 +287,11 @@ function formatToolResultsAsAnswer(toolsUsed) {
         lines.push(formatWorkerStatementOpenAnswer(result));
         break;
       case "open_client_construction_cost_statement":
-        lines.push(formatClientStatementOpenAnswer(result));
+        if (result.workerName) {
+          lines.push(formatWorkerStatementOpenAnswer(result));
+        } else {
+          lines.push(formatClientStatementOpenAnswer(result));
+        }
         break;
       case "open_client_deposit_history":
         lines.push(formatDepositOpenAnswer(result));
@@ -340,6 +394,22 @@ function tryRuleBasedOpenFromQuestion(question) {
     };
   }
 
+  const bankSearchResult = tryRuleBasedBankSearch(question);
+  if (bankSearchResult) {
+    return {
+      answer: formatBankSearchAnswer(bankSearchResult),
+      chatActions: buildChatActionsFromBankSearch(bankSearchResult),
+    };
+  }
+
+  const bankAccountColumnResult = tryRuleBasedBankAccountColumnView(question);
+  if (bankAccountColumnResult) {
+    return {
+      answer: formatBankOpenAnswer(bankAccountColumnResult),
+      chatActions: buildChatActionsFromBankOpen(bankAccountColumnResult),
+    };
+  }
+
   const bankOpenResult = tryRuleBasedBankOpen(question);
   if (bankOpenResult) {
     return {
@@ -388,6 +458,14 @@ export async function handleErpChat({ messages, user: tokenUser }) {
     if (weatherResult?.ok) {
       answer = formatWeatherAnswer(weatherResult);
       engine = "weather";
+    }
+  }
+
+  if (!answer) {
+    const priorityAnswer = tryRuleBasedPriorityQuery(question);
+    if (priorityAnswer) {
+      answer = priorityAnswer;
+      engine = "rules";
     }
   }
 
@@ -486,6 +564,59 @@ export async function handleErpChat({ messages, user: tokenUser }) {
     answer = formatScheduleAnswer(scheduleUsed.result);
   }
 
+  const depositTotalUsed = toolsUsed.find((row) => row.name === "get_deposit_total" && row.result?.ok);
+  if (depositTotalUsed && !casualQuery) {
+    answer = formatDepositTotalAnswer(depositTotalUsed.result);
+  }
+
+  const salesTotalUsed = toolsUsed.find((row) => row.name === "get_sales_total" && row.result?.ok);
+  if (salesTotalUsed && !casualQuery) {
+    answer = formatSalesTotalAnswer(salesTotalUsed.result);
+  }
+
+  const unpaidListUsed = toolsUsed.find((row) => row.name === "get_unpaid_list" && row.result?.ok);
+  if (unpaidListUsed && !casualQuery) {
+    answer = formatUnpaidListAnswer(unpaidListUsed.result);
+  }
+
+  const taxInvoiceSummaryUsed = toolsUsed.find(
+    (row) => row.name === "get_tax_invoice_summary" && row.result?.ok,
+  );
+  if (taxInvoiceSummaryUsed && !casualQuery) {
+    answer = formatTaxInvoiceSummaryAnswer(taxInvoiceSummaryUsed.result);
+  }
+
+  const taxInvoiceIssuedUsed = toolsUsed.find(
+    (row) => row.name === "get_client_tax_invoice_issued" && row.result?.ok,
+  );
+  if (taxInvoiceIssuedUsed && !casualQuery) {
+    answer = formatClientTaxInvoiceIssuedAnswer(taxInvoiceIssuedUsed.result);
+  }
+
+  const personBankUsed = toolsUsed.find((row) => row.name === "get_person_bank_account" && row.result?.ok);
+  if (personBankUsed && !casualQuery) {
+    answer = formatPersonBankAccountAnswer(personBankUsed.result);
+  }
+
+  const clientSiteUsed = toolsUsed.find((row) => row.name === "get_client_site_on_date" && row.result?.ok);
+  if (clientSiteUsed && !casualQuery) {
+    answer = formatClientSiteOnDateAnswer(clientSiteUsed.result);
+  }
+
+  const statementSentUnpaidUsed = toolsUsed.find(
+    (row) => row.name === "get_statement_sent_unpaid" && row.result?.ok,
+  );
+  if (statementSentUnpaidUsed && !casualQuery) {
+    answer = formatStatementSentUnpaidAnswer(statementSentUnpaidUsed.result);
+  }
+
+  const clientBusinessRegUsed = toolsUsed.find(
+    (row) => row.name === "get_client_business_reg" && row.result?.ok,
+  );
+  if (clientBusinessRegUsed && !casualQuery) {
+    answer = formatClientBusinessRegAnswer(clientBusinessRegUsed.result);
+  }
+
   const weatherUsed = toolsUsed.find((row) => row.name === "get_weather" && row.result?.ok);
   if (weatherUsed) {
     answer = formatWeatherAnswer(weatherUsed.result);
@@ -529,8 +660,13 @@ export async function handleErpChat({ messages, user: tokenUser }) {
     (row) => row.name === "open_client_construction_cost_statement" && row.result?.ok,
   );
   if (clientStatementUsed) {
-    answer = formatClientStatementOpenAnswer(clientStatementUsed.result);
-    chatActions = buildChatActionsFromClientStatementOpen(clientStatementUsed.result);
+    if (clientStatementUsed.result.workerName) {
+      answer = formatWorkerStatementOpenAnswer(clientStatementUsed.result);
+      chatActions = buildChatActionsFromWorkerStatementOpen(clientStatementUsed.result);
+    } else {
+      answer = formatClientStatementOpenAnswer(clientStatementUsed.result);
+      chatActions = buildChatActionsFromClientStatementOpen(clientStatementUsed.result);
+    }
   }
 
   const depositUsed = toolsUsed.find((row) => row.name === "open_client_deposit_history" && row.result?.ok);
@@ -554,10 +690,29 @@ export async function handleErpChat({ messages, user: tokenUser }) {
       (row.result?.nav?.accountingTab === "bank" || row.args?.target === "accounting_bank"),
   );
   let bankNavHandled = false;
-  if (bankOpenUsed?.result?.nav?.startDate && bankOpenUsed.result.nav.endDate) {
-    const { startDate, endDate } = bankOpenUsed.result.nav;
-    answer = formatBankOpenAnswer({ ok: true, startDate, endDate });
-    chatActions = buildChatActionsFromBankOpen({ ok: true, startDate, endDate });
+  if (bankOpenUsed?.result?.nav?.bankSearchQuery) {
+    const { bankSearchQuery, startDate, endDate } = bankOpenUsed.result.nav;
+    answer = formatBankSearchAnswer({
+      ok: true,
+      searchQuery: bankSearchQuery,
+      startDate,
+      endDate,
+      periodLabel: startDate && endDate ? `${startDate}~${endDate}` : undefined,
+      periodKey: startDate && endDate ? "custom" : "all",
+    });
+    chatActions = buildChatActionsFromBankSearch({
+      ok: true,
+      searchQuery: bankSearchQuery,
+      startDate,
+      endDate,
+      periodKey: startDate && endDate ? "custom" : "all",
+    });
+    bankNavHandled = true;
+  } else if (bankOpenUsed?.result?.nav?.startDate && bankOpenUsed.result.nav.endDate) {
+    const { startDate, endDate, bankColumnPreset } = bankOpenUsed.result.nav;
+    const accountColumnOnly = bankColumnPreset === "account_only";
+    answer = formatBankOpenAnswer({ ok: true, startDate, endDate, accountColumnOnly });
+    chatActions = buildChatActionsFromBankOpen({ ok: true, startDate, endDate, accountColumnOnly });
     bankNavHandled = true;
   }
 

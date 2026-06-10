@@ -2,9 +2,10 @@ import type { WorkerMasterLike, WorkerPaymentSummaryRow } from "@/utils/workerPa
 import {
   compareWorkerMastersDefault,
   filterActiveWorkers,
-  isWorkerExplicitTeamMember,
+  normalizeWorkerCategory,
   normalizeWorkerName,
   summarizeWorkerPaymentRows,
+  WORKER_CATEGORY_TEAM,
   type WorkerPaymentDetailRow,
 } from "@/utils/workerPayments";
 import { shiftMonthKey } from "@/utils/workerMonthlyPayments";
@@ -136,7 +137,9 @@ export function buildWorkerAssignmentFairness(
 }
 
 export function listWorkerAssignmentFairnessTeamWorkers(workers: WorkerMasterLike[] = []) {
-  return filterActiveWorkers(workers).filter(isWorkerExplicitTeamMember);
+  return filterActiveWorkers(workers).filter(
+    (worker) => normalizeWorkerCategory(worker.category) === WORKER_CATEGORY_TEAM,
+  );
 }
 
 export function summarizeWorkerAssignmentFairnessRows(

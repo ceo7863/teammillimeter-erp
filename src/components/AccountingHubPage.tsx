@@ -18,9 +18,23 @@ type AccountingHubPageProps = {
   initialTab?: AccountingHubTab;
   pendingBankDateFilter?: { startDate: string; endDate: string } | null;
   onPendingBankDateFilterConsumed?: () => void;
+  pendingBankColumnPreset?: "account_only" | null;
+  onPendingBankColumnPresetConsumed?: () => void;
+  pendingBankSearchQuery?: string | null;
+  onPendingBankSearchQueryConsumed?: () => void;
   bank: Omit<
     ComponentProps<typeof BankTransactionsPage>,
-    "isPageActive" | "onNavigateToCompanyLedger" | "onNavigateToClassify" | "onNavigateToFixedExpense" | "onNavigateToTaxInvoice" | "pendingBankDateFilter" | "onPendingBankDateFilterConsumed"
+    | "isPageActive"
+    | "onNavigateToCompanyLedger"
+    | "onNavigateToClassify"
+    | "onNavigateToFixedExpense"
+    | "onNavigateToTaxInvoice"
+    | "pendingBankDateFilter"
+    | "onPendingBankDateFilterConsumed"
+    | "pendingBankColumnPreset"
+    | "onPendingBankColumnPresetConsumed"
+    | "pendingBankSearchQuery"
+    | "onPendingBankSearchQueryConsumed"
   >;
   ledger: ComponentProps<typeof LedgerViewerPage>;
   tax: ComponentProps<typeof TaxInvoicePage>;
@@ -42,6 +56,10 @@ function AccountingHubPageComponent({
   initialTab,
   pendingBankDateFilter = null,
   onPendingBankDateFilterConsumed,
+  pendingBankColumnPreset = null,
+  onPendingBankColumnPresetConsumed,
+  pendingBankSearchQuery = null,
+  onPendingBankSearchQueryConsumed,
   bank,
   ledger,
   tax,
@@ -119,6 +137,10 @@ function AccountingHubPageComponent({
             {...bank}
             pendingBankDateFilter={pendingBankDateFilter}
             onPendingBankDateFilterConsumed={onPendingBankDateFilterConsumed}
+            pendingBankColumnPreset={pendingBankColumnPreset}
+            onPendingBankColumnPresetConsumed={onPendingBankColumnPresetConsumed}
+            pendingBankSearchQuery={pendingBankSearchQuery}
+            onPendingBankSearchQueryConsumed={onPendingBankSearchQueryConsumed}
             isPageActive={isHubActive && activeTab === "bank"}
             onNavigateToCompanyLedger={navigateToLedger}
             onNavigateToClassify={navigateToClassify}

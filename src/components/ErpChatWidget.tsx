@@ -198,7 +198,8 @@ export function ErpChatWidget({
                   type="button"
                   className={`erp-chat-icon-btn ${autoSpeak ? "erp-chat-icon-btn--active" : ""}`}
                   onClick={toggleAutoSpeak}
-                  title={ERP_CHAT_LABELS.autoSpeak}
+                  title={autoSpeak ? ERP_CHAT_LABELS.autoSpeakOn : ERP_CHAT_LABELS.autoSpeakOff}
+                  aria-label={autoSpeak ? ERP_CHAT_LABELS.autoSpeakOn : ERP_CHAT_LABELS.autoSpeakOff}
                   aria-pressed={autoSpeak}
                 >
                   {autoSpeak ? <Volume2 size={16} /> : <VolumeX size={16} />}

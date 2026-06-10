@@ -38,16 +38,16 @@ export function isSpeechSynthesisSupported() {
 }
 
 export function readAutoSpeakPreference() {
-  if (typeof window === "undefined") return true;
-  const raw = window.sessionStorage.getItem(AUTO_SPEAK_KEY);
+  if (typeof window === "undefined") return false;
+  const raw = window.localStorage.getItem(AUTO_SPEAK_KEY);
   if (raw === "0") return false;
   if (raw === "1") return true;
-  return true;
+  return false;
 }
 
 export function writeAutoSpeakPreference(enabled: boolean) {
   if (typeof window === "undefined") return;
-  window.sessionStorage.setItem(AUTO_SPEAK_KEY, enabled ? "1" : "0");
+  window.localStorage.setItem(AUTO_SPEAK_KEY, enabled ? "1" : "0");
 }
 
 function normalizeVoiceText(text: string) {
