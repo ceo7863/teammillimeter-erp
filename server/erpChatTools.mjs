@@ -730,13 +730,34 @@ export function formatSaleVoucherAnswer(data) {
   return lines.join("\n");
 }
 
-export function extractCalendarClientQuery(text) {
+const TRAILING_CHAT_ACTION_SUFFIX =
+  /(?:\s*|\uC758)*(?:\uC5F4\uC5B4\uC918|\uC5F4\uC5B4|\uC5F4\uAE30|\uBD10|\uCC28|\uC774\uB3D9|\uD655\uC778|\uC918|\uC774\uB3D9\uD574|\uC785\uB2C8\uCE74|\uC870\uD68C|\uBCF4\uAE30|\?)*\s*$/;
+
+function extractNameBeforeKeyword(text, keywordPattern) {
   const raw = String(text || "").trim();
+  if (!raw) return "";
+
+  const kwTest = new RegExp(keywordPattern.source);
+  const kwReplace = new RegExp(keywordPattern.source, "g");
+
   const possessive = raw.match(/^(.+?)\uC758/);
-  if (possessive) return possessive[1].trim();
+  if (possessive && kwTest.test(raw)) return possessive[1].trim();
+
+  const attached = raw.match(new RegExp(`^(.+?)(${keywordPattern.source})`));
+  if (attached) return attached[1].trim();
+
   return raw
-    .replace(/\uCE04\uB9B0\uB354|\uCE98\uBCC0\uB354|\uB2EC\uB825|\uC77C\uC815|\uAC70\uB798\uCC98|\uC5F4|\uC774\uB3D9|\uBD10|\uCC28|\uC918|\?/g, "")
+    .replace(kwReplace, "")
+    .replace(/\uAC70\uB798\uCC98/g, "")
+    .replace(TRAILING_CHAT_ACTION_SUFFIX, "")
     .trim();
+}
+
+export function extractCalendarClientQuery(text) {
+  return extractNameBeforeKeyword(
+    text,
+    /\uCE04\uB9B0\uB354|\uCE98\uBCC0\uB354|\uB2EC\uB825|\uC77C\uC815/,
+  );
 }
 
 export function toolOpenClientCalendar({ clientName }) {
@@ -843,10 +864,8 @@ export function extractWorkerStatementQuery(text) {
     .replace(/(?:(\d{4})\s*\uB144\s*)?(\d{1,2})\s*\uC6D4/g, "")
     .replace(/\d{1,2}\s*\uC77C/g, "")
     .replace(/\d{4}-\d{2}-\d{2}/g, "")
-    .replace(
-      /\uC2DC\uACF5\uC790|\uB0B4\uC5ED\uC11C|\uC5F4\uC5B4|\uC5F4\uAE30|\uBD10|\uCC28|\uC774\uB3D9|\uD655\uC778|\uC918|\uC0DD\uC131|\uBCF4\uAE30|\uC870\uD68C|\uCC3E|\uC785\uB2C8\uCE74|\?/g,
-      "",
-    )
+    .replace(/\uC2DC\uACF5\uC790|\uB0B4\uC5ED\uC11C|\uC870\uD68C|\uCC3E/g, "")
+    .replace(TRAILING_CHAT_ACTION_SUFFIX, "")
     .trim();
 
   const possessive = raw.match(/^(.+?)\uC758/);
@@ -948,7 +967,8 @@ function stripStatementQueryNoise(raw) {
     .replace(/\d{1,2}\s*\uC77C/g, "")
     .replace(/\d{4}-\d{2}-\d{2}/g, "")
     .replace(/\uC785\uAE08\uB0B4\uC5ED|\uC785\uAE08 \uB0B4\uC5ED|\uC785\uAE08\uB0B4\uC5ED|\uC138\uAE08\uACC4\uC0B0\uC11C|\uC138\uAE08\uACC4\uC0B0\uC11C \uB0B4\uC5ED/g, "")
-    .replace(/\uAC70\uB798\uCC98|\uC2DC\uACF5\uC790|\uB0B4\uC5ED\uC11C|\uC5F4|\uC5F4\uAE30|\uBD10|\uCC28|\uC774\uB3D9|\uD655\uC778|\uC918|\uC0DD\uC131|\uBCF4\uAE30|\uC870\uD68C|\uCC3E|\uC785\uB2C8\uCE74|\uC5D0\uC11C|\uBD80\uD130|\uB9CC\uB4E4|\?/g, "")
+    .replace(/\uAC70\uB798\uCC98|\uC2DC\uACF5\uC790|\uB0B4\uC5ED\uC11C|\uC5D0\uC11C|\uBD80\uD130|\uB9CC\uB4E4/g, "")
+    .replace(TRAILING_CHAT_ACTION_SUFFIX, "")
     .trim();
 }
 
@@ -967,30 +987,20 @@ export function extractClientStatementQuery(text) {
 }
 
 export function extractDepositHistoryQuery(text) {
-  const raw = String(text || "").trim();
-  let clientName = raw
-    .replace(/\uC785\uAE08\uB0B4\uC5ED|\uC785\uAE08 \uB0B4\uC5ED|\uC785\uAE08\uB0B4\uC5ED/g, "")
-    .replace(/\uAC70\uB798\uCC98|\uC5F4|\uC5F4\uAE30|\uBD10|\uCC28|\uC774\uB3D9|\uD655\uC778|\uC918|\uBCF4\uAE30|\uC870\uD68C|\?/g, "")
-    .trim();
-  const possessive = raw.match(/^(.+?)\uC758/);
-  if (possessive) clientName = possessive[1].trim();
+  const clientName = extractNameBeforeKeyword(
+    text,
+    /\uC785\uAE08\s*\uB0B4\uC5ED|\uC785\uAE08\uB0B4\uC5ED/,
+  );
   return { clientName };
 }
 
 export function extractTaxInvoiceHistoryQuery(text) {
   const raw = String(text || "").trim();
   const range = resolveStatementPeriodFromInput(raw);
-  let clientName = raw
-    .replace(/\uC138\uAE08\uACC4\uC0B0\uC11C|\uC138\uAE08\uACC4\uC0B0\uC11C \uB0B4\uC5ED|\uACC4\uC0B0\uC11C/g, "")
-    .replace(
-      /\uC774\uBC88\uB2EC|\uC774\uBC88 \uB2EC|\uC774\uB2EC|\uB2F9\uC6D4|\uC9C0\uB09C\uB2EC|\uC9C0\uB09C \uB2EC|\uC800\uBC88\uB2EC|\uC804\uC6D4|\uB2E4\uC74C\uB2EC|\uB2E4\uC74C \uB2EC/g,
-      "",
-    )
-    .replace(/(?:(\d{4})\s*\uB144\s*)?(\d{1,2})\s*\uC6D4/g, "")
-    .replace(/\uAC70\uB798\uCC98|\uC5F4|\uC5F4\uAE30|\uBD10|\uCC28|\uC774\uB3D9|\uD655\uC778|\uC918|\uBCF4\uAE30|\uC870\uD68C|\uB0B4\uC5ED|\?/g, "")
-    .trim();
-  const possessive = raw.match(/^(.+?)\uC758/);
-  if (possessive) clientName = possessive[1].trim();
+  const clientName = extractNameBeforeKeyword(
+    raw,
+    /\uC138\uAE08\uACC4\uC0B0\uC11C\s*\uB0B4\uC5ED|\uC138\uAE08\uACC4\uC0B0\uC11C|\uACC4\uC0B0\uC11C/,
+  );
   return {
     clientName,
     startDate: range.startDate,
