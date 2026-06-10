@@ -264,6 +264,7 @@ export function toolLookupContact({ name }, user) {
       name: String(worker.name || ""),
       phone: canViewPhone ? String(worker.phone || "") : null,
       phoneRestricted: !canViewPhone,
+      vehicleNo: String(worker.vehicleNo || "").trim(),
       category: String(worker.category || ""),
     });
   }
@@ -316,6 +317,7 @@ export function toolGetWorkerInfo({ name }, user) {
     name: String(worker.name || ""),
     category: String(worker.category || ""),
     grade: String(worker.grade || ""),
+    vehicleNo: String(worker.vehicleNo || "").trim(),
     phone: canViewPhone ? String(worker.phone || "") : null,
     phoneRestricted: !canViewPhone,
     isActive: worker.isActive !== false,
@@ -383,7 +385,7 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "get_worker_info",
-      description: "\uC2DC\uACF5\uC790 \uAE30\uBCF8 \uC815\uBCF4(\uC774\uB984, \uAD6C\uBD84, \uC804\uD654\uBC88\uD638)\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4.",
+      description: "\uC2DC\uACF5\uC790 \uAE30\uBCF8 \uC815\uBCF4(\uC774\uB984, \uAD6C\uBD84, \uCC28\uB7C9\uBC88\uD638, \uC804\uD654\uBC88\uD638)\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4.",
       parameters: {
         type: "object",
         properties: {
@@ -425,6 +427,7 @@ export function tryRuleBasedChat(message, user) {
   const kwPhone = "\uC804\uD654";
   const kwContact = "\uC5F0\uB77D\uCC98";
   const kwNumber = "\uBC88\uD638";
+  const kwVehicle = "\uCC28\uB7C9";
 
   if (text.includes(kwUnpaid)) {
     let clientName = "";
@@ -452,6 +455,22 @@ export function tryRuleBasedChat(message, user) {
       if (dateMatch) date = dateMatch[0];
     }
     return formatScheduleAnswer(toolGetScheduleCount({ date }));
+  }
+
+  if (text.includes(kwVehicle)) {
+    let name = "";
+    const possessive = text.match(/^(.+?)\uC758/);
+    if (possessive) name = possessive[1].trim();
+    if (!name) {
+      name = text
+        .replace(/\uCC28\uB7C9\uBC88\uD638|\uCC28\uB7C9|\uB2E4\uB2C8|\uB108\uBBC0\uBC84|\uB118\uBC84/g, "")
+        .replace(/(?:\uB294|\uC740|\uC918|\uC54C\uB824|\uC870\uD68C|\uD655\uC778|\?)/g, "")
+        .replace(/\uC758$/g, "")
+        .trim();
+    }
+    if (name) {
+      return formatWorkerAnswer(toolGetWorkerInfo({ name }, user));
+    }
   }
 
   if (text.includes(kwPhone) || text.includes(kwContact) || text.includes(kwNumber)) {
@@ -502,9 +521,24 @@ export function formatContactAnswer(data) {
   return data.matches
     .slice(0, 5)
     .map((row) => {
-      if (row.kind === "worker") return `\uC2DC\uACF5\uC790 ${row.name}: ${row.phone || "-"}`;
+      if (row.kind === "worker") {
+        const vehicle = row.vehicleNo ? `, \uCC28\uB7C9 ${row.vehicleNo}` : "";
+        return `\uC2DC\uACF5\uC790 ${row.name}: ${row.phone || "-"}${vehicle}`;
+      }
       if (row.kind === "client_contact") return `\uAC70\uB798\uCC98 ${row.clientName} \uB2F4\uB2F9 ${row.name}: ${row.phone || "-"}`;
       return `\uAC70\uB798\uCC98 ${row.clientName} (${row.name}): ${row.phone || "-"}`;
     })
     .join("\n");
+}
+
+export function formatWorkerAnswer(data) {
+  if (!data.ok) return data.error || "\uC2DC\uACF5\uC790 \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  const lines = [`\uC2DC\uACF5\uC790 ${data.name}${data.category ? ` (${data.category})` : ""}`];
+  lines.push(`\uCC28\uB7C9\uBC88\uD638: ${data.vehicleNo || "-"}`);
+  if (data.phoneRestricted) {
+    lines.push("\uC804\uD654\uBC88\uD638: \uC870\uD68C \uAD8C\uD55C \uC5C6\uC2B5\uB2C8\uB2E4.");
+  } else if (data.phone) {
+    lines.push(`\uC804\uD654\uBC88\uD638: ${data.phone}`);
+  }
+  return lines.join("\n");
 }

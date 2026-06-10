@@ -8,6 +8,7 @@ import {
   formatUnpaidAnswer,
   formatScheduleAnswer,
   formatContactAnswer,
+  formatWorkerAnswer,
 } from "./erpChatTools.mjs";
 import { appendErpChatLog, listErpChatLogs, listErpChatLogsAdmin, clearErpChatLogsForUser } from "./erpChatStore.mjs";
 import { appendErpChatAuditLog } from "./erpChatAudit.mjs";
@@ -15,7 +16,8 @@ import { appendErpChatAuditLog } from "./erpChatAudit.mjs";
 const SYSTEM_PROMPT = [
   "\uB2F9\uC2E0\uC740 TeamMillimeter ERP \uC5B4\uC2DC\uC2A4\uD134\uD2B8\uC785\uB2C8\uB2E4.",
   "\uC9C8\uBB38\uC5D0 \uB2F5\uD558\uAE30 \uC804\uC5D0 \uBC18\uB4DC\uC2DC \uC81C\uACF5\uB41C \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
-  "\uAE08\uC561, \uAC74\uC218, \uC804\uD654\uBC88\uD638\uB294 \uB3C4\uAD6C \uACB0\uACFC\uB97C \uAE30\uC900\uC73C\uB85C\uB9CC \uB2F5\uD558\uACE0 \uCD94\uCE21\uD558\uC9C0 \uB9C8\uC138\uC694.",
+  "\uAE08\uC561, \uAC74\uC218, \uC804\uD654\uBC88\uD638, \uCC28\uB7C9\uBC88\uD638\uB294 \uB3C4\uAD6C \uACB0\uACFC\uB97C \uAE30\uC900\uC73C\uB85C\uB9CC \uB2F5\uD558\uACE0 \uCD94\uCE21\uD558\uC9C0 \uB9C8\uC138\uC694.",
+  "\uC2DC\uACF5\uC790 \uCC28\uB7C9\uBC88\uD638\uB294 get_worker_info \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "\uAC70\uB798\uCC98 \uC774\uB984\uC774 \uBAA8\uD638\uD558\uBA74 search_client \uD6C4 \uD655\uC778\uD558\uC138\uC694.",
   `\uC624\uB298 \uB0A0\uC9DC(\uD55C\uAD6D): ${todayISO()}`,
   "\uB2F5\uBCC0\uC740 \uC9C1\uC811\uC801\uC774\uACE0 \uAC04\uACB0\uD558\uAC8C \uD55C\uAD6D\uC5B4\uB85C \uC791\uC131\uD558\uC138\uC694.",
@@ -103,9 +105,7 @@ function formatToolResultsAsAnswer(toolsUsed) {
         }
         break;
       case "get_worker_info":
-        lines.push(
-          `\uC2DC\uACF5\uC790 ${result.name}${result.category ? ` (${result.category})` : ""}: ${result.phoneRestricted ? "\uC804\uD654\uBC88\uD638 \uC870\uD68C \uAD8C\uD55C \uC5C6\uC2B5\uB2C8\uB2E4." : result.phone || "-"}`,
-        );
+        lines.push(formatWorkerAnswer(result));
         break;
       default:
         break;
@@ -188,8 +188,8 @@ export async function handleErpChat({ messages, user: tokenUser }) {
 
   if (!answer) {
     answer = config.openAiConfigured
-      ? "\uC9C8\uBB38\uC744 \uC774\uD574\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uBBF8\uC218, \uC77C\uC815, \uC804\uD654\uBC88\uD638 \uC911 \uD558\uB098\uB97C \uAD6C\uCCB4\uC801\uC73C\uB85C \uC801\uC5B4 \uC8FC\uC138\uC694."
-      : "\uC624\uD508AI \uC124\uC815\uC774 \uC5C6\uC5B4 \uADDC\uCE59 \uAE30\uBC18 \uB2F5\uBCC0\uB9CC \uC0AC\uC6A9 \uC911\uC785\uB2C8\uB2E4. \uC608: \uC778\uB514\uD37C \uBBF8\uC218, \uB0B4\uC77C \uC77C\uC815 \uAC74\uC218, \uC815\uB460\uBC18 \uC804\uD654\uBC88\uD638";
+      ? "\uC9C8\uBB38\uC744 \uC774\uD574\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uBBF8\uC218, \uC77C\uC815, \uC804\uD654\uBC88\uD638, \uCC28\uB7C9\uBC88\uD638 \uC911 \uD558\uB098\uB97C \uAD6C\uCCB4\uC801\uC73C\uB85C \uC801\uC5B4 \uC8FC\uC138\uC694."
+      : "\uC624\uD508AI \uC124\uC815\uC774 \uC5C6\uC5B4 \uADDC\uCE59 \uAE30\uBC18 \uB2F5\uBCC0\uB9CC \uC0AC\uC6A9 \uC911\uC785\uB2C8\uB2E4. \uC608: \uC778\uB514\uD37C \uBBF8\uC218, \uB0B4\uC77C \uC77C\uC815 \uAC74\uC218, \uAE40\uBBFC\uC131 \uCC28\uB7C9\uBC88\uD638";
   }
 
   const logRow = appendErpChatLog({
