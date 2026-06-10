@@ -28,6 +28,7 @@ declare global {
 }
 
 const AUTO_SPEAK_KEY = "teammillimeter-erp-chat-auto-speak";
+const RESTART_DELAY_MS = 500;
 
 export function isSpeechRecognitionSupported() {
   return typeof window !== "undefined" && Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
@@ -57,9 +58,10 @@ export function useErpChatVoice(options?: {
   onFinalRef.current = options?.onFinalTranscript;
 
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
-  const pushToTalkActiveRef = useRef(false);
+  const voiceSessionActiveRef = useRef(false);
   const accumulatedRef = useRef("");
   const interimRef = useRef("");
+  const restartTimerRef = useRef<number | null>(null);
   const [listening, setListening] = useState(false);
   const [interimText, setInterimText] = useState("");
   const [speaking, setSpeaking] = useState(false);
@@ -69,14 +71,30 @@ export function useErpChatVoice(options?: {
   const speechSupported = isSpeechRecognitionSupported();
   const ttsSupported = isSpeechSynthesisSupported();
 
+  const clearRestartTimer = useCallback(() => {
+    if (restartTimerRef.current == null) return;
+    window.clearTimeout(restartTimerRef.current);
+    restartTimerRef.current = null;
+  }, []);
+
+  const resetVoiceSessionState = useCallback(() => {
+    voiceSessionActiveRef.current = false;
+    clearRestartTimer();
+    accumulatedRef.current = "";
+    interimRef.current = "";
+    setInterimText("");
+    setListening(false);
+  }, [clearRestartTimer]);
+
   useEffect(() => {
     return () => {
+      clearRestartTimer();
       recognitionRef.current?.abort();
       if (typeof window !== "undefined" && window.speechSynthesis) {
         window.speechSynthesis.cancel();
       }
     };
-  }, []);
+  }, [clearRestartTimer]);
 
   const stopSpeaking = useCallback(() => {
     if (typeof window === "undefined" || !window.speechSynthesis) return;
@@ -102,66 +120,86 @@ export function useErpChatVoice(options?: {
     [stopSpeaking, ttsSupported],
   );
 
-  const stopListening = useCallback(() => {
-    pushToTalkActiveRef.current = false;
-    recognitionRef.current?.stop();
-    setListening(false);
+  const applyRecognitionResults = useCallback((event: SpeechRecognitionEventLike, appendFinals: boolean) => {
+    let interim = "";
+    let freshFinal = "";
+
+    for (let index = event.resultIndex; index < event.results.length; index += 1) {
+      const result = event.results[index];
+      const chunk = String(result?.[0]?.transcript || "");
+      if (!chunk) continue;
+      if (result?.isFinal) freshFinal += chunk;
+      else interim += chunk;
+    }
+
+    if (appendFinals && freshFinal) {
+      accumulatedRef.current += freshFinal;
+    }
+
+    const preview = appendFinals ? accumulatedRef.current + interim : freshFinal || interim;
+    interimRef.current = preview;
+    setInterimText(preview);
+
+    return freshFinal.trim();
   }, []);
 
   const attachRecognitionHandlers = useCallback(
-    (recognition: SpeechRecognitionInstance, pushToTalk: boolean) => {
+    (recognition: SpeechRecognitionInstance, voiceSession: boolean) => {
       recognition.onresult = (event) => {
-        let interim = "";
-        let finalText = "";
-        for (let index = 0; index < event.results.length; index += 1) {
-          const chunk = event.results[index]?.[0]?.transcript || "";
-          if (event.results[index]?.isFinal) finalText += chunk;
-          else interim += chunk;
-        }
-
-        if (pushToTalk) {
-          accumulatedRef.current = finalText;
-          interimRef.current = finalText + interim;
-          setInterimText(interimRef.current);
-          return;
-        }
-
-        setInterimText(finalText || interim);
-        if (finalText.trim()) {
-          onFinalRef.current?.(finalText.trim());
+        const freshFinal = applyRecognitionResults(event, voiceSession);
+        if (!voiceSession && freshFinal) {
+          onFinalRef.current?.(freshFinal);
         }
       };
 
       recognition.onerror = (event) => {
         if (event.error === "not-allowed") {
           setVoiceError(ERP_CHAT_LABELS.micDenied);
-        } else if (event.error !== "aborted") {
+        } else if (event.error !== "aborted" && event.error !== "no-speech") {
           setVoiceError(ERP_CHAT_LABELS.voiceUnsupported);
         }
-        pushToTalkActiveRef.current = false;
-        setListening(false);
+        resetVoiceSessionState();
+        recognitionRef.current = null;
       };
 
       recognition.onend = () => {
-        if (pushToTalkActiveRef.current) {
-          try {
-            recognition.start();
-          } catch {
-            pushToTalkActiveRef.current = false;
+        if (!voiceSessionActiveRef.current || recognitionRef.current !== recognition) {
+          if (!voiceSessionActiveRef.current) {
             setListening(false);
             setInterimText("");
           }
           return;
         }
-        setListening(false);
-        setInterimText("");
+
+        clearRestartTimer();
+        restartTimerRef.current = window.setTimeout(() => {
+          restartTimerRef.current = null;
+          if (!voiceSessionActiveRef.current || recognitionRef.current !== recognition) return;
+          try {
+            recognition.start();
+          } catch {
+            resetVoiceSessionState();
+            recognitionRef.current = null;
+          }
+        }, RESTART_DELAY_MS);
       };
     },
-    [],
+    [applyRecognitionResults, clearRestartTimer, resetVoiceSessionState],
   );
 
+  const stopListening = useCallback(() => {
+    voiceSessionActiveRef.current = false;
+    clearRestartTimer();
+    recognitionRef.current?.abort();
+    recognitionRef.current = null;
+    accumulatedRef.current = "";
+    interimRef.current = "";
+    setListening(false);
+    setInterimText("");
+  }, [clearRestartTimer]);
+
   const startListening = useCallback(
-    (pushToTalk = false) => {
+    (voiceSession = false) => {
       setVoiceError("");
       if (!speechSupported || typeof window === "undefined") {
         setVoiceError(ERP_CHAT_LABELS.voiceUnsupported);
@@ -169,22 +207,24 @@ export function useErpChatVoice(options?: {
       }
 
       stopSpeaking();
+      clearRestartTimer();
+      recognitionRef.current?.abort();
+
       const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!Ctor) {
         setVoiceError(ERP_CHAT_LABELS.voiceUnsupported);
         return;
       }
 
-      recognitionRef.current?.abort();
       const recognition = new Ctor();
       recognition.lang = "ko-KR";
-      recognition.continuous = pushToTalk;
+      recognition.continuous = voiceSession;
       recognition.interimResults = true;
 
-      pushToTalkActiveRef.current = pushToTalk;
+      voiceSessionActiveRef.current = voiceSession;
       accumulatedRef.current = "";
       interimRef.current = "";
-      attachRecognitionHandlers(recognition, pushToTalk);
+      attachRecognitionHandlers(recognition, voiceSession);
 
       recognitionRef.current = recognition;
       setListening(true);
@@ -192,12 +232,12 @@ export function useErpChatVoice(options?: {
       try {
         recognition.start();
       } catch {
-        pushToTalkActiveRef.current = false;
-        setListening(false);
+        resetVoiceSessionState();
+        recognitionRef.current = null;
         setVoiceError(ERP_CHAT_LABELS.voiceUnsupported);
       }
     },
-    [attachRecognitionHandlers, speechSupported, stopSpeaking],
+    [attachRecognitionHandlers, clearRestartTimer, resetVoiceSessionState, speechSupported, stopSpeaking],
   );
 
   const beginPushToTalk = useCallback(() => {
@@ -206,16 +246,22 @@ export function useErpChatVoice(options?: {
   }, [listening, startListening]);
 
   const endPushToTalk = useCallback(() => {
-    if (!pushToTalkActiveRef.current && !listening) return;
-    pushToTalkActiveRef.current = false;
+    if (!voiceSessionActiveRef.current && !listening) return;
+
+    voiceSessionActiveRef.current = false;
+    clearRestartTimer();
+
     const text = String(interimRef.current || accumulatedRef.current || "").trim();
-    recognitionRef.current?.stop();
-    setListening(false);
-    setInterimText("");
+    recognitionRef.current?.abort();
+    recognitionRef.current = null;
+
     accumulatedRef.current = "";
     interimRef.current = "";
+    setListening(false);
+    setInterimText("");
+
     if (text) onFinalRef.current?.(text);
-  }, [listening]);
+  }, [clearRestartTimer, listening]);
 
   const toggleListening = useCallback(() => {
     if (listening) stopListening();
