@@ -2760,7 +2760,8 @@ export function tryRuleBasedClientSiteOnDateQuery(message) {
 function stripClientBusinessRegQueryNoise(text) {
   return String(text || "")
     .replace(/\uC0AC\uC5C5\uC790\s*\uB4F1\uB85D(?:\uC99D)?/g, "")
-    .replace(/(?:\uC788(?:\uC5B4|\uB098|\uC744|\uC744\uAE4C)|\uB4F1\uB85D|\uC5C5\uB85C\uB4DC|\uD30C\uC77C|\uC788\uB098|\?|\uC54C\uB824|\uC918|\uC870\uD68C|\uD655\uC778)/g, "")
+    .replace(/(?:\uC5F4|\uBD10|\uCC28|\uC774\uB3D9|\uBCF4\uAE30|\uBCF4\uC5EC|\uC870\uD68C|\uD655\uC778|\uC918|\uC778\uC87D)/g, "")
+    .replace(/(?:\uC788(?:\uC5B4|\uB098|\uC744|\uC744\uAE4C)|\uB4F1\uB85D|\uC5C5\uB85C\uB4DC|\uD30C\uC77C|\uC788\uB098|\?|\uC54C\uB824|\uC870\uD68C|\uD655\uC778)/g, "")
     .replace(/(?:\uB294|\uC740|\uB294|\uC758|\uC744|\uC758\uAC70|\uAFBC)/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -2834,9 +2835,70 @@ export function formatClientBusinessRegAnswer(data) {
   return lines.join("\n");
 }
 
+export function toolOpenClientBusinessReg({ clientName }) {
+  const state = getErpState(["clients"]);
+  const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
+  const query = String(clientName || "").trim();
+  if (!query) {
+    return { ok: false, error: "\uAC70\uB798\uCC98 \uC774\uB984\uC774 \uD544\uC694\uD569\uB2C8\uB2E4." };
+  }
+  const matchedClients = findClientsByQuery(clients, query);
+  if (!matchedClients.length) {
+    return { ok: false, error: `"${query}" \uAC70\uB798\uCC98\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+  }
+  const client = matchedClients[0];
+  const resolvedName = String(client?.name || query).trim();
+  const clientId = client?.id;
+  if (clientId == null || clientId === "") {
+    return { ok: false, error: `${resolvedName} \uAC70\uB798\uCC98 ID\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+  }
+  const meta = getClientBusinessRegMeta(String(clientId));
+  if (!meta) {
+    return {
+      ok: false,
+      error: `${resolvedName} \uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uD30C\uC77C\uC774 \uB4F1\uB85D\uB418\uC5B4 \uC788\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`,
+      clientName: resolvedName,
+      clientId,
+      hasFile: false,
+    };
+  }
+  return {
+    ok: true,
+    clientName: resolvedName,
+    clientId,
+    fileName: meta.fileName || "",
+    hasFile: true,
+  };
+}
+
+export function formatClientBusinessRegOpenAnswer(data) {
+  if (!data.ok) return data.error || "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uC5F4\uAE30\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  return `${data.clientName} \uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D\uC744 \uC5F4\uC5B4 \uB4DC\uB9BD\uB2C8\uB2E4.`;
+}
+
+export function buildChatActionsFromClientBusinessRegOpen(result) {
+  if (!result?.ok || result.clientId == null || result.clientId === "") return [];
+  return [
+    {
+      type: "open_client_business_reg",
+      clientName: result.clientName,
+      clientId: result.clientId,
+    },
+  ];
+}
+
+export function tryRuleBasedClientBusinessRegOpen(message) {
+  const text = String(message || "").trim();
+  if (!isClientBusinessRegQuery(text)) return null;
+  if (!hasChatOpenVerb(text)) return null;
+  const parsed = extractClientBusinessRegQuery(text);
+  return toolOpenClientBusinessReg({ clientName: parsed.clientName });
+}
+
 export function tryRuleBasedClientBusinessRegQuery(message) {
   const text = String(message || "").trim();
   if (!isClientBusinessRegQuery(text)) return null;
+  if (hasChatOpenVerb(text)) return null;
   const parsed = extractClientBusinessRegQuery(text);
   return formatClientBusinessRegAnswer(toolGetClientBusinessReg({ clientName: parsed.clientName }));
 }
@@ -3219,8 +3281,157 @@ export function tryRuleBasedClientStatementOpen(message) {
   return null;
 }
 
+function stripUnpaidStatementLinkQueryNoise(text) {
+  return String(text || "")
+    .replace(/\uBBF8\uC218\s*\uC804\uD45C|\uBBF8\uC218\uC804\uD45C/g, " ")
+    .replace(/\uC804\uD45C|\uB0B4\uC5ED\uC11C|\uC2DC\uACF5\uBE44(?:\uB0B4\uC5ED)?(?:\uC11C)?|\uC2DC\uACF5\uB0B4\uC5ED/g, "")
+    .replace(/(?:\uB9C1\uD06C|\uB9C1\uD06C\uBC84\uC804|\uB9C1\uD06C\uBCF8|\uB9C1\uD06C\s*\uBCF8|\uBCF8)/g, "")
+    .replace(/(?:\uB9CC\uB4E4|\uC0DD\uC131|\uCC28|\uCC3E|\uAC80\uC0C9|\uC870\uD68C|\uC5F4|\uBCF4\uC5EC|\uBCF4\uC5EC\uC918|\uC918|\uC778\uC6A9|\uD45C\uAE30|\uB54C\uC6B0\uAE30)/g, "")
+    .replace(/(?:\uB294|\uC740|\uB97C|\uC758|\uC744|\uC758\uAC70|\uC5D0\uC11C|\uB85C|\uC744|\uAE4C|\?)/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function isClientUnpaidStatementLinkQuery(text) {
+  const raw = String(text || "").trim();
+  if (!/\uBBF8\uC218/.test(raw)) return false;
+  if (!/(?:\uC804\uD45C|\uB0B4\uC5ED\uC11C|\uC2DC\uACF5\uBE44|\uC2DC\uACF5\uB0B4\uC5ED)/.test(raw)) return false;
+  if (/(?:\uB9C1\uD06C|\uB9C1\uD06C\uBC84\uC804|\uB9C1\uD06C\uBCF8)/.test(raw)) return true;
+  if (/(?:\uB9CC\uB4E4|\uC0DD\uC131|\uCC28|\uB54C\uC6B0\uAE30)/.test(raw)) return true;
+  return hasChatOpenVerb(raw);
+}
+
+export function extractClientUnpaidStatementLinkQuery(text) {
+  const raw = String(text || "").trim();
+  const expanded = expandSynonymsForExtraction(raw);
+  const hasPeriod =
+    chatHasMonthKeyword(expanded) ||
+    /\d{4}-\d{2}-\d{2}/.test(expanded) ||
+    /\d{1,2}\s*\uC6D4/.test(expanded);
+  const range = hasPeriod
+    ? resolveStatementPeriodFromInput(expanded)
+    : { startDate: "", endDate: "", label: "" };
+  const state = getErpState(["clients", "workers"]);
+  const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
+  const workers = Array.isArray(state.data?.workers) ? state.data.workers : [];
+  const entities = resolveChatEntitiesFromText(expanded, clients, workers);
+
+  let clientName = entities.clientName;
+  if (!clientName) {
+    const possessive = raw.match(/^(.+?)\uC758/);
+    if (possessive) clientName = possessive[1].trim();
+  }
+  if (!clientName) {
+    clientName = stripUnpaidStatementLinkQueryNoise(expanded);
+    if (clientName) {
+      const resolved = resolveChatEntityKind(clientName, clients, workers);
+      if (resolved.kind === "client") clientName = resolved.name;
+      else clientName = "";
+    }
+  }
+  return {
+    clientName,
+    startDate: range.startDate,
+    endDate: range.endDate,
+    periodLabel: range.label,
+  };
+}
+
+export function toolOpenClientUnpaidStatementLink({ clientName, startDate, endDate }) {
+  const state = getErpState(["sales", "clients"]);
+  const data = state.data || {};
+  const sales = Array.isArray(data.sales) ? data.sales : [];
+  const clients = Array.isArray(data.clients) ? data.clients : [];
+  const query = String(clientName || "").trim();
+  if (!query) {
+    return { ok: false, error: "\uAC70\uB798\uCC98 \uC774\uB984\uC774 \uD544\uC694\uD569\uB2C8\uB2E4." };
+  }
+
+  const matchedClients = findClientsByQuery(clients, query);
+  if (!matchedClients.length) {
+    return { ok: false, error: `"${query}" \uAC70\uB798\uCC98\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+  }
+
+  let rangeStart = String(startDate || "").slice(0, 10);
+  let rangeEnd = String(endDate || "").slice(0, 10);
+  let periodLabel = "";
+  if (rangeStart && rangeEnd) {
+    periodLabel = rangeStart === rangeEnd ? rangeStart : `${rangeStart}~${rangeEnd}`;
+  }
+
+  const clientFilterKeys = buildClientFilterKeys(query, matchedClients);
+  const resolvedName = String(matchedClients[0]?.name || query).trim();
+  const scopedSales = filterClientSalesInRange(
+    sales,
+    matchedClients,
+    clientFilterKeys,
+    rangeStart || "",
+    rangeEnd || "",
+  );
+  const unpaidSales = scopedSales.filter((sale) => getUnpaid(sale) > 0);
+  if (!unpaidSales.length) {
+    const periodHint = periodLabel ? ` (${periodLabel})` : "";
+    return {
+      ok: false,
+      error: `${resolvedName}${periodHint} \uBBF8\uC218 \uC804\uD45C\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`,
+      clientName: resolvedName,
+    };
+  }
+
+  const unpaidDates = unpaidSales
+    .map((sale) => String(sale?.date || "").slice(0, 10))
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+  const saleIds = unpaidSales.map((sale) => sale.id).filter((id) => id != null && id !== "");
+
+  return {
+    ok: true,
+    clientName: resolvedName,
+    startDate: rangeStart || unpaidDates[0] || "",
+    endDate: rangeEnd || unpaidDates[unpaidDates.length - 1] || "",
+    periodLabel: periodLabel || (unpaidDates.length ? `${unpaidDates[0]}~${unpaidDates[unpaidDates.length - 1]}` : ""),
+    saleIds,
+    unpaidCount: unpaidSales.length,
+    shareViaLink: true,
+  };
+}
+
+export function formatClientUnpaidStatementLinkOpenAnswer(data) {
+  if (!data.ok) return data.error || "\uBBF8\uC218 \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C \uC0DD\uC131\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  const period = data.periodLabel || `${data.startDate}~${data.endDate}`;
+  return `${data.clientName} \uBBF8\uC218 \uC804\uD45C ${data.unpaidCount}\uAC74\uC73C\uB85C \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C \uB9C1\uD06C \uBCF8\uC744 \uC0DD\uC131\uD574 \uD654\uBA74\uC5D0 \uD45C\uC2DC\uD569\uB2C8\uB2E4. (${period})`;
+}
+
+export function buildChatActionsFromClientUnpaidStatementLinkOpen(result) {
+  if (!result?.ok || !result.clientName) return [];
+  return [
+    {
+      type: "open_client_statement",
+      client: result.clientName,
+      startDate: result.startDate,
+      endDate: result.endDate,
+      saleIds: Array.isArray(result.saleIds) ? result.saleIds : [],
+      unpaidOnly: true,
+      autoGenerate: true,
+      autoShareLink: true,
+    },
+  ];
+}
+
+export function tryRuleBasedClientUnpaidStatementLinkOpen(message) {
+  const text = String(message || "").trim();
+  if (!isClientUnpaidStatementLinkQuery(text)) return null;
+  const parsed = extractClientUnpaidStatementLinkQuery(text);
+  return toolOpenClientUnpaidStatementLink({
+    clientName: parsed.clientName,
+    startDate: parsed.startDate,
+    endDate: parsed.endDate,
+  });
+}
+
 export function tryRuleBasedStatementOpen(message) {
   const text = String(message || "").trim();
+  if (isClientUnpaidStatementLinkQuery(text)) return null;
   if (!isConstructionStatementQuery(text)) return null;
   if (!hasChatOpenVerb(text) && !/(?:\uC0DD\uC131|\uB0B4\uC5ED)/.test(text)) return null;
 
@@ -3911,6 +4122,39 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "open_client_business_reg",
+      description:
+        "\uAC70\uB798\uCC98 \uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uD30C\uC77C\uC744 \uC5F4\uC5B4 \uBCF4\uC5EC\uC8FC\uC138\uC694. \uC608: \uC778\uB514\uD37C \uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uC5F4\uC5B4, \uC778\uB514\uD37C \uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uBCF4\uC5EC\uC918. \uC5EC\uBD80 \uC870\uD68C\uB294 get_client_business_reg.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientName: { type: "string", description: "\uAC70\uB798\uCC98 \uC774\uB984 (\uC608: \uC778\uB514\uD37C)" },
+        },
+        required: ["clientName"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "open_client_unpaid_statement_link",
+      description:
+        "\uAC70\uB798\uCC98 \uBBF8\uC218 \uC804\uD45C\uB97C \uCC3E\uC544 \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C \uB9C1\uD06C \uBCF8\uC744 \uC0DD\uC131\uD574 \uD654\uBA74\uC5D0 \uD45C\uC2DC\uD569\uB2C8\uB2E4. \uC608: \uC778\uB514\uD37C \uBBF8\uC218 \uC804\uD45C \uB0B4\uC5ED\uC11C \uB9CC\uB4E4\uC5B4, \uBBF8\uC218\uC804\uD45C \uB9C1\uD06C \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C \uC5F4\uC5B4\uC918. \uAE30\uAC04 \uC5C6\uC774 \uC694\uCCAD\uD558\uBA74 \uBBF8\uC218 \uC804\uCCB4\uB97C \uB300\uC0C1\uC73C\uB85C \uD569\uB2C8\uB2E4.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientName: { type: "string", description: "\uAC70\uB798\uCC98 \uC774\uB984 (\uC608: \uC778\uB514\uD37C)" },
+          startDate: { type: "string", description: "\uAE30\uAC04 \uC2DC\uC791 YYYY-MM-DD (\uC120\uD0DD)" },
+          endDate: { type: "string", description: "\uAE30\uAC04 \uC885\uB8CC YYYY-MM-DD (\uC120\uD0DD)" },
+          period: { type: "string", description: "\uC774\uBC88\uB2EC, 5\uC6D4 \uB4F1 (\uC120\uD0DD)" },
+        },
+        required: ["clientName"],
+      },
+    },
+  },
 ];
 
 export function executeErpChatTool(name, args, user, question) {
@@ -4082,6 +4326,18 @@ export function executeErpChatTool(name, args, user, question) {
       if (!merged.period && rawQuestion) merged.period = rawQuestion;
       return toolOpenClientTaxInvoiceHistory(merged);
     }
+    case "open_client_business_reg": {
+      const parsed = rawQuestion ? extractClientBusinessRegQuery(rawQuestion) : {};
+      return toolOpenClientBusinessReg({ clientName: args?.clientName || parsed.clientName });
+    }
+    case "open_client_unpaid_statement_link": {
+      const parsed = rawQuestion ? extractClientUnpaidStatementLinkQuery(rawQuestion) : {};
+      const merged = { ...(args || {}) };
+      if (!merged.clientName && parsed.clientName) merged.clientName = parsed.clientName;
+      if (!merged.startDate && parsed.startDate) merged.startDate = parsed.startDate;
+      if (!merged.endDate && parsed.endDate) merged.endDate = parsed.endDate;
+      return toolOpenClientUnpaidStatementLink(merged);
+    }
     default:
       return { ok: false, error: `\uC54C \uC218 \uC5C6\uB294 \uB3C4\uAD6C: ${name}` };
   }
@@ -4202,10 +4458,10 @@ export function formatGreetingAnswer() {
     "다음과 같이 도와드릴 수 있어요.",
     "· 거래처·기간별 미수 목록, 일정, 오늘/어제/기간별 매출·입금·계산서 합계, 담당자/시공자 연락처·차량번호·계좌번호 조회",
     "· 거래처 현장(날짜별), 사업자등록증, 계산서 발행 여부, 내역서 발송 후 미입금 조회",
-    "· 거래처 입금내역, 세금계산서 내역, 시공비내역서 열기",
+    "· 거래처 입금내역, 세금계산서 내역, 시공비내역서·사업자등록증 파일 열기",
     "· 캘린더, SC 스케줄, 통장, 전표 등 ERP 화면 이동",
     "",
-    '예: "인디퍼 미수", "강태원 계좌번호", "6월 2일 인디퍼 현장 어디야", "내역서 보냈는데 입금 안들어온데", "인디퍼 사업자등록증 있어?", "인디퍼 이번달 계산서 발행한적 있나?", "이번달 매출 얼마", "오늘 입금액"',
+    '예: "인디퍼 미수", "인디퍼 미수 전표 내역서 링크로 만들어", "강태원 계좌번호", "인디퍼 사업자등록증 열어", "6월 2일 인디퍼 현장 어디야", "내역서 보냈는데 입금 안들어온데", "인디퍼 사업자등록증 있어?", "인디퍼 이번달 계산서 발행한적 있나?", "이번달 매출 얼마", "오늘 입금액"',
   ].join("\n");
 }
 

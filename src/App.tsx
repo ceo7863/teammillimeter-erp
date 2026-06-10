@@ -8137,6 +8137,10 @@ export default function TeammillimeterErpMvp() {
   } | null>(null);
   const [pendingBankColumnPreset, setPendingBankColumnPreset] = useState<"account_only" | null>(null);
   const [pendingBankSearchQuery, setPendingBankSearchQuery] = useState<string | null>(null);
+  const [chatBusinessRegView, setChatBusinessRegView] = useState<{
+    clientId: string | number;
+    clientName: string;
+  } | null>(null);
   const [pendingWorkerStatementFilter, setPendingWorkerStatementFilter] = useState<{
     workerName: string;
     startDate: string;
@@ -9346,11 +9350,12 @@ export default function TeammillimeterErpMvp() {
           client: action.client,
           startDate: action.startDate,
           endDate: action.endDate,
-          unpaidOnly: false,
+          unpaidOnly: action.unpaidOnly === true,
           autoGenerate: action.autoGenerate !== false,
+          autoShareLink: action.autoShareLink === true,
           saleIds: Array.isArray(action.saleIds) ? action.saleIds : [],
           createdAt: Date.now(),
-          source: "client-calendar" as const,
+          source: "erp-chat" as const,
         };
         stashStatementDraft(draft);
         setStatementDraft(draft);
@@ -9376,6 +9381,15 @@ export default function TeammillimeterErpMvp() {
         });
         setAccountingNavTab("tax");
         setActive("accounting");
+        return;
+      }
+      if (action.type === "open_client_business_reg") {
+        if (action.clientId != null && action.clientId !== "") {
+          setChatBusinessRegView({
+            clientId: action.clientId,
+            clientName: action.clientName,
+          });
+        }
         return;
       }
       if (action.type === "navigate_erp") {
@@ -10577,6 +10591,12 @@ export default function TeammillimeterErpMvp() {
       {apiMode && currentUser ? (
         <ErpChatWidget currentUser={currentUser} enabled={dataReady} onAction={handleErpChatAction} />
       ) : null}
+      <ClientBusinessRegViewModal
+        open={chatBusinessRegView != null}
+        clientId={chatBusinessRegView?.clientId ?? null}
+        clientName={chatBusinessRegView?.clientName}
+        onClose={() => setChatBusinessRegView(null)}
+      />
     </div>
     </SalePaymentLinkProvider>
     </AuditProvider>

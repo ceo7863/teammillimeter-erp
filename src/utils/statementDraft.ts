@@ -7,10 +7,11 @@ export type StatementDraft = {
   endDate: string;
   unpaidOnly: boolean;
   autoGenerate: boolean;
+  autoShareLink?: boolean;
   /** Pivot unpaid voucher ids */
   saleIds: Array<string | number>;
   createdAt?: number;
-  source?: "reports-pivot" | "client-calendar";
+  source?: "reports-pivot" | "client-calendar" | "erp-chat";
 };
 
 export function stashStatementDraft(draft: StatementDraft) {

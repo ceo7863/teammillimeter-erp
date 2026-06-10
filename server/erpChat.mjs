@@ -56,6 +56,12 @@ import {
   buildChatActionsFromDepositOpen,
   formatTaxInvoiceOpenAnswer,
   buildChatActionsFromTaxInvoiceOpen,
+  tryRuleBasedClientBusinessRegOpen,
+  formatClientBusinessRegOpenAnswer,
+  buildChatActionsFromClientBusinessRegOpen,
+  tryRuleBasedClientUnpaidStatementLinkOpen,
+  formatClientUnpaidStatementLinkOpenAnswer,
+  buildChatActionsFromClientUnpaidStatementLinkOpen,
 } from "./erpChatTools.mjs";
 import {
   toolNavigateErp,
@@ -84,7 +90,7 @@ const SYSTEM_PROMPT = [
   "\uAC70\uB798\uCC98\uBA85(\uC608: \uC778\uB514\uD37C)\uACFC \uC2DC\uACF5\uC790\uBA85(\uC608: \uAC15\uD0DC\uC6D0)\uC740 ERP \uB9C8\uC2A4\uD130 \uAE30\uC900\uC73C\uB85C \uAD6C\uBD84\uD569\uB2C8\uB2E4. \uC778\uB514\uD37C=\uAC70\uB798\uCC98, \uAC15\uD0DC\uC6D0=\uC2DC\uACF5\uC790 \uBCC0\uC218\uC785\uB2C8\uB2E4.",
   "\uAC70\uB798\uCC98 \uB2F4\uB2F9\uC790 \uC870\uD68C\uB294 get_client_contacts, \uB2F4\uB2F9\uC790 \uC778\uC0C1 \uC870\uD68C\uB294 lookup_contact \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. '\uC778\uB514\uD37C \uAE40\uD718\uAD6D \uC804\uD654'\uCC98\uB7FC \uAC70\uB798\uCC98+\uB2F4\uB2F9\uC790 \uC774\uB984\uC774 \uD568\uAED8 \uC788\uC73C\uBA74 get_client_contacts\uC758 clientName\uACFC personName\uC744 \uBD84\uB824 \uC804\uB2EC\uD558\uC138\uC694. \uC2DC\uACF5\uC790\uAC00 \uC544\uB2CC \uAC70\uB798\uCC98 \uB2F4\uB2F9\uC790\uC5D0\uB294 get_worker_info\uB97C \uC0AC\uC6A9\uD558\uC9C0 \uB9C8\uC138\uC694.",
   "\uC2DC\uACF5\uC790 \uCC28\uB7C9\uBC88\uD638(\'\uCC28\uBC88\uD638\', \'\uCC28\uB7C9 \uBC88\uD638\' \uD3EC\uD568)\uB294 get_worker_info\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uC2DC\uACF5\uC790/\uAC70\uB798\uCC98 \uACC4\uC88C(\uC740\uD589/\uACC4\uC88C\uBC88\uD638) \uC870\uD68C\uB294 get_person_bank_account \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
-  "\uAC70\uB798\uCC98 \uD604\uC7A5 \uC704\uCE58(\uC608: 6\uC6D4 2\uC77C \uC778\uB514\uD37C \uD604\uC7A5 \uC5B4\uB514\uC57C)\uB294 get_client_site_on_date, \uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uC5EC\uBD80\uB294 get_client_business_reg, \uACC4\uC0B0\uC11C \uBC1C\uD589 \uC5EC\uBD80(\uC788\uB098/\uD55C\uC801 \uC788\uB098)\uB294 get_client_tax_invoice_issued, \uB0B4\uC5ED\uC11C \uBCF4\uB0C8\uC9C0\uB9CC \uBBF8\uC785\uAE08 \uC870\uD68C\uB294 get_statement_sent_unpaid \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
+  "\uAC70\uB798\uCC98 \uD604\uC7A5 \uC704\uCE58(\uC608: 6\uC6D4 2\uC77C \uC778\uB514\uD37C \uD604\uC7A5 \uC5B4\uB514\uC57C)\uB294 get_client_site_on_date, \uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uC5EC\uBD80\uB294 get_client_business_reg, \uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uD30C\uC77C \uC5F4\uAE30(\uC608: \uC778\uB514\uD37C \uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D \uC5F4\uC5B4)\uB294 open_client_business_reg, \uACC4\uC0B0\uC11C \uBC1C\uD589 \uC5EC\uBD80(\uC788\uB098/\uD55C\uC801 \uC788\uB098)\uB294 get_client_tax_invoice_issued, \uB0B4\uC5ED\uC11C \uBCF4\uB0C8\uC9C0\uB9CC \uBBF8\uC785\uAE08 \uC870\uD68C\uB294 get_statement_sent_unpaid \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "\uBE44\uC815\uD615 \uD55C\uAD6D\uC5B4, \uC624\uD0C0, \uB2E8\uC5B4 \uC21C\uC11C \uBCC0\uD658(\'\uBC15\uC900\uADDC \uCC28\uB7C9\uBC88\uD638\' / '\uCC28\uB7C9\uBC88\uD638 \uBC15\uC900\uADDC', '\uD1B5\uC7A5' / '\uACC4\uC88C')\uB97C \uC790\uC5F0\uC2A4\uB7FD\uAC8C \uC774\uD574\uD558\uC138\uC694.",
   "\uAC70\uB798\uCC98 \uC774\uB984\uC774 \uBAA8\uD638\uD558\uBA74 search_client \uD6C4 \uD655\uC778\uD558\uC138\uC694.",
   `\uC624\uB298 \uB0A0\uC9DC(\uD55C\uAD6D): ${todayISO()}`,
@@ -94,6 +100,7 @@ const SYSTEM_PROMPT = [
   "SC \uC2A4\uCF00\uC904/\uC77C\uC815 \uC5F4\uAE30: \uAC70\uB798\uCC98 \uC774\uB984 \uC788\uC73C\uBA74 open_client_site_request_calendar(\uC608: \uC778\uB514\uD37C \uC2A4\uCF00\uC904 \uC5F4\uC5B4 \u2192 \uC5C5\uCCB4\uBCC4 \uCE98\uB9B0\uB354), \uAC70\uB798\uCC98 \uC5C6\uC774 \uC804\uCCB4 SC \uC774\uBA74 open_sc_schedule. '\uC77C\uC815' \uC870\uD68C \uC804\uC6A9 \uC694\uCCAD(\uC5F4\uAE30 \uC544\uB2D8)\uC740 get_schedule_count. \uC2DC\uACF5\uC790 \uC774\uB984+\uC77C\uC815(\uC608: \uBC30\uC885\uC6D0 \uC624\uB298 \uC77C\uC815)\uC740 get_schedule_count(workerName).",
   "\uC2DC\uACF5\uC790 \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C/\uC2DC\uACF5\uB0B4\uC5ED\uC11C/\uB0B4\uC5ED\uC11C \uC5F4\uAE30(\uC608: \uAE40\uBBFC\uC131 5\uC6D4 \uB0B4\uC5ED\uC11C, \uAE40\uBBFC\uC131 5\uC6D4 \uC2DC\uACF5\uB0B4\uC5ED\uC11C \uC5F4\uC5B4\uC918, \uAE40\uBBFC\uC131 \uC774\uBC88\uB2EC \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C)\uC740 open_worker_construction_cost_statement \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uC2DC\uACF5\uC790 \uBAA9\uB85D\uC5D0 \uC788\uB294 \uC774\uB984\uC774\uBA74 \uAC70\uB798\uCC98 \uB0B4\uC5ED\uC11C\uAC00 \uC544\uB2CC \uC2DC\uACF5\uC790 \uB0B4\uC5ED\uC11C\uC785\uB2C8\uB2E4. \uC6D4 \uC9C0\uC815 \uC5C6\uC73C\uBA74 \uC774\uBC88 \uB2EC, \uB144\uB3C4 \uC5C6\uC73C\uBA74 \uC62C\uD574\uB97C \uAE30\uBCF8\uC73C\uB85C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "\uAC70\uB798\uCC98 \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C \uC0DD\uC131 \uBC0F \uC5F4\uAE30(\uC608: \uC778\uB514\uD37C \uC774\uBC88\uB2EC \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C)\uC740 open_client_construction_cost_statement \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uAC70\uB798\uCC98 \uBAA9\uB85D\uC5D0 \uC788\uB294 \uC774\uB984\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4.",
+  "\uAC70\uB798\uCC98 \uBBF8\uC218 \uC804\uD45C \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C \uB9C1\uD06C \uBCF8(\uC608: \uC778\uB514\uD37C \uBBF8\uC218 \uC804\uD45C \uB0B4\uC5ED\uC11C \uB9CC\uB4E4\uC5B4, \uBBF8\uC218\uC804\uD45C \uB9C1\uD06C\uBC84\uC804 \uC2DC\uACF5\uBE44\uB0B4\uC5ED\uC11C)\uC740 open_client_unpaid_statement_link \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uAE30\uAC04 \uC5C6\uC774 \uC694\uCCAD\uD558\uBA74 \uBBF8\uC218 \uC804\uCCB4\uB97C \uB300\uC0C1\uC73C\uB85C \uD569\uB2C8\uB2E4.",
   "\uC785\uAE08 \uD569\uACC4/\uAE08\uC561 \uC870\uD68C(\uC608: \uC624\uB298 \uC785\uAE08\uC561, \uC774\uBC88\uB2EC \uC785\uAE08 \uD569\uACC4, \uC778\uB514\uD37C \uC624\uB298 \uC785\uAE08 \uC5BC\uB9C8)\uC740 get_deposit_total \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uD654\uBA74 \uC5F4\uAE30\uAC00 \uC544\uB2CC \uAE08\uC561 \uC870\uD68C \uC804\uC6A9\uC785\uB2C8\uB2E4.",
   "\uB9E4\uCD9C(\uC804\uD45C) \uAE08\uC561 \uC870\uD68C(\uC608: \uC624\uB298 \uB9E4\uCD9C, \uC5B4\uC81C \uB9E4\uCD9C \uC5BC\uB9C8, \uC774\uBC88\uB2EC \uB9E4\uCD9C \uD569\uACC4, 5\uC6D4\uB2EC \uB9E4\uCD9C \uC5BC\uB9C8, 5\uC6D4 \uB9E4\uCD9C)\uC740 get_sales_total \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uACC4\uC0B0\uC11C/\uC138\uAE08\uACC4\uC0B0\uC11C\uB294 get_tax_invoice_summary\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "\uAC70\uB798\uCC98 \uC785\uAE08\uB0B4\uC5ED \uC5F4\uAE30(\uC608: \uC778\uB514\uD37C \uC785\uAE08\uB0B4\uC5ED \uC5F4\uC5B4\uC918, \uC778\uB514\uD37C 5\uC6D4 \uC785\uAE08\uB0B4\uC5ED, \uC778\uB514\uD37C \uBAA8\uB4E0 \uC785\uAE08\uB0B4\uC5ED)\uC740 open_client_deposit_history \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. '\uC5F4\uC5B4\uC918' \uC5C6\uC774 \uC785\uAE08\uB0B4\uC5ED\uB9CC \uC801\uC5B4\uB3C4 \uD655\uC778 \uC694\uCCAD\uC785\uB2C8\uB2E4. 5\uC6D4 \uB4F1 \uAE30\uAC04\uC740 period/startDate/endDate\uB85C \uC804\uB2EC\uD558\uC138\uC694. '\uBAA8\uB4E0', '\uC804\uCCB4'\uC740 allHistory=true.",
@@ -299,6 +306,12 @@ function formatToolResultsAsAnswer(toolsUsed) {
       case "open_client_tax_invoice_history":
         lines.push(formatTaxInvoiceOpenAnswer(result));
         break;
+      case "open_client_business_reg":
+        lines.push(formatClientBusinessRegOpenAnswer(result));
+        break;
+      case "open_client_unpaid_statement_link":
+        lines.push(formatClientUnpaidStatementLinkOpenAnswer(result));
+        break;
       case "navigate_erp":
         lines.push(formatNavigateAnswer(result));
         break;
@@ -377,6 +390,22 @@ function tryRuleBasedOpenFromQuestion(question) {
     return {
       answer: formatTaxInvoiceOpenAnswer(taxOpenResult),
       chatActions: buildChatActionsFromTaxInvoiceOpen(taxOpenResult),
+    };
+  }
+
+  const businessRegOpenResult = tryRuleBasedClientBusinessRegOpen(question);
+  if (businessRegOpenResult) {
+    return {
+      answer: formatClientBusinessRegOpenAnswer(businessRegOpenResult),
+      chatActions: buildChatActionsFromClientBusinessRegOpen(businessRegOpenResult),
+    };
+  }
+
+  const unpaidStatementLinkResult = tryRuleBasedClientUnpaidStatementLinkOpen(question);
+  if (unpaidStatementLinkResult) {
+    return {
+      answer: formatClientUnpaidStatementLinkOpenAnswer(unpaidStatementLinkResult),
+      chatActions: buildChatActionsFromClientUnpaidStatementLinkOpen(unpaidStatementLinkResult),
     };
   }
 
@@ -681,6 +710,22 @@ export async function handleErpChat({ messages, user: tokenUser }) {
   if (taxInvoiceUsed) {
     answer = formatTaxInvoiceOpenAnswer(taxInvoiceUsed.result);
     chatActions = buildChatActionsFromTaxInvoiceOpen(taxInvoiceUsed.result);
+  }
+
+  const businessRegOpenUsed = toolsUsed.find(
+    (row) => row.name === "open_client_business_reg" && row.result?.ok,
+  );
+  if (businessRegOpenUsed) {
+    answer = formatClientBusinessRegOpenAnswer(businessRegOpenUsed.result);
+    chatActions = buildChatActionsFromClientBusinessRegOpen(businessRegOpenUsed.result);
+  }
+
+  const unpaidStatementLinkUsed = toolsUsed.find(
+    (row) => row.name === "open_client_unpaid_statement_link" && row.result?.ok,
+  );
+  if (unpaidStatementLinkUsed) {
+    answer = formatClientUnpaidStatementLinkOpenAnswer(unpaidStatementLinkUsed.result);
+    chatActions = buildChatActionsFromClientUnpaidStatementLinkOpen(unpaidStatementLinkUsed.result);
   }
 
   const bankOpenUsed = toolsUsed.find(

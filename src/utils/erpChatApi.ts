@@ -32,6 +32,8 @@ export type ErpChatAction =
       endDate: string;
       saleIds: Array<string | number>;
       autoGenerate?: boolean;
+      unpaidOnly?: boolean;
+      autoShareLink?: boolean;
     }
   | { type: "open_client_deposit_history"; clientName: string; allHistory?: boolean; startDate?: string; endDate?: string }
   | {
@@ -40,6 +42,7 @@ export type ErpChatAction =
       startDate: string;
       endDate: string;
     }
+  | { type: "open_client_business_reg"; clientName: string; clientId: string | number }
   | { type: "open_sc_schedule"; url: string }
   | { type: "open_client_site_request_calendar"; clientName: string; clientId?: string | number }
   | {

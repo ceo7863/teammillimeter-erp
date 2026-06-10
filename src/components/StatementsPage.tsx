@@ -404,7 +404,9 @@ export function StatementsPage({
   const restrictedSaleIdsRef = useRef<Array<string | number>>([]);
   const appliedDraftTokenRef = useRef("");
   const autoGeneratePendingRef = useRef(false);
+  const autoShareLinkPendingRef = useRef(false);
   const [autoGenerateTick, setAutoGenerateTick] = useState(0);
+  const [pendingAutoShareLink, setPendingAutoShareLink] = useState(false);
   const onDraftConsumedRef = useRef(onDraftConsumed);
   onDraftConsumedRef.current = onDraftConsumed;
   const clientPrintRef = useRef<HTMLDivElement>(null);
@@ -450,6 +452,7 @@ export function StatementsPage({
     setClientStatementGenerated(false);
     setClientStatementIssuedDate("");
     autoGeneratePendingRef.current = Boolean(incoming.autoGenerate);
+    autoShareLinkPendingRef.current = Boolean(incoming.autoShareLink);
 
     window.setTimeout(() => {
       restoringHistoryRef.current = false;
@@ -820,6 +823,10 @@ export function StatementsPage({
       recordGenerationLog("client", client, rows.length);
       clearStatementDraftStash();
       onDraftConsumedRef.current?.();
+      if (autoShareLinkPendingRef.current) {
+        autoShareLinkPendingRef.current = false;
+        setPendingAutoShareLink(true);
+      }
       return;
     }
 
@@ -1386,6 +1393,16 @@ export function StatementsPage({
       setPdfGenerating(false);
     }
   };
+
+  useEffect(() => {
+    if (!pendingAutoShareLink || statementType !== "client" || !clientStatementGenerated) return;
+    if (!hasClientSelection || !clientRows.length || !clientPrintRef.current) return;
+    setPendingAutoShareLink(false);
+    const timer = window.setTimeout(() => {
+      void shareStatementDownloadLink();
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [pendingAutoShareLink, statementType, clientStatementGenerated, hasClientSelection, clientRows.length]);
 
   const handleCopyStatementShareLink = async () => {
     if (!statementShareLink) return;
