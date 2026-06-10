@@ -7,6 +7,7 @@ import {
   loginWithApi,
   type ErpUser,
 } from "@/utils/erpApi";
+import { ERP_CHAT_LABELS } from "@/utils/erpChatLabels";
 import { stashPendingChatAction } from "@/utils/erpChatPendingAction";
 import type { ErpChatAction } from "@/utils/erpChatApi";
 
@@ -27,7 +28,7 @@ export function ErpChatStandalonePage({ autoVoice = true }: ErpChatStandalonePag
   const handleLogin = useCallback(async () => {
     const id = loginId.trim();
     if (!id || !password) {
-      setLoginError("???? ????? ??? ???.");
+      setLoginError(ERP_CHAT_LABELS.standaloneLoginRequired);
       return;
     }
     setLoggingIn(true);
@@ -36,7 +37,7 @@ export function ErpChatStandalonePage({ autoVoice = true }: ErpChatStandalonePag
       const { user } = await loginWithApi(id, password);
       setCurrentUser(user);
     } catch (error) {
-      setLoginError(error instanceof Error ? error.message : "???? ??????.");
+      setLoginError(error instanceof Error ? error.message : ERP_CHAT_LABELS.standaloneLoginFailed);
     } finally {
       setLoggingIn(false);
     }
@@ -52,12 +53,12 @@ export function ErpChatStandalonePage({ autoVoice = true }: ErpChatStandalonePag
       <div className="erp-chat-standalone-login flex min-h-[100dvh] items-center justify-center bg-slate-950 px-4 py-8 text-white">
         <div className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-xl">
           <h1 className="text-xl font-bold">TM ERP AI</h1>
-          <p className="mt-2 text-sm text-slate-400">?? ??? ????? ??????.</p>
+          <p className="mt-2 text-sm text-slate-400">{ERP_CHAT_LABELS.standaloneLoginIntro}</p>
           <div className="mt-5 space-y-3">
             <input
               type="text"
               className="erp-chat-input w-full"
-              placeholder="???"
+              placeholder={ERP_CHAT_LABELS.standaloneLoginId}
               value={loginId}
               onChange={(event) => setLoginId(event.target.value)}
               autoComplete="username"
@@ -65,7 +66,7 @@ export function ErpChatStandalonePage({ autoVoice = true }: ErpChatStandalonePag
             <input
               type="password"
               className="erp-chat-input w-full"
-              placeholder="????"
+              placeholder={ERP_CHAT_LABELS.standaloneLoginPassword}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               autoComplete="current-password"
@@ -80,7 +81,7 @@ export function ErpChatStandalonePage({ autoVoice = true }: ErpChatStandalonePag
               disabled={loggingIn}
               onClick={() => void handleLogin()}
             >
-              {loggingIn ? "??? ?..." : "???"}
+              {loggingIn ? ERP_CHAT_LABELS.standaloneLoginSubmitting : ERP_CHAT_LABELS.standaloneLoginSubmit}
             </button>
           </div>
         </div>
@@ -93,13 +94,13 @@ export function ErpChatStandalonePage({ autoVoice = true }: ErpChatStandalonePag
       <div className="erp-chat-standalone__top flex items-center justify-between border-b border-slate-800 px-4 py-3">
         <div>
           <div className="text-sm font-bold">TM ERP AI</div>
-          <div className="text-xs text-slate-400">???? ??? ?? ? ?? ?? ?????</div>
+          <div className="text-xs text-slate-400">{ERP_CHAT_LABELS.standaloneVoiceHint}</div>
         </div>
         <a
           href="/"
           className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-200"
         >
-          ERP ??
+          {ERP_CHAT_LABELS.standaloneOpenErp}
           <ExternalLink size={14} />
         </a>
       </div>
