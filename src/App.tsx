@@ -9885,6 +9885,11 @@ export default function TeammillimeterErpMvp() {
       setTaxInvoices,
       currentUser,
       companyProfile,
+      workerMonthlyActualVouchers,
+      setWorkerMonthlyActualVouchers,
+      workerPaymentRecords,
+      workerPayWithVatLearnRules,
+      onPersistWorkerMonthlyLinksImmediate: persistWorkerMonthlyLinksImmediate,
     }),
     [
       bankTransactions,
@@ -9909,6 +9914,10 @@ export default function TeammillimeterErpMvp() {
       taxInvoices,
       currentUser,
       companyProfile,
+      workerMonthlyActualVouchers,
+      workerPaymentRecords,
+      workerPayWithVatLearnRules,
+      persistWorkerMonthlyLinksImmediate,
     ],
   );
 

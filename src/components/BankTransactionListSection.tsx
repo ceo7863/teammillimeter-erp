@@ -12,6 +12,7 @@ import type { BankTransaction } from "@/utils/bankTransactions";
 import type { AccountCode, LedgerCategory } from "@/utils/ledgerSystem";
 import { resolveAccountCodeLabel } from "@/utils/ledgerSystem";
 import type { TaxInvoice } from "@/utils/taxInvoices";
+import type { WorkerMonthlyActualVoucher } from "@/utils/workerMonthlyActualPayments";
 import { buildTaxInvoiceCancellationPairIndex } from "@/utils/taxInvoices";
 import {
   buildBankTransactionListLookupMaps,
@@ -44,6 +45,7 @@ type BankTransactionListSectionProps = {
   taxInvoices: TaxInvoice[];
   clients?: Array<{ name?: string }>;
   workers?: Array<{ name?: string }>;
+  workerMonthlyActualVouchers?: WorkerMonthlyActualVoucher[];
   paymentVouchers?: Array<{ bankTransactionId?: string | number; isPartialPayment?: boolean }>;
   labels: BankTransactionListSectionLabels;
   columnVisibility: BankTransactionColumnVisibility;
@@ -73,6 +75,7 @@ function BankTransactionListSectionComponent({
   taxInvoices,
   clients = [],
   workers = [],
+  workerMonthlyActualVouchers = [],
   paymentVouchers = [],
   labels,
   columnVisibility,
@@ -118,6 +121,7 @@ function BankTransactionListSectionComponent({
       taxInvoiceCancellationPairIndex: buildTaxInvoiceCancellationPairIndex(taxInvoices),
       clients,
       workers,
+      workerMonthlyActualVouchers,
     };
   }, [
     isListActive,
@@ -136,6 +140,7 @@ function BankTransactionListSectionComponent({
     taxInvoices,
     clients,
     workers,
+    workerMonthlyActualVouchers,
   ]);
 
   const rowModelCacheRef = useRef(

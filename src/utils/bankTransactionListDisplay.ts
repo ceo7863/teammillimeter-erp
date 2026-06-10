@@ -27,6 +27,8 @@ import {
   isUnfiledClientDepositLink,
   type BankTransaction,
 } from "@/utils/bankTransactions";
+import { formatMonthLabel } from "@/utils/workerMonthlyPayments";
+import type { WorkerMonthlyActualVoucher } from "@/utils/workerMonthlyActualPayments";
 import { resolveBankAccountDisplayLabel } from "@/utils/bankBrandIcon";
 import { resolveBankTxLedgerAccountCode } from "@/utils/bankCompanyLedger";
 
@@ -65,6 +67,8 @@ export type BankTransactionListRowModel = {
   evidenceLabel: string | null;
   evidenceLinked: boolean;
   showVoucherProcessedBadge: boolean;
+  workerErpLinked: boolean;
+  workerErpStatusLabel: string;
   partyKind: "client" | "worker" | "none";
   counterpartyPartyKind: "client" | "worker" | "none";
 };
@@ -195,6 +199,7 @@ export type BankTransactionListRowBuildContext = {
   taxInvoiceCancellationPairIndex: Map<string, TaxInvoiceCancellationPairInfo>;
   clients: Array<{ name?: string }>;
   workers: Array<{ name?: string }>;
+  workerMonthlyActualVouchers?: WorkerMonthlyActualVoucher[];
 };
 
 export function buildBankTransactionListRowModel(
@@ -216,6 +221,7 @@ export function buildBankTransactionListRowModel(
     taxInvoiceCancellationPairIndex,
     clients,
     workers,
+    workerMonthlyActualVouchers = [],
   } = context;
 
   const folder = row.folderId ? folderMap.get(row.folderId) : undefined;
@@ -282,6 +288,19 @@ export function buildBankTransactionListRowModel(
     matchStatusLabel = "\uBBF8\uC5F0\uACB0";
   }
 
+  const workerErpLinked = Boolean(String(row.linkedWorkerMonthlyPaymentVoucherId || "").trim());
+  let workerErpStatusLabel = "-";
+  if (workerErpLinked) {
+    const linkedVoucher = workerMonthlyActualVouchers.find(
+      (voucher) => voucher.id === row.linkedWorkerMonthlyPaymentVoucherId,
+    );
+    workerErpStatusLabel = linkedVoucher
+      ? `${formatMonthLabel(linkedVoucher.monthKey)} ${linkedVoucher.worker}`
+      : "\uC2E4\uC9C0\uAE09 \uC5F0\uACB0";
+  } else if (row.withdrawal > 0) {
+    workerErpStatusLabel = "\uBBF8\uC5F0\uACB0";
+  }
+
   const suppressed = isNetGroupSuppressed(row) && !expenseReversal;
   const rowTone: BankTransactionListRowModel["rowTone"] = suppressed
     ? "suppressed"
@@ -309,6 +328,8 @@ export function buildBankTransactionListRowModel(
     classificationLabel,
     matchLinked,
     matchStatusLabel,
+    workerErpLinked,
+    workerErpStatusLabel,
     suppressed,
     rowTone,
     labels,
@@ -336,6 +357,8 @@ type BankTransactionListRowModelParts = {
   classificationLabel: string;
   matchLinked: boolean;
   matchStatusLabel: string;
+  workerErpLinked: boolean;
+  workerErpStatusLabel: string;
   suppressed: boolean;
   rowTone: BankTransactionListRowModel["rowTone"];
   labels: { accountContentPlaceholder: string };
@@ -366,6 +389,8 @@ function buildBankTransactionListRowModelFromParts(
     classificationLabel,
     matchLinked,
     matchStatusLabel,
+    workerErpLinked,
+    workerErpStatusLabel,
     rowTone,
     labels,
     paymentVouchers,
@@ -408,6 +433,8 @@ function buildBankTransactionListRowModelFromParts(
     evidenceLabel,
     evidenceLinked: Boolean(linkedInvoice),
     showVoucherProcessedBadge: Boolean(row.linkedPaymentVoucherId && row.deposit > 0),
+    workerErpLinked,
+    workerErpStatusLabel,
     partyKind: resolveBankTxPartyKind(row, folder, clientLabel, clients, workers),
     counterpartyPartyKind: resolveBankTxPartyKind(
       row,
@@ -450,6 +477,14 @@ export function buildBankTransactionListRowFingerprint(
   }
   if (bankTxHasPartialPaymentVoucher(row, paymentVouchers)) {
     linked.push("pp:1");
+  }
+  if (row.linkedWorkerMonthlyPaymentVoucherId) {
+    const voucher = context.workerMonthlyActualVouchers?.find(
+      (item) => item.id === row.linkedWorkerMonthlyPaymentVoucherId,
+    );
+    linked.push(
+      `wm:${row.linkedWorkerMonthlyPaymentVoucherId}:${voucher?.monthKey ?? ""}:${voucher?.worker ?? ""}`,
+    );
   }
 
   const tx = [

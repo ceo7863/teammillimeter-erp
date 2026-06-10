@@ -240,6 +240,99 @@ export function findBestWorkerBankMatchForObligation(
   return best;
 }
 
+export function resolveBankTxWorkerName(
+  tx: BankTransaction,
+  bankTransactionFolders: BankTransactionFolder[],
+  workers: WorkerDepositMatchSource[] = [],
+) {
+  const fromBank = resolveWorkerFromBankTx(tx, bankTransactionFolders, workers);
+  if (fromBank) return fromBank;
+  const label = String(tx.ledgerClientName || tx.linkedSubject || "").trim();
+  if (label && workers.some((row) => String(row.name || "").trim() === label)) return label;
+  return "";
+}
+
+/** 통장 ERP 찾기: 시공자·금액·월 기준으로 월실지급 후보를 나열합니다. */
+export function buildWorkerBankManualLinkCandidates(
+  tx: BankTransaction,
+  obligations: WorkerMonthlyObligation[],
+  bankTransactionFolders: BankTransactionFolder[],
+  workers: WorkerDepositMatchSource[] = [],
+  options: { minScore?: number; limit?: number; worker?: string } = {},
+) {
+  if (String(tx.linkedWorkerMonthlyPaymentVoucherId || "").trim()) return [];
+
+  const bankAmount = resolveWorkerBankPaymentAmount(tx);
+  if (bankAmount <= 0) return [];
+
+  const workerName =
+    String(options.worker || "").trim() ||
+    resolveBankTxWorkerName(tx, bankTransactionFolders, workers);
+  if (!workerName) return [];
+
+  const workerObligations = obligations.filter((row) => row.worker === workerName);
+  const minScore = options.minScore ?? 0;
+  const limit = options.limit ?? 30;
+  const txDate = String(tx.transactionAt || "").slice(0, 10);
+
+  const amountMatches = buildWorkerBankMatchCandidates(tx, workerObligations, workers, {
+    worker: workerName,
+  });
+  const seenMonths = new Set(amountMatches.map((row) => row.obligation.monthKey));
+  const manualRows: WorkerBankMatchCandidate[] = [];
+
+  for (const obligation of workerObligations) {
+    if (seenMonths.has(obligation.monthKey)) continue;
+    if (obligation.balance <= 0 && obligation.expectedFinalAmount <= 0) continue;
+
+    let score = 20;
+    const reasons = ["\uC2DC\uACF5\uC790 \uC77C\uCE58"];
+    const nameMatch = workerNameMatchScore(tx, obligation.worker, workers);
+    score += nameMatch.score;
+    if (nameMatch.reason) reasons.push(nameMatch.reason);
+
+    if (txDate && obligation.monthKey && txDate.slice(0, 7) === obligation.monthKey) {
+      score += 10;
+      reasons.push("\uC9C0\uAE09\uC6D4 \uC77C\uCE58");
+    }
+
+    const amountMatch = resolveWorkerWithdrawalAmountMatch(bankAmount, obligation);
+    if (amountMatch) {
+      score += amountMatch.score;
+      reasons.push(amountMatch.reason);
+    }
+
+    if (score < minScore) continue;
+
+    manualRows.push({
+      obligation,
+      score,
+      reasons,
+      amountMatch:
+        amountMatch ||
+        ({
+          score: 0,
+          reason: "\uAE08\uC561 \uC218\uB3D9 \uD655\uC778",
+          payWithVat: Boolean(obligation.payWithVat),
+          expectedFinalAmount: obligation.expectedFinalAmount,
+          netAmount: obligation.expectedAmount,
+          vatAmount: 0,
+        } satisfies WorkerBankAmountMatch),
+      bankTransactionId: tx.id,
+      bankAmount,
+      bankDate: txDate,
+    });
+  }
+
+  return [...amountMatches, ...manualRows]
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        b.obligation.monthKey.localeCompare(a.obligation.monthKey),
+    )
+    .slice(0, limit);
+}
+
 export function listUnlinkedWorkerBankMatchesForWorker(
   worker: string,
   bankTransactions: BankTransaction[],

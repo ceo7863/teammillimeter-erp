@@ -32,6 +32,7 @@ export type BankTransactionSplitTableLabels = {
   empty: string;
   evidenceFind: string;
   erpFind: string;
+  erpWorkerFind: string;
   evidencePlaceholder: string;
   accountSubjectPlaceholder: string;
   clientPlaceholder: string;
@@ -95,6 +96,8 @@ function splitRowModelsEqual(
     prev.showVoucherProcessedBadge === next.showVoucherProcessedBadge &&
     prev.matchLinked === next.matchLinked &&
     prev.matchStatusLabel === next.matchStatusLabel &&
+    prev.workerErpLinked === next.workerErpLinked &&
+    prev.workerErpStatusLabel === next.workerErpStatusLabel &&
     prev.rowTone === next.rowTone
   );
 }
@@ -339,8 +342,15 @@ const SplitRow = memo(function SplitRow({
       ? resolveBankTxEvidenceAccentTone(rowAmounts, model.partyKind)
       : null;
   const erpFindTone =
-    !model.matchLinked && model.rowTone === "deposit" && model.clientLabel?.trim()
+    !model.matchLinked &&
+    !model.workerErpLinked &&
+    model.rowTone === "deposit" &&
+    model.clientLabel?.trim()
       ? resolveBankTxEvidenceAccentTone(rowAmounts, model.partyKind)
+      : null;
+  const workerErpFindTone =
+    !model.workerErpLinked && model.rowTone === "withdrawal" && model.partyKind === "worker"
+      ? "worker"
       : null;
 
   return (
@@ -478,11 +488,29 @@ const SplitRow = memo(function SplitRow({
           >
             {model.matchStatusLabel}
           </button>
+        ) : model.workerErpLinked ? (
+          <button
+            type="button"
+            className="erp-bank-wehago-cell-btn max-w-full truncate border border-orange-200 bg-orange-100 text-left text-orange-800 hover:bg-orange-200"
+            title={model.workerErpStatusLabel}
+            onClick={() => onFindErpProcess(model.id)}
+          >
+            {model.workerErpStatusLabel}
+          </button>
         ) : model.rowTone === "deposit" ? (
           <button
             type="button"
             className={`erp-bank-wehago-cell-btn erp-bank-evidence-find${erpFindTone ? ` erp-bank-evidence-find--${erpFindTone}` : " erp-bank-evidence-find--plain"}`}
             title={labels.erpFind}
+            onClick={() => onFindErpProcess(model.id)}
+          >
+            찾기
+          </button>
+        ) : model.rowTone === "withdrawal" && model.partyKind === "worker" ? (
+          <button
+            type="button"
+            className={`erp-bank-wehago-cell-btn erp-bank-evidence-find erp-bank-evidence-find--${workerErpFindTone || "plain"}`}
+            title={labels.erpWorkerFind}
             onClick={() => onFindErpProcess(model.id)}
           >
             찾기

@@ -10,6 +10,7 @@ import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "@/utils/
 import type { BankTransaction } from "@/utils/bankTransactions";
 import type { AccountCode, LedgerCategory } from "@/utils/ledgerSystem";
 import type { TaxInvoice } from "@/utils/taxInvoices";
+import type { WorkerMonthlyActualVoucher } from "@/utils/workerMonthlyActualPayments";
 import type { BankTxStatusTab } from "@/utils/bankTransactionStatusFilter";
 
 export type BankTransactionsListShellProps = {
@@ -38,6 +39,7 @@ export type BankTransactionsListShellProps = {
   accountCodes: AccountCode[];
   taxInvoices: TaxInvoice[];
   workers: Array<{ name?: string }>;
+  workerMonthlyActualVouchers?: WorkerMonthlyActualVoucher[];
   paymentVouchers: Array<{ bankTransactionId?: string | number; isPartialPayment?: boolean }>;
   labels: BankTransactionListSectionLabels;
   stats: { count: number; deposits: number; withdrawals: number; net: number };
@@ -96,6 +98,7 @@ function BankTransactionsListShellComponent(props: BankTransactionsListShellProp
     accountCodes,
     taxInvoices,
     workers,
+    workerMonthlyActualVouchers,
     paymentVouchers,
     labels,
     stats,
@@ -156,6 +159,7 @@ function BankTransactionsListShellComponent(props: BankTransactionsListShellProp
         taxInvoices={taxInvoices}
         clients={clients}
         workers={workers}
+        workerMonthlyActualVouchers={workerMonthlyActualVouchers}
         paymentVouchers={paymentVouchers}
         labels={labels}
         stats={stats}
@@ -224,6 +228,7 @@ function bankTransactionsListShellPropsAreEqual(
   if (prev.accountCodes !== next.accountCodes) return false;
   if (prev.taxInvoices !== next.taxInvoices) return false;
   if (prev.workers !== next.workers) return false;
+  if (prev.workerMonthlyActualVouchers !== next.workerMonthlyActualVouchers) return false;
   if (prev.paymentVouchers !== next.paymentVouchers) return false;
 
   if (prev.rows !== next.rows) {

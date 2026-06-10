@@ -16,6 +16,7 @@ import type { CompanyExpense, FixedExpense, FixedExpensePayment } from "@/utils/
 import type { BankTransaction } from "@/utils/bankTransactions";
 import type { AccountCode, LedgerCategory } from "@/utils/ledgerSystem";
 import type { TaxInvoice } from "@/utils/taxInvoices";
+import type { WorkerMonthlyActualVoucher } from "@/utils/workerMonthlyActualPayments";
 
 type BankTransactionsListPanelProps = {
   rows: BankTransaction[];
@@ -35,6 +36,7 @@ type BankTransactionsListPanelProps = {
   taxInvoices: TaxInvoice[];
   clients: Array<{ name?: string }>;
   workers: Array<{ name?: string }>;
+  workerMonthlyActualVouchers?: WorkerMonthlyActualVoucher[];
   paymentVouchers: Array<{ bankTransactionId?: string | number; isPartialPayment?: boolean }>;
   labels: BankTransactionListSectionLabels;
   stats: { count: number; deposits: number; withdrawals: number; net: number };
@@ -165,6 +167,7 @@ function BankTransactionsListPanelComponent({
   taxInvoices,
   clients,
   workers,
+  workerMonthlyActualVouchers = [],
   paymentVouchers,
   labels,
   stats,
@@ -236,6 +239,7 @@ function BankTransactionsListPanelComponent({
             taxInvoices={taxInvoices}
         clients={clients}
         workers={workers}
+        workerMonthlyActualVouchers={workerMonthlyActualVouchers}
         paymentVouchers={paymentVouchers}
             labels={labels}
             columnVisibility={columnVisibility}

@@ -207,6 +207,21 @@ import {
   type BankDepositMatchCandidate,
 } from "@/utils/bankReceivableMatch";
 import {
+  buildWorkerBankManualLinkCandidates,
+  resolveBankTxWorkerName,
+  type WorkerBankMatchCandidate,
+} from "@/utils/bankWorkerMonthlyMatch";
+import {
+  buildWorkerMonthlyObligations,
+  linkBankEntryToWorkerMonthlyVoucher,
+  upsertWorkerMonthlyActualVoucher,
+  type WorkerMonthlyActualVoucher,
+} from "@/utils/workerMonthlyActualPayments";
+import { formatMonthLabel } from "@/utils/workerMonthlyPayments";
+import { flattenSalesToWorkerPaymentRows } from "@/utils/workerPayments";
+import type { WorkerMonthlyPaymentRecord } from "@/utils/workerMonthlyPayments";
+import type { WorkerPayWithVatLearnRule } from "@/utils/workerMonthlyActualPayments";
+import {
   buildAllSentStatementDepositSuggestions,
   buildHighConfidenceSentStatementAutoLinks,
   buildSentStatementMatchCandidates,
@@ -504,7 +519,11 @@ const L = {
   classifiedAmount: "\uBD84\uB958 \uAE08\uC561",
   erpProcess: "ERP \uCC98\uB9AC",
   erpFind: "ERP \uC785\uAE08 \uCC3E\uAE30",
+  erpWorkerFind: "\uC2DC\uACF5\uC790 \uC2E4\uC9C0\uAE09 \uCC3E\uAE30",
   erpDepositLinkTitle: "ERP \uC785\uAE08 \uC5F0\uACB0",
+  erpWorkerLinkTitle: "\uC2DC\uACF5\uC790 \uC2E4\uC9C0\uAE09 \uC5F0\uACB0",
+  selectWorkerObligation: "\uC6D4\uBCC4 \uC2E4\uC9C0\uAE09 \uC120\uD0DD",
+  workerMatchDone: "\uC2DC\uACF5\uC790 \uC2E4\uC9C0\uAE09\uC5D0 \uC5F0\uACB0\uD588\uC2B5\uB2C8\uB2E4.",
   taxInvoiceIssue: "\uACC4\uC0B0\uC11C\uBC1C\uD589",
   taxInvoiceIssueButton: "\uBC1C\uD589",
   evidenceFind: "\uC99D\uBE59 \uCC3E\uAE30",
@@ -941,6 +960,11 @@ function BankTransactionsPageComponent({
   onBankSynced,
   isPageActive = true,
   onRequestImmediateSave,
+  workerMonthlyActualVouchers = [],
+  setWorkerMonthlyActualVouchers,
+  workerPaymentRecords = [],
+  workerPayWithVatLearnRules = [],
+  onPersistWorkerMonthlyLinksImmediate,
 }: {
   bankTransactions: BankTransaction[];
   setBankTransactions: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
@@ -998,6 +1022,15 @@ function BankTransactionsPageComponent({
     paymentVouchers?: unknown[];
     taxInvoices?: TaxInvoice[];
   }) => void | Promise<void>;
+  workerMonthlyActualVouchers?: WorkerMonthlyActualVoucher[];
+  setWorkerMonthlyActualVouchers?: React.Dispatch<React.SetStateAction<WorkerMonthlyActualVoucher[]>>;
+  workerPaymentRecords?: WorkerMonthlyPaymentRecord[];
+  workerPayWithVatLearnRules?: WorkerPayWithVatLearnRule[];
+  onPersistWorkerMonthlyLinksImmediate?: (patch: {
+    workerMonthlyActualVouchers: WorkerMonthlyActualVoucher[];
+    bankTransactions: BankTransaction[];
+    workerPaymentRecords?: WorkerMonthlyPaymentRecord[];
+  }) => void | Promise<void>;
 }) {
   const { erpVersion } = useBankSyncMeta();
   const [pageView, setPageView] = useState<PageView>("list");
@@ -1030,6 +1063,10 @@ function BankTransactionsPageComponent({
   const [smartLedgerLoading, setSmartLedgerLoading] = useState(false);
   const [batchLedgerLoading, setBatchLedgerLoading] = useState(false);
   const [linkModalTx, setLinkModalTx] = useState<BankTransaction | null>(null);
+  const [workerLinkModal, setWorkerLinkModal] = useState<{
+    tx: BankTransaction;
+    workerName: string;
+  } | null>(null);
   const [clientLinkModalTx, setClientLinkModalTx] = useState<BankTransaction | null>(null);
   const [clientLinkClientName, setClientLinkClientName] = useState("");
   const { recordAudit, recordSummaryAudit } = useAudit();
@@ -1288,6 +1325,7 @@ function BankTransactionsPageComponent({
     ledgerModal ||
       ledgerReviewPrompt ||
       linkModalTx ||
+      workerLinkModal ||
       clientLinkModalTx ||
       batchLedgerLoading ||
       smartLedgerLoading ||
@@ -2533,9 +2571,17 @@ function BankTransactionsPageComponent({
   }, []);
 
   const openErpLinkModal = useCallback((tx: BankTransaction) => {
-    if (tx.deposit <= 0) return;
-    setLinkModalTx(tx);
-  }, []);
+    if (tx.deposit > 0) {
+      setWorkerLinkModal(null);
+      setLinkModalTx(tx);
+      return;
+    }
+    const workerName = resolveBankTxWorkerName(tx, bankTransactionFolders, workers);
+    if (tx.withdrawal > 0 && workerName) {
+      setLinkModalTx(null);
+      setWorkerLinkModal({ tx, workerName });
+    }
+  }, [bankTransactionFolders, workers]);
 
   const closeTaxInvoicePanel = useCallback(() => {
     setTaxInvoiceLinkSession(null);
@@ -4746,6 +4792,80 @@ function BankTransactionsPageComponent({
     setImportMessage(L.matchDone);
   };
 
+  const confirmWorkerMonthlyLink = (
+    tx: BankTransaction,
+    candidate: WorkerBankMatchCandidate,
+    workerName: string,
+  ) => {
+    if (!setWorkerMonthlyActualVouchers) {
+      setImportMessage("\uC2DC\uACF5\uC790 \uC2E4\uC9C0\uAE09 \uC5F0\uACB0 \uAE30\uB2A5\uC774 \uC5F0\uACB0\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.");
+      return;
+    }
+    if (String(tx.linkedWorkerMonthlyPaymentVoucherId || "").trim()) {
+      setImportMessage("\uC774\uBBF8 \uC5F0\uACB0\uB41C \uD1B5\uC7A5 \uAC70\uB798\uC785\uB2C8\uB2E4.");
+      return;
+    }
+
+    const obligation = candidate.obligation;
+    let nextVouchers = workerMonthlyActualVouchers;
+    let voucher =
+      obligation.voucher ||
+      nextVouchers.find(
+        (row) => row.worker === obligation.worker && row.monthKey === obligation.monthKey,
+      );
+
+    if (!voucher) {
+      nextVouchers = upsertWorkerMonthlyActualVoucher(nextVouchers, {
+        worker: obligation.worker,
+        monthKey: obligation.monthKey,
+        expectedAmount: obligation.expectedAmount,
+        payWithVat: obligation.payWithVat,
+        expectedFinalAmount: obligation.expectedFinalAmount,
+        createdBy: currentUser?.name || currentUser?.email,
+      });
+      voucher = nextVouchers.find(
+        (row) => row.worker === obligation.worker && row.monthKey === obligation.monthKey,
+      );
+    }
+
+    if (!voucher) {
+      setImportMessage("\uC804\uD45C\uB97C \uC0DD\uC131\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+      return;
+    }
+
+    const obligationsForWorker = workerMonthlyObligations.filter((row) => row.worker === workerName);
+    const liveBankTransactions = bankTransactionsRef.current;
+    const result = linkBankEntryToWorkerMonthlyVoucher(nextVouchers, liveBankTransactions, {
+      voucherId: voucher.id,
+      bankTransactionId: tx.id,
+      worker: workerName,
+      monthKey: obligation.monthKey,
+      obligations: obligationsForWorker,
+      useFifo: false,
+    });
+
+    const nextTx = result.bankTransactions.find((row) => row.id === tx.id);
+    if (nextTx) auditBankTxUpdate(tx, nextTx);
+    bankTransactionsRef.current = result.bankTransactions;
+    setBankTransactions(result.bankTransactions);
+    setWorkerMonthlyActualVouchers(result.vouchers);
+
+    if (onPersistWorkerMonthlyLinksImmediate) {
+      void onPersistWorkerMonthlyLinksImmediate({
+        workerMonthlyActualVouchers: result.vouchers,
+        bankTransactions: result.bankTransactions,
+      });
+    } else {
+      void onRequestImmediateSave?.({
+        workerMonthlyActualVouchers: result.vouchers,
+        bankTransactions: result.bankTransactions,
+      });
+    }
+
+    setWorkerLinkModal(null);
+    setImportMessage(L.workerMatchDone);
+  };
+
   const confirmHighConfidenceMatches = () => {
     const savedBy = currentUser?.name || currentUser?.loginId || "";
     const existingBankIds = new Set(
@@ -4894,6 +5014,29 @@ function BankTransactionsPageComponent({
     [folderMap],
   );
 
+  const workerPaymentDetailRows = useMemo(
+    () => flattenSalesToWorkerPaymentRows(sales, workers),
+    [sales, workers],
+  );
+
+  const workerMonthlyObligations = useMemo(
+    () =>
+      buildWorkerMonthlyObligations(
+        workerPaymentDetailRows,
+        workers,
+        workerMonthlyActualVouchers,
+        workerPaymentRecords,
+        workerPayWithVatLearnRules,
+      ),
+    [
+      workerPaymentDetailRows,
+      workers,
+      workerMonthlyActualVouchers,
+      workerPaymentRecords,
+      workerPayWithVatLearnRules,
+    ],
+  );
+
   const listSectionLabels = useMemo(
     () => ({
       empty: L.empty,
@@ -4933,6 +5076,7 @@ function BankTransactionsPageComponent({
       bankBalance: L.columnBankBalance,
       erpProcess: L.erpProcess,
       erpFind: L.erpFind,
+      erpWorkerFind: L.erpWorkerFind,
       taxInvoiceIssue: L.taxInvoiceIssue,
       taxInvoiceIssueButton: L.taxInvoiceIssueButton,
       evidenceFind: L.evidenceFind,
@@ -5385,6 +5529,7 @@ function BankTransactionsPageComponent({
           accountCodes={accountCodes}
           taxInvoices={taxInvoices}
           workers={workers}
+          workerMonthlyActualVouchers={workerMonthlyActualVouchers}
           paymentVouchers={paymentVouchers}
           labels={listSectionLabels}
           stats={stats}
@@ -5720,6 +5865,105 @@ function BankTransactionsPageComponent({
                           {" \u00B7 "}
                           {candidate.voucherNo || candidate.salesId}
                         </div>
+                      </button>
+                    ))}
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {workerLinkModal ? (
+        <div className="erp-ledger-modal-backdrop" onClick={() => setWorkerLinkModal(null)}>
+          <div
+            className="erp-ledger-modal max-w-2xl"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="erp-text-section font-bold">{L.erpWorkerLinkTitle}</h2>
+                <p className="mt-1 text-sm text-orange-800">
+                  {workerLinkModal.workerName}
+                  {" · "}
+                  {formatKRW(Math.round(Number(workerLinkModal.tx.withdrawal) || 0))}
+                  {" · "}
+                  {formatBankTransactionDateTime(workerLinkModal.tx.transactionAt)}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
+                onClick={() => setWorkerLinkModal(null)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="max-h-96 space-y-2 overflow-auto">
+              {(() => {
+                const linkedId = String(workerLinkModal.tx.linkedWorkerMonthlyPaymentVoucherId || "").trim();
+                if (linkedId) {
+                  const linkedVoucher = workerMonthlyActualVouchers.find((row) => row.id === linkedId);
+                  return (
+                    <p className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-900">
+                      {linkedVoucher
+                        ? `${formatMonthLabel(linkedVoucher.monthKey)} ${linkedVoucher.worker} 실지급에 연결되어 있습니다.`
+                        : "시공자 실지급에 연결되어 있습니다."}
+                    </p>
+                  );
+                }
+
+                const candidates = buildWorkerBankManualLinkCandidates(
+                  workerLinkModal.tx,
+                  workerMonthlyObligations,
+                  bankTransactionFolders,
+                  workers,
+                  { minScore: 0, limit: 30, worker: workerLinkModal.workerName },
+                );
+
+                if (!candidates.length) {
+                  return (
+                    <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                      연결 가능한 월별 실지급 후보가 없습니다. 시공자 지급 화면에서 해당 월 실지급을 먼저 확인해 주세요.
+                    </p>
+                  );
+                }
+
+                return (
+                  <>
+                    <div className="pb-1 text-xs font-semibold text-slate-500">{L.selectWorkerObligation}</div>
+                    {candidates.map((candidate) => (
+                      <button
+                        key={`${candidate.obligation.worker}-${candidate.obligation.monthKey}`}
+                        type="button"
+                        className="w-full rounded-xl border border-orange-200 bg-orange-50/40 px-4 py-3 text-left hover:border-orange-300 hover:bg-orange-50"
+                        onClick={() =>
+                          confirmWorkerMonthlyLink(
+                            workerLinkModal.tx,
+                            candidate,
+                            workerLinkModal.workerName,
+                          )
+                        }
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-bold text-slate-900">
+                            {formatMonthLabel(candidate.obligation.monthKey)} · {candidate.obligation.worker}
+                          </span>
+                          <span className="text-xs font-bold text-orange-700">
+                            {L.matchScore} {candidate.score}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-sm text-slate-600">
+                          미지급 {formatKRW(candidate.obligation.balance)}
+                          {" · "}
+                          예정 {formatKRW(candidate.obligation.expectedFinalAmount)}
+                        </div>
+                        {candidate.reasons.length ? (
+                          <div className="mt-1 text-xs text-slate-500">{candidate.reasons.join(" · ")}</div>
+                        ) : null}
                       </button>
                     ))}
                   </>
@@ -6668,6 +6912,7 @@ function BankTransactionsPageComponent({
           taxInvoices={taxInvoices}
           clients={clients}
           workers={workers}
+          workerMonthlyActualVouchers={workerMonthlyActualVouchers}
           paymentVouchers={paymentVouchers}
           labels={listSectionLabels}
           onEditMemo={openMemoModal}
@@ -6734,6 +6979,9 @@ const BANK_PAGE_DATA_PROP_KEYS = [
   "ledgerCategories",
   "accountCodes",
   "taxInvoices",
+  "workerMonthlyActualVouchers",
+  "workerPaymentRecords",
+  "workerPayWithVatLearnRules",
   "currentUser",
   "companyProfile",
 ] as const satisfies readonly (keyof BankTransactionsPageProps)[];
@@ -6758,6 +7006,8 @@ const BANK_PAGE_HANDLER_PROP_KEYS = [
   "onBankSyncBegin",
   "onBankSynced",
   "onRequestImmediateSave",
+  "setWorkerMonthlyActualVouchers",
+  "onPersistWorkerMonthlyLinksImmediate",
 ] as const satisfies readonly (keyof BankTransactionsPageProps)[];
 
 function bankTransactionsPagePropsAreEqual(
