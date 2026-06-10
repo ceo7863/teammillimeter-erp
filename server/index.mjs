@@ -111,6 +111,13 @@ import {
 } from "./barobill/bankAccountScrap.mjs";
 import { getBarobillBankConfigStatus } from "./barobill/bankAccountClient.mjs";
 import { classifyBankLedgerBatch } from "./bankLedgerClassify.mjs";
+import {
+  handleErpChat,
+  getErpChatHistory,
+  getErpChatAudit,
+  clearErpChatHistory,
+} from "./erpChat.mjs";
+import { initErpChatStore } from "./erpChatStore.mjs";
 import { buildDailyReport, formatDailyReportMessage, yesterdayDateKey } from "./dailyReport.mjs";
 import { collectSystemMetrics } from "./systemMetrics.mjs";
 import { collectErpBackupStatus } from "./erpBackupStatus.mjs";
@@ -184,6 +191,7 @@ import {
 
 initDb();
 runErpStartupMigrations();
+initErpChatStore();
 initPdfArchiveStore();
 initBoardAttachmentStore();
 initClientBusinessRegStore();
@@ -1339,11 +1347,44 @@ app.post("/api/bank/classify-ledger", authMiddleware, async (req, res) => {
     res.json(result);
   } catch (error) {
     res.status(500).json({
-      error: error instanceof Error ? error.message : "분류에 실패했습니다.",
+      error: error instanceof Error ? error.message : "\uBD84\uB958\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
       items: [],
       engine: "error",
     });
   }
+});
+
+app.post("/api/erp/chat", authMiddleware, async (req, res) => {
+  try {
+    const result = await handleErpChat({
+      messages: req.body?.messages,
+      user: req.user,
+    });
+    if (!result.ok) {
+      res.status(400).json(result);
+      return;
+    }
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: error instanceof Error ? error.message : "AI \uCC57\uBD07 \uC751\uB2F5\uC5D0 \uC2E4\uD328\uD788\uC2B5\uB2C8\uB2E4.",
+    });
+  }
+});
+
+app.get("/api/erp/chat/history", authMiddleware, (req, res) => {
+  const limit = Number(req.query.limit || 30);
+  res.json({ logs: getErpChatHistory(req.user, limit) });
+});
+
+app.delete("/api/erp/chat/history", authMiddleware, (req, res) => {
+  res.json(clearErpChatHistory(req.user));
+});
+
+app.get("/api/erp/chat/audit", authMiddleware, adminMiddleware, (req, res) => {
+  const limit = Number(req.query.limit || 100);
+  res.json({ logs: getErpChatAudit(limit) });
 });
 
 app.get("/api/erp/bank-transactions", authMiddleware, (_req, res) => {

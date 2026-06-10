@@ -65,6 +65,7 @@ import { useSaveMessage } from "@/hooks/useSaveMessage";
 import { AuditProvider, useAudit } from "@/context/AuditContext";
 import { AuditField, AuditCellHint, EntityAuditButton } from "@/components/AuditField";
 import { AuditLogPage } from "@/components/AuditLogPage";
+import { ErpChatWidget } from "@/components/ErpChatWidget";
 import { LoginHistoryPage } from "@/components/LoginHistoryPage";
 import { SalesManagementPage } from "@/components/SalesManagementPage";
 import { SaleCommentsPage } from "@/components/SaleCommentsPage";
@@ -10347,6 +10348,7 @@ export default function TeammillimeterErpMvp() {
           saveSessionUser(nextUser);
         }}
       />
+      {apiMode && currentUser ? <ErpChatWidget currentUser={currentUser} enabled={dataReady} /> : null}
     </div>
     </SalePaymentLinkProvider>
     </AuditProvider>
