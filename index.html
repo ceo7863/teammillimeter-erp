@@ -11,6 +11,18 @@
     <meta name="apple-mobile-web-app-title" content="TM ERP" />
     <meta name="description" content="팀밀리미터 업무 관리 ERP" />
     <link rel="manifest" href="/manifest.webmanifest" />
+    <script>
+      (function () {
+        if (!/^\/chat\/?$/i.test(location.pathname)) return;
+        var manifest = document.querySelector('link[rel="manifest"]');
+        if (manifest) manifest.href = "/chat.manifest.webmanifest";
+        document.title = "TM ERP AI";
+        var appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+        if (appleTitle) appleTitle.content = "TM ERP AI";
+        var description = document.querySelector('meta[name="description"]');
+        if (description) description.content = "팀밀리미터 ERP AI 음성 챗봇";
+      })();
+    </script>
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/icon.svg" />
     <title>TeamMillimeter ERP</title>
