@@ -9,6 +9,7 @@ import {
   formatScheduleAnswer,
   formatContactAnswer,
   formatWorkerAnswer,
+  formatClientContactsAnswer,
 } from "./erpChatTools.mjs";
 import { appendErpChatLog, listErpChatLogs, listErpChatLogsAdmin, clearErpChatLogsForUser } from "./erpChatStore.mjs";
 import { appendErpChatAuditLog } from "./erpChatAudit.mjs";
@@ -17,6 +18,7 @@ const SYSTEM_PROMPT = [
   "\uB2F9\uC2E0\uC740 TeamMillimeter ERP \uC5B4\uC2DC\uC2A4\uD134\uD2B8\uC785\uB2C8\uB2E4.",
   "\uC9C8\uBB38\uC5D0 \uB2F5\uD558\uAE30 \uC804\uC5D0 \uBC18\uB4DC\uC2DC \uC81C\uACF5\uB41C \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "\uAE08\uC561, \uAC74\uC218, \uC804\uD654\uBC88\uD638, \uCC28\uB7C9\uBC88\uD638\uB294 \uB3C4\uAD6C \uACB0\uACFC\uB97C \uAE30\uC900\uC73C\uB85C\uB9CC \uB2F5\uD558\uACE0 \uCD94\uCE21\uD558\uC9C0 \uB9C8\uC138\uC694.",
+  "\uAC70\uB798\uCC98 \uB2F4\uB2F9\uC790 \uC870\uD68C\uB294 get_client_contacts, \uB2F4\uB2F9\uC790 \uC778\uC0C1 \uC870\uD68C\uB294 lookup_contact \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "\uC2DC\uACF5\uC790 \uCC28\uB7C9\uBC88\uD638\uB294 get_worker_info \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "\uAC70\uB798\uCC98 \uC774\uB984\uC774 \uBAA8\uD638\uD558\uBA74 search_client \uD6C4 \uD655\uC778\uD558\uC138\uC694.",
   `\uC624\uB298 \uB0A0\uC9DC(\uD55C\uAD6D): ${todayISO()}`,
@@ -92,6 +94,9 @@ function formatToolResultsAsAnswer(toolsUsed) {
         break;
       case "lookup_contact":
         lines.push(formatContactAnswer(result));
+        break;
+      case "get_client_contacts":
+        lines.push(formatClientContactsAnswer(result));
         break;
       case "search_client":
         if (result.clients?.length) {

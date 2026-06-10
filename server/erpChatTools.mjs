@@ -42,10 +42,15 @@ function splitManagerNames(manager) {
     .filter(Boolean);
 }
 
+function normalizePersonMatchKey(value) {
+  return normalizeMatchKey(value).replace(/(\uB300\uD45C\uB2F9|\uB300\uD45C|\uC774\uC0AC|\uACFC\uC7A5|\uD300\uC7A5|\uC2E4\uC7A5|\uCC28\uC7A5|\uBD80\uC7A5|\uC0AC\uC7A5|\uB2F4)+/g, "");
+}
+
 function nameMatchesQuery(candidate, queryKey) {
-  const key = normalizeMatchKey(candidate);
-  if (!key || !queryKey) return false;
-  return key === queryKey || key.includes(queryKey) || queryKey.includes(key);
+  const key = normalizePersonMatchKey(candidate);
+  const query = normalizePersonMatchKey(queryKey);
+  if (!key || !query) return false;
+  return key === query || key.includes(query) || query.includes(key);
 }
 
 export function resolveDateFromInput(input) {
@@ -120,7 +125,7 @@ function resolveClientContacts(client) {
   }
 
   if (phone) {
-    return [{ name: String(client.manager || client.name || "").trim(), phone, isPrimary: true }];
+    return [{ name: String(client.manager || client.ceoName || client.name || "").trim(), phone, isPrimary: true }];
   }
   return [];
 }
@@ -287,6 +292,68 @@ export function toolLookupContact({ name }, user) {
   };
 }
 
+export function toolGetClientContacts({ clientName }, user) {
+  const canViewPhone = canUserViewContactPhones(user);
+  const state = getErpState(["clients"]);
+  const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
+  const query = String(clientName || "").trim();
+  if (!query) {
+    return { ok: false, error: "\uAC70\uB798\uCC98 \uC774\uB984\uC774 \uD544\uC694\uD569\uB2C8\uB2E4." };
+  }
+
+  const matchedClients = findClientsByQuery(clients, query);
+  if (!matchedClients.length) {
+    return { ok: false, error: `"${query}" \uAC70\uB798\uCC98\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+  }
+
+  const rows = matchedClients.slice(0, 5).map((client) => {
+    const contacts = resolveClientContacts(client);
+    return {
+      clientName: String(client.name || ""),
+      manager: String(client.manager || ""),
+      contacts: contacts.map((contact) => ({
+        name: contact.name,
+        phone: canViewPhone ? contact.phone || "" : null,
+        isPrimary: Boolean(contact.isPrimary),
+      })),
+    };
+  });
+
+  return {
+    ok: true,
+    query,
+    clientCount: rows.length,
+    canViewPhone,
+    clients: rows,
+  };
+}
+
+function extractClientNameFromContactQuery(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return "";
+
+  const possessive = raw.match(/^(.+?)\uC758/);
+  if (possessive) return possessive[1].trim();
+
+  return raw
+    .replace(/\uAC70\uB798\uCC98|\uB2F4\uB2F9\uC790|\uB2F4\uB2F9|\uC804\uD654\uBC88\uD638|\uC5F0\uB77D\uCC98|\uD734\uB300\uD3F0|\uBC88\uD638|\uC870\uD68C|\uC54C\uB824|\uC918|\uD655\uC778/g, "")
+    .replace(/(?:\uB294|\uC740|\uB97C|\uC785\uB2C8\uCE74|\?)/g, "")
+    .replace(/\uC758$/g, "")
+    .trim();
+}
+
+function tryClientContactsOrPersonLookup(name, user) {
+  const query = String(name || "").trim();
+  if (!query) return null;
+
+  const state = getErpState(["clients"]);
+  const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
+  if (findClientsByQuery(clients, query).length) {
+    return formatClientContactsAnswer(toolGetClientContacts({ clientName: query }, user));
+  }
+  return formatContactAnswer(toolLookupContact({ name: query }, user));
+}
+
 export function toolSearchClient({ query, limit = 10 }) {
   const state = getErpState(["clients"]);
   const clients = Array.isArray(state.data?.clients) ? state.data.clients : [];
@@ -356,13 +423,27 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "lookup_contact",
-      description: "\uAC70\uB798\uCC98 \uB2F4\uB2F9\uC790, \uAC70\uB798\uCC98, \uC2DC\uACF5\uC790 \uC774\uB984\uC73C\uB85C \uC804\uD654\uBC88\uD638\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4.",
+      description: "\uB2F4\uB2F9\uC790 \uC778\uC0C1 \uB610\uB294 \uC2DC\uACF5\uC790 \uC774\uB984\uC73C\uB85C \uC804\uD654\uBC88\uD638\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4. \uAC70\uB798\uCC98 \uC774\uB984\uC73C\uB85C \uB2F4\uB2F9\uC790\uB97C \uCC3E\uC744 \uB54C\uB294 get_client_contacts\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
       parameters: {
         type: "object",
         properties: {
-          name: { type: "string", description: "\uC778\uBAA9 \uB610\uB294 \uB2F4\uB2F9\uC790 \uC774\uB984" },
+          name: { type: "string", description: "\uB2F4\uB2F9\uC790 \uC778\uC0C1 \uB610\uB294 \uC2DC\uACF5\uC790 \uC774\uB984" },
         },
         required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_client_contacts",
+      description: "\uAC70\uB798\uCC98 \uC774\uB984(\uB610\uB294 \uBCC4\uCE59)\uC73C\uB85C \uB2F4\uB2F9\uC790 \uBAA9\uB85D\uACFC \uC804\uD654\uBC88\uD638\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientName: { type: "string", description: "\uAC70\uB798\uCC98 \uC774\uB984 \uB610\uB294 \uBCC4\uCE59 (\uC608: \uC778\uB514\uD37C, \uD0A4\uCE9C\uC81C\uB2C8\uC2A4)" },
+        },
+        required: ["clientName"],
       },
     },
   },
@@ -405,6 +486,8 @@ export function executeErpChatTool(name, args, user) {
       return toolGetScheduleCount(args || {});
     case "lookup_contact":
       return toolLookupContact(args || {}, user);
+    case "get_client_contacts":
+      return toolGetClientContacts(args || {}, user);
     case "search_client":
       return toolSearchClient(args || {});
     case "get_worker_info":
@@ -428,6 +511,7 @@ export function tryRuleBasedChat(message, user) {
   const kwContact = "\uC5F0\uB77D\uCC98";
   const kwNumber = "\uBC88\uD638";
   const kwVehicle = "\uCC28\uB7C9";
+  const kwManager = "\uB2F4\uB2F9";
 
   if (text.includes(kwUnpaid)) {
     let clientName = "";
@@ -473,19 +557,17 @@ export function tryRuleBasedChat(message, user) {
     }
   }
 
-  if (text.includes(kwPhone) || text.includes(kwContact) || text.includes(kwNumber)) {
-    let name = "";
-    const possessive = text.match(/^(.+?)\uC758/);
-    if (possessive) name = possessive[1].trim();
-    if (!name) {
-      name = text
-        .replace(/\uC804\uD654\uBC88\uD638|\uC5F0\uB77D\uCC98|\uD734\uB300\uD3F0|\uBC88\uD638/g, "")
-        .replace(/(?:\uB294|\uC740|\uC918|\uC54C\uB824|\uC870\uD68C|\uD655\uC778|\?)/g, "")
-        .replace(/\uC758$/g, "")
-        .trim();
+  if (text.includes(kwManager)) {
+    const clientName = extractClientNameFromContactQuery(text);
+    if (clientName) {
+      return tryClientContactsOrPersonLookup(clientName, user);
     }
+  }
+
+  if (text.includes(kwPhone) || text.includes(kwContact) || text.includes(kwNumber)) {
+    const name = extractClientNameFromContactQuery(text);
     if (name) {
-      return formatContactAnswer(toolLookupContact({ name }, user));
+      return tryClientContactsOrPersonLookup(name, user);
     }
   }
 
@@ -515,20 +597,45 @@ export function formatScheduleAnswer(data) {
 export function formatContactAnswer(data) {
   if (!data.ok) return data.error || "\uC5F0\uB77D\uCC98 \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
   if (!data.matchCount) return `"${data.query}"\uC744(\uB97C) \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.`;
-  if (data.matches.some((row) => row.phoneRestricted)) {
-    return "\uC804\uD654\uBC88\uD638 \uC870\uD68C \uAD8C\uD55C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uAD00\uB9AC\uC790 \uB610\uB294 \uAE30\uBCF8\uC815\uBCF4 \uBA54\uB274 \uAD8C\uD55C\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.";
-  }
+  const phoneNote = data.canViewPhone === false ? " (\uC804\uD654\uBC88\uD638 \uC870\uD68C \uAD8C\uD55C \uC5C6\uC2B5\uB2C8\uB2E4.)" : "";
   return data.matches
     .slice(0, 5)
     .map((row) => {
       if (row.kind === "worker") {
         const vehicle = row.vehicleNo ? `, \uCC28\uB7C9 ${row.vehicleNo}` : "";
-        return `\uC2DC\uACF5\uC790 ${row.name}: ${row.phone || "-"}${vehicle}`;
+        const phone = row.phoneRestricted ? "\uAD8C\uD55C \uC5C6\uC2B5\uB2C8\uB2E4." : row.phone || "-";
+        return `\uC2DC\uACF5\uC790 ${row.name}: ${phone}${vehicle}`;
       }
-      if (row.kind === "client_contact") return `\uAC70\uB798\uCC98 ${row.clientName} \uB2F4\uB2F9 ${row.name}: ${row.phone || "-"}`;
-      return `\uAC70\uB798\uCC98 ${row.clientName} (${row.name}): ${row.phone || "-"}`;
+      if (row.kind === "client_contact") {
+        const phone = row.phoneRestricted ? "\uAD8C\uD55C \uC5C6\uC2B5\uB2C8\uB2E4." : row.phone || "-";
+        return `\uAC70\uB798\uCC98 ${row.clientName} \uB2F4\uB2F9 ${row.name}: ${phone}`;
+      }
+      const phone = row.phoneRestricted ? "\uAD8C\uD55C \uC5C6\uC2B5\uB2C8\uB2E4." : row.phone || "-";
+      return `\uAC70\uB798\uCC98 ${row.clientName} (${row.name}): ${phone}`;
     })
-    .join("\n");
+    .join("\n") + phoneNote;
+}
+
+export function formatClientContactsAnswer(data) {
+  if (!data.ok) return data.error || "\uAC70\uB798\uCC98 \uB2F4\uB2F9\uC790 \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+  const lines = [];
+  for (const client of data.clients || []) {
+    lines.push(`\uAC70\uB798\uCC98 ${client.clientName}`);
+    const contacts = Array.isArray(client.contacts) ? client.contacts : [];
+    if (!contacts.length) {
+      lines.push("- \uB4F1\uB85D\uB41C \uB2F4\uB2F9\uC790 \uC815\uBCF4\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+      continue;
+    }
+    contacts.forEach((contact) => {
+      const primary = contact.isPrimary ? " (\uC8FC\uB2F4\uB2F9)" : "";
+      const phone = data.canViewPhone ? contact.phone || "-" : "\uC870\uD68C \uAD8C\uD55C \uC5C6\uC2B5\uB2C8\uB2E4.";
+      lines.push(`- ${contact.name || "-"}${primary}: ${phone}`);
+    });
+  }
+  if (!data.canViewPhone) {
+    lines.push("\uC804\uD654\uBC88\uD638 \uC870\uD68C\uB294 \uAD00\uB9AC\uC790 \uB610\uB294 \uAE30\uBCF8\uC815\uBCF4 \uBA54\uB274 \uAD8C\uD55C\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.");
+  }
+  return lines.join("\n");
 }
 
 export function formatWorkerAnswer(data) {
