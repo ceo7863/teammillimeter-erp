@@ -57,45 +57,168 @@ function removeExcludedProjectId(client, projectId) {
   return { ...client, scProjectMappingExcludedProjectIds: filtered };
 }
 
-function clearClientScProjectFields(client, options = {}) {
-  const blockedProjectId = String(options.blockedProjectId || client.scProjectId || "").trim();
+export function listClientScProjectIds(client) {
+  const fromArray = Array.isArray(client?.scProjectIds)
+    ? client.scProjectIds.map((row) => String(row || "").trim()).filter(Boolean)
+    : [];
+  if (fromArray.length) return [...new Set(fromArray)];
+  const legacy = String(client?.scProjectId || "").trim();
+  return legacy ? [legacy] : [];
+}
+
+function listClientScProjectMappings(client) {
+  const mappings = Array.isArray(client?.scProjectMappings) ? client.scProjectMappings : [];
+  const byId = new Map();
+  for (const row of mappings) {
+    const projectId = String(row?.scProjectId || "").trim();
+    if (!projectId) continue;
+    byId.set(projectId, row);
+  }
+
+  const ids = listClientScProjectIds(client);
+  if (!ids.length) return [];
+
+  return ids.map((projectId) => {
+    const existing = byId.get(projectId);
+    if (existing) return existing;
+    if (ids.length === 1 && String(client?.scProjectId || "").trim() === projectId) {
+      return {
+        scProjectId: projectId,
+        ...(client.scProjectName ? { scProjectName: client.scProjectName } : {}),
+        ...(client.scProjectMappingManual ? { manual: true } : {}),
+        ...(client.scProjectMappingUpdatedAt ? { updatedAt: client.scProjectMappingUpdatedAt } : {}),
+        ...(client.scProjectMappingUpdatedBy ? { updatedBy: client.scProjectMappingUpdatedBy } : {}),
+      };
+    }
+    return { scProjectId: projectId };
+  });
+}
+
+function migrateClientScProjectFields(client) {
+  const ids = listClientScProjectIds(client);
+  if (!ids.length) {
+    const next = { ...client };
+    delete next.scProjectId;
+    delete next.scProjectName;
+    delete next.scProjectIds;
+    delete next.scProjectMappings;
+    return next;
+  }
+
+  const mappings = listClientScProjectMappings(client);
+  const next = {
+    ...client,
+    scProjectIds: ids,
+    scProjectMappings: mappings,
+  };
+  delete next.scProjectId;
+  delete next.scProjectName;
+  return next;
+}
+
+function stripLegacyScProjectFields(client) {
   const next = { ...client };
   delete next.scProjectId;
   delete next.scProjectName;
-  delete next.scProjectMappingManual;
-  delete next.scProjectMappingUpdatedAt;
-  delete next.scProjectMappingUpdatedBy;
-  if (options.blockAutoRemap && blockedProjectId) {
-    return addExcludedProjectId(next, blockedProjectId);
+  return next;
+}
+
+function removeScProjectFromClient(client, projectId, options = {}) {
+  const id = String(projectId || "").trim();
+  if (!id) return client;
+  const ids = listClientScProjectIds(client).filter((row) => row !== id);
+  const mappings = listClientScProjectMappings(client).filter((row) => String(row.scProjectId || "").trim() !== id);
+  let next = stripLegacyScProjectFields({ ...client });
+
+  if (ids.length) {
+    next.scProjectIds = ids;
+    next.scProjectMappings = mappings;
+  } else {
+    delete next.scProjectIds;
+    delete next.scProjectMappings;
+    delete next.scProjectMappingManual;
+    delete next.scProjectMappingUpdatedAt;
+    delete next.scProjectMappingUpdatedBy;
+  }
+
+  if (options.blockAutoRemap) {
+    next = addExcludedProjectId(next, id);
   }
   return next;
 }
 
-function mappingPriority(client) {
+function addScProjectToClient(client, projectId, projectName, actor = "", manual = false) {
+  const id = String(projectId || "").trim();
+  if (!id) return client;
+  const ids = [...new Set([...listClientScProjectIds(client), id])];
+  const mappings = [...listClientScProjectMappings(client)];
+  const index = mappings.findIndex((row) => String(row.scProjectId || "").trim() === id);
+  const now = new Date().toISOString();
+  const actorText = String(actor || "").trim();
+  const entry = {
+    scProjectId: id,
+    scProjectName: String(projectName || mappings[index]?.scProjectName || "").trim(),
+    ...(manual
+      ? {
+          manual: true,
+          updatedAt: now,
+          updatedBy: actorText || mappings[index]?.updatedBy || client.scProjectMappingUpdatedBy,
+        }
+      : {}),
+  };
+  if (index >= 0) mappings[index] = { ...mappings[index], ...entry };
+  else mappings.push(entry);
+
+  let next = stripLegacyScProjectFields({
+    ...client,
+    scProjectIds: ids,
+    scProjectMappings: mappings,
+    ...(manual
+      ? {
+          scProjectMappingManual: true,
+          scProjectMappingUpdatedAt: now,
+          scProjectMappingUpdatedBy: actorText || client.scProjectMappingUpdatedBy,
+        }
+      : {}),
+  });
+  next = removeExcludedProjectId(next, id);
+  return next;
+}
+
+function mappingEntryPriority(client, projectId) {
+  const mapping = listClientScProjectMappings(client).find(
+    (row) => String(row.scProjectId || "").trim() === String(projectId || "").trim(),
+  );
   let score = 0;
-  if (client.scProjectMappingManual) score += 100;
-  const updatedAt = Date.parse(String(client.scProjectMappingUpdatedAt || ""));
+  if (mapping?.manual || client.scProjectMappingManual) score += 100;
+  const updatedAt = Date.parse(String(mapping?.updatedAt || client.scProjectMappingUpdatedAt || ""));
   if (Number.isFinite(updatedAt)) score += updatedAt / 1_000_000_000_000;
   return score;
 }
 
 function dedupeScProjectClientMappings(clients) {
+  const migrated = clients.map(migrateClientScProjectFields);
   const winners = new Map();
-  for (const client of clients) {
-    const projectId = String(client.scProjectId || "").trim();
-    if (!projectId) continue;
-    const prev = winners.get(projectId);
-    if (!prev || mappingPriority(client) >= mappingPriority(prev)) {
-      winners.set(projectId, client);
+
+  for (const client of migrated) {
+    for (const projectId of listClientScProjectIds(client)) {
+      const priority = mappingEntryPriority(client, projectId);
+      const prev = winners.get(projectId);
+      if (!prev || priority >= prev.priority) {
+        winners.set(projectId, { client, priority });
+      }
     }
   }
 
-  return clients.map((client) => {
-    const projectId = String(client.scProjectId || "").trim();
-    if (!projectId) return client;
-    const winner = winners.get(projectId);
-    if (winner && clientIdsEqual(winner.id, client.id)) return client;
-    return clearClientScProjectFields(client, { blockAutoRemap: true, blockedProjectId: projectId });
+  return migrated.map((client) => {
+    let next = client;
+    for (const projectId of listClientScProjectIds(client)) {
+      const winner = winners.get(projectId);
+      if (winner && !clientIdsEqual(winner.client.id, client.id)) {
+        next = removeScProjectFromClient(next, projectId, { blockAutoRemap: true });
+      }
+    }
+    return next;
   });
 }
 
@@ -362,40 +485,33 @@ export function autoMapScProjectsToClients(clients, projects) {
   const assignedProjectIds = new Set();
   let mappedCount = 0;
 
-  const withExisting = clients.map((client) => {
+  const withExisting = clients.map((client) => migrateClientScProjectFields(client)).map((client) => {
     const clientName = String(client.name || "").trim();
     if (!clientName) return client;
 
-    const existingProjectId = String(client.scProjectId || "").trim();
-    if (existingProjectId && projectById.has(existingProjectId)) {
-      if (assignedProjectIds.has(existingProjectId)) {
-        return clearClientScProjectFields(client, { blockAutoRemap: true, blockedProjectId: existingProjectId });
+    let next = client;
+    for (const existingProjectId of listClientScProjectIds(client)) {
+      if (projectById.has(existingProjectId)) {
+        if (assignedProjectIds.has(existingProjectId)) {
+          next = removeScProjectFromClient(next, existingProjectId, { blockAutoRemap: true });
+          continue;
+        }
+        assignedProjectIds.add(existingProjectId);
+        mappedCount += 1;
+        const linked = projectById.get(existingProjectId);
+        next = addScProjectToClient(next, existingProjectId, linked?.name || clientName, "", false);
+        continue;
       }
-      assignedProjectIds.add(existingProjectId);
-      mappedCount += 1;
-      const linked = projectById.get(existingProjectId);
-      return {
-        ...client,
-        scProjectId: existingProjectId,
-        scProjectName: linked?.name || client.scProjectName || clientName,
-      };
+      next = removeScProjectFromClient(next, existingProjectId, { blockAutoRemap: true });
     }
 
-    if (existingProjectId) {
-      return clearClientScProjectFields(client, { blockAutoRemap: true, blockedProjectId: existingProjectId });
-    }
-
-    if (client.scProjectMappingManual) {
-      return client;
-    }
-
-    return client;
+    return next;
   });
 
   const nextClients = withExisting.map((client) => {
     const clientName = String(client.name || "").trim();
     if (!clientName) return client;
-    if (String(client.scProjectId || "").trim()) return client;
+    if (listClientScProjectIds(client).length) return client;
     if (client.scProjectMappingManual) return client;
 
     const clientKey = normalizeScClientName(clientName);
@@ -406,11 +522,7 @@ export function autoMapScProjectsToClients(clients, projects) {
 
     assignedProjectIds.add(matched.id);
     mappedCount += 1;
-    return {
-      ...client,
-      scProjectId: matched.id,
-      scProjectName: matched.name,
-    };
+    return addScProjectToClient(client, matched.id, matched.name, "", false);
   });
 
   return { clients: dedupeScProjectClientMappings(nextClients), mappedCount };
@@ -421,18 +533,20 @@ function buildScProjectMappingStatus(clients, projects) {
   const mappings = [];
 
   for (const client of clients) {
-    const projectId = String(client.scProjectId || "").trim();
-    if (!projectId) continue;
-    mappedProjectIds.add(projectId);
-    const project = projects.find((row) => row.id === projectId);
-    mappings.push({
-      scProjectId: projectId,
-      scProjectName: String(client.scProjectName || project?.name || "").trim(),
-      clientId: client.id,
-      clientName: String(client.name || "").trim(),
-      manual: Boolean(client.scProjectMappingManual),
-      updatedAt: client.scProjectMappingUpdatedAt || null,
-    });
+    for (const mapping of listClientScProjectMappings(client)) {
+      const projectId = String(mapping.scProjectId || "").trim();
+      if (!projectId) continue;
+      mappedProjectIds.add(projectId);
+      const project = projects.find((row) => row.id === projectId);
+      mappings.push({
+        scProjectId: projectId,
+        scProjectName: String(mapping.scProjectName || project?.name || "").trim(),
+        clientId: client.id,
+        clientName: String(client.name || "").trim(),
+        manual: Boolean(mapping.manual || client.scProjectMappingManual),
+        updatedAt: mapping.updatedAt || client.scProjectMappingUpdatedAt || null,
+      });
+    }
   }
 
   mappings.sort((a, b) => a.scProjectName.localeCompare(b.scProjectName, "ko"));
@@ -484,10 +598,9 @@ function applyScProjectClientMapping(clients, scProjectId, clientId, projectName
   }
 
   const nextClients = clients.map((client) => {
-    if (String(client.scProjectId || "").trim() === normalizedProjectId && !clientIdsEqual(client.id, clientId)) {
-      return clearClientScProjectFields(client, { blockAutoRemap: true, blockedProjectId: normalizedProjectId });
-    }
-    return client;
+    if (clientIdsEqual(client.id, clientId)) return client;
+    if (!listClientScProjectIds(client).includes(normalizedProjectId)) return client;
+    return removeScProjectFromClient(client, normalizedProjectId, { blockAutoRemap: true });
   });
 
   const targetIndex = nextClients.findIndex((client) => clientIdsEqual(client.id, clientId));
@@ -495,20 +608,15 @@ function applyScProjectClientMapping(clients, scProjectId, clientId, projectName
     return { ok: false, status: 404, error: "\uAC70\uB798\uCC98\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
   }
 
-  const now = new Date().toISOString();
-  nextClients[targetIndex] = removeExcludedProjectId(
-    {
-      ...nextClients[targetIndex],
-      scProjectId: normalizedProjectId,
-      scProjectName: String(projectName || nextClients[targetIndex].scProjectName || "").trim(),
-      scProjectMappingManual: true,
-      scProjectMappingUpdatedAt: now,
-      scProjectMappingUpdatedBy: String(actor || "").trim() || nextClients[targetIndex].scProjectMappingUpdatedBy,
-    },
+  nextClients[targetIndex] = addScProjectToClient(
+    nextClients[targetIndex],
     normalizedProjectId,
+    projectName,
+    actor,
+    true,
   );
 
-  return { ok: true, clients: nextClients };
+  return { ok: true, clients: nextClients.map(migrateClientScProjectFields) };
 }
 
 export async function setScProjectClientMapping(scProjectId, clientId, actor = "") {
@@ -558,9 +666,9 @@ export async function clearScProjectClientMapping(scProjectId, actor = "") {
 
   let found = false;
   const nextClients = listClients(data).map((client) => {
-    if (String(client.scProjectId || "").trim() !== normalizedProjectId) return client;
+    if (!listClientScProjectIds(client).includes(normalizedProjectId)) return client;
     found = true;
-    return clearClientScProjectFields(client, { blockAutoRemap: true, blockedProjectId: normalizedProjectId });
+    return removeScProjectFromClient(client, normalizedProjectId, { blockAutoRemap: true });
   });
   if (!found) {
     return { ok: false, status: 404, error: "SC \uD504\uB85C\uC81D\uD2B8 \uB9E4\uCE6D\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
@@ -585,9 +693,9 @@ export async function clearScProjectClientMapping(scProjectId, actor = "") {
 function buildProjectToClientMap(clients) {
   const map = new Map();
   for (const client of clients) {
-    const projectId = String(client.scProjectId || "").trim();
-    if (!projectId) continue;
-    map.set(projectId, client);
+    for (const projectId of listClientScProjectIds(client)) {
+      map.set(projectId, client);
+    }
   }
   return map;
 }
@@ -714,11 +822,15 @@ export function listStaffScSchedulesForClient(clientId, monthKey) {
       participants: resolveScScheduleParticipants(workers, participantNames),
     };
   });
+  const projectIds = listClientScProjectIds(client);
+  const projectMappings = listClientScProjectMappings(client);
   return {
     ok: true,
     schedules: rows,
-    scProjectId: client.scProjectId || null,
-    scProjectName: client.scProjectName || null,
+    scProjectIds: projectIds,
+    scProjectMappings: projectMappings,
+    scProjectId: projectIds[0] || null,
+    scProjectName: projectMappings[0]?.scProjectName || null,
   };
 }
 

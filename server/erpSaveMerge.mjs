@@ -495,12 +495,59 @@ export function mergeClientsForSave(existing = [], incoming = []) {
       merged.siteRequestLinkUpdatedBy = client.siteRequestLinkUpdatedBy || prev.siteRequestLinkUpdatedBy;
     }
 
-    const scProjectId = String(client.scProjectId || "").trim() || String(prev.scProjectId || "").trim();
-    if (scProjectId) merged.scProjectId = scProjectId;
-    else delete merged.scProjectId;
-    const scProjectName = String(client.scProjectName || "").trim() || String(prev.scProjectName || "").trim();
-    if (scProjectName) merged.scProjectName = scProjectName;
-    else delete merged.scProjectName;
+    const mergeScProjectIds = () => {
+      const fromClient = Array.isArray(client.scProjectIds)
+        ? client.scProjectIds.map((row) => String(row || "").trim()).filter(Boolean)
+        : [];
+      const fromPrev = Array.isArray(prev.scProjectIds)
+        ? prev.scProjectIds.map((row) => String(row || "").trim()).filter(Boolean)
+        : [];
+      const legacyClient = String(client.scProjectId || "").trim();
+      const legacyPrev = String(prev.scProjectId || "").trim();
+      const ids = [...new Set([...fromClient, ...fromPrev, legacyClient, legacyPrev].filter(Boolean))];
+      if (ids.length) merged.scProjectIds = ids;
+      else delete merged.scProjectIds;
+      delete merged.scProjectId;
+      delete merged.scProjectName;
+    };
+    mergeScProjectIds();
+
+    const mergeScProjectMappings = () => {
+      const byId = new Map();
+      const pushRow = (row) => {
+        const projectId = String(row?.scProjectId || "").trim();
+        if (!projectId) return;
+        const prevRow = byId.get(projectId);
+        const nextRow = {
+          scProjectId: projectId,
+          ...(row.scProjectName || prevRow?.scProjectName ? { scProjectName: row.scProjectName || prevRow?.scProjectName } : {}),
+          ...(row.manual || prevRow?.manual ? { manual: Boolean(row.manual || prevRow?.manual) } : {}),
+          ...(row.updatedAt || prevRow?.updatedAt ? { updatedAt: row.updatedAt || prevRow?.updatedAt } : {}),
+          ...(row.updatedBy || prevRow?.updatedBy ? { updatedBy: row.updatedBy || prevRow?.updatedBy } : {}),
+        };
+        byId.set(projectId, nextRow);
+      };
+      if (Array.isArray(prev.scProjectMappings)) prev.scProjectMappings.forEach(pushRow);
+      if (Array.isArray(client.scProjectMappings)) client.scProjectMappings.forEach(pushRow);
+      const legacyId = String(prev.scProjectId || client.scProjectId || "").trim();
+      if (legacyId && !byId.has(legacyId)) {
+        pushRow({
+          scProjectId: legacyId,
+          scProjectName: client.scProjectName || prev.scProjectName,
+          manual: client.scProjectMappingManual ?? prev.scProjectMappingManual,
+          updatedAt: client.scProjectMappingUpdatedAt || prev.scProjectMappingUpdatedAt,
+          updatedBy: client.scProjectMappingUpdatedBy || prev.scProjectMappingUpdatedBy,
+        });
+      }
+      for (const projectId of merged.scProjectIds || []) {
+        if (!byId.has(projectId)) pushRow({ scProjectId: projectId });
+      }
+      const mergedRows = [...byId.values()];
+      if (mergedRows.length) merged.scProjectMappings = mergedRows;
+      else delete merged.scProjectMappings;
+    };
+    mergeScProjectMappings();
+
     if (typeof client.scProjectMappingManual === "boolean") {
       merged.scProjectMappingManual = client.scProjectMappingManual;
     } else if (typeof prev.scProjectMappingManual === "boolean") {

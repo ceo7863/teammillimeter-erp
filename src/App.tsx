@@ -197,7 +197,7 @@ import {
 import { formatWorkerNameSummary } from "@/utils/statementSheets";
 import { buildSaleDuplicateIndex, findSalesWithSameClientWorkerDate, isDuplicateSale } from "@/utils/saleDuplicates";
 import { filterNamedSuggestions } from "@/utils/autocompleteFilter";
-import { buildSaleFormFromScSchedule, detectScScheduleChargeHeadcountWarning, isScScheduleRegistered, resolveScScheduleSiteName } from "@/utils/scScheduleSaleImport";
+import { buildSaleFormFromScSchedule, detectScScheduleChargeHeadcountWarning, isScScheduleRegistered } from "@/utils/scScheduleSaleImport";
 import { DEFAULT_SALE_AI_RULES, normalizeSaleAiRules } from "@/utils/saleAiRules";
 import { DEFAULT_WORKER_AI_RULES, normalizeWorkerAiRules } from "@/utils/workerAiRules";
 import {
@@ -207,8 +207,6 @@ import {
 import { applyProbationEndAdjustments, isWorkerInProbationPeriod } from "@/utils/workerProbationAutoAdjust";
 import {
   fetchStaffScSchedulesForMonth,
-  formatScScheduleHeadcount,
-  formatScScheduleWorkLogSummary,
   resolveSaleScScheduleHeadcountLabel,
 } from "@/utils/scSchedules";
 import { withoutScPersonalVacationSchedules } from "@/utils/scScheduleVacation";
@@ -678,7 +676,21 @@ function migrateClientName(data) {
   if (Array.isArray(next.clients)) {
     next.clients = next.clients.map((row) => {
       if (row.name !== to) return row;
-      return row.scProjectName === from ? { ...row, scProjectName: to } : row;
+      let changed = false;
+      const nextRow = { ...row };
+      if (nextRow.scProjectName === from) {
+        nextRow.scProjectName = to;
+        changed = true;
+      }
+      if (Array.isArray(nextRow.scProjectMappings)) {
+        const mappings = nextRow.scProjectMappings.map((mapping) => {
+          if (mapping?.scProjectName !== from) return mapping;
+          changed = true;
+          return { ...mapping, scProjectName: to };
+        });
+        if (changed) nextRow.scProjectMappings = mappings;
+      }
+      return changed ? nextRow : row;
     });
   }
   if (Array.isArray(next.auditLogs)) {
@@ -5124,78 +5136,8 @@ function CalendarPage({
             ) : null}
 
             <div className="erp-calendar-side-panel-body">
-              {selectedDayScSchedules.length > 0 ? (
-                <section className="erp-csr-cal-drawer-section erp-calendar-side-sc-section">
-                  <h3 className="erp-csr-cal-drawer-section-title">SC 확정 일정</h3>
-                  <ul className="erp-csr-cal-drawer-list erp-calendar-side-sc-list">
-                    {selectedDayScSchedules.map((schedule) => {
-                      const scheduleId = String(schedule.id || "");
-                      const registered = scheduleId ? isScScheduleRegistered(sales, scheduleId) : false;
-                      const workLogSummary = formatScScheduleWorkLogSummary(schedule);
-                      const headcountLabel = formatScScheduleHeadcount(schedule);
-                      const clientName = String(schedule.clientName || "").trim();
-                      const siteName = resolveScScheduleSiteName(schedule);
-                      return (
-                        <li key={schedule.id}>
-                          <button
-                            type="button"
-                            className={[
-                              "erp-csr-cal-drawer-card is-clickable is-sc-schedule",
-                              registered ? "is-registered" : "",
-                            ]
-                              .filter(Boolean)
-                              .join(" ")}
-                            onClick={() => openCalendarNewSaleFromScSchedule(schedule)}
-                            aria-disabled={registered || undefined}
-                          >
-                            <span
-                              className={[
-                                "erp-csr-cal-drawer-dot is-sc-schedule",
-                                registered ? "is-registered" : "",
-                              ]
-                                .filter(Boolean)
-                                .join(" ")}
-                              aria-hidden="true"
-                            />
-                            <div className="erp-csr-cal-drawer-card-main">
-                              <p className="erp-csr-cal-drawer-card-title erp-calendar-sc-import-card-title">
-                                {clientName && siteName ? (
-                                  <>
-                                    <span className="erp-calendar-sc-import-client">{clientName}</span>
-                                    <span className="erp-calendar-sc-import-sep"> / </span>
-                                    <span className="erp-calendar-sc-import-site">{siteName}</span>
-                                  </>
-                                ) : (
-                                  clientName || siteName || "-"
-                                )}
-                              </p>
-                              <div className="erp-csr-cal-drawer-card-badges">
-                                <span className="erp-csr-cal-drawer-badge is-sc-schedule">확정</span>
-                                {workLogSummary ? (
-                                  <span className="erp-csr-cal-drawer-badge is-work-log" title="근무기록">
-                                    근무기록 {workLogSummary}
-                                  </span>
-                                ) : null}
-                                {headcountLabel ? (
-                                  <span className="erp-csr-cal-drawer-badge is-muted">{headcountLabel}</span>
-                                ) : null}
-                                {registered ? (
-                                  <span className="erp-csr-cal-drawer-badge is-registered">등록됨</span>
-                                ) : null}
-                              </div>
-                            </div>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </section>
-              ) : null}
-
               {selectedDaySales.length === 0 ? (
-                selectedDayScSchedules.length === 0 ? (
-                  <p className="erp-calendar-side-empty">해당 날짜에 등록된 전표가 없습니다.</p>
-                ) : null
+                <p className="erp-calendar-side-empty">해당 날짜에 등록된 전표가 없습니다.</p>
               ) : (
                 <ul className="erp-calendar-side-list">
                   {selectedDaySales.map((sale) => {

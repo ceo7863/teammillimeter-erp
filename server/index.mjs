@@ -744,6 +744,8 @@ app.get("/api/sc-schedules", authMiddleware, (req, res) => {
   }
   res.json({
     schedules: result.schedules,
+    scProjectIds: result.scProjectIds,
+    scProjectMappings: result.scProjectMappings,
     scProjectId: result.scProjectId,
     scProjectName: result.scProjectName,
   });

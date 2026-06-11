@@ -11,7 +11,7 @@ import {
   levenshtein,
   maxEditDistanceFor,
 } from "./erpChatFuzzy.mjs";
-import { normalizeScClientName } from "./scScheduleSync.mjs";
+import { listClientScProjectIds, normalizeScClientName } from "./scScheduleSync.mjs";
 import {
   isWorkerVehicleQuery,
   extractWorkerNameFromVehicleQuery,
@@ -253,7 +253,7 @@ function scheduleMatchesClientFilter(schedule, matchedClients, keys) {
   const scheduleProjectId = String(schedule?.scProjectId ?? "").trim();
   if (scheduleProjectId) {
     for (const client of matchedClients) {
-      if (String(client.scProjectId ?? "").trim() === scheduleProjectId) return true;
+      if (listClientScProjectIds(client).includes(scheduleProjectId)) return true;
     }
   }
 

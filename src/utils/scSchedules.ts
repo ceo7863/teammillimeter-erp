@@ -116,6 +116,14 @@ export type ScScheduleSyncStatus = {
   windowEnd?: string;
 };
 
+export type ScClientProjectMapping = {
+  scProjectId: string;
+  scProjectName?: string;
+  manual?: boolean;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+};
+
 export type ScProjectMappingRow = {
   scProjectId: string;
   scProjectName: string;

@@ -199,6 +199,13 @@ export function migrateClientAichiToMiumu(state, options = {}) {
     if (row.name !== CLIENT_RENAME_TO) return row;
     const next = { ...row };
     if (next.scProjectName === CLIENT_RENAME_FROM) next.scProjectName = CLIENT_RENAME_TO;
+    if (Array.isArray(next.scProjectMappings)) {
+      next.scProjectMappings = next.scProjectMappings.map((mapping) =>
+        mapping?.scProjectName === CLIENT_RENAME_FROM
+          ? { ...mapping, scProjectName: CLIENT_RENAME_TO }
+          : mapping,
+      );
+    }
     return next;
   });
 
