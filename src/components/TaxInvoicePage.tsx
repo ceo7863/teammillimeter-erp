@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, FileSpreadsheet, ImageDown, Pencil, Plus, Receipt, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { TeamChatShareButton } from "@/components/TeamChatShareButton";
+import { buildTaxInvoiceTeamChatLink } from "@/utils/teamChatLinks";
 import { BankTransactionLinkPanel } from "@/components/BankTransactionLinkPanel";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -933,6 +935,16 @@ export function TaxInvoicePage({
 
   const renderInvoiceActions = (row: TaxInvoice) => (
     <>
+      <TeamChatShareButton
+        payload={{
+          link: buildTaxInvoiceTeamChatLink({
+            clientName: row.client,
+            startDate: row.issueDate,
+            endDate: row.issueDate,
+            invoiceNo: row.invoiceNo,
+          }),
+        }}
+      />
       {canDownloadTaxInvoiceCopy(row) ? (
         <Button
           type="button"

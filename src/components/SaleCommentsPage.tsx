@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { MessageSquare, Search } from "lucide-react";
+import { TeamChatShareButton } from "@/components/TeamChatShareButton";
+import { buildSaleCommentTeamChatLink } from "@/utils/teamChatLinks";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { TableExportSection } from "@/components/TableExportSection";
@@ -52,6 +54,7 @@ const L = {
   client: "거래처",
   site: "현장",
   voucherNo: "전표번호",
+  share: "\uACF5\uC720",
   empty: "등록된 코멘트가 없습니다.",
   noResults: "검색 결과가 없습니다.",
   filterAll: "전체",
@@ -215,6 +218,18 @@ export function SaleCommentsPage({
                       { label: L.kind, value: row.kind ? SALE_COMMENT_KIND_LABELS[row.kind] : "-" },
                       { label: L.body, value: row.body },
                     ]}
+                    actions={
+                      <TeamChatShareButton
+                        payload={{
+                          link: buildSaleCommentTeamChatLink({
+                            saleId: row.saleId,
+                            client: row.client,
+                            voucherLabel: row.voucherLabel,
+                          }),
+                          body: row.body,
+                        }}
+                      />
+                    }
                   />
                 ))
               ) : (
@@ -235,6 +250,7 @@ export function SaleCommentsPage({
                     <th className="text-left">{L.client}</th>
                     <th className="text-left">{L.site}</th>
                     <th className="text-left">{L.voucherNo}</th>
+                    <th className="text-center erp-table-export-skip">{"\uACF5\uC720"}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -262,12 +278,25 @@ export function SaleCommentsPage({
                           <td className="font-semibold">{row.client}</td>
                           <td>{row.site}</td>
                           <td className="whitespace-nowrap">{row.voucherLabel}</td>
+                          <td className="text-center erp-table-export-skip" onClick={(event) => event.stopPropagation()}>
+                            <TeamChatShareButton
+                              payload={{
+                                link: buildSaleCommentTeamChatLink({
+                                  saleId: row.saleId,
+                                  client: row.client,
+                                  voucherLabel: row.voucherLabel,
+                                }),
+                                body: row.body,
+                              }}
+                              className="mx-auto"
+                            />
+                          </td>
                         </tr>
                       );
                     })
                   ) : (
                     <tr>
-                      <td colSpan={9} className="erp-sales-sheet-empty">
+                      <td colSpan={10} className="erp-sales-sheet-empty">
                         {saleComments.length ? L.noResults : L.empty}
                       </td>
                     </tr>

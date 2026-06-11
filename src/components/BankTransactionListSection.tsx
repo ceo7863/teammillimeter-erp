@@ -22,6 +22,8 @@ import {
   type BankTransactionListRowModel,
 } from "@/utils/bankTransactionListDisplay";
 import type { BankTransactionColumnVisibility } from "@/utils/bankTransactionColumnVisibility";
+import { openTeamChatWithShare } from "@/utils/teamChatShare";
+import { buildBankTxTeamChatLink } from "@/utils/teamChatLinks";
 
 export type BankTransactionListSectionLabels = BankTransactionSplitTableLabels &
   BankTransactionCompactRowLabels & {
@@ -275,6 +277,11 @@ function BankTransactionListSectionComponent({
     [onFilterCounterparty],
   );
 
+  const handleShareTeamChat = useCallback((id: string) => {
+    const row = rowByIdRef.current.get(String(id));
+    if (row) openTeamChatWithShare({ link: buildBankTxTeamChatLink(row) });
+  }, []);
+
   const splitLabels = useMemo(
     (): BankTransactionSplitTableLabels => ({
       bankSection: labels.bankSection,
@@ -376,6 +383,7 @@ function BankTransactionListSectionComponent({
         onFindErpProcess={handleFindErpProcess}
         onIssueTaxInvoice={onIssueTaxInvoice ? handleIssueTaxInvoice : undefined}
         onFilterCounterparty={onFilterCounterparty ? handleFilterCounterparty : undefined}
+        onShareTeamChat={handleShareTeamChat}
         columnVisibility={columnVisibility}
         tableId={tableId}
       />

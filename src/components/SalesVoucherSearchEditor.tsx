@@ -1,5 +1,7 @@
 import React, { memo, useCallback, useMemo, useState } from "react";
 import { Trash2 } from "lucide-react";
+import { TeamChatShareButton } from "@/components/TeamChatShareButton";
+import { buildSaleTeamChatLink } from "@/utils/teamChatLinks";
 import { Button } from "@/components/ui/button";
 import { useAudit } from "@/context/AuditContext";
 import { useSaveMessage } from "@/hooks/useSaveMessage";
@@ -228,9 +230,21 @@ export const SalesVoucherSearchEditor = memo(function SalesVoucherSearchEditor({
         saveMessage={saveMessage}
         auditEntityId={sale.id}
         headerAction={(
-          <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={onClose}>
-            {"\uB2EB\uAE30"}
-          </Button>
+          <div className="flex items-center gap-1">
+            <TeamChatShareButton
+              payload={{
+                link: buildSaleTeamChatLink({
+                  id: sale.id,
+                  client: sale.client,
+                  date: String(sale.date || ""),
+                }),
+              }}
+              className="h-8 w-8 rounded-lg"
+            />
+            <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={onClose}>
+              {"\uB2EB\uAE30"}
+            </Button>
+          </div>
         )}
         footerStartExtra={(
           <>

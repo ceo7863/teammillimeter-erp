@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { ClipboardList, Loader2, RefreshCw, Send, Sun, Sunrise, Users } from "lucide-react";
+import { TeamChatShareButton } from "@/components/TeamChatShareButton";
+import { buildDailyReportTeamChatLink } from "@/utils/teamChatLinks";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { DesktopTableWrap, MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
@@ -267,6 +269,13 @@ export function DailyReportPage({ currentUser }: DailyReportPageProps) {
           >
             {L.refreshFast}
           </Button>
+          <TeamChatShareButton
+            payload={{
+              link: buildDailyReportTeamChatLink({ date: data?.yesterday?.dateKey || "" }),
+            }}
+            className="rounded-xl border border-slate-200 bg-white p-2.5"
+            title={"\uC77C\uC77C\uBCF4\uACE0 \uACF5\uC720"}
+          />
         </div>
         <span className="text-xs text-slate-500 sm:ml-1">{scSyncLabel}</span>
       </div>

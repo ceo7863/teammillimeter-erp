@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { ClipboardList, Paperclip, Pencil, Pin, Plus, Search, Trash2, X } from "lucide-react";
+import { TeamChatShareButton } from "@/components/TeamChatShareButton";
+import { buildPageTeamChatLink } from "@/utils/teamChatLinks";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { TableExportSection } from "@/components/TableExportSection";
@@ -514,8 +516,15 @@ export function WorkBoardPage({
                       {selectedPost.updatedAt ? ` \u00B7 ${L.updatedAt} ${formatWorkPostDateTime(selectedPost.updatedAt)}` : ""}
                     </p>
                   </div>
+                  <div className="flex shrink-0 gap-2">
+                    <TeamChatShareButton
+                      payload={{
+                        link: buildPageTeamChatLink({ page: "companyNotices", label: selectedPost.title }),
+                        body: selectedPost.body,
+                      }}
+                    />
                   {canManageWorkPost(selectedPost, currentUser) ? (
-                    <div className="flex shrink-0 gap-2">
+                    <>
                       <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={() => openEditModal(selectedPost)}>
                         <Pencil size={14} className="mr-1" />
                         {L.edit}
@@ -524,8 +533,9 @@ export function WorkBoardPage({
                         <Trash2 size={14} className="mr-1" />
                         {L.delete}
                       </Button>
-                    </div>
+                    </>
                   ) : null}
+                  </div>
                 </div>
                 <div className="erp-notice-body whitespace-pre-wrap rounded-2xl border border-slate-200 bg-slate-50 p-4 text-slate-800">
                   {selectedPost.body}

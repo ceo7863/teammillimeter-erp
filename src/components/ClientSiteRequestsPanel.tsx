@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, Check, Copy, Link2, RefreshCw, RotateCcw, X } from "lucide-react";
+import { TeamChatShareButton } from "@/components/TeamChatShareButton";
+import { buildClientSiteRequestTeamChatLink } from "@/utils/teamChatLinks";
 import {
   ScClientMatchingRulesButton,
   ScClientMatchingRulesModal,
@@ -226,6 +228,15 @@ function RequestCard({
             ) : (
               <span className="text-base font-bold text-slate-900">{request.clientName}</span>
             )}
+            <TeamChatShareButton
+              payload={{
+                link: buildClientSiteRequestTeamChatLink({
+                  clientName: request.clientName,
+                  clientId: request.clientId,
+                  siteName: request.siteName,
+                }),
+              }}
+            />
             <span
               className={`inline-flex rounded-full px-2 py-0.5 text-xs font-bold ${
                 request.status === "pending"

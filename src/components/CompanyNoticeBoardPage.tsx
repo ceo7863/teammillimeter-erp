@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ClipboardList, Megaphone, MessageSquareWarning, Pencil, Pin, Plus, Search, Trash2, X } from "lucide-react";
+import { TeamChatShareButton } from "@/components/TeamChatShareButton";
+import { buildPageTeamChatLink } from "@/utils/teamChatLinks";
 import { WorkBoardPage } from "@/components/WorkBoardPage";
 import type { WorkPost } from "@/utils/workBoard";
 import { Card, CardContent } from "@/components/ui/card";
@@ -455,8 +457,15 @@ export function CompanyNoticeBoardPage({
                       {selectedNotice.updatedAt ? ` \u00B7 ${L.updatedAt} ${formatNoticeDateTime(selectedNotice.updatedAt)}` : ""}
                     </p>
                   </div>
-                  {canManageNotice(selectedNotice, currentUser) ? (
-                    <div className="flex shrink-0 gap-2">
+                  <div className="flex shrink-0 gap-2">
+                    <TeamChatShareButton
+                      payload={{
+                        link: buildPageTeamChatLink({ page: "companyNotices", label: selectedNotice.title }),
+                        body: selectedNotice.body,
+                      }}
+                    />
+                    {canManageNotice(selectedNotice, currentUser) ? (
+                      <>
                       <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={() => openEditModal(selectedNotice)}>
                         <Pencil size={14} className="mr-1" />
                         {L.edit}
@@ -465,8 +474,9 @@ export function CompanyNoticeBoardPage({
                         <Trash2 size={14} className="mr-1" />
                         {L.delete}
                       </Button>
-                    </div>
-                  ) : null}
+                      </>
+                    ) : null}
+                  </div>
                 </div>
                 <div className="erp-notice-body whitespace-pre-wrap rounded-2xl border border-slate-200 bg-slate-50 p-4 text-slate-800">
                   {selectedNotice.body}

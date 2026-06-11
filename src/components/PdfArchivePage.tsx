@@ -177,6 +177,8 @@ export function PdfArchivePage({
   setTaxInvoices,
   erpVersion = 0,
   onTaxInvoiceIssued,
+  pendingNav = null,
+  onPendingNavConsumed,
 }: {
   isActive?: boolean;
   bankTransactions?: BankTransaction[];
@@ -190,6 +192,8 @@ export function PdfArchivePage({
     version?: number;
     message?: string;
   }) => void | Promise<void>;
+  pendingNav?: { query?: string; startDate?: string; endDate?: string } | null;
+  onPendingNavConsumed?: () => void;
 }) {
   const [records, setRecords] = useState<PdfArchiveMeta[]>([]);
   const [loading, setLoading] = useState(true);
@@ -204,6 +208,14 @@ export function PdfArchivePage({
   const [bulkWorking, setBulkWorking] = useState<"download" | "clear" | null>(null);
   const [confirmAction, setConfirmAction] = useState<"download" | "clear" | null>(null);
   const [taxInvoiceIssueRecord, setTaxInvoiceIssueRecord] = useState<PdfArchiveMeta | null>(null);
+
+  useEffect(() => {
+    if (!pendingNav) return;
+    if (pendingNav.query) setQuery(pendingNav.query);
+    if (pendingNav.startDate) setStartDate(pendingNav.startDate);
+    if (pendingNav.endDate) setEndDate(pendingNav.endDate);
+    onPendingNavConsumed?.();
+  }, [pendingNav, onPendingNavConsumed]);
 
   const loadRecords = useCallback(async () => {
     setLoading(true);

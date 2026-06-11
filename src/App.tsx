@@ -376,7 +376,13 @@ import { useClientSiteRequestPendingCount } from "@/hooks/useClientSiteRequestPe
 import { useTeamChatUnreadCount } from "@/hooks/useTeamChatUnreadCount";
 import { useTeamChatNotifications } from "@/hooks/useTeamChatNotifications";
 import { useTeamChatPush } from "@/hooks/useTeamChatPush";
-import { buildClientTeamChatLink, buildWorkerTeamChatLink, buildSaleTeamChatLink, buildBankTxTeamChatLink } from "@/utils/teamChatLinks";
+import {
+  buildCalendarTeamChatLink,
+  buildClientTeamChatLink,
+  buildWorkerTeamChatLink,
+  buildSaleTeamChatLink,
+  buildBankTxTeamChatLink,
+} from "@/utils/teamChatLinks";
 import { openTeamChatWithShare, TEAM_CHAT_OPEN_EVENT } from "@/utils/teamChatShare";
 import { isTeamChatDesktopPopupMode, openTeamChatPopup } from "@/utils/teamChatPopup";
 import { TeamChatPage } from "@/components/TeamChatPage";
@@ -4661,6 +4667,23 @@ function CalendarPage({
               <Button variant="outline" size="sm" className="erp-calendar-today-btn rounded-xl" onClick={() => setMonthKey(todayISO().slice(0, 7))}>
                 이번 달
               </Button>
+              {filteredClient ? (
+                <button
+                  type="button"
+                  className="erp-icon-btn rounded-xl p-2 text-slate-500 hover:bg-slate-100 hover:text-blue-600"
+                  title={"\uC0AC\uB0B4 \uCC57\uC5D0 \uACF5\uC720"}
+                  onClick={() =>
+                    openTeamChatWithShare({
+                      link: buildCalendarTeamChatLink({
+                        clientName: filteredClient,
+                        anchorDate: selectedDate || monthKey + "-01",
+                      }),
+                    })
+                  }
+                >
+                  <MessageCircle size={16} />
+                </button>
+              ) : null}
             </div>
 
             <p className="erp-calendar-mobile-hint">
@@ -5457,7 +5480,7 @@ function PageTitle({ title, desc, action }) {
   );
 }
 
-function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "매출목록", exportTitle, isDuplicateRow, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set(), saleCommentCounts, saleCommentUnreadCounts, onOpenSaleComments }) {
+function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "매출목록", exportTitle, isDuplicateRow, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set(), saleCommentCounts, saleCommentUnreadCounts, onOpenSaleComments, onShareToTeamChat }) {
   const title = exportTitle || exportFileName;
   return (
     <TableExportSection fileName={exportFileName} title={title} disabled={rows.length === 0}>
@@ -5520,6 +5543,7 @@ function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "�
             <th className="text-right">미수</th>
             <th className="hidden text-left xl:table-cell">등록자</th>
             <th className="hidden text-left xl:table-cell">등록일시</th>
+            {onShareToTeamChat ? <th className="text-center erp-table-export-skip">{"\uACF5\uC720"}</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -5555,6 +5579,18 @@ function SimpleSalesTable({ rows, onRowClick, selectedRowId, exportFileName = "�
               <td className="text-right text-red-600 font-bold whitespace-nowrap">{formatKRW(getUnpaid(row))}</td>
               <td className="hidden xl:table-cell">{row.createdBy || "-"}</td>
               <td className="hidden whitespace-nowrap xl:table-cell">{formatDateTime(row.createdAt)}</td>
+              {onShareToTeamChat ? (
+                <td className="text-center erp-table-export-skip" onClick={(event) => event.stopPropagation()}>
+                  <button
+                    type="button"
+                    className="erp-sales-sheet-share rounded-lg p-1 text-slate-500 hover:bg-slate-100 hover:text-blue-600"
+                    onClick={() => onShareToTeamChat(row)}
+                    title={"\uC0AC\uB0B4 \uCC57\uC5D0 \uACF5\uC720"}
+                  >
+                    <MessageCircle size={13} />
+                  </button>
+                </td>
+              ) : null}
             </tr>
             );
           })}
@@ -5961,6 +5997,11 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
             saleCommentCounts={saleCommentCounts}
             saleCommentUnreadCounts={saleCommentUnreadCounts}
             onOpenSaleComments={onOpenSaleComments}
+            onShareToTeamChat={(sale) => {
+              openTeamChatWithShare({
+                link: buildSaleTeamChatLink(sale as { id?: string | number; client?: string; date?: string }),
+              });
+            }}
           />
         </CardContent>
       </Card>
@@ -8792,6 +8833,12 @@ export default function TeammillimeterErpMvp() {
   } | null>(null);
   const [pendingBankColumnPreset, setPendingBankColumnPreset] = useState<"account_only" | null>(null);
   const [pendingBankSearchQuery, setPendingBankSearchQuery] = useState<string | null>(null);
+  const [pendingPdfArchiveNav, setPendingPdfArchiveNav] = useState<{
+    query?: string;
+    startDate?: string;
+    endDate?: string;
+  } | null>(null);
+  const [pendingWorkerPaymentsWorker, setPendingWorkerPaymentsWorker] = useState<string | null>(null);
   const [chatBusinessRegView, setChatBusinessRegView] = useState<{
     clientId: string | number;
     clientName: string;
@@ -10261,13 +10308,28 @@ export default function TeammillimeterErpMvp() {
             endDate: action.endDate,
           });
         }
-        if (action.receivablesTab || action.clientName) {
+        if (action.page === "pdfArchive") {
+          storeStatementTab("pdf");
+          if (action.clientName || action.startDate || action.endDate) {
+            setPendingPdfArchiveNav({
+              query: action.clientName,
+              startDate: action.startDate,
+              endDate: action.endDate,
+            });
+          }
+          setActive("statements");
+          return;
+        }
+        if (action.receivablesTab || (action.clientName && action.page === "receivables")) {
           setPendingReceivablesNav({
             tab: action.receivablesTab,
             clientName: action.clientName,
             startDate: action.startDate,
             endDate: action.endDate,
           });
+        }
+        if (action.page === "workerPayments" && action.workerName) {
+          setPendingWorkerPaymentsWorker(action.workerName);
         }
         if (action.clientName && action.page === "calendar") {
           setPendingCalendarClientFilter({
@@ -11296,6 +11358,8 @@ export default function TeammillimeterErpMvp() {
             currentUser={currentUser}
             initialTab={pendingWorkerPaymentsTab}
             onInitialTabConsumed={() => setPendingWorkerPaymentsTab(null)}
+            initialWorker={pendingWorkerPaymentsWorker}
+            onInitialWorkerConsumed={() => setPendingWorkerPaymentsWorker(null)}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="accounting" active={shellActive}>
@@ -11469,6 +11533,8 @@ export default function TeammillimeterErpMvp() {
             onDraftConsumed={() => setStatementDraft(null)}
             pendingWorkerStatementFilter={pendingWorkerStatementFilter}
             onPendingWorkerStatementFilterConsumed={() => setPendingWorkerStatementFilter(null)}
+            pendingPdfArchiveNav={pendingPdfArchiveNav}
+            onPendingPdfArchiveNavConsumed={() => setPendingPdfArchiveNav(null)}
             bankTransactions={bankTransactions}
             workerPaymentRecords={workerPaymentRecords}
             workerPayWithVatLearnRules={workerPayWithVatLearnRules}

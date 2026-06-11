@@ -1,6 +1,6 @@
 import React, { memo, useMemo } from "react";
 import { BankBrandIcon } from "@/components/BankBrandIcon";
-import { ChevronDown, Inbox, Link2, Pencil } from "lucide-react";
+import { ChevronDown, Inbox, Link2, MessageCircle, Pencil } from "lucide-react";
 import { DesktopTableWrap } from "@/components/MobileRecordCard";
 import { BANK_TX_ACCOUNT_TRIGGER_ATTR } from "@/utils/floatingPosition";
 import type { BankTransactionListRowModel } from "@/utils/bankTransactionListDisplay";
@@ -114,6 +114,7 @@ type SplitRowProps = {
   onFindErpProcess: (id: string) => void;
   onIssueTaxInvoice?: (id: string) => void;
   onFilterCounterparty?: (label: string) => void;
+  onShareTeamChat?: (id: string) => void;
 };
 
 type BankTransactionSplitTableProps = {
@@ -129,6 +130,7 @@ type BankTransactionSplitTableProps = {
   onFindErpProcess: (id: string) => void;
   onIssueTaxInvoice?: (id: string) => void;
   onFilterCounterparty?: (label: string) => void;
+  onShareTeamChat?: (id: string) => void;
   tableId?: string;
 };
 
@@ -278,7 +280,8 @@ function splitRowPropsAreEqual(prev: SplitRowProps, next: SplitRowProps): boolea
     prev.onFindEvidence === next.onFindEvidence &&
     prev.onFindErpProcess === next.onFindErpProcess &&
     prev.onIssueTaxInvoice === next.onIssueTaxInvoice &&
-    prev.onFilterCounterparty === next.onFilterCounterparty
+    prev.onFilterCounterparty === next.onFilterCounterparty &&
+    prev.onShareTeamChat === next.onShareTeamChat
   );
 }
 
@@ -294,6 +297,7 @@ const SplitRow = memo(function SplitRow({
   onFindErpProcess,
   onIssueTaxInvoice,
   onFilterCounterparty,
+  onShareTeamChat,
 }: SplitRowProps) {
   const showAccount = isBankTransactionColumnVisible(columnVisibility, "account");
   const showCounterparty = isBankTransactionColumnVisible(columnVisibility, "counterparty");
@@ -407,15 +411,30 @@ const SplitRow = memo(function SplitRow({
       ) : null}
       {showMemo ? (
         <td className={`erp-bank-wehago-cell erp-bank-wehago-cell--memo${memoDividerClass}`}>
-          <button
-            type="button"
-            className="erp-bank-wehago-inline-btn erp-bank-memo-trigger"
-            title={model.memoEmpty ? undefined : model.memoLabel}
-            onClick={() => onEditMemo(model.id)}
-          >
-            <Pencil size={10} className="shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-left">{model.memoEmpty ? "" : model.memoLabel}</span>
-          </button>
+          <div className="flex min-w-0 items-center gap-0.5">
+            <button
+              type="button"
+              className="erp-bank-wehago-inline-btn erp-bank-memo-trigger min-w-0 flex-1"
+              title={model.memoEmpty ? undefined : model.memoLabel}
+              onClick={() => onEditMemo(model.id)}
+            >
+              <Pencil size={10} className="shrink-0" />
+              <span className="min-w-0 flex-1 truncate text-left">{model.memoEmpty ? "" : model.memoLabel}</span>
+            </button>
+            {onShareTeamChat ? (
+              <button
+                type="button"
+                className="erp-bank-wehago-inline-btn shrink-0 text-slate-400 hover:text-blue-600"
+                title={"\uCC57\uC5D0 \uACF5\uC720"}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onShareTeamChat(model.id);
+                }}
+              >
+                <MessageCircle size={10} />
+              </button>
+            ) : null}
+          </div>
         </td>
       ) : null}
       <td className="erp-bank-wehago-split-bridge text-center text-slate-400">
@@ -568,6 +587,7 @@ function BankTransactionSplitTableComponent({
   onFindErpProcess,
   onIssueTaxInvoice,
   onFilterCounterparty,
+  onShareTeamChat,
   tableId = "bank-transactions-table",
 }: BankTransactionSplitTableProps) {
   const showAccount = isBankTransactionColumnVisible(columnVisibility, "account");
@@ -622,6 +642,7 @@ function BankTransactionSplitTableComponent({
         onFindErpProcess={onFindErpProcess}
         onIssueTaxInvoice={onIssueTaxInvoice}
         onFilterCounterparty={onFilterCounterparty}
+        onShareTeamChat={onShareTeamChat}
       />
     );
   };

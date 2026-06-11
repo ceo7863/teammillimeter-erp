@@ -348,6 +348,8 @@ type StatementsPageProps = {
   onDraftConsumed?: () => void;
   pendingWorkerStatementFilter?: PendingWorkerStatementFilter | null;
   onPendingWorkerStatementFilterConsumed?: () => void;
+  pendingPdfArchiveNav?: { query?: string; startDate?: string; endDate?: string } | null;
+  onPendingPdfArchiveNavConsumed?: () => void;
   bankTransactions?: ComponentProps<typeof PdfArchivePage>["bankTransactions"];
   workerPaymentRecords?: WorkerMonthlyPaymentRecord[];
   workerPayWithVatLearnRules?: WorkerPayWithVatLearnRule[];
@@ -376,6 +378,8 @@ export function StatementsPage({
   onDraftConsumed,
   pendingWorkerStatementFilter = null,
   onPendingWorkerStatementFilterConsumed,
+  pendingPdfArchiveNav = null,
+  onPendingPdfArchiveNavConsumed,
   bankTransactions = [],
   workerPaymentRecords = [],
   workerPayWithVatLearnRules = [],
@@ -1733,6 +1737,8 @@ export function StatementsPage({
             setTaxInvoices={setTaxInvoices}
             erpVersion={erpVersion}
             onTaxInvoiceIssued={onTaxInvoiceIssued}
+            pendingNav={pendingPdfArchiveNav}
+            onPendingNavConsumed={onPendingPdfArchiveNavConsumed}
           />
         </div>
       ) : null}

@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, CreditCard, FileText, Search, WalletCards } from "lucide-react";
+import { TeamChatShareButton } from "@/components/TeamChatShareButton";
+import { buildWorkerPaymentTeamChatLink } from "@/utils/teamChatLinks";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AutocompleteInput } from "@/components/AutocompleteInput";
@@ -170,6 +172,8 @@ export function WorkerPaymentsPage({
   currentUser,
   initialTab,
   onInitialTabConsumed,
+  initialWorker,
+  onInitialWorkerConsumed,
 }: {
   workers?: WorkerMasterLike[];
   workerPortalStatementAcks?: WorkerPortalStatementAck[];
@@ -210,6 +214,8 @@ export function WorkerPaymentsPage({
   currentUser?: { name?: string; email?: string };
   initialTab?: WorkerPaymentTab | null;
   onInitialTabConsumed?: () => void;
+  initialWorker?: string | null;
+  onInitialWorkerConsumed?: () => void;
 }) {
   const [activeTab, setActiveTab] = useState<WorkerPaymentTab>(() => initialTab || "summary");
   const [dateFilter, setDateFilter] = useState({ startDate: monthStartISO(), endDate: todayISO() });
@@ -223,6 +229,13 @@ export function WorkerPaymentsPage({
     setActiveTab(initialTab);
     onInitialTabConsumed?.();
   }, [initialTab, onInitialTabConsumed]);
+
+  useEffect(() => {
+    if (!initialWorker) return;
+    setSelectedWorker(initialWorker);
+    setActiveTab(initialTab || "detail");
+    onInitialWorkerConsumed?.();
+  }, [initialWorker, initialTab, onInitialWorkerConsumed]);
 
   const filteredSales = useMemo(
     () => filterSalesByDate(sales, dateFilter.startDate, dateFilter.endDate),
@@ -635,6 +648,7 @@ export function WorkerPaymentsPage({
                       <th className="text-right">수수료</th>
                       <th className="text-right">실지급</th>
                       <th className="text-left">계좌</th>
+                      <th className="text-center erp-table-export-skip">{"\uACF5\uC720"}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -651,11 +665,17 @@ export function WorkerPaymentsPage({
                         <td className="text-right text-red-600">{formatKRW(row.fee)}</td>
                         <td className="text-right font-bold text-emerald-600">{formatKRW(row.netPay)}</td>
                         <td className="text-left text-slate-500">{[row.bank, row.account].filter(Boolean).join(" ") || "-"}</td>
+                        <td className="text-center erp-table-export-skip" onClick={(event) => event.stopPropagation()}>
+                          <TeamChatShareButton
+                            payload={{ link: buildWorkerPaymentTeamChatLink({ workerName: row.name, tab: "summary" }) }}
+                            className="mx-auto"
+                          />
+                        </td>
                       </tr>
                     ))}
                     {activeSummaryRows.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="p-8 text-center text-slate-500">
+                        <td colSpan={8} className="p-8 text-center text-slate-500">
                           선택 기간에 지급 내역이 없습니다.
                         </td>
                       </tr>
