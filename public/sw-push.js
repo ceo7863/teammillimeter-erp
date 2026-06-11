@@ -1,3 +1,5 @@
+const NOTIFICATION_ICON = "/team-mm-logo.png";
+
 self.addEventListener("push", (event) => {
   let payload = {
     title: "\uC0AC\uB0B4 \uCC57",
@@ -19,8 +21,8 @@ self.addEventListener("push", (event) => {
       tag: payload.tag || "erp-team-chat",
       renotify: true,
       data: { url: payload.url || "/messenger" },
-      icon: "/icons/icon-192.png",
-      badge: "/icons/icon-192.png",
+      icon: payload.icon || NOTIFICATION_ICON,
+      badge: payload.badge || NOTIFICATION_ICON,
     }),
   );
 });

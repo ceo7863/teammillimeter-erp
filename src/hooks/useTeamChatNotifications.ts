@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { ERP_NOTIFICATION_ICON } from "@/utils/erpNotificationIcon";
 import type { ErpUser } from "@/utils/erpApi";
 import { isApiModeEnabled } from "@/utils/erpApi";
 import { canUserAccessPage } from "@/utils/pageAccess";
@@ -70,6 +71,7 @@ export function useTeamChatNotifications(
 
     const notification = new Notification("\uC0AC\uB0B4 \uCC57", {
       body,
+      icon: ERP_NOTIFICATION_ICON,
       tag: "erp-team-chat-unread",
       renotify: true,
     });
