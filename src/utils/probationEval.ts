@@ -22,6 +22,16 @@ export function gradeRank(grade: string) {
   return WORKER_GRADE_RANK[String(grade || "").trim().toUpperCase()] ?? 0;
 }
 
+export function isWorkerEvalSubject(
+  worker: { grade?: string | null },
+  subjectMaxGrade: string,
+) {
+  const workerRank = gradeRank(String(worker?.grade || ""));
+  const maxRank = gradeRank(String(subjectMaxGrade || ""));
+  if (!workerRank || !maxRank) return false;
+  return workerRank <= maxRank;
+}
+
 const DEFAULT_QUESTIONS: ProbationEvalQuestion[] = [
   {
     id: "q-speed",

@@ -101,6 +101,7 @@ function emptyErpPayload() {
       postProbationGrade: "D",
       enforceEGradeDuringProbation: true,
       probationEvalEnabled: true,
+      probationEvalSubjectMaxGrade: "E",
       probationEvalGrades: ["A"],
       probationEvalNotifyHour: 19,
       probationEvalNotifyMinute: 0,

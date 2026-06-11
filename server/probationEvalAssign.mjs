@@ -12,24 +12,13 @@ function normalizeGrade(value) {
     .toUpperCase();
 }
 
-function addMonthsToHireDay(hireDate, months) {
-  const match = String(hireDate || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return "";
-  const year = Number(match[1]);
-  const month = Number(match[2]) - 1;
-  const day = Number(match[3]);
-  const date = new Date(Date.UTC(year, month, day));
-  date.setUTCMonth(date.getUTCMonth() + months);
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
-}
-
-function isWorkerInProbationPeriod(worker, rules, asOfDate) {
-  const hireDate = String(worker?.hireDate || "").trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(hireDate)) return false;
-  const probationEnd = addMonthsToHireDay(hireDate, rules?.probationMonths ?? 3);
-  if (!probationEnd) return false;
-  const today = String(asOfDate || "").slice(0, 10);
-  return today <= probationEnd;
+export function isWorkerEvalSubject(worker, subjectMaxGrade) {
+  const grade = normalizeGrade(worker?.grade);
+  const maxGrade = normalizeGrade(subjectMaxGrade);
+  const workerRank = gradeRank(grade);
+  const maxRank = gradeRank(maxGrade);
+  if (!workerRank || !maxRank) return false;
+  return workerRank <= maxRank;
 }
 
 function pickHighestGradeParticipant(candidates) {
@@ -42,8 +31,8 @@ function pickHighestGradeParticipant(candidates) {
   });
 }
 
-export function findProbationWorkersOnSchedule(schedule, workers, workerAiRules, asOfDate) {
-  const workDate = String(schedule?.workDate || asOfDate || "").slice(0, 10);
+export function findEvalSubjectsOnSchedule(schedule, workers, workerAiRules) {
+  const subjectMaxGrade = workerAiRules?.probationEvalSubjectMaxGrade || "E";
   const names = Array.isArray(schedule?.participantNames) ? schedule.participantNames : [];
   const seen = new Set();
   const result = [];
@@ -55,7 +44,7 @@ export function findProbationWorkersOnSchedule(schedule, workers, workerAiRules,
     if (!worker) continue;
     const workerId = String(worker.id ?? "");
     if (!workerId || seen.has(workerId)) continue;
-    if (!isWorkerInProbationPeriod(worker, workerAiRules, workDate)) continue;
+    if (!isWorkerEvalSubject(worker, subjectMaxGrade)) continue;
     seen.add(workerId);
     result.push({ worker, participantName: label });
   }
@@ -63,8 +52,14 @@ export function findProbationWorkersOnSchedule(schedule, workers, workerAiRules,
   return result;
 }
 
-export function selectScheduleEvaluator(schedule, probationWorker, workers, evalGrades) {
-  const probationWorkerId = String(probationWorker.id ?? "");
+/** @deprecated use findEvalSubjectsOnSchedule */
+export function findProbationWorkersOnSchedule(schedule, workers, workerAiRules) {
+  return findEvalSubjectsOnSchedule(schedule, workers, workerAiRules);
+}
+
+export function selectScheduleEvaluator(schedule, subjectWorker, workers, evalGrades) {
+  const subjectWorkerId = String(subjectWorker.id ?? "");
+  const subjectRank = gradeRank(normalizeGrade(subjectWorker.grade));
   const names = Array.isArray(schedule?.participantNames) ? schedule.participantNames : [];
   const allowedGrades = new Set(
     (Array.isArray(evalGrades) ? evalGrades : []).map((grade) => normalizeGrade(grade)).filter(Boolean),
@@ -76,7 +71,9 @@ export function selectScheduleEvaluator(schedule, probationWorker, workers, eval
     if (!label) continue;
     const worker = findWorkerByListName(workers, label);
     if (!worker) continue;
-    if (String(worker.id ?? "") === probationWorkerId) continue;
+    if (String(worker.id ?? "") === subjectWorkerId) continue;
+    const evaluatorRank = gradeRank(normalizeGrade(worker.grade));
+    if (evaluatorRank <= subjectRank) continue;
     participants.push({ worker, participantName: label });
   }
 

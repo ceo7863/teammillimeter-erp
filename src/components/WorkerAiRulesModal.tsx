@@ -12,6 +12,7 @@ import {
 
 const POST_PROBATION_GRADE_OPTIONS = ["S", "A", "B", "C", "D"];
 const EVALUATOR_GRADE_OPTIONS = ["S", "A", "B", "C", "D"];
+const SUBJECT_MAX_GRADE_OPTIONS = ["E", "D", "C", "B", "A", "S"];
 
 const L = {
   title: "\uC2E0\uC785 AI \uADDC\uCE59",
@@ -38,11 +39,13 @@ const L = {
   autoAdjustGrade: "\uC218\uC2B5 \uC885\uB8CC \uC2DC \uB4F1\uAE09 \uC790\uB3D9 \uC870\uC815",
   postProbationGrade: "\uC218\uC2B5 \uC885\uB8CC \uD6C4 \uB4F1\uAE09",
   enforceEGrade: "\uC218\uC2B5 \uAE30\uAC04 \uC911 E\uB4F1\uAE09 \uAC15\uC81C",
-  evalTitle: "\uC218\uC2B5 \uC77C\uC77C \uD3C9\uAC00",
+  evalTitle: "\uC77C\uC77C \uC2DC\uACF5 \uD3C9\uAC00",
   evalBody:
-    "SC \uC77C\uC815 \uCC38\uC5EC \uC218\uC2B5 \uC2DC\uACF5\uC790\uC5D0 \uB300\uD574 \uB3D9\uB8CC \uCC38\uC5EC\uC790 \uC911 \uC124\uC815 \uB4F1\uAE09 \uC2DC\uACF5\uC790\uAC00 \uD3C9\uAC00\uC790\uB85C \uC120\uC815\uB429\uB2C8\uB2E4.",
-  evalEnabled: "\uC218\uC2B5 \uD3C9\uAC00 \uC0AC\uC6A9",
-  evalGrades: "\uD3C9\uAC00\uC790 \uB4F1\uAE09 (\uBCF5\uC218 \uC120\uD0DD)",
+    "SC \uC77C\uC815 \uCC38\uC5EC\uC790 \uC911 \uC124\uC815 \uB4F1\uAE09 \uC774\uD558\uB294 \uC2DC\uACF5\uC790\uAC00 \uD3C9\uAC00 \uB300\uC0C1\uC785\uB2C8\uB2E4. \uD3C9\uAC00\uC790\uB294 \uB300\uC0C1\uBCF4\uB2E4 \uB192\uC740 \uB4F1\uAE09\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4.",
+  evalEnabled: "\uC77C\uC77C \uD3C9\uAC00 \uC0AC\uC6A9",
+  evalSubjectMaxGrade: "\uD3C9\uAC00 \uB300\uC0C1 \uCD5C\uACE0 \uB4F1\uAE09",
+  evalSubjectMaxGradeHint: "E\uB4F1\uAE09\uBD80\uD130 \uC120\uD0DD \uB4F1\uAE09 \uAE4C\uC9C0 \uD3C9\uAC00 \uB300\uC0C1\uC774 \uB429\uB2C8\uB2E4.",
+  evalGrades: "\uD3C9\uAC00\uC790 \uB4F1\uAE09 (\uBCF5\uC218 \uC120\uD0DD, \uC5C6\uC73C\uBA74 \uCD5C\uACE0 \uB4F1\uAE09 \uC790\uB3D9)",
   evalNotifyHour: "\uC54C\uB9BC \uBC1C\uC1A1 \uC2DC\uAC04 (KST)",
   evalReminder: "\uBBF8\uC785\uB825 \uC694\uCCAD \uC624\uC804 \uB9AC\uB9E4\uC778\uB354 (9\uC2DC)",
   reset: "\uAE30\uBCF8\uAC12",
@@ -75,6 +78,7 @@ type DraftState = {
   postProbationGrade: string;
   enforceEGradeDuringProbation: boolean;
   probationEvalEnabled: boolean;
+  probationEvalSubjectMaxGrade: string;
   probationEvalGrades: string[];
   probationEvalNotifyHour: string;
   probationEvalReminderEnabled: boolean;
@@ -93,6 +97,7 @@ function rulesToDraft(rules: WorkerAiRules): DraftState {
     postProbationGrade: rules.postProbationGrade,
     enforceEGradeDuringProbation: rules.enforceEGradeDuringProbation,
     probationEvalEnabled: rules.probationEvalEnabled,
+    probationEvalSubjectMaxGrade: rules.probationEvalSubjectMaxGrade,
     probationEvalGrades: [...rules.probationEvalGrades],
     probationEvalNotifyHour: String(rules.probationEvalNotifyHour),
     probationEvalReminderEnabled: rules.probationEvalReminderEnabled,
@@ -112,6 +117,7 @@ function draftToRules(draft: DraftState): WorkerAiRules {
     postProbationGrade: draft.postProbationGrade,
     enforceEGradeDuringProbation: draft.enforceEGradeDuringProbation,
     probationEvalEnabled: draft.probationEvalEnabled,
+    probationEvalSubjectMaxGrade: draft.probationEvalSubjectMaxGrade,
     probationEvalGrades: draft.probationEvalGrades,
     probationEvalNotifyHour: draft.probationEvalNotifyHour,
     probationEvalReminderEnabled: draft.probationEvalReminderEnabled,
@@ -310,6 +316,22 @@ export function WorkerAiRulesModal({ open, rules, saving = false, onClose, onSav
               {L.evalEnabled}
             </label>
             <div className="erp-sale-ai-rules-grid mt-3">
+              <label className="erp-sale-ai-rules-field">
+                <span>{L.evalSubjectMaxGrade}</span>
+                <select
+                  className="erp-input w-full rounded-xl px-3 py-2 text-sm font-semibold"
+                  value={draft.probationEvalSubjectMaxGrade}
+                  onChange={(event) => updateDraft("probationEvalSubjectMaxGrade", event.target.value)}
+                  disabled={!draft.probationEvalEnabled}
+                >
+                  {SUBJECT_MAX_GRADE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs text-slate-500">{L.evalSubjectMaxGradeHint}</span>
+              </label>
               <label className="erp-sale-ai-rules-field md:col-span-2">
                 <span>{L.evalGrades}</span>
                 <div className="mt-2 flex flex-wrap gap-2">

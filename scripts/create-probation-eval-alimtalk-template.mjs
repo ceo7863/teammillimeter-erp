@@ -42,21 +42,21 @@ async function api(method, path, body) {
 }
 
 const template = {
-  name: `${TM} ERP \uC218\uC2B5 \uC2DC\uACF5\uC790 \uD3C9\uAC00`,
-  emphasizeTitle: "\uC218\uC2B5 \uC77C\uC77C \uD3C9\uAC00",
+  name: `${TM} ERP \uC77C\uC77C \uC2DC\uACF5 \uD3C9\uAC00`,
+  emphasizeTitle: "\uC77C\uC77C \uC2DC\uACF5 \uD3C9\uAC00",
   emphasizeSubtitle: CO,
-  content: `${TM} \uC218\uC2B5 \uC2DC\uACF5\uC790 \uC77C\uC77C \uD3C9\uAC00 \uC694\uCCAD\uC785\uB2C8\uB2E4.
+  content: `${TM} \uC77C\uC77C \uC2DC\uACF5 \uD3C9\uAC00 \uC694\uCCAD\uC785\uB2C8\uB2E4.
 
 \uADDC\uC5F4\uC77C: #{date}
 \uD604\uC7A5: #{siteName}
-\uC218\uC2B5\uC790: #{probationWorkerName}
+\uD3C9\uAC00 \uB300\uC0C1: #{subjectWorkerName}
 
 \uC544\uB798 \uBC84\uD2BC\uC744 \uB20C\uB7EC \uD3C9\uAC00 \uC124\uBB38\uC744 \uC791\uC131\uD574 \uC8FC\uC138\uC694.`,
   buttonName: "\uD3C9\uAC00 \uC124\uBB38 \uC791\uC131",
-  inspectionComment: `\uC218\uC2B5 \uAE30\uAC04 \uC2DC\uACF5\uC790 \uC77C\uC77C \uD3C9\uAC00 \uC694\uCCAD \uC548\uB0B4\uC785\uB2C8\uB2E4. \uC218\uC2E0\uC790\uB294 ${CO} \uC77C\uC815 \uCC38\uC5EC \uC2DC\uACF5\uC790\uC785\uB2C8\uB2E4.`,
+  inspectionComment: `\uC77C\uC77C \uC2DC\uACF5 \uD3C9\uAC00 \uC694\uCCAD \uC548\uB0B4\uC785\uB2C8\uB2E4. \uC218\uC2E0\uC790\uB294 ${CO} \uC77C\uC815 \uCC38\uC5EC \uC2DC\uACF5\uC790\uC785\uB2C8\uB2E4.`,
 };
 
-const surveyLinkBase = "#{surveyUrl}";
+const surveyLinkBase = `${config.alimtalk.erpBaseUrl.replace(/\/$/, "")}/eval/#{token}`;
 
 function buildButtons() {
   return [

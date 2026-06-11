@@ -1,8 +1,8 @@
 import {
   gradeRank,
+  isWorkerEvalSubject,
   type ProbationEvalSelectionReason,
 } from "@/utils/probationEval";
-import { isWorkerInProbationPeriod } from "@/utils/workerProbationAutoAdjust";
 import type { WorkerAiRules } from "@/utils/workerAiRules";
 import { normalizeWorkerAiRules } from "@/utils/workerAiRules";
 import { findWorkerByListName } from "@/utils/workerPhoneMatch";
@@ -17,19 +17,13 @@ export type ScScheduleLike = {
   clientName?: string;
 };
 
-export type ScheduleParticipantLike = {
-  participantName: string;
-  name: string;
-  phone?: string;
-};
-
 export type SelectedEvaluator = {
   worker: WorkerMasterLike;
   participantName: string;
   selectionReason: ProbationEvalSelectionReason;
 };
 
-export type ProbationWorkerOnSchedule = {
+export type EvalSubjectOnSchedule = {
   worker: WorkerMasterLike;
   participantName: string;
 };
@@ -47,17 +41,16 @@ export function resolveParticipantWorker(
   return findWorkerByListName(workers, participantName);
 }
 
-export function findProbationWorkersOnSchedule(
+export function findEvalSubjectsOnSchedule(
   schedule: ScScheduleLike,
   workers: WorkerMasterLike[],
   workerAiRulesInput?: WorkerAiRules | null,
-  asOfDate?: string,
-): ProbationWorkerOnSchedule[] {
+): EvalSubjectOnSchedule[] {
   const rules = normalizeWorkerAiRules(workerAiRulesInput);
-  const workDate = String(schedule?.workDate || asOfDate || "").slice(0, 10);
+  const subjectMaxGrade = rules.probationEvalSubjectMaxGrade;
   const names = Array.isArray(schedule?.participantNames) ? schedule.participantNames : [];
   const seen = new Set<string>();
-  const result: ProbationWorkerOnSchedule[] = [];
+  const result: EvalSubjectOnSchedule[] = [];
 
   for (const participantName of names) {
     const label = String(participantName || "").trim();
@@ -66,12 +59,22 @@ export function findProbationWorkersOnSchedule(
     if (!worker) continue;
     const workerId = String(worker.id ?? "");
     if (!workerId || seen.has(workerId)) continue;
-    if (!isWorkerInProbationPeriod(worker, rules, workDate)) continue;
+    if (!isWorkerEvalSubject(worker, subjectMaxGrade)) continue;
     seen.add(workerId);
     result.push({ worker, participantName: label });
   }
 
   return result;
+}
+
+/** @deprecated use findEvalSubjectsOnSchedule */
+export function findProbationWorkersOnSchedule(
+  schedule: ScScheduleLike,
+  workers: WorkerMasterLike[],
+  workerAiRulesInput?: WorkerAiRules | null,
+  _asOfDate?: string,
+) {
+  return findEvalSubjectsOnSchedule(schedule, workers, workerAiRulesInput);
 }
 
 function pickHighestGradeParticipant(
@@ -88,11 +91,12 @@ function pickHighestGradeParticipant(
 
 export function selectScheduleEvaluator(
   schedule: ScScheduleLike,
-  probationWorker: WorkerMasterLike,
+  subjectWorker: WorkerMasterLike,
   workers: WorkerMasterLike[],
   evalGrades: string[],
 ): SelectedEvaluator | null {
-  const probationWorkerId = String(probationWorker.id ?? "");
+  const subjectWorkerId = String(subjectWorker.id ?? "");
+  const subjectRank = gradeRank(normalizeGrade(subjectWorker.grade));
   const names = Array.isArray(schedule?.participantNames) ? schedule.participantNames : [];
   const allowedGrades = new Set(
     (Array.isArray(evalGrades) ? evalGrades : [])
@@ -106,7 +110,9 @@ export function selectScheduleEvaluator(
     if (!label) continue;
     const worker = resolveParticipantWorker(workers, label);
     if (!worker) continue;
-    if (String(worker.id ?? "") === probationWorkerId) continue;
+    if (String(worker.id ?? "") === subjectWorkerId) continue;
+    const evaluatorRank = gradeRank(normalizeGrade(worker.grade));
+    if (evaluatorRank <= subjectRank) continue;
     participants.push({ worker, participantName: label });
   }
 

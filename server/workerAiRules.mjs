@@ -10,6 +10,7 @@ export const DEFAULT_WORKER_AI_RULES = {
   postProbationGrade: "D",
   enforceEGradeDuringProbation: true,
   probationEvalEnabled: true,
+  probationEvalSubjectMaxGrade: "E",
   probationEvalGrades: ["A"],
   probationEvalNotifyHour: 19,
   probationEvalNotifyMinute: 0,
@@ -56,6 +57,18 @@ function clampMinute(value, fallback) {
   return Math.min(59, Math.max(0, num));
 }
 
+function normalizeEvalSubjectMaxGrade(value, fallback) {
+  const grade = String(value || "")
+    .trim()
+    .toUpperCase();
+  if (WORKER_GRADE_OPTIONS.includes(grade)) return grade;
+  const fallbackGrade = String(fallback || "")
+    .trim()
+    .toUpperCase();
+  if (WORKER_GRADE_OPTIONS.includes(fallbackGrade)) return fallbackGrade;
+  return DEFAULT_WORKER_AI_RULES.probationEvalSubjectMaxGrade;
+}
+
 function normalizePostProbationGrade(value, fallback) {
   const grade = String(value || "")
     .trim()
@@ -91,6 +104,10 @@ export function normalizeWorkerAiRules(raw) {
     ),
     enforceEGradeDuringProbation: row.enforceEGradeDuringProbation !== false,
     probationEvalEnabled: row.probationEvalEnabled !== false,
+    probationEvalSubjectMaxGrade: normalizeEvalSubjectMaxGrade(
+      row.probationEvalSubjectMaxGrade,
+      DEFAULT_WORKER_AI_RULES.probationEvalSubjectMaxGrade,
+    ),
     probationEvalGrades: normalizeProbationEvalGrades(
       row.probationEvalGrades,
       DEFAULT_WORKER_AI_RULES.probationEvalGrades,

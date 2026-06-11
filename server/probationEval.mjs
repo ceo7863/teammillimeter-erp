@@ -3,7 +3,7 @@ import { config } from "./config.mjs";
 import { getErpState, saveErpState } from "./db.mjs";
 import { normalizeWorkerAiRules } from "./workerAiRules.mjs";
 import { resolveScScheduleSiteName } from "./scScheduleSiteName.mjs";
-import { findProbationWorkersOnSchedule, selectScheduleEvaluator } from "./probationEvalAssign.mjs";
+import { findEvalSubjectsOnSchedule, selectScheduleEvaluator } from "./probationEvalAssign.mjs";
 
 const MAX_REQUESTS = 10000;
 const SAVE_RETRY_ATTEMPTS = 8;
@@ -243,8 +243,8 @@ export function buildProbationEvalRequestsForSchedules(data, schedules, workDate
 
   for (const schedule of schedules) {
     const dateKey = String(workDate || schedule.workDate || "").slice(0, 10);
-    const probationWorkers = findProbationWorkersOnSchedule(schedule, workers, rules, dateKey);
-    for (const { worker } of probationWorkers) {
+    const evalSubjects = findEvalSubjectsOnSchedule(schedule, workers, rules);
+    for (const { worker } of evalSubjects) {
       const key = probationEvalRequestKey(dateKey, schedule.id, worker.id);
       if (existingKeys.has(key)) continue;
 
@@ -452,10 +452,13 @@ export function updateProbationEvalTemplates(nextTemplates, updatedBy = "system"
 
 export function formatProbationEvalTemplateVars(request) {
   const baseUrl = config.alimtalk.erpBaseUrl.replace(/\/$/, "");
+  const subjectName = String(request.probationWorkerName || "").trim() || "-";
   return {
     date: String(request.workDate || "").slice(0, 10),
     siteName: String(request.siteName || "").trim() || "-",
-    probationWorkerName: String(request.probationWorkerName || "").trim() || "-",
+    probationWorkerName: subjectName,
+    subjectWorkerName: subjectName,
+    token: String(request.token || "").trim(),
     surveyUrl: `${baseUrl}/eval/${request.token}`,
   };
 }
