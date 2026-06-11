@@ -1,12 +1,14 @@
-import React from "react";
+import React, { startTransition } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { ErpErrorBoundary } from "@/components/ErpErrorBoundary";
 import { ActionFeedbackProvider } from "@/context/ActionFeedbackContext";
 import { clearStaleChunkReloadFlag, reloadOnceForStaleChunks } from "@/utils/dynamicImport";
+import { installErpBootRecovery, resetDocumentScrollLock } from "@/utils/erpBootRecovery";
 import "./index.css";
 
 clearStaleChunkReloadFlag();
+installErpBootRecovery();
 
 window.addEventListener("vite:preloadError", (event) => {
   event.preventDefault();
@@ -20,17 +22,16 @@ declare global {
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <ActionFeedbackProvider>
-      <ErpErrorBoundary>
-        <App />
-      </ErpErrorBoundary>
-    </ActionFeedbackProvider>
-  </React.StrictMode>,
+  <ActionFeedbackProvider>
+    <ErpErrorBoundary>
+      <App />
+    </ErpErrorBoundary>
+  </ActionFeedbackProvider>,
 );
 
 if (typeof window !== "undefined") {
   window.clearTimeout(window.__erpBootTimer);
+  resetDocumentScrollLock();
 }
 
 if ("serviceWorker" in navigator && !/^\/chat\/?$/i.test(window.location.pathname)) {

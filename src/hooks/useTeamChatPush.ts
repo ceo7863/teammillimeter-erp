@@ -4,9 +4,13 @@ import { isApiModeEnabled } from "@/utils/erpApi";
 import { canUserAccessPage } from "@/utils/pageAccess";
 import { subscribeTeamChatPush } from "@/utils/teamChatPush";
 
-export function useTeamChatPush(currentUser: Pick<ErpUser, "role" | "allowedPages"> | null | undefined) {
-  const enabled =
+export function useTeamChatPush(
+  currentUser: Pick<ErpUser, "role" | "allowedPages"> | null | undefined,
+  options?: { enabled?: boolean },
+) {
+  const pageEnabled =
     isApiModeEnabled() && Boolean(currentUser) && canUserAccessPage(currentUser, "teamChat");
+  const enabled = pageEnabled && options?.enabled !== false;
 
   useEffect(() => {
     if (!enabled || typeof window === "undefined") return;

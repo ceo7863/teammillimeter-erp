@@ -8524,10 +8524,13 @@ export default function TeammillimeterErpMvp() {
     setActive("basicInfo");
     setSidebarOpen(false);
   }, []);
-  const clientSiteRequestPendingCount = useClientSiteRequestPendingCount(currentUser, { pollMs: 30000 });
+  const clientSiteRequestPendingCount = useClientSiteRequestPendingCount(currentUser, {
+    pollMs: 30000,
+    enabled: dataReady,
+  });
   const { count: teamChatUnreadCount, refresh: refreshTeamChatUnread } = useTeamChatUnreadCount(currentUser, {
     pollMs: 10000,
-    enabled: active !== "teamChat",
+    enabled: dataReady && active !== "teamChat",
   });
   const handleTeamChatUnreadChange = useCallback(() => {
     void refreshTeamChatUnread();
@@ -8548,8 +8551,9 @@ export default function TeammillimeterErpMvp() {
     unreadCount: teamChatUnreadCount,
     isChatPageActive: active === "teamChat",
     onOpenChat: openTeamChatPage,
+    enabled: dataReady,
   });
-  useTeamChatPush(currentUser);
+  useTeamChatPush(currentUser, { enabled: dataReady });
   useEffect(() => {
     const handler = () => openTeamChatPage();
     window.addEventListener(TEAM_CHAT_OPEN_EVENT, handler);
@@ -9006,15 +9010,17 @@ export default function TeammillimeterErpMvp() {
       try {
         const data = await fetchErpData();
         if (cancelled) return;
-        applyFetchedErpData(data);
         clearErpSyncStatus();
+        setDataReady(true);
         await new Promise<void>((resolve) => {
           requestAnimationFrame(() => {
             requestAnimationFrame(() => resolve());
           });
         });
         if (cancelled) return;
-        setDataReady(true);
+        startTransition(() => {
+          applyFetchedErpData(data);
+        });
       } catch (error) {
         console.error(error);
         clearAuthSession();
@@ -11069,7 +11075,7 @@ export default function TeammillimeterErpMvp() {
   return (
     <AuditProvider auditLogs={auditLogs} setAuditLogs={setAuditLogs} currentUser={currentUser}>
     <SalePaymentLinkProvider paymentVouchers={paymentVouchers} bankTransactions={bankTransactions} sales={appliedSales}>
-    <div className="erp-app-shell flex min-h-screen bg-slate-50 text-slate-900" lang="ko">
+    <div className="erp-app-shell flex min-h-[100dvh] min-h-[100svh] bg-slate-50 text-slate-900" lang="ko">
       <Sidebar
         active={shellActive}
         setActive={handleNavigatePage}

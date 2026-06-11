@@ -6,12 +6,13 @@ import { canUserAccessPage } from "@/utils/pageAccess";
 
 export function useClientSiteRequestPendingCount(
   currentUser: Pick<ErpUser, "role" | "allowedPages"> | null | undefined,
-  options?: { pollMs?: number },
+  options?: { pollMs?: number; enabled?: boolean },
 ) {
   const [count, setCount] = useState(0);
   const pollMs = options?.pollMs ?? 8000;
-  const enabled =
+  const pageEnabled =
     isApiModeEnabled() && Boolean(currentUser) && canUserAccessPage(currentUser, "clientSiteRequests");
+  const enabled = pageEnabled && options?.enabled !== false;
 
   const refresh = useCallback(async () => {
     if (!enabled) {

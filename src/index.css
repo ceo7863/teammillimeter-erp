@@ -20,6 +20,17 @@ body {
   font-size: 1rem;
   line-height: 1.45;
   color: #0f172a;
+  min-height: 100%;
+  min-height: 100dvh;
+  min-height: -webkit-fill-available;
+}
+
+#root {
+  min-height: 100%;
+  min-height: 100dvh;
+  min-height: -webkit-fill-available;
+  display: flex;
+  flex-direction: column;
 }
 
 input:not([type="date"]):not([type="number"]):not([type="checkbox"]):not([type="file"]),
