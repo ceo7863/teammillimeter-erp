@@ -231,6 +231,16 @@ export function SaleAiRulesModal({ open, rules, saving = false, onClose, onSave 
             />
             <p className="erp-sale-ai-rules-preview">{preview.shortShiftCapRule}</p>
             <p className="erp-sale-ai-rules-preview-sub">{preview.shortShiftCapExample}</p>
+
+            <RuleTextArea
+              label={"\uB9CC\uC6D0 \uB2E8\uC704 \uC808\uC0AD \uADDC\uCE59"}
+              hint={"{maxHours} \uC0AC\uC6A9 \uAC00\uB2A5"}
+              value={draft.formTexts.shortShiftManwonRule}
+              onChange={(value) => updateFormText("shortShiftManwonRule", value)}
+              rows={2}
+            />
+            <p className="erp-sale-ai-rules-preview">{preview.shortShiftManwonRule}</p>
+            <p className="erp-sale-ai-rules-preview-sub">{preview.shortShiftManwonExample}</p>
           </section>
 
           <section className="erp-sale-ai-rules-section">

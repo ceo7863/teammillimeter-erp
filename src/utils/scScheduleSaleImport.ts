@@ -2,6 +2,7 @@ import {
   compactSaleForm,
   createWorkerLine,
   enrichWorkerLineOnWorkerSelect,
+  syncWorkerLineOvertimeRate,
   type SaleFormData,
   type SaleWorkerLine,
 } from "@/utils/saleForm";
@@ -30,6 +31,7 @@ import {
   computeShortShiftChargeAmount,
   isShortShiftWorkHours,
   resolveShortShiftChargeAmount,
+  truncateShortShiftChargeToManwon,
   DEFAULT_SALE_AI_RULES,
   normalizeSaleAiRules,
   type SaleAiRules,
@@ -41,6 +43,7 @@ export {
   computeShortShiftChargeAmount,
   isShortShiftWorkHours,
   resolveShortShiftChargeAmount,
+  truncateShortShiftChargeToManwon,
   formatScheduleWorkHoursLabel,
 } from "@/utils/saleAiRules";
 
@@ -244,6 +247,7 @@ export function buildSaleFormFromScSchedule(
       rules,
       effectiveTimes.fromWorkLog,
     );
+    line = syncWorkerLineOvertimeRate(line, workers, clients, clientName);
     return line;
   });
 

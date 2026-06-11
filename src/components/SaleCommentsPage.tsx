@@ -1,9 +1,18 @@
 import React, { useMemo, useState } from "react";
 import { MessageSquare, Search } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { TableExportSection } from "@/components/TableExportSection";
 import { DesktopTableWrap, MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
-import { formatSaleCommentTime, type SaleComment } from "@/utils/saleComments";
+import { SaleReviewStatusBadge } from "@/components/SaleReviewStatusBadge";
+import {
+  formatSaleCommentTime,
+  resolveSaleReviewStatus,
+  SALE_COMMENT_KIND_LABELS,
+  SALE_REVIEW_STATUS_LABELS,
+  type SaleComment,
+  type SaleReviewStatus,
+} from "@/utils/saleComments";
 import { getSaleVoucherLabel } from "@/utils/saleVoucherNo";
 
 type SaleLike = {
@@ -12,6 +21,7 @@ type SaleLike = {
   site?: string;
   date?: string;
   voucherNo?: string | number;
+  reviewStatus?: SaleReviewStatus | string;
 };
 
 type EnrichedSaleComment = SaleComment & {
@@ -19,27 +29,43 @@ type EnrichedSaleComment = SaleComment & {
   site: string;
   voucherDate: string;
   voucherLabel: string;
+  saleReviewStatus: SaleReviewStatus | null;
 };
 
+type ReviewFilter = SaleReviewStatus | "unconfirmed" | "all";
+
 const L = {
-  pageTitle: "\uC804\uD45C \uCF54\uBA58\uD2B8",
-  pageDesc: "\uB9E4\uCD9C \uC804\uD45C\uC5D0 \uB0A8\uAE34 \uCF54\uBA58\uD2B8\uB97C \uBAA8\uC544 \uBCF4\uACE0, \uD589\uC744 \uD074\uB9AD\uD558\uBA74 \uD574\uB2F9 \uC804\uD45C\uB97C \uC5F4\uC2B5\uB2C8\uB2E4.",
-  comments: "\uCF54\uBA58\uD2B8",
-  vouchers: "\uC804\uD45C",
-  visible: "\uD45C\uC2DC",
-  search: "\uAC80\uC0C9",
-  searchPlaceholder: "\uC791\uC131\uC790, \uAC70\uB798\uCC98, \uD604\uC7A5, \uCF54\uBA58\uD2B8, \uC804\uD45C\uBC88\uD638",
-  exportFileName: "\uC804\uD45C\uCF54\uBA58\uD2B8",
-  author: "\uC791\uC131\uC790",
-  createdAt: "\uC791\uC131\uC77C\uC2DC",
-  body: "\uCF54\uBA58\uD2B8",
-  voucherDate: "\uC804\uD45C\uC77C\uC790",
-  client: "\uAC70\uB798\uCC98",
-  site: "\uD604\uC7A5",
-  voucherNo: "\uC804\uD45C\uBC88\uD638",
-  empty: "\uB4F1\uB85D\uB41C \uCF54\uBA58\uD2B8\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
-  noResults: "\uAC80\uC0C9 \uACB0\uACFC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  pageTitle: "전표 코멘트",
+  pageDesc: "매출 전표에 남긴 코멘트를 모아 보고, 행을 클릭하면 해당 전표를 엽니다.",
+  comments: "코멘트",
+  vouchers: "전표",
+  visible: "표시",
+  search: "검색",
+  searchPlaceholder: "작성자, 거래처, 현장, 코멘트, 전표번호",
+  exportFileName: "전표코멘트",
+  author: "작성자",
+  createdAt: "작성일시",
+  body: "코멘트",
+  kind: "유형",
+  reviewStatus: "확인상태",
+  voucherDate: "전표일자",
+  client: "거래처",
+  site: "현장",
+  voucherNo: "전표번호",
+  empty: "등록된 코멘트가 없습니다.",
+  noResults: "검색 결과가 없습니다.",
+  filterAll: "전체",
+  filterUnconfirmed: "미확인",
 };
+
+const FILTER_OPTIONS: Array<{ value: ReviewFilter; label: string }> = [
+  { value: "all", label: L.filterAll },
+  { value: "unconfirmed", label: L.filterUnconfirmed },
+  { value: "pending", label: SALE_REVIEW_STATUS_LABELS.pending },
+  { value: "needs_review", label: SALE_REVIEW_STATUS_LABELS.needs_review },
+  { value: "on_hold", label: SALE_REVIEW_STATUS_LABELS.on_hold },
+  { value: "confirmed", label: SALE_REVIEW_STATUS_LABELS.confirmed },
+];
 
 function enrichSaleComments(comments: SaleComment[], sales: SaleLike[]): EnrichedSaleComment[] {
   const byId = new Map<string, SaleLike>();
@@ -55,6 +81,7 @@ function enrichSaleComments(comments: SaleComment[], sales: SaleLike[]): Enriche
       site: String(sale?.site || "").trim() || "-",
       voucherDate: String(sale?.date || "").trim() || "-",
       voucherLabel: sale ? getSaleVoucherLabel(sale) : `#${comment.saleId}`,
+      saleReviewStatus: sale ? resolveSaleReviewStatus(sale, comments) : null,
     };
   });
 }
@@ -62,6 +89,8 @@ function enrichSaleComments(comments: SaleComment[], sales: SaleLike[]): Enriche
 function matchesSearch(row: EnrichedSaleComment, query: string) {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
+  const statusLabel = row.saleReviewStatus ? SALE_REVIEW_STATUS_LABELS[row.saleReviewStatus] : "";
+  const kindLabel = row.kind ? SALE_COMMENT_KIND_LABELS[row.kind] : "";
   return [
     row.body,
     row.authorName,
@@ -69,7 +98,17 @@ function matchesSearch(row: EnrichedSaleComment, query: string) {
     row.site,
     row.voucherDate,
     row.voucherLabel,
+    statusLabel,
+    kindLabel,
   ].some((value) => String(value || "").toLowerCase().includes(needle));
+}
+
+function matchesReviewFilter(row: EnrichedSaleComment, filter: ReviewFilter) {
+  if (filter === "all") return true;
+  const status = row.saleReviewStatus;
+  if (!status) return false;
+  if (filter === "unconfirmed") return status === "pending" || status === "needs_review";
+  return status === filter;
 }
 
 export function SaleCommentsPage({
@@ -82,13 +121,15 @@ export function SaleCommentsPage({
   onOpenVoucher?: (saleId: string | number) => void;
 }) {
   const [search, setSearch] = useState("");
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
 
   const rows = useMemo(() => {
     const enriched = enrichSaleComments(saleComments, sales);
     return enriched
       .filter((row) => matchesSearch(row, search))
+      .filter((row) => matchesReviewFilter(row, reviewFilter))
       .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
-  }, [saleComments, sales, search]);
+  }, [saleComments, sales, search, reviewFilter]);
 
   const voucherCount = useMemo(() => new Set(saleComments.map((row) => row.saleId)).size, [saleComments]);
 
@@ -125,6 +166,21 @@ export function SaleCommentsPage({
 
       <Card className="rounded-xl border-slate-200/80 shadow-sm">
         <CardContent className="p-3 md:p-4">
+          <div className="mb-3 flex flex-wrap gap-2">
+            {FILTER_OPTIONS.map((option) => (
+              <Button
+                key={option.value}
+                type="button"
+                size="sm"
+                variant={reviewFilter === option.value ? "default" : "outline"}
+                className="h-8 rounded-lg"
+                onClick={() => setReviewFilter(option.value)}
+              >
+                {option.label}
+              </Button>
+            ))}
+          </div>
+
           <label className="erp-sale-comments-search mb-3 block">
             <span className="erp-text-caption mb-1 block font-semibold text-slate-500">{L.search}</span>
             <div className="relative">
@@ -146,11 +202,17 @@ export function SaleCommentsPage({
                   <MobileRecordCard
                     key={row.id}
                     title={row.client}
-                    subtitle={`${row.voucherDate} \u00B7 ${row.site} \u00B7 ${row.voucherLabel}`}
+                    subtitle={`${row.voucherDate} · ${row.site} · ${row.voucherLabel}`}
                     onClick={onOpenVoucher ? () => openRow(row) : undefined}
+                    badges={
+                      row.saleReviewStatus
+                        ? [{ label: SALE_REVIEW_STATUS_LABELS[row.saleReviewStatus], tone: row.saleReviewStatus === "needs_review" ? "danger" as const : undefined }]
+                        : undefined
+                    }
                     fields={[
                       { label: L.author, value: row.authorName },
                       { label: L.createdAt, value: formatSaleCommentTime(row.createdAt), tone: "muted" },
+                      { label: L.kind, value: row.kind ? SALE_COMMENT_KIND_LABELS[row.kind] : "-" },
                       { label: L.body, value: row.body },
                     ]}
                   />
@@ -165,6 +227,8 @@ export function SaleCommentsPage({
                 <thead>
                   <tr>
                     <th className="text-left">{L.createdAt}</th>
+                    <th className="text-left">{L.reviewStatus}</th>
+                    <th className="text-left">{L.kind}</th>
                     <th className="text-left">{L.author}</th>
                     <th className="text-left">{L.body}</th>
                     <th className="text-left">{L.voucherDate}</th>
@@ -175,26 +239,35 @@ export function SaleCommentsPage({
                 </thead>
                 <tbody>
                   {rows.length ? (
-                    rows.map((row) => (
-                      <tr
-                        key={row.id}
-                        className={onOpenVoucher ? "cursor-pointer hover:bg-slate-50" : ""}
-                        onClick={onOpenVoucher ? () => openRow(row) : undefined}
-                      >
-                        <td className="whitespace-nowrap">{formatSaleCommentTime(row.createdAt)}</td>
-                        <td>{row.authorName}</td>
-                        <td className="max-w-[24rem]">
-                          <span className="erp-sale-comments-body">{row.body}</span>
-                        </td>
-                        <td className="whitespace-nowrap">{row.voucherDate}</td>
-                        <td className="font-semibold">{row.client}</td>
-                        <td>{row.site}</td>
-                        <td className="whitespace-nowrap">{row.voucherLabel}</td>
-                      </tr>
-                    ))
+                    rows.map((row) => {
+                      const sale = sales.find((item) => String(item.id) === String(row.saleId));
+                      return (
+                        <tr
+                          key={row.id}
+                          className={onOpenVoucher ? "cursor-pointer hover:bg-slate-50" : ""}
+                          onClick={onOpenVoucher ? () => openRow(row) : undefined}
+                        >
+                          <td className="whitespace-nowrap">{formatSaleCommentTime(row.createdAt)}</td>
+                          <td>
+                            <SaleReviewStatusBadge sale={sale} saleComments={saleComments} />
+                          </td>
+                          <td className="whitespace-nowrap">
+                            {row.kind ? SALE_COMMENT_KIND_LABELS[row.kind] : "-"}
+                          </td>
+                          <td>{row.authorName}</td>
+                          <td className="max-w-[24rem]">
+                            <span className="erp-sale-comments-body">{row.body}</span>
+                          </td>
+                          <td className="whitespace-nowrap">{row.voucherDate}</td>
+                          <td className="font-semibold">{row.client}</td>
+                          <td>{row.site}</td>
+                          <td className="whitespace-nowrap">{row.voucherLabel}</td>
+                        </tr>
+                      );
+                    })
                   ) : (
                     <tr>
-                      <td colSpan={7} className="erp-sales-sheet-empty">
+                      <td colSpan={9} className="erp-sales-sheet-empty">
                         {saleComments.length ? L.noResults : L.empty}
                       </td>
                     </tr>

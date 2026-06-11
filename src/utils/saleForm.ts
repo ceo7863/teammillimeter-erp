@@ -84,7 +84,7 @@ export function createWorkerLine(index: number): SaleWorkerLine {
     lodging: "",
     expense: "",
     overtimeHours: "",
-    overtimeCost: "30000",
+    overtimeCost: "",
     memo: "",
   };
 }
@@ -109,7 +109,26 @@ function resolveWorkerLineOvertimeRate(
   return selectedClient?.overtimeCost ?? selectedWorker?.overtimeCost ?? 30000;
 }
 
-/** 시공자·야근시간이 있으면 야근단가를 자동 채워 야근비(시간×단가)가 계산되도록 함 */
+export function calculateWorkerLineOvertimeTotal(
+  line: SaleWorkerLine,
+  workers: Array<{ name?: string; overtimeCost?: number }>,
+  clients: Array<{ name?: string; overtimeCost?: number }>,
+  clientName: string,
+) {
+  const hours = parseMoney(line.overtimeHours);
+  if (hours <= 0) return 0;
+
+  const workerName = String(line.worker || "").trim();
+  const storedRate = parseMoney(line.overtimeCost);
+  const rate = storedRate > 0
+    ? storedRate
+    : workerName
+      ? resolveWorkerLineOvertimeRate(workers, clients, clientName, workerName)
+      : 30000;
+  return hours * rate;
+}
+
+/** 시공자·야근시간이 있으면 야근단가를 내부에 채워 저장·합계 계산이 되도록 함 */
 export function syncWorkerLineOvertimeRate(
   line: SaleWorkerLine,
   workers: Array<{ name?: string; overtimeCost?: number }>,
@@ -118,12 +137,11 @@ export function syncWorkerLineOvertimeRate(
 ): SaleWorkerLine {
   const workerName = String(line.worker || "").trim();
   const hours = parseMoney(line.overtimeHours);
-  if (!workerName || hours <= 0) return line;
+  if (!workerName || hours <= 0) {
+    return { ...line, overtimeCost: "" };
+  }
 
   const rate = resolveWorkerLineOvertimeRate(workers, clients, clientName, workerName);
-  const currentRate = parseMoney(line.overtimeCost);
-  if (currentRate > 0) return line;
-
   return { ...line, overtimeCost: String(rate) };
 }
 
@@ -211,11 +229,6 @@ export function enrichWorkerLineOnWorkerSelect(
   if (unitCost) nextLine.unitCost = unitCost;
   const chargeAmount = resolveWorkerLineChargeAmount(selectedWorker, selectedClient);
   if (chargeAmount) nextLine.chargeAmount = chargeAmount;
-  nextLine.overtimeCost = selectedClient?.overtimeCost
-    ? String(selectedClient.overtimeCost)
-    : selectedWorker?.overtimeCost
-      ? String(selectedWorker.overtimeCost)
-      : nextLine.overtimeCost || "30000";
   nextLine.feeRate = selectedWorker?.feeRate ?? nextLine.feeRate ?? "";
   nextLine = syncWorkerLineOvertimeRate(nextLine, workers, clients, clientName);
   return stripWorkerLineComputedMetrics(nextLine);
@@ -348,14 +361,16 @@ export function isSaleFormMasterRefsValid(
 export function buildSaleFromForm(
   form: SaleFormData,
   currentUser: { name?: string; email?: string } | null = null,
-  workers: Array<{ name?: string; feeRate?: number }> = [],
+  workers: Array<{ name?: string; feeRate?: number; overtimeCost?: number }> = [],
+  clients: Array<{ name?: string; overtimeCost?: number }> = [],
 ) {
   const feeMap = buildWorkerFeeMap(workers);
+  const clientName = String(form.client || "").trim();
   const workerLines = (form.workers || [])
     .filter((line) => line.worker)
     .map((line) =>
       enrichWorkerLineWithMetrics(
-        stripWorkerLineComputedMetrics(line),
+        stripWorkerLineComputedMetrics(syncWorkerLineOvertimeRate(line, workers, clients, clientName)),
         resolveWorkerFeeRate(line, feeMap),
       ),
     );

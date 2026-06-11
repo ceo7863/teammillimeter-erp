@@ -15,7 +15,7 @@ import {
   shiftMonthKey,
 } from "@/utils/clientSiteRequestCalendar";
 import type { ScSchedule } from "@/utils/scSchedules";
-import { formatScScheduleHeadcount } from "@/utils/scSchedules";
+import { formatClientSiteRequestHeadcount, formatScScheduleHeadcount } from "@/utils/scSchedules";
 import type { WorkerMasterLike } from "@/utils/workerPayments";
 import type { ClientMasterLike } from "@/utils/clientMaster";
 import { ClientSiteRequestCalendarDayDrawer } from "@/components/ClientSiteRequestCalendarDayDrawer";
@@ -271,8 +271,7 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
                     >
                       <span className="erp-csr-cal-chip-label">{request.siteName}</span>
                       <span className="erp-csr-cal-chip-meta">
-                        {request.workerCount}
-                        {L.workerUnit}
+                        {formatClientSiteRequestHeadcount(request, cell.scSchedules, cell.date)}
                       </span>
                     </button>
                   ))}

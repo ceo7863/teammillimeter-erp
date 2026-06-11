@@ -31,6 +31,13 @@ import {
 import type { SortDirection } from "@/utils/pivotSort";
 import { SalePaymentLinkBadge } from "@/components/AutoLinkBadge";
 import { SaleCommentBadge } from "@/components/SaleCommentBadge";
+import { SaleReviewStatusBadge } from "@/components/SaleReviewStatusBadge";
+import {
+  SALE_REVIEW_STATUS_LABELS,
+  saleMatchesReviewFilter,
+  type SaleComment,
+  type SaleReviewStatus,
+} from "@/utils/saleComments";
 
 const SHEET_SORTABLE_COLUMNS = new Set<SalesSheetSortColumn>(["date", "client", "site", "worker"]);
 
@@ -69,6 +76,8 @@ function renderCell(
   saleCommentCounts?: Map<string, number>,
   saleCommentUnreadCounts?: Map<string, number>,
   onOpenSaleComments?: (saleId: string | number) => void,
+  saleById?: Map<string, { id?: string | number; reviewStatus?: SaleReviewStatus | string }>,
+  saleComments: SaleComment[] = [],
 ) {
   const value = row[key as keyof SalesStatementRow];
   const column = SALES_SHEET_UI_COLUMNS.find((item) => item.key === key);
@@ -101,9 +110,15 @@ function renderCell(
 
   if (key === "client" && row.isFirstVisibleLine) {
     const text = String(value ?? "") || "-";
+    const sale = saleById?.get(String(row.saleId));
     return (
       <span className="erp-sales-sheet-badge-cell">
         <SalePaymentLinkBadge saleId={row.saleId} />
+        <SaleReviewStatusBadge
+          sale={sale || { id: row.saleId }}
+          saleComments={saleComments}
+          onClick={onOpenSaleComments}
+        />
         <SaleCommentBadge
           saleId={row.saleId}
           saleCommentCounts={saleCommentCounts}
@@ -242,6 +257,17 @@ function SheetSortHeader({
   );
 }
 
+type ReviewFilter = SaleReviewStatus | "unconfirmed" | "all";
+
+const REVIEW_FILTER_OPTIONS: Array<{ value: ReviewFilter; label: string }> = [
+  { value: "all", label: "전체" },
+  { value: "unconfirmed", label: "미확인" },
+  { value: "pending", label: SALE_REVIEW_STATUS_LABELS.pending },
+  { value: "needs_review", label: SALE_REVIEW_STATUS_LABELS.needs_review },
+  { value: "on_hold", label: SALE_REVIEW_STATUS_LABELS.on_hold },
+  { value: "confirmed", label: SALE_REVIEW_STATUS_LABELS.confirmed },
+];
+
 export function SalesManagementPage({
   sales = [],
   paymentVouchers = [],
@@ -253,10 +279,12 @@ export function SalesManagementPage({
   saleCommentCounts,
   saleCommentUnreadCounts,
   onOpenSaleComments,
+  saleComments = [],
 }) {
   const { recordAudit } = useAudit();
   const [textFilters, setTextFilters] = useState(emptySalesSheetTextFilters);
   const [dateFilter, setDateFilter] = useState({ startDate: "", endDate: "" });
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
   const [sort, setSort] = useState<{ column: SalesSheetSortColumn; direction: SortDirection }>({
     column: "date",
     direction: "desc",
@@ -336,15 +364,31 @@ export function SalesManagementPage({
     };
   }, []);
 
+  const saleById = useMemo(() => {
+    const map = new Map<string, (typeof sales)[number]>();
+    sales.forEach((sale) => {
+      if (sale.id != null) map.set(String(sale.id), sale);
+    });
+    return map;
+  }, [sales]);
+
   const allRows = useMemo(
     () => flattenSalesToStatementRows(sales, workers, paymentVouchers),
     [sales, workers, paymentVouchers]
   );
 
-  const filteredRows = useMemo(
-    () => sortSalesStatementRows(filterSalesStatementRows(allRows, textFilters, dateFilter), sort.column, sort.direction),
-    [allRows, textFilters, dateFilter, sort.column, sort.direction]
-  );
+  const filteredRows = useMemo(() => {
+    const base = filterSalesStatementRows(allRows, textFilters, dateFilter);
+    const reviewFiltered =
+      reviewFilter === "all"
+        ? base
+        : base.filter((row) => {
+            const sale = saleById.get(String(row.saleId));
+            if (!sale) return false;
+            return saleMatchesReviewFilter(sale, saleComments, reviewFilter);
+          });
+    return sortSalesStatementRows(reviewFiltered, sort.column, sort.direction);
+  }, [allRows, textFilters, dateFilter, reviewFilter, saleById, saleComments, sort.column, sort.direction]);
 
   const displayRows = useMemo(
     () => buildSalesSheetDisplayRows(filteredRows),
@@ -389,6 +433,7 @@ export function SalesManagementPage({
   const resetFilters = () => {
     setTextFilters(emptySalesSheetTextFilters);
     setDateFilter({ startDate: "", endDate: "" });
+    setReviewFilter("all");
     setSort({ column: "date", direction: "desc" });
   };
 
@@ -457,6 +502,20 @@ export function SalesManagementPage({
                   placeholder="시공자명"
                 />
               </label>
+            </div>
+            <div className="mb-2 flex flex-wrap gap-2">
+              {REVIEW_FILTER_OPTIONS.map((option) => (
+                <Button
+                  key={option.value}
+                  type="button"
+                  size="sm"
+                  variant={reviewFilter === option.value ? "default" : "outline"}
+                  className="h-8 rounded-lg"
+                  onClick={() => setReviewFilter(option.value)}
+                >
+                  {option.label}
+                </Button>
+              ))}
             </div>
             <div className="erp-sales-sheet-toolbar">
               <KoreanDateInput
@@ -581,7 +640,7 @@ export function SalesManagementPage({
                               style={column.sticky ? { left: stickyLeftByKey[column.key] } : undefined}
                               title={typeof row[column.key as keyof SalesStatementRow] === "string" ? String(row[column.key as keyof SalesStatementRow]) : undefined}
                             >
-                              {renderCell(row, column.key, saleCommentCounts, saleCommentUnreadCounts, onOpenSaleComments)}
+                              {renderCell(row, column.key, saleCommentCounts, saleCommentUnreadCounts, onOpenSaleComments, saleById, saleComments)}
                             </td>
                           );
                         })}

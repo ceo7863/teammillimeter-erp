@@ -7,7 +7,7 @@ import { useAudit } from "@/context/AuditContext";
 import { useSaveMessage } from "@/hooks/useSaveMessage";
 import { SALE_AUDIT_FIELDS, snapshotSaleForAudit } from "@/utils/auditLog";
 import { syncBankTransactionsForSaleClientChange } from "@/utils/bankTransactions";
-import { listSaleComments, type SaleComment } from "@/utils/saleComments";
+import { listSaleComments, type SaleComment, type SaleReviewAction } from "@/utils/saleComments";
 import {
   buildSaleFromForm,
   saleRowToForm,
@@ -43,6 +43,7 @@ type SaleVoucherEditModalProps = {
   SaleFormEditor: React.ComponentType<SaleFormEditorInjectedProps>;
   saleComments?: SaleComment[];
   onAddSaleComment?: (body: string) => void | Promise<void>;
+  onReviewAction?: (action: SaleReviewAction, body?: string) => void | Promise<void>;
 };
 
 export type SaleFormEditorInjectedProps = {
@@ -92,6 +93,7 @@ export const SaleVoucherEditModal = memo(function SaleVoucherEditModal({
   SaleFormEditor,
   saleComments = [],
   onAddSaleComment,
+  onReviewAction,
 }: SaleVoucherEditModalProps) {
   const { recordAudit } = useAudit();
   const [deleteConfirm, setDeleteConfirm] = useState<SaleRecord | null>(null);
@@ -118,7 +120,7 @@ export const SaleVoucherEditModal = memo(function SaleVoucherEditModal({
         setSaveMessage(masterRefError);
         return;
       }
-      const payload = buildSaleFromForm(form, currentUser, workers);
+      const payload = buildSaleFromForm(form, currentUser, workers, clients);
       if (!payload.client || !payload.site || payload.amount <= 0) return;
 
       recordAudit({
@@ -259,11 +261,13 @@ export const SaleVoucherEditModal = memo(function SaleVoucherEditModal({
               )}
               allowClientSiteUnlock
             />
-            {onAddSaleComment ? (
+            {onAddSaleComment || onReviewAction ? (
               <SaleVoucherCommentsPanel
                 saleId={sale.id}
+                sale={sale}
                 comments={commentsForSale}
                 onAddComment={onAddSaleComment}
+                onReviewAction={onReviewAction}
                 currentUser={currentUser}
               />
             ) : null}

@@ -147,6 +147,7 @@ export function WorkerPaymentsPage({
   workerPortalStatementAcks = [],
   workerMonthlyPaymentMemos = {},
   sales = [],
+  saleComments = [],
   workerPaymentRecords = [],
   setWorkerPaymentRecords,
   bankTransactions = [],
@@ -172,6 +173,7 @@ export function WorkerPaymentsPage({
   workerPortalStatementAcks?: WorkerPortalStatementAck[];
   workerMonthlyPaymentMemos?: WorkerMonthlyPaymentMemos;
   sales?: Parameters<typeof flattenSalesToWorkerPaymentRows>[0];
+  saleComments?: import("@/utils/saleComments").SaleComment[];
   workerPaymentRecords?: WorkerMonthlyPaymentRecord[];
   setWorkerPaymentRecords?: React.Dispatch<React.SetStateAction<WorkerMonthlyPaymentRecord[]>>;
   bankTransactions?: BankTransaction[];
@@ -776,6 +778,7 @@ export function WorkerPaymentsPage({
           workers={workers}
           workerMonthlyPaymentMemos={workerMonthlyPaymentMemos}
           sales={sales}
+          saleComments={saleComments}
           workerPaymentRecords={workerPaymentRecords}
           setWorkerPaymentRecords={setWorkerPaymentRecords}
           workerMonthlyActualVouchers={workerMonthlyActualVouchers}

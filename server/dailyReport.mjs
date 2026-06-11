@@ -152,13 +152,33 @@ export function formatDailyReportTemplateVars(report) {
   };
 }
 
+const SALE_REVIEW_STATUS_LABELS = {
+  pending: "\uACB0\uC81C\uD655\uC778\uB300\uAE30",
+  confirmed: "\uD655\uC778\uC644\uB8CC",
+  needs_review: "\uD655\uC778\uD544\uC694",
+  on_hold: "\uBCF4\uB958",
+};
+
+const SALE_COMMENT_KIND_LABELS = {
+  note: "\uB4F1\uB85D",
+  confirm: "\uD655\uC778\uC644\uB8CC",
+  question: "\uD655\uC778\uD544\uC694",
+  hold: "\uBCF4\uB958",
+  reply: "\uCD94\uAC00",
+};
+
 export function formatCommentNotifyMessage({ sale, comment, erpBaseUrl = "https://erp.teammillimeter.com" }) {
   const client = String(sale?.client || "-").trim() || "-";
   const site = String(sale?.site || "-").trim() || "-";
   const author = String(comment?.authorName || "-").trim() || "-";
   const body = String(comment?.body || "").trim();
+  const kind = String(comment?.kind || "").trim();
+  const reviewStatus = String(comment?.reviewStatus || sale?.reviewStatus || "").trim();
+  const kindLabel = SALE_COMMENT_KIND_LABELS[kind] || "";
+  const statusLabel = SALE_REVIEW_STATUS_LABELS[reviewStatus] || "";
+  const statusPart = [kindLabel, statusLabel].filter(Boolean).join(" \u00B7 ");
   return [
-    `[${"\uD300\uBC00\uB9AC\uBBF8\uD130 ERP"}] ${"\uC0C8 \uB313\uAE00"}`,
+    `[${"\uD300\uBC00\uB9AC\uBBF8\uD130 ERP"}] ${statusPart || "\uC0C8 \uB313\uAE00"}`,
     `${client} ${"\u00B7"} ${site}`,
     `${author}: ${body}`,
     erpBaseUrl,

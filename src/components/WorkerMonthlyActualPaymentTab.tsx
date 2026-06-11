@@ -71,11 +71,13 @@ import {
   resolveWorkerBankPaymentAmount,
   type WorkerBankMatchCandidate,
 } from "@/utils/bankWorkerMonthlyMatch";
+import { confirmUnconfirmedWorkerPaymentProceed, type SaleComment } from "@/utils/saleComments";
 
 type WorkerMonthlyActualPaymentTabProps = {
   workers?: WorkerMasterLike[];
   workerMonthlyPaymentMemos?: WorkerMonthlyPaymentMemos;
   sales?: Parameters<typeof flattenSalesToWorkerPaymentRows>[0];
+  saleComments?: SaleComment[];
   workerPaymentRecords?: WorkerMonthlyPaymentRecord[];
   setWorkerPaymentRecords?: React.Dispatch<React.SetStateAction<WorkerMonthlyPaymentRecord[]>>;
   workerMonthlyActualVouchers?: WorkerMonthlyActualVoucher[];
@@ -309,6 +311,7 @@ function renderWorkerFolderButton(
 export function WorkerMonthlyActualPaymentTab({
   workers = [],
   sales = [],
+  saleComments = [],
   workerPaymentRecords = [],
   setWorkerPaymentRecords,
   workerMonthlyActualVouchers = [],
@@ -920,6 +923,16 @@ export function WorkerMonthlyActualPaymentTab({
 
   const openVoucher = (obligation: WorkerMonthlyObligation) => {
     if (!setWorkerMonthlyActualVouchers) return;
+    if (
+      !confirmUnconfirmedWorkerPaymentProceed(
+        sales,
+        obligation.worker,
+        obligation.monthKey,
+        saleComments,
+      )
+    ) {
+      return;
+    }
     const existing = obligation.voucher;
     if (existing) {
       setActiveVoucherId(existing.id);
@@ -983,6 +996,18 @@ export function WorkerMonthlyActualPaymentTab({
 
   const commitVoucherUpdates = (vouchers: WorkerMonthlyActualVoucher[], records?: boolean) => {
     if (!setWorkerMonthlyActualVouchers) return;
+    if (records && activeVoucher) {
+      if (
+        !confirmUnconfirmedWorkerPaymentProceed(
+          sales,
+          activeVoucher.worker,
+          activeVoucher.monthKey,
+          saleComments,
+        )
+      ) {
+        return;
+      }
+    }
     const refreshed = vouchers.map(refreshVoucherPaidAmount);
     if (onPersistWorkerMonthlyLinksImmediate) {
       const nextRecords =

@@ -10,7 +10,13 @@ import type { ClientSiteRequest, ClientSiteRequestChangeSource } from "@/utils/c
 import { formatClientSiteRequestWorkPeriod } from "@/utils/clientSiteRequests";
 import { formatClientSiteRequestDayLabel, shiftCalendarDate } from "@/utils/clientSiteRequestCalendar";
 import type { ScSchedule } from "@/utils/scSchedules";
-import { formatScScheduleHeadcount, formatScScheduleWorkLogSummary, formatScScheduleWorkerCopyText, getScScheduleWorkerDetails } from "@/utils/scSchedules";
+import {
+  formatClientSiteRequestHeadcount,
+  formatScScheduleHeadcount,
+  formatScScheduleWorkLogSummary,
+  formatScScheduleWorkerCopyText,
+  getScScheduleWorkerDetails,
+} from "@/utils/scSchedules";
 import { isScPersonalVacationSchedule } from "@/utils/scScheduleVacation";
 import type { ClientMasterLike } from "@/utils/clientMaster";
 import type { WorkerMasterLike } from "@/utils/workerPayments";
@@ -377,8 +383,7 @@ export function ClientSiteRequestCalendarDayDrawer({
                                 {clientSiteRequestPublicStatusLabel(request)}
                               </span>
                               <span className="erp-csr-cal-drawer-badge is-muted">
-                                {request.workerCount}
-                                {"\uBA85"}
+                                {formatClientSiteRequestHeadcount(request, scSchedules, date)}
                               </span>
                             </div>
                             <p className="erp-csr-cal-drawer-card-meta">

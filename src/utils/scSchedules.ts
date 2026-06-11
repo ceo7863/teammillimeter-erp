@@ -328,6 +328,59 @@ export function formatScScheduleHeadcount(row: Pick<ScSchedule, "expectedHeadcou
   return assigned > 0 ? `${assigned}\uBA85` : "";
 }
 
+function normalizeCalendarMatchText(value: unknown) {
+  return String(value || "").trim();
+}
+
+export function findScScheduleForSiteOnDate(
+  scSchedules: ScSchedule[],
+  date: string,
+  siteName: string,
+) {
+  const workDate = String(date || "").slice(0, 10);
+  const site = normalizeCalendarMatchText(siteName);
+  if (!workDate || !site) return null;
+
+  return (
+    scSchedules.find((schedule) => {
+      if (String(schedule.workDate || "").slice(0, 10) !== workDate) return false;
+      const workType = normalizeCalendarMatchText(schedule.workType);
+      const projectName = normalizeCalendarMatchText(schedule.projectName);
+      return workType === site || projectName === site;
+    }) || null
+  );
+}
+
+export function formatClientSiteRequestHeadcount(
+  request: { siteName?: string; workerCount?: number | null },
+  scSchedules: ScSchedule[],
+  date: string,
+) {
+  const matched = findScScheduleForSiteOnDate(scSchedules, date, request.siteName || "");
+  if (matched) {
+    const label = formatScScheduleHeadcount(matched);
+    if (label) return label;
+  }
+  const requested = Number(request.workerCount);
+  return Number.isFinite(requested) && requested > 0 ? `${requested}\uBA85` : "";
+}
+
+export function resolveSaleScScheduleHeadcountLabel(
+  sale: { scScheduleId?: string | number | null },
+  scSchedules: ScSchedule[],
+  staffCount = 0,
+) {
+  const scheduleId = String(sale.scScheduleId || "").trim();
+  if (scheduleId) {
+    const schedule = scSchedules.find((row) => String(row.id) === scheduleId);
+    if (schedule) {
+      const label = formatScScheduleHeadcount(schedule);
+      if (label) return label;
+    }
+  }
+  return staffCount > 0 ? `${staffCount}\uBA85` : "";
+}
+
 export async function fetchPublicScSchedules(token: string, monthKey: string): Promise<ScSchedule[]> {
   const month = String(monthKey || "").trim();
   const url = `${apiBase()}/public/client-site-request/${encodeURIComponent(token)}/sc-schedules?month=${encodeURIComponent(month)}`;

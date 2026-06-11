@@ -101,12 +101,19 @@ import { normalizeWorkPosts } from "@/utils/workBoard";
 import {
   appendSaleComment,
   appendSaleComments,
+  applyReviewAction,
   buildSaleCommentCountBySaleId,
+  canUserActAsRegistrar,
+  canUserActAsSettler,
+  countSalesNeedingReviewForRole,
   createSaleComment,
   mergeSaleComments,
   normalizeSaleComments,
+  normalizeSaleRecordReview,
   type SaleComment,
+  type SaleReviewAction,
 } from "@/utils/saleComments";
+import { SaleReviewStatusBadge } from "@/components/SaleReviewStatusBadge";
 import {
   SaleRegistrationCommentsPanel,
   type SaleRegistrationCommentsHandle,
@@ -190,14 +197,20 @@ import {
 import { formatWorkerNameSummary } from "@/utils/statementSheets";
 import { buildSaleDuplicateIndex, findSalesWithSameClientWorkerDate, isDuplicateSale } from "@/utils/saleDuplicates";
 import { filterNamedSuggestions } from "@/utils/autocompleteFilter";
-import { buildSaleFormFromScSchedule, detectScScheduleChargeHeadcountWarning, isScScheduleRegistered } from "@/utils/scScheduleSaleImport";
+import { buildSaleFormFromScSchedule, detectScScheduleChargeHeadcountWarning, isScScheduleRegistered, resolveScScheduleSiteName } from "@/utils/scScheduleSaleImport";
 import { DEFAULT_SALE_AI_RULES, normalizeSaleAiRules } from "@/utils/saleAiRules";
-import { fetchStaffScSchedulesForMonth } from "@/utils/scSchedules";
+import {
+  fetchStaffScSchedulesForMonth,
+  formatScScheduleHeadcount,
+  formatScScheduleWorkLogSummary,
+  resolveSaleScScheduleHeadcountLabel,
+} from "@/utils/scSchedules";
 import { confirmDelete, confirmWorkerPermanentDelete } from "@/utils/confirmDelete";
 import { filterSalesVoucherRows } from "@/utils/saleVoucherSearch";
 import {
   applySaleWorkerLineUpdate,
   buildSaleFromForm,
+  calculateWorkerLineOvertimeTotal,
   compactSaleForm,
   commitWorkerGridInputsFromDom,
   createWorkerLine,
@@ -1277,6 +1290,8 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
           <SaleFormWorkerGridSection
             workerRows={displayWorkerRows}
             workers={workers}
+            clients={clients}
+            clientName={String(headerMeta.client || "").trim()}
             skipToolbarTabStop={skipToolbarTabStop}
             hideExportToolbar={memoAfterWorkers}
             onUpdateWorkerLine={updateWorkerLine}
@@ -1870,8 +1885,8 @@ function SaleFormSectionHead({ icon: Icon, title, desc, badge }) {
   );
 }
 
-const workerGridColumns = ["worker", "quantity", "unitCost", "chargeAmount", "meal", "lodging", "expense", "overtimeHours", "overtimeCost", "memo"];
-const workerGridNumericColumns = new Set(["quantity", "unitCost", "chargeAmount", "meal", "lodging", "expense", "overtimeHours", "overtimeCost"]);
+const workerGridColumns = ["worker", "quantity", "unitCost", "chargeAmount", "meal", "lodging", "expense", "overtimeHours", "memo"];
+const workerGridNumericColumns = new Set(["quantity", "unitCost", "chargeAmount", "meal", "lodging", "expense", "overtimeHours"]);
 const workerGridIntegerColumns = new Set(["quantity"]);
 const workerGridTextColumns = new Set(["worker", "memo"]);
 
@@ -2313,6 +2328,8 @@ const SaleFormWorkerRow = memo(function SaleFormWorkerRow({
   line,
   rowCount,
   workers,
+  clients,
+  clientName,
   skipToolbarTabStop,
   onUpdate,
   removeRef,
@@ -2324,6 +2341,7 @@ const SaleFormWorkerRow = memo(function SaleFormWorkerRow({
   }, [isFirstRow, firstWorkerKeyDownRef]);
 
   const hasWorker = Boolean(String(line.worker || "").trim());
+  const overtimeTotal = calculateWorkerLineOvertimeTotal(line, workers, clients, clientName);
 
   return (
     <tr key={line._lineKey ?? index} className={hasWorker ? "is-filled" : ""}>
@@ -2347,7 +2365,9 @@ const SaleFormWorkerRow = memo(function SaleFormWorkerRow({
       <td className="erp-grid-num"><WorkerGridInput rowIndex={index} columnKey="lodging" rowCount={rowCount} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.lodging} onChange={(e) => onUpdate(index, "lodging", e.target.value)} /></td>
       <td className="erp-grid-num"><WorkerGridInput rowIndex={index} columnKey="expense" rowCount={rowCount} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.expense} onChange={(e) => onUpdate(index, "expense", e.target.value)} /></td>
       <td className="erp-grid-num"><WorkerGridInput rowIndex={index} columnKey="overtimeHours" rowCount={rowCount} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.overtimeHours} onChange={(e) => onUpdate(index, "overtimeHours", e.target.value)} /></td>
-      <td className="erp-grid-num"><WorkerGridInput rowIndex={index} columnKey="overtimeCost" rowCount={rowCount} className="erp-grid-input erp-grid-input--num erp-input-compact" value={line.overtimeCost} onChange={(e) => onUpdate(index, "overtimeCost", e.target.value)} /></td>
+      <td className="erp-grid-num erp-grid-readonly text-right text-slate-600 tabular-nums">
+        {overtimeTotal > 0 ? formatKRW(overtimeTotal) : ""}
+      </td>
       <td className="erp-sale-form-row-memo"><WorkerGridInput rowIndex={index} columnKey="memo" rowCount={rowCount} className="erp-grid-input erp-input-compact" value={line.memo} onChange={(e) => onUpdate(index, "memo", e.target.value)} placeholder="개별 비고" /></td>
       <td className="erp-sale-form-row-action erp-table-export-skip text-center">
         <button
@@ -2371,12 +2391,16 @@ const SaleFormWorkerRow = memo(function SaleFormWorkerRow({
   && prev.index === next.index
   && prev.rowCount === next.rowCount
   && prev.workers === next.workers
+  && prev.clients === next.clients
+  && prev.clientName === next.clientName
   && prev.skipToolbarTabStop === next.skipToolbarTabStop
   && prev.isFirstRow === next.isFirstRow);
 
 const SaleFormWorkerGridSection = memo(function SaleFormWorkerGridSection({
   workerRows,
   workers,
+  clients,
+  clientName,
   skipToolbarTabStop,
   onUpdateWorkerLine,
   onRemoveWorkerLine,
@@ -2429,7 +2453,7 @@ const SaleFormWorkerGridSection = memo(function SaleFormWorkerGridSection({
               <th className="text-right">숙박</th>
               <th className="text-right">경비</th>
               <th className="text-right">야근</th>
-              <th className="text-right">야근비</th>
+              <th className="text-right">야근합계</th>
               <th className="text-left">비고</th>
               <th className="erp-table-export-skip" />
             </tr>
@@ -2442,6 +2466,8 @@ const SaleFormWorkerGridSection = memo(function SaleFormWorkerGridSection({
                 line={line}
                 rowCount={rowCount}
                 workers={workers}
+                clients={clients}
+                clientName={clientName}
                 skipToolbarTabStop={skipToolbarTabStop}
                 onUpdate={handleUpdate}
                 removeRef={removeRef}
@@ -2457,6 +2483,8 @@ const SaleFormWorkerGridSection = memo(function SaleFormWorkerGridSection({
 }, (prev, next) =>
   saleFormWorkerRowsEqual(prev.workerRows, next.workerRows)
   && prev.workers === next.workers
+  && prev.clients === next.clients
+  && prev.clientName === next.clientName
   && prev.skipToolbarTabStop === next.skipToolbarTabStop
   && prev.hideExportToolbar === next.hideExportToolbar);
 
@@ -3508,6 +3536,7 @@ function CalendarPage({
   onPersistSaleUpdate,
   saleComments = [],
   onAddSaleComment,
+  onReviewAction,
   saleCommentCounts,
   saleCommentUnreadCounts,
   onOpenSaleComments,
@@ -4230,7 +4259,7 @@ function CalendarPage({
         return;
       }
 
-      const payload = buildSaleFromForm(currentForm, currentUser, activeWorkers);
+      const payload = buildSaleFromForm(currentForm, currentUser, activeWorkers, clients);
       if (!payload.client || !payload.site || payload.amount <= 0) {
         setCalendarNewSaleMessage(
           "거래처, 현장, 청구액을 확인해 주세요. 입력 중인 칸은 다른 칸을 클릭한 뒤 저장해 주세요.",
@@ -4740,12 +4769,19 @@ function CalendarPage({
                               />
                             ) : null}
                             {entry.saleId ? (
-                              <SaleCommentBadge
-                                saleId={entry.saleId}
-                                saleCommentCounts={saleCommentCounts}
-                                saleCommentUnreadCounts={saleCommentUnreadCounts}
-                                onClick={onOpenSaleComments}
-                              />
+                              <>
+                                <SaleReviewStatusBadge
+                                  sale={sales.find((row) => String(row.id) === String(entry.saleId))}
+                                  saleComments={saleComments}
+                                  onClick={onOpenSaleComments}
+                                />
+                                <SaleCommentBadge
+                                  saleId={entry.saleId}
+                                  saleCommentCounts={saleCommentCounts}
+                                  saleCommentUnreadCounts={saleCommentUnreadCounts}
+                                  onClick={onOpenSaleComments}
+                                />
+                              </>
                             ) : null}
                           </li>
                           );
@@ -4952,12 +4988,83 @@ function CalendarPage({
             ) : null}
 
             <div className="erp-calendar-side-panel-body">
+              {selectedDayScSchedules.length > 0 ? (
+                <section className="erp-csr-cal-drawer-section erp-calendar-side-sc-section">
+                  <h3 className="erp-csr-cal-drawer-section-title">SC 확정 일정</h3>
+                  <ul className="erp-csr-cal-drawer-list erp-calendar-side-sc-list">
+                    {selectedDayScSchedules.map((schedule) => {
+                      const scheduleId = String(schedule.id || "");
+                      const registered = scheduleId ? isScScheduleRegistered(sales, scheduleId) : false;
+                      const workLogSummary = formatScScheduleWorkLogSummary(schedule);
+                      const headcountLabel = formatScScheduleHeadcount(schedule);
+                      const clientName = String(schedule.clientName || "").trim();
+                      const siteName = resolveScScheduleSiteName(schedule);
+                      return (
+                        <li key={schedule.id}>
+                          <button
+                            type="button"
+                            className={[
+                              "erp-csr-cal-drawer-card is-clickable is-sc-schedule",
+                              registered ? "is-registered" : "",
+                            ]
+                              .filter(Boolean)
+                              .join(" ")}
+                            onClick={() => openCalendarNewSaleFromScSchedule(schedule)}
+                            aria-disabled={registered || undefined}
+                          >
+                            <span
+                              className={[
+                                "erp-csr-cal-drawer-dot is-sc-schedule",
+                                registered ? "is-registered" : "",
+                              ]
+                                .filter(Boolean)
+                                .join(" ")}
+                              aria-hidden="true"
+                            />
+                            <div className="erp-csr-cal-drawer-card-main">
+                              <p className="erp-csr-cal-drawer-card-title erp-calendar-sc-import-card-title">
+                                {clientName && siteName ? (
+                                  <>
+                                    <span className="erp-calendar-sc-import-client">{clientName}</span>
+                                    <span className="erp-calendar-sc-import-sep"> / </span>
+                                    <span className="erp-calendar-sc-import-site">{siteName}</span>
+                                  </>
+                                ) : (
+                                  clientName || siteName || "-"
+                                )}
+                              </p>
+                              <div className="erp-csr-cal-drawer-card-badges">
+                                <span className="erp-csr-cal-drawer-badge is-sc-schedule">확정</span>
+                                {workLogSummary ? (
+                                  <span className="erp-csr-cal-drawer-badge is-work-log" title="근무기록">
+                                    근무기록 {workLogSummary}
+                                  </span>
+                                ) : null}
+                                {headcountLabel ? (
+                                  <span className="erp-csr-cal-drawer-badge is-muted">{headcountLabel}</span>
+                                ) : null}
+                                {registered ? (
+                                  <span className="erp-csr-cal-drawer-badge is-registered">등록됨</span>
+                                ) : null}
+                              </div>
+                            </div>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              ) : null}
+
               {selectedDaySales.length === 0 ? (
-                <p className="erp-calendar-side-empty">해당 날짜에 등록된 전표가 없습니다.</p>
+                selectedDayScSchedules.length === 0 ? (
+                  <p className="erp-calendar-side-empty">해당 날짜에 등록된 전표가 없습니다.</p>
+                ) : null
               ) : (
                 <ul className="erp-calendar-side-list">
                   {selectedDaySales.map((sale) => {
                     const stats = aggregateSaleCalendarStats(sale, feeMap);
+                    const headcountLabel = resolveSaleScScheduleHeadcountLabel(sale, monthScSchedules, stats.staff);
                     const workerLabel = sale.worker || formatWorkerNameSummary(getSaleWorkerLines(sale)) || "-";
                     const color = getCalendarClientColor(sale.client);
                     const { unpaid, paid, hasUnpaid, isPartialPaid } = resolveCalendarEntryPaymentState(sale, paymentLinkSets);
@@ -4996,13 +5103,20 @@ function CalendarPage({
                             </div>
                             <div className="erp-calendar-side-card-workers">{workerLabel}</div>
                             <div className="erp-calendar-side-card-meta">
-                              <span className="erp-calendar-side-card-badge is-staff">{stats.staff}명</span>
+                              {headcountLabel ? (
+                                <span className="erp-calendar-side-card-badge is-staff">{headcountLabel}</span>
+                              ) : null}
                               <span className="erp-calendar-side-card-badge is-bill">시공비 {formatKRW(stats.bill)}</span>
                               <span className="erp-calendar-side-card-badge is-voucher">{getSaleVoucherLabel(sale)}</span>
                               <SalePaymentLinkBadge
                                 saleId={sale.id}
                                 autoLinkedSaleIds={autoLinkedSaleIds}
                                 manualLinkedSaleIds={manualLinkedSaleIds}
+                              />
+                              <SaleReviewStatusBadge
+                                sale={sale}
+                                saleComments={saleComments}
+                                onClick={onOpenSaleComments}
                               />
                               <SaleCommentBadge
                                 saleId={sale.id}
@@ -5233,6 +5347,7 @@ function CalendarPage({
           SaleFormEditor={SaleFormCompactEditor}
           saleComments={saleComments}
           onAddSaleComment={(body) => onAddSaleComment?.(editingSale.id, body)}
+          onReviewAction={(action, body) => onReviewAction?.(editingSale.id, action, body)}
         />
       ) : null}
     </div>
@@ -5392,12 +5507,17 @@ const SalesRegistrationPage = memo(function SalesRegistrationPage({
 
   const commitSave = useCallback(async (payload) => {
     const { id: newId, voucherNo } = allocateNextSaleRecordIds(salesRef.current);
+    const flushedPending = registrationCommentsRef.current?.flushPending(newId) ?? [];
+    const now = new Date().toISOString();
     const newSale = {
       id: newId,
       voucherNo,
       ...payload,
       paid: 0,
       basePaid: 0,
+      ...(flushedPending.length
+        ? { reviewStatus: "pending" as const, reviewUpdatedAt: now }
+        : {}),
     };
     recordAudit({
       entityType: "sale",
@@ -5410,7 +5530,6 @@ const SalesRegistrationPage = memo(function SalesRegistrationPage({
       user: currentUser,
     });
     const nextSales = [newSale, ...salesRef.current];
-    const flushedPending = registrationCommentsRef.current?.flushPending(newId) ?? [];
     const flushedComments = flushedPending.length
       ? appendSaleComments(saleComments, flushedPending)
       : saleComments;
@@ -5431,7 +5550,7 @@ const SalesRegistrationPage = memo(function SalesRegistrationPage({
       return;
     }
 
-    const payload = buildSaleFromForm(currentForm, currentUser, activeWorkers);
+    const payload = buildSaleFromForm(currentForm, currentUser, activeWorkers, clients);
     if (!payload.client || !payload.site || payload.amount <= 0) {
       setSaveMessage("거래처, 현장, 청구액을 확인해 주세요. 입력 중인 칸은 다른 칸을 클릭한 뒤 저장해 주세요.");
       return;
@@ -5544,7 +5663,7 @@ function SearchBox({ query, setQuery, placeholder }) {
 
 const emptyVoucherSearchFilters = { client: "", site: "", worker: "" };
 
-function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, setPaymentVouchers, setBankTransactions, onPersistSaleUpdate, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set(), saleComments = [], onAddSaleComment, saleCommentCounts, saleCommentUnreadCounts, onOpenSaleComments }) {
+function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, setPaymentVouchers, setBankTransactions, onPersistSaleUpdate, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set(), saleComments = [], onAddSaleComment, onReviewAction, saleCommentCounts, saleCommentUnreadCounts, onOpenSaleComments }) {
   const [searchFilters, setSearchFilters] = useState(emptyVoucherSearchFilters);
   const [dateFilter, setDateFilter] = useState({ startDate: "", endDate: "" });
   const [selectedSale, setSelectedSale] = useState(null);
@@ -5618,6 +5737,7 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
           SaleFormEditor={SaleFormCompactEditor}
           saleComments={saleComments}
           onAddSaleComment={(body) => onAddSaleComment?.(selectedSale.id, body)}
+          onReviewAction={(action, body) => onReviewAction?.(selectedSale.id, action, body)}
         />
       ) : null}
 
@@ -7926,6 +8046,8 @@ export default function TeammillimeterErpMvp() {
     if (apiMode && sessionOnMount) return [];
     return storedData?.sales || initialSales;
   });
+  const salesRef = useRef(sales);
+  salesRef.current = sales;
   const [paymentVouchers, setPaymentVouchers] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return storedData?.paymentVouchers || initialPaymentVouchers;
@@ -7959,9 +8081,6 @@ export default function TeammillimeterErpMvp() {
   const workerMonthlyPaymentMemosRef = useRef(workerMonthlyPaymentMemos);
   workerMonthlyPaymentMemosRef.current = workerMonthlyPaymentMemos;
   const WORKER_MONTHLY_EDIT_GUARD_MS = 15000;
-  const normalizedSales = useMemo(() => normalizeSalesRecords(sales, workers), [sales, workers]);
-  const appliedPaymentData = useMemo(() => applyPaymentVouchers(normalizedSales, paymentVouchers), [normalizedSales, paymentVouchers]);
-  const appliedSales = appliedPaymentData.sales;
   const [auditLogs, setAuditLogs] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return resolveInitialLogs(storedData).auditLogs;
@@ -8072,6 +8191,12 @@ export default function TeammillimeterErpMvp() {
       markSaleCommentsRead();
     }
   }, [active, markSaleCommentsRead]);
+  const normalizedSales = useMemo(
+    () => normalizeSalesRecords(sales, workers).map((sale) => normalizeSaleRecordReview(sale, saleComments)),
+    [sales, workers, saleComments],
+  );
+  const appliedPaymentData = useMemo(() => applyPaymentVouchers(normalizedSales, paymentVouchers), [normalizedSales, paymentVouchers]);
+  const appliedSales = appliedPaymentData.sales;
   const [taxInvoices, setTaxInvoices] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return normalizeTaxInvoices(storedData?.taxInvoices);
@@ -9212,8 +9337,101 @@ export default function TeammillimeterErpMvp() {
     }
   }, [apiMode, currentUser, dataReady, flushErpSave, setSaleComments]);
 
+  const applySaleReviewAction = useCallback(async (
+    saleId: string | number,
+    action: SaleReviewAction,
+    body?: string,
+  ) => {
+    const sale = salesRef.current.find((row) => String(row.id) === String(saleId));
+    if (!sale) return;
+    const { sale: updatedSale, comment } = applyReviewAction({ action, sale, body, user: currentUser });
+    const nextComments = appendSaleComment(saleCommentsRef.current, comment);
+    const nextSales = salesRef.current.map((row) =>
+      String(row.id) === String(saleId) ? { ...row, ...updatedSale } : row,
+    );
+    saleCommentsRef.current = nextComments;
+    salesRef.current = nextSales;
+    setSaleComments(nextComments);
+    setSales(nextSales);
+    pendingLocalEditsRef.current = true;
+    if (!apiMode) {
+      saveStoredData({
+        sales: nextSales,
+        paymentVouchers,
+        paymentInputLogs,
+        clients,
+        workers,
+        workerMonthlyPaymentMemos,
+        auditLogs,
+        loginLogs,
+        workerPaymentRecords,
+        workerPayoutVouchers,
+        workerMonthlyActualVouchers,
+        workerPayWithVatLearnRules,
+        companyExpenses,
+        attendanceRecords,
+        fixedExpenses,
+        fixedExpensePayments,
+        bankLedgerRules,
+        expenseCategories,
+        fixedExpenseCategories,
+        accountCodes,
+        ledgerCategories,
+        companyNotices,
+        workPosts,
+        saleComments: nextComments,
+        taxInvoices,
+        bankTransactions,
+        bankTransactionFolders,
+        statementGenerationLogs,
+        statementFolders,
+        companyProfile,
+      });
+      return;
+    }
+    if (!currentUser || !dataReady) return;
+    const saved = await flushErpSave({ sales: nextSales, saleComments: nextComments });
+    if (saved === false) {
+      window.alert("확인 처리 저장에 실패했습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.");
+    }
+  }, [
+    apiMode,
+    currentUser,
+    dataReady,
+    flushErpSave,
+    sales,
+    paymentVouchers,
+    paymentInputLogs,
+    clients,
+    workers,
+    workerMonthlyPaymentMemos,
+    auditLogs,
+    loginLogs,
+    workerPaymentRecords,
+    workerPayoutVouchers,
+    workerMonthlyActualVouchers,
+    workerPayWithVatLearnRules,
+    companyExpenses,
+    attendanceRecords,
+    fixedExpenses,
+    fixedExpensePayments,
+    bankLedgerRules,
+    expenseCategories,
+    fixedExpenseCategories,
+    accountCodes,
+    ledgerCategories,
+    companyNotices,
+    workPosts,
+    taxInvoices,
+    bankTransactions,
+    bankTransactionFolders,
+    statementGenerationLogs,
+    statementFolders,
+    companyProfile,
+  ]);
+
   const addSaleCommentForVoucher = useCallback(async (saleId: string | number, body: string) => {
-    const comment = createSaleComment({ saleId, body, user: currentUser });
+    const comment = createSaleComment({ saleId, body, user: currentUser, kind: "reply" });
     const next = appendSaleComment(saleCommentsRef.current, comment);
     saleCommentsRef.current = next;
     setSaleComments(next);
@@ -10078,15 +10296,40 @@ export default function TeammillimeterErpMvp() {
     }
   }, [currentUser, active]);
 
+  const saleReviewBadgeCount = useMemo(() => {
+    let count = unreadSaleCommentCount;
+    if (canUserActAsSettler(currentUser)) {
+      count += countSalesNeedingReviewForRole(appliedSales, saleComments, "settler");
+    }
+    if (canUserActAsRegistrar(currentUser)) {
+      count += countSalesNeedingReviewForRole(appliedSales, saleComments, "registrar");
+    }
+    return count;
+  }, [appliedSales, currentUser, saleComments, unreadSaleCommentCount]);
+
   const sidebarPageBadges = useMemo(
     () => ({
       clientSiteRequests: clientSiteRequestPendingCount,
-      saleComments: unreadSaleCommentCount,
+      saleComments: saleReviewBadgeCount,
+      ...(canUserActAsSettler(currentUser)
+        ? { workerPayments: countSalesNeedingReviewForRole(appliedSales, saleComments, "settler") }
+        : {}),
+      ...(canUserActAsRegistrar(currentUser)
+        ? { salesInput: countSalesNeedingReviewForRole(appliedSales, saleComments, "registrar") }
+        : {}),
       ...(workerProbationAlertCount > 0 && basicInfoTabAccess.workers
         ? { basicInfo: workerProbationAlertCount }
         : {}),
     }),
-    [basicInfoTabAccess.workers, clientSiteRequestPendingCount, unreadSaleCommentCount, workerProbationAlertCount],
+    [
+      appliedSales,
+      basicInfoTabAccess.workers,
+      clientSiteRequestPendingCount,
+      currentUser,
+      saleComments,
+      saleReviewBadgeCount,
+      workerProbationAlertCount,
+    ],
   );
 
   const accountingBankHubProps = useMemo(
@@ -10247,6 +10490,7 @@ export default function TeammillimeterErpMvp() {
             onPersistSaleUpdate={persistSaleVoucherUpdate}
             saleComments={saleComments}
             onAddSaleComment={addSaleCommentForVoucher}
+            onReviewAction={applySaleReviewAction}
             saleCommentCounts={saleCommentCountBySaleId}
             saleCommentUnreadCounts={saleCommentUnreadCountBySaleId}
             onOpenSaleComments={openSaleCommentsView}
@@ -10298,7 +10542,7 @@ export default function TeammillimeterErpMvp() {
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="sales" active={active}>
-          <SalesManagementPage sales={appliedSales} paymentVouchers={paymentVouchers} workers={workers} setSales={setSales} setActive={setActive} currentUser={currentUser} onEditSale={setSalesManagementEditSale} saleCommentCounts={saleCommentCountBySaleId} saleCommentUnreadCounts={saleCommentUnreadCountBySaleId} onOpenSaleComments={openSaleCommentsView} />
+          <SalesManagementPage sales={appliedSales} paymentVouchers={paymentVouchers} workers={workers} setSales={setSales} setActive={setActive} currentUser={currentUser} onEditSale={setSalesManagementEditSale} saleCommentCounts={saleCommentCountBySaleId} saleCommentUnreadCounts={saleCommentUnreadCountBySaleId} onOpenSaleComments={openSaleCommentsView} saleComments={saleComments} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="salesVoucherSearch" active={active}>
           <SalesVoucherSearchPage
@@ -10318,6 +10562,7 @@ export default function TeammillimeterErpMvp() {
             manualLinkedSaleIds={manualLinkedSaleIds}
             saleComments={saleComments}
             onAddSaleComment={addSaleCommentForVoucher}
+            onReviewAction={applySaleReviewAction}
             saleCommentCounts={saleCommentCountBySaleId}
             saleCommentUnreadCounts={saleCommentUnreadCountBySaleId}
             onOpenSaleComments={openSaleCommentsView}
@@ -10354,6 +10599,7 @@ export default function TeammillimeterErpMvp() {
             workerPortalStatementAcks={workerPortalStatementAcks}
             workerMonthlyPaymentMemos={workerMonthlyPaymentMemos}
             sales={appliedSales}
+            saleComments={saleComments}
             workerPaymentRecords={workerPaymentRecords}
             setWorkerPaymentRecords={setWorkerPaymentRecords}
             bankTransactions={bankTransactions}
@@ -10564,6 +10810,7 @@ export default function TeammillimeterErpMvp() {
           SaleFormEditor={SaleFormCompactEditor}
           saleComments={saleComments}
           onAddSaleComment={(body) => addSaleCommentForVoucher(salesManagementEditSale.id, body)}
+          onReviewAction={(action, body) => applySaleReviewAction(salesManagementEditSale.id, action, body)}
         />
       ) : null}
       {saleCommentsViewSale ? (
@@ -10572,6 +10819,7 @@ export default function TeammillimeterErpMvp() {
           saleComments={saleComments}
           currentUser={currentUser}
           onAddSaleComment={(body) => addSaleCommentForVoucher(saleCommentsViewSale.id, body)}
+          onReviewAction={(action, body) => applySaleReviewAction(saleCommentsViewSale.id, action, body)}
           onClose={() => setSaleCommentsViewSaleId(null)}
         />
       ) : null}

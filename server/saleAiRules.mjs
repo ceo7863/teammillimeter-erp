@@ -7,6 +7,8 @@ export const DEFAULT_SALE_AI_RULE_FORM_TEXTS = {
   shortShiftFormula: "{base}\uC6D0 + {hourly}\uC6D0 \u00D7 \uADFC\uBB34\uAE30\uB85D \uC2DC\uAC04 ({maxHours}\uC2DC\uAC04 \uC774\uD558)",
   shortShiftCapRule:
     "\uACF5\uC2DD \uCCAD\uAD6C\uC561\uC774 \uD574\uB2F9 \uC2DC\uACF5\uC790\uC758 \uAE30\uBCF8 \uCCAD\uAD6C\uB2E8\uAC00\uBCF4\uB2E4 \uB192\uC73C\uBA74 \uC2DC\uACF5\uC790 \uAE30\uBCF8 \uCCAD\uAD6C\uB2E8\uAC00\uB97C \uC801\uC6A9\uD569\uB2C8\uB2E4.",
+  shortShiftManwonRule:
+    "{maxHours}\uC2DC\uAC04 \uC774\uD558 \uADFC\uBB34 \uCCAD\uAD6C\uC561\uC774 \uB9CC\uC6D0 \uB2E8\uC704\uAC00 \uC544\uB2C8\uBA74 \uCC9C\uC6D0 \uC790\uB9AC \uC774\uD558\uB97C \uC808\uC0AD\uD558\uC5EC \uB9CC\uC6D0 \uB2E8\uC704\uB85C \uB9DE\uCD94\uB2C8\uB2E4.",
   overtimeTitle: "\uC57C\uADFC \uC2DC\uAC04",
   overtimeBody:
     "\uADFC\uBB34\uAE30\uB85D \uC885\uB8CC \uC2DC\uAC01\uC744 \uAE30\uC900\uC73C\uB85C \uC57C\uADFC \uC2DC\uAC04\uC744 \uACC4\uC0B0\uD569\uB2C8\uB2E4. \uC18C\uC218\uC810 \uC774\uD558\uB294 \uBC84\uB9BD\uB2C8\uB2E4.",
@@ -61,6 +63,7 @@ function normalizeFormTexts(raw) {
     shortShiftBody: normalizeFormText(row.shortShiftBody, DEFAULT_SALE_AI_RULE_FORM_TEXTS.shortShiftBody),
     shortShiftFormula: normalizeFormText(row.shortShiftFormula, DEFAULT_SALE_AI_RULE_FORM_TEXTS.shortShiftFormula),
     shortShiftCapRule: normalizeFormText(row.shortShiftCapRule, DEFAULT_SALE_AI_RULE_FORM_TEXTS.shortShiftCapRule),
+    shortShiftManwonRule: normalizeFormText(row.shortShiftManwonRule, DEFAULT_SALE_AI_RULE_FORM_TEXTS.shortShiftManwonRule),
     overtimeTitle: normalizeFormText(row.overtimeTitle, DEFAULT_SALE_AI_RULE_FORM_TEXTS.overtimeTitle),
     overtimeBody: normalizeFormText(row.overtimeBody, DEFAULT_SALE_AI_RULE_FORM_TEXTS.overtimeBody),
     overtimeFormula: normalizeFormText(row.overtimeFormula, DEFAULT_SALE_AI_RULE_FORM_TEXTS.overtimeFormula),

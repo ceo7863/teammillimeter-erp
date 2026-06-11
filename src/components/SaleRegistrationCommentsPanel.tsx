@@ -10,6 +10,7 @@ import {
 export type SaleRegistrationCommentsHandle = {
   flushPending: (saleId: string | number) => SaleComment[];
   reset: () => void;
+  hasPending: () => boolean;
 };
 
 type SaleRegistrationCommentsPanelProps = {
@@ -30,13 +31,14 @@ export const SaleRegistrationCommentsPanel = memo(function SaleRegistrationComme
     () => ({
       flushPending: (saleId) => pendingCommentsToSaleComments(pendingRef.current, saleId),
       reset: () => setPendingComments([]),
+      hasPending: () => pendingRef.current.length > 0,
     }),
     [],
   );
 
   const handleAddComment = useCallback(
     (body: string) => {
-      setPendingComments((prev) => [...prev, createPendingSaleComment(body, currentUser)]);
+      setPendingComments((prev) => [...prev, createPendingSaleComment(body, currentUser, "note")]);
     },
     [currentUser],
   );
@@ -47,6 +49,7 @@ export const SaleRegistrationCommentsPanel = memo(function SaleRegistrationComme
       pendingComments={pendingComments}
       onAddComment={handleAddComment}
       currentUser={currentUser}
+      mode="registration"
     />
   );
 });

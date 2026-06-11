@@ -86,7 +86,7 @@ export const SalesVoucherSearchEditor = memo(function SalesVoucherSearchEditor({
         setSaveMessage(masterRefError);
         return;
       }
-      const payload = buildSaleFromForm(form, currentUser, workers);
+      const payload = buildSaleFromForm(form, currentUser, workers, clients);
       if (!payload.client || !payload.site || payload.amount <= 0) return;
 
       recordAudit({

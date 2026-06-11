@@ -3,6 +3,8 @@ import {
   computeScheduleOvertimeHours,
   computeScheduleWorkHours,
   computeShortShiftChargeAmount,
+  resolveShortShiftChargeAmount,
+  truncateShortShiftChargeToManwon,
   buildSaleFormFromScSchedule,
 } from "../src/utils/scScheduleSaleImport.ts";
 
@@ -14,6 +16,9 @@ assert.equal(computeScheduleOvertimeHours("20:00"), 3);
 
 assert.equal(computeScheduleWorkHours("09:00", "11:00"), 2);
 assert.equal(computeShortShiftChargeAmount(2), 150000);
+assert.equal(truncateShortShiftChargeToManwon(125000), 120000);
+assert.equal(truncateShortShiftChargeToManwon(150000), 150000);
+assert.equal(resolveShortShiftChargeAmount(1.5), 120000);
 
 const workLogForm = buildSaleFormFromScSchedule(
   {
@@ -73,6 +78,8 @@ const overtimeForm = buildSaleFormFromScSchedule(
 );
 
 assert.equal(overtimeForm.workers[0].overtimeHours, "3");
+assert.equal(overtimeForm.workers[0].overtimeCost, "30000");
+assert.equal(Number(overtimeForm.workers[0].overtimeHours) * Number(overtimeForm.workers[0].overtimeCost), 90000);
 assert.match(overtimeForm.workers[0].memo || "", /20:00/);
 
 const scExtrasForm = buildSaleFormFromScSchedule(
@@ -139,5 +146,22 @@ const capForm = buildSaleFormFromScSchedule(
 );
 
 assert.equal(capForm.workers[0].chargeAmount, "120000");
+
+const manwonForm = buildSaleFormFromScSchedule(
+  {
+    id: "sc-manwon",
+    workDate: "2026-06-10",
+    startTime: "09:00",
+    endTime: "10:30",
+    workType: "site",
+    clientName: "client",
+    participantNames: ["worker"],
+  },
+  [{ name: "worker", constructionCost: 330000, overtimeCost: 30000, feeRate: 0.1 }],
+  [{ name: "client", constructionCost: 330000, overtimeCost: 30000, mealIncluded: "Y" }],
+  [],
+);
+
+assert.equal(manwonForm.workers[0].chargeAmount, "120000");
 
 console.log("verify-sc-schedule-sale-import: ok");

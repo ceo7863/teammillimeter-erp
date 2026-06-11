@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { MessageSquare, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SaleVoucherCommentsPanel } from "@/components/SaleVoucherCommentsPanel";
-import { listSaleComments, type SaleComment } from "@/utils/saleComments";
+import { listSaleComments, type SaleComment, type SaleReviewAction } from "@/utils/saleComments";
 import { getSaleVoucherLabel } from "@/utils/saleVoucherNo";
 
 type SaleLike = {
@@ -19,12 +19,14 @@ export const SaleVoucherCommentsModal = memo(function SaleVoucherCommentsModal({
   saleComments = [],
   currentUser,
   onAddSaleComment,
+  onReviewAction,
   onClose,
 }: {
   sale: SaleLike;
   saleComments?: SaleComment[];
   currentUser?: { name?: string; email?: string } | null;
   onAddSaleComment?: (body: string) => void | Promise<void>;
+  onReviewAction?: (action: SaleReviewAction, body?: string) => void | Promise<void>;
   onClose: () => void;
 }) {
   const commentsForSale = useMemo(
@@ -70,11 +72,13 @@ export const SaleVoucherCommentsModal = memo(function SaleVoucherCommentsModal({
             {"\uB2EB\uAE30"}
           </Button>
         </div>
-        {onAddSaleComment ? (
+        {onAddSaleComment || onReviewAction ? (
           <SaleVoucherCommentsPanel
             saleId={sale.id}
+            sale={sale}
             comments={commentsForSale}
             onAddComment={onAddSaleComment}
+            onReviewAction={onReviewAction}
             currentUser={currentUser}
             className="mt-3 border-0 shadow-none"
           />
