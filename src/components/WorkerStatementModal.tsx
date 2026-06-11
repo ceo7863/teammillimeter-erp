@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Copy, Download, Link2, X } from "lucide-react";
+import { TeamChatShareButton } from "@/components/TeamChatShareButton";
+import { buildWorkerStatementTeamChatLink } from "@/utils/teamChatLinks";
 import { Button } from "@/components/ui/button";
 import { WorkerStatementSheet } from "@/components/WorkerStatementSheet";
 import { StatementA4Preview } from "@/components/StatementA4Preview";
@@ -272,6 +274,15 @@ export function WorkerStatementModal({
                   <Link2 size={16} className="mr-1" />
                   {pdfGenerating ? "..." : "\uB9C1\uD06C\uBCF4\uB0B4\uAE30"}
                 </Button>
+                <TeamChatShareButton
+                  payload={{
+                    link: buildWorkerStatementTeamChatLink({
+                      workerName,
+                      startDate: periodStart,
+                      endDate: periodEnd,
+                    }),
+                  }}
+                />
                 <TableExportToolbar
                   className="erp-statement-export-toolbar"
                   getTable={() => workerPrintRef.current?.querySelector(".excel-data-table") as HTMLTableElement | null}

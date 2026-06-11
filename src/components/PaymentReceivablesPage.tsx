@@ -7,6 +7,8 @@ import { useSaveMessage } from "@/hooks/useSaveMessage";
 import { AutocompleteInput, AutocompleteSelect } from "@/components/AutocompleteInput";
 import { EntityAuditButton } from "@/components/AuditField";
 import { TableExportSection } from "@/components/TableExportSection";
+import { TeamChatShareButton } from "@/components/TeamChatShareButton";
+import { buildReceivableClientTeamChatLink, buildReceivableSaleTeamChatLink } from "@/utils/teamChatLinks";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { PAYMENT_AUDIT_FIELDS, snapshotPaymentForAudit } from "@/utils/auditLog";
 import { clearBankTransactionPaymentMatch, type BankTransaction } from "@/utils/bankTransactions";
@@ -133,12 +135,14 @@ function ReceivableDetailTable({
   exportFileName = "미수전표_상세",
   autoLinkedSaleIds = new Set<string>(),
   manualLinkedSaleIds = new Set<string>(),
+  dateFilter = { startDate: "", endDate: "" },
 }: {
   rows: ReceivableRow[];
   onPayRow?: (row: ReceivableRow) => void;
   exportFileName?: string;
   autoLinkedSaleIds?: Set<string>;
   manualLinkedSaleIds?: Set<string>;
+  dateFilter?: { startDate: string; endDate: string };
 }) {
   const today = todayISO();
 
@@ -159,6 +163,7 @@ function ReceivableDetailTable({
             <th className="text-left">입금예정일</th>
             <th className="text-left">상태</th>
             <th className="text-left">메모</th>
+            <th className="text-center erp-table-export-skip">공유</th>
           </tr>
         </thead>
         <tbody>
@@ -196,12 +201,18 @@ function ReceivableDetailTable({
                   </span>
                 </td>
                 <td>{row.memo || "-"}</td>
+                <td className="text-center erp-table-export-skip" onClick={(event) => event.stopPropagation()}>
+                  <TeamChatShareButton
+                    payload={{ link: buildReceivableSaleTeamChatLink(row, dateFilter) }}
+                    className="mx-auto"
+                  />
+                </td>
               </tr>
             );
           })}
           {rows.length === 0 && (
             <tr>
-              <td colSpan={11} className="p-8 text-center text-slate-500">
+              <td colSpan={12} className="p-8 text-center text-slate-500">
                 표시할 미수 전표가 없습니다.
               </td>
             </tr>
@@ -1157,7 +1168,7 @@ export function PaymentReceivablesPage({
                 <thead>
                   <tr className="erp-payment-group-row">
                     <th colSpan={7}>매출 전표</th>
-                    <th colSpan={7}>입금 입력</th>
+                    <th colSpan={8}>입금 입력</th>
                   </tr>
                   <tr className="erp-payment-col-row">
                     <th className="text-center">
@@ -1176,6 +1187,7 @@ export function PaymentReceivablesPage({
                     <th className="text-center">입금구분</th>
                     <th className="text-left">비고</th>
                     <th className="text-center erp-table-export-skip">수정</th>
+                    <th className="text-center erp-table-export-skip">공유</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1276,10 +1288,20 @@ export function PaymentReceivablesPage({
                             <span className="text-slate-300">-</span>
                           )}
                         </td>
+                        <td className="text-center erp-table-export-skip">
+                          {unpaid > 0 ? (
+                            <TeamChatShareButton
+                              payload={{ link: buildReceivableSaleTeamChatLink(row, filters) }}
+                              className="mx-auto"
+                            />
+                          ) : (
+                            <span className="text-slate-300">-</span>
+                          )}
+                        </td>
                       </tr>
                       {isDepositEditOpen && hasDeposits && (
                         <tr className="erp-payment-deposit-edit-row">
-                          <td colSpan={14} className="!p-0">
+                          <td colSpan={15} className="!p-0">
                             <div className="erp-payment-deposit-edit-panel">
                               <div className="erp-payment-deposit-edit-head">
                                 <span className="font-semibold text-slate-700">입금 내역 · {row.voucherNo || row.id}</span>
@@ -1419,6 +1441,7 @@ export function PaymentReceivablesPage({
                       <th className="text-right">입금액</th>
                       <th className="text-right">미수금</th>
                       <th className="text-right">건수</th>
+                      <th className="text-center erp-table-export-skip">공유</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1429,6 +1452,19 @@ export function PaymentReceivablesPage({
                         <td className="text-right font-semibold text-emerald-600">{formatKRW(client.paidAmount)}</td>
                         <td className="text-right font-bold text-red-600">{formatKRW(client.unpaidAmount)}</td>
                         <td className="text-right">{client.count}</td>
+                        <td className="text-center erp-table-export-skip" onClick={(event) => event.stopPropagation()}>
+                          <TeamChatShareButton
+                            payload={{
+                              link: buildReceivableClientTeamChatLink({
+                                client: client.client,
+                                startDate: filters.startDate,
+                                endDate: filters.endDate,
+                                tab: "receivables",
+                              }),
+                            }}
+                            className="mx-auto"
+                          />
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1442,7 +1478,14 @@ export function PaymentReceivablesPage({
             <CardContent className="p-3 md:p-4">
               <h2 className="mb-3 text-sm font-bold text-slate-800">미수 전표 상세</h2>
               <p className="mb-3 text-xs text-slate-500">전표 클릭 → 입금 입력 탭에서 해당 건 선택</p>
-              <ReceivableDetailTable rows={filteredReceivableRows} onPayRow={openPaymentForRow} exportFileName="미수전표_상세" autoLinkedSaleIds={autoLinkedSaleIds} manualLinkedSaleIds={manualLinkedSaleIds} />
+              <ReceivableDetailTable
+                rows={filteredReceivableRows}
+                onPayRow={openPaymentForRow}
+                exportFileName="미수전표_상세"
+                autoLinkedSaleIds={autoLinkedSaleIds}
+                manualLinkedSaleIds={manualLinkedSaleIds}
+                dateFilter={filters}
+              />
             </CardContent>
           </Card>
         </>

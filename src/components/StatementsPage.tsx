@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { PdfArchivePage } from "@/components/PdfArchivePage";
 import { ChevronDown, ChevronRight, Copy, Download, Eye, FileText, Files, FolderInput, History, Link2, RotateCcw, Search, Trash2 } from "lucide-react";
+import { TeamChatShareButton } from "@/components/TeamChatShareButton";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ClientStatementSheet } from "@/components/ClientStatementSheet";
@@ -51,6 +52,10 @@ import {
   type StatementFolderItem,
   type StatementFolderSort,
 } from "@/utils/statementFolders";
+import {
+  buildClientStatementTeamChatLink,
+  buildWorkerStatementTeamChatLink,
+} from "@/utils/teamChatLinks";
 import {
   buildClientStatementDetailDisplayRows,
   buildClientStatementRows,
@@ -1508,6 +1513,34 @@ export function StatementsPage({
     : "\uC2DC\uACF5\uC790 \uC2DC\uACF5\uB0B4\uC5ED\uC11C";
   const canGenerate = isClientStatement ? hasClientSelection : hasWorkerSelection;
   const hasStatementData = isClientStatement ? clientRows.length > 0 : workerRows.length > 0;
+  const statementTeamChatSharePayload = useMemo(() => {
+    if (!statementGenerated || !activeSubject) return null;
+    const link = isClientStatement
+      ? buildClientStatementTeamChatLink({
+          client: activeSubject,
+          startDate: dateFilter.startDate || String(clientRows[0]?.date || ""),
+          endDate: dateFilter.endDate || String(clientRows[clientRows.length - 1]?.date || ""),
+        })
+      : buildWorkerStatementTeamChatLink({
+          workerName: activeSubject,
+          startDate: workerStatementPeriodStart,
+          endDate: workerStatementPeriodEnd,
+        });
+    return {
+      link,
+      body: statementShareLink ? `PDF \uB9C1\uD06C: ${statementShareLink}` : undefined,
+    };
+  }, [
+    activeSubject,
+    clientRows,
+    dateFilter.endDate,
+    dateFilter.startDate,
+    isClientStatement,
+    statementGenerated,
+    statementShareLink,
+    workerStatementPeriodEnd,
+    workerStatementPeriodStart,
+  ]);
   const archiveTabBadgeCount = statementGenerationLogs.length + statementFolders.length;
 
   return (
@@ -1992,6 +2025,9 @@ export function StatementsPage({
                     {pdfGenerating ? "..." : L.shareKakao}
                   </Button>
                 )}
+                {statementTeamChatSharePayload ? (
+                  <TeamChatShareButton payload={statementTeamChatSharePayload} />
+                ) : null}
                 <TableExportToolbar
                   className="erp-statement-export-toolbar"
                   getTable={() =>

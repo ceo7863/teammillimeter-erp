@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Archive, ChevronDown, ChevronRight, Download, Eye, FileText, Link2, RefreshCw, RotateCcw, Search, Trash2 } from "lucide-react";
+import { TeamChatShareButton } from "@/components/TeamChatShareButton";
+import { buildClientStatementTeamChatLink, buildSentStatementPendingTeamChatLink } from "@/utils/teamChatLinks";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
@@ -607,6 +609,19 @@ export function PdfArchivePage({
                 >
                   {"\uCE74\uD1A1"}
                 </Button>
+                <TeamChatShareButton
+                  payload={{
+                    link: isSentStatementPaymentPending(record.paymentStatus)
+                      ? buildSentStatementPendingTeamChatLink(record)
+                      : buildClientStatementTeamChatLink({
+                          client: record.subjectName,
+                          startDate: record.periodStart || "",
+                          endDate: record.periodEnd || "",
+                        }),
+                    body: record.shareLinkUrl ? `PDF \uB9C1\uD06C: ${record.shareLinkUrl}` : undefined,
+                  }}
+                  className="erp-statement-history-btn"
+                />
                 <Button
                   type="button"
                   variant="outline"

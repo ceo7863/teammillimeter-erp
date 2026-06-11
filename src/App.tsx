@@ -10265,6 +10265,8 @@ export default function TeammillimeterErpMvp() {
           setPendingReceivablesNav({
             tab: action.receivablesTab,
             clientName: action.clientName,
+            startDate: action.startDate,
+            endDate: action.endDate,
           });
         }
         if (action.clientName && action.page === "calendar") {
