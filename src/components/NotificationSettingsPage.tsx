@@ -77,6 +77,8 @@ const L = {
   probationEvalTemplate: "\uC2DC\uACF5\uC790 \uD3C9\uAC00 \uD15C\uD074\uB9BF",
   weeklyPreview: "\uC8FC\uAC04 \uBE0C\uB9AC\uD551 \uBBF8\uB9AC\uBCF4\uAE30",
   weeklyPreviewTitle: "\uC774\uBC88 \uC8FC \uD604\uC7A5 \uBE0C\uB9AC\uD551 \uBBF8\uB9AC\uBCF4\uAE30",
+  manager: (name: string) => `\uB2F4\uB2F9 ${name}`,
+  noManager: "\uB2F4\uB2F9 \uC5C6\uC74C",
   weeklySendTest: "\uC8FC\uAC04 \uBE0C\uB9AC\uD551 \uD14C\uC2A4\uD2B8 \uBC1C\uC1A1",
   weeklySendTestConfirm:
     "\uC774\uBC88 \uC8FC \uD604\uC7A5 \uBE0C\uB9AC\uD551\uC744 \uAC70\uB798\uCC98 \uB2F4\uB2F9 \uC804\uD654\uB85C \uC790\uB3D9 \uBC1C\uC1A1\uD569\uB2C8\uB2E4. \uACC4\uC18D\uD560\uAE4C\uC694?",
@@ -822,7 +824,7 @@ export function NotificationSettingsPage({ embedded = false, erpVersion, onErpVe
     setBusy("weekly-preview");
     setError("");
     try {
-      const preview = await previewScWeeklyBriefing();
+      const preview = await previewScWeeklyBriefing(undefined, { skipSync: true });
       const lines = preview.groups.flatMap((group) => {
         const manager =
           group.clientManager && group.clientManager !== "-"

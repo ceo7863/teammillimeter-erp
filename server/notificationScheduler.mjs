@@ -10,17 +10,14 @@ import {
 import {
   listCommentNotifyPhones,
   listDailyReportPhones,
+  DEFAULT_NOTIFICATION_SETTINGS,
   normalizeNotificationSettings,
+  notificationSettingsWithLegacy,
 } from "./notificationSettings.mjs";
 import { sendCommentAlimtalk, sendDailyReportAlimtalk } from "./alimtalkNotify.mjs";
 import { config } from "./config.mjs";
 import { runScScheduleNotifyJob } from "./scScheduleNotify.mjs";
 import { weekRangeISO, runScWeeklyBriefingNotifyJob } from "./scWeeklyBriefingNotify.mjs";
-import {
-  DEFAULT_NOTIFICATION_SETTINGS,
-  normalizeNotificationSettings,
-  notificationSettingsWithLegacy,
-} from "./notificationSettings.mjs";
 import { normalizeWorkerAiRules } from "./workerAiRules.mjs";
 import { runProbationEvalNotifyJob, runProbationEvalReminderJob } from "./probationEvalNotify.mjs";
 

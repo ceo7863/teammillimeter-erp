@@ -131,7 +131,7 @@ export function ScWeeklyBriefingSection({ clients = [] }: ScWeeklyBriefingSectio
     setError("");
     setSendResults({});
     try {
-      const result = await previewScWeeklyBriefing(weekStart);
+      const result = await previewScWeeklyBriefing(weekStart, { skipSync: true });
       setPreview(result);
       setSelected(buildInitialSelection(result));
     } catch (loadError) {

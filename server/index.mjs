@@ -2595,7 +2595,8 @@ app.post("/api/notifications/probation-eval/reminder", authMiddleware, adminMidd
 app.get("/api/notifications/sc-weekly-briefing/preview", authMiddleware, async (req, res) => {
   try {
     const weekStart = req.query?.weekStart ? String(req.query.weekStart).slice(0, 10) : undefined;
-    const preview = await buildScWeeklyBriefingPreviewAsync({ weekStart });
+    const skipSync = req.query?.skipSync === "1" || req.query?.skipSync === "true";
+    const preview = await buildScWeeklyBriefingPreviewAsync({ weekStart, skipSync });
     res.json(preview);
   } catch (error) {
     console.error(error);

@@ -462,9 +462,13 @@ export function buildScWeeklyBriefingPreview(data, options = {}) {
 
 export async function buildScWeeklyBriefingPreviewAsync(options = {}) {
   if (options.skipSync !== true && isScScheduleSourceConfigured()) {
-    await runScScheduleSync({
-      updatedBy: String(options.updatedBy || "sc-weekly-briefing-preview"),
-    });
+    try {
+      await runScScheduleSync({
+        updatedBy: String(options.updatedBy || "sc-weekly-briefing-preview"),
+      });
+    } catch (error) {
+      console.warn("[sc-weekly-briefing] preview sync skipped:", error);
+    }
   }
   const state = getErpState();
   return buildScWeeklyBriefingPreview(state.data || {}, options);

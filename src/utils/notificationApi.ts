@@ -259,8 +259,11 @@ export type ScWeeklyBriefingSendResult = {
   }>;
 };
 
-export async function previewScWeeklyBriefing(weekStart?: string) {
-  const query = weekStart ? `?weekStart=${encodeURIComponent(weekStart)}` : "";
+export async function previewScWeeklyBriefing(weekStart?: string, options?: { skipSync?: boolean }) {
+  const params = new URLSearchParams();
+  if (weekStart) params.set("weekStart", weekStart);
+  if (options?.skipSync) params.set("skipSync", "1");
+  const query = params.toString() ? `?${params.toString()}` : "";
   return apiRequest<ScWeeklyBriefingPreview>(`/notifications/sc-weekly-briefing/preview${query}`);
 }
 
