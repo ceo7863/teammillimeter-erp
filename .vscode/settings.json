@@ -1,0 +1,34 @@
+{
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/dist/**": true,
+    "**/data/**": true,
+    "**/*.sqlite": true,
+    "**/*.sqlite-wal": true,
+    "**/*.sqlite-shm": true,
+    "tmp-*": true,
+    "scripts/debug-*.mjs": true,
+    "scripts/repair-*.mjs": true,
+    "scripts/query-*.mjs": true,
+    "scripts/test-*.mjs": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/data": true,
+    "**/*.sqlite": true,
+    "**/*.sqlite-wal": true,
+    "**/*.sqlite-shm": true,
+    "tmp-*": true,
+    "scripts/debug-*.mjs": true,
+    "scripts/repair-*.mjs": true,
+    "scripts/query-*.mjs": true,
+    "scripts/test-*.mjs": true
+  },
+  "files.exclude": {
+    "**/*.sqlite": true,
+    "**/*.sqlite-wal": true,
+    "**/*.sqlite-shm": true,
+    "tmp-*": true
+  }
+}

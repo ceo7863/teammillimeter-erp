@@ -1,0 +1,28 @@
+﻿# Dependencies & build output
+node_modules/
+dist/
+
+# Local DB / backups (heavy, changes often)
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Env & secrets
+.env
+.sc-sync-recovery.env
+*.pem
+*.ppk
+
+# One-off debug / repair / query scripts (243+ files — skip AI indexing)
+scripts/debug-*.mjs
+scripts/repair-*.mjs
+scripts/query-*.mjs
+scripts/test-*.mjs
+
+# Local scratch files
+tmp-*
+tmp-*.*
+
+# Large binaries (PDFs are not useful for code context)
+*.pdf
