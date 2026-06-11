@@ -554,6 +554,38 @@ export function listBankTransactionsLinkedToInvoice(invoiceId: string, transacti
   return transactions.filter((row) => getBankTxLinkedTaxInvoiceIds(row).includes(invoiceId));
 }
 
+function toBankTransactionLinkCatalogRow(tx: BankTransaction, invoice: TaxInvoice): BankTransactionLinkCatalogRow {
+  const amount = getBankTxClassifiedAmount(tx);
+  return {
+    tx,
+    amount,
+    amountLabel: formatKRW(amount),
+    searchText: buildBankTransactionSearchText(tx),
+    counterpartyLabel: String(tx.counterpartyName || resolveBankTxClientName(tx) || "-").trim() || "-",
+    descriptionLabel: String(tx.description || tx.memo || "-").trim() || "-",
+    dateLabel: formatBankLinkTxAt(tx.transactionAt),
+    isLinked: getBankTxLinkedTaxInvoiceIds(tx).includes(invoice.id),
+  };
+}
+
+export function listLinkedBankTransactionCatalogRows(
+  invoice: TaxInvoice,
+  bankTransactions: BankTransaction[],
+): BankTransactionLinkCatalogRow[] {
+  return listBankTransactionsLinkedToInvoice(invoice.id, bankTransactions)
+    .sort(
+      (a, b) =>
+        String(b.transactionAt || "").localeCompare(String(a.transactionAt || "")) ||
+        String(b.id).localeCompare(String(a.id)),
+    )
+    .map((tx) => toBankTransactionLinkCatalogRow(tx, invoice));
+}
+
+export function isBankTransactionLinkedToOtherInvoice(tx: BankTransaction, invoiceId: string) {
+  const ids = getBankTxLinkedTaxInvoiceIds(tx);
+  return ids.length > 0 && !ids.includes(invoiceId);
+}
+
 function isBankTransactionInLinkDateRange(tx: BankTransaction, startDate: string, endDate: string) {
   const txDate = String(tx.transactionAt || "").slice(0, 10);
   if (!txDate) return false;
@@ -585,19 +617,7 @@ export function buildBankTransactionLinkCatalog(input: {
         String(b.transactionAt || "").localeCompare(String(a.transactionAt || "")) ||
         String(b.id).localeCompare(String(a.id)),
     )
-    .map((tx) => {
-      const amount = getBankTxClassifiedAmount(tx);
-      return {
-        tx,
-        amount,
-        amountLabel: formatKRW(amount),
-        searchText: buildBankTransactionSearchText(tx),
-        counterpartyLabel: String(tx.counterpartyName || resolveBankTxClientName(tx) || "-").trim() || "-",
-        descriptionLabel: String(tx.description || tx.memo || "-").trim() || "-",
-        dateLabel: formatBankLinkTxAt(tx.transactionAt),
-        isLinked: getBankTxLinkedTaxInvoiceIds(tx).includes(invoice.id),
-      };
-    });
+    .map((tx) => toBankTransactionLinkCatalogRow(tx, invoice));
 }
 
 function scoreBankTransactionLinkCatalogRow(
@@ -682,7 +702,13 @@ export function filterBankTransactionLinkCatalog(
   const scoreRow = (row: BankTransactionLinkCatalogRow) =>
     scoreBankTransactionLinkCatalogRow(invoice, row, tokens, matchContext, unsettledAmount);
 
-  return [...filtered].sort((a, b) => {
+  const linkedIds = new Set(
+    listBankTransactionsLinkedToInvoice(invoice.id, bankTransactions).map((row) => row.id),
+  );
+
+  return [...filtered]
+    .filter((row) => !linkedIds.has(row.tx.id))
+    .sort((a, b) => {
     const scoreDiff = scoreRow(b) - scoreRow(a);
     if (scoreDiff !== 0) return scoreDiff;
     return String(b.tx.transactionAt || "").localeCompare(String(a.tx.transactionAt || ""));

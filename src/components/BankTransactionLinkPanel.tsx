@@ -9,7 +9,9 @@ import {
   canLinkTaxInvoiceToTransaction,
   filterBankTransactionLinkCatalog,
   getTaxInvoiceUnsettledAmount,
+  isBankTransactionLinkedToOtherInvoice,
   listBankTransactionsLinkedToInvoice,
+  listLinkedBankTransactionCatalogRows,
   type BankTransactionLinkCatalogRow,
 } from "@/utils/taxInvoiceLinkPanel";
 import type { TaxInvoiceMatchContext } from "@/utils/bankTaxInvoiceLink";
@@ -35,6 +37,9 @@ const L = {
   unsettled: "\uBBF8\uC815\uC0B0 \uAE08\uC561",
   total: "\uD569\uACC4\uAE08\uC561",
   noUnsettled: "\uBBF8\uC815\uC0B0 \uAE08\uC561\uC774 \uC5C6\uC5B4\uC694",
+  linkedSection: "\uC5F0\uACB0\uB41C \uD1B5\uC7A5",
+  candidateSection: "\uC5F0\uACB0 \uAC00\uB2A5\uD55C \uD1B5\uC7A5",
+  linkedOther: "\uB2E4\uB978 \uC99D\uBE59 \uC5F0\uACB0",
   empty: "\uC870\uAC74\uC5D0 \uB9DE\uB294 \uD1B5\uC7A5 \uAC70\uB798\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
   loading: "\uD1B5\uC7A5 \uAC70\uB798 \uBAA9\uB85D\uC744 \uBD88\uB7EC\uC624\uB294 \uC911\u2026",
   unlink: "\uC804\uCCB4 \uD574\uC81C",
@@ -146,9 +151,82 @@ const BankTransactionLinkHeader = memo(function BankTransactionLinkHeader({
   );
 });
 
+function bankLinkAmountClass(tx: BankTransaction) {
+  return Number(tx.deposit || 0) > 0 ? "text-emerald-700" : "text-rose-700";
+}
+
+function BankTransactionLinkRow({
+  row,
+  invoice,
+  unsettledAmount,
+  matchContext,
+  linkedToInvoice,
+  onLink,
+  onUnlink,
+}: {
+  row: BankTransactionLinkCatalogRow;
+  invoice: TaxInvoice;
+  unsettledAmount: number;
+  matchContext?: TaxInvoiceMatchContext;
+  linkedToInvoice: boolean;
+  onLink: (txId: string) => void;
+  onUnlink: (txId: string) => void;
+}) {
+  const linkedOther = !linkedToInvoice && isBankTransactionLinkedToOtherInvoice(row.tx, invoice.id);
+  const canLink =
+    !linkedToInvoice &&
+    !linkedOther &&
+    canLinkTaxInvoiceToTransaction(row.tx, invoice, unsettledAmount, matchContext);
+
+  return (
+    <tr className={linkedToInvoice ? "erp-tax-invoice-link-panel__row is-linked bg-blue-50/70" : undefined}>
+      <td className="whitespace-nowrap font-medium text-slate-800">{row.dateLabel}</td>
+      <td className="font-semibold text-slate-900">{row.counterpartyLabel}</td>
+      <td className="max-w-[14rem] truncate text-slate-700" title={row.descriptionLabel}>
+        {row.descriptionLabel}
+      </td>
+      <td className={`text-right font-semibold tabular-nums ${bankLinkAmountClass(row.tx)}`}>{row.amountLabel}</td>
+      <td className="text-right">
+        {linkedToInvoice ? (
+          <div className="flex items-center justify-end gap-1.5">
+            <span
+              className="inline-flex max-w-[10rem] truncate rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-800"
+              title={`${row.counterpartyLabel} ${row.amountLabel}`}
+            >
+              {row.counterpartyLabel}
+              {" \u00B7 "}
+              {row.amountLabel}
+            </span>
+            <button
+              type="button"
+              className="inline-flex h-7 shrink-0 items-center rounded-lg border border-blue-200 bg-white px-3 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+              onClick={() => onUnlink(row.tx.id)}
+            >
+              {L.unlinkOne}
+            </button>
+          </div>
+        ) : linkedOther ? (
+          <span className="text-xs font-semibold text-slate-400">{L.linkedOther}</span>
+        ) : canLink ? (
+          <button
+            type="button"
+            className="erp-bank-evidence-find erp-bank-evidence-find--plain inline-flex h-7 items-center rounded-lg px-3 text-xs font-semibold"
+            onClick={() => onLink(row.tx.id)}
+          >
+            {L.add}
+          </button>
+        ) : unsettledAmount <= 0 ? (
+          <span className="text-xs text-slate-400">{L.noUnsettled}</span>
+        ) : null}
+      </td>
+    </tr>
+  );
+}
+
 function BankTransactionLinkResultsTable({
   invoice,
-  rows,
+  linkedRows,
+  candidateRows,
   bankTransactions,
   taxInvoices,
   preparing,
@@ -157,7 +235,8 @@ function BankTransactionLinkResultsTable({
   onUnlink,
 }: {
   invoice: TaxInvoice;
-  rows: BankTransactionLinkCatalogRow[];
+  linkedRows: BankTransactionLinkCatalogRow[];
+  candidateRows: BankTransactionLinkCatalogRow[];
   bankTransactions: BankTransaction[];
   taxInvoices: TaxInvoice[];
   preparing?: boolean;
@@ -173,86 +252,93 @@ function BankTransactionLinkResultsTable({
 
   useEffect(() => {
     setPage(1);
-  }, [rows]);
+  }, [candidateRows]);
 
-  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(candidateRows.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pageRows = useMemo(
-    () => rows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
-    [rows, safePage],
+    () => candidateRows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [candidateRows, safePage],
+  );
+
+  const tableHead = (
+    <thead>
+      <tr>
+        <th>{L.txDate}</th>
+        <th>{L.counterparty}</th>
+        <th>{L.description}</th>
+        <th className="text-right">{L.amount}</th>
+        <th />
+      </tr>
+    </thead>
   );
 
   return (
     <div className="erp-tax-invoice-link-panel__main">
-      <div className="erp-tax-invoice-link-panel__table-wrap overflow-auto rounded-xl border border-slate-200">
-        <table className="erp-table erp-tax-invoice-link-panel__table w-full">
-          <thead>
-            <tr>
-              <th>{L.txDate}</th>
-              <th>{L.counterparty}</th>
-              <th>{L.description}</th>
-              <th className="text-right">{L.amount}</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {preparing ? (
-              <tr>
-                <td colSpan={5} className="py-10 text-center text-sm text-slate-500">
-                  {L.loading}
-                </td>
-              </tr>
-            ) : !pageRows.length ? (
-              <tr>
-                <td colSpan={5} className="py-10 text-center text-sm text-slate-500">
-                  {L.empty}
-                </td>
-              </tr>
-            ) : (
-              pageRows.map((row) => {
-                const canLink =
-                  !row.isLinked &&
-                  canLinkTaxInvoiceToTransaction(row.tx, invoice, unsettledAmount, matchContext);
+      {linkedRows.length ? (
+        <section className="erp-bank-link-panel__section">
+          <h3 className="erp-bank-link-panel__section-title">{L.linkedSection}</h3>
+          <div className="erp-tax-invoice-link-panel__table-wrap overflow-auto rounded-xl border border-blue-200 bg-blue-50/20">
+            <table className="erp-table erp-tax-invoice-link-panel__table w-full">
+              {tableHead}
+              <tbody>
+                {linkedRows.map((row) => (
+                  <BankTransactionLinkRow
+                    key={row.tx.id}
+                    row={row}
+                    invoice={invoice}
+                    unsettledAmount={unsettledAmount}
+                    matchContext={matchContext}
+                    linkedToInvoice
+                    onLink={onLink}
+                    onUnlink={onUnlink}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
-                return (
-                  <tr key={row.tx.id} className={row.isLinked ? "bg-blue-50/70" : undefined}>
-                    <td className="whitespace-nowrap font-medium text-slate-800">{row.dateLabel}</td>
-                    <td className="font-semibold text-slate-900">{row.counterpartyLabel}</td>
-                    <td className="max-w-[14rem] truncate text-slate-700" title={row.descriptionLabel}>
-                      {row.descriptionLabel}
-                    </td>
-                    <td className="text-right font-semibold text-slate-900">{row.amountLabel}</td>
-                    <td className="text-right">
-                      {row.isLinked ? (
-                        <button
-                          type="button"
-                          className="inline-flex h-7 items-center rounded-lg border border-blue-200 bg-white px-3 text-xs font-semibold text-blue-700 hover:bg-blue-50"
-                          onClick={() => onUnlink(row.tx.id)}
-                        >
-                          {L.unlinkOne}
-                        </button>
-                      ) : canLink ? (
-                        <button
-                          type="button"
-                          className="inline-flex h-7 items-center rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white hover:bg-slate-800"
-                          onClick={() => onLink(row.tx.id)}
-                        >
-                          {L.add}
-                        </button>
-                      ) : unsettledAmount <= 0 ? (
-                        <span className="text-xs text-slate-400">{L.noUnsettled}</span>
-                      ) : null}
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+      <section className="erp-bank-link-panel__section">
+        {linkedRows.length ? <h3 className="erp-bank-link-panel__section-title">{L.candidateSection}</h3> : null}
+        <div className="erp-tax-invoice-link-panel__table-wrap overflow-auto rounded-xl border border-slate-200">
+          <table className="erp-table erp-tax-invoice-link-panel__table w-full">
+            {tableHead}
+            <tbody>
+              {preparing ? (
+                <tr>
+                  <td colSpan={5} className="py-10 text-center text-sm text-slate-500">
+                    {L.loading}
+                  </td>
+                </tr>
+              ) : !pageRows.length ? (
+                <tr>
+                  <td colSpan={5} className="py-10 text-center text-sm text-slate-500">
+                    {linkedRows.length ? L.empty : L.empty}
+                  </td>
+                </tr>
+              ) : (
+                pageRows.map((row) => (
+                  <BankTransactionLinkRow
+                    key={row.tx.id}
+                    row={row}
+                    invoice={invoice}
+                    unsettledAmount={unsettledAmount}
+                    matchContext={matchContext}
+                    linkedToInvoice={false}
+                    onLink={onLink}
+                    onUnlink={onUnlink}
+                  />
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <div className="erp-tax-invoice-link-panel__footer">
-        <span>{preparing ? L.loading : L.count(rows.length)}</span>
+        <span>{preparing ? L.loading : L.count(candidateRows.length)}</span>
         <div className="flex items-center gap-2">
           <span>{L.page(safePage, totalPages)}</span>
           <button
@@ -311,7 +397,12 @@ function BankTransactionLinkFilterBody({
     });
   }, [preparing, invoice, bankTransactions, startDate, endDate]);
 
-  const rows = useMemo(
+  const linkedRows = useMemo(
+    () => (preparing ? [] : listLinkedBankTransactionCatalogRows(invoice, bankTransactions)),
+    [preparing, invoice, bankTransactions],
+  );
+
+  const candidateRows = useMemo(
     () =>
       preparing
         ? []
@@ -351,7 +442,8 @@ function BankTransactionLinkFilterBody({
 
       <BankTransactionLinkResultsTable
         invoice={invoice}
-        rows={rows}
+        linkedRows={linkedRows}
+        candidateRows={candidateRows}
         bankTransactions={bankTransactions}
         taxInvoices={taxInvoices}
         preparing={preparing}

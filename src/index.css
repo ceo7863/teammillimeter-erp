@@ -16249,6 +16249,14 @@ button:disabled,
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  gap: 0.75rem;
+}
+
+.erp-bank-link-panel__section-title {
+  margin: 0 0 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #475569;
 }
 
 .erp-tax-invoice-link-panel__table-wrap {
