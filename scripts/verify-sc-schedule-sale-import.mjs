@@ -23,7 +23,7 @@ assert.equal(resolveShortShiftChargeAmount(1.5), 120000);
 assert.equal(resolveShortShiftChargeAmount(4, undefined, 250000), 250000);
 assert.equal(resolveShortShiftChargeAmount(4, undefined, 200000), 200000);
 assert.equal(resolveShortShiftUnitCost(250000, 200000), "200000");
-assert.equal(resolveShortShiftUnitCost(150000, 330000), "330000");
+assert.equal(resolveShortShiftUnitCost(150000, 330000), "150000");
 
 const workLogForm = buildSaleFormFromScSchedule(
   {
@@ -64,7 +64,7 @@ assert.equal(form.client, "??");
 assert.equal(form.site, "?????");
 assert.equal(form.workers[0].worker, "???");
 assert.equal(form.workers[0].chargeAmount, "150000");
-assert.equal(form.workers[0].unitCost, "330000");
+assert.equal(form.workers[0].unitCost, "150000");
 assert.match(form.workers[0].memo || "", /09:00/);
 
 const overtimeForm = buildSaleFormFromScSchedule(
@@ -151,7 +151,7 @@ const capForm = buildSaleFormFromScSchedule(
 );
 
 assert.equal(capForm.workers[0].chargeAmount, "120000");
-assert.equal(capForm.workers[0].unitCost, "330000");
+assert.equal(capForm.workers[0].unitCost, "120000");
 
 const workerBasicCapForm = buildSaleFormFromScSchedule(
   {
@@ -187,7 +187,7 @@ const payForm = buildSaleFormFromScSchedule(
 );
 
 assert.equal(payForm.workers[0].chargeAmount, "250000");
-assert.equal(payForm.workers[0].unitCost, "330000");
+assert.equal(payForm.workers[0].unitCost, "250000");
 
 const manwonForm = buildSaleFormFromScSchedule(
   {

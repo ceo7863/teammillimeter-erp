@@ -371,13 +371,25 @@ function mapScPreviewRow(row) {
   const timeRange = start && end ? `${start}-${end}` : start || end || "";
   return {
     workDate: String(row.workDate || "").slice(0, 10),
-    projectName: String(row.projectName || row.clientName || ""),
-    siteName: String(row.siteName || ""),
-    workType: String(row.workType || ""),
+    clientName: String(row.clientName || "").trim(),
+    projectName: String(row.projectName || "").trim(),
+    siteName: String(row.siteName || "").trim(),
+    workType: String(row.workType || "").trim(),
     timeRange,
     participants: participantNames.join(", "),
     participantCount: participantNames.length,
   };
+}
+
+function formatScPreviewLineLabel(row) {
+  const clientName = String(row.clientName || "").trim();
+  const site =
+    String(row.workType || "").trim() ||
+    String(row.siteName || "").trim() ||
+    String(row.projectName || "").trim();
+  if (clientName && site) return `${clientName} / ${site}`;
+  if (clientName) return clientName;
+  return site || "-";
 }
 
 function extractClientNameFromScheduleQuery(text) {
@@ -4993,10 +5005,8 @@ export function formatScheduleAnswer(data) {
     scPreview.forEach((row, index) => {
       const parts = [];
       if (isRange && row.workDate) parts.push(formatListDate(row.workDate));
-      parts.push(row.projectName || "-");
+      parts.push(formatScPreviewLineLabel(row));
       if (row.timeRange) parts.push(row.timeRange);
-      if (row.siteName) parts.push(row.siteName);
-      if (row.workType) parts.push(row.workType);
       if (row.participants) parts.push(row.participants);
       else if (row.participantCount) parts.push(`${row.participantCount}\uBA85`);
       lines.push(`${index + 1}. ${parts.join(" \u00B7 ")}`);

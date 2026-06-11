@@ -189,11 +189,11 @@ export function resolveShortShiftChargeAmount(
 export function resolveShortShiftUnitCost(chargeAmount: number, workerDefaultPay: number) {
   const charge = Math.max(0, Math.round(Number(chargeAmount) || 0));
   const defaultPay = Math.max(0, Math.round(Number(workerDefaultPay) || 0));
-  if (defaultPay <= 0) return "";
+  if (defaultPay <= 0) return charge > 0 ? String(charge) : "";
   if (charge > defaultPay) {
     return String(defaultPay);
   }
-  return String(defaultPay);
+  return String(charge);
 }
 
 export function formatScheduleWorkHoursLabel(workHours: number) {
