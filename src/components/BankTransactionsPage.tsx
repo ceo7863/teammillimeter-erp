@@ -1661,6 +1661,7 @@ function BankTransactionsPageComponent({
   );
 
   const backgroundLearningTimerRef = useRef<number | null>(null);
+  const backgroundLearningRunningRef = useRef(false);
   const learningSnapshotRef = useRef({
     bankTransactions,
     fixedExpensePayments,
@@ -1690,8 +1691,11 @@ function BankTransactionsPageComponent({
 
   const applyBackgroundLearning = React.useCallback(
     (options: { onlyTransactionIds?: Set<string>; showMessage?: boolean } = {}) => {
+      if (backgroundLearningRunningRef.current) return null;
       const snap = learningSnapshotRef.current;
       if (!snap.bankTransactions.length) return null;
+      backgroundLearningRunningRef.current = true;
+      try {
       const result = runBackgroundBankLedgerLearning({
         bankTransactions: snap.bankTransactions,
         fixedExpensePayments: snap.fixedExpensePayments,
@@ -1731,7 +1735,7 @@ function BankTransactionsPageComponent({
         parts.push(`\uC911\uBCF5 \uC815\uB9AC ${result.removedExpenses + result.removedDuplicatePayments}\uAC74`);
       }
 
-      if (parts.length) {
+      if (parts.length && options.showMessage) {
         recordSummaryAudit({
           entityType: "bankTransaction",
           entityId: "background-learn",
@@ -1740,7 +1744,7 @@ function BankTransactionsPageComponent({
           action: "import",
           fieldLabel: "\uBC18\uB3D9 \uD559\uC2B5",
           after: parts.join(" \u00B7 "),
-          user: null,
+          user: currentUser,
         });
       }
 
@@ -1748,6 +1752,9 @@ function BankTransactionsPageComponent({
         setImportMessage(L.backgroundLearnDone(parts));
       }
       return result;
+      } finally {
+        backgroundLearningRunningRef.current = false;
+      }
     },
     [
       setBankTransactions,
@@ -1755,6 +1762,7 @@ function BankTransactionsPageComponent({
       setFixedExpensePayments,
       setCompanyExpenses,
       recordSummaryAudit,
+      currentUser,
     ],
   );
 
@@ -1769,7 +1777,7 @@ function BankTransactionsPageComponent({
       }
       backgroundLearningTimerRef.current = window.setTimeout(() => {
         applyBackgroundLearningRef.current(options);
-      }, 350);
+      }, 1200);
     },
     [isPageActive],
   );
