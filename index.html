@@ -35,6 +35,23 @@
   </head>
   <body lang="ko">
     <div id="root"></div>
+    <style>
+      #root:empty {
+        display: flex;
+        min-height: 100dvh;
+        align-items: center;
+        justify-content: center;
+        background: #f8fafc;
+        color: #64748b;
+        font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+      }
+
+      #root:empty::after {
+        content: "불러오는 중…";
+        font-size: 0.9375rem;
+        font-weight: 600;
+      }
+    </style>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

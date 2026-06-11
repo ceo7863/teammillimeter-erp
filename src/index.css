@@ -1386,20 +1386,38 @@ textarea {
 }
 
 @media (max-width: 1023px) {
+  .erp-app-shell:has(.erp-main--team-chat) {
+    height: 100dvh;
+    min-height: 100dvh;
+    overflow: hidden;
+  }
+
+  .erp-app-shell:has(.erp-main--team-chat) > .flex.min-w-0.flex-1.flex-col {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+
   .erp-main--team-chat {
     display: flex;
+    flex: 1 1 auto;
     flex-direction: column;
     min-height: 0;
-    height: 100dvh;
-    max-height: 100dvh;
     overflow: hidden;
   }
 
   .erp-page-keep-alive--team-chat {
-    flex: 1 1 auto;
-    min-height: 0;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
     display: flex;
     flex-direction: column;
+    min-height: 0;
+    background: #fff;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
   .erp-team-chat-page--mobile {
@@ -1412,6 +1430,7 @@ textarea {
     overflow: hidden;
     border: none;
     border-radius: 0;
+    background: #fff;
   }
 
   .erp-team-chat-page--mobile .erp-team-chat-sidebar,
@@ -1444,6 +1463,18 @@ textarea {
   .erp-team-chat-standalone__body .erp-team-chat-page--mobile {
     min-height: 0;
     height: 100%;
+  }
+
+  .erp-team-chat-standalone {
+    min-height: 100dvh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .erp-team-chat-standalone__body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .erp-team-chat-sidebar__head {
