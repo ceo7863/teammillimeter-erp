@@ -172,6 +172,7 @@ import { getDefaultPdfContent, listContractTemplates } from "./contractTemplate.
 import { renderContractPdfPreview } from "./contractPdfRender.mjs";
 import {
   normalizeNotificationSettings,
+  notificationSettingsWithLegacy,
   DEFAULT_NOTIFICATION_SETTINGS,
 } from "./notificationSettings.mjs";
 import { normalizeSaleAiRules } from "./saleAiRules.mjs";
@@ -2426,12 +2427,19 @@ app.put("/api/erp", authMiddleware, (req, res) => {
 });
 
 app.get("/api/notifications/status", authMiddleware, adminMiddleware, (_req, res) => {
-  res.json({ alimtalk: getAlimtalkStatus(), scScheduleNotify: getScScheduleNotifyStatus(), scWeeklyBriefing: getScWeeklyBriefingNotifyStatus() });
+  res.json({
+    alimtalk: getAlimtalkStatus(),
+    scScheduleNotify: getScScheduleNotifyStatus(),
+    scWeeklyBriefing: getScWeeklyBriefingNotifyStatus(),
+    probationEvalNotify: getProbationEvalNotifyStatus(),
+  });
 });
 
 app.get("/api/notifications/settings", authMiddleware, adminMiddleware, (_req, res) => {
   const state = getErpState();
-  res.json({ settings: normalizeNotificationSettings(state.data?.notificationSettings) });
+  res.json({
+    settings: notificationSettingsWithLegacy(state.data || {}, normalizeWorkerAiRules),
+  });
 });
 
 app.patch("/api/notifications/settings", authMiddleware, adminMiddleware, (req, res) => {

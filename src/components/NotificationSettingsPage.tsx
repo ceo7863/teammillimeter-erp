@@ -15,7 +15,9 @@ import {
   sendDailyReportNow,
   sendScScheduleNotifyNow,
   sendScWeeklyBriefingNotifyNow,
+  sendProbationEvalNotifyNow,
   type AlimtalkStatus,
+  type ProbationEvalNotifyStatus,
   type ScScheduleNotifyStatus,
   type ScWeeklyBriefingNotifyStatus,
 } from "@/utils/notificationApi";
@@ -60,6 +62,19 @@ const L = {
   weeklyBriefingWeekdayLabel: "\uBC1C\uC1A1 \uC694\uC77C",
   weeklyBriefingTimeLabel: "\uBC1C\uC1A1 \uC2DC\uAC01",
   weeklyBriefingScheduleHint: "\uC774\uBC88 \uC8FC \uC77C\uC815 \uAE30\uC900",
+  probationEvalFeature: "\uC77C\uC77C \uC2DC\uACF5\uC790 \uD3C9\uAC00",
+  probationEvalFeatureHint:
+    "\uB2F9\uC77C SC \uC77C\uC815 \uCC38\uC5EC \uC2DC\uACF5\uC790\uB97C \uB3D9\uAE09 \uC77C\uC815 \uC2DC\uACF5\uC790\uAC00 \uCE74\uCE74\uC624 \uC54C\uB9BC\uD1A1\uC73C\uB85C \uD3C9\uAC00\uD569\uB2C8\uB2E4. \uD3C9\uAC00 \uB300\uC0C1 \u00B7 \uD3C9\uAC00\uC790 \uB4F1\uAE09\uC740 \uC2E0\uC785 AI \uADDC\uCE59\uC5D0\uC11C \uC124\uC815\uD569\uB2C8\uB2E4.",
+  probationEvalTimeLabel: "\uD3C9\uAC00 \uBC1C\uC1A1 \uC2DC\uAC01",
+  probationEvalScheduleHint: "\uB2F9\uC77C SC \uC77C\uC815 \uAE30\uC900",
+  probationEvalReminder: "\uBBF8\uC81C\uCD9C \uC790\uB3D9 \uB9AC\uB9E4\uC778\uB354",
+  probationEvalReminderHint: "\uB2E4\uC74C\uB0A0 \uC624\uC804 9\uC2DC(KST)\uC5D0 \uC804\uC77C \uBBF8\uC81C\uCD9C \uD3C9\uAC00 \uC694\uCCAD\uC744 \uB2E4\uC2DC \uBC1C\uC1A1\uD569\uB2C8\uB2E4.",
+  probationEvalSendNow: "\uC624\uB298 \uD3C9\uAC00 \uBC1C\uC1A1",
+  probationEvalSendConfirm:
+    "\uC624\uB298 SC \uC77C\uC815 \uAE30\uC900 \uC2DC\uACF5\uC790 \uD3C9\uAC00 \uC694\uCCAD\uC744 \uC0DD\uC131\uD558\uACE0 \uCE74\uCE74\uC624 \uC54C\uB9BC\uD1A1\uC744 \uBC1C\uC1A1\uD569\uB2C8\uB2E4. \uACC4\uC18D\uD560\uAE4C\uC694?",
+  probationEvalSendSuccess: "\uC624\uB298 \uD3C9\uAC00 \uBC1C\uC1A1\uC744 \uC694\uCCAD\uD588\uC2B5\uB2C8\uB2E4.",
+  probationEvalSendError: "\uC624\uB298 \uD3C9\uAC00 \uBC1C\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+  probationEvalTemplate: "\uC2DC\uACF5\uC790 \uD3C9\uAC00 \uD15C\uD074\uB9BF",
   weeklyPreview: "\uC8FC\uAC04 \uBE0C\uB9AC\uD551 \uBBF8\uB9AC\uBCF4\uAE30",
   weeklyPreviewTitle: "\uC774\uBC88 \uC8FC \uD604\uC7A5 \uBE0C\uB9AC\uD551 \uBBF8\uB9AC\uBCF4\uAE30",
   weeklySendTest: "\uC8FC\uAC04 \uBE0C\uB9AC\uD551 \uD14C\uC2A4\uD2B8 \uBC1C\uC1A1",
@@ -170,7 +185,7 @@ function formatTestSuccessMessage(base: string, result: { message?: string; dryR
   return base;
 }
 
-type NotifyBusyKey = "daily-preview" | "daily-send" | "comment-send" | "sc-preview" | "sc-send" | "weekly-preview" | "weekly-send" | null;
+type NotifyBusyKey = "daily-preview" | "daily-send" | "comment-send" | "sc-preview" | "sc-send" | "weekly-preview" | "weekly-send" | "eval-send" | null;
 
 type RecipientRow = NotificationRecipient & {
   loginId?: string;
@@ -545,6 +560,7 @@ export function NotificationSettingsPage({ embedded = false, erpVersion, onErpVe
   const [alimtalkStatus, setAlimtalkStatus] = useState<AlimtalkStatus | null>(null);
   const [scScheduleStatus, setScScheduleStatus] = useState<ScScheduleNotifyStatus | null>(null);
   const [scWeeklyBriefingStatus, setScWeeklyBriefingStatus] = useState<ScWeeklyBriefingNotifyStatus | null>(null);
+  const [probationEvalStatus, setProbationEvalStatus] = useState<ProbationEvalNotifyStatus | null>(null);
   const [version, setVersion] = useState<number | undefined>(erpVersion);
   const [previewMessage, setPreviewMessage] = useState("");
   const [previewTitle, setPreviewTitle] = useState(L.previewTitle);
@@ -569,6 +585,7 @@ export function NotificationSettingsPage({ embedded = false, erpVersion, onErpVe
       setAlimtalkStatus(statusResult.alimtalk);
       setScScheduleStatus(statusResult.scScheduleNotify || null);
       setScWeeklyBriefingStatus(statusResult.scWeeklyBriefing || null);
+      setProbationEvalStatus(statusResult.probationEvalNotify || null);
     } catch (err) {
       console.error(err);
       setError(L.loadError);
@@ -792,6 +809,7 @@ export function NotificationSettingsPage({ embedded = false, erpVersion, onErpVe
       const statusResult = await fetchNotificationStatus();
       setScScheduleStatus(statusResult.scScheduleNotify || null);
       setScWeeklyBriefingStatus(statusResult.scWeeklyBriefing || null);
+      setProbationEvalStatus(statusResult.probationEvalNotify || null);
     } catch (err) {
       console.error(err);
       setError(L.scSendTestError);
@@ -850,6 +868,7 @@ export function NotificationSettingsPage({ embedded = false, erpVersion, onErpVe
       const statusResult = await fetchNotificationStatus();
       setScScheduleStatus(statusResult.scScheduleNotify || null);
       setScWeeklyBriefingStatus(statusResult.scWeeklyBriefing || null);
+      setProbationEvalStatus(statusResult.probationEvalNotify || null);
     } catch (err) {
       console.error(err);
       setError(L.weeklySendTestError);
@@ -876,6 +895,36 @@ export function NotificationSettingsPage({ embedded = false, erpVersion, onErpVe
 
   const updateWeeklyWeekday = (weekday: number) => {
     setSettings((prev) => ({ ...prev, scWeeklyBriefingWeekday: weekday }));
+  };
+
+  const updateProbationEvalSchedule = (hour: number, minute: number) => {
+    setSettings((prev) => ({ ...prev, probationEvalNotifyHour: hour, probationEvalNotifyMinute: minute }));
+  };
+
+  const handleProbationEvalSendNow = async () => {
+    if (!window.confirm(L.probationEvalSendConfirm)) return;
+    setBusy("eval-send");
+    setError("");
+    setMessage("");
+    try {
+      const result = await sendProbationEvalNotifyNow({ settings: buildTestSettingsPayload() });
+      if (result.skipped) {
+        setMessage(formatTestSkipReason(result.reason));
+      } else if ((result.created ?? 0) === 0 && (result.sent ?? 0) === 0) {
+        setMessage(L.sendTestSkippedNoSchedules);
+      } else {
+        setMessage(
+          `${L.probationEvalSendSuccess} (${result.targetDate || "-"}, ${result.created ?? 0}\uAC74 \uC0DD\uC131, ${result.sent ?? 0}\uAC74 \uBC1C\uC1A1)`,
+        );
+      }
+      const statusResult = await fetchNotificationStatus();
+      setProbationEvalStatus(statusResult.probationEvalNotify || null);
+    } catch (err) {
+      console.error(err);
+      setError(L.probationEvalSendError);
+    } finally {
+      setBusy(null);
+    }
   };
 
   const updateRecipient = (userId: number, patch: Partial<Pick<RecipientRow, "dailyReport" | "commentNotify">>) => {
@@ -1041,6 +1090,43 @@ export function NotificationSettingsPage({ embedded = false, erpVersion, onErpVe
                 </NotificationFeatureCard>
 
                 <NotificationFeatureCard
+                  label={L.probationEvalFeature}
+                  hint={L.probationEvalFeatureHint}
+                  checked={settings.probationEvalNotifyEnabled}
+                  disabled={featureDisabled}
+                  onCheckedChange={(checked) =>
+                    setSettings((prev) => ({ ...prev, probationEvalNotifyEnabled: checked }))
+                  }
+                  scheduleLabel={L.probationEvalTimeLabel}
+                  scheduleHint={L.probationEvalScheduleHint}
+                  scheduleHour={settings.probationEvalNotifyHour}
+                  scheduleMinute={settings.probationEvalNotifyMinute}
+                  onScheduleTimeChange={updateProbationEvalSchedule}
+                  scheduleDisabled={featureDisabled}
+                  onSendTest={() => void handleProbationEvalSendNow()}
+                  previewLabel={L.preview}
+                  sendTestLabel={L.probationEvalSendNow}
+                  sending={busy === "eval-send"}
+                  sendTestDisabled={!alimtalkStatus?.probationEvalTemplate && !probationEvalStatus?.templateConfigured}
+                >
+                  <ToggleRow
+                    label={L.probationEvalReminder}
+                    hint={L.probationEvalReminderHint}
+                    checked={settings.probationEvalReminderEnabled}
+                    disabled={featureDisabled || !settings.probationEvalNotifyEnabled}
+                    onChange={(checked) =>
+                      setSettings((prev) => ({ ...prev, probationEvalReminderEnabled: checked }))
+                    }
+                  />
+                  {probationEvalStatus?.meta?.lastRunAt ? (
+                    <p className="erp-text-caption text-slate-500">
+                      마지막 자동 발송: {probationEvalStatus.meta.lastTargetDate || "-"} (
+                      {probationEvalStatus.meta.lastSentCount ?? 0}건 발송)
+                    </p>
+                  ) : null}
+                </NotificationFeatureCard>
+
+                <NotificationFeatureCard
                   label={L.commentFeature}
                   hint={L.commentFeatureHint}
                   checked={settings.commentNotifyEnabled}
@@ -1106,6 +1192,12 @@ export function NotificationSettingsPage({ embedded = false, erpVersion, onErpVe
                       <div className="erp-text-caption text-slate-500">{L.weeklyBriefingTemplate}</div>
                       <div className="erp-text-body mt-1 font-bold text-slate-900">
                         {alimtalkStatus?.weeklyBriefingTemplate || scWeeklyBriefingStatus?.template || L.templateMissing}
+                      </div>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 px-3 py-2">
+                      <div className="erp-text-caption text-slate-500">{L.probationEvalTemplate}</div>
+                      <div className="erp-text-body mt-1 font-bold text-slate-900">
+                        {alimtalkStatus?.probationEvalTemplate || L.templateMissing}
                       </div>
                     </div>
                   </div>

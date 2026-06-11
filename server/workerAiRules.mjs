@@ -9,12 +9,8 @@ export const DEFAULT_WORKER_AI_RULES = {
   autoAdjustGradeOnProbationEnd: true,
   postProbationGrade: "D",
   enforceEGradeDuringProbation: true,
-  probationEvalEnabled: true,
   probationEvalSubjectMaxGrade: "E",
   probationEvalGrades: ["A"],
-  probationEvalNotifyHour: 19,
-  probationEvalNotifyMinute: 0,
-  probationEvalReminderEnabled: true,
   probationEvalTemplateId: "default-v1",
 };
 
@@ -103,7 +99,6 @@ export function normalizeWorkerAiRules(raw) {
       DEFAULT_WORKER_AI_RULES.postProbationGrade,
     ),
     enforceEGradeDuringProbation: row.enforceEGradeDuringProbation !== false,
-    probationEvalEnabled: row.probationEvalEnabled !== false,
     probationEvalSubjectMaxGrade: normalizeEvalSubjectMaxGrade(
       row.probationEvalSubjectMaxGrade,
       DEFAULT_WORKER_AI_RULES.probationEvalSubjectMaxGrade,
@@ -112,12 +107,6 @@ export function normalizeWorkerAiRules(raw) {
       row.probationEvalGrades,
       DEFAULT_WORKER_AI_RULES.probationEvalGrades,
     ),
-    probationEvalNotifyHour: clampHour(row.probationEvalNotifyHour, DEFAULT_WORKER_AI_RULES.probationEvalNotifyHour),
-    probationEvalNotifyMinute: clampMinute(
-      row.probationEvalNotifyMinute,
-      DEFAULT_WORKER_AI_RULES.probationEvalNotifyMinute,
-    ),
-    probationEvalReminderEnabled: row.probationEvalReminderEnabled !== false,
     probationEvalTemplateId:
       String(row.probationEvalTemplateId || DEFAULT_WORKER_AI_RULES.probationEvalTemplateId).trim() ||
       DEFAULT_WORKER_AI_RULES.probationEvalTemplateId,

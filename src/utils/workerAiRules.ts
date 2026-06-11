@@ -13,13 +13,9 @@ export type WorkerAiRules = {
   autoAdjustGradeOnProbationEnd: boolean;
   postProbationGrade: string;
   enforceEGradeDuringProbation: boolean;
-  probationEvalEnabled: boolean;
-  /** E~S. Workers at this grade and below (lower rank) are evaluation subjects. */
+  /** Eval subject max grade (E~S). Grade rules for who gets evaluated. */
   probationEvalSubjectMaxGrade: string;
   probationEvalGrades: string[];
-  probationEvalNotifyHour: number;
-  probationEvalNotifyMinute: number;
-  probationEvalReminderEnabled: boolean;
   probationEvalTemplateId: string;
 };
 
@@ -34,12 +30,8 @@ export const DEFAULT_WORKER_AI_RULES: WorkerAiRules = {
   autoAdjustGradeOnProbationEnd: true,
   postProbationGrade: "D",
   enforceEGradeDuringProbation: true,
-  probationEvalEnabled: true,
   probationEvalSubjectMaxGrade: "E",
   probationEvalGrades: ["A"],
-  probationEvalNotifyHour: 19,
-  probationEvalNotifyMinute: 0,
-  probationEvalReminderEnabled: true,
   probationEvalTemplateId: "default-v1",
 };
 
@@ -124,7 +116,6 @@ export function normalizeWorkerAiRules(raw: unknown): WorkerAiRules {
       DEFAULT_WORKER_AI_RULES.postProbationGrade,
     ),
     enforceEGradeDuringProbation: row.enforceEGradeDuringProbation !== false,
-    probationEvalEnabled: row.probationEvalEnabled !== false,
     probationEvalSubjectMaxGrade: normalizeEvalSubjectMaxGrade(
       row.probationEvalSubjectMaxGrade,
       DEFAULT_WORKER_AI_RULES.probationEvalSubjectMaxGrade,
@@ -133,12 +124,6 @@ export function normalizeWorkerAiRules(raw: unknown): WorkerAiRules {
       row.probationEvalGrades,
       DEFAULT_WORKER_AI_RULES.probationEvalGrades,
     ),
-    probationEvalNotifyHour: clampHour(row.probationEvalNotifyHour, DEFAULT_WORKER_AI_RULES.probationEvalNotifyHour),
-    probationEvalNotifyMinute: clampMinute(
-      row.probationEvalNotifyMinute,
-      DEFAULT_WORKER_AI_RULES.probationEvalNotifyMinute,
-    ),
-    probationEvalReminderEnabled: row.probationEvalReminderEnabled !== false,
     probationEvalTemplateId:
       String(row.probationEvalTemplateId || DEFAULT_WORKER_AI_RULES.probationEvalTemplateId).trim() ||
       DEFAULT_WORKER_AI_RULES.probationEvalTemplateId,

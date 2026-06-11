@@ -42,12 +42,10 @@ const L = {
   evalTitle: "\uC77C\uC77C \uC2DC\uACF5 \uD3C9\uAC00",
   evalBody:
     "SC \uC77C\uC815 \uCC38\uC5EC\uC790 \uC911 \uC124\uC815 \uB4F1\uAE09 \uC774\uD558\uB294 \uC2DC\uACF5\uC790\uAC00 \uD3C9\uAC00 \uB300\uC0C1\uC785\uB2C8\uB2E4. \uD3C9\uAC00\uC790\uB294 \uB300\uC0C1\uBCF4\uB2E4 \uB192\uC740 \uB4F1\uAE09\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4.",
-  evalEnabled: "\uC77C\uC77C \uD3C9\uAC00 \uC0AC\uC6A9",
   evalSubjectMaxGrade: "\uD3C9\uAC00 \uB300\uC0C1 \uCD5C\uACE0 \uB4F1\uAE09",
   evalSubjectMaxGradeHint: "E\uB4F1\uAE09\uBD80\uD130 \uC120\uD0DD \uB4F1\uAE09 \uAE4C\uC9C0 \uD3C9\uAC00 \uB300\uC0C1\uC774 \uB429\uB2C8\uB2E4.",
   evalGrades: "\uD3C9\uAC00\uC790 \uB4F1\uAE09 (\uBCF5\uC218 \uC120\uD0DD, \uC5C6\uC73C\uBA74 \uCD5C\uACE0 \uB4F1\uAE09 \uC790\uB3D9)",
-  evalNotifyHour: "\uC54C\uB9BC \uBC1C\uC1A1 \uC2DC\uAC04 (KST)",
-  evalReminder: "\uBBF8\uC785\uB825 \uC694\uCCAD \uC624\uC804 \uB9AC\uB9E4\uC778\uB354 (9\uC2DC)",
+  evalAlimtalkHint: "\uBC1C\uC1A1 \uC2DC\uAC01\u00B7\uC218\uB3D9 \uBC1C\uC1A1\uC740 \uC54C\uB9BC\uD1A1 \uBA54\uB274 \u2192 \uC124\uC815\uC5D0\uC11C \uAD00\uB9AC\uD569\uB2C8\uB2E4.",
   reset: "\uAE30\uBCF8\uAC12",
   cancel: "\uC30D\uC18C",
   save: "\uC800\uC7A5",
@@ -77,11 +75,8 @@ type DraftState = {
   autoAdjustGradeOnProbationEnd: boolean;
   postProbationGrade: string;
   enforceEGradeDuringProbation: boolean;
-  probationEvalEnabled: boolean;
   probationEvalSubjectMaxGrade: string;
   probationEvalGrades: string[];
-  probationEvalNotifyHour: string;
-  probationEvalReminderEnabled: boolean;
 };
 
 function rulesToDraft(rules: WorkerAiRules): DraftState {
@@ -96,11 +91,8 @@ function rulesToDraft(rules: WorkerAiRules): DraftState {
     autoAdjustGradeOnProbationEnd: rules.autoAdjustGradeOnProbationEnd,
     postProbationGrade: rules.postProbationGrade,
     enforceEGradeDuringProbation: rules.enforceEGradeDuringProbation,
-    probationEvalEnabled: rules.probationEvalEnabled,
     probationEvalSubjectMaxGrade: rules.probationEvalSubjectMaxGrade,
     probationEvalGrades: [...rules.probationEvalGrades],
-    probationEvalNotifyHour: String(rules.probationEvalNotifyHour),
-    probationEvalReminderEnabled: rules.probationEvalReminderEnabled,
   };
 }
 
@@ -116,11 +108,8 @@ function draftToRules(draft: DraftState): WorkerAiRules {
     autoAdjustGradeOnProbationEnd: draft.autoAdjustGradeOnProbationEnd,
     postProbationGrade: draft.postProbationGrade,
     enforceEGradeDuringProbation: draft.enforceEGradeDuringProbation,
-    probationEvalEnabled: draft.probationEvalEnabled,
     probationEvalSubjectMaxGrade: draft.probationEvalSubjectMaxGrade,
     probationEvalGrades: draft.probationEvalGrades,
-    probationEvalNotifyHour: draft.probationEvalNotifyHour,
-    probationEvalReminderEnabled: draft.probationEvalReminderEnabled,
   });
 }
 
@@ -307,14 +296,7 @@ export function WorkerAiRulesModal({ open, rules, saving = false, onClose, onSav
           <section className="erp-sale-ai-rules-section">
             <h3 className="text-sm font-bold text-slate-900">{L.evalTitle}</h3>
             <p className="mt-1 text-sm text-slate-500">{L.evalBody}</p>
-            <label className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-slate-700">
-              <input
-                type="checkbox"
-                checked={draft.probationEvalEnabled}
-                onChange={(event) => updateDraft("probationEvalEnabled", event.target.checked)}
-              />
-              {L.evalEnabled}
-            </label>
+            <p className="mt-1 text-xs text-slate-400">{L.evalAlimtalkHint}</p>
             <div className="erp-sale-ai-rules-grid mt-3">
               <label className="erp-sale-ai-rules-field">
                 <span>{L.evalSubjectMaxGrade}</span>
@@ -322,7 +304,6 @@ export function WorkerAiRulesModal({ open, rules, saving = false, onClose, onSav
                   className="erp-input w-full rounded-xl px-3 py-2 text-sm font-semibold"
                   value={draft.probationEvalSubjectMaxGrade}
                   onChange={(event) => updateDraft("probationEvalSubjectMaxGrade", event.target.value)}
-                  disabled={!draft.probationEvalEnabled}
                 >
                   {SUBJECT_MAX_GRADE_OPTIONS.map((option) => (
                     <option key={option} value={option}>
@@ -342,7 +323,6 @@ export function WorkerAiRulesModal({ open, rules, saving = false, onClose, onSav
                         <input
                           type="checkbox"
                           checked={checked}
-                          disabled={!draft.probationEvalEnabled}
                           onChange={(event) => {
                             const next = event.target.checked
                               ? [...draft.probationEvalGrades, grade]
@@ -356,28 +336,7 @@ export function WorkerAiRulesModal({ open, rules, saving = false, onClose, onSav
                   })}
                 </div>
               </label>
-              <label className="erp-sale-ai-rules-field">
-                <span>{L.evalNotifyHour}</span>
-                <Input
-                  type="number"
-                  min={0}
-                  max={23}
-                  step={1}
-                  value={draft.probationEvalNotifyHour}
-                  onChange={(event) => updateDraft("probationEvalNotifyHour", event.target.value)}
-                  disabled={!draft.probationEvalEnabled}
-                />
-              </label>
             </div>
-            <label className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-slate-700">
-              <input
-                type="checkbox"
-                checked={draft.probationEvalReminderEnabled}
-                onChange={(event) => updateDraft("probationEvalReminderEnabled", event.target.checked)}
-                disabled={!draft.probationEvalEnabled}
-              />
-              {L.evalReminder}
-            </label>
           </section>
         </div>
 

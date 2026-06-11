@@ -228,9 +228,6 @@ function getRequestByToken(data, token) {
 
 export function buildProbationEvalRequestsForSchedules(data, schedules, workDate, updatedBy = "probation-eval") {
   const rules = normalizeWorkerAiRules(data.workerAiRules);
-  if (!rules.probationEvalEnabled) {
-    return { created: [], skipped: schedules.length, reason: "disabled" };
-  }
 
   const workers = Array.isArray(data.workers) ? data.workers : [];
   const templates = listTemplates(data);

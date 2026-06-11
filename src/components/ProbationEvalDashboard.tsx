@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   aggregateByQuestion,
@@ -13,7 +12,6 @@ import {
   type ProbationEvalRequest,
   type ProbationEvalTemplate,
 } from "@/utils/probationEval";
-import { triggerProbationEvalNotify } from "@/utils/probationEvalApi";
 
 const L = {
   title: "\uC218\uC2B5 \uD3C9\uAC00 \uB300\uC2DC\uBCF4\uB4DC",
@@ -24,8 +22,6 @@ const L = {
   workerScores: "\uC2DC\uACF5\uC790\uBCC4 \uD3C9\uADE0 \uC810\uC218",
   questionAvg: "\uBB38\uD56D\uBCC4 \uD3C9\uADE0",
   requests: "\uD3C9\uAC00 \uC694\uCCAD \uBAA9\uB85D",
-  sendToday: "\uC624\uB298 \uD3C9\uAC00 \uBC1C\uC1A1",
-  sending: "\uBC1C\uC1A1 \uC911...",
   status: {
     pending: "\uB300\uAE30",
     sent: "\uBC1C\uC1A1\uC644\uB8CC",
@@ -56,8 +52,6 @@ export function ProbationEvalDashboard({ requests, templates }: ProbationEvalDas
   const [dateTo, setDateTo] = useState(todayISO);
   const [workerQuery, setWorkerQuery] = useState("");
   const [selectedWorkerId, setSelectedWorkerId] = useState("");
-  const [sending, setSending] = useState(false);
-  const [sendMessage, setSendMessage] = useState("");
 
   const normalizedRequests = useMemo(() => normalizeProbationEvalRequests(requests), [requests]);
   const template = useMemo(() => resolveActiveProbationEvalTemplate(templates), [templates]);
@@ -85,33 +79,14 @@ export function ProbationEvalDashboard({ requests, templates }: ProbationEvalDas
     [filteredRequests, selectedWorkerId],
   );
 
-  const handleSendToday = async () => {
-    setSending(true);
-    setSendMessage("");
-    try {
-      const result = (await triggerProbationEvalNotify(todayISO())) as { created?: number; sent?: number };
-      setSendMessage(`\uC0DD\uC131 ${result.created ?? 0}\uAC74 \u00B7 \uBC1C\uC1A1 ${result.sent ?? 0}\uAC74`);
-    } catch (error) {
-      setSendMessage(error instanceof Error ? error.message : "\uBC1C\uC1A1 \uC2E4\uD328");
-    } finally {
-      setSending(false);
-    }
-  };
-
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-bold text-slate-900">{L.title}</h3>
-          <p className="text-sm text-slate-500">
-            {L.completion}: {completion.submitted}/{completion.total} ({completion.rate}%)
-          </p>
-        </div>
-        <Button type="button" size="sm" className="rounded-lg" onClick={() => void handleSendToday()} disabled={sending}>
-          {sending ? L.sending : L.sendToday}
-        </Button>
+      <div>
+        <h3 className="text-sm font-bold text-slate-900">{L.title}</h3>
+        <p className="text-sm text-slate-500">
+          {L.completion}: {completion.submitted}/{completion.total} ({completion.rate}%)
+        </p>
       </div>
-      {sendMessage && <p className="text-sm text-slate-600">{sendMessage}</p>}
 
       <div className="grid gap-3 md:grid-cols-4">
         <label className="space-y-1 text-sm">

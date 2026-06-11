@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { BarChart3, ClipboardList, Send } from "lucide-react";
+import { BarChart3, ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,7 +16,6 @@ import {
   type ProbationEvalRequest,
   type ProbationEvalTemplate,
 } from "@/utils/probationEval";
-import { triggerProbationEvalNotify } from "@/utils/probationEvalApi";
 import type { WorkerAiRules } from "@/utils/workerAiRules";
 
 const L = {
@@ -32,10 +31,6 @@ const L = {
   templateName: "\uC591\uC2DD \uC774\uB984",
   saveTemplate: "\uC591\uC2DD \uC800\uC7A5",
   saving: "\uC800\uC7A5 \uC911\u2026",
-  sendToday: "\uC624\uB298 \uD3C9\uAC00 \uBC1C\uC1A1",
-  sending: "\uBC1C\uC1A1 \uC911\u2026",
-  sendOk: "\uD3C9\uAC00 \uC694\uCCAD \uBC1C\uC1A1\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
-  sendFail: "\uBC1C\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   noWorkers: "\uC218\uC2B5 \uC911 \uC2DC\uACF5\uC790 \uD3C9\uAC00 \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
   noQuestions: "\uC591\uC2DD \uD56D\uBAA9\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   requests: "\uCD5C\uADFC \uC694\uCCAD",
@@ -72,11 +67,7 @@ export function ProbationEvalPanel({
   requests,
   saving = false,
   onSaveTemplates,
-  onRefresh,
 }: ProbationEvalPanelProps) {
-  const [sending, setSending] = useState(false);
-  const [sendMessage, setSendMessage] = useState("");
-
   const normalizedTemplates = useMemo(() => normalizeProbationEvalTemplates(templates), [templates]);
   const activeTemplate = useMemo(
     () => resolveActiveProbationEvalTemplate(normalizedTemplates, workerAiRules.probationEvalTemplateId),
@@ -115,51 +106,15 @@ export function ProbationEvalPanel({
     void onSaveTemplates(next);
   };
 
-  const handleSendToday = async () => {
-    setSending(true);
-    setSendMessage("");
-    try {
-      const result = await triggerProbationEvalNotify(todayISO());
-      setSendMessage(
-        result.skipped
-          ? String(result.reason || L.sendFail)
-          : `${L.sendOk} (${result.created ?? 0}\uAC74 \uC0DD\uC131, ${result.sent ?? 0}\uAC74 \uBC1C\uC1A1)`,
-      );
-      await onRefresh?.();
-    } catch (error) {
-      setSendMessage(error instanceof Error ? error.message : L.sendFail);
-    } finally {
-      setSending(false);
-    }
-  };
-
-  if (!workerAiRules.probationEvalEnabled) {
-    return (
-      <Card className="mt-4 rounded-2xl border-slate-200 shadow-sm">
-        <CardContent className="p-4 text-sm text-slate-500">
-          {"\uC218\uC2B5 \uD3C9\uAC00\uAC00 \uBE44\uD65C\uC131\uD654\uB418\uC5B4 \uC788\uC2B5\uB2C8\uB2E4. \uC2E0\uC785 AI \uADDC\uCE59\uC5D0\uC11C \uD65C\uC131\uD654\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4."}
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
     <div className="mt-4 space-y-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h2 className="erp-text-section flex items-center gap-2">
-            <BarChart3 size={18} />
-            {L.title}
-          </h2>
-          <p className="erp-text-caption mt-1 text-slate-500">{L.desc}</p>
-        </div>
-        <Button type="button" className="rounded-2xl" onClick={() => void handleSendToday()} disabled={sending}>
-          <Send size={16} className="mr-2" />
-          {sending ? L.sending : L.sendToday}
-        </Button>
+      <div>
+        <h2 className="erp-text-section flex items-center gap-2">
+          <BarChart3 size={18} />
+          {L.title}
+        </h2>
+        <p className="erp-text-caption mt-1 text-slate-500">{L.desc}</p>
       </div>
-
-      {sendMessage ? <p className="text-sm text-slate-600">{sendMessage}</p> : null}
 
       <div className="grid gap-3 sm:grid-cols-3">
         <Card className="rounded-2xl shadow-sm">

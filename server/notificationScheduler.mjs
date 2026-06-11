@@ -16,6 +16,11 @@ import { sendCommentAlimtalk, sendDailyReportAlimtalk } from "./alimtalkNotify.m
 import { config } from "./config.mjs";
 import { runScScheduleNotifyJob } from "./scScheduleNotify.mjs";
 import { weekRangeISO, runScWeeklyBriefingNotifyJob } from "./scWeeklyBriefingNotify.mjs";
+import {
+  DEFAULT_NOTIFICATION_SETTINGS,
+  normalizeNotificationSettings,
+  notificationSettingsWithLegacy,
+} from "./notificationSettings.mjs";
 import { normalizeWorkerAiRules } from "./workerAiRules.mjs";
 import { runProbationEvalNotifyJob, runProbationEvalReminderJob } from "./probationEvalNotify.mjs";
 
@@ -221,13 +226,16 @@ function tickScheduler() {
     }
   }
 
-  const workerRules = normalizeWorkerAiRules(state.data?.workerAiRules);
+  const notifySettings = notificationSettingsWithLegacy(state.data || {}, normalizeWorkerAiRules);
   if (
-    settings.enabled &&
-    workerRules.probationEvalEnabled &&
+    notifySettings.enabled &&
+    notifySettings.probationEvalNotifyEnabled &&
     config.alimtalk.probationEvalTemplate
   ) {
-    if (kst.hour === workerRules.probationEvalNotifyHour && kst.minute === workerRules.probationEvalNotifyMinute) {
+    if (
+      kst.hour === notifySettings.probationEvalNotifyHour &&
+      kst.minute === notifySettings.probationEvalNotifyMinute
+    ) {
       if (lastProbationEvalNotifyDateKey !== kst.dateKey) {
         lastProbationEvalNotifyDateKey = kst.dateKey;
         void runProbationEvalNotifyJob().catch((error) => {
@@ -237,11 +245,7 @@ function tickScheduler() {
       }
     }
 
-    if (
-      workerRules.probationEvalReminderEnabled &&
-      kst.hour === 9 &&
-      kst.minute === 0
-    ) {
+    if (notifySettings.probationEvalReminderEnabled && kst.hour === 9 && kst.minute === 0) {
       if (lastProbationEvalReminderDateKey !== kst.dateKey) {
         lastProbationEvalReminderDateKey = kst.dateKey;
         void runProbationEvalReminderJob().catch((error) => {

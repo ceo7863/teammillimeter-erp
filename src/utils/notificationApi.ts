@@ -9,6 +9,21 @@ export type AlimtalkStatus = {
   scheduleTemplate?: string | null;
   contractTemplate?: string | null;
   weeklyBriefingTemplate?: string | null;
+  probationEvalTemplate?: string | null;
+};
+
+export type ProbationEvalNotifyStatus = {
+  enabled: boolean;
+  notifyHour: number;
+  notifyMinute: number;
+  reminderEnabled: boolean;
+  templateConfigured: boolean;
+  meta?: {
+    lastRunAt?: string | null;
+    lastTargetDate?: string | null;
+    lastCreatedCount?: number;
+    lastSentCount?: number;
+  } | null;
 };
 
 export type ScScheduleNotifyStatus = {
@@ -41,6 +56,7 @@ export async function fetchNotificationStatus() {
     alimtalk: AlimtalkStatus;
     scScheduleNotify?: ScScheduleNotifyStatus;
     scWeeklyBriefing?: ScWeeklyBriefingNotifyStatus;
+    probationEvalNotify?: ProbationEvalNotifyStatus;
   }>("/notifications/status");
 }
 
@@ -277,5 +293,23 @@ export async function sendScWeeklyBriefingNotifyNow(options?: {
   }>("/notifications/sc-weekly-briefing/send-all", {
     method: "POST",
     body: JSON.stringify({ force: true, ...(options || {}) }),
+  });
+}
+
+export async function sendProbationEvalNotifyNow(options?: {
+  targetDate?: string;
+  settings?: NotificationSettings;
+}) {
+  return apiRequest<{
+    ok: boolean;
+    skipped?: boolean;
+    reason?: string;
+    targetDate?: string;
+    schedules?: number;
+    created?: number;
+    sent?: number;
+  }>("/notifications/probation-eval/send", {
+    method: "POST",
+    body: JSON.stringify({ ...(options?.targetDate ? { targetDate: options.targetDate } : {}), ...(options || {}) }),
   });
 }

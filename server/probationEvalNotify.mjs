@@ -1,6 +1,10 @@
 import { config } from "./config.mjs";
 import { getErpState, saveErpState } from "./db.mjs";
 import { sendProbationEvalAlimtalk } from "./alimtalkNotify.mjs";
+import {
+  normalizeNotificationSettings,
+  notificationSettingsWithLegacy,
+} from "./notificationSettings.mjs";
 import { normalizeWorkerAiRules } from "./workerAiRules.mjs";
 import { filterSchedulesForDate } from "./scScheduleNotify.mjs";
 import {
@@ -43,12 +47,12 @@ function saveMeta(meta, updatedBy) {
 export function getProbationEvalNotifyStatus() {
   const state = getErpState();
   const data = state.data && typeof state.data === "object" ? state.data : {};
-  const rules = normalizeWorkerAiRules(data.workerAiRules);
+  const settings = notificationSettingsWithLegacy(data, normalizeWorkerAiRules);
   return {
-    enabled: rules.probationEvalEnabled,
-    notifyHour: rules.probationEvalNotifyHour,
-    notifyMinute: rules.probationEvalNotifyMinute,
-    reminderEnabled: rules.probationEvalReminderEnabled,
+    enabled: settings.probationEvalNotifyEnabled,
+    notifyHour: settings.probationEvalNotifyHour,
+    notifyMinute: settings.probationEvalNotifyMinute,
+    reminderEnabled: settings.probationEvalReminderEnabled,
     templateConfigured: Boolean(config.alimtalk.probationEvalTemplate),
     meta: data.probationEvalNotifyMeta || null,
   };
@@ -89,9 +93,11 @@ export async function runProbationEvalNotifyJob(options = {}) {
   const force = options.force === true;
   const state = getErpState();
   const data = state.data && typeof state.data === "object" ? state.data : {};
-  const rules = normalizeWorkerAiRules(options.rulesOverride ?? data.workerAiRules);
+  const notifySettings = options.settingsOverride
+    ? normalizeNotificationSettings(options.settingsOverride)
+    : notificationSettingsWithLegacy(data, normalizeWorkerAiRules);
 
-  if (!force && !rules.probationEvalEnabled) {
+  if (!force && (!notifySettings.enabled || !notifySettings.probationEvalNotifyEnabled)) {
     return { ok: false, skipped: true, reason: "disabled" };
   }
   if (!config.alimtalk.probationEvalTemplate) {
@@ -143,9 +149,16 @@ export async function runProbationEvalReminderJob(options = {}) {
   const force = options.force === true;
   const state = getErpState();
   const data = state.data && typeof state.data === "object" ? state.data : {};
-  const rules = normalizeWorkerAiRules(options.rulesOverride ?? data.workerAiRules);
+  const notifySettings = options.settingsOverride
+    ? normalizeNotificationSettings(options.settingsOverride)
+    : notificationSettingsWithLegacy(data, normalizeWorkerAiRules);
 
-  if (!force && (!rules.probationEvalEnabled || !rules.probationEvalReminderEnabled)) {
+  if (
+    !force &&
+    (!notifySettings.enabled ||
+      !notifySettings.probationEvalNotifyEnabled ||
+      !notifySettings.probationEvalReminderEnabled)
+  ) {
     return { ok: false, skipped: true, reason: "disabled" };
   }
   if (!config.alimtalk.probationEvalTemplate) {

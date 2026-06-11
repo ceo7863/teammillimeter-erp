@@ -28,6 +28,11 @@ export type NotificationSettings = {
   dailyReportExtraPhones: string[];
   /** Who receives tomorrow SC schedule alimtalk */
   scScheduleNotifyMode: ScScheduleNotifyMode;
+  /** Daily worker evaluation alimtalk (SC same-day schedules) */
+  probationEvalNotifyEnabled: boolean;
+  probationEvalNotifyHour: number;
+  probationEvalNotifyMinute: number;
+  probationEvalReminderEnabled: boolean;
 };
 
 export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
@@ -46,6 +51,10 @@ export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   recipients: [],
   dailyReportExtraPhones: [],
   scScheduleNotifyMode: "both",
+  probationEvalNotifyEnabled: true,
+  probationEvalNotifyHour: 19,
+  probationEvalNotifyMinute: 0,
+  probationEvalReminderEnabled: true,
 };
 
 export function normalizePhoneList(value: unknown): string[] {
@@ -82,6 +91,8 @@ export function normalizeNotificationSettings(raw: unknown): NotificationSetting
   const weeklyHour = Number(row.scWeeklyBriefingHour);
   const weeklyMinute = Number(row.scWeeklyBriefingMinute);
   const weeklyWeekday = Number(row.scWeeklyBriefingWeekday);
+  const evalHour = Number(row.probationEvalNotifyHour);
+  const evalMinute = Number(row.probationEvalNotifyMinute);
   const recipients = Array.isArray(row.recipients)
     ? row.recipients
         .map((item) => {
@@ -118,5 +129,13 @@ export function normalizeNotificationSettings(raw: unknown): NotificationSetting
     recipients,
     dailyReportExtraPhones: normalizePhoneList(row.dailyReportExtraPhones),
     scScheduleNotifyMode: normalizeScScheduleNotifyMode(row.scScheduleNotifyMode),
+    probationEvalNotifyEnabled: row.probationEvalNotifyEnabled !== false,
+    probationEvalNotifyHour: clampSchedulePart(evalHour, 23, DEFAULT_NOTIFICATION_SETTINGS.probationEvalNotifyHour),
+    probationEvalNotifyMinute: clampSchedulePart(
+      evalMinute,
+      59,
+      DEFAULT_NOTIFICATION_SETTINGS.probationEvalNotifyMinute,
+    ),
+    probationEvalReminderEnabled: row.probationEvalReminderEnabled !== false,
   };
 }

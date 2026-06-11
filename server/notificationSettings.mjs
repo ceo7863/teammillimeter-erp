@@ -16,6 +16,10 @@ const DEFAULT_NOTIFICATION_SETTINGS = {
   recipients: [],
   dailyReportExtraPhones: [],
   scScheduleNotifyMode: "both",
+  probationEvalNotifyEnabled: true,
+  probationEvalNotifyHour: 19,
+  probationEvalNotifyMinute: 0,
+  probationEvalReminderEnabled: true,
 };
 
 function normalizeWeekday(value) {
@@ -73,6 +77,8 @@ export function normalizeNotificationSettings(raw) {
   const scMinute = Number(raw.scScheduleNotifyMinute);
   const weeklyHour = Number(raw.scWeeklyBriefingHour);
   const weeklyMinute = Number(raw.scWeeklyBriefingMinute);
+  const evalHour = Number(raw.probationEvalNotifyHour);
+  const evalMinute = Number(raw.probationEvalNotifyMinute);
   const scHourFallback = raw.scScheduleNotifyHour == null ? config.sc.scheduleNotify.hour : 18;
   const scMinuteFallback = raw.scScheduleNotifyMinute == null ? config.sc.scheduleNotify.minute : 0;
   const recipients = Array.isArray(raw.recipients)
@@ -94,7 +100,41 @@ export function normalizeNotificationSettings(raw) {
     recipients,
     dailyReportExtraPhones: normalizePhoneList(raw.dailyReportExtraPhones),
     scScheduleNotifyMode: normalizeScScheduleNotifyMode(raw.scScheduleNotifyMode),
+    probationEvalNotifyEnabled: raw.probationEvalNotifyEnabled !== false,
+    probationEvalNotifyHour: clampSchedulePart(
+      evalHour,
+      23,
+      DEFAULT_NOTIFICATION_SETTINGS.probationEvalNotifyHour,
+    ),
+    probationEvalNotifyMinute: clampSchedulePart(
+      evalMinute,
+      59,
+      DEFAULT_NOTIFICATION_SETTINGS.probationEvalNotifyMinute,
+    ),
+    probationEvalReminderEnabled: raw.probationEvalReminderEnabled !== false,
   };
+}
+
+/** Merge legacy workerAiRules notify fields when notificationSettings predates eval notify fields. */
+export function notificationSettingsWithLegacy(data, workerAiRulesNormalizer) {
+  const raw = data?.notificationSettings;
+  const base = normalizeNotificationSettings(raw);
+  const hasOwn =
+    raw &&
+    typeof raw === "object" &&
+    ("probationEvalNotifyEnabled" in raw ||
+      "probationEvalNotifyHour" in raw ||
+      "probationEvalReminderEnabled" in raw);
+  if (hasOwn || !workerAiRulesNormalizer) return base;
+  const legacy = workerAiRulesNormalizer(data?.workerAiRules);
+  if (!legacy) return base;
+  return normalizeNotificationSettings({
+    ...base,
+    probationEvalNotifyEnabled: legacy.probationEvalEnabled !== false,
+    probationEvalNotifyHour: legacy.probationEvalNotifyHour,
+    probationEvalNotifyMinute: legacy.probationEvalNotifyMinute,
+    probationEvalReminderEnabled: legacy.probationEvalReminderEnabled !== false,
+  });
 }
 
 function dedupePhones(phones) {
