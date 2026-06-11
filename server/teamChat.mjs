@@ -1,4 +1,7 @@
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
+import { config } from "./config.mjs";
 import { listUsers } from "./db.mjs";
 import { getDb } from "./db.mjs";
 
@@ -68,7 +71,160 @@ export function initTeamChatStore() {
       `INSERT INTO team_chat_channels (id, type, title, dm_key, created_at) VALUES (?, 'team', ?, NULL, ?)`,
     ).run(TEAM_CHAT_ALL_CHANNEL_ID, "#\uC804\uCCB4", nowIso());
   }
+  migrateTeamChatAttachmentColumns();
+  initTeamChatAttachmentDir();
   syncTeamChatMemberships();
+}
+
+function migrateTeamChatAttachmentColumns() {
+  try {
+    getDb().exec(`ALTER TABLE team_chat_attachments ADD COLUMN channel_id TEXT NOT NULL DEFAULT ''`);
+  } catch {
+    // column already exists
+  }
+}
+
+export function initTeamChatAttachmentDir() {
+  fs.mkdirSync(config.teamChatAttachmentDir, { recursive: true });
+}
+
+function extFromFileName(fileName) {
+  const ext = path.extname(String(fileName || ""));
+  return ext || "";
+}
+
+function rowToAttachment(row) {
+  return {
+    id: row.id,
+    fileName: row.file_name,
+    mimeType: row.mime_type,
+    fileSize: row.file_size,
+    createdAt: row.created_at,
+  };
+}
+
+function loadAttachmentsByMessageIds(messageIds) {
+  const ids = [...new Set(messageIds.map((id) => Number(id)).filter((id) => id > 0))];
+  if (!ids.length) return new Map();
+  const placeholders = ids.map(() => "?").join(", ");
+  const rows = getDb()
+    .prepare(
+      `SELECT id, message_id, file_name, mime_type, file_size, created_at
+       FROM team_chat_attachments
+       WHERE message_id IN (${placeholders})
+       ORDER BY created_at ASC`,
+    )
+    .all(...ids);
+  const map = new Map();
+  for (const row of rows) {
+    const messageId = Number(row.message_id);
+    if (!map.has(messageId)) map.set(messageId, []);
+    map.get(messageId).push(rowToAttachment(row));
+  }
+  return map;
+}
+
+export function createTeamChatPendingAttachment(channelId, userId, buffer, meta = {}) {
+  assertChannelMember(channelId, userId);
+  const fileName = String(meta.fileName || "").trim();
+  if (!fileName) {
+    const err = new Error("\uD30C\uC77C\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    err.status = 400;
+    throw err;
+  }
+  const body = Buffer.from(buffer || []);
+  if (!body.length) {
+    const err = new Error("\uCCA8\uBD80\uD30C\uC77C\uC774 \uBE44\uC5B4 \uC788\uC2B5\uB2C8\uB2E4.");
+    err.status = 400;
+    throw err;
+  }
+
+  const id = `tca-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+  const ext = extFromFileName(fileName);
+  const storagePath = path.join(config.teamChatAttachmentDir, `${id}${ext}`);
+  fs.writeFileSync(storagePath, body);
+
+  const createdAt = nowIso();
+  getDb()
+    .prepare(
+      `INSERT INTO team_chat_attachments
+       (id, message_id, channel_id, file_name, mime_type, file_size, storage_path, created_at)
+       VALUES (?, 0, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      id,
+      String(channelId),
+      fileName,
+      String(meta.mimeType || "application/octet-stream"),
+      body.length,
+      storagePath,
+      createdAt,
+    );
+
+  return rowToAttachment({
+    id,
+    file_name: fileName,
+    mime_type: String(meta.mimeType || "application/octet-stream"),
+    file_size: body.length,
+    created_at: createdAt,
+  });
+}
+
+function linkTeamChatAttachments(messageId, channelId, userId, attachmentIds) {
+  const ids = [...new Set(attachmentIds.map((value) => String(value || "").trim()).filter(Boolean))];
+  if (!ids.length) return;
+  assertChannelMember(channelId, userId);
+  const db = getDb();
+  const placeholders = ids.map(() => "?").join(", ");
+  const rows = db
+    .prepare(
+      `SELECT id, message_id, channel_id FROM team_chat_attachments
+       WHERE id IN (${placeholders})`,
+    )
+    .all(...ids);
+  if (rows.length !== ids.length) {
+    const err = new Error("\uCCA8\uBD80\uD30C\uC77C\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    err.status = 400;
+    throw err;
+  }
+  for (const row of rows) {
+    if (String(row.channel_id || "") !== String(channelId)) {
+      const err = new Error("\uCC57 \uCC44\uB110\uC758 \uCCA8\uBD80\uD30C\uC77C\uC774 \uC544\uB2D9\uB2C8\uB2E4.");
+      err.status = 403;
+      throw err;
+    }
+    if (Number(row.message_id) > 0) {
+      const err = new Error("\uC774\uBBF8 \uC0AC\uC6A9 \uC911\uC778 \uCCA8\uBD80\uD30C\uC77C\uC785\uB2C8\uB2E4.");
+      err.status = 400;
+      throw err;
+    }
+  }
+  const update = db.prepare(
+    `UPDATE team_chat_attachments SET message_id = ?, channel_id = '' WHERE id = ? AND message_id = 0`,
+  );
+  for (const row of rows) {
+    update.run(Number(messageId), row.id);
+  }
+}
+
+export function getTeamChatAttachmentFile(id, userId) {
+  const row = getDb()
+    .prepare(
+      `SELECT a.storage_path, a.file_name, a.mime_type, a.channel_id, a.message_id, m.channel_id AS message_channel_id
+       FROM team_chat_attachments a
+       LEFT JOIN team_chat_messages m ON m.id = a.message_id
+       WHERE a.id = ?`,
+    )
+    .get(String(id));
+  if (!row || !row.storage_path || !fs.existsSync(row.storage_path)) return null;
+  const channelId = String(row.message_channel_id || row.channel_id || "").trim();
+  if (!channelId) return null;
+  assertChannelMember(channelId, userId);
+  return {
+    path: row.storage_path,
+    fileName: row.file_name,
+    mimeType: row.mime_type || "application/octet-stream",
+  };
 }
 
 export function syncTeamChatMemberships() {
@@ -233,7 +389,7 @@ export function getOrCreateTeamChatDmChannel(currentUserId, otherUserId) {
   return formatChannelRow(row, selfId);
 }
 
-function formatMessageRow(row) {
+function formatMessageRow(row, attachments = []) {
   return {
     id: row.id,
     channelId: row.channel_id,
@@ -248,8 +404,14 @@ function formatMessageRow(row) {
             label: String(row.link_label || "").trim(),
           }
         : null,
+    attachments,
     createdAt: row.created_at,
   };
+}
+
+function mapMessagesWithAttachments(rows) {
+  const attachmentMap = loadAttachmentsByMessageIds(rows.map((row) => row.id));
+  return rows.map((row) => formatMessageRow(row, attachmentMap.get(Number(row.id)) || []));
 }
 
 export function listTeamChatMessages(channelId, userId, options = {}) {
@@ -265,7 +427,7 @@ export function listTeamChatMessages(channelId, userId, options = {}) {
        LIMIT ?`,
     )
     .all(String(channelId), afterId, limit);
-  return rows.map(formatMessageRow);
+  return mapMessagesWithAttachments(rows);
 }
 
 export function getTeamChatMessageHistory(channelId, userId, options = {}) {
@@ -280,7 +442,7 @@ export function getTeamChatMessageHistory(channelId, userId, options = {}) {
        LIMIT ?`,
     )
     .all(String(channelId), limit);
-  return rows.reverse().map(formatMessageRow);
+  return mapMessagesWithAttachments(rows.reverse());
 }
 
 export function postTeamChatMessage(channelId, user, input = {}) {
@@ -289,7 +451,10 @@ export function postTeamChatMessage(channelId, user, input = {}) {
   const linkType = String(input.linkType || input.link?.type || "").trim() || null;
   const linkId = String(input.linkId || input.link?.id || "").trim() || null;
   const linkLabel = String(input.linkLabel || input.link?.label || "").trim() || null;
-  if (!body && !(linkType && linkId)) {
+  const attachmentIds = Array.isArray(input.attachmentIds)
+    ? input.attachmentIds.map((value) => String(value || "").trim()).filter(Boolean)
+    : [];
+  if (!body && !(linkType && linkId) && !attachmentIds.length) {
     const err = new Error("\uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.");
     err.status = 400;
     throw err;
@@ -313,17 +478,26 @@ export function postTeamChatMessage(channelId, user, input = {}) {
       createdAt,
     );
 
-  return formatMessageRow({
-    id: result.lastInsertRowid,
-    channel_id: channelId,
-    user_id: user.id,
-    user_name: String(user.name || user.loginId || "").trim(),
-    body,
-    link_type: linkType,
-    link_id: linkId,
-    link_label: linkLabel,
-    created_at: createdAt,
-  });
+  const messageId = Number(result.lastInsertRowid);
+  if (attachmentIds.length) {
+    linkTeamChatAttachments(messageId, channelId, user.id, attachmentIds);
+  }
+
+  const attachments = loadAttachmentsByMessageIds([messageId]).get(messageId) || [];
+  return formatMessageRow(
+    {
+      id: messageId,
+      channel_id: channelId,
+      user_id: user.id,
+      user_name: String(user.name || user.loginId || "").trim(),
+      body,
+      link_type: linkType,
+      link_id: linkId,
+      link_label: linkLabel,
+      created_at: createdAt,
+    },
+    attachments,
+  );
 }
 
 export function markTeamChatRead(channelId, userId, messageId) {

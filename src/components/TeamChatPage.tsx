@@ -1,7 +1,18 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, MessageCircle, Plus, Search, Send, Users, X } from "lucide-react";
+import { ArrowLeft, MessageCircle, Paperclip, Plus, Search, Send, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ErpUser } from "@/utils/erpApi";
+import type { ErpChatAction } from "@/utils/erpChatApi";
+import {
+  downloadTeamChatAttachmentBlob,
+  fetchTeamChatAttachmentBlob,
+  formatTeamChatAttachmentSize,
+  isTeamChatImageMimeType,
+  uploadTeamChatAttachment,
+  type TeamChatAttachment,
+} from "@/utils/teamChatAttachments";
+import { TEAM_CHAT_LINK_LABELS, teamChatLinkToAction, type TeamChatLink } from "@/utils/teamChatLinks";
+import { consumeTeamChatShare } from "@/utils/teamChatShare";
 import {
   fetchTeamChatMessages,
   formatTeamChatTime,
@@ -31,17 +42,25 @@ const L = {
   back: "\uBAA9\uB85D",
   loadError: "\uCC57\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",
   sendError: "\uBA54\uC2DC\uC9C0 \uC804\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+  attachError: "\uCCA8\uBD80\uD30C\uC77C \uC5C5\uB85C\uB4DC\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   noPreview: "\uB300\uD654 \uC5C6\uC74C",
   loading: "\uBD88\uB7EC\uC624\uB294 \uC911\u2026",
   pickChannelHint: "\uB300\uD654\uBC29\uC744 \uC120\uD0DD\uD558\uAC70\uB098 \uC0C8 1:1 \uB300\uD654\uB97C \uC2DC\uC791\uD558\uC138\uC694.",
   teamChannelLabel: "\uC804\uCCB4 \uB2E8\uD1A1",
   dmChannelLabel: "1:1 \uB300\uD654",
+  attach: "\uCCA8\uBD80",
+  removeLink: "\uB9C1\uD06C \uC81C\uAC70",
+  openLink: "\uC774\uB3D9",
+  fileDownloadError: "\uD30C\uC77C\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",
 };
+
+type PendingAttachment = TeamChatAttachment & { previewUrl?: string | null };
 
 type TeamChatPageProps = {
   currentUser: ErpUser | null;
   isPageActive?: boolean;
   onUnreadChange?: () => void;
+  onErpAction?: (action: ErpChatAction) => void;
 };
 
 function ChannelListItem({
@@ -82,23 +101,95 @@ function ChannelListItem({
   );
 }
 
+function MessageAttachmentChip({ attachment }: { attachment: TeamChatAttachment }) {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isTeamChatImageMimeType(attachment.mimeType)) return;
+    let cancelled = false;
+    let objectUrl = "";
+    void (async () => {
+      try {
+        const blob = await fetchTeamChatAttachmentBlob(attachment.id);
+        if (cancelled || !blob) return;
+        objectUrl = URL.createObjectURL(blob);
+        setUrl(objectUrl);
+      } catch {
+        // ignore preview errors
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [attachment.id, attachment.mimeType]);
+
+  const handleDownload = async () => {
+    try {
+      const blob = await fetchTeamChatAttachmentBlob(attachment.id);
+      if (blob) downloadTeamChatAttachmentBlob(blob, attachment.fileName);
+    } catch {
+      window.alert(L.fileDownloadError);
+    }
+  };
+
+  return (
+    <div className="erp-team-chat-attachment-chip">
+      {url ? (
+        <button type="button" className="erp-team-chat-attachment-thumb" onClick={() => void handleDownload()} title={attachment.fileName}>
+          <img src={url} alt={attachment.fileName} />
+        </button>
+      ) : (
+        <button type="button" className="erp-team-chat-attachment-file" onClick={() => void handleDownload()}>
+          <Paperclip size={14} />
+          <span className="truncate">{attachment.fileName}</span>
+          <span className="text-slate-400">({formatTeamChatAttachmentSize(attachment.fileSize)})</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+function MessageLinkCard({
+  link,
+  onOpen,
+}: {
+  link: TeamChatLink;
+  onOpen: (link: TeamChatLink) => void;
+}) {
+  const typeLabel = TEAM_CHAT_LINK_LABELS[link.type as keyof typeof TEAM_CHAT_LINK_LABELS] || link.type;
+  return (
+    <button type="button" className="erp-team-chat-link-card" onClick={() => onOpen(link)}>
+      <span className="erp-team-chat-link-card__type">{typeLabel}</span>
+      <span className="erp-team-chat-link-card__label">{link.label}</span>
+      <span className="erp-team-chat-link-card__action">{L.openLink}</span>
+    </button>
+  );
+}
+
 export const TeamChatPage = memo(function TeamChatPage({
   currentUser,
   isPageActive = true,
   onUnreadChange,
+  onErpAction,
 }: TeamChatPageProps) {
   const [channels, setChannels] = useState<TeamChatChannel[]>([]);
   const [users, setUsers] = useState<TeamChatUser[]>([]);
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
   const [messages, setMessages] = useState<TeamChatMessage[]>([]);
   const [draft, setDraft] = useState("");
+  const [pendingLink, setPendingLink] = useState<TeamChatLink | null>(null);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [userQuery, setUserQuery] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const lastMessageIdRef = useRef(0);
+  const shareAppliedRef = useRef(false);
 
   const selectedChannel = useMemo(
     () => channels.find((row) => row.id === selectedChannelId) || null,
@@ -128,6 +219,18 @@ export const TeamChatPage = memo(function TeamChatPage({
     const rows = await listTeamChatChannels();
     setChannels(rows);
     return rows;
+  }, []);
+
+  const applyPendingShare = useCallback((channelRows: TeamChatChannel[]) => {
+    if (shareAppliedRef.current) return;
+    const payload = consumeTeamChatShare();
+    if (!payload) return;
+    shareAppliedRef.current = true;
+    if (payload.body) setDraft(payload.body);
+    if (payload.link) setPendingLink(payload.link);
+    if (payload.channelId && channelRows.some((row) => row.id === payload.channelId)) {
+      setSelectedChannelId(payload.channelId);
+    }
   }, []);
 
   const loadInitialMessages = useCallback(async (channelId: string) => {
@@ -171,6 +274,7 @@ export const TeamChatPage = memo(function TeamChatPage({
         if (cancelled) return;
         setChannels(channelRows);
         setUsers(userRows);
+        applyPendingShare(channelRows);
       } catch {
         if (!cancelled) setError(L.loadError);
       } finally {
@@ -180,7 +284,7 @@ export const TeamChatPage = memo(function TeamChatPage({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [applyPendingShare]);
 
   useEffect(() => {
     if (!selectedChannelId && channels.length) {
@@ -219,9 +323,19 @@ export const TeamChatPage = memo(function TeamChatPage({
     return () => window.clearInterval(timer);
   }, [isPageActive, pollMessages, refreshChannels, selectedChannelId]);
 
+  useEffect(() => {
+    return () => {
+      for (const row of pendingAttachments) {
+        if (row.previewUrl) URL.revokeObjectURL(row.previewUrl);
+      }
+    };
+  }, [pendingAttachments]);
+
   const handleSelectChannel = useCallback((channelId: string) => {
     setSelectedChannelId(channelId);
     setDraft("");
+    setPendingLink(null);
+    setPendingAttachments([]);
     setPickerOpen(false);
   }, []);
 
@@ -248,15 +362,68 @@ export const TeamChatPage = memo(function TeamChatPage({
     [handleSelectChannel, refreshChannels],
   );
 
+  const handlePickFiles = useCallback(
+    async (fileList: FileList | null) => {
+      if (!selectedChannelId || !fileList?.length || uploading) return;
+      setUploading(true);
+      setError("");
+      try {
+        const next: PendingAttachment[] = [];
+        for (const file of Array.from(fileList)) {
+          const saved = await uploadTeamChatAttachment(file, selectedChannelId);
+          const previewUrl = isTeamChatImageMimeType(saved.mimeType) ? URL.createObjectURL(file) : null;
+          next.push({ ...saved, previewUrl });
+        }
+        setPendingAttachments((prev) => [...prev, ...next]);
+      } catch {
+        setError(L.attachError);
+      } finally {
+        setUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+    },
+    [selectedChannelId, uploading],
+  );
+
+  const removePendingAttachment = useCallback((id: string) => {
+    setPendingAttachments((prev) => {
+      const target = prev.find((row) => row.id === id);
+      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+      return prev.filter((row) => row.id !== id);
+    });
+  }, []);
+
+  const handleOpenLink = useCallback(
+    (link: TeamChatLink) => {
+      const action = teamChatLinkToAction(link);
+      if (action) onErpAction?.(action);
+    },
+    [onErpAction],
+  );
+
+  const canSend =
+    Boolean(selectedChannelId) &&
+    !sending &&
+    !uploading &&
+    (draft.trim().length > 0 || pendingLink || pendingAttachments.length > 0);
+
   const handleSend = useCallback(async () => {
-    if (!selectedChannelId) return;
+    if (!selectedChannelId || !canSend) return;
     const body = draft.trim();
-    if (!body || sending) return;
+    const attachmentIds = pendingAttachments.map((row) => row.id);
     setSending(true);
     setError("");
     try {
-      const message = await sendTeamChatMessage(selectedChannelId, body);
+      const message = await sendTeamChatMessage(selectedChannelId, body, {
+        link: pendingLink,
+        attachmentIds,
+      });
       setDraft("");
+      setPendingLink(null);
+      for (const row of pendingAttachments) {
+        if (row.previewUrl) URL.revokeObjectURL(row.previewUrl);
+      }
+      setPendingAttachments([]);
       setMessages((prev) => [...prev, message]);
       lastMessageIdRef.current = message.id;
       await refreshChannels();
@@ -267,7 +434,7 @@ export const TeamChatPage = memo(function TeamChatPage({
     } finally {
       setSending(false);
     }
-  }, [draft, onUnreadChange, refreshChannels, scrollToBottom, selectedChannelId, sending]);
+  }, [canSend, draft, onUnreadChange, pendingAttachments, pendingLink, refreshChannels, scrollToBottom, selectedChannelId, sending]);
 
   const showThreadOnMobile = Boolean(selectedChannelId);
   const selfId = Number(currentUser?.id) || 0;
@@ -348,6 +515,7 @@ export const TeamChatPage = memo(function TeamChatPage({
               {!messages.length ? <p className="erp-team-chat-muted text-center text-sm">{L.emptyMessages}</p> : null}
               {messages.map((message) => {
                 const isMine = Number(message.userId) === selfId;
+                const link = message.link as TeamChatLink | null | undefined;
                 return (
                   <div
                     key={message.id}
@@ -359,7 +527,17 @@ export const TeamChatPage = memo(function TeamChatPage({
                         {" \u00B7 "}
                         {formatTeamChatTime(message.createdAt)}
                       </div>
-                      <div className="erp-team-chat-bubble__body">{message.body}</div>
+                      {link?.type && link?.id ? (
+                        <MessageLinkCard link={link} onOpen={handleOpenLink} />
+                      ) : null}
+                      {message.body ? <div className="erp-team-chat-bubble__body">{message.body}</div> : null}
+                      {message.attachments?.length ? (
+                        <div className="erp-team-chat-bubble__attachments">
+                          {message.attachments.map((attachment) => (
+                            <MessageAttachmentChip key={attachment.id} attachment={attachment} />
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 );
@@ -368,6 +546,32 @@ export const TeamChatPage = memo(function TeamChatPage({
 
             {error ? <p className="erp-team-chat-error px-4 py-1 text-sm">{error}</p> : null}
 
+            {pendingLink ? (
+              <div className="erp-team-chat-composer__pending-link px-4 pb-2">
+                <MessageLinkCard link={pendingLink} onOpen={handleOpenLink} />
+                <button type="button" className="erp-team-chat-composer__remove-link" onClick={() => setPendingLink(null)}>
+                  {L.removeLink}
+                </button>
+              </div>
+            ) : null}
+
+            {pendingAttachments.length ? (
+              <div className="erp-team-chat-composer__pending-files px-4 pb-2">
+                {pendingAttachments.map((attachment) => (
+                  <div key={attachment.id} className="erp-team-chat-composer__pending-file">
+                    {attachment.previewUrl ? (
+                      <img src={attachment.previewUrl} alt={attachment.fileName} className="erp-team-chat-composer__pending-thumb" />
+                    ) : (
+                      <span className="truncate text-xs">{attachment.fileName}</span>
+                    )}
+                    <button type="button" className="erp-team-chat-composer__pending-remove" onClick={() => removePendingAttachment(attachment.id)}>
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
             <form
               className="erp-team-chat-composer"
               onSubmit={(event) => {
@@ -375,6 +579,26 @@ export const TeamChatPage = memo(function TeamChatPage({
                 void handleSend();
               }}
             >
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                multiple
+                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.txt"
+                capture="environment"
+                onChange={(event) => void handlePickFiles(event.target.files)}
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-10 rounded-xl px-3"
+                disabled={uploading || sending}
+                onClick={() => fileInputRef.current?.click()}
+                title={L.attach}
+              >
+                <Paperclip size={16} />
+              </Button>
               <textarea
                 className="erp-team-chat-composer__input"
                 rows={1}
@@ -388,7 +612,7 @@ export const TeamChatPage = memo(function TeamChatPage({
                   }
                 }}
               />
-              <Button type="submit" size="sm" className="h-10 rounded-xl px-4" disabled={!draft.trim() || sending}>
+              <Button type="submit" size="sm" className="h-10 rounded-xl px-4" disabled={!canSend}>
                 <Send size={16} className="mr-1" />
                 {sending ? L.sending : L.send}
               </Button>

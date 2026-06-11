@@ -372,6 +372,9 @@ import {
 } from "@/utils/sidebarOrder";
 import { useClientSiteRequestPendingCount } from "@/hooks/useClientSiteRequestPendingCount";
 import { useTeamChatUnreadCount } from "@/hooks/useTeamChatUnreadCount";
+import { useTeamChatNotifications } from "@/hooks/useTeamChatNotifications";
+import { buildClientTeamChatLink } from "@/utils/teamChatLinks";
+import { openTeamChatWithShare, TEAM_CHAT_OPEN_EVENT } from "@/utils/teamChatShare";
 import { TeamChatPage } from "@/components/TeamChatPage";
 import { useSaleCommentReadState } from "@/hooks/useSaleCommentReadState";
 
@@ -6035,6 +6038,7 @@ const ClientListTable = memo(function ClientListTable({
   onDelete,
   onOpenBusinessRegView,
   onToggleActive,
+  onShareToTeamChat,
 }: {
   clients: Array<Record<string, unknown>>;
   lastSaleByClient: Map<string, string>;
@@ -6042,6 +6046,7 @@ const ClientListTable = memo(function ClientListTable({
   onDelete: (id: string | number) => void;
   onOpenBusinessRegView: (client: Record<string, unknown>) => void;
   onToggleActive: (client: Record<string, unknown>) => void;
+  onShareToTeamChat?: (client: Record<string, unknown>) => void;
 }) {
   return (
     <div className="erp-table-wrap erp-table-wrap--page-scroll">
@@ -6113,6 +6118,17 @@ const ClientListTable = memo(function ClientListTable({
                   >
                     {active ? <UserMinus size={14} /> : <UserCheck size={14} />}
                   </Button>
+                  {onShareToTeamChat ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl px-2 text-xs font-bold"
+                      onClick={() => onShareToTeamChat(client)}
+                      title={"\uC0AC\uB0B4 \uCC57\uC5D0 \uACF5\uC720"}
+                    >
+                      <MessageCircle size={14} />
+                    </Button>
+                  ) : null}
                   <Button size="sm" variant="outline" className="rounded-xl" onClick={() => onEdit(client)}>
                     <Pencil size={14} />
                   </Button>
@@ -6157,7 +6173,7 @@ function createEmptyClientForm(): ClientFormState {
   };
 }
 
-function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersistClientsImmediate }) {
+function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersistClientsImmediate, onShareToTeamChat }) {
   const [form, setForm] = useState(createEmptyClientForm);
   const [editingId, setEditingId] = useState(null);
   const [clientModalOpen, setClientModalOpen] = useState(false);
@@ -6511,6 +6527,7 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
             onDelete={deleteClient}
             onOpenBusinessRegView={openBusinessRegView}
             onToggleActive={toggleClientActive}
+            onShareToTeamChat={onShareToTeamChat}
           />
         </CardContent>
       </Card>
@@ -8481,6 +8498,20 @@ export default function TeammillimeterErpMvp() {
     pollMs: 10000,
     enabled: active !== "teamChat",
   });
+  const openTeamChatPage = useCallback(() => {
+    setActive("teamChat");
+    setSidebarOpen(false);
+  }, []);
+  useTeamChatNotifications(currentUser, {
+    unreadCount: teamChatUnreadCount,
+    isChatPageActive: active === "teamChat",
+    onOpenChat: openTeamChatPage,
+  });
+  useEffect(() => {
+    const handler = () => openTeamChatPage();
+    window.addEventListener(TEAM_CHAT_OPEN_EVENT, handler);
+    return () => window.removeEventListener(TEAM_CHAT_OPEN_EVENT, handler);
+  }, [openTeamChatPage]);
   const [sales, setSales] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return storedData?.sales || initialSales;
@@ -11077,6 +11108,7 @@ export default function TeammillimeterErpMvp() {
             currentUser={currentUser}
             isPageActive={active === "teamChat"}
             onUnreadChange={() => void refreshTeamChatUnread()}
+            onErpAction={handleErpChatAction}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="attendance" active={active}>
@@ -11276,6 +11308,9 @@ export default function TeammillimeterErpMvp() {
                 sales={appliedSales}
                 companyProfile={companyProfile}
                 onPersistClientsImmediate={persistClientsImmediate}
+                onShareToTeamChat={(client) => {
+                  openTeamChatWithShare({ link: buildClientTeamChatLink(client as { id?: string | number; name?: string }) });
+                }}
               />
             }
             workersPanel={

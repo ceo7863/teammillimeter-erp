@@ -137,6 +137,8 @@ import {
   listTeamChatUsers,
   markTeamChatRead,
   postTeamChatMessage,
+  createTeamChatPendingAttachment,
+  getTeamChatAttachmentFile,
 } from "./teamChat.mjs";
 import { buildDailyReport, formatDailyReportMessage, yesterdayDateKey } from "./dailyReport.mjs";
 import { buildDailyReportPageAsync } from "./dailyReportPage.mjs";
@@ -1599,6 +1601,52 @@ app.post("/api/team-chat/channels/:channelId/read", authMiddleware, (req, res) =
     res.json(markTeamChatRead(req.params.channelId, req.user.id, req.body?.messageId));
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message || "읽음 처리에 실패했습니다." });
+  }
+});
+
+app.post(
+  "/api/team-chat/attachments",
+  authMiddleware,
+  express.raw({ type: () => true, limit: "15mb" }),
+  (req, res) => {
+    try {
+      const rawMeta = req.headers["x-attachment-meta"];
+      if (!rawMeta) {
+        res.status(400).json({ error: "\uCCA8\uBD80\uD30C\uC77C \uBA54\uD0C0\uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4." });
+        return;
+      }
+      const meta = parseAttachmentMetaHeader(rawMeta);
+      const channelId = String(meta.channelId || "").trim();
+      if (!channelId || !meta.fileName) {
+        res.status(400).json({ error: "\uCC44\uB110 ID\uC640 \uD30C\uC77C\uBA85\uC740 \uD544\uC218\uC785\uB2C8\uB2E4." });
+        return;
+      }
+      const buffer = Buffer.from(req.body || []);
+      if (!buffer.length) {
+        res.status(400).json({ error: "\uCCA8\uBD80\uD30C\uC77C\uC774 \uBE44\uC5B4 \uC788\uC2B5\uB2C8\uB2E4." });
+        return;
+      }
+      const saved = createTeamChatPendingAttachment(channelId, req.user.id, buffer, meta);
+      res.status(201).json(saved);
+    } catch (error) {
+      console.error(error);
+      res.status(error.status || 500).json({ error: error.message || "\uCCA8\uBD80\uD30C\uC77C \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+    }
+  },
+);
+
+app.get("/api/team-chat/attachments/:id/file", authMiddleware, (req, res) => {
+  try {
+    const file = getTeamChatAttachmentFile(req.params.id, req.user.id);
+    if (!file) {
+      res.status(404).json({ error: "\uCCA8\uBD80\uD30C\uC77C\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." });
+      return;
+    }
+    res.setHeader("Content-Type", file.mimeType || "application/octet-stream");
+    res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+    res.sendFile(path.resolve(file.path));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "\uCCA8\uBD80\uD30C\uC77C \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
   }
 });
 

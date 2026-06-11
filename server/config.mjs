@@ -24,6 +24,7 @@ export const config = {
   pdfArchiveDir: process.env.PDF_ARCHIVE_DIR || path.join(rootDir, "data", "pdf-archives"),
   clientContractsDir: process.env.CLIENT_CONTRACTS_DIR || path.join(rootDir, "data", "client-contracts"),
   boardAttachmentDir: process.env.BOARD_ATTACHMENT_DIR || path.join(rootDir, "data", "board-attachments"),
+  teamChatAttachmentDir: process.env.TEAM_CHAT_ATTACHMENT_DIR || path.join(rootDir, "data", "team-chat-attachments"),
   clientBusinessRegDir: process.env.CLIENT_BUSINESS_REG_DIR || path.join(rootDir, "data", "client-business-reg"),
   workerPhotosDir: process.env.WORKER_PHOTOS_DIR || path.join(rootDir, "data", "worker-photos"),
   distDir: process.env.DIST_DIR || path.join(rootDir, "dist"),

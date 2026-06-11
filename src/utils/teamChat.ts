@@ -18,6 +18,15 @@ export type TeamChatMessage = {
   userName: string;
   body: string;
   link?: { type: string; id: string; label: string } | null;
+  attachments?: TeamChatAttachment[];
+  createdAt: string;
+};
+
+export type TeamChatAttachment = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
   createdAt: string;
 };
 
@@ -65,11 +74,18 @@ export async function loadTeamChatHistory(channelId: string, limit = 100) {
 export async function sendTeamChatMessage(
   channelId: string,
   body: string,
-  link?: { type: string; id: string; label: string } | null,
+  options?: {
+    link?: { type: string; id: string; label: string } | null;
+    attachmentIds?: string[];
+  },
 ) {
   return apiRequest<TeamChatMessage>(`/team-chat/channels/${encodeURIComponent(channelId)}/messages`, {
     method: "POST",
-    body: JSON.stringify({ body, link }),
+    body: JSON.stringify({
+      body,
+      link: options?.link ?? null,
+      attachmentIds: options?.attachmentIds ?? [],
+    }),
   });
 }
 
