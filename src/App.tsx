@@ -244,6 +244,7 @@ import { WorkerHrRecordPanel } from "@/components/WorkerHrRecordPanel";
 import { ProbationEvalTemplateEditor } from "@/components/ProbationEvalTemplateEditor";
 import type { ProbationEvalRequest, ProbationEvalTemplate } from "@/utils/probationEval";
 import { ScScheduleAlimtalkPage } from "@/components/ScScheduleAlimtalkPage";
+import { DailyReportPage } from "@/components/DailyReportPage";
 import { ClientFormModal, type ClientFormState } from "@/components/ClientFormModal";
 import { WorkerFormModal, createEmptyWorkerForm } from "@/components/WorkerFormModal";
 import {
@@ -2986,6 +2987,7 @@ const PAGE_ICONS: Record<ErpPageKey, typeof Home> = {
   clientSiteRequests: ClipboardList,
   clientSiteRequestCalendars: CalendarRange,
   scAlimtalk: Smartphone,
+  dailyReport: ClipboardList,
   attendance: Clock,
   salesInput: Plus,
   sales: FileSpreadsheet,
@@ -10967,6 +10969,9 @@ export default function TeammillimeterErpMvp() {
             canManageSettings={currentUser?.role === "admin"}
             clients={activeClients}
           />
+        </PageKeepAlive>
+        <PageKeepAlive pageKey="dailyReport" active={active}>
+          <DailyReportPage currentUser={currentUser} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="attendance" active={active}>
           <AttendancePage

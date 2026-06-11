@@ -128,6 +128,7 @@ import {
 import { getChatGuidePdfPath } from "./erpChatGuide.mjs";
 import { initErpChatStore } from "./erpChatStore.mjs";
 import { buildDailyReport, formatDailyReportMessage, yesterdayDateKey } from "./dailyReport.mjs";
+import { buildDailyReportPageAsync } from "./dailyReportPage.mjs";
 import { collectSystemMetrics } from "./systemMetrics.mjs";
 import { collectErpBackupStatus } from "./erpBackupStatus.mjs";
 import { restoreErpBackupSnapshot, scheduleErpProcessRestart } from "./erpBackupRestore.mjs";
@@ -2549,6 +2550,17 @@ app.get("/api/notifications/daily-report/preview", authMiddleware, adminMiddlewa
     report,
     message: formatDailyReportMessage(report, config.alimtalk.erpBaseUrl),
   });
+});
+
+app.get("/api/daily-report/page", authMiddleware, async (req, res) => {
+  try {
+    const skipSync = req.query?.skipSync === "1" || req.query?.skipSync === "true";
+    const page = await buildDailyReportPageAsync({ skipSync, now: new Date() });
+    res.json(page);
+  } catch (error) {
+    console.error("[daily-report-page] load failed:", error);
+    res.status(500).json({ error: error instanceof Error ? error.message : "\uC77C\uC77C\uBCF4\uACE0\uB97C \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4." });
+  }
 });
 
 app.post("/api/notifications/daily-report/send", authMiddleware, adminMiddleware, async (req, res) => {

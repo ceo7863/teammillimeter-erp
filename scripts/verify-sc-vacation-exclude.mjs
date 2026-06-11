@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   isScPersonalVacationSchedule,
   withoutScPersonalVacationSchedules,
+  buildScVacationSummaryForDate,
 } from "../server/scScheduleVacation.mjs";
 import { filterSchedulesForDate } from "../server/scScheduleNotify.mjs";
 import { filterSchedulesForWeek } from "../server/scWeeklyBriefingNotify.mjs";
@@ -48,5 +49,9 @@ assert.equal(
   preview.rows.every((row) => row.scheduleId !== "vac-1"),
   true,
 );
+
+const vacationSummary = buildScVacationSummaryForDate([vacation, site], "2026-06-12");
+assert.equal(vacationSummary.count, 1);
+assert.equal(vacationSummary.members[0].name, "\uC804\uC9C4\uC601");
 
 console.log("verify-sc-vacation-exclude: ok");
