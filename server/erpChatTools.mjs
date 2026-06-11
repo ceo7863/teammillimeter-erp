@@ -2831,6 +2831,15 @@ export function tryRuleBasedClientSiteOnDateQuery(message) {
   const text = String(message || "").trim();
   if (!isClientSiteOnDateQuery(text)) return null;
   const parsed = extractClientSiteOnDateQuery(text);
+  if (!parsed.clientName) {
+    return formatScheduleAnswer(
+      toolGetScheduleCount({
+        startDate: parsed.date,
+        endDate: parsed.date,
+        date: parsed.date,
+      }),
+    );
+  }
   const result = toolGetClientSiteOnDate({ clientName: parsed.clientName, date: parsed.date });
   if (result.ok && !result.siteCount) {
     const scheduleResult = toolGetScheduleCount({
@@ -4172,7 +4181,7 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
     function: {
       name: "get_client_site_on_date",
       description:
-        "\uAC70\uB798\uCC98\uC758 \uD14C\uC815 \uB0A0\uC9DC \uD604\uC7A5/\uC77C\uC815 \uC704\uCE58\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4. \uC608: \uC624\uB298 \uC778\uB514\uD37C \uD604\uC7A5, 6\uC6D4 2\uC77C \uC778\uB514\uD37C \uC77C\uC815 \uC5B4\uB514\uC57C. SC \uC77C\uC815, \uB9E4\uCD9C \uC804\uD45C, \uD604\uC7A5 \uC811\uC218 \uAE30\uC900. '\uC624\uB298'\uC774 \uC788\uC73C\uBA74 \uC624\uB298 \uB0A0\uC9DC\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
+        "\uAC70\uB798\uCC98\uC758 \uD14C\uC815 \uB0A0\uC9DC \uD604\uC7A5/\uC77C\uC815 \uC704\uCE58\uB97C \uC870\uD68C\uD569\uB2C8\uB2E4. \uC608: \uC624\uB298 \uC778\uB514\uD37C \uD604\uC7A5, 6\uC6D4 2\uC77C \uC778\uB514\uD37C \uC77C\uC815 \uC5B4\uB514\uC57C. '\uC624\uB298 \uD604\uC7A5', '\uB0B4\uC77C \uD604\uC7A5' \uCC98\uB7FC \uAC70\uB798\uCC98 \uC5C6\uC774 \uB0A0\uC9DC+\uD604\uC7A5\uB9CC \uC788\uC73C\uBA74 get_schedule_count \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. SC \uC77C\uC815, \uB9E4\uCD9C \uC804\uD45C, \uD604\uC7A5 \uC811\uC218 \uAE30\uC900. '\uC624\uB298'\uC774 \uC788\uC73C\uBA74 \uC624\uB298 \uB0A0\uC9DC\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
       parameters: {
         type: "object",
         properties: {
@@ -4512,9 +4521,19 @@ export function executeErpChatTool(name, args, user, question) {
     }
     case "get_client_site_on_date": {
       const parsed = rawQuestion ? extractClientSiteOnDateQuery(rawQuestion) : {};
+      const clientName = String(parsed.clientName || args?.clientName || "").trim();
+      const date = parsed.date || args?.date;
+      if (!clientName) {
+        const range = resolveDateRangeFromInput(date || rawQuestion || "\uC624\uB298");
+        return toolGetScheduleCount({
+          startDate: range.startDate,
+          endDate: range.endDate,
+          date: range.label || range.startDate,
+        });
+      }
       return toolGetClientSiteOnDate({
-        clientName: parsed.clientName || args?.clientName,
-        date: parsed.date || args?.date,
+        clientName,
+        date,
       });
     }
     case "get_statement_sent_unpaid":
@@ -4758,7 +4777,7 @@ export function formatGreetingAnswer() {
     "· 거래처 입금내역, 세금계산서 내역, 시공비내역서·사업자등록증 파일 열기",
     "· 캘린더, SC 스케줄, 통장, 전표 등 ERP 화면 이동",
     "",
-    '예: "인디퍼 미수", "인디퍼 미수 전표 내역서 링크로 만들어", "강태원 계좌번호", "인디퍼 사업자등록증 열어", "6월 2일 인디퍼 현장 어디야", "내역서 보냈는데 입금 안들어온데", "인디퍼 사업자등록증 있어?", "인디퍼 이번달 계산서 발행한적 있나?", "이번달 매출 얼마", "오늘 입금액"',
+    '예: "인디퍼 미수", "인디퍼 미수 전표 내역서 링크로 만들어", "강태원 계좌번호", "인디퍼 사업자등록증 열어", "6월 2일 인디퍼 현장 어디야", "오늘 현장", "내역서 보냈는데 입금 안들어온데", "인디퍼 사업자등록증 있어?", "인디퍼 이번달 계산서 발행한적 있나?", "이번달 매출 얼마", "오늘 입금액"',
   ].join("\n");
 }
 
@@ -4902,7 +4921,9 @@ export function formatScheduleAnswer(data) {
       ? `${data.workerName} ${data.date}`
       : data.filteredByClient && data.clientName
         ? `${data.clientName} ${data.date}`
-        : String(data.date || "");
+        : data.startDate && data.endDate && data.startDate === data.endDate
+          ? formatClientSiteDateLabel(data.startDate)
+          : String(data.date || "");
   const lines = [
     `${title} \uC77C\uC815: \uB9E4\uCD9C ${data.salesCount}\uAC74, SC \uC77C\uC815 ${data.scScheduleCount}\uAC74 (\uD569\uACC4 ${data.totalCount}\uAC74)`,
   ];

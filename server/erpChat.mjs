@@ -92,6 +92,11 @@ import {
 import { appendErpChatLog, listErpChatLogs, listErpChatLogsAdmin, clearErpChatLogsForUser } from "./erpChatStore.mjs";
 import { appendErpChatAuditLog } from "./erpChatAudit.mjs";
 import {
+  expandQuestionWithChatContext,
+  tryBuildChatClarification,
+  resolveFailedToolClarification,
+} from "./erpChatClarify.mjs";
+import {
   isWeatherQuery,
   toolGetWeather,
   formatWeatherAnswer,
@@ -105,10 +110,11 @@ const SYSTEM_PROMPT = [
   "\uAC70\uB798\uCC98\uBA85(\uC608: \uC778\uB514\uD37C)\uACFC \uC2DC\uACF5\uC790\uBA85(\uC608: \uAC15\uD0DC\uC6D0)\uC740 ERP \uB9C8\uC2A4\uD130 \uAE30\uC900\uC73C\uB85C \uAD6C\uBD84\uD569\uB2C8\uB2E4. \uC778\uB514\uD37C=\uAC70\uB798\uCC98, \uAC15\uD0DC\uC6D0=\uC2DC\uACF5\uC790 \uBCC0\uC218\uC785\uB2C8\uB2E4.",
   "\uAC70\uB798\uCC98 \uB2F4\uB2F9\uC790 \uC870\uD68C\uB294 get_client_contacts, \uB2F4\uB2F9\uC790 \uC778\uC0C1 \uC870\uD68C\uB294 lookup_contact \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. '\uC778\uB514\uD37C \uAE40\uD718\uAD6D \uC804\uD654'\uCC98\uB7FC \uAC70\uB798\uCC98+\uB2F4\uB2F9\uC790 \uC774\uB984\uC774 \uD568\uAED8 \uC788\uC73C\uBA74 get_client_contacts\uC758 clientName\uACFC personName\uC744 \uBD84\uB824 \uC804\uB2EC\uD558\uC138\uC694. \uC2DC\uACF5\uC790\uAC00 \uC544\uB2CC \uAC70\uB798\uCC98 \uB2F4\uB2F9\uC790\uC5D0\uB294 get_worker_info\uB97C \uC0AC\uC6A9\uD558\uC9C0 \uB9C8\uC138\uC694.",
   "\uC2DC\uACF5\uC790 \uCC28\uB7C9\uBC88\uD638(\'\uCC28\uBC88\uD638\', \'\uCC28\uB7C9 \uBC88\uD638\' \uD3EC\uD568)\uB294 get_worker_info\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. \uC2DC\uACF5\uC790/\uAC70\uB798\uCC98 \uACC4\uC88C(\uC740\uD589/\uACC4\uC88C\uBC88\uD638) \uC870\uD68C\uB294 get_person_bank_account \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
-  "\uAC70\uB798\uCC98 \uD604\uC7A5/\uC77C\uC815 \uC704\uCE58(\uC608: \uC624\uB298 \uC778\uB514\uD37C \uD604\uC7A5, 6\uC6D4 2\uC77C \uC778\uB514\uD37C \uC77C\uC815 \uC5B4\uB514\uC57C)\uB294 get_client_site_on_date \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. '\uC624\uB298'\uC774 \uC788\uC73C\uBA74 \uC624\uB298 \uB0A0\uC9DC\uB97C \uC0AC\uC6A9\uD558\uACE0 date\uB97C \uC784\uC758\uB85C \uB123\uC9C0 \uB9C8\uC138\uC694.",
+  "\uAC70\uB798\uCC98 \uD604\uC7A5/\uC77C\uC815 \uC704\uCE58(\uC608: \uC624\uB298 \uC778\uB514\uD37C \uD604\uC7A5, 6\uC6D4 2\uC77C \uC778\uB514\uD37C \uC77C\uC815 \uC5B4\uB514\uC57C)\uB294 get_client_site_on_date \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. '\uC624\uB298 \uD604\uC7A5', '\uB0B4\uC77C \uD604\uC7A5' \uCC98\uB7FC \uAC70\uB798\uCC98 \uC5C6\uC774 \uB0A0\uC9DC+\uD604\uC7A5\uB9CC \uC788\uC73C\uBA74 get_schedule_count(date)\uB97C \uC0AC\uC6A9\uD558\uC138\uC694. '\uC624\uB298'\uC774 \uC788\uC73C\uBA74 \uC624\uB298 \uB0A0\uC9DC\uB97C \uC0AC\uC6A9\uD558\uACE0 date\uB97C \uC784\uC758\uB85C \uB123\uC9C0 \uB9C8\uC138\uC694.",
   "\uBE44\uC815\uD615 \uD55C\uAD6D\uC5B4, \uC624\uD0C0, \uB2E8\uC5B4 \uC21C\uC11C \uBCC0\uD658(\'\uBC15\uC900\uADDC \uCC28\uB7C9\uBC88\uD638\' / '\uCC28\uB7C9\uBC88\uD638 \uBC15\uC900\uADDC', '\uD1B5\uC7A5' / '\uACC4\uC88C')\uB97C \uC790\uC5F0\uC2A4\uB7FD\uAC8C \uC774\uD574\uD558\uC138\uC694.",
   "\uAC70\uB798\uCC98 \uC774\uB984\uC774 \uBAA8\uD638\uD558\uBA74 search_client \uD6C4 \uD655\uC778\uD558\uC138\uC694.",
   `\uC624\uB298 \uB0A0\uC9DC(\uD55C\uAD6D): ${todayISO()}`,
+  "\uC9C8\uBB38\uC774 \uBAA8\uD638\uD558\uAC70\uB098 \uD544\uC218 \uC815\uBCF4(\uAC70\uB798\uCC98\uBA85, \uB0A0\uC9DC, \uC2DC\uACF5\uC790\uBA85 \uB4F1)\uAC00 \uBE44\uC5B4 \uC788\uC73C\uBA74 \uCD94\uCE21\uD558\uC9C0 \uB9D0\uACE0 1~2\uBB38\uC7A5\uC73C\uB85C \uB418\uBB3B\uC774 \uAD6C\uCCB4\uD654\uD558\uC138\uC694.",
   "\uB2F5\uBCC0\uC740 \uC9C1\uC811\uC801\uC774\uACE0 \uAC04\uACB0\uD558\uAC8C \uD55C\uAD6D\uC5B4\uB85C \uC791\uC131\uD558\uC138\uC694.",
   "\uC804\uD45C \uC5F4\uAE30 \uC694\uCCAD\uC740 find_sale_voucher \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
   "\uAC70\uB798\uCC98 \uCE98\uB9B0\uB354/\uB2EC\uB825 \uC5F4\uAE30(\uC608: \uC778\uB514\uD37C \uCE98\uB9B0\uB354 \uC5F4\uC5B4\uC918, \uB2EC\uB825 \uC5F4\uC5B4)\uC740 open_client_calendar \uB3C4\uAD6C\uB97C \uC0AC\uC6A9\uD558\uC138\uC694.",
@@ -504,7 +510,8 @@ export async function handleErpChat({ messages, user: tokenUser }) {
     : [];
 
   const lastUser = [...safeMessages].reverse().find((row) => row.role === "user");
-  const question = lastUser?.content || "";
+  const rawQuestion = lastUser?.content || "";
+  const question = expandQuestionWithChatContext(rawQuestion, safeMessages);
   if (!question.trim()) {
     return { ok: false, error: "\uC9C8\uBB38\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694." };
   }
@@ -535,6 +542,14 @@ export async function handleErpChat({ messages, user: tokenUser }) {
     if (priorityAnswer) {
       answer = priorityAnswer;
       engine = "rules";
+    }
+  }
+
+  if (!answer) {
+    const earlyClarification = tryBuildChatClarification(question);
+    if (earlyClarification) {
+      answer = earlyClarification;
+      engine = "clarify";
     }
   }
 
@@ -669,7 +684,10 @@ export async function handleErpChat({ messages, user: tokenUser }) {
 
   const clientSiteUsed = toolsUsed.find((row) => row.name === "get_client_site_on_date" && row.result?.ok);
   if (clientSiteUsed && !casualQuery) {
-    answer = formatClientSiteOnDateAnswer(clientSiteUsed.result);
+    answer =
+      clientSiteUsed.result.scScheduleCount != null && clientSiteUsed.result.siteCount == null
+        ? formatScheduleAnswer(clientSiteUsed.result)
+        : formatClientSiteOnDateAnswer(clientSiteUsed.result);
   }
 
   const statementSentUnpaidUsed = toolsUsed.find(
@@ -884,6 +902,22 @@ export async function handleErpChat({ messages, user: tokenUser }) {
       if (casualReply) answer = casualReply;
     } catch (error) {
       if (!isOpenAiRecoverableError(error)) throw error;
+    }
+  }
+
+  if (!answer) {
+    const failedToolClarification = resolveFailedToolClarification(toolsUsed);
+    if (failedToolClarification) {
+      answer = failedToolClarification;
+      engine = engine === "openai" ? "openai+clarify" : "rules+clarify";
+    }
+  }
+
+  if (!answer) {
+    const clarification = tryBuildChatClarification(question, { noAnswer: true });
+    if (clarification) {
+      answer = clarification;
+      engine = engine === "openai" ? "openai+clarify" : "rules+clarify";
     }
   }
 

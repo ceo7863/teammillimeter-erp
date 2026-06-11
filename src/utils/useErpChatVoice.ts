@@ -225,9 +225,20 @@ export function useErpChatVoice(options?: {
       recognitionRef.current = null;
       setListening(false);
 
+      const text = interimRef.current || accumulatedRef.current;
+
       if (pendingSendRef.current) {
         pendingSendRef.current = false;
-        deliverVoiceText(interimRef.current || accumulatedRef.current);
+        deliverVoiceText(text);
+        return;
+      }
+
+      if (voiceCaptureOpenRef.current) {
+        if (normalizeVoiceText(text)) {
+          deliverVoiceText(text);
+        } else {
+          resetVoiceCapture();
+        }
         return;
       }
 
