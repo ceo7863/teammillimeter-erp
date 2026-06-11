@@ -333,6 +333,73 @@ export function buildWorkerBankManualLinkCandidates(
     .slice(0, limit);
 }
 
+export type WorkerBankLinkMonthOption = {
+  obligation: WorkerMonthlyObligation;
+  candidate: WorkerBankMatchCandidate | null;
+};
+
+/** 시공자 지급 화면과 동일: 금액 일치 월 우선, 나머지는 월 내림차순 */
+export function buildWorkerBankLinkMonthOptions(
+  tx: BankTransaction,
+  obligations: WorkerMonthlyObligation[],
+  workers: WorkerDepositMatchSource[] = [],
+  options: { worker: string },
+): WorkerBankLinkMonthOption[] {
+  const workerName = String(options.worker || "").trim();
+  if (!workerName || String(tx.linkedWorkerMonthlyPaymentVoucherId || "").trim()) return [];
+
+  const workerObligations = obligations
+    .filter((row) => row.worker === workerName)
+    .filter((row) => row.balance > 0 || row.expectedFinalAmount > 0);
+
+  const scoredCandidates = buildWorkerBankMatchCandidates(tx, workerObligations, workers, {
+    worker: workerName,
+  });
+  const candidateByMonth = new Map(scoredCandidates.map((row) => [row.obligation.monthKey, row]));
+  const scored = scoredCandidates.map((candidate) => ({
+    obligation: candidate.obligation,
+    candidate,
+  }));
+  const rest = workerObligations
+    .filter((row) => !candidateByMonth.has(row.monthKey))
+    .sort((a, b) => b.monthKey.localeCompare(a.monthKey))
+    .map((obligation) => ({ obligation, candidate: null as WorkerBankMatchCandidate | null }));
+
+  return [...scored, ...rest];
+}
+
+export function buildWorkerBankLinkCandidateForObligation(
+  tx: BankTransaction,
+  obligation: WorkerMonthlyObligation,
+  workers: WorkerDepositMatchSource[] = [],
+): WorkerBankMatchCandidate {
+  const bankAmount = resolveWorkerBankPaymentAmount(tx);
+  const bankDate = String(tx.transactionAt || "").slice(0, 10);
+  const amountMatch =
+    resolveWorkerWithdrawalAmountMatch(bankAmount, obligation) ||
+    ({
+      score: 0,
+      reason: "\uAE08\uC561 \uC218\uB3D9 \uD655\uC778",
+      payWithVat: Boolean(obligation.payWithVat),
+      expectedFinalAmount: obligation.expectedFinalAmount,
+      netAmount: obligation.expectedAmount,
+      vatAmount: 0,
+    } satisfies WorkerBankAmountMatch);
+
+  const nameMatch = workerNameMatchScore(tx, obligation.worker, workers);
+  const reasons = [nameMatch.reason, amountMatch.reason].filter(Boolean);
+
+  return {
+    obligation,
+    score: amountMatch.score + nameMatch.score,
+    reasons,
+    amountMatch,
+    bankTransactionId: tx.id,
+    bankAmount,
+    bankDate,
+  };
+}
+
 export function listUnlinkedWorkerBankMatchesForWorker(
   worker: string,
   bankTransactions: BankTransaction[],

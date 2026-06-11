@@ -364,7 +364,12 @@ export function buildBankDepositManualLinkCandidates(
 
   return candidates
     .filter((row) => row.score >= minScore)
-    .sort((a, b) => b.score - a.score || b.unpaid - a.unpaid)
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        String(b.saleDate || "").localeCompare(String(a.saleDate || "")) ||
+        b.unpaid - a.unpaid,
+    )
     .slice(0, limit);
 }
 

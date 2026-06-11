@@ -1,6 +1,5 @@
 import React, { useMemo } from "react";
 import { X } from "lucide-react";
-import { PartialPaymentBadge } from "@/components/AutoLinkBadge";
 import type { BankTransaction } from "@/utils/bankTransactions";
 import { formatKRW } from "@/utils/companyLedger";
 import { formatBankTransactionDateTime } from "@/utils/bankTransactions";
@@ -8,18 +7,22 @@ import {
   buildBankDepositManualLinkCandidates,
   type BankDepositMatchCandidate,
 } from "@/utils/bankReceivableMatch";
+import type { SentStatementMatchCandidate } from "@/utils/bankSentStatementMatch";
 import {
-  buildSentStatementMatchCandidates,
-  type SentStatementMatchCandidate,
-} from "@/utils/bankSentStatementMatch";
-import {
-  buildWorkerBankManualLinkCandidates,
+  buildWorkerBankLinkCandidateForObligation,
+  buildWorkerBankLinkMonthOptions,
   type WorkerBankMatchCandidate,
 } from "@/utils/bankWorkerMonthlyMatch";
 import type { BankTransactionFolder } from "@/utils/bankTransactionFolders";
 import type { PdfArchiveMeta } from "@/utils/pdfArchive";
-import type { ReceivableRow } from "@/utils/receivables";
-import type { WorkerMonthlyActualVoucher, WorkerMonthlyObligation } from "@/utils/workerMonthlyActualPayments";
+import { getStatus, type ReceivableRow } from "@/utils/receivables";
+import {
+  computeVoucherStatus,
+  summarizeWorkerMonthlyObligationAmounts,
+  WORKER_MONTHLY_VOUCHER_STATUS_LABELS,
+  type WorkerMonthlyActualVoucher,
+  type WorkerMonthlyObligation,
+} from "@/utils/workerMonthlyActualPayments";
 import { formatMonthLabel } from "@/utils/workerMonthlyPayments";
 
 const MIDDOT = "\u00B7";
@@ -40,6 +43,31 @@ const L = {
   salesVoucher: (no: string | number) => `\uB9E4\uCD9C\uC804\uD45C ${no}`,
   paymentVoucher: (id: string | number) => `\uC785\uAE08\uC804\uD45C #${id}`,
   workerVoucher: (monthKey: string) => `${formatMonthLabel(monthKey)} \uC2E4\uC9C0\uAE09 \uC804\uD45C`,
+  receivableDate: "\uBBF8\uC218\uC77C\uC790",
+  voucherNo: "\uC804\uD45C\uBC88\uD638",
+  salesAmount: "\uCD1D\uB9E4\uCD9C",
+  paidAmount: "\uC785\uAE08\uC561",
+  unpaidAmount: "\uBBF8\uC218\uAE08",
+  status: "\uC0C1\uD0DC",
+  month: "\uC6D4",
+  netPay: "\uC2E4\uC9C0\uAE09",
+  vat: "\uBD80\uAC00\uC138",
+  total: "\uCD1D \uD569\uACC4",
+  paid: "\uC9C0\uAE09\uC561",
+  unpaid: "\uBBF8\uC9C0\uAE09",
+};
+
+const RECEIVABLE_STATUS_CLASS: Record<string, string> = {
+  "\uC644\uB8CC": "bg-emerald-50 text-emerald-700",
+  "\uC77C\uBD80\uC218\uAE08": "bg-amber-50 text-amber-700",
+  "\uBBF8\uC218": "bg-red-50 text-red-700",
+};
+
+const WORKER_STATUS_CLASS: Record<string, string> = {
+  unpaid: "bg-slate-100 text-slate-700",
+  partial: "bg-amber-100 text-amber-900",
+  paid: "bg-emerald-100 text-emerald-900",
+  overpaid: "bg-sky-100 text-sky-900",
 };
 
 type ErpLinkedPaymentVoucher = {
@@ -342,27 +370,12 @@ export function BankErpDepositLinkModal({
   receivableRows,
   clients,
   paymentVouchers,
-  bankTransactions,
   onClose,
-  onConfirmSentStatement,
   onConfirmReceivable,
 }: BankErpDepositLinkModalProps) {
   const linkedRows = useMemo(
     () => listLinkedDepositVouchers(tx, paymentVouchers, sentArchives, receivableRows),
     [tx, paymentVouchers, sentArchives, receivableRows],
-  );
-  const sentCandidates = useMemo(
-    () =>
-      tx.linkedPaymentVoucherId
-        ? []
-        : buildSentStatementMatchCandidates(tx, sentArchives, {
-            minScore: 0,
-            limit: 30,
-            clients,
-            paymentVouchers,
-            bankTransactions,
-          }),
-    [tx, sentArchives, clients, paymentVouchers, bankTransactions],
   );
   const receivableCandidates = useMemo(
     () =>
@@ -370,13 +383,13 @@ export function BankErpDepositLinkModal({
         ? []
         : buildBankDepositManualLinkCandidates(tx, receivableRows, {
             minScore: 0,
-            limit: 30,
+            limit: 100,
             clients,
           }),
     [tx, receivableRows, clients],
   );
 
-  const totalCount = sentCandidates.length + receivableCandidates.length;
+  const totalCount = receivableCandidates.length;
 
   return (
     <ErpLinkPanelShell
@@ -408,86 +421,48 @@ export function BankErpDepositLinkModal({
         {totalCount ? (
           <section>
             <h3 className="erp-bank-link-panel__section-title">{L.candidateSection}</h3>
-            <div className="space-y-3">
-        {sentCandidates.length ? (
-            <div className="erp-tax-invoice-link-panel__table-wrap overflow-auto rounded-xl border border-violet-200 bg-violet-50/20">
-                <table className="erp-table erp-tax-invoice-link-panel__table w-full">
-                  <thead>
-                    <tr>
-                      <th>{L.voucherCol}</th>
-                      <th>{L.client}</th>
-                      <th>{L.detail}</th>
-                      <th className="text-right">{labels.matchScore}</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sentCandidates.map((candidate) => (
-                      <tr key={candidate.pdfArchiveId} className="erp-tax-invoice-link-panel__row">
-                        <td className="font-semibold text-violet-800">{L.sentVoucher}</td>
-                        <td className="font-semibold text-slate-900">{candidate.client}</td>
-                        <td className="text-slate-600">
-                          <div>
-                            {labels.statementTotal} {formatKRW(candidate.statementTotalAmount)}
-                            {" \u00B7 "}
-                            {labels.sentAt} {String(candidate.sentAt || "").slice(0, 10)}
-                          </div>
-                          {candidate.paymentStatus === "partial" ? (
-                            <div className="mt-0.5 text-xs font-semibold text-amber-700">
-                              {labels.partialStatementMatchHint(
-                                candidate.paymentAmount,
-                                candidate.statementRemainingAmount,
-                              )}
-                            </div>
-                          ) : null}
-                        </td>
-                        <td className="text-right">
-                          <span className="inline-flex items-center gap-1 text-xs font-bold text-violet-700">
-                            {candidate.paymentStatus === "partial" ? <PartialPaymentBadge /> : null}
-                            {candidate.score}
-                          </span>
-                        </td>
-                        <td className="text-right">
-                          <button
-                            type="button"
-                            className="erp-bank-evidence-find erp-bank-evidence-find--plain inline-flex h-7 items-center rounded-lg px-3 text-xs font-semibold"
-                            onClick={() => onConfirmSentStatement(candidate)}
-                          >
-                            {L.linkVoucher}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-          ) : null}
-
-          {receivableCandidates.length ? (
-              <div className="erp-tax-invoice-link-panel__table-wrap overflow-auto rounded-xl border border-slate-200">
-                <table className="erp-table erp-tax-invoice-link-panel__table w-full">
-                  <thead>
-                    <tr>
-                      <th>{L.voucherCol}</th>
-                      <th>{L.client}</th>
-                      <th>{L.detail}</th>
-                      <th className="text-right">{labels.matchScore}</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {receivableCandidates.map((candidate) => (
+            <div className="erp-tax-invoice-link-panel__table-wrap overflow-auto rounded-xl border border-slate-200">
+              <table className="erp-table erp-tax-invoice-link-panel__table w-full">
+                <thead>
+                  <tr>
+                    <th>{L.receivableDate}</th>
+                    <th>{L.voucherNo}</th>
+                    <th>{L.client}</th>
+                    <th>{"\uD604\uC7A5"}</th>
+                    <th className="text-right">{L.salesAmount}</th>
+                    <th className="text-right">{L.paidAmount}</th>
+                    <th className="text-right">{L.unpaidAmount}</th>
+                    <th>{L.status}</th>
+                    <th className="text-right">{labels.matchScore}</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {receivableCandidates.map((candidate) => {
+                    const status = getStatus(candidate);
+                    return (
                       <tr key={String(candidate.salesId)} className="erp-tax-invoice-link-panel__row">
+                        <td className="text-slate-600">{candidate.saleDate || "-"}</td>
                         <td className="font-semibold text-blue-800">
-                          {L.salesVoucher(candidate.voucherNo || candidate.salesId)}
+                          {candidate.voucherNo || candidate.salesId}
                         </td>
                         <td className="font-semibold text-slate-900">{candidate.client}</td>
-                        <td className="text-slate-600">
-                          {candidate.site || "-"}
-                          {" \u00B7 "}
-                          {labels.unpaidAmount} {formatKRW(candidate.unpaid)}
-                          {" \u00B7 "}
-                          {candidate.voucherNo || candidate.salesId}
+                        <td className="text-slate-600">{candidate.site || "-"}</td>
+                        <td className="text-right tabular-nums text-slate-900">
+                          {formatKRW(candidate.salesAmount)}
+                        </td>
+                        <td className="text-right tabular-nums text-emerald-700">
+                          {formatKRW(candidate.paidAmount)}
+                        </td>
+                        <td className="text-right font-bold tabular-nums text-red-600">
+                          {formatKRW(candidate.unpaid)}
+                        </td>
+                        <td>
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${RECEIVABLE_STATUS_CLASS[status] || "bg-slate-100 text-slate-700"}`}
+                          >
+                            {status}
+                          </span>
                         </td>
                         <td className="text-right text-xs font-bold text-blue-700">{candidate.score}</td>
                         <td className="text-right">
@@ -500,11 +475,10 @@ export function BankErpDepositLinkModal({
                           </button>
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-          ) : null}
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </section>
         ) : null}
@@ -536,10 +510,8 @@ const WORKER_EMPTY_MSG =
 export function BankErpWorkerLinkModal({
   tx,
   workerName,
-  labels,
   workerMonthlyActualVouchers,
   workerMonthlyObligations,
-  bankTransactionFolders,
   workers,
   onClose,
   onConfirmWorkerLink,
@@ -549,13 +521,9 @@ export function BankErpWorkerLinkModal({
     [tx, workerMonthlyActualVouchers],
   );
   const linkedId = String(tx.linkedWorkerMonthlyPaymentVoucherId || "").trim();
-  const candidates = linkedRows.length
+  const monthOptions = linkedRows.length
     ? []
-    : buildWorkerBankManualLinkCandidates(tx, workerMonthlyObligations, bankTransactionFolders, workers, {
-        minScore: 0,
-        limit: 30,
-        worker: workerName,
-      });
+    : buildWorkerBankLinkMonthOptions(tx, workerMonthlyObligations, workers, { worker: workerName });
 
   return (
     <ErpLinkPanelShell
@@ -575,74 +543,116 @@ export function BankErpWorkerLinkModal({
       subtitleClassName="text-orange-800"
       onClose={onClose}
       footer={
-        <span>{`\uC5F0\uACB0 ${linkedRows.length.toLocaleString("ko-KR")}\uAC74 \u00B7 \uD6C4\uBCF4 ${candidates.length.toLocaleString("ko-KR")}\uAC74`}</span>
+        <span>{`\uC5F0\uACB0 ${linkedRows.length.toLocaleString("ko-KR")}\uAC74 \u00B7 \uD6C4\uBCF4 ${monthOptions.length.toLocaleString("ko-KR")}\uAC74`}</span>
       }
     >
       <div className="space-y-3">
         <LinkedWorkerVouchersSection rows={linkedRows} />
 
-        {!candidates.length && !linkedRows.length ? (
+        {!monthOptions.length && !linkedRows.length ? (
           <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
             {WORKER_EMPTY_MSG}
           </p>
         ) : null}
 
-        {linkedRows.length && !candidates.length && linkedId && !workerMonthlyActualVouchers.find((row) => row.id === linkedId) ? (
+        {linkedRows.length && !monthOptions.length && linkedId && !workerMonthlyActualVouchers.find((row) => row.id === linkedId) ? (
           <p className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-900">
             {WORKER_LINKED_MSG}
           </p>
         ) : null}
 
-        {candidates.length ? (
+        {monthOptions.length ? (
           <section>
             <h3 className="erp-bank-link-panel__section-title">{L.candidateSection}</h3>
             <div className="erp-tax-invoice-link-panel__table-wrap overflow-auto rounded-xl border border-orange-200 bg-orange-50/20">
-            <table className="erp-table erp-tax-invoice-link-panel__table w-full">
-              <thead>
-                <tr>
-                  <th>{L.voucherCol}</th>
-                  <th>{L.worker}</th>
-                  <th>{L.detail}</th>
-                  <th className="text-right">{labels.matchScore}</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {candidates.map((candidate) => (
-                  <tr
-                    key={`${candidate.obligation.worker}-${candidate.obligation.monthKey}`}
-                    className="erp-tax-invoice-link-panel__row"
-                  >
-                    <td className="font-semibold text-orange-900">
-                      {L.workerVoucher(candidate.obligation.monthKey)}
-                    </td>
-                    <td className="font-semibold text-slate-900">{candidate.obligation.worker}</td>
-                    <td className="text-slate-600">
-                      {"\uBBF8\uC9C0\uAE09 "}
-                      {formatKRW(candidate.obligation.balance)}
-                      {" \u00B7 "}
-                      {"\uC608\uC815 "}
-                      {formatKRW(candidate.obligation.expectedFinalAmount)}
-                      {candidate.reasons.length ? (
-                        <div className="mt-0.5 text-xs text-slate-500">{candidate.reasons.join(` ${MIDDOT} `)}</div>
-                      ) : null}
-                    </td>
-                    <td className="text-right text-xs font-bold text-orange-700">{candidate.score}</td>
-                    <td className="text-right">
-                      <button
-                        type="button"
-                        className="erp-bank-evidence-find erp-bank-evidence-find--worker inline-flex h-7 items-center rounded-lg px-3 text-xs font-semibold"
-                        onClick={() => onConfirmWorkerLink(candidate)}
-                      >
-                        {L.linkVoucher}
-                      </button>
-                    </td>
+              <table className="erp-table erp-tax-invoice-link-panel__table w-full">
+                <thead>
+                  <tr>
+                    <th>{L.month}</th>
+                    <th className="text-right">{L.netPay}</th>
+                    <th className="text-right">{L.vat}</th>
+                    <th className="text-right">{L.total}</th>
+                    <th className="text-right">{L.paid}</th>
+                    <th className="text-right">{L.unpaid}</th>
+                    <th className="text-center">{L.status}</th>
+                    <th />
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+                </thead>
+                <tbody>
+                  {monthOptions.map(({ obligation, candidate }) => {
+                    const voucher = obligation.voucher;
+                    const status = computeVoucherStatus(
+                      voucher
+                        ? {
+                            ...voucher,
+                            expectedAmount: obligation.expectedAmount,
+                            expectedFinalAmount: obligation.expectedFinalAmount,
+                            payWithVat: obligation.payWithVat,
+                          }
+                        : {
+                            paidAmount: obligation.paid,
+                            expectedAmount: obligation.expectedAmount,
+                            expectedFinalAmount: obligation.expectedFinalAmount,
+                            payWithVat: obligation.payWithVat,
+                            entries: [],
+                            allocations: [],
+                            monthKey: obligation.monthKey,
+                          },
+                    );
+                    const amounts = summarizeWorkerMonthlyObligationAmounts(obligation, obligation.voucher);
+                    const linkCandidate =
+                      candidate || buildWorkerBankLinkCandidateForObligation(tx, obligation, workers);
+
+                    return (
+                      <tr
+                        key={obligation.key}
+                        className={`erp-tax-invoice-link-panel__row ${candidate ? "bg-amber-50/80" : ""}`}
+                      >
+                        <td className="font-semibold text-orange-900">
+                          <div>{formatMonthLabel(obligation.monthKey, obligation.periodLabel)}</div>
+                          {obligation.isProbation ? (
+                            <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800">
+                              {"\uC218\uC2B5"}
+                            </span>
+                          ) : null}
+                          {candidate?.reasons.length ? (
+                            <div className="mt-0.5 text-xs font-normal text-slate-500">
+                              {candidate.reasons.join(` ${MIDDOT} `)}
+                            </div>
+                          ) : null}
+                        </td>
+                        <td className="text-right tabular-nums">{formatKRW(amounts.netPay)}</td>
+                        <td className="text-right tabular-nums text-slate-600">
+                          {amounts.vatAmount > 0 ? formatKRW(amounts.vatAmount) : "-"}
+                        </td>
+                        <td className="text-right font-bold tabular-nums">{formatKRW(amounts.totalAmount)}</td>
+                        <td className="text-right font-bold tabular-nums text-emerald-700">
+                          {formatKRW(obligation.paid)}
+                        </td>
+                        <td className="text-right tabular-nums text-red-600">{formatKRW(obligation.balance)}</td>
+                        <td className="text-center">
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${WORKER_STATUS_CLASS[status] || "bg-slate-100 text-slate-700"}`}
+                          >
+                            {WORKER_MONTHLY_VOUCHER_STATUS_LABELS[status]}
+                          </span>
+                        </td>
+                        <td className="text-right">
+                          <button
+                            type="button"
+                            className="erp-bank-evidence-find erp-bank-evidence-find--worker inline-flex h-7 items-center rounded-lg px-3 text-xs font-semibold"
+                            onClick={() => onConfirmWorkerLink(linkCandidate)}
+                          >
+                            {L.linkVoucher}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
         ) : null}
       </div>
     </ErpLinkPanelShell>
