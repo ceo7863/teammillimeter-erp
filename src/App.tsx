@@ -7131,7 +7131,12 @@ function WorkersPage({
       </div>
 
       {workersView === "eval" ? (
-        <ProbationEvalDashboard requests={probationEvalRequests} templates={probationEvalTemplates} />
+        <ProbationEvalDashboard
+          requests={probationEvalRequests}
+          templates={probationEvalTemplates}
+          workers={workers}
+          companyProfile={companyProfile}
+        />
       ) : null}
 
       {workersView === "template" ? (

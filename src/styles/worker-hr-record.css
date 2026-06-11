@@ -1,0 +1,358 @@
+.worker-hr-record-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.worker-hr-record-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.worker-hr-record-doc {
+  width: 100%;
+  max-width: 820px;
+  margin: 0 auto;
+  background: #fff;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+  color: #0f172a;
+  font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+}
+
+.worker-hr-record-header {
+  background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 55%, #2563eb 100%);
+  color: #fff;
+  padding: 24px 28px 20px;
+}
+
+.worker-hr-record-header-top {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.worker-hr-record-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.worker-hr-record-logo {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+
+.worker-hr-record-company {
+  font-size: 13px;
+  opacity: 0.88;
+  font-weight: 600;
+}
+
+.worker-hr-record-doc-type {
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  margin-top: 2px;
+}
+
+.worker-hr-record-meta {
+  text-align: right;
+  font-size: 11px;
+  line-height: 1.6;
+  opacity: 0.92;
+}
+
+.worker-hr-record-subtitle {
+  margin: 14px 0 0;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.worker-hr-record-section {
+  padding: 20px 28px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.worker-hr-record-section h2 {
+  margin: 0 0 14px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #1e3a8a;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.worker-hr-record-section h3 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.worker-hr-record-profile {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+.worker-hr-record-photo {
+  width: 96px;
+  height: 112px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #f1f5f9, #e2e8f0);
+  border: 1px solid #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36px;
+  font-weight: 900;
+  color: #64748b;
+}
+
+.worker-hr-record-dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 20px;
+  margin: 0;
+}
+
+.worker-hr-record-dl > div {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+}
+
+.worker-hr-record-dl .span-2 {
+  grid-column: 1 / -1;
+}
+
+.worker-hr-record-dl dt {
+  margin: 0;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.worker-hr-record-dl dd {
+  margin: 0;
+  color: #0f172a;
+  font-weight: 700;
+  word-break: break-word;
+}
+
+.worker-hr-record-dl dd.is-emphasis {
+  font-size: 16px;
+  color: #1e3a8a;
+}
+
+.worker-hr-record-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.worker-hr-record-kpi {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 12px 14px;
+}
+
+.worker-hr-record-kpi .label {
+  display: block;
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.worker-hr-record-kpi strong {
+  font-size: 22px;
+  font-weight: 900;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.worker-hr-record-charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.worker-hr-record-chart-box {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px;
+  background: #fff;
+}
+
+.worker-hr-record-assessment {
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  padding: 16px 18px;
+  background: #f8fafc;
+}
+
+.worker-hr-record-assessment.is-strong {
+  border-color: #86efac;
+  background: linear-gradient(180deg, #f0fdf4, #fff);
+}
+
+.worker-hr-record-assessment.is-recommend {
+  border-color: #93c5fd;
+  background: linear-gradient(180deg, #eff6ff, #fff);
+}
+
+.worker-hr-record-assessment.is-hold {
+  border-color: #fcd34d;
+  background: linear-gradient(180deg, #fffbeb, #fff);
+}
+
+.worker-hr-record-assessment.is-reject {
+  border-color: #fca5a5;
+  background: linear-gradient(180deg, #fef2f2, #fff);
+}
+
+.worker-hr-record-assessment-badge {
+  display: inline-block;
+  font-size: 15px;
+  font-weight: 900;
+  color: #1e3a8a;
+  margin-bottom: 8px;
+}
+
+.worker-hr-record-assessment.is-strong .worker-hr-record-assessment-badge {
+  color: #166534;
+}
+
+.worker-hr-record-assessment.is-reject .worker-hr-record-assessment-badge {
+  color: #b91c1c;
+}
+
+.worker-hr-record-assessment-summary {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: #475569;
+  font-weight: 600;
+}
+
+.worker-hr-record-assessment-cols {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.worker-hr-record-assessment-cols h4 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 700;
+}
+
+.worker-hr-record-assessment-cols ul {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 12px;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.worker-hr-record-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.worker-hr-record-table th,
+.worker-hr-record-table td {
+  border-bottom: 1px solid #e2e8f0;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.worker-hr-record-table th {
+  background: #f1f5f9;
+  color: #475569;
+  font-weight: 700;
+}
+
+.worker-hr-record-empty {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.worker-hr-record-footer {
+  padding: 16px 28px 22px;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+  font-size: 10px;
+  color: #64748b;
+  line-height: 1.6;
+}
+
+.worker-hr-record-footer p {
+  margin: 0;
+}
+
+.worker-hr-record-footer p + p {
+  margin-top: 4px;
+}
+
+@media (max-width: 720px) {
+  .worker-hr-record-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .worker-hr-record-charts {
+    grid-template-columns: 1fr;
+  }
+
+  .worker-hr-record-profile {
+    grid-template-columns: 1fr;
+  }
+
+  .worker-hr-record-photo {
+    width: 72px;
+    height: 88px;
+    font-size: 28px;
+  }
+
+  .worker-hr-record-dl {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media print {
+  .worker-hr-record-shell {
+    gap: 0;
+  }
+
+  .worker-hr-record-doc {
+    max-width: none;
+    border: none;
+    box-shadow: none;
+    border-radius: 0;
+  }
+
+  .worker-hr-record-section {
+    break-inside: avoid;
+  }
+}

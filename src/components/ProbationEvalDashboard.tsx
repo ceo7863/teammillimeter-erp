@@ -1,5 +1,9 @@
 import { useMemo, useState } from "react";
+import { FileText } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { WorkerHrRecordModal } from "@/components/WorkerHrRecordModal";
+import type { CompanyProfile } from "@/utils/companyProfile";
 import {
   aggregateByQuestion,
   aggregateByWorker,
@@ -30,11 +34,15 @@ const L = {
   },
   noData: "\uD574\uB2F9 \uAE30\uAC04 \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
   trendTitle: "\uC77C\uBCC4 \uC810\uC218 \uCD94\uC774",
+  hrRecord: "\uC778\uC0AC\uAE30\uB85D\uBD80",
+  hrRecordHint: "\uC120\uD0DD \uC2DC\uACF5\uC790 \uC778\uC0AC\uAE30\uB85D\uBD80 (\uB808\uC774\uB354 \u00B7 \uCD94\uC774 \u00B7 \uC9C4\uAE09\uD3C9\uAC00)",
 };
 
 type ProbationEvalDashboardProps = {
   requests: ProbationEvalRequest[];
   templates: ProbationEvalTemplate[];
+  workers?: import("@/utils/workerPayments").WorkerMasterLike[];
+  companyProfile?: CompanyProfile;
 };
 
 function todayISO() {
@@ -43,7 +51,12 @@ function todayISO() {
   return `${kst.getFullYear()}-${String(kst.getMonth() + 1).padStart(2, "0")}-${String(kst.getDate()).padStart(2, "0")}`;
 }
 
-export function ProbationEvalDashboard({ requests, templates }: ProbationEvalDashboardProps) {
+export function ProbationEvalDashboard({
+  requests,
+  templates,
+  workers = [],
+  companyProfile,
+}: ProbationEvalDashboardProps) {
   const [dateFrom, setDateFrom] = useState(() => {
     const base = new Date(`${todayISO()}T12:00:00+09:00`);
     base.setDate(base.getDate() - 30);
@@ -52,6 +65,7 @@ export function ProbationEvalDashboard({ requests, templates }: ProbationEvalDas
   const [dateTo, setDateTo] = useState(todayISO);
   const [workerQuery, setWorkerQuery] = useState("");
   const [selectedWorkerId, setSelectedWorkerId] = useState("");
+  const [hrRecordOpen, setHrRecordOpen] = useState(false);
 
   const normalizedRequests = useMemo(() => normalizeProbationEvalRequests(requests), [requests]);
   const template = useMemo(() => resolveActiveProbationEvalTemplate(templates), [templates]);
@@ -79,13 +93,31 @@ export function ProbationEvalDashboard({ requests, templates }: ProbationEvalDas
     [filteredRequests, selectedWorkerId],
   );
 
+  const selectedWorkerName =
+    workerAggregates.find((row) => row.probationWorkerId === selectedWorkerId)?.probationWorkerName || "";
+
   return (
     <div className="space-y-4">
-      <div>
-        <h3 className="text-sm font-bold text-slate-900">{L.title}</h3>
-        <p className="text-sm text-slate-500">
-          {L.completion}: {completion.submitted}/{completion.total} ({completion.rate}%)
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-bold text-slate-900">{L.title}</h3>
+          <p className="text-sm text-slate-500">
+            {L.completion}: {completion.submitted}/{completion.total} ({completion.rate}%)
+          </p>
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <Button
+            type="button"
+            size="sm"
+            className="rounded-lg"
+            disabled={!selectedWorkerId || !companyProfile}
+            onClick={() => setHrRecordOpen(true)}
+          >
+            <FileText size={14} className="mr-1.5" />
+            {L.hrRecord}
+          </Button>
+          <p className="text-xs text-slate-400">{L.hrRecordHint}</p>
+        </div>
       </div>
 
       <div className="grid gap-3 md:grid-cols-4">
@@ -196,6 +228,21 @@ export function ProbationEvalDashboard({ requests, templates }: ProbationEvalDas
           {!filteredRequests.length && <p className="py-4 text-sm text-slate-500">{L.noData}</p>}
         </div>
       </section>
+
+      {companyProfile && selectedWorkerId ? (
+        <WorkerHrRecordModal
+          open={hrRecordOpen}
+          onClose={() => setHrRecordOpen(false)}
+          workerId={selectedWorkerId}
+          workerName={selectedWorkerName}
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          workers={workers}
+          requests={requests}
+          templates={templates}
+          companyProfile={companyProfile}
+        />
+      ) : null}
     </div>
   );
 }
