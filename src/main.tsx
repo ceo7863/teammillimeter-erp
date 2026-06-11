@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { ErpErrorBoundary } from "@/components/ErpErrorBoundary";
 import { ActionFeedbackProvider } from "@/context/ActionFeedbackContext";
 import { clearStaleChunkReloadFlag, reloadOnceForStaleChunks } from "@/utils/dynamicImport";
 import "./index.css";
@@ -21,7 +22,9 @@ declare global {
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ActionFeedbackProvider>
-      <App />
+      <ErpErrorBoundary>
+        <App />
+      </ErpErrorBoundary>
     </ActionFeedbackProvider>
   </React.StrictMode>,
 );

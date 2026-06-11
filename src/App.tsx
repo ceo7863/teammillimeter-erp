@@ -177,6 +177,7 @@ import { ClientListExport } from "@/components/ClientListExport";
 import { buildClientLastSaleDateMap } from "@/utils/clientListExport";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { PageKeepAlive } from "@/components/PageKeepAlive";
+import { ErpLoadingShell } from "@/components/ErpLoadingShell";
 import { ErpSyncStatusLine } from "@/components/ErpSyncStatusLine";
 import { useBankSyncPoll } from "@/hooks/useBankSyncPoll";
 import { clearErpSyncStatus, setErpSyncStatus } from "@/utils/erpSyncStatus";
@@ -8998,7 +8999,7 @@ export default function TeammillimeterErpMvp() {
   };
 
   useEffect(() => {
-    if (!apiMode || !currentUser?.id) return;
+    if (!apiMode || currentUser?.id == null) return;
     let cancelled = false;
     setDataReady(false);
     (async () => {
@@ -9007,6 +9008,12 @@ export default function TeammillimeterErpMvp() {
         if (cancelled) return;
         applyFetchedErpData(data);
         clearErpSyncStatus();
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => resolve());
+          });
+        });
+        if (cancelled) return;
         setDataReady(true);
       } catch (error) {
         console.error(error);
@@ -11032,27 +11039,39 @@ export default function TeammillimeterErpMvp() {
     ],
   );
 
+  const shellActive = useMemo(() => {
+    if (!currentUser) return active;
+    let next = active;
+    if (next === "teamChat") next = "dailyReport";
+    const visible = resolveVisibleSidebarPages(currentUser, sidebarOrder, sidebarHidden);
+    if (visible.length && !visible.some((page) => page.key === next)) {
+      next = visible.find((page) => page.key === "dailyReport")?.key ?? visible[0]?.key ?? "dailyReport";
+    }
+    return next;
+  }, [active, currentUser, sidebarHidden, sidebarOrder]);
+
+  useEffect(() => {
+    if (!currentUser || !dataReady || shellActive === active) return;
+    setActive(shellActive);
+    if (typeof window !== "undefined" && shellActive !== "teamChat") {
+      window.sessionStorage.setItem(ACTIVE_TAB_KEY, shellActive);
+    }
+  }, [active, currentUser, dataReady, shellActive]);
+
   if (!currentUser) return <LoginScreen onLogin={handleLogin} />;
 
   if (apiMode && !dataReady) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-700" lang="ko">
-        <div className="text-center">
-          <p className="erp-text-section font-bold">서버에서 데이터를 불러오는 중...</p>
-          <p className="erp-text-body mt-2 text-slate-500">잠시만 기다려 주세요.</p>
-        </div>
-      </div>
-    );
+    return <ErpLoadingShell />;
   }
 
-  const activeLabel = getPageLabel(active);
+  const activeLabel = getPageLabel(shellActive);
 
   return (
     <AuditProvider auditLogs={auditLogs} setAuditLogs={setAuditLogs} currentUser={currentUser}>
     <SalePaymentLinkProvider paymentVouchers={paymentVouchers} bankTransactions={bankTransactions} sales={appliedSales}>
     <div className="erp-app-shell flex min-h-screen bg-slate-50 text-slate-900" lang="ko">
       <Sidebar
-        active={active}
+        active={shellActive}
         setActive={handleNavigatePage}
         currentUser={currentUser}
         sidebarOrder={sidebarOrder}
@@ -11071,7 +11090,7 @@ export default function TeammillimeterErpMvp() {
         pageBadges={sidebarPageBadges}
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        {active !== "teamChat" ? (
+        {shellActive !== "teamChat" ? (
         <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-slate-200 bg-white/95 px-3 py-3 backdrop-blur lg:hidden erp-mobile-header">
           <button
             type="button"
@@ -11087,8 +11106,8 @@ export default function TeammillimeterErpMvp() {
           </div>
         </header>
         ) : null}
-        <main className={`min-w-0 flex-1 ${active === "teamChat" ? "erp-main--team-chat p-0 lg:p-4" : "p-2.5 sm:p-3 lg:p-4"}`}>
-        {basicInfoTabAccess.workers && active !== "teamChat" ? (
+        <main className={`min-w-0 flex-1 ${shellActive === "teamChat" ? "erp-main--team-chat p-0 lg:p-4" : "p-2.5 sm:p-3 lg:p-4"}`}>
+        {basicInfoTabAccess.workers && shellActive !== "teamChat" ? (
           <WorkerProbationAlertBanner
             workers={workers}
             workerAiRules={workerAiRules}
@@ -11096,10 +11115,10 @@ export default function TeammillimeterErpMvp() {
             onVisibleCountChange={setWorkerProbationAlertCount}
           />
         ) : null}
-        <PageKeepAlive pageKey="dashboard" active={active}>
+        <PageKeepAlive pageKey="dashboard" active={shellActive}>
           <Dashboard sales={appliedSales} paymentVouchers={paymentVouchers} workers={workers} />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="calendar" active={active}>
+        <PageKeepAlive pageKey="calendar" active={shellActive}>
           <CalendarPage
             sales={appliedSales}
             setSales={setSales}
@@ -11132,10 +11151,10 @@ export default function TeammillimeterErpMvp() {
             onPendingClientFilterConsumed={() => setPendingCalendarClientFilter(null)}
           />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="clientSiteRequests" active={active}>
+        <PageKeepAlive pageKey="clientSiteRequests" active={shellActive}>
           <ClientSiteRequestsPage clients={activeClients} workers={workers} currentUser={currentUser} />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="clientSiteRequestCalendars" active={active} className="erp-page-keep-alive--fill">
+        <PageKeepAlive pageKey="clientSiteRequestCalendars" active={shellActive} className="erp-page-keep-alive--fill">
           <ClientSiteRequestCalendarsPage
             sales={appliedSales}
             workers={workers}
@@ -11144,10 +11163,10 @@ export default function TeammillimeterErpMvp() {
             onPendingClientFilterConsumed={() => setPendingClientSiteRequestCalendarFilter(null)}
           />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="scCalendar" active={active} className="erp-page-keep-alive--fill">
+        <PageKeepAlive pageKey="scCalendar" active={shellActive} className="erp-page-keep-alive--fill">
           <ScCalendarEmbedPage />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="scAlimtalk" active={active}>
+        <PageKeepAlive pageKey="scAlimtalk" active={shellActive}>
           <ScScheduleAlimtalkPage
             erpVersion={erpVersion}
             onErpVersionChange={publishErpVersion}
@@ -11155,26 +11174,26 @@ export default function TeammillimeterErpMvp() {
             clients={activeClients}
           />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="dailyReport" active={active}>
+        <PageKeepAlive pageKey="dailyReport" active={shellActive}>
           <DailyReportPage currentUser={currentUser} />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="teamChat" active={active} className="erp-page-keep-alive--team-chat">
+        <PageKeepAlive pageKey="teamChat" active={shellActive} className="erp-page-keep-alive--team-chat">
           <TeamChatPage
             currentUser={currentUser}
-            isPageActive={active === "teamChat"}
+            isPageActive={shellActive === "teamChat"}
             onUnreadChange={handleTeamChatUnreadChange}
             onErpAction={handleErpChatAction}
             onOpenAppMenu={() => setSidebarOpen(true)}
           />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="attendance" active={active}>
+        <PageKeepAlive pageKey="attendance" active={shellActive}>
           <AttendancePage
             attendanceRecords={attendanceRecords}
             setAttendanceRecords={setAttendanceRecords}
             currentUser={currentUser}
           />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="salesInput" active={active}>
+        <PageKeepAlive pageKey="salesInput" active={shellActive}>
           <SalesRegistrationPage
             sales={sales}
             setSales={setSales}
@@ -11188,10 +11207,10 @@ export default function TeammillimeterErpMvp() {
             onSaveSaleAiRules={saveSaleAiRules}
           />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="sales" active={active}>
+        <PageKeepAlive pageKey="sales" active={shellActive}>
           <SalesManagementPage sales={appliedSales} paymentVouchers={paymentVouchers} clients={clients} workers={workers} setSales={setSales} onPersistSaleDelete={persistSaleVoucherDelete} setActive={setActive} currentUser={currentUser} onEditSale={setSalesManagementEditSale} saleCommentCounts={saleCommentCountBySaleId} saleCommentUnreadCounts={saleCommentUnreadCountBySaleId} onOpenSaleComments={openSaleCommentsView} saleComments={saleComments} onShareToTeamChat={(sale) => { openTeamChatWithShare({ link: buildSaleTeamChatLink(sale as { id?: string | number; client?: string; date?: string }) }); }} />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="salesVoucherSearch" active={active}>
+        <PageKeepAlive pageKey="salesVoucherSearch" active={shellActive}>
           <SalesVoucherSearchPage
             sales={appliedSales}
             setSales={setSales}
@@ -11216,14 +11235,14 @@ export default function TeammillimeterErpMvp() {
             onOpenSaleComments={openSaleCommentsView}
           />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="saleComments" active={active}>
+        <PageKeepAlive pageKey="saleComments" active={shellActive}>
           <SaleCommentsPage
             saleComments={saleComments}
             sales={appliedSales}
             onOpenVoucher={openSaleVoucherFromComments}
           />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="receivables" active={active}>
+        <PageKeepAlive pageKey="receivables" active={shellActive}>
           <PaymentReceivablesPage
             sales={appliedSales}
             receivableRows={receivableRowsFromSales}
@@ -11241,7 +11260,7 @@ export default function TeammillimeterErpMvp() {
             onPendingReceivablesNavConsumed={() => setPendingReceivablesNav(null)}
           />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="workerPayments" active={active}>
+        <PageKeepAlive pageKey="workerPayments" active={shellActive}>
           <WorkerPaymentsPage
             workers={workers}
             workerPortalStatementAcks={workerPortalStatementAcks}
@@ -11271,10 +11290,10 @@ export default function TeammillimeterErpMvp() {
             onInitialTabConsumed={() => setPendingWorkerPaymentsTab(null)}
           />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="accounting" active={active}>
+        <PageKeepAlive pageKey="accounting" active={shellActive}>
           <BankSyncMetaProvider erpVersion={erpVersion} bankListRefreshAt={bankListRefreshAt}>
             <AccountingHubPage
-              isHubActive={active === "accounting"}
+              isHubActive={shellActive === "accounting"}
               initialTab={accountingNavTab}
               onBankTabActiveChange={setBankTabActive}
               pendingBankDateFilter={pendingBankDateFilter}
@@ -11328,9 +11347,9 @@ export default function TeammillimeterErpMvp() {
           />
           </BankSyncMetaProvider>
         </PageKeepAlive>
-        <PageKeepAlive pageKey="analysis" active={active}>
+        <PageKeepAlive pageKey="analysis" active={shellActive}>
           <AnalysisHubPage
-            isHubActive={active === "analysis"}
+            isHubActive={shellActive === "analysis"}
             initialTab={analysisNavTab}
             bankTransactions={bankTransactions}
             companyExpenses={companyExpenses}
@@ -11342,7 +11361,7 @@ export default function TeammillimeterErpMvp() {
             onOpenUnclassifiedInbox={openUnclassifiedFromAnalysis}
           />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="companyNotices" active={active}>
+        <PageKeepAlive pageKey="companyNotices" active={shellActive}>
           <CompanyNoticeBoardPage
             companyNotices={companyNotices}
             setCompanyNotices={setCompanyNotices}
@@ -11351,9 +11370,9 @@ export default function TeammillimeterErpMvp() {
             currentUser={currentUser}
           />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="basicInfo" active={active}>
+        <PageKeepAlive pageKey="basicInfo" active={shellActive}>
           <BasicInfoHubPage
-            isHubActive={active === "basicInfo"}
+            isHubActive={shellActive === "basicInfo"}
             initialTab={basicInfoNavTab}
             tabAccess={basicInfoTabAccess}
             onWorkersTabVisible={syncWorkersFromServer}
@@ -11394,7 +11413,7 @@ export default function TeammillimeterErpMvp() {
             }
           />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="reports" active={active}>
+        <PageKeepAlive pageKey="reports" active={shellActive}>
           <ReportsPage
             sales={appliedSales}
             workers={workers}
@@ -11408,9 +11427,9 @@ export default function TeammillimeterErpMvp() {
           />
         </PageKeepAlive>
         {canUserAccessPage(currentUser, "usersAdmin") ? (
-          <PageKeepAlive pageKey="usersAdmin" active={active}>
+          <PageKeepAlive pageKey="usersAdmin" active={shellActive}>
             <UserAdminHubPage
-              isHubActive={active === "usersAdmin"}
+              isHubActive={shellActive === "usersAdmin"}
               initialTab={userAdminNavTab}
               tabAccess={userAdminTabAccess}
               usersPanel={
@@ -11427,7 +11446,7 @@ export default function TeammillimeterErpMvp() {
             />
           </PageKeepAlive>
         ) : null}
-        <PageKeepAlive pageKey="statements" active={active}>
+        <PageKeepAlive pageKey="statements" active={shellActive}>
           <StatementsPage
             sales={appliedSales}
             clientMaster={clients}
@@ -11445,7 +11464,7 @@ export default function TeammillimeterErpMvp() {
             bankTransactions={bankTransactions}
             workerPaymentRecords={workerPaymentRecords}
             workerPayWithVatLearnRules={workerPayWithVatLearnRules}
-            isPageActive={active === "statements"}
+            isPageActive={shellActive === "statements"}
             taxInvoices={taxInvoices}
             setTaxInvoices={setTaxInvoices}
             erpVersion={erpVersion}

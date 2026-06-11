@@ -1386,16 +1386,13 @@ textarea {
 }
 
 @media (max-width: 1023px) {
-  .erp-app-shell:has(.erp-main--team-chat) {
-    height: 100dvh;
+  .erp-app-shell {
     min-height: 100dvh;
-    overflow: hidden;
   }
 
-  .erp-app-shell:has(.erp-main--team-chat) > .flex.min-w-0.flex-1.flex-col {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow: hidden;
+  .erp-app-shell > .flex.min-w-0.flex-1.flex-col {
+    min-height: 100dvh;
+    min-width: 0;
   }
 
   .erp-main--team-chat {
@@ -1403,7 +1400,6 @@ textarea {
     flex: 1 1 auto;
     flex-direction: column;
     min-height: 0;
-    overflow: hidden;
   }
 
   .erp-app-shell .erp-page-keep-alive--team-chat {
@@ -3147,14 +3143,8 @@ textarea {
 }
 
 .erp-app-shell > .flex.min-w-0.flex-1.flex-col {
-  min-height: 0;
-}
-
-.erp-app-shell > .flex.min-w-0.flex-1.flex-col > main {
-  display: flex;
-  flex-direction: column;
+  min-width: 0;
   flex: 1 1 auto;
-  min-height: 0;
 }
 
 .erp-app-shell > .flex.min-w-0.flex-1.flex-col > main > .erp-page-keep-alive--fill,
