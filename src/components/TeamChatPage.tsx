@@ -2,6 +2,7 @@ import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "
 import {
   ArrowLeft,
   CornerUpLeft,
+  Download,
   ExternalLink,
   MessageCircle,
   ImagePlus,
@@ -98,6 +99,8 @@ const L = {
   removeLink: "\uB9C1\uD06C \uC81C\uAC70",
   openLink: "\uC774\uB3D9",
   fileDownloadError: "\uD30C\uC77C\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",
+  downloadImage: "\uB2E4\uC6B4\uB85C\uB4DC",
+  closePreview: "\uB2EB\uAE30",
   openPopup: "\uBCC4\uB3C4 \uCC3D",
   deletedMessage: "\uC0AD\uC81C\uB41C \uBA54\uC2DC\uC9C0\uC785\uB2C8\uB2E4.",
   edited: "(\uC218\uC815\uB428)",
@@ -181,7 +184,87 @@ function ReplyQuotePreview({ replyTo }: { replyTo: TeamChatReplyPreview }) {
   );
 }
 
-function MessageAttachmentChip({ attachment }: { attachment: TeamChatAttachment }) {
+type TeamChatImagePreview = {
+  url: string;
+  fileName: string;
+  attachmentId?: string;
+};
+
+function TeamChatImagePreviewModal({
+  preview,
+  onClose,
+}: {
+  preview: TeamChatImagePreview | null;
+  onClose: () => void;
+}) {
+  const handleDownload = useCallback(async () => {
+    if (!preview) return;
+    try {
+      if (preview.attachmentId) {
+        const blob = await fetchTeamChatAttachmentBlob(preview.attachmentId);
+        if (blob) {
+          downloadTeamChatAttachmentBlob(blob, preview.fileName);
+          return;
+        }
+      }
+      const response = await fetch(preview.url);
+      const blob = await response.blob();
+      downloadTeamChatAttachmentBlob(blob, preview.fileName);
+    } catch {
+      window.alert(L.fileDownloadError);
+    }
+  }, [preview]);
+
+  useEffect(() => {
+    if (!preview) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose, preview]);
+
+  if (!preview) return null;
+
+  return (
+    <div
+      className="erp-team-chat-image-preview-backdrop"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={preview.fileName}
+    >
+      <div className="erp-team-chat-image-preview__toolbar" onClick={(event) => event.stopPropagation()}>
+        <span className="erp-team-chat-image-preview__name">{preview.fileName}</span>
+        <div className="erp-team-chat-image-preview__actions">
+          <button type="button" className="erp-team-chat-image-preview__btn" onClick={() => void handleDownload()}>
+            <Download size={16} />
+            {L.downloadImage}
+          </button>
+          <button type="button" className="erp-team-chat-image-preview__btn" onClick={onClose} aria-label={L.closePreview}>
+            <X size={18} />
+          </button>
+        </div>
+      </div>
+      <div className="erp-team-chat-image-preview__body" onClick={onClose}>
+        <img
+          src={preview.url}
+          alt={preview.fileName}
+          className="erp-team-chat-image-preview__img"
+          onClick={(event) => event.stopPropagation()}
+        />
+      </div>
+    </div>
+  );
+}
+
+function MessageAttachmentChip({
+  attachment,
+  onImagePreview,
+}: {
+  attachment: TeamChatAttachment;
+  onImagePreview?: (preview: TeamChatImagePreview) => void;
+}) {
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -213,14 +296,33 @@ function MessageAttachmentChip({ attachment }: { attachment: TeamChatAttachment 
     }
   };
 
+  const handleOpen = async () => {
+    if (isTeamChatImageMimeType(attachment.mimeType)) {
+      if (url) {
+        onImagePreview?.({ url, fileName: attachment.fileName, attachmentId: attachment.id });
+        return;
+      }
+      try {
+        const blob = await fetchTeamChatAttachmentBlob(attachment.id);
+        if (!blob) return;
+        const objectUrl = URL.createObjectURL(blob);
+        onImagePreview?.({ url: objectUrl, fileName: attachment.fileName, attachmentId: attachment.id });
+      } catch {
+        window.alert(L.fileDownloadError);
+      }
+      return;
+    }
+    void handleDownload();
+  };
+
   return (
     <div className="erp-team-chat-attachment-chip">
       {url ? (
-        <button type="button" className="erp-team-chat-attachment-thumb" onClick={() => void handleDownload()} title={attachment.fileName}>
+        <button type="button" className="erp-team-chat-attachment-thumb" onClick={() => void handleOpen()} title={attachment.fileName}>
           <img src={url} alt={attachment.fileName} />
         </button>
       ) : (
-        <button type="button" className="erp-team-chat-attachment-file" onClick={() => void handleDownload()}>
+        <button type="button" className="erp-team-chat-attachment-file" onClick={() => void handleOpen()}>
           <Paperclip size={14} />
           <span className="truncate">{attachment.fileName}</span>
           <span className="text-slate-400">({formatTeamChatAttachmentSize(attachment.fileSize)})</span>
@@ -281,6 +383,7 @@ export const TeamChatPage = memo(function TeamChatPage({
   const [menuMessageId, setMenuMessageId] = useState<number | null>(null);
   const [readState, setReadState] = useState<TeamChatReadStateMember[]>([]);
   const [dropOverlayOpen, setDropOverlayOpen] = useState(false);
+  const [imagePreview, setImagePreview] = useState<TeamChatImagePreview | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
@@ -650,6 +753,14 @@ export const TeamChatPage = memo(function TeamChatPage({
     },
     [selectedChannelId, uploading],
   );
+
+  const openImagePreview = useCallback((preview: TeamChatImagePreview) => {
+    setImagePreview(preview);
+  }, []);
+
+  const closeImagePreview = useCallback(() => {
+    setImagePreview(null);
+  }, []);
 
   const canAttachFiles = Boolean(selectedChannelId) && !uploading && !editingMessageId;
 
@@ -1049,7 +1160,11 @@ export const TeamChatPage = memo(function TeamChatPage({
                               {message.attachments?.length ? (
                                 <div className="erp-team-chat-bubble__attachments">
                                   {message.attachments.map((attachment) => (
-                                    <MessageAttachmentChip key={attachment.id} attachment={attachment} />
+                                    <MessageAttachmentChip
+                                    key={attachment.id}
+                                    attachment={attachment}
+                                    onImagePreview={openImagePreview}
+                                  />
                                   ))}
                                 </div>
                               ) : null}
@@ -1109,7 +1224,19 @@ export const TeamChatPage = memo(function TeamChatPage({
                 {pendingAttachments.map((attachment) => (
                   <div key={attachment.id} className="erp-team-chat-composer__pending-file">
                     {attachment.previewUrl ? (
-                      <img src={attachment.previewUrl} alt={attachment.fileName} className="erp-team-chat-composer__pending-thumb" />
+                      <button
+                        type="button"
+                        className="erp-team-chat-composer__pending-thumb-btn"
+                        onClick={() =>
+                          openImagePreview({
+                            url: attachment.previewUrl!,
+                            fileName: attachment.fileName,
+                            attachmentId: attachment.id,
+                          })
+                        }
+                      >
+                        <img src={attachment.previewUrl} alt={attachment.fileName} className="erp-team-chat-composer__pending-thumb" />
+                      </button>
                     ) : (
                       <span className="truncate text-xs">{attachment.fileName}</span>
                     )}
@@ -1356,6 +1483,8 @@ export const TeamChatPage = memo(function TeamChatPage({
           </div>
         </div>
       ) : null}
+
+      <TeamChatImagePreviewModal preview={imagePreview} onClose={closeImagePreview} />
     </div>
   );
 });
