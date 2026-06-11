@@ -10,6 +10,16 @@ export type WorkerEGradePayPeriod = {
   label: string;
 };
 
+/** E등급 수습기간 고정 실지급(공급가) */
+export const WORKER_PROBATION_NET_PAY = 2_000_000;
+/** E등급 수습기간 부가세 포함 지급액 */
+export const WORKER_PROBATION_FINAL_PAY = 2_200_000;
+
+export function resolveWorkerProbationExpectedAmount(savedExpectedAmount?: number | null) {
+  const saved = Math.round(Number(savedExpectedAmount) || 0);
+  return saved > 0 ? saved : WORKER_PROBATION_NET_PAY;
+}
+
 function parseISODate(dateStr: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || "").trim());
   if (!match) return null;

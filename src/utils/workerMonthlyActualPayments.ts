@@ -36,6 +36,7 @@ import {
   isWorkerEGrade,
   resolveLatestDateFromRows,
   resolveWorkerEGradePayProfiles,
+  resolveWorkerProbationExpectedAmount,
   type WorkerEGradePayProfile,
 } from "./workerEGradePayPeriods";
 
@@ -283,6 +284,7 @@ export function resolveWorkerPayWithVat(
   records: WorkerMonthlyPaymentRecord[] = [],
   learnRules: WorkerPayWithVatLearnRule[] = [],
   voucher?: WorkerMonthlyActualVoucher | null,
+  options?: { defaultPayWithVat?: boolean },
 ) {
   if (voucherIsNetOnlyManualPayments(voucher)) return false;
   if (voucher?.payWithVat) return true;
@@ -290,7 +292,8 @@ export function resolveWorkerPayWithVat(
   const record = records.find((row) => row.key === makeWorkerMonthKey(worker, monthKey));
   if (record?.payWithVat) return true;
   const learnRule = learnRules.find((row) => row.worker === String(worker || "").trim());
-  return Boolean(learnRule?.payWithVat);
+  if (learnRule?.payWithVat) return true;
+  return Boolean(options?.defaultPayWithVat);
 }
 
 export function buildWorkerMonthlyWorkerSummaries(
@@ -1127,8 +1130,17 @@ function buildEGradeWorkerObligations(
       continue;
     }
 
-    const expectedAmount = Math.round(workerRow?.netPay || 0);
-    const payWithVat = resolveWorkerPayWithVat(workerName, period.monthKey, records, learnRules, voucher);
+    const expectedAmount = period.isProbation
+      ? resolveWorkerProbationExpectedAmount(voucher?.expectedAmount)
+      : Math.round(workerRow?.netPay || 0);
+    const payWithVat = resolveWorkerPayWithVat(
+      workerName,
+      period.monthKey,
+      records,
+      learnRules,
+      voucher,
+      { defaultPayWithVat: period.isProbation ? true : undefined },
+    );
     const expectedFinalAmount = calculateWorkerPaymentVat(expectedAmount, payWithVat).finalPayAmount;
     const paid = paidByKey.get(`${workerName}::${period.monthKey}`) || 0;
     const salesTotals = period.isProbation
