@@ -7,6 +7,7 @@ export type SaleAiRuleFormTexts = {
   shortShiftFormula: string;
   shortShiftCapRule: string;
   shortShiftPayRule: string;
+  shortShiftEqualPayRule: string;
   shortShiftManwonRule: string;
   overtimeTitle: string;
   overtimeBody: string;
@@ -20,6 +21,7 @@ export type SaleAiRules = {
   overtimeBaseHour: number;
   overtimeStartHour: number;
   normalEndHour: number;
+  shortShiftEqualPayDiscountPercent: number;
   formTexts: SaleAiRuleFormTexts;
 };
 
@@ -34,6 +36,8 @@ export const DEFAULT_SALE_AI_RULE_FORM_TEXTS: SaleAiRuleFormTexts = {
     "\uB2E8\uCD95 \uADFC\uBB34 \uACF5\uC2DD \uCCAD\uAD6C\uC561\uC774 \uC2DC\uACF5\uC790 \uAE30\uBCF8 \uB2E8\uAC00(\uAC1C\uBCC4 \uCCAD\uAD6C\uB2E8\uAC00 \uC788\uC73C\uBA74 \uADF8 \uAE08\uC561)\uBCF4\uB2E4 \uB192\uAC70\uB098 \uAC19\uC73C\uBA74 \uC2DC\uACF5\uC790 \uAE30\uBCF8 \uB2E8\uAC00\uB97C \uC801\uC6A9\uD569\uB2C8\uB2E4.",
   shortShiftPayRule:
     "\uB2E8\uCD95 \uADFC\uBB34 \uCCAD\uAD6C\uC561\uC774 \uC2DC\uACF5\uC790 \uAE30\uBCF8 \uC9C0\uAE09\uC561\uBCF4\uB2E4 \uB192\uC73C\uBA74 \uC9C0\uAE09\uC561\uC744 \uC2DC\uACF5\uC790 \uAE30\uBCF8 \uC9C0\uAE09\uC561\uC5D0 \uB9DE\uCD94\uB2C8\uB2E4.",
+  shortShiftEqualPayRule:
+    "\uB2E8\uCD95 \uADFC\uBB34 \uCCAD\uAD6C\uC561\uACFC \uC9C0\uAE09\uC561\uC774 \uAC19\uC744 \uB54C \uC9C0\uAE09\uC561\uC5D0\uC11C {discountPercent}%\uB97C \uCC28\uAC10\uD558\uACE0, \uB9CC\uC6D0 \uB2E8\uC704\uB85C \uB9DE\uCD09\uB2C8\uB2E4. \uB9CC\uC6D0 \uC774\uD558 \uAE08\uC561\uC774 5\uCC9C\uC6D0 \uBBF8\uB9CC\uC774\uBA74 \uC808\uC0AD, 5\uCC9C\uC6D0 \uC774\uC0C1\uC774\uBA74 \uC62C\uB9BC\uD569\uB2C8\uB2E4.",
   shortShiftManwonRule:
     "{maxHours}\uC2DC\uAC04 \uC774\uD558 \uADFC\uBB34 \uCCAD\uAD6C\uC561\uC774 \uB9CC\uC6D0 \uB2E8\uC704\uAC00 \uC544\uB2C8\uBA74 \uCC9C\uC6D0 \uC790\uB9AC \uC774\uD558\uB97C \uC808\uC0AD\uD558\uC5EC \uB9CC\uC6D0 \uB2E8\uC704\uB85C \uB9DE\uCD94\uB2C8\uB2E4.",
   overtimeTitle: "\uC57C\uADFC \uC2DC\uAC04",
@@ -50,6 +54,7 @@ export const DEFAULT_SALE_AI_RULES: SaleAiRules = {
   overtimeBaseHour: 17,
   overtimeStartHour: 19,
   normalEndHour: 18,
+  shortShiftEqualPayDiscountPercent: 5,
   formTexts: { ...DEFAULT_SALE_AI_RULE_FORM_TEXTS },
 };
 
@@ -76,6 +81,12 @@ function normalizeFormText(value: unknown, fallback: string) {
   return text || fallback;
 }
 
+function clampPercent(value: unknown, fallback: number) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num < 0) return fallback;
+  return Math.min(100, Math.round(num * 10) / 10);
+}
+
 function normalizeFormTexts(raw: unknown): SaleAiRuleFormTexts {
   const row = raw && typeof raw === "object" ? (raw as Partial<SaleAiRuleFormTexts>) : {};
   return {
@@ -85,6 +96,7 @@ function normalizeFormTexts(raw: unknown): SaleAiRuleFormTexts {
     shortShiftFormula: normalizeFormText(row.shortShiftFormula, DEFAULT_SALE_AI_RULE_FORM_TEXTS.shortShiftFormula),
     shortShiftCapRule: normalizeFormText(row.shortShiftCapRule, DEFAULT_SALE_AI_RULE_FORM_TEXTS.shortShiftCapRule),
     shortShiftPayRule: normalizeFormText(row.shortShiftPayRule, DEFAULT_SALE_AI_RULE_FORM_TEXTS.shortShiftPayRule),
+    shortShiftEqualPayRule: normalizeFormText(row.shortShiftEqualPayRule, DEFAULT_SALE_AI_RULE_FORM_TEXTS.shortShiftEqualPayRule),
     shortShiftManwonRule: normalizeFormText(row.shortShiftManwonRule, DEFAULT_SALE_AI_RULE_FORM_TEXTS.shortShiftManwonRule),
     overtimeTitle: normalizeFormText(row.overtimeTitle, DEFAULT_SALE_AI_RULE_FORM_TEXTS.overtimeTitle),
     overtimeBody: normalizeFormText(row.overtimeBody, DEFAULT_SALE_AI_RULE_FORM_TEXTS.overtimeBody),
@@ -101,6 +113,10 @@ export function normalizeSaleAiRules(raw: unknown): SaleAiRules {
     overtimeBaseHour: clampHour(row.overtimeBaseHour, DEFAULT_SALE_AI_RULES.overtimeBaseHour),
     overtimeStartHour: clampHour(row.overtimeStartHour, DEFAULT_SALE_AI_RULES.overtimeStartHour),
     normalEndHour: clampHour(row.normalEndHour, DEFAULT_SALE_AI_RULES.normalEndHour),
+    shortShiftEqualPayDiscountPercent: clampPercent(
+      row.shortShiftEqualPayDiscountPercent,
+      DEFAULT_SALE_AI_RULES.shortShiftEqualPayDiscountPercent,
+    ),
     formTexts: normalizeFormTexts(row.formTexts),
   };
 }
@@ -113,6 +129,7 @@ export function saleAiRuleTemplateVars(rules: SaleAiRules = DEFAULT_SALE_AI_RULE
     normalEnd: String(Math.floor(rules.normalEndHour)),
     overtimeStart: String(Math.floor(rules.overtimeStartHour)),
     overtimeBase: String(Math.floor(rules.overtimeBaseHour)),
+    discountPercent: String(rules.shortShiftEqualPayDiscountPercent),
   };
 }
 
@@ -186,14 +203,40 @@ export function resolveShortShiftChargeAmount(
   return truncateShortShiftChargeToManwon(charge);
 }
 
-export function resolveShortShiftUnitCost(chargeAmount: number, workerDefaultPay: number) {
+export function roundShortShiftPayToManwon(amount: number) {
+  const value = Math.max(0, Math.round(Number(amount) || 0));
+  const manwon = Math.floor(value / 10000) * 10000;
+  const remainder = value % 10000;
+  if (remainder >= 5000) {
+    return manwon + 10000;
+  }
+  return manwon;
+}
+
+export function applyShortShiftEqualPayDiscount(
+  chargeAmount: number,
+  payAmount: number,
+  rules: SaleAiRules = DEFAULT_SALE_AI_RULES,
+) {
+  const charge = Math.max(0, Math.round(Number(chargeAmount) || 0));
+  const pay = Math.max(0, Math.round(Number(payAmount) || 0));
+  if (charge <= 0 || pay <= 0 || charge !== pay) {
+    return pay;
+  }
+  const discountRate = Math.max(0, rules.shortShiftEqualPayDiscountPercent) / 100;
+  return roundShortShiftPayToManwon(pay * (1 - discountRate));
+}
+
+export function resolveShortShiftUnitCost(
+  chargeAmount: number,
+  workerDefaultPay: number,
+  rules: SaleAiRules = DEFAULT_SALE_AI_RULES,
+) {
   const charge = Math.max(0, Math.round(Number(chargeAmount) || 0));
   const defaultPay = Math.max(0, Math.round(Number(workerDefaultPay) || 0));
   if (defaultPay <= 0) return "";
-  if (charge > defaultPay) {
-    return String(defaultPay);
-  }
-  return String(defaultPay);
+  const pay = applyShortShiftEqualPayDiscount(charge, defaultPay, rules);
+  return pay > 0 ? String(pay) : "";
 }
 
 export function formatScheduleWorkHoursLabel(workHours: number) {
@@ -217,10 +260,12 @@ export type SaleAiRuleFormPreview = {
   shortShiftFormula: string;
   shortShiftCapRule: string;
   shortShiftPayRule: string;
+  shortShiftEqualPayRule: string;
   shortShiftManwonRule: string;
   shortShiftExample: string;
   shortShiftCapExample: string;
   shortShiftPayExample: string;
+  shortShiftEqualPayExample: string;
   shortShiftManwonExample: string;
   overtimeTitle: string;
   overtimeBody: string;
@@ -248,7 +293,9 @@ export function buildSaleAiRuleFormPreview(
   const capFormulaCharge = computeShortShiftChargeAmount(capSampleHours, rules);
   const capAppliedCharge = resolveShortShiftChargeAmount(capSampleHours, rules, sampleWorkerCharge);
   const payFormulaCharge = resolveShortShiftChargeAmount(paySampleHours, rules, 0);
-  const payApplied = resolveShortShiftUnitCost(payFormulaCharge, sampleWorkerPay);
+  const payApplied = resolveShortShiftUnitCost(payFormulaCharge, sampleWorkerPay, rules);
+  const equalPaySampleAmount = 250000;
+  const equalPayDiscounted = applyShortShiftEqualPayDiscount(equalPaySampleAmount, equalPaySampleAmount, rules);
   const manwonFormulaCharge = computeShortShiftChargeAmount(manwonSampleHours, rules);
   const manwonAppliedCharge = resolveShortShiftChargeAmount(manwonSampleHours, rules, 0);
 
@@ -259,10 +306,12 @@ export function buildSaleAiRuleFormPreview(
     shortShiftFormula: buildShortShiftFormulaPreview(rules),
     shortShiftCapRule: rules.formTexts.shortShiftCapRule,
     shortShiftPayRule: rules.formTexts.shortShiftPayRule,
+    shortShiftEqualPayRule: renderSaleAiRuleText(rules.formTexts.shortShiftEqualPayRule, rules),
     shortShiftManwonRule: renderSaleAiRuleText(rules.formTexts.shortShiftManwonRule, rules),
     shortShiftExample: `${sampleHours}\uC2DC\uAC04 \uADFC\uBB34\uAE30\uB85D \u2192 ${sampleCharge.toLocaleString("ko-KR")}\uC6D0`,
     shortShiftCapExample: `${capSampleHours}\uC2DC\uAC04 \uACF5\uC2DD ${capFormulaCharge.toLocaleString("ko-KR")}\uC6D0 \u2265 \uC2DC\uACF5\uC790 \uAE30\uBCF8 ${sampleWorkerCharge.toLocaleString("ko-KR")}\uC6D0 \u2192 ${capAppliedCharge.toLocaleString("ko-KR")}\uC6D0`,
     shortShiftPayExample: `${paySampleHours}\uC2DC\uAC04 \uCCAD\uAD6C ${payFormulaCharge.toLocaleString("ko-KR")}\uC6D0 > \uC2DC\uACF5\uC790 \uAE30\uBCF8 ${sampleWorkerPay.toLocaleString("ko-KR")}\uC6D0 \u2192 \uC9C0\uAE09 ${Number(payApplied).toLocaleString("ko-KR")}\uC6D0`,
+    shortShiftEqualPayExample: `\uCCAD\uAD6C \u00B7 \uC9C0\uAE09 ${equalPaySampleAmount.toLocaleString("ko-KR")}\uC6D0 \u2192 ${rules.shortShiftEqualPayDiscountPercent}%\uCC28\uAC10 \u2192 ${equalPayDiscounted.toLocaleString("ko-KR")}\uC6D0`,
     shortShiftManwonExample: `${manwonSampleHours}\uC2DC\uAC04 \uACF5\uC2DD ${manwonFormulaCharge.toLocaleString("ko-KR")}\uC6D0 \u2192 ${manwonAppliedCharge.toLocaleString("ko-KR")}\uC6D0`,
     overtimeTitle: rules.formTexts.overtimeTitle,
     overtimeBody: rules.formTexts.overtimeBody,

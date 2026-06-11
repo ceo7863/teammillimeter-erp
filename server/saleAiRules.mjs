@@ -9,6 +9,8 @@ export const DEFAULT_SALE_AI_RULE_FORM_TEXTS = {
     "\uB2E8\uCD95 \uADFC\uBB34 \uACF5\uC2DD \uCCAD\uAD6C\uC561\uC774 \uC2DC\uACF5\uC790 \uAE30\uBCF8 \uB2E8\uAC00(\uAC1C\uBCC4 \uCCAD\uAD6C\uB2E8\uAC00 \uC788\uC73C\uBA74 \uADF8 \uAE08\uC561)\uBCF4\uB2E4 \uB192\uAC70\uB098 \uAC19\uC73C\uBA74 \uC2DC\uACF5\uC790 \uAE30\uBCF8 \uB2E8\uAC00\uB97C \uC801\uC6A9\uD569\uB2C8\uB2E4.",
   shortShiftPayRule:
     "\uB2E8\uCD95 \uADFC\uBB34 \uCCAD\uAD6C\uC561\uC774 \uC2DC\uACF5\uC790 \uAE30\uBCF8 \uC9C0\uAE09\uC561\uBCF4\uB2E4 \uB192\uC73C\uBA74 \uC9C0\uAE09\uC561\uC744 \uC2DC\uACF5\uC790 \uAE30\uBCF8 \uC9C0\uAE09\uC561\uC5D0 \uB9DE\uCD94\uB2C8\uB2E4.",
+  shortShiftEqualPayRule:
+    "\uB2E8\uCD95 \uADFC\uBB34 \uCCAD\uAD6C\uC561\uACFC \uC9C0\uAE09\uC561\uC774 \uAC19\uC744 \uB54C \uC9C0\uAE09\uC561\uC5D0\uC11C {discountPercent}%\uB97C \uCC28\uAC10\uD558\uACE0, \uB9CC\uC6D0 \uB2E8\uC704\uB85C \uB9DE\uCD09\uB2C8\uB2E4. \uB9CC\uC6D0 \uC774\uD558 \uAE08\uC561\uC774 5\uCC9C\uC6D0 \uBBF8\uB9CC\uC774\uBA74 \uC808\uC0AD, 5\uCC9C\uC6D0 \uC774\uC0C1\uC774\uBA74 \uC62C\uB9BC\uD569\uB2C8\uB2E4.",
   shortShiftManwonRule:
     "{maxHours}\uC2DC\uAC04 \uC774\uD558 \uADFC\uBB34 \uCCAD\uAD6C\uC561\uC774 \uB9CC\uC6D0 \uB2E8\uC704\uAC00 \uC544\uB2C8\uBA74 \uCC9C\uC6D0 \uC790\uB9AC \uC774\uD558\uB97C \uC808\uC0AD\uD558\uC5EC \uB9CC\uC6D0 \uB2E8\uC704\uB85C \uB9DE\uCD94\uB2C8\uB2E4.",
   overtimeTitle: "\uC57C\uADFC \uC2DC\uAC04",
@@ -25,6 +27,7 @@ export const DEFAULT_SALE_AI_RULES = {
   overtimeBaseHour: 17,
   overtimeStartHour: 19,
   normalEndHour: 18,
+  shortShiftEqualPayDiscountPercent: 5,
   formTexts: { ...DEFAULT_SALE_AI_RULE_FORM_TEXTS },
 };
 
@@ -57,6 +60,12 @@ function normalizeFormText(value, fallback) {
   return text || fallback;
 }
 
+function clampPercent(value, fallback) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num < 0) return fallback;
+  return Math.min(100, Math.round(num * 10) / 10);
+}
+
 function normalizeFormTexts(raw) {
   const row = raw && typeof raw === "object" ? raw : {};
   return {
@@ -66,6 +75,7 @@ function normalizeFormTexts(raw) {
     shortShiftFormula: normalizeFormText(row.shortShiftFormula, DEFAULT_SALE_AI_RULE_FORM_TEXTS.shortShiftFormula),
     shortShiftCapRule: normalizeFormText(row.shortShiftCapRule, DEFAULT_SALE_AI_RULE_FORM_TEXTS.shortShiftCapRule),
     shortShiftPayRule: normalizeFormText(row.shortShiftPayRule, DEFAULT_SALE_AI_RULE_FORM_TEXTS.shortShiftPayRule),
+    shortShiftEqualPayRule: normalizeFormText(row.shortShiftEqualPayRule, DEFAULT_SALE_AI_RULE_FORM_TEXTS.shortShiftEqualPayRule),
     shortShiftManwonRule: normalizeFormText(row.shortShiftManwonRule, DEFAULT_SALE_AI_RULE_FORM_TEXTS.shortShiftManwonRule),
     overtimeTitle: normalizeFormText(row.overtimeTitle, DEFAULT_SALE_AI_RULE_FORM_TEXTS.overtimeTitle),
     overtimeBody: normalizeFormText(row.overtimeBody, DEFAULT_SALE_AI_RULE_FORM_TEXTS.overtimeBody),
@@ -82,6 +92,10 @@ export function normalizeSaleAiRules(raw) {
     overtimeBaseHour: clampHour(row.overtimeBaseHour, DEFAULT_SALE_AI_RULES.overtimeBaseHour),
     overtimeStartHour: clampHour(row.overtimeStartHour, DEFAULT_SALE_AI_RULES.overtimeStartHour),
     normalEndHour: clampHour(row.normalEndHour, DEFAULT_SALE_AI_RULES.normalEndHour),
+    shortShiftEqualPayDiscountPercent: clampPercent(
+      row.shortShiftEqualPayDiscountPercent,
+      DEFAULT_SALE_AI_RULES.shortShiftEqualPayDiscountPercent,
+    ),
     formTexts: normalizeFormTexts(row.formTexts),
   };
 }

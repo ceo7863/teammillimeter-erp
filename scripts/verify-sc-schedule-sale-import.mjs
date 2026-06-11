@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import {
   resolveShortShiftChargeAmount,
   resolveShortShiftUnitCost,
+  roundShortShiftPayToManwon,
+  applyShortShiftEqualPayDiscount,
   truncateShortShiftChargeToManwon,
   computeShortShiftChargeAmount,
   computeScheduleOvertimeHours,
@@ -24,6 +26,12 @@ assert.equal(resolveShortShiftChargeAmount(4, undefined, 250000), 250000);
 assert.equal(resolveShortShiftChargeAmount(4, undefined, 200000), 200000);
 assert.equal(resolveShortShiftUnitCost(250000, 200000), "200000");
 assert.equal(resolveShortShiftUnitCost(150000, 330000), "330000");
+assert.equal(resolveShortShiftUnitCost(250000, 250000), "240000");
+assert.equal(roundShortShiftPayToManwon(313500), 310000);
+assert.equal(roundShortShiftPayToManwon(237500), 240000);
+assert.equal(applyShortShiftEqualPayDiscount(250000, 250000), 240000);
+assert.equal(applyShortShiftEqualPayDiscount(330000, 330000), 310000);
+assert.equal(applyShortShiftEqualPayDiscount(250000, 330000), 330000);
 
 const workLogForm = buildSaleFormFromScSchedule(
   {
@@ -169,7 +177,7 @@ const workerBasicCapForm = buildSaleFormFromScSchedule(
 );
 
 assert.equal(workerBasicCapForm.workers[0].chargeAmount, "200000");
-assert.equal(workerBasicCapForm.workers[0].unitCost, "200000");
+assert.equal(workerBasicCapForm.workers[0].unitCost, "190000");
 
 const payForm = buildSaleFormFromScSchedule(
   {

@@ -23,6 +23,7 @@ type DraftState = {
   shortShiftMaxHours: string;
   shortShiftBaseAmount: string;
   shortShiftHourlyAmount: string;
+  shortShiftEqualPayDiscountPercent: string;
   overtimeBaseHour: string;
   overtimeStartHour: string;
   normalEndHour: string;
@@ -34,6 +35,7 @@ function rulesToDraft(rules: SaleAiRules): DraftState {
     shortShiftMaxHours: String(rules.shortShiftMaxHours),
     shortShiftBaseAmount: String(rules.shortShiftBaseAmount),
     shortShiftHourlyAmount: String(rules.shortShiftHourlyAmount),
+    shortShiftEqualPayDiscountPercent: String(rules.shortShiftEqualPayDiscountPercent),
     overtimeBaseHour: String(rules.overtimeBaseHour),
     overtimeStartHour: String(rules.overtimeStartHour),
     normalEndHour: String(rules.normalEndHour),
@@ -46,6 +48,7 @@ function draftToRules(draft: DraftState): SaleAiRules {
     shortShiftMaxHours: draft.shortShiftMaxHours,
     shortShiftBaseAmount: draft.shortShiftBaseAmount,
     shortShiftHourlyAmount: draft.shortShiftHourlyAmount,
+    shortShiftEqualPayDiscountPercent: draft.shortShiftEqualPayDiscountPercent,
     overtimeBaseHour: draft.overtimeBaseHour,
     overtimeStartHour: draft.overtimeStartHour,
     normalEndHour: draft.normalEndHour,
@@ -240,6 +243,27 @@ export function SaleAiRulesModal({ open, rules, saving = false, onClose, onSave 
             />
             <p className="erp-sale-ai-rules-preview">{preview.shortShiftPayRule}</p>
             <p className="erp-sale-ai-rules-preview-sub">{preview.shortShiftPayExample}</p>
+
+            <RuleTextArea
+              label={"\uCCAD\uAD6C \u00B7 \uC9C0\uAE09 \uB3D9\uC77C \uADDC\uCE59"}
+              hint={"{discountPercent} \uC0AC\uC6A9 \uAC00\uB2A5"}
+              value={draft.formTexts.shortShiftEqualPayRule}
+              onChange={(value) => updateFormText("shortShiftEqualPayRule", value)}
+              rows={3}
+            />
+            <label className="erp-sale-ai-rules-field">
+              <span>{"\uCC28\uAC10 \uBE44\uC728 (%)"}</span>
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                step={0.5}
+                value={draft.shortShiftEqualPayDiscountPercent}
+                onChange={(event) => updateDraft("shortShiftEqualPayDiscountPercent", event.target.value)}
+              />
+            </label>
+            <p className="erp-sale-ai-rules-preview">{preview.shortShiftEqualPayRule}</p>
+            <p className="erp-sale-ai-rules-preview-sub">{preview.shortShiftEqualPayExample}</p>
 
             <RuleTextArea
               label={"\uB9CC\uC6D0 \uB2E8\uC704 \uC808\uC0AD \uADDC\uCE59"}
