@@ -4,6 +4,7 @@ import path from "path";
 import { config } from "./config.mjs";
 import { listUsers } from "./db.mjs";
 import { getDb } from "./db.mjs";
+import { publishTeamChatEvent } from "./teamChatEvents.mjs";
 
 export const TEAM_CHAT_ALL_CHANNEL_ID = "team-all";
 
@@ -72,10 +73,24 @@ export function initTeamChatStore() {
     ).run(TEAM_CHAT_ALL_CHANNEL_ID, "#\uC804\uCCB4", nowIso());
   }
   migrateTeamChatAttachmentColumns();
+  migrateTeamChatMessageColumns();
   initTeamChatAttachmentDir();
   syncTeamChatMemberships();
 }
 
+function migrateTeamChatMessageColumns() {
+  for (const sql of [
+    `ALTER TABLE team_chat_messages ADD COLUMN reply_to_message_id INTEGER`,
+    `ALTER TABLE team_chat_messages ADD COLUMN edited_at TEXT`,
+    `ALTER TABLE team_chat_messages ADD COLUMN deleted_at TEXT`,
+  ]) {
+    try {
+      getDb().exec(sql);
+    } catch {
+      // column already exists
+    }
+  }
+}
 function migrateTeamChatAttachmentColumns() {
   try {
     getDb().exec(`ALTER TABLE team_chat_attachments ADD COLUMN channel_id TEXT NOT NULL DEFAULT ''`);
@@ -390,24 +405,44 @@ export function getOrCreateTeamChatDmChannel(currentUserId, otherUserId) {
 }
 
 function formatMessageRow(row, attachments = []) {
+  const deletedAt = row.deleted_at ? String(row.deleted_at) : null;
+  const replyTo = row.reply_to_message_id
+    ? {
+        id: Number(row.reply_to_message_id),
+        userName: String(row.reply_user_name || "").trim(),
+        body: String(row.reply_body || "").trim(),
+        deleted: Boolean(row.reply_deleted_at),
+      }
+    : null;
   return {
     id: row.id,
     channelId: row.channel_id,
     userId: row.user_id,
     userName: row.user_name,
-    body: row.body,
+    body: deletedAt ? "" : row.body,
+    isDeleted: Boolean(deletedAt),
+    editedAt: row.edited_at || null,
+    replyTo,
     link:
-      row.link_type && row.link_id
-        ? {
+      deletedAt || !row.link_type || !row.link_id
+        ? null
+        : {
             type: row.link_type,
             id: row.link_id,
             label: String(row.link_label || "").trim(),
-          }
-        : null,
-    attachments,
+          },
+    attachments: deletedAt ? [] : attachments,
     createdAt: row.created_at,
   };
 }
+
+const MESSAGE_SELECT = `
+  SELECT m.id, m.channel_id, m.user_id, m.user_name, m.body, m.link_type, m.link_id, m.link_label,
+         m.created_at, m.reply_to_message_id, m.edited_at, m.deleted_at,
+         r.user_name AS reply_user_name, r.body AS reply_body, r.deleted_at AS reply_deleted_at
+  FROM team_chat_messages m
+  LEFT JOIN team_chat_messages r ON r.id = m.reply_to_message_id
+`;
 
 function mapMessagesWithAttachments(rows) {
   const attachmentMap = loadAttachmentsByMessageIds(rows.map((row) => row.id));
@@ -420,10 +455,9 @@ export function listTeamChatMessages(channelId, userId, options = {}) {
   const limit = Math.min(200, Math.max(1, Number(options.limit) || 100));
   const rows = getDb()
     .prepare(
-      `SELECT id, channel_id, user_id, user_name, body, link_type, link_id, link_label, created_at
-       FROM team_chat_messages
-       WHERE channel_id = ? AND id > ?
-       ORDER BY id ASC
+      `${MESSAGE_SELECT}
+       WHERE m.channel_id = ? AND m.id > ?
+       ORDER BY m.id ASC
        LIMIT ?`,
     )
     .all(String(channelId), afterId, limit);
@@ -435,10 +469,9 @@ export function getTeamChatMessageHistory(channelId, userId, options = {}) {
   const limit = Math.min(200, Math.max(1, Number(options.limit) || 100));
   const rows = getDb()
     .prepare(
-      `SELECT id, channel_id, user_id, user_name, body, link_type, link_id, link_label, created_at
-       FROM team_chat_messages
-       WHERE channel_id = ?
-       ORDER BY id DESC
+      `${MESSAGE_SELECT}
+       WHERE m.channel_id = ?
+       ORDER BY m.id DESC
        LIMIT ?`,
     )
     .all(String(channelId), limit);
@@ -460,12 +493,24 @@ export function postTeamChatMessage(channelId, user, input = {}) {
     throw err;
   }
 
+  const replyToMessageId = Math.max(0, Number(input.replyToMessageId || input.replyTo?.id) || 0);
+  if (replyToMessageId > 0) {
+    const replyRow = getDb()
+      .prepare("SELECT id, channel_id FROM team_chat_messages WHERE id = ?")
+      .get(replyToMessageId);
+    if (!replyRow || String(replyRow.channel_id) !== String(channelId)) {
+      const err = new Error("\uB2F5\uC7A5\uD560 \uBA54\uC2DC\uC9C0\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+      err.status = 400;
+      throw err;
+    }
+  }
+
   const createdAt = nowIso();
   const result = getDb()
     .prepare(
       `INSERT INTO team_chat_messages
-       (channel_id, user_id, user_name, body, link_type, link_id, link_label, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (channel_id, user_id, user_name, body, link_type, link_id, link_label, created_at, reply_to_message_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       String(channelId),
@@ -476,6 +521,7 @@ export function postTeamChatMessage(channelId, user, input = {}) {
       linkId,
       linkLabel,
       createdAt,
+      replyToMessageId > 0 ? replyToMessageId : null,
     );
 
   const messageId = Number(result.lastInsertRowid);
@@ -483,21 +529,13 @@ export function postTeamChatMessage(channelId, user, input = {}) {
     linkTeamChatAttachments(messageId, channelId, user.id, attachmentIds);
   }
 
+  const row = getDb()
+    .prepare(`${MESSAGE_SELECT} WHERE m.id = ?`)
+    .get(messageId);
   const attachments = loadAttachmentsByMessageIds([messageId]).get(messageId) || [];
-  return formatMessageRow(
-    {
-      id: messageId,
-      channel_id: channelId,
-      user_id: user.id,
-      user_name: String(user.name || user.loginId || "").trim(),
-      body,
-      link_type: linkType,
-      link_id: linkId,
-      link_label: linkLabel,
-      created_at: createdAt,
-    },
-    attachments,
-  );
+  const message = formatMessageRow(row, attachments);
+  publishTeamChatEvent(channelId, { type: "message.new", message });
+  return message;
 }
 
 export function markTeamChatRead(channelId, userId, messageId) {
@@ -524,4 +562,128 @@ export function getTeamChatUnreadCount(userId) {
   syncTeamChatMemberships();
   const channels = listTeamChatChannels(userId);
   return channels.reduce((sum, row) => sum + Number(row.unreadCount || 0), 0);
+}
+
+export function createTeamChatGroupChannel(creatorId, input = {}) {
+  syncTeamChatMemberships();
+  const title = String(input.title || "").trim();
+  if (!title) {
+    const err = new Error("\uADF8\uB8F9 \uBC29 \uC774\uB984\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694.");
+    err.status = 400;
+    throw err;
+  }
+  const memberIds = Array.isArray(input.memberIds)
+    ? input.memberIds.map((value) => Number(value)).filter((id) => id > 0)
+    : [];
+  const creator = Number(creatorId);
+  const uniqueMembers = [...new Set([creator, ...memberIds])];
+  if (uniqueMembers.length < 2) {
+    const err = new Error("\uADF8\uB8F9 \uCC44\uB110\uC740 2\uBA85 \uC774\uC0C1 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.");
+    err.status = 400;
+    throw err;
+  }
+
+  const db = getDb();
+  const channelId = `grp-${crypto.randomBytes(8).toString("hex")}`;
+  const joinedAt = nowIso();
+  db.prepare(
+    `INSERT INTO team_chat_channels (id, type, title, dm_key, created_at) VALUES (?, 'group', ?, NULL, ?)`,
+  ).run(channelId, title, joinedAt);
+
+  for (const uid of uniqueMembers) {
+    if (!activeUsers().some((row) => Number(row.id) === uid)) continue;
+    db.prepare(
+      `INSERT OR IGNORE INTO team_chat_members (channel_id, user_id, last_read_message_id, joined_at)
+       VALUES (?, ?, 0, ?)`,
+    ).run(channelId, uid, joinedAt);
+  }
+
+  const row = db.prepare("SELECT id, type, title, dm_key, created_at FROM team_chat_channels WHERE id = ?").get(channelId);
+  const channel = formatChannelRow(row, creator);
+  publishTeamChatEvent(channelId, { type: "channel.updated", channelId });
+  return channel;
+}
+
+function loadTeamChatMessageById(messageId, userId) {
+  const row = getDb().prepare(`${MESSAGE_SELECT} WHERE m.id = ?`).get(Number(messageId));
+  if (!row) return null;
+  assertChannelMember(row.channel_id, userId);
+  const attachments = loadAttachmentsByMessageIds([row.id]).get(Number(row.id)) || [];
+  return formatMessageRow(row, attachments);
+}
+
+export function editTeamChatMessage(messageId, userId, bodyInput) {
+  const body = String(bodyInput || "").trim();
+  if (!body) {
+    const err = new Error("\uBA54\uC2DC\uC9C0\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.");
+    err.status = 400;
+    throw err;
+  }
+  const row = getDb()
+    .prepare("SELECT id, channel_id, user_id, deleted_at FROM team_chat_messages WHERE id = ?")
+    .get(Number(messageId));
+  if (!row) {
+    const err = new Error("\uBA54\uC2DC\uC9C0\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    err.status = 404;
+    throw err;
+  }
+  if (Number(row.user_id) !== Number(userId)) {
+    const err = new Error("\uBCF8\uC778 \uBA54\uC2DC\uC9C0\uB9CC \uC218\uC815\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.");
+    err.status = 403;
+    throw err;
+  }
+  if (row.deleted_at) {
+    const err = new Error("\uC0AD\uC81C\uB41C \uBA54\uC2DC\uC9C0\uB294 \uC218\uC815\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    err.status = 400;
+    throw err;
+  }
+  const editedAt = nowIso();
+  getDb()
+    .prepare("UPDATE team_chat_messages SET body = ?, edited_at = ? WHERE id = ?")
+    .run(body, editedAt, Number(messageId));
+  const message = loadTeamChatMessageById(messageId, userId);
+  publishTeamChatEvent(row.channel_id, { type: "message.updated", message });
+  return message;
+}
+
+export function deleteTeamChatMessage(messageId, userId) {
+  const row = getDb()
+    .prepare("SELECT id, channel_id, user_id, deleted_at FROM team_chat_messages WHERE id = ?")
+    .get(Number(messageId));
+  if (!row) {
+    const err = new Error("\uBA54\uC2DC\uC9C0\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    err.status = 404;
+    throw err;
+  }
+  if (Number(row.user_id) !== Number(userId)) {
+    const err = new Error("\uBCF8\uC778 \uBA54\uC2DC\uC9C0\uB9CC \uC0AD\uC81C\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.");
+    err.status = 403;
+    throw err;
+  }
+  const deletedAt = nowIso();
+  getDb()
+    .prepare(
+      `UPDATE team_chat_messages SET deleted_at = ?, body = '', link_type = NULL, link_id = NULL, link_label = NULL WHERE id = ?`,
+    )
+    .run(deletedAt, Number(messageId));
+  const message = loadTeamChatMessageById(messageId, userId);
+  publishTeamChatEvent(row.channel_id, { type: "message.deleted", message });
+  return message;
+}
+
+export function searchTeamChatMessages(userId, query, options = {}) {
+  const q = String(query || "").trim();
+  if (!q) return [];
+  const limit = Math.min(100, Math.max(1, Number(options.limit) || 50));
+  const like = `%${q.replace(/[%_]/g, "")}%`;
+  const rows = getDb()
+    .prepare(
+      `${MESSAGE_SELECT}
+       INNER JOIN team_chat_members mem ON mem.channel_id = m.channel_id AND mem.user_id = ?
+       WHERE m.deleted_at IS NULL AND m.body LIKE ?
+       ORDER BY m.id DESC
+       LIMIT ?`,
+    )
+    .all(Number(userId), like, limit);
+  return mapMessagesWithAttachments(rows);
 }

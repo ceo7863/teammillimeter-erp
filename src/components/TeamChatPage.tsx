@@ -1,8 +1,23 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ExternalLink, MessageCircle, Paperclip, Plus, Search, Send, Users, X } from "lucide-react";
+import {
+  ArrowLeft,
+  CornerUpLeft,
+  ExternalLink,
+  MessageCircle,
+  MoreHorizontal,
+  Paperclip,
+  Pencil,
+  Plus,
+  Search,
+  Send,
+  Trash2,
+  Users,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ErpUser } from "@/utils/erpApi";
 import type { ErpChatAction } from "@/utils/erpChatApi";
+import { useTeamChatEvents, type TeamChatStreamEvent } from "@/hooks/useTeamChatEvents";
 import {
   downloadTeamChatAttachmentBlob,
   fetchTeamChatAttachmentBlob,
@@ -15,6 +30,9 @@ import { TEAM_CHAT_LINK_LABELS, teamChatLinkToAction, type TeamChatLink } from "
 import { consumeTeamChatShare, TEAM_CHAT_SHARE_CHANNEL } from "@/utils/teamChatShare";
 import { openTeamChatPopup } from "@/utils/teamChatPopup";
 import {
+  createTeamChatGroup,
+  deleteTeamChatMessage,
+  editTeamChatMessage,
   fetchTeamChatMessages,
   formatTeamChatTime,
   listTeamChatChannels,
@@ -22,19 +40,30 @@ import {
   loadTeamChatHistory,
   markTeamChatChannelRead,
   openTeamChatDm,
+  searchTeamChatMessages,
   sendTeamChatMessage,
   type TeamChatChannel,
   type TeamChatMessage,
+  type TeamChatReplyPreview,
   type TeamChatUser,
 } from "@/utils/teamChat";
 
 const L = {
   title: "\uC0AC\uB0B4 \uCC57",
   teamSection: "\uC804\uCCB4",
+  groupSection: "\uADF8\uB8F9",
   dmSection: "1:1",
   newDm: "\uC0C8 \uB300\uD654",
+  newGroup: "\uADF8\uB8F9",
   pickUser: "\uB300\uD654\uD560 \uC9F1\uC6D0 \uC120\uD0DD",
+  createGroup: "\uADF8\uB8F9 \uBC29 \uB9CC\uB4E4\uAE30",
+  groupTitle: "\uADF8\uB8F9 \uBC29 \uC774\uB984",
+  groupMembers: "\uBA64\uBC84 \uC120\uD0DD",
+  groupCreate: "\uC0DD\uC131",
   searchUser: "\uC774\uB984 \uAC80\uC0C9",
+  searchMessages: "\uBA54\uC2DC\uC9C0 \uAC80\uC0C9",
+  searchPlaceholder: "\uAC80\uC0C9\uC5B4 \uC785\uB825",
+  searchEmpty: "\uAC80\uC0C9 \uACB0\uACFC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
   emptyChannels: "\uC544\uC9C1 1:1 \uB300\uD654\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
   emptyMessages: "\uCCAB \uBA54\uC2DC\uC9C0\uB97C \uBCF4\uB0B4 \uBCF4\uC138\uC694.",
   placeholder: "\uBA54\uC2DC\uC9C0 \uC785\uB825",
@@ -46,14 +75,25 @@ const L = {
   attachError: "\uCCA8\uBD80\uD30C\uC77C \uC5C5\uB85C\uB4DC\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   noPreview: "\uB300\uD654 \uC5C6\uC74C",
   loading: "\uBD88\uB7EC\uC624\uB294 \uC911\u2026",
-  pickChannelHint: "\uB300\uD654\uBC29\uC744 \uC120\uD0DD\uD558\uAC70\uB098 \uC0C8 1:1 \uB300\uD654\uB97C \uC2DC\uC791\uD558\uC138\uC694.",
+  pickChannelHint: "\uB300\uD654\uBC29\uC744 \uC120\uD0DD\uD558\uAC70\uB098 \uC0C8 \uB300\uD654\uB97C \uC2DC\uC791\uD558\uC138\uC694.",
   teamChannelLabel: "\uC804\uCCB4 \uB2E8\uD1A1",
+  groupChannelLabel: "\uADF8\uB8F9 \uCC44\uB110",
   dmChannelLabel: "1:1 \uB300\uD654",
   attach: "\uCCA8\uBD80",
   removeLink: "\uB9C1\uD06C \uC81C\uAC70",
   openLink: "\uC774\uB3D9",
   fileDownloadError: "\uD30C\uC77C\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",
   openPopup: "\uBCC4\uB3C4 \uCC3D",
+  deletedMessage: "\uC0AD\uC81C\uB41C \uBA54\uC2DC\uC9C0\uC785\uB2C8\uB2E4.",
+  edited: "(\uC218\uC815\uB428)",
+  reply: "\uB2F5\uC7A5",
+  edit: "\uC218\uC815",
+  delete: "\uC0AD\uC81C",
+  cancelEdit: "\uCDE8\uC18C",
+  saveEdit: "\uC800\uC7A5",
+  replyTo: "\uB2F5\uC7A5 \uC911",
+  cancelReply: "\uCDE8\uC18C",
+  deleteConfirm: "\uC774 \uBA54\uC2DC\uC9C0\uB97C \uC0AD\uC81C\uD560\uAE4C\uC694?",
 };
 
 type PendingAttachment = TeamChatAttachment & { previewUrl?: string | null };
@@ -65,6 +105,17 @@ type TeamChatPageProps = {
   onUnreadChange?: () => void;
   onErpAction?: (action: ErpChatAction) => void;
 };
+
+function channelIcon(type: TeamChatChannel["type"]) {
+  if (type === "team" || type === "group") return <Users size={18} />;
+  return <MessageCircle size={18} />;
+}
+
+function channelTypeLabel(type: TeamChatChannel["type"]) {
+  if (type === "team") return L.teamChannelLabel;
+  if (type === "group") return L.groupChannelLabel;
+  return L.dmChannelLabel;
+}
 
 function ChannelListItem({
   channel,
@@ -82,7 +133,7 @@ function ChannelListItem({
       onClick={onSelect}
     >
       <div className="erp-team-chat-channel__icon" aria-hidden="true">
-        {channel.type === "team" ? <Users size={18} /> : <MessageCircle size={18} />}
+        {channelIcon(channel.type)}
       </div>
       <div className="erp-team-chat-channel__main">
         <div className="erp-team-chat-channel__head">
@@ -101,6 +152,18 @@ function ChannelListItem({
         <span className="erp-team-chat-channel__badge">{channel.unreadCount > 99 ? "99+" : channel.unreadCount}</span>
       ) : null}
     </button>
+  );
+}
+
+function ReplyQuotePreview({ replyTo }: { replyTo: TeamChatReplyPreview }) {
+  const body = replyTo.deleted
+    ? L.deletedMessage
+    : replyTo.body || "\u2026";
+  return (
+    <div className="erp-team-chat-reply-quote">
+      <span className="erp-team-chat-reply-quote__author">{replyTo.userName}</span>
+      <span className="erp-team-chat-reply-quote__body">{body}</span>
+    </div>
   );
 }
 
@@ -189,11 +252,25 @@ export const TeamChatPage = memo(function TeamChatPage({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [userQuery, setUserQuery] = useState("");
+  const [groupTitle, setGroupTitle] = useState("");
+  const [groupMemberIds, setGroupMemberIds] = useState<number[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<TeamChatMessage[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<TeamChatMessage | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [menuMessageId, setMenuMessageId] = useState<number | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastMessageIdRef = useRef(0);
+  const selectedChannelIdRef = useRef<string | null>(null);
   const shareAppliedRef = useRef(false);
+
+  selectedChannelIdRef.current = selectedChannelId;
 
   const selectedChannel = useMemo(
     () => channels.find((row) => row.id === selectedChannelId) || null,
@@ -201,7 +278,14 @@ export const TeamChatPage = memo(function TeamChatPage({
   );
 
   const teamChannels = useMemo(() => channels.filter((row) => row.type === "team"), [channels]);
+  const groupChannels = useMemo(() => channels.filter((row) => row.type === "group"), [channels]);
   const dmChannels = useMemo(() => channels.filter((row) => row.type === "dm"), [channels]);
+
+  const channelTitleById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const row of channels) map.set(row.id, row.title);
+    return map;
+  }, [channels]);
 
   const filteredUsers = useMemo(() => {
     const q = userQuery.trim().toLowerCase();
@@ -223,6 +307,21 @@ export const TeamChatPage = memo(function TeamChatPage({
     const rows = await listTeamChatChannels();
     setChannels(rows);
     return rows;
+  }, []);
+
+  const mergeMessage = useCallback((incoming: TeamChatMessage) => {
+    setMessages((prev) => {
+      const index = prev.findIndex((row) => row.id === incoming.id);
+      if (index >= 0) {
+        const next = [...prev];
+        next[index] = incoming;
+        return next;
+      }
+      return [...prev, incoming];
+    });
+    if (incoming.id > lastMessageIdRef.current) {
+      lastMessageIdRef.current = incoming.id;
+    }
   }, []);
 
   const applyPendingShare = useCallback((channelRows: TeamChatChannel[]) => {
@@ -257,21 +356,56 @@ export const TeamChatPage = memo(function TeamChatPage({
   const pollMessages = useCallback(async (channelId: string) => {
     const afterId = lastMessageIdRef.current;
     const rows = await fetchTeamChatMessages(channelId, { afterId, limit: 100 });
-    if (!rows.length) return;
-    setMessages((prev) => {
-      const seen = new Set(prev.map((row) => row.id));
-      const next = [...prev];
-      for (const row of rows) {
-        if (!seen.has(row.id)) next.push(row);
+    if (rows.length) {
+      setMessages((prev) => {
+        const seen = new Set(prev.map((row) => row.id));
+        const next = [...prev];
+        for (const row of rows) {
+          if (!seen.has(row.id)) next.push(row);
+        }
+        return next;
+      });
+      const lastId = rows[rows.length - 1].id;
+      lastMessageIdRef.current = lastId;
+      await markTeamChatChannelRead(channelId, lastId);
+      onUnreadChange?.();
+      window.requestAnimationFrame(scrollToBottom);
+    }
+    await refreshChannels();
+  }, [onUnreadChange, refreshChannels, scrollToBottom]);
+
+  const handleStreamEvent = useCallback(
+    (event: TeamChatStreamEvent) => {
+      if (event.type === "channel.updated") {
+        void refreshChannels();
+        return;
       }
-      return next;
-    });
-    const lastId = rows[rows.length - 1].id;
-    lastMessageIdRef.current = lastId;
-    await markTeamChatChannelRead(channelId, lastId);
-    onUnreadChange?.();
-    window.requestAnimationFrame(scrollToBottom);
-  }, [onUnreadChange, scrollToBottom]);
+      const message = event.message as TeamChatMessage | undefined;
+      if (!message?.id) return;
+      if (event.type === "message.new") {
+        if (String(message.channelId) === String(selectedChannelIdRef.current)) {
+          mergeMessage(message);
+          void markTeamChatChannelRead(message.channelId, message.id);
+          window.requestAnimationFrame(scrollToBottom);
+        }
+        void refreshChannels();
+        onUnreadChange?.();
+        return;
+      }
+      if (event.type === "message.updated" || event.type === "message.deleted") {
+        if (String(message.channelId) === String(selectedChannelIdRef.current)) {
+          mergeMessage(message);
+        }
+        void refreshChannels();
+      }
+    },
+    [mergeMessage, onUnreadChange, refreshChannels, scrollToBottom],
+  );
+
+  const { connected: sseConnected } = useTeamChatEvents({
+    enabled: isPageActive,
+    onEvent: handleStreamEvent,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -325,6 +459,9 @@ export const TeamChatPage = memo(function TeamChatPage({
     let cancelled = false;
     void (async () => {
       setError("");
+      setReplyingTo(null);
+      setEditingMessageId(null);
+      setMenuMessageId(null);
       try {
         await loadInitialMessages(selectedChannelId);
         if (!cancelled) await refreshChannels();
@@ -339,12 +476,12 @@ export const TeamChatPage = memo(function TeamChatPage({
 
   useEffect(() => {
     if (!selectedChannelId || !isPageActive) return;
+    const intervalMs = sseConnected ? 30000 : 5000;
     const timer = window.setInterval(() => {
       void pollMessages(selectedChannelId).catch(() => {});
-      void refreshChannels().catch(() => {});
-    }, 5000);
+    }, intervalMs);
     return () => window.clearInterval(timer);
-  }, [isPageActive, pollMessages, refreshChannels, selectedChannelId]);
+  }, [isPageActive, pollMessages, selectedChannelId, sseConnected]);
 
   useEffect(() => {
     return () => {
@@ -354,13 +491,21 @@ export const TeamChatPage = memo(function TeamChatPage({
     };
   }, [pendingAttachments]);
 
+  const resetComposerExtras = useCallback(() => {
+    setReplyingTo(null);
+    setEditingMessageId(null);
+    setEditDraft("");
+    setMenuMessageId(null);
+  }, []);
+
   const handleSelectChannel = useCallback((channelId: string) => {
     setSelectedChannelId(channelId);
     setDraft("");
     setPendingLink(null);
     setPendingAttachments([]);
     setPickerOpen(false);
-  }, []);
+    resetComposerExtras();
+  }, [resetComposerExtras]);
 
   const handleStartDm = useCallback(
     async (otherUserId: number) => {
@@ -384,6 +529,46 @@ export const TeamChatPage = memo(function TeamChatPage({
     },
     [handleSelectChannel, refreshChannels],
   );
+
+  const handleCreateGroup = useCallback(async () => {
+    const title = groupTitle.trim();
+    if (!title || groupMemberIds.length < 1) return;
+    setError("");
+    try {
+      const channel = await createTeamChatGroup(title, groupMemberIds);
+      await refreshChannels();
+      setGroupModalOpen(false);
+      setGroupTitle("");
+      setGroupMemberIds([]);
+      setUserQuery("");
+      handleSelectChannel(channel.id);
+    } catch {
+      setError(L.loadError);
+    }
+  }, [groupMemberIds, groupTitle, handleSelectChannel, refreshChannels]);
+
+  const toggleGroupMember = useCallback((userId: number) => {
+    setGroupMemberIds((prev) =>
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId],
+    );
+  }, []);
+
+  const runMessageSearch = useCallback(async () => {
+    const q = searchQuery.trim();
+    if (!q) {
+      setSearchResults([]);
+      return;
+    }
+    setSearching(true);
+    try {
+      const rows = await searchTeamChatMessages(q, 40);
+      setSearchResults(rows);
+    } catch {
+      setSearchResults([]);
+    } finally {
+      setSearching(false);
+    }
+  }, [searchQuery]);
 
   const handlePickFiles = useCallback(
     async (fileList: FileList | null) => {
@@ -424,10 +609,60 @@ export const TeamChatPage = memo(function TeamChatPage({
     [onErpAction],
   );
 
+  const handleReply = useCallback((message: TeamChatMessage) => {
+    setReplyingTo(message);
+    setEditingMessageId(null);
+    setEditDraft("");
+    setMenuMessageId(null);
+  }, []);
+
+  const handleStartEdit = useCallback((message: TeamChatMessage) => {
+    setEditingMessageId(message.id);
+    setEditDraft(message.body);
+    setReplyingTo(null);
+    setMenuMessageId(null);
+  }, []);
+
+  const handleSaveEdit = useCallback(async () => {
+    if (!editingMessageId) return;
+    const body = editDraft.trim();
+    if (!body) return;
+    setSending(true);
+    setError("");
+    try {
+      const updated = await editTeamChatMessage(editingMessageId, body);
+      mergeMessage(updated);
+      setEditingMessageId(null);
+      setEditDraft("");
+      await refreshChannels();
+    } catch {
+      setError(L.sendError);
+    } finally {
+      setSending(false);
+    }
+  }, [editDraft, editingMessageId, mergeMessage, refreshChannels]);
+
+  const handleDeleteMessage = useCallback(
+    async (messageId: number) => {
+      if (!window.confirm(L.deleteConfirm)) return;
+      setError("");
+      try {
+        const updated = await deleteTeamChatMessage(messageId);
+        mergeMessage(updated);
+        setMenuMessageId(null);
+        await refreshChannels();
+      } catch {
+        setError(L.sendError);
+      }
+    },
+    [mergeMessage, refreshChannels],
+  );
+
   const canSend =
     Boolean(selectedChannelId) &&
     !sending &&
     !uploading &&
+    !editingMessageId &&
     (draft.trim().length > 0 || pendingLink || pendingAttachments.length > 0);
 
   const handleSend = useCallback(async () => {
@@ -440,15 +675,16 @@ export const TeamChatPage = memo(function TeamChatPage({
       const message = await sendTeamChatMessage(selectedChannelId, body, {
         link: pendingLink,
         attachmentIds,
+        replyToMessageId: replyingTo?.id ?? null,
       });
       setDraft("");
       setPendingLink(null);
+      setReplyingTo(null);
       for (const row of pendingAttachments) {
         if (row.previewUrl) URL.revokeObjectURL(row.previewUrl);
       }
       setPendingAttachments([]);
-      setMessages((prev) => [...prev, message]);
-      lastMessageIdRef.current = message.id;
+      mergeMessage(message);
       await refreshChannels();
       onUnreadChange?.();
       window.requestAnimationFrame(scrollToBottom);
@@ -457,7 +693,18 @@ export const TeamChatPage = memo(function TeamChatPage({
     } finally {
       setSending(false);
     }
-  }, [canSend, draft, onUnreadChange, pendingAttachments, pendingLink, refreshChannels, scrollToBottom, selectedChannelId, sending]);
+  }, [
+    canSend,
+    draft,
+    mergeMessage,
+    onUnreadChange,
+    pendingAttachments,
+    pendingLink,
+    refreshChannels,
+    replyingTo?.id,
+    scrollToBottom,
+    selectedChannelId,
+  ]);
 
   const showThreadOnMobile = Boolean(selectedChannelId);
   const selfId = Number(currentUser?.id) || 0;
@@ -481,9 +728,23 @@ export const TeamChatPage = memo(function TeamChatPage({
                 <span className="hidden sm:inline">{L.openPopup}</span>
               </Button>
             ) : null}
-            <Button type="button" size="sm" variant="outline" className="h-8 rounded-lg gap-1" onClick={() => setPickerOpen(true)}>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-8 rounded-lg px-2"
+              onClick={() => setSearchOpen(true)}
+              title={L.searchMessages}
+            >
+              <Search size={14} />
+            </Button>
+            <Button type="button" size="sm" variant="outline" className="h-8 rounded-lg gap-1 px-2" onClick={() => setGroupModalOpen(true)}>
+              <Users size={14} />
+              <span className="hidden sm:inline">{L.newGroup}</span>
+            </Button>
+            <Button type="button" size="sm" variant="outline" className="h-8 rounded-lg gap-1 px-2" onClick={() => setPickerOpen(true)}>
               <Plus size={14} />
-              {L.newDm}
+              <span className="hidden sm:inline">{L.newDm}</span>
             </Button>
           </div>
         </div>
@@ -496,6 +757,20 @@ export const TeamChatPage = memo(function TeamChatPage({
             <section>
               <h2 className="erp-team-chat-section-title">{L.teamSection}</h2>
               {teamChannels.map((channel) => (
+                <ChannelListItem
+                  key={channel.id}
+                  channel={channel}
+                  active={channel.id === selectedChannelId}
+                  onSelect={() => handleSelectChannel(channel.id)}
+                />
+              ))}
+            </section>
+          ) : null}
+
+          {groupChannels.length ? (
+            <section>
+              <h2 className="erp-team-chat-section-title">{L.groupSection}</h2>
+              {groupChannels.map((channel) => (
                 <ChannelListItem
                   key={channel.id}
                   channel={channel}
@@ -541,12 +816,20 @@ export const TeamChatPage = memo(function TeamChatPage({
                 <ArrowLeft size={18} />
                 {L.back}
               </button>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <h2 className="truncate text-base font-bold text-slate-900">{selectedChannel.title}</h2>
-                <p className="text-xs text-slate-500">
-                  {selectedChannel.type === "team" ? L.teamChannelLabel : L.dmChannelLabel}
-                </p>
+                <p className="text-xs text-slate-500">{channelTypeLabel(selectedChannel.type)}</p>
               </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-8 rounded-lg px-2"
+                onClick={() => setSearchOpen(true)}
+                title={L.searchMessages}
+              >
+                <Search size={16} />
+              </Button>
             </div>
 
             <div ref={listRef} className="erp-team-chat-thread__messages">
@@ -554,28 +837,90 @@ export const TeamChatPage = memo(function TeamChatPage({
               {messages.map((message) => {
                 const isMine = Number(message.userId) === selfId;
                 const link = message.link as TeamChatLink | null | undefined;
+                const isEditing = editingMessageId === message.id;
                 return (
                   <div
                     key={message.id}
                     className={`erp-team-chat-bubble-row ${isMine ? "is-mine" : "is-theirs"}`}
                   >
-                    <div className={`erp-team-chat-bubble ${isMine ? "is-mine" : "is-theirs"}`}>
-                      <div className="erp-team-chat-bubble__meta">
-                        {message.userName}
-                        {" \u00B7 "}
-                        {formatTeamChatTime(message.createdAt)}
-                      </div>
-                      {link?.type && link?.id ? (
-                        <MessageLinkCard link={link} onOpen={handleOpenLink} />
-                      ) : null}
-                      {message.body ? <div className="erp-team-chat-bubble__body">{message.body}</div> : null}
-                      {message.attachments?.length ? (
-                        <div className="erp-team-chat-bubble__attachments">
-                          {message.attachments.map((attachment) => (
-                            <MessageAttachmentChip key={attachment.id} attachment={attachment} />
-                          ))}
+                    <div className={`erp-team-chat-bubble-wrap ${isMine ? "is-mine" : "is-theirs"}`}>
+                      {!message.isDeleted ? (
+                        <div className="erp-team-chat-bubble-menu">
+                          <button
+                            type="button"
+                            className="erp-team-chat-bubble-menu__toggle"
+                            onClick={() => setMenuMessageId((prev) => (prev === message.id ? null : message.id))}
+                            aria-label={L.reply}
+                          >
+                            <MoreHorizontal size={14} />
+                          </button>
+                          {menuMessageId === message.id ? (
+                            <div className="erp-team-chat-bubble-menu__panel">
+                              <button type="button" onClick={() => handleReply(message)}>
+                                <CornerUpLeft size={13} />
+                                {L.reply}
+                              </button>
+                              {isMine ? (
+                                <>
+                                  <button type="button" onClick={() => handleStartEdit(message)}>
+                                    <Pencil size={13} />
+                                    {L.edit}
+                                  </button>
+                                  <button type="button" className="is-danger" onClick={() => void handleDeleteMessage(message.id)}>
+                                    <Trash2 size={13} />
+                                    {L.delete}
+                                  </button>
+                                </>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
                       ) : null}
+                      <div className={`erp-team-chat-bubble ${isMine ? "is-mine" : "is-theirs"}${message.isDeleted ? " is-deleted" : ""}`}>
+                        <div className="erp-team-chat-bubble__meta">
+                          {message.userName}
+                          {" \u00B7 "}
+                          {formatTeamChatTime(message.createdAt)}
+                          {message.editedAt ? (
+                            <span className="erp-team-chat-bubble__edited">{L.edited}</span>
+                          ) : null}
+                        </div>
+                        {message.replyTo ? <ReplyQuotePreview replyTo={message.replyTo} /> : null}
+                        {message.isDeleted ? (
+                          <div className="erp-team-chat-bubble__deleted">{L.deletedMessage}</div>
+                        ) : isEditing ? (
+                          <div className="erp-team-chat-bubble__edit">
+                            <textarea
+                              className="erp-team-chat-composer__input"
+                              rows={2}
+                              value={editDraft}
+                              onChange={(event) => setEditDraft(event.target.value)}
+                            />
+                            <div className="erp-team-chat-bubble__edit-actions">
+                              <Button type="button" size="sm" variant="outline" className="h-8 rounded-lg" onClick={() => { setEditingMessageId(null); setEditDraft(""); }}>
+                                {L.cancelEdit}
+                              </Button>
+                              <Button type="button" size="sm" className="h-8 rounded-lg" disabled={!editDraft.trim() || sending} onClick={() => void handleSaveEdit()}>
+                                {L.saveEdit}
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            {link?.type && link?.id ? (
+                              <MessageLinkCard link={link} onOpen={handleOpenLink} />
+                            ) : null}
+                            {message.body ? <div className="erp-team-chat-bubble__body">{message.body}</div> : null}
+                            {message.attachments?.length ? (
+                              <div className="erp-team-chat-bubble__attachments">
+                                {message.attachments.map((attachment) => (
+                                  <MessageAttachmentChip key={attachment.id} attachment={attachment} />
+                                ))}
+                              </div>
+                            ) : null}
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
@@ -583,6 +928,25 @@ export const TeamChatPage = memo(function TeamChatPage({
             </div>
 
             {error ? <p className="erp-team-chat-error px-4 py-1 text-sm">{error}</p> : null}
+
+            {replyingTo ? (
+              <div className="erp-team-chat-composer__reply px-4 pb-2">
+                <div className="erp-team-chat-composer__reply-inner">
+                  <span className="erp-team-chat-composer__reply-label">{L.replyTo}</span>
+                  <ReplyQuotePreview
+                    replyTo={{
+                      id: replyingTo.id,
+                      userName: replyingTo.userName,
+                      body: replyingTo.isDeleted ? "" : replyingTo.body,
+                      deleted: replyingTo.isDeleted,
+                    }}
+                  />
+                </div>
+                <button type="button" className="erp-team-chat-composer__remove-link" onClick={() => setReplyingTo(null)}>
+                  {L.cancelReply}
+                </button>
+              </div>
+            ) : null}
 
             {pendingLink ? (
               <div className="erp-team-chat-composer__pending-link px-4 pb-2">
@@ -631,7 +995,7 @@ export const TeamChatPage = memo(function TeamChatPage({
                 size="sm"
                 variant="outline"
                 className="h-10 rounded-xl px-3"
-                disabled={uploading || sending}
+                disabled={uploading || sending || Boolean(editingMessageId)}
                 onClick={() => fileInputRef.current?.click()}
                 title={L.attach}
               >
@@ -642,6 +1006,7 @@ export const TeamChatPage = memo(function TeamChatPage({
                 rows={1}
                 value={draft}
                 placeholder={L.placeholder}
+                disabled={Boolean(editingMessageId)}
                 onChange={(event) => setDraft(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
@@ -662,7 +1027,7 @@ export const TeamChatPage = memo(function TeamChatPage({
       {pickerOpen ? (
         <div className="erp-ledger-modal-backdrop" onClick={() => setPickerOpen(false)}>
           <div
-            className="erp-ledger-modal max-w-md"
+            className="erp-ledger-modal max-w-md erp-team-chat-user-modal"
             onClick={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -696,6 +1061,143 @@ export const TeamChatPage = memo(function TeamChatPage({
                   >
                     <span className="font-semibold text-slate-900">{user.name}</span>
                     <span className="text-xs text-slate-500">{user.loginId || user.role}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      ) : null}
+
+      {groupModalOpen ? (
+        <div className="erp-ledger-modal-backdrop" onClick={() => setGroupModalOpen(false)}>
+          <div
+            className="erp-ledger-modal max-w-md erp-team-chat-group-modal"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={L.createGroup}
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">{L.createGroup}</h2>
+                <p className="mt-1 text-sm text-slate-500">{L.groupMembers}</p>
+              </div>
+              <button type="button" className="rounded-xl p-2 text-slate-500 hover:bg-slate-100" onClick={() => setGroupModalOpen(false)}>
+                <X size={18} />
+              </button>
+            </div>
+            <label className="mb-3 block">
+              <span className="mb-1 block text-xs font-semibold text-slate-600">{L.groupTitle}</span>
+              <input
+                className="erp-input w-full rounded-xl"
+                value={groupTitle}
+                onChange={(event) => setGroupTitle(event.target.value)}
+                placeholder={L.groupTitle}
+              />
+            </label>
+            <label className="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <Search size={16} className="text-slate-400" />
+              <input
+                className="w-full bg-transparent text-sm outline-none"
+                value={userQuery}
+                onChange={(event) => setUserQuery(event.target.value)}
+                placeholder={L.searchUser}
+              />
+            </label>
+            <ul className="erp-team-chat-group-modal__members max-h-[min(20rem,45vh)] space-y-1 overflow-y-auto">
+              {filteredUsers.map((user) => {
+                const checked = groupMemberIds.includes(user.id);
+                return (
+                  <li key={user.id}>
+                    <label className="flex cursor-pointer items-center justify-between rounded-xl px-3 py-2.5 hover:bg-slate-50">
+                      <span>
+                        <span className="font-semibold text-slate-900">{user.name}</span>
+                        <span className="ml-2 text-xs text-slate-500">{user.loginId || user.role}</span>
+                      </span>
+                      <input type="checkbox" checked={checked} onChange={() => toggleGroupMember(user.id)} />
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button type="button" variant="outline" className="rounded-xl" onClick={() => setGroupModalOpen(false)}>
+                {L.cancelEdit}
+              </Button>
+              <Button
+                type="button"
+                className="rounded-xl"
+                disabled={!groupTitle.trim() || groupMemberIds.length < 1}
+                onClick={() => void handleCreateGroup()}
+              >
+                {L.groupCreate}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {searchOpen ? (
+        <div className="erp-ledger-modal-backdrop" onClick={() => setSearchOpen(false)}>
+          <div
+            className="erp-ledger-modal max-w-lg erp-team-chat-search-modal"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={L.searchMessages}
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">{L.searchMessages}</h2>
+              </div>
+              <button type="button" className="rounded-xl p-2 text-slate-500 hover:bg-slate-100" onClick={() => setSearchOpen(false)}>
+                <X size={18} />
+              </button>
+            </div>
+            <form
+              className="mb-3 flex gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void runMessageSearch();
+              }}
+            >
+              <label className="flex flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                <Search size={16} className="text-slate-400" />
+                <input
+                  className="w-full bg-transparent text-sm outline-none"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder={L.searchPlaceholder}
+                />
+              </label>
+              <Button type="submit" className="rounded-xl" disabled={searching}>
+                {L.searchMessages}
+              </Button>
+            </form>
+            <ul className="erp-team-chat-search-results max-h-[min(28rem,55vh)] space-y-2 overflow-y-auto">
+              {searching ? <li className="text-sm text-slate-500">{L.loading}</li> : null}
+              {!searching && searchQuery.trim() && !searchResults.length ? (
+                <li className="text-sm text-slate-500">{L.searchEmpty}</li>
+              ) : null}
+              {searchResults.map((row) => (
+                <li key={row.id}>
+                  <button
+                    type="button"
+                    className="erp-team-chat-search-result w-full rounded-xl border border-slate-200 px-3 py-2.5 text-left hover:bg-slate-50"
+                    onClick={() => {
+                      setSearchOpen(false);
+                      handleSelectChannel(row.channelId);
+                    }}
+                  >
+                    <div className="text-xs font-semibold text-slate-500">
+                      {channelTitleById.get(row.channelId) || row.channelId}
+                      {" \u00B7 "}
+                      {row.userName}
+                      {" \u00B7 "}
+                      {formatTeamChatTime(row.createdAt)}
+                    </div>
+                    <div className="mt-1 text-sm text-slate-900">{row.body}</div>
                   </button>
                 </li>
               ))}

@@ -23,6 +23,7 @@ import {
   Upload,
   Wallet,
   X,
+  MessageCircle,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { BankListRefreshAtSuffix, useBankSyncMeta } from "@/contexts/BankSyncMetaContext";
@@ -81,6 +82,8 @@ import {
   buildBankTransactionsExportTable,
 } from "@/utils/bankTransactionRowDisplay";
 import { useAudit } from "@/context/AuditContext";
+import { buildBankTxTeamChatLink } from "@/utils/teamChatLinks";
+import { openTeamChatWithShare } from "@/utils/teamChatShare";
 import { confirmDelete } from "@/utils/confirmDelete";
 import { CLIENT_AUDIT_FIELDS, COMPANY_EXPENSE_AUDIT_FIELDS, BANK_FOLDER_AUDIT_FIELDS, BANK_TRANSACTION_AUDIT_FIELDS, FIXED_EXPENSE_AUDIT_FIELDS, FIXED_EXPENSE_PAYMENT_AUDIT_FIELDS, PAYMENT_AUDIT_FIELDS, snapshotBankFolderForAudit, snapshotBankTransactionForAudit, snapshotClientForAudit, snapshotCompanyExpenseForAudit, snapshotFixedExpenseForAudit, snapshotFixedExpensePaymentForAudit, snapshotPaymentForAudit, type AuditUser } from "@/utils/auditLog";
 import {
@@ -6809,14 +6812,24 @@ function BankTransactionsPageComponent({
           >
             <div className="mb-4 flex items-start justify-between gap-3">
               <h2 className="erp-text-section font-bold">{L.editMemoTitle}</h2>
-              <button
-                type="button"
-                className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
-                onClick={() => setAccountContentModal(null)}
-                aria-label={L.cancel}
-              >
-                <X size={18} />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 hover:text-blue-600"
+                  title={"\uC0AC\uB0B4 \uCC57\uC5D0 \uACF5\uC720"}
+                  onClick={() => openTeamChatWithShare({ link: buildBankTxTeamChatLink(accountContentModal.tx) })}
+                >
+                  <MessageCircle size={18} />
+                </button>
+                <button
+                  type="button"
+                  className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
+                  onClick={() => setAccountContentModal(null)}
+                  aria-label={L.cancel}
+                >
+                  <X size={18} />
+                </button>
+              </div>
             </div>
             <Field label={L.memo}>
               <BufferedTextInput

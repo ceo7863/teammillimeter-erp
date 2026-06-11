@@ -67,3 +67,49 @@ export function buildClientTeamChatLink(client: { id?: string | number; name?: s
     label: String(client.name || "").trim(),
   };
 }
+
+export function buildWorkerTeamChatLink(worker: { id?: string | number; name?: string }): TeamChatLink {
+  return {
+    type: "worker",
+    id: String(worker.id ?? worker.name ?? ""),
+    label: String(worker.name || "").trim(),
+  };
+}
+
+export function buildSaleTeamChatLink(sale: {
+  id?: string | number;
+  client?: string;
+  date?: string;
+  amount?: number;
+}): TeamChatLink {
+  const client = String(sale.client || "").trim();
+  const label = client
+    ? `${client} ${String(sale.date || "").trim()}`.trim()
+    : `\uB9E4\uCD9C #${sale.id ?? ""}`;
+  return {
+    type: "sale",
+    id: String(sale.id ?? ""),
+    label: label || String(sale.id ?? ""),
+  };
+}
+
+export function buildBankTxTeamChatLink(tx: {
+  id?: string;
+  description?: string;
+  counterpartyName?: string;
+  deposit?: number;
+  withdrawal?: number;
+  transactionAt?: string;
+}): TeamChatLink {
+  const amount = (tx.deposit || 0) > 0 ? tx.deposit : tx.withdrawal;
+  const parts = [
+    String(tx.transactionAt || "").trim(),
+    String(tx.counterpartyName || tx.description || "").trim(),
+    amount != null && amount > 0 ? `${amount}` : "",
+  ].filter(Boolean);
+  return {
+    type: "bank_tx",
+    id: String(tx.id ?? ""),
+    label: parts.join(" \u00B7 ") || String(tx.id ?? ""),
+  };
+}

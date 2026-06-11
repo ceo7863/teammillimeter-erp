@@ -374,7 +374,7 @@ import {
 import { useClientSiteRequestPendingCount } from "@/hooks/useClientSiteRequestPendingCount";
 import { useTeamChatUnreadCount } from "@/hooks/useTeamChatUnreadCount";
 import { useTeamChatNotifications } from "@/hooks/useTeamChatNotifications";
-import { buildClientTeamChatLink } from "@/utils/teamChatLinks";
+import { buildClientTeamChatLink, buildWorkerTeamChatLink, buildSaleTeamChatLink, buildBankTxTeamChatLink } from "@/utils/teamChatLinks";
 import { openTeamChatWithShare, TEAM_CHAT_OPEN_EVENT } from "@/utils/teamChatShare";
 import { TeamChatPage } from "@/components/TeamChatPage";
 import { TeamChatStandalonePage } from "@/components/TeamChatStandalonePage";
@@ -6716,6 +6716,7 @@ function WorkersPage({
   probationEvalTemplates,
   probationEvalRequests,
   onSaveProbationEvalTemplates,
+  onShareToTeamChat,
 }) {
   const { auditLogs } = useAudit();
   const workersRef = useRef(workers);
@@ -7597,6 +7598,19 @@ function WorkersPage({
                         >
                           <Pencil size={14} />
                         </Button>
+                        {onShareToTeamChat ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="erp-workers-action-btn"
+                            onClick={() => onShareToTeamChat(worker)}
+                            title={"\uC0AC\uB0B4 \uCC57\uC5D0 \uACF5\uC720"}
+                            aria-label={"\uC0AC\uB0B4 \uCC57\uC5D0 \uACF5\uC720"}
+                          >
+                            <MessageCircle size={14} />
+                          </Button>
+                        ) : null}
                         <Button
                           type="button"
                           size="sm"
@@ -11140,7 +11154,7 @@ export default function TeammillimeterErpMvp() {
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="sales" active={active}>
-          <SalesManagementPage sales={appliedSales} paymentVouchers={paymentVouchers} clients={clients} workers={workers} setSales={setSales} onPersistSaleDelete={persistSaleVoucherDelete} setActive={setActive} currentUser={currentUser} onEditSale={setSalesManagementEditSale} saleCommentCounts={saleCommentCountBySaleId} saleCommentUnreadCounts={saleCommentUnreadCountBySaleId} onOpenSaleComments={openSaleCommentsView} saleComments={saleComments} />
+          <SalesManagementPage sales={appliedSales} paymentVouchers={paymentVouchers} clients={clients} workers={workers} setSales={setSales} onPersistSaleDelete={persistSaleVoucherDelete} setActive={setActive} currentUser={currentUser} onEditSale={setSalesManagementEditSale} saleCommentCounts={saleCommentCountBySaleId} saleCommentUnreadCounts={saleCommentUnreadCountBySaleId} onOpenSaleComments={openSaleCommentsView} saleComments={saleComments} onShareToTeamChat={(sale) => { openTeamChatWithShare({ link: buildSaleTeamChatLink(sale as { id?: string | number; client?: string; date?: string }) }); }} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="salesVoucherSearch" active={active}>
           <SalesVoucherSearchPage
@@ -11331,6 +11345,9 @@ export default function TeammillimeterErpMvp() {
                 probationEvalTemplates={probationEvalTemplates}
                 probationEvalRequests={probationEvalRequests}
                 onSaveProbationEvalTemplates={saveProbationEvalTemplates}
+                onShareToTeamChat={(worker) => {
+                  openTeamChatWithShare({ link: buildWorkerTeamChatLink(worker as { id?: string | number; name?: string }) });
+                }}
               />
             }
             companyPanel={

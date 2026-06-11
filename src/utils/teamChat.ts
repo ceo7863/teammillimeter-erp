@@ -2,7 +2,7 @@ import { apiRequest, isApiModeEnabled } from "./erpApi";
 
 export type TeamChatChannel = {
   id: string;
-  type: "team" | "dm";
+  type: "team" | "dm" | "group";
   title: string;
   peerUserId?: number | null;
   unreadCount: number;
@@ -11,12 +11,22 @@ export type TeamChatChannel = {
   lastMessageUserName?: string;
 };
 
+export type TeamChatReplyPreview = {
+  id: number;
+  userName: string;
+  body: string;
+  deleted?: boolean;
+};
+
 export type TeamChatMessage = {
   id: number;
   channelId: string;
   userId: number;
   userName: string;
   body: string;
+  isDeleted?: boolean;
+  editedAt?: string | null;
+  replyTo?: TeamChatReplyPreview | null;
   link?: { type: string; id: string; label: string } | null;
   attachments?: TeamChatAttachment[];
   createdAt: string;
@@ -54,6 +64,31 @@ export async function openTeamChatDm(otherUserId: number | string) {
   });
 }
 
+export async function createTeamChatGroup(title: string, memberIds: Array<number | string>) {
+  return apiRequest<TeamChatChannel>("/team-chat/groups", {
+    method: "POST",
+    body: JSON.stringify({ title, memberIds }),
+  });
+}
+
+export async function searchTeamChatMessages(query: string, limit = 50) {
+  const params = new URLSearchParams({ q: query, limit: String(limit) });
+  return apiRequest<TeamChatMessage[]>(`/team-chat/search?${params.toString()}`);
+}
+
+export async function editTeamChatMessage(messageId: number, body: string) {
+  return apiRequest<TeamChatMessage>(`/team-chat/messages/${messageId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ body }),
+  });
+}
+
+export async function deleteTeamChatMessage(messageId: number) {
+  return apiRequest<TeamChatMessage>(`/team-chat/messages/${messageId}`, {
+    method: "DELETE",
+  });
+}
+
 export async function fetchTeamChatMessages(channelId: string, options: { afterId?: number; limit?: number } = {}) {
   const params = new URLSearchParams();
   if (options.afterId != null && options.afterId > 0) params.set("after", String(options.afterId));
@@ -77,6 +112,7 @@ export async function sendTeamChatMessage(
   options?: {
     link?: { type: string; id: string; label: string } | null;
     attachmentIds?: string[];
+    replyToMessageId?: number | null;
   },
 ) {
   return apiRequest<TeamChatMessage>(`/team-chat/channels/${encodeURIComponent(channelId)}/messages`, {
@@ -85,6 +121,7 @@ export async function sendTeamChatMessage(
       body,
       link: options?.link ?? null,
       attachmentIds: options?.attachmentIds ?? [],
+      replyToMessageId: options?.replyToMessageId ?? null,
     }),
   });
 }

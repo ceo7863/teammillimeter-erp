@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, Download, FileSpreadsheet, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Download, FileSpreadsheet, MessageCircle, Plus, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { TableExportSection } from "@/components/TableExportSection";
@@ -275,6 +275,7 @@ export function SalesManagementPage({
   saleCommentUnreadCounts,
   onOpenSaleComments,
   saleComments = [],
+  onShareToTeamChat,
 }) {
   const { recordAudit } = useAudit();
   const [textFilters, setTextFilters] = useState(emptySalesSheetTextFilters);
@@ -679,9 +680,24 @@ export function SalesManagementPage({
                             rowSpan={row.voucherLineCount > 1 ? row.voucherLineCount : undefined}
                             className={`text-center is-action erp-table-export-skip ${row.voucherLineCount > 1 ? "is-voucher-merged" : ""}`}
                           >
-                            <button type="button" className="erp-sales-sheet-delete" onClick={(event) => { event.stopPropagation(); deleteSale(row.saleId); }} title="전표 삭제">
-                              <Trash2 size={13} />
-                            </button>
+                            <div className="flex items-center justify-center gap-1">
+                              {onShareToTeamChat && editTarget ? (
+                                <button
+                                  type="button"
+                                  className="erp-sales-sheet-share rounded-lg p-1 text-slate-500 hover:bg-slate-100 hover:text-blue-600"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    onShareToTeamChat(editTarget);
+                                  }}
+                                  title={"\uC0AC\uB0B4 \uCC57\uC5D0 \uACF5\uC720"}
+                                >
+                                  <MessageCircle size={13} />
+                                </button>
+                              ) : null}
+                              <button type="button" className="erp-sales-sheet-delete" onClick={(event) => { event.stopPropagation(); deleteSale(row.saleId); }} title="\uC804\uD45C \uC0AD\uC81C">
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
                           </td>
                         ) : null}
                       </tr>

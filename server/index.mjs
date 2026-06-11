@@ -34,7 +34,7 @@ import {
   parseAttendanceViewUserIds,
   recordLoginLog,
 } from "./db.mjs";
-import { authenticateUser, authMiddleware, adminMiddleware, signToken } from "./auth.mjs";
+import { authenticateUser, authMiddleware, adminMiddleware, signToken, resolveRequestUser } from "./auth.mjs";
 import {
   authenticateWorkerPortal,
   buildWorkerPortalMonths,
@@ -139,7 +139,12 @@ import {
   postTeamChatMessage,
   createTeamChatPendingAttachment,
   getTeamChatAttachmentFile,
+  createTeamChatGroupChannel,
+  editTeamChatMessage,
+  deleteTeamChatMessage,
+  searchTeamChatMessages,
 } from "./teamChat.mjs";
+import { subscribeTeamChatEvents } from "./teamChatEvents.mjs";
 import { buildDailyReport, formatDailyReportMessage, yesterdayDateKey } from "./dailyReport.mjs";
 import { buildDailyReportPageAsync } from "./dailyReportPage.mjs";
 import { collectSystemMetrics } from "./systemMetrics.mjs";
@@ -1565,7 +1570,51 @@ app.get("/api/team-chat/unread-count", authMiddleware, (req, res) => {
   try {
     res.json({ count: getTeamChatUnreadCount(req.user.id) });
   } catch (error) {
-    res.status(error.status || 500).json({ error: error.message || "미읽음 조회에 실패했습니다." });
+    res.status(error.status || 500).json({ error: error.message || "\uBBF8\uC775\uC74C \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+  }
+});
+
+app.get("/api/team-chat/events", (req, res) => {
+  const user = resolveRequestUser(req);
+  if (!user) {
+    res.status(401).json({ error: "\uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4." });
+    return;
+  }
+  subscribeTeamChatEvents(user.sub ?? user.id, res);
+});
+
+app.get("/api/team-chat/search", authMiddleware, (req, res) => {
+  try {
+    res.json(searchTeamChatMessages(req.user.id, req.query.q, { limit: req.query.limit }));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "\uAC80\uC0C9\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+  }
+});
+
+app.post("/api/team-chat/groups", authMiddleware, (req, res) => {
+  try {
+    const channel = createTeamChatGroupChannel(req.user.id, req.body || {});
+    res.status(201).json(channel);
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "\uADF8\uB8F9 \uBC29 \uC0DD\uC131\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+  }
+});
+
+app.patch("/api/team-chat/messages/:messageId", authMiddleware, (req, res) => {
+  try {
+    const message = editTeamChatMessage(req.params.messageId, req.user.id, req.body?.body);
+    res.json(message);
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "\uBA54\uC2DC\uC9C0 \uC218\uC815\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+  }
+});
+
+app.delete("/api/team-chat/messages/:messageId", authMiddleware, (req, res) => {
+  try {
+    const message = deleteTeamChatMessage(req.params.messageId, req.user.id);
+    res.json(message);
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "\uBA54\uC2DC\uC9C0 \uC0AD\uC81C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
   }
 });
 

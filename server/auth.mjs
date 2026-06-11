@@ -59,17 +59,23 @@ export function authenticateUser(identifier, password) {
 }
 
 export function authMiddleware(req, res, next) {
-  const header = req.headers.authorization || "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-  if (!token) {
-    res.status(401).json({ error: "로그인이 필요합니다." });
+  const user = resolveRequestUser(req);
+  if (!user) {
+    res.status(401).json({ error: "\uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4." });
     return;
   }
+  req.user = user;
+  next();
+export function resolveRequestUser(req) {
+  const header = req.headers.authorization || "";
+  let token = header.startsWith("Bearer ") ? header.slice(7) : "";
+  if (!token && req.query?.token) token = String(req.query.token);
+  if (!token) return null;
   try {
-    req.user = verifyToken(token);
-    next();
+    const payload = verifyToken(token);
+    return { ...payload, id: payload.sub };
   } catch {
-    res.status(401).json({ error: "세션이 만료되었습니다. 다시 로그인해 주세요." });
+    return null;
   }
 }
 
