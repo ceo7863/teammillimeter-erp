@@ -268,7 +268,14 @@ function TaxInvoiceLinkResultsTable({
                   canLinkTaxInvoiceToTransaction(tx, row.invoice, row.unsettledAmount, matchContext);
 
                 return (
-                  <tr key={row.invoice.id} className={isLinked ? "bg-blue-50/70" : undefined}>
+                  <tr
+                    key={row.invoice.id}
+                    className={
+                      isLinked
+                        ? "erp-tax-invoice-link-panel__row is-linked bg-blue-50/70"
+                        : "erp-tax-invoice-link-panel__row"
+                    }
+                  >
                     <td className="whitespace-nowrap font-medium text-slate-800">{row.invoice.issueDate}</td>
                     <td>
                       <div className="space-y-0.5">

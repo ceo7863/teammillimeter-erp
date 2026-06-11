@@ -16274,6 +16274,18 @@ button:disabled,
   vertical-align: top;
 }
 
+.erp-tax-invoice-link-panel__table tbody tr.erp-tax-invoice-link-panel__row {
+  transition: background-color 0.12s ease;
+}
+
+.erp-tax-invoice-link-panel__table tbody tr.erp-tax-invoice-link-panel__row:hover {
+  background: #f1f5f9 !important;
+}
+
+.erp-tax-invoice-link-panel__table tbody tr.erp-tax-invoice-link-panel__row.is-linked:hover {
+  background: #dbeafe !important;
+}
+
 .erp-tax-invoice-link-panel__footer {
   display: flex;
   align-items: center;

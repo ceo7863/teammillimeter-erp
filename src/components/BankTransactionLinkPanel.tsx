@@ -179,7 +179,13 @@ function BankTransactionLinkRow({
     canLinkTaxInvoiceToTransaction(row.tx, invoice, unsettledAmount, matchContext);
 
   return (
-    <tr className={linkedToInvoice ? "erp-tax-invoice-link-panel__row is-linked bg-blue-50/70" : undefined}>
+    <tr
+      className={
+        linkedToInvoice
+          ? "erp-tax-invoice-link-panel__row is-linked bg-blue-50/70"
+          : "erp-tax-invoice-link-panel__row"
+      }
+    >
       <td className="whitespace-nowrap font-medium text-slate-800">{row.dateLabel}</td>
       <td className="font-semibold text-slate-900">{row.counterpartyLabel}</td>
       <td className="max-w-[14rem] truncate text-slate-700" title={row.descriptionLabel}>
