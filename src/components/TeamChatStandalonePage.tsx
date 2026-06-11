@@ -10,6 +10,7 @@ import {
 import type { ErpChatAction } from "@/utils/erpChatApi";
 import { stashPendingChatAction } from "@/utils/erpChatPendingAction";
 import { focusMainErpWindow } from "@/utils/teamChatPopup";
+import type { TeamChatStandaloneRoute } from "@/utils/teamChatRoute";
 
 const L = {
   title: "\uC0AC\uB0B4 \uCC57",
@@ -21,10 +22,11 @@ const L = {
   loginRequired: "\uC544\uC774\uB514\uC640 \uBE44\uBC00\uBC88\uD638\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.",
   loginFailed: "\uB85C\uADF8\uC778\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   openErp: "ERP \uC804\uCCB4 \uC5F4\uAE30",
-  hint: "PC \uCE74\uD1A1\uCC98\uB7FC \uBCC4\uB3C4 \uCC3D\uC5D0\uC11C \uC0AC\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+  hint: "\uCC57\uBC29\uC744 \uB204\uB974\uBA74 \uB300\uD654\uB97C \uBCC4\uB3C4 \uCC3D\uC5D0\uC11C \uC5ED\uC2DC \uC5FD\uB2C8\uB2E4.",
+  threadHint: "\uB300\uD654 \uCC3D",
 };
 
-export function TeamChatStandalonePage() {
+export function TeamChatStandalonePage({ route }: { route: TeamChatStandaloneRoute }) {
   const [currentUser, setCurrentUser] = useState<ErpUser | null>(() => {
     const user = loadAuthUser();
     return user && getAuthToken() ? user : null;
@@ -33,6 +35,8 @@ export function TeamChatStandalonePage() {
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loggingIn, setLoggingIn] = useState(false);
+
+  const isThreadWindow = route.mode === "thread";
 
   const handleLogin = useCallback(async () => {
     const id = loginId.trim();
@@ -97,19 +101,37 @@ export function TeamChatStandalonePage() {
   }
 
   return (
-    <div className="erp-team-chat-standalone flex min-h-[100dvh] flex-col bg-slate-100">
-      <div className="erp-team-chat-standalone__top flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2.5">
-        <div>
-          <div className="text-sm font-bold text-slate-900">{L.title}</div>
-          <div className="text-xs text-slate-500">{L.hint}</div>
+    <div className={`erp-team-chat-standalone flex min-h-[100dvh] flex-col bg-slate-100 ${isThreadWindow ? "erp-team-chat-standalone--thread" : ""}`}>
+      {!isThreadWindow ? (
+        <div className="erp-team-chat-standalone__top flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2.5">
+          <div>
+            <div className="text-sm font-bold text-slate-900">{L.title}</div>
+            <div className="text-xs text-slate-500">{L.hint}</div>
+          </div>
+          <button type="button" className="erp-team-chat-standalone__erp-btn" onClick={() => focusMainErpWindow()}>
+            <ExternalLink size={14} />
+            {L.openErp}
+          </button>
         </div>
-        <button type="button" className="erp-team-chat-standalone__erp-btn" onClick={() => focusMainErpWindow()}>
-          <ExternalLink size={14} />
-          {L.openErp}
-        </button>
-      </div>
+      ) : (
+        <div className="erp-team-chat-standalone__top erp-team-chat-standalone__top--thread flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2">
+          <div className="text-xs font-semibold text-slate-500">{L.threadHint}</div>
+          <button type="button" className="erp-team-chat-standalone__erp-btn" onClick={() => focusMainErpWindow()}>
+            <ExternalLink size={14} />
+            {L.openErp}
+          </button>
+        </div>
+      )}
       <div className="erp-team-chat-standalone__body min-h-0 flex-1">
-        <TeamChatPage currentUser={currentUser} isPageActive standalone onErpAction={handleErpAction} />
+        <TeamChatPage
+          currentUser={currentUser}
+          isPageActive
+          standalone
+          listOnly={!isThreadWindow}
+          threadOnly={isThreadWindow}
+          initialChannelId={isThreadWindow ? route.channelId : undefined}
+          onErpAction={handleErpAction}
+        />
       </div>
     </div>
   );

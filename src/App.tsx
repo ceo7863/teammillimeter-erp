@@ -8403,7 +8403,7 @@ export default function TeammillimeterErpMvp() {
 
   const teamChatRoute = parseTeamChatStandaloneRoute();
   if (teamChatRoute) {
-    return <TeamChatStandalonePage />;
+    return <TeamChatStandalonePage route={teamChatRoute} />;
   }
 
   const apiMode = isApiModeEnabled();

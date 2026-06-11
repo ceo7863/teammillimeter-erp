@@ -1,21 +1,50 @@
-import { TEAM_CHAT_STANDALONE_PATH } from "@/utils/teamChatRoute";
+import { buildTeamChatThreadPath, TEAM_CHAT_STANDALONE_PATH } from "@/utils/teamChatRoute";
 
-const POPUP_NAME = "teammillimeter-team-chat";
-const POPUP_FEATURES = "width=960,height=720,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=no";
+const LIST_POPUP_NAME = "teammillimeter-team-chat";
+const LIST_POPUP_FEATURES =
+  "width=380,height=760,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=no";
+const THREAD_POPUP_FEATURES =
+  "width=420,height=760,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=no";
 
 export function isTeamChatPopupWindow() {
   if (typeof window === "undefined") return false;
-  return /^\/messenger\/?$/i.test(window.location.pathname);
+  return /^\/messenger(\/thread)?\/?$/i.test(window.location.pathname.replace(/\/+$/, "") || "/");
+}
+
+export function isTeamChatThreadPopupWindow() {
+  if (typeof window === "undefined") return false;
+  return /^\/messenger\/thread$/i.test(window.location.pathname.replace(/\/+$/, "") || "/");
+}
+
+export function isTeamChatDesktopPopupMode() {
+  if (typeof window === "undefined") return false;
+  return window.matchMedia("(min-width: 1024px) and (pointer: fine)").matches;
+}
+
+export function canOpenTeamChatThreadPopup() {
+  return isTeamChatDesktopPopupMode();
 }
 
 export function openTeamChatPopup() {
   if (typeof window === "undefined") return null;
-  if (isTeamChatPopupWindow()) {
+  if (isTeamChatPopupWindow() && !isTeamChatThreadPopupWindow()) {
     window.focus();
     return window;
   }
   const url = `${window.location.origin}${TEAM_CHAT_STANDALONE_PATH}`;
-  const popup = window.open(url, POPUP_NAME, POPUP_FEATURES);
+  const popup = window.open(url, LIST_POPUP_NAME, LIST_POPUP_FEATURES);
+  popup?.focus();
+  return popup;
+}
+
+export function openTeamChatThreadPopup(channelId: string) {
+  if (typeof window === "undefined") return null;
+  const id = String(channelId || "").trim();
+  if (!id) return null;
+
+  const url = `${window.location.origin}${buildTeamChatThreadPath(id)}`;
+  const windowName = `teammillimeter-team-chat-${id}`;
+  const popup = window.open(url, windowName, THREAD_POPUP_FEATURES);
   popup?.focus();
   return popup;
 }

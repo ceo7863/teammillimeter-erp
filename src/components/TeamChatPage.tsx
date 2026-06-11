@@ -1,4 +1,5 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowLeft,
   CornerUpLeft,
@@ -35,7 +36,7 @@ import {
 } from "@/utils/teamChatAttachments";
 import { TEAM_CHAT_LINK_LABELS, teamChatLinkToAction, type TeamChatLink } from "@/utils/teamChatLinks";
 import { consumeTeamChatShare, TEAM_CHAT_SHARE_CHANNEL } from "@/utils/teamChatShare";
-import { openTeamChatPopup } from "@/utils/teamChatPopup";
+import { openTeamChatPopup, openTeamChatThreadPopup, canOpenTeamChatThreadPopup } from "@/utils/teamChatPopup";
 import {
   createTeamChatGroup,
   deleteTeamChatMessage,
@@ -90,7 +91,7 @@ const L = {
   attachError: "\uCCA8\uBD80\uD30C\uC77C \uC5C5\uB85C\uB4DC\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   noPreview: "\uB300\uD654 \uC5C6\uC74C",
   loading: "\uBD88\uB7EC\uC624\uB294 \uC911\u2026",
-  pickChannelHint: "\uB300\uD654\uBC29\uC744 \uC120\uD0DD\uD558\uAC70\uB098 \uC0C8 \uB300\uD654\uB97C \uC2DC\uC791\uD558\uC138\uC694.",
+  pickChannelHint: "\uCC57\uBC29\uC744 \uD074\uB9AD\uD558\uBA74 \uBCC4\uB3C4 \uCC3D\uC5D0\uC11C \uB300\uD654\uAC00 \uC5FD\uB2C8\uB2E4.",
   teamChannelLabel: "\uC804\uCCB4 \uB2E8\uD1A1",
   groupChannelLabel: "\uADF8\uB8F9 \uCC44\uB110",
   dmChannelLabel: "1:1 \uB300\uD654",
@@ -121,6 +122,9 @@ type TeamChatPageProps = {
   currentUser: ErpUser | null;
   isPageActive?: boolean;
   standalone?: boolean;
+  listOnly?: boolean;
+  threadOnly?: boolean;
+  initialChannelId?: string;
   onUnreadChange?: () => void;
   onErpAction?: (action: ErpChatAction) => void;
   onOpenAppMenu?: () => void;
@@ -226,7 +230,7 @@ function TeamChatImagePreviewModal({
 
   if (!preview) return null;
 
-  return (
+  const modal = (
     <div
       className="erp-team-chat-image-preview-backdrop"
       onClick={onClose}
@@ -251,11 +255,15 @@ function TeamChatImagePreviewModal({
           src={preview.url}
           alt={preview.fileName}
           className="erp-team-chat-image-preview__img"
+          draggable={false}
           onClick={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
         />
       </div>
     </div>
   );
+
+  return typeof document !== "undefined" ? createPortal(modal, document.body) : modal;
 }
 
 function MessageAttachmentChip({
@@ -315,11 +323,22 @@ function MessageAttachmentChip({
     void handleDownload();
   };
 
+  const handleThumbActivate = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    void handleOpen();
+  };
+
   return (
     <div className="erp-team-chat-attachment-chip">
       {url ? (
-        <button type="button" className="erp-team-chat-attachment-thumb" onClick={() => void handleOpen()} title={attachment.fileName}>
-          <img src={url} alt={attachment.fileName} />
+        <button
+          type="button"
+          className="erp-team-chat-attachment-thumb"
+          onClick={handleThumbActivate}
+          title={attachment.fileName}
+        >
+          <img src={url} alt={attachment.fileName} draggable={false} />
         </button>
       ) : (
         <button type="button" className="erp-team-chat-attachment-file" onClick={() => void handleOpen()}>
@@ -353,13 +372,19 @@ export const TeamChatPage = memo(function TeamChatPage({
   currentUser,
   isPageActive = true,
   standalone = false,
+  listOnly = false,
+  threadOnly = false,
+  initialChannelId,
   onUnreadChange,
   onErpAction,
   onOpenAppMenu,
 }: TeamChatPageProps) {
   const [channels, setChannels] = useState<TeamChatChannel[]>([]);
   const [users, setUsers] = useState<TeamChatUser[]>([]);
-  const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
+  const [selectedChannelId, setSelectedChannelId] = useState<string | null>(() =>
+    threadOnly && initialChannelId ? initialChannelId : null,
+  );
+  const [highlightedChannelId, setHighlightedChannelId] = useState<string | null>(null);
   const [messages, setMessages] = useState<TeamChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [pendingLink, setPendingLink] = useState<TeamChatLink | null>(null);
@@ -393,6 +418,8 @@ export const TeamChatPage = memo(function TeamChatPage({
   const onUnreadChangeRef = useRef(onUnreadChange);
   const listBrowsingRef = useRef(false);
   const isMobileLayout = useTeamChatMobileLayout();
+  const openThreadInPopup = listOnly && canOpenTeamChatThreadPopup() && !threadOnly;
+  const selfId = Number(currentUser?.id) || 0;
 
   selectedChannelIdRef.current = selectedChannelId;
   onUnreadChangeRef.current = onUnreadChange;
@@ -456,9 +483,14 @@ export const TeamChatPage = memo(function TeamChatPage({
     if (payload.body) setDraft(payload.body);
     if (payload.link) setPendingLink(payload.link);
     if (payload.channelId && channelRows.some((row) => row.id === payload.channelId)) {
-      setSelectedChannelId(payload.channelId);
+      if (openThreadInPopup) {
+        setHighlightedChannelId(payload.channelId);
+        openTeamChatThreadPopup(payload.channelId);
+      } else {
+        setSelectedChannelId(payload.channelId);
+      }
     }
-  }, []);
+  }, [openThreadInPopup]);
 
   const handleIncomingShare = useCallback(() => {
     shareAppliedRef.current = false;
@@ -590,6 +622,13 @@ export const TeamChatPage = memo(function TeamChatPage({
   }, [handleIncomingShare]);
 
   useEffect(() => {
+    if (threadOnly) {
+      if (initialChannelId && !selectedChannelId) {
+        setSelectedChannelId(initialChannelId);
+      }
+      return;
+    }
+    if (openThreadInPopup) return;
     if (isMobileLayout) {
       if (listBrowsingRef.current) return;
       if (!selectedChannelId) return;
@@ -598,7 +637,7 @@ export const TeamChatPage = memo(function TeamChatPage({
       const team = channels.find((row) => row.type === "team");
       if (team) setSelectedChannelId(team.id);
     }
-  }, [channels, isMobileLayout, selectedChannelId]);
+  }, [channels, initialChannelId, isMobileLayout, openThreadInPopup, selectedChannelId, threadOnly]);
 
   useEffect(() => {
     if (!selectedChannelId) {
@@ -656,15 +695,21 @@ export const TeamChatPage = memo(function TeamChatPage({
   }, []);
 
   const handleSelectChannel = useCallback((channelId: string) => {
+    if (openThreadInPopup) {
+      setHighlightedChannelId(channelId);
+      openTeamChatThreadPopup(channelId);
+      return;
+    }
     if (channelId === selectedChannelIdRef.current) return;
     listBrowsingRef.current = false;
+    setHighlightedChannelId(channelId);
     setSelectedChannelId(channelId);
     setDraft("");
     setPendingLink(null);
     setPendingAttachments([]);
     setPickerOpen(false);
     resetComposerExtras();
-  }, [resetComposerExtras]);
+  }, [openThreadInPopup, resetComposerExtras]);
 
   const handleStartDm = useCallback(
     async (otherUserId: number) => {
@@ -932,16 +977,20 @@ export const TeamChatPage = memo(function TeamChatPage({
   const handleBackToList = useCallback(() => {
     listBrowsingRef.current = true;
     setSelectedChannelId(null);
+    setHighlightedChannelId(null);
   }, []);
 
-  const showThreadOnMobile = standalone ? false : Boolean(selectedChannelId);
-  const isMobileChat = isMobileLayout && !standalone;
-  const selfId = Number(currentUser?.id) || 0;
+  const isMobileChat = isMobileLayout && !threadOnly;
+  const showThreadOnMobile = isMobileLayout && !threadOnly && Boolean(selectedChannelId);
+  const showThreadPanel =
+    threadOnly || showThreadOnMobile || (Boolean(selectedChannelId) && !openThreadInPopup);
+  const activeChannelId = highlightedChannelId || selectedChannelId;
 
   return (
     <div
-      className={`erp-team-chat-page ${standalone ? "erp-team-chat-page--standalone" : ""} ${isMobileChat ? "erp-team-chat-page--mobile" : ""} ${showThreadOnMobile ? "is-thread-open" : ""} ${isMobileChat && !showThreadOnMobile ? "is-mobile-list" : ""}`}
+      className={`erp-team-chat-page ${standalone ? "erp-team-chat-page--standalone" : ""} ${threadOnly ? "erp-team-chat-page--thread-only" : ""} ${openThreadInPopup ? "erp-team-chat-page--list-only" : ""} ${isMobileChat ? "erp-team-chat-page--mobile" : ""} ${showThreadOnMobile ? "is-thread-open" : ""} ${isMobileChat && !showThreadOnMobile ? "is-mobile-list" : ""}`}
     >
+      {!threadOnly ? (
       <aside className={`erp-team-chat-sidebar ${showThreadOnMobile ? "is-hidden-mobile" : ""}`}>
         <div className="erp-team-chat-sidebar__head">
           <div className="erp-team-chat-sidebar__head-start">
@@ -1001,7 +1050,7 @@ export const TeamChatPage = memo(function TeamChatPage({
               <ChannelListItem
                 key={channel.id}
                 channel={channel}
-                active={channel.id === selectedChannelId}
+                active={channel.id === activeChannelId}
                 onSelect={handleSelectChannel}
               />
             ))
@@ -1010,17 +1059,18 @@ export const TeamChatPage = memo(function TeamChatPage({
           )}
         </div>
       </aside>
+      ) : null}
 
-      <section className={`erp-team-chat-thread ${selectedChannelId ? "is-open" : ""}`}>
+      <section className={`erp-team-chat-thread ${showThreadPanel ? "is-open" : ""}`}>
         {!selectedChannel ? (
           <div className="erp-team-chat-thread__empty">
             <MessageCircle size={40} className="text-slate-300" />
-            <p className="mt-3 text-sm text-slate-500">{L.pickChannelHint}</p>
+            <p className="mt-3 text-sm text-slate-500">{threadOnly ? L.loading : L.pickChannelHint}</p>
           </div>
         ) : (
           <>
             <div className="erp-team-chat-thread__head">
-              {!standalone ? (
+              {!standalone && !threadOnly ? (
                 <button
                   type="button"
                   className="erp-team-chat-back lg:hidden"
@@ -1227,15 +1277,22 @@ export const TeamChatPage = memo(function TeamChatPage({
                       <button
                         type="button"
                         className="erp-team-chat-composer__pending-thumb-btn"
-                        onClick={() =>
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
                           openImagePreview({
                             url: attachment.previewUrl!,
                             fileName: attachment.fileName,
                             attachmentId: attachment.id,
-                          })
-                        }
+                          });
+                        }}
                       >
-                        <img src={attachment.previewUrl} alt={attachment.fileName} className="erp-team-chat-composer__pending-thumb" />
+                        <img
+                          src={attachment.previewUrl}
+                          alt={attachment.fileName}
+                          className="erp-team-chat-composer__pending-thumb"
+                          draggable={false}
+                        />
                       </button>
                     ) : (
                       <span className="truncate text-xs">{attachment.fileName}</span>
