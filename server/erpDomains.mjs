@@ -44,6 +44,9 @@ export const ERP_DOMAIN_FIELDS = {
     "clientContracts",
     "scSchedules",
     "scScheduleSyncMeta",
+    "probationEvalTemplates",
+    "probationEvalRequests",
+    "probationEvalNotifyMeta",
   ],
 };
 
@@ -233,6 +236,16 @@ export function mergeErpDomainForSave(existingData, domain, incomingPartial) {
           incoming.scScheduleSyncMeta && typeof incoming.scScheduleSyncMeta === "object"
             ? incoming.scScheduleSyncMeta
             : existing.scScheduleSyncMeta,
+        probationEvalTemplates: Array.isArray(incoming.probationEvalTemplates)
+          ? incoming.probationEvalTemplates
+          : existing.probationEvalTemplates || [],
+        probationEvalRequests: Array.isArray(incoming.probationEvalRequests)
+          ? incoming.probationEvalRequests
+          : existing.probationEvalRequests || [],
+        probationEvalNotifyMeta:
+          incoming.probationEvalNotifyMeta && typeof incoming.probationEvalNotifyMeta === "object"
+            ? incoming.probationEvalNotifyMeta
+            : existing.probationEvalNotifyMeta,
       };
     default:
       return existing;

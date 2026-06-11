@@ -176,6 +176,19 @@ import {
 } from "./notificationSettings.mjs";
 import { normalizeSaleAiRules } from "./saleAiRules.mjs";
 import { normalizeWorkerAiRules } from "./workerAiRules.mjs";
+import {
+  getPublicProbationEvalPayload,
+  verifyProbationEvalPhoneLastFour,
+  submitProbationEvalAnswers,
+  normalizeProbationEvalTemplates,
+  normalizeProbationEvalRequests,
+  sanitizeProbationEvalRequestForAdmin,
+} from "./probationEval.mjs";
+import {
+  getProbationEvalNotifyStatus,
+  runProbationEvalNotifyJob,
+  runProbationEvalReminderJob,
+} from "./probationEvalNotify.mjs";
 import { notifyNewSaleComments, runCommentNotifyTestJob, runDailyReportJob, startNotificationScheduler } from "./notificationScheduler.mjs";
 import {
   buildScScheduleNotifyPreview,
@@ -548,6 +561,33 @@ app.post("/api/public/client-contracts/sign/:token", async (req, res) => {
     console.error("[client-contracts] public sign failed:", error);
     res.status(500).json({ error: "\uC11C\uBA85 \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
   }
+});
+
+app.get("/api/public/probation-eval/:token", (req, res) => {
+  const result = getPublicProbationEvalPayload(req.params.token);
+  if (!result.ok) {
+    res.status(result.status || 400).json({ error: result.error });
+    return;
+  }
+  res.json(result.request);
+});
+
+app.post("/api/public/probation-eval/:token/verify-phone", (req, res) => {
+  const result = verifyProbationEvalPhoneLastFour(req.params.token, req.body?.phoneLast4);
+  if (!result.ok) {
+    res.status(result.status || 400).json({ error: result.error });
+    return;
+  }
+  res.json({ phoneVerified: true });
+});
+
+app.post("/api/public/probation-eval/:token", (req, res) => {
+  const result = submitProbationEvalAnswers(req.params.token, req.body || {});
+  if (!result.ok) {
+    res.status(result.status || 400).json({ error: result.error });
+    return;
+  }
+  res.json(result.request);
 });
 
 app.get("/api/public/client-site-request/:token", (req, res) => {
@@ -1254,6 +1294,11 @@ function buildErpApiResponse(state, workersOverride = null, workerMonthlyPayment
     notificationSettings: normalizeNotificationSettings(data.notificationSettings),
     saleAiRules: normalizeSaleAiRules(data.saleAiRules),
     workerAiRules: normalizeWorkerAiRules(data.workerAiRules),
+    probationEvalTemplates: normalizeProbationEvalTemplates(data.probationEvalTemplates),
+    probationEvalRequests: normalizeProbationEvalRequests(data.probationEvalRequests).map((row) =>
+      sanitizeProbationEvalRequestForAdmin(row),
+    ),
+    probationEvalNotifyMeta: data.probationEvalNotifyMeta || null,
     version: state.version,
     updatedAt: state.updatedAt,
     updatedBy: state.updatedBy,
@@ -2499,6 +2544,43 @@ app.post("/api/notifications/sc-schedule/send-one", authMiddleware, async (req, 
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: error instanceof Error ? error.message : "SC \uC77C\uC815 \uC54C\uB9BC \uBC1C\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+  }
+});
+
+app.get("/api/notifications/probation-eval/status", authMiddleware, async (_req, res) => {
+  try {
+    res.json(getProbationEvalNotifyStatus());
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error instanceof Error ? error.message : "\uC218\uC2B5 \uD3C9\uAC00 \uC54C\uB9BC \uC0C1\uD0DC \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+  }
+});
+
+app.post("/api/notifications/probation-eval/send", authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const result = await runProbationEvalNotifyJob({
+      force: true,
+      targetDate: req.body?.targetDate ? String(req.body.targetDate).slice(0, 10) : undefined,
+      updatedBy: req.user.loginId || req.user.name || req.user.email || "probation-eval-send",
+    });
+    res.json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error instanceof Error ? error.message : "\uC218\uC2B5 \uD3C9\uAC00 \uC54C\uB9BC \uBC1C\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+  }
+});
+
+app.post("/api/notifications/probation-eval/reminder", authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const result = await runProbationEvalReminderJob({
+      force: true,
+      targetDate: req.body?.targetDate ? String(req.body.targetDate).slice(0, 10) : undefined,
+      updatedBy: req.user.loginId || req.user.name || req.user.email || "probation-eval-reminder",
+    });
+    res.json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error instanceof Error ? error.message : "\uC218\uC2B5 \uD3C9\uAC00 \uB9AC\uB9E4\uC778\uB354 \uBC1C\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
   }
 });
 

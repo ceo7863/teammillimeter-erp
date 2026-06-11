@@ -100,7 +100,16 @@ function emptyErpPayload() {
       autoAdjustGradeOnProbationEnd: true,
       postProbationGrade: "D",
       enforceEGradeDuringProbation: true,
+      probationEvalEnabled: true,
+      probationEvalGrades: ["A"],
+      probationEvalNotifyHour: 19,
+      probationEvalNotifyMinute: 0,
+      probationEvalReminderEnabled: true,
+      probationEvalTemplateId: "default-v1",
     },
+    probationEvalTemplates: [],
+    probationEvalRequests: [],
+    probationEvalNotifyMeta: null,
   };
 }
 

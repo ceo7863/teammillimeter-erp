@@ -200,6 +200,10 @@ import { filterNamedSuggestions } from "@/utils/autocompleteFilter";
 import { buildSaleFormFromScSchedule, detectScScheduleChargeHeadcountWarning, isScScheduleRegistered, resolveScScheduleSiteName } from "@/utils/scScheduleSaleImport";
 import { DEFAULT_SALE_AI_RULES, normalizeSaleAiRules } from "@/utils/saleAiRules";
 import { DEFAULT_WORKER_AI_RULES, normalizeWorkerAiRules } from "@/utils/workerAiRules";
+import {
+  normalizeProbationEvalRequests,
+  normalizeProbationEvalTemplates,
+} from "@/utils/probationEval";
 import { applyProbationEndAdjustments, isWorkerInProbationPeriod } from "@/utils/workerProbationAutoAdjust";
 import {
   fetchStaffScSchedulesForMonth,
@@ -227,6 +231,7 @@ import {
 import { SaleVoucherEditModal } from "@/components/SaleVoucherEditModal";
 import { WorkerPortalView } from "@/components/WorkerPortalView";
 import { ClientContractSignPage } from "@/components/ClientContractSignPage";
+import { ProbationEvalSurveyPage } from "@/components/ProbationEvalSurveyPage";
 import { ClientSiteRequestPage } from "@/components/ClientSiteRequestPage";
 import { ClientContractsPanel } from "@/components/ClientContractsPanel";
 import { ClientSiteRequestsPage } from "@/components/ClientSiteRequestsPage";
@@ -234,6 +239,9 @@ import { ClientSiteRequestCalendarsPage } from "@/components/ClientSiteRequestCa
 import { CalendarScScheduleImportModal } from "@/components/CalendarScScheduleImportModal";
 import { SaleAiRulesButton, SaleAiRulesModal } from "@/components/SaleAiRulesModal";
 import { WorkerAiRulesButton, WorkerAiRulesModal } from "@/components/WorkerAiRulesModal";
+import { ProbationEvalDashboard } from "@/components/ProbationEvalDashboard";
+import { ProbationEvalTemplateEditor } from "@/components/ProbationEvalTemplateEditor";
+import type { ProbationEvalRequest, ProbationEvalTemplate } from "@/utils/probationEval";
 import { ScScheduleAlimtalkPage } from "@/components/ScScheduleAlimtalkPage";
 import { ClientFormModal, type ClientFormState } from "@/components/ClientFormModal";
 import { WorkerFormModal, createEmptyWorkerForm } from "@/components/WorkerFormModal";
@@ -6578,7 +6586,17 @@ function workerListSearchText(worker) {
     .toLowerCase();
 }
 
-function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImmediate, workerAiRules, onSaveWorkerAiRules }) {
+function WorkersPage({
+  workers,
+  companyProfile,
+  currentUser,
+  onPersistWorkersImmediate,
+  workerAiRules,
+  onSaveWorkerAiRules,
+  probationEvalTemplates,
+  probationEvalRequests,
+  onSaveProbationEvalTemplates,
+}) {
   const { auditLogs } = useAudit();
   const workersRef = useRef(workers);
   workersRef.current = workers;
@@ -6596,6 +6614,8 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
   const [formError, setFormError] = useState("");
   const [workerAiRulesOpen, setWorkerAiRulesOpen] = useState(false);
   const [workerAiRulesSaving, setWorkerAiRulesSaving] = useState(false);
+  const [workersView, setWorkersView] = useState<"list" | "eval" | "template">("list");
+  const [probationTemplateSaving, setProbationTemplateSaving] = useState(false);
   const [scrollToWorkerId, setScrollToWorkerId] = useState<string | number | null>(null);
 
   useEffect(() => {
@@ -6706,6 +6726,15 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
       setWorkerAiRulesSaving(false);
     }
   }, [onSaveWorkerAiRules]);
+
+  const handleSaveProbationTemplates = useCallback(async (nextTemplates) => {
+    setProbationTemplateSaving(true);
+    try {
+      await onSaveProbationEvalTemplates?.(nextTemplates);
+    } finally {
+      setProbationTemplateSaving(false);
+    }
+  }, [onSaveProbationEvalTemplates]);
 
   const commitWorkerChange = (nextWorkers, auditInput, options?: { flushNow?: boolean }) => {
     const nextAuditLogs = auditInput
@@ -7071,6 +7100,55 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
       ) : null}
       <PageTitle title="시공자" desc="엑셀 기본정보 시트를 기준으로 시공자 정보를 관리합니다." />
 
+      <div className="mb-4 flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant={workersView === "list" ? "default" : "outline"}
+          size="sm"
+          className="rounded-lg"
+          onClick={() => setWorkersView("list")}
+        >
+          {"\uC2DC\uACF5\uC790 \uBAA9\uB85D"}
+        </Button>
+        <Button
+          type="button"
+          variant={workersView === "eval" ? "default" : "outline"}
+          size="sm"
+          className="rounded-lg"
+          onClick={() => setWorkersView("eval")}
+        >
+          {"\uC218\uC2B5 \uD3C9\uAC00 \uB300\uC2DC\uBCF4\uB4DC"}
+        </Button>
+        <Button
+          type="button"
+          variant={workersView === "template" ? "default" : "outline"}
+          size="sm"
+          className="rounded-lg"
+          onClick={() => setWorkersView("template")}
+        >
+          {"\uD3C9\uAC00 \uC591\uC2DD \uAD00\uB9AC"}
+        </Button>
+      </div>
+
+      {workersView === "eval" ? (
+        <ProbationEvalDashboard requests={probationEvalRequests} templates={probationEvalTemplates} />
+      ) : null}
+
+      {workersView === "template" ? (
+        <Card className="rounded-2xl shadow-sm">
+          <CardContent className="p-4 md:p-5">
+            <ProbationEvalTemplateEditor
+              templates={probationEvalTemplates}
+              activeTemplateId={workerAiRules.probationEvalTemplateId}
+              saving={probationTemplateSaving}
+              onSave={handleSaveProbationTemplates}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {workersView === "list" ? (
+      <>
       <SearchBox query={query} setQuery={setQuery} placeholder="시공자명, 시공등급, 구분, 입사일, 연락처, 예금주 별칭, 사업자등록번호, 주소, 차량번호, 은행, 계좌 검색" />
 
       <Card className="rounded-2xl shadow-sm">
@@ -7279,6 +7357,8 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
           </div>
         </CardContent>
       </Card>
+      </>
+      ) : null}
 
       <WorkerFormModal
         open={workerModalOpen}
@@ -8001,6 +8081,12 @@ function ReportsPage({ sales, workers = [], paymentVouchers = [], onRequestClien
   );
 }
 
+function parseProbationEvalToken() {
+  if (typeof window === "undefined") return "";
+  const match = window.location.pathname.match(/^\/eval\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
 function parseClientContractSignToken() {
   if (typeof window === "undefined") return "";
   const match = window.location.pathname.match(/^\/sign\/([^/]+)\/?$/);
@@ -8014,6 +8100,11 @@ function parseClientSiteRequestToken() {
 }
 
 export default function TeammillimeterErpMvp() {
+  const evalToken = parseProbationEvalToken();
+  if (evalToken) {
+    return <ProbationEvalSurveyPage token={evalToken} />;
+  }
+
   const signToken = parseClientContractSignToken();
   if (signToken) {
     return <ClientContractSignPage token={signToken} />;
@@ -8266,6 +8357,14 @@ export default function TeammillimeterErpMvp() {
   const [workerAiRules, setWorkerAiRules] = useState(() => {
     if (apiMode && sessionOnMount) return { ...DEFAULT_WORKER_AI_RULES };
     return normalizeWorkerAiRules(storedData?.workerAiRules);
+  });
+  const [probationEvalTemplates, setProbationEvalTemplates] = useState(() => {
+    if (apiMode && sessionOnMount) return normalizeProbationEvalTemplates([]);
+    return normalizeProbationEvalTemplates(storedData?.probationEvalTemplates);
+  });
+  const [probationEvalRequests, setProbationEvalRequests] = useState(() => {
+    if (apiMode && sessionOnMount) return [];
+    return normalizeProbationEvalRequests(storedData?.probationEvalRequests);
   });
   const [companyNotices, setCompanyNotices] = useState(() => {
     if (apiMode && sessionOnMount) return [];
@@ -8560,6 +8659,8 @@ export default function TeammillimeterErpMvp() {
     setCompanyProfile(normalizedCompanyProfile);
     setSaleAiRules(normalizeSaleAiRules(data.saleAiRules));
     setWorkerAiRules(normalizeWorkerAiRules(data.workerAiRules));
+    setProbationEvalTemplates(normalizeProbationEvalTemplates(data.probationEvalTemplates));
+    setProbationEvalRequests(normalizeProbationEvalRequests(data.probationEvalRequests));
     publishErpVersion(data.version ?? 0);
     bankTransactionsDirtyRef.current = false;
     skipSaveRef.current = true;
@@ -8760,6 +8861,8 @@ export default function TeammillimeterErpMvp() {
       companyProfile,
       saleAiRules,
       workerAiRules,
+      probationEvalTemplates,
+      probationEvalRequests,
       version: erpVersionRef.current,
     };
   }
@@ -8804,6 +8907,8 @@ export default function TeammillimeterErpMvp() {
       companyProfile,
       saleAiRules,
       workerAiRules,
+      probationEvalTemplates,
+      probationEvalRequests,
     ],
   );
 
@@ -9010,6 +9115,12 @@ export default function TeammillimeterErpMvp() {
       if (normalizedPatch && normalizedPatch.workerAiRules) {
         forceDomains.push("settings");
       }
+      if (
+        normalizedPatch &&
+        (normalizedPatch.probationEvalTemplates || normalizedPatch.probationEvalRequests)
+      ) {
+        forceDomains.push("settings");
+      }
       if (saveDebounceTimerRef.current) {
         window.clearTimeout(saveDebounceTimerRef.current);
         saveDebounceTimerRef.current = null;
@@ -9045,6 +9156,12 @@ export default function TeammillimeterErpMvp() {
           }
           if (normalizedPatch.workerAiRules) {
             setWorkerAiRules(normalizeWorkerAiRules(normalizedPatch.workerAiRules));
+          }
+          if (normalizedPatch.probationEvalTemplates) {
+            setProbationEvalTemplates(normalizeProbationEvalTemplates(normalizedPatch.probationEvalTemplates));
+          }
+          if (normalizedPatch.probationEvalRequests) {
+            setProbationEvalRequests(normalizeProbationEvalRequests(normalizedPatch.probationEvalRequests));
           }
         }
         return saved;
@@ -9467,6 +9584,19 @@ export default function TeammillimeterErpMvp() {
       const saved = await flushErpSave({ workerAiRules: normalized });
       if (saved === false) {
         window.alert("신입 AI 규칙 저장에 실패했습니다. 다시 시도해 주세요.");
+      }
+      return saved;
+    }
+    return true;
+  }, [apiMode, currentUser, dataReady, flushErpSave]);
+
+  const saveProbationEvalTemplates = useCallback(async (nextTemplates) => {
+    const normalized = normalizeProbationEvalTemplates(nextTemplates);
+    setProbationEvalTemplates(normalized);
+    if (apiMode && currentUser && dataReady) {
+      const saved = await flushErpSave({ probationEvalTemplates: normalized });
+      if (saved === false) {
+        window.alert("\uD3C9\uAC00 \uC591\uC2DD \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.");
       }
       return saved;
     }
@@ -10891,6 +11021,9 @@ export default function TeammillimeterErpMvp() {
                 onPersistWorkersImmediate={persistWorkersImmediate}
                 workerAiRules={workerAiRules}
                 onSaveWorkerAiRules={saveWorkerAiRules}
+                probationEvalTemplates={probationEvalTemplates}
+                probationEvalRequests={probationEvalRequests}
+                onSaveProbationEvalTemplates={saveProbationEvalTemplates}
               />
             }
             companyPanel={

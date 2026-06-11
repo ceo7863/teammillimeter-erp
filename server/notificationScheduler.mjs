@@ -16,10 +16,14 @@ import { sendCommentAlimtalk, sendDailyReportAlimtalk } from "./alimtalkNotify.m
 import { config } from "./config.mjs";
 import { runScScheduleNotifyJob } from "./scScheduleNotify.mjs";
 import { weekRangeISO, runScWeeklyBriefingNotifyJob } from "./scWeeklyBriefingNotify.mjs";
+import { normalizeWorkerAiRules } from "./workerAiRules.mjs";
+import { runProbationEvalNotifyJob, runProbationEvalReminderJob } from "./probationEvalNotify.mjs";
 
 let lastDailyReportDateKey = null;
 let lastScScheduleNotifyDateKey = null;
 let lastScWeeklyBriefingWeekKey = null;
+let lastProbationEvalNotifyDateKey = null;
+let lastProbationEvalReminderDateKey = null;
 let schedulerHandle = null;
 
 function nowKstParts(now = new Date()) {
@@ -216,6 +220,37 @@ function tickScheduler() {
       }
     }
   }
+
+  const workerRules = normalizeWorkerAiRules(state.data?.workerAiRules);
+  if (
+    settings.enabled &&
+    workerRules.probationEvalEnabled &&
+    config.alimtalk.probationEvalTemplate
+  ) {
+    if (kst.hour === workerRules.probationEvalNotifyHour && kst.minute === workerRules.probationEvalNotifyMinute) {
+      if (lastProbationEvalNotifyDateKey !== kst.dateKey) {
+        lastProbationEvalNotifyDateKey = kst.dateKey;
+        void runProbationEvalNotifyJob().catch((error) => {
+          console.error("[notify] probation eval notify failed:", error);
+          lastProbationEvalNotifyDateKey = null;
+        });
+      }
+    }
+
+    if (
+      workerRules.probationEvalReminderEnabled &&
+      kst.hour === 9 &&
+      kst.minute === 0
+    ) {
+      if (lastProbationEvalReminderDateKey !== kst.dateKey) {
+        lastProbationEvalReminderDateKey = kst.dateKey;
+        void runProbationEvalReminderJob().catch((error) => {
+          console.error("[notify] probation eval reminder failed:", error);
+          lastProbationEvalReminderDateKey = null;
+        });
+      }
+    }
+  }
 }
 
 export function startNotificationScheduler() {
@@ -223,5 +258,5 @@ export function startNotificationScheduler() {
   if (!config.alimtalk.schedulerEnabled) return;
   schedulerHandle = setInterval(tickScheduler, 30_000);
   if (typeof schedulerHandle.unref === "function") schedulerHandle.unref();
-  console.log("[notify] scheduler started (daily report + SC schedule + weekly briefing, KST)");
+  console.log("[notify] scheduler started (daily report + SC schedule + weekly briefing + probation eval, KST)");
 }

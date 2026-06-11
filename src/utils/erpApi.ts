@@ -80,6 +80,9 @@ export type ErpPayload = {
   notificationSettings?: import("./notificationSettings").NotificationSettings;
   saleAiRules?: import("@/utils/saleAiRules").SaleAiRules;
   workerAiRules?: import("@/utils/workerAiRules").WorkerAiRules;
+  probationEvalTemplates?: import("@/utils/probationEval").ProbationEvalTemplate[];
+  probationEvalRequests?: import("@/utils/probationEval").ProbationEvalRequest[];
+  probationEvalNotifyMeta?: unknown;
   version?: number;
   updatedAt?: string | null;
   updatedBy?: string | null;
@@ -327,6 +330,9 @@ export function buildErpDomainChunk(domain: ErpSaveDomain, payload: ErpPayload) 
         notificationSettings: payload.notificationSettings,
         saleAiRules: payload.saleAiRules,
         workerAiRules: payload.workerAiRules,
+        probationEvalTemplates: payload.probationEvalTemplates || [],
+        probationEvalRequests: payload.probationEvalRequests || [],
+        probationEvalNotifyMeta: payload.probationEvalNotifyMeta || null,
       };
     default:
       return {};

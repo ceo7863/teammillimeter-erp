@@ -117,6 +117,7 @@ export function getAlimtalkStatus() {
     contractTemplate: config.alimtalk.contractTemplate || null,
     scheduleTemplate: config.alimtalk.scheduleTemplate || null,
     weeklyBriefingTemplate: config.alimtalk.weeklyBriefingTemplate || null,
+    probationEvalTemplate: config.alimtalk.probationEvalTemplate || null,
   };
 }
 
@@ -187,6 +188,14 @@ export async function sendWeeklyBriefingAlimtalk({ phones, variables }) {
   return sendAlimtalkTemplate({
     phones,
     templateCode: config.alimtalk.weeklyBriefingTemplate,
+    variables,
+  });
+}
+
+export async function sendProbationEvalAlimtalk({ phones, variables }) {
+  return sendAlimtalkTemplate({
+    phones,
+    templateCode: config.alimtalk.probationEvalTemplate,
     variables,
   });
 }

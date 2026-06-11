@@ -13,6 +13,12 @@ export type WorkerAiRules = {
   autoAdjustGradeOnProbationEnd: boolean;
   postProbationGrade: string;
   enforceEGradeDuringProbation: boolean;
+  probationEvalEnabled: boolean;
+  probationEvalGrades: string[];
+  probationEvalNotifyHour: number;
+  probationEvalNotifyMinute: number;
+  probationEvalReminderEnabled: boolean;
+  probationEvalTemplateId: string;
 };
 
 export const DEFAULT_WORKER_AI_RULES: WorkerAiRules = {
@@ -26,6 +32,12 @@ export const DEFAULT_WORKER_AI_RULES: WorkerAiRules = {
   autoAdjustGradeOnProbationEnd: true,
   postProbationGrade: "D",
   enforceEGradeDuringProbation: true,
+  probationEvalEnabled: true,
+  probationEvalGrades: ["A"],
+  probationEvalNotifyHour: 19,
+  probationEvalNotifyMinute: 0,
+  probationEvalReminderEnabled: true,
+  probationEvalTemplateId: "default-v1",
 };
 
 const WORKER_GRADE_OPTIONS = ["S", "A", "B", "C", "D", "E"];
@@ -40,6 +52,24 @@ function clampPositiveInt(value: unknown, fallback: number, max = 12) {
   const num = Math.round(Number(value));
   if (!Number.isFinite(num) || num <= 0) return fallback;
   return Math.min(max, num);
+}
+
+function normalizeProbationEvalGrades(value: unknown, fallback: string[]) {
+  const list = Array.isArray(value) ? value : fallback;
+  const normalized = [...new Set(list.map((grade) => String(grade || "").trim().toUpperCase()).filter(Boolean))];
+  return normalized.filter((grade) => WORKER_GRADE_OPTIONS.includes(grade));
+}
+
+function clampHour(value: unknown, fallback: number) {
+  const num = Math.round(Number(value));
+  if (!Number.isFinite(num)) return fallback;
+  return Math.min(23, Math.max(0, num));
+}
+
+function clampMinute(value: unknown, fallback: number) {
+  const num = Math.round(Number(value));
+  if (!Number.isFinite(num)) return fallback;
+  return Math.min(59, Math.max(0, num));
 }
 
 function normalizePostProbationGrade(value: unknown, fallback: string) {
@@ -79,6 +109,20 @@ export function normalizeWorkerAiRules(raw: unknown): WorkerAiRules {
       DEFAULT_WORKER_AI_RULES.postProbationGrade,
     ),
     enforceEGradeDuringProbation: row.enforceEGradeDuringProbation !== false,
+    probationEvalEnabled: row.probationEvalEnabled !== false,
+    probationEvalGrades: normalizeProbationEvalGrades(
+      row.probationEvalGrades,
+      DEFAULT_WORKER_AI_RULES.probationEvalGrades,
+    ),
+    probationEvalNotifyHour: clampHour(row.probationEvalNotifyHour, DEFAULT_WORKER_AI_RULES.probationEvalNotifyHour),
+    probationEvalNotifyMinute: clampMinute(
+      row.probationEvalNotifyMinute,
+      DEFAULT_WORKER_AI_RULES.probationEvalNotifyMinute,
+    ),
+    probationEvalReminderEnabled: row.probationEvalReminderEnabled !== false,
+    probationEvalTemplateId:
+      String(row.probationEvalTemplateId || DEFAULT_WORKER_AI_RULES.probationEvalTemplateId).trim() ||
+      DEFAULT_WORKER_AI_RULES.probationEvalTemplateId,
   };
 }
 
