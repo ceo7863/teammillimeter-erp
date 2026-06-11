@@ -200,6 +200,7 @@ import {
 import { createPaymentInputLogsFromVouchers } from "@/utils/paymentInputLogs";
 import type { ReceivableRow } from "@/utils/receivables";
 import type { ErpUser } from "@/utils/erpApi";
+import { BankTxPartyEditModal } from "@/components/BankTxPartyEditModal";
 import { BarobillBankSettingsPanel } from "@/components/BarobillBankSettingsPanel";
 import {
   buildAllBankDepositSuggestions,
@@ -551,7 +552,7 @@ const L = {
   clientPlaceholder: "\uAC70\uB798\uCC98 \uC120\uD0DD",
   voucherProcessedBadge: "\uC804\uD45C\uCC98\uB9AC\uC785\uAE08",
   editMemoTitle: "\uBA54\uBAA8 \uC218\uC815",
-  editClientTitle: "\uAC70\uB798\uCC98 \uC218\uC815",
+  editClientTitle: "\uAC70\uB798\uCC98 \u00B7 \uC2DC\uACF5\uC790",
   clientRequired: "\uAC70\uB798\uCC98\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
   detailTitle: "\uD1B5\uC7A5 \uAC70\uB798 \uC804\uD45C",
   detailInfoSection: "\uAC70\uB798 \uC815\uBCF4",
@@ -2393,10 +2394,6 @@ function BankTransactionsPageComponent({
     [clients]
   );
 
-  const clientModalAutocompleteOptions = useMemo(
-    () => [{ label: "\ube44\uc6b0\uae30", value: "", raw: null }, ...clientAutocompleteOptions],
-    [clientAutocompleteOptions],
-  );
 
   const fixedExpenseSelectOptions = useMemo(
     () =>
@@ -6908,63 +6905,20 @@ function BankTransactionsPageComponent({
       ) : null}
 
       {clientModal ? (
-        <div
-          className="erp-ledger-modal-backdrop erp-ledger-modal-backdrop--elevated"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setClientModal(null);
+        <BankTxPartyEditModal
+          tx={clientModal.tx}
+          draft={clientModal.draft}
+          clients={clients}
+          workers={workers}
+          bankTransactionFolders={bankTransactionFolders}
+          error={txCellModalError || undefined}
+          onClose={() => setClientModal(null)}
+          onDraftChange={(value) => {
+            setTxCellModalError("");
+            setClientModal((prev) => (prev ? { ...prev, draft: value } : prev));
           }}
-        >
-          <div
-            className="erp-ledger-modal max-w-lg"
-            onMouseDown={(event) => event.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label={L.editClientTitle}
-          >
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <h2 className="erp-text-section font-bold">{L.editClientTitle}</h2>
-              <button type="button" className="rounded-xl p-2 text-slate-500 hover:bg-slate-100" onClick={() => setClientModal(null)}>
-                <X size={18} />
-              </button>
-            </div>
-            <Field label={L.clientColumn}>
-              <AutocompleteInput
-                value={clientModal.draft}
-                onChange={(value) => {
-                  setTxCellModalError("");
-                  setClientModal((prev) => (prev ? { ...prev, draft: String(value || "") } : prev));
-                }}
-                options={clientModalAutocompleteOptions}
-                placeholder={L.clientPlaceholder}
-                freeSolo
-                commitFreeSoloOnBlur={false}
-                showOptionsOnFocus
-                compact={false}
-                limit={20}
-                renderSub={(raw) => {
-                  const client = raw as { manager?: string; depositNameAliases?: string };
-                  const manager = String(client?.manager || "").trim();
-                  const aliases = String(client?.depositNameAliases || "").trim();
-                  if (!manager && !aliases) return null;
-                  return (
-                    <span className="text-xs text-slate-500">
-                      {[manager, aliases].filter(Boolean).join(" \u00B7 ")}
-                    </span>
-                  );
-                }}
-              />
-            </Field>
-            {txCellModalError ? <p className="mt-3 text-sm font-semibold text-red-600">{txCellModalError}</p> : null}
-            <div className="mt-5 flex justify-end gap-2">
-              <Button type="button" variant="outline" className="rounded-2xl" onClick={() => setClientModal(null)}>
-                {L.cancel}
-              </Button>
-              <Button type="button" className="rounded-2xl" onClick={saveClientModal}>
-                {L.detailSave}
-              </Button>
-            </div>
-          </div>
-        </div>
+          onSave={saveClientModal}
+        />
       ) : null}
 
 
