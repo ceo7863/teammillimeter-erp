@@ -496,4 +496,197 @@ export function canLinkTaxInvoiceToTransaction(
   return true;
 }
 
+export type BankTransactionLinkCatalogRow = {
+  tx: BankTransaction;
+  amount: number;
+  amountLabel: string;
+  searchText: string;
+  counterpartyLabel: string;
+  descriptionLabel: string;
+  dateLabel: string;
+  isLinked: boolean;
+};
+
+function buildBankTransactionSearchText(tx: BankTransaction) {
+  return [
+    tx.counterpartyName,
+    tx.description,
+    tx.memo,
+    tx.transactionAt,
+    tx.deposit,
+    tx.withdrawal,
+    resolveBankTxClientName(tx),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function formatBankLinkTxAt(value: string) {
+  const raw = String(value || "");
+  if (!raw) return "-";
+  const date = raw.slice(0, 10);
+  const time = raw.slice(11, 16);
+  return time ? `${date.slice(2).replace(/-/g, "-")} ${time}` : date.slice(2).replace(/-/g, "-");
+}
+
+export function buildDefaultBankLinkDateRange(invoice: TaxInvoice) {
+  const issueDate = String(invoice.issueDate || "").slice(0, 10);
+  if (!issueDate) {
+    const today = new Date();
+    const start = new Date(today.getFullYear(), today.getMonth() - 2, 1);
+    const end = new Date(today.getFullYear(), today.getMonth() + 2, 0);
+    return {
+      startDate: start.toISOString().slice(0, 10),
+      endDate: end.toISOString().slice(0, 10),
+    };
+  }
+  const base = new Date(issueDate);
+  const start = new Date(base.getFullYear(), base.getMonth() - 2, 1);
+  const end = new Date(base.getFullYear(), base.getMonth() + 2, 0);
+  return {
+    startDate: start.toISOString().slice(0, 10),
+    endDate: end.toISOString().slice(0, 10),
+  };
+}
+
+export function listBankTransactionsLinkedToInvoice(invoiceId: string, transactions: BankTransaction[]) {
+  return transactions.filter((row) => getBankTxLinkedTaxInvoiceIds(row).includes(invoiceId));
+}
+
+function isBankTransactionInLinkDateRange(tx: BankTransaction, startDate: string, endDate: string) {
+  const txDate = String(tx.transactionAt || "").slice(0, 10);
+  if (!txDate) return false;
+  if (startDate && txDate < startDate) return false;
+  if (endDate && txDate > endDate) return false;
+  return true;
+}
+
+function matchesInvoiceFlowDirection(tx: BankTransaction, invoice: TaxInvoice) {
+  if (invoice.flowType === "purchase") return Number(tx.withdrawal || 0) > 0;
+  return Number(tx.deposit || 0) > 0;
+}
+
+export function buildBankTransactionLinkCatalog(input: {
+  invoice: TaxInvoice;
+  bankTransactions: BankTransaction[];
+  startDate: string;
+  endDate: string;
+}): BankTransactionLinkCatalogRow[] {
+  const { invoice, bankTransactions, startDate, endDate } = input;
+  return bankTransactions
+    .filter(
+      (row) =>
+        matchesInvoiceFlowDirection(row, invoice) &&
+        isBankTransactionInLinkDateRange(row, startDate, endDate),
+    )
+    .sort(
+      (a, b) =>
+        String(b.transactionAt || "").localeCompare(String(a.transactionAt || "")) ||
+        String(b.id).localeCompare(String(a.id)),
+    )
+    .map((tx) => {
+      const amount = getBankTxClassifiedAmount(tx);
+      return {
+        tx,
+        amount,
+        amountLabel: formatKRW(amount),
+        searchText: buildBankTransactionSearchText(tx),
+        counterpartyLabel: String(tx.counterpartyName || resolveBankTxClientName(tx) || "-").trim() || "-",
+        descriptionLabel: String(tx.description || tx.memo || "-").trim() || "-",
+        dateLabel: formatBankLinkTxAt(tx.transactionAt),
+        isLinked: getBankTxLinkedTaxInvoiceIds(tx).includes(invoice.id),
+      };
+    });
+}
+
+function scoreBankTransactionLinkCatalogRow(
+  invoice: TaxInvoice,
+  row: BankTransactionLinkCatalogRow,
+  searchTokens: string[],
+  matchContext: TaxInvoiceMatchContext,
+  unsettledAmount: number,
+) {
+  const tx = row.tx;
+  const invClient = String(invoice.client || "").trim();
+  const counterparty = String(tx.counterpartyName || "").trim();
+  const linkedClient = String(resolveBankTxClientName(tx) || "").trim();
+  let score = row.isLinked ? 1000 : 0;
+
+  if (counterparty && invClient) {
+    if (counterparty === invClient) {
+      score += 500;
+    } else {
+      const normalizedCounterparty = normalizeCatalogPartyName(counterparty);
+      const normalizedClient = normalizeCatalogPartyName(invClient);
+      if (normalizedCounterparty && normalizedClient && normalizedCounterparty === normalizedClient) {
+        score += 450;
+      } else if (
+        normalizedCounterparty &&
+        normalizedClient &&
+        (normalizedCounterparty.includes(normalizedClient) || normalizedClient.includes(normalizedCounterparty))
+      ) {
+        score += 350;
+      }
+    }
+  }
+
+  if (linkedClient && invClient && linkedClient === invClient) score += 400;
+  if (hasTaxInvoiceBusinessNoMatch(tx, invoice, matchContext)) score += 380;
+  if (hasTaxInvoiceNameMatch(tx, invoice)) score += 200;
+
+  if (hasTaxInvoiceRoomConflict(tx, invoice)) score -= 800;
+  else if (!hasTaxInvoicePartyMatch(tx, invoice, matchContext)) score -= 500;
+
+  for (const token of searchTokens) {
+    const normalizedToken = normalizeCatalogPartyName(token);
+    const normalizedClient = normalizeCatalogPartyName(invClient);
+    if (normalizedToken && normalizedClient && normalizedClient.includes(normalizedToken)) {
+      score += 150;
+    } else if (invClient.toLowerCase().includes(token.toLowerCase())) {
+      score += 120;
+    } else if (row.searchText.includes(token.toLowerCase())) {
+      score += 20;
+    }
+  }
+
+  const txAmount = row.amount;
+  const totalAmount = Number(invoice.totalAmount || 0);
+  const supplyAmount = Number(invoice.supplyAmount || 0);
+  if (txAmount > 0 && Math.abs(txAmount - totalAmount) === 0) score += 50;
+  else if (txAmount > 0 && supplyAmount > 0 && Math.abs(txAmount - supplyAmount) === 0) score += 40;
+
+  if (unsettledAmount > 0 && canLinkTaxInvoiceToTransaction(tx, invoice, unsettledAmount, matchContext)) {
+    score += 25;
+  }
+
+  return score;
+}
+
+export function filterBankTransactionLinkCatalog(
+  rows: BankTransactionLinkCatalogRow[],
+  search: string,
+  invoice: TaxInvoice,
+  bankTransactions: BankTransaction[],
+  allInvoices: TaxInvoice[],
+  matchContext: TaxInvoiceMatchContext = {},
+) {
+  const q = search.trim().toLowerCase();
+  const tokens = q ? q.split(/\s+/).filter(Boolean) : [];
+  let filtered = rows;
+  if (tokens.length) {
+    filtered = rows.filter((row) => tokens.every((token) => row.searchText.includes(token)));
+  }
+
+  const unsettledAmount = getTaxInvoiceUnsettledAmount(invoice, bankTransactions, allInvoices);
+  const scoreRow = (row: BankTransactionLinkCatalogRow) =>
+    scoreBankTransactionLinkCatalogRow(invoice, row, tokens, matchContext, unsettledAmount);
+
+  return [...filtered].sort((a, b) => {
+    const scoreDiff = scoreRow(b) - scoreRow(a);
+    if (scoreDiff !== 0) return scoreDiff;
+    return String(b.tx.transactionAt || "").localeCompare(String(a.tx.transactionAt || ""));
+  });
+}
+
 export { buildTaxInvoiceCancellationExcludedIds };

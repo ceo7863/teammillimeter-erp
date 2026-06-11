@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, FileSpreadsheet, ImageDown, Pencil, Plus, Receipt, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { BankTransactionLinkPanel } from "@/components/BankTransactionLinkPanel";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
@@ -10,6 +11,11 @@ import { formatKRW, monthRangeForKey, monthRangeISO, quarterRangeISO, todayISO }
 import type { ErpUser } from "@/utils/erpApi";
 import type { BankTransaction } from "@/utils/bankTransactions";
 import { buildLinkedTaxInvoiceIdSet } from "@/utils/bankTaxInvoiceLink";
+import {
+  applyManualTaxInvoiceBankLink,
+  unlinkAllBankTransactionsFromInvoice,
+} from "@/utils/applyManualTaxInvoiceBankLink";
+import { invalidateTaxInvoiceLinkPanelCaches } from "@/utils/taxInvoiceLinkPanel";
 import {
   calculateTaxInvoiceAmounts,
   calculateTaxInvoiceAmountsFromTotal,
@@ -77,7 +83,12 @@ import {
 } from "@/utils/taxInvoiceIssueForm";
 import { TaxInvoiceIssuePreviewDialog } from "@/components/TaxInvoiceIssuePreviewDialog";
 import { useAudit } from "@/context/AuditContext";
-import { TAX_INVOICE_AUDIT_FIELDS, snapshotTaxInvoiceForAudit } from "@/utils/auditLog";
+import {
+  BANK_TRANSACTION_AUDIT_FIELDS,
+  TAX_INVOICE_AUDIT_FIELDS,
+  snapshotBankTransactionForAudit,
+  snapshotTaxInvoiceForAudit,
+} from "@/utils/auditLog";
 import { useBackdropPointerDismiss } from "@/utils/modalBackdrop";
 import { useBarobillTaxInvoiceIssueOptions } from "@/hooks/useBarobillTaxInvoiceIssueOptions";
 import { DEFAULT_COMPANY_PROFILE, type CompanyProfile } from "@/utils/companyProfile";
@@ -250,6 +261,7 @@ const L = {
   expandDetail: "\uC138\uBD80 \uBAA9\uB85D",
   cancelledOffset: "\uC0C1\uC1C0",
   bankLinked: "\uD1B5\uC7A5\uC5F0\uACB0",
+  bankLinkSaved: "\uD1B5\uC7A5 \uC5F0\uACB0\uC744 \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.",
   cancelledRowHint: "\uCDE8\uC18C \uC804\uD45C \u00B7 \uD569\uACC4 \uC81C\uC678",
   cancelledPairHint: (invoiceNo: string) => `\uCDE8\uC18C \uC804\uD45C \u00B7 \uC9D1 \uBC1C\uD589: ${invoiceNo}`,
   offsetRowHint: "\uB3D9\uC77C \uAE08\uC561 \uCDE8\uC18C \uC804\uD45C\uC640 \uC0C1\uC1C0",
@@ -281,11 +293,21 @@ function getTaxInvoiceRowMeta(row: TaxInvoice, excludedIds: Set<string>) {
   return { isCancelled, isExcludedFromTotals, isOffsetIssued };
 }
 
-function taxInvoiceRowClassName(meta: ReturnType<typeof getTaxInvoiceRowMeta>) {
-  if (meta.isCancelled) return "erp-tax-invoice-row is-cancelled";
-  if (meta.isOffsetIssued) return "erp-tax-invoice-row is-offset";
-  return "";
+function taxInvoiceRowClassName(
+  meta: ReturnType<typeof getTaxInvoiceRowMeta>,
+  options?: { linkable?: boolean; selected?: boolean },
+) {
+  const parts = ["erp-tax-invoice-row"];
+  if (meta.isCancelled) parts.push("is-cancelled");
+  else if (meta.isOffsetIssued) parts.push("is-offset");
+  if (options?.linkable) parts.push("is-linkable");
+  if (options?.selected) parts.push("is-selected");
+  return parts.join(" ");
 }
+
+const stopInvoiceRowClick = (event: React.MouseEvent | React.KeyboardEvent) => {
+  event.stopPropagation();
+};
 
 function TaxInvoiceStatusBadge({ status }: { status: TaxInvoiceStatus }) {
   if (status === "cancelled") {
@@ -484,18 +506,7 @@ function applyClientToInvoiceModal(client: Record<string, unknown> | null | unde
   };
 }
 
-export function TaxInvoicePage({
-  taxInvoices,
-  setTaxInvoices,
-  clients,
-  bankTransactions = [],
-  currentUser,
-  companyProfile = DEFAULT_COMPANY_PROFILE,
-  erpVersion = 0,
-  onErpVersionChange,
-  pendingClientFilter = null,
-  onPendingClientFilterConsumed,
-}: {
+type TaxInvoicePageProps = {
   taxInvoices: TaxInvoice[];
   setTaxInvoices: React.Dispatch<React.SetStateAction<TaxInvoice[]>>;
   clients: Array<{
@@ -509,12 +520,20 @@ export function TaxInvoicePage({
     bizType?: string;
     bizClass?: string;
     manager?: string;
+    depositNameAliases?: string;
   }>;
+  setClients?: React.Dispatch<React.SetStateAction<TaxInvoicePageProps["clients"]>>;
   bankTransactions?: BankTransaction[];
+  setBankTransactions?: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
+  workers?: Array<{ name?: string; businessNo?: string; depositNameAliases?: string }>;
   currentUser: ErpUser | null;
   companyProfile?: CompanyProfile;
   erpVersion?: number;
   onErpVersionChange?: (version: number) => void;
+  onRequestImmediateSave?: (patch: {
+    bankTransactions?: BankTransaction[];
+    clients?: TaxInvoicePageProps["clients"];
+  }) => void | Promise<unknown>;
   pendingClientFilter?: {
     clientName?: string;
     searchQuery?: string;
@@ -524,7 +543,24 @@ export function TaxInvoicePage({
     periodKey?: "all" | "custom";
   } | null;
   onPendingClientFilterConsumed?: () => void;
-}) {
+};
+
+export function TaxInvoicePage({
+  taxInvoices,
+  setTaxInvoices,
+  clients,
+  setClients,
+  bankTransactions = [],
+  setBankTransactions,
+  workers = [],
+  currentUser,
+  companyProfile = DEFAULT_COMPANY_PROFILE,
+  erpVersion = 0,
+  onErpVersionChange,
+  onRequestImmediateSave,
+  pendingClientFilter = null,
+  onPendingClientFilterConsumed,
+}: TaxInvoicePageProps) {
   const { recordAudit, recordSummaryAudit } = useAudit();
   const [periodKey, setPeriodKey] = useState<PeriodKey>("thisMonth");
   const [dateFilter, setDateFilter] = useState<DateFilter>(() => monthRangeISO(0));
@@ -555,6 +591,17 @@ export function TaxInvoicePage({
   const [issuePreviewData, setIssuePreviewData] = useState<TaxInvoiceIssuePreviewData | null>(null);
   const [copyJpgLoadingId, setCopyJpgLoadingId] = useState<string | null>(null);
   const [ntsStatusRefreshLoading, setNtsStatusRefreshLoading] = useState(false);
+  const [bankLinkSession, setBankLinkSession] = useState<{
+    invoice: TaxInvoice;
+    bankTransactions: BankTransaction[];
+    preparing: boolean;
+  } | null>(null);
+  const bankTransactionsRef = useRef(bankTransactions);
+  bankTransactionsRef.current = bankTransactions;
+  const taxInvoicesRef = useRef(taxInvoices);
+  taxInvoicesRef.current = taxInvoices;
+  const bankLinkSessionRef = useRef(bankLinkSession);
+  bankLinkSessionRef.current = bankLinkSession;
   const ntsAutoRefreshKeyRef = useRef("");
   const hometaxInputRef = useRef<HTMLInputElement>(null);
   const { onPointerDown, onPointerUp, isTouchDevice } = useBackdropPointerDismiss(Boolean(modal), () => setModal(null));
@@ -565,6 +612,128 @@ export function TaxInvoicePage({
   } = useBackdropPointerDismiss(Boolean(duplicateIssueConfirm), () => setDuplicateIssueConfirm(null));
 
   const isAdmin = currentUser?.role === "admin";
+  const canManageBankLinks = Boolean(setBankTransactions);
+  const taxInvoiceMatchContext = useMemo(() => ({ clients, workers }), [clients, workers]);
+
+  const bankTxLabel = useCallback((row: BankTransaction) => {
+    const party = String(row.counterpartyName || row.description || "").trim() || row.id;
+    return `${String(row.transactionAt || "").slice(0, 10)} ${party}`;
+  }, []);
+
+  const auditBankTxUpdate = useCallback(
+    (before: BankTransaction, after: BankTransaction) => {
+      recordAudit({
+        entityType: "bankTransaction",
+        entityId: before.id,
+        entityLabel: bankTxLabel(before),
+        screen: L.pageTitle,
+        action: "update",
+        before: snapshotBankTransactionForAudit(before),
+        after: snapshotBankTransactionForAudit(after),
+        fields: BANK_TRANSACTION_AUDIT_FIELDS,
+        user: currentUser,
+      });
+    },
+    [bankTxLabel, currentUser, recordAudit],
+  );
+
+  const persistBankLink = useCallback(
+    async (nextTransactions: BankTransaction[], nextClients: typeof clients) => {
+      await onRequestImmediateSave?.({
+        bankTransactions: nextTransactions,
+        ...(nextClients !== clients ? { clients: nextClients } : {}),
+      });
+    },
+    [clients, onRequestImmediateSave],
+  );
+
+  const applyBankLinkChange = useCallback(
+    (txId: string, mode: "add" | "remove") => {
+      const session = bankLinkSessionRef.current;
+      if (!session || !setBankTransactions) return;
+      const tx = bankTransactionsRef.current.find((row) => row.id === txId);
+      if (!tx) return;
+      const result = applyManualTaxInvoiceBankLink({
+        bankTransactions: bankTransactionsRef.current,
+        taxInvoices: taxInvoicesRef.current,
+        clients,
+        tx,
+        invoice: session.invoice,
+        invoiceId: session.invoice.id,
+        mode,
+        matchContext: taxInvoiceMatchContext,
+      });
+      if (!result) return;
+      auditBankTxUpdate(tx, result.nextRow);
+      bankTransactionsRef.current = result.nextTransactions;
+      setBankTransactions(result.nextTransactions);
+      if (result.nextClients !== clients) {
+        setClients?.(result.nextClients);
+      }
+      setBankLinkSession({
+        invoice: session.invoice,
+        bankTransactions: result.nextTransactions,
+        preparing: false,
+      });
+      setImportMessage(L.bankLinkSaved);
+      void persistBankLink(result.nextTransactions, result.nextClients);
+    },
+    [auditBankTxUpdate, clients, persistBankLink, setBankTransactions, setClients, taxInvoiceMatchContext],
+  );
+
+  const openBankLinkDrawer = useCallback((invoice: TaxInvoice) => {
+    if (!canManageBankLinks || invoice.status !== "issued") return;
+    const invoiceId = invoice.id;
+    setBankLinkSession({
+      invoice,
+      bankTransactions: bankTransactionsRef.current,
+      preparing: true,
+    });
+    window.requestAnimationFrame(() => {
+      setBankLinkSession((prev) => {
+        if (!prev || prev.invoice.id !== invoiceId || !prev.preparing) return prev;
+        return {
+          invoice: taxInvoicesRef.current.find((row) => row.id === invoiceId) ?? prev.invoice,
+          bankTransactions: bankTransactionsRef.current,
+          preparing: false,
+        };
+      });
+    });
+  }, [canManageBankLinks]);
+
+  const closeBankLinkDrawer = useCallback(() => {
+    setBankLinkSession(null);
+    invalidateTaxInvoiceLinkPanelCaches();
+  }, []);
+
+  const unlinkAllBankLinks = useCallback(() => {
+    const session = bankLinkSessionRef.current;
+    if (!session || !setBankTransactions) return;
+    const beforeById = new Map(bankTransactionsRef.current.map((row) => [row.id, row]));
+    const { nextTransactions, nextClients } = unlinkAllBankTransactionsFromInvoice({
+      invoiceId: session.invoice.id,
+      bankTransactions: bankTransactionsRef.current,
+      taxInvoices: taxInvoicesRef.current,
+      clients,
+    });
+    for (const after of nextTransactions) {
+      const before = beforeById.get(after.id);
+      if (before && before !== after) auditBankTxUpdate(before, after);
+    }
+    bankTransactionsRef.current = nextTransactions;
+    setBankTransactions(nextTransactions);
+    if (nextClients !== clients) {
+      setClients?.(nextClients);
+    }
+    setBankLinkSession({
+      invoice: session.invoice,
+      bankTransactions: nextTransactions,
+      preparing: false,
+    });
+    setImportMessage(L.bankLinkSaved);
+    void persistBankLink(nextTransactions, nextClients);
+  }, [auditBankTxUpdate, clients, persistBankLink, setBankTransactions, setClients]);
+
   const canIssueElectronically = Boolean(modal && modal.mode === "create" && modal.flowType === "sales" && isAdmin);
   const {
     issueOptions,
@@ -788,10 +957,21 @@ export function TaxInvoicePage({
     </>
   );
 
+  const isBankLinkRowTarget = useCallback(
+    (row: TaxInvoice) => canManageBankLinks && row.status === "issued",
+    [canManageBankLinks],
+  );
+
   const renderInvoiceRow = (row: TaxInvoice) => {
     const meta = getTaxInvoiceRowMeta(row, totalExcludedIds);
+    const linkable = isBankLinkRowTarget(row);
+    const selected = linkable && bankLinkSession?.invoice.id === row.id;
     return (
-    <tr key={row.id} className={`border-t ${taxInvoiceRowClassName(meta)}`}>
+    <tr
+      key={row.id}
+      className={`border-t ${taxInvoiceRowClassName(meta, { linkable, selected })}`}
+      onClick={linkable ? () => openBankLinkDrawer(row) : undefined}
+    >
       <td className="whitespace-nowrap">{formatTaxInvoiceDate(row.issueDate)}</td>
       <td>
         <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${row.flowType === "sales" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
@@ -809,7 +989,7 @@ export function TaxInvoicePage({
         <TaxInvoiceStatusCell row={row} linkedTaxInvoiceIds={linkedTaxInvoiceIds} totalExcludedIds={totalExcludedIds} cancellationPairIndex={cancellationPairIndex} />
       </td>
       <td>{row.createdBy}</td>
-      <td>
+      <td onClick={stopInvoiceRowClick} onKeyDown={stopInvoiceRowClick}>
         <div className="flex gap-1">{renderInvoiceActions(row)}</div>
       </td>
     </tr>
@@ -928,8 +1108,14 @@ export function TaxInvoicePage({
                 <tbody>
                   {group.rows.map((row) => {
                     const meta = getTaxInvoiceRowMeta(row, totalExcludedIds);
+                    const linkable = isBankLinkRowTarget(row);
+                    const selected = linkable && bankLinkSession?.invoice.id === row.id;
                     return (
-                    <tr key={row.id} className={`border-t ${taxInvoiceRowClassName(meta)}`}>
+                    <tr
+                      key={row.id}
+                      className={`border-t ${taxInvoiceRowClassName(meta, { linkable, selected })}`}
+                      onClick={linkable ? () => openBankLinkDrawer(row) : undefined}
+                    >
                       <td className="whitespace-nowrap">{formatTaxInvoiceDate(row.issueDate)}</td>
                       <td>{getTaxInvoiceDocumentTypeLabel(row.documentType)}</td>
                       <td className="text-right"><TaxInvoiceAmountCell amount={row.supplyAmount} cancelled={meta.isCancelled} /></td>
@@ -944,7 +1130,7 @@ export function TaxInvoicePage({
                           cancellationPairIndex={cancellationPairIndex}
                         />
                       </td>
-                      <td>
+                      <td onClick={stopInvoiceRowClick} onKeyDown={stopInvoiceRowClick}>
                         <div className="flex gap-1">{renderInvoiceActions(row)}</div>
                       </td>
                     </tr>
@@ -1570,7 +1756,7 @@ export function TaxInvoicePage({
   };
 
   return (
-    <div className="erp-page erp-tax-invoice-page">
+    <div className={`erp-page erp-tax-invoice-page${bankLinkSession ? " erp-tax-invoice-page--bank-link-open" : ""}`}>
       <TaxInvoiceIssuePreviewDialog
         open={issuePreviewOpen}
         preview={issuePreviewData}
@@ -2561,6 +2747,21 @@ export function TaxInvoicePage({
             </div>
           </div>
         </div>
+      ) : null}
+
+      {bankLinkSession ? (
+        <BankTransactionLinkPanel
+          invoice={bankLinkSession.invoice}
+          taxInvoices={taxInvoices}
+          bankTransactions={bankLinkSession.bankTransactions}
+          preparing={bankLinkSession.preparing}
+          clients={clients}
+          workers={workers}
+          onClose={closeBankLinkDrawer}
+          onLink={(txId) => applyBankLinkChange(txId, "add")}
+          onUnlink={(txId) => applyBankLinkChange(txId, "remove")}
+          onUnlinkAll={unlinkAllBankLinks}
+        />
       ) : null}
     </div>
   );

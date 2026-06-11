@@ -15218,6 +15218,24 @@ button:disabled,
   box-shadow: inset 4px 0 0 #f59e0b;
 }
 
+.erp-tax-invoice-row.is-linkable {
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.erp-tax-invoice-row.is-linkable:hover {
+  background: #f1f5f9 !important;
+}
+
+.erp-tax-invoice-row.is-linkable.is-selected {
+  background: #eff6ff !important;
+  box-shadow: inset 3px 0 0 #3b82f6;
+}
+
+.erp-tax-invoice-row.is-linkable.is-selected:hover {
+  background: #dbeafe !important;
+}
+
 .erp-tax-invoice-status-badge {
   display: inline-flex;
   align-items: center;
@@ -15993,6 +16011,10 @@ button:disabled,
   padding-bottom: min(52vh, 28rem);
 }
 
+.erp-tax-invoice-page--bank-link-open {
+  padding-bottom: min(52vh, 28rem);
+}
+
 .erp-tax-invoice-link-panel {
   position: fixed;
   left: 0;
@@ -16262,6 +16284,10 @@ button:disabled,
   }
 
   .erp-bank-transactions-page--tax-link-open {
+    padding-bottom: min(70vh, 34rem);
+  }
+
+  .erp-tax-invoice-page--bank-link-open {
     padding-bottom: min(70vh, 34rem);
   }
 
