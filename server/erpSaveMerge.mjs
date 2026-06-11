@@ -457,6 +457,14 @@ export function mergeClientsForSave(existing = [], incoming = []) {
     } else {
       delete merged.scProjectMappingUpdatedBy;
     }
+    const excludedRaw = Array.isArray(client.scProjectMappingExcludedProjectIds)
+      ? client.scProjectMappingExcludedProjectIds
+      : Array.isArray(prev.scProjectMappingExcludedProjectIds)
+        ? prev.scProjectMappingExcludedProjectIds
+        : [];
+    const excluded = [...new Set(excludedRaw.map((row) => String(row || "").trim()).filter(Boolean))];
+    if (excluded.length) merged.scProjectMappingExcludedProjectIds = excluded;
+    else delete merged.scProjectMappingExcludedProjectIds;
 
     const coalesceText = (nextValue, prevValue) => {
       const nextText = String(nextValue ?? "").trim();

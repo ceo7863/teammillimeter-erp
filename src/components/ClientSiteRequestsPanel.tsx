@@ -527,6 +527,7 @@ export function ClientSiteRequestsPanel({ clients, workers = [], isAdmin = false
       });
       await loadScMappingStatus();
       await loadScSyncStatus();
+      await loadAll();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : L.fail);
     } finally {
@@ -549,6 +550,7 @@ export function ClientSiteRequestsPanel({ clients, workers = [], isAdmin = false
       });
       await loadScMappingStatus();
       await loadScSyncStatus();
+      await loadAll();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : L.fail);
     } finally {
@@ -564,6 +566,7 @@ export function ClientSiteRequestsPanel({ clients, workers = [], isAdmin = false
       setMessage(L.scMappingRemoved);
       await loadScMappingStatus();
       await loadScSyncStatus();
+      await loadAll();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : L.fail);
     } finally {
