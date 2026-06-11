@@ -12,6 +12,12 @@ window.addEventListener("vite:preloadError", (event) => {
   reloadOnceForStaleChunks();
 });
 
+declare global {
+  interface Window {
+    __erpBootTimer?: number;
+  }
+}
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ActionFeedbackProvider>
@@ -19,6 +25,10 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     </ActionFeedbackProvider>
   </React.StrictMode>,
 );
+
+if (typeof window !== "undefined") {
+  window.clearTimeout(window.__erpBootTimer);
+}
 
 if ("serviceWorker" in navigator && !/^\/chat\/?$/i.test(window.location.pathname)) {
   window.addEventListener("load", () => {

@@ -3300,8 +3300,22 @@ if (fs.existsSync(config.distDir)) {
     res.send(buildClientSiteRequestSharePreviewHtml(indexHtml, { title: og.ogTitle, og }));
   });
 
-  app.use(express.static(config.distDir));
+  app.use(
+    express.static(config.distDir, {
+      index: false,
+      setHeaders(res, filePath) {
+        if (filePath.endsWith("index.html")) {
+          res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+          return;
+        }
+        if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        }
+      },
+    }),
+  );
   app.get(/^(?!\/api).*/, (_req, res) => {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
     res.sendFile(spaIndexPath);
   });
 }

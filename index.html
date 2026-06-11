@@ -13,6 +13,31 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <script>
       (function () {
+        var SHELL_VERSION = "8";
+        var SHELL_KEY = "erp-app-shell-version";
+        try {
+          var prev = localStorage.getItem(SHELL_KEY);
+          if (prev !== SHELL_VERSION) {
+            localStorage.setItem(SHELL_KEY, SHELL_VERSION);
+            if ("serviceWorker" in navigator) {
+              navigator.serviceWorker.getRegistrations().then(function (regs) {
+                regs.forEach(function (reg) {
+                  void reg.unregister();
+                });
+              });
+            }
+            if ("caches" in window) {
+              caches.keys().then(function (keys) {
+                keys.forEach(function (key) {
+                  void caches.delete(key);
+                });
+              });
+            }
+          }
+        } catch (e) {
+          // ignore storage errors
+        }
+
         if (!/^\/chat\/?$/i.test(location.pathname)) return;
         var manifest = document.querySelector('link[rel="manifest"]');
         if (manifest) manifest.href = "/chat.manifest.webmanifest";
@@ -35,23 +60,14 @@
   </head>
   <body lang="ko">
     <div id="root"></div>
-    <style>
-      #root:empty {
-        display: flex;
-        min-height: 100dvh;
-        align-items: center;
-        justify-content: center;
-        background: #f8fafc;
-        color: #64748b;
-        font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
-      }
-
-      #root:empty::after {
-        content: "불러오는 중…";
-        font-size: 0.9375rem;
-        font-weight: 600;
-      }
-    </style>
+    <script>
+      window.__erpBootTimer = window.setTimeout(function () {
+        var root = document.getElementById("root");
+        if (!root || root.children.length) return;
+        root.innerHTML =
+          '<div style="display:flex;min-height:100dvh;align-items:center;justify-content:center;padding:24px;background:#f8fafc;font-family:system-ui,sans-serif;color:#334155;text-align:center"><div><p style="font-weight:700;margin:0 0 8px">앱을 불러오지 못했습니다</p><p style="margin:0 0 16px;font-size:14px;color:#64748b">아래 버튼으로 다시 시도해 주세요.</p><button type="button" onclick="location.reload()" style="padding:10px 16px;border:0;border-radius:10px;background:#0f172a;color:#fff;font-weight:700">새로고침</button></div></div>';
+      }, 15000);
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
