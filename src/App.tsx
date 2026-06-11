@@ -11160,7 +11160,7 @@ export default function TeammillimeterErpMvp() {
         pageBadges={sidebarPageBadges}
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        {shellActive !== "teamChat" ? (
+        {shellActive !== "teamChat" && shellActive !== "scCalendar" ? (
         <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-slate-200 bg-white/95 px-3 py-3 backdrop-blur lg:hidden erp-mobile-header">
           <button
             type="button"
@@ -11176,8 +11176,16 @@ export default function TeammillimeterErpMvp() {
           </div>
         </header>
         ) : null}
-        <main className={`min-w-0 flex-1 ${shellActive === "teamChat" ? "erp-main--team-chat p-0 lg:p-4" : "p-2.5 sm:p-3 lg:p-4"}`}>
-        {basicInfoTabAccess.workers && shellActive !== "teamChat" ? (
+        <main
+          className={`min-w-0 flex-1 ${
+            shellActive === "teamChat"
+              ? "erp-main--team-chat p-0 lg:p-4"
+              : shellActive === "scCalendar"
+                ? "erp-main--fill erp-main--sc-embed p-0"
+                : "p-2.5 sm:p-3 lg:p-4"
+          }`}
+        >
+        {basicInfoTabAccess.workers && shellActive !== "teamChat" && shellActive !== "scCalendar" ? (
           <WorkerProbationAlertBanner
             workers={workers}
             workerAiRules={workerAiRules}
@@ -11234,7 +11242,7 @@ export default function TeammillimeterErpMvp() {
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="scCalendar" active={shellActive} className="erp-page-keep-alive--fill">
-          <ScCalendarEmbedPage />
+          <ScCalendarEmbedPage onOpenAppMenu={() => setSidebarOpen(true)} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="scAlimtalk" active={shellActive}>
           <ScScheduleAlimtalkPage

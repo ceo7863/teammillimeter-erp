@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { ExternalLink, RefreshCw } from "lucide-react";
+import { ExternalLink, Menu, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useTeamChatMobileLayout } from "@/hooks/useTeamChatMobileLayout";
 import { fetchScEmbedSession } from "@/utils/scEmbed";
 
 const L = {
@@ -12,7 +13,12 @@ const L = {
   hint: "SC \uC804\uCCB4 \uBA54\uB274(\uCE98\uB9B0\uB354\u00B7\uD504\uB85C\uC81D\uD2B8\u00B7\uC778\uC6D0 \uB4F1)\uB97C ERP \uC548\uC5D0\uC11C \uADF8\uB300\uB85C \uC0AC\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
 };
 
-export function ScCalendarEmbedPage() {
+type ScCalendarEmbedPageProps = {
+  onOpenAppMenu?: () => void;
+};
+
+export function ScCalendarEmbedPage({ onOpenAppMenu }: ScCalendarEmbedPageProps) {
+  const isMobileLayout = useTeamChatMobileLayout();
   const [embedUrl, setEmbedUrl] = useState("");
   const [scBaseUrl, setScBaseUrl] = useState("");
   const [loading, setLoading] = useState(true);
@@ -44,20 +50,32 @@ export function ScCalendarEmbedPage() {
   };
 
   return (
-    <div className="erp-sc-embed-page flex min-h-0 flex-1 flex-col">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-2">
-        <div>
-          <h1 className="text-base font-bold text-slate-900">{L.title}</h1>
-          <p className="text-xs text-slate-500">{L.hint}</p>
+    <div className={`erp-sc-embed-page flex min-h-0 flex-1 flex-col ${isMobileLayout ? "erp-sc-embed-page--mobile" : ""}`}>
+      <div className="erp-sc-embed-page__toolbar flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 py-2 sm:px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          {isMobileLayout && onOpenAppMenu ? (
+            <button
+              type="button"
+              className="erp-touch-target shrink-0 rounded-xl border border-slate-200 p-2 text-slate-700"
+              onClick={onOpenAppMenu}
+              aria-label="메뉴 열기"
+            >
+              <Menu size={20} />
+            </button>
+          ) : null}
+          <div className="min-w-0">
+            <h1 className="truncate text-base font-bold text-slate-900">{L.title}</h1>
+            {!isMobileLayout ? <p className="text-xs text-slate-500">{L.hint}</p> : null}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <Button type="button" variant="outline" size="sm" onClick={() => void loadSession()} disabled={loading}>
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-            {L.retry}
+            {!isMobileLayout ? L.retry : null}
           </Button>
           <Button type="button" variant="outline" size="sm" onClick={openInNewTab} disabled={!scBaseUrl && !embedUrl}>
             <ExternalLink size={14} />
-            {L.openTab}
+            {!isMobileLayout ? L.openTab : null}
           </Button>
         </div>
       </div>

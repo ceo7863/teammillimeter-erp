@@ -3177,6 +3177,57 @@ textarea {
 .erp-sc-embed-page {
   min-height: 0;
   flex: 1 1 auto;
+  height: 100%;
+}
+
+.erp-sc-embed-page iframe {
+  display: block;
+  min-height: 0;
+  flex: 1 1 auto;
+  height: 100%;
+}
+
+.erp-main--fill {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.erp-app-shell > .flex.min-w-0.flex-1.flex-col > main.erp-main--sc-embed {
+  padding: 0;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.erp-main--sc-embed > .erp-page-keep-alive--fill {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: calc(100dvh - env(safe-area-inset-bottom, 0px));
+  height: calc(100dvh - env(safe-area-inset-bottom, 0px));
+}
+
+@media (max-width: 1023px) {
+  .erp-app-shell .erp-main--fill > .erp-page-keep-alive--fill {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
+  }
+
+  .erp-sc-embed-page--mobile {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+  }
+
+  .erp-sc-embed-page--mobile .erp-sc-embed-page__toolbar {
+    padding-top: max(0.5rem, env(safe-area-inset-top));
+    padding-left: max(0.75rem, env(safe-area-inset-left));
+    padding-right: max(0.75rem, env(safe-area-inset-right));
+  }
 }
 
 .erp-client-calendars-page {
