@@ -8520,6 +8520,9 @@ export default function TeammillimeterErpMvp() {
     pollMs: 10000,
     enabled: active !== "teamChat",
   });
+  const handleTeamChatUnreadChange = useCallback(() => {
+    void refreshTeamChatUnread();
+  }, [refreshTeamChatUnread]);
   const openTeamChatPage = useCallback(() => {
     setActive("teamChat");
     setSidebarOpen(false);
@@ -11130,7 +11133,7 @@ export default function TeammillimeterErpMvp() {
           <TeamChatPage
             currentUser={currentUser}
             isPageActive={active === "teamChat"}
-            onUnreadChange={() => void refreshTeamChatUnread()}
+            onUnreadChange={handleTeamChatUnreadChange}
             onErpAction={handleErpChatAction}
           />
         </PageKeepAlive>

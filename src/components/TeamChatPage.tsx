@@ -127,13 +127,13 @@ function ChannelListItem({
 }: {
   channel: TeamChatChannel;
   active: boolean;
-  onSelect: () => void;
+  onSelect: (channelId: string) => void;
 }) {
   return (
     <button
       type="button"
       className={`erp-team-chat-channel ${active ? "is-active" : ""}`}
-      onClick={onSelect}
+      onClick={() => onSelect(channel.id)}
     >
       <div className="erp-team-chat-channel__icon" aria-hidden="true">
         {channelIcon(channel.type)}
@@ -273,8 +273,10 @@ export const TeamChatPage = memo(function TeamChatPage({
   const lastMessageIdRef = useRef(0);
   const selectedChannelIdRef = useRef<string | null>(null);
   const shareAppliedRef = useRef(false);
+  const onUnreadChangeRef = useRef(onUnreadChange);
 
   selectedChannelIdRef.current = selectedChannelId;
+  onUnreadChangeRef.current = onUnreadChange;
 
   const selectedChannel = useMemo(
     () => channels.find((row) => row.id === selectedChannelId) || null,
@@ -352,10 +354,10 @@ export const TeamChatPage = memo(function TeamChatPage({
     lastMessageIdRef.current = lastId;
     if (lastId > 0) {
       await markTeamChatChannelRead(channelId, lastId);
-      onUnreadChange?.();
+      onUnreadChangeRef.current?.();
     }
     window.requestAnimationFrame(scrollToBottom);
-  }, [onUnreadChange, scrollToBottom]);
+  }, [scrollToBottom]);
 
   const pollMessages = useCallback(async (channelId: string) => {
     const afterId = lastMessageIdRef.current;
@@ -372,11 +374,11 @@ export const TeamChatPage = memo(function TeamChatPage({
       const lastId = rows[rows.length - 1].id;
       lastMessageIdRef.current = lastId;
       await markTeamChatChannelRead(channelId, lastId);
-      onUnreadChange?.();
+      onUnreadChangeRef.current?.();
       window.requestAnimationFrame(scrollToBottom);
     }
     await refreshChannels();
-  }, [onUnreadChange, refreshChannels, scrollToBottom]);
+  }, [refreshChannels, scrollToBottom]);
 
   const refreshReadState = useCallback(async (channelId: string) => {
     try {
@@ -415,7 +417,7 @@ export const TeamChatPage = memo(function TeamChatPage({
           window.requestAnimationFrame(scrollToBottom);
         }
         void refreshChannels();
-        onUnreadChange?.();
+        onUnreadChangeRef.current?.();
         return;
       }
       if (event.type === "message.updated" || event.type === "message.deleted") {
@@ -425,7 +427,7 @@ export const TeamChatPage = memo(function TeamChatPage({
         void refreshChannels();
       }
     },
-    [mergeMessage, onUnreadChange, refreshChannels, scrollToBottom],
+    [mergeMessage, refreshChannels, scrollToBottom],
   );
 
   const { connected: sseConnected } = useTeamChatEvents({
@@ -479,20 +481,22 @@ export const TeamChatPage = memo(function TeamChatPage({
   useEffect(() => {
     if (!selectedChannelId) {
       setMessages([]);
+      setReadState([]);
       lastMessageIdRef.current = 0;
       return;
     }
     let cancelled = false;
+    const channelId = selectedChannelId;
     void (async () => {
       setError("");
       setReplyingTo(null);
       setEditingMessageId(null);
       setMenuMessageId(null);
       try {
-        await loadInitialMessages(selectedChannelId);
+        await loadInitialMessages(channelId);
         if (!cancelled) {
           await refreshChannels();
-          await refreshReadState(selectedChannelId);
+          await refreshReadState(channelId);
         }
       } catch {
         if (!cancelled) setError(L.loadError);
@@ -501,7 +505,9 @@ export const TeamChatPage = memo(function TeamChatPage({
     return () => {
       cancelled = true;
     };
-  }, [loadInitialMessages, refreshChannels, refreshReadState, selectedChannelId]);
+    // Only reload thread when the selected channel changes, not when parent re-renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedChannelId]);
 
   useEffect(() => {
     if (!selectedChannelId || !isPageActive) return;
@@ -528,6 +534,7 @@ export const TeamChatPage = memo(function TeamChatPage({
   }, []);
 
   const handleSelectChannel = useCallback((channelId: string) => {
+    if (channelId === selectedChannelIdRef.current) return;
     setSelectedChannelId(channelId);
     setDraft("");
     setPendingLink(null);
@@ -716,7 +723,7 @@ export const TeamChatPage = memo(function TeamChatPage({
       mergeMessage(message);
       await refreshChannels();
       await refreshReadState(selectedChannelId);
-      onUnreadChange?.();
+      onUnreadChangeRef.current?.();
       window.requestAnimationFrame(scrollToBottom);
     } catch {
       setError(L.sendError);
@@ -727,7 +734,6 @@ export const TeamChatPage = memo(function TeamChatPage({
     canSend,
     draft,
     mergeMessage,
-    onUnreadChange,
     pendingAttachments,
     pendingLink,
     refreshChannels,
@@ -792,7 +798,7 @@ export const TeamChatPage = memo(function TeamChatPage({
                   key={channel.id}
                   channel={channel}
                   active={channel.id === selectedChannelId}
-                  onSelect={() => handleSelectChannel(channel.id)}
+                  onSelect={handleSelectChannel}
                 />
               ))}
             </section>
@@ -806,7 +812,7 @@ export const TeamChatPage = memo(function TeamChatPage({
                   key={channel.id}
                   channel={channel}
                   active={channel.id === selectedChannelId}
-                  onSelect={() => handleSelectChannel(channel.id)}
+                  onSelect={handleSelectChannel}
                 />
               ))}
             </section>
@@ -820,7 +826,7 @@ export const TeamChatPage = memo(function TeamChatPage({
                   key={channel.id}
                   channel={channel}
                   active={channel.id === selectedChannelId}
-                  onSelect={() => handleSelectChannel(channel.id)}
+                  onSelect={handleSelectChannel}
                 />
               ))
             ) : (
