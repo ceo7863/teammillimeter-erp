@@ -177,6 +177,7 @@ import {
   setScProjectClientMapping,
   startScScheduleSyncScheduler,
 } from "./scScheduleSync.mjs";
+import { getScEmbedSessionForUser } from "./scEmbed.mjs";
 import { getDefaultPdfContent, listContractTemplates } from "./contractTemplate.mjs";
 import { renderContractPdfPreview } from "./contractPdfRender.mjs";
 import {
@@ -745,6 +746,19 @@ app.get("/api/sc-schedules", authMiddleware, (req, res) => {
     schedules: result.schedules,
     scProjectId: result.scProjectId,
     scProjectName: result.scProjectName,
+  });
+});
+
+app.get("/api/sc-embed/session", authMiddleware, (req, res) => {
+  const result = getScEmbedSessionForUser(req.user);
+  if (!result.ok) {
+    res.status(result.status || 503).json({ error: result.error });
+    return;
+  }
+  res.json({
+    url: result.url,
+    expiresInSec: result.expiresInSec,
+    scBaseUrl: result.scBaseUrl,
   });
 });
 

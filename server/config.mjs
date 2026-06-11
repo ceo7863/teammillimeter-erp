@@ -93,6 +93,8 @@ export const config = {
     },
     /** SC 일정 공유 링크 공개 origin (미설정 시 SC_API_BASE_URL) */
     sharePublicUrl: process.env.SC_SHARE_PUBLIC_URL || process.env.SC_API_BASE_URL || "https://sc.teammillimeter.com",
+    /** ERP iframe SC 캘린더 (SC_SYNC_SECRET 공유 SSO) */
+    embedEnabled: parseEnvBool(process.env.SC_EMBED_ENABLED, true),
   },
   barobill: {
     certKey: process.env.BAROBILL_CERT_KEY || "",

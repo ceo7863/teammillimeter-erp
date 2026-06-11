@@ -244,6 +244,7 @@ import { WorkerHrRecordPanel } from "@/components/WorkerHrRecordPanel";
 import { ProbationEvalTemplateEditor } from "@/components/ProbationEvalTemplateEditor";
 import type { ProbationEvalRequest, ProbationEvalTemplate } from "@/utils/probationEval";
 import { ScScheduleAlimtalkPage } from "@/components/ScScheduleAlimtalkPage";
+import { ScCalendarEmbedPage } from "@/components/ScCalendarEmbedPage";
 import { DailyReportPage } from "@/components/DailyReportPage";
 import { ClientFormModal, type ClientFormState } from "@/components/ClientFormModal";
 import { WorkerFormModal, createEmptyWorkerForm } from "@/components/WorkerFormModal";
@@ -3097,6 +3098,7 @@ const PAGE_ICONS: Record<ErpPageKey, typeof Home> = {
   calendar: CalendarDays,
   clientSiteRequests: ClipboardList,
   clientSiteRequestCalendars: CalendarRange,
+  scCalendar: CalendarDays,
   scAlimtalk: Smartphone,
   dailyReport: ClipboardList,
   attendance: Clock,
@@ -10128,8 +10130,7 @@ export default function TeammillimeterErpMvp() {
         return;
       }
       if (action.type === "open_sc_schedule") {
-        const url = String(action.url || "https://sc.teammillimeter.com").trim();
-        if (url) window.open(url, "_blank", "noopener,noreferrer");
+        setActive("scCalendar");
         return;
       }
       if (action.type === "open_client_site_request_calendar") {
@@ -11104,6 +11105,9 @@ export default function TeammillimeterErpMvp() {
             pendingClientFilter={pendingClientSiteRequestCalendarFilter}
             onPendingClientFilterConsumed={() => setPendingClientSiteRequestCalendarFilter(null)}
           />
+        </PageKeepAlive>
+        <PageKeepAlive pageKey="scCalendar" active={active} className="erp-page-keep-alive--fill">
+          <ScCalendarEmbedPage />
         </PageKeepAlive>
         <PageKeepAlive pageKey="scAlimtalk" active={active}>
           <ScScheduleAlimtalkPage

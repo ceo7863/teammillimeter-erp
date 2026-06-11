@@ -2005,6 +2005,11 @@ textarea {
   min-height: 0;
 }
 
+.erp-sc-embed-page {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
 .erp-client-calendars-page {
   min-height: 0;
   flex: 1 1 auto;
