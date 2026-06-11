@@ -410,6 +410,7 @@ export const TeamChatPage = memo(function TeamChatPage({
   const [dropOverlayOpen, setDropOverlayOpen] = useState(false);
   const [imagePreview, setImagePreview] = useState<TeamChatImagePreview | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
   const lastMessageIdRef = useRef(0);
@@ -448,10 +449,21 @@ export const TeamChatPage = memo(function TeamChatPage({
     });
   }, [userQuery, users]);
 
-  const scrollToBottom = useCallback(() => {
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const node = listRef.current;
     if (!node) return;
-    node.scrollTop = node.scrollHeight;
+    const scroll = () => {
+      node.scrollTo({ top: node.scrollHeight, behavior });
+    };
+    scroll();
+    window.requestAnimationFrame(scroll);
+  }, []);
+
+  const handleMessagesScroll = useCallback(() => {
+    const node = listRef.current;
+    if (!node) return;
+    const threshold = 96;
+    isNearBottomRef.current = node.scrollHeight - node.scrollTop - node.clientHeight <= threshold;
   }, []);
 
   const refreshChannels = useCallback(async () => {
@@ -515,6 +527,7 @@ export const TeamChatPage = memo(function TeamChatPage({
   }, [applyPendingShare, refreshChannels]);
 
   const loadInitialMessages = useCallback(async (channelId: string) => {
+    isNearBottomRef.current = true;
     const rows = await loadTeamChatHistory(channelId, 120);
     setMessages(rows);
     const lastId = rows.length ? rows[rows.length - 1].id : 0;
@@ -523,7 +536,8 @@ export const TeamChatPage = memo(function TeamChatPage({
       await markTeamChatChannelRead(channelId, lastId);
       onUnreadChangeRef.current?.();
     }
-    window.requestAnimationFrame(scrollToBottom);
+    window.requestAnimationFrame(() => scrollToBottom());
+    window.setTimeout(() => scrollToBottom(), 80);
   }, [scrollToBottom]);
 
   const pollMessages = useCallback(async (channelId: string) => {
@@ -542,7 +556,9 @@ export const TeamChatPage = memo(function TeamChatPage({
       lastMessageIdRef.current = lastId;
       await markTeamChatChannelRead(channelId, lastId);
       onUnreadChangeRef.current?.();
-      window.requestAnimationFrame(scrollToBottom);
+      if (isNearBottomRef.current) {
+        window.requestAnimationFrame(() => scrollToBottom());
+      }
     }
     await refreshChannels();
   }, [refreshChannels, scrollToBottom]);
@@ -581,7 +597,11 @@ export const TeamChatPage = memo(function TeamChatPage({
         if (String(message.channelId) === String(selectedChannelIdRef.current)) {
           mergeMessage(message);
           void markTeamChatChannelRead(message.channelId, message.id);
-          window.requestAnimationFrame(scrollToBottom);
+          const isOwnMessage = Number(message.userId) === selfId;
+          if (isOwnMessage || isNearBottomRef.current) {
+            if (isOwnMessage) isNearBottomRef.current = true;
+            window.requestAnimationFrame(() => scrollToBottom());
+          }
         }
         void refreshChannels();
         onUnreadChangeRef.current?.();
@@ -594,7 +614,7 @@ export const TeamChatPage = memo(function TeamChatPage({
         void refreshChannels();
       }
     },
-    [mergeMessage, refreshChannels, scrollToBottom],
+    [mergeMessage, refreshChannels, scrollToBottom, selfId],
   );
 
   const { connected: sseConnected } = useTeamChatEvents({
@@ -661,6 +681,7 @@ export const TeamChatPage = memo(function TeamChatPage({
       setMessages([]);
       setReadState([]);
       lastMessageIdRef.current = 0;
+      isNearBottomRef.current = true;
       return;
     }
     let cancelled = false;
@@ -695,6 +716,16 @@ export const TeamChatPage = memo(function TeamChatPage({
     }, intervalMs);
     return () => window.clearInterval(timer);
   }, [isPageActive, pollMessages, selectedChannelId, sseConnected]);
+
+  useEffect(() => {
+    const node = listRef.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (isNearBottomRef.current) scrollToBottom();
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [scrollToBottom, selectedChannelId]);
 
   useEffect(() => {
     return () => {
@@ -976,7 +1007,8 @@ export const TeamChatPage = memo(function TeamChatPage({
       await refreshChannels();
       await refreshReadState(selectedChannelId);
       onUnreadChangeRef.current?.();
-      window.requestAnimationFrame(scrollToBottom);
+      isNearBottomRef.current = true;
+      window.requestAnimationFrame(() => scrollToBottom());
     } catch {
       setError(L.sendError);
     } finally {
@@ -1142,7 +1174,7 @@ export const TeamChatPage = memo(function TeamChatPage({
                 </div>
               ) : null}
 
-            <div ref={listRef} className="erp-team-chat-thread__messages">
+            <div ref={listRef} className="erp-team-chat-thread__messages" onScroll={handleMessagesScroll}>
               {!messages.length ? <p className="erp-team-chat-muted text-center text-sm">{L.emptyMessages}</p> : null}
               {messages.map((message) => {
                 const isMine = Number(message.userId) === selfId;
@@ -1260,6 +1292,7 @@ export const TeamChatPage = memo(function TeamChatPage({
               })}
             </div>
 
+            <div className="erp-team-chat-thread__footer">
             {error ? <p className="erp-team-chat-error px-4 py-1 text-sm">{error}</p> : null}
 
             {replyingTo ? (
@@ -1375,6 +1408,7 @@ export const TeamChatPage = memo(function TeamChatPage({
                 <Send size={16} />
               </button>
             </form>
+            </div>
             </div>
           </>
         )}

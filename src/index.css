@@ -617,6 +617,7 @@ textarea {
   gap: 0;
   min-height: calc(100dvh - 4.5rem);
   height: calc(100dvh - 4.5rem);
+  max-height: calc(100dvh - 4.5rem);
   border: 1px solid #d8d8d8;
   border-radius: 0.75rem;
   overflow: hidden;
@@ -626,6 +627,21 @@ textarea {
 
 .erp-page-keep-alive--team-chat {
   min-height: calc(100dvh - 4.5rem);
+}
+
+.erp-main--team-chat {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.erp-app-shell > .flex.min-w-0.flex-1.flex-col > main.erp-main--team-chat > .erp-page-keep-alive--team-chat {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .erp-team-chat-avatar {
@@ -756,8 +772,11 @@ textarea {
 .erp-team-chat-thread {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
+  height: 100%;
+  overflow: hidden;
   background: #abc1d1;
 }
 
@@ -765,8 +784,14 @@ textarea {
   position: relative;
   display: flex;
   flex-direction: column;
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
+}
+
+.erp-team-chat-thread__footer {
+  flex-shrink: 0;
+  background: #fff;
 }
 
 .erp-team-chat-drop-overlay {
@@ -810,6 +835,7 @@ textarea {
   padding: 0.75rem 1rem;
   border-bottom: 1px solid #e7e7e7;
   background: #fff;
+  flex-shrink: 0;
 }
 
 .erp-team-chat-thread__avatar {
@@ -836,9 +862,11 @@ textarea {
 }
 
 .erp-team-chat-thread__messages {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   padding: 1rem 0.875rem;
   display: flex;
   flex-direction: column;
@@ -950,6 +978,7 @@ textarea {
   padding: 0.65rem 0.875rem calc(0.65rem + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid #e7e7e7;
   background: #fff;
+  flex-shrink: 0;
 }
 
 .erp-team-chat-composer__attach {
