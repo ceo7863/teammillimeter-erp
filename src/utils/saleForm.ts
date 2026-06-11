@@ -399,6 +399,10 @@ function sanitizeWorkerGridCommitValue(rawValue: unknown, columnKey: string) {
   const isNumeric = WORKER_GRID_NUMERIC_COLUMNS.has(columnKey);
   if (!isNumeric) return String(rawValue ?? "");
   let sanitized = String(rawValue ?? "").replace(/[^0-9.-]/g, "");
+  if (columnKey === "overtimeHours") {
+    const num = Number(sanitized);
+    return Number.isFinite(num) ? String(Math.floor(Math.max(0, num))) : "";
+  }
   if (WORKER_GRID_INTEGER_COLUMNS.has(columnKey)) {
     sanitized = sanitized.replace(/[^\d]/g, "");
   }

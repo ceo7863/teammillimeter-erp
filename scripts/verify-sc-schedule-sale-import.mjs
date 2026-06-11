@@ -9,6 +9,7 @@ import {
 assert.equal(computeScheduleOvertimeHours("17:00"), 0);
 assert.equal(computeScheduleOvertimeHours("18:00"), 0);
 assert.equal(computeScheduleOvertimeHours("19:00"), 2);
+assert.equal(computeScheduleOvertimeHours("19:30"), 2);
 assert.equal(computeScheduleOvertimeHours("20:00"), 3);
 
 assert.equal(computeScheduleWorkHours("09:00", "11:00"), 2);
@@ -121,5 +122,22 @@ const scExpenseItemsForm = buildSaleFormFromScSchedule(
 
 assert.equal(scExpenseItemsForm.workers[0].meal, "12000");
 assert.equal(scExpenseItemsForm.workers[0].expense, "10000");
+
+const capForm = buildSaleFormFromScSchedule(
+  {
+    id: "sc-cap",
+    workDate: "2026-06-10",
+    startTime: "09:00",
+    endTime: "13:00",
+    workType: "site",
+    clientName: "client",
+    participantNames: ["worker"],
+  },
+  [{ name: "worker", constructionCost: 330000, customChargeCost: 120000, overtimeCost: 30000, feeRate: 0.1 }],
+  [{ name: "client", constructionCost: 330000, overtimeCost: 30000, mealIncluded: "Y" }],
+  [],
+);
+
+assert.equal(capForm.workers[0].chargeAmount, "120000");
 
 console.log("verify-sc-schedule-sale-import: ok");

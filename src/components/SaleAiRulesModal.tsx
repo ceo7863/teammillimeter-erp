@@ -3,11 +3,11 @@ import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  buildOvertimeFormulaPreview,
-  buildShortShiftFormulaPreview,
-  computeShortShiftChargeAmount,
+  buildSaleAiRuleFormPreview,
+  DEFAULT_SALE_AI_RULE_FORM_TEXTS,
   DEFAULT_SALE_AI_RULES,
   normalizeSaleAiRules,
+  type SaleAiRuleFormTexts,
   type SaleAiRules,
 } from "@/utils/saleAiRules";
 
@@ -26,6 +26,7 @@ type DraftState = {
   overtimeBaseHour: string;
   overtimeStartHour: string;
   normalEndHour: string;
+  formTexts: SaleAiRuleFormTexts;
 };
 
 function rulesToDraft(rules: SaleAiRules): DraftState {
@@ -36,6 +37,7 @@ function rulesToDraft(rules: SaleAiRules): DraftState {
     overtimeBaseHour: String(rules.overtimeBaseHour),
     overtimeStartHour: String(rules.overtimeStartHour),
     normalEndHour: String(rules.normalEndHour),
+    formTexts: { ...rules.formTexts },
   };
 }
 
@@ -47,7 +49,35 @@ function draftToRules(draft: DraftState): SaleAiRules {
     overtimeBaseHour: draft.overtimeBaseHour,
     overtimeStartHour: draft.overtimeStartHour,
     normalEndHour: draft.normalEndHour,
+    formTexts: draft.formTexts,
   });
+}
+
+function RuleTextArea({
+  label,
+  hint,
+  value,
+  onChange,
+  rows = 3,
+}: {
+  label: string;
+  hint?: string;
+  value: string;
+  onChange: (value: string) => void;
+  rows?: number;
+}) {
+  return (
+    <label className="erp-sale-ai-rules-field erp-sale-ai-rules-field--wide">
+      <span>{label}</span>
+      {hint ? <span className="erp-sale-ai-rules-field-hint">{hint}</span> : null}
+      <textarea
+        className="erp-sale-ai-rules-textarea"
+        rows={rows}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
 }
 
 export function SaleAiRulesButton({ onClick }: { onClick: () => void }) {
@@ -68,16 +98,30 @@ export function SaleAiRulesModal({ open, rules, saving = false, onClose, onSave 
   }, [open, rules]);
 
   const normalized = useMemo(() => draftToRules(draft), [draft]);
-  const sampleShortCharge = computeShortShiftChargeAmount(2, normalized);
+  const preview = useMemo(() => buildSaleAiRuleFormPreview(normalized), [normalized]);
 
   if (!open) return null;
 
-  const updateDraft = (key: keyof DraftState, value: string) => {
+  const updateDraft = (key: keyof Omit<DraftState, "formTexts">, value: string) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const updateFormText = (key: keyof SaleAiRuleFormTexts, value: string) => {
+    setDraft((prev) => ({
+      ...prev,
+      formTexts: { ...prev.formTexts, [key]: value },
+    }));
   };
 
   const handleReset = () => {
     setDraft(rulesToDraft(DEFAULT_SALE_AI_RULES));
+  };
+
+  const handleResetTexts = () => {
+    setDraft((prev) => ({
+      ...prev,
+      formTexts: { ...DEFAULT_SALE_AI_RULE_FORM_TEXTS },
+    }));
   };
 
   const handleSave = () => {
@@ -99,7 +143,7 @@ export function SaleAiRulesModal({ open, rules, saving = false, onClose, onSave 
               {"AI \uADDC\uCE59"}
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              {"SC \uC2A4\uCF00\uC904 \uAC00\uC838\uC624\uAE30 \u00B7 \uC790\uB3D9 \uCCAD\uAD6C \uACC4\uC0B0 \uACF5\uC2DD\uC785\uB2C8\uB2E4."}
+              {"SC \uC77C\uC815 \u2192 \uB9E4\uCD9C \uC804\uD45C \uC790\uB3D9 \uACC4\uC0B0 \uADDC\uCE59\uACFC \uC11C\uC2DD\uC744 \uC124\uC815\uD569\uB2C8\uB2E4."}
             </p>
           </div>
           <Button type="button" variant="ghost" size="sm" onClick={onClose}>
@@ -109,17 +153,42 @@ export function SaleAiRulesModal({ open, rules, saving = false, onClose, onSave 
 
         <div className="erp-sale-ai-rules-body">
           <section className="erp-sale-ai-rules-section">
-            <h3 className="erp-sale-ai-rules-section-title">{"\uB2E8\uCD95\uADFC\uBB34 \uCCAD\uAD6C"}</h3>
+            <RuleTextArea
+              label={"\uC804\uCCB4 \uC548\uB0B4 \uBB38\uAD6C"}
+              hint={"\uADDC\uCE59 \uC804\uCCB4 \uC124\uBA85"}
+              value={draft.formTexts.intro}
+              onChange={(value) => updateFormText("intro", value)}
+              rows={2}
+            />
+            <p className="erp-sale-ai-rules-preview">{preview.intro}</p>
+          </section>
+
+          <section className="erp-sale-ai-rules-section">
+            <div className="erp-sale-ai-rules-section-head">
+              <Input
+                className="erp-sale-ai-rules-title-input"
+                value={draft.formTexts.shortShiftTitle}
+                onChange={(event) => updateFormText("shortShiftTitle", event.target.value)}
+              />
+            </div>
+
+            <RuleTextArea
+              label={"\uADDC\uCE59 \uC124\uBA85"}
+              value={draft.formTexts.shortShiftBody}
+              onChange={(value) => updateFormText("shortShiftBody", value)}
+            />
+            <p className="erp-sale-ai-rules-preview">{preview.shortShiftBody}</p>
+
             <div className="erp-sale-ai-rules-grid">
               <label className="erp-sale-ai-rules-field">
-                <span>{"\uAE30\uC900 \uC2DC\uAC04 (\uC774\uD558 \uBBF8\uB9CC)"}</span>
+                <span>{"\uAE30\uC900 \uC2DC\uAC04 (\uC774\uD558)"}</span>
                 <Input
                   type="number"
                   min={0.5}
                   max={24}
                   step={0.5}
                   value={draft.shortShiftMaxHours}
-                  onChange={(e) => updateDraft("shortShiftMaxHours", e.target.value)}
+                  onChange={(event) => updateDraft("shortShiftMaxHours", event.target.value)}
                 />
               </label>
               <label className="erp-sale-ai-rules-field">
@@ -129,7 +198,7 @@ export function SaleAiRulesModal({ open, rules, saving = false, onClose, onSave 
                   min={0}
                   step={1000}
                   value={draft.shortShiftBaseAmount}
-                  onChange={(e) => updateDraft("shortShiftBaseAmount", e.target.value)}
+                  onChange={(event) => updateDraft("shortShiftBaseAmount", event.target.value)}
                 />
               </label>
               <label className="erp-sale-ai-rules-field">
@@ -139,20 +208,47 @@ export function SaleAiRulesModal({ open, rules, saving = false, onClose, onSave 
                   min={0}
                   step={1000}
                   value={draft.shortShiftHourlyAmount}
-                  onChange={(e) => updateDraft("shortShiftHourlyAmount", e.target.value)}
+                  onChange={(event) => updateDraft("shortShiftHourlyAmount", event.target.value)}
                 />
               </label>
             </div>
-            <p className="erp-sale-ai-rules-preview">{buildShortShiftFormulaPreview(normalized)}</p>
-            <p className="erp-sale-ai-rules-preview-sub">
-              {"\uC608: 2\uC2DC\uAC04 \uADFC\uBB34\uAE30\uB85D \u2192 "}
-              {sampleShortCharge.toLocaleString("ko-KR")}
-              {"\uC6D0"}
-            </p>
+
+            <RuleTextArea
+              label={"\uACF5\uC2DD \uC11C\uC2DD"}
+              hint={"{maxHours}, {base}, {hourly} \uC0AC\uC6A9 \uAC00\uB2A5"}
+              value={draft.formTexts.shortShiftFormula}
+              onChange={(value) => updateFormText("shortShiftFormula", value)}
+              rows={2}
+            />
+            <p className="erp-sale-ai-rules-preview">{preview.shortShiftFormula}</p>
+            <p className="erp-sale-ai-rules-preview-sub">{preview.shortShiftExample}</p>
+
+            <RuleTextArea
+              label={"\uC0C1\uD55C \uADDC\uCE59"}
+              value={draft.formTexts.shortShiftCapRule}
+              onChange={(value) => updateFormText("shortShiftCapRule", value)}
+              rows={2}
+            />
+            <p className="erp-sale-ai-rules-preview">{preview.shortShiftCapRule}</p>
+            <p className="erp-sale-ai-rules-preview-sub">{preview.shortShiftCapExample}</p>
           </section>
 
           <section className="erp-sale-ai-rules-section">
-            <h3 className="erp-sale-ai-rules-section-title">{"\uC57C\uADFC \uC2DC\uAC04"}</h3>
+            <div className="erp-sale-ai-rules-section-head">
+              <Input
+                className="erp-sale-ai-rules-title-input"
+                value={draft.formTexts.overtimeTitle}
+                onChange={(event) => updateFormText("overtimeTitle", event.target.value)}
+              />
+            </div>
+
+            <RuleTextArea
+              label={"\uADDC\uCE59 \uC124\uBA85"}
+              value={draft.formTexts.overtimeBody}
+              onChange={(value) => updateFormText("overtimeBody", value)}
+            />
+            <p className="erp-sale-ai-rules-preview">{preview.overtimeBody}</p>
+
             <div className="erp-sale-ai-rules-grid">
               <label className="erp-sale-ai-rules-field">
                 <span>{"\uC57C\uADFC \uC5C6\uC74C (\uC2DC \uAE4C\uC9C0)"}</span>
@@ -162,7 +258,7 @@ export function SaleAiRulesModal({ open, rules, saving = false, onClose, onSave 
                   max={23}
                   step={1}
                   value={draft.normalEndHour}
-                  onChange={(e) => updateDraft("normalEndHour", e.target.value)}
+                  onChange={(event) => updateDraft("normalEndHour", event.target.value)}
                 />
               </label>
               <label className="erp-sale-ai-rules-field">
@@ -173,7 +269,7 @@ export function SaleAiRulesModal({ open, rules, saving = false, onClose, onSave 
                   max={23}
                   step={1}
                   value={draft.overtimeStartHour}
-                  onChange={(e) => updateDraft("overtimeStartHour", e.target.value)}
+                  onChange={(event) => updateDraft("overtimeStartHour", event.target.value)}
                 />
               </label>
               <label className="erp-sale-ai-rules-field">
@@ -184,18 +280,31 @@ export function SaleAiRulesModal({ open, rules, saving = false, onClose, onSave 
                   max={23}
                   step={1}
                   value={draft.overtimeBaseHour}
-                  onChange={(e) => updateDraft("overtimeBaseHour", e.target.value)}
+                  onChange={(event) => updateDraft("overtimeBaseHour", event.target.value)}
                 />
               </label>
             </div>
-            <p className="erp-sale-ai-rules-preview">{buildOvertimeFormulaPreview(normalized)}</p>
+
+            <RuleTextArea
+              label={"\uACF5\uC2DD \uC11C\uC2DD"}
+              hint={"{normalEnd}, {overtimeStart}, {overtimeBase} \uC0AC\uC6A9 \uAC00\uB2A5"}
+              value={draft.formTexts.overtimeFormula}
+              onChange={(value) => updateFormText("overtimeFormula", value)}
+              rows={2}
+            />
+            <p className="erp-sale-ai-rules-preview">{preview.overtimeFormula}</p>
           </section>
         </div>
 
         <div className="erp-sale-ai-rules-foot">
-          <Button type="button" variant="outline" className="rounded-xl" onClick={handleReset} disabled={saving}>
-            {"\uAE30\uBCF8\uAC12"}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" className="rounded-xl" onClick={handleReset} disabled={saving}>
+              {"\uAE30\uBCF8\uAC12 \uC804\uCCB4"}
+            </Button>
+            <Button type="button" variant="outline" className="rounded-xl" onClick={handleResetTexts} disabled={saving}>
+              {"\uC11C\uC2DD \uAE30\uBCF8\uAC12"}
+            </Button>
+          </div>
           <div className="flex gap-2">
             <Button type="button" variant="outline" className="rounded-xl" onClick={onClose} disabled={saving}>
               {"\uC30D\uC18C"}

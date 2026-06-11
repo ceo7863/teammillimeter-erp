@@ -449,11 +449,10 @@ function isSameDateRange(a: DateFilter, b: DateFilter) {
   return a.startDate === b.startDate && a.endDate === b.endDate;
 }
 
-function last30DaysRange(): DateFilter {
+function defaultBarobillSyncRange(): DateFilter {
   const endDate = todayISO();
-  const start = new Date();
-  start.setDate(start.getDate() - 29);
-  return { startDate: start.toISOString().slice(0, 10), endDate };
+  const startDate = `${endDate.slice(0, 4)}-01-01`;
+  return { startDate, endDate };
 }
 
 function emptyInvoiceeFields() {
@@ -544,7 +543,7 @@ export function TaxInvoicePage({
   const [importMessage, setImportMessage] = useState("");
   const [importLoading, setImportLoading] = useState(false);
   const [barobillModalOpen, setBarobillModalOpen] = useState(false);
-  const [barobillSyncRange, setBarobillSyncRange] = useState<DateFilter>(() => last30DaysRange());
+  const [barobillSyncRange, setBarobillSyncRange] = useState<DateFilter>(() => defaultBarobillSyncRange());
   const [barobillSyncFlows, setBarobillSyncFlows] = useState<TaxInvoiceFlowType[]>(["purchase", "sales"]);
   const [barobillPreviewActive, setBarobillPreviewActive] = useState(false);
   const [barobillSyncMeta, setBarobillSyncMeta] = useState<BarobillTaxInvoiceSyncPreview | null>(null);
@@ -1467,7 +1466,7 @@ export function TaxInvoicePage({
 
   const openBarobillSyncModal = () => {
     setImportError("");
-    setBarobillSyncRange(last30DaysRange());
+    setBarobillSyncRange(defaultBarobillSyncRange());
     setBarobillSyncFlows(["purchase", "sales"]);
     setBarobillScrapNeedsApply(null);
     setBarobillModalOpen(true);
@@ -2389,13 +2388,13 @@ export function TaxInvoicePage({
               <Field label={L.periodStart}>
                 <KoreanDateInput
                   value={barobillSyncRange.startDate}
-                  onChange={(value) => setBarobillSyncRange((prev) => ({ ...prev, startDate: value }))}
+                  onChange={(event) => setBarobillSyncRange((prev) => ({ ...prev, startDate: event.target.value }))}
                 />
               </Field>
               <Field label={L.periodEnd}>
                 <KoreanDateInput
                   value={barobillSyncRange.endDate}
-                  onChange={(value) => setBarobillSyncRange((prev) => ({ ...prev, endDate: value }))}
+                  onChange={(event) => setBarobillSyncRange((prev) => ({ ...prev, endDate: event.target.value }))}
                 />
               </Field>
             </div>

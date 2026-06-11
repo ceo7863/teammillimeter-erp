@@ -28,6 +28,8 @@ import {
   computeScheduleOvertimeHours,
   computeScheduleWorkHours,
   computeShortShiftChargeAmount,
+  isShortShiftWorkHours,
+  resolveShortShiftChargeAmount,
   DEFAULT_SALE_AI_RULES,
   normalizeSaleAiRules,
   type SaleAiRules,
@@ -37,6 +39,8 @@ export {
   computeScheduleOvertimeHours,
   computeScheduleWorkHours,
   computeShortShiftChargeAmount,
+  isShortShiftWorkHours,
+  resolveShortShiftChargeAmount,
   formatScheduleWorkHoursLabel,
 } from "@/utils/saleAiRules";
 
@@ -169,19 +173,19 @@ function applyScheduleBillingRules(
   fromWorkLog = false,
 ) {
   const next = { ...line };
-  const isShortShift =
-    workHours != null && workHours > 0 && workHours < rules.shortShiftMaxHours;
+  const isShortShift = isShortShiftWorkHours(workHours, rules);
   const hasOvertime = overtimeHours > 0;
   const workMemo = buildScheduleWorkMemo(effectiveTimes, workHours, fromWorkLog);
 
   if (isShortShift && workHours != null) {
-    const shortCharge = String(computeShortShiftChargeAmount(workHours, rules));
+    const workerDefaultCharge = parseWorkerMoney(line.chargeAmount);
+    const shortCharge = String(resolveShortShiftChargeAmount(workHours, rules, workerDefaultCharge));
     next.chargeAmount = shortCharge;
     next.unitCost = shortCharge;
   }
 
   if (hasOvertime) {
-    next.overtimeHours = String(Math.round(overtimeHours * 10) / 10);
+    next.overtimeHours = String(Math.floor(overtimeHours));
   } else {
     next.overtimeHours = "";
   }
