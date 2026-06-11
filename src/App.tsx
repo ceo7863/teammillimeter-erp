@@ -11069,8 +11069,8 @@ export default function TeammillimeterErpMvp() {
           </div>
         </header>
         ) : null}
-        <main className={`min-w-0 flex-1 ${active === "teamChat" ? "p-0 lg:p-4" : "p-2.5 sm:p-3 lg:p-4"}`}>
-        {basicInfoTabAccess.workers ? (
+        <main className={`min-w-0 flex-1 ${active === "teamChat" ? "erp-main--team-chat p-0 lg:p-4" : "p-2.5 sm:p-3 lg:p-4"}`}>
+        {basicInfoTabAccess.workers && active !== "teamChat" ? (
           <WorkerProbationAlertBanner
             workers={workers}
             workerAiRules={workerAiRules}

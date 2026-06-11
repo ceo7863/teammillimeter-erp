@@ -1386,68 +1386,62 @@ textarea {
 }
 
 @media (max-width: 1023px) {
-  .erp-page-keep-alive--team-chat {
-    min-height: 100dvh;
+  .erp-main--team-chat {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
     height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
+  }
+
+  .erp-page-keep-alive--team-chat {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
   }
 
   .erp-team-chat-page--mobile {
-    display: block;
-    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     overflow: hidden;
-    min-height: 100dvh;
-    height: 100dvh;
     border: none;
     border-radius: 0;
   }
 
   .erp-team-chat-page--mobile .erp-team-chat-sidebar,
   .erp-team-chat-page--mobile .erp-team-chat-thread {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
+    grid-row: 1;
+    grid-column: 1;
     min-height: 0;
-    display: flex !important;
+    min-width: 0;
+    display: flex;
     flex-direction: column;
   }
 
   .erp-team-chat-page--mobile.is-mobile-list .erp-team-chat-thread {
-    visibility: hidden;
-    pointer-events: none;
-    z-index: 0;
+    display: none;
   }
 
   .erp-team-chat-page--mobile.is-thread-open .erp-team-chat-sidebar {
-    visibility: hidden;
-    pointer-events: none;
-    z-index: 0;
-  }
-
-  .erp-team-chat-page--mobile.is-thread-open .erp-team-chat-thread {
-    visibility: visible;
-    pointer-events: auto;
-    z-index: 1;
-  }
-
-  .erp-team-chat-page--mobile.is-mobile-list .erp-team-chat-sidebar {
-    visibility: visible;
-    pointer-events: auto;
-    z-index: 1;
+    display: none;
   }
 
   .erp-team-chat-page:not(.erp-team-chat-page--standalone) {
     grid-template-columns: minmax(0, 1fr);
-    min-height: 100dvh;
-    height: 100dvh;
+    min-height: 0;
+    height: 100%;
     border-radius: 0;
     border-left: 0;
     border-right: 0;
   }
 
-  .erp-team-chat-page--mobile.is-mobile-list .erp-team-chat-sidebar {
-    display: flex;
-    flex-direction: column;
+  .erp-team-chat-standalone__body .erp-team-chat-page--mobile {
     min-height: 0;
     height: 100%;
   }

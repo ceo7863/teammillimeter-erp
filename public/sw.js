@@ -1,4 +1,4 @@
-const CACHE_NAME = "teammillimeter-erp-shell-v4";
+const CACHE_NAME = "teammillimeter-erp-shell-v5";
 
 try {
   importScripts("/sw-push.js");
@@ -23,9 +23,19 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
 
+  const isDocument = request.mode === "navigate" || request.destination === "document";
+
   event.respondWith(
     fetch(request)
       .then((response) => response)
-      .catch(() => caches.match(request).then((cached) => cached || caches.match("/"))),
+      .catch(async () => {
+        const cached = await caches.match(request);
+        if (cached) return cached;
+        if (isDocument) {
+          const fallback = await caches.match("/");
+          if (fallback) return fallback;
+        }
+        throw new Error("offline");
+      }),
   );
 });
