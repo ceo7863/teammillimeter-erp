@@ -71,6 +71,7 @@ import { ErpChatStandalonePage } from "@/components/ErpChatStandalonePage";
 import { consumePendingChatAction } from "@/utils/erpChatPendingAction";
 import { openErpChatGuidePdf, type ErpChatAction } from "@/utils/erpChatApi";
 import { parseErpChatStandaloneRoute } from "@/utils/erpChatRoute";
+import { parseTeamChatStandaloneRoute } from "@/utils/teamChatRoute";
 import { LoginHistoryPage } from "@/components/LoginHistoryPage";
 import { SalesManagementPage } from "@/components/SalesManagementPage";
 import { SaleCommentsPage } from "@/components/SaleCommentsPage";
@@ -376,6 +377,7 @@ import { useTeamChatNotifications } from "@/hooks/useTeamChatNotifications";
 import { buildClientTeamChatLink } from "@/utils/teamChatLinks";
 import { openTeamChatWithShare, TEAM_CHAT_OPEN_EVENT } from "@/utils/teamChatShare";
 import { TeamChatPage } from "@/components/TeamChatPage";
+import { TeamChatStandalonePage } from "@/components/TeamChatStandalonePage";
 import { useSaleCommentReadState } from "@/hooks/useSaleCommentReadState";
 
 const initialReceivables = [
@@ -8382,6 +8384,11 @@ export default function TeammillimeterErpMvp() {
   const chatRoute = parseErpChatStandaloneRoute();
   if (chatRoute) {
     return <ErpChatStandalonePage />;
+  }
+
+  const teamChatRoute = parseTeamChatStandaloneRoute();
+  if (teamChatRoute) {
+    return <TeamChatStandalonePage />;
   }
 
   const apiMode = isApiModeEnabled();

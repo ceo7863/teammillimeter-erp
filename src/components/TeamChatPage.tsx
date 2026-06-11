@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, MessageCircle, Paperclip, Plus, Search, Send, Users, X } from "lucide-react";
+import { ArrowLeft, ExternalLink, MessageCircle, Paperclip, Plus, Search, Send, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ErpUser } from "@/utils/erpApi";
 import type { ErpChatAction } from "@/utils/erpChatApi";
@@ -12,7 +12,8 @@ import {
   type TeamChatAttachment,
 } from "@/utils/teamChatAttachments";
 import { TEAM_CHAT_LINK_LABELS, teamChatLinkToAction, type TeamChatLink } from "@/utils/teamChatLinks";
-import { consumeTeamChatShare } from "@/utils/teamChatShare";
+import { consumeTeamChatShare, TEAM_CHAT_SHARE_CHANNEL } from "@/utils/teamChatShare";
+import { openTeamChatPopup } from "@/utils/teamChatPopup";
 import {
   fetchTeamChatMessages,
   formatTeamChatTime,
@@ -52,6 +53,7 @@ const L = {
   removeLink: "\uB9C1\uD06C \uC81C\uAC70",
   openLink: "\uC774\uB3D9",
   fileDownloadError: "\uD30C\uC77C\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",
+  openPopup: "\uBCC4\uB3C4 \uCC3D",
 };
 
 type PendingAttachment = TeamChatAttachment & { previewUrl?: string | null };
@@ -59,6 +61,7 @@ type PendingAttachment = TeamChatAttachment & { previewUrl?: string | null };
 type TeamChatPageProps = {
   currentUser: ErpUser | null;
   isPageActive?: boolean;
+  standalone?: boolean;
   onUnreadChange?: () => void;
   onErpAction?: (action: ErpChatAction) => void;
 };
@@ -170,6 +173,7 @@ function MessageLinkCard({
 export const TeamChatPage = memo(function TeamChatPage({
   currentUser,
   isPageActive = true,
+  standalone = false,
   onUnreadChange,
   onErpAction,
 }: TeamChatPageProps) {
@@ -233,6 +237,11 @@ export const TeamChatPage = memo(function TeamChatPage({
     }
   }, []);
 
+  const handleIncomingShare = useCallback(() => {
+    shareAppliedRef.current = false;
+    void refreshChannels().then((rows) => applyPendingShare(rows));
+  }, [applyPendingShare, refreshChannels]);
+
   const loadInitialMessages = useCallback(async (channelId: string) => {
     const rows = await loadTeamChatHistory(channelId, 120);
     setMessages(rows);
@@ -285,6 +294,20 @@ export const TeamChatPage = memo(function TeamChatPage({
       cancelled = true;
     };
   }, [applyPendingShare]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel(TEAM_CHAT_SHARE_CHANNEL);
+      channel.onmessage = () => handleIncomingShare();
+    } catch {
+      // ignore
+    }
+    return () => {
+      channel?.close();
+    };
+  }, [handleIncomingShare]);
 
   useEffect(() => {
     if (!selectedChannelId && channels.length) {
@@ -440,14 +463,29 @@ export const TeamChatPage = memo(function TeamChatPage({
   const selfId = Number(currentUser?.id) || 0;
 
   return (
-    <div className={`erp-team-chat-page ${showThreadOnMobile ? "is-thread-open" : ""}`}>
+    <div className={`erp-team-chat-page ${standalone ? "erp-team-chat-page--standalone" : ""} ${showThreadOnMobile ? "is-thread-open" : ""}`}>
       <aside className={`erp-team-chat-sidebar ${showThreadOnMobile ? "is-hidden-mobile" : ""}`}>
         <div className="erp-team-chat-sidebar__head">
           <h1 className="erp-team-chat-sidebar__title">{L.title}</h1>
-          <Button type="button" size="sm" variant="outline" className="h-8 rounded-lg gap-1" onClick={() => setPickerOpen(true)}>
-            <Plus size={14} />
-            {L.newDm}
-          </Button>
+          <div className="flex items-center gap-1">
+            {!standalone ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-8 rounded-lg gap-1 px-2"
+                onClick={() => openTeamChatPopup()}
+                title={L.openPopup}
+              >
+                <ExternalLink size={14} />
+                <span className="hidden sm:inline">{L.openPopup}</span>
+              </Button>
+            ) : null}
+            <Button type="button" size="sm" variant="outline" className="h-8 rounded-lg gap-1" onClick={() => setPickerOpen(true)}>
+              <Plus size={14} />
+              {L.newDm}
+            </Button>
+          </div>
         </div>
 
         {loading ? <p className="erp-team-chat-muted px-4 py-6 text-sm">{L.loading}</p> : null}

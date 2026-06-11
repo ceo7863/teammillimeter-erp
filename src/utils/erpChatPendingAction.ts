@@ -5,7 +5,9 @@ const PENDING_CHAT_ACTION_KEY = "teammillimeter-erp-pending-chat-action";
 export function stashPendingChatAction(action: ErpChatAction) {
   if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.setItem(PENDING_CHAT_ACTION_KEY, JSON.stringify(action));
+    const raw = JSON.stringify(action);
+    window.sessionStorage.setItem(PENDING_CHAT_ACTION_KEY, raw);
+    window.localStorage.setItem(PENDING_CHAT_ACTION_KEY, raw);
   } catch {
     // ignore
   }
@@ -14,8 +16,11 @@ export function stashPendingChatAction(action: ErpChatAction) {
 export function consumePendingChatAction(): ErpChatAction | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.sessionStorage.getItem(PENDING_CHAT_ACTION_KEY);
+    const raw =
+      window.sessionStorage.getItem(PENDING_CHAT_ACTION_KEY) ||
+      window.localStorage.getItem(PENDING_CHAT_ACTION_KEY);
     window.sessionStorage.removeItem(PENDING_CHAT_ACTION_KEY);
+    window.localStorage.removeItem(PENDING_CHAT_ACTION_KEY);
     if (!raw) return null;
     return JSON.parse(raw) as ErpChatAction;
   } catch {
