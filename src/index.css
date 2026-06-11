@@ -1406,19 +1406,16 @@ textarea {
     overflow: hidden;
   }
 
-  .erp-page-keep-alive--team-chat {
-    position: fixed;
-    inset: 0;
-    z-index: 30;
+  .erp-app-shell .erp-page-keep-alive--team-chat {
+    position: relative;
+    inset: auto;
+    z-index: auto;
     display: flex;
     flex-direction: column;
     flex: 1 1 auto;
-    min-height: 100dvh;
+    min-height: 0;
     background: #fff;
-    padding-top: env(safe-area-inset-top, 0px);
-    padding-left: env(safe-area-inset-left, 0px);
-    padding-right: env(safe-area-inset-right, 0px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding: 0;
   }
 
   .erp-team-chat-page--mobile {
@@ -3160,7 +3157,8 @@ textarea {
   min-height: 0;
 }
 
-.erp-app-shell > .flex.min-w-0.flex-1.flex-col > main > div {
+.erp-app-shell > .flex.min-w-0.flex-1.flex-col > main > .erp-page-keep-alive--fill,
+.erp-app-shell > .flex.min-w-0.flex-1.flex-col > main > .erp-page-keep-alive--team-chat {
   flex: 1 1 auto;
   min-height: 0;
   width: 100%;

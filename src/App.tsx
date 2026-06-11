@@ -8456,10 +8456,17 @@ export default function TeammillimeterErpMvp() {
     if (migrated.statementTab) storeStatementTab(migrated.statementTab);
     if (migrated.basicInfoTab) storeBasicInfoTab(migrated.basicInfoTab);
     if (migrated.userAdminTab) storeUserAdminTab(migrated.userAdminTab);
-    if (migrated.page !== stored && typeof window !== "undefined") {
+    let page = migrated.page;
+    // Embedded ERP must not restore chat as the landing tab (mobile full-screen white overlay).
+    if (page === "teamChat") {
+      page = "dailyReport";
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem(ACTIVE_TAB_KEY, page);
+      }
+    } else if (migrated.page !== stored && typeof window !== "undefined") {
       window.sessionStorage.setItem(ACTIVE_TAB_KEY, migrated.page);
     }
-    return migrated.page;
+    return page;
   });
   const basicInfoTabAccess = useMemo(() => resolveBasicInfoTabAccess(currentUser), [currentUser]);
   const userAdminTabAccess = useMemo(() => resolveUserAdminTabAccess(currentUser), [currentUser]);
@@ -10366,6 +10373,8 @@ export default function TeammillimeterErpMvp() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    // Chat is opened explicitly; do not persist as the restore tab after reload/login.
+    if (active === "teamChat") return;
     window.sessionStorage.setItem(ACTIVE_TAB_KEY, active);
   }, [active]);
 
