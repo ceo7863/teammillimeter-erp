@@ -377,6 +377,7 @@ import { useTeamChatNotifications } from "@/hooks/useTeamChatNotifications";
 import { useTeamChatPush } from "@/hooks/useTeamChatPush";
 import { buildClientTeamChatLink, buildWorkerTeamChatLink, buildSaleTeamChatLink, buildBankTxTeamChatLink } from "@/utils/teamChatLinks";
 import { openTeamChatWithShare, TEAM_CHAT_OPEN_EVENT } from "@/utils/teamChatShare";
+import { isTeamChatDesktopPopupMode, openTeamChatPopup } from "@/utils/teamChatPopup";
 import { TeamChatPage } from "@/components/TeamChatPage";
 import { TeamChatStandalonePage } from "@/components/TeamChatStandalonePage";
 import { useSaleCommentReadState } from "@/hooks/useSaleCommentReadState";
@@ -8523,10 +8524,18 @@ export default function TeammillimeterErpMvp() {
   const handleTeamChatUnreadChange = useCallback(() => {
     void refreshTeamChatUnread();
   }, [refreshTeamChatUnread]);
-  const openTeamChatPage = useCallback(() => {
-    setActive("teamChat");
+  const handleNavigatePage = useCallback((key: ErpPageKey) => {
+    if (key === "teamChat" && isTeamChatDesktopPopupMode()) {
+      openTeamChatPopup();
+      setSidebarOpen(false);
+      return;
+    }
+    setActive(key);
     setSidebarOpen(false);
   }, []);
+  const openTeamChatPage = useCallback(() => {
+    handleNavigatePage("teamChat");
+  }, [handleNavigatePage]);
   useTeamChatNotifications(currentUser, {
     unreadCount: teamChatUnreadCount,
     isChatPageActive: active === "teamChat",
@@ -11026,7 +11035,7 @@ export default function TeammillimeterErpMvp() {
     <div className="erp-app-shell flex min-h-screen bg-slate-50 text-slate-900" lang="ko">
       <Sidebar
         active={active}
-        setActive={setActive}
+        setActive={handleNavigatePage}
         currentUser={currentUser}
         sidebarOrder={sidebarOrder}
         sidebarHidden={sidebarHidden}
