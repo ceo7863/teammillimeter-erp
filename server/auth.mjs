@@ -66,6 +66,8 @@ export function authMiddleware(req, res, next) {
   }
   req.user = user;
   next();
+}
+
 export function resolveRequestUser(req) {
   const header = req.headers.authorization || "";
   let token = header.startsWith("Bearer ") ? header.slice(7) : "";
@@ -81,7 +83,7 @@ export function resolveRequestUser(req) {
 
 export function adminMiddleware(req, res, next) {
   if (req.user?.role !== "admin") {
-    res.status(403).json({ error: "관리자 권한이 필요합니다." });
+    res.status(403).json({ error: "관리자 권한???�요?�니??" });
     return;
   }
   next();
