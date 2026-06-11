@@ -24,21 +24,27 @@ import { formatMonthLabel } from "@/utils/workerMonthlyPayments";
 
 const MIDDOT = "\u00B7";
 const L = {
-  add: "\uCD94\uAC00",
+  linkVoucher: "\uC804\uD45C \uC5F0\uACB0",
   matchScore: "\uC810\uC218",
   linkedSection: "\uC5F0\uACB0\uB41C \uC804\uD45C",
-  linkedKindSent: "\uBCF4\uB0B8\uB0B4\uC5ED\uC11C",
-  linkedKindReceivable: "\uC785\uAE08 \uC804\uD45C",
-  linkedStatus: "\uC5F0\uACB0\uB428",
-  month: "\uC6D4",
+  candidateSection: "\uC5F0\uACB0 \uAC00\uB2A5\uD55C \uC804\uD45C",
+  voucherCol: "\uC804\uD45C",
+  linkedStatus: "\uC804\uD45C \uC5F0\uACB0\uB428",
+  client: "\uAC70\uB798\uCC98",
   worker: "\uC2DC\uACF5\uC790",
-  linkedAmount: "\uC5F0\uACB0 \uAE08\uC561",
+  detail: "\uB0B4\uC6A9",
+  amount: "\uAE08\uC561",
   paidTotal: "\uC2E4\uC9C0\uAE09",
   expectedTotal: "\uC608\uC815",
+  sentVoucher: "\uBCF4\uB0B8\uB0B4\uC5ED\uC11C \uC804\uD45C",
+  salesVoucher: (no: string | number) => `\uB9E4\uCD9C\uC804\uD45C ${no}`,
+  paymentVoucher: (id: string | number) => `\uC785\uAE08\uC804\uD45C #${id}`,
+  workerVoucher: (monthKey: string) => `${formatMonthLabel(monthKey)} \uC2E4\uC9C0\uAE09 \uC804\uD45C`,
 };
 
 type ErpLinkedPaymentVoucher = {
   id?: number | string;
+  salesId?: number | string;
   bankTransactionId?: string | number;
   client?: string;
   site?: string;
@@ -54,7 +60,7 @@ type ErpLinkedPaymentVoucher = {
 
 type LinkedDepositVoucherRow = {
   id: string;
-  kind: "sent" | "receivable";
+  voucherLabel: string;
   client: string;
   detail: string;
   amount: number;
@@ -63,17 +69,38 @@ type LinkedDepositVoucherRow = {
 
 type LinkedWorkerVoucherRow = {
   id: string;
-  monthKey: string;
+  voucherLabel: string;
   worker: string;
   entryAmount: number;
   paidAmount: number;
   expectedFinalAmount: number;
 };
 
+function resolveSalesVoucherNo(
+  salesId: number | string | undefined,
+  receivableRows: ReceivableRow[],
+) {
+  if (salesId == null || salesId === "") return "";
+  const row = receivableRows.find((item) => String(item.id) === String(salesId));
+  return String(row?.voucherNo || salesId);
+}
+
+function buildPaymentVoucherLabel(
+  voucher: ErpLinkedPaymentVoucher,
+  receivableRows: ReceivableRow[],
+) {
+  if (voucher.linkedPdfArchiveId) return L.sentVoucher;
+  const voucherNo = resolveSalesVoucherNo(voucher.salesId, receivableRows);
+  if (voucherNo) return L.salesVoucher(voucherNo);
+  if (voucher.id != null && voucher.id !== "") return L.paymentVoucher(voucher.id);
+  return "\uC785\uAE08 \uC804\uD45C";
+}
+
 function listLinkedDepositVouchers(
   tx: BankTransaction,
   paymentVouchers: ErpLinkedPaymentVoucher[],
   sentArchives: PdfArchiveMeta[],
+  receivableRows: ReceivableRow[],
 ): LinkedDepositVoucherRow[] {
   const rows: LinkedDepositVoucherRow[] = [];
   const seen = new Set<string>();
@@ -94,7 +121,7 @@ function listLinkedDepositVouchers(
         : "";
     rows.push({
       id: voucherId,
-      kind: isSent ? "sent" : "receivable",
+      voucherLabel: buildPaymentVoucherLabel(voucher, receivableRows),
       client: String(voucher.client || "-").trim() || "-",
       detail: isSent
         ? [period, voucher.isPartialPayment ? "\uBD80\uBD84 \uC785\uAE08" : ""].filter(Boolean).join(` ${MIDDOT} `)
@@ -105,12 +132,12 @@ function listLinkedDepositVouchers(
     });
   }
 
-  if (tx.linkedPdfArchiveId && !rows.some((row) => row.kind === "sent")) {
+  if (tx.linkedPdfArchiveId && !rows.some((row) => row.voucherLabel === L.sentVoucher)) {
     const archive = sentArchives.find((row) => row.id === tx.linkedPdfArchiveId);
     if (archive) {
       rows.unshift({
         id: `archive:${archive.id}`,
-        kind: "sent",
+        voucherLabel: L.sentVoucher,
         client: String(archive.subjectName || "-").trim() || "-",
         detail:
           archive.periodStart && archive.periodEnd
@@ -140,7 +167,7 @@ function listLinkedWorkerVouchers(
       seen.add(key);
       rows.push({
         id: key,
-        monthKey: voucher.monthKey,
+        voucherLabel: L.workerVoucher(voucher.monthKey),
         worker: voucher.worker,
         entryAmount: Math.round(Number(entry.amount || 0)),
         paidAmount: Math.round(Number(voucher.paidAmount || 0)),
@@ -155,7 +182,7 @@ function listLinkedWorkerVouchers(
     if (voucher) {
       rows.push({
         id: voucher.id,
-        monthKey: voucher.monthKey,
+        voucherLabel: L.workerVoucher(voucher.monthKey),
         worker: voucher.worker,
         entryAmount: Math.round(Number(tx.withdrawal || 0)),
         paidAmount: Math.round(Number(voucher.paidAmount || 0)),
@@ -176,19 +203,17 @@ function LinkedDepositVouchersSection({ rows }: { rows: LinkedDepositVoucherRow[
         <table className="erp-table erp-tax-invoice-link-panel__table w-full">
           <thead>
             <tr>
-              <th>{"\uAD6C\uBD84"}</th>
-              <th>{"\uAC70\uB798\uCC98"}</th>
-              <th>{"\uC815\uBCF4"}</th>
-              <th className="text-right">{"\uAE08\uC561"}</th>
+              <th>{L.voucherCol}</th>
+              <th>{L.client}</th>
+              <th>{L.detail}</th>
+              <th className="text-right">{L.amount}</th>
               <th />
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => (
               <tr key={row.id} className="erp-tax-invoice-link-panel__row is-linked bg-emerald-50/70">
-                <td className="whitespace-nowrap text-xs font-semibold text-emerald-800">
-                  {row.kind === "sent" ? L.linkedKindSent : L.linkedKindReceivable}
-                </td>
+                <td className="font-semibold text-emerald-800">{row.voucherLabel}</td>
                 <td className="font-semibold text-slate-900">{row.client}</td>
                 <td className="text-slate-600">
                   {row.detail}
@@ -220,9 +245,9 @@ function LinkedWorkerVouchersSection({ rows }: { rows: LinkedWorkerVoucherRow[] 
         <table className="erp-table erp-tax-invoice-link-panel__table w-full">
           <thead>
             <tr>
-              <th>{L.month}</th>
+              <th>{L.voucherCol}</th>
               <th>{L.worker}</th>
-              <th>{L.linkedAmount}</th>
+              <th>{L.amount}</th>
               <th className="text-right">{L.paidTotal}</th>
               <th />
             </tr>
@@ -230,7 +255,7 @@ function LinkedWorkerVouchersSection({ rows }: { rows: LinkedWorkerVoucherRow[] 
           <tbody>
             {rows.map((row) => (
               <tr key={row.id} className="erp-tax-invoice-link-panel__row is-linked bg-orange-50/70">
-                <td className="font-semibold text-orange-900">{formatMonthLabel(row.monthKey)}</td>
+                <td className="font-semibold text-orange-900">{row.voucherLabel}</td>
                 <td className="font-semibold text-slate-900">{row.worker}</td>
                 <td className="font-semibold tabular-nums text-rose-700">{formatKRW(row.entryAmount)}</td>
                 <td className="text-right text-slate-600">
@@ -323,8 +348,8 @@ export function BankErpDepositLinkModal({
   onConfirmReceivable,
 }: BankErpDepositLinkModalProps) {
   const linkedRows = useMemo(
-    () => listLinkedDepositVouchers(tx, paymentVouchers, sentArchives),
-    [tx, paymentVouchers, sentArchives],
+    () => listLinkedDepositVouchers(tx, paymentVouchers, sentArchives, receivableRows),
+    [tx, paymentVouchers, sentArchives, receivableRows],
   );
   const sentCandidates = useMemo(
     () =>
@@ -380,15 +405,18 @@ export function BankErpDepositLinkModal({
           </p>
         ) : null}
 
+        {totalCount ? (
+          <section>
+            <h3 className="erp-bank-link-panel__section-title">{L.candidateSection}</h3>
+            <div className="space-y-3">
         {sentCandidates.length ? (
-            <section>
-              <h3 className="erp-bank-link-panel__section-title">{labels.selectSentStatement}</h3>
-              <div className="erp-tax-invoice-link-panel__table-wrap overflow-auto rounded-xl border border-violet-200 bg-violet-50/20">
+            <div className="erp-tax-invoice-link-panel__table-wrap overflow-auto rounded-xl border border-violet-200 bg-violet-50/20">
                 <table className="erp-table erp-tax-invoice-link-panel__table w-full">
                   <thead>
                     <tr>
-                      <th>{"\uAC70\uB798\uCC98"}</th>
-                      <th>{"\uC815\uBCF4"}</th>
+                      <th>{L.voucherCol}</th>
+                      <th>{L.client}</th>
+                      <th>{L.detail}</th>
                       <th className="text-right">{labels.matchScore}</th>
                       <th />
                     </tr>
@@ -396,6 +424,7 @@ export function BankErpDepositLinkModal({
                   <tbody>
                     {sentCandidates.map((candidate) => (
                       <tr key={candidate.pdfArchiveId} className="erp-tax-invoice-link-panel__row">
+                        <td className="font-semibold text-violet-800">{L.sentVoucher}</td>
                         <td className="font-semibold text-slate-900">{candidate.client}</td>
                         <td className="text-slate-600">
                           <div>
@@ -424,7 +453,7 @@ export function BankErpDepositLinkModal({
                             className="erp-bank-evidence-find erp-bank-evidence-find--plain inline-flex h-7 items-center rounded-lg px-3 text-xs font-semibold"
                             onClick={() => onConfirmSentStatement(candidate)}
                           >
-                            {L.add}
+                            {L.linkVoucher}
                           </button>
                         </td>
                       </tr>
@@ -432,18 +461,16 @@ export function BankErpDepositLinkModal({
                   </tbody>
                 </table>
               </div>
-            </section>
           ) : null}
 
           {receivableCandidates.length ? (
-            <section>
-              <h3 className="erp-bank-link-panel__section-title">{labels.selectReceivable}</h3>
               <div className="erp-tax-invoice-link-panel__table-wrap overflow-auto rounded-xl border border-slate-200">
                 <table className="erp-table erp-tax-invoice-link-panel__table w-full">
                   <thead>
                     <tr>
-                      <th>{"\uAC70\uB798\uCC98"}</th>
-                      <th>{"\uC815\uBCF4"}</th>
+                      <th>{L.voucherCol}</th>
+                      <th>{L.client}</th>
+                      <th>{L.detail}</th>
                       <th className="text-right">{labels.matchScore}</th>
                       <th />
                     </tr>
@@ -451,6 +478,9 @@ export function BankErpDepositLinkModal({
                   <tbody>
                     {receivableCandidates.map((candidate) => (
                       <tr key={String(candidate.salesId)} className="erp-tax-invoice-link-panel__row">
+                        <td className="font-semibold text-blue-800">
+                          {L.salesVoucher(candidate.voucherNo || candidate.salesId)}
+                        </td>
                         <td className="font-semibold text-slate-900">{candidate.client}</td>
                         <td className="text-slate-600">
                           {candidate.site || "-"}
@@ -466,7 +496,7 @@ export function BankErpDepositLinkModal({
                             className="erp-bank-evidence-find erp-bank-evidence-find--plain inline-flex h-7 items-center rounded-lg px-3 text-xs font-semibold"
                             onClick={() => onConfirmReceivable(candidate)}
                           >
-                            {L.add}
+                            {L.linkVoucher}
                           </button>
                         </td>
                       </tr>
@@ -474,8 +504,10 @@ export function BankErpDepositLinkModal({
                   </tbody>
                 </table>
               </div>
-            </section>
           ) : null}
+            </div>
+          </section>
+        ) : null}
       </div>
     </ErpLinkPanelShell>
   );
@@ -563,13 +595,14 @@ export function BankErpWorkerLinkModal({
 
         {candidates.length ? (
           <section>
-            <h3 className="erp-bank-link-panel__section-title">{labels.selectWorkerObligation}</h3>
+            <h3 className="erp-bank-link-panel__section-title">{L.candidateSection}</h3>
             <div className="erp-tax-invoice-link-panel__table-wrap overflow-auto rounded-xl border border-orange-200 bg-orange-50/20">
             <table className="erp-table erp-tax-invoice-link-panel__table w-full">
               <thead>
                 <tr>
-                  <th>{"\uC6D4 / \uC2DC\uACF5\uC790"}</th>
-                  <th>{"\uAE08\uC561"}</th>
+                  <th>{L.voucherCol}</th>
+                  <th>{L.worker}</th>
+                  <th>{L.detail}</th>
                   <th className="text-right">{labels.matchScore}</th>
                   <th />
                 </tr>
@@ -580,9 +613,10 @@ export function BankErpWorkerLinkModal({
                     key={`${candidate.obligation.worker}-${candidate.obligation.monthKey}`}
                     className="erp-tax-invoice-link-panel__row"
                   >
-                    <td className="font-semibold text-slate-900">
-                      {formatMonthLabel(candidate.obligation.monthKey)} {MIDDOT} {candidate.obligation.worker}
+                    <td className="font-semibold text-orange-900">
+                      {L.workerVoucher(candidate.obligation.monthKey)}
                     </td>
+                    <td className="font-semibold text-slate-900">{candidate.obligation.worker}</td>
                     <td className="text-slate-600">
                       {"\uBBF8\uC9C0\uAE09 "}
                       {formatKRW(candidate.obligation.balance)}
@@ -600,7 +634,7 @@ export function BankErpWorkerLinkModal({
                         className="erp-bank-evidence-find erp-bank-evidence-find--worker inline-flex h-7 items-center rounded-lg px-3 text-xs font-semibold"
                         onClick={() => onConfirmWorkerLink(candidate)}
                       >
-                        {L.add}
+                        {L.linkVoucher}
                       </button>
                     </td>
                   </tr>
