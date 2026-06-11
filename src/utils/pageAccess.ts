@@ -54,7 +54,7 @@ export type ErpPageDef = {
 
 export const ERP_PAGE_DEFS: ErpPageDef[] = [
   { key: "dailyReport", label: "\uC77C\uC77C\uBCF4\uACE0", group: "\uC5C5\uBB34" },
-  { key: "teamChat", label: "\uC0AC\uB0B4 \uCC57", group: "\uC5C5\uBB34" },
+  { key: "teamChat", label: "팀밀 톡", group: "\uC5C5\uBB34" },
   { key: "dashboard", label: "대시보드", group: "업무" },
   { key: "calendar", label: "캘린더", group: "업무" },
   { key: "clientSiteRequests", label: "현장 접수", group: "업무" },
