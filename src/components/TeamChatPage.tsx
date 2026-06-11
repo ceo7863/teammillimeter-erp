@@ -48,7 +48,13 @@ import {
   type TeamChatReplyPreview,
   type TeamChatUser,
 } from "@/utils/teamChat";
-import { formatTeamChatReadReceipt, type TeamChatReadStateMember } from "@/utils/teamChatReadReceipts";
+import { formatTeamChatReadReceiptCompact, type TeamChatReadStateMember } from "@/utils/teamChatReadReceipts";
+import {
+  sortTeamChatChannels,
+  teamChatAvatarInitial,
+  teamChatAvatarStyle,
+  teamChatChannelAvatarLabel,
+} from "@/utils/teamChatUi";
 
 const L = {
   title: "\uC0AC\uB0B4 \uCC57",
@@ -109,11 +115,6 @@ type TeamChatPageProps = {
   onErpAction?: (action: ErpChatAction) => void;
 };
 
-function channelIcon(type: TeamChatChannel["type"]) {
-  if (type === "team" || type === "group") return <Users size={18} />;
-  return <MessageCircle size={18} />;
-}
-
 function channelTypeLabel(type: TeamChatChannel["type"]) {
   if (type === "team") return L.teamChannelLabel;
   if (type === "group") return L.groupChannelLabel;
@@ -129,14 +130,16 @@ function ChannelListItem({
   active: boolean;
   onSelect: (channelId: string) => void;
 }) {
+  const avatarLabel = teamChatChannelAvatarLabel(channel);
+  const avatarStyle = teamChatAvatarStyle(channel.id || channel.title);
   return (
     <button
       type="button"
       className={`erp-team-chat-channel ${active ? "is-active" : ""}`}
       onClick={() => onSelect(channel.id)}
     >
-      <div className="erp-team-chat-channel__icon" aria-hidden="true">
-        {channelIcon(channel.type)}
+      <div className="erp-team-chat-avatar erp-team-chat-channel__avatar" style={avatarStyle} aria-hidden="true">
+        {avatarLabel}
       </div>
       <div className="erp-team-chat-channel__main">
         <div className="erp-team-chat-channel__head">
@@ -283,9 +286,8 @@ export const TeamChatPage = memo(function TeamChatPage({
     [channels, selectedChannelId],
   );
 
-  const teamChannels = useMemo(() => channels.filter((row) => row.type === "team"), [channels]);
-  const groupChannels = useMemo(() => channels.filter((row) => row.type === "group"), [channels]);
-  const dmChannels = useMemo(() => channels.filter((row) => row.type === "dm"), [channels]);
+  const sortedChannels = useMemo(() => sortTeamChatChannels(channels), [channels]);
+  const showSenderNames = selectedChannel?.type === "team" || selectedChannel?.type === "group";
 
   const channelTitleById = useMemo(() => {
     const map = new Map<string, string>();
@@ -790,49 +792,18 @@ export const TeamChatPage = memo(function TeamChatPage({
         {error && !selectedChannelId ? <p className="erp-team-chat-error px-4 py-2 text-sm">{error}</p> : null}
 
         <div className="erp-team-chat-sidebar__sections">
-          {teamChannels.length ? (
-            <section>
-              <h2 className="erp-team-chat-section-title">{L.teamSection}</h2>
-              {teamChannels.map((channel) => (
-                <ChannelListItem
-                  key={channel.id}
-                  channel={channel}
-                  active={channel.id === selectedChannelId}
-                  onSelect={handleSelectChannel}
-                />
-              ))}
-            </section>
-          ) : null}
-
-          {groupChannels.length ? (
-            <section>
-              <h2 className="erp-team-chat-section-title">{L.groupSection}</h2>
-              {groupChannels.map((channel) => (
-                <ChannelListItem
-                  key={channel.id}
-                  channel={channel}
-                  active={channel.id === selectedChannelId}
-                  onSelect={handleSelectChannel}
-                />
-              ))}
-            </section>
-          ) : null}
-
-          <section>
-            <h2 className="erp-team-chat-section-title">{L.dmSection}</h2>
-            {dmChannels.length ? (
-              dmChannels.map((channel) => (
-                <ChannelListItem
-                  key={channel.id}
-                  channel={channel}
-                  active={channel.id === selectedChannelId}
-                  onSelect={handleSelectChannel}
-                />
-              ))
-            ) : (
-              <p className="erp-team-chat-muted px-4 py-3 text-sm">{L.emptyChannels}</p>
-            )}
-          </section>
+          {sortedChannels.length ? (
+            sortedChannels.map((channel) => (
+              <ChannelListItem
+                key={channel.id}
+                channel={channel}
+                active={channel.id === selectedChannelId}
+                onSelect={handleSelectChannel}
+              />
+            ))
+          ) : (
+            <p className="erp-team-chat-muted px-4 py-3 text-sm">{L.emptyChannels}</p>
+          )}
         </div>
       </aside>
 
@@ -855,9 +826,18 @@ export const TeamChatPage = memo(function TeamChatPage({
                   {L.back}
                 </button>
               ) : null}
-              <div className="min-w-0 flex-1">
-                <h2 className="truncate text-base font-bold text-slate-900">{selectedChannel.title}</h2>
-                <p className="text-xs text-slate-500">{channelTypeLabel(selectedChannel.type)}</p>
+              <div className="min-w-0 flex-1 flex items-center gap-2.5">
+                <div
+                  className="erp-team-chat-avatar erp-team-chat-thread__avatar"
+                  style={teamChatAvatarStyle(selectedChannel.id || selectedChannel.title)}
+                  aria-hidden="true"
+                >
+                  {teamChatChannelAvatarLabel(selectedChannel)}
+                </div>
+                <div className="min-w-0">
+                  <h2 className="truncate text-[15px] font-bold text-[#191919]">{selectedChannel.title}</h2>
+                  <p className="text-[11px] text-[#888]">{channelTypeLabel(selectedChannel.type)}</p>
+                </div>
               </div>
               <Button
                 type="button"
@@ -879,96 +859,106 @@ export const TeamChatPage = memo(function TeamChatPage({
                 const isEditing = editingMessageId === message.id;
                 const readReceipt =
                   isMine && !message.isDeleted
-                    ? formatTeamChatReadReceipt(message.id, readState, selfId)
+                    ? formatTeamChatReadReceiptCompact(message.id, readState, selfId)
                     : null;
+                const senderInitial = teamChatAvatarInitial(message.userName);
+                const senderAvatarStyle = teamChatAvatarStyle(String(message.userId || message.userName));
                 return (
                   <div
                     key={message.id}
                     className={`erp-team-chat-bubble-row ${isMine ? "is-mine" : "is-theirs"}`}
                   >
+                    {!isMine ? (
+                      <div className="erp-team-chat-msg-avatar erp-team-chat-avatar" style={senderAvatarStyle} aria-hidden="true">
+                        {senderInitial}
+                      </div>
+                    ) : null}
                     <div className={`erp-team-chat-bubble-wrap ${isMine ? "is-mine" : "is-theirs"}`}>
-                      {!message.isDeleted ? (
-                        <div className="erp-team-chat-bubble-menu">
-                          <button
-                            type="button"
-                            className="erp-team-chat-bubble-menu__toggle"
-                            onClick={() => setMenuMessageId((prev) => (prev === message.id ? null : message.id))}
-                            aria-label={L.reply}
-                          >
-                            <MoreHorizontal size={14} />
-                          </button>
-                          {menuMessageId === message.id ? (
-                            <div className="erp-team-chat-bubble-menu__panel">
-                              <button type="button" onClick={() => handleReply(message)}>
-                                <CornerUpLeft size={13} />
-                                {L.reply}
-                              </button>
-                              {isMine ? (
-                                <>
-                                  <button type="button" onClick={() => handleStartEdit(message)}>
-                                    <Pencil size={13} />
-                                    {L.edit}
-                                  </button>
-                                  <button type="button" className="is-danger" onClick={() => void handleDeleteMessage(message.id)}>
-                                    <Trash2 size={13} />
-                                    {L.delete}
-                                  </button>
-                                </>
-                              ) : null}
-                            </div>
-                          ) : null}
-                        </div>
+                      {!isMine && showSenderNames ? (
+                        <div className="erp-team-chat-bubble__sender">{message.userName}</div>
                       ) : null}
-                      <div className={`erp-team-chat-bubble ${isMine ? "is-mine" : "is-theirs"}${message.isDeleted ? " is-deleted" : ""}`}>
-                        <div className="erp-team-chat-bubble__meta">
-                          {message.userName}
-                          {" \u00B7 "}
-                          {formatTeamChatTime(message.createdAt)}
-                          {message.editedAt ? (
-                            <span className="erp-team-chat-bubble__edited">{L.edited}</span>
-                          ) : null}
-                        </div>
-                        {message.replyTo ? <ReplyQuotePreview replyTo={message.replyTo} /> : null}
-                        {message.isDeleted ? (
-                          <div className="erp-team-chat-bubble__deleted">{L.deletedMessage}</div>
-                        ) : isEditing ? (
-                          <div className="erp-team-chat-bubble__edit">
-                            <textarea
-                              className="erp-team-chat-composer__input"
-                              rows={2}
-                              value={editDraft}
-                              onChange={(event) => setEditDraft(event.target.value)}
-                            />
-                            <div className="erp-team-chat-bubble__edit-actions">
-                              <Button type="button" size="sm" variant="outline" className="h-8 rounded-lg" onClick={() => { setEditingMessageId(null); setEditDraft(""); }}>
-                                {L.cancelEdit}
-                              </Button>
-                              <Button type="button" size="sm" className="h-8 rounded-lg" disabled={!editDraft.trim() || sending} onClick={() => void handleSaveEdit()}>
-                                {L.saveEdit}
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            {link?.type && link?.id ? (
-                              <MessageLinkCard link={link} onOpen={handleOpenLink} />
-                            ) : null}
-                            {message.body ? <div className="erp-team-chat-bubble__body">{message.body}</div> : null}
-                            {message.attachments?.length ? (
-                              <div className="erp-team-chat-bubble__attachments">
-                                {message.attachments.map((attachment) => (
-                                  <MessageAttachmentChip key={attachment.id} attachment={attachment} />
-                                ))}
+                      <div className="erp-team-chat-bubble-stack">
+                        {!message.isDeleted ? (
+                          <div className="erp-team-chat-bubble-menu">
+                            <button
+                              type="button"
+                              className="erp-team-chat-bubble-menu__toggle"
+                              onClick={() => setMenuMessageId((prev) => (prev === message.id ? null : message.id))}
+                              aria-label={L.reply}
+                            >
+                              <MoreHorizontal size={14} />
+                            </button>
+                            {menuMessageId === message.id ? (
+                              <div className="erp-team-chat-bubble-menu__panel">
+                                <button type="button" onClick={() => handleReply(message)}>
+                                  <CornerUpLeft size={13} />
+                                  {L.reply}
+                                </button>
+                                {isMine ? (
+                                  <>
+                                    <button type="button" onClick={() => handleStartEdit(message)}>
+                                      <Pencil size={13} />
+                                      {L.edit}
+                                    </button>
+                                    <button type="button" className="is-danger" onClick={() => void handleDeleteMessage(message.id)}>
+                                      <Trash2 size={13} />
+                                      {L.delete}
+                                    </button>
+                                  </>
+                                ) : null}
                               </div>
                             ) : null}
-                          </>
-                        )}
-                      </div>
-                      {readReceipt ? (
-                        <div className="erp-team-chat-read-receipt" aria-label={readReceipt}>
-                          {readReceipt}
+                          </div>
+                        ) : null}
+                        <div className={`erp-team-chat-bubble ${isMine ? "is-mine" : "is-theirs"}${message.isDeleted ? " is-deleted" : ""}`}>
+                          {message.replyTo ? <ReplyQuotePreview replyTo={message.replyTo} /> : null}
+                          {message.isDeleted ? (
+                            <div className="erp-team-chat-bubble__deleted">{L.deletedMessage}</div>
+                          ) : isEditing ? (
+                            <div className="erp-team-chat-bubble__edit">
+                              <textarea
+                                className="erp-team-chat-composer__input"
+                                rows={2}
+                                value={editDraft}
+                                onChange={(event) => setEditDraft(event.target.value)}
+                              />
+                              <div className="erp-team-chat-bubble__edit-actions">
+                                <Button type="button" size="sm" variant="outline" className="h-8 rounded-lg" onClick={() => { setEditingMessageId(null); setEditDraft(""); }}>
+                                  {L.cancelEdit}
+                                </Button>
+                                <Button type="button" size="sm" className="h-8 rounded-lg" disabled={!editDraft.trim() || sending} onClick={() => void handleSaveEdit()}>
+                                  {L.saveEdit}
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              {link?.type && link?.id ? (
+                                <MessageLinkCard link={link} onOpen={handleOpenLink} />
+                              ) : null}
+                              {message.body ? <div className="erp-team-chat-bubble__body">{message.body}</div> : null}
+                              {message.attachments?.length ? (
+                                <div className="erp-team-chat-bubble__attachments">
+                                  {message.attachments.map((attachment) => (
+                                    <MessageAttachmentChip key={attachment.id} attachment={attachment} />
+                                  ))}
+                                </div>
+                              ) : null}
+                            </>
+                          )}
                         </div>
-                      ) : null}
+                        <div className="erp-team-chat-bubble__footer">
+                          {readReceipt ? (
+                            <span className="erp-team-chat-read-receipt" aria-label={readReceipt}>
+                              {readReceipt}
+                            </span>
+                          ) : null}
+                          <span className="erp-team-chat-bubble__time">
+                            {formatTeamChatTime(message.createdAt)}
+                            {message.editedAt ? ` \u00B7 ${L.edited}` : ""}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 );
@@ -1038,17 +1028,15 @@ export const TeamChatPage = memo(function TeamChatPage({
                 capture="environment"
                 onChange={(event) => void handlePickFiles(event.target.files)}
               />
-              <Button
+              <button
                 type="button"
-                size="sm"
-                variant="outline"
-                className="h-10 rounded-xl px-3"
+                className="erp-team-chat-composer__attach"
                 disabled={uploading || sending || Boolean(editingMessageId)}
                 onClick={() => fileInputRef.current?.click()}
                 title={L.attach}
               >
-                <Paperclip size={16} />
-              </Button>
+                <Plus size={20} />
+              </button>
               <textarea
                 className="erp-team-chat-composer__input"
                 rows={1}
@@ -1063,10 +1051,14 @@ export const TeamChatPage = memo(function TeamChatPage({
                   }
                 }}
               />
-              <Button type="submit" size="sm" className="h-10 rounded-xl px-4" disabled={!canSend}>
-                <Send size={16} className="mr-1" />
-                {sending ? L.sending : L.send}
-              </Button>
+              <button
+                type="submit"
+                className="erp-team-chat-composer__send"
+                disabled={!canSend}
+                title={L.send}
+              >
+                <Send size={16} />
+              </button>
             </form>
           </>
         )}
