@@ -378,12 +378,23 @@ export function mergeWorkersForSave(existing = [], incoming = []) {
       return undefined;
     };
     const customChargeCost = coalesceMoney(worker.customChargeCost, prev.customChargeCost);
+    const probationNetPay = coalesceMoney(worker.probationNetPay, prev.probationNetPay);
+    const postProbationConstructionCost = coalesceMoney(
+      worker.postProbationConstructionCost,
+      prev.postProbationConstructionCost,
+    );
+    const postProbationCustomChargeCost = coalesceMoney(
+      worker.postProbationCustomChargeCost,
+      prev.postProbationCustomChargeCost,
+    );
     const merged = {
       ...prev,
       ...worker,
       grade: coalesce(worker.grade, prev.grade) || undefined,
       hireDate: coalesce(worker.hireDate, prev.hireDate) || undefined,
       eGradeEndedAt: coalesce(worker.eGradeEndedAt, prev.eGradeEndedAt) || undefined,
+      probationAdjustedAt: coalesce(worker.probationAdjustedAt, prev.probationAdjustedAt) || undefined,
+      postProbationGrade: coalesce(worker.postProbationGrade, prev.postProbationGrade) || undefined,
       category: coalesce(worker.category, prev.category) || undefined,
       depositNameAliases: coalesce(worker.depositNameAliases, prev.depositNameAliases) || undefined,
       portalLoginId: coalesce(worker.portalLoginId, prev.portalLoginId) || undefined,
@@ -400,6 +411,28 @@ export function mergeWorkersForSave(existing = [], incoming = []) {
       merged.customChargeCost = customChargeCost;
     } else {
       delete merged.customChargeCost;
+    }
+    if (probationNetPay != null) {
+      merged.probationNetPay = probationNetPay;
+    } else {
+      delete merged.probationNetPay;
+    }
+    if (postProbationConstructionCost != null) {
+      merged.postProbationConstructionCost = postProbationConstructionCost;
+    } else {
+      delete merged.postProbationConstructionCost;
+    }
+    if (postProbationCustomChargeCost != null) {
+      merged.postProbationCustomChargeCost = postProbationCustomChargeCost;
+    } else {
+      delete merged.postProbationCustomChargeCost;
+    }
+    if (worker.probationPayWithVat !== undefined) {
+      merged.probationPayWithVat = worker.probationPayWithVat;
+    } else if (prev.probationPayWithVat !== undefined) {
+      merged.probationPayWithVat = prev.probationPayWithVat;
+    } else {
+      delete merged.probationPayWithVat;
     }
     return merged;
   });

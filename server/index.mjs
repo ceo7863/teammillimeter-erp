@@ -175,6 +175,7 @@ import {
   DEFAULT_NOTIFICATION_SETTINGS,
 } from "./notificationSettings.mjs";
 import { normalizeSaleAiRules } from "./saleAiRules.mjs";
+import { normalizeWorkerAiRules } from "./workerAiRules.mjs";
 import { notifyNewSaleComments, runCommentNotifyTestJob, runDailyReportJob, startNotificationScheduler } from "./notificationScheduler.mjs";
 import {
   buildScScheduleNotifyPreview,
@@ -1252,6 +1253,7 @@ function buildErpApiResponse(state, workersOverride = null, workerMonthlyPayment
     companyProfile: data.companyProfile || null,
     notificationSettings: normalizeNotificationSettings(data.notificationSettings),
     saleAiRules: normalizeSaleAiRules(data.saleAiRules),
+    workerAiRules: normalizeWorkerAiRules(data.workerAiRules),
     version: state.version,
     updatedAt: state.updatedAt,
     updatedBy: state.updatedBy,

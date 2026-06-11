@@ -84,6 +84,7 @@ type WorkerMonthlyActualPaymentTabProps = {
   setWorkerMonthlyActualVouchers?: React.Dispatch<React.SetStateAction<WorkerMonthlyActualVoucher[]>>;
   workerPayWithVatLearnRules?: WorkerPayWithVatLearnRule[];
   setWorkerPayWithVatLearnRules?: React.Dispatch<React.SetStateAction<WorkerPayWithVatLearnRule[]>>;
+  workerAiRules?: import("@/utils/workerAiRules").WorkerAiRules;
   workerPayoutVouchers?: WorkerPayoutVoucher[];
   setWorkerPayoutVouchers?: React.Dispatch<React.SetStateAction<WorkerPayoutVoucher[]>>;
   bankTransactions?: BankTransaction[];
@@ -318,6 +319,7 @@ export function WorkerMonthlyActualPaymentTab({
   setWorkerMonthlyActualVouchers,
   workerPayWithVatLearnRules = [],
   setWorkerPayWithVatLearnRules,
+  workerAiRules,
   workerPayoutVouchers = [],
   setWorkerPayoutVouchers,
   bankTransactions = [],
@@ -438,8 +440,9 @@ export function WorkerMonthlyActualPaymentTab({
         workerMonthlyActualVouchers,
         workerPaymentRecords,
         workerPayWithVatLearnRules,
+        workerAiRules,
       ),
-    [detailRows, workerPaymentRecords, workerMonthlyActualVouchers, workerPayWithVatLearnRules, workers],
+    [detailRows, workerPaymentRecords, workerMonthlyActualVouchers, workerPayWithVatLearnRules, workerAiRules, workers],
   );
 
   const workerSummaries = useMemo(

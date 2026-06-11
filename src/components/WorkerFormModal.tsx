@@ -1,13 +1,26 @@
-import React, { memo } from "react";
+import React, { memo, useMemo } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AuditField } from "@/components/AuditField";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { useBodyScrollLock } from "@/utils/bodyScrollLock";
+import { formatKRW } from "@/utils/receivables";
+import {
+  DEFAULT_WORKER_AI_RULES,
+  normalizeWorkerAiRules,
+  resolveEffectiveProbationPay,
+  resolveEffectiveProbationPayWithVat,
+  resolveEffectivePostProbationValues,
+  resolveWorkerAiProbationFinalPay,
+  type WorkerAiRules,
+} from "@/utils/workerAiRules";
+import { isWorkerInProbationPeriod } from "@/utils/workerProbationAutoAdjust";
 import { WORKER_CATEGORY_OPTIONS } from "@/utils/workerPayments";
+import { calculateWorkerPaymentVat } from "@/utils/workerMonthlyPayments";
 
 const WORKER_GRADE_OPTIONS = ["S", "A", "B", "C", "D", "E"];
+const POST_PROBATION_GRADE_OPTIONS = ["S", "A", "B", "C", "D"];
 
 const L = {
   editTitle: "\uC2DC\uACF5\uC790 \uC218\uC815",
@@ -32,6 +45,7 @@ const L = {
     "\uC2DC\uACF5\uC790\uAC00 \uB85C\uADF8\uC778 \uD654\uBA74 \u300C\uC2DC\uACF5\uB0B4\uC5ED\uC11C\u300D \uD0ED\uC5D0\uC11C \uBCF8\uC778 \uC6D4\uBCC4 \uC2DC\uACF5\uB0B4\uC5ED\uC11C\uB97C \uC870\uD68C\uD560 \uB54C \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBE44\uBC00\uBC88\uD638\uB294 \uC800\uC7A5 \uD6C4 \uC11C\uBC84\uC5D0\uB9CC \uC554\uD638\uD654\uB418\uC5B4 \uBCF4\uAD00\uB429\uB2C8\uB2E4.",
   gradeLabel: "\uC2DC\uACF5\uB4F1\uAE09",
   gradeNone: "\uC120\uD0DD \uC548 \uD568",
+  gradeProbationHint: "\uC218\uC2B5 \uAE30\uAC04 \uC911\uC774\uBBC0\uB85C E\uB4F1\uAE09\uC774 \uACE0\uC815\uB429\uB2C8\uB2E4.",
   categoryLabel: "\uAD6C\uBD84",
   hireDateLabel: "\uC785\uC0AC\uC77C",
   bankLabel: "\uC740\uD589\uBA85",
@@ -53,6 +67,20 @@ const L = {
   memoPh: "\uBE44\uACE0",
   portalLoginIdLabel: "\uD3EC\uD138 \uB85C\uADF8\uC778 ID",
   portalPasswordLabel: "\uD3EC\uD138 \uBE44\uBC00\uBC88\uD638",
+  probationSectionTitle: "\uAC1C\uBCC4 \uC218\uC2B5 \uC124\uC815",
+  probationSectionBody:
+    "\uBE44\uC6CC \uB450\uBA74 \uC804\uC5ED AI \uADDC\uCE59\uC774 \uAE30\uBCF8\uAC12\uC785\uB2C8\uB2E4. \uAC1C\uBCC4 \uAC12\uC744 \uC785\uB825\uD558\uBA74 \uD574\uB2F9 \uC2DC\uACF5\uC790\uC5D0\uB9CC \uC801\uC6A9\uB429\uB2C8\uB2E4.",
+  probationNetPayLabel: "\uC218\uC2B5 \uC6D4\uAE09 (\uC6D0)",
+  probationNetPayPh: (amount: string) => `\uC804\uC5ED \uAE30\uBCF8 ${amount}`,
+  probationPayWithVatLabel: "\uC218\uC2B5 \uBD80\uAC00\uC138 \uD3EC\uD7A8",
+  probationPayWithVatUseGlobal: "\uC804\uC5ED \uADDC\uCE59 \uC0AC\uC6A9",
+  probationPayWithVatHint: (amount: string) => `\uBD80\uAC00\uC138 10% \uD3EC\uD7A8 (${amount})`,
+  postProbationConstructionCostLabel: "\uC218\uC2B5 \uC885\uB8CC \uC2DC\uACF5\uBE44 (\uC6D0)",
+  postProbationConstructionCostPh: (amount: string) => `\uC804\uC5ED \uAE30\uBCF8 ${amount}`,
+  postProbationCustomChargeCostLabel: "\uC218\uC2B5 \uC885\uB8CC \uAC1C\uBCC4\uCCAD\uAD6C\uB2E8\uAC00 (\uC6D0)",
+  postProbationCustomChargeCostPh: (amount: string) => `\uC804\uC5ED \uAE30\uBCF8 ${amount}`,
+  postProbationGradeLabel: "\uC218\uC2B5 \uC885\uB8CC \uB4F1\uAE09",
+  postProbationGradeNone: "\uC804\uC5ED \uADDC\uCE59 \uC0AC\uC6A9",
 };
 
 export type WorkerFormState = {
@@ -74,6 +102,12 @@ export type WorkerFormState = {
   memo: string;
   portalLoginId: string;
   portalPassword: string;
+  probationNetPay: string;
+  probationPayWithVatUseGlobal: boolean;
+  probationPayWithVat: boolean;
+  postProbationConstructionCost: string;
+  postProbationCustomChargeCost: string;
+  postProbationGrade: string;
 };
 
 export function createEmptyWorkerForm(): WorkerFormState {
@@ -96,6 +130,12 @@ export function createEmptyWorkerForm(): WorkerFormState {
     memo: "",
     portalLoginId: "",
     portalPassword: "",
+    probationNetPay: "",
+    probationPayWithVatUseGlobal: true,
+    probationPayWithVat: DEFAULT_WORKER_AI_RULES.probationPayWithVat,
+    postProbationConstructionCost: "",
+    postProbationCustomChargeCost: "",
+    postProbationGrade: "",
   };
 }
 
@@ -104,6 +144,7 @@ type WorkerFormModalProps = {
   editingId: number | string | null;
   form: WorkerFormState;
   formError: string;
+  workerAiRules?: WorkerAiRules;
   onClose: () => void;
   onSave: () => void;
   onReset: () => void;
@@ -115,12 +156,30 @@ export const WorkerFormModal = memo(function WorkerFormModal({
   editingId,
   form,
   formError,
+  workerAiRules = DEFAULT_WORKER_AI_RULES,
   onClose,
   onSave,
   onReset,
   onUpdate,
 }: WorkerFormModalProps) {
   useBodyScrollLock(open);
+
+  const rules = useMemo(() => normalizeWorkerAiRules(workerAiRules), [workerAiRules]);
+  const isInProbation = useMemo(
+    () => Boolean(form.hireDate && isWorkerInProbationPeriod({ hireDate: form.hireDate }, rules)),
+    [form.hireDate, rules],
+  );
+
+  const globalProbationNetPay = resolveEffectiveProbationPay(undefined, rules);
+  const globalProbationFinalPay = resolveWorkerAiProbationFinalPay(rules);
+  const previewProbationNetPay = form.probationNetPay.trim()
+    ? Number(String(form.probationNetPay).replace(/[^0-9.-]/g, "")) || globalProbationNetPay
+    : globalProbationNetPay;
+  const previewPayWithVat = form.probationPayWithVatUseGlobal
+    ? resolveEffectiveProbationPayWithVat(undefined, rules)
+    : form.probationPayWithVat;
+  const previewProbationFinalPay = calculateWorkerPaymentVat(previewProbationNetPay, previewPayWithVat).finalPayAmount;
+  const globalPostProbation = resolveEffectivePostProbationValues(undefined, rules);
 
   if (!open) return null;
 
@@ -155,8 +214,9 @@ export const WorkerFormModal = memo(function WorkerFormModal({
           <AuditField label={L.gradeLabel} entityType="worker" entityId={editingId} field="grade">
             <select
               className="erp-input w-full rounded-xl px-3 py-2 text-sm font-semibold"
-              value={form.grade}
+              value={isInProbation ? "E" : form.grade}
               onChange={(e) => onUpdate("grade", e.target.value)}
+              disabled={isInProbation}
             >
               <option value="">{L.gradeNone}</option>
               {WORKER_GRADE_OPTIONS.map((option) => (
@@ -165,6 +225,7 @@ export const WorkerFormModal = memo(function WorkerFormModal({
                 </option>
               ))}
             </select>
+            {isInProbation ? <p className="mt-1 erp-text-caption text-amber-700">{L.gradeProbationHint}</p> : null}
           </AuditField>
           <AuditField label={L.categoryLabel} entityType="worker" entityId={editingId} field="category">
             <select
@@ -282,6 +343,93 @@ export const WorkerFormModal = memo(function WorkerFormModal({
           <div className="sm:col-span-2 xl:col-span-4">
             <p className="erp-text-caption text-slate-500">{L.portalHint}</p>
           </div>
+
+          <div className="sm:col-span-2 xl:col-span-4 border-t border-slate-100 pt-4">
+            <h3 className="text-sm font-bold text-slate-900">{L.probationSectionTitle}</h3>
+            <p className="mt-1 erp-text-caption text-slate-500">{L.probationSectionBody}</p>
+          </div>
+          <AuditField label={L.probationNetPayLabel} entityType="worker" entityId={editingId} field="probationNetPay">
+            <Input
+              inputMode="numeric"
+              value={form.probationNetPay}
+              onChange={(e) => onUpdate("probationNetPay", e.target.value)}
+              placeholder={L.probationNetPayPh(formatKRW(globalProbationNetPay))}
+            />
+          </AuditField>
+          <AuditField
+            label={L.probationPayWithVatLabel}
+            entityType="worker"
+            entityId={editingId}
+            field="probationPayWithVat"
+          >
+            <label className="mt-2 inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+              <input
+                type="checkbox"
+                checked={form.probationPayWithVatUseGlobal}
+                onChange={(event) => onUpdate("probationPayWithVatUseGlobal", event.target.checked)}
+              />
+              {L.probationPayWithVatUseGlobal}
+            </label>
+            {!form.probationPayWithVatUseGlobal ? (
+              <label className="mt-2 inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={form.probationPayWithVat}
+                  onChange={(event) => onUpdate("probationPayWithVat", event.target.checked)}
+                />
+                {L.probationPayWithVatHint(formatKRW(previewProbationFinalPay))}
+              </label>
+            ) : (
+              <p className="mt-2 erp-text-caption text-slate-500">
+                {L.probationPayWithVatHint(formatKRW(globalProbationFinalPay))}
+              </p>
+            )}
+          </AuditField>
+          <AuditField
+            label={L.postProbationConstructionCostLabel}
+            entityType="worker"
+            entityId={editingId}
+            field="postProbationConstructionCost"
+          >
+            <Input
+              inputMode="numeric"
+              value={form.postProbationConstructionCost}
+              onChange={(e) => onUpdate("postProbationConstructionCost", e.target.value)}
+              placeholder={L.postProbationConstructionCostPh(formatKRW(globalPostProbation.postProbationConstructionCost))}
+            />
+          </AuditField>
+          <AuditField
+            label={L.postProbationCustomChargeCostLabel}
+            entityType="worker"
+            entityId={editingId}
+            field="postProbationCustomChargeCost"
+          >
+            <Input
+              inputMode="numeric"
+              value={form.postProbationCustomChargeCost}
+              onChange={(e) => onUpdate("postProbationCustomChargeCost", e.target.value)}
+              placeholder={L.postProbationCustomChargeCostPh(formatKRW(globalPostProbation.postProbationCustomChargeCost))}
+            />
+          </AuditField>
+          <AuditField
+            label={L.postProbationGradeLabel}
+            entityType="worker"
+            entityId={editingId}
+            field="postProbationGrade"
+          >
+            <select
+              className="erp-input w-full rounded-xl px-3 py-2 text-sm font-semibold"
+              value={form.postProbationGrade}
+              onChange={(e) => onUpdate("postProbationGrade", e.target.value)}
+            >
+              <option value="">{L.postProbationGradeNone}</option>
+              {POST_PROBATION_GRADE_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </AuditField>
         </div>
 
         <div className="mt-5 flex flex-col items-end gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:justify-end">

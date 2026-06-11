@@ -36,6 +36,7 @@ import {
   type WorkerMonthlyObligationWithCategory,
   type WorkerPayWithVatLearnRule,
 } from "@/utils/workerMonthlyActualPayments";
+import { DEFAULT_WORKER_AI_RULES, type WorkerAiRules } from "@/utils/workerAiRules";
 import { compareSortValues, type SortDirection } from "@/utils/pivotSort";
 
 type WorkerMonthlyPaymentTabProps = {
@@ -45,6 +46,7 @@ type WorkerMonthlyPaymentTabProps = {
   workerPaymentRecords?: WorkerMonthlyPaymentRecord[];
   workerMonthlyActualVouchers?: WorkerMonthlyActualVoucher[];
   workerPayWithVatLearnRules?: WorkerPayWithVatLearnRule[];
+  workerAiRules?: WorkerAiRules;
   selectedMonthKey: string;
   setSelectedMonthKey: (value: string | ((prev: string) => string)) => void;
   onOpenMonthlyActual?: (worker: string, voucherId?: string) => void;
@@ -220,6 +222,7 @@ export function WorkerMonthlyPaymentTab({
   workerPaymentRecords = [],
   workerMonthlyActualVouchers = [],
   workerPayWithVatLearnRules = [],
+  workerAiRules = DEFAULT_WORKER_AI_RULES,
   selectedMonthKey,
   setSelectedMonthKey,
   onOpenMonthlyActual,
@@ -247,8 +250,9 @@ export function WorkerMonthlyPaymentTab({
         workerMonthlyActualVouchers,
         workerPaymentRecords,
         workerPayWithVatLearnRules,
+        workerAiRules,
       ),
-    [detailRows, workerMonthlyActualVouchers, workerPaymentRecords, workerPayWithVatLearnRules, workers],
+    [detailRows, workerMonthlyActualVouchers, workerPaymentRecords, workerPayWithVatLearnRules, workerAiRules, workers],
   );
 
   const monthSummaries = useMemo(

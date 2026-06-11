@@ -32,6 +32,18 @@ export type WorkerMasterLike = {
   hireDate?: string;
   /** E등급 종료일(승급 시 자동 기록) — 입사일 기준 월실지급 이력 유지용 */
   eGradeEndedAt?: string;
+  /** 수습 종료 후 AI 규칙 자동 조정 적용일 */
+  probationAdjustedAt?: string;
+  /** 개별 수습 월실지급 (미설정 시 전역 AI 규칙) */
+  probationNetPay?: number;
+  /** 개별 수습 부가세 포함 여부 (undefined = 전역 규칙 따름) */
+  probationPayWithVat?: boolean;
+  /** 수습 종료 후 적용 시공비 (미설정 시 전역 AI 규칙) */
+  postProbationConstructionCost?: number;
+  /** 수습 종료 후 적용 개별청구단가 (미설정 시 전역 AI 규칙) */
+  postProbationCustomChargeCost?: number;
+  /** 수습 종료 후 적용 등급 (미설정 시 전역 AI 규칙) */
+  postProbationGrade?: string;
   /** @deprecated workerMonthlyPaymentMemos 맵으로 이전됨 — 로드 시 마이그레이션만 사용 */
   monthlyPaymentMemo?: string;
   constructionCost?: number;
@@ -98,13 +110,21 @@ export function resolveIncomingWorkerMasterList(
 const WORKER_MASTER_TEXT_FIELDS = [
   "hireDate",
   "eGradeEndedAt",
+  "probationAdjustedAt",
   "grade",
   "category",
   "depositNameAliases",
   "portalLoginId",
+  "postProbationGrade",
 ] as const;
 
-const WORKER_MASTER_NUMERIC_FIELDS = ["customChargeCost", "constructionCost"] as const;
+const WORKER_MASTER_NUMERIC_FIELDS = [
+  "customChargeCost",
+  "constructionCost",
+  "probationNetPay",
+  "postProbationConstructionCost",
+  "postProbationCustomChargeCost",
+] as const;
 
 function pickWorkerMasterNumeric(incoming?: number, local?: number) {
   const incomingNum = parseWorkerMoney(incoming);
@@ -213,6 +233,14 @@ export function mergeWorkerMasterRecord(
     } else {
       delete (merged as Record<string, unknown>)[key];
     }
+  }
+
+  if (incoming.probationPayWithVat !== undefined) {
+    merged.probationPayWithVat = incoming.probationPayWithVat;
+  } else if (prev.probationPayWithVat !== undefined) {
+    merged.probationPayWithVat = prev.probationPayWithVat;
+  } else {
+    delete merged.probationPayWithVat;
   }
 
   if (incoming.portalPasswordHash || prev.portalPasswordHash) {

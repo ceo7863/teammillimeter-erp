@@ -36,6 +36,7 @@ import {
   type WorkerMonthlyActualVoucher,
   type WorkerPayWithVatLearnRule,
 } from "@/utils/workerMonthlyActualPayments";
+import { DEFAULT_WORKER_AI_RULES, type WorkerAiRules } from "@/utils/workerAiRules";
 import type { BankTransaction } from "@/utils/bankTransactions";
 import type { BankTransactionFolder } from "@/utils/bankTransactionFolders";
 import type { WorkerPayoutVoucher } from "@/utils/workerPayoutLedger";
@@ -158,6 +159,7 @@ export function WorkerPaymentsPage({
   setWorkerMonthlyActualVouchers,
   workerPayWithVatLearnRules = [],
   setWorkerPayWithVatLearnRules,
+  workerAiRules = DEFAULT_WORKER_AI_RULES,
   setBankTransactions,
   setWorkers,
   onPersistWorkersImmediate,
@@ -184,6 +186,7 @@ export function WorkerPaymentsPage({
   setWorkerMonthlyActualVouchers?: React.Dispatch<React.SetStateAction<WorkerMonthlyActualVoucher[]>>;
   workerPayWithVatLearnRules?: WorkerPayWithVatLearnRule[];
   setWorkerPayWithVatLearnRules?: React.Dispatch<React.SetStateAction<WorkerPayWithVatLearnRule[]>>;
+  workerAiRules?: WorkerAiRules;
   setBankTransactions?: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
   setWorkers?: React.Dispatch<React.SetStateAction<WorkerMasterLike[]>>;
   onPersistWorkersImmediate?: (nextWorkers: WorkerMasterLike[]) => boolean | void | Promise<boolean | void>;
@@ -275,8 +278,9 @@ export function WorkerPaymentsPage({
         workerMonthlyActualVouchers,
         workerPaymentRecords,
         workerPayWithVatLearnRules,
+        workerAiRules,
       ),
-    [allDetailRows, workerMonthlyActualVouchers, workerPaymentRecords, workerPayWithVatLearnRules, workers],
+    [allDetailRows, workerMonthlyActualVouchers, workerPaymentRecords, workerPayWithVatLearnRules, workerAiRules, workers],
   );
 
   const monthlyHubTotals = useMemo(
@@ -673,6 +677,7 @@ export function WorkerPaymentsPage({
           workerPaymentRecords={workerPaymentRecords}
           workerMonthlyActualVouchers={workerMonthlyActualVouchers}
           workerPayWithVatLearnRules={workerPayWithVatLearnRules}
+          workerAiRules={workerAiRules}
           selectedMonthKey={selectedMonthKey}
           setSelectedMonthKey={setSelectedMonthKey}
           onOpenMonthlyActual={openMonthlyActual}
@@ -785,6 +790,7 @@ export function WorkerPaymentsPage({
           setWorkerMonthlyActualVouchers={setWorkerMonthlyActualVouchers}
           workerPayWithVatLearnRules={workerPayWithVatLearnRules}
           setWorkerPayWithVatLearnRules={setWorkerPayWithVatLearnRules}
+          workerAiRules={workerAiRules}
           workerPayoutVouchers={workerPayoutVouchers}
           setWorkerPayoutVouchers={setWorkerPayoutVouchers}
           bankTransactions={bankTransactions}

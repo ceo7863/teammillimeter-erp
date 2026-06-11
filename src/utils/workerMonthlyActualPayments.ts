@@ -36,9 +36,9 @@ import {
   isWorkerEGrade,
   resolveLatestDateFromRows,
   resolveWorkerEGradePayProfiles,
-  resolveWorkerProbationExpectedAmount,
   type WorkerEGradePayProfile,
 } from "./workerEGradePayPeriods";
+import { DEFAULT_WORKER_AI_RULES, resolveEffectiveProbationPay, resolveEffectiveProbationPayWithVat, resolveWorkerProbationExpectedAmount, type WorkerAiRules } from "./workerAiRules";
 
 const WORKER_PAYMENT_AMOUNT_TOLERANCE = 10;
 import {
@@ -1103,10 +1103,12 @@ function buildEGradeWorkerObligations(
   paidByKey: Map<string, number>,
   records: WorkerMonthlyPaymentRecord[],
   learnRules: WorkerPayWithVatLearnRule[],
+  workerAiRules: WorkerAiRules = DEFAULT_WORKER_AI_RULES,
 ) {
   const { workerName, hireDate, untilDate, historicalOnly } = profile;
   const obligations: WorkerMonthlyObligation[] = [];
   const periods = buildEGradePayPeriods(hireDate, untilDate).filter((period) => period.periodStart <= untilDate);
+  const workerMaster = findWorkerMasterByListName(workers, workerName);
 
   for (const period of periods) {
     if (historicalOnly && period.periodEnd > untilDate) continue;
@@ -1131,7 +1133,9 @@ function buildEGradeWorkerObligations(
     }
 
     const expectedAmount = period.isProbation
-      ? resolveWorkerProbationExpectedAmount(voucher?.expectedAmount)
+      ? resolveWorkerProbationExpectedAmount(voucher?.expectedAmount, {
+          probationNetPay: resolveEffectiveProbationPay(workerMaster, workerAiRules),
+        })
       : Math.round(workerRow?.netPay || 0);
     const payWithVat = resolveWorkerPayWithVat(
       workerName,
@@ -1139,7 +1143,11 @@ function buildEGradeWorkerObligations(
       records,
       learnRules,
       voucher,
-      { defaultPayWithVat: period.isProbation ? true : undefined },
+      {
+        defaultPayWithVat: period.isProbation
+          ? resolveEffectiveProbationPayWithVat(workerMaster, workerAiRules)
+          : undefined,
+      },
     );
     const expectedFinalAmount = calculateWorkerPaymentVat(expectedAmount, payWithVat).finalPayAmount;
     const paid = paidByKey.get(`${workerName}::${period.monthKey}`) || 0;
@@ -1175,6 +1183,7 @@ export function buildWorkerMonthlyObligations(
   vouchers: WorkerMonthlyActualVoucher[] = [],
   records: WorkerMonthlyPaymentRecord[] = [],
   learnRules: WorkerPayWithVatLearnRule[] = [],
+  workerAiRules: WorkerAiRules = DEFAULT_WORKER_AI_RULES,
 ): WorkerMonthlyObligation[] {
   const monthKeys = new Set<string>();
   for (const row of detailRows) {
@@ -1277,6 +1286,7 @@ export function buildWorkerMonthlyObligations(
         paidByKey,
         records,
         learnRules,
+        workerAiRules,
       ),
     );
   }

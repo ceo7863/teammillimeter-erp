@@ -1,16 +1,21 @@
 import { addDaysISO, todayISO } from "@/utils/receivables";
 import { addMonthsToHireDay, isWorkerEGrade } from "@/utils/workerEGradePayPeriods";
 import {
+  DEFAULT_WORKER_AI_RULES,
+  normalizeWorkerAiRules,
+  type WorkerAiRules,
+} from "@/utils/workerAiRules";
+import {
   filterActiveWorkers,
   isWorkerActive,
   normalizeWorkerRecordId,
   type WorkerMasterLike,
 } from "@/utils/workerPayments";
 
-export const WORKER_PROBATION_ALERT_LEAD_DAYS = 3;
+export const WORKER_PROBATION_ALERT_LEAD_DAYS = DEFAULT_WORKER_AI_RULES.alertLeadDays;
 export const WORKER_PROBATION_MILESTONE_MONTHS = [1, 2, 3] as const;
 
-export type WorkerProbationMilestoneMonth = (typeof WORKER_PROBATION_MILESTONE_MONTHS)[number];
+export type WorkerProbationMilestoneMonth = number;
 
 export type WorkerProbationAlert = {
   alertKey: string;
@@ -20,6 +25,7 @@ export type WorkerProbationAlert = {
   monthIndex: WorkerProbationMilestoneMonth;
   milestoneDate: string;
   daysUntil: number;
+  isFinalMilestone: boolean;
 };
 
 export const WORKER_SCROLL_TO_STORAGE_KEY = "teammillimeter-erp-worker-scroll-to";
@@ -44,7 +50,7 @@ export function formatWorkerProbationAlertRelative(daysUntil: number) {
 export function formatWorkerProbationAlertMessage(alert: WorkerProbationAlert) {
   const relative = formatWorkerProbationAlertRelative(alert.daysUntil);
   const dateLabel = formatDisplayDate(alert.milestoneDate);
-  if (alert.monthIndex === 3) {
+  if (alert.isFinalMilestone) {
     return `${alert.workerName} \u2014 \uC218\uC2B5 3\uAC1C\uC6D4(\uC218\uC2B5 \uC885\uB8CC) ${dateLabel} \u00B7 ${relative} \u00B7 \uB2E4\uC74C\uB09C\uBD80\uD130 \uD3EC\uD138 \uB0B4\uC5ED\uC11C \uACF5\uAC1C`;
   }
   return `${alert.workerName} \u2014 \uC218\uC2B5 ${alert.monthIndex}\uAC1C\uC6D4 ${dateLabel} \u00B7 ${relative}`;
@@ -57,9 +63,12 @@ export function buildWorkerProbationAlertKey(workerId: string, monthIndex: Worke
 export function buildWorkerProbationAlerts(
   workers: WorkerMasterLike[] = [],
   asOfDate = todayISO(),
+  rulesInput?: WorkerAiRules | null,
 ): WorkerProbationAlert[] {
+  const rules = normalizeWorkerAiRules(rulesInput);
   const today = String(asOfDate || todayISO()).slice(0, 10);
   const alerts: WorkerProbationAlert[] = [];
+  const milestoneMonths = Array.from({ length: rules.probationMonths }, (_, index) => index + 1);
 
   for (const worker of filterActiveWorkers(workers)) {
     if (!isWorkerActive(worker) || !isWorkerEGrade(worker)) continue;
@@ -69,11 +78,11 @@ export function buildWorkerProbationAlerts(
     const workerName = String(worker.name || "").trim();
     if (!workerId || !workerName || !/^\d{4}-\d{2}-\d{2}$/.test(hireDate)) continue;
 
-    for (const monthIndex of WORKER_PROBATION_MILESTONE_MONTHS) {
+    for (const monthIndex of milestoneMonths) {
       const milestoneDate = addMonthsToHireDay(hireDate, monthIndex);
       if (!milestoneDate) continue;
 
-      const alertStart = addDaysISO(milestoneDate, -WORKER_PROBATION_ALERT_LEAD_DAYS);
+      const alertStart = addDaysISO(milestoneDate, -rules.alertLeadDays);
       if (today < alertStart || today > milestoneDate) continue;
 
       alerts.push({
@@ -84,6 +93,7 @@ export function buildWorkerProbationAlerts(
         monthIndex,
         milestoneDate,
         daysUntil: diffDaysISO(today, milestoneDate),
+        isFinalMilestone: monthIndex === rules.probationMonths,
       });
     }
   }

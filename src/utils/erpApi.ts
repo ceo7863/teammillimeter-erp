@@ -79,6 +79,7 @@ export type ErpPayload = {
   companyProfile?: CompanyProfile;
   notificationSettings?: import("./notificationSettings").NotificationSettings;
   saleAiRules?: import("@/utils/saleAiRules").SaleAiRules;
+  workerAiRules?: import("@/utils/workerAiRules").WorkerAiRules;
   version?: number;
   updatedAt?: string | null;
   updatedBy?: string | null;
@@ -325,6 +326,7 @@ export function buildErpDomainChunk(domain: ErpSaveDomain, payload: ErpPayload) 
         statementFolders: payload.statementFolders || [],
         notificationSettings: payload.notificationSettings,
         saleAiRules: payload.saleAiRules,
+        workerAiRules: payload.workerAiRules,
       };
     default:
       return {};

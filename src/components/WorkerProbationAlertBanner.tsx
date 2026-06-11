@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ChevronDown, ChevronUp, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import type { WorkerAiRules } from "@/utils/workerAiRules";
+import { DEFAULT_WORKER_AI_RULES } from "@/utils/workerAiRules";
 import {
   buildWorkerProbationAlerts,
   dismissWorkerProbationAlert,
@@ -13,12 +15,13 @@ import type { WorkerMasterLike } from "@/utils/workerPayments";
 
 type WorkerProbationAlertBannerProps = {
   workers: WorkerMasterLike[];
+  workerAiRules?: WorkerAiRules;
   onOpenWorkers: (workerId?: string) => void;
   onVisibleCountChange?: (count: number) => void;
 };
 
-export function useWorkerProbationAlertState(workers: WorkerMasterLike[]) {
-  const alerts = useMemo(() => buildWorkerProbationAlerts(workers), [workers]);
+export function useWorkerProbationAlertState(workers: WorkerMasterLike[], workerAiRules = DEFAULT_WORKER_AI_RULES) {
+  const alerts = useMemo(() => buildWorkerProbationAlerts(workers, undefined, workerAiRules), [workerAiRules, workers]);
   const [dismissedKeys, setDismissedKeys] = useState(() =>
     loadDismissedWorkerProbationAlertKeys(alerts.map((alert) => alert.alertKey)),
   );
@@ -77,10 +80,11 @@ function AlertRow({
 
 export function WorkerProbationAlertBanner({
   workers,
+  workerAiRules = DEFAULT_WORKER_AI_RULES,
   onOpenWorkers,
   onVisibleCountChange,
 }: WorkerProbationAlertBannerProps) {
-  const { visibleAlerts, dismiss } = useWorkerProbationAlertState(workers);
+  const { visibleAlerts, dismiss } = useWorkerProbationAlertState(workers, workerAiRules);
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
@@ -110,7 +114,7 @@ export function WorkerProbationAlertBanner({
             </span>
           </div>
           <p className="mt-1 text-xs text-amber-800">
-            {"\uC785\uC0AC\uC77C \uAE30\uC900 1\u00B72\u00B73\uAC1C\uC6D4 \uB418\uB294 \uB0A0 3\uC77C \uC804\uBD80\uD130 \uD45C\uC2DC\uB429\uB2C8\uB2E4."}
+            {`\uC785\uC0AC\uC77C \uAE30\uC900 ${workerAiRules.probationMonths}\uAC1C\uC6D4 \uC218\uC2B5 \uB9C8\uC77C\uC2A4\uD134 ${workerAiRules.alertLeadDays}\uC77C \uC804\uBD80\uD130 \uD45C\uC2DC\uB429\uB2C8\uB2E4.`}
           </p>
           <div className="mt-3 space-y-2">
             <AlertRow alert={preview} onOpenWorkers={handleOpenWorkers} onDismiss={dismiss} />

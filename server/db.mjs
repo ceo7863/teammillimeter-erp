@@ -89,6 +89,18 @@ function emptyErpPayload() {
       overtimeStartHour: 19,
       normalEndHour: 18,
     },
+    workerAiRules: {
+      probationNetPay: 2_000_000,
+      probationPayWithVat: true,
+      probationMonths: 3,
+      alertLeadDays: 3,
+      autoAdjustOnProbationEnd: true,
+      postProbationConstructionCost: 0,
+      postProbationCustomChargeCost: 0,
+      autoAdjustGradeOnProbationEnd: true,
+      postProbationGrade: "D",
+      enforceEGradeDuringProbation: true,
+    },
   };
 }
 

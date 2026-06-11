@@ -199,6 +199,8 @@ import { buildSaleDuplicateIndex, findSalesWithSameClientWorkerDate, isDuplicate
 import { filterNamedSuggestions } from "@/utils/autocompleteFilter";
 import { buildSaleFormFromScSchedule, detectScScheduleChargeHeadcountWarning, isScScheduleRegistered, resolveScScheduleSiteName } from "@/utils/scScheduleSaleImport";
 import { DEFAULT_SALE_AI_RULES, normalizeSaleAiRules } from "@/utils/saleAiRules";
+import { DEFAULT_WORKER_AI_RULES, normalizeWorkerAiRules } from "@/utils/workerAiRules";
+import { applyProbationEndAdjustments, isWorkerInProbationPeriod } from "@/utils/workerProbationAutoAdjust";
 import {
   fetchStaffScSchedulesForMonth,
   formatScScheduleHeadcount,
@@ -231,6 +233,7 @@ import { ClientSiteRequestsPage } from "@/components/ClientSiteRequestsPage";
 import { ClientSiteRequestCalendarsPage } from "@/components/ClientSiteRequestCalendarsPage";
 import { CalendarScScheduleImportModal } from "@/components/CalendarScScheduleImportModal";
 import { SaleAiRulesButton, SaleAiRulesModal } from "@/components/SaleAiRulesModal";
+import { WorkerAiRulesButton, WorkerAiRulesModal } from "@/components/WorkerAiRulesModal";
 import { ScScheduleAlimtalkPage } from "@/components/ScScheduleAlimtalkPage";
 import { ClientFormModal, type ClientFormState } from "@/components/ClientFormModal";
 import { WorkerFormModal, createEmptyWorkerForm } from "@/components/WorkerFormModal";
@@ -6575,7 +6578,7 @@ function workerListSearchText(worker) {
     .toLowerCase();
 }
 
-function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImmediate }) {
+function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImmediate, workerAiRules, onSaveWorkerAiRules }) {
   const { auditLogs } = useAudit();
   const workersRef = useRef(workers);
   workersRef.current = workers;
@@ -6591,6 +6594,8 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
   const [inlineChargeDrafts, setInlineChargeDrafts] = useState({});
   const [constructionCostEdit, setConstructionCostEdit] = useState(null);
   const [formError, setFormError] = useState("");
+  const [workerAiRulesOpen, setWorkerAiRulesOpen] = useState(false);
+  const [workerAiRulesSaving, setWorkerAiRulesSaving] = useState(false);
   const [scrollToWorkerId, setScrollToWorkerId] = useState<string | number | null>(null);
 
   useEffect(() => {
@@ -6692,6 +6697,16 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
     setFormError("");
   }, []);
 
+  const handleSaveWorkerAiRules = useCallback(async (nextRules) => {
+    setWorkerAiRulesSaving(true);
+    try {
+      await onSaveWorkerAiRules?.(nextRules);
+      setWorkerAiRulesOpen(false);
+    } finally {
+      setWorkerAiRulesSaving(false);
+    }
+  }, [onSaveWorkerAiRules]);
+
   const commitWorkerChange = (nextWorkers, auditInput, options?: { flushNow?: boolean }) => {
     const nextAuditLogs = auditInput
       ? appendWorkerAuditLogs(auditLogs, auditInput, currentUser)
@@ -6729,7 +6744,14 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
         : null;
     const feeNumber = Number(String(form.feeRate).replace(/[^0-9.]/g, ""));
     const prevGrade = normalizeWorkerGrade(existingWorker?.grade);
-    const nextGrade = normalizeWorkerGrade(form.grade);
+    const hireDate = String(form.hireDate || "").trim();
+    const inProbation = hireDate && isWorkerInProbationPeriod({ hireDate }, workerAiRules);
+    let nextGrade = normalizeWorkerGrade(form.grade);
+    if (inProbation) {
+      nextGrade = "E";
+    } else if (!existingWorker && hireDate && !nextGrade) {
+      nextGrade = "E";
+    }
     let eGradeEndedAt = String(existingWorker?.eGradeEndedAt || "").trim();
     if (prevGrade === "E" && nextGrade && nextGrade !== "E") {
       eGradeEndedAt = todayISO();
@@ -6742,7 +6764,7 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
       name,
       grade: nextGrade,
       category: normalizeWorkerCategory(category),
-      hireDate: String(form.hireDate || "").trim(),
+      hireDate,
       eGradeEndedAt,
       bank: form.bank.trim(),
       account: form.account.trim(),
@@ -6760,6 +6782,53 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
       isActive: existingWorker ? isWorkerActive(existingWorker) : true,
     };
     const payloadWithCharge = applyWorkerCustomChargeCostFromForm(payload, form.customChargeCost);
+
+    const probationNetPayRaw = String(form.probationNetPay ?? "").trim();
+    if (probationNetPayRaw) {
+      const probationNetPay = parseMoney(probationNetPayRaw);
+      if (probationNetPay > 0) payloadWithCharge.probationNetPay = probationNetPay;
+      else delete payloadWithCharge.probationNetPay;
+    } else {
+      delete payloadWithCharge.probationNetPay;
+    }
+
+    if (form.probationPayWithVatUseGlobal) {
+      delete payloadWithCharge.probationPayWithVat;
+    } else {
+      payloadWithCharge.probationPayWithVat = Boolean(form.probationPayWithVat);
+    }
+
+    const postProbationConstructionRaw = String(form.postProbationConstructionCost ?? "").trim();
+    if (postProbationConstructionRaw) {
+      const postProbationConstructionCost = parseMoney(postProbationConstructionRaw);
+      if (postProbationConstructionCost > 0) {
+        payloadWithCharge.postProbationConstructionCost = postProbationConstructionCost;
+      } else {
+        delete payloadWithCharge.postProbationConstructionCost;
+      }
+    } else {
+      delete payloadWithCharge.postProbationConstructionCost;
+    }
+
+    const postProbationCustomRaw = String(form.postProbationCustomChargeCost ?? "").trim();
+    if (postProbationCustomRaw) {
+      const postProbationCustomChargeCost = parseMoney(postProbationCustomRaw);
+      if (postProbationCustomChargeCost > 0) {
+        payloadWithCharge.postProbationCustomChargeCost = postProbationCustomChargeCost;
+      } else {
+        delete payloadWithCharge.postProbationCustomChargeCost;
+      }
+    } else {
+      delete payloadWithCharge.postProbationCustomChargeCost;
+    }
+
+    const postProbationGrade = normalizeWorkerGrade(form.postProbationGrade);
+    if (postProbationGrade) {
+      payloadWithCharge.postProbationGrade = postProbationGrade;
+    } else {
+      delete payloadWithCharge.postProbationGrade;
+    }
+
     if (!form.portalPassword.trim()) {
       delete payloadWithCharge.portalPassword;
     }
@@ -6810,6 +6879,16 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
       memo: worker.memo || "",
       portalLoginId: worker.portalLoginId || "",
       portalPassword: "",
+      probationNetPay: worker.probationNetPay ? String(worker.probationNetPay) : "",
+      probationPayWithVatUseGlobal: worker.probationPayWithVat === undefined,
+      probationPayWithVat: worker.probationPayWithVat ?? workerAiRules.probationPayWithVat,
+      postProbationConstructionCost: worker.postProbationConstructionCost
+        ? String(worker.postProbationConstructionCost)
+        : "",
+      postProbationCustomChargeCost: worker.postProbationCustomChargeCost
+        ? String(worker.postProbationCustomChargeCost)
+        : "",
+      postProbationGrade: normalizeWorkerGrade(worker.postProbationGrade),
     });
     setWorkerModalOpen(true);
   };
@@ -6902,6 +6981,10 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
   const updateWorkerGradeInline = (worker, value) => {
     const grade = normalizeWorkerGrade(value);
     if (grade === normalizeWorkerGrade(worker.grade)) return;
+    if (isWorkerInProbationPeriod(worker, workerAiRules) && grade && grade !== "E") {
+      window.alert("\uC218\uC2B5 \uAE30\uAC04 \uC911\uC5D0\uB294 E\uB4F1\uAE09\uB9CC \uC120\uD0DD\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.");
+      return;
+    }
     const prevGrade = normalizeWorkerGrade(worker.grade);
     let eGradeEndedAt = String(worker.eGradeEndedAt || "").trim();
     if (prevGrade === "E" && grade && grade !== "E") {
@@ -7003,6 +7086,7 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
                   <Plus size={16} />
                   시공자 등록
                 </Button>
+                <WorkerAiRulesButton onClick={() => setWorkerAiRulesOpen(true)} />
                 <WorkerListExport
                   workers={exportableWorkers}
                   companyProfile={companyProfile}
@@ -7201,10 +7285,18 @@ function WorkersPage({ workers, companyProfile, currentUser, onPersistWorkersImm
         editingId={editingId}
         form={form}
         formError={formError}
+        workerAiRules={workerAiRules}
         onClose={closeWorkerModal}
         onSave={saveWorker}
         onReset={resetWorkerForm}
         onUpdate={updateForm}
+      />
+      <WorkerAiRulesModal
+        open={workerAiRulesOpen}
+        rules={workerAiRules}
+        saving={workerAiRulesSaving}
+        onClose={() => setWorkerAiRulesOpen(false)}
+        onSave={handleSaveWorkerAiRules}
       />
     </div>
   );
@@ -8171,6 +8263,10 @@ export default function TeammillimeterErpMvp() {
     if (apiMode && sessionOnMount) return { ...DEFAULT_SALE_AI_RULES };
     return normalizeSaleAiRules(storedData?.saleAiRules);
   });
+  const [workerAiRules, setWorkerAiRules] = useState(() => {
+    if (apiMode && sessionOnMount) return { ...DEFAULT_WORKER_AI_RULES };
+    return normalizeWorkerAiRules(storedData?.workerAiRules);
+  });
   const [companyNotices, setCompanyNotices] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return normalizeCompanyNotices(storedData?.companyNotices);
@@ -8463,6 +8559,7 @@ export default function TeammillimeterErpMvp() {
     const normalizedCompanyProfile = normalizeCompanyProfile(data.companyProfile);
     setCompanyProfile(normalizedCompanyProfile);
     setSaleAiRules(normalizeSaleAiRules(data.saleAiRules));
+    setWorkerAiRules(normalizeWorkerAiRules(data.workerAiRules));
     publishErpVersion(data.version ?? 0);
     bankTransactionsDirtyRef.current = false;
     skipSaveRef.current = true;
@@ -8662,6 +8759,7 @@ export default function TeammillimeterErpMvp() {
       statementFolders,
       companyProfile,
       saleAiRules,
+      workerAiRules,
       version: erpVersionRef.current,
     };
   }
@@ -8705,6 +8803,7 @@ export default function TeammillimeterErpMvp() {
       statementFolders,
       companyProfile,
       saleAiRules,
+      workerAiRules,
     ],
   );
 
@@ -8908,6 +9007,9 @@ export default function TeammillimeterErpMvp() {
       if (normalizedPatch && normalizedPatch.saleAiRules) {
         forceDomains.push("settings");
       }
+      if (normalizedPatch && normalizedPatch.workerAiRules) {
+        forceDomains.push("settings");
+      }
       if (saveDebounceTimerRef.current) {
         window.clearTimeout(saveDebounceTimerRef.current);
         saveDebounceTimerRef.current = null;
@@ -8940,6 +9042,9 @@ export default function TeammillimeterErpMvp() {
           }
           if (normalizedPatch.saleAiRules) {
             setSaleAiRules(normalizeSaleAiRules(normalizedPatch.saleAiRules));
+          }
+          if (normalizedPatch.workerAiRules) {
+            setWorkerAiRules(normalizeWorkerAiRules(normalizedPatch.workerAiRules));
           }
         }
         return saved;
@@ -9131,6 +9236,13 @@ export default function TeammillimeterErpMvp() {
     },
     [apiMode, currentUser, dataReady, flushErpSave, setAuditLogs, setSales],
   );
+
+  useEffect(() => {
+    if (!dataReady) return;
+    const { workers: nextWorkers, changed } = applyProbationEndAdjustments(workersRef.current, workerAiRules);
+    if (!changed) return;
+    void persistWorkersImmediate(nextWorkers, undefined, { flushNow: true });
+  }, [dataReady, workerAiRules, persistWorkersImmediate, workers]);
 
   const persistBankTransactionMemoUpdates = useCallback(
     async (updates: Record<string, string>) => {
@@ -9342,6 +9454,19 @@ export default function TeammillimeterErpMvp() {
       const saved = await flushErpSave({ saleAiRules: normalized });
       if (saved === false) {
         window.alert("AI 규칙 저장에 실패했습니다. 다시 시도해 주세요.");
+      }
+      return saved;
+    }
+    return true;
+  }, [apiMode, currentUser, dataReady, flushErpSave]);
+
+  const saveWorkerAiRules = useCallback(async (nextRules) => {
+    const normalized = normalizeWorkerAiRules(nextRules);
+    setWorkerAiRules(normalized);
+    if (apiMode && currentUser && dataReady) {
+      const saved = await flushErpSave({ workerAiRules: normalized });
+      if (saved === false) {
+        window.alert("신입 AI 규칙 저장에 실패했습니다. 다시 시도해 주세요.");
       }
       return saved;
     }
@@ -10498,6 +10623,7 @@ export default function TeammillimeterErpMvp() {
         {basicInfoTabAccess.workers ? (
           <WorkerProbationAlertBanner
             workers={workers}
+            workerAiRules={workerAiRules}
             onOpenWorkers={openWorkersFromProbationAlert}
             onVisibleCountChange={setWorkerProbationAlertCount}
           />
@@ -10649,6 +10775,7 @@ export default function TeammillimeterErpMvp() {
             setWorkerMonthlyActualVouchers={setWorkerMonthlyActualVouchers}
             workerPayWithVatLearnRules={workerPayWithVatLearnRules}
             setWorkerPayWithVatLearnRules={setWorkerPayWithVatLearnRules}
+            workerAiRules={workerAiRules}
             setBankTransactions={setBankTransactions}
             setWorkers={setWorkers}
             onPersistWorkersImmediate={persistWorkersImmediate}
@@ -10762,6 +10889,8 @@ export default function TeammillimeterErpMvp() {
                 companyProfile={companyProfile}
                 currentUser={currentUser}
                 onPersistWorkersImmediate={persistWorkersImmediate}
+                workerAiRules={workerAiRules}
+                onSaveWorkerAiRules={saveWorkerAiRules}
               />
             }
             companyPanel={
