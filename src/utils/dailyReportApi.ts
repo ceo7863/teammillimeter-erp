@@ -52,6 +52,7 @@ export type DailyReportAttendanceSummary = {
   checkedInCount: number;
   workingCount: number;
   doneCount: number;
+  absentCount: number;
   members: DailyReportAttendanceMember[];
 };
 

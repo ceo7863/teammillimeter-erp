@@ -1,4 +1,5 @@
 import type { ErpUser } from "./erpApi";
+import { canUserAccessPage } from "./pageAccess";
 
 export type AttendanceViewUser = {
   id: number;
@@ -41,4 +42,12 @@ export function resolveAttendanceViewUserIds(
     ids.add(id);
   }
   return [...ids];
+}
+
+/** 근태 대상: 「근태 관리」 페이지 접근 권한이 있는 활성 사용자 (C 방식) */
+export function isAttendanceTargetUser(
+  user: Pick<ErpUser, "id" | "role" | "allowedPages" | "isActive"> | null | undefined,
+) {
+  if (!user || user.isActive === false) return false;
+  return canUserAccessPage(user, "attendance");
 }

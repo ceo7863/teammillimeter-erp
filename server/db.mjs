@@ -5,7 +5,7 @@ import bcrypt from "bcryptjs";
 import { config, seedUsers } from "./config.mjs";
 import { ERP_DOMAIN_FIELDS, ERP_DOMAIN_NAMES, pickDomainPayload } from "./erpDomains.mjs";
 import { queueCoalescedWrite } from "./erpWriteQueue.mjs";
-import { migrateClientAichiToMiumu, needsClientAichiToMiumuMigration } from "./migrateClientAichiToMiumu.mjs";
+import { isAttendanceTargetUser } from "./attendanceAccess.mjs";
 
 let db;
 
@@ -1189,21 +1189,27 @@ export function saveErpDomains(domainPayloads, expectedVersion, updatedBy) {
   );
 }
 
+export function listAttendanceTargetUsers() {
+  return listUsers()
+    .filter((user) => isAttendanceTargetUser(user))
+    .map((user) => ({ id: user.id, name: user.name }));
+}
+
 export function listAttendanceViewableUsers(viewerId) {
   const viewer = formatUserRow(findUserById(viewerId));
   if (!viewer) return [];
 
+  const targets = listUsers().filter((user) => isAttendanceTargetUser(user));
+
   if (viewer.role === "admin") {
-    return listUsers()
-      .filter((user) => user.isActive !== false)
-      .map((user) => ({ id: user.id, name: user.name }));
+    return targets.map((user) => ({ id: user.id, name: user.name }));
   }
 
   const ids = viewer.attendanceViewUserIds || [];
   if (!ids.length) return [];
 
-  return ids
-    .map((id) => formatUserRow(findUserById(id)))
-    .filter(Boolean)
+  const visibleIds = new Set(ids);
+  return targets
+    .filter((user) => visibleIds.has(user.id))
     .map((user) => ({ id: user.id, name: user.name }));
 }

@@ -35,7 +35,8 @@ const L = {
   attendanceCheckedIn: "\uCD9C\uADFC",
   attendanceWorking: "\uADFC\uBB34 \uC911",
   attendanceDone: "\uD1F4\uADFC",
-  attendanceEmpty: "\uC624\uB298 \uADFC\uD0DC \uAE30\uB85D\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  attendanceAbsent: "\uBBF8\uCD9C\uADFC",
+  attendanceEmpty: "\uADFC\uD0DC \uAD00\uB9AC \uB300\uC0C1 \uC778\uC6D0\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   vacationToday: "\uC624\uB298 \uAC1C\uC778\uD734\uAC00 (SC)",
   vacationTomorrow: "\uB0B4\uC77C \uAC1C\uC778\uD734\uAC00 (SC)",
   vacationEmpty: "\uD734\uAC00 \uC778\uC6D0 \uC5C6\uC74C",
@@ -321,7 +322,7 @@ export function DailyReportPage({ currentUser }: DailyReportPageProps) {
                     <p className="text-xs text-slate-500">{data.today.attendance.label}</p>
                   </div>
                 </div>
-                <div className="mb-3 grid grid-cols-3 gap-2 text-center text-xs">
+                <div className="mb-3 grid grid-cols-2 gap-2 text-center text-xs sm:grid-cols-4">
                   <div className="rounded-xl bg-slate-50 px-2 py-2">
                     <div className="font-bold text-slate-900">{data.today.attendance.checkedInCount}</div>
                     <div className="text-slate-500">{L.attendanceCheckedIn}</div>
@@ -333,6 +334,10 @@ export function DailyReportPage({ currentUser }: DailyReportPageProps) {
                   <div className="rounded-xl bg-emerald-50 px-2 py-2">
                     <div className="font-bold text-emerald-800">{data.today.attendance.doneCount}</div>
                     <div className="text-emerald-600">{L.attendanceDone}</div>
+                  </div>
+                  <div className="rounded-xl bg-amber-50 px-2 py-2">
+                    <div className="font-bold text-amber-800">{data.today.attendance.absentCount ?? 0}</div>
+                    <div className="text-amber-700">{L.attendanceAbsent}</div>
                   </div>
                 </div>
                 {data.today.attendance.members.length ? (

@@ -4,7 +4,7 @@ import { buildScVacationSummariesForDates } from "./scScheduleVacation.mjs";
 import { resolveScScheduleSiteName } from "./scScheduleSiteName.mjs";
 import { isScScheduleSourceConfigured, runScScheduleSync } from "./scScheduleSync.mjs";
 import { config } from "./config.mjs";
-import { getErpState } from "./db.mjs";
+import { getErpState, listAttendanceTargetUsers } from "./db.mjs";
 
 export function todayKstDateKey(now = new Date()) {
   const kst = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
@@ -49,26 +49,49 @@ function summarizeSiteSchedules(schedules) {
     });
 }
 
-export function buildAttendanceSummary(attendanceRecords, dateKey) {
+function memberFromAttendanceRow(row) {
+  const checkInAt = String(row?.checkInAt || "").trim();
+  const checkOutAt = String(row?.checkOutAt || "").trim();
+  let status = "absent";
+  if (checkInAt && !checkOutAt) status = "working";
+  else if (checkInAt && checkOutAt) status = "done";
+  else if (checkInAt) status = "working";
+  return {
+    userId: Number(row?.userId) || 0,
+    userName: String(row?.userName || "").trim(),
+    checkInAt,
+    checkOutAt,
+    status,
+  };
+}
+
+export function buildAttendanceSummary(attendanceRecords, dateKey, targetUsers = []) {
   const target = String(dateKey || "").slice(0, 10);
-  const rows = attendanceRecords.filter((row) => String(row?.date || "").slice(0, 10) === target);
-  const members = rows
-    .map((row) => {
-      const checkInAt = String(row.checkInAt || "").trim();
-      const checkOutAt = String(row.checkOutAt || "").trim();
-      let status = "absent";
-      if (checkInAt && !checkOutAt) status = "working";
-      else if (checkInAt && checkOutAt) status = "done";
-      else if (checkInAt) status = "working";
-      return {
-        userId: row.userId,
-        userName: String(row.userName || "").trim(),
-        checkInAt,
-        checkOutAt,
-        status,
-      };
+  const recordByUserId = new Map();
+  for (const row of attendanceRecords) {
+    if (String(row?.date || "").slice(0, 10) !== target) continue;
+    const userId = Number(row?.userId) || 0;
+    if (userId > 0) recordByUserId.set(userId, row);
+  }
+
+  const roster = Array.isArray(targetUsers) && targetUsers.length
+    ? targetUsers
+    : [...recordByUserId.values()].map((row) => ({
+        id: Number(row.userId) || 0,
+        name: String(row.userName || "").trim(),
+      }));
+
+  const members = roster
+    .map((user) => {
+      const userId = Number(user.id ?? user.userId) || 0;
+      const userName = String(user.name ?? user.userName ?? "").trim();
+      const record = recordByUserId.get(userId);
+      const member = record
+        ? memberFromAttendanceRow(record)
+        : { userId, userName, checkInAt: "", checkOutAt: "", status: "absent" };
+      return { ...member, userId, userName: userName || member.userName };
     })
-    .filter((row) => row.userName)
+    .filter((row) => row.userId > 0 && row.userName)
     .sort((a, b) => a.userName.localeCompare(b.userName, "ko"));
 
   return {
@@ -78,6 +101,7 @@ export function buildAttendanceSummary(attendanceRecords, dateKey) {
     checkedInCount: members.filter((row) => row.status !== "absent").length,
     workingCount: members.filter((row) => row.status === "working").length,
     doneCount: members.filter((row) => row.status === "done").length,
+    absentCount: members.filter((row) => row.status === "absent").length,
     members,
   };
 }
@@ -92,7 +116,8 @@ export function buildDailyReportPage(erpData, options = {}) {
   const vacationByDate = buildScVacationSummariesForDates(schedules, [today, tomorrow]);
 
   const yesterdayStats = buildDailyReport(erpData, { dateKey: yesterday, now });
-  const todayAttendance = buildAttendanceSummary(listAttendanceRecords(erpData), today);
+  const attendanceTargets = options.attendanceTargetUsers ?? listAttendanceTargetUsers();
+  const todayAttendance = buildAttendanceSummary(listAttendanceRecords(erpData), today, attendanceTargets);
   const todaySites = summarizeSiteSchedules(filterSchedulesForDate(schedules, today));
   const tomorrowSites = summarizeSiteSchedules(filterSchedulesForDate(schedules, tomorrow));
 
