@@ -5,10 +5,12 @@ import { ErpErrorBoundary } from "@/components/ErpErrorBoundary";
 import { ActionFeedbackProvider } from "@/context/ActionFeedbackContext";
 import { clearStaleChunkReloadFlag, reloadOnceForStaleChunks } from "@/utils/dynamicImport";
 import { installErpBootRecovery, resetDocumentScrollLock } from "@/utils/erpBootRecovery";
+import { installServiceWorkerTeamChatBridge } from "@/utils/teamChatSwBridge";
 import "./index.css";
 
 clearStaleChunkReloadFlag();
 installErpBootRecovery();
+installServiceWorkerTeamChatBridge();
 
 window.addEventListener("vite:preloadError", (event) => {
   event.preventDefault();

@@ -29,13 +29,21 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = String(event.notification?.data?.url || "/messenger");
+  const data = event.notification?.data || {};
+  const tag = String(event.notification?.tag || "");
+  const openTeamChat = data.action === "openTeamChat" || tag === "erp-team-chat-unread";
+  const targetUrl = String(data.url || (openTeamChat ? "/" : "/messenger"));
+
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
       for (const client of clients) {
         if ("focus" in client) {
           client.focus();
-          if ("navigate" in client) {
+          if (openTeamChat && "postMessage" in client) {
+            client.postMessage({ type: "erp-open-team-chat" });
+            return undefined;
+          }
+          if ("navigate" in client && !openTeamChat) {
             return client.navigate(targetUrl);
           }
           return undefined;

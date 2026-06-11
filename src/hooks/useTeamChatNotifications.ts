@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
-import { ERP_NOTIFICATION_ICON } from "@/utils/erpNotificationIcon";
 import type { ErpUser } from "@/utils/erpApi";
 import { isApiModeEnabled } from "@/utils/erpApi";
 import { canUserAccessPage } from "@/utils/pageAccess";
+import { showErpNotification } from "@/utils/showErpNotification";
 
 type Options = {
   unreadCount: number;
@@ -69,16 +69,12 @@ export function useTeamChatNotifications(
         ? `\uC0C8 \uBA54\uC2DC\uC9C0 ${delta}\uAC1C (\uC804\uCCB4 ${next}\uAC1C)`
         : `\uBBF8\uC751\uC740 \uBA54\uC2DC\uC9C0 ${next}\uAC1C`;
 
-    const notification = new Notification("\uC0AC\uB0B4 \uCC57", {
+    void showErpNotification("\uC0AC\uB0B4 \uCC57", {
       body,
-      icon: ERP_NOTIFICATION_ICON,
       tag: "erp-team-chat-unread",
       renotify: true,
+      data: { action: "openTeamChat" },
+      onClick: () => options.onOpenChat?.(),
     });
-    notification.onclick = () => {
-      window.focus();
-      options.onOpenChat?.();
-      notification.close();
-    };
   }, [enabled, options.isChatPageActive, options.onOpenChat, options.unreadCount]);
 }
