@@ -2598,6 +2598,8 @@ function BankTransactionsPageComponent({
   );
 
   const openTaxInvoiceModal = useCallback((tx: BankTransaction) => {
+    setLinkModalTx(null);
+    setWorkerLinkModal(null);
     const txId = tx.id;
     const latestTaxInvoices = taxInvoicesRef.current;
     setTaxInvoiceLinkSession({
@@ -5337,7 +5339,11 @@ function BankTransactionsPageComponent({
   };
 
   return (
-    <div className={`erp-page erp-bank-transactions-page${taxInvoiceLinkSession ? " erp-bank-transactions-page--tax-link-open" : ""}`}>
+    <div
+      className={`erp-page erp-bank-transactions-page${
+        taxInvoiceLinkSession || linkModalTx || workerLinkModal ? " erp-bank-transactions-page--tax-link-open" : ""
+      }`}
+    >
       <Card className="erp-bank-hub-card mb-3 rounded-xl shadow-sm">
         <CardContent className="flex flex-col gap-2 p-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex min-w-0 items-start gap-2.5">

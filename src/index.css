@@ -16274,6 +16274,23 @@ button:disabled,
   vertical-align: top;
 }
 
+.erp-bank-erp-link-panel__body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.erp-bank-erp-link-panel__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem 0.75rem;
+  border-top: 1px solid #e2e8f0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
 .erp-tax-invoice-link-panel__table tbody tr.erp-tax-invoice-link-panel__row {
   transition: background-color 0.12s ease;
 }
