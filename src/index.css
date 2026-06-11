@@ -16903,6 +16903,162 @@ button:disabled,
   color: #64748b;
 }
 
+.erp-sc-client-match-rules-modal .erp-sc-client-match-rules-list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.erp-sc-client-match-rules-modal .erp-sc-client-match-rules-list .erp-sale-ai-rules-preview {
+  margin: 0;
+  list-style: disc;
+}
+
+.erp-notify-schedule-time {
+  border-radius: 1rem;
+  border: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+  padding: 0.85rem 1rem;
+}
+
+.erp-notify-schedule-time.is-disabled {
+  opacity: 0.55;
+}
+
+.erp-notify-schedule-time-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+
+.erp-notify-schedule-time-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.erp-notify-schedule-time-kst {
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.5rem;
+}
+
+.erp-notify-schedule-time-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+}
+
+.erp-notify-schedule-time-display {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.45rem 0.65rem;
+  font-size: 1.75rem;
+  line-height: 1;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: #0f172a;
+}
+
+.erp-notify-schedule-time-display-main {
+  font-size: 1.125rem;
+  line-height: 1.35;
+  font-weight: 800;
+}
+
+.erp-notify-schedule-time-frequency {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.erp-notify-schedule-time-fields {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 0.35rem;
+}
+
+.erp-notify-schedule-time-field {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.erp-notify-schedule-time-field-label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #94a3b8;
+}
+
+.erp-notify-schedule-time-select {
+  min-width: 5.5rem;
+  border-radius: 0.75rem;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.erp-notify-schedule-time-select--hour {
+  min-width: 11rem;
+}
+
+.erp-notify-schedule-time-select:focus {
+  outline: 2px solid #c7d2fe;
+  border-color: #818cf8;
+}
+
+.erp-notify-schedule-time-sep {
+  padding-bottom: 0.45rem;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #94a3b8;
+}
+
+.erp-notify-schedule-time-hint {
+  margin: 0.55rem 0 0;
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.erp-notify-schedule-time-hint.is-warning {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.erp-notify-weekly-schedule-row {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.erp-notify-weekly-schedule-field {
+  display: grid;
+  gap: 0.45rem;
+  border-radius: 1rem;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  padding: 0.85rem 1rem;
+}
+
+.erp-notify-weekly-schedule-select {
+  width: 100%;
+  max-width: 12rem;
+}
+
 @media (max-width: 720px) {
   .erp-sale-ai-rules-grid {
     grid-template-columns: 1fr;

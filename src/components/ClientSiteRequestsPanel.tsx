@@ -1,5 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, Check, Copy, Link2, RefreshCw, RotateCcw, X } from "lucide-react";
+import {
+  ScClientMatchingRulesButton,
+  ScClientMatchingRulesModal,
+} from "@/components/ScClientMatchingRulesModal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -419,6 +423,7 @@ export function ClientSiteRequestsPanel({ clients, workers = [], isAdmin = false
   } | null>(null);
   const [scSyncStatus, setScSyncStatus] = useState<ScScheduleSyncStatus | null>(null);
   const [scSyncing, setScSyncing] = useState(false);
+  const [scMappingRulesOpen, setScMappingRulesOpen] = useState(false);
   const [scMappingOpen, setScMappingOpen] = useState(false);
   const [scMappingStatus, setScMappingStatus] = useState<ScProjectMappingStatus | null>(null);
   const [scMappingLoading, setScMappingLoading] = useState(false);
@@ -834,6 +839,7 @@ export function ClientSiteRequestsPanel({ clients, workers = [], isAdmin = false
             {L.scMapping}
             {scSyncStatus?.lastUnmappedProjectCount ? ` (${scSyncStatus.lastUnmappedProjectCount})` : ""}
           </Button>
+          <ScClientMatchingRulesButton onClick={() => setScMappingRulesOpen(true)} />
         </div>
 
         {message ? <p className="text-sm font-semibold text-blue-700">{message}</p> : null}
@@ -1239,6 +1245,8 @@ export function ClientSiteRequestsPanel({ clients, workers = [], isAdmin = false
           onClose={() => setCalendarModalClient(null)}
         />
       ) : null}
+
+      <ScClientMatchingRulesModal open={scMappingRulesOpen} onClose={() => setScMappingRulesOpen(false)} />
     </>
   );
 }

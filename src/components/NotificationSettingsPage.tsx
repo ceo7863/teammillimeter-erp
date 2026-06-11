@@ -20,6 +20,10 @@ import {
   type ScWeeklyBriefingNotifyStatus,
 } from "@/utils/notificationApi";
 import {
+  NotifyScheduleTimePicker,
+  NotifyWeeklySchedulePicker,
+} from "@/components/NotifyScheduleTimePicker";
+import {
   DEFAULT_NOTIFICATION_SETTINGS,
   normalizeNotificationSettings,
   normalizePhoneList,
@@ -188,38 +192,6 @@ function formatPhoneDisplay(phone: string) {
   return phone || "-";
 }
 
-function formatScheduleTimeLabel(hour: number, minute: number) {
-  return `\uB9E4\uC77C ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} (KST)`;
-}
-
-const WEEKDAY_OPTIONS = [
-  { value: 0, label: "\uC77C\uC694\uC77C" },
-  { value: 1, label: "\uC6D4\uC694\uC77C" },
-  { value: 2, label: "\uD654\uC694\uC77C" },
-  { value: 3, label: "\uC218\uC694\uC77C" },
-  { value: 4, label: "\uBAA9\uC694\uC77C" },
-  { value: 5, label: "\uAE08\uC694\uC77C" },
-  { value: 6, label: "\uD1A0\uC694\uC77C" },
-] as const;
-
-function formatWeeklyScheduleLabel(weekday: number, hour: number, minute: number) {
-  const dayLabel = WEEKDAY_OPTIONS.find((row) => row.value === weekday)?.label || "\uC6D4\uC694\uC77C";
-  return `\uB9E4\uC8FC ${dayLabel} ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} (KST)`;
-}
-
-function toTimeInputValue(hour: number, minute: number) {
-  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-}
-
-function parseTimeInputValue(value: string): { hour: number; minute: number } | null {
-  const match = /^(\d{1,2}):(\d{2})$/.exec(value);
-  if (!match) return null;
-  const hour = Number(match[1]);
-  const minute = Number(match[2]);
-  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
-  return { hour, minute };
-}
-
 function NotificationFeatureCard({
   label,
   hint,
@@ -228,8 +200,9 @@ function NotificationFeatureCard({
   onCheckedChange,
   scheduleLabel,
   scheduleHint,
-  scheduleValue,
-  onScheduleChange,
+  scheduleHour,
+  scheduleMinute,
+  onScheduleTimeChange,
   scheduleDisabled,
   sendTestDisabled,
   hideSchedule,
@@ -248,8 +221,9 @@ function NotificationFeatureCard({
   onCheckedChange: (checked: boolean) => void;
   scheduleLabel?: string;
   scheduleHint?: string;
-  scheduleValue?: string;
-  onScheduleChange?: (value: string) => void;
+  scheduleHour?: number;
+  scheduleMinute?: number;
+  onScheduleTimeChange?: (hour: number, minute: number) => void;
   scheduleDisabled?: boolean;
   sendTestDisabled?: boolean;
   hideSchedule?: boolean;
@@ -277,17 +251,17 @@ function NotificationFeatureCard({
         </span>
       </label>
 
-      {scheduleLabel && scheduleValue != null && onScheduleChange && !hideSchedule ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
-          <span className="erp-text-caption font-bold text-slate-500">{scheduleLabel}</span>
-          <input
-            type="time"
-            className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-900"
-            value={scheduleValue}
+      {scheduleLabel != null && scheduleHour != null && scheduleMinute != null && onScheduleTimeChange && !hideSchedule ? (
+        <div className="mt-3 border-t border-slate-100 pt-3">
+          <NotifyScheduleTimePicker
+            hour={scheduleHour}
+            minute={scheduleMinute}
             disabled={scheduleDisabled}
-            onChange={(event) => onScheduleChange(event.target.value)}
+            label={scheduleLabel}
+            frequencyLabel="매일"
+            hint={scheduleHint}
+            onChange={onScheduleTimeChange}
           />
-          {scheduleHint ? <span className="erp-text-caption text-slate-400">{scheduleHint}</span> : null}
         </div>
       ) : null}
 
@@ -884,26 +858,24 @@ export function NotificationSettingsPage({ embedded = false, erpVersion, onErpVe
     }
   };
 
-  const updateDailySchedule = (value: string) => {
-    const parsed = parseTimeInputValue(value);
-    if (!parsed) return;
-    setSettings((prev) => ({ ...prev, dailyReportHour: parsed.hour, dailyReportMinute: parsed.minute }));
+  const updateDailySchedule = (hour: number, minute: number) => {
+    setSettings((prev) => ({ ...prev, dailyReportHour: hour, dailyReportMinute: minute }));
   };
 
-  const updateScSchedule = (value: string) => {
-    const parsed = parseTimeInputValue(value);
-    if (!parsed) return;
-    setSettings((prev) => ({ ...prev, scScheduleNotifyHour: parsed.hour, scScheduleNotifyMinute: parsed.minute }));
+  const updateScSchedule = (hour: number, minute: number) => {
+    setSettings((prev) => ({ ...prev, scScheduleNotifyHour: hour, scScheduleNotifyMinute: minute }));
   };
 
-  const updateWeeklySchedule = (value: string) => {
-    const parsed = parseTimeInputValue(value);
-    if (!parsed) return;
+  const updateWeeklySchedule = (hour: number, minute: number) => {
     setSettings((prev) => ({
       ...prev,
-      scWeeklyBriefingHour: parsed.hour,
-      scWeeklyBriefingMinute: parsed.minute,
+      scWeeklyBriefingHour: hour,
+      scWeeklyBriefingMinute: minute,
     }));
+  };
+
+  const updateWeeklyWeekday = (weekday: number) => {
+    setSettings((prev) => ({ ...prev, scWeeklyBriefingWeekday: weekday }));
   };
 
   const updateRecipient = (userId: number, patch: Partial<Pick<RecipientRow, "dailyReport" | "commentNotify">>) => {
@@ -914,9 +886,6 @@ export function NotificationSettingsPage({ embedded = false, erpVersion, onErpVe
     recipientRows.filter((row) => row.dailyReport).length + settings.dailyReportExtraPhones.length;
   const commentRecipientCount = recipientRows.filter((row) => row.commentNotify).length;
   const featureDisabled = !settings.enabled;
-  const dailyScheduleValue = toTimeInputValue(settings.dailyReportHour, settings.dailyReportMinute);
-  const scScheduleValue = toTimeInputValue(settings.scScheduleNotifyHour, settings.scScheduleNotifyMinute);
-  const weeklyScheduleValue = toTimeInputValue(settings.scWeeklyBriefingHour, settings.scWeeklyBriefingMinute);
 
   return (
     <div className={embedded ? "" : "erp-page erp-notification-settings-page"}>
@@ -969,15 +938,16 @@ export function NotificationSettingsPage({ embedded = false, erpVersion, onErpVe
               <div className="space-y-3">
                 <NotificationFeatureCard
                   label={L.dailyReportFeature}
-                  hint={`${L.dailyReportFeatureHint} (${formatScheduleTimeLabel(settings.dailyReportHour, settings.dailyReportMinute)})`}
+                  hint={L.dailyReportFeatureHint}
                   checked={settings.dailyReportEnabled}
                   disabled={featureDisabled}
                   onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, dailyReportEnabled: checked }))}
                   scheduleLabel={L.scheduleLabel}
                   scheduleHint={L.scheduleHintDaily}
-                  scheduleValue={dailyScheduleValue}
-                  onScheduleChange={updateDailySchedule}
-                  scheduleDisabled={featureDisabled || !settings.dailyReportEnabled}
+                  scheduleHour={settings.dailyReportHour}
+                  scheduleMinute={settings.dailyReportMinute}
+                  onScheduleTimeChange={updateDailySchedule}
+                  scheduleDisabled={featureDisabled}
                   onPreview={() => void handlePreview()}
                   onSendTest={() => void handleSendTest()}
                   previewLabel={L.preview}
@@ -1013,15 +983,16 @@ export function NotificationSettingsPage({ embedded = false, erpVersion, onErpVe
 
                 <NotificationFeatureCard
                   label={L.scScheduleFeature}
-                  hint={`${L.scScheduleFeatureHint} (${formatScheduleTimeLabel(settings.scScheduleNotifyHour, settings.scScheduleNotifyMinute)})`}
+                  hint={L.scScheduleFeatureHint}
                   checked={settings.scScheduleNotifyEnabled}
                   disabled={featureDisabled}
                   onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, scScheduleNotifyEnabled: checked }))}
                   scheduleLabel={L.scScheduleTimeLabel}
                   scheduleHint={L.scheduleHintSc}
-                  scheduleValue={scScheduleValue}
-                  onScheduleChange={updateScSchedule}
-                  scheduleDisabled={featureDisabled || !settings.scScheduleNotifyEnabled}
+                  scheduleHour={settings.scScheduleNotifyHour}
+                  scheduleMinute={settings.scScheduleNotifyMinute}
+                  onScheduleTimeChange={updateScSchedule}
+                  scheduleDisabled={featureDisabled}
                   onPreview={() => void handleScPreview()}
                   onSendTest={() => void handleScSendTest()}
                   previewLabel={L.scPreview}
@@ -1038,11 +1009,7 @@ export function NotificationSettingsPage({ embedded = false, erpVersion, onErpVe
 
                 <NotificationFeatureCard
                   label={L.weeklyBriefingFeature}
-                  hint={`${L.weeklyBriefingFeatureHint} (${formatWeeklyScheduleLabel(
-                    settings.scWeeklyBriefingWeekday,
-                    settings.scWeeklyBriefingHour,
-                    settings.scWeeklyBriefingMinute,
-                  )})`}
+                  hint={L.weeklyBriefingFeatureHint}
                   checked={settings.scWeeklyBriefingNotifyEnabled}
                   disabled={featureDisabled}
                   onCheckedChange={(checked) =>
@@ -1056,35 +1023,15 @@ export function NotificationSettingsPage({ embedded = false, erpVersion, onErpVe
                   previewing={busy === "weekly-preview"}
                   sending={busy === "weekly-send"}
                 >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="erp-text-caption font-bold text-slate-500">{L.weeklyBriefingWeekdayLabel}</span>
-                    <select
-                      className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-900"
-                      value={settings.scWeeklyBriefingWeekday}
-                      disabled={featureDisabled || !settings.scWeeklyBriefingNotifyEnabled}
-                      onChange={(event) =>
-                        setSettings((prev) => ({
-                          ...prev,
-                          scWeeklyBriefingWeekday: Number(event.target.value),
-                        }))
-                      }
-                    >
-                      {WEEKDAY_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="erp-text-caption font-bold text-slate-500">{L.weeklyBriefingTimeLabel}</span>
-                    <input
-                      type="time"
-                      className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-900"
-                      value={weeklyScheduleValue}
-                      disabled={featureDisabled || !settings.scWeeklyBriefingNotifyEnabled}
-                      onChange={(event) => updateWeeklySchedule(event.target.value)}
-                    />
-                    <span className="erp-text-caption text-slate-400">{L.weeklyBriefingScheduleHint}</span>
-                  </div>
+                  <NotifyWeeklySchedulePicker
+                    weekday={settings.scWeeklyBriefingWeekday}
+                    hour={settings.scWeeklyBriefingHour}
+                    minute={settings.scWeeklyBriefingMinute}
+                    disabled={featureDisabled}
+                    onWeekdayChange={updateWeeklyWeekday}
+                    onTimeChange={updateWeeklySchedule}
+                    hint={L.weeklyBriefingScheduleHint}
+                  />
                   {scWeeklyBriefingStatus?.lastSentAt ? (
                     <p className="erp-text-caption text-slate-500">
                       마지막 자동 발송: {scWeeklyBriefingStatus.lastWeekStart || "-"} (

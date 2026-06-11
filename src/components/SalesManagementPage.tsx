@@ -273,6 +273,7 @@ export function SalesManagementPage({
   paymentVouchers = [],
   workers = [],
   setSales,
+  onPersistSaleDelete,
   setActive,
   currentUser,
   onEditSale,
@@ -404,7 +405,7 @@ export function SalesManagementPage({
     });
   };
 
-  const deleteSale = (saleId: number | string) => {
+  const deleteSale = async (saleId: number | string) => {
     const sale = sales.find((row) => String(row.id) === String(saleId));
     if (!sale) return;
     if (!window.confirm(`전표 ${sale.voucherNo || sale.id} (${sale.client} · ${sale.site})를 삭제할까요?`)) return;
@@ -419,7 +420,11 @@ export function SalesManagementPage({
       fields: SALE_AUDIT_FIELDS,
       user: currentUser,
     });
-    setSales((prev) => prev.filter((row) => String(row.id) !== String(saleId)));
+    if (onPersistSaleDelete) {
+      await onPersistSaleDelete(saleId);
+    } else {
+      setSales((prev) => prev.filter((row) => String(row.id) !== String(saleId)));
+    }
   };
 
   const exportExcel = () => {

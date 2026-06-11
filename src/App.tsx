@@ -3535,6 +3535,7 @@ function CalendarPage({
   autoLinkedSaleIds = new Set(),
   manualLinkedSaleIds = new Set(),
   onPersistSaleUpdate,
+  onPersistSaleDelete,
   saleComments = [],
   onAddSaleComment,
   onReviewAction,
@@ -5344,6 +5345,7 @@ function CalendarPage({
           setPaymentVouchers={setPaymentVouchers}
           setBankTransactions={setBankTransactions}
           onPersistSaleUpdate={onPersistSaleUpdate}
+          onPersistSaleDelete={onPersistSaleDelete}
           screen="캘린더"
           SaleFormEditor={SaleFormCompactEditor}
           saleComments={saleComments}
@@ -5664,7 +5666,7 @@ function SearchBox({ query, setQuery, placeholder }) {
 
 const emptyVoucherSearchFilters = { client: "", site: "", worker: "" };
 
-function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, setPaymentVouchers, setBankTransactions, onPersistSaleUpdate, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set(), saleComments = [], onAddSaleComment, onReviewAction, saleCommentCounts, saleCommentUnreadCounts, onOpenSaleComments }) {
+function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, setPaymentVouchers, setBankTransactions, onPersistSaleUpdate, onPersistSaleDelete, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set(), saleComments = [], onAddSaleComment, onReviewAction, saleCommentCounts, saleCommentUnreadCounts, onOpenSaleComments }) {
   const [searchFilters, setSearchFilters] = useState(emptyVoucherSearchFilters);
   const [dateFilter, setDateFilter] = useState({ startDate: "", endDate: "" });
   const [selectedSale, setSelectedSale] = useState(null);
@@ -5734,6 +5736,7 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
           setPaymentVouchers={setPaymentVouchers}
           setBankTransactions={setBankTransactions}
           onPersistSaleUpdate={onPersistSaleUpdate}
+          onPersistSaleDelete={onPersistSaleDelete}
           screen="매출전표검색"
           SaleFormEditor={SaleFormCompactEditor}
           saleComments={saleComments}
@@ -7951,6 +7954,7 @@ export default function TeammillimeterErpMvp() {
   publishErpVersionRef.current = publishErpVersion;
   const skipSaveRef = useRef(true);
   const pendingLocalEditsRef = useRef(false);
+  const suppressedSaleIdsRef = useRef(new Set<string>());
   const workerPersistInFlightRef = useRef(false);
   const workerPersistCooldownUntilRef = useRef(0);
   const workerMonthlyPersistInFlightRef = useRef(false);
@@ -8310,7 +8314,7 @@ export default function TeammillimeterErpMvp() {
       mergeIncomingWorkerMasterList(incomingWorkers, workersRef.current),
     );
     const workersForSales = nextWorkers;
-    setSales((prev) => normalizeSalesRecords(mergeSalesByUpdatedAt(data.sales || [], prev), workersForSales));
+    setSales((prev) => normalizeSalesRecords(mergeSalesByUpdatedAt(data.sales || [], prev, { suppressedServerIds: suppressedSaleIdsRef.current }), workersForSales));
     setPaymentVouchers(data.paymentVouchers || []);
     setPaymentInputLogs(Array.isArray(data.paymentInputLogs) ? data.paymentInputLogs : []);
     const incomingClients = data.clients?.length ? data.clients : initialClients;
@@ -8563,7 +8567,7 @@ export default function TeammillimeterErpMvp() {
       );
       workersRef.current = nextWorkers;
       setWorkers(nextWorkers);
-      setSales((prev) => normalizeSalesRecords(mergeSalesByUpdatedAt(data.sales || [], prev), nextWorkers));
+      setSales((prev) => normalizeSalesRecords(mergeSalesByUpdatedAt(data.sales || [], prev, { suppressedServerIds: suppressedSaleIdsRef.current }), nextWorkers));
       const incomingMemos = normalizeWorkerMonthlyPaymentMemos(data.workerMonthlyPaymentMemos);
       const serverMemos = migrateWorkerMonthlyPaymentMemosFromWorkers(incomingWorkers, incomingMemos);
       const nextMemos = mergeWorkerMonthlyPaymentMemosForSave(serverMemos, workerMonthlyPaymentMemosRef.current);
@@ -8741,10 +8745,15 @@ export default function TeammillimeterErpMvp() {
 
       const applyPartialDomainRefresh = (latest: Partial<import("@/utils/erpApi").ErpPayload>) => {
         if (latest.sales || latest.paymentVouchers || latest.paymentInputLogs || latest.saleComments) {
-          const mergedSales = mergeSalesByUpdatedAt(latest.sales || [], savePayload.sales || []);
+          const mergedSales = mergeSalesByUpdatedAt(latest.sales || [], savePayload.sales || [], {
+            suppressedServerIds: suppressedSaleIdsRef.current,
+          });
           savePayload.sales = mergedSales;
           setSales((prev) =>
-            normalizeSalesRecords(mergeSalesByUpdatedAt(latest.sales || [], prev), latest.workers?.length ? latest.workers : workers),
+            normalizeSalesRecords(
+              mergeSalesByUpdatedAt(latest.sales || [], prev, { suppressedServerIds: suppressedSaleIdsRef.current }),
+              latest.workers?.length ? latest.workers : workers,
+            ),
           );
         }
         if (Array.isArray(latest.clients) && !clientPersistInFlightRef.current) {
@@ -9298,6 +9307,33 @@ export default function TeammillimeterErpMvp() {
       }
     }
   }, [sales, paymentVouchers, bankTransactions, apiMode, currentUser, dataReady, flushErpSave]);
+
+  const persistSaleVoucherDelete = useCallback(async (saleId: number | string) => {
+    const saleKey = String(saleId);
+    suppressedSaleIdsRef.current.add(saleKey);
+    const nextSales = salesRef.current.filter((row) => String(row.id) !== saleKey);
+    const nextComments = saleCommentsRef.current.filter((row) => String(row.saleId) !== saleKey);
+    skipSaveRef.current = true;
+    pendingLocalEditsRef.current = true;
+    setSales(nextSales);
+    setSaleComments(nextComments);
+    saleCommentsRef.current = nextComments;
+    try {
+      if (apiMode && currentUser && dataReady) {
+        const saved = await flushErpSave({ sales: nextSales, saleComments: nextComments });
+        if (saved === false) {
+          window.alert("\uC804\uD45C \uC0AD\uC81C \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uC0C8\uB85C\uACE0\uCE68 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.");
+          return false;
+        }
+        suppressedSaleIdsRef.current.delete(saleKey);
+      }
+      return true;
+    } finally {
+      if (!workerPersistInFlightRef.current && !workerMonthlyPersistInFlightRef.current) {
+        skipSaveRef.current = false;
+      }
+    }
+  }, [apiMode, currentUser, dataReady, flushErpSave, setSaleComments]);
 
   const saveSaleAiRules = useCallback(async (nextRules) => {
     const normalized = normalizeSaleAiRules(nextRules);
@@ -10489,6 +10525,7 @@ export default function TeammillimeterErpMvp() {
             autoLinkedSaleIds={autoLinkedSaleIds}
             manualLinkedSaleIds={manualLinkedSaleIds}
             onPersistSaleUpdate={persistSaleVoucherUpdate}
+            onPersistSaleDelete={persistSaleVoucherDelete}
             saleComments={saleComments}
             onAddSaleComment={addSaleCommentForVoucher}
             onReviewAction={applySaleReviewAction}
@@ -10543,7 +10580,7 @@ export default function TeammillimeterErpMvp() {
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="sales" active={active}>
-          <SalesManagementPage sales={appliedSales} paymentVouchers={paymentVouchers} workers={workers} setSales={setSales} setActive={setActive} currentUser={currentUser} onEditSale={setSalesManagementEditSale} saleCommentCounts={saleCommentCountBySaleId} saleCommentUnreadCounts={saleCommentUnreadCountBySaleId} onOpenSaleComments={openSaleCommentsView} saleComments={saleComments} />
+          <SalesManagementPage sales={appliedSales} paymentVouchers={paymentVouchers} workers={workers} setSales={setSales} onPersistSaleDelete={persistSaleVoucherDelete} setActive={setActive} currentUser={currentUser} onEditSale={setSalesManagementEditSale} saleCommentCounts={saleCommentCountBySaleId} saleCommentUnreadCounts={saleCommentUnreadCountBySaleId} onOpenSaleComments={openSaleCommentsView} saleComments={saleComments} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="salesVoucherSearch" active={active}>
           <SalesVoucherSearchPage
@@ -10555,6 +10592,7 @@ export default function TeammillimeterErpMvp() {
             setPaymentVouchers={setPaymentVouchers}
             setBankTransactions={setBankTransactions}
             onPersistSaleUpdate={persistSaleVoucherUpdate}
+            onPersistSaleDelete={persistSaleVoucherDelete}
             pendingVoucherId={pendingVoucherEditId}
             pendingSearchFilter={pendingVoucherSearchFilter}
             onPendingVoucherConsumed={() => setPendingVoucherEditId(null)}
@@ -10807,6 +10845,7 @@ export default function TeammillimeterErpMvp() {
           setPaymentVouchers={setPaymentVouchers}
           setBankTransactions={setBankTransactions}
           onPersistSaleUpdate={persistSaleVoucherUpdate}
+          onPersistSaleDelete={persistSaleVoucherDelete}
           screen="매출관리"
           SaleFormEditor={SaleFormCompactEditor}
           saleComments={saleComments}

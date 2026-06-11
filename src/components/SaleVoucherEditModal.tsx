@@ -39,6 +39,7 @@ type SaleVoucherEditModalProps = {
     payload: Record<string, unknown>,
     previousSale: SaleRecord,
   ) => void | Promise<void>;
+  onPersistSaleDelete?: (saleId: number | string) => void | Promise<boolean | void>;
   screen?: string;
   SaleFormEditor: React.ComponentType<SaleFormEditorInjectedProps>;
   saleComments?: SaleComment[];
@@ -89,6 +90,7 @@ export const SaleVoucherEditModal = memo(function SaleVoucherEditModal({
   setPaymentVouchers,
   setBankTransactions,
   onPersistSaleUpdate,
+  onPersistSaleDelete,
   screen = "\uB9E4\uCD9C\uAD00\uB9AC",
   SaleFormEditor,
   saleComments = [],
@@ -190,7 +192,7 @@ export const SaleVoucherEditModal = memo(function SaleVoucherEditModal({
     ],
   );
 
-  const confirmDeleteVoucher = () => {
+  const confirmDeleteVoucher = async () => {
     if (!deleteConfirm) return;
     const target = deleteConfirm;
 
@@ -205,7 +207,11 @@ export const SaleVoucherEditModal = memo(function SaleVoucherEditModal({
       user: currentUser,
     });
 
-    setSales((prev) => prev.filter((row) => String(row.id) !== String(target.id)));
+    if (onPersistSaleDelete) {
+      if ((await onPersistSaleDelete(target.id)) === false) return;
+    } else {
+      setSales((prev) => prev.filter((row) => String(row.id) !== String(target.id)));
+    }
     setDeleteConfirm(null);
     onClose();
   };

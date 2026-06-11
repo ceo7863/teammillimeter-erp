@@ -171,7 +171,7 @@ export const SalesVoucherSearchEditor = memo(function SalesVoucherSearchEditor({
       user: currentUser,
     });
 
-    setSales((prev) => prev.filter((row) => row.id !== target.id));
+    setSales((prev) => prev.filter((row) => String(row.id) !== String(target.id)));
     setDeleteConfirm(null);
     onClose();
     setSaveMessage(
