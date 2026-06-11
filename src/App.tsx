@@ -46,6 +46,7 @@ import {
   UserCog,
   Megaphone,
   MessageSquare,
+  MessageCircle,
   Receipt,
   Circle,
   UserMinus,
@@ -370,6 +371,8 @@ import {
   syncLocalSidebarOrderIfNeeded,
 } from "@/utils/sidebarOrder";
 import { useClientSiteRequestPendingCount } from "@/hooks/useClientSiteRequestPendingCount";
+import { useTeamChatUnreadCount } from "@/hooks/useTeamChatUnreadCount";
+import { TeamChatPage } from "@/components/TeamChatPage";
 import { useSaleCommentReadState } from "@/hooks/useSaleCommentReadState";
 
 const initialReceivables = [
@@ -3113,6 +3116,7 @@ const PAGE_ICONS: Record<ErpPageKey, typeof Home> = {
   scCalendar: CalendarDays,
   scAlimtalk: Smartphone,
   dailyReport: ClipboardList,
+  teamChat: MessageCircle,
   attendance: Clock,
   salesInput: Plus,
   sales: FileSpreadsheet,
@@ -8473,6 +8477,10 @@ export default function TeammillimeterErpMvp() {
     setSidebarOpen(false);
   }, []);
   const clientSiteRequestPendingCount = useClientSiteRequestPendingCount(currentUser, { pollMs: 30000 });
+  const { count: teamChatUnreadCount, refresh: refreshTeamChatUnread } = useTeamChatUnreadCount(currentUser, {
+    pollMs: 10000,
+    enabled: active !== "teamChat",
+  });
   const [sales, setSales] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return storedData?.sales || initialSales;
@@ -10844,6 +10852,7 @@ export default function TeammillimeterErpMvp() {
   const sidebarPageBadges = useMemo(
     () => ({
       clientSiteRequests: clientSiteRequestPendingCount,
+      teamChat: teamChatUnreadCount,
       saleComments: saleReviewBadgeCount,
       ...(canUserActAsSettler(currentUser)
         ? { workerPayments: countSalesNeedingReviewForRole(appliedSales, saleComments, "settler") }
@@ -10859,6 +10868,7 @@ export default function TeammillimeterErpMvp() {
       appliedSales,
       basicInfoTabAccess.workers,
       clientSiteRequestPendingCount,
+      teamChatUnreadCount,
       currentUser,
       saleComments,
       saleReviewBadgeCount,
@@ -11061,6 +11071,13 @@ export default function TeammillimeterErpMvp() {
         </PageKeepAlive>
         <PageKeepAlive pageKey="dailyReport" active={active}>
           <DailyReportPage currentUser={currentUser} />
+        </PageKeepAlive>
+        <PageKeepAlive pageKey="teamChat" active={active} className="erp-page-keep-alive--team-chat">
+          <TeamChatPage
+            currentUser={currentUser}
+            isPageActive={active === "teamChat"}
+            onUnreadChange={() => void refreshTeamChatUnread()}
+          />
         </PageKeepAlive>
         <PageKeepAlive pageKey="attendance" active={active}>
           <AttendancePage

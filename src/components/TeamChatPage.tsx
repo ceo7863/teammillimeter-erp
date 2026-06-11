@@ -1,0 +1,446 @@
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, MessageCircle, Plus, Search, Send, Users, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import type { ErpUser } from "@/utils/erpApi";
+import {
+  fetchTeamChatMessages,
+  formatTeamChatTime,
+  listTeamChatChannels,
+  listTeamChatUsers,
+  loadTeamChatHistory,
+  markTeamChatChannelRead,
+  openTeamChatDm,
+  sendTeamChatMessage,
+  type TeamChatChannel,
+  type TeamChatMessage,
+  type TeamChatUser,
+} from "@/utils/teamChat";
+
+const L = {
+  title: "\uC0AC\uB0B4 \uCC57",
+  teamSection: "\uC804\uCCB4",
+  dmSection: "1:1",
+  newDm: "\uC0C8 \uB300\uD654",
+  pickUser: "\uB300\uD654\uD560 \uC9F1\uC6D0 \uC120\uD0DD",
+  searchUser: "\uC774\uB984 \uAC80\uC0C9",
+  emptyChannels: "\uC544\uC9C1 1:1 \uB300\uD654\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  emptyMessages: "\uCCAB \uBA54\uC2DC\uC9C0\uB97C \uBCF4\uB0B4 \uBCF4\uC138\uC694.",
+  placeholder: "\uBA54\uC2DC\uC9C0 \uC785\uB825",
+  send: "\uC804\uC1A1",
+  sending: "\uC804\uC1A1 \uC911\u2026",
+  back: "\uBAA9\uB85D",
+  loadError: "\uCC57\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",
+  sendError: "\uBA54\uC2DC\uC9C0 \uC804\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+  noPreview: "\uB300\uD654 \uC5C6\uC74C",
+  loading: "\uBD88\uB7EC\uC624\uB294 \uC911\u2026",
+  pickChannelHint: "\uB300\uD654\uBC29\uC744 \uC120\uD0DD\uD558\uAC70\uB098 \uC0C8 1:1 \uB300\uD654\uB97C \uC2DC\uC791\uD558\uC138\uC694.",
+  teamChannelLabel: "\uC804\uCCB4 \uB2E8\uD1A1",
+  dmChannelLabel: "1:1 \uB300\uD654",
+};
+
+type TeamChatPageProps = {
+  currentUser: ErpUser | null;
+  isPageActive?: boolean;
+  onUnreadChange?: () => void;
+};
+
+function ChannelListItem({
+  channel,
+  active,
+  onSelect,
+}: {
+  channel: TeamChatChannel;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`erp-team-chat-channel ${active ? "is-active" : ""}`}
+      onClick={onSelect}
+    >
+      <div className="erp-team-chat-channel__icon" aria-hidden="true">
+        {channel.type === "team" ? <Users size={18} /> : <MessageCircle size={18} />}
+      </div>
+      <div className="erp-team-chat-channel__main">
+        <div className="erp-team-chat-channel__head">
+          <span className="erp-team-chat-channel__title">{channel.title}</span>
+          {channel.lastMessageAt ? (
+            <span className="erp-team-chat-channel__time">{formatTeamChatTime(channel.lastMessageAt)}</span>
+          ) : null}
+        </div>
+        <div className="erp-team-chat-channel__preview">
+          {channel.lastMessagePreview
+            ? `${channel.lastMessageUserName ? `${channel.lastMessageUserName}: ` : ""}${channel.lastMessagePreview}`
+            : L.noPreview}
+        </div>
+      </div>
+      {channel.unreadCount > 0 ? (
+        <span className="erp-team-chat-channel__badge">{channel.unreadCount > 99 ? "99+" : channel.unreadCount}</span>
+      ) : null}
+    </button>
+  );
+}
+
+export const TeamChatPage = memo(function TeamChatPage({
+  currentUser,
+  isPageActive = true,
+  onUnreadChange,
+}: TeamChatPageProps) {
+  const [channels, setChannels] = useState<TeamChatChannel[]>([]);
+  const [users, setUsers] = useState<TeamChatUser[]>([]);
+  const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<TeamChatMessage[]>([]);
+  const [draft, setDraft] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [userQuery, setUserQuery] = useState("");
+  const listRef = useRef<HTMLDivElement>(null);
+  const lastMessageIdRef = useRef(0);
+
+  const selectedChannel = useMemo(
+    () => channels.find((row) => row.id === selectedChannelId) || null,
+    [channels, selectedChannelId],
+  );
+
+  const teamChannels = useMemo(() => channels.filter((row) => row.type === "team"), [channels]);
+  const dmChannels = useMemo(() => channels.filter((row) => row.type === "dm"), [channels]);
+
+  const filteredUsers = useMemo(() => {
+    const q = userQuery.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter((row) => {
+      const name = String(row.name || "").toLowerCase();
+      const loginId = String(row.loginId || "").toLowerCase();
+      return name.includes(q) || loginId.includes(q);
+    });
+  }, [userQuery, users]);
+
+  const scrollToBottom = useCallback(() => {
+    const node = listRef.current;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
+  }, []);
+
+  const refreshChannels = useCallback(async () => {
+    const rows = await listTeamChatChannels();
+    setChannels(rows);
+    return rows;
+  }, []);
+
+  const loadInitialMessages = useCallback(async (channelId: string) => {
+    const rows = await loadTeamChatHistory(channelId, 120);
+    setMessages(rows);
+    const lastId = rows.length ? rows[rows.length - 1].id : 0;
+    lastMessageIdRef.current = lastId;
+    if (lastId > 0) {
+      await markTeamChatChannelRead(channelId, lastId);
+      onUnreadChange?.();
+    }
+    window.requestAnimationFrame(scrollToBottom);
+  }, [onUnreadChange, scrollToBottom]);
+
+  const pollMessages = useCallback(async (channelId: string) => {
+    const afterId = lastMessageIdRef.current;
+    const rows = await fetchTeamChatMessages(channelId, { afterId, limit: 100 });
+    if (!rows.length) return;
+    setMessages((prev) => {
+      const seen = new Set(prev.map((row) => row.id));
+      const next = [...prev];
+      for (const row of rows) {
+        if (!seen.has(row.id)) next.push(row);
+      }
+      return next;
+    });
+    const lastId = rows[rows.length - 1].id;
+    lastMessageIdRef.current = lastId;
+    await markTeamChatChannelRead(channelId, lastId);
+    onUnreadChange?.();
+    window.requestAnimationFrame(scrollToBottom);
+  }, [onUnreadChange, scrollToBottom]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      setLoading(true);
+      setError("");
+      try {
+        const [channelRows, userRows] = await Promise.all([listTeamChatChannels(), listTeamChatUsers()]);
+        if (cancelled) return;
+        setChannels(channelRows);
+        setUsers(userRows);
+      } catch {
+        if (!cancelled) setError(L.loadError);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedChannelId && channels.length) {
+      const team = channels.find((row) => row.type === "team");
+      if (team) setSelectedChannelId(team.id);
+    }
+  }, [channels, selectedChannelId]);
+
+  useEffect(() => {
+    if (!selectedChannelId) {
+      setMessages([]);
+      lastMessageIdRef.current = 0;
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      setError("");
+      try {
+        await loadInitialMessages(selectedChannelId);
+        if (!cancelled) await refreshChannels();
+      } catch {
+        if (!cancelled) setError(L.loadError);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadInitialMessages, refreshChannels, selectedChannelId]);
+
+  useEffect(() => {
+    if (!selectedChannelId || !isPageActive) return;
+    const timer = window.setInterval(() => {
+      void pollMessages(selectedChannelId).catch(() => {});
+      void refreshChannels().catch(() => {});
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [isPageActive, pollMessages, refreshChannels, selectedChannelId]);
+
+  const handleSelectChannel = useCallback((channelId: string) => {
+    setSelectedChannelId(channelId);
+    setDraft("");
+    setPickerOpen(false);
+  }, []);
+
+  const handleStartDm = useCallback(
+    async (otherUserId: number) => {
+      setError("");
+      try {
+        const channel = await openTeamChatDm(otherUserId);
+        const rows = await refreshChannels();
+        const resolved = rows.find((row) => row.id === channel.id) || channel;
+        setChannels((prev) => {
+          if (prev.some((row) => row.id === resolved.id)) {
+            return prev.map((row) => (row.id === resolved.id ? resolved : row));
+          }
+          return [resolved, ...prev];
+        });
+        setPickerOpen(false);
+        setUserQuery("");
+        handleSelectChannel(resolved.id);
+      } catch {
+        setError(L.loadError);
+      }
+    },
+    [handleSelectChannel, refreshChannels],
+  );
+
+  const handleSend = useCallback(async () => {
+    if (!selectedChannelId) return;
+    const body = draft.trim();
+    if (!body || sending) return;
+    setSending(true);
+    setError("");
+    try {
+      const message = await sendTeamChatMessage(selectedChannelId, body);
+      setDraft("");
+      setMessages((prev) => [...prev, message]);
+      lastMessageIdRef.current = message.id;
+      await refreshChannels();
+      onUnreadChange?.();
+      window.requestAnimationFrame(scrollToBottom);
+    } catch {
+      setError(L.sendError);
+    } finally {
+      setSending(false);
+    }
+  }, [draft, onUnreadChange, refreshChannels, scrollToBottom, selectedChannelId, sending]);
+
+  const showThreadOnMobile = Boolean(selectedChannelId);
+  const selfId = Number(currentUser?.id) || 0;
+
+  return (
+    <div className={`erp-team-chat-page ${showThreadOnMobile ? "is-thread-open" : ""}`}>
+      <aside className={`erp-team-chat-sidebar ${showThreadOnMobile ? "is-hidden-mobile" : ""}`}>
+        <div className="erp-team-chat-sidebar__head">
+          <h1 className="erp-team-chat-sidebar__title">{L.title}</h1>
+          <Button type="button" size="sm" variant="outline" className="h-8 rounded-lg gap-1" onClick={() => setPickerOpen(true)}>
+            <Plus size={14} />
+            {L.newDm}
+          </Button>
+        </div>
+
+        {loading ? <p className="erp-team-chat-muted px-4 py-6 text-sm">{L.loading}</p> : null}
+        {error && !selectedChannelId ? <p className="erp-team-chat-error px-4 py-2 text-sm">{error}</p> : null}
+
+        <div className="erp-team-chat-sidebar__sections">
+          {teamChannels.length ? (
+            <section>
+              <h2 className="erp-team-chat-section-title">{L.teamSection}</h2>
+              {teamChannels.map((channel) => (
+                <ChannelListItem
+                  key={channel.id}
+                  channel={channel}
+                  active={channel.id === selectedChannelId}
+                  onSelect={() => handleSelectChannel(channel.id)}
+                />
+              ))}
+            </section>
+          ) : null}
+
+          <section>
+            <h2 className="erp-team-chat-section-title">{L.dmSection}</h2>
+            {dmChannels.length ? (
+              dmChannels.map((channel) => (
+                <ChannelListItem
+                  key={channel.id}
+                  channel={channel}
+                  active={channel.id === selectedChannelId}
+                  onSelect={() => handleSelectChannel(channel.id)}
+                />
+              ))
+            ) : (
+              <p className="erp-team-chat-muted px-4 py-3 text-sm">{L.emptyChannels}</p>
+            )}
+          </section>
+        </div>
+      </aside>
+
+      <section className={`erp-team-chat-thread ${selectedChannelId ? "is-open" : ""}`}>
+        {!selectedChannel ? (
+          <div className="erp-team-chat-thread__empty">
+            <MessageCircle size={40} className="text-slate-300" />
+            <p className="mt-3 text-sm text-slate-500">{L.pickChannelHint}</p>
+          </div>
+        ) : (
+          <>
+            <div className="erp-team-chat-thread__head">
+              <button
+                type="button"
+                className="erp-team-chat-back lg:hidden"
+                onClick={() => setSelectedChannelId(null)}
+              >
+                <ArrowLeft size={18} />
+                {L.back}
+              </button>
+              <div className="min-w-0">
+                <h2 className="truncate text-base font-bold text-slate-900">{selectedChannel.title}</h2>
+                <p className="text-xs text-slate-500">
+                  {selectedChannel.type === "team" ? L.teamChannelLabel : L.dmChannelLabel}
+                </p>
+              </div>
+            </div>
+
+            <div ref={listRef} className="erp-team-chat-thread__messages">
+              {!messages.length ? <p className="erp-team-chat-muted text-center text-sm">{L.emptyMessages}</p> : null}
+              {messages.map((message) => {
+                const isMine = Number(message.userId) === selfId;
+                return (
+                  <div
+                    key={message.id}
+                    className={`erp-team-chat-bubble-row ${isMine ? "is-mine" : "is-theirs"}`}
+                  >
+                    <div className={`erp-team-chat-bubble ${isMine ? "is-mine" : "is-theirs"}`}>
+                      <div className="erp-team-chat-bubble__meta">
+                        {message.userName}
+                        {" \u00B7 "}
+                        {formatTeamChatTime(message.createdAt)}
+                      </div>
+                      <div className="erp-team-chat-bubble__body">{message.body}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {error ? <p className="erp-team-chat-error px-4 py-1 text-sm">{error}</p> : null}
+
+            <form
+              className="erp-team-chat-composer"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleSend();
+              }}
+            >
+              <textarea
+                className="erp-team-chat-composer__input"
+                rows={1}
+                value={draft}
+                placeholder={L.placeholder}
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    void handleSend();
+                  }
+                }}
+              />
+              <Button type="submit" size="sm" className="h-10 rounded-xl px-4" disabled={!draft.trim() || sending}>
+                <Send size={16} className="mr-1" />
+                {sending ? L.sending : L.send}
+              </Button>
+            </form>
+          </>
+        )}
+      </section>
+
+      {pickerOpen ? (
+        <div className="erp-ledger-modal-backdrop" onClick={() => setPickerOpen(false)}>
+          <div
+            className="erp-ledger-modal max-w-md"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={L.pickUser}
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">{L.pickUser}</h2>
+                <p className="mt-1 text-sm text-slate-500">{L.searchUser}</p>
+              </div>
+              <button type="button" className="rounded-xl p-2 text-slate-500 hover:bg-slate-100" onClick={() => setPickerOpen(false)}>
+                <X size={18} />
+              </button>
+            </div>
+            <label className="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <Search size={16} className="text-slate-400" />
+              <input
+                className="w-full bg-transparent text-sm outline-none"
+                value={userQuery}
+                onChange={(event) => setUserQuery(event.target.value)}
+                placeholder={L.searchUser}
+              />
+            </label>
+            <ul className="max-h-[min(24rem,50vh)] space-y-1 overflow-y-auto">
+              {filteredUsers.map((user) => (
+                <li key={user.id}>
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left hover:bg-slate-50"
+                    onClick={() => void handleStartDm(user.id)}
+                  >
+                    <span className="font-semibold text-slate-900">{user.name}</span>
+                    <span className="text-xs text-slate-500">{user.loginId || user.role}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+});

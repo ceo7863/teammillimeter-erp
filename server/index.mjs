@@ -127,6 +127,17 @@ import {
 } from "./erpChat.mjs";
 import { getChatGuidePdfPath } from "./erpChatGuide.mjs";
 import { initErpChatStore } from "./erpChatStore.mjs";
+import {
+  getOrCreateTeamChatDmChannel,
+  getTeamChatMessageHistory,
+  getTeamChatUnreadCount,
+  initTeamChatStore,
+  listTeamChatChannels,
+  listTeamChatMessages,
+  listTeamChatUsers,
+  markTeamChatRead,
+  postTeamChatMessage,
+} from "./teamChat.mjs";
 import { buildDailyReport, formatDailyReportMessage, yesterdayDateKey } from "./dailyReport.mjs";
 import { buildDailyReportPageAsync } from "./dailyReportPage.mjs";
 import { collectSystemMetrics } from "./systemMetrics.mjs";
@@ -218,6 +229,7 @@ import {
 initDb();
 runErpStartupMigrations();
 initErpChatStore();
+initTeamChatStore();
 initPdfArchiveStore();
 initBoardAttachmentStore();
 initClientBusinessRegStore();
@@ -1520,6 +1532,74 @@ app.get("/api/erp/chat/history", authMiddleware, (req, res) => {
 
 app.delete("/api/erp/chat/history", authMiddleware, (req, res) => {
   res.json(clearErpChatHistory(req.user));
+});
+
+app.get("/api/team-chat/channels", authMiddleware, (req, res) => {
+  try {
+    res.json(listTeamChatChannels(req.user.id));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "채팅 목록 조회에 실패했습니다." });
+  }
+});
+
+app.get("/api/team-chat/users", authMiddleware, (req, res) => {
+  try {
+    res.json(listTeamChatUsers(req.user.id));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "사용자 목록 조회에 실패했습니다." });
+  }
+});
+
+app.post("/api/team-chat/dm", authMiddleware, (req, res) => {
+  try {
+    const channel = getOrCreateTeamChatDmChannel(req.user.id, req.body?.otherUserId);
+    res.status(201).json(channel);
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "1:1 대화 시작에 실패했습니다." });
+  }
+});
+
+app.get("/api/team-chat/unread-count", authMiddleware, (req, res) => {
+  try {
+    res.json({ count: getTeamChatUnreadCount(req.user.id) });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "미읽음 조회에 실패했습니다." });
+  }
+});
+
+app.get("/api/team-chat/channels/:channelId/messages", authMiddleware, (req, res) => {
+  try {
+    const channelId = req.params.channelId;
+    if (String(req.query.history || "") === "1") {
+      res.json(getTeamChatMessageHistory(channelId, req.user.id, { limit: req.query.limit }));
+      return;
+    }
+    res.json(
+      listTeamChatMessages(channelId, req.user.id, {
+        afterId: req.query.after,
+        limit: req.query.limit,
+      }),
+    );
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "메시지 조회에 실패했습니다." });
+  }
+});
+
+app.post("/api/team-chat/channels/:channelId/messages", authMiddleware, (req, res) => {
+  try {
+    const message = postTeamChatMessage(req.params.channelId, req.user, req.body || {});
+    res.status(201).json(message);
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "메시지 전송에 실패했습니다." });
+  }
+});
+
+app.post("/api/team-chat/channels/:channelId/read", authMiddleware, (req, res) => {
+  try {
+    res.json(markTeamChatRead(req.params.channelId, req.user.id, req.body?.messageId));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "읽음 처리에 실패했습니다." });
+  }
 });
 
 app.get("/api/erp/chat/audit", authMiddleware, adminMiddleware, (req, res) => {
