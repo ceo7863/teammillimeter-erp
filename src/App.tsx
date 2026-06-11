@@ -11044,6 +11044,7 @@ export default function TeammillimeterErpMvp() {
         pageBadges={sidebarPageBadges}
       />
       <div className="flex min-w-0 flex-1 flex-col">
+        {active !== "teamChat" ? (
         <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-slate-200 bg-white/95 px-3 py-3 backdrop-blur lg:hidden erp-mobile-header">
           <button
             type="button"
@@ -11058,7 +11059,8 @@ export default function TeammillimeterErpMvp() {
             <div className="truncate erp-text-caption text-slate-500">{activeLabel}</div>
           </div>
         </header>
-        <main className="min-w-0 flex-1 p-2.5 sm:p-3 lg:p-4">
+        ) : null}
+        <main className={`min-w-0 flex-1 ${active === "teamChat" ? "p-0 lg:p-4" : "p-2.5 sm:p-3 lg:p-4"}`}>
         {basicInfoTabAccess.workers ? (
           <WorkerProbationAlertBanner
             workers={workers}
@@ -11135,6 +11137,7 @@ export default function TeammillimeterErpMvp() {
             isPageActive={active === "teamChat"}
             onUnreadChange={handleTeamChatUnreadChange}
             onErpAction={handleErpChatAction}
+            onOpenAppMenu={() => setSidebarOpen(true)}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="attendance" active={active}>

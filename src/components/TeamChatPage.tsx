@@ -4,6 +4,7 @@ import {
   CornerUpLeft,
   ExternalLink,
   MessageCircle,
+  Menu,
   MoreHorizontal,
   Paperclip,
   Pencil,
@@ -17,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import type { ErpUser } from "@/utils/erpApi";
 import type { ErpChatAction } from "@/utils/erpChatApi";
+import { useTeamChatMobileLayout } from "@/hooks/useTeamChatMobileLayout";
 import { useTeamChatEvents, type TeamChatStreamEvent } from "@/hooks/useTeamChatEvents";
 import {
   downloadTeamChatAttachmentBlob,
@@ -113,6 +115,7 @@ type TeamChatPageProps = {
   standalone?: boolean;
   onUnreadChange?: () => void;
   onErpAction?: (action: ErpChatAction) => void;
+  onOpenAppMenu?: () => void;
 };
 
 function channelTypeLabel(type: TeamChatChannel["type"]) {
@@ -245,6 +248,7 @@ export const TeamChatPage = memo(function TeamChatPage({
   standalone = false,
   onUnreadChange,
   onErpAction,
+  onOpenAppMenu,
 }: TeamChatPageProps) {
   const [channels, setChannels] = useState<TeamChatChannel[]>([]);
   const [users, setUsers] = useState<TeamChatUser[]>([]);
@@ -277,6 +281,8 @@ export const TeamChatPage = memo(function TeamChatPage({
   const selectedChannelIdRef = useRef<string | null>(null);
   const shareAppliedRef = useRef(false);
   const onUnreadChangeRef = useRef(onUnreadChange);
+  const listBrowsingRef = useRef(false);
+  const isMobileLayout = useTeamChatMobileLayout();
 
   selectedChannelIdRef.current = selectedChannelId;
   onUnreadChangeRef.current = onUnreadChange;
@@ -474,11 +480,15 @@ export const TeamChatPage = memo(function TeamChatPage({
   }, [handleIncomingShare]);
 
   useEffect(() => {
+    if (isMobileLayout) {
+      if (listBrowsingRef.current) return;
+      if (!selectedChannelId) return;
+    }
     if (!selectedChannelId && channels.length) {
       const team = channels.find((row) => row.type === "team");
       if (team) setSelectedChannelId(team.id);
     }
-  }, [channels, selectedChannelId]);
+  }, [channels, isMobileLayout, selectedChannelId]);
 
   useEffect(() => {
     if (!selectedChannelId) {
@@ -537,6 +547,7 @@ export const TeamChatPage = memo(function TeamChatPage({
 
   const handleSelectChannel = useCallback((channelId: string) => {
     if (channelId === selectedChannelIdRef.current) return;
+    listBrowsingRef.current = false;
     setSelectedChannelId(channelId);
     setDraft("");
     setPendingLink(null);
@@ -745,14 +756,34 @@ export const TeamChatPage = memo(function TeamChatPage({
     selectedChannelId,
   ]);
 
+  const handleBackToList = useCallback(() => {
+    listBrowsingRef.current = true;
+    setSelectedChannelId(null);
+  }, []);
+
   const showThreadOnMobile = standalone ? false : Boolean(selectedChannelId);
+  const isMobileChat = isMobileLayout && !standalone;
   const selfId = Number(currentUser?.id) || 0;
 
   return (
-    <div className={`erp-team-chat-page ${standalone ? "erp-team-chat-page--standalone" : ""} ${showThreadOnMobile ? "is-thread-open" : ""}`}>
+    <div
+      className={`erp-team-chat-page ${standalone ? "erp-team-chat-page--standalone" : ""} ${isMobileChat ? "erp-team-chat-page--mobile" : ""} ${showThreadOnMobile ? "is-thread-open" : ""} ${isMobileChat && !showThreadOnMobile ? "is-mobile-list" : ""}`}
+    >
       <aside className={`erp-team-chat-sidebar ${showThreadOnMobile ? "is-hidden-mobile" : ""}`}>
         <div className="erp-team-chat-sidebar__head">
-          <h1 className="erp-team-chat-sidebar__title">{L.title}</h1>
+          <div className="erp-team-chat-sidebar__head-start">
+            {onOpenAppMenu ? (
+              <button
+                type="button"
+                className="erp-team-chat-sidebar__menu lg:hidden"
+                onClick={onOpenAppMenu}
+                aria-label={"\uBA54\uB274 \uC5F4\uAE30"}
+              >
+                <Menu size={20} />
+              </button>
+            ) : null}
+            <h1 className="erp-team-chat-sidebar__title">{L.title}</h1>
+          </div>
           <div className="flex items-center gap-1">
             {!standalone ? (
               <Button
@@ -820,34 +851,36 @@ export const TeamChatPage = memo(function TeamChatPage({
                 <button
                   type="button"
                   className="erp-team-chat-back lg:hidden"
-                  onClick={() => setSelectedChannelId(null)}
+                  onClick={handleBackToList}
+                  aria-label={L.back}
                 >
-                  <ArrowLeft size={18} />
-                  {L.back}
+                  <ArrowLeft size={22} />
                 </button>
               ) : null}
-              <div className="min-w-0 flex-1 flex items-center gap-2.5">
+              <div className="erp-team-chat-thread__head-main min-w-0 flex-1 flex items-center gap-2.5">
                 <div
-                  className="erp-team-chat-avatar erp-team-chat-thread__avatar"
+                  className="erp-team-chat-avatar erp-team-chat-thread__avatar hidden sm:flex"
                   style={teamChatAvatarStyle(selectedChannel.id || selectedChannel.title)}
                   aria-hidden="true"
                 >
                   {teamChatChannelAvatarLabel(selectedChannel)}
                 </div>
                 <div className="min-w-0">
-                  <h2 className="truncate text-[15px] font-bold text-[#191919]">{selectedChannel.title}</h2>
-                  <p className="text-[11px] text-[#888]">{channelTypeLabel(selectedChannel.type)}</p>
+                  <h2 className="truncate text-[16px] font-bold text-[#191919]">{selectedChannel.title}</h2>
+                  <p className="erp-team-chat-thread__head-sub hidden sm:block text-[11px] text-[#888]">
+                    {channelTypeLabel(selectedChannel.type)}
+                  </p>
                 </div>
               </div>
               <Button
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="h-8 rounded-lg px-2"
+                className="erp-team-chat-thread__head-action h-9 w-9 shrink-0 rounded-full p-0"
                 onClick={() => setSearchOpen(true)}
                 title={L.searchMessages}
               >
-                <Search size={16} />
+                <Search size={18} />
               </Button>
             </div>
 
