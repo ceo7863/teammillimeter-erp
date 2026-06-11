@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import { config, seedUsers } from "./config.mjs";
 import { ERP_DOMAIN_FIELDS, ERP_DOMAIN_NAMES, pickDomainPayload } from "./erpDomains.mjs";
 import { queueCoalescedWrite } from "./erpWriteQueue.mjs";
+import { migrateClientAichiToMiumu, needsClientAichiToMiumuMigration } from "./migrateClientAichiToMiumu.mjs";
 import { isAttendanceTargetUser } from "./attendanceAccess.mjs";
 
 let db;
