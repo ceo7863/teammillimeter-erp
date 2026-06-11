@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { WorkerHrRecordModal } from "@/components/WorkerHrRecordModal";
 import type { CompanyProfile } from "@/utils/companyProfile";
+import { DEFAULT_COMPANY_PROFILE } from "@/utils/companyProfile";
 import {
   aggregateByQuestion,
   aggregateByWorker,
@@ -35,7 +36,9 @@ const L = {
   noData: "\uD574\uB2F9 \uAE30\uAC04 \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
   trendTitle: "\uC77C\uBCC4 \uC810\uC218 \uCD94\uC774",
   hrRecord: "\uC778\uC0AC\uAE30\uB85D\uBD80",
-  hrRecordHint: "\uC120\uD0DD \uC2DC\uACF5\uC790 \uC778\uC0AC\uAE30\uB85D\uBD80 (\uB808\uC774\uB354 \u00B7 \uCD94\uC774 \u00B7 \uC9C4\uAE09\uD3C9\uAC00)",
+  hrRecordHint: "\uC2DC\uACF5\uC790 \uC120\uD0DD \uD6C4 \uC778\uC0AC\uAE30\uB85D\uBD80\uB97C \uC5F4 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+  hrRecordSelectFirst: "\uC644\uC810 \uBAA9\uB85D\uC5D0\uC11C \uC2DC\uACF5\uC790\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
+  hrRecordOpen: "\uBCF4\uAE30",
 };
 
 type ProbationEvalDashboardProps = {
@@ -96,6 +99,13 @@ export function ProbationEvalDashboard({
   const selectedWorkerName =
     workerAggregates.find((row) => row.probationWorkerId === selectedWorkerId)?.probationWorkerName || "";
 
+  const resolvedCompanyProfile = companyProfile || DEFAULT_COMPANY_PROFILE;
+
+  const openHrRecord = (workerId: string, workerName: string) => {
+    setSelectedWorkerId(workerId);
+    setHrRecordOpen(true);
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -110,13 +120,15 @@ export function ProbationEvalDashboard({
             type="button"
             size="sm"
             className="rounded-lg"
-            disabled={!selectedWorkerId || !companyProfile}
+            disabled={!selectedWorkerId}
             onClick={() => setHrRecordOpen(true)}
           >
             <FileText size={14} className="mr-1.5" />
             {L.hrRecord}
           </Button>
-          <p className="text-xs text-slate-400">{L.hrRecordHint}</p>
+          <p className="text-xs text-slate-400">
+            {selectedWorkerId ? L.hrRecordHint : L.hrRecordSelectFirst}
+          </p>
         </div>
       </div>
 
@@ -141,23 +153,39 @@ export function ProbationEvalDashboard({
           {workerAggregates.length ? (
             <div className="space-y-2 max-h-64 overflow-auto">
               {workerAggregates.map((row) => (
-                <button
+                <div
                   key={row.probationWorkerId}
-                  type="button"
-                  className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${
+                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${
                     selectedWorkerId === row.probationWorkerId
                       ? "border-blue-500 bg-blue-50"
-                      : "border-slate-200 hover:bg-slate-50"
+                      : "border-slate-200"
                   }`}
-                  onClick={() =>
-                    setSelectedWorkerId((prev) => (prev === row.probationWorkerId ? "" : row.probationWorkerId))
-                  }
                 >
-                  <div className="font-semibold text-slate-900">{row.probationWorkerName}</div>
-                  <div className="text-xs text-slate-500">
-                    {row.submittedCount}/{row.requestCount} {"\u00B7"} avg {Math.round(row.averageScore * 10) / 10}
-                  </div>
-                </button>
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left text-sm hover:opacity-90"
+                    onClick={() =>
+                      setSelectedWorkerId((prev) =>
+                        prev === row.probationWorkerId ? "" : row.probationWorkerId,
+                      )
+                    }
+                  >
+                    <div className="font-semibold text-slate-900">{row.probationWorkerName}</div>
+                    <div className="text-xs text-slate-500">
+                      {row.submittedCount}/{row.requestCount} {"\u00B7"} avg {Math.round(row.averageScore * 10) / 10}
+                    </div>
+                  </button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0 rounded-lg text-xs"
+                    onClick={() => openHrRecord(row.probationWorkerId, row.probationWorkerName)}
+                  >
+                    <FileText size={13} className="mr-1" />
+                    {L.hrRecordOpen}
+                  </Button>
+                </div>
               ))}
             </div>
           ) : (
@@ -229,7 +257,7 @@ export function ProbationEvalDashboard({
         </div>
       </section>
 
-      {companyProfile && selectedWorkerId ? (
+      {selectedWorkerId ? (
         <WorkerHrRecordModal
           open={hrRecordOpen}
           onClose={() => setHrRecordOpen(false)}
@@ -240,7 +268,7 @@ export function ProbationEvalDashboard({
           workers={workers}
           requests={requests}
           templates={templates}
-          companyProfile={companyProfile}
+          companyProfile={resolvedCompanyProfile}
         />
       ) : null}
     </div>
