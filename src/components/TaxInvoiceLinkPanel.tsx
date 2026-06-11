@@ -218,8 +218,6 @@ function TaxInvoiceLinkResultsTable({
   onUnlink: (invoiceId: string) => void;
 }) {
   const [page, setPage] = useState(1);
-  const txIsWithdrawal = Number(tx.withdrawal || 0) > 0;
-  const txIsDeposit = Number(tx.deposit || 0) > 0;
 
   useEffect(() => {
     setPage(1);
@@ -267,9 +265,7 @@ function TaxInvoiceLinkResultsTable({
                 const isLinked = linkedInvoiceIds.includes(row.invoice.id);
                 const canLink =
                   !isLinked &&
-                  canLinkTaxInvoiceToTransaction(tx, row.invoice, row.unsettledAmount, matchContext) &&
-                  ((row.invoice.flowType === "purchase" && txIsWithdrawal) ||
-                    (row.invoice.flowType === "sales" && txIsDeposit));
+                  canLinkTaxInvoiceToTransaction(tx, row.invoice, row.unsettledAmount, matchContext);
 
                 return (
                   <tr key={row.invoice.id} className={isLinked ? "bg-blue-50/70" : undefined}>
@@ -310,9 +306,9 @@ function TaxInvoiceLinkResultsTable({
                         >
                           {L.add}
                         </button>
-                      ) : (
+                      ) : row.unsettledAmount <= 0 ? (
                         <span className="text-xs text-slate-400">{L.noUnsettled}</span>
-                      )}
+                      ) : null}
                     </td>
                   </tr>
                 );

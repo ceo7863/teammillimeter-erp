@@ -487,13 +487,12 @@ export function canLinkTaxInvoiceToTransaction(
   tx: BankTransaction,
   invoice: TaxInvoice,
   unsettledAmount: number,
-  matchContext: TaxInvoiceMatchContext = {},
+  _matchContext: TaxInvoiceMatchContext = {},
 ) {
   if (unsettledAmount <= 0) return false;
   if (invoice.flowType === "purchase" && !(Number(tx.withdrawal || 0) > 0)) return false;
   if (invoice.flowType === "sales" && !(Number(tx.deposit || 0) > 0)) return false;
   if (hasTaxInvoiceRoomConflict(tx, invoice)) return false;
-  if (!hasTaxInvoicePartyMatch(tx, invoice, matchContext)) return false;
   return true;
 }
 
