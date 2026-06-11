@@ -8411,7 +8411,7 @@ export default function TeammillimeterErpMvp() {
   const storedData = apiMode ? null : loadStoredData();
   const sessionOnMount = loadSessionUser();
   const [currentUser, setCurrentUser] = useState(() => sessionOnMount);
-  const [dataReady, setDataReady] = useState(() => !apiMode || !sessionOnMount);
+  const [dataReady, setDataReady] = useState(() => !apiMode);
   const [erpVersion, setErpVersion] = useState(0);
   const erpVersionRef = useRef(0);
   const publishErpVersion = useCallback((version: number) => {
@@ -10538,6 +10538,12 @@ export default function TeammillimeterErpMvp() {
     setSidebarHidden(hidden);
     cacheSidebarOrderFromUser(nextUser);
     cacheSidebarHiddenFromUser(nextUser);
+    const visible = resolveVisibleSidebarPages(nextUser, order, hidden);
+    const loginPage = visible.find((page) => page.key === "dailyReport")?.key ?? visible[0]?.key ?? "dailyReport";
+    setActive(loginPage);
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem(ACTIVE_TAB_KEY, loginPage);
+    }
     if (!apiMode) saveSessionUser(nextUser);
   };
 
@@ -10547,6 +10553,9 @@ export default function TeammillimeterErpMvp() {
     setCurrentUser(null);
     clearErpSyncStatus();
     setDataReady(!apiMode);
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem(ACTIVE_TAB_KEY, "dailyReport");
+    }
   };
 
   useEffect(() => {
