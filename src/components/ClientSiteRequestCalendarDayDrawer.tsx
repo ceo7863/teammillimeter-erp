@@ -11,6 +11,7 @@ import { formatClientSiteRequestWorkPeriod } from "@/utils/clientSiteRequests";
 import { formatClientSiteRequestDayLabel, shiftCalendarDate } from "@/utils/clientSiteRequestCalendar";
 import type { ScSchedule } from "@/utils/scSchedules";
 import { formatScScheduleHeadcount, formatScScheduleWorkLogSummary, formatScScheduleWorkerCopyText, getScScheduleWorkerDetails } from "@/utils/scSchedules";
+import { isScPersonalVacationSchedule } from "@/utils/scScheduleVacation";
 import type { ClientMasterLike } from "@/utils/clientMaster";
 import type { WorkerMasterLike } from "@/utils/workerPayments";
 import { sendScScheduleNotifyOne } from "@/utils/notificationApi";
@@ -248,7 +249,7 @@ export function ClientSiteRequestCalendarDayDrawer({
                         >
                           <div className="erp-csr-cal-drawer-card-title-row">
                             <p className="erp-csr-cal-drawer-card-title">{schedule.workType}</p>
-                            {scAlimtalkEnabled ? (
+                            {scAlimtalkEnabled && !isScPersonalVacationSchedule(schedule) ? (
                               <Button
                                 type="button"
                                 size="sm"

@@ -15,6 +15,7 @@ import {
   resolveClientContacts,
   resolveClientManagerName,
 } from "./clientContacts.mjs";
+import { isScPersonalVacationSchedule, withoutScPersonalVacationSchedules } from "./scScheduleVacation.mjs";
 
 export { resolveClientContact, resolveClientManagerName };
 
@@ -65,7 +66,9 @@ function listScSchedules(data) {
 
 export function filterSchedulesForDate(schedules, dateKey) {
   const target = String(dateKey || "").slice(0, 10);
-  return schedules.filter((row) => String(row?.workDate || "").slice(0, 10) === target);
+  return withoutScPersonalVacationSchedules(schedules).filter(
+    (row) => String(row?.workDate || "").slice(0, 10) === target,
+  );
 }
 
 export function formatScheduleDateTime(workDate) {
@@ -597,6 +600,16 @@ export async function sendScScheduleNotifyOne(scheduleId, options = {}) {
 
   if (!schedule) {
     return { ok: false, notFound: true, error: "\uC77C\uC815\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." };
+  }
+
+  if (isScPersonalVacationSchedule(schedule)) {
+    return {
+      ok: false,
+      skipped: true,
+      reason: "personal-vacation-excluded",
+      scheduleId: id,
+      error: "\uAC1C\uC778\uD734\uAC00 \uC77C\uC815\uC740 \uC54C\uB9BC\uD1A1 \uB300\uC0C1\uC5D0\uC11C \uC81C\uC678\uB429\uB2C8\uB2E4.",
+    };
   }
 
   const participantNames = Array.isArray(schedule.participantNames)

@@ -5,6 +5,7 @@ import { resolveScScheduleSiteName } from "./scScheduleSiteName.mjs";
 import { isScScheduleSourceConfigured, runScScheduleSync } from "./scScheduleSync.mjs";
 import { normalizeNotifyPhone, resolveClientContacts, resolveClientManagerName } from "./clientContacts.mjs";
 import { normalizeNotificationSettings } from "./notificationSettings.mjs";
+import { withoutScPersonalVacationSchedules } from "./scScheduleVacation.mjs";
 
 export { resolveScScheduleSiteName as resolveWeeklyBriefingSiteName };
 
@@ -152,7 +153,7 @@ export function weeklyClientGroupKey(schedule) {
 export function filterSchedulesForWeek(schedules, startDate, endDate) {
   const start = String(startDate || "").slice(0, 10);
   const end = String(endDate || "").slice(0, 10);
-  return schedules.filter((row) => {
+  return withoutScPersonalVacationSchedules(schedules).filter((row) => {
     const date = String(row?.workDate || "").slice(0, 10);
     return date >= start && date <= end;
   });
