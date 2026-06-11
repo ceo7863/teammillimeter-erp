@@ -8318,8 +8318,8 @@ export default function TeammillimeterErpMvp() {
   const workerFlushChainRef = useRef<Promise<boolean>>(Promise.resolve(true));
   const pendingWorkerFlushRef = useRef<{ workers: typeof initialWorkers; auditLogs?: unknown } | null>(null);
   const [active, setActive] = useState(() => {
-    if (typeof window === "undefined") return "dashboard";
-    const stored = window.sessionStorage.getItem(ACTIVE_TAB_KEY) || "dashboard";
+    if (typeof window === "undefined") return "dailyReport";
+    const stored = window.sessionStorage.getItem(ACTIVE_TAB_KEY) || "dailyReport";
     const migrated = migrateStoredActiveTab(stored);
     if (migrated.accountingTab) storeAccountingTab(migrated.accountingTab);
     if (migrated.statementTab) storeStatementTab(migrated.statementTab);

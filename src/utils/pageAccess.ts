@@ -51,12 +51,12 @@ export type ErpPageDef = {
 };
 
 export const ERP_PAGE_DEFS: ErpPageDef[] = [
+  { key: "dailyReport", label: "\uC77C\uC77C\uBCF4\uACE0", group: "\uC5C5\uBB34" },
   { key: "dashboard", label: "대시보드", group: "업무" },
   { key: "calendar", label: "캘린더", group: "업무" },
   { key: "clientSiteRequests", label: "현장 접수", group: "업무" },
   { key: "clientSiteRequestCalendars", label: "업체별 캘린더", group: "업무" },
   { key: "scAlimtalk", label: "\uC54C\uB9BC\uD1A1", group: "\uC5C5\uBB34" },
-  { key: "dailyReport", label: "\uC77C\uC77C\uBCF4\uACE0", group: "\uC5C5\uBB34" },
   { key: "salesInput", label: "매출등록", group: "매출" },
   { key: "sales", label: "매출관리", group: "매출" },
   { key: "salesVoucherSearch", label: "매출전표검색", group: "매출" },
@@ -77,6 +77,7 @@ const ERP_PAGE_KEY_SET = new Set<string>(ERP_PAGE_KEYS);
 
 /** 일반(staff) 계정 기본 허용 페이지 */
 export const DEFAULT_STAFF_PAGE_KEYS: ErpPageKey[] = [
+  "dailyReport",
   "dashboard",
   "calendar",
   "clientSiteRequests",
@@ -95,7 +96,6 @@ export const DEFAULT_STAFF_PAGE_KEYS: ErpPageKey[] = [
   "companyNotices",
   "basicInfo",
   "attendance",
-  "dailyReport",
 ];
 
 export function isErpPageKey(value: string): value is ErpPageKey {
@@ -183,6 +183,7 @@ export function canUserAccessPage(
 
 export function getDefaultPageForUser(user: Pick<ErpUser, "role" | "allowedPages"> | null | undefined): ErpPageKey {
   const allowed = resolveUserAllowedPages(user);
+  if (allowed.includes("dailyReport")) return "dailyReport";
   return allowed[0] || "dashboard";
 }
 

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { ClipboardList, Loader2, RefreshCw, Send, Sun, Sunrise, Users } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { DesktopTableWrap } from "@/components/MobileRecordCard";
+import { DesktopTableWrap, MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
 import { formatKRW } from "@/utils/receivables";
 import {
   fetchDailyReportPage,
@@ -94,26 +94,42 @@ function VacationSection({ title, icon, summary }: { title: string; icon: ReactN
           </div>
         </div>
         {summary.members.length ? (
-          <DesktopTableWrap>
-            <table className="erp-table min-w-full text-sm">
-              <thead className="bg-slate-50 text-slate-500">
-                <tr>
-                  <th className="text-left">{L.name}</th>
-                  <th className="text-left">{L.time}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {summary.members.map((member) => (
-                  <tr key={`${member.scheduleId}-${member.name}`} className="border-t border-slate-100">
-                    <td className="font-semibold text-slate-900">{member.name}</td>
-                    <td className="text-slate-600">
-                      {[member.startTime, member.endTime].filter(Boolean).join(" ~ ") || member.workType || "\u2014"}
-                    </td>
+          <>
+            <MobileRecordList>
+              {summary.members.map((member) => (
+                <MobileRecordCard
+                  key={`${member.scheduleId}-${member.name}`}
+                  title={member.name}
+                  fields={[
+                    {
+                      label: L.time,
+                      value: [member.startTime, member.endTime].filter(Boolean).join(" ~ ") || member.workType || "\u2014",
+                    },
+                  ]}
+                />
+              ))}
+            </MobileRecordList>
+            <DesktopTableWrap>
+              <table className="erp-table min-w-full text-sm">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="text-left">{L.name}</th>
+                    <th className="text-left">{L.time}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </DesktopTableWrap>
+                </thead>
+                <tbody>
+                  {summary.members.map((member) => (
+                    <tr key={`${member.scheduleId}-${member.name}`} className="border-t border-slate-100">
+                      <td className="font-semibold text-slate-900">{member.name}</td>
+                      <td className="text-slate-600">
+                        {[member.startTime, member.endTime].filter(Boolean).join(" ~ ") || member.workType || "\u2014"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </DesktopTableWrap>
+          </>
         ) : (
           <p className="text-sm text-slate-500">{L.vacationEmpty}</p>
         )}
@@ -229,15 +245,29 @@ export function DailyReportPage({ currentUser }: DailyReportPageProps) {
   return (
     <div className="erp-page">
       <PageTitle title={L.title} desc={L.desc} />
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Button type="button" variant="outline" className="rounded-xl" disabled={refreshing} onClick={() => void handleRefresh(false)}>
-          {refreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-          {L.refresh}
-        </Button>
-        <Button type="button" variant="ghost" className="rounded-xl" disabled={refreshing} onClick={() => void handleRefresh(true)}>
-          {L.refreshFast}
-        </Button>
-        <span className="text-xs text-slate-500">{scSyncLabel}</span>
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button
+            type="button"
+            variant="outline"
+            className="h-11 min-h-11 w-full rounded-xl sm:w-auto"
+            disabled={refreshing}
+            onClick={() => void handleRefresh(false)}
+          >
+            {refreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+            {L.refresh}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-11 min-h-11 w-full rounded-xl sm:w-auto"
+            disabled={refreshing}
+            onClick={() => void handleRefresh(true)}
+          >
+            {L.refreshFast}
+          </Button>
+        </div>
+        <span className="text-xs text-slate-500 sm:ml-1">{scSyncLabel}</span>
       </div>
 
       {loading ? (
@@ -306,28 +336,43 @@ export function DailyReportPage({ currentUser }: DailyReportPageProps) {
                   </div>
                 </div>
                 {data.today.attendance.members.length ? (
-                  <DesktopTableWrap>
-                    <table className="erp-table min-w-full text-sm">
-                      <thead className="bg-slate-50 text-slate-500">
-                        <tr>
-                          <th className="text-left">{L.name}</th>
-                          <th className="text-left">{L.checkIn}</th>
-                          <th className="text-left">{L.checkOut}</th>
-                          <th className="text-left">{L.status}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {data.today.attendance.members.map((member) => (
-                          <tr key={`${member.userId}-${member.userName}`} className="border-t border-slate-100">
-                            <td className="font-semibold text-slate-900">{member.userName}</td>
-                            <td>{formatAttendanceTime(member.checkInAt)}</td>
-                            <td>{formatAttendanceTime(member.checkOutAt)}</td>
-                            <td>{member.status === "working" ? L.working : L.done}</td>
+                  <>
+                    <MobileRecordList>
+                      {data.today.attendance.members.map((member) => (
+                        <MobileRecordCard
+                          key={`${member.userId}-${member.userName}`}
+                          title={member.userName}
+                          badge={member.status === "working" ? L.working : L.done}
+                          fields={[
+                            { label: L.checkIn, value: formatAttendanceTime(member.checkInAt) },
+                            { label: L.checkOut, value: formatAttendanceTime(member.checkOutAt) },
+                          ]}
+                        />
+                      ))}
+                    </MobileRecordList>
+                    <DesktopTableWrap>
+                      <table className="erp-table min-w-full text-sm">
+                        <thead className="bg-slate-50 text-slate-500">
+                          <tr>
+                            <th className="text-left">{L.name}</th>
+                            <th className="text-left">{L.checkIn}</th>
+                            <th className="text-left">{L.checkOut}</th>
+                            <th className="text-left">{L.status}</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </DesktopTableWrap>
+                        </thead>
+                        <tbody>
+                          {data.today.attendance.members.map((member) => (
+                            <tr key={`${member.userId}-${member.userName}`} className="border-t border-slate-100">
+                              <td className="font-semibold text-slate-900">{member.userName}</td>
+                              <td>{formatAttendanceTime(member.checkInAt)}</td>
+                              <td>{formatAttendanceTime(member.checkOutAt)}</td>
+                              <td>{member.status === "working" ? L.working : L.done}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </DesktopTableWrap>
+                  </>
                 ) : (
                   <p className="text-sm text-slate-500">{L.attendanceEmpty}</p>
                 )}
@@ -349,11 +394,22 @@ export function DailyReportPage({ currentUser }: DailyReportPageProps) {
                 <CardContent className="p-4 md:p-5">
                   <h3 className="mb-3 text-sm font-bold text-slate-900">{L.alimtalkPreview}</h3>
                   <pre className="max-h-64 overflow-auto rounded-xl bg-slate-50 p-3 text-xs whitespace-pre-wrap text-slate-700">{alimtalkMessage || "\u2014"}</pre>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Button type="button" variant="outline" size="sm" className="rounded-xl" disabled={alimtalkBusy} onClick={() => void handleAlimtalkPreview()}>
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-11 min-h-11 w-full rounded-xl sm:w-auto"
+                      disabled={alimtalkBusy}
+                      onClick={() => void handleAlimtalkPreview()}
+                    >
                       {L.alimtalkPreview}
                     </Button>
-                    <Button type="button" size="sm" className="rounded-xl" disabled={alimtalkBusy} onClick={() => void handleAlimtalkSend()}>
+                    <Button
+                      type="button"
+                      className="h-11 min-h-11 w-full rounded-xl sm:w-auto"
+                      disabled={alimtalkBusy}
+                      onClick={() => void handleAlimtalkSend()}
+                    >
                       {alimtalkBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
                       {alimtalkBusy ? L.alimtalkSending : L.alimtalkSend}
                     </Button>
