@@ -188,7 +188,7 @@ function applyScheduleBillingRules(
     const workerChargeCap = resolveWorkerShortShiftChargeCap(worker);
     const shortCharge = resolveShortShiftChargeAmount(workHours, rules, workerChargeCap);
     next.chargeAmount = String(shortCharge);
-    next.unitCost = resolveShortShiftUnitCost(shortCharge, workerDefaultPay, rules);
+    next.unitCost = resolveShortShiftUnitCost(shortCharge, workerDefaultPay);
   }
 
   if (hasOvertime) {
