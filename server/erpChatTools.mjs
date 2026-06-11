@@ -2526,8 +2526,11 @@ export function isPersonBankAccountQuery(text) {
   const raw = String(text || "").trim();
   if (!/(?:\uACC4\uC88C(?:\uBC88\uD638)?|\uD1B5\uC7A5(?:\uBC88\uD638)?)/.test(raw)) return false;
   if (hasChatOpenVerb(raw)) return false;
-  if (chatIncludesIntent(raw, "bank")) return false;
   if (/\uC785\uAE08\uB0B4\uC5ED|\uC785\uAE08\s*\uC561|\uC785\uAE08\s*\uD569\uACC4/.test(raw)) return false;
+  if (isBankSearchQuery(raw)) return false;
+  if (isBankAccountColumnOnlyQuery(raw)) return false;
+  const compact = raw.replace(/\s+/g, "");
+  if (/\uD1B5\uC7A5\uB0B4\uC5ED|\uACC4\uC88C\uB0B4\uC5ED|\uC740\uD589\uACC4\uC88C\uB0B4\uC5ED/.test(compact)) return false;
   return true;
 }
 
