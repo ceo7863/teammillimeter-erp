@@ -10,6 +10,7 @@ import {
   getSaleStaffCount,
   getSaleWorkerLines,
   resolveWorkerLineChargeAmount,
+  resolveWorkerShortShiftChargeCap,
   sumWorkerLinesChargeOnlyForHeadcount,
 } from "@/utils/saleBilling";
 import { parseMoney } from "@/utils/receivables";
@@ -23,7 +24,7 @@ import {
   parseScParticipantMoney,
 } from "@/utils/scSchedules";
 import type { ClientMasterLike } from "@/utils/clientMaster";
-import type { WorkerMasterLike } from "@/utils/workerPayments";
+import { findWorkerMasterByListName, type WorkerMasterLike } from "@/utils/workerPayments";
 import {
   formatScheduleWorkHoursLabel,
   computeScheduleOvertimeHours,
@@ -31,6 +32,7 @@ import {
   computeShortShiftChargeAmount,
   isShortShiftWorkHours,
   resolveShortShiftChargeAmount,
+  resolveShortShiftUnitCost,
   truncateShortShiftChargeToManwon,
   DEFAULT_SALE_AI_RULES,
   normalizeSaleAiRules,
@@ -173,6 +175,7 @@ function applyScheduleBillingRules(
   workHours: number | null,
   overtimeHours: number,
   rules: SaleAiRules,
+  worker?: WorkerMasterLike | null,
   fromWorkLog = false,
 ) {
   const next = { ...line };
@@ -181,10 +184,11 @@ function applyScheduleBillingRules(
   const workMemo = buildScheduleWorkMemo(effectiveTimes, workHours, fromWorkLog);
 
   if (isShortShift && workHours != null) {
-    const workerDefaultCharge = parseWorkerMoney(line.chargeAmount);
-    const shortCharge = String(resolveShortShiftChargeAmount(workHours, rules, workerDefaultCharge));
-    next.chargeAmount = shortCharge;
-    next.unitCost = shortCharge;
+    const workerDefaultPay = parseWorkerMoney(line.unitCost);
+    const workerChargeCap = resolveWorkerShortShiftChargeCap(worker);
+    const shortCharge = resolveShortShiftChargeAmount(workHours, rules, workerChargeCap);
+    next.chargeAmount = String(shortCharge);
+    next.unitCost = resolveShortShiftUnitCost(shortCharge, workerDefaultPay);
   }
 
   if (hasOvertime) {
@@ -245,6 +249,7 @@ export function buildSaleFormFromScSchedule(
       workHours,
       overtimeHours,
       rules,
+      findWorkerMasterByListName(workers, workerName),
       effectiveTimes.fromWorkLog,
     );
     line = syncWorkerLineOvertimeRate(line, workers, clients, clientName);

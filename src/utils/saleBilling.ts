@@ -111,6 +111,15 @@ export function getWorkerLineOriginalBill(line: WorkerLineLike) {
   return Math.max(bill - extras.total, 0);
 }
 
+/** 단축근무 청구 상한: 개별청구단가 > 시공자 기본단가(constructionCost) */
+export function resolveWorkerShortShiftChargeCap(
+  worker?: { customChargeCost?: number; constructionCost?: number } | null,
+): number {
+  const customCharge = parseWorkerMoney(worker?.customChargeCost);
+  if (customCharge > 0) return customCharge;
+  return parseWorkerMoney(worker?.constructionCost);
+}
+
 /** 시공자 선택 시 청구단가: 시공자 개별청구단가 > 거래처 청구단가(또는 시공비) */
 export function resolveWorkerLineChargeAmount(
   worker?: { customChargeCost?: number } | null,

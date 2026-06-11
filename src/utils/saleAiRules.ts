@@ -6,6 +6,7 @@ export type SaleAiRuleFormTexts = {
   shortShiftBody: string;
   shortShiftFormula: string;
   shortShiftCapRule: string;
+  shortShiftPayRule: string;
   shortShiftManwonRule: string;
   overtimeTitle: string;
   overtimeBody: string;
@@ -30,7 +31,9 @@ export const DEFAULT_SALE_AI_RULE_FORM_TEXTS: SaleAiRuleFormTexts = {
     "{maxHours}\uC2DC\uAC04 \uC774\uD558 \uADFC\uBB34\uC758 \uACBD\uC6B0 \uADFC\uBB34\uAE30\uB85D(\uC608\uC815 \uB300\uC2E0 \uADFC\uBB34\uAE30\uB85D \uC788\uC73C\uBA74 \uADFC\uBB34\uAE30\uB85D) \uC2DC\uAC04\uC744 \uAE30\uC900\uC73C\uB85C \uB2E8\uCD95 \uADFC\uBB34 \uACF5\uC2DD\uC744 \uC801\uC6A9\uD569\uB2C8\uB2E4.",
   shortShiftFormula: "{base}\uC6D0 + {hourly}\uC6D0 \u00D7 \uADFC\uBB34\uAE30\uB85D \uC2DC\uAC04 ({maxHours}\uC2DC\uAC04 \uC774\uD558)",
   shortShiftCapRule:
-    "\uACF5\uC2DD \uCCAD\uAD6C\uC561\uC774 \uD574\uB2F9 \uC2DC\uACF5\uC790\uC758 \uAE30\uBCF8 \uCCAD\uAD6C\uB2E8\uAC00\uBCF4\uB2E4 \uB192\uC73C\uBA74 \uC2DC\uACF5\uC790 \uAE30\uBCF8 \uCCAD\uAD6C\uB2E8\uAC00\uB97C \uC801\uC6A9\uD569\uB2C8\uB2E4.",
+    "\uB2E8\uCD95 \uADFC\uBB34 \uACF5\uC2DD \uCCAD\uAD6C\uC561\uC774 \uC2DC\uACF5\uC790 \uAE30\uBCF8 \uB2E8\uAC00(\uAC1C\uBCC4 \uCCAD\uAD6C\uB2E8\uAC00 \uC788\uC73C\uBA74 \uADF8 \uAE08\uC561)\uBCF4\uB2E4 \uB192\uAC70\uB098 \uAC19\uC73C\uBA74 \uC2DC\uACF5\uC790 \uAE30\uBCF8 \uB2E8\uAC00\uB97C \uC801\uC6A9\uD569\uB2C8\uB2E4.",
+  shortShiftPayRule:
+    "\uB2E8\uCD95 \uADFC\uBB34 \uCCAD\uAD6C\uC561\uC774 \uC2DC\uACF5\uC790 \uAE30\uBCF8 \uC9C0\uAE09\uC561\uBCF4\uB2E4 \uB192\uC73C\uBA74 \uC9C0\uAE09\uC561\uC744 \uC2DC\uACF5\uC790 \uAE30\uBCF8 \uC9C0\uAE09\uC561\uC5D0 \uB9DE\uCD94\uB2C8\uB2E4.",
   shortShiftManwonRule:
     "{maxHours}\uC2DC\uAC04 \uC774\uD558 \uADFC\uBB34 \uCCAD\uAD6C\uC561\uC774 \uB9CC\uC6D0 \uB2E8\uC704\uAC00 \uC544\uB2C8\uBA74 \uCC9C\uC6D0 \uC790\uB9AC \uC774\uD558\uB97C \uC808\uC0AD\uD558\uC5EC \uB9CC\uC6D0 \uB2E8\uC704\uB85C \uB9DE\uCD94\uB2C8\uB2E4.",
   overtimeTitle: "\uC57C\uADFC \uC2DC\uAC04",
@@ -81,6 +84,7 @@ function normalizeFormTexts(raw: unknown): SaleAiRuleFormTexts {
     shortShiftBody: normalizeFormText(row.shortShiftBody, DEFAULT_SALE_AI_RULE_FORM_TEXTS.shortShiftBody),
     shortShiftFormula: normalizeFormText(row.shortShiftFormula, DEFAULT_SALE_AI_RULE_FORM_TEXTS.shortShiftFormula),
     shortShiftCapRule: normalizeFormText(row.shortShiftCapRule, DEFAULT_SALE_AI_RULE_FORM_TEXTS.shortShiftCapRule),
+    shortShiftPayRule: normalizeFormText(row.shortShiftPayRule, DEFAULT_SALE_AI_RULE_FORM_TEXTS.shortShiftPayRule),
     shortShiftManwonRule: normalizeFormText(row.shortShiftManwonRule, DEFAULT_SALE_AI_RULE_FORM_TEXTS.shortShiftManwonRule),
     overtimeTitle: normalizeFormText(row.overtimeTitle, DEFAULT_SALE_AI_RULE_FORM_TEXTS.overtimeTitle),
     overtimeBody: normalizeFormText(row.overtimeBody, DEFAULT_SALE_AI_RULE_FORM_TEXTS.overtimeBody),
@@ -176,10 +180,20 @@ export function resolveShortShiftChargeAmount(
   const formulaCharge = computeShortShiftChargeAmount(workHours, rules);
   const workerCharge = Math.max(0, Math.round(Number(workerDefaultCharge) || 0));
   let charge = formulaCharge;
-  if (workerCharge > 0 && formulaCharge > workerCharge) {
+  if (workerCharge > 0 && formulaCharge >= workerCharge) {
     charge = workerCharge;
   }
   return truncateShortShiftChargeToManwon(charge);
+}
+
+export function resolveShortShiftUnitCost(chargeAmount: number, workerDefaultPay: number) {
+  const charge = Math.max(0, Math.round(Number(chargeAmount) || 0));
+  const defaultPay = Math.max(0, Math.round(Number(workerDefaultPay) || 0));
+  if (defaultPay <= 0) return "";
+  if (charge > defaultPay) {
+    return String(defaultPay);
+  }
+  return String(defaultPay);
 }
 
 export function formatScheduleWorkHoursLabel(workHours: number) {
@@ -202,9 +216,11 @@ export type SaleAiRuleFormPreview = {
   shortShiftBody: string;
   shortShiftFormula: string;
   shortShiftCapRule: string;
+  shortShiftPayRule: string;
   shortShiftManwonRule: string;
   shortShiftExample: string;
   shortShiftCapExample: string;
+  shortShiftPayExample: string;
   shortShiftManwonExample: string;
   overtimeTitle: string;
   overtimeBody: string;
@@ -213,15 +229,26 @@ export type SaleAiRuleFormPreview = {
 
 export function buildSaleAiRuleFormPreview(
   rules: SaleAiRules = DEFAULT_SALE_AI_RULES,
-  options: { sampleHours?: number; sampleWorkerCharge?: number; capSampleHours?: number; manwonSampleHours?: number } = {},
+  options: {
+    sampleHours?: number;
+    sampleWorkerCharge?: number;
+    capSampleHours?: number;
+    paySampleHours?: number;
+    sampleWorkerPay?: number;
+    manwonSampleHours?: number;
+  } = {},
 ): SaleAiRuleFormPreview {
   const sampleHours = options.sampleHours ?? 2;
   const capSampleHours = options.capSampleHours ?? 4;
+  const paySampleHours = options.paySampleHours ?? 4;
   const manwonSampleHours = options.manwonSampleHours ?? 1.5;
-  const sampleWorkerCharge = options.sampleWorkerCharge ?? 120000;
+  const sampleWorkerCharge = options.sampleWorkerCharge ?? 250000;
+  const sampleWorkerPay = options.sampleWorkerPay ?? 200000;
   const sampleCharge = resolveShortShiftChargeAmount(sampleHours, rules, 0);
   const capFormulaCharge = computeShortShiftChargeAmount(capSampleHours, rules);
   const capAppliedCharge = resolveShortShiftChargeAmount(capSampleHours, rules, sampleWorkerCharge);
+  const payFormulaCharge = resolveShortShiftChargeAmount(paySampleHours, rules, 0);
+  const payApplied = resolveShortShiftUnitCost(payFormulaCharge, sampleWorkerPay);
   const manwonFormulaCharge = computeShortShiftChargeAmount(manwonSampleHours, rules);
   const manwonAppliedCharge = resolveShortShiftChargeAmount(manwonSampleHours, rules, 0);
 
@@ -231,9 +258,11 @@ export function buildSaleAiRuleFormPreview(
     shortShiftBody: renderSaleAiRuleText(rules.formTexts.shortShiftBody, rules),
     shortShiftFormula: buildShortShiftFormulaPreview(rules),
     shortShiftCapRule: rules.formTexts.shortShiftCapRule,
+    shortShiftPayRule: rules.formTexts.shortShiftPayRule,
     shortShiftManwonRule: renderSaleAiRuleText(rules.formTexts.shortShiftManwonRule, rules),
     shortShiftExample: `${sampleHours}\uC2DC\uAC04 \uADFC\uBB34\uAE30\uB85D \u2192 ${sampleCharge.toLocaleString("ko-KR")}\uC6D0`,
-    shortShiftCapExample: `${capSampleHours}\uC2DC\uAC04 \uACF5\uC2DD ${capFormulaCharge.toLocaleString("ko-KR")}\uC6D0 > \uC2DC\uACF5\uC790 \uAE30\uBCF8 ${sampleWorkerCharge.toLocaleString("ko-KR")}\uC6D0 \u2192 ${capAppliedCharge.toLocaleString("ko-KR")}\uC6D0`,
+    shortShiftCapExample: `${capSampleHours}\uC2DC\uAC04 \uACF5\uC2DD ${capFormulaCharge.toLocaleString("ko-KR")}\uC6D0 \u2265 \uC2DC\uACF5\uC790 \uAE30\uBCF8 ${sampleWorkerCharge.toLocaleString("ko-KR")}\uC6D0 \u2192 ${capAppliedCharge.toLocaleString("ko-KR")}\uC6D0`,
+    shortShiftPayExample: `${paySampleHours}\uC2DC\uAC04 \uCCAD\uAD6C ${payFormulaCharge.toLocaleString("ko-KR")}\uC6D0 > \uC2DC\uACF5\uC790 \uAE30\uBCF8 ${sampleWorkerPay.toLocaleString("ko-KR")}\uC6D0 \u2192 \uC9C0\uAE09 ${Number(payApplied).toLocaleString("ko-KR")}\uC6D0`,
     shortShiftManwonExample: `${manwonSampleHours}\uC2DC\uAC04 \uACF5\uC2DD ${manwonFormulaCharge.toLocaleString("ko-KR")}\uC6D0 \u2192 ${manwonAppliedCharge.toLocaleString("ko-KR")}\uC6D0`,
     overtimeTitle: rules.formTexts.overtimeTitle,
     overtimeBody: rules.formTexts.overtimeBody,

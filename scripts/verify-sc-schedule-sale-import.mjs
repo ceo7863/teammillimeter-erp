@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import {
+  resolveShortShiftChargeAmount,
+  resolveShortShiftUnitCost,
+  truncateShortShiftChargeToManwon,
+  computeShortShiftChargeAmount,
   computeScheduleOvertimeHours,
   computeScheduleWorkHours,
-  computeShortShiftChargeAmount,
-  resolveShortShiftChargeAmount,
-  truncateShortShiftChargeToManwon,
-  buildSaleFormFromScSchedule,
-} from "../src/utils/scScheduleSaleImport.ts";
+} from "../src/utils/saleAiRules.ts";
+import { buildSaleFormFromScSchedule } from "../src/utils/scScheduleSaleImport.ts";
 
 assert.equal(computeScheduleOvertimeHours("17:00"), 0);
 assert.equal(computeScheduleOvertimeHours("18:00"), 0);
@@ -19,6 +20,10 @@ assert.equal(computeShortShiftChargeAmount(2), 150000);
 assert.equal(truncateShortShiftChargeToManwon(125000), 120000);
 assert.equal(truncateShortShiftChargeToManwon(150000), 150000);
 assert.equal(resolveShortShiftChargeAmount(1.5), 120000);
+assert.equal(resolveShortShiftChargeAmount(4, undefined, 250000), 250000);
+assert.equal(resolveShortShiftChargeAmount(4, undefined, 200000), 200000);
+assert.equal(resolveShortShiftUnitCost(250000, 200000), "200000");
+assert.equal(resolveShortShiftUnitCost(150000, 330000), "330000");
 
 const workLogForm = buildSaleFormFromScSchedule(
   {
@@ -59,7 +64,7 @@ assert.equal(form.client, "??");
 assert.equal(form.site, "?????");
 assert.equal(form.workers[0].worker, "???");
 assert.equal(form.workers[0].chargeAmount, "150000");
-assert.equal(form.workers[0].unitCost, "150000");
+assert.equal(form.workers[0].unitCost, "330000");
 assert.match(form.workers[0].memo || "", /09:00/);
 
 const overtimeForm = buildSaleFormFromScSchedule(
@@ -146,6 +151,43 @@ const capForm = buildSaleFormFromScSchedule(
 );
 
 assert.equal(capForm.workers[0].chargeAmount, "120000");
+assert.equal(capForm.workers[0].unitCost, "330000");
+
+const workerBasicCapForm = buildSaleFormFromScSchedule(
+  {
+    id: "sc-basic-cap",
+    workDate: "2026-06-10",
+    startTime: "09:00",
+    endTime: "13:00",
+    workType: "site",
+    clientName: "client",
+    participantNames: ["worker"],
+  },
+  [{ name: "worker", constructionCost: 200000, overtimeCost: 30000, feeRate: 0.1 }],
+  [{ name: "client", constructionCost: 330000, overtimeCost: 30000, mealIncluded: "Y" }],
+  [],
+);
+
+assert.equal(workerBasicCapForm.workers[0].chargeAmount, "200000");
+assert.equal(workerBasicCapForm.workers[0].unitCost, "200000");
+
+const payForm = buildSaleFormFromScSchedule(
+  {
+    id: "sc-pay",
+    workDate: "2026-06-10",
+    startTime: "09:00",
+    endTime: "13:00",
+    workType: "site",
+    clientName: "client",
+    participantNames: ["worker"],
+  },
+  [{ name: "worker", constructionCost: 330000, overtimeCost: 30000, feeRate: 0.1 }],
+  [{ name: "client", constructionCost: 330000, overtimeCost: 30000, mealIncluded: "Y" }],
+  [],
+);
+
+assert.equal(payForm.workers[0].chargeAmount, "250000");
+assert.equal(payForm.workers[0].unitCost, "330000");
 
 const manwonForm = buildSaleFormFromScSchedule(
   {
