@@ -240,6 +240,7 @@ import { CalendarScScheduleImportModal } from "@/components/CalendarScScheduleIm
 import { SaleAiRulesButton, SaleAiRulesModal } from "@/components/SaleAiRulesModal";
 import { WorkerAiRulesButton, WorkerAiRulesModal } from "@/components/WorkerAiRulesModal";
 import { ProbationEvalDashboard } from "@/components/ProbationEvalDashboard";
+import { WorkerHrRecordPanel } from "@/components/WorkerHrRecordPanel";
 import { ProbationEvalTemplateEditor } from "@/components/ProbationEvalTemplateEditor";
 import type { ProbationEvalRequest, ProbationEvalTemplate } from "@/utils/probationEval";
 import { ScScheduleAlimtalkPage } from "@/components/ScScheduleAlimtalkPage";
@@ -6614,7 +6615,7 @@ function WorkersPage({
   const [formError, setFormError] = useState("");
   const [workerAiRulesOpen, setWorkerAiRulesOpen] = useState(false);
   const [workerAiRulesSaving, setWorkerAiRulesSaving] = useState(false);
-  const [workersView, setWorkersView] = useState<"list" | "eval" | "template">("list");
+  const [workersView, setWorkersView] = useState<"list" | "eval" | "template" | "hr">("list");
   const [probationTemplateSaving, setProbationTemplateSaving] = useState(false);
   const [scrollToWorkerId, setScrollToWorkerId] = useState<string | number | null>(null);
 
@@ -7128,6 +7129,15 @@ function WorkersPage({
         >
           {"\uD3C9\uAC00 \uC591\uC2DD \uAD00\uB9AC"}
         </Button>
+        <Button
+          type="button"
+          variant={workersView === "hr" ? "default" : "outline"}
+          size="sm"
+          className="rounded-lg"
+          onClick={() => setWorkersView("hr")}
+        >
+          {"\uC778\uC0AC\uAE30\uB85D\uBD80"}
+        </Button>
       </div>
 
       {workersView === "eval" ? (
@@ -7150,6 +7160,15 @@ function WorkersPage({
             />
           </CardContent>
         </Card>
+      ) : null}
+
+      {workersView === "hr" ? (
+        <WorkerHrRecordPanel
+          workers={workers}
+          requests={probationEvalRequests}
+          templates={probationEvalTemplates}
+          companyProfile={companyProfile}
+        />
       ) : null}
 
       {workersView === "list" ? (

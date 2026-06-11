@@ -1,7 +1,9 @@
 import {
   aggregateByQuestion,
+  aggregateByWorker,
   dailyCompletionRate,
   dailyTrend,
+  dailyTrendFromRequests,
   type QuestionAverage,
 } from "@/utils/probationEvalAnalytics";
 import {
@@ -12,7 +14,7 @@ import {
   type ProbationEvalTemplate,
 } from "@/utils/probationEval";
 import type { WorkerMasterLike } from "@/utils/workerPayments";
-import { normalizeWorkerRecordId } from "@/utils/workerPayments";
+import { filterActiveWorkers, isWorkerActive, normalizeWorkerRecordId } from "@/utils/workerPayments";
 import type { CompanyProfile } from "@/utils/companyProfile";
 
 export type WorkerQuestionScore = QuestionAverage & {
@@ -82,12 +84,23 @@ export function filterWorkerEvalRequests(
   workerId: string,
   dateFrom?: string,
   dateTo?: string,
+  workerName?: string,
 ) {
   const id = normalizeWorkerRecordId(workerId);
+  const nameKey = String(workerName || "")
+    .trim()
+    .replace(/\s+/g, "")
+    .toLowerCase();
   const from = dateFrom?.slice(0, 10);
   const to = dateTo?.slice(0, 10);
   return normalizeProbationEvalRequests(requests).filter((row) => {
-    if (normalizeWorkerRecordId(row.probationWorkerId) !== id) return false;
+    const idMatch = Boolean(id) && normalizeWorkerRecordId(row.probationWorkerId) === id;
+    const rowNameKey = String(row.probationWorkerName || "")
+      .trim()
+      .replace(/\s+/g, "")
+      .toLowerCase();
+    const nameMatch = Boolean(nameKey) && rowNameKey === nameKey;
+    if (!idMatch && !nameMatch) return false;
     if (from && row.workDate < from) return false;
     if (to && row.workDate > to) return false;
     return true;
@@ -100,11 +113,12 @@ export function aggregateWorkerQuestionScores(
   templateInput: ProbationEvalTemplate | ProbationEvalTemplate[],
   dateFrom?: string,
   dateTo?: string,
+  workerName?: string,
 ): WorkerQuestionScore[] {
   const template = Array.isArray(templateInput)
     ? resolveActiveProbationEvalTemplate(templateInput)
     : templateInput;
-  const filtered = filterWorkerEvalRequests(requests, workerId, dateFrom, dateTo);
+  const filtered = filterWorkerEvalRequests(requests, workerId, dateFrom, dateTo, workerName);
   const rows = aggregateByQuestion(filtered, template);
   const questionById = new Map(template.questions.map((row) => [row.id, row]));
   return rows.map((row) => {
@@ -124,6 +138,15 @@ export function assessPromotionRecommendation(input: {
   trend: ReturnType<typeof dailyTrend>;
 }): PromotionAssessment {
   const { averageScore, completionRate, submittedCount, questionScores, trend } = input;
+  if (submittedCount <= 0) {
+    return {
+      grade: "hold",
+      label: "\uD3C9\uAC00 \uC774\uB825 \uC5C6\uC74C",
+      summary: "\uC120\uD0DD \uAE30\uAC04\uC5D0 \uC81C\uCD9C\uB41C \uC77C\uC77C \uD3C9\uAC00\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
+      strengths: ["\u2014"],
+      improvements: ["\u2014"],
+    };
+  }
   const activeScores = questionScores.filter((row) => row.responseCount > 0);
   const sorted = [...activeScores].sort((a, b) => b.averageScore - a.averageScore);
   const strengths = sorted.slice(0, 2).map((row) => row.label);
@@ -179,7 +202,8 @@ export function buildWorkerHrRecordData(input: {
   companyProfile?: CompanyProfile;
 }): WorkerHrRecordData {
   const workerId = normalizeWorkerRecordId(input.workerId);
-  const filtered = filterWorkerEvalRequests(input.requests, workerId, input.dateFrom, input.dateTo);
+  const workerName = String(input.workerName || "").trim();
+  const filtered = filterWorkerEvalRequests(input.requests, workerId, input.dateFrom, input.dateTo, workerName);
   const template = resolveActiveProbationEvalTemplate(input.templates);
   const submitted = filtered.filter((row) => row.status === "submitted" && row.totalScore != null);
   const averageScore = submitted.length
@@ -190,8 +214,15 @@ export function buildWorkerHrRecordData(input: {
       ? [...submitted].sort((a, b) => b.workDate.localeCompare(a.workDate))[0].totalScore ?? null
       : null;
   const completion = dailyCompletionRate(filtered);
-  const questionScores = aggregateWorkerQuestionScores(workerId, input.requests, template, input.dateFrom, input.dateTo);
-  const trend = dailyTrend(workerId, filtered);
+  const questionScores = aggregateWorkerQuestionScores(
+    workerId,
+    input.requests,
+    template,
+    input.dateFrom,
+    input.dateTo,
+    workerName,
+  );
+  const trend = dailyTrendFromRequests(filtered);
   const issuedAt = todayKstISO();
   const companyCode = String(input.companyProfile?.name || "TM")
     .replace(/[^\w\uAC00-\uD7A3]/g, "")
@@ -200,8 +231,8 @@ export function buildWorkerHrRecordData(input: {
 
   return {
     workerId,
-    workerName: input.workerName,
-    worker: resolveWorkerForEval(input.workers, workerId, input.workerName),
+    workerName: workerName || input.workerName,
+    worker: resolveWorkerForEval(input.workers, workerId, workerName || input.workerName),
     periodFrom: input.dateFrom.slice(0, 10),
     periodTo: input.dateTo.slice(0, 10),
     issuedAt,
@@ -234,3 +265,87 @@ export type WorkerProfileExtended = WorkerMasterLike & {
   businessNo?: string;
   memo?: string;
 };
+
+export type WorkerHrRecordListRow = {
+  workerId: string;
+  workerName: string;
+  grade: string;
+  hireDate: string;
+  isActive: boolean;
+  evalCount: number;
+  submittedCount: number;
+  averageScore: number | null;
+  worker: WorkerMasterLike;
+};
+
+export function workerHrRecordKey(worker: WorkerMasterLike) {
+  const id = normalizeWorkerRecordId(worker.id);
+  if (id) return id;
+  const name = String(worker.name || "")
+    .trim()
+    .replace(/\s+/g, "")
+    .toLowerCase();
+  return name ? `name:${name}` : "";
+}
+
+export function buildWorkerHrRecordList(input: {
+  workers: WorkerMasterLike[];
+  requests: ProbationEvalRequest[];
+  dateFrom: string;
+  dateTo: string;
+  query?: string;
+  includeInactive?: boolean;
+}): WorkerHrRecordListRow[] {
+  const from = input.dateFrom.slice(0, 10);
+  const to = input.dateTo.slice(0, 10);
+  const q = String(input.query || "")
+    .trim()
+    .toLowerCase();
+  const periodRequests = normalizeProbationEvalRequests(input.requests).filter(
+    (row) => row.workDate >= from && row.workDate <= to,
+  );
+  const aggMap = new Map(aggregateByWorker(periodRequests).map((row) => [row.probationWorkerId, row]));
+
+  const baseWorkers = input.includeInactive === false ? filterActiveWorkers(input.workers) : input.workers;
+
+  return baseWorkers
+    .map((worker) => {
+      const workerId = workerHrRecordKey(worker);
+      const workerName = String(worker.name || "").trim();
+      const agg =
+        aggMap.get(workerId) ||
+        [...aggMap.values()].find(
+          (row) =>
+            String(row.probationWorkerName || "")
+              .trim()
+              .replace(/\s+/g, "")
+              .toLowerCase() ===
+            workerName.replace(/\s+/g, "").toLowerCase(),
+        );
+      return {
+        workerId,
+        workerName,
+        grade: String(worker.grade || "").trim(),
+        hireDate: String(worker.hireDate || "").slice(0, 10),
+        isActive: isWorkerActive(worker),
+        evalCount: agg?.requestCount ?? 0,
+        submittedCount: agg?.submittedCount ?? 0,
+        averageScore: agg?.submittedCount ? agg.averageScore : null,
+        worker,
+      };
+    })
+    .filter((row) => row.workerName)
+    .filter((row) => {
+      if (!q) return true;
+      return (
+        row.workerName.toLowerCase().includes(q) ||
+        row.grade.toLowerCase().includes(q) ||
+        row.hireDate.includes(q)
+      );
+    })
+    .sort((a, b) => {
+      const activeCmp = Number(b.isActive) - Number(a.isActive);
+      if (activeCmp !== 0) return activeCmp;
+      return a.workerName.localeCompare(b.workerName, "ko");
+    });
+}

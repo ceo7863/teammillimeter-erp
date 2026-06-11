@@ -112,11 +112,7 @@ function computeQuestionAnswerScore(question: ProbationEvalQuestion, value: numb
   return ((clamped - 1) / 4) * 100;
 }
 
-export function dailyTrend(probationWorkerId: string, requests: ProbationEvalRequest[]): DailyTrendPoint[] {
-  const targetId = String(probationWorkerId || "").trim();
-  const rows = normalizeProbationEvalRequests(requests).filter(
-    (row) => row.probationWorkerId === targetId && row.status === "submitted" && row.totalScore != null,
-  );
+function buildDailyTrendPoints(rows: ProbationEvalRequest[]): DailyTrendPoint[] {
   const map = new Map<string, DailyTrendPoint>();
 
   for (const request of rows) {
@@ -130,6 +126,21 @@ export function dailyTrend(probationWorkerId: string, requests: ProbationEvalReq
   }
 
   return [...map.values()].sort((a, b) => a.workDate.localeCompare(b.workDate));
+}
+
+export function dailyTrendFromRequests(requests: ProbationEvalRequest[]): DailyTrendPoint[] {
+  const rows = normalizeProbationEvalRequests(requests).filter(
+    (row) => row.status === "submitted" && row.totalScore != null,
+  );
+  return buildDailyTrendPoints(rows);
+}
+
+export function dailyTrend(probationWorkerId: string, requests: ProbationEvalRequest[]): DailyTrendPoint[] {
+  const targetId = String(probationWorkerId || "").trim();
+  const rows = normalizeProbationEvalRequests(requests).filter(
+    (row) => row.probationWorkerId === targetId && row.status === "submitted" && row.totalScore != null,
+  );
+  return buildDailyTrendPoints(rows);
 }
 
 export function dailyCompletionRate(requests: ProbationEvalRequest[], workDate?: string) {
