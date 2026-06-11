@@ -212,8 +212,44 @@ export function buildBankDepositMatchCandidates(
     .slice(0, limit);
 }
 
-export function resolveDepositLinkAllocation(deposit: number, unpaid: number) {
-  return resolveManualLinkPaymentDraft(deposit, unpaid);
+export function resolveDepositLinkAllocation(poolAmount: number, unpaid: number) {
+  const pool = Math.round(Number(poolAmount) || 0);
+  const debt = Math.round(Number(unpaid) || 0);
+  if (pool <= 0 || debt <= 0) {
+    return {
+      paymentAmount: 0,
+      vatType: "excluded" as const,
+      vatAmount: 0,
+      finalAmount: 0,
+    };
+  }
+
+  const withVat = debt + Math.round(debt * 0.1);
+
+  if (pool >= withVat) {
+    return {
+      paymentAmount: debt,
+      vatType: "included" as const,
+      vatAmount: withVat - debt,
+      finalAmount: withVat,
+    };
+  }
+
+  if (pool >= debt) {
+    return {
+      paymentAmount: debt,
+      vatType: "excluded" as const,
+      vatAmount: 0,
+      finalAmount: debt,
+    };
+  }
+
+  return {
+    paymentAmount: pool,
+    vatType: "excluded" as const,
+    vatAmount: 0,
+    finalAmount: pool,
+  };
 }
 
 function resolveManualLinkPaymentDraft(deposit: number, unpaid: number) {

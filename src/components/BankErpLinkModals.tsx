@@ -69,6 +69,7 @@ const L = {
   totalAmount: "\uD1B5\uC7A5 \uAE08\uC561",
   linkedAmount: "\uC5F0\uACB0\uAE08",
   remainingAmount: "\uC794\uC5EC",
+  allocatableAmount: "\uBC30\uC815 \uAC00\uB2A5",
 };
 
 const RECEIVABLE_STATUS_CLASS: Record<string, string> = {
@@ -249,18 +250,20 @@ function AmountSummaryBar({
   total,
   linked,
   selected,
-  remaining,
+  remainingBeforeSelect,
+  remainingAfterSelect,
   tone,
 }: {
   total: number;
   linked: number;
   selected: number;
-  remaining: number;
+  remainingBeforeSelect: number;
+  remainingAfterSelect: number;
   tone: "deposit" | "worker";
 }) {
   const toneClass = tone === "deposit" ? "text-emerald-700" : "text-orange-800";
   return (
-    <div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm sm:grid-cols-4">
+    <div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm sm:grid-cols-5">
       <div>
         <div className="text-xs text-slate-500">{L.totalAmount}</div>
         <div className={`font-bold tabular-nums ${toneClass}`}>{formatKRW(total)}</div>
@@ -270,13 +273,17 @@ function AmountSummaryBar({
         <div className="font-semibold tabular-nums text-slate-900">{formatKRW(linked)}</div>
       </div>
       <div>
+        <div className="text-xs text-slate-500">{L.allocatableAmount}</div>
+        <div className="font-semibold tabular-nums text-blue-700">{formatKRW(remainingBeforeSelect)}</div>
+      </div>
+      <div>
         <div className="text-xs text-slate-500">{L.select}</div>
-        <div className="font-semibold tabular-nums text-blue-700">{formatKRW(selected)}</div>
+        <div className="font-semibold tabular-nums text-violet-700">{formatKRW(selected)}</div>
       </div>
       <div>
         <div className="text-xs text-slate-500">{L.remainingAmount}</div>
-        <div className={`font-bold tabular-nums ${remaining > 0 ? toneClass : "text-slate-500"}`}>
-          {formatKRW(remaining)}
+        <div className={`font-bold tabular-nums ${remainingAfterSelect > 0 ? toneClass : "text-slate-500"}`}>
+          {formatKRW(remainingAfterSelect)}
         </div>
       </div>
     </div>
@@ -569,7 +576,8 @@ export function BankErpDepositLinkModal({
           total={totalDeposit}
           linked={linkedAmount}
           selected={selectedTotal}
-          remaining={remainingAfterSelect}
+          remainingBeforeSelect={remainingBeforeSelect}
+          remainingAfterSelect={remainingAfterSelect}
           tone="deposit"
         />
 
@@ -825,7 +833,8 @@ export function BankErpWorkerLinkModal({
           total={totalWithdrawal}
           linked={linkedAmount}
           selected={selectedTotal}
-          remaining={remainingAfterSelect}
+          remainingBeforeSelect={remainingBeforeSelect}
+          remainingAfterSelect={remainingAfterSelect}
           tone="worker"
         />
 
