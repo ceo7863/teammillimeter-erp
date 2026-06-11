@@ -633,6 +633,26 @@ export function shouldPreferLocalBankTransactionMerge(
 }
 
 function mergePaymentMatchFields(local: BankTransaction, incoming: BankTransaction) {
+  const localHasPaymentLink = Boolean(local.linkedPaymentVoucherId || local.linkedPdfArchiveId);
+  const incomingHasPaymentLink = Boolean(incoming.linkedPaymentVoucherId || incoming.linkedPdfArchiveId);
+  const preferLocalPaymentMatch =
+    !localHasPaymentLink &&
+    incomingHasPaymentLink &&
+    !incoming.matchConfirmedAt &&
+    (local.matchAutoLinked === false || !local.matchAutoLinked);
+
+  if (preferLocalPaymentMatch) {
+    return {
+      linkedPaymentVoucherId: local.linkedPaymentVoucherId,
+      linkedPdfArchiveId: local.linkedPdfArchiveId,
+      linkedSalesId: local.linkedSalesId,
+      linkedWorkerMonthlyPaymentVoucherId: local.linkedWorkerMonthlyPaymentVoucherId,
+      matchConfirmedAt: local.matchConfirmedAt,
+      matchConfirmedBy: local.matchConfirmedBy,
+      matchAutoLinked: local.matchAutoLinked,
+    };
+  }
+
   const linkedPaymentVoucherId = local.linkedPaymentVoucherId ?? incoming.linkedPaymentVoucherId;
   const linkedPdfArchiveId = local.linkedPdfArchiveId ?? incoming.linkedPdfArchiveId;
   const linkedSalesId = local.linkedSalesId ?? incoming.linkedSalesId;

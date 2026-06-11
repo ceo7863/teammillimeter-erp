@@ -2512,23 +2512,25 @@ function BankTransactionsPageComponent({
         invoice && !taxInvoices.some((row) => row.id === invoice.id)
           ? [invoice, ...taxInvoices]
           : taxInvoices;
-      const splitResult = batchAutoLinkSplitTaxInvoiceEvidence(
-        nextTransactions,
-        invoicesForSplit,
-        taxInvoiceMatchContext,
-        nextClients,
-      );
-      if (splitResult.linkedCount > 0) {
-        for (const before of nextTransactions) {
-          const after = splitResult.transactions.find((row) => row.id === before.id);
-          if (after && getBankTxLinkedTaxInvoiceIds(after).join("|") !== getBankTxLinkedTaxInvoiceIds(before).join("|")) {
-            auditBankTxUpdate(before, after);
+      if (mode !== "remove" && mode !== "clear") {
+        const splitResult = batchAutoLinkSplitTaxInvoiceEvidence(
+          nextTransactions,
+          invoicesForSplit,
+          taxInvoiceMatchContext,
+          nextClients,
+        );
+        if (splitResult.linkedCount > 0) {
+          for (const before of nextTransactions) {
+            const after = splitResult.transactions.find((row) => row.id === before.id);
+            if (after && getBankTxLinkedTaxInvoiceIds(after).join("|") !== getBankTxLinkedTaxInvoiceIds(before).join("|")) {
+              auditBankTxUpdate(before, after);
+            }
           }
-        }
-        nextTransactions = splitResult.transactions;
-        if (splitResult.clients !== nextClients) {
-          nextClients = splitResult.clients;
-          setClients(nextClients);
+          nextTransactions = splitResult.transactions;
+          if (splitResult.clients !== nextClients) {
+            nextClients = splitResult.clients;
+            setClients(nextClients);
+          }
         }
       }
 

@@ -138,6 +138,20 @@ function mergeTaxInvoiceLinkFieldsForSave(prev, incoming) {
       taxInvoiceAutoLinkDisabled: true,
     };
   }
+  if (prev?.taxInvoiceAutoLinkDisabled) {
+    const incomingIds = normalizeLinkedTaxInvoiceIds(incoming);
+    const prevIds = normalizeLinkedTaxInvoiceIds(prev);
+    const incomingHasExplicitIds =
+      incoming &&
+      (Object.prototype.hasOwnProperty.call(incoming, "linkedTaxInvoiceIds") ||
+        Object.prototype.hasOwnProperty.call(incoming, "linkedTaxInvoiceId"));
+    const ids = incomingHasExplicitIds ? incomingIds : prevIds;
+    return {
+      linkedTaxInvoiceIds: ids.length ? ids : undefined,
+      linkedTaxInvoiceId: ids[0],
+      taxInvoiceAutoLinkDisabled: true,
+    };
+  }
   const prevIds = normalizeLinkedTaxInvoiceIds(prev);
   const incomingIds = normalizeLinkedTaxInvoiceIds(incoming);
   const ids = [...new Set([...prevIds, ...incomingIds])];
