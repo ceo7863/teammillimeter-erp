@@ -6906,6 +6906,7 @@ function BankTransactionsPageComponent({
 
       {clientModal ? (
         <BankTxPartyEditModal
+          key={clientModal.tx.id}
           tx={clientModal.tx}
           draft={clientModal.draft}
           clients={clients}

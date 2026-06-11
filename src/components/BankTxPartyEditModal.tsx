@@ -128,18 +128,15 @@ export function BankTxPartyEditModal({
   onDraftChange,
   onSave,
 }: BankTxPartyEditModalProps) {
-  const initialKind = useMemo(
-    () => inferPartyKind(tx, draft, clients, workers, bankTransactionFolders),
-    [tx, draft, clients, workers, bankTransactionFolders],
-  );
-
   const [step, setStep] = useState<Step>("choose");
-  const [partyKind, setPartyKind] = useState<PartyKind | null>(initialKind);
+  const [partyKind, setPartyKind] = useState<PartyKind | null>(() =>
+    inferPartyKind(tx, draft, clients, workers, bankTransactionFolders),
+  );
 
   useEffect(() => {
     setStep("choose");
     setPartyKind(inferPartyKind(tx, draft, clients, workers, bankTransactionFolders));
-  }, [tx.id, draft, clients, workers, bankTransactionFolders, tx]);
+  }, [tx.id]);
 
   const clientOptions = useMemo(() => buildClientOptions(clients), [clients]);
   const workerOptions = useMemo(() => buildWorkerOptions(workers), [workers]);
