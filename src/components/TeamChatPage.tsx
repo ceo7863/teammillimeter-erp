@@ -36,7 +36,7 @@ import {
 } from "@/utils/teamChatAttachments";
 import { TEAM_CHAT_LINK_LABELS, teamChatLinkToAction, type TeamChatLink } from "@/utils/teamChatLinks";
 import { consumeTeamChatShare, TEAM_CHAT_SHARE_CHANNEL } from "@/utils/teamChatShare";
-import { openTeamChatPopup, openTeamChatThreadPopup, canOpenTeamChatThreadPopup } from "@/utils/teamChatPopup";
+import { isTeamChatDesktopPopupMode, openTeamChatPopup, openTeamChatThreadPopup, canOpenTeamChatThreadPopup } from "@/utils/teamChatPopup";
 import {
   createTeamChatGroup,
   deleteTeamChatMessage,
@@ -1007,7 +1007,7 @@ export const TeamChatPage = memo(function TeamChatPage({
             <h1 className="erp-team-chat-sidebar__title">{L.title}</h1>
           </div>
           <div className="flex items-center gap-1">
-            {!standalone ? (
+            {!standalone && isTeamChatDesktopPopupMode() ? (
               <Button
                 type="button"
                 size="sm"

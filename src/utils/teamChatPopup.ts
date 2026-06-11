@@ -22,6 +22,10 @@ export function isTeamChatDesktopPopupMode() {
   return window.matchMedia("(pointer: fine)").matches;
 }
 
+export function isTeamChatEmbeddedInlineMode() {
+  return !isTeamChatDesktopPopupMode();
+}
+
 export function canOpenTeamChatThreadPopup() {
   return isTeamChatDesktopPopupMode();
 }

@@ -8458,7 +8458,7 @@ export default function TeammillimeterErpMvp() {
     if (migrated.basicInfoTab) storeBasicInfoTab(migrated.basicInfoTab);
     if (migrated.userAdminTab) storeUserAdminTab(migrated.userAdminTab);
     let page = migrated.page;
-    // Embedded ERP must not restore chat as the landing tab (mobile full-screen white overlay).
+    // Do not restore chat as the landing tab after reload (login still resets to dailyReport).
     if (page === "teamChat") {
       page = "dailyReport";
       if (typeof window !== "undefined") {
@@ -10386,8 +10386,8 @@ export default function TeammillimeterErpMvp() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    // Chat is opened explicitly; do not persist as the restore tab after reload/login.
-    if (active === "teamChat") return;
+    // Desktop opens chat in a popup — keep ERP on the previous tab in sessionStorage.
+    if (active === "teamChat" && isTeamChatDesktopPopupMode()) return;
     window.sessionStorage.setItem(ACTIVE_TAB_KEY, active);
   }, [active]);
 
@@ -11048,7 +11048,6 @@ export default function TeammillimeterErpMvp() {
   const shellActive = useMemo(() => {
     if (!currentUser) return active;
     let next = active;
-    if (next === "teamChat") next = "dailyReport";
     const visible = resolveVisibleSidebarPages(currentUser, sidebarOrder, sidebarHidden);
     if (visible.length && !visible.some((page) => page.key === next)) {
       next = visible.find((page) => page.key === "dailyReport")?.key ?? visible[0]?.key ?? "dailyReport";
@@ -11059,7 +11058,8 @@ export default function TeammillimeterErpMvp() {
   useEffect(() => {
     if (!currentUser || !dataReady || shellActive === active) return;
     setActive(shellActive);
-    if (typeof window !== "undefined" && shellActive !== "teamChat") {
+    if (typeof window !== "undefined") {
+      if (shellActive === "teamChat" && isTeamChatDesktopPopupMode()) return;
       window.sessionStorage.setItem(ACTIVE_TAB_KEY, shellActive);
     }
   }, [active, currentUser, dataReady, shellActive]);

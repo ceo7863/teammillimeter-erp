@@ -1,5 +1,5 @@
 import type { TeamChatLink } from "@/utils/teamChatLinks";
-import { openTeamChatPopup } from "@/utils/teamChatPopup";
+import { isTeamChatDesktopPopupMode, openTeamChatPopup } from "@/utils/teamChatPopup";
 
 export type TeamChatSharePayload = {
   link: TeamChatLink;
@@ -45,7 +45,8 @@ export function consumeTeamChatShare(): TeamChatSharePayload | null {
 export function openTeamChatWithShare(payload: TeamChatSharePayload, options?: { popup?: boolean }) {
   stashTeamChatShare(payload);
   if (typeof window === "undefined") return;
-  if (options?.popup !== false) {
+  const usePopup = options?.popup ?? isTeamChatDesktopPopupMode();
+  if (usePopup) {
     openTeamChatPopup();
     return;
   }
