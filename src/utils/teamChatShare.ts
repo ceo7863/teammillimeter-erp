@@ -27,6 +27,19 @@ export function stashTeamChatShare(payload: TeamChatSharePayload) {
   }
 }
 
+export function peekTeamChatShare(): TeamChatSharePayload | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw =
+      window.sessionStorage.getItem(PENDING_TEAM_CHAT_SHARE_KEY) ||
+      window.localStorage.getItem(PENDING_TEAM_CHAT_SHARE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as TeamChatSharePayload;
+  } catch {
+    return null;
+  }
+}
+
 export function consumeTeamChatShare(): TeamChatSharePayload | null {
   if (typeof window === "undefined") return null;
   try {
@@ -47,7 +60,14 @@ export function openTeamChatWithShare(payload: TeamChatSharePayload, options?: {
   if (typeof window === "undefined") return;
   const usePopup = options?.popup ?? isTeamChatDesktopPopupMode();
   if (usePopup) {
-    openTeamChatPopup();
+    const popup = openTeamChatPopup();
+    if (popup && !popup.closed) {
+      try {
+        popup.focus();
+      } catch {
+        // ignore
+      }
+    }
     return;
   }
   window.dispatchEvent(new CustomEvent(TEAM_CHAT_OPEN_EVENT));

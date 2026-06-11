@@ -35,7 +35,7 @@ import {
   type TeamChatAttachment,
 } from "@/utils/teamChatAttachments";
 import { TEAM_CHAT_LINK_LABELS, teamChatLinkToAction, type TeamChatLink } from "@/utils/teamChatLinks";
-import { consumeTeamChatShare, TEAM_CHAT_SHARE_CHANNEL } from "@/utils/teamChatShare";
+import { consumeTeamChatShare, peekTeamChatShare, stashTeamChatShare, TEAM_CHAT_SHARE_CHANNEL } from "@/utils/teamChatShare";
 import { isTeamChatDesktopPopupMode, openTeamChatPopup, openTeamChatThreadPopup, canOpenTeamChatThreadPopup } from "@/utils/teamChatPopup";
 import {
   createTeamChatGroup,
@@ -477,18 +477,35 @@ export const TeamChatPage = memo(function TeamChatPage({
 
   const applyPendingShare = useCallback((channelRows: TeamChatChannel[]) => {
     if (shareAppliedRef.current) return;
-    const payload = consumeTeamChatShare();
+    const payload = peekTeamChatShare();
     if (!payload) return;
     shareAppliedRef.current = true;
+
+    const resolveShareChannelId = () => {
+      if (payload.channelId && channelRows.some((row) => row.id === payload.channelId)) {
+        return payload.channelId;
+      }
+      return channelRows.find((row) => row.type === "team")?.id ?? null;
+    };
+
+    if (openThreadInPopup) {
+      const targetId = resolveShareChannelId();
+      if (!targetId) return;
+      stashTeamChatShare({ ...payload, channelId: targetId });
+      setHighlightedChannelId(targetId);
+      openTeamChatThreadPopup(targetId);
+      return;
+    }
+
+    consumeTeamChatShare();
     if (payload.body) setDraft(payload.body);
     if (payload.link) setPendingLink(payload.link);
-    if (payload.channelId && channelRows.some((row) => row.id === payload.channelId)) {
-      if (openThreadInPopup) {
-        setHighlightedChannelId(payload.channelId);
-        const popup = openTeamChatThreadPopup(payload.channelId);
-        if (popup) return;
-      }
-      setSelectedChannelId(payload.channelId);
+
+    const targetId = resolveShareChannelId();
+    if (targetId) {
+      listBrowsingRef.current = false;
+      setHighlightedChannelId(targetId);
+      setSelectedChannelId(targetId);
     }
   }, [openThreadInPopup]);
 
@@ -696,9 +713,13 @@ export const TeamChatPage = memo(function TeamChatPage({
 
   const handleSelectChannel = useCallback((channelId: string) => {
     if (openThreadInPopup) {
+      const payload = peekTeamChatShare();
+      if (payload) {
+        stashTeamChatShare({ ...payload, channelId });
+      }
       setHighlightedChannelId(channelId);
-      const popup = openTeamChatThreadPopup(channelId);
-      if (popup) return;
+      openTeamChatThreadPopup(channelId);
+      return;
     }
     if (channelId === selectedChannelIdRef.current) return;
     listBrowsingRef.current = false;
