@@ -4,6 +4,7 @@ import {
   CornerUpLeft,
   ExternalLink,
   MessageCircle,
+  ImagePlus,
   Menu,
   MoreHorizontal,
   Paperclip,
@@ -26,6 +27,9 @@ import {
   formatTeamChatAttachmentSize,
   isTeamChatImageMimeType,
   uploadTeamChatAttachment,
+  filterTeamChatAttachmentFiles,
+  hasDraggedFiles,
+  TEAM_CHAT_ATTACHMENT_ACCEPT,
   type TeamChatAttachment,
 } from "@/utils/teamChatAttachments";
 import { TEAM_CHAT_LINK_LABELS, teamChatLinkToAction, type TeamChatLink } from "@/utils/teamChatLinks";
@@ -90,6 +94,7 @@ const L = {
   groupChannelLabel: "\uADF8\uB8F9 \uCC44\uB110",
   dmChannelLabel: "1:1 \uB300\uD654",
   attach: "\uCCA8\uBD80",
+  dropFiles: "\uC0AC\uC9C4\uC774\uB098 \uD30C\uC77C\uC744 \uC5EC\uAE30\uC5D0 \uB193\uC73C\uC138\uC694",
   removeLink: "\uB9C1\uD06C \uC81C\uAC70",
   openLink: "\uC774\uB3D9",
   fileDownloadError: "\uD30C\uC77C\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",
@@ -275,8 +280,10 @@ export const TeamChatPage = memo(function TeamChatPage({
   const [editDraft, setEditDraft] = useState("");
   const [menuMessageId, setMenuMessageId] = useState<number | null>(null);
   const [readState, setReadState] = useState<TeamChatReadStateMember[]>([]);
+  const [dropOverlayOpen, setDropOverlayOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragDepthRef = useRef(0);
   const lastMessageIdRef = useRef(0);
   const selectedChannelIdRef = useRef<string | null>(null);
   const shareAppliedRef = useRef(false);
@@ -620,13 +627,15 @@ export const TeamChatPage = memo(function TeamChatPage({
   }, [searchQuery]);
 
   const handlePickFiles = useCallback(
-    async (fileList: FileList | null) => {
+    async (fileList: FileList | File[] | null) => {
       if (!selectedChannelId || !fileList?.length || uploading) return;
+      const files = filterTeamChatAttachmentFiles(fileList);
+      if (!files.length) return;
       setUploading(true);
       setError("");
       try {
         const next: PendingAttachment[] = [];
-        for (const file of Array.from(fileList)) {
+        for (const file of files) {
           const saved = await uploadTeamChatAttachment(file, selectedChannelId);
           const previewUrl = isTeamChatImageMimeType(saved.mimeType) ? URL.createObjectURL(file) : null;
           next.push({ ...saved, previewUrl });
@@ -640,6 +649,59 @@ export const TeamChatPage = memo(function TeamChatPage({
       }
     },
     [selectedChannelId, uploading],
+  );
+
+  const canAttachFiles = Boolean(selectedChannelId) && !uploading && !editingMessageId;
+
+  const handleThreadDragEnter = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!canAttachFiles || !hasDraggedFiles(event.dataTransfer)) return;
+      dragDepthRef.current += 1;
+      setDropOverlayOpen(true);
+    },
+    [canAttachFiles],
+  );
+
+  const handleThreadDragOver = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!canAttachFiles || !hasDraggedFiles(event.dataTransfer)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "copy";
+    },
+    [canAttachFiles],
+  );
+
+  const handleThreadDragLeave = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setDropOverlayOpen(false);
+  }, []);
+
+  const handleThreadDrop = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      dragDepthRef.current = 0;
+      setDropOverlayOpen(false);
+      if (!canAttachFiles) return;
+      void handlePickFiles(event.dataTransfer.files);
+    },
+    [canAttachFiles, handlePickFiles],
+  );
+
+  const handleComposerPaste = useCallback(
+    (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      if (!canAttachFiles) return;
+      const files = filterTeamChatAttachmentFiles(event.clipboardData.files);
+      if (!files.length) return;
+      event.preventDefault();
+      void handlePickFiles(files);
+    },
+    [canAttachFiles, handlePickFiles],
   );
 
   const removePendingAttachment = useCallback((id: string) => {
@@ -884,6 +946,20 @@ export const TeamChatPage = memo(function TeamChatPage({
               </Button>
             </div>
 
+            <div
+              className="erp-team-chat-thread__body"
+              onDragEnter={handleThreadDragEnter}
+              onDragOver={handleThreadDragOver}
+              onDragLeave={handleThreadDragLeave}
+              onDrop={handleThreadDrop}
+            >
+              {dropOverlayOpen ? (
+                <div className="erp-team-chat-drop-overlay" aria-hidden="true">
+                  <ImagePlus size={36} strokeWidth={1.75} />
+                  <p>{L.dropFiles}</p>
+                </div>
+              ) : null}
+
             <div ref={listRef} className="erp-team-chat-thread__messages">
               {!messages.length ? <p className="erp-team-chat-muted text-center text-sm">{L.emptyMessages}</p> : null}
               {messages.map((message) => {
@@ -1057,7 +1133,7 @@ export const TeamChatPage = memo(function TeamChatPage({
                 type="file"
                 className="hidden"
                 multiple
-                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.txt"
+                accept={TEAM_CHAT_ATTACHMENT_ACCEPT}
                 capture="environment"
                 onChange={(event) => void handlePickFiles(event.target.files)}
               />
@@ -1077,6 +1153,7 @@ export const TeamChatPage = memo(function TeamChatPage({
                 placeholder={L.placeholder}
                 disabled={Boolean(editingMessageId)}
                 onChange={(event) => setDraft(event.target.value)}
+                onPaste={handleComposerPaste}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
@@ -1093,6 +1170,7 @@ export const TeamChatPage = memo(function TeamChatPage({
                 <Send size={16} />
               </button>
             </form>
+            </div>
           </>
         )}
       </section>
