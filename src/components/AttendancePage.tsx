@@ -6,12 +6,15 @@ import {
   Clock,
   LogIn,
   LogOut,
+  Pencil,
   Timer,
   UserCheck,
   Users,
+  X,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { DesktopTableWrap, MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCard";
 import {
   buildAttendanceStatusLabel,
@@ -21,6 +24,8 @@ import {
   formatAttendanceTime,
   formatWorkDuration,
   findTodayAttendance,
+  isoToKstTimeInput,
+  saveAdminAttendanceRecord,
   todayAttendanceDate,
   canCheckIn,
   canCheckOut,
@@ -74,7 +79,148 @@ const L = {
   teamWorking: "\uADFC\uBB34 \uC911",
   teamDone: "\uD1F4\uADFC \uC644\uB8CC",
   teamAbsent: "\uBBF8\uCD9C\uADFC",
+  adminEdit: "\uC218\uC815",
+  adminEditTitle: "\uADFC\uD0DC \uC2DC\uAC04 \uC785\uB825",
+  adminEditDesc: "\uCD9C\uADFC\u00B7\uD1F4\uADFC \uC2DC\uAC04\uC744 \uC9C1\uC811 \uC785\uB825\uD569\uB2C8\uB2E4.",
+  memo: "\uBA54\uBAA8",
+  save: "\uC800\uC7A5",
+  cancel: "\uCDE8\uC18C",
+  clearRecord: "\uAE30\uB85D \uC0AD\uC81C",
+  clearRecordHint: "\uCD9C\uADFC\u00B7\uD1F4\uADFC \uC2DC\uAC04\uC744 \uBE44\uC6B0\uACE0 \uC800\uC7A5\uD558\uBA74 \uAE30\uB85D\uC774 \uC0AD\uC81C\uB429\uB2C8\uB2E4.",
+  adminSaved: "\uADFC\uD0DC \uAE30\uB85D\uC744 \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.",
+  adminAdd: "\uADFC\uD0DC \uC785\uB825",
 };
+
+type AdminEditDraft = {
+  userId: number;
+  userName: string;
+  date: string;
+  checkInTime: string;
+  checkOutTime: string;
+  memo: string;
+  existingRecord?: AttendanceRecord;
+};
+
+function openAdminEditDraft(input: {
+  userId: number;
+  userName: string;
+  date: string;
+  record?: AttendanceRecord;
+}): AdminEditDraft {
+  return {
+    userId: input.userId,
+    userName: input.userName,
+    date: input.date,
+    checkInTime: isoToKstTimeInput(input.record?.checkInAt),
+    checkOutTime: isoToKstTimeInput(input.record?.checkOutAt),
+    memo: input.record?.memo || "",
+    existingRecord: input.record,
+  };
+}
+
+function AttendanceAdminEditModal({
+  draft,
+  error,
+  saving,
+  onChange,
+  onClose,
+  onSave,
+}: {
+  draft: AdminEditDraft;
+  error: string;
+  saving: boolean;
+  onChange: (next: AdminEditDraft) => void;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  return (
+    <div className="erp-users-modal-backdrop" onClick={onClose}>
+      <div
+        className="erp-users-modal max-w-md"
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h2 className="erp-text-section font-bold text-slate-900">{L.adminEditTitle}</h2>
+            <p className="mt-1 erp-text-caption text-slate-500">{L.adminEditDesc}</p>
+          </div>
+          <button type="button" className="rounded-xl p-2 text-slate-400 hover:bg-slate-100" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <label className="block space-y-1">
+            <span className="erp-text-caption font-semibold text-slate-600">{L.name}</span>
+            <Input value={draft.userName} disabled className="rounded-xl bg-slate-50" />
+          </label>
+          <label className="block space-y-1">
+            <span className="erp-text-caption font-semibold text-slate-600">{L.date}</span>
+            <Input
+              type="date"
+              value={draft.date}
+              disabled={Boolean(draft.existingRecord)}
+              onChange={(event) => onChange({ ...draft, date: event.target.value })}
+              className="rounded-xl"
+            />
+          </label>
+          <label className="block space-y-1">
+            <span className="erp-text-caption font-semibold text-slate-600">{L.checkInTime}</span>
+            <Input
+              type="time"
+              value={draft.checkInTime}
+              onChange={(event) => onChange({ ...draft, checkInTime: event.target.value })}
+              className="rounded-xl"
+            />
+          </label>
+          <label className="block space-y-1">
+            <span className="erp-text-caption font-semibold text-slate-600">{L.checkOutTime}</span>
+            <Input
+              type="time"
+              value={draft.checkOutTime}
+              onChange={(event) => onChange({ ...draft, checkOutTime: event.target.value })}
+              className="rounded-xl"
+            />
+          </label>
+          <label className="block space-y-1">
+            <span className="erp-text-caption font-semibold text-slate-600">{L.memo}</span>
+            <textarea
+              className="erp-input min-h-[4.5rem] w-full rounded-xl border px-3 py-2.5"
+              value={draft.memo}
+              onChange={(event) => onChange({ ...draft, memo: event.target.value })}
+            />
+          </label>
+          {draft.existingRecord ? (
+            <p className="erp-text-caption rounded-xl bg-slate-50 px-3 py-2 text-slate-500">{L.clearRecordHint}</p>
+          ) : null}
+          {error ? (
+            <div className="rounded-xl bg-red-50 px-3 py-2 erp-text-body font-semibold text-red-600">{error}</div>
+          ) : null}
+        </div>
+
+        <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+          <Button type="button" variant="outline" className="rounded-2xl sm:flex-1" onClick={onClose} disabled={saving}>
+            {L.cancel}
+          </Button>
+          <Button type="button" className="rounded-2xl font-bold sm:flex-1" onClick={onSave} disabled={saving}>
+            {saving ? "..." : L.save}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AttendanceAdminEditButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={onClick}>
+      <Pencil size={14} className="mr-1" />
+      {L.adminEdit}
+    </Button>
+  );
+}
 
 function getAttendanceStatusKind(record: AttendanceRecord | undefined): AttendanceStatusKind {
   if (!record?.checkInAt) return "absent";
@@ -199,10 +345,12 @@ function AttendanceRecordsTable({
   records,
   showName = false,
   emptyLabel,
+  onAdminEdit,
 }: {
   records: AttendanceRecord[];
   showName?: boolean;
   emptyLabel: string;
+  onAdminEdit?: (record: AttendanceRecord) => void;
 }) {
   return (
     <>
@@ -224,6 +372,9 @@ function AttendanceRecordsTable({
                   tone: "success" as const,
                 },
               ]}
+              actions={
+                onAdminEdit ? <AttendanceAdminEditButton onClick={() => onAdminEdit(record)} /> : undefined
+              }
             />
           ))
         ) : (
@@ -241,6 +392,7 @@ function AttendanceRecordsTable({
               <th>{L.checkInTime}</th>
               <th>{L.checkOutTime}</th>
               <th className="text-right">{L.duration}</th>
+              {onAdminEdit ? <th className="w-24" /> : null}
             </tr>
           </thead>
           <tbody>
@@ -257,11 +409,16 @@ function AttendanceRecordsTable({
                   <td className="text-right font-semibold text-sky-700">
                     {formatWorkDuration(record.checkInAt, record.checkOutAt)}
                   </td>
+                  {onAdminEdit ? (
+                    <td className="text-right">
+                      <AttendanceAdminEditButton onClick={() => onAdminEdit(record)} />
+                    </td>
+                  ) : null}
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={showName ? 6 : 5} className="erp-attendance-empty">
+                <td colSpan={(showName ? 6 : 5) + (onAdminEdit ? 1 : 0)} className="erp-attendance-empty">
                   {emptyLabel}
                 </td>
               </tr>
@@ -276,9 +433,11 @@ function AttendanceRecordsTable({
 function TeamTodayTable({
   rows,
   emptyLabel,
+  onAdminEdit,
 }: {
   rows: Array<{ userId: number; userName: string; record?: AttendanceRecord }>;
   emptyLabel: string;
+  onAdminEdit?: (row: { userId: number; userName: string; record?: AttendanceRecord }) => void;
 }) {
   return (
     <>
@@ -302,6 +461,7 @@ function TeamTodayTable({
                   tone: "success",
                 },
               ]}
+              actions={onAdminEdit ? <AttendanceAdminEditButton onClick={() => onAdminEdit(row)} /> : undefined}
             />
           ))
         ) : (
@@ -318,6 +478,7 @@ function TeamTodayTable({
               <th>{L.checkInTime}</th>
               <th>{L.checkOutTime}</th>
               <th className="text-right">{L.duration}</th>
+              {onAdminEdit ? <th className="w-24" /> : null}
             </tr>
           </thead>
           <tbody>
@@ -335,11 +496,16 @@ function TeamTodayTable({
                   <td className="text-right font-semibold text-sky-700">
                     {formatWorkDuration(row.record?.checkInAt, row.record?.checkOutAt)}
                   </td>
+                  {onAdminEdit ? (
+                    <td className="text-right">
+                      <AttendanceAdminEditButton onClick={() => onAdminEdit(row)} />
+                    </td>
+                  ) : null}
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={5} className="erp-attendance-empty">
+                <td colSpan={onAdminEdit ? 6 : 5} className="erp-attendance-empty">
                   {emptyLabel}
                 </td>
               </tr>
@@ -379,7 +545,10 @@ export function AttendancePage({
   const [browseMonthKey, setBrowseMonthKey] = useState(() => todayAttendanceDate().slice(0, 7));
   const [myMonthKey, setMyMonthKey] = useState(() => todayAttendanceDate().slice(0, 7));
   const [browseUserId, setBrowseUserId] = useState<number | "all">("all");
+  const [adminEdit, setAdminEdit] = useState<AdminEditDraft | null>(null);
+  const [adminEditError, setAdminEditError] = useState("");
   const liveClock = useKstClock();
+  const isAdmin = currentUser?.role === "admin";
   const canBrowseTeam = canBrowseTeamAttendance(currentUser);
   const today = todayAttendanceDate();
   const monthKey = today.slice(0, 7);
@@ -526,6 +695,86 @@ export function AttendancePage({
     setFeedback(`\uD1F4\uADFC \uC644\uB8CC (${formatAttendanceTime(result.record.checkOutAt)})`);
   };
 
+  const openAdminEditFromRecord = (record: AttendanceRecord) => {
+    setAdminEditError("");
+    setAdminEdit(
+      openAdminEditDraft({
+        userId: record.userId,
+        userName: record.userName,
+        date: record.date,
+        record,
+      }),
+    );
+  };
+
+  const openAdminEditFromTeamRow = (row: { userId: number; userName: string; record?: AttendanceRecord }) => {
+    setAdminEditError("");
+    setAdminEdit(
+      openAdminEditDraft({
+        userId: row.userId,
+        userName: row.userName,
+        date: row.record?.date || today,
+        record: row.record,
+      }),
+    );
+  };
+
+  const openAdminAddForBrowseUser = () => {
+    if (browseUserId === "all") return;
+    const user = viewableUsers.find((item) => item.id === browseUserId);
+    if (!user) return;
+    const defaultDate = browseMonthKey === monthKey ? today : `${browseMonthKey}-01`;
+    setAdminEditError("");
+    setAdminEdit(
+      openAdminEditDraft({
+        userId: user.id,
+        userName: user.name,
+        date: defaultDate,
+      }),
+    );
+  };
+
+  const handleAdminSave = () => {
+    if (!adminEdit || !currentUser) return;
+    const beforeRecord =
+      adminEdit.existingRecord ??
+      attendanceRecords.find((row) => row.userId === adminEdit.userId && row.date === adminEdit.date.slice(0, 10));
+    const result = saveAdminAttendanceRecord(attendanceRecords, {
+      userId: adminEdit.userId,
+      userName: adminEdit.userName,
+      date: adminEdit.date,
+      checkInTime: adminEdit.checkInTime,
+      checkOutTime: adminEdit.checkOutTime,
+      memo: adminEdit.memo,
+      existingRecord: beforeRecord,
+    });
+    if (!result.ok) {
+      setAdminEditError(result.message);
+      return;
+    }
+
+    const deleted =
+      beforeRecord && !result.records.some((row) => row.id === beforeRecord.id);
+    setAttendanceRecords(result.records);
+    recordAudit({
+      entityType: "attendance",
+      entityId: beforeRecord?.id || result.record.id,
+      entityLabel: `${adminEdit.userName} \u00B7 ${adminEdit.date.slice(0, 10)}`,
+      screen: L.pageTitle,
+      action: deleted ? "delete" : beforeRecord ? "update" : "create",
+      before: beforeRecord ? snapshotAttendanceForAudit(beforeRecord) : undefined,
+      after: deleted ? undefined : snapshotAttendanceForAudit(result.record),
+      fields: ATTENDANCE_AUDIT_FIELDS,
+      user: currentUser,
+    });
+    setAdminEdit(null);
+    setAdminEditError("");
+    setFeedback(L.adminSaved);
+  };
+
+  const handleAdminEdit = isAdmin ? openAdminEditFromRecord : undefined;
+  const handleTeamAdminEdit = isAdmin ? openAdminEditFromTeamRow : undefined;
+
   if (!currentUser) {
     return (
       <div className="erp-attendance-page erp-page space-y-4">
@@ -625,7 +874,7 @@ export function AttendancePage({
             <TeamStatChip label={L.teamDone} value={teamStats.done} tone="warning" />
             <TeamStatChip label={L.teamAbsent} value={teamStats.absent} tone="muted" />
           </div>
-          <TeamTodayTable rows={teamTodayRows} emptyLabel={L.emptyTeam} />
+          <TeamTodayTable rows={teamTodayRows} emptyLabel={L.emptyTeam} onAdminEdit={handleTeamAdminEdit} />
         </AttendanceSection>
       ) : null}
 
@@ -664,9 +913,33 @@ export function AttendancePage({
               {browseRecords.length}
               {L.recordCount}
             </span>
+            {isAdmin && browseUserId !== "all" ? (
+              <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={openAdminAddForBrowseUser}>
+                {L.adminAdd}
+              </Button>
+            ) : null}
           </div>
-          <AttendanceRecordsTable records={browseRecords} showName emptyLabel={L.emptyBrowse} />
+          <AttendanceRecordsTable
+            records={browseRecords}
+            showName
+            emptyLabel={L.emptyBrowse}
+            onAdminEdit={handleAdminEdit}
+          />
         </AttendanceSection>
+      ) : null}
+
+      {adminEdit ? (
+        <AttendanceAdminEditModal
+          draft={adminEdit}
+          error={adminEditError}
+          saving={false}
+          onChange={setAdminEdit}
+          onClose={() => {
+            setAdminEdit(null);
+            setAdminEditError("");
+          }}
+          onSave={handleAdminSave}
+        />
       ) : null}
     </div>
   );

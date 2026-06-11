@@ -108,6 +108,101 @@ function upsertRecord(records: AttendanceRecord[], record: AttendanceRecord) {
   return [...records, record];
 }
 
+export function isoToKstTimeInput(iso?: string) {
+  if (!iso) return "";
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: KOREA_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(iso));
+  const hour = parts.find((part) => part.type === "hour")?.value ?? "00";
+  const minute = parts.find((part) => part.type === "minute")?.value ?? "00";
+  return `${hour.padStart(2, "0")}:${minute.padStart(2, "0")}`;
+}
+
+function buildKstIso(date: string, time: string) {
+  const trimmed = String(time || "").trim();
+  if (!trimmed) return undefined;
+  const match = /^(\d{1,2}):(\d{2})$/.exec(trimmed);
+  if (!match) return undefined;
+  const hour = String(match[1]).padStart(2, "0");
+  const minute = match[2];
+  return `${date.slice(0, 10)}T${hour}:${minute}:00+09:00`;
+}
+
+export type AdminAttendanceSaveInput = {
+  userId: number;
+  userName: string;
+  date: string;
+  checkInTime?: string;
+  checkOutTime?: string;
+  memo?: string;
+  existingRecord?: AttendanceRecord;
+};
+
+export function saveAdminAttendanceRecord(
+  records: AttendanceRecord[],
+  input: AdminAttendanceSaveInput,
+): AttendanceClockResult {
+  const date = String(input.date || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return { ok: false, message: "\uC77C\uC790 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." };
+  }
+  if (!input.userId) {
+    return { ok: false, message: "\uC0AC\uC6A9\uC790\uC815\uBCF4\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4." };
+  }
+
+  const checkInAt = buildKstIso(date, input.checkInTime || "");
+  const checkOutAt = buildKstIso(date, input.checkOutTime || "");
+  const existing =
+    input.existingRecord ?? records.find((row) => row.userId === input.userId && row.date === date);
+
+  if (!checkInAt && !checkOutAt) {
+    if (!existing) {
+      return { ok: false, message: "\uCD9C\uADFC \uB610\uB294 \uD1F4\uADFC \uC2DC\uAC04\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694." };
+    }
+    return {
+      ok: true,
+      records: records.filter((row) => row.id !== existing.id),
+      record: existing,
+    };
+  }
+
+  if (checkOutAt && !checkInAt) {
+    return { ok: false, message: "\uD1F4\uADFC \uC804\uC5D0 \uCD9C\uADFC \uC2DC\uAC04\uC774 \uD544\uC694\uD569\uB2C8\uB2E4." };
+  }
+
+  if (checkInAt && checkOutAt && new Date(checkOutAt).getTime() <= new Date(checkInAt).getTime()) {
+    return { ok: false, message: "\uD1F4\uADFC \uC2DC\uAC04\uC740 \uCD9C\uADFC \uC2DC\uAC04\uBCF4\uB2E4 \uB4A4\uC5EC\uC57C \uD569\uB2C8\uB2E4." };
+  }
+
+  const now = new Date().toISOString();
+  const memo = String(input.memo || "").trim() || undefined;
+  const record: AttendanceRecord = existing
+    ? {
+        ...existing,
+        userName: input.userName,
+        checkInAt,
+        checkOutAt,
+        memo,
+        updatedAt: now,
+      }
+    : {
+        id: makeAttendanceId(),
+        userId: input.userId,
+        userName: input.userName,
+        date,
+        checkInAt,
+        checkOutAt,
+        memo,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+  return { ok: true, records: upsertRecord(records, record), record };
+}
+
 export type AttendanceClockResult =
   | { ok: true; records: AttendanceRecord[]; record: AttendanceRecord }
   | { ok: false; message: string };
