@@ -246,6 +246,13 @@ import type { ProbationEvalRequest, ProbationEvalTemplate } from "@/utils/probat
 import { ScScheduleAlimtalkPage } from "@/components/ScScheduleAlimtalkPage";
 import { ClientFormModal, type ClientFormState } from "@/components/ClientFormModal";
 import { WorkerFormModal, createEmptyWorkerForm } from "@/components/WorkerFormModal";
+import {
+  applyWorkerPhotoMetaToWorker,
+  deleteWorkerPhoto,
+  fetchWorkerPhotoBlob,
+  uploadWorkerPhoto,
+  workerHasPhoto,
+} from "@/utils/workerPhotoFile";
 import { WorkerProbationAlertBanner } from "@/components/WorkerProbationAlertBanner";
 import { consumeWorkerScrollTarget, storeWorkerScrollTarget } from "@/utils/workerProbationAlerts";
 import { ClientBusinessRegViewModal } from "@/components/ClientBusinessRegViewModal";
@@ -6618,11 +6625,56 @@ function WorkersPage({
   const [workersView, setWorkersView] = useState<"list" | "eval" | "template" | "hr">("list");
   const [probationTemplateSaving, setProbationTemplateSaving] = useState(false);
   const [scrollToWorkerId, setScrollToWorkerId] = useState<string | number | null>(null);
+  const [pendingWorkerPhotoFile, setPendingWorkerPhotoFile] = useState<File | null>(null);
+  const [workerPhotoPreviewUrl, setWorkerPhotoPreviewUrl] = useState<string | null>(null);
+  const [workerPhotoUploading, setWorkerPhotoUploading] = useState(false);
 
   useEffect(() => {
     const targetId = consumeWorkerScrollTarget();
     if (targetId) setScrollToWorkerId(targetId);
   }, []);
+
+  const editingWorker =
+    editingId != null ? workersRef.current.find((worker) => workerIdsEqual(worker.id, editingId)) : null;
+
+  useEffect(() => {
+    if (!workerModalOpen) return undefined;
+
+    let objectUrl = "";
+    let cancelled = false;
+
+    async function loadPreview() {
+      if (pendingWorkerPhotoFile) {
+        objectUrl = URL.createObjectURL(pendingWorkerPhotoFile);
+        if (!cancelled) setWorkerPhotoPreviewUrl(objectUrl);
+        return;
+      }
+
+      if (editingWorker && workerHasPhoto(editingWorker)) {
+        try {
+          const blob = await fetchWorkerPhotoBlob(editingWorker.id as string | number);
+          if (cancelled) return;
+          if (blob) {
+            objectUrl = URL.createObjectURL(blob);
+            setWorkerPhotoPreviewUrl(objectUrl);
+          } else {
+            setWorkerPhotoPreviewUrl(null);
+          }
+        } catch {
+          if (!cancelled) setWorkerPhotoPreviewUrl(null);
+        }
+        return;
+      }
+
+      if (!cancelled) setWorkerPhotoPreviewUrl(null);
+    }
+
+    void loadPreview();
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [workerModalOpen, editingId, editingWorker?.photoFileId, editingWorker?.photoUploadedAt, pendingWorkerPhotoFile, workers]);
 
   const handleWorkerListSort = (column: WorkerListSortColumn) => {
     setListSort((prev) => {
@@ -6703,6 +6755,8 @@ function WorkersPage({
     setForm(createEmptyWorkerForm());
     setEditingId(null);
     setFormError("");
+    setPendingWorkerPhotoFile(null);
+    setWorkerPhotoPreviewUrl(null);
   }, []);
 
   const openCreateWorkerModal = useCallback(() => {
@@ -6716,6 +6770,7 @@ function WorkersPage({
     setForm(createEmptyWorkerForm());
     setEditingId(null);
     setFormError("");
+    setPendingWorkerPhotoFile(null);
   }, []);
 
   const handleSaveWorkerAiRules = useCallback(async (nextRules) => {
@@ -6743,6 +6798,63 @@ function WorkersPage({
       : undefined;
     void onPersistWorkersImmediate?.(nextWorkers, nextAuditLogs, options);
   };
+
+  const persistWorkerPhotoMeta = useCallback(
+    (workerId, meta, existingWorker) => {
+      const patch = applyWorkerPhotoMetaToWorker(existingWorker || {}, meta);
+      const nextWorkers = workersRef.current.map((worker) =>
+        workerIdsEqual(worker.id, workerId) ? { ...worker, ...patch } : worker,
+      );
+      commitWorkerChange(nextWorkers, {
+        entityId: workerId,
+        entityLabel: existingWorker?.name || patch.name || "",
+        action: "update",
+        before: existingWorker ? snapshotWorkerForAudit(existingWorker) : undefined,
+        after: snapshotWorkerForAudit({ ...(existingWorker || {}), ...patch }),
+        fields: WORKER_AUDIT_FIELDS,
+      });
+    },
+    [auditLogs, currentUser, onPersistWorkersImmediate],
+  );
+
+  const handleWorkerPhotoSelect = useCallback(
+    async (file: File) => {
+      setFormError("");
+      if (editingId == null) {
+        setPendingWorkerPhotoFile(file);
+        return;
+      }
+      setWorkerPhotoUploading(true);
+      try {
+        const meta = await uploadWorkerPhoto(editingId, file);
+        persistWorkerPhotoMeta(editingId, meta, editingWorker);
+        setPendingWorkerPhotoFile(null);
+      } catch (error) {
+        setFormError(error instanceof Error ? error.message : "\uC778\uC0AC\uC0AC\uC9C4 \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
+      } finally {
+        setWorkerPhotoUploading(false);
+      }
+    },
+    [editingId, editingWorker, persistWorkerPhotoMeta],
+  );
+
+  const handleWorkerPhotoDelete = useCallback(async () => {
+    setFormError("");
+    if (pendingWorkerPhotoFile) {
+      setPendingWorkerPhotoFile(null);
+      return;
+    }
+    if (editingId == null) return;
+    setWorkerPhotoUploading(true);
+    try {
+      await deleteWorkerPhoto(editingId);
+      persistWorkerPhotoMeta(editingId, null, editingWorker);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "\uC778\uC0AC\uC0AC\uC9C4 \uC0AD\uC81C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
+    } finally {
+      setWorkerPhotoUploading(false);
+    }
+  }, [editingId, editingWorker, pendingWorkerPhotoFile, persistWorkerPhotoMeta]);
 
   const saveWorker = () => {
     const name = form.name.trim();
@@ -6879,16 +6991,27 @@ function WorkersPage({
       },
       { flushNow: true },
     );
+    const pendingPhoto = pendingWorkerPhotoFile;
+    setPendingWorkerPhotoFile(null);
+    setWorkerPhotoPreviewUrl(null);
     setForm(createEmptyWorkerForm());
     setEditingId(null);
     setFormError("");
     setWorkerModalOpen(false);
     setQuery("");
     setScrollToWorkerId(payloadWithCharge.id);
+    if (pendingPhoto) {
+      void uploadWorkerPhoto(payloadWithCharge.id, pendingPhoto)
+        .then((meta) => persistWorkerPhotoMeta(payloadWithCharge.id, meta, payloadWithCharge))
+        .catch((error) => {
+          console.error("[worker-photo] upload after create failed:", error);
+        });
+    }
   };
 
   const editWorker = (worker) => {
     setFormError("");
+    setPendingWorkerPhotoFile(null);
     setEditingId(worker.id);
     setForm({
       name: worker.name || "",
@@ -6927,6 +7050,8 @@ function WorkersPage({
     const worker = workersRef.current.find((item) => workerIdsEqual(item.id, id));
     if (!worker) return;
     if (!confirmWorkerPermanentDelete(worker.name)) return;
+
+    void deleteWorkerPhoto(id).catch(() => {});
 
     commitWorkerChange(
       workersRef.current.filter((item) => !workerIdsEqual(item.id, id)),
@@ -7394,6 +7519,11 @@ function WorkersPage({
         onSave={saveWorker}
         onReset={resetWorkerForm}
         onUpdate={updateForm}
+        workerPhotoPreviewUrl={workerPhotoPreviewUrl}
+        workerPhotoHasSaved={workerHasPhoto(editingWorker) || Boolean(pendingWorkerPhotoFile)}
+        workerPhotoUploading={workerPhotoUploading}
+        onWorkerPhotoSelect={handleWorkerPhotoSelect}
+        onWorkerPhotoDelete={handleWorkerPhotoDelete}
       />
       <WorkerAiRulesModal
         open={workerAiRulesOpen}

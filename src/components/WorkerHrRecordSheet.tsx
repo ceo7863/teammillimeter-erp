@@ -1,4 +1,5 @@
 import { Download, Printer } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { EvalQuestionBarChart, EvalRadarChart, EvalTrendChart } from "@/components/WorkerHrRecordCharts";
 import type { CompanyProfile } from "@/utils/companyProfile";
@@ -8,6 +9,7 @@ import {
   type WorkerProfileExtended,
 } from "@/utils/probationEvalHrRecord";
 import { WORKER_CATEGORY_OUTSOURCE } from "@/utils/workerPayments";
+import { fetchWorkerPhotoBlob, workerHasPhoto } from "@/utils/workerPhotoFile";
 import "@/styles/worker-hr-record.css";
 
 const L = {
@@ -35,12 +37,12 @@ const L = {
   phone: "\uC5F0\uB77D\uCC98",
   vehicle: "\uCC28\uB7C9\uBC88\uD638",
   address: "\uC8FC\uC18C",
-  businessNo: "\uC0AC\uC5C5\uC790\uBC88\uD638",
+  businessNo: "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uBC88\uD638",
   cost: "\uC2DC\uACF5\uBE44",
-  bank: "\uC740\uD589 \u00B7 \uACC4\uC870",
+  bank: "\uC740\uD589 / \uACC4\uC870",
   memo: "\uBE44\uACE0",
   avgScore: "\uD3C9\uADE0 \uC810\uC218",
-  latestScore: "\uC804\uAD00 \uC810\uC218",
+  latestScore: "\uCD5C\uADFC \uC810\uC218",
   submitCount: "\uD3C9\uAC00 \uC81C\uCD9C",
   completion: "\uC644\uB8CC\uC728",
   date: "\uC77C\uC790",
@@ -53,10 +55,78 @@ const L = {
   team: "\uD300\uC6D0",
   outsource: "\uC678\uC8FC",
   statusSubmitted: "\uC81C\uCD9C\uC644\uB8CC",
-  statusSent: "\uBC1C\uC1A1",
+  statusSent: "\uBC1C\uC1A1\uC644\uB8CC",
   statusExpired: "\uB9CC\uB8CC",
   statusPending: "\uB300\uAE30",
 };
+
+function companyLogoInitials(name: string) {
+  const stripped = String(name || "")
+    .replace(/^\(\uC8FC\)\s*/u, "")
+    .trim();
+  const base = stripped || String(name || "").trim();
+  const chars = [...base].filter((char) => /[\uAC00-\uD7A3a-zA-Z0-9]/.test(char));
+  return chars.slice(0, 2).join("") || "TM";
+}
+
+function joinContactLine(parts: Array<string | undefined | null>) {
+  return parts
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .join(" \u00B7 ");
+}
+
+function WorkerHrRecordPhoto({
+  workerId,
+  workerName,
+  worker,
+}: {
+  workerId: string;
+  workerName: string;
+  worker: WorkerProfileExtended;
+}) {
+  const [src, setSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    let objectUrl = "";
+    let cancelled = false;
+
+    async function load() {
+      const id = String(workerId || worker.id || "").trim();
+      if (!id || !workerHasPhoto(worker)) {
+        if (!cancelled) setSrc(null);
+        return;
+      }
+      try {
+        const blob = await fetchWorkerPhotoBlob(id);
+        if (cancelled || !blob) {
+          if (!cancelled) setSrc(null);
+          return;
+        }
+        objectUrl = URL.createObjectURL(blob);
+        setSrc(objectUrl);
+      } catch {
+        if (!cancelled) setSrc(null);
+      }
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [workerId, worker.id, worker.photoFileId, worker.photoUploadedAt]);
+
+  return (
+    <div className="worker-hr-record-photo" aria-hidden={Boolean(src)}>
+      {src ? (
+        <img src={src} alt={`${workerName} \uC778\uC0AC\uC0AC\uC9C4`} />
+      ) : (
+        String(workerName || "?").slice(0, 1)
+      )}
+    </div>
+  );
+}
 
 function formatDateKo(iso?: string) {
   if (!iso) return "\u2014";
@@ -127,7 +197,7 @@ export function WorkerHrRecordSheet({
           <div className="worker-hr-record-header-top">
             <div className="worker-hr-record-brand">
               <div className="worker-hr-record-logo" aria-hidden>
-                {companyName.slice(0, 2)}
+                {companyLogoInitials(companyName)}
               </div>
               <div>
                 <div className="worker-hr-record-company">{companyName}</div>
@@ -152,9 +222,7 @@ export function WorkerHrRecordSheet({
         <section className="worker-hr-record-section">
           <h2>{L.personal}</h2>
           <div className="worker-hr-record-profile">
-            <div className="worker-hr-record-photo" aria-hidden>
-              {String(data.workerName || "?").slice(0, 1)}
-            </div>
+            <WorkerHrRecordPhoto workerId={data.workerId} workerName={data.workerName} worker={worker} />
             <dl className="worker-hr-record-dl">
               <div>
                 <dt>{L.name}</dt>
@@ -306,9 +374,7 @@ export function WorkerHrRecordSheet({
 
         <footer className="worker-hr-record-footer">
           <p>{L.autoNote}</p>
-          <p>
-            {companyName} \u00B7 {companyProfile.phone || ""} \u00B7 {companyProfile.address || ""}
-          </p>
+          <p>{joinContactLine([companyName, companyProfile.phone, companyProfile.address])}</p>
         </footer>
       </article>
     </div>

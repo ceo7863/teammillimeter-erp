@@ -17,6 +17,7 @@ import {
 } from "@/utils/workerAiRules";
 import { isWorkerInProbationPeriod } from "@/utils/workerProbationAutoAdjust";
 import { WORKER_CATEGORY_OPTIONS } from "@/utils/workerPayments";
+import { WorkerPhotoField } from "@/components/WorkerPhotoField";
 import { calculateWorkerPaymentVat } from "@/utils/workerMonthlyPayments";
 
 const WORKER_GRADE_OPTIONS = ["S", "A", "B", "C", "D", "E"];
@@ -149,6 +150,11 @@ type WorkerFormModalProps = {
   onSave: () => void;
   onReset: () => void;
   onUpdate: (key: keyof WorkerFormState, value: WorkerFormState[keyof WorkerFormState]) => void;
+  workerPhotoPreviewUrl?: string | null;
+  workerPhotoHasSaved?: boolean;
+  workerPhotoUploading?: boolean;
+  onWorkerPhotoSelect?: (file: File) => void;
+  onWorkerPhotoDelete?: () => void;
 };
 
 export const WorkerFormModal = memo(function WorkerFormModal({
@@ -161,6 +167,11 @@ export const WorkerFormModal = memo(function WorkerFormModal({
   onSave,
   onReset,
   onUpdate,
+  workerPhotoPreviewUrl = null,
+  workerPhotoHasSaved = false,
+  workerPhotoUploading = false,
+  onWorkerPhotoSelect,
+  onWorkerPhotoDelete,
 }: WorkerFormModalProps) {
   useBodyScrollLock(open);
 
@@ -206,6 +217,17 @@ export const WorkerFormModal = memo(function WorkerFormModal({
             <X size={18} />
           </button>
         </div>
+
+        {onWorkerPhotoSelect ? (
+          <WorkerPhotoField
+            previewUrl={workerPhotoPreviewUrl}
+            hasPhoto={workerPhotoHasSaved || Boolean(workerPhotoPreviewUrl)}
+            uploading={workerPhotoUploading}
+            createMode={editingId == null}
+            onSelectFile={onWorkerPhotoSelect}
+            onDelete={onWorkerPhotoDelete}
+          />
+        ) : null}
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <AuditField label={L.nameLabel} entityType="worker" entityId={editingId} field="name">

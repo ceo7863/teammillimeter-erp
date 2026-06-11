@@ -52,6 +52,10 @@ export type WorkerMasterLike = {
   portalLoginId?: string;
   /** 저장 요청 시에만 전송 — 서버가 portalPasswordHash로 변환 */
   portalPassword?: string;
+  /** 인사기록부용 증명사진 */
+  photoFileId?: string;
+  photoFileName?: string;
+  photoUploadedAt?: string;
 };
 
 export function normalizeWorkerName(value?: string) {

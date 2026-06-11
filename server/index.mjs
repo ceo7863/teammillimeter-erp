@@ -78,6 +78,14 @@ import {
   deleteClientBusinessReg,
   enrichClientsWithBusinessRegMeta,
 } from "./clientBusinessReg.mjs";
+import {
+  initWorkerPhotoStore,
+  getWorkerPhotoMeta,
+  getWorkerPhotoFile,
+  upsertWorkerPhoto,
+  deleteWorkerPhoto,
+  enrichWorkersWithPhotoMeta,
+} from "./workerPhoto.mjs";
 import { buildPdfShareViewerHtml } from "./pdfShareViewer.mjs";
 import { renderPdfSharePreviewImages } from "./pdfSharePreview.mjs";
 import { buildPdfShareOgMeta } from "./pdfShareOg.mjs";
@@ -211,6 +219,7 @@ initErpChatStore();
 initPdfArchiveStore();
 initBoardAttachmentStore();
 initClientBusinessRegStore();
+initWorkerPhotoStore();
 initClientContractsStore();
 startBankSyncScheduler();
 startNotificationScheduler();
@@ -894,6 +903,71 @@ app.delete("/api/clients/:clientId/business-reg", authMiddleware, (req, res) => 
 });
 
 app.post(
+  "/api/workers/:workerId/photo",
+  authMiddleware,
+  express.raw({ type: () => true, limit: "6mb" }),
+  (req, res) => {
+    try {
+      const rawMeta = req.headers["x-worker-photo-meta"];
+      if (!rawMeta) {
+        res.status(400).json({ error: "\uC778\uC0AC\uC0AC\uC9C4 \uBA54\uD0C0\uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4." });
+        return;
+      }
+      const meta = parseAttachmentMetaHeader(rawMeta);
+      const buffer = Buffer.from(req.body || []);
+      const result = upsertWorkerPhoto(
+        req.params.workerId,
+        buffer,
+        meta,
+        req.user.loginId || req.user.name || req.user.email,
+      );
+      if (!result.ok) {
+        res.status(result.status || 400).json({ error: result.error });
+        return;
+      }
+      res.status(result.meta?.createdAt === result.meta?.updatedAt ? 201 : 200).json(result.meta);
+    } catch (error) {
+      console.error("[worker-photo] upload failed:", error);
+      res.status(500).json({ error: "\uC778\uC0AC\uC0AC\uC9C4 \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+    }
+  },
+);
+
+app.get("/api/workers/:workerId/photo/meta", authMiddleware, (req, res) => {
+  const meta = getWorkerPhotoMeta(req.params.workerId);
+  if (!meta) {
+    res.status(404).json({ error: "\uC778\uC0AC\uC0AC\uC9C4\uC774 \uC5C6\uC2B5\uB2C8\uB2E4." });
+    return;
+  }
+  res.json(meta);
+});
+
+app.get("/api/workers/:workerId/photo/file", authMiddleware, (req, res) => {
+  const file = getWorkerPhotoFile(req.params.workerId);
+  if (!file) {
+    res.status(404).json({ error: "\uC778\uC0AC\uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." });
+    return;
+  }
+  res.setHeader("Content-Type", file.mimeType || "image/jpeg");
+  res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+  res.sendFile(path.resolve(file.path));
+});
+
+app.delete("/api/workers/:workerId/photo", authMiddleware, (req, res) => {
+  try {
+    const result = deleteWorkerPhoto(req.params.workerId);
+    if (!result.ok) {
+      res.status(result.status || 400).json({ error: result.error });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("[worker-photo] delete failed:", error);
+    res.status(500).json({ error: "\uC778\uC0AC\uC0AC\uC9C4 \uC0AD\uC81C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+  }
+});
+
+app.post(
   "/api/board-attachments",
   authMiddleware,
   express.raw({ type: () => true, limit: "15mb" }),
@@ -1265,7 +1339,7 @@ function buildErpApiResponse(state, workersOverride = null, workerMonthlyPayment
     paymentVouchers: data.paymentVouchers || [],
     paymentInputLogs: data.paymentInputLogs || [],
     clients: enrichClientsWithBusinessRegMeta(data.clients || []),
-    workers: sanitizeWorkersForClient(workers),
+    workers: sanitizeWorkersForClient(enrichWorkersWithPhotoMeta(workers)),
     workerMonthlyPaymentMemos,
     auditLogs: data.auditLogs || [],
     loginLogs: data.loginLogs || [],

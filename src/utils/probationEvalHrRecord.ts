@@ -14,7 +14,7 @@ import {
   type ProbationEvalTemplate,
 } from "@/utils/probationEval";
 import type { WorkerMasterLike } from "@/utils/workerPayments";
-import { filterActiveWorkers, isWorkerActive, normalizeWorkerRecordId } from "@/utils/workerPayments";
+import { filterActiveWorkers, isWorkerActive, normalizeWorkerCategory, normalizeWorkerRecordId, WORKER_CATEGORY_OUTSOURCE } from "@/utils/workerPayments";
 import type { CompanyProfile } from "@/utils/companyProfile";
 
 export type WorkerQuestionScore = QuestionAverage & {
@@ -264,6 +264,9 @@ export type WorkerProfileExtended = WorkerMasterLike & {
   address?: string;
   businessNo?: string;
   memo?: string;
+  photoFileId?: string;
+  photoFileName?: string;
+  photoUploadedAt?: string;
 };
 
 export type WorkerHrRecordListRow = {
@@ -306,7 +309,9 @@ export function buildWorkerHrRecordList(input: {
   );
   const aggMap = new Map(aggregateByWorker(periodRequests).map((row) => [row.probationWorkerId, row]));
 
-  const baseWorkers = input.includeInactive === false ? filterActiveWorkers(input.workers) : input.workers;
+  const baseWorkers = (input.includeInactive === false ? filterActiveWorkers(input.workers) : input.workers).filter(
+    (worker) => normalizeWorkerCategory(worker.category) !== WORKER_CATEGORY_OUTSOURCE,
+  );
 
   return baseWorkers
     .map((worker) => {

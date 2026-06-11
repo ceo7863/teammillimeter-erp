@@ -407,6 +407,20 @@ export function mergeWorkersForSave(existing = [], incoming = []) {
       account: coalesce(worker.account, prev.account) || undefined,
       memo: coalesce(worker.memo, prev.memo) || undefined,
     };
+    const photoFileId = coalesce(worker.photoFileId, prev.photoFileId);
+    if (photoFileId) {
+      merged.photoFileId = photoFileId;
+      const photoFileName = coalesce(worker.photoFileName, prev.photoFileName);
+      if (photoFileName) merged.photoFileName = photoFileName;
+      else delete merged.photoFileName;
+      const photoUploadedAt = worker.photoUploadedAt || prev.photoUploadedAt;
+      if (photoUploadedAt) merged.photoUploadedAt = photoUploadedAt;
+      else delete merged.photoUploadedAt;
+    } else {
+      delete merged.photoFileId;
+      delete merged.photoFileName;
+      delete merged.photoUploadedAt;
+    }
     if (customChargeCost != null) {
       merged.customChargeCost = customChargeCost;
     } else {

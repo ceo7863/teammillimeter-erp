@@ -25,6 +25,7 @@ export const config = {
   clientContractsDir: process.env.CLIENT_CONTRACTS_DIR || path.join(rootDir, "data", "client-contracts"),
   boardAttachmentDir: process.env.BOARD_ATTACHMENT_DIR || path.join(rootDir, "data", "board-attachments"),
   clientBusinessRegDir: process.env.CLIENT_BUSINESS_REG_DIR || path.join(rootDir, "data", "client-business-reg"),
+  workerPhotosDir: process.env.WORKER_PHOTOS_DIR || path.join(rootDir, "data", "worker-photos"),
   distDir: process.env.DIST_DIR || path.join(rootDir, "dist"),
   pdfJsDir: path.join(rootDir, "node_modules", "pdfjs-dist", "legacy", "build"),
   tokenExpiresIn: process.env.JWT_EXPIRES || "7d",

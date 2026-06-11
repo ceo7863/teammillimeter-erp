@@ -17,6 +17,8 @@ import {
   type ProbationEvalRequest,
   type ProbationEvalTemplate,
 } from "@/utils/probationEval";
+import { resolveWorkerForEval } from "@/utils/probationEvalHrRecord";
+import { normalizeWorkerCategory, WORKER_CATEGORY_OUTSOURCE } from "@/utils/workerPayments";
 
 const L = {
   title: "\uC218\uC2B5 \uD3C9\uAC00 \uB300\uC2DC\uBCF4\uB4DC",
@@ -37,7 +39,7 @@ const L = {
   trendTitle: "\uC77C\uBCC4 \uC810\uC218 \uCD94\uC774",
   hrRecord: "\uC778\uC0AC\uAE30\uB85D\uBD80",
   hrRecordHint: "\uC2DC\uACF5\uC790 \uC120\uD0DD \uD6C4 \uC778\uC0AC\uAE30\uB85D\uBD80\uB97C \uC5F4 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
-  hrRecordSelectFirst: "\uC644\uC810 \uBAA9\uB85D\uC5D0\uC11C \uC2DC\uACF5\uC790\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
+  hrRecordSelectFirst: "\uD558\uB2E8 \uBAA9\uB85D\uC5D0\uC11C \uC2DC\uACF5\uC790\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.",
   hrRecordOpen: "\uBCF4\uAE30",
 };
 
@@ -101,6 +103,12 @@ export function ProbationEvalDashboard({
 
   const resolvedCompanyProfile = companyProfile || DEFAULT_COMPANY_PROFILE;
 
+  const isTeamHrRecordWorker = (workerId: string, workerName: string) => {
+    const worker = resolveWorkerForEval(workers, workerId, workerName);
+    if (!worker) return true;
+    return normalizeWorkerCategory(worker.category) !== WORKER_CATEGORY_OUTSOURCE;
+  };
+
   const openHrRecord = (workerId: string, workerName: string) => {
     setSelectedWorkerId(workerId);
     setHrRecordOpen(true);
@@ -120,7 +128,7 @@ export function ProbationEvalDashboard({
             type="button"
             size="sm"
             className="rounded-lg"
-            disabled={!selectedWorkerId}
+            disabled={!selectedWorkerId || !isTeamHrRecordWorker(selectedWorkerId, selectedWorkerName)}
             onClick={() => setHrRecordOpen(true)}
           >
             <FileText size={14} className="mr-1.5" />
@@ -180,6 +188,7 @@ export function ProbationEvalDashboard({
                     size="sm"
                     variant="outline"
                     className="shrink-0 rounded-lg text-xs"
+                    disabled={!isTeamHrRecordWorker(row.probationWorkerId, row.probationWorkerName)}
                     onClick={() => openHrRecord(row.probationWorkerId, row.probationWorkerName)}
                   >
                     <FileText size={13} className="mr-1" />
