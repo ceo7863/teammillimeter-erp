@@ -418,7 +418,7 @@ export const TeamChatPage = memo(function TeamChatPage({
   const onUnreadChangeRef = useRef(onUnreadChange);
   const listBrowsingRef = useRef(false);
   const isMobileLayout = useTeamChatMobileLayout();
-  const openThreadInPopup = listOnly && canOpenTeamChatThreadPopup() && !threadOnly;
+  const openThreadInPopup = listOnly && !isMobileLayout && canOpenTeamChatThreadPopup() && !threadOnly;
   const selfId = Number(currentUser?.id) || 0;
 
   selectedChannelIdRef.current = selectedChannelId;
@@ -485,10 +485,10 @@ export const TeamChatPage = memo(function TeamChatPage({
     if (payload.channelId && channelRows.some((row) => row.id === payload.channelId)) {
       if (openThreadInPopup) {
         setHighlightedChannelId(payload.channelId);
-        openTeamChatThreadPopup(payload.channelId);
-      } else {
-        setSelectedChannelId(payload.channelId);
+        const popup = openTeamChatThreadPopup(payload.channelId);
+        if (popup) return;
       }
+      setSelectedChannelId(payload.channelId);
     }
   }, [openThreadInPopup]);
 
@@ -697,8 +697,8 @@ export const TeamChatPage = memo(function TeamChatPage({
   const handleSelectChannel = useCallback((channelId: string) => {
     if (openThreadInPopup) {
       setHighlightedChannelId(channelId);
-      openTeamChatThreadPopup(channelId);
-      return;
+      const popup = openTeamChatThreadPopup(channelId);
+      if (popup) return;
     }
     if (channelId === selectedChannelIdRef.current) return;
     listBrowsingRef.current = false;
@@ -1070,10 +1070,10 @@ export const TeamChatPage = memo(function TeamChatPage({
         ) : (
           <>
             <div className="erp-team-chat-thread__head">
-              {!standalone && !threadOnly ? (
+              {showThreadOnMobile ? (
                 <button
                   type="button"
-                  className="erp-team-chat-back lg:hidden"
+                  className="erp-team-chat-back"
                   onClick={handleBackToList}
                   aria-label={L.back}
                 >

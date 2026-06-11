@@ -18,7 +18,8 @@ export function isTeamChatThreadPopupWindow() {
 
 export function isTeamChatDesktopPopupMode() {
   if (typeof window === "undefined") return false;
-  return window.matchMedia("(min-width: 1024px) and (pointer: fine)").matches;
+  if (window.matchMedia("(max-width: 1023px)").matches) return false;
+  return window.matchMedia("(pointer: fine)").matches;
 }
 
 export function canOpenTeamChatThreadPopup() {
