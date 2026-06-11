@@ -1164,6 +1164,7 @@ export function PaymentReceivablesPage({
                   <col className="col-channel" />
                   <col className="col-memo" />
                   <col className="col-action" />
+                  <col className="col-action" />
                 </colgroup>
                 <thead>
                   <tr className="erp-payment-group-row">
