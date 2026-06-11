@@ -1235,7 +1235,7 @@ export function extractOpenVoucherQuery(text) {
   return { clientName, date };
 }
 
-export function toolFindSaleVoucher({ clientName, date, site, year }) {
+export function toolFindSaleVoucher({ clientName, date, site, year, contactId }) {
   const state = getErpState(["sales", "clients"]);
   const data = state.data || {};
   const sales = Array.isArray(data.sales) ? data.sales : [];
@@ -1256,12 +1256,14 @@ export function toolFindSaleVoucher({ clientName, date, site, year }) {
   const matchedClients = findClientsByQuery(clients, query);
   const clientFilterKeys = buildClientFilterKeys(query, matchedClients);
   const siteKey = site ? normalizeMatchKey(site) : "";
+  const contactKey = String(contactId || "").trim();
 
   let rows = sales.filter((sale) => {
     const saleDate = String(sale.date || "").slice(0, 10);
     if (saleDate !== dateKey) return false;
     if (!saleMatchesClientFilter(sale.client, matchedClients, clientFilterKeys)) return false;
     if (siteKey && !labelMatchesClientKeys(sale.site, new Set([siteKey]))) return false;
+    if (contactKey && String(sale.contactId || "").trim() !== contactKey) return false;
     return true;
   });
 
@@ -1272,6 +1274,8 @@ export function toolFindSaleVoucher({ clientName, date, site, year }) {
     voucherNo: String(sale.voucherNo || sale.id || ""),
     client: String(sale.client || ""),
     site: String(sale.site || ""),
+    contactId: String(sale.contactId || "").trim(),
+    contactName: String(sale.contactName || "").trim(),
     date: String(sale.date || "").slice(0, 10),
     amount: Number(sale.amount) || 0,
   }));
@@ -4351,6 +4355,7 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
           clientName: { type: "string", description: "\uAC70\uB798\uCC98 \uC774\uB984 (\uC608: \uCEE4\uC2A4\uD798, \uC778\uB514\uD37C)" },
           date: { type: "string", description: "YYYY-MM-DD \uB610\uB294 6\uC6D41\uC77C \uD615\uD0DC \uB0A0\uC9DC" },
           site: { type: "string", description: "\uD604\uC7A5\uBA85 (\uC120\uD0DD)" },
+          contactId: { type: "string", description: "\uB2F4\uB2F9\uC790 ID(\uC120\uD0DD)" },
         },
         required: ["clientName", "date"],
       },

@@ -16,6 +16,7 @@ import { isApiModeEnabled, type ErpUser } from "@/utils/erpApi";
 import type { TaxInvoice } from "@/utils/taxInvoices";
 import type { ClientMasterLike } from "@/utils/clientMaster";
 import { isClientActive } from "@/utils/clientMaster";
+import { normalizeClientContacts } from "@/utils/clientContacts";
 import { createPdfPreviewWindow, downloadPdfFromHtmlElement, revokePdfBlobUrl } from "@/utils/statementPdf";
 import {
   buildStatementPdfCacheKey,
@@ -281,6 +282,13 @@ function matchesClientName(row: Record<string, unknown>, clientName: string) {
   return rowClient === clientName;
 }
 
+function matchesStatementContactFilter(row: Record<string, unknown>, contactFilter: "" | "unset" | string) {
+  const rowContactId = String(row.contactId || "").trim();
+  if (!contactFilter) return true;
+  if (contactFilter === "unset") return !rowContactId;
+  return rowContactId === String(contactFilter).trim();
+}
+
 function formatKRW(value: number) {
   return `${Math.round(value || 0).toLocaleString("ko-KR")}\uC6D0`;
 }
@@ -380,6 +388,7 @@ export function StatementsPage({
   const pdfBlobUrlRef = useRef("");
   const restoringHistoryRef = useRef(false);
   const [client, setClient] = useState("");
+  const [clientContactFilter, setClientContactFilter] = useState<"" | "unset" | string>("");
   const [worker, setWorker] = useState("");
   const [dateFilter, setDateFilter] = useState({ startDate: "", endDate: "" });
   const [clientStatementGenerated, setClientStatementGenerated] = useState(false);
@@ -445,6 +454,7 @@ export function StatementsPage({
     setStatementShareLink("");
     setStatementType("client");
     setClient(incoming.client);
+    setClientContactFilter("");
     setDateFilter({ startDate: incoming.startDate, endDate: incoming.endDate });
     applyUnpaidFilter(incoming.unpaidOnly, incoming.saleIds || []);
     setClientStatementView("summary");
@@ -510,7 +520,7 @@ export function StatementsPage({
     setStatementHint("");
     setPdfMessage("");
     setStatementShareLink("");
-  }, [client, dateFilter.startDate, dateFilter.endDate, unpaidOnly]);
+  }, [client, clientContactFilter, dateFilter.startDate, dateFilter.endDate, unpaidOnly]);
 
   useEffect(() => {
     if (restoringHistoryRef.current) return;
@@ -524,6 +534,7 @@ export function StatementsPage({
     setStatementHint("");
     setPdfMessage("");
     setStatementShareLink("");
+    setClientContactFilter("");
   }, [statementType]);
 
   const hasClientSelection = Boolean(client && client !== "\uC804\uCCB4");
@@ -547,6 +558,21 @@ export function StatementsPage({
       ),
     [sales, inactiveClientNames],
   );
+  const selectedStatementClient = useMemo(
+    () => clientMaster.find((row) => String(row?.name || "").trim() === String(client || "").trim()) || null,
+    [clientMaster, client],
+  );
+  const statementClientContacts = useMemo(
+    () => normalizeClientContacts(selectedStatementClient),
+    [selectedStatementClient],
+  );
+  useEffect(() => {
+    if (!clientContactFilter) return;
+    if (clientContactFilter === "unset") return;
+    const matched = statementClientContacts.some((row) => String(row.id || "").trim() === String(clientContactFilter || "").trim());
+    if (matched) return;
+    setClientContactFilter("");
+  }, [statementClientContacts, clientContactFilter]);
   const workerOptions = [
     ...new Set(
       sales
@@ -574,6 +600,7 @@ export function StatementsPage({
   const filteredClientSales = hasClientSelection
     ? dateFilteredSales
         .filter((row) => matchesClientName(row, client))
+        .filter((row) => matchesStatementContactFilter(row, clientContactFilter))
         .filter((row) => matchesStatementSaleFilter(row))
         .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || Number(a.id || 0) - Number(b.id || 0))
     : [];
@@ -808,6 +835,7 @@ export function StatementsPage({
 
       const rows = dateFilteredSales
         .filter((row) => matchesClientName(row, client))
+        .filter((row) => matchesStatementContactFilter(row, clientContactFilter))
         .filter((row) => matchesStatementSaleFilter(row));
 
       if (!rows.length) {
@@ -1073,6 +1101,7 @@ export function StatementsPage({
     setPdfMessage("");
     setStatementType(input.statementType);
     setDateFilter({ startDate: input.startDate, endDate: input.endDate });
+    setClientContactFilter("");
     clearUnpaidFilter();
 
     if (input.statementType === "client") {
@@ -1515,6 +1544,7 @@ export function StatementsPage({
               type="button"
               onClick={() => {
                 clearUnpaidFilter();
+                setClientContactFilter("");
                 setStatementType("client");
               }}
               className={`erp-statement-type-tab ${statementType === "client" ? "is-active" : ""}`}
@@ -1525,6 +1555,7 @@ export function StatementsPage({
               type="button"
               onClick={() => {
                 clearUnpaidFilter();
+                setClientContactFilter("");
                 setStatementType("worker");
               }}
               className={`erp-statement-type-tab ${statementType === "worker" ? "is-active" : ""}`}
@@ -1561,7 +1592,8 @@ export function StatementsPage({
                   options={clientOptions}
                   onChange={(value) => {
                     clearUnpaidFilter();
-                    setClient(value);
+        setClient(String(value || "").trim());
+                    setClientContactFilter("");
                   }}
                   placeholder={L.searchClient}
                   limit={15}
@@ -1586,12 +1618,30 @@ export function StatementsPage({
                 />
               </Field>
             )}
+            {isClientStatement ? (
+              <Field label="담당자 (선택)">
+                <select
+                  className="erp-input w-full rounded-2xl border bg-white px-3 py-2.5 text-slate-900 outline-none transition focus:border-slate-900 md:px-4 md:py-3"
+                  value={clientContactFilter}
+                  onChange={(event) => setClientContactFilter(event.target.value as "" | "unset" | string)}
+                >
+                  <option value="">전체</option>
+                  <option value="unset">담당 미지정</option>
+                  {statementClientContacts.map((contact) => (
+                    <option key={contact.id} value={contact.id}>
+                      {contact.name || "(이름 없음)"}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            ) : null}
             <div className="erp-statement-filter-actions">
               <Button
                 variant="outline"
                 className="rounded-xl"
                 onClick={() => {
                   clearUnpaidFilter();
+                  setClientContactFilter("");
                   setDateFilter({ startDate: "", endDate: "" });
                 }}
               >

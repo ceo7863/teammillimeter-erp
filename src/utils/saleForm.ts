@@ -47,6 +47,9 @@ export type SaleFormData = {
   date: string;
   client: string;
   site: string;
+  contactId?: string;
+  contactName?: string;
+  contactSelected?: boolean;
   paid: string;
   memo: string;
   officeMemo: string;
@@ -194,6 +197,9 @@ export function saleRowToForm(row: Record<string, unknown>, minWorkerRows = 8): 
     date: String(row.date || todayISO()),
     client: String(row.client || ""),
     site: String(row.site || ""),
+    contactId: String((row as { contactId?: string }).contactId || "").trim(),
+    contactName: String((row as { contactName?: string }).contactName || "").trim(),
+    contactSelected: Boolean(String((row as { contactId?: string }).contactId || "").trim()),
     paid: (row as { manualPaidCleared?: boolean }).manualPaidCleared ? "" : String(row.basePaid ?? 0),
     memo: String(row.memo || ""),
     officeMemo: String(row.officeMemo || ""),
@@ -383,6 +389,12 @@ export function buildSaleFromForm(
     date: form.date,
     client: form.client,
     site: form.site,
+    ...(form.contactSelected && String(form.contactId || "").trim()
+      ? {
+          contactId: String(form.contactId || "").trim(),
+          contactName: String(form.contactName || "").trim(),
+        }
+      : {}),
     worker: workerLabel,
     workers: workerLines,
     amount,

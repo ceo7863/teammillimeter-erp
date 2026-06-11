@@ -33,6 +33,7 @@ export const SALE_AUDIT_FIELDS: AuditFieldDef[] = [
   { key: "date", label: "일자" },
   { key: "client", label: "거래처" },
   { key: "site", label: "현장" },
+  { key: "contactName", label: "담당자" },
   { key: "paid", label: "입금액", format: (v) => formatAuditMoney(v) },
   { key: "memo", label: "공통비고" },
   { key: "officeMemo", label: "사무실메모" },

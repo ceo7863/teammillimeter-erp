@@ -13,6 +13,8 @@ export type SaleLike = {
   date?: string;
   client?: string;
   site?: string;
+  contactId?: string;
+  contactName?: string;
   worker?: string;
   workers?: WorkerLineLike[];
   amount?: number;
@@ -55,6 +57,8 @@ export type SalesStatementRow = {
   date: string;
   client: string;
   site: string;
+  contactId: string;
+  contactName: string;
   quantity: number;
   meal: number;
   expense: number;
@@ -190,6 +194,8 @@ export function flattenSalesToStatementRows(
         date: sale.date || "",
         client: sale.client || "",
         site: sale.site || "",
+        contactId: String(sale.contactId || "").trim(),
+        contactName: String(sale.contactName || "").trim(),
         quantity: 0,
         meal: 0,
         expense: 0,
@@ -227,6 +233,8 @@ export function flattenSalesToStatementRows(
         date: sale.date || "",
         client: sale.client || "",
         site: sale.site || "",
+        contactId: String(sale.contactId || "").trim(),
+        contactName: String(sale.contactName || "").trim(),
         quantity: parseWorkerMoney(line.quantity || "1") || 1,
         meal: parseWorkerMoney(line.meal),
         expense: parseWorkerMoney(line.expense),
@@ -322,12 +330,14 @@ export type SalesSheetTextFilters = {
   client: string;
   site: string;
   worker: string;
+  contactFilter: "" | "unset" | string;
 };
 
 export const emptySalesSheetTextFilters: SalesSheetTextFilters = {
   client: "",
   site: "",
   worker: "",
+  contactFilter: "",
 };
 
 export type SalesSheetSortColumn = "date" | "client" | "site" | "worker";
@@ -358,6 +368,14 @@ export function matchesSalesStatementRowFilters(
   if (!matchesSheetTextQuery(String(row.client || ""), textFilters.client)) return false;
   if (!matchesSheetTextQuery(String(row.site || ""), textFilters.site)) return false;
   if (!matchesSheetTextQuery(String(row.worker || ""), textFilters.worker)) return false;
+  if (textFilters.contactFilter === "unset" && String(row.contactId || "").trim()) return false;
+  if (
+    textFilters.contactFilter
+    && textFilters.contactFilter !== "unset"
+    && String(row.contactId || "").trim() !== String(textFilters.contactFilter).trim()
+  ) {
+    return false;
+  }
   return true;
 }
 

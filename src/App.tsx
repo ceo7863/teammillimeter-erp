@@ -324,6 +324,7 @@ import {
 import { clientIdsEqual, clientActiveSortRank, filterActiveClients, isClientActive, mergeClientFieldsFromLocal } from "@/utils/clientMaster";
 import {
   clientContactsToFormRows,
+  normalizeClientContacts,
   normalizeClientContactInput,
   syncClientLegacyContactFields,
 } from "@/utils/clientContacts";
@@ -826,6 +827,9 @@ const SaleFormInlineHeaderFields = memo(function SaleFormInlineHeaderFields({
   date,
   client,
   site,
+  contactId,
+  contactName,
+  contactSelected,
   paid,
   memo,
   officeMemo,
@@ -840,6 +844,46 @@ const SaleFormInlineHeaderFields = memo(function SaleFormInlineHeaderFields({
   onSiteKeyDown,
   onSharedMemoChange,
 }) {
+  const selectedClient = useMemo(
+    () => clients.find((row) => String(row?.name || "").trim() === String(client || "").trim()) || null,
+    [clients, client],
+  );
+  const clientContacts = useMemo(
+    () => normalizeClientContacts(selectedClient),
+    [selectedClient],
+  );
+  const [contactPickerOpen, setContactPickerOpen] = useState(false);
+  const selectedContact = useMemo(() => {
+    const currentId = String(contactId || "").trim();
+    if (!currentId) return null;
+    return clientContacts.find((row) => String(row.id || "").trim() === currentId) || null;
+  }, [clientContacts, contactId]);
+  const selectedContactLabel = String(contactName || "").trim()
+    || String(selectedContact?.name || "").trim();
+  const canPickContact = Boolean(String(client || "").trim() && clientContacts.length);
+  const effectiveContactSelected = Boolean(contactSelected && String(contactId || "").trim());
+  const handleSelectContact = useCallback((row) => {
+    onUpdate("contactId", String(row?.id || "").trim());
+    onUpdate("contactName", String(row?.name || "").trim());
+    onUpdate("contactSelected", true);
+    setContactPickerOpen(false);
+  }, [onUpdate]);
+  const handleClearContact = useCallback(() => {
+    onUpdate("contactId", "");
+    onUpdate("contactName", "");
+    onUpdate("contactSelected", false);
+    setContactPickerOpen(false);
+  }, [onUpdate]);
+  useEffect(() => {
+    const currentId = String(contactId || "").trim();
+    if (!currentId && !contactSelected) return;
+    const matched = clientContacts.some((row) => String(row.id || "").trim() === currentId);
+    if (matched) return;
+    onUpdate("contactId", "");
+    onUpdate("contactName", "");
+    onUpdate("contactSelected", false);
+  }, [clientContacts, contactId, contactSelected, onUpdate]);
+
   return (
     <div className={`erp-sale-form-inline-grid${!showPaidField ? " erp-sale-form-inline-grid--no-paid" : ""}${allowClientSiteUnlock ? " erp-sale-form-inline-grid--client-unlock" : ""}`}>
       <SaleFormField label="일자" icon={CalendarDays}>
@@ -876,7 +920,7 @@ const SaleFormInlineHeaderFields = memo(function SaleFormInlineHeaderFields({
             <AutocompleteInput
               value={client}
               options={clients}
-              onChange={(value) => onUpdate("client", value)}
+                  onChange={(value) => onUpdate("client", String(value || "").trim())}
               placeholder="거래처"
               freeSolo={false}
               inputProps={{ className: "erp-input-compact" }}
@@ -892,6 +936,61 @@ const SaleFormInlineHeaderFields = memo(function SaleFormInlineHeaderFields({
           onCommit={onSiteCommit}
           onKeyDown={onSiteKeyDown}
         />
+      </SaleFormField>
+      <SaleFormField label="담당자" icon={Users}>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 rounded-lg px-3 text-xs"
+            disabled={!canPickContact}
+            onClick={() => setContactPickerOpen((prev) => !prev)}
+          >
+            담당자 선택
+          </Button>
+          {effectiveContactSelected ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+              {selectedContactLabel || "담당자"}
+              <button
+                type="button"
+                className="text-slate-500 hover:text-slate-700"
+                aria-label="담당자 선택 해제"
+                onClick={handleClearContact}
+              >
+                <X size={12} />
+              </button>
+            </span>
+          ) : (
+            <span className="text-xs text-slate-500">담당 미지정</span>
+          )}
+        </div>
+        {contactPickerOpen ? (
+          <div className="mt-2 rounded-lg border bg-white p-2 shadow-sm">
+            <button
+              type="button"
+              className={`block w-full rounded-md px-2 py-1 text-left text-xs ${!effectiveContactSelected ? "bg-slate-100 font-semibold text-slate-800" : "text-slate-600 hover:bg-slate-50"}`}
+              onClick={handleClearContact}
+            >
+              담당 미지정
+            </button>
+            {clientContacts.map((row) => {
+              const rowId = String(row.id || "").trim();
+              const active = effectiveContactSelected && rowId === String(contactId || "").trim();
+              return (
+                <button
+                  key={rowId}
+                  type="button"
+                  className={`mt-1 block w-full rounded-md px-2 py-1 text-left text-xs ${active ? "bg-slate-100 font-semibold text-slate-800" : "text-slate-600 hover:bg-slate-50"}`}
+                  onClick={() => handleSelectContact(row)}
+                >
+                  {row.name || "(이름 없음)"}
+                  {row.phone ? <span className="ml-1 text-slate-400">· {row.phone}</span> : null}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
       </SaleFormField>
       {showPaidField && (
         <SaleFormField label="입금" icon={CreditCard}>
@@ -998,6 +1097,9 @@ function pickSaleFormMeta(form) {
     date: form.date,
     client: form.client,
     site: form.site,
+    contactId: form.contactId,
+    contactName: form.contactName,
+    contactSelected: form.contactSelected,
     paid: form.paid,
     memo: form.memo,
     officeMemo: form.officeMemo,
@@ -1085,7 +1187,13 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
     if (useLocalDraft) {
       if (key === "client") {
         const clientName = String(value ?? "").trim();
-        setFormMeta((prev) => ({ ...prev, client: value }));
+        setFormMeta((prev) => ({
+          ...prev,
+          client: clientName,
+          contactId: "",
+          contactName: "",
+          contactSelected: false,
+        }));
         setWorkerRows((prev) => reEnrichWorkerLinesForClient(prev, activeWorkers, clients, clientName));
         return;
       }
@@ -1289,6 +1397,9 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
             date={headerMeta.date}
             client={headerMeta.client}
             site={headerMeta.site}
+            contactId={headerMeta.contactId || ""}
+            contactName={headerMeta.contactName || ""}
+            contactSelected={Boolean(headerMeta.contactSelected)}
             paid={headerMeta.paid}
             memo={headerMeta.memo}
             officeMemo={headerMeta.officeMemo || ""}
@@ -5685,7 +5796,7 @@ function SearchBox({ query, setQuery, placeholder }) {
   );
 }
 
-const emptyVoucherSearchFilters = { client: "", site: "", worker: "" };
+const emptyVoucherSearchFilters = { client: "", site: "", worker: "", contactFilter: "" };
 
 function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, setPaymentVouchers, setBankTransactions, onPersistSaleUpdate, onPersistSaleDelete, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set(), saleComments = [], onAddSaleComment, onReviewAction, saleCommentCounts, saleCommentUnreadCounts, onOpenSaleComments }) {
   const [searchFilters, setSearchFilters] = useState(emptyVoucherSearchFilters);
@@ -5705,6 +5816,21 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
     () => matchedRows.filter((row) => isDuplicateRow(row)).length,
     [matchedRows, duplicateIndex.duplicateKeys]
   );
+  const selectedSearchClient = useMemo(
+    () => clients.find((row) => String(row?.name || "").trim() === String(searchFilters.client || "").trim()) || null,
+    [clients, searchFilters.client],
+  );
+  const searchClientContacts = useMemo(
+    () => normalizeClientContacts(selectedSearchClient),
+    [selectedSearchClient],
+  );
+  useEffect(() => {
+    if (!searchFilters.contactFilter) return;
+    if (searchFilters.contactFilter === "unset") return;
+    const matched = searchClientContacts.some((row) => String(row.id || "").trim() === String(searchFilters.contactFilter || "").trim());
+    if (matched) return;
+    setSearchFilters((prev) => ({ ...prev, contactFilter: "" }));
+  }, [searchClientContacts, searchFilters.contactFilter]);
 
   const closeEditor = useCallback(() => {
     setSelectedSale(null);
@@ -5735,6 +5861,7 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
       client: pendingSearchFilter.client || "",
       site: "",
       worker: "",
+      contactFilter: "",
     });
     setDateFilter({
       startDate: pendingSearchFilter.startDate || "",
@@ -5806,6 +5933,22 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
               onChange={(e) => setSearchFilters((prev) => ({ ...prev, worker: e.target.value }))}
               placeholder="시공자명"
             />
+          </label>
+          <label className="erp-sales-voucher-search-field">
+            <span className="erp-text-caption font-semibold text-slate-500">담당자</span>
+            <select
+              className="erp-input erp-input-compact w-full"
+              value={searchFilters.contactFilter}
+              onChange={(e) => setSearchFilters((prev) => ({ ...prev, contactFilter: e.target.value }))}
+            >
+              <option value="">전체</option>
+              <option value="unset">담당 미지정</option>
+              {searchClientContacts.map((row) => (
+                <option key={row.id} value={row.id}>
+                      {row.name || "(이름 없음)"}
+                </option>
+              ))}
+            </select>
           </label>
         </div>
         <p className="erp-text-caption mt-2 text-slate-500">
@@ -10995,7 +11138,7 @@ export default function TeammillimeterErpMvp() {
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="sales" active={active}>
-          <SalesManagementPage sales={appliedSales} paymentVouchers={paymentVouchers} workers={workers} setSales={setSales} onPersistSaleDelete={persistSaleVoucherDelete} setActive={setActive} currentUser={currentUser} onEditSale={setSalesManagementEditSale} saleCommentCounts={saleCommentCountBySaleId} saleCommentUnreadCounts={saleCommentUnreadCountBySaleId} onOpenSaleComments={openSaleCommentsView} saleComments={saleComments} />
+          <SalesManagementPage sales={appliedSales} paymentVouchers={paymentVouchers} clients={clients} workers={workers} setSales={setSales} onPersistSaleDelete={persistSaleVoucherDelete} setActive={setActive} currentUser={currentUser} onEditSale={setSalesManagementEditSale} saleCommentCounts={saleCommentCountBySaleId} saleCommentUnreadCounts={saleCommentUnreadCountBySaleId} onOpenSaleComments={openSaleCommentsView} saleComments={saleComments} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="salesVoucherSearch" active={active}>
           <SalesVoucherSearchPage

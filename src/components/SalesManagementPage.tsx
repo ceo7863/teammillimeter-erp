@@ -38,6 +38,7 @@ import {
   type SaleComment,
   type SaleReviewStatus,
 } from "@/utils/saleComments";
+import { normalizeClientContacts } from "@/utils/clientContacts";
 
 const SHEET_SORTABLE_COLUMNS = new Set<SalesSheetSortColumn>(["date", "client", "site", "worker"]);
 
@@ -135,14 +136,6 @@ function renderCell(
   }
 
   return String(value ?? "") || "-";
-}
-
-function updateTextFilter(
-  setTextFilters: React.Dispatch<React.SetStateAction<SalesSheetTextFilters>>,
-  key: keyof SalesSheetTextFilters,
-  value: string
-) {
-  setTextFilters((prev) => ({ ...prev, [key]: value }));
 }
 
 function SheetColumnHeader({
@@ -271,6 +264,7 @@ const REVIEW_FILTER_OPTIONS: Array<{ value: ReviewFilter; label: string }> = [
 export function SalesManagementPage({
   sales = [],
   paymentVouchers = [],
+  clients = [],
   workers = [],
   setSales,
   onPersistSaleDelete,
@@ -372,6 +366,21 @@ export function SalesManagementPage({
     });
     return map;
   }, [sales]);
+  const selectedFilterClient = useMemo(
+    () => clients.find((row) => String(row?.name || "").trim() === String(textFilters.client || "").trim()) || null,
+    [clients, textFilters.client],
+  );
+  const filterClientContacts = useMemo(
+    () => normalizeClientContacts(selectedFilterClient),
+    [selectedFilterClient],
+  );
+  useEffect(() => {
+    if (!textFilters.contactFilter) return;
+    if (textFilters.contactFilter === "unset") return;
+    const matched = filterClientContacts.some((row) => String(row.id || "").trim() === String(textFilters.contactFilter || "").trim());
+    if (matched) return;
+    setTextFilters((prev) => ({ ...prev, contactFilter: "" }));
+  }, [filterClientContacts, textFilters.contactFilter]);
 
   const allRows = useMemo(
     () => flattenSalesToStatementRows(sales, workers, paymentVouchers),
@@ -483,7 +492,7 @@ export function SalesManagementPage({
                   lang="ko"
                   className="erp-input erp-input-compact w-full"
                   value={textFilters.client}
-                  onChange={(e) => updateTextFilter(setTextFilters, "client", e.target.value)}
+                  onChange={(e) => setTextFilters((prev) => ({ ...prev, client: e.target.value }))}
                   placeholder="거래처명"
                 />
               </label>
@@ -493,7 +502,7 @@ export function SalesManagementPage({
                   lang="ko"
                   className="erp-input erp-input-compact w-full"
                   value={textFilters.site}
-                  onChange={(e) => updateTextFilter(setTextFilters, "site", e.target.value)}
+                  onChange={(e) => setTextFilters((prev) => ({ ...prev, site: e.target.value }))}
                   placeholder="현장명"
                 />
               </label>
@@ -503,9 +512,25 @@ export function SalesManagementPage({
                   lang="ko"
                   className="erp-input erp-input-compact w-full"
                   value={textFilters.worker}
-                  onChange={(e) => updateTextFilter(setTextFilters, "worker", e.target.value)}
+                  onChange={(e) => setTextFilters((prev) => ({ ...prev, worker: e.target.value }))}
                   placeholder="시공자명"
                 />
+              </label>
+              <label className="erp-sales-voucher-search-field">
+                <span className="erp-text-caption font-semibold text-slate-500">담당자</span>
+                <select
+                  className="erp-input erp-input-compact w-full"
+                  value={textFilters.contactFilter}
+                  onChange={(e) => setTextFilters((prev) => ({ ...prev, contactFilter: e.target.value }))}
+                >
+                  <option value="">전체</option>
+                  <option value="unset">담당 미지정</option>
+                  {filterClientContacts.map((row) => (
+                    <option key={row.id} value={row.id}>
+                      {row.name || "(이름 없음)"}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
             <div className="mb-2 flex flex-wrap gap-2">

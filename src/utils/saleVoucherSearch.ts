@@ -4,6 +4,7 @@ export type SalesVoucherSearchFilters = {
   client: string;
   site: string;
   worker: string;
+  contactFilter: "" | "unset" | string;
 };
 
 export type SalesVoucherDateFilter = {
@@ -16,6 +17,7 @@ type SaleVoucherSearchRow = {
   client?: string;
   site?: string;
   worker?: string;
+  contactId?: string;
   workers?: { worker?: string }[];
 };
 
@@ -57,6 +59,14 @@ export function matchesSalesVoucherSearch(
   if (!matchesTextQuery(String(row.client || ""), filters.client)) return false;
   if (!matchesTextQuery(String(row.site || ""), filters.site)) return false;
   if (!matchesWorkerQuery(row, filters.worker)) return false;
+  if (filters.contactFilter === "unset" && String(row.contactId || "").trim()) return false;
+  if (
+    filters.contactFilter
+    && filters.contactFilter !== "unset"
+    && String(row.contactId || "").trim() !== String(filters.contactFilter).trim()
+  ) {
+    return false;
+  }
 
   return true;
 }
