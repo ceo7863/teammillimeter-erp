@@ -1396,11 +1396,17 @@ export function removeEntryFromWorkerMonthlyVoucher(
 
   let nextBankTransactions = bankTransactions;
   if (entry.kind === "bank") {
-    nextBankTransactions = bankTransactions.map((row) => {
-      if (row.id !== entry.bankTransactionId) return row;
-      const { linkedWorkerMonthlyPaymentVoucherId: _removed, ...rest } = row;
-      return rest;
-    });
+    const bankTxId = entry.bankTransactionId;
+    const stillLinked = nextVouchers.some((row) =>
+      row.entries.some((item) => item.kind === "bank" && item.bankTransactionId === bankTxId),
+    );
+    if (!stillLinked) {
+      nextBankTransactions = bankTransactions.map((row) => {
+        if (row.id !== bankTxId) return row;
+        const { linkedWorkerMonthlyPaymentVoucherId: _removed, ...rest } = row;
+        return rest;
+      });
+    }
   }
 
   const nextVoucher = nextVouchers.find((row) => row.id === input.voucherId) || null;
@@ -1564,6 +1570,7 @@ export function linkBankEntryToWorkerMonthlyVoucher(
     monthKey: string;
     obligations: WorkerMonthlyObligation[];
     useFifo?: boolean;
+    entryAmount?: number;
   },
 ): {
   vouchers: WorkerMonthlyActualVoucher[];
@@ -1573,7 +1580,10 @@ export function linkBankEntryToWorkerMonthlyVoucher(
   const tx = bankTransactions.find((row) => row.id === input.bankTransactionId);
   if (!tx) return { vouchers, bankTransactions };
 
-  const amount = Math.round(Number(tx.withdrawal) || 0) || Math.round(Number(tx.deposit) || 0);
+  const amount =
+    Math.round(Number(input.entryAmount) || 0) ||
+    Math.round(Number(tx.withdrawal) || 0) ||
+    Math.round(Number(tx.deposit) || 0);
   const date = String(tx.transactionAt || "").slice(0, 10);
   const entry: WorkerMonthlyPaymentEntry = {
     kind: "bank",
@@ -1827,6 +1837,68 @@ export const WORKER_MONTHLY_VOUCHER_STATUS_LABELS: Record<WorkerMonthlyVoucherSt
   paid: "\uC9C0\uAE09\uC644\uB8CC",
   overpaid: "\uCD08\uACFC\uC9C0\uAE09",
 };
+
+export function sumLinkedWorkerAmountForBankTx(
+  bankTransactionId: string,
+  vouchers: WorkerMonthlyActualVoucher[],
+) {
+  let total = 0;
+  for (const voucher of vouchers) {
+    for (const entry of voucher.entries) {
+      if (entry.kind !== "bank" || entry.bankTransactionId !== bankTransactionId) continue;
+      total += Math.round(Number(entry.amount) || 0);
+    }
+  }
+  return total;
+}
+
+export function resolveBankWorkerLinkRemaining(
+  tx: Pick<BankTransaction, "id" | "withdrawal" | "deposit">,
+  vouchers: WorkerMonthlyActualVoucher[],
+) {
+  const total =
+    Math.round(Number(tx.withdrawal) || 0) || Math.round(Number(tx.deposit) || 0);
+  return Math.max(0, total - sumLinkedWorkerAmountForBankTx(tx.id, vouchers));
+}
+
+export function resolveWorkerLinkSelectionAmount(
+  remaining: number,
+  obligation: Pick<WorkerMonthlyObligation, "balance" | "expectedFinalAmount">,
+) {
+  const pool = Math.round(Number(remaining) || 0);
+  if (pool <= 0) return 0;
+  const target = Math.round(
+    Number(obligation.balance) > 0 ? obligation.balance : obligation.expectedFinalAmount || 0,
+  );
+  if (target <= 0) return 0;
+  return Math.min(pool, target);
+}
+
+export function listWorkerBankLinksForTransaction(
+  bankTransactionId: string,
+  vouchers: WorkerMonthlyActualVoucher[],
+) {
+  const rows: Array<{
+    voucherId: string;
+    entryId: string;
+    worker: string;
+    monthKey: string;
+    amount: number;
+  }> = [];
+  for (const voucher of vouchers) {
+    for (const entry of voucher.entries) {
+      if (entry.kind !== "bank" || entry.bankTransactionId !== bankTransactionId) continue;
+      rows.push({
+        voucherId: voucher.id,
+        entryId: entry.id,
+        worker: voucher.worker,
+        monthKey: voucher.monthKey,
+        amount: Math.round(Number(entry.amount) || 0),
+      });
+    }
+  }
+  return rows;
+}
 
 export function listWorkerBankTransactions(
   workerName: string,

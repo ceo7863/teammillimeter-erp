@@ -212,6 +212,10 @@ export function buildBankDepositMatchCandidates(
     .slice(0, limit);
 }
 
+export function resolveDepositLinkAllocation(deposit: number, unpaid: number) {
+  return resolveManualLinkPaymentDraft(deposit, unpaid);
+}
+
 function resolveManualLinkPaymentDraft(deposit: number, unpaid: number) {
   const withVat = unpaid + Math.round(unpaid * 0.1);
   if (deposit === unpaid) {
@@ -286,11 +290,13 @@ export function buildBankDepositManualLinkCandidates(
     minScore?: number;
     limit?: number;
     clients?: ClientDepositMatchSource[];
+    depositAmount?: number;
   } = {},
 ) {
-  if (tx.deposit <= 0 || tx.linkedPaymentVoucherId || isCardCompanyDeposit(tx)) return [];
+  const depositAmount = Math.round(Number(options.depositAmount ?? tx.deposit) || 0);
+  if (depositAmount <= 0 || isCardCompanyDeposit(tx)) return [];
 
-  const deposit = tx.deposit;
+  const deposit = depositAmount;
   const txDate = String(tx.transactionAt || "").slice(0, 10);
   const subject = resolveBankDepositMatchSubject(tx);
   const linkedSalesIds = options.linkedSalesIds || new Set<string>();
@@ -593,4 +599,42 @@ export function getBankMatchStatusLabel(tx: BankTransaction) {
   if (tx.linkedPaymentVoucherId) return "\uC785\uAE08 \uC5F0\uACB0\uC644\uB8CC";
   if (tx.deposit > 0) return "\uBBF8\uC5F0\uACB0";
   return "-";
+}
+
+type PaymentVoucherBankLinkSource = {
+  bankTransactionId?: string | number;
+  salesId?: string | number;
+  finalAmount?: number;
+  amount?: number;
+};
+
+export function sumLinkedDepositAmountForBankTx(
+  bankTransactionId: string | number,
+  paymentVouchers: PaymentVoucherBankLinkSource[],
+) {
+  const bankId = String(bankTransactionId);
+  return paymentVouchers
+    .filter((voucher) => String(voucher.bankTransactionId || "") === bankId)
+    .reduce((sum, voucher) => sum + Math.round(Number(voucher.finalAmount ?? voucher.amount ?? 0)), 0);
+}
+
+export function collectLinkedSalesIdsForBankTx(
+  bankTransactionId: string | number,
+  paymentVouchers: PaymentVoucherBankLinkSource[],
+) {
+  const bankId = String(bankTransactionId);
+  const ids = new Set<string>();
+  for (const voucher of paymentVouchers) {
+    if (String(voucher.bankTransactionId || "") !== bankId) continue;
+    if (voucher.salesId != null && voucher.salesId !== "") ids.add(String(voucher.salesId));
+  }
+  return ids;
+}
+
+export function resolveBankDepositLinkRemaining(
+  tx: Pick<BankTransaction, "id" | "deposit">,
+  paymentVouchers: PaymentVoucherBankLinkSource[],
+) {
+  const total = Math.round(Number(tx.deposit) || 0);
+  return Math.max(0, total - sumLinkedDepositAmountForBankTx(tx.id, paymentVouchers));
 }

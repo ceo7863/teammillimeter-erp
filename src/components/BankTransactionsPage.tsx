@@ -209,6 +209,8 @@ import {
   getBankMatchStatusLabel,
   isBankMatchAutoLinked,
   isBankMatchManualLinked,
+  resolveBankDepositLinkRemaining,
+  resolveDepositLinkAllocation,
   type BankDepositMatchCandidate,
 } from "@/utils/bankReceivableMatch";
 import {
@@ -219,6 +221,7 @@ import {
 import {
   buildWorkerMonthlyObligations,
   linkBankEntryToWorkerMonthlyVoucher,
+  removeEntryFromWorkerMonthlyVoucher,
   upsertWorkerMonthlyActualVoucher,
   type WorkerMonthlyActualVoucher,
 } from "@/utils/workerMonthlyActualPayments";
@@ -284,6 +287,7 @@ import {
   buildImportFingerprint,
   applyManualClientClearToTransaction,
   buildTopCounterpartySummaries,
+  clearBankTransactionPaymentMatch,
   filterBankTransactions,
   formatBankTransactionDateTime,
   hasManualClientClassificationOverride,
@@ -4796,33 +4800,60 @@ function BankTransactionsPageComponent({
     setImportMessage(`${L.clientLinkDone}${classifyNote}`);
   };
 
-  const confirmDepositMatch = (tx: BankTransaction, candidate: BankDepositMatchCandidate) => {
-    if (paymentVouchers.some((voucher) => voucher.bankTransactionId === tx.id)) {
-      setImportMessage("\uC774\uBBF8 \uC5F0\uACB0\uB41C \uD1B5\uC7A5 \uAC70\uB798\uC785\uB2C8\uB2E4.");
-      return;
-    }
-    const receivable = receivableRows.find((row) => String(row.id) === String(candidate.salesId));
-    if (!receivable) return;
-    const sale = sales.find((row) => String(row.id) === String(candidate.salesId));
-    const voucher = createPaymentVoucherFromBankMatch(tx, candidate, receivable, sale);
-    const savedBy = currentUser?.name || currentUser?.loginId || "";
-    const logs = createPaymentInputLogsFromVouchers([voucher], savedBy);
+  const confirmDepositMatchBatch = (
+    tx: BankTransaction,
+    items: Array<{ candidate: BankDepositMatchCandidate; finalAmount: number }>,
+  ) => {
+    if (!items.length) return;
 
-    recordAudit({
-      entityType: "paymentVoucher",
-      entityId: voucher.id,
-      entityLabel: `${voucher.client} \u00B7 ${voucher.site}`,
-      screen: L.pageTitle,
-      action: "create",
-      after: snapshotPaymentForAudit(voucher),
-      fields: PAYMENT_AUDIT_FIELDS,
-      user: currentUser,
-    });
+    let remaining = resolveBankDepositLinkRemaining(tx, paymentVouchers);
+    const newVouchers: ReturnType<typeof createPaymentVoucherFromBankMatch>[] = [];
+    const savedBy = currentUser?.name || currentUser?.loginId || "";
+
+    for (const item of items) {
+      if (remaining <= 0) break;
+      const receivable = receivableRows.find((row) => String(row.id) === String(item.candidate.salesId));
+      if (!receivable) continue;
+      const allocation = resolveDepositLinkAllocation(remaining, item.candidate.unpaid);
+      const enrichedCandidate = {
+        ...item.candidate,
+        paymentAmount: allocation.paymentAmount,
+        vatType: allocation.vatType,
+        vatAmount: allocation.vatAmount,
+        finalAmount: Math.min(item.finalAmount, allocation.finalAmount),
+      };
+      if (enrichedCandidate.finalAmount <= 0) continue;
+
+      const sale = sales.find((row) => String(row.id) === String(item.candidate.salesId));
+      const voucher = createPaymentVoucherFromBankMatch(tx, enrichedCandidate, receivable, sale);
+      newVouchers.push(voucher);
+      remaining -= Math.round(Number(voucher.finalAmount) || 0);
+
+      recordAudit({
+        entityType: "paymentVoucher",
+        entityId: voucher.id,
+        entityLabel: `${voucher.client} \u00B7 ${voucher.site}`,
+        screen: L.pageTitle,
+        action: "create",
+        after: snapshotPaymentForAudit(voucher),
+        fields: PAYMENT_AUDIT_FIELDS,
+        user: currentUser,
+      });
+    }
+
+    if (!newVouchers.length) return;
+
+    const logs = createPaymentInputLogsFromVouchers(newVouchers, savedBy);
+    const primaryVoucher = newVouchers[0];
+    const primaryReceivable = receivableRows.find(
+      (row) => String(row.id) === String(primaryVoucher.salesId),
+    );
+
     auditBankTxUpdate(tx, {
       ...tx,
-      linkedSalesId: receivable.id,
-      linkedPaymentVoucherId: voucher.id,
-      linkedSubject: receivable.client,
+      linkedSalesId: primaryReceivable?.id ?? tx.linkedSalesId,
+      linkedPaymentVoucherId: tx.linkedPaymentVoucherId || primaryVoucher.id,
+      linkedSubject: primaryReceivable?.client || tx.linkedSubject || primaryVoucher.client,
       matchConfirmedAt: new Date().toISOString(),
       matchConfirmedBy: savedBy,
       matchAutoLinked: false,
@@ -4831,16 +4862,16 @@ function BankTransactionsPageComponent({
         (isCardCompanyDeposit(tx) ? DEFAULT_CARD_SALES_FOLDER_ID : DEFAULT_CLIENT_FOLDER_ID),
     });
 
-    setPaymentVouchers((prev) => [voucher, ...(prev as typeof voucher[])]);
+    setPaymentVouchers((prev) => [...newVouchers, ...(prev as typeof newVouchers)]);
     setPaymentInputLogs((prev) => [...logs, ...(prev as typeof logs)]);
     setBankTransactions((prev) =>
       prev.map((row) =>
         row.id === tx.id
           ? {
               ...row,
-              linkedSalesId: receivable.id,
-              linkedPaymentVoucherId: voucher.id,
-              linkedSubject: receivable.client,
+              linkedSalesId: primaryReceivable?.id ?? row.linkedSalesId,
+              linkedPaymentVoucherId: row.linkedPaymentVoucherId || primaryVoucher.id,
+              linkedSubject: primaryReceivable?.client || row.linkedSubject || primaryVoucher.client,
               matchConfirmedAt: new Date().toISOString(),
               matchConfirmedBy: savedBy,
               matchAutoLinked: false,
@@ -4848,65 +4879,162 @@ function BankTransactionsPageComponent({
                 row.folderId ||
                 (isCardCompanyDeposit(row) ? DEFAULT_CARD_SALES_FOLDER_ID : DEFAULT_CLIENT_FOLDER_ID),
             }
-          : row
-      )
+          : row,
+      ),
     );
-    setLinkModalTx(null);
-    setImportMessage(L.matchDone);
+    setImportMessage(
+      newVouchers.length > 1
+        ? `${newVouchers.length}\uAC74 \uC804\uD45C\uAC00 \uC785\uAE08 \uC5F0\uACB0\uB418\uC5C8\uC2B5\uB2C8\uB2E4.`
+        : L.matchDone,
+    );
   };
 
-  const confirmWorkerMonthlyLink = (
+  const unlinkDepositPaymentVoucher = (tx: BankTransaction, voucherId: string) => {
+    const voucher = paymentVouchers.find((item) => String(item.id) === String(voucherId));
+    if (!voucher) return;
+    if (
+      !confirm(
+        `\uC785\uAE08 \uC804\uD45C (${voucher.client} \u00B7 ${voucher.site}) \uC5F0\uACB0\uC744 \uD574\uC81C\uD560\uAE4C\uC694?`,
+      )
+    ) {
+      return;
+    }
+
+    recordAudit({
+      entityType: "paymentVoucher",
+      entityId: voucherId,
+      entityLabel: `${voucher.client} \u00B7 ${voucher.site}`,
+      screen: L.pageTitle,
+      action: "delete",
+      before: snapshotPaymentForAudit(voucher),
+      fields: PAYMENT_AUDIT_FIELDS,
+      user: currentUser,
+    });
+
+    const nextVouchers = paymentVouchers.filter((item) => String(item.id) !== String(voucherId));
+    setPaymentVouchers(nextVouchers);
+    setPaymentInputLogs((prev) =>
+      prev.filter((log) => String(log.paymentVoucherId) !== String(voucherId)),
+    );
+
+    const bankTxId = String(voucher.bankTransactionId || tx.id);
+    const stillLinked = nextVouchers.some(
+      (item) => String(item.bankTransactionId || "") === bankTxId,
+    );
+    if (!stillLinked) {
+      setBankTransactions((prev) =>
+        prev.map((row) => (row.id === tx.id ? clearBankTransactionPaymentMatch(row) : row)),
+      );
+    }
+    setImportMessage("\uC804\uD45C \uC5F0\uACB0\uC774 \uD574\uC81C\uB418\uC5C8\uC2B5\uB2C8\uB2E4.");
+  };
+
+  const confirmDepositMatch = (tx: BankTransaction, candidate: BankDepositMatchCandidate) => {
+    const remaining = resolveBankDepositLinkRemaining(tx, paymentVouchers);
+    if (remaining <= 0) {
+      setImportMessage("\uC774\uBBF4 \uC785\uAE08 \uAE08\uC561\uC774 \uBAA8\uB450 \uC804\uD45C\uC5D0 \uC5F0\uACB0\uB418\uC5C8\uC2B5\uB2C8\uB2E4.");
+      return;
+    }
+    const allocation = resolveDepositLinkAllocation(remaining, candidate.unpaid);
+    confirmDepositMatchBatch(tx, [
+      {
+        candidate: {
+          ...candidate,
+          paymentAmount: allocation.paymentAmount,
+          vatType: allocation.vatType,
+          vatAmount: allocation.vatAmount,
+          finalAmount: allocation.finalAmount,
+        },
+        finalAmount: allocation.finalAmount,
+      },
+    ]);
+    setLinkModalTx(null);
+  };
+
+  const confirmWorkerMonthlyLinkBatch = (
     tx: BankTransaction,
-    candidate: WorkerBankMatchCandidate,
+    items: Array<{ candidate: WorkerBankMatchCandidate; entryAmount: number }>,
     workerName: string,
   ) => {
-    if (!setWorkerMonthlyActualVouchers) {
+    if (!setWorkerMonthlyActualVouchers || !items.length) {
       setImportMessage("\uC2DC\uACF5\uC790 \uC2E4\uC9C0\uAE09 \uC5F0\uACB0 \uAE30\uB2A5\uC774 \uC5F0\uACB0\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.");
       return;
     }
-    if (String(tx.linkedWorkerMonthlyPaymentVoucherId || "").trim()) {
-      setImportMessage("\uC774\uBBF8 \uC5F0\uACB0\uB41C \uD1B5\uC7A5 \uAC70\uB798\uC785\uB2C8\uB2E4.");
-      return;
-    }
 
-    const obligation = candidate.obligation;
     let nextVouchers = workerMonthlyActualVouchers;
-    let voucher =
-      obligation.voucher ||
-      nextVouchers.find(
-        (row) => row.worker === obligation.worker && row.monthKey === obligation.monthKey,
-      );
-
-    if (!voucher) {
-      nextVouchers = upsertWorkerMonthlyActualVoucher(nextVouchers, {
-        worker: obligation.worker,
-        monthKey: obligation.monthKey,
-        expectedAmount: obligation.expectedAmount,
-        payWithVat: obligation.payWithVat,
-        expectedFinalAmount: obligation.expectedFinalAmount,
-        createdBy: currentUser?.name || currentUser?.email,
-      });
-      voucher = nextVouchers.find(
-        (row) => row.worker === obligation.worker && row.monthKey === obligation.monthKey,
-      );
-    }
-
-    if (!voucher) {
-      setImportMessage("\uC804\uD45C\uB97C \uC0DD\uC131\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
-      return;
-    }
-
+    let nextBankTransactions = bankTransactionsRef.current;
     const obligationsForWorker = workerMonthlyObligations.filter((row) => row.worker === workerName);
-    const liveBankTransactions = bankTransactionsRef.current;
-    const result = linkBankEntryToWorkerMonthlyVoucher(nextVouchers, liveBankTransactions, {
-      voucherId: voucher.id,
-      bankTransactionId: tx.id,
-      worker: workerName,
-      monthKey: obligation.monthKey,
-      obligations: obligationsForWorker,
-      useFifo: false,
-    });
 
+    for (const item of items) {
+      const obligation = item.candidate.obligation;
+      let voucher =
+        obligation.voucher ||
+        nextVouchers.find(
+          (row) => row.worker === obligation.worker && row.monthKey === obligation.monthKey,
+        );
+
+      if (!voucher) {
+        nextVouchers = upsertWorkerMonthlyActualVoucher(nextVouchers, {
+          worker: obligation.worker,
+          monthKey: obligation.monthKey,
+          expectedAmount: obligation.expectedAmount,
+          payWithVat: obligation.payWithVat,
+          expectedFinalAmount: obligation.expectedFinalAmount,
+          createdBy: currentUser?.name || currentUser?.email,
+        });
+        voucher = nextVouchers.find(
+          (row) => row.worker === obligation.worker && row.monthKey === obligation.monthKey,
+        );
+      }
+      if (!voucher) continue;
+
+      const result = linkBankEntryToWorkerMonthlyVoucher(nextVouchers, nextBankTransactions, {
+        voucherId: voucher.id,
+        bankTransactionId: tx.id,
+        worker: workerName,
+        monthKey: obligation.monthKey,
+        obligations: obligationsForWorker,
+        useFifo: false,
+        entryAmount: item.entryAmount,
+      });
+      nextVouchers = result.vouchers;
+      nextBankTransactions = result.bankTransactions;
+    }
+
+    const nextTx = nextBankTransactions.find((row) => row.id === tx.id);
+    if (nextTx) auditBankTxUpdate(tx, nextTx);
+    bankTransactionsRef.current = nextBankTransactions;
+    setBankTransactions(nextBankTransactions);
+    setWorkerMonthlyActualVouchers(nextVouchers);
+
+    if (onPersistWorkerMonthlyLinksImmediate) {
+      void onPersistWorkerMonthlyLinksImmediate({
+        workerMonthlyActualVouchers: nextVouchers,
+        bankTransactions: nextBankTransactions,
+      });
+    } else {
+      void onRequestImmediateSave?.({
+        workerMonthlyActualVouchers: nextVouchers,
+        bankTransactions: nextBankTransactions,
+      });
+    }
+
+    setImportMessage(
+      items.length > 1
+        ? `${items.length}\uAC74 \uC6D4 \uC2E4\uC9C0\uAE09 \uC804\uD45C\uAC00 \uC5F0\uACB0\uB418\uC5C8\uC2B5\uB2C8\uB2E4.`
+        : L.workerMatchDone,
+    );
+  };
+
+  const unlinkWorkerBankEntry = (tx: BankTransaction, voucherId: string, entryId: string) => {
+    if (!setWorkerMonthlyActualVouchers) return;
+    if (!confirm("\uC120\uD0DD\uD55C \uC6D4 \uC2E4\uC9C0\uAE09 \uC804\uD45C \uC5F0\uACB0\uC744 \uD574\uC81C\uD560\uAE4C\uC694?")) return;
+
+    const result = removeEntryFromWorkerMonthlyVoucher(
+      workerMonthlyActualVouchers,
+      bankTransactionsRef.current,
+      { voucherId, entryId },
+    );
     const nextTx = result.bankTransactions.find((row) => row.id === tx.id);
     if (nextTx) auditBankTxUpdate(tx, nextTx);
     bankTransactionsRef.current = result.bankTransactions;
@@ -4924,9 +5052,29 @@ function BankTransactionsPageComponent({
         bankTransactions: result.bankTransactions,
       });
     }
+    setImportMessage("\uC804\uD45C \uC5F0\uACB0\uC774 \uD574\uC81C\uB418\uC5C8\uC2B5\uB2C8\uB2E4.");
+  };
 
+  const confirmWorkerMonthlyLink = (
+    tx: BankTransaction,
+    candidate: WorkerBankMatchCandidate,
+    workerName: string,
+  ) => {
+    if (!setWorkerMonthlyActualVouchers) {
+      setImportMessage("\uC2DC\uACF5\uC790 \uC2E4\uC9C0\uAE09 \uC5F0\uACB0 \uAE30\uB2A5\uC774 \uC5F0\uACB0\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.");
+      return;
+    }
+    confirmWorkerMonthlyLinkBatch(
+      tx,
+      [
+        {
+          candidate,
+          entryAmount: Math.round(Number(candidate.bankAmount) || Number(tx.withdrawal) || 0),
+        },
+      ],
+      workerName,
+    );
     setWorkerLinkModal(null);
-    setImportMessage(L.workerMatchDone);
   };
 
   const confirmHighConfidenceMatches = () => {
@@ -5861,7 +6009,8 @@ function BankTransactionsPageComponent({
           bankTransactions={bankTransactions}
           onClose={() => setLinkModalTx(null)}
           onConfirmSentStatement={(candidate) => void confirmSentStatementMatch(linkModalTx, candidate)}
-          onConfirmReceivable={(candidate) => confirmDepositMatch(linkModalTx, candidate)}
+          onConfirmReceivableBatch={(items) => confirmDepositMatchBatch(linkModalTx, items)}
+          onUnlinkDepositVoucher={(voucherId) => unlinkDepositPaymentVoucher(linkModalTx, voucherId)}
         />
       ) : null}
 
@@ -5879,8 +6028,11 @@ function BankTransactionsPageComponent({
           bankTransactionFolders={bankTransactionFolders}
           workers={workers}
           onClose={() => setWorkerLinkModal(null)}
-          onConfirmWorkerLink={(candidate) =>
-            confirmWorkerMonthlyLink(workerLinkModal.tx, candidate, workerLinkModal.workerName)
+          onConfirmWorkerLinkBatch={(items) =>
+            confirmWorkerMonthlyLinkBatch(workerLinkModal.tx, items, workerLinkModal.workerName)
+          }
+          onUnlinkWorkerEntry={(voucherId, entryId) =>
+            unlinkWorkerBankEntry(workerLinkModal.tx, voucherId, entryId)
           }
         />
       ) : null}

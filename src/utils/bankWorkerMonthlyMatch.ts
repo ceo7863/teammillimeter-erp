@@ -343,10 +343,11 @@ export function buildWorkerBankLinkMonthOptions(
   tx: BankTransaction,
   obligations: WorkerMonthlyObligation[],
   workers: WorkerDepositMatchSource[] = [],
-  options: { worker: string },
+  options: { worker: string; remainingAmount?: number },
 ): WorkerBankLinkMonthOption[] {
   const workerName = String(options.worker || "").trim();
-  if (!workerName || String(tx.linkedWorkerMonthlyPaymentVoucherId || "").trim()) return [];
+  const remaining = Math.round(Number(options.remainingAmount ?? resolveWorkerBankPaymentAmount(tx)) || 0);
+  if (!workerName || remaining <= 0) return [];
 
   const workerObligations = obligations
     .filter((row) => row.worker === workerName)
