@@ -16,8 +16,16 @@ import {
   isWorkerVehicleQuery,
   extractWorkerNameFromVehicleQuery,
 } from "./erpChatVehicleExtract.mjs";
+import {
+  assertChatToolAccess,
+  canUserAccessChatPage,
+  canUserAccessWorkersChatData,
+  formatChatAccessDenied,
+  canUserViewContactPhones,
+} from "./erpChatAccess.mjs";
 
 export { isWorkerVehicleQuery, extractWorkerNameFromVehicleQuery } from "./erpChatVehicleExtract.mjs";
+export { canUserViewContactPhones } from "./erpChatAccess.mjs";
 
 const KOREA_TZ = "Asia/Seoul";
 
@@ -544,13 +552,6 @@ function resolveClientContacts(client) {
     return [{ name: String(client.manager || client.ceoName || client.name || "").trim(), phone, isPrimary: true }];
   }
   return [];
-}
-
-export function canUserViewContactPhones(user) {
-  if (user?.role === "admin") return true;
-  const pages = Array.isArray(user?.allowedPages) ? user.allowedPages : null;
-  if (!pages) return true;
-  return pages.includes("basicInfo") || pages.includes("clients");
 }
 
 export function toolGetClientUnpaid({ clientName }) {
@@ -2525,6 +2526,7 @@ function stripPersonBankAccountQueryNoise(text) {
 export function isPersonBankAccountQuery(text) {
   const raw = String(text || "").trim();
   if (!/(?:\uACC4\uC88C(?:\uBC88\uD638)?|\uD1B5\uC7A5(?:\uBC88\uD638)?)/.test(raw)) return false;
+  if (includesScScheduleKeyword(raw) || /\uC77C\uC815|\uD604\uC7A5/.test(raw)) return false;
   if (hasChatOpenVerb(raw)) return false;
   if (/\uC785\uAE08\uB0B4\uC5ED|\uC785\uAE08\s*\uC561|\uC785\uAE08\s*\uD569\uACC4/.test(raw)) return false;
   if (isBankSearchQuery(raw)) return false;
@@ -2681,7 +2683,8 @@ function resolveClientSiteOnDateFromText(text) {
 function includesClientSiteScheduleKeyword(text) {
   const raw = String(text || "");
   if (/\uD604\uC7A5/.test(raw)) return true;
-  return /\uC77C\uC815/.test(raw) && !includesScScheduleKeyword(raw);
+  if (includesScScheduleKeyword(raw)) return true;
+  return /\uC77C\uC815/.test(raw);
 }
 
 function clientSiteRequestCoversDate(request, date) {
@@ -4467,6 +4470,9 @@ export const ERP_CHAT_TOOL_DEFINITIONS = [
 ];
 
 export function executeErpChatTool(name, args, user, question) {
+  const accessDenied = assertChatToolAccess(user, name, args, question);
+  if (accessDenied) return accessDenied;
+
   const rawQuestion = String(question || args?.rawQuery || "").trim();
   switch (name) {
     case "get_client_unpaid":
@@ -4764,10 +4770,63 @@ export function tryRuleBasedTotalsQuery(message) {
 
 export function tryRuleBasedPriorityQuery(message) {
   return (
+    tryRuleBasedClientScheduleQuery(message) ||
     tryRuleBasedLookupQuery(message) ||
     tryRuleBasedTotalsQuery(message) ||
     tryRuleBasedUnpaidListQuery(message)
   );
+}
+
+export function tryRuleBasedClientScheduleQuery(message) {
+  const text = String(message || "").trim();
+  if (!text) return null;
+  if (
+    !includesScScheduleKeyword(text) &&
+    !/\uC77C\uC815/.test(text)
+  ) {
+    return null;
+  }
+  if (isClientSiteOnDateQuery(text)) {
+    return tryRuleBasedClientSiteOnDateQuery(text);
+  }
+  if (hasChatOpenVerb(text) && includesScScheduleKeyword(text)) return null;
+
+  const extractedName = extractClientNameFromScheduleQuery(text);
+  const range = resolveDateRangeFromInput(text);
+  const hasWeekKeyword =
+    text.includes("\uC774\uBC88\uC8FC") ||
+    text.includes("\uB2E4\uC74C\uC8FC") ||
+    text.includes("\uC800\uBC88\uC8FC") ||
+    text.includes("\uC9C0\uB09C\uC8FC") ||
+    text.includes("\uAE08\uC8FC");
+
+  if (extractedName || hasWeekKeyword) {
+    const lookupState = getErpState(["clients", "workers"]);
+    const lookupData = lookupState.data || {};
+    const nameFilter = resolveScheduleNameFilter(
+      text,
+      Array.isArray(lookupData.clients) ? lookupData.clients : [],
+      Array.isArray(lookupData.workers) ? lookupData.workers : [],
+    );
+    return formatScheduleAnswer(
+      toolGetScheduleCount({
+        date: hasWeekKeyword ? text : range.startDate,
+        startDate: range.startDate,
+        endDate: range.endDate,
+        clientName: nameFilter.clientName,
+        workerName: nameFilter.workerName,
+      }),
+    );
+  }
+
+  let date = "\uC624\uB298";
+  if (text.includes("\uB0B4\uC77C")) date = "\uB0B4\uC77C";
+  else if (text.includes("\uBAA8\uB798")) date = "\uBAA8\uB798";
+  else {
+    const dateMatch = text.match(/\d{4}-\d{2}-\d{2}/);
+    if (dateMatch) date = dateMatch[0];
+  }
+  return formatScheduleAnswer(toolGetScheduleCount({ date }));
 }
 
 export function formatGreetingAnswer() {
@@ -4830,42 +4889,7 @@ export function tryRuleBasedChat(message, user) {
     (text.includes(kwSchedule) || text.includes(kwSc)) &&
     !(hasChatOpenVerb(text) && includesScScheduleKeyword(text))
   ) {
-    const extractedName = extractClientNameFromScheduleQuery(text);
-    const range = resolveDateRangeFromInput(text);
-    const hasWeekKeyword =
-      text.includes("\uC774\uBC88\uC8FC") ||
-      text.includes("\uB2E4\uC74C\uC8FC") ||
-      text.includes("\uC800\uBC88\uC8FC") ||
-      text.includes("\uC9C0\uB09C\uC8FC") ||
-      text.includes("\uAE08\uC8FC");
-
-    if (extractedName || hasWeekKeyword) {
-      const lookupState = getErpState(["clients", "workers"]);
-      const lookupData = lookupState.data || {};
-      const nameFilter = resolveScheduleNameFilter(
-        text,
-        Array.isArray(lookupData.clients) ? lookupData.clients : [],
-        Array.isArray(lookupData.workers) ? lookupData.workers : [],
-      );
-      return formatScheduleAnswer(
-        toolGetScheduleCount({
-          date: hasWeekKeyword ? text : range.startDate,
-          startDate: range.startDate,
-          endDate: range.endDate,
-          clientName: nameFilter.clientName,
-          workerName: nameFilter.workerName,
-        }),
-      );
-    }
-
-    let date = kwToday;
-    if (text.includes(kwTomorrow)) date = kwTomorrow;
-    else if (text.includes(kwDayAfter)) date = kwDayAfter;
-    else {
-      const dateMatch = text.match(/\d{4}-\d{2}-\d{2}/);
-      if (dateMatch) date = dateMatch[0];
-    }
-    return formatScheduleAnswer(toolGetScheduleCount({ date }));
+    return tryRuleBasedClientScheduleQuery(text);
   }
 
   if (isWorkerVehicleQuery(text)) {

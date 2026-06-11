@@ -96,6 +96,7 @@ import {
   tryBuildChatClarification,
   resolveFailedToolClarification,
 } from "./erpChatClarify.mjs";
+import { assertChatToolAccess } from "./erpChatAccess.mjs";
 import {
   isWeatherQuery,
   toolGetWeather,
@@ -356,6 +357,9 @@ const ERP_CHAT_ALL_TOOL_DEFINITIONS = [
 ];
 
 async function executeChatTool(fnName, args, user, question) {
+  const accessDenied = assertChatToolAccess(user, fnName, args, question);
+  if (accessDenied) return accessDenied;
+
   if (fnName === "navigate_erp") {
     return toolNavigateErp({ ...(args || {}), message: question });
   }
