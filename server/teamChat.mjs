@@ -550,12 +550,32 @@ export function markTeamChatRead(channelId, userId, messageId) {
     .get(String(channelId), Number(userId));
   const prevRead = Number(member?.last_read_message_id) || 0;
   const nextRead = Math.max(prevRead, resolvedId);
+  if (nextRead <= prevRead) {
+    return { ok: true, lastReadMessageId: prevRead };
+  }
   getDb()
     .prepare(
       `UPDATE team_chat_members SET last_read_message_id = ? WHERE channel_id = ? AND user_id = ?`,
     )
     .run(nextRead, String(channelId), Number(userId));
+  publishTeamChatEvent(channelId, {
+    type: "read.updated",
+    userId: Number(userId),
+    lastReadMessageId: nextRead,
+  });
   return { ok: true, lastReadMessageId: nextRead };
+}
+
+export function getTeamChatReadState(channelId, userId) {
+  assertChannelMember(channelId, userId);
+  const rows = getDb()
+    .prepare("SELECT user_id, last_read_message_id FROM team_chat_members WHERE channel_id = ?")
+    .all(String(channelId));
+  return rows.map((row) => ({
+    userId: Number(row.user_id),
+    userName: userNameById(row.user_id),
+    lastReadMessageId: Number(row.last_read_message_id) || 0,
+  }));
 }
 
 export function getTeamChatUnreadCount(userId) {

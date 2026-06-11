@@ -142,6 +142,12 @@ export async function fetchTeamChatUnreadCount() {
   return Number(result?.count) || 0;
 }
 
+export async function fetchTeamChatReadState(channelId: string) {
+  return apiRequest<import("./teamChatReadReceipts").TeamChatReadStateMember[]>(
+    `/team-chat/channels/${encodeURIComponent(channelId)}/read-state`,
+  );
+}
+
 export function formatTeamChatTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";

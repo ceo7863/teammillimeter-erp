@@ -34,7 +34,13 @@ export function useTeamChatNotifications(
     } catch {
       // ignore
     }
-    void Notification.requestPermission().catch(() => {});
+    void Notification.requestPermission()
+      .then((permission) => {
+        if (permission === "granted") {
+          void import("@/utils/teamChatPush").then(({ subscribeTeamChatPush }) => subscribeTeamChatPush()).catch(() => {});
+        }
+      })
+      .catch(() => {});
   }, [pageEnabled]);
 
   useEffect(() => {

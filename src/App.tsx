@@ -374,6 +374,7 @@ import {
 import { useClientSiteRequestPendingCount } from "@/hooks/useClientSiteRequestPendingCount";
 import { useTeamChatUnreadCount } from "@/hooks/useTeamChatUnreadCount";
 import { useTeamChatNotifications } from "@/hooks/useTeamChatNotifications";
+import { useTeamChatPush } from "@/hooks/useTeamChatPush";
 import { buildClientTeamChatLink, buildWorkerTeamChatLink, buildSaleTeamChatLink, buildBankTxTeamChatLink } from "@/utils/teamChatLinks";
 import { openTeamChatWithShare, TEAM_CHAT_OPEN_EVENT } from "@/utils/teamChatShare";
 import { TeamChatPage } from "@/components/TeamChatPage";
@@ -8528,6 +8529,7 @@ export default function TeammillimeterErpMvp() {
     isChatPageActive: active === "teamChat",
     onOpenChat: openTeamChatPage,
   });
+  useTeamChatPush(currentUser);
   useEffect(() => {
     const handler = () => openTeamChatPage();
     window.addEventListener(TEAM_CHAT_OPEN_EVENT, handler);

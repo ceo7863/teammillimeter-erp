@@ -143,8 +143,17 @@ import {
   editTeamChatMessage,
   deleteTeamChatMessage,
   searchTeamChatMessages,
+  getTeamChatReadState,
 } from "./teamChat.mjs";
 import { subscribeTeamChatEvents } from "./teamChatEvents.mjs";
+import {
+  getTeamChatPushPublicKey,
+  initTeamChatPushStore,
+  isTeamChatPushReady,
+  notifyTeamChatChannelPush,
+  removeTeamChatPushSubscription,
+  saveTeamChatPushSubscription,
+} from "./teamChatPush.mjs";
 import { buildDailyReport, formatDailyReportMessage, yesterdayDateKey } from "./dailyReport.mjs";
 import { buildDailyReportPageAsync } from "./dailyReportPage.mjs";
 import { collectSystemMetrics } from "./systemMetrics.mjs";
@@ -237,6 +246,7 @@ initDb();
 runErpStartupMigrations();
 initErpChatStore();
 initTeamChatStore();
+initTeamChatPushStore();
 initPdfArchiveStore();
 initBoardAttachmentStore();
 initClientBusinessRegStore();
@@ -1636,12 +1646,50 @@ app.get("/api/team-chat/channels/:channelId/messages", authMiddleware, (req, res
   }
 });
 
-app.post("/api/team-chat/channels/:channelId/messages", authMiddleware, (req, res) => {
+app.post("/api/team-chat/channels/:channelId/messages", authMiddleware, async (req, res) => {
   try {
-    const message = postTeamChatMessage(req.params.channelId, req.user, req.body || {});
+    const channelId = req.params.channelId;
+    const message = postTeamChatMessage(channelId, req.user, req.body || {});
+    const channelTitle =
+      listTeamChatChannels(req.user.id).find((row) => row.id === channelId)?.title || "\uC0AC\uB0B4 \uCC57";
+    const preview = String(message.body || "").trim() || (message.attachments?.length ? "\uCCA8\uBD80\uD30C\uC77C" : "\uC0C8 \uBA54\uC2DC\uC9C0");
+    void notifyTeamChatChannelPush(channelId, req.user.id, {
+      title: channelTitle,
+      body: `${message.userName}: ${preview.slice(0, 120)}`,
+      url: "/messenger",
+      tag: `team-chat-${channelId}`,
+    });
     res.status(201).json(message);
   } catch (error) {
-    res.status(error.status || 500).json({ error: error.message || "메시지 전송에 실패했습니다." });
+    res.status(error.status || 500).json({ error: error.message || "\uBA54\uC2DC\uC9C0 \uC804\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+  }
+});
+
+app.get("/api/team-chat/channels/:channelId/read-state", authMiddleware, (req, res) => {
+  try {
+    res.json(getTeamChatReadState(req.params.channelId, req.user.id));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "\uC77D\uC74C \uC815\uBCF4 \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+  }
+});
+
+app.get("/api/team-chat/push/vapid-public-key", authMiddleware, (_req, res) => {
+  res.json({ publicKey: getTeamChatPushPublicKey(), enabled: isTeamChatPushReady() });
+});
+
+app.post("/api/team-chat/push/subscribe", authMiddleware, (req, res) => {
+  try {
+    res.json(saveTeamChatPushSubscription(req.user.id, req.body || {}));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "\uD478\uC2DC \uAD6C\uB3C5\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+  }
+});
+
+app.delete("/api/team-chat/push/subscribe", authMiddleware, (req, res) => {
+  try {
+    res.json(removeTeamChatPushSubscription(req.user.id, req.body?.endpoint));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "\uD478\uC2DC \uAD6C\uB3C5 \uD574\uC9C0\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
   }
 });
 

@@ -35,6 +35,7 @@ import {
   editTeamChatMessage,
   fetchTeamChatMessages,
   formatTeamChatTime,
+  fetchTeamChatReadState,
   listTeamChatChannels,
   listTeamChatUsers,
   loadTeamChatHistory,
@@ -47,6 +48,7 @@ import {
   type TeamChatReplyPreview,
   type TeamChatUser,
 } from "@/utils/teamChat";
+import { formatTeamChatReadReceipt, type TeamChatReadStateMember } from "@/utils/teamChatReadReceipts";
 
 const L = {
   title: "\uC0AC\uB0B4 \uCC57",
@@ -94,6 +96,7 @@ const L = {
   replyTo: "\uB2F5\uC7A5 \uC911",
   cancelReply: "\uCDE8\uC18C",
   deleteConfirm: "\uC774 \uBA54\uC2DC\uC9C0\uB97C \uC0AD\uC81C\uD560\uAE4C\uC694?",
+  unread: "\uBBF8\uC77D\uC74C",
 };
 
 type PendingAttachment = TeamChatAttachment & { previewUrl?: string | null };
@@ -264,6 +267,7 @@ export const TeamChatPage = memo(function TeamChatPage({
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [menuMessageId, setMenuMessageId] = useState<number | null>(null);
+  const [readState, setReadState] = useState<TeamChatReadStateMember[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastMessageIdRef = useRef(0);
@@ -374,8 +378,30 @@ export const TeamChatPage = memo(function TeamChatPage({
     await refreshChannels();
   }, [onUnreadChange, refreshChannels, scrollToBottom]);
 
+  const refreshReadState = useCallback(async (channelId: string) => {
+    try {
+      setReadState(await fetchTeamChatReadState(channelId));
+    } catch {
+      setReadState([]);
+    }
+  }, []);
+
   const handleStreamEvent = useCallback(
     (event: TeamChatStreamEvent) => {
+      if (event.type === "read.updated" && event.channelId === selectedChannelIdRef.current) {
+        setReadState((prev) => {
+          const userId = Number(event.userId);
+          const lastReadMessageId = Number(event.lastReadMessageId) || 0;
+          const index = prev.findIndex((row) => row.userId === userId);
+          if (index >= 0) {
+            const next = [...prev];
+            next[index] = { ...next[index], lastReadMessageId };
+            return next;
+          }
+          return [...prev, { userId, userName: `\uC0AC\uC6A9\uC790 #${userId}`, lastReadMessageId }];
+        });
+        return;
+      }
       if (event.type === "channel.updated") {
         void refreshChannels();
         return;
@@ -464,7 +490,10 @@ export const TeamChatPage = memo(function TeamChatPage({
       setMenuMessageId(null);
       try {
         await loadInitialMessages(selectedChannelId);
-        if (!cancelled) await refreshChannels();
+        if (!cancelled) {
+          await refreshChannels();
+          await refreshReadState(selectedChannelId);
+        }
       } catch {
         if (!cancelled) setError(L.loadError);
       }
@@ -472,7 +501,7 @@ export const TeamChatPage = memo(function TeamChatPage({
     return () => {
       cancelled = true;
     };
-  }, [loadInitialMessages, refreshChannels, selectedChannelId]);
+  }, [loadInitialMessages, refreshChannels, refreshReadState, selectedChannelId]);
 
   useEffect(() => {
     if (!selectedChannelId || !isPageActive) return;
@@ -686,6 +715,7 @@ export const TeamChatPage = memo(function TeamChatPage({
       setPendingAttachments([]);
       mergeMessage(message);
       await refreshChannels();
+      await refreshReadState(selectedChannelId);
       onUnreadChange?.();
       window.requestAnimationFrame(scrollToBottom);
     } catch {
@@ -701,6 +731,7 @@ export const TeamChatPage = memo(function TeamChatPage({
     pendingAttachments,
     pendingLink,
     refreshChannels,
+    refreshReadState,
     replyingTo?.id,
     scrollToBottom,
     selectedChannelId,
@@ -838,6 +869,10 @@ export const TeamChatPage = memo(function TeamChatPage({
                 const isMine = Number(message.userId) === selfId;
                 const link = message.link as TeamChatLink | null | undefined;
                 const isEditing = editingMessageId === message.id;
+                const readReceipt =
+                  isMine && !message.isDeleted
+                    ? formatTeamChatReadReceipt(message.id, readState, selfId)
+                    : null;
                 return (
                   <div
                     key={message.id}
@@ -921,6 +956,11 @@ export const TeamChatPage = memo(function TeamChatPage({
                           </>
                         )}
                       </div>
+                      {readReceipt ? (
+                        <div className="erp-team-chat-read-receipt" aria-label={readReceipt}>
+                          {readReceipt}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 );

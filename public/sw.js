@@ -1,4 +1,10 @@
-const CACHE_NAME = "teammillimeter-erp-shell-v2";
+const CACHE_NAME = "teammillimeter-erp-shell-v3";
+
+try {
+  importScripts("/sw-push.js");
+} catch {
+  // push handlers optional during dev
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());

@@ -5,6 +5,7 @@ export type TeamChatStreamEvent =
   | { type: "message.new"; channelId: string; message: unknown }
   | { type: "message.updated"; channelId: string; message: unknown }
   | { type: "message.deleted"; channelId: string; message: unknown }
+  | { type: "read.updated"; channelId: string; userId: number; lastReadMessageId: number }
   | { type: "channel.updated"; channelId: string };
 
 type Options = {
