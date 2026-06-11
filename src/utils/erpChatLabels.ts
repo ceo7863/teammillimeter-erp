@@ -1,6 +1,7 @@
 export const ERP_CHAT_LABELS = {
   title: "ERP AI \uCC57\uBD07",
   open: "ERP AI \uCC57\uBD07 \uC5F4\uAE30",
+  fabHint: "\uB4DC\uB798\uADF8\uD558\uC5EC \uC704\uCE58 \uC774\uB3D9, \uD074\uB9AD\uD558\uBA74 \uC5F4\uAE30",
   close: "\uB2EB\uAE30",
   clear: "\uB300\uD654 \uC9C0\uC6B0\uAE30",
   send: "\uC804\uC1A1",
