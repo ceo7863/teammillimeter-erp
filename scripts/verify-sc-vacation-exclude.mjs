@@ -25,6 +25,7 @@ const site = {
 };
 
 assert.equal(isScPersonalVacationSchedule(vacation), true);
+assert.equal(isScPersonalVacationSchedule({ ...vacation, projectName: "", workType: "\uAC1C\uC778\uD734\uAC00" }), true);
 assert.equal(isScPersonalVacationSchedule(site), false);
 assert.equal(withoutScPersonalVacationSchedules([vacation, site]).length, 1);
 

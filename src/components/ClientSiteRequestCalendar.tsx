@@ -16,6 +16,7 @@ import {
 } from "@/utils/clientSiteRequestCalendar";
 import type { ScSchedule } from "@/utils/scSchedules";
 import { formatClientSiteRequestHeadcount, formatScScheduleHeadcount } from "@/utils/scSchedules";
+import { withoutScPersonalVacationSchedules } from "@/utils/scScheduleVacation";
 import type { WorkerMasterLike } from "@/utils/workerPayments";
 import type { ClientMasterLike } from "@/utils/clientMaster";
 import { ClientSiteRequestCalendarDayDrawer } from "@/components/ClientSiteRequestCalendarDayDrawer";
@@ -87,20 +88,24 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
     () => requests.filter((row) => isClientSiteRequestVisibleOnPublicCalendar(row)),
     [requests],
   );
+  const visibleScSchedules = useMemo(
+    () => withoutScPersonalVacationSchedules(scSchedules),
+    [scSchedules],
+  );
   const cells = useMemo(
-    () => buildClientSiteRequestCalendarCells(monthKey, calendarRequests, scSchedules),
-    [monthKey, calendarRequests, scSchedules],
+    () => buildClientSiteRequestCalendarCells(monthKey, calendarRequests, visibleScSchedules),
+    [monthKey, calendarRequests, visibleScSchedules],
   );
   const monthCountLabel = useMemo(() => {
-    const requestCount = countClientSiteRequestsInMonth(monthKey, calendarRequests, scSchedules);
-    const scCount = countScSchedulesInMonth(monthKey, scSchedules);
+    const requestCount = countClientSiteRequestsInMonth(monthKey, calendarRequests, visibleScSchedules);
+    const scCount = countScSchedulesInMonth(monthKey, visibleScSchedules);
     return L.monthCount(requestCount, scCount);
-  }, [monthKey, calendarRequests, scSchedules]);
+  }, [monthKey, calendarRequests, visibleScSchedules]);
 
   const drawerScSchedules = useMemo(() => {
     if (!drawerDate) return [];
-    return scSchedules.filter((row) => String(row.workDate || "").slice(0, 10) === drawerDate);
-  }, [scSchedules, drawerDate]);
+    return visibleScSchedules.filter((row) => String(row.workDate || "").slice(0, 10) === drawerDate);
+  }, [visibleScSchedules, drawerDate]);
 
   const drawerRequests = useMemo(() => {
     if (!drawerDate) return [];

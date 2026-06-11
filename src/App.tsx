@@ -205,6 +205,7 @@ import {
   formatScScheduleWorkLogSummary,
   resolveSaleScScheduleHeadcountLabel,
 } from "@/utils/scSchedules";
+import { withoutScPersonalVacationSchedules } from "@/utils/scScheduleVacation";
 import { confirmDelete, confirmWorkerPermanentDelete } from "@/utils/confirmDelete";
 import { filterSalesVoucherRows } from "@/utils/saleVoucherSearch";
 import {
@@ -3642,7 +3643,7 @@ function CalendarPage({
 
   const selectedDayScSchedules = useMemo(() => {
     if (!selectedDate) return [];
-    return monthScSchedules.filter((row) => {
+    return withoutScPersonalVacationSchedules(monthScSchedules).filter((row) => {
       if (String(row.workDate || "").slice(0, 10) !== selectedDate) return false;
       if (filteredClient) {
         return normalizeClientCalendarName(String(row.clientName || "")) === filteredClient;
