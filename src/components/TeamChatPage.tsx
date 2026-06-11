@@ -743,7 +743,7 @@ export const TeamChatPage = memo(function TeamChatPage({
     selectedChannelId,
   ]);
 
-  const showThreadOnMobile = Boolean(selectedChannelId);
+  const showThreadOnMobile = standalone ? false : Boolean(selectedChannelId);
   const selfId = Number(currentUser?.id) || 0;
 
   return (
@@ -845,14 +845,16 @@ export const TeamChatPage = memo(function TeamChatPage({
         ) : (
           <>
             <div className="erp-team-chat-thread__head">
-              <button
-                type="button"
-                className="erp-team-chat-back lg:hidden"
-                onClick={() => setSelectedChannelId(null)}
-              >
-                <ArrowLeft size={18} />
-                {L.back}
-              </button>
+              {!standalone ? (
+                <button
+                  type="button"
+                  className="erp-team-chat-back lg:hidden"
+                  onClick={() => setSelectedChannelId(null)}
+                >
+                  <ArrowLeft size={18} />
+                  {L.back}
+                </button>
+              ) : null}
               <div className="min-w-0 flex-1">
                 <h2 className="truncate text-base font-bold text-slate-900">{selectedChannel.title}</h2>
                 <p className="text-xs text-slate-500">{channelTypeLabel(selectedChannel.type)}</p>

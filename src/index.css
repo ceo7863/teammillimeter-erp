@@ -991,6 +991,21 @@ textarea {
   height: 100%;
   border: none;
   border-radius: 0;
+  grid-template-columns: minmax(0, 9.75rem) minmax(0, 1fr);
+}
+
+.erp-team-chat-page--standalone .erp-team-chat-channel__preview,
+.erp-team-chat-page--standalone .erp-team-chat-channel__time {
+  display: none;
+}
+
+.erp-team-chat-page--standalone .erp-team-chat-channel {
+  padding: 0.625rem 0.5rem;
+}
+
+.erp-team-chat-page--standalone .erp-team-chat-section-title {
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
 }
 
 .erp-team-chat-standalone {
@@ -1218,6 +1233,15 @@ textarea {
   .erp-team-chat-page--standalone {
     min-height: 100%;
     height: 100%;
+    grid-template-columns: minmax(0, 9.75rem) minmax(0, 1fr);
+  }
+
+  .erp-team-chat-page--standalone .erp-team-chat-sidebar.is-hidden-mobile {
+    display: flex;
+  }
+
+  .erp-team-chat-page--standalone .erp-team-chat-thread {
+    display: flex !important;
   }
 
   .erp-team-chat-sidebar.is-hidden-mobile {
