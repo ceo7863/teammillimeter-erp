@@ -204,6 +204,7 @@ import { BarobillBankSettingsPanel } from "@/components/BarobillBankSettingsPane
 import {
   buildAllBankDepositSuggestions,
   buildBankDepositManualLinkCandidates,
+  buildDepositLinkAllocations,
   createPaymentVoucherFromBankMatch,
   findBestClientDepositReceivableMatch,
   getBankMatchStatusLabel,
@@ -4802,32 +4803,40 @@ function BankTransactionsPageComponent({
 
   const confirmDepositMatchBatch = (
     tx: BankTransaction,
-    items: Array<{ candidate: BankDepositMatchCandidate; finalAmount: number }>,
+    items: Array<{ candidate: BankDepositMatchCandidate; finalAmount: number; unpaidAfter?: number }>,
   ) => {
     if (!items.length) return;
 
-    let remaining = resolveBankDepositLinkRemaining(tx, paymentVouchers);
+    const remaining = resolveBankDepositLinkRemaining(tx, paymentVouchers);
+    const allocationItems = items.map((item) => ({
+      salesId: item.candidate.salesId,
+      unpaid: item.candidate.unpaid,
+    }));
+    const allocations = buildDepositLinkAllocations(remaining, allocationItems);
+    const allocationBySalesId = new Map(allocations.map((row) => [String(row.salesId), row]));
+
     const newVouchers: ReturnType<typeof createPaymentVoucherFromBankMatch>[] = [];
     const savedBy = currentUser?.name || currentUser?.loginId || "";
 
     for (const item of items) {
-      if (remaining <= 0) break;
+      const allocation = allocationBySalesId.get(String(item.candidate.salesId));
+      if (!allocation || allocation.finalAmount <= 0) continue;
+
       const receivable = receivableRows.find((row) => String(row.id) === String(item.candidate.salesId));
       if (!receivable) continue;
-      const allocation = resolveDepositLinkAllocation(remaining, item.candidate.unpaid);
+
       const enrichedCandidate = {
         ...item.candidate,
         paymentAmount: allocation.paymentAmount,
         vatType: allocation.vatType,
         vatAmount: allocation.vatAmount,
-        finalAmount: Math.min(item.finalAmount, allocation.finalAmount),
+        finalAmount: allocation.finalAmount,
       };
-      if (enrichedCandidate.finalAmount <= 0) continue;
 
       const sale = sales.find((row) => String(row.id) === String(item.candidate.salesId));
       const voucher = createPaymentVoucherFromBankMatch(tx, enrichedCandidate, receivable, sale);
+      if (allocation.unpaidAfter > 0) voucher.isPartialPayment = true;
       newVouchers.push(voucher);
-      remaining -= Math.round(Number(voucher.finalAmount) || 0);
 
       recordAudit({
         entityType: "paymentVoucher",

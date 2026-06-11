@@ -212,44 +212,70 @@ export function buildBankDepositMatchCandidates(
     .slice(0, limit);
 }
 
+export type DepositLinkAllocationRow = {
+  salesId: string | number;
+  paymentAmount: number;
+  vatType: "excluded" | "included";
+  vatAmount: number;
+  finalAmount: number;
+  unpaidAfter: number;
+};
+
+/** 선택 순서대로 미수금을 차감하고, 마지막 전표에만 잔여 통장금액을 부분입금합니다. */
+export function buildDepositLinkAllocations(
+  poolAmount: number,
+  items: Array<{ salesId: string | number; unpaid: number }>,
+): DepositLinkAllocationRow[] {
+  let pool = Math.round(Number(poolAmount) || 0);
+  const rows: DepositLinkAllocationRow[] = [];
+
+  for (let i = 0; i < items.length; i++) {
+    const { salesId, unpaid } = items[i];
+    const debt = Math.round(Number(unpaid) || 0);
+    const isLast = i === items.length - 1;
+    if (pool <= 0 || debt <= 0) continue;
+
+    if (!isLast) {
+      if (pool < debt) break;
+      rows.push({
+        salesId,
+        paymentAmount: debt,
+        vatType: "excluded",
+        vatAmount: 0,
+        finalAmount: debt,
+        unpaidAfter: 0,
+      });
+      pool -= debt;
+      continue;
+    }
+
+    const finalAmount = Math.min(pool, debt);
+    if (finalAmount <= 0) continue;
+    rows.push({
+      salesId,
+      paymentAmount: finalAmount,
+      vatType: "excluded",
+      vatAmount: 0,
+      finalAmount,
+      unpaidAfter: debt - finalAmount,
+    });
+    pool -= finalAmount;
+  }
+
+  return rows;
+}
+
 export function resolveDepositLinkAllocation(poolAmount: number, unpaid: number) {
-  const pool = Math.round(Number(poolAmount) || 0);
-  const debt = Math.round(Number(unpaid) || 0);
-  if (pool <= 0 || debt <= 0) {
-    return {
+  const [row] = buildDepositLinkAllocations(poolAmount, [{ salesId: "", unpaid }]);
+  return (
+    row || {
       paymentAmount: 0,
       vatType: "excluded" as const,
       vatAmount: 0,
       finalAmount: 0,
-    };
-  }
-
-  const withVat = debt + Math.round(debt * 0.1);
-
-  if (pool >= withVat) {
-    return {
-      paymentAmount: debt,
-      vatType: "included" as const,
-      vatAmount: withVat - debt,
-      finalAmount: withVat,
-    };
-  }
-
-  if (pool >= debt) {
-    return {
-      paymentAmount: debt,
-      vatType: "excluded" as const,
-      vatAmount: 0,
-      finalAmount: debt,
-    };
-  }
-
-  return {
-    paymentAmount: pool,
-    vatType: "excluded" as const,
-    vatAmount: 0,
-    finalAmount: pool,
-  };
+      unpaidAfter: Math.round(Number(unpaid) || 0),
+    }
+  );
 }
 
 function resolveManualLinkPaymentDraft(deposit: number, unpaid: number) {

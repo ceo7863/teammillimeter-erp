@@ -5,9 +5,9 @@ import { formatKRW } from "@/utils/companyLedger";
 import { formatBankTransactionDateTime } from "@/utils/bankTransactions";
 import {
   buildBankDepositManualLinkCandidates,
+  buildDepositLinkAllocations,
   collectLinkedSalesIdsForBankTx,
   resolveBankDepositLinkRemaining,
-  resolveDepositLinkAllocation,
   sumLinkedDepositAmountForBankTx,
   type BankDepositMatchCandidate,
 } from "@/utils/bankReceivableMatch";
@@ -65,6 +65,7 @@ const L = {
   unlink: "\uC5F0\uACB0 \uD574\uC81C",
   select: "\uC120\uD0DD",
   selectedAmount: "\uC785\uAE08 \uBC30\uC815",
+  unpaidAfterAmount: "\uBC30\uC815 \uD6C4 \uBBF8\uC218",
   connectSelected: (count: number) => `\uC120\uD0DD ${count}\uAC74 \uC804\uD45C \uC5F0\uACB0`,
   totalAmount: "\uD1B5\uC7A5 \uAE08\uC561",
   linkedAmount: "\uC5F0\uACB0\uAE08",
@@ -427,7 +428,7 @@ export type BankErpDepositLinkModalProps = {
   onClose: () => void;
   onConfirmSentStatement: (candidate: SentStatementMatchCandidate) => void;
   onConfirmReceivableBatch: (
-    items: Array<{ candidate: BankDepositMatchCandidate; finalAmount: number }>,
+    items: Array<{ candidate: BankDepositMatchCandidate; finalAmount: number; unpaidAfter: number }>,
   ) => void;
   onUnlinkDepositVoucher: (paymentVoucherId: string) => void;
 };
@@ -477,7 +478,7 @@ export function BankErpDepositLinkModal({
   onConfirmReceivableBatch,
   onUnlinkDepositVoucher,
 }: BankErpDepositLinkModalProps) {
-  const [selectedSalesIds, setSelectedSalesIds] = useState<Set<string>>(() => new Set());
+  const [selectedSalesOrder, setSelectedSalesOrder] = useState<string[]>([]);
 
   const totalDeposit = Math.round(Number(tx.deposit) || 0);
   const linkedAmount = useMemo(
@@ -510,39 +511,90 @@ export function BankErpDepositLinkModal({
     [tx, receivableRows, clients, remainingBeforeSelect, linkedSalesIds],
   );
 
+  const candidateBySalesId = useMemo(
+    () => new Map(receivableCandidates.map((row) => [String(row.salesId), row])),
+    [receivableCandidates],
+  );
+
   const selectedAllocations = useMemo(() => {
-    const rows: Array<{ candidate: BankDepositMatchCandidate; finalAmount: number }> = [];
-    let pool = remainingBeforeSelect;
-    for (const candidate of receivableCandidates) {
-      const key = String(candidate.salesId);
-      if (!selectedSalesIds.has(key) || pool <= 0) continue;
-      const allocation = resolveDepositLinkAllocation(pool, candidate.unpaid);
-      const finalAmount = Math.round(Number(allocation.finalAmount) || 0);
-      if (finalAmount <= 0) continue;
-      rows.push({ candidate, finalAmount });
-      pool -= finalAmount;
-    }
-    return rows;
-  }, [receivableCandidates, remainingBeforeSelect, selectedSalesIds]);
+    const items = selectedSalesOrder
+      .map((salesId) => candidateBySalesId.get(salesId))
+      .filter((row): row is BankDepositMatchCandidate => Boolean(row))
+      .map((row) => ({ salesId: row.salesId, unpaid: row.unpaid }));
+
+    const allocationRows = buildDepositLinkAllocations(remainingBeforeSelect, items);
+    return allocationRows
+      .map((row) => {
+        const candidate = candidateBySalesId.get(String(row.salesId));
+        if (!candidate) return null;
+        return { candidate, finalAmount: row.finalAmount, unpaidAfter: row.unpaidAfter };
+      })
+      .filter((row): row is { candidate: BankDepositMatchCandidate; finalAmount: number; unpaidAfter: number } =>
+        Boolean(row),
+      );
+  }, [candidateBySalesId, remainingBeforeSelect, selectedSalesOrder]);
+
+  const selectedSalesIds = useMemo(() => new Set(selectedSalesOrder), [selectedSalesOrder]);
 
   const selectedTotal = selectedAllocations.reduce((sum, row) => sum + row.finalAmount, 0);
   const remainingAfterSelect = Math.max(0, remainingBeforeSelect - selectedTotal);
   const totalCount = receivableCandidates.length;
 
-  const toggleCandidate = useCallback((salesId: string | number) => {
-    const key = String(salesId);
-    setSelectedSalesIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
+  const toggleCandidate = useCallback(
+    (salesId: string | number) => {
+      const key = String(salesId);
+      setSelectedSalesOrder((prev) => {
+        if (prev.includes(key)) return prev.filter((id) => id !== key);
+
+        const candidate = candidateBySalesId.get(key);
+        if (!candidate) return prev;
+
+        const trialItems = [
+          ...prev
+            .map((id) => candidateBySalesId.get(id))
+            .filter((row): row is BankDepositMatchCandidate => Boolean(row))
+            .map((row) => ({ salesId: row.salesId, unpaid: row.unpaid })),
+          { salesId: candidate.salesId, unpaid: candidate.unpaid },
+        ];
+        const trial = buildDepositLinkAllocations(remainingBeforeSelect, trialItems);
+        const added = trial.find((row) => String(row.salesId) === key);
+        if (!added || added.finalAmount <= 0) return prev;
+        return [...prev, key];
+      });
+    },
+    [candidateBySalesId, remainingBeforeSelect],
+  );
+
+  const canSelectCandidate = useCallback(
+    (candidate: BankDepositMatchCandidate) => {
+      const key = String(candidate.salesId);
+      if (selectedSalesIds.has(key)) return true;
+      if (remainingAfterSelect <= 0) return false;
+
+      const trialItems = [
+        ...selectedSalesOrder
+          .map((id) => candidateBySalesId.get(id))
+          .filter((row): row is BankDepositMatchCandidate => Boolean(row))
+          .map((row) => ({ salesId: row.salesId, unpaid: row.unpaid })),
+        { salesId: candidate.salesId, unpaid: candidate.unpaid },
+      ];
+      const trial = buildDepositLinkAllocations(remainingBeforeSelect, trialItems);
+      const added = trial.find((row) => String(row.salesId) === key);
+      return Boolean(added && added.finalAmount > 0);
+    },
+    [
+      candidateBySalesId,
+      remainingAfterSelect,
+      remainingBeforeSelect,
+      selectedSalesIds,
+      selectedSalesOrder,
+    ],
+  );
 
   const applySelection = () => {
     if (!selectedAllocations.length) return;
     onConfirmReceivableBatch(selectedAllocations);
-    setSelectedSalesIds(new Set());
+    setSelectedSalesOrder([]);
   };
 
   return (
@@ -605,6 +657,7 @@ export function BankErpDepositLinkModal({
                     <th className="text-right">{L.paidAmount}</th>
                     <th className="text-right">{L.unpaidAmount}</th>
                     <th className="text-right">{L.selectedAmount}</th>
+                    <th className="text-right">{L.unpaidAfterAmount}</th>
                     <th>{L.status}</th>
                   </tr>
                 </thead>
@@ -616,17 +669,13 @@ export function BankErpDepositLinkModal({
                     const allocation = isSelected
                       ? selectedAllocations.find((row) => String(row.candidate.salesId) === key)
                       : null;
-                    const selectable =
-                      remainingAfterSelect > 0 || isSelected
-                        ? resolveDepositLinkAllocation(
-                            isSelected
-                              ? (remainingBeforeSelect -
-                                  selectedTotal +
-                                  (allocation?.finalAmount || 0))
-                              : remainingAfterSelect,
-                            candidate.unpaid,
-                          ).finalAmount > 0
-                        : false;
+                    const selectable = canSelectCandidate(candidate);
+                    const rowStatus =
+                      allocation && allocation.unpaidAfter > 0
+                        ? "\uC77C\uBD80\uC218\uAE08"
+                        : allocation
+                          ? "\uC644\uB8CC"
+                          : status;
 
                     return (
                       <tr
@@ -664,11 +713,14 @@ export function BankErpDepositLinkModal({
                         <td className="text-right font-semibold tabular-nums text-blue-700">
                           {allocation ? formatKRW(allocation.finalAmount) : "-"}
                         </td>
+                        <td className="text-right font-bold tabular-nums text-red-600">
+                          {allocation ? formatKRW(allocation.unpaidAfter) : "-"}
+                        </td>
                         <td>
                           <span
-                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${RECEIVABLE_STATUS_CLASS[status] || "bg-slate-100 text-slate-700"}`}
+                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${RECEIVABLE_STATUS_CLASS[rowStatus] || "bg-slate-100 text-slate-700"}`}
                           >
-                            {status}
+                            {rowStatus}
                           </span>
                         </td>
                       </tr>
