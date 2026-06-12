@@ -23,7 +23,6 @@ export const TEAM_CHAT_RESET_LIST_EVENT = "erp-team-chat-reset-list";
 export const TEAM_CHAT_OPEN_THREAD_EVENT = "erp-open-team-chat-thread";
 export const TEAM_CHAT_SHARE_CHANNEL = "erp-team-chat-share";
 export const TEAM_CHAT_INCOMING_PROMPT_EVENT = "erp-team-chat-incoming-prompt";
-export const TEAM_CHAT_INCOMING_DIALOG_EVENT = "erp-team-chat-incoming-dialog";
 
 export type TeamChatIncomingPromptDetail = {
   channelId: string;
@@ -215,19 +214,7 @@ export function openTeamChatList() {
   window.dispatchEvent(new CustomEvent(TEAM_CHAT_OPEN_EVENT));
 }
 
-export type TeamChatThreadOpenResult = {
-  listOpened: boolean;
-  threadOpened: boolean;
-  dialogOpened?: boolean;
-};
-
-export function openTeamChatIncomingDialog(channelId: string) {
-  const id = String(channelId || "").trim();
-  if (!id || typeof window === "undefined" || isTeamChatPopupWindow()) return false;
-  clearPendingTeamChatThread();
-  window.dispatchEvent(new CustomEvent(TEAM_CHAT_INCOMING_DIALOG_EVENT, { detail: { channelId: id } }));
-  return true;
-}
+export type TeamChatThreadOpenResult = { listOpened: boolean; threadOpened: boolean };
 
 export function openTeamChatThread(channelId: string): Promise<TeamChatThreadOpenResult> {
   const id = String(channelId || "").trim();
@@ -254,9 +241,7 @@ export function openTeamChatThread(channelId: string): Promise<TeamChatThreadOpe
       return Promise.resolve({ listOpened: false, threadOpened: true });
     }
 
-    const dialogOpened = openTeamChatIncomingDialog(id);
-    if (dialogOpened) clearPendingTeamChatThread();
-    return Promise.resolve({ ...failed, dialogOpened });
+    return Promise.resolve(failed);
   }
 
   const opened = openTeamChatIncomingInline(id);

@@ -18,7 +18,7 @@ type Options = {
   getViewState: () => TeamChatViewState;
 };
 
-/** Open the sender's thread popup when a new message arrives and the recipient is not viewing it. */
+/** Show an in-app banner (and optional desktop notification) for incoming team chat messages. */
 export function useTeamChatIncomingAutoOpen(
   currentUser: Pick<ErpUser, "id" | "role" | "allowedPages"> | null | undefined,
   options: Options,
@@ -64,9 +64,7 @@ export function useTeamChatIncomingAutoOpen(
         });
       }
 
-      void openTeamChatThread(channelId).then(({ listOpened, threadOpened, dialogOpened }) => {
-        if (listOpened || threadOpened || dialogOpened) return;
-
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
         void showErpNotification(sender, {
           body: preview.slice(0, 120),
           tag: `team-chat-${channelId}`,
@@ -76,7 +74,7 @@ export function useTeamChatIncomingAutoOpen(
             void openTeamChatThread(channelId);
           },
         });
-      });
+      }
     },
   });
 }
