@@ -29,6 +29,8 @@ export type OfficeStaffRecord = {
   photoFileId?: string;
   photoFileName?: string;
   photoUploadedAt?: string;
+  /** ERP 로그인 계정 ID — 근태·급여 연동 */
+  erpUserId?: number;
 };
 
 export type OfficeStaffFormState = {
@@ -54,6 +56,7 @@ export type OfficeStaffFormState = {
   emergencyPhone: string;
   memo: string;
   hrNotes: string;
+  erpUserId: string;
 };
 
 export type OfficeStaffHrRecordData = {
@@ -151,6 +154,7 @@ export function createEmptyOfficeStaffForm(): OfficeStaffFormState {
     emergencyPhone: "",
     memo: "",
     hrNotes: "",
+    erpUserId: "",
   };
 }
 
@@ -202,6 +206,7 @@ export function normalizeOfficeStaffRecord(row: unknown): OfficeStaffRecord | nu
     photoFileId: String(source.photoFileId || "").trim(),
     photoFileName: String(source.photoFileName || "").trim(),
     photoUploadedAt: String(source.photoUploadedAt || "").trim(),
+    erpUserId: Number(source.erpUserId) > 0 ? Number(source.erpUserId) : undefined,
   };
 }
 
@@ -229,6 +234,7 @@ export function officeStaffFormFromRecord(row: OfficeStaffRecord): OfficeStaffFo
     emergencyPhone: row.emergencyPhone || "",
     memo: row.memo || "",
     hrNotes: row.hrNotes || "",
+    erpUserId: row.erpUserId ? String(row.erpUserId) : "",
   };
 }
 
@@ -268,6 +274,10 @@ export function officeStaffRecordFromForm(
     photoFileId: existing?.photoFileId || "",
     photoFileName: existing?.photoFileName || "",
     photoUploadedAt: existing?.photoUploadedAt || "",
+    erpUserId: (() => {
+      const parsed = Number.parseInt(formTextField(form.erpUserId), 10);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+    })(),
   };
 }
 

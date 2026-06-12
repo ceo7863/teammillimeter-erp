@@ -3,6 +3,7 @@ import { Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { fetchUsers } from "@/utils/erpApi";
 import {
   OfficeStaffFormModal,
   createEmptyOfficeStaffForm,
@@ -60,6 +61,7 @@ export function OfficeStaffPage({
   const [pendingPhotoFile, setPendingPhotoFile] = useState<File | null>(null);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
+  const [erpUserOptions, setErpUserOptions] = useState<Array<{ id: number; name: string; loginId: string }>>([]);
 
   const officeStaffRef = useRef(officeStaff);
   officeStaffRef.current = officeStaff;
@@ -117,6 +119,27 @@ export function OfficeStaffPage({
     pendingPhotoFile,
     editingStaff,
   ]);
+
+  useEffect(() => {
+    if (!modalOpen) return;
+    let cancelled = false;
+    void fetchUsers()
+      .then((users) => {
+        if (cancelled) return;
+        setErpUserOptions(
+          users
+            .filter((user) => user.isActive !== false)
+            .map((user) => ({ id: user.id, name: user.name, loginId: user.loginId }))
+            .sort((a, b) => a.name.localeCompare(b.name, "ko")),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setErpUserOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [modalOpen]);
 
   const displayedRows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -367,6 +390,7 @@ export function OfficeStaffPage({
         onPhotoSelect={handlePhotoSelect}
         onPhotoDelete={handlePhotoDelete}
         nextEmployeeNoPreview={nextEmployeeNoPreview}
+        erpUserOptions={erpUserOptions}
       />
     </div>
   );

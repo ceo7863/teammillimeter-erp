@@ -46,6 +46,9 @@ const L = {
   emergencyPhone: "비상연락처(전화)",
   memo: "비고",
   hrNotes: "인사 특이사항",
+  erpUserAccount: "ERP 로그인 계정",
+  erpUserAccountHint: "근태·급여 연동용입니다. 미선택 시 이름으로 자동 매칭을 시도합니다.",
+  erpUserAccountNone: "연결 안 함",
 };
 
 type OfficeStaffFormModalProps = {
@@ -63,6 +66,7 @@ type OfficeStaffFormModalProps = {
   onPhotoSelect: (file: File) => void;
   onPhotoDelete?: () => void;
   nextEmployeeNoPreview?: string;
+  erpUserOptions?: Array<{ id: number; name: string; loginId: string }>;
 };
 
 export { createEmptyOfficeStaffForm };
@@ -91,6 +95,7 @@ export const OfficeStaffFormModal = memo(function OfficeStaffFormModal({
   onPhotoSelect,
   onPhotoDelete,
   nextEmployeeNoPreview = "",
+  erpUserOptions = [],
 }: OfficeStaffFormModalProps) {
   useBodyScrollLock(open);
 
@@ -209,6 +214,22 @@ export const OfficeStaffFormModal = memo(function OfficeStaffFormModal({
           <label className="space-y-1 text-sm md:col-span-2 xl:col-span-2">
             <span className="font-semibold text-slate-700">{L.email}</span>
             <Input value={form.email} onChange={(e) => onChange({ email: e.target.value })} />
+          </label>
+          <label className="space-y-1 text-sm md:col-span-2 xl:col-span-2">
+            <span className="font-semibold text-slate-700">{L.erpUserAccount}</span>
+            <select
+              className="erp-input-compact w-full rounded-xl border border-slate-200 px-3 py-2"
+              value={form.erpUserId}
+              onChange={(e) => onChange({ erpUserId: e.target.value })}
+            >
+              <option value="">{L.erpUserAccountNone}</option>
+              {erpUserOptions.map((user) => (
+                <option key={user.id} value={String(user.id)}>
+                  {user.name} ({user.loginId})
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-slate-500">{L.erpUserAccountHint}</p>
           </label>
           <label className="space-y-1 text-sm sm:col-span-2 xl:col-span-4">
             <span className="font-semibold text-slate-700">{L.address}</span>

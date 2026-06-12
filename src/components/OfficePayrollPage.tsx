@@ -3,12 +3,19 @@ import {
   Banknote,
   ChevronLeft,
   ChevronRight,
+  Clock,
   FileSpreadsheet,
   Printer,
   RefreshCw,
   Settings2,
   Users,
 } from "lucide-react";
+import type { AttendanceRecord } from "@/utils/attendance";
+import {
+  applyAttendanceToOfficePayrollSheet,
+  formatAttendanceSummaryLabel,
+  summarizeOfficeStaffAttendance,
+} from "@/utils/officePayrollAttendance";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -50,6 +57,7 @@ type OfficePayrollTab = "monthly" | "profiles" | "settings";
 
 type OfficePayrollPageProps = {
   officeStaff: OfficeStaffRecord[];
+  attendanceRecords: AttendanceRecord[];
   companyProfile?: CompanyProfile;
   settings: OfficePayrollSettings;
   profiles: OfficePayrollProfile[];
@@ -138,18 +146,33 @@ function MoneyLinesEditor({
 
 function PayrollLineModal({
   line,
+  staff,
+  monthKey,
+  attendanceRecords,
   settings,
   readOnly,
   onClose,
   onSave,
 }: {
   line: OfficePayrollLine;
+  staff?: OfficeStaffRecord | null;
+  monthKey: string;
+  attendanceRecords: AttendanceRecord[];
   settings: OfficePayrollSettings;
   readOnly?: boolean;
   onClose: () => void;
   onSave: (line: OfficePayrollLine) => void;
 }) {
   const [draft, setDraft] = useState(line);
+  const liveSummary = useMemo(() => {
+    if (!staff) return null;
+    return summarizeOfficeStaffAttendance({
+      staff,
+      monthKey,
+      attendanceRecords,
+      settings,
+    });
+  }, [staff, monthKey, attendanceRecords, settings]);
 
   const save = () => {
     onSave(recalculateOfficePayrollLine(draft, settings));
@@ -164,6 +187,9 @@ function PayrollLineModal({
             <h2 className="text-lg font-bold text-slate-900">{draft.staffName} 급여 상세</h2>
             <p className="mt-1 text-sm text-slate-500">
               {OFFICE_PAYROLL_PAY_TYPE_LABELS[draft.payType]} · 실지급 {formatPayrollKRW(draft.netPay)}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              근태: {formatAttendanceSummaryLabel(draft.attendanceSummary || liveSummary)}
             </p>
           </div>
           <Button type="button" variant="ghost" onClick={onClose}>
@@ -295,6 +321,7 @@ function PayrollLineModal({
 
 export function OfficePayrollPage({
   officeStaff,
+  attendanceRecords,
   companyProfile,
   settings,
   profiles,
@@ -321,6 +348,10 @@ export function OfficePayrollPage({
   const activeStaff = useMemo(
     () => officeStaff.filter((row) => isOfficeStaffActive(row)),
     [officeStaff],
+  );
+  const staffById = useMemo(
+    () => new Map(activeStaff.map((row) => [normalizeOfficeStaffRecordId(row.id)!, row] as const)),
+    [activeStaff],
   );
 
   const saveSheets = useCallback(
@@ -362,6 +393,24 @@ export function OfficePayrollPage({
     },
     [sheet, monthKey, officeStaff, profiles, settings, sheets, saveSheets],
   );
+
+  const applyAttendance = async () => {
+    if (!sheet || readOnly) return;
+    if (
+      !window.confirm(
+        "근태 기록을 급여표에 반영할까요?\n· 일당: 출근일수 자동 입력\n· 월급: 입·퇴사 일할, 결근 공제, 연장수당(설정 시)",
+      )
+    ) {
+      return;
+    }
+    const lines = applyAttendanceToOfficePayrollSheet({
+      sheet,
+      officeStaff: activeStaff,
+      attendanceRecords,
+      settings,
+    });
+    await updateSheet((current) => ({ ...current, lines }));
+  };
 
   const refreshFromProfiles = async () => {
     if (readOnly) return;
@@ -459,6 +508,10 @@ export function OfficePayrollPage({
                       <RefreshCw size={16} className="mr-2" />
                       프로필 불러오기
                     </Button>
+                    <Button type="button" variant="outline" onClick={() => void applyAttendance()} disabled={busy}>
+                      <Clock size={16} className="mr-2" />
+                      근태 반영
+                    </Button>
                     <Button
                       type="button"
                       onClick={() =>
@@ -534,6 +587,7 @@ export function OfficePayrollPage({
                       <th>성명</th>
                       <th>부서</th>
                       <th>유형</th>
+                      <th>근태</th>
                       <th>기본급/일당</th>
                       <th>일수</th>
                       <th>지급합</th>
@@ -549,6 +603,9 @@ export function OfficePayrollPage({
                         <td>{line.staffName}</td>
                         <td>{line.department || "-"}</td>
                         <td>{OFFICE_PAYROLL_PAY_TYPE_LABELS[line.payType]}</td>
+                        <td className="text-sm text-slate-600">
+                          {formatAttendanceSummaryLabel(line.attendanceSummary)}
+                        </td>
                         <td>
                           {line.payType === "daily_33"
                             ? formatPayrollKRW(line.dailyRate)
@@ -687,6 +744,106 @@ export function OfficePayrollPage({
                 설정 저장
               </Button>
             </div>
+            <div className="border-t pt-4">
+              <h3 className="mb-3 font-bold text-slate-900">근태 연동</h3>
+              <div className="grid gap-4">
+                <label className="space-y-1">
+                  <span className="erp-text-caption font-bold text-slate-500">출근 기준 시각</span>
+                  <Input
+                    lang="ko"
+                    value={settingsDraft.attendanceWorkStartTime}
+                    onChange={(event) =>
+                      setSettingsDraft((prev) => ({ ...prev, attendanceWorkStartTime: event.target.value }))
+                    }
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="erp-text-caption font-bold text-slate-500">지각 허용 (분)</span>
+                  <Input
+                    lang="ko"
+                    inputMode="numeric"
+                    value={String(settingsDraft.attendanceLateGraceMinutes)}
+                    onChange={(event) =>
+                      setSettingsDraft((prev) => ({
+                        ...prev,
+                        attendanceLateGraceMinutes: Math.max(0, roundPayAmount(event.target.value)),
+                      }))
+                    }
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="erp-text-caption font-bold text-slate-500">기준 근무 시간 (분)</span>
+                  <Input
+                    lang="ko"
+                    inputMode="numeric"
+                    value={String(settingsDraft.attendanceStandardMinutes)}
+                    onChange={(event) =>
+                      setSettingsDraft((prev) => ({
+                        ...prev,
+                        attendanceStandardMinutes: Math.max(0, roundPayAmount(event.target.value)),
+                      }))
+                    }
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="erp-text-caption font-bold text-slate-500">연장수당 시급 (0이면 미적용)</span>
+                  <Input
+                    lang="ko"
+                    inputMode="numeric"
+                    value={String(settingsDraft.attendanceOvertimeHourlyRate)}
+                    onChange={(event) =>
+                      setSettingsDraft((prev) => ({
+                        ...prev,
+                        attendanceOvertimeHourlyRate: Math.max(0, roundPayAmount(event.target.value)),
+                      }))
+                    }
+                  />
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={settingsDraft.attendanceAutoFillDailyDays}
+                    onChange={(event) =>
+                      setSettingsDraft((prev) => ({ ...prev, attendanceAutoFillDailyDays: event.target.checked }))
+                    }
+                  />
+                  일당(3.3%) — 출근일수 자동 입력
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={settingsDraft.attendanceMonthlyAbsenceDeduction}
+                    onChange={(event) =>
+                      setSettingsDraft((prev) => ({
+                        ...prev,
+                        attendanceMonthlyAbsenceDeduction: event.target.checked,
+                      }))
+                    }
+                  />
+                  월급 — 결근일 공제
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={settingsDraft.attendanceProRatePartialMonth}
+                    onChange={(event) =>
+                      setSettingsDraft((prev) => ({ ...prev, attendanceProRatePartialMonth: event.target.checked }))
+                    }
+                  />
+                  월급 — 입·퇴사월 일할
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={settingsDraft.attendanceIncludeWeekends}
+                    onChange={(event) =>
+                      setSettingsDraft((prev) => ({ ...prev, attendanceIncludeWeekends: event.target.checked }))
+                    }
+                  />
+                  주말도 근무일로 계산
+                </label>
+              </div>
+            </div>
           </CardContent>
         </Card>
       ) : null}
@@ -694,6 +851,9 @@ export function OfficePayrollPage({
       {editingLine ? (
         <PayrollLineModal
           line={editingLine}
+          staff={staffById.get(editingLine.staffId) || null}
+          monthKey={monthKey}
+          attendanceRecords={attendanceRecords}
           settings={settings}
           readOnly={readOnly}
           onClose={() => setEditingLine(null)}

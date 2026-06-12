@@ -9,6 +9,7 @@ import {
   type OfficePayrollLine,
   type OfficePayrollSheet,
 } from "@/utils/officePayroll";
+import { formatAttendanceSummaryLabel } from "@/utils/officePayrollAttendance";
 import { safeExportFileName } from "@/utils/tableExport";
 
 export function buildOfficePayrollBankTransferRows(sheet: OfficePayrollSheet) {
@@ -49,6 +50,7 @@ export function buildOfficePayrollSummaryTable(sheet: OfficePayrollSheet) {
     "부서",
     "직급",
     "유형",
+    "근태",
     "기본급/일당",
     "일수",
     "지급합",
@@ -65,6 +67,7 @@ export function buildOfficePayrollSummaryTable(sheet: OfficePayrollSheet) {
       line.department || "",
       line.position || "",
       OFFICE_PAYROLL_PAY_TYPE_LABELS[line.payType],
+      formatAttendanceSummaryLabel(line.attendanceSummary),
       line.payType === "daily_33" ? String(line.dailyRate) : String(line.baseSalary),
       line.payType === "daily_33" ? String(line.dailyDays) : "-",
       String(line.grossPay),
@@ -138,6 +141,7 @@ export function buildOfficePayrollPayslipHtml(input: {
     <tr><th>성명</th><td>${escapeHtml(line.staffName)}</td></tr>
     <tr><th>부서 / 직급</th><td>${escapeHtml([line.department, line.position].filter(Boolean).join(" / ") || "-")}</td></tr>
     <tr><th>급여 유형</th><td>${escapeHtml(OFFICE_PAYROLL_PAY_TYPE_LABELS[line.payType])}</td></tr>
+    <tr><th>근태</th><td>${escapeHtml(line.attendanceSummary ? formatAttendanceSummaryLabel(line.attendanceSummary) : "-")}</td></tr>
     <tr><th>은행 / 계좌</th><td>${escapeHtml([line.bank, line.account].filter(Boolean).join(" ") || "-")}</td></tr>
   </table>
   <div class="grid">

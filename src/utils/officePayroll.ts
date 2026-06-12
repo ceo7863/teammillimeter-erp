@@ -3,6 +3,7 @@ import {
   normalizeOfficeStaffRecordId,
   type OfficeStaffRecord,
 } from "@/utils/officeStaff";
+import type { OfficePayrollAttendanceSummary } from "@/utils/officePayrollAttendance";
 
 export type OfficePayrollPayType = "monthly" | "daily_33";
 
@@ -17,6 +18,14 @@ export type OfficePayrollSettings = {
   dailyWithholdingRate: number;
   defaultAllowanceLabels: string[];
   defaultDeductionLabels: string[];
+  attendanceWorkStartTime: string;
+  attendanceLateGraceMinutes: number;
+  attendanceStandardMinutes: number;
+  attendanceIncludeWeekends: boolean;
+  attendanceAutoFillDailyDays: boolean;
+  attendanceMonthlyAbsenceDeduction: boolean;
+  attendanceProRatePartialMonth: boolean;
+  attendanceOvertimeHourlyRate: number;
 };
 
 export type OfficePayrollProfile = {
@@ -49,6 +58,7 @@ export type OfficePayrollLine = {
   account?: string;
   memo?: string;
   excluded?: boolean;
+  attendanceSummary?: OfficePayrollAttendanceSummary;
 };
 
 export type OfficePayrollSheet = {
@@ -70,6 +80,14 @@ export const DEFAULT_OFFICE_PAYROLL_SETTINGS: OfficePayrollSettings = {
   dailyWithholdingRate: 0.033,
   defaultAllowanceLabels: ["식대", "직책수당"],
   defaultDeductionLabels: ["국민연금", "건강보험", "장기요양", "고용보험", "소득세", "지방세"],
+  attendanceWorkStartTime: "09:00",
+  attendanceLateGraceMinutes: 10,
+  attendanceStandardMinutes: 480,
+  attendanceIncludeWeekends: false,
+  attendanceAutoFillDailyDays: true,
+  attendanceMonthlyAbsenceDeduction: true,
+  attendanceProRatePartialMonth: true,
+  attendanceOvertimeHourlyRate: 0,
 };
 
 export const OFFICE_PAYROLL_STATUS_LABELS: Record<OfficePayrollSheetStatus, string> = {
@@ -153,6 +171,29 @@ export function normalizeOfficePayrollSettings(value: unknown): OfficePayrollSet
     defaultDeductionLabels: Array.isArray(source.defaultDeductionLabels)
       ? source.defaultDeductionLabels.map((item) => String(item || "").trim()).filter(Boolean)
       : [...defaults.defaultDeductionLabels],
+    attendanceWorkStartTime: String(source.attendanceWorkStartTime || defaults.attendanceWorkStartTime).trim() || defaults.attendanceWorkStartTime,
+    attendanceLateGraceMinutes: Number.isFinite(Number(source.attendanceLateGraceMinutes))
+      ? Math.max(0, Math.trunc(Number(source.attendanceLateGraceMinutes)))
+      : defaults.attendanceLateGraceMinutes,
+    attendanceStandardMinutes: Number.isFinite(Number(source.attendanceStandardMinutes))
+      ? Math.max(0, Math.trunc(Number(source.attendanceStandardMinutes)))
+      : defaults.attendanceStandardMinutes,
+    attendanceIncludeWeekends: Boolean(source.attendanceIncludeWeekends),
+    attendanceAutoFillDailyDays:
+      source.attendanceAutoFillDailyDays === undefined
+        ? defaults.attendanceAutoFillDailyDays
+        : Boolean(source.attendanceAutoFillDailyDays),
+    attendanceMonthlyAbsenceDeduction:
+      source.attendanceMonthlyAbsenceDeduction === undefined
+        ? defaults.attendanceMonthlyAbsenceDeduction
+        : Boolean(source.attendanceMonthlyAbsenceDeduction),
+    attendanceProRatePartialMonth:
+      source.attendanceProRatePartialMonth === undefined
+        ? defaults.attendanceProRatePartialMonth
+        : Boolean(source.attendanceProRatePartialMonth),
+    attendanceOvertimeHourlyRate: Number.isFinite(Number(source.attendanceOvertimeHourlyRate))
+      ? Math.max(0, roundPayAmount(source.attendanceOvertimeHourlyRate))
+      : defaults.attendanceOvertimeHourlyRate,
   };
 }
 
@@ -208,8 +249,32 @@ export function normalizeOfficePayrollLine(row: unknown): OfficePayrollLine | nu
     account: String(source.account || "").trim(),
     memo: String(source.memo || "").trim(),
     excluded: Boolean(source.excluded),
+    attendanceSummary: normalizeOfficePayrollAttendanceSummary(source.attendanceSummary),
   };
   return recalculateOfficePayrollLine(line);
+}
+
+function normalizeOfficePayrollAttendanceSummary(
+  value: unknown,
+): OfficePayrollAttendanceSummary | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const source = value as Partial<OfficePayrollAttendanceSummary>;
+  const erpUserId = Number(source.erpUserId) || 0;
+  if (erpUserId <= 0) return undefined;
+  return {
+    erpUserId,
+    linkedBy: source.linkedBy === "name" ? "name" : "erpUserId",
+    periodStart: String(source.periodStart || "").slice(0, 10),
+    periodEnd: String(source.periodEnd || "").slice(0, 10),
+    expectedWorkdays: Math.max(0, roundPayAmount(source.expectedWorkdays)),
+    presentDays: Math.max(0, roundPayAmount(source.presentDays)),
+    absentDays: Math.max(0, roundPayAmount(source.absentDays)),
+    lateCount: Math.max(0, roundPayAmount(source.lateCount)),
+    overtimeMinutes: Math.max(0, roundPayAmount(source.overtimeMinutes)),
+    totalWorkMinutes: Math.max(0, roundPayAmount(source.totalWorkMinutes)),
+    partialMonth: Boolean(source.partialMonth),
+    appliedAt: String(source.appliedAt || "").trim() || undefined,
+  };
 }
 
 export function normalizeOfficePayrollSheet(row: unknown): OfficePayrollSheet | null {

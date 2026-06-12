@@ -11665,6 +11665,7 @@ export default function TeammillimeterErpMvp() {
           <PageKeepAlive pageKey="officePayroll" active={shellActive}>
             <OfficePayrollPage
               officeStaff={officeStaff}
+              attendanceRecords={attendanceRecords}
               companyProfile={companyProfile}
               settings={officePayrollSettings}
               profiles={officePayrollProfiles}
