@@ -41,6 +41,7 @@ export const ERP_PAGE_KEYS = [
   "attendance",
   "dailyReport",
   "teamChat",
+  "officePayroll",
 ] as const;
 
 export type ErpPageKey = (typeof ERP_PAGE_KEYS)[number];
@@ -67,6 +68,7 @@ export const ERP_PAGE_DEFS: ErpPageDef[] = [
   { key: "saleComments", label: "전표 코멘트", group: "매출" },
   { key: "receivables", label: "입금/미수금", group: "매출" },
   { key: "workerPayments", label: "시공자 지급", group: "시공" },
+  { key: "officePayroll", label: "급여 관리", group: "회계", adminOnly: true },
   { key: "reports", label: "보고서", group: "보고" },
   { key: "statements", label: "내역서", group: "보고" },
   { key: "basicInfo", label: "기본정보", group: "기준정보" },

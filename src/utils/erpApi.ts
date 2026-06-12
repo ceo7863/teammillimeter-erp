@@ -84,6 +84,9 @@ export type ErpPayload = {
   probationEvalRequests?: import("@/utils/probationEval").ProbationEvalRequest[];
   probationEvalNotifyMeta?: unknown;
   officeStaff?: unknown[];
+  officePayrollSettings?: unknown;
+  officePayrollProfiles?: unknown[];
+  officePayrollSheets?: unknown[];
   version?: number;
   updatedAt?: string | null;
   updatedBy?: string | null;
@@ -304,7 +307,12 @@ export function buildErpDomainChunk(domain: ErpSaveDomain, payload: ErpPayload) 
         workerPayWithVatLearnRules: payload.workerPayWithVatLearnRules || [],
       };
     case "officeStaff":
-      return { officeStaff: payload.officeStaff || [] };
+      return {
+        officeStaff: payload.officeStaff || [],
+        officePayrollSettings: payload.officePayrollSettings,
+        officePayrollProfiles: payload.officePayrollProfiles || [],
+        officePayrollSheets: payload.officePayrollSheets || [],
+      };
     case "bankTransactions":
       return {
         bankTransactions: payload.bankTransactions || [],

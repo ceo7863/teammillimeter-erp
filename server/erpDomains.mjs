@@ -23,7 +23,7 @@ export const ERP_DOMAIN_FIELDS = {
   bankTransactions: ["bankTransactions", "bankTransactionFolders", "bankSyncMeta", "bankLedgerRules"],
   taxInvoices: ["taxInvoices"],
   companyProfile: ["companyProfile"],
-  officeStaff: ["officeStaff"],
+  officeStaff: ["officeStaff", "officePayrollSettings", "officePayrollProfiles", "officePayrollSheets"],
   settings: [
     "auditLogs",
     "loginLogs",
@@ -180,6 +180,16 @@ export function mergeErpDomainForSave(existingData, domain, incomingPartial) {
       return {
         ...existing,
         officeStaff: mergeOfficeStaffForSave(existing.officeStaff || [], incoming.officeStaff || []),
+        officePayrollSettings:
+          incoming.officePayrollSettings && typeof incoming.officePayrollSettings === "object"
+            ? incoming.officePayrollSettings
+            : existing.officePayrollSettings,
+        officePayrollProfiles: Array.isArray(incoming.officePayrollProfiles)
+          ? incoming.officePayrollProfiles
+          : existing.officePayrollProfiles || [],
+        officePayrollSheets: Array.isArray(incoming.officePayrollSheets)
+          ? incoming.officePayrollSheets
+          : existing.officePayrollSheets || [],
       };
     case "settings":
       return {

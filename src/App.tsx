@@ -248,6 +248,15 @@ import { WorkerHrRecordPanel } from "@/components/WorkerHrRecordPanel";
 import { ProbationEvalTemplateEditor } from "@/components/ProbationEvalTemplateEditor";
 import type { ProbationEvalRequest, ProbationEvalTemplate } from "@/utils/probationEval";
 import { normalizeOfficeStaffList, type OfficeStaffRecord } from "@/utils/officeStaff";
+import { OfficePayrollPage } from "@/components/OfficePayrollPage";
+import {
+  normalizeOfficePayrollProfiles,
+  normalizeOfficePayrollSettings,
+  normalizeOfficePayrollSheets,
+  type OfficePayrollProfile,
+  type OfficePayrollSettings,
+  type OfficePayrollSheet,
+} from "@/utils/officePayroll";
 import { ScScheduleAlimtalkPage } from "@/components/ScScheduleAlimtalkPage";
 import { ScCalendarEmbedPage } from "@/components/ScCalendarEmbedPage";
 import { DailyReportPage } from "@/components/DailyReportPage";
@@ -773,6 +782,9 @@ function normalizeBackupPayload(raw) {
       statementFolders: normalizeStatementFolders(raw.statementFolders),
       companyProfile: normalizeCompanyProfile(raw.companyProfile),
       officeStaff: normalizeOfficeStaffList(raw.officeStaff),
+      officePayrollSettings: normalizeOfficePayrollSettings(raw.officePayrollSettings),
+      officePayrollProfiles: normalizeOfficePayrollProfiles(raw.officePayrollProfiles),
+      officePayrollSheets: normalizeOfficePayrollSheets(raw.officePayrollSheets),
     })
   );
 }
@@ -8687,6 +8699,21 @@ export default function TeammillimeterErpMvp() {
   });
   const officeStaffRef = useRef(officeStaff);
   officeStaffRef.current = officeStaff;
+  const [officePayrollSettings, setOfficePayrollSettings] = useState<OfficePayrollSettings>(() =>
+    normalizeOfficePayrollSettings(storedData?.officePayrollSettings),
+  );
+  const [officePayrollProfiles, setOfficePayrollProfiles] = useState<OfficePayrollProfile[]>(() =>
+    normalizeOfficePayrollProfiles(storedData?.officePayrollProfiles),
+  );
+  const [officePayrollSheets, setOfficePayrollSheets] = useState<OfficePayrollSheet[]>(() =>
+    normalizeOfficePayrollSheets(storedData?.officePayrollSheets),
+  );
+  const officePayrollSettingsRef = useRef(officePayrollSettings);
+  const officePayrollProfilesRef = useRef(officePayrollProfiles);
+  const officePayrollSheetsRef = useRef(officePayrollSheets);
+  officePayrollSettingsRef.current = officePayrollSettings;
+  officePayrollProfilesRef.current = officePayrollProfiles;
+  officePayrollSheetsRef.current = officePayrollSheets;
   const workerMonthlyPaymentMemosRef = useRef(workerMonthlyPaymentMemos);
   workerMonthlyPaymentMemosRef.current = workerMonthlyPaymentMemos;
   const WORKER_MONTHLY_EDIT_GUARD_MS = 15000;
@@ -9098,6 +9125,9 @@ export default function TeammillimeterErpMvp() {
     setProbationEvalRequests(normalizeProbationEvalRequests(data.probationEvalRequests));
     if (!preserveLocalEdits) {
       setOfficeStaff(normalizeOfficeStaffList(data.officeStaff));
+      setOfficePayrollSettings(normalizeOfficePayrollSettings(data.officePayrollSettings));
+      setOfficePayrollProfiles(normalizeOfficePayrollProfiles(data.officePayrollProfiles));
+      setOfficePayrollSheets(normalizeOfficePayrollSheets(data.officePayrollSheets));
     }
     publishErpVersion(data.version ?? 0);
     bankTransactionsDirtyRef.current = false;
@@ -9310,6 +9340,9 @@ export default function TeammillimeterErpMvp() {
       probationEvalTemplates,
       probationEvalRequests,
       officeStaff: officeStaffRef.current,
+      officePayrollSettings: officePayrollSettingsRef.current,
+      officePayrollProfiles: officePayrollProfilesRef.current,
+      officePayrollSheets: officePayrollSheetsRef.current,
       version: erpVersionRef.current,
     };
   }
@@ -9357,6 +9390,9 @@ export default function TeammillimeterErpMvp() {
       probationEvalTemplates,
       probationEvalRequests,
       officeStaff,
+      officePayrollSettings,
+      officePayrollProfiles,
+      officePayrollSheets,
     ],
   );
 
@@ -9575,6 +9611,14 @@ export default function TeammillimeterErpMvp() {
       if (normalizedPatch && Array.isArray(normalizedPatch.officeStaff)) {
         forceDomains.push("officeStaff");
       }
+      if (
+        normalizedPatch &&
+        (normalizedPatch.officePayrollSettings ||
+          normalizedPatch.officePayrollProfiles ||
+          normalizedPatch.officePayrollSheets)
+      ) {
+        forceDomains.push("officeStaff");
+      }
       if (saveDebounceTimerRef.current) {
         window.clearTimeout(saveDebounceTimerRef.current);
         saveDebounceTimerRef.current = null;
@@ -9621,6 +9665,21 @@ export default function TeammillimeterErpMvp() {
             const nextOfficeStaff = normalizeOfficeStaffList(normalizedPatch.officeStaff);
             officeStaffRef.current = nextOfficeStaff;
             setOfficeStaff(nextOfficeStaff);
+          }
+          if (normalizedPatch.officePayrollSettings) {
+            const nextSettings = normalizeOfficePayrollSettings(normalizedPatch.officePayrollSettings);
+            officePayrollSettingsRef.current = nextSettings;
+            setOfficePayrollSettings(nextSettings);
+          }
+          if (normalizedPatch.officePayrollProfiles) {
+            const nextProfiles = normalizeOfficePayrollProfiles(normalizedPatch.officePayrollProfiles);
+            officePayrollProfilesRef.current = nextProfiles;
+            setOfficePayrollProfiles(nextProfiles);
+          }
+          if (normalizedPatch.officePayrollSheets) {
+            const nextSheets = normalizeOfficePayrollSheets(normalizedPatch.officePayrollSheets);
+            officePayrollSheetsRef.current = nextSheets;
+            setOfficePayrollSheets(nextSheets);
           }
         }
         return saved;
@@ -9770,6 +9829,61 @@ export default function TeammillimeterErpMvp() {
       } finally {
         skipSaveRef.current = false;
         if (!options?.flushNow) pendingLocalEditsRef.current = false;
+      }
+      return saved;
+    },
+    [apiMode, currentUser, dataReady, flushErpSave],
+  );
+
+  const persistOfficePayrollImmediate = useCallback(
+    async (patch: {
+      settings?: OfficePayrollSettings;
+      profiles?: OfficePayrollProfile[];
+      sheets?: OfficePayrollSheet[];
+    }) => {
+      pendingLocalEditsRef.current = true;
+      skipSaveRef.current = true;
+      if (saveDebounceTimerRef.current) {
+        window.clearTimeout(saveDebounceTimerRef.current);
+        saveDebounceTimerRef.current = null;
+      }
+
+      const nextSettings = patch.settings
+        ? normalizeOfficePayrollSettings(patch.settings)
+        : officePayrollSettingsRef.current;
+      const nextProfiles = patch.profiles
+        ? normalizeOfficePayrollProfiles(patch.profiles)
+        : officePayrollProfilesRef.current;
+      const nextSheets = patch.sheets
+        ? normalizeOfficePayrollSheets(patch.sheets)
+        : officePayrollSheetsRef.current;
+
+      officePayrollSettingsRef.current = nextSettings;
+      officePayrollProfilesRef.current = nextProfiles;
+      officePayrollSheetsRef.current = nextSheets;
+      setOfficePayrollSettings(nextSettings);
+      setOfficePayrollProfiles(nextProfiles);
+      setOfficePayrollSheets(nextSheets);
+
+      if (!apiMode || !currentUser || !dataReady) {
+        skipSaveRef.current = false;
+        return true;
+      }
+
+      let saved = true;
+      try {
+        saved =
+          (await flushErpSave({
+            officePayrollSettings: nextSettings,
+            officePayrollProfiles: nextProfiles,
+            officePayrollSheets: nextSheets,
+          })) !== false;
+        if (!saved) {
+          window.alert("급여 저장에 실패했습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.");
+        }
+      } finally {
+        skipSaveRef.current = false;
+        pendingLocalEditsRef.current = false;
       }
       return saved;
     },
@@ -11547,6 +11661,18 @@ export default function TeammillimeterErpMvp() {
             onInitialWorkerConsumed={() => setPendingWorkerPaymentsWorker(null)}
           />
         </PageKeepAlive>
+        {canUserAccessPage(currentUser, "officePayroll") ? (
+          <PageKeepAlive pageKey="officePayroll" active={shellActive}>
+            <OfficePayrollPage
+              officeStaff={officeStaff}
+              companyProfile={companyProfile}
+              settings={officePayrollSettings}
+              profiles={officePayrollProfiles}
+              sheets={officePayrollSheets}
+              onPersist={persistOfficePayrollImmediate}
+            />
+          </PageKeepAlive>
+        ) : null}
         <PageKeepAlive pageKey="accounting" active={shellActive}>
           <BankSyncMetaProvider erpVersion={erpVersion} bankListRefreshAt={bankListRefreshAt}>
             <AccountingHubPage
