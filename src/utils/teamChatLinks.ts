@@ -51,6 +51,22 @@ function splitTeamChatPayloadId(id: string, parts = 3) {
   return segments;
 }
 
+function parseBankTxLinkMeta(link: Pick<TeamChatLink, "id" | "label">) {
+  const id = String(link.id || "").trim();
+  const parts = String(link.label || "")
+    .split("\u00B7")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const dateRaw = parts[0] || "";
+  const txDate = /^\d{4}-\d{2}-\d{2}/.exec(dateRaw)?.[0] || "";
+  return {
+    id,
+    txDate,
+    counterparty: parts[1] || "",
+    amount: parts[2] || "",
+  };
+}
+
 export function teamChatLinkToAction(link: TeamChatLink): ErpChatAction | null {
   const label = String(link.label || "").trim();
   const id = String(link.id || "").trim();
@@ -68,14 +84,29 @@ export function teamChatLinkToAction(link: TeamChatLink): ErpChatAction | null {
     case "sale":
     case "sale_comment":
       return { type: "open_sale_voucher", saleId: id || label };
-    case "bank_tx":
+    case "bank_tx": {
+      const meta = parseBankTxLinkMeta(link);
+      if (meta.id) {
+        return {
+          type: "navigate_erp",
+          page: "accounting",
+          accountingTab: "bank",
+          bankTransactionId: meta.id,
+          startDate: meta.txDate || undefined,
+          endDate: meta.txDate || undefined,
+          label: label || meta.id,
+        };
+      }
       return {
         type: "navigate_erp",
         page: "accounting",
         accountingTab: "bank",
-        bankSearchQuery: label || id,
+        bankSearchQuery: meta.counterparty || meta.amount || label || id,
+        startDate: meta.txDate || undefined,
+        endDate: meta.txDate || undefined,
         label: label || id,
       };
+    }
     case "worker":
       return {
         type: "navigate_erp",

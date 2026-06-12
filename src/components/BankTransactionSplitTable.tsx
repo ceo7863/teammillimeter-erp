@@ -354,7 +354,7 @@ const SplitRow = memo(function SplitRow({
       : null;
 
   return (
-    <tr className={`erp-bank-wehago-row border-t ${rowClass}`}>
+    <tr className={`erp-bank-wehago-row border-t ${rowClass}`} data-bank-tx-id={model.id}>
       <td className="erp-bank-wehago-cell erp-bank-wehago-cell--datetime" title={model.dateTitle}>
         {model.dateLabel}
       </td>

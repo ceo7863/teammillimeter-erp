@@ -22,6 +22,8 @@ type AccountingHubPageProps = {
   onPendingBankColumnPresetConsumed?: () => void;
   pendingBankSearchQuery?: string | null;
   onPendingBankSearchQueryConsumed?: () => void;
+  pendingBankTransactionId?: string | null;
+  onPendingBankTransactionIdConsumed?: () => void;
   bank: Omit<
     ComponentProps<typeof BankTransactionsPage>,
     | "isPageActive"
@@ -35,6 +37,8 @@ type AccountingHubPageProps = {
     | "onPendingBankColumnPresetConsumed"
     | "pendingBankSearchQuery"
     | "onPendingBankSearchQueryConsumed"
+    | "pendingBankTransactionId"
+    | "onPendingBankTransactionIdConsumed"
   >;
   ledger: ComponentProps<typeof LedgerViewerPage>;
   tax: ComponentProps<typeof TaxInvoicePage>;
@@ -60,6 +64,8 @@ function AccountingHubPageComponent({
   onPendingBankColumnPresetConsumed,
   pendingBankSearchQuery = null,
   onPendingBankSearchQueryConsumed,
+  pendingBankTransactionId = null,
+  onPendingBankTransactionIdConsumed,
   bank,
   ledger,
   tax,
@@ -141,6 +147,8 @@ function AccountingHubPageComponent({
             onPendingBankColumnPresetConsumed={onPendingBankColumnPresetConsumed}
             pendingBankSearchQuery={pendingBankSearchQuery}
             onPendingBankSearchQueryConsumed={onPendingBankSearchQueryConsumed}
+            pendingBankTransactionId={pendingBankTransactionId}
+            onPendingBankTransactionIdConsumed={onPendingBankTransactionIdConsumed}
             isPageActive={isHubActive && activeTab === "bank"}
             onNavigateToCompanyLedger={navigateToLedger}
             onNavigateToClassify={navigateToClassify}

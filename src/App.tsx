@@ -8884,6 +8884,7 @@ export default function TeammillimeterErpMvp() {
   } | null>(null);
   const [pendingBankColumnPreset, setPendingBankColumnPreset] = useState<"account_only" | null>(null);
   const [pendingBankSearchQuery, setPendingBankSearchQuery] = useState<string | null>(null);
+  const [pendingBankTransactionId, setPendingBankTransactionId] = useState<string | null>(null);
   const [pendingPdfArchiveNav, setPendingPdfArchiveNav] = useState<{
     query?: string;
     startDate?: string;
@@ -10450,6 +10451,9 @@ export default function TeammillimeterErpMvp() {
         if (action.accountingTab === "bank" && action.bankColumnPreset === "account_only") {
           setPendingBankColumnPreset("account_only");
         }
+        if (action.accountingTab === "bank" && action.bankTransactionId) {
+          setPendingBankTransactionId(String(action.bankTransactionId));
+        }
         if (action.accountingTab === "bank" && action.bankSearchQuery) {
           setPendingBankSearchQuery(action.bankSearchQuery);
         }
@@ -11559,6 +11563,8 @@ export default function TeammillimeterErpMvp() {
               onPendingBankColumnPresetConsumed={() => setPendingBankColumnPreset(null)}
               pendingBankSearchQuery={pendingBankSearchQuery}
               onPendingBankSearchQueryConsumed={() => setPendingBankSearchQuery(null)}
+              pendingBankTransactionId={pendingBankTransactionId}
+              onPendingBankTransactionIdConsumed={() => setPendingBankTransactionId(null)}
               bank={accountingBankHubProps}
             ledger={{
               bankTransactions,

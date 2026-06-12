@@ -92,7 +92,7 @@ export function clearPendingTeamChatThread() {
   }
 }
 
-export function stashTeamChatShare(payload: TeamChatSharePayload) {
+export function stashTeamChatShare(payload: TeamChatSharePayload, options?: { broadcast?: boolean }) {
   if (typeof window === "undefined") return;
   try {
     const raw = JSON.stringify(payload);
@@ -101,6 +101,7 @@ export function stashTeamChatShare(payload: TeamChatSharePayload) {
   } catch {
     // ignore
   }
+  if (options?.broadcast === false) return;
   try {
     new BroadcastChannel(TEAM_CHAT_SHARE_CHANNEL).postMessage({ type: "share" });
   } catch {

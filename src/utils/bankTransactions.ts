@@ -255,6 +255,7 @@ export function filterBankTransactions(
     if (!search) return true;
 
     const haystack = [
+      row.id,
       row.description,
       row.counterpartyName || "",
       row.counterpartyBank || "",

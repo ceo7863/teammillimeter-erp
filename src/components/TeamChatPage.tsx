@@ -644,7 +644,6 @@ export const TeamChatPage = memo(function TeamChatPage({
     if (shareAppliedRef.current) return;
     const payload = peekTeamChatShare();
     if (!payload) return;
-    shareAppliedRef.current = true;
 
     const resolveShareChannelId = () => {
       if (payload.channelId && channelRows.some((row) => row.id === payload.channelId)) {
@@ -654,14 +653,22 @@ export const TeamChatPage = memo(function TeamChatPage({
     };
 
     if (openThreadInPopup) {
+      shareAppliedRef.current = true;
+      const consumed = consumeTeamChatShare();
+      if (!consumed) return;
       const targetId = resolveShareChannelId();
-      if (!targetId) return;
-      stashTeamChatShare({ ...payload, channelId: targetId });
+      if (!targetId) {
+        stashTeamChatShare(consumed, { broadcast: false });
+        shareAppliedRef.current = false;
+        return;
+      }
+      stashTeamChatShare({ ...consumed, channelId: targetId }, { broadcast: false });
       setHighlightedChannelId(targetId);
       openTeamChatThreadPopup(targetId, { raise: true });
       return;
     }
 
+    shareAppliedRef.current = true;
     consumeTeamChatShare();
     if (payload.body) setDraft(payload.body);
     if (payload.link) setPendingLink(payload.link);
@@ -674,7 +681,14 @@ export const TeamChatPage = memo(function TeamChatPage({
     }
   }, [openThreadInPopup]);
 
+  const dismissPendingLink = useCallback(() => {
+    consumeTeamChatShare();
+    shareAppliedRef.current = true;
+    setPendingLink(null);
+  }, []);
+
   const handleIncomingShare = useCallback(() => {
+    if (!peekTeamChatShare()) return;
     shareAppliedRef.current = false;
     void refreshChannels().then((rows) => applyPendingShare(rows));
   }, [applyPendingShare, refreshChannels]);
@@ -858,7 +872,9 @@ export const TeamChatPage = memo(function TeamChatPage({
           });
           return;
         }
-        handleIncomingShare();
+        if (event.data?.type === "share") {
+          handleIncomingShare();
+        }
       };
     } catch {
       // ignore
@@ -961,7 +977,7 @@ export const TeamChatPage = memo(function TeamChatPage({
     if (openThreadInPopup) {
       const payload = peekTeamChatShare();
       if (payload) {
-        stashTeamChatShare({ ...payload, channelId });
+        stashTeamChatShare({ ...payload, channelId }, { broadcast: false });
       }
       setHighlightedChannelId(channelId);
       openTeamChatThreadPopup(channelId, { raise: true });
@@ -1715,7 +1731,7 @@ export const TeamChatPage = memo(function TeamChatPage({
             {pendingLink ? (
               <div className="erp-team-chat-composer__pending-link px-4 pb-2">
                 <MessageLinkCard link={pendingLink} onOpen={handleOpenLink} />
-                <button type="button" className="erp-team-chat-composer__remove-link" onClick={() => setPendingLink(null)}>
+                <button type="button" className="erp-team-chat-composer__remove-link" onClick={dismissPendingLink}>
                   {L.removeLink}
                 </button>
               </div>

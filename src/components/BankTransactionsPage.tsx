@@ -987,6 +987,8 @@ function BankTransactionsPageComponent({
   onPendingBankColumnPresetConsumed,
   pendingBankSearchQuery = null,
   onPendingBankSearchQueryConsumed,
+  pendingBankTransactionId = null,
+  onPendingBankTransactionIdConsumed,
 }: {
   bankTransactions: BankTransaction[];
   setBankTransactions: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
@@ -1059,6 +1061,8 @@ function BankTransactionsPageComponent({
   onPendingBankColumnPresetConsumed?: () => void;
   pendingBankSearchQuery?: string | null;
   onPendingBankSearchQueryConsumed?: () => void;
+  pendingBankTransactionId?: string | null;
+  onPendingBankTransactionIdConsumed?: () => void;
 }) {
   const { erpVersion } = useBankSyncMeta();
   const [pageView, setPageView] = useState<PageView>("list");
@@ -1268,6 +1272,46 @@ function BankTransactionsPageComponent({
     );
     return syncLedgerLinkedBankTransactionFolders(synced, folders, ledgerRegistrationContext).transactions;
   }, [bankTransactions, bankTransactionFolders, companyExpenses, fixedExpensePayments, ledgerRegistrationContext, isPageActive]);
+
+  useEffect(() => {
+    if (!pendingBankTransactionId || !isPageActive) return;
+    const txId = String(pendingBankTransactionId).trim();
+    if (!txId) {
+      onPendingBankTransactionIdConsumed?.();
+      return;
+    }
+
+    const tx = ledgerSyncedTransactions.find((row) => String(row.id) === txId);
+    if (!tx) {
+      setSearchQuery(txId);
+      setPeriodKey("all");
+      setDateFilter({ startDate: "", endDate: "" });
+      setFilterResetKey((key) => key + 1);
+      onPendingBankTransactionIdConsumed?.();
+      return;
+    }
+
+    const txDate = String(tx.transactionAt || "").slice(0, 10);
+    const search = String(tx.counterpartyName || tx.description || "").trim();
+    setSearchQuery(search);
+    setPeriodKey("custom");
+    setDateFilter({ startDate: txDate, endDate: txDate });
+    setFilterResetKey((key) => key + 1);
+    onPendingBankTransactionIdConsumed?.();
+
+    window.requestAnimationFrame(() => {
+      window.setTimeout(() => {
+        document
+          .querySelector(`[data-bank-tx-id="${CSS.escape(txId)}"]`)
+          ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      }, 120);
+    });
+  }, [
+    isPageActive,
+    ledgerSyncedTransactions,
+    onPendingBankTransactionIdConsumed,
+    pendingBankTransactionId,
+  ]);
 
   const accountPickerFlatItemsByFlow = useMemo(
     () => ({

@@ -79,6 +79,7 @@ export type ErpChatAction =
       endDate?: string;
       bankColumnPreset?: "account_only";
       bankSearchQuery?: string;
+      bankTransactionId?: string;
       taxSearchQuery?: string;
       taxBankLinkFilter?: "unlinked" | "linked";
     }
