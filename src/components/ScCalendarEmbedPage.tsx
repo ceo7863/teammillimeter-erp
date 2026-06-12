@@ -3,6 +3,7 @@ import { ExternalLink, Menu, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTeamChatMobileLayout } from "@/hooks/useTeamChatMobileLayout";
 import { fetchScEmbedSession } from "@/utils/scEmbed";
+import { forwardWheelIntoIframe } from "@/utils/iframeWheelForward";
 
 const L = {
   title: "SC \uCE98\uB9B0\uB354",
@@ -39,6 +40,20 @@ export function ScCalendarEmbedPage({ onOpenAppMenu }: ScCalendarEmbedPageProps)
       iframe.removeEventListener("mouseenter", focusIframe);
       iframe.removeEventListener("load", focusIframe);
     };
+  }, [embedUrl]);
+
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe || !embedUrl) return;
+
+    const onWheel = (event: WheelEvent) => {
+      const target = event.target;
+      if (target !== iframe && !(target instanceof Node && iframe.contains(target))) return;
+      forwardWheelIntoIframe(iframe, event);
+    };
+
+    window.addEventListener("wheel", onWheel, { capture: true, passive: false });
+    return () => window.removeEventListener("wheel", onWheel, { capture: true });
   }, [embedUrl]);
 
   const loadSession = useCallback(async () => {
