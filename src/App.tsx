@@ -164,7 +164,7 @@ import { migrateUserAdminPageKey, resolveUserAdminTabAccess, storeUserAdminTab }
 import { migrateStatementPageKey, storeStatementTab } from "@/utils/statementHub";
 import { normalizeStatementGenerationLogs } from "@/utils/statementGenerationLogs";
 import { normalizeStatementFolders } from "@/utils/statementFolders";
-import { normalizeAttendanceRecords } from "@/utils/attendance";
+import { dedupeAttendanceRecords, mergeAttendanceRecords, normalizeAttendanceRecords, type AttendanceRecord } from "@/utils/attendance";
 import { createClientCalendarStatementDraft, createUnpaidClientStatementDraft, stashStatementDraft, type StatementDraft } from "@/utils/statementDraft";
 import {
   buildCalendarPaymentPreview,
@@ -8692,6 +8692,8 @@ export default function TeammillimeterErpMvp() {
     if (apiMode && sessionOnMount) return [];
     return normalizeAttendanceRecords(storedData?.attendanceRecords);
   });
+  const attendanceRecordsRef = useRef(attendanceRecords);
+  attendanceRecordsRef.current = attendanceRecords;
   const [fixedExpenses, setFixedExpenses] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return Array.isArray(storedData?.fixedExpenses) ? storedData.fixedExpenses : [];
@@ -8939,7 +8941,12 @@ export default function TeammillimeterErpMvp() {
     const nextCompanyExpenses = Array.isArray(data.companyExpenses) ? data.companyExpenses : [];
     const nextFixedExpensePayments = Array.isArray(data.fixedExpensePayments) ? data.fixedExpensePayments : [];
     setCompanyExpenses(nextCompanyExpenses);
-    setAttendanceRecords(normalizeAttendanceRecords(data.attendanceRecords));
+    const incomingAttendance = normalizeAttendanceRecords(data.attendanceRecords);
+    if (!preserveLocalEdits) {
+      setAttendanceRecords(dedupeAttendanceRecords(incomingAttendance));
+    } else {
+      setAttendanceRecords(mergeAttendanceRecords(attendanceRecordsRef.current, incomingAttendance));
+    }
     setFixedExpenses(Array.isArray(data.fixedExpenses) ? data.fixedExpenses : []);
     setFixedExpensePayments(nextFixedExpensePayments);
     setBankLedgerRules(normalizeBankLedgerMatchRules(data.bankLedgerRules));
@@ -9508,6 +9515,9 @@ export default function TeammillimeterErpMvp() {
       if (normalizedPatch && Array.isArray(normalizedPatch.auditLogs)) {
         forceDomains.push("settings");
       }
+      if (normalizedPatch && Array.isArray(normalizedPatch.attendanceRecords)) {
+        forceDomains.push("settings");
+      }
       if (normalizedPatch && normalizedPatch.saleAiRules) {
         forceDomains.push("settings");
       }
@@ -9631,6 +9641,32 @@ export default function TeammillimeterErpMvp() {
       return saved;
     },
     [apiMode, currentUser, dataReady, auditLogs, flushErpSave],
+  );
+
+  const persistAttendanceImmediate = useCallback(
+    async (records: AttendanceRecord[]) => {
+      const nextRecords = dedupeAttendanceRecords(records);
+      pendingLocalEditsRef.current = true;
+      skipSaveRef.current = true;
+      if (saveDebounceTimerRef.current) {
+        window.clearTimeout(saveDebounceTimerRef.current);
+        saveDebounceTimerRef.current = null;
+      }
+      attendanceRecordsRef.current = nextRecords;
+      setAttendanceRecords(nextRecords);
+      if (!apiMode || !currentUser || !dataReady) return true;
+      let saved = true;
+      try {
+        saved = (await flushErpSave({ attendanceRecords: nextRecords })) !== false;
+        if (!saved) {
+          window.alert("출근 기록 저장에 실패했습니다. 새로고침 후 다시 시도해 주세요.");
+        }
+      } finally {
+        skipSaveRef.current = false;
+      }
+      return saved;
+    },
+    [apiMode, currentUser, dataReady, flushErpSave],
   );
 
   const persistCompanyProfileImmediate = useCallback(
@@ -11290,6 +11326,7 @@ export default function TeammillimeterErpMvp() {
             attendanceRecords={attendanceRecords}
             setAttendanceRecords={setAttendanceRecords}
             currentUser={currentUser}
+            onPersistAttendance={persistAttendanceImmediate}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="salesInput" active={shellActive}>

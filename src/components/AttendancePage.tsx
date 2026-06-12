@@ -44,6 +44,7 @@ type AttendancePageProps = {
   attendanceRecords: AttendanceRecord[];
   setAttendanceRecords: React.Dispatch<React.SetStateAction<AttendanceRecord[]>>;
   currentUser?: ErpUser | null;
+  onPersistAttendance?: (records: AttendanceRecord[]) => void | Promise<void | boolean>;
 };
 
 type AttendanceStatusKind = "absent" | "working" | "done";
@@ -538,6 +539,7 @@ export function AttendancePage({
   attendanceRecords,
   setAttendanceRecords,
   currentUser,
+  onPersistAttendance,
 }: AttendancePageProps) {
   const { recordAudit } = useAudit();
   const [feedback, setFeedback] = useState("");
@@ -670,6 +672,7 @@ export function AttendancePage({
       user: currentUser,
     });
     setFeedback(`\uCD9C\uADFC \uC644\uB8CC (${formatAttendanceTime(result.record.checkInAt)})`);
+    void onPersistAttendance?.(result.records);
   };
 
   const handleCheckOut = () => {
@@ -693,6 +696,7 @@ export function AttendancePage({
       user: currentUser,
     });
     setFeedback(`\uD1F4\uADFC \uC644\uB8CC (${formatAttendanceTime(result.record.checkOutAt)})`);
+    void onPersistAttendance?.(result.records);
   };
 
   const openAdminEditFromRecord = (record: AttendanceRecord) => {
@@ -770,6 +774,7 @@ export function AttendancePage({
     setAdminEdit(null);
     setAdminEditError("");
     setFeedback(L.adminSaved);
+    void onPersistAttendance?.(result.records);
   };
 
   const handleAdminEdit = isAdmin ? openAdminEditFromRecord : undefined;

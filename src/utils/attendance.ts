@@ -32,7 +32,45 @@ export function findTodayAttendance(
   userId: number,
   date: string = todayAttendanceDate(),
 ): AttendanceRecord | undefined {
-  return records.find((record) => record.userId === userId && record.date === date);
+  const matches = records.filter((record) => record.userId === userId && record.date === date);
+  if (!matches.length) return undefined;
+  if (matches.length === 1) return matches[0];
+  return pickPreferredAttendanceRecord(...matches);
+}
+
+function attendanceRecordKey(record: Pick<AttendanceRecord, "userId" | "date">) {
+  return `${record.userId}:${record.date}`;
+}
+
+function pickPreferredAttendanceRecord(a: AttendanceRecord, b: AttendanceRecord) {
+  if (a.checkInAt && !b.checkInAt) return a;
+  if (!a.checkInAt && b.checkInAt) return b;
+  const aUpdated = String(a.updatedAt || a.createdAt || "");
+  const bUpdated = String(b.updatedAt || b.createdAt || "");
+  return bUpdated >= aUpdated ? b : a;
+}
+
+export function dedupeAttendanceRecords(records: AttendanceRecord[]) {
+  const map = new Map<string, AttendanceRecord>();
+  for (const row of normalizeAttendanceRecords(records)) {
+    const key = attendanceRecordKey(row);
+    const prev = map.get(key);
+    map.set(key, prev ? pickPreferredAttendanceRecord(prev, row) : row);
+  }
+  return [...map.values()];
+}
+
+export function mergeAttendanceRecords(local: AttendanceRecord[], incoming: AttendanceRecord[]) {
+  const map = new Map<string, AttendanceRecord>();
+  for (const row of dedupeAttendanceRecords(incoming)) {
+    map.set(attendanceRecordKey(row), row);
+  }
+  for (const row of dedupeAttendanceRecords(local)) {
+    const key = attendanceRecordKey(row);
+    const prev = map.get(key);
+    map.set(key, prev ? pickPreferredAttendanceRecord(row, prev) : row);
+  }
+  return [...map.values()];
 }
 
 export function canCheckIn(record: AttendanceRecord | undefined) {
@@ -200,7 +238,7 @@ export function saveAdminAttendanceRecord(
         updatedAt: now,
       };
 
-  return { ok: true, records: upsertRecord(records, record), record };
+  return { ok: true, records: dedupeAttendanceRecords(upsertRecord(records, record)), record };
 }
 
 export type AttendanceClockResult =
@@ -230,7 +268,7 @@ export function checkInAttendance(
         updatedAt: now,
       };
 
-  return { ok: true, records: upsertRecord(records, record), record };
+  return { ok: true, records: dedupeAttendanceRecords(upsertRecord(records, record)), record };
 }
 
 export function checkOutAttendance(
@@ -251,5 +289,5 @@ export function checkOutAttendance(
     updatedAt: now,
   };
 
-  return { ok: true, records: upsertRecord(records, record), record };
+  return { ok: true, records: dedupeAttendanceRecords(upsertRecord(records, record)), record };
 }
