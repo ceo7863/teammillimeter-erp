@@ -52,7 +52,7 @@ export function TeamChatStandalonePage({ route }: { route: TeamChatStandaloneRou
 
   useEffect(() => {
     const saveBounds = () => {
-      if (isThreadWindow) captureTeamChatThreadPopupBounds();
+      if (isThreadWindow) captureTeamChatThreadPopupBounds(route.channelId);
       else captureTeamChatListPopupBounds();
     };
     window.addEventListener("resize", saveBounds);

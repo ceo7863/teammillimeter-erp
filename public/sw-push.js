@@ -38,7 +38,12 @@ self.addEventListener("notificationclick", (event) => {
   const channelId = String(data.channelId || "").trim();
   const openTeamChatThread = data.action === "openTeamChatThread" && channelId;
   const openTeamChat = data.action === "openTeamChat" || tag === "erp-team-chat-unread";
-  const targetUrl = String(data.url || (openTeamChat || openTeamChatThread ? "/" : "/messenger"));
+  const threadUrl = channelId
+    ? `/messenger/thread?channel=${encodeURIComponent(channelId)}`
+    : "/messenger";
+  const targetUrl = String(
+    data.url || (openTeamChatThread ? threadUrl : openTeamChat ? "/" : "/messenger"),
+  );
 
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
@@ -60,7 +65,13 @@ self.addEventListener("notificationclick", (event) => {
         }
       }
       if (self.clients.openWindow) {
-        return self.clients.openWindow(targetUrl);
+        return self.clients.openWindow(
+          openTeamChatThread && channelId
+            ? `${self.location.origin}${threadUrl}`
+            : targetUrl.startsWith("http")
+              ? targetUrl
+              : `${self.location.origin}${targetUrl}`,
+        );
       }
       return undefined;
     }),

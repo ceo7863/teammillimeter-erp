@@ -1,9 +1,8 @@
 import { buildTeamChatThreadPath, TEAM_CHAT_STANDALONE_PATH } from "@/utils/teamChatRoute";
 
 const LIST_POPUP_NAME = "teammillimeter-team-chat";
-const THREAD_POPUP_NAME = "teammillimeter-team-chat-thread";
 const LIST_POPUP_POSITION_KEY = "teammillimeter-erp-team-chat-list-popup-bounds";
-const THREAD_POPUP_POSITION_KEY = "teammillimeter-erp-team-chat-thread-popup-bounds";
+const THREAD_POPUP_BOUNDS_PREFIX = "teammillimeter-erp-team-chat-thread-popup-bounds";
 const TEAM_CHAT_MINIMIZED_KEY = "teammillimeter-erp-team-chat-minimized";
 const POPUP_CHROME = "menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=no";
 const MINIMIZED_POPUP_SCREEN_POS = { left: 32000, top: 32000 };
@@ -20,6 +19,8 @@ const THREAD_POPUP_DEFAULT_SIZE = { width: 420, height: 760 };
 
 let listPopupTracker: number | null = null;
 let cachedListPopup: Window | null = null;
+const threadPopupCache = new Map<string, Window>();
+const threadPopupTrackers = new Map<string, number>();
 
 function rememberListPopup(popup: Window | null) {
   if (isTeamChatPopupActuallyOpen(popup)) {
@@ -57,12 +58,34 @@ function defaultListPopupBounds(): PopupBounds {
   });
 }
 
-function defaultThreadPopupBounds(): PopupBounds {
+function threadPopupWindowName(channelId: string) {
+  const safe = String(channelId).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
+  return `teammillimeter-team-chat-thread-${safe || "unknown"}`;
+}
+
+function threadPopupBoundsKey(channelId: string) {
+  return `${THREAD_POPUP_BOUNDS_PREFIX}:${channelId}`;
+}
+
+function countOpenThreadPopups(excludeChannelId?: string) {
+  let count = 0;
+  for (const [id, popup] of threadPopupCache) {
+    if (id === excludeChannelId) continue;
+    if (isTeamChatPopupActuallyOpen(popup)) count += 1;
+    else threadPopupCache.delete(id);
+  }
+  return count;
+}
+
+function defaultThreadPopupBounds(channelId: string): PopupBounds {
   const list = loadListPopupBounds();
+  const openCount = countOpenThreadPopups(channelId);
+  const hash = [...channelId].reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  const cascade = 28 + openCount * 32 + (hash % 5) * 6;
   return clampPopupBounds(
     {
-      left: list.left + 28,
-      top: list.top + 28,
+      left: list.left + cascade,
+      top: list.top + cascade,
       ...THREAD_POPUP_DEFAULT_SIZE,
     },
     THREAD_POPUP_DEFAULT_SIZE,
@@ -98,8 +121,48 @@ function loadListPopupBounds() {
   return loadPopupBounds(LIST_POPUP_POSITION_KEY, defaultListPopupBounds, LIST_POPUP_DEFAULT_SIZE);
 }
 
-function loadThreadPopupBounds() {
-  return loadPopupBounds(THREAD_POPUP_POSITION_KEY, defaultThreadPopupBounds, THREAD_POPUP_DEFAULT_SIZE);
+function loadThreadPopupBounds(channelId: string) {
+  return loadPopupBounds(
+    threadPopupBoundsKey(channelId),
+    () => defaultThreadPopupBounds(channelId),
+    THREAD_POPUP_DEFAULT_SIZE,
+  );
+}
+
+function rememberThreadPopup(channelId: string, popup: Window | null) {
+  if (isTeamChatPopupActuallyOpen(popup)) {
+    threadPopupCache.set(channelId, popup);
+    return popup;
+  }
+  if (threadPopupCache.get(channelId) === popup) threadPopupCache.delete(channelId);
+  return null;
+}
+
+export function getOpenTeamChatThreadPopup(channelId: string): Window | null {
+  const id = String(channelId || "").trim();
+  if (!id) return null;
+  const cached = threadPopupCache.get(id);
+  if (cached && !cached.closed) return cached;
+  threadPopupCache.delete(id);
+  return null;
+}
+
+function trackThreadPopupBounds(channelId: string, popup: Window) {
+  rememberThreadPopup(channelId, popup);
+  const existing = threadPopupTrackers.get(channelId);
+  if (existing !== undefined) window.clearInterval(existing);
+  const tracker = window.setInterval(() => {
+    if (popup.closed) {
+      if (threadPopupCache.get(channelId) === popup) threadPopupCache.delete(channelId);
+      const current = threadPopupTrackers.get(channelId);
+      if (current === tracker) threadPopupTrackers.delete(channelId);
+      window.clearInterval(tracker);
+      return;
+    }
+    const bounds = readPopupBounds(popup, THREAD_POPUP_DEFAULT_SIZE);
+    if (bounds) savePopupBounds(threadPopupBoundsKey(channelId), bounds, THREAD_POPUP_DEFAULT_SIZE);
+  }, 800);
+  threadPopupTrackers.set(channelId, tracker);
 }
 
 function buildPopupFeatures(bounds: PopupBounds) {
@@ -279,10 +342,15 @@ export function captureTeamChatListPopupBounds() {
   );
 }
 
-export function captureTeamChatThreadPopupBounds() {
+export function captureTeamChatThreadPopupBounds(channelId?: string) {
   if (typeof window === "undefined") return;
+  const id =
+    String(channelId || "").trim() ||
+    new URLSearchParams(window.location.search).get("channel")?.trim() ||
+    "";
+  if (!id) return;
   savePopupBounds(
-    THREAD_POPUP_POSITION_KEY,
+    threadPopupBoundsKey(id),
     {
       left: window.screenX,
       top: window.screenY,
@@ -361,10 +429,24 @@ export function openTeamChatThreadPopup(channelId: string, options?: { focus?: b
       return window;
     }
   }
-  return focusOrOpenNamedPopup(THREAD_POPUP_NAME, url, loadThreadPopupBounds(), {
+
+  const popupName = threadPopupWindowName(id);
+  const bounds = loadThreadPopupBounds(id);
+  const popup = focusOrOpenNamedPopup(popupName, url, bounds, {
     focus: options?.focus,
     raise: options?.raise ?? true,
+    onOpened: (opened) => trackThreadPopupBounds(id, opened),
   });
+  if (isTeamChatPopupActuallyOpen(popup)) return popup;
+
+  const fallback = window.open(url, popupName, buildPopupFeatures(bounds));
+  if (isTeamChatPopupActuallyOpen(fallback)) {
+    trackThreadPopupBounds(id, fallback);
+    if (options?.raise) raiseTeamChatPopup(fallback);
+    else if (options?.focus !== false) fallback.focus();
+    return fallback;
+  }
+  return null;
 }
 
 export function focusMainErpWindow() {
