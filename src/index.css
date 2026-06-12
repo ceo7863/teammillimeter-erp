@@ -18108,6 +18108,11 @@ button:disabled,
   user-select: none;
 }
 
+.erp-team-chat-fab--touch {
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
 .erp-team-chat-fab__icon-wrap {
   position: relative;
   display: inline-flex;

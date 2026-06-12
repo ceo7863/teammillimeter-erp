@@ -11,6 +11,7 @@ const L = {
 
 const FAB_POSITION_KEY = "teammillimeter-erp-team-chat-fab-position";
 const FAB_DRAG_THRESHOLD = 8;
+const FAB_TOUCH_DRAG_THRESHOLD = 24;
 const FAB_DEFAULT_SIZE = { width: 72, height: 44 };
 const FAB_MARGIN = 16;
 
@@ -74,7 +75,11 @@ export function TeamChatFab({
   const canUse = enabled && currentUser && canUserAccessPage(currentUser, "teamChat");
   const [fabPosition, setFabPosition] = useState<FabPosition>(() => loadFabPosition() || defaultFabPosition());
   const [fabDragging, setFabDragging] = useState(false);
+  const [touchUi, setTouchUi] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches,
+  );
   const fabRef = useRef<HTMLButtonElement>(null);
+  const skipClickRef = useRef(false);
   const fabDragRef = useRef({
     active: false,
     moved: false,
@@ -83,6 +88,13 @@ export function TeamChatFab({
     originLeft: 0,
     originTop: 0,
   });
+
+  useEffect(() => {
+    const media = window.matchMedia("(pointer: coarse)");
+    const onChange = () => setTouchUi(media.matches);
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
 
   useEffect(() => {
     const handleResize = () => {
@@ -94,6 +106,7 @@ export function TeamChatFab({
 
   const handleFabPointerDown = useCallback(
     (event: React.PointerEvent<HTMLButtonElement>) => {
+      if (touchUi || event.pointerType === "touch") return;
       event.preventDefault();
       fabRef.current?.setPointerCapture(event.pointerId);
       fabDragRef.current = {
@@ -105,7 +118,7 @@ export function TeamChatFab({
         originTop: fabPosition.top,
       };
     },
-    [fabPosition.left, fabPosition.top],
+    [fabPosition.left, fabPosition.top, touchUi],
   );
 
   const handleFabPointerMove = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
@@ -113,36 +126,50 @@ export function TeamChatFab({
     if (!drag.active) return;
     const dx = event.clientX - drag.startX;
     const dy = event.clientY - drag.startY;
-    if (!drag.moved && (Math.abs(dx) > FAB_DRAG_THRESHOLD || Math.abs(dy) > FAB_DRAG_THRESHOLD)) {
+    const threshold = touchUi ? FAB_TOUCH_DRAG_THRESHOLD : FAB_DRAG_THRESHOLD;
+    if (!drag.moved && (Math.abs(dx) > threshold || Math.abs(dy) > threshold)) {
       drag.moved = true;
       setFabDragging(true);
     }
     if (!drag.moved) return;
     setFabPosition(clampFabPosition(drag.originLeft + dx, drag.originTop + dy));
-  }, []);
+  }, [touchUi]);
 
-  const handleFabPointerUp = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
-    const drag = fabDragRef.current;
-    if (!drag.active) return;
-    fabRef.current?.releasePointerCapture(event.pointerId);
-    drag.active = false;
-    setFabDragging(false);
-    if (drag.moved) {
-      setFabPosition((prev) => {
-        const next = clampFabPosition(prev.left, prev.top);
-        saveFabPosition(next);
-        return next;
-      });
-      return;
-    }
-    onOpen();
-  }, [onOpen]);
+  const handleFabPointerUp = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      const drag = fabDragRef.current;
+      if (!drag.active) return;
+      fabRef.current?.releasePointerCapture(event.pointerId);
+      drag.active = false;
+      setFabDragging(false);
+      if (drag.moved) {
+        skipClickRef.current = true;
+        setFabPosition((prev) => {
+          const next = clampFabPosition(prev.left, prev.top);
+          saveFabPosition(next);
+          return next;
+        });
+        return;
+      }
+      onOpen();
+      skipClickRef.current = true;
+    },
+    [onOpen],
+  );
 
   const handleFabPointerCancel = useCallback(() => {
     fabDragRef.current.active = false;
     fabDragRef.current.moved = false;
     setFabDragging(false);
   }, []);
+
+  const handleFabClick = useCallback(() => {
+    if (skipClickRef.current) {
+      skipClickRef.current = false;
+      return;
+    }
+    onOpen();
+  }, [onOpen]);
 
   if (!canUse || hidden) return null;
 
@@ -153,8 +180,9 @@ export function TeamChatFab({
     <button
       ref={fabRef}
       type="button"
-      className={`erp-team-chat-fab${fabDragging ? " erp-team-chat-fab--dragging" : ""}`}
+      className={`erp-team-chat-fab${fabDragging ? " erp-team-chat-fab--dragging" : ""}${touchUi ? " erp-team-chat-fab--touch" : ""}`}
       style={{ left: fabPosition.left, top: fabPosition.top }}
+      onClick={handleFabClick}
       onPointerDown={handleFabPointerDown}
       onPointerMove={handleFabPointerMove}
       onPointerUp={handleFabPointerUp}

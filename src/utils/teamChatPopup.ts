@@ -437,6 +437,9 @@ export function openTeamChatPopup(options?: { focus?: boolean; raise?: boolean }
     trackListPopupBounds(fallback);
     return fallback;
   }
+  if (!isTeamChatDesktopPopupMode()) {
+    window.dispatchEvent(new CustomEvent("erp-open-team-chat"));
+  }
   return null;
 }
 
