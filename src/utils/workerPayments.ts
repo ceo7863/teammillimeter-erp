@@ -428,14 +428,16 @@ export function findWorkerMasterByExactName(
 
 function stripLeadingAPrefix(name: string) {
   const normalized = normalizeWorkerName(name);
-  return normalized.startsWith("A") && normalized.length > 1 ? normalized.slice(1) : normalized;
+  if (!normalized) return normalized;
+  const stripped = normalized.replace(/^[A-Za-z]+/, "").trimStart();
+  return stripped || normalized;
 }
 
 function normalizeWorkerListMatchKey(name: string) {
   return stripLeadingAPrefix(normalizeWorkerName(name)).replace(/\s+/g, "");
 }
 
-/** 시공자 목록 매칭: 정확한 이름 → A 접두 보정 → 입금 별칭 */
+/** 시공자 목록 매칭: 정확한 이름 → 선행 영문 접두 보정 → 입금 별칭 */
 export function findWorkerMasterByListName(
   workers: WorkerMasterLike[] = [],
   name?: string,
@@ -452,7 +454,6 @@ export function findWorkerMasterByListName(
     const workerName = normalizeWorkerName(worker.name);
     if (!workerName) continue;
     if (stripLeadingAPrefix(workerName) === targetCore) return worker;
-    if (workerName === `A${target}`) return worker;
     if (normalizeWorkerListMatchKey(workerName) === targetKey) return worker;
   }
 
