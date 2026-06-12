@@ -19,6 +19,16 @@ const LIST_POPUP_DEFAULT_SIZE = { width: 380, height: 760 };
 const THREAD_POPUP_DEFAULT_SIZE = { width: 420, height: 760 };
 
 let listPopupTracker: number | null = null;
+let cachedListPopup: Window | null = null;
+
+function rememberListPopup(popup: Window | null) {
+  if (isTeamChatPopupActuallyOpen(popup)) {
+    cachedListPopup = popup;
+    return popup;
+  }
+  if (cachedListPopup === popup) cachedListPopup = null;
+  return null;
+}
 
 function clampPopupBounds(bounds: PopupBounds, defaults = LIST_POPUP_DEFAULT_SIZE): PopupBounds {
   if (typeof window === "undefined") return { ...defaults, left: 0, top: 0 };
@@ -120,9 +130,11 @@ function readPopupBounds(popup: Window, defaults = LIST_POPUP_DEFAULT_SIZE): Pop
 }
 
 function trackListPopupBounds(popup: Window) {
+  rememberListPopup(popup);
   if (listPopupTracker !== null) window.clearInterval(listPopupTracker);
   listPopupTracker = window.setInterval(() => {
     if (popup.closed) {
+      if (cachedListPopup === popup) cachedListPopup = null;
       if (listPopupTracker !== null) window.clearInterval(listPopupTracker);
       listPopupTracker = null;
       return;
@@ -136,15 +148,11 @@ export function isTeamChatPopupActuallyOpen(popup: Window | null): popup is Wind
   return popup != null && !popup.closed;
 }
 
-/** Returns the named list popup when it is already open (does not create a new window). */
+/** Returns the named list popup when it is already open (never creates a window). */
 export function getOpenTeamChatListPopup(): Window | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const popup = window.open("", LIST_POPUP_NAME);
-    return isTeamChatPopupActuallyOpen(popup) ? popup : null;
-  } catch {
-    return null;
-  }
+  if (cachedListPopup && !cachedListPopup.closed) return cachedListPopup;
+  cachedListPopup = null;
+  return null;
 }
 
 export function isTeamChatListPopupMinimized() {
@@ -240,10 +248,12 @@ function focusOrOpenNamedPopup(
       popup.focus();
     }
     options.onOpened?.(popup);
+    if (name === LIST_POPUP_NAME) rememberListPopup(popup);
     return popup;
   }
   popup = window.open(url, name, features);
   if (isTeamChatPopupActuallyOpen(popup)) {
+    if (name === LIST_POPUP_NAME) rememberListPopup(popup);
     if (options.raise) {
       raiseTeamChatPopup(popup);
     } else if (options.focus !== false) {
@@ -325,6 +335,7 @@ export function openTeamChatPopup(options?: { focus?: boolean; raise?: boolean }
   if (isTeamChatPopupActuallyOpen(popup)) return popup;
   const fallback = window.open(url, LIST_POPUP_NAME, buildPopupFeatures(loadListPopupBounds()));
   if (isTeamChatPopupActuallyOpen(fallback)) {
+    rememberListPopup(fallback);
     if (options?.raise) raiseTeamChatPopup(fallback);
     else if (options?.focus !== false) fallback.focus();
     trackListPopupBounds(fallback);

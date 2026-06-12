@@ -3,14 +3,9 @@ import type { ErpUser } from "@/utils/erpApi";
 import { isApiModeEnabled } from "@/utils/erpApi";
 import { canUserAccessPage } from "@/utils/pageAccess";
 import { openTeamChatThread, peekPendingTeamChatThread } from "@/utils/teamChatShare";
-import {
-  getOpenTeamChatListPopup,
-  isTeamChatDesktopPopupMode,
-  isTeamChatPopupWindow,
-  openTeamChatPopup,
-} from "@/utils/teamChatPopup";
+import { isTeamChatDesktopPopupMode, isTeamChatPopupWindow } from "@/utils/teamChatPopup";
 
-/** Register a reusable popup slot on first gesture; open pending threads on later clicks. */
+/** Open a pending incoming thread on user gesture when auto popup was blocked. */
 export function useTeamChatPopupPrewarm(
   currentUser: Pick<ErpUser, "role" | "allowedPages"> | null | undefined,
   enabled: boolean,
@@ -20,21 +15,10 @@ export function useTeamChatPopupPrewarm(
     if (!canUserAccessPage(currentUser, "teamChat")) return;
     if (!isTeamChatDesktopPopupMode() || isTeamChatPopupWindow()) return;
 
-    let slotRegistered = false;
-
     const warm = () => {
       const pendingId = peekPendingTeamChatThread();
-      if (pendingId) {
-        void openTeamChatThread(pendingId);
-        return;
-      }
-
-      if (getOpenTeamChatListPopup()) return;
-
-      if (!slotRegistered) {
-        slotRegistered = true;
-        openTeamChatPopup({ focus: false, raise: false });
-      }
+      if (!pendingId) return;
+      void openTeamChatThread(pendingId);
     };
 
     const opts: AddEventListenerOptions = { capture: true };
