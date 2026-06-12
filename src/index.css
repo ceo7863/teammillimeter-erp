@@ -3443,32 +3443,15 @@ html[data-erp-csr-cal-drawer-open] .erp-client-calendars-page__body {
   min-height: 0;
 }
 
-.erp-sc-embed-page {
+.erp-sc-embed {
   min-height: 0;
   flex: 1 1 auto;
   height: 100%;
   overflow: hidden;
 }
 
-.erp-sc-embed-page__frame {
+.erp-sc-embed__frame {
   position: relative;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
-  display: flex;
-  align-items: flex-start;
-  justify-content: flex-start;
-}
-
-.erp-sc-embed-page__viewport {
-  overflow: hidden;
-  flex-shrink: 0;
-}
-
-.erp-sc-embed-page iframe,
-.erp-sc-embed-page__iframe {
-  display: block;
-  border: 0;
 }
 
 .erp-main--fill {
@@ -3511,13 +3494,13 @@ html[data-erp-csr-cal-drawer-open] .erp-client-calendars-page__body {
     height: 100%;
   }
 
-  .erp-sc-embed-page--mobile {
+  .erp-sc-embed {
     flex: 1 1 auto;
     min-height: 0;
     height: 100%;
   }
 
-  .erp-sc-embed-page--mobile .erp-sc-embed-page__toolbar {
+  .erp-sc-embed__header {
     padding-top: max(0.5rem, env(safe-area-inset-top));
     padding-left: max(0.75rem, env(safe-area-inset-left));
     padding-right: max(0.75rem, env(safe-area-inset-right));

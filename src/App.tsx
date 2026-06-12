@@ -259,7 +259,7 @@ import {
   type OfficePayrollSheet,
 } from "@/utils/officePayroll";
 import { ScScheduleAlimtalkPage } from "@/components/ScScheduleAlimtalkPage";
-import { ScCalendarEmbedPage } from "@/components/ScCalendarEmbedPage";
+import { ScEmbedPage } from "@/components/ScEmbedPage";
 import { DailyReportPage } from "@/components/DailyReportPage";
 import { ClientFormModal, type ClientFormState } from "@/components/ClientFormModal";
 import { WorkerFormModal, createEmptyWorkerForm } from "@/components/WorkerFormModal";
@@ -11529,7 +11529,7 @@ export default function TeammillimeterErpMvp() {
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="scCalendar" active={shellActive} className="erp-page-keep-alive--fill">
-          <ScCalendarEmbedPage onOpenAppMenu={() => setSidebarOpen(true)} />
+          <ScEmbedPage onOpenAppMenu={() => setSidebarOpen(true)} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="scAlimtalk" active={shellActive}>
           <ScScheduleAlimtalkPage
