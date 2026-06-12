@@ -3,7 +3,6 @@ import { ExternalLink, Menu, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTeamChatMobileLayout } from "@/hooks/useTeamChatMobileLayout";
 import { fetchScEmbedSession } from "@/utils/scEmbed";
-import { forwardWheelIntoIframe } from "@/utils/iframeWheelForward";
 
 const L = {
   title: "SC \uCE98\uB9B0\uB354",
@@ -14,9 +13,20 @@ const L = {
   hint: "SC \uC804\uCCB4 \uBA54\uB274(\uCE98\uB9B0\uB354\u00B7\uD504\uB85C\uC81D\uD2B8\u00B7\uC778\uC6D0 \uB4F1)\uB97C ERP \uC548\uC5D0\uC11C \uADF8\uB300\uB85C \uC0AC\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
 };
 
+const MIN_EMBED_SCALE = 0.55;
+
 type ScCalendarEmbedPageProps = {
   onOpenAppMenu?: () => void;
 };
+
+function computeEmbedScale(container: HTMLElement) {
+  const { clientWidth, clientHeight } = container;
+  if (clientWidth <= 0 || clientHeight <= 0) return 1;
+
+  const scaleW = clientWidth / window.innerWidth;
+  const scaleH = clientHeight / window.innerHeight;
+  return Math.max(MIN_EMBED_SCALE, Math.min(1, scaleW, scaleH));
+}
 
 export function ScCalendarEmbedPage({ onOpenAppMenu }: ScCalendarEmbedPageProps) {
   const isMobileLayout = useTeamChatMobileLayout();
@@ -24,6 +34,8 @@ export function ScCalendarEmbedPage({ onOpenAppMenu }: ScCalendarEmbedPageProps)
   const [scBaseUrl, setScBaseUrl] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [scale, setScale] = useState(1);
+  const frameRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
@@ -43,17 +55,24 @@ export function ScCalendarEmbedPage({ onOpenAppMenu }: ScCalendarEmbedPageProps)
   }, [embedUrl]);
 
   useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe || !embedUrl) return;
+    if (!embedUrl) return;
 
-    const onWheel = (event: WheelEvent) => {
-      const iframe = iframeRef.current;
-      if (!iframe) return;
-      forwardWheelIntoIframe(iframe, event);
+    const updateScale = () => {
+      const frame = frameRef.current;
+      if (!frame) return;
+      setScale(computeEmbedScale(frame));
     };
 
-    window.addEventListener("wheel", onWheel, { capture: true, passive: false });
-    return () => window.removeEventListener("wheel", onWheel, { capture: true });
+    updateScale();
+    const frame = frameRef.current;
+    const observer = frame ? new ResizeObserver(updateScale) : null;
+    if (frame && observer) observer.observe(frame);
+    window.addEventListener("resize", updateScale);
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updateScale);
+    };
   }, [embedUrl]);
 
   const loadSession = useCallback(async () => {
@@ -80,6 +99,8 @@ export function ScCalendarEmbedPage({ onOpenAppMenu }: ScCalendarEmbedPageProps)
     if (!url) return;
     window.open(url, "_blank", "noopener,noreferrer");
   };
+
+  const iframeSize = scale < 1 ? `${100 / scale}%` : "100%";
 
   return (
     <div className={`erp-sc-embed-page flex min-h-0 flex-1 flex-col ${isMobileLayout ? "erp-sc-embed-page--mobile" : ""}`}>
@@ -122,16 +143,28 @@ export function ScCalendarEmbedPage({ onOpenAppMenu }: ScCalendarEmbedPageProps)
           </Button>
         </div>
       ) : (
-        <iframe
-          ref={iframeRef}
-          key={embedUrl}
-          title={L.title}
-          src={embedUrl}
-          className="min-h-0 w-full flex-1 border-0 bg-white"
-          tabIndex={0}
-          allow="clipboard-read; clipboard-write"
-          referrerPolicy="no-referrer"
-        />
+        <div
+          ref={frameRef}
+          className="erp-sc-embed-page__frame"
+          style={{ "--sc-embed-scale": scale } as React.CSSProperties}
+        >
+          <iframe
+            ref={iframeRef}
+            key={embedUrl}
+            title={L.title}
+            src={embedUrl}
+            className="erp-sc-embed-page__iframe border-0 bg-white"
+            style={{
+              width: iframeSize,
+              height: iframeSize,
+              transform: scale < 1 ? `scale(${scale})` : undefined,
+              transformOrigin: "top left",
+            }}
+            tabIndex={0}
+            allow="clipboard-read; clipboard-write"
+            referrerPolicy="no-referrer"
+          />
+        </div>
       )}
     </div>
   );
