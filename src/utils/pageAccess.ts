@@ -59,7 +59,7 @@ export const ERP_PAGE_DEFS: ErpPageDef[] = [
   { key: "calendar", label: "캘린더", group: "업무" },
   { key: "clientSiteRequests", label: "현장 접수", group: "업무" },
   { key: "clientSiteRequestCalendars", label: "업체별 캘린더", group: "업무" },
-  { key: "scCalendar", label: "SC 캘린더", group: "업무" },
+  { key: "scCalendar", label: "스케줄캘린더", group: "업무" },
   { key: "scAlimtalk", label: "\uC54C\uB9BC\uD1A1", group: "\uC5C5\uBB34" },
   { key: "salesInput", label: "매출등록", group: "매출" },
   { key: "sales", label: "매출관리", group: "매출" },
