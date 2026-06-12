@@ -1,5 +1,5 @@
 import type { TeamChatLink } from "@/utils/teamChatLinks";
-import { isTeamChatDesktopPopupMode, openTeamChatPopup } from "@/utils/teamChatPopup";
+import { isTeamChatDesktopPopupMode, openTeamChatPopup, openTeamChatThreadPopup } from "@/utils/teamChatPopup";
 
 export type TeamChatSharePayload = {
   link: TeamChatLink;
@@ -9,6 +9,8 @@ export type TeamChatSharePayload = {
 
 const PENDING_TEAM_CHAT_SHARE_KEY = "teammillimeter-erp-pending-team-chat-share";
 export const TEAM_CHAT_OPEN_EVENT = "erp-open-team-chat";
+export const TEAM_CHAT_RESET_LIST_EVENT = "erp-team-chat-reset-list";
+export const TEAM_CHAT_OPEN_THREAD_EVENT = "erp-open-team-chat-thread";
 export const TEAM_CHAT_SHARE_CHANNEL = "erp-team-chat-share";
 
 export function stashTeamChatShare(payload: TeamChatSharePayload) {
@@ -70,5 +72,31 @@ export function openTeamChatWithShare(payload: TeamChatSharePayload, options?: {
     }
     return;
   }
+  window.dispatchEvent(new CustomEvent(TEAM_CHAT_OPEN_EVENT));
+}
+
+export function resetTeamChatListView() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(TEAM_CHAT_RESET_LIST_EVENT));
+}
+
+export function openTeamChatList() {
+  if (typeof window === "undefined") return;
+  if (isTeamChatDesktopPopupMode()) {
+    openTeamChatPopup();
+    return;
+  }
+  resetTeamChatListView();
+  window.dispatchEvent(new CustomEvent(TEAM_CHAT_OPEN_EVENT));
+}
+
+export function openTeamChatThread(channelId: string) {
+  const id = String(channelId || "").trim();
+  if (!id || typeof window === "undefined") return;
+  if (isTeamChatDesktopPopupMode()) {
+    openTeamChatThreadPopup(id);
+    return;
+  }
+  window.dispatchEvent(new CustomEvent(TEAM_CHAT_OPEN_THREAD_EVENT, { detail: { channelId: id } }));
   window.dispatchEvent(new CustomEvent(TEAM_CHAT_OPEN_EVENT));
 }

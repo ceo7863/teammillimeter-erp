@@ -35,7 +35,7 @@ import {
   type TeamChatAttachment,
 } from "@/utils/teamChatAttachments";
 import { TEAM_CHAT_LINK_LABELS, teamChatLinkToAction, type TeamChatLink } from "@/utils/teamChatLinks";
-import { consumeTeamChatShare, peekTeamChatShare, stashTeamChatShare, TEAM_CHAT_SHARE_CHANNEL } from "@/utils/teamChatShare";
+import { consumeTeamChatShare, peekTeamChatShare, stashTeamChatShare, TEAM_CHAT_OPEN_THREAD_EVENT, TEAM_CHAT_RESET_LIST_EVENT, TEAM_CHAT_SHARE_CHANNEL } from "@/utils/teamChatShare";
 import { isTeamChatDesktopPopupMode, openTeamChatPopup, openTeamChatThreadPopup, canOpenTeamChatThreadPopup } from "@/utils/teamChatPopup";
 import {
   createTeamChatGroup,
@@ -128,6 +128,7 @@ type TeamChatPageProps = {
   onUnreadChange?: () => void;
   onErpAction?: (action: ErpChatAction) => void;
   onOpenAppMenu?: () => void;
+  onSelectedChannelChange?: (channelId: string | null) => void;
 };
 
 function channelTypeLabel(type: TeamChatChannel["type"]) {
@@ -378,6 +379,7 @@ export const TeamChatPage = memo(function TeamChatPage({
   onUnreadChange,
   onErpAction,
   onOpenAppMenu,
+  onSelectedChannelChange,
 }: TeamChatPageProps) {
   const [channels, setChannels] = useState<TeamChatChannel[]>([]);
   const [users, setUsers] = useState<TeamChatUser[]>([]);
@@ -1020,6 +1022,25 @@ export const TeamChatPage = memo(function TeamChatPage({
     setSelectedChannelId(null);
     setHighlightedChannelId(null);
   }, []);
+
+  useEffect(() => {
+    onSelectedChannelChange?.(selectedChannelId);
+  }, [onSelectedChannelChange, selectedChannelId]);
+
+  useEffect(() => {
+    const onReset = () => handleBackToList();
+    const onOpenThread = (event: Event) => {
+      const channelId = String((event as CustomEvent<{ channelId?: string }>).detail?.channelId || "").trim();
+      if (!channelId) return;
+      handleSelectChannel(channelId);
+    };
+    window.addEventListener(TEAM_CHAT_RESET_LIST_EVENT, onReset);
+    window.addEventListener(TEAM_CHAT_OPEN_THREAD_EVENT, onOpenThread as EventListener);
+    return () => {
+      window.removeEventListener(TEAM_CHAT_RESET_LIST_EVENT, onReset);
+      window.removeEventListener(TEAM_CHAT_OPEN_THREAD_EVENT, onOpenThread as EventListener);
+    };
+  }, [handleBackToList, handleSelectChannel]);
 
   const isMobileChat = isMobileLayout && !threadOnly;
   const showThreadOnMobile = isMobileLayout && !threadOnly && Boolean(selectedChannelId);

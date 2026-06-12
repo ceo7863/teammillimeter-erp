@@ -384,8 +384,9 @@ import {
   buildSaleTeamChatLink,
   buildBankTxTeamChatLink,
 } from "@/utils/teamChatLinks";
-import { openTeamChatWithShare, TEAM_CHAT_OPEN_EVENT } from "@/utils/teamChatShare";
+import { openTeamChatWithShare, openTeamChatList, TEAM_CHAT_OPEN_EVENT } from "@/utils/teamChatShare";
 import { isTeamChatDesktopPopupMode, openTeamChatPopup } from "@/utils/teamChatPopup";
+import { useTeamChatIncomingAutoOpen } from "@/hooks/useTeamChatIncomingAutoOpen";
 import { TeamChatPage } from "@/components/TeamChatPage";
 import { TeamChatStandalonePage } from "@/components/TeamChatStandalonePage";
 import { useSaleCommentReadState } from "@/hooks/useSaleCommentReadState";
@@ -8577,6 +8578,7 @@ export default function TeammillimeterErpMvp() {
   const handleTeamChatUnreadChange = useCallback(() => {
     void refreshTeamChatUnread();
   }, [refreshTeamChatUnread]);
+  const teamChatSelectedChannelRef = useRef<string | null>(null);
   const handleNavigatePage = useCallback((key: ErpPageKey) => {
     if (key === "teamChat" && isTeamChatDesktopPopupMode()) {
       openTeamChatPopup();
@@ -8587,8 +8589,20 @@ export default function TeammillimeterErpMvp() {
     setSidebarOpen(false);
   }, []);
   const openTeamChatPage = useCallback(() => {
-    handleNavigatePage("teamChat");
+    openTeamChatList();
+    if (!isTeamChatDesktopPopupMode()) {
+      handleNavigatePage("teamChat");
+    } else {
+      setSidebarOpen(false);
+    }
   }, [handleNavigatePage]);
+  useTeamChatIncomingAutoOpen(currentUser, {
+    enabled: dataReady,
+    getViewState: () => ({
+      inlineActive: active === "teamChat" && !isTeamChatDesktopPopupMode(),
+      selectedChannelId: teamChatSelectedChannelRef.current,
+    }),
+  });
   useTeamChatNotifications(currentUser, {
     unreadCount: teamChatUnreadCount,
     isChatPageActive: active === "teamChat",
@@ -11262,9 +11276,13 @@ export default function TeammillimeterErpMvp() {
           <TeamChatPage
             currentUser={currentUser}
             isPageActive={shellActive === "teamChat"}
+            listOnly={isTeamChatDesktopPopupMode()}
             onUnreadChange={handleTeamChatUnreadChange}
             onErpAction={handleErpChatAction}
             onOpenAppMenu={() => setSidebarOpen(true)}
+            onSelectedChannelChange={(channelId) => {
+              teamChatSelectedChannelRef.current = channelId;
+            }}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="attendance" active={shellActive}>

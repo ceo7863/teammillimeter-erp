@@ -1,6 +1,7 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { TeamChatPage } from "@/components/TeamChatPage";
+import { useTeamChatIncomingAutoOpen } from "@/hooks/useTeamChatIncomingAutoOpen";
 import {
   getAuthToken,
   loadAuthUser,
@@ -37,6 +38,15 @@ export function TeamChatStandalonePage({ route }: { route: TeamChatStandaloneRou
   const [loggingIn, setLoggingIn] = useState(false);
 
   const isThreadWindow = route.mode === "thread";
+  const selectedChannelRef = useRef<string | null>(isThreadWindow ? route.channelId : null);
+
+  useTeamChatIncomingAutoOpen(currentUser, {
+    enabled: Boolean(currentUser),
+    getViewState: () => ({
+      inlineActive: true,
+      selectedChannelId: selectedChannelRef.current,
+    }),
+  });
 
   const handleLogin = useCallback(async () => {
     const id = loginId.trim();
@@ -131,6 +141,9 @@ export function TeamChatStandalonePage({ route }: { route: TeamChatStandaloneRou
           threadOnly={isThreadWindow}
           initialChannelId={isThreadWindow ? route.channelId : undefined}
           onErpAction={handleErpAction}
+          onSelectedChannelChange={(channelId) => {
+            selectedChannelRef.current = channelId;
+          }}
         />
       </div>
     </div>
