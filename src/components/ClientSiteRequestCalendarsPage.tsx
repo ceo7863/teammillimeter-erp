@@ -15,6 +15,7 @@ import {
   type ClientCalendarSaleLike,
 } from "@/utils/clientCalendarStats";
 import { formatClientSiteRequestMonthLabel, getCurrentMonthKey } from "@/utils/clientSiteRequestCalendar";
+import { useWheelScrollCapture } from "@/utils/wheelScrollCapture";
 import { formatKRW } from "@/utils/receivables";
 import type { WorkerMasterLike } from "@/utils/workerPayments";
 import type { ClientMasterLike } from "@/utils/clientMaster";
@@ -54,6 +55,7 @@ export function ClientSiteRequestCalendarsPage({
   const [search, setSearch] = useState("");
   const [selectedClientId, setSelectedClientId] = useState<string>("");
   const [monthKey, setMonthKey] = useState(getCurrentMonthKey);
+  useWheelScrollCapture(true);
 
   const loadLinks = useCallback(async () => {
     setLoading(true);

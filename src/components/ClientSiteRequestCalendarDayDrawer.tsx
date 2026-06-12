@@ -99,13 +99,6 @@ export function ClientSiteRequestCalendarDayDrawer({
   const [alimtalkTargetSchedule, setAlimtalkTargetSchedule] = useState<ScSchedule | null>(null);
   const drawerBodyRef = useRef<HTMLDivElement>(null);
 
-  const onDrawerBodyWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
-    event.stopPropagation();
-    const el = drawerBodyRef.current;
-    if (!el) return;
-    el.scrollTop += event.deltaY;
-  }, []);
-
   const copyWorkerText = useCallback(async (workerKey: string, worker: Parameters<typeof formatScScheduleWorkerCopyText>[0]) => {
     const text = formatScScheduleWorkerCopyText(worker);
     if (!text) return;
@@ -237,11 +230,7 @@ export function ClientSiteRequestCalendarDayDrawer({
           </Button>
         </div>
 
-        <div
-          ref={drawerBodyRef}
-          className="erp-csr-cal-drawer-body"
-          onWheel={onDrawerBodyWheel}
-        >
+        <div ref={drawerBodyRef} className="erp-csr-cal-drawer-body">
           {totalCount === 0 ? (
             <p className="erp-calendar-side-empty">{L.empty}</p>
           ) : (

@@ -20,6 +20,7 @@ import { withoutScPersonalVacationSchedules } from "@/utils/scScheduleVacation";
 import type { WorkerMasterLike } from "@/utils/workerPayments";
 import type { ClientMasterLike } from "@/utils/clientMaster";
 import { ClientSiteRequestCalendarDayDrawer } from "@/components/ClientSiteRequestCalendarDayDrawer";
+import { useWheelScrollCapture } from "@/utils/wheelScrollCapture";
 
 const L = {
   today: "\uC624\uB298",
@@ -83,6 +84,7 @@ export const ClientSiteRequestCalendar = memo(function ClientSiteRequestCalendar
   scAlimtalkEnabled = false,
 }: ClientSiteRequestCalendarProps) {
   const [drawerDate, setDrawerDate] = useState<string | null>(null);
+  useWheelScrollCapture(true);
 
   const calendarRequests = useMemo(
     () => requests.filter((row) => isClientSiteRequestVisibleOnPublicCalendar(row)),
