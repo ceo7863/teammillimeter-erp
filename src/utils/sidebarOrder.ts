@@ -1,4 +1,10 @@
-import { getAccessiblePageDefs, isErpPageKey, type ErpPageDef, type ErpPageKey } from "./pageAccess";
+import {
+  canUserAccessPage,
+  getAccessiblePageDefs,
+  isErpPageKey,
+  type ErpPageDef,
+  type ErpPageKey,
+} from "./pageAccess";
 
 /** Sidebar 대신 플로팅 버튼으로 여는 페이지 */
 export const FAB_LAUNCHER_PAGE_KEYS: ErpPageKey[] = ["teamChat"];
@@ -211,6 +217,28 @@ export function resolveVisibleSidebarPages(
   return filterPageDefsByHidden(sortPageDefsByOrder(getAccessiblePageDefs(user), order), hidden).filter(
     (page) => !FAB_LAUNCHER_PAGE_KEYS.includes(page.key),
   );
+}
+
+export function isFabLauncherPageKey(key: string): key is ErpPageKey {
+  return isErpPageKey(key) && FAB_LAUNCHER_PAGE_KEYS.includes(key);
+}
+
+/** Sidebar에 없어도 FAB 등으로 열 수 있는 페이지는 active를 유지합니다. */
+export function resolveShellActivePage(
+  active: ErpPageKey,
+  user: { role?: string; allowedPages?: unknown } | null | undefined,
+  order: ErpPageKey[] | null | undefined,
+  hidden: ErpPageKey[] | null | undefined,
+): ErpPageKey {
+  if (!user) return active;
+  if (isFabLauncherPageKey(active) && canUserAccessPage(user, active)) {
+    return active;
+  }
+  const visible = resolveVisibleSidebarPages(user, order, hidden);
+  if (visible.length && !visible.some((page) => page.key === active)) {
+    return visible.find((page) => page.key === "dailyReport")?.key ?? visible[0]?.key ?? "dailyReport";
+  }
+  return active;
 }
 
 export function sortPageDefsByOrder(pages: ErpPageDef[], order: ErpPageKey[] | null | undefined): ErpPageDef[] {

@@ -371,6 +371,7 @@ import {
   cacheSidebarOrderFromUser,
   resolveSidebarHidden,
   resolveSidebarOrder,
+  resolveShellActivePage,
   resolveVisibleSidebarPages,
   saveSidebarHidden,
   saveSidebarOrder,
@@ -10829,10 +10830,9 @@ export default function TeammillimeterErpMvp() {
 
   useEffect(() => {
     if (!currentUser) return;
-    const visible = resolveVisibleSidebarPages(currentUser, sidebarOrder, sidebarHidden);
-    if (!visible.length) return;
-    if (!visible.some((page) => page.key === active)) {
-      setActive(visible[0].key);
+    const resolved = resolveShellActivePage(active, currentUser, sidebarOrder, sidebarHidden);
+    if (resolved !== active) {
+      setActive(resolved);
     }
   }, [active, currentUser, sidebarOrder, sidebarHidden]);
 
@@ -11283,15 +11283,10 @@ export default function TeammillimeterErpMvp() {
     ],
   );
 
-  const shellActive = useMemo(() => {
-    if (!currentUser) return active;
-    let next = active;
-    const visible = resolveVisibleSidebarPages(currentUser, sidebarOrder, sidebarHidden);
-    if (visible.length && !visible.some((page) => page.key === next)) {
-      next = visible.find((page) => page.key === "dailyReport")?.key ?? visible[0]?.key ?? "dailyReport";
-    }
-    return next;
-  }, [active, currentUser, sidebarHidden, sidebarOrder]);
+  const shellActive = useMemo(
+    () => resolveShellActivePage(active, currentUser, sidebarOrder, sidebarHidden),
+    [active, currentUser, sidebarHidden, sidebarOrder],
+  );
 
   useEffect(() => {
     if (!currentUser || !dataReady || shellActive === active) return;
