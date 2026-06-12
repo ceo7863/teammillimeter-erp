@@ -2,9 +2,15 @@ import { useEffect } from "react";
 import type { ErpUser } from "@/utils/erpApi";
 import { isApiModeEnabled } from "@/utils/erpApi";
 import { canUserAccessPage } from "@/utils/pageAccess";
-import { isTeamChatDesktopPopupMode, isTeamChatPopupWindow, openTeamChatPopup } from "@/utils/teamChatPopup";
+import { openTeamChatThread, peekPendingTeamChatThread } from "@/utils/teamChatShare";
+import {
+  getOpenTeamChatListPopup,
+  isTeamChatDesktopPopupMode,
+  isTeamChatPopupWindow,
+  openTeamChatPopup,
+} from "@/utils/teamChatPopup";
 
-/** Open the named list popup once on first user gesture so later SSE auto-opens can reuse it. */
+/** Register a reusable popup slot on first gesture; open pending threads on later clicks. */
 export function useTeamChatPopupPrewarm(
   currentUser: Pick<ErpUser, "role" | "allowedPages"> | null | undefined,
   enabled: boolean,
@@ -14,11 +20,29 @@ export function useTeamChatPopupPrewarm(
     if (!canUserAccessPage(currentUser, "teamChat")) return;
     if (!isTeamChatDesktopPopupMode() || isTeamChatPopupWindow()) return;
 
+    let slotRegistered = false;
+
     const warm = () => {
-      openTeamChatPopup({ focus: false });
+      const pendingId = peekPendingTeamChatThread();
+      if (pendingId) {
+        void openTeamChatThread(pendingId);
+        return;
+      }
+
+      if (getOpenTeamChatListPopup()) return;
+
+      if (!slotRegistered) {
+        slotRegistered = true;
+        openTeamChatPopup({ focus: false, raise: false });
+      }
     };
 
-    window.addEventListener("pointerdown", warm, { capture: true, once: true });
-    return () => window.removeEventListener("pointerdown", warm, { capture: true });
+    const opts: AddEventListenerOptions = { capture: true };
+    window.addEventListener("pointerdown", warm, opts);
+    window.addEventListener("keydown", warm, opts);
+    return () => {
+      window.removeEventListener("pointerdown", warm, opts);
+      window.removeEventListener("keydown", warm, opts);
+    };
   }, [currentUser, enabled]);
 }

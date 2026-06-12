@@ -134,6 +134,17 @@ export function isTeamChatPopupActuallyOpen(popup: Window | null): popup is Wind
   return popup != null && !popup.closed;
 }
 
+/** Returns the named list popup when it is already open (does not create a new window). */
+export function getOpenTeamChatListPopup(): Window | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const popup = window.open("", LIST_POPUP_NAME);
+    return isTeamChatPopupActuallyOpen(popup) ? popup : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Bring a popup above sibling windows (list/thread/ERP). */
 export function raiseTeamChatPopup(popup: Window | null) {
   if (!isTeamChatPopupActuallyOpen(popup)) return;
