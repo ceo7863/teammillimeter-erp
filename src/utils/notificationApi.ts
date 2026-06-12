@@ -299,6 +299,42 @@ export async function sendScWeeklyBriefingNotifyNow(options?: {
   });
 }
 
+export type ProbationEvalAlimtalkPreviewRow = {
+  id: string | null;
+  workDate: string;
+  scheduleId: string;
+  siteName: string;
+  probationWorkerName: string;
+  evaluatorName: string;
+  evaluatorPhone: string;
+  status: "pending" | "planned" | "sent" | "submitted" | "expired";
+  sentAt?: string | null;
+  reminderSentAt?: string | null;
+  submittedAt?: string | null;
+  selectionReason?: string;
+};
+
+export type ProbationEvalAlimtalkPreview = {
+  targetDate: string;
+  scheduleCount: number;
+  requestCount: number;
+  pendingCount: number;
+  sentCount: number;
+  submittedCount: number;
+  notifyCount: number;
+  missingPhoneCount: number;
+  templateConfigured: boolean;
+  enabled: boolean;
+  reminderEnabled: boolean;
+  meta?: ProbationEvalNotifyStatus["meta"];
+  rows: ProbationEvalAlimtalkPreviewRow[];
+};
+
+export async function previewProbationEvalNotify(targetDate?: string) {
+  const query = targetDate ? `?targetDate=${encodeURIComponent(targetDate.slice(0, 10))}` : "";
+  return apiRequest<ProbationEvalAlimtalkPreview>(`/notifications/probation-eval/preview${query}`);
+}
+
 export async function sendProbationEvalNotifyNow(options?: {
   targetDate?: string;
   settings?: NotificationSettings;
@@ -314,5 +350,18 @@ export async function sendProbationEvalNotifyNow(options?: {
   }>("/notifications/probation-eval/send", {
     method: "POST",
     body: JSON.stringify({ ...(options?.targetDate ? { targetDate: options.targetDate } : {}), ...(options || {}) }),
+  });
+}
+
+export async function sendProbationEvalReminderNow(options?: { targetDate?: string }) {
+  return apiRequest<{
+    ok: boolean;
+    skipped?: boolean;
+    reason?: string;
+    targetDate?: string;
+    sent?: number;
+  }>("/notifications/probation-eval/reminder", {
+    method: "POST",
+    body: JSON.stringify({ ...(options?.targetDate ? { targetDate: options.targetDate } : {}) }),
   });
 }

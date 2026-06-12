@@ -240,6 +240,7 @@ import {
 } from "./probationEval.mjs";
 import {
   getProbationEvalNotifyStatus,
+  previewProbationEvalNotify,
   runProbationEvalNotifyJob,
   runProbationEvalReminderJob,
 } from "./probationEvalNotify.mjs";
@@ -3060,6 +3061,16 @@ app.get("/api/notifications/probation-eval/status", authMiddleware, async (_req,
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: error instanceof Error ? error.message : "\uC218\uC2B5 \uD3C9\uAC00 \uC54C\uB9BC \uC0C1\uD0DC \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+  }
+});
+
+app.get("/api/notifications/probation-eval/preview", authMiddleware, async (req, res) => {
+  try {
+    const targetDate = req.query?.targetDate ? String(req.query.targetDate).slice(0, 10) : undefined;
+    res.json(previewProbationEvalNotify(targetDate));
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error instanceof Error ? error.message : "\uC218\uC2B5 \uD3C9\uAC00 \uC54C\uB9BC \uBBF8\uB9AC\uBCF4\uAE30\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
   }
 });
 

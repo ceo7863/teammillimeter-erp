@@ -7,10 +7,13 @@ import {
 } from "./notificationSettings.mjs";
 import { normalizeWorkerAiRules } from "./workerAiRules.mjs";
 import { filterSchedulesForDate } from "./scScheduleNotify.mjs";
+import { findEvalSubjectsOnSchedule, selectScheduleEvaluator } from "./probationEvalAssign.mjs";
+import { resolveScScheduleSiteName } from "./scScheduleSiteName.mjs";
 import {
   buildProbationEvalRequestsForSchedules,
   formatProbationEvalTemplateVars,
   normalizeProbationEvalRequests,
+  probationEvalRequestKey,
   updateProbationEvalRequests,
 } from "./probationEval.mjs";
 
@@ -42,6 +45,94 @@ function saveMeta(meta, updatedBy) {
   const state = getErpState();
   const data = state.data && typeof state.data === "object" ? state.data : {};
   saveErpState({ ...data, probationEvalNotifyMeta: meta }, state.version, updatedBy);
+}
+
+function normalizePhone(phone) {
+  return String(phone || "").replace(/\D/g, "");
+}
+
+export function previewProbationEvalNotify(targetDateInput) {
+  const state = getErpState();
+  const data = state.data && typeof state.data === "object" ? state.data : {};
+  const targetDate = String(targetDateInput || todayKstDateKey()).slice(0, 10);
+  const schedules = filterSchedulesForDate(listScSchedules(data), targetDate);
+  const rules = normalizeWorkerAiRules(data.workerAiRules);
+  const workers = Array.isArray(data.workers) ? data.workers : [];
+  const existing = normalizeProbationEvalRequests(data.probationEvalRequests).filter(
+    (row) => row.workDate === targetDate,
+  );
+  const existingKeys = new Set(
+    existing.map((row) => probationEvalRequestKey(row.workDate, row.scheduleId, row.probationWorkerId)),
+  );
+
+  const planned = [];
+  for (const schedule of schedules) {
+    const evalSubjects = findEvalSubjectsOnSchedule(schedule, workers, rules);
+    for (const { worker } of evalSubjects) {
+      const key = probationEvalRequestKey(targetDate, schedule.id, worker.id);
+      if (existingKeys.has(key)) continue;
+
+      const evaluator = selectScheduleEvaluator(schedule, worker, workers, rules.probationEvalGrades);
+      if (!evaluator) continue;
+
+      planned.push({
+        id: null,
+        workDate: targetDate,
+        scheduleId: String(schedule.id ?? ""),
+        siteName:
+          resolveScScheduleSiteName(schedule) ||
+          String(schedule.projectName || schedule.clientName || "").trim(),
+        probationWorkerName: String(worker.name || "").trim(),
+        evaluatorName: String(evaluator.worker.name || evaluator.participantName || "").trim(),
+        evaluatorPhone: normalizePhone(evaluator.worker.phone),
+        status: "planned",
+        selectionReason: evaluator.selectionReason,
+      });
+      existingKeys.add(key);
+    }
+  }
+
+  const rows = [
+    ...existing.map((row) => ({
+      id: row.id,
+      workDate: row.workDate,
+      scheduleId: row.scheduleId,
+      siteName: row.siteName,
+      probationWorkerName: row.probationWorkerName,
+      evaluatorName: row.evaluatorName,
+      evaluatorPhone: normalizePhone(row.evaluatorPhone),
+      status: row.status,
+      sentAt: row.sentAt || null,
+      reminderSentAt: row.reminderSentAt || null,
+      submittedAt: row.submittedAt || null,
+      selectionReason: row.selectionReason,
+    })),
+    ...planned,
+  ].sort((a, b) => {
+    const site = a.siteName.localeCompare(b.siteName, "ko");
+    if (site !== 0) return site;
+    return a.probationWorkerName.localeCompare(b.probationWorkerName, "ko");
+  });
+
+  const statusInfo = getProbationEvalNotifyStatus();
+
+  return {
+    targetDate,
+    scheduleCount: schedules.length,
+    requestCount: rows.length,
+    pendingCount: rows.filter((row) => row.status === "pending" || row.status === "planned").length,
+    sentCount: rows.filter((row) => row.status === "sent").length,
+    submittedCount: rows.filter((row) => row.status === "submitted").length,
+    notifyCount: rows.filter(
+      (row) => row.evaluatorPhone && (row.status === "pending" || row.status === "planned" || row.status === "sent"),
+    ).length,
+    missingPhoneCount: rows.filter((row) => !row.evaluatorPhone).length,
+    templateConfigured: statusInfo.templateConfigured,
+    enabled: statusInfo.enabled,
+    reminderEnabled: statusInfo.reminderEnabled,
+    meta: statusInfo.meta,
+    rows,
+  };
 }
 
 export function getProbationEvalNotifyStatus() {

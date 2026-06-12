@@ -15029,6 +15029,108 @@ body.erp-col-resizing * {
   background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
 }
 
+.worker-portal-login-page {
+  position: relative;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background:
+    radial-gradient(circle at 18% 20%, rgba(251, 191, 36, 0.18), transparent 36%),
+    radial-gradient(circle at 82% 10%, rgba(245, 158, 11, 0.12), transparent 30%),
+    linear-gradient(145deg, #1c1917 0%, #292524 45%, #0c0a09 100%);
+}
+
+.worker-portal-login-page__glow {
+  pointer-events: none;
+  position: absolute;
+  inset: auto auto 18% -6rem;
+  width: 20rem;
+  height: 20rem;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(251, 191, 36, 0.12) 0%, transparent 68%);
+  filter: blur(10px);
+}
+
+.worker-portal-login-page__inner {
+  position: relative;
+  z-index: 1;
+}
+
+.worker-portal-login-page__hero {
+  max-width: 32rem;
+}
+
+.worker-portal-login-page__icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  margin-bottom: 1rem;
+  border-radius: 1rem;
+  background: rgba(251, 191, 36, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.22);
+}
+
+.worker-portal-login-page__logo {
+  display: block;
+  width: min(9.5rem, 38vw);
+  height: auto;
+  margin-bottom: 1rem;
+  border-radius: 9999px;
+  background: #fff;
+  padding: 0.55rem;
+  box-shadow:
+    0 16px 36px rgba(12, 10, 9, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.worker-portal-login-page__kicker {
+  margin: 0 0 0.65rem;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: #fcd34d;
+}
+
+.worker-portal-login-page__title {
+  margin: 0;
+  font-size: clamp(1.85rem, 4vw, 2.4rem);
+  font-weight: 900;
+  line-height: 1.15;
+  color: #fffbeb;
+}
+
+.worker-portal-login-page__desc {
+  margin: 1rem 0 0;
+  max-width: 28rem;
+  font-size: 1rem;
+  line-height: 1.65;
+  color: #d6d3d1;
+}
+
+.worker-portal-login-card {
+  backdrop-filter: blur(6px);
+}
+
+.worker-portal-login-submit {
+  background: linear-gradient(135deg, #b45309 0%, #d97706 100%);
+  color: #fff;
+}
+
+.worker-portal-login-submit:hover:not(:disabled) {
+  background: linear-gradient(135deg, #d97706 0%, #f59e0b 100%);
+}
+
+@media (max-width: 1023px) {
+  .worker-portal-login-page__hero {
+    margin-inline: auto;
+  }
+
+  .worker-portal-login-page__desc {
+    margin-inline: auto;
+  }
+}
+
 @media (max-width: 1023px) {
   .erp-login-page__hero {
     text-align: center;

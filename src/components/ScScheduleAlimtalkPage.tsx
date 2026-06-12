@@ -22,11 +22,12 @@ import {
   scScheduleAlimtalkWorkerPrefKey,
 } from "@/utils/scScheduleAlimtalkRecipientPrefs";
 import { ScWeeklyBriefingSection } from "@/components/ScWeeklyBriefingSection";
+import { ProbationEvalAlimtalkSection } from "@/components/ProbationEvalAlimtalkSection";
 import { NotificationSettingsPage } from "@/components/NotificationSettingsPage";
 
 const L = {
   pageTitle: "\uC54C\uB9BC\uD1A1",
-  pageDesc: "SC \uC77C\uC815 \uBC0F \uC8FC\uAC04 \uD604\uC7A5 \uBE0C\uB9AC\uD551 \uC54C\uB9BC\uD1A1 \uBC1C\uC1A1 \uBC0F \uC790\uB3D9 \uBC1C\uC1A1 \uC124\uC815",
+  pageDesc: "SC 일정, 주간 현장 브리핑, 시공자 평가 알림톡 발송 및 자동 발송 설정",
   tabSend: "\uBC1C\uC1A1",
   tabSettings: "\uC124\uC815",
   sectionTitle: "SC \uB0B4\uC77C \uC77C\uC815",
@@ -649,6 +650,7 @@ export function ScScheduleAlimtalkPage({
       </Card>
 
       <ScWeeklyBriefingSection clients={clients} />
+      <ProbationEvalAlimtalkSection />
       <ScAlimtalkClientContactPickerModal
         open={Boolean(contactPicker)}
         clientName={contactPicker?.clientName || ""}
