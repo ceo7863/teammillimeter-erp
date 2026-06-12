@@ -18122,15 +18122,12 @@ button:disabled,
 .erp-team-chat-incoming-banner__content {
   display: block;
   width: 100%;
-  border: none;
-  background: transparent;
   padding: 0;
   text-align: left;
-  cursor: pointer;
 }
 
 .erp-team-chat-incoming-banner__content:hover .erp-team-chat-incoming-banner__title {
-  color: #059669;
+  color: inherit;
 }
 
 .erp-team-chat-incoming-banner__body {

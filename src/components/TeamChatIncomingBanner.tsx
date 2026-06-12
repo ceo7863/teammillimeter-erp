@@ -27,6 +27,7 @@ export function TeamChatIncomingBanner() {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<TeamChatIncomingPromptDetail>).detail;
       if (!detail?.channelId) return;
+      clearPendingTeamChatThread();
       setPrompt(detail);
     };
     window.addEventListener(TEAM_CHAT_INCOMING_PROMPT_EVENT, handler as EventListener);
@@ -37,7 +38,6 @@ export function TeamChatIncomingBanner() {
     if (!prompt?.channelId) return;
     void openTeamChatThread(prompt.channelId);
     setPrompt(null);
-    clearPendingTeamChatThread();
   }, [prompt?.channelId]);
 
   if (!prompt) return null;
@@ -63,10 +63,10 @@ export function TeamChatIncomingBanner() {
             <X size={16} aria-hidden="true" />
           </button>
         </div>
-        <button type="button" className="erp-team-chat-incoming-banner__content" onClick={handleOpen}>
+        <div className="erp-team-chat-incoming-banner__content">
           <div className="erp-team-chat-incoming-banner__title">{title}</div>
           <div className="erp-team-chat-incoming-banner__preview">{preview}</div>
-        </button>
+        </div>
         <button type="button" className="erp-team-chat-incoming-banner__open" onClick={handleOpen}>
           {L.open}
         </button>

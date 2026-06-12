@@ -57,7 +57,7 @@ export function broadcastTeamChatUnreadChanged() {
   }
 }
 
-export function stashPendingTeamChatThread(channelId: string, options?: { inline?: boolean }) {
+export function stashPendingTeamChatThread(channelId: string, options?: { inline?: boolean; broadcast?: boolean }) {
   const id = String(channelId || "").trim();
   if (!id || typeof window === "undefined") return;
   try {
@@ -65,11 +65,21 @@ export function stashPendingTeamChatThread(channelId: string, options?: { inline
   } catch {
     // ignore
   }
+  if (options?.broadcast === false) return;
   broadcastTeamChatIncoming({
     channelId: id,
     openThread: options?.inline ? false : true,
     inline: options?.inline === true,
   });
+}
+
+export function notifyTeamChatThreadOpen(channelId: string) {
+  const id = String(channelId || "").trim();
+  if (!id) return;
+  broadcastTeamChatIncoming({ channelId: id, openThread: false, inline: true });
+  window.setTimeout(() => {
+    broadcastTeamChatIncoming({ channelId: id, openThread: false, inline: true });
+  }, 300);
 }
 
 export function peekPendingTeamChatThread(): string | null {
@@ -221,18 +231,18 @@ export function openTeamChatThread(channelId: string): Promise<TeamChatThreadOpe
   const failed: TeamChatThreadOpenResult = { listOpened: false, threadOpened: false };
   if (!id || typeof window === "undefined") return Promise.resolve(failed);
 
-  if (isTeamChatDesktopPopupMode()) {
-    stashPendingTeamChatThread(id, { inline: true });
+  clearPendingTeamChatThread();
 
+  if (isTeamChatDesktopPopupMode()) {
     if (isTeamChatPopupWindow() && !isTeamChatThreadPopupWindow()) {
       raiseTeamChatPopup(window);
-      scheduleTeamChatIncomingBroadcast(id, [0, 250, 800]);
+      notifyTeamChatThreadOpen(id);
       return Promise.resolve({ listOpened: true, threadOpened: true });
     }
 
     const listPopup = openTeamChatPopup({ raise: true });
     if (isTeamChatPopupActuallyOpen(listPopup)) {
-      scheduleTeamChatIncomingBroadcast(id);
+      notifyTeamChatThreadOpen(id);
       return Promise.resolve({ listOpened: true, threadOpened: true });
     }
 
@@ -250,5 +260,6 @@ export function openTeamChatThread(channelId: string): Promise<TeamChatThreadOpe
 
 export function promptTeamChatIncomingOpen(detail: TeamChatIncomingPromptDetail) {
   if (typeof window === "undefined" || isTeamChatPopupWindow()) return;
+  clearPendingTeamChatThread();
   window.dispatchEvent(new CustomEvent(TEAM_CHAT_INCOMING_PROMPT_EVENT, { detail }));
 }

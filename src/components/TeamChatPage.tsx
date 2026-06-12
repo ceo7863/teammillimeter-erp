@@ -915,10 +915,12 @@ export const TeamChatPage = memo(function TeamChatPage({
   handleSelectChannelRef.current = handleSelectChannel;
   selectChannelInlineRef.current = selectChannelInline;
 
+  const pendingHandledRef = useRef(false);
   useEffect(() => {
-    if (threadOnly) return;
+    if (threadOnly || pendingHandledRef.current) return;
     const pendingThreadId = consumePendingTeamChatThread();
     if (!pendingThreadId) return;
+    pendingHandledRef.current = true;
     suppressReadUntilFocusRef.current = true;
     void refreshChannels().then(() => {
       if (openThreadInPopup || (standalone && listOnly)) {
@@ -927,7 +929,9 @@ export const TeamChatPage = memo(function TeamChatPage({
       }
       handleSelectChannel(pendingThreadId);
     });
-  }, [handleSelectChannel, listOnly, openThreadInPopup, refreshChannels, selectChannelInline, standalone, threadOnly]);
+    // Legacy pending thread from an older session — handle once on mount only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleStartDm = useCallback(
     async (otherUserId: number) => {
