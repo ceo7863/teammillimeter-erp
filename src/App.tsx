@@ -8573,7 +8573,7 @@ export default function TeammillimeterErpMvp() {
     enabled: dataReady,
   });
   const { count: teamChatUnreadCount, refresh: refreshTeamChatUnread } = useTeamChatUnreadCount(currentUser, {
-    pollMs: 10000,
+    pollMs: 30000,
     enabled: dataReady,
   });
   const handleTeamChatUnreadChange = useCallback(() => {

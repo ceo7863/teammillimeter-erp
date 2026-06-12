@@ -513,6 +513,47 @@ export const TeamChatPage = memo(function TeamChatPage({
     return rows;
   }, []);
 
+  const refreshChannelsTimerRef = useRef<number | null>(null);
+  const scheduleRefreshChannels = useCallback(() => {
+    if (refreshChannelsTimerRef.current) window.clearTimeout(refreshChannelsTimerRef.current);
+    refreshChannelsTimerRef.current = window.setTimeout(() => {
+      refreshChannelsTimerRef.current = null;
+      void refreshChannels();
+    }, 400);
+  }, [refreshChannels]);
+
+  useEffect(
+    () => () => {
+      if (refreshChannelsTimerRef.current) window.clearTimeout(refreshChannelsTimerRef.current);
+    },
+    [],
+  );
+
+  const patchChannelWithMessage = useCallback(
+    (message: TeamChatMessage, options?: { incrementUnread?: boolean }) => {
+      const channelId = String(message.channelId || "").trim();
+      if (!channelId) return;
+      const preview =
+        String(message.body || "").trim() ||
+        (message.attachments?.length ? "\uCCA8\uBD80\uD30C\uC77C" : "\uC0C8 \uBA54\uC2DC\uC9C0");
+      setChannels((prev) => {
+        const index = prev.findIndex((row) => row.id === channelId);
+        if (index < 0) return prev;
+        const row = prev[index];
+        const next = [...prev];
+        next[index] = {
+          ...row,
+          lastMessageAt: message.createdAt || row.lastMessageAt,
+          lastMessagePreview: preview.slice(0, 120),
+          lastMessageUserName: message.userName || row.lastMessageUserName,
+          unreadCount: options?.incrementUnread ? row.unreadCount + 1 : row.unreadCount,
+        };
+        return sortTeamChatChannels(next);
+      });
+    },
+    [],
+  );
+
   const notifyUnreadChanged = useCallback(() => {
     onUnreadChangeRef.current?.();
     broadcastTeamChatUnreadChanged();
@@ -523,8 +564,8 @@ export const TeamChatPage = memo(function TeamChatPage({
     if (!canAutoMarkTeamChatRead()) return;
     await markTeamChatChannelRead(channelId, messageId);
     notifyUnreadChanged();
-    await refreshChannels();
-  }, [notifyUnreadChanged, refreshChannels]);
+    scheduleRefreshChannels();
+  }, [notifyUnreadChanged, scheduleRefreshChannels]);
 
   const flushPendingRead = useCallback(async () => {
     if (suppressReadUntilFocusRef.current) return;
@@ -534,8 +575,8 @@ export const TeamChatPage = memo(function TeamChatPage({
     if (!channelId || lastId <= 0) return;
     await markTeamChatChannelRead(channelId, lastId);
     notifyUnreadChanged();
-    await refreshChannels();
-  }, [notifyUnreadChanged, refreshChannels]);
+    scheduleRefreshChannels();
+  }, [notifyUnreadChanged, scheduleRefreshChannels]);
 
   const handleMessagesScroll = useCallback(() => {
     const node = listRef.current;
@@ -561,6 +602,24 @@ export const TeamChatPage = memo(function TeamChatPage({
     });
     if (incoming.id > lastMessageIdRef.current) {
       lastMessageIdRef.current = incoming.id;
+    }
+  }, []);
+
+  const replaceSelfOptimistic = useCallback((message: TeamChatMessage) => {
+    setMessages((prev) => {
+      const withoutTemps = prev.filter(
+        (row) => !(row.id < 0 && Number(row.userId) === Number(message.userId)),
+      );
+      const index = withoutTemps.findIndex((row) => row.id === message.id);
+      if (index >= 0) {
+        const next = [...withoutTemps];
+        next[index] = message;
+        return next;
+      }
+      return [...withoutTemps, message];
+    });
+    if (message.id > lastMessageIdRef.current) {
+      lastMessageIdRef.current = message.id;
     }
   }, []);
 
@@ -640,14 +699,14 @@ export const TeamChatPage = memo(function TeamChatPage({
       const lastId = rows[rows.length - 1].id;
       lastMessageIdRef.current = lastId;
       if (isNearBottomRef.current) {
-        await tryMarkChannelRead(channelId, lastId);
+        void tryMarkChannelRead(channelId, lastId);
       }
       if (isNearBottomRef.current) {
         window.requestAnimationFrame(() => scrollToBottom());
       }
+      scheduleRefreshChannels();
     }
-    await refreshChannels();
-  }, [refreshChannels, scrollToBottom, tryMarkChannelRead]);
+  }, [scheduleRefreshChannels, scrollToBottom, tryMarkChannelRead]);
 
   const refreshReadState = useCallback(async (channelId: string) => {
     try {
@@ -674,20 +733,22 @@ export const TeamChatPage = memo(function TeamChatPage({
         return;
       }
       if (event.type === "channel.updated") {
-        void refreshChannels();
+        scheduleRefreshChannels();
         notifyUnreadChanged();
         return;
       }
       const message = event.message as TeamChatMessage | undefined;
       if (!message?.id) return;
       if (event.type === "message.new") {
-        if (String(message.channelId) === String(selectedChannelIdRef.current)) {
-          mergeMessage(message);
-          const isOwnMessage = Number(message.userId) === selfId;
-          if (isOwnMessage || canAutoMarkTeamChatRead()) {
+        const isCurrentThread = String(message.channelId) === String(selectedChannelIdRef.current);
+        const isOwn = Number(message.userId) === selfId;
+        patchChannelWithMessage(message, { incrementUnread: !isOwn && !isCurrentThread });
+        if (isCurrentThread) {
+          if (isOwn) replaceSelfOptimistic(message);
+          else mergeMessage(message);
+          if (isOwn || canAutoMarkTeamChatRead()) {
             void tryMarkChannelRead(message.channelId, message.id);
           }
-          const isOwn = Number(message.userId) === selfId;
           if (isOwn || isNearBottomRef.current) {
             if (isOwn) isNearBottomRef.current = true;
             window.requestAnimationFrame(() => scrollToBottom());
@@ -696,7 +757,7 @@ export const TeamChatPage = memo(function TeamChatPage({
             raiseTeamChatPopup(window);
           }
         }
-        void refreshChannels();
+        scheduleRefreshChannels();
         notifyUnreadChanged();
         return;
       }
@@ -704,10 +765,21 @@ export const TeamChatPage = memo(function TeamChatPage({
         if (String(message.channelId) === String(selectedChannelIdRef.current)) {
           mergeMessage(message);
         }
-        void refreshChannels();
+        patchChannelWithMessage(message);
+        scheduleRefreshChannels();
       }
     },
-    [mergeMessage, notifyUnreadChanged, refreshChannels, scrollToBottom, selfId, standalone, tryMarkChannelRead],
+    [
+      mergeMessage,
+      notifyUnreadChanged,
+      patchChannelWithMessage,
+      replaceSelfOptimistic,
+      scheduleRefreshChannels,
+      scrollToBottom,
+      selfId,
+      standalone,
+      tryMarkChannelRead,
+    ],
   );
 
   const { connected: sseConnected } = useTeamChatEvents({
@@ -818,7 +890,7 @@ export const TeamChatPage = memo(function TeamChatPage({
 
   useEffect(() => {
     if (!selectedChannelId || !isPageActive) return;
-    const intervalMs = sseConnected ? 30000 : 5000;
+    const intervalMs = sseConnected ? 20000 : 2000;
     const timer = window.setInterval(() => {
       void pollMessages(selectedChannelId).catch(() => {});
     }, intervalMs);
@@ -1177,49 +1249,79 @@ export const TeamChatPage = memo(function TeamChatPage({
     if (!selectedChannelId || !canSend) return;
     const body = draft.trim();
     const attachmentIds = pendingAttachments.map((row) => row.id);
+    const link = pendingLink;
+    const replyTo = replyingTo;
+    const tempId = -Date.now();
+    const optimistic: TeamChatMessage = {
+      id: tempId,
+      channelId: selectedChannelId,
+      userId: selfId,
+      userName: String(currentUser?.name || currentUser?.loginId || "").trim() || "\uB098",
+      body:
+        body ||
+        (link?.label ? link.label : "") ||
+        (pendingAttachments.length ? "\uCCA8\uBD80\uD30C\uC77C" : ""),
+      createdAt: new Date().toISOString(),
+      link: link ?? null,
+      replyTo: replyTo
+        ? { id: replyTo.id, userName: replyTo.userName, body: replyTo.body, deleted: replyTo.isDeleted }
+        : null,
+    };
+    mergeMessage(optimistic);
+    patchChannelWithMessage(optimistic, { incrementUnread: false });
+    setDraft("");
+    setPendingLink(null);
+    setReplyingTo(null);
+    for (const row of pendingAttachments) {
+      if (row.previewUrl) URL.revokeObjectURL(row.previewUrl);
+    }
+    setPendingAttachments([]);
     setSending(true);
     setError("");
+    isNearBottomRef.current = true;
+    window.requestAnimationFrame(() => scrollToBottom());
     try {
       const message = await sendTeamChatMessage(selectedChannelId, body, {
-        link: pendingLink,
+        link,
         attachmentIds,
-        replyToMessageId: replyingTo?.id ?? null,
+        replyToMessageId: replyTo?.id ?? null,
       });
-      setDraft("");
-      setPendingLink(null);
-      setReplyingTo(null);
-      for (const row of pendingAttachments) {
-        if (row.previewUrl) URL.revokeObjectURL(row.previewUrl);
-      }
-      setPendingAttachments([]);
-      mergeMessage(message);
+      replaceSelfOptimistic(message);
+      patchChannelWithMessage(message, { incrementUnread: false });
       suppressReadUntilFocusRef.current = false;
-      await markTeamChatChannelRead(selectedChannelId, message.id);
-      await refreshChannels();
-      await refreshReadState(selectedChannelId);
-      notifyUnreadChanged();
+      void markTeamChatChannelRead(selectedChannelId, message.id).then(() => {
+        notifyUnreadChanged();
+        scheduleRefreshChannels();
+      });
+      void refreshReadState(selectedChannelId);
       isNearBottomRef.current = true;
       if (standalone && isTeamChatPopupWindow()) {
         raiseTeamChatPopup(window);
       }
       window.requestAnimationFrame(() => scrollToBottom());
     } catch {
+      setMessages((prev) => prev.filter((row) => row.id !== tempId));
       setError(L.sendError);
     } finally {
       setSending(false);
     }
   }, [
     canSend,
+    currentUser?.loginId,
+    currentUser?.name,
     draft,
     mergeMessage,
+    patchChannelWithMessage,
     pendingAttachments,
     pendingLink,
-    refreshChannels,
     refreshReadState,
-    replyingTo?.id,
+    replyingTo,
+    replaceSelfOptimistic,
+    scheduleRefreshChannels,
     scrollToBottom,
     selectedChannelId,
     notifyUnreadChanged,
+    selfId,
   ]);
 
   const handleBackToList = useCallback(() => {

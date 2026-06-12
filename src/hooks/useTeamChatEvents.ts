@@ -1,22 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { getAuthToken, isApiModeEnabled } from "@/utils/erpApi";
+import { isApiModeEnabled } from "@/utils/erpApi";
+import { teamChatEventHub, type TeamChatStreamEvent } from "@/utils/teamChatEventHub";
 
-export type TeamChatStreamEvent =
-  | { type: "message.new"; channelId: string; message: unknown }
-  | { type: "message.updated"; channelId: string; message: unknown }
-  | { type: "message.deleted"; channelId: string; message: unknown }
-  | { type: "read.updated"; channelId: string; userId: number; lastReadMessageId: number }
-  | { type: "channel.updated"; channelId: string };
+export type { TeamChatStreamEvent };
 
 type Options = {
   enabled?: boolean;
   onEvent: (event: TeamChatStreamEvent) => void;
 };
 
-function apiBase() {
-  return import.meta.env.VITE_API_BASE || "/api";
-}
-
+/** One shared SSE connection per browser tab; multiple hooks subscribe to the same stream. */
 export function useTeamChatEvents(options: Options) {
   const onEventRef = useRef(options.onEvent);
   onEventRef.current = options.onEvent;
@@ -27,43 +20,10 @@ export function useTeamChatEvents(options: Options) {
       setConnected(false);
       return;
     }
-    const token = getAuthToken();
-    if (!token) return;
-
-    let es: EventSource | null = null;
-    let retryTimer: ReturnType<typeof window.setTimeout> | null = null;
-    let retryMs = 2000;
-
-    const connect = () => {
-      const url = `${apiBase()}/team-chat/events?token=${encodeURIComponent(token)}`;
-      es = new EventSource(url);
-      es.onopen = () => {
-        setConnected(true);
-        retryMs = 2000;
-      };
-      es.onmessage = (event) => {
-        try {
-          const payload = JSON.parse(event.data) as TeamChatStreamEvent;
-          if (payload?.type) onEventRef.current(payload);
-        } catch {
-          // ignore
-        }
-      };
-      es.onerror = () => {
-        setConnected(false);
-        es?.close();
-        es = null;
-        retryTimer = window.setTimeout(connect, retryMs);
-        retryMs = Math.min(retryMs * 1.5, 30000);
-      };
-    };
-
-    connect();
-    return () => {
-      setConnected(false);
-      if (retryTimer) window.clearTimeout(retryTimer);
-      es?.close();
-    };
+    return teamChatEventHub.subscribe(
+      (event) => onEventRef.current(event),
+      (next) => setConnected(next),
+    );
   }, [options.enabled]);
 
   return { connected };
