@@ -3450,23 +3450,25 @@ html[data-erp-csr-cal-drawer-open] .erp-client-calendars-page__body {
   overflow: hidden;
 }
 
-.erp-sc-embed-page iframe,
-.erp-sc-embed-page__iframe {
-  display: block;
-  border: 0;
-}
-
 .erp-sc-embed-page__frame {
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
 }
 
+.erp-sc-embed-page__viewport {
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.erp-sc-embed-page iframe,
 .erp-sc-embed-page__iframe {
-  position: absolute;
-  top: 0;
-  left: 0;
+  display: block;
+  border: 0;
 }
 
 .erp-main--fill {

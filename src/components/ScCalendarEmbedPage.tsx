@@ -13,20 +13,43 @@ const L = {
   hint: "SC 전체 메뉴(캘린더·프로젝트·인원·알림 등)를 ERP 안에서 그대로 사용할 수 있습니다.",
 };
 
-const MIN_EMBED_SCALE = 0.55;
+const MIN_EMBED_SCALE = 0.5;
+
+type EmbedLayout = {
+  scale: number;
+  viewportW: number;
+  viewportH: number;
+  visualW: number;
+  visualH: number;
+};
+
+function computeEmbedLayout(frame: HTMLElement): EmbedLayout {
+  const viewportW = window.innerWidth;
+  const viewportH = window.innerHeight;
+  const availableW = frame.clientWidth;
+  const availableH = frame.clientHeight;
+
+  if (availableW <= 0 || availableH <= 0 || viewportW <= 0 || viewportH <= 0) {
+    return { scale: 1, viewportW, viewportH, visualW: availableW, visualH: availableH };
+  }
+
+  const scale = Math.max(
+    MIN_EMBED_SCALE,
+    Math.min(1, availableW / viewportW, availableH / viewportH),
+  );
+
+  return {
+    scale,
+    viewportW,
+    viewportH,
+    visualW: viewportW * scale,
+    visualH: viewportH * scale,
+  };
+}
 
 type ScCalendarEmbedPageProps = {
   onOpenAppMenu?: () => void;
 };
-
-function computeEmbedScale(container: HTMLElement) {
-  const { clientWidth, clientHeight } = container;
-  if (clientWidth <= 0 || clientHeight <= 0) return 1;
-
-  const scaleW = clientWidth / window.innerWidth;
-  const scaleH = clientHeight / window.innerHeight;
-  return Math.max(MIN_EMBED_SCALE, Math.min(1, scaleW, scaleH));
-}
 
 export function ScCalendarEmbedPage({ onOpenAppMenu }: ScCalendarEmbedPageProps) {
   const isMobileLayout = useTeamChatMobileLayout();
@@ -34,7 +57,13 @@ export function ScCalendarEmbedPage({ onOpenAppMenu }: ScCalendarEmbedPageProps)
   const [scBaseUrl, setScBaseUrl] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [scale, setScale] = useState(1);
+  const [layout, setLayout] = useState<EmbedLayout>(() => ({
+    scale: 1,
+    viewportW: typeof window !== "undefined" ? window.innerWidth : 1280,
+    viewportH: typeof window !== "undefined" ? window.innerHeight : 800,
+    visualW: 0,
+    visualH: 0,
+  }));
   const frameRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -57,21 +86,23 @@ export function ScCalendarEmbedPage({ onOpenAppMenu }: ScCalendarEmbedPageProps)
   useEffect(() => {
     if (!embedUrl) return;
 
-    const updateScale = () => {
+    const updateLayout = () => {
       const frame = frameRef.current;
       if (!frame) return;
-      setScale(computeEmbedScale(frame));
+      setLayout(computeEmbedLayout(frame));
     };
 
-    updateScale();
+    updateLayout();
+    const raf = window.requestAnimationFrame(updateLayout);
     const frame = frameRef.current;
-    const observer = frame ? new ResizeObserver(updateScale) : null;
+    const observer = frame ? new ResizeObserver(updateLayout) : null;
     if (frame && observer) observer.observe(frame);
-    window.addEventListener("resize", updateScale);
+    window.addEventListener("resize", updateLayout);
 
     return () => {
+      window.cancelAnimationFrame(raf);
       observer?.disconnect();
-      window.removeEventListener("resize", updateScale);
+      window.removeEventListener("resize", updateLayout);
     };
   }, [embedUrl]);
 
@@ -99,8 +130,6 @@ export function ScCalendarEmbedPage({ onOpenAppMenu }: ScCalendarEmbedPageProps)
     if (!url) return;
     window.open(url, "_blank", "noopener,noreferrer");
   };
-
-  const iframeSize = scale < 1 ? `${100 / scale}%` : "100%";
 
   return (
     <div className={`erp-sc-embed-page flex min-h-0 flex-1 flex-col ${isMobileLayout ? "erp-sc-embed-page--mobile" : ""}`}>
@@ -143,27 +172,31 @@ export function ScCalendarEmbedPage({ onOpenAppMenu }: ScCalendarEmbedPageProps)
           </Button>
         </div>
       ) : (
-        <div
-          ref={frameRef}
-          className="erp-sc-embed-page__frame"
-          style={{ "--sc-embed-scale": scale } as React.CSSProperties}
-        >
-          <iframe
-            ref={iframeRef}
-            key={embedUrl}
-            title={L.title}
-            src={embedUrl}
-            className="erp-sc-embed-page__iframe border-0 bg-white"
+        <div ref={frameRef} className="erp-sc-embed-page__frame">
+          <div
+            className="erp-sc-embed-page__viewport"
             style={{
-              width: iframeSize,
-              height: iframeSize,
-              transform: scale < 1 ? `scale(${scale})` : undefined,
-              transformOrigin: "top left",
+              width: layout.visualW > 0 ? `${layout.visualW}px` : "100%",
+              height: layout.visualH > 0 ? `${layout.visualH}px` : "100%",
             }}
-            tabIndex={0}
-            allow="clipboard-read; clipboard-write"
-            referrerPolicy="no-referrer"
-          />
+          >
+            <iframe
+              ref={iframeRef}
+              key={embedUrl}
+              title={L.title}
+              src={embedUrl}
+              className="erp-sc-embed-page__iframe border-0 bg-white"
+              style={{
+                width: `${layout.viewportW}px`,
+                height: `${layout.viewportH}px`,
+                transform: layout.scale < 1 ? `scale(${layout.scale})` : undefined,
+                transformOrigin: "top left",
+              }}
+              tabIndex={0}
+              allow="clipboard-read; clipboard-write"
+              referrerPolicy="no-referrer"
+            />
+          </div>
         </div>
       )}
     </div>
