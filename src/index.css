@@ -17820,6 +17820,50 @@ button:disabled,
   filter: brightness(1.05);
 }
 
+.erp-team-chat-fab {
+  position: fixed;
+  z-index: 13999;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: none;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #059669, #0d9488);
+  color: #fff;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  box-shadow: 0 12px 32px rgba(5, 150, 105, 0.35);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.erp-team-chat-fab--dragging {
+  cursor: grabbing;
+}
+
+.erp-team-chat-fab:hover {
+  filter: brightness(1.05);
+}
+
+.erp-team-chat-fab__badge {
+  position: absolute;
+  top: -0.25rem;
+  right: -0.15rem;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.35rem;
+  border-radius: 9999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 800;
+  line-height: 1.25rem;
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.45);
+}
+
 .erp-chat-panel {
   position: fixed;
   right: 1rem;

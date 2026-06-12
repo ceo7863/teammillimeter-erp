@@ -67,6 +67,7 @@ import { AuditProvider, useAudit } from "@/context/AuditContext";
 import { AuditField, AuditCellHint, EntityAuditButton } from "@/components/AuditField";
 import { AuditLogPage } from "@/components/AuditLogPage";
 import { ErpChatWidget } from "@/components/ErpChatWidget";
+import { TeamChatFab } from "@/components/TeamChatFab";
 import { ErpChatStandalonePage } from "@/components/ErpChatStandalonePage";
 import { consumePendingChatAction } from "@/utils/erpChatPendingAction";
 import { openErpChatGuidePdf, type ErpChatAction } from "@/utils/erpChatApi";
@@ -11627,7 +11628,16 @@ export default function TeammillimeterErpMvp() {
         }}
       />
       {apiMode && currentUser ? (
-        <ErpChatWidget currentUser={currentUser} enabled={dataReady} onAction={handleErpChatAction} />
+        <>
+          <TeamChatFab
+            currentUser={currentUser}
+            enabled={dataReady}
+            unreadCount={teamChatUnreadCount}
+            hidden={active === "teamChat" && !isTeamChatDesktopPopupMode()}
+            onOpen={openTeamChatPage}
+          />
+          <ErpChatWidget currentUser={currentUser} enabled={dataReady} onAction={handleErpChatAction} />
+        </>
       ) : null}
       <ClientBusinessRegViewModal
         open={chatBusinessRegView != null}

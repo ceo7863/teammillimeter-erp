@@ -1,5 +1,8 @@
 import { getAccessiblePageDefs, isErpPageKey, type ErpPageDef, type ErpPageKey } from "./pageAccess";
 
+/** Sidebar 대신 플로팅 버튼으로 여는 페이지 */
+export const FAB_LAUNCHER_PAGE_KEYS: ErpPageKey[] = ["teamChat"];
+
 const STORAGE_PREFIX = "teammillimeter-erp-sidebar-order";
 const HIDDEN_STORAGE_PREFIX = "teammillimeter-erp-sidebar-hidden";
 
@@ -205,7 +208,9 @@ export function resolveVisibleSidebarPages(
   order: ErpPageKey[] | null | undefined,
   hidden: ErpPageKey[] | null | undefined,
 ): ErpPageDef[] {
-  return filterPageDefsByHidden(sortPageDefsByOrder(getAccessiblePageDefs(user), order), hidden);
+  return filterPageDefsByHidden(sortPageDefsByOrder(getAccessiblePageDefs(user), order), hidden).filter(
+    (page) => !FAB_LAUNCHER_PAGE_KEYS.includes(page.key),
+  );
 }
 
 export function sortPageDefsByOrder(pages: ErpPageDef[], order: ErpPageKey[] | null | undefined): ErpPageDef[] {
