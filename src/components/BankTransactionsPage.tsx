@@ -1281,9 +1281,15 @@ function BankTransactionsPageComponent({
       return;
     }
 
-    const tx = ledgerSyncedTransactions.find((row) => String(row.id) === txId);
+    const tx =
+      ledgerSyncedTransactions.find((row) => String(row.id) === txId) ??
+      bankTransactions.find((row) => String(row.id) === txId);
+
     if (!tx) {
-      setSearchQuery(txId);
+      // Wait until bank rows are loaded (e.g. navigation from team chat popup).
+      if (bankTransactions.length === 0) return;
+
+      setSearchQuery("");
       setPeriodKey("all");
       setDateFilter({ startDate: "", endDate: "" });
       setFilterResetKey((key) => key + 1);
@@ -1307,6 +1313,7 @@ function BankTransactionsPageComponent({
       }, 120);
     });
   }, [
+    bankTransactions,
     isPageActive,
     ledgerSyncedTransactions,
     onPendingBankTransactionIdConsumed,

@@ -35,7 +35,7 @@ import {
   type TeamChatAttachment,
 } from "@/utils/teamChatAttachments";
 import { TEAM_CHAT_LINK_LABELS, teamChatLinkToAction, type TeamChatLink } from "@/utils/teamChatLinks";
-import { dismissTeamChatShare, isTeamChatShareDismissed, peekTeamChatShare, peekTeamChatThreadHandoff, stashTeamChatShare, consumePendingTeamChatThread, consumeTeamChatShare, consumeTeamChatThreadHandoff, broadcastTeamChatUnreadChanged, TEAM_CHAT_RESET_LIST_EVENT, TEAM_CHAT_SHARE_CHANNEL, stashTeamChatThreadHandoff, isTeamChatThreadDismissed, clearTeamChatThreadDismissed, type TeamChatSharePayload } from "@/utils/teamChatShare";
+import { dismissTeamChatShare, clearTeamChatShareLocally, clearTeamChatThreadHandoff, consumeTeamChatShare, isTeamChatShareDismissed, peekTeamChatShare, peekTeamChatThreadHandoff, stashTeamChatShare, consumePendingTeamChatThread, consumeTeamChatThreadHandoff, broadcastTeamChatUnreadChanged, TEAM_CHAT_RESET_LIST_EVENT, TEAM_CHAT_SHARE_CHANNEL, stashTeamChatThreadHandoff, isTeamChatThreadDismissed, clearTeamChatThreadDismissed, type TeamChatSharePayload } from "@/utils/teamChatShare";
 import {
   isTeamChatDesktopPopupMode,
   openTeamChatPopup,
@@ -642,7 +642,12 @@ export const TeamChatPage = memo(function TeamChatPage({
   }, []);
 
   const applyPendingShare = useCallback((channelRows: TeamChatChannel[]) => {
-    if (shareAppliedRef.current || isTeamChatShareDismissed()) return;
+    if (isTeamChatShareDismissed()) {
+      clearTeamChatThreadHandoff();
+      consumeTeamChatShare();
+      return;
+    }
+    if (shareAppliedRef.current) return;
 
     let payload: TeamChatSharePayload | null = null;
     if (threadOnly || !openThreadInPopup) {
@@ -891,6 +896,7 @@ export const TeamChatPage = memo(function TeamChatPage({
           return;
         }
         if (event.data?.type === "share-dismissed") {
+          clearTeamChatShareLocally();
           shareAppliedRef.current = true;
           setPendingLink(null);
           return;
@@ -1343,6 +1349,9 @@ export const TeamChatPage = memo(function TeamChatPage({
         attachmentIds,
         replyToMessageId: replyTo?.id ?? null,
       });
+      consumeTeamChatShare();
+      clearTeamChatThreadHandoff();
+      shareAppliedRef.current = true;
       replaceSelfOptimistic(message);
       patchChannelWithMessage(message, { incrementUnread: false });
       suppressReadUntilFocusRef.current = false;

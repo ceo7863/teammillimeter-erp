@@ -21,7 +21,19 @@ const PENDING_TEAM_CHAT_THREAD_HANDOFF_KEY = "teammillimeter-erp-pending-team-ch
 const TEAM_CHAT_SHARE_DISMISSED_KEY = "teammillimeter-erp-team-chat-share-dismissed";
 const DISMISSED_THREAD_PREFIX = "teammillimeter-erp-team-chat-dismissed-thread:";
 const DISMISSED_THREAD_TTL_MS = 5000;
-const SHARE_DISMISSED_TTL_MS = 30000;
+
+/** Remove share/handoff keys from every storage bucket (legacy session + local). */
+function clearTeamChatShareStorageKeys() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(PENDING_TEAM_CHAT_SHARE_KEY);
+    window.localStorage.removeItem(PENDING_TEAM_CHAT_THREAD_HANDOFF_KEY);
+    window.sessionStorage.removeItem(PENDING_TEAM_CHAT_SHARE_KEY);
+    window.sessionStorage.removeItem(PENDING_TEAM_CHAT_THREAD_HANDOFF_KEY);
+  } catch {
+    // ignore
+  }
+}
 
 const incomingBroadcastTimers = new Map<string, number[]>();
 export const TEAM_CHAT_OPEN_EVENT = "erp-open-team-chat";
@@ -109,9 +121,7 @@ export function stashTeamChatShare(payload: TeamChatSharePayload, options?: { br
   if (typeof window === "undefined") return;
   clearTeamChatShareDismissed();
   try {
-    const raw = JSON.stringify(payload);
-    window.localStorage.setItem(PENDING_TEAM_CHAT_SHARE_KEY, raw);
-    window.sessionStorage.setItem(PENDING_TEAM_CHAT_SHARE_KEY, raw);
+    window.localStorage.setItem(PENDING_TEAM_CHAT_SHARE_KEY, JSON.stringify(payload));
   } catch {
     // ignore
   }
@@ -126,9 +136,7 @@ export function stashTeamChatShare(payload: TeamChatSharePayload, options?: { br
 export function peekTeamChatShare(): TeamChatSharePayload | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw =
-      window.sessionStorage.getItem(PENDING_TEAM_CHAT_SHARE_KEY) ||
-      window.localStorage.getItem(PENDING_TEAM_CHAT_SHARE_KEY);
+    const raw = window.localStorage.getItem(PENDING_TEAM_CHAT_SHARE_KEY);
     if (!raw) return null;
     return JSON.parse(raw) as TeamChatSharePayload;
   } catch {
@@ -139,7 +147,7 @@ export function peekTeamChatShare(): TeamChatSharePayload | null {
 export function clearTeamChatShareDismissed() {
   if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.removeItem(TEAM_CHAT_SHARE_DISMISSED_KEY);
+    window.localStorage.removeItem(TEAM_CHAT_SHARE_DISMISSED_KEY);
   } catch {
     // ignore
   }
@@ -148,7 +156,7 @@ export function clearTeamChatShareDismissed() {
 export function markTeamChatShareDismissed() {
   if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.setItem(TEAM_CHAT_SHARE_DISMISSED_KEY, String(Date.now()));
+    window.localStorage.setItem(TEAM_CHAT_SHARE_DISMISSED_KEY, "1");
   } catch {
     // ignore
   }
@@ -157,14 +165,7 @@ export function markTeamChatShareDismissed() {
 export function isTeamChatShareDismissed() {
   if (typeof window === "undefined") return false;
   try {
-    const raw = window.sessionStorage.getItem(TEAM_CHAT_SHARE_DISMISSED_KEY);
-    if (!raw) return false;
-    const dismissedAt = Number(raw);
-    if (!Number.isFinite(dismissedAt) || Date.now() - dismissedAt > SHARE_DISMISSED_TTL_MS) {
-      window.sessionStorage.removeItem(TEAM_CHAT_SHARE_DISMISSED_KEY);
-      return false;
-    }
-    return true;
+    return window.localStorage.getItem(TEAM_CHAT_SHARE_DISMISSED_KEY) === "1";
   } catch {
     return false;
   }
@@ -179,32 +180,35 @@ export function broadcastTeamChatShareDismissed() {
   }
 }
 
+/** Clear pending share in this window (no broadcast). */
+export function clearTeamChatShareLocally() {
+  clearTeamChatShareStorageKeys();
+  markTeamChatShareDismissed();
+}
+
 /** Clear all pending share payloads across list/thread windows. */
 export function dismissTeamChatShare() {
-  consumeTeamChatShare();
-  clearTeamChatThreadHandoff();
-  markTeamChatShareDismissed();
+  clearTeamChatShareLocally();
   broadcastTeamChatShareDismissed();
 }
 
 export function peekTeamChatThreadHandoff(): TeamChatSharePayload | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.sessionStorage.getItem(PENDING_TEAM_CHAT_THREAD_HANDOFF_KEY);
+    const raw = window.localStorage.getItem(PENDING_TEAM_CHAT_THREAD_HANDOFF_KEY);
     if (!raw) return null;
     return JSON.parse(raw) as TeamChatSharePayload;
   } catch {
     return null;
   }
 }
+
 export function consumeTeamChatShare(): TeamChatSharePayload | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw =
-      window.sessionStorage.getItem(PENDING_TEAM_CHAT_SHARE_KEY) ||
-      window.localStorage.getItem(PENDING_TEAM_CHAT_SHARE_KEY);
-    window.sessionStorage.removeItem(PENDING_TEAM_CHAT_SHARE_KEY);
+    const raw = window.localStorage.getItem(PENDING_TEAM_CHAT_SHARE_KEY);
     window.localStorage.removeItem(PENDING_TEAM_CHAT_SHARE_KEY);
+    window.sessionStorage.removeItem(PENDING_TEAM_CHAT_SHARE_KEY);
     if (!raw) return null;
     return JSON.parse(raw) as TeamChatSharePayload;
   } catch {
@@ -307,11 +311,11 @@ export function isTeamChatThreadDismissed(channelId: string) {
   }
 }
 
-/** One-time list→thread share handoff (session only, not re-broadcast). */
+/** One-time list→thread share handoff (localStorage, not re-broadcast). */
 export function stashTeamChatThreadHandoff(payload: TeamChatSharePayload) {
   if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.setItem(PENDING_TEAM_CHAT_THREAD_HANDOFF_KEY, JSON.stringify(payload));
+    window.localStorage.setItem(PENDING_TEAM_CHAT_THREAD_HANDOFF_KEY, JSON.stringify(payload));
   } catch {
     // ignore
   }
@@ -320,7 +324,8 @@ export function stashTeamChatThreadHandoff(payload: TeamChatSharePayload) {
 export function consumeTeamChatThreadHandoff(): TeamChatSharePayload | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.sessionStorage.getItem(PENDING_TEAM_CHAT_THREAD_HANDOFF_KEY);
+    const raw = window.localStorage.getItem(PENDING_TEAM_CHAT_THREAD_HANDOFF_KEY);
+    window.localStorage.removeItem(PENDING_TEAM_CHAT_THREAD_HANDOFF_KEY);
     window.sessionStorage.removeItem(PENDING_TEAM_CHAT_THREAD_HANDOFF_KEY);
     if (!raw) return null;
     return JSON.parse(raw) as TeamChatSharePayload;
@@ -332,6 +337,7 @@ export function consumeTeamChatThreadHandoff(): TeamChatSharePayload | null {
 export function clearTeamChatThreadHandoff() {
   if (typeof window === "undefined") return;
   try {
+    window.localStorage.removeItem(PENDING_TEAM_CHAT_THREAD_HANDOFF_KEY);
     window.sessionStorage.removeItem(PENDING_TEAM_CHAT_THREAD_HANDOFF_KEY);
   } catch {
     // ignore
