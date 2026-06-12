@@ -9,6 +9,20 @@ function scrollElement(el: HTMLElement, deltaY: number) {
   return true;
 }
 
+function postWheelToIframe(iframe: HTMLIFrameElement, event: WheelEvent, rect: DOMRect) {
+  iframe.contentWindow?.postMessage(
+    {
+      type: ERP_EMBED_WHEEL_MESSAGE,
+      deltaX: event.deltaX,
+      deltaY: event.deltaY,
+      deltaMode: event.deltaMode,
+      clientX: event.clientX - rect.left,
+      clientY: event.clientY - rect.top,
+    },
+    "*",
+  );
+}
+
 /** Forward parent-window wheel events into an iframe document (ERP embed shell). */
 export function forwardWheelIntoIframe(iframe: HTMLIFrameElement, event: WheelEvent) {
   const rect = iframe.getBoundingClientRect();
@@ -19,21 +33,19 @@ export function forwardWheelIntoIframe(iframe: HTMLIFrameElement, event: WheelEv
     event.clientY <= rect.bottom;
   if (!over) return false;
 
-  const doc = iframe.contentDocument;
-  if (!doc) {
-    // Cross-origin: Chrome delivers wheel inside the iframe; SC handles drawer scroll there.
-    return false;
-  }
-
-  const sheetOpen = doc.documentElement.hasAttribute("data-embed-sheet-open");
-  if (!sheetOpen) return false;
-
-  const drawerBody = doc.querySelector("[data-embed-scroll-body]") as HTMLElement | null;
-  if (!drawerBody || drawerBody.scrollHeight <= drawerBody.clientHeight + 1) return false;
-
   event.preventDefault();
   event.stopPropagation();
-  scrollElement(drawerBody, event.deltaY);
+
+  const doc = iframe.contentDocument;
+  if (doc) {
+    if (!doc.documentElement.hasAttribute("data-embed-sheet-open")) return true;
+
+    const drawerBody = doc.querySelector("[data-embed-scroll-body]") as HTMLElement | null;
+    if (drawerBody) scrollElement(drawerBody, event.deltaY);
+    return true;
+  }
+
+  postWheelToIframe(iframe, event, rect);
   return true;
 }
 

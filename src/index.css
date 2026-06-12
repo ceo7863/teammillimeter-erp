@@ -3447,6 +3447,7 @@ html[data-erp-csr-cal-drawer-open] .erp-client-calendars-page__body {
   min-height: 0;
   flex: 1 1 auto;
   height: 100%;
+  overflow: hidden;
 }
 
 .erp-sc-embed-page iframe {
@@ -3467,6 +3468,8 @@ html[data-erp-csr-cal-drawer-open] .erp-client-calendars-page__body {
 .erp-app-shell > .flex.min-w-0.flex-1.flex-col > main.erp-main--sc-embed {
   padding: 0;
   padding-bottom: env(safe-area-inset-bottom);
+  overflow: hidden;
+  min-height: 0;
 }
 
 .erp-main--sc-embed > .erp-page-keep-alive--fill {
