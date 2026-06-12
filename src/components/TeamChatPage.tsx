@@ -471,7 +471,7 @@ export const TeamChatPage = memo(function TeamChatPage({
   const threadEngagedRef = useRef(false);
   const isMobileLayout = useTeamChatMobileLayout();
   const openThreadInPopup =
-    listOnly && !standalone && !isMobileLayout && canOpenTeamChatThreadPopup() && !threadOnly;
+    listOnly && !isMobileLayout && canOpenTeamChatThreadPopup() && !threadOnly;
   const [inlineThreadOverride, setInlineThreadOverride] = useState(false);
   const selfId = Number(currentUser?.id) || 0;
 
@@ -842,7 +842,7 @@ export const TeamChatPage = memo(function TeamChatPage({
             if (!channelId) return;
             if (event.data.inline) {
               suppressReadUntilFocusRef.current = true;
-              selectChannelInlineRef.current(channelId);
+              handleSelectChannelRef.current(channelId);
             }
           });
           return;
@@ -1017,10 +1017,6 @@ export const TeamChatPage = memo(function TeamChatPage({
     pendingHandledRef.current = true;
     suppressReadUntilFocusRef.current = true;
     void refreshChannels().then(() => {
-      if (openThreadInPopup || (standalone && listOnly)) {
-        selectChannelInline(pendingThreadId);
-        return;
-      }
       handleSelectChannel(pendingThreadId);
     });
     // Pending thread stashed before navigation (banner click, notification, etc.).
