@@ -1,7 +1,26 @@
+function isVerticallyScrollable(el: HTMLElement) {
+  const { overflowY } = getComputedStyle(el);
+  if (overflowY !== "auto" && overflowY !== "scroll" && overflowY !== "overlay") return false;
+  return el.scrollHeight > el.clientHeight + 1;
+}
+
 function scrollElement(el: HTMLElement, deltaY: number) {
   const max = el.scrollHeight - el.clientHeight;
   if (max <= 0) return;
   el.scrollTop = Math.max(0, Math.min(max, el.scrollTop + deltaY));
+}
+
+function findScrollTarget(doc: Document, clientX: number, clientY: number, iframeRect: DOMRect) {
+  const x = clientX - iframeRect.left;
+  const y = clientY - iframeRect.top;
+  let node = doc.elementFromPoint(x, y);
+  while (node && node !== doc.documentElement) {
+    if (node instanceof HTMLElement && isVerticallyScrollable(node)) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+  return null;
 }
 
 /** Forward parent-window wheel events into an iframe document (ERP embed shell). */
@@ -27,6 +46,11 @@ export function forwardWheelIntoIframe(iframe: HTMLIFrameElement, event: WheelEv
     return true;
   }
 
-  // Calendar body fills the iframe — absorb wheel without scrolling.
+  const scrollTarget = findScrollTarget(doc, event.clientX, event.clientY, rect);
+  if (scrollTarget) {
+    scrollElement(scrollTarget, event.deltaY);
+    return true;
+  }
+
   return true;
 }
