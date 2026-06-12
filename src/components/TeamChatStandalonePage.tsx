@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { TeamChatPage } from "@/components/TeamChatPage";
-import { useTeamChatIncomingAutoOpen } from "@/hooks/useTeamChatIncomingAutoOpen";
 import {
   getAuthToken,
   loadAuthUser,
@@ -43,14 +42,6 @@ export function TeamChatStandalonePage({ route }: { route: TeamChatStandaloneRou
 
   const isThreadWindow = route.mode === "thread";
   const selectedChannelRef = useRef<string | null>(isThreadWindow ? route.channelId : null);
-
-  useTeamChatIncomingAutoOpen(currentUser, {
-    enabled: Boolean(currentUser),
-    getViewState: () => ({
-      inlineActive: true,
-      selectedChannelId: selectedChannelRef.current,
-    }),
-  });
 
   useEffect(() => {
     const saveBounds = () => {

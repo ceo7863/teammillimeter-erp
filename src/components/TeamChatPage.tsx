@@ -450,6 +450,7 @@ export const TeamChatPage = memo(function TeamChatPage({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
   const lastMessageIdRef = useRef(0);
+  const messagesLengthRef = useRef(0);
   const selectedChannelIdRef = useRef<string | null>(null);
   const shareAppliedRef = useRef(false);
   const onUnreadChangeRef = useRef(onUnreadChange);
@@ -457,11 +458,13 @@ export const TeamChatPage = memo(function TeamChatPage({
   const handleSelectChannelRef = useRef<(channelId: string) => void>(() => {});
   const selectChannelInlineRef = useRef<(channelId: string) => void>(() => {});
   const isMobileLayout = useTeamChatMobileLayout();
-  const openThreadInPopup = listOnly && !isMobileLayout && canOpenTeamChatThreadPopup() && !threadOnly;
+  const openThreadInPopup =
+    listOnly && !standalone && !isMobileLayout && canOpenTeamChatThreadPopup() && !threadOnly;
   const [inlineThreadOverride, setInlineThreadOverride] = useState(false);
   const selfId = Number(currentUser?.id) || 0;
 
   selectedChannelIdRef.current = selectedChannelId;
+  messagesLengthRef.current = messages.length;
   onUnreadChangeRef.current = onUnreadChange;
 
   const selectedChannel = useMemo(
@@ -578,6 +581,15 @@ export const TeamChatPage = memo(function TeamChatPage({
     window.requestAnimationFrame(() => scrollToBottom());
     window.setTimeout(() => scrollToBottom(), 80);
   }, [scrollToBottom]);
+
+  const reloadChannelMessagesIfEmpty = useCallback(
+    (channelId: string) => {
+      const id = String(channelId || "").trim();
+      if (!id || messagesLengthRef.current > 0) return;
+      void loadInitialMessages(id).catch(() => setError(L.loadError));
+    },
+    [loadInitialMessages],
+  );
 
   const pollMessages = useCallback(async (channelId: string) => {
     const afterId = lastMessageIdRef.current;
@@ -776,6 +788,11 @@ export const TeamChatPage = memo(function TeamChatPage({
   }, [isPageActive, pollMessages, selectedChannelId, sseConnected]);
 
   useEffect(() => {
+    if (loading || !selectedChannelId || messages.length > 0) return;
+    void loadInitialMessages(selectedChannelId).catch(() => setError(L.loadError));
+  }, [loading, loadInitialMessages, messages.length, selectedChannelId]);
+
+  useEffect(() => {
     const node = listRef.current;
     if (!node || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
@@ -811,7 +828,10 @@ export const TeamChatPage = memo(function TeamChatPage({
       openTeamChatThreadPopup(channelId, { raise: true });
       return;
     }
-    if (channelId === selectedChannelIdRef.current) return;
+    if (channelId === selectedChannelIdRef.current) {
+      reloadChannelMessagesIfEmpty(channelId);
+      return;
+    }
     listBrowsingRef.current = false;
     setHighlightedChannelId(channelId);
     setSelectedChannelId(channelId);
@@ -820,7 +840,7 @@ export const TeamChatPage = memo(function TeamChatPage({
     setPendingAttachments([]);
     setPickerOpen(false);
     resetComposerExtras();
-  }, [openThreadInPopup, resetComposerExtras]);
+  }, [openThreadInPopup, reloadChannelMessagesIfEmpty, resetComposerExtras]);
 
   const selectChannelInline = useCallback(
     (channelId: string) => {
@@ -842,7 +862,10 @@ export const TeamChatPage = memo(function TeamChatPage({
         }
         return;
       }
-      if (id === selectedChannelIdRef.current) return;
+      if (id === selectedChannelIdRef.current) {
+        reloadChannelMessagesIfEmpty(id);
+        return;
+      }
       listBrowsingRef.current = false;
       setHighlightedChannelId(id);
       setSelectedChannelId(id);
@@ -852,7 +875,7 @@ export const TeamChatPage = memo(function TeamChatPage({
       setPickerOpen(false);
       resetComposerExtras();
     },
-    [openThreadInPopup, resetComposerExtras, standalone],
+    [openThreadInPopup, reloadChannelMessagesIfEmpty, resetComposerExtras, standalone],
   );
 
   handleSelectChannelRef.current = handleSelectChannel;
@@ -863,13 +886,13 @@ export const TeamChatPage = memo(function TeamChatPage({
     const pendingThreadId = consumePendingTeamChatThread();
     if (!pendingThreadId) return;
     void refreshChannels().then(() => {
-      if (openThreadInPopup) {
+      if (openThreadInPopup || (standalone && listOnly)) {
         selectChannelInline(pendingThreadId);
         return;
       }
       handleSelectChannel(pendingThreadId);
     });
-  }, [handleSelectChannel, openThreadInPopup, refreshChannels, selectChannelInline, threadOnly]);
+  }, [handleSelectChannel, listOnly, openThreadInPopup, refreshChannels, selectChannelInline, standalone, threadOnly]);
 
   const handleStartDm = useCallback(
     async (otherUserId: number) => {
@@ -1566,6 +1589,7 @@ export const TeamChatPage = memo(function TeamChatPage({
                 placeholder={L.placeholder}
                 disabled={Boolean(editingMessageId)}
                 onChange={(event) => setDraft(event.target.value)}
+                onCompositionEnd={(event) => setDraft(event.currentTarget.value)}
                 onPaste={handleComposerPaste}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {

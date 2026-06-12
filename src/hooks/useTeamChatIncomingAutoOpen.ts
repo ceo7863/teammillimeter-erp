@@ -28,7 +28,8 @@ export function useTeamChatIncomingAutoOpen(
   const selfId = Number(currentUser?.id) || 0;
   const pageEnabled =
     isApiModeEnabled() && Boolean(currentUser) && canUserAccessPage(currentUser, "teamChat");
-  const enabled = pageEnabled && options.enabled !== false && selfId > 0;
+  const enabled =
+    pageEnabled && options.enabled !== false && selfId > 0 && !isTeamChatPopupWindow();
 
   useTeamChatEvents({
     enabled,

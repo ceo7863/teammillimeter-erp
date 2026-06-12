@@ -1319,7 +1319,7 @@ textarea {
 }
 
 @media (min-width: 1024px) and (pointer: fine) {
-  .erp-team-chat-page--list-only .erp-team-chat-thread {
+  .erp-team-chat-page--list-only:not(.erp-team-chat-page--standalone) .erp-team-chat-thread {
     display: none !important;
   }
 }
