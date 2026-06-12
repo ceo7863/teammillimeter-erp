@@ -4,7 +4,8 @@ import { isApiModeEnabled } from "@/utils/erpApi";
 import { canUserAccessPage } from "@/utils/pageAccess";
 import { useTeamChatEvents, type TeamChatStreamEvent } from "@/hooks/useTeamChatEvents";
 import type { TeamChatMessage } from "@/utils/teamChat";
-import { openTeamChatThread } from "@/utils/teamChatShare";
+import { openTeamChatThread, promptTeamChatIncomingOpen } from "@/utils/teamChatShare";
+import { isTeamChatPopupWindow } from "@/utils/teamChatPopup";
 import { showErpNotification } from "@/utils/showErpNotification";
 
 type TeamChatViewState = {
@@ -49,12 +50,22 @@ export function useTeamChatIncomingAutoOpen(
 
       if (viewingThisThread) return;
 
-      void openTeamChatThread(channelId).then(({ threadOpened }) => {
-        if (threadOpened) return;
-        const preview =
-          String(message.body || "").trim() ||
-          (message.attachments?.length ? "\uCCA8\uBD80\uD30C\uC77C" : "\uC0C8 \uBA54\uC2DC\uC9C0");
-        const sender = String(message.userName || "").trim() || "\uC0AC\uB0B4 \uCC57";
+      const preview =
+        String(message.body || "").trim() ||
+        (message.attachments?.length ? "\uCCA8\uBD80\uD30C\uC77C" : "\uC0C8 \uBA54\uC2DC\uC9C0");
+      const sender = String(message.userName || "").trim() || "\uC0AC\uB0B4 \uCC57";
+
+      void openTeamChatThread(channelId).then(({ listOpened, threadOpened }) => {
+        if (listOpened || threadOpened) return;
+
+        if (!isTeamChatPopupWindow()) {
+          promptTeamChatIncomingOpen({
+            channelId,
+            sender,
+            preview: preview.slice(0, 120),
+          });
+        }
+
         void showErpNotification(sender, {
           body: preview.slice(0, 120),
           tag: `team-chat-${channelId}`,

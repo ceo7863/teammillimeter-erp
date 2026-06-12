@@ -455,8 +455,10 @@ export const TeamChatPage = memo(function TeamChatPage({
   const onUnreadChangeRef = useRef(onUnreadChange);
   const listBrowsingRef = useRef(false);
   const handleSelectChannelRef = useRef<(channelId: string) => void>(() => {});
+  const selectChannelInlineRef = useRef<(channelId: string) => void>(() => {});
   const isMobileLayout = useTeamChatMobileLayout();
   const openThreadInPopup = listOnly && !isMobileLayout && canOpenTeamChatThreadPopup() && !threadOnly;
+  const [inlineThreadOverride, setInlineThreadOverride] = useState(false);
   const selfId = Number(currentUser?.id) || 0;
 
   selectedChannelIdRef.current = selectedChannelId;
@@ -705,7 +707,12 @@ export const TeamChatPage = memo(function TeamChatPage({
             return;
           }
           void refreshChannels().then(() => {
-            if (channelId && event.data.openThread !== false) {
+            if (!channelId) return;
+            if (event.data.inline) {
+              selectChannelInlineRef.current(channelId);
+              return;
+            }
+            if (event.data.openThread !== false) {
               handleSelectChannelRef.current(channelId);
             }
           });
@@ -794,6 +801,7 @@ export const TeamChatPage = memo(function TeamChatPage({
   }, []);
 
   const handleSelectChannel = useCallback((channelId: string) => {
+    setInlineThreadOverride(false);
     if (openThreadInPopup) {
       const payload = peekTeamChatShare();
       if (payload) {
@@ -814,16 +822,54 @@ export const TeamChatPage = memo(function TeamChatPage({
     resetComposerExtras();
   }, [openThreadInPopup, resetComposerExtras]);
 
+  const selectChannelInline = useCallback(
+    (channelId: string) => {
+      const id = String(channelId || "").trim();
+      if (!id) return;
+      if (openThreadInPopup) {
+        consumePendingTeamChatThread();
+        listBrowsingRef.current = false;
+        setInlineThreadOverride(true);
+        setHighlightedChannelId(id);
+        setSelectedChannelId(id);
+        setDraft("");
+        setPendingLink(null);
+        setPendingAttachments([]);
+        setPickerOpen(false);
+        resetComposerExtras();
+        if (standalone && isTeamChatPopupWindow()) {
+          raiseTeamChatPopup(window);
+        }
+        return;
+      }
+      if (id === selectedChannelIdRef.current) return;
+      listBrowsingRef.current = false;
+      setHighlightedChannelId(id);
+      setSelectedChannelId(id);
+      setDraft("");
+      setPendingLink(null);
+      setPendingAttachments([]);
+      setPickerOpen(false);
+      resetComposerExtras();
+    },
+    [openThreadInPopup, resetComposerExtras, standalone],
+  );
+
   handleSelectChannelRef.current = handleSelectChannel;
+  selectChannelInlineRef.current = selectChannelInline;
 
   useEffect(() => {
     if (threadOnly) return;
     const pendingThreadId = consumePendingTeamChatThread();
     if (!pendingThreadId) return;
     void refreshChannels().then(() => {
+      if (openThreadInPopup) {
+        selectChannelInline(pendingThreadId);
+        return;
+      }
       handleSelectChannel(pendingThreadId);
     });
-  }, [handleSelectChannel, refreshChannels, threadOnly]);
+  }, [handleSelectChannel, openThreadInPopup, refreshChannels, selectChannelInline, threadOnly]);
 
   const handleStartDm = useCallback(
     async (otherUserId: number) => {
@@ -1108,6 +1154,7 @@ export const TeamChatPage = memo(function TeamChatPage({
 
   const handleBackToList = useCallback(() => {
     listBrowsingRef.current = true;
+    setInlineThreadOverride(false);
     setSelectedChannelId(null);
     setHighlightedChannelId(null);
   }, []);
@@ -1133,13 +1180,16 @@ export const TeamChatPage = memo(function TeamChatPage({
 
   const isMobileChat = isMobileLayout && !threadOnly;
   const showThreadOnMobile = isMobileLayout && !threadOnly && Boolean(selectedChannelId);
+  const showInlineThread = inlineThreadOverride && Boolean(selectedChannelId);
   const showThreadPanel =
-    threadOnly || showThreadOnMobile || (Boolean(selectedChannelId) && !openThreadInPopup);
+    threadOnly ||
+    showThreadOnMobile ||
+    (Boolean(selectedChannelId) && (!openThreadInPopup || showInlineThread));
   const activeChannelId = highlightedChannelId || selectedChannelId;
 
   return (
     <div
-      className={`erp-team-chat-page ${standalone ? "erp-team-chat-page--standalone" : ""} ${threadOnly ? "erp-team-chat-page--thread-only" : ""} ${openThreadInPopup ? "erp-team-chat-page--list-only" : ""} ${isMobileChat ? "erp-team-chat-page--mobile" : ""} ${showThreadOnMobile ? "is-thread-open" : ""} ${isMobileChat && !showThreadOnMobile ? "is-mobile-list" : ""}`}
+      className={`erp-team-chat-page ${standalone ? "erp-team-chat-page--standalone" : ""} ${threadOnly ? "erp-team-chat-page--thread-only" : ""} ${openThreadInPopup && !showInlineThread ? "erp-team-chat-page--list-only" : ""} ${isMobileChat ? "erp-team-chat-page--mobile" : ""} ${showThreadOnMobile ? "is-thread-open" : ""} ${isMobileChat && !showThreadOnMobile ? "is-mobile-list" : ""}`}
     >
       {!threadOnly ? (
       <aside className={`erp-team-chat-sidebar ${showThreadOnMobile ? "is-hidden-mobile" : ""}`}>

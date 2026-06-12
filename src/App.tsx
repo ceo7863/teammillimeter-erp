@@ -68,6 +68,7 @@ import { AuditField, AuditCellHint, EntityAuditButton } from "@/components/Audit
 import { AuditLogPage } from "@/components/AuditLogPage";
 import { ErpChatWidget } from "@/components/ErpChatWidget";
 import { TeamChatFab } from "@/components/TeamChatFab";
+import { TeamChatIncomingBanner } from "@/components/TeamChatIncomingBanner";
 import { ErpChatStandalonePage } from "@/components/ErpChatStandalonePage";
 import { consumePendingChatAction } from "@/utils/erpChatPendingAction";
 import { openErpChatGuidePdf, type ErpChatAction } from "@/utils/erpChatApi";
@@ -387,6 +388,7 @@ import {
 import { openTeamChatWithShare, openTeamChatList, TEAM_CHAT_OPEN_EVENT } from "@/utils/teamChatShare";
 import { isTeamChatDesktopPopupMode, openTeamChatPopup } from "@/utils/teamChatPopup";
 import { useTeamChatIncomingAutoOpen } from "@/hooks/useTeamChatIncomingAutoOpen";
+import { useTeamChatPopupPrewarm } from "@/hooks/useTeamChatPopupPrewarm";
 import { TeamChatPage } from "@/components/TeamChatPage";
 import { TeamChatStandalonePage } from "@/components/TeamChatStandalonePage";
 import { useSaleCommentReadState } from "@/hooks/useSaleCommentReadState";
@@ -8603,6 +8605,7 @@ export default function TeammillimeterErpMvp() {
       selectedChannelId: teamChatSelectedChannelRef.current,
     }),
   });
+  useTeamChatPopupPrewarm(currentUser, dataReady);
   useTeamChatNotifications(currentUser, {
     unreadCount: teamChatUnreadCount,
     isChatPageActive: active === "teamChat",
@@ -11691,6 +11694,7 @@ export default function TeammillimeterErpMvp() {
             hidden={active === "teamChat" && !isTeamChatDesktopPopupMode()}
             onOpen={openTeamChatPage}
           />
+          <TeamChatIncomingBanner />
           <ErpChatWidget currentUser={currentUser} enabled={dataReady} onAction={handleErpChatAction} />
         </>
       ) : null}

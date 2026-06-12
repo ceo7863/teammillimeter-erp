@@ -18014,6 +18014,88 @@ button:disabled,
   pointer-events: none;
 }
 
+.erp-team-chat-incoming-banner {
+  position: fixed;
+  right: 1rem;
+  bottom: 5.5rem;
+  z-index: 14000;
+  display: flex;
+  max-width: min(24rem, calc(100vw - 2rem));
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid #99f6e4;
+  border-radius: 1rem;
+  background: #fff;
+  box-shadow: 0 16px 40px rgba(5, 150, 105, 0.18);
+}
+
+.erp-team-chat-incoming-banner__icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9999px;
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.erp-team-chat-incoming-banner__body {
+  min-width: 0;
+  flex: 1;
+}
+
+.erp-team-chat-incoming-banner__title {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.erp-team-chat-incoming-banner__preview {
+  margin-top: 0.125rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  color: #64748b;
+}
+
+.erp-team-chat-incoming-banner__open {
+  flex-shrink: 0;
+  border: none;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #059669, #0d9488);
+  color: #fff;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.erp-team-chat-incoming-banner__open:hover {
+  filter: brightness(1.05);
+}
+
+.erp-team-chat-incoming-banner__close {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 9999px;
+  background: transparent;
+  color: #94a3b8;
+  padding: 0.25rem;
+  cursor: pointer;
+}
+
+.erp-team-chat-incoming-banner__close:hover {
+  color: #64748b;
+  background: #f1f5f9;
+}
+
 .erp-chat-panel {
   position: fixed;
   right: 1rem;

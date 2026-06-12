@@ -1,6 +1,7 @@
 import { buildTeamChatThreadPath, TEAM_CHAT_STANDALONE_PATH } from "@/utils/teamChatRoute";
 
 const LIST_POPUP_NAME = "teammillimeter-team-chat";
+const THREAD_POPUP_NAME = "teammillimeter-team-chat-thread";
 const LIST_POPUP_POSITION_KEY = "teammillimeter-erp-team-chat-list-popup-bounds";
 const THREAD_POPUP_POSITION_KEY = "teammillimeter-erp-team-chat-thread-popup-bounds";
 const POPUP_CHROME = "menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=no";
@@ -273,7 +274,6 @@ export function openTeamChatThreadPopup(channelId: string, options?: { focus?: b
   if (!id) return null;
 
   const url = `${window.location.origin}${buildTeamChatThreadPath(id)}`;
-  const windowName = `teammillimeter-team-chat-${id}`;
   if (isTeamChatThreadPopupWindow()) {
     const currentId = new URLSearchParams(window.location.search).get("channel")?.trim();
     if (currentId === id) {
@@ -284,7 +284,7 @@ export function openTeamChatThreadPopup(channelId: string, options?: { focus?: b
       return window;
     }
   }
-  return focusOrOpenNamedPopup(windowName, url, loadThreadPopupBounds(), {
+  return focusOrOpenNamedPopup(THREAD_POPUP_NAME, url, loadThreadPopupBounds(), {
     focus: options?.focus,
     raise: options?.raise ?? true,
   });
