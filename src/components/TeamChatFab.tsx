@@ -4,7 +4,7 @@ import type { ErpUser } from "@/utils/erpApi";
 import { canUserAccessPage } from "@/utils/pageAccess";
 
 const L = {
-  title: "\uD300\uBC00\uD1A8",
+  title: "talk",
   open: "\uD300\uBC00\uD1A8 \uC5F4\uAE30",
   unread: (count: number) => `\uC77D\uC9C0 \uC54A\uC740 \uBA54\uC2DC\uC9C0 ${count}\uAC74`,
 };
