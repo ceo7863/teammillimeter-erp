@@ -999,22 +999,25 @@ export const TeamChatPage = memo(function TeamChatPage({
 
   useEffect(() => {
     if (!selectedChannelId || !isPageActive) return;
+    if (sseConnected) {
+      void refreshReadState(selectedChannelId);
+      return;
+    }
     void pollMessages(selectedChannelId).catch(() => {});
-    const intervalMs = sseConnected ? 5000 : 1500;
     const timer = window.setInterval(() => {
       void pollMessages(selectedChannelId).catch(() => {});
-    }, intervalMs);
+    }, 1500);
     return () => window.clearInterval(timer);
-  }, [isPageActive, pollMessages, selectedChannelId, sseConnected]);
+  }, [isPageActive, pollMessages, refreshReadState, selectedChannelId, sseConnected]);
 
   useEffect(() => {
-    if (!selectedChannelId || !isPageActive) return;
+    if (!selectedChannelId || !isPageActive || sseConnected) return;
     void refreshReadState(selectedChannelId);
     const timer = window.setInterval(() => {
       void refreshReadState(selectedChannelId);
-    }, 5000);
+    }, 15000);
     return () => window.clearInterval(timer);
-  }, [isPageActive, refreshReadState, selectedChannelId]);
+  }, [isPageActive, refreshReadState, selectedChannelId, sseConnected]);
 
   useEffect(() => {
     if (loading || !selectedChannelId || messages.length > 0) return;

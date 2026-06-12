@@ -62,6 +62,16 @@ export function getUserProfilePhotoMeta(userId) {
   return row ? rowToMeta(row) : null;
 }
 
+export function getUserProfilePhotoMetaByUserIds(userIds = []) {
+  const ids = [...new Set(userIds.map(normalizeUserId).filter((id) => id > 0))];
+  if (!ids.length) return new Map();
+  const placeholders = ids.map(() => "?").join(", ");
+  const rows = getDb()
+    .prepare(`SELECT * FROM user_profile_photo_files WHERE user_id IN (${placeholders})`)
+    .all(...ids);
+  return new Map(rows.map((row) => [Number(row.user_id), rowToMeta(row)]));
+}
+
 export function getUserProfilePhotoFile(userId) {
   const row = getDb()
     .prepare("SELECT storage_path, file_name, mime_type FROM user_profile_photo_files WHERE user_id = ?")

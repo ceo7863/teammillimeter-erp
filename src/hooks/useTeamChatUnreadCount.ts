@@ -30,9 +30,32 @@ export function useTeamChatUnreadCount(
 
   useEffect(() => {
     void refresh();
-    if (!enabled) return;
-    const timer = window.setInterval(() => void refresh(), pollMs);
-    return () => window.clearInterval(timer);
+    if (!enabled) return undefined;
+
+    let timer: number | null = null;
+    const schedule = () => {
+      if (timer != null) window.clearInterval(timer);
+      if (document.visibilityState !== "visible") return;
+      timer = window.setInterval(() => void refresh(), pollMs);
+    };
+
+    schedule();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void refresh();
+        schedule();
+        return;
+      }
+      if (timer != null) {
+        window.clearInterval(timer);
+        timer = null;
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      if (timer != null) window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [enabled, pollMs, refresh]);
 
   useTeamChatEvents({

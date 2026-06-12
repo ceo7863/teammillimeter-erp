@@ -5,7 +5,7 @@ import { config } from "./config.mjs";
 import { listUsers } from "./db.mjs";
 import { getDb } from "./db.mjs";
 import { publishTeamChatEvent } from "./teamChatEvents.mjs";
-import { getUserProfilePhotoMeta } from "./userProfilePhoto.mjs";
+import { getUserProfilePhotoMetaByUserIds } from "./userProfilePhoto.mjs";
 
 export const TEAM_CHAT_ALL_CHANNEL_ID = "team-all";
 const TEAM_CHAT_REACTION_EMOJIS = new Set(["👍", "✅", "❤️", "😂", "👏"]);
@@ -294,15 +294,7 @@ function resolveDmPeerUserId(channel, currentUserId) {
   return null;
 }
 
-function formatChannelRow(row, currentUserId) {
-  const lastMessage = getDb()
-    .prepare(
-      `SELECT id, body, user_name, created_at FROM team_chat_messages
-       WHERE channel_id = ? ORDER BY id DESC LIMIT 1`,
-    )
-    .get(row.id);
-
-  const unreadCount = countUnreadForMember(row.id, currentUserId);
+function formatChannelRow(row, currentUserId, context) {
   const type = String(row.type || "").trim();
   let title = String(row.title || "").trim();
   let peerUserId = null;
@@ -311,6 +303,9 @@ function formatChannelRow(row, currentUserId) {
     peerUserId = resolveDmPeerUserId(row, currentUserId);
     if (peerUserId) title = userNameById(peerUserId);
   }
+
+  const lastMessage = context?.lastMessageByChannel?.get(row.id);
+  const unreadCount = context?.unreadByChannel?.get(row.id) ?? 0;
 
   return {
     id: row.id,
@@ -322,6 +317,53 @@ function formatChannelRow(row, currentUserId) {
     lastMessagePreview: lastMessage ? String(lastMessage.body || "").trim().slice(0, 120) : "",
     lastMessageUserName: lastMessage ? String(lastMessage.user_name || "").trim() : "",
   };
+}
+
+function buildChannelFormatContext(rows, currentUserId) {
+  const channelIds = rows.map((row) => row.id).filter(Boolean);
+  if (!channelIds.length) {
+    return { lastMessageByChannel: new Map(), unreadByChannel: new Map() };
+  }
+
+  const db = getDb();
+  const placeholders = channelIds.map(() => "?").join(", ");
+  const userId = Number(currentUserId);
+
+  const lastMessages = db
+    .prepare(
+      `SELECT m.channel_id, m.id, m.body, m.user_name, m.created_at
+       FROM team_chat_messages m
+       INNER JOIN (
+         SELECT channel_id, MAX(id) AS max_id
+         FROM team_chat_messages
+         WHERE channel_id IN (${placeholders})
+         GROUP BY channel_id
+       ) latest ON m.channel_id = latest.channel_id AND m.id = latest.max_id`,
+    )
+    .all(...channelIds);
+
+  const unreadRows = db
+    .prepare(
+      `SELECT m.channel_id AS channel_id, COUNT(*) AS count
+       FROM team_chat_messages m
+       INNER JOIN team_chat_members mem
+         ON mem.channel_id = m.channel_id AND mem.user_id = ?
+       WHERE m.channel_id IN (${placeholders})
+         AND m.id > mem.last_read_message_id
+         AND m.user_id != ?
+       GROUP BY m.channel_id`,
+    )
+    .all(userId, ...channelIds, userId);
+
+  return {
+    lastMessageByChannel: new Map(lastMessages.map((row) => [row.channel_id, row])),
+    unreadByChannel: new Map(unreadRows.map((row) => [row.channel_id, Number(row.count) || 0])),
+  };
+}
+
+function formatChannelRows(rows, currentUserId) {
+  const context = buildChannelFormatContext(rows, currentUserId);
+  return rows.map((row) => formatChannelRow(row, currentUserId, context));
 }
 
 function countUnreadForMember(channelId, userId) {
@@ -357,25 +399,26 @@ export function listTeamChatChannels(userId) {
     )
     .all(Number(userId), TEAM_CHAT_ALL_CHANNEL_ID);
 
-  return rows.map((row) => formatChannelRow(row, userId));
+  return formatChannelRows(rows, userId);
 }
 
 export function listTeamChatUsers(currentUserId) {
   syncTeamChatMemberships();
-  return activeUsers()
+  const users = activeUsers()
     .filter((row) => Number(row.id) !== Number(currentUserId))
-    .map((row) => {
-      const photo = getUserProfilePhotoMeta(row.id);
-      return {
-        id: row.id,
-        name: row.name,
-        loginId: row.loginId,
-        role: row.role,
-        photoFileId: photo?.id || null,
-        photoUploadedAt: photo?.updatedAt || null,
-      };
-    })
     .sort((a, b) => String(a.name).localeCompare(String(b.name), "ko"));
+  const photoByUserId = getUserProfilePhotoMetaByUserIds(users.map((row) => row.id));
+  return users.map((row) => {
+    const photo = photoByUserId.get(Number(row.id));
+    return {
+      id: row.id,
+      name: row.name,
+      loginId: row.loginId,
+      role: row.role,
+      photoFileId: photo?.id || null,
+      photoUploadedAt: photo?.updatedAt || null,
+    };
+  });
 }
 
 export function getOrCreateTeamChatDmChannel(currentUserId, otherUserId) {
@@ -424,7 +467,7 @@ export function getOrCreateTeamChatDmChannel(currentUserId, otherUserId) {
     publishTeamChatEvent(row.id, { type: "channel.updated", channelId: row.id });
   }
 
-  return formatChannelRow(row, selfId);
+  return formatChannelRows([row], selfId)[0];
 }
 
 function loadReactionsByMessageIds(messageIds, currentUserId) {
@@ -647,8 +690,18 @@ export function getTeamChatReadState(channelId, userId) {
 
 export function getTeamChatUnreadCount(userId) {
   syncTeamChatMemberships();
-  const channels = listTeamChatChannels(userId);
-  return channels.reduce((sum, row) => sum + Number(row.unreadCount || 0), 0);
+  const normalizedUserId = Number(userId);
+  const row = getDb()
+    .prepare(
+      `SELECT COUNT(*) AS count
+       FROM team_chat_messages m
+       INNER JOIN team_chat_members mem
+         ON mem.channel_id = m.channel_id AND mem.user_id = ?
+       WHERE m.id > mem.last_read_message_id
+         AND m.user_id != ?`,
+    )
+    .get(normalizedUserId, normalizedUserId);
+  return Number(row?.count) || 0;
 }
 
 export function createTeamChatGroupChannel(creatorId, input = {}) {
@@ -686,7 +739,7 @@ export function createTeamChatGroupChannel(creatorId, input = {}) {
   }
 
   const row = db.prepare("SELECT id, type, title, dm_key, created_at FROM team_chat_channels WHERE id = ?").get(channelId);
-  const channel = formatChannelRow(row, creator);
+  const channel = formatChannelRows([row], creator)[0];
   publishTeamChatEvent(channelId, { type: "channel.updated", channelId });
   return channel;
 }
