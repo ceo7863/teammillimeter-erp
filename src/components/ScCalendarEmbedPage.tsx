@@ -47,8 +47,8 @@ export function ScCalendarEmbedPage({ onOpenAppMenu }: ScCalendarEmbedPageProps)
     if (!iframe || !embedUrl) return;
 
     const onWheel = (event: WheelEvent) => {
-      const target = event.target;
-      if (target !== iframe && !(target instanceof Node && iframe.contains(target))) return;
+      const iframe = iframeRef.current;
+      if (!iframe) return;
       forwardWheelIntoIframe(iframe, event);
     };
 
