@@ -659,22 +659,10 @@ export const TeamChatPage = memo(function TeamChatPage({
   }, [handleIncomingShare]);
 
   useEffect(() => {
-    if (threadOnly) {
-      if (initialChannelId && !selectedChannelId) {
-        setSelectedChannelId(initialChannelId);
-      }
-      return;
+    if (threadOnly && initialChannelId && !selectedChannelId) {
+      setSelectedChannelId(initialChannelId);
     }
-    if (openThreadInPopup) return;
-    if (isMobileLayout) {
-      if (listBrowsingRef.current) return;
-      if (!selectedChannelId) return;
-    }
-    if (!selectedChannelId && channels.length) {
-      const team = channels.find((row) => row.type === "team");
-      if (team) setSelectedChannelId(team.id);
-    }
-  }, [channels, initialChannelId, isMobileLayout, openThreadInPopup, selectedChannelId, threadOnly]);
+  }, [initialChannelId, selectedChannelId, threadOnly]);
 
   useEffect(() => {
     if (!selectedChannelId) {
