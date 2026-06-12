@@ -1681,6 +1681,7 @@ textarea {
       opacity: 1;
     }
 
+    .erp-team-chat-bubble-wrap.is-mine .erp-team-chat-bubble-menu,
     .erp-team-chat-bubble-wrap.is-theirs .erp-team-chat-bubble-menu {
       right: auto;
       left: -1.5rem;
@@ -1703,6 +1704,7 @@ textarea {
   transition: opacity 0.15s ease;
 }
 
+.erp-team-chat-bubble-wrap.is-mine .erp-team-chat-bubble-menu,
 .erp-team-chat-bubble-wrap.is-theirs .erp-team-chat-bubble-menu {
   right: auto;
   left: -1.75rem;
@@ -1736,10 +1738,13 @@ textarea {
   position: absolute;
   top: 100%;
   right: 0;
+  left: auto;
   z-index: 20;
   display: grid;
   gap: 0.125rem;
-  min-width: 6.5rem;
+  width: max-content;
+  min-width: 6.75rem;
+  max-width: min(16rem, calc(100vw - 2rem));
   margin-top: 0.25rem;
   padding: 0.25rem;
   border-radius: 0.75rem;
