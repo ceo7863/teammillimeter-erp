@@ -201,7 +201,7 @@ export function openTeamChatThread(channelId: string): Promise<TeamChatThreadOpe
       return Promise.resolve({ listOpened: true, threadOpened: true });
     }
 
-    const listPopup = openTeamChatPopup({ focus: false, raise: true });
+    const listPopup = openTeamChatPopup({ raise: true });
     if (isTeamChatPopupActuallyOpen(listPopup)) {
       return Promise.resolve({ listOpened: true, threadOpened: true });
     }

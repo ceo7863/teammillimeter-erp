@@ -142,13 +142,15 @@ export function raiseTeamChatPopup(popup: Window | null) {
   } catch {
     return;
   }
-  window.setTimeout(() => {
-    try {
-      if (!popup.closed) popup.focus();
-    } catch {
-      // ignore
-    }
-  }, 60);
+  for (const delay of [60, 180, 400]) {
+    window.setTimeout(() => {
+      try {
+        if (!popup.closed) popup.focus();
+      } catch {
+        // ignore
+      }
+    }, delay);
+  }
 }
 
 type OpenPopupOptions = {
@@ -181,18 +183,20 @@ function focusOrOpenNamedPopup(
         // ignore
       }
     }
-    if (options.focus !== false) {
-      if (options.raise) raiseTeamChatPopup(popup);
-      else popup.focus();
+    if (options.raise) {
+      raiseTeamChatPopup(popup);
+    } else if (options.focus !== false) {
+      popup.focus();
     }
     options.onOpened?.(popup);
     return popup;
   }
   popup = window.open(url, name, features);
   if (isTeamChatPopupActuallyOpen(popup)) {
-    if (options.focus !== false) {
-      if (options.raise) raiseTeamChatPopup(popup);
-      else popup.focus();
+    if (options.raise) {
+      raiseTeamChatPopup(popup);
+    } else if (options.focus !== false) {
+      popup.focus();
     }
     options.onOpened?.(popup);
     return popup;
@@ -254,9 +258,10 @@ export function canOpenTeamChatThreadPopup() {
 export function openTeamChatPopup(options?: { focus?: boolean; raise?: boolean }) {
   if (typeof window === "undefined") return null;
   if (isTeamChatPopupWindow() && !isTeamChatThreadPopupWindow()) {
-    if (options?.focus !== false) {
-      if (options?.raise) raiseTeamChatPopup(window);
-      else window.focus();
+    if (options?.raise) {
+      raiseTeamChatPopup(window);
+    } else if (options?.focus !== false) {
+      window.focus();
     }
     return window;
   }
@@ -277,9 +282,10 @@ export function openTeamChatThreadPopup(channelId: string, options?: { focus?: b
   if (isTeamChatThreadPopupWindow()) {
     const currentId = new URLSearchParams(window.location.search).get("channel")?.trim();
     if (currentId === id) {
-      if (options?.focus !== false) {
-        if (options?.raise) raiseTeamChatPopup(window);
-        else window.focus();
+      if (options?.raise) {
+        raiseTeamChatPopup(window);
+      } else if (options?.focus !== false) {
+        window.focus();
       }
       return window;
     }
