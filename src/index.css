@@ -3236,8 +3236,8 @@ textarea {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  min-height: calc(100dvh - env(safe-area-inset-bottom, 0px));
-  height: calc(100dvh - env(safe-area-inset-bottom, 0px));
+  min-height: 0;
+  height: 100%;
 }
 
 .erp-main--client-calendars > .erp-page-keep-alive--fill {
