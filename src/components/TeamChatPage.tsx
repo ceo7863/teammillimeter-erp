@@ -58,7 +58,11 @@ import {
   type TeamChatReplyPreview,
   type TeamChatUser,
 } from "@/utils/teamChat";
-import { formatTeamChatReadReceiptCompact, type TeamChatReadStateMember } from "@/utils/teamChatReadReceipts";
+import {
+  formatTeamChatUnreadReceiptCompact,
+  isLastOwnMessageInBlock,
+  type TeamChatReadStateMember,
+} from "@/utils/teamChatReadReceipts";
 import {
   sortTeamChatChannels,
   teamChatAvatarInitial,
@@ -140,9 +144,10 @@ function channelTypeLabel(type: TeamChatChannel["type"]) {
   return L.dmChannelLabel;
 }
 
-function canAutoMarkTeamChatRead() {
+function canAutoMarkTeamChatRead(threadEngaged: boolean) {
   if (typeof document === "undefined") return false;
-  return document.visibilityState === "visible" && document.hasFocus();
+  if (document.visibilityState !== "visible") return false;
+  return document.hasFocus() || threadEngaged;
 }
 
 function ChannelListItem({
@@ -463,6 +468,7 @@ export const TeamChatPage = memo(function TeamChatPage({
   const handleSelectChannelRef = useRef<(channelId: string) => void>(() => {});
   const selectChannelInlineRef = useRef<(channelId: string) => void>(() => {});
   const suppressReadUntilFocusRef = useRef(Boolean(threadOnly));
+  const threadEngagedRef = useRef(false);
   const isMobileLayout = useTeamChatMobileLayout();
   const openThreadInPopup =
     listOnly && !standalone && !isMobileLayout && canOpenTeamChatThreadPopup() && !threadOnly;
@@ -561,7 +567,7 @@ export const TeamChatPage = memo(function TeamChatPage({
 
   const tryMarkChannelRead = useCallback(async (channelId: string, messageId: number) => {
     if (suppressReadUntilFocusRef.current) return;
-    if (!canAutoMarkTeamChatRead()) return;
+    if (!canAutoMarkTeamChatRead(threadEngagedRef.current)) return;
     await markTeamChatChannelRead(channelId, messageId);
     notifyUnreadChanged();
     scheduleRefreshChannels();
@@ -569,7 +575,7 @@ export const TeamChatPage = memo(function TeamChatPage({
 
   const flushPendingRead = useCallback(async () => {
     if (suppressReadUntilFocusRef.current) return;
-    if (!canAutoMarkTeamChatRead()) return;
+    if (!canAutoMarkTeamChatRead(threadEngagedRef.current)) return;
     const channelId = selectedChannelIdRef.current;
     const lastId = lastMessageIdRef.current;
     if (!channelId || lastId <= 0) return;
@@ -730,6 +736,7 @@ export const TeamChatPage = memo(function TeamChatPage({
           }
           return [...prev, { userId, userName: `\uC0AC\uC6A9\uC790 #${userId}`, lastReadMessageId }];
         });
+        scheduleRefreshChannels();
         return;
       }
       if (event.type === "channel.updated") {
@@ -746,7 +753,7 @@ export const TeamChatPage = memo(function TeamChatPage({
         if (isCurrentThread) {
           if (isOwn) replaceSelfOptimistic(message);
           else mergeMessage(message);
-          if (isOwn || canAutoMarkTeamChatRead()) {
+          if (isOwn || canAutoMarkTeamChatRead(threadEngagedRef.current)) {
             void tryMarkChannelRead(message.channelId, message.id);
           }
           if (isOwn || isNearBottomRef.current) {
@@ -896,6 +903,14 @@ export const TeamChatPage = memo(function TeamChatPage({
     }, intervalMs);
     return () => window.clearInterval(timer);
   }, [isPageActive, pollMessages, selectedChannelId, sseConnected]);
+
+  useEffect(() => {
+    if (!selectedChannelId || !isPageActive) return;
+    const timer = window.setInterval(() => {
+      void refreshReadState(selectedChannelId);
+    }, 10000);
+    return () => window.clearInterval(timer);
+  }, [isPageActive, refreshReadState, selectedChannelId]);
 
   useEffect(() => {
     if (loading || !selectedChannelId || messages.length > 0) return;
@@ -1332,6 +1347,18 @@ export const TeamChatPage = memo(function TeamChatPage({
   }, []);
 
   useEffect(() => {
+    const onBlur = () => {
+      threadEngagedRef.current = false;
+    };
+    window.addEventListener("blur", onBlur);
+    return () => window.removeEventListener("blur", onBlur);
+  }, []);
+
+  useEffect(() => {
+    threadEngagedRef.current = false;
+  }, [selectedChannelId]);
+
+  useEffect(() => {
     const onFocus = () => {
       if (!selectedChannelIdRef.current || lastMessageIdRef.current <= 0) return;
       if (suppressReadUntilFocusRef.current) return;
@@ -1441,6 +1468,7 @@ export const TeamChatPage = memo(function TeamChatPage({
       <section
         className={`erp-team-chat-thread ${showThreadPanel ? "is-open" : ""}`}
         onPointerDown={() => {
+          threadEngagedRef.current = true;
           if (!suppressReadUntilFocusRef.current) return;
           suppressReadUntilFocusRef.current = false;
           void flushPendingRead();
@@ -1509,13 +1537,15 @@ export const TeamChatPage = memo(function TeamChatPage({
 
             <div ref={listRef} className="erp-team-chat-thread__messages" onScroll={handleMessagesScroll}>
               {!messages.length ? <p className="erp-team-chat-muted text-center text-sm">{L.emptyMessages}</p> : null}
-              {messages.map((message) => {
+              {messages.map((message, messageIndex) => {
                 const isMine = Number(message.userId) === selfId;
                 const link = message.link as TeamChatLink | null | undefined;
                 const isEditing = editingMessageId === message.id;
                 const readReceipt =
-                  isMine && !message.isDeleted
-                    ? formatTeamChatReadReceiptCompact(message.id, readState, selfId)
+                  isMine &&
+                  !message.isDeleted &&
+                  isLastOwnMessageInBlock(messages, messageIndex, selfId)
+                    ? formatTeamChatUnreadReceiptCompact(message.id, readState, selfId)
                     : null;
                 const senderInitial = teamChatAvatarInitial(message.userName);
                 const senderAvatarStyle = teamChatAvatarStyle(String(message.userId || message.userName));
@@ -1528,6 +1558,14 @@ export const TeamChatPage = memo(function TeamChatPage({
                       <div className="erp-team-chat-msg-avatar erp-team-chat-avatar" style={senderAvatarStyle} aria-hidden="true">
                         {senderInitial}
                       </div>
+                    ) : null}
+                    {readReceipt ? (
+                      <span
+                        className="erp-team-chat-read-receipt erp-team-chat-read-receipt--mine"
+                        aria-label={`\uC77D\uC9C0 \uC54A\uC740 ${readReceipt}\uBA85`}
+                      >
+                        {readReceipt}
+                      </span>
                     ) : null}
                     <div className={`erp-team-chat-bubble-wrap ${isMine ? "is-mine" : "is-theirs"}`}>
                       {!isMine && showSenderNames ? (
@@ -1631,11 +1669,6 @@ export const TeamChatPage = memo(function TeamChatPage({
                           />
                         ) : null}
                         <div className="erp-team-chat-bubble__footer">
-                          {readReceipt ? (
-                            <span className="erp-team-chat-read-receipt" aria-label={readReceipt}>
-                              {readReceipt}
-                            </span>
-                          ) : null}
                           <span className="erp-team-chat-bubble__time">
                             {formatTeamChatTime(message.createdAt)}
                             {message.editedAt ? ` \u00B7 ${L.edited}` : ""}

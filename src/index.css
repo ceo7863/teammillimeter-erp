@@ -1472,6 +1472,17 @@ textarea {
   margin-top: 0.35rem;
 }
 
+.erp-team-chat-read-receipt--mine {
+  align-self: flex-end;
+  margin-right: 0.15rem;
+  margin-bottom: 0.15rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
+  color: rgba(25, 25, 25, 0.45);
+  white-space: nowrap;
+}
+
 .erp-team-chat-read-receipt {
   font-size: 0.625rem;
   line-height: 1.2;
