@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, X } from "lucide-react";
 
 const WEEKDAY_LABELS = ["\uC77C", "\uC6D4", "\uD654", "\uC218", "\uBAA9", "\uAE08", "\uD1A0"] as const;
 const MONTH_LABELS = [
@@ -61,6 +61,10 @@ type KoreanDateInputProps = {
   disabled?: boolean;
   compact?: boolean;
   clearable?: boolean;
+  /** 생년월일 등 과거 연도 선택이 필요할 때 연도 이동·선택 UI를 표시합니다. */
+  yearNavigation?: boolean;
+  minYear?: number;
+  maxYear?: number;
   name?: string;
   id?: string;
 };
@@ -73,9 +77,15 @@ export function KoreanDateInput({
   disabled = false,
   compact = false,
   clearable = true,
+  yearNavigation = false,
+  minYear,
+  maxYear,
   name,
   id,
 }: KoreanDateInputProps) {
+  const currentYear = new Date().getFullYear();
+  const resolvedMinYear = minYear ?? currentYear - 100;
+  const resolvedMaxYear = maxYear ?? currentYear;
   const isCompact = compact || className.includes("erp-input-compact");
   const rootRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -86,6 +96,14 @@ export function KoreanDateInput({
   const [viewYear, setViewYear] = useState(() => selectedDate?.getFullYear() ?? new Date().getFullYear());
   const [viewMonth, setViewMonth] = useState(() => selectedDate?.getMonth() ?? new Date().getMonth());
 
+  const yearOptions = useMemo(() => {
+    const min = Math.min(resolvedMinYear, resolvedMaxYear);
+    const max = Math.max(resolvedMinYear, resolvedMaxYear);
+    const years: number[] = [];
+    for (let year = max; year >= min; year -= 1) years.push(year);
+    return years;
+  }, [resolvedMinYear, resolvedMaxYear]);
+
   const updatePickerPosition = useCallback(() => {
     const trigger = triggerRef.current;
     if (!trigger) return;
@@ -94,12 +112,12 @@ export function KoreanDateInput({
     let left = Math.max(8, rect.left);
     if (left + width > window.innerWidth - 8) left = window.innerWidth - width - 8;
     let top = rect.bottom + 6;
-    const estimatedHeight = 320;
+    const estimatedHeight = yearNavigation ? 360 : 320;
     if (top + estimatedHeight > window.innerHeight - 8) {
       top = Math.max(8, rect.top - estimatedHeight - 6);
     }
     setPickerStyle({ position: "fixed", top, left, width, zIndex: 9999 });
-  }, []);
+  }, [yearNavigation]);
 
   useEffect(() => {
     if (!open) return;
@@ -139,6 +157,14 @@ export function KoreanDateInput({
     setViewMonth(anchor.getMonth());
   };
 
+  const moveYear = (offset: number) => {
+    setViewYear((prev) => Math.min(resolvedMaxYear, Math.max(resolvedMinYear, prev + offset)));
+  };
+
+  const handleYearSelect = (nextYear: number) => {
+    setViewYear(Math.min(resolvedMaxYear, Math.max(resolvedMinYear, nextYear)));
+  };
+
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
   const firstWeekday = new Date(viewYear, viewMonth, 1).getDay();
   const today = todayISO();
@@ -165,6 +191,45 @@ export function KoreanDateInput({
       role="dialog"
       aria-label={"\uB0A0\uC9DC \uC120\uD0DD"}
     >
+      {yearNavigation ? (
+        <div className="erp-date-picker-header erp-date-picker-header--year">
+          <button
+            type="button"
+            className="erp-date-picker-nav"
+            aria-label={"\uC774\uC804 \uC5F0\uB3C4"}
+            disabled={viewYear <= resolvedMinYear}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => moveYear(-1)}
+          >
+            <ChevronsLeft size={16} />
+          </button>
+          <select
+            className="erp-date-picker-year-select"
+            value={viewYear}
+            aria-label={"\uC5F0\uB3C4 \uC120\uD0DD"}
+            onMouseDown={(event) => event.stopPropagation()}
+            onChange={(event) => handleYearSelect(Number(event.target.value))}
+          >
+            {yearOptions.map((year) => (
+              <option key={year} value={year}>
+                {year}
+                {"\uB144"}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="erp-date-picker-nav"
+            aria-label={"\uB2E4\uC74C \uC5F0\uB3C4"}
+            disabled={viewYear >= resolvedMaxYear}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => moveYear(1)}
+          >
+            <ChevronsRight size={16} />
+          </button>
+        </div>
+      ) : null}
+
       <div className="erp-date-picker-header">
         <button
           type="button"
@@ -176,9 +241,7 @@ export function KoreanDateInput({
           <ChevronLeft size={16} />
         </button>
         <div className="erp-date-picker-title">
-          {viewYear}
-          {"\uB144 "}
-          {MONTH_LABELS[viewMonth]}
+          {yearNavigation ? MONTH_LABELS[viewMonth] : `${viewYear}\uB144 ${MONTH_LABELS[viewMonth]}`}
         </div>
         <button
           type="button"

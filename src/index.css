@@ -4108,6 +4108,33 @@ html[data-erp-csr-cal-drawer-open] .erp-client-calendars-page__body {
   margin-bottom: 0.75rem;
 }
 
+.erp-date-picker-header--year {
+  margin-bottom: 0.5rem;
+}
+
+.erp-date-picker-year-select {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.65rem;
+  background: #fff;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #0f172a;
+  text-align: center;
+}
+
+.erp-date-picker-year-select:focus {
+  outline: 2px solid #cbd5e1;
+  outline-offset: 1px;
+}
+
+.erp-date-picker-nav:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
 .erp-date-picker-title {
   font-size: 0.9375rem;
   font-weight: 700;

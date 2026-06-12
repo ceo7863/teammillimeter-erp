@@ -185,7 +185,12 @@ export const OfficeStaffFormModal = memo(function OfficeStaffFormModal({
           </label>
           <label className="space-y-1 text-sm">
             <span className="font-semibold text-slate-700">{L.birthDate}</span>
-            <KoreanDateInput value={formDateValue(form.birthDate)} onChange={(e) => onChange({ birthDate: e.target.value })} />
+            <KoreanDateInput
+              value={formDateValue(form.birthDate)}
+              onChange={(e) => onChange({ birthDate: e.target.value })}
+              yearNavigation
+              minYear={1940}
+            />
           </label>
           <label className="space-y-1 text-sm">
             <span className="font-semibold text-slate-700">{L.residentRegistrationNo}</span>
