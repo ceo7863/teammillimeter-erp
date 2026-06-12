@@ -1,5 +1,10 @@
 import type { TeamChatLink } from "@/utils/teamChatLinks";
-import { isTeamChatDesktopPopupMode, openTeamChatPopup, openTeamChatThreadPopup } from "@/utils/teamChatPopup";
+import {
+  isTeamChatDesktopPopupMode,
+  isTeamChatPopupActuallyOpen,
+  openTeamChatPopup,
+  openTeamChatThreadPopup,
+} from "@/utils/teamChatPopup";
 
 export type TeamChatSharePayload = {
   link: TeamChatLink;
@@ -143,15 +148,24 @@ export function openTeamChatList() {
   window.dispatchEvent(new CustomEvent(TEAM_CHAT_OPEN_EVENT));
 }
 
-export function openTeamChatThread(channelId: string) {
+export type TeamChatThreadOpenResult = { listOpened: boolean; threadOpened: boolean };
+
+export function openTeamChatThread(channelId: string): Promise<TeamChatThreadOpenResult> {
   const id = String(channelId || "").trim();
-  if (!id || typeof window === "undefined") return;
+  const failed: TeamChatThreadOpenResult = { listOpened: false, threadOpened: false };
+  if (!id || typeof window === "undefined") return Promise.resolve(failed);
   stashPendingTeamChatThread(id);
   if (isTeamChatDesktopPopupMode()) {
-    openTeamChatPopup();
-    openTeamChatThreadPopup(id);
-    return;
+    const listPopup = openTeamChatPopup();
+    const listOpened = isTeamChatPopupActuallyOpen(listPopup);
+    return new Promise((resolve) => {
+      window.setTimeout(() => {
+        const threadPopup = openTeamChatThreadPopup(id);
+        resolve({ listOpened, threadOpened: isTeamChatPopupActuallyOpen(threadPopup) });
+      }, 0);
+    });
   }
   window.dispatchEvent(new CustomEvent(TEAM_CHAT_OPEN_EVENT));
   window.dispatchEvent(new CustomEvent(TEAM_CHAT_OPEN_THREAD_EVENT, { detail: { channelId: id } }));
+  return Promise.resolve({ listOpened: true, threadOpened: true });
 }

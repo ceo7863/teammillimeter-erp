@@ -129,6 +129,47 @@ function trackListPopupBounds(popup: Window) {
   }, 800);
 }
 
+export function isTeamChatPopupActuallyOpen(popup: Window | null): popup is Window {
+  return popup != null && !popup.closed;
+}
+
+/** Reuse a named popup when possible (avoids popup blockers after the user opened chat once). */
+function focusOrOpenNamedPopup(
+  name: string,
+  url: string,
+  bounds: PopupBounds,
+  onOpened?: (popup: Window) => void,
+): Window | null {
+  if (typeof window === "undefined") return null;
+  const features = buildPopupFeatures(bounds);
+  let popup = window.open("", name, features);
+  if (isTeamChatPopupActuallyOpen(popup)) {
+    try {
+      const currentPath = popup.location.pathname.replace(/\/+$/, "") || "/";
+      const targetPath = new URL(url, window.location.origin).pathname.replace(/\/+$/, "") || "/";
+      if (currentPath !== targetPath) {
+        popup.location.replace(url);
+      }
+    } catch {
+      try {
+        popup.location.replace(url);
+      } catch {
+        // ignore
+      }
+    }
+    popup.focus();
+    onOpened?.(popup);
+    return popup;
+  }
+  popup = window.open(url, name, features);
+  if (isTeamChatPopupActuallyOpen(popup)) {
+    popup.focus();
+    onOpened?.(popup);
+    return popup;
+  }
+  return null;
+}
+
 export function captureTeamChatListPopupBounds() {
   if (typeof window === "undefined") return;
   savePopupBounds(
@@ -187,24 +228,7 @@ export function openTeamChatPopup() {
     return window;
   }
   const url = `${window.location.origin}${TEAM_CHAT_STANDALONE_PATH}`;
-  const popup = window.open(url, LIST_POPUP_NAME, buildPopupFeatures(loadListPopupBounds()));
-  if (popup) {
-    try {
-      const path = popup.location.pathname.replace(/\/+$/, "") || "/";
-      if (!/^\/messenger$/i.test(path)) {
-        popup.location.replace(url);
-      }
-    } catch {
-      try {
-        popup.location.replace(url);
-      } catch {
-        // ignore
-      }
-    }
-    popup.focus();
-    trackListPopupBounds(popup);
-  }
-  return popup;
+  return focusOrOpenNamedPopup(LIST_POPUP_NAME, url, loadListPopupBounds(), trackListPopupBounds);
 }
 
 export function openTeamChatThreadPopup(channelId: string) {
@@ -214,9 +238,7 @@ export function openTeamChatThreadPopup(channelId: string) {
 
   const url = `${window.location.origin}${buildTeamChatThreadPath(id)}`;
   const windowName = `teammillimeter-team-chat-${id}`;
-  const popup = window.open(url, windowName, buildPopupFeatures(loadThreadPopupBounds()));
-  popup?.focus();
-  return popup;
+  return focusOrOpenNamedPopup(windowName, url, loadThreadPopupBounds());
 }
 
 export function focusMainErpWindow() {

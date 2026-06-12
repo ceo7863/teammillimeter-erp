@@ -1658,6 +1658,8 @@ app.post("/api/team-chat/channels/:channelId/messages", authMiddleware, async (r
       body: `${message.userName}: ${preview.slice(0, 120)}`,
       url: "/messenger",
       tag: `team-chat-${channelId}`,
+      action: "openTeamChatThread",
+      channelId,
     });
     res.status(201).json(message);
   } catch (error) {

@@ -46,11 +46,16 @@ export async function showErpNotification(title: string, options: ErpNotificatio
     ...rest,
   };
 
+  const incomingData =
+    typeof payload.data === "object" && payload.data != null ? { ...(payload.data as Record<string, unknown>) } : {};
+  const explicitAction = typeof incomingData.action === "string" ? incomingData.action : undefined;
+  const action = explicitAction ?? (onClick ? "openTeamChat" : undefined);
+
   const viaSw = await showViaServiceWorker(title, {
     ...payload,
     data: {
-      ...(typeof payload.data === "object" && payload.data != null ? payload.data : {}),
-      action: onClick ? "openTeamChat" : (payload.data as { action?: string } | undefined)?.action,
+      ...incomingData,
+      ...(action ? { action } : {}),
     },
   });
   if (viaSw) return;
