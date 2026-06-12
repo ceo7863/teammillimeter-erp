@@ -7,7 +7,7 @@ import {
   type OfficePayrollYearlyStaffRow,
   type OfficePayrollYearlyTaxSummary,
 } from "@/utils/officePayrollTax";
-import { safeExportFileName } from "@/utils/tableExport";
+import { safeExportFileName, printHtmlDocument } from "@/utils/tableExport";
 
 function escapeHtml(value: string) {
   return value
@@ -259,16 +259,7 @@ export function printOfficePayrollWithholdingReceipt(input: {
 </body>
 </html>`;
 
-  const win = window.open("", "_blank", "noopener,noreferrer,width=860,height=720");
-  if (!win) {
-    window.alert("팝업이 차단되었습니다. 브라우저에서 팝업을 허용해 주세요.");
-    return;
-  }
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-  win.focus();
-  win.onload = () => win.print();
+  printHtmlDocument(html);
 }
 
 export function printOfficePayrollMonthlyWithholdingReceipt(input: {
@@ -312,14 +303,5 @@ export function printOfficePayrollMonthlyWithholdingReceipt(input: {
   <p class="note">확정·지급완료된 급여표 기준 보조 출력입니다.</p>
 </body>
 </html>`;
-  const win = window.open("", "_blank", "noopener,noreferrer,width=860,height=720");
-  if (!win) {
-    window.alert("팝업이 차단되었습니다.");
-    return;
-  }
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-  win.focus();
-  win.onload = () => win.print();
+  printHtmlDocument(html);
 }

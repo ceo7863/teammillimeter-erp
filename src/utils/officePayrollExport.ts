@@ -10,7 +10,7 @@ import {
   type OfficePayrollSheet,
 } from "@/utils/officePayroll";
 import { formatAttendanceSummaryLabel } from "@/utils/officePayrollAttendance";
-import { safeExportFileName } from "@/utils/tableExport";
+import { printHtmlDocument, safeExportFileName } from "@/utils/tableExport";
 
 export function buildOfficePayrollBankTransferRows(sheet: OfficePayrollSheet) {
   return sheet.lines
@@ -177,19 +177,7 @@ export function printOfficePayrollPayslip(input: {
   line: OfficePayrollLine;
   companyProfile?: CompanyProfile;
 }) {
-  const html = buildOfficePayrollPayslipHtml(input);
-  const win = window.open("", "_blank", "noopener,noreferrer,width=860,height=720");
-  if (!win) {
-    window.alert("팝업이 차단되었습니다. 브라우저에서 팝업을 허용해 주세요.");
-    return;
-  }
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-  win.focus();
-  win.onload = () => {
-    win.print();
-  };
+  printHtmlDocument(buildOfficePayrollPayslipHtml(input));
 }
 
 export function printOfficePayrollAllPayslips(input: {
@@ -208,14 +196,5 @@ export function printOfficePayrollAllPayslips(input: {
     )
     .join("");
   const html = `<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8" /><title>급여명세 일괄출력</title></head><body>${body}</body></html>`;
-  const win = window.open("", "_blank", "noopener,noreferrer,width=860,height=720");
-  if (!win) {
-    window.alert("팝업이 차단되었습니다. 브라우저에서 팝업을 허용해 주세요.");
-    return;
-  }
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-  win.focus();
-  win.onload = () => win.print();
+  printHtmlDocument(html);
 }

@@ -181,22 +181,54 @@ export async function exportParsedTablePdf(parsed: ParsedTable, fileName: string
 export function printDomTable(table: HTMLTableElement, title: string) {
   const cleaned = cloneTableForExport(table);
   const html = buildPrintHtml(cleaned.outerHTML, title);
+  printHtmlDocument(html);
+}
+
+/** 팝업 없이 HTML 문서를 인쇄합니다 (모바일·팝업 차단 환경 대응). */
+export function printHtmlDocument(html: string) {
   const frame = document.createElement("iframe");
-  frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+  frame.setAttribute("aria-hidden", "true");
+  frame.title = "print-frame";
+  frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none;";
   document.body.appendChild(frame);
 
+  const cleanup = () => {
+    window.setTimeout(() => {
+      if (frame.parentNode) frame.parentNode.removeChild(frame);
+    }, 1000);
+  };
+
   const doc = frame.contentDocument;
-  if (!doc) {
-    document.body.removeChild(frame);
-    return;
+  const win = frame.contentWindow;
+  if (!doc || !win) {
+    cleanup();
+    return false;
   }
 
   doc.open();
   doc.write(html);
   doc.close();
-  frame.contentWindow?.focus();
-  frame.contentWindow?.print();
-  window.setTimeout(() => document.body.removeChild(frame), 1000);
+
+  const triggerPrint = () => {
+    try {
+      win.focus();
+      win.print();
+    } catch {
+      cleanup();
+      return false;
+    }
+    cleanup();
+    return true;
+  };
+
+  if (doc.readyState === "complete") {
+    window.setTimeout(triggerPrint, 200);
+  } else {
+    frame.onload = () => window.setTimeout(triggerPrint, 200);
+    window.setTimeout(triggerPrint, 600);
+  }
+
+  return true;
 }
 
 export async function exportDomTablePdf(table: HTMLTableElement, fileName: string, title: string) {
