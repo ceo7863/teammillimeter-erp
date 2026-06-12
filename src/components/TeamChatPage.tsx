@@ -538,12 +538,8 @@ export const TeamChatPage = memo(function TeamChatPage({
     const nearBottom = node.scrollHeight - node.scrollTop - node.clientHeight <= threshold;
     isNearBottomRef.current = nearBottom;
     if (nearBottom && selectedChannelIdRef.current && lastMessageIdRef.current > 0) {
-      if (suppressReadUntilFocusRef.current) {
-        suppressReadUntilFocusRef.current = false;
-        void flushPendingRead();
-      } else {
-        void tryMarkChannelRead(selectedChannelIdRef.current, lastMessageIdRef.current);
-      }
+      if (suppressReadUntilFocusRef.current) return;
+      void tryMarkChannelRead(selectedChannelIdRef.current, lastMessageIdRef.current);
     }
   }, [flushPendingRead, tryMarkChannelRead]);
 
@@ -607,7 +603,7 @@ export const TeamChatPage = memo(function TeamChatPage({
     setMessages(rows);
     const lastId = rows.length ? rows[rows.length - 1].id : 0;
     lastMessageIdRef.current = lastId;
-    if (lastId > 0) {
+    if (lastId > 0 && !suppressReadUntilFocusRef.current) {
       await tryMarkChannelRead(channelId, lastId);
     }
     window.requestAnimationFrame(() => scrollToBottom());
@@ -753,6 +749,7 @@ export const TeamChatPage = memo(function TeamChatPage({
             }
             return;
           }
+          if (!isPageActive && !standalone) return;
           void refreshChannels().then(() => {
             if (!channelId) return;
             if (event.data.inline) {
@@ -774,7 +771,7 @@ export const TeamChatPage = memo(function TeamChatPage({
     return () => {
       channel?.close();
     };
-  }, [handleIncomingShare, initialChannelId, refreshChannels, threadOnly]);
+  }, [handleIncomingShare, initialChannelId, isPageActive, refreshChannels, standalone, threadOnly]);
 
   useEffect(() => {
     if (threadOnly && initialChannelId && !selectedChannelId) {
