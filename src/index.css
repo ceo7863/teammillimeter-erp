@@ -2505,6 +2505,10 @@ textarea {
   padding: 0;
 }
 
+html[data-erp-csr-cal-drawer-open] .erp-client-calendars-page__body {
+  overflow: hidden;
+}
+
 .erp-csr-cal-drawer-foot {
   flex-shrink: 0;
   display: flex;

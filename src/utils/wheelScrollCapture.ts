@@ -6,7 +6,18 @@ function isVerticallyScrollable(el: HTMLElement) {
   return el.scrollHeight > el.clientHeight + 1;
 }
 
-/** Scroll nearest overflow container on wheel (fixes nested flex / modal scroll). */
+function scrollElement(el: HTMLElement, deltaY: number) {
+  const max = el.scrollHeight - el.clientHeight;
+  if (max <= 0) return;
+  el.scrollTop = Math.max(0, Math.min(max, el.scrollTop + deltaY));
+}
+
+function getOpenDrawerScrollBody() {
+  if (!document.documentElement.hasAttribute("data-erp-csr-cal-drawer-open")) return null;
+  return document.querySelector<HTMLElement>("[data-erp-csr-cal-drawer-scroll-body]");
+}
+
+/** Scroll nearest overflow container on wheel (nested flex / drawer isolation). */
 export function useWheelScrollCapture(active: boolean) {
   useEffect(() => {
     if (!active) return;
@@ -14,22 +25,33 @@ export function useWheelScrollCapture(active: boolean) {
     const onWheel = (event: WheelEvent) => {
       if (event.defaultPrevented) return;
 
-      let node = event.target instanceof HTMLElement ? event.target : null;
+      const drawerBody = getOpenDrawerScrollBody();
+      if (drawerBody) {
+        event.preventDefault();
+        event.stopPropagation();
+        scrollElement(drawerBody, event.deltaY);
+        return;
+      }
+
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      let node = target;
       while (node && node !== document.documentElement) {
         if (isVerticallyScrollable(node)) {
-          const maxScroll = node.scrollHeight - node.clientHeight;
-          const next = node.scrollTop + event.deltaY;
-          if (
-            (event.deltaY > 0 && node.scrollTop < maxScroll - 0.5) ||
-            (event.deltaY < 0 && node.scrollTop > 0.5)
-          ) {
-            node.scrollTop = Math.max(0, Math.min(maxScroll, next));
-            event.preventDefault();
-            event.stopPropagation();
-          }
+          scrollElement(node, event.deltaY);
+          event.preventDefault();
+          event.stopPropagation();
           return;
         }
         node = node.parentElement;
+      }
+
+      const pageBody = target?.closest(".erp-client-calendars-page")
+        ? document.querySelector<HTMLElement>(".erp-client-calendars-page__body")
+        : null;
+      if (pageBody && isVerticallyScrollable(pageBody)) {
+        scrollElement(pageBody, event.deltaY);
+        event.preventDefault();
+        event.stopPropagation();
       }
     };
 

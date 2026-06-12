@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { CalendarClock, CalendarPlus, Check, ChevronLeft, ChevronRight, Copy, Smartphone, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -170,6 +170,30 @@ export function ClientSiteRequestCalendarDayDrawer({
 
   useBodyScrollLock(Boolean(date));
 
+  useEffect(() => {
+    if (date) {
+      document.documentElement.setAttribute("data-erp-csr-cal-drawer-open", "");
+    } else {
+      document.documentElement.removeAttribute("data-erp-csr-cal-drawer-open");
+    }
+    return () => document.documentElement.removeAttribute("data-erp-csr-cal-drawer-open");
+  }, [date]);
+
+  useEffect(() => {
+    const el = drawerBodyRef.current;
+    if (!el || !date) return;
+
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const maxScroll = el.scrollHeight - el.clientHeight;
+      el.scrollTop = Math.max(0, Math.min(maxScroll, el.scrollTop + event.deltaY));
+    };
+
+    el.addEventListener("wheel", onWheel, { passive: false, capture: true });
+    return () => el.removeEventListener("wheel", onWheel, { capture: true });
+  }, [date, requests.length, scSchedules.length]);
+
   if (typeof document === "undefined") return null;
 
   const totalCount = requests.length + scSchedules.length;
@@ -230,7 +254,7 @@ export function ClientSiteRequestCalendarDayDrawer({
           </Button>
         </div>
 
-        <div ref={drawerBodyRef} className="erp-csr-cal-drawer-body">
+        <div ref={drawerBodyRef} className="erp-csr-cal-drawer-body" data-erp-csr-cal-drawer-scroll-body="">
           {totalCount === 0 ? (
             <p className="erp-calendar-side-empty">{L.empty}</p>
           ) : (
