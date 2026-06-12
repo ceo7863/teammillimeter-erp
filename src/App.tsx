@@ -89,6 +89,7 @@ import { BankSyncMetaProvider } from "@/contexts/BankSyncMetaContext";
 import { AccountingHubPage } from "@/components/AccountingHubPage";
 import { AnalysisHubPage } from "@/components/AnalysisHubPage";
 import { BasicInfoHubPage } from "@/components/BasicInfoHubPage";
+import { OfficeStaffPage } from "@/components/OfficeStaffPage";
 import { AttendancePage } from "@/components/AttendancePage";
 import { AutoLinkBadge, SalePaymentLinkBadge, SalePaymentLinkProvider } from "@/components/AutoLinkBadge";
 import { buildAutoLinkedSaleIdSet, buildManualLinkedSaleIdSet, isSaleAutoLinkedPaid, isSaleManualLinkedPaid } from "@/utils/bankReceivableMatch";
@@ -246,6 +247,7 @@ import { ProbationEvalDashboard } from "@/components/ProbationEvalDashboard";
 import { WorkerHrRecordPanel } from "@/components/WorkerHrRecordPanel";
 import { ProbationEvalTemplateEditor } from "@/components/ProbationEvalTemplateEditor";
 import type { ProbationEvalRequest, ProbationEvalTemplate } from "@/utils/probationEval";
+import { normalizeOfficeStaffList, type OfficeStaffRecord } from "@/utils/officeStaff";
 import { ScScheduleAlimtalkPage } from "@/components/ScScheduleAlimtalkPage";
 import { ScCalendarEmbedPage } from "@/components/ScCalendarEmbedPage";
 import { DailyReportPage } from "@/components/DailyReportPage";
@@ -769,6 +771,7 @@ function normalizeBackupPayload(raw) {
       statementGenerationLogs: normalizeStatementGenerationLogs(raw.statementGenerationLogs),
       statementFolders: normalizeStatementFolders(raw.statementFolders),
       companyProfile: normalizeCompanyProfile(raw.companyProfile),
+      officeStaff: normalizeOfficeStaffList(raw.officeStaff),
     })
   );
 }
@@ -8676,6 +8679,12 @@ export default function TeammillimeterErpMvp() {
   });
   const workersRef = useRef(workers);
   workersRef.current = workers;
+  const [officeStaff, setOfficeStaff] = useState<OfficeStaffRecord[]>(() => {
+    if (apiMode && sessionOnMount) return [];
+    return normalizeOfficeStaffList(storedData?.officeStaff);
+  });
+  const officeStaffRef = useRef(officeStaff);
+  officeStaffRef.current = officeStaff;
   const workerMonthlyPaymentMemosRef = useRef(workerMonthlyPaymentMemos);
   workerMonthlyPaymentMemosRef.current = workerMonthlyPaymentMemos;
   const WORKER_MONTHLY_EDIT_GUARD_MS = 15000;
@@ -9084,6 +9093,9 @@ export default function TeammillimeterErpMvp() {
     setWorkerAiRules(normalizeWorkerAiRules(data.workerAiRules));
     setProbationEvalTemplates(normalizeProbationEvalTemplates(data.probationEvalTemplates));
     setProbationEvalRequests(normalizeProbationEvalRequests(data.probationEvalRequests));
+    if (!preserveLocalEdits) {
+      setOfficeStaff(normalizeOfficeStaffList(data.officeStaff));
+    }
     publishErpVersion(data.version ?? 0);
     bankTransactionsDirtyRef.current = false;
     skipSaveRef.current = true;
@@ -9294,6 +9306,7 @@ export default function TeammillimeterErpMvp() {
       workerAiRules,
       probationEvalTemplates,
       probationEvalRequests,
+      officeStaff: officeStaffRef.current,
       version: erpVersionRef.current,
     };
   }
@@ -9340,6 +9353,7 @@ export default function TeammillimeterErpMvp() {
       workerAiRules,
       probationEvalTemplates,
       probationEvalRequests,
+      officeStaff,
     ],
   );
 
@@ -9555,6 +9569,9 @@ export default function TeammillimeterErpMvp() {
       ) {
         forceDomains.push("settings");
       }
+      if (normalizedPatch && Array.isArray(normalizedPatch.officeStaff)) {
+        forceDomains.push("officeStaff");
+      }
       if (saveDebounceTimerRef.current) {
         window.clearTimeout(saveDebounceTimerRef.current);
         saveDebounceTimerRef.current = null;
@@ -9596,6 +9613,11 @@ export default function TeammillimeterErpMvp() {
           }
           if (normalizedPatch.probationEvalRequests) {
             setProbationEvalRequests(normalizeProbationEvalRequests(normalizedPatch.probationEvalRequests));
+          }
+          if (Array.isArray(normalizedPatch.officeStaff)) {
+            const nextOfficeStaff = normalizeOfficeStaffList(normalizedPatch.officeStaff);
+            officeStaffRef.current = nextOfficeStaff;
+            setOfficeStaff(nextOfficeStaff);
           }
         }
         return saved;
@@ -9713,6 +9735,38 @@ export default function TeammillimeterErpMvp() {
         saved = (await flushErpSave({ companyProfile: normalized })) !== false;
       } finally {
         skipSaveRef.current = false;
+      }
+      return saved;
+    },
+    [apiMode, currentUser, dataReady, flushErpSave],
+  );
+
+  const persistOfficeStaffImmediate = useCallback(
+    async (nextOfficeStaff: OfficeStaffRecord[], options?: { flushNow?: boolean }) => {
+      pendingLocalEditsRef.current = true;
+      skipSaveRef.current = true;
+      if (saveDebounceTimerRef.current) {
+        window.clearTimeout(saveDebounceTimerRef.current);
+        saveDebounceTimerRef.current = null;
+      }
+      const normalized = normalizeOfficeStaffList(nextOfficeStaff);
+      officeStaffRef.current = normalized;
+      setOfficeStaff(normalized);
+
+      if (!apiMode || !currentUser || !dataReady) {
+        skipSaveRef.current = false;
+        return true;
+      }
+
+      let saved = true;
+      try {
+        saved = (await flushErpSave({ officeStaff: normalized })) !== false;
+        if (!saved) {
+          window.alert("내근직 저장에 실패했습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.");
+        }
+      } finally {
+        skipSaveRef.current = false;
+        if (!options?.flushNow) pendingLocalEditsRef.current = false;
       }
       return saved;
     },
@@ -11605,6 +11659,13 @@ export default function TeammillimeterErpMvp() {
                 onShareToTeamChat={(worker) => {
                   openTeamChatWithShare({ link: buildWorkerTeamChatLink(worker as { id?: string | number; name?: string }) });
                 }}
+              />
+            }
+            officeStaffPanel={
+              <OfficeStaffPage
+                officeStaff={officeStaff}
+                companyProfile={companyProfile}
+                onPersistOfficeStaffImmediate={persistOfficeStaffImmediate}
               />
             }
             companyPanel={

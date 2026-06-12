@@ -1,6 +1,7 @@
 import {
   mergeBankTransactionsForSave,
   mergeClientsForSave,
+  mergeOfficeStaffForSave,
   mergePaymentVouchersForSave,
   mergeWorkerMonthlyActualVouchersForSave,
   mergeWorkersForSave,
@@ -22,6 +23,7 @@ export const ERP_DOMAIN_FIELDS = {
   bankTransactions: ["bankTransactions", "bankTransactionFolders", "bankSyncMeta", "bankLedgerRules"],
   taxInvoices: ["taxInvoices"],
   companyProfile: ["companyProfile"],
+  officeStaff: ["officeStaff"],
   settings: [
     "auditLogs",
     "loginLogs",
@@ -173,6 +175,11 @@ export function mergeErpDomainForSave(existingData, domain, incomingPartial) {
           incoming.companyProfile && typeof incoming.companyProfile === "object"
             ? incoming.companyProfile
             : existing.companyProfile || null,
+      };
+    case "officeStaff":
+      return {
+        ...existing,
+        officeStaff: mergeOfficeStaffForSave(existing.officeStaff || [], incoming.officeStaff || []),
       };
     case "settings":
       return {

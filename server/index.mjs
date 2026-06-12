@@ -86,6 +86,14 @@ import {
   deleteWorkerPhoto,
   enrichWorkersWithPhotoMeta,
 } from "./workerPhoto.mjs";
+import {
+  initOfficeStaffPhotoStore,
+  getOfficeStaffPhotoMeta,
+  getOfficeStaffPhotoFile,
+  upsertOfficeStaffPhoto,
+  deleteOfficeStaffPhoto,
+  enrichOfficeStaffWithPhotoMeta,
+} from "./officeStaffPhoto.mjs";
 import { buildPdfShareViewerHtml } from "./pdfShareViewer.mjs";
 import { renderPdfSharePreviewImages } from "./pdfSharePreview.mjs";
 import { buildPdfShareOgMeta } from "./pdfShareOg.mjs";
@@ -252,6 +260,7 @@ initPdfArchiveStore();
 initBoardAttachmentStore();
 initClientBusinessRegStore();
 initWorkerPhotoStore();
+initOfficeStaffPhotoStore();
 initClientContractsStore();
 startBankSyncScheduler();
 startNotificationScheduler();
@@ -1015,6 +1024,71 @@ app.delete("/api/workers/:workerId/photo", authMiddleware, (req, res) => {
 });
 
 app.post(
+  "/api/office-staff/:staffId/photo",
+  authMiddleware,
+  express.raw({ type: () => true, limit: "6mb" }),
+  (req, res) => {
+    try {
+      const rawMeta = req.headers["x-office-staff-photo-meta"];
+      if (!rawMeta) {
+        res.status(400).json({ error: "인사사진 메타데이터가 없습니다." });
+        return;
+      }
+      const meta = parseAttachmentMetaHeader(rawMeta);
+      const buffer = Buffer.from(req.body || []);
+      const result = upsertOfficeStaffPhoto(
+        req.params.staffId,
+        buffer,
+        meta,
+        req.user.loginId || req.user.name || req.user.email,
+      );
+      if (!result.ok) {
+        res.status(result.status || 400).json({ error: result.error });
+        return;
+      }
+      res.status(result.meta?.createdAt === result.meta?.updatedAt ? 201 : 200).json(result.meta);
+    } catch (error) {
+      console.error("[office-staff-photo] upload failed:", error);
+      res.status(500).json({ error: "인사사진 저장에 실패했습니다." });
+    }
+  },
+);
+
+app.get("/api/office-staff/:staffId/photo/meta", authMiddleware, (req, res) => {
+  const meta = getOfficeStaffPhotoMeta(req.params.staffId);
+  if (!meta) {
+    res.status(404).json({ error: "인사사진이 없습니다." });
+    return;
+  }
+  res.json(meta);
+});
+
+app.get("/api/office-staff/:staffId/photo/file", authMiddleware, (req, res) => {
+  const file = getOfficeStaffPhotoFile(req.params.staffId);
+  if (!file) {
+    res.status(404).json({ error: "인사사진을 찾을 수 없습니다." });
+    return;
+  }
+  res.setHeader("Content-Type", file.mimeType || "image/jpeg");
+  res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+  res.sendFile(path.resolve(file.path));
+});
+
+app.delete("/api/office-staff/:staffId/photo", authMiddleware, (req, res) => {
+  try {
+    const result = deleteOfficeStaffPhoto(req.params.staffId);
+    if (!result.ok) {
+      res.status(result.status || 400).json({ error: result.error });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("[office-staff-photo] delete failed:", error);
+    res.status(500).json({ error: "인사사진 삭제에 실패했습니다." });
+  }
+});
+
+app.post(
   "/api/board-attachments",
   authMiddleware,
   express.raw({ type: () => true, limit: "15mb" }),
@@ -1413,6 +1487,7 @@ function buildErpApiResponse(state, workersOverride = null, workerMonthlyPayment
     statementGenerationLogs: data.statementGenerationLogs || [],
     statementFolders: data.statementFolders || [],
     companyProfile: data.companyProfile || null,
+    officeStaff: enrichOfficeStaffWithPhotoMeta(Array.isArray(data.officeStaff) ? data.officeStaff : []),
     notificationSettings: normalizeNotificationSettings(data.notificationSettings),
     saleAiRules: normalizeSaleAiRules(data.saleAiRules),
     workerAiRules: normalizeWorkerAiRules(data.workerAiRules),

@@ -27,6 +27,7 @@ export const config = {
   teamChatAttachmentDir: process.env.TEAM_CHAT_ATTACHMENT_DIR || path.join(rootDir, "data", "team-chat-attachments"),
   clientBusinessRegDir: process.env.CLIENT_BUSINESS_REG_DIR || path.join(rootDir, "data", "client-business-reg"),
   workerPhotosDir: process.env.WORKER_PHOTOS_DIR || path.join(rootDir, "data", "worker-photos"),
+  officeStaffPhotosDir: process.env.OFFICE_STAFF_PHOTOS_DIR || path.join(rootDir, "data", "office-staff-photos"),
   distDir: process.env.DIST_DIR || path.join(rootDir, "dist"),
   pdfJsDir: path.join(rootDir, "node_modules", "pdfjs-dist", "legacy", "build"),
   tokenExpiresIn: process.env.JWT_EXPIRES || "7d",

@@ -681,4 +681,20 @@ function mergeWorkerMonthlyPaymentMemosForSave(existing = {}, incoming = {}) {
   return { ...existing, ...incoming };
 }
 
+function normalizeOfficeStaffRecordId(id) {
+  if (id == null || id === "") return "";
+  return String(id).trim();
+}
+
+export function mergeOfficeStaffForSave(existing = [], incoming = []) {
+  const existingById = new Map(
+    (existing || [])
+      .filter((row) => normalizeOfficeStaffRecordId(row?.id))
+      .map((row) => [normalizeOfficeStaffRecordId(row.id), row]),
+  );
+  return (incoming || [])
+    .filter((row) => normalizeOfficeStaffRecordId(row?.id) && String(row?.name || "").trim())
+    .map((row) => ({ ...existingById.get(normalizeOfficeStaffRecordId(row.id)), ...row }));
+}
+
 export { mergeWorkerMonthlyPaymentMemosForSave };

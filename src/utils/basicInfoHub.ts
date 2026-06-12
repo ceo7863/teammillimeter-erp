@@ -1,7 +1,7 @@
 import { isErpPageKey, type ErpPageKey } from "./pageAccess";
 import type { ErpUser } from "./erpApi";
 
-export type BasicInfoHubTab = "clients" | "workers" | "company";
+export type BasicInfoHubTab = "clients" | "workers" | "officeStaff" | "company";
 
 export const BASIC_INFO_TAB_STORAGE_KEY = "teammillimeter-erp-basic-info-tab";
 
@@ -18,6 +18,7 @@ const LEGACY_TO_TAB: Record<LegacyBasicInfoPageKey, BasicInfoHubTab> = {
 export type BasicInfoTabAccess = {
   clients: boolean;
   workers: boolean;
+  officeStaff: boolean;
   company: boolean;
 };
 
@@ -73,7 +74,7 @@ export function migrateAllowedPageKeys(pages: ErpPageKey[]): ErpPageKey[] {
 export function readStoredBasicInfoTab(): BasicInfoHubTab {
   if (typeof window === "undefined") return "clients";
   const stored = window.sessionStorage.getItem(BASIC_INFO_TAB_STORAGE_KEY);
-  if (stored === "clients" || stored === "workers" || stored === "company") return stored;
+  if (stored === "clients" || stored === "workers" || stored === "officeStaff" || stored === "company") return stored;
   return "clients";
 }
 
@@ -85,8 +86,8 @@ export function storeBasicInfoTab(tab: BasicInfoHubTab) {
 export function resolveBasicInfoTabAccess(
   user: Pick<ErpUser, "role" | "allowedPages"> | null | undefined,
 ): BasicInfoTabAccess {
-  if (!user) return { clients: false, workers: false, company: false };
-  if (user.role === "admin") return { clients: true, workers: true, company: true };
+  if (!user) return { clients: false, workers: false, officeStaff: false, company: false };
+  if (user.role === "admin") return { clients: true, workers: true, officeStaff: true, company: true };
 
   const rawPages = user.allowedPages;
   if (Array.isArray(rawPages) && rawPages.length) {
@@ -95,20 +96,22 @@ export function resolveBasicInfoTabAccess(
     return {
       clients: hasBasicInfo || rawSet.has("clients"),
       workers: hasBasicInfo || rawSet.has("workers"),
+      officeStaff: hasBasicInfo || rawSet.has("officeStaff") || rawSet.has("workers"),
       company: hasBasicInfo || rawSet.has("companyProfile"),
     };
   }
 
-  return { clients: true, workers: true, company: false };
+  return { clients: true, workers: true, officeStaff: true, company: false };
 }
 
 export function canAccessBasicInfoHub(user: Pick<ErpUser, "role" | "allowedPages"> | null | undefined): boolean {
   const access = resolveBasicInfoTabAccess(user);
-  return access.clients || access.workers || access.company;
+  return access.clients || access.workers || access.officeStaff || access.company;
 }
 
 export function firstAccessibleBasicInfoTab(access: BasicInfoTabAccess): BasicInfoHubTab {
   if (access.clients) return "clients";
   if (access.workers) return "workers";
+  if (access.officeStaff) return "officeStaff";
   return "company";
 }

@@ -15,21 +15,26 @@ type BasicInfoHubPageProps = {
   tabAccess: BasicInfoTabAccess;
   clientsPanel: ReactNode;
   workersPanel: ReactNode;
+  officeStaffPanel: ReactNode;
   companyPanel: ReactNode;
   onWorkersTabVisible?: () => void;
 };
 
 const TAB_ITEMS: Array<{ key: BasicInfoHubTab; label: string }> = [
-  { key: "clients", label: "\uAC70\uB798\uCC98" },
-  { key: "workers", label: "\uC2DC\uACF5\uC790" },
-  { key: "company", label: "\uD68C\uC0AC\uC815\uBCF4" },
+  { key: "clients", label: "거래처" },
+  { key: "workers", label: "시공자" },
+  { key: "officeStaff", label: "내근직" },
+  { key: "company", label: "회사정보" },
 ];
+
+function tabAccessKey(tab: BasicInfoHubTab): keyof BasicInfoTabAccess {
+  if (tab === "company") return "company";
+  return tab;
+}
 
 function resolveInitialTab(initialTab: BasicInfoHubTab | undefined, tabAccess: BasicInfoTabAccess): BasicInfoHubTab {
   const candidate = initialTab || readStoredBasicInfoTab();
-  if (candidate === "clients" && tabAccess.clients) return "clients";
-  if (candidate === "workers" && tabAccess.workers) return "workers";
-  if (candidate === "company" && tabAccess.company) return "company";
+  if (tabAccess[tabAccessKey(candidate)]) return candidate;
   return firstAccessibleBasicInfoTab(tabAccess);
 }
 
@@ -39,11 +44,12 @@ export function BasicInfoHubPage({
   tabAccess,
   clientsPanel,
   workersPanel,
+  officeStaffPanel,
   companyPanel,
   onWorkersTabVisible,
 }: BasicInfoHubPageProps) {
   const visibleTabs = useMemo(
-    () => TAB_ITEMS.filter((tab) => tabAccess[tab.key === "company" ? "company" : tab.key]),
+    () => TAB_ITEMS.filter((tab) => tabAccess[tabAccessKey(tab.key)]),
     [tabAccess],
   );
 
@@ -53,6 +59,7 @@ export function BasicInfoHubPage({
     return {
       clients: initial === "clients",
       workers: initial === "workers",
+      officeStaff: initial === "officeStaff",
       company: initial === "company",
     };
   });
@@ -65,7 +72,7 @@ export function BasicInfoHubPage({
   }, [initialTab, tabAccess]);
 
   useEffect(() => {
-    if (!tabAccess[activeTab === "company" ? "company" : activeTab]) {
+    if (!tabAccess[tabAccessKey(activeTab)]) {
       const next = firstAccessibleBasicInfoTab(tabAccess);
       setActiveTab(next);
       setMountedTabs((prev) => ({ ...prev, [next]: true }));
@@ -89,9 +96,9 @@ export function BasicInfoHubPage({
       <Card className="mb-4 rounded-2xl shadow-sm">
         <CardContent className="p-4 md:p-5">
           <div className="mb-4">
-            <h1 className="erp-text-page-title text-slate-900">{"\uAE30\uBCF8\uC815\uBCF4"}</h1>
+            <h1 className="erp-text-page-title text-slate-900">기본정보</h1>
             <p className="mt-1 erp-text-body text-slate-600">
-              {"\uAC70\uB798\uCC98, \uC2DC\uACF5\uC790, \uD68C\uC0AC \uC815\uBCF4\uB97C \uD55C \uBA54\uB274\uC5D0\uC11C \uAD00\uB9AC\uD569\uB2C8\uB2E4."}
+              거래처, 시공자, 내근직, 회사 정보를 한 메뉴에서 관리합니다.
             </p>
           </div>
           {visibleTabs.length > 1 ? (
@@ -117,6 +124,10 @@ export function BasicInfoHubPage({
 
       {mountedTabs.workers ? (
         <KeepAlivePanel active={activeTab === "workers"}>{workersPanel}</KeepAlivePanel>
+      ) : null}
+
+      {mountedTabs.officeStaff ? (
+        <KeepAlivePanel active={activeTab === "officeStaff"}>{officeStaffPanel}</KeepAlivePanel>
       ) : null}
 
       {mountedTabs.company ? (

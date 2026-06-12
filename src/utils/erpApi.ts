@@ -83,6 +83,7 @@ export type ErpPayload = {
   probationEvalTemplates?: import("@/utils/probationEval").ProbationEvalTemplate[];
   probationEvalRequests?: import("@/utils/probationEval").ProbationEvalRequest[];
   probationEvalNotifyMeta?: unknown;
+  officeStaff?: unknown[];
   version?: number;
   updatedAt?: string | null;
   updatedBy?: string | null;
@@ -273,6 +274,7 @@ export const ERP_SAVE_DOMAIN_NAMES = [
   "sales",
   "clients",
   "workers",
+  "officeStaff",
   "bankTransactions",
   "taxInvoices",
   "companyProfile",
@@ -301,6 +303,8 @@ export function buildErpDomainChunk(domain: ErpSaveDomain, payload: ErpPayload) 
         workerMonthlyActualVouchers: payload.workerMonthlyActualVouchers || [],
         workerPayWithVatLearnRules: payload.workerPayWithVatLearnRules || [],
       };
+    case "officeStaff":
+      return { officeStaff: payload.officeStaff || [] };
     case "bankTransactions":
       return {
         bankTransactions: payload.bankTransactions || [],

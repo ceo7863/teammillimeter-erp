@@ -8,6 +8,7 @@ const L = {
   replace: "\uC0AC\uC9C4 \uBCC0\uACBD",
   delete: "\uC0AD\uC81C",
   hintCreate: "\uC2DC\uACF5\uC790 \uC800\uC7A5 \uD6C4 \uC778\uC0AC\uC0AC\uC9C4\uC744 \uB4F1\uB85D\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+  hintCreateOfficeStaff: "\uB0B4\uADFC\uC9C1 \uC800\uC7A5 \uD6C4 \uC778\uC0AC\uC0AC\uC9C4\uC744 \uB4F1\uB85D\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
   hintEdit: "JPG, PNG, WEBP \u00B7 5MB \uC774\uD558",
   uploading: "\uC5C5\uB85C\uB4DC \uC911\u2026",
 };
@@ -17,6 +18,7 @@ type WorkerPhotoFieldProps = {
   hasPhoto?: boolean;
   uploading?: boolean;
   createMode?: boolean;
+  hintCreate?: string;
   onSelectFile: (file: File) => void;
   onDelete?: () => void;
 };
@@ -26,6 +28,7 @@ export function WorkerPhotoField({
   hasPhoto = false,
   uploading = false,
   createMode = false,
+  hintCreate,
   onSelectFile,
   onDelete,
 }: WorkerPhotoFieldProps) {
@@ -44,7 +47,7 @@ export function WorkerPhotoField({
             )}
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <p className="text-xs text-slate-500">{createMode ? L.hintCreate : L.hintEdit}</p>
+            <p className="text-xs text-slate-500">{createMode ? hintCreate || L.hintCreate : L.hintEdit}</p>
             <div className="flex flex-wrap gap-2">
               <input
                 ref={inputRef}
