@@ -660,6 +660,7 @@ export const TeamChatPage = memo(function TeamChatPage({
           return;
         }
         if (event.data?.type === "incoming") {
+          if (threadOnly) return;
           const channelId = String(event.data.channelId || "").trim();
           void refreshChannels().then(() => {
             if (channelId && event.data.openThread !== false) {
@@ -676,7 +677,7 @@ export const TeamChatPage = memo(function TeamChatPage({
     return () => {
       channel?.close();
     };
-  }, [handleIncomingShare, refreshChannels]);
+  }, [handleIncomingShare, refreshChannels, threadOnly]);
 
   useEffect(() => {
     if (threadOnly && initialChannelId && !selectedChannelId) {
@@ -774,12 +775,13 @@ export const TeamChatPage = memo(function TeamChatPage({
   handleSelectChannelRef.current = handleSelectChannel;
 
   useEffect(() => {
+    if (threadOnly) return;
     const pendingThreadId = consumePendingTeamChatThread();
     if (!pendingThreadId) return;
     void refreshChannels().then(() => {
       handleSelectChannel(pendingThreadId);
     });
-  }, [handleSelectChannel, refreshChannels]);
+  }, [handleSelectChannel, refreshChannels, threadOnly]);
 
   const handleStartDm = useCallback(
     async (otherUserId: number) => {
