@@ -35,7 +35,7 @@ import {
   type TeamChatAttachment,
 } from "@/utils/teamChatAttachments";
 import { TEAM_CHAT_LINK_LABELS, teamChatLinkToAction, type TeamChatLink } from "@/utils/teamChatLinks";
-import { consumeTeamChatShare, peekTeamChatShare, stashTeamChatShare, TEAM_CHAT_OPEN_THREAD_EVENT, TEAM_CHAT_RESET_LIST_EVENT, TEAM_CHAT_SHARE_CHANNEL } from "@/utils/teamChatShare";
+import { consumeTeamChatShare, peekTeamChatShare, stashTeamChatShare, consumePendingTeamChatThread, TEAM_CHAT_OPEN_THREAD_EVENT, TEAM_CHAT_RESET_LIST_EVENT, TEAM_CHAT_SHARE_CHANNEL } from "@/utils/teamChatShare";
 import { isTeamChatDesktopPopupMode, openTeamChatPopup, openTeamChatThreadPopup, canOpenTeamChatThreadPopup } from "@/utils/teamChatPopup";
 import {
   createTeamChatGroup,
@@ -420,6 +420,7 @@ export const TeamChatPage = memo(function TeamChatPage({
   const shareAppliedRef = useRef(false);
   const onUnreadChangeRef = useRef(onUnreadChange);
   const listBrowsingRef = useRef(false);
+  const handleSelectChannelRef = useRef<(channelId: string) => void>(() => {});
   const isMobileLayout = useTeamChatMobileLayout();
   const openThreadInPopup = listOnly && !isMobileLayout && canOpenTeamChatThreadPopup() && !threadOnly;
   const selfId = Number(currentUser?.id) || 0;
@@ -658,6 +659,15 @@ export const TeamChatPage = memo(function TeamChatPage({
           setHighlightedChannelId(null);
           return;
         }
+        if (event.data?.type === "incoming") {
+          const channelId = String(event.data.channelId || "").trim();
+          void refreshChannels().then(() => {
+            if (channelId && event.data.openThread !== false) {
+              handleSelectChannelRef.current(channelId);
+            }
+          });
+          return;
+        }
         handleIncomingShare();
       };
     } catch {
@@ -666,7 +676,7 @@ export const TeamChatPage = memo(function TeamChatPage({
     return () => {
       channel?.close();
     };
-  }, [handleIncomingShare]);
+  }, [handleIncomingShare, refreshChannels]);
 
   useEffect(() => {
     if (threadOnly && initialChannelId && !selectedChannelId) {
@@ -760,6 +770,16 @@ export const TeamChatPage = memo(function TeamChatPage({
     setPickerOpen(false);
     resetComposerExtras();
   }, [openThreadInPopup, resetComposerExtras]);
+
+  handleSelectChannelRef.current = handleSelectChannel;
+
+  useEffect(() => {
+    const pendingThreadId = consumePendingTeamChatThread();
+    if (!pendingThreadId) return;
+    void refreshChannels().then(() => {
+      handleSelectChannel(pendingThreadId);
+    });
+  }, [handleSelectChannel, refreshChannels]);
 
   const handleStartDm = useCallback(
     async (otherUserId: number) => {

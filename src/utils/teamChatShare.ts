@@ -8,10 +8,56 @@ export type TeamChatSharePayload = {
 };
 
 const PENDING_TEAM_CHAT_SHARE_KEY = "teammillimeter-erp-pending-team-chat-share";
+const PENDING_TEAM_CHAT_THREAD_KEY = "teammillimeter-erp-pending-team-chat-thread";
 export const TEAM_CHAT_OPEN_EVENT = "erp-open-team-chat";
 export const TEAM_CHAT_RESET_LIST_EVENT = "erp-team-chat-reset-list";
 export const TEAM_CHAT_OPEN_THREAD_EVENT = "erp-open-team-chat-thread";
 export const TEAM_CHAT_SHARE_CHANNEL = "erp-team-chat-share";
+
+export function broadcastTeamChatIncoming(payload: { channelId: string; openThread?: boolean }) {
+  if (typeof window === "undefined") return;
+  try {
+    new BroadcastChannel(TEAM_CHAT_SHARE_CHANNEL).postMessage({
+      type: "incoming",
+      channelId: payload.channelId,
+      openThread: payload.openThread !== false,
+    });
+  } catch {
+    // ignore
+  }
+}
+
+export function stashPendingTeamChatThread(channelId: string) {
+  const id = String(channelId || "").trim();
+  if (!id || typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(PENDING_TEAM_CHAT_THREAD_KEY, id);
+  } catch {
+    // ignore
+  }
+  broadcastTeamChatIncoming({ channelId: id, openThread: true });
+}
+
+export function peekPendingTeamChatThread(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const id = window.sessionStorage.getItem(PENDING_TEAM_CHAT_THREAD_KEY);
+    return id ? String(id).trim() || null : null;
+  } catch {
+    return null;
+  }
+}
+
+export function consumePendingTeamChatThread(): string | null {
+  const id = peekPendingTeamChatThread();
+  if (!id || typeof window === "undefined") return null;
+  try {
+    window.sessionStorage.removeItem(PENDING_TEAM_CHAT_THREAD_KEY);
+  } catch {
+    // ignore
+  }
+  return id;
+}
 
 export function stashTeamChatShare(payload: TeamChatSharePayload) {
   if (typeof window === "undefined") return;
@@ -100,10 +146,12 @@ export function openTeamChatList() {
 export function openTeamChatThread(channelId: string) {
   const id = String(channelId || "").trim();
   if (!id || typeof window === "undefined") return;
+  stashPendingTeamChatThread(id);
   if (isTeamChatDesktopPopupMode()) {
+    openTeamChatPopup();
     openTeamChatThreadPopup(id);
     return;
   }
-  window.dispatchEvent(new CustomEvent(TEAM_CHAT_OPEN_THREAD_EVENT, { detail: { channelId: id } }));
   window.dispatchEvent(new CustomEvent(TEAM_CHAT_OPEN_EVENT));
+  window.dispatchEvent(new CustomEvent(TEAM_CHAT_OPEN_THREAD_EVENT, { detail: { channelId: id } }));
 }

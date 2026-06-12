@@ -4,7 +4,6 @@ import { isApiModeEnabled } from "@/utils/erpApi";
 import { canUserAccessPage } from "@/utils/pageAccess";
 import { useTeamChatEvents, type TeamChatStreamEvent } from "@/hooks/useTeamChatEvents";
 import type { TeamChatMessage } from "@/utils/teamChat";
-import { isTeamChatDesktopPopupMode } from "@/utils/teamChatPopup";
 import { openTeamChatThread } from "@/utils/teamChatShare";
 
 type TeamChatViewState = {
@@ -41,13 +40,13 @@ export function useTeamChatIncomingAutoOpen(
       if (!channelId) return;
 
       const { inlineActive, selectedChannelId } = getViewStateRef.current();
-      const viewingInline =
+      const viewingThisThread =
         inlineActive &&
         selectedChannelId === channelId &&
         typeof document !== "undefined" &&
         document.visibilityState === "visible";
 
-      if (viewingInline && !isTeamChatDesktopPopupMode()) return;
+      if (viewingThisThread) return;
 
       openTeamChatThread(channelId);
     },

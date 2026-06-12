@@ -386,12 +386,14 @@ export function getOrCreateTeamChatDmChannel(currentUserId, otherUserId) {
   const db = getDb();
   let row = db.prepare("SELECT id, type, title, dm_key, created_at FROM team_chat_channels WHERE dm_key = ?").get(dmKey);
   const joinedAt = nowIso();
+  let created = false;
   if (!row) {
     const channelId = `dm-${crypto.randomBytes(8).toString("hex")}`;
     db.prepare(
       `INSERT INTO team_chat_channels (id, type, title, dm_key, created_at) VALUES (?, 'dm', '', ?, ?)`,
     ).run(channelId, dmKey, joinedAt);
     row = db.prepare("SELECT id, type, title, dm_key, created_at FROM team_chat_channels WHERE id = ?").get(channelId);
+    created = true;
   }
 
   for (const uid of [selfId, peerId]) {
@@ -399,6 +401,10 @@ export function getOrCreateTeamChatDmChannel(currentUserId, otherUserId) {
       `INSERT OR IGNORE INTO team_chat_members (channel_id, user_id, last_read_message_id, joined_at)
        VALUES (?, ?, 0, ?)`,
     ).run(row.id, uid, joinedAt);
+  }
+
+  if (created) {
+    publishTeamChatEvent(row.id, { type: "channel.updated", channelId: row.id });
   }
 
   return formatChannelRow(row, selfId);

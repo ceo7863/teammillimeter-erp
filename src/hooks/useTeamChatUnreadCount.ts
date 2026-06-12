@@ -3,6 +3,7 @@ import type { ErpUser } from "@/utils/erpApi";
 import { isApiModeEnabled } from "@/utils/erpApi";
 import { fetchTeamChatUnreadCount } from "@/utils/teamChat";
 import { canUserAccessPage } from "@/utils/pageAccess";
+import { useTeamChatEvents } from "@/hooks/useTeamChatEvents";
 
 export function useTeamChatUnreadCount(
   currentUser: Pick<ErpUser, "role" | "allowedPages"> | null | undefined,
@@ -32,6 +33,15 @@ export function useTeamChatUnreadCount(
     const timer = window.setInterval(() => void refresh(), pollMs);
     return () => window.clearInterval(timer);
   }, [enabled, pollMs, refresh]);
+
+  useTeamChatEvents({
+    enabled,
+    onEvent: (event) => {
+      if (event.type === "message.new" || event.type === "channel.updated") {
+        void refresh();
+      }
+    },
+  });
 
   return { count, refresh };
 }
