@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { TeamChatPage } from "@/components/TeamChatPage";
 import { useTeamChatIncomingAutoOpen } from "@/hooks/useTeamChatIncomingAutoOpen";
@@ -10,7 +10,11 @@ import {
 } from "@/utils/erpApi";
 import type { ErpChatAction } from "@/utils/erpChatApi";
 import { stashPendingChatAction } from "@/utils/erpChatPendingAction";
-import { focusMainErpWindow } from "@/utils/teamChatPopup";
+import {
+  captureTeamChatListPopupBounds,
+  captureTeamChatThreadPopupBounds,
+  focusMainErpWindow,
+} from "@/utils/teamChatPopup";
 import type { TeamChatStandaloneRoute } from "@/utils/teamChatRoute";
 
 const L = {
@@ -47,6 +51,20 @@ export function TeamChatStandalonePage({ route }: { route: TeamChatStandaloneRou
       selectedChannelId: selectedChannelRef.current,
     }),
   });
+
+  useEffect(() => {
+    const saveBounds = () => {
+      if (isThreadWindow) captureTeamChatThreadPopupBounds();
+      else captureTeamChatListPopupBounds();
+    };
+    window.addEventListener("resize", saveBounds);
+    window.addEventListener("beforeunload", saveBounds);
+    return () => {
+      window.removeEventListener("resize", saveBounds);
+      window.removeEventListener("beforeunload", saveBounds);
+      saveBounds();
+    };
+  }, [isThreadWindow]);
 
   const handleLogin = useCallback(async () => {
     const id = loginId.trim();

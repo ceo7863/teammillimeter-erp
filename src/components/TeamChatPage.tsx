@@ -1399,7 +1399,7 @@ export const TeamChatPage = memo(function TeamChatPage({
                 onClick={() => fileInputRef.current?.click()}
                 title={L.attach}
               >
-                <Plus size={20} />
+                <Plus size={22} />
               </button>
               <textarea
                 className="erp-team-chat-composer__input"
@@ -1422,7 +1422,7 @@ export const TeamChatPage = memo(function TeamChatPage({
                 disabled={!canSend}
                 title={L.send}
               >
-                <Send size={16} />
+                <Send size={18} />
               </button>
             </form>
             </div>
