@@ -3,6 +3,12 @@ import { MessageCircle } from "lucide-react";
 import type { ErpUser } from "@/utils/erpApi";
 import { canUserAccessPage } from "@/utils/pageAccess";
 
+const L = {
+  title: "\uD300\uBC00\uD1A8",
+  open: "\uD300\uBC00\uD1A8 \uC5F4\uAE30",
+  unread: (count: number) => `\uC77D\uC9C0 \uC54A\uC740 \uBA54\uC2DC\uC9C0 ${count}\uAC74`,
+};
+
 const FAB_POSITION_KEY = "teammillimeter-erp-team-chat-fab-position";
 const FAB_DRAG_THRESHOLD = 8;
 const FAB_DEFAULT_SIZE = { width: 72, height: 44 };
@@ -140,6 +146,7 @@ export function TeamChatFab({
 
   if (!canUse || hidden) return null;
 
+  const badgeLabel = unreadCount > 99 ? "99+" : String(unreadCount);
   const showBadge = unreadCount > 0;
 
   return (
@@ -152,16 +159,18 @@ export function TeamChatFab({
       onPointerMove={handleFabPointerMove}
       onPointerUp={handleFabPointerUp}
       onPointerCancel={handleFabPointerCancel}
-      aria-label="??? ??"
-      title="???"
+      aria-label={showBadge ? L.unread(unreadCount) : L.open}
+      title={L.title}
     >
-      <MessageCircle size={22} />
-      <span>?</span>
-      {showBadge ? (
-        <span className="erp-team-chat-fab__badge" aria-label={`${unreadCount}?`}>
-          {unreadCount > 99 ? "99+" : unreadCount}
-        </span>
-      ) : null}
+      <span className="erp-team-chat-fab__icon-wrap">
+        <MessageCircle size={22} aria-hidden="true" />
+        {showBadge ? (
+          <span className="erp-team-chat-fab__badge" aria-hidden="true">
+            {badgeLabel}
+          </span>
+        ) : null}
+      </span>
+      <span>{L.title}</span>
     </button>
   );
 }
