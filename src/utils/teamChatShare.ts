@@ -83,6 +83,15 @@ export function consumePendingTeamChatThread(): string | null {
   return id;
 }
 
+export function clearPendingTeamChatThread() {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(PENDING_TEAM_CHAT_THREAD_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 export function stashTeamChatShare(payload: TeamChatSharePayload) {
   if (typeof window === "undefined") return;
   try {
@@ -159,6 +168,7 @@ export function openTeamChatList() {
   if (typeof window === "undefined") return;
   // Stale share payloads were opening a thread instead of the channel list.
   consumeTeamChatShare();
+  clearPendingTeamChatThread();
   resetTeamChatListView();
   if (isTeamChatDesktopPopupMode()) {
     openTeamChatPopup();

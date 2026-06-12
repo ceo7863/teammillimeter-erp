@@ -706,6 +706,7 @@ export const TeamChatPage = memo(function TeamChatPage({
       channel.onmessage = (event) => {
         if (event.data?.type === "reset-list") {
           listBrowsingRef.current = true;
+          setInlineThreadOverride(false);
           setSelectedChannelId(null);
           setHighlightedChannelId(null);
           return;
@@ -846,8 +847,8 @@ export const TeamChatPage = memo(function TeamChatPage({
     (channelId: string) => {
       const id = String(channelId || "").trim();
       if (!id) return;
+      consumePendingTeamChatThread();
       if (openThreadInPopup) {
-        consumePendingTeamChatThread();
         listBrowsingRef.current = false;
         setInlineThreadOverride(true);
         setHighlightedChannelId(id);
