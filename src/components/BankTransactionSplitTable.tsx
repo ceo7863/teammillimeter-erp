@@ -19,7 +19,8 @@ export type BankTransactionSplitTableLabels = {
   balanceAfter: string;
   transactionType: string;
   description: string;
-  amount: string;
+  deposit: string;
+  withdrawal: string;
   memo: string;
   evidence: string;
   accountSubject: string;
@@ -62,7 +63,7 @@ function countTotalColumns(visibility: BankTransactionColumnVisibility) {
   return countBankSectionColumns(visibility) + 1 + countClassifySectionColumns(visibility);
 }
 
-const BANK_SPLIT_FIXED_COLUMNS = 4;
+const BANK_SPLIT_FIXED_COLUMNS = 5;
 const BANK_SPLIT_CLASSIFY_FIXED_COLUMNS = 5;
 
 function splitRowModelsEqual(
@@ -83,7 +84,8 @@ function splitRowModelsEqual(
     prev.counterpartyLabel === next.counterpartyLabel &&
     prev.counterpartyPartyKind === next.counterpartyPartyKind &&
     prev.description === next.description &&
-    prev.signedAmountLabel === next.signedAmountLabel &&
+    prev.depositLabel === next.depositLabel &&
+    prev.withdrawalLabel === next.withdrawalLabel &&
     prev.memoLabel === next.memoLabel &&
     prev.memoEmpty === next.memoEmpty &&
     prev.evidenceLabel === next.evidenceLabel &&
@@ -315,13 +317,6 @@ const SplitRow = memo(function SplitRow({
           ? "is-withdrawal-row"
           : "";
 
-  const amountClass =
-    model.signedAmountLabel.startsWith("+")
-      ? "font-bold text-emerald-700"
-      : model.signedAmountLabel.startsWith("-")
-        ? "font-bold text-slate-900"
-        : "text-slate-500";
-
   const rowAmounts = rowToneAsAmounts(model.rowTone);
   const counterpartyToneClass = counterpartyAccentClass(
     model.counterpartyPartyKind,
@@ -395,8 +390,11 @@ const SplitRow = memo(function SplitRow({
       <td className="erp-bank-wehago-cell erp-bank-wehago-cell--description truncate font-medium text-slate-900" title={model.description}>
         {model.description}
       </td>
-      <td className={`erp-bank-wehago-cell whitespace-nowrap text-right erp-bank-wehago-amount ${amountClass}`}>
-        {model.signedAmountLabel}
+      <td className="erp-bank-wehago-cell erp-bank-wehago-cell--deposit whitespace-nowrap text-right font-semibold text-emerald-700">
+        {model.depositLabel}
+      </td>
+      <td className="erp-bank-wehago-cell erp-bank-wehago-cell--withdrawal whitespace-nowrap text-right font-semibold text-red-600">
+        {model.withdrawalLabel}
       </td>
       <td className="erp-bank-wehago-cell whitespace-nowrap text-right text-slate-700">{model.balanceLabel}</td>
       {showTransactionType ? (
@@ -606,7 +604,8 @@ function BankTransactionSplitTableComponent({
         {showAccount ? <col className="erp-bank-col-account" /> : null}
         {showCounterparty ? <col className="erp-bank-col-counterparty" /> : null}
         <col className="erp-bank-col-description" />
-        <col className="erp-bank-col-amount" />
+        <col className="erp-bank-col-deposit" />
+        <col className="erp-bank-col-withdrawal" />
         <col className="erp-bank-col-balance" />
         {showTransactionType ? <col className="erp-bank-col-tx-type" /> : null}
         {showFolder ? <col className="erp-bank-col-folder" /> : null}
@@ -661,7 +660,8 @@ function BankTransactionSplitTableComponent({
         {showAccount ? <th>{labels.account}</th> : null}
         {showCounterparty ? <th>{labels.counterparty}</th> : null}
         <th>{labels.description}</th>
-        <th className="text-right">{labels.amount}</th>
+        <th className="text-right">{labels.deposit}</th>
+        <th className="text-right">{labels.withdrawal}</th>
         <th className="text-right">{labels.bankBalance}</th>
         {showTransactionType ? <th>{labels.transactionType}</th> : null}
         {showFolder ? <th>{labels.folder}</th> : null}
@@ -680,7 +680,7 @@ function BankTransactionSplitTableComponent({
   return (
     <DesktopTableWrap className="erp-bank-wehago-table-wrap">
       <div className="erp-bank-table-scroll erp-bank-table-scroll--page">
-        <table id={tableId} className="erp-table erp-bank-split-table erp-bank-wehago-split-table w-full min-w-[1280px]">
+        <table id={tableId} className="erp-table erp-bank-split-table erp-bank-wehago-split-table w-full min-w-[1320px]">
           {colgroup}
           {tableHead}
           <tbody>

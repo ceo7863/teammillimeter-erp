@@ -15974,6 +15974,11 @@ button:disabled,
   width: 5.25rem;
 }
 
+.erp-bank-wehago-split-table col.erp-bank-col-deposit,
+.erp-bank-wehago-split-table col.erp-bank-col-withdrawal {
+  width: 4.25rem;
+}
+
 .erp-bank-wehago-split-table col.erp-bank-col-amount {
   width: 4.75rem;
 }

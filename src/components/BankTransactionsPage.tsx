@@ -5288,7 +5288,6 @@ function BankTransactionsPageComponent({
       transactionType: L.columnTransactionType,
       folder: L.columnFolder,
       title: L.displaySettings,
-      amount: L.amount,
       memo: L.memo,
       evidence: L.evidence,
       accountSubject: L.accountSubject,

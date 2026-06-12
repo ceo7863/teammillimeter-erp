@@ -293,7 +293,8 @@ function BankTransactionListSectionComponent({
       transactionType: labels.transactionType,
       folder: labels.folder,
       description: labels.description,
-      amount: labels.amount,
+      deposit: labels.deposit,
+      withdrawal: labels.withdrawal,
       memo: labels.memo,
       evidence: labels.evidence,
       accountSubject: labels.accountSubject,
@@ -320,8 +321,8 @@ function BankTransactionListSectionComponent({
   const mobileLabels = useMemo(
     () => ({
       transactionAt: labels.transactionAt,
-      deposit: labels.amount,
-      withdrawal: labels.amount,
+      deposit: labels.deposit,
+      withdrawal: labels.withdrawal,
       balance: labels.bankBalance,
       description: labels.description,
       accountContent: labels.memo,
