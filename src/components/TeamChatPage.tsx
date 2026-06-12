@@ -51,6 +51,8 @@ import {
   openTeamChatDm,
   searchTeamChatMessages,
   sendTeamChatMessage,
+  TEAM_CHAT_REACTION_OPTIONS,
+  toggleTeamChatReaction,
   type TeamChatChannel,
   type TeamChatMessage,
   type TeamChatReplyPreview,
@@ -114,6 +116,7 @@ const L = {
   cancelReply: "\uCDE8\uC18C",
   deleteConfirm: "\uC774 \uBA54\uC2DC\uC9C0\uB97C \uC0AD\uC81C\uD560\uAE4C\uC694?",
   unread: "\uBBF8\uC77D\uC74C",
+  react: "\uB9AC\uC95C",
 };
 
 type PendingAttachment = TeamChatAttachment & { previewUrl?: string | null };
@@ -148,10 +151,11 @@ function ChannelListItem({
 }) {
   const avatarLabel = teamChatChannelAvatarLabel(channel);
   const avatarStyle = teamChatAvatarStyle(channel.id || channel.title);
+  const unread = channel.unreadCount > 0;
   return (
     <button
       type="button"
-      className={`erp-team-chat-channel ${active ? "is-active" : ""}`}
+      className={`erp-team-chat-channel ${active ? "is-active" : ""}${unread ? " is-unread" : ""}`}
       onClick={() => onSelect(channel.id)}
     >
       <div className="erp-team-chat-avatar erp-team-chat-channel__avatar" style={avatarStyle} aria-hidden="true">
@@ -170,8 +174,10 @@ function ChannelListItem({
             : L.noPreview}
         </div>
       </div>
-      {channel.unreadCount > 0 ? (
-        <span className="erp-team-chat-channel__badge">{channel.unreadCount > 99 ? "99+" : channel.unreadCount}</span>
+      {unread ? (
+        <span className="erp-team-chat-channel__badge" aria-label={`\uC77D\uC9C0 \uC54A\uC740 \uBA54\uC2DC\uC9C0 ${channel.unreadCount}\uAC1C`}>
+          {channel.unreadCount > 99 ? "99+" : channel.unreadCount}
+        </span>
       ) : null}
     </button>
   );
@@ -185,6 +191,34 @@ function ReplyQuotePreview({ replyTo }: { replyTo: TeamChatReplyPreview }) {
     <div className="erp-team-chat-reply-quote">
       <span className="erp-team-chat-reply-quote__author">{replyTo.userName}</span>
       <span className="erp-team-chat-reply-quote__body">{body}</span>
+    </div>
+  );
+}
+
+function MessageReactionBar({
+  reactions,
+  onToggle,
+}: {
+  reactions: TeamChatMessage["reactions"];
+  onToggle: (emoji: string) => void;
+}) {
+  const rows = reactions?.filter((row) => row.count > 0) || [];
+  if (!rows.length) return null;
+  return (
+    <div className="erp-team-chat-reactions">
+      {rows.map((reaction) => (
+        <button
+          key={reaction.emoji}
+          type="button"
+          className={`erp-team-chat-reaction${reaction.reactedByMe ? " is-mine" : ""}`}
+          aria-pressed={reaction.reactedByMe}
+          aria-label={`${reaction.emoji} ${reaction.count}\uBA85`}
+          onClick={() => onToggle(reaction.emoji)}
+        >
+          <span className="erp-team-chat-reaction__emoji">{reaction.emoji}</span>
+          {reaction.count > 1 ? <span className="erp-team-chat-reaction__count">{reaction.count}</span> : null}
+        </button>
+      ))}
     </div>
   );
 }
@@ -997,6 +1031,20 @@ export const TeamChatPage = memo(function TeamChatPage({
     [mergeMessage, refreshChannels],
   );
 
+  const handleToggleReaction = useCallback(
+    async (messageId: number, emoji: string) => {
+      setError("");
+      try {
+        const updated = await toggleTeamChatReaction(messageId, emoji);
+        mergeMessage(updated);
+        setMenuMessageId(null);
+      } catch {
+        setError(L.sendError);
+      }
+    },
+    [mergeMessage],
+  );
+
   const canSend =
     Boolean(selectedChannelId) &&
     !sending &&
@@ -1252,6 +1300,23 @@ export const TeamChatPage = memo(function TeamChatPage({
                             </button>
                             {menuMessageId === message.id ? (
                               <div className="erp-team-chat-bubble-menu__panel">
+                                <div className="erp-team-chat-bubble-menu__reactions" aria-label={L.react}>
+                                  {TEAM_CHAT_REACTION_OPTIONS.map((emoji) => (
+                                    <button
+                                      key={emoji}
+                                      type="button"
+                                      className={`erp-team-chat-bubble-menu__reaction${
+                                        message.reactions?.some((row) => row.emoji === emoji && row.reactedByMe)
+                                          ? " is-active"
+                                          : ""
+                                      }`}
+                                      aria-label={`${L.react} ${emoji}`}
+                                      onClick={() => void handleToggleReaction(message.id, emoji)}
+                                    >
+                                      {emoji}
+                                    </button>
+                                  ))}
+                                </div>
                                 <button type="button" onClick={() => handleReply(message)}>
                                   <CornerUpLeft size={13} />
                                   {L.reply}
@@ -1313,6 +1378,12 @@ export const TeamChatPage = memo(function TeamChatPage({
                             </>
                           )}
                         </div>
+                        {!message.isDeleted ? (
+                          <MessageReactionBar
+                            reactions={message.reactions}
+                            onToggle={(emoji) => void handleToggleReaction(message.id, emoji)}
+                          />
+                        ) : null}
                         <div className="erp-team-chat-bubble__footer">
                           {readReceipt ? (
                             <span className="erp-team-chat-read-receipt" aria-label={readReceipt}>

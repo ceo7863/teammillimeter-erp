@@ -18,6 +18,14 @@ export type TeamChatReplyPreview = {
   deleted?: boolean;
 };
 
+export type TeamChatReaction = {
+  emoji: string;
+  count: number;
+  reactedByMe: boolean;
+};
+
+export const TEAM_CHAT_REACTION_OPTIONS = ["👍", "✅", "❤️", "😂", "👏"] as const;
+
 export type TeamChatMessage = {
   id: number;
   channelId: string;
@@ -29,6 +37,7 @@ export type TeamChatMessage = {
   replyTo?: TeamChatReplyPreview | null;
   link?: { type: string; id: string; label: string } | null;
   attachments?: TeamChatAttachment[];
+  reactions?: TeamChatReaction[];
   createdAt: string;
 };
 
@@ -86,6 +95,13 @@ export async function editTeamChatMessage(messageId: number, body: string) {
 export async function deleteTeamChatMessage(messageId: number) {
   return apiRequest<TeamChatMessage>(`/team-chat/messages/${messageId}`, {
     method: "DELETE",
+  });
+}
+
+export async function toggleTeamChatReaction(messageId: number, emoji: string) {
+  return apiRequest<TeamChatMessage>(`/team-chat/messages/${messageId}/reactions`, {
+    method: "PUT",
+    body: JSON.stringify({ emoji }),
   });
 }
 

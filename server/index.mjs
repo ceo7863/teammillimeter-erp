@@ -144,6 +144,7 @@ import {
   deleteTeamChatMessage,
   searchTeamChatMessages,
   getTeamChatReadState,
+  toggleTeamChatReaction,
 } from "./teamChat.mjs";
 import { subscribeTeamChatEvents } from "./teamChatEvents.mjs";
 import {
@@ -1625,6 +1626,15 @@ app.delete("/api/team-chat/messages/:messageId", authMiddleware, (req, res) => {
     res.json(message);
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message || "\uBA54\uC2DC\uC9C0 \uC0AD\uC81C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+  }
+});
+
+app.put("/api/team-chat/messages/:messageId/reactions", authMiddleware, (req, res) => {
+  try {
+    const message = toggleTeamChatReaction(req.params.messageId, req.user.id, req.body?.emoji);
+    res.json(message);
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "\uB9AC\uC95C \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
   }
 });
 

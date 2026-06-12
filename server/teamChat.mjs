@@ -7,6 +7,7 @@ import { getDb } from "./db.mjs";
 import { publishTeamChatEvent } from "./teamChatEvents.mjs";
 
 export const TEAM_CHAT_ALL_CHANNEL_ID = "team-all";
+const TEAM_CHAT_REACTION_EMOJIS = new Set(["👍", "✅", "❤️", "😂", "👏"]);
 
 function nowIso() {
   return new Date().toISOString();
@@ -63,6 +64,16 @@ export function initTeamChatStore() {
 
     CREATE INDEX IF NOT EXISTS idx_team_chat_messages_channel_id ON team_chat_messages(channel_id, id DESC);
     CREATE INDEX IF NOT EXISTS idx_team_chat_members_user_id ON team_chat_members(user_id);
+
+    CREATE TABLE IF NOT EXISTS team_chat_reactions (
+      message_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      emoji TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (message_id, user_id, emoji)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_team_chat_reactions_message ON team_chat_reactions(message_id);
   `);
 
   const db = getDb();
@@ -410,7 +421,42 @@ export function getOrCreateTeamChatDmChannel(currentUserId, otherUserId) {
   return formatChannelRow(row, selfId);
 }
 
-function formatMessageRow(row, attachments = []) {
+function loadReactionsByMessageIds(messageIds, currentUserId) {
+  const ids = [...new Set(messageIds.map((id) => Number(id)).filter((id) => id > 0))];
+  const map = new Map();
+  if (!ids.length) return map;
+  const placeholders = ids.map(() => "?").join(", ");
+  const rows = getDb()
+    .prepare(
+      `SELECT message_id, user_id, emoji
+       FROM team_chat_reactions
+       WHERE message_id IN (${placeholders})
+       ORDER BY created_at ASC`,
+    )
+    .all(...ids);
+  for (const row of rows) {
+    const messageId = Number(row.message_id);
+    const emoji = String(row.emoji || "").trim();
+    if (!emoji) continue;
+    if (!map.has(messageId)) map.set(messageId, new Map());
+    const emojiMap = map.get(messageId);
+    if (!emojiMap.has(emoji)) {
+      emojiMap.set(emoji, { emoji, count: 0, reactedByMe: false });
+    }
+    const agg = emojiMap.get(emoji);
+    agg.count += 1;
+    if (Number(row.user_id) === Number(currentUserId)) agg.reactedByMe = true;
+  }
+  for (const [messageId, emojiMap] of map.entries()) {
+    map.set(
+      messageId,
+      [...emojiMap.values()].sort((a, b) => b.count - a.count || a.emoji.localeCompare(b.emoji)),
+    );
+  }
+  return map;
+}
+
+function formatMessageRow(row, attachments = [], reactions = []) {
   const deletedAt = row.deleted_at ? String(row.deleted_at) : null;
   const replyTo = row.reply_to_message_id
     ? {
@@ -438,6 +484,7 @@ function formatMessageRow(row, attachments = []) {
             label: String(row.link_label || "").trim(),
           },
     attachments: deletedAt ? [] : attachments,
+    reactions: deletedAt ? [] : reactions,
     createdAt: row.created_at,
   };
 }
@@ -450,9 +497,17 @@ const MESSAGE_SELECT = `
   LEFT JOIN team_chat_messages r ON r.id = m.reply_to_message_id
 `;
 
-function mapMessagesWithAttachments(rows) {
-  const attachmentMap = loadAttachmentsByMessageIds(rows.map((row) => row.id));
-  return rows.map((row) => formatMessageRow(row, attachmentMap.get(Number(row.id)) || []));
+function mapMessagesWithAttachments(rows, userId) {
+  const messageIds = rows.map((row) => row.id);
+  const attachmentMap = loadAttachmentsByMessageIds(messageIds);
+  const reactionMap = loadReactionsByMessageIds(messageIds, userId);
+  return rows.map((row) =>
+    formatMessageRow(
+      row,
+      attachmentMap.get(Number(row.id)) || [],
+      reactionMap.get(Number(row.id)) || [],
+    ),
+  );
 }
 
 export function listTeamChatMessages(channelId, userId, options = {}) {
@@ -467,7 +522,7 @@ export function listTeamChatMessages(channelId, userId, options = {}) {
        LIMIT ?`,
     )
     .all(String(channelId), afterId, limit);
-  return mapMessagesWithAttachments(rows);
+  return mapMessagesWithAttachments(rows, userId);
 }
 
 export function getTeamChatMessageHistory(channelId, userId, options = {}) {
@@ -481,7 +536,7 @@ export function getTeamChatMessageHistory(channelId, userId, options = {}) {
        LIMIT ?`,
     )
     .all(String(channelId), limit);
-  return mapMessagesWithAttachments(rows.reverse());
+  return mapMessagesWithAttachments(rows.reverse(), userId);
 }
 
 export function postTeamChatMessage(channelId, user, input = {}) {
@@ -539,7 +594,7 @@ export function postTeamChatMessage(channelId, user, input = {}) {
     .prepare(`${MESSAGE_SELECT} WHERE m.id = ?`)
     .get(messageId);
   const attachments = loadAttachmentsByMessageIds([messageId]).get(messageId) || [];
-  const message = formatMessageRow(row, attachments);
+  const message = formatMessageRow(row, attachments, []);
   publishTeamChatEvent(channelId, { type: "message.new", message });
   return message;
 }
@@ -634,8 +689,47 @@ function loadTeamChatMessageById(messageId, userId) {
   const row = getDb().prepare(`${MESSAGE_SELECT} WHERE m.id = ?`).get(Number(messageId));
   if (!row) return null;
   assertChannelMember(row.channel_id, userId);
-  const attachments = loadAttachmentsByMessageIds([row.id]).get(Number(row.id)) || [];
-  return formatMessageRow(row, attachments);
+  return mapMessagesWithAttachments([row], userId)[0];
+}
+
+export function toggleTeamChatReaction(messageId, userId, emojiInput) {
+  const emoji = String(emojiInput || "").trim();
+  if (!TEAM_CHAT_REACTION_EMOJIS.has(emoji)) {
+    const err = new Error("\uD5C8\uC6A9\uB418\uC9C0 \uC54A\uC740 \uB9AC\uC95C\uC785\uB2C8\uB2E4.");
+    err.status = 400;
+    throw err;
+  }
+  const row = getDb()
+    .prepare("SELECT id, channel_id, deleted_at FROM team_chat_messages WHERE id = ?")
+    .get(Number(messageId));
+  if (!row) {
+    const err = new Error("\uBA54\uC2DC\uC9C0\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    err.status = 404;
+    throw err;
+  }
+  if (row.deleted_at) {
+    const err = new Error("\uC0AD\uC81C\uB41C \uBA54\uC2DC\uC9C0\uC5D0\uB294 \uB9AC\uC95C\uC744 \uB2F4\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    err.status = 400;
+    throw err;
+  }
+  assertChannelMember(row.channel_id, userId);
+  const mid = Number(messageId);
+  const uid = Number(userId);
+  const existing = getDb()
+    .prepare("SELECT 1 AS ok FROM team_chat_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?")
+    .get(mid, uid, emoji);
+  if (existing) {
+    getDb()
+      .prepare("DELETE FROM team_chat_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?")
+      .run(mid, uid, emoji);
+  } else {
+    getDb()
+      .prepare("INSERT INTO team_chat_reactions (message_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?)")
+      .run(mid, uid, emoji, nowIso());
+  }
+  const message = loadTeamChatMessageById(messageId, userId);
+  publishTeamChatEvent(row.channel_id, { type: "message.updated", message });
+  return message;
 }
 
 export function editTeamChatMessage(messageId, userId, bodyInput) {
@@ -711,5 +805,5 @@ export function searchTeamChatMessages(userId, query, options = {}) {
        LIMIT ?`,
     )
     .all(Number(userId), like, limit);
-  return mapMessagesWithAttachments(rows);
+  return mapMessagesWithAttachments(rows, userId);
 }
