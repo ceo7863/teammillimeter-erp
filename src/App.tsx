@@ -70,7 +70,7 @@ import { ErpChatWidget } from "@/components/ErpChatWidget";
 import { TeamChatFab } from "@/components/TeamChatFab";
 import { TeamChatIncomingBanner } from "@/components/TeamChatIncomingBanner";
 import { ErpChatStandalonePage } from "@/components/ErpChatStandalonePage";
-import { consumePendingChatAction } from "@/utils/erpChatPendingAction";
+import { consumePendingChatAction, ERP_PENDING_CHAT_ACTION_CHANNEL, ERP_PENDING_CHAT_ACTION_EVENT } from "@/utils/erpChatPendingAction";
 import { openErpChatGuidePdf, type ErpChatAction } from "@/utils/erpChatApi";
 import { parseErpChatStandaloneRoute } from "@/utils/erpChatRoute";
 import { parseTeamChatStandaloneRoute } from "@/utils/teamChatRoute";
@@ -5793,7 +5793,7 @@ function SearchBox({ query, setQuery, placeholder }) {
 
 const emptyVoucherSearchFilters = { client: "", site: "", worker: "", contactFilter: "" };
 
-function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, setPaymentVouchers, setBankTransactions, onPersistSaleUpdate, onPersistSaleDelete, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set(), saleComments = [], onAddSaleComment, onReviewAction, saleCommentCounts, saleCommentUnreadCounts, onOpenSaleComments }) {
+function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, setPaymentVouchers, setBankTransactions, onPersistSaleUpdate, onPersistSaleDelete, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set(), saleComments = [], onAddSaleComment, onReviewAction, saleCommentCounts, saleCommentUnreadCounts, onOpenSaleComments, dataReady = true }) {
   const [searchFilters, setSearchFilters] = useState(emptyVoucherSearchFilters);
   const [dateFilter, setDateFilter] = useState({ startDate: "", endDate: "" });
   const [selectedSale, setSelectedSale] = useState(null);
@@ -5839,6 +5839,7 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
 
   useEffect(() => {
     if (pendingVoucherId == null) return;
+    if (!dataReady) return;
     const row = sales.find((item) => String(item.id) === String(pendingVoucherId));
     if (!row) {
       onPendingVoucherConsumed?.();
@@ -5848,7 +5849,7 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
     setDateFilter({ startDate: row.date || "", endDate: row.date || "" });
     openVoucher(row);
     onPendingVoucherConsumed?.();
-  }, [pendingVoucherId, sales, onPendingVoucherConsumed, openVoucher]);
+  }, [pendingVoucherId, sales, dataReady, onPendingVoucherConsumed, openVoucher]);
 
   useEffect(() => {
     if (!pendingSearchFilter) return;
@@ -10263,16 +10264,37 @@ export default function TeammillimeterErpMvp() {
     companyProfile,
   ]);
 
-  const openSaleVoucherFromComments = useCallback((saleId: string | number) => {
-    setPendingVoucherEditId(saleId);
-    setActive("salesVoucherSearch");
-  }, []);
+  const openSaleVoucherFromComments = useCallback(
+    (saleId: string | number) => {
+      const raw = String(saleId || "").trim();
+      let resolvedId = raw;
+      const hasExact = appliedSales.some((row) => String(row.id) === raw);
+      if (!hasExact) {
+        const labelMatch = raw.match(/^(.+?)\s+(\d{4}-\d{2}-\d{2})$/);
+        if (labelMatch) {
+          const client = labelMatch[1].trim();
+          const date = labelMatch[2].trim();
+          const matched = appliedSales.find(
+            (row) => String(row.client || "").trim() === client && String(row.date || "").trim() === date,
+          );
+          if (matched?.id != null) resolvedId = String(matched.id);
+        }
+      }
+      setPendingVoucherEditId(resolvedId);
+      setActive("salesVoucherSearch");
+      setSidebarOpen(false);
+    },
+    [appliedSales],
+  );
 
   const handleErpChatAction = useCallback(
     (action: ErpChatAction) => {
       if (action.type === "open_chat_guide_pdf") {
         void openErpChatGuidePdf().catch(() => {});
         return;
+      }
+      if (action.type !== "open_client_business_reg") {
+        setSidebarOpen(false);
       }
       if (action.type === "open_sale_voucher") {
         openSaleVoucherFromComments(action.saleId);
@@ -10449,8 +10471,26 @@ export default function TeammillimeterErpMvp() {
 
   useEffect(() => {
     if (!dataReady || !currentUser) return;
-    const action = consumePendingChatAction();
-    if (action) handleErpChatAction(action);
+    const consume = () => {
+      const action = consumePendingChatAction();
+      if (action) handleErpChatAction(action);
+    };
+    consume();
+    const onPending = () => consume();
+    window.addEventListener(ERP_PENDING_CHAT_ACTION_EVENT, onPending);
+    window.addEventListener("focus", onPending);
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel(ERP_PENDING_CHAT_ACTION_CHANNEL);
+      channel.onmessage = onPending;
+    } catch {
+      // ignore
+    }
+    return () => {
+      window.removeEventListener(ERP_PENDING_CHAT_ACTION_EVENT, onPending);
+      window.removeEventListener("focus", onPending);
+      channel?.close();
+    };
   }, [dataReady, currentUser, handleErpChatAction]);
 
   const openSaleCommentsView = useCallback((saleId: string | number) => {
@@ -11393,6 +11433,7 @@ export default function TeammillimeterErpMvp() {
             saleCommentCounts={saleCommentCountBySaleId}
             saleCommentUnreadCounts={saleCommentUnreadCountBySaleId}
             onOpenSaleComments={openSaleCommentsView}
+            dataReady={dataReady}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="saleComments" active={shellActive}>
