@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ExternalLink, Menu, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTeamChatMobileLayout } from "@/hooks/useTeamChatMobileLayout";
@@ -23,6 +23,23 @@ export function ScCalendarEmbedPage({ onOpenAppMenu }: ScCalendarEmbedPageProps)
   const [scBaseUrl, setScBaseUrl] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe || !embedUrl) return;
+
+    const focusIframe = () => {
+      iframe.contentWindow?.focus();
+    };
+
+    iframe.addEventListener("mouseenter", focusIframe);
+    iframe.addEventListener("load", focusIframe);
+    return () => {
+      iframe.removeEventListener("mouseenter", focusIframe);
+      iframe.removeEventListener("load", focusIframe);
+    };
+  }, [embedUrl]);
 
   const loadSession = useCallback(async () => {
     setLoading(true);
@@ -91,10 +108,12 @@ export function ScCalendarEmbedPage({ onOpenAppMenu }: ScCalendarEmbedPageProps)
         </div>
       ) : (
         <iframe
+          ref={iframeRef}
           key={embedUrl}
           title={L.title}
           src={embedUrl}
           className="min-h-0 w-full flex-1 border-0 bg-white"
+          tabIndex={0}
           allow="clipboard-read; clipboard-write"
           referrerPolicy="no-referrer"
         />
