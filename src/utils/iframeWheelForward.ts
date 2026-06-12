@@ -8,8 +8,11 @@ function isVerticallyScrollable(el: HTMLElement) {
 
 function scrollElement(el: HTMLElement, deltaY: number) {
   const max = el.scrollHeight - el.clientHeight;
-  if (max <= 0) return;
-  el.scrollTop = Math.max(0, Math.min(max, el.scrollTop + deltaY));
+  if (max <= 0) return false;
+  const next = Math.max(0, Math.min(max, el.scrollTop + deltaY));
+  if (next === el.scrollTop) return false;
+  el.scrollTop = next;
+  return true;
 }
 
 function findScrollTarget(doc: Document, clientX: number, clientY: number, iframeRect: DOMRect) {
@@ -22,34 +25,28 @@ function findScrollTarget(doc: Document, clientX: number, clientY: number, ifram
     }
     node = node.parentElement;
   }
-  return doc.querySelector<HTMLElement>("[data-embed-scroll-root]");
+  return (
+    doc.querySelector<HTMLElement>("[data-embed-wheel-pane]") ??
+    doc.querySelector<HTMLElement>("[data-embed-scroll-root]")
+  );
 }
 
-function postWheelToIframe(
-  iframe: HTMLIFrameElement,
-  event: WheelEvent,
-  rect: DOMRect,
-  targetOrigin: string,
-) {
-  const origin = String(targetOrigin || "").trim();
+function postWheelToIframe(iframe: HTMLIFrameElement, event: WheelEvent, rect: DOMRect) {
   iframe.contentWindow?.postMessage(
     {
       type: ERP_EMBED_WHEEL_MESSAGE,
       deltaX: event.deltaX,
       deltaY: event.deltaY,
+      deltaMode: event.deltaMode,
       clientX: event.clientX - rect.left,
       clientY: event.clientY - rect.top,
     },
-    origin || "*",
+    "*",
   );
 }
 
 /** Forward parent-window wheel events into an iframe document (ERP embed shell). */
-export function forwardWheelIntoIframe(
-  iframe: HTMLIFrameElement,
-  event: WheelEvent,
-  targetOrigin = "",
-) {
+export function forwardWheelIntoIframe(iframe: HTMLIFrameElement, event: WheelEvent) {
   const rect = iframe.getBoundingClientRect();
   const over =
     event.clientX >= rect.left &&
@@ -75,7 +72,7 @@ export function forwardWheelIntoIframe(
     return true;
   }
 
-  postWheelToIframe(iframe, event, rect, targetOrigin);
+  postWheelToIframe(iframe, event, rect);
   return true;
 }
 
