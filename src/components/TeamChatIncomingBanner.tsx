@@ -3,6 +3,7 @@ import { MessageCircle, X } from "lucide-react";
 import {
   openTeamChatThread,
   TEAM_CHAT_INCOMING_PROMPT_EVENT,
+  TEAM_CHAT_INCOMING_DIALOG_EVENT,
   type TeamChatIncomingPromptDetail,
 } from "@/utils/teamChatShare";
 import { isTeamChatPopupWindow } from "@/utils/teamChatPopup";
@@ -23,7 +24,11 @@ export function TeamChatIncomingBanner() {
       setPrompt(detail);
     };
     window.addEventListener(TEAM_CHAT_INCOMING_PROMPT_EVENT, handler as EventListener);
-    return () => window.removeEventListener(TEAM_CHAT_INCOMING_PROMPT_EVENT, handler as EventListener);
+    window.addEventListener(TEAM_CHAT_INCOMING_DIALOG_EVENT, dismiss as EventListener);
+    return () => {
+      window.removeEventListener(TEAM_CHAT_INCOMING_PROMPT_EVENT, handler as EventListener);
+      window.removeEventListener(TEAM_CHAT_INCOMING_DIALOG_EVENT, dismiss as EventListener);
+    };
   }, []);
 
   const dismiss = useCallback(() => setPrompt(null), []);

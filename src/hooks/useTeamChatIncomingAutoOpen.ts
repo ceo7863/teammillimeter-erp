@@ -64,8 +64,8 @@ export function useTeamChatIncomingAutoOpen(
         });
       }
 
-      void openTeamChatThread(channelId).then(({ listOpened, threadOpened }) => {
-        if (listOpened || threadOpened) return;
+      void openTeamChatThread(channelId).then(({ listOpened, threadOpened, dialogOpened }) => {
+        if (listOpened || threadOpened || dialogOpened) return;
 
         void showErpNotification(sender, {
           body: preview.slice(0, 120),

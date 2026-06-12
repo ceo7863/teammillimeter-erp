@@ -69,6 +69,7 @@ import { AuditLogPage } from "@/components/AuditLogPage";
 import { ErpChatWidget } from "@/components/ErpChatWidget";
 import { TeamChatFab } from "@/components/TeamChatFab";
 import { TeamChatIncomingBanner } from "@/components/TeamChatIncomingBanner";
+import { TeamChatIncomingDialog } from "@/components/TeamChatIncomingDialog";
 import { ErpChatStandalonePage } from "@/components/ErpChatStandalonePage";
 import { consumePendingChatAction } from "@/utils/erpChatPendingAction";
 import { openErpChatGuidePdf, type ErpChatAction } from "@/utils/erpChatApi";
@@ -11718,6 +11719,11 @@ export default function TeammillimeterErpMvp() {
             onOpen={openTeamChatPage}
           />
           <TeamChatIncomingBanner />
+          <TeamChatIncomingDialog
+            currentUser={currentUser}
+            onUnreadChange={handleTeamChatUnreadChange}
+            onErpAction={handleErpChatAction}
+          />
           <ErpChatWidget currentUser={currentUser} enabled={dataReady} onAction={handleErpChatAction} />
         </>
       ) : null}

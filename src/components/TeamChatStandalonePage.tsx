@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Minus } from "lucide-react";
 import { TeamChatPage } from "@/components/TeamChatPage";
 import { useTeamChatUnreadCount } from "@/hooks/useTeamChatUnreadCount";
 import {
@@ -14,6 +14,7 @@ import {
   captureTeamChatListPopupBounds,
   captureTeamChatThreadPopupBounds,
   focusMainErpWindow,
+  minimizeTeamChatListPopup,
 } from "@/utils/teamChatPopup";
 import type { TeamChatStandaloneRoute } from "@/utils/teamChatRoute";
 
@@ -27,6 +28,7 @@ const L = {
   loginRequired: "\uC544\uC774\uB514\uC640 \uBE44\uBC00\uBC88\uD638\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.",
   loginFailed: "\uB85C\uADF8\uC778\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   openErp: "ERP \uC804\uCCB4 \uC5F4\uAE30",
+  hide: "\uC228\uAE30\uAE30",
   hint: "\uCC57\uBC29\uC744 \uB204\uB974\uBA74 \uB300\uD654\uB97C \uBCC4\uB3C4 \uCC3D\uC5D0\uC11C \uC5ED\uC2DC \uC5FD\uB2C8\uB2E4.",
   threadHint: "\uB300\uD654 \uCC3D",
 };
@@ -141,10 +143,16 @@ export function TeamChatStandalonePage({ route }: { route: TeamChatStandaloneRou
               <div className="text-xs text-slate-500">{L.hint}</div>
             </div>
           </div>
-          <button type="button" className="erp-team-chat-standalone__erp-btn" onClick={() => focusMainErpWindow()}>
-            <ExternalLink size={14} />
-            {L.openErp}
-          </button>
+          <div className="flex items-center gap-2">
+            <button type="button" className="erp-team-chat-standalone__erp-btn" onClick={() => minimizeTeamChatListPopup()}>
+              <Minus size={14} />
+              {L.hide}
+            </button>
+            <button type="button" className="erp-team-chat-standalone__erp-btn" onClick={() => focusMainErpWindow()}>
+              <ExternalLink size={14} />
+              {L.openErp}
+            </button>
+          </div>
         </div>
       ) : (
         <div className="erp-team-chat-standalone__top erp-team-chat-standalone__top--thread flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2">

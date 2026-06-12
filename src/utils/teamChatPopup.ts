@@ -4,7 +4,9 @@ const LIST_POPUP_NAME = "teammillimeter-team-chat";
 const THREAD_POPUP_NAME = "teammillimeter-team-chat-thread";
 const LIST_POPUP_POSITION_KEY = "teammillimeter-erp-team-chat-list-popup-bounds";
 const THREAD_POPUP_POSITION_KEY = "teammillimeter-erp-team-chat-thread-popup-bounds";
+const TEAM_CHAT_MINIMIZED_KEY = "teammillimeter-erp-team-chat-minimized";
 const POPUP_CHROME = "menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=no";
+const MINIMIZED_POPUP_SCREEN_POS = { left: 32000, top: 32000 };
 
 type PopupBounds = {
   left: number;
@@ -145,6 +147,41 @@ export function getOpenTeamChatListPopup(): Window | null {
   }
 }
 
+export function isTeamChatListPopupMinimized() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.sessionStorage.getItem(TEAM_CHAT_MINIMIZED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function restoreTeamChatListPopup(popup: Window) {
+  if (!isTeamChatPopupActuallyOpen(popup)) return;
+  const bounds = loadListPopupBounds();
+  try {
+    popup.moveTo(Math.round(bounds.left), Math.round(bounds.top));
+    popup.resizeTo(Math.round(bounds.width), Math.round(bounds.height));
+    window.sessionStorage.removeItem(TEAM_CHAT_MINIMIZED_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+/** Move the list popup off-screen so SSE can reopen it without a user gesture. */
+export function minimizeTeamChatListPopup() {
+  const popup = getOpenTeamChatListPopup();
+  if (!popup) return;
+  const bounds = readPopupBounds(popup, LIST_POPUP_DEFAULT_SIZE);
+  if (bounds) savePopupBounds(LIST_POPUP_POSITION_KEY, bounds, LIST_POPUP_DEFAULT_SIZE);
+  try {
+    popup.moveTo(MINIMIZED_POPUP_SCREEN_POS.left, MINIMIZED_POPUP_SCREEN_POS.top);
+    window.sessionStorage.setItem(TEAM_CHAT_MINIMIZED_KEY, "1");
+  } catch {
+    // ignore
+  }
+}
+
 /** Bring a popup above sibling windows (list/thread/ERP). */
 export function raiseTeamChatPopup(popup: Window | null) {
   if (!isTeamChatPopupActuallyOpen(popup)) return;
@@ -181,6 +218,9 @@ function focusOrOpenNamedPopup(
   const features = buildPopupFeatures(bounds);
   let popup = window.open("", name, features);
   if (isTeamChatPopupActuallyOpen(popup)) {
+    if (name === LIST_POPUP_NAME && isTeamChatListPopupMinimized()) {
+      restoreTeamChatListPopup(popup);
+    }
     try {
       const currentPath = popup.location.pathname.replace(/\/+$/, "") || "/";
       const targetPath = new URL(url, window.location.origin).pathname.replace(/\/+$/, "") || "/";
