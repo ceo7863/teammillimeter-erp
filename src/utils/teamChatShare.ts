@@ -47,6 +47,15 @@ export function broadcastTeamChatIncoming(payload: {
   }
 }
 
+export function broadcastTeamChatUnreadChanged() {
+  if (typeof window === "undefined") return;
+  try {
+    new BroadcastChannel(TEAM_CHAT_SHARE_CHANNEL).postMessage({ type: "unread-changed" });
+  } catch {
+    // ignore
+  }
+}
+
 export function stashPendingTeamChatThread(channelId: string, options?: { inline?: boolean }) {
   const id = String(channelId || "").trim();
   if (!id || typeof window === "undefined") return;

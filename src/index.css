@@ -1372,6 +1372,21 @@ textarea {
   background: #f8fafc;
 }
 
+.erp-team-chat-standalone__badge {
+  display: inline-flex;
+  min-width: 1.125rem;
+  height: 1.125rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.3rem;
+  border-radius: 9999px;
+  background: #ff3b30;
+  color: #fff;
+  font-size: 0.625rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
 .erp-team-chat-standalone-login .erp-chat-input {
   background: #0f172a;
   border-color: #334155;

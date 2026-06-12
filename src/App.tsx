@@ -385,7 +385,7 @@ import {
   buildSaleTeamChatLink,
   buildBankTxTeamChatLink,
 } from "@/utils/teamChatLinks";
-import { openTeamChatWithShare, openTeamChatList, TEAM_CHAT_OPEN_EVENT } from "@/utils/teamChatShare";
+import { openTeamChatWithShare, openTeamChatList, TEAM_CHAT_OPEN_EVENT, TEAM_CHAT_SHARE_CHANNEL } from "@/utils/teamChatShare";
 import { isTeamChatDesktopPopupMode, openTeamChatPopup } from "@/utils/teamChatPopup";
 import { useTeamChatIncomingAutoOpen } from "@/hooks/useTeamChatIncomingAutoOpen";
 import { useTeamChatPopupPrewarm } from "@/hooks/useTeamChatPopupPrewarm";
@@ -8575,10 +8575,23 @@ export default function TeammillimeterErpMvp() {
   });
   const { count: teamChatUnreadCount, refresh: refreshTeamChatUnread } = useTeamChatUnreadCount(currentUser, {
     pollMs: 10000,
-    enabled: dataReady && active !== "teamChat",
+    enabled: dataReady,
   });
   const handleTeamChatUnreadChange = useCallback(() => {
     void refreshTeamChatUnread();
+  }, [refreshTeamChatUnread]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel(TEAM_CHAT_SHARE_CHANNEL);
+      channel.onmessage = (event) => {
+        if (event.data?.type === "unread-changed") void refreshTeamChatUnread();
+      };
+    } catch {
+      // ignore
+    }
+    return () => channel?.close();
   }, [refreshTeamChatUnread]);
   const teamChatSelectedChannelRef = useRef<string | null>(null);
   const handleNavigatePage = useCallback((key: ErpPageKey) => {

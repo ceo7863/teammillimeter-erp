@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { TeamChatPage } from "@/components/TeamChatPage";
+import { useTeamChatUnreadCount } from "@/hooks/useTeamChatUnreadCount";
 import {
   getAuthToken,
   loadAuthUser,
@@ -42,6 +43,10 @@ export function TeamChatStandalonePage({ route }: { route: TeamChatStandaloneRou
 
   const isThreadWindow = route.mode === "thread";
   const selectedChannelRef = useRef<string | null>(isThreadWindow ? route.channelId : null);
+  const { count: unreadCount, refresh: refreshUnreadCount } = useTeamChatUnreadCount(currentUser, {
+    enabled: Boolean(currentUser),
+  });
+  const unreadBadgeLabel = unreadCount > 99 ? "99+" : String(unreadCount);
 
   useEffect(() => {
     const saveBounds = () => {
@@ -123,9 +128,18 @@ export function TeamChatStandalonePage({ route }: { route: TeamChatStandaloneRou
     <div className={`erp-team-chat-standalone flex min-h-[100dvh] flex-col bg-slate-100 ${isThreadWindow ? "erp-team-chat-standalone--thread" : ""}`}>
       {!isThreadWindow ? (
         <div className="erp-team-chat-standalone__top flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2.5">
-          <div>
-            <div className="text-sm font-bold text-slate-900">{L.title}</div>
-            <div className="text-xs text-slate-500">{L.hint}</div>
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <div className="text-sm font-bold text-slate-900">{L.title}</div>
+                {unreadCount > 0 ? (
+                  <span className="erp-team-chat-standalone__badge" aria-label={`\uC77D\uC9C0 \uC54A\uC740 \uBA54\uC2DC\uC9C0 ${unreadCount}\uAC1C`}>
+                    {unreadBadgeLabel}
+                  </span>
+                ) : null}
+              </div>
+              <div className="text-xs text-slate-500">{L.hint}</div>
+            </div>
           </div>
           <button type="button" className="erp-team-chat-standalone__erp-btn" onClick={() => focusMainErpWindow()}>
             <ExternalLink size={14} />
@@ -150,6 +164,7 @@ export function TeamChatStandalonePage({ route }: { route: TeamChatStandaloneRou
           threadOnly={isThreadWindow}
           initialChannelId={isThreadWindow ? route.channelId : undefined}
           onErpAction={handleErpAction}
+          onUnreadChange={refreshUnreadCount}
           onSelectedChannelChange={(channelId) => {
             selectedChannelRef.current = channelId;
           }}
