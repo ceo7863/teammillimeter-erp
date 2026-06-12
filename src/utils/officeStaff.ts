@@ -118,6 +118,15 @@ export function formatResidentRegistrationNoInput(raw: string) {
   return `${digits.slice(0, 6)}-${digits.slice(6)}`;
 }
 
+function formTextField(value: unknown) {
+  if (typeof value === "string") return value.trim();
+  if (value && typeof value === "object" && "target" in value) {
+    const nested = (value as { target?: { value?: unknown } }).target?.value;
+    if (typeof nested === "string") return nested.trim();
+  }
+  return String(value ?? "").trim();
+}
+
 export function createEmptyOfficeStaffForm(): OfficeStaffFormState {
   return {
     name: "",
@@ -229,33 +238,33 @@ export function officeStaffRecordFromForm(
   existing?: OfficeStaffRecord | null,
   officeStaff: OfficeStaffRecord[] = [],
 ): OfficeStaffRecord {
-  const name = form.name.trim();
+  const name = formTextField(form.name);
   const recordId =
     normalizeOfficeStaffRecordId(id) || `office-staff-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   return {
     id: recordId,
     name,
     employeeNo: resolveOfficeStaffEmployeeNo({ existing, officeStaff, staffId: recordId }),
-    department: form.department.trim(),
-    position: form.position.trim(),
-    employmentType: form.employmentType.trim(),
-    hireDate: form.hireDate.trim(),
-    resignDate: form.resignDate.trim(),
+    department: formTextField(form.department),
+    position: formTextField(form.position),
+    employmentType: formTextField(form.employmentType),
+    hireDate: formTextField(form.hireDate),
+    resignDate: formTextField(form.resignDate),
     status: form.status,
-    birthDate: form.birthDate.trim(),
-    residentRegistrationNo: formatResidentRegistrationNoInput(form.residentRegistrationNo),
-    phone: form.phone.trim(),
-    email: form.email.trim(),
-    address: form.address.trim(),
-    bank: form.bank.trim(),
-    account: form.account.trim(),
-    education: form.education.trim(),
-    certifications: form.certifications.trim(),
-    careerSummary: form.careerSummary.trim(),
-    emergencyContact: form.emergencyContact.trim(),
-    emergencyPhone: form.emergencyPhone.trim(),
-    memo: form.memo.trim(),
-    hrNotes: form.hrNotes.trim(),
+    birthDate: formTextField(form.birthDate),
+    residentRegistrationNo: formatResidentRegistrationNoInput(formTextField(form.residentRegistrationNo)),
+    phone: formTextField(form.phone),
+    email: formTextField(form.email),
+    address: formTextField(form.address),
+    bank: formTextField(form.bank),
+    account: formTextField(form.account),
+    education: formTextField(form.education),
+    certifications: formTextField(form.certifications),
+    careerSummary: formTextField(form.careerSummary),
+    emergencyContact: formTextField(form.emergencyContact),
+    emergencyPhone: formTextField(form.emergencyPhone),
+    memo: formTextField(form.memo),
+    hrNotes: formTextField(form.hrNotes),
     photoFileId: existing?.photoFileId || "",
     photoFileName: existing?.photoFileName || "",
     photoUploadedAt: existing?.photoUploadedAt || "",

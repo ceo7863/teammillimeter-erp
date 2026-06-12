@@ -226,7 +226,15 @@ export function OfficeStaffPage({
       return;
     }
 
-    const record = officeStaffRecordFromForm(form, editingId || undefined, editingStaff, officeStaffRef.current);
+    let record: OfficeStaffRecord;
+    try {
+      record = officeStaffRecordFromForm(form, editingId || undefined, editingStaff, officeStaffRef.current);
+    } catch (error) {
+      console.error("[office-staff] save failed:", error);
+      setFormError("저장 중 오류가 발생했습니다. 입력값을 확인한 뒤 다시 시도해 주세요.");
+      return;
+    }
+
     const nextRows = editingId
       ? officeStaff.map((row) => (normalizeOfficeStaffRecordId(row.id) === editingId ? record : row))
       : [record, ...officeStaff];

@@ -67,6 +67,15 @@ type OfficeStaffFormModalProps = {
 
 export { createEmptyOfficeStaffForm };
 
+function formDateValue(value: unknown) {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && "target" in value) {
+    const nested = (value as { target?: { value?: unknown } }).target?.value;
+    if (typeof nested === "string") return nested;
+  }
+  return "";
+}
+
 export const OfficeStaffFormModal = memo(function OfficeStaffFormModal({
   open,
   editing,
@@ -168,15 +177,15 @@ export const OfficeStaffFormModal = memo(function OfficeStaffFormModal({
           </label>
           <label className="space-y-1 text-sm">
             <span className="font-semibold text-slate-700">{L.hireDate}</span>
-            <KoreanDateInput value={form.hireDate} onChange={(value) => onChange({ hireDate: value })} />
+            <KoreanDateInput value={formDateValue(form.hireDate)} onChange={(e) => onChange({ hireDate: e.target.value })} />
           </label>
           <label className="space-y-1 text-sm">
             <span className="font-semibold text-slate-700">{L.resignDate}</span>
-            <KoreanDateInput value={form.resignDate} onChange={(value) => onChange({ resignDate: value })} />
+            <KoreanDateInput value={formDateValue(form.resignDate)} onChange={(e) => onChange({ resignDate: e.target.value })} />
           </label>
           <label className="space-y-1 text-sm">
             <span className="font-semibold text-slate-700">{L.birthDate}</span>
-            <KoreanDateInput value={form.birthDate} onChange={(value) => onChange({ birthDate: value })} />
+            <KoreanDateInput value={formDateValue(form.birthDate)} onChange={(e) => onChange({ birthDate: e.target.value })} />
           </label>
           <label className="space-y-1 text-sm">
             <span className="font-semibold text-slate-700">{L.residentRegistrationNo}</span>
