@@ -2498,7 +2498,10 @@ textarea {
 .erp-csr-cal-drawer-body {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
   padding: 0;
 }
 
@@ -3237,6 +3240,14 @@ textarea {
   height: calc(100dvh - env(safe-area-inset-bottom, 0px));
 }
 
+.erp-main--client-calendars > .erp-page-keep-alive--fill {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
 @media (max-width: 1023px) {
   .erp-app-shell .erp-main--fill > .erp-page-keep-alive--fill {
     display: flex;
@@ -3271,6 +3282,9 @@ textarea {
 
 .erp-client-calendars-page__body {
   min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .erp-client-calendars-page .erp-client-request-calendar-panel {

@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { CalendarClock, CalendarPlus, Check, ChevronLeft, ChevronRight, Copy, Smartphone, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -97,6 +97,14 @@ export function ClientSiteRequestCalendarDayDrawer({
   const [sendingAlimtalkId, setSendingAlimtalkId] = useState("");
   const [alimtalkMessages, setAlimtalkMessages] = useState<Record<string, string>>({});
   const [alimtalkTargetSchedule, setAlimtalkTargetSchedule] = useState<ScSchedule | null>(null);
+  const drawerBodyRef = useRef<HTMLDivElement>(null);
+
+  const onDrawerBodyWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+    const el = drawerBodyRef.current;
+    if (!el) return;
+    el.scrollTop += event.deltaY;
+  }, []);
 
   const copyWorkerText = useCallback(async (workerKey: string, worker: Parameters<typeof formatScScheduleWorkerCopyText>[0]) => {
     const text = formatScScheduleWorkerCopyText(worker);
@@ -195,7 +203,7 @@ export function ClientSiteRequestCalendarDayDrawer({
       data-touch-device={isTouchDevice ? "true" : undefined}
     >
       <aside
-        className="erp-csr-cal-drawer erp-calendar-side-panel erp-csr-cal-drawer--with-foot"
+        className="erp-csr-cal-drawer erp-csr-cal-drawer--with-foot"
         role="dialog"
         aria-modal="true"
         aria-label={`${date} \uC77C\uC815`}
@@ -229,7 +237,11 @@ export function ClientSiteRequestCalendarDayDrawer({
           </Button>
         </div>
 
-        <div className="erp-csr-cal-drawer-body erp-calendar-side-panel-body">
+        <div
+          ref={drawerBodyRef}
+          className="erp-csr-cal-drawer-body"
+          onWheel={onDrawerBodyWheel}
+        >
           {totalCount === 0 ? (
             <p className="erp-calendar-side-empty">{L.empty}</p>
           ) : (

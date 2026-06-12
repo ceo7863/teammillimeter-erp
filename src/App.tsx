@@ -11182,7 +11182,9 @@ export default function TeammillimeterErpMvp() {
               ? "erp-main--team-chat p-0 lg:p-4"
               : shellActive === "scCalendar"
                 ? "erp-main--fill erp-main--sc-embed p-0"
-                : "p-2.5 sm:p-3 lg:p-4"
+                : shellActive === "clientSiteRequestCalendars"
+                  ? "erp-main--fill erp-main--client-calendars p-2.5 sm:p-3 lg:p-4"
+                  : "p-2.5 sm:p-3 lg:p-4"
           }`}
         >
         {basicInfoTabAccess.workers && shellActive !== "teamChat" && shellActive !== "scCalendar" ? (
