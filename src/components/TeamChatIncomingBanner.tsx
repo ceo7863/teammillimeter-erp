@@ -9,8 +9,9 @@ import {
 import { isTeamChatPopupWindow } from "@/utils/teamChatPopup";
 
 const L = {
+  app: "\uD300\uBC00\uD1A1",
   label: "\uC0C8 \uBA54\uC2DC\uC9C0",
-  open: "\uC5F4\uAE30",
+  open: "\uCC57\uBC29 \uC5F4\uAE30",
   dismiss: "\uB2EB\uAE30",
 };
 
@@ -47,26 +48,32 @@ export function TeamChatIncomingBanner() {
 
   return (
     <div className="erp-team-chat-incoming-banner" role="alert" aria-live="assertive">
-      <div className="erp-team-chat-incoming-banner__accent" aria-hidden="true" />
-      <div className="erp-team-chat-incoming-banner__main">
+      <div className="erp-team-chat-incoming-banner__shell">
         <div className="erp-team-chat-incoming-banner__head">
-          <span className="erp-team-chat-incoming-banner__icon" aria-hidden="true">
-            <MessageCircle size={20} />
-          </span>
-          <span className="erp-team-chat-incoming-banner__label">{L.label}</span>
+          <div className="erp-team-chat-incoming-banner__brand">
+            <span className="erp-team-chat-incoming-banner__icon" aria-hidden="true">
+              <MessageCircle size={28} strokeWidth={2.25} />
+            </span>
+            <div>
+              <div className="erp-team-chat-incoming-banner__app">{L.app}</div>
+              <div className="erp-team-chat-incoming-banner__label">{L.label}</div>
+            </div>
+          </div>
           <button
             type="button"
             className="erp-team-chat-incoming-banner__close"
             onClick={dismiss}
             aria-label={L.dismiss}
           >
-            <X size={16} aria-hidden="true" />
+            <X size={20} aria-hidden="true" />
           </button>
         </div>
-        <div className="erp-team-chat-incoming-banner__content">
+
+        <div className="erp-team-chat-incoming-banner__body">
           <div className="erp-team-chat-incoming-banner__title">{title}</div>
           <div className="erp-team-chat-incoming-banner__preview">{preview}</div>
         </div>
+
         <button type="button" className="erp-team-chat-incoming-banner__open" onClick={handleOpen}>
           {L.open}
         </button>

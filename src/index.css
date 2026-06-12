@@ -18031,27 +18031,38 @@ button:disabled,
 
 .erp-team-chat-incoming-banner {
   position: fixed;
+  top: 1rem;
   right: 1rem;
-  bottom: 6.25rem;
-  z-index: 15000;
-  display: flex;
-  width: min(22rem, calc(100vw - 2rem));
+  left: 1rem;
+  z-index: 20000;
+  margin-left: auto;
+  width: min(30rem, 100%);
+  max-width: calc(100vw - 2rem);
   overflow: hidden;
-  border-radius: 1rem;
-  background: #fff;
+  border-radius: 1.25rem;
+  border: 2px solid #34d399;
+  background: linear-gradient(165deg, #ecfdf5 0%, #ffffff 42%, #ffffff 100%);
   box-shadow:
-    0 0 0 1px rgba(5, 150, 105, 0.22),
-    0 20px 50px rgba(5, 150, 105, 0.28),
-    0 8px 24px rgba(15, 23, 42, 0.12);
+    0 0 0 4px rgba(16, 185, 129, 0.14),
+    0 28px 64px rgba(5, 150, 105, 0.32),
+    0 12px 28px rgba(15, 23, 42, 0.14);
   animation:
-    erp-team-chat-banner-in 0.32s cubic-bezier(0.22, 1, 0.36, 1),
-    erp-team-chat-banner-glow 2.4s ease-in-out 0.35s 4;
+    erp-team-chat-banner-in 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    erp-team-chat-banner-glow 2.2s ease-in-out 0.4s 5;
+}
+
+@media (min-width: 640px) {
+  .erp-team-chat-incoming-banner {
+    left: auto;
+    top: 1.25rem;
+    right: 1.25rem;
+  }
 }
 
 @keyframes erp-team-chat-banner-in {
   from {
     opacity: 0;
-    transform: translateY(1rem) scale(0.96);
+    transform: translateY(-1.25rem) scale(0.94);
   }
 
   to {
@@ -18064,38 +18075,38 @@ button:disabled,
   0%,
   100% {
     box-shadow:
-      0 0 0 1px rgba(5, 150, 105, 0.22),
-      0 20px 50px rgba(5, 150, 105, 0.28),
-      0 8px 24px rgba(15, 23, 42, 0.12);
+      0 0 0 4px rgba(16, 185, 129, 0.14),
+      0 28px 64px rgba(5, 150, 105, 0.32),
+      0 12px 28px rgba(15, 23, 42, 0.14);
   }
 
   50% {
     box-shadow:
-      0 0 0 2px rgba(16, 185, 129, 0.45),
-      0 24px 56px rgba(5, 150, 105, 0.38),
-      0 8px 24px rgba(15, 23, 42, 0.12);
+      0 0 0 6px rgba(16, 185, 129, 0.28),
+      0 32px 72px rgba(5, 150, 105, 0.42),
+      0 12px 28px rgba(15, 23, 42, 0.14);
   }
 }
 
-.erp-team-chat-incoming-banner__accent {
-  width: 0.35rem;
-  flex-shrink: 0;
-  background: linear-gradient(180deg, #34d399, #059669);
-}
-
-.erp-team-chat-incoming-banner__main {
-  min-width: 0;
-  flex: 1;
+.erp-team-chat-incoming-banner__shell {
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
-  padding: 0.85rem 0.9rem 0.9rem;
+  gap: 1rem;
+  padding: 1.15rem 1.2rem 1.2rem;
 }
 
 .erp-team-chat-incoming-banner__head {
   display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.erp-team-chat-incoming-banner__brand {
+  display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.85rem;
+  min-width: 0;
 }
 
 .erp-team-chat-incoming-banner__icon {
@@ -18103,68 +18114,72 @@ button:disabled,
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: 9999px;
-  background: #059669;
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: 1rem;
+  background: linear-gradient(145deg, #10b981, #047857);
   color: #fff;
+  box-shadow: 0 8px 20px rgba(5, 150, 105, 0.35);
+}
+
+.erp-team-chat-incoming-banner__app {
+  font-size: 1.125rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: #065f46;
+  line-height: 1.15;
 }
 
 .erp-team-chat-incoming-banner__label {
-  flex: 1;
-  font-size: 0.6875rem;
+  margin-top: 0.15rem;
+  font-size: 0.8125rem;
   font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: #059669;
 }
 
-.erp-team-chat-incoming-banner__content {
-  display: block;
-  width: 100%;
-  padding: 0;
-  text-align: left;
-}
-
-.erp-team-chat-incoming-banner__content:hover .erp-team-chat-incoming-banner__title {
-  color: inherit;
-}
-
 .erp-team-chat-incoming-banner__body {
-  min-width: 0;
-  flex: 1;
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(16, 185, 129, 0.22);
+  padding: 0.95rem 1rem;
 }
 
 .erp-team-chat-incoming-banner__title {
-  font-size: 0.9375rem;
-  font-weight: 800;
+  font-size: 1.125rem;
+  font-weight: 900;
+  line-height: 1.35;
   color: #0f172a;
-  transition: color 0.15s ease;
 }
 
 .erp-team-chat-incoming-banner__preview {
-  margin-top: 0.2rem;
+  margin-top: 0.45rem;
+  display: -webkit-box;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.875rem;
-  color: #475569;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: #334155;
+  word-break: break-word;
 }
 
 .erp-team-chat-incoming-banner__open {
   width: 100%;
   border: none;
-  border-radius: 0.75rem;
+  border-radius: 0.9rem;
   background: linear-gradient(135deg, #059669, #0d9488);
   color: #fff;
-  padding: 0.6rem 0.85rem;
-  font-size: 0.875rem;
-  font-weight: 800;
+  padding: 0.9rem 1rem;
+  font-size: 1rem;
+  font-weight: 900;
+  letter-spacing: -0.01em;
   cursor: pointer;
+  box-shadow: 0 10px 24px rgba(5, 150, 105, 0.28);
 }
 
 .erp-team-chat-incoming-banner__open:hover {
-  filter: brightness(1.06);
+  filter: brightness(1.05);
 }
 
 .erp-team-chat-incoming-banner__close {
@@ -18172,17 +18187,18 @@ button:disabled,
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
   border: none;
   border-radius: 9999px;
-  background: transparent;
-  color: #94a3b8;
-  padding: 0.2rem;
+  background: rgba(255, 255, 255, 0.75);
+  color: #64748b;
   cursor: pointer;
 }
 
 .erp-team-chat-incoming-banner__close:hover {
-  color: #64748b;
-  background: #f1f5f9;
+  color: #0f172a;
+  background: #fff;
 }
 
 .erp-chat-panel {
