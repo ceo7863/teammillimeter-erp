@@ -790,7 +790,7 @@ export const TeamChatPage = memo(function TeamChatPage({
   );
 
   const { connected: sseConnected } = useTeamChatEvents({
-    enabled: isPageActive,
+    enabled: Boolean(selectedChannelId) || isPageActive,
     onEvent: handleStreamEvent,
   });
 
@@ -897,7 +897,8 @@ export const TeamChatPage = memo(function TeamChatPage({
 
   useEffect(() => {
     if (!selectedChannelId || !isPageActive) return;
-    const intervalMs = sseConnected ? 20000 : 2000;
+    void pollMessages(selectedChannelId).catch(() => {});
+    const intervalMs = sseConnected ? 5000 : 1500;
     const timer = window.setInterval(() => {
       void pollMessages(selectedChannelId).catch(() => {});
     }, intervalMs);
@@ -906,9 +907,10 @@ export const TeamChatPage = memo(function TeamChatPage({
 
   useEffect(() => {
     if (!selectedChannelId || !isPageActive) return;
+    void refreshReadState(selectedChannelId);
     const timer = window.setInterval(() => {
       void refreshReadState(selectedChannelId);
-    }, 10000);
+    }, 5000);
     return () => window.clearInterval(timer);
   }, [isPageActive, refreshReadState, selectedChannelId]);
 
