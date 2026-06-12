@@ -35,7 +35,7 @@ import {
   type TeamChatAttachment,
 } from "@/utils/teamChatAttachments";
 import { TEAM_CHAT_LINK_LABELS, teamChatLinkToAction, type TeamChatLink } from "@/utils/teamChatLinks";
-import { consumeTeamChatShare, peekTeamChatShare, stashTeamChatShare, consumePendingTeamChatThread, broadcastTeamChatUnreadChanged, TEAM_CHAT_RESET_LIST_EVENT, TEAM_CHAT_SHARE_CHANNEL } from "@/utils/teamChatShare";
+import { dismissTeamChatShare, isTeamChatShareDismissed, peekTeamChatShare, peekTeamChatThreadHandoff, stashTeamChatShare, consumePendingTeamChatThread, consumeTeamChatShare, consumeTeamChatThreadHandoff, broadcastTeamChatUnreadChanged, TEAM_CHAT_RESET_LIST_EVENT, TEAM_CHAT_SHARE_CHANNEL, stashTeamChatThreadHandoff, isTeamChatThreadDismissed, clearTeamChatThreadDismissed, type TeamChatSharePayload } from "@/utils/teamChatShare";
 import {
   isTeamChatDesktopPopupMode,
   openTeamChatPopup,
@@ -43,6 +43,7 @@ import {
   raiseTeamChatPopup,
   isTeamChatPopupWindow,
   shouldOpenTeamChatThreadFromList,
+  getOpenTeamChatThreadPopup,
 } from "@/utils/teamChatPopup";
 import {
   createTeamChatGroup,
@@ -641,8 +642,14 @@ export const TeamChatPage = memo(function TeamChatPage({
   }, []);
 
   const applyPendingShare = useCallback((channelRows: TeamChatChannel[]) => {
-    if (shareAppliedRef.current) return;
-    const payload = peekTeamChatShare();
+    if (shareAppliedRef.current || isTeamChatShareDismissed()) return;
+
+    let payload: TeamChatSharePayload | null = null;
+    if (threadOnly || !openThreadInPopup) {
+      payload = consumeTeamChatThreadHandoff() || peekTeamChatShare();
+    } else {
+      payload = peekTeamChatShare();
+    }
     if (!payload) return;
 
     const resolveShareChannelId = () => {
@@ -654,15 +661,14 @@ export const TeamChatPage = memo(function TeamChatPage({
 
     if (openThreadInPopup) {
       shareAppliedRef.current = true;
-      const consumed = consumeTeamChatShare();
-      if (!consumed) return;
+      consumeTeamChatShare();
       const targetId = resolveShareChannelId();
       if (!targetId) {
-        stashTeamChatShare(consumed, { broadcast: false });
+        stashTeamChatShare(payload, { broadcast: false });
         shareAppliedRef.current = false;
         return;
       }
-      stashTeamChatShare({ ...consumed, channelId: targetId }, { broadcast: false });
+      stashTeamChatThreadHandoff({ ...payload, channelId: targetId });
       setHighlightedChannelId(targetId);
       openTeamChatThreadPopup(targetId, { raise: true });
       return;
@@ -670,6 +676,7 @@ export const TeamChatPage = memo(function TeamChatPage({
 
     shareAppliedRef.current = true;
     consumeTeamChatShare();
+    consumeTeamChatThreadHandoff();
     if (payload.body) setDraft(payload.body);
     if (payload.link) setPendingLink(payload.link);
 
@@ -679,16 +686,17 @@ export const TeamChatPage = memo(function TeamChatPage({
       setHighlightedChannelId(targetId);
       setSelectedChannelId(targetId);
     }
-  }, [openThreadInPopup]);
+  }, [openThreadInPopup, threadOnly]);
 
   const dismissPendingLink = useCallback(() => {
-    consumeTeamChatShare();
+    dismissTeamChatShare();
     shareAppliedRef.current = true;
     setPendingLink(null);
   }, []);
 
   const handleIncomingShare = useCallback(() => {
-    if (!peekTeamChatShare()) return;
+    if (isTeamChatShareDismissed()) return;
+    if (!peekTeamChatShare() && !peekTeamChatThreadHandoff()) return;
     shareAppliedRef.current = false;
     void refreshChannels().then((rows) => applyPendingShare(rows));
   }, [applyPendingShare, refreshChannels]);
@@ -863,6 +871,12 @@ export const TeamChatPage = memo(function TeamChatPage({
             return;
           }
           if (!isPageActive && !standalone) return;
+          if (channelId && isTeamChatThreadDismissed(channelId)) return;
+          const existingThread = channelId ? getOpenTeamChatThreadPopup(channelId) : null;
+          if (existingThread) {
+            raiseTeamChatPopup(existingThread);
+            return;
+          }
           void refreshChannels().then(() => {
             if (!channelId) return;
             if (event.data.inline) {
@@ -874,6 +888,12 @@ export const TeamChatPage = memo(function TeamChatPage({
         }
         if (event.data?.type === "share") {
           handleIncomingShare();
+          return;
+        }
+        if (event.data?.type === "share-dismissed") {
+          shareAppliedRef.current = true;
+          setPendingLink(null);
+          return;
         }
       };
     } catch {
@@ -975,10 +995,7 @@ export const TeamChatPage = memo(function TeamChatPage({
     suppressReadUntilFocusRef.current = false;
     setInlineThreadOverride(false);
     if (openThreadInPopup) {
-      const payload = peekTeamChatShare();
-      if (payload) {
-        stashTeamChatShare({ ...payload, channelId }, { broadcast: false });
-      }
+      clearTeamChatThreadDismissed(channelId);
       setHighlightedChannelId(channelId);
       openTeamChatThreadPopup(channelId, { raise: true });
       return;

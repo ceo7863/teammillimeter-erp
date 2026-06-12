@@ -17,6 +17,13 @@ export type TeamChatSharePayload = {
 
 const PENDING_TEAM_CHAT_SHARE_KEY = "teammillimeter-erp-pending-team-chat-share";
 const PENDING_TEAM_CHAT_THREAD_KEY = "teammillimeter-erp-pending-team-chat-thread";
+const PENDING_TEAM_CHAT_THREAD_HANDOFF_KEY = "teammillimeter-erp-pending-team-chat-thread-handoff";
+const TEAM_CHAT_SHARE_DISMISSED_KEY = "teammillimeter-erp-team-chat-share-dismissed";
+const DISMISSED_THREAD_PREFIX = "teammillimeter-erp-team-chat-dismissed-thread:";
+const DISMISSED_THREAD_TTL_MS = 5000;
+const SHARE_DISMISSED_TTL_MS = 30000;
+
+const incomingBroadcastTimers = new Map<string, number[]>();
 export const TEAM_CHAT_OPEN_EVENT = "erp-open-team-chat";
 export const TEAM_CHAT_OPEN_INCOMING_EVENT = "erp-open-team-chat-incoming";
 export const TEAM_CHAT_RESET_LIST_EVENT = "erp-team-chat-reset-list";
@@ -92,8 +99,15 @@ export function clearPendingTeamChatThread() {
   }
 }
 
+export function clearPendingTeamChatThreadIf(channelId: string) {
+  const id = String(channelId || "").trim();
+  if (!id || peekPendingTeamChatThread() !== id) return;
+  clearPendingTeamChatThread();
+}
+
 export function stashTeamChatShare(payload: TeamChatSharePayload, options?: { broadcast?: boolean }) {
   if (typeof window === "undefined") return;
+  clearTeamChatShareDismissed();
   try {
     const raw = JSON.stringify(payload);
     window.localStorage.setItem(PENDING_TEAM_CHAT_SHARE_KEY, raw);
@@ -122,6 +136,67 @@ export function peekTeamChatShare(): TeamChatSharePayload | null {
   }
 }
 
+export function clearTeamChatShareDismissed() {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(TEAM_CHAT_SHARE_DISMISSED_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export function markTeamChatShareDismissed() {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(TEAM_CHAT_SHARE_DISMISSED_KEY, String(Date.now()));
+  } catch {
+    // ignore
+  }
+}
+
+export function isTeamChatShareDismissed() {
+  if (typeof window === "undefined") return false;
+  try {
+    const raw = window.sessionStorage.getItem(TEAM_CHAT_SHARE_DISMISSED_KEY);
+    if (!raw) return false;
+    const dismissedAt = Number(raw);
+    if (!Number.isFinite(dismissedAt) || Date.now() - dismissedAt > SHARE_DISMISSED_TTL_MS) {
+      window.sessionStorage.removeItem(TEAM_CHAT_SHARE_DISMISSED_KEY);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function broadcastTeamChatShareDismissed() {
+  if (typeof window === "undefined") return;
+  try {
+    new BroadcastChannel(TEAM_CHAT_SHARE_CHANNEL).postMessage({ type: "share-dismissed" });
+  } catch {
+    // ignore
+  }
+}
+
+/** Clear all pending share payloads across list/thread windows. */
+export function dismissTeamChatShare() {
+  consumeTeamChatShare();
+  clearTeamChatThreadHandoff();
+  markTeamChatShareDismissed();
+  broadcastTeamChatShareDismissed();
+}
+
+export function peekTeamChatThreadHandoff(): TeamChatSharePayload | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(PENDING_TEAM_CHAT_THREAD_HANDOFF_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as TeamChatSharePayload;
+  } catch {
+    return null;
+  }
+}
 export function consumeTeamChatShare(): TeamChatSharePayload | null {
   if (typeof window === "undefined") return null;
   try {
@@ -165,25 +240,116 @@ export function resetTeamChatListView() {
   }
 }
 
+export function cancelTeamChatIncomingBroadcasts(channelId?: string) {
+  if (typeof window === "undefined") return;
+  const cancelFor = (id: string) => {
+    const timers = incomingBroadcastTimers.get(id);
+    if (!timers) return;
+    for (const timerId of timers) window.clearTimeout(timerId);
+    incomingBroadcastTimers.delete(id);
+  };
+  if (channelId) {
+    cancelFor(String(channelId).trim());
+    return;
+  }
+  for (const id of incomingBroadcastTimers.keys()) cancelFor(id);
+}
+
 export function scheduleTeamChatIncomingBroadcast(channelId: string, delaysMs = [250, 800, 1600]) {
   const id = String(channelId || "").trim();
   if (!id || typeof window === "undefined") return;
+  cancelTeamChatIncomingBroadcasts(id);
+  const timers: number[] = [];
   for (const delay of delaysMs) {
-    window.setTimeout(() => {
+    const timerId = window.setTimeout(() => {
       broadcastTeamChatIncoming({ channelId: id, inline: true });
     }, delay);
+    timers.push(timerId);
+  }
+  incomingBroadcastTimers.set(id, timers);
+}
+
+export function markTeamChatThreadDismissed(channelId: string) {
+  const id = String(channelId || "").trim();
+  if (!id || typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(`${DISMISSED_THREAD_PREFIX}${id}`, String(Date.now()));
+  } catch {
+    // ignore
+  }
+  cancelTeamChatIncomingBroadcasts(id);
+}
+
+export function clearTeamChatThreadDismissed(channelId: string) {
+  const id = String(channelId || "").trim();
+  if (!id || typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(`${DISMISSED_THREAD_PREFIX}${id}`);
+  } catch {
+    // ignore
+  }
+}
+
+export function isTeamChatThreadDismissed(channelId: string) {
+  const id = String(channelId || "").trim();
+  if (!id || typeof window === "undefined") return false;
+  try {
+    const raw = window.sessionStorage.getItem(`${DISMISSED_THREAD_PREFIX}${id}`);
+    if (!raw) return false;
+    const dismissedAt = Number(raw);
+    if (!Number.isFinite(dismissedAt) || Date.now() - dismissedAt > DISMISSED_THREAD_TTL_MS) {
+      window.sessionStorage.removeItem(`${DISMISSED_THREAD_PREFIX}${id}`);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** One-time list→thread share handoff (session only, not re-broadcast). */
+export function stashTeamChatThreadHandoff(payload: TeamChatSharePayload) {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(PENDING_TEAM_CHAT_THREAD_HANDOFF_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore
+  }
+}
+
+export function consumeTeamChatThreadHandoff(): TeamChatSharePayload | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(PENDING_TEAM_CHAT_THREAD_HANDOFF_KEY);
+    window.sessionStorage.removeItem(PENDING_TEAM_CHAT_THREAD_HANDOFF_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as TeamChatSharePayload;
+  } catch {
+    return null;
+  }
+}
+
+export function clearTeamChatThreadHandoff() {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(PENDING_TEAM_CHAT_THREAD_HANDOFF_KEY);
+  } catch {
+    // ignore
   }
 }
 
 export function openTeamChatIncomingInline(channelId: string) {
   const id = String(channelId || "").trim();
   if (!id || typeof window === "undefined") return;
-  stashPendingTeamChatThread(id);
+  clearTeamChatThreadDismissed(id);
   if (isTeamChatDesktopPopupMode()) {
     const threadPopup = openTeamChatThreadPopup(id, { raise: true });
     if (isTeamChatPopupActuallyOpen(threadPopup)) {
+      cancelTeamChatIncomingBroadcasts(id);
+      clearPendingTeamChatThread();
       return true;
     }
+    stashPendingTeamChatThread(id);
     const popup = openTeamChatPopup({ raise: true });
     if (isTeamChatPopupActuallyOpen(popup)) {
       scheduleTeamChatIncomingBroadcast(id);
@@ -191,6 +357,7 @@ export function openTeamChatIncomingInline(channelId: string) {
     }
     return false;
   }
+  stashPendingTeamChatThread(id);
   window.dispatchEvent(new CustomEvent(TEAM_CHAT_OPEN_INCOMING_EVENT));
   return true;
 }
@@ -199,6 +366,7 @@ export function openTeamChatList() {
   if (typeof window === "undefined") return;
   // Stale share payloads were opening a thread instead of the channel list.
   consumeTeamChatShare();
+  clearTeamChatThreadHandoff();
   clearPendingTeamChatThread();
   resetTeamChatListView();
   if (isTeamChatDesktopPopupMode()) {
@@ -228,10 +396,11 @@ export function openTeamChatThread(channelId: string): Promise<TeamChatThreadOpe
 
     const threadPopup = openTeamChatThreadPopup(id, { raise: true });
     if (isTeamChatPopupActuallyOpen(threadPopup)) {
+      cancelTeamChatIncomingBroadcasts(id);
+      clearPendingTeamChatThread();
       return Promise.resolve({ listOpened: false, threadOpened: true });
     }
 
-    stashPendingTeamChatThread(id);
     const opened = openTeamChatIncomingInline(id);
     return Promise.resolve({ listOpened: opened, threadOpened: opened });
   }

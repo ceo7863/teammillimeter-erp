@@ -16,6 +16,13 @@ import {
   focusMainErpWindow,
   minimizeTeamChatListPopup,
 } from "@/utils/teamChatPopup";
+import {
+  cancelTeamChatIncomingBroadcasts,
+  clearPendingTeamChatThreadIf,
+  clearTeamChatThreadHandoff,
+  consumeTeamChatShare,
+  markTeamChatThreadDismissed,
+} from "@/utils/teamChatShare";
 import type { TeamChatStandaloneRoute } from "@/utils/teamChatRoute";
 
 const L = {
@@ -55,14 +62,24 @@ export function TeamChatStandalonePage({ route }: { route: TeamChatStandaloneRou
       if (isThreadWindow) captureTeamChatThreadPopupBounds(route.channelId);
       else captureTeamChatListPopupBounds();
     };
-    window.addEventListener("resize", saveBounds);
-    window.addEventListener("beforeunload", saveBounds);
-    return () => {
-      window.removeEventListener("resize", saveBounds);
-      window.removeEventListener("beforeunload", saveBounds);
+    const onClose = () => {
+      if (isThreadWindow) {
+        markTeamChatThreadDismissed(route.channelId);
+        cancelTeamChatIncomingBroadcasts(route.channelId);
+        clearTeamChatThreadHandoff();
+        consumeTeamChatShare();
+        clearPendingTeamChatThreadIf(route.channelId);
+      }
       saveBounds();
     };
-  }, [isThreadWindow]);
+    window.addEventListener("resize", saveBounds);
+    window.addEventListener("beforeunload", onClose);
+    return () => {
+      window.removeEventListener("resize", saveBounds);
+      window.removeEventListener("beforeunload", onClose);
+      saveBounds();
+    };
+  }, [isThreadWindow, route.channelId]);
 
   const handleLogin = useCallback(async () => {
     const id = loginId.trim();

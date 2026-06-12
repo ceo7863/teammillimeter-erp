@@ -1,4 +1,10 @@
 import { buildTeamChatThreadPath, TEAM_CHAT_STANDALONE_PATH } from "@/utils/teamChatRoute";
+import {
+  cancelTeamChatIncomingBroadcasts,
+  clearPendingTeamChatThreadIf,
+  clearTeamChatThreadHandoff,
+  markTeamChatThreadDismissed,
+} from "@/utils/teamChatShare";
 
 const LIST_POPUP_NAME = "teammillimeter-team-chat";
 const LIST_POPUP_POSITION_KEY = "teammillimeter-erp-team-chat-list-popup-bounds";
@@ -157,6 +163,10 @@ function trackThreadPopupBounds(channelId: string, popup: Window) {
       const current = threadPopupTrackers.get(channelId);
       if (current === tracker) threadPopupTrackers.delete(channelId);
       window.clearInterval(tracker);
+      markTeamChatThreadDismissed(channelId);
+      cancelTeamChatIncomingBroadcasts(channelId);
+      clearTeamChatThreadHandoff();
+      clearPendingTeamChatThreadIf(channelId);
       return;
     }
     const bounds = readPopupBounds(popup, THREAD_POPUP_DEFAULT_SIZE);
