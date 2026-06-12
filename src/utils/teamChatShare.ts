@@ -224,7 +224,7 @@ export type TeamChatThreadOpenResult = {
 export function openTeamChatIncomingDialog(channelId: string) {
   const id = String(channelId || "").trim();
   if (!id || typeof window === "undefined" || isTeamChatPopupWindow()) return false;
-  stashPendingTeamChatThread(id, { inline: true });
+  clearPendingTeamChatThread();
   window.dispatchEvent(new CustomEvent(TEAM_CHAT_INCOMING_DIALOG_EVENT, { detail: { channelId: id } }));
   return true;
 }
@@ -255,6 +255,7 @@ export function openTeamChatThread(channelId: string): Promise<TeamChatThreadOpe
     }
 
     const dialogOpened = openTeamChatIncomingDialog(id);
+    if (dialogOpened) clearPendingTeamChatThread();
     return Promise.resolve({ ...failed, dialogOpened });
   }
 

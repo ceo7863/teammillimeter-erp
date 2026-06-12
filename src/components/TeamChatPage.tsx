@@ -128,6 +128,7 @@ type TeamChatPageProps = {
   listOnly?: boolean;
   threadOnly?: boolean;
   initialChannelId?: string;
+  incomingAutoOpenChannelId?: string;
   onUnreadChange?: () => void;
   onErpAction?: (action: ErpChatAction) => void;
   onOpenAppMenu?: () => void;
@@ -410,6 +411,7 @@ export const TeamChatPage = memo(function TeamChatPage({
   listOnly = false,
   threadOnly = false,
   initialChannelId,
+  incomingAutoOpenChannelId,
   onUnreadChange,
   onErpAction,
   onOpenAppMenu,
@@ -928,6 +930,21 @@ export const TeamChatPage = memo(function TeamChatPage({
       handleSelectChannel(pendingThreadId);
     });
   }, [handleSelectChannel, listOnly, openThreadInPopup, refreshChannels, selectChannelInline, standalone, threadOnly]);
+
+  useEffect(() => {
+    const id = String(incomingAutoOpenChannelId || "").trim();
+    if (!id) return;
+    suppressReadUntilFocusRef.current = true;
+    listBrowsingRef.current = false;
+    setInlineThreadOverride(true);
+    setHighlightedChannelId(id);
+    setSelectedChannelId(id);
+    setDraft("");
+    setPendingLink(null);
+    setPendingAttachments([]);
+    setPickerOpen(false);
+    resetComposerExtras();
+  }, [incomingAutoOpenChannelId, resetComposerExtras]);
 
   const handleStartDm = useCallback(
     async (otherUserId: number) => {

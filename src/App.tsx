@@ -389,7 +389,6 @@ import {
 import { openTeamChatWithShare, openTeamChatList, TEAM_CHAT_OPEN_EVENT, TEAM_CHAT_OPEN_INCOMING_EVENT, TEAM_CHAT_SHARE_CHANNEL } from "@/utils/teamChatShare";
 import { isTeamChatDesktopPopupMode, openTeamChatPopup } from "@/utils/teamChatPopup";
 import { useTeamChatIncomingAutoOpen } from "@/hooks/useTeamChatIncomingAutoOpen";
-import { useTeamChatPopupPrewarm } from "@/hooks/useTeamChatPopupPrewarm";
 import { TeamChatPage } from "@/components/TeamChatPage";
 import { TeamChatStandalonePage } from "@/components/TeamChatStandalonePage";
 import { useSaleCommentReadState } from "@/hooks/useSaleCommentReadState";
@@ -8619,7 +8618,6 @@ export default function TeammillimeterErpMvp() {
       selectedChannelId: teamChatSelectedChannelRef.current,
     }),
   });
-  useTeamChatPopupPrewarm(currentUser, dataReady);
   useTeamChatNotifications(currentUser, {
     unreadCount: teamChatUnreadCount,
     isChatPageActive: active === "teamChat",

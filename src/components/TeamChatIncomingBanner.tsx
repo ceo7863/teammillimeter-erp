@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { MessageCircle, X } from "lucide-react";
 import {
   openTeamChatThread,
+  clearPendingTeamChatThread,
   TEAM_CHAT_INCOMING_PROMPT_EVENT,
   TEAM_CHAT_INCOMING_DIALOG_EVENT,
   type TeamChatIncomingPromptDetail,
@@ -31,7 +32,10 @@ export function TeamChatIncomingBanner() {
     };
   }, []);
 
-  const dismiss = useCallback(() => setPrompt(null), []);
+  const dismiss = useCallback(() => {
+    setPrompt(null);
+    clearPendingTeamChatThread();
+  }, []);
 
   const handleOpen = useCallback(() => {
     if (!prompt?.channelId) return;

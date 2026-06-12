@@ -37,7 +37,7 @@ export function TeamChatIncomingDialog({ currentUser, onUnreadChange, onErpActio
     const handler = (event: Event) => {
       const id = String((event as CustomEvent<{ channelId?: string }>).detail?.channelId || "").trim();
       if (!id) return;
-      stashPendingTeamChatThread(id, { inline: true });
+      clearPendingTeamChatThread();
       setChannelId(id);
     };
     window.addEventListener(TEAM_CHAT_INCOMING_DIALOG_EVENT, handler as EventListener);
@@ -68,7 +68,10 @@ export function TeamChatIncomingDialog({ currentUser, onUnreadChange, onErpActio
       ref={dialogRef}
       className="erp-team-chat-incoming-dialog"
       aria-labelledby="erp-team-chat-incoming-dialog-title"
-      onClose={() => setChannelId(null)}
+      onClose={() => {
+        setChannelId(null);
+        clearPendingTeamChatThread();
+      }}
     >
       <div className="erp-team-chat-incoming-dialog__shell">
         <div className="erp-team-chat-incoming-dialog__head">
@@ -98,6 +101,7 @@ export function TeamChatIncomingDialog({ currentUser, onUnreadChange, onErpActio
               isPageActive
               standalone
               listOnly
+              incomingAutoOpenChannelId={channelId}
               onUnreadChange={onUnreadChange}
               onErpAction={onErpAction}
             />
