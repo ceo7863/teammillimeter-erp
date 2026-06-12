@@ -31,6 +31,7 @@ const L = {
   hireDate: "입사일",
   resignDate: "퇴사일",
   birthDate: "생년월일",
+  residentRegistrationNo: "주민등록번호",
   phone: "연락처",
   email: "이메일",
   address: "주소",
@@ -188,6 +189,10 @@ export function OfficeStaffHrRecordSheet({
               <div>
                 <dt>{L.birthDate}</dt>
                 <dd>{formatDateKo(staff.birthDate)}</dd>
+              </div>
+              <div>
+                <dt>{L.residentRegistrationNo}</dt>
+                <dd>{displayValue(staff.residentRegistrationNo)}</dd>
               </div>
               <div>
                 <dt>{L.phone}</dt>

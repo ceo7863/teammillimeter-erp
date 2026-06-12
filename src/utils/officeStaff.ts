@@ -13,6 +13,7 @@ export type OfficeStaffRecord = {
   resignDate?: string;
   status?: OfficeStaffEmploymentStatus;
   birthDate?: string;
+  residentRegistrationNo?: string;
   phone?: string;
   email?: string;
   address?: string;
@@ -40,6 +41,7 @@ export type OfficeStaffFormState = {
   resignDate: string;
   status: OfficeStaffEmploymentStatus;
   birthDate: string;
+  residentRegistrationNo: string;
   phone: string;
   email: string;
   address: string;
@@ -110,6 +112,12 @@ export const OFFICE_STAFF_STATUS_LABELS: Record<OfficeStaffEmploymentStatus, str
   resigned: "퇴사",
 };
 
+export function formatResidentRegistrationNoInput(raw: string) {
+  const digits = String(raw || "").replace(/\D/g, "").slice(0, 13);
+  if (digits.length <= 6) return digits;
+  return `${digits.slice(0, 6)}-${digits.slice(6)}`;
+}
+
 export function createEmptyOfficeStaffForm(): OfficeStaffFormState {
   return {
     name: "",
@@ -121,6 +129,7 @@ export function createEmptyOfficeStaffForm(): OfficeStaffFormState {
     resignDate: "",
     status: "active",
     birthDate: "",
+    residentRegistrationNo: "",
     phone: "",
     email: "",
     address: "",
@@ -168,6 +177,7 @@ export function normalizeOfficeStaffRecord(row: unknown): OfficeStaffRecord | nu
     resignDate: String(source.resignDate || "").trim(),
     status: normalizedStatus,
     birthDate: String(source.birthDate || "").trim(),
+    residentRegistrationNo: formatResidentRegistrationNoInput(String(source.residentRegistrationNo || "")),
     phone: String(source.phone || "").trim(),
     email: String(source.email || "").trim(),
     address: String(source.address || "").trim(),
@@ -197,6 +207,7 @@ export function officeStaffFormFromRecord(row: OfficeStaffRecord): OfficeStaffFo
     resignDate: row.resignDate || "",
     status: row.status || "active",
     birthDate: row.birthDate || "",
+    residentRegistrationNo: row.residentRegistrationNo || "",
     phone: row.phone || "",
     email: row.email || "",
     address: row.address || "",
@@ -232,6 +243,7 @@ export function officeStaffRecordFromForm(
     resignDate: form.resignDate.trim(),
     status: form.status,
     birthDate: form.birthDate.trim(),
+    residentRegistrationNo: formatResidentRegistrationNoInput(form.residentRegistrationNo),
     phone: form.phone.trim(),
     email: form.email.trim(),
     address: form.address.trim(),

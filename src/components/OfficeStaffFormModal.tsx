@@ -9,6 +9,7 @@ import {
   OFFICE_STAFF_EMPLOYMENT_TYPE_OPTIONS,
   OFFICE_STAFF_STATUS_LABELS,
   createEmptyOfficeStaffForm,
+  formatResidentRegistrationNoInput,
   type OfficeStaffEmploymentStatus,
   type OfficeStaffFormState,
 } from "@/utils/officeStaff";
@@ -31,6 +32,8 @@ const L = {
   resignDate: "퇴사일",
   status: "재직상태",
   birthDate: "생년월일",
+  residentRegistrationNo: "주민등록번호",
+  residentRegistrationNoPh: "000000-0000000",
   phone: "연락처",
   email: "이메일",
   address: "주소",
@@ -85,16 +88,25 @@ export const OfficeStaffFormModal = memo(function OfficeStaffFormModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4">
-      <div className="my-4 w-full max-w-3xl rounded-2xl bg-white p-5 shadow-xl">
+    <div className="erp-ledger-modal-backdrop" onClick={onClose}>
+      <div
+        className="erp-ledger-modal erp-ledger-modal--client-form overflow-y-auto"
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="office-staff-form-modal-title"
+        lang="ko"
+      >
         <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-lg font-bold text-slate-900">{editing ? L.editTitle : L.createTitle}</h2>
+          <h2 id="office-staff-form-modal-title" className="erp-text-section font-bold text-slate-900">
+            {editing ? L.editTitle : L.createTitle}
+          </h2>
           <Button type="button" variant="ghost" size="sm" className="rounded-xl" onClick={onClose}>
             <X size={18} />
           </Button>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <WorkerPhotoField
             previewUrl={photoPreviewUrl}
             hasPhoto={photoHasSaved || Boolean(photoPreviewUrl)}
@@ -104,7 +116,7 @@ export const OfficeStaffFormModal = memo(function OfficeStaffFormModal({
             onSelectFile={onPhotoSelect}
             onDelete={onPhotoDelete}
           />
-          <label className="space-y-1 text-sm md:col-span-2">
+          <label className="space-y-1 text-sm sm:col-span-2 xl:col-span-2">
             <span className="font-semibold text-slate-700">{L.name}</span>
             <Input value={form.name} onChange={(e) => onChange({ name: e.target.value })} placeholder={L.namePh} />
           </label>
@@ -167,14 +179,24 @@ export const OfficeStaffFormModal = memo(function OfficeStaffFormModal({
             <KoreanDateInput value={form.birthDate} onChange={(value) => onChange({ birthDate: value })} />
           </label>
           <label className="space-y-1 text-sm">
+            <span className="font-semibold text-slate-700">{L.residentRegistrationNo}</span>
+            <Input
+              value={form.residentRegistrationNo}
+              onChange={(e) => onChange({ residentRegistrationNo: formatResidentRegistrationNoInput(e.target.value) })}
+              placeholder={L.residentRegistrationNoPh}
+              inputMode="numeric"
+              autoComplete="off"
+            />
+          </label>
+          <label className="space-y-1 text-sm">
             <span className="font-semibold text-slate-700">{L.phone}</span>
             <Input value={form.phone} onChange={(e) => onChange({ phone: e.target.value })} />
           </label>
-          <label className="space-y-1 text-sm md:col-span-2">
+          <label className="space-y-1 text-sm md:col-span-2 xl:col-span-2">
             <span className="font-semibold text-slate-700">{L.email}</span>
             <Input value={form.email} onChange={(e) => onChange({ email: e.target.value })} />
           </label>
-          <label className="space-y-1 text-sm md:col-span-2">
+          <label className="space-y-1 text-sm sm:col-span-2 xl:col-span-4">
             <span className="font-semibold text-slate-700">{L.address}</span>
             <Input value={form.address} onChange={(e) => onChange({ address: e.target.value })} />
           </label>
@@ -186,15 +208,15 @@ export const OfficeStaffFormModal = memo(function OfficeStaffFormModal({
             <span className="font-semibold text-slate-700">{L.account}</span>
             <Input value={form.account} onChange={(e) => onChange({ account: e.target.value })} />
           </label>
-          <label className="space-y-1 text-sm md:col-span-2">
+          <label className="space-y-1 text-sm sm:col-span-2 xl:col-span-2">
             <span className="font-semibold text-slate-700">{L.education}</span>
             <Input value={form.education} onChange={(e) => onChange({ education: e.target.value })} />
           </label>
-          <label className="space-y-1 text-sm md:col-span-2">
+          <label className="space-y-1 text-sm sm:col-span-2 xl:col-span-2">
             <span className="font-semibold text-slate-700">{L.certifications}</span>
             <Input value={form.certifications} onChange={(e) => onChange({ certifications: e.target.value })} />
           </label>
-          <label className="space-y-1 text-sm md:col-span-2">
+          <label className="space-y-1 text-sm sm:col-span-2 xl:col-span-4">
             <span className="font-semibold text-slate-700">{L.careerSummary}</span>
             <textarea
               className="min-h-24 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
@@ -210,7 +232,7 @@ export const OfficeStaffFormModal = memo(function OfficeStaffFormModal({
             <span className="font-semibold text-slate-700">{L.emergencyPhone}</span>
             <Input value={form.emergencyPhone} onChange={(e) => onChange({ emergencyPhone: e.target.value })} />
           </label>
-          <label className="space-y-1 text-sm md:col-span-2">
+          <label className="space-y-1 text-sm sm:col-span-2 xl:col-span-4">
             <span className="font-semibold text-slate-700">{L.memo}</span>
             <textarea
               className="min-h-20 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
@@ -218,7 +240,7 @@ export const OfficeStaffFormModal = memo(function OfficeStaffFormModal({
               onChange={(e) => onChange({ memo: e.target.value })}
             />
           </label>
-          <label className="space-y-1 text-sm md:col-span-2">
+          <label className="space-y-1 text-sm sm:col-span-2 xl:col-span-4">
             <span className="font-semibold text-slate-700">{L.hrNotes}</span>
             <textarea
               className="min-h-24 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
