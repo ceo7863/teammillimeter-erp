@@ -8607,13 +8607,14 @@ export default function TeammillimeterErpMvp() {
     setSidebarOpen(false);
   }, []);
   const openTeamChatPage = useCallback(() => {
-    openTeamChatList();
+    openTeamChatList({ emitOpenEvent: false });
     if (!isTeamChatDesktopPopupMode()) {
-      handleNavigatePage("teamChat");
+      setActive("teamChat");
+      setSidebarOpen(false);
     } else {
       setSidebarOpen(false);
     }
-  }, [handleNavigatePage]);
+  }, []);
   useTeamChatIncomingAutoOpen(currentUser, {
     enabled: dataReady,
     getViewState: () => ({

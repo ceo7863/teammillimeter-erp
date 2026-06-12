@@ -387,6 +387,8 @@ export function isTeamChatListPopupWindow() {
 
 export function isTeamChatDesktopPopupMode() {
   if (typeof window === "undefined") return false;
+  if (window.matchMedia("(max-width: 1023px)").matches) return false;
+  if (window.matchMedia("(hover: none)").matches && (navigator.maxTouchPoints || 0) > 0) return false;
   return window.matchMedia("(min-width: 1024px)").matches;
 }
 

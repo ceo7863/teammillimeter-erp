@@ -234,6 +234,14 @@ export function openTeamChatWithShare(payload: TeamChatSharePayload, options?: {
   window.dispatchEvent(new CustomEvent(TEAM_CHAT_OPEN_EVENT));
 }
 
+export function prepareTeamChatListOpen() {
+  if (typeof window === "undefined") return;
+  consumeTeamChatShare();
+  clearTeamChatThreadHandoff();
+  clearPendingTeamChatThread();
+  resetTeamChatListView();
+}
+
 export function resetTeamChatListView() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(TEAM_CHAT_RESET_LIST_EVENT));
@@ -368,18 +376,16 @@ export function openTeamChatIncomingInline(channelId: string) {
   return true;
 }
 
-export function openTeamChatList() {
+export function openTeamChatList(options?: { emitOpenEvent?: boolean }) {
   if (typeof window === "undefined") return;
-  // Stale share payloads were opening a thread instead of the channel list.
-  consumeTeamChatShare();
-  clearTeamChatThreadHandoff();
-  clearPendingTeamChatThread();
-  resetTeamChatListView();
+  prepareTeamChatListOpen();
   if (isTeamChatDesktopPopupMode()) {
     openTeamChatPopup();
     return;
   }
-  window.dispatchEvent(new CustomEvent(TEAM_CHAT_OPEN_EVENT));
+  if (options?.emitOpenEvent !== false) {
+    window.dispatchEvent(new CustomEvent(TEAM_CHAT_OPEN_EVENT));
+  }
 }
 
 export type TeamChatThreadOpenResult = { listOpened: boolean; threadOpened: boolean };
