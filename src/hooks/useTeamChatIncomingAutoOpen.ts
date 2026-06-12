@@ -56,13 +56,11 @@ export function useTeamChatIncomingAutoOpen(
         (message.attachments?.length ? "\uCCA8\uBD80\uD30C\uC77C" : "\uC0C8 \uBA54\uC2DC\uC9C0");
       const sender = String(message.userName || "").trim() || "\uC0AC\uB0B4 \uCC57";
 
-      if (!isTeamChatPopupWindow()) {
-        promptTeamChatIncomingOpen({
-          channelId,
-          sender,
-          preview: preview.slice(0, 120),
-        });
-      }
+      promptTeamChatIncomingOpen({
+        channelId,
+        sender,
+        preview: preview.slice(0, 120),
+      });
 
       if (typeof document !== "undefined" && document.visibilityState === "hidden") {
         void showErpNotification(sender, {

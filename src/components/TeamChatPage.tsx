@@ -35,7 +35,7 @@ import {
   type TeamChatAttachment,
 } from "@/utils/teamChatAttachments";
 import { TEAM_CHAT_LINK_LABELS, teamChatLinkToAction, type TeamChatLink } from "@/utils/teamChatLinks";
-import { consumeTeamChatShare, peekTeamChatShare, stashTeamChatShare, consumePendingTeamChatThread, broadcastTeamChatUnreadChanged, TEAM_CHAT_OPEN_THREAD_EVENT, TEAM_CHAT_RESET_LIST_EVENT, TEAM_CHAT_SHARE_CHANNEL } from "@/utils/teamChatShare";
+import { consumeTeamChatShare, peekTeamChatShare, stashTeamChatShare, consumePendingTeamChatThread, broadcastTeamChatUnreadChanged, TEAM_CHAT_RESET_LIST_EVENT, TEAM_CHAT_SHARE_CHANNEL } from "@/utils/teamChatShare";
 import { isTeamChatDesktopPopupMode, openTeamChatPopup, openTeamChatThreadPopup, canOpenTeamChatThreadPopup, raiseTeamChatPopup, isTeamChatPopupWindow } from "@/utils/teamChatPopup";
 import {
   createTeamChatGroup,
@@ -755,10 +755,6 @@ export const TeamChatPage = memo(function TeamChatPage({
             if (event.data.inline) {
               suppressReadUntilFocusRef.current = true;
               selectChannelInlineRef.current(channelId);
-              return;
-            }
-            if (event.data.openThread !== false) {
-              handleSelectChannelRef.current(channelId);
             }
           });
           return;
@@ -929,7 +925,7 @@ export const TeamChatPage = memo(function TeamChatPage({
       }
       handleSelectChannel(pendingThreadId);
     });
-    // Legacy pending thread from an older session — handle once on mount only.
+    // Pending thread stashed before navigation (banner click, notification, etc.).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1230,18 +1226,9 @@ export const TeamChatPage = memo(function TeamChatPage({
 
   useEffect(() => {
     const onReset = () => handleBackToList();
-    const onOpenThread = (event: Event) => {
-      const channelId = String((event as CustomEvent<{ channelId?: string }>).detail?.channelId || "").trim();
-      if (!channelId) return;
-      handleSelectChannel(channelId);
-    };
     window.addEventListener(TEAM_CHAT_RESET_LIST_EVENT, onReset);
-    window.addEventListener(TEAM_CHAT_OPEN_THREAD_EVENT, onOpenThread as EventListener);
-    return () => {
-      window.removeEventListener(TEAM_CHAT_RESET_LIST_EVENT, onReset);
-      window.removeEventListener(TEAM_CHAT_OPEN_THREAD_EVENT, onOpenThread as EventListener);
-    };
-  }, [handleBackToList, handleSelectChannel]);
+    return () => window.removeEventListener(TEAM_CHAT_RESET_LIST_EVENT, onReset);
+  }, [handleBackToList]);
 
   const isMobileChat = isMobileLayout && !threadOnly;
   const showThreadOnMobile = isMobileLayout && !threadOnly && Boolean(selectedChannelId);

@@ -20,7 +20,6 @@ const PENDING_TEAM_CHAT_THREAD_KEY = "teammillimeter-erp-pending-team-chat-threa
 export const TEAM_CHAT_OPEN_EVENT = "erp-open-team-chat";
 export const TEAM_CHAT_OPEN_INCOMING_EVENT = "erp-open-team-chat-incoming";
 export const TEAM_CHAT_RESET_LIST_EVENT = "erp-team-chat-reset-list";
-export const TEAM_CHAT_OPEN_THREAD_EVENT = "erp-open-team-chat-thread";
 export const TEAM_CHAT_SHARE_CHANNEL = "erp-team-chat-share";
 export const TEAM_CHAT_INCOMING_PROMPT_EVENT = "erp-team-chat-incoming-prompt";
 
@@ -30,17 +29,12 @@ export type TeamChatIncomingPromptDetail = {
   preview: string;
 };
 
-export function broadcastTeamChatIncoming(payload: {
-  channelId: string;
-  openThread?: boolean;
-  inline?: boolean;
-}) {
+export function broadcastTeamChatIncoming(payload: { channelId: string; inline?: boolean }) {
   if (typeof window === "undefined") return;
   try {
     new BroadcastChannel(TEAM_CHAT_SHARE_CHANNEL).postMessage({
       type: "incoming",
       channelId: payload.channelId,
-      openThread: payload.openThread !== false,
       inline: payload.inline === true,
     });
   } catch {
@@ -57,7 +51,7 @@ export function broadcastTeamChatUnreadChanged() {
   }
 }
 
-export function stashPendingTeamChatThread(channelId: string, options?: { inline?: boolean; broadcast?: boolean }) {
+export function stashPendingTeamChatThread(channelId: string) {
   const id = String(channelId || "").trim();
   if (!id || typeof window === "undefined") return;
   try {
@@ -65,24 +59,19 @@ export function stashPendingTeamChatThread(channelId: string, options?: { inline
   } catch {
     // ignore
   }
-  if (options?.broadcast === false) return;
-  broadcastTeamChatIncoming({
-    channelId: id,
-    openThread: options?.inline ? false : true,
-    inline: options?.inline === true,
-  });
+  broadcastTeamChatIncoming({ channelId: id, inline: true });
 }
 
 export function notifyTeamChatThreadOpen(channelId: string) {
   const id = String(channelId || "").trim();
   if (!id) return;
-  broadcastTeamChatIncoming({ channelId: id, openThread: false, inline: true });
+  broadcastTeamChatIncoming({ channelId: id, inline: true });
   window.setTimeout(() => {
-    broadcastTeamChatIncoming({ channelId: id, openThread: false, inline: true });
+    broadcastTeamChatIncoming({ channelId: id, inline: true });
   }, 300);
 }
 
-export function peekPendingTeamChatThread(): string | null {
+function peekPendingTeamChatThread(): string | null {
   if (typeof window === "undefined") return null;
   try {
     const id = window.sessionStorage.getItem(PENDING_TEAM_CHAT_THREAD_KEY);
@@ -189,7 +178,7 @@ export function scheduleTeamChatIncomingBroadcast(channelId: string, delaysMs = 
   if (!id || typeof window === "undefined") return;
   for (const delay of delaysMs) {
     window.setTimeout(() => {
-      broadcastTeamChatIncoming({ channelId: id, openThread: false, inline: true });
+      broadcastTeamChatIncoming({ channelId: id, inline: true });
     }, delay);
   }
 }
@@ -197,7 +186,7 @@ export function scheduleTeamChatIncomingBroadcast(channelId: string, delaysMs = 
 export function openTeamChatIncomingInline(channelId: string) {
   const id = String(channelId || "").trim();
   if (!id || typeof window === "undefined") return;
-  stashPendingTeamChatThread(id, { inline: true });
+  stashPendingTeamChatThread(id);
   if (isTeamChatDesktopPopupMode()) {
     const popup = openTeamChatPopup({ raise: true });
     if (isTeamChatPopupActuallyOpen(popup)) {
