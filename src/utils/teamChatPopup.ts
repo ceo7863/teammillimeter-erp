@@ -371,6 +371,10 @@ export function isTeamChatThreadPopupWindow() {
   return /^\/messenger\/thread$/i.test(window.location.pathname.replace(/\/+$/, "") || "/");
 }
 
+export function isTeamChatListPopupWindow() {
+  return isTeamChatPopupWindow() && !isTeamChatThreadPopupWindow();
+}
+
 export function isTeamChatDesktopPopupMode() {
   if (typeof window === "undefined") return false;
   return window.matchMedia("(min-width: 1024px)").matches;
@@ -382,6 +386,20 @@ export function isTeamChatEmbeddedInlineMode() {
 
 export function canOpenTeamChatThreadPopup() {
   return isTeamChatDesktopPopupMode();
+}
+
+/** List popups are ~380px wide; desktop pointer users still get one thread popup per channel. */
+export function shouldOpenTeamChatThreadFromList(options: {
+  listOnly?: boolean;
+  threadOnly?: boolean;
+  standalone?: boolean;
+  mobileLayout?: boolean;
+}) {
+  if (!options.listOnly || options.threadOnly) return false;
+  if (options.standalone && isTeamChatListPopupWindow()) {
+    return typeof window === "undefined" || window.matchMedia("(pointer: fine)").matches;
+  }
+  return !options.mobileLayout && isTeamChatDesktopPopupMode();
 }
 
 export function openTeamChatPopup(options?: { focus?: boolean; raise?: boolean }) {

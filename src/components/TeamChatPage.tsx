@@ -36,7 +36,14 @@ import {
 } from "@/utils/teamChatAttachments";
 import { TEAM_CHAT_LINK_LABELS, teamChatLinkToAction, type TeamChatLink } from "@/utils/teamChatLinks";
 import { consumeTeamChatShare, peekTeamChatShare, stashTeamChatShare, consumePendingTeamChatThread, broadcastTeamChatUnreadChanged, TEAM_CHAT_RESET_LIST_EVENT, TEAM_CHAT_SHARE_CHANNEL } from "@/utils/teamChatShare";
-import { isTeamChatDesktopPopupMode, openTeamChatPopup, openTeamChatThreadPopup, canOpenTeamChatThreadPopup, raiseTeamChatPopup, isTeamChatPopupWindow } from "@/utils/teamChatPopup";
+import {
+  isTeamChatDesktopPopupMode,
+  openTeamChatPopup,
+  openTeamChatThreadPopup,
+  raiseTeamChatPopup,
+  isTeamChatPopupWindow,
+  shouldOpenTeamChatThreadFromList,
+} from "@/utils/teamChatPopup";
 import {
   createTeamChatGroup,
   deleteTeamChatMessage,
@@ -470,8 +477,12 @@ export const TeamChatPage = memo(function TeamChatPage({
   const suppressReadUntilFocusRef = useRef(Boolean(threadOnly));
   const threadEngagedRef = useRef(false);
   const isMobileLayout = useTeamChatMobileLayout();
-  const openThreadInPopup =
-    listOnly && !isMobileLayout && canOpenTeamChatThreadPopup() && !threadOnly;
+  const openThreadInPopup = shouldOpenTeamChatThreadFromList({
+    listOnly,
+    threadOnly,
+    standalone,
+    mobileLayout: isMobileLayout,
+  });
   const [inlineThreadOverride, setInlineThreadOverride] = useState(false);
   const selfId = Number(currentUser?.id) || 0;
 

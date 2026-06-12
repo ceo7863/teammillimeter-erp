@@ -1324,6 +1324,16 @@ textarea {
   }
 }
 
+@media (pointer: fine) {
+  .erp-team-chat-page--standalone.erp-team-chat-page--list-only .erp-team-chat-thread {
+    display: none !important;
+  }
+
+  .erp-team-chat-page--standalone.erp-team-chat-page--list-only.is-thread-open .erp-team-chat-thread {
+    display: flex !important;
+  }
+}
+
 .erp-team-chat-page--thread-only {
   grid-template-columns: minmax(0, 1fr) !important;
 }
