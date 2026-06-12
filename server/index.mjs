@@ -94,6 +94,13 @@ import {
   deleteOfficeStaffPhoto,
   enrichOfficeStaffWithPhotoMeta,
 } from "./officeStaffPhoto.mjs";
+import {
+  initUserProfilePhotoStore,
+  getUserProfilePhotoMeta,
+  getUserProfilePhotoFile,
+  upsertUserProfilePhoto,
+  deleteUserProfilePhoto,
+} from "./userProfilePhoto.mjs";
 import { buildPdfShareViewerHtml } from "./pdfShareViewer.mjs";
 import { renderPdfSharePreviewImages } from "./pdfSharePreview.mjs";
 import { buildPdfShareOgMeta } from "./pdfShareOg.mjs";
@@ -261,6 +268,7 @@ initBoardAttachmentStore();
 initClientBusinessRegStore();
 initWorkerPhotoStore();
 initOfficeStaffPhotoStore();
+initUserProfilePhotoStore();
 initClientContractsStore();
 startBankSyncScheduler();
 startNotificationScheduler();
@@ -1640,6 +1648,80 @@ app.get("/api/team-chat/users", authMiddleware, (req, res) => {
     res.json(listTeamChatUsers(req.user.id));
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message || "사용자 목록 조회에 실패했습니다." });
+  }
+});
+
+app.get("/api/team-chat/users/:userId/profile-photo/meta", authMiddleware, (req, res) => {
+  const meta = getUserProfilePhotoMeta(req.params.userId);
+  if (!meta) {
+    res.status(404).json({ error: "\uD504\uB85C\uD544 \uC0AC\uC9C4\uC774 \uC5C6\uC2B5\uB2C8\uB2E4." });
+    return;
+  }
+  res.json(meta);
+});
+
+app.get("/api/team-chat/users/:userId/profile-photo/file", authMiddleware, (req, res) => {
+  const file = getUserProfilePhotoFile(req.params.userId);
+  if (!file) {
+    res.status(404).json({ error: "\uD504\uB85C\uD544 \uC0AC\uC9C4\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." });
+    return;
+  }
+  res.setHeader("Content-Type", file.mimeType || "image/jpeg");
+  res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+  res.sendFile(path.resolve(file.path));
+});
+
+app.get("/api/team-chat/me/profile-photo/meta", authMiddleware, (req, res) => {
+  const meta = getUserProfilePhotoMeta(req.user.id);
+  if (!meta) {
+    res.status(404).json({ error: "\uD504\uB85C\uD544 \uC0AC\uC9C4\uC774 \uC5C6\uC2B5\uB2C8\uB2E4." });
+    return;
+  }
+  res.json(meta);
+});
+
+app.post(
+  "/api/team-chat/me/profile-photo",
+  authMiddleware,
+  express.raw({ type: () => true, limit: "6mb" }),
+  (req, res) => {
+    try {
+      const rawMeta = req.headers["x-user-profile-photo-meta"];
+      if (!rawMeta) {
+        res.status(400).json({ error: "\uD504\uB85C\uD544 \uC0AC\uC9C4 \uBA54\uD0C0\uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4." });
+        return;
+      }
+      const meta = parseAttachmentMetaHeader(rawMeta);
+      const buffer = Buffer.from(req.body || []);
+      const result = upsertUserProfilePhoto(
+        req.user.id,
+        buffer,
+        meta,
+        req.user.loginId || req.user.name || req.user.email,
+      );
+      if (!result.ok) {
+        res.status(result.status || 400).json({ error: result.error });
+        return;
+      }
+      res.status(result.meta?.createdAt === result.meta?.updatedAt ? 201 : 200).json(result.meta);
+    } catch (error) {
+      console.error("[user-profile-photo] upload failed:", error);
+      res.status(500).json({ error: "\uD504\uB85C\uD544 \uC0AC\uC9C4 \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+    }
+  },
+);
+
+app.delete("/api/team-chat/me/profile-photo", authMiddleware, (req, res) => {
+  try {
+    const result = deleteUserProfilePhoto(req.user.id);
+    if (!result.ok) {
+      res.status(result.status || 400).json({ error: result.error });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("[user-profile-photo] delete failed:", error);
+    res.status(500).json({ error: "\uD504\uB85C\uD544 \uC0AC\uC9C4 \uC0AD\uC81C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
   }
 });
 

@@ -54,6 +54,8 @@ export type TeamChatUser = {
   name: string;
   loginId?: string;
   role?: string;
+  photoFileId?: string | null;
+  photoUploadedAt?: string | null;
 };
 
 export async function listTeamChatChannels() {

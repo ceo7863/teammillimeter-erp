@@ -5,6 +5,7 @@ import { config } from "./config.mjs";
 import { listUsers } from "./db.mjs";
 import { getDb } from "./db.mjs";
 import { publishTeamChatEvent } from "./teamChatEvents.mjs";
+import { getUserProfilePhotoMeta } from "./userProfilePhoto.mjs";
 
 export const TEAM_CHAT_ALL_CHANNEL_ID = "team-all";
 const TEAM_CHAT_REACTION_EMOJIS = new Set(["👍", "✅", "❤️", "😂", "👏"]);
@@ -363,12 +364,17 @@ export function listTeamChatUsers(currentUserId) {
   syncTeamChatMemberships();
   return activeUsers()
     .filter((row) => Number(row.id) !== Number(currentUserId))
-    .map((row) => ({
-      id: row.id,
-      name: row.name,
-      loginId: row.loginId,
-      role: row.role,
-    }))
+    .map((row) => {
+      const photo = getUserProfilePhotoMeta(row.id);
+      return {
+        id: row.id,
+        name: row.name,
+        loginId: row.loginId,
+        role: row.role,
+        photoFileId: photo?.id || null,
+        photoUploadedAt: photo?.updatedAt || null,
+      };
+    })
     .sort((a, b) => String(a.name).localeCompare(String(b.name), "ko"));
 }
 

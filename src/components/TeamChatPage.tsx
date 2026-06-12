@@ -16,9 +16,12 @@ import {
   Send,
   Trash2,
   Users,
+  User,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { TeamChatAvatar } from "@/components/TeamChatAvatar";
+import { TeamChatProfilePhotoModal } from "@/components/TeamChatProfilePhotoModal";
 import type { ErpUser } from "@/utils/erpApi";
 import type { ErpChatAction } from "@/utils/erpChatApi";
 import { useTeamChatMobileLayout } from "@/hooks/useTeamChatMobileLayout";
@@ -77,6 +80,7 @@ import {
   teamChatAvatarStyle,
   teamChatChannelAvatarLabel,
 } from "@/utils/teamChatUi";
+import { fetchTeamChatProfilePhotoMeta, type TeamChatProfilePhotoMeta } from "@/utils/teamChatProfilePhoto";
 
 const L = {
   title: "\uC0AC\uB0B4 \uCC57",
@@ -129,6 +133,7 @@ const L = {
   deleteConfirm: "\uC774 \uBA54\uC2DC\uC9C0\uB97C \uC0AD\uC81C\uD560\uAE4C\uC694?",
   unread: "\uBBF8\uC77D\uC74C",
   react: "\uB9AC\uC95C",
+  profilePhoto: "\uD504\uB85C\uD544 \uC0AC\uC9C4",
 };
 
 type PendingAttachment = TeamChatAttachment & { previewUrl?: string | null };
@@ -463,6 +468,9 @@ export const TeamChatPage = memo(function TeamChatPage({
   const [readState, setReadState] = useState<TeamChatReadStateMember[]>([]);
   const [dropOverlayOpen, setDropOverlayOpen] = useState(false);
   const [imagePreview, setImagePreview] = useState<TeamChatImagePreview | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [selfPhotoFileId, setSelfPhotoFileId] = useState<string | null>(null);
+  const [selfPhotoUploadedAt, setSelfPhotoUploadedAt] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -515,6 +523,32 @@ export const TeamChatPage = memo(function TeamChatPage({
     });
   }, [userQuery, users]);
 
+  const userPhotoMap = useMemo(() => {
+    const map = new Map<number, { photoFileId?: string | null; photoUploadedAt?: string | null }>();
+    for (const row of users) {
+      map.set(row.id, { photoFileId: row.photoFileId, photoUploadedAt: row.photoUploadedAt });
+    }
+    if (selfId > 0) {
+      map.set(selfId, { photoFileId: selfPhotoFileId, photoUploadedAt: selfPhotoUploadedAt });
+    }
+    return map;
+  }, [selfId, selfPhotoFileId, selfPhotoUploadedAt, users]);
+
+  useEffect(() => {
+    if (!selfId) return;
+    let cancelled = false;
+    void fetchTeamChatProfilePhotoMeta(selfId)
+      .then((meta) => {
+        if (cancelled) return;
+        setSelfPhotoFileId(meta?.id || null);
+        setSelfPhotoUploadedAt(meta?.updatedAt || null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [selfId]);
+
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const node = listRef.current;
     if (!node) return;
@@ -530,6 +564,21 @@ export const TeamChatPage = memo(function TeamChatPage({
     setChannels(rows);
     return rows;
   }, []);
+
+  const refreshUsers = useCallback(async () => {
+    const rows = await listTeamChatUsers();
+    setUsers(rows);
+    return rows;
+  }, []);
+
+  const handleProfilePhotoUpdated = useCallback(
+    (meta: TeamChatProfilePhotoMeta | null) => {
+      setSelfPhotoFileId(meta?.id || null);
+      setSelfPhotoUploadedAt(meta?.updatedAt || null);
+      void refreshUsers();
+    },
+    [refreshUsers],
+  );
 
   const refreshChannelsTimerRef = useRef<number | null>(null);
   const scheduleRefreshChannels = useCallback(() => {
@@ -1513,6 +1562,23 @@ export const TeamChatPage = memo(function TeamChatPage({
             <p className="erp-team-chat-muted px-4 py-3 text-sm">{L.emptyChannels}</p>
           )}
         </div>
+
+        {selfId > 0 ? (
+          <div className="erp-team-chat-sidebar__profile">
+            <button type="button" className="erp-team-chat-sidebar__profile-btn" onClick={() => setProfileOpen(true)}>
+              <TeamChatAvatar
+                userId={selfId}
+                name={String(currentUser?.name || currentUser?.loginId || "")}
+                photoFileId={selfPhotoFileId}
+                photoUploadedAt={selfPhotoUploadedAt}
+                className="erp-team-chat-avatar erp-team-chat-sidebar__profile-avatar"
+              />
+              <span className="erp-team-chat-sidebar__profile-name">
+                {String(currentUser?.name || currentUser?.loginId || "").trim() || L.profilePhoto}
+              </span>
+            </button>
+          </div>
+        ) : null}
       </aside>
       ) : null}
 
@@ -1570,6 +1636,18 @@ export const TeamChatPage = memo(function TeamChatPage({
               >
                 <Search size={18} />
               </Button>
+              {threadOnly && selfId > 0 ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="erp-team-chat-thread__head-action h-9 w-9 shrink-0 rounded-full p-0"
+                  onClick={() => setProfileOpen(true)}
+                  title={L.profilePhoto}
+                >
+                  <User size={18} />
+                </Button>
+              ) : null}
             </div>
 
             <div
@@ -1598,17 +1676,20 @@ export const TeamChatPage = memo(function TeamChatPage({
                   isLastOwnMessageInBlock(messages, messageIndex, selfId)
                     ? formatTeamChatUnreadReceiptCompact(message.id, readState, selfId)
                     : null;
-                const senderInitial = teamChatAvatarInitial(message.userName);
-                const senderAvatarStyle = teamChatAvatarStyle(String(message.userId || message.userName));
+                const senderPhoto = userPhotoMap.get(Number(message.userId));
                 return (
                   <div
                     key={message.id}
                     className={`erp-team-chat-bubble-row ${isMine ? "is-mine" : "is-theirs"}`}
                   >
                     {!isMine ? (
-                      <div className="erp-team-chat-msg-avatar erp-team-chat-avatar" style={senderAvatarStyle} aria-hidden="true">
-                        {senderInitial}
-                      </div>
+                      <TeamChatAvatar
+                        userId={message.userId}
+                        name={message.userName}
+                        photoFileId={senderPhoto?.photoFileId}
+                        photoUploadedAt={senderPhoto?.photoUploadedAt}
+                        className="erp-team-chat-msg-avatar erp-team-chat-avatar"
+                      />
                     ) : null}
                     {readReceipt ? (
                       <span
@@ -1887,11 +1968,20 @@ export const TeamChatPage = memo(function TeamChatPage({
                 <li key={user.id}>
                   <button
                     type="button"
-                    className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left hover:bg-slate-50"
+                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left hover:bg-slate-50"
                     onClick={() => void handleStartDm(user.id)}
                   >
-                    <span className="font-semibold text-slate-900">{user.name}</span>
-                    <span className="text-xs text-slate-500">{user.loginId || user.role}</span>
+                    <TeamChatAvatar
+                      userId={user.id}
+                      name={user.name}
+                      photoFileId={user.photoFileId}
+                      photoUploadedAt={user.photoUploadedAt}
+                      className="erp-team-chat-avatar erp-team-chat-user-picker__avatar"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-semibold text-slate-900">{user.name}</span>
+                      <span className="block text-xs text-slate-500">{user.loginId || user.role}</span>
+                    </span>
                   </button>
                 </li>
               ))}
@@ -2036,6 +2126,16 @@ export const TeamChatPage = memo(function TeamChatPage({
           </div>
         </div>
       ) : null}
+
+      <TeamChatProfilePhotoModal
+        open={profileOpen && selfId > 0}
+        userId={selfId}
+        userName={String(currentUser?.name || currentUser?.loginId || "").trim() || "\uB098"}
+        photoFileId={selfPhotoFileId}
+        photoUploadedAt={selfPhotoUploadedAt}
+        onClose={() => setProfileOpen(false)}
+        onUpdated={handleProfilePhotoUpdated}
+      />
 
       <TeamChatImagePreviewModal preview={imagePreview} onClose={closeImagePreview} />
     </div>
