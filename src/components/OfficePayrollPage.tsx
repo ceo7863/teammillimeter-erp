@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Clock,
   FileSpreadsheet,
+  FileText,
   Printer,
   RefreshCw,
   Settings2,
@@ -52,8 +53,9 @@ import {
   printOfficePayrollAllPayslips,
   printOfficePayrollPayslip,
 } from "@/utils/officePayrollExport";
+import { OfficePayrollTaxTab } from "@/components/OfficePayrollTaxTab";
 
-type OfficePayrollTab = "monthly" | "profiles" | "settings";
+type OfficePayrollTab = "monthly" | "profiles" | "settings" | "tax";
 
 type OfficePayrollPageProps = {
   officeStaff: OfficeStaffRecord[];
@@ -450,7 +452,7 @@ export function OfficePayrollPage({
     <div className="erp-page-shell">
       <PageTitle
         title="급여 관리"
-        desc="내근직 월급·일당(3.3%) 급여 대장, 공제, 명세서, 은행 이체 엑셀을 관리합니다."
+        desc="내근직 급여, 근태 연동, 원천징수·연말정산 보조, 명세서, 은행 이체를 관리합니다."
       />
 
       <div className="mb-4 flex flex-wrap gap-2">
@@ -458,6 +460,7 @@ export function OfficePayrollPage({
           [
             { key: "monthly", label: "월별 급여", icon: Banknote },
             { key: "profiles", label: "급여 프로필", icon: Users },
+            { key: "tax", label: "원천·연말", icon: FileText },
             { key: "settings", label: "설정", icon: Settings2 },
           ] as const
         ).map((item) => {
@@ -675,6 +678,8 @@ export function OfficePayrollPage({
           </CardContent>
         </Card>
       ) : null}
+
+      {tab === "tax" ? <OfficePayrollTaxTab sheets={sheets} companyProfile={companyProfile} /> : null}
 
       {tab === "settings" ? (
         <Card>
