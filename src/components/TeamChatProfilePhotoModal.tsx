@@ -49,10 +49,6 @@ export function TeamChatProfilePhotoModal({
     setError("");
   }, [open, photoFileId, photoUploadedAt]);
 
-  if (!open) return null;
-
-  const handlePick = () => inputRef.current?.click();
-
   const handleFile = useCallback(
     async (file: File | null) => {
       if (!file) return;
@@ -86,6 +82,10 @@ export function TeamChatProfilePhotoModal({
       setBusy(false);
     }
   }, [onUpdated]);
+
+  if (!open) return null;
+
+  const handlePick = () => inputRef.current?.click();
 
   return (
     <div className="erp-ledger-modal-backdrop" onClick={onClose}>
