@@ -18,8 +18,7 @@ export function isTeamChatThreadPopupWindow() {
 
 export function isTeamChatDesktopPopupMode() {
   if (typeof window === "undefined") return false;
-  if (window.matchMedia("(max-width: 1023px)").matches) return false;
-  return window.matchMedia("(pointer: fine)").matches;
+  return window.matchMedia("(min-width: 1024px)").matches;
 }
 
 export function isTeamChatEmbeddedInlineMode() {
@@ -38,7 +37,21 @@ export function openTeamChatPopup() {
   }
   const url = `${window.location.origin}${TEAM_CHAT_STANDALONE_PATH}`;
   const popup = window.open(url, LIST_POPUP_NAME, LIST_POPUP_FEATURES);
-  popup?.focus();
+  if (popup) {
+    try {
+      const path = popup.location.pathname.replace(/\/+$/, "") || "/";
+      if (!/^\/messenger$/i.test(path)) {
+        popup.location.replace(url);
+      }
+    } catch {
+      try {
+        popup.location.replace(url);
+      } catch {
+        // ignore
+      }
+    }
+    popup.focus();
+  }
   return popup;
 }
 

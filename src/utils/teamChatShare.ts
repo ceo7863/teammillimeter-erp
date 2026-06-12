@@ -78,15 +78,22 @@ export function openTeamChatWithShare(payload: TeamChatSharePayload, options?: {
 export function resetTeamChatListView() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(TEAM_CHAT_RESET_LIST_EVENT));
+  try {
+    new BroadcastChannel(TEAM_CHAT_SHARE_CHANNEL).postMessage({ type: "reset-list" });
+  } catch {
+    // ignore
+  }
 }
 
 export function openTeamChatList() {
   if (typeof window === "undefined") return;
+  // Stale share payloads were opening a thread instead of the channel list.
+  consumeTeamChatShare();
+  resetTeamChatListView();
   if (isTeamChatDesktopPopupMode()) {
     openTeamChatPopup();
     return;
   }
-  resetTeamChatListView();
   window.dispatchEvent(new CustomEvent(TEAM_CHAT_OPEN_EVENT));
 }
 

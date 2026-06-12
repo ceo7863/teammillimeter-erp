@@ -651,7 +651,15 @@ export const TeamChatPage = memo(function TeamChatPage({
     let channel: BroadcastChannel | null = null;
     try {
       channel = new BroadcastChannel(TEAM_CHAT_SHARE_CHANNEL);
-      channel.onmessage = () => handleIncomingShare();
+      channel.onmessage = (event) => {
+        if (event.data?.type === "reset-list") {
+          listBrowsingRef.current = true;
+          setSelectedChannelId(null);
+          setHighlightedChannelId(null);
+          return;
+        }
+        handleIncomingShare();
+      };
     } catch {
       // ignore
     }
