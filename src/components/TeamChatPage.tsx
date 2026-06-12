@@ -1186,6 +1186,8 @@ export const TeamChatPage = memo(function TeamChatPage({
     showThreadOnMobile ||
     (Boolean(selectedChannelId) && (!openThreadInPopup || showInlineThread));
   const activeChannelId = highlightedChannelId || selectedChannelId;
+  const threadChannelTitle =
+    selectedChannel?.title || channelTitleById.get(selectedChannelId || "") || (selectedChannelId ? L.loading : "");
 
   return (
     <div
@@ -1263,10 +1265,10 @@ export const TeamChatPage = memo(function TeamChatPage({
       ) : null}
 
       <section className={`erp-team-chat-thread ${showThreadPanel ? "is-open" : ""}`}>
-        {!selectedChannel ? (
+        {!selectedChannelId ? (
           <div className="erp-team-chat-thread__empty">
             <MessageCircle size={40} className="text-slate-300" />
-            <p className="mt-3 text-sm text-slate-500">{threadOnly ? L.loading : L.pickChannelHint}</p>
+            <p className="mt-3 text-sm text-slate-500">{L.pickChannelHint}</p>
           </div>
         ) : (
           <>
@@ -1284,16 +1286,18 @@ export const TeamChatPage = memo(function TeamChatPage({
               <div className="erp-team-chat-thread__head-main min-w-0 flex-1 flex items-center gap-2.5">
                 <div
                   className="erp-team-chat-avatar erp-team-chat-thread__avatar hidden sm:flex"
-                  style={teamChatAvatarStyle(selectedChannel.id || selectedChannel.title)}
+                  style={teamChatAvatarStyle(selectedChannel?.id || selectedChannelId)}
                   aria-hidden="true"
                 >
-                  {teamChatChannelAvatarLabel(selectedChannel)}
+                  {selectedChannel ? teamChatChannelAvatarLabel(selectedChannel) : teamChatAvatarInitial(threadChannelTitle)}
                 </div>
                 <div className="min-w-0">
-                  <h2 className="truncate text-[16px] font-bold text-[#191919]">{selectedChannel.title}</h2>
-                  <p className="erp-team-chat-thread__head-sub hidden sm:block text-[11px] text-[#888]">
-                    {channelTypeLabel(selectedChannel.type)}
-                  </p>
+                  <h2 className="truncate text-[16px] font-bold text-[#191919]">{threadChannelTitle}</h2>
+                  {selectedChannel ? (
+                    <p className="erp-team-chat-thread__head-sub hidden sm:block text-[11px] text-[#888]">
+                      {channelTypeLabel(selectedChannel.type)}
+                    </p>
+                  ) : null}
                 </div>
               </div>
               <Button
