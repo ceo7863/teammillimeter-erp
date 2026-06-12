@@ -36,7 +36,7 @@ import {
 } from "@/utils/teamChatAttachments";
 import { TEAM_CHAT_LINK_LABELS, teamChatLinkToAction, type TeamChatLink } from "@/utils/teamChatLinks";
 import { consumeTeamChatShare, peekTeamChatShare, stashTeamChatShare, consumePendingTeamChatThread, TEAM_CHAT_OPEN_THREAD_EVENT, TEAM_CHAT_RESET_LIST_EVENT, TEAM_CHAT_SHARE_CHANNEL } from "@/utils/teamChatShare";
-import { isTeamChatDesktopPopupMode, openTeamChatPopup, openTeamChatThreadPopup, canOpenTeamChatThreadPopup } from "@/utils/teamChatPopup";
+import { isTeamChatDesktopPopupMode, openTeamChatPopup, openTeamChatThreadPopup, canOpenTeamChatThreadPopup, raiseTeamChatPopup, isTeamChatPopupWindow } from "@/utils/teamChatPopup";
 import {
   createTeamChatGroup,
   deleteTeamChatMessage,
@@ -542,7 +542,7 @@ export const TeamChatPage = memo(function TeamChatPage({
       if (!targetId) return;
       stashTeamChatShare({ ...payload, channelId: targetId });
       setHighlightedChannelId(targetId);
-      openTeamChatThreadPopup(targetId);
+      openTeamChatThreadPopup(targetId, { raise: true });
       return;
     }
 
@@ -639,6 +639,9 @@ export const TeamChatPage = memo(function TeamChatPage({
             if (isOwnMessage) isNearBottomRef.current = true;
             window.requestAnimationFrame(() => scrollToBottom());
           }
+          if (standalone && isTeamChatPopupWindow()) {
+            raiseTeamChatPopup(window);
+          }
         }
         void refreshChannels();
         onUnreadChangeRef.current?.();
@@ -651,7 +654,7 @@ export const TeamChatPage = memo(function TeamChatPage({
         void refreshChannels();
       }
     },
-    [mergeMessage, refreshChannels, scrollToBottom, selfId],
+    [mergeMessage, refreshChannels, scrollToBottom, selfId, standalone],
   );
 
   const { connected: sseConnected } = useTeamChatEvents({
@@ -694,8 +697,13 @@ export const TeamChatPage = memo(function TeamChatPage({
           return;
         }
         if (event.data?.type === "incoming") {
-          if (threadOnly) return;
           const channelId = String(event.data.channelId || "").trim();
+          if (threadOnly) {
+            if (channelId && channelId === String(initialChannelId || "").trim()) {
+              raiseTeamChatPopup(window);
+            }
+            return;
+          }
           void refreshChannels().then(() => {
             if (channelId && event.data.openThread !== false) {
               handleSelectChannelRef.current(channelId);
@@ -711,7 +719,7 @@ export const TeamChatPage = memo(function TeamChatPage({
     return () => {
       channel?.close();
     };
-  }, [handleIncomingShare, refreshChannels, threadOnly]);
+  }, [handleIncomingShare, initialChannelId, refreshChannels, threadOnly]);
 
   useEffect(() => {
     if (threadOnly && initialChannelId && !selectedChannelId) {
@@ -792,7 +800,7 @@ export const TeamChatPage = memo(function TeamChatPage({
         stashTeamChatShare({ ...payload, channelId });
       }
       setHighlightedChannelId(channelId);
-      openTeamChatThreadPopup(channelId);
+      openTeamChatThreadPopup(channelId, { raise: true });
       return;
     }
     if (channelId === selectedChannelIdRef.current) return;
@@ -1076,6 +1084,9 @@ export const TeamChatPage = memo(function TeamChatPage({
       await refreshReadState(selectedChannelId);
       onUnreadChangeRef.current?.();
       isNearBottomRef.current = true;
+      if (standalone && isTeamChatPopupWindow()) {
+        raiseTeamChatPopup(window);
+      }
       window.requestAnimationFrame(() => scrollToBottom());
     } catch {
       setError(L.sendError);

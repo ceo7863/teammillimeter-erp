@@ -133,12 +133,35 @@ export function isTeamChatPopupActuallyOpen(popup: Window | null): popup is Wind
   return popup != null && !popup.closed;
 }
 
+/** Bring a popup above sibling windows (list/thread/ERP). */
+export function raiseTeamChatPopup(popup: Window | null) {
+  if (!isTeamChatPopupActuallyOpen(popup)) return;
+  try {
+    popup.focus();
+  } catch {
+    return;
+  }
+  window.setTimeout(() => {
+    try {
+      if (!popup.closed) popup.focus();
+    } catch {
+      // ignore
+    }
+  }, 60);
+}
+
+type OpenPopupOptions = {
+  onOpened?: (popup: Window) => void;
+  focus?: boolean;
+  raise?: boolean;
+};
+
 /** Reuse a named popup when possible (avoids popup blockers after the user opened chat once). */
 function focusOrOpenNamedPopup(
   name: string,
   url: string,
   bounds: PopupBounds,
-  onOpened?: (popup: Window) => void,
+  options: OpenPopupOptions = {},
 ): Window | null {
   if (typeof window === "undefined") return null;
   const features = buildPopupFeatures(bounds);
@@ -157,14 +180,20 @@ function focusOrOpenNamedPopup(
         // ignore
       }
     }
-    popup.focus();
-    onOpened?.(popup);
+    if (options.focus !== false) {
+      if (options.raise) raiseTeamChatPopup(popup);
+      else popup.focus();
+    }
+    options.onOpened?.(popup);
     return popup;
   }
   popup = window.open(url, name, features);
   if (isTeamChatPopupActuallyOpen(popup)) {
-    popup.focus();
-    onOpened?.(popup);
+    if (options.focus !== false) {
+      if (options.raise) raiseTeamChatPopup(popup);
+      else popup.focus();
+    }
+    options.onOpened?.(popup);
     return popup;
   }
   return null;
@@ -221,24 +250,44 @@ export function canOpenTeamChatThreadPopup() {
   return isTeamChatDesktopPopupMode();
 }
 
-export function openTeamChatPopup() {
+export function openTeamChatPopup(options?: { focus?: boolean; raise?: boolean }) {
   if (typeof window === "undefined") return null;
   if (isTeamChatPopupWindow() && !isTeamChatThreadPopupWindow()) {
-    window.focus();
+    if (options?.focus !== false) {
+      if (options?.raise) raiseTeamChatPopup(window);
+      else window.focus();
+    }
     return window;
   }
   const url = `${window.location.origin}${TEAM_CHAT_STANDALONE_PATH}`;
-  return focusOrOpenNamedPopup(LIST_POPUP_NAME, url, loadListPopupBounds(), trackListPopupBounds);
+  return focusOrOpenNamedPopup(LIST_POPUP_NAME, url, loadListPopupBounds(), {
+    onOpened: trackListPopupBounds,
+    focus: options?.focus,
+    raise: options?.raise,
+  });
 }
 
-export function openTeamChatThreadPopup(channelId: string) {
+export function openTeamChatThreadPopup(channelId: string, options?: { focus?: boolean; raise?: boolean }) {
   if (typeof window === "undefined") return null;
   const id = String(channelId || "").trim();
   if (!id) return null;
 
   const url = `${window.location.origin}${buildTeamChatThreadPath(id)}`;
   const windowName = `teammillimeter-team-chat-${id}`;
-  return focusOrOpenNamedPopup(windowName, url, loadThreadPopupBounds());
+  if (isTeamChatThreadPopupWindow()) {
+    const currentId = new URLSearchParams(window.location.search).get("channel")?.trim();
+    if (currentId === id) {
+      if (options?.focus !== false) {
+        if (options?.raise) raiseTeamChatPopup(window);
+        else window.focus();
+      }
+      return window;
+    }
+  }
+  return focusOrOpenNamedPopup(windowName, url, loadThreadPopupBounds(), {
+    focus: options?.focus,
+    raise: options?.raise ?? true,
+  });
 }
 
 export function focusMainErpWindow() {

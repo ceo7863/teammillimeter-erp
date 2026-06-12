@@ -156,13 +156,13 @@ export function openTeamChatThread(channelId: string): Promise<TeamChatThreadOpe
   if (!id || typeof window === "undefined") return Promise.resolve(failed);
   stashPendingTeamChatThread(id);
   if (isTeamChatDesktopPopupMode()) {
-    const listPopup = openTeamChatPopup();
+    const listPopup = openTeamChatPopup({ focus: false });
     const listOpened = isTeamChatPopupActuallyOpen(listPopup);
     return new Promise((resolve) => {
       window.setTimeout(() => {
-        const threadPopup = openTeamChatThreadPopup(id);
+        const threadPopup = openTeamChatThreadPopup(id, { raise: true });
         resolve({ listOpened, threadOpened: isTeamChatPopupActuallyOpen(threadPopup) });
-      }, 0);
+      }, 60);
     });
   }
   window.dispatchEvent(new CustomEvent(TEAM_CHAT_OPEN_EVENT));
