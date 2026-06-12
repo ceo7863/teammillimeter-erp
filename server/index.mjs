@@ -34,7 +34,10 @@ import {
   parseAttendanceViewUserIds,
   recordLoginLog,
 } from "./db.mjs";
-import { authenticateUser, authMiddleware, adminMiddleware, signToken, resolveRequestUser } from "./auth.mjs";
+import {
+  previewWorkerPortalLoginIdSyncFromSc,
+  runWorkerPortalLoginIdSyncFromSc,
+} from "./scWorkerPortalSync.mjs";
 import {
   authenticateWorkerPortal,
   buildWorkerPortalMonths,
@@ -1132,6 +1135,28 @@ app.post(
     }
   },
 );
+
+app.get("/api/workers/portal-login-sc-sync/preview", authMiddleware, adminMiddleware, async (_req, res) => {
+  try {
+    const preview = await previewWorkerPortalLoginIdSyncFromSc();
+    res.json(preview);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error instanceof Error ? error.message : "SC 포털 ID 미리보기에 실패했습니다." });
+  }
+});
+
+app.post("/api/workers/portal-login-sc-sync", authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const result = await runWorkerPortalLoginIdSyncFromSc({
+      updatedBy: req.user.loginId || req.user.name || req.user.email || "worker-portal-sc-sync",
+    });
+    res.json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error instanceof Error ? error.message : "SC 포털 ID 동기화에 실패했습니다." });
+  }
+});
 
 app.post("/api/worker-portal/login", (req, res) => {
   const { loginId, password } = req.body || {};

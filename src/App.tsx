@@ -56,6 +56,7 @@ import {
   ClipboardList,
   Smartphone,
   Sparkles,
+  RefreshCw,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -361,11 +362,10 @@ import {
   loginWithApi,
   saveErpData,
   saveWorkerMonthlyPaymentMemoApi,
+  syncWorkerPortalLoginIdsFromSc,
   updateSidebarOrderApi,
   type ErpSaveDomain,
 } from "@/utils/erpApi";
-import {
-} from "@/utils/workerPortalApi";
 import {
   canUserAccessPage,
   getAccessiblePageDefs,
@@ -6528,6 +6528,7 @@ function WorkersPage({
   companyProfile,
   currentUser,
   onPersistWorkersImmediate,
+  onWorkersPortalSyncComplete,
   workerAiRules,
   onSaveWorkerAiRules,
   probationEvalTemplates,
@@ -6558,6 +6559,41 @@ function WorkersPage({
   const [pendingWorkerPhotoFile, setPendingWorkerPhotoFile] = useState<File | null>(null);
   const [workerPhotoPreviewUrl, setWorkerPhotoPreviewUrl] = useState<string | null>(null);
   const [workerPhotoUploading, setWorkerPhotoUploading] = useState(false);
+  const [portalScSyncing, setPortalScSyncing] = useState(false);
+
+  const handlePortalScSync = async () => {
+    if (!isApiModeEnabled()) {
+      window.alert("SC 포털 ID 동기화는 서버 연동(API) 모드에서만 사용할 수 있습니다.");
+      return;
+    }
+    if (
+      !window.confirm(
+        "SC 로그인 사번(employeeNo)을 ERP 시공자 포털 ID에 채웁니다. 이름이 같은 시공자만 매칭됩니다. 계속할까요?",
+      )
+    ) {
+      return;
+    }
+    setPortalScSyncing(true);
+    try {
+      const result = await syncWorkerPortalLoginIdsFromSc();
+      if (!result.ok && result.reason && result.reason !== "no_changes") {
+        window.alert(result.reason);
+      } else if (result.skipped && result.reason === "no_changes") {
+        window.alert(`변경할 항목이 없습니다. (SC 사용자 ${result.scUserCount ?? 0}명)`);
+      } else if ((result.updatedCount ?? 0) > 0) {
+        window.alert(`${result.updatedCount}명의 포털 ID를 SC 사번으로 채웠습니다.`);
+      } else if (result.reason === "sc_database_not_configured") {
+        window.alert("SC DB 연결(SC_DATABASE_URL)이 설정되지 않았습니다.");
+      }
+      if (onWorkersPortalSyncComplete) {
+        await onWorkersPortalSyncComplete(result.version);
+      }
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "SC 포털 ID 동기화에 실패했습니다.");
+    } finally {
+      setPortalScSyncing(false);
+    }
+  };
 
   useEffect(() => {
     const targetId = consumeWorkerScrollTarget();
@@ -7242,6 +7278,16 @@ function WorkersPage({
                 <Button className="rounded-2xl" onClick={openCreateWorkerModal}>
                   <Plus size={16} />
                   시공자 등록
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-2xl"
+                  disabled={portalScSyncing}
+                  onClick={() => void handlePortalScSync()}
+                >
+                  <RefreshCw size={16} className={portalScSyncing ? "animate-spin" : ""} />
+                  SC 사번 → 포털 ID
                 </Button>
                 <WorkerAiRulesButton onClick={() => setWorkerAiRulesOpen(true)} />
                 <WorkerListExport
@@ -11537,6 +11583,20 @@ export default function TeammillimeterErpMvp() {
                 companyProfile={companyProfile}
                 currentUser={currentUser}
                 onPersistWorkersImmediate={persistWorkersImmediate}
+                onWorkersPortalSyncComplete={async () => {
+                  const data = await fetchErpData();
+                  const incomingWorkers = resolveIncomingWorkerMasterList(
+                    data.workers,
+                    workersRef.current,
+                    initialWorkers,
+                  );
+                  const nextWorkers = stripMonthlyPaymentMemoFromWorkers(
+                    mergeIncomingWorkerMasterList(incomingWorkers, workersRef.current),
+                  );
+                  workersRef.current = nextWorkers;
+                  setWorkers(nextWorkers);
+                  publishErpVersion(data.version ?? erpVersionRef.current);
+                }}
                 workerAiRules={workerAiRules}
                 onSaveWorkerAiRules={saveWorkerAiRules}
                 probationEvalTemplates={probationEvalTemplates}

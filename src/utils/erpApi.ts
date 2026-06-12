@@ -411,6 +411,43 @@ export async function saveWorkerMonthlyPaymentMemoApi(
   });
 }
 
+export type WorkerPortalScSyncUpdate = {
+  workerId?: number | string | null;
+  workerName: string;
+  portalLoginId: string;
+  previousPortalLoginId?: string | null;
+  scName: string;
+  employeeNoStr: string;
+};
+
+export type WorkerPortalScSyncResult = {
+  ok: boolean;
+  skipped?: boolean;
+  reason?: string;
+  configured?: boolean;
+  scUserCount?: number;
+  updatedCount?: number;
+  updates?: WorkerPortalScSyncUpdate[];
+  skippedItems?: Array<{
+    scName?: string;
+    employeeNoStr?: string;
+    workerName?: string;
+    reason: string;
+    otherWorkerName?: string;
+  }>;
+  version?: number;
+};
+
+export async function previewWorkerPortalLoginIdsFromSc() {
+  return apiRequest<WorkerPortalScSyncResult>("/workers/portal-login-sc-sync/preview");
+}
+
+export async function syncWorkerPortalLoginIdsFromSc() {
+  return apiRequest<WorkerPortalScSyncResult>("/workers/portal-login-sc-sync", {
+    method: "POST",
+  });
+}
+
 export function isApiModeEnabled() {
   return import.meta.env.VITE_USE_API !== "false";
 }

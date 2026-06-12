@@ -2,6 +2,7 @@ import { config } from "./config.mjs";
 import { getErpState, saveErpState } from "./db.mjs";
 import { resolveScScheduleParticipants } from "./workerPhoneMatch.mjs";
 import { levenshtein, maxEditDistanceFor } from "./erpChatFuzzy.mjs";
+import { applyWorkerPortalLoginIdsFromSc, fetchScPortalLoginUsers } from "./scWorkerPortalSync.mjs";
 
 const COMPANY_SUFFIX_RE = /(\u3231|\(\uC8FC\)|\uC8FC\uC2DD\uD68C\uC0AC|\(\uC720\)|\uC720\uD55C|\uC720\uD55C\uD68C\uC0AC|co\.?ltd|corp|inc)/gi;
 
@@ -314,27 +315,7 @@ async function loadScProjectsAndSchedules(start, end) {
   };
 }
 
-async function withScPool(callback) {
-  const url = String(config.sc.databaseUrl || "").trim();
-  if (!url) {
-    throw new Error("SC_DATABASE_URL is not configured");
-  }
-  const { default: pg } = await import("pg");
-  const pool = new pg.Pool({
-    connectionString: url,
-    ssl: url.includes("sslmode=require") || url.includes("ssl=true") ? { rejectUnauthorized: false } : undefined,
-    max: 2,
-    idleTimeoutMillis: 10_000,
-    connectionTimeoutMillis: 15_000,
-  });
-  try {
-    return await callback(pool);
-  } finally {
-    await pool.end().catch(() => {});
-  }
-}
-
-async function fetchScProjects(pool) {
+import { withScPool } from "./scPool.mjs";
   const { rows } = await pool.query(`
     SELECT id, name, address, "isActive"
     FROM projects
@@ -889,6 +870,18 @@ export async function runScScheduleSync(options = {}) {
     const mergedSchedules = mergeSchedulesInWindow(listScSchedules(data), enriched, start, end);
     const mappingStatus = buildScProjectMappingStatus(mapped.clients, result.projects);
 
+    let workers = Array.isArray(data.workers) ? data.workers : [];
+    let portalLoginSync = null;
+    try {
+      const scUsers = await fetchScPortalLoginUsers();
+      if (scUsers.length) {
+        portalLoginSync = applyWorkerPortalLoginIdsFromSc(workers, scUsers);
+        workers = portalLoginSync.workers;
+      }
+    } catch (portalSyncError) {
+      console.warn("[sc-portal-login-sync]", portalSyncError);
+    }
+
     const nextMeta = {
       lastRunAt: runAt,
       lastSuccessAt: runAt,
@@ -899,6 +892,7 @@ export async function runScScheduleSync(options = {}) {
       lastUnmappedProjectCount: mappingStatus.unmappedCount,
       lastDroppedScheduleCount: Math.max(0, result.schedules.length - enriched.length),
       lastScProjects: result.projects,
+      lastPortalLoginSyncCount: portalLoginSync?.updatedCount ?? 0,
       windowStart: formatUtcDate(start),
       windowEnd: formatUtcDate(new Date(end.getTime() - 86400000)),
     };
@@ -907,6 +901,7 @@ export async function runScScheduleSync(options = {}) {
       {
         ...data,
         clients: mapped.clients,
+        workers,
         scSchedules: mergedSchedules,
         scScheduleSyncMeta: {
           ...(data.scScheduleSyncMeta || {}),

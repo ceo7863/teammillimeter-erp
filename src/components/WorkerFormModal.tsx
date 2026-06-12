@@ -43,7 +43,7 @@ const L = {
   portalPasswordCreatePh: "\uCD08\uAE30 \uBE44\uBC00\uBC88\uD638",
   portalPasswordEditPh: "\uBCC0\uACBD \uC2DC\uC5D0\uB9CC \uC785\uB825",
   portalHint:
-    "시공자는 /worker-portal 전용 로그인 페이지에서 본인 월별 시공내역서를 조회합니다. 비밀번호는 저장 후 서버에만 암호화되어 보관됩니다.",
+    "포털 ID는 SC 로그인 사번(employeeNo)과 같습니다. 시공자 > SC 사번 → 포털 ID 로 일괄 채우거나 SC 일정 동기화 시 자동 반영됩니다.",
   gradeLabel: "\uC2DC\uACF5\uB4F1\uAE09",
   gradeNone: "\uC120\uD0DD \uC548 \uD568",
   gradeProbationHint: "\uC218\uC2B5 \uAE30\uAC04 \uC911\uC774\uBBC0\uB85C E\uB4F1\uAE09\uC774 \uACE0\uC815\uB429\uB2C8\uB2E4.",
