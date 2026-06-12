@@ -140,6 +140,11 @@ function channelTypeLabel(type: TeamChatChannel["type"]) {
   return L.dmChannelLabel;
 }
 
+function canAutoMarkTeamChatRead() {
+  if (typeof document === "undefined") return false;
+  return document.visibilityState === "visible" && document.hasFocus();
+}
+
 function ChannelListItem({
   channel,
   active,
@@ -457,7 +462,7 @@ export const TeamChatPage = memo(function TeamChatPage({
   const listBrowsingRef = useRef(false);
   const handleSelectChannelRef = useRef<(channelId: string) => void>(() => {});
   const selectChannelInlineRef = useRef<(channelId: string) => void>(() => {});
-  const suppressReadUntilFocusRef = useRef(false);
+  const suppressReadUntilFocusRef = useRef(Boolean(threadOnly));
   const isMobileLayout = useTeamChatMobileLayout();
   const openThreadInPopup =
     listOnly && !standalone && !isMobileLayout && canOpenTeamChatThreadPopup() && !threadOnly;
@@ -515,7 +520,7 @@ export const TeamChatPage = memo(function TeamChatPage({
 
   const tryMarkChannelRead = useCallback(async (channelId: string, messageId: number) => {
     if (suppressReadUntilFocusRef.current) return;
-    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    if (!canAutoMarkTeamChatRead()) return;
     await markTeamChatChannelRead(channelId, messageId);
     notifyUnreadChanged();
     await refreshChannels();
@@ -523,6 +528,7 @@ export const TeamChatPage = memo(function TeamChatPage({
 
   const flushPendingRead = useCallback(async () => {
     if (suppressReadUntilFocusRef.current) return;
+    if (!canAutoMarkTeamChatRead()) return;
     const channelId = selectedChannelIdRef.current;
     const lastId = lastMessageIdRef.current;
     if (!channelId || lastId <= 0) return;
@@ -677,10 +683,13 @@ export const TeamChatPage = memo(function TeamChatPage({
       if (event.type === "message.new") {
         if (String(message.channelId) === String(selectedChannelIdRef.current)) {
           mergeMessage(message);
-          void tryMarkChannelRead(message.channelId, message.id);
           const isOwnMessage = Number(message.userId) === selfId;
-          if (isOwnMessage || isNearBottomRef.current) {
-            if (isOwnMessage) isNearBottomRef.current = true;
+          if (isOwnMessage || canAutoMarkTeamChatRead()) {
+            void tryMarkChannelRead(message.channelId, message.id);
+          }
+          const isOwn = Number(message.userId) === selfId;
+          if (isOwn || isNearBottomRef.current) {
+            if (isOwn) isNearBottomRef.current = true;
             window.requestAnimationFrame(() => scrollToBottom());
           }
           if (standalone && isTeamChatPopupWindow()) {
@@ -1219,6 +1228,17 @@ export const TeamChatPage = memo(function TeamChatPage({
     setSelectedChannelId(null);
     setHighlightedChannelId(null);
   }, []);
+
+  useEffect(() => {
+    const onFocus = () => {
+      if (!selectedChannelIdRef.current || lastMessageIdRef.current <= 0) return;
+      if (suppressReadUntilFocusRef.current) return;
+      if (!isNearBottomRef.current) return;
+      void tryMarkChannelRead(selectedChannelIdRef.current, lastMessageIdRef.current);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [tryMarkChannelRead]);
 
   useEffect(() => {
     onSelectedChannelChange?.(selectedChannelId);
