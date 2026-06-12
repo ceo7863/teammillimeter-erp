@@ -385,7 +385,7 @@ import {
   buildSaleTeamChatLink,
   buildBankTxTeamChatLink,
 } from "@/utils/teamChatLinks";
-import { openTeamChatWithShare, openTeamChatList, TEAM_CHAT_OPEN_EVENT, TEAM_CHAT_SHARE_CHANNEL } from "@/utils/teamChatShare";
+import { openTeamChatWithShare, openTeamChatList, TEAM_CHAT_OPEN_EVENT, TEAM_CHAT_OPEN_INCOMING_EVENT, TEAM_CHAT_SHARE_CHANNEL } from "@/utils/teamChatShare";
 import { isTeamChatDesktopPopupMode, openTeamChatPopup } from "@/utils/teamChatPopup";
 import { useTeamChatIncomingAutoOpen } from "@/hooks/useTeamChatIncomingAutoOpen";
 import { useTeamChatPopupPrewarm } from "@/hooks/useTeamChatPopupPrewarm";
@@ -8627,9 +8627,19 @@ export default function TeammillimeterErpMvp() {
   });
   useTeamChatPush(currentUser, { enabled: dataReady });
   useEffect(() => {
-    const handler = () => openTeamChatPage();
-    window.addEventListener(TEAM_CHAT_OPEN_EVENT, handler);
-    return () => window.removeEventListener(TEAM_CHAT_OPEN_EVENT, handler);
+    const onOpen = () => openTeamChatPage();
+    const onOpenIncoming = () => {
+      if (!isTeamChatDesktopPopupMode()) {
+        setActive("teamChat");
+        setSidebarOpen(false);
+      }
+    };
+    window.addEventListener(TEAM_CHAT_OPEN_EVENT, onOpen);
+    window.addEventListener(TEAM_CHAT_OPEN_INCOMING_EVENT, onOpenIncoming);
+    return () => {
+      window.removeEventListener(TEAM_CHAT_OPEN_EVENT, onOpen);
+      window.removeEventListener(TEAM_CHAT_OPEN_INCOMING_EVENT, onOpenIncoming);
+    };
   }, [openTeamChatPage]);
   const [sales, setSales] = useState(() => {
     if (apiMode && sessionOnMount) return [];

@@ -266,11 +266,20 @@ export function openTeamChatPopup(options?: { focus?: boolean; raise?: boolean }
     return window;
   }
   const url = `${window.location.origin}${TEAM_CHAT_STANDALONE_PATH}`;
-  return focusOrOpenNamedPopup(LIST_POPUP_NAME, url, loadListPopupBounds(), {
+  const popup = focusOrOpenNamedPopup(LIST_POPUP_NAME, url, loadListPopupBounds(), {
     onOpened: trackListPopupBounds,
     focus: options?.focus,
     raise: options?.raise,
   });
+  if (isTeamChatPopupActuallyOpen(popup)) return popup;
+  const fallback = window.open(url, LIST_POPUP_NAME, buildPopupFeatures(loadListPopupBounds()));
+  if (isTeamChatPopupActuallyOpen(fallback)) {
+    if (options?.raise) raiseTeamChatPopup(fallback);
+    else if (options?.focus !== false) fallback.focus();
+    trackListPopupBounds(fallback);
+    return fallback;
+  }
+  return null;
 }
 
 export function openTeamChatThreadPopup(channelId: string, options?: { focus?: boolean; raise?: boolean }) {

@@ -18,6 +18,7 @@ export type TeamChatSharePayload = {
 const PENDING_TEAM_CHAT_SHARE_KEY = "teammillimeter-erp-pending-team-chat-share";
 const PENDING_TEAM_CHAT_THREAD_KEY = "teammillimeter-erp-pending-team-chat-thread";
 export const TEAM_CHAT_OPEN_EVENT = "erp-open-team-chat";
+export const TEAM_CHAT_OPEN_INCOMING_EVENT = "erp-open-team-chat-incoming";
 export const TEAM_CHAT_RESET_LIST_EVENT = "erp-team-chat-reset-list";
 export const TEAM_CHAT_OPEN_THREAD_EVENT = "erp-open-team-chat-thread";
 export const TEAM_CHAT_SHARE_CHANNEL = "erp-team-chat-share";
@@ -173,6 +174,33 @@ export function resetTeamChatListView() {
   }
 }
 
+export function scheduleTeamChatIncomingBroadcast(channelId: string, delaysMs = [250, 800, 1600]) {
+  const id = String(channelId || "").trim();
+  if (!id || typeof window === "undefined") return;
+  for (const delay of delaysMs) {
+    window.setTimeout(() => {
+      broadcastTeamChatIncoming({ channelId: id, openThread: false, inline: true });
+    }, delay);
+  }
+}
+
+export function openTeamChatIncomingInline(channelId: string) {
+  const id = String(channelId || "").trim();
+  if (!id || typeof window === "undefined") return;
+  stashPendingTeamChatThread(id, { inline: true });
+  if (isTeamChatDesktopPopupMode()) {
+    const popup = openTeamChatPopup({ raise: true });
+    if (isTeamChatPopupActuallyOpen(popup)) {
+      scheduleTeamChatIncomingBroadcast(id);
+      return true;
+    }
+    const threadPopup = openTeamChatThreadPopup(id, { raise: true });
+    return isTeamChatPopupActuallyOpen(threadPopup);
+  }
+  window.dispatchEvent(new CustomEvent(TEAM_CHAT_OPEN_INCOMING_EVENT));
+  return true;
+}
+
 export function openTeamChatList() {
   if (typeof window === "undefined") return;
   // Stale share payloads were opening a thread instead of the channel list.
@@ -198,11 +226,13 @@ export function openTeamChatThread(channelId: string): Promise<TeamChatThreadOpe
 
     if (isTeamChatPopupWindow() && !isTeamChatThreadPopupWindow()) {
       raiseTeamChatPopup(window);
+      scheduleTeamChatIncomingBroadcast(id, [0, 250, 800]);
       return Promise.resolve({ listOpened: true, threadOpened: true });
     }
 
     const listPopup = openTeamChatPopup({ raise: true });
     if (isTeamChatPopupActuallyOpen(listPopup)) {
+      scheduleTeamChatIncomingBroadcast(id);
       return Promise.resolve({ listOpened: true, threadOpened: true });
     }
 
@@ -214,10 +244,8 @@ export function openTeamChatThread(channelId: string): Promise<TeamChatThreadOpe
     return Promise.resolve(failed);
   }
 
-  stashPendingTeamChatThread(id);
-  window.dispatchEvent(new CustomEvent(TEAM_CHAT_OPEN_EVENT));
-  window.dispatchEvent(new CustomEvent(TEAM_CHAT_OPEN_THREAD_EVENT, { detail: { channelId: id } }));
-  return Promise.resolve({ listOpened: true, threadOpened: true });
+  const opened = openTeamChatIncomingInline(id);
+  return Promise.resolve({ listOpened: opened, threadOpened: opened });
 }
 
 export function promptTeamChatIncomingOpen(detail: TeamChatIncomingPromptDetail) {
