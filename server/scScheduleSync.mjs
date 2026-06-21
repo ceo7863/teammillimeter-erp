@@ -3,6 +3,7 @@ import { getErpState, saveErpState } from "./db.mjs";
 import { resolveScScheduleParticipants } from "./workerPhoneMatch.mjs";
 import { levenshtein, maxEditDistanceFor } from "./erpChatFuzzy.mjs";
 import { applyWorkerPortalLoginIdsFromSc, fetchScPortalLoginUsers } from "./scWorkerPortalSync.mjs";
+import { withScPool } from "./scPool.mjs";
 
 const COMPANY_SUFFIX_RE = /(\u3231|\(\uC8FC\)|\uC8FC\uC2DD\uD68C\uC0AC|\(\uC720\)|\uC720\uD55C|\uC720\uD55C\uD68C\uC0AC|co\.?ltd|corp|inc)/gi;
 
@@ -315,7 +316,7 @@ async function loadScProjectsAndSchedules(start, end) {
   };
 }
 
-import { withScPool } from "./scPool.mjs";
+async function fetchScProjects(pool) {
   const { rows } = await pool.query(`
     SELECT id, name, address, "isActive"
     FROM projects
