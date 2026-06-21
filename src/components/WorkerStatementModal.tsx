@@ -10,9 +10,8 @@ import { archiveGeneratedPdf, archivePdfAndCreateShareLink, copyTextToClipboard 
 import { createPdfPreviewWindow, revokePdfBlobUrl } from "@/utils/statementPdf";
 import { downloadWorkerStatementSheetPdf } from "@/utils/statementExport";
 import {
-  buildStatementPdfCacheKey,
-  prefetchStatementPdf,
-  resolveStatementPdf,
+  prefetchStatementPdfForElement,
+  resolveStatementPdfForElement,
 } from "@/utils/statementPdfCache";
 import { dedupeStatementRowMemos } from "@/utils/statementSheets";
 import { findWorkerPortalAck, type WorkerPortalStatementAck } from "@/utils/workerPortalAcknowledgment";
@@ -101,14 +100,10 @@ export function WorkerStatementModal({
       const element = workerPrintRef.current;
       if (!element) return;
       const fileName = `${exportFileName}.pdf`;
-      const cacheKey = buildStatementPdfCacheKey([
-        "worker-payment",
-        workerName,
-        monthKey,
-        displayRows.length,
-      ]);
-      prefetchStatementPdf(cacheKey, () =>
-        downloadWorkerStatementSheetPdf(element, fileName, { deliver: false }),
+      prefetchStatementPdfForElement(
+        element,
+        ["worker-payment", workerName, monthKey, displayRows.length],
+        () => downloadWorkerStatementSheetPdf(element, fileName, { deliver: false })
       );
     }, 250);
     return () => window.clearTimeout(timer);
@@ -126,15 +121,16 @@ export function WorkerStatementModal({
     }
 
     const fileName = `${exportFileName}.pdf`;
-    const cacheKey = buildStatementPdfCacheKey(["worker-payment", workerName, monthKey, displayRows.length]);
 
     setPdfGenerating(true);
     setPdfMessage("PDF \uC0DD\uC131 \uBC0F \uB9C1\uD06C \uC900\uBE44 \uC911...");
     setStatementShareLink("");
 
     try {
-      const { result, fromCache } = await resolveStatementPdf(cacheKey, () =>
-        downloadWorkerStatementSheetPdf(element, fileName, { deliver: false }),
+      const { result, fromCache } = await resolveStatementPdfForElement(
+        element,
+        ["worker-payment", workerName, monthKey, displayRows.length],
+        () => downloadWorkerStatementSheetPdf(element, fileName, { deliver: false })
       );
       pdfBlobUrlRef.current = result.blobUrl;
       setPdfMessage(fromCache ? "\uC11C\uBC84 \uC5C5\uB85C\uB4DC \uBC0F \uB9C1\uD06C \uC0DD\uC131 \uC911..." : "PDF \uC0DD\uC131 \uBC0F \uB9C1\uD06C \uC900\uBE44 \uC911...");

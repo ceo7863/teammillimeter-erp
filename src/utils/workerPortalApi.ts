@@ -78,11 +78,17 @@ async function portalRequest<T>(path: string, options: RequestInit = {}): Promis
 }
 
 export async function loginWorkerPortal(loginId: string, password: string) {
-  const result = await portalRequest<{ token: string; workerName: string }>("/worker-portal/login", {
+  const result = await portalRequest<{
+    token: string;
+    workerName: string;
+    mustChangePassword?: boolean;
+  }>("/worker-portal/login", {
     method: "POST",
     body: JSON.stringify({ loginId, password }),
   });
-  saveWorkerPortalSession(result.token, result.workerName);
+  if (!result.mustChangePassword) {
+    saveWorkerPortalSession(result.token, result.workerName);
+  }
   return result;
 }
 
@@ -92,10 +98,35 @@ export async function changeWorkerPortalPassword(
   newPassword: string,
   confirmPassword: string,
 ) {
-  return portalRequest<{ ok: boolean }>("/worker-portal/change-password", {
+  const result = await portalRequest<{
+    ok: boolean;
+    token?: string;
+    workerName?: string;
+    mustChangePassword?: boolean;
+  }>("/worker-portal/change-password", {
     method: "POST",
     body: JSON.stringify({ loginId, currentPassword, newPassword, confirmPassword }),
   });
+  if (result.token && result.workerName && result.mustChangePassword === false) {
+    saveWorkerPortalSession(result.token, result.workerName);
+  }
+  return result;
+}
+
+export async function keepWorkerPortalPassword(loginId: string, password: string) {
+  const result = await portalRequest<{
+    ok: boolean;
+    token?: string;
+    workerName?: string;
+    mustChangePassword?: boolean;
+  }>("/worker-portal/keep-password", {
+    method: "POST",
+    body: JSON.stringify({ loginId, password }),
+  });
+  if (result.token && result.workerName) {
+    saveWorkerPortalSession(result.token, result.workerName);
+  }
+  return result;
 }
 
 export async function fetchWorkerPortalMonths() {

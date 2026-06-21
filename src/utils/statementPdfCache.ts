@@ -1,3 +1,4 @@
+import { countStatementExportPages, waitForStatementPreviewReady } from "./statementPagination";
 import { revokePdfBlobUrl, type StatementPdfOptions } from "./statementPdf";
 
 export type StatementPdfBlobResult = {
@@ -18,6 +19,19 @@ const inflight = new Map<string, Promise<StatementPdfBlobResult>>();
 
 export function buildStatementPdfCacheKey(segments: Array<string | number | undefined | null>) {
   return segments.map((part) => String(part ?? "")).join("|");
+}
+
+/** Wait for A4 preview pagination, then include page count so stale 1-page cache is not reused. */
+export async function buildStatementPdfCacheKeyForElement(
+  element: HTMLElement,
+  segments: Array<string | number | undefined | null>
+): Promise<string> {
+  const preview = element.closest(".erp-statement-a4-preview") as HTMLElement | null;
+  if (preview) {
+    await waitForStatementPreviewReady(preview);
+  }
+  const pageCount = countStatementExportPages(element);
+  return buildStatementPdfCacheKey([...segments, pageCount]);
 }
 
 export function peekStatementPdfCache(key: string): StatementPdfBlobResult | null {
@@ -73,6 +87,31 @@ export async function resolveStatementPdf(
 export function prefetchStatementPdf(key: string, generate: () => Promise<StatementPdfBlobResult>) {
   if (peekStatementPdfCache(key) || inflight.has(key)) return;
   void resolveStatementPdf(key, generate);
+}
+
+export async function resolveStatementPdfForElement(
+  element: HTMLElement,
+  segments: Array<string | number | undefined | null>,
+  generate: () => Promise<StatementPdfBlobResult>
+): Promise<{ result: StatementPdfBlobResult; fromCache: boolean }> {
+  const cacheKey = await buildStatementPdfCacheKeyForElement(element, segments);
+  const expectedPageCount = countStatementExportPages(element);
+  const cached = peekStatementPdfCache(cacheKey);
+  if (cached && cached.pageCount >= expectedPageCount) {
+    return { result: cached, fromCache: true };
+  }
+  return resolveStatementPdf(cacheKey, generate);
+}
+
+export function prefetchStatementPdfForElement(
+  element: HTMLElement,
+  segments: Array<string | number | undefined | null>,
+  generate: () => Promise<StatementPdfBlobResult>
+) {
+  void (async () => {
+    const cacheKey = await buildStatementPdfCacheKeyForElement(element, segments);
+    prefetchStatementPdf(cacheKey, generate);
+  })();
 }
 
 export type ResolveStatementPdfFromElementOptions = StatementPdfOptions & {

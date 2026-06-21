@@ -12,6 +12,12 @@ import fs from "fs";
 import path from "path";
 import { config } from "./config.mjs";
 import {
+  authenticateUser,
+  signToken,
+  authMiddleware,
+  adminMiddleware,
+} from "./auth.mjs";
+import {
   initDb,
   getErpState,
   getErpVersionMeta,
@@ -44,12 +50,18 @@ import {
   buildWorkerPortalProbationMeta,
   buildWorkerPortalStatement,
   changeWorkerPortalPassword,
+  ensureWorkersPortalDefaultPasswords,
+  findWorkerByPortalLoginId,
+  keepWorkerPortalPassword,
+  normalizePortalLoginId,
   processWorkersPortalCredentials,
   recordWorkerPortalLoginLog,
+  resetAllWorkerPortalPasswordsToDefault,
   sanitizeWorkersForClient,
   signWorkerPortalToken,
   stripWorkerPortalSecrets,
   workerPortalAuthMiddleware,
+  workerPortalMustChangePassword,
 } from "./workerPortal.mjs";
 import {
   getWorkerPortalAcknowledgment,
@@ -1158,25 +1170,87 @@ app.post("/api/workers/portal-login-sc-sync", authMiddleware, adminMiddleware, a
   }
 });
 
+app.post("/api/workers/portal-password-reset-default", authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const state = getErpState();
+    const workers = Array.isArray(state.data?.workers) ? state.data.workers : [];
+    const reset = resetAllWorkerPortalPasswordsToDefault(workers);
+    if (!reset.changed) {
+      res.json({ ok: true, skipped: true, reason: "no_changes", updatedCount: 0 });
+      return;
+    }
+    const saved = saveErpState(
+      { ...state.data, workers: reset.workers },
+      state.version,
+      req.user.loginId || req.user.name || req.user.email || "portal-password-reset-default",
+    );
+    res.json({
+      ok: true,
+      updatedCount: reset.workers.filter((worker, index) => worker !== workers[index]).length,
+      version: saved.version,
+    });
+  } catch (error) {
+    if (error.status === 409) {
+      res.status(409).json({
+        error: "\uC800\uC7A5 \uCDA9\uB3CC\uC774 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.",
+      });
+      return;
+    }
+    console.error(error);
+    res.status(500).json({ error: error instanceof Error ? error.message : "포털 비밀번호 초기화에 실패했습니다." });
+  }
+});
+
 app.post("/api/worker-portal/login", (req, res) => {
   const { loginId, password } = req.body || {};
-  const state = getErpState();
-  const workers = Array.isArray(state.data?.workers) ? state.data.workers : [];
+  let state = getErpState();
+  let workers = Array.isArray(state.data?.workers) ? state.data.workers : [];
+  const ensured = ensureWorkersPortalDefaultPasswords(workers);
+  if (ensured.changed) {
+    try {
+      const saved = saveErpState({ ...state.data, workers: ensured.workers }, state.version, "portal-default-pw");
+      state = saved;
+      workers = ensured.workers;
+    } catch (error) {
+      console.error("[worker-portal] default password ensure failed:", error);
+      workers = ensured.workers;
+    }
+  }
   const worker = authenticateWorkerPortal(workers, loginId, password);
   if (!worker) {
-    res.status(401).json({ error: "\uB85C\uADF8\uC778 ID \uB610\uB294 \uBE44\uBC00\uBC88\uD638\uAC00 \uB9DE\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." });
+    const normalizedId = normalizePortalLoginId(loginId);
+    const workerById = findWorkerByPortalLoginId(workers, loginId);
+    if (!workerById) {
+      if (/^\d+$/.test(normalizedId) && normalizedId.length <= 2) {
+        res.status(401).json({
+          error: "사번을 더 길게 입력해 주세요. (예: 43 또는 000043)",
+        });
+        return;
+      }
+      res.status(401).json({
+        error: "등록된 포털 ID가 없습니다. SC 사번 전체를 입력했는지 확인해 주세요.",
+      });
+      return;
+    }
+    res.status(401).json({
+      error: "비밀번호가 맞지 않습니다. 초기 비밀번호는 1234입니다.",
+    });
     return;
   }
-  try {
-    recordWorkerPortalLoginLog(worker);
-  } catch (error) {
-    console.error("[worker-portal] login log save failed:", error);
+  const mustChangePassword = workerPortalMustChangePassword(worker);
+  if (!mustChangePassword) {
+    try {
+      recordWorkerPortalLoginLog(worker);
+    } catch (error) {
+      console.error("[worker-portal] login log save failed:", error);
+    }
   }
   const token = signWorkerPortalToken(worker);
   res.json({
     token,
     workerName: stripWorkerPortalSecrets(worker).name,
     workerId: worker.id,
+    mustChangePassword,
   });
 });
 
@@ -1203,7 +1277,15 @@ app.post("/api/worker-portal/change-password", (req, res) => {
       state.version,
       `portal-pw:${stripWorkerPortalSecrets(result.worker).name || "worker"}`,
     );
-    res.json({ ok: true, version: saved.version });
+    const updatedWorker = result.workers.find((row) => String(row.id) === String(result.worker.id)) || result.worker;
+    const token = signWorkerPortalToken(updatedWorker);
+    res.json({
+      ok: true,
+      version: saved.version,
+      token,
+      workerName: stripWorkerPortalSecrets(updatedWorker).name,
+      mustChangePassword: false,
+    });
   } catch (error) {
     if (error.status === 409) {
       res.status(409).json({
@@ -1213,6 +1295,50 @@ app.post("/api/worker-portal/change-password", (req, res) => {
     }
     console.error(error);
     res.status(500).json({ error: "\uBE44\uBC00\uBC88\uD638 \uBCC0\uACBD\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+  }
+});
+
+app.post("/api/worker-portal/keep-password", (req, res) => {
+  const { loginId, password } = req.body || {};
+  const state = getErpState();
+  const workers = Array.isArray(state.data?.workers) ? state.data.workers : [];
+  const result = keepWorkerPortalPassword(workers, loginId, password);
+  if (!result.ok) {
+    res.status(401).json({ error: result.error });
+    return;
+  }
+
+  try {
+    if (!result.unchanged) {
+      saveErpState(
+        { ...state.data, workers: result.workers },
+        state.version,
+        `portal-keep-pw:${stripWorkerPortalSecrets(result.worker).name || "worker"}`,
+      );
+    }
+    try {
+      recordWorkerPortalLoginLog(result.worker);
+    } catch (error) {
+      console.error("[worker-portal] login log save failed:", error);
+    }
+    const updatedWorker =
+      result.workers.find((row) => String(row.id) === String(result.worker.id)) || result.worker;
+    const token = signWorkerPortalToken(updatedWorker);
+    res.json({
+      ok: true,
+      token,
+      workerName: stripWorkerPortalSecrets(updatedWorker).name,
+      mustChangePassword: false,
+    });
+  } catch (error) {
+    if (error.status === 409) {
+      res.status(409).json({
+        error: "\uC800\uC7A5 \uCDA9\uB3CC\uC774 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.",
+      });
+      return;
+    }
+    console.error(error);
+    res.status(500).json({ error: "\uC9C4\uC785\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
   }
 });
 

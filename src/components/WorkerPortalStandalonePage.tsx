@@ -9,6 +9,7 @@ import {
   changeWorkerPortalPassword,
   clearWorkerPortalSession,
   getWorkerPortalToken,
+  keepWorkerPortalPassword,
   loginWorkerPortal,
 } from "@/utils/workerPortalApi";
 
@@ -19,9 +20,14 @@ const L = {
   title: "시공내역서 포털",
   desc: "월별 시공 내역과 지급 내역을 확인하고, 확인 서명을 남길 수 있습니다.",
   loginTitle: "시공자 로그인",
-  loginDesc: "관리자가 등록한 포털 ID와 비밀번호를 입력하세요.",
+  loginDesc: "포털 ID와 비밀번호를 입력하세요. 초기 비밀번호는 1234입니다.",
+  requiredChangeTitle: "비밀번호 변경",
+  requiredChangeDesc: "새 비밀번호로 변경하거나, 다음을 눌러 현재 비밀번호를 그대로 사용할 수 있습니다.",
+  skipPasswordChange: "다음",
+  skipping: "이동 중...",
   loginId: "포털 로그인 ID",
-  loginIdHint: "영문·숫자 ID (예: kim123)",
+  loginIdHint: "SC 사번 전체 입력 (예: 000043 · 43도 가능 · 4만 입력 X)",
+  loginIdTooShort: "사번을 더 길게 입력해 주세요. (예: 43 또는 000043)",
   password: "비밀번호",
   submit: "로그인",
   submitting: "로그인 중...",
@@ -54,7 +60,7 @@ function FormField({ label, hint, children }: { label: string; hint?: string; ch
 export function WorkerPortalStandalonePage() {
   const apiMode = isApiModeEnabled();
   const [sessionActive, setSessionActive] = useState(() => Boolean(getWorkerPortalToken()));
-  const [formMode, setFormMode] = useState<"login" | "changePassword">("login");
+  const [formMode, setFormMode] = useState<"login" | "changePassword" | "requiredChangePassword">("login");
   const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
@@ -63,6 +69,7 @@ export function WorkerPortalStandalonePage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
+  const [submittingAction, setSubmittingAction] = useState<"login" | "change" | "skip" | null>(null);
 
   const resetChangePasswordForm = () => {
     setCurrentPassword("");
@@ -70,13 +77,13 @@ export function WorkerPortalStandalonePage() {
     setConfirmPassword("");
   };
 
-  const switchFormMode = (mode: "login" | "changePassword") => {
+  const switchFormMode = (mode: "login" | "changePassword" | "requiredChangePassword") => {
     setFormMode(mode);
     setError("");
     setSuccess("");
     if (mode === "login") {
       resetChangePasswordForm();
-    } else {
+    } else if (mode === "changePassword") {
       setPassword("");
     }
   };
@@ -95,6 +102,10 @@ export function WorkerPortalStandalonePage() {
       setError(L.loginIdRequired);
       return;
     }
+    if (/^\d+$/.test(trimmedId) && trimmedId.length <= 2) {
+      setError(L.loginIdTooShort);
+      return;
+    }
     if (!password) {
       setError(L.passwordRequired);
       return;
@@ -104,16 +115,26 @@ export function WorkerPortalStandalonePage() {
       return;
     }
     setLoading(true);
+    setSubmittingAction("login");
     setError("");
     setSuccess("");
     try {
-      await loginWorkerPortal(trimmedId, password);
+      const result = await loginWorkerPortal(trimmedId, password);
+      if (result.mustChangePassword) {
+        setCurrentPassword(password);
+        setPassword("");
+        setNewPassword("");
+        setConfirmPassword("");
+        setFormMode("requiredChangePassword");
+        return;
+      }
       setPassword("");
       setSessionActive(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "로그인에 실패했습니다.");
     } finally {
       setLoading(false);
+      setSubmittingAction(null);
     }
   };
 
@@ -140,11 +161,18 @@ export function WorkerPortalStandalonePage() {
       return;
     }
     setLoading(true);
+    setSubmittingAction("change");
     setError("");
     setSuccess("");
     try {
-      await changeWorkerPortalPassword(trimmedId, currentPassword, newPassword.trim(), confirmPassword.trim());
+      const result = await changeWorkerPortalPassword(trimmedId, currentPassword, newPassword.trim(), confirmPassword.trim());
       resetChangePasswordForm();
+      if (formMode === "requiredChangePassword" && result.token) {
+        setFormMode("login");
+        setPassword("");
+        setSessionActive(true);
+        return;
+      }
       setFormMode("login");
       setPassword("");
       setSuccess(L.changeSuccess);
@@ -152,6 +180,39 @@ export function WorkerPortalStandalonePage() {
       setError(err instanceof Error ? err.message : "비밀번호 변경에 실패했습니다.");
     } finally {
       setLoading(false);
+      setSubmittingAction(null);
+    }
+  };
+
+  const handleKeepPassword = async () => {
+    const trimmedId = loginId.trim();
+    if (!trimmedId) {
+      setError(L.loginIdRequired);
+      return;
+    }
+    if (!currentPassword) {
+      setError(L.currentPasswordRequired);
+      return;
+    }
+    if (!apiMode) {
+      setError(L.apiRequired);
+      return;
+    }
+    setLoading(true);
+    setSubmittingAction("skip");
+    setError("");
+    setSuccess("");
+    try {
+      await keepWorkerPortalPassword(trimmedId, currentPassword);
+      resetChangePasswordForm();
+      setFormMode("login");
+      setPassword("");
+      setSessionActive(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "포털 진입에 실패했습니다.");
+    } finally {
+      setLoading(false);
+      setSubmittingAction(null);
     }
   };
 
@@ -176,8 +237,20 @@ export function WorkerPortalStandalonePage() {
         <Card className="worker-portal-login-card rounded-3xl border-0 bg-white text-slate-900 shadow-2xl">
           <CardContent className="p-6 sm:p-8">
             <div className="mb-6 text-center">
-              <h2 className="erp-text-section font-black text-slate-900">{L.loginTitle}</h2>
-              <p className="erp-text-body mt-2 text-slate-500">{L.loginDesc}</p>
+              <h2 className="erp-text-section font-black text-slate-900">
+                {formMode === "requiredChangePassword"
+                  ? L.requiredChangeTitle
+                  : formMode === "changePassword"
+                    ? L.changePassword
+                    : L.loginTitle}
+              </h2>
+              <p className="erp-text-body mt-2 text-slate-500">
+                {formMode === "requiredChangePassword"
+                  ? L.requiredChangeDesc
+                  : formMode === "changePassword"
+                    ? L.changePassword
+                    : L.loginDesc}
+              </p>
             </div>
 
             <div className="space-y-4">
@@ -212,6 +285,43 @@ export function WorkerPortalStandalonePage() {
                       {L.changePassword}
                     </button>
                   </div>
+                </>
+              ) : formMode === "requiredChangePassword" ? (
+                <>
+                  <FormField label={L.loginId}>
+                    <Input value={loginId} readOnly className="rounded-2xl bg-slate-50" />
+                  </FormField>
+                  <FormField label={L.currentPassword}>
+                    <Input
+                      type="password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      placeholder={L.currentPassword}
+                      autoComplete="current-password"
+                      className="rounded-2xl"
+                    />
+                  </FormField>
+                  <FormField label={L.newPassword}>
+                    <Input
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="4자 이상"
+                      autoComplete="new-password"
+                      className="rounded-2xl"
+                    />
+                  </FormField>
+                  <FormField label={L.confirmPassword}>
+                    <Input
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder={L.confirmPassword}
+                      autoComplete="new-password"
+                      className="rounded-2xl"
+                      onKeyDown={(e) => e.key === "Enter" && !loading && void handleChangePassword()}
+                    />
+                  </FormField>
                 </>
               ) : (
                 <>
@@ -277,17 +387,35 @@ export function WorkerPortalStandalonePage() {
               <Button
                 type="button"
                 className="worker-portal-login-submit erp-text-body w-full rounded-2xl py-5 font-bold md:py-6 touch-manipulation"
-                onClick={formMode === "login" ? () => void handleLogin() : () => void handleChangePassword()}
+                onClick={
+                  formMode === "login"
+                    ? () => void handleLogin()
+                    : () => void handleChangePassword()
+                }
                 disabled={loading}
               >
                 {loading
-                  ? formMode === "changePassword"
-                    ? L.changing
-                    : L.submitting
-                  : formMode === "changePassword"
-                    ? L.changeSubmit
-                    : L.submit}
+                  ? submittingAction === "login"
+                    ? L.submitting
+                    : submittingAction === "skip"
+                      ? L.skipping
+                      : L.changing
+                  : formMode === "login"
+                    ? L.submit
+                    : L.changeSubmit}
               </Button>
+
+              {formMode === "requiredChangePassword" ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="erp-text-body w-full rounded-2xl border-slate-200 py-5 font-semibold text-slate-700 md:py-6 touch-manipulation"
+                  onClick={() => void handleKeepPassword()}
+                  disabled={loading}
+                >
+                  {loading && submittingAction === "skip" ? L.skipping : L.skipPasswordChange}
+                </Button>
+              ) : null}
             </div>
           </CardContent>
         </Card>

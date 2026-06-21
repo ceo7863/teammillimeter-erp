@@ -20,9 +20,8 @@ import { isClientActive } from "@/utils/clientMaster";
 import { normalizeClientContacts } from "@/utils/clientContacts";
 import { createPdfPreviewWindow, downloadPdfFromHtmlElement, revokePdfBlobUrl } from "@/utils/statementPdf";
 import {
-  buildStatementPdfCacheKey,
-  prefetchStatementPdf,
-  resolveStatementPdf,
+  prefetchStatementPdfForElement,
+  resolveStatementPdfForElement,
 } from "@/utils/statementPdfCache";
 import {
   appendStatementGenerationLog,
@@ -721,16 +720,10 @@ export function StatementsPage({
       const safeName = String(client).replace(/[\\/:*?"<>|]/g, "_");
       const periodLabel = `${dateFilter.startDate || "\uC804\uCCB4"}_${dateFilter.endDate || "\uC804\uCCB4"}`;
       const fileName = `\uC2DC\uACF5\uB0B4\uC5ED\uC11C_\uAC70\uB798\uCC98_${safeName}_${periodLabel}.pdf`;
-      const cacheKey = buildStatementPdfCacheKey([
-        "client",
-        client,
-        dateFilter.startDate,
-        dateFilter.endDate,
-        clientStatementView,
-        clientRows.length,
-      ]);
-      prefetchStatementPdf(cacheKey, () =>
-        downloadPdfFromHtmlElement(element, fileName, { orientation: "portrait", deliver: false })
+      prefetchStatementPdfForElement(
+        element,
+        ["client", client, dateFilter.startDate, dateFilter.endDate, clientStatementView, clientRows.length],
+        () => downloadPdfFromHtmlElement(element, fileName, { orientation: "portrait", deliver: false })
       );
     }, 250);
     return () => window.clearTimeout(timer);
@@ -753,15 +746,10 @@ export function StatementsPage({
       const safeName = String(worker).replace(/[\\/:*?"<>|]/g, "_");
       const periodLabel = `${dateFilter.startDate || "\uC804\uCCB4"}_${dateFilter.endDate || "\uC804\uCCB4"}`;
       const fileName = `\uC2DC\uACF5\uB0B4\uC5ED\uC11C_\uC2DC\uACF5\uC790_${safeName}_${periodLabel}.pdf`;
-      const cacheKey = buildStatementPdfCacheKey([
-        "worker",
-        worker,
-        dateFilter.startDate,
-        dateFilter.endDate,
-        workerRows.length,
-      ]);
-      prefetchStatementPdf(cacheKey, () =>
-        downloadPdfFromHtmlElement(element, fileName, { orientation: "portrait", deliver: false })
+      prefetchStatementPdfForElement(
+        element,
+        ["worker", worker, dateFilter.startDate, dateFilter.endDate, workerRows.length],
+        () => downloadPdfFromHtmlElement(element, fileName, { orientation: "portrait", deliver: false })
       );
     }, 250);
     return () => window.clearTimeout(timer);
@@ -1380,22 +1368,21 @@ export function StatementsPage({
       ? `\uC2DC\uACF5\uB0B4\uC5ED\uC11C_\uAC70\uB798\uCC98_${safeName}_${periodLabel}.pdf`
       : `\uC2DC\uACF5\uB0B4\uC5ED\uC11C_\uC2DC\uACF5\uC790_${safeName}_${periodLabel}.pdf`;
 
-    const cacheKey = buildStatementPdfCacheKey(
-      isClient
-        ? ["client", subjectName, dateFilter.startDate, dateFilter.endDate, clientStatementView, clientRows.length]
-        : ["worker", subjectName, dateFilter.startDate, dateFilter.endDate, workerRows.length]
-    );
-
     setPdfGenerating(true);
     setPdfMessage(L.shareLinkPreparing);
     setStatementShareLink("");
 
     try {
-      const { result, fromCache } = await resolveStatementPdf(cacheKey, () =>
-        downloadPdfFromHtmlElement(element, fileName, {
-          orientation: "portrait",
-          deliver: false,
-        })
+      const { result, fromCache } = await resolveStatementPdfForElement(
+        element,
+        isClient
+          ? ["client", subjectName, dateFilter.startDate, dateFilter.endDate, clientStatementView, clientRows.length]
+          : ["worker", subjectName, dateFilter.startDate, dateFilter.endDate, workerRows.length],
+        () =>
+          downloadPdfFromHtmlElement(element, fileName, {
+            orientation: "portrait",
+            deliver: false,
+          })
       );
       pdfBlobUrlRef.current = result.blobUrl;
       setPdfMessage(fromCache ? "\uC11C\uBC84 \uC5C5\uB85C\uB4DC \uBC0F \uB9C1\uD06C \uC0DD\uC131 \uC911..." : L.shareLinkPreparing);

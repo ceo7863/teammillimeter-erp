@@ -83,7 +83,7 @@ export function resolveRequestUser(req) {
 
 export function adminMiddleware(req, res, next) {
   if (req.user?.role !== "admin") {
-    res.status(403).json({ error: "관리자 권한???�요?�니??" });
+    res.status(403).json({ error: "??? ??? ?????." });
     return;
   }
   next();

@@ -11,6 +11,63 @@ import {
 } from "../src/utils/workerPortalProbation.ts";
 
 const MAX_PORTAL_LOGIN_LOGS = 3000;
+export const WORKER_PORTAL_DEFAULT_PASSWORD = "1234";
+
+let defaultPortalPasswordHashCache = null;
+
+function getDefaultPortalPasswordHash() {
+  if (!defaultPortalPasswordHashCache) {
+    defaultPortalPasswordHashCache = hashPortalPassword(WORKER_PORTAL_DEFAULT_PASSWORD);
+  }
+  return defaultPortalPasswordHashCache;
+}
+
+export function workerHasPortalLoginId(worker) {
+  return Boolean(normalizePortalLoginId(worker?.portalLoginId));
+}
+
+export function workerPortalMustChangePassword(worker) {
+  return worker?.portalMustChangePassword === true;
+}
+
+export function applyDefaultPortalPasswordToWorker(worker, { force = false } = {}) {
+  if (!workerHasPortalLoginId(worker) || worker?.isActive === false) return worker;
+  if (!force && worker?.portalPasswordHash) return worker;
+  return {
+    ...worker,
+    portalPasswordHash: getDefaultPortalPasswordHash(),
+    portalMustChangePassword: true,
+  };
+}
+
+/** 포털 ID는 있는데 비밀번호 해시가 없는 시공자에 기본 비밀번호(1234)를 채웁니다. */
+export function ensureWorkersPortalDefaultPasswords(workers = []) {
+  let changed = false;
+  const next = (workers || []).map((worker) => {
+    if (!workerHasPortalLoginId(worker) || worker.isActive === false) return worker;
+    if (worker.portalPasswordHash) return worker;
+    changed = true;
+    return applyDefaultPortalPasswordToWorker(worker);
+  });
+  return { workers: next, changed };
+}
+
+/** 활성 시공자 포털 비밀번호를 기본값(1234)으로 통일하고 다음 로그인 시 변경을 요구합니다. */
+export function resetAllWorkerPortalPasswordsToDefault(workers = []) {
+  let changed = false;
+  const next = (workers || []).map((worker) => {
+    if (!workerHasPortalLoginId(worker) || worker.isActive === false) return worker;
+    const updated = applyDefaultPortalPasswordToWorker(worker, { force: true });
+    if (
+      updated.portalPasswordHash !== worker.portalPasswordHash ||
+      worker.portalMustChangePassword !== true
+    ) {
+      changed = true;
+    }
+    return updated;
+  });
+  return { workers: next, changed, updatedCount: next.filter((w, i) => w !== workers[i]).length };
+}
 
 export function normalizeWorkerName(value) {
   return String(value || "").trim();
@@ -21,6 +78,27 @@ export function normalizePortalLoginId(value) {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
+}
+
+function portalLoginIdsEquivalent(left, right) {
+  const a = normalizePortalLoginId(left);
+  const b = normalizePortalLoginId(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (/^\d+$/.test(a) && /^\d+$/.test(b)) {
+    const aTrim = a.replace(/^0+/, "") || "0";
+    const bTrim = b.replace(/^0+/, "") || "0";
+    return aTrim === bTrim;
+  }
+  return false;
+}
+
+export function findWorkerByPortalLoginId(workers = [], loginId) {
+  const target = normalizePortalLoginId(loginId);
+  if (!target) return null;
+  return (
+    workers.find((worker) => portalLoginIdsEquivalent(worker.portalLoginId, target)) || null
+  );
 }
 
 function normalizeWorkerListMatchKey(name) {
@@ -58,14 +136,6 @@ export function resolveWorkerListName(workers = [], workerName) {
   if (!trimmed) return "";
   const master = findWorkerMasterByListName(workers, trimmed);
   return master ? normalizeWorkerName(master.name) : trimmed;
-}
-
-export function findWorkerByPortalLoginId(workers = [], loginId) {
-  const target = normalizePortalLoginId(loginId);
-  if (!target) return null;
-  return (
-    workers.find((worker) => normalizePortalLoginId(worker.portalLoginId) === target) || null
-  );
 }
 
 export function hashPortalPassword(password) {
@@ -539,7 +609,30 @@ export function changeWorkerPortalPassword(workers = [], loginId, currentPasswor
 
   const portalPasswordHash = hashPortalPassword(nextCheck.password);
   const nextWorkers = workers.map((row) =>
-    workerRecordIdsEqual(row.id, worker.id) ? { ...row, portalPasswordHash } : row,
+    workerRecordIdsEqual(row.id, worker.id)
+      ? { ...row, portalPasswordHash, portalMustChangePassword: false }
+      : row,
+  );
+
+  return { ok: true, workers: nextWorkers, worker };
+}
+
+/** 비밀번호 변경 안내를 건너뛰고 현재 비밀번호를 유지합니다. */
+export function keepWorkerPortalPassword(workers = [], loginId, password) {
+  const worker = authenticateWorkerPortal(workers, loginId, password);
+  if (!worker) {
+    return {
+      ok: false,
+      error: "\uB85C\uADF8\uC778 ID \uB610\uB294 \uBE44\uBC00\uBC88\uD638\uAC00 \uB9DE\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
+    };
+  }
+
+  if (!workerPortalMustChangePassword(worker)) {
+    return { ok: true, workers, worker, unchanged: true };
+  }
+
+  const nextWorkers = workers.map((row) =>
+    workerRecordIdsEqual(row.id, worker.id) ? { ...row, portalMustChangePassword: false } : row,
   );
 
   return { ok: true, workers: nextWorkers, worker };
@@ -559,8 +652,14 @@ export function processWorkersPortalCredentials(incomingWorkers = [], existingWo
 
     if (plainPassword) {
       next.portalPasswordHash = hashPortalPassword(plainPassword);
+      next.portalMustChangePassword = false;
     } else if (!next.portalPasswordHash && prev?.portalPasswordHash) {
       next.portalPasswordHash = prev.portalPasswordHash;
+      if (prev.portalMustChangePassword === true) {
+        next.portalMustChangePassword = true;
+      }
+    } else if (workerHasPortalLoginId(next) && !next.portalPasswordHash) {
+      return applyDefaultPortalPasswordToWorker(next);
     }
 
     delete next.portalPassword;

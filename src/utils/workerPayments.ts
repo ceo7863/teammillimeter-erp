@@ -251,6 +251,16 @@ export function mergeWorkerMasterRecord(
     merged.portalPasswordHash = incoming.portalPasswordHash || prev.portalPasswordHash;
   }
 
+  if (incoming.portalMustChangePassword === true) {
+    merged.portalMustChangePassword = true;
+  } else if (incoming.portalMustChangePassword === false) {
+    merged.portalMustChangePassword = false;
+  } else if (prev.portalMustChangePassword === true) {
+    merged.portalMustChangePassword = true;
+  } else {
+    delete merged.portalMustChangePassword;
+  }
+
   return merged;
 }
 

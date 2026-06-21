@@ -13,9 +13,8 @@ import { isApiModeEnabled } from "@/utils/erpApi";
 import { formatKRW, getUnpaid, todayISO } from "@/utils/receivables";
 import { createPdfPreviewWindow, downloadPdfFromHtmlElement, revokePdfBlobUrl } from "@/utils/statementPdf";
 import {
-  buildStatementPdfCacheKey,
-  prefetchStatementPdf,
-  resolveStatementPdf,
+  prefetchStatementPdfForElement,
+  resolveStatementPdfForElement,
 } from "@/utils/statementPdfCache";
 import {
   appendStatementGenerationLog,
@@ -147,16 +146,10 @@ export function ClientStatementModal({
       if (!element) return;
       const safeName = String(draft.client).replace(/[\\/:*?"<>|]/g, "_");
       const fileName = `\uC2DC\uACF5\uB0B4\uC5ED\uC11C_\uAC70\uB798\uCC98_${safeName}_${draft.startDate || "\uC804\uCCB4"}_${draft.endDate || "\uC804\uCCB4"}.pdf`;
-      const cacheKey = buildStatementPdfCacheKey([
-        "client-modal",
-        draft.client,
-        draft.startDate,
-        draft.endDate,
-        clientStatementView,
-        filteredSales.length,
-      ]);
-      prefetchStatementPdf(cacheKey, () =>
-        downloadPdfFromHtmlElement(element, fileName, { orientation: "portrait", deliver: false })
+      prefetchStatementPdfForElement(
+        element,
+        ["client-modal", draft.client, draft.startDate, draft.endDate, clientStatementView, filteredSales.length],
+        () => downloadPdfFromHtmlElement(element, fileName, { orientation: "portrait", deliver: false })
       );
     }, 250);
     return () => window.clearTimeout(timer);
@@ -275,25 +268,19 @@ export function ClientStatementModal({
     const safeName = String(draft.client).replace(/[\\/:*?"<>|]/g, "_");
     const fileName = `\uC2DC\uACF5\uB0B4\uC5ED\uC11C_\uAC70\uB798\uCC98_${safeName}_${draft.startDate || "\uC804\uCCB4"}_${draft.endDate || "\uC804\uCCB4"}.pdf`;
 
-    const cacheKey = buildStatementPdfCacheKey([
-      "client-modal",
-      draft.client,
-      draft.startDate,
-      draft.endDate,
-      clientStatementView,
-      filteredSales.length,
-    ]);
-
     setPdfGenerating(true);
     setPdfMessage("PDF \uC0DD\uC131 \uBC0F \uB9C1\uD06C \uC900\uBE44 \uC911...");
     setStatementShareLink("");
 
     try {
-      const { result, fromCache } = await resolveStatementPdf(cacheKey, () =>
-        downloadPdfFromHtmlElement(element, fileName, {
-          orientation: "portrait",
-          deliver: false,
-        })
+      const { result, fromCache } = await resolveStatementPdfForElement(
+        element,
+        ["client-modal", draft.client, draft.startDate, draft.endDate, clientStatementView, filteredSales.length],
+        () =>
+          downloadPdfFromHtmlElement(element, fileName, {
+            orientation: "portrait",
+            deliver: false,
+          })
       );
       pdfBlobUrlRef.current = result.blobUrl;
       setPdfMessage(fromCache ? "\uC11C\uBC84 \uC5C5\uB85C\uB4DC \uBC0F \uB9C1\uD06C \uC0DD\uC131 \uC911..." : "PDF \uC0DD\uC131 \uBC0F \uB9C1\uD06C \uC900\uBE44 \uC911...");

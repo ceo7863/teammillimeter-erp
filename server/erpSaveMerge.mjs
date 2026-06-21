@@ -399,6 +399,12 @@ export function mergeWorkersForSave(existing = [], incoming = []) {
       depositNameAliases: coalesce(worker.depositNameAliases, prev.depositNameAliases) || undefined,
       portalLoginId: coalesce(worker.portalLoginId, prev.portalLoginId) || undefined,
       portalPasswordHash: worker.portalPasswordHash || prev.portalPasswordHash || undefined,
+      portalMustChangePassword:
+        worker.portalMustChangePassword === true
+          ? true
+          : worker.portalMustChangePassword === false
+            ? false
+            : prev.portalMustChangePassword,
       phone: coalesce(worker.phone, prev.phone) || undefined,
       vehicleNo: coalesce(worker.vehicleNo, prev.vehicleNo) || undefined,
       address: coalesce(worker.address, prev.address) || undefined,

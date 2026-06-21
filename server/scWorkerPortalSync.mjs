@@ -5,17 +5,39 @@ import {
   findWorkerMasterByListName,
   normalizePortalLoginId,
   normalizeWorkerName,
+  applyDefaultPortalPasswordToWorker,
 } from "./workerPortal.mjs";
 
 const SC_PORTAL_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "MEMBER"]);
 
-export async function fetchScPortalLoginUsers() {
-  if (!String(config.sc.databaseUrl || "").trim()) {
-    return [];
-  }
+async function fetchScPortalLoginUsersFromApi() {
+  const secret = String(config.sc.syncSecret || "").trim();
+  const base = String(config.sc.apiBaseUrl || "https://sc.teammillimeter.com").replace(/\/$/, "");
+  if (!secret) return [];
 
-  return withScPool(async (pool) => {
-    const { rows } = await pool.query(`
+  const response = await fetch(`${base}/api/erp/portal-users-export`, {
+    headers: { Authorization: `Bearer ${secret}` },
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`SC portal-users-export ${response.status}: ${text.slice(0, 200)}`);
+  }
+  const payload = JSON.parse(text);
+  const users = Array.isArray(payload.users) ? payload.users : [];
+  return users
+    .map((row) => ({
+      name: normalizeWorkerName(row.name),
+      employeeNoStr: String(row.employeeNoStr || "").trim(),
+      role: String(row.role || "").trim(),
+      isActive: row.isActive !== false,
+    }))
+    .filter((row) => row.name && row.employeeNoStr && SC_PORTAL_ROLES.has(row.role));
+}
+
+export async function fetchScPortalLoginUsers() {
+  if (String(config.sc.databaseUrl || "").trim()) {
+    return withScPool(async (pool) => {
+      const { rows } = await pool.query(`
       SELECT name, "employeeNoStr", role, "isActive"
       FROM users
       WHERE "isActive" = true
@@ -23,15 +45,22 @@ export async function fetchScPortalLoginUsers() {
       ORDER BY "employeeNoStr" ASC
     `);
 
-    return rows
-      .map((row) => ({
-        name: normalizeWorkerName(row.name),
-        employeeNoStr: String(row.employeeNoStr || "").trim(),
-        role: String(row.role || "").trim(),
-        isActive: row.isActive !== false,
-      }))
-      .filter((row) => row.name && row.employeeNoStr && SC_PORTAL_ROLES.has(row.role));
-  });
+      return rows
+        .map((row) => ({
+          name: normalizeWorkerName(row.name),
+          employeeNoStr: String(row.employeeNoStr || "").trim(),
+          role: String(row.role || "").trim(),
+          isActive: row.isActive !== false,
+        }))
+        .filter((row) => row.name && row.employeeNoStr && SC_PORTAL_ROLES.has(row.role));
+    });
+  }
+
+  return fetchScPortalLoginUsersFromApi();
+}
+
+export function isScPortalLoginSyncConfigured() {
+  return Boolean(String(config.sc.databaseUrl || "").trim() || String(config.sc.syncSecret || "").trim());
 }
 
 export function applyWorkerPortalLoginIdsFromSc(workers = [], scUsers = []) {
@@ -81,11 +110,26 @@ export function applyWorkerPortalLoginIdsFromSc(workers = [], scUsers = []) {
     }
 
     if (currentId === portalLoginId) {
+      if (!worker.portalPasswordHash) {
+        Object.assign(worker, applyDefaultPortalPasswordToWorker(worker));
+        updates.push({
+          workerId: worker.id ?? null,
+          workerName: normalizeWorkerName(worker.name),
+          portalLoginId,
+          previousPortalLoginId: currentId || null,
+          scName: scUser.name,
+          employeeNoStr: scUser.employeeNoStr,
+          kind: "default_password",
+        });
+      }
       reservedIds.add(portalLoginId);
       continue;
     }
 
     worker.portalLoginId = portalLoginId;
+    if (!worker.portalPasswordHash) {
+      Object.assign(worker, applyDefaultPortalPasswordToWorker(worker));
+    }
     reservedIds.add(portalLoginId);
     updates.push({
       workerId: worker.id ?? null,
@@ -128,7 +172,7 @@ export async function runWorkerPortalLoginIdSyncFromSc(options = {}) {
     return {
       ok: false,
       skipped: true,
-      reason: String(config.sc.databaseUrl || "").trim() ? "no_sc_users" : "sc_database_not_configured",
+      reason: isScPortalLoginSyncConfigured() ? "no_sc_users" : "sc_not_configured",
     };
   }
 
