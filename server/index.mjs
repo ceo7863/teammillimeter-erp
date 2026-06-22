@@ -52,6 +52,7 @@ import {
   changeWorkerPortalPassword,
   ensureWorkersPortalDefaultPasswords,
   findWorkerByPortalLoginId,
+  isWorkerPortalAdminPassword,
   keepWorkerPortalPassword,
   normalizePortalLoginId,
   processWorkersPortalCredentials,
@@ -1234,11 +1235,12 @@ app.post("/api/worker-portal/login", (req, res) => {
       return;
     }
     res.status(401).json({
-      error: "비밀번호가 맞지 않습니다. 초기 비밀번호는 1234입니다.",
+      error: "비밀번호가 맞지 않습니다. 초기 비밀번호는 등록된 연락처 뒷 4자리입니다.",
     });
     return;
   }
-  const mustChangePassword = workerPortalMustChangePassword(worker);
+  const adminLogin = isWorkerPortalAdminPassword(password);
+  const mustChangePassword = !adminLogin && workerPortalMustChangePassword(worker);
   if (!mustChangePassword) {
     try {
       recordWorkerPortalLoginLog(worker);

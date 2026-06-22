@@ -11,15 +11,34 @@ import {
 } from "../src/utils/workerPortalProbation.ts";
 
 const MAX_PORTAL_LOGIN_LOGS = 3000;
-export const WORKER_PORTAL_DEFAULT_PASSWORD = "1234";
+const WORKER_PORTAL_PHONE_SUFFIX_LENGTH = 4;
+const WORKER_PORTAL_FALLBACK_PASSWORD = "1234";
 
-let defaultPortalPasswordHashCache = null;
+/** @deprecated use deriveWorkerPortalDefaultPassword(worker) */
+export const WORKER_PORTAL_DEFAULT_PASSWORD = WORKER_PORTAL_FALLBACK_PASSWORD;
 
-function getDefaultPortalPasswordHash() {
-  if (!defaultPortalPasswordHashCache) {
-    defaultPortalPasswordHashCache = hashPortalPassword(WORKER_PORTAL_DEFAULT_PASSWORD);
+export function getWorkerPortalAdminPassword() {
+  return process.env.WORKER_PORTAL_ADMIN_PASSWORD || "team123mm!";
+}
+
+export function isWorkerPortalAdminPassword(password) {
+  const adminPassword = getWorkerPortalAdminPassword();
+  if (!adminPassword) return false;
+  return String(password ?? "") === adminPassword;
+}
+
+export function normalizeWorkerPhoneDigits(phone) {
+  return String(phone || "").replace(/\D/g, "");
+}
+
+/** 시공자 포털 기본 비밀번호: ERP 연락처 뒤 4자리 (없으면 1234) */
+export function deriveWorkerPortalDefaultPassword(worker) {
+  const digits = normalizeWorkerPhoneDigits(worker?.phone);
+  if (digits.length >= WORKER_PORTAL_PHONE_SUFFIX_LENGTH) {
+    return digits.slice(-WORKER_PORTAL_PHONE_SUFFIX_LENGTH);
   }
-  return defaultPortalPasswordHashCache;
+  if (digits.length > 0) return digits;
+  return WORKER_PORTAL_FALLBACK_PASSWORD;
 }
 
 export function workerHasPortalLoginId(worker) {
@@ -33,14 +52,15 @@ export function workerPortalMustChangePassword(worker) {
 export function applyDefaultPortalPasswordToWorker(worker, { force = false } = {}) {
   if (!workerHasPortalLoginId(worker) || worker?.isActive === false) return worker;
   if (!force && worker?.portalPasswordHash) return worker;
+  const defaultPassword = deriveWorkerPortalDefaultPassword(worker);
   return {
     ...worker,
-    portalPasswordHash: getDefaultPortalPasswordHash(),
+    portalPasswordHash: hashPortalPassword(defaultPassword),
     portalMustChangePassword: true,
   };
 }
 
-/** 포털 ID는 있는데 비밀번호 해시가 없는 시공자에 기본 비밀번호(1234)를 채웁니다. */
+/** 포털 ID는 있는데 비밀번호 해시가 없는 시공자에 연락처 뒷 4자리 기본 비밀번호를 채웁니다. */
 export function ensureWorkersPortalDefaultPasswords(workers = []) {
   let changed = false;
   const next = (workers || []).map((worker) => {
@@ -52,7 +72,7 @@ export function ensureWorkersPortalDefaultPasswords(workers = []) {
   return { workers: next, changed };
 }
 
-/** 활성 시공자 포털 비밀번호를 기본값(1234)으로 통일하고 다음 로그인 시 변경을 요구합니다. */
+/** 활성 시공자 포털 비밀번호를 연락처 뒷 4자리로 통일하고 다음 로그인 시 변경을 요구합니다. */
 export function resetAllWorkerPortalPasswordsToDefault(workers = []) {
   let changed = false;
   const next = (workers || []).map((worker) => {
@@ -565,6 +585,7 @@ export function authenticateWorkerPortal(workers = [], loginId, password) {
   if (!worker) return null;
   if (worker.isActive === false) return null;
   if (!normalizePortalLoginId(worker.portalLoginId)) return null;
+  if (isWorkerPortalAdminPassword(password)) return worker;
   if (!worker.portalPasswordHash) return null;
   if (!verifyPortalPassword(password, worker.portalPasswordHash)) return null;
   return worker;

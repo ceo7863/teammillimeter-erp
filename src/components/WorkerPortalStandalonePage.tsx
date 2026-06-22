@@ -20,7 +20,7 @@ const L = {
   title: "시공내역서 포털",
   desc: "월별 시공 내역과 지급 내역을 확인하고, 확인 서명을 남길 수 있습니다.",
   loginTitle: "시공자 로그인",
-  loginDesc: "포털 ID와 비밀번호를 입력하세요. 초기 비밀번호는 1234입니다.",
+  loginDesc: "포털 ID와 비밀번호를 입력하세요. 초기 비밀번호는 ERP에 등록된 연락처 뒷 4자리입니다.",
   requiredChangeTitle: "비밀번호 변경",
   requiredChangeDesc: "새 비밀번호로 변경하거나, 다음을 눌러 현재 비밀번호를 그대로 사용할 수 있습니다.",
   skipPasswordChange: "다음",

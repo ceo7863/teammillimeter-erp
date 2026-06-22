@@ -40,7 +40,7 @@ const L = {
   overtimeCostPh: "\uC57C\uADFC\uBE44",
   feeRatePh: "10",
   portalLoginIdPh: "\uC601\uBB38\u00B7\uC22B\uC790 (\uC608: kim123)",
-  portalPasswordCreatePh: "\uBE44\uC774 \uC5C6\uC73C\uBA74 \uAE30\uBCF8 1234",
+  portalPasswordCreatePh: "\uBE44\uC774 \uC5C6\uC73C\uBA74 \uC5F0\uB77D\uCC98 \uB4B7 4\uC790\uB9AC",
   portalPasswordEditPh: "\uBCC0\uACBD \uC2DC\uC5D0\uB9CC \uC785\uB825",
   portalHint:
     "포털 ID는 SC 로그인 사번(employeeNo)과 같습니다. 시공자 > SC 사번 → 포털 ID 로 일괄 채우거나 SC 일정 동기화 시 자동 반영됩니다.",
