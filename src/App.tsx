@@ -10018,10 +10018,11 @@ export default function TeammillimeterErpMvp() {
       const saved = await flushErpSave({ workerAiRules: normalized });
       if (saved === false) {
         window.alert("신입 AI 규칙 저장에 실패했습니다. 다시 시도해 주세요.");
+        return false;
       }
-      return saved;
+      return erpVersionRef.current;
     }
-    return true;
+    return erpVersionRef.current;
   }, [apiMode, currentUser, dataReady, flushErpSave]);
 
   const saveProbationEvalTemplates = useCallback(async (nextTemplates) => {

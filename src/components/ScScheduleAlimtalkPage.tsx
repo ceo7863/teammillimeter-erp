@@ -170,7 +170,7 @@ type ScScheduleAlimtalkPageProps = {
   canManageSettings?: boolean;
   clients?: ClientMasterLike[];
   workerAiRules?: WorkerAiRules | null;
-  onSaveWorkerAiRules?: (rules: WorkerAiRules) => Promise<boolean | void>;
+  onSaveWorkerAiRules?: (rules: WorkerAiRules) => Promise<boolean | number | void>;
 };
 
 export function ScScheduleAlimtalkPage({

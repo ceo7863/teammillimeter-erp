@@ -97,7 +97,7 @@ export function ProbationEvalAlimtalkSection({
   workerAiRules?: import("@/utils/workerAiRules").WorkerAiRules | null;
   canEdit?: boolean;
   erpVersion?: number;
-  onSaveWorkerAiRules?: (rules: import("@/utils/workerAiRules").WorkerAiRules) => Promise<boolean | void>;
+  onSaveWorkerAiRules?: (rules: import("@/utils/workerAiRules").WorkerAiRules) => Promise<boolean | number | void>;
   onErpVersionChange?: (version: number) => void;
 }) {
   const [targetDate, setTargetDate] = useState(todayISO());

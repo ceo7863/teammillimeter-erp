@@ -27,7 +27,7 @@ type ProbationEvalNotifyRulesSheetProps = {
   masterNotifyEnabled?: boolean;
   canEdit?: boolean;
   erpVersion?: number;
-  onWorkerAiRulesSaved?: (rules: WorkerAiRules) => Promise<boolean | void>;
+  onWorkerAiRulesSaved?: (rules: WorkerAiRules) => Promise<boolean | number | void>;
   onNotificationSettingsSaved?: (settings: NotificationSettings, version: number) => void;
   onRulesSaved?: () => void;
   defaultOpen?: boolean;
@@ -92,15 +92,19 @@ export function ProbationEvalNotifyRulesSheet({
       const normalizedRules = normalizeWorkerAiRules(rulesDraft);
       const normalizedNotify = normalizeNotificationSettings(notifyDraft);
 
+      let versionForNotify = erpVersion;
       if (onWorkerAiRulesSaved) {
         const rulesOk = await onWorkerAiRulesSaved(normalizedRules);
         if (rulesOk === false) {
           setError("평가 규칙 저장에 실패했습니다.");
           return;
         }
+        if (typeof rulesOk === "number") {
+          versionForNotify = rulesOk;
+        }
       }
 
-      const notifyResult = await saveNotificationSettings(normalizedNotify, erpVersion);
+      const notifyResult = await saveNotificationSettings(normalizedNotify, versionForNotify);
       const savedNotify = normalizeNotificationSettings(notifyResult.settings);
       setNotifyDraft(savedNotify);
       onNotificationSettingsSaved?.(savedNotify, notifyResult.version);
@@ -108,7 +112,14 @@ export function ProbationEvalNotifyRulesSheet({
       setMessage("발송 규칙을 저장했습니다. 미리보기를 새로고침해 확인하세요.");
     } catch (saveError) {
       console.error(saveError);
-      setError("규칙 저장에 실패했습니다. 다시 시도해 주세요.");
+      const err = saveError as Error & { status?: number };
+      if (err.status === 409) {
+        setError("다른 사용자가 먼저 저장했습니다. 새로고침(F5) 후 다시 시도해 주세요.");
+      } else if (err.status === 403) {
+        setError("규칙 저장 권한이 없습니다. 관리자 계정으로 로그인해 주세요.");
+      } else {
+        setError(err.message || "규칙 저장에 실패했습니다. 다시 시도해 주세요.");
+      }
     } finally {
       setSaving(false);
     }
