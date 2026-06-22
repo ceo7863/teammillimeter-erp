@@ -230,8 +230,15 @@ export function normalizeProbationEvalRequests(raw: unknown): ProbationEvalReque
     .filter(Boolean) as ProbationEvalRequest[];
 }
 
-export function probationEvalRequestKey(workDate: string, scheduleId: string, probationWorkerId: string) {
-  return `${String(workDate).slice(0, 10)}:${String(scheduleId)}:${String(probationWorkerId)}`;
+export function probationEvalRequestKey(
+  workDate: string,
+  scheduleId: string,
+  probationWorkerId: string,
+  evaluatorWorkerId?: string,
+) {
+  const base = `${String(workDate).slice(0, 10)}:${String(scheduleId)}:${String(probationWorkerId)}`;
+  const evaluatorId = String(evaluatorWorkerId ?? "").trim();
+  return evaluatorId ? `${base}:${evaluatorId}` : base;
 }
 
 export function computeAnswerScore(question: ProbationEvalQuestion, value: number | boolean) {

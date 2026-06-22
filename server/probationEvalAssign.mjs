@@ -57,7 +57,19 @@ export function findProbationWorkersOnSchedule(schedule, workers, workerAiRules)
   return findEvalSubjectsOnSchedule(schedule, workers, workerAiRules);
 }
 
-export function selectScheduleEvaluator(schedule, subjectWorker, workers, evalGrades) {
+function dedupeEvaluatorCandidates(candidates) {
+  const seen = new Set();
+  const result = [];
+  for (const row of candidates) {
+    const workerId = String(row.worker?.id ?? "");
+    if (!workerId || seen.has(workerId)) continue;
+    seen.add(workerId);
+    result.push(row);
+  }
+  return result;
+}
+
+export function selectScheduleEvaluators(schedule, subjectWorker, workers, evalGrades) {
   const subjectWorkerId = String(subjectWorker.id ?? "");
   const subjectRank = gradeRank(normalizeGrade(subjectWorker.grade));
   const names = Array.isArray(schedule?.participantNames) ? schedule.participantNames : [];
@@ -77,21 +89,36 @@ export function selectScheduleEvaluator(schedule, subjectWorker, workers, evalGr
     participants.push({ worker, participantName: label });
   }
 
-  if (!participants.length) return null;
+  if (!participants.length) return [];
+
+  const sCandidates = participants.filter((row) => normalizeGrade(row.worker.grade) === "S");
+  const aCandidates = participants.filter((row) => normalizeGrade(row.worker.grade) === "A");
+
+  if (sCandidates.length > 0) {
+    return dedupeEvaluatorCandidates([...sCandidates, ...aCandidates]).map((picked) => ({
+      worker: picked.worker,
+      participantName: picked.participantName,
+      selectionReason: "grade_match",
+    }));
+  }
 
   const gradeMatches = allowedGrades.size
     ? participants.filter((row) => allowedGrades.has(normalizeGrade(row.worker.grade)))
-    : [];
+    : participants;
 
-  const picked = gradeMatches.length
-    ? pickHighestGradeParticipant(gradeMatches)
-    : pickHighestGradeParticipant(participants);
+  const pool = gradeMatches.length ? gradeMatches : participants;
+  const picked = pickHighestGradeParticipant(pool);
+  if (!picked) return [];
 
-  if (!picked) return null;
+  return [
+    {
+      worker: picked.worker,
+      participantName: picked.participantName,
+      selectionReason: gradeMatches.length ? "grade_match" : "highest_grade_fallback",
+    },
+  ];
+}
 
-  return {
-    worker: picked.worker,
-    participantName: picked.participantName,
-    selectionReason: gradeMatches.length ? "grade_match" : "highest_grade_fallback",
-  };
+export function selectScheduleEvaluator(schedule, subjectWorker, workers, evalGrades) {
+  return selectScheduleEvaluators(schedule, subjectWorker, workers, evalGrades)[0] || null;
 }

@@ -5,12 +5,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { todayISO } from "@/utils/companyLedger";
 import { addDaysISO } from "@/utils/receivables";
 import {
+  fetchNotificationSettings,
   previewProbationEvalNotify,
   sendProbationEvalNotifyNow,
   sendProbationEvalReminderNow,
   type ProbationEvalAlimtalkPreview,
   type ProbationEvalAlimtalkPreviewRow,
 } from "@/utils/notificationApi";
+import { normalizeNotificationSettings, type NotificationSettings } from "@/utils/notificationSettings";
+import type { WorkerAiRules } from "@/utils/workerAiRules";
+import { ProbationEvalNotifyRulesSheet } from "@/components/ProbationEvalNotifyRulesSheet";
 
 const L = {
   sectionTitle: "시공자 평가 알림",
@@ -83,11 +87,16 @@ function statusClass(status: ProbationEvalAlimtalkPreviewRow["status"]) {
   }
 }
 
-export function ProbationEvalAlimtalkSection() {
+export function ProbationEvalAlimtalkSection({
+  workerAiRules,
+}: {
+  workerAiRules?: WorkerAiRules | null;
+}) {
   const [targetDate, setTargetDate] = useState(todayISO());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<ProbationEvalAlimtalkPreview | null>(null);
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings | null>(null);
   const [sending, setSending] = useState(false);
   const [reminding, setReminding] = useState(false);
   const [sendMessage, setSendMessage] = useState("");
@@ -102,8 +111,12 @@ export function ProbationEvalAlimtalkSection() {
     setSendMessage("");
     setReminderMessage("");
     try {
-      const result = await previewProbationEvalNotify(targetDate);
+      const [result, settingsResult] = await Promise.all([
+        previewProbationEvalNotify(targetDate),
+        fetchNotificationSettings(),
+      ]);
       setPreview(result);
+      setNotificationSettings(normalizeNotificationSettings(settingsResult.settings));
     } catch (loadError) {
       console.error(loadError);
       setPreview(null);
@@ -162,6 +175,13 @@ export function ProbationEvalAlimtalkSection() {
   return (
     <Card className="mt-4 rounded-2xl shadow-sm">
       <CardContent className="p-4 md:p-5">
+        <ProbationEvalNotifyRulesSheet
+          workerAiRules={workerAiRules}
+          notificationSettings={notificationSettings}
+          templateConfigured={preview?.templateConfigured}
+          masterNotifyEnabled={notificationSettings?.enabled}
+        />
+
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="erp-text-body flex items-center gap-2 font-bold text-slate-900">
@@ -246,7 +266,7 @@ export function ProbationEvalAlimtalkSection() {
               </thead>
               <tbody>
                 {preview.rows.map((row) => (
-                  <tr key={row.id || `${row.scheduleId}:${row.probationWorkerName}`} className="border-b border-slate-100">
+                  <tr key={row.id || `${row.scheduleId}:${row.probationWorkerName}:${row.evaluatorName}`} className="border-b border-slate-100">
                     <td className="px-2 py-2 font-medium text-slate-900">{row.siteName || "-"}</td>
                     <td className="px-2 py-2 text-slate-800">{row.probationWorkerName || "-"}</td>
                     <td className="px-2 py-2 text-slate-800">{row.evaluatorName || "-"}</td>

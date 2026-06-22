@@ -3,7 +3,7 @@ import { config } from "./config.mjs";
 import { getErpState, saveErpState } from "./db.mjs";
 import { normalizeWorkerAiRules } from "./workerAiRules.mjs";
 import { resolveScScheduleSiteName } from "./scScheduleSiteName.mjs";
-import { findEvalSubjectsOnSchedule, selectScheduleEvaluator } from "./probationEvalAssign.mjs";
+import { findEvalSubjectsOnSchedule, selectScheduleEvaluators } from "./probationEvalAssign.mjs";
 
 const MAX_REQUESTS = 10000;
 const SAVE_RETRY_ATTEMPTS = 8;
@@ -134,8 +134,10 @@ export function normalizeProbationEvalRequests(raw) {
     .filter(Boolean);
 }
 
-export function probationEvalRequestKey(workDate, scheduleId, probationWorkerId) {
-  return `${String(workDate).slice(0, 10)}:${String(scheduleId)}:${String(probationWorkerId)}`;
+export function probationEvalRequestKey(workDate, scheduleId, probationWorkerId, evaluatorWorkerId) {
+  const base = `${String(workDate).slice(0, 10)}:${String(scheduleId)}:${String(probationWorkerId)}`;
+  const evaluatorId = String(evaluatorWorkerId ?? "").trim();
+  return evaluatorId ? `${base}:${evaluatorId}` : base;
 }
 
 export function resolveActiveProbationEvalTemplate(templates, templateId) {
@@ -234,7 +236,9 @@ export function buildProbationEvalRequestsForSchedules(data, schedules, workDate
   const template = resolveActiveProbationEvalTemplate(templates, rules.probationEvalTemplateId);
   const existing = listRequests(data);
   const existingKeys = new Set(
-    existing.map((row) => probationEvalRequestKey(row.workDate, row.scheduleId, row.probationWorkerId)),
+    existing.map((row) =>
+      probationEvalRequestKey(row.workDate, row.scheduleId, row.probationWorkerId, row.evaluatorWorkerId),
+    ),
   );
   const created = [];
 
@@ -242,33 +246,34 @@ export function buildProbationEvalRequestsForSchedules(data, schedules, workDate
     const dateKey = String(workDate || schedule.workDate || "").slice(0, 10);
     const evalSubjects = findEvalSubjectsOnSchedule(schedule, workers, rules);
     for (const { worker } of evalSubjects) {
-      const key = probationEvalRequestKey(dateKey, schedule.id, worker.id);
-      if (existingKeys.has(key)) continue;
+      const evaluators = selectScheduleEvaluators(schedule, worker, workers, rules.probationEvalGrades);
+      for (const evaluator of evaluators) {
+        const key = probationEvalRequestKey(dateKey, schedule.id, worker.id, evaluator.worker.id);
+        if (existingKeys.has(key)) continue;
 
-      const evaluator = selectScheduleEvaluator(schedule, worker, workers, rules.probationEvalGrades);
-      if (!evaluator) continue;
+        const evaluatorPhone = normalizePhone(evaluator.worker.phone);
+        if (!evaluatorPhone) continue;
 
-      const evaluatorPhone = normalizePhone(evaluator.worker.phone);
-      if (!evaluatorPhone) continue;
+        const request = {
+          id: `pe-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`,
+          token: generateToken(),
+          workDate: dateKey,
+          scheduleId: String(schedule.id ?? ""),
+          siteName:
+            resolveScScheduleSiteName(schedule) || String(schedule.projectName || schedule.clientName || "").trim(),
+          probationWorkerId: String(worker.id ?? ""),
+          probationWorkerName: String(worker.name || "").trim(),
+          evaluatorWorkerId: String(evaluator.worker.id ?? ""),
+          evaluatorName: String(evaluator.worker.name || evaluator.participantName || "").trim(),
+          evaluatorPhone,
+          templateId: template.id,
+          status: "pending",
+          selectionReason: evaluator.selectionReason,
+        };
 
-      const request = {
-        id: `pe-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`,
-        token: generateToken(),
-        workDate: dateKey,
-        scheduleId: String(schedule.id ?? ""),
-        siteName: resolveScScheduleSiteName(schedule) || String(schedule.projectName || schedule.clientName || "").trim(),
-        probationWorkerId: String(worker.id ?? ""),
-        probationWorkerName: String(worker.name || "").trim(),
-        evaluatorWorkerId: String(evaluator.worker.id ?? ""),
-        evaluatorName: String(evaluator.worker.name || evaluator.participantName || "").trim(),
-        evaluatorPhone,
-        templateId: template.id,
-        status: "pending",
-        selectionReason: evaluator.selectionReason,
-      };
-
-      created.push(request);
-      existingKeys.add(key);
+        created.push(request);
+        existingKeys.add(key);
+      }
     }
   }
 

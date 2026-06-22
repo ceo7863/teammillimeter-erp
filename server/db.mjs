@@ -106,7 +106,7 @@ function emptyErpPayload() {
       postProbationGrade: "D",
       enforceEGradeDuringProbation: true,
       probationEvalSubjectMaxGrade: "E",
-      probationEvalGrades: ["A"],
+      probationEvalGrades: ["S", "A"],
       probationEvalTemplateId: "default-v1",
     },
     probationEvalTemplates: [],

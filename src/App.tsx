@@ -11338,6 +11338,7 @@ export default function TeammillimeterErpMvp() {
             onErpVersionChange={publishErpVersion}
             canManageSettings={currentUser?.role === "admin"}
             clients={activeClients}
+            workerAiRules={workerAiRules}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="dailyReport" active={shellActive}>

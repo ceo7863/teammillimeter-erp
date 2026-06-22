@@ -23,6 +23,7 @@ import {
 } from "@/utils/scScheduleAlimtalkRecipientPrefs";
 import { ScWeeklyBriefingSection } from "@/components/ScWeeklyBriefingSection";
 import { ProbationEvalAlimtalkSection } from "@/components/ProbationEvalAlimtalkSection";
+import type { WorkerAiRules } from "@/utils/workerAiRules";
 import { NotificationSettingsPage } from "@/components/NotificationSettingsPage";
 
 const L = {
@@ -168,6 +169,7 @@ type ScScheduleAlimtalkPageProps = {
   onErpVersionChange?: (version: number) => void;
   canManageSettings?: boolean;
   clients?: ClientMasterLike[];
+  workerAiRules?: WorkerAiRules | null;
 };
 
 export function ScScheduleAlimtalkPage({
@@ -175,6 +177,7 @@ export function ScScheduleAlimtalkPage({
   onErpVersionChange,
   canManageSettings = false,
   clients = [],
+  workerAiRules,
 }: ScScheduleAlimtalkPageProps) {
   const [activeTab, setActiveTab] = useState<"send" | "settings">("send");
   const [loading, setLoading] = useState(false);
@@ -650,7 +653,7 @@ export function ScScheduleAlimtalkPage({
       </Card>
 
       <ScWeeklyBriefingSection clients={clients} />
-      <ProbationEvalAlimtalkSection />
+      <ProbationEvalAlimtalkSection workerAiRules={workerAiRules} />
       <ScAlimtalkClientContactPickerModal
         open={Boolean(contactPicker)}
         clientName={contactPicker?.clientName || ""}

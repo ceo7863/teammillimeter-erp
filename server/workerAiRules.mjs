@@ -10,7 +10,7 @@ export const DEFAULT_WORKER_AI_RULES = {
   postProbationGrade: "D",
   enforceEGradeDuringProbation: true,
   probationEvalSubjectMaxGrade: "E",
-  probationEvalGrades: ["A"],
+  probationEvalGrades: ["S", "A"],
   probationEvalTemplateId: "default-v1",
 };
 
@@ -38,7 +38,11 @@ function clampPositiveInt(value, fallback, max = 12) {
 function normalizeProbationEvalGrades(value, fallback) {
   const list = Array.isArray(value) ? value : fallback;
   const normalized = [...new Set(list.map((grade) => String(grade || "").trim().toUpperCase()).filter(Boolean))];
-  return normalized.filter((grade) => WORKER_GRADE_OPTIONS.includes(grade));
+  const grades = normalized.filter((grade) => WORKER_GRADE_OPTIONS.includes(grade));
+  if (grades.includes("A") && !grades.includes("S")) {
+    grades.unshift("S");
+  }
+  return grades;
 }
 
 function clampHour(value, fallback) {

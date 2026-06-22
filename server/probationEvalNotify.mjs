@@ -7,7 +7,7 @@ import {
 } from "./notificationSettings.mjs";
 import { normalizeWorkerAiRules } from "./workerAiRules.mjs";
 import { filterSchedulesForDate } from "./scScheduleNotify.mjs";
-import { findEvalSubjectsOnSchedule, selectScheduleEvaluator } from "./probationEvalAssign.mjs";
+import { findEvalSubjectsOnSchedule, selectScheduleEvaluators } from "./probationEvalAssign.mjs";
 import { resolveScScheduleSiteName } from "./scScheduleSiteName.mjs";
 import {
   buildProbationEvalRequestsForSchedules,
@@ -62,33 +62,35 @@ export function previewProbationEvalNotify(targetDateInput) {
     (row) => row.workDate === targetDate,
   );
   const existingKeys = new Set(
-    existing.map((row) => probationEvalRequestKey(row.workDate, row.scheduleId, row.probationWorkerId)),
+    existing.map((row) =>
+      probationEvalRequestKey(row.workDate, row.scheduleId, row.probationWorkerId, row.evaluatorWorkerId),
+    ),
   );
 
   const planned = [];
   for (const schedule of schedules) {
     const evalSubjects = findEvalSubjectsOnSchedule(schedule, workers, rules);
     for (const { worker } of evalSubjects) {
-      const key = probationEvalRequestKey(targetDate, schedule.id, worker.id);
-      if (existingKeys.has(key)) continue;
+      const evaluators = selectScheduleEvaluators(schedule, worker, workers, rules.probationEvalGrades);
+      for (const evaluator of evaluators) {
+        const key = probationEvalRequestKey(targetDate, schedule.id, worker.id, evaluator.worker.id);
+        if (existingKeys.has(key)) continue;
 
-      const evaluator = selectScheduleEvaluator(schedule, worker, workers, rules.probationEvalGrades);
-      if (!evaluator) continue;
-
-      planned.push({
-        id: null,
-        workDate: targetDate,
-        scheduleId: String(schedule.id ?? ""),
-        siteName:
-          resolveScScheduleSiteName(schedule) ||
-          String(schedule.projectName || schedule.clientName || "").trim(),
-        probationWorkerName: String(worker.name || "").trim(),
-        evaluatorName: String(evaluator.worker.name || evaluator.participantName || "").trim(),
-        evaluatorPhone: normalizePhone(evaluator.worker.phone),
-        status: "planned",
-        selectionReason: evaluator.selectionReason,
-      });
-      existingKeys.add(key);
+        planned.push({
+          id: null,
+          workDate: targetDate,
+          scheduleId: String(schedule.id ?? ""),
+          siteName:
+            resolveScScheduleSiteName(schedule) ||
+            String(schedule.projectName || schedule.clientName || "").trim(),
+          probationWorkerName: String(worker.name || "").trim(),
+          evaluatorName: String(evaluator.worker.name || evaluator.participantName || "").trim(),
+          evaluatorPhone: normalizePhone(evaluator.worker.phone),
+          status: "planned",
+          selectionReason: evaluator.selectionReason,
+        });
+        existingKeys.add(key);
+      }
     }
   }
 

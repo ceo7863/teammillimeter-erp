@@ -64,7 +64,7 @@ const L = {
   weeklyBriefingScheduleHint: "\uC774\uBC88 \uC8FC \uC77C\uC815 \uAE30\uC900",
   probationEvalFeature: "\uC77C\uC77C \uC2DC\uACF5\uC790 \uD3C9\uAC00",
   probationEvalFeatureHint:
-    "\uB2F9\uC77C SC \uC77C\uC815 \uCC38\uC5EC \uC2DC\uACF5\uC790\uB97C \uB3D9\uAE09 \uC77C\uC815 \uC2DC\uACF5\uC790\uAC00 \uCE74\uCE74\uC624 \uC54C\uB9BC\uD1A1\uC73C\uB85C \uD3C9\uAC00\uD569\uB2C8\uB2E4. \uD3C9\uAC00 \uB300\uC0C1 \u00B7 \uD3C9\uAC00\uC790 \uB4F1\uAE09\uC740 \uC2E0\uC785 AI \uADDC\uCE59\uC5D0\uC11C \uC124\uC815\uD569\uB2C8\uB2E4.",
+    "당일 SC 일정 참여 수습 시공자를 평가하도록 알림톡을 보냅니다. S등급이 현장에 있으면 S·A 모두, 없으면 설정 등급 중 최고 1명입니다. 아래 「발송 규칙」 표를 참고하세요.",
   probationEvalTimeLabel: "\uD3C9\uAC00 \uBC1C\uC1A1 \uC2DC\uAC01",
   probationEvalScheduleHint: "\uB2F9\uC77C SC \uC77C\uC815 \uAE30\uC900",
   probationEvalReminder: "\uBBF8\uC81C\uCD9C \uC790\uB3D9 \uB9AC\uB9E4\uC778\uB354",

@@ -1,5 +1,6 @@
 import {
   selectScheduleEvaluator,
+  selectScheduleEvaluators,
   findEvalSubjectsOnSchedule,
   gradeRank,
   isWorkerEvalSubject,
@@ -29,6 +30,13 @@ const schedule = {
   workDate: "2026-06-10",
   participantNames: ["\uAE40\uC218\uC2B5", "\uBC15\uC2B9\uAE30", "\uC774\uC900\uBAA9"],
   projectName: "\uD14C\uC2A4\uD2B8 \uD604\uC7A5",
+};
+
+const scheduleWithS = {
+  id: "sch-sa",
+  workDate: "2026-06-10",
+  participantNames: ["\uAE40\uC218\uC2B5", "\uBC15\uC2B9\uAE30", "\uCD5C\uACE0\uAE09", "\uC774\uC900\uBAA9"],
+  projectName: "\uD14C\uC2A4\uD2B8 \uD604\uC7A5 S+A",
 };
 
 const scheduleFallback = {
@@ -69,34 +77,47 @@ function main() {
   );
   assert(subjectsD.length === 2, "expected E and D subjects when max is D");
 
-  const evaluator = selectScheduleEvaluator(schedule, subjects[0].worker, workers, rules.probationEvalGrades);
-  assert(evaluator, "evaluator should be selected");
-  assert(evaluator.worker.id === "w2", "grade match should pick A-grade worker");
-  assert(evaluator.selectionReason === "grade_match", "should be grade_match");
-  assert(gradeRank(evaluator.worker.grade) > gradeRank(subjects[0].worker.grade), "evaluator must outrank subject");
+  const evaluatorsOnlyA = selectScheduleEvaluators(schedule, subjects[0].worker, workers, rules.probationEvalGrades);
+  assert(evaluatorsOnlyA.length === 1, "without S on schedule only A should be selected");
+  assert(evaluatorsOnlyA[0].worker.id === "w2", "A-grade worker should evaluate");
+
+  const evaluatorsWithS = selectScheduleEvaluators(
+    scheduleWithS,
+    subjects[0].worker,
+    workers,
+    rules.probationEvalGrades,
+  );
+  assert(evaluatorsWithS.length === 2, "S on schedule should notify both S and A");
+  assert(
+    evaluatorsWithS.some((row) => row.worker.id === "w2") && evaluatorsWithS.some((row) => row.worker.id === "w4"),
+    "both A and S evaluators should be selected",
+  );
+
+  const legacySingle = selectScheduleEvaluator(schedule, subjects[0].worker, workers, rules.probationEvalGrades);
+  assert(legacySingle?.worker.id === "w2", "legacy helper should return first evaluator");
 
   const fallbackSubject = findEvalSubjectsOnSchedule(scheduleFallback, workers, rules)[0];
-  const fallbackEvaluator = selectScheduleEvaluator(
+  const fallbackEvaluators = selectScheduleEvaluators(
     scheduleFallback,
     fallbackSubject.worker,
     workers,
     rules.probationEvalGrades,
   );
-  assert(fallbackEvaluator, "fallback evaluator should exist");
-  assert(fallbackEvaluator.worker.id === "w3", "fallback should pick highest eligible participant");
-  assert(fallbackEvaluator.selectionReason === "highest_grade_fallback", "should be fallback");
+  assert(fallbackEvaluators.length === 1, "fallback should pick one evaluator");
+  assert(fallbackEvaluators[0].worker.id === "w3", "fallback should pick highest eligible participant");
+  assert(fallbackEvaluators[0].selectionReason === "highest_grade_fallback", "should be fallback");
 
   const sameGradeSubject = findEvalSubjectsOnSchedule(scheduleSameGrade, workers, rulesWithD).find(
     (row) => row.worker.id === "w5",
   );
   assert(sameGradeSubject, "D worker should be subject when max is D");
-  const sameGradeEvaluator = selectScheduleEvaluator(
+  const sameGradeEvaluators = selectScheduleEvaluators(
     scheduleSameGrade,
     sameGradeSubject.worker,
     workers,
     rulesWithD.probationEvalGrades,
   );
-  assert(sameGradeEvaluator === null, "E worker cannot evaluate D subject (lower rank)");
+  assert(sameGradeEvaluators.length === 0, "E worker cannot evaluate D subject (lower rank)");
 
   const soloSchedule = {
     id: "sch-3",
@@ -104,8 +125,8 @@ function main() {
     participantNames: ["\uAE40\uC218\uC2B5"],
   };
   const soloSubject = findEvalSubjectsOnSchedule(soloSchedule, workers, rules)[0];
-  const soloEvaluator = selectScheduleEvaluator(soloSchedule, soloSubject.worker, workers, rules.probationEvalGrades);
-  assert(soloEvaluator === null, "solo subject should have no evaluator");
+  const soloEvaluators = selectScheduleEvaluators(soloSchedule, soloSubject.worker, workers, rules.probationEvalGrades);
+  assert(soloEvaluators.length === 0, "solo subject should have no evaluator");
 
   console.log("verify-probation-eval-assign: ok");
 }
