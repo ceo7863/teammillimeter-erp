@@ -1,7 +1,12 @@
 import type { NotificationSettings } from "@/utils/notificationSettings";
 import { DEFAULT_NOTIFICATION_SETTINGS } from "@/utils/notificationSettings";
 import { WORKER_GRADE_RANK } from "@/utils/probationEvalTypes";
-import { normalizeWorkerAiRules, type WorkerAiRules } from "@/utils/workerAiRules";
+import {
+  PROBATION_EVAL_EVALUATOR_MODE_OPTIONS,
+  normalizeWorkerAiRules,
+  type ProbationEvalEvaluatorMode,
+  type WorkerAiRules,
+} from "@/utils/workerAiRules";
 
 export type ProbationEvalNotifyRuleRow = {
   id: string;
@@ -24,6 +29,8 @@ export type ProbationEvalNotifyRuleSheet = {
     reminderEnabled: boolean;
     subjectMaxGrade: string;
     evaluatorGrades: string;
+    evaluatorModeLabel: string;
+    companionGrades: string;
   };
 };
 
@@ -34,6 +41,32 @@ const GRADE_ORDER = Object.entries(WORKER_GRADE_RANK)
 
 function padTimePart(value: number) {
   return String(value).padStart(2, "0");
+}
+
+export function describeProbationEvalEvaluatorMode(mode: ProbationEvalEvaluatorMode) {
+  return PROBATION_EVAL_EVALUATOR_MODE_OPTIONS.find((row) => row.value === mode)?.label ?? mode;
+}
+
+export function describeProbationEvalEvaluatorResult(rules: WorkerAiRules) {
+  const normalized = normalizeWorkerAiRules(rules);
+  const grades =
+    normalized.probationEvalGrades.length > 0
+      ? normalized.probationEvalGrades.join(", ")
+      : "제한 없음";
+
+  switch (normalized.probationEvalEvaluatorMode) {
+    case "all_matching":
+      return `설정 등급(${grades})에 해당하는 참여자 전원에게 각각 발송`;
+    case "s_plus_companion_when_s": {
+      const companions =
+        normalized.probationEvalSCompanionGrades.length > 0
+          ? normalized.probationEvalSCompanionGrades.join(", ")
+          : "없음";
+      return `S등급 참여 시 S + ${companions} 각각 발송 · S 없으면 설정 등급 중 최고 1명`;
+    }
+    default:
+      return `설정 등급(${grades}) 중 현장 최고 등급 1명에게 발송`;
+  }
 }
 
 export function buildProbationEvalNotifyRuleSheet(input?: {
@@ -49,6 +82,11 @@ export function buildProbationEvalNotifyRuleSheet(input?: {
   const notifyEnabled = masterEnabled && settings.probationEvalNotifyEnabled;
   const evaluatorGrades =
     rules.probationEvalGrades.length > 0 ? rules.probationEvalGrades.join(", ") : "제한 없음(현장 최고 등급)";
+  const companionGrades =
+    rules.probationEvalSCompanionGrades.length > 0
+      ? rules.probationEvalSCompanionGrades.join(", ")
+      : "없음";
+  const evaluatorResult = describeProbationEvalEvaluatorResult(rules);
 
   const rows: ProbationEvalNotifyRuleRow[] = [
     {
@@ -90,7 +128,7 @@ export function buildProbationEvalNotifyRuleSheet(input?: {
       id: "subject-grade",
       section: "피평가자",
       condition: `참여자 등급 ≤ 평가 대상 최고 등급 (${rules.probationEvalSubjectMaxGrade})`,
-      result: "수습·일일 평가 요청 1건씩 생성",
+      result: "피평가자별 평가 요청 생성",
       active: true,
     },
     {
@@ -101,24 +139,10 @@ export function buildProbationEvalNotifyRuleSheet(input?: {
       active: true,
     },
     {
-      id: "evaluator-sa",
+      id: "evaluator-mode",
       section: "평가자",
-      condition: "같은 일정에 S등급 평가 가능 참여자 있음 (피평가자보다 높은 등급)",
-      result: "S등급·A등급 평가자 각각 알림톡 (둘 다)",
-      active: true,
-    },
-    {
-      id: "evaluator-single",
-      section: "평가자",
-      condition: "S등급 없음 + 평가자 등급 설정 있음",
-      result: `설정 등급(${evaluatorGrades}) 중 현장 최고 등급 1명`,
-      active: true,
-    },
-    {
-      id: "evaluator-fallback",
-      section: "평가자",
-      condition: "설정 등급에 맞는 평가자 없음 + 더 높은 등급 참여자 있음",
-      result: "현장 참여자 중 최고 등급 1명(fallback)",
+      condition: `선정 방식: ${describeProbationEvalEvaluatorMode(rules.probationEvalEvaluatorMode)}`,
+      result: evaluatorResult,
       active: true,
     },
     {
@@ -153,7 +177,7 @@ export function buildProbationEvalNotifyRuleSheet(input?: {
 
   return {
     title: "시공자 평가 알림톡 발송 규칙",
-    subtitle: "아래 조건을 모두 만족할 때만 알림톡이 발송됩니다. 미리보기 표와 대조해 확인하세요.",
+    subtitle: "아래에서 규칙을 조절하고 저장하면 미리보기·자동 발송에 바로 반영됩니다.",
     gradeOrderLabel: GRADE_ORDER,
     rows,
     settingsSummary: {
@@ -164,6 +188,8 @@ export function buildProbationEvalNotifyRuleSheet(input?: {
       reminderEnabled: settings.probationEvalReminderEnabled,
       subjectMaxGrade: rules.probationEvalSubjectMaxGrade,
       evaluatorGrades,
+      evaluatorModeLabel: describeProbationEvalEvaluatorMode(rules.probationEvalEvaluatorMode),
+      companionGrades,
     },
   };
 }

@@ -246,7 +246,7 @@ export function buildProbationEvalRequestsForSchedules(data, schedules, workDate
     const dateKey = String(workDate || schedule.workDate || "").slice(0, 10);
     const evalSubjects = findEvalSubjectsOnSchedule(schedule, workers, rules);
     for (const { worker } of evalSubjects) {
-      const evaluators = selectScheduleEvaluators(schedule, worker, workers, rules.probationEvalGrades);
+      const evaluators = selectScheduleEvaluators(schedule, worker, workers, rules);
       for (const evaluator of evaluators) {
         const key = probationEvalRequestKey(dateKey, schedule.id, worker.id, evaluator.worker.id);
         if (existingKeys.has(key)) continue;

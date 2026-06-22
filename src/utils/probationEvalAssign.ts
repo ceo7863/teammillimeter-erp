@@ -103,19 +103,35 @@ function dedupeEvaluatorCandidates(
   return result;
 }
 
+function mapEvaluators(
+  candidates: Array<{ worker: WorkerMasterLike; participantName: string }>,
+  selectionReason: ProbationEvalSelectionReason,
+): SelectedEvaluator[] {
+  return dedupeEvaluatorCandidates(candidates).map((picked) => ({
+    worker: picked.worker,
+    participantName: picked.participantName,
+    selectionReason,
+  }));
+}
+
 export function selectScheduleEvaluators(
   schedule: ScScheduleLike,
   subjectWorker: WorkerMasterLike,
   workers: WorkerMasterLike[],
-  evalGrades: string[],
+  workerAiRulesInput?: WorkerAiRules | null,
 ): SelectedEvaluator[] {
+  const rules = normalizeWorkerAiRules(workerAiRulesInput);
+  const evalGrades = rules.probationEvalGrades;
+  const mode = rules.probationEvalEvaluatorMode;
+  const companionGrades = new Set(
+    rules.probationEvalSCompanionGrades.map((grade) => normalizeGrade(grade)).filter(Boolean),
+  );
+
   const subjectWorkerId = String(subjectWorker.id ?? "");
   const subjectRank = gradeRank(normalizeGrade(subjectWorker.grade));
   const names = Array.isArray(schedule?.participantNames) ? schedule.participantNames : [];
   const allowedGrades = new Set(
-    (Array.isArray(evalGrades) ? evalGrades : [])
-      .map((grade) => normalizeGrade(grade))
-      .filter(Boolean),
+    evalGrades.map((grade) => normalizeGrade(grade)).filter(Boolean),
   );
 
   const participants: Array<{ worker: WorkerMasterLike; participantName: string }> = [];
@@ -132,20 +148,22 @@ export function selectScheduleEvaluators(
 
   if (!participants.length) return [];
 
-  const sCandidates = participants.filter((row) => normalizeGrade(row.worker.grade) === "S");
-  const aCandidates = participants.filter((row) => normalizeGrade(row.worker.grade) === "A");
-
-  if (sCandidates.length > 0) {
-    return dedupeEvaluatorCandidates([...sCandidates, ...aCandidates]).map((picked) => ({
-      worker: picked.worker,
-      participantName: picked.participantName,
-      selectionReason: "grade_match" as ProbationEvalSelectionReason,
-    }));
-  }
-
   const gradeMatches = allowedGrades.size
     ? participants.filter((row) => allowedGrades.has(normalizeGrade(row.worker.grade)))
     : participants;
+
+  if (mode === "all_matching") {
+    const pool = gradeMatches.length ? gradeMatches : participants;
+    return mapEvaluators(pool, gradeMatches.length ? "grade_match" : "highest_grade_fallback");
+  }
+
+  if (mode === "s_plus_companion_when_s") {
+    const sCandidates = participants.filter((row) => normalizeGrade(row.worker.grade) === "S");
+    if (sCandidates.length > 0) {
+      const companions = participants.filter((row) => companionGrades.has(normalizeGrade(row.worker.grade)));
+      return mapEvaluators([...sCandidates, ...companions], "grade_match");
+    }
+  }
 
   const pool = gradeMatches.length ? gradeMatches : participants;
   const picked = pickHighestGradeParticipant(pool);
@@ -155,7 +173,7 @@ export function selectScheduleEvaluators(
     {
       worker: picked.worker,
       participantName: picked.participantName,
-      selectionReason: (gradeMatches.length ? "grade_match" : "highest_grade_fallback") as ProbationEvalSelectionReason,
+      selectionReason: gradeMatches.length ? "grade_match" : "highest_grade_fallback",
     },
   ];
 }
@@ -164,7 +182,7 @@ export function selectScheduleEvaluator(
   schedule: ScScheduleLike,
   subjectWorker: WorkerMasterLike,
   workers: WorkerMasterLike[],
-  evalGrades: string[],
+  workerAiRulesInput?: WorkerAiRules | null,
 ): SelectedEvaluator | null {
-  return selectScheduleEvaluators(schedule, subjectWorker, workers, evalGrades)[0] || null;
+  return selectScheduleEvaluators(schedule, subjectWorker, workers, workerAiRulesInput)[0] || null;
 }

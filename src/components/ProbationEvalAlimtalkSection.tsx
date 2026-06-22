@@ -89,8 +89,16 @@ function statusClass(status: ProbationEvalAlimtalkPreviewRow["status"]) {
 
 export function ProbationEvalAlimtalkSection({
   workerAiRules,
+  canEdit = false,
+  erpVersion,
+  onSaveWorkerAiRules,
+  onErpVersionChange,
 }: {
-  workerAiRules?: WorkerAiRules | null;
+  workerAiRules?: import("@/utils/workerAiRules").WorkerAiRules | null;
+  canEdit?: boolean;
+  erpVersion?: number;
+  onSaveWorkerAiRules?: (rules: import("@/utils/workerAiRules").WorkerAiRules) => Promise<boolean | void>;
+  onErpVersionChange?: (version: number) => void;
 }) {
   const [targetDate, setTargetDate] = useState(todayISO());
   const [loading, setLoading] = useState(false);
@@ -180,6 +188,11 @@ export function ProbationEvalAlimtalkSection({
           notificationSettings={notificationSettings}
           templateConfigured={preview?.templateConfigured}
           masterNotifyEnabled={notificationSettings?.enabled}
+          canEdit={canEdit}
+          erpVersion={erpVersion}
+          onWorkerAiRulesSaved={onSaveWorkerAiRules}
+          onNotificationSettingsSaved={(_settings, version) => onErpVersionChange?.(version)}
+          onRulesSaved={() => void loadPreview()}
         />
 
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">

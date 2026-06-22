@@ -107,6 +107,8 @@ function emptyErpPayload() {
       enforceEGradeDuringProbation: true,
       probationEvalSubjectMaxGrade: "E",
       probationEvalGrades: ["S", "A"],
+      probationEvalEvaluatorMode: "s_plus_companion_when_s",
+      probationEvalSCompanionGrades: ["A"],
       probationEvalTemplateId: "default-v1",
     },
     probationEvalTemplates: [],

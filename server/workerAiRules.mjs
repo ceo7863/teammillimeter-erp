@@ -11,6 +11,8 @@ export const DEFAULT_WORKER_AI_RULES = {
   enforceEGradeDuringProbation: true,
   probationEvalSubjectMaxGrade: "E",
   probationEvalGrades: ["S", "A"],
+  probationEvalEvaluatorMode: "s_plus_companion_when_s",
+  probationEvalSCompanionGrades: ["A"],
   probationEvalTemplateId: "default-v1",
 };
 
@@ -38,11 +40,22 @@ function clampPositiveInt(value, fallback, max = 12) {
 function normalizeProbationEvalGrades(value, fallback) {
   const list = Array.isArray(value) ? value : fallback;
   const normalized = [...new Set(list.map((grade) => String(grade || "").trim().toUpperCase()).filter(Boolean))];
-  const grades = normalized.filter((grade) => WORKER_GRADE_OPTIONS.includes(grade));
-  if (grades.includes("A") && !grades.includes("S")) {
-    grades.unshift("S");
-  }
-  return grades;
+  return normalized.filter((grade) => WORKER_GRADE_OPTIONS.includes(grade));
+}
+
+const PROBATION_EVAL_EVALUATOR_MODES = ["highest", "all_matching", "s_plus_companion_when_s"];
+const PROBATION_EVAL_COMPANION_GRADES = ["A", "B", "C", "D"];
+
+function normalizeProbationEvalEvaluatorMode(value, fallback) {
+  const mode = String(value || "").trim();
+  if (PROBATION_EVAL_EVALUATOR_MODES.includes(mode)) return mode;
+  return fallback;
+}
+
+function normalizeCompanionGrades(value, fallback) {
+  const list = Array.isArray(value) ? value : fallback;
+  const normalized = [...new Set(list.map((grade) => String(grade || "").trim().toUpperCase()).filter(Boolean))];
+  return normalized.filter((grade) => PROBATION_EVAL_COMPANION_GRADES.includes(grade));
 }
 
 function clampHour(value, fallback) {
@@ -110,6 +123,14 @@ export function normalizeWorkerAiRules(raw) {
     probationEvalGrades: normalizeProbationEvalGrades(
       row.probationEvalGrades,
       DEFAULT_WORKER_AI_RULES.probationEvalGrades,
+    ),
+    probationEvalEvaluatorMode: normalizeProbationEvalEvaluatorMode(
+      row.probationEvalEvaluatorMode,
+      DEFAULT_WORKER_AI_RULES.probationEvalEvaluatorMode,
+    ),
+    probationEvalSCompanionGrades: normalizeCompanionGrades(
+      row.probationEvalSCompanionGrades,
+      DEFAULT_WORKER_AI_RULES.probationEvalSCompanionGrades,
     ),
     probationEvalTemplateId:
       String(row.probationEvalTemplateId || DEFAULT_WORKER_AI_RULES.probationEvalTemplateId).trim() ||
