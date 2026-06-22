@@ -130,7 +130,8 @@ export function WorkerStatementModal({
       const { result, fromCache } = await resolveStatementPdfForElement(
         element,
         ["worker-payment", workerName, monthKey, displayRows.length],
-        () => downloadWorkerStatementSheetPdf(element, fileName, { deliver: false })
+        () => downloadWorkerStatementSheetPdf(element, fileName, { deliver: false }),
+        { bypassCache: true }
       );
       pdfBlobUrlRef.current = result.blobUrl;
       setPdfMessage(fromCache ? "\uC11C\uBC84 \uC5C5\uB85C\uB4DC \uBC0F \uB9C1\uD06C \uC0DD\uC131 \uC911..." : "PDF \uC0DD\uC131 \uBC0F \uB9C1\uD06C \uC900\uBE44 \uC911...");

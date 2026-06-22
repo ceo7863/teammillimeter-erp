@@ -92,15 +92,27 @@ export function prefetchStatementPdf(key: string, generate: () => Promise<Statem
 export async function resolveStatementPdfForElement(
   element: HTMLElement,
   segments: Array<string | number | undefined | null>,
-  generate: () => Promise<StatementPdfBlobResult>
+  generate: () => Promise<StatementPdfBlobResult>,
+  options: { bypassCache?: boolean } = {}
 ): Promise<{ result: StatementPdfBlobResult; fromCache: boolean }> {
-  const cacheKey = await buildStatementPdfCacheKeyForElement(element, segments);
   const expectedPageCount = countStatementExportPages(element);
-  const cached = peekStatementPdfCache(cacheKey);
-  if (cached && cached.pageCount >= expectedPageCount) {
-    return { result: cached, fromCache: true };
+  const cacheKey = await buildStatementPdfCacheKeyForElement(element, segments);
+
+  if (!options.bypassCache) {
+    const cached = peekStatementPdfCache(cacheKey);
+    if (cached && cached.pageCount === expectedPageCount) {
+      return { result: cached, fromCache: true };
+    }
   }
-  return resolveStatementPdf(cacheKey, generate);
+
+  const { result } = await resolveStatementPdf(cacheKey, generate);
+  if (result.pageCount === expectedPageCount) {
+    return { result, fromCache: false };
+  }
+
+  clearStatementPdfCache(cacheKey);
+  const retried = await resolveStatementPdf(cacheKey, generate);
+  return { result: retried.result, fromCache: false };
 }
 
 export function prefetchStatementPdfForElement(

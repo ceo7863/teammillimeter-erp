@@ -10,6 +10,8 @@ import {
   findStatementSheetRoot,
   fixStatementCloneImages,
   flattenStatementFitCells,
+  waitForStatementFitCellsStable,
+  waitForStatementImages,
 } from "./statementDocument";
 
 export type StatementPageVariant = "screen" | "capture";
@@ -420,16 +422,6 @@ export function buildStatementExportPages(source: HTMLElement): HTMLElement[] {
 }
 
 export function countStatementExportPages(source: HTMLElement): number {
-  const preview = source.closest(".erp-statement-a4-preview") as HTMLElement | null;
-  if (preview?.dataset.statementPageCount) {
-    return Math.max(1, Number(preview.dataset.statementPageCount));
-  }
-  if (preview) {
-    const displayHost = preview.querySelector("[data-statement-display-host]") as HTMLElement | null;
-    if (displayHost?.dataset.statementPageCount) {
-      return Math.max(1, Number(displayHost.dataset.statementPageCount));
-    }
-  }
   return buildStatementExportPages(source).length;
 }
 
@@ -465,31 +457,16 @@ export async function waitForStatementPreviewReady(preview: HTMLElement, timeout
   return Math.max(1, Number(preview.dataset.statementPageCount || "1"));
 }
 
-function readVisiblePreviewSheets(preview: HTMLElement, pageCount: number) {
-  if (pageCount <= 1) {
-    const measureHost = preview.querySelector("[data-statement-measure-host]") as HTMLElement | null;
-    const liveSheet = findStatementSheetRoot(measureHost);
-    return liveSheet ? [liveSheet] : [];
-  }
-
-  const displayHost = preview.querySelector("[data-statement-display-host]") as HTMLElement | null;
-  if (!displayHost) return [];
-
-  return Array.from(displayHost.querySelectorAll(":scope > .erp-statement-a4-page > .erp-statement-sheet")) as HTMLElement[];
-}
-
-/** Collect pages shown on screen for WYSIWYG print/PDF. */
+/** Collect paginated pages for print/PDF from the live statement DOM. */
 export async function collectStatementPrintPages(exportRoot: HTMLElement): Promise<HTMLElement[]> {
   const preview = exportRoot.closest(".erp-statement-a4-preview") as HTMLElement | null;
+  const source = findStatementSheetRoot(exportRoot) || exportRoot;
 
   if (preview) {
-    const pageCount = await waitForStatementPreviewReady(preview);
-    const visibleSheets = readVisiblePreviewSheets(preview, pageCount);
-
-    if (visibleSheets.length > 0) {
-      return visibleSheets.map((sheet) => cloneStatementPrintSheet(sheet));
-    }
+    await waitForStatementPreviewReady(preview);
   }
+  await waitForStatementFitCellsStable(source);
+  await waitForStatementImages(source);
 
-  return buildStatementExportPages(exportRoot).map((sheet) => cloneStatementPrintSheet(sheet));
+  return buildStatementExportPages(source).map((sheet) => cloneStatementPrintSheet(sheet));
 }

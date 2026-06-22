@@ -1382,7 +1382,8 @@ export function StatementsPage({
           downloadPdfFromHtmlElement(element, fileName, {
             orientation: "portrait",
             deliver: false,
-          })
+          }),
+        { bypassCache: true }
       );
       pdfBlobUrlRef.current = result.blobUrl;
       setPdfMessage(fromCache ? "\uC11C\uBC84 \uC5C5\uB85C\uB4DC \uBC0F \uB9C1\uD06C \uC0DD\uC131 \uC911..." : L.shareLinkPreparing);
