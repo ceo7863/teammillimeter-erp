@@ -78,6 +78,7 @@ import {
   getPdfArchiveFileByShareToken,
   updatePdfArchiveMeta,
   migratePdfArchiveShareLink,
+  replacePdfArchiveFile,
 } from "./pdfArchive.mjs";
 import {
   initBoardAttachmentStore,
@@ -3389,6 +3390,35 @@ app.get("/api/pdf-archives/:id/file", authMiddleware, (req, res) => {
   res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
   res.sendFile(path.resolve(file.path));
 });
+
+app.put(
+  "/api/pdf-archives/:id/file",
+  authMiddleware,
+  express.raw({ type: "application/pdf", limit: "25mb" }),
+  (req, res) => {
+    try {
+      const rawMeta = req.headers["x-pdf-meta"];
+      const meta = rawMeta ? parsePdfMetaHeader(rawMeta) : {};
+      const buffer = Buffer.from(req.body || []);
+      if (!buffer.length) {
+        res.status(400).json({ error: "PDF 파일이 비어 있습니다." });
+        return;
+      }
+      const updated = replacePdfArchiveFile(req.params.id, buffer, {
+        fileName: meta.fileName,
+        pageCount: meta.pageCount,
+      });
+      if (!updated) {
+        res.status(404).json({ error: "PDF를 찾을 수 없습니다." });
+        return;
+      }
+      res.json(updated);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "PDF 교체에 실패했습니다." });
+    }
+  },
+);
 
 app.post("/api/pdf-archives/:id/share-link", authMiddleware, (req, res) => {
   const meta = getPdfArchiveMetaById(req.params.id);

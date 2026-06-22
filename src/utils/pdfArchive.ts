@@ -215,6 +215,82 @@ export async function savePdfArchive(input: {
   return savePdfArchiveLocal(input);
 }
 
+async function replacePdfArchiveLocal(
+  id: string,
+  input: { blob: Blob; fileName: string; pageCount: number },
+): Promise<PdfArchiveMeta> {
+  const db = await openPdfDatabase();
+  const record = await new Promise<PdfArchiveRecord | null>((resolve, reject) => {
+    const tx = db.transaction(PDF_STORE, "readonly");
+    const request = tx.objectStore(PDF_STORE).get(id);
+    request.onsuccess = () => resolve((request.result as PdfArchiveRecord | undefined) || null);
+    request.onerror = () => reject(request.error || new Error("PDF를 찾을 수 없습니다."));
+    tx.oncomplete = () => db.close();
+    tx.onerror = () => db.close();
+  });
+
+  if (!record) {
+    throw new Error("PDF를 찾을 수 없습니다.");
+  }
+
+  const next: PdfArchiveRecord = {
+    ...record,
+    fileName: input.fileName,
+    pageCount: input.pageCount || 1,
+    fileSize: input.blob.size,
+    blob: input.blob,
+  };
+
+  const dbWrite = await openPdfDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const tx = dbWrite.transaction(PDF_STORE, "readwrite");
+    tx.oncomplete = () => {
+      dbWrite.close();
+      resolve();
+    };
+    tx.onerror = () => {
+      dbWrite.close();
+      reject(tx.error || new Error("PDF 교체에 실패했습니다."));
+    };
+    tx.objectStore(PDF_STORE).put(next);
+  });
+
+  return toMeta(next);
+}
+
+async function replacePdfArchiveApi(
+  id: string,
+  input: { blob: Blob; fileName: string; pageCount: number },
+): Promise<PdfArchiveMeta> {
+  const meta = {
+    fileName: input.fileName,
+    pageCount: input.pageCount || 1,
+  };
+
+  const response = await fetch(`${apiBase()}/pdf-archives/${encodeURIComponent(id)}/file`, {
+    method: "PUT",
+    headers: authHeaders({
+      "Content-Type": "application/pdf",
+      "X-Pdf-Meta": encodeURIComponent(JSON.stringify(meta)),
+    }),
+    body: input.blob,
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+
+  return response.json() as Promise<PdfArchiveMeta>;
+}
+
+async function replacePdfArchive(
+  id: string,
+  input: { blob: Blob; fileName: string; pageCount: number },
+): Promise<PdfArchiveMeta> {
+  if (isApiModeEnabled()) return replacePdfArchiveApi(id, input);
+  return replacePdfArchiveLocal(id, input);
+}
+
 async function listPdfArchivesLocal(): Promise<PdfArchiveMeta[]> {
   const db = await openPdfDatabase();
   const records = await new Promise<PdfArchiveRecord[]>((resolve, reject) => {
@@ -449,12 +525,18 @@ export async function archiveGeneratedPdf(
     const duplicate = findDuplicateSentStatementArchive(existingRecords, { ...meta, sentViaLink: true });
     if (duplicate) {
       const key = buildPdfArchiveStatementKey(duplicate);
+      let updated = await replacePdfArchive(duplicate.id, {
+        blob: result.blob,
+        fileName: result.fileName,
+        pageCount: result.pageCount,
+      });
       const patch: PdfArchiveMetaPatch = {};
       if (meta.statementTotalAmount != null) patch.statementTotalAmount = meta.statementTotalAmount;
       if (meta.statementSalesIds?.length) patch.statementSalesIds = meta.statementSalesIds;
       if (meta.shareLinkUrl) patch.shareLinkUrl = meta.shareLinkUrl;
-      const updated =
-        Object.keys(patch).length > 0 ? await updatePdfArchiveMeta(duplicate.id, patch) : duplicate;
+      if (Object.keys(patch).length > 0) {
+        updated = await updatePdfArchiveMeta(updated.id, patch);
+      }
 
       const duplicatesToRemove = existingRecords.filter(
         (record) =>

@@ -194,6 +194,33 @@ export function updatePdfArchiveMeta(id, patch = {}) {
   return getPdfArchiveMetaById(id);
 }
 
+export function replacePdfArchiveFile(id, buffer, patch = {}) {
+  const row = getDb().prepare("SELECT * FROM pdf_archives WHERE id = ?").get(id);
+  if (!row) return null;
+  if (!Buffer.isBuffer(buffer) || !buffer.length) {
+    throw new Error("PDF 파일이 비어 있습니다.");
+  }
+
+  fs.writeFileSync(row.storage_path, buffer);
+
+  const fileName = patch.fileName != null ? String(patch.fileName) : row.file_name;
+  const pageCount = patch.pageCount != null ? Number(patch.pageCount) || 1 : row.page_count;
+
+  getDb()
+    .prepare(
+      `
+      UPDATE pdf_archives SET
+        file_name = ?,
+        file_size = ?,
+        page_count = ?
+      WHERE id = ?
+    `,
+    )
+    .run(fileName, buffer.length, pageCount, id);
+
+  return getPdfArchiveMetaById(id);
+}
+
 export function getPdfArchiveFile(id) {
   const row = getDb().prepare("SELECT storage_path, file_name FROM pdf_archives WHERE id = ?").get(id);
   if (!row || !fs.existsSync(row.storage_path)) return null;
