@@ -2,7 +2,6 @@ import {
   A4_PORTRAIT_HEIGHT_PX,
   A4_PORTRAIT_WIDTH_PX,
   A4_STATEMENT_CAPTURE_SLACK_PX,
-  A4_STATEMENT_FORCE_SINGLE_PAGE_MAX_SITES,
   getStatementFillerRowCountFromElement,
 } from "./statementSheetLayout";
 import {
@@ -47,9 +46,8 @@ function countSiteBodyRows(rows: HTMLTableRowElement[]) {
   return siteRows.length || 1;
 }
 
-function shouldForceSingleStatementPage(bodyRows: HTMLTableRowElement[]) {
-  const siteGroups = splitBodyRowsIntoGroups(bodyRows);
-  return siteGroups.length <= A4_STATEMENT_FORCE_SINGLE_PAGE_MAX_SITES;
+function statementPageFitsSingleSheet(host: HTMLElement, pageElement: HTMLElement) {
+  return measurePageHeight(host, pageElement) <= A4_PORTRAIT_HEIGHT_PX + A4_STATEMENT_CAPTURE_SLACK_PX + 0.5;
 }
 
 function buildSingleStatementPage(
@@ -386,19 +384,14 @@ export function buildPaginatedStatementPages(
   const host = createMeasureHost();
 
   try {
-    if (bodyRows.length > 0 && shouldForceSingleStatementPage(bodyRows)) {
-      const page = buildSingleStatementPage(source, bodyRows, variant);
-      return [page];
-    }
-
-    let pageChunks = paginateStatementRows(source, host, bodyRows, variant);
-
-    if (pageChunks.length > 1 && bodyRows.length > 0) {
+    if (bodyRows.length > 0) {
       const singlePage = buildSingleStatementPage(source, bodyRows, variant);
-      if (measurePageHeight(host, singlePage) <= A4_PORTRAIT_HEIGHT_PX + A4_STATEMENT_CAPTURE_SLACK_PX + 0.5) {
-        pageChunks = [{ rows: fixRowspanForChunk(bodyRows, ""), siteDate: "" }];
+      if (statementPageFitsSingleSheet(host, singlePage)) {
+        return [singlePage];
       }
     }
+
+    const pageChunks = paginateStatementRows(source, host, bodyRows, variant);
 
     const totalPages = pageChunks.length;
     return pageChunks.map((chunk, pageIndex) => {

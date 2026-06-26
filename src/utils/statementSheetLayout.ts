@@ -6,7 +6,6 @@ export const A4_PORTRAIT_HEIGHT_PX = 1123;
 export const A4_STATEMENT_MIN_BODY_ROWS = 30;
 /** Table body row cap so header + meta + footer still fit on one A4 page */
 export const A4_STATEMENT_TABLE_BODY_MAX_ROWS = 24;
-export const A4_STATEMENT_FORCE_SINGLE_PAGE_MAX_SITES = 15;
 /** Footer/logo subpixel overflow above A4 still counts as one page */
 export const A4_STATEMENT_CAPTURE_SLACK_PX = 28;
 /** @page margin + bottom breathing room — pagination stays within printable area */
