@@ -99,6 +99,20 @@ export const config = {
     /** ERP iframe SC 캘린더 (SC_SYNC_SECRET 공유 SSO) */
     embedEnabled: parseEnvBool(process.env.SC_EMBED_ENABLED, true),
   },
+  calwalk: {
+    /** CalWalk ERP schedule export (preferred over SC when configured) */
+    apiBaseUrl: process.env.CALWALK_API_BASE_URL || "https://calwalk.com",
+    exportSecret:
+      process.env.CALWALK_ERP_EXPORT_SECRET ||
+      process.env.ERP_SYNC_SECRET ||
+      process.env.SC_SYNC_SECRET ||
+      "",
+    workspaceSlug:
+      process.env.CALWALK_ERP_EXPORT_WORKSPACE ||
+      process.env.CALWALK_WORKSPACE_SLUG ||
+      "teammm",
+    scheduleSyncEnabled: parseEnvBool(process.env.CALWALK_SCHEDULE_SYNC_ENABLED, true),
+  },
   barobill: {
     certKey: process.env.BAROBILL_CERT_KEY || "",
     corpNum: process.env.BAROBILL_CORP_NUM || "",

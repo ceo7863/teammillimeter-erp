@@ -73,3 +73,46 @@ export function resolveScScheduleParticipants(workers, participantNames = []) {
       };
     });
 }
+
+function parseParticipantMoney(value) {
+  if (value == null || value === "") return null;
+  const amount = Number(String(value).replace(/[^\d.-]/g, ""));
+  return Number.isFinite(amount) && amount > 0 ? amount : null;
+}
+
+function extractParticipantExtras(participant) {
+  if (!participant || typeof participant !== "object") {
+    return { meal: null, expense: null };
+  }
+  const meal = parseParticipantMoney(participant.meal);
+  const expense = parseParticipantMoney(participant.expense);
+  return {
+    meal,
+    expense,
+  };
+}
+
+/** Stored schedule participants (CalWalk export) merged with ERP worker master. */
+export function resolveScScheduleParticipantDetails(workers, row = {}) {
+  const participantNames = Array.isArray(row.participantNames) ? row.participantNames : [];
+  const resolved = resolveScScheduleParticipants(workers, participantNames);
+  const stored = Array.isArray(row.participants) ? row.participants : [];
+  if (!stored.length) return resolved;
+
+  return stored.map((participant, index) => {
+    const key = String(participant?.participantName || participant?.name || "").trim();
+    const fallback =
+      resolved.find((rowItem) => rowItem.participantName === key || rowItem.name === key) ||
+      resolved[index];
+    const extras = extractParticipantExtras(participant);
+    return {
+      participantName: key || fallback?.participantName || "",
+      name: String(participant?.name || fallback?.name || key).trim(),
+      phone: String(participant?.phone || fallback?.phone || "").trim(),
+      vehicleNo: String(participant?.vehicleNo || fallback?.vehicleNo || "").trim(),
+      ...(extras.meal != null ? { meal: extras.meal } : {}),
+      ...(extras.expense != null ? { expense: extras.expense } : {}),
+      ...(participant?.workLog ? { workLog: participant.workLog } : {}),
+    };
+  });
+}

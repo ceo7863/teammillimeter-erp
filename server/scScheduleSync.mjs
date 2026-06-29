@@ -1,6 +1,9 @@
 import { config } from "./config.mjs";
 import { getErpState, saveErpState } from "./db.mjs";
-import { resolveScScheduleParticipants } from "./workerPhoneMatch.mjs";
+import {
+  resolveScScheduleParticipantDetails,
+  resolveScScheduleParticipants,
+} from "./workerPhoneMatch.mjs";
 import { levenshtein, maxEditDistanceFor } from "./erpChatFuzzy.mjs";
 import { applyWorkerPortalLoginIdsFromSc, fetchScPortalLoginUsers } from "./scWorkerPortalSync.mjs";
 import { withScPool } from "./scPool.mjs";
@@ -274,12 +277,136 @@ function syncWindowMonths() {
   return { ranges, start: first.start, end: last.end };
 }
 
-export function isScScheduleSourceConfigured() {
-  if (String(config.sc.databaseUrl || "").trim()) return true;
-  return (
+function isCalwalkScheduleSourceConfigured() {
+  const base = String(config.calwalk?.apiBaseUrl || "").trim();
+  const secret = String(config.calwalk?.exportSecret || "").trim();
+  const workspace = String(config.calwalk?.workspaceSlug || "").trim();
+  if (!base || !secret || !workspace) return false;
+  if (config.calwalk?.scheduleSyncEnabled === false) return false;
+  const hasDedicatedSecret = Boolean(
+    process.env.CALWALK_ERP_EXPORT_SECRET?.trim() || process.env.ERP_SYNC_SECRET?.trim(),
+  );
+  if (!hasDedicatedSecret && process.env.CALWALK_SCHEDULE_SYNC_ENABLED !== "true") return false;
+  return true;
+}
+
+
+export function resolveScheduleSyncSource() {
+  const forced = String(process.env.SC_SCHEDULE_SYNC_SOURCE || "auto").trim().toLowerCase();
+  if (forced === "sc") {
+    if (String(config.sc.databaseUrl || "").trim()) return "sc-db";
+    if (
+      Boolean(String(config.sc.apiBaseUrl || "").trim()) &&
+      Boolean(String(config.sc.syncSecret || "").trim())
+    ) {
+      return "sc-api";
+    }
+    return null;
+  }
+  if (forced === "calwalk") {
+    return isCalwalkScheduleSourceConfigured() ? "calwalk" : null;
+  }
+  if (isCalwalkScheduleSourceConfigured()) return "calwalk";
+  if (String(config.sc.databaseUrl || "").trim()) return "sc-db";
+  if (
     Boolean(String(config.sc.apiBaseUrl || "").trim()) &&
     Boolean(String(config.sc.syncSecret || "").trim())
-  );
+  ) {
+    return "sc-api";
+  }
+  return null;
+}
+
+export function isScScheduleSourceConfigured() {
+  return resolveScheduleSyncSource() != null;
+}
+
+function normalizeCalwalkProjects(projects) {
+  if (!Array.isArray(projects)) return [];
+  return projects
+    .map((row) => ({
+      id: String(row.id || "").trim(),
+      name: String(row.name || "").trim(),
+      address: row.address ? String(row.address).trim() : "",
+      isActive: row.isActive !== false,
+    }))
+    .filter((row) => row.id && row.name);
+}
+
+function normalizeCalwalkParticipant(row) {
+  const participantName = String(row?.participantName || row?.name || "").trim();
+  if (!participantName) return null;
+  const mealRaw = row?.meal;
+  const expenseRaw = row?.expense;
+  const meal =
+    mealRaw == null || mealRaw === "" ? null : Math.max(0, Number(mealRaw) || 0);
+  const expense =
+    expenseRaw == null || expenseRaw === "" ? null : Math.max(0, Number(expenseRaw) || 0);
+  const workLog = normalizeWorkLogFromScheduleRow({ workLog: row?.workLog });
+  return {
+    participantName,
+    name: String(row?.name || participantName).trim(),
+    ...(meal != null && meal > 0 ? { meal } : {}),
+    ...(expense != null && expense > 0 ? { expense } : {}),
+    ...(workLog ? { workLog } : {}),
+  };
+}
+
+function normalizeCalwalkSchedules(schedules) {
+  if (!Array.isArray(schedules)) return [];
+  return schedules
+    .map((row) => {
+      const id = String(row.id || row.calwalkEventId || "").trim();
+      const participants = Array.isArray(row.participants)
+        ? row.participants.map((entry) => normalizeCalwalkParticipant(entry)).filter(Boolean)
+        : [];
+      const participantNames = Array.isArray(row.participantNames)
+        ? row.participantNames.map((name) => String(name || "").trim()).filter(Boolean)
+        : participants.map((entry) => entry.participantName);
+      const workLog = normalizeWorkLogFromScheduleRow(row);
+      return {
+        id,
+        scProjectId: String(row.calwalkClientId || "").trim(),
+        projectName: String(row.projectName || row.clientName || row.workType || "").trim(),
+        siteManagerName: String(row.siteManagerName || "").trim(),
+        workDate: String(row.workDate || "").slice(0, 10),
+        startTime: String(row.startTime || "").trim(),
+        endTime: row.endTime ? String(row.endTime).trim() : "",
+        workType: String(row.workType || "").trim(),
+        expectedHeadcount:
+          row.expectedHeadcount == null || row.expectedHeadcount === ""
+            ? null
+            : Number(row.expectedHeadcount),
+        participantNames,
+        ...(participants.length ? { participants } : {}),
+        participantCount: Number.isFinite(Number(row.participantCount))
+          ? Number(row.participantCount)
+          : participantNames.length,
+        ...(workLog ? { workLog } : {}),
+      };
+    })
+    .filter((row) => row.id && row.workDate);
+}
+
+async function fetchCalwalkDataFromApi(start, end) {
+  const base = String(config.calwalk.apiBaseUrl || "").trim().replace(/\/$/, "");
+  const secret = String(config.calwalk.exportSecret || "").trim();
+  const workspace = String(config.calwalk.workspaceSlug || "teammm").trim();
+  if (!base || !secret || !workspace) {
+    throw new Error("CalWalk export sync is not configured");
+  }
+  const startKey = formatUtcDate(start);
+  const endKey = formatUtcDate(end);
+  const url = `${base}/api/integrations/erp/schedule-export?workspace=${encodeURIComponent(workspace)}&start=${encodeURIComponent(startKey)}&end=${encodeURIComponent(endKey)}`;
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${secret}` },
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`CalWalk export ${response.status}${body ? `: ${body.slice(0, 200)}` : ""}`);
+  }
+  return response.json();
 }
 
 async function fetchScDataFromApi(start, end) {
@@ -303,17 +430,31 @@ async function fetchScDataFromApi(start, end) {
 }
 
 async function loadScProjectsAndSchedules(start, end) {
-  if (String(config.sc.databaseUrl || "").trim()) {
+  const source = resolveScheduleSyncSource();
+  if (source === "calwalk") {
+    const payload = await fetchCalwalkDataFromApi(start, end);
+    return {
+      projects: normalizeCalwalkProjects(payload?.projects),
+      schedules: normalizeCalwalkSchedules(payload?.schedules),
+      source: "calwalk",
+    };
+  }
+  if (source === "sc-db") {
     return withScPool(async (pool) => ({
       projects: await fetchScProjects(pool),
       schedules: await fetchScSchedules(pool, start, end),
+      source: "sc-db",
     }));
   }
-  const payload = await fetchScDataFromApi(start, end);
-  return {
-    projects: Array.isArray(payload?.projects) ? payload.projects : [],
-    schedules: Array.isArray(payload?.schedules) ? payload.schedules : [],
-  };
+  if (source === "sc-api") {
+    const payload = await fetchScDataFromApi(start, end);
+    return {
+      projects: Array.isArray(payload?.projects) ? payload.projects : [],
+      schedules: Array.isArray(payload?.schedules) ? payload.schedules : [],
+      source: "sc-api",
+    };
+  }
+  throw new Error("No schedule sync source configured");
 }
 
 async function fetchScProjects(pool) {
@@ -700,6 +841,7 @@ function attachClientToSchedules(schedules, clients) {
       expectedHeadcount: row.expectedHeadcount,
       participantNames: row.participantNames,
       participantCount: row.participantCount,
+      ...(Array.isArray(row.participants) && row.participants.length ? { participants: row.participants } : {}),
       ...(workLog ? { workLog } : {}),
       syncedAt,
     };
@@ -763,7 +905,7 @@ export function sanitizePublicScSchedule(row, workers = []) {
     workType: row.workType,
     expectedHeadcount: row.expectedHeadcount,
     participantNames,
-    participants: resolveScScheduleParticipants(workers, participantNames),
+    participants: resolveScScheduleParticipantDetails(workers, row),
     participantCount: Number(row.participantCount || 0),
     ...(workLog ? { workLog } : {}),
     source: "sc",
@@ -797,13 +939,10 @@ export function listStaffScSchedulesForClient(clientId, monthKey) {
   }
   const month = String(monthKey || "").trim();
   const workers = Array.isArray(data.workers) ? data.workers : [];
-  const rows = filterScSchedulesForClient(listScSchedules(data), client.id, month).map((row) => {
-    const participantNames = Array.isArray(row.participantNames) ? row.participantNames : [];
-    return {
-      ...row,
-      participants: resolveScScheduleParticipants(workers, participantNames),
-    };
-  });
+  const rows = filterScSchedulesForClient(listScSchedules(data), client.id, month).map((row) => ({
+    ...row,
+    participants: resolveScScheduleParticipantDetails(workers, row),
+  }));
   const projectIds = listClientScProjectIds(client);
   const projectMappings = listClientScProjectMappings(client);
   return {
@@ -826,13 +965,10 @@ export function listStaffScSchedulesForMonth(monthKey) {
   const workers = Array.isArray(data.workers) ? data.workers : [];
   const rows = listScSchedules(data)
     .filter((row) => String(row.workDate || "").slice(0, 7) === month)
-    .map((row) => {
-      const participantNames = Array.isArray(row.participantNames) ? row.participantNames : [];
-      return {
-        ...row,
-        participants: resolveScScheduleParticipants(workers, participantNames),
-      };
-    });
+    .map((row) => ({
+      ...row,
+      participants: resolveScScheduleParticipantDetails(workers, row),
+    }));
   return { ok: true, schedules: rows };
 }
 
@@ -843,6 +979,9 @@ export function getScScheduleSyncStatus() {
     configured: isScScheduleSourceConfigured(),
     enabled: config.sc.syncEnabled,
     intervalMs: config.sc.syncIntervalMs,
+    scheduleSyncSource: resolveScheduleSyncSource(),
+    calwalkConfigured: isCalwalkScheduleSourceConfigured(),
+    calwalkWorkspaceSlug: config.calwalk?.workspaceSlug || "",
     ...meta,
   };
 }
@@ -887,6 +1026,9 @@ export async function runScScheduleSync(options = {}) {
       lastRunAt: runAt,
       lastSuccessAt: runAt,
       lastError: null,
+      lastSyncSource: result.source || resolveScheduleSyncSource(),
+      lastCalwalkWorkspace:
+        result.source === "calwalk" ? String(config.calwalk?.workspaceSlug || "").trim() : null,
       lastProjectCount: result.projects.length,
       lastScheduleCount: enriched.length,
       lastMappedClientCount: mapped.mappedCount,
