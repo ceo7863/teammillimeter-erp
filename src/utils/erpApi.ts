@@ -69,6 +69,7 @@ export type ErpPayload = {
   ledgerCategories?: unknown[];
   companyNotices?: unknown[];
   workPosts?: unknown[];
+  workTasks?: unknown[];
   saleComments?: unknown[];
   taxInvoices?: unknown[];
   bankTransactions?: unknown[];
@@ -337,6 +338,7 @@ export function buildErpDomainChunk(domain: ErpSaveDomain, payload: ErpPayload) 
         ledgerCategories: payload.ledgerCategories || [],
         companyNotices: payload.companyNotices || [],
         workPosts: payload.workPosts || [],
+        workTasks: payload.workTasks || [],
         statementGenerationLogs: payload.statementGenerationLogs || [],
         statementFolders: payload.statementFolders || [],
         notificationSettings: payload.notificationSettings,

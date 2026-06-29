@@ -1646,6 +1646,7 @@ function buildErpApiResponse(state, workersOverride = null, workerMonthlyPayment
     bankTransactionFolders: data.bankTransactionFolders || [],
     companyNotices: data.companyNotices || [],
     workPosts: data.workPosts || [],
+    workTasks: data.workTasks || [],
     saleComments: data.saleComments || [],
     statementGenerationLogs: data.statementGenerationLogs || [],
     statementFolders: data.statementFolders || [],
@@ -2947,6 +2948,7 @@ app.put("/api/erp", authMiddleware, (req, res) => {
     ledgerCategories,
     companyNotices,
     workPosts,
+    workTasks,
     saleComments,
     taxInvoices,
     bankTransactions,
@@ -3010,6 +3012,7 @@ app.put("/api/erp", authMiddleware, (req, res) => {
       : existing.data.ledgerCategories || [],
     companyNotices: Array.isArray(companyNotices) ? companyNotices : existing.data.companyNotices || [],
     workPosts: Array.isArray(workPosts) ? workPosts : existing.data.workPosts || [],
+    workTasks: Array.isArray(workTasks) ? workTasks : existing.data.workTasks || [],
     saleComments: Array.isArray(saleComments) ? saleComments : existing.data.saleComments || [],
     taxInvoices: Array.isArray(taxInvoices) ? taxInvoices : existing.data.taxInvoices || [],
     bankTransactions: Array.isArray(bankTransactions)

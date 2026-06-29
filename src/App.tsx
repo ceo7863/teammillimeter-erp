@@ -21,6 +21,7 @@ import {
   History,
   Home,
   Layers,
+  LayoutGrid,
   Landmark,
   LogIn,
   LogOut,
@@ -105,6 +106,7 @@ import { DEFAULT_COMPANY_PROFILE, normalizeCompanyProfile } from "@/utils/compan
 import { formatDepositNameAliases } from "@/utils/clientDepositAliases";
 import { normalizeCompanyNotices } from "@/utils/companyNotices";
 import { normalizeWorkPosts } from "@/utils/workBoard";
+import { normalizeWorkTasks } from "@/utils/taskBoard";
 import {
   appendSaleComment,
   appendSaleComments,
@@ -263,6 +265,7 @@ import {
 import { ScScheduleAlimtalkPage } from "@/components/ScScheduleAlimtalkPage";
 import { ScEmbedPage } from "@/components/ScEmbedPage";
 import { DailyReportPage } from "@/components/DailyReportPage";
+import { TaskBoardPage } from "@/components/TaskBoardPage";
 import { ClientFormModal, type ClientFormState } from "@/components/ClientFormModal";
 import { WorkerFormModal, createEmptyWorkerForm } from "@/components/WorkerFormModal";
 import {
@@ -772,6 +775,7 @@ function normalizeBackupPayload(raw) {
       ),
       companyNotices: normalizeCompanyNotices(raw.companyNotices),
       workPosts: normalizeWorkPosts(raw.workPosts),
+      workTasks: normalizeWorkTasks(raw.workTasks),
       saleComments: normalizeSaleComments(raw.saleComments),
       taxInvoices: normalizeTaxInvoices(raw.taxInvoices),
       bankTransactions: normalizeBankTransactions(raw.bankTransactions),
@@ -2901,6 +2905,7 @@ const PAGE_ICONS: Record<ErpPageKey, typeof Home> = {
   scCalendar: CalendarDays,
   scAlimtalk: Smartphone,
   dailyReport: ClipboardList,
+  taskBoard: LayoutGrid,
   teamChat: MessageCircle,
   attendance: Clock,
   salesInput: Plus,
@@ -8627,6 +8632,10 @@ export default function TeammillimeterErpMvp() {
     if (apiMode && sessionOnMount) return [];
     return normalizeWorkPosts(storedData?.workPosts);
   });
+  const [workTasks, setWorkTasks] = useState(() => {
+    if (apiMode && sessionOnMount) return [];
+    return normalizeWorkTasks(storedData?.workTasks);
+  });
   const [saleComments, setSaleComments] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return normalizeSaleComments(storedData?.saleComments);
@@ -8826,6 +8835,7 @@ export default function TeammillimeterErpMvp() {
     );
     setCompanyNotices(normalizeCompanyNotices(data.companyNotices));
     setWorkPosts(normalizeWorkPosts(data.workPosts));
+    setWorkTasks(normalizeWorkTasks(data.workTasks));
     const incomingSaleComments = normalizeSaleComments(data.saleComments);
     const nextSaleComments = preserveLocalEdits
         ? mergeSaleComments(incomingSaleComments, saleCommentsRef.current)
@@ -9129,6 +9139,7 @@ export default function TeammillimeterErpMvp() {
       ledgerCategories,
       companyNotices,
       workPosts,
+      workTasks,
       saleComments: saleCommentsRef.current,
       taxInvoices,
       ...(bankTransactionsDirtyRef.current
@@ -9182,6 +9193,7 @@ export default function TeammillimeterErpMvp() {
       ledgerCategories,
       companyNotices,
       workPosts,
+      workTasks,
       taxInvoices,
       bankTransactions,
       bankTransactionFolders,
@@ -10106,6 +10118,7 @@ export default function TeammillimeterErpMvp() {
         ledgerCategories,
         companyNotices,
         workPosts,
+        workTasks,
         saleComments: nextComments,
         taxInvoices,
         bankTransactions,
@@ -10149,6 +10162,7 @@ export default function TeammillimeterErpMvp() {
     ledgerCategories,
     companyNotices,
     workPosts,
+    workTasks,
     taxInvoices,
     bankTransactions,
     bankTransactionFolders,
@@ -10231,6 +10245,7 @@ export default function TeammillimeterErpMvp() {
     ledgerCategories,
     companyNotices,
     workPosts,
+    workTasks,
     taxInvoices,
     bankTransactions,
     bankTransactionFolders,
@@ -10498,7 +10513,7 @@ export default function TeammillimeterErpMvp() {
 
   useEffect(() => {
     if (!apiMode) {
-      saveStoredData({ sales, paymentVouchers, paymentInputLogs, clients, workers, workerMonthlyPaymentMemos, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, accountCodes, ledgerCategories, companyNotices, workPosts, saleComments, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
+      saveStoredData({ sales, paymentVouchers, paymentInputLogs, clients, workers, workerMonthlyPaymentMemos, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, accountCodes, ledgerCategories, companyNotices, workPosts, workTasks, saleComments, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
       return;
     }
     if (!currentUser || !dataReady) return;
@@ -10539,7 +10554,7 @@ export default function TeammillimeterErpMvp() {
         saveDebounceTimerRef.current = null;
       }
     };
-  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, workerMonthlyPaymentMemos, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, accountCodes, ledgerCategories, companyNotices, workPosts, saleComments, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode, buildErpSavePayload, persistErpSave]);
+  }, [sales, paymentVouchers, paymentInputLogs, clients, workers, workerMonthlyPaymentMemos, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, accountCodes, ledgerCategories, companyNotices, workPosts, workTasks, saleComments, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile, currentUser, dataReady, apiMode, buildErpSavePayload, persistErpSave]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -10562,7 +10577,7 @@ export default function TeammillimeterErpMvp() {
   }, [active]);
 
   const backupData = () => {
-    downloadBackup({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, accountCodes, ledgerCategories, companyNotices, workPosts, saleComments, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
+    downloadBackup({ sales, paymentVouchers, paymentInputLogs, clients, workers, auditLogs, loginLogs, workerPaymentRecords, workerPayoutVouchers, workerMonthlyActualVouchers, workerPayWithVatLearnRules, companyExpenses, attendanceRecords, fixedExpenses, fixedExpensePayments, bankLedgerRules, expenseCategories, fixedExpenseCategories, accountCodes, ledgerCategories, companyNotices, workPosts, workTasks, saleComments, taxInvoices, bankTransactions, bankTransactionFolders, statementGenerationLogs, statementFolders, companyProfile });
   };
 
   const restoreBackup = (file) => {
@@ -10602,6 +10617,7 @@ export default function TeammillimeterErpMvp() {
         );
         setCompanyNotices(normalizeCompanyNotices(parsed.companyNotices));
         setWorkPosts(normalizeWorkPosts(parsed.workPosts));
+        setWorkTasks(normalizeWorkTasks(parsed.workTasks));
         setSaleComments(normalizeSaleComments(parsed.saleComments));
         setTaxInvoices(normalizeTaxInvoices(parsed.taxInvoices));
         setBankTransactions(normalizeBankTransactions(parsed.bankTransactions));
@@ -10656,6 +10672,7 @@ export default function TeammillimeterErpMvp() {
     );
     setCompanyNotices(normalizeCompanyNotices(payload.companyNotices));
     setWorkPosts(normalizeWorkPosts(payload.workPosts));
+    setWorkTasks(normalizeWorkTasks(payload.workTasks));
     setSaleComments(normalizeSaleComments(payload.saleComments));
     setTaxInvoices(normalizeTaxInvoices(payload.taxInvoices));
     setBankTransactions(normalizeBankTransactions(payload.bankTransactions));
@@ -11345,6 +11362,9 @@ export default function TeammillimeterErpMvp() {
         </PageKeepAlive>
         <PageKeepAlive pageKey="dailyReport" active={shellActive}>
           <DailyReportPage currentUser={currentUser} />
+        </PageKeepAlive>
+        <PageKeepAlive pageKey="taskBoard" active={shellActive}>
+          <TaskBoardPage workTasks={workTasks} setWorkTasks={setWorkTasks} currentUser={currentUser} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="teamChat" active={shellActive} className="erp-page-keep-alive--team-chat">
           <TeamChatPage

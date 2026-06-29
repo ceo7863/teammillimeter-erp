@@ -37,6 +37,7 @@ export const ERP_DOMAIN_FIELDS = {
     "ledgerCategories",
     "companyNotices",
     "workPosts",
+    "workTasks",
     "statementGenerationLogs",
     "statementFolders",
     "notificationSettings",
@@ -224,6 +225,7 @@ export function mergeErpDomainForSave(existingData, domain, incomingPartial) {
           ? incoming.companyNotices
           : existing.companyNotices || [],
         workPosts: Array.isArray(incoming.workPosts) ? incoming.workPosts : existing.workPosts || [],
+        workTasks: Array.isArray(incoming.workTasks) ? incoming.workTasks : existing.workTasks || [],
         statementGenerationLogs: Array.isArray(incoming.statementGenerationLogs)
           ? incoming.statementGenerationLogs
           : existing.statementGenerationLogs || [],

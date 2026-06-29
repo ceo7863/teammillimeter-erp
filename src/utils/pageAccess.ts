@@ -40,6 +40,7 @@ export const ERP_PAGE_KEYS = [
   "loginHistory",
   "attendance",
   "dailyReport",
+  "taskBoard",
   "teamChat",
   "officePayroll",
 ] as const;
@@ -55,6 +56,7 @@ export type ErpPageDef = {
 
 export const ERP_PAGE_DEFS: ErpPageDef[] = [
   { key: "dailyReport", label: "\uC77C\uC77C\uBCF4\uACE0", group: "\uC5C5\uBB34" },
+  { key: "taskBoard", label: "업무보드", group: "업무" },
   { key: "teamChat", label: "팀밀 톡", group: "\uC5C5\uBB34" },
   { key: "dashboard", label: "대시보드", group: "업무" },
   { key: "calendar", label: "캘린더", group: "업무" },
@@ -84,6 +86,7 @@ const ERP_PAGE_KEY_SET = new Set<string>(ERP_PAGE_KEYS);
 /** 일반(staff) 계정 기본 허용 페이지 */
 export const DEFAULT_STAFF_PAGE_KEYS: ErpPageKey[] = [
   "dailyReport",
+  "taskBoard",
   "teamChat",
   "dashboard",
   "calendar",
