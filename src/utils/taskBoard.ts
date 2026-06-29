@@ -213,7 +213,117 @@ export type WorkTaskBoardSummary = {
   blocked: number;
   overdue: number;
   totalOpen: number;
+  total: number;
+  dueToday: number;
 };
+
+export type TaskBoardDashboardFilter =
+  | "all"
+  | "doing"
+  | "review"
+  | "done"
+  | "overdue"
+  | "dueToday"
+  | "mine";
+
+export type TaskActivityItem = {
+  taskId: string;
+  taskTitle: string;
+  at: string;
+  byUserName?: string;
+  label: string;
+};
+
+export function isWorkTaskDueToday(task: WorkTask, today = todayIsoDate()) {
+  if (!task.dueDate || task.status === "done") return false;
+  return task.dueDate === today;
+}
+
+export function matchesTaskBoardFilter(
+  task: WorkTask,
+  filter: TaskBoardDashboardFilter,
+  viewerUserId?: number,
+  today = todayIsoDate(),
+) {
+  switch (filter) {
+    case "all":
+      return true;
+    case "doing":
+      return task.status === "doing";
+    case "review":
+      return task.status === "review";
+    case "done":
+      return task.status === "done";
+    case "overdue":
+      return isWorkTaskOverdue(task, today);
+    case "dueToday":
+      return isWorkTaskDueToday(task, today);
+    case "mine":
+      return (
+        typeof viewerUserId === "number" &&
+        task.assigneeUserId === viewerUserId &&
+        task.status !== "done"
+      );
+    default:
+      return true;
+  }
+}
+
+export function listMyOpenTasks(tasks: WorkTask[], userId?: number) {
+  if (typeof userId !== "number") return [];
+  return tasks
+    .filter((task) => task.assigneeUserId === userId && task.status !== "done")
+    .sort(sortWorkTasksForColumn);
+}
+
+export function listTasksDueToday(tasks: WorkTask[], today = todayIsoDate()) {
+  return tasks.filter((task) => isWorkTaskDueToday(task, today)).sort(sortWorkTasksForColumn);
+}
+
+export function listRecentTaskActivity(tasks: WorkTask[], limit = 12): TaskActivityItem[] {
+  const items: TaskActivityItem[] = [];
+  for (const task of tasks) {
+    if (task.timeline.length === 0) {
+      items.push({
+        taskId: task.id,
+        taskTitle: task.title,
+        at: task.createdAt,
+        byUserName: task.createdByName,
+        label: "업무 등록",
+      });
+      continue;
+    }
+    for (const entry of task.timeline) {
+      items.push({
+        taskId: task.id,
+        taskTitle: task.title,
+        at: entry.at,
+        byUserName: entry.byUserName,
+        label: timelineEntryLabel(entry),
+      });
+    }
+  }
+  return items.sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit);
+}
+
+export function taskBoardFilterLabel(filter: TaskBoardDashboardFilter) {
+  switch (filter) {
+    case "doing":
+      return "진행 중";
+    case "review":
+      return "검토 요청";
+    case "done":
+      return "완료";
+    case "overdue":
+      return "지연";
+    case "dueToday":
+      return "오늘 마감";
+    case "mine":
+      return "내 업무";
+    default:
+      return "전체";
+  }
+}
 
 export function summarizeWorkTaskBoard(tasks: WorkTask[], boardId: WorkTaskBoardId): WorkTaskBoardSummary {
   const scoped = filterWorkTasksByBoard(tasks, boardId);
@@ -225,10 +335,13 @@ export function summarizeWorkTaskBoard(tasks: WorkTask[], boardId: WorkTaskBoard
     blocked: 0,
     overdue: 0,
     totalOpen: 0,
+    total: scoped.length,
+    dueToday: 0,
   };
   for (const task of scoped) {
     summary[task.status] += 1;
     if (task.status !== "done" && isWorkTaskOverdue(task)) summary.overdue += 1;
+    if (isWorkTaskDueToday(task)) summary.dueToday += 1;
   }
   summary.totalOpen = summary.todo + summary.doing + summary.review + summary.blocked;
   return summary;

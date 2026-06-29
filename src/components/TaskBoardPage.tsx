@@ -1,12 +1,17 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  Briefcase,
   Calendar,
+  CalendarClock,
+  CheckCircle2,
+  Clock3,
   LayoutGrid,
+  ListTodo,
   Pencil,
   Plus,
+  Sparkles,
   Trash2,
-  User,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,13 +29,20 @@ import {
   formatTaskDate,
   formatTaskDateTime,
   groupWorkTasksByStatus,
+  isWorkTaskDueToday,
   isWorkTaskOverdue,
+  listMyOpenTasks,
+  listRecentTaskActivity,
+  listTasksDueToday,
   makeWorkTaskId,
+  matchesTaskBoardFilter,
   summarizeWorkTaskBoard,
+  taskBoardFilterLabel,
   timelineEntryLabel,
   todayIsoDate,
   validateWorkTaskInput,
   workTaskStatusLabel,
+  type TaskBoardDashboardFilter,
   type WorkTask,
   type WorkTaskBoardId,
   type WorkTaskStatus,
@@ -59,12 +71,16 @@ function SummaryChip({
   label,
   value,
   tone = "slate",
+  active = false,
   onClick,
+  icon: Icon,
 }: {
   label: string;
   value: number;
-  tone?: "slate" | "amber" | "sky" | "emerald" | "rose";
+  tone?: "slate" | "amber" | "sky" | "emerald" | "rose" | "violet";
+  active?: boolean;
   onClick?: () => void;
+  icon?: React.ComponentType<{ className?: string }>;
 }) {
   const toneClass =
     tone === "amber"
@@ -75,17 +91,109 @@ function SummaryChip({
           ? "border-emerald-200 bg-emerald-50 text-emerald-900"
           : tone === "rose"
             ? "border-rose-200 bg-rose-50 text-rose-900"
-            : "border-slate-200 bg-white text-slate-700";
+            : tone === "violet"
+              ? "border-violet-200 bg-violet-50 text-violet-900"
+              : "border-slate-200 bg-white text-slate-700";
   const Tag = onClick ? "button" : "div";
   return (
     <Tag
       type={onClick ? "button" : undefined}
       onClick={onClick}
-      className={`rounded-xl border px-3 py-2 text-left ${toneClass} ${onClick ? "transition hover:brightness-95" : ""}`}
+      className={`erp-task-metric-card rounded-2xl border px-4 py-3 text-left shadow-sm ${toneClass} ${
+        onClick ? "transition hover:brightness-[0.98]" : ""
+      } ${active ? "ring-2 ring-teal-400 ring-offset-1" : ""}`}
     >
-      <p className="text-[11px] font-semibold opacity-80">{label}</p>
-      <p className="text-lg font-bold tabular-nums">{value}</p>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-xs font-semibold opacity-80">{label}</p>
+          <p className="mt-1 text-2xl font-bold tabular-nums">{value}</p>
+          <p className="mt-0.5 text-[10px] opacity-70">건</p>
+        </div>
+        {Icon ? (
+          <div className="rounded-xl bg-white/70 p-2 shadow-sm">
+            <Icon className="h-5 w-5 opacity-80" />
+          </div>
+        ) : null}
+      </div>
     </Tag>
+  );
+}
+
+function AssigneeAvatar({ name }: { name: string }) {
+  const initial = (name.trim() || "?").slice(0, 1);
+  return (
+    <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-700">
+      {initial}
+    </span>
+  );
+}
+
+function TaskCardButton({
+  task,
+  assigneeLabel,
+  onOpen,
+}: {
+  task: WorkTask;
+  assigneeLabel: string;
+  onOpen: () => void;
+}) {
+  const overdue = isWorkTaskOverdue(task);
+  const dueToday = isWorkTaskDueToday(task);
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={`w-full rounded-xl border bg-white p-3 text-left shadow-sm transition hover:border-teal-200 ${
+        overdue ? "border-rose-300 ring-1 ring-rose-100" : "border-slate-200"
+      }`}
+    >
+      <p className="line-clamp-2 text-sm font-semibold text-slate-900">{task.title}</p>
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-slate-500">
+          <AssigneeAvatar name={assigneeLabel} />
+          <span className="truncate">{assigneeLabel}</span>
+        </div>
+        {task.dueDate ? (
+          <span
+            className={`shrink-0 text-[10px] font-semibold ${
+              overdue ? "text-rose-700" : dueToday ? "text-violet-700" : "text-slate-500"
+            }`}
+          >
+            {formatTaskDate(task.dueDate)}
+          </span>
+        ) : null}
+      </div>
+      {task.blockedReason ? (
+        <p className="mt-2 line-clamp-2 rounded-md bg-rose-50 px-2 py-1 text-[10px] text-rose-800">
+          {task.blockedReason}
+        </p>
+      ) : null}
+    </button>
+  );
+}
+
+function WidgetCard({
+  title,
+  icon: Icon,
+  children,
+  action,
+}: {
+  title: string;
+  icon: React.ComponentType<{ className?: string }>;
+  children: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <header className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Icon className="h-4 w-4 text-teal-600" />
+          <h3 className="text-sm font-bold text-slate-900">{title}</h3>
+        </div>
+        {action}
+      </header>
+      <div className="max-h-56 overflow-y-auto px-3 py-2">{children}</div>
+    </section>
   );
 }
 
@@ -94,7 +202,7 @@ export function TaskBoardPage({ workTasks, setWorkTasks, currentUser }: TaskBoar
   const [users, setUsers] = useState<ErpUserRecord[]>([]);
   const [modal, setModal] = useState<TaskModalState | null>(null);
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
-  const [showOverdueOnly, setShowOverdueOnly] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<TaskBoardDashboardFilter>("all");
   const [form, setForm] = useState({
     title: "",
     assigneeUserId: "" as string,
@@ -117,6 +225,22 @@ export function TaskBoardPage({ workTasks, setWorkTasks, currentUser }: TaskBoar
   const boardTasks = useMemo(() => filterWorkTasksByBoard(workTasks, boardId), [workTasks, boardId]);
   const summary = useMemo(() => summarizeWorkTaskBoard(workTasks, boardId), [workTasks, boardId]);
   const grouped = useMemo(() => groupWorkTasksByStatus(boardTasks), [boardTasks]);
+  const myOpenTasks = useMemo(
+    () => listMyOpenTasks(boardTasks, currentUser?.id),
+    [boardTasks, currentUser?.id],
+  );
+  const dueTodayTasks = useMemo(() => listTasksDueToday(boardTasks), [boardTasks]);
+  const recentActivity = useMemo(() => listRecentTaskActivity(boardTasks, 14), [boardTasks]);
+  const headerDateLabel = useMemo(
+    () =>
+      new Date().toLocaleDateString("ko-KR", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        weekday: "short",
+      }),
+    [],
+  );
   const detailTask = useMemo(
     () => (detailTaskId ? workTasks.find((task) => task.id === detailTaskId) ?? null : null),
     [detailTaskId, workTasks],
@@ -128,6 +252,18 @@ export function TaskBoardPage({ workTasks, setWorkTasks, currentUser }: TaskBoar
     if (currentUser?.id) map.set(currentUser.id, currentUser.name || currentUser.loginId);
     return map;
   }, [users, currentUser]);
+
+  function taskPassesFilter(task: WorkTask) {
+    return matchesTaskBoardFilter(task, activeFilter, currentUser?.id);
+  }
+
+  function toggleFilter(filter: TaskBoardDashboardFilter) {
+    setActiveFilter((prev) => (prev === filter ? "all" : filter));
+  }
+
+  function openTask(taskId: string) {
+    setDetailTaskId(taskId);
+  }
 
   function resolveAssigneeName(userId?: number | null) {
     if (typeof userId !== "number") return "미지정";
@@ -338,13 +474,13 @@ export function TaskBoardPage({ workTasks, setWorkTasks, currentUser }: TaskBoar
             업무보드
           </h1>
           <p className="mt-1 erp-text-body text-slate-600">
-            회의·업무를 등록하고 진행 상태를 한눈에 확인합니다.
+            {WORK_TASK_BOARDS.find((b) => b.id === boardId)?.label} · {headerDateLabel}
           </p>
         </div>
         {canEdit ? (
           <Button type="button" onClick={() => openCreate("todo")} className="gap-1.5">
             <Plus className="h-4 w-4" />
-            업무 추가
+            새 업무
           </Button>
         ) : null}
       </div>
@@ -356,7 +492,7 @@ export function TaskBoardPage({ workTasks, setWorkTasks, currentUser }: TaskBoar
             type="button"
             onClick={() => {
               setBoardId(board.id);
-              setShowOverdueOnly(false);
+              setActiveFilter("all");
             }}
             className={`rounded-xl border px-4 py-2 text-left transition ${
               boardId === board.id
@@ -370,36 +506,63 @@ export function TaskBoardPage({ workTasks, setWorkTasks, currentUser }: TaskBoar
         ))}
       </div>
 
-      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-        <SummaryChip label="해야 함" value={summary.todo} tone="amber" />
-        <SummaryChip label="진행 중" value={summary.doing} tone="sky" />
-        <SummaryChip label="검토 요청" value={summary.review} tone="emerald" />
-        <SummaryChip label="완료" value={summary.done} />
-        <SummaryChip label="보류" value={summary.blocked} tone="rose" />
+      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <SummaryChip
+          label="전체 업무"
+          value={summary.total}
+          tone="slate"
+          icon={Briefcase}
+          active={activeFilter === "all"}
+          onClick={() => setActiveFilter("all")}
+        />
+        <SummaryChip
+          label="진행 중"
+          value={summary.doing}
+          tone="sky"
+          icon={Clock3}
+          active={activeFilter === "doing"}
+          onClick={() => toggleFilter("doing")}
+        />
+        <SummaryChip
+          label="완료"
+          value={summary.done}
+          tone="emerald"
+          icon={CheckCircle2}
+          active={activeFilter === "done"}
+          onClick={() => toggleFilter("done")}
+        />
         <SummaryChip
           label="지연"
           value={summary.overdue}
           tone="rose"
-          onClick={summary.overdue > 0 ? () => setShowOverdueOnly((v) => !v) : undefined}
+          icon={AlertTriangle}
+          active={activeFilter === "overdue"}
+          onClick={() => toggleFilter("overdue")}
+        />
+        <SummaryChip
+          label="오늘 마감"
+          value={summary.dueToday}
+          tone="violet"
+          icon={CalendarClock}
+          active={activeFilter === "dueToday"}
+          onClick={() => toggleFilter("dueToday")}
         />
       </div>
 
-      {showOverdueOnly ? (
-        <div className="mb-3 flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
-          <AlertTriangle className="h-4 w-4 shrink-0" />
-          지연 업무만 표시 중
-          <button type="button" className="ml-auto text-xs font-semibold underline" onClick={() => setShowOverdueOnly(false)}>
+      {activeFilter !== "all" ? (
+        <div className="mb-3 flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-900">
+          <Sparkles className="h-4 w-4 shrink-0" />
+          {taskBoardFilterLabel(activeFilter)} 업무만 표시 중
+          <button type="button" className="ml-auto text-xs font-semibold underline" onClick={() => setActiveFilter("all")}>
             전체 보기
           </button>
         </div>
       ) : null}
 
-      <div className="erp-task-kanban-scroll overflow-x-auto pb-2">
+      <div className="erp-task-kanban-scroll mb-4 overflow-x-auto pb-2">
         <div className="erp-task-kanban-grid flex min-w-[980px] gap-3">
           {WORK_TASK_STATUSES.map((column) => {
-            const tasks = (grouped.get(column.id) ?? []).filter(
-              (task) => !showOverdueOnly || isWorkTaskOverdue(task),
-            );
+            const tasks = (grouped.get(column.id) ?? []).filter(taskPassesFilter);
             return (
               <section key={column.id} className={`erp-task-kanban-col min-w-[190px] flex-1 ${column.columnClass}`}>
                 <header className={`mb-2 flex items-center justify-between rounded-xl border px-3 py-2 ${column.headerClass}`}>
@@ -421,43 +584,30 @@ export function TaskBoardPage({ workTasks, setWorkTasks, currentUser }: TaskBoar
                   ) : null}
                 </header>
                 <ul className="space-y-2">
-                  {tasks.map((task) => {
-                    const overdue = isWorkTaskOverdue(task);
-                    return (
-                      <li key={task.id}>
-                        <button
-                          type="button"
-                          onClick={() => setDetailTaskId(task.id)}
-                          className={`w-full rounded-xl border bg-white p-3 text-left shadow-sm transition hover:border-teal-200 ${
-                            overdue ? "border-rose-300 ring-1 ring-rose-100" : "border-slate-200"
-                          }`}
-                        >
-                          <p className="line-clamp-2 text-sm font-semibold text-slate-900">{task.title}</p>
-                          <div className="mt-2 space-y-1 text-[11px] text-slate-500">
-                            <p className="flex items-center gap-1">
-                              <User className="h-3 w-3" />
-                              {task.assigneeName || resolveAssigneeName(task.assigneeUserId)}
-                            </p>
-                            {task.dueDate ? (
-                              <p className={`flex items-center gap-1 ${overdue ? "font-semibold text-rose-700" : ""}`}>
-                                <Calendar className="h-3 w-3" />
-                                {formatTaskDate(task.dueDate)}
-                                {overdue ? " · 지연" : ""}
-                              </p>
-                            ) : null}
-                            {task.blockedReason ? (
-                              <p className="line-clamp-2 rounded-md bg-rose-50 px-2 py-1 text-rose-800">
-                                {task.blockedReason}
-                              </p>
-                            ) : null}
-                          </div>
-                        </button>
-                      </li>
-                    );
-                  })}
+                  {tasks.map((task) => (
+                    <li key={task.id}>
+                      <TaskCardButton
+                        task={task}
+                        assigneeLabel={task.assigneeName || resolveAssigneeName(task.assigneeUserId)}
+                        onOpen={() => openTask(task.id)}
+                      />
+                    </li>
+                  ))}
                   {tasks.length === 0 ? (
                     <li className="rounded-xl border border-dashed border-slate-200 px-3 py-6 text-center text-xs text-slate-400">
                       없음
+                    </li>
+                  ) : null}
+                  {canEdit ? (
+                    <li>
+                      <button
+                        type="button"
+                        onClick={() => openCreate(column.id)}
+                        className="flex w-full items-center justify-center gap-1 rounded-xl border border-dashed border-slate-200 py-2 text-xs font-semibold text-slate-500 hover:border-teal-200 hover:text-teal-700"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        업무 추가
+                      </button>
                     </li>
                   ) : null}
                 </ul>
@@ -465,6 +615,94 @@ export function TaskBoardPage({ workTasks, setWorkTasks, currentUser }: TaskBoar
             );
           })}
         </div>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-3">
+        <WidgetCard
+          title="My To Do"
+          icon={ListTodo}
+          action={
+            currentUser ? (
+              <button
+                type="button"
+                className="text-[11px] font-semibold text-teal-700"
+                onClick={() => toggleFilter("mine")}
+              >
+                {activeFilter === "mine" ? "전체" : "필터"}
+              </button>
+            ) : null
+          }
+        >
+          {myOpenTasks.length === 0 ? (
+            <p className="py-6 text-center text-xs text-slate-400">배정된 미완료 업무가 없습니다</p>
+          ) : (
+            <ul className="space-y-2">
+              {myOpenTasks.slice(0, 8).map((task) => (
+                <li key={task.id}>
+                  <button
+                    type="button"
+                    onClick={() => openTask(task.id)}
+                    className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-slate-50"
+                  >
+                    <span className="text-xs">{WORK_TASK_STATUSES.find((s) => s.id === task.status)?.emoji}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">{task.title}</span>
+                    {task.dueDate ? (
+                      <span className="shrink-0 text-[10px] text-slate-500">{formatTaskDate(task.dueDate)}</span>
+                    ) : null}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </WidgetCard>
+
+        <WidgetCard title="오늘 마감" icon={Calendar}>
+          {dueTodayTasks.length === 0 ? (
+            <p className="py-6 text-center text-xs text-slate-400">오늘 마감 업무가 없습니다</p>
+          ) : (
+            <ul className="space-y-2">
+              {dueTodayTasks.map((task) => (
+                <li key={task.id}>
+                  <button
+                    type="button"
+                    onClick={() => openTask(task.id)}
+                    className="flex w-full items-center gap-2 rounded-lg border border-violet-100 bg-violet-50/50 px-2 py-2 text-left hover:bg-violet-50"
+                  >
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">{task.title}</span>
+                    <span className="shrink-0 text-[10px] font-semibold text-violet-700">
+                      {task.assigneeName || resolveAssigneeName(task.assigneeUserId)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </WidgetCard>
+
+        <WidgetCard title="최근 업데이트" icon={Sparkles}>
+          {recentActivity.length === 0 ? (
+            <p className="py-6 text-center text-xs text-slate-400">활동 기록이 없습니다</p>
+          ) : (
+            <ul className="space-y-2">
+              {recentActivity.map((item, index) => (
+                <li key={`${item.taskId}-${item.at}-${index}`}>
+                  <button
+                    type="button"
+                    onClick={() => openTask(item.taskId)}
+                    className="w-full rounded-lg px-2 py-2 text-left hover:bg-slate-50"
+                  >
+                    <p className="text-xs font-medium text-slate-800">
+                      {item.byUserName ? `${item.byUserName} · ` : ""}
+                      {item.label}
+                    </p>
+                    <p className="mt-0.5 truncate text-[11px] text-slate-500">{item.taskTitle}</p>
+                    <p className="mt-0.5 text-[10px] text-slate-400">{formatTaskDateTime(item.at)}</p>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </WidgetCard>
       </div>
 
       {detailTask ? (
