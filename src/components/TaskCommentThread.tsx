@@ -76,6 +76,31 @@ type TaskCommentThreadProps = {
   onMessagesChange?: (count: number) => void;
 };
 
+function commentRowsFingerprint(rows: TaskCommentMessage[]): string {
+  return rows
+    .map((row) => {
+      const reactionKey =
+        row.reactions
+          ?.map((r) => `${r.emoji}:${r.count}:${r.reactedByMe ? 1 : 0}`)
+          .join(",") ?? "";
+      return [
+        row.id,
+        row.body,
+        row.isDeleted ? 1 : 0,
+        row.editedAt ?? "",
+        row.attachments?.length ?? 0,
+        reactionKey,
+      ].join("|");
+    })
+    .join(";");
+}
+
+function mergeCommentRows(prev: TaskCommentMessage[], incoming: TaskCommentMessage[]): TaskCommentMessage[] {
+  const byId = new Map(prev.map((row) => [row.id, row]));
+  for (const row of incoming) byId.set(row.id, row);
+  return [...byId.values()].sort((a, b) => a.id - b.id);
+}
+
 function ReplyQuotePreview({ replyTo }: { replyTo: TaskCommentReplyPreview }) {
   const body = replyTo.deleted ? L.deletedMessage : replyTo.body || "…";
   return (
@@ -392,13 +417,13 @@ export function TaskCommentThread({ taskId, currentUser, className = "", onMessa
   const lastMessageIdRef = useRef(0);
   const isNearBottomRef = useRef(true);
   const syncTickRef = useRef(0);
+  const messagesFingerprintRef = useRef("");
+  const onMessagesChangeRef = useRef(onMessagesChange);
+  onMessagesChangeRef.current = onMessagesChange;
 
-  const notifyCount = useCallback(
-    (rows: TaskCommentMessage[]) => {
-      onMessagesChange?.(rows.filter((row) => !row.isDeleted).length);
-    },
-    [onMessagesChange],
-  );
+  const notifyCount = useCallback((rows: TaskCommentMessage[]) => {
+    onMessagesChangeRef.current?.(rows.filter((row) => !row.isDeleted).length);
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -414,6 +439,9 @@ export function TaskCommentThread({ taskId, currentUser, className = "", onMessa
 
   const applyMessages = useCallback(
     (rows: TaskCommentMessage[], options?: { scroll?: boolean }) => {
+      const fingerprint = commentRowsFingerprint(rows);
+      if (fingerprint === messagesFingerprintRef.current) return;
+      messagesFingerprintRef.current = fingerprint;
       setMessages(rows);
       notifyCount(rows);
       const lastId = rows.length ? rows[rows.length - 1]!.id : 0;
@@ -425,19 +453,6 @@ export function TaskCommentThread({ taskId, currentUser, className = "", onMessa
     [notifyCount, scrollToBottom],
   );
 
-  const reload = useCallback(async () => {
-    if (!apiReady || !taskId) return;
-    setLoading(true);
-    try {
-      const rows = await loadTaskCommentHistory(taskId, 200);
-      applyMessages(rows);
-    } catch {
-      window.alert(L.loadError);
-    } finally {
-      setLoading(false);
-    }
-  }, [apiReady, applyMessages, taskId]);
-
   const pollIncremental = useCallback(async () => {
     if (!apiReady || !taskId) return;
     const afterId = lastMessageIdRef.current;
@@ -445,9 +460,10 @@ export function TaskCommentThread({ taskId, currentUser, className = "", onMessa
       const rows = await fetchTaskComments(taskId, { afterId, limit: 100 });
       if (rows.length) {
         setMessages((prev) => {
-          const byId = new Map(prev.map((row) => [row.id, row]));
-          for (const row of rows) byId.set(row.id, row);
-          const next = [...byId.values()].sort((a, b) => a.id - b.id);
+          const next = mergeCommentRows(prev, rows);
+          const fingerprint = commentRowsFingerprint(next);
+          if (fingerprint === messagesFingerprintRef.current) return prev;
+          messagesFingerprintRef.current = fingerprint;
           notifyCount(next);
           lastMessageIdRef.current = next[next.length - 1]?.id ?? afterId;
           return next;
@@ -475,8 +491,26 @@ export function TaskCommentThread({ taskId, currentUser, className = "", onMessa
     lastMessageIdRef.current = 0;
     isNearBottomRef.current = true;
     syncTickRef.current = 0;
-    void reload();
-  }, [reload, taskId]);
+    messagesFingerprintRef.current = "";
+    setMessages([]);
+    if (!apiReady || !taskId) return;
+    let cancelled = false;
+    setLoading(true);
+    void (async () => {
+      try {
+        const rows = await loadTaskCommentHistory(taskId, 200);
+        if (cancelled) return;
+        applyMessages(rows);
+      } catch {
+        if (!cancelled) window.alert(L.loadError);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiReady, applyMessages, taskId]);
 
   useEffect(() => {
     if (!apiReady || !taskId) return;
@@ -520,6 +554,7 @@ export function TaskCommentThread({ taskId, currentUser, className = "", onMessa
         const updated = await editTaskCommentMessage(editingId, body);
         setMessages((prev) => {
           const next = prev.map((row) => (row.id === updated.id ? updated : row));
+          messagesFingerprintRef.current = commentRowsFingerprint(next);
           notifyCount(next);
           return next;
         });
@@ -543,6 +578,7 @@ export function TaskCommentThread({ taskId, currentUser, className = "", onMessa
       });
       setMessages((prev) => {
         const next = [...prev, message];
+        messagesFingerprintRef.current = commentRowsFingerprint(next);
         notifyCount(next);
         lastMessageIdRef.current = Math.max(lastMessageIdRef.current, message.id);
         return next;
@@ -565,7 +601,11 @@ export function TaskCommentThread({ taskId, currentUser, className = "", onMessa
   async function handleToggleReaction(messageId: number, emoji: string) {
     try {
       const updated = await toggleTaskCommentReaction(messageId, emoji);
-      setMessages((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+      setMessages((prev) => {
+        const next = prev.map((row) => (row.id === updated.id ? updated : row));
+        messagesFingerprintRef.current = commentRowsFingerprint(next);
+        return next;
+      });
     } catch {
       window.alert(L.sendError);
     }
@@ -577,6 +617,7 @@ export function TaskCommentThread({ taskId, currentUser, className = "", onMessa
       const updated = await deleteTaskCommentMessage(messageId);
       setMessages((prev) => {
         const next = prev.map((row) => (row.id === updated.id ? updated : row));
+        messagesFingerprintRef.current = commentRowsFingerprint(next);
         notifyCount(next);
         return next;
       });

@@ -23,7 +23,7 @@ export function subscribeTeamChatEvents(userId, res) {
   if (!subscribers.has(uid)) subscribers.set(uid, new Set());
   subscribers.get(uid).add(res);
 
-  const timer = setInterval(() => heartbeat(res), 25000);
+  const timer = setInterval(() => heartbeat(res), 15000);
   res.on("close", () => {
     clearInterval(timer);
     subscribers.get(uid)?.delete(res);

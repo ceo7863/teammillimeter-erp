@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Briefcase,
@@ -280,6 +280,14 @@ export function TaskBoardPage({ workTasks, setWorkTasks, currentUser }: TaskBoar
     () => (detailTaskId ? workTasks.find((task) => task.id === detailTaskId) ?? null : null),
     [detailTaskId, workTasks],
   );
+
+  const handleDetailCommentCountChange = useCallback((count: number) => {
+    if (!detailTaskId) return;
+    setCommentCounts((prev) => {
+      if (prev[detailTaskId] === count) return prev;
+      return { ...prev, [detailTaskId]: count };
+    });
+  }, [detailTaskId]);
 
   const userNameById = useMemo(() => {
     const map = new Map<number, string>();
@@ -803,9 +811,7 @@ export function TaskBoardPage({ workTasks, setWorkTasks, currentUser }: TaskBoar
                   taskId={detailTask.id}
                   currentUser={currentUser}
                   className="mb-4"
-                  onMessagesChange={(count) =>
-                    setCommentCounts((prev) => ({ ...prev, [detailTask.id]: count }))
-                  }
+                  onMessagesChange={handleDetailCommentCountChange}
                 />
 
                 <details className="group rounded-xl border border-slate-100 bg-slate-50/50">

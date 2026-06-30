@@ -22,7 +22,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { TeamChatAvatar } from "@/components/TeamChatAvatar";
 import { TeamChatProfilePhotoModal } from "@/components/TeamChatProfilePhotoModal";
-import type { ErpUser } from "@/utils/erpApi";
+import { isApiModeEnabled, type ErpUser } from "@/utils/erpApi";
 import type { ErpChatAction } from "@/utils/erpChatApi";
 import { useTeamChatMobileLayout } from "@/hooks/useTeamChatMobileLayout";
 import { useTeamChatEvents, type TeamChatStreamEvent } from "@/hooks/useTeamChatEvents";
@@ -586,7 +586,7 @@ export const TeamChatPage = memo(function TeamChatPage({
     refreshChannelsTimerRef.current = window.setTimeout(() => {
       refreshChannelsTimerRef.current = null;
       void refreshChannels();
-    }, 400);
+    }, 120);
   }, [refreshChannels]);
 
   useEffect(
@@ -782,15 +782,12 @@ export const TeamChatPage = memo(function TeamChatPage({
     const rows = await fetchTeamChatMessages(channelId, { afterId, limit: 100 });
     if (rows.length) {
       setMessages((prev) => {
-        const seen = new Set(prev.map((row) => row.id));
-        const next = [...prev];
-        for (const row of rows) {
-          if (!seen.has(row.id)) next.push(row);
-        }
-        return next;
+        const byId = new Map(prev.map((row) => [row.id, row]));
+        for (const row of rows) byId.set(row.id, row);
+        return [...byId.values()].sort((a, b) => a.id - b.id);
       });
-      const lastId = rows[rows.length - 1].id;
-      lastMessageIdRef.current = lastId;
+      const lastId = rows[rows.length - 1]!.id;
+      lastMessageIdRef.current = Math.max(lastMessageIdRef.current, lastId);
       if (isNearBottomRef.current) {
         void tryMarkChannelRead(channelId, lastId);
       }
@@ -800,6 +797,16 @@ export const TeamChatPage = memo(function TeamChatPage({
       scheduleRefreshChannels();
     }
   }, [scheduleRefreshChannels, scrollToBottom, tryMarkChannelRead]);
+
+  const syncThreadMessages = useCallback(async (channelId: string) => {
+    const rows = await loadTeamChatHistory(channelId, 120);
+    setMessages(rows);
+    const lastId = rows.length ? rows[rows.length - 1]!.id : 0;
+    lastMessageIdRef.current = Math.max(lastMessageIdRef.current, lastId);
+    if (lastId > 0 && isNearBottomRef.current) {
+      void tryMarkChannelRead(channelId, lastId);
+    }
+  }, [tryMarkChannelRead]);
 
   const refreshReadState = useCallback(async (channelId: string) => {
     try {
@@ -876,8 +883,9 @@ export const TeamChatPage = memo(function TeamChatPage({
     ],
   );
 
+  const chatStreamEnabled = isApiModeEnabled() && Boolean(currentUser);
   const { connected: sseConnected } = useTeamChatEvents({
-    enabled: Boolean(selectedChannelId) || isPageActive,
+    enabled: chatStreamEnabled,
     onEvent: handleStreamEvent,
   });
 
@@ -998,26 +1006,44 @@ export const TeamChatPage = memo(function TeamChatPage({
   }, [selectedChannelId]);
 
   useEffect(() => {
-    if (!selectedChannelId || !isPageActive) return;
-    if (sseConnected) {
-      void refreshReadState(selectedChannelId);
-      return;
-    }
-    void pollMessages(selectedChannelId).catch(() => {});
-    const timer = window.setInterval(() => {
-      void pollMessages(selectedChannelId).catch(() => {});
-    }, 1500);
+    if ((!isPageActive && !standalone) || !chatStreamEnabled) return;
+    const tick = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      void refreshChannels();
+    };
+    tick();
+    const ms = sseConnected ? 3500 : 1200;
+    const timer = window.setInterval(tick, ms);
     return () => window.clearInterval(timer);
-  }, [isPageActive, pollMessages, refreshReadState, selectedChannelId, sseConnected]);
+  }, [chatStreamEnabled, isPageActive, refreshChannels, sseConnected, standalone]);
 
   useEffect(() => {
-    if (!selectedChannelId || !isPageActive || sseConnected) return;
-    void refreshReadState(selectedChannelId);
-    const timer = window.setInterval(() => {
-      void refreshReadState(selectedChannelId);
-    }, 15000);
+    if (!selectedChannelId || (!isPageActive && !standalone)) return;
+    let syncTick = 0;
+    const tick = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      syncTick += 1;
+      void pollMessages(selectedChannelId).catch(() => {});
+      if (syncTick % 5 === 0) {
+        void syncThreadMessages(selectedChannelId).catch(() => {});
+      }
+    };
+    tick();
+    const ms = sseConnected ? 2000 : 700;
+    const timer = window.setInterval(tick, ms);
     return () => window.clearInterval(timer);
-  }, [isPageActive, refreshReadState, selectedChannelId, sseConnected]);
+  }, [isPageActive, pollMessages, selectedChannelId, sseConnected, standalone, syncThreadMessages]);
+
+  useEffect(() => {
+    if (!selectedChannelId || (!isPageActive && !standalone)) return;
+    void refreshReadState(selectedChannelId);
+    const ms = sseConnected ? 20000 : 8000;
+    const timer = window.setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      void refreshReadState(selectedChannelId);
+    }, ms);
+    return () => window.clearInterval(timer);
+  }, [isPageActive, refreshReadState, selectedChannelId, sseConnected, standalone]);
 
   useEffect(() => {
     if (loading || !selectedChannelId || messages.length > 0) return;

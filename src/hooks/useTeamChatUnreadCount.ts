@@ -11,7 +11,7 @@ export function useTeamChatUnreadCount(
   options?: { pollMs?: number; enabled?: boolean },
 ) {
   const [count, setCount] = useState(0);
-  const pollMs = options?.pollMs ?? 10000;
+  const pollMs = options?.pollMs ?? 4000;
   const pageEnabled =
     isApiModeEnabled() && Boolean(currentUser) && canUserAccessPage(currentUser, "teamChat");
   const enabled = pageEnabled && options?.enabled !== false;
@@ -63,6 +63,8 @@ export function useTeamChatUnreadCount(
     onEvent: (event) => {
       if (
         event.type === "message.new" ||
+        event.type === "message.updated" ||
+        event.type === "message.deleted" ||
         event.type === "channel.updated" ||
         event.type === "read.updated"
       ) {

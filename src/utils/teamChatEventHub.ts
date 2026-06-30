@@ -19,7 +19,7 @@ class TeamChatEventHub {
   private listeners = new Set<Listener>();
   private connectionListeners = new Set<ConnectionListener>();
   private retryTimer: ReturnType<typeof window.setTimeout> | null = null;
-  private retryMs = 500;
+  private retryMs = 300;
   private connected = false;
 
   subscribe(listener: Listener, onConnection?: ConnectionListener) {
@@ -57,7 +57,7 @@ class TeamChatEventHub {
 
     es.onopen = () => {
       this.setConnected(true);
-      this.retryMs = 500;
+      this.retryMs = 300;
     };
     es.onmessage = (event) => {
       try {
@@ -76,7 +76,7 @@ class TeamChatEventHub {
       const delay = this.retryMs;
       this.retryTimer = window.setTimeout(() => {
         this.retryTimer = null;
-        this.retryMs = Math.min(this.retryMs * 1.5, 15000);
+        this.retryMs = Math.min(this.retryMs * 1.4, 5000);
         this.ensureConnection();
       }, delay);
     };
