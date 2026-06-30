@@ -8,6 +8,7 @@ import {
   Clock3,
   LayoutGrid,
   ListTodo,
+  MessageCircle,
   Pencil,
   Plus,
   Sparkles,
@@ -16,8 +17,10 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { TaskCommentThread } from "@/components/TaskCommentThread";
 import type { ErpUser } from "@/utils/erpApi";
-import { fetchUsers, type ErpUserRecord } from "@/utils/erpApi";
+import { fetchUsers, isApiModeEnabled, type ErpUserRecord } from "@/utils/erpApi";
+import { fetchTaskCommentCounts } from "@/utils/taskComments";
 import { confirmDelete } from "@/utils/confirmDelete";
 import {
   WORK_TASK_BOARDS,
@@ -131,10 +134,12 @@ function AssigneeAvatar({ name }: { name: string }) {
 function TaskCardButton({
   task,
   assigneeLabel,
+  commentCount = 0,
   onOpen,
 }: {
   task: WorkTask;
   assigneeLabel: string;
+  commentCount?: number;
   onOpen: () => void;
 }) {
   const overdue = isWorkTaskOverdue(task);
@@ -153,15 +158,23 @@ function TaskCardButton({
           <AssigneeAvatar name={assigneeLabel} />
           <span className="truncate">{assigneeLabel}</span>
         </div>
-        {task.dueDate ? (
-          <span
-            className={`shrink-0 text-[10px] font-semibold ${
-              overdue ? "text-rose-700" : dueToday ? "text-violet-700" : "text-slate-500"
-            }`}
-          >
-            {formatTaskDate(task.dueDate)}
-          </span>
-        ) : null}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {commentCount > 0 ? (
+            <span className="inline-flex items-center gap-0.5 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+              <MessageCircle className="h-3 w-3" />
+              {commentCount}
+            </span>
+          ) : null}
+          {task.dueDate ? (
+            <span
+              className={`text-[10px] font-semibold ${
+                overdue ? "text-rose-700" : dueToday ? "text-violet-700" : "text-slate-500"
+              }`}
+            >
+              {formatTaskDate(task.dueDate)}
+            </span>
+          ) : null}
+        </div>
       </div>
       {task.blockedReason ? (
         <p className="mt-2 line-clamp-2 rounded-md bg-rose-50 px-2 py-1 text-[10px] text-rose-800">
@@ -203,6 +216,7 @@ export function TaskBoardPage({ workTasks, setWorkTasks, currentUser }: TaskBoar
   const [modal, setModal] = useState<TaskModalState | null>(null);
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<TaskBoardDashboardFilter>("all");
+  const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
   const [form, setForm] = useState({
     title: "",
     assigneeUserId: "" as string,
@@ -231,6 +245,19 @@ export function TaskBoardPage({ workTasks, setWorkTasks, currentUser }: TaskBoar
   );
   const dueTodayTasks = useMemo(() => listTasksDueToday(boardTasks), [boardTasks]);
   const recentActivity = useMemo(() => listRecentTaskActivity(boardTasks, 14), [boardTasks]);
+
+  useEffect(() => {
+    if (!isApiModeEnabled()) return;
+    const taskIds = boardTasks.map((task) => task.id);
+    if (!taskIds.length) {
+      setCommentCounts({});
+      return;
+    }
+    void fetchTaskCommentCounts(taskIds)
+      .then((counts) => setCommentCounts(counts))
+      .catch(() => setCommentCounts({}));
+  }, [boardTasks]);
+
   const headerDateLabel = useMemo(
     () =>
       new Date().toLocaleDateString("ko-KR", {
@@ -589,6 +616,7 @@ export function TaskBoardPage({ workTasks, setWorkTasks, currentUser }: TaskBoar
                       <TaskCardButton
                         task={task}
                         assigneeLabel={task.assigneeName || resolveAssigneeName(task.assigneeUserId)}
+                        commentCount={commentCounts[task.id] ?? 0}
                         onOpen={() => openTask(task.id)}
                       />
                     </li>
@@ -707,8 +735,8 @@ export function TaskBoardPage({ workTasks, setWorkTasks, currentUser }: TaskBoar
 
       {detailTask ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
-          <Card className="max-h-[90vh] w-full max-w-lg overflow-hidden sm:rounded-2xl">
-            <CardContent className="flex max-h-[90vh] flex-col p-0">
+          <Card className="max-h-[92vh] w-full max-w-2xl overflow-hidden sm:rounded-2xl">
+            <CardContent className="flex max-h-[92vh] flex-col p-0">
               <div className="flex items-start justify-between border-b border-slate-100 px-4 py-3">
                 <div className="min-w-0 pr-3">
                   <p className="text-xs font-semibold text-teal-700">
@@ -717,13 +745,18 @@ export function TaskBoardPage({ workTasks, setWorkTasks, currentUser }: TaskBoar
                   <h2 className="mt-0.5 text-lg font-bold text-slate-900">{detailTask.title}</h2>
                   <p className="mt-1 text-xs text-slate-500">
                     {workTaskStatusLabel(detailTask.status)} · {detailTask.assigneeName || "미지정"}
+                    {(commentCounts[detailTask.id] ?? 0) > 0 ? (
+                      <span className="ml-2 inline-flex items-center gap-0.5 text-slate-600">
+                        · <MessageCircle className="h-3 w-3" /> {commentCounts[detailTask.id]}
+                      </span>
+                    ) : null}
                   </p>
                 </div>
                 <button type="button" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100" onClick={() => setDetailTaskId(null)}>
                   <X className="h-5 w-5" />
                 </button>
               </div>
-              <div className="overflow-y-auto px-4 py-3">
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
                 {detailTask.meetingNote ? (
                   <p className="mb-3 rounded-xl bg-violet-50 px-3 py-2 text-sm text-violet-950">
                     회의 메모: {detailTask.meetingNote}
@@ -758,9 +791,13 @@ export function TaskBoardPage({ workTasks, setWorkTasks, currentUser }: TaskBoar
                   </div>
                 ) : null}
 
-                <div>
-                  <p className="mb-2 text-xs font-semibold text-slate-500">타임라인</p>
-                  <ul className="space-y-2">
+                <TaskCommentThread taskId={detailTask.id} currentUser={currentUser} className="mb-4" />
+
+                <details className="group rounded-xl border border-slate-100 bg-slate-50/50">
+                  <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-slate-500">
+                    타임라인 ({detailTask.timeline.length})
+                  </summary>
+                  <ul className="space-y-2 px-3 pb-3 pt-1">
                     {[...detailTask.timeline].reverse().map((entry) => (
                       <li key={entry.id} className="flex gap-2 text-xs text-slate-600">
                         <span className="shrink-0 tabular-nums text-slate-400">{formatTaskDateTime(entry.at)}</span>
@@ -774,7 +811,7 @@ export function TaskBoardPage({ workTasks, setWorkTasks, currentUser }: TaskBoar
                       <li className="text-xs text-slate-400">기록 없음</li>
                     ) : null}
                   </ul>
-                </div>
+                </details>
               </div>
               {canEdit ? (
                 <div className="flex gap-2 border-t border-slate-100 px-4 py-3">

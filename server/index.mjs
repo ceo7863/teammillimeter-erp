@@ -178,6 +178,18 @@ import {
   getTeamChatReadState,
   toggleTeamChatReaction,
 } from "./teamChat.mjs";
+import {
+  countTaskCommentsByTaskIds,
+  createTaskCommentPendingAttachment,
+  deleteTaskCommentMessage,
+  editTaskCommentMessage,
+  getTaskCommentAttachmentFile,
+  getTaskCommentHistory,
+  initTaskCommentStore,
+  listTaskComments,
+  postTaskComment,
+  toggleTaskCommentReaction,
+} from "./taskComments.mjs";
 import { subscribeTeamChatEvents } from "./teamChatEvents.mjs";
 import {
   getTeamChatPushPublicKey,
@@ -281,6 +293,7 @@ initDb();
 runErpStartupMigrations();
 initErpChatStore();
 initTeamChatStore();
+initTaskCommentStore();
 initTeamChatPushStore();
 initPdfArchiveStore();
 initBoardAttachmentStore();
@@ -2078,6 +2091,109 @@ app.get("/api/team-chat/attachments/:id/file", authMiddleware, (req, res) => {
     res.sendFile(path.resolve(file.path));
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message || "\uCCA8\uBD80\uD30C\uC77C \uC870\uD68C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." });
+  }
+});
+
+app.get("/api/work-tasks/comments/counts", authMiddleware, (req, res) => {
+  try {
+    const raw = String(req.query.taskIds || "").trim();
+    const taskIds = raw ? raw.split(",").map((id) => id.trim()).filter(Boolean) : [];
+    res.json(countTaskCommentsByTaskIds(taskIds));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "댓글 수 조회에 실패했습니다." });
+  }
+});
+
+app.get("/api/work-tasks/:taskId/comments", authMiddleware, (req, res) => {
+  try {
+    const history = req.query.history === "1";
+    const limit = Number(req.query.limit || 100);
+    const afterId = Number(req.query.after || 0);
+    const rows = history
+      ? getTaskCommentHistory(req.params.taskId, req.user.id, { limit })
+      : listTaskComments(req.params.taskId, req.user.id, { afterId, limit });
+    res.json(rows);
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "댓글 조회에 실패했습니다." });
+  }
+});
+
+app.post("/api/work-tasks/:taskId/comments", authMiddleware, (req, res) => {
+  try {
+    const message = postTaskComment(req.params.taskId, req.user, req.body || {});
+    res.status(201).json(message);
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "댓글 전송에 실패했습니다." });
+  }
+});
+
+app.patch("/api/work-tasks/comments/:messageId", authMiddleware, (req, res) => {
+  try {
+    res.json(editTaskCommentMessage(req.params.messageId, req.user.id, req.body?.body));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "댓글 수정에 실패했습니다." });
+  }
+});
+
+app.delete("/api/work-tasks/comments/:messageId", authMiddleware, (req, res) => {
+  try {
+    res.json(deleteTaskCommentMessage(req.params.messageId, req.user.id));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "댓글 삭제에 실패했습니다." });
+  }
+});
+
+app.put("/api/work-tasks/comments/:messageId/reactions", authMiddleware, (req, res) => {
+  try {
+    res.json(toggleTaskCommentReaction(req.params.messageId, req.user.id, req.body?.emoji));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "리액션 처리에 실패했습니다." });
+  }
+});
+
+app.post(
+  "/api/work-tasks/comments/attachments",
+  authMiddleware,
+  express.raw({ type: () => true, limit: "15mb" }),
+  (req, res) => {
+    try {
+      const rawMeta = req.headers["x-attachment-meta"];
+      if (!rawMeta) {
+        res.status(400).json({ error: "첨부파일 메타데이터가 없습니다." });
+        return;
+      }
+      const meta = parseAttachmentMetaHeader(rawMeta);
+      const taskId = String(meta.taskId || "").trim();
+      if (!taskId || !meta.fileName) {
+        res.status(400).json({ error: "업무 ID와 파일명은 필수입니다." });
+        return;
+      }
+      const buffer = Buffer.from(req.body || []);
+      if (!buffer.length) {
+        res.status(400).json({ error: "첨부파일이 비어 있습니다." });
+        return;
+      }
+      const saved = createTaskCommentPendingAttachment(taskId, req.user.id, buffer, meta);
+      res.status(201).json(saved);
+    } catch (error) {
+      console.error(error);
+      res.status(error.status || 500).json({ error: error.message || "첨부파일 저장에 실패했습니다." });
+    }
+  },
+);
+
+app.get("/api/work-tasks/comments/attachments/:id/file", authMiddleware, (req, res) => {
+  try {
+    const file = getTaskCommentAttachmentFile(req.params.id, req.user.id);
+    if (!file) {
+      res.status(404).json({ error: "첨부파일을 찾을 수 없습니다." });
+      return;
+    }
+    res.setHeader("Content-Type", file.mimeType || "application/octet-stream");
+    res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+    res.sendFile(path.resolve(file.path));
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || "첨부파일 조회에 실패했습니다." });
   }
 });
 
