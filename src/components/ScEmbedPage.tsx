@@ -71,7 +71,7 @@ export function ScEmbedPage({ onOpenAppMenu }: ScEmbedPageProps) {
   }, [loadSession]);
 
   useEffect(() => {
-    if (!embedUrl || provider === "calwalk") return;
+    if (!embedUrl) return;
 
     const updateLayout = () => {
       const frame = frameRef.current;
@@ -88,19 +88,10 @@ export function ScEmbedPage({ onOpenAppMenu }: ScEmbedPageProps) {
       observer?.disconnect();
       window.removeEventListener("resize", updateLayout);
     };
-  }, [embedUrl, provider]);
-
-  const openCalwalkInNewTab = () => {
-    if (!embedUrl) return;
-    window.open(embedUrl, "_blank", "noopener,noreferrer");
-  };
+  }, [embedUrl]);
 
   const openInNewTab = () => {
-    if (provider === "calwalk") {
-      openCalwalkInNewTab();
-      return;
-    }
-    const url = externalBaseUrl || embedUrl;
+    const url = provider === "calwalk" ? embedUrl || externalBaseUrl : externalBaseUrl || embedUrl;
     if (!url) return;
     window.open(url, "_blank", "noopener,noreferrer");
   };
@@ -108,7 +99,7 @@ export function ScEmbedPage({ onOpenAppMenu }: ScEmbedPageProps) {
   const isCalwalk = provider === "calwalk";
   const pageTitle = isCalwalk ? "CalWalk 워크스페이스" : "SC 스케줄";
   const pageHint = isCalwalk
-    ? "팀 달력 · 새 탭에서 열기 · 방장·부방장 자동 로그인"
+    ? "팀 달력 · 방장·부방장 자동 로그인"
     : "SC 전체 메뉴 · 화면 비율 자동 맞춤";
   const frameTitle = isCalwalk ? "CalWalk 워크스페이스" : "SC 스케줄";
 
@@ -138,16 +129,16 @@ export function ScEmbedPage({ onOpenAppMenu }: ScEmbedPageProps) {
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
             <span className="hidden sm:inline">새로고침</span>
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={openInNewTab} disabled={!embedUrl && !externalBaseUrl}>
+          <Button type="button" variant="outline" size="sm" onClick={openInNewTab} disabled={!externalBaseUrl && !embedUrl}>
             <ExternalLink size={14} />
-            <span className="hidden sm:inline">{isCalwalk ? "CalWalk 열기" : "새 탭"}</span>
+            <span className="hidden sm:inline">새 탭</span>
           </Button>
         </div>
       </header>
 
       {loading ? (
         <div className="flex flex-1 items-center justify-center text-sm text-slate-500">
-          {isCalwalk ? "CalWalk 연결 준비 중…" : "SC를 불러오는 중…"}
+          {isCalwalk ? "CalWalk를 불러오는 중…" : "SC를 불러오는 중…"}
         </div>
       ) : error ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 text-center">
@@ -155,23 +146,6 @@ export function ScEmbedPage({ onOpenAppMenu }: ScEmbedPageProps) {
           <Button type="button" onClick={() => void loadSession()}>
             다시 시도
           </Button>
-        </div>
-      ) : isCalwalk ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 py-10 text-center">
-          <div className="max-w-md space-y-2">
-            <p className="text-base font-semibold text-slate-900">CalWalk 팀 달력</p>
-            <p className="text-sm leading-relaxed text-slate-600">
-              CalWalk는 보안상 ERP 화면 안 iframe으로 띄우지 않습니다. 아래 버튼으로 새 탭에서
-              열면 방장·부방장 계정은 자동 로그인됩니다.
-            </p>
-          </div>
-          <Button type="button" size="lg" onClick={openCalwalkInNewTab} disabled={!embedUrl}>
-            <ExternalLink size={16} />
-            CalWalk 열기
-          </Button>
-          {externalBaseUrl ? (
-            <p className="text-xs text-slate-400">{externalBaseUrl}</p>
-          ) : null}
         </div>
       ) : (
         <div ref={frameRef} className="erp-sc-embed__frame min-h-0 flex-1 overflow-hidden">
