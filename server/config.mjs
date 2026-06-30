@@ -112,6 +112,8 @@ export const config = {
       process.env.CALWALK_WORKSPACE_SLUG ||
       "teammm",
     scheduleSyncEnabled: parseEnvBool(process.env.CALWALK_SCHEDULE_SYNC_ENABLED, true),
+    /** ERP iframe CalWalk 워크스페이스 (CALWALK_ERP_EXPORT_SECRET 공유 SSO) */
+    embedEnabled: parseEnvBool(process.env.CALWALK_EMBED_ENABLED, true),
   },
   barobill: {
     certKey: process.env.BAROBILL_CERT_KEY || "",

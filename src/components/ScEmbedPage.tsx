@@ -36,7 +36,8 @@ function measureEmbedLayout(container: HTMLElement): EmbedLayout {
 export function ScEmbedPage({ onOpenAppMenu }: ScEmbedPageProps) {
   const isMobileLayout = useTeamChatMobileLayout();
   const [embedUrl, setEmbedUrl] = useState("");
-  const [scBaseUrl, setScBaseUrl] = useState("");
+  const [externalBaseUrl, setExternalBaseUrl] = useState("");
+  const [provider, setProvider] = useState<"calwalk" | "sc">("calwalk");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [layout, setLayout] = useState<EmbedLayout>({
@@ -52,10 +53,14 @@ export function ScEmbedPage({ onOpenAppMenu }: ScEmbedPageProps) {
     try {
       const session = await fetchScEmbedSession();
       setEmbedUrl(String(session.url || "").trim());
-      setScBaseUrl(String(session.scBaseUrl || "").trim());
+      const base =
+        String(session.calwalkBaseUrl || session.scBaseUrl || "").trim() ||
+        (session.provider === "calwalk" ? "https://calwalk.com" : "");
+      setExternalBaseUrl(base);
+      setProvider(session.provider === "sc" ? "sc" : "calwalk");
     } catch (err) {
       setEmbedUrl("");
-      setError(err instanceof Error ? err.message : "SC를 열 수 없습니다.");
+      setError(err instanceof Error ? err.message : "CalWalk를 열 수 없습니다.");
     } finally {
       setLoading(false);
     }
@@ -86,10 +91,17 @@ export function ScEmbedPage({ onOpenAppMenu }: ScEmbedPageProps) {
   }, [embedUrl]);
 
   const openInNewTab = () => {
-    const url = scBaseUrl || embedUrl;
+    const url = externalBaseUrl || embedUrl;
     if (!url) return;
     window.open(url, "_blank", "noopener,noreferrer");
   };
+
+  const isCalwalk = provider === "calwalk";
+  const pageTitle = isCalwalk ? "CalWalk 워크스페이스" : "SC 스케줄";
+  const pageHint = isCalwalk
+    ? "팀 달력 · 방장·부방장 자동 로그인"
+    : "SC 전체 메뉴 · 화면 비율 자동 맞춤";
+  const frameTitle = isCalwalk ? "CalWalk 워크스페이스" : "SC 스케줄";
 
   const { scale, viewportW, viewportH } = layout;
 
@@ -108,8 +120,8 @@ export function ScEmbedPage({ onOpenAppMenu }: ScEmbedPageProps) {
             </button>
           ) : null}
           <div className="min-w-0">
-            <h1 className="truncate text-base font-bold text-slate-900">SC 스케줄</h1>
-            <p className="text-xs text-slate-500">SC 전체 메뉴 · 화면 비율 자동 맞춤</p>
+            <h1 className="truncate text-base font-bold text-slate-900">{pageTitle}</h1>
+            <p className="text-xs text-slate-500">{pageHint}</p>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -117,7 +129,7 @@ export function ScEmbedPage({ onOpenAppMenu }: ScEmbedPageProps) {
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
             <span className="hidden sm:inline">새로고침</span>
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={openInNewTab} disabled={!scBaseUrl && !embedUrl}>
+          <Button type="button" variant="outline" size="sm" onClick={openInNewTab} disabled={!externalBaseUrl && !embedUrl}>
             <ExternalLink size={14} />
             <span className="hidden sm:inline">새 탭</span>
           </Button>
@@ -125,7 +137,9 @@ export function ScEmbedPage({ onOpenAppMenu }: ScEmbedPageProps) {
       </header>
 
       {loading ? (
-        <div className="flex flex-1 items-center justify-center text-sm text-slate-500">SC를 불러오는 중…</div>
+        <div className="flex flex-1 items-center justify-center text-sm text-slate-500">
+          {isCalwalk ? "CalWalk를 불러오는 중…" : "SC를 불러오는 중…"}
+        </div>
       ) : error ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 text-center">
           <p className="text-sm font-medium text-red-600">{error}</p>
@@ -143,7 +157,7 @@ export function ScEmbedPage({ onOpenAppMenu }: ScEmbedPageProps) {
             }}
           >
             <iframe
-              title="SC 스케줄"
+              title={frameTitle}
               src={embedUrl}
               className="block border-0 bg-white"
               style={{

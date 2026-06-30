@@ -238,6 +238,7 @@ import {
   startScScheduleSyncScheduler,
 } from "./scScheduleSync.mjs";
 import { getScEmbedSessionForUser } from "./scEmbed.mjs";
+import { getCalwalkEmbedSessionForUser, isCalwalkEmbedConfigured } from "./calwalkEmbed.mjs";
 import { getDefaultPdfContent, listContractTemplates } from "./contractTemplate.mjs";
 import { renderContractPdfPreview } from "./contractPdfRender.mjs";
 import {
@@ -817,7 +818,9 @@ app.get("/api/sc-schedules", authMiddleware, (req, res) => {
 });
 
 app.get("/api/sc-embed/session", authMiddleware, (req, res) => {
-  const result = getScEmbedSessionForUser(req.user);
+  const result = isCalwalkEmbedConfigured()
+    ? getCalwalkEmbedSessionForUser(req.user)
+    : getScEmbedSessionForUser(req.user);
   if (!result.ok) {
     res.status(result.status || 503).json({ error: result.error });
     return;
@@ -825,7 +828,10 @@ app.get("/api/sc-embed/session", authMiddleware, (req, res) => {
   res.json({
     url: result.url,
     expiresInSec: result.expiresInSec,
-    scBaseUrl: result.scBaseUrl,
+    scBaseUrl: result.scBaseUrl ?? result.calwalkBaseUrl ?? "",
+    calwalkBaseUrl: result.calwalkBaseUrl ?? "",
+    workspaceSlug: result.workspaceSlug ?? "",
+    provider: result.provider ?? (isCalwalkEmbedConfigured() ? "calwalk" : "sc"),
   });
 });
 
