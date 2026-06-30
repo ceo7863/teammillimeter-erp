@@ -17,6 +17,7 @@ import { isApiModeEnabled } from "@/utils/erpApi";
 import {
   deleteTaskCommentMessage,
   editTaskCommentMessage,
+  fetchTaskComments,
   formatTaskCommentTime,
   loadTaskCommentHistory,
   sendTaskComment,
@@ -72,6 +73,7 @@ type TaskCommentThreadProps = {
   taskId: string;
   currentUser: ErpUser | null;
   className?: string;
+  onMessagesChange?: (count: number) => void;
 };
 
 function ReplyQuotePreview({ replyTo }: { replyTo: TaskCommentReplyPreview }) {
@@ -371,7 +373,7 @@ function CommentBubble({
   );
 }
 
-export function TaskCommentThread({ taskId, currentUser, className = "" }: TaskCommentThreadProps) {
+export function TaskCommentThread({ taskId, currentUser, className = "", onMessagesChange }: TaskCommentThreadProps) {
   const apiReady = isApiModeEnabled();
   const [messages, setMessages] = useState<TaskCommentMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -387,29 +389,108 @@ export function TaskCommentThread({ taskId, currentUser, className = "" }: TaskC
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
+  const lastMessageIdRef = useRef(0);
+  const isNearBottomRef = useRef(true);
+  const syncTickRef = useRef(0);
+
+  const notifyCount = useCallback(
+    (rows: TaskCommentMessage[]) => {
+      onMessagesChange?.(rows.filter((row) => !row.isDeleted).length);
+    },
+    [onMessagesChange],
+  );
+
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 72;
+  }, []);
+
+  const applyMessages = useCallback(
+    (rows: TaskCommentMessage[], options?: { scroll?: boolean }) => {
+      setMessages(rows);
+      notifyCount(rows);
+      const lastId = rows.length ? rows[rows.length - 1]!.id : 0;
+      lastMessageIdRef.current = Math.max(lastMessageIdRef.current, lastId);
+      if (options?.scroll !== false && isNearBottomRef.current) {
+        window.requestAnimationFrame(() => scrollToBottom());
+      }
+    },
+    [notifyCount, scrollToBottom],
+  );
 
   const reload = useCallback(async () => {
     if (!apiReady || !taskId) return;
     setLoading(true);
     try {
       const rows = await loadTaskCommentHistory(taskId, 200);
-      setMessages(rows);
+      applyMessages(rows);
     } catch {
       window.alert(L.loadError);
     } finally {
       setLoading(false);
     }
-  }, [apiReady, taskId]);
+  }, [apiReady, applyMessages, taskId]);
+
+  const pollIncremental = useCallback(async () => {
+    if (!apiReady || !taskId) return;
+    const afterId = lastMessageIdRef.current;
+    try {
+      const rows = await fetchTaskComments(taskId, { afterId, limit: 100 });
+      if (rows.length) {
+        setMessages((prev) => {
+          const byId = new Map(prev.map((row) => [row.id, row]));
+          for (const row of rows) byId.set(row.id, row);
+          const next = [...byId.values()].sort((a, b) => a.id - b.id);
+          notifyCount(next);
+          lastMessageIdRef.current = next[next.length - 1]?.id ?? afterId;
+          return next;
+        });
+        if (isNearBottomRef.current) {
+          window.requestAnimationFrame(() => scrollToBottom());
+        }
+      }
+    } catch {
+      // silent poll
+    }
+  }, [apiReady, notifyCount, scrollToBottom, taskId]);
+
+  const pollSync = useCallback(async () => {
+    if (!apiReady || !taskId) return;
+    try {
+      const rows = await loadTaskCommentHistory(taskId, 200);
+      applyMessages(rows, { scroll: false });
+    } catch {
+      // silent poll
+    }
+  }, [apiReady, applyMessages, taskId]);
 
   useEffect(() => {
+    lastMessageIdRef.current = 0;
+    isNearBottomRef.current = true;
+    syncTickRef.current = 0;
     void reload();
-  }, [reload]);
+  }, [reload, taskId]);
 
   useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, [messages.length, taskId]);
+    if (!apiReady || !taskId) return;
+    const tick = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      syncTickRef.current += 1;
+      void pollIncremental();
+      if (syncTickRef.current % 5 === 0) {
+        void pollSync();
+      }
+    };
+    const timer = window.setInterval(tick, 1500);
+    return () => window.clearInterval(timer);
+  }, [apiReady, pollIncremental, pollSync, taskId]);
 
   async function uploadFiles(files: File[]) {
     const accepted = files.filter(isTaskCommentAttachmentFile);
@@ -437,7 +518,11 @@ export function TaskCommentThread({ taskId, currentUser, className = "" }: TaskC
       setPosting(true);
       try {
         const updated = await editTaskCommentMessage(editingId, body);
-        setMessages((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+        setMessages((prev) => {
+          const next = prev.map((row) => (row.id === updated.id ? updated : row));
+          notifyCount(next);
+          return next;
+        });
         setEditingId(null);
         setEditDraft("");
       } catch {
@@ -456,7 +541,14 @@ export function TaskCommentThread({ taskId, currentUser, className = "" }: TaskC
         attachmentIds: pendingAttachments.map((row) => row.id),
         replyToMessageId: replyTo?.id ?? null,
       });
-      setMessages((prev) => [...prev, message]);
+      setMessages((prev) => {
+        const next = [...prev, message];
+        notifyCount(next);
+        lastMessageIdRef.current = Math.max(lastMessageIdRef.current, message.id);
+        return next;
+      });
+      isNearBottomRef.current = true;
+      window.requestAnimationFrame(() => scrollToBottom());
       setDraft("");
       setReplyTo(null);
       for (const row of pendingAttachments) {
@@ -483,7 +575,11 @@ export function TaskCommentThread({ taskId, currentUser, className = "" }: TaskC
     if (!window.confirm(L.deleteConfirm)) return;
     try {
       const updated = await deleteTaskCommentMessage(messageId);
-      setMessages((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+      setMessages((prev) => {
+        const next = prev.map((row) => (row.id === updated.id ? updated : row));
+        notifyCount(next);
+        return next;
+      });
     } catch {
       window.alert(L.sendError);
     }
@@ -507,6 +603,7 @@ export function TaskCommentThread({ taskId, currentUser, className = "" }: TaskC
       <div
         ref={scrollRef}
         className={`erp-task-comment-thread__messages erp-team-chat-thread__messages${dragOver ? " is-drag-over" : ""}`}
+        onScroll={handleScroll}
         onDragEnter={(e) => {
           if (!hasDraggedFiles(e.dataTransfer)) return;
           e.preventDefault();

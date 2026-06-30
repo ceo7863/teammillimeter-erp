@@ -248,14 +248,22 @@ export function TaskBoardPage({ workTasks, setWorkTasks, currentUser }: TaskBoar
 
   useEffect(() => {
     if (!isApiModeEnabled()) return;
-    const taskIds = boardTasks.map((task) => task.id);
-    if (!taskIds.length) {
-      setCommentCounts({});
-      return;
-    }
-    void fetchTaskCommentCounts(taskIds)
-      .then((counts) => setCommentCounts(counts))
-      .catch(() => setCommentCounts({}));
+    const refreshCounts = () => {
+      const taskIds = boardTasks.map((task) => task.id);
+      if (!taskIds.length) {
+        setCommentCounts({});
+        return;
+      }
+      void fetchTaskCommentCounts(taskIds)
+        .then((counts) => setCommentCounts(counts))
+        .catch(() => {});
+    };
+    refreshCounts();
+    const timer = window.setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      refreshCounts();
+    }, 5000);
+    return () => window.clearInterval(timer);
   }, [boardTasks]);
 
   const headerDateLabel = useMemo(
@@ -791,7 +799,14 @@ export function TaskBoardPage({ workTasks, setWorkTasks, currentUser }: TaskBoar
                   </div>
                 ) : null}
 
-                <TaskCommentThread taskId={detailTask.id} currentUser={currentUser} className="mb-4" />
+                <TaskCommentThread
+                  taskId={detailTask.id}
+                  currentUser={currentUser}
+                  className="mb-4"
+                  onMessagesChange={(count) =>
+                    setCommentCounts((prev) => ({ ...prev, [detailTask.id]: count }))
+                  }
+                />
 
                 <details className="group rounded-xl border border-slate-100 bg-slate-50/50">
                   <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-slate-500">
