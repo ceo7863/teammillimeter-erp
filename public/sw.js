@@ -1,4 +1,4 @@
-const CACHE_NAME = "teammillimeter-erp-shell-v12";
+const CACHE_NAME = "teammillimeter-erp-shell-v13";
 
 try {
   importScripts("/sw-push.js");

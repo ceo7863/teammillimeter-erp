@@ -36,7 +36,10 @@ if (typeof window !== "undefined") {
   resetDocumentScrollLock();
 }
 
-if ("serviceWorker" in navigator && !/^\/chat\/?$/i.test(window.location.pathname)) {
+const isStandaloneShellRoute =
+  /^\/chat\/?$/i.test(window.location.pathname) || /^\/worker-portal\/?$/i.test(window.location.pathname);
+
+if ("serviceWorker" in navigator && !isStandaloneShellRoute) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js").catch(() => {
       // PWA optional — ignore registration failures in dev.

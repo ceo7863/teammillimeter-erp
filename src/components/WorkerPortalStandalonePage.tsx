@@ -45,6 +45,11 @@ const L = {
   currentPasswordRequired: "현재 비밀번호를 입력해 주세요.",
   newPasswordRequired: "새 비밀번호를 입력해 주세요.",
   passwordMismatch: "새 비밀번호 확인이 일치하지 않습니다.",
+  installTitle: "홈 화면에 설치",
+  installAndroid:
+    "Chrome 메뉴(⋮) → 「앱 설치」 또는 「홈 화면에 추가」를 선택하세요. 이름은 「시공내역서」로 설치됩니다.",
+  installIos: "Safari 공유 → 「홈 화면에 추가」를 선택하세요. (ERP 앱이 아니라 이 포털 주소에서 추가해야 합니다.)",
+  installErpHint: "이미 「TM ERP」가 설치돼 있으면 그대로 두고, 이 페이지에서 「시공내역서」를 따로 추가하세요.",
 };
 
 function FormField({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
@@ -415,6 +420,17 @@ export function WorkerPortalStandalonePage() {
                 >
                   {loading && submittingAction === "skip" ? L.skipping : L.skipPasswordChange}
                 </Button>
+              ) : null}
+
+              {formMode === "login" ? (
+                <div className="worker-portal-install-hint rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-left">
+                  <div className="erp-text-caption font-bold text-slate-700">{L.installTitle}</div>
+                  <ul className="mt-2 space-y-1.5 text-[12px] leading-relaxed text-slate-500">
+                    <li>{L.installAndroid}</li>
+                    <li>{L.installIos}</li>
+                    <li>{L.installErpHint}</li>
+                  </ul>
+                </div>
               ) : null}
             </div>
           </CardContent>

@@ -1,0 +1,39 @@
+{
+  "id": "/worker-portal",
+  "name": "시공내역서",
+  "short_name": "시공내역서",
+  "description": "팀밀리미터 시공내역서 포털 — 월별 시공·지급 내역 확인 및 서명",
+  "start_url": "/worker-portal/?source=pwa",
+  "scope": "/worker-portal/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#1c1917",
+  "theme_color": "#1c1917",
+  "lang": "ko",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

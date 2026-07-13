@@ -13,45 +13,71 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <script>
       (function () {
-        var SHELL_VERSION = "12";
+        var SHELL_VERSION = "13";
         var SHELL_KEY = "erp-app-shell-version";
+        var isChat = /^\/chat\/?$/i.test(location.pathname);
+        var isWorkerPortal = /^\/worker-portal\/?$/i.test(location.pathname);
+
+        function clearAppShell() {
+          if ("serviceWorker" in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function (regs) {
+              regs.forEach(function (reg) {
+                void reg.unregister();
+              });
+            });
+          }
+          if ("caches" in window) {
+            caches.keys().then(function (keys) {
+              keys.forEach(function (key) {
+                void caches.delete(key);
+              });
+            });
+          }
+        }
+
         try {
           var prev = localStorage.getItem(SHELL_KEY);
           if (prev !== SHELL_VERSION) {
             localStorage.setItem(SHELL_KEY, SHELL_VERSION);
-            if ("serviceWorker" in navigator) {
-              navigator.serviceWorker.getRegistrations().then(function (regs) {
-                regs.forEach(function (reg) {
-                  void reg.unregister();
-                });
-              });
-            }
-            if ("caches" in window) {
-              caches.keys().then(function (keys) {
-                keys.forEach(function (key) {
-                  void caches.delete(key);
-                });
-              });
-            }
+            clearAppShell();
           }
         } catch (e) {
           // ignore storage errors
         }
 
-        if (!/^\/chat\/?$/i.test(location.pathname)) return;
+        // Chat / worker portal must not share ERP SW scope, or "Add to Home Screen" opens ERP login.
+        if (isChat || isWorkerPortal) {
+          clearAppShell();
+        }
+
+        if (!isChat && !isWorkerPortal) return;
         var manifest = document.querySelector('link[rel="manifest"]');
-        if (manifest) manifest.href = "/chat.manifest.webmanifest";
-        document.title = "TM ERP AI";
         var appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
-        if (appleTitle) appleTitle.content = "TM ERP AI";
         var description = document.querySelector('meta[name="description"]');
-        if (description) description.content = "팀밀리미터 ERP AI 음성 챗봇";
         var theme = document.querySelector('meta[name="theme-color"]');
-        if (theme) theme.content = "#4c1d95";
         var icon = document.querySelector('link[rel="icon"]');
-        if (icon) icon.href = "/icon-chat.svg";
         var appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
-        if (appleIcon) appleIcon.href = "/icon-chat-192.png";
+
+        if (isChat) {
+          if (manifest) manifest.href = "/chat.manifest.webmanifest";
+          document.title = "TM ERP AI";
+          if (appleTitle) appleTitle.content = "TM ERP AI";
+          if (description) description.content = "팀밀리미터 ERP AI 음성 챗봇";
+          if (theme) theme.content = "#4c1d95";
+          if (icon) icon.href = "/icon-chat.svg";
+          if (appleIcon) appleIcon.href = "/icon-chat-192.png";
+          return;
+        }
+
+        if (isWorkerPortal) {
+          if (manifest) manifest.href = "/worker-portal.manifest.webmanifest";
+          document.title = "시공내역서";
+          if (appleTitle) appleTitle.content = "시공내역서";
+          if (description) description.content = "팀밀리미터 시공내역서 포털";
+          if (theme) theme.content = "#1c1917";
+          if (icon) icon.href = "/icon.svg";
+          if (appleIcon) appleIcon.href = "/icon-192.png";
+        }
       })();
     </script>
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
