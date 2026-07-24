@@ -95,14 +95,38 @@ export async function resolveStatementPdfForElement(
   generate: () => Promise<StatementPdfBlobResult>,
   options: { bypassCache?: boolean } = {}
 ): Promise<{ result: StatementPdfBlobResult; fromCache: boolean }> {
-  const expectedPageCount = countStatementExportPages(element);
   const cacheKey = await buildStatementPdfCacheKeyForElement(element, segments);
+  const expectedPageCount = countStatementExportPages(element);
 
-  if (!options.bypassCache) {
-    const cached = peekStatementPdfCache(cacheKey);
-    if (cached && cached.pageCount === expectedPageCount) {
-      return { result: cached, fromCache: true };
+  if (options.bypassCache) {
+    // A background prefetch may still be generating the previous statement.
+    // Let it finish first so it cannot overwrite the freshly generated PDF.
+    const pending = inflight.get(cacheKey);
+    if (pending) {
+      try {
+        await pending;
+      } catch {
+        // The forced generation below is the authoritative retry.
+      }
     }
+
+    clearStatementPdfCache(cacheKey);
+    const fresh = await generate();
+    putStatementPdfCache(cacheKey, fresh);
+
+    if (fresh.pageCount === expectedPageCount) {
+      return { result: fresh, fromCache: false };
+    }
+
+    clearStatementPdfCache(cacheKey);
+    const retried = await generate();
+    putStatementPdfCache(cacheKey, retried);
+    return { result: retried, fromCache: false };
+  }
+
+  const cached = peekStatementPdfCache(cacheKey);
+  if (cached && cached.pageCount === expectedPageCount) {
+    return { result: cached, fromCache: true };
   }
 
   const { result } = await resolveStatementPdf(cacheKey, generate);

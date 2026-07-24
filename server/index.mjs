@@ -425,6 +425,14 @@ function buildPublicRequestOrigin(req) {
   return `${req.protocol}://${req.get("host")}`;
 }
 
+function setMutablePdfNoCacheHeaders(res) {
+  // Share tokens are stable while their PDF files are intentionally replaceable.
+  // Prevent browsers and messengers from serving an older statement for the same link.
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+}
+
 app.get("/api/public/pdf-share/:token/file", (req, res) => {
   const file = getPdfArchiveFileByShareToken(req.params.token);
   if (!file) {
@@ -435,7 +443,7 @@ app.get("/api/public/pdf-share/:token/file", (req, res) => {
   const disposition = req.query.download === "1" ? "attachment" : "inline";
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `${disposition}; filename*=UTF-8''${encodedName}`);
-  res.setHeader("Cache-Control", "private, max-age=3600");
+  setMutablePdfNoCacheHeaders(res);
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.sendFile(path.resolve(file.path));
 });
@@ -451,6 +459,7 @@ app.get("/api/public/pdf-share/:token", async (req, res) => {
     const encodedName = encodeURIComponent(file.fileName);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodedName}`);
+    setMutablePdfNoCacheHeaders(res);
     res.sendFile(path.resolve(file.path));
     return;
   }
