@@ -1,12 +1,18 @@
 import { config } from "./config.mjs";
 import { getErpState, saveErpState } from "./db.mjs";
 import { mergeIbkBankImport } from "./ibkBankImport.mjs";
-import { applySentStatementAutoLinksToErpData } from "./bankSentStatementAutoLink.ts";
+import {
+  applyPendingPdfArchiveAutoLinkUpdates,
+  applySentStatementAutoLinksToErpData,
+  collectAutoLinkTransactionIds,
+  getAutoDepositRetryLookbackDays,
+} from "./bankSentStatementAutoLink.ts";
 import { getBarobillBankConfigStatus } from "./barobill/bankAccountClient.mjs";
 import {
   countMergeAgainstExisting,
   fetchBarobillBankTransactionsInRange,
 } from "./barobill/bankAccountSync.mjs";
+import { createEmptySentStatementAutoLinkDiagnostics } from "../src/utils/bankSentStatementMatch.ts";
 
 let syncRunning = false;
 let lastStatus = {
@@ -23,6 +29,7 @@ let lastStatus = {
   lastLatestTransactionAt: null,
   lastFromDate: null,
   lastToDate: null,
+  lastAutoLinkDiagnostics: createEmptySentStatementAutoLinkDiagnostics(),
   bankAccountNum: "",
 };
 
@@ -41,6 +48,34 @@ function subtractDaysYmdKst(days, from = new Date()) {
   return `${y}-${m}-${d}`;
 }
 
+function logAutoLinkDiagnostics(diagnostics, context) {
+  // Never log amounts, account numbers, or counterparty bank details.
+  console.info("[auto-deposit]", context, {
+    evaluated: diagnostics.evaluated,
+    linked: diagnostics.linked,
+    alreadyLinked: diagnostics.alreadyLinked,
+    noCandidate: diagnostics.noCandidate,
+    belowThreshold: diagnostics.belowThreshold,
+    dateOutOfRange: diagnostics.dateOutOfRange,
+    ambiguous: diagnostics.ambiguous,
+    manualOverride: diagnostics.manualOverride,
+    cardCompany: diagnostics.cardCompany,
+    failed: diagnostics.failed,
+  });
+}
+
+async function saveWithAutoLinkPdfMeta(nextPayload, expectedVersion, updatedBy, pendingPdfUpdates) {
+  try {
+    const saved = saveErpState(nextPayload, expectedVersion, updatedBy);
+    applyPendingPdfArchiveAutoLinkUpdates(pendingPdfUpdates);
+    return saved;
+  } catch (error) {
+    if (error?.message !== "VERSION_CONFLICT") throw error;
+    // Do not apply PDF meta when ERP save lost the race — avoids half-linked archives.
+    throw error;
+  }
+}
+
 export function getBarobillBankSyncStatus() {
   const cfg = getBarobillBankConfigStatus();
   return {
@@ -50,6 +85,7 @@ export function getBarobillBankSyncStatus() {
     bankAccountNum: cfg.bankAccountNum,
     syncDays: cfg.syncDays,
     test: cfg.test,
+    autoDepositRetryLookbackDays: getAutoDepositRetryLookbackDays(),
   };
 }
 
@@ -136,16 +172,42 @@ export async function runBarobillBankSync(options = {}) {
     };
 
     let autoLinkedCount = 0;
-    if (merged.addedIds?.length) {
-      const linked = await applySentStatementAutoLinksToErpData(nextPayload, {
-        onlyTransactionIds: merged.addedIds,
-        updatedBy: options.updatedBy || "barobill-bank-sync",
-      });
-      nextPayload = linked.data;
-      autoLinkedCount = linked.autoLinkedCount;
-    }
+    let autoLinkDiagnostics = createEmptySentStatementAutoLinkDiagnostics();
+    const retryIds = collectAutoLinkTransactionIds(merged.next, {
+      addedIds: merged.addedIds || [],
+      lookbackDays: options.autoLinkRetryDays,
+      asOfDate: toDate,
+    });
 
-    saveErpState(nextPayload, state.version, options.updatedBy || "barobill-bank-sync");
+    // Authoritative path: re-check recent unmatched deposits on every sync,
+    // including when Barobill added=0 (statement created after the deposit).
+    if (retryIds.length) {
+      const linked = await applySentStatementAutoLinksToErpData(nextPayload, {
+        onlyTransactionIds: retryIds,
+        updatedBy: options.updatedBy || "barobill-bank-sync",
+        deferPdfMeta: true,
+      });
+      nextPayload = {
+        ...linked.data,
+        bankSyncMeta: {
+          ...(linked.data.bankSyncMeta || {}),
+          lastAutoLinkAt: runAt,
+          lastAutoLinkDiagnostics: linked.diagnostics,
+          lastAutoLinkRetryCount: retryIds.length,
+        },
+      };
+      autoLinkedCount = linked.autoLinkedCount;
+      autoLinkDiagnostics = linked.diagnostics;
+      await saveWithAutoLinkPdfMeta(
+        nextPayload,
+        state.version,
+        options.updatedBy || "barobill-bank-sync",
+        linked.pendingPdfUpdates,
+      );
+      logAutoLinkDiagnostics(autoLinkDiagnostics, "barobill-bank-sync");
+    } else {
+      saveErpState(nextPayload, state.version, options.updatedBy || "barobill-bank-sync");
+    }
 
     lastStatus = {
       ...lastStatus,
@@ -160,12 +222,15 @@ export async function runBarobillBankSync(options = {}) {
       lastLatestTransactionAt: preview.latestTransactionAt || null,
       lastFromDate: fromDate,
       lastToDate: toDate,
+      lastAutoLinkDiagnostics: autoLinkDiagnostics,
     };
 
     return {
       ok: true,
       added: merged.added,
       autoLinked: autoLinkedCount,
+      autoLinkDiagnostics,
+      autoLinkRetryCount: retryIds.length,
       skipped: merged.skipped,
       fetched: preview.rows.length,
       latestTransactionAt: preview.latestTransactionAt || null,

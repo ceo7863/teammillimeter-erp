@@ -615,6 +615,365 @@ export type SentStatementAutoLinkDraft = {
   vouchers: BankPaymentVoucherDraft[];
 };
 
+/** Default score floor for automatic sent-statement deposit linking. Do not lower without evidence. */
+export const DEFAULT_SENT_STATEMENT_AUTO_LINK_MIN_SCORE = 75;
+/** Reject auto-link when |transactionDate - statementCreatedAt| exceeds this many days. */
+export const DEFAULT_SENT_STATEMENT_MAX_DATE_GAP_DAYS = 45;
+/** Require top score to beat the runner-up by at least this many points when both clear the floor. */
+export const DEFAULT_SENT_STATEMENT_AMBIGUITY_MIN_SCORE_GAP = 5;
+/** Re-evaluate unmatched deposits this many days back on each bank sync (not only newly added rows). */
+export const DEFAULT_AUTO_DEPOSIT_RETRY_LOOKBACK_DAYS = 30;
+
+export type SentStatementAutoLinkSkipReason =
+  | "alreadyLinked"
+  | "cardCompany"
+  | "manualOverride"
+  | "noCandidate"
+  | "belowThreshold"
+  | "dateOutOfRange"
+  | "ambiguous"
+  | "failed";
+
+export type SentStatementAutoLinkDiagnostics = {
+  evaluated: number;
+  linked: number;
+  alreadyLinked: number;
+  noCandidate: number;
+  belowThreshold: number;
+  dateOutOfRange: number;
+  ambiguous: number;
+  manualOverride: number;
+  cardCompany: number;
+  failed: number;
+};
+
+export type SentStatementAutoLinkEvaluationItem = {
+  txId: string;
+  client?: string;
+  score?: number;
+  reason: "linked" | SentStatementAutoLinkSkipReason;
+  periodStart?: string;
+  periodEnd?: string;
+  transactionDate?: string;
+  statementCreatedAt?: string;
+  dateEligible?: boolean;
+  uniqueTopCandidate?: boolean;
+};
+
+export function createEmptySentStatementAutoLinkDiagnostics(): SentStatementAutoLinkDiagnostics {
+  return {
+    evaluated: 0,
+    linked: 0,
+    alreadyLinked: 0,
+    noCandidate: 0,
+    belowThreshold: 0,
+    dateOutOfRange: 0,
+    ambiguous: 0,
+    manualOverride: 0,
+    cardCompany: 0,
+    failed: 0,
+  };
+}
+
+function bumpDiagnostic(
+  diagnostics: SentStatementAutoLinkDiagnostics,
+  reason: keyof SentStatementAutoLinkDiagnostics,
+) {
+  diagnostics[reason] += 1;
+}
+
+function ymdKst(value?: string | Date | null) {
+  if (!value) return "";
+  if (typeof value === "string") return value.slice(0, 10);
+  return value.toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
+}
+
+function subtractDaysYmd(ymd: string, days: number) {
+  const base = new Date(`${ymd.slice(0, 10)}T12:00:00`);
+  if (!Number.isFinite(base.getTime())) return "";
+  base.setDate(base.getDate() - Math.max(0, days));
+  const y = base.getFullYear();
+  const m = String(base.getMonth() + 1).padStart(2, "0");
+  const d = String(base.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/** Recent unmatched deposits eligible for periodic auto-link retry (excludes card / already linked). */
+export function selectRecentUnlinkedDepositIds(
+  bankTransactions: BankTransaction[],
+  options: { lookbackDays?: number; asOfDate?: string | Date } = {},
+): string[] {
+  const lookbackDays = options.lookbackDays ?? DEFAULT_AUTO_DEPOSIT_RETRY_LOOKBACK_DAYS;
+  const asOf = ymdKst(options.asOfDate || new Date());
+  const fromDate = subtractDaysYmd(asOf, lookbackDays);
+  const ids: string[] = [];
+
+  for (const tx of bankTransactions) {
+    if (Number(tx.deposit || 0) <= 0) continue;
+    if (tx.linkedPaymentVoucherId || tx.linkedPdfArchiveId) continue;
+    if (isCardCompanyDeposit(tx)) continue;
+    const txDate = String(tx.transactionAt || "").slice(0, 10);
+    if (!txDate || (fromDate && txDate < fromDate) || txDate > asOf) continue;
+    ids.push(tx.id);
+  }
+
+  return ids;
+}
+
+export function isSentStatementCandidateDateEligible(
+  tx: Pick<BankTransaction, "transactionAt">,
+  candidate: Pick<SentStatementMatchCandidate, "periodStart" | "sentAt">,
+  options: { maxDateGapDays?: number } = {},
+): { ok: boolean; reason?: "dateOutOfRange" } {
+  const maxDateGapDays = options.maxDateGapDays ?? DEFAULT_SENT_STATEMENT_MAX_DATE_GAP_DAYS;
+  const txDate = String(tx.transactionAt || "").slice(0, 10);
+  const periodStart = String(candidate.periodStart || "").slice(0, 10);
+  const sentAt = String(candidate.sentAt || "").slice(0, 10);
+
+  if (txDate && periodStart && txDate < periodStart) {
+    return { ok: false, reason: "dateOutOfRange" };
+  }
+
+  if (txDate && sentAt) {
+    const gap = Math.abs(daysBetween(sentAt, txDate));
+    if (gap > maxDateGapDays) {
+      return { ok: false, reason: "dateOutOfRange" };
+    }
+  }
+
+  return { ok: true };
+}
+
+export function resolveUniqueAutoLinkCandidate(
+  candidates: SentStatementMatchCandidate[],
+  options: {
+    minScore?: number;
+    ambiguityMinScoreGap?: number;
+    tx?: Pick<BankTransaction, "transactionAt">;
+    maxDateGapDays?: number;
+  } = {},
+):
+  | { status: "link"; candidate: SentStatementMatchCandidate }
+  | { status: SentStatementAutoLinkSkipReason; candidate?: SentStatementMatchCandidate } {
+  const minScore = options.minScore ?? DEFAULT_SENT_STATEMENT_AUTO_LINK_MIN_SCORE;
+  const ambiguityMinScoreGap =
+    options.ambiguityMinScoreGap ?? DEFAULT_SENT_STATEMENT_AMBIGUITY_MIN_SCORE_GAP;
+
+  if (!candidates.length) return { status: "noCandidate" };
+
+  const dateEligible = candidates.filter((candidate) => {
+    if (!options.tx) return true;
+    return isSentStatementCandidateDateEligible(options.tx, candidate, {
+      maxDateGapDays: options.maxDateGapDays,
+    }).ok;
+  });
+
+  if (!dateEligible.length) {
+    return { status: "dateOutOfRange", candidate: candidates[0] };
+  }
+
+  const ranked = [...dateEligible].sort(
+    (a, b) =>
+      b.score - a.score ||
+      String(a.periodStart || "").localeCompare(String(b.periodStart || "")) ||
+      b.statementTotalAmount - a.statementTotalAmount,
+  );
+  const top = ranked[0];
+  if (!top || top.score < minScore) {
+    return { status: "belowThreshold", candidate: top };
+  }
+
+  const contenders = ranked.filter((row) => row.score >= minScore);
+  if (contenders.length > 1) {
+    const second = contenders[1];
+    const gap = top.score - second.score;
+    if (gap < ambiguityMinScoreGap) {
+      return { status: "ambiguous", candidate: top };
+    }
+  }
+
+  return { status: "link", candidate: top };
+}
+
+/**
+ * Evaluate high-confidence sent-statement auto-links with diagnostics.
+ * Does not mutate ERP state; callers apply drafts idempotently.
+ */
+export function evaluateHighConfidenceSentStatementAutoLinks(options: {
+  bankTransactions: BankTransaction[];
+  archives: PdfArchiveMeta[];
+  clients?: ClientDepositMatchSource[];
+  sales?: SaleLikeForStatement[];
+  paymentVouchers?: PaymentVoucherLike[];
+  onlyTransactionIds?: Set<string>;
+  minScore?: number;
+  maxDateGapDays?: number;
+  ambiguityMinScoreGap?: number;
+}): {
+  drafts: SentStatementAutoLinkDraft[];
+  diagnostics: SentStatementAutoLinkDiagnostics;
+  items: SentStatementAutoLinkEvaluationItem[];
+} {
+  const {
+    bankTransactions,
+    archives,
+    clients,
+    sales,
+    paymentVouchers = [],
+    onlyTransactionIds,
+    minScore = DEFAULT_SENT_STATEMENT_AUTO_LINK_MIN_SCORE,
+    maxDateGapDays = DEFAULT_SENT_STATEMENT_MAX_DATE_GAP_DAYS,
+    ambiguityMinScoreGap = DEFAULT_SENT_STATEMENT_AMBIGUITY_MIN_SCORE_GAP,
+  } = options;
+
+  const linkedBankIds = new Set(
+    paymentVouchers.map((voucher) => String(voucher.bankTransactionId || "")).filter(Boolean),
+  );
+  const drafts: SentStatementAutoLinkDraft[] = [];
+  const items: SentStatementAutoLinkEvaluationItem[] = [];
+  const diagnostics = createEmptySentStatementAutoLinkDiagnostics();
+  let workingVouchers = [...paymentVouchers];
+
+  const scopedTransactions = onlyTransactionIds
+    ? bankTransactions.filter((tx) => onlyTransactionIds.has(tx.id))
+    : bankTransactions;
+
+  for (const tx of scopedTransactions) {
+    if (Number(tx.deposit || 0) <= 0) continue;
+
+    diagnostics.evaluated += 1;
+    const transactionDate = String(tx.transactionAt || "").slice(0, 10);
+
+    if (tx.linkedPaymentVoucherId || tx.linkedPdfArchiveId || linkedBankIds.has(tx.id)) {
+      bumpDiagnostic(diagnostics, "alreadyLinked");
+      items.push({ txId: tx.id, reason: "alreadyLinked", transactionDate });
+      continue;
+    }
+
+    if (isCardCompanyDeposit(tx)) {
+      bumpDiagnostic(diagnostics, "cardCompany");
+      items.push({ txId: tx.id, reason: "cardCompany", transactionDate });
+      continue;
+    }
+
+    if (hasManualClientClassificationOverride(tx)) {
+      bumpDiagnostic(diagnostics, "manualOverride");
+      items.push({ txId: tx.id, reason: "manualOverride", transactionDate });
+      continue;
+    }
+
+    const candidates = buildSentStatementMatchCandidates(tx, archives, {
+      linkedPdfArchiveIds: new Set(
+        bankTransactions.filter((row) => row.linkedPdfArchiveId).map((row) => String(row.linkedPdfArchiveId)),
+      ),
+      clients,
+      paymentVouchers: workingVouchers,
+      bankTransactions,
+      minScore: 0,
+      limit: 8,
+    });
+
+    const decision = resolveUniqueAutoLinkCandidate(candidates, {
+      minScore,
+      ambiguityMinScoreGap,
+      tx,
+      maxDateGapDays,
+    });
+
+    if (decision.status !== "link") {
+      bumpDiagnostic(diagnostics, decision.status);
+      items.push({
+        txId: tx.id,
+        reason: decision.status,
+        client: decision.candidate?.client,
+        score: decision.candidate?.score,
+        periodStart: decision.candidate?.periodStart,
+        periodEnd: decision.candidate?.periodEnd,
+        transactionDate,
+        statementCreatedAt: decision.candidate?.sentAt,
+        dateEligible: decision.status !== "dateOutOfRange",
+        uniqueTopCandidate: decision.status !== "ambiguous",
+      });
+      continue;
+    }
+
+    const candidate = decision.candidate;
+    try {
+      const archive = archives.find((row) => row.id === candidate.pdfArchiveId);
+      const paidSoFar = resolveStatementPaidAmount(candidate.pdfArchiveId, workingVouchers, bankTransactions);
+      const vouchers = createPaymentVouchersFromSentStatementMatch(tx, candidate, {
+        sales,
+        clients,
+        archive,
+        paymentVouchers: workingVouchers,
+      });
+      if (!vouchers.length) {
+        bumpDiagnostic(diagnostics, "failed");
+        items.push({
+          txId: tx.id,
+          reason: "failed",
+          client: candidate.client,
+          score: candidate.score,
+          transactionDate,
+        });
+        continue;
+      }
+
+      // Idempotency: never create a second voucher set for the same bank tx in one pass.
+      if (workingVouchers.some((voucher) => String(voucher.bankTransactionId || "") === tx.id)) {
+        bumpDiagnostic(diagnostics, "alreadyLinked");
+        items.push({ txId: tx.id, reason: "alreadyLinked", transactionDate });
+        continue;
+      }
+
+      const appliedAmount = vouchers.reduce((sum, voucher) => sum + Number(voucher.finalAmount || 0), 0);
+      const paymentStatus = resolveArchivePaymentStatusAfterApply(
+        candidate.statementTotalAmount,
+        paidSoFar,
+        appliedAmount,
+      );
+      const primaryVoucher = vouchers[0];
+
+      drafts.push({
+        txId: tx.id,
+        client: candidate.client,
+        pdfArchiveId: candidate.pdfArchiveId,
+        paymentStatus,
+        primaryVoucherId: primaryVoucher.id,
+        primarySalesId: vouchers.length === 1 ? primaryVoucher.salesId : undefined,
+        vouchers,
+      });
+
+      workingVouchers = [...workingVouchers, ...vouchers];
+      linkedBankIds.add(tx.id);
+      bumpDiagnostic(diagnostics, "linked");
+      items.push({
+        txId: tx.id,
+        reason: "linked",
+        client: candidate.client,
+        score: candidate.score,
+        periodStart: candidate.periodStart,
+        periodEnd: candidate.periodEnd,
+        transactionDate,
+        statementCreatedAt: candidate.sentAt,
+        dateEligible: true,
+        uniqueTopCandidate: true,
+      });
+    } catch {
+      bumpDiagnostic(diagnostics, "failed");
+      items.push({
+        txId: tx.id,
+        reason: "failed",
+        client: candidate.client,
+        score: candidate.score,
+        transactionDate,
+      });
+    }
+  }
+
+  return { drafts, diagnostics, items };
+}
+
 /** 보낸내역서 ↔ 통장입금 고신뢰 매칭(기본 score ≥ 75)을 일괄 생성합니다. */
 export function buildHighConfidenceSentStatementAutoLinks(options: {
   bankTransactions: BankTransaction[];
@@ -624,67 +983,8 @@ export function buildHighConfidenceSentStatementAutoLinks(options: {
   paymentVouchers?: PaymentVoucherLike[];
   onlyTransactionIds?: Set<string>;
   minScore?: number;
+  maxDateGapDays?: number;
+  ambiguityMinScoreGap?: number;
 }): SentStatementAutoLinkDraft[] {
-  const {
-    bankTransactions,
-    archives,
-    clients,
-    sales,
-    paymentVouchers = [],
-    onlyTransactionIds,
-    minScore = 75,
-  } = options;
-
-  const linkedBankIds = new Set(
-    paymentVouchers.map((voucher) => String(voucher.bankTransactionId || "")).filter(Boolean),
-  );
-  const drafts: SentStatementAutoLinkDraft[] = [];
-  let workingVouchers = [...paymentVouchers];
-
-  for (const { tx, candidates } of buildAllSentStatementDepositSuggestions(
-    bankTransactions,
-    archives,
-    clients,
-    workingVouchers,
-  )) {
-    if (onlyTransactionIds && !onlyTransactionIds.has(tx.id)) continue;
-    if (tx.linkedPaymentVoucherId || linkedBankIds.has(tx.id)) continue;
-    if (hasManualClientClassificationOverride(tx)) continue;
-
-    const candidate = candidates[0];
-    if (!candidate || candidate.score < minScore) continue;
-
-    const archive = archives.find((row) => row.id === candidate.pdfArchiveId);
-    const paidSoFar = resolveStatementPaidAmount(candidate.pdfArchiveId, workingVouchers, bankTransactions);
-    const vouchers = createPaymentVouchersFromSentStatementMatch(tx, candidate, {
-      sales,
-      clients,
-      archive,
-      paymentVouchers: workingVouchers,
-    });
-    if (!vouchers.length) continue;
-
-    const appliedAmount = vouchers.reduce((sum, voucher) => sum + Number(voucher.finalAmount || 0), 0);
-    const paymentStatus = resolveArchivePaymentStatusAfterApply(
-      candidate.statementTotalAmount,
-      paidSoFar,
-      appliedAmount,
-    );
-    const primaryVoucher = vouchers[0];
-
-    drafts.push({
-      txId: tx.id,
-      client: candidate.client,
-      pdfArchiveId: candidate.pdfArchiveId,
-      paymentStatus,
-      primaryVoucherId: primaryVoucher.id,
-      primarySalesId: vouchers.length === 1 ? primaryVoucher.salesId : undefined,
-      vouchers,
-    });
-
-    workingVouchers = [...workingVouchers, ...vouchers];
-    linkedBankIds.add(tx.id);
-  }
-
-  return drafts;
+  return evaluateHighConfidenceSentStatementAutoLinks(options).drafts;
 }

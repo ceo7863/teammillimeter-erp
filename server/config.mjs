@@ -140,6 +140,17 @@ export const config = {
     test: barobillTest,
     wsdlUrl: barobillTest ? BAROBILL_TEST_WSDL : BAROBILL_PROD_WSDL,
   },
+  /**
+   * Sent-statement auto-deposit safety.
+   * Periodic recent recheck is the authoritative path for "deposit before statement"
+   * cases; we intentionally do not trigger immediate rechecks on statement share-link
+   * create/replace to avoid concurrent ERP save races.
+   */
+  autoDeposit: {
+    retryLookbackDays: Number(process.env.AUTO_DEPOSIT_RETRY_LOOKBACK_DAYS || 30),
+    maxDateGapDays: Number(process.env.AUTO_DEPOSIT_MAX_DATE_GAP_DAYS || 45),
+    ambiguityMinScoreGap: Number(process.env.AUTO_DEPOSIT_AMBIGUITY_MIN_SCORE_GAP || 5),
+  },
 };
 
 /** 초기 계정 — 배포 후 비밀번호 변경 권장 */

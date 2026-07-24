@@ -29,7 +29,21 @@ export type BarobillBankScrapStatus = {
 export type BarobillBankSyncResult = {
   ok: boolean;
   added?: number;
-  skipped?: number;
+  autoLinked?: number;
+  autoLinkDiagnostics?: {
+    evaluated: number;
+    linked: number;
+    alreadyLinked: number;
+    noCandidate: number;
+    belowThreshold: number;
+    dateOutOfRange: number;
+    ambiguous: number;
+    manualOverride: number;
+    cardCompany: number;
+    failed: number;
+  };
+  autoLinkRetryCount?: number;
+  skipped?: number | boolean;
   fetched?: number;
   latestTransactionAt?: string | null;
   fromDate?: string;
@@ -49,7 +63,6 @@ export type BarobillBankSyncResult = {
   bankSyncMeta?: Record<string, unknown> | null;
   error?: string;
   reason?: string;
-  skipped?: boolean;
 };
 
 function apiBase() {
