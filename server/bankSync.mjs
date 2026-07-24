@@ -5,7 +5,12 @@ import { getBarobillBankConfigStatus } from "./barobill/bankAccountClient.mjs";
 import { getOpenBankingPublicStatus } from "./openBankingStore.mjs";
 import { getErpState, saveErpState } from "./db.mjs";
 import { mergeIbkBankImport, parseIbkBankExcelBuffer } from "./ibkBankImport.mjs";
-import { applySentStatementAutoLinksToErpData } from "./bankSentStatementAutoLink.ts";
+import {
+  applyPendingPdfArchiveAutoLinkUpdates,
+  applySentStatementAutoLinksToErpData,
+  collectAutoLinkTransactionIds,
+} from "./bankSentStatementAutoLink.ts";
+import { createEmptySentStatementAutoLinkDiagnostics } from "../src/utils/bankSentStatementMatch.ts";
 
 const IBK_FILE_PATTERN = /\uAC70\uB798|transaction|ibk/i;
 
@@ -148,30 +153,75 @@ export async function runBankFolderSync(options = {}) {
     };
 
     let autoLinkedCount = 0;
+    let autoLinkDiagnostics = createEmptySentStatementAutoLinkDiagnostics();
     if (merged.added > 0 || options.forceMetaUpdate) {
       let nextPayload = {
         ...state.data,
         bankTransactions: merged.next,
         bankSyncMeta,
       };
-      if (merged.addedIds?.length) {
+      const retryIds = collectAutoLinkTransactionIds(merged.next, {
+        addedIds: merged.addedIds || [],
+        lookbackDays: options.autoLinkRetryDays,
+      });
+      if (retryIds.length) {
         const linked = await applySentStatementAutoLinksToErpData(nextPayload, {
-          onlyTransactionIds: merged.addedIds,
+          onlyTransactionIds: retryIds,
           updatedBy: options.updatedBy || "ibk-auto-sync",
+          deferPdfMeta: true,
         });
-        nextPayload = linked.data;
+        nextPayload = {
+          ...linked.data,
+          bankSyncMeta: {
+            ...(linked.data.bankSyncMeta || nextPayload.bankSyncMeta || {}),
+            lastAutoLinkAt: runAt,
+            lastAutoLinkDiagnostics: linked.diagnostics,
+            lastAutoLinkRetryCount: retryIds.length,
+          },
+        };
         autoLinkedCount = linked.autoLinkedCount;
+        autoLinkDiagnostics = linked.diagnostics;
+        saveErpState(nextPayload, state.version, options.updatedBy || "ibk-auto-sync");
+        applyPendingPdfArchiveAutoLinkUpdates(linked.pendingPdfUpdates);
+      } else {
+        saveErpState(nextPayload, state.version, options.updatedBy || "ibk-auto-sync");
       }
-      saveErpState(nextPayload, state.version, options.updatedBy || "ibk-auto-sync");
     } else {
-      const nextPayload = {
+      // Even when the import file added nothing, re-check recent unmatched deposits
+      // so statements created after the deposit can still auto-link.
+      const retryIds = collectAutoLinkTransactionIds(state.data.bankTransactions || [], {
+        addedIds: [],
+        lookbackDays: options.autoLinkRetryDays,
+      });
+      let nextPayload = {
         ...state.data,
         bankSyncMeta: {
           ...(state.data.bankSyncMeta || {}),
           ...bankSyncMeta,
         },
       };
-      saveErpState(nextPayload, state.version, options.updatedBy || "ibk-auto-sync");
+      if (retryIds.length) {
+        const linked = await applySentStatementAutoLinksToErpData(nextPayload, {
+          onlyTransactionIds: retryIds,
+          updatedBy: options.updatedBy || "ibk-auto-sync",
+          deferPdfMeta: true,
+        });
+        nextPayload = {
+          ...linked.data,
+          bankSyncMeta: {
+            ...(linked.data.bankSyncMeta || nextPayload.bankSyncMeta || {}),
+            lastAutoLinkAt: runAt,
+            lastAutoLinkDiagnostics: linked.diagnostics,
+            lastAutoLinkRetryCount: retryIds.length,
+          },
+        };
+        autoLinkedCount = linked.autoLinkedCount;
+        autoLinkDiagnostics = linked.diagnostics;
+        saveErpState(nextPayload, state.version, options.updatedBy || "ibk-auto-sync");
+        applyPendingPdfArchiveAutoLinkUpdates(linked.pendingPdfUpdates);
+      } else {
+        saveErpState(nextPayload, state.version, options.updatedBy || "ibk-auto-sync");
+      }
     }
 
     lastStatus = {
@@ -186,12 +236,14 @@ export async function runBankFolderSync(options = {}) {
       lastAutoLinked: autoLinkedCount,
       lastSkipped: merged.skipped,
       lastLatestTransactionAt: preview.latestTransactionAt || null,
+      lastAutoLinkDiagnostics: autoLinkDiagnostics,
     };
 
     return {
       ok: true,
       added: merged.added,
       autoLinked: autoLinkedCount,
+      autoLinkDiagnostics,
       skipped: merged.skipped,
       sourceFile: target.name,
       latestTransactionAt: preview.latestTransactionAt || null,
