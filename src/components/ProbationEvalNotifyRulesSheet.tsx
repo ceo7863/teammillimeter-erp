@@ -1,16 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, ClipboardList, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   buildProbationEvalNotifyRuleSheet,
   describeProbationEvalEvaluatorResult,
 } from "@/utils/probationEvalNotifyRules";
-import { saveNotificationSettings } from "@/utils/notificationApi";
+import { saveNotificationSettingsWithConflictRetry } from "@/utils/notificationApi";
 import {
   DEFAULT_NOTIFICATION_SETTINGS,
   normalizeNotificationSettings,
   type NotificationSettings,
 } from "@/utils/notificationSettings";
+import {
+  PROBATION_NOTIFY_MERGE_KEYS,
+  isNotificationSettingsConflictError,
+} from "@/utils/notificationSettingsSave";
 import {
   normalizeWorkerAiRules,
   PROBATION_EVAL_COMPANION_GRADE_OPTIONS,
@@ -59,6 +63,12 @@ export function ProbationEvalNotifyRulesSheet({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const versionRef = useRef<number | undefined>(erpVersion);
+  const notifyDraftRef = useRef(notifyDraft);
+
+  useEffect(() => {
+    versionRef.current = erpVersion;
+  }, [erpVersion]);
 
   useEffect(() => {
     setRulesDraft(normalizeWorkerAiRules(workerAiRules));
@@ -69,6 +79,10 @@ export function ProbationEvalNotifyRulesSheet({
       setNotifyDraft(normalizeNotificationSettings(notificationSettings));
     }
   }, [notificationSettings]);
+
+  useEffect(() => {
+    notifyDraftRef.current = notifyDraft;
+  }, [notifyDraft]);
 
   const sheet = useMemo(
     () =>
@@ -90,9 +104,8 @@ export function ProbationEvalNotifyRulesSheet({
     setMessage("");
     try {
       const normalizedRules = normalizeWorkerAiRules(rulesDraft);
-      const normalizedNotify = normalizeNotificationSettings(notifyDraft);
+      const normalizedNotify = normalizeNotificationSettings(notifyDraftRef.current);
 
-      let versionForNotify = erpVersion;
       if (onWorkerAiRulesSaved) {
         const rulesOk = await onWorkerAiRulesSaved(normalizedRules);
         if (rulesOk === false) {
@@ -100,21 +113,40 @@ export function ProbationEvalNotifyRulesSheet({
           return;
         }
         if (typeof rulesOk === "number") {
-          versionForNotify = rulesOk;
+          versionRef.current = rulesOk;
         }
       }
 
-      const notifyResult = await saveNotificationSettings(normalizedNotify, versionForNotify);
+      const notifyResult = await saveNotificationSettingsWithConflictRetry(normalizedNotify, {
+        getVersion: () => versionRef.current,
+        onVersion: (nextVersion) => {
+          versionRef.current = nextVersion;
+        },
+        mergeKeys: [...PROBATION_NOTIFY_MERGE_KEYS],
+      });
       const savedNotify = normalizeNotificationSettings(notifyResult.settings);
-      setNotifyDraft(savedNotify);
+      // Keep the user's probation notify draft fields; merge server result for safety.
+      setNotifyDraft((prev) =>
+        normalizeNotificationSettings({
+          ...savedNotify,
+          enabled: prev.enabled,
+          probationEvalNotifyEnabled: prev.probationEvalNotifyEnabled,
+          probationEvalReminderEnabled: prev.probationEvalReminderEnabled,
+          probationEvalNotifyHour: prev.probationEvalNotifyHour,
+          probationEvalNotifyMinute: prev.probationEvalNotifyMinute,
+        }),
+      );
       onNotificationSettingsSaved?.(savedNotify, notifyResult.version);
       onRulesSaved?.();
       setMessage("발송 규칙을 저장했습니다. 미리보기를 새로고침해 확인하세요.");
     } catch (saveError) {
       console.error(saveError);
       const err = saveError as Error & { status?: number };
-      if (err.status === 409) {
-        setError("다른 사용자가 먼저 저장했습니다. 새로고침(F5) 후 다시 시도해 주세요.");
+      if (isNotificationSettingsConflictError(saveError)) {
+        if (typeof saveError.currentVersion === "number") {
+          versionRef.current = saveError.currentVersion;
+        }
+        setError("다른 변경과 충돌했고 재시도도 실패했습니다. 입력값은 유지됩니다. 잠시 후 다시 저장해 주세요.");
       } else if (err.status === 403) {
         setError("규칙 저장 권한이 없습니다. 관리자 계정으로 로그인해 주세요.");
       } else {

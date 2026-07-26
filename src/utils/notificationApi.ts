@@ -1,5 +1,9 @@
 import { apiRequest } from "@/utils/erpApi";
 import type { NotificationSettings } from "@/utils/notificationSettings";
+import {
+  saveNotificationSettingsWithConflictRetry as saveWithConflictRetryCore,
+  type NotificationSettingsSaveResult,
+} from "@/utils/notificationSettingsSave";
 
 export type AlimtalkStatus = {
   enabled: boolean;
@@ -60,14 +64,37 @@ export async function fetchNotificationStatus() {
   }>("/notifications/status");
 }
 
+export type NotificationSettingsResponse = {
+  settings: NotificationSettings;
+  version: number;
+  updatedAt?: string;
+};
+
 export async function fetchNotificationSettings() {
-  return apiRequest<{ settings: NotificationSettings }>("/notifications/settings");
+  return apiRequest<NotificationSettingsResponse>("/notifications/settings");
 }
 
 export async function saveNotificationSettings(settings: NotificationSettings, version?: number) {
-  return apiRequest<{ ok: boolean; settings: NotificationSettings; version: number }>("/notifications/settings", {
+  return apiRequest<NotificationSettingsSaveResult>("/notifications/settings", {
     method: "PATCH",
     body: JSON.stringify({ settings, version }),
+  });
+}
+
+export async function saveNotificationSettingsWithConflictRetry(
+  draft: NotificationSettings,
+  options: {
+    getVersion: () => number | undefined;
+    onVersion?: (version: number) => void;
+    mergeKeys?: ReadonlyArray<keyof NotificationSettings>;
+  },
+) {
+  return saveWithConflictRetryCore(draft, {
+    getVersion: options.getVersion,
+    onVersion: options.onVersion,
+    mergeKeys: options.mergeKeys,
+    save: saveNotificationSettings,
+    fetchLatest: fetchNotificationSettings,
   });
 }
 

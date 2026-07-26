@@ -10,7 +10,7 @@ import {
   previewDailyReport,
   previewScScheduleNotify,
   previewScWeeklyBriefing,
-  saveNotificationSettings,
+  saveNotificationSettingsWithConflictRetry,
   sendCommentNotifyTest,
   sendDailyReportNow,
   sendScScheduleNotifyNow,
@@ -21,6 +21,10 @@ import {
   type ScScheduleNotifyStatus,
   type ScWeeklyBriefingNotifyStatus,
 } from "@/utils/notificationApi";
+import {
+  createNotificationSettingsSaveQueue,
+  isNotificationSettingsConflictError,
+} from "@/utils/notificationSettingsSave";
 import {
   NotifyScheduleTimePicker,
   NotifyWeeklySchedulePicker,
@@ -43,7 +47,7 @@ const L = {
   saveSuccess: "\uC54C\uB9BC \uC124\uC815\uC774 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
   saveError: "\uC54C\uB9BC \uC124\uC815 \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   conflictError:
-    "\uB2E4\uB978 \uC0AC\uC6A9\uC790\uAC00 \uBA38\uC800 \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4. \uC0C8\uB85C\uACE0\uCE68 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.",
+    "\uB2E4\uB978 \uBCC0\uACBD\uACFC \uCDA9\uB3CC\uD588\uACE0 \uC7AC\uC2DC\uB3C4\uB3C4 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uC785\uB825\uAC12\uC740 \uC720\uC9C0\uB429\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC800\uC7A5\uD574 \uC8FC\uC138\uC694.",
   save: "\uC800\uC7A5",
   refresh: "\uC0C8\uB85C\uACE0\uCE68",
   masterEnable: "\uC54C\uB9BC\uD1A1 \uC0AC\uC6A9",
@@ -551,7 +555,7 @@ type NotificationSettingsPageProps = {
   onErpVersionChange?: (version: number) => void;
 };
 
-export function NotificationSettingsPage({ embedded = false, erpVersion, onErpVersionChange }: NotificationSettingsPageProps) {
+export function NotificationSettingsPage({ embedded = false, erpVersion: _erpVersion, onErpVersionChange }: NotificationSettingsPageProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState<NotifyBusyKey>(null);
@@ -563,13 +567,33 @@ export function NotificationSettingsPage({ embedded = false, erpVersion, onErpVe
   const [scScheduleStatus, setScScheduleStatus] = useState<ScScheduleNotifyStatus | null>(null);
   const [scWeeklyBriefingStatus, setScWeeklyBriefingStatus] = useState<ScWeeklyBriefingNotifyStatus | null>(null);
   const [probationEvalStatus, setProbationEvalStatus] = useState<ProbationEvalNotifyStatus | null>(null);
-  const [version, setVersion] = useState<number | undefined>(erpVersion);
+  // Authoritative version comes from GET/PATCH /notifications/settings — not shared erpVersion.
+  const [version, setVersion] = useState<number | undefined>(undefined);
   const [previewMessage, setPreviewMessage] = useState("");
   const [previewTitle, setPreviewTitle] = useState(L.previewTitle);
   const [previewOpen, setPreviewOpen] = useState(false);
   const readyForAutosaveRef = useRef(false);
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipAutosaveOnceRef = useRef(true);
+  const versionRef = useRef<number | undefined>(undefined);
+  const settingsRef = useRef(settings);
+  const recipientRowsRef = useRef(recipientRows);
+  const editGenRef = useRef(0);
+  const saveQueueRef = useRef(createNotificationSettingsSaveQueue());
+  const onErpVersionChangeRef = useRef(onErpVersionChange);
+
+  useEffect(() => {
+    versionRef.current = version;
+  }, [version]);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+  useEffect(() => {
+    recipientRowsRef.current = recipientRows;
+  }, [recipientRows]);
+  useEffect(() => {
+    onErpVersionChangeRef.current = onErpVersionChange;
+  }, [onErpVersionChange]);
 
   const loadAll = useCallback(async () => {
     readyForAutosaveRef.current = false;
@@ -582,12 +606,18 @@ export function NotificationSettingsPage({ embedded = false, erpVersion, onErpVe
         fetchNotificationStatus(),
       ]);
       const nextSettings = normalizeNotificationSettings(settingsResult.settings);
+      skipAutosaveOnceRef.current = true;
       setSettings(nextSettings);
       setRecipientRows(buildRecipientRows(users, nextSettings));
       setAlimtalkStatus(statusResult.alimtalk);
       setScScheduleStatus(statusResult.scScheduleNotify || null);
       setScWeeklyBriefingStatus(statusResult.scWeeklyBriefing || null);
       setProbationEvalStatus(statusResult.probationEvalNotify || null);
+      if (typeof settingsResult.version === "number") {
+        versionRef.current = settingsResult.version;
+        setVersion(settingsResult.version);
+        onErpVersionChangeRef.current?.(settingsResult.version);
+      }
     } catch (err) {
       console.error(err);
       setError(L.loadError);
@@ -598,46 +628,61 @@ export function NotificationSettingsPage({ embedded = false, erpVersion, onErpVe
     }
   }, []);
 
-  const persistSettings = useCallback(
-    async (payload: NotificationSettings, options?: { showSuccessMessage?: boolean }) => {
-      setSaving(true);
-      setError("");
-      if (options?.showSuccessMessage) setMessage("");
-      try {
-        const result = await saveNotificationSettings(payload, version);
-        const nextSettings = normalizeNotificationSettings(result.settings);
+  const persistFromRefs = useCallback(async (options?: { showSuccessMessage?: boolean }) => {
+    const genAtStart = editGenRef.current;
+    const payload: NotificationSettings = {
+      ...settingsRef.current,
+      recipients: recipientsFromRows(recipientRowsRef.current),
+    };
+    setSaving(true);
+    setError("");
+    if (options?.showSuccessMessage) setMessage("");
+    try {
+      const result = await saveNotificationSettingsWithConflictRetry(payload, {
+        getVersion: () => versionRef.current,
+        onVersion: (nextVersion) => {
+          versionRef.current = nextVersion;
+          setVersion(nextVersion);
+          onErpVersionChangeRef.current?.(nextVersion);
+        },
+      });
+      const nextSettings = normalizeNotificationSettings(result.settings);
+      if (editGenRef.current === genAtStart) {
         readyForAutosaveRef.current = false;
         skipAutosaveOnceRef.current = true;
         setSettings(nextSettings);
-        setVersion(result.version);
-        onErpVersionChange?.(result.version);
-        if (options?.showSuccessMessage) setMessage(L.saveSuccess);
-        return true;
-      } catch (err) {
-        console.error(err);
-        const status = (err as { status?: number })?.status;
-        if (status === 409) {
-          setError(L.conflictError);
-          await loadAll();
-        } else {
-          setError(L.saveError);
-        }
-        return false;
-      } finally {
-        setSaving(false);
-        readyForAutosaveRef.current = true;
+      } else {
+        // User edited during save — keep draft and queue another persist of the latest refs.
+        void saveQueueRef.current.enqueue(persistFromRefs, options);
       }
-    },
-    [version, onErpVersionChange, loadAll],
-  );
+      if (options?.showSuccessMessage) setMessage(L.saveSuccess);
+      return true;
+    } catch (err) {
+      console.error(err);
+      // Preserve the user's draft on conflict/failure — do not reload server settings over inputs.
+      if (isNotificationSettingsConflictError(err)) {
+        if (typeof err.currentVersion === "number") {
+          versionRef.current = err.currentVersion;
+          setVersion(err.currentVersion);
+        }
+        setError(L.conflictError);
+      } else {
+        setError(L.saveError);
+      }
+      return false;
+    } finally {
+      setSaving(false);
+      readyForAutosaveRef.current = true;
+    }
+  }, []);
+
+  const enqueuePersist = useCallback((options?: { showSuccessMessage?: boolean }) => {
+    return saveQueueRef.current.enqueue(persistFromRefs, options);
+  }, [persistFromRefs]);
 
   useEffect(() => {
     void loadAll();
   }, [loadAll]);
-
-  useEffect(() => {
-    if (typeof erpVersion === "number") setVersion(erpVersion);
-  }, [erpVersion]);
 
   useEffect(() => {
     if (!readyForAutosaveRef.current || loading) return;
@@ -645,17 +690,15 @@ export function NotificationSettingsPage({ embedded = false, erpVersion, onErpVe
       skipAutosaveOnceRef.current = false;
       return;
     }
+    editGenRef.current += 1;
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     autosaveTimerRef.current = setTimeout(() => {
-      void persistSettings({
-        ...settings,
-        recipients: recipientsFromRows(recipientRows),
-      });
+      void enqueuePersist();
     }, 800);
     return () => {
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     };
-  }, [settings, recipientRows, loading, persistSettings]);
+  }, [settings, recipientRows, loading, enqueuePersist]);
 
   const buildTestSettingsPayload = (): NotificationSettings => ({
     ...settings,
@@ -663,13 +706,11 @@ export function NotificationSettingsPage({ embedded = false, erpVersion, onErpVe
   });
 
   const handleSave = async () => {
-    await persistSettings(
-      {
-        ...settings,
-        recipients: recipientsFromRows(recipientRows),
-      },
-      { showSuccessMessage: true },
-    );
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+    await enqueuePersist({ showSuccessMessage: true });
   };
 
   const handlePreview = async () => {

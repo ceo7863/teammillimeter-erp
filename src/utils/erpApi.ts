@@ -161,8 +161,16 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
 
   if (!response.ok) {
     const error = new Error(String(data.error || `API ${response.status}`));
-    (error as Error & { status?: number; currentVersion?: number }).status = response.status;
+    (error as Error & {
+      status?: number;
+      currentVersion?: number;
+      settings?: unknown;
+      updatedAt?: string;
+    }).status = response.status;
     (error as Error & { currentVersion?: number }).currentVersion = data.currentVersion as number | undefined;
+    (error as Error & { settings?: unknown }).settings = data.settings;
+    (error as Error & { updatedAt?: string }).updatedAt =
+      typeof data.updatedAt === "string" ? data.updatedAt : undefined;
     throw error;
   }
 
