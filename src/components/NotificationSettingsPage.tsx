@@ -22,8 +22,11 @@ import {
   type ScWeeklyBriefingNotifyStatus,
 } from "@/utils/notificationApi";
 import {
+  clearUnchangedDirtyKeys,
   createNotificationSettingsSaveQueue,
   isNotificationSettingsConflictError,
+  mergeNotificationSettingsDraft,
+  type NotificationSettingsFieldKey,
 } from "@/utils/notificationSettingsSave";
 import {
   NotifyScheduleTimePicker,
@@ -567,7 +570,7 @@ export function NotificationSettingsPage({ embedded = false, erpVersion: _erpVer
   const [scScheduleStatus, setScScheduleStatus] = useState<ScScheduleNotifyStatus | null>(null);
   const [scWeeklyBriefingStatus, setScWeeklyBriefingStatus] = useState<ScWeeklyBriefingNotifyStatus | null>(null);
   const [probationEvalStatus, setProbationEvalStatus] = useState<ProbationEvalNotifyStatus | null>(null);
-  // Authoritative version comes from GET/PATCH /notifications/settings — not shared erpVersion.
+  // Authoritative settings version is local — GET must not rewrite global erpVersion.
   const [version, setVersion] = useState<number | undefined>(undefined);
   const [previewMessage, setPreviewMessage] = useState("");
   const [previewTitle, setPreviewTitle] = useState(L.previewTitle);
@@ -579,8 +582,13 @@ export function NotificationSettingsPage({ embedded = false, erpVersion: _erpVer
   const settingsRef = useRef(settings);
   const recipientRowsRef = useRef(recipientRows);
   const editGenRef = useRef(0);
+  const dirtyMetaRef = useRef(new Map<NotificationSettingsFieldKey, number>());
+  const usersRef = useRef<ErpUserRecord[]>([]);
   const saveQueueRef = useRef(createNotificationSettingsSaveQueue());
   const onErpVersionChangeRef = useRef(onErpVersionChange);
+  const persistFromRefsRef = useRef<(options?: { showSuccessMessage?: boolean }) => Promise<boolean>>(
+    async () => false,
+  );
 
   useEffect(() => {
     versionRef.current = version;
@@ -595,6 +603,37 @@ export function NotificationSettingsPage({ embedded = false, erpVersion: _erpVer
     onErpVersionChangeRef.current = onErpVersionChange;
   }, [onErpVersionChange]);
 
+  const cancelAutosaveTimer = useCallback(() => {
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+  }, []);
+
+  const markDirty = useCallback((keys: NotificationSettingsFieldKey[]) => {
+    editGenRef.current += 1;
+    const gen = editGenRef.current;
+    for (const key of keys) dirtyMetaRef.current.set(key, gen);
+  }, []);
+
+  const patchSettings = useCallback(
+    (keys: NotificationSettingsFieldKey[], patch: Partial<NotificationSettings>) => {
+      markDirty(keys);
+      setSettings((prev) => ({ ...prev, ...patch }));
+    },
+    [markDirty],
+  );
+
+  const adoptLocalSettingsVersion = useCallback((nextVersion: number) => {
+    versionRef.current = nextVersion;
+    setVersion(nextVersion);
+  }, []);
+
+  const publishGlobalVersionMonotonic = useCallback((nextVersion: number) => {
+    // PATCH success may advance global ERP version; never publish GET here.
+    onErpVersionChangeRef.current?.(nextVersion);
+  }, []);
+
   const loadAll = useCallback(async () => {
     readyForAutosaveRef.current = false;
     setLoading(true);
@@ -607,6 +646,8 @@ export function NotificationSettingsPage({ embedded = false, erpVersion: _erpVer
       ]);
       const nextSettings = normalizeNotificationSettings(settingsResult.settings);
       skipAutosaveOnceRef.current = true;
+      dirtyMetaRef.current.clear();
+      usersRef.current = users;
       setSettings(nextSettings);
       setRecipientRows(buildRecipientRows(users, nextSettings));
       setAlimtalkStatus(statusResult.alimtalk);
@@ -614,9 +655,8 @@ export function NotificationSettingsPage({ embedded = false, erpVersion: _erpVer
       setScWeeklyBriefingStatus(statusResult.scWeeklyBriefing || null);
       setProbationEvalStatus(statusResult.probationEvalNotify || null);
       if (typeof settingsResult.version === "number") {
-        versionRef.current = settingsResult.version;
-        setVersion(settingsResult.version);
-        onErpVersionChangeRef.current?.(settingsResult.version);
+        // Local only — do not call onErpVersionChange for GET.
+        adoptLocalSettingsVersion(settingsResult.version);
       }
     } catch (err) {
       console.error(err);
@@ -626,10 +666,13 @@ export function NotificationSettingsPage({ embedded = false, erpVersion: _erpVer
       skipAutosaveOnceRef.current = true;
       readyForAutosaveRef.current = true;
     }
-  }, []);
+  }, [adoptLocalSettingsVersion]);
 
   const persistFromRefs = useCallback(async (options?: { showSuccessMessage?: boolean }) => {
-    const genAtStart = editGenRef.current;
+    const dirtySnapshot = new Map<NotificationSettingsFieldKey, number>(dirtyMetaRef.current);
+    const mergeKeys: NotificationSettingsFieldKey[] = [...dirtySnapshot.keys()];
+    if (mergeKeys.length === 0) return true;
+
     const payload: NotificationSettings = {
       ...settingsRef.current,
       recipients: recipientsFromRows(recipientRowsRef.current),
@@ -640,30 +683,45 @@ export function NotificationSettingsPage({ embedded = false, erpVersion: _erpVer
     try {
       const result = await saveNotificationSettingsWithConflictRetry(payload, {
         getVersion: () => versionRef.current,
+        mergeKeys,
         onVersion: (nextVersion) => {
-          versionRef.current = nextVersion;
-          setVersion(nextVersion);
-          onErpVersionChangeRef.current?.(nextVersion);
+          adoptLocalSettingsVersion(nextVersion);
+          publishGlobalVersionMonotonic(nextVersion);
         },
       });
       const nextSettings = normalizeNotificationSettings(result.settings);
-      if (editGenRef.current === genAtStart) {
+      clearUnchangedDirtyKeys(dirtyMetaRef.current, dirtySnapshot);
+
+      if (dirtyMetaRef.current.size === 0) {
         readyForAutosaveRef.current = false;
         skipAutosaveOnceRef.current = true;
         setSettings(nextSettings);
+        setRecipientRows(buildRecipientRows(usersRef.current, nextSettings));
       } else {
-        // User edited during save — keep draft and queue another persist of the latest refs.
-        void saveQueueRef.current.enqueue(persistFromRefs, options);
+        // Keep still-dirty draft fields; adopt server values for everything else.
+        const merged = mergeNotificationSettingsDraft(
+          nextSettings,
+          {
+            ...settingsRef.current,
+            recipients: recipientsFromRows(recipientRowsRef.current),
+          },
+          [...dirtyMetaRef.current.keys()],
+        );
+        skipAutosaveOnceRef.current = true;
+        setSettings(merged);
+        if (!dirtyMetaRef.current.has("recipients")) {
+          setRecipientRows(buildRecipientRows(usersRef.current, merged));
+        }
+        // Do not enqueue here — in-flight edits already coalesced a follow-up via the autosave effect.
       }
       if (options?.showSuccessMessage) setMessage(L.saveSuccess);
       return true;
     } catch (err) {
       console.error(err);
-      // Preserve the user's draft on conflict/failure — do not reload server settings over inputs.
+      // Preserve draft + dirty keys on conflict/failure.
       if (isNotificationSettingsConflictError(err)) {
         if (typeof err.currentVersion === "number") {
-          versionRef.current = err.currentVersion;
-          setVersion(err.currentVersion);
+          adoptLocalSettingsVersion(err.currentVersion);
         }
         setError(L.conflictError);
       } else {
@@ -674,11 +732,15 @@ export function NotificationSettingsPage({ embedded = false, erpVersion: _erpVer
       setSaving(false);
       readyForAutosaveRef.current = true;
     }
-  }, []);
+  }, [adoptLocalSettingsVersion, publishGlobalVersionMonotonic]);
+
+  useEffect(() => {
+    persistFromRefsRef.current = persistFromRefs;
+  }, [persistFromRefs]);
 
   const enqueuePersist = useCallback((options?: { showSuccessMessage?: boolean }) => {
-    return saveQueueRef.current.enqueue(persistFromRefs, options);
-  }, [persistFromRefs]);
+    return saveQueueRef.current.enqueue((opts) => persistFromRefsRef.current(opts), options);
+  }, []);
 
   useEffect(() => {
     void loadAll();
@@ -690,15 +752,24 @@ export function NotificationSettingsPage({ embedded = false, erpVersion: _erpVer
       skipAutosaveOnceRef.current = false;
       return;
     }
-    editGenRef.current += 1;
-    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    if (dirtyMetaRef.current.size === 0) return;
+
+    // While a save is running, coalesce into a single pending follow-up (no second timer race).
+    if (saveQueueRef.current.inFlight) {
+      cancelAutosaveTimer();
+      void enqueuePersist();
+      return;
+    }
+
+    cancelAutosaveTimer();
     autosaveTimerRef.current = setTimeout(() => {
+      autosaveTimerRef.current = null;
       void enqueuePersist();
     }, 800);
     return () => {
-      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+      cancelAutosaveTimer();
     };
-  }, [settings, recipientRows, loading, enqueuePersist]);
+  }, [settings, recipientRows, loading, enqueuePersist, cancelAutosaveTimer]);
 
   const buildTestSettingsPayload = (): NotificationSettings => ({
     ...settings,
@@ -706,10 +777,7 @@ export function NotificationSettingsPage({ embedded = false, erpVersion: _erpVer
   });
 
   const handleSave = async () => {
-    if (autosaveTimerRef.current) {
-      clearTimeout(autosaveTimerRef.current);
-      autosaveTimerRef.current = null;
-    }
+    cancelAutosaveTimer();
     await enqueuePersist({ showSuccessMessage: true });
   };
 
@@ -921,27 +989,35 @@ export function NotificationSettingsPage({ embedded = false, erpVersion: _erpVer
   };
 
   const updateDailySchedule = (hour: number, minute: number) => {
-    setSettings((prev) => ({ ...prev, dailyReportHour: hour, dailyReportMinute: minute }));
+    patchSettings(["dailyReportHour", "dailyReportMinute"], {
+      dailyReportHour: hour,
+      dailyReportMinute: minute,
+    });
   };
 
   const updateScSchedule = (hour: number, minute: number) => {
-    setSettings((prev) => ({ ...prev, scScheduleNotifyHour: hour, scScheduleNotifyMinute: minute }));
+    patchSettings(["scScheduleNotifyHour", "scScheduleNotifyMinute"], {
+      scScheduleNotifyHour: hour,
+      scScheduleNotifyMinute: minute,
+    });
   };
 
   const updateWeeklySchedule = (hour: number, minute: number) => {
-    setSettings((prev) => ({
-      ...prev,
+    patchSettings(["scWeeklyBriefingHour", "scWeeklyBriefingMinute"], {
       scWeeklyBriefingHour: hour,
       scWeeklyBriefingMinute: minute,
-    }));
+    });
   };
 
   const updateWeeklyWeekday = (weekday: number) => {
-    setSettings((prev) => ({ ...prev, scWeeklyBriefingWeekday: weekday }));
+    patchSettings(["scWeeklyBriefingWeekday"], { scWeeklyBriefingWeekday: weekday });
   };
 
   const updateProbationEvalSchedule = (hour: number, minute: number) => {
-    setSettings((prev) => ({ ...prev, probationEvalNotifyHour: hour, probationEvalNotifyMinute: minute }));
+    patchSettings(["probationEvalNotifyHour", "probationEvalNotifyMinute"], {
+      probationEvalNotifyHour: hour,
+      probationEvalNotifyMinute: minute,
+    });
   };
 
   const handleProbationEvalSendNow = async () => {
@@ -971,6 +1047,7 @@ export function NotificationSettingsPage({ embedded = false, erpVersion: _erpVer
   };
 
   const updateRecipient = (userId: number, patch: Partial<Pick<RecipientRow, "dailyReport" | "commentNotify">>) => {
+    markDirty(["recipients"]);
     setRecipientRows((prev) => prev.map((row) => (row.userId === userId ? { ...row, ...patch } : row)));
   };
 
@@ -1024,7 +1101,7 @@ export function NotificationSettingsPage({ embedded = false, erpVersion: _erpVer
                 label={L.masterEnable}
                 hint={L.masterEnableHint}
                 checked={settings.enabled}
-                onChange={(checked) => setSettings((prev) => ({ ...prev, enabled: checked }))}
+                onChange={(checked) => patchSettings(["enabled"], { enabled: checked })}
               />
 
               <div className="space-y-3">
@@ -1033,7 +1110,7 @@ export function NotificationSettingsPage({ embedded = false, erpVersion: _erpVer
                   hint={L.dailyReportFeatureHint}
                   checked={settings.dailyReportEnabled}
                   disabled={featureDisabled}
-                  onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, dailyReportEnabled: checked }))}
+                  onCheckedChange={(checked) => patchSettings(["dailyReportEnabled"], { dailyReportEnabled: checked })}
                   scheduleLabel={L.scheduleLabel}
                   scheduleHint={L.scheduleHintDaily}
                   scheduleHour={settings.dailyReportHour}
@@ -1068,7 +1145,9 @@ export function NotificationSettingsPage({ embedded = false, erpVersion: _erpVer
                     phones={settings.dailyReportExtraPhones}
                     disabled={featureDisabled || !settings.dailyReportEnabled}
                     onChange={(phones) =>
-                      setSettings((prev) => ({ ...prev, dailyReportExtraPhones: normalizePhoneList(phones) }))
+                      patchSettings(["dailyReportExtraPhones"], {
+                        dailyReportExtraPhones: normalizePhoneList(phones),
+                      })
                     }
                   />
                 </NotificationFeatureCard>
@@ -1078,7 +1157,9 @@ export function NotificationSettingsPage({ embedded = false, erpVersion: _erpVer
                   hint={L.scScheduleFeatureHint}
                   checked={settings.scScheduleNotifyEnabled}
                   disabled={featureDisabled}
-                  onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, scScheduleNotifyEnabled: checked }))}
+                  onCheckedChange={(checked) =>
+                    patchSettings(["scScheduleNotifyEnabled"], { scScheduleNotifyEnabled: checked })
+                  }
                   scheduleLabel={L.scScheduleTimeLabel}
                   scheduleHint={L.scheduleHintSc}
                   scheduleHour={settings.scScheduleNotifyHour}
@@ -1095,7 +1176,7 @@ export function NotificationSettingsPage({ embedded = false, erpVersion: _erpVer
                   <ScRecipientModeSelect
                     value={settings.scScheduleNotifyMode}
                     disabled={featureDisabled || !settings.scScheduleNotifyEnabled}
-                    onChange={(mode) => setSettings((prev) => ({ ...prev, scScheduleNotifyMode: mode }))}
+                    onChange={(mode) => patchSettings(["scScheduleNotifyMode"], { scScheduleNotifyMode: mode })}
                   />
                 </NotificationFeatureCard>
 
@@ -1105,7 +1186,9 @@ export function NotificationSettingsPage({ embedded = false, erpVersion: _erpVer
                   checked={settings.scWeeklyBriefingNotifyEnabled}
                   disabled={featureDisabled}
                   onCheckedChange={(checked) =>
-                    setSettings((prev) => ({ ...prev, scWeeklyBriefingNotifyEnabled: checked }))
+                    patchSettings(["scWeeklyBriefingNotifyEnabled"], {
+                      scWeeklyBriefingNotifyEnabled: checked,
+                    })
                   }
                   hideSchedule
                   onPreview={() => void handleWeeklyPreview()}
@@ -1138,7 +1221,7 @@ export function NotificationSettingsPage({ embedded = false, erpVersion: _erpVer
                   checked={settings.probationEvalNotifyEnabled}
                   disabled={featureDisabled}
                   onCheckedChange={(checked) =>
-                    setSettings((prev) => ({ ...prev, probationEvalNotifyEnabled: checked }))
+                    patchSettings(["probationEvalNotifyEnabled"], { probationEvalNotifyEnabled: checked })
                   }
                   scheduleLabel={L.probationEvalTimeLabel}
                   scheduleHint={L.probationEvalScheduleHint}
@@ -1158,7 +1241,9 @@ export function NotificationSettingsPage({ embedded = false, erpVersion: _erpVer
                     checked={settings.probationEvalReminderEnabled}
                     disabled={featureDisabled || !settings.probationEvalNotifyEnabled}
                     onChange={(checked) =>
-                      setSettings((prev) => ({ ...prev, probationEvalReminderEnabled: checked }))
+                      patchSettings(["probationEvalReminderEnabled"], {
+                        probationEvalReminderEnabled: checked,
+                      })
                     }
                   />
                   {probationEvalStatus?.meta?.lastRunAt ? (
@@ -1174,7 +1259,9 @@ export function NotificationSettingsPage({ embedded = false, erpVersion: _erpVer
                   hint={L.commentFeatureHint}
                   checked={settings.commentNotifyEnabled}
                   disabled={featureDisabled}
-                  onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, commentNotifyEnabled: checked }))}
+                  onCheckedChange={(checked) =>
+                    patchSettings(["commentNotifyEnabled"], { commentNotifyEnabled: checked })
+                  }
                   onSendTest={() => void handleCommentSendTest()}
                   previewLabel={L.preview}
                   sendTestLabel={L.commentSendTest}

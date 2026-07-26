@@ -74,7 +74,10 @@ export async function fetchNotificationSettings() {
   return apiRequest<NotificationSettingsResponse>("/notifications/settings");
 }
 
-export async function saveNotificationSettings(settings: NotificationSettings, version?: number) {
+export async function saveNotificationSettings(
+  settings: NotificationSettings | Partial<NotificationSettings>,
+  version?: number,
+) {
   return apiRequest<NotificationSettingsSaveResult>("/notifications/settings", {
     method: "PATCH",
     body: JSON.stringify({ settings, version }),
