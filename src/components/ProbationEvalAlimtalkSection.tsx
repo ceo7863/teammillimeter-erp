@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, ClipboardCheck, RefreshCw, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -110,11 +110,6 @@ export function ProbationEvalAlimtalkSection({
   const [reminding, setReminding] = useState(false);
   const [sendMessage, setSendMessage] = useState("");
   const [reminderMessage, setReminderMessage] = useState("");
-  const onErpVersionChangeRef = useRef(onErpVersionChange);
-
-  useEffect(() => {
-    onErpVersionChangeRef.current = onErpVersionChange;
-  }, [onErpVersionChange]);
 
   const isToday = targetDate === todayISO();
   const reminderDate = useMemo(() => addDaysISO(targetDate, -1), [targetDate]);
@@ -132,8 +127,8 @@ export function ProbationEvalAlimtalkSection({
       setPreview(result);
       setNotificationSettings(normalizeNotificationSettings(settingsResult.settings));
       if (typeof settingsResult.version === "number") {
+        // Settings-local version only — do not publish GET versions to global erpVersion.
         setSettingsVersion(settingsResult.version);
-        onErpVersionChangeRef.current?.(settingsResult.version);
       }
     } catch (loadError) {
       console.error(loadError);

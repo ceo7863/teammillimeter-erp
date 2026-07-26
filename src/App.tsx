@@ -8285,9 +8285,12 @@ export default function TeammillimeterErpMvp() {
   const [erpVersion, setErpVersion] = useState(0);
   const erpVersionRef = useRef(0);
   const publishErpVersion = useCallback((version: number) => {
+    if (!Number.isFinite(version)) return;
+    // Never let a stale response pull the global ERP version backwards.
+    if (version < erpVersionRef.current) return;
     erpVersionRef.current = version;
     startTransition(() => {
-      setErpVersion((prev) => (prev === version ? prev : version));
+      setErpVersion((prev) => (version > prev ? version : prev));
     });
   }, []);
   const publishErpVersionRef = useRef(publishErpVersion);
