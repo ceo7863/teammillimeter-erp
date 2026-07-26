@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, ClipboardCheck, RefreshCw, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -105,10 +105,16 @@ export function ProbationEvalAlimtalkSection({
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<ProbationEvalAlimtalkPreview | null>(null);
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings | null>(null);
+  const [settingsVersion, setSettingsVersion] = useState<number | undefined>(erpVersion);
   const [sending, setSending] = useState(false);
   const [reminding, setReminding] = useState(false);
   const [sendMessage, setSendMessage] = useState("");
   const [reminderMessage, setReminderMessage] = useState("");
+  const onErpVersionChangeRef = useRef(onErpVersionChange);
+
+  useEffect(() => {
+    onErpVersionChangeRef.current = onErpVersionChange;
+  }, [onErpVersionChange]);
 
   const isToday = targetDate === todayISO();
   const reminderDate = useMemo(() => addDaysISO(targetDate, -1), [targetDate]);
@@ -125,6 +131,10 @@ export function ProbationEvalAlimtalkSection({
       ]);
       setPreview(result);
       setNotificationSettings(normalizeNotificationSettings(settingsResult.settings));
+      if (typeof settingsResult.version === "number") {
+        setSettingsVersion(settingsResult.version);
+        onErpVersionChangeRef.current?.(settingsResult.version);
+      }
     } catch (loadError) {
       console.error(loadError);
       setPreview(null);
@@ -189,9 +199,13 @@ export function ProbationEvalAlimtalkSection({
           templateConfigured={preview?.templateConfigured}
           masterNotifyEnabled={notificationSettings?.enabled}
           canEdit={canEdit}
-          erpVersion={erpVersion}
+          erpVersion={settingsVersion}
           onWorkerAiRulesSaved={onSaveWorkerAiRules}
-          onNotificationSettingsSaved={(_settings, version) => onErpVersionChange?.(version)}
+          onNotificationSettingsSaved={(settings, version) => {
+            setNotificationSettings(settings);
+            setSettingsVersion(version);
+            onErpVersionChange?.(version);
+          }}
           onRulesSaved={() => void loadPreview()}
         />
 

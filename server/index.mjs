@@ -3216,27 +3216,33 @@ app.get("/api/notifications/settings", authMiddleware, adminMiddleware, (_req, r
   const state = getErpState();
   res.json({
     settings: notificationSettingsWithLegacy(state.data || {}, normalizeWorkerAiRules),
+    version: state.version,
+    updatedAt: state.updatedAt,
   });
 });
 
 app.patch("/api/notifications/settings", authMiddleware, adminMiddleware, (req, res) => {
   const state = getErpState();
+  const incoming =
+    req.body?.settings && typeof req.body.settings === "object" ? req.body.settings : req.body;
   const next = normalizeNotificationSettings({
-    ...normalizeNotificationSettings(state.data?.notificationSettings),
-    ...(req.body?.settings && typeof req.body.settings === "object" ? req.body.settings : req.body),
+    ...notificationSettingsWithLegacy(state.data || {}, normalizeWorkerAiRules),
+    ...(incoming && typeof incoming === "object" ? incoming : {}),
   });
+  const expectedVersion = req.body?.version ?? state.version;
+  const updatedBy = req.user.loginId || req.user.name || req.user.email;
   try {
-    const saved = saveErpState(
-      { ...(state.data || {}), notificationSettings: next },
-      req.body?.version ?? state.version,
-      req.user.loginId || req.user.name || req.user.email,
-    );
+    // Scope write to settings domain so concurrent updates in other ERP domains are preserved.
+    const saved = saveErpDomain("settings", { notificationSettings: next }, expectedVersion, updatedBy);
     res.json({ ok: true, settings: next, version: saved.version, updatedAt: saved.updatedAt });
   } catch (error) {
     if (error.status === 409) {
+      const latest = getErpState();
       res.status(409).json({
-        error: "다른 사용자가 먼저 저장했습니다. 새로고침 후 다시 시도해 주세요.",
-        currentVersion: error.currentVersion,
+        error: "다른 사용자가 먼저 저장했습니다. 최신 버전으로 다시 시도해 주세요.",
+        currentVersion: error.currentVersion ?? latest.version,
+        settings: notificationSettingsWithLegacy(latest.data || {}, normalizeWorkerAiRules),
+        updatedAt: latest.updatedAt,
       });
       return;
     }
