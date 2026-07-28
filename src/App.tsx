@@ -232,6 +232,7 @@ import {
   emptySaleForm,
   buildCommittedSaleFormDraft,
   flushSaleFormFocusedInputs,
+  isSaleAmountSaveable,
   reEnrichWorkerLinesForClient,
   saleRowToForm,
   validateSaleFormMasterRefs,
@@ -1369,7 +1370,7 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
     return Boolean(
       String(source.client || "").trim()
       && String(source.site || "").trim()
-      && totals.bill > 0
+      && isSaleAmountSaveable(totals.bill)
       && rows.some((line) => String(line.worker || "").trim()),
     );
   }, [controlledCanSave, useLocalDraft, formMeta, form, workerRows, totals.bill]);
@@ -4203,7 +4204,7 @@ function CalendarPage({
       }
 
       const payload = buildSaleFromForm(currentForm, currentUser, activeWorkers, clients);
-      if (!payload.client || !payload.site || payload.amount <= 0) {
+      if (!payload.client || !payload.site || !isSaleAmountSaveable(payload.amount)) {
         setCalendarNewSaleMessage(
           "거래처, 현장, 청구액을 확인해 주세요. 입력 중인 칸은 다른 칸을 클릭한 뒤 저장해 주세요.",
         );
@@ -5455,7 +5456,7 @@ const SalesRegistrationPage = memo(function SalesRegistrationPage({
     }
 
     const payload = buildSaleFromForm(currentForm, currentUser, activeWorkers, clients);
-    if (!payload.client || !payload.site || payload.amount <= 0) {
+    if (!payload.client || !payload.site || !isSaleAmountSaveable(payload.amount)) {
       setSaveMessage("거래처, 현장, 청구액을 확인해 주세요. 입력 중인 칸은 다른 칸을 클릭한 뒤 저장해 주세요.");
       return;
     }
