@@ -364,6 +364,14 @@ export function isSaleFormMasterRefsValid(
   return validateSaleFormMasterRefs(form, clients, workers) === "";
 }
 
+/** Sales vouchers may be saved at zero; only negative or non-numeric totals are invalid. */
+export function isSaleAmountSaveable(amount: unknown) {
+  if (amount == null) return false;
+  if (typeof amount === "string" && amount.trim() === "") return false;
+  const value = typeof amount === "number" ? amount : Number(amount);
+  return Number.isFinite(value) && value >= 0;
+}
+
 export function buildSaleFromForm(
   form: SaleFormData,
   currentUser: { name?: string; email?: string } | null = null,

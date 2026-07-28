@@ -9,6 +9,7 @@ import { SALE_AUDIT_FIELDS, snapshotSaleForAudit } from "@/utils/auditLog";
 import { syncBankTransactionsForSaleClientChange } from "@/utils/bankTransactions";
 import {
   buildSaleFromForm,
+  isSaleAmountSaveable,
   saleRowToForm,
   validateSaleFormMasterRefs,
   type SaleFormData,
@@ -89,7 +90,7 @@ export const SalesVoucherSearchEditor = memo(function SalesVoucherSearchEditor({
         return;
       }
       const payload = buildSaleFromForm(form, currentUser, workers, clients);
-      if (!payload.client || !payload.site || payload.amount <= 0) return;
+      if (!payload.client || !payload.site || !isSaleAmountSaveable(payload.amount)) return;
 
       recordAudit({
         entityType: "sale",

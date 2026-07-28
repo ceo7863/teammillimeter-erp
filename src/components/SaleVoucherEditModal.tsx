@@ -12,6 +12,7 @@ import { syncBankTransactionsForSaleClientChange } from "@/utils/bankTransaction
 import { listSaleComments, type SaleComment, type SaleReviewAction } from "@/utils/saleComments";
 import {
   buildSaleFromForm,
+  isSaleAmountSaveable,
   saleRowToForm,
   validateSaleFormMasterRefs,
   type SaleFormData,
@@ -125,7 +126,7 @@ export const SaleVoucherEditModal = memo(function SaleVoucherEditModal({
         return;
       }
       const payload = buildSaleFromForm(form, currentUser, workers, clients);
-      if (!payload.client || !payload.site || payload.amount <= 0) return;
+      if (!payload.client || !payload.site || !isSaleAmountSaveable(payload.amount)) return;
 
       recordAudit({
         entityType: "sale",
