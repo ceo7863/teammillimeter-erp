@@ -366,7 +366,9 @@ export function isSaleFormMasterRefsValid(
 
 /** Sales vouchers may be saved at zero; only negative or non-numeric totals are invalid. */
 export function isSaleAmountSaveable(amount: unknown) {
-  const value = Number(amount);
+  if (amount == null) return false;
+  if (typeof amount === "string" && amount.trim() === "") return false;
+  const value = typeof amount === "number" ? amount : Number(amount);
   return Number.isFinite(value) && value >= 0;
 }
 
