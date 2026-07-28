@@ -10,7 +10,7 @@ import { withScPool } from "./scPool.mjs";
 
 const COMPANY_SUFFIX_RE = /(\u3231|\(\uC8FC\)|\uC8FC\uC2DD\uD68C\uC0AC|\(\uC720\)|\uC720\uD55C|\uC720\uD55C\uD68C\uC0AC|co\.?ltd|corp|inc)/gi;
 
-let syncRunning = false;
+let syncPromise = null;
 let intervalHandle = null;
 
 export function normalizeScClientName(value) {
@@ -986,42 +986,31 @@ export function getScScheduleSyncStatus() {
   };
 }
 
-export async function runScScheduleSync(options = {}) {
-  if (!config.sc.syncEnabled) {
-    return { ok: false, skipped: true, reason: "sc_sync_disabled" };
-  }
-  if (!isScScheduleSourceConfigured()) {
-    return { ok: false, skipped: true, reason: "not_configured" };
-  }
-  if (syncRunning) {
-    return { ok: false, skipped: true, reason: "sync_in_progress" };
-  }
+export function persistScScheduleSyncResultWithRetry({
+  result,
+  portalLoginUsers = [],
+  runAt,
+  start,
+  end,
+  updatedBy = "sc-schedule-sync",
+  maxAttempts = 3,
+  readState = getErpState,
+  writeState = saveErpState,
+}) {
+  const attempts = Math.max(1, Number(maxAttempts) || 1);
+  let lastError = null;
 
-  syncRunning = true;
-  const runAt = new Date().toISOString();
-  try {
-    const { start, end } = syncWindowMonths();
-    const result = await loadScProjectsAndSchedules(start, end);
-
-    const state = getErpState();
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const state = readState();
     const data = state.data || {};
     const mapped = autoMapScProjectsToClients(listClients(data), result.projects);
     const enriched = attachClientToSchedules(result.schedules, mapped.clients);
     const mergedSchedules = mergeSchedulesInWindow(listScSchedules(data), enriched, start, end);
     const mappingStatus = buildScProjectMappingStatus(mapped.clients, result.projects);
-
-    let workers = Array.isArray(data.workers) ? data.workers : [];
-    let portalLoginSync = null;
-    try {
-      const scUsers = await fetchScPortalLoginUsers();
-      if (scUsers.length) {
-        portalLoginSync = applyWorkerPortalLoginIdsFromSc(workers, scUsers);
-        workers = portalLoginSync.workers;
-      }
-    } catch (portalSyncError) {
-      console.warn("[sc-portal-login-sync]", portalSyncError);
-    }
-
+    const portalLoginSync = portalLoginUsers.length
+      ? applyWorkerPortalLoginIdsFromSc(Array.isArray(data.workers) ? data.workers : [], portalLoginUsers)
+      : null;
+    const workers = portalLoginSync?.workers || (Array.isArray(data.workers) ? data.workers : []);
     const nextMeta = {
       lastRunAt: runAt,
       lastSuccessAt: runAt,
@@ -1040,45 +1029,104 @@ export async function runScScheduleSync(options = {}) {
       windowEnd: formatUtcDate(new Date(end.getTime() - 86400000)),
     };
 
-    saveErpState(
-      {
-        ...data,
-        clients: mapped.clients,
-        workers,
-        scSchedules: mergedSchedules,
-        scScheduleSyncMeta: {
-          ...(data.scScheduleSyncMeta || {}),
-          ...nextMeta,
+    try {
+      const saved = writeState(
+        {
+          ...data,
+          clients: mapped.clients,
+          workers,
+          scSchedules: mergedSchedules,
+          scScheduleSyncMeta: {
+            ...(data.scScheduleSyncMeta || {}),
+            ...nextMeta,
+          },
         },
-      },
-      state.version,
-      options.updatedBy || "sc-schedule-sync",
-    );
+        state.version,
+        updatedBy,
+      );
+      return { nextMeta, version: saved?.version ?? readState().version, attemptCount: attempt };
+    } catch (error) {
+      lastError = error;
+      if (error?.message !== "VERSION_CONFLICT" || attempt >= attempts) throw error;
+    }
+  }
 
-    return {
-      ok: true,
-      ...nextMeta,
-      version: getErpState().version,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+  throw lastError || new Error("SC_SCHEDULE_SYNC_SAVE_FAILED");
+}
+
+function recordScScheduleSyncError(runAt, message, maxAttempts = 2) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const state = getErpState();
     const data = state.data || {};
-    saveErpState(
-      {
-        ...data,
-        scScheduleSyncMeta: {
-          ...(data.scScheduleSyncMeta || {}),
-          lastRunAt: runAt,
-          lastError: message,
+    try {
+      saveErpState(
+        {
+          ...data,
+          scScheduleSyncMeta: {
+            ...(data.scScheduleSyncMeta || {}),
+            lastRunAt: runAt,
+            lastError: message,
+          },
         },
-      },
-      state.version,
-      "sc-schedule-sync:error",
-    );
-    return { ok: false, error: message };
+        state.version,
+        "sc-schedule-sync:error",
+      );
+      return;
+    } catch (error) {
+      if (error?.message !== "VERSION_CONFLICT" || attempt >= maxAttempts) {
+        console.warn("[sc-schedule-sync] failed to persist error metadata:", error);
+        return;
+      }
+    }
+  }
+}
+
+export async function runScScheduleSync(options = {}) {
+  if (!config.sc.syncEnabled) {
+    return { ok: false, skipped: true, reason: "sc_sync_disabled" };
+  }
+  if (!isScScheduleSourceConfigured()) {
+    return { ok: false, skipped: true, reason: "not_configured" };
+  }
+  if (syncPromise) return syncPromise;
+
+  syncPromise = (async () => {
+    const runAt = new Date().toISOString();
+    try {
+      const { start, end } = syncWindowMonths();
+      const result = await loadScProjectsAndSchedules(start, end);
+      let portalLoginUsers = [];
+      try {
+        portalLoginUsers = await fetchScPortalLoginUsers();
+      } catch (portalSyncError) {
+        console.warn("[sc-portal-login-sync]", portalSyncError);
+      }
+
+      const persisted = persistScScheduleSyncResultWithRetry({
+        result,
+        portalLoginUsers,
+        runAt,
+        start,
+        end,
+        updatedBy: options.updatedBy || "sc-schedule-sync",
+      });
+      return {
+        ok: true,
+        ...persisted.nextMeta,
+        version: persisted.version,
+        saveAttemptCount: persisted.attemptCount,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      recordScScheduleSyncError(runAt, message);
+      return { ok: false, error: message };
+    }
+  })();
+
+  try {
+    return await syncPromise;
   } finally {
-    syncRunning = false;
+    syncPromise = null;
   }
 }
 

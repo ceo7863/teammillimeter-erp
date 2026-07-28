@@ -1,5 +1,5 @@
 import React from "react";
-import { X } from "lucide-react";
+import { RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   formatScScheduleHeadcount,
@@ -14,8 +14,10 @@ import {
 import type { WorkerMasterLike } from "@/utils/workerPayments";
 
 const L = {
-  title: "SC \uC2A4\uCF00\uC904 \uAC00\uc838\uc624\uae30",
-  empty: "\uC774 \uB0A0\uC9D0 SC \uD655\uC815 \uC77C\uC815\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  title: "CalWalk \uC2A4\uCF00\uC904 \uAC00\uc838\uc624\uae30",
+  empty: "\uC774 \uB0A0\uC9D0 CalWalk \uD655\uC815 \uC77C\uC815\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+  loading: "CalWalk\uC5D0\uC11C \uCD5C\uC2E0 \uC77C\uC815\uC744 \uBD88\uB7EC\uC624\uB294 \uC911\uC785\uB2C8\uB2E4.",
+  refreshed: "\uCD5C\uC2E0 \uD655\uC778",
   registered: "\uB4F1\uB85D\uB428",
   alreadyRegistered: "\uC774\uBBF8 \uB4F1\uB85D\uB41C \uC2A4\uCF00\uC904\uC785\uB2C8\uB2E4.",
   close: "\uB2EB\uAE30",
@@ -30,6 +32,10 @@ type CalendarScScheduleImportModalProps = {
   schedules: ScSchedule[];
   sales: Array<{ scScheduleId?: string | number | null }>;
   workers?: WorkerMasterLike[];
+  loading?: boolean;
+  error?: string;
+  warning?: string;
+  refreshedAt?: string;
   onClose: () => void;
   onSelect: (schedule: ScSchedule) => void;
 };
@@ -40,6 +46,10 @@ export function CalendarScScheduleImportModal({
   schedules,
   sales,
   workers = [],
+  loading = false,
+  error = "",
+  warning = "",
+  refreshedAt = "",
   onClose,
   onSelect,
 }: CalendarScScheduleImportModalProps) {
@@ -68,7 +78,15 @@ export function CalendarScScheduleImportModal({
             <h2 id="calendar-sc-import-title" className="text-base font-bold text-slate-900 md:text-lg">
               {L.title}
             </h2>
-            <p className="mt-0.5 text-xs text-slate-500">{dateLabel}</p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {dateLabel}
+              {refreshedAt && !loading
+                ? ` \u00B7 ${L.refreshed} ${new Date(refreshedAt).toLocaleTimeString("ko-KR", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}`
+                : ""}
+            </p>
           </div>
           <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={onClose}>
             <X size={14} className="mr-1" />
@@ -77,10 +95,26 @@ export function CalendarScScheduleImportModal({
         </div>
 
         <div className="erp-calendar-sc-import-body">
-          {!schedules.length ? (
-            <p className="erp-calendar-side-empty">{L.empty}</p>
+          {loading ? (
+            <p className="erp-calendar-side-empty flex items-center justify-center gap-2">
+              <RefreshCw size={15} className="animate-spin" aria-hidden="true" />
+              {L.loading}
+            </p>
+          ) : error ? (
+            <p className="erp-calendar-side-empty text-rose-600" role="alert">
+              {error}
+            </p>
           ) : (
-            <ul className="erp-csr-cal-drawer-list">
+            <>
+              {warning ? (
+                <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800" role="status">
+                  {warning}
+                </p>
+              ) : null}
+              {!schedules.length ? (
+                <p className="erp-calendar-side-empty">{L.empty}</p>
+              ) : (
+                <ul className="erp-csr-cal-drawer-list">
               {schedules.map((schedule) => {
                 const scheduleId = String(schedule.id || "");
                 const registered = scheduleId ? isScScheduleRegistered(sales, scheduleId) : false;
@@ -147,7 +181,9 @@ export function CalendarScScheduleImportModal({
                   </li>
                 );
               })}
-            </ul>
+                </ul>
+              )}
+            </>
           )}
         </div>
       </div>

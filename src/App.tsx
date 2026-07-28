@@ -217,6 +217,7 @@ import {
 import { applyProbationEndAdjustments, isWorkerInProbationPeriod } from "@/utils/workerProbationAutoAdjust";
 import {
   fetchStaffScSchedulesForMonth,
+  refreshCalwalkSchedulesForMonth,
   resolveSaleScScheduleHeadcountLabel,
 } from "@/utils/scSchedules";
 import { withoutScPersonalVacationSchedules } from "@/utils/scScheduleVacation";
@@ -3507,9 +3508,14 @@ function CalendarPage({
   const [calendarNewSalePrefill, setCalendarNewSalePrefill] = useState(null);
   const [monthScSchedules, setMonthScSchedules] = useState([]);
   const [scImportOpen, setScImportOpen] = useState(false);
+  const [scImportLoading, setScImportLoading] = useState(false);
+  const [scImportError, setScImportError] = useState("");
+  const [scImportWarning, setScImportWarning] = useState("");
+  const [scImportRefreshedAt, setScImportRefreshedAt] = useState("");
   const [calendarScExpectedHeadcount, setCalendarScExpectedHeadcount] = useState(null);
   const calendarImportScScheduleIdRef = useRef("");
   const calendarImportScExpectedHeadcountRef = useRef<number | null>(null);
+  const scImportRequestIdRef = useRef(0);
   const salesRef = useRef(sales);
   const suppressCellClickUntilRef = useRef(0);
   const preFilterRef = useRef(null);
@@ -3597,17 +3603,49 @@ function CalendarPage({
 
   useEffect(() => {
     let active = true;
+    const requestId = scImportRequestIdRef.current;
     void fetchStaffScSchedulesForMonth(monthKey)
       .then((rows) => {
-        if (active) setMonthScSchedules(rows);
+        if (active && scImportRequestIdRef.current === requestId) setMonthScSchedules(rows);
       })
       .catch(() => {
-        if (active) setMonthScSchedules([]);
+        if (active && scImportRequestIdRef.current === requestId) setMonthScSchedules([]);
       });
     return () => {
       active = false;
     };
   }, [monthKey]);
+
+  const openCalwalkScheduleImport = useCallback(async () => {
+    const requestId = scImportRequestIdRef.current + 1;
+    scImportRequestIdRef.current = requestId;
+    setScImportOpen(true);
+    setScImportLoading(true);
+    setScImportError("");
+    setScImportWarning("");
+
+    try {
+      const result = await refreshCalwalkSchedulesForMonth(monthKey);
+      if (scImportRequestIdRef.current !== requestId) return;
+      setMonthScSchedules(result.schedules);
+      setScImportWarning(result.warning);
+      setScImportRefreshedAt(result.refreshedAt);
+    } catch {
+      if (scImportRequestIdRef.current !== requestId) return;
+      setScImportError("CalWalk \uC77C\uC815\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.");
+      setScImportRefreshedAt("");
+    } finally {
+      if (scImportRequestIdRef.current === requestId) {
+        setScImportLoading(false);
+      }
+    }
+  }, [monthKey]);
+
+  const closeCalwalkScheduleImport = useCallback(() => {
+    scImportRequestIdRef.current += 1;
+    setScImportOpen(false);
+    setScImportLoading(false);
+  }, []);
 
   const inactiveClientNames = useMemo(
     () =>
@@ -5031,10 +5069,10 @@ function CalendarPage({
                   type="button"
                   variant="outline"
                   className="erp-touch-target w-full rounded-xl"
-                  onClick={() => setScImportOpen(true)}
+                  onClick={() => void openCalwalkScheduleImport()}
                 >
                   <CalendarDays size={16} className="mr-1.5" />
-                  SC 스케줄 가져오기
+                  CalWalk 스케줄 가져오기
                 </Button>
                 <Button
                   type="button"
@@ -5076,7 +5114,11 @@ function CalendarPage({
           schedules={selectedDayScSchedules}
           sales={sales}
           workers={workers}
-          onClose={() => setScImportOpen(false)}
+          loading={scImportLoading}
+          error={scImportError}
+          warning={scImportWarning}
+          refreshedAt={scImportRefreshedAt}
+          onClose={closeCalwalkScheduleImport}
           onSelect={openCalendarNewSaleFromScSchedule}
         />
       ) : null}
