@@ -10,8 +10,23 @@ import { withScPool } from "./scPool.mjs";
 
 const COMPANY_SUFFIX_RE = /(\u3231|\(\uC8FC\)|\uC8FC\uC2DD\uD68C\uC0AC|\(\uC720\)|\uC720\uD55C|\uC720\uD55C\uD68C\uC0AC|co\.?ltd|corp|inc)/gi;
 
-let syncPromise = null;
 let intervalHandle = null;
+
+/** Coalesce concurrent async work so the producer runs once and waiters share the result. */
+export function createSingleFlight() {
+  let inflight = null;
+  return function runSingleFlight(producer) {
+    if (inflight) return inflight;
+    inflight = Promise.resolve()
+      .then(producer)
+      .finally(() => {
+        inflight = null;
+      });
+    return inflight;
+  };
+}
+
+const runScScheduleSyncSingleFlight = createSingleFlight();
 
 export function normalizeScClientName(value) {
   return String(value || "")
@@ -1088,9 +1103,8 @@ export async function runScScheduleSync(options = {}) {
   if (!isScScheduleSourceConfigured()) {
     return { ok: false, skipped: true, reason: "not_configured" };
   }
-  if (syncPromise) return syncPromise;
 
-  syncPromise = (async () => {
+  return runScScheduleSyncSingleFlight(async () => {
     const runAt = new Date().toISOString();
     try {
       const { start, end } = syncWindowMonths();
@@ -1121,13 +1135,7 @@ export async function runScScheduleSync(options = {}) {
       recordScScheduleSyncError(runAt, message);
       return { ok: false, error: message };
     }
-  })();
-
-  try {
-    return await syncPromise;
-  } finally {
-    syncPromise = null;
-  }
+  });
 }
 
 export function listStoredScSchedules({ clientId, monthKey } = {}) {

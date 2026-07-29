@@ -3603,7 +3603,9 @@ function CalendarPage({
 
   useEffect(() => {
     let active = true;
-    const requestId = scImportRequestIdRef.current;
+    // Bump generation so an in-flight CalWalk refresh cannot overwrite a newer month fetch (and vice versa).
+    const requestId = scImportRequestIdRef.current + 1;
+    scImportRequestIdRef.current = requestId;
     void fetchStaffScSchedulesForMonth(monthKey)
       .then((rows) => {
         if (active && scImportRequestIdRef.current === requestId) setMonthScSchedules(rows);

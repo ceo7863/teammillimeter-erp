@@ -413,6 +413,27 @@ type CalwalkScheduleRefreshDependencies = {
   now?: () => Date;
 };
 
+/** Shared generation token so late month/modal responses cannot overwrite newer UI state. */
+export function createRequestGenerationGuard() {
+  let generation = 0;
+  return {
+    next() {
+      generation += 1;
+      return generation;
+    },
+    isCurrent(requestId: number) {
+      return generation === requestId;
+    },
+    get current() {
+      return generation;
+    },
+  };
+}
+
+export function canSelectCalwalkImportSchedule(options: { loading?: boolean; error?: string }) {
+  return !Boolean(options.loading) && !String(options.error || "").trim();
+}
+
 export async function refreshCalwalkSchedulesForMonth(
   monthKey: string,
   dependencies: CalwalkScheduleRefreshDependencies = {},

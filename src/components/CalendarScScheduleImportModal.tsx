@@ -14,7 +14,7 @@ import {
 import type { WorkerMasterLike } from "@/utils/workerPayments";
 
 const L = {
-  title: "CalWalk \uC2A4\uCF00\uC904 \uAC00\uc838\uc624\uae30",
+  title: "CalWalk \uC2A4\uCF00\uC904 \uAC00\uC838\uC624\uAE30",
   empty: "\uC774 \uB0A0\uC9D0 CalWalk \uD655\uC815 \uC77C\uC815\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
   loading: "CalWalk\uC5D0\uC11C \uCD5C\uC2E0 \uC77C\uC815\uC744 \uBD88\uB7EC\uC624\uB294 \uC911\uC785\uB2C8\uB2E4.",
   refreshed: "\uCD5C\uC2E0 \uD655\uC778",
@@ -25,6 +25,8 @@ const L = {
   workLog: "\uADFC\uBB34\uAE30\uB85D",
   workers: (names: string) => names || "-",
 };
+
+export const CALWALK_SCHEDULE_IMPORT_LABELS = L;
 
 type CalendarScScheduleImportModalProps = {
   open: boolean;
@@ -133,8 +135,12 @@ export function CalendarScScheduleImportModal({
                       ]
                         .filter(Boolean)
                         .join(" ")}
-                      onClick={() => handleSelect(schedule)}
-                      aria-disabled={registered || undefined}
+                      onClick={() => {
+                        if (loading || error) return;
+                        handleSelect(schedule);
+                      }}
+                      disabled={loading || Boolean(error)}
+                      aria-disabled={registered || loading || Boolean(error) || undefined}
                     >
                       <span
                         className={[
