@@ -407,6 +407,55 @@ export async function fetchStaffScSchedulesForMonth(monthKey: string): Promise<S
   return Array.isArray(data.schedules) ? data.schedules : [];
 }
 
+type CalwalkScheduleRefreshDependencies = {
+  sync?: typeof runScScheduleSyncNow;
+  fetchSchedules?: typeof fetchStaffScSchedulesForMonth;
+  now?: () => Date;
+};
+
+/** Shared generation token so late month/modal responses cannot overwrite newer UI state. */
+export function createRequestGenerationGuard() {
+  let generation = 0;
+  return {
+    next() {
+      generation += 1;
+      return generation;
+    },
+    isCurrent(requestId: number) {
+      return generation === requestId;
+    },
+    get current() {
+      return generation;
+    },
+  };
+}
+
+export function canSelectCalwalkImportSchedule(options: { loading?: boolean; error?: string }) {
+  return !Boolean(options.loading) && !String(options.error || "").trim();
+}
+
+export async function refreshCalwalkSchedulesForMonth(
+  monthKey: string,
+  dependencies: CalwalkScheduleRefreshDependencies = {},
+): Promise<{ schedules: ScSchedule[]; refreshedAt: string; warning: string }> {
+  const sync = dependencies.sync || runScScheduleSyncNow;
+  const fetchSchedules = dependencies.fetchSchedules || fetchStaffScSchedulesForMonth;
+  let warning = "";
+
+  try {
+    const result = await sync();
+    if (result?.ok === false) {
+      warning = "CalWalk \uCD5C\uC2E0 \uB3D9\uAE30\uD654\uC5D0 \uC2E4\uD328\uD574 \uD604\uC7AC \uC800\uC7A5\uB41C \uC77C\uC815\uC744 \uBD88\uB7EC\uC654\uC2B5\uB2C8\uB2E4.";
+    }
+  } catch {
+    warning = "CalWalk \uCD5C\uC2E0 \uB3D9\uAE30\uD654\uC5D0 \uC2E4\uD328\uD574 \uD604\uC7AC \uC800\uC7A5\uB41C \uC77C\uC815\uC744 \uBD88\uB7EC\uC654\uC2B5\uB2C8\uB2E4.";
+  }
+
+  const schedules = await fetchSchedules(monthKey);
+  const refreshedAt = (dependencies.now || (() => new Date()))().toISOString();
+  return { schedules, refreshedAt, warning };
+}
+
 export async function fetchStaffScSchedules(clientId: number | string, monthKey: string): Promise<ScSchedule[]> {
   if (!isApiModeEnabled()) return [];
   const month = String(monthKey || "").trim();
