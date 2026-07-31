@@ -352,12 +352,15 @@ check("10) partial / overpay / alias behavior preserved", () => {
     subjectName: "딜라잇홈",
     statementTotalAmount: 1_000_000,
     createdAt: "2026-07-17T01:00:00.000Z",
+    statementSalesIds: [501],
   });
+  const sales = [{ id: 501, date: "2026-07-10", client: "딜라잇홈", site: "본점", amount: 1_000_000 }];
 
   const partial = evaluateHighConfidenceSentStatementAutoLinks({
     bankTransactions: [partialTx],
     archives: [stmt],
     clients: clients as never[],
+    sales,
   });
   assert.equal(partial.drafts.length, 1);
   assert.equal(partial.drafts[0].paymentStatus, "partial");
@@ -367,6 +370,7 @@ check("10) partial / overpay / alias behavior preserved", () => {
     bankTransactions: [overTx],
     archives: [stmt],
     clients: clients as never[],
+    sales,
   });
   assert.equal(over.drafts.length, 1);
   assert.equal(over.drafts[0].paymentStatus, "confirmed");
@@ -376,6 +380,7 @@ check("10) partial / overpay / alias behavior preserved", () => {
     bankTransactions: [aliasExactTx],
     archives: [stmt],
     clients: clients as never[],
+    sales,
   });
   assert.equal(aliasExact.drafts.length, 1);
   assert.ok((aliasExact.items[0].score || 0) >= 75);

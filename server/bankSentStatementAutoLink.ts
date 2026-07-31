@@ -28,7 +28,7 @@ function toIdSet(onlyTransactionIds?: string[] | Set<string>) {
 
 export type PendingPdfArchiveAutoLinkUpdate = {
   pdfArchiveId: string;
-  paymentStatus: "confirmed" | "partial";
+  paymentStatus: "confirmed" | "partial" | "pending";
   txId: string;
   primaryVoucherId: string | number;
 };
