@@ -20,7 +20,7 @@ import {
   type PdfArchiveMeta,
 } from "@/utils/pdfArchive";
 import { createPdfPreviewWindow } from "@/utils/statementPdf";
-import { getSentStatementPaymentStatusLabel } from "@/utils/bankSentStatementMatch";
+import { deriveSentStatementPaymentStatus, getSentStatementPaymentStatusLabel } from "@/utils/bankSentStatementMatch";
 import { isBankMatchAutoLinked, isBankMatchManualLinked } from "@/utils/bankReceivableMatch";
 import { AutoLinkBadge, ManualLinkBadge } from "@/components/AutoLinkBadge";
 import type { BankTransaction } from "@/utils/bankTransactions";
@@ -172,6 +172,8 @@ export function PdfArchivePage({
   isActive = true,
   bankTransactions = [],
   clients = [],
+  sales = [],
+  paymentVouchers = [],
   currentUser = null,
   taxInvoices = [],
   setTaxInvoices,
@@ -183,6 +185,22 @@ export function PdfArchivePage({
   isActive?: boolean;
   bankTransactions?: BankTransaction[];
   clients?: ClientMasterLike[];
+  sales?: Array<{
+    id?: number | string;
+    date?: string;
+    client?: string;
+    site?: string;
+    amount?: number;
+    worker?: string;
+    workers?: unknown[];
+  }>;
+  paymentVouchers?: Array<{
+    salesId?: number | string;
+    finalAmount?: number;
+    amount?: number;
+    bankTransactionId?: string | number;
+    linkedPdfArchiveId?: string;
+  }>;
   currentUser?: ErpUser | null;
   taxInvoices?: TaxInvoice[];
   setTaxInvoices?: React.Dispatch<React.SetStateAction<TaxInvoice[]>>;
@@ -268,20 +286,49 @@ export function PdfArchivePage({
     [records, query, startDate, endDate]
   );
 
+  const effectivePaymentStatusById = useMemo(() => {
+    const map = new Map<string, PdfArchiveMeta["paymentStatus"]>();
+    for (const record of filteredRecords) {
+      if (!record.sentViaLink || record.category !== "statement-client") {
+        map.set(record.id, record.paymentStatus);
+        continue;
+      }
+      map.set(
+        record.id,
+        deriveSentStatementPaymentStatus({
+          archive: record,
+          sales,
+          clients,
+          paymentVouchers,
+        }),
+      );
+    }
+    return map;
+  }, [filteredRecords, sales, clients, paymentVouchers]);
+
+  const withEffectivePaymentStatus = useCallback(
+    (record: PdfArchiveMeta): PdfArchiveMeta => ({
+      ...record,
+      paymentStatus: effectivePaymentStatusById.get(record.id) || record.paymentStatus,
+    }),
+    [effectivePaymentStatusById],
+  );
+
   const sentRecords = useMemo(
     () =>
       sortSentStatementRecords(
-        filteredRecords.filter(
-          (record) => record.sentViaLink && matchesSentStatementPaymentFilter(record, sentPaymentFilter),
-        ),
+        filteredRecords
+          .filter((record) => record.sentViaLink)
+          .map(withEffectivePaymentStatus)
+          .filter((record) => matchesSentStatementPaymentFilter(record, sentPaymentFilter)),
         sentPaymentSort,
       ),
-    [filteredRecords, sentPaymentFilter, sentPaymentSort],
+    [filteredRecords, sentPaymentFilter, sentPaymentSort, withEffectivePaymentStatus],
   );
 
   const sentRecordsAll = useMemo(
-    () => filteredRecords.filter((record) => record.sentViaLink),
-    [filteredRecords],
+    () => filteredRecords.filter((record) => record.sentViaLink).map(withEffectivePaymentStatus),
+    [filteredRecords, withEffectivePaymentStatus],
   );
 
   const sentPaymentStats = useMemo(() => {

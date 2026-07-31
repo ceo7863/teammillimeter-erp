@@ -30,7 +30,12 @@ console.assert(
   "allocated total should equal deposit",
 );
 
-const status = resolveArchivePaymentStatusAfterApply(statementTotal, 0, deposit);
+const status = resolveArchivePaymentStatusAfterApply(statementTotal, 0, deposit, {
+  statementSales: sales,
+  hasVat,
+  paidBySaleIdBefore: buildPaidAmountBySaleId([]),
+  newVouchers: splits.map((row) => ({ salesId: row.salesId, finalAmount: row.finalAmount })),
+});
 console.assert(status === "partial", "archive should stay partial");
 
 console.log("partial statement payment tests passed");

@@ -107,7 +107,7 @@ export function resolveStatementPaidAmount(
   return sum;
 }
 
-function resolveStatementPaymentAmount(deposit: number, statementTotal: number, paidSoFar = 0) {
+export function resolveStatementPaymentAmount(deposit: number, statementTotal: number, paidSoFar = 0) {
   const remaining = Math.max(0, statementTotal - paidSoFar);
   if (remaining <= 0 || deposit <= 0) return null;
 
@@ -499,14 +499,180 @@ function createFallbackPaymentVoucher(
   };
 }
 
+export type StatementPaymentCoverageStatus = "confirmed" | "partial" | "pending";
+
+/** Merge existing paid-by-sale map with newly created voucher drafts (explicit salesId only). */
+export function buildPaidAmountBySaleIdAfterVouchers(
+  paidBySaleIdBefore: Map<string, number>,
+  vouchers: PaymentVoucherLike[] = [],
+) {
+  const map = new Map(paidBySaleIdBefore);
+  for (const voucher of vouchers) {
+    if (voucher.salesId == null || voucher.salesId === "") continue;
+    const key = String(voucher.salesId);
+    map.set(key, (map.get(key) || 0) + Number(voucher.finalAmount ?? voucher.amount ?? 0));
+  }
+  return map;
+}
+
+/**
+ * Confirmed only when every statement sale is fully covered by stored/explicit salesId allocations.
+ * Incomplete single-salesId or empty-salesId drafts never become confirmed.
+ */
+export function resolveArchivePaymentStatusFromSaleCoverage(options: {
+  statementSales: StatementSaleForPayment[];
+  hasVat: boolean;
+  paidBySaleId: Map<string, number>;
+  appliedAmount?: number;
+}): StatementPaymentCoverageStatus {
+  const { statementSales, hasVat, paidBySaleId } = options;
+  const appliedAmount = Math.max(0, Number(options.appliedAmount || 0));
+
+  if (!statementSales.length) {
+    if (appliedAmount > 0) return "partial";
+    return "pending";
+  }
+
+  let unpaidCount = 0;
+  let fullyPaidCount = 0;
+  for (const row of statementSales) {
+    const due = saleDueAmount(row, hasVat, paidBySaleId);
+    if (due <= 0) fullyPaidCount += 1;
+    else unpaidCount += 1;
+  }
+
+  if (unpaidCount === 0 && fullyPaidCount > 0) return "confirmed";
+  if (fullyPaidCount > 0 || appliedAmount > 0) return "partial";
+  return "pending";
+}
+
+/**
+ * Prefer sale-coverage when statement sales + vouchers are known.
+ * Falls back to deposit-total matching only when sales cannot be resolved (never "confirmed" then).
+ */
 export function resolveArchivePaymentStatusAfterApply(
   statementTotal: number,
   paidSoFar: number,
   appliedAmount: number,
-): "confirmed" | "partial" {
+  options?: {
+    statementSales?: StatementSaleForPayment[];
+    hasVat?: boolean;
+    paidBySaleIdBefore?: Map<string, number>;
+    newVouchers?: PaymentVoucherLike[];
+  },
+): StatementPaymentCoverageStatus {
+  const statementSales = options?.statementSales || [];
+  if (statementSales.length || options?.newVouchers) {
+    const paidBefore = options?.paidBySaleIdBefore || new Map<string, number>();
+    const paidAfter = buildPaidAmountBySaleIdAfterVouchers(paidBefore, options?.newVouchers || []);
+    const hasIncompleteVoucher = (options?.newVouchers || []).some(
+      (voucher) => voucher.salesId == null || voucher.salesId === "",
+    );
+    const coverage = resolveArchivePaymentStatusFromSaleCoverage({
+      statementSales,
+      hasVat: Boolean(options?.hasVat),
+      paidBySaleId: paidAfter,
+      appliedAmount,
+    });
+    if (hasIncompleteVoucher && coverage === "confirmed") return "partial";
+    return coverage;
+  }
+
   const nextPaid = paidSoFar + appliedAmount;
-  if (nextPaid >= statementTotal || amountsMatch(nextPaid, statementTotal)) return "confirmed";
+  if (appliedAmount <= 0) return "pending";
+  // Without resolvable statement sales, never mark confirmed from totals alone.
+  if (nextPaid >= statementTotal || amountsMatch(nextPaid, statementTotal)) return "partial";
   return "partial";
+}
+
+/** Effective display/status from saved vouchers (does not mutate archives). */
+export function deriveSentStatementPaymentStatus(options: {
+  archive: Pick<
+    PdfArchiveMeta,
+    | "id"
+    | "subjectName"
+    | "periodStart"
+    | "periodEnd"
+    | "statementTotalAmount"
+    | "statementSalesIds"
+    | "paymentStatus"
+  >;
+  sales?: SaleLikeForStatement[];
+  clients?: ClientDepositMatchSource[];
+  paymentVouchers?: PaymentVoucherLike[];
+}): StatementPaymentCoverageStatus {
+  const archive = options.archive;
+  const statementSales = resolveStatementSalesForArchive(archive, options.sales || [], options.clients);
+  const linkedVouchers = (options.paymentVouchers || []).filter(
+    (voucher) => String(voucher.linkedPdfArchiveId || "") === String(archive.id),
+  );
+  const paidBySaleId = buildPaidAmountBySaleId(
+    linkedVouchers.length ? linkedVouchers : options.paymentVouchers || [],
+  );
+  const appliedAmount = [...paidBySaleId.values()].reduce((sum, value) => sum + value, 0);
+  const subtotal = statementSales.reduce((sum, row) => sum + row.statementAmount, 0);
+  const hasVat = clientHasVat(
+    options.clients,
+    archive.subjectName,
+    subtotal,
+    archive.statementTotalAmount || 0,
+  );
+  return resolveArchivePaymentStatusFromSaleCoverage({
+    statementSales,
+    hasVat,
+    paidBySaleId,
+    appliedAmount,
+  });
+}
+
+/** Read-only inconsistency: archive marked confirmed but sales allocations incomplete. */
+export function listInconsistentConfirmedSentStatements(options: {
+  archives: PdfArchiveMeta[];
+  sales?: SaleLikeForStatement[];
+  clients?: ClientDepositMatchSource[];
+  paymentVouchers?: PaymentVoucherLike[];
+}) {
+  const rows: Array<{
+    pdfArchiveId: string;
+    client: string;
+    storedPaymentStatus?: PdfArchiveMeta["paymentStatus"];
+    effectivePaymentStatus: StatementPaymentCoverageStatus;
+    statementSalesCount: number;
+    allocatedSalesCount: number;
+    statementTotalAmount: number;
+  }> = [];
+
+  for (const archive of options.archives) {
+    if (archive.category !== "statement-client" || !archive.sentViaLink) continue;
+    if (archive.paymentStatus !== "confirmed") continue;
+    const statementSales = resolveStatementSalesForArchive(archive, options.sales || [], options.clients);
+    const linkedVouchers = (options.paymentVouchers || []).filter(
+      (voucher) => String(voucher.linkedPdfArchiveId || "") === String(archive.id),
+    );
+    const paidBySaleId = buildPaidAmountBySaleId(
+      linkedVouchers.length ? linkedVouchers : options.paymentVouchers || [],
+    );
+    const subtotal = statementSales.reduce((sum, row) => sum + row.statementAmount, 0);
+    const hasVat = clientHasVat(options.clients, archive.subjectName, subtotal, archive.statementTotalAmount || 0);
+    const effectivePaymentStatus = resolveArchivePaymentStatusFromSaleCoverage({
+      statementSales,
+      hasVat,
+      paidBySaleId,
+      appliedAmount: [...paidBySaleId.values()].reduce((sum, value) => sum + value, 0),
+    });
+    if (effectivePaymentStatus === "confirmed") continue;
+    const allocatedSalesCount = statementSales.filter((row) => (paidBySaleId.get(String(row.salesId)) || 0) > 0).length;
+    rows.push({
+      pdfArchiveId: archive.id,
+      client: archive.subjectName,
+      storedPaymentStatus: archive.paymentStatus,
+      effectivePaymentStatus,
+      statementSalesCount: statementSales.length,
+      allocatedSalesCount,
+      statementTotalAmount: archive.statementTotalAmount || 0,
+    });
+  }
+  return rows;
 }
 
 export function createPaymentVouchersFromSentStatementMatch(
@@ -581,6 +747,57 @@ export function createPaymentVouchersFromSentStatementMatch(
   }));
 }
 
+/** Build explicit FIFO vouchers and coverage-based payment status together. */
+export function buildSentStatementPaymentApplication(
+  tx: BankTransaction,
+  candidate: SentStatementMatchCandidate,
+  options: {
+    sales?: SaleLikeForStatement[];
+    clients?: ClientDepositMatchSource[];
+    paymentVouchers?: PaymentVoucherLike[];
+    archive?: Pick<
+      PdfArchiveMeta,
+      "subjectName" | "periodStart" | "periodEnd" | "statementTotalAmount" | "statementSalesIds"
+    >;
+  } = {},
+) {
+  const archiveMeta =
+    options.archive ||
+    ({
+      subjectName: candidate.client,
+      periodStart: candidate.periodStart,
+      periodEnd: candidate.periodEnd,
+      statementTotalAmount: candidate.statementTotalAmount,
+      statementSalesIds: candidate.statementSalesIds,
+    } satisfies Pick<
+      PdfArchiveMeta,
+      "subjectName" | "periodStart" | "periodEnd" | "statementTotalAmount" | "statementSalesIds"
+    >);
+  const statementSales = resolveStatementSalesForArchive(archiveMeta, options.sales || [], options.clients);
+  const subtotal = statementSales.reduce((sum, row) => sum + row.statementAmount, 0);
+  const hasVat = clientHasVat(options.clients, candidate.client, subtotal, candidate.statementTotalAmount);
+  const paidSoFar = resolveStatementPaidAmount(
+    candidate.pdfArchiveId,
+    options.paymentVouchers || [],
+    [],
+  );
+  const paidBySaleIdBefore = buildPaidAmountBySaleId(options.paymentVouchers || []);
+  const vouchers = createPaymentVouchersFromSentStatementMatch(tx, candidate, options);
+  const appliedAmount = vouchers.reduce((sum, voucher) => sum + Number(voucher.finalAmount || 0), 0);
+  const paymentStatus = resolveArchivePaymentStatusAfterApply(
+    candidate.statementTotalAmount,
+    paidSoFar,
+    appliedAmount,
+    {
+      statementSales,
+      hasVat,
+      paidBySaleIdBefore,
+      newVouchers: vouchers,
+    },
+  );
+  return { vouchers, paymentStatus, statementSales, hasVat, appliedAmount, paidSoFar };
+}
+
 /** @deprecated Returns first voucher only; prefer createPaymentVouchersFromSentStatementMatch. */
 export function createPaymentVoucherFromSentStatementMatch(
   tx: BankTransaction,
@@ -609,7 +826,7 @@ export type SentStatementAutoLinkDraft = {
   txId: string;
   client: string;
   pdfArchiveId: string;
-  paymentStatus: "confirmed" | "partial";
+  paymentStatus: "confirmed" | "partial" | "pending";
   primaryVoucherId: number | string;
   primarySalesId?: number | string;
   vouchers: BankPaymentVoucherDraft[];
@@ -900,13 +1117,20 @@ export function evaluateHighConfidenceSentStatementAutoLinks(options: {
     const candidate = decision.candidate;
     try {
       const archive = archives.find((row) => row.id === candidate.pdfArchiveId);
-      const paidSoFar = resolveStatementPaidAmount(candidate.pdfArchiveId, workingVouchers, bankTransactions);
-      const vouchers = createPaymentVouchersFromSentStatementMatch(tx, candidate, {
+      // Idempotency: never create a second voucher set for the same bank tx in one pass.
+      if (workingVouchers.some((voucher) => String(voucher.bankTransactionId || "") === tx.id)) {
+        bumpDiagnostic(diagnostics, "alreadyLinked");
+        items.push({ txId: tx.id, reason: "alreadyLinked", transactionDate });
+        continue;
+      }
+
+      const application = buildSentStatementPaymentApplication(tx, candidate, {
         sales,
         clients,
         archive,
         paymentVouchers: workingVouchers,
       });
+      const vouchers = application.vouchers;
       if (!vouchers.length) {
         bumpDiagnostic(diagnostics, "failed");
         items.push({
@@ -919,19 +1143,7 @@ export function evaluateHighConfidenceSentStatementAutoLinks(options: {
         continue;
       }
 
-      // Idempotency: never create a second voucher set for the same bank tx in one pass.
-      if (workingVouchers.some((voucher) => String(voucher.bankTransactionId || "") === tx.id)) {
-        bumpDiagnostic(diagnostics, "alreadyLinked");
-        items.push({ txId: tx.id, reason: "alreadyLinked", transactionDate });
-        continue;
-      }
-
-      const appliedAmount = vouchers.reduce((sum, voucher) => sum + Number(voucher.finalAmount || 0), 0);
-      const paymentStatus = resolveArchivePaymentStatusAfterApply(
-        candidate.statementTotalAmount,
-        paidSoFar,
-        appliedAmount,
-      );
+      const paymentStatus = application.paymentStatus;
       const primaryVoucher = vouchers[0];
 
       drafts.push({

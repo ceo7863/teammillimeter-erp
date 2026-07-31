@@ -96,6 +96,7 @@ import { OfficeStaffPage } from "@/components/OfficeStaffPage";
 import { AttendancePage } from "@/components/AttendancePage";
 import { AutoLinkBadge, SalePaymentLinkBadge, SalePaymentLinkProvider } from "@/components/AutoLinkBadge";
 import { buildAutoLinkedSaleIdSet, buildManualLinkedSaleIdSet, isSaleAutoLinkedPaid, isSaleManualLinkedPaid } from "@/utils/bankReceivableMatch";
+import { applyPaymentVouchers } from "@/utils/applyPaymentVouchers";
 import type { WorkerPortalStatementAck } from "@/utils/workerPortalAcknowledgment";
 import { ClientStatementModal } from "@/components/ClientStatementModal";
 import { CalendarClientSearchModal } from "@/components/CalendarClientSearchModal";
@@ -1837,82 +1838,6 @@ function formatDateTime(value) {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function applyPaymentVouchers(sales, vouchers) {
-  const copied = sales.map((row) => ({
-    ...row,
-    basePaid: row.basePaid ?? row.paid ?? 0,
-    voucherPaid: 0,
-    manualPaidCleared: row.manualPaidCleared || false,
-  }));
-  const clientCredits = {};
-
-  const applyToRow = (row, amount) => {
-    const unpaid = Math.max((row.amount || 0) - (row.basePaid || 0) - (row.voucherPaid || 0), 0);
-    const applied = Math.min(unpaid, amount);
-    row.voucherPaid += applied;
-    return amount - applied;
-  };
-
-  vouchers.forEach((voucher) => {
-    let remaining = parseMoney(voucher.finalAmount ?? voucher.amount);
-
-    if (voucher.salesId) {
-      const statementIds = voucher.statementSalesIds?.length
-        ? [...new Set([String(voucher.salesId), ...voucher.statementSalesIds.map((id) => String(id))])]
-        : [String(voucher.salesId)];
-
-      if (statementIds.length > 1) {
-        const idSet = new Set(statementIds);
-        copied
-          .filter((row) => idSet.has(String(row.id)) && !row.manualPaidCleared)
-          .sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)))
-          .forEach((row) => {
-            if (remaining <= 0) return;
-            remaining = applyToRow(row, remaining);
-          });
-      } else {
-        const target = copied.find((row) => String(row.id) === String(voucher.salesId));
-        if (target) remaining = applyToRow(target, remaining);
-      }
-
-      if (remaining > 0) {
-        clientCredits[voucher.client] = (clientCredits[voucher.client] || 0) + remaining;
-      }
-      return;
-    }
-
-    let scopedRows = copied.filter((row) => row.client === voucher.client && !row.manualPaidCleared);
-
-    if (voucher.statementSalesIds?.length) {
-      const idSet = new Set(voucher.statementSalesIds.map((id) => String(id)));
-      scopedRows = scopedRows.filter((row) => idSet.has(String(row.id)));
-    } else if (voucher.statementPeriodStart || voucher.statementPeriodEnd) {
-      scopedRows = scopedRows.filter((row) => {
-        const date = String(row.date || "");
-        if (voucher.statementPeriodStart && date < voucher.statementPeriodStart) return false;
-        if (voucher.statementPeriodEnd && date > voucher.statementPeriodEnd) return false;
-        return true;
-      });
-    }
-
-    scopedRows
-      .sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)))
-      .forEach((row) => {
-        if (remaining <= 0) return;
-        remaining = applyToRow(row, remaining);
-      });
-
-    if (remaining > 0) {
-      clientCredits[voucher.client] = (clientCredits[voucher.client] || 0) + remaining;
-    }
-  });
-
-  return {
-    sales: copied.map((row) => ({ ...row, paid: Math.min((row.basePaid || 0) + (row.voucherPaid || 0), row.amount || 0), prepaidBalance: clientCredits[row.client] || 0 })),
-    clientCredits,
-  };
 }
 
 function runSelfTests() {
@@ -11746,6 +11671,7 @@ export default function TeammillimeterErpMvp() {
             onPendingPdfArchiveNavConsumed={() => setPendingPdfArchiveNav(null)}
             bankTransactions={bankTransactions}
             workerPaymentRecords={workerPaymentRecords}
+            paymentVouchers={paymentVouchers}
             workerPayWithVatLearnRules={workerPayWithVatLearnRules}
             isPageActive={shellActive === "statements"}
             taxInvoices={taxInvoices}

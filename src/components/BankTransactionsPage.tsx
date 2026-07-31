@@ -238,9 +238,8 @@ import {
   buildAllSentStatementDepositSuggestions,
   buildHighConfidenceSentStatementAutoLinks,
   buildSentStatementMatchCandidates,
+  buildSentStatementPaymentApplication,
   createPaymentVouchersFromSentStatementMatch,
-  resolveArchivePaymentStatusAfterApply,
-  resolveStatementPaidAmount,
   type SentStatementMatchCandidate,
 } from "@/utils/bankSentStatementMatch";
 import { listSentStatementArchives, updatePdfArchiveMeta, type PdfArchiveMeta } from "@/utils/pdfArchive";
@@ -3929,22 +3928,36 @@ function BankTransactionsPageComponent({
     }
 
     const archive = sentArchives.find((row) => row.id === candidate.pdfArchiveId);
-    const paidSoFar = resolveStatementPaidAmount(candidate.pdfArchiveId, paymentVouchers, bankTransactions);
-    const vouchers = createPaymentVouchersFromSentStatementMatch(tx, candidate, {
+    const application = buildSentStatementPaymentApplication(tx, candidate, {
       sales,
       clients,
       archive,
       paymentVouchers,
     });
-    const appliedAmount = vouchers.reduce((sum, voucher) => sum + Number(voucher.finalAmount || 0), 0);
-    const paymentStatus = resolveArchivePaymentStatusAfterApply(
-      candidate.statementTotalAmount,
-      paidSoFar,
-      appliedAmount,
-    );
+    const vouchers = application.vouchers;
+    const paymentStatus = application.paymentStatus === "pending" ? "partial" : application.paymentStatus;
     const primaryVoucher = vouchers[0];
+    if (!primaryVoucher) {
+      setImportMessage("\uC785\uAE08 \uBC30\uBD84\uC744 \uC0DD\uC131\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+      return;
+    }
     const savedBy = currentUser?.name || currentUser?.loginId || "";
     const logs = createPaymentInputLogsFromVouchers(vouchers, savedBy);
+    const statementSalesIds = vouchers[0]?.statementSalesIds;
+    const voucherIdSet = new Set(vouchers.map((voucher) => String(voucher.id)));
+    const linkedBankPatch = {
+      linkedPaymentVoucherId: primaryVoucher.id,
+      linkedPdfArchiveId: candidate.pdfArchiveId,
+      linkedSubject: candidate.client,
+      linkedSalesId: vouchers.length === 1 ? primaryVoucher.salesId : undefined,
+      matchConfirmedAt: new Date().toISOString(),
+      matchConfirmedBy: savedBy,
+      matchAutoLinked: false,
+      folderId:
+        tx.folderId ||
+        (isCardCompanyDeposit(tx) ? DEFAULT_CARD_SALES_FOLDER_ID : DEFAULT_CLIENT_FOLDER_ID),
+    };
+    const previousBankSnapshot = { ...tx };
 
     vouchers.forEach((voucher) => {
       recordAudit({
@@ -3960,41 +3973,14 @@ function BankTransactionsPageComponent({
     });
     auditBankTxUpdate(tx, {
       ...tx,
-      linkedPaymentVoucherId: primaryVoucher.id,
-      linkedPdfArchiveId: candidate.pdfArchiveId,
-      linkedSubject: candidate.client,
-      linkedSalesId: vouchers.length === 1 ? primaryVoucher.salesId : undefined,
-      matchConfirmedAt: new Date().toISOString(),
-      matchConfirmedBy: savedBy,
-      matchAutoLinked: false,
-      folderId:
-        tx.folderId ||
-        (isCardCompanyDeposit(tx) ? DEFAULT_CARD_SALES_FOLDER_ID : DEFAULT_CLIENT_FOLDER_ID),
+      ...linkedBankPatch,
     });
 
     setPaymentVouchers((prev) => [...vouchers, ...(prev as typeof vouchers)]);
     setPaymentInputLogs((prev) => [...logs, ...(prev as typeof logs)]);
     setBankTransactions((prev) =>
-      prev.map((row) =>
-        row.id === tx.id
-          ? {
-              ...row,
-              linkedPaymentVoucherId: primaryVoucher.id,
-              linkedPdfArchiveId: candidate.pdfArchiveId,
-              linkedSubject: candidate.client,
-              linkedSalesId: vouchers.length === 1 ? primaryVoucher.salesId : undefined,
-              matchConfirmedAt: new Date().toISOString(),
-              matchConfirmedBy: savedBy,
-              matchAutoLinked: false,
-              folderId:
-                row.folderId ||
-                (isCardCompanyDeposit(row) ? DEFAULT_CARD_SALES_FOLDER_ID : DEFAULT_CLIENT_FOLDER_ID),
-            }
-          : row
-      )
+      prev.map((row) => (row.id === tx.id ? { ...row, ...linkedBankPatch } : row)),
     );
-
-    const statementSalesIds = vouchers[0]?.statementSalesIds;
 
     try {
       await updatePdfArchiveMeta(candidate.pdfArchiveId, {
@@ -4013,11 +3999,20 @@ function BankTransactionsPageComponent({
                 linkedPaymentVoucherId: primaryVoucher.id,
                 ...(statementSalesIds?.length ? { statementSalesIds } : {}),
               }
-            : row
-        )
+            : row,
+        ),
       );
     } catch (error) {
       console.error(error);
+      setPaymentVouchers((prev) => prev.filter((voucher) => !voucherIdSet.has(String(voucher.id))));
+      setPaymentInputLogs((prev) =>
+        prev.filter((log) => !voucherIdSet.has(String((log as { paymentVoucherId?: string | number }).paymentVoucherId || ""))),
+      );
+      setBankTransactions((prev) =>
+        prev.map((row) => (row.id === tx.id ? previousBankSnapshot : row)),
+      );
+      setImportMessage("\uB0B4\uC5ED\uC11C \uC785\uAE08\uC0C1\uD0DC \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD574 \uC785\uAE08 \uC5F0\uACB0\uC744 \uCDE8\uC18C\uD588\uC2B5\uB2C8\uB2E4.");
+      return;
     }
 
     setLinkModalTx(null);
@@ -5166,23 +5161,16 @@ function BankTransactionsPageComponent({
       if (item.kind === "sentStatement") {
         const sentCandidate = candidate as SentStatementMatchCandidate;
         const archive = sentArchives.find((row) => row.id === sentCandidate.pdfArchiveId);
-        const paidSoFar = resolveStatementPaidAmount(
-          sentCandidate.pdfArchiveId,
-          workingPaymentVouchers,
-          bankTransactions,
-        );
-        const vouchers = createPaymentVouchersFromSentStatementMatch(item.tx, sentCandidate, {
+        const application = buildSentStatementPaymentApplication(item.tx, sentCandidate, {
           sales,
           clients,
           archive,
           paymentVouchers: workingPaymentVouchers,
         });
-        const appliedAmount = vouchers.reduce((sum, voucher) => sum + Number(voucher.finalAmount || 0), 0);
-        const paymentStatus = resolveArchivePaymentStatusAfterApply(
-          sentCandidate.statementTotalAmount,
-          paidSoFar,
-          appliedAmount,
-        );
+        const vouchers = application.vouchers;
+        if (!vouchers.length) continue;
+        const paymentStatus =
+          application.paymentStatus === "pending" ? "partial" : application.paymentStatus;
         sentVouchers.push(...vouchers);
         workingPaymentVouchers = [...workingPaymentVouchers, ...vouchers];
         existingBankIds.add(item.tx.id);
@@ -5263,14 +5251,40 @@ function BankTransactionsPageComponent({
         .filter(([, linked]) => linked.pdfArchiveId)
         .map(([txId, linked]) =>
           updatePdfArchiveMeta(linked.pdfArchiveId!, {
-            paymentStatus: linked.paymentStatus || "confirmed",
+            paymentStatus: linked.paymentStatus || "partial",
             linkedBankTransactionId: txId,
             linkedPaymentVoucherId: linked.voucherId,
           })
         )
     )
       .then(() => loadSentArchives())
-      .catch((error) => console.error(error));
+      .catch((error) => {
+        console.error(error);
+        const rollbackVoucherIds = new Set(allVouchers.map((voucher) => String(voucher.id)));
+        const rollbackTxIds = new Set(linkedByTxId.keys());
+        setPaymentVouchers((prev) => prev.filter((voucher) => !rollbackVoucherIds.has(String(voucher.id))));
+        setPaymentInputLogs((prev) =>
+          prev.filter(
+            (log) => !rollbackVoucherIds.has(String((log as { paymentVoucherId?: string | number }).paymentVoucherId || "")),
+          ),
+        );
+        setBankTransactions((prev) =>
+          prev.map((row) => {
+            if (!rollbackTxIds.has(row.id)) return row;
+            return {
+              ...row,
+              linkedSalesId: undefined,
+              linkedPaymentVoucherId: undefined,
+              linkedPdfArchiveId: undefined,
+              linkedSubject: undefined,
+              matchConfirmedAt: undefined,
+              matchConfirmedBy: undefined,
+              matchAutoLinked: undefined,
+            };
+          }),
+        );
+        setImportMessage("\uB0B4\uC5ED\uC11C \uC785\uAE08\uC0C1\uD0DC \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD574 \uC77C\uAD04 \uC785\uAE08 \uC5F0\uACB0\uC744 \uCDE8\uC18C\uD588\uC2B5\uB2C8\uB2E4.");
+      });
 
     setImportMessage(`${allVouchers.length}${L.matchBulkDone}`);
   };
