@@ -104,7 +104,8 @@ type SaleHistoryRow = {
   workers?: Array<{ worker?: string; meal?: string | number; expense?: string | number }>;
 };
 
-function inferWorkerExtrasFromHistory(
+/** Read-only historical averages for UI hints. Never auto-applied to import payload. */
+export function getWorkerExtrasHistoryReference(
   sales: SaleHistoryRow[],
   clientName: string,
   workerName: string,
@@ -132,38 +133,27 @@ function inferWorkerExtrasFromHistory(
   }
 
   return {
-    meal: mealCount ? Math.round(mealTotal / mealCount) : 0,
-    expense: expenseCount ? Math.round(expenseTotal / expenseCount) : 0,
+    meal: mealCount ? Math.round(mealTotal / mealCount) : null,
+    expense: expenseCount ? Math.round(expenseTotal / expenseCount) : null,
   };
 }
 
-function applyWorkerExtrasFromScOrHistory(
+function applyWorkerExtrasFromSc(
   line: SaleWorkerLine,
   workerInfo: { meal?: number | string | null; expense?: number | string | null },
   mealIncluded: boolean,
-  salesHistory: SaleHistoryRow[],
-  clientName: string,
-  workerName: string,
 ) {
   const next = { ...line };
   const scExtras = extractScParticipantExtras(workerInfo as Record<string, unknown>);
   const scMeal = parseScParticipantMoney(workerInfo.meal) ?? scExtras.meal;
   const scExpense = parseScParticipantMoney(workerInfo.expense) ?? scExtras.expense;
 
-  if (!mealIncluded) {
-    if (scMeal != null) {
-      next.meal = String(scMeal);
-    } else {
-      const extras = inferWorkerExtrasFromHistory(salesHistory, clientName, workerName);
-      if (extras.meal > 0) next.meal = String(extras.meal);
-    }
+  if (!mealIncluded && scMeal != null) {
+    next.meal = String(scMeal);
   }
 
   if (scExpense != null) {
     next.expense = String(scExpense);
-  } else {
-    const extras = inferWorkerExtrasFromHistory(salesHistory, clientName, workerName);
-    if (extras.expense > 0) next.expense = String(extras.expense);
   }
 
   return next;
@@ -211,6 +201,7 @@ export function buildSaleFormFromScSchedule(
   salesHistory: SaleHistoryRow[] = [],
   rulesInput?: SaleAiRules | null,
 ): SaleFormData {
+  void salesHistory; // retained for call-site compatibility; never auto-fills meal/expense
   const rules = normalizeSaleAiRules(rulesInput ?? DEFAULT_SALE_AI_RULES);
   const base = compactSaleForm();
   const clientName = String(schedule.clientName || "").trim();
@@ -234,13 +225,10 @@ export function buildSaleFormFromScSchedule(
     );
     line.quantity = "1";
 
-    line = applyWorkerExtrasFromScOrHistory(
+    line = applyWorkerExtrasFromSc(
       line,
       workerInfo,
       mealIncluded,
-      salesHistory,
-      clientName,
-      workerName,
     );
 
     line = applyScheduleBillingRules(

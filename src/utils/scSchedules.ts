@@ -1,5 +1,4 @@
 import { apiRequest, isApiModeEnabled } from "@/utils/erpApi";
-import { parseMoney } from "@/utils/receivables";
 import { findWorkerMasterByListName, type WorkerMasterLike } from "@/utils/workerPayments";
 
 const SC_PARTICIPANT_MEAL_KEYS = ["meal", "mealCost", "mealAmount", "foodAllowance"] as const;
@@ -7,8 +6,10 @@ const SC_PARTICIPANT_EXPENSE_KEYS = ["expense", "expenseCost", "expenseAmount"] 
 
 export function parseScParticipantMoney(value: unknown): number | null {
   if (value == null || value === "") return null;
-  const amount = parseMoney(value);
-  return amount > 0 ? amount : null;
+  const amount = Number(String(value).replace(/[^0-9.-]/g, ""));
+  if (!Number.isFinite(amount) || amount < 0) return null;
+  // Explicit 0 must stay 0 (do not treat as missing).
+  return amount;
 }
 
 export function isScMealExpenseCategory(category: unknown) {
@@ -24,18 +25,22 @@ export type ScParticipantExpenseItem = {
 export function aggregateScParticipantExpenses(items: ScParticipantExpenseItem[] = []) {
   let mealTotal = 0;
   let expenseTotal = 0;
+  let mealPresent = false;
+  let expensePresent = false;
   for (const item of items) {
     const amount = parseScParticipantMoney(item?.amount);
     if (amount == null) continue;
     if (isScMealExpenseCategory(item?.category)) {
+      mealPresent = true;
       mealTotal += amount;
     } else {
+      expensePresent = true;
       expenseTotal += amount;
     }
   }
   return {
-    meal: mealTotal > 0 ? mealTotal : null,
-    expense: expenseTotal > 0 ? expenseTotal : null,
+    meal: mealPresent ? mealTotal : null,
+    expense: expensePresent ? expenseTotal : null,
   };
 }
 
@@ -43,15 +48,19 @@ export function extractScParticipantExtras(participant: Record<string, unknown> 
   if (!participant) return { meal: null as number | null, expense: null as number | null };
   let meal: number | null = null;
   let expense: number | null = null;
+  let mealPresent = false;
+  let expensePresent = false;
   for (const key of SC_PARTICIPANT_MEAL_KEYS) {
     const amount = parseScParticipantMoney(participant[key]);
     if (amount != null) {
+      mealPresent = true;
       meal = (meal ?? 0) + amount;
     }
   }
   for (const key of SC_PARTICIPANT_EXPENSE_KEYS) {
     const amount = parseScParticipantMoney(participant[key]);
     if (amount != null) {
+      expensePresent = true;
       expense = (expense ?? 0) + amount;
     }
   }
@@ -59,12 +68,18 @@ export function extractScParticipantExtras(participant: Record<string, unknown> 
     const aggregated = aggregateScParticipantExpenses(
       participant.expenses as ScParticipantExpenseItem[],
     );
-    if (aggregated.meal != null) meal = (meal ?? 0) + aggregated.meal;
-    if (aggregated.expense != null) expense = (expense ?? 0) + aggregated.expense;
+    if (aggregated.meal != null) {
+      mealPresent = true;
+      meal = (meal ?? 0) + aggregated.meal;
+    }
+    if (aggregated.expense != null) {
+      expensePresent = true;
+      expense = (expense ?? 0) + aggregated.expense;
+    }
   }
   return {
-    meal: meal != null && meal > 0 ? meal : null,
-    expense: expense != null && expense > 0 ? expense : null,
+    meal: mealPresent ? meal ?? 0 : null,
+    expense: expensePresent ? expense ?? 0 : null,
   };
 }
 
