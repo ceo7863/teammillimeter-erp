@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import type { BankTransaction } from "@/utils/bankTransactions";
 import { formatKRW } from "@/utils/companyLedger";
@@ -11,7 +11,9 @@ import {
   sumLinkedDepositAmountForBankTx,
   type BankDepositMatchCandidate,
 } from "@/utils/bankReceivableMatch";
+import { summarizeBankSentStatementAllocation } from "@/utils/bankSentStatementAllocation";
 import type { SentStatementMatchCandidate } from "@/utils/bankSentStatementMatch";
+import { useWheelScrollCapture } from "@/utils/wheelScrollCapture";
 import {
   buildWorkerBankLinkCandidateForObligation,
   buildWorkerBankLinkMonthOptions,
@@ -180,25 +182,45 @@ function listLinkedDepositVouchers(
     });
   }
 
-  if (tx.linkedPdfArchiveId && !rows.some((row) => row.voucherLabel === L.sentVoucher)) {
-    const archive = sentArchives.find((row) => row.id === tx.linkedPdfArchiveId);
-    if (archive) {
-      rows.unshift({
-        id: `archive:${archive.id}`,
-        voucherLabel: L.sentVoucher,
-        client: String(archive.subjectName || "-").trim() || "-",
-        detail:
-          archive.periodStart && archive.periodEnd
-            ? `${String(archive.periodStart).slice(0, 10)} ~ ${String(archive.periodEnd).slice(0, 10)}`
-            : String(archive.createdAt || "").slice(0, 10),
-        amount: Math.round(Number(archive.statementTotalAmount || tx.deposit || 0)),
-        date: String(archive.createdAt || tx.transactionAt || "").slice(0, 10),
-        unlinkable: false,
-      });
-    }
-  }
-
+  // Never invent a phantom row using archive statementTotal — linked amount must come from vouchers only.
+  void sentArchives;
   return rows;
+}
+
+function SentStatementAllocationSummary({
+  summary,
+}: {
+  summary: NonNullable<ReturnType<typeof summarizeBankSentStatementAllocation>>;
+}) {
+  const tone =
+    summary.kind === "complete"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+      : "border-amber-200 bg-amber-50 text-amber-900";
+  return (
+    <div className={`rounded-xl border px-3 py-2 text-sm ${tone}`} data-erp-unsaved="0">
+      <div className="font-bold">{summary.statusLabel}</div>
+      <div className="mt-1 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+        <div>
+          <div className="text-slate-500">{"\uB0B4\uC5ED\uC11C \uCD1D\uC561"}</div>
+          <div className="font-semibold tabular-nums">{formatKRW(summary.statementTotalAmount)}</div>
+        </div>
+        <div>
+          <div className="text-slate-500">{"\uAC1C\uBCC4 \uC804\uD45C \uBC30\uBD84\uC561"}</div>
+          <div className="font-semibold tabular-nums">{formatKRW(summary.allocatedAmount)}</div>
+        </div>
+        <div>
+          <div className="text-slate-500">{"\uBBF8\uBC30\uBD84\uC561"}</div>
+          <div className="font-semibold tabular-nums">{formatKRW(summary.unallocatedAmount)}</div>
+        </div>
+        <div>
+          <div className="text-slate-500">{"\uBC30\uBD84 \uC804\uD45C"}</div>
+          <div className="font-semibold tabular-nums">
+            {`${summary.allocatedSalesCount} / ${summary.statementSalesCount || "-"}`}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function listLinkedWorkerVouchers(
@@ -440,6 +462,7 @@ function ErpLinkPanelShell({
   onClose,
   children,
   footer,
+  unsavedDraft = false,
 }: {
   title: string;
   subtitle: React.ReactNode;
@@ -447,9 +470,24 @@ function ErpLinkPanelShell({
   onClose: () => void;
   children: React.ReactNode;
   footer?: React.ReactNode;
+  unsavedDraft?: boolean;
 }) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  useWheelScrollCapture(true);
+  useEffect(() => {
+    document.documentElement.setAttribute("data-erp-link-panel-open", "1");
+    return () => document.documentElement.removeAttribute("data-erp-link-panel-open");
+  }, []);
+
   return (
-    <div className="erp-tax-invoice-link-panel" role="dialog" aria-modal="true" aria-label={title}>
+    <div
+      className="erp-tax-invoice-link-panel"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      data-erp-link-panel="1"
+      data-erp-unsaved={unsavedDraft ? "1" : "0"}
+    >
       <div className="erp-tax-invoice-link-panel__head">
         <div>
           <h2 className="erp-text-section font-bold text-slate-900">{title}</h2>
@@ -460,7 +498,13 @@ function ErpLinkPanelShell({
         </button>
       </div>
       <div className="erp-tax-invoice-link-panel__body erp-bank-erp-link-panel__body">
-        <div className="erp-tax-invoice-link-panel__main">{children}</div>
+        <div
+          className="erp-tax-invoice-link-panel__main"
+          data-erp-link-panel-scroll="1"
+          ref={scrollRef}
+        >
+          {children}
+        </div>
       </div>
       {footer ? <div className="erp-bank-erp-link-panel__footer">{footer}</div> : null}
     </div>
@@ -489,6 +533,15 @@ export function BankErpDepositLinkModal({
     () => listLinkedDepositVouchers(tx, paymentVouchers, sentArchives, receivableRows),
     [tx, paymentVouchers, sentArchives, receivableRows],
   );
+  const statementAllocation = useMemo(() => {
+    if (!tx.linkedPdfArchiveId) return null;
+    const archive = sentArchives.find((row) => row.id === tx.linkedPdfArchiveId) || null;
+    return summarizeBankSentStatementAllocation({
+      tx,
+      paymentVouchers,
+      archive,
+    });
+  }, [tx, paymentVouchers, sentArchives]);
   const remainingBeforeSelect = useMemo(
     () => resolveBankDepositLinkRemaining(tx, paymentVouchers),
     [tx, paymentVouchers],
@@ -609,6 +662,7 @@ export function BankErpDepositLinkModal({
         </>
       }
       onClose={onClose}
+      unsavedDraft={selectedSalesOrder.length > 0}
       footer={
         <div className="flex w-full flex-wrap items-center justify-between gap-2">
           <span>{`\uC5F0\uACB0 ${linkedRows.length.toLocaleString("ko-KR")}\uAC74 \u00B7 \uD6C4\uBCF4 ${totalCount.toLocaleString("ko-KR")}\uAC74`}</span>
@@ -632,6 +686,8 @@ export function BankErpDepositLinkModal({
           remainingAfterSelect={remainingAfterSelect}
           tone="deposit"
         />
+
+        {statementAllocation ? <SentStatementAllocationSummary summary={statementAllocation} /> : null}
 
         <LinkedDepositVouchersSection rows={linkedRows} onUnlink={onUnlinkDepositVoucher} />
 

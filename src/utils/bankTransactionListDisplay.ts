@@ -189,7 +189,18 @@ export type BankTransactionListRowBuildContext = {
   ledgerCategoryFolder: BankTransactionFolder | undefined;
   lookup: BankTransactionListLookupMaps;
   labels: { unfiled: string; accountContentPlaceholder: string };
-  paymentVouchers: Array<{ bankTransactionId?: string | number; isPartialPayment?: boolean }>;
+  paymentVouchers: Array<{
+    bankTransactionId?: string | number;
+    salesId?: number | string;
+    finalAmount?: number;
+    amount?: number;
+    linkedPdfArchiveId?: string;
+    isPartialPayment?: boolean;
+  }>;
+  sentArchiveById?: Map<
+    string,
+    { id?: string; statementTotalAmount?: number; statementSalesIds?: Array<string | number> }
+  >;
   ledgerCategories: LedgerCategory[];
   companyExpenses: CompanyExpense[];
   fixedExpensePayments: FixedExpensePayment[];
@@ -280,10 +291,16 @@ export function buildBankTransactionListRowModel(
     (unfiledClientName || null) ||
     (categoryLabel && ledgerCategoryFolder ? ledgerCategoryFolder.folderName : labels.unfiled);
 
-  const matchLinked = Boolean(row.linkedPaymentVoucherId);
+  const matchLinked = Boolean(row.linkedPaymentVoucherId || row.linkedPdfArchiveId);
   let matchStatusLabel = "-";
   if (matchLinked) {
-    matchStatusLabel = getBankMatchStatusLabel(row);
+    const archive = row.linkedPdfArchiveId
+      ? context.sentArchiveById?.get(String(row.linkedPdfArchiveId))
+      : null;
+    matchStatusLabel = getBankMatchStatusLabel(row, {
+      paymentVouchers,
+      archive,
+    });
   } else if (row.deposit > 0) {
     matchStatusLabel = "\uBBF8\uC5F0\uACB0";
   }

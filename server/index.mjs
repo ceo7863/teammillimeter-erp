@@ -10,6 +10,7 @@ import express from "express";
 import cors from "cors";
 import fs from "fs";
 import path from "path";
+import { resolveDeployVersionFromRoot } from "../scripts/resolve-deploy-version.mjs";
 import { config } from "./config.mjs";
 import {
   authenticateUser,
@@ -340,6 +341,14 @@ app.use("/vendor/pdfjs", express.static(config.pdfJsDir, { maxAge: "7d", fallthr
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, service: "teammillimeter-erp-api" });
+});
+
+function resolveDeployVersion() {
+  return resolveDeployVersionFromRoot(process.cwd()) || "unknown";
+}
+
+app.get("/api/deploy-version", (_req, res) => {
+  res.json({ version: resolveDeployVersion() });
 });
 
 app.get("/api/system/metrics", authMiddleware, adminMiddleware, async (_req, res) => {

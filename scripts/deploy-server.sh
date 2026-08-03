@@ -24,14 +24,19 @@ git pull --ff-only origin main
 echo "==> npm install"
 npm install
 
+DEPLOY_VERSION="$(git rev-parse HEAD)"
+echo "$DEPLOY_VERSION" > deploy-version.txt
+export ERP_DEPLOY_VERSION="$DEPLOY_VERSION"
+echo "==> deploy version ${DEPLOY_VERSION}"
+
 echo "==> build frontend"
 npm run build
 
 echo "==> restart API (pm2)"
 if pm2 describe erp >/dev/null 2>&1; then
-  pm2 restart erp
+  ERP_DEPLOY_VERSION="$DEPLOY_VERSION" pm2 restart erp --update-env
 else
-  pm2 start server/index.mjs --name erp --node-args="--import tsx"
+  ERP_DEPLOY_VERSION="$DEPLOY_VERSION" pm2 start server/index.mjs --name erp --node-args="--import tsx"
 fi
 
 pm2 save

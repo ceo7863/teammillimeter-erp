@@ -6,6 +6,7 @@ data/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+deploy-version.txt
 
 # Local scratch / export artifacts
 tmp-*
