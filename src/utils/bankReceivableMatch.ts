@@ -656,8 +656,49 @@ export function isSaleManualLinkedPaid(
   return manualLinkedSaleIds.has(String(saleId));
 }
 
-export function getBankMatchStatusLabel(tx: BankTransaction) {
-  if (tx.linkedPaymentVoucherId && tx.linkedPdfArchiveId) return "\uBCF4\uB0B8\uB0B4\uC5ED\uC11C \uC785\uAE08\uD655\uC778";
+export function getBankMatchStatusLabel(
+  tx: BankTransaction,
+  options: {
+    paymentVouchers?: Array<{
+      bankTransactionId?: string | number;
+      salesId?: number | string;
+      finalAmount?: number;
+      amount?: number;
+      linkedPdfArchiveId?: string;
+    }>;
+    archive?: {
+      id?: string;
+      statementTotalAmount?: number;
+      statementSalesIds?: Array<string | number>;
+    } | null;
+  } = {},
+) {
+  if (tx.linkedPdfArchiveId) {
+    const vouchers = (options.paymentVouchers || []).filter(
+      (voucher) => String(voucher.bankTransactionId || "") === String(tx.id),
+    );
+    const allocatedAmount = vouchers.reduce(
+      (sum, voucher) => sum + Math.round(Number(voucher.finalAmount ?? voucher.amount ?? 0)),
+      0,
+    );
+    const allocatedSalesCount = new Set(
+      vouchers.map((voucher) => String(voucher.salesId ?? "").trim()).filter(Boolean),
+    ).size;
+    const statementSalesCount = Array.isArray(options.archive?.statementSalesIds)
+      ? options.archive.statementSalesIds.length
+      : 0;
+    const statementTotal = Math.round(
+      Number(options.archive?.statementTotalAmount || tx.deposit || 0),
+    );
+    const unallocated = Math.max(0, statementTotal - allocatedAmount);
+    const complete =
+      vouchers.length > 0 &&
+      unallocated <= 0 &&
+      (statementSalesCount === 0 || allocatedSalesCount >= statementSalesCount);
+    return complete
+      ? "\uBCF4\uB0B8\uB0B4\uC5ED\uC11C \uC785\uAE08\uD655\uC778"
+      : "\uC804\uD45C \uBC30\uBD84 \uD544\uC694";
+  }
   if (tx.linkedPaymentVoucherId) return "\uC785\uAE08 \uC5F0\uACB0\uC644\uB8CC";
   if (tx.deposit > 0) return "\uBBF8\uC5F0\uACB0";
   return "-";

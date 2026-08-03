@@ -718,7 +718,9 @@ export function createPaymentVouchersFromSentStatementMatch(
     paidBySaleId,
   );
   if (!splits.length) {
-    return [createFallbackPaymentVoucher(tx, candidate, hasVat)];
+    // Statement sales are known but nothing left to allocate (already covered / zero due).
+    // Never invent a phantom empty-salesId voucher on retry.
+    return [];
   }
 
   const baseId = Date.now() + Number(String(candidate.pdfArchiveId).replace(/\D/g, "").slice(-6) || 0);

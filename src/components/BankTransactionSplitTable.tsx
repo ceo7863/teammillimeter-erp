@@ -501,7 +501,11 @@ const SplitRow = memo(function SplitRow({
         ) : model.matchLinked ? (
           <button
             type="button"
-            className="erp-bank-wehago-cell-btn max-w-full truncate border border-emerald-200 bg-emerald-100 text-left text-emerald-700 hover:bg-emerald-200"
+            className={
+              model.matchStatusLabel.includes("\uBC30\uBD84")
+                ? "erp-bank-wehago-cell-btn max-w-full truncate border border-amber-200 bg-amber-100 text-left text-amber-800 hover:bg-amber-200"
+                : "erp-bank-wehago-cell-btn max-w-full truncate border border-emerald-200 bg-emerald-100 text-left text-emerald-700 hover:bg-emerald-200"
+            }
             title={model.matchStatusLabel}
             onClick={(event) => {
               event.stopPropagation();

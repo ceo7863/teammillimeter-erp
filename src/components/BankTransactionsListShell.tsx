@@ -43,7 +43,8 @@ export type BankTransactionsListShellProps = {
   taxInvoices: TaxInvoice[];
   workers: Array<{ name?: string }>;
   workerMonthlyActualVouchers?: WorkerMonthlyActualVoucher[];
-  paymentVouchers: Array<{ bankTransactionId?: string | number; isPartialPayment?: boolean }>;
+  paymentVouchers: Array<{ bankTransactionId?: string | number; salesId?: number | string; finalAmount?: number; amount?: number; linkedPdfArchiveId?: string; isPartialPayment?: boolean }>;
+  sentArchives?: Array<{ id: string; statementTotalAmount?: number; statementSalesIds?: Array<string | number> }>;
   labels: BankTransactionListSectionLabels;
   stats: { count: number; deposits: number; withdrawals: number; net: number };
   onEditMemo: (row: BankTransaction) => void;
@@ -105,6 +106,7 @@ function BankTransactionsListShellComponent(props: BankTransactionsListShellProp
     workers,
     workerMonthlyActualVouchers,
     paymentVouchers,
+    sentArchives,
     labels,
     stats,
     onEditMemo,
@@ -168,6 +170,7 @@ function BankTransactionsListShellComponent(props: BankTransactionsListShellProp
         workers={workers}
         workerMonthlyActualVouchers={workerMonthlyActualVouchers}
         paymentVouchers={paymentVouchers}
+        sentArchives={sentArchives}
         labels={labels}
         stats={stats}
         onEditMemo={onEditMemo}
@@ -237,6 +240,7 @@ function bankTransactionsListShellPropsAreEqual(
   if (prev.workers !== next.workers) return false;
   if (prev.workerMonthlyActualVouchers !== next.workerMonthlyActualVouchers) return false;
   if (prev.paymentVouchers !== next.paymentVouchers) return false;
+  if (prev.sentArchives !== next.sentArchives) return false;
 
   if (prev.rows !== next.rows) {
     if (prev.rows.length !== next.rows.length) return false;

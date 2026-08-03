@@ -48,7 +48,19 @@ type BankTransactionListSectionProps = {
   clients?: Array<{ name?: string }>;
   workers?: Array<{ name?: string }>;
   workerMonthlyActualVouchers?: WorkerMonthlyActualVoucher[];
-  paymentVouchers?: Array<{ bankTransactionId?: string | number; isPartialPayment?: boolean }>;
+  paymentVouchers?: Array<{
+    bankTransactionId?: string | number;
+    salesId?: number | string;
+    finalAmount?: number;
+    amount?: number;
+    linkedPdfArchiveId?: string;
+    isPartialPayment?: boolean;
+  }>;
+  sentArchives?: Array<{
+    id: string;
+    statementTotalAmount?: number;
+    statementSalesIds?: Array<string | number>;
+  }>;
   labels: BankTransactionListSectionLabels;
   columnVisibility: BankTransactionColumnVisibility;
   onEditMemo: (row: BankTransaction) => void;
@@ -79,6 +91,7 @@ function BankTransactionListSectionComponent({
   workers = [],
   workerMonthlyActualVouchers = [],
   paymentVouchers = [],
+  sentArchives = [],
   labels,
   columnVisibility,
   onEditMemo,
@@ -114,6 +127,7 @@ function BankTransactionListSectionComponent({
       lookup: lookupMaps,
       labels: { unfiled: labels.unfiled, accountContentPlaceholder: labels.accountContentPlaceholder },
       paymentVouchers,
+      sentArchiveById: new Map(sentArchives.map((row) => [String(row.id), row])),
       ledgerCategories,
       companyExpenses,
       fixedExpensePayments,
@@ -134,6 +148,7 @@ function BankTransactionListSectionComponent({
     labels.unfiled,
     labels.accountContentPlaceholder,
     paymentVouchers,
+    sentArchives,
     ledgerCategories,
     companyExpenses,
     fixedExpensePayments,

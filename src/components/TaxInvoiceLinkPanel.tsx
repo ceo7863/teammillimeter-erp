@@ -1,5 +1,6 @@
 import React, { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Search, X } from "lucide-react";
+import { useWheelScrollCapture } from "@/utils/wheelScrollCapture";
 import { Button } from "@/components/ui/button";
 import type { BankTransaction } from "@/utils/bankTransactions";
 import {
@@ -231,7 +232,7 @@ function TaxInvoiceLinkResultsTable({
   );
 
   return (
-    <div className="erp-tax-invoice-link-panel__main">
+    <div className="erp-tax-invoice-link-panel__main" data-erp-link-panel-scroll="1">
       <div className="erp-tax-invoice-link-panel__table-wrap overflow-auto rounded-xl border border-slate-200">
         <table className="erp-table erp-tax-invoice-link-panel__table w-full">
           <thead>
@@ -503,8 +504,20 @@ export function TaxInvoiceLinkPanel({
   onUnlinkAll,
   ...bodyProps
 }: TaxInvoiceLinkPanelProps) {
+  useWheelScrollCapture(true);
+  useEffect(() => {
+    document.documentElement.setAttribute("data-erp-link-panel-open", "1");
+    return () => document.documentElement.removeAttribute("data-erp-link-panel-open");
+  }, []);
+
   return (
-    <div className="erp-tax-invoice-link-panel" role="dialog" aria-modal="true" aria-label={L.title}>
+    <div
+      className="erp-tax-invoice-link-panel"
+      role="dialog"
+      aria-modal="true"
+      aria-label={L.title}
+      data-erp-link-panel="1"
+    >
       <TaxInvoiceLinkHeader
         tx={tx}
         linkedInvoiceIds={linkedInvoiceIds}

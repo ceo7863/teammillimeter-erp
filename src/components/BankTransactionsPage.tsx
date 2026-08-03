@@ -27,8 +27,10 @@ import {
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { BankListRefreshAtSuffix, useBankSyncMeta } from "@/contexts/BankSyncMetaContext";
+import { DeployVersionBanner } from "@/components/DeployVersionBanner";
 import { PartialPaymentBadge } from "@/components/AutoLinkBadge";
 import { Button } from "@/components/ui/button";
+import { useDeployVersionGuard } from "@/utils/deployVersionGuard";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { TableExportSection, TableExportToolbar } from "@/components/TableExportSection";
 import { BankTransactionsListShell } from "@/components/BankTransactionsListShell";
@@ -242,6 +244,7 @@ import {
   createPaymentVouchersFromSentStatementMatch,
   type SentStatementMatchCandidate,
 } from "@/utils/bankSentStatementMatch";
+import { summarizeBankSentStatementAllocation } from "@/utils/bankSentStatementAllocation";
 import { listSentStatementArchives, updatePdfArchiveMeta, type PdfArchiveMeta } from "@/utils/pdfArchive";
 import {
   appendDepositNameAlias,
@@ -1218,6 +1221,7 @@ function BankTransactionsPageComponent({
   const [sentArchives, setSentArchives] = useState<PdfArchiveMeta[]>([]);
   const ibkInputRef = useRef<HTMLInputElement>(null);
   const savedBy = currentUser?.name || currentUser?.loginId || "";
+  const { bannerVisible, applyNewVersion, guardFinancialSave } = useDeployVersionGuard();
 
   const resolveFolderLabel = React.useCallback(
     (folderId?: string) => {
@@ -3687,17 +3691,38 @@ function BankTransactionsPageComponent({
             paymentVouchersForSave = [...autoVouchers, ...(paymentVouchers as typeof autoVouchers)];
             setPaymentInputLogs((prevLogs) => [...autoLogs, ...(prevLogs as typeof autoLogs)]);
             setPaymentVouchers(paymentVouchersForSave);
+            const autoVoucherIdSet = new Set(autoVouchers.map((voucher) => String(voucher.id)));
+            const bankBeforeAutoLink = smart.bankTransactions;
             void Promise.all(
               autoLinks.map((linked) =>
                 updatePdfArchiveMeta(linked.pdfArchiveId, {
-                  paymentStatus: linked.paymentStatus,
+                  paymentStatus: linked.paymentStatus === "confirmed" ? "confirmed" : "partial",
                   linkedBankTransactionId: linked.txId,
                   linkedPaymentVoucherId: linked.primaryVoucherId,
                 }),
               ),
             )
               .then(() => loadSentArchives())
-              .catch((error) => console.error(error));
+              .catch((error) => {
+                console.error(error);
+                setPaymentVouchers((prev) =>
+                  prev.filter((voucher) => !autoVoucherIdSet.has(String(voucher.id))),
+                );
+                setPaymentInputLogs((prev) =>
+                  prev.filter(
+                    (log) =>
+                      !autoVoucherIdSet.has(
+                        String((log as { paymentVoucherId?: string | number }).paymentVoucherId || ""),
+                      ),
+                  ),
+                );
+                setBankTransactions(bankBeforeAutoLink);
+                bankTransactionsForSave = bankBeforeAutoLink;
+                paymentVouchersForSave = paymentVouchers;
+                setImportMessage(
+                  "\uB0B4\uC5ED\uC11C \uC790\uB3D9 \uC785\uAE08 \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD574 \uC5F0\uACB0\uC744 \uCDE8\uC18C\uD588\uC2B5\uB2C8\uB2E4.",
+                );
+              });
             setImportMessage((prev) =>
               prev.includes("\uBCF4\uB0B8\uB0B4\uC5ED\uC11C \uC790\uB3D9 \uC785\uAE08")
                 ? prev
@@ -3922,12 +3947,30 @@ function BankTransactionsPageComponent({
   };
 
   const confirmSentStatementMatch = async (tx: BankTransaction, candidate: SentStatementMatchCandidate) => {
-    if (paymentVouchers.some((voucher) => voucher.bankTransactionId === tx.id)) {
-      setImportMessage("\uC774\uBBF8 \uC5F0\uACB0\uB41C \uD1B5\uC7A5 \uAC70\uB798\uC785\uB2C8\uB2E4.");
+    const versionGuard = guardFinancialSave();
+    if (!versionGuard.ok) {
+      setImportMessage(versionGuard.message);
       return;
     }
 
     const archive = sentArchives.find((row) => row.id === candidate.pdfArchiveId);
+    const existingSummary = summarizeBankSentStatementAllocation({
+      tx,
+      paymentVouchers,
+      archive,
+    });
+    if (existingSummary?.kind === "complete") {
+      setImportMessage("\uC774\uBBF8 \uC5F0\uACB0\uB41C \uD1B5\uC7A5 \uAC70\uB798\uC785\uB2C8\uB2E4.");
+      return;
+    }
+    if (
+      tx.linkedPdfArchiveId &&
+      String(tx.linkedPdfArchiveId) !== String(candidate.pdfArchiveId)
+    ) {
+      setImportMessage("\uC774\uBBF8 \uB2E4\uB978 \uB0B4\uC5ED\uC11C\uC5D0 \uC5F0\uACB0\uB41C \uD1B5\uC7A5 \uAC70\uB798\uC785\uB2C8\uB2E4.");
+      return;
+    }
+
     const application = buildSentStatementPaymentApplication(tx, candidate, {
       sales,
       clients,
@@ -3935,21 +3978,29 @@ function BankTransactionsPageComponent({
       paymentVouchers,
     });
     const vouchers = application.vouchers;
-    const paymentStatus = application.paymentStatus === "pending" ? "partial" : application.paymentStatus;
+    // Incomplete allocation must never be persisted as confirmed.
+    const paymentStatus =
+      application.paymentStatus === "confirmed" ? "confirmed" : application.paymentStatus === "pending" ? "partial" : "partial";
     const primaryVoucher = vouchers[0];
     if (!primaryVoucher) {
-      setImportMessage("\uC785\uAE08 \uBC30\uBD84\uC744 \uC0DD\uC131\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+      setImportMessage(
+        existingSummary
+          ? "\uCD94\uAC00 \uBC30\uBD84\uD560 \uAC1C\uBCC4 \uC785\uAE08\uC804\uD45C\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4."
+          : "\uC785\uAE08 \uBC30\uBD84\uC744 \uC0DD\uC131\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
+      );
       return;
     }
+    const existingPrimaryId = tx.linkedPaymentVoucherId;
     const savedBy = currentUser?.name || currentUser?.loginId || "";
     const logs = createPaymentInputLogsFromVouchers(vouchers, savedBy);
     const statementSalesIds = vouchers[0]?.statementSalesIds;
     const voucherIdSet = new Set(vouchers.map((voucher) => String(voucher.id)));
     const linkedBankPatch = {
-      linkedPaymentVoucherId: primaryVoucher.id,
+      linkedPaymentVoucherId: existingPrimaryId || primaryVoucher.id,
       linkedPdfArchiveId: candidate.pdfArchiveId,
       linkedSubject: candidate.client,
-      linkedSalesId: vouchers.length === 1 ? primaryVoucher.salesId : undefined,
+      linkedSalesId:
+        !existingPrimaryId && vouchers.length === 1 ? primaryVoucher.salesId : tx.linkedSalesId,
       matchConfirmedAt: new Date().toISOString(),
       matchConfirmedBy: savedBy,
       matchAutoLinked: false,
@@ -4852,6 +4903,11 @@ function BankTransactionsPageComponent({
     items: Array<{ candidate: BankDepositMatchCandidate; finalAmount: number; unpaidAfter?: number }>,
   ) => {
     if (!items.length) return;
+    const versionGuard = guardFinancialSave();
+    if (!versionGuard.ok) {
+      setImportMessage(versionGuard.message);
+      return;
+    }
 
     const remaining = resolveBankDepositLinkRemaining(tx, paymentVouchers);
     const allocationItems = items.map((item) => ({
@@ -5133,6 +5189,11 @@ function BankTransactionsPageComponent({
   };
 
   const confirmHighConfidenceMatches = () => {
+    const versionGuard = guardFinancialSave();
+    if (!versionGuard.ok) {
+      setImportMessage(versionGuard.message);
+      return;
+    }
     const savedBy = currentUser?.name || currentUser?.loginId || "";
     const existingBankIds = new Set(
       paymentVouchers.map((voucher) => String(voucher.bankTransactionId || "")).filter(Boolean)
@@ -5565,6 +5626,7 @@ function BankTransactionsPageComponent({
         taxInvoiceLinkSession || linkModalTx || workerLinkModal ? " erp-bank-transactions-page--tax-link-open" : ""
       }`}
     >
+      <DeployVersionBanner visible={bannerVisible} onApply={applyNewVersion} />
       <Card className="erp-bank-hub-card mb-3 rounded-xl shadow-sm">
         <CardContent className="flex flex-col gap-2 p-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex min-w-0 items-start gap-2.5">
@@ -5821,6 +5883,7 @@ function BankTransactionsPageComponent({
           workers={workers}
           workerMonthlyActualVouchers={workerMonthlyActualVouchers}
           paymentVouchers={paymentVouchers}
+          sentArchives={sentArchives}
           labels={listSectionLabels}
           stats={stats}
           onEditMemo={openMemoModal}
