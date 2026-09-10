@@ -331,3 +331,30 @@ there, but it must be run.
 - `npx tsx scripts/test-phase4-migration-readiness.mjs`
 
 No automatic backfill (production Receipt count expected 0).
+
+
+## Cutover Stabilization (Permanent Policy)
+
+Task ID: `ERP_UNIFIED_AR_LEDGER_CUTOVER_STABILIZATION_FINAL`
+
+CTO decision: the 1,286 legacy `paymentVouchers` are preserved forever as a read-only
+compatibility ledger. Large-scale migration (₩857M MANUAL_REVIEW class) is discontinued.
+
+### Cutover instant
+
+`globalArLedgerCutoverAt` is stamped once onto `bankSyncMeta` from already-stored evidence
+(`bankReceiptCutoverAt`, first organic Receipt `createdAt`). No invented calendar date.
+
+### Write policy
+
+- Generic ERP save: no create / update / delete of `paymentVouchers` or `paymentInputLogs`
+- Generic ERP save: `sale.paid` / `basePaid` / `voucherPaid` frozen to stored values
+- New cash: Receipt / ReceiptAllocation only (calendar, receivables, bank, statement)
+- Migration `--apply` remains refused; Phase 5 migration is not an active path
+
+### Diagnostics
+
+- `GET /api/ar/cutover-health` (admin) and `scripts/ar-ledger-cutover-health.mjs`
+- Legacy dataset hash detects silent mutation; mismatch → BLOCKED (no auto-repair)
+- Phase 4 BLOCKED_CONFLICT / MANUAL_REVIEW counts stay admin-isolated migration risk, not UI noise
+

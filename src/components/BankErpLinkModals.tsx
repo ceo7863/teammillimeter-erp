@@ -140,11 +140,15 @@ function buildPaymentVoucherLabel(
   voucher: ErpLinkedPaymentVoucher,
   receivableRows: ReceivableRow[],
 ) {
+  if ((voucher as { sourceLedger?: string }).sourceLedger === "receipt") {
+    const receiptNo = String((voucher as { receiptNo?: string }).receiptNo || voucher.id || "").trim();
+    return receiptNo ? `입금전표 ${receiptNo}` : "입금전표";
+  }
   if (voucher.linkedPdfArchiveId) return L.sentVoucher;
   const voucherNo = resolveSalesVoucherNo(voucher.salesId, receivableRows);
-  if (voucherNo) return L.salesVoucher(voucherNo);
-  if (voucher.id != null && voucher.id !== "") return L.paymentVoucher(voucher.id);
-  return "\uC785\uAE08 \uC804\uD45C";
+  if (voucherNo) return `기존 입금 · 매출 ${voucherNo}`;
+  if (voucher.id != null && voucher.id !== "") return `기존 입금`;
+  return "기존 입금";
 }
 
 function listLinkedDepositVouchers(

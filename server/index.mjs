@@ -256,6 +256,11 @@ import {
 } from "./unifiedArReadModel.mjs";
 import { buildEffectivePaymentVouchers } from "./receiptProjection.mjs";
 import { buildMigrationReadinessReport } from "./legacyReceiptMigrationAudit.mjs";
+import {
+  buildArLedgerCutoverHealthReport,
+  stampGlobalArLedgerCutoverMetadata,
+  AR_LEDGER_CUTOVER_RECORDED_BY,
+} from "./arLedgerCutover.mjs";
 import { diagnoseLegacyPaymentMigration } from "../scripts/receipt-migration-dry-run.mjs";
 import {
   ensureClientSiteRequestLink,
@@ -324,6 +329,26 @@ import {
 
 initDb();
 runErpStartupMigrations();
+(() => {
+  try {
+    const state = getErpState();
+    const stamped = stampGlobalArLedgerCutoverMetadata(state.data || {}, {
+      recordedBy: AR_LEDGER_CUTOVER_RECORDED_BY,
+    });
+    if (stamped.stamped) {
+      saveErpState(stamped.data, state.version, AR_LEDGER_CUTOVER_RECORDED_BY, {});
+      console.info(
+        `[ar-cutover] stamped globalArLedgerCutoverAt=${stamped.globalArLedgerCutoverAt} hash=${stamped.legacyDatasetHashAtCutover}`,
+      );
+    } else if (stamped.globalArLedgerCutoverAt) {
+      console.info(`[ar-cutover] globalArLedgerCutoverAt already set: ${stamped.globalArLedgerCutoverAt}`);
+    } else {
+      console.warn(`[ar-cutover] cutover metadata not stamped: ${stamped.error || "unknown"}`);
+    }
+  } catch (error) {
+    console.warn(`[ar-cutover] cutover stamp skipped: ${error?.message || error}`);
+  }
+})();
 initErpChatStore();
 initTeamChatStore();
 initTaskCommentStore();
@@ -3876,6 +3901,39 @@ app.get("/api/ar/migration-readiness-dry-run", authMiddleware, adminMiddleware, 
       res.status(500).json({ error: "감사 보고서가 읽기 전용 조건을 위반했습니다.", code: "AUDIT_NOT_READ_ONLY" });
       return;
     }
+    res.json({
+      ...report,
+      version: state.version,
+      migrationPolicy: "DISCONTINUED_PRESERVE_LEGACY_READ_ONLY",
+      apply: false,
+      applyAvailable: false,
+    });
+  } catch (error) {
+    sendReceiptError(res, error);
+  }
+});
+
+/**
+ * Cutover health (admin, read-only). Reports legacy seal + Receipt integrity.
+ * Never applies migration. Migration conflict counts are isolated for admins only.
+ */
+app.get("/api/ar/cutover-health", authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const state = getErpState();
+    const data = state.data || {};
+    const asOfDate = req.query.asOf || req.query.asOfDate;
+    const archives = listPdfArchiveMetas();
+    const report = buildArLedgerCutoverHealthReport(data, {
+      asOfDate,
+      archives,
+      includeParity: String(req.query.parity || "") === "1",
+      migrationBlockedConflictCount: 27,
+      migrationManualReviewCount: 1065,
+    });
+    if (report.mutations !== 0 || report.apply !== false) {
+      res.status(500).json({ error: "컷오버 진단이 읽기 전용 조건을 위반했습니다.", code: "AUDIT_NOT_READ_ONLY" });
+      return;
+    }
     res.json({ ...report, version: state.version });
   } catch (error) {
     sendReceiptError(res, error);
@@ -3885,7 +3943,7 @@ app.get("/api/ar/migration-readiness-dry-run", authMiddleware, adminMiddleware, 
 app.get("/api/receipts-migration/dry-run", authMiddleware, adminMiddleware, (_req, res) => {
   const state = getErpState();
   const report = diagnoseLegacyPaymentMigration(state.data || {});
-  res.json(report);
+  res.json({ ...report, apply: false, applyAvailable: false, migrationPolicy: "DISCONTINUED_PRESERVE_LEGACY_READ_ONLY" });
 });
 
 app.get("/api/client-contracts", authMiddleware, (_req, res) => {
