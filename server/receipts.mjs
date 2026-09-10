@@ -11,6 +11,7 @@ const RECEIPT_SOURCES = new Set([
   "sent_statement",
   "migration",
 ]);
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function money(value) {
   const n = Number(value);
@@ -21,8 +22,31 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function todaySeoul() {
+export function todaySeoul() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date());
+}
+
+export function normalizeSeoulDate(value, label = "date") {
+  const text = String(value || "").trim().slice(0, 10);
+  if (!DATE_RE.test(text)) {
+    throw makeError("INVALID_DATE", `${label}는 YYYY-MM-DD 형식이어야 합니다.`);
+  }
+  const [y, m, d] = text.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) {
+    throw makeError("INVALID_DATE", `${label}가 올바른 날짜가 아닙니다.`);
+  }
+  return text;
+}
+
+export function shiftSeoulDate(ymd, deltaDays) {
+  const base = normalizeSeoulDate(ymd);
+  const [y, m, d] = base.split("-").map(Number);
+  const dt = new Date(y, m - 1, d + deltaDays);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
 }
 
 function makeId(prefix) {
@@ -45,35 +69,75 @@ export function listReceiptAllocations(data = {}) {
   return Array.isArray(data.receiptAllocations) ? data.receiptAllocations : [];
 }
 
-/** Effective (AR-affecting) allocations only. */
-export function isEffectivePostedAllocation(allocation, receiptById = null) {
-  if (!allocation || allocation.status !== "posted") return false;
+/** Deterministic defaults for rows created before as-of fields existed. */
+export function resolveAllocationEffectiveFrom(allocation, receipt) {
+  return String(
+    allocation?.effectiveFrom ||
+      allocation?.allocationEffectiveDate ||
+      receipt?.receiptDate ||
+      String(allocation?.createdAt || "").slice(0, 10) ||
+      "",
+  ).slice(0, 10);
+}
+
+export function resolveAllocationReversedEffectiveDate(allocation) {
+  const value = allocation?.reversedEffectiveDate || allocation?.effectiveTo || null;
+  return value ? String(value).slice(0, 10) : null;
+}
+
+/**
+ * As-of effectiveness: ignores current status alone.
+ * Allocation is effective on asOf when effectiveFrom <= asOf < reversedEffectiveDate (if set).
+ * Audit-only / reversal-document rows never apply.
+ */
+export function isAllocationEffectiveAsOf(allocation, receiptById, asOfDate) {
+  if (!allocation) return false;
+  if (allocation.auditOnly) return false;
   if (money(allocation.amount) <= 0) return false;
-  if (receiptById) {
-    const receipt = receiptById.get(String(allocation.receiptId));
-    if (!receipt) return false;
-    if (receipt.status !== "posted") return false;
-    if (receipt.reversalOfReceiptId) return false;
-  }
+  const asOf = normalizeSeoulDate(asOfDate || todaySeoul(), "asOf");
+  const receipt = receiptById?.get(String(allocation.receiptId));
+  if (receipt?.reversalOfReceiptId) return false;
+  const from = resolveAllocationEffectiveFrom(allocation, receipt);
+  if (!from || asOf < from) return false;
+  const until = resolveAllocationReversedEffectiveDate(allocation);
+  if (until && asOf >= until) return false;
   return true;
 }
 
-export function summarizeReceipt(receipt, allocations = []) {
+/** Current-state helper used by projection / remaining balance (as-of today). */
+export function isEffectivePostedAllocation(allocation, receiptById = null, asOfDate = null) {
+  return isAllocationEffectiveAsOf(allocation, receiptById, asOfDate || todaySeoul());
+}
+
+export function summarizeReceiptAsOf(receipt, allocations = [], asOfDate = null) {
+  const asOf = asOfDate || todaySeoul();
   const receiptById = new Map([[String(receipt.id), receipt]]);
+  if (receipt.reversalOfReceiptId) {
+    return { allocatedAmount: 0, unallocatedAmount: 0, allocationCount: 0 };
+  }
+  const receiptDate = String(receipt.receiptDate || "").slice(0, 10);
+  if (receiptDate && asOf < receiptDate) {
+    return { allocatedAmount: 0, unallocatedAmount: 0, allocationCount: 0 };
+  }
+  const reversedAt = receipt.reversedEffectiveDate ? String(receipt.reversedEffectiveDate).slice(0, 10) : null;
+  if (reversedAt && asOf >= reversedAt) {
+    return { allocatedAmount: 0, unallocatedAmount: 0, allocationCount: 0 };
+  }
   const rows = (allocations || []).filter(
-    (row) => String(row.receiptId) === String(receipt.id) && isEffectivePostedAllocation(row, receiptById),
+    (row) => String(row.receiptId) === String(receipt.id) && isAllocationEffectiveAsOf(row, receiptById, asOf),
   );
   const allocatedAmount = rows.reduce((sum, row) => sum + money(row.amount), 0);
   const grossAmount = money(receipt.grossAmount);
-  const unallocatedAmount =
-    receipt.reversalOfReceiptId || grossAmount < 0
-      ? 0
-      : Math.max(grossAmount - allocatedAmount, 0);
+  const unallocatedAmount = Math.max(grossAmount - allocatedAmount, 0);
   return {
     allocatedAmount,
     unallocatedAmount,
     allocationCount: rows.length,
   };
+}
+
+export function summarizeReceipt(receipt, allocations = []) {
+  return summarizeReceiptAsOf(receipt, allocations, todaySeoul());
 }
 
 export function assertCashIdentity(grossAmount, allocatedAmount, unallocatedAmount) {
@@ -92,13 +156,26 @@ export function assertCashIdentity(grossAmount, allocatedAmount, unallocatedAmou
 }
 
 export function canonicalizeCreatePayload(input, clientId) {
+  const receiptDate = normalizeSeoulDate(input?.receiptDate || todaySeoul(), "receiptDate");
+  const defaultAllocDate = input?.allocationEffectiveDate
+    ? normalizeSeoulDate(input.allocationEffectiveDate, "allocationEffectiveDate")
+    : receiptDate;
   const allocations = (Array.isArray(input?.allocations) ? input.allocations : [])
     .map((row) => ({
       saleId: String(row?.saleId ?? row?.salesId ?? ""),
       amount: money(row?.amount),
+      effectiveFrom: normalizeSeoulDate(
+        row?.effectiveFrom || row?.allocationEffectiveDate || defaultAllocDate,
+        "allocationEffectiveDate",
+      ),
     }))
     .filter((row) => row.saleId && row.amount > 0)
-    .sort((a, b) => a.saleId.localeCompare(b.saleId) || a.amount - b.amount);
+    .sort(
+      (a, b) =>
+        a.saleId.localeCompare(b.saleId) ||
+        a.amount - b.amount ||
+        a.effectiveFrom.localeCompare(b.effectiveFrom),
+    );
 
   let grossAmount = money(input?.grossAmount);
   if (!grossAmount && allocations.length) {
@@ -108,7 +185,7 @@ export function canonicalizeCreatePayload(input, clientId) {
   return {
     action: "create",
     clientId: String(clientId),
-    receiptDate: String(input?.receiptDate || todaySeoul()).slice(0, 10),
+    receiptDate,
     grossAmount,
     channel: String(input?.channel || "").trim(),
     source: String(input?.source || "").trim(),
@@ -124,11 +201,15 @@ export function canonicalizeCreatePayload(input, clientId) {
   };
 }
 
-export function canonicalizeReversePayload(receiptId) {
-  return { action: "reverse", receiptId: String(receiptId) };
+export function canonicalizeReversePayload(receiptId, reversalEffectiveDate) {
+  return {
+    action: "reverse",
+    receiptId: String(receiptId),
+    reversalEffectiveDate: normalizeSeoulDate(reversalEffectiveDate, "reversalEffectiveDate"),
+  };
 }
 
-export function canonicalizeReallocatePayload(receiptId, allocationsInput) {
+export function canonicalizeReallocatePayload(receiptId, allocationsInput, effectiveDate) {
   const allocations = (Array.isArray(allocationsInput) ? allocationsInput : [])
     .map((row) => ({
       saleId: String(row?.saleId ?? row?.salesId ?? ""),
@@ -139,6 +220,7 @@ export function canonicalizeReallocatePayload(receiptId, allocationsInput) {
   return {
     action: "reallocate",
     receiptId: String(receiptId),
+    effectiveDate: normalizeSeoulDate(effectiveDate, "effectiveDate"),
     allocations,
   };
 }
@@ -169,10 +251,6 @@ function resolveClientId(clients, { clientId, clientName }) {
   return String(matches[0].id);
 }
 
-/**
- * Sale belongs to client by authoritative clientId when present.
- * Legacy name mapping only when sale has no clientId and the name uniquely maps.
- */
 export function saleBelongsToClient(sale, client, clients = []) {
   if (!sale || !client) return false;
   const clientId = String(client.id);
@@ -190,19 +268,19 @@ function findSale(sales, saleId) {
   return (sales || []).find((row) => String(row.id) === String(saleId));
 }
 
-function effectiveAllocations(allocations, receipts) {
+export function saleAllocatedAsOf(allocations, receipts, saleId, asOfDate, excludeReceiptId = null) {
   const receiptById = new Map((receipts || []).map((row) => [String(row.id), row]));
-  return (allocations || []).filter((row) => isEffectivePostedAllocation(row, receiptById));
-}
-
-function saleAllocatedPosted(allocations, receipts, saleId, excludeReceiptId = null) {
-  return effectiveAllocations(allocations, receipts)
+  return (allocations || [])
     .filter((row) => {
       if (String(row.saleId) !== String(saleId)) return false;
       if (excludeReceiptId != null && String(row.receiptId) === String(excludeReceiptId)) return false;
-      return true;
+      return isAllocationEffectiveAsOf(row, receiptById, asOfDate);
     })
     .reduce((sum, row) => sum + money(row.amount), 0);
+}
+
+function saleAllocatedPosted(allocations, receipts, saleId, excludeReceiptId = null) {
+  return saleAllocatedAsOf(allocations, receipts, saleId, todaySeoul(), excludeReceiptId);
 }
 
 function nextReceiptNo(receipts) {
@@ -237,7 +315,60 @@ function normalizeSource(value) {
   return source;
 }
 
-function normalizeAllocationsInput(rawAllocations, sales, receipts, allocations, client, clients, excludeReceiptId = null) {
+function listAccountingEventDates(receipt, allocations = []) {
+  const dates = [];
+  if (receipt?.receiptDate) dates.push(String(receipt.receiptDate).slice(0, 10));
+  if (receipt?.reversedEffectiveDate) dates.push(String(receipt.reversedEffectiveDate).slice(0, 10));
+  for (const event of Array.isArray(receipt?.reallocationEvents) ? receipt.reallocationEvents : []) {
+    if (event?.effectiveDate) dates.push(String(event.effectiveDate).slice(0, 10));
+  }
+  for (const row of allocations || []) {
+    if (String(row.receiptId) !== String(receipt.id)) continue;
+    if (row.auditOnly) continue;
+    if (row.effectiveFrom) dates.push(String(row.effectiveFrom).slice(0, 10));
+    if (row.reversedEffectiveDate) dates.push(String(row.reversedEffectiveDate).slice(0, 10));
+    if (row.effectiveTo) dates.push(String(row.effectiveTo).slice(0, 10));
+  }
+  return dates.filter(Boolean).sort();
+}
+
+function assertNotBeforeReceiptDate(receipt, eventDate, label) {
+  const receiptDate = String(receipt.receiptDate || "").slice(0, 10);
+  if (eventDate < receiptDate) {
+    throw makeError(
+      "EVENT_BEFORE_RECEIPT_DATE",
+      `${label}(${eventDate})는 입금일(${receiptDate})보다 이전일 수 없습니다.`,
+      400,
+    );
+  }
+}
+
+function assertNoLaterAccountingEvent(receipt, eventDate, allocations = []) {
+  const later = listAccountingEventDates(receipt, allocations).filter((date) => date > eventDate);
+  if (later.length) {
+    throw makeError(
+      "OUT_OF_ORDER_ACCOUNTING_EVENT",
+      `이미 더 늦은 회계 사건(${later[later.length - 1]})이 있어 ${eventDate} 사건을 삽입할 수 없습니다.`,
+      409,
+      { latestEventDate: later[later.length - 1], requestedDate: eventDate },
+    );
+  }
+}
+
+function normalizeAllocationsInput(
+  rawAllocations,
+  sales,
+  receipts,
+  allocations,
+  client,
+  clients,
+  {
+    excludeReceiptId = null,
+    asOfDate = null,
+    defaultEffectiveFrom = null,
+  } = {},
+) {
+  const asOf = asOfDate || todaySeoul();
   const normalized = [];
   for (const raw of Array.isArray(rawAllocations) ? rawAllocations : []) {
     const saleId = raw?.saleId ?? raw?.salesId;
@@ -255,21 +386,26 @@ function normalizeAllocationsInput(rawAllocations, sales, receipts, allocations,
     }
     const amount = money(raw.amount);
     if (amount <= 0) throw makeError("ALLOCATION_AMOUNT_INVALID", "배분액은 0보다 커야 합니다.");
+    const effectiveFrom = normalizeSeoulDate(
+      raw?.effectiveFrom || raw?.allocationEffectiveDate || defaultEffectiveFrom || asOf,
+      "allocationEffectiveDate",
+    );
     const billed = money(sale.amount);
-    const already = saleAllocatedPosted(allocations, receipts, saleId, excludeReceiptId);
+    const already = saleAllocatedAsOf(allocations, receipts, saleId, effectiveFrom, excludeReceiptId);
     const remaining = Math.max(billed - already, 0);
     if (amount > remaining) {
       throw makeError(
         "ALLOCATION_EXCEEDS_SALE",
         `매출 ${saleId} 미수잔액(${remaining})을 초과하는 배분입니다.`,
         400,
-        { saleId, remaining, amount },
+        { saleId, remaining, amount, asOf: effectiveFrom },
       );
     }
     normalized.push({
       saleId: sale.id,
       amount,
       site: String(sale.site || sale.memo || ""),
+      effectiveFrom,
     });
   }
   return normalized;
@@ -296,8 +432,9 @@ function assertBankTxUnique(receipts, bankTransactionId, excludeReceiptId = null
   const bankId = bankTransactionId == null || bankTransactionId === "" ? null : String(bankTransactionId);
   if (!bankId) return;
   const conflict = (receipts || []).find((row) => {
-    if (row.status !== "posted") return false;
     if (row.reversalOfReceiptId) return false;
+    if (row.reversedEffectiveDate) return false;
+    if (row.status === "reversed") return false;
     if (String(row.bankTransactionId || "") !== bankId) return false;
     if (excludeReceiptId != null && String(row.id) === String(excludeReceiptId)) return false;
     return true;
@@ -312,13 +449,13 @@ function assertBankTxUnique(receipts, bankTransactionId, excludeReceiptId = null
   }
 }
 
-function assertIdempotentMatch(existing, payloadHash, operationId) {
-  if (String(existing.payloadHash || "") === String(payloadHash)) return;
+function assertIdempotentMatch(existingHash, payloadHash, operationId, existingId = null) {
+  if (String(existingHash || "") === String(payloadHash)) return;
   throw makeError(
     "IDEMPOTENCY_CONFLICT",
     "동일 operationId에 다른 입금 payload가 요청되었습니다.",
     409,
-    { operationId, existingReceiptId: existing.id },
+    { operationId, existingReceiptId: existingId },
   );
 }
 
@@ -368,7 +505,7 @@ export function createAndPostReceipt(input, actor = "system") {
     if (!operationId) throw makeError("OPERATION_ID_REQUIRED", "operationId가 필요합니다.");
 
     if (raw.status && String(raw.status).trim() !== "posted") {
-      throw makeError("DRAFT_NOT_ALLOWED", "Phase 1 생성 API는 posted만 허용합니다.");
+      throw makeError("DRAFT_NOT_ALLOWED", "생성 API는 posted만 허용합니다.");
     }
 
     const clientId = resolveClientId(clients, {
@@ -381,7 +518,7 @@ export function createAndPostReceipt(input, actor = "system") {
 
     const existing = findByOperationId(receipts, operationId);
     if (existing) {
-      assertIdempotentMatch(existing, payloadHash, operationId);
+      assertIdempotentMatch(existing.payloadHash, payloadHash, operationId, existing.id);
       const existingAllocs = allocations.filter((row) => String(row.receiptId) === String(existing.id));
       return {
         shortCircuit: true,
@@ -389,7 +526,9 @@ export function createAndPostReceipt(input, actor = "system") {
           ok: true,
           idempotent: true,
           receipt: existing,
-          allocations: existingAllocs.filter((row) => row.status === "posted"),
+          allocations: existingAllocs.filter((row) =>
+            isAllocationEffectiveAsOf(row, new Map([[String(existing.id), existing]]), todaySeoul()),
+          ),
           summary: summarizeReceipt(existing, existingAllocs),
         },
       };
@@ -397,6 +536,11 @@ export function createAndPostReceipt(input, actor = "system") {
 
     const channel = normalizeChannel(canonical.channel);
     const source = normalizeSource(canonical.source);
+    for (const draft of canonical.allocations) {
+      if (draft.effectiveFrom < canonical.receiptDate) {
+        throw makeError("EVENT_BEFORE_RECEIPT_DATE", "배분 효력일은 입금일보다 이전일 수 없습니다.");
+      }
+    }
     const allocationDrafts = normalizeAllocationsInput(
       canonical.allocations,
       sales,
@@ -404,6 +548,7 @@ export function createAndPostReceipt(input, actor = "system") {
       allocations,
       client,
       clients,
+      { asOfDate: canonical.receiptDate, defaultEffectiveFrom: canonical.receiptDate },
     );
     const allocatedSum = allocationDrafts.reduce((sum, row) => sum + row.amount, 0);
     const grossAmount = canonical.grossAmount;
@@ -438,6 +583,7 @@ export function createAndPostReceipt(input, actor = "system") {
       postedAt: createdAt,
       postedBy: actor,
       reversalOfReceiptId: null,
+      reversedEffectiveDate: null,
       reallocationEvents: [],
       version: 1,
     };
@@ -448,13 +594,15 @@ export function createAndPostReceipt(input, actor = "system") {
       saleId: draft.saleId,
       amount: draft.amount,
       status: "posted",
+      effectiveFrom: draft.effectiveFrom,
+      reversedEffectiveDate: null,
       createdAt,
       createdBy: actor,
       reversalOfAllocationId: null,
       site: draft.site,
     }));
 
-    const summary = summarizeReceipt(receipt, nextAllocations);
+    const summary = summarizeReceiptAsOf(receipt, nextAllocations, todaySeoul());
     assertCashIdentity(receipt.grossAmount, summary.allocatedAmount, summary.unallocatedAmount);
 
     return {
@@ -487,9 +635,9 @@ export function getReceiptById(receiptId) {
 }
 
 /**
- * Append-only reallocation:
- * mark previous posted allocations reversed, append new posted rows.
- * Never physically deletes allocation history.
+ * Append-only reallocation with effectiveDate.
+ * Previous currently-open allocations get reversedEffectiveDate = effectiveDate.
+ * New rows get effectiveFrom = effectiveDate. History is never deleted.
  */
 export function replaceReceiptAllocations(receiptId, input, actor = "system") {
   return saveReceiptsDomainAtomic(({ receipts, allocations, sales, clients }) => {
@@ -499,22 +647,19 @@ export function replaceReceiptAllocations(receiptId, input, actor = "system") {
 
     const receipt = receipts.find((row) => String(row.id) === String(receiptId));
     if (!receipt) throw makeError("RECEIPT_NOT_FOUND", "입금전표를 찾을 수 없습니다.", 404);
-    if (receipt.status !== "posted" || receipt.reversalOfReceiptId) {
-      throw makeError("RECEIPT_NOT_POSTED", "posted 입금전표만 배분을 변경할 수 있습니다.");
+    if (receipt.reversalOfReceiptId) {
+      throw makeError("RECEIPT_NOT_POSTED", "취소전표는 재배분할 수 없습니다.");
+    }
+    if (receipt.reversedEffectiveDate || receipt.status === "reversed") {
+      throw makeError("RECEIPT_ALREADY_REVERSED", "이미 취소된 입금전표는 재배분할 수 없습니다.", 409);
     }
 
-    const canonical = canonicalizeReallocatePayload(receipt.id, raw.allocations);
+    const effectiveDate = normalizeSeoulDate(raw.effectiveDate || todaySeoul(), "effectiveDate");
+    const canonical = canonicalizeReallocatePayload(receipt.id, raw.allocations, effectiveDate);
     const payloadHash = hashPayload(canonical);
     const priorEvent = findReallocationEvent(receipts, operationId);
     if (priorEvent) {
-      if (String(priorEvent.event.payloadHash || "") !== payloadHash) {
-        throw makeError(
-          "IDEMPOTENCY_CONFLICT",
-          "동일 operationId에 다른 재배분 payload가 요청되었습니다.",
-          409,
-          { operationId },
-        );
-      }
+      assertIdempotentMatch(priorEvent.event.payloadHash, payloadHash, operationId, receipt.id);
       const currentRows = allocations.filter((row) => String(row.receiptId) === String(receipt.id));
       return {
         shortCircuit: true,
@@ -522,42 +667,48 @@ export function replaceReceiptAllocations(receiptId, input, actor = "system") {
           ok: true,
           idempotent: true,
           receipt: priorEvent.receipt,
-          allocations: currentRows.filter((row) => row.status === "posted"),
+          allocations: currentRows.filter((row) =>
+            isAllocationEffectiveAsOf(row, new Map([[String(receipt.id), priorEvent.receipt]]), todaySeoul()),
+          ),
           summary: summarizeReceipt(priorEvent.receipt, currentRows),
           reallocationEvent: priorEvent.event,
         },
       };
     }
 
+    assertNotBeforeReceiptDate(receipt, effectiveDate, "재배분 효력일");
+    assertNoLaterAccountingEvent(receipt, effectiveDate, allocations);
+
     const client = (clients || []).find((row) => String(row.id) === String(receipt.clientId));
     if (!client) throw makeError("CLIENT_NOT_FOUND", "거래처 ID를 찾을 수 없습니다.", 404);
 
-    const drafts = normalizeAllocationsInput(
-      canonical.allocations,
-      sales,
-      receipts,
-      allocations,
-      client,
-      clients,
-      receipt.id,
-    );
+    const drafts = normalizeAllocationsInput(canonical.allocations, sales, receipts, allocations, client, clients, {
+      excludeReceiptId: receipt.id,
+      asOfDate: effectiveDate,
+      defaultEffectiveFrom: effectiveDate,
+    });
     const allocatedSum = drafts.reduce((sum, row) => sum + row.amount, 0);
     if (allocatedSum > money(receipt.grossAmount)) {
       throw makeError("ALLOCATION_EXCEEDS_RECEIPT", "배분 합계가 입금전표 금액을 초과할 수 없습니다.");
     }
 
     const createdAt = nowIso();
-    const previousPosted = allocations.filter(
-      (row) => String(row.receiptId) === String(receipt.id) && row.status === "posted",
+    const receiptById = new Map([[String(receipt.id), receipt]]);
+    const previousOpen = allocations.filter(
+      (row) =>
+        String(row.receiptId) === String(receipt.id) && isAllocationEffectiveAsOf(row, receiptById, effectiveDate),
     );
-    const previousAllocatedSum = previousPosted.reduce((sum, row) => sum + money(row.amount), 0);
-    const reversedIds = previousPosted.map((row) => row.id);
+    // Also close any open rows whose effectiveFrom <= effectiveDate and not yet closed
+    const previousAllocatedSum = previousOpen.reduce((sum, row) => sum + money(row.amount), 0);
+    const reversedIds = previousOpen.map((row) => row.id);
     const nextRows = drafts.map((draft) => ({
       id: makeId("ral"),
       receiptId: receipt.id,
       saleId: draft.saleId,
       amount: draft.amount,
       status: "posted",
+      effectiveFrom: effectiveDate,
+      reversedEffectiveDate: null,
       createdAt,
       createdBy: actor,
       reversalOfAllocationId: null,
@@ -569,6 +720,7 @@ export function replaceReceiptAllocations(receiptId, input, actor = "system") {
       operationId,
       payloadHash,
       payloadSnapshot: canonical,
+      effectiveDate,
       at: createdAt,
       by: actor,
       reversedAllocationIds: reversedIds,
@@ -584,21 +736,24 @@ export function replaceReceiptAllocations(receiptId, input, actor = "system") {
       lastReallocationAt: createdAt,
       lastReallocationBy: actor,
       lastReallocationOperationId: operationId,
+      lastReallocationEffectiveDate: effectiveDate,
     };
 
-    const nextAllocations = allocations.map((row) =>
-      String(row.receiptId) === String(receipt.id) && row.status === "posted"
-        ? {
-            ...row,
-            status: "reversed",
-            reversedAt: createdAt,
-            reversedBy: actor,
-            reversedByOperationId: operationId,
-          }
-        : row,
-    );
+    const closedIdSet = new Set(reversedIds.map(String));
+    const nextAllocations = allocations.map((row) => {
+      if (!closedIdSet.has(String(row.id))) return row;
+      return {
+        ...row,
+        status: "reversed",
+        reversedEffectiveDate: effectiveDate,
+        effectiveTo: effectiveDate,
+        reversedAt: createdAt,
+        reversedBy: actor,
+        reversedByOperationId: operationId,
+      };
+    });
 
-    const summary = summarizeReceipt(nextReceipt, [...nextRows, ...nextAllocations]);
+    const summary = summarizeReceiptAsOf(nextReceipt, [...nextRows, ...nextAllocations], todaySeoul());
     assertCashIdentity(nextReceipt.grossAmount, summary.allocatedAmount, summary.unallocatedAmount);
 
     return {
@@ -617,10 +772,11 @@ export function replaceReceiptAllocations(receiptId, input, actor = "system") {
 }
 
 /**
- * Reversal policy (append-only, single model):
- * - Mark original receipt + its posted allocations as reversed (excluded from effective AR).
- * - Append reversal receipt (grossAmount negative) for cash-period display / audit.
- * - Reversal allocations are status=reversed (audit only) — NOT posted — so AR restores exactly once.
+ * Reverse with as-of integrity:
+ * - Set reversedEffectiveDate on original receipt/open allocations (= reversal receiptDate)
+ * - Keep historical effectiveness for asOf < reversedEffectiveDate
+ * - Append reversal cash document (negative gross) on reversal date
+ * - Reversal allocation rows are audit-only
  */
 export function reverseReceipt(receiptId, input = {}, actor = "system") {
   return saveReceiptsDomainAtomic(({ receipts, allocations }) => {
@@ -633,11 +789,15 @@ export function reverseReceipt(receiptId, input = {}, actor = "system") {
     const operationId = String(input.operationId || input.idempotencyKey || "").trim();
     if (!operationId) throw makeError("OPERATION_ID_REQUIRED", "취소에 operationId가 필요합니다.");
 
-    const canonical = canonicalizeReversePayload(original.id);
+    const reversalEffectiveDate = normalizeSeoulDate(
+      input.receiptDate || input.reversalEffectiveDate || input.effectiveDate || todaySeoul(),
+      "reversalEffectiveDate",
+    );
+    const canonical = canonicalizeReversePayload(original.id, reversalEffectiveDate);
     const payloadHash = hashPayload(canonical);
     const existing = findByOperationId(receipts, operationId);
     if (existing) {
-      assertIdempotentMatch(existing, payloadHash, operationId);
+      assertIdempotentMatch(existing.payloadHash, payloadHash, operationId, existing.id);
       const existingAllocs = allocations.filter((row) => String(row.receiptId) === String(existing.id));
       const originalNow = receipts.find((row) => String(row.id) === String(original.id)) || original;
       return {
@@ -653,12 +813,15 @@ export function reverseReceipt(receiptId, input = {}, actor = "system") {
       };
     }
 
-    if (original.status === "reversed") {
+    if (original.reversedEffectiveDate || original.status === "reversed") {
       throw makeError("RECEIPT_ALREADY_REVERSED", "이미 취소된 입금전표입니다.", 409);
     }
     if (original.status !== "posted") {
       throw makeError("RECEIPT_NOT_POSTED", "posted 입금전표만 취소할 수 있습니다.");
     }
+
+    assertNotBeforeReceiptDate(original, reversalEffectiveDate, "취소 효력일");
+    assertNoLaterAccountingEvent(original, reversalEffectiveDate, allocations);
 
     const createdAt = nowIso();
     const reversalId = makeId("rcp");
@@ -667,7 +830,7 @@ export function reverseReceipt(receiptId, input = {}, actor = "system") {
       receiptNo: nextReceiptNo(receipts),
       clientId: original.clientId,
       clientName: original.clientName,
-      receiptDate: String(input.receiptDate || todaySeoul()).slice(0, 10),
+      receiptDate: reversalEffectiveDate,
       grossAmount: -money(original.grossAmount),
       currency: "KRW",
       channel: original.channel,
@@ -685,43 +848,52 @@ export function reverseReceipt(receiptId, input = {}, actor = "system") {
       postedAt: createdAt,
       postedBy: actor,
       reversalOfReceiptId: original.id,
+      reversalEffectiveDate,
+      reversedEffectiveDate: null,
       reallocationEvents: [],
       version: 1,
     };
 
-    const originalAllocs = allocations.filter(
-      (row) => String(row.receiptId) === String(original.id) && row.status === "posted",
+    const receiptById = new Map([[String(original.id), original]]);
+    const originalOpenAllocs = allocations.filter(
+      (row) =>
+        String(row.receiptId) === String(original.id) &&
+        isAllocationEffectiveAsOf(row, receiptById, reversalEffectiveDate),
     );
-    // Audit-only reversal allocation rows (status=reversed) — excluded from effective AR.
-    const reversalAllocs = originalAllocs.map((row) => ({
+    const reversalAllocs = originalOpenAllocs.map((row) => ({
       id: makeId("ral"),
       receiptId: reversalId,
       saleId: row.saleId,
       amount: money(row.amount),
       status: "reversed",
+      effectiveFrom: reversalEffectiveDate,
+      reversedEffectiveDate: reversalEffectiveDate,
       createdAt,
       createdBy: actor,
       reversalOfAllocationId: row.id,
       auditOnly: true,
     }));
 
-    const nextAllocations = allocations.map((row) =>
-      String(row.receiptId) === String(original.id) && row.status === "posted"
-        ? {
-            ...row,
-            status: "reversed",
-            reversedAt: createdAt,
-            reversedBy: actor,
-            reversedByOperationId: operationId,
-          }
-        : row,
-    );
+    const closedIds = new Set(originalOpenAllocs.map((row) => String(row.id)));
+    const nextAllocations = allocations.map((row) => {
+      if (!closedIds.has(String(row.id))) return row;
+      return {
+        ...row,
+        status: "reversed",
+        reversedEffectiveDate: reversalEffectiveDate,
+        effectiveTo: reversalEffectiveDate,
+        reversedAt: createdAt,
+        reversedBy: actor,
+        reversedByOperationId: operationId,
+      };
+    });
 
     const nextReceipts = receipts.map((row) =>
       String(row.id) === String(original.id)
         ? {
             ...row,
             status: "reversed",
+            reversedEffectiveDate: reversalEffectiveDate,
             reversedAt: createdAt,
             reversedBy: actor,
             reversedByOperationId: operationId,
@@ -741,6 +913,7 @@ export function reverseReceipt(receiptId, input = {}, actor = "system") {
         original: {
           ...original,
           status: "reversed",
+          reversedEffectiveDate: reversalEffectiveDate,
           reversedAt: createdAt,
           reversedBy: actor,
         },
@@ -758,9 +931,18 @@ export function deleteReceiptForbidden() {
   );
 }
 
-export function proposeFifoAllocations(sales, clientOrId, grossAmount, existingAllocations = [], receipts = [], clients = []) {
+export function proposeFifoAllocations(
+  sales,
+  clientOrId,
+  grossAmount,
+  existingAllocations = [],
+  receipts = [],
+  clients = [],
+  asOfDate = null,
+) {
   const amountLeftStart = money(grossAmount);
   let remaining = amountLeftStart;
+  const asOf = asOfDate || todaySeoul();
   const key = String(clientOrId || "").trim();
   const client =
     (clients || []).find((row) => String(row.id) === key) ||
@@ -780,7 +962,7 @@ export function proposeFifoAllocations(sales, clientOrId, grossAmount, existingA
   for (const sale of scoped) {
     if (remaining <= 0) break;
     const billed = money(sale.amount);
-    const allocated = saleAllocatedPosted(existingAllocations, receipts, sale.id);
+    const allocated = saleAllocatedAsOf(existingAllocations, receipts, sale.id, asOf);
     const unpaid = Math.max(billed - allocated, 0);
     if (unpaid <= 0) continue;
     const apply = Math.min(unpaid, remaining);

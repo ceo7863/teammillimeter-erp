@@ -1,14 +1,14 @@
 /**
- * Legacy compatibility projection: Receipt/Allocation → paymentVoucher-shaped rows.
- * Never write these projected rows back into paymentVouchers.
- * Only effective posted allocations on non-reversal posted receipts are projected.
+ * Legacy compatibility projection: current as-of (today) effective allocations only.
+ * Never write projected rows back into paymentVouchers.
  */
 
 import {
-  isEffectivePostedAllocation,
+  isAllocationEffectiveAsOf,
   listReceiptAllocations,
   listReceipts,
   receiptMoney,
+  todaySeoul,
 } from "./receipts.mjs";
 
 const CHANNEL_TO_DEPOSIT = {
@@ -18,7 +18,8 @@ const CHANNEL_TO_DEPOSIT = {
   other: "other",
 };
 
-export function projectReceiptsToLegacyPaymentVouchers(data = {}) {
+export function projectReceiptsToLegacyPaymentVouchers(data = {}, asOfDate = null) {
+  const asOf = asOfDate || todaySeoul();
   const receipts = listReceipts(data);
   const allocations = listReceiptAllocations(data);
   const receiptById = new Map(receipts.map((row) => [String(row.id), row]));
@@ -28,14 +29,16 @@ export function projectReceiptsToLegacyPaymentVouchers(data = {}) {
   const vouchers = [];
   for (const receipt of receipts) {
     if (!receipt) continue;
-    if (receipt.status !== "posted") continue;
     if (receipt.reversalOfReceiptId) continue;
+    const reversedAt = receipt.reversedEffectiveDate ? String(receipt.reversedEffectiveDate).slice(0, 10) : null;
+    if (reversedAt && asOf >= reversedAt) continue;
+    if (String(receipt.receiptDate || "") > asOf) continue;
 
     const client = clientsById.get(String(receipt.clientId));
     const clientName = String(receipt.clientName || client?.name || "");
     const depositChannel = CHANNEL_TO_DEPOSIT[receipt.channel] || "other";
     const rows = allocations.filter(
-      (row) => String(row.receiptId) === String(receipt.id) && isEffectivePostedAllocation(row, receiptById),
+      (row) => String(row.receiptId) === String(receipt.id) && isAllocationEffectiveAsOf(row, receiptById, asOf),
     );
 
     for (const allocation of rows) {
@@ -47,7 +50,7 @@ export function projectReceiptsToLegacyPaymentVouchers(data = {}) {
         receiptNo: receipt.receiptNo,
         allocationId: allocation.id,
         salesId: allocation.saleId,
-        date: receipt.receiptDate,
+        date: allocation.effectiveFrom || receipt.receiptDate,
         client: clientName || String(sale?.client || ""),
         site: String(allocation.site || sale?.site || sale?.memo || ""),
         amount,
@@ -69,9 +72,7 @@ export function projectReceiptsToLegacyPaymentVouchers(data = {}) {
 }
 
 export function mergeLegacyVouchersWithReceiptProjection(legacyVouchers = [], projected = []) {
-  const legacy = Array.isArray(legacyVouchers) ? legacyVouchers : [];
-  const projectedRows = Array.isArray(projected) ? projected : [];
-  return [...legacy, ...projectedRows];
+  return [...(legacyVouchers || []), ...(projected || [])];
 }
 
 export function buildEffectivePaymentVouchers(data = {}) {
