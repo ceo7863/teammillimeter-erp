@@ -258,6 +258,12 @@ data defect → missing date → VAT face → unattributed → FIFO inference �
 A difference that no artefact in the snapshot explains is reported as `READ_MODEL_BUG` rather
 than being absorbed into a generic bucket — reporting is always preferred over a silent fix.
 
+Known Phase 4 production finding: many sale rows store `basePaid: 0` with `paid`/`voucherPaid`
+already equal to the legacy voucher face. Unified AR must use `basePaid` (including 0) as the
+opening component — the same rule as `applyPaymentVouchers` — or it re-applies the voucher on
+top of an already-applied `paid` and surfaces false `asof_projection` / `READ_MODEL_BUG` diffs.
+Reversal Receipts with negative `grossAmount` use reversal-aware cash-identity rules.
+
 ### Migration buckets
 
 | Bucket | Meaning |
