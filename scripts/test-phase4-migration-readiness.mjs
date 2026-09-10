@@ -100,7 +100,7 @@ const SEED_SALES = [
   sale(2006, PLAIN, 100_000), // case 5b: single voucher exceeds sale capacity
   // case 7: legacy sale carrying only a duplicated client name (no clientId)
   { id: 2010, date: SALE_DAY, client: TWIN_A.name, amount: 120_000, paid: 0, site: "site-2010" },
-  sale(2020, OPENING, 200_000, { paid: 200_000 }), // case 8: stored paid, no voucher
+  sale(2020, OPENING, 200_000, { paid: 200_000, basePaid: 200_000 }), // case 8: stored paid, no voucher
   sale(2030, STATEMENT, 100_000), // case 9: statement-scoped legacy cash
   sale(2040, CONFLICT, 400_000), // case 10: legacy + receipt on one bank tx
   sale(2050, PLAIN, 70_000), // case 3: input-log batch
@@ -112,6 +112,8 @@ const SEED_SALES = [
   sale(2090, PLAIN, 100_000), // VAT-inclusive voucher against a VAT-exclusive sale
   // parity diff: the legacy view still counts a manual paid amount that was cleared
   sale(2085, PLAIN, 100_000, { paid: 50_000, manualPaidCleared: true }),
+  // prod shape: basePaid 0 while paid/voucherPaid already mirror the voucher
+  sale(2095, PLAIN, 500_000, { paid: 400_000, basePaid: 0, voucherPaid: 400_000 }),
 ];
 
 const FUTURE_DAY = shiftSeoulDate(TODAY, 5);
@@ -142,6 +144,7 @@ const SEED_VOUCHERS = [
   { id: "pv-manual", salesId: 2060, client: PLAIN.name, date: PAY_DAY, amount: 50_000, finalAmount: 50_000, depositChannel: "cash" },
   { id: "pv-future", salesId: 2080, client: PLAIN.name, date: FUTURE_DAY, amount: 100_000, finalAmount: 100_000 },
   { id: "pv-vat", salesId: 2090, client: PLAIN.name, date: PAY_DAY, amount: 100_000, vatAmount: 10_000, finalAmount: 110_000 },
+  { id: "pv-dup-base", salesId: 2095, client: PLAIN.name, date: PAY_DAY, amount: 400_000, finalAmount: 400_000 },
 ];
 
 const SEED_INPUT_LOGS = [
@@ -215,6 +218,30 @@ const SEED_RECEIPTS = [
     source: "bank_auto",
     status: "posted",
     bankTransactionId: "btx-conflict",
+  },
+  {
+    id: "rcpt-orig-rev",
+    receiptNo: "R-0004",
+    clientId: PLAIN.id,
+    clientName: PLAIN.name,
+    receiptDate: PAY_DAY,
+    grossAmount: 80_000,
+    channel: "other",
+    source: "calendar",
+    status: "reversed",
+    reversedEffectiveDate: PAY_DAY,
+  },
+  {
+    id: "rcpt-reversal",
+    receiptNo: "R-0005",
+    clientId: PLAIN.id,
+    clientName: PLAIN.name,
+    receiptDate: PAY_DAY,
+    grossAmount: -80_000,
+    channel: "other",
+    source: "calendar",
+    status: "posted",
+    reversalOfReceiptId: "rcpt-orig-rev",
   },
 ];
 
@@ -545,6 +572,24 @@ check("14) every parity difference is classified with evidence and no name leak"
   }
 });
 
+
+check("14c) basePaid:0 with mirrored paid does not create a false parity gap", () => {
+  const row = saleDiffs.diffs.find((item) => item.saleId === "2095");
+  assert.equal(row, undefined, "after basePaid fix, sale 2095 must not appear as a parity diff");
+  const opening = buckets.items.find((item) => item.kind === "sale_stored_paid" && item.saleId === "2095");
+  assert.equal(opening, undefined, "basePaid:0 must not become an opening-balance candidate");
+  const voucher = itemFor("pv-dup-base");
+  assert.ok(!voucher.reviewReasons.includes("sale_stored_paid_overlap"));
+});
+
+check("13b) reversal receipts with negative gross do not fail cash identity", () => {
+  const reversal = organic.receipts.find((row) => row.receiptId === "rcpt-reversal");
+  assert.ok(reversal, "reversal receipt missing from organic audit");
+  assert.equal(reversal.grossAmount, -80_000);
+  assert.equal(reversal.cashIdentity.ok, true);
+  assert.equal(reversal.blocked, false);
+  assert.equal(reversal.cashIdentity.isReversalReceipt, true);
+});
 check("14b) a VAT-inclusive voucher is MANUAL_REVIEW, not a BLOCKED conflict", () => {
   const row = itemFor("pv-vat");
   assert.equal(

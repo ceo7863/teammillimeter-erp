@@ -287,22 +287,45 @@ export function auditOrganicReceipts(data = {}, options = {}) {
     const grossAmount = money(receipt?.grossAmount);
     const allocatedSum = sum(effective.map((row) => row.amount));
     const unallocatedAmount = grossAmount - allocatedSum;
+    const isReversalReceipt =
+      Boolean(receipt?.reversalOfReceiptId) ||
+      String(receipt?.status ?? "") === "reversal" ||
+      grossAmount < 0;
 
-    if (allocatedSum > grossAmount) {
-      blockers.push({
-        code: "ALLOCATION_EXCEEDS_RECEIPT",
-        message: "배분 합계가 입금액을 초과합니다.",
-        detail: { grossAmount, allocatedSum },
-      });
+    if (isReversalReceipt) {
+      // Reversal receipts carry negative gross (and often negative unallocated prepaid unwind).
+      // Over-allocation means allocatedSum is *more negative* than grossAmount.
+      if (allocatedSum < grossAmount) {
+        blockers.push({
+          code: "ALLOCATION_EXCEEDS_RECEIPT",
+          message: "취소 입금전표의 배분 합계가 취소 금액을 초과합니다.",
+          detail: { grossAmount, allocatedSum },
+        });
+      }
+      if (grossAmount !== allocatedSum + unallocatedAmount) {
+        blockers.push({
+          code: "CASH_IDENTITY_BROKEN",
+          message: "취소 입금액 ≠ 배분 + 미배분 불변식 위반",
+          detail: { grossAmount, allocatedSum, unallocatedAmount },
+        });
+      }
+    } else {
+      if (allocatedSum > grossAmount) {
+        blockers.push({
+          code: "ALLOCATION_EXCEEDS_RECEIPT",
+          message: "배분 합계가 입금액을 초과합니다.",
+          detail: { grossAmount, allocatedSum },
+        });
+      }
+      if (grossAmount !== allocatedSum + Math.max(unallocatedAmount, 0) || unallocatedAmount < 0) {
+        blockers.push({
+          code: "CASH_IDENTITY_BROKEN",
+          message: "입금액 ≠ 배분 + 미배분 불변식 위반",
+          detail: { grossAmount, allocatedSum, unallocatedAmount },
+        });
+      }
     }
-    if (grossAmount !== allocatedSum + Math.max(unallocatedAmount, 0) || unallocatedAmount < 0) {
-      blockers.push({
-        code: "CASH_IDENTITY_BROKEN",
-        message: "입금액 ≠ 배분 + 미배분 불변식 위반",
-        detail: { grossAmount, allocatedSum, unallocatedAmount },
-      });
-    }
-    if (unallocatedAmount > 0) {
+    if (unallocatedAmount > 0 && String(receipt?.status ?? "") !== "reversed") {
       warnings.push({
         code: "UNALLOCATED_CASH_PREPAID",
         message: "미배분 입금액은 거래처 선수금으로 남아 있습니다.",
@@ -404,10 +427,13 @@ export function auditOrganicReceipts(data = {}, options = {}) {
       recordedAllocationCount: receiptAllocations.length,
       saleIds: effective.map((row) => String(row?.saleId ?? "")),
       cashIdentity: {
-        ok: grossAmount === allocatedSum + Math.max(unallocatedAmount, 0) && unallocatedAmount >= 0,
+        ok: isReversalReceipt
+          ? grossAmount === allocatedSum + unallocatedAmount && allocatedSum >= grossAmount
+          : grossAmount === allocatedSum + Math.max(unallocatedAmount, 0) && unallocatedAmount >= 0,
         grossAmount,
         allocatedSum,
         unallocatedAmount,
+        isReversalReceipt,
       },
       saleIdsExist: missingSaleIds.length === 0,
       missingSaleIds,
@@ -579,6 +605,31 @@ export function classifySaleDiffsDetailed(data = {}, parityReport = {}, options 
         saleSuppressedVoucherIds.length
           ? `legacy vouchers ${saleSuppressedVoucherIds.join(",")} are suppressed by a Receipt on the same bank tx`
           : `legacy vouchers ${duplicateVoucherIds.join(",")} share date+amount on one sale`,
+      );
+    }
+    /**
+     * Production `asof_projection` pattern: sale rows often store `basePaid: 0`,
+     * `paid`/`voucherPaid` already equal to the voucher face, while Unified AR was reading
+     * `sale.paid` as an opening balance *and* re-applying the voucher. Detect that before
+     * falling through to a bare READ_MODEL_BUG so the report names the concrete defect.
+     */
+    const saleBasePaidRaw = sale && Object.prototype.hasOwnProperty.call(sale, "basePaid") ? sale.basePaid : undefined;
+    const salePaid = money(sale?.paid);
+    const saleVoucherPaid = money(sale?.voucherPaid);
+    if (
+      !classification &&
+      directVouchers.length > 0 &&
+      saleBasePaidRaw !== undefined &&
+      money(saleBasePaidRaw) === 0 &&
+      salePaid > 0 &&
+      Math.abs(salePaid - directVoucherTotal) <= VAT_TOLERANCE &&
+      Math.abs(delta) > 0
+    ) {
+      claim(
+        "READ_MODEL_BUG",
+        `sale.basePaid=0 but sale.paid=${salePaid} already mirrors voucherTotal=${directVoucherTotal}` +
+          (saleVoucherPaid ? ` (sale.voucherPaid=${saleVoucherPaid})` : "") +
+          `; Unified must use basePaid??paid like applyPaymentVouchers, not sale.paid alone (delta=${delta})`,
       );
     }
     if (clientMismatchVoucherIds.length || nonPositiveVoucherIds.length || sale?.manualPaidCleared) {
@@ -959,8 +1010,9 @@ export function classifyLegacyVouchers(data = {}, options = {}) {
     if (money(voucher?.vatAmount) > 0 && money(voucher?.finalAmount) !== money(voucher?.amount)) {
       reviewReasons.push("vat_embedded_final_amount");
     }
-    // `sale.paid` is a stored balance, not cash. Overlapping it with a voucher is a judgement call.
-    if (sale && money(sale?.paid) > 0 && !sale?.manualPaidCleared) {
+    // `sale.basePaid` is a stored opening balance, not cash. Overlapping it with a voucher
+    // needs a human look. Do not treat `sale.paid` that merely mirrors voucherPaid as opening.
+    if (sale && money(sale?.basePaid) > 0 && !sale?.manualPaidCleared) {
       reviewReasons.push("sale_stored_paid_overlap");
     }
     if (sale) {
@@ -1036,12 +1088,20 @@ export function classifyLegacyVouchers(data = {}, options = {}) {
   }
 
   /**
-   * Stored `sale.paid` with no voucher behind it is an opening balance, never cash.
-   * It is listed so the migration plan can prove it was considered and deliberately skipped.
+   * Stored `sale.basePaid` with no voucher behind it is an opening balance, never cash.
+   * `sale.paid` alone is not used: production rows often keep `basePaid: 0` while `paid`
+   * already mirrors voucher application. It is listed so the migration plan can prove
+   * opening balances were considered and deliberately skipped.
    */
   for (const sale of index.sales) {
     const saleId = String(sale?.id ?? "");
-    const storedPaid = sale?.manualPaidCleared ? 0 : money(sale?.paid);
+    const storedPaid = sale?.manualPaidCleared
+      ? 0
+      : money(
+          sale != null && Object.prototype.hasOwnProperty.call(sale, "basePaid")
+            ? sale.basePaid
+            : sale?.paid,
+        );
     if (storedPaid <= 0) continue;
     const vouchers = index.vouchersBySaleId.get(saleId) || [];
     items.push({
