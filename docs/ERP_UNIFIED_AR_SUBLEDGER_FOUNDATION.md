@@ -217,6 +217,104 @@ by sale / client / month / statement / bank reference, classifying each differen
 Cases 21/22 are covered by the gate B script rather than a live Chromium run; that fallback is
 documented in the script header.
 
+## Phase 4 Migration Readiness
+
+Task ID: `ERP_UNIFIED_AR_SUBLEDGER_PHASE4_MIGRATION_READINESS_AUDIT_FINAL`
+
+Phase 4 is **diagnosis only**. Nothing in it migrates data: `apply` is hard-coded `false`,
+every section asserts `mutations: 0`, and the only place a plan is executed is an in-memory
+clone or a temp copy of a SQLite file.
+
+### Reporting invariants
+
+- Customer names never leave `server/legacyReceiptMigrationAudit.mjs`. Every row carries
+  `clientId` plus a salted one-way `clientRef` hash (`maskClientName`); the test suite asserts
+  no seeded client name appears in a serialized report.
+- `sale.paid` / `basePaid` is a **stored balance, not observed cash**. It can only ever become
+  an `OPENING_BALANCE_CANDIDATE`; no plan converts it into a Receipt.
+- Statement-scoped legacy cash is never auto-allocated. FIFO stays a ranked candidate list with
+  explicit operator options.
+
+### Audit surface (`server/legacyReceiptMigrationAudit.mjs`)
+
+| Function | Returns |
+|---|---|
+| `auditOrganicReceipts(data, { asOfDate, archives })` | per Receipt: source / channel / gross / allocated / unallocated, cash identity, sale existence, client match, bank tx existence + `deposit == gross`, legacy vouchers and duplicate Receipts on the same bank tx. `gate: "BLOCKED"` when cash identity is broken |
+| `classifySaleDiffsDetailed(data, parityReport, …)` | every parity difference refined into one of the ten Phase 4 causes, with evidence, plus `priorClassBreakdown` showing how the coarse Phase 3 buckets (`asof_projection`, …) split |
+| `investigateUnattributedFifo(data, …)` | statement-scoped legacy cash: ranked sale candidates and manual choices. `autoAllocate: false`, `decision: "MANUAL_REVIEW"` |
+| `classifyLegacyVouchers(data, …)` | every voucher (and every stored `sale.paid`) bucketed, with count / amount / sale / client / bank / statement / batch counts per bucket |
+| `buildDeterministicMigrationPlan(data, { buckets })` | `apply: false` plan of Receipts + allocations with `planHash` |
+| `simulateMigrationOnClone(dataOrSqlitePath, …)` | applies the plan to a clone and reports ledger deltas; the original is hash-checked before and after |
+| `buildMigrationReadinessReport(data, …)` | all of the above plus the GO/NO-GO checklist |
+
+### Sale difference classes
+
+`EXPECTED_ASOF_DIFFERENCE`, `LEGACY_DATE_MISSING`, `LEGACY_UNATTRIBUTED`,
+`LEGACY_FIFO_INFERENCE`, `VAT_FACE_DIFFERENCE`, `DUPLICATE_LEGACY_PAYMENT`,
+`BANK_REFERENCE_CONFLICT`, `STATEMENT_REFERENCE_ONLY`, `READ_MODEL_BUG`, `LEGACY_DATA_DEFECT`.
+
+Classification is evidence-first and first-match-wins, in the order bank conflict → duplicate →
+data defect → missing date → VAT face → unattributed → FIFO inference → statement-only → as-of.
+A difference that no artefact in the snapshot explains is reported as `READ_MODEL_BUG` rather
+than being absorbed into a generic bucket — reporting is always preferred over a silent fix.
+
+### Migration buckets
+
+| Bucket | Meaning |
+|---|---|
+| `AUTO_SAFE_BANK` | the deposit decides the cash: one Receipt per bank transaction, `grossAmount = tx.deposit` |
+| `AUTO_SAFE_MANUAL` | one voucher with a resolvable client, an existing sale, a date and no VAT ambiguity |
+| `AUTO_SAFE_BATCH` | several vouchers that share a `paymentInputLogs` save batch — merged only on that evidence, never on resemblance |
+| `OPENING_BALANCE_CANDIDATE` | stored `sale.paid` with no voucher, or an undated voucher with no bank/statement trail |
+| `MANUAL_REVIEW` | ambiguous client, statement-scoped FIFO, missing date, future date, VAT-embedded amount, stored-paid overlap |
+| `BLOCKED_CONFLICT` | missing sale, sale/client mismatch, duplicate voucher, allocation over sale or over deposit, a bank tx that already has a Receipt |
+
+### Plan determinism
+
+Receipt ids (`mig-rcpt-<24 hex>`), operation ids (`legacy-migration:<32 hex>`), receipt-number
+candidates (`MIG-YYYYMMDD-NNNN`) and row ordering all derive from content hashes, never from a
+clock or a counter, so one snapshot always yields one `planHash`. Each planned row carries
+`payloadHash`, `provenanceHash`, `sourceVoucherIds` and `sourcePaymentInputLogIds`.
+
+Allocation rules: an excess over the deposit or over a sale's capacity blocks the group
+(nothing is trimmed to fit); a shortfall against the deposit survives as prepaid.
+
+### Diagnostics
+
+```
+DATABASE_PATH=… npx tsx scripts/phase4-migration-readiness-audit.mjs [--json] [--as-of=YYYY-MM-DD] [--limit=N]
+DATABASE_PATH=… npx tsx scripts/legacy-receipt-migration-plan.mjs [--json]
+npx tsx scripts/test-phase4-migration-readiness.mjs
+```
+
+`GET /api/ar/migration-readiness-dry-run` (admin) wraps the same report and refuses to answer
+unless `mutations === 0` and `apply === false`.
+
+`scripts/legacy-receipt-migration-plan.mjs` is Phase 5 scaffolding. Passing `--apply` exits with
+`Phase 4 forbids apply; use future Phase 5 with explicit approval`. A future apply additionally
+requires `--approval-token`, `--expect-snapshot`, `--expect-plan-hash` and `--expect-counts`;
+the script header documents the canary, backup and rollback procedure (rollback is a reversal
+Receipt, never a delete — `deleteReceiptForbidden()` stays in force).
+
+### GO / NO-GO checklist
+
+| # | Check | Blocking level |
+|---|---|---|
+| 1 | Organic Receipt audit passes (cash identity, sale/client match, bank deposit match, no shared bank tx) | NO-GO |
+| 2 | No `READ_MODEL_BUG` among the classified differences | HOLD |
+| 3 | Every unattributed / FIFO case has an operator decision | HOLD |
+| 4 | `BLOCKED_CONFLICT` bucket is empty | NO-GO |
+| 5 | `MANUAL_REVIEW` bucket is cleared | HOLD |
+| 6 | The same snapshot reproduces the same `planHash` | NO-GO |
+| 7 | No planned Receipt is `BLOCKED` | NO-GO |
+| 8 | Clone simulation: cash identity holds, no new bank conflict, `appliedDelta == 0` | NO-GO |
+| 9 | The audit itself reports `mutations = 0` and `apply = false` | NO-GO |
+| 10 | Read-only production dry-run has been run and reviewed by the data owner | NO-GO |
+
+Any NO-GO blocks the migration outright; any HOLD means a human decision is still outstanding.
+Check 10 must be satisfied against production data by an operator — the audit is safe to run
+there, but it must be run.
+
 ## Tests
 
 - `npx tsx scripts/test-receipt-ledger-asof.mjs`
@@ -224,5 +322,6 @@ documented in the script header.
 - `npx tsx scripts/test-receipt-ledger-foundation.mjs`
 - `npx tsx scripts/test-bank-receipt-phase2.mjs`
 - `npx tsx scripts/test-unified-ar-phase3.mjs`
+- `npx tsx scripts/test-phase4-migration-readiness.mjs`
 
 No automatic backfill (production Receipt count expected 0).

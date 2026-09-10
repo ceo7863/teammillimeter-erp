@@ -255,6 +255,7 @@ import {
   dedupeBankReferences,
 } from "./unifiedArReadModel.mjs";
 import { buildEffectivePaymentVouchers } from "./receiptProjection.mjs";
+import { buildMigrationReadinessReport } from "./legacyReceiptMigrationAudit.mjs";
 import { diagnoseLegacyPaymentMigration } from "../scripts/receipt-migration-dry-run.mjs";
 import {
   ensureClientSiteRequestLink,
@@ -3850,6 +3851,31 @@ app.get("/api/ar/parity-dry-run", authMiddleware, adminMiddleware, (req, res) =>
       asOfDate: req.query.asOf || req.query.asOfDate,
       archives: listPdfArchiveMetas(),
     });
+    res.json({ ...report, version: state.version });
+  } catch (error) {
+    sendReceiptError(res, error);
+  }
+});
+
+/**
+ * Phase 4 migration readiness. Diagnosis only: the plan it returns is always `apply: false`
+ * and the simulation runs on an in-memory clone, so the route reports `mutations: 0`.
+ */
+app.get("/api/ar/migration-readiness-dry-run", authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const state = getErpState();
+    const data = state.data || {};
+    const asOfDate = req.query.asOf || req.query.asOfDate;
+    const archives = listPdfArchiveMetas();
+    const report = buildMigrationReadinessReport(data, {
+      asOfDate,
+      archives,
+      parityReport: buildArParityReport(data, { asOfDate, archives }),
+    });
+    if (report.mutations !== 0 || report.apply !== false) {
+      res.status(500).json({ error: "감사 보고서가 읽기 전용 조건을 위반했습니다.", code: "AUDIT_NOT_READ_ONLY" });
+      return;
+    }
     res.json({ ...report, version: state.version });
   } catch (error) {
     sendReceiptError(res, error);
