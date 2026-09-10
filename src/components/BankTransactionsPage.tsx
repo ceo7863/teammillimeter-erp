@@ -253,6 +253,7 @@ import {
   buildHighConfidenceSentStatementAutoLinks,
   buildSentStatementMatchCandidates,
   buildSentStatementPaymentApplication,
+  resolveStatementBulkAllocateGate,
   type SentStatementMatchCandidate,
 } from "@/utils/bankSentStatementMatch";
 import { summarizeBankSentStatementAllocation } from "@/utils/bankSentStatementAllocation";
@@ -5280,6 +5281,7 @@ function BankTransactionsPageComponent({
       pdfArchiveId?: string;
       paymentStatus?: "confirmed" | "partial";
     }> = [];
+    const manualReviewBlocks: Array<{ txId: string; reason: string }> = [];
 
     for (const item of depositSuggestions) {
       const candidate = item.candidates[0];
@@ -5291,6 +5293,16 @@ function BankTransactionsPageComponent({
       if (item.kind === "sentStatement") {
         const sentCandidate = candidate as SentStatementMatchCandidate;
         const archive = sentArchives.find((row) => row.id === sentCandidate.pdfArchiveId);
+        // Phase 3: bulk allocation requires an explicit, fully resolvable statement sale list.
+        const bulkGate = resolveStatementBulkAllocateGate({
+          archive,
+          candidate: sentCandidate,
+          sales: sales as Parameters<typeof resolveStatementBulkAllocateGate>[0]["sales"],
+        });
+        if (!bulkGate.allowed) {
+          manualReviewBlocks.push({ txId: item.tx.id, reason: bulkGate.reason || "" });
+          continue;
+        }
         const application = buildSentStatementPaymentApplication(item.tx, sentCandidate, {
           sales,
           clients,
@@ -5334,8 +5346,12 @@ function BankTransactionsPageComponent({
       });
     }
 
+    const manualReviewSuffix = manualReviewBlocks.length
+      ? ` \u00B7 ${manualReviewBlocks.length}\uAC74 \uB0B4\uC5ED\uC11C \uC218\uB3D9 \uD655\uC778 \uD544\uC694(${manualReviewBlocks[0].reason})`
+      : "";
+
     if (!plans.length) {
-      setImportMessage(`0${L.matchBulkDone}`);
+      setImportMessage(`0${L.matchBulkDone}${manualReviewSuffix}`);
       return;
     }
 
@@ -5389,8 +5405,8 @@ function BankTransactionsPageComponent({
     }
     setImportMessage(
       postedCount > 0
-        ? `${postedCount}${L.matchBulkDone}${skippedCount ? ` \u00B7 ${skippedCount}\uAC74 \uC0DD\uB7B5(\uC218\uB3D9 \uD655\uC778 \uD544\uC694)` : ""}`
-        : `\uC785\uAE08\uC804\uD45C \uC790\uB3D9 \uC5F0\uACB0 0\uAC74${skippedCount ? ` \u00B7 ${skippedCount}\uAC74 \uC0DD\uB7B5(\uC218\uB3D9 \uD655\uC778 \uD544\uC694)` : ""}`,
+        ? `${postedCount}${L.matchBulkDone}${skippedCount ? ` \u00B7 ${skippedCount}\uAC74 \uC0DD\uB7B5(\uC218\uB3D9 \uD655\uC778 \uD544\uC694)` : ""}${manualReviewSuffix}`
+        : `\uC785\uAE08\uC804\uD45C \uC790\uB3D9 \uC5F0\uACB0 0\uAC74${skippedCount ? ` \u00B7 ${skippedCount}\uAC74 \uC0DD\uB7B5(\uC218\uB3D9 \uD655\uC778 \uD544\uC694)` : ""}${manualReviewSuffix}`,
     );
   };
 

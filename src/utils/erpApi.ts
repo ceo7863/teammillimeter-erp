@@ -646,6 +646,44 @@ export async function fetchReceiptMigrationDryRunApi() {
   return apiRequest<Record<string, unknown>>("/receipts-migration/dry-run");
 }
 
+export type UnifiedClientArLedgerRow = {
+  saleId: string;
+  saleDate?: string;
+  site?: string;
+  billedAmount: number;
+  legacyAppliedAmount: number;
+  receiptAllocatedAmount: number;
+  totalAppliedAmount: number;
+  outstandingAmount: number;
+  paymentStatus: "unpaid" | "partial" | "paid" | "overpaid";
+  sourceLedger: "none" | "receipt" | "legacy" | "mixed";
+};
+
+export type UnifiedClientArLedgerResponse =
+  import("./unifiedArReadModel").UnifiedArClientSummary & {
+    sales: UnifiedClientArLedgerRow[];
+    receipts: Array<Record<string, unknown>>;
+    policyNotes: Record<string, string>;
+    version?: number;
+  };
+
+/**
+ * Phase 3 unified client AR ledger. The server owns every number here; the panel renders the
+ * returned header figures and rows verbatim so the UI can never drift from the subledger.
+ */
+export async function fetchUnifiedClientArLedgerApi(
+  clientId: string | number,
+  params?: { start?: string; end?: string },
+) {
+  const query = new URLSearchParams();
+  if (params?.start) query.set("start", params.start);
+  if (params?.end) query.set("end", params.end);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return apiRequest<UnifiedClientArLedgerResponse>(
+    `/ar/clients/${encodeURIComponent(String(clientId))}/ledger${suffix}`,
+  );
+}
+
 export async function fetchBankSyncStatus() {
   return apiRequest<{
     liveSyncStatus: BankLiveSyncStatus;

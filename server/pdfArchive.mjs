@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { config } from "./config.mjs";
-import { getDb, runInTransaction } from "./db.mjs";
+import { getDb, getErpState, runInTransaction } from "./db.mjs";
 
 function parseStatementSalesIds(raw) {
   if (!raw) return undefined;
@@ -18,6 +18,57 @@ function parseStatementSalesIds(raw) {
 function serializeStatementSalesIds(ids) {
   if (!Array.isArray(ids) || !ids.length) return null;
   return JSON.stringify(ids.map((id) => id));
+}
+
+function parseStatementSalesSnapshot(raw) {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(String(raw));
+    if (!Array.isArray(parsed)) return undefined;
+    return parsed
+      .map((row) => ({
+        saleId: row?.saleId != null ? String(row.saleId) : "",
+        billedAmount: Number(row?.billedAmount) || 0,
+      }))
+      .filter((row) => row.saleId);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Phase 3 statement regeneration policy.
+ *
+ * Regenerating a statement PDF must never move cash: Receipts and allocations stay bound to
+ * `saleId`, so the archive version only records which sales it covered and what they were
+ * billed at render time. Client totals dedupe by `saleId`, so the same sale appearing on
+ * several archive versions is counted once.
+ */
+export function buildStatementSalesSnapshot(statementSalesIds, sales = []) {
+  if (!Array.isArray(statementSalesIds) || !statementSalesIds.length) return null;
+  const salesById = new Map((sales || []).map((row) => [String(row?.id ?? ""), row]));
+  const seen = new Set();
+  const rows = [];
+  for (const rawId of statementSalesIds) {
+    const saleId = String(rawId ?? "").trim();
+    if (!saleId || seen.has(saleId)) continue;
+    seen.add(saleId);
+    const sale = salesById.get(saleId);
+    rows.push({ saleId, billedAmount: Math.round(Number(sale?.amount) || 0) });
+  }
+  return rows.length ? rows : null;
+}
+
+function serializeStatementSalesSnapshot(statementSalesIds) {
+  if (!Array.isArray(statementSalesIds) || !statementSalesIds.length) return null;
+  let sales = [];
+  try {
+    sales = getErpState(["sales"]).data?.sales || [];
+  } catch {
+    sales = [];
+  }
+  const snapshot = buildStatementSalesSnapshot(statementSalesIds, sales);
+  return snapshot ? JSON.stringify(snapshot) : null;
 }
 
 function rowToMeta(row) {
@@ -44,6 +95,7 @@ function rowToMeta(row) {
     linkedReceiptId: row.linked_receipt_id || undefined,
     shareLinkUrl: row.share_link_url || undefined,
     statementSalesIds: parseStatementSalesIds(row.statement_sales_ids),
+    statementSalesSnapshot: parseStatementSalesSnapshot(row.statement_sales_snapshot),
   };
 }
 
@@ -85,6 +137,8 @@ export function initPdfArchiveStore() {
   ensurePdfArchiveColumn("linked_receipt_id", "TEXT");
   ensurePdfArchiveColumn("share_link_url", "TEXT");
   ensurePdfArchiveColumn("statement_sales_ids", "TEXT");
+  /** Phase 3: `[{ saleId, billedAmount }]` captured when the version was rendered. */
+  ensurePdfArchiveColumn("statement_sales_snapshot", "TEXT");
 
   getDb().exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_pdf_archives_share_token ON pdf_archives(share_token)`);
   getDb().exec(`CREATE INDEX IF NOT EXISTS idx_pdf_archives_sent_via_link ON pdf_archives(sent_via_link)`);
@@ -123,8 +177,8 @@ export function createPdfArchive(buffer, meta, createdBy) {
         period_start, period_end, statement_view,
         file_size, page_count, storage_path, created_by,
         sent_via_link, statement_total_amount, payment_status, share_link_url,
-        statement_sales_ids
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        statement_sales_ids, statement_sales_snapshot
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .run(
       id,
@@ -144,6 +198,7 @@ export function createPdfArchive(buffer, meta, createdBy) {
       paymentStatus,
       meta.shareLinkUrl || null,
       serializeStatementSalesIds(meta.statementSalesIds),
+      serializeStatementSalesSnapshot(meta.statementSalesIds),
     );
 
   return rowToMeta(
@@ -171,6 +226,11 @@ export function updatePdfArchiveMeta(id, patch = {}) {
       patch.statementSalesIds != null
         ? serializeStatementSalesIds(patch.statementSalesIds)
         : row.statement_sales_ids,
+    // A regenerated statement keeps its original snapshot unless the covered sales change.
+    statement_sales_snapshot:
+      patch.statementSalesIds != null
+        ? serializeStatementSalesSnapshot(patch.statementSalesIds)
+        : row.statement_sales_snapshot,
   };
 
   getDb()
@@ -183,7 +243,8 @@ export function updatePdfArchiveMeta(id, patch = {}) {
         linked_payment_voucher_id = ?,
         linked_receipt_id = ?,
         share_link_url = ?,
-        statement_sales_ids = ?
+        statement_sales_ids = ?,
+        statement_sales_snapshot = ?
       WHERE id = ?
     `)
     .run(
@@ -195,12 +256,18 @@ export function updatePdfArchiveMeta(id, patch = {}) {
       next.linked_receipt_id,
       next.share_link_url,
       next.statement_sales_ids,
+      next.statement_sales_snapshot,
       id,
     );
 
   return getPdfArchiveMetaById(id);
 }
 
+/**
+ * Regenerate the rendered PDF in place. Deliberately touches only file metadata: the
+ * statement's `statement_sales_ids` / snapshot, payment status cache and Receipt link are
+ * preserved, so re-rendering never detaches a Receipt or double-counts a sale.
+ */
 export function replacePdfArchiveFile(id, buffer, patch = {}) {
   const row = getDb().prepare("SELECT * FROM pdf_archives WHERE id = ?").get(id);
   if (!row) return null;

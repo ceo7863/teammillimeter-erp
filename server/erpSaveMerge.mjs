@@ -227,8 +227,58 @@ export function mergeBankTransactionsForSave(existing = [], incoming = []) {
   return dedupeBankTransactionsByFingerprint(merged).transactions;
 }
 
-export function mergePaymentVouchersForSave(existing = [], incoming = [], bankTransactions = []) {
-  const byId = new Map((incoming || []).map((row) => [String(row.id), row]));
+/**
+ * Phase 3 legacy write freeze.
+ *
+ * The legacy `paymentVouchers` ledger is closed for new business: cash arriving after the
+ * Phase 2 cutover must be posted as a Receipt. A generic ERP save may still update or
+ * unlink an existing voucher row (legacy repair / unlink), but it may never introduce a
+ * voucher id that does not already exist. Only an explicit
+ * `{ allowPaymentVoucherMutation: true }` caller may do that.
+ *
+ * Returns the accepted rows plus the ids that were stripped, so the caller can log them.
+ */
+export function planPaymentVoucherWriteFreeze(existing = [], incoming = [], options = {}) {
+  const existingRows = Array.isArray(existing) ? existing : [];
+  const incomingRows = Array.isArray(incoming) ? incoming : [];
+  const existingIds = new Set(existingRows.map((row) => String(row?.id ?? "")));
+
+  if (options.allowPaymentVoucherMutation) {
+    return { vouchers: incomingRows, blockedNewIds: [], frozen: false };
+  }
+
+  const blockedNewIds = [];
+  const vouchers = [];
+  for (const row of incomingRows) {
+    const id = String(row?.id ?? "");
+    if (!id || !existingIds.has(id)) {
+      blockedNewIds.push(id || "(missing id)");
+      continue;
+    }
+    vouchers.push(row);
+  }
+  return { vouchers, blockedNewIds, frozen: true };
+}
+
+export function logPaymentVoucherWriteFreeze(plan, context = "erp save") {
+  if (!plan?.blockedNewIds?.length) return;
+  console.warn(
+    `[legacyWriteFreeze] ${context}: blocked ${plan.blockedNewIds.length} new paymentVoucher id(s):`,
+    plan.blockedNewIds.slice(0, 20).join(", "),
+  );
+}
+
+export function mergePaymentVouchersForSave(existing = [], incoming = [], bankTransactions = [], options = {}) {
+  const existingRows = Array.isArray(existing) ? existing : [];
+  const incomingRows = Array.isArray(incoming) ? incoming : [];
+
+  // A payload that carries no vouchers at all never wipes the stored ledger.
+  if (!incomingRows.length && existingRows.length && !options.allowPaymentVoucherMutation) {
+    return { vouchers: [...existingRows], blockedNewIds: [], frozen: true };
+  }
+
+  const plan = planPaymentVoucherWriteFreeze(existingRows, incomingRows, options);
+  const byId = new Map(plan.vouchers.map((row) => [String(row.id), row]));
   const referencedIds = new Set();
 
   for (const tx of bankTransactions || []) {
@@ -237,14 +287,14 @@ export function mergePaymentVouchersForSave(existing = [], incoming = [], bankTr
     }
   }
 
-  for (const row of existing || []) {
+  for (const row of existingRows) {
     const id = String(row.id);
     if (referencedIds.has(id) && !byId.has(id)) {
       byId.set(id, row);
     }
   }
 
-  return [...byId.values()];
+  return { vouchers: [...byId.values()], blockedNewIds: plan.blockedNewIds, frozen: plan.frozen };
 }
 
 /**
@@ -663,16 +713,19 @@ function mergeClientContractsForSave(existing = [], incoming = []) {
   return [...byId.values()].sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
 }
 
-export function mergeErpPaymentLinkState(existingData, incomingData) {
+export function mergeErpPaymentLinkState(existingData, incomingData, options = {}) {
   const mergedBankTransactions = mergeBankTransactionsForSave(
     existingData.bankTransactions || [],
     incomingData.bankTransactions || [],
   );
-  const mergedPaymentVouchers = mergePaymentVouchersForSave(
+  const voucherPlan = mergePaymentVouchersForSave(
     existingData.paymentVouchers || [],
     incomingData.paymentVouchers || [],
     mergedBankTransactions,
+    options,
   );
+  logPaymentVoucherWriteFreeze(voucherPlan, options.context || "generic erp save");
+  const mergedPaymentVouchers = voucherPlan.vouchers;
   let mergedWorkerMonthlyActualVouchers = mergeWorkerMonthlyActualVouchersForSave(
     existingData.workerMonthlyActualVouchers || [],
     incomingData.workerMonthlyActualVouchers || [],
@@ -687,7 +740,7 @@ export function mergeErpPaymentLinkState(existingData, incomingData) {
     mergedBankTransactions,
   );
 
-  return {
+  const merged = {
     ...incomingData,
     clients: mergeClientsForSave(existingData.clients || [], incomingData.clients || []),
     clientSiteRequests: Array.isArray(existingData.clientSiteRequests) ? existingData.clientSiteRequests : [],
@@ -702,11 +755,26 @@ export function mergeErpPaymentLinkState(existingData, incomingData) {
     ),
     workerMonthlyActualVouchers: mergedWorkerMonthlyActualVouchers,
     bankTransactions: mergedBankTransactions,
+    // Phase 3 legacy write freeze: existing rows survive, new voucher ids are stripped.
     paymentVouchers: mergedPaymentVouchers,
     // Receipt ledger is isolated from generic ERP saves.
     receipts: Array.isArray(existingData.receipts) ? existingData.receipts : [],
     receiptAllocations: Array.isArray(existingData.receiptAllocations) ? existingData.receiptAllocations : [],
   };
+
+  // Diagnostics only — non-enumerable so it never reaches the persisted payload.
+  Object.defineProperty(merged, BLOCKED_PAYMENT_VOUCHER_IDS, {
+    value: voucherPlan.blockedNewIds,
+    enumerable: false,
+  });
+  return merged;
+}
+
+const BLOCKED_PAYMENT_VOUCHER_IDS = Symbol.for("erp.blockedPaymentVoucherIds");
+
+export function readBlockedPaymentVoucherIds(mergedPayload) {
+  const ids = mergedPayload?.[BLOCKED_PAYMENT_VOUCHER_IDS];
+  return Array.isArray(ids) ? ids : [];
 }
 
 function mergeWorkerMonthlyPaymentMemosForSave(existing = {}, incoming = {}) {

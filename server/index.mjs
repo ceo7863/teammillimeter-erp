@@ -1,4 +1,8 @@
-import { mergeErpPaymentLinkState, mergeWorkerMonthlyPaymentMemosForSave } from "./erpSaveMerge.mjs";
+import {
+  mergeErpPaymentLinkState,
+  mergeWorkerMonthlyPaymentMemosForSave,
+  readBlockedPaymentVoucherIds,
+} from "./erpSaveMerge.mjs";
 import {
   ERP_DOMAIN_FIELDS,
   ERP_DOMAIN_NAMES,
@@ -243,6 +247,13 @@ import {
   reverseBankTransactionReceipt,
 } from "./bankReceipts.mjs";
 import { buildClientArSubledger } from "./receiptArSubledger.mjs";
+import {
+  buildArParityReport,
+  buildSaleArBalances,
+  buildStatementPaymentStatus,
+  buildUnifiedClientLedger,
+  dedupeBankReferences,
+} from "./unifiedArReadModel.mjs";
 import { buildEffectivePaymentVouchers } from "./receiptProjection.mjs";
 import { diagnoseLegacyPaymentMigration } from "../scripts/receipt-migration-dry-run.mjs";
 import {
@@ -3221,7 +3232,14 @@ app.put("/api/erp", authMiddleware, (req, res) => {
     void notifyNewSaleComments(previousSaleComments, mergedPayload.saleComments, mergedPayload).catch((error) => {
       console.error("[notify] comment alimtalk failed:", error);
     });
-    res.json({ ok: true, version: saved.version, updatedAt: saved.updatedAt });
+    const blockedPaymentVoucherIds = readBlockedPaymentVoucherIds(mergedPayload);
+    res.json({
+      ok: true,
+      version: saved.version,
+      updatedAt: saved.updatedAt,
+      // Phase 3 legacy write freeze: ids the closed voucher ledger refused to create.
+      ...(blockedPaymentVoucherIds.length ? { blockedPaymentVoucherIds } : {}),
+    });
   } catch (error) {
     if (error.status === 409) {
       res.status(409).json({
@@ -3760,6 +3778,79 @@ app.get("/api/ar-subledger/:clientId", authMiddleware, (req, res) => {
       endDate: req.query.endDate,
     });
     res.json(report);
+  } catch (error) {
+    sendReceiptError(res, error);
+  }
+});
+
+/**
+ * Phase 3 Unified AR read model. Read-only: these routes never mutate ERP state and are
+ * the single source of truth for billed / applied / outstanding across every screen.
+ */
+app.get("/api/ar/sales-balances", authMiddleware, (req, res) => {
+  try {
+    const state = getErpState();
+    const data = state.data || {};
+    const report = buildSaleArBalances(data, { asOfDate: req.query.asOf || req.query.asOfDate });
+    const clientId = String(req.query.clientId || "").trim();
+    const sales = clientId ? report.sales.filter((row) => String(row.clientId || "") === clientId) : report.sales;
+    res.json({ ...report, sales, version: state.version });
+  } catch (error) {
+    sendReceiptError(res, error);
+  }
+});
+
+app.get("/api/ar/clients/:id/ledger", authMiddleware, (req, res) => {
+  try {
+    const state = getErpState();
+    const report = buildUnifiedClientLedger(state.data || {}, {
+      clientId: req.params.id,
+      startDate: req.query.start || req.query.startDate,
+      endDate: req.query.end || req.query.endDate,
+    });
+    res.json({ ...report, version: state.version });
+  } catch (error) {
+    sendReceiptError(res, error);
+  }
+});
+
+app.get("/api/ar/statements/:archiveId/payment-status", authMiddleware, (req, res) => {
+  try {
+    const archive = getPdfArchiveMetaById(req.params.archiveId);
+    if (!archive) {
+      res.status(404).json({ error: "PDF를 찾을 수 없습니다.", code: "ARCHIVE_NOT_FOUND" });
+      return;
+    }
+    const state = getErpState();
+    const report = buildStatementPaymentStatus(archive, state.data || {}, {
+      asOfDate: req.query.asOf || req.query.asOfDate,
+    });
+    res.json({ ...report, version: state.version });
+  } catch (error) {
+    sendReceiptError(res, error);
+  }
+});
+
+app.get("/api/ar/bank-references", authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const state = getErpState();
+    res.json({
+      ...dedupeBankReferences(state.data || {}, { asOfDate: req.query.asOf || req.query.asOfDate }),
+      version: state.version,
+    });
+  } catch (error) {
+    sendReceiptError(res, error);
+  }
+});
+
+app.get("/api/ar/parity-dry-run", authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const state = getErpState();
+    const report = buildArParityReport(state.data || {}, {
+      asOfDate: req.query.asOf || req.query.asOfDate,
+      archives: listPdfArchiveMetas(),
+    });
+    res.json({ ...report, version: state.version });
   } catch (error) {
     sendReceiptError(res, error);
   }

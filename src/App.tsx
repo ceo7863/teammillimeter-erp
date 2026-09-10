@@ -96,7 +96,12 @@ import { OfficeStaffPage } from "@/components/OfficeStaffPage";
 import { AttendancePage } from "@/components/AttendancePage";
 import { AutoLinkBadge, SalePaymentLinkBadge, SalePaymentLinkProvider } from "@/components/AutoLinkBadge";
 import { buildAutoLinkedSaleIdSet, buildManualLinkedSaleIdSet, isSaleAutoLinkedPaid, isSaleManualLinkedPaid } from "@/utils/bankReceivableMatch";
-import { applyPaymentVouchers } from "@/utils/applyPaymentVouchers";
+import {
+  applyUnifiedArBalancesToSales,
+  buildPrepaidByClientName,
+  buildSaleArBalances,
+  mergePrepaidByClientName,
+} from "@/utils/unifiedArReadModel";
 import type { WorkerPortalStatementAck } from "@/utils/workerPortalAcknowledgment";
 import { ClientStatementModal } from "@/components/ClientStatementModal";
 import { CalendarClientSearchModal } from "@/components/CalendarClientSearchModal";
@@ -8661,11 +8666,39 @@ export default function TeammillimeterErpMvp() {
     () => mergeEffectivePaymentVouchers(paymentVouchers, projectedReceiptVouchers),
     [paymentVouchers, projectedReceiptVouchers],
   );
-  const appliedPaymentData = useMemo(
-    () => applyPaymentVouchers(normalizedSales, effectivePaymentVouchers),
-    [normalizedSales, effectivePaymentVouchers],
+  /**
+   * Phase 3: the Unified AR read model — not `applyPaymentVouchers` — decides how much of a
+   * sale is applied and how much is still outstanding. Receipt allocations and the frozen
+   * legacy voucher ledger are combined once, here, so every screen reading `appliedSales`
+   * shows identical billed / applied / outstanding numbers for the same saleId.
+   * `effectivePaymentVouchers` stays a display projection for link/history lists only.
+   */
+  const unifiedArData = useMemo(
+    () => ({
+      sales: normalizedSales,
+      clients,
+      receipts,
+      receiptAllocations,
+      paymentVouchers,
+    }),
+    [normalizedSales, clients, receipts, receiptAllocations, paymentVouchers],
   );
-  const appliedSales = appliedPaymentData.sales;
+  const unifiedArBalances = useMemo(() => buildSaleArBalances(unifiedArData), [unifiedArData]);
+  const unifiedPrepaidByClientName = useMemo(
+    () =>
+      mergePrepaidByClientName(
+        buildPrepaidByClientName(unifiedArData),
+        unifiedArBalances.legacyPrepaidByClientName,
+      ),
+    [unifiedArData, unifiedArBalances],
+  );
+  const appliedSales = useMemo(
+    () =>
+      applyUnifiedArBalancesToSales(normalizedSales, unifiedArBalances, {
+        prepaidByClientName: unifiedPrepaidByClientName,
+      }),
+    [normalizedSales, unifiedArBalances, unifiedPrepaidByClientName],
+  );
   const [taxInvoices, setTaxInvoices] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return normalizeTaxInvoices(storedData?.taxInvoices);
@@ -11749,6 +11782,8 @@ export default function TeammillimeterErpMvp() {
             bankTransactions={bankTransactions}
             workerPaymentRecords={workerPaymentRecords}
             paymentVouchers={paymentVouchers}
+            receipts={receipts}
+            receiptAllocations={receiptAllocations}
             workerPayWithVatLearnRules={workerPayWithVatLearnRules}
             isPageActive={shellActive === "statements"}
             taxInvoices={taxInvoices}

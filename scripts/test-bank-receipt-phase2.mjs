@@ -110,6 +110,8 @@ const seed = {
     { id: 3003, date: SALE_DATE, client: CLIENT_B.name, clientId: CLIENT_B.id, amount: 700_000, paid: 0, site: "C현장" },
     { id: 3004, date: SALE_DATE, client: CLIENT_STMT.name, clientId: CLIENT_STMT.id, amount: 550_000, paid: 0, site: "D현장" },
     { id: 3005, date: SALE_DATE, client: CLIENT_DUP_1.name, clientId: CLIENT_DUP_1.id, amount: 300_000, paid: 0, site: "E현장" },
+    // Dedicated to the reverse gate so it can use a REAL allocation (never amount: 0).
+    { id: 3006, date: SALE_DATE, client: CLIENT_A.name, clientId: CLIENT_A.id, amount: 400_000, paid: 0, site: "F현장" },
   ],
   paymentVouchers: [
     {
@@ -151,6 +153,8 @@ const seed = {
   const state = getErpState();
   saveErpState({ ...state.data, ...seed }, state.version, "phase2-seed", {
     allowReceiptMutation: true,
+    // Phase 3 legacy write freeze: seeding legacy voucher fixtures is an explicit opt-in.
+    allowPaymentVoucherMutation: true,
   });
 }
 
@@ -162,6 +166,16 @@ function findTx(data, id) {
 }
 function receiptsFor(data, txId) {
   return (data.receipts || []).filter((row) => String(row.bankTransactionId || "") === txId);
+}
+function saleArRow(data, clientId, saleId) {
+  const report = buildClientArSubledger(data, {
+    clientId,
+    startDate: PERIOD_START,
+    endDate: TODAY,
+  });
+  const row = report.sales.find((item) => String(item.saleId) === String(saleId));
+  assert.ok(row, `sale ${saleId} missing from AR subledger`);
+  return row;
 }
 
 /* ------------------------------------------------------------------- 1 - 23 */
@@ -412,19 +426,35 @@ check("15) partial allocation keeps the cash identity (gross = allocated + unall
   );
 });
 
-check("16) reverse cancels the receipt, restores AR once and frees the deposit", () => {
+/**
+ * Reverse gate. A 0-amount allocation is FORBIDDEN as a substitute here: it never moves AR,
+ * so it cannot prove the restore. Sale 3006 exists purely so this check can allocate the
+ * full 400,000 and watch the receivable go down and back up exactly once.
+ * The dedicated as-of variant lives in scripts/test-bank-receipt-reverse-real-allocation.mjs.
+ */
+check("16) reverse restores sale AR exactly once after a REAL 400,000 allocation", () => {
   const created = createBankTransactionReceipt(
     "btx-reverse",
     {
       operationId: "bank-receipt:manual:btx-reverse:t1",
       clientId: CLIENT_A.id,
-      allocations: [{ saleId: 3002, amount: 0 }],
+      allocations: [{ saleId: 3006, amount: 400_000 }],
     },
     "tester",
   );
   assert.equal(created.receipt.grossAmount, 400_000);
+  assert.equal(created.allocations.length, 1);
+  assert.equal(created.allocations[0].amount, 400_000, "gate requires a real allocation amount");
+  assert.equal(created.summary.allocatedAmount, 400_000);
+  assert.equal(created.summary.unallocatedAmount, 0);
 
-  const subledgerBefore = buildClientArSubledger(reload(), {
+  const linked = reload();
+  assert.equal(findTx(linked, "btx-reverse").linkedReceiptId, created.receipt.id);
+  const saleAfterLink = saleArRow(linked, CLIENT_A.id, 3006);
+  assert.equal(saleAfterLink.allocatedAmount, 400_000);
+  assert.equal(saleAfterLink.balance, 0);
+
+  const subledgerBefore = buildClientArSubledger(linked, {
     clientId: CLIENT_A.id,
     startDate: PERIOD_START,
     endDate: TODAY,
@@ -443,12 +473,24 @@ check("16) reverse cancels the receipt, restores AR once and frees the deposit",
   assert.equal(tx.matchAutoLinked, undefined);
   assert.equal(getBankDepositLinkKind(tx, { receipts: after.receipts }), "none");
 
+  const saleAfterReverse = saleArRow(after, CLIENT_A.id, 3006);
+  assert.equal(saleAfterReverse.allocatedAmount, 0);
+  assert.equal(saleAfterReverse.balance, 400_000);
+
   const subledgerAfter = buildClientArSubledger(after, {
     clientId: CLIENT_A.id,
     startDate: PERIOD_START,
     endDate: TODAY,
   });
+  assert.equal(subledgerAfter.closingAr, subledgerBefore.closingAr + 400_000, "AR restored once");
   assert.equal(subledgerAfter.periodReceipts, subledgerBefore.periodReceipts - 400_000);
+  assert.equal(
+    (after.receipts || []).filter(
+      (row) => String(row.reversalOfReceiptId || "") === String(created.receipt.id),
+    ).length,
+    1,
+    "exactly one reversal document",
+  );
 });
 
 check("17) reverse is idempotent for the same operation id", () => {

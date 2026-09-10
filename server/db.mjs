@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import bcrypt from "bcryptjs";
 import { config, seedUsers } from "./config.mjs";
 import { ERP_DOMAIN_FIELDS, ERP_DOMAIN_NAMES, pickDomainPayload } from "./erpDomains.mjs";
+import { logPaymentVoucherWriteFreeze, planPaymentVoucherWriteFreeze } from "./erpSaveMerge.mjs";
 import { queueCoalescedWrite } from "./erpWriteQueue.mjs";
 import { migrateClientAichiToMiumu, needsClientAichiToMiumuMigration } from "./migrateClientAichiToMiumu.mjs";
 import { isAttendanceTargetUser } from "./attendanceAccess.mjs";
@@ -1042,13 +1043,27 @@ function saveErpStateImmediate(payload, expectedVersion, updatedBy, options = {}
   const database = getDb();
   const current = database.prepare("SELECT version FROM erp_state WHERE id = 1").get();
 
-  if (!options.allowReceiptMutation) {
+  if (!options.allowReceiptMutation || !options.allowPaymentVoucherMutation) {
     const assembled = current ? assemblePayloadFromDomainRows(database) || emptyErpPayload() : emptyErpPayload();
-    normalizedPayload = {
-      ...normalizedPayload,
-      receipts: Array.isArray(assembled.receipts) ? assembled.receipts : [],
-      receiptAllocations: Array.isArray(assembled.receiptAllocations) ? assembled.receiptAllocations : [],
-    };
+
+    if (!options.allowReceiptMutation) {
+      normalizedPayload = {
+        ...normalizedPayload,
+        receipts: Array.isArray(assembled.receipts) ? assembled.receipts : [],
+        receiptAllocations: Array.isArray(assembled.receiptAllocations) ? assembled.receiptAllocations : [],
+      };
+    }
+
+    // Phase 3 legacy write freeze: the closed paymentVoucher ledger accepts no new ids
+    // from a generic save. Existing rows are preserved; new ids are stripped and logged.
+    if (!options.allowPaymentVoucherMutation) {
+      const existingVouchers = Array.isArray(assembled.paymentVouchers) ? assembled.paymentVouchers : [];
+      const plan = planPaymentVoucherWriteFreeze(existingVouchers, normalizedPayload?.paymentVouchers, options);
+      if (Array.isArray(normalizedPayload?.paymentVouchers)) {
+        logPaymentVoucherWriteFreeze(plan, `saveErpState (${updatedBy || "system"})`);
+        normalizedPayload = { ...normalizedPayload, paymentVouchers: plan.vouchers };
+      }
+    }
   }
 
   if (!current) {
@@ -1092,6 +1107,21 @@ export function saveErpState(payload, expectedVersion, updatedBy, options = {}) 
   return saveErpStateImmediate(payload, expectedVersion, updatedBy, options);
 }
 
+/**
+ * Phase 3 legacy write freeze for domain saves. Domain writes have no
+ * `allowPaymentVoucherMutation` escape hatch: only `saveErpState` (legacy repair) may
+ * introduce a voucher id that does not exist yet.
+ */
+function freezePaymentVouchersInDomainPayload(assembled, domainPayload, updatedBy) {
+  if (!domainPayload || !Array.isArray(domainPayload.paymentVouchers)) return domainPayload;
+  const plan = planPaymentVoucherWriteFreeze(
+    Array.isArray(assembled?.paymentVouchers) ? assembled.paymentVouchers : [],
+    domainPayload.paymentVouchers,
+  );
+  logPaymentVoucherWriteFreeze(plan, `saveErpDomain (${updatedBy || "system"})`);
+  return { ...domainPayload, paymentVouchers: plan.vouchers };
+}
+
 export function saveErpDomain(domain, domainPayload, expectedVersion, updatedBy) {
   if (!ERP_DOMAIN_FIELDS[domain]) {
     const err = new Error("UNKNOWN_DOMAIN");
@@ -1119,8 +1149,9 @@ export function saveErpDomain(domain, domainPayload, expectedVersion, updatedBy)
     }
 
     const assembled = assemblePayloadFromDomainRows(database) || emptyErpPayload();
-    const merged = { ...assembled, ...nextDomainPayload };
-    const chunk = pickDomainPayload(merged, nextDomain) || nextDomainPayload;
+    const safeDomainPayload = freezePaymentVouchersInDomainPayload(assembled, nextDomainPayload, nextUpdatedBy);
+    const merged = { ...assembled, ...safeDomainPayload };
+    const chunk = pickDomainPayload(merged, nextDomain) || safeDomainPayload;
     const nextVersion = current.version + 1;
     const updatedAt = new Date().toISOString();
     const updatedByValue = nextUpdatedBy == null || nextUpdatedBy === "" ? "system" : String(nextUpdatedBy);
@@ -1178,7 +1209,10 @@ export function saveErpDomains(domainPayloads, expectedVersion, updatedBy) {
       const assembled = assemblePayloadFromDomainRows(database) || emptyErpPayload();
       let merged = assembled;
       for (const domain of domains) {
-        merged = { ...merged, ...nextDomainPayloads[domain] };
+        merged = {
+          ...merged,
+          ...freezePaymentVouchersInDomainPayload(assembled, nextDomainPayloads[domain], nextUpdatedBy),
+        };
       }
 
       const nextVersion = current.version + 1;

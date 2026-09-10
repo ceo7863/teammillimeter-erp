@@ -3,6 +3,7 @@ import {
   mergeClientsForSave,
   mergeOfficeStaffForSave,
   mergePaymentVouchersForSave,
+  logPaymentVoucherWriteFreeze,
   mergeReceiptAllocationsForSave,
   mergeReceiptsForSave,
   mergeWorkerMonthlyActualVouchersForSave,
@@ -100,13 +101,16 @@ export function mergeErpDomainForSave(existingData, domain, incomingPartial) {
   switch (domain) {
     case "sales": {
       const bankTransactions = existing.bankTransactions || [];
-      const mergedPaymentVouchers = Array.isArray(incoming.paymentVouchers)
+      // Phase 3 legacy write freeze: a domain save can never introduce a new voucher id.
+      const voucherPlan = Array.isArray(incoming.paymentVouchers)
         ? mergePaymentVouchersForSave(
             existing.paymentVouchers || [],
             incoming.paymentVouchers,
             bankTransactions,
           )
-        : existing.paymentVouchers || [];
+        : null;
+      if (voucherPlan) logPaymentVoucherWriteFreeze(voucherPlan, "erp domain save (sales)");
+      const mergedPaymentVouchers = voucherPlan ? voucherPlan.vouchers : existing.paymentVouchers || [];
       return {
         ...existing,
         sales: Array.isArray(incoming.sales) ? incoming.sales : existing.sales || [],

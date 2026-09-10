@@ -37,7 +37,12 @@ import {
 } from "@/utils/paymentDepositChannel";
 import { SalePaymentLinkBadge, PartialPaymentBadge } from "@/components/AutoLinkBadge";
 import { formatMonthLabel, monthRangeForKey, shiftMonthKey } from "@/utils/companyLedger";
-import { createReceiptApi } from "@/utils/erpApi";
+import {
+  createReceiptApi,
+  fetchUnifiedClientArLedgerApi,
+  isApiModeEnabled,
+  type UnifiedClientArLedgerResponse,
+} from "@/utils/erpApi";
 import {
   depositChannelToReceiptChannel,
   formatReceiptSaveMessage,
@@ -45,7 +50,7 @@ import {
   makeReceiptOperationId,
 } from "@/utils/receiptLedger";
 
-type PaymentTab = "input" | "receivables" | "history" | "log";
+type PaymentTab = "input" | "receivables" | "history" | "log" | "arLedger";
 
 type SaleLike = {
   id: number | string;
@@ -97,6 +102,7 @@ const TAB_ITEMS: Array<{ key: PaymentTab; label: string }> = [
   { key: "receivables", label: "미수 조회" },
   { key: "history", label: "입금 내역" },
   { key: "log", label: "입금로그" },
+  { key: "arLedger", label: "거래처 원장" },
 ];
 
 function PaymentDepositChannelSelect({
@@ -1806,7 +1812,240 @@ export function PaymentReceivablesPage({
         )}
         </>
       )}
+
+      {tab === "arLedger" && (
+        <ClientArLedgerPanel
+          clients={clients}
+          initialClientName={filters.client}
+          startDate={filters.startDate}
+          endDate={filters.endDate}
+          onRangeChange={({ startDate, endDate }) => setFilters((prev) => ({ ...prev, startDate, endDate }))}
+        />
+      )}
     </div>
+  );
+}
+
+const AR_LEDGER_STATUS_LABEL: Record<string, string> = {
+  unpaid: "미수",
+  partial: "일부수금",
+  paid: "완료",
+  overpaid: "과입금",
+};
+
+const AR_LEDGER_SOURCE_LABEL: Record<string, string> = {
+  none: "-",
+  receipt: "입금전표",
+  legacy: "레거시",
+  mixed: "혼합",
+};
+
+/**
+ * Phase 3 client AR ledger. Every figure is rendered exactly as the `/api/ar/clients/:id/ledger`
+ * response returns it — the panel deliberately computes nothing, so the screen and the
+ * subledger can never disagree.
+ */
+function ClientArLedgerPanel({
+  clients,
+  initialClientName = "",
+  startDate,
+  endDate,
+  onRangeChange,
+}: {
+  clients: Array<{ id?: string | number; name?: string }>;
+  initialClientName?: string;
+  startDate: string;
+  endDate: string;
+  onRangeChange: (next: { startDate: string; endDate: string }) => void;
+}) {
+  const [clientName, setClientName] = useState(initialClientName);
+  const [ledger, setLedger] = useState<UnifiedClientArLedgerResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const clientId = useMemo(() => {
+    const target = String(clientName || "").trim();
+    if (!target) return "";
+    const row = clients.find((item) => String(item.name || "").trim() === target);
+    return row?.id != null ? String(row.id) : "";
+  }, [clientName, clients]);
+
+  useEffect(() => {
+    if (!isApiModeEnabled()) {
+      setLedger(null);
+      setError("거래처 원장은 서버 모드에서만 조회할 수 있습니다.");
+      return;
+    }
+    if (!clientId) {
+      setLedger(null);
+      setError(clientName ? "거래처 마스터에서 해당 거래처를 찾을 수 없습니다." : "");
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    fetchUnifiedClientArLedgerApi(clientId, { start: startDate, end: endDate })
+      .then((result) => {
+        if (cancelled) return;
+        setLedger(result);
+      })
+      .catch((cause) => {
+        if (cancelled) return;
+        setLedger(null);
+        setError(cause?.message || "거래처 원장을 조회할 수 없습니다.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clientId, clientName, startDate, endDate]);
+
+  const rows = ledger?.sales || [];
+
+  return (
+    <>
+      <Card className="rounded-xl border-slate-200/80 shadow-sm">
+        <CardContent className="p-3 md:p-4">
+          <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h2 className="text-sm font-bold text-slate-800">거래처 원장 (통합 AR)</h2>
+              <p className="text-xs text-slate-500">
+                입금전표 배분 + 레거시 전표를 통합한 서버 집계 · 기간 경계는 as-of 기준
+              </p>
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="w-48">
+                <div className="erp-text-caption mb-1 font-bold text-slate-500">거래처</div>
+                <AutocompleteInput
+                  value={clientName}
+                  onChange={setClientName}
+                  options={clients.map((row) => String(row.name || "")).filter(Boolean)}
+                  placeholder="거래처 선택"
+                />
+              </div>
+              <div>
+                <div className="erp-text-caption mb-1 font-bold text-slate-500">시작일</div>
+                <KoreanDateInput
+                  className="erp-input-compact"
+                  value={startDate}
+                  onChange={(e) => onRangeChange({ startDate: e.target.value, endDate })}
+                />
+              </div>
+              <div>
+                <div className="erp-text-caption mb-1 font-bold text-slate-500">종료일</div>
+                <KoreanDateInput
+                  className="erp-input-compact"
+                  value={endDate}
+                  onChange={(e) => onRangeChange({ startDate, endDate: e.target.value })}
+                />
+              </div>
+            </div>
+          </div>
+
+          {error ? <div className="erp-payment-empty text-red-600">{error}</div> : null}
+          {loading ? <div className="erp-payment-empty">조회 중…</div> : null}
+
+          {ledger && !loading ? (
+            <>
+              <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-7">
+                <SummaryCard compact title="기초 미수" value={formatKRW(ledger.openingAr)} sub={ledger.openingAsOf || "기간 지정 없음"} icon={WalletCards} />
+                <SummaryCard compact title="기간 매출" value={formatKRW(ledger.periodSales)} sub="발행 기준" icon={CreditCard} />
+                <SummaryCard compact title="기간 입금(총액)" value={formatKRW(ledger.periodReceiptsGross)} sub="입금전표 총액" icon={CreditCard} tone="success" />
+                <SummaryCard
+                  compact
+                  title="기간 배분"
+                  value={formatKRW(ledger.periodAppliedAllocations + ledger.periodLegacyApplied)}
+                  sub={`전표 ${formatKRW(ledger.periodAppliedAllocations)} · 레거시 ${formatKRW(ledger.periodLegacyApplied)}`}
+                  icon={CheckCircle2}
+                  tone="success"
+                />
+                <SummaryCard compact title="조정" value={formatKRW(ledger.periodAdjustments)} sub="미구현(항상 0)" icon={AlertCircle} />
+                <SummaryCard compact title="기말 미수" value={formatKRW(ledger.closingAr)} sub={ledger.endDate} icon={WalletCards} tone={ledger.closingAr > 0 ? "danger" : "success"} />
+                <SummaryCard compact title="선수금(미배분)" value={formatKRW(ledger.unallocatedPrepaid)} sub={`연체 ${formatKRW(ledger.overdueAr)}`} icon={WalletCards} tone={ledger.unallocatedPrepaid > 0 ? "warning" : "default"} />
+              </div>
+
+              {ledger.reconciliationStatus === "error" ? (
+                <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+                  {ledger.errors.map((row) => (
+                    <div key={`${row.code}`}>
+                      [{row.code}] {row.message}
+                    </div>
+                  ))}
+                  <div className="mt-1 font-semibold">자동 보정하지 않습니다. 수동 확인이 필요합니다.</div>
+                </div>
+              ) : null}
+              {ledger.warnings.length ? (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-700">
+                  {ledger.warnings.map((row) => (
+                    <div key={`${row.code}`}>
+                      [{row.code}] {row.message}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {!ledger.identity.ok ? (
+                <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+                  기초+매출-배분 항등식이 맞지 않습니다 (기대 {formatKRW(ledger.identity.expectedClosingArRaw)} · 실제 {formatKRW(ledger.identity.closingArRaw)}).
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      {ledger && !loading ? (
+        <Card className="rounded-xl border-slate-200/80 shadow-sm">
+          <CardContent className="p-3 md:p-4">
+            <div className="mb-3">
+              <h2 className="text-sm font-bold text-slate-800">매출별 원장</h2>
+              <p className="text-xs text-slate-500">
+                {ledger.clientName} · {ledger.startDate || "전체"} ~ {ledger.endDate} · {rows.length}건
+              </p>
+            </div>
+            <TableExportSection fileName="거래처원장" title="거래처 원장" disabled={rows.length === 0}>
+              <div className="erp-payment-table-wrap" style={{ maxHeight: "560px" }}>
+                <table className="erp-payment-table">
+                  <thead>
+                    <tr>
+                      <th className="text-left">매출일</th>
+                      <th className="text-left">현장</th>
+                      <th className="text-right">청구</th>
+                      <th className="text-right">입금전표 배분</th>
+                      <th className="text-right">레거시 배분</th>
+                      <th className="text-right">배분 합계</th>
+                      <th className="text-right">잔액</th>
+                      <th className="text-center">상태</th>
+                      <th className="text-center">원장</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr key={row.saleId}>
+                        <td className="font-medium text-slate-800">{row.saleDate || "-"}</td>
+                        <td className="erp-cell-clip text-left text-slate-600" title={row.site || ""}>{row.site || "-"}</td>
+                        <td className="text-right">{formatKRW(row.billedAmount)}</td>
+                        <td className="text-right text-emerald-600">{formatKRW(row.receiptAllocatedAmount)}</td>
+                        <td className="text-right text-slate-500">{formatKRW(row.legacyAppliedAmount)}</td>
+                        <td className="text-right font-semibold text-emerald-700">{formatKRW(row.totalAppliedAmount)}</td>
+                        <td className={`text-right font-bold ${row.outstandingAmount > 0 ? "text-red-600" : "text-slate-400"}`}>
+                          {formatKRW(row.outstandingAmount)}
+                        </td>
+                        <td className="text-center">{AR_LEDGER_STATUS_LABEL[row.paymentStatus] || row.paymentStatus}</td>
+                        <td className="text-center text-slate-500">{AR_LEDGER_SOURCE_LABEL[row.sourceLedger] || row.sourceLedger}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {rows.length === 0 ? <div className="erp-payment-empty">해당 기간의 매출이 없습니다.</div> : null}
+              </div>
+            </TableExportSection>
+          </CardContent>
+        </Card>
+      ) : null}
+    </>
   );
 }
 
