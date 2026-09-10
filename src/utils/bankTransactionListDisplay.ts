@@ -4,6 +4,7 @@ import {
   isBankMatchManualLinked,
 } from "@/utils/bankReceivableMatch";
 import { bankTxHasPartialPaymentVoucher } from "@/utils/bankSentStatementMatch";
+import { hasBankDepositLinkField } from "@/utils/bankDepositLink";
 import type { BankTransactionFolder, BankTransactionFolderType } from "@/utils/bankTransactionFolders";
 import { isBankTxExpenseReversal } from "@/utils/bankTxExpenseReversal";
 import { isNetGroupSuppressed } from "@/utils/bankPreauthNetting";
@@ -90,7 +91,7 @@ export function resolveBankTxPartyKind(
     if (clients.some((client) => String(client.name || "").trim() === label)) return "client";
   }
 
-  if (row.linkedPaymentVoucherId && row.deposit > 0) return "client";
+  if (hasBankDepositLinkField(row) && row.deposit > 0) return "client";
   return "none";
 }
 
@@ -239,7 +240,7 @@ export function buildBankTransactionListRowModel(
   const unfiledClientLink = isUnfiledClientDepositLink(row);
   const linkedSubjectName = String(row.linkedSubject || "").trim();
   const unfiledClientName =
-    !folder && row.deposit > 0 && linkedSubjectName && (unfiledClientLink || row.linkedPaymentVoucherId)
+    !folder && row.deposit > 0 && linkedSubjectName && (unfiledClientLink || hasBankDepositLinkField(row))
       ? linkedSubjectName
       : "";
   const legacyCategory = resolveLinkedLedgerCategory(row, lookup);
@@ -291,7 +292,7 @@ export function buildBankTransactionListRowModel(
     (unfiledClientName || null) ||
     (categoryLabel && ledgerCategoryFolder ? ledgerCategoryFolder.folderName : labels.unfiled);
 
-  const matchLinked = Boolean(row.linkedPaymentVoucherId || row.linkedPdfArchiveId);
+  const matchLinked = Boolean(hasBankDepositLinkField(row) || row.linkedPdfArchiveId);
   let matchStatusLabel = "-";
   if (matchLinked) {
     const archive = row.linkedPdfArchiveId
@@ -449,7 +450,7 @@ function buildBankTransactionListRowModelFromParts(
     classifiedAmountLabel: classifiedAmount !== 0 ? formatKRW(classifiedAmount) : "-",
     evidenceLabel,
     evidenceLinked: Boolean(linkedInvoice),
-    showVoucherProcessedBadge: Boolean(row.linkedPaymentVoucherId && row.deposit > 0),
+    showVoucherProcessedBadge: Boolean(hasBankDepositLinkField(row) && row.deposit > 0),
     workerErpLinked,
     workerErpStatusLabel,
     partyKind: resolveBankTxPartyKind(row, folder, clientLabel, clients, workers),
@@ -517,6 +518,7 @@ export function buildBankTransactionListRowFingerprint(
     folder?.folderType,
     row.linkedSubject,
     row.linkedPaymentVoucherId,
+    row.linkedReceiptId,
     row.linkedWorkerMonthlyPaymentVoucherId,
     row.linkedCompanyExpenseId,
     row.linkedFixedExpensePaymentId,

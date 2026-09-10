@@ -459,6 +459,21 @@ function assertIdempotentMatch(existingHash, payloadHash, operationId, existingI
   );
 }
 
+/** Accepts either `{ allocations }` or a raw ERP data slice `{ receiptAllocations }`. */
+function normalizePlanContext(context) {
+  const source = context || {};
+  return {
+    receipts: Array.isArray(source.receipts) ? source.receipts : [],
+    allocations: Array.isArray(source.allocations)
+      ? source.allocations
+      : Array.isArray(source.receiptAllocations)
+        ? source.receiptAllocations
+        : [],
+    sales: Array.isArray(source.sales) ? source.sales : [],
+    clients: Array.isArray(source.clients) ? source.clients : [],
+  };
+}
+
 function saveReceiptsDomainAtomic(mutator, actor) {
   for (let attempt = 0; attempt < SAVE_RETRY_ATTEMPTS; attempt += 1) {
     const state = getErpState();
@@ -498,8 +513,16 @@ function saveReceiptsDomainAtomic(mutator, actor) {
   throw makeError("RECEIPT_SAVE_FAILED", "입금전표 저장에 실패했습니다.", 500);
 }
 
-export function createAndPostReceipt(input, actor = "system") {
-  return saveReceiptsDomainAtomic(({ receipts, allocations, sales, clients }) => {
+/**
+ * Pure planner: computes the next receipts/allocations arrays for a create+post.
+ * Never touches the database, so callers can compose it with other domain writes
+ * (bank transactions) inside a single saveErpState transaction.
+ *
+ * Returns `{ shortCircuit: true, value }` for an idempotent replay, otherwise
+ * `{ receipts, allocations, value }`.
+ */
+export function planCreateAndPostReceipt(context, input, actor = "system") {
+  return (({ receipts, allocations, sales, clients }) => {
     const raw = input || {};
     const operationId = String(raw.operationId || raw.idempotencyKey || "").trim();
     if (!operationId) throw makeError("OPERATION_ID_REQUIRED", "operationId가 필요합니다.");
@@ -616,7 +639,14 @@ export function createAndPostReceipt(input, actor = "system") {
         summary,
       },
     };
-  }, actor);
+  })(normalizePlanContext(context));
+}
+
+export function createAndPostReceipt(input, actor = "system") {
+  return saveReceiptsDomainAtomic(
+    (context) => planCreateAndPostReceipt(context, input, actor),
+    actor,
+  );
 }
 
 export function getReceiptById(receiptId) {
@@ -778,8 +808,8 @@ export function replaceReceiptAllocations(receiptId, input, actor = "system") {
  * - Append reversal cash document (negative gross) on reversal date
  * - Reversal allocation rows are audit-only
  */
-export function reverseReceipt(receiptId, input = {}, actor = "system") {
-  return saveReceiptsDomainAtomic(({ receipts, allocations }) => {
+export function planReverseReceipt(context, receiptId, input = {}, actor = "system") {
+  return (({ receipts, allocations }) => {
     const original = receipts.find((row) => String(row.id) === String(receiptId));
     if (!original) throw makeError("RECEIPT_NOT_FOUND", "입금전표를 찾을 수 없습니다.", 404);
     if (original.reversalOfReceiptId) {
@@ -920,7 +950,14 @@ export function reverseReceipt(receiptId, input = {}, actor = "system") {
         summary: summarizeReceipt(reversal, reversalAllocs),
       },
     };
-  }, actor);
+  })(normalizePlanContext(context));
+}
+
+export function reverseReceipt(receiptId, input = {}, actor = "system") {
+  return saveReceiptsDomainAtomic(
+    (context) => planReverseReceipt(context, receiptId, input, actor),
+    actor,
+  );
 }
 
 export function deleteReceiptForbidden() {

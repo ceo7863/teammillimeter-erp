@@ -202,16 +202,28 @@ import {
   BufferedTextarea,
   BufferedTextInput,
 } from "@/components/AutocompleteInput";
-import { createPaymentInputLogsFromVouchers } from "@/utils/paymentInputLogs";
 import type { ReceivableRow } from "@/utils/receivables";
 import type { ErpUser } from "@/utils/erpApi";
+import {
+  createBankTransactionReceiptApi,
+  reverseBankTransactionReceiptApi,
+} from "@/utils/erpApi";
+import { getBankDepositLinkKind, hasBankDepositLinkField } from "@/utils/bankDepositLink";
+import { buildBankReceiptDisplay } from "@/utils/bankReceiptDisplay";
+import {
+  formatReceiptSaveMessage,
+  makeReceiptOperationId,
+  mergeEffectivePaymentVouchers,
+  projectReceiptsToLegacyPaymentVouchers,
+  type ReceiptAllocationRecord,
+  type ReceiptRecord,
+} from "@/utils/receiptLedger";
 import { BankTxPartyEditModal } from "@/components/BankTxPartyEditModal";
 import { BarobillBankSettingsPanel } from "@/components/BarobillBankSettingsPanel";
 import {
   buildAllBankDepositSuggestions,
   buildBankDepositManualLinkCandidates,
   buildDepositLinkAllocations,
-  createPaymentVoucherFromBankMatch,
   findBestClientDepositReceivableMatch,
   getBankMatchStatusLabel,
   isBankMatchAutoLinked,
@@ -241,7 +253,6 @@ import {
   buildHighConfidenceSentStatementAutoLinks,
   buildSentStatementMatchCandidates,
   buildSentStatementPaymentApplication,
-  createPaymentVouchersFromSentStatementMatch,
   type SentStatementMatchCandidate,
 } from "@/utils/bankSentStatementMatch";
 import { summarizeBankSentStatementAllocation } from "@/utils/bankSentStatementAllocation";
@@ -295,13 +306,13 @@ import {
   applyManualClientClearToTransaction,
   buildTopCounterpartySummaries,
   clearBankTransactionPaymentMatch,
+  clearBankTransactionReceiptLink,
   filterBankTransactions,
   formatBankTransactionDateTime,
   hasManualClientClassificationOverride,
   matchesBankTxCounterpartyFilter,
   normalizeBankTxCounterpartyKey,
   parseBankAmount,
-  resolveAutoLinkLinkedSubject,
   sortBankTransactions,
   DEFAULT_BANK_TRANSACTION_SORT,
   type BankTransaction,
@@ -404,6 +415,33 @@ function formatTxAccountSubjectLabel(
   const code = String(tx.ledgerAccountCode || "").trim();
   if (!code) return "";
   return resolveAccountCodeLabel(accountCodes, code) || code;
+}
+
+const RECEIPT_ALREADY_LINKED_MESSAGE =
+  "\uC774\uBBF8 \uC785\uAE08\uC804\uD45C\uAC00 \uC5F0\uACB0\uB41C \uD1B5\uC7A5 \uAC70\uB798\uC785\uB2C8\uB2E4. \uC5F0\uACB0\uC744 \uD574\uC81C\uD55C \uD6C4 \uB2E4\uC2E0 \uC2DC\uB3C4\uD558\uC138\uC694.";
+const RECEIPT_CLIENT_REQUIRED_MESSAGE =
+  "\uC785\uAE08\uC804\uD45C\uB97C \uB9CC\uB4E4 \uAC70\uB798\uCC98\uB97C \uD2B9\uC815\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.";
+const RECEIPT_CLIENT_NOT_FOUND_MESSAGE = (name: string) =>
+  `\uAC70\uB798\uCC98 \uB9C8\uC2A4\uD0C4\uC5D0\uC11C "${name}"\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uAC70\uB798\uCC98 \uB4F1\uB85D\uC744 \uD655\uC778\uD558\uC138\uC694.`;
+const RECEIPT_CLIENT_AMBIGUOUS_MESSAGE = (name: string) =>
+  `\uB3D9\uC77C\uD55C \uC774\uB984\uC758 \uAC70\uB798\uCC98("${name}")\uAC00 \uC5EC\uB7EC \uAC74 \uC788\uC5B4 \uC790\uB3D9 \uD2B9\uC815\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.`;
+
+/** Receipt allocations from the legacy voucher drafts: saleId + amount only. */
+function toReceiptAllocations(
+  vouchers: Array<{ salesId?: string | number | null; finalAmount?: number; amount?: number }>,
+) {
+  return vouchers
+    .filter((voucher) => voucher.salesId != null && voucher.salesId !== "")
+    .map((voucher) => ({
+      saleId: voucher.salesId as string | number,
+      amount: Math.round(Number(voucher.finalAmount ?? voucher.amount ?? 0)),
+    }))
+    .filter((row) => row.amount > 0);
+}
+
+function describeReceiptError(error: unknown) {
+  const message = String((error as { message?: string })?.message || "").trim();
+  return `\uC785\uAE08\uC804\uD45C \uC800\uC7A5 \uC2E4\uD328${message ? `: ${message}` : ""}`;
 }
 
 const L = {
@@ -991,6 +1029,9 @@ function BankTransactionsPageComponent({
   onPendingBankSearchQueryConsumed,
   pendingBankTransactionId = null,
   onPendingBankTransactionIdConsumed,
+  receipts = [],
+  receiptAllocations = [],
+  onReceiptLedgerUpsert,
 }: {
   bankTransactions: BankTransaction[];
   setBankTransactions: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
@@ -1065,6 +1106,14 @@ function BankTransactionsPageComponent({
   onPendingBankSearchQueryConsumed?: () => void;
   pendingBankTransactionId?: string | null;
   onPendingBankTransactionIdConsumed?: () => void;
+  /** Phase 2 unified AR: deposits post Receipts, not payment vouchers. */
+  receipts?: ReceiptRecord[];
+  receiptAllocations?: ReceiptAllocationRecord[];
+  onReceiptLedgerUpsert?: (result: {
+    receipt?: ReceiptRecord;
+    allocations?: ReceiptAllocationRecord[];
+    original?: ReceiptRecord | null;
+  }) => void;
 }) {
   const { erpVersion } = useBankSyncMeta();
   const [pageView, setPageView] = useState<PageView>("list");
@@ -1223,6 +1272,34 @@ function BankTransactionsPageComponent({
   const savedBy = currentUser?.name || currentUser?.loginId || "";
   const { bannerVisible, applyNewVersion, guardFinancialSave } = useDeployVersionGuard();
 
+  // Phase 2: receipt allocations projected as legacy vouchers so the existing
+  // FIFO/remaining math keeps working while Receipts are the real AR document.
+  const effectivePaymentVouchers = useMemo(
+    () =>
+      mergeEffectivePaymentVouchers(
+        paymentVouchers,
+        projectReceiptsToLegacyPaymentVouchers(receipts, receiptAllocations, clients),
+      ) as typeof paymentVouchers,
+    [paymentVouchers, receipts, receiptAllocations, clients],
+  );
+
+  const resolveDepositLinkKind = React.useCallback(
+    (tx: BankTransaction) => getBankDepositLinkKind(tx, { receipts, paymentVouchers }),
+    [receipts, paymentVouchers],
+  );
+
+  const resolveReceiptClientId = React.useCallback(
+    (clientName: string): { clientId: string; message: string } => {
+      const name = String(clientName || "").trim();
+      if (!name) return { clientId: "", message: RECEIPT_CLIENT_REQUIRED_MESSAGE };
+      const matches = clients.filter((row) => String(row.name || "").trim() === name && row.id != null);
+      if (matches.length === 1) return { clientId: String(matches[0].id), message: "" };
+      if (matches.length > 1) return { clientId: "", message: RECEIPT_CLIENT_AMBIGUOUS_MESSAGE(name) };
+      return { clientId: "", message: RECEIPT_CLIENT_NOT_FOUND_MESSAGE(name) };
+    },
+    [clients],
+  );
+
   const resolveFolderLabel = React.useCallback(
     (folderId?: string) => {
       if (!folderId) return "-";
@@ -1259,6 +1336,22 @@ function BankTransactionsPageComponent({
       user: currentUser,
     });
   };
+
+  /** Apply the server's authoritative bank row + receipt rows to local state. */
+  const applyBankReceiptResult = (
+    tx: BankTransaction,
+    result: {
+      receipt?: ReceiptRecord;
+      allocations?: ReceiptAllocationRecord[];
+      bankTransaction?: Record<string, unknown>;
+    },
+  ) => {
+    onReceiptLedgerUpsert?.({ receipt: result.receipt, allocations: result.allocations });
+    const nextRow = (result.bankTransaction || {}) as Partial<BankTransaction>;
+    setBankTransactions((prev) => prev.map((row) => (row.id === tx.id ? { ...row, ...nextRow } : row)));
+    auditBankTxUpdate(tx, { ...tx, ...nextRow });
+  };
+
   const ledgerRegistrationContext = useMemo(
     () => ({ companyExpenses, fixedExpensePayments }),
     [companyExpenses, fixedExpensePayments],
@@ -3317,8 +3410,8 @@ function BankTransactionsPageComponent({
   }, [pageView, deferredBankTransactions, receivableRows, sentArchives, clients, paymentVouchers]);
 
   const unmatchedDepositCount = useMemo(
-    () => bankTransactions.filter((row) => row.deposit > 0 && !row.linkedPaymentVoucherId).length,
-    [bankTransactions]
+    () => bankTransactions.filter((row) => row.deposit > 0 && !hasBankDepositLinkField(row)).length,
+    [bankTransactions],
   );
 
   const flowTotal = stats.deposits + stats.withdrawals;
@@ -3656,78 +3749,71 @@ function BankTransactionsPageComponent({
           if (smart.expenseCategories.length) setExpenseCategories(smart.expenseCategories);
           const freshSentArchives = await listSentStatementArchives();
           setSentArchives(freshSentArchives);
-          const savedByForAutoLink = currentUser?.name || currentUser?.loginId || "";
           const autoLinks = buildHighConfidenceSentStatementAutoLinks({
             bankTransactions: smart.bankTransactions,
             archives: freshSentArchives,
             clients,
             sales,
-            paymentVouchers,
+            paymentVouchers: effectivePaymentVouchers,
+            receipts,
             onlyTransactionIds: addedIds,
           });
           let bankTransactionsForSave = smart.bankTransactions;
-          let paymentVouchersForSave = paymentVouchers;
           if (autoLinks.length) {
-            const autoVouchers = autoLinks.flatMap((row) => row.vouchers);
-            const autoLogs = createPaymentInputLogsFromVouchers(autoVouchers, savedByForAutoLink);
-            const linkByTxId = new Map(autoLinks.map((item) => [item.txId, item]));
-            bankTransactionsForSave = smart.bankTransactions.map((row) => {
-              const linked = linkByTxId.get(row.id);
-              if (!linked) return row;
-              return {
-                ...row,
-                linkedPaymentVoucherId: linked.primaryVoucherId,
-                linkedPdfArchiveId: linked.pdfArchiveId,
-                linkedSubject: resolveAutoLinkLinkedSubject(row, linked.client),
-                linkedSalesId: linked.primarySalesId,
-                matchConfirmedAt: new Date().toISOString(),
-                matchConfirmedBy: savedByForAutoLink,
-                matchAutoLinked: true,
-                folderId:
-                  row.folderId ||
-                  (isCardCompanyDeposit(row) ? DEFAULT_CARD_SALES_FOLDER_ID : DEFAULT_CLIENT_FOLDER_ID),
-              };
-            });
-            paymentVouchersForSave = [...autoVouchers, ...(paymentVouchers as typeof autoVouchers)];
-            setPaymentInputLogs((prevLogs) => [...autoLogs, ...(prevLogs as typeof autoLogs)]);
-            setPaymentVouchers(paymentVouchersForSave);
-            const autoVoucherIdSet = new Set(autoVouchers.map((voucher) => String(voucher.id)));
-            const bankBeforeAutoLink = smart.bankTransactions;
-            void Promise.all(
-              autoLinks.map((linked) =>
-                updatePdfArchiveMeta(linked.pdfArchiveId, {
+            // Phase 2: auto deposit links post Receipts through the server. No
+            // vouchers or payment input logs are created on the client.
+            const postedRows = new Map<string, Partial<BankTransaction>>();
+            let postedCount = 0;
+            for (const linked of autoLinks) {
+              const clientResolution = resolveReceiptClientId(linked.client);
+              if (!clientResolution.clientId) continue;
+              const allocations = toReceiptAllocations(linked.vouchers);
+              if (!allocations.length) continue;
+              const tx =
+                postedRows.has(linked.txId)
+                  ? ({
+                      ...(smart.bankTransactions.find((row) => row.id === linked.txId) || { id: linked.txId }),
+                      ...postedRows.get(linked.txId),
+                    } as BankTransaction)
+                  : smart.bankTransactions.find((row) => row.id === linked.txId);
+              if (!tx) continue;
+              try {
+                const posted = await createBankTransactionReceiptApi(linked.txId, {
+                  operationId: `bank-receipt:auto:${linked.txId}`,
+                  clientId: clientResolution.clientId,
+                  allocations,
+                  sentStatementId: linked.pdfArchiveId,
+                  source: "bank_auto",
+                });
+                postedCount += 1;
+                applyBankReceiptResult(tx, posted);
+                if (posted.bankTransaction) {
+                  postedRows.set(linked.txId, posted.bankTransaction as Partial<BankTransaction>);
+                }
+                await updatePdfArchiveMeta(linked.pdfArchiveId, {
                   paymentStatus: linked.paymentStatus === "confirmed" ? "confirmed" : "partial",
                   linkedBankTransactionId: linked.txId,
-                  linkedPaymentVoucherId: linked.primaryVoucherId,
-                }),
-              ),
-            )
-              .then(() => loadSentArchives())
-              .catch((error) => {
+                  linkedReceiptId: String(posted.receipt?.id || ""),
+                });
+              } catch (error) {
+                // A failed auto link leaves the deposit untouched for manual review.
                 console.error(error);
-                setPaymentVouchers((prev) =>
-                  prev.filter((voucher) => !autoVoucherIdSet.has(String(voucher.id))),
-                );
-                setPaymentInputLogs((prev) =>
-                  prev.filter(
-                    (log) =>
-                      !autoVoucherIdSet.has(
-                        String((log as { paymentVoucherId?: string | number }).paymentVoucherId || ""),
-                      ),
-                  ),
-                );
-                setBankTransactions(bankBeforeAutoLink);
-                bankTransactionsForSave = bankBeforeAutoLink;
-                paymentVouchersForSave = paymentVouchers;
-                setImportMessage(
-                  "\uB0B4\uC5ED\uC11C \uC790\uB3D9 \uC785\uAE08 \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD574 \uC5F0\uACB0\uC744 \uCDE8\uC18C\uD588\uC2B5\uB2C8\uB2E4.",
-                );
+              }
+            }
+            if (postedRows.size) {
+              bankTransactionsForSave = smart.bankTransactions.map((row) => {
+                const patch = postedRows.get(row.id);
+                return patch ? { ...row, ...patch } : row;
               });
-            setImportMessage((prev) =>
-              prev.includes("\uBCF4\uB0B8\uB0B4\uC5ED\uC11C \uC790\uB3D9 \uC785\uAE08")
-                ? prev
-                : `${prev} \u00B7 \uBCF4\uB0B8\uB0B4\uC5ED\uC11C \uC790\uB3D9 \uC785\uAE08 ${autoLinks.length}\uAC74`,
-            );
+            }
+            await loadSentArchives();
+            if (postedCount > 0) {
+              setImportMessage((prev) =>
+                prev.includes("\uBCF4\uB0B8\uB0B4\uC5ED\uC11C \uC790\uB3D9 \uC785\uAE08")
+                  ? prev
+                  : `${prev} \u00B7 \uBCF4\uB0B8\uB0B4\uC5ED\uC11C \uC790\uB3D9 \uC785\uAE08 ${postedCount}\uAC74`,
+              );
+            }
           }
           setBankTransactions(bankTransactionsForSave);
           const hint = formatSmartLedgerRunMessage(smart);
@@ -3736,7 +3822,6 @@ function BankTransactionsPageComponent({
           }
           void onRequestImmediateSave?.({
             bankTransactions: bankTransactionsForSave,
-            paymentVouchers: paymentVouchersForSave,
             bankTransactionFolders: smart.bankTransactionFolders,
             fixedExpensePayments: smart.fixedExpensePayments,
             companyExpenses: smart.companyExpenses,
@@ -3953,10 +4038,15 @@ function BankTransactionsPageComponent({
       return;
     }
 
+    if (resolveDepositLinkKind(tx) === "receipt") {
+      setImportMessage(RECEIPT_ALREADY_LINKED_MESSAGE);
+      return;
+    }
+
     const archive = sentArchives.find((row) => row.id === candidate.pdfArchiveId);
     const existingSummary = summarizeBankSentStatementAllocation({
       tx,
-      paymentVouchers,
+      paymentVouchers: effectivePaymentVouchers,
       archive,
     });
     if (existingSummary?.kind === "complete") {
@@ -3975,7 +4065,7 @@ function BankTransactionsPageComponent({
       sales,
       clients,
       archive,
-      paymentVouchers,
+      paymentVouchers: effectivePaymentVouchers,
     });
     const vouchers = application.vouchers;
     // Incomplete allocation must never be persisted as confirmed.
@@ -3990,54 +4080,41 @@ function BankTransactionsPageComponent({
       );
       return;
     }
-    const existingPrimaryId = tx.linkedPaymentVoucherId;
-    const savedBy = currentUser?.name || currentUser?.loginId || "";
-    const logs = createPaymentInputLogsFromVouchers(vouchers, savedBy);
-    const statementSalesIds = vouchers[0]?.statementSalesIds;
-    const voucherIdSet = new Set(vouchers.map((voucher) => String(voucher.id)));
-    const linkedBankPatch = {
-      linkedPaymentVoucherId: existingPrimaryId || primaryVoucher.id,
-      linkedPdfArchiveId: candidate.pdfArchiveId,
-      linkedSubject: candidate.client,
-      linkedSalesId:
-        !existingPrimaryId && vouchers.length === 1 ? primaryVoucher.salesId : tx.linkedSalesId,
-      matchConfirmedAt: new Date().toISOString(),
-      matchConfirmedBy: savedBy,
-      matchAutoLinked: false,
-      folderId:
-        tx.folderId ||
-        (isCardCompanyDeposit(tx) ? DEFAULT_CARD_SALES_FOLDER_ID : DEFAULT_CLIENT_FOLDER_ID),
-    };
-    const previousBankSnapshot = { ...tx };
+    const statementSalesIds = primaryVoucher.statementSalesIds;
+    const clientResolution = resolveReceiptClientId(candidate.client || primaryVoucher.client);
+    if (!clientResolution.clientId) {
+      setImportMessage(clientResolution.message);
+      return;
+    }
 
-    vouchers.forEach((voucher) => {
-      recordAudit({
-        entityType: "paymentVoucher",
-        entityId: voucher.id,
-        entityLabel: `${voucher.client} \u00B7 ${voucher.site}`,
-        screen: L.pageTitle,
-        action: "create",
-        after: snapshotPaymentForAudit(voucher),
-        fields: PAYMENT_AUDIT_FIELDS,
-        user: currentUser,
+    const allocations = toReceiptAllocations(vouchers);
+    if (!allocations.length) {
+      setImportMessage("\uC785\uAE08 \uBC30\uBD84\uC744 \uC0DD\uC131\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+      return;
+    }
+
+    let result: Awaited<ReturnType<typeof createBankTransactionReceiptApi>>;
+    try {
+      result = await createBankTransactionReceiptApi(tx.id, {
+        operationId: makeReceiptOperationId(`bank-receipt:manual:${tx.id}`),
+        clientId: clientResolution.clientId,
+        allocations,
+        sentStatementId: candidate.pdfArchiveId,
+        source: "bank_manual",
       });
-    });
-    auditBankTxUpdate(tx, {
-      ...tx,
-      ...linkedBankPatch,
-    });
+    } catch (error) {
+      // Keep the modal (and its selection) open so the user can retry.
+      setImportMessage(describeReceiptError(error));
+      return;
+    }
 
-    setPaymentVouchers((prev) => [...vouchers, ...(prev as typeof vouchers)]);
-    setPaymentInputLogs((prev) => [...logs, ...(prev as typeof logs)]);
-    setBankTransactions((prev) =>
-      prev.map((row) => (row.id === tx.id ? { ...row, ...linkedBankPatch } : row)),
-    );
+    applyBankReceiptResult(tx, result);
 
     try {
       await updatePdfArchiveMeta(candidate.pdfArchiveId, {
         paymentStatus,
         linkedBankTransactionId: tx.id,
-        linkedPaymentVoucherId: primaryVoucher.id,
+        linkedReceiptId: String(result.receipt?.id || ""),
         ...(statementSalesIds?.length ? { statementSalesIds } : {}),
       });
       setSentArchives((prev) =>
@@ -4047,27 +4124,24 @@ function BankTransactionsPageComponent({
                 ...row,
                 paymentStatus,
                 linkedBankTransactionId: tx.id,
-                linkedPaymentVoucherId: primaryVoucher.id,
+                linkedReceiptId: String(result.receipt?.id || ""),
                 ...(statementSalesIds?.length ? { statementSalesIds } : {}),
               }
             : row,
         ),
       );
     } catch (error) {
+      // The receipt is already posted; never silently reverse it here.
       console.error(error);
-      setPaymentVouchers((prev) => prev.filter((voucher) => !voucherIdSet.has(String(voucher.id))));
-      setPaymentInputLogs((prev) =>
-        prev.filter((log) => !voucherIdSet.has(String((log as { paymentVoucherId?: string | number }).paymentVoucherId || ""))),
+      setLinkModalTx(null);
+      setImportMessage(
+        `${formatReceiptSaveMessage(result)} \u00B7 \uB0B4\uC5ED\uC11C \uC785\uAE08\uC0C1\uD0DC \uC800\uC7A5\uC5D0\uB294 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.`,
       );
-      setBankTransactions((prev) =>
-        prev.map((row) => (row.id === tx.id ? previousBankSnapshot : row)),
-      );
-      setImportMessage("\uB0B4\uC5ED\uC11C \uC785\uAE08\uC0C1\uD0DC \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD574 \uC785\uAE08 \uC5F0\uACB0\uC744 \uCDE8\uC18C\uD588\uC2B5\uB2C8\uB2E4.");
       return;
     }
 
     setLinkModalTx(null);
-    setImportMessage(L.matchDone);
+    setImportMessage(formatReceiptSaveMessage(result));
   };
 
   const openLedgerRegister = (tx: BankTransaction) => {
@@ -4898,7 +4972,7 @@ function BankTransactionsPageComponent({
     setImportMessage(`${L.clientLinkDone}${classifyNote}`);
   };
 
-  const confirmDepositMatchBatch = (
+  const confirmDepositMatchBatch = async (
     tx: BankTransaction,
     items: Array<{ candidate: BankDepositMatchCandidate; finalAmount: number; unpaidAfter?: number }>,
   ) => {
@@ -4908,8 +4982,12 @@ function BankTransactionsPageComponent({
       setImportMessage(versionGuard.message);
       return;
     }
+    if (resolveDepositLinkKind(tx) === "receipt") {
+      setImportMessage(RECEIPT_ALREADY_LINKED_MESSAGE);
+      return;
+    }
 
-    const remaining = resolveBankDepositLinkRemaining(tx, paymentVouchers);
+    const remaining = resolveBankDepositLinkRemaining(tx, effectivePaymentVouchers);
     const allocationItems = items.map((item) => ({
       salesId: item.candidate.salesId,
       unpaid: item.candidate.unpaid,
@@ -4917,90 +4995,82 @@ function BankTransactionsPageComponent({
     const allocations = buildDepositLinkAllocations(remaining, allocationItems);
     const allocationBySalesId = new Map(allocations.map((row) => [String(row.salesId), row]));
 
-    const newVouchers: ReturnType<typeof createPaymentVoucherFromBankMatch>[] = [];
-    const savedBy = currentUser?.name || currentUser?.loginId || "";
-
+    const drafts: Array<{ salesId: string | number; finalAmount: number; client: string }> = [];
     for (const item of items) {
       const allocation = allocationBySalesId.get(String(item.candidate.salesId));
       if (!allocation || allocation.finalAmount <= 0) continue;
-
       const receivable = receivableRows.find((row) => String(row.id) === String(item.candidate.salesId));
       if (!receivable) continue;
-
-      const enrichedCandidate = {
-        ...item.candidate,
-        paymentAmount: allocation.paymentAmount,
-        vatType: allocation.vatType,
-        vatAmount: allocation.vatAmount,
+      drafts.push({
+        salesId: item.candidate.salesId,
         finalAmount: allocation.finalAmount,
-      };
-
-      const sale = sales.find((row) => String(row.id) === String(item.candidate.salesId));
-      const voucher = createPaymentVoucherFromBankMatch(tx, enrichedCandidate, receivable, sale);
-      if (allocation.unpaidAfter > 0) voucher.isPartialPayment = true;
-      newVouchers.push(voucher);
-
-      recordAudit({
-        entityType: "paymentVoucher",
-        entityId: voucher.id,
-        entityLabel: `${voucher.client} \u00B7 ${voucher.site}`,
-        screen: L.pageTitle,
-        action: "create",
-        after: snapshotPaymentForAudit(voucher),
-        fields: PAYMENT_AUDIT_FIELDS,
-        user: currentUser,
+        client: String(receivable.client || item.candidate.client || ""),
       });
     }
+    if (!drafts.length) return;
 
-    if (!newVouchers.length) return;
+    const clientResolution = resolveReceiptClientId(tx.linkedSubject || drafts[0].client);
+    if (!clientResolution.clientId) {
+      setImportMessage(clientResolution.message);
+      return;
+    }
 
-    const logs = createPaymentInputLogsFromVouchers(newVouchers, savedBy);
-    const primaryVoucher = newVouchers[0];
-    const primaryReceivable = receivableRows.find(
-      (row) => String(row.id) === String(primaryVoucher.salesId),
-    );
+    let result: Awaited<ReturnType<typeof createBankTransactionReceiptApi>>;
+    try {
+      result = await createBankTransactionReceiptApi(tx.id, {
+        operationId: makeReceiptOperationId(`bank-receipt:manual:${tx.id}`),
+        clientId: clientResolution.clientId,
+        allocations: toReceiptAllocations(drafts),
+        source: "bank_manual",
+      });
+    } catch (error) {
+      // Keep the selection in the modal so the user can adjust and retry.
+      setImportMessage(describeReceiptError(error));
+      return;
+    }
 
-    auditBankTxUpdate(tx, {
-      ...tx,
-      linkedSalesId: primaryReceivable?.id ?? tx.linkedSalesId,
-      linkedPaymentVoucherId: tx.linkedPaymentVoucherId || primaryVoucher.id,
-      linkedSubject: primaryReceivable?.client || tx.linkedSubject || primaryVoucher.client,
-      matchConfirmedAt: new Date().toISOString(),
-      matchConfirmedBy: savedBy,
-      matchAutoLinked: false,
-      folderId:
-        tx.folderId ||
-        (isCardCompanyDeposit(tx) ? DEFAULT_CARD_SALES_FOLDER_ID : DEFAULT_CLIENT_FOLDER_ID),
-    });
+    applyBankReceiptResult(tx, result);
+    setLinkModalTx(null);
+    setImportMessage(formatReceiptSaveMessage(result));
+  };
 
-    setPaymentVouchers((prev) => [...newVouchers, ...(prev as typeof newVouchers)]);
-    setPaymentInputLogs((prev) => [...logs, ...(prev as typeof logs)]);
+  /** Phase 2 unlink: reverse the Receipt. Legacy voucher rows keep the old path. */
+  const unlinkDepositReceipt = async (tx: BankTransaction, receiptId: string) => {
+    const versionGuard = guardFinancialSave();
+    if (!versionGuard.ok) {
+      setImportMessage(versionGuard.message);
+      return;
+    }
+    const display = buildBankReceiptDisplay(tx, receipts, receiptAllocations);
+    const label = display?.receiptNo || receiptId;
+    if (!confirm(`\uC785\uAE08\uC804\uD45C (${label}) \uC5F0\uACB0\uC744 \uD574\uC81C\uD558\uACE0 \uCDE8\uC18C\uD560\uAE4C\uC694?`)) {
+      return;
+    }
+
+    let result: Awaited<ReturnType<typeof reverseBankTransactionReceiptApi>>;
+    try {
+      result = await reverseBankTransactionReceiptApi(tx.id, {
+        operationId: makeReceiptOperationId(`bank-receipt:reverse:${tx.id}`),
+        receiptId,
+      });
+    } catch (error) {
+      setImportMessage(describeReceiptError(error));
+      return;
+    }
+
+    onReceiptLedgerUpsert?.({ receipt: result.receipt, allocations: result.allocations, original: result.original });
+    const nextRow = (result.bankTransaction || {}) as Partial<BankTransaction>;
     setBankTransactions((prev) =>
       prev.map((row) =>
-        row.id === tx.id
-          ? {
-              ...row,
-              linkedSalesId: primaryReceivable?.id ?? row.linkedSalesId,
-              linkedPaymentVoucherId: row.linkedPaymentVoucherId || primaryVoucher.id,
-              linkedSubject: primaryReceivable?.client || row.linkedSubject || primaryVoucher.client,
-              matchConfirmedAt: new Date().toISOString(),
-              matchConfirmedBy: savedBy,
-              matchAutoLinked: false,
-              folderId:
-                row.folderId ||
-                (isCardCompanyDeposit(row) ? DEFAULT_CARD_SALES_FOLDER_ID : DEFAULT_CLIENT_FOLDER_ID),
-            }
-          : row,
+        row.id === tx.id ? { ...clearBankTransactionReceiptLink(row), ...nextRow } : row,
       ),
     );
-    setImportMessage(
-      newVouchers.length > 1
-        ? `${newVouchers.length}\uAC74 \uC804\uD45C\uAC00 \uC785\uAE08 \uC5F0\uACB0\uB418\uC5C8\uC2B5\uB2C8\uB2E4.`
-        : L.matchDone,
-    );
+    setLinkModalTx(null);
+    setImportMessage("\uC785\uAE08\uC804\uD45C \uC5F0\uACB0\uC774 \uD574\uC81C\uB418\uC5C8\uC2B5\uB2C8\uB2E4.");
   };
 
   const unlinkDepositPaymentVoucher = (tx: BankTransaction, voucherId: string) => {
+    // Legacy vouchers only — Receipt links are released through the reverse API.
     const voucher = paymentVouchers.find((item) => String(item.id) === String(voucherId));
     if (!voucher) return;
     if (
@@ -5040,14 +5110,14 @@ function BankTransactionsPageComponent({
     setImportMessage("\uC804\uD45C \uC5F0\uACB0\uC774 \uD574\uC81C\uB418\uC5C8\uC2B5\uB2C8\uB2E4.");
   };
 
-  const confirmDepositMatch = (tx: BankTransaction, candidate: BankDepositMatchCandidate) => {
-    const remaining = resolveBankDepositLinkRemaining(tx, paymentVouchers);
+  const confirmDepositMatch = async (tx: BankTransaction, candidate: BankDepositMatchCandidate) => {
+    const remaining = resolveBankDepositLinkRemaining(tx, effectivePaymentVouchers);
     if (remaining <= 0) {
       setImportMessage("\uC774\uBBF4 \uC785\uAE08 \uAE08\uC561\uC774 \uBAA8\uB450 \uC804\uD45C\uC5D0 \uC5F0\uACB0\uB418\uC5C8\uC2B5\uB2C8\uB2E4.");
       return;
     }
     const allocation = resolveDepositLinkAllocation(remaining, candidate.unpaid);
-    confirmDepositMatchBatch(tx, [
+    await confirmDepositMatchBatch(tx, [
       {
         candidate: {
           ...candidate,
@@ -5059,7 +5129,6 @@ function BankTransactionsPageComponent({
         finalAmount: allocation.finalAmount,
       },
     ]);
-    setLinkModalTx(null);
   };
 
   const confirmWorkerMonthlyLinkBatch = (
@@ -5188,19 +5257,15 @@ function BankTransactionsPageComponent({
     setWorkerLinkModal(null);
   };
 
-  const confirmHighConfidenceMatches = () => {
+  const confirmHighConfidenceMatches = async () => {
     const versionGuard = guardFinancialSave();
     if (!versionGuard.ok) {
       setImportMessage(versionGuard.message);
       return;
     }
-    const savedBy = currentUser?.name || currentUser?.loginId || "";
-    const existingBankIds = new Set(
-      paymentVouchers.map((voucher) => String(voucher.bankTransactionId || "")).filter(Boolean)
-    );
-    const newVouchers: ReturnType<typeof createPaymentVoucherFromBankMatch>[] = [];
-    const sentVouchers: ReturnType<typeof createPaymentVouchersFromSentStatementMatch>[number][] = [];
-    let workingPaymentVouchers = paymentVouchers as Array<{
+
+    // Drafts calculate amount/FIFO only; the Receipt API is the sole writer.
+    let workingPaymentVouchers = effectivePaymentVouchers as Array<{
       salesId?: number | string;
       finalAmount?: number;
       amount?: number;
@@ -5208,15 +5273,19 @@ function BankTransactionsPageComponent({
       linkedPdfArchiveId?: string;
       isPartialPayment?: boolean;
     }>;
-    const linkedByTxId = new Map<
-      string,
-      { salesId?: number | string; voucherId: number; client: string; pdfArchiveId?: string; paymentStatus?: "confirmed" | "partial" }
-    >();
+    const plans: Array<{
+      tx: BankTransaction;
+      client: string;
+      allocations: Array<{ saleId: string | number; amount: number }>;
+      pdfArchiveId?: string;
+      paymentStatus?: "confirmed" | "partial";
+    }> = [];
 
     for (const item of depositSuggestions) {
       const candidate = item.candidates[0];
       if (!candidate || candidate.score < 75) continue;
-      if (item.tx.linkedPaymentVoucherId || existingBankIds.has(item.tx.id)) continue;
+      if (resolveDepositLinkKind(item.tx) !== "none") continue;
+      if (hasBankDepositLinkField(item.tx)) continue;
       if (hasManualClientClassificationOverride(item.tx)) continue;
 
       if (item.kind === "sentStatement") {
@@ -5230,17 +5299,15 @@ function BankTransactionsPageComponent({
         });
         const vouchers = application.vouchers;
         if (!vouchers.length) continue;
-        const paymentStatus =
-          application.paymentStatus === "pending" ? "partial" : application.paymentStatus;
-        sentVouchers.push(...vouchers);
+        const allocations = toReceiptAllocations(vouchers);
+        if (!allocations.length) continue;
         workingPaymentVouchers = [...workingPaymentVouchers, ...vouchers];
-        existingBankIds.add(item.tx.id);
-        linkedByTxId.set(item.tx.id, {
-          voucherId: vouchers[0].id,
+        plans.push({
+          tx: item.tx,
           client: sentCandidate.client,
+          allocations,
           pdfArchiveId: sentCandidate.pdfArchiveId,
-          paymentStatus,
-          salesId: vouchers.length === 1 ? vouchers[0].salesId : undefined,
+          paymentStatus: application.paymentStatus === "pending" ? "partial" : application.paymentStatus,
         });
         continue;
       }
@@ -5248,106 +5315,83 @@ function BankTransactionsPageComponent({
       const receivableCandidate = candidate as BankDepositMatchCandidate;
       const receivable = receivableRows.find((row) => String(row.id) === String(receivableCandidate.salesId));
       if (!receivable) continue;
-      const sale = sales.find((row) => String(row.id) === String(receivableCandidate.salesId));
-      const voucher = createPaymentVoucherFromBankMatch(item.tx, receivableCandidate, receivable, sale);
-      newVouchers.push(voucher);
-      existingBankIds.add(item.tx.id);
-      linkedByTxId.set(item.tx.id, {
+      const remaining = resolveBankDepositLinkRemaining(item.tx, workingPaymentVouchers);
+      if (remaining <= 0) continue;
+      const allocation = resolveDepositLinkAllocation(remaining, receivableCandidate.unpaid);
+      if (allocation.finalAmount <= 0) continue;
+      const draft = {
         salesId: receivable.id,
-        voucherId: voucher.id,
-        client: receivable.client,
+        finalAmount: allocation.finalAmount,
+        bankTransactionId: item.tx.id,
+      };
+      const allocations = toReceiptAllocations([draft]);
+      if (!allocations.length) continue;
+      workingPaymentVouchers = [...workingPaymentVouchers, draft];
+      plans.push({
+        tx: item.tx,
+        client: String(receivable.client || receivableCandidate.client || ""),
+        allocations,
       });
     }
 
-    const allVouchers = [...sentVouchers, ...newVouchers];
-    if (!allVouchers.length) return;
+    if (!plans.length) {
+      setImportMessage(`0${L.matchBulkDone}`);
+      return;
+    }
 
-    const logs = createPaymentInputLogsFromVouchers(allVouchers, savedBy);
-    allVouchers.forEach((voucher) => {
-      recordAudit({
-        entityType: "paymentVoucher",
-        entityId: voucher.id,
-        entityLabel: `${voucher.client} \u00B7 ${voucher.site}`,
+    let postedCount = 0;
+    let skippedCount = 0;
+    for (const plan of plans) {
+      if (resolveDepositLinkKind(plan.tx) !== "none") {
+        skippedCount += 1;
+        continue;
+      }
+      const clientResolution = resolveReceiptClientId(plan.tx.linkedSubject || plan.client);
+      if (!clientResolution.clientId) {
+        skippedCount += 1;
+        continue;
+      }
+      try {
+        const posted = await createBankTransactionReceiptApi(plan.tx.id, {
+          operationId: makeReceiptOperationId(`bank-receipt:manual-bulk:${plan.tx.id}`),
+          clientId: clientResolution.clientId,
+          allocations: plan.allocations,
+          sentStatementId: plan.pdfArchiveId,
+          source: "bank_manual",
+        });
+        postedCount += 1;
+        applyBankReceiptResult(plan.tx, posted);
+        if (plan.pdfArchiveId) {
+          await updatePdfArchiveMeta(plan.pdfArchiveId, {
+            paymentStatus: plan.paymentStatus || "partial",
+            linkedBankTransactionId: plan.tx.id,
+            linkedReceiptId: String(posted.receipt?.id || ""),
+          });
+        }
+      } catch (error) {
+        console.error(error);
+        skippedCount += 1;
+      }
+    }
+
+    if (postedCount > 0) {
+      recordSummaryAudit({
+        entityType: "bankTransaction",
+        entityId: "bulk-match",
+        entityLabel: "\uACE0\uC2E0\uB8B0 \uC790\uB3D9 \uC785\uAE08 \uC5F0\uACB0",
         screen: L.pageTitle,
-        action: "create",
-        after: snapshotPaymentForAudit(voucher),
-        fields: PAYMENT_AUDIT_FIELDS,
+        action: "import",
+        fieldLabel: "\uC77C\uAD04 \uC785\uAE08",
+        after: `${postedCount}\uAC74 \uC785\uAE08\uC804\uD45C \uC790\uB3D9 \uC5F0\uACB0`,
         user: currentUser,
       });
-    });
-    recordSummaryAudit({
-      entityType: "bankTransaction",
-      entityId: "bulk-match",
-      entityLabel: "\uACE0\uC2E0\uB8B0 \uC790\uB3D9 \uC785\uAE08 \uC5F0\uACB0",
-      screen: L.pageTitle,
-      action: "import",
-      fieldLabel: "\uC77C\uAD04 \uC785\uAE08",
-      after: `${allVouchers.length}\uAC74 \uC790\uB3D9 \uC785\uAE08 \uC5F0\uACB0`,
-      user: currentUser,
-    });
-
-    setPaymentVouchers((prev) => [...allVouchers, ...(prev as typeof allVouchers)]);
-    setPaymentInputLogs((prev) => [...logs, ...(prev as typeof logs)]);
-    setBankTransactions((prev) =>
-      prev.map((row) => {
-        const linked = linkedByTxId.get(row.id);
-        if (!linked) return row;
-        return {
-          ...row,
-          linkedSalesId: linked.salesId,
-          linkedPaymentVoucherId: linked.voucherId,
-          linkedPdfArchiveId: linked.pdfArchiveId,
-          linkedSubject: resolveAutoLinkLinkedSubject(row, linked.client),
-          matchConfirmedAt: new Date().toISOString(),
-          matchConfirmedBy: savedBy,
-          matchAutoLinked: true,
-          folderId:
-            row.folderId || (isCardCompanyDeposit(row) ? DEFAULT_CARD_SALES_FOLDER_ID : DEFAULT_CLIENT_FOLDER_ID),
-        };
-      })
+      await loadSentArchives();
+    }
+    setImportMessage(
+      postedCount > 0
+        ? `${postedCount}${L.matchBulkDone}${skippedCount ? ` \u00B7 ${skippedCount}\uAC74 \uC0DD\uB7B5(\uC218\uB3D9 \uD655\uC778 \uD544\uC694)` : ""}`
+        : `\uC785\uAE08\uC804\uD45C \uC790\uB3D9 \uC5F0\uACB0 0\uAC74${skippedCount ? ` \u00B7 ${skippedCount}\uAC74 \uC0DD\uB7B5(\uC218\uB3D9 \uD655\uC778 \uD544\uC694)` : ""}`,
     );
-
-    void Promise.all(
-      [...linkedByTxId.entries()]
-        .filter(([, linked]) => linked.pdfArchiveId)
-        .map(([txId, linked]) =>
-          updatePdfArchiveMeta(linked.pdfArchiveId!, {
-            paymentStatus: linked.paymentStatus || "partial",
-            linkedBankTransactionId: txId,
-            linkedPaymentVoucherId: linked.voucherId,
-          })
-        )
-    )
-      .then(() => loadSentArchives())
-      .catch((error) => {
-        console.error(error);
-        const rollbackVoucherIds = new Set(allVouchers.map((voucher) => String(voucher.id)));
-        const rollbackTxIds = new Set(linkedByTxId.keys());
-        setPaymentVouchers((prev) => prev.filter((voucher) => !rollbackVoucherIds.has(String(voucher.id))));
-        setPaymentInputLogs((prev) =>
-          prev.filter(
-            (log) => !rollbackVoucherIds.has(String((log as { paymentVoucherId?: string | number }).paymentVoucherId || "")),
-          ),
-        );
-        setBankTransactions((prev) =>
-          prev.map((row) => {
-            if (!rollbackTxIds.has(row.id)) return row;
-            return {
-              ...row,
-              linkedSalesId: undefined,
-              linkedPaymentVoucherId: undefined,
-              linkedPdfArchiveId: undefined,
-              linkedSubject: undefined,
-              matchConfirmedAt: undefined,
-              matchConfirmedBy: undefined,
-              matchAutoLinked: undefined,
-            };
-          }),
-        );
-        setImportMessage("\uB0B4\uC5ED\uC11C \uC785\uAE08\uC0C1\uD0DC \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD574 \uC77C\uAD04 \uC785\uAE08 \uC5F0\uACB0\uC744 \uCDE8\uC18C\uD588\uC2B5\uB2C8\uB2E4.");
-      });
-
-    setImportMessage(`${allVouchers.length}${L.matchBulkDone}`);
   };
 
   const folderMap = useMemo(
@@ -5741,7 +5785,7 @@ function BankTransactionsPageComponent({
                 <div className="erp-text-section font-bold text-slate-900">{L.reconcileTitle}</div>
                 <p className="mt-1 erp-text-caption text-slate-500">{L.reconcileDesc}</p>
               </div>
-              <Button type="button" variant="outline" className="rounded-xl" onClick={confirmHighConfidenceMatches}>
+              <Button type="button" variant="outline" className="rounded-xl" onClick={() => void confirmHighConfidenceMatches()}>
                 <Sparkles size={14} className="mr-1" />
                 {L.matchBulk}
               </Button>
@@ -5814,7 +5858,7 @@ function BankTransactionsPageComponent({
                             onClick={() =>
                               isSentStatement
                                 ? void confirmSentStatementMatch(tx, sentTop!)
-                                : confirmDepositMatch(tx, receivableTop!)
+                                : void confirmDepositMatch(tx, receivableTop!)
                             }
                           >
                             <Link2 size={14} className="mr-1" />
@@ -6145,8 +6189,11 @@ function BankTransactionsPageComponent({
           bankTransactions={bankTransactions}
           onClose={() => setLinkModalTx(null)}
           onConfirmSentStatement={(candidate) => void confirmSentStatementMatch(linkModalTx, candidate)}
-          onConfirmReceivableBatch={(items) => confirmDepositMatchBatch(linkModalTx, items)}
+          onConfirmReceivableBatch={(items) => void confirmDepositMatchBatch(linkModalTx, items)}
           onUnlinkDepositVoucher={(voucherId) => unlinkDepositPaymentVoucher(linkModalTx, voucherId)}
+          receipts={receipts}
+          receiptAllocations={receiptAllocations}
+          onUnlinkDepositReceipt={(receiptId) => void unlinkDepositReceipt(linkModalTx, receiptId)}
         />
       ) : null}
 

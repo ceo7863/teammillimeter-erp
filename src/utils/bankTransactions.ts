@@ -54,6 +54,11 @@ export type BankTransaction = {
   classificationNote?: string;
   linkedSalesId?: string | number;
   linkedPaymentVoucherId?: string | number;
+  /** Phase 2 unified AR: posted Receipt for this deposit (replaces linkedPaymentVoucherId). */
+  linkedReceiptId?: string;
+  receiptLinkSource?: "bank_manual" | "bank_auto";
+  receiptLinkedAt?: string;
+  receiptLinkedBy?: string;
   linkedWorkerMonthlyPaymentVoucherId?: string;
   linkedPdfArchiveId?: string;
   linkedCompanyExpenseId?: string;
@@ -141,6 +146,13 @@ export function normalizeBankTransaction(raw: Partial<BankTransaction> & { id: s
     linkedSalesId: raw.linkedSalesId != null && raw.linkedSalesId !== "" ? raw.linkedSalesId : undefined,
     linkedPaymentVoucherId:
       raw.linkedPaymentVoucherId != null && raw.linkedPaymentVoucherId !== "" ? raw.linkedPaymentVoucherId : undefined,
+    linkedReceiptId: raw.linkedReceiptId ? String(raw.linkedReceiptId) : undefined,
+    receiptLinkSource:
+      raw.receiptLinkSource === "bank_manual" || raw.receiptLinkSource === "bank_auto"
+        ? raw.receiptLinkSource
+        : undefined,
+    receiptLinkedAt: raw.receiptLinkedAt ? String(raw.receiptLinkedAt) : undefined,
+    receiptLinkedBy: raw.receiptLinkedBy ? String(raw.receiptLinkedBy) : undefined,
     linkedWorkerMonthlyPaymentVoucherId: raw.linkedWorkerMonthlyPaymentVoucherId
       ? String(raw.linkedWorkerMonthlyPaymentVoucherId)
       : undefined,
@@ -460,6 +472,17 @@ export function clearBankTransactionPaymentMatch(tx: BankTransaction): BankTrans
   };
 }
 
+/** Phase 2: deposit ↔ Receipt link fields set by the atomic bank receipt service. */
+export function clearBankTransactionReceiptLink(tx: BankTransaction): BankTransaction {
+  return {
+    ...clearBankTransactionPaymentMatch(tx),
+    linkedReceiptId: undefined,
+    receiptLinkSource: undefined,
+    receiptLinkedAt: undefined,
+    receiptLinkedBy: undefined,
+  };
+}
+
 export function syncBankTransactionsForSaleClientChange(
   transactions: BankTransaction[],
   saleId: string | number,
@@ -634,8 +657,12 @@ export function shouldPreferLocalBankTransactionMerge(
 }
 
 function mergePaymentMatchFields(local: BankTransaction, incoming: BankTransaction) {
-  const localHasPaymentLink = Boolean(local.linkedPaymentVoucherId || local.linkedPdfArchiveId);
-  const incomingHasPaymentLink = Boolean(incoming.linkedPaymentVoucherId || incoming.linkedPdfArchiveId);
+  const localHasPaymentLink = Boolean(
+    local.linkedPaymentVoucherId || local.linkedReceiptId || local.linkedPdfArchiveId,
+  );
+  const incomingHasPaymentLink = Boolean(
+    incoming.linkedPaymentVoucherId || incoming.linkedReceiptId || incoming.linkedPdfArchiveId,
+  );
   const preferLocalPaymentMatch =
     !localHasPaymentLink &&
     incomingHasPaymentLink &&
@@ -645,6 +672,10 @@ function mergePaymentMatchFields(local: BankTransaction, incoming: BankTransacti
   if (preferLocalPaymentMatch) {
     return {
       linkedPaymentVoucherId: local.linkedPaymentVoucherId,
+      linkedReceiptId: local.linkedReceiptId,
+      receiptLinkSource: local.receiptLinkSource,
+      receiptLinkedAt: local.receiptLinkedAt,
+      receiptLinkedBy: local.receiptLinkedBy,
       linkedPdfArchiveId: local.linkedPdfArchiveId,
       linkedSalesId: local.linkedSalesId,
       linkedWorkerMonthlyPaymentVoucherId: local.linkedWorkerMonthlyPaymentVoucherId,
@@ -654,6 +685,10 @@ function mergePaymentMatchFields(local: BankTransaction, incoming: BankTransacti
     };
   }
 
+  const linkedReceiptId = local.linkedReceiptId ?? incoming.linkedReceiptId;
+  const receiptLinkSource = local.receiptLinkSource ?? incoming.receiptLinkSource;
+  const receiptLinkedAt = local.receiptLinkedAt ?? incoming.receiptLinkedAt;
+  const receiptLinkedBy = local.receiptLinkedBy ?? incoming.receiptLinkedBy;
   const linkedPaymentVoucherId = local.linkedPaymentVoucherId ?? incoming.linkedPaymentVoucherId;
   const linkedPdfArchiveId = local.linkedPdfArchiveId ?? incoming.linkedPdfArchiveId;
   const linkedSalesId = local.linkedSalesId ?? incoming.linkedSalesId;
@@ -670,6 +705,10 @@ function mergePaymentMatchFields(local: BankTransaction, incoming: BankTransacti
 
   return {
     linkedPaymentVoucherId,
+    linkedReceiptId,
+    receiptLinkSource,
+    receiptLinkedAt,
+    receiptLinkedBy,
     linkedPdfArchiveId,
     linkedSalesId,
     linkedWorkerMonthlyPaymentVoucherId,

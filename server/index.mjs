@@ -236,6 +236,12 @@ import {
   reverseReceipt,
   summarizeReceipt,
 } from "./receipts.mjs";
+import {
+  createBankTransactionReceipt,
+  getBankReceiptPhase2DryRun,
+  getBankTransactionReceipt,
+  reverseBankTransactionReceipt,
+} from "./bankReceipts.mjs";
 import { buildClientArSubledger } from "./receiptArSubledger.mjs";
 import { buildEffectivePaymentVouchers } from "./receiptProjection.mjs";
 import { diagnoseLegacyPaymentMigration } from "../scripts/receipt-migration-dry-run.mjs";
@@ -3625,6 +3631,8 @@ function sendReceiptError(res, error) {
     ...(error?.candidates ? { candidates: error.candidates } : {}),
     ...(error?.receiptId ? { receiptId: error.receiptId } : {}),
     ...(error?.remaining != null ? { remaining: error.remaining } : {}),
+    ...(error?.linkKind ? { linkKind: error.linkKind } : {}),
+    ...(error?.manualReview ? { manualReview: true } : {}),
   });
 }
 
@@ -3701,6 +3709,46 @@ app.post("/api/receipts/fifo-preview", authMiddleware, (req, res) => {
     state.data?.clients || [],
   );
   res.json(result);
+});
+
+/**
+ * Phase 2 unified AR: bank deposit ↔ Receipt. These routes are the only writer of
+ * bankTransactions.linkedReceiptId and never create paymentVouchers.
+ */
+app.post("/api/bank-transactions/:id/receipt", authMiddleware, (req, res) => {
+  try {
+    const result = createBankTransactionReceipt(req.params.id, req.body || {}, receiptActor(req));
+    res.status(result.idempotent ? 200 : 201).json(result);
+  } catch (error) {
+    if (!error?.status || error.status >= 500) console.error(error);
+    sendReceiptError(res, error);
+  }
+});
+
+app.post("/api/bank-transactions/:id/receipt/reverse", authMiddleware, (req, res) => {
+  try {
+    const result = reverseBankTransactionReceipt(req.params.id, req.body || {}, receiptActor(req));
+    res.json(result);
+  } catch (error) {
+    if (!error?.status || error.status >= 500) console.error(error);
+    sendReceiptError(res, error);
+  }
+});
+
+app.get("/api/bank-transactions/:id/receipt", authMiddleware, (req, res) => {
+  try {
+    res.json(getBankTransactionReceipt(req.params.id));
+  } catch (error) {
+    sendReceiptError(res, error);
+  }
+});
+
+app.get("/api/bank-receipts/phase2-dry-run", authMiddleware, adminMiddleware, (_req, res) => {
+  try {
+    res.json(getBankReceiptPhase2DryRun());
+  } catch (error) {
+    sendReceiptError(res, error);
+  }
 });
 
 app.get("/api/ar-subledger/:clientId", authMiddleware, (req, res) => {

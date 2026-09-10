@@ -11,6 +11,7 @@ import {
   collectAutoLinkTransactionIds,
 } from "./bankSentStatementAutoLink.ts";
 import { createEmptySentStatementAutoLinkDiagnostics } from "../src/utils/bankSentStatementMatch.ts";
+import { ensureBankReceiptCutoverAt } from "./bankReceipts.mjs";
 
 const IBK_FILE_PATTERN = /\uAC70\uB798|transaction|ibk/i;
 
@@ -152,76 +153,59 @@ export async function runBankFolderSync(options = {}) {
       lastImportBy: options.updatedBy || "ibk-auto-sync",
     };
 
+    // Phase 2 cutover is stamped on the first sync after deploy; pre-cutover
+    // deposits stay diagnostics-only forever.
+    const cutover = ensureBankReceiptCutoverAt(state.data, runAt);
+    const importedNewRows = merged.added > 0 || options.forceMetaUpdate;
+    const addedIds = importedNewRows ? merged.addedIds || [] : [];
     let autoLinkedCount = 0;
     let autoLinkDiagnostics = createEmptySentStatementAutoLinkDiagnostics();
-    if (merged.added > 0 || options.forceMetaUpdate) {
-      let nextPayload = {
-        ...state.data,
-        bankTransactions: merged.next,
-        bankSyncMeta,
-      };
-      const retryIds = collectAutoLinkTransactionIds(merged.next, {
-        addedIds: merged.addedIds || [],
-        lookbackDays: options.autoLinkRetryDays,
+    let nextPayload = {
+      ...state.data,
+      ...(importedNewRows ? { bankTransactions: merged.next } : {}),
+      bankSyncMeta: {
+        ...(state.data.bankSyncMeta || {}),
+        ...cutover.bankSyncMeta,
+        ...bankSyncMeta,
+      },
+    };
+    // Even when the import file added nothing, re-check recent unmatched deposits
+    // so statements created after the deposit can still auto-link.
+    const retryIds = collectAutoLinkTransactionIds(nextPayload.bankTransactions || [], {
+      addedIds,
+      lookbackDays: options.autoLinkRetryDays,
+      cutoverAt: cutover.cutoverAt,
+      receipts: state.data.receipts || [],
+      paymentVouchers: state.data.paymentVouchers || [],
+    });
+
+    if (retryIds.length) {
+      const linked = await applySentStatementAutoLinksToErpData(nextPayload, {
+        onlyTransactionIds: retryIds,
+        addedIds,
+        updatedBy: options.updatedBy || "ibk-auto-sync",
+        deferPdfMeta: true,
+        nowIso: runAt,
       });
-      if (retryIds.length) {
-        const linked = await applySentStatementAutoLinksToErpData(nextPayload, {
-          onlyTransactionIds: retryIds,
-          updatedBy: options.updatedBy || "ibk-auto-sync",
-          deferPdfMeta: true,
-        });
-        nextPayload = {
-          ...linked.data,
-          bankSyncMeta: {
-            ...(linked.data.bankSyncMeta || nextPayload.bankSyncMeta || {}),
-            lastAutoLinkAt: runAt,
-            lastAutoLinkDiagnostics: linked.diagnostics,
-            lastAutoLinkRetryCount: retryIds.length,
-          },
-        };
-        autoLinkedCount = linked.autoLinkedCount;
-        autoLinkDiagnostics = linked.diagnostics;
-        saveErpState(nextPayload, state.version, options.updatedBy || "ibk-auto-sync");
-        applyPendingPdfArchiveAutoLinkUpdates(linked.pendingPdfUpdates);
-      } else {
-        saveErpState(nextPayload, state.version, options.updatedBy || "ibk-auto-sync");
-      }
-    } else {
-      // Even when the import file added nothing, re-check recent unmatched deposits
-      // so statements created after the deposit can still auto-link.
-      const retryIds = collectAutoLinkTransactionIds(state.data.bankTransactions || [], {
-        addedIds: [],
-        lookbackDays: options.autoLinkRetryDays,
-      });
-      let nextPayload = {
-        ...state.data,
+      nextPayload = {
+        ...linked.data,
         bankSyncMeta: {
-          ...(state.data.bankSyncMeta || {}),
-          ...bankSyncMeta,
+          ...(linked.data.bankSyncMeta || nextPayload.bankSyncMeta || {}),
+          lastAutoLinkAt: runAt,
+          lastAutoLinkDiagnostics: linked.diagnostics,
+          lastAutoLinkRetryCount: retryIds.length,
+          lastAutoLinkSkippedPreCutover: linked.skippedPreCutover,
+          bankReceiptCutoverAt: linked.cutoverAt,
         },
       };
-      if (retryIds.length) {
-        const linked = await applySentStatementAutoLinksToErpData(nextPayload, {
-          onlyTransactionIds: retryIds,
-          updatedBy: options.updatedBy || "ibk-auto-sync",
-          deferPdfMeta: true,
-        });
-        nextPayload = {
-          ...linked.data,
-          bankSyncMeta: {
-            ...(linked.data.bankSyncMeta || nextPayload.bankSyncMeta || {}),
-            lastAutoLinkAt: runAt,
-            lastAutoLinkDiagnostics: linked.diagnostics,
-            lastAutoLinkRetryCount: retryIds.length,
-          },
-        };
-        autoLinkedCount = linked.autoLinkedCount;
-        autoLinkDiagnostics = linked.diagnostics;
-        saveErpState(nextPayload, state.version, options.updatedBy || "ibk-auto-sync");
-        applyPendingPdfArchiveAutoLinkUpdates(linked.pendingPdfUpdates);
-      } else {
-        saveErpState(nextPayload, state.version, options.updatedBy || "ibk-auto-sync");
-      }
+      autoLinkedCount = linked.autoLinkedCount;
+      autoLinkDiagnostics = linked.diagnostics;
+      saveErpState(nextPayload, state.version, options.updatedBy || "ibk-auto-sync", {
+        allowReceiptMutation: true,
+      });
+      applyPendingPdfArchiveAutoLinkUpdates(linked.pendingPdfUpdates);
+    } else {
+      saveErpState(nextPayload, state.version, options.updatedBy || "ibk-auto-sync");
     }
 
     lastStatus = {

@@ -7,6 +7,7 @@ import {
   collectAutoLinkTransactionIds,
   getAutoDepositRetryLookbackDays,
 } from "./bankSentStatementAutoLink.ts";
+import { ensureBankReceiptCutoverAt } from "./bankReceipts.mjs";
 import { getBarobillBankConfigStatus } from "./barobill/bankAccountClient.mjs";
 import {
   countMergeAgainstExisting,
@@ -66,7 +67,8 @@ function logAutoLinkDiagnostics(diagnostics, context) {
 
 async function saveWithAutoLinkPdfMeta(nextPayload, expectedVersion, updatedBy, pendingPdfUpdates) {
   try {
-    const saved = saveErpState(nextPayload, expectedVersion, updatedBy);
+    // Auto-link now writes Receipts/Allocations, so the receipt domain guard must be lifted.
+    const saved = saveErpState(nextPayload, expectedVersion, updatedBy, { allowReceiptMutation: true });
     applyPendingPdfArchiveAutoLinkUpdates(pendingPdfUpdates);
     return saved;
   } catch (error) {
@@ -162,11 +164,15 @@ export async function runBarobillBankSync(options = {}) {
       lastImportToDate: toDate,
     };
 
+    // Phase 2 cutover is stamped on the first sync after deploy; pre-cutover
+    // deposits stay diagnostics-only forever.
+    const cutover = ensureBankReceiptCutoverAt(data, runAt);
     let nextPayload = {
       ...data,
       bankTransactions: merged.next,
       bankSyncMeta: {
         ...(data.bankSyncMeta || {}),
+        ...cutover.bankSyncMeta,
         ...bankSyncMeta,
       },
     };
@@ -177,6 +183,9 @@ export async function runBarobillBankSync(options = {}) {
       addedIds: merged.addedIds || [],
       lookbackDays: options.autoLinkRetryDays,
       asOfDate: toDate,
+      cutoverAt: cutover.cutoverAt,
+      receipts: data.receipts || [],
+      paymentVouchers: data.paymentVouchers || [],
     });
 
     // Authoritative path: re-check recent unmatched deposits on every sync,
@@ -184,8 +193,10 @@ export async function runBarobillBankSync(options = {}) {
     if (retryIds.length) {
       const linked = await applySentStatementAutoLinksToErpData(nextPayload, {
         onlyTransactionIds: retryIds,
+        addedIds: merged.addedIds || [],
         updatedBy: options.updatedBy || "barobill-bank-sync",
         deferPdfMeta: true,
+        nowIso: runAt,
       });
       nextPayload = {
         ...linked.data,
@@ -194,6 +205,8 @@ export async function runBarobillBankSync(options = {}) {
           lastAutoLinkAt: runAt,
           lastAutoLinkDiagnostics: linked.diagnostics,
           lastAutoLinkRetryCount: retryIds.length,
+          lastAutoLinkSkippedPreCutover: linked.skippedPreCutover,
+          bankReceiptCutoverAt: linked.cutoverAt,
         },
       };
       autoLinkedCount = linked.autoLinkedCount;

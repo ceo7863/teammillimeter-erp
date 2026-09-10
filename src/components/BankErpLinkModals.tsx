@@ -11,7 +11,9 @@ import {
   sumLinkedDepositAmountForBankTx,
   type BankDepositMatchCandidate,
 } from "@/utils/bankReceivableMatch";
+import { buildBankReceiptDisplay, type BankReceiptDisplay } from "@/utils/bankReceiptDisplay";
 import { summarizeBankSentStatementAllocation } from "@/utils/bankSentStatementAllocation";
+import type { ReceiptAllocationRecord, ReceiptRecord } from "@/utils/receiptLedger";
 import type { SentStatementMatchCandidate } from "@/utils/bankSentStatementMatch";
 import { useWheelScrollCapture } from "@/utils/wheelScrollCapture";
 import {
@@ -371,6 +373,69 @@ function LinkedDepositVouchersSection({
   );
 }
 
+/** Phase 2: the deposit's Receipt is the AR document — vouchers are legacy only. */
+function LinkedReceiptSection({
+  display,
+  onUnlink,
+}: {
+  display: BankReceiptDisplay;
+  onUnlink?: () => void;
+}) {
+  const tone =
+    display.status === "posted"
+      ? "border-emerald-200 bg-emerald-50/60 text-emerald-900"
+      : display.status === "reversed"
+        ? "border-slate-200 bg-slate-50 text-slate-700"
+        : "border-amber-200 bg-amber-50/60 text-amber-900";
+
+  return (
+    <section>
+      <h3 className="erp-bank-link-panel__section-title">{"\uC5F0\uACB0\uB41C \uC785\uAE08\uC804\uD45C"}</h3>
+      <div className={`rounded-xl border px-3 py-2 text-sm ${tone}`} data-erp-unsaved="0">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-bold tabular-nums">{display.receiptNo || display.receiptId}</span>
+            <span className="font-semibold">{display.clientName || "-"}</span>
+            <span className="rounded-lg border border-current/30 bg-white/70 px-2 py-0.5 text-xs font-semibold">
+              {display.statusLabel}
+            </span>
+            <span className="rounded-lg border border-current/30 bg-white/70 px-2 py-0.5 text-xs font-semibold">
+              {display.linkSourceLabel}
+            </span>
+          </div>
+          {onUnlink ? (
+            <button
+              type="button"
+              className="inline-flex rounded-lg border border-red-200 bg-white px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50"
+              onClick={onUnlink}
+            >
+              {L.unlink}
+            </button>
+          ) : null}
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+          <div>
+            <div className="text-slate-500">{"\uC785\uAE08\uC561"}</div>
+            <div className="font-semibold tabular-nums">{formatKRW(display.grossAmount)}</div>
+          </div>
+          <div>
+            <div className="text-slate-500">{"\uBC30\uBD84\uC561"}</div>
+            <div className="font-semibold tabular-nums">{formatKRW(display.allocatedAmount)}</div>
+          </div>
+          <div>
+            <div className="text-slate-500">{"\uBBF8\uBC30\uBD84\uC561"}</div>
+            <div className="font-semibold tabular-nums">{formatKRW(display.unallocatedAmount)}</div>
+          </div>
+          <div>
+            <div className="text-slate-500">{"\uBC30\uBD84 \uAC74\uC218"}</div>
+            <div className="font-semibold tabular-nums">{display.allocationCount}</div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function LinkedWorkerVouchersSection({
   rows,
   onUnlink,
@@ -453,6 +518,10 @@ export type BankErpDepositLinkModalProps = {
     items: Array<{ candidate: BankDepositMatchCandidate; finalAmount: number; unpaidAfter: number }>,
   ) => void;
   onUnlinkDepositVoucher: (paymentVoucherId: string) => void;
+  receipts?: ReceiptRecord[];
+  receiptAllocations?: ReceiptAllocationRecord[];
+  /** Phase 2 unlink: reverse the Receipt instead of deleting a voucher. */
+  onUnlinkDepositReceipt?: (receiptId: string) => void;
 };
 
 function ErpLinkPanelShell({
@@ -521,14 +590,23 @@ export function BankErpDepositLinkModal({
   onClose,
   onConfirmReceivableBatch,
   onUnlinkDepositVoucher,
+  receipts,
+  receiptAllocations,
+  onUnlinkDepositReceipt,
 }: BankErpDepositLinkModalProps) {
   const [selectedSalesOrder, setSelectedSalesOrder] = useState<string[]>([]);
 
   const totalDeposit = Math.round(Number(tx.deposit) || 0);
-  const linkedAmount = useMemo(
+  const receiptDisplay = useMemo(
+    () => buildBankReceiptDisplay(tx, receipts, receiptAllocations),
+    [tx, receipts, receiptAllocations],
+  );
+  const legacyLinkedAmount = useMemo(
     () => sumLinkedDepositAmountForBankTx(tx.id, paymentVouchers),
     [tx.id, paymentVouchers],
   );
+  // A receipt-linked deposit is fully consumed by its receipt (gross === deposit).
+  const linkedAmount = receiptDisplay ? receiptDisplay.grossAmount : legacyLinkedAmount;
   const linkedRows = useMemo(
     () => listLinkedDepositVouchers(tx, paymentVouchers, sentArchives, receivableRows),
     [tx, paymentVouchers, sentArchives, receivableRows],
@@ -542,10 +620,11 @@ export function BankErpDepositLinkModal({
       archive,
     });
   }, [tx, paymentVouchers, sentArchives]);
-  const remainingBeforeSelect = useMemo(
+  const legacyRemainingBeforeSelect = useMemo(
     () => resolveBankDepositLinkRemaining(tx, paymentVouchers),
     [tx, paymentVouchers],
   );
+  const remainingBeforeSelect = receiptDisplay ? 0 : legacyRemainingBeforeSelect;
   const linkedSalesIds = useMemo(
     () => collectLinkedSalesIdsForBankTx(tx.id, paymentVouchers),
     [tx.id, paymentVouchers],
@@ -687,11 +766,20 @@ export function BankErpDepositLinkModal({
           tone="deposit"
         />
 
+        {receiptDisplay ? (
+          <LinkedReceiptSection
+            display={receiptDisplay}
+            onUnlink={
+              onUnlinkDepositReceipt ? () => onUnlinkDepositReceipt(receiptDisplay.receiptId) : undefined
+            }
+          />
+        ) : null}
+
         {statementAllocation ? <SentStatementAllocationSummary summary={statementAllocation} /> : null}
 
         <LinkedDepositVouchersSection rows={linkedRows} onUnlink={onUnlinkDepositVoucher} />
 
-        {!totalCount && !linkedRows.length ? (
+        {!totalCount && !linkedRows.length && !receiptDisplay ? (
           <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
             {labels.empty}
           </p>

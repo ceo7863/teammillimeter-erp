@@ -1,4 +1,5 @@
 import type { BankTransaction } from "./bankTransactions";
+import { isBankDepositLinked, type BankDepositLinkContext } from "./bankDepositLink";
 import { isCardCompanyDeposit } from "./bankTransactionFolders";
 import type { ClientDepositMatchSource } from "./clientDepositAliases";
 import {
@@ -520,8 +521,8 @@ export function createPaymentVoucherFromBankMatch(
   };
 }
 
-export function isBankTransactionLinked(tx: BankTransaction) {
-  return Boolean(tx.linkedPaymentVoucherId || tx.linkedSalesId);
+export function isBankTransactionLinked(tx: BankTransaction, context: BankDepositLinkContext = {}) {
+  return Boolean(isBankDepositLinked(tx, context) || tx.linkedSalesId);
 }
 
 export function isBankMatchAutoLinked(tx?: Pick<BankTransaction, "matchAutoLinked"> | null) {
@@ -529,9 +530,9 @@ export function isBankMatchAutoLinked(tx?: Pick<BankTransaction, "matchAutoLinke
 }
 
 export function isBankMatchManualLinked(
-  tx?: Pick<BankTransaction, "matchAutoLinked" | "linkedPaymentVoucherId"> | null
+  tx?: Pick<BankTransaction, "matchAutoLinked" | "linkedPaymentVoucherId" | "linkedReceiptId"> | null
 ) {
-  if (!tx?.linkedPaymentVoucherId) return false;
+  if (!tx?.linkedPaymentVoucherId && !tx?.linkedReceiptId) return false;
   return !isBankMatchAutoLinked(tx);
 }
 
@@ -699,7 +700,7 @@ export function getBankMatchStatusLabel(
       ? "\uBCF4\uB0B8\uB0B4\uC5ED\uC11C \uC785\uAE08\uD655\uC778"
       : "\uC804\uD45C \uBC30\uBD84 \uD544\uC694";
   }
-  if (tx.linkedPaymentVoucherId) return "\uC785\uAE08 \uC5F0\uACB0\uC644\uB8CC";
+  if (tx.linkedPaymentVoucherId || tx.linkedReceiptId) return "\uC785\uAE08 \uC5F0\uACB0\uC644\uB8CC";
   if (tx.deposit > 0) return "\uBBF8\uC5F0\uACB0";
   return "-";
 }
