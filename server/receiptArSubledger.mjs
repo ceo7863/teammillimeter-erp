@@ -1,19 +1,13 @@
 import {
-  isEffectivePostedAllocation,
+  isAllocationEffectiveAsOf,
   listReceiptAllocations,
   listReceipts,
   receiptMoney,
   saleBelongsToClient,
-  summarizeReceipt,
+  shiftSeoulDate,
+  summarizeReceiptAsOf,
+  todaySeoul,
 } from "./receipts.mjs";
-
-function inRange(date, start, end) {
-  const d = String(date || "").slice(0, 10);
-  if (!d) return false;
-  if (start && d < start) return false;
-  if (end && d > end) return false;
-  return true;
-}
 
 function resolveClient(clients, clientId) {
   const id = String(clientId || "").trim();
@@ -27,116 +21,141 @@ function resolveClient(clients, clientId) {
   return client;
 }
 
-/**
- * Client AR subledger for a period.
- *
- * closingAr =
- *   openingAr + periodBilled + periodDebitAdjustments
- *   - periodAppliedAllocations - periodCreditAdjustments
- *
- * Unallocated prepaid does NOT reduce AR.
- * periodReceiptsGross is cash inflow (separate from AR application).
- */
-export function buildClientArSubledger(data, { clientId, startDate, endDate } = {}) {
-  const clients = data.clients || [];
-  const client = resolveClient(clients, clientId);
-  const clientName = String(client.name || "").trim();
-  const start = startDate ? String(startDate).slice(0, 10) : "";
-  const end = endDate ? String(endDate).slice(0, 10) : "";
-
-  const receipts = listReceipts(data);
-  const allocations = listReceiptAllocations(data);
-  const receiptById = new Map(receipts.map((row) => [String(row.id), row]));
-
-  const sales = (data.sales || []).filter((sale) => saleBelongsToClient(sale, client, clients));
-
-  const allocationDate = (allocation) => {
-    const receipt = receiptById.get(String(allocation.receiptId));
-    return String(receipt?.receiptDate || allocation.createdAt || "").slice(0, 10);
-  };
-
-  let openingBilled = 0;
-  let openingAppliedAllocations = 0;
-  let periodBilled = 0;
-  let periodAppliedAllocations = 0;
-  let periodReceiptsGross = 0;
-  let periodAllocatedReceipts = 0;
-  let periodDebitAdjustments = 0;
-  let periodCreditAdjustments = 0;
-
-  for (const sale of sales) {
-    const billed = receiptMoney(sale.amount);
+function billedAsOf(sales, asOf) {
+  return (sales || []).reduce((sum, sale) => {
     const saleDate = String(sale.date || "").slice(0, 10);
-    if (start && saleDate && saleDate < start) openingBilled += billed;
-    if (inRange(saleDate, start, end)) periodBilled += billed;
-  }
+    if (!saleDate || saleDate > asOf) return sum;
+    return sum + receiptMoney(sale.amount);
+  }, 0);
+}
 
-  for (const allocation of allocations) {
-    if (!isEffectivePostedAllocation(allocation, receiptById)) continue;
+function appliedAllocationsAsOf(allocations, receipts, clientId, asOf) {
+  const receiptById = new Map((receipts || []).map((row) => [String(row.id), row]));
+  return (allocations || []).reduce((sum, allocation) => {
+    if (!isAllocationEffectiveAsOf(allocation, receiptById, asOf)) return sum;
     const receipt = receiptById.get(String(allocation.receiptId));
-    if (!receipt || String(receipt.clientId) !== String(client.id)) continue;
-    const amount = receiptMoney(allocation.amount);
-    const date = allocationDate(allocation);
-    if (start && date && date < start) openingAppliedAllocations += amount;
-    if (inRange(date, start, end)) periodAppliedAllocations += amount;
+    if (!receipt || String(receipt.clientId) !== String(clientId)) return sum;
+    return sum + receiptMoney(allocation.amount);
+  }, 0);
+}
+
+function unallocatedPrepaidAsOf(receipts, allocations, clientId, asOf) {
+  let prepaid = 0;
+  let gross = 0;
+  let allocated = 0;
+  for (const receipt of receipts || []) {
+    if (String(receipt.clientId) !== String(clientId)) continue;
+    if (receipt.reversalOfReceiptId) continue;
+    const summary = summarizeReceiptAsOf(receipt, allocations, asOf);
+    prepaid += summary.unallocatedAmount;
+    if (String(receipt.receiptDate || "") <= asOf) {
+      const reversedAt = receipt.reversedEffectiveDate ? String(receipt.reversedEffectiveDate).slice(0, 10) : null;
+      if (!reversedAt || asOf < reversedAt) {
+        gross += receiptMoney(receipt.grossAmount);
+        allocated += summary.allocatedAmount;
+      }
+    }
   }
+  return {
+    unallocatedPrepaid: prepaid,
+    grossToEnd: gross,
+    allocatedToEnd: allocated,
+    ok: gross === allocated + prepaid,
+  };
+}
 
-  const periodReceiptRows = [];
-  for (const receipt of receipts) {
-    if (String(receipt.clientId) !== String(client.id)) continue;
-    if (receipt.status === "draft") continue;
-    if (!inRange(receipt.receiptDate, start, end)) continue;
+function periodCashEvents(receipts, clientId, start, end) {
+  const rows = [];
+  let periodReceiptsGross = 0;
+  for (const receipt of receipts || []) {
+    if (String(receipt.clientId) !== String(clientId)) continue;
+    const date = String(receipt.receiptDate || "").slice(0, 10);
+    if (!date) continue;
+    if (start && date < start) continue;
+    if (end && date > end) continue;
 
-    const rows = allocations.filter((row) => String(row.receiptId) === String(receipt.id));
-    const summary = summarizeReceipt(receipt, rows);
     const gross = receiptMoney(receipt.grossAmount);
-
-    // Cash inflow by event date: originals contribute +gross (even if later reversed),
-    // reversal documents contribute negative grossAmount.
     if (receipt.reversalOfReceiptId) {
-      periodReceiptsGross += gross; // already negative
+      periodReceiptsGross += gross; // negative
     } else {
       periodReceiptsGross += Math.abs(gross);
     }
-
-    if (receipt.status === "posted" && !receipt.reversalOfReceiptId) {
-      periodAllocatedReceipts += summary.allocatedAmount;
-    }
-
-    periodReceiptRows.push({
+    rows.push({
       id: receipt.id,
       receiptNo: receipt.receiptNo,
-      receiptDate: receipt.receiptDate,
+      receiptDate: date,
       grossAmount: gross,
-      allocatedAmount: summary.allocatedAmount,
-      unallocatedAmount: summary.unallocatedAmount,
       channel: receipt.channel,
       source: receipt.source,
       status: receipt.status,
       bankTransactionId: receipt.bankTransactionId,
       sentStatementId: receipt.sentStatementId,
       reversalOfReceiptId: receipt.reversalOfReceiptId || null,
+      reversedEffectiveDate: receipt.reversedEffectiveDate || null,
       memo: receipt.memo || "",
     });
   }
+  return { rows, periodReceiptsGross };
+}
 
-  // Unallocated prepaid as of end date: posted non-reversal receipts dated <= end
-  let unallocatedPrepaid = 0;
-  let totalGrossToEnd = 0;
-  let totalAllocatedToEnd = 0;
-  for (const receipt of receipts) {
-    if (String(receipt.clientId) !== String(client.id)) continue;
-    if (receipt.reversalOfReceiptId) continue;
-    if (receipt.status !== "posted") continue;
-    if (end && String(receipt.receiptDate || "") > end) continue;
-    const rows = allocations.filter((row) => String(row.receiptId) === String(receipt.id));
-    const summary = summarizeReceipt(receipt, rows);
-    unallocatedPrepaid += summary.unallocatedAmount;
-    totalGrossToEnd += receiptMoney(receipt.grossAmount);
-    totalAllocatedToEnd += summary.allocatedAmount;
-  }
+/**
+ * As-of client AR subledger.
+ *
+ * openingAr / closingAr are computed directly from billed and applied allocations
+ * effective on the day before start / on endDate.
+ * periodAppliedAllocations = closingApplied - openingApplied (net period change).
+ * Historical snapshots do not change when later reverse/reallocate events occur.
+ */
+export function buildClientArSubledger(data, { clientId, startDate, endDate } = {}) {
+  const clients = data.clients || [];
+  const client = resolveClient(clients, clientId);
+  const clientName = String(client.name || "").trim();
+  const start = startDate ? String(startDate).slice(0, 10) : "";
+  const end = endDate ? String(endDate).slice(0, 10) : todaySeoul();
 
-  const cashIdentityOk = totalGrossToEnd === totalAllocatedToEnd + unallocatedPrepaid;
+  const receipts = listReceipts(data);
+  const allocations = listReceiptAllocations(data);
+  const receiptById = new Map(receipts.map((row) => [String(row.id), row]));
+  const sales = (data.sales || []).filter((sale) => saleBelongsToClient(sale, client, clients));
+
+  const openingAsOf = start ? shiftSeoulDate(start, -1) : null;
+  const openingBilled = openingAsOf ? billedAsOf(sales, openingAsOf) : 0;
+  const openingAppliedAllocations = openingAsOf
+    ? appliedAllocationsAsOf(allocations, receipts, client.id, openingAsOf)
+    : 0;
+  const closingBilled = billedAsOf(sales, end);
+  const closingAppliedAllocations = appliedAllocationsAsOf(allocations, receipts, client.id, end);
+
+  const periodBilled = closingBilled - openingBilled;
+  const periodAppliedAllocations = closingAppliedAllocations - openingAppliedAllocations;
+  const periodDebitAdjustments = 0;
+  const periodCreditAdjustments = 0;
+
+  const openingAr = Math.max(openingBilled - openingAppliedAllocations, 0);
+  const closingAr = Math.max(closingBilled - closingAppliedAllocations, 0);
+
+  const { rows: periodReceiptRows, periodReceiptsGross } = periodCashEvents(
+    receipts,
+    client.id,
+    start,
+    end,
+  );
+
+  // Enrich period receipt rows with as-of end summary for non-reversal docs dated in period
+  const enrichedReceipts = periodReceiptRows.map((row) => {
+    const receipt = receipts.find((item) => String(item.id) === String(row.id));
+    const summary = receipt ? summarizeReceiptAsOf(receipt, allocations, end) : null;
+    return {
+      ...row,
+      allocatedAmount: summary?.allocatedAmount ?? 0,
+      unallocatedAmount: summary?.unallocatedAmount ?? 0,
+    };
+  });
+
+  const prepaid = unallocatedPrepaidAsOf(receipts, allocations, client.id, end);
+  const periodAllocatedReceipts = enrichedReceipts
+    .filter((row) => !row.reversalOfReceiptId)
+    .reduce((sum, row) => sum + (row.allocatedAmount || 0), 0);
 
   const saleRows = sales
     .filter((sale) => {
@@ -148,10 +167,8 @@ export function buildClientArSubledger(data, { clientId, startDate, endDate } = 
       const billed = receiptMoney(sale.amount);
       let allocatedToEnd = 0;
       for (const allocation of allocations) {
-        if (!isEffectivePostedAllocation(allocation, receiptById)) continue;
         if (String(allocation.saleId) !== String(sale.id)) continue;
-        const date = allocationDate(allocation);
-        if (end && date > end) continue;
+        if (!isAllocationEffectiveAsOf(allocation, receiptById, end)) continue;
         allocatedToEnd += receiptMoney(allocation.amount);
       }
       return {
@@ -172,18 +189,17 @@ export function buildClientArSubledger(data, { clientId, startDate, endDate } = 
       return saleDate >= start || row.balance > 0 || row.allocatedAmount > 0;
     });
 
-  const openingAr = Math.max(openingBilled - openingAppliedAllocations, 0);
-  const closingAr = Math.max(
-    openingAr + periodBilled + periodDebitAdjustments - periodAppliedAllocations - periodCreditAdjustments,
-    0,
-  );
-
   return {
     clientId: String(client.id),
     clientName,
     startDate: start || null,
     endDate: end || null,
+    openingAsOf: openingAsOf || null,
     openingAr,
+    openingBilled,
+    openingAppliedAllocations,
+    closingBilled,
+    closingAppliedAllocations,
     periodSales: periodBilled,
     periodBilled,
     periodAppliedAllocations,
@@ -194,20 +210,22 @@ export function buildClientArSubledger(data, { clientId, startDate, endDate } = 
     periodCreditAdjustments,
     periodAdjustments: periodDebitAdjustments - periodCreditAdjustments,
     closingAr,
-    unallocatedPrepaid,
+    unallocatedPrepaid: prepaid.unallocatedPrepaid,
     cashIdentity: {
-      ok: cashIdentityOk,
-      grossToEnd: totalGrossToEnd,
-      allocatedToEnd: totalAllocatedToEnd,
-      unallocatedPrepaid,
+      ok: prepaid.ok,
+      grossToEnd: prepaid.grossToEnd,
+      allocatedToEnd: prepaid.allocatedToEnd,
+      unallocatedPrepaid: prepaid.unallocatedPrepaid,
     },
     sales: saleRows,
-    receipts: periodReceiptRows,
+    receipts: enrichedReceipts,
     policyNotes: {
       billedAmountSource: "sale.amount (unchanged; no VAT transform)",
       receiptVat: "forbidden — allocations use billed remaining only",
-      arReduction: "effective posted allocations only; unallocated prepaid does not reduce AR",
-      adjustments: "not implemented in Phase 1 (always 0)",
+      asOf:
+        "opening/closing AR use allocations effective on as-of dates; later reverse/reallocate does not rewrite history",
+      arReduction: "effective allocations by effectiveFrom/reversedEffectiveDate; prepaid does not reduce AR",
+      adjustments: "not implemented (always 0)",
       clientIdentity: "sale.clientId authoritative; legacy unique name fallback only",
     },
   };
