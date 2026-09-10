@@ -3,6 +3,8 @@ import {
   mergeClientsForSave,
   mergeOfficeStaffForSave,
   mergePaymentVouchersForSave,
+  mergeReceiptAllocationsForSave,
+  mergeReceiptsForSave,
   mergeWorkerMonthlyActualVouchersForSave,
   mergeWorkersForSave,
 } from "./erpSaveMerge.mjs";
@@ -10,6 +12,7 @@ import {
 /** Domain name ? payload field keys stored in erp_domain_state. */
 export const ERP_DOMAIN_FIELDS = {
   sales: ["sales", "paymentVouchers", "paymentInputLogs", "saleComments"],
+  receipts: ["receipts", "receiptAllocations"],
   clients: ["clients"],
   workers: [
     "workers",
@@ -116,6 +119,20 @@ export function mergeErpDomainForSave(existingData, domain, incomingPartial) {
           : existing.saleComments || [],
       };
     }
+    case "receipts":
+      return {
+        ...existing,
+        receipts: Array.isArray(incoming.receipts)
+          ? mergeReceiptsForSave(existing.receipts || [], incoming.receipts)
+          : existing.receipts || [],
+        receiptAllocations: Array.isArray(incoming.receiptAllocations)
+          ? mergeReceiptAllocationsForSave(
+              existing.receiptAllocations || [],
+              incoming.receiptAllocations,
+              Array.isArray(incoming.receipts) ? incoming.receipts : existing.receipts || [],
+            )
+          : existing.receiptAllocations || [],
+      };
     case "clients":
       return {
         ...existing,

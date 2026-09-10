@@ -52,6 +52,7 @@ export type CalendarPaymentCancelPreview = {
 export type CalendarPaymentVoucherRecord = {
   id: number | string;
   salesId?: number | string;
+  receiptId?: number | string;
   date?: string;
   client?: string;
   site?: string;
@@ -97,16 +98,16 @@ export function buildCalendarPaymentPreview(
   client: string,
   selectedDates: string[],
   paymentDate = todayISO(),
-  vatIncluded = true
+  _vatIncluded = true
 ): CalendarPaymentPreview | null {
   const payableSales = collectCalendarPayableSales(sales, client, selectedDates);
   if (!payableSales.length) return null;
 
-  const vatType = vatIncluded ? "included" : "excluded";
+  // Phase 1 ledger policy: do not invent VAT at payment time.
+  // Allocations use unpaid billed remaining (sale.amount - paid) only.
   const batchBase = Date.now();
   const vouchers = payableSales.map((sale, index) => {
     const amount = getUnpaid(sale);
-    const vatAmount = vatType === "included" ? Math.round(amount * 0.1) : 0;
     return {
       id: batchBase + index + (Number(sale.id) || 0),
       salesId: sale.id,
@@ -116,22 +117,23 @@ export function buildCalendarPaymentPreview(
       workerCount: countWorkers(sale),
       totalSalesAmount: Number(sale.amount) || 0,
       amount,
-      vatType,
+      vatType: "excluded",
       supplyAmount: amount,
-      vatAmount,
-      finalAmount: amount + vatAmount,
-      memo: "\uAC70\uB798\uCC98\uCE98\uB354 \uC785\uAE08\uCC98\uB9AC",
+      vatAmount: 0,
+      finalAmount: amount,
+      memo: "거래처캘린더 입금처리",
     };
   });
 
+  const totalUnpaid = vouchers.reduce((sum, voucher) => sum + voucher.amount, 0);
   return {
     client,
     selectedDays: selectedDates.length,
     saleCount: vouchers.length,
-    vatIncluded,
-    totalUnpaid: vouchers.reduce((sum, voucher) => sum + voucher.amount, 0),
-    totalVat: vouchers.reduce((sum, voucher) => sum + voucher.vatAmount, 0),
-    totalFinal: vouchers.reduce((sum, voucher) => sum + voucher.finalAmount, 0),
+    vatIncluded: false,
+    totalUnpaid,
+    totalVat: 0,
+    totalFinal: totalUnpaid,
     vouchers,
   };
 }

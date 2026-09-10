@@ -38,6 +38,8 @@ function emptyErpPayload() {
     sales: [],
     paymentVouchers: [],
     paymentInputLogs: [],
+    receipts: [],
+    receiptAllocations: [],
     clients: [],
     workers: [],
     auditLogs: [],

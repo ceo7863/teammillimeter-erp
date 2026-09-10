@@ -237,6 +237,53 @@ export function mergePaymentVouchersForSave(existing = [], incoming = [], bankTr
   return [...byId.values()];
 }
 
+/**
+ * Receipts are authoritative via dedicated APIs. Stale client patches must never
+ * drop posted/reversed rows that are missing from an incoming array.
+ */
+export function mergeReceiptsForSave(existing = [], incoming = []) {
+  const byId = new Map();
+  for (const row of existing || []) {
+    if (row?.id != null && row.id !== "") byId.set(String(row.id), row);
+  }
+  for (const row of incoming || []) {
+    if (row?.id == null || row.id === "") continue;
+    const id = String(row.id);
+    const prev = byId.get(id);
+    if (!prev) {
+      byId.set(id, row);
+      continue;
+    }
+    // Posted receipts are immutable via merge; only allow status transitions already present.
+    if (prev.status === "posted" || prev.status === "reversed") {
+      byId.set(id, { ...prev, ...row, status: prev.status === "reversed" ? "reversed" : row.status || prev.status });
+      continue;
+    }
+    byId.set(id, { ...prev, ...row });
+  }
+  return [...byId.values()];
+}
+
+export function mergeReceiptAllocationsForSave(existing = [], incoming = [], receipts = []) {
+  const byId = new Map();
+  for (const row of existing || []) {
+    if (row?.id != null && row.id !== "") byId.set(String(row.id), row);
+  }
+  for (const row of incoming || []) {
+    if (row?.id == null || row.id === "") continue;
+    byId.set(String(row.id), row);
+  }
+  const receiptIds = new Set((receipts || []).map((row) => String(row?.id)));
+  for (const row of existing || []) {
+    const id = String(row?.id || "");
+    if (!id || byId.has(id)) continue;
+    if (row?.receiptId != null && receiptIds.has(String(row.receiptId))) {
+      byId.set(id, row);
+    }
+  }
+  return [...byId.values()];
+}
+
 function normalizeWorkerRecordId(id) {
   if (id == null || id === "") return "";
   return String(id);

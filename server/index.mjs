@@ -226,6 +226,20 @@ import {
   requireContractPhoneVerified,
 } from "./clientContracts.mjs";
 import {
+  createAndPostReceipt,
+  deleteReceiptForbidden,
+  getReceiptById,
+  listReceiptAllocations,
+  listReceipts,
+  proposeFifoAllocations,
+  replaceReceiptAllocations,
+  reverseReceipt,
+  summarizeReceipt,
+} from "./receipts.mjs";
+import { buildClientArSubledger } from "./receiptArSubledger.mjs";
+import { buildEffectivePaymentVouchers } from "./receiptProjection.mjs";
+import { diagnoseLegacyPaymentMigration } from "../scripts/receipt-migration-dry-run.mjs";
+import {
   ensureClientSiteRequestLink,
   getPublicClientSiteRequestInfo,
   listClientSiteRequestLinks,
@@ -1659,6 +1673,9 @@ function buildErpApiResponse(state, workersOverride = null, workerMonthlyPayment
     sales: data.sales || [],
     paymentVouchers: data.paymentVouchers || [],
     paymentInputLogs: data.paymentInputLogs || [],
+    receipts: data.receipts || [],
+    receiptAllocations: data.receiptAllocations || [],
+    effectivePaymentVouchers: buildEffectivePaymentVouchers(data),
     clients: enrichClientsWithBusinessRegMeta(data.clients || []),
     workers: sanitizeWorkersForClient(enrichWorkersWithPhotoMeta(workers)),
     workerMonthlyPaymentMemos,
@@ -3594,6 +3611,114 @@ app.delete("/api/pdf-archives/:id", authMiddleware, (req, res) => {
     return;
   }
   res.json({ ok: true });
+});
+
+function receiptActor(req) {
+  return req.user?.loginId || req.user?.name || req.user?.email || "system";
+}
+
+function sendReceiptError(res, error) {
+  const status = error?.status || 500;
+  res.status(status).json({
+    error: error?.message || "입금전표 처리에 실패했습니다.",
+    code: error?.code || "RECEIPT_ERROR",
+    ...(error?.candidates ? { candidates: error.candidates } : {}),
+    ...(error?.receiptId ? { receiptId: error.receiptId } : {}),
+    ...(error?.remaining != null ? { remaining: error.remaining } : {}),
+  });
+}
+
+app.post("/api/receipts", authMiddleware, (req, res) => {
+  try {
+    const result = createAndPostReceipt(req.body || {}, receiptActor(req));
+    res.status(result.idempotent ? 200 : 201).json(result);
+  } catch (error) {
+    if (error?.status && error.status < 500) return sendReceiptError(res, error);
+    console.error(error);
+    sendReceiptError(res, error);
+  }
+});
+
+app.get("/api/receipts/:id", authMiddleware, (req, res) => {
+  try {
+    res.json(getReceiptById(req.params.id));
+  } catch (error) {
+    sendReceiptError(res, error);
+  }
+});
+
+app.post("/api/receipts/:id/allocations", authMiddleware, (req, res) => {
+  try {
+    const result = replaceReceiptAllocations(req.params.id, req.body || {}, receiptActor(req));
+    res.json(result);
+  } catch (error) {
+    sendReceiptError(res, error);
+  }
+});
+
+app.post("/api/receipts/:id/reverse", authMiddleware, (req, res) => {
+  try {
+    const result = reverseReceipt(req.params.id, req.body || {}, receiptActor(req));
+    res.json(result);
+  } catch (error) {
+    sendReceiptError(res, error);
+  }
+});
+
+app.delete("/api/receipts/:id", authMiddleware, (_req, res) => {
+  try {
+    deleteReceiptForbidden();
+  } catch (error) {
+    sendReceiptError(res, error);
+  }
+});
+
+app.get("/api/receipts", authMiddleware, (req, res) => {
+  const state = getErpState(["receipts", "clients"]);
+  const clientId = String(req.query.clientId || "").trim();
+  let receipts = listReceipts(state.data);
+  if (clientId) receipts = receipts.filter((row) => String(row.clientId) === clientId);
+  const allocations = listReceiptAllocations(state.data);
+  res.json({
+    receipts: receipts.map((receipt) => ({
+      ...receipt,
+      summary: summarizeReceipt(receipt, allocations),
+    })),
+    receiptAllocations: allocations,
+    version: state.version,
+  });
+});
+
+app.post("/api/receipts/fifo-preview", authMiddleware, (req, res) => {
+  const state = getErpState(["sales", "receipts", "clients"]);
+  const clientKey = String(req.body?.clientId || req.body?.clientName || "").trim();
+  const result = proposeFifoAllocations(
+    state.data?.sales || [],
+    clientKey,
+    req.body?.grossAmount,
+    listReceiptAllocations(state.data),
+  );
+  res.json(result);
+});
+
+app.get("/api/ar-subledger/:clientId", authMiddleware, (req, res) => {
+  try {
+    const state = getErpState(["sales", "clients", "receipts"]);
+    const report = buildClientArSubledger(state.data || {}, {
+      clientId: req.params.clientId,
+      startDate: req.query.startDate,
+      endDate: req.query.endDate,
+    });
+    res.json(report);
+  } catch (error) {
+    sendReceiptError(res, error);
+  }
+});
+
+app.get("/api/receipts-migration/dry-run", authMiddleware, adminMiddleware, (_req, res) => {
+  const state = getErpState();
+  const report = diagnoseLegacyPaymentMigration(state.data || {});
+  res.json(report);
 });
 
 app.get("/api/client-contracts", authMiddleware, (_req, res) => {

@@ -354,6 +354,7 @@ import {
 } from "@/utils/clientContacts";
 import {
   clearAuthSession,
+  createReceiptApi,
   fetchBankTransactionsSnapshot,
   fetchErpData,
   fetchErpDomains,
@@ -366,12 +367,21 @@ import {
   isApiModeEnabled,
   loadAuthUser,
   loginWithApi,
+  reverseReceiptApi,
   saveErpData,
   saveWorkerMonthlyPaymentMemoApi,
   syncWorkerPortalLoginIdsFromSc,
   updateSidebarOrderApi,
   type ErpSaveDomain,
 } from "@/utils/erpApi";
+import {
+  formatReceiptSaveMessage,
+  makeReceiptOperationId,
+  mergeEffectivePaymentVouchers,
+  projectReceiptsToLegacyPaymentVouchers,
+  type ReceiptAllocationRecord,
+  type ReceiptRecord,
+} from "@/utils/receiptLedger";
 import {
   canUserAccessPage,
   getAccessiblePageDefs,
@@ -3393,6 +3403,9 @@ function CalendarPage({
   paymentVouchers = [],
   setPaymentVouchers,
   setPaymentInputLogs,
+  receipts = [],
+  receiptAllocations = [],
+  onReceiptLedgerUpsert,
   bankTransactions = [],
   setBankTransactions,
   companyProfile,
@@ -3424,6 +3437,7 @@ function CalendarPage({
   const [selectedDates, setSelectedDates] = useState([]);
   const [paymentPreview, setPaymentPreview] = useState(null);
   const [paymentCancelPreview, setPaymentCancelPreview] = useState(null);
+  const [paymentSaving, setPaymentSaving] = useState(false);
   const [statementModalDraft, setStatementModalDraft] = useState(null);
   const [editingSaleId, setEditingSaleId] = useState(null);
   const [calendarNewSaleOpen, setCalendarNewSaleOpen] = useState(false);
@@ -3853,13 +3867,12 @@ function CalendarPage({
       showClientFilterNotice("입금 처리할 날짜를 선택해 주세요.");
       return;
     }
-    if (!setPaymentVouchers || !setPaymentInputLogs) {
+    if (!onReceiptLedgerUpsert) {
       showClientFilterNotice("입금 처리 기능을 사용할 수 없습니다.");
       return;
     }
 
-    const vatIncluded = isCalendarClientVatIncluded(clients, filteredClient);
-    const preview = buildCalendarPaymentPreview(sales, filteredClient, selectedDates, todayISO(), vatIncluded);
+    const preview = buildCalendarPaymentPreview(sales, filteredClient, selectedDates, todayISO(), false);
     if (!preview) {
       showClientFilterNotice("선택한 날짜에 미수 전표가 없습니다.");
       return;
@@ -3868,42 +3881,60 @@ function CalendarPage({
     setPaymentPreview(preview);
   };
 
-  const handleClientFilterPaymentVatChange = (vatIncluded) => {
+  const handleClientFilterPaymentVatChange = (_vatIncluded) => {
     if (!filteredClient || !selectedDates.length) return;
-    const preview = buildCalendarPaymentPreview(sales, filteredClient, selectedDates, todayISO(), vatIncluded);
+    // VAT inventing at payment time is disabled in the unified receipt ledger.
+    const preview = buildCalendarPaymentPreview(sales, filteredClient, selectedDates, todayISO(), false);
     if (preview) setPaymentPreview(preview);
   };
 
   const closeClientFilterPaymentConfirm = () => {
+    if (paymentSaving) return;
     setPaymentPreview(null);
   };
 
-  const confirmClientFilterPaymentProcess = () => {
-    if (!paymentPreview || !setPaymentVouchers || !setPaymentInputLogs) return;
+  const confirmClientFilterPaymentProcess = async () => {
+    if (!paymentPreview || !onReceiptLedgerUpsert || paymentSaving) return;
 
-    const batchId = Date.now();
-    const savedBy = currentUser?.name || currentUser?.email || "";
-    const vouchers = paymentPreview.vouchers;
-    const logs = createPaymentInputLogsFromVouchers(vouchers, savedBy, batchId);
+    const clientRow = clients.find((row) => String(row.name || "").trim() === paymentPreview.client);
+    if (!clientRow?.id) {
+      showClientFilterNotice("거래처 마스터 ID를 찾을 수 없습니다. 거래처 등록을 확인해 주세요.");
+      return;
+    }
 
-    vouchers.forEach((voucher) => {
-      recordAudit({
-        entityType: "paymentVoucher",
-        entityId: voucher.id,
-        entityLabel: `${voucher.client} · ${voucher.site}`,
-        screen: "캘린더",
-        action: "create",
-        after: snapshotPaymentForAudit(voucher),
-        fields: PAYMENT_AUDIT_FIELDS,
-        user: currentUser,
+    const allocations = paymentPreview.vouchers
+      .filter((voucher) => voucher.salesId != null && Number(voucher.amount) > 0)
+      .map((voucher) => ({ saleId: voucher.salesId, amount: Number(voucher.amount) || 0 }));
+    if (!allocations.length) {
+      showClientFilterNotice("배분할 미수 전표가 없습니다.");
+      return;
+    }
+
+    const operationId = makeReceiptOperationId("calendar");
+    const grossAmount = allocations.reduce((sum, row) => sum + row.amount, 0);
+    setPaymentSaving(true);
+    try {
+      const result = await createReceiptApi({
+        operationId,
+        clientId: clientRow.id,
+        clientName: paymentPreview.client,
+        receiptDate: todayISO(),
+        grossAmount,
+        channel: "other",
+        source: "calendar",
+        memo: "거래처캘린더 입금처리",
+        allocations,
       });
-    });
-
-    setPaymentVouchers((prev) => [...vouchers, ...prev]);
-    setPaymentInputLogs((prev) => [...logs, ...prev]);
-    setPaymentPreview(null);
-    setSelectedDates([]);
-    showClientFilterNotice(`${vouchers.length}건 · ${formatKRW(paymentPreview.totalFinal)} 입금완료 처리되었습니다.`);
+      onReceiptLedgerUpsert(result);
+      setPaymentPreview(null);
+      setSelectedDates([]);
+      showClientFilterNotice(formatReceiptSaveMessage(result));
+    } catch (error) {
+      const message = error?.message || "입금전표 저장에 실패했습니다.";
+      showClientFilterNotice(`저장 실패: ${message}`);
+    } finally {
+      setPaymentSaving(false);
+    }
   };
 
   const openClientFilterPaymentCancelConfirm = () => {
@@ -3915,7 +3946,7 @@ function CalendarPage({
       showClientFilterNotice("입금 취소할 날짜를 선택해 주세요.");
       return;
     }
-    if (!setPaymentVouchers || !setPaymentInputLogs) {
+    if (!onReceiptLedgerUpsert) {
       showClientFilterNotice("입금 취소 기능을 사용할 수 없습니다.");
       return;
     }
@@ -3930,32 +3961,44 @@ function CalendarPage({
   };
 
   const closeClientFilterPaymentCancelConfirm = () => {
+    if (paymentSaving) return;
     setPaymentCancelPreview(null);
   };
 
-  const confirmClientFilterPaymentCancel = () => {
-    if (!paymentCancelPreview || !setPaymentVouchers || !setPaymentInputLogs) return;
+  const confirmClientFilterPaymentCancel = async () => {
+    if (!paymentCancelPreview || !onReceiptLedgerUpsert || paymentSaving) return;
 
-    const cancelIds = new Set(paymentCancelPreview.vouchers.map((voucher) => String(voucher.id)));
+    const receiptIds = [
+      ...new Set(
+        paymentCancelPreview.vouchers
+          .map((voucher) => voucher.receiptId)
+          .filter((id) => id != null && id !== ""),
+      ),
+    ];
 
-    paymentCancelPreview.vouchers.forEach((voucher) => {
-      recordAudit({
-        entityType: "paymentVoucher",
-        entityId: voucher.id,
-        entityLabel: `${voucher.client} · ${voucher.site}`,
-        screen: "캘린더",
-        action: "delete",
-        before: snapshotPaymentForAudit(voucher),
-        fields: PAYMENT_AUDIT_FIELDS,
-        user: currentUser,
-      });
-    });
+    if (!receiptIds.length) {
+      showClientFilterNotice("신규 입금원장 전표만 취소할 수 있습니다. 레거시 입금은 입금/미수금 화면을 이용하세요.");
+      return;
+    }
 
-    setPaymentVouchers((prev) => prev.filter((item) => !cancelIds.has(String(item.id))));
-    setPaymentInputLogs((prev) => prev.filter((log) => !cancelIds.has(String(log.paymentVoucherId))));
-    setPaymentCancelPreview(null);
-    setSelectedDates([]);
-    showClientFilterNotice(`${paymentCancelPreview.voucherCount}건 · ${formatKRW(paymentCancelPreview.totalFinal)} 입금이 취소되었습니다.`);
+    setPaymentSaving(true);
+    try {
+      for (const receiptId of receiptIds) {
+        const result = await reverseReceiptApi(String(receiptId), {
+          operationId: makeReceiptOperationId(`calendar-rev:${receiptId}`),
+          memo: "거래처캘린더 입금취소",
+        });
+        onReceiptLedgerUpsert(result);
+      }
+      setPaymentCancelPreview(null);
+      setSelectedDates([]);
+      showClientFilterNotice(`${receiptIds.length}건 입금전표가 취소되었습니다.`);
+    } catch (error) {
+      const message = error?.message || "입금 취소에 실패했습니다.";
+      showClientFilterNotice(`취소 실패: ${message}`);
+    } finally {
+      setPaymentSaving(false);
+    }
   };
 
   const monthTotals = useMemo(() => {
@@ -4214,23 +4257,20 @@ function CalendarPage({
             <p className="mt-2 text-sm font-semibold text-slate-800">{paymentCancelPreview.client}</p>
             <div className="mt-4 space-y-2 text-sm text-slate-600">
               <p>선택 일자 <strong>{paymentCancelPreview.selectedDays}일</strong></p>
-              <p>취소 입금 <strong>{paymentCancelPreview.voucherCount}건</strong></p>
-              <p>입금 공급가액 <strong>{formatKRW(paymentCancelPreview.totalAmount)}</strong></p>
-              <p>
-                부가세{" "}
-                <strong className={paymentCancelPreview.totalVat > 0 ? "text-amber-700" : "text-slate-500"}>
-                  {paymentCancelPreview.totalVat > 0 ? formatKRW(paymentCancelPreview.totalVat) : "없음"}
-                </strong>
-              </p>
+              <p>취소 입금 배분 <strong>{paymentCancelPreview.voucherCount}건</strong></p>
               <p>취소 금액 <strong className="text-red-700">{formatKRW(paymentCancelPreview.totalFinal)}</strong></p>
-              <p className="text-xs text-slate-500">선택한 날짜 매출 전표에 연결된 입금 내역을 삭제합니다.</p>
+              <p className="text-xs text-slate-500">posted 입금전표는 삭제하지 않고 취소전표(역분개)로 처리합니다.</p>
             </div>
             <div className="mt-5 flex gap-2">
-              <Button variant="outline" className="flex-1 rounded-xl" onClick={closeClientFilterPaymentCancelConfirm}>
+              <Button variant="outline" className="flex-1 rounded-xl" disabled={paymentSaving} onClick={closeClientFilterPaymentCancelConfirm}>
                 닫기
               </Button>
-              <Button className="flex-1 rounded-xl bg-red-600 hover:bg-red-700" onClick={confirmClientFilterPaymentCancel}>
-                입금취소
+              <Button
+                className="flex-1 rounded-xl bg-red-600 hover:bg-red-700"
+                disabled={paymentSaving}
+                onClick={() => void confirmClientFilterPaymentCancel()}
+              >
+                {paymentSaving ? "처리 중…" : "입금취소"}
               </Button>
             </div>
           </div>
@@ -4250,48 +4290,21 @@ function CalendarPage({
               입금 처리
             </h2>
             <p className="mt-2 text-sm font-semibold text-slate-800">{paymentPreview.client}</p>
-            <div className="mt-4">
-              <p className="text-xs font-semibold text-slate-500">부가세 처리</p>
-              <div className="mt-2 flex gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={paymentPreview.vatIncluded ? "default" : "outline"}
-                  className="flex-1 rounded-xl"
-                  onClick={() => handleClientFilterPaymentVatChange(true)}
-                >
-                  부가세 포함
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={!paymentPreview.vatIncluded ? "default" : "outline"}
-                  className="flex-1 rounded-xl"
-                  onClick={() => handleClientFilterPaymentVatChange(false)}
-                >
-                  부가세 미포함
-                </Button>
-              </div>
-            </div>
             <div className="mt-4 space-y-2 text-sm text-slate-600">
               <p>선택 일자 <strong>{paymentPreview.selectedDays}일</strong></p>
               <p>미수 전표 <strong>{paymentPreview.saleCount}건</strong></p>
-              <p>입금 공급가액 <strong>{formatKRW(paymentPreview.totalUnpaid)}</strong></p>
-              <p>
-                부가세{" "}
-                <strong className={paymentPreview.totalVat > 0 ? "text-amber-700" : "text-slate-500"}>
-                  {paymentPreview.totalVat > 0 ? formatKRW(paymentPreview.totalVat) : "없음"}
-                </strong>
+              <p>입금액(청구 잔액 배분) <strong className="text-emerald-700">{formatKRW(paymentPreview.totalFinal)}</strong></p>
+              <p className="text-xs text-slate-500">
+                입금 시 부가세를 새로 계산하지 않습니다. 서버 확정 저장 후 입금전표가 유지됩니다.
               </p>
-              <p>최종 입금액 <strong className="text-emerald-700">{formatKRW(paymentPreview.totalFinal)}</strong></p>
-              <p className="text-xs text-slate-500">선택한 날짜의 미수 잔액을 오늘({todayISO()}) 입금완료 처리합니다.</p>
+              <p className="text-xs text-slate-500">선택한 날짜의 미수 잔액을 오늘({todayISO()}) 입금전표로 확정합니다.</p>
             </div>
             <div className="mt-5 flex gap-2">
-              <Button variant="outline" className="flex-1 rounded-xl" onClick={closeClientFilterPaymentConfirm}>
+              <Button variant="outline" className="flex-1 rounded-xl" disabled={paymentSaving} onClick={closeClientFilterPaymentConfirm}>
                 취소
               </Button>
-              <Button className="flex-1 rounded-xl" onClick={confirmClientFilterPaymentProcess}>
-                입금완료
+              <Button className="flex-1 rounded-xl" disabled={paymentSaving} onClick={() => void confirmClientFilterPaymentProcess()}>
+                {paymentSaving ? "저장 중…" : "입금완료"}
               </Button>
             </div>
           </div>
@@ -8452,6 +8465,16 @@ export default function TeammillimeterErpMvp() {
     if (apiMode && sessionOnMount) return [];
     return Array.isArray(storedData?.paymentInputLogs) ? storedData.paymentInputLogs : [];
   });
+  const [receipts, setReceipts] = useState<ReceiptRecord[]>(() => {
+    if (apiMode && sessionOnMount) return [];
+    return Array.isArray(storedData?.receipts) ? (storedData.receipts as ReceiptRecord[]) : [];
+  });
+  const [receiptAllocations, setReceiptAllocations] = useState<ReceiptAllocationRecord[]>(() => {
+    if (apiMode && sessionOnMount) return [];
+    return Array.isArray(storedData?.receiptAllocations)
+      ? (storedData.receiptAllocations as ReceiptAllocationRecord[])
+      : [];
+  });
   const [clients, setClients] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return storedData?.clients?.length >= initialClients.length ? storedData.clients : initialClients;
@@ -8630,7 +8653,18 @@ export default function TeammillimeterErpMvp() {
     () => normalizeSalesRecords(sales, workers).map((sale) => normalizeSaleRecordReview(sale, saleComments)),
     [sales, workers, saleComments],
   );
-  const appliedPaymentData = useMemo(() => applyPaymentVouchers(normalizedSales, paymentVouchers), [normalizedSales, paymentVouchers]);
+  const projectedReceiptVouchers = useMemo(
+    () => projectReceiptsToLegacyPaymentVouchers(receipts, receiptAllocations, clients),
+    [receipts, receiptAllocations, clients],
+  );
+  const effectivePaymentVouchers = useMemo(
+    () => mergeEffectivePaymentVouchers(paymentVouchers, projectedReceiptVouchers),
+    [paymentVouchers, projectedReceiptVouchers],
+  );
+  const appliedPaymentData = useMemo(
+    () => applyPaymentVouchers(normalizedSales, effectivePaymentVouchers),
+    [normalizedSales, effectivePaymentVouchers],
+  );
   const appliedSales = appliedPaymentData.sales;
   const [taxInvoices, setTaxInvoices] = useState(() => {
     if (apiMode && sessionOnMount) return [];
@@ -8647,12 +8681,12 @@ export default function TeammillimeterErpMvp() {
   const workerMonthlyActualVouchersRef = useRef(workerMonthlyActualVouchers);
   workerMonthlyActualVouchersRef.current = workerMonthlyActualVouchers;
   const autoLinkedSaleIds = useMemo(
-    () => buildAutoLinkedSaleIdSet(paymentVouchers, bankTransactions, appliedSales),
-    [paymentVouchers, bankTransactions, appliedSales]
+    () => buildAutoLinkedSaleIdSet(effectivePaymentVouchers, bankTransactions, appliedSales),
+    [effectivePaymentVouchers, bankTransactions, appliedSales]
   );
   const manualLinkedSaleIds = useMemo(
-    () => buildManualLinkedSaleIdSet(paymentVouchers, bankTransactions, appliedSales),
-    [paymentVouchers, bankTransactions, appliedSales]
+    () => buildManualLinkedSaleIdSet(effectivePaymentVouchers, bankTransactions, appliedSales),
+    [effectivePaymentVouchers, bankTransactions, appliedSales]
   );
   const [bankTransactionFolders, setBankTransactionFolders] = useState(() => {
     if (apiMode && sessionOnMount) return normalizeBankTransactionFolders([]);
@@ -8754,6 +8788,8 @@ export default function TeammillimeterErpMvp() {
     setSales((prev) => normalizeSalesRecords(mergeSalesByUpdatedAt(data.sales || [], prev, { suppressedServerIds: suppressedSaleIdsRef.current }), workersForSales));
     setPaymentVouchers(data.paymentVouchers || []);
     setPaymentInputLogs(Array.isArray(data.paymentInputLogs) ? data.paymentInputLogs : []);
+    setReceipts(Array.isArray(data.receipts) ? data.receipts : []);
+    setReceiptAllocations(Array.isArray(data.receiptAllocations) ? data.receiptAllocations : []);
     const incomingClients = data.clients?.length ? data.clients : initialClients;
     if (!preserveLocalEdits) {
       setClients(incomingClients);
@@ -9487,6 +9523,37 @@ export default function TeammillimeterErpMvp() {
   );
   const flushErpSaveRef = useRef(flushErpSave);
   flushErpSaveRef.current = flushErpSave;
+
+  const upsertReceiptLedgerResult = useCallback((result: {
+    receipt?: ReceiptRecord;
+    allocations?: ReceiptAllocationRecord[];
+    original?: ReceiptRecord | null;
+  }) => {
+    if (!result?.receipt) return;
+    setReceipts((prev) => {
+      const map = new Map(prev.map((row) => [String(row.id), row]));
+      if (result.original) map.set(String(result.original.id), result.original);
+      map.set(String(result.receipt.id), result.receipt);
+      return [...map.values()];
+    });
+    setReceiptAllocations((prev) => {
+      const originalId = result.original ? String(result.original.id) : "";
+      const receiptId = String(result.receipt.id);
+      const kept = prev
+        .filter((row) => {
+          const rid = String(row.receiptId);
+          if (rid === receiptId) return false;
+          return true;
+        })
+        .map((row) => {
+          if (originalId && String(row.receiptId) === originalId && row.status === "posted") {
+            return { ...row, status: "reversed" as const };
+          }
+          return row;
+        });
+      return [...(result.allocations || []), ...kept];
+    });
+  }, []);
 
   const persistClientsImmediate = useCallback(
     async (
@@ -11215,7 +11282,7 @@ export default function TeammillimeterErpMvp() {
 
   return (
     <AuditProvider auditLogs={auditLogs} setAuditLogs={setAuditLogs} currentUser={currentUser}>
-    <SalePaymentLinkProvider paymentVouchers={paymentVouchers} bankTransactions={bankTransactions} sales={appliedSales}>
+    <SalePaymentLinkProvider paymentVouchers={effectivePaymentVouchers} bankTransactions={bankTransactions} sales={appliedSales}>
     <div className="erp-app-shell flex min-h-[100dvh] min-h-[100svh] bg-slate-50 text-slate-900" lang="ko">
       <Sidebar
         active={shellActive}
@@ -11273,7 +11340,7 @@ export default function TeammillimeterErpMvp() {
           />
         ) : null}
         <PageKeepAlive pageKey="dashboard" active={shellActive}>
-          <Dashboard sales={appliedSales} paymentVouchers={paymentVouchers} workers={workers} />
+          <Dashboard sales={appliedSales} paymentVouchers={effectivePaymentVouchers} workers={workers} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="calendar" active={shellActive}>
           <CalendarPage
@@ -11282,9 +11349,12 @@ export default function TeammillimeterErpMvp() {
             clients={clients}
             workers={workers}
             currentUser={currentUser}
-            paymentVouchers={paymentVouchers}
+            paymentVouchers={effectivePaymentVouchers}
             setPaymentVouchers={setPaymentVouchers}
             setPaymentInputLogs={setPaymentInputLogs}
+            receipts={receipts}
+            receiptAllocations={receiptAllocations}
+            onReceiptLedgerUpsert={upsertReceiptLedgerResult}
             bankTransactions={bankTransactions}
             setBankTransactions={setBankTransactions}
             companyProfile={companyProfile}
@@ -11415,10 +11485,11 @@ export default function TeammillimeterErpMvp() {
             sales={appliedSales}
             receivableRows={receivableRowsFromSales}
             clients={activeClients}
-            paymentVouchers={paymentVouchers}
+            paymentVouchers={effectivePaymentVouchers}
             setPaymentVouchers={setPaymentVouchers}
             paymentInputLogs={paymentInputLogs}
             setPaymentInputLogs={setPaymentInputLogs}
+            onReceiptLedgerUpsert={upsertReceiptLedgerResult}
             bankTransactions={bankTransactions}
             setBankTransactions={setBankTransactions}
             currentUser={currentUser}
