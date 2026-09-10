@@ -26,6 +26,14 @@ export type UnifiedArSaleLike = {
   amount?: number;
   /** Legacy manual paid amount stored on the sale row itself. */
   paid?: number;
+  /**
+   * Explicit opening balance. When the property exists (including 0), Unified AR uses it
+   * instead of `paid` so a previously applied `voucherPaid` baked into `paid` is not stacked
+   * again on top of the voucher ledger.
+   */
+  basePaid?: number;
+  /** Cached portion of `paid` already attributed to legacy vouchers. */
+  voucherPaid?: number;
   /** Legacy flag: the stored manual paid amount was cleared and must be ignored. */
   manualPaidCleared?: boolean;
   site?: string;
@@ -403,8 +411,16 @@ export function buildSaleArBalances(
       legacyAppliedAmount: 0,
       legacyDirectAppliedAmount: 0,
       legacyFifoAppliedAmount: 0,
-      // Legacy manual paid stored on the sale row. `manualPaidCleared` wins over it.
-      legacyStoredPaidAmount: sale?.manualPaidCleared ? 0 : unifiedArMoney(sale?.paid),
+      // Legacy opening balance stored on the sale row. Prefer `basePaid` (including 0) so a
+      // previously applied `voucherPaid` baked into `paid` is not stacked again on top of the
+      // voucher ledger — same rule as `applyPaymentVouchers`.
+      legacyStoredPaidAmount: sale?.manualPaidCleared
+        ? 0
+        : unifiedArMoney(
+            sale != null && Object.prototype.hasOwnProperty.call(sale, "basePaid")
+              ? sale.basePaid
+              : sale?.paid,
+          ),
       receiptAllocatedAmount: 0,
       totalAppliedAmount: 0,
       outstandingAmount: 0,
