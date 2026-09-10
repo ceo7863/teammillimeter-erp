@@ -3697,6 +3697,8 @@ app.post("/api/receipts/fifo-preview", authMiddleware, (req, res) => {
     clientKey,
     req.body?.grossAmount,
     listReceiptAllocations(state.data),
+    listReceipts(state.data),
+    state.data?.clients || [],
   );
   res.json(result);
 });

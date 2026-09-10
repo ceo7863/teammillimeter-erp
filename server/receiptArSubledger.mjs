@@ -1,7 +1,9 @@
 import {
+  isEffectivePostedAllocation,
   listReceiptAllocations,
   listReceipts,
   receiptMoney,
+  saleBelongsToClient,
   summarizeReceipt,
 } from "./receipts.mjs";
 
@@ -25,33 +27,28 @@ function resolveClient(clients, clientId) {
   return client;
 }
 
-function postedAllocAmountBySale(allocations) {
-  const map = new Map();
-  for (const row of allocations || []) {
-    if (row.status !== "posted") continue;
-    const key = String(row.saleId);
-    map.set(key, (map.get(key) || 0) + receiptMoney(row.amount));
-  }
-  return map;
-}
-
 /**
  * Client AR subledger for a period.
- * Opening AR = billed before start - posted allocations dated before start - adjustments before start (currently 0).
- * No customer data mutation.
+ *
+ * closingAr =
+ *   openingAr + periodBilled + periodDebitAdjustments
+ *   - periodAppliedAllocations - periodCreditAdjustments
+ *
+ * Unallocated prepaid does NOT reduce AR.
+ * periodReceiptsGross is cash inflow (separate from AR application).
  */
 export function buildClientArSubledger(data, { clientId, startDate, endDate } = {}) {
-  const client = resolveClient(data.clients || [], clientId);
+  const clients = data.clients || [];
+  const client = resolveClient(clients, clientId);
   const clientName = String(client.name || "").trim();
   const start = startDate ? String(startDate).slice(0, 10) : "";
   const end = endDate ? String(endDate).slice(0, 10) : "";
 
   const receipts = listReceipts(data);
   const allocations = listReceiptAllocations(data);
-  const sales = (data.sales || []).filter((sale) => String(sale.client || "").trim() === clientName);
-
-  const allocBySale = postedAllocAmountBySale(allocations);
   const receiptById = new Map(receipts.map((row) => [String(row.id), row]));
+
+  const sales = (data.sales || []).filter((sale) => saleBelongsToClient(sale, client, clients));
 
   const allocationDate = (allocation) => {
     const receipt = receiptById.get(String(allocation.receiptId));
@@ -59,27 +56,29 @@ export function buildClientArSubledger(data, { clientId, startDate, endDate } = 
   };
 
   let openingBilled = 0;
-  let openingAllocated = 0;
-  let periodSales = 0;
+  let openingAppliedAllocations = 0;
+  let periodBilled = 0;
+  let periodAppliedAllocations = 0;
   let periodReceiptsGross = 0;
-  let periodAdjustments = 0;
-  let closingUnallocated = 0;
+  let periodAllocatedReceipts = 0;
+  let periodDebitAdjustments = 0;
+  let periodCreditAdjustments = 0;
 
   for (const sale of sales) {
     const billed = receiptMoney(sale.amount);
     const saleDate = String(sale.date || "").slice(0, 10);
     if (start && saleDate && saleDate < start) openingBilled += billed;
-    if (inRange(saleDate, start, end)) periodSales += billed;
+    if (inRange(saleDate, start, end)) periodBilled += billed;
   }
 
   for (const allocation of allocations) {
-    if (allocation.status !== "posted") continue;
+    if (!isEffectivePostedAllocation(allocation, receiptById)) continue;
     const receipt = receiptById.get(String(allocation.receiptId));
     if (!receipt || String(receipt.clientId) !== String(client.id)) continue;
-    if (receipt.status === "draft") continue;
     const amount = receiptMoney(allocation.amount);
     const date = allocationDate(allocation);
-    if (start && date && date < start) openingAllocated += amount;
+    if (start && date && date < start) openingAppliedAllocations += amount;
+    if (inRange(date, start, end)) periodAppliedAllocations += amount;
   }
 
   const periodReceiptRows = [];
@@ -87,17 +86,28 @@ export function buildClientArSubledger(data, { clientId, startDate, endDate } = 
     if (String(receipt.clientId) !== String(client.id)) continue;
     if (receipt.status === "draft") continue;
     if (!inRange(receipt.receiptDate, start, end)) continue;
+
     const rows = allocations.filter((row) => String(row.receiptId) === String(receipt.id));
     const summary = summarizeReceipt(receipt, rows);
-    periodReceiptsGross += receiptMoney(receipt.grossAmount);
-    if (receipt.status === "posted" && !receipt.reversalOfReceiptId) {
-      closingUnallocated += summary.unallocatedAmount;
+    const gross = receiptMoney(receipt.grossAmount);
+
+    // Cash inflow by event date: originals contribute +gross (even if later reversed),
+    // reversal documents contribute negative grossAmount.
+    if (receipt.reversalOfReceiptId) {
+      periodReceiptsGross += gross; // already negative
+    } else {
+      periodReceiptsGross += Math.abs(gross);
     }
+
+    if (receipt.status === "posted" && !receipt.reversalOfReceiptId) {
+      periodAllocatedReceipts += summary.allocatedAmount;
+    }
+
     periodReceiptRows.push({
       id: receipt.id,
       receiptNo: receipt.receiptNo,
       receiptDate: receipt.receiptDate,
-      grossAmount: receiptMoney(receipt.grossAmount),
+      grossAmount: gross,
       allocatedAmount: summary.allocatedAmount,
       unallocatedAmount: summary.unallocatedAmount,
       channel: receipt.channel,
@@ -105,23 +115,28 @@ export function buildClientArSubledger(data, { clientId, startDate, endDate } = 
       status: receipt.status,
       bankTransactionId: receipt.bankTransactionId,
       sentStatementId: receipt.sentStatementId,
+      reversalOfReceiptId: receipt.reversalOfReceiptId || null,
       memo: receipt.memo || "",
     });
   }
 
-  // Unallocated prepaid as of end: all posted non-reversal receipts for client up to end
+  // Unallocated prepaid as of end date: posted non-reversal receipts dated <= end
   let unallocatedPrepaid = 0;
+  let totalGrossToEnd = 0;
+  let totalAllocatedToEnd = 0;
   for (const receipt of receipts) {
     if (String(receipt.clientId) !== String(client.id)) continue;
-    if (receipt.status !== "posted") continue;
     if (receipt.reversalOfReceiptId) continue;
+    if (receipt.status !== "posted") continue;
     if (end && String(receipt.receiptDate || "") > end) continue;
-    const rows = allocations.filter(
-      (row) => String(row.receiptId) === String(receipt.id) && row.status === "posted",
-    );
+    const rows = allocations.filter((row) => String(row.receiptId) === String(receipt.id));
     const summary = summarizeReceipt(receipt, rows);
     unallocatedPrepaid += summary.unallocatedAmount;
+    totalGrossToEnd += receiptMoney(receipt.grossAmount);
+    totalAllocatedToEnd += summary.allocatedAmount;
   }
+
+  const cashIdentityOk = totalGrossToEnd === totalAllocatedToEnd + unallocatedPrepaid;
 
   const saleRows = sales
     .filter((sale) => {
@@ -131,11 +146,9 @@ export function buildClientArSubledger(data, { clientId, startDate, endDate } = 
     })
     .map((sale) => {
       const billed = receiptMoney(sale.amount);
-      const allocated = allocBySale.get(String(sale.id)) || 0;
-      // Only count allocations dated <= end
       let allocatedToEnd = 0;
       for (const allocation of allocations) {
-        if (allocation.status !== "posted") continue;
+        if (!isEffectivePostedAllocation(allocation, receiptById)) continue;
         if (String(allocation.saleId) !== String(sale.id)) continue;
         const date = allocationDate(allocation);
         if (end && date > end) continue;
@@ -149,18 +162,21 @@ export function buildClientArSubledger(data, { clientId, startDate, endDate } = 
         allocatedAmount: allocatedToEnd,
         balance: Math.max(billed - allocatedToEnd, 0),
         voucherNo: sale.voucherNo || sale.id,
+        clientId: sale.clientId ?? null,
       };
     })
     .filter((row) => {
       if (!start) return true;
-      // include opening open balances and period activity
       const sale = sales.find((s) => String(s.id) === String(row.saleId));
       const saleDate = String(sale?.date || "").slice(0, 10);
       return saleDate >= start || row.balance > 0 || row.allocatedAmount > 0;
     });
 
-  const openingAr = Math.max(openingBilled - openingAllocated - 0, 0);
-  const closingAr = Math.max(openingAr + periodSales - periodReceiptsGross - periodAdjustments, 0);
+  const openingAr = Math.max(openingBilled - openingAppliedAllocations, 0);
+  const closingAr = Math.max(
+    openingAr + periodBilled + periodDebitAdjustments - periodAppliedAllocations - periodCreditAdjustments,
+    0,
+  );
 
   return {
     clientId: String(client.id),
@@ -168,18 +184,31 @@ export function buildClientArSubledger(data, { clientId, startDate, endDate } = 
     startDate: start || null,
     endDate: end || null,
     openingAr,
-    periodSales,
+    periodSales: periodBilled,
+    periodBilled,
+    periodAppliedAllocations,
     periodReceipts: periodReceiptsGross,
-    periodAdjustments,
+    periodReceiptsGross,
+    periodAllocatedReceipts,
+    periodDebitAdjustments,
+    periodCreditAdjustments,
+    periodAdjustments: periodDebitAdjustments - periodCreditAdjustments,
     closingAr,
     unallocatedPrepaid,
-    periodUnallocatedIncrease: closingUnallocated,
+    cashIdentity: {
+      ok: cashIdentityOk,
+      grossToEnd: totalGrossToEnd,
+      allocatedToEnd: totalAllocatedToEnd,
+      unallocatedPrepaid,
+    },
     sales: saleRows,
     receipts: periodReceiptRows,
     policyNotes: {
       billedAmountSource: "sale.amount (unchanged; no VAT transform)",
       receiptVat: "forbidden — allocations use billed remaining only",
+      arReduction: "effective posted allocations only; unallocated prepaid does not reduce AR",
       adjustments: "not implemented in Phase 1 (always 0)",
+      clientIdentity: "sale.clientId authoritative; legacy unique name fallback only",
     },
   };
 }
