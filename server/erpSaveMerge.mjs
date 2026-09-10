@@ -9,6 +9,12 @@ function parseClassifiedAtMs(value) {
 
 function mergePaymentMatchFields(prev, incoming) {
   const linkedPaymentVoucherId = incoming.linkedPaymentVoucherId ?? prev.linkedPaymentVoucherId;
+  // Phase 2 receipt link: authoritative writer is the bank receipt service, so a
+  // generic ERP save must never drop (nor invent) these fields.
+  const linkedReceiptId = incoming.linkedReceiptId ?? prev.linkedReceiptId;
+  const receiptLinkSource = incoming.receiptLinkSource ?? prev.receiptLinkSource;
+  const receiptLinkedAt = incoming.receiptLinkedAt ?? prev.receiptLinkedAt;
+  const receiptLinkedBy = incoming.receiptLinkedBy ?? prev.receiptLinkedBy;
   const linkedPdfArchiveId = incoming.linkedPdfArchiveId ?? prev.linkedPdfArchiveId;
   const linkedSalesId = incoming.linkedSalesId ?? prev.linkedSalesId;
   const linkedWorkerMonthlyPaymentVoucherId =
@@ -22,6 +28,10 @@ function mergePaymentMatchFields(prev, incoming) {
 
   return {
     linkedPaymentVoucherId,
+    linkedReceiptId,
+    receiptLinkSource,
+    receiptLinkedAt,
+    receiptLinkedBy,
     linkedPdfArchiveId,
     linkedSalesId,
     linkedWorkerMonthlyPaymentVoucherId,

@@ -589,6 +589,51 @@ export async function fetchReceiptApi(receiptId: string) {
   return apiRequest<ReceiptApiResult>(`/receipts/${encodeURIComponent(receiptId)}`);
 }
 
+export type BankTransactionReceiptResult = ReceiptApiResult & {
+  bankTransactionId?: string;
+  bankTransaction?: Record<string, unknown>;
+  linkKind?: "receipt" | "legacy" | "none";
+};
+
+export type CreateBankTransactionReceiptInput = {
+  operationId: string;
+  clientId: string | number;
+  allocations?: Array<{ saleId: string | number; amount: number }>;
+  sentStatementId?: string | null;
+  memo?: string;
+  source?: "bank_manual" | "bank_auto";
+};
+
+/**
+ * Phase 2: turn a bank deposit into a Receipt. The server owns grossAmount
+ * (always tx.deposit) and the bank-side link fields, so no voucher is created.
+ */
+export async function createBankTransactionReceiptApi(
+  bankTransactionId: string,
+  input: CreateBankTransactionReceiptInput,
+) {
+  return apiRequest<BankTransactionReceiptResult>(
+    `/bank-transactions/${encodeURIComponent(bankTransactionId)}/receipt`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+export async function reverseBankTransactionReceiptApi(
+  bankTransactionId: string,
+  input?: { operationId?: string; receiptId?: string; memo?: string },
+) {
+  return apiRequest<BankTransactionReceiptResult>(
+    `/bank-transactions/${encodeURIComponent(bankTransactionId)}/receipt/reverse`,
+    { method: "POST", body: JSON.stringify(input || {}) },
+  );
+}
+
+export async function fetchBankTransactionReceiptApi(bankTransactionId: string) {
+  return apiRequest<BankTransactionReceiptResult>(
+    `/bank-transactions/${encodeURIComponent(bankTransactionId)}/receipt`,
+  );
+}
+
 export async function fetchClientArSubledgerApi(clientId: string | number, params?: { startDate?: string; endDate?: string }) {
   const query = new URLSearchParams();
   if (params?.startDate) query.set("startDate", params.startDate);

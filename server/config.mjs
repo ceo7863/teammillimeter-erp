@@ -150,6 +150,12 @@ export const config = {
     retryLookbackDays: Number(process.env.AUTO_DEPOSIT_RETRY_LOOKBACK_DAYS || 30),
     maxDateGapDays: Number(process.env.AUTO_DEPOSIT_MAX_DATE_GAP_DAYS || 45),
     ambiguityMinScoreGap: Number(process.env.AUTO_DEPOSIT_AMBIGUITY_MIN_SCORE_GAP || 5),
+    /**
+     * Phase 2 cutover (optional ISO). Deposits created before this instant are
+     * diagnostics-only: auto-link never writes Receipts for them. When unset the
+     * first Phase 2 auto-link run stamps bankSyncMeta.bankReceiptCutoverAt = now.
+     */
+    receiptCutoverAt: String(process.env.AUTO_DEPOSIT_RECEIPT_CUTOVER_AT || "").trim(),
   },
 };
 

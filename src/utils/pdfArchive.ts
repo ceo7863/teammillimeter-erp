@@ -23,6 +23,8 @@ export type PdfArchiveRecord = {
   paymentStatus?: PdfArchivePaymentStatus;
   linkedBankTransactionId?: string;
   linkedPaymentVoucherId?: string | number;
+  /** Phase 2 unified AR: statement ↔ Receipt link (replaces linkedPaymentVoucherId). */
+  linkedReceiptId?: string;
   shareLinkUrl?: string;
   statementSalesIds?: Array<string | number>;
   blob: Blob;
@@ -647,6 +649,7 @@ export type PdfArchiveMetaPatch = Partial<
     | "paymentStatus"
     | "linkedBankTransactionId"
     | "linkedPaymentVoucherId"
+    | "linkedReceiptId"
     | "shareLinkUrl"
     | "statementSalesIds"
   >

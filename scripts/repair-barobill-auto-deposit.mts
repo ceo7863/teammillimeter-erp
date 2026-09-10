@@ -14,6 +14,7 @@ const { data: state, version } = getErpState();
 const candidates = (state.bankTransactions || []).filter(
   (row) =>
     row.deposit > 0 &&
+    !row.linkedReceiptId &&
     !row.linkedPaymentVoucherId &&
     !row.linkedPdfArchiveId &&
     String(row.importBatchId || "").startsWith("barobill-bank-"),
@@ -39,18 +40,21 @@ if (autoLinkedCount) {
         deposit: row.deposit,
         counterpartyName: row.counterpartyName,
         linkedPdfArchiveId: row.linkedPdfArchiveId,
-        linkedPaymentVoucherId: row.linkedPaymentVoucherId,
+        linkedReceiptId: row.linkedReceiptId,
       });
     }
   }
 }
 
 if (DRY_RUN) {
-  console.log("Dry run — no save");
+  console.log("Dry run  no save");
   process.exit(0);
 }
 
 if (autoLinkedCount > 0) {
-  const saved = saveErpState(next, version, "repair-barobill-auto-deposit");
+  // Phase 2 auto links write Receipts/allocations, so the save must allow it.
+  const saved = saveErpState(next, version, "repair-barobill-auto-deposit", {
+    allowReceiptMutation: true,
+  });
   console.log("Saved ERP version", saved.version);
 }

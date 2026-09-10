@@ -41,6 +41,7 @@ function rowToMeta(row) {
       row.linked_payment_voucher_id != null && row.linked_payment_voucher_id !== ""
         ? row.linked_payment_voucher_id
         : undefined,
+    linkedReceiptId: row.linked_receipt_id || undefined,
     shareLinkUrl: row.share_link_url || undefined,
     statementSalesIds: parseStatementSalesIds(row.statement_sales_ids),
   };
@@ -80,6 +81,8 @@ export function initPdfArchiveStore() {
   ensurePdfArchiveColumn("payment_status", "TEXT");
   ensurePdfArchiveColumn("linked_bank_transaction_id", "TEXT");
   ensurePdfArchiveColumn("linked_payment_voucher_id", "TEXT");
+  /** Phase 2 unified AR: statement ↔ Receipt link (replaces linked_payment_voucher_id). */
+  ensurePdfArchiveColumn("linked_receipt_id", "TEXT");
   ensurePdfArchiveColumn("share_link_url", "TEXT");
   ensurePdfArchiveColumn("statement_sales_ids", "TEXT");
 
@@ -161,6 +164,8 @@ export function updatePdfArchiveMeta(id, patch = {}) {
       patch.linkedBankTransactionId != null ? patch.linkedBankTransactionId : row.linked_bank_transaction_id,
     linked_payment_voucher_id:
       patch.linkedPaymentVoucherId != null ? String(patch.linkedPaymentVoucherId) : row.linked_payment_voucher_id,
+    linked_receipt_id:
+      patch.linkedReceiptId != null ? String(patch.linkedReceiptId) : row.linked_receipt_id,
     share_link_url: patch.shareLinkUrl != null ? patch.shareLinkUrl : row.share_link_url,
     statement_sales_ids:
       patch.statementSalesIds != null
@@ -176,6 +181,7 @@ export function updatePdfArchiveMeta(id, patch = {}) {
         payment_status = ?,
         linked_bank_transaction_id = ?,
         linked_payment_voucher_id = ?,
+        linked_receipt_id = ?,
         share_link_url = ?,
         statement_sales_ids = ?
       WHERE id = ?
@@ -186,6 +192,7 @@ export function updatePdfArchiveMeta(id, patch = {}) {
       next.payment_status,
       next.linked_bank_transaction_id,
       next.linked_payment_voucher_id,
+      next.linked_receipt_id,
       next.share_link_url,
       next.statement_sales_ids,
       id,

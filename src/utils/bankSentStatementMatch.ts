@@ -1,5 +1,6 @@
 import type { BankTransaction } from "./bankTransactions";
 import { hasManualClientClassificationOverride } from "./bankTransactions";
+import { isBankDepositLinked, type DepositLinkReceiptLike } from "./bankDepositLink";
 import { isCardCompanyDeposit } from "./bankTransactionFolders";
 import type { ClientDepositMatchSource } from "./clientDepositAliases";
 import { resolveBankDepositMatchSubject, resolveDepositSubjectClientMatch } from "./clientDepositAliases";
@@ -920,16 +921,26 @@ function subtractDaysYmd(ymd: string, days: number) {
 /** Recent unmatched deposits eligible for periodic auto-link retry (excludes card / already linked). */
 export function selectRecentUnlinkedDepositIds(
   bankTransactions: BankTransaction[],
-  options: { lookbackDays?: number; asOfDate?: string | Date } = {},
+  options: {
+    lookbackDays?: number;
+    asOfDate?: string | Date;
+    /** Phase 2 cutover: never look back past this YMD. */
+    minDate?: string;
+    receipts?: DepositLinkReceiptLike[];
+    paymentVouchers?: Array<{ bankTransactionId?: string | number }>;
+  } = {},
 ): string[] {
   const lookbackDays = options.lookbackDays ?? DEFAULT_AUTO_DEPOSIT_RETRY_LOOKBACK_DAYS;
   const asOf = ymdKst(options.asOfDate || new Date());
-  const fromDate = subtractDaysYmd(asOf, lookbackDays);
+  const lookbackFrom = subtractDaysYmd(asOf, lookbackDays);
+  const minDate = String(options.minDate || "").slice(0, 10);
+  const fromDate = minDate && minDate > lookbackFrom ? minDate : lookbackFrom;
+  const linkContext = { receipts: options.receipts, paymentVouchers: options.paymentVouchers };
   const ids: string[] = [];
 
   for (const tx of bankTransactions) {
     if (Number(tx.deposit || 0) <= 0) continue;
-    if (tx.linkedPaymentVoucherId || tx.linkedPdfArchiveId) continue;
+    if (isBankDepositLinked(tx, linkContext) || tx.linkedPdfArchiveId) continue;
     if (isCardCompanyDeposit(tx)) continue;
     const txDate = String(tx.transactionAt || "").slice(0, 10);
     if (!txDate || (fromDate && txDate < fromDate) || txDate > asOf) continue;
@@ -1024,6 +1035,8 @@ export function evaluateHighConfidenceSentStatementAutoLinks(options: {
   clients?: ClientDepositMatchSource[];
   sales?: SaleLikeForStatement[];
   paymentVouchers?: PaymentVoucherLike[];
+  /** Phase 2 receipts — a deposit with an open receipt is already linked. */
+  receipts?: DepositLinkReceiptLike[];
   onlyTransactionIds?: Set<string>;
   minScore?: number;
   maxDateGapDays?: number;
@@ -1039,6 +1052,7 @@ export function evaluateHighConfidenceSentStatementAutoLinks(options: {
     clients,
     sales,
     paymentVouchers = [],
+    receipts = [],
     onlyTransactionIds,
     minScore = DEFAULT_SENT_STATEMENT_AUTO_LINK_MIN_SCORE,
     maxDateGapDays = DEFAULT_SENT_STATEMENT_MAX_DATE_GAP_DAYS,
@@ -1063,7 +1077,11 @@ export function evaluateHighConfidenceSentStatementAutoLinks(options: {
     diagnostics.evaluated += 1;
     const transactionDate = String(tx.transactionAt || "").slice(0, 10);
 
-    if (tx.linkedPaymentVoucherId || tx.linkedPdfArchiveId || linkedBankIds.has(tx.id)) {
+    if (
+      isBankDepositLinked(tx, { receipts, paymentVouchers }) ||
+      tx.linkedPdfArchiveId ||
+      linkedBankIds.has(tx.id)
+    ) {
       bumpDiagnostic(diagnostics, "alreadyLinked");
       items.push({ txId: tx.id, reason: "alreadyLinked", transactionDate });
       continue;
@@ -1195,6 +1213,7 @@ export function buildHighConfidenceSentStatementAutoLinks(options: {
   clients?: ClientDepositMatchSource[];
   sales?: SaleLikeForStatement[];
   paymentVouchers?: PaymentVoucherLike[];
+  receipts?: DepositLinkReceiptLike[];
   onlyTransactionIds?: Set<string>;
   minScore?: number;
   maxDateGapDays?: number;

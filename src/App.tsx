@@ -11227,6 +11227,9 @@ export default function TeammillimeterErpMvp() {
       workerPaymentRecords,
       workerPayWithVatLearnRules,
       onPersistWorkerMonthlyLinksImmediate: persistWorkerMonthlyLinksImmediate,
+      receipts,
+      receiptAllocations,
+      onReceiptLedgerUpsert: upsertReceiptLedgerResult,
     }),
     [
       bankTransactions,
@@ -11255,6 +11258,9 @@ export default function TeammillimeterErpMvp() {
       workerPaymentRecords,
       workerPayWithVatLearnRules,
       persistWorkerMonthlyLinksImmediate,
+      receipts,
+      receiptAllocations,
+      upsertReceiptLedgerResult,
     ],
   );
 
