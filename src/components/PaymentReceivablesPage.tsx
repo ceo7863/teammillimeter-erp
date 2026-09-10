@@ -37,6 +37,13 @@ import {
 } from "@/utils/paymentDepositChannel";
 import { SalePaymentLinkBadge, PartialPaymentBadge } from "@/components/AutoLinkBadge";
 import { formatMonthLabel, monthRangeForKey, shiftMonthKey } from "@/utils/companyLedger";
+import { createReceiptApi } from "@/utils/erpApi";
+import {
+  depositChannelToReceiptChannel,
+  formatReceiptSaveMessage,
+  isProjectedReceiptVoucher,
+  makeReceiptOperationId,
+} from "@/utils/receiptLedger";
 
 type PaymentTab = "input" | "receivables" | "history" | "log";
 
@@ -232,6 +239,7 @@ export function PaymentReceivablesPage({
   setPaymentVouchers,
   paymentInputLogs = [],
   setPaymentInputLogs,
+  onReceiptLedgerUpsert,
   bankTransactions = [],
   setBankTransactions,
   currentUser,
@@ -244,11 +252,16 @@ export function PaymentReceivablesPage({
 }: {
   sales?: SaleLike[];
   receivableRows?: ReceivableRow[];
-  clients?: Array<{ name?: string; manager?: string; phone?: string }>;
+  clients?: Array<{ id?: string | number; name?: string; manager?: string; phone?: string }>;
   paymentVouchers?: PaymentVoucherLike[];
   setPaymentVouchers: React.Dispatch<React.SetStateAction<PaymentVoucherLike[]>>;
   paymentInputLogs?: PaymentInputLog[];
   setPaymentInputLogs: React.Dispatch<React.SetStateAction<PaymentInputLog[]>>;
+  onReceiptLedgerUpsert?: (result: {
+    receipt?: import("@/utils/receiptLedger").ReceiptRecord;
+    allocations?: import("@/utils/receiptLedger").ReceiptAllocationRecord[];
+    original?: import("@/utils/receiptLedger").ReceiptRecord | null;
+  }) => void;
   bankTransactions?: Array<{ id?: string; linkedPaymentVoucherId?: string | number; [key: string]: unknown }>;
   setBankTransactions?: React.Dispatch<React.SetStateAction<Array<{ id?: string; linkedPaymentVoucherId?: string | number; [key: string]: unknown }>>>;
   currentUser: { name?: string; email?: string } | null;
@@ -284,6 +297,8 @@ export function PaymentReceivablesPage({
   const { message: saveMessage, setMessage: setSaveMessage, clearMessage: clearSaveMessage } = useSaveMessage();
   const [depositEditSalesId, setDepositEditSalesId] = useState<string | null>(null);
   const [defaultDepositChannel, setDefaultDepositChannel] = useState<PaymentDepositChannel>("personal");
+  const [paymentSaving, setPaymentSaving] = useState(false);
+  const [lastReceiptSummary, setLastReceiptSummary] = useState("");
 
   const updateFilter = (key: keyof typeof filters, value: string) => setFilters((prev) => ({ ...prev, [key]: value }));
 
@@ -439,9 +454,10 @@ export function PaymentReceivablesPage({
     const amount = checked
       ? Math.min(parseMoney(draft.customAmount !== undefined && draft.customAmount !== "" ? draft.customAmount : unpaid), unpaid)
       : savedAmount;
-    const vatType = draft.vatType || "included";
-    const vatAmount = vatType === "included" ? Math.round(amount * 0.1) : 0;
-    const finalAmount = amount + vatAmount;
+    // Unified receipt ledger: no VAT invention at payment time.
+    const vatType = "excluded";
+    const vatAmount = 0;
+    const finalAmount = amount;
 
     return {
       paymentDate: draft.paymentDate || filters.endDate,
@@ -488,62 +504,82 @@ export function PaymentReceivablesPage({
     );
   }, [checkedRows, paymentRows, paidVoucherBySalesId, filters.endDate]);
 
-  const savePayments = () => {
-    const nextPayments = checkedRows
+  const savePayments = async () => {
+    if (paymentSaving) return;
+    const drafts = checkedRows
       .map((row) => {
         const draft = getPaymentDraft(row);
         if (!draft.amount || draft.amount <= 0) return null;
-
-        return {
-          id: Date.now() + Number(row.id || 0),
-          salesId: row.id,
-          date: draft.paymentDate,
-          client: row.client,
-          site: row.site,
-          workerCount: row.workers?.length || String(row.worker || "").split(",").filter(Boolean).length || 0,
-          totalSalesAmount: row.amount || 0,
-          amount: draft.amount,
-          vatType: draft.vatType,
-          supplyAmount: draft.amount,
-          vatAmount: draft.vatAmount,
-          finalAmount: draft.finalAmount,
-          memo: draft.memo,
-          depositChannel: draft.depositChannel,
-        };
+        return { row, draft };
       })
-      .filter(Boolean) as PaymentVoucherLike[];
+      .filter(Boolean) as Array<{ row: SaleLike; draft: ReturnType<typeof getPaymentDraft> }>;
 
-    if (nextPayments.length === 0) {
+    if (drafts.length === 0) {
       setSaveMessage("체크된 입금 전표가 없습니다.");
       return;
     }
 
-    const batchId = Date.now();
-    const savedBy = currentUser?.name || currentUser?.email || "";
-    const newLogs = createPaymentInputLogsFromVouchers(nextPayments, savedBy, batchId);
+    const groups = new Map<string, typeof drafts>();
+    for (const item of drafts) {
+      const key = [
+        String(item.row.client || ""),
+        item.draft.paymentDate,
+        normalizePaymentDepositChannel(item.draft.depositChannel),
+      ].join("|");
+      const list = groups.get(key) || [];
+      list.push(item);
+      groups.set(key, list);
+    }
 
-    nextPayments.forEach((voucher) => {
-      recordAudit({
-        entityType: "paymentVoucher",
-        entityId: voucher.id,
-        entityLabel: `${voucher.client} · ${voucher.site}`,
-        screen: "입금/미수금",
-        action: "create",
-        after: snapshotPaymentForAudit(voucher),
-        fields: PAYMENT_AUDIT_FIELDS,
-        user: currentUser,
-      });
-    });
-
-    setPaymentVouchers((prev) => [...nextPayments, ...prev]);
-    setPaymentInputLogs((prev) => [...newLogs, ...prev]);
-    setPaymentRows({});
-    setSaveMessage(`${nextPayments.length}건의 입금이 등록되었습니다.`);
+    setPaymentSaving(true);
+    const messages: string[] = [];
+    try {
+      for (const [, group] of groups) {
+        const first = group[0];
+        const clientName = String(first.row.client || "").trim();
+        const clientRow = clients.find((row) => String(row.name || "").trim() === clientName);
+        if (!clientRow?.id) {
+          throw new Error(`거래처 '${clientName}' 마스터 ID를 찾을 수 없습니다.`);
+        }
+        const allocations = group.map((item) => ({
+          saleId: item.row.id as string | number,
+          amount: item.draft.amount,
+        }));
+        const grossAmount = allocations.reduce((sum, row) => sum + row.amount, 0);
+        const channel = depositChannelToReceiptChannel(first.draft.depositChannel);
+        const result = await createReceiptApi({
+          operationId: makeReceiptOperationId("receivables"),
+          clientId: clientRow.id,
+          clientName,
+          receiptDate: first.draft.paymentDate,
+          grossAmount,
+          channel,
+          source: "receivables",
+          memo: first.draft.memo || "입금/미수금 수동입금",
+          allocations,
+        });
+        onReceiptLedgerUpsert?.(result);
+        messages.push(formatReceiptSaveMessage(result));
+      }
+      setPaymentRows({});
+      const summary = messages.join(" · ");
+      setLastReceiptSummary(summary);
+      setSaveMessage(summary);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "입금전표 저장에 실패했습니다.";
+      setSaveMessage(`저장 실패: ${message}`);
+    } finally {
+      setPaymentSaving(false);
+    }
   };
 
   const deletePayment = (id: number | string, options?: { skipConfirm?: boolean; confirmMessage?: string }) => {
     const voucher = paymentVouchers.find((item) => item.id === id);
     if (!voucher) return false;
+    if (isProjectedReceiptVoucher(voucher)) {
+      setSaveMessage("신규 입금전표는 직접 삭제할 수 없습니다. 취소전표로 처리하세요.");
+      return false;
+    }
     if (
       !options?.skipConfirm &&
       !confirmDelete(options?.confirmMessage || `입금 전표 (${voucher.client} · ${voucher.site})를 삭제할까요?`)
@@ -1007,8 +1043,10 @@ export function PaymentReceivablesPage({
               초기화
             </Button>
             {tab === "input" && (
-              <Button size="sm" className="h-8 rounded-lg px-4 text-xs" onClick={savePayments}>
-                선택 입금 저장 {checkedRows.length > 0 ? `(${checkedRows.length})` : ""}
+              <Button size="sm" className="h-8 rounded-lg px-4 text-xs" disabled={paymentSaving} onClick={() => void savePayments()}>
+                {paymentSaving
+                  ? "저장 중…"
+                  : `선택 입금 저장 ${checkedRows.length > 0 ? `(${checkedRows.length})` : ""}`}
               </Button>
             )}
           </div>

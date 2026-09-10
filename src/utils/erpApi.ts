@@ -49,6 +49,9 @@ export type ErpPayload = {
   sales: unknown[];
   paymentVouchers: unknown[];
   paymentInputLogs?: unknown[];
+  receipts?: unknown[];
+  receiptAllocations?: unknown[];
+  effectivePaymentVouchers?: unknown[];
   clients: unknown[];
   workers: unknown[];
   workerMonthlyPaymentMemos?: Record<string, string>;
@@ -555,6 +558,47 @@ export async function runBankFolderSync(options?: { refresh?: boolean }) {
     method: "POST",
     body: JSON.stringify({ refresh: options?.refresh === true }),
   });
+}
+
+export type ReceiptApiResult = {
+  ok: boolean;
+  idempotent?: boolean;
+  receipt: import("./receiptLedger").ReceiptRecord;
+  allocations: import("./receiptLedger").ReceiptAllocationRecord[];
+  summary?: import("./receiptLedger").ReceiptSummary;
+  original?: import("./receiptLedger").ReceiptRecord;
+  version?: number;
+  updatedAt?: string;
+};
+
+export async function createReceiptApi(input: import("./receiptLedger").CreateReceiptInput) {
+  return apiRequest<ReceiptApiResult>("/receipts", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function reverseReceiptApi(receiptId: string, input?: { operationId?: string; memo?: string }) {
+  return apiRequest<ReceiptApiResult>(`/receipts/${encodeURIComponent(receiptId)}/reverse`, {
+    method: "POST",
+    body: JSON.stringify(input || {}),
+  });
+}
+
+export async function fetchReceiptApi(receiptId: string) {
+  return apiRequest<ReceiptApiResult>(`/receipts/${encodeURIComponent(receiptId)}`);
+}
+
+export async function fetchClientArSubledgerApi(clientId: string | number, params?: { startDate?: string; endDate?: string }) {
+  const query = new URLSearchParams();
+  if (params?.startDate) query.set("startDate", params.startDate);
+  if (params?.endDate) query.set("endDate", params.endDate);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return apiRequest<Record<string, unknown>>(`/ar-subledger/${encodeURIComponent(String(clientId))}${suffix}`);
+}
+
+export async function fetchReceiptMigrationDryRunApi() {
+  return apiRequest<Record<string, unknown>>("/receipts-migration/dry-run");
 }
 
 export async function fetchBankSyncStatus() {
