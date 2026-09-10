@@ -7,6 +7,14 @@ import { resolveBankDepositMatchSubject, resolveDepositSubjectClientMatch } from
 import type { PdfArchiveMeta } from "./pdfArchive";
 import type { BankPaymentVoucherDraft } from "./bankReceivableMatch";
 import { aggregateSaleBilling } from "./statementSheets";
+import { buildSaleArBalances } from "./unifiedArReadModel";
+import type {
+  UnifiedArAllocationLike,
+  UnifiedArClientLike,
+  UnifiedArLegacyVoucherLike,
+  UnifiedArReceiptLike,
+  UnifiedArSaleLike,
+} from "./unifiedArReadModel";
 
 export type SentStatementMatchCandidate = {
   pdfArchiveId: string;
@@ -503,6 +511,41 @@ function createFallbackPaymentVoucher(
 export type StatementPaymentCoverageStatus = "confirmed" | "partial" | "pending";
 
 /** Merge existing paid-by-sale map with newly created voucher drafts (explicit salesId only). */
+/**
+ * Applied-per-sale map for a statement. Prefers the Unified AR subledger (receipt allocations
+ * plus the frozen legacy ledger, bank-deduped) and falls back to summing the archive's own
+ * legacy vouchers when no receipt state is available.
+ */
+export function buildStatementPaidAmountBySaleId(options: {
+  archive: Pick<PdfArchiveMeta, "id">;
+  sales?: SaleLikeForStatement[];
+  clients?: ClientDepositMatchSource[];
+  paymentVouchers?: PaymentVoucherLike[];
+  receipts?: UnifiedArReceiptLike[];
+  receiptAllocations?: UnifiedArAllocationLike[];
+  asOfDate?: string;
+}) {
+  const hasReceiptState = Boolean(options.receipts?.length || options.receiptAllocations?.length);
+  if (hasReceiptState) {
+    const balances = buildSaleArBalances(
+      {
+        sales: options.sales as UnifiedArSaleLike[] | undefined,
+        clients: options.clients as UnifiedArClientLike[] | undefined,
+        receipts: options.receipts,
+        receiptAllocations: options.receiptAllocations,
+        paymentVouchers: options.paymentVouchers as UnifiedArLegacyVoucherLike[] | undefined,
+      },
+      { asOfDate: options.asOfDate },
+    );
+    return new Map(balances.sales.map((row) => [row.saleId, row.totalAppliedAmount]));
+  }
+
+  const linkedVouchers = (options.paymentVouchers || []).filter(
+    (voucher) => String(voucher.linkedPdfArchiveId || "") === String(options.archive.id),
+  );
+  return buildPaidAmountBySaleId(linkedVouchers.length ? linkedVouchers : options.paymentVouchers || []);
+}
+
 export function buildPaidAmountBySaleIdAfterVouchers(
   paidBySaleIdBefore: Map<string, number>,
   vouchers: PaymentVoucherLike[] = [],
@@ -586,7 +629,54 @@ export function resolveArchivePaymentStatusAfterApply(
   return "partial";
 }
 
-/** Effective display/status from saved vouchers (does not mutate archives). */
+/**
+ * Phase 3 bulk-allocate gate. Automatic (bulk) statement allocation is only allowed when the
+ * statement's sale scope is explicit and fully resolvable, because a bulk run has no human in
+ * the loop to notice a mis-inferred period. Anything else is left for one-by-one review.
+ */
+export function resolveStatementBulkAllocateGate(options: {
+  archive?: Pick<PdfArchiveMeta, "statementSalesIds"> | null;
+  candidate?: Pick<SentStatementMatchCandidate, "statementSalesIds"> | null;
+  sales?: SaleLikeForStatement[];
+}): { allowed: boolean; manualReview: boolean; reason: string | null; missingSaleIds: string[] } {
+  const ids = (
+    options.archive?.statementSalesIds?.length
+      ? options.archive.statementSalesIds
+      : options.candidate?.statementSalesIds || []
+  )
+    .map((id) => String(id ?? ""))
+    .filter(Boolean);
+
+  if (!ids.length) {
+    return {
+      allowed: false,
+      manualReview: true,
+      reason: "\uB0B4\uC5ED\uC11C\uC5D0 \uB9E4\uCD9C \uBAA9\uB85D(statementSalesIds)\uC774 \uC5C6\uC5B4 \uC77C\uAD04 \uBC30\uBD84\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
+      missingSaleIds: [],
+    };
+  }
+
+  const knownIds = new Set((options.sales || []).map((sale) => String(sale.id)));
+  const missingSaleIds = ids.filter((id) => !knownIds.has(id));
+  if (missingSaleIds.length) {
+    return {
+      allowed: false,
+      manualReview: true,
+      reason: "\uB0B4\uC5ED\uC11C \uB9E4\uCD9C \uBAA9\uB85D\uC5D0 \uC5C6\uB294 \uB9E4\uCD9C\uC774 \uC788\uC5B4 \uC77C\uAD04 \uBC30\uBD84\uC744 \uC911\uB2E8\uD569\uB2C8\uB2E4.",
+      missingSaleIds,
+    };
+  }
+
+  return { allowed: true, manualReview: false, reason: null, missingSaleIds: [] };
+}
+
+/**
+ * Effective display status for a sent statement. Phase 3: sale coverage is read from the
+ * Unified AR subledger whenever receipt data is supplied, so receipt allocations count and a
+ * bank deposit is never counted twice (once as a Receipt and once as a legacy voucher).
+ * Voucher-only summing remains the fallback for callers that have no receipt state loaded.
+ * The stored `archive.paymentStatus` is a display cache and is never used as the source here.
+ */
 export function deriveSentStatementPaymentStatus(options: {
   archive: Pick<
     PdfArchiveMeta,
@@ -601,15 +691,13 @@ export function deriveSentStatementPaymentStatus(options: {
   sales?: SaleLikeForStatement[];
   clients?: ClientDepositMatchSource[];
   paymentVouchers?: PaymentVoucherLike[];
+  receipts?: UnifiedArReceiptLike[];
+  receiptAllocations?: UnifiedArAllocationLike[];
+  asOfDate?: string;
 }): StatementPaymentCoverageStatus {
   const archive = options.archive;
   const statementSales = resolveStatementSalesForArchive(archive, options.sales || [], options.clients);
-  const linkedVouchers = (options.paymentVouchers || []).filter(
-    (voucher) => String(voucher.linkedPdfArchiveId || "") === String(archive.id),
-  );
-  const paidBySaleId = buildPaidAmountBySaleId(
-    linkedVouchers.length ? linkedVouchers : options.paymentVouchers || [],
-  );
+  const paidBySaleId = buildStatementPaidAmountBySaleId(options);
   const appliedAmount = [...paidBySaleId.values()].reduce((sum, value) => sum + value, 0);
   const subtotal = statementSales.reduce((sum, row) => sum + row.statementAmount, 0);
   const hasVat = clientHasVat(
@@ -632,6 +720,9 @@ export function listInconsistentConfirmedSentStatements(options: {
   sales?: SaleLikeForStatement[];
   clients?: ClientDepositMatchSource[];
   paymentVouchers?: PaymentVoucherLike[];
+  receipts?: UnifiedArReceiptLike[];
+  receiptAllocations?: UnifiedArAllocationLike[];
+  asOfDate?: string;
 }) {
   const rows: Array<{
     pdfArchiveId: string;
@@ -647,12 +738,7 @@ export function listInconsistentConfirmedSentStatements(options: {
     if (archive.category !== "statement-client" || !archive.sentViaLink) continue;
     if (archive.paymentStatus !== "confirmed") continue;
     const statementSales = resolveStatementSalesForArchive(archive, options.sales || [], options.clients);
-    const linkedVouchers = (options.paymentVouchers || []).filter(
-      (voucher) => String(voucher.linkedPdfArchiveId || "") === String(archive.id),
-    );
-    const paidBySaleId = buildPaidAmountBySaleId(
-      linkedVouchers.length ? linkedVouchers : options.paymentVouchers || [],
-    );
+    const paidBySaleId = buildStatementPaidAmountBySaleId({ ...options, archive });
     const subtotal = statementSales.reduce((sum, row) => sum + row.statementAmount, 0);
     const hasVat = clientHasVat(options.clients, archive.subjectName, subtotal, archive.statementTotalAmount || 0);
     const effectivePaymentStatus = resolveArchivePaymentStatusFromSaleCoverage({

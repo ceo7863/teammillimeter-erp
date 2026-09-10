@@ -25,6 +25,7 @@ import { isBankMatchAutoLinked, isBankMatchManualLinked } from "@/utils/bankRece
 import { AutoLinkBadge, ManualLinkBadge } from "@/components/AutoLinkBadge";
 import type { BankTransaction } from "@/utils/bankTransactions";
 import { isApiModeEnabled, type ErpUser } from "@/utils/erpApi";
+import type { UnifiedArAllocationLike, UnifiedArReceiptLike } from "@/utils/unifiedArReadModel";
 import type { ClientMasterLike } from "@/utils/clientMaster";
 import type { TaxInvoice } from "@/utils/taxInvoices";
 import {
@@ -174,6 +175,8 @@ export function PdfArchivePage({
   clients = [],
   sales = [],
   paymentVouchers = [],
+  receipts = [],
+  receiptAllocations = [],
   currentUser = null,
   taxInvoices = [],
   setTaxInvoices,
@@ -201,6 +204,8 @@ export function PdfArchivePage({
     bankTransactionId?: string | number;
     linkedPdfArchiveId?: string;
   }>;
+  receipts?: UnifiedArReceiptLike[];
+  receiptAllocations?: UnifiedArAllocationLike[];
   currentUser?: ErpUser | null;
   taxInvoices?: TaxInvoice[];
   setTaxInvoices?: React.Dispatch<React.SetStateAction<TaxInvoice[]>>;
@@ -300,11 +305,13 @@ export function PdfArchivePage({
           sales,
           clients,
           paymentVouchers,
+          receipts,
+          receiptAllocations,
         }),
       );
     }
     return map;
-  }, [filteredRecords, sales, clients, paymentVouchers]);
+  }, [filteredRecords, sales, clients, paymentVouchers, receipts, receiptAllocations]);
 
   const withEffectivePaymentStatus = useCallback(
     (record: PdfArchiveMeta): PdfArchiveMeta => ({

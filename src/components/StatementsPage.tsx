@@ -351,6 +351,8 @@ type StatementsPageProps = {
   onPendingPdfArchiveNavConsumed?: () => void;
   bankTransactions?: ComponentProps<typeof PdfArchivePage>["bankTransactions"];
   paymentVouchers?: ComponentProps<typeof PdfArchivePage>["paymentVouchers"];
+  receipts?: ComponentProps<typeof PdfArchivePage>["receipts"];
+  receiptAllocations?: ComponentProps<typeof PdfArchivePage>["receiptAllocations"];
   workerPaymentRecords?: WorkerMonthlyPaymentRecord[];
   workerPayWithVatLearnRules?: WorkerPayWithVatLearnRule[];
   isPageActive?: boolean;
@@ -382,6 +384,8 @@ export function StatementsPage({
   onPendingPdfArchiveNavConsumed,
   bankTransactions = [],
   paymentVouchers = [],
+  receipts = [],
+  receiptAllocations = [],
   workerPaymentRecords = [],
   workerPayWithVatLearnRules = [],
   isPageActive = true,
@@ -1724,6 +1728,8 @@ export function StatementsPage({
             clients={clientMaster as ClientMasterLike[]}
             sales={sales as ComponentProps<typeof PdfArchivePage>["sales"]}
             paymentVouchers={paymentVouchers}
+            receipts={receipts}
+            receiptAllocations={receiptAllocations}
             currentUser={currentUser}
             taxInvoices={taxInvoices}
             setTaxInvoices={setTaxInvoices}
