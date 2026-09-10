@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Unified AR receipt ledger — Phase 1 foundation tests.
  * Run: npx tsx scripts/test-receipt-ledger-foundation.mjs
  * or: node scripts/test-receipt-ledger-foundation.mjs (server-only assertions if tsx missing)
@@ -75,9 +75,9 @@ const seed = {
     { id: 103, name: "알파건설" },
   ],
   sales: [
-    { id: 1, date: "2026-08-01", client: "알파건설", amount: 1_000_000, paid: 0, basePaid: 0, site: "A현장" },
-    { id: 2, date: "2026-08-05", client: "알파건설", amount: 500_000, paid: 0, basePaid: 0, site: "B현장" },
-    { id: 3, date: "2026-08-10", client: "베타인테리어", amount: 800_000, paid: 0, basePaid: 0, site: "C현장" },
+    { id: 1, date: "2026-08-01", client: "알파건설", clientId: 101, amount: 1_000_000, paid: 0, basePaid: 0, site: "A현장" },
+    { id: 2, date: "2026-08-05", client: "알파건설", clientId: 101, amount: 500_000, paid: 0, basePaid: 0, site: "B현장" },
+    { id: 3, date: "2026-08-10", client: "베타인테리어", clientId: 102, amount: 800_000, paid: 0, basePaid: 0, site: "C현장" },
   ],
   paymentVouchers: [],
   paymentInputLogs: [],
@@ -87,7 +87,7 @@ const seed = {
 };
 
 const state = getErpState();
-saveErpState({ ...state.data, ...seed }, state.version, "test-seed");
+saveErpState({ ...state.data, ...seed }, state.version, "test-seed", { allowReceiptMutation: true });
 
 function reload() {
   return getErpState(["receipts", "sales", "clients", "bankTransactions"]).data;

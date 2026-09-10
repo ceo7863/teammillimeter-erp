@@ -1037,10 +1037,19 @@ function normalizeErpPayload(payload) {
   return payload;
 }
 
-function saveErpStateImmediate(payload, expectedVersion, updatedBy) {
-  const normalizedPayload = normalizeErpPayload(payload);
+function saveErpStateImmediate(payload, expectedVersion, updatedBy, options = {}) {
+  let normalizedPayload = normalizeErpPayload(payload);
   const database = getDb();
   const current = database.prepare("SELECT version FROM erp_state WHERE id = 1").get();
+
+  if (!options.allowReceiptMutation) {
+    const assembled = current ? assemblePayloadFromDomainRows(database) || emptyErpPayload() : emptyErpPayload();
+    normalizedPayload = {
+      ...normalizedPayload,
+      receipts: Array.isArray(assembled.receipts) ? assembled.receipts : [],
+      receiptAllocations: Array.isArray(assembled.receiptAllocations) ? assembled.receiptAllocations : [],
+    };
+  }
 
   if (!current) {
     const updatedAt = new Date().toISOString();
@@ -1079,8 +1088,8 @@ function saveErpStateImmediate(payload, expectedVersion, updatedBy) {
   return { version: nextVersion, updatedAt };
 }
 
-export function saveErpState(payload, expectedVersion, updatedBy) {
-  return saveErpStateImmediate(payload, expectedVersion, updatedBy);
+export function saveErpState(payload, expectedVersion, updatedBy, options = {}) {
+  return saveErpStateImmediate(payload, expectedVersion, updatedBy, options);
 }
 
 export function saveErpDomain(domain, domainPayload, expectedVersion, updatedBy) {
