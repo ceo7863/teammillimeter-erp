@@ -184,6 +184,11 @@ import { UserAdminHubPage } from "@/components/UserAdminHubPage";
 import { type UserAdminHubTab } from "@/utils/userAdminHub";
 import { migrateUserAdminPageKey, resolveUserAdminTabAccess, storeUserAdminTab } from "@/utils/userAdminHub";
 import { migrateStatementPageKey, storeStatementTab } from "@/utils/statementHub";
+import {
+  migrateSalesStatementsPageKey,
+  storeSalesStatementsTab,
+  type SalesStatementsHubTab,
+} from "@/utils/financeInformationArchitecture";
 import { normalizeStatementGenerationLogs } from "@/utils/statementGenerationLogs";
 import { normalizeStatementFolders } from "@/utils/statementFolders";
 import { dedupeAttendanceRecords, mergeAttendanceRecords, normalizeAttendanceRecords, type AttendanceRecord } from "@/utils/attendance";
@@ -200,6 +205,7 @@ import { ClientListExport } from "@/components/ClientListExport";
 import { buildClientLastSaleDateMap } from "@/utils/clientListExport";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { PageKeepAlive } from "@/components/PageKeepAlive";
+import { SalesStatementsHubPage } from "@/components/SalesStatementsHubPage";
 import { ErpLoadingShell } from "@/components/ErpLoadingShell";
 import { ErpSyncStatusLine } from "@/components/ErpSyncStatusLine";
 import { useBankSyncPoll } from "@/hooks/useBankSyncPoll";
@@ -497,14 +503,24 @@ const ERP_AUTOSAVE_DEBOUNCE_MS = 10000;
 const ERP_VERSION_POLL_MS = 20000;
 
 function migrateStoredActiveTab(stored: string) {
-  const accounting = migrateActivePageKey(stored);
+  // paymentInput is not an ErpPageKey — normalize before hub migrators.
+  const normalized = stored === "paymentInput" ? "receivables" : stored === "clientCalendar" ? "calendar" : stored;
+  const accounting = migrateActivePageKey(normalized);
   const statement = migrateStatementPageKey(accounting.page);
-  const basicInfo = migrateBasicInfoPageKey(statement.page);
+  const sales = migrateSalesStatementsPageKey(statement.page);
+  const basicInfo = migrateBasicInfoPageKey(sales.page as import("@/utils/pageAccess").ErpPageKey);
   const userAdmin = migrateUserAdminPageKey(basicInfo.page);
+  // Prefer explicit sales tab; statement-hub legacy (pdfArchive/statements) opens 내역서 tab.
+  const resolvedSalesTab: SalesStatementsHubTab | undefined =
+    sales.salesTab ??
+    (statement.statementTab || stored === "statements" || stored === "pdfArchive"
+      ? "statements"
+      : undefined);
   return {
     page: userAdmin.page,
     accountingTab: accounting.accountingTab,
     statementTab: statement.statementTab,
+    salesTab: resolvedSalesTab,
     basicInfoTab: basicInfo.basicInfoTab,
     userAdminTab: userAdmin.userAdminTab,
   };
@@ -8371,6 +8387,7 @@ export default function TeammillimeterErpMvp() {
     const migrated = migrateStoredActiveTab(stored);
     if (migrated.accountingTab) storeAccountingTab(migrated.accountingTab);
     if (migrated.statementTab) storeStatementTab(migrated.statementTab);
+    if (migrated.salesTab) storeSalesStatementsTab(migrated.salesTab);
     if (migrated.basicInfoTab) storeBasicInfoTab(migrated.basicInfoTab);
     if (migrated.userAdminTab) storeUserAdminTab(migrated.userAdminTab);
     let page = migrated.page;
@@ -8391,6 +8408,7 @@ export default function TeammillimeterErpMvp() {
   const [userAdminNavTab, setUserAdminNavTab] = useState<UserAdminHubTab | undefined>();
   const [accountingNavTab, setAccountingNavTab] = useState<AccountingHubTab | undefined>();
   const [analysisNavTab, setAnalysisNavTab] = useState<AnalysisHubTab | undefined>();
+  const [salesStatementsNavTab, setSalesStatementsNavTab] = useState<SalesStatementsHubTab | undefined>();
   const [workerProbationAlertCount, setWorkerProbationAlertCount] = useState(0);
 
   const openUnclassifiedFromAnalysis = useCallback(() => {
@@ -8416,11 +8434,16 @@ export default function TeammillimeterErpMvp() {
   }, [active, accountingNavTab]);
 
   useEffect(() => {
+    if (active === "sales" && salesStatementsNavTab) {
+      setSalesStatementsNavTab(undefined);
+    }
+  }, [active, salesStatementsNavTab]);
+
+  useEffect(() => {
     if (active === "analysis" && analysisNavTab) {
       setAnalysisNavTab(undefined);
     }
   }, [active, analysisNavTab]);
-
   useEffect(() => {
     if (active === "basicInfo" && basicInfoNavTab) {
       setBasicInfoNavTab(undefined);
@@ -10400,7 +10423,9 @@ export default function TeammillimeterErpMvp() {
         }
       }
       setPendingVoucherEditId(resolvedId);
-      setActive("salesVoucherSearch");
+      setSalesStatementsNavTab("search");
+      storeSalesStatementsTab("search");
+      setActive("sales");
       setSidebarOpen(false);
     },
     [appliedSales],
@@ -10425,7 +10450,9 @@ export default function TeammillimeterErpMvp() {
           startDate: action.startDate,
           endDate: action.endDate,
         });
-        setActive("salesVoucherSearch");
+        setSalesStatementsNavTab("search");
+        storeSalesStatementsTab("search");
+        setActive("sales");
         return;
       }
       if (action.type === "open_sc_schedule") {
@@ -10455,7 +10482,9 @@ export default function TeammillimeterErpMvp() {
           endDate: action.endDate,
           autoGenerate: action.autoGenerate,
         });
-        setActive("statements");
+        setSalesStatementsNavTab("statements");
+        storeSalesStatementsTab("statements");
+        setActive("sales");
         return;
       }
       if (action.type === "open_client_statement") {
@@ -10473,7 +10502,9 @@ export default function TeammillimeterErpMvp() {
         };
         stashStatementDraft(draft);
         setStatementDraft(draft);
-        setActive("statements");
+        setSalesStatementsNavTab("statements");
+        storeSalesStatementsTab("statements");
+        setActive("sales");
         return;
       }
       if (action.type === "open_client_deposit_history") {
@@ -10529,6 +10560,8 @@ export default function TeammillimeterErpMvp() {
         }
         if (action.page === "pdfArchive") {
           storeStatementTab("pdf");
+          setSalesStatementsNavTab("statements");
+          storeSalesStatementsTab("statements");
           if (action.clientName || action.startDate || action.endDate) {
             setPendingPdfArchiveNav({
               query: action.clientName,
@@ -10536,7 +10569,7 @@ export default function TeammillimeterErpMvp() {
               endDate: action.endDate,
             });
           }
-          setActive("statements");
+          setActive("sales");
           return;
         }
         if (action.receivablesTab || (action.clientName && action.page === "receivables")) {
@@ -10699,6 +10732,10 @@ export default function TeammillimeterErpMvp() {
     if (migrated.page !== active) {
       if (migrated.accountingTab) storeAccountingTab(migrated.accountingTab);
       if (migrated.statementTab) storeStatementTab(migrated.statementTab);
+      if (migrated.salesTab) {
+        storeSalesStatementsTab(migrated.salesTab);
+        setSalesStatementsNavTab(migrated.salesTab);
+      }
       if (migrated.basicInfoTab) storeBasicInfoTab(migrated.basicInfoTab);
       if (migrated.userAdminTab) storeUserAdminTab(migrated.userAdminTab);
       setActive(migrated.page);
@@ -11252,12 +11289,9 @@ export default function TeammillimeterErpMvp() {
     () => ({
       clientSiteRequests: clientSiteRequestPendingCount,
       teamChat: teamChatUnreadCount,
-      saleComments: saleReviewBadgeCount,
+      sales: saleReviewBadgeCount,
       ...(canUserActAsSettler(currentUser)
         ? { workerPayments: countSalesNeedingReviewForRole(appliedSales, saleComments, "settler") }
-        : {}),
-      ...(canUserActAsRegistrar(currentUser)
-        ? { salesInput: countSalesNeedingReviewForRole(appliedSales, saleComments, "registrar") }
         : {}),
       ...(workerProbationAlertCount > 0 && basicInfoTabAccess.workers
         ? { basicInfo: workerProbationAlertCount }
@@ -11267,11 +11301,11 @@ export default function TeammillimeterErpMvp() {
       appliedSales,
       basicInfoTabAccess.workers,
       clientSiteRequestPendingCount,
-      teamChatUnreadCount,
       currentUser,
-      saleComments,
       saleReviewBadgeCount,
+      teamChatUnreadCount,
       workerProbationAlertCount,
+      saleComments,
     ],
   );
 
@@ -11525,54 +11559,121 @@ export default function TeammillimeterErpMvp() {
             onPersistAttendance={persistAttendanceImmediate}
           />
         </PageKeepAlive>
-        <PageKeepAlive pageKey="salesInput" active={shellActive}>
-          <SalesRegistrationPage
-            sales={sales}
-            setSales={setSales}
-            setActive={setActive}
-            clients={activeClients}
-            workers={workers}
-            currentUser={currentUser}
-            saleComments={saleComments}
-            onPersistNewSale={persistNewSaleImmediate}
-            saleAiRules={saleAiRules}
-            onSaveSaleAiRules={saveSaleAiRules}
-          />
-        </PageKeepAlive>
         <PageKeepAlive pageKey="sales" active={shellActive}>
-          <SalesManagementPage sales={appliedSales} paymentVouchers={paymentVouchers} clients={clients} workers={workers} setSales={setSales} onPersistSaleDelete={persistSaleVoucherDelete} setActive={setActive} currentUser={currentUser} onEditSale={setSalesManagementEditSale} saleCommentCounts={saleCommentCountBySaleId} saleCommentUnreadCounts={saleCommentUnreadCountBySaleId} onOpenSaleComments={openSaleCommentsView} saleComments={saleComments} onShareToTeamChat={(sale) => { openTeamChatWithShare({ link: buildSaleTeamChatLink(sale as { id?: string | number; client?: string; date?: string }) }); }} />
-        </PageKeepAlive>
-        <PageKeepAlive pageKey="salesVoucherSearch" active={shellActive}>
-          <SalesVoucherSearchPage
-            sales={appliedSales}
-            setSales={setSales}
-            clients={activeClients}
-            workers={workers}
-            currentUser={currentUser}
-            setPaymentVouchers={setPaymentVouchers}
-            setBankTransactions={setBankTransactions}
-            onPersistSaleUpdate={persistSaleVoucherUpdate}
-            onPersistSaleDelete={persistSaleVoucherDelete}
-            pendingVoucherId={pendingVoucherEditId}
-            pendingSearchFilter={pendingVoucherSearchFilter}
-            onPendingVoucherConsumed={() => setPendingVoucherEditId(null)}
-            onPendingSearchConsumed={() => setPendingVoucherSearchFilter(null)}
-            autoLinkedSaleIds={autoLinkedSaleIds}
-            manualLinkedSaleIds={manualLinkedSaleIds}
-            saleComments={saleComments}
-            onAddSaleComment={addSaleCommentForVoucher}
-            onReviewAction={applySaleReviewAction}
-            saleCommentCounts={saleCommentCountBySaleId}
-            saleCommentUnreadCounts={saleCommentUnreadCountBySaleId}
-            onOpenSaleComments={openSaleCommentsView}
-            dataReady={dataReady}
-          />
-        </PageKeepAlive>
-        <PageKeepAlive pageKey="saleComments" active={shellActive}>
-          <SaleCommentsPage
-            saleComments={saleComments}
-            sales={appliedSales}
-            onOpenVoucher={openSaleVoucherFromComments}
+          <SalesStatementsHubPage
+            isHubActive={shellActive === "sales"}
+            initialTab={salesStatementsNavTab}
+            onInitialTabConsumed={() => setSalesStatementsNavTab(undefined)}
+            onOpenRegister={() => {
+              setSalesStatementsNavTab("register");
+              storeSalesStatementsTab("register");
+            }}
+            vouchers={
+              <SalesManagementPage
+                sales={appliedSales}
+                paymentVouchers={paymentVouchers}
+                clients={clients}
+                workers={workers}
+                setSales={setSales}
+                onPersistSaleDelete={persistSaleVoucherDelete}
+                setActive={setActive}
+                currentUser={currentUser}
+                onEditSale={setSalesManagementEditSale}
+                saleCommentCounts={saleCommentCountBySaleId}
+                saleCommentUnreadCounts={saleCommentUnreadCountBySaleId}
+                onOpenSaleComments={openSaleCommentsView}
+                saleComments={saleComments}
+                onShareToTeamChat={(sale) => {
+                  openTeamChatWithShare({
+                    link: buildSaleTeamChatLink(sale as { id?: string | number; client?: string; date?: string }),
+                  });
+                }}
+              />
+            }
+            register={
+              <SalesRegistrationPage
+                sales={sales}
+                setSales={setSales}
+                setActive={setActive}
+                clients={activeClients}
+                workers={workers}
+                currentUser={currentUser}
+                saleComments={saleComments}
+                onPersistNewSale={persistNewSaleImmediate}
+                saleAiRules={saleAiRules}
+                onSaveSaleAiRules={saveSaleAiRules}
+              />
+            }
+            search={
+              <SalesVoucherSearchPage
+                sales={appliedSales}
+                setSales={setSales}
+                clients={activeClients}
+                workers={workers}
+                currentUser={currentUser}
+                setPaymentVouchers={setPaymentVouchers}
+                setBankTransactions={setBankTransactions}
+                onPersistSaleUpdate={persistSaleVoucherUpdate}
+                onPersistSaleDelete={persistSaleVoucherDelete}
+                pendingVoucherId={pendingVoucherEditId}
+                pendingSearchFilter={pendingVoucherSearchFilter}
+                onPendingVoucherConsumed={() => setPendingVoucherEditId(null)}
+                onPendingSearchConsumed={() => setPendingVoucherSearchFilter(null)}
+                autoLinkedSaleIds={autoLinkedSaleIds}
+                manualLinkedSaleIds={manualLinkedSaleIds}
+                saleComments={saleComments}
+                onAddSaleComment={addSaleCommentForVoucher}
+                onReviewAction={applySaleReviewAction}
+                saleCommentCounts={saleCommentCountBySaleId}
+                saleCommentUnreadCounts={saleCommentUnreadCountBySaleId}
+                onOpenSaleComments={openSaleCommentsView}
+                dataReady={dataReady}
+              />
+            }
+            comments={
+              <SaleCommentsPage
+                saleComments={saleComments}
+                sales={appliedSales}
+                onOpenVoucher={openSaleVoucherFromComments}
+              />
+            }
+            statements={
+              <StatementsPage
+                sales={appliedSales}
+                clientMaster={clients}
+                workerMaster={workers}
+                companyProfile={companyProfile}
+                statementGenerationLogs={statementGenerationLogs}
+                setStatementGenerationLogs={setStatementGenerationLogs}
+                statementFolders={statementFolders}
+                setStatementFolders={setStatementFolders}
+                currentUser={currentUser}
+                draft={statementDraft}
+                onDraftConsumed={() => setStatementDraft(null)}
+                pendingWorkerStatementFilter={pendingWorkerStatementFilter}
+                onPendingWorkerStatementFilterConsumed={() => setPendingWorkerStatementFilter(null)}
+                pendingPdfArchiveNav={pendingPdfArchiveNav}
+                onPendingPdfArchiveNavConsumed={() => setPendingPdfArchiveNav(null)}
+                bankTransactions={bankTransactions}
+                workerPaymentRecords={workerPaymentRecords}
+                paymentVouchers={paymentVouchers}
+                receipts={receipts}
+                receiptAllocations={receiptAllocations}
+                workerPayWithVatLearnRules={workerPayWithVatLearnRules}
+                isPageActive={shellActive === "sales"}
+                taxInvoices={taxInvoices}
+                setTaxInvoices={setTaxInvoices}
+                erpVersion={erpVersion}
+                onTaxInvoiceIssued={async ({ taxInvoices: nextTaxInvoices }) => {
+                  const saved = await flushErpSave({ taxInvoices: nextTaxInvoices });
+                  if (saved === false) {
+                    window.alert(
+                      "세금계산서 저장에 실패했습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.",
+                    );
+                  }
+                }}
+              />
+            }
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="receivables" active={shellActive}>
@@ -11624,6 +11725,14 @@ export default function TeammillimeterErpMvp() {
             onInitialTabConsumed={() => setPendingWorkerPaymentsTab(null)}
             initialWorker={pendingWorkerPaymentsWorker}
             onInitialWorkerConsumed={() => setPendingWorkerPaymentsWorker(null)}
+            onOpenCutoverPrep={
+              canUserAccessPage(currentUser, "apCutover")
+                ? () => {
+                    setActive("apCutover");
+                    setSidebarOpen(false);
+                  }
+                : undefined
+            }
           />
         </PageKeepAlive>
         {canUserAccessPage(currentUser, "officePayroll") ? (
@@ -11797,7 +11906,9 @@ export default function TeammillimeterErpMvp() {
             paymentVouchers={paymentVouchers}
             onRequestClientStatement={(draft) => {
               setStatementDraft(draft);
-              setActive("statements");
+              setSalesStatementsNavTab("statements");
+              storeSalesStatementsTab("statements");
+              setActive("sales");
             }}
             autoLinkedSaleIds={autoLinkedSaleIds}
             manualLinkedSaleIds={manualLinkedSaleIds}
@@ -11823,41 +11934,6 @@ export default function TeammillimeterErpMvp() {
             />
           </PageKeepAlive>
         ) : null}
-        <PageKeepAlive pageKey="statements" active={shellActive}>
-          <StatementsPage
-            sales={appliedSales}
-            clientMaster={clients}
-            workerMaster={workers}
-            companyProfile={companyProfile}
-            statementGenerationLogs={statementGenerationLogs}
-            setStatementGenerationLogs={setStatementGenerationLogs}
-            statementFolders={statementFolders}
-            setStatementFolders={setStatementFolders}
-            currentUser={currentUser}
-            draft={statementDraft}
-            onDraftConsumed={() => setStatementDraft(null)}
-            pendingWorkerStatementFilter={pendingWorkerStatementFilter}
-            onPendingWorkerStatementFilterConsumed={() => setPendingWorkerStatementFilter(null)}
-            pendingPdfArchiveNav={pendingPdfArchiveNav}
-            onPendingPdfArchiveNavConsumed={() => setPendingPdfArchiveNav(null)}
-            bankTransactions={bankTransactions}
-            workerPaymentRecords={workerPaymentRecords}
-            paymentVouchers={paymentVouchers}
-            receipts={receipts}
-            receiptAllocations={receiptAllocations}
-            workerPayWithVatLearnRules={workerPayWithVatLearnRules}
-            isPageActive={shellActive === "statements"}
-            taxInvoices={taxInvoices}
-            setTaxInvoices={setTaxInvoices}
-            erpVersion={erpVersion}
-            onTaxInvoiceIssued={async ({ taxInvoices: nextTaxInvoices }) => {
-              const saved = await flushErpSave({ taxInvoices: nextTaxInvoices });
-              if (saved === false) {
-                window.alert("세금계산서 저장에 실패했습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.");
-              }
-            }}
-          />
-        </PageKeepAlive>
         </main>
       </div>
       {active === "sales" && salesManagementEditSale ? (
