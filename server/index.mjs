@@ -22,6 +22,7 @@ import {
   authMiddleware,
   adminMiddleware,
   resolveRequestUser,
+  resolveBearerRequestUser,
 } from "./auth.mjs";
 import {
   initDb,
@@ -2001,7 +2002,8 @@ app.get("/api/team-chat/unread-count", authMiddleware, (req, res) => {
 
 app.get("/api/team-chat/events", (req, res) => {
   try {
-    const user = resolveRequestUser(req);
+    // Bearer-only: reject query ?token= so JWTs are not required in URLs/access logs.
+    const user = resolveBearerRequestUser(req);
     if (!user) {
       if (!res.headersSent) {
         res.status(401).json({ error: "\uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4." });
