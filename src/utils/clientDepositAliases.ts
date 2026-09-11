@@ -1,4 +1,5 @@
 export type ClientDepositMatchSource = {
+  id?: string | number;
   name?: string;
   manager?: string;
   depositNameAliases?: string;
