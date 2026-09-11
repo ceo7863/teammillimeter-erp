@@ -941,3 +941,14 @@ export function mergeOfficeStaffForSave(existing = [], incoming = []) {
 }
 
 export { mergeWorkerMonthlyPaymentMemosForSave };
+
+
+export function mergeDisbursementsForSave(existing = [], _incoming = []) {
+  return Array.isArray(existing) ? existing : [];
+}
+export function mergeDisbursementAllocationsForSave(existing = [], _incoming = []) {
+  return Array.isArray(existing) ? existing : [];
+}
+export function mergeContractorPayablesForSave(existing = [], _incoming = []) {
+  return Array.isArray(existing) ? existing : [];
+}

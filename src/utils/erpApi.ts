@@ -578,6 +578,26 @@ export async function createReceiptApi(input: import("./receiptLedger").CreateRe
   });
 }
 
+export async function createReceiptRegisterApi(
+  input: import("./receiptLedger").CreateReceiptInput & {
+    requireSentStatements?: boolean;
+    autoAllocate?: boolean;
+  },
+) {
+  return apiRequest<any>("/receipts/register", { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function createDisbursementRegisterApi(input: Record<string, unknown>) {
+  return apiRequest<any>("/disbursements/register", { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function reverseDisbursementApi(id: string, input: Record<string, unknown> = {}) {
+  return apiRequest<any>("/disbursements/" + encodeURIComponent(id) + "/reverse", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export async function reverseReceiptApi(receiptId: string, input?: { operationId?: string; memo?: string }) {
   return apiRequest<ReceiptApiResult>(`/receipts/${encodeURIComponent(receiptId)}/reverse`, {
     method: "POST",
