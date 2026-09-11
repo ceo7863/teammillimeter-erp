@@ -85,6 +85,8 @@ import { SaleVoucherCommentsModal } from "@/components/SaleVoucherCommentsModal"
 import { PaymentReceivablesPage } from "@/components/PaymentReceivablesPage";
 import { WorkerPaymentsPage } from "@/components/WorkerPaymentsPage";
 import { ReceiptRegisterModal } from "@/components/ReceiptRegisterModal";
+import { DisbursementRegisterModal } from "@/components/DisbursementRegisterModal";
+import { AP_LEDGER_INACTIVE_NOTICE, isDisbursementWriteEnabled } from "@/utils/featureFlags";
 import {
   CalendarFinanceBadges,
   collectionAriaLabel,
@@ -3450,6 +3452,11 @@ function CalendarPage({
   const [selectedDates, setSelectedDates] = useState([]);
   const [paymentPreview, setPaymentPreview] = useState(null);
   const [receiptRegisterOpen, setReceiptRegisterOpen] = useState(false);
+  const [disbursementRegisterOpen, setDisbursementRegisterOpen] = useState(false);
+  const [calendarDisbursementPrefill, setCalendarDisbursementPrefill] = useState<{
+    workerName?: string;
+    amount?: number;
+  } | null>(null);
   const [paymentCancelPreview, setPaymentCancelPreview] = useState(null);
   const [paymentSaving, setPaymentSaving] = useState(false);
   const [statementModalDraft, setStatementModalDraft] = useState(null);
@@ -4315,6 +4322,25 @@ function CalendarPage({
         />
       ) : null}
 
+      <DisbursementRegisterModal
+        open={disbursementRegisterOpen}
+        onClose={() => {
+          setDisbursementRegisterOpen(false);
+          setCalendarDisbursementPrefill(null);
+        }}
+        workers={(workers || [])
+          .filter((row) => String(row?.name || "").trim())
+          .map((row) => ({ id: row.id, name: String(row.name).trim() }))}
+        initialWorkerName={calendarDisbursementPrefill?.workerName}
+        initialAmount={calendarDisbursementPrefill?.amount}
+        title={isDisbursementWriteEnabled() ? "시공자 지급 등록" : "시공자 지급 등록 (미리보기)"}
+        onSaved={() => {
+          setDisbursementRegisterOpen(false);
+          setCalendarDisbursementPrefill(null);
+          showClientFilterNotice("지급 등록이 반영되었습니다.");
+        }}
+      />
+
       <PageTitle
         title="캘린더"
         desc={
@@ -4323,16 +4349,32 @@ function CalendarPage({
             : "월별 일자별 총인원·총시공비·시공자 지급액·마진·마진율을 확인합니다."
         }
         action={(
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="erp-touch-target shrink-0 rounded-xl"
-            onClick={openClientSearch}
-          >
-            <Search size={16} className="mr-1.5" />
-            거래처 검색
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="erp-touch-target shrink-0 rounded-xl"
+              onClick={() => {
+                setCalendarDisbursementPrefill(null);
+                setDisbursementRegisterOpen(true);
+              }}
+              title={!isDisbursementWriteEnabled() ? AP_LEDGER_INACTIVE_NOTICE : undefined}
+              aria-label="캘린더에서 시공자 지급 등록"
+            >
+              시공자 지급 등록
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="erp-touch-target shrink-0 rounded-xl"
+              onClick={openClientSearch}
+            >
+              <Search size={16} className="mr-1.5" />
+              거래처 검색
+            </Button>
+          </div>
         )}
       />
 

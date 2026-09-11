@@ -248,12 +248,22 @@ import {
   registerDisbursement,
   reverseDisbursement,
   listContractorPayablesFromSales,
+  listNewLedgerPayables,
   proposeDisbursementFifo,
   getWorkerApBalance,
   listDisbursements,
   listDisbursementAllocations,
   summarizeDisbursement,
 } from "./disbursements.mjs";
+import {
+  readApLedgerMeta,
+  previewApCutoverActivation,
+  previewOpeningBalances,
+  computeLegacyApDatasetHash,
+  countLegacyApRows,
+  isDisbursementWriteAllowed,
+  isLegacyApWriterFrozen,
+} from "./apLedgerCutover.mjs";
 import { classifyCashBankTransfer } from "./canonicalCollection.mjs";
 import {
   createBankTransactionReceipt,
@@ -3836,11 +3846,22 @@ app.get("/api/disbursements", authMiddleware, (_req, res) => {
 app.get("/api/ap/payables", authMiddleware, (req, res) => {
   const state = getErpState(["sales", "disbursements"]);
   const worker = String(req.query.workerName || req.query.workerId || "").trim();
-  let payables = listContractorPayablesFromSales(state.data?.sales || []);
+  const scope = String(req.query.scope || "new").trim();
+  let payables =
+    scope === "all_derived"
+      ? listContractorPayablesFromSales(state.data?.sales || [])
+      : listNewLedgerPayables(state.data || {});
   if (worker) {
     payables = payables.filter((row) => String(row.workerName) === worker || String(row.workerId || "") === worker);
   }
-  res.json({ payables, version: state.version });
+  const meta = readApLedgerMeta(state.data || {});
+  res.json({
+    payables,
+    scope: scope === "all_derived" ? "all_derived" : "new_ledger",
+    cutover: meta,
+    writeEnabled: isDisbursementWriteAllowed(state.data || {}),
+    version: state.version,
+  });
 });
 
 app.get("/api/ap/workers/:key/balance", authMiddleware, (req, res) => {
@@ -3851,7 +3872,7 @@ app.get("/api/ap/workers/:key/balance", authMiddleware, (req, res) => {
 app.post("/api/disbursements/fifo-preview", authMiddleware, (req, res) => {
   const state = getErpState(["sales", "disbursements"]);
   const worker = String(req.body?.workerName || req.body?.workerId || "").trim();
-  const payables = listContractorPayablesFromSales(state.data?.sales || []).filter(
+  const payables = listNewLedgerPayables(state.data || {}).filter(
     (row) => String(row.workerName) === worker || String(row.workerId || "") === worker,
   );
   res.json(
@@ -3862,6 +3883,50 @@ app.post("/api/disbursements/fifo-preview", authMiddleware, (req, res) => {
       listDisbursements(state.data),
     ),
   );
+});
+
+app.get("/api/ap/cutover/status", authMiddleware, (_req, res) => {
+  const state = getErpState();
+  const meta = readApLedgerMeta(state.data || {});
+  res.json({
+    ...meta,
+    writeEnabled: isDisbursementWriteAllowed(state.data || {}),
+    legacyWritersFrozen: isLegacyApWriterFrozen(state.data || {}),
+    legacyHash: computeLegacyApDatasetHash(state.data || {}),
+    legacyCounts: countLegacyApRows(state.data || {}),
+    version: state.version,
+  });
+});
+
+app.post("/api/ap/cutover/preview", authMiddleware, adminMiddleware, (req, res) => {
+  const state = getErpState();
+  const body = req.body || {};
+  const preview = previewApCutoverActivation(
+    {
+      ...body,
+      listPayables: () => listContractorPayablesFromSales(state.data?.sales || []),
+    },
+    state.data || {},
+  );
+  res.json(preview);
+});
+
+app.post("/api/ap/opening-balances/preview", authMiddleware, adminMiddleware, (req, res) => {
+  res.json(previewOpeningBalances(req.body?.openingBalances || req.body || []));
+});
+
+app.post("/api/ap/cutover/activate", authMiddleware, adminMiddleware, (_req, res) => {
+  res.status(403).json({
+    error: "AP cutover activation requires explicit CEO approval. Blocked in the current release.",
+    code: "AP_CUTOVER_ACTIVATION_BLOCKED",
+  });
+});
+
+app.post("/api/ap/opening-balances/apply", authMiddleware, adminMiddleware, (_req, res) => {
+  res.status(403).json({
+    error: "Opening balance apply requires explicit CEO approval. Blocked in the current release.",
+    code: "AP_OPENING_BALANCE_APPLY_BLOCKED",
+  });
 });
 
 app.get("/api/bank-deposits/unresolved", authMiddleware, (_req, res) => {

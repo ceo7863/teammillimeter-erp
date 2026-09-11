@@ -5,6 +5,12 @@
  */
 import crypto from "crypto";
 import { getErpState, saveErpState } from "./db.mjs";
+import {
+  filterPayablesByCutover,
+  isDisbursementWriteAllowed,
+  readApLedgerMeta,
+  classifyBankToCashTransfer,
+} from "./apLedgerCutover.mjs";
 
 const SAVE_RETRY_ATTEMPTS = 8;
 
@@ -46,10 +52,13 @@ export function listContractorPayablesFromSales(sales = [], options = {}) {
     const workers = Array.isArray(sale.workers) ? sale.workers : [];
     workers.forEach((worker, index) => {
       const hasLineSpend = worker?.lineSpend != null && worker.lineSpend !== "";
-      // lineSpend (when present) already includes meal/expense/lodging/OT in ERP enrichment.
-      // Do not add meal/expense again — that overstates payable vs legacy net pay.
       const base = money(hasLineSpend ? worker.lineSpend : worker.payAmount ?? worker.amount);
-      const extras = hasLineSpend ? 0 : money(worker.meal) + money(worker.expense);
+      // Explicit meal/expense only when lineSpend absent — never invent from other jobs.
+      const mealRaw = worker?.meal;
+      const expenseRaw = worker?.expense;
+      const meal = mealRaw == null || mealRaw === "" ? 0 : money(mealRaw);
+      const expense = expenseRaw == null || expenseRaw === "" ? 0 : money(expenseRaw);
+      const extras = hasLineSpend ? 0 : meal + expense;
       const due = base + extras - money(worker.deduction);
       if (due <= 0 && !options.includeZero) return;
       const workItemId = buildWorkItemId(sale, index, worker);
@@ -61,12 +70,13 @@ export function listContractorPayablesFromSales(sales = [], options = {}) {
         workerName: String(worker.name || worker.workerName || "").trim(),
         workDate: String(sale.date || "").slice(0, 10),
         dueAmount: due,
-        mealAmount: money(worker.meal),
-        expenseAmount: money(worker.expense),
+        mealAmount: meal,
+        expenseAmount: expense,
         deductionAmount: money(worker.deduction),
         lineSpend: hasLineSpend ? money(worker.lineSpend) : null,
         site: String(sale.site || sale.memo || ""),
         asOf,
+        kind: "workItem",
       });
     });
   }
@@ -122,15 +132,55 @@ function workItemAllocated(allocations, disbursements, workItemId, asOf = todayS
   return sum;
 }
 
+export function listOpeningBalancePayables(data = {}) {
+  const meta = readApLedgerMeta(data);
+  return (meta.apOpeningBalances || []).map((row) => ({
+    workItemId: `opening:${String(row.workerId || row.workerName || "").trim()}:${row.effectiveDate}:${row.operationId}`,
+    saleId: null,
+    scScheduleId: null,
+    workerId: row.workerId || null,
+    workerName: String(row.workerName || "").trim(),
+    workDate: String(row.effectiveDate || "").slice(0, 10),
+    dueAmount: money(row.openingAmount),
+    mealAmount: 0,
+    expenseAmount: 0,
+    deductionAmount: 0,
+    lineSpend: null,
+    site: "기초 미지급",
+    asOf: todaySeoul(),
+    kind: "openingBalance",
+  }));
+}
+
+export function listNewLedgerPayables(data = {}, options = {}) {
+  const derived = listContractorPayablesFromSales(data?.sales || [], options);
+  const filtered = filterPayablesByCutover(derived, data, options);
+  const openings = listOpeningBalancePayables(data);
+  return [...openings, ...filtered].sort(
+    (a, b) =>
+      // opening balances first (kind), then oldest workDate, then workItemId
+      (a.kind === "openingBalance" ? 0 : 1) - (b.kind === "openingBalance" ? 0 : 1) ||
+      String(a.workDate).localeCompare(String(b.workDate)) ||
+      String(a.workItemId).localeCompare(String(b.workItemId)),
+  );
+}
+
 export function proposeDisbursementFifo(payables, grossAmount, allocations = [], disbursements = [], asOf = todaySeoul()) {
   let remaining = money(grossAmount);
   const proposals = [];
-  for (const payable of payables || []) {
+  // Prefer opening balances, then oldest workDate (caller should already sort).
+  const ordered = [...(payables || [])].sort(
+    (a, b) =>
+      (a.kind === "openingBalance" ? 0 : 1) - (b.kind === "openingBalance" ? 0 : 1) ||
+      String(a.workDate).localeCompare(String(b.workDate)) ||
+      String(a.workItemId).localeCompare(String(b.workItemId)),
+  );
+  for (const payable of ordered) {
     if (remaining <= 0) break;
     const unpaid = Math.max(money(payable.dueAmount) - workItemAllocated(allocations, disbursements, payable.workItemId, asOf), 0);
     if (unpaid <= 0) continue;
     const apply = Math.min(unpaid, remaining);
-    proposals.push({ workItemId: payable.workItemId, amount: apply, saleId: payable.saleId, workerName: payable.workerName });
+    proposals.push({ workItemId: payable.workItemId, amount: apply, saleId: payable.saleId, workerName: payable.workerName, kind: payable.kind });
     remaining -= apply;
   }
   return { allocations: proposals, unallocatedAmount: Math.max(remaining, 0), grossAmount: money(grossAmount) };
@@ -166,8 +216,15 @@ function saveDisbursementsAtomic(mutator, actor) {
 }
 
 export function createAndPostDisbursement(input, actor = "system") {
-  return saveDisbursementsAtomic(({ disbursements, allocations, payables, sales }) => {
+  return saveDisbursementsAtomic(({ data, disbursements, allocations, sales }) => {
     const raw = input || {};
+    if (!isDisbursementWriteAllowed(data, { forceEnable: raw.forceEnable === true || raw.__testBypassCutover === true })) {
+      throw makeError(
+        "AP_LEDGER_WRITE_DISABLED",
+        "신규 지급 원장이 활성화되지 않았습니다. 컷오버 승인 전입니다.",
+        403,
+      );
+    }
     const operationId = String(raw.operationId || raw.idempotencyKey || "").trim();
     if (!operationId) throw makeError("OPERATION_ID_REQUIRED", "operationId가 필요합니다.");
     const grossAmount = money(raw.grossAmount);
@@ -176,8 +233,34 @@ export function createAndPostDisbursement(input, actor = "system") {
     const workerId = raw.workerId == null || raw.workerId === "" ? null : String(raw.workerId);
     if (!workerName && !workerId) throw makeError("WORKER_REQUIRED", "시공자를 지정해 주세요.");
 
+    const bankTransactionId =
+      raw.bankTransactionId == null || raw.bankTransactionId === "" ? null : String(raw.bankTransactionId);
+    if (bankTransactionId) {
+      const bankTx = (data.bankTransactions || []).find((row) => String(row?.id) === bankTransactionId);
+      const transfer = classifyBankToCashTransfer(bankTx || { memo: raw.memo, description: raw.description });
+      if (!transfer.allowDisbursement && raw.allowBankToCashAsPayout !== true) {
+        throw makeError(transfer.code || "BANK_TO_CASH_TRANSFER", transfer.message, 400);
+      }
+    }
+
     const prior = disbursements.find((row) => String(row.operationId || "") === operationId);
+    const payloadHash = hashPayload({
+      workerId,
+      workerName,
+      disbursementDate: String(raw.disbursementDate || todaySeoul()).slice(0, 10),
+      grossAmount,
+      channel: String(raw.channel || "cash"),
+      bankTransactionId,
+      allocations: Array.isArray(raw.allocations)
+        ? raw.allocations
+            .map((row) => ({ workItemId: String(row.workItemId), amount: money(row.amount) }))
+            .sort((a, b) => a.workItemId.localeCompare(b.workItemId))
+        : null,
+    });
     if (prior) {
+      if (prior.payloadHash && prior.payloadHash !== payloadHash && raw.allocations) {
+        throw makeError("IDEMPOTENCY_CONFLICT", "동일 operationId에 다른 payload가 전달되었습니다.", 409);
+      }
       const rows = allocations.filter((a) => String(a.disbursementId) === String(prior.id));
       return {
         shortCircuit: true,
@@ -185,8 +268,6 @@ export function createAndPostDisbursement(input, actor = "system") {
       };
     }
 
-    const bankTransactionId =
-      raw.bankTransactionId == null || raw.bankTransactionId === "" ? null : String(raw.bankTransactionId);
     if (bankTransactionId) {
       const conflict = disbursements.find(
         (row) =>
@@ -204,7 +285,9 @@ export function createAndPostDisbursement(input, actor = "system") {
 
     const disbursementDate = String(raw.disbursementDate || todaySeoul()).slice(0, 10);
     const channel = String(raw.channel || "cash");
-    const scopedPayables = payables.filter((row) => {
+    const ledgerPayables = listNewLedgerPayables(data, {
+      exposeAllWithoutCutover: raw.__testBypassCutover === true || raw.forceEnable === true,
+    }).filter((row) => {
       if (workerId && String(row.workerId || "") === workerId) return true;
       if (workerName && String(row.workerName || "") === workerName) return true;
       return false;
@@ -212,21 +295,10 @@ export function createAndPostDisbursement(input, actor = "system") {
 
     let allocInput = Array.isArray(raw.allocations) ? raw.allocations : null;
     if (!allocInput || !allocInput.length) {
-      allocInput = proposeDisbursementFifo(scopedPayables, grossAmount, allocations, disbursements, disbursementDate).allocations;
+      allocInput = proposeDisbursementFifo(ledgerPayables, grossAmount, allocations, disbursements, disbursementDate).allocations;
     }
 
     const id = `disb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-    const payloadHash = hashPayload({
-      workerId,
-      workerName,
-      disbursementDate,
-      grossAmount,
-      channel,
-      bankTransactionId,
-      allocations: (allocInput || [])
-        .map((row) => ({ workItemId: String(row.workItemId), amount: money(row.amount) }))
-        .sort((a, b) => a.workItemId.localeCompare(b.workItemId)),
-    });
 
     const disbursement = {
       id,
@@ -256,7 +328,7 @@ export function createAndPostDisbursement(input, actor = "system") {
       if (amount <= 0) continue;
       const workItemId = String(row.workItemId || "").trim();
       if (!workItemId) throw makeError("WORK_ITEM_REQUIRED", "workItemId가 필요합니다.");
-      const payable = scopedPayables.find((p) => p.workItemId === workItemId);
+      const payable = ledgerPayables.find((p) => p.workItemId === workItemId);
       const unpaid = payable
         ? Math.max(money(payable.dueAmount) - workItemAllocated(allocations, disbursements, workItemId, disbursementDate), 0)
         : amount;
@@ -280,11 +352,14 @@ export function createAndPostDisbursement(input, actor = "system") {
     }
 
     const nextDisbursements = [...disbursements, disbursement];
-    const summary = summarizeDisbursement(disbursement, nextAllocations);
+    const summary = summarizeDisbursement(disbursement, nextAllocations, disbursementDate);
     return {
       disbursements: nextDisbursements,
       allocations: nextAllocations,
-      payablesSnapshot: listContractorPayablesFromSales(sales),
+      payablesSnapshot: listNewLedgerPayables(
+        { ...data, sales },
+        { exposeAllWithoutCutover: raw.__testBypassCutover === true || raw.forceEnable === true },
+      ),
       value: {
         ok: true,
         idempotent: false,
@@ -297,7 +372,10 @@ export function createAndPostDisbursement(input, actor = "system") {
 }
 
 export function reverseDisbursement(disbursementId, input = {}, actor = "system") {
-  return saveDisbursementsAtomic(({ disbursements, allocations, sales }) => {
+  return saveDisbursementsAtomic(({ data, disbursements, allocations, sales }) => {
+    if (!isDisbursementWriteAllowed(data, { forceEnable: input.forceEnable === true || input.__testBypassCutover === true })) {
+      throw makeError("AP_LEDGER_WRITE_DISABLED", "신규 지급 원장이 활성화되지 않았습니다.", 403);
+    }
     const target = disbursements.find((row) => String(row.id) === String(disbursementId));
     if (!target) throw makeError("DISBURSEMENT_NOT_FOUND", "지급전표를 찾을 수 없습니다.", 404);
     if (target.reversalOfDisbursementId) throw makeError("ALREADY_REVERSAL", "취소전표는 다시 취소할 수 없습니다.");
@@ -360,7 +438,7 @@ export function registerDisbursement(input, actor = "system") {
 
 export function getWorkerApBalance(workerNameOrId, data, asOf = todaySeoul()) {
   const key = String(workerNameOrId || "").trim();
-  const payables = listContractorPayablesFromSales(data?.sales || []).filter(
+  const payables = listNewLedgerPayables(data || {}).filter(
     (row) => String(row.workerId || "") === key || String(row.workerName || "") === key,
   );
   const disbursements = listDisbursements(data);
@@ -377,12 +455,16 @@ export function getWorkerApBalance(workerNameOrId, data, asOf = todaySeoul()) {
     if (String(disb.workerId || "") !== key && String(disb.workerName || "") !== key) continue;
     advance += summarizeDisbursement(disb, allocations, asOf).unallocatedAmount;
   }
+  const meta = readApLedgerMeta(data || {});
   return {
     dueAmount: due,
     paidAmount: paid,
     outstanding: Math.max(due - paid, 0),
     unallocatedAdvance: advance,
     netExposure: Math.max(due - paid, 0) - advance,
+    ledger: "new",
+    cutoverWorkDate: meta.apLedgerCutoverWorkDate,
+    activated: Boolean(meta.apLedgerActivatedAt),
   };
 }
 

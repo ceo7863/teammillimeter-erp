@@ -1,6 +1,6 @@
 /**
- * Feature flags for canonical finance UX Phase 2.
- * AP disbursement write UI stays off until AP cutover approval.
+ * Feature flags for canonical finance UX.
+ * AP disbursement write stays OFF until cutover activation + explicit flag.
  */
 export function isDisbursementWriteEnabled(): boolean {
   try {
@@ -16,6 +16,17 @@ export function isDisbursementWriteEnabled(): boolean {
   return env === "1" || env.toLowerCase() === "true";
 }
 
+/** Server cutover must also be activated; client flag alone is never enough. */
+export function isApCanonicalPayoutUiEnabled(): boolean {
+  return isDisbursementWriteEnabled();
+}
+
 export function isCollectionHubEnabled(): boolean {
   return true;
 }
+
+export const LEGACY_PAYOUT_READ_ONLY_NOTICE =
+  "이전 지급 기록 — 기존 방식으로 보존되며 신규 원장으로 재계산하지 않습니다.";
+
+export const AP_LEDGER_INACTIVE_NOTICE =
+  "신규 지급 원장 활성화 전입니다. 컷오버 승인 전까지 저장할 수 없습니다.";

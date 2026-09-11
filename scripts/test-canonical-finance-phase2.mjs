@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Phase 2 finance UX automated gates.
  * Run: node --import tsx scripts/test-canonical-finance-phase2.mjs
  */
@@ -122,13 +122,14 @@ await checkAsync("uncertain client persistent queue", async () => {
   assert.equal(result.unresolvedQueue.find((row) => row.bankTransactionId === "tx-unknown")?.reasonCode, "CLIENT_NOT_FOUND");
 });
 await checkAsync("partial disbursement + reverse", async () => {
-  const created = createAndPostDisbursement({ operationId: "d1", workerName: "WorkerA", disbursementDate: "2026-07-10", grossAmount: 500000, channel: "bank", autoAllocate: true }, "test");
-  createAndPostDisbursement({ operationId: "d2", workerName: "WorkerA", disbursementDate: "2026-07-11", grossAmount: 300000, channel: "bank", autoAllocate: true }, "test");
-  createAndPostDisbursement({ operationId: "d3", workerName: "WorkerA", disbursementDate: "2026-07-12", grossAmount: 200000, channel: "bank", autoAllocate: true }, "test");
-  reverseDisbursement(created.disbursement.id, { operationId: "d1-rev" }, "test");
+  const created = createAndPostDisbursement({ __testBypassCutover: true,  operationId: "d1", workerName: "WorkerA", disbursementDate: "2026-07-10", grossAmount: 500000, channel: "bank", autoAllocate: true }, "test");
+  createAndPostDisbursement({ __testBypassCutover: true,  operationId: "d2", workerName: "WorkerA", disbursementDate: "2026-07-11", grossAmount: 300000, channel: "bank", autoAllocate: true }, "test");
+  createAndPostDisbursement({ __testBypassCutover: true,  operationId: "d3", workerName: "WorkerA", disbursementDate: "2026-07-12", grossAmount: 200000, channel: "bank", autoAllocate: true }, "test");
+  reverseDisbursement(created.disbursement.id, { __testBypassCutover: true,  operationId: "d1-rev"  }, "test");
 });
 check("wheel helper", () => assert.equal(typeof handleWheelScrollCapture, "function"));
 
 console.log(failed === 0 ? "\ncanonical finance phase2: ALL PASS" : ("\n" + failed + " failed"));
 if (failed) process.exit(1);
 try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+
