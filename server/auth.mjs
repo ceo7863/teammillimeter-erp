@@ -81,6 +81,19 @@ export function resolveRequestUser(req) {
   }
 }
 
+/** Header-only auth for SSE — never accept query tokens (they land in access logs). */
+export function resolveBearerRequestUser(req) {
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  if (!token) return null;
+  try {
+    const payload = verifyToken(token);
+    return { ...payload, id: payload.sub };
+  } catch {
+    return null;
+  }
+}
+
 export function adminMiddleware(req, res, next) {
   if (req.user?.role !== "admin") {
     res.status(403).json({ error: "??? ??? ?????." });
