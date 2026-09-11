@@ -55,6 +55,8 @@ export function readApLedgerMeta(data = {}) {
     disbursementWriteEnabled: meta.disbursementWriteEnabled === true,
     legacyApPayoutPolicy: meta.legacyApPayoutPolicy || null,
     apOpeningBalances: Array.isArray(meta.apOpeningBalances) ? meta.apOpeningBalances : [],
+    emergencyDisbursementWritePause: meta.emergencyDisbursementWritePause === true,
+    apCutoverOperationId: meta.apCutoverOperationId ? String(meta.apCutoverOperationId) : null,
   };
 }
 
@@ -68,6 +70,7 @@ export function isDisbursementWriteAllowed(data = {}, options = {}) {
   const meta = readApLedgerMeta(data);
   if (!isApLedgerActivated(data)) return false;
   if (meta.disbursementWriteEnabled !== true) return false;
+  if (meta.emergencyDisbursementWritePause === true) return false;
   if (options.clientFlag === false) return false;
   if (options.clientFlag === true) return true;
   return true;

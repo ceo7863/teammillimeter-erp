@@ -264,6 +264,12 @@ import {
   isDisbursementWriteAllowed,
   isLegacyApWriterFrozen,
 } from "./apLedgerCutover.mjs";
+import {
+  previewApAtomicCutover,
+  activateApAtomicCutover,
+  getApCutoverStatus,
+  setEmergencyDisbursementWritePause,
+} from "./apAtomicCutover.mjs";
 import { classifyCashBankTransfer } from "./canonicalCollection.mjs";
 import {
   createBankTransactionReceipt,
@@ -3887,20 +3893,13 @@ app.post("/api/disbursements/fifo-preview", authMiddleware, (req, res) => {
 
 app.get("/api/ap/cutover/status", authMiddleware, (_req, res) => {
   const state = getErpState();
-  const meta = readApLedgerMeta(state.data || {});
-  res.json({
-    ...meta,
-    writeEnabled: isDisbursementWriteAllowed(state.data || {}),
-    legacyWritersFrozen: isLegacyApWriterFrozen(state.data || {}),
-    legacyHash: computeLegacyApDatasetHash(state.data || {}),
-    legacyCounts: countLegacyApRows(state.data || {}),
-    version: state.version,
-  });
+  res.json(getApCutoverStatus(state.data || {}, state.version));
 });
 
 app.post("/api/ap/cutover/preview", authMiddleware, adminMiddleware, (req, res) => {
   const state = getErpState();
   const body = req.body || {};
+  // Legacy preview kept for compatibility; prefer /api/admin/ap-cutover/preview.
   const preview = previewApCutoverActivation(
     {
       ...body,
@@ -3915,18 +3914,70 @@ app.post("/api/ap/opening-balances/preview", authMiddleware, adminMiddleware, (r
   res.json(previewOpeningBalances(req.body?.openingBalances || req.body || []));
 });
 
-app.post("/api/ap/cutover/activate", authMiddleware, adminMiddleware, (_req, res) => {
-  res.status(403).json({
-    error: "AP cutover activation requires explicit CEO approval. Blocked in the current release.",
-    code: "AP_CUTOVER_ACTIVATION_BLOCKED",
-  });
+app.post("/api/ap/cutover/activate", authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const actor = req.user?.email || req.user?.name || "admin";
+    const result = activateApAtomicCutover(req.body || {}, actor, {
+      listPayables: () => listContractorPayablesFromSales(getErpState().data?.sales || []),
+    });
+    res.status(result.idempotent ? 200 : 201).json(result);
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message, code: error.code, ...(error.errors ? { errors: error.errors } : {}) });
+  }
 });
 
 app.post("/api/ap/opening-balances/apply", authMiddleware, adminMiddleware, (_req, res) => {
   res.status(403).json({
-    error: "Opening balance apply requires explicit CEO approval. Blocked in the current release.",
+    error: "Opening balances apply only via atomic POST /api/admin/ap-cutover/activate",
     code: "AP_OPENING_BALANCE_APPLY_BLOCKED",
   });
+});
+
+app.get("/api/admin/ap-cutover/status", authMiddleware, adminMiddleware, (_req, res) => {
+  const state = getErpState();
+  res.json(getApCutoverStatus(state.data || {}, state.version));
+});
+
+app.post("/api/admin/ap-cutover/preview", authMiddleware, adminMiddleware, (req, res) => {
+  const state = getErpState();
+  const preview = previewApAtomicCutover(
+    {
+      ...(req.body || {}),
+      approvedBy: req.body?.approvedBy || req.user?.email || req.user?.name,
+      listPayables: () => listContractorPayablesFromSales(state.data?.sales || []),
+    },
+    state,
+  );
+  res.status(preview.ok ? 200 : 400).json(preview);
+});
+
+app.post("/api/admin/ap-cutover/activate", authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const actor = req.user?.email || req.user?.name || "admin";
+    const result = activateApAtomicCutover(req.body || {}, actor, {
+      listPayables: () => listContractorPayablesFromSales(getErpState().data?.sales || []),
+    });
+    res.status(result.idempotent ? 200 : 201).json(result);
+  } catch (error) {
+    res.status(error.status || 500).json({
+      error: error.message,
+      code: error.code,
+      ...(error.errors ? { errors: error.errors } : {}),
+      ...(error.activation ? { activation: error.activation } : {}),
+      ...(error.expectedVersion != null ? { expectedVersion: error.expectedVersion, currentVersion: error.currentVersion } : {}),
+    });
+  }
+});
+
+app.post("/api/admin/ap-cutover/emergency-pause", authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const actor = req.user?.email || req.user?.name || "admin";
+    const enabled = req.body?.enabled !== false;
+    const status = setEmergencyDisbursementWritePause(enabled, actor, { memo: req.body?.memo });
+    res.json({ ok: true, status });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message, code: error.code });
+  }
 });
 
 app.get("/api/bank-deposits/unresolved", authMiddleware, (_req, res) => {

@@ -86,6 +86,7 @@ import { PaymentReceivablesPage } from "@/components/PaymentReceivablesPage";
 import { WorkerPaymentsPage } from "@/components/WorkerPaymentsPage";
 import { ReceiptRegisterModal } from "@/components/ReceiptRegisterModal";
 import { DisbursementRegisterModal } from "@/components/DisbursementRegisterModal";
+import { ApCutoverWizardPage } from "@/components/ApCutoverWizardPage";
 import { AP_LEDGER_INACTIVE_NOTICE, isDisbursementWriteEnabled } from "@/utils/featureFlags";
 import {
   CalendarFinanceBadges,
@@ -2867,6 +2868,7 @@ const PAGE_ICONS: Record<ErpPageKey, typeof Home> = {
   receivables: CreditCard,
   workerPayments: WalletCards,
   officePayroll: Banknote,
+  apCutover: Landmark,
   reports: BarChart3,
   statements: Download,
   pdfArchive: Archive,
@@ -11635,6 +11637,11 @@ export default function TeammillimeterErpMvp() {
               sheets={officePayrollSheets}
               onPersist={persistOfficePayrollImmediate}
             />
+          </PageKeepAlive>
+        ) : null}
+        {canUserAccessPage(currentUser, "apCutover") ? (
+          <PageKeepAlive pageKey="apCutover" active={shellActive}>
+            <ApCutoverWizardPage workers={workers} currentUser={currentUser} />
           </PageKeepAlive>
         ) : null}
         <PageKeepAlive pageKey="accounting" active={shellActive}>

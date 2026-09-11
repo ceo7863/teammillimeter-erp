@@ -90,21 +90,41 @@ const LEGACY_TAB_ITEMS: Array<{ key: WorkerPaymentTab; label: string }> = [
   { key: "statement", label: "내역서 / PDF" },
 ];
 
-function NewApLedgerEmpty({ title, writeEnabled }: { title: string; writeEnabled: boolean }) {
+function NewApLedgerEmpty({
+  title,
+  writeEnabled,
+  activated,
+  cutoverWorkDate,
+  openingPolicy,
+}: {
+  title: string;
+  writeEnabled: boolean;
+  activated?: boolean;
+  cutoverWorkDate?: string | null;
+  openingPolicy?: string | null;
+}) {
   return (
     <Card className="rounded-2xl shadow-sm" data-ap-new-ledger-panel="true">
       <CardContent className="p-6">
         <h2 className="erp-text-section">{title}</h2>
-        <p className="mt-2 text-sm text-slate-600" role="status" data-ap-ledger-inactive="true">
-          {writeEnabled
-            ? "컷오버 이후 신규 원장 데이터만 표시합니다. 이전 지급 기록과 합산하지 않습니다."
-            : AP_LEDGER_INACTIVE_NOTICE}
-        </p>
+        {activated ? (
+          <div className="mt-2 space-y-1 text-sm text-slate-700" role="status">
+            <p>신규 지급원장 시작일: {cutoverWorkDate || "—"}</p>
+            <p>기초 미지급 정책: {openingPolicy || "—"}</p>
+            <p>{LEGACY_PAYOUT_READ_ONLY_NOTICE}</p>
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-slate-600" role="status" data-ap-ledger-inactive="true">
+            {writeEnabled
+              ? "컷오버 이후 신규 원장 데이터만 표시합니다. 이전 지급 기록과 합산하지 않습니다."
+              : AP_LEDGER_INACTIVE_NOTICE}
+          </p>
+        )}
         <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-500">
-          <li>이전 기록: 레거시 조회 전용</li>
-          <li>신규 미지급: 컷오버 이후 workDate만</li>
-          <li>기초 미지급: 대표 승인 입력분만 (자동 산출 없음)</li>
-          <li>신규 지급: Disbursement / 선지급: 미배정 Disbursement</li>
+          <li>이전 지급 기록: 레거시 조회 전용</li>
+          <li>기초 미지급: 대표 승인 금액만</li>
+          <li>컷오버 이후 발생 시공비 / 지급 / 선지급 / 취소·정정</li>
+          <li>검증되지 않은 과거 계산 미지급과 승인 기초·신규 미지급을 합산하지 않음</li>
         </ul>
       </CardContent>
     </Card>

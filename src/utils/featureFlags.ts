@@ -30,3 +30,6 @@ export const LEGACY_PAYOUT_READ_ONLY_NOTICE =
 
 export const AP_LEDGER_INACTIVE_NOTICE =
   "신규 지급 원장 활성화 전입니다. 컷오버 승인 전까지 저장할 수 없습니다.";
+
+export const AP_LEDGER_ACTIVE_BANNER =
+  "신규 지급원장이 활성화되었습니다. 이전 기록은 조회 전용이며 기초 미지급·신규 미지급을 합산하지 않습니다.";
