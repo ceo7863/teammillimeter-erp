@@ -360,11 +360,11 @@ export function allocatePaymentFifoBySaleDate(
 }
 
 export function listMatchableSentStatements(archives: PdfArchiveMeta[]) {
+  // paymentStatus is display cache only — remaining balance decides eligibility.
   return archives.filter(
     (row) =>
       row.sentViaLink &&
       row.category === "statement-client" &&
-      row.paymentStatus !== "confirmed" &&
       (row.statementTotalAmount || 0) > 0,
   );
 }
@@ -381,14 +381,14 @@ export function buildSentStatementMatchCandidates(
     bankTransactions?: Array<Pick<BankTransaction, "id" | "linkedPdfArchiveId">>;
   } = {},
 ) {
-  if (tx.deposit <= 0 || tx.linkedPaymentVoucherId || tx.linkedPdfArchiveId || isCardCompanyDeposit(tx)) {
+  // linkedPdfArchiveId is NOT financial authority — only open receipt/legacy voucher blocks.
+  if (tx.deposit <= 0 || tx.linkedPaymentVoucherId || isCardCompanyDeposit(tx)) {
     return [];
   }
 
   const deposit = tx.deposit;
   const txDate = String(tx.transactionAt || "").slice(0, 10);
   const subject = resolveBankDepositMatchSubject(tx);
-  const linkedPdfArchiveIds = options.linkedPdfArchiveIds || new Set<string>();
   const clients = options.clients;
   const paymentVouchers = options.paymentVouchers || [];
   const bankTransactions = options.bankTransactions || [];
@@ -398,11 +398,9 @@ export function buildSentStatementMatchCandidates(
   const candidates: Array<SentStatementMatchCandidate & { dayGap: number }> = [];
 
   for (const archive of listMatchableSentStatements(archives)) {
-    if (linkedPdfArchiveIds.has(archive.id)) continue;
-    if (archive.linkedBankTransactionId && archive.linkedBankTransactionId !== tx.id) continue;
-
     const paidSoFar = resolveStatementPaidAmount(archive.id, paymentVouchers, bankTransactions);
     const statementTotal = archive.statementTotalAmount || 0;
+    // Allow 2nd/3rd partial deposits while remaining > 0 (archive occupancy is not a lock).
     const amountMatch = resolveStatementPaymentAmount(deposit, statementTotal, paidSoFar);
     if (!amountMatch) continue;
 
@@ -938,7 +936,16 @@ export type SentStatementAutoLinkSkipReason =
   | "belowThreshold"
   | "dateOutOfRange"
   | "ambiguous"
-  | "failed";
+  | "failed"
+  | "CLIENT_NOT_FOUND"
+  | "CLIENT_AMBIGUOUS"
+  | "CASH_TRANSFER"
+  | "NO_SENT_SALES"
+  | "RECEIPT_POSTED_UNAPPLIED"
+  | "RECEIPT_PARTIALLY_ALLOCATED"
+  | "DUPLICATE_BANK_RECEIPT"
+  | "PRE_CUTOVER"
+  | "INTERNAL_ERROR";
 
 export type SentStatementAutoLinkDiagnostics = {
   evaluated: number;
@@ -951,6 +958,11 @@ export type SentStatementAutoLinkDiagnostics = {
   manualOverride: number;
   cardCompany: number;
   failed: number;
+  clientNotFound: number;
+  clientAmbiguous: number;
+  cashTransfer: number;
+  unapplied: number;
+  partiallyAllocated: number;
 };
 
 export type SentStatementAutoLinkEvaluationItem = {
@@ -958,6 +970,8 @@ export type SentStatementAutoLinkEvaluationItem = {
   client?: string;
   score?: number;
   reason: "linked" | SentStatementAutoLinkSkipReason;
+  reasonCode?: string;
+  processingStatus?: string;
   periodStart?: string;
   periodEnd?: string;
   transactionDate?: string;
@@ -978,6 +992,11 @@ export function createEmptySentStatementAutoLinkDiagnostics(): SentStatementAuto
     manualOverride: 0,
     cardCompany: 0,
     failed: 0,
+    clientNotFound: 0,
+    clientAmbiguous: 0,
+    cashTransfer: 0,
+    unapplied: 0,
+    partiallyAllocated: 0,
   };
 }
 
@@ -1004,7 +1023,11 @@ function subtractDaysYmd(ymd: string, days: number) {
   return `${y}-${m}-${d}`;
 }
 
-/** Recent unmatched deposits eligible for periodic auto-link retry (excludes card / already linked). */
+/**
+ * Unmatched deposits eligible for auto-link retry.
+ * Persistent by default: post-cutover unresolved rows are NOT dropped after lookback days.
+ * `lookbackDays` is retained only as a soft preference when `persistent=false` (legacy tests).
+ */
 export function selectRecentUnlinkedDepositIds(
   bankTransactions: BankTransaction[],
   options: {
@@ -1014,22 +1037,31 @@ export function selectRecentUnlinkedDepositIds(
     minDate?: string;
     receipts?: DepositLinkReceiptLike[];
     paymentVouchers?: Array<{ bankTransactionId?: string | number }>;
+    /** When true (default), keep all unresolved post-minDate deposits regardless of age. */
+    persistent?: boolean;
   } = {},
 ): string[] {
+  const persistent = options.persistent !== false;
   const lookbackDays = options.lookbackDays ?? DEFAULT_AUTO_DEPOSIT_RETRY_LOOKBACK_DAYS;
   const asOf = ymdKst(options.asOfDate || new Date());
   const lookbackFrom = subtractDaysYmd(asOf, lookbackDays);
   const minDate = String(options.minDate || "").slice(0, 10);
-  const fromDate = minDate && minDate > lookbackFrom ? minDate : lookbackFrom;
+  const fromDate = persistent
+    ? minDate
+    : minDate && minDate > lookbackFrom
+      ? minDate
+      : lookbackFrom;
   const linkContext = { receipts: options.receipts, paymentVouchers: options.paymentVouchers };
   const ids: string[] = [];
 
   for (const tx of bankTransactions) {
     if (Number(tx.deposit || 0) <= 0) continue;
-    if (isBankDepositLinked(tx, linkContext) || tx.linkedPdfArchiveId) continue;
+    // linkedPdfArchiveId alone must NOT exclude — only real receipt/legacy link.
+    if (isBankDepositLinked(tx, linkContext)) continue;
     if (isCardCompanyDeposit(tx)) continue;
     const txDate = String(tx.transactionAt || "").slice(0, 10);
-    if (!txDate || (fromDate && txDate < fromDate) || txDate > asOf) continue;
+    if (!txDate || txDate > asOf) continue;
+    if (fromDate && txDate < fromDate) continue;
     ids.push(tx.id);
   }
 
@@ -1163,32 +1195,35 @@ export function evaluateHighConfidenceSentStatementAutoLinks(options: {
     diagnostics.evaluated += 1;
     const transactionDate = String(tx.transactionAt || "").slice(0, 10);
 
-    if (
-      isBankDepositLinked(tx, { receipts, paymentVouchers }) ||
-      tx.linkedPdfArchiveId ||
-      linkedBankIds.has(tx.id)
-    ) {
+    if (isBankDepositLinked(tx, { receipts, paymentVouchers }) || linkedBankIds.has(tx.id)) {
       bumpDiagnostic(diagnostics, "alreadyLinked");
-      items.push({ txId: tx.id, reason: "alreadyLinked", transactionDate });
+      items.push({
+        txId: tx.id,
+        reason: "alreadyLinked",
+        reasonCode: "DUPLICATE_BANK_RECEIPT",
+        transactionDate,
+      });
       continue;
     }
 
     if (isCardCompanyDeposit(tx)) {
       bumpDiagnostic(diagnostics, "cardCompany");
-      items.push({ txId: tx.id, reason: "cardCompany", transactionDate });
+      items.push({ txId: tx.id, reason: "cardCompany", reasonCode: "CARD_SETTLEMENT", transactionDate });
       continue;
     }
 
     if (hasManualClientClassificationOverride(tx)) {
       bumpDiagnostic(diagnostics, "manualOverride");
-      items.push({ txId: tx.id, reason: "manualOverride", transactionDate });
+      items.push({
+        txId: tx.id,
+        reason: "manualOverride",
+        reasonCode: "MANUAL_OVERRIDE_REQUIRED",
+        transactionDate,
+      });
       continue;
     }
 
     const candidates = buildSentStatementMatchCandidates(tx, archives, {
-      linkedPdfArchiveIds: new Set(
-        bankTransactions.filter((row) => row.linkedPdfArchiveId).map((row) => String(row.linkedPdfArchiveId)),
-      ),
       clients,
       paymentVouchers: workingVouchers,
       bankTransactions,
@@ -1277,11 +1312,15 @@ export function evaluateHighConfidenceSentStatementAutoLinks(options: {
         dateEligible: true,
         uniqueTopCandidate: true,
       });
-    } catch {
+    } catch (error) {
       bumpDiagnostic(diagnostics, "failed");
       items.push({
         txId: tx.id,
         reason: "failed",
+        reasonCode:
+          error && typeof error === "object" && "code" in error
+            ? String((error as { code?: string }).code || "INTERNAL_ERROR")
+            : "INTERNAL_ERROR",
         client: candidate.client,
         score: candidate.score,
         transactionDate,

@@ -36,6 +36,7 @@ import {
   type PaymentDepositChannel,
 } from "@/utils/paymentDepositChannel";
 import { SalePaymentLinkBadge, PartialPaymentBadge } from "@/components/AutoLinkBadge";
+import { ReceiptRegisterModal } from "@/components/ReceiptRegisterModal";
 import { formatMonthLabel, monthRangeForKey, shiftMonthKey } from "@/utils/companyLedger";
 import {
   createReceiptApi,
@@ -306,6 +307,15 @@ export function PaymentReceivablesPage({
   const [defaultDepositChannel, setDefaultDepositChannel] = useState<PaymentDepositChannel>("personal");
   const [paymentSaving, setPaymentSaving] = useState(false);
   const [lastReceiptSummary, setLastReceiptSummary] = useState("");
+  const [registerOpen, setRegisterOpen] = useState(false);
+
+  const registerClients = useMemo(
+    () =>
+      clients
+        .filter((row) => row.id != null && String(row.name || "").trim())
+        .map((row) => ({ id: row.id as string | number, name: String(row.name).trim() })),
+    [clients],
+  );
 
   const updateFilter = (key: keyof typeof filters, value: string) => setFilters((prev) => ({ ...prev, [key]: value }));
 
@@ -1050,11 +1060,22 @@ export function PaymentReceivablesPage({
               초기화
             </Button>
             {tab === "input" && (
-              <Button size="sm" className="h-8 rounded-lg px-4 text-xs" disabled={paymentSaving} onClick={() => void savePayments()}>
-                {paymentSaving
-                  ? "저장 중…"
-                  : `선택 입금 저장 ${checkedRows.length > 0 ? `(${checkedRows.length})` : ""}`}
-              </Button>
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 rounded-lg px-4 text-xs"
+                  onClick={() => setRegisterOpen(true)}
+                >
+                  + 입금 등록
+                </Button>
+                <Button size="sm" className="h-8 rounded-lg px-4 text-xs" disabled={paymentSaving} onClick={() => void savePayments()}>
+                  {paymentSaving
+                    ? "저장 중…"
+                    : `선택 입금 저장 ${checkedRows.length > 0 ? `(${checkedRows.length})` : ""}`}
+                </Button>
+              </>
             )}
           </div>
 
@@ -1823,6 +1844,19 @@ export function PaymentReceivablesPage({
           onRangeChange={({ startDate, endDate }) => setFilters((prev) => ({ ...prev, startDate, endDate }))}
         />
       )}
+
+      <ReceiptRegisterModal
+        open={registerOpen}
+        onClose={() => setRegisterOpen(false)}
+        clients={registerClients}
+        initialClientName={filters.client || undefined}
+        source="receivables"
+        onSaved={(result) => {
+          onReceiptLedgerUpsert?.(result);
+          setRegisterOpen(false);
+          setSaveMessage(formatReceiptSaveMessage(result));
+        }}
+      />
     </div>
   );
 }

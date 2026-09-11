@@ -45,11 +45,12 @@ export function listContractorPayablesFromSales(sales = [], options = {}) {
     if (!sale || sale.cancelled || sale.status === "cancelled") continue;
     const workers = Array.isArray(sale.workers) ? sale.workers : [];
     workers.forEach((worker, index) => {
-      const due =
-        money(worker.lineSpend ?? worker.payAmount ?? worker.amount) +
-        money(worker.meal) +
-        money(worker.expense) -
-        money(worker.deduction);
+      const hasLineSpend = worker?.lineSpend != null && worker.lineSpend !== "";
+      // lineSpend (when present) already includes meal/expense/lodging/OT in ERP enrichment.
+      // Do not add meal/expense again — that overstates payable vs legacy net pay.
+      const base = money(hasLineSpend ? worker.lineSpend : worker.payAmount ?? worker.amount);
+      const extras = hasLineSpend ? 0 : money(worker.meal) + money(worker.expense);
+      const due = base + extras - money(worker.deduction);
       if (due <= 0 && !options.includeZero) return;
       const workItemId = buildWorkItemId(sale, index, worker);
       rows.push({
@@ -60,6 +61,10 @@ export function listContractorPayablesFromSales(sales = [], options = {}) {
         workerName: String(worker.name || worker.workerName || "").trim(),
         workDate: String(sale.date || "").slice(0, 10),
         dueAmount: due,
+        mealAmount: money(worker.meal),
+        expenseAmount: money(worker.expense),
+        deductionAmount: money(worker.deduction),
+        lineSpend: hasLineSpend ? money(worker.lineSpend) : null,
         site: String(sale.site || sale.memo || ""),
         asOf,
       });

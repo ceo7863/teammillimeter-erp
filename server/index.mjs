@@ -3864,6 +3864,17 @@ app.post("/api/disbursements/fifo-preview", authMiddleware, (req, res) => {
   );
 });
 
+app.get("/api/bank-deposits/unresolved", authMiddleware, (_req, res) => {
+  const state = getErpState(["bankTransactions", "receipts"]);
+  const meta = state.data?.bankSyncMeta || {};
+  const queue = Array.isArray(meta.unresolvedDepositQueue) ? meta.unresolvedDepositQueue : [];
+  res.json({
+    unresolved: queue,
+    count: queue.length,
+    version: state.version,
+  });
+});
+
 app.post("/api/collection/cash-transfer/classify", authMiddleware, (req, res) => {
   const state = getErpState(["receipts"]);
   res.json(

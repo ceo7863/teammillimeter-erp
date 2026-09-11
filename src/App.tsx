@@ -84,6 +84,13 @@ import { SaleCommentBadge } from "@/components/SaleCommentBadge";
 import { SaleVoucherCommentsModal } from "@/components/SaleVoucherCommentsModal";
 import { PaymentReceivablesPage } from "@/components/PaymentReceivablesPage";
 import { WorkerPaymentsPage } from "@/components/WorkerPaymentsPage";
+import { ReceiptRegisterModal } from "@/components/ReceiptRegisterModal";
+import {
+  CalendarFinanceBadges,
+  collectionAriaLabel,
+  resolveDayCollectionStatus,
+  resolveEntryCollectionStatus,
+} from "@/components/CalendarFinanceBadges";
 import { StatementsPage } from "@/components/StatementsPage";
 import { MyAccountModal } from "@/components/MyAccountModal";
 import { SidebarMenuOrderModal } from "@/components/SidebarMenuOrderModal";
@@ -360,7 +367,6 @@ import {
 import {
   clearAuthSession,
   createReceiptApi,
-  createReceiptRegisterApi,
   fetchBankTransactionsSnapshot,
   fetchErpData,
   fetchErpDomains,
@@ -393,6 +399,7 @@ import {
   getAccessiblePageDefs,
   getDefaultPageForUser,
   getPageLabel,
+  migrateActivePage,
   type ErpPageKey,
 } from "@/utils/pageAccess";
 import {
@@ -3442,6 +3449,7 @@ function CalendarPage({
   const [filteredClient, setFilteredClient] = useState(null);
   const [selectedDates, setSelectedDates] = useState([]);
   const [paymentPreview, setPaymentPreview] = useState(null);
+  const [receiptRegisterOpen, setReceiptRegisterOpen] = useState(false);
   const [paymentCancelPreview, setPaymentCancelPreview] = useState(null);
   const [paymentSaving, setPaymentSaving] = useState(false);
   const [statementModalDraft, setStatementModalDraft] = useState(null);
@@ -3864,7 +3872,7 @@ function CalendarPage({
     showClientFilterNotice(`${selectedDates.length}일 · 시공비내역서를 엽니다.`);
   };
 
-  const openClientFilterPaymentConfirm = () => {
+  const openClientFilterPaymentProcess = () => {
     if (!filteredClient) {
       showClientFilterNotice("거래처를 선택해 주세요.");
       return;
@@ -3885,6 +3893,17 @@ function CalendarPage({
     }
 
     setPaymentPreview(preview);
+    setReceiptRegisterOpen(true);
+  };
+
+  /** @deprecated Prefer openClientFilterPaymentProcess + ReceiptRegisterModal; kept as redirect fallback. */
+  const confirmClientFilterPaymentProcess = () => {
+    // Fallback: redirect to official register modal instead of direct API write.
+    if (!paymentPreview) {
+      openClientFilterPaymentProcess();
+      return;
+    }
+    setReceiptRegisterOpen(true);
   };
 
   const handleClientFilterPaymentVatChange = (_vatIncluded) => {
@@ -3897,51 +3916,39 @@ function CalendarPage({
   const closeClientFilterPaymentConfirm = () => {
     if (paymentSaving) return;
     setPaymentPreview(null);
+    setReceiptRegisterOpen(false);
   };
 
-  const confirmClientFilterPaymentProcess = async () => {
-    if (!paymentPreview || !onReceiptLedgerUpsert || paymentSaving) return;
+  const calendarReceiptClients = useMemo(
+    () =>
+      clients
+        .filter((row) => row.id != null && String(row.name || "").trim())
+        .map((row) => ({ id: row.id, name: String(row.name).trim() })),
+    [clients],
+  );
 
-    const clientRow = clients.find((row) => String(row.name || "").trim() === paymentPreview.client);
-    if (!clientRow?.id) {
-      showClientFilterNotice("거래처 마스터 ID를 찾을 수 없습니다. 거래처 등록을 확인해 주세요.");
-      return;
-    }
-
+  const calendarReceiptPrefill = useMemo(() => {
+    if (!paymentPreview) return null;
     const allocations = paymentPreview.vouchers
       .filter((voucher) => voucher.salesId != null && Number(voucher.amount) > 0)
       .map((voucher) => ({ saleId: voucher.salesId, amount: Number(voucher.amount) || 0 }));
-    if (!allocations.length) {
-      showClientFilterNotice("배분할 미수 전표가 없습니다.");
-      return;
-    }
-
-    const operationId = makeReceiptOperationId("calendar");
-    const grossAmount = allocations.reduce((sum, row) => sum + row.amount, 0);
-    setPaymentSaving(true);
-    try {
-      const result = await createReceiptRegisterApi({
-        operationId,
-        clientId: clientRow.id,
-        clientName: paymentPreview.client,
-        receiptDate: todayISO(),
-        grossAmount,
-        channel: "other",
-        source: "calendar",
-        memo: "거래처캘린더 입금처리",
-        allocations,
-      });
-      onReceiptLedgerUpsert(result);
-      setPaymentPreview(null);
-      setSelectedDates([]);
-      showClientFilterNotice(formatReceiptSaveMessage(result));
-    } catch (error) {
-      const message = error?.message || "입금전표 저장에 실패했습니다.";
-      showClientFilterNotice(`저장 실패: ${message}`);
-    } finally {
-      setPaymentSaving(false);
-    }
-  };
+    const clientRow = clients.find((row) => String(row.name || "").trim() === paymentPreview.client);
+    return {
+      clientId: clientRow?.id,
+      clientName: paymentPreview.client,
+      amount: paymentPreview.totalFinal,
+      allocations,
+      previewSales: paymentPreview.vouchers.map((voucher) => ({
+        saleId: voucher.salesId,
+        date: voucher.date,
+        site: voucher.site,
+        billed: voucher.totalSalesAmount,
+        unpaid: voucher.amount,
+        allocate: voucher.amount,
+      })),
+      outstandingBefore: paymentPreview.totalUnpaid,
+    };
+  }, [clients, paymentPreview]);
 
   const openClientFilterPaymentCancelConfirm = () => {
     if (!filteredClient) {
@@ -4284,37 +4291,28 @@ function CalendarPage({
       ) : null}
 
       {paymentPreview ? (
-        <div className="erp-ledger-modal-backdrop" onClick={closeClientFilterPaymentConfirm}>
-          <div
-            className="erp-ledger-modal erp-client-calendar-payment-modal"
-            onClick={(event) => event.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="calendar-client-payment-title"
-          >
-            <h2 id="calendar-client-payment-title" className="text-base font-bold text-slate-900 md:text-lg">
-              입금 처리
-            </h2>
-            <p className="mt-2 text-sm font-semibold text-slate-800">{paymentPreview.client}</p>
-            <div className="mt-4 space-y-2 text-sm text-slate-600">
-              <p>선택 일자 <strong>{paymentPreview.selectedDays}일</strong></p>
-              <p>미수 전표 <strong>{paymentPreview.saleCount}건</strong></p>
-              <p>입금액(청구 잔액 배분) <strong className="text-emerald-700">{formatKRW(paymentPreview.totalFinal)}</strong></p>
-              <p className="text-xs text-slate-500">
-                입금 시 부가세를 새로 계산하지 않습니다. 서버 확정 저장 후 입금전표가 유지됩니다.
-              </p>
-              <p className="text-xs text-slate-500">선택한 날짜의 미수 잔액을 오늘({todayISO()}) 입금전표로 확정합니다.</p>
-            </div>
-            <div className="mt-5 flex gap-2">
-              <Button variant="outline" className="flex-1 rounded-xl" disabled={paymentSaving} onClick={closeClientFilterPaymentConfirm}>
-                취소
-              </Button>
-              <Button className="flex-1 rounded-xl" disabled={paymentSaving} onClick={() => void confirmClientFilterPaymentProcess()}>
-                {paymentSaving ? "저장 중…" : "입금완료"}
-              </Button>
-            </div>
-          </div>
-        </div>
+        <ReceiptRegisterModal
+          open={receiptRegisterOpen}
+          onClose={closeClientFilterPaymentConfirm}
+          clients={calendarReceiptClients}
+          initialClientId={calendarReceiptPrefill?.clientId}
+          initialClientName={calendarReceiptPrefill?.clientName || paymentPreview.client}
+          initialAmount={calendarReceiptPrefill?.amount || paymentPreview.totalFinal}
+          initialDate={todayISO()}
+          initialChannel="other"
+          initialAllocations={calendarReceiptPrefill?.allocations}
+          previewSales={calendarReceiptPrefill?.previewSales || []}
+          outstandingBefore={calendarReceiptPrefill?.outstandingBefore}
+          source="calendar"
+          title="입금 처리"
+          onSaved={(result) => {
+            onReceiptLedgerUpsert?.(result);
+            setPaymentPreview(null);
+            setReceiptRegisterOpen(false);
+            setSelectedDates([]);
+            showClientFilterNotice(formatReceiptSaveMessage(result));
+          }}
+        />
       ) : null}
 
       <PageTitle
@@ -4589,6 +4587,8 @@ function CalendarPage({
                 const isSideSelected = selectedDate === cell.date;
                 const isDateChecked = filteredClient && selectedDates.includes(cell.date);
                 const paymentTone = hasData ? getCalendarDayPaymentTone(cell.stats) : "";
+                const collectionStatus = hasData ? resolveDayCollectionStatus(cell.stats) : null;
+                const collectionLabel = collectionAriaLabel(collectionStatus);
                 const cellHasSpotlightClient =
                   Boolean(spotlightClient) &&
                   !filteredClient &&
@@ -4632,6 +4632,7 @@ function CalendarPage({
                               <Check size={12} strokeWidth={3} />
                             </span>
                           ) : null}
+                          <CalendarFinanceBadges collection={collectionStatus} />
                           <span className="erp-calendar-cell-badge is-staff">{cell.stats.staff}명</span>
                           <span className="erp-calendar-cell-badge is-count">{cell.stats.count}건</span>
                         </div>
@@ -4643,9 +4644,14 @@ function CalendarPage({
                       ) : null}
                     </div>
                     {hasData ? (
-                      <ul className="erp-calendar-cell-entries" aria-label={`${cell.date} 일정`}>
+                      <ul
+                        className="erp-calendar-cell-entries"
+                        aria-label={`${cell.date} 일정${collectionLabel ? ` · 수금 ${collectionLabel}` : ""}`}
+                      >
                         {cell.stats.entries.map((entry) => {
                           const isEntrySpotlight = spotlightClient && !filteredClient && entry.client === spotlightClient;
+                          const entryCollection = resolveEntryCollectionStatus(entry);
+                          const entryCollectionLabel = collectionAriaLabel(entryCollection);
                           return (
                           <li
                             key={`${cell.date}-${entry.saleId}`}
@@ -4663,6 +4669,11 @@ function CalendarPage({
                               ...getCalendarEntryBorderStyle(entry),
                               "--client-color": entry.color,
                             }}
+                            aria-label={
+                              filteredClient
+                                ? `${entry.site}${entry.workerSummary ? ` · ${entry.workerSummary}` : ""}${entryCollectionLabel ? ` · 수금 ${entryCollectionLabel}` : ""}`
+                                : `${entry.client} · ${entry.site}${entryCollectionLabel ? ` · 수금 ${entryCollectionLabel}` : ""}`
+                            }
                             title={
                               filteredClient
                                 ? `${entry.site}${entry.workerSummary ? ` · ${entry.workerSummary}` : ""}${entry.hasUnpaid ? ` · 미수 ${formatKRW(entry.unpaid)}` : entry.isPartialPaid ? ` · 부분입금 ${formatKRW(entry.paid)} / 미수 ${formatKRW(entry.unpaid)}` : " · 입금완료"}`
@@ -4762,7 +4773,7 @@ function CalendarPage({
                     className={cellClassName}
                     data-calendar-date={cell.date}
                     style={cellHasSpotlightClient ? { "--client-color": getCalendarClientColor(spotlightClient) } : undefined}
-                    aria-label={`${cell.date} · ${hasData ? `${cell.stats.count}건` : "일정 없음"}`}
+                    aria-label={`${cell.date} · ${hasData ? `${cell.stats.count}건` : "일정 없음"}${collectionLabel ? ` · 수금 ${collectionLabel}` : ""}`}
                     title={
                       filteredClient && hasData
                         ? "클릭: 날짜 선택 · 더블클릭: 일자 상세"
@@ -4851,7 +4862,7 @@ function CalendarPage({
                     type="button"
                     size="sm"
                     className="rounded-xl"
-                    onClick={openClientFilterPaymentConfirm}
+                    onClick={openClientFilterPaymentProcess}
                     disabled={!selectedDates.length}
                   >
                     <CreditCard size={16} className="mr-1.5" />
@@ -10638,7 +10649,7 @@ export default function TeammillimeterErpMvp() {
   }, [active]);
 
   useEffect(() => {
-    if (active === "paymentInput") setActive("receivables");
+    if (active === "paymentInput") setActive(migrateActivePage("paymentInput"));
     if (active === "clientCalendar") setActive("calendar");
     const migrated = migrateStoredActiveTab(active);
     if (migrated.page !== active) {

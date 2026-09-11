@@ -31,6 +31,7 @@ import {
 import { WorkerPayoutHistoryTab } from "@/components/WorkerPayoutHistoryTab";
 import { WorkerMonthlyActualPaymentTab } from "@/components/WorkerMonthlyActualPaymentTab";
 import { WorkerMonthlyPaymentTab } from "@/components/WorkerMonthlyPaymentTab";
+import { DisbursementRegisterModal } from "@/components/DisbursementRegisterModal";
 import {
   buildWorkerMonthlyObligationNetPayChartRows,
   buildWorkerMonthlyObligations,
@@ -223,6 +224,15 @@ export function WorkerPaymentsPage({
   const [detailQuery, setDetailQuery] = useState("");
   const [selectedMonthKey, setSelectedMonthKey] = useState(() => monthStartISO().slice(0, 7));
   const [monthlyActualFocus, setMonthlyActualFocus] = useState<{ worker: string; voucherId?: string } | null>(null);
+  const [disbursementRegisterOpen, setDisbursementRegisterOpen] = useState(false);
+
+  const disbursementWorkers = useMemo(
+    () =>
+      workers
+        .filter((row) => String(row.name || "").trim())
+        .map((row) => ({ id: row.id, name: String(row.name).trim() })),
+    [workers],
+  );
 
   useEffect(() => {
     if (!initialTab) return;
@@ -510,30 +520,40 @@ export function WorkerPaymentsPage({
           <h1 className="erp-payment-hub-title">시공자 지급</h1>
           <p className="erp-payment-hub-desc">지급 집계 · 시공자별 상세 · 내역서 PDF를 한 화면에서 처리합니다.</p>
         </div>
-        <div className="erp-payment-hub-metrics">
-          {hubMetrics.items.map((metric) => (
-            <div
-              key={metric.label}
-              className={`erp-payment-hub-metric${metric.tone === "highlight" ? " is-highlight" : ""}`}
-            >
-              <span className="label">{metric.label}</span>
-              <span
-                className={`value${
-                  metric.tone === "danger"
-                    ? " text-red-600"
-                    : metric.tone === "highlight"
-                      ? " text-emerald-700"
-                      : ""
-                }`}
+        <div className="flex flex-wrap items-start gap-3">
+          <Button
+            type="button"
+            size="sm"
+            className="h-8 rounded-lg px-4 text-xs"
+            onClick={() => setDisbursementRegisterOpen(true)}
+          >
+            + 지급 등록
+          </Button>
+          <div className="erp-payment-hub-metrics">
+            {hubMetrics.items.map((metric) => (
+              <div
+                key={metric.label}
+                className={`erp-payment-hub-metric${metric.tone === "highlight" ? " is-highlight" : ""}`}
               >
-                {"format" in metric && metric.format === "count"
-                  ? `${metric.value}명`
-                  : "format" in metric && metric.format === "lineCount"
-                    ? `${metric.value}건`
-                    : formatKRW(metric.value)}
-              </span>
-            </div>
-          ))}
+                <span className="label">{metric.label}</span>
+                <span
+                  className={`value${
+                    metric.tone === "danger"
+                      ? " text-red-600"
+                      : metric.tone === "highlight"
+                        ? " text-emerald-700"
+                        : ""
+                  }`}
+                >
+                  {"format" in metric && metric.format === "count"
+                    ? `${metric.value}명`
+                    : "format" in metric && metric.format === "lineCount"
+                      ? `${metric.value}건`
+                      : formatKRW(metric.value)}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -909,6 +929,14 @@ export function WorkerPaymentsPage({
           </CardContent>
         </Card>
       ) : null}
+
+      <DisbursementRegisterModal
+        open={disbursementRegisterOpen}
+        onClose={() => setDisbursementRegisterOpen(false)}
+        workers={disbursementWorkers}
+        initialWorkerName={selectedWorker || undefined}
+        onSaved={() => setDisbursementRegisterOpen(false)}
+      />
     </div>
   );
 }

@@ -18,7 +18,7 @@ import {
   isCardCompanyDeposit,
 } from "../src/utils/bankTransactionFolders.ts";
 import { config } from "./config.mjs";
-import { planCreateAndPostReceipt } from "./receipts.mjs";
+import { planCreateAndPostReceipt, proposeFifoAllocations } from "./receipts.mjs";
 import { buildEffectivePaymentVouchers } from "./receiptProjection.mjs";
 import {
   bankReceiptCutoverYmd,
@@ -28,6 +28,11 @@ import {
   makeBankReceiptOperationId,
   readBankReceiptCutoverAt,
 } from "./bankReceipts.mjs";
+import {
+  decideBankDepositAction,
+  removeResolvedFromQueue,
+  upsertUnresolvedDepositQueue,
+} from "./bankDepositDecision.mjs";
 
 function toIdSet(onlyTransactionIds?: string[] | Set<string>) {
   if (!onlyTransactionIds) return undefined;
@@ -80,6 +85,7 @@ export function collectAutoLinkTransactionIds(
   } = {},
 ) {
   const added = Array.isArray(options.addedIds) ? options.addedIds.filter(Boolean) : [];
+  // Persistent queue: all unmatched post-cutover deposits, not only last N days.
   const recent = selectRecentUnlinkedDepositIds(
     (Array.isArray(bankTransactions) ? bankTransactions : []) as never[],
     {
@@ -88,6 +94,7 @@ export function collectAutoLinkTransactionIds(
       minDate: bankReceiptCutoverYmd(options.cutoverAt),
       receipts: (options.receipts || []) as never[],
       paymentVouchers: (options.paymentVouchers || []) as never[],
+      persistent: true,
     },
   );
   return [...new Set([...added, ...recent])];
@@ -97,6 +104,8 @@ export function applyPendingPdfArchiveAutoLinkUpdates(
   updates: PendingPdfArchiveAutoLinkUpdate[] = [],
 ) {
   for (const linked of updates) {
+    // Append-style: do not treat single linkedBankTransactionId as exclusive lock.
+    // Keep latest pointer for UI convenience while remaining balance drives match.
     updatePdfArchiveMeta(linked.pdfArchiveId, {
       paymentStatus: linked.paymentStatus,
       linkedBankTransactionId: linked.txId,
@@ -107,42 +116,48 @@ export function applyPendingPdfArchiveAutoLinkUpdates(
 
 type ClientRow = { id?: string | number; name?: string };
 
-/**
- * A statement match only names a client; auto-posting needs an unambiguous id.
- * Same-name clients are a manual-review case, never a guess.
- */
-function resolveUniqueClientByName(clients: ClientRow[], name: string) {
-  const wanted = String(name || "").trim();
-  if (!wanted) return { status: "notFound" as const };
-  const matches = clients.filter((row) => String(row?.name || "").trim() === wanted);
-  if (!matches.length) return { status: "notFound" as const };
-  if (matches.length > 1) return { status: "ambiguous" as const, candidates: matches };
-  return { status: "ok" as const, client: matches[0] };
+function mapReasonToDiagnosticKey(
+  reasonCode: string | null | undefined,
+): keyof SentStatementAutoLinkDiagnostics | null {
+  switch (reasonCode) {
+    case "CLIENT_NOT_FOUND":
+      return "clientNotFound";
+    case "CLIENT_AMBIGUOUS":
+    case "MULTIPLE_CANDIDATES":
+      return "clientAmbiguous";
+    case "CASH_TRANSFER":
+      return "cashTransfer";
+    case "CARD_SETTLEMENT":
+      return "cardCompany";
+    case "MANUAL_OVERRIDE_REQUIRED":
+      return "manualOverride";
+    case "DUPLICATE_BANK_RECEIPT":
+      return "alreadyLinked";
+    case "RECEIPT_POSTED_UNAPPLIED":
+    case "NO_SENT_SALES":
+      return "unapplied";
+    case "RECEIPT_PARTIALLY_ALLOCATED":
+      return "partiallyAllocated";
+    case "PRE_CUTOVER":
+      return null;
+    default:
+      return reasonCode ? "failed" : null;
+  }
+}
+
+function bump(diagnostics: SentStatementAutoLinkDiagnostics, key: keyof SentStatementAutoLinkDiagnostics | null) {
+  if (!key) return;
+  diagnostics[key] += 1;
 }
 
 /**
- * Statement FIFO voucher drafts are used purely as an amount calculator; only
- * (saleId, amount) pairs survive into the receipt allocations.
- */
-function draftToAllocations(draft: SentStatementAutoLinkDraft) {
-  return draft.vouchers
-    .map((voucher) => ({
-      saleId: String(voucher.salesId ?? ""),
-      amount: Math.round(Number(voucher.finalAmount ?? voucher.amount ?? 0)),
-    }))
-    .filter((row) => row.saleId && row.amount > 0);
-}
-
-/**
- * Auto-link high-confidence sent-statement deposits by posting Receipts.
+ * Auto-link bank deposits: Stage A resolve client → Stage B post full Receipt + FIFO allocate.
  *
- * Phase 2 rules enforced here:
- * - no paymentVoucher / paymentInputLog / linkedPaymentVoucherId writes
- * - pre-cutover deposits are diagnostics-only (zero mutations)
- * - ambiguous client names are skipped for manual review
- *
- * PDF archive meta updates are returned as pendingPdfUpdates so callers can
- * persist ERP state first and avoid half-applied links on VERSION_CONFLICT.
+ * Policy:
+ * - Client certainty (not statement amount) gates Receipt creation.
+ * - Amount mismatch still posts Receipt; leftover stays unallocated prepaid.
+ * - Ambiguous/unknown client → persistent needs_review queue (never silent drop).
+ * - linkedPdfArchiveId is never financial authority.
  */
 export async function applySentStatementAutoLinksToErpData(
   data: Record<string, unknown>,
@@ -156,6 +171,8 @@ export async function applySentStatementAutoLinksToErpData(
     /** When true, skip writing PDF meta (caller must apply pendingPdfUpdates after save). */
     deferPdfMeta?: boolean;
     nowIso?: string;
+    /** Prefer legacy statement-score drafts when true (tests). Default false = client-first. */
+    useLegacyStatementScoreGate?: boolean;
   } = {},
 ): Promise<{
   data: Record<string, unknown>;
@@ -168,12 +185,11 @@ export async function applySentStatementAutoLinksToErpData(
   cutoverAt: string;
   cutoverCreated: boolean;
   skippedPreCutover: number;
+  unresolvedQueue: unknown[];
 }> {
   const { onlyTransactionIds, updatedBy } = options;
   const nowIso = options.nowIso || new Date().toISOString();
 
-  // Stamp the cutover before anything else so the very first Phase 2 run has a
-  // boundary to compare against (and pre-existing deposits stay untouched).
   const cutover = ensureBankReceiptCutoverAt(data, nowIso);
   const cutoverAt = cutover.cutoverAt;
   const workingData: Record<string, unknown> = cutover.created
@@ -201,6 +217,14 @@ export async function applySentStatementAutoLinksToErpData(
     }
   }
 
+  const bankSyncMeta =
+    workingData.bankSyncMeta && typeof workingData.bankSyncMeta === "object"
+      ? { ...(workingData.bankSyncMeta as Record<string, unknown>) }
+      : {};
+  let unresolvedQueue = Array.isArray(bankSyncMeta.unresolvedDepositQueue)
+    ? [...(bankSyncMeta.unresolvedDepositQueue as unknown[])]
+    : [];
+
   const emptyResult = {
     data: workingData,
     autoLinkedCount: 0,
@@ -212,33 +236,43 @@ export async function applySentStatementAutoLinksToErpData(
     cutoverAt,
     cutoverCreated: cutover.created,
     skippedPreCutover,
+    unresolvedQueue,
   };
 
   if (!scopedIds.size) return emptyResult;
 
-  const archives = listSentStatementArchiveMetas();
-  // Effective vouchers = legacy rows + receipt allocations projected as-of today,
-  // so FIFO "already paid" math sees Phase 2 receipts too.
+  let archives = [];
+  try {
+    archives = listSentStatementArchiveMetas();
+  } catch {
+    archives = [];
+  }
   const effectiveVouchers = buildEffectivePaymentVouchers(workingData as never);
-  const evaluated = evaluateHighConfidenceSentStatementAutoLinks({
-    bankTransactions: bankTransactions as never[],
-    archives,
-    clients: (workingData.clients as never[]) || [],
-    sales: (workingData.sales as never[]) || [],
-    paymentVouchers: effectiveVouchers as never[],
-    receipts: (workingData.receipts as never[]) || [],
-    onlyTransactionIds: scopedIds,
-    minScore: options.minScore ?? DEFAULT_SENT_STATEMENT_AUTO_LINK_MIN_SCORE,
-    maxDateGapDays: getAutoDepositMaxDateGapDays(options.maxDateGapDays),
-    ambiguityMinScoreGap: getAutoDepositAmbiguityMinScoreGap(options.ambiguityMinScoreGap),
-  });
 
-  const diagnostics = evaluated.diagnostics;
-  const items = evaluated.items;
-  if (!evaluated.drafts.length) {
-    return { ...emptyResult, diagnostics, items };
+  // Optional legacy path kept for regression scripts that assert statement-score drafts.
+  if (options.useLegacyStatementScoreGate) {
+    const evaluated = evaluateHighConfidenceSentStatementAutoLinks({
+      bankTransactions: bankTransactions as never[],
+      archives,
+      clients: (workingData.clients as never[]) || [],
+      sales: (workingData.sales as never[]) || [],
+      paymentVouchers: effectiveVouchers as never[],
+      receipts: (workingData.receipts as never[]) || [],
+      onlyTransactionIds: scopedIds,
+      minScore: options.minScore ?? DEFAULT_SENT_STATEMENT_AUTO_LINK_MIN_SCORE,
+      maxDateGapDays: getAutoDepositMaxDateGapDays(options.maxDateGapDays),
+      ambiguityMinScoreGap: getAutoDepositAmbiguityMinScoreGap(options.ambiguityMinScoreGap),
+    });
+    return {
+      ...emptyResult,
+      diagnostics: evaluated.diagnostics,
+      items: evaluated.items,
+      drafts: evaluated.drafts,
+    };
   }
 
+  const diagnostics = createEmptySentStatementAutoLinkDiagnostics();
+  const items: SentStatementAutoLinkEvaluationItem[] = [];
   const savedBy = String(updatedBy || "bank-sync-auto-link");
   const txById = new Map(bankTransactions.map((row) => [String(row?.id ?? ""), row]));
 
@@ -251,33 +285,72 @@ export async function applySentStatementAutoLinksToErpData(
   const appliedDrafts: SentStatementAutoLinkDraft[] = [];
   const receiptIds: string[] = [];
 
-  /** The evaluator already counted this tx as linked; the receipt step disagreed. */
-  const demote = (txId: string, reason: "failed" | "ambiguous" | "alreadyLinked") => {
-    diagnostics.linked = Math.max(0, diagnostics.linked - 1);
-    diagnostics[reason] += 1;
-    const item = items.find((row) => row.txId === txId && row.reason === "linked");
-    if (item) item.reason = reason;
-  };
+  for (const txId of scopedIds) {
+    const tx = txById.get(String(txId));
+    if (!tx) continue;
+    diagnostics.evaluated += 1;
+    const transactionDate = String(tx.transactionAt || "").slice(0, 10);
 
-  for (const draft of evaluated.drafts) {
-    const tx = txById.get(String(draft.txId));
-    if (!tx) {
-      demote(draft.txId, "failed");
+    const decision = decideBankDepositAction(tx, {
+      clients,
+      sales: (workingData.sales as never[]) || [],
+      receipts: workingReceipts,
+      allocations: workingAllocations,
+      paymentVouchers: effectiveVouchers as never[],
+      cutoverAt,
+      proposeFifoAllocations,
+      archives,
+    });
+
+    if (decision.action === "skip") {
+      const key = mapReasonToDiagnosticKey(decision.reasonCode);
+      bump(diagnostics, key || "alreadyLinked");
+      items.push({
+        txId: String(txId),
+        reason: (key === "cashTransfer"
+          ? "CASH_TRANSFER"
+          : key === "cardCompany"
+            ? "cardCompany"
+            : key === "alreadyLinked"
+              ? "alreadyLinked"
+              : "failed") as SentStatementAutoLinkEvaluationItem["reason"],
+        reasonCode: decision.reasonCode || undefined,
+        processingStatus: decision.status,
+        transactionDate,
+      });
+      if (decision.reasonCode === "DUPLICATE_BANK_RECEIPT") {
+        unresolvedQueue = removeResolvedFromQueue(unresolvedQueue, txId);
+      }
       continue;
     }
 
-    const clientMatch = resolveUniqueClientByName(clients, draft.client);
-    if (clientMatch.status !== "ok") {
-      demote(draft.txId, clientMatch.status === "ambiguous" ? "ambiguous" : "failed");
+    if (decision.action === "queue") {
+      const key = mapReasonToDiagnosticKey(decision.reasonCode);
+      bump(diagnostics, key || "failed");
+      items.push({
+        txId: String(txId),
+        reason: (decision.reasonCode === "CLIENT_AMBIGUOUS"
+          ? "CLIENT_AMBIGUOUS"
+          : decision.reasonCode === "CLIENT_NOT_FOUND"
+            ? "CLIENT_NOT_FOUND"
+            : "failed") as SentStatementAutoLinkEvaluationItem["reason"],
+        reasonCode: decision.reasonCode || undefined,
+        processingStatus: decision.status,
+        transactionDate,
+      });
+      unresolvedQueue = upsertUnresolvedDepositQueue(unresolvedQueue, {
+        bankTransactionId: txId,
+        status: decision.status,
+        reasonCode: decision.reasonCode,
+        subject: decision.subject,
+        depositAmount: decision.depositAmount,
+        transactionDate,
+        lastCheckedAt: nowIso,
+      });
       continue;
     }
 
-    const allocations = draftToAllocations(draft);
-    if (!allocations.length) {
-      demote(draft.txId, "failed");
-      continue;
-    }
-
+    // post_receipt — client is certain; always create one Receipt for full deposit.
     try {
       const planned = planCreateAndPostReceipt(
         {
@@ -288,21 +361,30 @@ export async function applySentStatementAutoLinksToErpData(
         },
         {
           operationId: makeBankReceiptOperationId(String(tx.id), "bank_auto"),
-          clientId: String(clientMatch.client.id),
-          receiptDate: String(tx.transactionAt || "").slice(0, 10),
-          grossAmount: Math.round(Number(tx.deposit || 0)),
+          clientId: String(decision.clientId),
+          receiptDate: transactionDate,
+          grossAmount: Number(decision.depositAmount),
           channel: "bank",
           source: "bank_auto",
           bankTransactionId: String(tx.id),
-          sentStatementId: draft.pdfArchiveId,
-          allocations,
+          sentStatementId: null,
+          allocations: decision.allocations || [],
+          memo: decision.reasonCode
+            ? `auto-deposit:${decision.reasonCode}`
+            : "auto-deposit:allocated",
         },
         savedBy,
       );
 
       if (planned.shortCircuit) {
-        // A receipt for this deposit already exists — never post a second one.
-        demote(draft.txId, "alreadyLinked");
+        bump(diagnostics, "alreadyLinked");
+        items.push({
+          txId: String(txId),
+          reason: "alreadyLinked",
+          reasonCode: "DUPLICATE_BANK_RECEIPT",
+          transactionDate,
+        });
+        unresolvedQueue = removeResolvedFromQueue(unresolvedQueue, txId);
         continue;
       }
 
@@ -310,37 +392,114 @@ export async function applySentStatementAutoLinksToErpData(
       workingAllocations = planned.allocations;
       const receipt = planned.value.receipt;
       receiptIds.push(String(receipt.id));
-      appliedDrafts.push(draft);
+
+      const processingStatus = decision.processingStatus || "allocated";
+      const reasonCode = decision.reasonCode || null;
+      if (processingStatus === "unapplied") bump(diagnostics, "unapplied");
+      else if (processingStatus === "partially_allocated") bump(diagnostics, "partiallyAllocated");
+      bump(diagnostics, "linked");
+
+      items.push({
+        txId: String(txId),
+        reason: "linked",
+        reasonCode: reasonCode || undefined,
+        processingStatus,
+        client: String(decision.clientName || ""),
+        transactionDate,
+      });
 
       bankPatchByTxId.set(String(tx.id), {
         ...buildBankReceiptLinkPatch(tx, {
           receipt,
           allocations: planned.value.allocations || [],
-          clientName: String(clientMatch.client.name || draft.client),
+          clientName: String(decision.clientName || ""),
           source: "bank_auto",
           actor: savedBy,
           linkedAt: nowIso,
         }),
-        linkedPdfArchiveId: draft.pdfArchiveId,
-        linkedSubject: resolveAutoLinkLinkedSubject(tx, draft.client),
+        linkedSubject: resolveAutoLinkLinkedSubject(tx, String(decision.clientName || "")),
+        depositProcessingStatus: processingStatus,
+        depositReasonCode: reasonCode,
         folderId:
           tx.folderId ||
           (isCardCompanyDeposit(tx) ? DEFAULT_CARD_SALES_FOLDER_ID : DEFAULT_CLIENT_FOLDER_ID),
       });
 
-      pendingPdfUpdates.push({
-        pdfArchiveId: draft.pdfArchiveId,
-        paymentStatus: draft.paymentStatus,
-        txId: String(tx.id),
-        receiptId: String(receipt.id),
+      unresolvedQueue = removeResolvedFromQueue(unresolvedQueue, txId);
+
+      // Best-effort statement pointer for UI — not occupancy authority.
+      const preferredArchive = archives.find(
+        (row) =>
+          String(row.subjectName || "").trim() === String(decision.clientName || "").trim() &&
+          Array.isArray(row.statementSalesIds) &&
+          row.statementSalesIds.length,
+      );
+      if (preferredArchive) {
+        const paymentStatus =
+          processingStatus === "allocated"
+            ? "confirmed"
+            : processingStatus === "partially_allocated"
+              ? "partial"
+              : "pending";
+        pendingPdfUpdates.push({
+          pdfArchiveId: String(preferredArchive.id),
+          paymentStatus,
+          txId: String(tx.id),
+          receiptId: String(receipt.id),
+        });
+        appliedDrafts.push({
+          txId: String(tx.id),
+          client: String(decision.clientName || ""),
+          pdfArchiveId: String(preferredArchive.id),
+          paymentStatus,
+          primaryVoucherId: String(receipt.id),
+          vouchers: (decision.allocations || []).map((row, index) => ({
+            id: `${receipt.id}-${index}`,
+            salesId: row.saleId,
+            amount: row.amount,
+            finalAmount: row.amount,
+          })),
+        } as SentStatementAutoLinkDraft);
+        bankPatchByTxId.set(String(tx.id), {
+          ...bankPatchByTxId.get(String(tx.id)),
+          linkedPdfArchiveId: String(preferredArchive.id),
+        });
+      }
+    } catch (error) {
+      const code =
+        error && typeof error === "object" && "code" in error
+          ? String((error as { code?: string }).code || "INTERNAL_ERROR")
+          : "INTERNAL_ERROR";
+      bump(diagnostics, "failed");
+      items.push({
+        txId: String(txId),
+        reason: "failed",
+        reasonCode: code,
+        processingStatus: "failed",
+        client: String(decision.clientName || ""),
+        transactionDate,
       });
-    } catch {
-      demote(draft.txId, "failed");
+      unresolvedQueue = upsertUnresolvedDepositQueue(unresolvedQueue, {
+        bankTransactionId: txId,
+        status: "failed",
+        reasonCode: code,
+        clientId: decision.clientId,
+        depositAmount: decision.depositAmount,
+        transactionDate,
+        lastCheckedAt: nowIso,
+      });
     }
   }
 
-  if (!appliedDrafts.length) {
-    return { ...emptyResult, diagnostics, items };
+  if (!receiptIds.length) {
+    const nextMeta = { ...bankSyncMeta, unresolvedDepositQueue: unresolvedQueue };
+    return {
+      ...emptyResult,
+      data: { ...workingData, bankSyncMeta: nextMeta },
+      diagnostics,
+      items,
+      unresolvedQueue,
+    };
   }
 
   const nextBankTransactions = bankTransactions.map((row) => {
@@ -352,14 +511,17 @@ export async function applySentStatementAutoLinksToErpData(
     applyPendingPdfArchiveAutoLinkUpdates(pendingPdfUpdates);
   }
 
+  const nextMeta = { ...bankSyncMeta, unresolvedDepositQueue: unresolvedQueue };
+
   return {
     data: {
       ...workingData,
+      bankSyncMeta: nextMeta,
       bankTransactions: nextBankTransactions,
       receipts: workingReceipts,
       receiptAllocations: workingAllocations,
     },
-    autoLinkedCount: appliedDrafts.length,
+    autoLinkedCount: receiptIds.length,
     diagnostics,
     items,
     pendingPdfUpdates: options.deferPdfMeta ? pendingPdfUpdates : [],
@@ -368,6 +530,7 @@ export async function applySentStatementAutoLinksToErpData(
     cutoverAt,
     cutoverCreated: cutover.created,
     skippedPreCutover,
+    unresolvedQueue,
   };
 }
 

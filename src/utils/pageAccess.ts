@@ -64,12 +64,13 @@ export const ERP_PAGE_DEFS: ErpPageDef[] = [
   { key: "clientSiteRequestCalendars", label: "업체별 캘린더", group: "업무" },
   { key: "scCalendar", label: "CalWalk 워크스페이스", group: "업무" },
   { key: "scAlimtalk", label: "\uC54C\uB9BC\uD1A1", group: "\uC5C5\uBB34" },
+  // Compatibility: keep salesInput / sales / salesVoucherSearch keys+labels for redirects & allowedPages
   { key: "salesInput", label: "매출등록", group: "매출" },
   { key: "sales", label: "매출관리", group: "매출" },
   { key: "salesVoucherSearch", label: "매출전표검색", group: "매출" },
   { key: "saleComments", label: "전표 코멘트", group: "매출" },
-  { key: "receivables", label: "입금/미수금", group: "매출" },
-  { key: "workerPayments", label: "시공자 지급", group: "시공" },
+  { key: "receivables", label: "수금관리", group: "매출" }, // key stays receivables
+  { key: "workerPayments", label: "지급관리", group: "시공" }, // key stays workerPayments
   { key: "officePayroll", label: "급여 관리", group: "회계", adminOnly: true },
   { key: "reports", label: "보고서", group: "보고" },
   { key: "statements", label: "내역서", group: "보고" },
@@ -111,6 +112,13 @@ export const DEFAULT_STAFF_PAGE_KEYS: ErpPageKey[] = [
 
 export function isErpPageKey(value: string): value is ErpPageKey {
   return ERP_PAGE_KEY_SET.has(value);
+}
+
+/** Compatibility redirects for renamed / merged pages (also applied in App on restore). */
+export function migrateActivePage(value: string): ErpPageKey {
+  if (value === "paymentInput") return "receivables";
+  if (isErpPageKey(value)) return value;
+  return "dashboard";
 }
 
 const LEGACY_ACCOUNTING_PAGE_KEYS = ["companyLedger", "taxInvoices", "bankTransactions"] as const;
