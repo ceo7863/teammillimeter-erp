@@ -233,6 +233,8 @@ import {
 } from "./clientContracts.mjs";
 import {
   createAndPostReceipt,
+  registerCanonicalReceipt,
+  applyPrepaidForStatementSales,
   deleteReceiptForbidden,
   getReceiptById,
   listReceiptAllocations,
@@ -242,6 +244,17 @@ import {
   reverseReceipt,
   summarizeReceipt,
 } from "./receipts.mjs";
+import {
+  registerDisbursement,
+  reverseDisbursement,
+  listContractorPayablesFromSales,
+  proposeDisbursementFifo,
+  getWorkerApBalance,
+  listDisbursements,
+  listDisbursementAllocations,
+  summarizeDisbursement,
+} from "./disbursements.mjs";
+import { classifyCashBankTransfer } from "./canonicalCollection.mjs";
 import {
   createBankTransactionReceipt,
   getBankReceiptPhase2DryRun,
@@ -583,16 +596,27 @@ app.post(
         return;
       }
       const saved = createPdfArchive(buffer, meta, req.user.loginId || req.user.name || req.user.email);
+      let prepaidApply = null;
+      try {
+        if (Array.isArray(meta.statementSalesIds) && meta.statementSalesIds.length && meta.sentViaLink) {
+          prepaidApply = applyPrepaidForStatementSales({
+            statementSalesIds: meta.statementSalesIds,
+            actor: receiptActor(req),
+          });
+        }
+      } catch (prepaidError) {
+        console.error("[prepaid-auto-apply]", prepaidError?.code || prepaidError?.name || "error");
+      }
       if (meta.sentViaLink) {
         const token = ensurePdfArchiveShareToken(saved.id);
         if (token) {
           const url = `${buildPublicRequestOrigin(req)}/api/public/pdf-share/${token}`;
           const updated = updatePdfArchiveMeta(saved.id, { shareLinkUrl: url });
-          res.status(201).json(updated || { ...saved, shareLinkUrl: url });
+          res.status(201).json({ ...(updated || { ...saved, shareLinkUrl: url }), prepaidApply });
           return;
         }
       }
-      res.status(201).json(saved);
+      res.status(201).json({ ...saved, prepaidApply });
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: "PDF 저장에 실패했습니다." });
@@ -3705,6 +3729,17 @@ function sendReceiptError(res, error) {
   });
 }
 
+app.post("/api/receipts/register", authMiddleware, (req, res) => {
+  try {
+    const result = registerCanonicalReceipt(req.body || {}, receiptActor(req));
+    res.status(result.idempotent ? 200 : 201).json(result);
+  } catch (error) {
+    if (error?.status && error.status < 500) return sendReceiptError(res, error);
+    console.error(error);
+    sendReceiptError(res, error);
+  }
+});
+
 app.post("/api/receipts", authMiddleware, (req, res) => {
   try {
     const result = createAndPostReceipt(req.body || {}, receiptActor(req));
@@ -3764,6 +3799,80 @@ app.get("/api/receipts", authMiddleware, (req, res) => {
     receiptAllocations: allocations,
     version: state.version,
   });
+});
+
+
+app.post("/api/disbursements/register", authMiddleware, (req, res) => {
+  try {
+    const result = registerDisbursement(req.body || {}, receiptActor(req));
+    res.status(result.idempotent ? 200 : 201).json(result);
+  } catch (error) {
+    if (!error?.status || error.status >= 500) console.error(error);
+    res.status(error.status || 500).json({ error: error.message || "지급 등록 실패", code: error.code, details: error.details });
+  }
+});
+
+app.post("/api/disbursements/:id/reverse", authMiddleware, (req, res) => {
+  try {
+    const result = reverseDisbursement(req.params.id, req.body || {}, receiptActor(req));
+    res.json(result);
+  } catch (error) {
+    if (!error?.status || error.status >= 500) console.error(error);
+    res.status(error.status || 500).json({ error: error.message || "지급 취소 실패", code: error.code });
+  }
+});
+
+app.get("/api/disbursements", authMiddleware, (_req, res) => {
+  const state = getErpState(["disbursements", "sales", "workers"]);
+  const disbursements = listDisbursements(state.data);
+  const allocations = listDisbursementAllocations(state.data);
+  res.json({
+    disbursements: disbursements.map((row) => ({ ...row, summary: summarizeDisbursement(row, allocations) })),
+    disbursementAllocations: allocations,
+    version: state.version,
+  });
+});
+
+app.get("/api/ap/payables", authMiddleware, (req, res) => {
+  const state = getErpState(["sales", "disbursements"]);
+  const worker = String(req.query.workerName || req.query.workerId || "").trim();
+  let payables = listContractorPayablesFromSales(state.data?.sales || []);
+  if (worker) {
+    payables = payables.filter((row) => String(row.workerName) === worker || String(row.workerId || "") === worker);
+  }
+  res.json({ payables, version: state.version });
+});
+
+app.get("/api/ap/workers/:key/balance", authMiddleware, (req, res) => {
+  const state = getErpState(["sales", "disbursements"]);
+  res.json(getWorkerApBalance(req.params.key, state.data || {}));
+});
+
+app.post("/api/disbursements/fifo-preview", authMiddleware, (req, res) => {
+  const state = getErpState(["sales", "disbursements"]);
+  const worker = String(req.body?.workerName || req.body?.workerId || "").trim();
+  const payables = listContractorPayablesFromSales(state.data?.sales || []).filter(
+    (row) => String(row.workerName) === worker || String(row.workerId || "") === worker,
+  );
+  res.json(
+    proposeDisbursementFifo(
+      payables,
+      req.body?.grossAmount,
+      listDisbursementAllocations(state.data),
+      listDisbursements(state.data),
+    ),
+  );
+});
+
+app.post("/api/collection/cash-transfer/classify", authMiddleware, (req, res) => {
+  const state = getErpState(["receipts"]);
+  res.json(
+    classifyCashBankTransfer({
+      bankTx: req.body?.bankTx || req.body,
+      receipts: state.data?.receipts || [],
+      linkedCashReceiptId: req.body?.linkedCashReceiptId,
+    }),
+  );
 });
 
 app.post("/api/receipts/fifo-preview", authMiddleware, (req, res) => {

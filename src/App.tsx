@@ -360,6 +360,7 @@ import {
 import {
   clearAuthSession,
   createReceiptApi,
+  createReceiptRegisterApi,
   fetchBankTransactionsSnapshot,
   fetchErpData,
   fetchErpDomains,
@@ -3919,7 +3920,7 @@ function CalendarPage({
     const grossAmount = allocations.reduce((sum, row) => sum + row.amount, 0);
     setPaymentSaving(true);
     try {
-      const result = await createReceiptApi({
+      const result = await createReceiptRegisterApi({
         operationId,
         clientId: clientRow.id,
         clientName: paymentPreview.client,

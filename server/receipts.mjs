@@ -1,5 +1,10 @@
 import crypto from "crypto";
 import { getErpState, saveErpState } from "./db.mjs";
+import {
+  loadSentStatementSaleIdsForClient,
+  proposeFifoAllocationsScoped,
+  planPrepaidAutoApply,
+} from "./canonicalCollection.mjs";
 
 const SAVE_RETRY_ATTEMPTS = 8;
 const RECEIPT_CHANNELS = new Set(["bank", "cash", "personal_account", "other"]);
@@ -980,12 +985,18 @@ export function proposeFifoAllocations(
   const amountLeftStart = money(grossAmount);
   let remaining = amountLeftStart;
   const asOf = asOfDate || todaySeoul();
-  const key = String(clientOrId || "").trim();
   const client =
-    (clients || []).find((row) => String(row.id) === key) ||
-    ((clients || []).filter((row) => String(row.name || "").trim() === key).length === 1
-      ? (clients || []).find((row) => String(row.name || "").trim() === key)
-      : { id: key, name: key });
+    clientOrId && typeof clientOrId === "object"
+      ? clientOrId
+      : (() => {
+          const key = String(clientOrId || "").trim();
+          return (
+            (clients || []).find((row) => String(row.id) === key) ||
+            ((clients || []).filter((row) => String(row.name || "").trim() === key).length === 1
+              ? (clients || []).find((row) => String(row.name || "").trim() === key)
+              : { id: key, name: key })
+          );
+        })();
 
   const scoped = (sales || [])
     .filter((sale) => saleBelongsToClient(sale, client, clients))
@@ -1014,3 +1025,98 @@ export function proposeFifoAllocations(
 }
 
 export { money as receiptMoney, makeError as receiptError };
+
+
+/**
+ * Official non-bank collection entry: sent-statement-scoped FIFO by default.
+ */
+export function registerCanonicalReceipt(input, actor = "system") {
+  const raw = input || {};
+  const state = getErpState(["sales", "receipts", "clients"]);
+  const data = state.data || {};
+  const clients = data.clients || [];
+  const sales = data.sales || [];
+  const receipts = listReceipts(data);
+  const allocations = listReceiptAllocations(data);
+  const clientKey = raw.clientId || raw.clientName;
+  const client =
+    clients.find((row) => String(row.id) === String(clientKey)) ||
+    clients.find((row) => String(row.name || "").trim() === String(raw.clientName || clientKey || "").trim()) ||
+    null;
+  if (!client) {
+    throw makeError("CLIENT_NOT_FOUND", "거래처를 찾을 수 없습니다.", 404, { clientKey });
+  }
+
+  let allocationsInput = Array.isArray(raw.allocations) ? raw.allocations : null;
+  let scopeMeta = null;
+  if ((!allocationsInput || !allocationsInput.length) && raw.autoAllocate !== false) {
+    const scope = loadSentStatementSaleIdsForClient(client, { requireSent: raw.requireSentStatements !== false });
+    scopeMeta = { saleIds: scope.saleIds, documentCount: scope.documents.length };
+    const fifo = proposeFifoAllocationsScoped(proposeFifoAllocations, {
+      sales,
+      client,
+      grossAmount: raw.grossAmount,
+      allocations,
+      receipts,
+      clients,
+      asOfDate: raw.receiptDate || null,
+      saleIdAllowlist: scope.saleIdSet,
+      requireAllowlist: raw.requireSentStatements !== false,
+    });
+    allocationsInput = fifo.allocations;
+  }
+
+  const result = createAndPostReceipt(
+    { ...raw, clientId: client.id, clientName: client.name, allocations: allocationsInput || [] },
+    actor,
+  );
+  return { ...result, scope: scopeMeta };
+}
+
+export function applyPrepaidForStatementSales({ statementSalesIds, actor = "system", effectiveDate = null }) {
+  const targetSaleIds = (statementSalesIds || []).map((id) => String(id));
+  if (!targetSaleIds.length) return { ok: true, appliedTotal: 0, results: [] };
+  const state = getErpState(["sales", "receipts", "clients"]);
+  const data = state.data || {};
+  const plan = planPrepaidAutoApply({
+    receipts: listReceipts(data),
+    allocations: listReceiptAllocations(data),
+    sales: data.sales || [],
+    targetSaleIds,
+    asOfDate: effectiveDate || todaySeoul(),
+    saleAllocatedAsOf,
+    summarizeReceipt,
+  });
+  const results = [];
+  const day = effectiveDate || todaySeoul();
+  for (const patch of plan.patches) {
+    const operationId =
+      "prepaid-auto:" + patch.receiptId + ":" + targetSaleIds.slice().sort().join(",") + ":" + day;
+    try {
+      const out = replaceReceiptAllocations(
+        patch.receiptId,
+        {
+          operationId,
+          effectiveDate: day,
+          allocations: patch.allocations,
+          memo: "auto-apply prepaid after statement send",
+        },
+        actor,
+      );
+      results.push({
+        receiptId: patch.receiptId,
+        ok: true,
+        idempotent: Boolean(out.idempotent),
+        appliedFromPrepaid: patch.appliedFromPrepaid,
+      });
+    } catch (error) {
+      results.push({
+        receiptId: patch.receiptId,
+        ok: false,
+        code: error.code || "APPLY_FAILED",
+        message: error.message,
+      });
+    }
+  }
+  return { ok: true, appliedTotal: plan.appliedTotal, results };
+}

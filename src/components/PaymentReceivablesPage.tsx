@@ -39,6 +39,7 @@ import { SalePaymentLinkBadge, PartialPaymentBadge } from "@/components/AutoLink
 import { formatMonthLabel, monthRangeForKey, shiftMonthKey } from "@/utils/companyLedger";
 import {
   createReceiptApi,
+  createReceiptRegisterApi,
   fetchUnifiedClientArLedgerApi,
   isApiModeEnabled,
   type UnifiedClientArLedgerResponse,
@@ -553,7 +554,7 @@ export function PaymentReceivablesPage({
         }));
         const grossAmount = allocations.reduce((sum, row) => sum + row.amount, 0);
         const channel = depositChannelToReceiptChannel(first.draft.depositChannel);
-        const result = await createReceiptApi({
+        const result = await createReceiptRegisterApi({
           operationId: makeReceiptOperationId("receivables"),
           clientId: clientRow.id,
           clientName,

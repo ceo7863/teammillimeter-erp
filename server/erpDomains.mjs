@@ -14,6 +14,7 @@ import {
 export const ERP_DOMAIN_FIELDS = {
   sales: ["sales", "paymentVouchers", "paymentInputLogs", "saleComments"],
   receipts: ["receipts", "receiptAllocations"],
+  disbursements: ["disbursements", "disbursementAllocations", "contractorPayables"],
   clients: ["clients"],
   workers: [
     "workers",
@@ -136,6 +137,19 @@ export function mergeErpDomainForSave(existingData, domain, incomingPartial) {
               Array.isArray(incoming.receipts) ? incoming.receipts : existing.receipts || [],
             )
           : existing.receiptAllocations || [],
+      };
+    case "disbursements":
+      return {
+        ...existing,
+        disbursements: Array.isArray(incoming.disbursements)
+          ? mergeDisbursementsForSave(existing.disbursements || [], incoming.disbursements)
+          : existing.disbursements || [],
+        disbursementAllocations: Array.isArray(incoming.disbursementAllocations)
+          ? mergeDisbursementAllocationsForSave(existing.disbursementAllocations || [], incoming.disbursementAllocations)
+          : existing.disbursementAllocations || [],
+        contractorPayables: Array.isArray(incoming.contractorPayables)
+          ? mergeContractorPayablesForSave(existing.contractorPayables || [], incoming.contractorPayables)
+          : existing.contractorPayables || [],
       };
     case "clients":
       return {
