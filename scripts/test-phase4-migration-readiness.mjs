@@ -267,7 +267,7 @@ function seed() {
     },
     state.version,
     "phase4-seed",
-    { allowReceiptMutation: true, allowPaymentVoucherMutation: true },
+    { allowReceiptMutation: true, allowPaymentVoucherMutation: true, allowPaymentInputLogMutation: true, allowSalePaidMutation: true },
   );
 }
 seed();

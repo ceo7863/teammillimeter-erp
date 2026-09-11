@@ -1836,8 +1836,8 @@ const AR_LEDGER_STATUS_LABEL: Record<string, string> = {
 const AR_LEDGER_SOURCE_LABEL: Record<string, string> = {
   none: "-",
   receipt: "입금전표",
-  legacy: "레거시",
-  mixed: "혼합",
+  legacy: "기존 입금",
+  mixed: "기존+신규",
 };
 
 /**
@@ -1913,7 +1913,7 @@ function ClientArLedgerPanel({
             <div>
               <h2 className="text-sm font-bold text-slate-800">거래처 원장 (통합 AR)</h2>
               <p className="text-xs text-slate-500">
-                입금전표 배분 + 레거시 전표를 통합한 서버 집계 · 기간 경계는 as-of 기준
+                신규 입금전표 + 기존 입금을 통합한 서버 집계 · 기간 경계는 as-of 기준
               </p>
             </div>
             <div className="flex flex-wrap items-end gap-2">
@@ -1958,7 +1958,7 @@ function ClientArLedgerPanel({
                   compact
                   title="기간 배분"
                   value={formatKRW(ledger.periodAppliedAllocations + ledger.periodLegacyApplied)}
-                  sub={`전표 ${formatKRW(ledger.periodAppliedAllocations)} · 레거시 ${formatKRW(ledger.periodLegacyApplied)}`}
+                  sub={`전표 ${formatKRW(ledger.periodAppliedAllocations)} · 기존 입금 ${formatKRW(ledger.periodLegacyApplied)}`}
                   icon={CheckCircle2}
                   tone="success"
                 />
@@ -2014,7 +2014,7 @@ function ClientArLedgerPanel({
                       <th className="text-left">현장</th>
                       <th className="text-right">청구</th>
                       <th className="text-right">입금전표 배분</th>
-                      <th className="text-right">레거시 배분</th>
+                      <th className="text-right">기존 입금</th>
                       <th className="text-right">배분 합계</th>
                       <th className="text-right">잔액</th>
                       <th className="text-center">상태</th>

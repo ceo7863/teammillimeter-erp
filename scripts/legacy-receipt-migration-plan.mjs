@@ -60,7 +60,8 @@ import {
   simulateMigrationOnClone,
 } from "../server/legacyReceiptMigrationAudit.mjs";
 
-const APPLY_REFUSAL = "Phase 4 forbids apply; use future Phase 5 with explicit approval";
+const APPLY_REFUSAL =
+  "Legacy Receipt migration apply is permanently refused after cutover stabilization; preserve paymentVouchers read-only unless the data owner issues a new explicit approval for a future phase";
 
 export function parseArgs(argv) {
   const options = {

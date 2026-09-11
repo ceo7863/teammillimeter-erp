@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import bcrypt from "bcryptjs";
 import { config, seedUsers } from "./config.mjs";
 import { ERP_DOMAIN_FIELDS, ERP_DOMAIN_NAMES, pickDomainPayload } from "./erpDomains.mjs";
-import { logPaymentVoucherWriteFreeze, planPaymentVoucherWriteFreeze } from "./erpSaveMerge.mjs";
+import { logPaymentVoucherWriteFreeze, planPaymentVoucherWriteFreeze, planPaymentInputLogWriteFreeze, logPaymentInputLogWriteFreeze, freezeSalePaidFieldsForSave } from "./erpSaveMerge.mjs";
 import { queueCoalescedWrite } from "./erpWriteQueue.mjs";
 import { migrateClientAichiToMiumu, needsClientAichiToMiumuMigration } from "./migrateClientAichiToMiumu.mjs";
 import { isAttendanceTargetUser } from "./attendanceAccess.mjs";
@@ -1042,28 +1042,47 @@ function saveErpStateImmediate(payload, expectedVersion, updatedBy, options = {}
   let normalizedPayload = normalizeErpPayload(payload);
   const database = getDb();
   const current = database.prepare("SELECT version FROM erp_state WHERE id = 1").get();
+  const assembled = current ? assemblePayloadFromDomainRows(database) || emptyErpPayload() : emptyErpPayload();
 
-  if (!options.allowReceiptMutation || !options.allowPaymentVoucherMutation) {
-    const assembled = current ? assemblePayloadFromDomainRows(database) || emptyErpPayload() : emptyErpPayload();
+  if (!options.allowReceiptMutation) {
+    normalizedPayload = {
+      ...normalizedPayload,
+      receipts: Array.isArray(assembled.receipts) ? assembled.receipts : [],
+      receiptAllocations: Array.isArray(assembled.receiptAllocations) ? assembled.receiptAllocations : [],
+    };
+  }
 
-    if (!options.allowReceiptMutation) {
-      normalizedPayload = {
-        ...normalizedPayload,
-        receipts: Array.isArray(assembled.receipts) ? assembled.receipts : [],
-        receiptAllocations: Array.isArray(assembled.receiptAllocations) ? assembled.receiptAllocations : [],
-      };
+  // Permanent legacy seal: paymentVouchers accept no create/update/delete from a generic save.
+  if (!options.allowPaymentVoucherMutation) {
+    const existingVouchers = Array.isArray(assembled.paymentVouchers) ? assembled.paymentVouchers : [];
+    const plan = planPaymentVoucherWriteFreeze(existingVouchers, normalizedPayload?.paymentVouchers, options);
+    logPaymentVoucherWriteFreeze(plan, `saveErpState (${updatedBy || "system"})`);
+    normalizedPayload = {
+      ...normalizedPayload,
+      paymentVouchers: plan.vouchers,
+    };
+  }
+
+  // Permanent legacy seal: paymentInputLogs accept no create/update/delete from a generic save.
+  if (!options.allowPaymentInputLogMutation) {
+    const existingLogs = Array.isArray(assembled.paymentInputLogs) ? assembled.paymentInputLogs : [];
+    const logPlan = planPaymentInputLogWriteFreeze(existingLogs, normalizedPayload?.paymentInputLogs, options);
+    logPaymentInputLogWriteFreeze(logPlan, `saveErpState (${updatedBy || "system"})`);
+    normalizedPayload = {
+      ...normalizedPayload,
+      paymentInputLogs: logPlan.logs,
+    };
+  }
+
+  // Payment paths must not rewrite sale.paid / basePaid; restore stored balances.
+  if (!options.allowSalePaidMutation && Array.isArray(normalizedPayload?.sales)) {
+    const paidPlan = freezeSalePaidFieldsForSave(assembled.sales, normalizedPayload.sales, options);
+    if (paidPlan.blockedSaleIds.length) {
+      console.warn(
+        `[legacyWriteFreeze] saveErpState (${updatedBy || "system"}): sealed sale paid fields on ${paidPlan.blockedSaleIds.length} sale(s)`,
+      );
     }
-
-    // Phase 3 legacy write freeze: the closed paymentVoucher ledger accepts no new ids
-    // from a generic save. Existing rows are preserved; new ids are stripped and logged.
-    if (!options.allowPaymentVoucherMutation) {
-      const existingVouchers = Array.isArray(assembled.paymentVouchers) ? assembled.paymentVouchers : [];
-      const plan = planPaymentVoucherWriteFreeze(existingVouchers, normalizedPayload?.paymentVouchers, options);
-      if (Array.isArray(normalizedPayload?.paymentVouchers)) {
-        logPaymentVoucherWriteFreeze(plan, `saveErpState (${updatedBy || "system"})`);
-        normalizedPayload = { ...normalizedPayload, paymentVouchers: plan.vouchers };
-      }
-    }
+    normalizedPayload = { ...normalizedPayload, sales: paidPlan.sales };
   }
 
   if (!current) {
@@ -1108,18 +1127,37 @@ export function saveErpState(payload, expectedVersion, updatedBy, options = {}) 
 }
 
 /**
- * Phase 3 legacy write freeze for domain saves. Domain writes have no
- * `allowPaymentVoucherMutation` escape hatch: only `saveErpState` (legacy repair) may
- * introduce a voucher id that does not exist yet.
+ * Domain saves have no mutation escape hatch for legacy payment ledgers.
  */
 function freezePaymentVouchersInDomainPayload(assembled, domainPayload, updatedBy) {
-  if (!domainPayload || !Array.isArray(domainPayload.paymentVouchers)) return domainPayload;
-  const plan = planPaymentVoucherWriteFreeze(
-    Array.isArray(assembled?.paymentVouchers) ? assembled.paymentVouchers : [],
-    domainPayload.paymentVouchers,
-  );
-  logPaymentVoucherWriteFreeze(plan, `saveErpDomain (${updatedBy || "system"})`);
-  return { ...domainPayload, paymentVouchers: plan.vouchers };
+  if (!domainPayload || typeof domainPayload !== "object") return domainPayload;
+  let next = domainPayload;
+  if (Array.isArray(domainPayload.paymentVouchers)) {
+    const plan = planPaymentVoucherWriteFreeze(
+      Array.isArray(assembled?.paymentVouchers) ? assembled.paymentVouchers : [],
+      domainPayload.paymentVouchers,
+    );
+    logPaymentVoucherWriteFreeze(plan, `saveErpDomain (${updatedBy || "system"})`);
+    next = { ...next, paymentVouchers: plan.vouchers };
+  }
+  if (Array.isArray(domainPayload.paymentInputLogs)) {
+    const logPlan = planPaymentInputLogWriteFreeze(
+      Array.isArray(assembled?.paymentInputLogs) ? assembled.paymentInputLogs : [],
+      domainPayload.paymentInputLogs,
+    );
+    logPaymentInputLogWriteFreeze(logPlan, `saveErpDomain (${updatedBy || "system"})`);
+    next = { ...next, paymentInputLogs: logPlan.logs };
+  }
+  if (Array.isArray(domainPayload.sales)) {
+    const paidPlan = freezeSalePaidFieldsForSave(assembled?.sales, domainPayload.sales);
+    if (paidPlan.blockedSaleIds.length) {
+      console.warn(
+        `[legacyWriteFreeze] saveErpDomain (${updatedBy || "system"}): sealed sale paid fields on ${paidPlan.blockedSaleIds.length} sale(s)`,
+      );
+    }
+    next = { ...next, sales: paidPlan.sales };
+  }
+  return next;
 }
 
 export function saveErpDomain(domain, domainPayload, expectedVersion, updatedBy) {

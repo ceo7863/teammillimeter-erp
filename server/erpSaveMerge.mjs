@@ -228,43 +228,79 @@ export function mergeBankTransactionsForSave(existing = [], incoming = []) {
 }
 
 /**
- * Phase 3 legacy write freeze.
+ * Cutover stabilization: legacy `paymentVouchers` are permanently read-only.
  *
- * The legacy `paymentVouchers` ledger is closed for new business: cash arriving after the
- * Phase 2 cutover must be posted as a Receipt. A generic ERP save may still update or
- * unlink an existing voucher row (legacy repair / unlink), but it may never introduce a
- * voucher id that does not already exist. Only an explicit
- * `{ allowPaymentVoucherMutation: true }` caller may do that.
- *
- * Returns the accepted rows plus the ids that were stripped, so the caller can log them.
+ * Generic ERP saves may never create, update, or delete legacy voucher rows.
+ * Only `{ allowPaymentVoucherMutation: true }` (explicit admin repair, never the
+ * ordinary payment UI) may replace the array. Cash after cutover posts as Receipts.
  */
 export function planPaymentVoucherWriteFreeze(existing = [], incoming = [], options = {}) {
   const existingRows = Array.isArray(existing) ? existing : [];
   const incomingRows = Array.isArray(incoming) ? incoming : [];
-  const existingIds = new Set(existingRows.map((row) => String(row?.id ?? "")));
+  const existingById = new Map(existingRows.map((row) => [String(row?.id ?? ""), row]));
 
   if (options.allowPaymentVoucherMutation) {
-    return { vouchers: incomingRows, blockedNewIds: [], frozen: false };
+    return {
+      vouchers: incomingRows,
+      blockedNewIds: [],
+      blockedUpdatedIds: [],
+      blockedDeletedIds: [],
+      frozen: false,
+    };
   }
 
   const blockedNewIds = [];
-  const vouchers = [];
+  const blockedUpdatedIds = [];
+  const blockedDeletedIds = [];
+  const incomingIds = new Set();
+
   for (const row of incomingRows) {
     const id = String(row?.id ?? "");
-    if (!id || !existingIds.has(id)) {
+    if (!id || !existingById.has(id)) {
       blockedNewIds.push(id || "(missing id)");
       continue;
     }
-    vouchers.push(row);
+    incomingIds.add(id);
+    const prev = existingById.get(id);
+    if (stableStringify(prev) !== stableStringify(row)) {
+      blockedUpdatedIds.push(id);
+    }
   }
-  return { vouchers, blockedNewIds, frozen: true };
+
+  for (const id of existingById.keys()) {
+    if (incomingRows.length > 0 && !incomingIds.has(id)) {
+      blockedDeletedIds.push(id);
+    }
+  }
+
+  // Always keep the stored ledger verbatim.
+  return {
+    vouchers: existingRows.map((row) => ({ ...row })),
+    blockedNewIds,
+    blockedUpdatedIds,
+    blockedDeletedIds,
+    frozen: true,
+  };
+}
+
+function stableStringify(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  const keys = Object.keys(value).sort();
+  return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`;
 }
 
 export function logPaymentVoucherWriteFreeze(plan, context = "erp save") {
-  if (!plan?.blockedNewIds?.length) return;
+  const blocked =
+    (plan?.blockedNewIds?.length || 0) +
+    (plan?.blockedUpdatedIds?.length || 0) +
+    (plan?.blockedDeletedIds?.length || 0);
+  if (!blocked) return;
   console.warn(
-    `[legacyWriteFreeze] ${context}: blocked ${plan.blockedNewIds.length} new paymentVoucher id(s):`,
-    plan.blockedNewIds.slice(0, 20).join(", "),
+    `[legacyWriteFreeze] ${context}: sealed paymentVouchers` +
+      ` new=${plan.blockedNewIds?.length || 0}` +
+      ` updated=${plan.blockedUpdatedIds?.length || 0}` +
+      ` deleted=${plan.blockedDeletedIds?.length || 0}`,
   );
 }
 
@@ -272,29 +308,136 @@ export function mergePaymentVouchersForSave(existing = [], incoming = [], bankTr
   const existingRows = Array.isArray(existing) ? existing : [];
   const incomingRows = Array.isArray(incoming) ? incoming : [];
 
-  // A payload that carries no vouchers at all never wipes the stored ledger.
-  if (!incomingRows.length && existingRows.length && !options.allowPaymentVoucherMutation) {
-    return { vouchers: [...existingRows], blockedNewIds: [], frozen: true };
+  if (!options.allowPaymentVoucherMutation) {
+    const plan = planPaymentVoucherWriteFreeze(existingRows, incomingRows, options);
+    return {
+      vouchers: plan.vouchers,
+      blockedNewIds: plan.blockedNewIds,
+      blockedUpdatedIds: plan.blockedUpdatedIds,
+      blockedDeletedIds: plan.blockedDeletedIds,
+      frozen: true,
+    };
   }
 
-  const plan = planPaymentVoucherWriteFreeze(existingRows, incomingRows, options);
-  const byId = new Map(plan.vouchers.map((row) => [String(row.id), row]));
+  const byId = new Map(incomingRows.map((row) => [String(row.id), row]));
   const referencedIds = new Set();
-
   for (const tx of bankTransactions || []) {
     if (tx?.linkedPaymentVoucherId != null && tx.linkedPaymentVoucherId !== "") {
       referencedIds.add(String(tx.linkedPaymentVoucherId));
     }
   }
-
   for (const row of existingRows) {
     const id = String(row.id);
-    if (referencedIds.has(id) && !byId.has(id)) {
-      byId.set(id, row);
-    }
+    if (referencedIds.has(id) && !byId.has(id)) byId.set(id, row);
+  }
+  return { vouchers: [...byId.values()], blockedNewIds: [], blockedUpdatedIds: [], blockedDeletedIds: [], frozen: false };
+}
+
+/**
+ * Legacy `paymentInputLogs` are permanently read-only: no create / update / delete
+ * on a generic ERP save.
+ */
+export function planPaymentInputLogWriteFreeze(existing = [], incoming = [], options = {}) {
+  const existingRows = Array.isArray(existing) ? existing : [];
+  const incomingRows = Array.isArray(incoming) ? incoming : [];
+  const existingById = new Map(existingRows.map((row) => [String(row?.id ?? ""), row]));
+
+  if (options.allowPaymentInputLogMutation) {
+    return {
+      logs: incomingRows,
+      blockedNewIds: [],
+      blockedUpdatedIds: [],
+      blockedDeletedIds: [],
+      frozen: false,
+    };
   }
 
-  return { vouchers: [...byId.values()], blockedNewIds: plan.blockedNewIds, frozen: plan.frozen };
+  const blockedNewIds = [];
+  const blockedUpdatedIds = [];
+  const blockedDeletedIds = [];
+  const incomingIds = new Set();
+
+  for (const row of incomingRows) {
+    const id = String(row?.id ?? "");
+    if (!id || !existingById.has(id)) {
+      blockedNewIds.push(id || "(missing id)");
+      continue;
+    }
+    incomingIds.add(id);
+    if (stableStringify(existingById.get(id)) !== stableStringify(row)) {
+      blockedUpdatedIds.push(id);
+    }
+  }
+  for (const id of existingById.keys()) {
+    if (incomingRows.length > 0 && !incomingIds.has(id)) blockedDeletedIds.push(id);
+  }
+
+  return {
+    logs: existingRows.map((row) => ({ ...row })),
+    blockedNewIds,
+    blockedUpdatedIds,
+    blockedDeletedIds,
+    frozen: true,
+  };
+}
+
+export function logPaymentInputLogWriteFreeze(plan, context = "erp save") {
+  const blocked =
+    (plan?.blockedNewIds?.length || 0) +
+    (plan?.blockedUpdatedIds?.length || 0) +
+    (plan?.blockedDeletedIds?.length || 0);
+  if (!blocked) return;
+  console.warn(
+    `[legacyWriteFreeze] ${context}: sealed paymentInputLogs` +
+      ` new=${plan.blockedNewIds?.length || 0}` +
+      ` updated=${plan.blockedUpdatedIds?.length || 0}` +
+      ` deleted=${plan.blockedDeletedIds?.length || 0}`,
+  );
+}
+
+/**
+ * Freeze `sale.paid` / `sale.basePaid` / `sale.voucherPaid` on generic saves so payment
+ * UIs cannot treat stored balances as a writable cash ledger. Sale master fields otherwise
+ * merge normally.
+ */
+export function freezeSalePaidFieldsForSave(existingSales = [], incomingSales = [], options = {}) {
+  const existingRows = Array.isArray(existingSales) ? existingSales : [];
+  const incomingRows = Array.isArray(incomingSales) ? incomingSales : [];
+  if (options.allowSalePaidMutation) return { sales: incomingRows, blockedSaleIds: [], frozen: false };
+
+  const existingById = new Map(existingRows.map((row) => [String(row?.id ?? ""), row]));
+  const blockedSaleIds = [];
+  const sales = incomingRows.map((row) => {
+    const id = String(row?.id ?? "");
+    const prev = existingById.get(id);
+    if (!prev) return row;
+    const next = { ...row };
+    let blocked = false;
+    for (const key of ["paid", "basePaid", "voucherPaid", "manualPaidCleared", "prepaidBalance"]) {
+      if (Object.prototype.hasOwnProperty.call(prev, key)) {
+        if (stableStringify(prev[key]) !== stableStringify(next[key])) blocked = true;
+        next[key] = prev[key];
+      } else if (Object.prototype.hasOwnProperty.call(next, key) && key !== "prepaidBalance") {
+        // Drop payment-path attempts to invent opening balances on existing sales.
+        if (key === "paid" || key === "basePaid" || key === "voucherPaid" || key === "manualPaidCleared") {
+          if (next[key] != null && next[key] !== prev[key]) blocked = true;
+          delete next[key];
+          if (Object.prototype.hasOwnProperty.call(prev, key)) next[key] = prev[key];
+        }
+      }
+    }
+    // Always restore authoritative paid fields from storage when present.
+    if (Object.prototype.hasOwnProperty.call(prev, "paid")) next.paid = prev.paid;
+    if (Object.prototype.hasOwnProperty.call(prev, "basePaid")) next.basePaid = prev.basePaid;
+    if (Object.prototype.hasOwnProperty.call(prev, "voucherPaid")) next.voucherPaid = prev.voucherPaid;
+    if (Object.prototype.hasOwnProperty.call(prev, "manualPaidCleared")) {
+      next.manualPaidCleared = prev.manualPaidCleared;
+    }
+    if (blocked) blockedSaleIds.push(id);
+    return next;
+  });
+
+  return { sales, blockedSaleIds, frozen: true };
 }
 
 /**
