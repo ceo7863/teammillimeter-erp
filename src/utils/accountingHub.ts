@@ -3,10 +3,10 @@ import { isErpPageKey, type ErpPageKey } from "./pageAccess";
 export type AccountingHubTab = "bank" | "ledger" | "tax" | "classify";
 
 export const ACCOUNTING_HUB_TABS: Array<{ key: AccountingHubTab; label: string }> = [
-  { key: "bank", label: "\uD1B5\uC7A5 \u00B7 \uAC00\uACC4\uBD80" },
-  { key: "ledger", label: "\uAC00\uACC4\uBD80 \uC870\uD68C" },
-  { key: "tax", label: "\uC138\uAE08\uACC4\uC0B0\uC11C" },
-  { key: "classify", label: "\uBD84\uB958 \uAD00\uB9AC" },
+  { key: "bank", label: "전체 거래" },
+  { key: "ledger", label: "계정이동·가계부" },
+  { key: "tax", label: "세금계산서" },
+  { key: "classify", label: "분류 관리" },
 ];
 
 export const ACCOUNTING_TAB_STORAGE_KEY = "teammillimeter-erp-accounting-tab";

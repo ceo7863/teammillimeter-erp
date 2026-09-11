@@ -11,6 +11,11 @@ import {
   migrateAllowedPageKeys as migrateUserAdminAllowedPageKeys,
   resolveUserAdminTabAccess,
 } from "./userAdminHub";
+import {
+  isFinanceSidebarHiddenPageKey,
+  isLegacySalesPageKey,
+  migrateSalesAllowedPageKeys,
+} from "./financeInformationArchitecture";
 
 export const ERP_PAGE_KEYS = [
   "dashboard",
@@ -65,19 +70,18 @@ export const ERP_PAGE_DEFS: ErpPageDef[] = [
   { key: "clientSiteRequestCalendars", label: "업체별 캘린더", group: "업무" },
   { key: "scCalendar", label: "CalWalk 워크스페이스", group: "업무" },
   { key: "scAlimtalk", label: "\uC54C\uB9BC\uD1A1", group: "\uC5C5\uBB34" },
-  // Compatibility: keep salesInput / sales / salesVoucherSearch keys+labels for redirects & allowedPages
   { key: "salesInput", label: "매출등록", group: "매출" },
-  { key: "sales", label: "매출관리", group: "매출" },
+  { key: "sales", label: "매출·내역서", group: "매출" },
   { key: "salesVoucherSearch", label: "매출전표검색", group: "매출" },
   { key: "saleComments", label: "전표 코멘트", group: "매출" },
-  { key: "receivables", label: "수금관리", group: "매출" }, // key stays receivables
-  { key: "workerPayments", label: "지급관리", group: "시공" }, // key stays workerPayments
+  { key: "receivables", label: "입금·미수", group: "매출" },
+  { key: "workerPayments", label: "시공자 지급", group: "시공" },
   { key: "officePayroll", label: "급여 관리", group: "회계", adminOnly: true },
   { key: "apCutover", label: "AP 컷오버", group: "관리", adminOnly: true },
   { key: "reports", label: "보고서", group: "보고" },
   { key: "statements", label: "내역서", group: "보고" },
   { key: "basicInfo", label: "기본정보", group: "기준정보" },
-  { key: "accounting", label: "회계·통장", group: "회계" },
+  { key: "accounting", label: "통장", group: "회계" },
   { key: "analysis", label: "분석", group: "회계" },
   { key: "companyNotices", label: "회사게시판", group: "게시" },
   { key: "usersAdmin", label: "사용자 관리", group: "관리", adminOnly: true },
@@ -86,7 +90,6 @@ export const ERP_PAGE_DEFS: ErpPageDef[] = [
 
 const ERP_PAGE_KEY_SET = new Set<string>(ERP_PAGE_KEYS);
 
-/** 일반(staff) 계정 기본 허용 페이지 */
 export const DEFAULT_STAFF_PAGE_KEYS: ErpPageKey[] = [
   "dailyReport",
   "taskBoard",
@@ -97,14 +100,10 @@ export const DEFAULT_STAFF_PAGE_KEYS: ErpPageKey[] = [
   "clientSiteRequestCalendars",
   "scCalendar",
   "scAlimtalk",
-  "salesInput",
   "sales",
-  "salesVoucherSearch",
-  "saleComments",
   "receivables",
   "workerPayments",
   "reports",
-  "statements",
   "accounting",
   "analysis",
   "companyNotices",
@@ -116,7 +115,6 @@ export function isErpPageKey(value: string): value is ErpPageKey {
   return ERP_PAGE_KEY_SET.has(value);
 }
 
-/** Compatibility redirects for renamed / merged pages (also applied in App on restore). */
 export function migrateActivePage(value: string): ErpPageKey {
   if (value === "paymentInput") return "receivables";
   if (isErpPageKey(value)) return value;
@@ -131,7 +129,7 @@ export function normalizeAllowedPages(pages: unknown): ErpPageKey[] | null {
   const legacyAccountingSet = new Set<string>(LEGACY_ACCOUNTING_PAGE_KEYS);
   const legacyStatementSet = new Set<string>(LEGACY_STATEMENT_PAGE_KEYS);
   let hasLegacyAccounting = false;
-  let hasLegacyStatement = false;
+  let hasLegacySales = false;
   let hasLegacyBasicInfo = false;
   let hasLegacyUserAdmin = false;
   const unique: ErpPageKey[] = [];
@@ -143,8 +141,8 @@ export function normalizeAllowedPages(pages: unknown): ErpPageKey[] | null {
       hasLegacyAccounting = true;
       continue;
     }
-    if (legacyStatementSet.has(page)) {
-      hasLegacyStatement = true;
+    if (legacyStatementSet.has(page) || page === "statements" || isLegacySalesPageKey(page)) {
+      hasLegacySales = true;
       continue;
     }
     if (isLegacyBasicInfoPageKey(page)) {
@@ -160,26 +158,33 @@ export function normalizeAllowedPages(pages: unknown): ErpPageKey[] | null {
     unique.push(page);
   }
 
-  if (!unique.length && !hasLegacyAccounting && !hasLegacyStatement && !hasLegacyBasicInfo && !hasLegacyUserAdmin) return null;
+  if (
+    !unique.length &&
+    !hasLegacyAccounting &&
+    !hasLegacySales &&
+    !hasLegacyBasicInfo &&
+    !hasLegacyUserAdmin
+  ) {
+    return null;
+  }
   if (hasLegacyAccounting && !unique.includes("accounting")) unique.push("accounting");
-  if (hasLegacyStatement && !unique.includes("statements")) unique.push("statements");
+  if (hasLegacySales && !unique.includes("sales")) unique.push("sales");
   if (hasLegacyBasicInfo && !unique.includes("basicInfo")) unique.push("basicInfo");
   if (hasLegacyUserAdmin && !unique.includes("usersAdmin")) unique.push("usersAdmin");
   if (unique.includes("clientSiteRequests") && !unique.includes("clientSiteRequestCalendars")) {
     unique.push("clientSiteRequestCalendars");
   }
-  if (!unique.length) {
-    if (hasLegacyAccounting) return ["accounting"];
-    if (hasLegacyStatement) return ["statements"];
-    if (hasLegacyBasicInfo) return ["basicInfo"];
-    if (hasLegacyUserAdmin) return ["usersAdmin"];
-  }
-  return unique.length ? unique : null;
+  const migrated = migrateSalesAllowedPageKeys(unique) as ErpPageKey[];
+  return migrated.length ? migrated : null;
 }
 
 export function resolveUserAllowedPages(user: Pick<ErpUser, "role" | "allowedPages"> | null | undefined): ErpPageKey[] {
   if (!user) return [];
-  if (user.role === "admin") return migrateUserAdminAllowedPageKeys(migrateBasicInfoAllowedPageKeys([...ERP_PAGE_KEYS]));
+  if (user.role === "admin") {
+    return migrateSalesAllowedPageKeys(
+      migrateUserAdminAllowedPageKeys(migrateBasicInfoAllowedPageKeys([...ERP_PAGE_KEYS])),
+    ) as ErpPageKey[];
+  }
 
   const custom = normalizeAllowedPages(user.allowedPages);
   if (custom?.length) return custom;
@@ -198,6 +203,9 @@ export function canUserAccessPage(
   if (pageKey === "usersAdmin") return canAccessUserAdminHub(user);
   if (pageKey === "auditLog") return resolveUserAdminTabAccess(user).audit;
   if (pageKey === "loginHistory") return resolveUserAdminTabAccess(user).login;
+  if (isLegacySalesPageKey(pageKey) || pageKey === "statements" || pageKey === "pdfArchive") {
+    return resolveUserAllowedPages(user).includes("sales");
+  }
   if (!isErpPageKey(pageKey)) return false;
   return resolveUserAllowedPages(user).includes(pageKey);
 }
@@ -210,7 +218,9 @@ export function getDefaultPageForUser(user: Pick<ErpUser, "role" | "allowedPages
 
 export function getAccessiblePageDefs(user: Pick<ErpUser, "role" | "allowedPages"> | null | undefined) {
   const allowed = new Set(resolveUserAllowedPages(user));
-  return ERP_PAGE_DEFS.filter((page) => allowed.has(page.key));
+  return ERP_PAGE_DEFS.filter(
+    (page) => allowed.has(page.key) && !isFinanceSidebarHiddenPageKey(page.key),
+  );
 }
 
 export function getPageLabel(pageKey: string) {
@@ -221,6 +231,7 @@ export function getPageAccessGroups() {
   const groups = new Map<string, ErpPageDef[]>();
   ERP_PAGE_DEFS.forEach((page) => {
     if (page.adminOnly) return;
+    if (isFinanceSidebarHiddenPageKey(page.key)) return;
     const list = groups.get(page.group) || [];
     list.push(page);
     groups.set(page.group, list);

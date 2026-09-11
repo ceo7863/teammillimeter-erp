@@ -5,6 +5,11 @@ import {
   type ErpPageDef,
   type ErpPageKey,
 } from "./pageAccess";
+import {
+  isFinanceSidebarHiddenPageKey,
+  isLegacySalesPageKey,
+  migrateSalesSidebarOrderKeys,
+} from "./financeInformationArchitecture";
 
 /** Sidebar 대신 플로팅 버튼으로 여는 페이지 */
 export const FAB_LAUNCHER_PAGE_KEYS: ErpPageKey[] = ["teamChat"];
@@ -27,7 +32,7 @@ export function normalizeSidebarOrder(value: unknown): ErpPageKey[] | null {
   const legacyBasicInfoSet = new Set<string>(["clients", "workers", "companyProfile"]);
   const legacyUserAdminSet = new Set<string>(["auditLog", "loginHistory"]);
   let hasAccounting = false;
-  let hasStatements = false;
+  let hasSalesHub = false;
   let hasBasicInfo = false;
   let hasUserAdmin = false;
   const unique: ErpPageKey[] = [];
@@ -45,12 +50,12 @@ export function normalizeSidebarOrder(value: unknown): ErpPageKey[] | null {
       }
       continue;
     }
-    if (legacyStatementSet.has(item)) {
-      if (!hasStatements) {
-        hasStatements = true;
-        if (!seen.has("statements")) {
-          seen.add("statements");
-          unique.push("statements");
+    if (legacyStatementSet.has(item) || item === "statements" || isLegacySalesPageKey(item)) {
+      if (!hasSalesHub) {
+        hasSalesHub = true;
+        if (!seen.has("sales")) {
+          seen.add("sales");
+          unique.push("sales");
         }
       }
       continue;
@@ -77,14 +82,14 @@ export function normalizeSidebarOrder(value: unknown): ErpPageKey[] | null {
     }
     if (!isErpPageKey(item) || seen.has(item)) continue;
     if (item === "accounting") hasAccounting = true;
-    if (item === "statements") hasStatements = true;
+    if (item === "sales") hasSalesHub = true;
     if (item === "basicInfo") hasBasicInfo = true;
     if (item === "usersAdmin") hasUserAdmin = true;
     seen.add(item);
     unique.push(item);
   }
 
-  return unique.length ? unique : null;
+  return migrateSalesSidebarOrderKeys(unique.length ? unique : null) as ErpPageKey[] | null;
 }
 
 export function normalizeSidebarHidden(value: unknown): ErpPageKey[] | null {
@@ -223,6 +228,30 @@ export function isFabLauncherPageKey(key: string): key is ErpPageKey {
   return isErpPageKey(key) && FAB_LAUNCHER_PAGE_KEYS.includes(key);
 }
 
+/**
+ * Compatibility: map sidebar-hidden finance routes to their hub page
+ * before visibility checks (prevents bounce to dashboard).
+ */
+export function canonicalizeFinanceShellPage(active: string): ErpPageKey {
+  if (active === "paymentInput") return "receivables";
+  if (
+    active === "statements" ||
+    active === "pdfArchive" ||
+    isLegacySalesPageKey(active)
+  ) {
+    return "sales";
+  }
+  if (
+    active === "bankTransactions" ||
+    active === "companyLedger" ||
+    active === "taxInvoices"
+  ) {
+    return "accounting";
+  }
+  if (isErpPageKey(active)) return active;
+  return "dashboard";
+}
+
 /** Sidebar에 없어도 FAB 등으로 열 수 있는 페이지는 active를 유지합니다. */
 export function resolveShellActivePage(
   active: ErpPageKey,
@@ -231,14 +260,19 @@ export function resolveShellActivePage(
   hidden: ErpPageKey[] | null | undefined,
 ): ErpPageKey {
   if (!user) return active;
-  if (isFabLauncherPageKey(active) && canUserAccessPage(user, active)) {
-    return active;
+  const canonical = canonicalizeFinanceShellPage(active);
+  if (isFabLauncherPageKey(canonical) && canUserAccessPage(user, canonical)) {
+    return canonical;
+  }
+  // Admin-only hubs may be allowed but omitted from default sidebar defs filtering
+  if (isFinanceSidebarHiddenPageKey(active) && canUserAccessPage(user, canonical)) {
+    return canonical;
   }
   const visible = resolveVisibleSidebarPages(user, order, hidden);
-  if (visible.length && !visible.some((page) => page.key === active)) {
+  if (visible.length && !visible.some((page) => page.key === canonical)) {
     return visible.find((page) => page.key === "dailyReport")?.key ?? visible[0]?.key ?? "dailyReport";
   }
-  return active;
+  return canonical;
 }
 
 export function sortPageDefsByOrder(pages: ErpPageDef[], order: ErpPageKey[] | null | undefined): ErpPageDef[] {

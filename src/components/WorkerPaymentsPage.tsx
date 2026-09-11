@@ -49,6 +49,7 @@ import {
   LEGACY_PAYOUT_READ_ONLY_NOTICE,
   isDisbursementWriteEnabled,
 } from "@/utils/featureFlags";
+import { AP_INACTIVE_HUB_NOTICE } from "@/utils/financeInformationArchitecture";
 
 type WorkerPaymentTab =
   | "newUnpaid"
@@ -74,19 +75,19 @@ const LEGACY_PAYOUT_TABS = new Set<WorkerPaymentTab>([
 ]);
 
 const NEW_LEDGER_TABS: Array<{ key: WorkerPaymentTab; label: string }> = [
-  { key: "newUnpaid", label: "신규 미지급" },
+  { key: "newUnpaid", label: "신규 지급예정" },
   { key: "newVouchers", label: "신규 지급전표" },
   { key: "unassignedOut", label: "미배정·미확인 출금" },
   { key: "workerLedger", label: "시공자 원장" },
 ];
 
 const LEGACY_TAB_ITEMS: Array<{ key: WorkerPaymentTab; label: string }> = [
-  { key: "summary", label: "지급 집계" },
+  { key: "summary", label: "이전 지급 기록" },
   { key: "monthly", label: "월별 지급" },
-  { key: "monthlyActual", label: "\uC6D4 \uC2E4\uC9C0\uAE09" },
+  { key: "monthlyActual", label: "월 실지급" },
   { key: "detail", label: "시공자별 상세" },
-  { key: "assignmentFairness", label: "\uBC30\uCE58\uACF5\uC815\uB3C4" },
-  { key: "payoutHistory", label: "\uC9C0\uAE09\uB0B4\uC5ED" },
+  { key: "assignmentFairness", label: "배치공정도" },
+  { key: "payoutHistory", label: "지급내역" },
   { key: "statement", label: "내역서 / PDF" },
 ];
 
@@ -242,6 +243,7 @@ export function WorkerPaymentsPage({
   onInitialTabConsumed,
   initialWorker,
   onInitialWorkerConsumed,
+  onOpenCutoverPrep,
 }: {
   workers?: WorkerMasterLike[];
   workerPortalStatementAcks?: WorkerPortalStatementAck[];
@@ -284,6 +286,7 @@ export function WorkerPaymentsPage({
   onInitialTabConsumed?: () => void;
   initialWorker?: string | null;
   onInitialWorkerConsumed?: () => void;
+  onOpenCutoverPrep?: () => void;
 }) {
   const [activeTab, setActiveTab] = useState<WorkerPaymentTab>(() => initialTab || "summary");
   const [dateFilter, setDateFilter] = useState({ startDate: monthStartISO(), endDate: todayISO() });
@@ -588,14 +591,17 @@ export function WorkerPaymentsPage({
       <div
         className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
         role="status"
+        data-ap-inactive-hub-notice="true"
       >
-        {LEGACY_PAYOUT_READ_ONLY_NOTICE}
+        {AP_INACTIVE_HUB_NOTICE}
       </div>
 
       <div className="erp-payment-hub-head">
         <div>
           <h1 className="erp-payment-hub-title">시공자 지급</h1>
-          <p className="erp-payment-hub-desc">지급 집계 · 시공자별 상세 · 내역서 PDF를 한 화면에서 처리합니다.</p>
+          <p className="erp-payment-hub-desc">
+            신규 지급예정 · 이전 지급 기록 · 컷오버 준비. 운영 Disbursement 저장은 비활성입니다.
+          </p>
         </div>
         <div className="flex flex-wrap items-start gap-3">
           <Button
@@ -604,9 +610,24 @@ export function WorkerPaymentsPage({
             className="h-8 rounded-lg px-4 text-xs"
             onClick={() => setDisbursementRegisterOpen(true)}
             title={!writeEnabled ? AP_LEDGER_INACTIVE_NOTICE : undefined}
+            aria-label="지급 등록"
+            data-disbursement-register-entry="true"
           >
             + 지급 등록
           </Button>
+          {onOpenCutoverPrep ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 rounded-lg px-4 text-xs"
+              onClick={onOpenCutoverPrep}
+              aria-label="컷오버 준비"
+              data-cutover-prep-entry="true"
+            >
+              컷오버 준비
+            </Button>
+          ) : null}
           <div className="erp-payment-hub-metrics">
             {hubMetrics.items.map((metric) => (
               <div

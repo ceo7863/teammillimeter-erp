@@ -21,9 +21,14 @@ export function legacyPageKeyToStatementTab(value: string): StatementHubTab | nu
   return LEGACY_TO_TAB[value];
 }
 
-export function migrateStatementPageKey(value: string): { page: ErpPageKey; statementTab?: StatementHubTab } {
+export function migrateStatementPageKey(value: string): {
+  page: ErpPageKey;
+  statementTab?: StatementHubTab;
+} {
   const tab = legacyPageKeyToStatementTab(value);
-  if (tab) return { page: "statements", statementTab: tab };
+  // Statements live under 매출·내역서 hub (pageKey `sales`).
+  if (tab) return { page: "sales", statementTab: tab };
+  if (value === "statements") return { page: "sales", statementTab: "create" };
   if (isErpPageKey(value)) return { page: value };
   return { page: "dashboard" };
 }
@@ -31,20 +36,13 @@ export function migrateStatementPageKey(value: string): { page: ErpPageKey; stat
 export function migrateSidebarOrderKeys(order: ErpPageKey[] | null | undefined): ErpPageKey[] | null {
   if (!order?.length) return order ?? null;
   const next: ErpPageKey[] = [];
-  let hasStatements = false;
+  let hasSales = false;
 
   for (const key of order) {
-    if (key === "statements") {
-      if (!hasStatements) {
-        next.push("statements");
-        hasStatements = true;
-      }
-      continue;
-    }
-    if (isLegacyStatementPageKey(key)) {
-      if (!hasStatements) {
-        next.push("statements");
-        hasStatements = true;
+    if (key === "statements" || key === "sales" || isLegacyStatementPageKey(key)) {
+      if (!hasSales) {
+        next.push("sales");
+        hasSales = true;
       }
       continue;
     }
@@ -55,9 +53,9 @@ export function migrateSidebarOrderKeys(order: ErpPageKey[] | null | undefined):
 }
 
 export function migrateAllowedPageKeys(pages: ErpPageKey[]): ErpPageKey[] {
-  const hasLegacy = pages.some((key) => isLegacyStatementPageKey(key));
+  const hasLegacy = pages.some((key) => isLegacyStatementPageKey(key) || key === "statements");
   const next = pages.filter((key) => !isLegacyStatementPageKey(key) && key !== "statements");
-  if (hasLegacy || pages.includes("statements")) next.push("statements");
+  if (hasLegacy && !next.includes("sales")) next.push("sales");
   return next;
 }
 

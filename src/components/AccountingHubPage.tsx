@@ -117,9 +117,9 @@ function AccountingHubPageComponent({
       <Card className="mb-4 rounded-2xl shadow-sm">
         <CardContent className="p-4 md:p-5">
           <div className="mb-4">
-            <h1 className="erp-text-page-title text-slate-900">{"\uD68C\uACC4\u00B7\uD1B5\uC7A5"}</h1>
+            <h1 className="erp-text-page-title text-slate-900">통장</h1>
             <p className="mt-1 erp-text-body text-slate-600">
-              {"\uD1B5\uC7A5 \uAC70\uB798\uC5D0\uC11C \uBD84\uB958\uD558\uACE0, \uAC00\uACC4\uBD80 \uC870\uD68C\uC5D0\uC11C \uD655\uC815 \uB0B4\uC5ED\uACFC \uACE0\uC815\uBE44\uB97C \uAD00\uB9AC\uD569\uB2C8\uB2E4."}
+              은행 거래를 Receipt/Disbursement와 연결·대사합니다. 별도 회계 원장이 아니라 연결 허브입니다.
             </p>
           </div>
           <div className="flex flex-wrap gap-2 rounded-2xl bg-slate-100 p-1">

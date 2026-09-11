@@ -100,11 +100,11 @@ function monthKeyFromDateRange(startDate: string, endDate: string) {
 }
 
 const TAB_ITEMS: Array<{ key: PaymentTab; label: string }> = [
-  { key: "input", label: "입금 입력" },
-  { key: "receivables", label: "미수 조회" },
+  { key: "receivables", label: "업체별 미수" },
+  { key: "input", label: "입금전표" },
   { key: "history", label: "입금 내역" },
-  { key: "log", label: "입금로그" },
-  { key: "arLedger", label: "거래처 원장" },
+  { key: "log", label: "미배정·미확인" },
+  { key: "arLedger", label: "업체 원장" },
 ];
 
 function PaymentDepositChannelSelect({
@@ -287,7 +287,7 @@ export function PaymentReceivablesPage({
   onPendingReceivablesNavConsumed?: () => void;
 }) {
   const { recordAudit } = useAudit();
-  const [tab, setTab] = useState<PaymentTab>("input");
+  const [tab, setTab] = useState<PaymentTab>("receivables");
   const [filters, setFilters] = useState({
     startDate: monthStartISO(),
     endDate: todayISO(),
@@ -927,10 +927,23 @@ export function PaymentReceivablesPage({
     <div className="erp-page erp-payment-hub-page">
       <div className="erp-payment-hub-head">
         <div>
-          <h1 className="erp-payment-hub-title">입금/미수금</h1>
-          <p className="erp-payment-hub-desc">입금 입력 · 미수 확인 · 입금 내역을 한 화면에서 처리합니다.</p>
+          <h1 className="erp-payment-hub-title">입금·미수</h1>
+          <p className="erp-payment-hub-desc">업체별 미수 · 입금전표 · 미배정 입금을 한 화면에서 처리합니다. 등록은 + 입금 등록 공통 모달만 사용합니다.</p>
         </div>
         <div className="erp-payment-hub-metrics">
+          <Button
+            type="button"
+            size="sm"
+            className="h-8 rounded-lg px-4 text-xs"
+            onClick={() => {
+              setTab("input");
+              setRegisterOpen(true);
+            }}
+            aria-label="입금 등록"
+            data-receipt-register-entry="true"
+          >
+            + 입금 등록
+          </Button>
           <div className="erp-payment-hub-metric">
             <span className="label">청구</span>
             <span className="value">{formatKRW(scopedTotals.bill)}</span>
@@ -1061,15 +1074,6 @@ export function PaymentReceivablesPage({
             </Button>
             {tab === "input" && (
               <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 rounded-lg px-4 text-xs"
-                  onClick={() => setRegisterOpen(true)}
-                >
-                  + 입금 등록
-                </Button>
                 <Button size="sm" className="h-8 rounded-lg px-4 text-xs" disabled={paymentSaving} onClick={() => void savePayments()}>
                   {paymentSaving
                     ? "저장 중…"
