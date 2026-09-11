@@ -901,6 +901,8 @@ export type BankErpWorkerLinkModalProps = {
     items: Array<{ candidate: WorkerBankMatchCandidate; entryAmount: number }>,
   ) => void;
   onUnlinkWorkerEntry: (voucherId: string, entryId: string) => void;
+  onOpenCanonicalDisbursement?: () => void;
+  canonicalDisbursementNotice?: string;
 };
 
 const WORKER_EMPTY_MSG =
@@ -916,6 +918,8 @@ export function BankErpWorkerLinkModal({
   onClose,
   onConfirmWorkerLinkBatch,
   onUnlinkWorkerEntry,
+  onOpenCanonicalDisbursement,
+  canonicalDisbursementNotice,
 }: BankErpWorkerLinkModalProps) {
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set());
 
@@ -1017,14 +1021,27 @@ export function BankErpWorkerLinkModal({
       footer={
         <div className="flex w-full flex-wrap items-center justify-between gap-2">
           <span>{`\uC5F0\uACB0 ${linkedRows.length.toLocaleString("ko-KR")}\uAC74 \u00B7 \uD6C4\uBCF4 ${monthOptions.length.toLocaleString("ko-KR")}\uAC74`}</span>
-          <button
-            type="button"
-            className="erp-bank-evidence-find erp-bank-evidence-find--worker inline-flex h-8 items-center rounded-lg px-4 text-sm font-semibold disabled:opacity-50"
-            disabled={!selectedAllocations.length}
-            onClick={applySelection}
-          >
-            {L.connectSelected(selectedAllocations.length)}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {onOpenCanonicalDisbursement ? (
+              <button
+                type="button"
+                className="inline-flex h-8 items-center rounded-lg border border-sky-300 bg-sky-50 px-3 text-sm font-semibold text-sky-900"
+                onClick={onOpenCanonicalDisbursement}
+                title={canonicalDisbursementNotice}
+                aria-label="신규 지급 원장으로 등록"
+              >
+                신규 지급 원장
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="erp-bank-evidence-find erp-bank-evidence-find--worker inline-flex h-8 items-center rounded-lg px-4 text-sm font-semibold disabled:opacity-50"
+              disabled={!selectedAllocations.length}
+              onClick={applySelection}
+            >
+              {L.connectSelected(selectedAllocations.length)}
+            </button>
+          </div>
         </div>
       }
     >

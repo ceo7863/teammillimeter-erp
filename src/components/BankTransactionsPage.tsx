@@ -202,6 +202,8 @@ import {
   BufferedTextarea,
   BufferedTextInput,
 } from "@/components/AutocompleteInput";
+import { DisbursementRegisterModal } from "@/components/DisbursementRegisterModal";
+import { AP_LEDGER_INACTIVE_NOTICE, isDisbursementWriteEnabled } from "@/utils/featureFlags";
 import type { ReceivableRow } from "@/utils/receivables";
 import type { ErpUser } from "@/utils/erpApi";
 import {
@@ -1178,6 +1180,7 @@ function BankTransactionsPageComponent({
     tx: BankTransaction;
     workerName: string;
   } | null>(null);
+  const [canonicalDisbursementOpen, setCanonicalDisbursementOpen] = useState(false);
   const [clientLinkModalTx, setClientLinkModalTx] = useState<BankTransaction | null>(null);
   const [clientLinkClientName, setClientLinkClientName] = useState("");
   const { recordAudit, recordSummaryAudit } = useAudit();
@@ -6233,8 +6236,31 @@ function BankTransactionsPageComponent({
           onUnlinkWorkerEntry={(voucherId, entryId) =>
             unlinkWorkerBankEntry(workerLinkModal.tx, voucherId, entryId)
           }
+          onOpenCanonicalDisbursement={() => setCanonicalDisbursementOpen(true)}
+          canonicalDisbursementNotice={
+            isDisbursementWriteEnabled() ? undefined : AP_LEDGER_INACTIVE_NOTICE
+          }
         />
       ) : null}
+
+      <DisbursementRegisterModal
+        open={Boolean(workerLinkModal && canonicalDisbursementOpen)}
+        onClose={() => setCanonicalDisbursementOpen(false)}
+        workers={(workers || [])
+          .filter((row) => String(row?.name || "").trim())
+          .map((row) => ({ id: (row as { id?: string | number }).id, name: String(row.name).trim() }))}
+        initialWorkerName={workerLinkModal?.workerName}
+        initialAmount={
+          workerLinkModal ? resolveBankErpWithdrawalAmount(workerLinkModal.tx) : undefined
+        }
+        bankTransactionId={workerLinkModal?.tx?.id ? String(workerLinkModal.tx.id) : undefined}
+        initialChannel="bank"
+        title={isDisbursementWriteEnabled() ? "통장 출금 지급 등록" : "통장 출금 지급 등록 (미리보기)"}
+        onSaved={() => {
+          setCanonicalDisbursementOpen(false);
+          setWorkerLinkModal(null);
+        }}
+      />
 
       {ledgerModal ? (
         <div className="erp-ledger-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setLedgerModal(null); }}>

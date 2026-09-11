@@ -44,8 +44,17 @@ import type { BankTransaction } from "@/utils/bankTransactions";
 import type { BankTransactionFolder } from "@/utils/bankTransactionFolders";
 import type { WorkerPayoutVoucher } from "@/utils/workerPayoutLedger";
 import type { WorkerPortalStatementAck } from "@/utils/workerPortalAcknowledgment";
+import {
+  AP_LEDGER_INACTIVE_NOTICE,
+  LEGACY_PAYOUT_READ_ONLY_NOTICE,
+  isDisbursementWriteEnabled,
+} from "@/utils/featureFlags";
 
 type WorkerPaymentTab =
+  | "newUnpaid"
+  | "newVouchers"
+  | "unassignedOut"
+  | "workerLedger"
   | "summary"
   | "detail"
   | "monthly"
@@ -54,7 +63,24 @@ type WorkerPaymentTab =
   | "payoutHistory"
   | "assignmentFairness";
 
-const TAB_ITEMS: Array<{ key: WorkerPaymentTab; label: string }> = [
+const LEGACY_PAYOUT_TABS = new Set<WorkerPaymentTab>([
+  "summary",
+  "detail",
+  "monthly",
+  "monthlyActual",
+  "payoutHistory",
+  "statement",
+  "assignmentFairness",
+]);
+
+const NEW_LEDGER_TABS: Array<{ key: WorkerPaymentTab; label: string }> = [
+  { key: "newUnpaid", label: "신규 미지급" },
+  { key: "newVouchers", label: "신규 지급전표" },
+  { key: "unassignedOut", label: "미배정·미확인 출금" },
+  { key: "workerLedger", label: "시공자 원장" },
+];
+
+const LEGACY_TAB_ITEMS: Array<{ key: WorkerPaymentTab; label: string }> = [
   { key: "summary", label: "지급 집계" },
   { key: "monthly", label: "월별 지급" },
   { key: "monthlyActual", label: "\uC6D4 \uC2E4\uC9C0\uAE09" },
@@ -63,6 +89,27 @@ const TAB_ITEMS: Array<{ key: WorkerPaymentTab; label: string }> = [
   { key: "payoutHistory", label: "\uC9C0\uAE09\uB0B4\uC5ED" },
   { key: "statement", label: "내역서 / PDF" },
 ];
+
+function NewApLedgerEmpty({ title, writeEnabled }: { title: string; writeEnabled: boolean }) {
+  return (
+    <Card className="rounded-2xl shadow-sm" data-ap-new-ledger-panel="true">
+      <CardContent className="p-6">
+        <h2 className="erp-text-section">{title}</h2>
+        <p className="mt-2 text-sm text-slate-600" role="status" data-ap-ledger-inactive="true">
+          {writeEnabled
+            ? "컷오버 이후 신규 원장 데이터만 표시합니다. 이전 지급 기록과 합산하지 않습니다."
+            : AP_LEDGER_INACTIVE_NOTICE}
+        </p>
+        <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-500">
+          <li>이전 기록: 레거시 조회 전용</li>
+          <li>신규 미지급: 컷오버 이후 workDate만</li>
+          <li>기초 미지급: 대표 승인 입력분만 (자동 산출 없음)</li>
+          <li>신규 지급: Disbursement / 선지급: 미배정 Disbursement</li>
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
 
 function SearchBox({ query, setQuery, placeholder }: { query: string; setQuery: (value: string) => void; placeholder: string }) {
   return (
@@ -513,8 +560,18 @@ export function WorkerPaymentsPage({
     setActiveTab("detail");
   };
 
+  const writeEnabled = isDisbursementWriteEnabled();
+  const showLegacyPayoutSection = LEGACY_PAYOUT_TABS.has(activeTab);
+
   return (
     <div className="erp-page erp-payment-hub-page">
+      <div
+        className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+        role="status"
+      >
+        {LEGACY_PAYOUT_READ_ONLY_NOTICE}
+      </div>
+
       <div className="erp-payment-hub-head">
         <div>
           <h1 className="erp-payment-hub-title">시공자 지급</h1>
@@ -526,6 +583,7 @@ export function WorkerPaymentsPage({
             size="sm"
             className="h-8 rounded-lg px-4 text-xs"
             onClick={() => setDisbursementRegisterOpen(true)}
+            title={!writeEnabled ? AP_LEDGER_INACTIVE_NOTICE : undefined}
           >
             + 지급 등록
           </Button>
@@ -560,23 +618,56 @@ export function WorkerPaymentsPage({
       <Card className="rounded-2xl shadow-sm">
         <CardContent className="p-4 md:p-5">
           <div className="flex flex-col gap-4">
-            <div className="flex flex-wrap gap-2 rounded-2xl bg-slate-100 p-1">
-              {TAB_ITEMS.map((tab) => (
-                <button
-                  key={tab.key}
-                  type="button"
-                  onClick={() => setActiveTab(tab.key)}
-                  className={`erp-text-body rounded-xl px-4 py-2 font-bold ${activeTab === tab.key ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`}
-                >
-                  {tab.label}
-                </button>
-              ))}
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-baseline justify-between gap-2 px-1">
+                <span className="erp-text-caption font-bold text-slate-600">신규 지급 원장</span>
+                <span className="erp-text-caption text-slate-500">컷오버 이후 · 레거시와 합산하지 않음</span>
+              </div>
+              <div className="flex flex-wrap gap-2 rounded-2xl bg-sky-50 p-1" data-ap-new-ledger-tabs="true">
+                {NEW_LEDGER_TABS.map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setActiveTab(tab.key)}
+                    aria-label={tab.label}
+                    className={`erp-text-body rounded-xl px-4 py-2 font-bold ${activeTab === tab.key ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-baseline justify-between gap-2 px-1">
+                <span className="erp-text-caption font-bold text-slate-600">이전 지급 기록</span>
+                {showLegacyPayoutSection ? (
+                  <span className="erp-text-caption text-amber-800">{LEGACY_PAYOUT_READ_ONLY_NOTICE}</span>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap gap-2 rounded-2xl bg-slate-100 p-1" data-ap-legacy-tabs="true">
+                {LEGACY_TAB_ITEMS.map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setActiveTab(tab.key)}
+                    aria-label={`이전 지급 기록 ${tab.label}`}
+                    className={`erp-text-body rounded-xl px-4 py-2 font-bold ${activeTab === tab.key ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="erp-payment-hub-filters">
               {activeTab !== "monthly" &&
               activeTab !== "statement" &&
-              activeTab !== "assignmentFairness" ? (
+              activeTab !== "assignmentFairness" &&
+              activeTab !== "newUnpaid" &&
+              activeTab !== "newVouchers" &&
+              activeTab !== "unassignedOut" &&
+              activeTab !== "workerLedger" ? (
                 <>
                   <Field label="시작일">
                     <KoreanDateInput
@@ -620,6 +711,13 @@ export function WorkerPaymentsPage({
           </div>
         </CardContent>
       </Card>
+
+      {activeTab === "newUnpaid" ? <NewApLedgerEmpty title="신규 미지급" writeEnabled={writeEnabled} /> : null}
+      {activeTab === "newVouchers" ? <NewApLedgerEmpty title="신규 지급전표" writeEnabled={writeEnabled} /> : null}
+      {activeTab === "unassignedOut" ? (
+        <NewApLedgerEmpty title="미배정·미확인 출금" writeEnabled={writeEnabled} />
+      ) : null}
+      {activeTab === "workerLedger" ? <NewApLedgerEmpty title="시공자 원장" writeEnabled={writeEnabled} /> : null}
 
       {activeTab === "summary" && (
         <>
@@ -729,6 +827,16 @@ export function WorkerPaymentsPage({
           <CardContent className="p-4 md:p-5">
             <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <SearchBox query={detailQuery} setQuery={setDetailQuery} placeholder="일자, 거래처, 현장, 시공자, 비고 검색" />
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 rounded-lg px-4 text-xs"
+                onClick={() => setDisbursementRegisterOpen(true)}
+                aria-label="시공자 상세에서 지급 등록"
+                title={!writeEnabled ? AP_LEDGER_INACTIVE_NOTICE : undefined}
+              >
+                + 지급 등록
+              </Button>
             </div>
 
             <div className="erp-receivable-totals-bar">
@@ -882,7 +990,10 @@ export function WorkerPaymentsPage({
         />
       )}
 
-      {activeTab === "monthly" ? (
+      {activeTab === "newUnpaid" ||
+      activeTab === "newVouchers" ||
+      activeTab === "unassignedOut" ||
+      activeTab === "workerLedger" ? null : activeTab === "monthly" ? (
         <>
           <Card className="rounded-2xl shadow-sm">
             <CardContent className="p-4 md:p-5">
@@ -935,6 +1046,7 @@ export function WorkerPaymentsPage({
         onClose={() => setDisbursementRegisterOpen(false)}
         workers={disbursementWorkers}
         initialWorkerName={selectedWorker || undefined}
+        title={writeEnabled ? "지급 등록" : "지급 등록 (미리보기)"}
         onSaved={() => setDisbursementRegisterOpen(false)}
       />
     </div>

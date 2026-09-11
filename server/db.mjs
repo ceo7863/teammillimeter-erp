@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import { config, seedUsers } from "./config.mjs";
 import { ERP_DOMAIN_FIELDS, ERP_DOMAIN_NAMES, pickDomainPayload } from "./erpDomains.mjs";
 import { logPaymentVoucherWriteFreeze, planPaymentVoucherWriteFreeze, planPaymentInputLogWriteFreeze, logPaymentInputLogWriteFreeze, freezeSalePaidFieldsForSave } from "./erpSaveMerge.mjs";
+import { isLegacyApWriterFrozen, planLegacyApArrayWriteFreeze } from "./apLedgerCutover.mjs";
 import { queueCoalescedWrite } from "./erpWriteQueue.mjs";
 import { migrateClientAichiToMiumu, needsClientAichiToMiumuMigration } from "./migrateClientAichiToMiumu.mjs";
 import { isAttendanceTargetUser } from "./attendanceAccess.mjs";
@@ -1083,6 +1084,31 @@ function saveErpStateImmediate(payload, expectedVersion, updatedBy, options = {}
     normalizedPayload = {
       ...normalizedPayload,
       paymentInputLogs: logPlan.logs,
+    };
+  }
+
+  // After AP cutover activation: legacy worker payout arrays are READ_ONLY_FOREVER.
+  // Before activation, production keeps existing writers (prepared freeze for activation txn).
+  if (isLegacyApWriterFrozen(assembled) && !options.allowWorkerApLegacyMutation) {
+    const monthlyPlan = planLegacyApArrayWriteFreeze(
+      assembled.workerMonthlyActualVouchers,
+      normalizedPayload?.workerMonthlyActualVouchers,
+      options,
+    );
+    const payoutPlan = planLegacyApArrayWriteFreeze(
+      assembled.workerPayoutVouchers,
+      normalizedPayload?.workerPayoutVouchers,
+      options,
+    );
+    if (monthlyPlan.blocked || payoutPlan.blocked) {
+      console.warn(
+        `[legacyApWriteFreeze] saveErpState (${updatedBy || "system"}): blocked monthly=${monthlyPlan.blockedCreates + monthlyPlan.blockedUpdates + monthlyPlan.blockedDeletes} payout=${payoutPlan.blockedCreates + payoutPlan.blockedUpdates + payoutPlan.blockedDeletes}`,
+      );
+    }
+    normalizedPayload = {
+      ...normalizedPayload,
+      workerMonthlyActualVouchers: monthlyPlan.rows,
+      workerPayoutVouchers: payoutPlan.rows,
     };
   }
 

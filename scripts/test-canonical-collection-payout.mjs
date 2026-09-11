@@ -57,6 +57,16 @@ function seedSales() {
         { id: "s3", date: "2026-09-12", client: "테스트업체", amount: 4_400_000, workers: [{ name: "김시공", lineSpend: 3_000_000 }] },
       ],
       workers: [{ id: "w1", name: "김시공" }],
+      bankSyncMeta: {
+        apLedgerCutoverWorkDate: "2026-01-01",
+        apLedgerCutoverAt: "2026-01-01T00:00:00.000Z",
+        apLedgerActivatedAt: "2026-01-01T00:00:00.000Z",
+        apLedgerActivatedBy: "test",
+        apLedgerPolicy: "FORWARD_ONLY_LEGACY_READ_ONLY",
+        openingBalancePolicy: "ZERO_START",
+        disbursementWriteEnabled: true,
+        legacyApPayoutPolicy: "READ_ONLY_FOREVER",
+      },
       receipts: [],
       receiptAllocations: [],
     },
@@ -164,40 +174,45 @@ check("partial disbursement ladder + reverse", () => {
       ],
       disbursements: [],
       disbursementAllocations: [],
+      bankSyncMeta: {
+        apLedgerCutoverWorkDate: "2026-01-01",
+        apLedgerCutoverAt: "2026-01-01T00:00:00.000Z",
+        apLedgerActivatedAt: "2026-01-01T00:00:00.000Z",
+        apLedgerActivatedBy: "test",
+        apLedgerPolicy: "FORWARD_ONLY_LEGACY_READ_ONLY",
+        openingBalancePolicy: "ZERO_START",
+        disbursementWriteEnabled: true,
+        legacyApPayoutPolicy: "READ_ONLY_FOREVER",
+      },
     },
     st0.version,
     "test",
     { allowDisbursementMutation: true },
   );
-  registerDisbursement(
-    { operationId: "disb-1", workerName: "김시공", disbursementDate: "2026-09-08", grossAmount: 5_000_000, channel: "cash", source: "manual" },
+  registerDisbursement({ __testBypassCutover: true, operationId: "disb-1", workerName: "김시공", disbursementDate: "2026-09-08", grossAmount: 5_000_000, channel: "cash", source: "manual" },
     "test",
   );
   assert.equal(getWorkerApBalance("김시공", getErpState().data).outstanding, 5_000_000);
-  registerDisbursement(
-    { operationId: "disb-2", workerName: "김시공", disbursementDate: "2026-09-09", grossAmount: 3_000_000, channel: "cash", source: "manual" },
+  registerDisbursement({ __testBypassCutover: true, operationId: "disb-2", workerName: "김시공", disbursementDate: "2026-09-09", grossAmount: 3_000_000, channel: "cash", source: "manual" },
     "test",
   );
   assert.equal(getWorkerApBalance("김시공", getErpState().data).outstanding, 2_000_000);
-  registerDisbursement(
-    { operationId: "disb-3", workerName: "김시공", disbursementDate: "2026-09-10", grossAmount: 2_000_000, channel: "cash", source: "manual" },
+  registerDisbursement({ __testBypassCutover: true, operationId: "disb-3", workerName: "김시공", disbursementDate: "2026-09-10", grossAmount: 2_000_000, channel: "cash", source: "manual" },
     "test",
   );
   assert.equal(getWorkerApBalance("김시공", getErpState().data).outstanding, 0);
   const last = listDisbursements(getErpState().data)
     .filter((r) => !r.reversalOfDisbursementId && r.status !== "reversed")
     .at(-1);
-  reverseDisbursement(last.id, { operationId: "disb-rev-1", reversalEffectiveDate: "2026-09-11" }, "test");
+  reverseDisbursement(last.id, { __testBypassCutover: true, operationId: "disb-rev-1", reversalEffectiveDate: "2026-09-11" }, "test");
   assert.equal(getWorkerApBalance("김시공", getErpState().data).outstanding, 2_000_000);
 });
 
 check("idempotency replay", () => {
-  const a = registerDisbursement(
-    { operationId: "disb-idem-1", workerName: "김시공", disbursementDate: "2026-09-11", grossAmount: 100_000, channel: "cash", source: "manual" },
+  const a = registerDisbursement({ __testBypassCutover: true, operationId: "disb-idem-1", workerName: "김시공", disbursementDate: "2026-09-11", grossAmount: 100_000, channel: "cash", source: "manual" },
     "test",
   );
-  const b = registerDisbursement(
-    { operationId: "disb-idem-1", workerName: "김시공", disbursementDate: "2026-09-11", grossAmount: 100_000, channel: "cash", source: "manual" },
+  const b = registerDisbursement({ __testBypassCutover: true, operationId: "disb-idem-1", workerName: "김시공", disbursementDate: "2026-09-11", grossAmount: 100_000, channel: "cash", source: "manual" },
     "test",
   );
   assert.equal(b.idempotent, true);
