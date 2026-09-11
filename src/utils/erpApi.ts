@@ -591,6 +591,31 @@ export async function createDisbursementRegisterApi(input: Record<string, unknow
   return apiRequest<any>("/disbursements/register", { method: "POST", body: JSON.stringify(input) });
 }
 
+export async function fetchApCutoverStatusApi() {
+  return apiRequest<Record<string, unknown>>("/admin/ap-cutover/status");
+}
+
+export async function previewApCutoverApi(input: Record<string, unknown>) {
+  return apiRequest<Record<string, unknown>>("/admin/ap-cutover/preview", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function activateApCutoverApi(input: Record<string, unknown>) {
+  return apiRequest<Record<string, unknown>>("/admin/ap-cutover/activate", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function emergencyApCutoverPauseApi(input: { enabled?: boolean; memo?: string } = {}) {
+  return apiRequest<Record<string, unknown>>("/admin/ap-cutover/emergency-pause", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export async function reverseDisbursementApi(id: string, input: Record<string, unknown> = {}) {
   return apiRequest<any>("/disbursements/" + encodeURIComponent(id) + "/reverse", {
     method: "POST",

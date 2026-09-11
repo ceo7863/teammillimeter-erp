@@ -135,11 +135,11 @@ function workItemAllocated(allocations, disbursements, workItemId, asOf = todayS
 export function listOpeningBalancePayables(data = {}) {
   const meta = readApLedgerMeta(data);
   return (meta.apOpeningBalances || []).map((row) => ({
-    workItemId: `opening:${String(row.workerId || row.workerName || "").trim()}:${row.effectiveDate}:${row.operationId}`,
+    workItemId: `opening:${String(row.workerId || row.workerNameSnapshot || row.workerName || "").trim()}:${row.effectiveDate}:${row.operationId}`,
     saleId: null,
     scScheduleId: null,
     workerId: row.workerId || null,
-    workerName: String(row.workerName || "").trim(),
+    workerName: String(row.workerNameSnapshot || row.workerName || "").trim(),
     workDate: String(row.effectiveDate || "").slice(0, 10),
     dueAmount: money(row.openingAmount),
     mealAmount: 0,

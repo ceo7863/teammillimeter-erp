@@ -43,6 +43,7 @@ export const ERP_PAGE_KEYS = [
   "taskBoard",
   "teamChat",
   "officePayroll",
+  "apCutover",
 ] as const;
 
 export type ErpPageKey = (typeof ERP_PAGE_KEYS)[number];
@@ -72,6 +73,7 @@ export const ERP_PAGE_DEFS: ErpPageDef[] = [
   { key: "receivables", label: "수금관리", group: "매출" }, // key stays receivables
   { key: "workerPayments", label: "지급관리", group: "시공" }, // key stays workerPayments
   { key: "officePayroll", label: "급여 관리", group: "회계", adminOnly: true },
+  { key: "apCutover", label: "AP 컷오버", group: "관리", adminOnly: true },
   { key: "reports", label: "보고서", group: "보고" },
   { key: "statements", label: "내역서", group: "보고" },
   { key: "basicInfo", label: "기본정보", group: "기준정보" },
