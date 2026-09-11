@@ -24,11 +24,25 @@ export function subscribeTeamChatEvents(userId, res) {
   subscribers.get(uid).add(res);
 
   const timer = setInterval(() => heartbeat(res), 15000);
-  res.on("close", () => {
+  const onClose = () => {
     clearInterval(timer);
+    res.off?.("close", onClose);
     subscribers.get(uid)?.delete(res);
     if (subscribers.get(uid)?.size === 0) subscribers.delete(uid);
-  });
+  };
+  res.on("close", onClose);
+}
+
+/** Test/ops helper: total open SSE response objects across all users. */
+export function countTeamChatSubscribers() {
+  let total = 0;
+  for (const set of subscribers.values()) total += set.size;
+  return total;
+}
+
+/** Test helper: clear all subscribers (does not end sockets). */
+export function resetTeamChatSubscribersForTests() {
+  subscribers.clear();
 }
 
 function writeEvent(res, payload) {

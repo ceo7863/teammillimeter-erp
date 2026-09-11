@@ -21,6 +21,7 @@ import {
   signToken,
   authMiddleware,
   adminMiddleware,
+  resolveRequestUser,
 } from "./auth.mjs";
 import {
   initDb,
@@ -1999,12 +2000,34 @@ app.get("/api/team-chat/unread-count", authMiddleware, (req, res) => {
 });
 
 app.get("/api/team-chat/events", (req, res) => {
-  const user = resolveRequestUser(req);
-  if (!user) {
-    res.status(401).json({ error: "\uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4." });
-    return;
+  try {
+    const user = resolveRequestUser(req);
+    if (!user) {
+      if (!res.headersSent) {
+        res.status(401).json({ error: "\uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4." });
+      } else {
+        try {
+          res.end();
+        } catch {
+          // ignore
+        }
+      }
+      return;
+    }
+    const userId = user.sub ?? user.id;
+    subscribeTeamChatEvents(userId, res);
+  } catch (error) {
+    console.error("[team-chat/events] failed:", error?.code || error?.name || "error");
+    if (!res.headersSent) {
+      res.status(error?.status || 500).json({ error: "팀채팅 실시간 연결에 실패했습니다." });
+      return;
+    }
+    try {
+      res.end();
+    } catch {
+      // ignore
+    }
   }
-  subscribeTeamChatEvents(user.sub ?? user.id, res);
 });
 
 app.get("/api/team-chat/search", authMiddleware, (req, res) => {
