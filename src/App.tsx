@@ -206,6 +206,7 @@ import { buildClientLastSaleDateMap } from "@/utils/clientListExport";
 import { KoreanDateInput } from "@/components/KoreanDateInput";
 import { PageKeepAlive } from "@/components/PageKeepAlive";
 import { SalesStatementsHubPage } from "@/components/SalesStatementsHubPage";
+import { useActionableExceptionCount } from "@/hooks/useActionableExceptionCount";
 import { ErpLoadingShell } from "@/components/ErpLoadingShell";
 import { ErpSyncStatusLine } from "@/components/ErpSyncStatusLine";
 import { useBankSyncPoll } from "@/hooks/useBankSyncPoll";
@@ -2912,6 +2913,7 @@ function SidebarComponent({
   mobileOpen,
   onMobileClose,
   pageBadges = {},
+  onOpenReceivablesExceptions,
 }) {
   const items = resolveVisibleSidebarPages(currentUser, sidebarOrder, sidebarHidden).map((page) => [
     page.key,
@@ -2920,6 +2922,11 @@ function SidebarComponent({
   ]);
 
   const navigate = (key) => {
+    if (key === "receivables" && onOpenReceivablesExceptions && (pageBadges.receivables || 0) > 0) {
+      onOpenReceivablesExceptions();
+      onMobileClose?.();
+      return;
+    }
     setActive(key);
     onMobileClose?.();
   };
@@ -9665,6 +9672,7 @@ export default function TeammillimeterErpMvp() {
         });
       return [...(result.allocations || []), ...kept];
     });
+    setExceptionRefreshToken((n) => n + 1);
   }, []);
 
   const persistClientsImmediate = useCallback(
@@ -11220,20 +11228,24 @@ export default function TeammillimeterErpMvp() {
       bankTransactionFolders?: unknown[];
       bankSyncMeta?: { lastImportAt?: string | null } | null;
     }) => {
-      if (syncResult?.version != null && syncResult.version > erpVersionRef.current) {
-        publishErpVersion(syncResult.version);
+      try {
+        if (syncResult?.version != null && syncResult.version > erpVersionRef.current) {
+          publishErpVersion(syncResult.version);
+        }
+        if (Array.isArray(syncResult?.bankTransactions)) {
+          return await applyRemoteBankSnapshot({
+            version: syncResult.version ?? erpVersionRef.current,
+            bankTransactions: syncResult.bankTransactions,
+            bankTransactionFolders: Array.isArray(syncResult.bankTransactionFolders)
+              ? syncResult.bankTransactionFolders
+              : undefined,
+            bankSyncMeta: syncResult.bankSyncMeta ?? null,
+          });
+        }
+        return await forceRefreshBankFromServer();
+      } finally {
+        setExceptionRefreshToken((n) => n + 1);
       }
-      if (Array.isArray(syncResult?.bankTransactions)) {
-        return applyRemoteBankSnapshot({
-          version: syncResult.version ?? erpVersionRef.current,
-          bankTransactions: syncResult.bankTransactions,
-          bankTransactionFolders: Array.isArray(syncResult.bankTransactionFolders)
-            ? syncResult.bankTransactionFolders
-            : undefined,
-          bankSyncMeta: syncResult.bankSyncMeta ?? null,
-        });
-      }
-      return forceRefreshBankFromServer();
     },
     [applyRemoteBankSnapshot, forceRefreshBankFromServer],
   );
@@ -11285,11 +11297,23 @@ export default function TeammillimeterErpMvp() {
     return count;
   }, [appliedSales, currentUser, saleComments, unreadSaleCommentCount]);
 
+  const [exceptionRefreshToken, setExceptionRefreshToken] = useState(0);
+  const actionableExceptions = useActionableExceptionCount({
+    enabled: Boolean(apiMode && dataReady && currentUser && canUserAccessPage(currentUser, "receivables")),
+    pollMs: 60000,
+    refreshToken: exceptionRefreshToken,
+  });
+
   const sidebarPageBadges = useMemo(
     () => ({
       clientSiteRequests: clientSiteRequestPendingCount,
       teamChat: teamChatUnreadCount,
       sales: saleReviewBadgeCount,
+      ...(typeof actionableExceptions.count === "number" &&
+      actionableExceptions.count > 0 &&
+      !actionableExceptions.fetchFailed
+        ? { receivables: actionableExceptions.count }
+        : {}),
       ...(canUserActAsSettler(currentUser)
         ? { workerPayments: countSalesNeedingReviewForRole(appliedSales, saleComments, "settler") }
         : {}),
@@ -11298,6 +11322,8 @@ export default function TeammillimeterErpMvp() {
         : {}),
     }),
     [
+      actionableExceptions.count,
+      actionableExceptions.fetchFailed,
       appliedSales,
       basicInfoTabAccess.workers,
       clientSiteRequestPendingCount,
@@ -11431,6 +11457,11 @@ export default function TeammillimeterErpMvp() {
         mobileOpen={sidebarOpen}
         onMobileClose={() => setSidebarOpen(false)}
         pageBadges={sidebarPageBadges}
+        onOpenReceivablesExceptions={() => {
+          setPendingReceivablesNav({ tab: "log" });
+          setActive("receivables");
+          setSidebarOpen(false);
+        }}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         {shellActive !== "teamChat" && shellActive !== "scCalendar" ? (
@@ -11693,6 +11724,13 @@ export default function TeammillimeterErpMvp() {
             manualLinkedSaleIds={manualLinkedSaleIds}
             pendingReceivablesNav={pendingReceivablesNav}
             onPendingReceivablesNavConsumed={() => setPendingReceivablesNav(null)}
+            onExceptionCountChange={actionableExceptions.setCountFromChild}
+            exceptionRefreshToken={exceptionRefreshToken}
+            onOpenBankTransactionFromException={(bankTransactionId) => {
+              setPendingBankTransactionId(bankTransactionId);
+              setAccountingNavTab("bank");
+              setActive("accounting");
+            }}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="workerPayments" active={shellActive}>

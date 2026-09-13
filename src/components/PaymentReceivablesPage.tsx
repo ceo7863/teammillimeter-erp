@@ -37,6 +37,7 @@ import {
 } from "@/utils/paymentDepositChannel";
 import { SalePaymentLinkBadge, PartialPaymentBadge } from "@/components/AutoLinkBadge";
 import { ReceiptRegisterModal } from "@/components/ReceiptRegisterModal";
+import { FinanceExceptionInboxPanel } from "@/components/FinanceExceptionInboxPanel";
 import { formatMonthLabel, monthRangeForKey, shiftMonthKey } from "@/utils/companyLedger";
 import {
   createReceiptApi,
@@ -257,6 +258,9 @@ export function PaymentReceivablesPage({
   pendingReceivablesNav = null,
   onPendingHistoryFilterConsumed,
   onPendingReceivablesNavConsumed,
+  onExceptionCountChange,
+  exceptionRefreshToken = 0,
+  onOpenBankTransactionFromException,
 }: {
   sales?: SaleLike[];
   receivableRows?: ReceivableRow[];
@@ -282,9 +286,13 @@ export function PaymentReceivablesPage({
     allHistory?: boolean;
     startDate?: string;
     endDate?: string;
+    exceptionId?: string;
   } | null;
   onPendingHistoryFilterConsumed?: () => void;
   onPendingReceivablesNavConsumed?: () => void;
+  onExceptionCountChange?: (count: number | null, meta: { fetchFailed: boolean }) => void;
+  exceptionRefreshToken?: number;
+  onOpenBankTransactionFromException?: (bankTransactionId: string) => void;
 }) {
   const { recordAudit } = useAudit();
   const [tab, setTab] = useState<PaymentTab>("receivables");
@@ -308,6 +316,9 @@ export function PaymentReceivablesPage({
   const [paymentSaving, setPaymentSaving] = useState(false);
   const [lastReceiptSummary, setLastReceiptSummary] = useState("");
   const [registerOpen, setRegisterOpen] = useState(false);
+  const [pendingExceptionId, setPendingExceptionId] = useState<string | null>(null);
+  const [localExceptionCount, setLocalExceptionCount] = useState<number | null>(null);
+  const [localExceptionFetchFailed, setLocalExceptionFetchFailed] = useState(false);
 
   const registerClients = useMemo(
     () =>
@@ -336,6 +347,7 @@ export function PaymentReceivablesPage({
     const nav = pendingReceivablesNav || (pendingHistoryFilter?.clientName ? { tab: "history" as const, clientName: pendingHistoryFilter.clientName } : null);
     if (!nav) return;
     if (nav.tab) setTab(nav.tab);
+    if (nav.exceptionId) setPendingExceptionId(nav.exceptionId);
     if (nav.clientName) {
       if (nav.allHistory) {
         setFilters((prev) => ({ ...prev, client: nav.clientName || "", startDate: "", endDate: "" }));
@@ -972,8 +984,21 @@ export function PaymentReceivablesPage({
             type="button"
             className={`erp-payment-tab ${tab === item.key ? "is-active" : ""}`}
             onClick={() => setTab(item.key)}
+            aria-label={
+              item.key === "log" && typeof localExceptionCount === "number" && localExceptionCount > 0
+                ? `${item.label} ${localExceptionCount}건`
+                : item.label
+            }
           >
             {item.label}
+            {item.key === "log" &&
+            typeof localExceptionCount === "number" &&
+            localExceptionCount > 0 &&
+            !localExceptionFetchFailed ? (
+              <span className="ml-1 rounded-full bg-amber-100 px-1.5 text-[10px] font-bold text-amber-900">
+                {localExceptionCount > 99 ? "99+" : localExceptionCount}
+              </span>
+            ) : null}
           </button>
         ))}
       </div>
@@ -1693,150 +1718,19 @@ export function PaymentReceivablesPage({
       )}
 
       {tab === "log" && (
-        <>
-        <Card className="rounded-xl border-slate-200/80 shadow-sm">
-          <CardContent className="p-3 md:p-4">
-            <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <h2 className="text-sm font-bold text-slate-800">입금로그</h2>
-                <p className="text-xs text-slate-500">행 클릭 → 해당 저장 건의 입금 내역 표시</p>
-              </div>
-              <SearchBox query={logQuery} setQuery={setLogQuery} placeholder="입금로그 검색" />
-            </div>
-            <TableExportSection fileName="입금로그" title="입금로그" disabled={filteredPaymentInputLogSummaries.length === 0}>
-              <div className="erp-table-wrap">
-                <table className="erp-table">
-                  <thead className="bg-slate-100 text-slate-600">
-                    <tr>
-                      <th className="text-left">입금일자</th>
-                      <th className="text-left">거래처명</th>
-                      <th className="text-right">총합</th>
-                      <th className="text-right">공급가</th>
-                      <th className="text-right">VAT</th>
-                      <th className="text-left">저장일시</th>
-                      <th className="text-left">로그기록</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredPaymentInputLogSummaries.map((row) => (
-                      <tr
-                        key={row.id}
-                        className={`cursor-pointer border-t hover:bg-sky-50 ${selectedLogSummaryId === row.id ? "bg-sky-50" : ""}`}
-                        onClick={() => setSelectedLogSummaryId((prev) => (prev === row.id ? null : row.id))}
-                      >
-                        <td className="text-slate-700">{row.paymentDate}</td>
-                        <td className="text-left font-semibold">{row.clientLabel}</td>
-                        <td className="text-right font-bold text-emerald-700">{formatKRW(row.totalAmount)}</td>
-                        <td className="text-right font-semibold text-emerald-600">{formatKRW(row.supplyAmount)}</td>
-                        <td className="text-right text-slate-600">{formatKRW(row.vatAmount)}</td>
-                        <td className="text-slate-500">{row.createdAt ? row.createdAt.replace("T", " ").slice(0, 16) : "-"}</td>
-                        <td className="text-left text-slate-600">{formatPaymentInputLogRecord(row)}</td>
-                      </tr>
-                    ))}
-                    {filteredPaymentInputLogSummaries.length === 0 && (
-                      <tr>
-                        <td colSpan={7} className="p-8 text-center text-slate-500">
-                          입금로그가 없습니다. 입금 입력에서 선택 입금 저장 시 기록됩니다.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </TableExportSection>
-          </CardContent>
-        </Card>
-
-        {selectedLogSummary && (
-          <Card className="rounded-xl border-sky-200/80 shadow-sm">
-            <CardContent className="p-3 md:p-4">
-              <div className="mb-3">
-                <h2 className="text-sm font-bold text-slate-800">입금 내역</h2>
-                <p className="text-xs text-slate-500">
-                  {formatPaymentInputLogRecord(selectedLogSummary)} · {selectedLogSummary.paymentDate}
-                </p>
-              </div>
-              <TableExportSection
-                fileName={`입금로그_내역_${selectedLogSummary.paymentDate}`}
-                title="입금로그 상세 입금내역"
-                disabled={selectedLogVouchers.length === 0}
-              >
-                <div className="erp-payment-table-wrap">
-                  <table className="erp-payment-table erp-payment-table--history">
-                    <colgroup>
-                      <col className="col-date" />
-                      <col className="col-date" />
-                      <col className="col-client" />
-                      <col className="col-site" />
-                      <col className="col-money" />
-                      <col className="col-money" />
-                      <col className="col-vat" />
-                      <col className="col-money" />
-                      <col className="col-channel" />
-                      <col className="col-memo" />
-                    </colgroup>
-                    <thead>
-                      <tr>
-                        <th className="text-left">거래일</th>
-                        <th className="text-left">입금일</th>
-                        <th className="text-left">거래처</th>
-                        <th className="text-left">현장</th>
-                        <th className="text-right">시공비</th>
-                        <th className="text-right">입금액</th>
-                        <th className="text-center">VAT</th>
-                        <th className="text-right">최종</th>
-                        <th className="text-center">입금구분</th>
-                        <th className="text-left">비고</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedLogVouchers.map((voucher) => (
-                        <tr key={voucher.id}>
-                          <td className="font-medium text-slate-800">
-                        {getVoucherSaleDate(voucher) || "-"}
-                        <SalePaymentLinkBadge saleId={voucher.salesId} />
-                        {voucher.isPartialPayment ? <PartialPaymentBadge /> : null}
-                      </td>
-                          <td className="text-slate-600">{voucher.date}</td>
-                          <td className="erp-cell-clip text-left font-semibold" title={voucher.client}>{voucher.client}</td>
-                          <td className="erp-cell-clip text-left text-slate-600" title={voucher.site || ""}>{voucher.site || "-"}</td>
-                          <td className="text-right">{formatKRW(voucher.totalSalesAmount || 0)}</td>
-                          <td className="text-right font-semibold text-emerald-600">{formatKRW(voucher.amount || 0)}</td>
-                          <td className="text-center text-slate-600">{voucher.vatType === "excluded" ? "별도" : "포함"}</td>
-                          <td className="text-right font-bold text-emerald-700">{formatKRW(voucher.finalAmount ?? voucher.amount ?? 0)}</td>
-                          <td className="text-center">
-                            <span className={`erp-payment-channel-badge erp-payment-channel-badge--${normalizePaymentDepositChannel(voucher.depositChannel)}`}>
-                              {formatPaymentDepositChannel(voucher.depositChannel)}
-                            </span>
-                          </td>
-                          <td className="erp-cell-clip text-slate-600" title={voucher.memo || ""}>{voucher.memo || "-"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    {selectedLogVouchers.length > 0 && (
-                      <tfoot>
-                        <tr>
-                          <td colSpan={4} className="text-left">총합계 {selectedLogVoucherTotals.count}건</td>
-                          <td className="text-right">{formatKRW(selectedLogVoucherTotals.bill)}</td>
-                          <td className="text-right text-emerald-600">{formatKRW(selectedLogVoucherTotals.amount)}</td>
-                          <td className="text-center text-slate-500">{formatKRW(selectedLogVoucherTotals.vat)}</td>
-                          <td className="text-right text-emerald-700">{formatKRW(selectedLogVoucherTotals.final)}</td>
-                          <td colSpan={2} />
-                        </tr>
-                      </tfoot>
-                    )}
-                  </table>
-                  {selectedLogVouchers.length === 0 && (
-                    <div className="erp-payment-empty">
-                      연결된 입금 전표를 찾을 수 없습니다. 입금 내역에서 삭제되었거나 로그만 남아 있을 수 있습니다.
-                    </div>
-                  )}
-                </div>
-              </TableExportSection>
-            </CardContent>
-          </Card>
-        )}
-        </>
+        <FinanceExceptionInboxPanel
+          isActive={tab === "log"}
+          refreshToken={exceptionRefreshToken}
+          onCountChange={(count, meta) => {
+            setLocalExceptionFetchFailed(Boolean(meta?.fetchFailed));
+            if (typeof count === "number") setLocalExceptionCount(count);
+            onExceptionCountChange?.(count, meta);
+          }}
+          onOpenBankTransaction={onOpenBankTransactionFromException}
+          onOpenReceiptRegister={() => setRegisterOpen(true)}
+          pendingExceptionId={pendingExceptionId}
+          onPendingExceptionConsumed={() => setPendingExceptionId(null)}
+        />
       )}
 
       {tab === "arLedger" && (

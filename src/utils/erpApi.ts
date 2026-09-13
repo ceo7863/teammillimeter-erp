@@ -737,3 +737,53 @@ export async function fetchBankSyncStatus() {
     updatedAt?: string | null;
   }>("/bank-sync/status");
 }
+
+export type UnresolvedDepositsResponse = {
+  unresolved: Array<Record<string, unknown>>;
+  actionable: Array<Record<string, unknown>>;
+  count: number;
+  actionableCount: number;
+  version: number;
+  fetchStatus: "ok" | string;
+};
+
+export type UnresolvedDepositMutationResponse = {
+  ok: boolean;
+  idempotent?: boolean;
+  actionableCount: number;
+  unresolved: Array<Record<string, unknown>>;
+  actionable?: Array<Record<string, unknown>>;
+  decision?: Record<string, unknown> | null;
+  version?: number;
+  updatedAt?: string | null;
+};
+
+export async function fetchUnresolvedDepositsApi() {
+  return apiRequest<UnresolvedDepositsResponse>("/bank-deposits/unresolved");
+}
+
+export async function ignoreUnresolvedDepositApi(
+  bankTransactionId: string,
+  options?: { operationId?: string },
+) {
+  return apiRequest<UnresolvedDepositMutationResponse>(
+    `/bank-deposits/unresolved/${encodeURIComponent(bankTransactionId)}/ignore`,
+    {
+      method: "POST",
+      body: JSON.stringify({ operationId: options?.operationId }),
+    },
+  );
+}
+
+export async function retryUnresolvedDepositApi(
+  bankTransactionId: string,
+  options?: { operationId?: string },
+) {
+  return apiRequest<UnresolvedDepositMutationResponse>(
+    `/bank-deposits/unresolved/${encodeURIComponent(bankTransactionId)}/retry`,
+    {
+      method: "POST",
+      body: JSON.stringify({ operationId: options?.operationId }),
+    },
+  );
+}
