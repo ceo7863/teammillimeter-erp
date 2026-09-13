@@ -217,13 +217,15 @@ export function isHistoricalExcludedExceptionKind(kind: string): boolean {
 }
 
 export function countActionableExceptionBadge(
-  items: Array<{ kind?: string; status?: string; ignored?: boolean }> | null | undefined,
+  items: Array<{ kind?: string; reasonCode?: string; status?: string; ignored?: boolean }> | null | undefined,
 ): number {
   if (!items?.length) return 0;
   return items.filter((item) => {
     if (item.ignored) return false;
     if (item.status === "resolved" || item.status === "ignored") return false;
     if (item.kind && isHistoricalExcludedExceptionKind(item.kind)) return false;
+    const kindOrReason = String(item.kind || item.reasonCode || "").trim();
+    if (kindOrReason === "PRE_CUTOVER") return false;
     return true;
   }).length;
 }

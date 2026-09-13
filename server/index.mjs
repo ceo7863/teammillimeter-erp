@@ -277,6 +277,13 @@ import {
   getBankTransactionReceipt,
   reverseBankTransactionReceipt,
 } from "./bankReceipts.mjs";
+import {
+  mapUnresolvedQueueToExceptionItems,
+  filterActionableFinanceExceptions,
+  ignoreUnresolvedDepositInMeta,
+  retryUnresolvedDepositInMeta,
+} from "./financeExceptionInbox.mjs";
+import { decideBankDepositAction } from "./bankDepositDecision.mjs";
 import { buildClientArSubledger } from "./receiptArSubledger.mjs";
 import {
   buildArParityReport,
@@ -291,6 +298,7 @@ import {
   buildArLedgerCutoverHealthReport,
   stampGlobalArLedgerCutoverMetadata,
   AR_LEDGER_CUTOVER_RECORDED_BY,
+  readBankReceiptCutoverAt,
 } from "./arLedgerCutover.mjs";
 import { diagnoseLegacyPaymentMigration } from "../scripts/receipt-migration-dry-run.mjs";
 import {
@@ -3984,11 +3992,108 @@ app.get("/api/bank-deposits/unresolved", authMiddleware, (_req, res) => {
   const state = getErpState(["bankTransactions", "receipts"]);
   const meta = state.data?.bankSyncMeta || {};
   const queue = Array.isArray(meta.unresolvedDepositQueue) ? meta.unresolvedDepositQueue : [];
+  const unresolved = mapUnresolvedQueueToExceptionItems(queue);
+  const actionable = filterActionableFinanceExceptions(unresolved);
   res.json({
-    unresolved: queue,
+    unresolved,
+    actionable,
     count: queue.length,
+    actionableCount: actionable.length,
     version: state.version,
+    fetchStatus: "ok",
   });
+});
+
+app.post("/api/bank-deposits/unresolved/:bankTransactionId/ignore", authMiddleware, (req, res) => {
+  try {
+    const bankTransactionId = String(req.params.bankTransactionId || "").trim();
+    const operationId = req.body?.operationId || req.body?.idempotencyKey || null;
+    const state = getErpState();
+    const prevMeta =
+      state.data?.bankSyncMeta && typeof state.data.bankSyncMeta === "object"
+        ? state.data.bankSyncMeta
+        : {};
+    const result = ignoreUnresolvedDepositInMeta(prevMeta, bankTransactionId, { operationId });
+    const actor = req.user?.loginId || req.user?.email || req.user?.name || "user";
+    const saved = saveErpState(
+      { ...state.data, bankSyncMeta: result.bankSyncMeta },
+      state.version,
+      actor,
+    );
+    const unresolved = mapUnresolvedQueueToExceptionItems(result.unresolved);
+    const actionable = filterActionableFinanceExceptions(unresolved);
+    res.json({
+      ok: true,
+      idempotent: Boolean(result.idempotent),
+      actionableCount: actionable.length,
+      unresolved,
+      actionable,
+      version: saved.version,
+      updatedAt: saved.updatedAt,
+    });
+  } catch (error) {
+    if (error.status === 409) {
+      return res.status(409).json({ error: error.message || "VERSION_CONFLICT", code: "VERSION_CONFLICT" });
+    }
+    res.status(error.status || 500).json({ error: error.message, code: error.code });
+  }
+});
+
+app.post("/api/bank-deposits/unresolved/:bankTransactionId/retry", authMiddleware, (req, res) => {
+  try {
+    const bankTransactionId = String(req.params.bankTransactionId || "").trim();
+    const operationId = req.body?.operationId || req.body?.idempotencyKey || null;
+    const state = getErpState();
+    const data = state.data || {};
+    const prevMeta =
+      data.bankSyncMeta && typeof data.bankSyncMeta === "object" ? data.bankSyncMeta : {};
+    const tx = (Array.isArray(data.bankTransactions) ? data.bankTransactions : []).find(
+      (row) => String(row?.id || "") === bankTransactionId,
+    );
+    let decision = null;
+    if (tx) {
+      try {
+        decision = decideBankDepositAction(tx, {
+          clients: data.clients || [],
+          sales: data.sales || [],
+          receipts: data.receipts || [],
+          allocations: data.receiptAllocations || [],
+          paymentVouchers: data.paymentVouchers || [],
+          cutoverAt: readBankReceiptCutoverAt(data),
+          proposeFifoAllocations,
+        });
+      } catch {
+        decision = null;
+      }
+    }
+    const result = retryUnresolvedDepositInMeta(prevMeta, bankTransactionId, {
+      operationId,
+      decision,
+    });
+    const actor = req.user?.loginId || req.user?.email || req.user?.name || "user";
+    const saved = saveErpState(
+      { ...data, bankSyncMeta: result.bankSyncMeta },
+      state.version,
+      actor,
+    );
+    const unresolved = mapUnresolvedQueueToExceptionItems(result.unresolved);
+    const actionable = filterActionableFinanceExceptions(unresolved);
+    res.json({
+      ok: true,
+      idempotent: Boolean(result.idempotent),
+      actionableCount: actionable.length,
+      unresolved,
+      actionable,
+      decision: result.decision || null,
+      version: saved.version,
+      updatedAt: saved.updatedAt,
+    });
+  } catch (error) {
+    if (error.status === 409) {
+      return res.status(409).json({ error: error.message || "VERSION_CONFLICT", code: "VERSION_CONFLICT" });
+    }
+    res.status(error.status || 500).json({ error: error.message, code: error.code });
+  }
 });
 
 app.post("/api/collection/cash-transfer/classify", authMiddleware, (req, res) => {
