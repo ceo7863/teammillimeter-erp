@@ -3478,6 +3478,7 @@ function CalendarPage({
   onPendingClientFilterConsumed,
   onViewportMonthKeyChange,
   onEditingSaleMetaChange,
+  onOpenClientLedger,
 }) {
   const { recordAudit } = useAudit();
   const { message: clientFilterNotice, showNotice: showClientFilterNotice, clearNotice: clearClientFilterNotice } = useActionNotice();
@@ -5331,6 +5332,7 @@ function CalendarPage({
           saleComments={saleComments}
           onAddSaleComment={(body) => onAddSaleComment?.(editingSale.id, body)}
           onReviewAction={(action, body) => onReviewAction?.(editingSale.id, action, body)}
+          onOpenClientLedger={onOpenClientLedger}
         />
       ) : null}
     </div>
@@ -5659,7 +5661,7 @@ function SearchBox({ query, setQuery, placeholder }) {
 
 const emptyVoucherSearchFilters = { client: "", site: "", worker: "", contactFilter: "" };
 
-function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, setPaymentVouchers, setBankTransactions, onPersistSaleUpdate, onPersistSaleDelete, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set(), saleComments = [], onAddSaleComment, onReviewAction, saleCommentCounts, saleCommentUnreadCounts, onOpenSaleComments, dataReady = true }) {
+function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser, setPaymentVouchers, setBankTransactions, onPersistSaleUpdate, onPersistSaleDelete, pendingVoucherId, pendingSearchFilter, onPendingVoucherConsumed, onPendingSearchConsumed, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set(), saleComments = [], onAddSaleComment, onReviewAction, saleCommentCounts, saleCommentUnreadCounts, onOpenSaleComments, dataReady = true, onOpenClientLedger }) {
   const [searchFilters, setSearchFilters] = useState(emptyVoucherSearchFilters);
   const [dateFilter, setDateFilter] = useState({ startDate: "", endDate: "" });
   const [selectedSale, setSelectedSale] = useState(null);
@@ -5752,6 +5754,7 @@ function SalesVoucherSearchPage({ sales, setSales, clients, workers, currentUser
           saleComments={saleComments}
           onAddSaleComment={(body) => onAddSaleComment?.(selectedSale.id, body)}
           onReviewAction={(action, body) => onReviewAction?.(selectedSale.id, action, body)}
+          onOpenClientLedger={onOpenClientLedger}
         />
       ) : null}
 
@@ -5955,6 +5958,7 @@ const ClientListTable = memo(function ClientListTable({
   onOpenBusinessRegView,
   onToggleActive,
   onShareToTeamChat,
+  onOpenCollectionJournal,
 }: {
   clients: Array<Record<string, unknown>>;
   lastSaleByClient: Map<string, string>;
@@ -5963,6 +5967,7 @@ const ClientListTable = memo(function ClientListTable({
   onOpenBusinessRegView: (client: Record<string, unknown>) => void;
   onToggleActive: (client: Record<string, unknown>) => void;
   onShareToTeamChat?: (client: Record<string, unknown>) => void;
+  onOpenCollectionJournal?: (client: Record<string, unknown>) => void;
 }) {
   return (
     <div className="erp-table-wrap erp-table-wrap--page-scroll">
@@ -6045,6 +6050,18 @@ const ClientListTable = memo(function ClientListTable({
                       <MessageCircle size={14} />
                     </Button>
                   ) : null}
+                  {onOpenCollectionJournal ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl px-2 text-xs font-bold"
+                      data-open-client-collection-journal="true"
+                      onClick={() => onOpenCollectionJournal(client)}
+                      title={"\uC218\uAE08\uC6D0\uC7A5"}
+                    >
+                      {"\uC6D0\uC7A5"}
+                    </Button>
+                  ) : null}
                   <Button size="sm" variant="outline" className="rounded-xl" onClick={() => onEdit(client)}>
                     <Pencil size={14} />
                   </Button>
@@ -6089,7 +6106,7 @@ function createEmptyClientForm(): ClientFormState {
   };
 }
 
-function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersistClientsImmediate, onShareToTeamChat }) {
+function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersistClientsImmediate, onShareToTeamChat, onOpenClientCollectionJournal }) {
   const [form, setForm] = useState(createEmptyClientForm);
   const [editingId, setEditingId] = useState(null);
   const [clientModalOpen, setClientModalOpen] = useState(false);
@@ -6444,6 +6461,15 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
             onOpenBusinessRegView={openBusinessRegView}
             onToggleActive={toggleClientActive}
             onShareToTeamChat={onShareToTeamChat}
+            onOpenCollectionJournal={
+              onOpenClientCollectionJournal
+                ? (client) =>
+                    onOpenClientCollectionJournal({
+                      id: client.id as string | number,
+                      name: String(client.name || ""),
+                    })
+                : undefined
+            }
           />
         </CardContent>
       </Card>
@@ -6462,6 +6488,17 @@ function ClientsPage({ clients, setClients, sales = [], companyProfile, onPersis
         onUpdate={updateForm}
         businessRegAvailable={businessRegAvailable}
         onOpenBusinessReg={() => openBusinessRegView(editingClient)}
+        onOpenCollectionJournal={
+          editingClient && onOpenClientCollectionJournal
+            ? () => {
+                onOpenClientCollectionJournal({
+                  id: editingClient.id as string | number,
+                  name: String(editingClient.name || form.name || ""),
+                });
+                closeClientModal();
+              }
+            : undefined
+        }
         onImportApply={handleImportApply}
       />
 
@@ -11822,6 +11859,12 @@ export default function TeammillimeterErpMvp() {
             saleAiRules={saleAiRules}
             pendingClientFilter={pendingCalendarClientFilter}
             onPendingClientFilterConsumed={() => setPendingCalendarClientFilter(null)}
+            onOpenClientLedger={(clientId, clientName) => {
+              const name = String(clientName || "").trim();
+              if (!name) return;
+              setPendingReceivablesNav({ tab: "arLedger", clientName: name });
+              setActive("receivables");
+            }}
           />
         </PageKeepAlive>
         <PageKeepAlive pageKey="clientSiteRequests" active={shellActive}>
@@ -11945,6 +11988,12 @@ export default function TeammillimeterErpMvp() {
                 saleCommentUnreadCounts={saleCommentUnreadCountBySaleId}
                 onOpenSaleComments={openSaleCommentsView}
                 dataReady={dataReady}
+                onOpenClientLedger={(clientId, clientName) => {
+                  const name = String(clientName || "").trim();
+                  if (!name) return;
+                  setPendingReceivablesNav({ tab: "arLedger", clientName: name });
+                  setActive("receivables");
+                }}
               />
             }
             comments={
@@ -12177,6 +12226,12 @@ export default function TeammillimeterErpMvp() {
                 onShareToTeamChat={(client) => {
                   openTeamChatWithShare({ link: buildClientTeamChatLink(client as { id?: string | number; name?: string }) });
                 }}
+                onOpenClientCollectionJournal={(client) => {
+                  const clientName = String(client?.name || "").trim();
+                  if (!clientName) return;
+                  setPendingReceivablesNav({ tab: "arLedger", clientName });
+                  setActive("receivables");
+                }}
               />
             }
             workersPanel={
@@ -12298,6 +12353,13 @@ export default function TeammillimeterErpMvp() {
               endDate,
               highlightReceiptId: String(receiptId),
             });
+            setActive("receivables");
+          }}
+          onOpenClientLedger={(_clientId, clientName) => {
+            const name = String(clientName || salesManagementEditSale?.client || "").trim();
+            if (!name) return;
+            setSalesManagementEditSale(null);
+            setPendingReceivablesNav({ tab: "arLedger", clientName: name });
             setActive("receivables");
           }}
         />

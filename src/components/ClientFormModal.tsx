@@ -36,6 +36,7 @@ const L = {
   contactsLabel: "\uB2F4\uB2F9\uC790 \uC5F0\uB77D\uCC98",
   importBusinessReg: "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D\uC5D0\uC11C \uAC00\uC838\uC624\uAE30",
   viewBusinessReg: "\uC0AC\uC5C5\uC790\uB4F1\uB85D\uC99D",
+  collectionJournal: "\uC218\uAE08\uC6D0\uC7A5",
 };
 
 function clientFieldLabel(key: keyof ClientFormState): string {
@@ -75,6 +76,8 @@ type ClientFormModalProps = {
   onUpdate: (key: keyof ClientFormState, value: ClientFormState[keyof ClientFormState]) => void;
   businessRegAvailable?: boolean;
   onOpenBusinessReg?: () => void;
+  /** Open 수금원장 for the client currently being edited (detail). */
+  onOpenCollectionJournal?: () => void;
   onImportApply?: (next: ClientFormState, sourceFile: File | null) => void | Promise<void>;
 };
 
@@ -90,6 +93,7 @@ export const ClientFormModal = memo(function ClientFormModal({
   onUpdate,
   businessRegAvailable = false,
   onOpenBusinessReg,
+  onOpenCollectionJournal,
   onImportApply,
 }: ClientFormModalProps) {
   const [importOpen, setImportOpen] = useState(false);
@@ -132,6 +136,18 @@ export const ClientFormModal = memo(function ClientFormModal({
                 <Button type="button" variant="outline" size="sm" className="rounded-2xl" onClick={onOpenBusinessReg}>
                   <FileText size={14} className="mr-1" />
                   {L.viewBusinessReg}
+                </Button>
+              ) : null}
+              {editingId != null && onOpenCollectionJournal ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="rounded-2xl"
+                  data-open-client-collection-journal="true"
+                  onClick={onOpenCollectionJournal}
+                >
+                  {L.collectionJournal}
                 </Button>
               ) : null}
             </div>

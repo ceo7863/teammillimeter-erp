@@ -420,6 +420,23 @@ export function listArAdjustments(data = {}) {
   return listAdjustments(data).filter((row) => !row.reversalOfAdjustmentId);
 }
 
+/** Lookup any adjustment document (including reversals) by id. */
+export function getArAdjustmentById(data = {}, id) {
+  const key = String(id || "").trim();
+  if (!key) return null;
+  return listAdjustments(data).find((row) => String(row.id) === key) || null;
+}
+
+export function listArAdjustmentEventsForId(data = {}, id) {
+  const key = String(id || "").trim();
+  if (!key) return [];
+  return listEvents(data).filter(
+    (row) =>
+      String(row.adjustmentId || "") === key ||
+      String(row.reversalAdjustmentId || "") === key,
+  );
+}
+
 export function summarizePeriodAdjustments(adjustments = [], { clientId, start, end } = {}) {
   const cid = clientId != null && String(clientId).trim() !== "" ? String(clientId) : null;
   const startYmd = start ? String(start).slice(0, 10) : "";

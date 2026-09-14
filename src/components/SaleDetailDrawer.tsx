@@ -95,6 +95,22 @@ export type SaleDetailDrawerProps = {
   receipts?: ReceiptRecord[];
   receiptAllocations?: ReceiptAllocationRecord[];
   onOpenReceipt?: (receiptId: string) => void;
+  /** Open the client's collection journal (수금원장). */
+  onOpenClientLedger?: (clientId: string | number, clientName?: string) => void;
+  /** Optional AR adjustments targeting this sale (shown separately from cash receipts). */
+  arAdjustments?: Array<{
+    id?: string;
+    adjustmentNo?: string;
+    effectiveDate?: string;
+    adjustmentType?: string;
+    signedAmount?: number;
+    amount?: number;
+    status?: string;
+    reversalOfAdjustmentId?: string | null;
+    reversedEffectiveDate?: string | null;
+    targets?: Array<{ saleId?: string | number | null; amount?: number }>;
+    memo?: string;
+  }>;
 };
 
 function syncLinkedPaymentVouchersForSale(
@@ -150,6 +166,8 @@ export const SaleDetailDrawer = memo(function SaleDetailDrawer({
   receipts = [],
   receiptAllocations = [],
   onOpenReceipt,
+  onOpenClientLedger,
+  arAdjustments = [],
 }: SaleDetailDrawerProps) {
   const { recordAudit } = useAudit();
   const [deleteConfirm, setDeleteConfirm] = useState<SaleRecord | null>(null);
@@ -203,6 +221,42 @@ export const SaleDetailDrawer = memo(function SaleDetailDrawer({
       }))
       .sort((a, b) => String(b.receiptDate).localeCompare(String(a.receiptDate)));
   }, [receipts, receiptAllocations, sale.id]);
+
+  const linkedAdjustments = useMemo(() => {
+    const saleKey = String(sale.id);
+    return (arAdjustments || [])
+      .filter((row) => {
+        if (!row || row.status === "reversed") return false;
+        if (row.reversedEffectiveDate) return false;
+        const targets = Array.isArray(row.targets) ? row.targets : [];
+        return targets.some((t) => String(t?.saleId ?? "") === saleKey);
+      })
+      .map((row) => {
+        const targetSum = (row.targets || [])
+          .filter((t) => String(t?.saleId ?? "") === saleKey)
+          .reduce((sum, t) => sum + Math.round(Number(t.amount) || 0), 0);
+        const signed =
+          row.signedAmount != null
+            ? Math.round(Number(row.signedAmount) || 0)
+            : targetSum || Math.round(Number(row.amount) || 0);
+        return {
+          id: String(row.id || ""),
+          adjustmentNo: row.adjustmentNo || row.id || "",
+          effectiveDate: String(row.effectiveDate || "").slice(0, 10),
+          adjustmentType: row.adjustmentType || "",
+          signedAmount: signed,
+          memo: row.memo || "",
+        };
+      });
+  }, [arAdjustments, sale.id]);
+
+  const receiptAppliedTotal = linkedReceiptRows.reduce((sum, row) => sum + (row.amount || 0), 0);
+  const creditAdjTotal = linkedAdjustments
+    .filter((row) => row.signedAmount < 0)
+    .reduce((sum, row) => sum + Math.abs(row.signedAmount), 0);
+  const debitAdjTotal = linkedAdjustments
+    .filter((row) => row.signedAmount > 0)
+    .reduce((sum, row) => sum + row.signedAmount, 0);
 
   useEffect(() => {
     // Fresh server sale clears draft hold after successful save.
@@ -411,7 +465,29 @@ export const SaleDetailDrawer = memo(function SaleDetailDrawer({
               saveMessage={saveMessage}
               auditEntityId={sale.id}
               headerAction={(
-                <div className="flex items-center gap-1">
+                <div className="flex flex-wrap items-center gap-1">
+                  {onOpenClientLedger && sale.client ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 rounded-lg text-xs"
+                      data-open-client-collection-journal="true"
+                      onClick={() => {
+                        const clientName = String(sale.client || "").trim();
+                        const match = (clients as Array<{ id?: string | number; name?: string }>).find(
+                          (row) => String(row.name || "").trim() === clientName,
+                        );
+                        const clientId =
+                          match?.id ??
+                          (sale as { clientId?: string | number }).clientId ??
+                          clientName;
+                        onOpenClientLedger(clientId as string | number, clientName);
+                      }}
+                    >
+                      거래처 수금원장
+                    </Button>
+                  ) : null}
                   <TeamChatShareButton
                     payload={{
                       link: buildSaleTeamChatLink({
@@ -451,12 +527,32 @@ export const SaleDetailDrawer = memo(function SaleDetailDrawer({
               )}
               allowClientSiteUnlock
             />
-            {receipts.length > 0 || receiptAllocations.length > 0 ? (
+            {receipts.length > 0 || receiptAllocations.length > 0 || linkedAdjustments.length > 0 ? (
               <div
                 className="mt-3 rounded-xl border border-slate-200 bg-white p-3"
                 data-sale-linked-receipts="true"
               >
-                <h3 className="text-sm font-bold text-slate-800">연결 입금전표</h3>
+                <h3 className="text-sm font-bold text-slate-800">정리 내역 구분</h3>
+                <p className="mt-0.5 text-xs text-slate-500">실제 입금과 미수조정을 합쳐 표시하지 않습니다</p>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                  <div className="rounded-lg bg-slate-50 p-2">
+                    <div className="text-slate-500">매출 원금</div>
+                    <div className="font-bold text-slate-900">{formatKRW(billed)}</div>
+                  </div>
+                  <div className="rounded-lg bg-emerald-50/70 p-2">
+                    <div className="text-slate-500">실제 입금(Receipt)</div>
+                    <div className="font-bold text-emerald-700">{formatKRW(receiptAppliedTotal)}</div>
+                  </div>
+                  <div className="rounded-lg bg-violet-50/70 p-2">
+                    <div className="text-slate-500">미수감소조정</div>
+                    <div className="font-bold text-violet-700">{formatKRW(creditAdjTotal)}</div>
+                  </div>
+                  <div className="rounded-lg bg-amber-50/70 p-2">
+                    <div className="text-slate-500">미수증가조정</div>
+                    <div className="font-bold text-amber-700">{formatKRW(debitAdjTotal)}</div>
+                  </div>
+                </div>
+                <h3 className="mt-3 text-sm font-bold text-slate-800">연결 입금전표</h3>
                 <p className="mt-0.5 text-xs text-slate-500">이 매출에 배정된 Receipt</p>
                 {linkedReceiptRows.length === 0 ? (
                   <p className="mt-2 text-xs text-slate-500">배정된 입금전표가 없습니다.</p>
@@ -484,6 +580,33 @@ export const SaleDetailDrawer = memo(function SaleDetailDrawer({
                     ))}
                   </ul>
                 )}
+                {linkedAdjustments.length > 0 ? (
+                  <>
+                    <h3 className="mt-3 text-sm font-bold text-slate-800">연결 미수조정</h3>
+                    <ul className="mt-2 space-y-1.5">
+                      {linkedAdjustments.map((row) => (
+                        <li
+                          key={row.id}
+                          className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 px-3 py-2 text-xs"
+                        >
+                          <span>
+                            <span className="font-semibold text-slate-900">{row.adjustmentNo}</span>
+                            <span className="ml-2 text-slate-500">
+                              {row.effectiveDate || "-"} · {row.adjustmentType || "-"}
+                            </span>
+                          </span>
+                          <span
+                            className={`font-semibold ${
+                              row.signedAmount < 0 ? "text-violet-700" : "text-amber-700"
+                            }`}
+                          >
+                            {formatKRW(Math.abs(row.signedAmount))}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : null}
               </div>
             ) : null}
             {onAddSaleComment || onReviewAction ? (

@@ -39,9 +39,11 @@ import { SalePaymentLinkBadge, PartialPaymentBadge } from "@/components/AutoLink
 import { ReceiptRegisterModal } from "@/components/ReceiptRegisterModal";
 import { ReceiptDetailDrawer } from "@/components/ReceiptDetailDrawer";
 import { FinanceExceptionInboxPanel } from "@/components/FinanceExceptionInboxPanel";
+import { ArAdjustmentDetailDrawer } from "@/components/ArAdjustmentDetailDrawer";
 import { ArAdjustmentModal } from "@/components/ArAdjustmentModal";
 import { DepositorAliasManager } from "@/components/DepositorAliasManager";
 import { BankDepositCoveragePanel } from "@/components/BankDepositCoveragePanel";
+import { ClientCollectionJournalPanel } from "@/components/ClientCollectionJournalPanel";
 import { confirmDelete } from "@/utils/confirmDelete";
 import { formatMonthLabel, monthRangeForKey, shiftMonthKey } from "@/utils/companyLedger";
 import {
@@ -353,6 +355,7 @@ export function PaymentReceivablesPage({
   const [lastReceiptSummary, setLastReceiptSummary] = useState("");
   const [registerOpen, setRegisterOpen] = useState(false);
   const [arAdjustmentOpen, setArAdjustmentOpen] = useState(false);
+  const [selectedAdjustmentId, setSelectedAdjustmentId] = useState<string | null>(null);
   const [pendingExceptionId, setPendingExceptionId] = useState<string | null>(null);
   const [localExceptionCount, setLocalExceptionCount] = useState<number | null>(null);
   const [localExceptionFetchFailed, setLocalExceptionFetchFailed] = useState(false);
@@ -1919,7 +1922,16 @@ export function PaymentReceivablesPage({
           receipt={selectedReceipt}
           allocations={receiptAllocations}
           sales={sales}
-        />
+        onOpenClientLedger={(clientId, clientName) => {
+          const name =
+            clientName ||
+            clients.find((row) => String(row.id) === String(clientId))?.name ||
+            "";
+          if (name) setFilters((prev) => ({ ...prev, client: String(name) }));
+          setTab("arLedger");
+          setSelectedReceiptId(null);
+        }}
+      />
         </>
       )}
 
@@ -1940,14 +1952,42 @@ export function PaymentReceivablesPage({
       )}
 
       {tab === "arLedger" && (
-        <ClientArLedgerPanel
+        <ClientCollectionJournalPanel
           clients={clients}
           initialClientName={filters.client}
           startDate={filters.startDate}
           endDate={filters.endDate}
           onRangeChange={({ startDate, endDate }) => setFilters((prev) => ({ ...prev, startDate, endDate }))}
+          onOpenReceipt={(receiptId) => setSelectedReceiptId(String(receiptId))}
+          onOpenSale={(saleId) => {
+            const row = receivableRows.find((item) => String(item.id) === String(saleId));
+            if (row) openPaymentForRow(row);
+          }}
+          onOpenAdjustment={(adjustmentId) => {
+            setSelectedAdjustmentId(String(adjustmentId));
+          }}
         />
       )}
+
+      <ArAdjustmentDetailDrawer
+        open={Boolean(selectedAdjustmentId) && tab === "arLedger"}
+        onClose={() => setSelectedAdjustmentId(null)}
+        adjustmentId={selectedAdjustmentId}
+        onOpenClientLedger={(clientId, clientName) => {
+          const name =
+            clientName ||
+            clients.find((row) => String(row.id) === String(clientId))?.name ||
+            "";
+          if (name) setFilters((prev) => ({ ...prev, client: String(name) }));
+          setTab("arLedger");
+          setSelectedAdjustmentId(null);
+        }}
+        onOpenSale={(saleId) => {
+          const row = receivableRows.find((item) => String(item.id) === String(saleId));
+          if (row) openPaymentForRow(row);
+          setSelectedAdjustmentId(null);
+        }}
+      />
 
       <ReceiptRegisterModal
         open={registerOpen}
@@ -1994,7 +2034,7 @@ const AR_LEDGER_SOURCE_LABEL: Record<string, string> = {
  * response returns it — the panel deliberately computes nothing, so the screen and the
  * subledger can never disagree.
  */
-function ClientArLedgerPanel({
+function _UnusedClientArLedgerPanel({
   clients,
   initialClientName = "",
   startDate,

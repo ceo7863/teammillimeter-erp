@@ -771,6 +771,22 @@ export function replaceReceiptAllocations(receiptId, input, actor = "system") {
       newAllocationIds: nextRows.map((row) => row.id),
       previousAllocatedSum,
       newAllocatedSum: allocatedSum,
+      ...(raw.memo != null && String(raw.memo).trim() ? { memo: String(raw.memo).trim() } : {}),
+      ...(raw.reasonCode != null && String(raw.reasonCode).trim()
+        ? { reasonCode: String(raw.reasonCode).trim() }
+        : {}),
+      ...(raw.reasonText != null && String(raw.reasonText).trim()
+        ? { reasonText: String(raw.reasonText).trim() }
+        : {}),
+      ...(raw.targetMode != null && String(raw.targetMode).trim()
+        ? { targetMode: String(raw.targetMode).trim().toUpperCase() }
+        : {}),
+      ...(raw.targetFrom != null || raw.periodStart != null
+        ? { targetFrom: String(raw.targetFrom || raw.periodStart || "").slice(0, 10) }
+        : {}),
+      ...(raw.targetTo != null || raw.periodEnd != null
+        ? { targetTo: String(raw.targetTo || raw.periodEnd || "").slice(0, 10) }
+        : {}),
     };
 
     const nextReceipt = {

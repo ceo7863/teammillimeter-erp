@@ -34,6 +34,7 @@ export type ReceiptDetailDrawerProps = {
     client?: string;
   }>;
   onOpenSale?: (saleId: string | number) => void;
+  onOpenClientLedger?: (clientId: string | number, clientName?: string) => void;
 };
 
 export function ReceiptDetailDrawer({
@@ -43,6 +44,7 @@ export function ReceiptDetailDrawer({
   allocations = [],
   sales = [],
   onOpenSale,
+  onOpenClientLedger,
 }: ReceiptDetailDrawerProps) {
   useEffect(() => {
     if (!open) return;
@@ -112,6 +114,19 @@ export function ReceiptDetailDrawer({
             닫기
           </Button>
         </div>
+        {onOpenClientLedger && receipt.clientId != null ? (
+          <div className="mt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 rounded-lg text-xs"
+              onClick={() => onOpenClientLedger(receipt.clientId as string | number, receipt.clientName)}
+            >
+              거래처 수금원장 열기
+            </Button>
+          </div>
+        ) : null}
 
         <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs sm:grid-cols-4">
           <div>
