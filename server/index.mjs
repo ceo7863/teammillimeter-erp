@@ -253,6 +253,8 @@ import {
   createArAdjustment,
   reverseArAdjustment,
   listArAdjustments,
+  getArAdjustmentById,
+  listArAdjustmentEventsForId,
 } from "./arAdjustments.mjs";
 import {
   createDepositorAlias,
@@ -301,6 +303,7 @@ import {
 } from "./financeExceptionInbox.mjs";
 import { decideBankDepositAction } from "./bankDepositDecision.mjs";
 import { buildClientArSubledger } from "./receiptArSubledger.mjs";
+import { buildClientCollectionJournal } from "./clientCollectionJournal.mjs";
 import {
   buildArParityReport,
   buildSaleArBalances,
@@ -3858,12 +3861,35 @@ app.post("/api/ar-adjustments/:id/reverse", authMiddleware, (req, res) => {
 app.get("/api/ar-adjustments", authMiddleware, (req, res) => {
   try {
     const state = getErpState(["arAdjustments"]);
-    let rows = listArAdjustments(state.data || {});
+    const id = String(req.query.id || "").trim();
+    // Detail lookup includes reversal documents (listArAdjustments hides them).
+    let rows = id
+      ? (Array.isArray(state.data?.arAdjustments) ? state.data.arAdjustments : []).filter(
+          (row) => String(row?.id) === id,
+        )
+      : listArAdjustments(state.data || {});
     const clientId = String(req.query.clientId || "").trim();
     if (clientId) rows = rows.filter((row) => String(row.clientId) === clientId);
     res.json({ arAdjustments: rows, adjustments: rows, count: rows.length, version: state.version });
   } catch (error) {
     res.status(error?.status || 500).json({ error: error?.message || "AR 조정 조회에 실패했습니다.", code: error?.code || "AR_ADJUSTMENT_ERROR" });
+  }
+});
+
+app.get("/api/ar-adjustments/:id", authMiddleware, (req, res) => {
+  try {
+    const state = getErpState(["arAdjustments", "arAdjustmentEvents"]);
+    const adjustment = getArAdjustmentById(state.data || {}, req.params.id);
+    if (!adjustment) {
+      return res.status(404).json({ error: "AR 조정을 찾을 수 없습니다.", code: "ADJUSTMENT_NOT_FOUND" });
+    }
+    const events = listArAdjustmentEventsForId(state.data || {}, adjustment.id);
+    res.json({ adjustment, events, version: state.version });
+  } catch (error) {
+    res.status(error?.status || 500).json({
+      error: error?.message || "AR 조정 조회에 실패했습니다.",
+      code: error?.code || "AR_ADJUSTMENT_ERROR",
+    });
   }
 });
 
@@ -4377,6 +4403,28 @@ app.get("/api/ar/clients/:id/ledger", authMiddleware, (req, res) => {
       clientId: req.params.id,
       startDate: req.query.start || req.query.startDate,
       endDate: req.query.end || req.query.endDate,
+    });
+    res.json({ ...report, version: state.version });
+  } catch (error) {
+    sendReceiptError(res, error);
+  }
+});
+
+/** Canonical 수금원장 — chronological sale/receipt/adjustment journal for one client. */
+app.get("/api/ar/clients/:clientId/collection-journal", authMiddleware, (req, res) => {
+  try {
+    const state = getErpState();
+    let archives = [];
+    try {
+      archives = listPdfArchiveMetas() || [];
+    } catch {
+      archives = [];
+    }
+    const report = buildClientCollectionJournal(state.data || {}, req.params.clientId, {
+      start: req.query.start || req.query.startDate,
+      end: req.query.end || req.query.endDate,
+      filter: req.query.filter,
+      archives,
     });
     res.json({ ...report, version: state.version });
   } catch (error) {

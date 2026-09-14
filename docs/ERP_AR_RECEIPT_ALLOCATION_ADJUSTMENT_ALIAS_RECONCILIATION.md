@@ -31,6 +31,11 @@ Task: `ERP_AR_RECEIPT_ALLOCATION_ADJUSTMENT_ALIAS_RECONCILIATION_FINAL`
 - APIs under `/api/ar-adjustments*`.
 - UI: `ArAdjustmentModal`.
 
+### remainingWork — adjustment detail
+
+- Detail drawer: `ArAdjustmentDetailDrawer` (wired from 수금원장 `onOpenAdjustment`).
+- Optional follow-up: deep-link from sale linked adjustments list.
+
 ## Depositor aliases
 
 - Canonical registry `depositorAliases` (`server/depositorAliases.mjs`).

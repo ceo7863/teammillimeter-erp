@@ -747,6 +747,100 @@ export async function fetchUnifiedClientArLedgerApi(
   );
 }
 
+export type ClientCollectionJournalEntry = {
+  id: string;
+  type: string;
+  effectiveDate: string;
+  recordedAt?: string;
+  voucherNo?: string;
+  description?: string;
+  salesIncrease?: number;
+  actualReceipt?: number;
+  adjDebit?: number;
+  adjCredit?: number;
+  reversal?: number;
+  runningBalance?: number;
+  invoiceOutstanding?: number;
+  unappliedPrepaid?: number;
+  netExposure?: number;
+  author?: string;
+  channel?: string;
+  status?: string;
+  ref?: Record<string, unknown>;
+};
+
+export type ClientCollectionJournalResponse = {
+  clientId: string;
+  clientName: string;
+  startDate?: string | null;
+  endDate?: string;
+  filter?: string;
+  entries: ClientCollectionJournalEntry[];
+  summary: {
+    billedOutstanding: number;
+    cumulativeReceiptsGross: number;
+    allocatedFromReceipts: number;
+    unappliedPrepaid: number;
+    debitAdjustments: number;
+    creditAdjustments: number;
+    netExposure: number;
+    invoiceOutstanding?: number;
+    openingNet?: number | null;
+  };
+  monthlySummaries: Array<{
+    monthKey: string;
+    openingNet: number;
+    sales: number;
+    receiptsGross: number;
+    debitAdj: number;
+    creditAdj: number;
+    closingInvoiceOutstanding: number;
+    closingPrepaid: number;
+    closingNet: number;
+  }>;
+  balanceContrast?: Record<string, unknown>;
+  policyNotes?: Record<string, string>;
+  version?: number;
+};
+
+/** Canonical 수금원장 for one client. */
+export async function fetchClientCollectionJournalApi(
+  clientId: string | number,
+  params?: { start?: string; end?: string; filter?: string },
+) {
+  const query = new URLSearchParams();
+  if (params?.start) query.set("start", params.start);
+  if (params?.end) query.set("end", params.end);
+  if (params?.filter) query.set("filter", params.filter);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return apiRequest<ClientCollectionJournalResponse>(
+    `/ar/clients/${encodeURIComponent(String(clientId))}/collection-journal${suffix}`,
+  );
+}
+
+/** Append-only receipt reallocation (POST /receipts/:id/allocations). */
+export async function reallocateReceiptApi(
+  receiptId: string,
+  body: {
+    operationId: string;
+    effectiveDate?: string;
+    allocations: Array<{ saleId: string | number; amount: number }>;
+    memo?: string;
+    reasonCode?: string;
+    reasonText?: string;
+    targetMode?: string;
+    targetFrom?: string;
+    targetTo?: string;
+    periodStart?: string;
+    periodEnd?: string;
+  },
+) {
+  return apiRequest<ReceiptApiResult>(`/receipts/${encodeURIComponent(receiptId)}/allocations`, {
+    method: "POST",
+    body: JSON.stringify(body || {}),
+  });
+}
+
 export async function fetchBankSyncStatus() {
   return apiRequest<{
     liveSyncStatus: BankLiveSyncStatus;
@@ -859,14 +953,25 @@ export async function reverseArAdjustmentApi(id: string, input: { operationId: s
   });
 }
 
-export async function fetchArAdjustmentsApi(params?: { clientId?: string | number }) {
-  const qs = params?.clientId != null ? `?clientId=${encodeURIComponent(String(params.clientId))}` : "";
+export async function fetchArAdjustmentsApi(params?: { clientId?: string | number; id?: string | number }) {
+  const qs = new URLSearchParams();
+  if (params?.clientId != null) qs.set("clientId", String(params.clientId));
+  if (params?.id != null) qs.set("id", String(params.id));
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
   return apiRequest<{
     arAdjustments?: Array<Record<string, unknown>>;
     adjustments?: Array<Record<string, unknown>>;
     count?: number;
     version?: number;
-  }>(`/ar-adjustments${qs}`);
+  }>(`/ar-adjustments${suffix}`);
+}
+
+export async function fetchArAdjustmentByIdApi(id: string | number) {
+  return apiRequest<{
+    adjustment: Record<string, unknown>;
+    events?: Array<Record<string, unknown>>;
+    version?: number;
+  }>(`/ar-adjustments/${encodeURIComponent(String(id))}`);
 }
 
 export type DepositorAliasRow = {
