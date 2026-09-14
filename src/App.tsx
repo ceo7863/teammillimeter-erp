@@ -8828,11 +8828,12 @@ export default function TeammillimeterErpMvp() {
     clientId?: string | number;
   } | null>(null);
   const [pendingReceivablesNav, setPendingReceivablesNav] = useState<{
-    tab?: "input" | "receivables" | "history" | "log";
+    tab?: "input" | "receivables" | "history" | "log" | "arLedger";
     clientName?: string;
     allHistory?: boolean;
     startDate?: string;
     endDate?: string;
+    highlightReceiptId?: string;
   } | null>(null);
   const [pendingWorkerPaymentsTab, setPendingWorkerPaymentsTab] = useState<
     | "summary"
@@ -9673,6 +9674,23 @@ export default function TeammillimeterErpMvp() {
       return [...(result.allocations || []), ...kept];
     });
     setExceptionRefreshToken((n) => n + 1);
+    const receiptDate = String(result.receipt.receiptDate || "").slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(receiptDate)) {
+      const monthKey = receiptDate.slice(0, 7);
+      const [yearRaw, monthRaw] = monthKey.split("-");
+      const year = Number(yearRaw);
+      const month = Number(monthRaw);
+      const startDate = `${monthKey}-01`;
+      const lastDay = new Date(year, month, 0).getDate();
+      const endDate = `${monthKey}-${String(lastDay).padStart(2, "0")}`;
+      setPendingReceivablesNav({
+        tab: "history",
+        startDate,
+        endDate,
+        highlightReceiptId: String(result.receipt.id),
+      });
+      setActive("receivables");
+    }
   }, []);
 
   const persistClientsImmediate = useCallback(
@@ -11716,6 +11734,8 @@ export default function TeammillimeterErpMvp() {
             setPaymentVouchers={setPaymentVouchers}
             paymentInputLogs={paymentInputLogs}
             setPaymentInputLogs={setPaymentInputLogs}
+            receipts={receipts}
+            receiptAllocations={receiptAllocations}
             onReceiptLedgerUpsert={upsertReceiptLedgerResult}
             bankTransactions={bankTransactions}
             setBankTransactions={setBankTransactions}
@@ -11991,6 +12011,27 @@ export default function TeammillimeterErpMvp() {
           saleComments={saleComments}
           onAddSaleComment={(body) => addSaleCommentForVoucher(salesManagementEditSale.id, body)}
           onReviewAction={(action, body) => applySaleReviewAction(salesManagementEditSale.id, action, body)}
+          receipts={receipts}
+          receiptAllocations={receiptAllocations}
+          onOpenReceipt={(receiptId) => {
+            const receipt = receipts.find((row) => String(row.id) === String(receiptId));
+            const receiptDate = String(receipt?.receiptDate || "").slice(0, 10);
+            const monthKey = /^\d{4}-\d{2}-\d{2}$/.test(receiptDate) ? receiptDate.slice(0, 7) : todayISO().slice(0, 7);
+            const [yearRaw, monthRaw] = monthKey.split("-");
+            const year = Number(yearRaw);
+            const month = Number(monthRaw);
+            const startDate = `${monthKey}-01`;
+            const lastDay = new Date(year, month, 0).getDate();
+            const endDate = `${monthKey}-${String(lastDay).padStart(2, "0")}`;
+            setSalesManagementEditSale(null);
+            setPendingReceivablesNav({
+              tab: "history",
+              startDate,
+              endDate,
+              highlightReceiptId: String(receiptId),
+            });
+            setActive("receivables");
+          }}
         />
       ) : null}
       {saleCommentsViewSale ? (

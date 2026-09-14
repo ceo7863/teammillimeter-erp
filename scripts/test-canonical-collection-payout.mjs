@@ -97,7 +97,7 @@ check("partial receipt then new sale outstanding", () => {
       grossAmount: 10_000_000,
       channel: "cash",
       source: "receivables",
-      requireSentStatements: false,
+      targetMode: "GLOBAL_FIFO",
       autoAllocate: true,
     },
     "test",

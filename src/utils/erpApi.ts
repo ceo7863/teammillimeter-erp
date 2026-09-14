@@ -582,6 +582,10 @@ export async function createReceiptRegisterApi(
   input: import("./receiptLedger").CreateReceiptInput & {
     requireSentStatements?: boolean;
     autoAllocate?: boolean;
+    targetMode?: string;
+    periodStart?: string;
+    periodEnd?: string;
+    saleIds?: Array<string | number>;
   },
 ) {
   return apiRequest<any>("/receipts/register", { method: "POST", body: JSON.stringify(input) });
@@ -647,6 +651,12 @@ export type CreateBankTransactionReceiptInput = {
   sentStatementId?: string | null;
   memo?: string;
   source?: "bank_manual" | "bank_auto";
+  targetMode?: string;
+  periodStart?: string;
+  periodEnd?: string;
+  saleIds?: Array<string | number>;
+  autoAllocate?: boolean;
+  requireSentStatements?: boolean;
 };
 
 /**
@@ -786,4 +796,124 @@ export async function retryUnresolvedDepositApi(
       body: JSON.stringify({ operationId: options?.operationId }),
     },
   );
+}
+
+export type ArAdjustmentPreview = {
+  ok: boolean;
+  preview: true;
+  adjustmentType: string;
+  type: string;
+  targetMode: string;
+  amount: number;
+  signedAmount: number;
+  direction: string;
+  debit: number;
+  credit: number;
+  netArDelta: number;
+  clientId?: string | null;
+  targets?: Array<{ saleId: string | null; amount: number }>;
+  touchesReceipts: boolean;
+  touchesSalesAmounts: boolean;
+  touchesBankTransactions: boolean;
+  touchesPaymentVouchers: boolean;
+};
+
+export type ArAdjustmentCreateInput = {
+  operationId: string;
+  clientId: string | number;
+  clientName?: string;
+  effectiveDate?: string;
+  adjustmentType: string;
+  targetMode?: "TARGETED" | "BALANCE_ONLY" | string;
+  amount: number;
+  memo?: string;
+  targets?: Array<{ saleId?: string | number; amount: number; memo?: string }>;
+};
+
+export async function previewArAdjustmentApi(input: Partial<ArAdjustmentCreateInput> & Record<string, unknown>) {
+  return apiRequest<ArAdjustmentPreview>("/ar-adjustments/preview", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function createArAdjustmentApi(input: ArAdjustmentCreateInput) {
+  return apiRequest<{ ok: boolean; idempotent?: boolean; adjustment: Record<string, unknown> }>("/ar-adjustments", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function reverseArAdjustmentApi(id: string, input: { operationId: string; effectiveDate?: string; memo?: string }) {
+  return apiRequest<Record<string, unknown>>(`/ar-adjustments/${encodeURIComponent(id)}/reverse`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function fetchArAdjustmentsApi(params?: { clientId?: string | number }) {
+  const qs = params?.clientId != null ? `?clientId=${encodeURIComponent(String(params.clientId))}` : "";
+  return apiRequest<{
+    arAdjustments?: Array<Record<string, unknown>>;
+    adjustments?: Array<Record<string, unknown>>;
+    count?: number;
+    version?: number;
+  }>(`/ar-adjustments${qs}`);
+}
+
+export type DepositorAliasRow = {
+  id: string;
+  clientId: string;
+  clientNameSnapshot?: string;
+  rawName: string;
+  normalizedName: string;
+  bankAccountId?: string | null;
+  status?: string;
+  disabledAt?: string | null;
+  createdAt?: string;
+};
+
+export async function fetchDepositorAliasesApi(params?: { clientId?: string | number }) {
+  const qs = params?.clientId != null ? `?clientId=${encodeURIComponent(String(params.clientId))}` : "";
+  return apiRequest<{
+    depositorAliases?: DepositorAliasRow[];
+    aliases?: DepositorAliasRow[];
+    count?: number;
+    version?: number;
+  }>(`/depositor-aliases${qs}`);
+}
+
+export async function createDepositorAliasApi(input: {
+  operationId: string;
+  clientId: string | number;
+  rawName: string;
+  explicitOptIn: true;
+  bankAccountId?: string | null;
+  sourceBankTransactionId?: string | null;
+}) {
+  return apiRequest<{ ok: boolean; idempotent?: boolean; alias: DepositorAliasRow }>("/depositor-aliases", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function disableDepositorAliasApi(id: string) {
+  return apiRequest<{ ok: boolean; alias: DepositorAliasRow }>(
+    `/depositor-aliases/${encodeURIComponent(id)}/disable`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+}
+
+export async function fetchBankDepositClassificationCoverageApi() {
+  return apiRequest<{
+    totalCount: number;
+    totalAmount: number;
+    classifiedCount?: number;
+    classifiedAmount?: number;
+    countDiff: number;
+    amountDiff: number;
+    identityOk?: boolean;
+    byStatus?: Record<string, { count: number; amount: number }>;
+    version?: number;
+  }>("/bank-deposits/classification-coverage");
 }

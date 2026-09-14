@@ -8,6 +8,7 @@ import {
   summarizeReceiptAsOf,
   todaySeoul,
 } from "./receipts.mjs";
+import { summarizePeriodAdjustments } from "./arAdjustments.mjs";
 
 function resolveClient(clients, clientId) {
   const id = String(clientId || "").trim();
@@ -128,8 +129,13 @@ export function buildClientArSubledger(data, { clientId, startDate, endDate } = 
 
   const periodBilled = closingBilled - openingBilled;
   const periodAppliedAllocations = closingAppliedAllocations - openingAppliedAllocations;
-  const periodDebitAdjustments = 0;
-  const periodCreditAdjustments = 0;
+  const periodAdj = summarizePeriodAdjustments(data.arAdjustments || [], {
+    clientId: client.id,
+    start,
+    end,
+  });
+  const periodDebitAdjustments = periodAdj.debit || 0;
+  const periodCreditAdjustments = periodAdj.credit || 0;
 
   const openingAr = Math.max(openingBilled - openingAppliedAllocations, 0);
   const closingAr = Math.max(closingBilled - closingAppliedAllocations, 0);
@@ -225,7 +231,7 @@ export function buildClientArSubledger(data, { clientId, startDate, endDate } = 
       asOf:
         "opening/closing AR use allocations effective on as-of dates; later reverse/reallocate does not rewrite history",
       arReduction: "effective allocations by effectiveFrom/reversedEffectiveDate; prepaid does not reduce AR",
-      adjustments: "not implemented (always 0)",
+      adjustments: "arAdjustments by effectiveDate in period (sales amounts unchanged)",
       clientIdentity: "sale.clientId authoritative; legacy unique name fallback only",
     },
   };

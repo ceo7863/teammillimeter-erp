@@ -145,10 +145,12 @@ export function planBankDepositReceiptAllocation({
       unallocatedAmount: amount,
       processingStatus: "unapplied",
       reasonCode: "NO_SENT_SALES",
-      scope,
+      scope: { ...scope, mode: "UNAPPLIED" },
+      scopeMeta: { mode: "UNAPPLIED" },
     };
   }
 
+  // STATEMENT-scoped FIFO only — never GLOBAL_FIFO for bank auto-link.
   const fifo = proposeFifoAllocationsScoped(proposeFifoAllocations, {
     sales,
     client,
@@ -179,7 +181,8 @@ export function planBankDepositReceiptAllocation({
     unallocatedAmount: unallocated,
     processingStatus,
     reasonCode,
-    scope,
+    scope: { ...scope, mode: "STATEMENT" },
+    scopeMeta: { mode: "STATEMENT", saleIds: scope.saleIds || [] },
   };
 }
 

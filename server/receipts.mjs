@@ -4,7 +4,10 @@ import {
   loadSentStatementSaleIdsForClient,
   proposeFifoAllocationsScoped,
   planPrepaidAutoApply,
+  collectSentStatementSaleIds,
 } from "./canonicalCollection.mjs";
+import { planAllocationsForTarget } from "./allocationTarget.mjs";
+import { listPdfArchiveMetas } from "./pdfArchive.mjs";
 
 const SAVE_RETRY_ATTEMPTS = 8;
 const RECEIPT_CHANNELS = new Set(["bank", "cash", "personal_account", "other"]);
@@ -202,6 +205,11 @@ export function canonicalizeCreatePayload(input, clientId) {
       input?.sentStatementId == null || input?.sentStatementId === ""
         ? null
         : String(input.sentStatementId),
+    targetMode: input?.targetMode
+      ? String(input.targetMode).trim().toUpperCase()
+      : input?.allocationTarget?.mode
+        ? String(input.allocationTarget.mode).trim().toUpperCase()
+        : null,
     allocations,
   };
 }
@@ -601,6 +609,7 @@ export function planCreateAndPostReceipt(context, input, actor = "system") {
       status: "posted",
       bankTransactionId: canonical.bankTransactionId,
       sentStatementId: canonical.sentStatementId,
+      targetMode: canonical.targetMode || null,
       operationId,
       idempotencyKey: operationId,
       payloadHash,
@@ -1027,8 +1036,63 @@ export function proposeFifoAllocations(
 export { money as receiptMoney, makeError as receiptError };
 
 
+function resolveStatementSaleIdsForReceipt(client, raw = {}) {
+  const sentStatementId = String(raw.sentStatementId || "").trim();
+  if (sentStatementId) {
+    let archives = [];
+    try {
+      archives = listPdfArchiveMetas() || [];
+    } catch {
+      archives = [];
+    }
+    const doc =
+      archives.find((row) => String(row?.id) === sentStatementId) ||
+      archives.find((row) => String(row?.archiveId) === sentStatementId) ||
+      null;
+    if (doc && Array.isArray(doc.statementSalesIds) && doc.statementSalesIds.length) {
+      const saleIds = [
+        ...new Set(doc.statementSalesIds.map((id) => String(id ?? "").trim()).filter(Boolean)),
+      ];
+      return {
+        saleIds,
+        saleIdSet: new Set(saleIds),
+        documents: [
+          {
+            archiveId: doc.id,
+            subjectName: doc.subjectName,
+            periodStart: doc.periodStart,
+            periodEnd: doc.periodEnd,
+            sent: Boolean(doc.sentViaLink || doc.shareLinkUrl),
+            saleCount: saleIds.length,
+          },
+        ],
+        preferredDocumentId: sentStatementId,
+      };
+    }
+    // Prefer a single document when present in the client's sent union.
+    const scope = loadSentStatementSaleIdsForClient(client, { requireSent: true });
+    const preferred = (scope.documents || []).find(
+      (row) => String(row.archiveId) === sentStatementId,
+    );
+    if (preferred) {
+      const preferredScope = collectSentStatementSaleIds(
+        (archives.length ? archives : []).filter((row) => String(row?.id) === sentStatementId),
+        {
+          clientName: client?.name,
+          clientId: client?.id,
+          requireSent: false,
+        },
+      );
+      if (preferredScope.saleIds.length) return { ...preferredScope, preferredDocumentId: sentStatementId };
+    }
+  }
+  return loadSentStatementSaleIdsForClient(client, { requireSent: true });
+}
+
 /**
- * Official non-bank collection entry: sent-statement-scoped FIFO by default.
+ * Official non-bank collection entry.
+ * Default is UNAPPLIED (company-only / no mode does not auto FIFO).
+ * Legacy: autoAllocate===true && requireSentStatements===true && no targetMode → STATEMENT.
  */
 export function registerCanonicalReceipt(input, actor = "system") {
   const raw = input || {};
@@ -1047,30 +1111,75 @@ export function registerCanonicalReceipt(input, actor = "system") {
     throw makeError("CLIENT_NOT_FOUND", "거래처를 찾을 수 없습니다.", 404, { clientKey });
   }
 
-  let allocationsInput = Array.isArray(raw.allocations) ? raw.allocations : null;
+  const explicitAllocations = Array.isArray(raw.allocations) ? raw.allocations : null;
+  const hasExplicitAllocations = Boolean(explicitAllocations && explicitAllocations.length);
+
+  let targetMode = String(raw.targetMode || raw.allocationTarget?.mode || "")
+    .trim()
+    .toUpperCase();
+
+  // Backward compat for legacy callers that forced sent-statement FIFO without a mode.
+  if (!targetMode && raw.autoAllocate === true && raw.requireSentStatements === true) {
+    targetMode = "STATEMENT";
+  }
+
+  let allocationsInput = [];
   let scopeMeta = null;
-  if ((!allocationsInput || !allocationsInput.length) && raw.autoAllocate !== false) {
-    const scope = loadSentStatementSaleIdsForClient(client, { requireSent: raw.requireSentStatements !== false });
-    scopeMeta = { saleIds: scope.saleIds, documentCount: scope.documents.length };
-    const fifo = proposeFifoAllocationsScoped(proposeFifoAllocations, {
+  let warnings = [];
+
+  if (hasExplicitAllocations && !targetMode) {
+    allocationsInput = explicitAllocations;
+    scopeMeta = { mode: "EXPLICIT", saleIds: explicitAllocations.map((row) => String(row.saleId || row.salesId || "")) };
+  } else {
+    if (!targetMode) targetMode = "UNAPPLIED";
+
+    let statementSaleIds = [];
+    if (targetMode === "STATEMENT") {
+      const scope = resolveStatementSaleIdsForReceipt(client, raw);
+      statementSaleIds = scope.saleIds || [];
+      scopeMeta = {
+        mode: "STATEMENT",
+        saleIds: statementSaleIds,
+        documentCount: (scope.documents || []).length,
+        preferredDocumentId: scope.preferredDocumentId || raw.sentStatementId || null,
+      };
+    }
+
+    const plan = planAllocationsForTarget({
+      mode: targetMode,
       sales,
       client,
-      grossAmount: raw.grossAmount,
-      allocations,
-      receipts,
       clients,
+      grossAmount: raw.grossAmount,
+      existingAllocations: allocations,
+      receipts,
       asOfDate: raw.receiptDate || null,
-      saleIdAllowlist: scope.saleIdSet,
-      requireAllowlist: raw.requireSentStatements !== false,
+      statementSaleIds,
+      periodStart: raw.periodStart || raw.allocationTarget?.periodStart || null,
+      periodEnd: raw.periodEnd || raw.allocationTarget?.periodEnd || null,
+      saleIds: raw.saleIds || raw.allocationTarget?.saleIds || [],
+      allocations: explicitAllocations,
+      autoAllocate: raw.autoAllocate !== false,
+      companyOnly: raw.companyOnly === true,
+      proposeFifoAllocations,
+      proposeFifoAllocationsScoped,
     });
-    allocationsInput = fifo.allocations;
+    allocationsInput = plan.allocations || [];
+    warnings = Array.isArray(plan.warnings) ? plan.warnings : [];
+    scopeMeta = plan.scopeMeta || scopeMeta || { mode: targetMode };
   }
 
   const result = createAndPostReceipt(
-    { ...raw, clientId: client.id, clientName: client.name, allocations: allocationsInput || [] },
+    {
+      ...raw,
+      clientId: client.id,
+      clientName: client.name,
+      allocations: allocationsInput || [],
+      targetMode: targetMode || scopeMeta?.mode || null,
+    },
     actor,
   );
-  return { ...result, scope: scopeMeta };
+  return { ...result, scope: scopeMeta, warnings };
 }
 
 export function applyPrepaidForStatementSales({ statementSalesIds, actor = "system", effectiveDate = null }) {

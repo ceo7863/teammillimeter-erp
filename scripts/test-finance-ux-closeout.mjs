@@ -53,6 +53,10 @@ function check(name, fn) {
   }
 }
 
+function exists(rel) {
+  return fs.existsSync(path.join(root, rel));
+}
+
 function read(rel) {
   return fs.readFileSync(path.join(root, rel), "utf8");
 }
@@ -87,8 +91,9 @@ check("SaleVoucherEditModal re-exports SaleDetailDrawer", () => {
 check("App/Calendar/Search/SalesManagement only use SaleVoucherEditModal or SaleDetailDrawer", () => {
   const appSrc = read("src/App.tsx");
   const salesMgmtSrc = read("src/components/SalesManagementPage.tsx");
-  const searchEditorSrc = read("src/components/SalesVoucherSearchEditor.tsx");
   const drawerSrc = read("src/components/SaleDetailDrawer.tsx");
+  // SalesVoucherSearchEditor.tsx was removed in finance UX closeout (orphan); assert absence.
+  assert.equal(exists("src/components/SalesVoucherSearchEditor.tsx"), false);
 
   assert.ok(appSrc.includes('from "@/components/SaleVoucherEditModal"'));
   assert.ok(!appSrc.includes('from "@/components/SaleDetailDrawer"'));
@@ -100,7 +105,6 @@ check("App/Calendar/Search/SalesManagement only use SaleVoucherEditModal or Sale
   assert.ok(!salesMgmtSrc.includes("<SaleVoucherEditModal"));
   assert.ok(!salesMgmtSrc.includes("<SaleDetailDrawer"));
   assert.ok(!/from ["']@\/components\/SaleDetailDrawer["']/.test(salesMgmtSrc));
-  assert.ok(!searchEditorSrc.includes("<SaleVoucherEditModal") && !searchEditorSrc.includes("<SaleDetailDrawer"));
 
   assert.ok(drawerSrc.includes("data-sale-detail-identity={SALE_DETAIL_DRAWER_IDENTITY}"));
   assert.equal((drawerSrc.match(/canonical-sale-detail-drawer/g) || []).length, 1);
