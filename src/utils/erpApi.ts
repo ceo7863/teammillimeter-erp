@@ -285,6 +285,14 @@ export async function fetchErpVersion() {
   return apiRequest<ErpVersionMeta>("/erp/version");
 }
 
+/**
+ * Domain revision SSE: GET `${apiBase}/erp/events` with `Authorization: Bearer` only.
+ * Never put the token in the query string (access logs capture $request).
+ * Client hub: `src/utils/erpDomainEventHub.ts`.
+ * Docs: `docs/ERP_CALENDAR_MULTI_USER_REALTIME.md`.
+ */
+export const ERP_DOMAIN_EVENTS_PATH = "/erp/events";
+
 export const ERP_SAVE_DOMAIN_NAMES = [
   "sales",
   "clients",

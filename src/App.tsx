@@ -177,6 +177,15 @@ import {
   refreshVoucherPaidAmount,
 } from "@/utils/workerMonthlyActualPayments";
 import { mergeSalesByUpdatedAt } from "@/utils/erpStateMerge";
+import { useErpDomainRealtime } from "@/hooks/useErpDomainRealtime";
+import {
+  ERP_STREAM_FALLBACK_POLL_MS,
+  ERP_VERSION_POLL_HEALTHY_MS,
+  coalesceDomainEvents,
+  isStaleDomainResponse,
+  shouldRefetchForViewport,
+  detectSaleEditConflict,
+} from "@/utils/erpDomainSync";
 import { migrateActivePageKey, storeAccountingTab, storeBankLedgerScopePref, type AccountingHubTab } from "@/utils/accountingHub";
 import { storeAnalysisNavTab, storeAnalysisTab, type AnalysisHubTab } from "@/utils/analysisHub";
 import { migrateBasicInfoPageKey, resolveBasicInfoTabAccess, storeBasicInfoTab, type BasicInfoHubTab } from "@/utils/basicInfoHub";
@@ -501,7 +510,7 @@ const STORAGE_KEY = "teammillimeter-erp-stable-v1";
 const SESSION_USER_KEY = "teammillimeter-erp-session";
 const ACTIVE_TAB_KEY = "teammillimeter-erp-active-tab";
 const ERP_AUTOSAVE_DEBOUNCE_MS = 10000;
-const ERP_VERSION_POLL_MS = 20000;
+// Poll: ERP_STREAM_FALLBACK_POLL_MS / ERP_VERSION_POLL_HEALTHY_MS
 
 function migrateStoredActiveTab(stored: string) {
   // paymentInput is not an ErpPageKey — normalize before hub migrators.
@@ -3467,11 +3476,16 @@ function CalendarPage({
   saleAiRules = DEFAULT_SALE_AI_RULES,
   pendingClientFilter = null,
   onPendingClientFilterConsumed,
+  onViewportMonthKeyChange,
+  onEditingSaleMetaChange,
 }) {
   const { recordAudit } = useAudit();
   const { message: clientFilterNotice, showNotice: showClientFilterNotice, clearNotice: clearClientFilterNotice } = useActionNotice();
   const { message: calendarNewSaleMessage, setMessage: setCalendarNewSaleMessage, clearMessage: clearCalendarNewSaleMessage } = useSaveMessage();
   const [monthKey, setMonthKey] = useState(() => todayISO().slice(0, 7));
+  useEffect(() => {
+    onViewportMonthKeyChange?.(monthKey);
+  }, [monthKey, onViewportMonthKeyChange]);
   const [selectedDate, setSelectedDate] = useState("");
   const [filteredClient, setFilteredClient] = useState(null);
   const [selectedDates, setSelectedDates] = useState([]);
@@ -3486,6 +3500,17 @@ function CalendarPage({
   const [paymentSaving, setPaymentSaving] = useState(false);
   const [statementModalDraft, setStatementModalDraft] = useState(null);
   const [editingSaleId, setEditingSaleId] = useState(null);
+  useEffect(() => {
+    const sale =
+      editingSaleId == null
+        ? null
+        : sales.find((row) => String(row.id) === String(editingSaleId)) ?? null;
+    onEditingSaleMetaChange?.({
+      saleId: editingSaleId == null ? null : String(editingSaleId),
+      updatedAt: sale?.updatedAt ? String(sale.updatedAt) : null,
+      mode: editingSaleId == null ? "view" : "edit",
+    });
+  }, [editingSaleId, sales, onEditingSaleMetaChange]);
   const [calendarNewSaleOpen, setCalendarNewSaleOpen] = useState(false);
   const [calendarNewSaleSessionKey, setCalendarNewSaleSessionKey] = useState(0);
   const [calendarNewSaleDuplicateConfirm, setCalendarNewSaleDuplicateConfirm] = useState(null);
@@ -8351,6 +8376,18 @@ export default function TeammillimeterErpMvp() {
   const [dataReady, setDataReady] = useState(() => !apiMode);
   const [erpVersion, setErpVersion] = useState(0);
   const erpVersionRef = useRef(0);
+  const calendarViewportMonthKeyRef = useRef(todayISO().slice(0, 7));
+  const remoteRefreshAbortRef = useRef(null);
+  const pendingDomainEventsRef = useRef([]);
+  const domainEventFlushTimerRef = useRef(null);
+  const seenDomainEventIdsRef = useRef(new Set());
+  const [erpStreamConnected, setErpStreamConnected] = useState(false);
+  const [erpSyncDegraded, setErpSyncDegraded] = useState(false);
+  const [erpLastSyncedAt, setErpLastSyncedAt] = useState(null);
+  const [saleRemoteConflict, setSaleRemoteConflict] = useState(null);
+  const editingSaleMetaRef = useRef({ saleId: null, updatedAt: null, mode: "view" });
+  const deferredDomainPlanRef = useRef(null);
+  const deferredDomainRefreshTimerRef = useRef(null);
   const publishErpVersion = useCallback((version: number) => {
     if (!Number.isFinite(version)) return;
     // Never let a stale response pull the global ERP version backwards.
@@ -9116,11 +9153,8 @@ export default function TeammillimeterErpMvp() {
     };
   }, [currentUser?.id, apiMode]);
 
-  useEffect(() => {
-    if (!apiMode || !currentUser?.id || !dataReady) return;
-    let cancelled = false;
-
-    const isUserIdleForRemoteRefresh = () =>
+  const isUserIdleForRemoteRefresh = useCallback(
+    () =>
       !pendingLocalEditsRef.current &&
       !saveDebounceTimerRef.current &&
       !workerPersistInFlightRef.current &&
@@ -9130,7 +9164,204 @@ export default function TeammillimeterErpMvp() {
       Date.now() >= workerPersistCooldownUntilRef.current &&
       Date.now() >= workerMonthlyPersistCooldownUntilRef.current &&
       Date.now() >= bankEditCooldownUntilRef.current &&
-      Date.now() >= clientEditCooldownUntilRef.current;
+      Date.now() >= clientEditCooldownUntilRef.current,
+    [],
+  );
+
+  const applyRemoteSalesDomain = useCallback((data) => {
+    if (!data) return;
+    if (
+      isStaleDomainResponse({
+        responseVersion: Number(data.version) || 0,
+        knownVersion: erpVersionRef.current,
+      })
+    ) {
+      return;
+    }
+    // Remote merge must not fight a queued autosave (ERP_AUTOSAVE_DEBOUNCE_MS).
+    skipSaveRef.current = true;
+    if (saveDebounceTimerRef.current) {
+      window.clearTimeout(saveDebounceTimerRef.current);
+      saveDebounceTimerRef.current = null;
+    }
+    const workersForSales = workersRef.current;
+    const conflict = detectSaleEditConflict({
+      editingSaleId: editingSaleMetaRef.current.saleId,
+      editingSnapshotUpdatedAt: editingSaleMetaRef.current.updatedAt,
+      incomingSales: data.sales || [],
+    });
+    if (conflict && editingSaleMetaRef.current.mode === "edit") {
+      setSaleRemoteConflict(conflict);
+    } else {
+      setSaleRemoteConflict(null);
+      setSales((prev) =>
+        normalizeSalesRecords(
+          mergeSalesByUpdatedAt(data.sales || [], prev, {
+            suppressedServerIds: suppressedSaleIdsRef.current,
+          }),
+          workersForSales,
+        ),
+      );
+    }
+    if (Array.isArray(data.paymentVouchers)) setPaymentVouchers(data.paymentVouchers);
+    if (Array.isArray(data.paymentInputLogs)) setPaymentInputLogs(data.paymentInputLogs);
+    if (Array.isArray(data.saleComments)) setSaleComments(data.saleComments);
+    publishErpVersion(data.version ?? erpVersionRef.current);
+    setErpLastSyncedAt(new Date().toISOString());
+  }, []);
+
+  const refetchDomainsFromEvent = useCallback(
+    async (plan) => {
+      if (!plan?.domains?.length) return;
+      const wantSales = plan.domains.includes("sales") || plan.domains.includes("settings");
+      const shouldFetch = shouldRefetchForViewport({
+        domains: plan.domains,
+        affectedDateFrom: plan.affectedDateFrom,
+        affectedDateTo: plan.affectedDateTo,
+        viewingMonthKey: calendarViewportMonthKeyRef.current,
+      });
+      if (!shouldFetch) {
+        publishErpVersion(Math.max(erpVersionRef.current, Number(plan.globalVersion) || 0));
+        return;
+      }
+      const saleEditOpen = editingSaleMetaRef.current.mode === "edit";
+      if (!isUserIdleForRemoteRefresh()) {
+        if (wantSales && saleEditOpen) {
+          try {
+            const data = await fetchErpDomains(["sales"]);
+            const conflict = detectSaleEditConflict({
+              editingSaleId: editingSaleMetaRef.current.saleId,
+              editingSnapshotUpdatedAt: editingSaleMetaRef.current.updatedAt,
+              incomingSales: data.sales || [],
+            });
+            if (conflict) setSaleRemoteConflict(conflict);
+            publishErpVersion(data.version ?? erpVersionRef.current);
+          } catch (error) {
+            console.error(error);
+          }
+          // Keep deferring so a later idle pass can still merge non-conflicting domains.
+        }
+        // Peer calendar sales must land despite bank/worker cooldowns when not editing.
+        if (wantSales && !saleEditOpen) {
+          // fall through to refetch below
+        } else {
+          const prev = deferredDomainPlanRef.current;
+          deferredDomainPlanRef.current = prev
+            ? {
+                globalVersion: Math.max(Number(prev.globalVersion) || 0, Number(plan.globalVersion) || 0),
+                domains: [...new Set([...(prev.domains || []), ...(plan.domains || [])])],
+                entityIds: [...new Set([...(prev.entityIds || []), ...(plan.entityIds || [])])],
+                affectedDateFrom:
+                  prev.affectedDateFrom && plan.affectedDateFrom
+                    ? (prev.affectedDateFrom < plan.affectedDateFrom ? prev.affectedDateFrom : plan.affectedDateFrom)
+                    : (prev.affectedDateFrom || plan.affectedDateFrom || null),
+                affectedDateTo:
+                  prev.affectedDateTo && plan.affectedDateTo
+                    ? (prev.affectedDateTo > plan.affectedDateTo ? prev.affectedDateTo : plan.affectedDateTo)
+                    : (prev.affectedDateTo || plan.affectedDateTo || null),
+                eventIds: [...(prev.eventIds || []), ...(plan.eventIds || [])],
+              }
+            : plan;
+          if (deferredDomainRefreshTimerRef.current == null) {
+            deferredDomainRefreshTimerRef.current = window.setTimeout(() => {
+              deferredDomainRefreshTimerRef.current = null;
+              const deferred = deferredDomainPlanRef.current;
+              deferredDomainPlanRef.current = null;
+              if (deferred) void refetchDomainsFromEvent(deferred);
+            }, 200);
+          }
+          return;
+        }
+      }
+      if (remoteRefreshAbortRef.current) {
+        try {
+          remoteRefreshAbortRef.current.abort();
+        } catch {
+          // ignore
+        }
+      }
+      const abort = new AbortController();
+      remoteRefreshAbortRef.current = abort;
+      try {
+        const domains = [];
+        if (wantSales) domains.push("sales");
+        if (plan.domains.includes("settings") && !domains.includes("settings")) domains.push("settings");
+        if (!domains.length) domains.push("sales");
+        const data = await fetchErpDomains(domains);
+        if (abort.signal.aborted) return;
+        if (
+          isStaleDomainResponse({
+            responseVersion: Number(data.version) || 0,
+            knownVersion: erpVersionRef.current,
+          })
+        ) {
+          return;
+        }
+        if (domains.includes("sales")) applyRemoteSalesDomain(data);
+        else publishErpVersion(data.version ?? erpVersionRef.current);
+        clearErpSyncStatus();
+      } catch (error) {
+        if (abort.signal.aborted) return;
+        console.error(error);
+      }
+    },
+    [applyRemoteSalesDomain, isUserIdleForRemoteRefresh],
+  );
+
+  const flushDomainEvents = useCallback(() => {
+    domainEventFlushTimerRef.current = null;
+    const batch = pendingDomainEventsRef.current;
+    pendingDomainEventsRef.current = [];
+    if (!batch.length) return;
+    const plan = coalesceDomainEvents(batch);
+    void refetchDomainsFromEvent(plan);
+  }, [refetchDomainsFromEvent]);
+
+  const onErpDomainStreamEvent = useCallback(
+    (event) => {
+      if (!event || event.type !== "erp.domain_change") return;
+      try {
+        document.documentElement.setAttribute("data-erp-last-domain-event", String(event.eventId || ""));
+        document.documentElement.setAttribute("data-erp-last-domain-version", String(event.globalVersion || ""));
+      } catch {
+        /* ignore */
+      }
+      const id = String(event.eventId || "");
+      if (id && seenDomainEventIdsRef.current.has(id)) return;
+      if (id) {
+        seenDomainEventIdsRef.current.add(id);
+        if (seenDomainEventIdsRef.current.size > 500) {
+          seenDomainEventIdsRef.current = new Set([...seenDomainEventIdsRef.current].slice(-250));
+        }
+      }
+      if (Number(event.globalVersion) > 0 && Number(event.globalVersion) < erpVersionRef.current) {
+        return;
+      }
+      pendingDomainEventsRef.current.push(event);
+      if (domainEventFlushTimerRef.current != null) return;
+      domainEventFlushTimerRef.current = window.setTimeout(() => flushDomainEvents(), 50);
+    },
+    [flushDomainEvents],
+  );
+
+  useErpDomainRealtime({
+    enabled: Boolean(apiMode && currentUser?.id && dataReady),
+    onEvent: onErpDomainStreamEvent,
+    onConnectionChange: (connected) => {
+      setErpStreamConnected(connected);
+      try {
+        document.documentElement.setAttribute("data-erp-stream-connected", connected ? "true" : "false");
+      } catch {
+        /* ignore */
+      }
+      if (connected) setErpSyncDegraded(false);
+      else setErpSyncDegraded(true);
+    },
+  });
+
+  useEffect(() => {
+    if (!apiMode || !currentUser?.id || !dataReady) return;
+    let cancelled = false;
 
     const pollVersion = async () => {
       if (cancelled || !isUserIdleForRemoteRefresh()) return;
@@ -9138,9 +9369,17 @@ export default function TeammillimeterErpMvp() {
         const meta = await fetchErpVersion();
         if (cancelled || meta.version <= erpVersionRef.current) return;
         if (!isUserIdleForRemoteRefresh()) return;
-        const data = await fetchErpData();
+        const data = await fetchErpDomains(["sales"]);
         if (cancelled) return;
-        applyFetchedErpData(data);
+        if (
+          isStaleDomainResponse({
+            responseVersion: Number(data.version) || 0,
+            knownVersion: erpVersionRef.current,
+          })
+        ) {
+          return;
+        }
+        applyRemoteSalesDomain(data);
         clearErpSyncStatus();
       } catch (error) {
         console.error(error);
@@ -9148,19 +9387,25 @@ export default function TeammillimeterErpMvp() {
     };
 
     void pollVersion();
+    const intervalMs = erpStreamConnected ? ERP_VERSION_POLL_HEALTHY_MS : ERP_STREAM_FALLBACK_POLL_MS;
     const timer = window.setInterval(() => {
       void pollVersion();
-    }, ERP_VERSION_POLL_MS);
+    }, intervalMs);
     const onVisible = () => {
       if (document.visibilityState === "visible") void pollVersion();
     };
+    const onFocus = () => {
+      void pollVersion();
+    };
     document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onFocus);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onFocus);
     };
-  }, [apiMode, currentUser?.id, dataReady]);
+  }, [apiMode, currentUser?.id, dataReady, erpStreamConnected, applyRemoteSalesDomain, isUserIdleForRemoteRefresh]);
 
   const syncWorkersFromServer = useCallback(async () => {
     if (!apiMode || !dataReady) return;
@@ -10709,6 +10954,7 @@ export default function TeammillimeterErpMvp() {
       bankRemoteApplySkipAutosaveRef.current = false;
       return;
     }
+    // Consume one remote-apply / bootstrap cycle without scheduling autosave.
     if (
       skipSaveRef.current &&
       !bankSyncApplyingRef.current &&
@@ -10717,6 +10963,7 @@ export default function TeammillimeterErpMvp() {
       !clientPersistInFlightRef.current
     ) {
       skipSaveRef.current = false;
+      return;
     }
     if (
       skipSaveRef.current ||
@@ -11521,6 +11768,19 @@ export default function TeammillimeterErpMvp() {
           <Dashboard sales={appliedSales} paymentVouchers={effectivePaymentVouchers} workers={workers} />
         </PageKeepAlive>
         <PageKeepAlive pageKey="calendar" active={shellActive}>
+          {erpSyncDegraded ? (
+            <div className="mx-3 mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="status" data-erp-sync-degraded="true">
+              실시간 연결이 지연되고 있습니다
+              {erpLastSyncedAt ? ` · 마지막 동기화 ${String(erpLastSyncedAt).slice(11, 19)}` : ""}
+              <button type="button" className="ml-2 underline" onClick={() => { void fetchErpDomains(["sales"]).then((data) => applyRemoteSalesDomain(data)).catch(console.error); }}>새로고침</button>
+            </div>
+          ) : null}
+          {saleRemoteConflict ? (
+            <div className="mx-3 mb-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900" role="alert" data-sale-remote-conflict="true">
+              {saleRemoteConflict.message}
+              <button type="button" className="ml-2 underline" onClick={() => { void fetchErpDomains(["sales"]).then((data) => { editingSaleMetaRef.current = { ...editingSaleMetaRef.current, mode: "view" }; applyRemoteSalesDomain(data); setSaleRemoteConflict(null); }).catch(console.error); }}>서버 내용으로 다시 불러오기</button>
+            </div>
+          ) : null}
           <CalendarPage
             sales={appliedSales}
             setSales={setSales}
@@ -11551,6 +11811,14 @@ export default function TeammillimeterErpMvp() {
             saleCommentUnreadCounts={saleCommentUnreadCountBySaleId}
             onOpenSaleComments={openSaleCommentsView}
             onPersistNewSale={persistNewSaleImmediate}
+            onViewportMonthKeyChange={(next) => { calendarViewportMonthKeyRef.current = String(next || "").slice(0, 7); }}
+            onEditingSaleMetaChange={(meta) => {
+              editingSaleMetaRef.current = {
+                saleId: meta?.saleId ?? null,
+                updatedAt: meta?.updatedAt ?? null,
+                mode: meta?.mode === "edit" ? "edit" : "view",
+              };
+            }}
             saleAiRules={saleAiRules}
             pendingClientFilter={pendingCalendarClientFilter}
             onPendingClientFilterConsumed={() => setPendingCalendarClientFilter(null)}

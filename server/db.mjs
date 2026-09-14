@@ -9,6 +9,10 @@ import { isLegacyApWriterFrozen, planLegacyApArrayWriteFreeze } from "./apLedger
 import { queueCoalescedWrite } from "./erpWriteQueue.mjs";
 import { migrateClientAichiToMiumu, needsClientAichiToMiumuMigration } from "./migrateClientAichiToMiumu.mjs";
 import { isAttendanceTargetUser } from "./attendanceAccess.mjs";
+import {
+  publishErpDomainChange,
+  extractSalesChangeHints,
+} from "./erpDomainEvents.mjs";
 
 let db;
 
@@ -1175,6 +1179,24 @@ function saveErpStateImmediate(payload, expectedVersion, updatedBy, options = {}
     writeDomainRows(database, splitPayloadIntoDomains(normalizedPayload), updatedAt);
   });
 
+  // Durable commit succeeded — publish revision metadata only (no financial payloads).
+  try {
+    const salesHint = extractSalesChangeHints(normalizedPayload?.sales || []);
+    publishErpDomainChange({
+      globalVersion: nextVersion,
+      domains: ERP_DOMAIN_NAMES,
+      changeType: "erp_state_save",
+      entityIds: salesHint.entityIds,
+      affectedDateFrom: salesHint.affectedDateFrom,
+      affectedDateTo: salesHint.affectedDateTo,
+      actorUserId: updatedByValue,
+      source: "saveErpState",
+      committedAt: updatedAt,
+    });
+  } catch (error) {
+    console.warn("[erpDomainEvents] publish after saveErpState failed:", error?.message || error);
+  }
+
   return { version: nextVersion, updatedAt };
 }
 
@@ -1271,6 +1293,26 @@ export function saveErpDomain(domain, domainPayload, expectedVersion, updatedBy)
         .run(JSON.stringify(normalizeErpPayload(fullPayload)), nextVersion, updatedAt, updatedByValue);
     });
 
+    try {
+      const salesHint =
+        nextDomain === "sales"
+          ? extractSalesChangeHints(chunk?.sales || nextDomainPayload?.sales || [])
+          : { entityIds: [], affectedDateFrom: null, affectedDateTo: null };
+      publishErpDomainChange({
+        globalVersion: nextVersion,
+        domains: [nextDomain],
+        changeType: "domain_save",
+        entityIds: salesHint.entityIds,
+        affectedDateFrom: salesHint.affectedDateFrom,
+        affectedDateTo: salesHint.affectedDateTo,
+        actorUserId: updatedByValue,
+        source: "saveErpDomain",
+        committedAt: updatedAt,
+      });
+    } catch (error) {
+      console.warn("[erpDomainEvents] publish after saveErpDomain failed:", error?.message || error);
+    }
+
     return { version: nextVersion, updatedAt, domain: nextDomain };
   });
 }
@@ -1327,6 +1369,26 @@ export function saveErpDomains(domainPayloads, expectedVersion, updatedBy) {
           `)
           .run(JSON.stringify(normalizeErpPayload(merged)), nextVersion, updatedAt, updatedByValue);
       });
+
+      try {
+        const salesPayload = domainRows.sales?.sales || nextDomainPayloads.sales?.sales || [];
+        const salesHint = domains.includes("sales")
+          ? extractSalesChangeHints(salesPayload)
+          : { entityIds: [], affectedDateFrom: null, affectedDateTo: null };
+        publishErpDomainChange({
+          globalVersion: nextVersion,
+          domains,
+          changeType: "domains_save",
+          entityIds: salesHint.entityIds,
+          affectedDateFrom: salesHint.affectedDateFrom,
+          affectedDateTo: salesHint.affectedDateTo,
+          actorUserId: updatedByValue,
+          source: "saveErpDomains",
+          committedAt: updatedAt,
+        });
+      } catch (error) {
+        console.warn("[erpDomainEvents] publish after saveErpDomains failed:", error?.message || error);
+      }
 
       return { version: nextVersion, updatedAt, domains };
     },
