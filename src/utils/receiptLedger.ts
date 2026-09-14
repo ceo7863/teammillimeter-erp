@@ -29,6 +29,7 @@ export type ReceiptRecord = {
   postedAt?: string | null;
   postedBy?: string | null;
   reversalOfReceiptId?: string | null;
+  reversedEffectiveDate?: string | null;
   version?: number;
 };
 

@@ -23,8 +23,16 @@ import {
 } from "@/utils/saleForm";
 import { COLLECTION_STATUS_VOCAB } from "@/utils/financeInformationArchitecture";
 import { formatKRW } from "@/utils/workerPayments";
+import type { ReceiptAllocationRecord, ReceiptRecord } from "@/utils/receiptLedger";
 
 export const SALE_DETAIL_DRAWER_IDENTITY = "canonical-sale-detail-drawer";
+
+const RECEIPT_CHANNEL_LABEL: Record<string, string> = {
+  bank: "법인통장",
+  cash: "현금",
+  personal_account: "개인계좌",
+  other: "기타",
+};
 
 type SaleRecord = Record<string, unknown> & {
   id: number | string;
@@ -83,6 +91,10 @@ export type SaleDetailDrawerProps = {
   /** When false (default), keep drawer open after successful save and refresh from latest sale prop. */
   closeOnSave?: boolean;
   mode?: "view" | "edit";
+  /** Optional Receipt ledger links for this sale */
+  receipts?: ReceiptRecord[];
+  receiptAllocations?: ReceiptAllocationRecord[];
+  onOpenReceipt?: (receiptId: string) => void;
 };
 
 function syncLinkedPaymentVouchersForSale(
@@ -135,6 +147,9 @@ export const SaleDetailDrawer = memo(function SaleDetailDrawer({
   onAddSaleComment,
   onReviewAction,
   closeOnSave = false,
+  receipts = [],
+  receiptAllocations = [],
+  onOpenReceipt,
 }: SaleDetailDrawerProps) {
   const { recordAudit } = useAudit();
   const [deleteConfirm, setDeleteConfirm] = useState<SaleRecord | null>(null);
@@ -150,6 +165,44 @@ export const SaleDetailDrawer = memo(function SaleDetailDrawer({
     () => listSaleComments(saleComments, sale.id),
     [saleComments, sale.id],
   );
+
+  const linkedReceiptRows = useMemo(() => {
+    if (!receipts.length && !receiptAllocations.length) return [];
+    const saleKey = String(sale.id);
+    const allocs = receiptAllocations.filter(
+      (row) =>
+        String(row.saleId) === saleKey &&
+        row.status === "posted" &&
+        !(row as { auditOnly?: boolean }).auditOnly &&
+        !(row as { reversedEffectiveDate?: string }).reversedEffectiveDate,
+    );
+    if (!allocs.length) return [];
+    const byReceipt = new Map<string, { receipt: ReceiptRecord | null; amount: number; allocationCount: number }>();
+    for (const alloc of allocs) {
+      const key = String(alloc.receiptId);
+      const prev = byReceipt.get(key) || {
+        receipt: receipts.find((row) => String(row.id) === key) || null,
+        amount: 0,
+        allocationCount: 0,
+      };
+      prev.amount += Math.round(Number(alloc.amount) || 0);
+      prev.allocationCount += 1;
+      if (!prev.receipt) {
+        prev.receipt = receipts.find((row) => String(row.id) === key) || null;
+      }
+      byReceipt.set(key, prev);
+    }
+    return [...byReceipt.entries()]
+      .map(([receiptId, row]) => ({
+        receiptId,
+        receiptNo: row.receipt?.receiptNo || receiptId,
+        receiptDate: String(row.receipt?.receiptDate || "").slice(0, 10),
+        channel: row.receipt?.channel || "",
+        status: row.receipt?.status || "",
+        amount: row.amount,
+      }))
+      .sort((a, b) => String(b.receiptDate).localeCompare(String(a.receiptDate)));
+  }, [receipts, receiptAllocations, sale.id]);
 
   useEffect(() => {
     // Fresh server sale clears draft hold after successful save.
@@ -398,6 +451,41 @@ export const SaleDetailDrawer = memo(function SaleDetailDrawer({
               )}
               allowClientSiteUnlock
             />
+            {receipts.length > 0 || receiptAllocations.length > 0 ? (
+              <div
+                className="mt-3 rounded-xl border border-slate-200 bg-white p-3"
+                data-sale-linked-receipts="true"
+              >
+                <h3 className="text-sm font-bold text-slate-800">연결 입금전표</h3>
+                <p className="mt-0.5 text-xs text-slate-500">이 매출에 배정된 Receipt</p>
+                {linkedReceiptRows.length === 0 ? (
+                  <p className="mt-2 text-xs text-slate-500">배정된 입금전표가 없습니다.</p>
+                ) : (
+                  <ul className="mt-2 space-y-1.5">
+                    {linkedReceiptRows.map((row) => (
+                      <li key={row.receiptId}>
+                        <button
+                          type="button"
+                          className={`flex w-full items-center justify-between gap-2 rounded-lg border border-slate-100 px-3 py-2 text-left text-xs hover:bg-slate-50 ${
+                            onOpenReceipt ? "cursor-pointer" : "cursor-default"
+                          }`}
+                          onClick={() => onOpenReceipt?.(row.receiptId)}
+                          disabled={!onOpenReceipt}
+                        >
+                          <span>
+                            <span className="font-semibold text-slate-900">{row.receiptNo}</span>
+                            <span className="ml-2 text-slate-500">
+                              {row.receiptDate || "-"} · {RECEIPT_CHANNEL_LABEL[row.channel] || row.channel || "-"}
+                            </span>
+                          </span>
+                          <span className="font-semibold text-emerald-700">{formatKRW(row.amount)}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ) : null}
             {onAddSaleComment || onReviewAction ? (
               <SaleVoucherCommentsPanel
                 saleId={sale.id}

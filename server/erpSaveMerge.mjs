@@ -453,6 +453,22 @@ export function mergeReceiptAllocationsForSave(existing = [], _incoming = [], _r
   return [...(existing || [])];
 }
 
+/**
+ * Generic ERP saves must NEVER create/update/delete AR adjustments or depositor aliases.
+ * Dedicated writers use saveErpState(..., { allowArAdjustmentMutation / allowDepositorAliasMutation: true }).
+ */
+export function mergeArAdjustmentsForSave(existing = [], _incoming = []) {
+  return [...(existing || [])];
+}
+
+export function mergeArAdjustmentEventsForSave(existing = [], _incoming = []) {
+  return [...(existing || [])];
+}
+
+export function mergeDepositorAliasesForSave(existing = [], _incoming = []) {
+  return [...(existing || [])];
+}
+
 function normalizeWorkerRecordId(id) {
   if (id == null || id === "") return "";
   return String(id);

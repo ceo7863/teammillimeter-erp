@@ -1,6 +1,9 @@
 import {
+  mergeArAdjustmentEventsForSave,
+  mergeArAdjustmentsForSave,
   mergeBankTransactionsForSave,
   mergeClientsForSave,
+  mergeDepositorAliasesForSave,
   mergeOfficeStaffForSave,
   mergePaymentVouchersForSave,
   logPaymentVoucherWriteFreeze,
@@ -14,6 +17,8 @@ import {
 export const ERP_DOMAIN_FIELDS = {
   sales: ["sales", "paymentVouchers", "paymentInputLogs", "saleComments"],
   receipts: ["receipts", "receiptAllocations"],
+  arAdjustments: ["arAdjustments", "arAdjustmentEvents"],
+  depositorAliases: ["depositorAliases"],
   disbursements: ["disbursements", "disbursementAllocations", "contractorPayables"],
   clients: ["clients"],
   workers: [
@@ -137,6 +142,23 @@ export function mergeErpDomainForSave(existingData, domain, incomingPartial) {
               Array.isArray(incoming.receipts) ? incoming.receipts : existing.receipts || [],
             )
           : existing.receiptAllocations || [],
+      };
+    case "arAdjustments":
+      return {
+        ...existing,
+        arAdjustments: Array.isArray(incoming.arAdjustments)
+          ? mergeArAdjustmentsForSave(existing.arAdjustments || [], incoming.arAdjustments)
+          : existing.arAdjustments || [],
+        arAdjustmentEvents: Array.isArray(incoming.arAdjustmentEvents)
+          ? mergeArAdjustmentEventsForSave(existing.arAdjustmentEvents || [], incoming.arAdjustmentEvents)
+          : existing.arAdjustmentEvents || [],
+      };
+    case "depositorAliases":
+      return {
+        ...existing,
+        depositorAliases: Array.isArray(incoming.depositorAliases)
+          ? mergeDepositorAliasesForSave(existing.depositorAliases || [], incoming.depositorAliases)
+          : existing.depositorAliases || [],
       };
     case "disbursements":
       return {

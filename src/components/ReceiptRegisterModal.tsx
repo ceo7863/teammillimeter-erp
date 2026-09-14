@@ -9,7 +9,15 @@ import {
   createReceiptRegisterApi,
   type ReceiptApiResult,
 } from "@/utils/erpApi";
-import { makeReceiptOperationId } from "@/utils/receiptLedger";
+import { makeReceiptOperationId, type ReceiptSource } from "@/utils/receiptLedger";
+import {
+  ALLOCATION_TARGET_MODE_LABELS,
+  GLOBAL_FIFO_WARNING,
+  allocationTargetModeLabel,
+  resolveDefaultAllocationTargetMode,
+  shouldAutoAllocate,
+  type AllocationTargetMode,
+} from "@/utils/allocationTargetPolicy";
 
 export type ReceiptRegisterChannel = "bank" | "cash" | "personal_account" | "other";
 
@@ -38,6 +46,10 @@ export type ReceiptRegisterModalProps = {
   initialDate?: string;
   initialChannel?: ReceiptRegisterChannel;
   initialAllocations?: Array<{ saleId: string | number; amount: number }>;
+  initialTargetMode?: AllocationTargetMode;
+  initialPeriodStart?: string;
+  initialPeriodEnd?: string;
+  sentStatementId?: string;
   bankTransactionId?: string;
   source?: string;
   /** Preview rows for FIFO / manual selection */
@@ -54,9 +66,21 @@ const CHANNEL_OPTIONS: Array<{ value: ReceiptRegisterChannel; label: string }> =
   { value: "other", label: "기타" },
 ];
 
+const TARGET_MODE_OPTIONS: AllocationTargetMode[] = [
+  "UNAPPLIED",
+  "STATEMENT",
+  "PERIOD",
+  "SELECTED_SALES",
+  "GLOBAL_FIFO",
+];
+
 function money(value: unknown) {
   const n = Number(value);
   return Number.isFinite(n) ? Math.round(n) : 0;
+}
+
+function todaySeoul() {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
 }
 
 export function ReceiptRegisterModal({
@@ -69,6 +93,10 @@ export function ReceiptRegisterModal({
   initialDate,
   initialChannel = "cash",
   initialAllocations,
+  initialTargetMode,
+  initialPeriodStart,
+  initialPeriodEnd,
+  sentStatementId,
   bankTransactionId,
   source = "receivables",
   previewSales = [],
@@ -77,32 +105,66 @@ export function ReceiptRegisterModal({
   title = "입금 등록",
 }: ReceiptRegisterModalProps) {
   const [clientId, setClientId] = useState(String(initialClientId || ""));
-  const [receiptDate, setReceiptDate] = useState(
-    initialDate || new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" }),
-  );
+  const [receiptDate, setReceiptDate] = useState(initialDate || todaySeoul());
   const [grossAmount, setGrossAmount] = useState(String(initialAmount || ""));
   const [channel, setChannel] = useState<ReceiptRegisterChannel>(initialChannel);
   const [receivedBy, setReceivedBy] = useState("");
   const [memo, setMemo] = useState("");
-  const [autoAllocate, setAutoAllocate] = useState(!initialAllocations?.length);
+  const [targetMode, setTargetMode] = useState<AllocationTargetMode>(() =>
+    resolveDefaultAllocationTargetMode({
+      initialTargetMode,
+      initialAllocations,
+      initialPeriodStart,
+      initialPeriodEnd,
+      sentStatementId,
+    }),
+  );
+  const [periodStart, setPeriodStart] = useState(initialPeriodStart || "");
+  const [periodEnd, setPeriodEnd] = useState(initialPeriodEnd || "");
+  const [globalFifoConfirmed, setGlobalFifoConfirmed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [manualAllocations, setManualAllocations] = useState(
-    () => initialAllocations || previewSales.filter((row) => money(row.allocate) > 0).map((row) => ({
-      saleId: row.saleId,
-      amount: money(row.allocate),
-    })),
+    () =>
+      initialAllocations ||
+      previewSales
+        .filter((row) => money(row.allocate) > 0)
+        .map((row) => ({
+          saleId: row.saleId,
+          amount: money(row.allocate),
+        })),
   );
 
   useEffect(() => {
     if (!open) return;
     setClientId(String(initialClientId || ""));
-    setReceiptDate(initialDate || new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" }));
+    setReceiptDate(initialDate || todaySeoul());
     setGrossAmount(String(initialAmount || ""));
     setChannel(initialChannel);
-    setAutoAllocate(!initialAllocations?.length);
+    setTargetMode(
+      resolveDefaultAllocationTargetMode({
+        initialTargetMode,
+        initialAllocations,
+        initialPeriodStart,
+        initialPeriodEnd,
+        sentStatementId,
+      }),
+    );
+    setPeriodStart(initialPeriodStart || "");
+    setPeriodEnd(initialPeriodEnd || "");
+    setGlobalFifoConfirmed(false);
+    setManualAllocations(
+      initialAllocations ||
+        previewSales
+          .filter((row) => money(row.allocate) > 0)
+          .map((row) => ({
+            saleId: row.saleId,
+            amount: money(row.allocate),
+          })),
+    );
     setError("");
-  }, [open, initialClientId, initialAmount, initialDate, initialChannel, initialAllocations]);
+    // Reset form only when modal opens (avoid wiping edits on parent re-render).
+  }, [open]);
 
   const selectedClient = useMemo(() => {
     const byId = clients.find((row) => String(row.id) === String(clientId));
@@ -114,11 +176,26 @@ export function ReceiptRegisterModal({
   }, [clients, clientId, initialClientName]);
 
   const amount = money(grossAmount);
-  const allocatedPreview = autoAllocate
-    ? previewSales.reduce((sum, row) => sum + money(row.allocate), 0)
-    : manualAllocations.reduce((sum, row) => sum + money(row.amount), 0);
+  const allocatedPreview =
+    targetMode === "UNAPPLIED"
+      ? 0
+      : targetMode === "SELECTED_SALES"
+        ? manualAllocations.reduce((sum, row) => sum + money(row.amount), 0)
+        : previewSales.reduce((sum, row) => sum + money(row.allocate), 0);
   const outstandingAfter =
     outstandingBefore != null ? Math.max(0, money(outstandingBefore) - Math.min(amount, money(outstandingBefore))) : null;
+
+  const autoAllocate = shouldAutoAllocate(targetMode);
+  const previewNote =
+    targetMode === "UNAPPLIED"
+      ? "업체만 확정하고 매출 충당은 하지 않습니다. 입금전표는 미충당으로 보존됩니다."
+      : targetMode === "GLOBAL_FIFO"
+        ? "전체 오래된 미수부터 자동 충당합니다. 과거 누락 입금이 있으면 잘못된 매출에 배정될 수 있습니다."
+        : targetMode === "SELECTED_SALES"
+          ? "선택한 매출에만 배정합니다."
+          : targetMode === "PERIOD"
+            ? "지정 기간 매출 범위 안에서만 자동 충당합니다."
+            : "특정 내역서 매출 범위 안에서만 자동 충당합니다.";
 
   if (!open) return null;
 
@@ -132,6 +209,22 @@ export function ReceiptRegisterModal({
       setError("입금액을 입력하세요.");
       return;
     }
+    if (targetMode === "GLOBAL_FIFO" && !globalFifoConfirmed) {
+      setError("전체 FIFO 충당 경고를 확인한 뒤 체크해야 저장할 수 있습니다.");
+      return;
+    }
+    if (targetMode === "PERIOD" && (!periodStart || !periodEnd)) {
+      setError("기간을 입력하세요.");
+      return;
+    }
+    if (targetMode === "STATEMENT" && !sentStatementId) {
+      setError("내역서 ID가 필요합니다.");
+      return;
+    }
+    if (targetMode === "SELECTED_SALES" && manualAllocations.length === 0) {
+      setError("배정할 매출을 선택하세요.");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
@@ -140,7 +233,17 @@ export function ReceiptRegisterModal({
         result = await createBankTransactionReceiptApi(bankTransactionId, {
           operationId: makeReceiptOperationId("bank-register"),
           clientId: selectedClient.id,
-          allocations: autoAllocate ? undefined : manualAllocations,
+          targetMode,
+          periodStart: targetMode === "PERIOD" ? periodStart : undefined,
+          periodEnd: targetMode === "PERIOD" ? periodEnd : undefined,
+          saleIds:
+            targetMode === "SELECTED_SALES"
+              ? manualAllocations.map((row) => row.saleId)
+              : undefined,
+          allocations: targetMode === "SELECTED_SALES" ? manualAllocations : undefined,
+          autoAllocate,
+          requireSentStatements: targetMode === "STATEMENT",
+          sentStatementId: targetMode === "STATEMENT" ? sentStatementId : undefined,
           memo: [memo, receivedBy ? `받은사람:${receivedBy}` : ""].filter(Boolean).join(" · "),
           source: "bank_manual",
         });
@@ -152,11 +255,19 @@ export function ReceiptRegisterModal({
           receiptDate,
           grossAmount: amount,
           channel,
-          source: source || "receivables",
+          source: (source || "receivables") as ReceiptSource,
           memo: [memo, receivedBy ? `받은사람:${receivedBy}` : ""].filter(Boolean).join(" · "),
+          targetMode,
+          periodStart: targetMode === "PERIOD" ? periodStart : undefined,
+          periodEnd: targetMode === "PERIOD" ? periodEnd : undefined,
+          saleIds:
+            targetMode === "SELECTED_SALES"
+              ? manualAllocations.map((row) => row.saleId)
+              : undefined,
+          allocations: targetMode === "SELECTED_SALES" ? manualAllocations : undefined,
           autoAllocate,
-          allocations: autoAllocate ? undefined : manualAllocations,
-          requireSentStatements: true,
+          requireSentStatements: targetMode === "STATEMENT",
+          sentStatementId: targetMode === "STATEMENT" ? sentStatementId : undefined,
         });
       }
       onSaved?.(result);
@@ -225,6 +336,7 @@ export function ReceiptRegisterModal({
                 value={grossAmount}
                 onChange={(event) => setGrossAmount(event.target.value)}
                 min={0}
+                data-receipt-amount-input="true"
               />
             </label>
           </div>
@@ -250,6 +362,89 @@ export function ReceiptRegisterModal({
             </p>
           )}
 
+          <fieldset className="grid gap-2 rounded-lg border border-slate-200 p-3">
+            <legend className="px-1 text-sm font-semibold text-slate-800">충당 대상</legend>
+            <div className="grid gap-2">
+              {TARGET_MODE_OPTIONS.map((mode) => {
+                const disabled =
+                  (mode === "STATEMENT" && !sentStatementId) ||
+                  (mode === "SELECTED_SALES" && !(initialAllocations?.length || manualAllocations.length || previewSales.length));
+                return (
+                  <label
+                    key={mode}
+                    className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-sm ${
+                      targetMode === mode ? "border-slate-900 bg-slate-50" : "border-slate-200"
+                    } ${disabled ? "opacity-50" : ""}`}
+                  >
+                    <input
+                      type="radio"
+                      name="receipt-target-mode"
+                      className="mt-1"
+                      checked={targetMode === mode}
+                      disabled={disabled}
+                      onChange={() => {
+                        setTargetMode(mode);
+                        setGlobalFifoConfirmed(false);
+                      }}
+                    />
+                    <span>
+                      <span className="font-semibold text-slate-800">{ALLOCATION_TARGET_MODE_LABELS[mode]}</span>
+                      {mode === "UNAPPLIED" ? (
+                        <span className="mt-0.5 block text-xs text-slate-500">기본 · 업체만 확정, 미충당 보존</span>
+                      ) : null}
+                      {mode === "GLOBAL_FIFO" ? (
+                        <span className="mt-0.5 block text-xs text-amber-700">{GLOBAL_FIFO_WARNING}</span>
+                      ) : null}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+
+            {targetMode === "PERIOD" ? (
+              <div className="grid grid-cols-2 gap-2">
+                <label className="grid gap-1 text-xs">
+                  <span className="font-medium text-slate-600">시작일</span>
+                  <input
+                    type="date"
+                    className="rounded border border-slate-300 px-2 py-1.5"
+                    value={periodStart}
+                    onChange={(event) => setPeriodStart(event.target.value)}
+                  />
+                </label>
+                <label className="grid gap-1 text-xs">
+                  <span className="font-medium text-slate-600">종료일</span>
+                  <input
+                    type="date"
+                    className="rounded border border-slate-300 px-2 py-1.5"
+                    value={periodEnd}
+                    onChange={(event) => setPeriodEnd(event.target.value)}
+                  />
+                </label>
+              </div>
+            ) : null}
+
+            {targetMode === "STATEMENT" && sentStatementId ? (
+              <p className="rounded bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                내역서: <code>{sentStatementId}</code>
+              </p>
+            ) : null}
+
+            {targetMode === "GLOBAL_FIFO" ? (
+              <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={globalFifoConfirmed}
+                  onChange={(event) => setGlobalFifoConfirmed(event.target.checked)}
+                />
+                <span>
+                  <strong>경고 확인:</strong> {GLOBAL_FIFO_WARNING} 전체 오래된 미수 FIFO 충당에 동의합니다.
+                </span>
+              </label>
+            ) : null}
+          </fieldset>
+
           <label className="grid gap-1 text-sm">
             <span className="font-medium text-slate-700">받은 사람</span>
             <input
@@ -257,11 +452,6 @@ export function ReceiptRegisterModal({
               value={receivedBy}
               onChange={(event) => setReceivedBy(event.target.value)}
             />
-          </label>
-
-          <label className="flex items-center gap-2 text-sm text-slate-700">
-            <input type="checkbox" checked={autoAllocate} onChange={(event) => setAutoAllocate(event.target.checked)} />
-            발송 내역서 미수 saleId에 자동 FIFO 배정
           </label>
 
           <label className="grid gap-1 text-sm">
@@ -275,6 +465,10 @@ export function ReceiptRegisterModal({
 
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
             <p>
+              충당 대상: <strong>{allocationTargetModeLabel(targetMode)}</strong>
+            </p>
+            <p className="mt-1 text-xs text-slate-600">{previewNote}</p>
+            <p className="mt-2">
               현재 미수:{" "}
               <strong>{outstandingBefore != null ? outstandingBefore.toLocaleString("ko-KR") : "—"}</strong>
             </p>
@@ -285,10 +479,12 @@ export function ReceiptRegisterModal({
             <p>
               배정 예정 합계: <strong>{allocatedPreview.toLocaleString("ko-KR")}</strong>
               {amount > allocatedPreview ? (
-                <span className="ml-2 text-violet-700">(잔액 선수금 {Math.max(0, amount - allocatedPreview).toLocaleString("ko-KR")})</span>
+                <span className="ml-2 text-violet-700">
+                  (잔액 미충당/선수금 {Math.max(0, amount - allocatedPreview).toLocaleString("ko-KR")})
+                </span>
               ) : null}
             </p>
-            {previewSales.length > 0 ? (
+            {previewSales.length > 0 && targetMode !== "UNAPPLIED" ? (
               <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-xs">
                 {previewSales.map((row) => (
                   <li key={String(row.saleId)}>

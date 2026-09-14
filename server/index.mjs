@@ -245,6 +245,18 @@ import {
   summarizeReceipt,
 } from "./receipts.mjs";
 import {
+  previewArAdjustment,
+  createArAdjustment,
+  reverseArAdjustment,
+  listArAdjustments,
+} from "./arAdjustments.mjs";
+import {
+  createDepositorAlias,
+  disableDepositorAlias,
+  listDepositorAliases,
+} from "./depositorAliases.mjs";
+import { reconcileBankDepositCoverage } from "./bankDepositClassification.mjs";
+import {
   registerDisbursement,
   reverseDisbursement,
   listContractorPayablesFromSales,
@@ -3764,6 +3776,137 @@ app.post("/api/receipts/register", authMiddleware, (req, res) => {
   }
 });
 
+app.post("/api/ar-adjustments/preview", authMiddleware, (req, res) => {
+  try {
+    res.json(previewArAdjustment(req.body || {}));
+  } catch (error) {
+    if (error?.status && error.status < 500) {
+      return res.status(error.status).json({ error: error.message, code: error.code || "AR_ADJUSTMENT_ERROR" });
+    }
+    console.error(error);
+    res.status(500).json({ error: error?.message || "AR 조정 미리보기에 실패했습니다.", code: "AR_ADJUSTMENT_ERROR" });
+  }
+});
+
+app.post("/api/ar-adjustments", authMiddleware, (req, res) => {
+  try {
+    const result = createArAdjustment(req.body || {}, receiptActor(req));
+    res.status(result.idempotent ? 200 : 201).json(result);
+  } catch (error) {
+    if (error?.status && error.status < 500) {
+      return res.status(error.status).json({
+        error: error.message,
+        code: error.code || "AR_ADJUSTMENT_ERROR",
+        ...(error.operationId ? { operationId: error.operationId } : {}),
+        ...(error.existingAdjustmentId ? { existingAdjustmentId: error.existingAdjustmentId } : {}),
+      });
+    }
+    console.error(error);
+    res.status(500).json({ error: error?.message || "AR 조정 생성에 실패했습니다.", code: "AR_ADJUSTMENT_ERROR" });
+  }
+});
+
+app.post("/api/ar-adjustments/:id/reverse", authMiddleware, (req, res) => {
+  try {
+    const result = reverseArAdjustment(req.params.id, req.body || {}, receiptActor(req));
+    res.json(result);
+  } catch (error) {
+    if (error?.status && error.status < 500) {
+      return res.status(error.status).json({ error: error.message, code: error.code || "AR_ADJUSTMENT_ERROR" });
+    }
+    console.error(error);
+    res.status(500).json({ error: error?.message || "AR 조정 취소에 실패했습니다.", code: "AR_ADJUSTMENT_ERROR" });
+  }
+});
+
+app.get("/api/ar-adjustments", authMiddleware, (req, res) => {
+  try {
+    const state = getErpState(["arAdjustments"]);
+    let rows = listArAdjustments(state.data || {});
+    const clientId = String(req.query.clientId || "").trim();
+    if (clientId) rows = rows.filter((row) => String(row.clientId) === clientId);
+    res.json({ arAdjustments: rows, adjustments: rows, count: rows.length, version: state.version });
+  } catch (error) {
+    res.status(error?.status || 500).json({ error: error?.message || "AR 조정 조회에 실패했습니다.", code: error?.code || "AR_ADJUSTMENT_ERROR" });
+  }
+});
+
+app.post("/api/depositor-aliases", authMiddleware, (req, res) => {
+  try {
+    const body = req.body || {};
+    if (body.explicitOptIn !== true && body.optIn !== true) {
+      return res.status(400).json({
+        error: "입금자명 자동 인식은 explicitOptIn: true가 필요합니다.",
+        code: "ALIAS_OPT_IN_REQUIRED",
+      });
+    }
+    const result = createDepositorAlias({ ...body, explicitOptIn: true }, receiptActor(req));
+    res.status(result.idempotent ? 200 : 201).json(result);
+  } catch (error) {
+    if (error?.status && error.status < 500) {
+      return res.status(error.status).json({
+        error: error.message,
+        code: error.code || "DEPOSITOR_ALIAS_ERROR",
+        ...(error.conflicts ? { conflicts: error.conflicts } : {}),
+      });
+    }
+    console.error(error);
+    res.status(500).json({ error: error?.message || "입금자명 별칭 저장에 실패했습니다.", code: "DEPOSITOR_ALIAS_ERROR" });
+  }
+});
+
+app.post("/api/depositor-aliases/:id/disable", authMiddleware, (req, res) => {
+  try {
+    const result = disableDepositorAlias(req.params.id, receiptActor(req));
+    res.json(result);
+  } catch (error) {
+    if (error?.status && error.status < 500) {
+      return res.status(error.status).json({ error: error.message, code: error.code || "DEPOSITOR_ALIAS_ERROR" });
+    }
+    console.error(error);
+    res.status(500).json({ error: error?.message || "입금자명 별칭 비활성화에 실패했습니다.", code: "DEPOSITOR_ALIAS_ERROR" });
+  }
+});
+
+app.get("/api/depositor-aliases", authMiddleware, (req, res) => {
+  try {
+    const state = getErpState(["depositorAliases"]);
+    let rows = listDepositorAliases(state.data || {});
+    const clientId = String(req.query.clientId || "").trim();
+    if (clientId) rows = rows.filter((row) => String(row.clientId) === clientId);
+    res.json({ depositorAliases: rows, aliases: rows, count: rows.length, version: state.version });
+  } catch (error) {
+    res.status(error?.status || 500).json({ error: error?.message || "입금자명 별칭 조회에 실패했습니다.", code: error?.code || "DEPOSITOR_ALIAS_ERROR" });
+  }
+});
+
+app.get("/api/bank-deposits/classification-coverage", authMiddleware, (req, res) => {
+  try {
+    const state = getErpState([
+      "bankTransactions",
+      "receipts",
+      "clients",
+      "depositorAliases",
+    ]);
+    const data = state.data || {};
+    const coverage = reconcileBankDepositCoverage(data.bankTransactions || [], {
+      receipts: listReceipts(data),
+      allocations: listReceiptAllocations(data),
+      unresolvedQueue: data.bankSyncMeta?.unresolvedDepositQueue || [],
+      aliases: listDepositorAliases(data),
+      clients: data.clients || [],
+      bankSyncMeta: data.bankSyncMeta || null,
+    });
+    res.json({ ...coverage, version: state.version });
+  } catch (error) {
+    console.error(error);
+    res.status(error?.status || 500).json({
+      error: error?.message || "입금 분류 커버리지 조회에 실패했습니다.",
+      code: error?.code || "BANK_COVERAGE_ERROR",
+    });
+  }
+});
+
 app.post("/api/receipts", authMiddleware, (req, res) => {
   try {
     const result = createAndPostReceipt(req.body || {}, receiptActor(req));
@@ -3824,7 +3967,6 @@ app.get("/api/receipts", authMiddleware, (req, res) => {
     version: state.version,
   });
 });
-
 
 app.post("/api/disbursements/register", authMiddleware, (req, res) => {
   try {

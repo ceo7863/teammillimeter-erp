@@ -42,6 +42,9 @@ function emptyErpPayload() {
     paymentInputLogs: [],
     receipts: [],
     receiptAllocations: [],
+    arAdjustments: [],
+    arAdjustmentEvents: [],
+    depositorAliases: [],
     disbursements: [],
     disbursementAllocations: [],
     contractorPayables: [],
@@ -1053,6 +1056,21 @@ function saveErpStateImmediate(payload, expectedVersion, updatedBy, options = {}
       ...normalizedPayload,
       receipts: Array.isArray(assembled.receipts) ? assembled.receipts : [],
       receiptAllocations: Array.isArray(assembled.receiptAllocations) ? assembled.receiptAllocations : [],
+    };
+  }
+
+  if (!options.allowArAdjustmentMutation) {
+    normalizedPayload = {
+      ...normalizedPayload,
+      arAdjustments: Array.isArray(assembled.arAdjustments) ? assembled.arAdjustments : [],
+      arAdjustmentEvents: Array.isArray(assembled.arAdjustmentEvents) ? assembled.arAdjustmentEvents : [],
+    };
+  }
+
+  if (!options.allowDepositorAliasMutation) {
+    normalizedPayload = {
+      ...normalizedPayload,
+      depositorAliases: Array.isArray(assembled.depositorAliases) ? assembled.depositorAliases : [],
     };
   }
 
