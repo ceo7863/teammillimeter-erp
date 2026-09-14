@@ -199,6 +199,10 @@ import {
 } from "./taskComments.mjs";
 import { subscribeTeamChatEvents } from "./teamChatEvents.mjs";
 import {
+  subscribeErpDomainEvents,
+  countErpDomainSubscribers,
+} from "./erpDomainEvents.mjs";
+import {
   getTeamChatPushPublicKey,
   initTeamChatPushStore,
   isTeamChatPushReady,
@@ -2082,6 +2086,38 @@ app.get("/api/team-chat/events", (req, res) => {
     console.error("[team-chat/events] failed:", error?.code || error?.name || "error");
     if (!res.headersSent) {
       res.status(error?.status || 500).json({ error: "팀채팅 실시간 연결에 실패했습니다." });
+      return;
+    }
+    try {
+      res.end();
+    } catch {
+      // ignore
+    }
+  }
+});
+
+app.get("/api/erp/events", (req, res) => {
+  try {
+    // Bearer-only: never accept ?token= (nginx access logs).
+    const user = resolveBearerRequestUser(req);
+    if (!user) {
+      if (!res.headersSent) {
+        res.status(401).json({ error: "로그인이 필요합니다." });
+      } else {
+        try {
+          res.end();
+        } catch {
+          // ignore
+        }
+      }
+      return;
+    }
+    const userId = user.sub ?? user.id;
+    subscribeErpDomainEvents(userId, res);
+  } catch (error) {
+    console.error("[erp/events] failed:", error?.code || error?.name || "error");
+    if (!res.headersSent) {
+      res.status(error?.status || 500).json({ error: "ERP 실시간 연결에 실패했습니다." });
       return;
     }
     try {
