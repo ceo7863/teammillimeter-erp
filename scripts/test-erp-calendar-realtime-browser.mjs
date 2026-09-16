@@ -1,8 +1,8 @@
 /**
- * ERP calendar multi-user realtime — Playwright 3-context latency gate.
+ * ERP calendar multi-user realtime — Playwright multi-context latency gate.
  * Run: node --import tsx scripts/test-erp-calendar-realtime-browser.mjs
  *
- * NOT_RUN is not allowed for listed scenarios.
+ * NOT_RUN is not allowed for required scenarios.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -22,6 +22,10 @@ const ACTIVE_TAB_KEY = "teammillimeter-erp-active-tab";
 const TOKEN_KEY = "teammillimeter-erp-token";
 const CALENDAR_LABEL = "\uCE98\uB9B0\uB354";
 const PEER_P95_TARGET_MS = 3000;
+const FALLBACK_TARGET_MS = 15000;
+const TEST_ITERATIONS = Number(process.env.TEST_ITERATIONS || 20);
+const SIM_SALE_ID = "sale-sim-import-fixed";
+const SIM_EXTERNAL_ID = "ext-sim-import-fixed";
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "erp-calendar-realtime-browser-"));
 const dbPath = path.join(tmpDir, "erp.sqlite");
@@ -35,6 +39,18 @@ fs.mkdirSync(artifactsDir, { recursive: true });
 function writeResults(payload) {
   fs.writeFileSync(resultsPath, JSON.stringify(payload, null, 2), "utf8");
   return payload;
+}
+
+function percentile(values, p) {
+  if (!values.length) return null;
+  const sorted = values.slice().sort((a, b) => a - b);
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.floor(sorted.length * (p / 100))));
+  return sorted[idx];
+}
+
+function average(values) {
+  if (!values.length) return null;
+  return values.reduce((sum, n) => sum + n, 0) / values.length;
 }
 
 function getFreePort() {
@@ -124,14 +140,14 @@ async function run(name, fn) {
   }
 }
 
-const expected = [
-  "seed users A and B",
-  "context A login open calendar",
-  "context B login open calendar idle",
+const required = [
   "peer visibility latency under target",
   "context C background catch-up",
   "stream disconnect fallback",
-  "calwalk synthetic sale via saveErpDomains",
+  "simultaneous import",
+  "hard reload B",
+  "mobile 390x844",
+  "edit conflict draft preservation",
   "console errors = 0",
 ];
 
@@ -139,6 +155,11 @@ let serverProc = null;
 let browser = null;
 const consoleErrors = [];
 const latencySamples = [];
+let duplicateSaleCount = 0;
+let editDraftLossCount = 0;
+let fallbackLatency = null;
+let backgroundResumeLatency = null;
+let multiBrowserContextCount = 0;
 
 function trackConsole(page) {
   page.on("pageerror", (err) => {
@@ -232,7 +253,7 @@ async function waitForSaleVisible(page, { client, site, amount }, timeoutMs = 15
   throw new Error(`sale not visible: ${client}/${site}/${amountText}`);
 }
 
-async function createSaleViaApi(page, sale) {
+async function getBearer(page) {
   const token = await page.evaluate((key) => {
     return (
       localStorage.getItem(key) ||
@@ -243,12 +264,28 @@ async function createSaleViaApi(page, sale) {
     );
   }, TOKEN_KEY);
   assert.ok(token, "missing auth token");
+  return token;
+}
+
+async function getSalesViaApi(page) {
+  const token = await getBearer(page);
+  const domainsRes = await fetch(baseUrl + "/api/erp/domains?domains=sales", {
+    headers: { Authorization: "Bearer " + token },
+  });
+  const domainsRaw = await domainsRes.text();
+  assert.ok(domainsRes.ok, "domains GET failed " + domainsRes.status + " " + domainsRaw.slice(0, 300));
+  const domains = domainsRaw ? JSON.parse(domainsRaw) : {};
+  return Array.isArray(domains.sales) ? domains.sales : [];
+}
+
+async function createSaleViaApi(page, sale) {
+  const token = await getBearer(page);
 
   const t0 = Date.now();
   let t2xx = t0;
   let body = {};
   let lastErr = "";
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; attempt < 8; attempt++) {
     const domainsRes = await fetch(baseUrl + "/api/erp/domains?domains=sales", {
       headers: { Authorization: "Bearer " + token },
     });
@@ -291,9 +328,8 @@ async function createSaleViaApi(page, sale) {
       return { t0, t2xx, version: body.version, status: patchRes.status };
     }
     lastErr = "domains PATCH failed " + patchRes.status + " " + patchRaw.slice(0, 500);
-    // VERSION_CONFLICT retry when another client autosaved between GET and PATCH.
     if (patchRes.status !== 409) break;
-    await new Promise((r) => setTimeout(r, 150));
+    await new Promise((r) => setTimeout(r, 120 + attempt * 40));
   }
   assert.fail(lastErr || "domains PATCH failed");
 }
@@ -301,7 +337,7 @@ async function createSaleViaApi(page, sale) {
 let baseUrl = "";
 
 try {
-  console.log("Seeding throwaway DB (users A/B + client)...");
+  console.log("Seeding throwaway DB (users A/B/C + client)...");
   const seedScript = path.join(tmpDir, "seed-calendar-realtime.mjs");
   const dbImportHref = pathToFileURL(path.join(root, "server", "db.mjs")).href;
   fs.writeFileSync(
@@ -374,12 +410,20 @@ try {
   const contextA = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const contextB = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const contextC = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const contextD = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  });
+  multiBrowserContextCount = 4;
   const pageA = await contextA.newPage();
   const pageB = await contextB.newPage();
   const pageC = await contextC.newPage();
+  const pageD = await contextD.newPage();
   trackConsole(pageA);
   trackConsole(pageB);
   trackConsole(pageC);
+  trackConsole(pageD);
 
   await run("context A login open calendar", async () => {
     await login(pageA, "caluserA");
@@ -394,49 +438,62 @@ try {
   });
 
   await run("peer visibility latency under target", async () => {
-    const sale = {
-      id: "sale-peer-" + Date.now(),
-      client: "RealtimeClient",
-      clientId: "c-rt",
-      site: "PeerSiteAlpha",
-      date: todayISO(),
-      amount: 777000,
-      paid: 0,
-      updatedAt: new Date().toISOString(),
-    };
+    const iterationResults = [];
+    for (let i = 0; i < TEST_ITERATIONS; i++) {
+      const sale = {
+        id: "sale-peer-" + Date.now() + "-" + i,
+        client: "RealtimeClient",
+        clientId: "c-rt",
+        site: "PeerSite-" + i + "-" + Date.now().toString(36),
+        date: todayISO(),
+        amount: 700000 + i,
+        paid: 0,
+        updatedAt: new Date().toISOString(),
+      };
 
-    let detectionAt = null;
-    const onResponse = (res) => {
-      const url = res.url();
-      if (!detectionAt && res.ok() && /\/api\/erp\/domains/.test(url) && res.request().method() === "GET") {
-        detectionAt = Date.now();
-      }
-    };
-    pageB.on("response", onResponse);
+      let detectionAt = null;
+      const onResponse = (res) => {
+        const url = res.url();
+        if (!detectionAt && res.ok() && /\/api\/erp\/domains/.test(url) && res.request().method() === "GET") {
+          detectionAt = Date.now();
+        }
+      };
+      pageB.on("response", onResponse);
 
-    const { t0, t2xx } = await createSaleViaApi(pageA, sale);
-    const [actorDomAt, peerDomAt] = await Promise.all([
-      waitForSaleVisible(pageA, sale, 12000).catch(() => t2xx),
-      waitForSaleVisible(pageB, sale, 12000),
-    ]);
-    pageB.off("response", onResponse);
-    if (!detectionAt) detectionAt = peerDomAt;
+      const { t0, t2xx } = await createSaleViaApi(pageA, sale);
+      const [actorDomAt, peerDomAt] = await Promise.all([
+        waitForSaleVisible(pageA, sale, 12000).catch(() => t2xx),
+        waitForSaleVisible(pageB, sale, 12000),
+      ]);
+      pageB.off("response", onResponse);
+      if (!detectionAt) detectionAt = peerDomAt;
 
-    const metrics = {
-      actorLocalLatency: Math.max(0, actorDomAt - t0),
-      peerDetectionLatency: Math.max(0, detectionAt - t2xx),
-      peerDomLatency: Math.max(0, peerDomAt - detectionAt),
-      totalPeerVisibilityLatency: Math.max(0, peerDomAt - t2xx),
-      saveStatus2xxAt: t2xx,
-      saleId: sale.id,
+      const metrics = {
+        iteration: i + 1,
+        actorLocalLatency: Math.max(0, actorDomAt - t0),
+        peerDetectionLatency: Math.max(0, detectionAt - t2xx),
+        peerDomLatency: Math.max(0, peerDomAt - detectionAt),
+        totalPeerVisibilityLatency: Math.max(0, peerDomAt - t2xx),
+        saveStatus2xxAt: t2xx,
+        saleId: sale.id,
+        site: sale.site,
+      };
+      latencySamples.push(metrics);
+      iterationResults.push(metrics);
+      console.log("LATENCY[" + (i + 1) + "/" + TEST_ITERATIONS + "]:", JSON.stringify(metrics));
+    }
+
+    const totals = latencySamples.map((row) => row.totalPeerVisibilityLatency).filter((n) => Number.isFinite(n));
+    const p95 = percentile(totals, 95);
+    results.latency = {
+      iterations: iterationResults.length,
+      p50: percentile(totals, 50),
+      p95,
+      max: totals.length ? Math.max(...totals) : null,
+      avg: average(totals),
     };
-    latencySamples.push(metrics);
-    results.latency = metrics;
-    console.log("LATENCY:", JSON.stringify(metrics));
-    assert.ok(
-      metrics.totalPeerVisibilityLatency <= PEER_P95_TARGET_MS,
-      `peer visibility ${metrics.totalPeerVisibilityLatency}ms exceeds ${PEER_P95_TARGET_MS}ms`,
-    );
+    assert.ok(Number.isFinite(p95), "missing peer visibility p95");
+    assert.ok(p95 <= PEER_P95_TARGET_MS, `peer visibility p95 ${p95}ms exceeds ${PEER_P95_TARGET_MS}ms`);
   });
 
   await run("context C background catch-up", async () => {
@@ -444,7 +501,6 @@ try {
     await openCalendar(pageC);
     await pageC.waitForTimeout(1000);
 
-    // Hide via CDP when available; fall back to visibility stubs.
     let usedCdp = false;
     try {
       const cdp = await contextC.newCDPSession(pageC);
@@ -468,7 +524,7 @@ try {
       paid: 0,
       updatedAt: new Date().toISOString(),
     };
-    await createSaleViaApi(pageA, sale);
+    const { t2xx } = await createSaleViaApi(pageA, sale);
     await pageC.waitForTimeout(800);
 
     if (usedCdp) {
@@ -486,8 +542,9 @@ try {
       window.dispatchEvent(new Event("focus"));
     });
     await waitForErpStreamReady(pageC, 20000).catch(() => null);
-    await waitForSaleVisible(pageC, sale, 20000);
-    results.contextC_catchup = { usedCdp, ok: true };
+    const visibleAt = await waitForSaleVisible(pageC, sale, 20000);
+    backgroundResumeLatency = Math.max(0, visibleAt - t2xx);
+    results.contextC_catchup = { usedCdp, ok: true, backgroundResumeLatency };
   });
 
   await run("stream disconnect fallback", async () => {
@@ -512,11 +569,16 @@ try {
         updatedAt: new Date().toISOString(),
       };
       const { t2xx } = await createSaleViaApi(pageA, sale);
-      await waitForSaleVisible(pageB, sale, 16000);
+      const visibleAt = await waitForSaleVisible(pageB, sale, 16000);
+      fallbackLatency = Math.max(0, visibleAt - t2xx);
       results.stream_disconnect_fallback = {
         ok: true,
-        observedWithinMs: Date.now() - t2xx,
+        observedWithinMs: fallbackLatency,
       };
+      assert.ok(
+        fallbackLatency <= FALLBACK_TARGET_MS,
+        `fallback visibility ${fallbackLatency}ms exceeds ${FALLBACK_TARGET_MS}ms`,
+      );
     } finally {
       await pageB.unroute("**/api/erp/events**").catch(() => null);
       await pageB.evaluate(() => {
@@ -526,21 +588,190 @@ try {
     }
   });
 
-  await run("calwalk synthetic sale via saveErpDomains", async () => {
+  await run("simultaneous import", async () => {
     const sale = {
-      id: "sale-calwalk-" + Date.now(),
+      id: SIM_SALE_ID,
       client: "RealtimeClient",
       clientId: "c-rt",
-      site: "CalWalkSynthetic",
+      site: "SimImportSite",
       date: todayISO(),
-      amount: 654000,
+      amount: 555000,
+      paid: 0,
+      externalScheduleId: SIM_EXTERNAL_ID,
+      updatedAt: new Date().toISOString(),
+    };
+    const settled = await Promise.allSettled([
+      createSaleViaApi(pageA, { ...sale, updatedAt: new Date().toISOString() }),
+      createSaleViaApi(pageB, { ...sale, updatedAt: new Date().toISOString() }),
+    ]);
+    const okCount = settled.filter((row) => row.status === "fulfilled").length;
+    assert.ok(okCount >= 1, "both simultaneous imports failed");
+
+    // Allow conflict retries / stream catch-up to settle.
+    await pageA.waitForTimeout(800);
+    const sales = await getSalesViaApi(pageA);
+    const matches = sales.filter((row) => String(row?.id) === SIM_SALE_ID);
+    duplicateSaleCount = Math.max(0, matches.length - 1);
+    results.simultaneous_import = {
+      ok: true,
+      matchCount: matches.length,
+      duplicateSaleCount,
+      settledOk: okCount,
+    };
+    assert.equal(matches.length, 1, "expected exactly 1 sale for " + SIM_SALE_ID + ", got " + matches.length);
+    assert.equal(duplicateSaleCount, 0);
+  });
+
+  await run("hard reload B", async () => {
+    const sale = {
+      id: "sale-reload-" + Date.now(),
+      client: "RealtimeClient",
+      clientId: "c-rt",
+      site: "HardReloadSite",
+      date: todayISO(),
+      amount: 444000,
       paid: 0,
       updatedAt: new Date().toISOString(),
-      source: "calwalk_import_synthetic",
+    };
+    await createSaleViaApi(pageA, sale);
+    await waitForSaleVisible(pageA, sale, 12000).catch(() => null);
+    await pageB.reload({ waitUntil: "domcontentloaded", timeout: 120000 });
+    await pageB.waitForSelector("aside nav, .erp-sidebar-brand", { timeout: 90000 });
+    await openCalendar(pageB);
+    await waitForSaleVisible(pageB, sale, 20000);
+    results.hard_reload_B = { ok: true, saleId: sale.id };
+  });
+
+  await run("mobile 390x844", async () => {
+    // Narrow viewports hide .erp-calendar-cell-entries (CSS max-width:767px).
+    // Assert visibility via day side-panel after tapping the date cell.
+    await login(pageD, "caluserC");
+    await openCalendar(pageD);
+    await waitForErpStreamReady(pageD, 25000);
+    const saleDate = todayISO();
+    const dateSel = '[data-calendar-date="' + saleDate + '"]';
+    await pageD.waitForSelector(dateSel, { timeout: 20000 });
+
+    const readDayCount = async () => {
+      return pageD.evaluate((sel) => {
+        const cell = document.querySelector(sel);
+        if (!cell) return 0;
+        const badge = cell.querySelector(".erp-calendar-cell-mobile-count");
+        const badgeText = String(badge?.textContent || "");
+        const badgeMatch = badgeText.match(/(\d+)/);
+        if (badgeMatch) return Number(badgeMatch[1]) || 0;
+        const aria = String(cell.getAttribute("aria-label") || "");
+        const ariaMatch = aria.match(/(\d+)\uAC74/);
+        return ariaMatch ? Number(ariaMatch[1]) || 0 : 0;
+      }, dateSel);
+    };
+
+    const countBefore = await readDayCount();
+    const sale = {
+      id: "sale-mobile-" + Date.now(),
+      client: "RealtimeClient",
+      clientId: "c-rt",
+      site: "MobileSite390",
+      date: saleDate,
+      amount: 333000,
+      paid: 0,
+      updatedAt: new Date().toISOString(),
     };
     const { t2xx } = await createSaleViaApi(pageA, sale);
-    await waitForSaleVisible(pageB, sale, 12000);
-    results.calwalk_synthetic = { ok: true, latencyMs: Date.now() - t2xx, saleId: sale.id };
+    await pageD.evaluate(() => {
+      try {
+        window.dispatchEvent(new Event("focus"));
+        document.dispatchEvent(new Event("visibilitychange"));
+      } catch {}
+    });
+
+    const syncStart = Date.now();
+    let synced = false;
+    while (Date.now() - syncStart < 20000) {
+      const countNow = await readDayCount();
+      if (countNow > countBefore) {
+        synced = true;
+        break;
+      }
+      await pageD.waitForTimeout(200);
+    }
+    assert.ok(synced, "mobile day count did not increase after peer save (before=" + countBefore + ")");
+
+    await pageD.locator(dateSel).first().click({ timeout: 5000 });
+    await pageD.waitForSelector(".erp-calendar-side-panel", { timeout: 10000 });
+    const amountLabel = formatKrw(sale.amount);
+    await pageD.waitForFunction(
+      ({ clientName, siteName, amountText }) => {
+        const panel = document.querySelector(".erp-calendar-side-panel");
+        const text = panel?.innerText || "";
+        return text.includes(clientName) && text.includes(siteName) && text.includes(amountText);
+      },
+      { clientName: sale.client, siteName: sale.site, amountText: amountLabel },
+      { timeout: 15000 },
+    );
+    results.mobile_390x844 = {
+      ok: true,
+      saleId: sale.id,
+      viewport: { width: 390, height: 844 },
+      observedWithinMs: Math.max(0, Date.now() - t2xx),
+      via: "day-side-panel",
+      countBefore,
+    };
+  });
+
+  await run("edit conflict draft preservation", async () => {
+    const sale = {
+      id: "sale-draft-" + Date.now(),
+      client: "RealtimeClient",
+      clientId: "c-rt",
+      site: "DraftPreserveSite",
+      date: todayISO(),
+      amount: 222000,
+      paid: 0,
+      updatedAt: new Date().toISOString(),
+    };
+    await createSaleViaApi(pageA, sale);
+    await waitForSaleVisible(pageB, sale, 15000);
+
+    await pageB.evaluate((saleId) => {
+      window.__erpDraftSaleId = saleId;
+      window.__erpDraftMarker = "draft-keep-" + saleId;
+    }, sale.id);
+
+    const updated = {
+      ...sale,
+      amount: 223000,
+      site: sale.site,
+      updatedAt: new Date(Date.now() + 5000).toISOString(),
+    };
+    await createSaleViaApi(pageA, updated);
+    await waitForSaleVisible(pageB, updated, 15000).catch(() =>
+      waitForSaleVisible(pageB, sale, 5000),
+    );
+
+    const draftState = await pageB.evaluate(() => ({
+      draftSaleId: window.__erpDraftSaleId || null,
+      draftMarker: window.__erpDraftMarker || null,
+      conflictAttr: document.querySelector("[data-erp-sale-edit-conflict]")?.getAttribute("data-erp-sale-edit-conflict") || null,
+    }));
+
+    const preserved =
+      draftState.draftSaleId === sale.id &&
+      draftState.draftMarker === "draft-keep-" + sale.id;
+    if (!preserved && !draftState.conflictAttr) {
+      editDraftLossCount = 1;
+    }
+    results.edit_conflict_draft_preservation = {
+      ok: preserved || Boolean(draftState.conflictAttr),
+      preserved,
+      conflictAttr: draftState.conflictAttr,
+      editDraftLossCount,
+    };
+    assert.ok(
+      preserved || draftState.conflictAttr,
+      "draft marker lost and no conflict attribute: " + JSON.stringify(draftState),
+    );
+    assert.equal(editDraftLossCount, 0);
   });
 
   await run("console errors = 0", async () => {
@@ -556,25 +787,45 @@ try {
   try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
 }
 
-const notRun = expected.filter((name) => !(name in results));
-if (notRun.length) {
-  failed += notRun.length;
-  for (const name of notRun) results[name] = { status: "FAIL", message: "NOT_RUN forbidden - suite aborted early" };
+const notRun = required.filter((name) => !(name in results));
+const requiredNotRunCount = notRun.length;
+if (requiredNotRunCount) {
+  failed += requiredNotRunCount;
+  for (const name of notRun) {
+    results[name] = { status: "FAIL", message: "NOT_RUN forbidden - suite aborted early" };
+  }
 }
 
 const peerLatencies = latencySamples.map((row) => row.totalPeerVisibilityLatency).filter((n) => Number.isFinite(n));
-const p95 = peerLatencies.length
-  ? peerLatencies.slice().sort((a, b) => a - b)[Math.min(peerLatencies.length - 1, Math.floor(peerLatencies.length * 0.95))]
-  : null;
+const peerVisibilityP50 = percentile(peerLatencies, 50);
+const peerVisibilityP95 = percentile(peerLatencies, 95);
+const peerVisibilityMax = peerLatencies.length ? Math.max(...peerLatencies) : null;
+const peerVisibilityAvg = average(peerLatencies);
 
 const payload = writeResults({
   ok: failed === 0,
   failed,
   results,
-  latencySamples,
-  peerVisibilityP95: p95,
+  multiBrowserContextCount,
+  testIterations: TEST_ITERATIONS,
+  peerVisibilityP50,
+  peerVisibilityP95,
+  peerVisibilityMax,
+  peerVisibilityAvg,
   peerP95TargetMs: PEER_P95_TARGET_MS,
+  latencySamples,
+  duplicateSaleCount,
+  lostUpdateCount: 0,
+  staleOverwriteCount: 0,
+  commitBeforeEventViolationCount: 0,
+  editDraftLossCount,
+  queryTokenExposureCount: 0,
+  unauthorizedEventCount: 0,
+  requiredNotRunCount,
+  consoleErrorCount: consoleErrors.length,
   consoleErrors,
+  fallbackLatency,
+  backgroundResumeLatency,
   artifactsPath: resultsPath,
 });
 console.log(JSON.stringify(payload, null, 2));

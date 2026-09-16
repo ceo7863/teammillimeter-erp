@@ -2116,7 +2116,8 @@ app.get("/api/erp/events", (req, res) => {
       return;
     }
     const userId = user.sub ?? user.id;
-    subscribeErpDomainEvents(userId, res);
+    const erpVersion = Number(getErpState()?.version) || 0;
+    subscribeErpDomainEvents(userId, res, { globalVersion: erpVersion });
   } catch (error) {
     console.error("[erp/events] failed:", error?.code || error?.name || "error");
     if (!res.headersSent) {

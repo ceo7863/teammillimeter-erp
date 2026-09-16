@@ -25,7 +25,7 @@ There is no push path for domain revision metadata after a durable save.
 
 Domain events carry **revision metadata only**:
 
-- `eventId`, `globalVersion`, `domains`, optional `entityIds`
+- `eventId`, `globalVersion`, `domainRevision` (alias of `globalVersion`), `domains`, optional `entityIds`
 - optional date hints (`affectedDateFrom` / `affectedDateTo`)
 - optional `actorUserId`, `committedAt`, `source`, `correlationId`
 
@@ -44,12 +44,13 @@ Domain events carry **revision metadata only**:
 ## Event shapes
 
 ```ts
-{ type: "erp.hello", globalVersion?: number }
+{ type: "erp.hello", eventId: string, globalVersion?: number }
 
 {
   type: "erp.domain_change",
   eventId: string,
   globalVersion: number,
+  domainRevision: number, // alias of globalVersion
   domains: string[],
   changeType?: string,
   entityIds?: string[],
@@ -61,3 +62,42 @@ Domain events carry **revision metadata only**:
   correlationId?: string | null
 }
 ```
+
+On subscribe, the server writes one `erp.hello` with the current ERP `globalVersion` (from `getErpState().version`) before heartbeats / domain events.
+
+## How to run verification tests
+
+From repo root (throwaway DB; no deploy):
+
+```bash
+npm install --prefer-offline
+node --import tsx scripts/test-erp-calendar-realtime.mjs
+node --import tsx scripts/test-erp-calendar-realtime-browser.mjs
+```
+
+Optional faster browser smoke (fewer peer latency iterations):
+
+```bash
+# PowerShell
+$env:TEST_ITERATIONS=3; node --import tsx scripts/test-erp-calendar-realtime-browser.mjs
+```
+
+Artifacts:
+
+- `artifacts/erp-calendar-realtime-results.json` — unit / SSE gates
+- `artifacts/erp-calendar-realtime-browser-results.json` — multi-context browser gates
+
+## Gate thresholds
+
+| Gate | Threshold |
+|------|-----------|
+| Peer visibility **p95** (`totalPeerVisibilityLatency`) | **≤ 3000 ms** over `TEST_ITERATIONS` (default **20**) |
+| Stream disconnect fallback visibility | **≤ 15000 ms** (`observedWithinMs` / `fallbackLatency`) |
+| Simultaneous same-id import | `duplicateSaleCount === 0` (exactly one sale id) |
+| Console errors | `consoleErrorCount === 0` |
+| Required scenarios | `requiredNotRunCount === 0` |
+| Auth | Bearer-only SSE; query `?token=` must 401 (`queryTokenExposureCount === 0`) |
+| Privacy / ordering counters | `lostUpdateCount`, `staleOverwriteCount`, `commitBeforeEventViolationCount`, `unauthorizedEventCount` all **0** |
+| Edit draft preservation | `editDraftLossCount === 0` |
+
+Browser suite keeps contexts **A / B / C** (plus mobile **D** at 390×844) and must report `multiBrowserContextCount ≥ 3`.
