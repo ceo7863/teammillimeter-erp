@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ERP calendar multi-user realtime - Node unit / integration gates.
  * Run: node --import tsx scripts/test-erp-calendar-realtime.mjs
  */
@@ -84,13 +84,29 @@ function createSseApp() {
         else { try { res.end(); } catch (e) {} }
         return;
       }
-      subscribeErpDomainEvents(user.sub ?? user.id, res);
+      const version = Number(getErpState()?.version) || 0;
+      subscribeErpDomainEvents(user.sub ?? user.id, res, { globalVersion: version });
     } catch (error) {
       if (!res.headersSent) res.status((error && error.status) || 500).json({ error: "sse failed" });
       else { try { res.end(); } catch (e) {} }
     }
   });
   return app;
+}
+
+function parseSseDataPayloads(body) {
+  const out = [];
+  for (const line of String(body || "").split(/\r?\n/)) {
+    if (!line.startsWith("data:")) continue;
+    const raw = line.slice(5).trim();
+    if (!raw) continue;
+    try {
+      out.push(JSON.parse(raw));
+    } catch {
+      // ignore non-JSON data lines
+    }
+  }
+  return out;
 }
 
 function requestSse(port, opts = {}) {
@@ -104,8 +120,10 @@ function requestSse(port, opts = {}) {
       { hostname: "127.0.0.1", port, path: pathAndQuery, method: "GET", headers },
       (res) => {
         const chunks = [];
-        res.on("data", (c) => chunks.push(c));
-        const done = () =>
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
           resolve({
             status: res.statusCode,
             headers: res.headers,
@@ -113,11 +131,22 @@ function requestSse(port, opts = {}) {
             res,
             req,
           });
+        };
+        res.on("data", (c) => {
+          chunks.push(c);
+          if (!String(res.headers["content-type"] || "").includes("text/event-stream")) return;
+          const body = Buffer.concat(chunks).toString("utf8");
+          const payloads = parseSseDataPayloads(body);
+          if (opts.waitForHello) {
+            if (payloads.some((p) => p && p.type === "erp.hello")) finish();
+            return;
+          }
+          if (payloads.length > 0 || body.includes(": connected")) finish();
+        });
         if (String(res.headers["content-type"] || "").includes("text/event-stream")) {
-          const t = setTimeout(done, 60);
-          res.once("data", () => { clearTimeout(t); done(); });
+          setTimeout(finish, opts.waitMs || 250);
         } else {
-          res.on("end", done);
+          res.on("end", finish);
         }
       },
     );
@@ -170,6 +199,7 @@ await checkAsync("saveErpDomains publishes exactly 1 event AFTER commit", async 
   const published = events[events.length - 1];
   assert.equal(published.type, "erp.domain_change");
   assert.ok(published.globalVersion > state.version);
+  assert.equal(published.domainRevision, published.globalVersion);
   assert.ok(published.domains.includes("sales"));
   assert.ok(published.entityIds.includes(saleId));
 });
@@ -212,11 +242,41 @@ check("assertErpDomainEventPrivacy on published event", () => {
     actorUserId: "tester",
     source: "privacy-check",
   });
+  assert.equal(safe.domainRevision, 99);
   assertErpDomainEventPrivacy(safe);
   assert.throws(
     () => assertErpDomainEventPrivacy({ type: "erp.domain_change", amount: 1000, clientName: "leak" }),
     /forbidden key/i,
   );
+});
+
+check("buildErpDomainChangeEvent includes domainRevision alias", () => {
+  const event = buildErpDomainChangeEvent({
+    globalVersion: 42,
+    domains: ["sales"],
+    entityIds: ["s1"],
+  });
+  assert.equal(event.globalVersion, 42);
+  assert.equal(event.domainRevision, 42);
+  assertErpDomainEventPrivacy(event);
+});
+
+await checkAsync("GET /api/erp/events sends erp.hello on subscribe", async () => {
+  resetErpDomainSubscribersForTests();
+  const before = countErpDomainSubscribers();
+  const expectedVersion = Number(getErpState()?.version) || 0;
+  const result = await requestSse(port, { bearer: goodToken, waitForHello: true, waitMs: 400 });
+  assert.equal(result.status, 200);
+  assert.match(String(result.headers["content-type"] || ""), /text\/event-stream/);
+  const payloads = parseSseDataPayloads(result.body);
+  const hello = payloads.find((p) => p && p.type === "erp.hello");
+  assert.ok(hello, "expected erp.hello in first SSE payloads, body=" + result.body.slice(0, 400));
+  assert.ok(hello.eventId, "erp.hello missing eventId");
+  assert.equal(Number(hello.globalVersion) || 0, expectedVersion);
+  assert.equal(countErpDomainSubscribers(), before + 1);
+  result.req.destroy();
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(countErpDomainSubscribers(), before);
 });
 
 await checkAsync("GET /api/erp/events with Bearer works (subscribe count)", async () => {

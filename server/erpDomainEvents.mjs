@@ -26,7 +26,30 @@ function writeEvent(res, payload) {
   }
 }
 
-export function subscribeErpDomainEvents(userId, res) {
+function makeEventId() {
+  return `ede_${Date.now().toString(36)}_${crypto.randomBytes(4).toString("hex")}`;
+}
+
+function resolveSubscribeGlobalVersion(options = {}) {
+  if (typeof options.getGlobalVersion === "function") {
+    try {
+      return Number(options.getGlobalVersion()) || 0;
+    } catch {
+      return 0;
+    }
+  }
+  if (options.globalVersion != null && options.globalVersion !== "") {
+    return Number(options.globalVersion) || 0;
+  }
+  return 0;
+}
+
+/**
+ * @param {number|string} userId
+ * @param {import("http").ServerResponse} res
+ * @param {{ globalVersion?: number, getGlobalVersion?: () => number }} [options]
+ */
+export function subscribeErpDomainEvents(userId, res, options = {}) {
   const uid = Number(userId);
   if (!Number.isFinite(uid) || uid <= 0) return;
   res.setHeader("Content-Type", "text/event-stream");
@@ -35,6 +58,13 @@ export function subscribeErpDomainEvents(userId, res) {
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders?.();
   res.write(": connected\n\n");
+
+  const globalVersion = resolveSubscribeGlobalVersion(options);
+  writeEvent(res, {
+    type: "erp.hello",
+    eventId: makeEventId(),
+    globalVersion,
+  });
 
   const entry = { userId: uid, res };
   subscribers.add(entry);
@@ -61,10 +91,6 @@ export function listRecentErpDomainEventsForTests() {
   return [...recentEvents];
 }
 
-function makeEventId() {
-  return `ede_${Date.now().toString(36)}_${crypto.randomBytes(4).toString("hex")}`;
-}
-
 /**
  * Build a privacy-safe event from save result.
  * Never include client names, amounts, memos, or full entities.
@@ -81,10 +107,12 @@ export function buildErpDomainChangeEvent({
   correlationId = null,
   committedAt = null,
 } = {}) {
+  const gv = Number(globalVersion) || 0;
   return {
     type: "erp.domain_change",
     eventId: makeEventId(),
-    globalVersion: Number(globalVersion) || 0,
+    globalVersion: gv,
+    domainRevision: gv,
     domains: [...new Set((domains || []).map((d) => String(d)).filter(Boolean))],
     changeType: String(changeType || "domain_save"),
     entityIds: [...new Set((entityIds || []).map((id) => String(id)).filter(Boolean))].slice(0, 200),
@@ -123,6 +151,11 @@ export function publishErpDomainChange(eventInput) {
       ? eventInput
       : buildErpDomainChangeEvent(eventInput || {});
   if (!event.globalVersion || !event.domains?.length) return event;
+
+  // Ensure alias is present even if callers pass a pre-built event.
+  if (event.domainRevision == null) {
+    event.domainRevision = Number(event.globalVersion) || 0;
+  }
 
   recentEvents.push(event);
   if (recentEvents.length > RECENT_LIMIT) recentEvents.splice(0, recentEvents.length - RECENT_LIMIT);
