@@ -51,6 +51,11 @@ export function bankDepositStatusTone(
   }
 }
 
+/** A deposit whose 입금전표 exists (or was reversed) shows its ledger status, not a bare 찾기. */
+export function bankDepositHasReceiptStatus(status: BankDepositCanonicalStatus | null | undefined): boolean {
+  return status != null && status !== "none" && status !== "client_review";
+}
+
 export type BankDepositCanonicalStatusResult = {
   status: BankDepositCanonicalStatus;
   label: string;
