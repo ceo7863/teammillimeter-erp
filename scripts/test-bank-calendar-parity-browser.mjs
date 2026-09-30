@@ -222,7 +222,10 @@ async function waitTones(page, expected, timeoutMs = PEER_TARGET_MS) {
   );
 }
 
-/** Canonical deposit status of the bank row (attribute) plus its visible/tooltip label. */
+/**
+ * Canonical deposit status of the bank row (attribute) plus its label. Once an 입금전표 exists the
+ * label must be visible cell text; only the pre-receipt 거래처 확인 필요 state lives in the 찾기 tooltip.
+ */
 async function waitBankStatus(page, status, label, timeoutMs = PEER_TARGET_MS) {
   return waitFor(
     page,
@@ -231,7 +234,11 @@ async function waitBankStatus(page, status, label, timeoutMs = PEER_TARGET_MS) {
       const hit = rows.find((el) => (el.textContent || "").includes(client) && /7,700,000/.test(el.textContent || ""));
       const cell = hit?.querySelector("[data-deposit-status]");
       const got = cell?.getAttribute("data-deposit-status") || null;
-      const labelText = `${cell?.textContent || ""} ${cell?.querySelector("[title]")?.getAttribute("title") || ""}`;
+      const visible = cell?.textContent || "";
+      const labelText =
+        wantStatus === "client_review"
+          ? `${visible} ${cell?.querySelector("[title]")?.getAttribute("title") || ""}`
+          : visible;
       return { ok: got === wantStatus && labelText.includes(wantLabel), got, labelText: labelText.trim().slice(0, 200) };
     },
     [CLIENT.name, status, label],

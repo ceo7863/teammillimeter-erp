@@ -38,6 +38,7 @@ const { resolveCalendarEntryPaymentState } = await import("../src/utils/bankRece
 const {
   resolveBankDepositCanonicalStatus,
   buildBankDepositStatusByTxId,
+  bankDepositHasReceiptStatus,
 } = await import("../src/utils/bankDepositCanonicalStatus.ts");
 const { buildCollectionLedgerSummary } = await import("../src/utils/reportCollectionSummary.ts");
 const { buildClientPivotReport } = await import("../src/utils/pivotReports.ts");
@@ -315,6 +316,12 @@ check("13 bank status: reversed / legacy / conflicts", () => {
   assert.equal(map.get("t-both").conflictReason, "BANK_REFERENCE_CONFLICT");
   assert.equal(map.get("t-dbl").conflictReason, "LEGACY_RECEIPT_DOUBLE_COVERAGE");
   assert.equal(map.get("t-dbl").label, "중복/충돌 검토 필요");
+  for (const status of ["unapplied", "partial", "fully_applied", "reversed", "legacy", "conflict"]) {
+    assert.equal(bankDepositHasReceiptStatus(status), true, status);
+  }
+  for (const status of ["client_review", "none", null]) {
+    assert.equal(bankDepositHasReceiptStatus(status), false, String(status));
+  }
 });
 
 /* ----------------------------------------------------------------- reports */

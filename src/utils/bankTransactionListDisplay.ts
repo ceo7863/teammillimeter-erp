@@ -5,9 +5,10 @@ import {
 } from "@/utils/bankReceivableMatch";
 import { bankTxHasPartialPaymentVoucher } from "@/utils/bankSentStatementMatch";
 import { hasBankDepositLinkField } from "@/utils/bankDepositLink";
-import type {
-  BankDepositCanonicalStatus,
-  BankDepositCanonicalStatusResult,
+import {
+  bankDepositHasReceiptStatus,
+  type BankDepositCanonicalStatus,
+  type BankDepositCanonicalStatusResult,
 } from "@/utils/bankDepositCanonicalStatus";
 import type { BankTransactionFolder, BankTransactionFolderType } from "@/utils/bankTransactionFolders";
 import { isBankTxExpenseReversal } from "@/utils/bankTxExpenseReversal";
@@ -299,8 +300,12 @@ export function buildBankTransactionListRowModel(
     (unfiledClientName || null) ||
     (categoryLabel && ledgerCategoryFolder ? ledgerCategoryFolder.folderName : labels.unfiled);
 
-  const matchLinked = Boolean(hasBankDepositLinkField(row) || row.linkedPdfArchiveId);
   const canonicalDepositStatus = context.depositStatusByTxId?.get(String(row.id));
+  const matchLinked = Boolean(
+    hasBankDepositLinkField(row) ||
+      row.linkedPdfArchiveId ||
+      bankDepositHasReceiptStatus(canonicalDepositStatus?.status),
+  );
   let matchStatusLabel = "-";
   if (canonicalDepositStatus && canonicalDepositStatus.status !== "none") {
     matchStatusLabel = canonicalDepositStatus.label;
