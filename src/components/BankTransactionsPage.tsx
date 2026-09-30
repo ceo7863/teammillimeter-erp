@@ -212,6 +212,7 @@ import {
 } from "@/utils/erpApi";
 import { getBankDepositLinkKind, hasBankDepositLinkField } from "@/utils/bankDepositLink";
 import { buildBankReceiptDisplay } from "@/utils/bankReceiptDisplay";
+import { buildBankDepositStatusByTxId } from "@/utils/bankDepositCanonicalStatus";
 import {
   formatReceiptSaveMessage,
   makeReceiptOperationId,
@@ -1034,6 +1035,7 @@ function BankTransactionsPageComponent({
   onPendingBankTransactionIdConsumed,
   receipts = [],
   receiptAllocations = [],
+  doubleCoverageSaleIds,
   onReceiptLedgerUpsert,
 }: {
   bankTransactions: BankTransaction[];
@@ -1112,6 +1114,7 @@ function BankTransactionsPageComponent({
   /** Phase 2 unified AR: deposits post Receipts, not payment vouchers. */
   receipts?: ReceiptRecord[];
   receiptAllocations?: ReceiptAllocationRecord[];
+  doubleCoverageSaleIds?: Set<string>;
   onReceiptLedgerUpsert?: (result: {
     receipt?: ReceiptRecord;
     allocations?: ReceiptAllocationRecord[];
@@ -1272,6 +1275,16 @@ function BankTransactionsPageComponent({
   const ledgerMemoDraftRef = useRef("");
   const ledgerReviewMemoDraftRef = useRef("");
   const [sentArchives, setSentArchives] = useState<PdfArchiveMeta[]>([]);
+  const depositStatusByTxId = useMemo(
+    () =>
+      buildBankDepositStatusByTxId(bankTransactions, {
+        receipts,
+        receiptAllocations,
+        paymentVouchers: paymentVouchers as Array<{ id?: string | number; bankTransactionId?: string }>,
+        doubleCoverageSaleIds,
+      }),
+    [bankTransactions, receipts, receiptAllocations, paymentVouchers, doubleCoverageSaleIds],
+  );
   const ibkInputRef = useRef<HTMLInputElement>(null);
   const savedBy = currentUser?.name || currentUser?.loginId || "";
   const { bannerVisible, applyNewVersion, guardFinancialSave } = useDeployVersionGuard();
@@ -5947,6 +5960,7 @@ function BankTransactionsPageComponent({
           workerMonthlyActualVouchers={workerMonthlyActualVouchers}
           paymentVouchers={paymentVouchers}
           sentArchives={sentArchives}
+          depositStatusByTxId={depositStatusByTxId}
           labels={listSectionLabels}
           stats={stats}
           onEditMemo={openMemoModal}
@@ -7170,6 +7184,7 @@ function BankTransactionsPageComponent({
           workers={workers}
           workerMonthlyActualVouchers={workerMonthlyActualVouchers}
           paymentVouchers={paymentVouchers}
+          depositStatusByTxId={depositStatusByTxId}
           labels={listSectionLabels}
           onEditMemo={openMemoModal}
           onEditAccountSubject={openAccountSubjectModal}

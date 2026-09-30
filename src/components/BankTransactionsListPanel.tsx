@@ -19,6 +19,7 @@ import type { BankTransaction } from "@/utils/bankTransactions";
 import type { AccountCode, LedgerCategory } from "@/utils/ledgerSystem";
 import type { TaxInvoice } from "@/utils/taxInvoices";
 import type { WorkerMonthlyActualVoucher } from "@/utils/workerMonthlyActualPayments";
+import type { BankDepositCanonicalStatusResult } from "@/utils/bankDepositCanonicalStatus";
 
 type BankTransactionsListPanelProps = {
   rows: BankTransaction[];
@@ -43,6 +44,7 @@ type BankTransactionsListPanelProps = {
   workerMonthlyActualVouchers?: WorkerMonthlyActualVoucher[];
   paymentVouchers: Array<{ bankTransactionId?: string | number; salesId?: number | string; finalAmount?: number; amount?: number; linkedPdfArchiveId?: string; isPartialPayment?: boolean }>;
   sentArchives?: Array<{ id: string; statementTotalAmount?: number; statementSalesIds?: Array<string | number> }>;
+  depositStatusByTxId?: Map<string, BankDepositCanonicalStatusResult>;
   labels: BankTransactionListSectionLabels;
   stats: { count: number; deposits: number; withdrawals: number; net: number };
   onEditMemo: (row: BankTransaction) => void;
@@ -177,6 +179,7 @@ function BankTransactionsListPanelComponent({
   workerMonthlyActualVouchers = [],
   paymentVouchers,
   sentArchives,
+  depositStatusByTxId,
   labels,
   stats,
   onEditMemo,
@@ -258,6 +261,7 @@ function BankTransactionsListPanelComponent({
         workerMonthlyActualVouchers={workerMonthlyActualVouchers}
         paymentVouchers={paymentVouchers}
         sentArchives={sentArchives}
+            depositStatusByTxId={depositStatusByTxId}
             labels={labels}
             columnVisibility={columnVisibility}
             onEditMemo={onEditMemo}

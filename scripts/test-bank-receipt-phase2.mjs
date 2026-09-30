@@ -650,7 +650,7 @@ await checkAsync("22) ambiguous client name is skipped for manual review", async
   assert.equal(linked.autoLinkedCount, 0);
   assert.equal(linked.receiptIds.length, 0);
   assert.equal(linked.diagnostics.linked, 0);
-  assert.ok(linked.diagnostics.ambiguous >= 1);
+  assert.ok(linked.diagnostics.clientAmbiguous >= 1);
   assert.equal(receiptsFor(linked.data, "btx-auto-dup").length, 0);
   assert.equal(
     (linked.data.bankTransactions || []).find((row) => row.id === "btx-auto-dup").linkedReceiptId,

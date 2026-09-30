@@ -51,6 +51,8 @@ export type ErpPayload = {
   paymentInputLogs?: unknown[];
   receipts?: unknown[];
   receiptAllocations?: unknown[];
+  arAdjustments?: Array<Record<string, unknown>>;
+  arAdjustmentEvents?: unknown[];
   effectivePaymentVouchers?: unknown[];
   clients: unknown[];
   workers: unknown[];
@@ -389,7 +391,10 @@ export function findDirtyErpDomains(
   return dirty;
 }
 
-export async function fetchErpDomains(domains: ErpSaveDomain[]) {
+/** Read-only ledgers (receipts/arAdjustments) are fetchable but never autosaved. */
+export type ErpFetchDomain = ErpSaveDomain | "receipts" | "arAdjustments";
+
+export async function fetchErpDomains(domains: ErpFetchDomain[]) {
   const params = new URLSearchParams({ domains: domains.join(",") });
   return apiRequest<Partial<ErpPayload> & ErpVersionMeta>(`/erp/domains?${params.toString()}`);
 }

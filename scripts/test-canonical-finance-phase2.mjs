@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Phase 2 finance UX automated gates.
  * Run: node --import tsx scripts/test-canonical-finance-phase2.mjs
  */
@@ -58,7 +58,7 @@ check("overlapping statements: saleId union once", () => {
 });
 
 check("partial receipt then new sale outstanding 940", () => {
-  registerCanonicalReceipt({ operationId: "partial-1", clientId: "c1", receiptDate: "2026-07-21", grossAmount: 10000000, channel: "cash", source: "receivables", autoAllocate: true, requireSentStatements: false }, "test");
+  registerCanonicalReceipt({ operationId: "partial-1", clientId: "c1", receiptDate: "2026-07-21", grossAmount: 10000000, channel: "cash", source: "receivables", targetMode: "GLOBAL_FIFO", autoAllocate: true, requireSentStatements: false }, "test");
   const cur = getErpState();
   saveErpState({ ...cur.data, sales: [...(cur.data.sales || []), { id: "s3", client: "TestClient", clientId: "c1", date: "2026-07-25", amount: 5000000 }] }, cur.version, "test", { allowReceiptMutation: true });
   let outstanding = 0;

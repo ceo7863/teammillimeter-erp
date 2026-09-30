@@ -63,6 +63,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { fetchBundledErpSeed, parseErpExcelFile } from "@/utils/excelImport";
 import { buildAnalysisReport, buildClientPivotReport, buildMonthlyPivotReport, buildQuarterlyPivotReport, buildWorkerPivotReport, filterSalesByClient } from "@/utils/pivotReports";
+import { buildCollectionLedgerSummary } from "@/utils/reportCollectionSummary";
 import { buildAnnualMonthlyDashboard, listDashboardYears } from "@/utils/dashboardAnnual";
 import { compareSortValues, sortRowsByColumn, type SortDirection } from "@/utils/pivotSort";
 import { useSaveMessage } from "@/hooks/useSaveMessage";
@@ -90,6 +91,7 @@ import { ApCutoverWizardPage } from "@/components/ApCutoverWizardPage";
 import { AP_LEDGER_INACTIVE_NOTICE, isDisbursementWriteEnabled } from "@/utils/featureFlags";
 import {
   CalendarFinanceBadges,
+  UnappliedCreditBadge,
   collectionAriaLabel,
   resolveDayCollectionStatus,
   resolveEntryCollectionStatus,
@@ -181,8 +183,12 @@ import { useErpDomainRealtime } from "@/hooks/useErpDomainRealtime";
 import {
   ERP_STREAM_FALLBACK_POLL_MS,
   ERP_VERSION_POLL_HEALTHY_MS,
+  FINANCE_LEDGER_DOMAINS,
+  FULL_FINANCE_REVALIDATION_DOMAINS,
   coalesceDomainEvents,
   isStaleDomainResponse,
+  needsFullFinanceRevalidation,
+  planFinanceRefetch,
   shouldRefetchForViewport,
   detectSaleEditConflict,
 } from "@/utils/erpDomainSync";
@@ -1678,6 +1684,7 @@ function getCalendarClientColor(client) {
 }
 
 function getCalendarPaymentBorderColor(entry) {
+  if (entry.tone === "NEUTRAL") return "#94a3b8";
   if (entry.isPartialPaid) return "#f59e0b";
   return entry.hasUnpaid ? "#ef4444" : "#22c55e";
 }
@@ -1692,10 +1699,12 @@ function normalizeCalendarClientName(client) {
 
 function getCalendarDayPaymentTone(stats) {
   if (!stats?.count) return "";
-  const unpaidOnlyCount = stats.entries.filter((entry) => entry.hasUnpaid).length;
-  const partialCount = stats.entries.filter((entry) => entry.isPartialPaid).length;
+  const billedEntries = stats.entries.filter((entry) => entry.tone !== "NEUTRAL");
+  if (!billedEntries.length) return "";
+  const unpaidOnlyCount = billedEntries.filter((entry) => entry.hasUnpaid).length;
+  const partialCount = billedEntries.filter((entry) => entry.isPartialPaid).length;
   if (unpaidOnlyCount === 0 && partialCount === 0) return "paid";
-  if (unpaidOnlyCount === stats.entries.length) return "unpaid";
+  if (unpaidOnlyCount === billedEntries.length) return "unpaid";
   return "mixed";
 }
 
@@ -1830,9 +1839,10 @@ function buildCalendarDays(monthKey, sales, workers = [], paymentLinkSets = {}) 
     if (!acc[key]) acc[key] = { ...EMPTY_CALENDAR_DAY_STATS, entries: [] };
     const dayStats = aggregateSaleCalendarStats(sale, feeMap);
     const paymentState = resolveCalendarEntryPaymentState(sale, paymentLinkSets);
-    const { unpaid, paid, hasUnpaid, isPartialPaid } = paymentState;
+    const { unpaid, paid, hasUnpaid, isPartialPaid, tone, hasUnappliedCredit } = paymentState;
     if (hasUnpaid) acc[key].hasUnpaid = true;
     if (isPartialPaid) acc[key].hasPartialPaid = true;
+    if (hasUnappliedCredit) acc[key].hasUnappliedCredit = true;
     acc[key].staff += dayStats.staff;
     acc[key].bill += dayStats.bill;
     acc[key].spend += dayStats.spend;
@@ -1855,6 +1865,8 @@ function buildCalendarDays(monthKey, sales, workers = [], paymentLinkSets = {}) 
       unpaid,
       hasUnpaid,
       isPartialPaid,
+      tone,
+      hasUnappliedCredit,
       color: getCalendarClientColor(sale.client),
     });
     return acc;
@@ -3464,6 +3476,7 @@ function CalendarPage({
   setStatementFolders,
   autoLinkedSaleIds = new Set(),
   manualLinkedSaleIds = new Set(),
+  receiptUnappliedByClientName = {},
   onPersistSaleUpdate,
   onPersistSaleDelete,
   saleComments = [],
@@ -3543,8 +3556,8 @@ function CalendarPage({
   const deferredCalendarSales = useDeferredValue(calendarSales);
   const calendarSalesForGrid = filteredClient ? calendarSales : deferredCalendarSales;
   const paymentLinkSets = useMemo(
-    () => ({ autoLinkedSaleIds, manualLinkedSaleIds }),
-    [autoLinkedSaleIds, manualLinkedSaleIds],
+    () => ({ receiptUnappliedByClientName }),
+    [receiptUnappliedByClientName],
   );
   const { cells, monthLabel } = useMemo(
     () => buildCalendarDays(monthKey, calendarSalesForGrid, workers, paymentLinkSets),
@@ -4726,6 +4739,7 @@ function CalendarPage({
                             </span>
                           ) : null}
                           <CalendarFinanceBadges collection={collectionStatus} />
+                          {cell.stats.hasUnappliedCredit ? <UnappliedCreditBadge /> : null}
                           <span className="erp-calendar-cell-badge is-staff">{cell.stats.staff}명</span>
                           <span className="erp-calendar-cell-badge is-count">{cell.stats.count}건</span>
                         </div>
@@ -4750,7 +4764,14 @@ function CalendarPage({
                             key={`${cell.date}-${entry.saleId}`}
                             className={[
                               "erp-calendar-cell-entry",
-                              entry.hasUnpaid ? "is-unpaid" : entry.isPartialPaid ? "is-partial-paid" : "is-paid",
+                              entry.tone === "NEUTRAL"
+                                ? "is-neutral"
+                                : entry.hasUnpaid
+                                  ? "is-unpaid"
+                                  : entry.isPartialPaid
+                                    ? "is-partial-paid"
+                                    : "is-paid",
+                              entry.hasUnappliedCredit ? "has-unapplied-credit" : "",
                               filteredClient ? "erp-calendar-cell-entry--client-filter" : "",
                               !filteredClient ? "is-client-open" : "",
                               isEntrySpotlight ? "is-client-spotlight" : "",
@@ -5046,17 +5067,21 @@ function CalendarPage({
                     const headcountLabel = resolveSaleScScheduleHeadcountLabel(sale, monthScSchedules, stats.staff);
                     const workerLabel = sale.worker || formatWorkerNameSummary(getSaleWorkerLines(sale)) || "-";
                     const color = getCalendarClientColor(sale.client);
-                    const { unpaid, paid, hasUnpaid, isPartialPaid } = resolveCalendarEntryPaymentState(sale, paymentLinkSets);
-                    const paymentLabel = hasUnpaid
-                      ? `미수 ${formatKRW(unpaid)}`
-                      : isPartialPaid
-                        ? `부분입금 ${formatKRW(paid)} · 미수 ${formatKRW(unpaid)}`
-                        : "입금완료";
+                    const { unpaid, paid, hasUnpaid, isPartialPaid, tone, hasUnappliedCredit } =
+                      resolveCalendarEntryPaymentState(sale, paymentLinkSets);
+                    const paymentLabel =
+                      tone === "NEUTRAL"
+                        ? "비청구"
+                        : hasUnpaid
+                          ? `미수 ${formatKRW(unpaid)}`
+                          : isPartialPaid
+                            ? `부분입금 ${formatKRW(paid)} · 미수 ${formatKRW(unpaid)}`
+                            : "입금완료";
                     return (
                       <li key={sale.id}>
                         <button
                           type="button"
-                          className={`erp-calendar-side-card is-editable ${hasUnpaid ? "is-unpaid" : isPartialPaid ? "is-partial-paid" : "is-paid"}${
+                          className={`erp-calendar-side-card is-editable ${tone === "NEUTRAL" ? "is-neutral" : hasUnpaid ? "is-unpaid" : isPartialPaid ? "is-partial-paid" : "is-paid"}${
                             !filteredClient && spotlightClient === normalizeCalendarClientName(sale.client) ? " is-client-spotlight" : ""
                           }`}
                           style={{ "--client-color": color }}
@@ -5092,6 +5117,7 @@ function CalendarPage({
                                 autoLinkedSaleIds={autoLinkedSaleIds}
                                 manualLinkedSaleIds={manualLinkedSaleIds}
                               />
+                              {hasUnappliedCredit ? <UnappliedCreditBadge /> : null}
                               <SaleReviewStatusBadge
                                 sale={sale}
                                 saleComments={saleComments}
@@ -7772,7 +7798,7 @@ function getPivotReportSortValue(row, column) {
     case "totalPaid":
       return row.totalPaid || 0;
     case "paymentRate":
-      return getPaymentRate(row.totalPaid, row.bill) ?? -Infinity;
+      return getPaymentRate(row.avgPaid, row.bill) ?? -Infinity;
     default:
       return 0;
   }
@@ -7867,10 +7893,10 @@ function PivotReportTable({ title, labelHeader, rows, totals, showAvgPaid = fals
                 <PivotSortHeader label="지출액" column="spend" activeColumn={sort.column} direction={sort.direction} onSort={toggleSort} />
                 <PivotSortHeader label="마진" column="margin" activeColumn={sort.column} direction={sort.direction} onSort={toggleSort} />
                 <PivotSortHeader label="마진율" column="marginRate" activeColumn={sort.column} direction={sort.direction} onSort={toggleSort} />
-                {showAvgPaid && <PivotSortHeader label="입금액 합계" column="avgPaid" activeColumn={sort.column} direction={sort.direction} onSort={toggleSort} />}
-                {showAvgPaid && <PivotSortHeader label="부가세" column="paidVat" activeColumn={sort.column} direction={sort.direction} onSort={toggleSort} />}
-                {showAvgPaid && <PivotSortHeader label="총입금액 합계" column="totalPaid" activeColumn={sort.column} direction={sort.direction} onSort={toggleSort} />}
-                {showAvgPaid && <PivotSortHeader label="입금률" column="paymentRate" activeColumn={sort.column} direction={sort.direction} onSort={toggleSort} />}
+                {showAvgPaid && <PivotSortHeader label="매출충당액" column="avgPaid" activeColumn={sort.column} direction={sort.direction} onSort={toggleSort} />}
+                {showAvgPaid && <PivotSortHeader label="잔여미수" column="paidVat" activeColumn={sort.column} direction={sort.direction} onSort={toggleSort} />}
+                {showAvgPaid && <PivotSortHeader label="실제입금(기간)" column="totalPaid" activeColumn={sort.column} direction={sort.direction} onSort={toggleSort} />}
+                {showAvgPaid && <PivotSortHeader label="충당률" column="paymentRate" activeColumn={sort.column} direction={sort.direction} onSort={toggleSort} />}
               </tr>
             </thead>
             <tbody>
@@ -7923,7 +7949,7 @@ function PivotReportTable({ title, labelHeader, rows, totals, showAvgPaid = fals
                       {showAvgPaid && <PivotValueCell value={row.avgPaid} tone="muted" />}
                       {showAvgPaid && <PivotValueCell value={row.paidVat} tone="muted" />}
                       {showAvgPaid && <PivotValueCell value={row.totalPaid} tone="muted" />}
-                      {showAvgPaid && <PivotPaymentRateCell totalPaid={row.totalPaid} bill={row.bill} />}
+                      {showAvgPaid && <PivotPaymentRateCell totalPaid={row.avgPaid} bill={row.bill} />}
                     </tr>
                     {isExpanded && (
                       <tr className="erp-pivot-expand-row erp-table-export-skip">
@@ -7981,7 +8007,7 @@ function PivotReportTable({ title, labelHeader, rows, totals, showAvgPaid = fals
                 {showAvgPaid && <PivotValueCell value={totals.avgPaid} tone="muted" />}
                 {showAvgPaid && <PivotValueCell value={totals.paidVat} tone="muted" />}
                 {showAvgPaid && <PivotValueCell value={totals.totalPaid} tone="muted" />}
-                {showAvgPaid && <PivotPaymentRateCell totalPaid={totals.totalPaid} bill={totals.bill} />}
+                {showAvgPaid && <PivotPaymentRateCell totalPaid={totals.avgPaid} bill={totals.bill} />}
               </tr>
             </tbody>
           </table>
@@ -8203,7 +8229,7 @@ const REPORT_TABS = [
   ["analysis", "데이터분석"],
 ];
 
-function ReportsPage({ sales, workers = [], paymentVouchers = [], onRequestClientStatement, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set() }) {
+function ReportsPage({ sales, workers = [], paymentVouchers = [], receipts = [], receiptAllocations = [], arAdjustments = [], clients = [], onRequestClientStatement, autoLinkedSaleIds = new Set(), manualLinkedSaleIds = new Set() }) {
   const [reportTab, setReportTab] = useState("pivot");
   const [dateFilter, setDateFilter] = useState(() => monthRangeISO(0));
   const [selectedPeriodKey, setSelectedPeriodKey] = useState("");
@@ -8215,9 +8241,27 @@ function ReportsPage({ sales, workers = [], paymentVouchers = [], onRequestClien
     return () => window.clearTimeout(timer);
   }, [statementNotice]);
 
+  const collectionSummary = useMemo(
+    () =>
+      buildCollectionLedgerSummary({
+        sales,
+        receipts,
+        receiptAllocations,
+        paymentVouchers,
+        arAdjustments,
+        clients,
+        startDate: dateFilter.startDate,
+        endDate: dateFilter.endDate,
+      }),
+    [sales, receipts, receiptAllocations, paymentVouchers, arAdjustments, clients, dateFilter.startDate, dateFilter.endDate],
+  );
   const pivotContext = useMemo(
-    () => ({ workerFeeRates: buildWorkerFeeMap(workers), paymentVouchers }),
-    [workers, paymentVouchers]
+    () => ({
+      workerFeeRates: buildWorkerFeeMap(workers),
+      paymentVouchers,
+      actualReceiptsByClientName: collectionSummary.actualReceipts.byClientName,
+    }),
+    [workers, paymentVouchers, collectionSummary]
   );
 
   const buildClientStatementActions = (periodFilter) => ({
@@ -8249,9 +8293,23 @@ function ReportsPage({ sales, workers = [], paymentVouchers = [], onRequestClien
     return null;
   }, [selectedPeriodKey, reportTab]);
 
+  const drilldownPivotContext = useMemo(() => {
+    if (!drilldownFilter) return null;
+    const drilldownSummary = buildCollectionLedgerSummary({
+      sales,
+      receipts,
+      receiptAllocations,
+      paymentVouchers,
+      arAdjustments,
+      clients,
+      startDate: drilldownFilter.startDate,
+      endDate: drilldownFilter.endDate,
+    });
+    return { ...pivotContext, actualReceiptsByClientName: drilldownSummary.actualReceipts.byClientName };
+  }, [drilldownFilter, sales, receipts, receiptAllocations, paymentVouchers, arAdjustments, clients, pivotContext]);
   const drilldownClientReport = useMemo(
-    () => (drilldownFilter ? buildClientPivotReport(sales, drilldownFilter, pivotContext) : null),
-    [sales, drilldownFilter, pivotContext]
+    () => (drilldownFilter ? buildClientPivotReport(sales, drilldownFilter, drilldownPivotContext) : null),
+    [sales, drilldownFilter, drilldownPivotContext]
   );
   const drilldownWorkerReport = useMemo(
     () => (drilldownFilter ? buildWorkerPivotReport(sales, drilldownFilter, pivotContext) : null),
@@ -8319,7 +8377,21 @@ function ReportsPage({ sales, workers = [], paymentVouchers = [], onRequestClien
         <SummaryCard compact title="총 시공인원" value={formatPivotCount(clientReport.totals.staffCount)} sub={periodLabel} icon={Users} />
         <SummaryCard compact title="총시공비" value={formatKRW(clientReport.totals.bill)} sub="거래처 청구 합계" icon={WalletCards} />
         <SummaryCard compact title="총 지출액" value={formatKRW(clientReport.totals.spend)} sub="시공자 지급 합계" icon={CreditCard} />
-        <SummaryCard compact title="총 마진" value={formatKRW(clientReport.totals.margin)} sub={`마진율 ${formatMarginRate(clientReport.totals.margin, clientReport.totals.bill)} · 총입금 ${formatKRW(clientReport.totals.totalPaid)} · 입금률 ${formatPaymentRate(clientReport.totals.totalPaid, clientReport.totals.bill)}`} tone={clientReport.totals.margin >= 0 ? "success" : "danger"} icon={BarChart3} />
+        <SummaryCard compact title="총 마진" value={formatKRW(clientReport.totals.margin)} sub={`마진율 ${formatMarginRate(clientReport.totals.margin, clientReport.totals.bill)} · 매출충당 ${formatKRW(clientReport.totals.avgPaid)} · 충당률 ${formatPaymentRate(clientReport.totals.avgPaid, clientReport.totals.bill)}`} tone={clientReport.totals.margin >= 0 ? "success" : "danger"} icon={BarChart3} />
+      </div>
+
+      <div className="erp-reports-collection-grid mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 md:gap-2.5 xl:grid-cols-5" data-testid="report-collection-summary">
+        <SummaryCard
+          compact
+          title="실제입금"
+          value={formatKRW(collectionSummary.actualReceipts.total)}
+          sub={`입금전표 ${formatKRW(collectionSummary.actualReceipts.receiptTotal)} · 레거시 ${formatKRW(collectionSummary.actualReceipts.legacyTotal)} · 통장 ${formatKRW(collectionSummary.actualReceipts.byChannel.bank)} · 현금 ${formatKRW(collectionSummary.actualReceipts.byChannel.cash)}`}
+          icon={WalletCards}
+        />
+        <SummaryCard compact title="매출충당(입금전표)" value={formatKRW(collectionSummary.periodAllocations.total)} sub="배정 효력일 기준" icon={CreditCard} />
+        <SummaryCard compact title="미배정 선수금" value={formatKRW(collectionSummary.unappliedPrepaid.total)} sub={`${collectionSummary.endDate || "현재"} 기준 입금전표 미배정액`} icon={WalletCards} />
+        <SummaryCard compact title="미수조정" value={formatKRW(collectionSummary.adjustments.net)} sub="ARAdjustment 별도 표시" icon={BarChart3} />
+        <SummaryCard compact title="잔여미수" value={formatKRW(collectionSummary.closingOutstanding)} sub={`기간 매출 ${formatKRW(collectionSummary.periodSales.billed)} − 충당 ${formatKRW(collectionSummary.periodSales.applied)} ± 조정`} tone={collectionSummary.closingOutstanding > 0 ? "danger" : "success"} icon={Users} />
       </div>
 
       {reportTab === "pivot" && (
@@ -8640,6 +8712,10 @@ export default function TeammillimeterErpMvp() {
       ? (storedData.receiptAllocations as ReceiptAllocationRecord[])
       : [];
   });
+  const [arAdjustments, setArAdjustments] = useState<Array<Record<string, unknown>>>(() => {
+    if (apiMode && sessionOnMount) return [];
+    return Array.isArray(storedData?.arAdjustments) ? storedData.arAdjustments : [];
+  });
   const [clients, setClients] = useState(() => {
     if (apiMode && sessionOnMount) return [];
     return storedData?.clients?.length >= initialClients.length ? storedData.clients : initialClients;
@@ -8844,14 +8920,22 @@ export default function TeammillimeterErpMvp() {
     [normalizedSales, clients, receipts, receiptAllocations, paymentVouchers],
   );
   const unifiedArBalances = useMemo(() => buildSaleArBalances(unifiedArData), [unifiedArData]);
+  const receiptUnappliedByClientName = useMemo(
+    () => buildPrepaidByClientName(unifiedArData),
+    [unifiedArData],
+  );
   const unifiedPrepaidByClientName = useMemo(
     () =>
       mergePrepaidByClientName(
-        buildPrepaidByClientName(unifiedArData),
+        receiptUnappliedByClientName,
         unifiedArBalances.legacyPrepaidByClientName,
       ),
-    [unifiedArData, unifiedArBalances],
+    [receiptUnappliedByClientName, unifiedArBalances],
   );
+  const doubleCoverageSaleIds = useMemo(() => {
+    const error = unifiedArBalances.errors.find((row) => row.code === "LEGACY_RECEIPT_DOUBLE_COVERAGE");
+    return new Set(Array.isArray(error?.detail) ? error.detail.map((id) => String(id)) : []);
+  }, [unifiedArBalances]);
   const appliedSales = useMemo(
     () =>
       applyUnifiedArBalancesToSales(normalizedSales, unifiedArBalances, {
@@ -8984,6 +9068,7 @@ export default function TeammillimeterErpMvp() {
     setPaymentInputLogs(Array.isArray(data.paymentInputLogs) ? data.paymentInputLogs : []);
     setReceipts(Array.isArray(data.receipts) ? data.receipts : []);
     setReceiptAllocations(Array.isArray(data.receiptAllocations) ? data.receiptAllocations : []);
+    setArAdjustments(Array.isArray(data.arAdjustments) ? data.arAdjustments : []);
     const incomingClients = data.clients?.length ? data.clients : initialClients;
     if (!preserveLocalEdits) {
       setClients(incomingClients);
@@ -9205,6 +9290,32 @@ export default function TeammillimeterErpMvp() {
     [],
   );
 
+  const financeRefreshSeqRef = useRef(0);
+  const refreshFinanceLedgersFromServer = useCallback(async () => {
+    if (!apiMode) return;
+    const seq = ++financeRefreshSeqRef.current;
+    try {
+      const data = await fetchErpDomains([...FINANCE_LEDGER_DOMAINS]);
+      if (seq !== financeRefreshSeqRef.current) return;
+      if (Array.isArray(data.receipts)) setReceipts(data.receipts as ReceiptRecord[]);
+      if (Array.isArray(data.receiptAllocations)) {
+        setReceiptAllocations(data.receiptAllocations as ReceiptAllocationRecord[]);
+      }
+      if (Array.isArray(data.arAdjustments)) setArAdjustments(data.arAdjustments);
+      setExceptionRefreshToken((n) => n + 1);
+      try {
+        document.documentElement.setAttribute("data-erp-finance-version", String(data.version ?? ""));
+      } catch {
+        /* ignore */
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  }, [apiMode]);
+  const refreshFinanceLedgersFromServerRef = useRef(refreshFinanceLedgersFromServer);
+  refreshFinanceLedgersFromServerRef.current = refreshFinanceLedgersFromServer;
+  const forceRefreshBankFromServerRef = useRef<null | (() => Promise<unknown>)>(null);
+
   const applyRemoteSalesDomain = useCallback((data) => {
     if (!data) return;
     if (
@@ -9250,7 +9361,10 @@ export default function TeammillimeterErpMvp() {
   const refetchDomainsFromEvent = useCallback(
     async (plan) => {
       if (!plan?.domains?.length) return;
+      const financePlan = planFinanceRefetch(plan.domains);
+      if (financePlan.ledgers) void refreshFinanceLedgersFromServerRef.current();
       const wantSales = plan.domains.includes("sales") || plan.domains.includes("settings");
+      const wantBank = financePlan.bank;
       const shouldFetch = shouldRefetchForViewport({
         domains: plan.domains,
         affectedDateFrom: plan.affectedDateFrom,
@@ -9319,6 +9433,9 @@ export default function TeammillimeterErpMvp() {
       }
       const abort = new AbortController();
       remoteRefreshAbortRef.current = abort;
+      if (wantBank && !bankTransactionsDirtyRef.current) {
+        void forceRefreshBankFromServerRef.current?.();
+      }
       try {
         const domains = [];
         if (wantSales) domains.push("sales");
@@ -9356,6 +9473,23 @@ export default function TeammillimeterErpMvp() {
 
   const onErpDomainStreamEvent = useCallback(
     (event) => {
+      if (
+        event?.type === "erp.hello" &&
+        needsFullFinanceRevalidation({
+          helloVersion: event.globalVersion,
+          knownVersion: erpVersionRef.current,
+        })
+      ) {
+        void refetchDomainsFromEvent({
+          globalVersion: Number(event.globalVersion) || 0,
+          domains: [...FULL_FINANCE_REVALIDATION_DOMAINS],
+          entityIds: [],
+          affectedDateFrom: null,
+          affectedDateTo: null,
+          eventIds: [],
+        });
+        return;
+      }
       if (!event || event.type !== "erp.domain_change") return;
       try {
         document.documentElement.setAttribute("data-erp-last-domain-event", String(event.eventId || ""));
@@ -9378,7 +9512,7 @@ export default function TeammillimeterErpMvp() {
       if (domainEventFlushTimerRef.current != null) return;
       domainEventFlushTimerRef.current = window.setTimeout(() => flushDomainEvents(), 50);
     },
-    [flushDomainEvents],
+    [flushDomainEvents, refetchDomainsFromEvent],
   );
 
   useErpDomainRealtime({
@@ -9406,6 +9540,9 @@ export default function TeammillimeterErpMvp() {
         const meta = await fetchErpVersion();
         if (cancelled || meta.version <= erpVersionRef.current) return;
         if (!isUserIdleForRemoteRefresh()) return;
+        // A version gap means events may have been missed: revalidate finance, not only sales.
+        void refreshFinanceLedgersFromServerRef.current();
+        if (!bankTransactionsDirtyRef.current) void forceRefreshBankFromServerRef.current?.();
         const data = await fetchErpDomains(["sales"]);
         if (cancelled) return;
         if (
@@ -9956,6 +10093,8 @@ export default function TeammillimeterErpMvp() {
       return [...(result.allocations || []), ...kept];
     });
     setExceptionRefreshToken((n) => n + 1);
+    // The local merge drops closed history rows; the server ledger is the authority.
+    void refreshFinanceLedgersFromServerRef.current();
     const receiptDate = String(result.receipt.receiptDate || "").slice(0, 10);
     if (/^\d{4}-\d{2}-\d{2}$/.test(receiptDate)) {
       const monthKey = receiptDate.slice(0, 7);
@@ -11520,6 +11659,7 @@ export default function TeammillimeterErpMvp() {
       return { addedCount: 0, totalCount: bankTransactionsRef.current.length, applied: false };
     }
   }, [applyRemoteBankSnapshot]);
+  forceRefreshBankFromServerRef.current = forceRefreshBankFromServer;
 
   const isBankRemoteSyncBusy = React.useCallback(() => bankSyncApplyingRef.current, []);
 
@@ -11680,9 +11820,11 @@ export default function TeammillimeterErpMvp() {
       onPersistWorkerMonthlyLinksImmediate: persistWorkerMonthlyLinksImmediate,
       receipts,
       receiptAllocations,
+      doubleCoverageSaleIds,
       onReceiptLedgerUpsert: upsertReceiptLedgerResult,
     }),
     [
+      doubleCoverageSaleIds,
       bankTransactions,
       bankTransactionFolders,
       apiMode,
@@ -11839,6 +11981,7 @@ export default function TeammillimeterErpMvp() {
             setStatementFolders={setStatementFolders}
             autoLinkedSaleIds={autoLinkedSaleIds}
             manualLinkedSaleIds={manualLinkedSaleIds}
+            receiptUnappliedByClientName={receiptUnappliedByClientName}
             onPersistSaleUpdate={persistSaleVoucherUpdate}
             onPersistSaleDelete={persistSaleVoucherDelete}
             saleComments={saleComments}
@@ -12285,6 +12428,10 @@ export default function TeammillimeterErpMvp() {
             sales={appliedSales}
             workers={workers}
             paymentVouchers={paymentVouchers}
+            receipts={receipts}
+            receiptAllocations={receiptAllocations}
+            arAdjustments={arAdjustments}
+            clients={clients}
             onRequestClientStatement={(draft) => {
               setStatementDraft(draft);
               setSalesStatementsNavTab("statements");

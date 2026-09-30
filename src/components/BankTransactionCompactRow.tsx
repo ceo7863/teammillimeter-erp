@@ -3,6 +3,14 @@ import { AutoLinkBadge, ManualLinkBadge, PartialPaymentBadge } from "@/component
 import { getBankTransactionFolderTone } from "@/utils/bankTransactionFolders";
 import type { BankTransactionListRowModel } from "@/utils/bankTransactionListDisplay";
 import type { BankTransactionSimpleTableLabels } from "@/components/BankTransactionSimpleTable";
+import { bankDepositStatusTone, type BankDepositStatusTone } from "@/utils/bankDepositCanonicalStatus";
+
+const LINKED_BADGE_TONE_CLASS: Record<BankDepositStatusTone, string> = {
+  success: "bg-emerald-100 text-emerald-700",
+  warning: "bg-amber-100 text-amber-800",
+  danger: "bg-rose-100 text-rose-800",
+  muted: "bg-slate-100 text-slate-600",
+};
 
 export type BankTransactionCompactRowModel = BankTransactionListRowModel;
 
@@ -100,6 +108,7 @@ function BankTransactionCompactRowComponent({
   classificationLabel,
   matchLinked,
   matchStatusLabel,
+  depositStatus,
   showAutoLinkBadge,
   showManualLinkBadge,
   showPartialPaymentBadge,
@@ -163,10 +172,14 @@ function BankTransactionCompactRowComponent({
         )}
         {netGroupRole ? <div className="mt-1">{renderPreauthNetBadge(netGroupRole, labels)}</div> : null}
       </td>
-      <td className="max-w-[9rem]">
+      <td className="max-w-[9rem]" data-deposit-status={depositStatus ?? undefined}>
         {matchLinked ? (
           <div className="flex flex-wrap items-center gap-1">
-            <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">
+            <span
+              className={`inline-flex rounded-full px-2 py-0.5 text-xs font-bold ${
+                LINKED_BADGE_TONE_CLASS[bankDepositStatusTone(depositStatus) ?? "success"]
+              }`}
+            >
               {matchStatusLabel}
             </span>
             {showAutoLinkBadge ? <AutoLinkBadge title={labels.autoLinkBadgeTitle} /> : null}

@@ -79,6 +79,69 @@ export function deriveCollectionStatus(billed: number, applied: number, prepaid 
   return "partial";
 }
 
+export type CalendarCollectionTone = "GREEN" | "AMBER" | "RED" | "NEUTRAL";
+
+export type CanonicalSaleCollection = {
+  billed: number;
+  applied: number;
+  outstanding: number;
+  tone: CalendarCollectionTone;
+};
+
+type CanonicalSaleLike = {
+  amount?: number;
+  salesAmount?: number;
+  arBilledAmount?: number;
+  appliedAmount?: number;
+  outstandingAmount?: number;
+  paid?: number;
+  cancelled?: boolean;
+  arPaymentStatus?: string;
+};
+
+function finiteOrNull(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(n) : null;
+}
+
+/**
+ * The one calendar collection formula, fed only by the Unified AR overlay
+ * (`appliedAmount` / `outstandingAmount` from Receipt allocations + frozen legacy ledger).
+ * Bank links, statement payment caches and front-end FIFO never change the tone.
+ * GREEN: billed>0 and outstanding=0 · AMBER: applied>0 and outstanding>0 ·
+ * RED: applied=0 and outstanding>0 · NEUTRAL: billed=0 or cancelled.
+ */
+export function resolveCanonicalSaleCollection(sale: CanonicalSaleLike): CanonicalSaleCollection {
+  const billed = Math.max(
+    0,
+    finiteOrNull(sale.arBilledAmount) ?? finiteOrNull(sale.amount) ?? finiteOrNull(sale.salesAmount) ?? 0,
+  );
+  const cancelled = sale.cancelled === true || sale.arPaymentStatus === "cancelled";
+  // Rows outside the unified overlay (offline demo data) fall back to the capped paid field.
+  const applied = Math.max(0, finiteOrNull(sale.appliedAmount) ?? finiteOrNull(sale.paid) ?? 0);
+  const outstanding = Math.max(0, finiteOrNull(sale.outstandingAmount) ?? billed - applied);
+  let tone: CalendarCollectionTone;
+  if (cancelled || billed <= 0) tone = "NEUTRAL";
+  else if (outstanding <= 0) tone = "GREEN";
+  else if (applied > 0) tone = "AMBER";
+  else tone = "RED";
+  return { billed, applied: Math.min(applied, billed), outstanding, tone };
+}
+
+export function calendarToneToCollectionStatus(tone: CalendarCollectionTone): CollectionFinanceStatus {
+  switch (tone) {
+    case "GREEN":
+      return "paid";
+    case "AMBER":
+      return "partial";
+    case "RED":
+      return "unpaid";
+    default:
+      return "void";
+  }
+}
+
 export function derivePayoutStatus(due: number, paid: number, advance = 0, review = false): PayoutFinanceStatus {
   if (review) return "review";
   const d = Math.max(0, Math.round(Number(due) || 0));

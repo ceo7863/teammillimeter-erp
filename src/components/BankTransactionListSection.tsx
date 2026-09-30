@@ -22,6 +22,7 @@ import {
   type BankTransactionListRowModel,
 } from "@/utils/bankTransactionListDisplay";
 import type { BankTransactionColumnVisibility } from "@/utils/bankTransactionColumnVisibility";
+import type { BankDepositCanonicalStatusResult } from "@/utils/bankDepositCanonicalStatus";
 import { openTeamChatWithShare } from "@/utils/teamChatShare";
 import { buildBankTxTeamChatLink } from "@/utils/teamChatLinks";
 
@@ -61,6 +62,7 @@ type BankTransactionListSectionProps = {
     statementTotalAmount?: number;
     statementSalesIds?: Array<string | number>;
   }>;
+  depositStatusByTxId?: Map<string, BankDepositCanonicalStatusResult>;
   labels: BankTransactionListSectionLabels;
   columnVisibility: BankTransactionColumnVisibility;
   onEditMemo: (row: BankTransaction) => void;
@@ -92,6 +94,7 @@ function BankTransactionListSectionComponent({
   workerMonthlyActualVouchers = [],
   paymentVouchers = [],
   sentArchives = [],
+  depositStatusByTxId,
   labels,
   columnVisibility,
   onEditMemo,
@@ -138,6 +141,7 @@ function BankTransactionListSectionComponent({
       clients,
       workers,
       workerMonthlyActualVouchers,
+      depositStatusByTxId,
     };
   }, [
     isListActive,
@@ -158,6 +162,7 @@ function BankTransactionListSectionComponent({
     clients,
     workers,
     workerMonthlyActualVouchers,
+    depositStatusByTxId,
   ]);
 
   const rowModelCacheRef = useRef(
