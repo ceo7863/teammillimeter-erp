@@ -10,6 +10,7 @@ import {
 } from "./clientDepositAliases";
 import type { ReceivableRow } from "./receivables";
 import { getUnpaid } from "./receivables";
+import { resolveCanonicalSaleCollection, type CalendarCollectionTone } from "./calendarFinanceStatus";
 
 export type BankDepositMatchCandidate = {
   salesId: number | string;
@@ -604,41 +605,43 @@ export type CalendarEntryPaymentState = {
   paid: number;
   hasUnpaid: boolean;
   isPartialPaid: boolean;
+  tone: CalendarCollectionTone;
+  /** Client has unallocated Receipt cash while this sale is still open (badge only). */
+  hasUnappliedCredit: boolean;
 };
 
-/** Calendar stripe/badge: honor bank auto/manual links, not only sale.paid fields. */
+/**
+ * Calendar stripe/badge from the canonical Unified AR balance only.
+ * A bank link (auto/manual) is display metadata and never marks a sale paid.
+ */
 export function resolveCalendarEntryPaymentState(
   sale: {
     id?: number | string;
+    client?: string;
     amount?: number;
     salesAmount?: number;
+    arBilledAmount?: number;
+    appliedAmount?: number;
+    outstandingAmount?: number;
     paid?: number;
-    paidAmount?: number;
+    cancelled?: boolean;
+    arPaymentStatus?: string;
   },
   options: {
-    autoLinkedSaleIds?: Set<string>;
-    manualLinkedSaleIds?: Set<string>;
+    receiptUnappliedByClientName?: Record<string, number>;
   } = {},
 ): CalendarEntryPaymentState {
-  const unpaid = getUnpaid(sale);
-  const amount = Number(sale.amount ?? sale.salesAmount ?? 0) || 0;
-  const explicitPaid = Number(sale.paid ?? sale.paidAmount ?? NaN);
-  const paid =
-    Number.isFinite(explicitPaid) && explicitPaid >= 0 ? explicitPaid : Math.max(0, amount - unpaid);
-
-  const autoLinked = isSaleAutoLinkedPaid(sale.id, options.autoLinkedSaleIds ?? new Set());
-  const manualLinked = isSaleManualLinkedPaid(sale.id, options.manualLinkedSaleIds ?? new Set());
-
-  if (autoLinked || manualLinked) {
-    if (unpaid > 0 && paid > 0) {
-      return { unpaid, paid, hasUnpaid: false, isPartialPaid: true };
-    }
-    return { unpaid: 0, paid: Math.max(paid, amount), hasUnpaid: false, isPartialPaid: false };
-  }
-
-  const hasUnpaid = unpaid > 0 && paid <= 0;
-  const isPartialPaid = unpaid > 0 && paid > 0;
-  return { unpaid, paid, hasUnpaid, isPartialPaid };
+  const { applied, outstanding, tone } = resolveCanonicalSaleCollection(sale);
+  const clientName = String(sale.client ?? "");
+  const unappliedCredit = Number(options.receiptUnappliedByClientName?.[clientName]) || 0;
+  return {
+    unpaid: tone === "NEUTRAL" ? 0 : outstanding,
+    paid: applied,
+    hasUnpaid: tone === "RED",
+    isPartialPaid: tone === "AMBER",
+    tone,
+    hasUnappliedCredit: unappliedCredit > 0 && (tone === "RED" || tone === "AMBER"),
+  };
 }
 
 export function isSaleAutoLinkedPaid(

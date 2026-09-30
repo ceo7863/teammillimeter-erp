@@ -56,6 +56,9 @@ export function collectSentStatementSaleIds(archives = [], options = {}) {
         periodEnd: row.periodEnd,
         sent,
         saleCount: salesIds.length,
+        saleIds: [...new Set(salesIds.map(saleIdKey).filter(Boolean))],
+        statementTotalAmount: row.statementTotalAmount != null ? money(row.statementTotalAmount) : null,
+        createdAt: row.createdAt || null,
       });
     }
   }
@@ -99,6 +102,7 @@ export function proposeFifoAllocationsScoped(proposeFifoAllocations, args) {
     asOfDate,
     saleIdAllowlist,
     requireAllowlist = true,
+    legacyAppliedBySale = null,
   } = args;
   const allow = saleIdAllowlist instanceof Set ? saleIdAllowlist : new Set((saleIdAllowlist || []).map(saleIdKey));
   const scopedSales =
@@ -110,7 +114,9 @@ export function proposeFifoAllocationsScoped(proposeFifoAllocations, args) {
           if (requireAllowlist && allow.size > 0 && !allow.has(id)) return false;
           return true;
         });
-  return proposeFifoAllocations(scopedSales, client, grossAmount, allocations, receipts, clients, asOfDate);
+  return proposeFifoAllocations(scopedSales, client, grossAmount, allocations, receipts, clients, asOfDate, {
+    legacyAppliedBySale,
+  });
 }
 
 /**
@@ -126,6 +132,7 @@ export function planPrepaidAutoApply({
   asOfDate,
   saleAllocatedAsOf,
   summarizeReceipt,
+  legacyAppliedBySale = null,
 }) {
   const targets = new Set((targetSaleIds || []).map(saleIdKey).filter(Boolean));
   if (!targets.size) return { patches: [], appliedTotal: 0 };
@@ -136,7 +143,8 @@ export function planPrepaidAutoApply({
     if (!targets.has(id)) continue;
     const billed = money(sale.amount);
     const allocated = saleAllocatedAsOf ? money(saleAllocatedAsOf(allocations, receipts, id, asOfDate)) : 0;
-    const unpaid = Math.max(billed - allocated, 0);
+    const legacyApplied = legacyAppliedBySale instanceof Map ? money(legacyAppliedBySale.get(id)) : 0;
+    const unpaid = Math.max(billed - legacyApplied - allocated, 0);
     if (unpaid > 0) unpaidBySale.set(id, unpaid);
   }
   if (!unpaidBySale.size) return { patches: [], appliedTotal: 0 };

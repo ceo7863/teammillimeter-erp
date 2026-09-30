@@ -8,6 +8,7 @@ import {
 } from "./canonicalCollection.mjs";
 import { planAllocationsForTarget } from "./allocationTarget.mjs";
 import { listPdfArchiveMetas } from "./pdfArchive.mjs";
+import { buildLegacyAppliedBySale, legacyAppliedForSale } from "./legacyAppliedBySale.mjs";
 
 const SAVE_RETRY_ATTEMPTS = 8;
 const RECEIPT_CHANNELS = new Set(["bank", "cash", "personal_account", "other"]);
@@ -379,6 +380,7 @@ function normalizeAllocationsInput(
     excludeReceiptId = null,
     asOfDate = null,
     defaultEffectiveFrom = null,
+    legacyAppliedBySale = null,
   } = {},
 ) {
   const asOf = asOfDate || todaySeoul();
@@ -405,13 +407,16 @@ function normalizeAllocationsInput(
     );
     const billed = money(sale.amount);
     const already = saleAllocatedAsOf(allocations, receipts, saleId, effectiveFrom, excludeReceiptId);
-    const remaining = Math.max(billed - already, 0);
+    const legacyApplied = legacyAppliedForSale(legacyAppliedBySale, saleId);
+    const remaining = Math.max(billed - legacyApplied - already, 0);
     if (amount > remaining) {
       throw makeError(
         "ALLOCATION_EXCEEDS_SALE",
-        `매출 ${saleId} 미수잔액(${remaining})을 초과하는 배분입니다.`,
+        legacyApplied > 0
+          ? `매출 ${saleId}는 레거시 입금(${legacyApplied})으로 이미 충당되어 미수잔액(${remaining})을 초과하는 배분입니다.`
+          : `매출 ${saleId} 미수잔액(${remaining})을 초과하는 배분입니다.`,
         400,
-        { saleId, remaining, amount, asOf: effectiveFrom },
+        { saleId, remaining, amount, legacyApplied, asOf: effectiveFrom },
       );
     }
     normalized.push({
@@ -475,15 +480,27 @@ function assertIdempotentMatch(existingHash, payloadHash, operationId, existingI
 /** Accepts either `{ allocations }` or a raw ERP data slice `{ receiptAllocations }`. */
 function normalizePlanContext(context) {
   const source = context || {};
+  const receipts = Array.isArray(source.receipts) ? source.receipts : [];
+  const sales = Array.isArray(source.sales) ? source.sales : [];
+  const clients = Array.isArray(source.clients) ? source.clients : [];
   return {
-    receipts: Array.isArray(source.receipts) ? source.receipts : [],
+    receipts,
     allocations: Array.isArray(source.allocations)
       ? source.allocations
       : Array.isArray(source.receiptAllocations)
         ? source.receiptAllocations
         : [],
-    sales: Array.isArray(source.sales) ? source.sales : [],
-    clients: Array.isArray(source.clients) ? source.clients : [],
+    sales,
+    clients,
+    legacyAppliedBySale:
+      source.legacyAppliedBySale instanceof Map
+        ? source.legacyAppliedBySale
+        : buildLegacyAppliedBySale({
+            sales,
+            clients,
+            receipts,
+            paymentVouchers: source.paymentVouchers,
+          }),
   };
 }
 
@@ -493,12 +510,15 @@ function saveReceiptsDomainAtomic(mutator, actor) {
     const data = state.data || {};
     const receipts = [...listReceipts(data)];
     const allocations = [...listReceiptAllocations(data)];
+    const legacyAppliedBySale = buildLegacyAppliedBySale({ ...data, receipts });
     const result = mutator({
       data,
       receipts,
       allocations,
       sales: data.sales || [],
       clients: data.clients || [],
+      paymentVouchers: data.paymentVouchers || [],
+      legacyAppliedBySale,
       actor,
       version: state.version,
     });
@@ -535,7 +555,7 @@ function saveReceiptsDomainAtomic(mutator, actor) {
  * `{ receipts, allocations, value }`.
  */
 export function planCreateAndPostReceipt(context, input, actor = "system") {
-  return (({ receipts, allocations, sales, clients }) => {
+  return (({ receipts, allocations, sales, clients, legacyAppliedBySale }) => {
     const raw = input || {};
     const operationId = String(raw.operationId || raw.idempotencyKey || "").trim();
     if (!operationId) throw makeError("OPERATION_ID_REQUIRED", "operationId가 필요합니다.");
@@ -584,7 +604,7 @@ export function planCreateAndPostReceipt(context, input, actor = "system") {
       allocations,
       client,
       clients,
-      { asOfDate: canonical.receiptDate, defaultEffectiveFrom: canonical.receiptDate },
+      { asOfDate: canonical.receiptDate, defaultEffectiveFrom: canonical.receiptDate, legacyAppliedBySale },
     );
     const allocatedSum = allocationDrafts.reduce((sum, row) => sum + row.amount, 0);
     const grossAmount = canonical.grossAmount;
@@ -684,7 +704,7 @@ export function getReceiptById(receiptId) {
  * New rows get effectiveFrom = effectiveDate. History is never deleted.
  */
 export function replaceReceiptAllocations(receiptId, input, actor = "system") {
-  return saveReceiptsDomainAtomic(({ receipts, allocations, sales, clients }) => {
+  return saveReceiptsDomainAtomic(({ receipts, allocations, sales, clients, legacyAppliedBySale }) => {
     const raw = input || {};
     const operationId = String(raw.operationId || raw.idempotencyKey || "").trim();
     if (!operationId) throw makeError("OPERATION_ID_REQUIRED", "재배분에 operationId가 필요합니다.");
@@ -730,6 +750,7 @@ export function replaceReceiptAllocations(receiptId, input, actor = "system") {
       excludeReceiptId: receipt.id,
       asOfDate: effectiveDate,
       defaultEffectiveFrom: effectiveDate,
+      legacyAppliedBySale,
     });
     const allocatedSum = drafts.reduce((sum, row) => sum + row.amount, 0);
     if (allocatedSum > money(receipt.grossAmount)) {
@@ -1006,6 +1027,7 @@ export function proposeFifoAllocations(
   receipts = [],
   clients = [],
   asOfDate = null,
+  { legacyAppliedBySale = null } = {},
 ) {
   const amountLeftStart = money(grossAmount);
   let remaining = amountLeftStart;
@@ -1036,7 +1058,7 @@ export function proposeFifoAllocations(
     if (remaining <= 0) break;
     const billed = money(sale.amount);
     const allocated = saleAllocatedAsOf(existingAllocations, receipts, sale.id, asOf);
-    const unpaid = Math.max(billed - allocated, 0);
+    const unpaid = Math.max(billed - legacyAppliedForSale(legacyAppliedBySale, sale.id) - allocated, 0);
     if (unpaid <= 0) continue;
     const apply = Math.min(unpaid, remaining);
     proposals.push({ saleId: sale.id, amount: apply });
@@ -1177,6 +1199,7 @@ export function registerCanonicalReceipt(input, actor = "system") {
       allocations: explicitAllocations,
       autoAllocate: raw.autoAllocate !== false,
       companyOnly: raw.companyOnly === true,
+      legacyAppliedBySale: buildLegacyAppliedBySale({ ...data, receipts }),
       proposeFifoAllocations,
       proposeFifoAllocationsScoped,
     });
@@ -1207,6 +1230,7 @@ export function applyPrepaidForStatementSales({ statementSalesIds, actor = "syst
     receipts: listReceipts(data),
     allocations: listReceiptAllocations(data),
     sales: data.sales || [],
+    legacyAppliedBySale: buildLegacyAppliedBySale({ ...data, receipts: listReceipts(data) }),
     targetSaleIds,
     asOfDate: effectiveDate || todaySeoul(),
     saleAllocatedAsOf,

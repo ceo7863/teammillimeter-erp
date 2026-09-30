@@ -9,6 +9,14 @@ import {
   isBankTransactionColumnVisible,
   type BankTransactionColumnVisibility,
 } from "@/utils/bankTransactionColumnVisibility";
+import { bankDepositStatusTone, type BankDepositStatusTone } from "@/utils/bankDepositCanonicalStatus";
+
+const LINKED_TONE_CLASS: Record<BankDepositStatusTone, string> = {
+  success: "border-emerald-200 bg-emerald-100 text-emerald-700 hover:bg-emerald-200",
+  warning: "border-amber-200 bg-amber-100 text-amber-800 hover:bg-amber-200",
+  danger: "border-rose-200 bg-rose-100 text-rose-800 hover:bg-rose-200",
+  muted: "border-slate-200 bg-slate-100 text-slate-600 hover:bg-slate-200",
+};
 
 export type BankTransactionSplitTableLabels = {
   bankSection: string;
@@ -98,6 +106,7 @@ function splitRowModelsEqual(
     prev.showVoucherProcessedBadge === next.showVoucherProcessedBadge &&
     prev.matchLinked === next.matchLinked &&
     prev.matchStatusLabel === next.matchStatusLabel &&
+    prev.depositStatus === next.depositStatus &&
     prev.workerErpLinked === next.workerErpLinked &&
     prev.workerErpStatusLabel === next.workerErpStatusLabel &&
     prev.rowTone === next.rowTone
@@ -485,7 +494,10 @@ const SplitRow = memo(function SplitRow({
           />
         </td>
       ) : null}
-      <td className="erp-bank-wehago-cell erp-bank-wehago-cell--process">
+      <td
+        className="erp-bank-wehago-cell erp-bank-wehago-cell--process"
+        data-deposit-status={model.depositStatus ?? undefined}
+      >
         {model.showVoucherProcessedBadge ? (
           <button
             type="button"
@@ -501,11 +513,12 @@ const SplitRow = memo(function SplitRow({
         ) : model.matchLinked ? (
           <button
             type="button"
-            className={
-              model.matchStatusLabel.includes("\uBC30\uBD84")
-                ? "erp-bank-wehago-cell-btn max-w-full truncate border border-amber-200 bg-amber-100 text-left text-amber-800 hover:bg-amber-200"
-                : "erp-bank-wehago-cell-btn max-w-full truncate border border-emerald-200 bg-emerald-100 text-left text-emerald-700 hover:bg-emerald-200"
-            }
+            className={`erp-bank-wehago-cell-btn max-w-full truncate border text-left ${
+              LINKED_TONE_CLASS[
+                bankDepositStatusTone(model.depositStatus) ??
+                  (model.matchStatusLabel.includes("\uBC30\uBD84") ? "warning" : "success")
+              ]
+            }`}
             title={model.matchStatusLabel}
             onClick={(event) => {
               event.stopPropagation();
@@ -530,7 +543,11 @@ const SplitRow = memo(function SplitRow({
           <button
             type="button"
             className={`erp-bank-wehago-cell-btn erp-bank-evidence-find${erpFindTone ? ` erp-bank-evidence-find--${erpFindTone}` : " erp-bank-evidence-find--plain"}`}
-            title={labels.erpFind}
+            title={
+              model.depositStatus && model.depositStatus !== "none"
+                ? `${model.matchStatusLabel} · ${labels.erpFind}`
+                : labels.erpFind
+            }
             onClick={(event) => {
               event.stopPropagation();
               onFindErpProcess(model.id);

@@ -5,6 +5,10 @@ import {
 } from "@/utils/bankReceivableMatch";
 import { bankTxHasPartialPaymentVoucher } from "@/utils/bankSentStatementMatch";
 import { hasBankDepositLinkField } from "@/utils/bankDepositLink";
+import type {
+  BankDepositCanonicalStatus,
+  BankDepositCanonicalStatusResult,
+} from "@/utils/bankDepositCanonicalStatus";
 import type { BankTransactionFolder, BankTransactionFolderType } from "@/utils/bankTransactionFolders";
 import { isBankTxExpenseReversal } from "@/utils/bankTxExpenseReversal";
 import { isNetGroupSuppressed } from "@/utils/bankPreauthNetting";
@@ -51,6 +55,7 @@ export type BankTransactionListRowModel = {
   classificationLabel: string;
   matchLinked: boolean;
   matchStatusLabel: string;
+  depositStatus: BankDepositCanonicalStatus | null;
   showAutoLinkBadge: boolean;
   showManualLinkBadge: boolean;
   showPartialPaymentBadge: boolean;
@@ -212,6 +217,8 @@ export type BankTransactionListRowBuildContext = {
   clients: Array<{ name?: string }>;
   workers: Array<{ name?: string }>;
   workerMonthlyActualVouchers?: WorkerMonthlyActualVoucher[];
+  /** Canonical Receipt/Allocation status per deposit; overrides link-only labels. */
+  depositStatusByTxId?: Map<string, BankDepositCanonicalStatusResult>;
 };
 
 export function buildBankTransactionListRowModel(
@@ -293,8 +300,11 @@ export function buildBankTransactionListRowModel(
     (categoryLabel && ledgerCategoryFolder ? ledgerCategoryFolder.folderName : labels.unfiled);
 
   const matchLinked = Boolean(hasBankDepositLinkField(row) || row.linkedPdfArchiveId);
+  const canonicalDepositStatus = context.depositStatusByTxId?.get(String(row.id));
   let matchStatusLabel = "-";
-  if (matchLinked) {
+  if (canonicalDepositStatus && canonicalDepositStatus.status !== "none") {
+    matchStatusLabel = canonicalDepositStatus.label;
+  } else if (matchLinked) {
     const archive = row.linkedPdfArchiveId
       ? context.sentArchiveById?.get(String(row.linkedPdfArchiveId))
       : null;
@@ -346,6 +356,7 @@ export function buildBankTransactionListRowModel(
     classificationLabel,
     matchLinked,
     matchStatusLabel,
+    depositStatus: canonicalDepositStatus?.status ?? null,
     workerErpLinked,
     workerErpStatusLabel,
     suppressed,
@@ -375,6 +386,7 @@ type BankTransactionListRowModelParts = {
   classificationLabel: string;
   matchLinked: boolean;
   matchStatusLabel: string;
+  depositStatus: BankDepositCanonicalStatus | null;
   workerErpLinked: boolean;
   workerErpStatusLabel: string;
   suppressed: boolean;
@@ -407,6 +419,7 @@ function buildBankTransactionListRowModelFromParts(
     classificationLabel,
     matchLinked,
     matchStatusLabel,
+    depositStatus,
     workerErpLinked,
     workerErpStatusLabel,
     rowTone,
@@ -434,6 +447,7 @@ function buildBankTransactionListRowModelFromParts(
     classificationLabel,
     matchLinked,
     matchStatusLabel,
+    depositStatus,
     showAutoLinkBadge: matchLinked && isBankMatchAutoLinked(row),
     showManualLinkBadge: matchLinked && isBankMatchManualLinked(row),
     showPartialPaymentBadge: matchLinked && bankTxHasPartialPaymentVoucher(row, paymentVouchers),
@@ -495,6 +509,10 @@ export function buildBankTransactionListRowFingerprint(
   }
   if (bankTxHasPartialPaymentVoucher(row, paymentVouchers)) {
     linked.push("pp:1");
+  }
+  const depositStatus = context.depositStatusByTxId?.get(String(row.id));
+  if (depositStatus) {
+    linked.push(`ds:${depositStatus.status}:${depositStatus.receiptId ?? ""}:${depositStatus.allocatedAmount}`);
   }
   if (row.linkedWorkerMonthlyPaymentVoucherId) {
     const voucher = context.workerMonthlyActualVouchers?.find(

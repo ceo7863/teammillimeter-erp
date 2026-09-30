@@ -96,6 +96,12 @@ export type PaymentVoucherRecord = {
 export type PivotContext = {
   workerFeeRates?: Map<string, number>;
   paymentVouchers?: PaymentVoucherRecord[];
+  /**
+   * Canonical 실제입금 per client for the report period (Receipt gross by receiptDate +
+   * non-superseded legacy vouchers). When present the client pivot reads
+   * avgPaid = 매출충당액, paidVat = 잔여미수, totalPaid = 실제입금 instead of raw vouchers.
+   */
+  actualReceiptsByClientName?: Record<string, number>;
 };
 
 type SaleWorkerLine = WorkerLineLike & {
@@ -107,6 +113,7 @@ type SaleRecord = {
   client?: string;
   amount?: number;
   paid?: number;
+  outstandingAmount?: number;
   date?: string;
   worker?: string;
   workers?: SaleWorkerLine[];
@@ -340,7 +347,6 @@ export function buildClientPivotReport(sales: SaleRecord[], filter: DateRangeFil
   const feeMap = context.workerFeeRates;
   const filtered = filterSalesByDate(sales, filter);
   const grouped = new Map<string, PivotRow>();
-  const paymentSumsByClient = sumPaymentVouchersByClientForSales(context.paymentVouchers, filtered);
 
   filtered.forEach((sale) => {
     const client = String(sale.client || "").trim() || "(미지정)";
@@ -349,6 +355,30 @@ export function buildClientPivotReport(sales: SaleRecord[], filter: DateRangeFil
     aggregateSaleIntoBucket(grouped.get(client)!, sale, feeMap);
   });
 
+  if (context.actualReceiptsByClientName) {
+    const actual = context.actualReceiptsByClientName;
+    const outstandingByClient = new Map<string, number>();
+    filtered.forEach((sale) => {
+      const client = String(sale.client || "").trim() || "(미지정)";
+      const billed = Math.round(Number(sale.amount) || 0);
+      const outstanding =
+        sale.outstandingAmount != null
+          ? Math.max(Math.round(Number(sale.outstandingAmount) || 0), 0)
+          : Math.max(billed - Math.round(Number(sale.paid) || 0), 0);
+      outstandingByClient.set(client, (outstandingByClient.get(client) || 0) + outstanding);
+    });
+    const canonicalRows = finalizeRows(Array.from(grouped.values())).map((row) => ({
+      ...row,
+      avgPaid: row.paid,
+      paidVat: outstandingByClient.get(row.key) || 0,
+      totalPaid: actual[row.key] || 0,
+    }));
+    const canonicalTotals = sumTotals(canonicalRows);
+    canonicalTotals.avgPaid = canonicalTotals.paid;
+    return { rows: canonicalRows, totals: canonicalTotals };
+  }
+
+  const paymentSumsByClient = sumPaymentVouchersByClientForSales(context.paymentVouchers, filtered);
   const rows = finalizeRows(Array.from(grouped.values())).map((row) => {
     const paymentSums = paymentSumsByClient.get(row.key) || { paid: 0, vat: 0 };
     return {

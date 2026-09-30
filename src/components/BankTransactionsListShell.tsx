@@ -13,6 +13,7 @@ import type { AccountCode, LedgerCategory } from "@/utils/ledgerSystem";
 import type { TaxInvoice } from "@/utils/taxInvoices";
 import type { WorkerMonthlyActualVoucher } from "@/utils/workerMonthlyActualPayments";
 import type { BankTxStatusTab } from "@/utils/bankTransactionStatusFilter";
+import type { BankDepositCanonicalStatusResult } from "@/utils/bankDepositCanonicalStatus";
 
 export type BankTransactionsListShellProps = {
   appliedFilters: BankTransactionAppliedFilters;
@@ -45,6 +46,7 @@ export type BankTransactionsListShellProps = {
   workerMonthlyActualVouchers?: WorkerMonthlyActualVoucher[];
   paymentVouchers: Array<{ bankTransactionId?: string | number; salesId?: number | string; finalAmount?: number; amount?: number; linkedPdfArchiveId?: string; isPartialPayment?: boolean }>;
   sentArchives?: Array<{ id: string; statementTotalAmount?: number; statementSalesIds?: Array<string | number> }>;
+  depositStatusByTxId?: Map<string, BankDepositCanonicalStatusResult>;
   labels: BankTransactionListSectionLabels;
   stats: { count: number; deposits: number; withdrawals: number; net: number };
   onEditMemo: (row: BankTransaction) => void;
@@ -107,6 +109,7 @@ function BankTransactionsListShellComponent(props: BankTransactionsListShellProp
     workerMonthlyActualVouchers,
     paymentVouchers,
     sentArchives,
+    depositStatusByTxId,
     labels,
     stats,
     onEditMemo,
@@ -171,6 +174,7 @@ function BankTransactionsListShellComponent(props: BankTransactionsListShellProp
         workerMonthlyActualVouchers={workerMonthlyActualVouchers}
         paymentVouchers={paymentVouchers}
         sentArchives={sentArchives}
+        depositStatusByTxId={depositStatusByTxId}
         labels={labels}
         stats={stats}
         onEditMemo={onEditMemo}
@@ -241,6 +245,7 @@ function bankTransactionsListShellPropsAreEqual(
   if (prev.workerMonthlyActualVouchers !== next.workerMonthlyActualVouchers) return false;
   if (prev.paymentVouchers !== next.paymentVouchers) return false;
   if (prev.sentArchives !== next.sentArchives) return false;
+  if (prev.depositStatusByTxId !== next.depositStatusByTxId) return false;
 
   if (prev.rows !== next.rows) {
     if (prev.rows.length !== next.rows.length) return false;

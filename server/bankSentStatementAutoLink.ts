@@ -18,7 +18,8 @@ import {
   isCardCompanyDeposit,
 } from "../src/utils/bankTransactionFolders.ts";
 import { config } from "./config.mjs";
-import { planCreateAndPostReceipt, proposeFifoAllocations } from "./receipts.mjs";
+import { planCreateAndPostReceipt, proposeFifoAllocations, saleAllocatedAsOf } from "./receipts.mjs";
+import { buildLegacyAppliedBySale, legacyAppliedForSale } from "./legacyAppliedBySale.mjs";
 import { buildEffectivePaymentVouchers } from "./receiptProjection.mjs";
 import {
   bankReceiptCutoverYmd,
@@ -284,6 +285,13 @@ export async function applySentStatementAutoLinksToErpData(
   const pendingPdfUpdates: PendingPdfArchiveAutoLinkUpdate[] = [];
   const appliedDrafts: SentStatementAutoLinkDraft[] = [];
   const receiptIds: string[] = [];
+  const workingSales = ((workingData.sales as any[]) || []) as any[];
+  const legacyAppliedBySale = buildLegacyAppliedBySale({
+    sales: workingSales,
+    clients,
+    receipts: workingReceipts,
+    paymentVouchers: (workingData.paymentVouchers as any[]) || [],
+  });
 
   for (const txId of scopedIds) {
     const tx = txById.get(String(txId));
@@ -300,6 +308,7 @@ export async function applySentStatementAutoLinksToErpData(
       cutoverAt,
       proposeFifoAllocations,
       archives,
+      legacyAppliedBySale,
     });
 
     if (decision.action === "skip") {
@@ -358,6 +367,7 @@ export async function applySentStatementAutoLinksToErpData(
           allocations: workingAllocations,
           sales: (workingData.sales as never[]) || [],
           clients: clients as never[],
+          legacyAppliedBySale,
         },
         {
           operationId: makeBankReceiptOperationId(String(tx.id), "bank_auto"),
@@ -367,7 +377,7 @@ export async function applySentStatementAutoLinksToErpData(
           channel: "bank",
           source: "bank_auto",
           bankTransactionId: String(tx.id),
-          sentStatementId: null,
+          sentStatementId: decision.matchedStatementId ? String(decision.matchedStatementId) : null,
           allocations: decision.allocations || [],
           memo: decision.reasonCode
             ? `auto-deposit:${decision.reasonCode}`
@@ -427,20 +437,31 @@ export async function applySentStatementAutoLinksToErpData(
 
       unresolvedQueue = removeResolvedFromQueue(unresolvedQueue, txId);
 
-      // Best-effort statement pointer for UI — not occupancy authority.
-      const preferredArchive = archives.find(
-        (row) =>
-          String(row.subjectName || "").trim() === String(decision.clientName || "").trim() &&
-          Array.isArray(row.statementSalesIds) &&
-          row.statementSalesIds.length,
-      );
+      // Display pointer only for the one statement the deposit matched; its status mirrors the
+      // canonical balance of that statement's sales, never the receipt's unapplied remainder.
+      const matchedStatementId = String(decision.matchedStatementId || "");
+      const preferredArchive = matchedStatementId
+        ? archives.find((row) => String(row.id) === matchedStatementId)
+        : null;
       if (preferredArchive) {
-        const paymentStatus =
-          processingStatus === "allocated"
-            ? "confirmed"
-            : processingStatus === "partially_allocated"
-              ? "partial"
-              : "pending";
+        const statementSaleIds = new Set(
+          ((preferredArchive.statementSalesIds as unknown[]) || []).map((id) => String(id ?? "")),
+        );
+        let billed = 0;
+        let applied = 0;
+        for (const sale of workingSales) {
+          const saleId = String(sale?.id ?? "");
+          if (!statementSaleIds.has(saleId)) continue;
+          const saleBilled = Math.round(Number(sale?.amount) || 0);
+          billed += saleBilled;
+          applied += Math.min(
+            saleBilled,
+            legacyAppliedForSale(legacyAppliedBySale, saleId) +
+              saleAllocatedAsOf(workingAllocations, workingReceipts, saleId, transactionDate),
+          );
+        }
+        const paymentStatus: PendingPdfArchiveAutoLinkUpdate["paymentStatus"] =
+          billed > 0 && applied >= billed ? "confirmed" : applied > 0 ? "partial" : "pending";
         pendingPdfUpdates.push({
           pdfArchiveId: String(preferredArchive.id),
           paymentStatus,

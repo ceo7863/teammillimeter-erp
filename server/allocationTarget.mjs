@@ -98,6 +98,7 @@ export function planAllocationsForTarget({
   allocations = null,
   autoAllocate = true,
   companyOnly = false,
+  legacyAppliedBySale = null,
   proposeFifoAllocations,
   proposeFifoAllocationsScoped,
 } = {}) {
@@ -136,6 +137,7 @@ export function planAllocationsForTarget({
       receipts,
       clients,
       asOfDate,
+      { legacyAppliedBySale },
     );
     return {
       allocations: fifo.allocations || [],
@@ -186,6 +188,7 @@ export function planAllocationsForTarget({
             receipts,
             clients,
             asOfDate,
+            legacyAppliedBySale,
             saleIdAllowlist: allowSet,
             requireAllowlist: true,
           })
@@ -197,6 +200,7 @@ export function planAllocationsForTarget({
             receipts,
             clients,
             asOfDate,
+            { legacyAppliedBySale },
           );
     return {
       allocations: scoped.allocations || [],
@@ -224,6 +228,7 @@ export function planAllocationsForTarget({
             receipts,
             clients,
             asOfDate,
+            legacyAppliedBySale,
             saleIdAllowlist: allowSet,
             requireAllowlist: true,
           })
@@ -235,6 +240,7 @@ export function planAllocationsForTarget({
             receipts,
             clients,
             asOfDate,
+            { legacyAppliedBySale },
           );
     return {
       allocations: scoped.allocations || [],
@@ -263,6 +269,7 @@ export function planAllocationsForTarget({
             receipts,
             clients,
             asOfDate,
+            legacyAppliedBySale,
             saleIdAllowlist: allowSet,
             requireAllowlist: true,
           })
@@ -276,6 +283,7 @@ export function planAllocationsForTarget({
             receipts,
             clients,
             asOfDate,
+            { legacyAppliedBySale },
           );
     return {
       allocations: scoped.allocations || [],

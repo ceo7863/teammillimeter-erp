@@ -9,6 +9,7 @@ import {
 } from "../src/utils/clientDepositAliases.ts";
 import { isCardCompanyDeposit } from "../src/utils/bankTransactionFolders.ts";
 import { isBankDepositLinked } from "../src/utils/bankDepositLink.ts";
+import { buildLegacyAppliedBySale } from "./legacyAppliedBySale.mjs";
 import {
   classifyCashBankTransfer,
   loadSentStatementSaleIdsForClient,
@@ -110,7 +111,29 @@ export function resolveBankDepositClient(tx, clients = [], options = {}) {
 }
 
 /**
- * Plan receipt for a resolved client: full gross always; FIFO on sent-statement sale union.
+ * Sent statements whose VAT-inclusive total equals the deposit. Re-sent copies of the same
+ * sale set collapse to one candidate, so an overlapping resend never makes a match ambiguous.
+ */
+export function findExactStatementMatches(documents = [], amount) {
+  const target = money(amount);
+  if (target <= 0) return [];
+  const bySaleSet = new Map();
+  for (const doc of documents || []) {
+    if (money(doc?.statementTotalAmount) !== target) continue;
+    const saleIds = Array.isArray(doc?.saleIds) ? doc.saleIds : [];
+    if (!saleIds.length) continue;
+    const key = [...saleIds].sort().join(",");
+    const prior = bySaleSet.get(key);
+    if (!prior || String(doc.createdAt || "") > String(prior.createdAt || "")) bySaleSet.set(key, doc);
+  }
+  return [...bySaleSet.values()];
+}
+
+/**
+ * Plan receipt for a resolved client: full gross always.
+ * A deposit equal to exactly one sent statement settles only that statement's sales and the
+ * VAT remainder stays unapplied; any other amount runs FIFO on the sent-statement sale union.
+ * Capacity always excludes what the frozen legacy ledger already settled.
  */
 export function planBankDepositReceiptAllocation({
   client,
@@ -121,6 +144,7 @@ export function planBankDepositReceiptAllocation({
   clients = [],
   asOfDate = null,
   archives = null,
+  legacyAppliedBySale = null,
   proposeFifoAllocations,
 }) {
   const amount = money(grossAmount);
@@ -150,6 +174,9 @@ export function planBankDepositReceiptAllocation({
     };
   }
 
+  const exactMatches = findExactStatementMatches(scope.documents, amount);
+  const matchedStatement = exactMatches.length === 1 ? exactMatches[0] : null;
+
   // STATEMENT-scoped FIFO only — never GLOBAL_FIFO for bank auto-link.
   const fifo = proposeFifoAllocationsScoped(proposeFifoAllocations, {
     sales,
@@ -159,7 +186,8 @@ export function planBankDepositReceiptAllocation({
     receipts,
     clients,
     asOfDate,
-    saleIdAllowlist: scope.saleIdSet,
+    legacyAppliedBySale,
+    saleIdAllowlist: matchedStatement ? new Set(matchedStatement.saleIds) : scope.saleIdSet,
     requireAllowlist: true,
   });
 
@@ -176,12 +204,33 @@ export function planBankDepositReceiptAllocation({
     reasonCode = "RECEIPT_PARTIALLY_ALLOCATED";
   }
 
+  if (matchedStatement) {
+    return {
+      allocations: fifo.allocations || [],
+      unallocatedAmount: unallocated,
+      processingStatus,
+      reasonCode,
+      scope: {
+        ...scope,
+        mode: "STATEMENT_EXACT",
+        matchedStatementId: matchedStatement.archiveId,
+        saleIds: matchedStatement.saleIds,
+        saleIdSet: new Set(matchedStatement.saleIds),
+      },
+      scopeMeta: {
+        mode: "STATEMENT_EXACT",
+        matchedStatementId: matchedStatement.archiveId,
+        saleIds: matchedStatement.saleIds,
+      },
+    };
+  }
+
   return {
     allocations: fifo.allocations || [],
     unallocatedAmount: unallocated,
     processingStatus,
     reasonCode,
-    scope: { ...scope, mode: "STATEMENT" },
+    scope: { ...scope, mode: "STATEMENT", exactStatementMatchCount: exactMatches.length },
     scopeMeta: { mode: "STATEMENT", saleIds: scope.saleIds || [] },
   };
 }
@@ -253,6 +302,7 @@ export function decideBankDepositAction(tx, context = {}) {
     cashReceipts = [],
     proposeFifoAllocations,
     archives = null,
+    legacyAppliedBySale = null,
   } = context;
 
   const txId = String(tx?.id || "");
@@ -315,6 +365,10 @@ export function decideBankDepositAction(tx, context = {}) {
     clients,
     asOfDate: transactionDate,
     archives,
+    legacyAppliedBySale:
+      legacyAppliedBySale instanceof Map
+        ? legacyAppliedBySale
+        : buildLegacyAppliedBySale({ sales, clients, receipts, paymentVouchers }),
     proposeFifoAllocations,
   });
 
@@ -332,5 +386,6 @@ export function decideBankDepositAction(tx, context = {}) {
     unallocatedAmount: plan.unallocatedAmount,
     processingStatus: plan.processingStatus,
     scope: plan.scope,
+    matchedStatementId: plan.scope?.matchedStatementId || null,
   };
 }

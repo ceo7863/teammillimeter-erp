@@ -4,6 +4,7 @@ import { MobileRecordCard, MobileRecordList } from "@/components/MobileRecordCar
 import { BANK_TX_ACCOUNT_TRIGGER_ATTR } from "@/utils/floatingPosition";
 import type { BankTransactionCompactRowLabels, BankTransactionCompactRowModel } from "@/components/BankTransactionCompactRow";
 import type { BankTransactionSimpleTableLabels } from "@/components/BankTransactionSimpleTable";
+import { bankDepositStatusTone } from "@/utils/bankDepositCanonicalStatus";
 
 type BankTransactionMobileListProps = {
   rowIds: string[];
@@ -38,7 +39,7 @@ function renderMobileCard(
   const classificationLabel =
     model.folderName && model.folderType ? model.folderName : model.classificationLabel;
 
-  const badges: { label: string; tone?: "default" | "success" | "muted" }[] = [];
+  const badges: { label: string; tone?: "default" | "danger" | "success" | "muted" }[] = [];
   if (classificationLabel) {
     badges.push({
       label: classificationLabel,
@@ -47,7 +48,13 @@ function renderMobileCard(
   }
   const preauthLabel = preauthNetBadgeLabel(model.netGroupRole, badgeLabels);
   if (preauthLabel) badges.push({ label: preauthLabel, tone: "muted" });
-  if (model.matchLinked) {
+  const depositTone = bankDepositStatusTone(model.depositStatus);
+  if (depositTone) {
+    badges.push({
+      label: model.matchStatusLabel,
+      tone: depositTone === "warning" ? "default" : depositTone,
+    });
+  } else if (model.matchLinked) {
     badges.push({ label: model.matchStatusLabel, tone: "success" });
   } else if (model.matchStatusLabel !== "-") {
     badges.push({ label: model.matchStatusLabel, tone: "muted" });

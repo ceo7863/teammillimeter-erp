@@ -371,6 +371,22 @@ function writeDomainRows(database, domains, updatedAt) {
   }
 }
 
+/**
+ * Domains whose serialized chunk differs from the stored row. A formatting-only difference
+ * over-reports (clients refetch once more); a real change can never be missed.
+ */
+function listChangedDomains(database, nextDomainChunks) {
+  const stored = new Map(
+    database
+      .prepare("SELECT domain, payload FROM erp_domain_state")
+      .all()
+      .map((row) => [row.domain, row.payload]),
+  );
+  return Object.entries(nextDomainChunks)
+    .filter(([domain, chunk]) => stored.get(domain) !== JSON.stringify(chunk))
+    .map(([domain]) => domain);
+}
+
 function seedEmptyDomainRows(database, updatedAt) {
   writeDomainRows(database, splitPayloadIntoDomains(emptyErpPayload()), updatedAt);
 }
@@ -1168,6 +1184,8 @@ function saveErpStateImmediate(payload, expectedVersion, updatedBy, options = {}
   const nextVersion = current.version + 1;
   const updatedAt = new Date().toISOString();
   const updatedByValue = updatedBy == null || updatedBy === "" ? "system" : String(updatedBy);
+  const nextDomainChunks = splitPayloadIntoDomains(normalizedPayload);
+  const changedDomains = listChangedDomains(database, nextDomainChunks);
   runInTransaction(database, () => {
     database
       .prepare(`
@@ -1176,15 +1194,17 @@ function saveErpStateImmediate(payload, expectedVersion, updatedBy, options = {}
         WHERE id = 1
       `)
       .run(JSON.stringify(normalizedPayload), nextVersion, updatedAt, updatedByValue);
-    writeDomainRows(database, splitPayloadIntoDomains(normalizedPayload), updatedAt);
+    writeDomainRows(database, nextDomainChunks, updatedAt);
   });
 
   // Durable commit succeeded — publish revision metadata only (no financial payloads).
   try {
-    const salesHint = extractSalesChangeHints(normalizedPayload?.sales || []);
+    const salesHint = changedDomains.includes("sales")
+      ? extractSalesChangeHints(normalizedPayload?.sales || [])
+      : { entityIds: [], affectedDateFrom: null, affectedDateTo: null };
     publishErpDomainChange({
       globalVersion: nextVersion,
-      domains: ERP_DOMAIN_NAMES,
+      domains: changedDomains,
       changeType: "erp_state_save",
       entityIds: salesHint.entityIds,
       affectedDateFrom: salesHint.affectedDateFrom,

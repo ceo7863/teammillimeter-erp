@@ -5447,6 +5447,10 @@ html[data-erp-csr-cal-drawer-open] .erp-client-calendars-page__body {
   border-left-color: #22c55e;
 }
 
+.erp-calendar-cell-entry.is-neutral {
+  border-left-color: #94a3b8;
+}
+
 .erp-calendar-cell-entry.is-partial-paid {
   border-left-color: #f59e0b;
 }
@@ -5912,6 +5916,10 @@ html[data-erp-csr-cal-drawer-open] .erp-client-calendars-page__body {
 
 .erp-calendar-side-card.is-paid {
   border-color: #bbf7d0;
+}
+
+.erp-calendar-side-card.is-neutral {
+  border-color: #e2e8f0;
 }
 
 .erp-calendar-side-card.is-unpaid:hover {

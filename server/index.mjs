@@ -248,6 +248,7 @@ import {
   reverseReceipt,
   summarizeReceipt,
 } from "./receipts.mjs";
+import { buildLegacyAppliedBySale } from "./legacyAppliedBySale.mjs";
 import {
   previewArAdjustment,
   createArAdjustment,
@@ -1787,6 +1788,7 @@ function buildErpApiResponse(state, workersOverride = null, workerMonthlyPayment
     paymentInputLogs: data.paymentInputLogs || [],
     receipts: data.receipts || [],
     receiptAllocations: data.receiptAllocations || [],
+    arAdjustments: data.arAdjustments || [],
     effectivePaymentVouchers: buildEffectivePaymentVouchers(data),
     clients: enrichClientsWithBusinessRegMeta(data.clients || []),
     workers: sanitizeWorkersForClient(enrichWorkersWithPhotoMeta(workers)),
@@ -4315,13 +4317,16 @@ app.post("/api/collection/cash-transfer/classify", authMiddleware, (req, res) =>
 app.post("/api/receipts/fifo-preview", authMiddleware, (req, res) => {
   const state = getErpState(["sales", "receipts", "clients"]);
   const clientKey = String(req.body?.clientId || req.body?.clientName || "").trim();
+  const receipts = listReceipts(state.data);
   const result = proposeFifoAllocations(
     state.data?.sales || [],
     clientKey,
     req.body?.grossAmount,
     listReceiptAllocations(state.data),
-    listReceipts(state.data),
+    receipts,
     state.data?.clients || [],
+    null,
+    { legacyAppliedBySale: buildLegacyAppliedBySale({ ...state.data, receipts }) },
   );
   res.json(result);
 });

@@ -183,8 +183,9 @@ export function assertErpDomainEventPrivacy(event) {
     "receipts",
     "paymentVouchers",
   ];
+  // Keys only: domain names such as "receipts" are legitimate values in `domains`.
   for (const key of forbidden) {
-    if (raw.includes(`"${key}"`)) {
+    if (raw.includes(`"${key}":`)) {
       const err = new Error(`ERP domain event contains forbidden key: ${key}`);
       err.code = "EVENT_PRIVACY_VIOLATION";
       throw err;

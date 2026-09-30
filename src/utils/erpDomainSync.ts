@@ -121,6 +121,40 @@ export function coalesceDomainEvents(events: ErpDomainChangeEvent[]): {
   };
 }
 
+/**
+ * Receipt / AR-adjustment ledgers are written only by dedicated server APIs (generic
+ * autosave seals them), so a refetch can never clobber a local draft and runs immediately.
+ */
+export const FINANCE_LEDGER_DOMAINS = ["receipts", "arAdjustments"] as const;
+
+/** Everything the calendar / 입금·미수 / 보고서 balance depends on. */
+export const FULL_FINANCE_REVALIDATION_DOMAINS = [
+  "sales",
+  "receipts",
+  "arAdjustments",
+  "bankTransactions",
+] as const;
+
+export function planFinanceRefetch(domains: string[]): { ledgers: boolean; bank: boolean } {
+  const set = new Set((domains || []).map(String));
+  return {
+    ledgers: FINANCE_LEDGER_DOMAINS.some((domain) => set.has(domain)),
+    bank: set.has("bankTransactions"),
+  };
+}
+
+/**
+ * The stream `erp.hello` carries the server version at (re)connect. Anything ahead of the
+ * client means events were missed while disconnected, so every finance domain is revalidated.
+ */
+export function needsFullFinanceRevalidation(opts: {
+  helloVersion: number | null | undefined;
+  knownVersion: number;
+}): boolean {
+  const hello = Number(opts.helloVersion) || 0;
+  return hello > 0 && hello > (Number(opts.knownVersion) || 0);
+}
+
 /** True when a payload is older than the client's known revision and must not be applied. */
 export function isStaleDomainResponse(opts: {
   responseVersion: number;
