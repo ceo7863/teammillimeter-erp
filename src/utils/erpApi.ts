@@ -177,6 +177,7 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
     (error as Error & { settings?: unknown }).settings = data.settings;
     (error as Error & { updatedAt?: string }).updatedAt =
       typeof data.updatedAt === "string" ? data.updatedAt : undefined;
+    (error as Error & { payload?: Record<string, unknown> }).payload = data;
     throw error;
   }
 
@@ -418,6 +419,34 @@ export async function saveErpData(payload: ErpPayload) {
     method: "PUT",
     body: JSON.stringify(payload),
   });
+}
+
+export type WorkerChargeRateSaveResult = {
+  ok: boolean;
+  changed: boolean;
+  worker: {
+    id: number | string;
+    customChargeCost: number | null;
+    customChargeCostUpdatedAt: string | null;
+    customChargeCostUpdatedBy: string | null;
+  };
+  auditEntry?: Record<string, unknown>;
+  version: number;
+};
+
+/** customChargeCost: number(0 포함) 또는 null(기본단가). expected는 편집 시작 시점 값 — 다르면 409. */
+export async function saveWorkerChargeRateApi(
+  workerId: number | string,
+  customChargeCost: number | null,
+  expectedCustomChargeCost: number | null,
+) {
+  return apiRequest<WorkerChargeRateSaveResult>(
+    `/erp/workers/${encodeURIComponent(String(workerId))}/custom-charge-cost`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ customChargeCost, expectedCustomChargeCost }),
+    },
+  );
 }
 
 export async function saveWorkerMonthlyPaymentMemoApi(

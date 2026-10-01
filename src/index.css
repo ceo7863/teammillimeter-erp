@@ -7819,6 +7819,131 @@ span.erp-worker-category-select.is-readonly {
   min-width: 6.5rem;
 }
 
+.erp-workers-rate-notice {
+  margin: 0.35rem 0 0;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.erp-worker-rate-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+  min-width: 9rem;
+}
+
+.erp-worker-rate-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  width: 100%;
+}
+
+.erp-worker-rate-row input {
+  max-width: 7.5rem;
+  text-align: right;
+}
+
+.erp-worker-rate-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  font-size: 0.6875rem;
+  line-height: 1.2;
+}
+
+.erp-worker-rate-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.05rem 0.4rem;
+  border-radius: 9999px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.erp-worker-rate-badge--default {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.erp-worker-rate-badge--zero {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.erp-worker-rate-badge--value {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.erp-worker-rate-status {
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.erp-worker-rate-status--ok {
+  color: #15803d;
+}
+
+.erp-worker-rate-status--error {
+  color: #b91c1c;
+  white-space: normal;
+  text-align: right;
+}
+
+.erp-worker-rate-default-btn {
+  border: 1px solid #cbd5e1;
+  border-radius: 0.375rem;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 0.6875rem;
+  padding: 0 0.45rem;
+  height: 1.6rem;
+}
+
+.erp-sale-worker-rate-stale {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem 0.75rem;
+  margin: 0.35rem 0;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid #fcd34d;
+  border-radius: 0.5rem;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.75rem;
+}
+
+.erp-sale-worker-rate-stale-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.erp-worker-rate-form-hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.6875rem;
+  line-height: 1.35;
+  color: #64748b;
+}
+
+@media (max-width: 640px) {
+  .erp-worker-rate-cell {
+    min-width: 7.5rem;
+  }
+
+  .erp-worker-rate-row input {
+    max-width: 6rem;
+  }
+}
+
 .erp-workers-cost-display {
   display: inline-flex;
   align-items: center;

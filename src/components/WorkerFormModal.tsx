@@ -17,6 +17,7 @@ import {
 } from "@/utils/workerAiRules";
 import { isWorkerInProbationPeriod } from "@/utils/workerProbationAutoAdjust";
 import { WORKER_CATEGORY_OPTIONS } from "@/utils/workerPayments";
+import { WORKER_RATE_SCOPE_NOTICE } from "@/utils/workerChargeRate";
 import { WorkerPhotoField } from "@/components/WorkerPhotoField";
 import { calculateWorkerPaymentVat } from "@/utils/workerMonthlyPayments";
 
@@ -322,7 +323,11 @@ export const WorkerFormModal = memo(function WorkerFormModal({
               value={form.customChargeCost}
               onChange={(e) => onUpdate("customChargeCost", e.target.value)}
               placeholder={L.customChargeCostPh}
+              data-worker-rate-form-input="true"
             />
+            <p className="erp-worker-rate-form-hint">
+              비워두면 기본단가, 0 입력 시 0원 개별단가로 저장됩니다. {WORKER_RATE_SCOPE_NOTICE}
+            </p>
           </AuditField>
           <AuditField label={L.overtimeCostLabel} entityType="worker" entityId={editingId} field="overtimeCost">
             <Input

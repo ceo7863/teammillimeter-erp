@@ -8,6 +8,7 @@ import {
 } from "./workerLineMetrics";
 import { formatKRW, monthStartISO, todayISO } from "./receivables";
 import { includesDepositName, parseDepositNameAliases } from "./clientDepositAliases";
+import { parseWorkerChargeCostDraft, readWorkerChargeCost } from "./workerChargeRate";
 
 export { formatKRW, monthStartISO, todayISO };
 
@@ -47,7 +48,10 @@ export type WorkerMasterLike = {
   /** @deprecated workerMonthlyPaymentMemos 맵으로 이전됨 — 로드 시 마이그레이션만 사용 */
   monthlyPaymentMemo?: string;
   constructionCost?: number;
-  customChargeCost?: number;
+  /** 개별청구단가: 0 = 명시적 0원, null/없음 = 기본단가(거래처 청구단가) */
+  customChargeCost?: number | null;
+  customChargeCostUpdatedAt?: string;
+  customChargeCostUpdatedBy?: string;
   /** 시공자 포털 로그인 ID (저장 시 서버에서만 비밀번호 해시 처리) */
   portalLoginId?: string;
   /** 저장 요청 시에만 전송 — 서버가 portalPasswordHash로 변환 */
@@ -123,7 +127,6 @@ const WORKER_MASTER_TEXT_FIELDS = [
 ] as const;
 
 const WORKER_MASTER_NUMERIC_FIELDS = [
-  "customChargeCost",
   "constructionCost",
   "probationNetPay",
   "postProbationConstructionCost",
@@ -138,42 +141,30 @@ function pickWorkerMasterNumeric(incoming?: number, local?: number) {
   return incomingNum || 0;
 }
 
-/** 개별청구단가: 0은 "미설정" — 서버·로컬 병합 시 빈 값이 기존 단가를 지우지 않도록 */
-export function pickWorkerCustomChargeCost(incoming?: number, local?: number) {
-  return pickWorkerMasterNumeric(incoming, local);
+const hasWorkerChargeCost = (row?: WorkerMasterLike | null) =>
+  row != null && Object.prototype.hasOwnProperty.call(row, "customChargeCost");
+
+/**
+ * 개별청구단가 병합 — truthiness가 아니라 property 존재 여부로 판단 (0은 명시적 0원).
+ * serverAuthoritative: incoming이 서버 행 — 서버 값(없으면 null)이 확정값.
+ */
+function resolveMergedWorkerChargeCost(
+  prev: WorkerMasterLike,
+  incoming: WorkerMasterLike,
+  serverAuthoritative: boolean,
+): number | null | undefined {
+  if (hasWorkerChargeCost(incoming)) return readWorkerChargeCost(incoming);
+  if (serverAuthoritative) return undefined;
+  return hasWorkerChargeCost(prev) ? readWorkerChargeCost(prev) : undefined;
 }
 
+/** 신규 시공자 폼: 빈 값은 개별단가 없음(기본단가), 0은 0원. 기존 시공자 단가는 전용 API로만 변경. */
 export function applyWorkerCustomChargeCostFromForm(worker: WorkerMasterLike, formValue: string) {
-  const trimmed = String(formValue ?? "").trim();
+  const draft = parseWorkerChargeCostDraft(formValue);
   const next: WorkerMasterLike = { ...worker };
-  if (!trimmed) {
-    delete next.customChargeCost;
-    return next;
-  }
-  const parsed = parseWorkerMoney(trimmed);
-  if (parsed > 0) {
-    next.customChargeCost = parsed;
-    return next;
-  }
-  delete next.customChargeCost;
+  if (draft.kind === "value") next.customChargeCost = draft.value;
+  else delete next.customChargeCost;
   return next;
-}
-
-export function applyWorkerCustomChargeCostFromInline(worker: WorkerMasterLike, rawValue: string) {
-  const trimmed = String(rawValue ?? "").trim();
-  const current = parseWorkerMoney(worker.customChargeCost);
-  if (!trimmed) {
-    return worker;
-  }
-  const parsed = parseWorkerMoney(trimmed);
-  if (parsed <= 0) {
-    if (worker.customChargeCost == null) return worker;
-    const next: WorkerMasterLike = { ...worker };
-    delete next.customChargeCost;
-    return next;
-  }
-  if (parsed === parseWorkerMoney(worker.customChargeCost)) return worker;
-  return { ...worker, customChargeCost: parsed };
 }
 
 function pickWorkerMasterText(serverValue?: string, localValue?: string) {
@@ -225,19 +216,17 @@ export function mergeWorkerMasterRecord(
   for (const key of WORKER_MASTER_NUMERIC_FIELDS) {
     const incomingVal = incoming[key as keyof WorkerMasterLike] as number | undefined;
     const prevVal = prev[key as keyof WorkerMasterLike] as number | undefined;
-    const value = preferLocal
-      ? key === "customChargeCost"
-        ? pickWorkerCustomChargeCost(incomingVal, prevVal)
-        : pickWorkerMasterNumeric(incomingVal, prevVal)
-      : key === "customChargeCost"
-        ? pickWorkerCustomChargeCost(incomingVal, prevVal)
-        : pickWorkerMasterNumeric(incomingVal, prevVal);
+    const value = pickWorkerMasterNumeric(incomingVal, prevVal);
     if (value > 0) {
       (merged as Record<string, number>)[key] = value;
     } else {
       delete (merged as Record<string, unknown>)[key];
     }
   }
+
+  const chargeCost = resolveMergedWorkerChargeCost(prev, incoming, preferLocal);
+  if (chargeCost === undefined) delete merged.customChargeCost;
+  else merged.customChargeCost = chargeCost;
 
   if (incoming.probationPayWithVat !== undefined) {
     merged.probationPayWithVat = incoming.probationPayWithVat;

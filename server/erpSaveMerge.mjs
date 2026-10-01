@@ -1,5 +1,6 @@
 import { dedupeBankTransactionsByFingerprint } from "./ibkBankImport.mjs";
 import { preserveMissingWorkersInList } from "../src/utils/workerPayments.ts";
+import { mergeAuditLogsForSave, resolveWorkerChargeCostForSave } from "./workerChargeRate.mjs";
 
 function parseClassifiedAtMs(value) {
   if (!value) return 0;
@@ -596,7 +597,11 @@ export function mergeWorkersForSave(existing = [], incoming = []) {
   const merged = (incoming || []).map((worker) => {
     const workerId = normalizeWorkerRecordId(worker?.id);
     const prev = workerId ? existingById.get(workerId) : undefined;
-    if (!prev) return worker;
+    if (!prev) {
+      const created = resolveWorkerChargeCostForSave(undefined, worker);
+      if (created.value === undefined) return worker;
+      return { ...worker, customChargeCost: created.value };
+    }
     const coalesce = (nextValue, prevValue) => {
       const nextText = String(nextValue ?? "").trim();
       if (nextText) return nextText;
@@ -609,7 +614,14 @@ export function mergeWorkersForSave(existing = [], incoming = []) {
       if (Number.isFinite(prevNum) && prevNum > 0) return prevNum;
       return undefined;
     };
-    const customChargeCost = coalesceMoney(worker.customChargeCost, prev.customChargeCost);
+    const chargeCost = resolveWorkerChargeCostForSave(prev, worker);
+    if (chargeCost.ignored) {
+      console.warn("[worker-rate] ignored generic overwrite of endpoint-managed rate", {
+        workerId,
+        stored: prev.customChargeCost ?? null,
+        incoming: worker.customChargeCost ?? null,
+      });
+    }
     const probationNetPay = coalesceMoney(worker.probationNetPay, prev.probationNetPay);
     const postProbationConstructionCost = coalesceMoney(
       worker.postProbationConstructionCost,
@@ -659,10 +671,14 @@ export function mergeWorkersForSave(existing = [], incoming = []) {
       delete merged.photoFileName;
       delete merged.photoUploadedAt;
     }
-    if (customChargeCost != null) {
-      merged.customChargeCost = customChargeCost;
-    } else {
+    if (chargeCost.value === undefined) {
       delete merged.customChargeCost;
+    } else {
+      merged.customChargeCost = chargeCost.value;
+    }
+    for (const key of ["customChargeCostUpdatedAt", "customChargeCostUpdatedBy"]) {
+      if (prev[key] != null) merged[key] = prev[key];
+      else delete merged[key];
     }
     if (probationNetPay != null) {
       merged.probationNetPay = probationNetPay;
@@ -908,6 +924,9 @@ export function mergeErpPaymentLinkState(existingData, incomingData, options = {
       Array.isArray(incomingData.clientContracts) ? incomingData.clientContracts : [],
     ),
     workers: mergeWorkersForSave(existingData.workers || [], incomingData.workers || []),
+    auditLogs: Array.isArray(incomingData.auditLogs)
+      ? mergeAuditLogsForSave(existingData.auditLogs || [], incomingData.auditLogs)
+      : existingData.auditLogs || [],
     workerMonthlyPaymentMemos: mergeWorkerMonthlyPaymentMemosForSave(
       existingData.workerMonthlyPaymentMemos || {},
       incomingData.workerMonthlyPaymentMemos || {},
