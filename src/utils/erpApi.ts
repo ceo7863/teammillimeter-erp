@@ -173,6 +173,7 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
       updatedAt?: string;
     }).status = response.status;
     (error as Error & { currentVersion?: number }).currentVersion = data.currentVersion as number | undefined;
+    (error as Error & { code?: string }).code = typeof data.code === "string" ? data.code : undefined;
     (error as Error & { settings?: unknown }).settings = data.settings;
     (error as Error & { updatedAt?: string }).updatedAt =
       typeof data.updatedAt === "string" ? data.updatedAt : undefined;

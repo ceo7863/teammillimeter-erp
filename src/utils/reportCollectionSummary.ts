@@ -17,6 +17,7 @@ import {
   legacyVoucherAmount,
   unifiedArMoney,
 } from "./unifiedArReadModel";
+import { computeSaleGrossReceivable, computeSaleTaxAmounts, TAX_TREATMENTS, type TaxTreatment } from "./saleTaxTreatment";
 
 type ReceiptLike = {
   id?: string | number;
@@ -65,6 +66,8 @@ type SaleLike = {
   client?: string;
   date?: string;
   amount?: number;
+  taxTreatment?: string | null;
+  arBilledAmount?: number;
   appliedAmount?: number;
   outstandingAmount?: number;
   paid?: number;
@@ -85,7 +88,14 @@ export type CollectionLedgerSummary = {
   periodAllocations: { total: number; byClientName: Record<string, number> };
   unappliedPrepaid: { total: number; byClientName: Record<string, number> };
   adjustments: { net: number; byClientName: Record<string, number> };
-  periodSales: { billed: number; applied: number; outstanding: number };
+  periodSales: {
+    billed: number;
+    applied: number;
+    outstanding: number;
+    supply: number;
+    vat: number;
+    byTaxTreatment: Record<TaxTreatment, { supply: number; vat: number; billed: number; outstanding: number; count: number }>;
+  };
   closingOutstanding: number;
 };
 
@@ -210,16 +220,32 @@ export function buildCollectionLedgerSummary(input: {
   let billed = 0;
   let applied = 0;
   let outstanding = 0;
+  let supply = 0;
+  let vat = 0;
+  const byTaxTreatment = Object.fromEntries(
+    TAX_TREATMENTS.map((treatment) => [treatment, { supply: 0, vat: 0, billed: 0, outstanding: 0, count: 0 }]),
+  ) as CollectionLedgerSummary["periodSales"]["byTaxTreatment"];
   for (const sale of input.sales || []) {
     if (!inRange(ymd(sale.date), start, end) && (start || end)) continue;
-    const saleBilled = unifiedArMoney(sale.amount);
+    const tax = computeSaleTaxAmounts(sale);
+    const saleBilled =
+      sale.arBilledAmount != null ? unifiedArMoney(sale.arBilledAmount) : computeSaleGrossReceivable(sale);
     const saleApplied = Math.min(unifiedArMoney(sale.appliedAmount ?? sale.paid), saleBilled);
-    billed += saleBilled;
-    applied += saleApplied;
-    outstanding += Math.max(
+    const saleOutstanding = Math.max(
       sale.outstandingAmount != null ? unifiedArMoney(sale.outstandingAmount) : saleBilled - saleApplied,
       0,
     );
+    billed += saleBilled;
+    applied += saleApplied;
+    outstanding += saleOutstanding;
+    supply += tax.supplyAmount;
+    vat += tax.vatAmount;
+    const bucket = byTaxTreatment[tax.taxTreatment];
+    bucket.supply += tax.supplyAmount;
+    bucket.vat += tax.vatAmount;
+    bucket.billed += saleBilled;
+    bucket.outstanding += saleOutstanding;
+    bucket.count += 1;
   }
 
   return {
@@ -235,7 +261,7 @@ export function buildCollectionLedgerSummary(input: {
     periodAllocations: { total: allocationTotal, byClientName: allocationsByClient },
     unappliedPrepaid: { total: prepaidTotal, byClientName: prepaidByClient },
     adjustments: { net: adjustmentNet, byClientName: adjustmentsByClient },
-    periodSales: { billed, applied, outstanding },
+    periodSales: { billed, applied, outstanding, supply, vat, byTaxTreatment },
     closingOutstanding: Math.max(outstanding + adjustmentNet, 0),
   };
 }

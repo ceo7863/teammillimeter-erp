@@ -19,9 +19,12 @@ import {
   isSaleAmountSaveable,
   saleRowToForm,
   validateSaleFormMasterRefs,
+  validateSaleFormTax,
   type SaleFormData,
 } from "@/utils/saleForm";
 import { COLLECTION_STATUS_VOCAB } from "@/utils/financeInformationArchitecture";
+import { getBilledAmount } from "@/utils/receivables";
+import { computeSaleTaxAmounts, TAX_TREATMENT_LABELS } from "@/utils/saleTaxTreatment";
 import { formatKRW } from "@/utils/workerPayments";
 import type { ReceiptAllocationRecord, ReceiptRecord } from "@/utils/receiptLedger";
 
@@ -66,6 +69,9 @@ export type SaleFormEditorInjectedProps = {
   headerAction?: React.ReactNode;
   footerStartExtra?: React.ReactNode;
   allowClientSiteUnlock?: boolean;
+  isAdmin?: boolean;
+  /** Tax treatment can no longer change directly (allocation exists); the server also checks sent statements. */
+  taxLocked?: boolean;
 };
 
 export type SaleDetailDrawerProps = {
@@ -74,7 +80,7 @@ export type SaleDetailDrawerProps = {
   setSales: React.Dispatch<React.SetStateAction<SaleRecord[]>>;
   clients: Array<{ name?: string }>;
   workers: Array<{ name?: string }>;
-  currentUser?: { name?: string; email?: string } | null;
+  currentUser?: { name?: string; email?: string; role?: string } | null;
   setPaymentVouchers?: React.Dispatch<React.SetStateAction<unknown[]>>;
   setBankTransactions?: React.Dispatch<React.SetStateAction<unknown[]>>;
   onPersistSaleUpdate?: (
@@ -137,7 +143,7 @@ function resolveCollectionLabel(sale: SaleRecord): string {
   if (status === "partial" || status === "partially_paid") return COLLECTION_STATUS_VOCAB.partial;
   if (status === "prepaid" || status === "overpaid") return COLLECTION_STATUS_VOCAB.prepaid;
   if (status === "needs_review") return COLLECTION_STATUS_VOCAB.needsReview;
-  const billed = Number(sale.amount) || 0;
+  const billed = getBilledAmount(sale);
   const outstanding =
     sale.outstandingAmount != null ? Number(sale.outstandingAmount) : Math.max(billed - (Number(sale.paid) || 0), 0);
   if (billed <= 0) return COLLECTION_STATUS_VOCAB.unpaid;
@@ -272,7 +278,8 @@ export const SaleDetailDrawer = memo(function SaleDetailDrawer({
   }, []);
 
   const collectionLabel = resolveCollectionLabel(sale);
-  const billed = Number(sale.amount) || 0;
+  const billed = getBilledAmount(sale);
+  const saleTax = computeSaleTaxAmounts(sale);
   const applied =
     sale.appliedAmount != null ? Number(sale.appliedAmount) : Number(sale.paid) || 0;
   const outstanding =
@@ -285,6 +292,15 @@ export const SaleDetailDrawer = memo(function SaleDetailDrawer({
       const masterRefError = validateSaleFormMasterRefs(form, clients, workers);
       if (masterRefError) {
         setSaveMessage(masterRefError);
+        setDraftHold(form);
+        return;
+      }
+      const taxError = validateSaleFormTax(form, sale as { taxTreatment?: string | null }, {
+        isAdmin: currentUser?.role === "admin",
+        locked: linkedReceiptRows.length > 0 || (Number(sale.appliedAmount) || 0) > 0,
+      });
+      if (taxError) {
+        setSaveMessage(taxError);
         setDraftHold(form);
         return;
       }
@@ -464,6 +480,8 @@ export const SaleDetailDrawer = memo(function SaleDetailDrawer({
               saveLabel={saving ? "저장 중…" : "전표 저장"}
               saveMessage={saveMessage}
               auditEntityId={sale.id}
+              isAdmin={currentUser?.role === "admin"}
+              taxLocked={linkedReceiptRows.length > 0 || (Number(sale.appliedAmount) || 0) > 0}
               headerAction={(
                 <div className="flex flex-wrap items-center gap-1">
                   {onOpenClientLedger && sale.client ? (
@@ -535,9 +553,13 @@ export const SaleDetailDrawer = memo(function SaleDetailDrawer({
                 <h3 className="text-sm font-bold text-slate-800">정리 내역 구분</h3>
                 <p className="mt-0.5 text-xs text-slate-500">실제 입금과 미수조정을 합쳐 표시하지 않습니다</p>
                 <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-                  <div className="rounded-lg bg-slate-50 p-2">
-                    <div className="text-slate-500">매출 원금</div>
+                  <div className="rounded-lg bg-slate-50 p-2" data-sale-tax-treatment={saleTax.taxTreatment}>
+                    <div className="text-slate-500">총채권</div>
                     <div className="font-bold text-slate-900">{formatKRW(billed)}</div>
+                    <div className="mt-0.5 text-[11px] text-slate-500">
+                      {TAX_TREATMENT_LABELS[saleTax.taxTreatment]} · 공급가액 {formatKRW(saleTax.supplyAmount)} · 부가세{" "}
+                      {formatKRW(saleTax.vatAmount)}
+                    </div>
                   </div>
                   <div className="rounded-lg bg-emerald-50/70 p-2">
                     <div className="text-slate-500">실제 입금(Receipt)</div>

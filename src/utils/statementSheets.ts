@@ -10,6 +10,7 @@ import { parseWorkerMoney } from "./workerLineMetrics";
 import { filterSalesByDate, type SaleLike } from "./workerPayments";
 
 import { LEGACY_COMPANY_BANK_ACCOUNT } from "./companyProfile";
+import { buildStatementTaxTotals, resolveSaleTaxTreatment, type TaxTreatment } from "./saleTaxTreatment";
 
 export const COMPANY_BANK_ACCOUNT = LEGACY_COMPANY_BANK_ACCOUNT;
 
@@ -33,6 +34,7 @@ export type ClientStatementRow = {
   mealCost?: number;
   expenseCost?: number;
   memo?: string;
+  taxTreatment?: TaxTreatment;
 };
 
 /** 현장 1행 + 아래 시공자(또는 시공자명 나열) 행 */
@@ -59,6 +61,7 @@ export type ClientStatementSaleLike = {
   site?: string;
   memo?: string;
   amount?: number;
+  taxTreatment?: string | null;
   workers?: ClientStatementWorkerLineLike[];
 };
 
@@ -95,6 +98,7 @@ function aggregateClientSale(sale: ClientStatementSaleLike): ClientStatementRow 
     mealCost: billing.mealCost,
     expenseCost: billing.expenseCost,
     memo: formatStatementMemo(sale.memo || ""),
+    taxTreatment: resolveSaleTaxTreatment(sale),
   };
 }
 
@@ -341,6 +345,11 @@ export type ClientStatementSummary = {
   subtotal: number;
   vatAmount: number;
   grandTotal: number;
+  taxableSupply: number;
+  exemptSupply: number;
+  zeroRatedSupply: number;
+  outOfScopeSupply: number;
+  legacySupply: number;
 };
 
 export function buildClientStatementSummary(
@@ -370,13 +379,21 @@ export function buildClientStatementSummary(
   );
 
   const subtotal = totals.totalConstructionCost;
-  const vatAmount = clientInfo?.vat === "Y" ? Math.round(subtotal * 0.1) : 0;
+  const tax = buildStatementTaxTotals(
+    rows.map((row) => ({ supplyAmount: row.totalConstructionCost || 0, taxTreatment: row.taxTreatment })),
+    { legacyClientVat: clientInfo?.vat },
+  );
 
   return {
     ...totals,
     subtotal,
-    vatAmount,
-    grandTotal: subtotal + vatAmount,
+    vatAmount: tax.vatAmount,
+    grandTotal: subtotal + tax.vatAmount,
+    taxableSupply: tax.taxableSupply,
+    exemptSupply: tax.exemptSupply,
+    zeroRatedSupply: tax.zeroRatedSupply,
+    outOfScopeSupply: tax.outOfScopeSupply,
+    legacySupply: tax.legacySupply,
   };
 }
 

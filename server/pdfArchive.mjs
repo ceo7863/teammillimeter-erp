@@ -3,6 +3,7 @@ import path from "path";
 import crypto from "crypto";
 import { config } from "./config.mjs";
 import { getDb, getErpState, runInTransaction } from "./db.mjs";
+import { computeSaleTaxAmounts } from "../src/utils/saleTaxTreatment.ts";
 
 function parseStatementSalesIds(raw) {
   if (!raw) return undefined;
@@ -54,7 +55,14 @@ export function buildStatementSalesSnapshot(statementSalesIds, sales = []) {
     if (!saleId || seen.has(saleId)) continue;
     seen.add(saleId);
     const sale = salesById.get(saleId);
-    rows.push({ saleId, billedAmount: Math.round(Number(sale?.amount) || 0) });
+    const tax = computeSaleTaxAmounts(sale);
+    rows.push({
+      saleId,
+      billedAmount: tax.grossReceivableAmount,
+      supplyAmount: tax.supplyAmount,
+      vatAmount: tax.vatAmount,
+      taxTreatment: tax.taxTreatment,
+    });
   }
   return rows.length ? rows : null;
 }

@@ -22,6 +22,21 @@ import {
   resolveWorkerListName,
 } from "@/utils/workerPayments";
 import { stripCalwalkProvenance, type CalwalkLineProvenance } from "@/utils/calwalkLineProvenance";
+import {
+  checkTaxTreatmentChange,
+  computeSaleTaxAmounts,
+  DEFAULT_NEW_SALE_TAX_TREATMENT,
+  isTaxTreatment,
+  resolveSaleTaxTreatment,
+  TAX_EVIDENCE_STATUSES,
+  TAX_TREATMENTS_REQUIRING_REASON,
+  type TaxEvidenceStatus,
+  type TaxTreatment,
+} from "@/utils/saleTaxTreatment";
+
+function isTaxEvidenceStatus(value: unknown): value is TaxEvidenceStatus {
+  return typeof value === "string" && (TAX_EVIDENCE_STATUSES as readonly string[]).includes(value);
+}
 
 let workerLineKeyCounter = 0;
 
@@ -58,6 +73,10 @@ export type SaleFormData = {
   createdBy?: string;
   createdByEmail?: string;
   createdAt?: string;
+  /** Sale tax treatment; LEGACY_UNSPECIFIED only for rows stored before the field existed. */
+  taxTreatment?: TaxTreatment;
+  taxReason?: string;
+  taxEvidenceStatus?: TaxEvidenceStatus;
 };
 
 export const emptySaleForm = (): SaleFormData => ({
@@ -68,6 +87,8 @@ export const emptySaleForm = (): SaleFormData => ({
   memo: "",
   officeMemo: "",
   workers: Array.from({ length: 5 }, (_, index) => createWorkerLine(index)),
+  taxTreatment: DEFAULT_NEW_SALE_TAX_TREATMENT,
+  taxReason: "",
 });
 
 export const compactSaleForm = (): SaleFormData => ({
@@ -205,6 +226,11 @@ export function saleRowToForm(row: Record<string, unknown>, minWorkerRows = 8): 
     memo: String(row.memo || ""),
     officeMemo: String(row.officeMemo || ""),
     workers: workerLines,
+    taxTreatment: resolveSaleTaxTreatment(row as { taxTreatment?: string | null }),
+    taxReason: String((row as { taxReason?: string }).taxReason || ""),
+    ...(isTaxEvidenceStatus((row as { taxEvidenceStatus?: unknown }).taxEvidenceStatus)
+      ? { taxEvidenceStatus: (row as { taxEvidenceStatus: TaxEvidenceStatus }).taxEvidenceStatus }
+      : {}),
   };
 }
 
@@ -416,10 +442,46 @@ export function buildSaleFromForm(
     basePaid: Math.min(parseMoney(form.paid), amount),
     memo: String(form.memo ?? "").trim(),
     officeMemo: String(form.officeMemo ?? "").trim(),
+    ...buildSaleTaxFieldsFromForm(form, amount),
     createdBy: currentUser?.name || form.createdBy || "-",
     createdByEmail: currentUser?.email || form.createdByEmail || "",
     createdAt: form.createdAt || now,
     updatedAt: now,
+  };
+}
+
+/** Same rule the server enforces; returns a user message or null. */
+export function validateSaleFormTax(
+  form: SaleFormData,
+  previousSale: { taxTreatment?: string | null } | null,
+  options: { isAdmin?: boolean; locked?: boolean } = {},
+) {
+  if (!form.taxTreatment || (!previousSale && form.taxTreatment === "LEGACY_UNSPECIFIED")) return null;
+  if (previousSale && form.taxTreatment === "LEGACY_UNSPECIFIED") return null;
+  const check = checkTaxTreatmentChange({
+    previous: previousSale,
+    next: { taxTreatment: form.taxTreatment, taxReason: form.taxReason },
+    isAdmin: Boolean(options.isAdmin),
+    hasEffectiveAllocation: Boolean(options.locked),
+    inSentStatement: false,
+  });
+  return "message" in check ? check.message : null;
+}
+
+/** Legacy (unclassified) sales stay unclassified unless a treatment is chosen; channel never decides it. */
+function buildSaleTaxFieldsFromForm(form: SaleFormData, amount: number) {
+  const treatment = isTaxTreatment(form.taxTreatment) ? form.taxTreatment : undefined;
+  if (!treatment || treatment === "LEGACY_UNSPECIFIED") return {};
+  const tax = computeSaleTaxAmounts({ amount, taxTreatment: treatment });
+  const reason = String(form.taxReason ?? "").trim();
+  return {
+    taxTreatment: treatment,
+    taxRate: tax.taxRate,
+    supplyAmount: tax.supplyAmount,
+    vatAmount: tax.vatAmount,
+    grossReceivableAmount: tax.grossReceivableAmount,
+    taxEvidenceStatus: form.taxEvidenceStatus || ("REVIEW_REQUIRED" as TaxEvidenceStatus),
+    ...(TAX_TREATMENTS_REQUIRING_REASON.has(treatment) && reason ? { taxReason: reason } : {}),
   };
 }
 

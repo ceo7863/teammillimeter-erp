@@ -10,6 +10,7 @@ import {
 } from "./clientDepositAliases";
 import type { ReceivableRow } from "./receivables";
 import { getUnpaid } from "./receivables";
+import { resolveSaleTaxTreatment } from "./saleTaxTreatment";
 import { resolveCanonicalSaleCollection, type CalendarCollectionTone } from "./calendarFinanceStatus";
 
 export type BankDepositMatchCandidate = {
@@ -89,10 +90,15 @@ function daysBetween(fromDate: string, toDate: string) {
   return Math.round((to - from) / (1000 * 60 * 60 * 24));
 }
 
-function resolvePaymentAmount(deposit: number, unpaid: number) {
+/** Only legacy receivables (stored supply, no tax treatment) may match a VAT-uplifted deposit; explicit ones are already gross. */
+function allowsVatUplift(row: { taxTreatment?: string | null }) {
+  return resolveSaleTaxTreatment(row) === "LEGACY_UNSPECIFIED";
+}
+
+function resolvePaymentAmount(deposit: number, unpaid: number, vatUplift = true) {
   if (unpaid <= 0) return null;
 
-  const withVat = unpaid + Math.round(unpaid * 0.1);
+  const withVat = vatUplift ? unpaid + Math.round(unpaid * 0.1) : unpaid;
   if (deposit === unpaid) {
     return {
       score: 45,
@@ -123,7 +129,7 @@ function resolvePaymentAmount(deposit: number, unpaid: number) {
       finalAmount: deposit,
     };
   }
-  if (deposit > unpaid && deposit <= withVat + Math.max(1000, Math.round(unpaid * 0.02))) {
+  if (vatUplift && deposit > unpaid && deposit <= withVat + Math.max(1000, Math.round(unpaid * 0.02))) {
     const vatAmount = deposit - unpaid;
     return {
       score: 28,
@@ -165,7 +171,7 @@ export function buildBankDepositMatchCandidates(
     if (linkedSalesIds.has(String(row.id))) continue;
     if (txDate && row.date && txDate < row.date) continue;
 
-    const amountMatch = resolvePaymentAmount(deposit, unpaid);
+    const amountMatch = resolvePaymentAmount(deposit, unpaid, allowsVatUplift(row));
     if (!amountMatch) continue;
 
     let score = amountMatch.score;
@@ -280,8 +286,8 @@ export function resolveDepositLinkAllocation(poolAmount: number, unpaid: number)
   );
 }
 
-function resolveManualLinkPaymentDraft(deposit: number, unpaid: number) {
-  const withVat = unpaid + Math.round(unpaid * 0.1);
+function resolveManualLinkPaymentDraft(deposit: number, unpaid: number, vatUplift = true) {
+  const withVat = vatUplift ? unpaid + Math.round(unpaid * 0.1) : unpaid;
   if (deposit === unpaid) {
     return {
       paymentAmount: unpaid,
@@ -306,6 +312,14 @@ function resolveManualLinkPaymentDraft(deposit: number, unpaid: number) {
       finalAmount: deposit,
     };
   }
+  if (!vatUplift) {
+    return {
+      paymentAmount: unpaid,
+      vatType: "excluded" as const,
+      vatAmount: 0,
+      finalAmount: unpaid,
+    };
+  }
   const vatAmount = Math.max(0, deposit - unpaid);
   return {
     paymentAmount: unpaid,
@@ -315,9 +329,8 @@ function resolveManualLinkPaymentDraft(deposit: number, unpaid: number) {
   };
 }
 
-function scoreAmountProximity(deposit: number, unpaid: number) {
-  const withVat = unpaid + Math.round(unpaid * 0.1);
-  const targets = [unpaid, withVat];
+function scoreAmountProximity(deposit: number, unpaid: number, vatUplift = true) {
+  const targets = vatUplift ? [unpaid, unpaid + Math.round(unpaid * 0.1)] : [unpaid];
   let best = { score: 2, reason: "\uAE08\uC561 \uBD88\uC77C\uCE58" };
 
   for (const target of targets) {
@@ -382,12 +395,13 @@ export function buildBankDepositManualLinkCandidates(
     let score = nameMatch.scoreBonus;
     const reasons = [nameMatch.reason];
 
-    const exactAmountMatch = resolvePaymentAmount(deposit, unpaid);
+    const vatUplift = allowsVatUplift(row);
+    const exactAmountMatch = resolvePaymentAmount(deposit, unpaid, vatUplift);
     if (exactAmountMatch) {
       score += exactAmountMatch.score;
       reasons.push(exactAmountMatch.reason);
     } else {
-      const proximity = scoreAmountProximity(deposit, unpaid);
+      const proximity = scoreAmountProximity(deposit, unpaid, vatUplift);
       score += proximity.score;
       reasons.push(proximity.reason);
     }
@@ -412,7 +426,7 @@ export function buildBankDepositManualLinkCandidates(
           vatAmount: exactAmountMatch.vatAmount,
           finalAmount: exactAmountMatch.finalAmount,
         }
-      : resolveManualLinkPaymentDraft(deposit, unpaid);
+      : resolveManualLinkPaymentDraft(deposit, unpaid, vatUplift);
 
     candidates.push({
       salesId: row.id,

@@ -9,6 +9,7 @@ import {
   todaySeoul,
 } from "./receipts.mjs";
 import { summarizePeriodAdjustments } from "./arAdjustments.mjs";
+import { computeSaleGrossReceivable, computeSaleTaxAmounts } from "../src/utils/saleTaxTreatment.ts";
 
 function resolveClient(clients, clientId) {
   const id = String(clientId || "").trim();
@@ -26,7 +27,7 @@ function billedAsOf(sales, asOf) {
   return (sales || []).reduce((sum, sale) => {
     const saleDate = String(sale.date || "").slice(0, 10);
     if (!saleDate || saleDate > asOf) return sum;
-    return sum + receiptMoney(sale.amount);
+    return sum + computeSaleGrossReceivable(sale);
   }, 0);
 }
 
@@ -170,7 +171,8 @@ export function buildClientArSubledger(data, { clientId, startDate, endDate } = 
       return true;
     })
     .map((sale) => {
-      const billed = receiptMoney(sale.amount);
+      const tax = computeSaleTaxAmounts(sale);
+      const billed = tax.grossReceivableAmount;
       let allocatedToEnd = 0;
       for (const allocation of allocations) {
         if (String(allocation.saleId) !== String(sale.id)) continue;
@@ -182,6 +184,9 @@ export function buildClientArSubledger(data, { clientId, startDate, endDate } = 
         date: sale.date,
         site: sale.site || sale.memo || "",
         billedAmount: billed,
+        supplyAmount: tax.supplyAmount,
+        vatAmount: tax.vatAmount,
+        taxTreatment: tax.taxTreatment,
         allocatedAmount: allocatedToEnd,
         balance: Math.max(billed - allocatedToEnd, 0),
         voucherNo: sale.voucherNo || sale.id,
@@ -226,7 +231,8 @@ export function buildClientArSubledger(data, { clientId, startDate, endDate } = 
     sales: saleRows,
     receipts: enrichedReceipts,
     policyNotes: {
-      billedAmountSource: "sale.amount (unchanged; no VAT transform)",
+      billedAmountSource:
+        "gross receivable = sale.amount (supply) + VAT by sale.taxTreatment; LEGACY_UNSPECIFIED bills supply only",
       receiptVat: "forbidden — allocations use billed remaining only",
       asOf:
         "opening/closing AR use allocations effective on as-of dates; later reverse/reallocate does not rewrite history",

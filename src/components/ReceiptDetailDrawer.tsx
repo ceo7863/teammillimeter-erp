@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { formatKRW } from "@/utils/receivables";
 import type { ReceiptAllocationRecord, ReceiptRecord } from "@/utils/receiptLedger";
 import { summarizeReceiptAmounts } from "@/utils/receiptListReadModel";
+import { buildReceiptAllocationDetailRows } from "@/utils/receiptAllocationDetail";
+import { TAX_TREATMENT_LABELS, TAX_UX_TEXT } from "@/utils/saleTaxTreatment";
 
 const CHANNEL_LABEL: Record<string, string> = {
   bank: "법인통장",
@@ -32,6 +34,10 @@ export type ReceiptDetailDrawerProps = {
     voucherNo?: string;
     site?: string;
     client?: string;
+    amount?: number;
+    taxTreatment?: string | null;
+    arBilledAmount?: number;
+    outstandingAmount?: number;
   }>;
   onOpenSale?: (saleId: string | number) => void;
   onOpenClientLedger?: (clientId: string | number, clientName?: string) => void;
@@ -81,6 +87,11 @@ export function ReceiptDetailDrawer({
     [receipt, receiptAllocations],
   );
 
+  const detailRows = useMemo(
+    () => buildReceiptAllocationDetailRows(receiptAllocations, sales),
+    [receiptAllocations, sales],
+  );
+
   if (!open || !receipt || !amounts) return null;
 
   const identityOk = amounts.grossAmount === amounts.allocatedAmount + amounts.unallocatedAmount;
@@ -94,7 +105,7 @@ export function ReceiptDetailDrawer({
       }}
     >
       <div
-        className="erp-ledger-modal max-w-3xl"
+        className="erp-ledger-modal erp-ledger-modal--receipt-detail"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -178,39 +189,47 @@ export function ReceiptDetailDrawer({
 
         <div className="mt-4">
           <h3 className="mb-2 text-sm font-bold text-slate-800">배정 내역</h3>
+          <p className="mb-2 text-xs text-slate-500">입금액은 총액으로만 충당합니다. {TAX_UX_TEXT.channelIsolation}</p>
           <div className="erp-table-wrap max-h-72 overflow-auto rounded-lg border border-slate-200">
             <table className="erp-table erp-table--lg">
               <thead className="bg-slate-100 text-slate-600">
                 <tr>
                   <th className="text-left">매출일</th>
-                  <th className="text-left">전표번호</th>
                   <th className="text-left">현장</th>
-                  <th className="text-left">saleId</th>
-                  <th className="text-right">배정액</th>
-                  <th className="text-left">상태</th>
+                  <th className="text-left">과세유형</th>
+                  <th className="text-right">공급가액</th>
+                  <th className="text-right">부가세</th>
+                  <th className="text-right">총채권</th>
+                  <th className="text-right">기존 충당</th>
+                  <th className="text-right">이번 충당</th>
+                  <th className="text-right">남은 미수</th>
                 </tr>
               </thead>
               <tbody>
-                {receiptAllocations.map((row) => {
-                  const sale = saleById.get(String(row.saleId));
-                  return (
-                    <tr
-                      key={row.id}
-                      className={`border-t ${onOpenSale ? "cursor-pointer hover:bg-slate-50" : ""}`}
-                      onClick={() => onOpenSale?.(row.saleId)}
-                    >
-                      <td>{sale?.date || "-"}</td>
-                      <td className="font-medium">{sale?.voucherNo || "-"}</td>
-                      <td>{row.site || sale?.site || "-"}</td>
-                      <td className="text-slate-500">{String(row.saleId)}</td>
-                      <td className="text-right font-semibold text-emerald-700">{formatKRW(row.amount)}</td>
-                      <td>{row.status}</td>
-                    </tr>
-                  );
-                })}
+                {detailRows.map((row) => (
+                  <tr
+                    key={row.allocationId}
+                    data-receipt-detail-row={row.saleId}
+                    data-tax-treatment={row.taxTreatment}
+                    className={`border-t ${onOpenSale ? "cursor-pointer hover:bg-slate-50" : ""}`}
+                    onClick={() => onOpenSale?.(row.saleId)}
+                  >
+                    <td>{row.saleDate || "-"}</td>
+                    <td title={row.voucherNo ? `${row.voucherNo} · ${row.saleId}` : row.saleId}>{row.site || "-"}</td>
+                    <td>{TAX_TREATMENT_LABELS[row.taxTreatment]}</td>
+                    <td className="text-right">{formatKRW(row.supplyAmount)}</td>
+                    <td className="text-right">{formatKRW(row.vatAmount)}</td>
+                    <td className="text-right font-medium">{formatKRW(row.grossReceivableAmount)}</td>
+                    <td className="text-right text-slate-600">{formatKRW(row.priorAppliedAmount)}</td>
+                    <td className="text-right font-semibold text-emerald-700">{formatKRW(row.thisAllocationAmount)}</td>
+                    <td className={`text-right font-semibold ${row.remainingAmount > 0 ? "text-red-600" : "text-slate-400"}`}>
+                      {formatKRW(row.remainingAmount)}
+                    </td>
+                  </tr>
+                ))}
                 {receiptAllocations.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="p-6 text-center text-slate-500">
+                    <td colSpan={9} className="p-6 text-center text-slate-500">
                       배정된 매출이 없습니다. (미충당/선수금)
                     </td>
                   </tr>

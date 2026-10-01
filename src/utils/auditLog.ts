@@ -38,6 +38,8 @@ export const SALE_AUDIT_FIELDS: AuditFieldDef[] = [
   { key: "memo", label: "공통비고" },
   { key: "officeMemo", label: "사무실메모" },
   { key: "amount", label: "총시공비", format: (v) => formatAuditMoney(v) },
+  { key: "taxTreatment", label: "과세유형" },
+  { key: "taxReason", label: "면세·영세율 근거" },
   { key: "workersSummary", label: "시공자 내역" },
 ];
 

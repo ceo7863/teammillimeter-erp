@@ -24,6 +24,7 @@ import {
   summarizeReceiptAsOf,
   todaySeoul,
 } from "./receipts.mjs";
+import { computeSaleGrossReceivable } from "../src/utils/saleTaxTreatment.ts";
 
 const CHANNEL_TO_TYPE = Object.freeze({
   bank: "RECEIPT_BANK",
@@ -156,7 +157,7 @@ function buildSaleEntries(sales) {
     if (sale?.status === "cancelled" || sale?.cancelled === true) continue;
     const date = ymd(sale.date);
     if (!date) continue;
-    const billed = money(sale.amount);
+    const billed = computeSaleGrossReceivable(sale);
     if (billed === 0 && !sale.amount) continue;
     rows.push({
       id: `sale:${sale.id}`,
@@ -323,7 +324,7 @@ function snapshotInvoiceAndPrepaid(sales, receipts, allocations, clientId, asOf)
     if (sale?.status === "cancelled" || sale?.cancelled === true) continue;
     const d = ymd(sale.date);
     if (!d || d > asOf) continue;
-    billed += money(sale.amount);
+    billed += computeSaleGrossReceivable(sale);
   }
   let allocated = 0;
   for (const allocation of allocations || []) {
