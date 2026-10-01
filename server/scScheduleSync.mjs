@@ -348,21 +348,46 @@ function normalizeCalwalkProjects(projects) {
     .filter((row) => row.id && row.name);
 }
 
-function normalizeCalwalkParticipant(row) {
+/** null/"" → null (no value); explicit 0 stays 0; invalid or negative → null. */
+export function parseCalwalkMoney(value) {
+  if (value == null) return null;
+  const text = String(value).replace(/[,\s\u20A9\uC6D0]/g, "");
+  if (!text) return null;
+  const amount = Number(text);
+  return Number.isFinite(amount) && amount >= 0 ? amount : null;
+}
+
+function pickCalwalkMemberId(row) {
+  for (const key of ["memberId", "userId", "participantId", "calwalkMemberId"]) {
+    const value = String(row?.[key] ?? "").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+function pickCalwalkExpenseItemIds(row) {
+  if (!Array.isArray(row?.expenses)) return [];
+  return row.expenses
+    .map((item) => String(item?.id ?? "").trim())
+    .filter(Boolean)
+    .sort();
+}
+
+export function normalizeCalwalkParticipant(row) {
   const participantName = String(row?.participantName || row?.name || "").trim();
   if (!participantName) return null;
-  const mealRaw = row?.meal;
-  const expenseRaw = row?.expense;
-  const meal =
-    mealRaw == null || mealRaw === "" ? null : Math.max(0, Number(mealRaw) || 0);
-  const expense =
-    expenseRaw == null || expenseRaw === "" ? null : Math.max(0, Number(expenseRaw) || 0);
+  const meal = parseCalwalkMoney(row?.meal);
+  const expense = parseCalwalkMoney(row?.expense);
+  const memberId = pickCalwalkMemberId(row);
+  const expenseItemIds = pickCalwalkExpenseItemIds(row);
   const workLog = normalizeWorkLogFromScheduleRow({ workLog: row?.workLog });
   return {
     participantName,
     name: String(row?.name || participantName).trim(),
-    ...(meal != null && meal > 0 ? { meal } : {}),
-    ...(expense != null && expense > 0 ? { expense } : {}),
+    ...(memberId ? { memberId } : {}),
+    ...(meal != null ? { meal } : {}),
+    ...(expense != null ? { expense } : {}),
+    ...(expenseItemIds.length ? { expenseItemIds } : {}),
     ...(workLog ? { workLog } : {}),
   };
 }
@@ -379,8 +404,10 @@ function normalizeCalwalkSchedules(schedules) {
         ? row.participantNames.map((name) => String(name || "").trim()).filter(Boolean)
         : participants.map((entry) => entry.participantName);
       const workLog = normalizeWorkLogFromScheduleRow(row);
+      const sourceUpdatedAt = String(row.updatedAt || row.sourceUpdatedAt || "").trim();
       return {
         id,
+        ...(sourceUpdatedAt ? { sourceUpdatedAt } : {}),
         scProjectId: String(row.calwalkClientId || "").trim(),
         projectName: String(row.projectName || row.clientName || row.workType || "").trim(),
         siteManagerName: String(row.siteManagerName || "").trim(),
@@ -846,6 +873,7 @@ function attachClientToSchedules(schedules, clients) {
     const workLog = normalizeWorkLogFromScheduleRow(row);
     const base = {
       id: row.id,
+      ...(row.sourceUpdatedAt ? { sourceUpdatedAt: row.sourceUpdatedAt } : {}),
       scProjectId: row.scProjectId,
       siteManagerName: String(row.siteManagerName || "").trim(),
       projectName: row.projectName,

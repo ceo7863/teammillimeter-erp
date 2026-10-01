@@ -75,9 +75,11 @@ export function resolveScScheduleParticipants(workers, participantNames = []) {
 }
 
 function parseParticipantMoney(value) {
-  if (value == null || value === "") return null;
-  const amount = Number(String(value).replace(/[^\d.-]/g, ""));
-  return Number.isFinite(amount) && amount > 0 ? amount : null;
+  if (value == null) return null;
+  const text = String(value).replace(/[,\s\u20A9\uC6D0]/g, "");
+  if (!text) return null;
+  const amount = Number(text);
+  return Number.isFinite(amount) && amount >= 0 ? amount : null;
 }
 
 function extractParticipantExtras(participant) {
@@ -99,19 +101,24 @@ export function resolveScScheduleParticipantDetails(workers, row = {}) {
   const stored = Array.isArray(row.participants) ? row.participants : [];
   if (!stored.length) return resolved;
 
-  return stored.map((participant, index) => {
+  return stored.map((participant) => {
     const key = String(participant?.participantName || participant?.name || "").trim();
-    const fallback =
-      resolved.find((rowItem) => rowItem.participantName === key || rowItem.name === key) ||
-      resolved[index];
+    const fallback = key
+      ? resolved.find((rowItem) => rowItem.participantName === key || rowItem.name === key)
+      : undefined;
     const extras = extractParticipantExtras(participant);
+    const memberId = String(participant?.memberId || "").trim();
     return {
       participantName: key || fallback?.participantName || "",
       name: String(participant?.name || fallback?.name || key).trim(),
       phone: String(participant?.phone || fallback?.phone || "").trim(),
       vehicleNo: String(participant?.vehicleNo || fallback?.vehicleNo || "").trim(),
+      ...(memberId ? { memberId } : {}),
       ...(extras.meal != null ? { meal: extras.meal } : {}),
       ...(extras.expense != null ? { expense: extras.expense } : {}),
+      ...(Array.isArray(participant?.expenseItemIds) && participant.expenseItemIds.length
+        ? { expenseItemIds: participant.expenseItemIds }
+        : {}),
       ...(participant?.workLog ? { workLog: participant.workLog } : {}),
     };
   });

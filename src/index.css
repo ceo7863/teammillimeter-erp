@@ -3042,6 +3042,76 @@ html[data-erp-csr-cal-drawer-open] .erp-client-calendars-page__body {
   white-space: nowrap;
 }
 
+.erp-calendar-sc-import-extras {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-top: 0.4rem;
+  font-size: 0.75rem;
+  color: #475569;
+}
+
+.erp-calendar-sc-import-extras-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.erp-calendar-sc-import-extras-name {
+  min-width: 3.5rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.erp-calendar-sc-import-extras-hint {
+  color: #94a3b8;
+}
+
+.erp-calendar-sc-import-extras-warn {
+  color: #b45309;
+}
+
+.erp-calendar-sc-import-diff {
+  margin: 0.35rem 0 0.6rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.5rem;
+  background: #f8fafc;
+  font-size: 0.75rem;
+  color: #334155;
+  overflow-x: auto;
+}
+
+.erp-calendar-sc-import-diff-title {
+  margin: 0 0 0.3rem;
+  font-weight: 600;
+}
+
+.erp-calendar-sc-import-diff-none {
+  margin: 0;
+  color: #64748b;
+}
+
+.erp-calendar-sc-import-diff-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.erp-calendar-sc-import-diff-table th,
+.erp-calendar-sc-import-diff-table td {
+  padding: 0.15rem 0.35rem;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.erp-calendar-sc-import-diff-table tr.is-conflict td,
+.erp-calendar-sc-import-diff-table tr.is-source_unclear td {
+  color: #b45309;
+}
+
+.erp-calendar-sc-import-diff-table tr.is-remove td {
+  color: #be123c;
+}
+
 .erp-csr-cal-drawer-card.is-sc-schedule {
   flex-direction: column;
   gap: 0;
