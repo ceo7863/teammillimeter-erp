@@ -1,6 +1,8 @@
 /**
  * Calendar finance status badges — collection and payout are independent.
  */
+import { computeSaleGrossReceivable } from "./saleTaxTreatment";
+
 export type CollectionFinanceStatus = "paid" | "partial" | "unpaid" | "prepaid" | "void";
 export type PayoutFinanceStatus = "settled" | "partial" | "unpaid" | "advance" | "review";
 
@@ -90,6 +92,7 @@ export type CanonicalSaleCollection = {
 
 type CanonicalSaleLike = {
   amount?: number;
+  taxTreatment?: string | null;
   salesAmount?: number;
   arBilledAmount?: number;
   appliedAmount?: number;
@@ -115,7 +118,10 @@ function finiteOrNull(value: unknown): number | null {
 export function resolveCanonicalSaleCollection(sale: CanonicalSaleLike): CanonicalSaleCollection {
   const billed = Math.max(
     0,
-    finiteOrNull(sale.arBilledAmount) ?? finiteOrNull(sale.amount) ?? finiteOrNull(sale.salesAmount) ?? 0,
+    finiteOrNull(sale.arBilledAmount) ??
+      (finiteOrNull(sale.amount) != null ? computeSaleGrossReceivable(sale) : null) ??
+      finiteOrNull(sale.salesAmount) ??
+      0,
   );
   const cancelled = sale.cancelled === true || sale.arPaymentStatus === "cancelled";
   // Rows outside the unified overlay (offline demo data) fall back to the capped paid field.

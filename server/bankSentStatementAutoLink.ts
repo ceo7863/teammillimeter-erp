@@ -20,6 +20,7 @@ import {
 import { config } from "./config.mjs";
 import { planCreateAndPostReceipt, proposeFifoAllocations, saleAllocatedAsOf } from "./receipts.mjs";
 import { buildLegacyAppliedBySale, legacyAppliedForSale } from "./legacyAppliedBySale.mjs";
+import { computeSaleGrossReceivable } from "../src/utils/saleTaxTreatment.ts";
 import { buildEffectivePaymentVouchers } from "./receiptProjection.mjs";
 import {
   bankReceiptCutoverYmd,
@@ -452,7 +453,7 @@ export async function applySentStatementAutoLinksToErpData(
         for (const sale of workingSales) {
           const saleId = String(sale?.id ?? "");
           if (!statementSaleIds.has(saleId)) continue;
-          const saleBilled = Math.round(Number(sale?.amount) || 0);
+          const saleBilled = computeSaleGrossReceivable(sale);
           billed += saleBilled;
           applied += Math.min(
             saleBilled,

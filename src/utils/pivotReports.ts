@@ -4,6 +4,7 @@ import {
   type WorkerLineLike,
 } from "./workerLineMetrics";
 import { getSaleTotalBill } from "./saleBilling";
+import { computeSaleGrossReceivable } from "./saleTaxTreatment";
 
 export type PivotRow = {
   key: string;
@@ -112,6 +113,8 @@ type SaleRecord = {
   id?: number;
   client?: string;
   amount?: number;
+  taxTreatment?: string | null;
+  arBilledAmount?: number;
   paid?: number;
   outstandingAmount?: number;
   date?: string;
@@ -360,7 +363,8 @@ export function buildClientPivotReport(sales: SaleRecord[], filter: DateRangeFil
     const outstandingByClient = new Map<string, number>();
     filtered.forEach((sale) => {
       const client = String(sale.client || "").trim() || "(미지정)";
-      const billed = Math.round(Number(sale.amount) || 0);
+      const billed =
+        sale.arBilledAmount != null ? Math.round(Number(sale.arBilledAmount) || 0) : computeSaleGrossReceivable(sale);
       const outstanding =
         sale.outstandingAmount != null
           ? Math.max(Math.round(Number(sale.outstandingAmount) || 0), 0)

@@ -6,6 +6,7 @@ import {
   buildWorkerFeeMap,
 } from "./workerLineMetrics";
 import { compareSortValues, type SortDirection } from "./pivotSort";
+import { computeSaleGrossReceivable } from "./saleTaxTreatment";
 
 export type SaleLike = {
   id?: number | string;
@@ -18,6 +19,7 @@ export type SaleLike = {
   worker?: string;
   workers?: WorkerLineLike[];
   amount?: number;
+  taxTreatment?: string | null;
   paid?: number;
   basePaid?: number;
   memo?: string;
@@ -137,8 +139,11 @@ export function isSalesSheetVoucherMergeColumn(key: string) {
 }
 
 export function getSaleUnpaid(row: SaleLike) {
+  const outstanding = (row as { outstandingAmount?: number }).outstandingAmount;
+  if (outstanding != null && Number.isFinite(Number(outstanding))) return Math.max(Number(outstanding), 0);
   const paid = row.paid ?? row.basePaid ?? 0;
-  return Math.max((row.amount || 0) - paid, 0);
+  const billed = (row as { arBilledAmount?: number }).arBilledAmount ?? computeSaleGrossReceivable(row);
+  return Math.max(billed - paid, 0);
 }
 
 function saleWorkerLines(sale: SaleLike): WorkerLineLike[] {

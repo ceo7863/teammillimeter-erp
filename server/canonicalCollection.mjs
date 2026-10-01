@@ -3,6 +3,7 @@
  * prepaid auto-apply planning, cash→bank transfer classification.
  */
 import { listPdfArchiveMetas } from "./pdfArchive.mjs";
+import { computeSaleGrossReceivable } from "../src/utils/saleTaxTreatment.ts";
 
 function money(value) {
   const n = Number(value);
@@ -141,7 +142,7 @@ export function planPrepaidAutoApply({
   for (const sale of sales || []) {
     const id = saleIdKey(sale.id);
     if (!targets.has(id)) continue;
-    const billed = money(sale.amount);
+    const billed = computeSaleGrossReceivable(sale);
     const allocated = saleAllocatedAsOf ? money(saleAllocatedAsOf(allocations, receipts, id, asOfDate)) : 0;
     const legacyApplied = legacyAppliedBySale instanceof Map ? money(legacyAppliedBySale.get(id)) : 0;
     const unpaid = Math.max(billed - legacyApplied - allocated, 0);

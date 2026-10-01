@@ -11562,6 +11562,53 @@ span.erp-worker-category-select.is-readonly {
   border-top: 1px solid #e2e8f0;
 }
 
+.erp-sale-tax-field {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.erp-sale-tax-field-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.erp-sale-tax-field-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.erp-sale-tax-field-select,
+.erp-sale-tax-field-reason {
+  height: 2rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  padding: 0 0.5rem;
+  font-size: 0.8125rem;
+  background: #fff;
+}
+
+.erp-sale-tax-field-reason {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.erp-sale-tax-field-amounts {
+  font-size: 0.75rem;
+  color: #334155;
+  font-variant-numeric: tabular-nums;
+}
+
+.erp-sale-tax-field-hint {
+  font-size: 0.6875rem;
+  color: #64748b;
+  line-height: 1.4;
+}
+
 .erp-sale-form-table-wrap--compact {
   max-height: none;
   overflow: auto;
@@ -14074,6 +14121,11 @@ body.erp-col-resizing * {
   width: min(100%, 72rem);
   max-height: calc(100vh - 2rem);
   padding: 1rem 1.25rem 1.25rem;
+}
+
+.erp-ledger-modal--receipt-detail {
+  width: min(100%, 64rem);
+  max-width: calc(100vw - 1.5rem);
 }
 
 .erp-ledger-modal--bank-links {

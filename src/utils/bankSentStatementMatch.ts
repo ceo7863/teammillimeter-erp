@@ -8,6 +8,7 @@ import type { PdfArchiveMeta } from "./pdfArchive";
 import type { BankPaymentVoucherDraft } from "./bankReceivableMatch";
 import { aggregateSaleBilling } from "./statementSheets";
 import { buildSaleArBalances } from "./unifiedArReadModel";
+import { buildStatementTaxTotals, computeVatForSupply, resolveSaleTaxTreatment } from "./saleTaxTreatment";
 import type {
   UnifiedArAllocationLike,
   UnifiedArClientLike,
@@ -39,6 +40,7 @@ export type StatementSaleForPayment = {
   site?: string;
   salesAmount?: number;
   workerCount?: number;
+  taxTreatment?: string | null;
 };
 
 type SaleLikeForStatement = {
@@ -47,6 +49,7 @@ type SaleLikeForStatement = {
   client?: string;
   site?: string;
   amount?: number;
+  taxTreatment?: string | null;
   worker?: string;
   workers?: unknown[];
 };
@@ -194,6 +197,7 @@ function buildStatementSaleRowFromAmount(sale: SaleLikeForStatement): StatementS
     site: sale.site,
     salesAmount: sale.amount,
     workerCount: saleWorkerCount(sale),
+    taxTreatment: sale.taxTreatment ?? null,
   };
 }
 
@@ -208,6 +212,7 @@ function buildStatementSaleRow(sale: SaleLikeForStatement): StatementSaleForPaym
       site: sale.site,
       salesAmount: sale.amount,
       workerCount: saleWorkerCount(sale),
+      taxTreatment: sale.taxTreatment ?? null,
     };
   }
   return buildStatementSaleRowFromAmount(sale);
@@ -247,7 +252,7 @@ function resolveStatementSalesBySaleAmount(
   const subtotal = rows.reduce((sum, row) => sum + row.statementAmount, 0);
   const expectedTotal = archive.statementTotalAmount || 0;
   const inferredVat = clientHasVat(clients, archive.subjectName, subtotal, expectedTotal);
-  if (amountsMatch(statementGrandTotal(subtotal, inferredVat), expectedTotal)) return rows;
+  if (amountsMatch(statementRowsGrossTotal(rows, inferredVat), expectedTotal)) return rows;
   if (amountsMatch(subtotal, expectedTotal)) return rows;
   return [];
 }
@@ -255,6 +260,20 @@ function resolveStatementSalesBySaleAmount(
 function statementGrandTotal(subtotal: number, hasVat: boolean) {
   const vatAmount = hasVat ? Math.round(subtotal * 0.1) : 0;
   return subtotal + vatAmount;
+}
+
+/** Explicit tax treatment decides a row's VAT; only legacy rows fall back to the client VAT flag. */
+function statementRowGross(row: StatementSaleForPayment, hasVat: boolean) {
+  const treatment = resolveSaleTaxTreatment(row);
+  if (treatment === "LEGACY_UNSPECIFIED") return statementGrandTotal(row.statementAmount, hasVat);
+  return row.statementAmount + computeVatForSupply(row.statementAmount, treatment);
+}
+
+function statementRowsGrossTotal(rows: StatementSaleForPayment[], hasVat: boolean) {
+  return buildStatementTaxTotals(
+    rows.map((row) => ({ supplyAmount: row.statementAmount, taxTreatment: row.taxTreatment })),
+    { legacyClientVat: hasVat ? "Y" : "N" },
+  ).grossTotal;
 }
 
 /** Archive meta or period/client/amount fallback resolves statement sales rows. */
@@ -292,7 +311,7 @@ export function resolveStatementSalesForArchive(
   const subtotal = periodRows.reduce((sum, row) => sum + row.statementAmount, 0);
   const expectedTotal = archive.statementTotalAmount || 0;
   const inferredVat = clientHasVat(clients, archive.subjectName, subtotal, expectedTotal);
-  if (amountsMatch(statementGrandTotal(subtotal, inferredVat), expectedTotal)) {
+  if (amountsMatch(statementRowsGrossTotal(periodRows, inferredVat), expectedTotal)) {
     return periodRows;
   }
   if (amountsMatch(subtotal, expectedTotal)) {
@@ -307,7 +326,7 @@ function saleDueAmount(
   hasVat: boolean,
   paidBySaleId: Map<string, number>,
 ) {
-  const gross = statementGrandTotal(row.statementAmount, hasVat);
+  const gross = statementRowGross(row, hasVat);
   const paid = paidBySaleId.get(String(row.salesId)) || 0;
   return Math.max(0, gross - paid);
 }
@@ -344,7 +363,9 @@ export function allocatePaymentFifoBySaleDate(
     const isPartialPayment = finalAmount < due;
     remaining -= finalAmount;
 
-    const supplyAmount = hasVat ? Math.max(0, Math.round(finalAmount / 1.1)) : finalAmount;
+    const rowGross = statementRowGross(row, hasVat);
+    const rowHasVat = rowGross > row.statementAmount;
+    const supplyAmount = rowHasVat ? Math.max(0, Math.round(finalAmount / 1.1)) : finalAmount;
     const vatAmount = Math.max(0, finalAmount - supplyAmount);
 
     results.push({

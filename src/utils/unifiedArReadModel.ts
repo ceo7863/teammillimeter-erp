@@ -13,8 +13,21 @@
  * - Conflicts are reported through `reconciliationStatus` / `errors`. Nothing is auto-fixed.
  */
 
+import { computeSaleTaxAmounts, type TaxTreatment } from "./saleTaxTreatment";
+
 /** Aging horizon used for the display-only `overdueAr` metric (calendar days after sale date). */
 export const UNIFIED_AR_DUE_DAYS = 30;
+
+/** Billed = gross receivable derived from supply + the sale's own tax treatment (never the payment channel). */
+export function saleTaxFields(sale: UnifiedArSaleLike | undefined) {
+  const tax = computeSaleTaxAmounts(sale);
+  return {
+    billedAmount: tax.grossReceivableAmount,
+    supplyAmount: tax.supplyAmount,
+    vatAmount: tax.vatAmount,
+    taxTreatment: tax.taxTreatment,
+  };
+}
 
 const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -23,7 +36,9 @@ export type UnifiedArSaleLike = {
   date?: string;
   client?: string;
   clientId?: number | string | null;
+  /** Supply amount (공급가액, VAT-exclusive). */
   amount?: number;
+  taxTreatment?: string | null;
   /** Legacy manual paid amount stored on the sale row itself. */
   paid?: number;
   /**
@@ -117,7 +132,11 @@ export type UnifiedArSaleBalance = {
   clientName: string;
   saleDate: string;
   site: string;
+  /** VAT-inclusive gross receivable (supply + VAT by the sale's own tax treatment). */
   billedAmount: number;
+  supplyAmount: number;
+  vatAmount: number;
+  taxTreatment: TaxTreatment;
   /** direct + statement-FIFO + stored manual paid, i.e. everything from the frozen ledger. */
   legacyAppliedAmount: number;
   legacyDirectAppliedAmount: number;
@@ -407,7 +426,7 @@ export function buildSaleArBalances(
       clientName: String(sale?.client ?? ""),
       saleDate: normalizeYmd(sale?.date),
       site: String(sale?.site || sale?.memo || ""),
-      billedAmount: unifiedArMoney(sale?.amount),
+      ...saleTaxFields(sale),
       legacyAppliedAmount: 0,
       legacyDirectAppliedAmount: 0,
       legacyFifoAppliedAmount: 0,
@@ -482,12 +501,11 @@ export function buildSaleArBalances(
   }
 
   /**
-   * Legacy vouchers record VAT-inclusive cash while `sale.amount` is VAT-exclusive, so a
-   * voucher routinely carries ~10% more than the sale it settles. Applying it in full would
-   * report every VAT customer as overpaid, so a voucher is capped at the sale's remaining
-   * VAT-exclusive capacity — the same rule the Receipt API enforces (ALLOCATION_EXCEEDS_SALE)
-   * and the same rule the legacy `applyPaymentVouchers` view uses. The uncapped remainder
-   * becomes a client credit rather than disappearing.
+   * Legacy vouchers record VAT-inclusive cash while legacy sales (LEGACY_UNSPECIFIED) bill only
+   * the stored supply amount, so a voucher routinely carries ~10% more than the sale it settles.
+   * A voucher is capped at the sale's remaining billed capacity — the same rule the Receipt API
+   * enforces (ALLOCATION_EXCEEDS_SALE). The uncapped remainder becomes a client credit rather
+   * than disappearing; it is never re-applied automatically.
    */
   const legacyPrepaidByClientName: Record<string, number> = {};
   const unattributedByClient = new Map<string, { amount: number; voucherIds: string[] }>();
@@ -728,7 +746,7 @@ function sumBilledAsOf(sales: UnifiedArSaleLike[], asOf: string) {
   return sales.reduce((sum, sale) => {
     const date = normalizeYmd(sale?.date);
     if (!date || date > asOf) return sum;
-    return sum + unifiedArMoney(sale?.amount);
+    return sum + saleTaxFields(sale).billedAmount;
   }, 0);
 }
 
@@ -993,6 +1011,9 @@ export function buildStatementPaymentStatus(
     return {
       saleId: row.saleId,
       billedAmount: row.billedAmount,
+      supplyAmount: row.supplyAmount,
+      vatAmount: row.vatAmount,
+      taxTreatment: row.taxTreatment,
       receiptAllocatedAmount: row.receiptAllocatedAmount,
       legacyAppliedAmount: row.legacyAppliedAmount,
       totalAppliedAmount: row.totalAppliedAmount,
@@ -1151,7 +1172,8 @@ export function applyUnifiedArBalancesToSales<T extends UnifiedArSaleLike & Reco
     }
     return {
       ...sale,
-      amount: row.billedAmount,
+      // `amount` stays the supply amount (statements derive VAT from it); billed/outstanding are gross.
+      amount: row.supplyAmount,
       // `paid` stays capped at billed so legacy status helpers keep working unchanged.
       paid: Math.min(row.totalAppliedAmount, row.billedAmount),
       appliedAmount: row.totalAppliedAmount,
@@ -1159,6 +1181,9 @@ export function applyUnifiedArBalancesToSales<T extends UnifiedArSaleLike & Reco
       voucherPaid: row.legacyDirectAppliedAmount + row.legacyFifoAppliedAmount + row.receiptAllocatedAmount,
       outstandingAmount: row.outstandingAmount,
       arBilledAmount: row.billedAmount,
+      arSupplyAmount: row.supplyAmount,
+      arVatAmount: row.vatAmount,
+      arTaxTreatment: row.taxTreatment,
       arReceiptAllocatedAmount: row.receiptAllocatedAmount,
       arLegacyAppliedAmount: row.legacyAppliedAmount,
       arPaymentStatus: row.paymentStatus,

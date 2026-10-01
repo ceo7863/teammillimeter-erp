@@ -9,6 +9,7 @@ import {
 import { planAllocationsForTarget } from "./allocationTarget.mjs";
 import { listPdfArchiveMetas } from "./pdfArchive.mjs";
 import { buildLegacyAppliedBySale, legacyAppliedForSale } from "./legacyAppliedBySale.mjs";
+import { computeSaleGrossReceivable } from "../src/utils/saleTaxTreatment.ts";
 
 const SAVE_RETRY_ATTEMPTS = 8;
 const RECEIPT_CHANNELS = new Set(["bank", "cash", "personal_account", "other"]);
@@ -405,7 +406,7 @@ function normalizeAllocationsInput(
       raw?.effectiveFrom || raw?.allocationEffectiveDate || defaultEffectiveFrom || asOf,
       "allocationEffectiveDate",
     );
-    const billed = money(sale.amount);
+    const billed = computeSaleGrossReceivable(sale);
     const already = saleAllocatedAsOf(allocations, receipts, saleId, effectiveFrom, excludeReceiptId);
     const legacyApplied = legacyAppliedForSale(legacyAppliedBySale, saleId);
     const remaining = Math.max(billed - legacyApplied - already, 0);
@@ -1056,7 +1057,7 @@ export function proposeFifoAllocations(
   const proposals = [];
   for (const sale of scoped) {
     if (remaining <= 0) break;
-    const billed = money(sale.amount);
+    const billed = computeSaleGrossReceivable(sale);
     const allocated = saleAllocatedAsOf(existingAllocations, receipts, sale.id, asOf);
     const unpaid = Math.max(billed - legacyAppliedForSale(legacyAppliedBySale, sale.id) - allocated, 0);
     if (unpaid <= 0) continue;

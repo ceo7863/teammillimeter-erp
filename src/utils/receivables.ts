@@ -1,3 +1,5 @@
+import { computeSaleGrossReceivable, resolveSaleTaxTreatment, type TaxTreatment } from "./saleTaxTreatment";
+
 export function parseMoney(value: unknown) {
   return Number(String(value ?? "").replace(/[^0-9.-]/g, "")) || 0;
 }
@@ -53,11 +55,37 @@ export function addDaysISO(dateStr: string, days: number) {
   return `${year}-${month}-${day}`;
 }
 
-export function getUnpaid(row: { salesAmount?: number; amount?: number; paidAmount?: number; paid?: number }) {
-  return Math.max((row.salesAmount || row.amount || 0) - (row.paidAmount ?? row.paid ?? 0), 0);
+type ReceivableAmountLike = {
+  salesAmount?: number;
+  amount?: number;
+  taxTreatment?: string | null;
+  arBilledAmount?: number;
+  outstandingAmount?: number;
+  paidAmount?: number;
+  paid?: number;
+};
+
+function finiteAmount(value: unknown) {
+  if (value == null || value === "") return null;
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : null;
 }
 
-export function getStatus(row: { salesAmount?: number; amount?: number; paidAmount?: number; paid?: number }) {
+/** Gross receivable: canonical AR overlay first, otherwise derived from supply + the sale's tax treatment. */
+export function getBilledAmount(row: ReceivableAmountLike) {
+  const arBilled = finiteAmount(row.arBilledAmount);
+  if (arBilled != null) return arBilled;
+  if (row.salesAmount) return row.salesAmount;
+  return computeSaleGrossReceivable(row);
+}
+
+export function getUnpaid(row: ReceivableAmountLike) {
+  const outstanding = finiteAmount(row.outstandingAmount);
+  if (outstanding != null) return Math.max(outstanding, 0);
+  return Math.max(getBilledAmount(row) - (row.paidAmount ?? row.paid ?? 0), 0);
+}
+
+export function getStatus(row: ReceivableAmountLike) {
   const unpaid = getUnpaid(row);
   const paid = row.paidAmount ?? row.paid ?? 0;
   if (unpaid <= 0) return "완료";
@@ -82,6 +110,7 @@ export type ReceivableRow = {
   voucherNo?: string;
   salesAmount: number;
   paidAmount: number;
+  taxTreatment?: TaxTreatment;
   dueDate?: string;
   memo?: string;
   site?: string;
@@ -103,8 +132,9 @@ export function buildReceivableRowsFromSales(
       phone: String(master.phone || ""),
       date: String(row.date || ""),
       voucherNo: String(row.voucherNo || row.id || ""),
-      salesAmount: Number(row.amount) || 0,
+      salesAmount: getBilledAmount(row as ReceivableAmountLike),
       paidAmount: Number(row.paid) || 0,
+      taxTreatment: resolveSaleTaxTreatment(row as { taxTreatment?: string | null }),
       dueDate: addDaysISO(String(row.date || ""), 22),
       memo: String(row.memo || row.site || ""),
       site: String(row.site || ""),

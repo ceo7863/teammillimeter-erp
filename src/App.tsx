@@ -275,6 +275,7 @@ import {
   reEnrichWorkerLinesForClient,
   saleRowToForm,
   validateSaleFormMasterRefs,
+  validateSaleFormTax,
 } from "@/utils/saleForm";
 import { SaleVoucherEditModal } from "@/components/SaleVoucherEditModal";
 import { WorkerPortalStandalonePage } from "@/components/WorkerPortalStandalonePage";
@@ -286,6 +287,7 @@ import { ClientContractsPanel } from "@/components/ClientContractsPanel";
 import { ClientSiteRequestsPage } from "@/components/ClientSiteRequestsPage";
 import { ClientSiteRequestCalendarsPage } from "@/components/ClientSiteRequestCalendarsPage";
 import { CalendarScScheduleImportModal } from "@/components/CalendarScScheduleImportModal";
+import { SaleTaxTreatmentField } from "@/components/SaleTaxTreatmentField";
 import { SaleAiRulesButton, SaleAiRulesModal } from "@/components/SaleAiRulesModal";
 import { WorkerAiRulesButton, WorkerAiRulesModal } from "@/components/WorkerAiRulesModal";
 import { ProbationEvalDashboard } from "@/components/ProbationEvalDashboard";
@@ -1218,6 +1220,9 @@ function pickSaleFormMeta(form) {
     createdBy: form.createdBy,
     createdByEmail: form.createdByEmail,
     createdAt: form.createdAt,
+    taxTreatment: form.taxTreatment,
+    taxReason: form.taxReason,
+    taxEvidenceStatus: form.taxEvidenceStatus,
   };
 }
 
@@ -1256,6 +1261,8 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
   allowClientSiteUnlock = false,
   onDraftChange,
   chargeTargetHeadcount = null,
+  isAdmin = false,
+  taxLocked = false,
 }) {
   const useLocalDraft = Boolean(sessionKey || initialForm);
   const seedForm = initialForm ?? controlledForm ?? emptySaleForm();
@@ -1532,6 +1539,15 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
             onSiteCommit={commitSite}
             onSiteKeyDown={handleSiteKeyDown}
             onSharedMemoChange={commitSharedMemo}
+          />
+
+          <SaleTaxTreatmentField
+            value={headerMeta.taxTreatment}
+            reason={headerMeta.taxReason || ""}
+            supplyAmount={totals.bill}
+            isAdmin={isAdmin}
+            locked={taxLocked}
+            onChange={update}
           />
 
           <div className="erp-sale-form-table-toolbar">
@@ -4301,6 +4317,11 @@ function CalendarPage({
         setCalendarNewSaleMessage(masterRefError);
         return;
       }
+      const taxError = validateSaleFormTax(currentForm, null, { isAdmin: currentUser?.role === "admin" });
+      if (taxError) {
+        setCalendarNewSaleMessage(taxError);
+        return;
+      }
 
       const payload = buildSaleFromForm(currentForm, currentUser, activeWorkers, clients);
       if (!payload.client || !payload.site || !isSaleAmountSaveable(payload.amount)) {
@@ -5343,6 +5364,7 @@ function CalendarPage({
                 showPaidField={false}
                 memoAfterWorkers={true}
                 chargeTargetHeadcount={calendarScExpectedHeadcount}
+                isAdmin={currentUser?.role === "admin"}
               />
             </div>
           </div>
@@ -5581,6 +5603,11 @@ const SalesRegistrationPage = memo(function SalesRegistrationPage({
       setSaveMessage(masterRefError);
       return;
     }
+    const taxError = validateSaleFormTax(currentForm, null, { isAdmin: currentUser?.role === "admin" });
+    if (taxError) {
+      setSaveMessage(taxError);
+      return;
+    }
 
     const payload = buildSaleFromForm(currentForm, currentUser, activeWorkers, clients);
     if (!payload.client || !payload.site || !isSaleAmountSaveable(payload.amount)) {
@@ -5668,6 +5695,7 @@ const SalesRegistrationPage = memo(function SalesRegistrationPage({
         showPaidField={false}
         memoAfterWorkers={true}
         headerAction={<SaleAiRulesButton onClick={() => setAiRulesOpen(true)} />}
+        isAdmin={currentUser?.role === "admin"}
       />
       <SaleAiRulesModal
         open={aiRulesOpen}
@@ -9889,7 +9917,20 @@ export default function TeammillimeterErpMvp() {
         setErpSyncStatus("저장됨");
         return true;
       } catch (error) {
-        const err = error as Error & { status?: number };
+        const err = error as Error & { status?: number; code?: string };
+        if (String(err.code || "").startsWith("TAX_")) {
+          // Rejected tax-treatment change: drop the local edit by reloading server sales.
+          window.alert(err.message);
+          try {
+            const latest = await fetchErpDomains(["sales"]);
+            publishErpVersion(latest.version ?? 0);
+            applyPartialDomainRefresh(latest);
+          } catch (refreshError) {
+            console.error(refreshError);
+          }
+          setErpSyncStatus("저장 실패");
+          return false;
+        }
         if (err.status === 409) {
           try {
             const latest = await fetchErpDomains(dirtyDomains);

@@ -87,7 +87,9 @@ import {
   updatePdfArchiveMeta,
   migratePdfArchiveShareLink,
   replacePdfArchiveFile,
+  listSentStatementArchiveMetas,
 } from "./pdfArchive.mjs";
+import { applySaleTaxGuard, collectTaxLockedSaleIds } from "./saleTaxGuard.mjs";
 import {
   initBoardAttachmentStore,
   createBoardAttachment,
@@ -1878,6 +1880,44 @@ function appendTaxInvoiceWithVersionRetry(taxInvoice, expectedVersion, updatedBy
   throw err;
 }
 
+/** Sale tax-treatment guard for user saves (stamps new sales, locks settled ones). */
+function guardSaleTaxForRequest(existingData, mergedData, req) {
+  if (!Array.isArray(mergedData?.sales) || mergedData.sales === existingData?.sales) return mergedData;
+  const result = applySaleTaxGuard({
+    previousSales: existingData?.sales || [],
+    incomingSales: mergedData.sales,
+    isAdmin: req.user?.role === "admin",
+    actor: String(req.user?.loginId || req.user?.name || req.user?.email || ""),
+    lockedSaleIds: () => {
+      let sentStatementArchives = [];
+      try {
+        sentStatementArchives = listSentStatementArchiveMetas();
+      } catch {
+        sentStatementArchives = [];
+      }
+      return collectTaxLockedSaleIds({
+        receipts: existingData?.receipts,
+        receiptAllocations: existingData?.receiptAllocations,
+        paymentVouchers: existingData?.paymentVouchers,
+        sentStatementArchives,
+      });
+    },
+  });
+  if (result.changes.length) {
+    console.log(
+      "[sale-tax] treatment changed",
+      result.changes.map((change) => ({ saleId: change.saleId, from: change.previous, to: change.next, actor: change.actor })),
+    );
+  }
+  return result.sales === mergedData.sales ? mergedData : { ...mergedData, sales: result.sales };
+}
+
+function handleSaleTaxGuardError(res, error) {
+  if (!String(error?.code || "").startsWith("TAX_")) return false;
+  res.status(error.status || 400).json({ error: error.message, code: error.code, saleId: error.saleId ?? null });
+  return true;
+}
+
 function handleErpSaveConflict(res, error) {
   if (error.status === 409) {
     res.status(409).json({
@@ -3192,6 +3232,14 @@ app.patch("/api/erp/domains", authMiddleware, async (req, res) => {
   if (domainNames.includes("workers") || domainNames.includes("bankTransactions")) {
     merged = finalizeWorkersDomainPayload(state.data || {}, merged);
   }
+  if (domainNames.includes("sales")) {
+    try {
+      merged = guardSaleTaxForRequest(state.data || {}, merged, req);
+    } catch (error) {
+      if (handleSaleTaxGuardError(res, error)) return;
+      throw error;
+    }
+  }
 
   const domainPayloads = {};
   for (const domain of domainNames) {
@@ -3232,6 +3280,14 @@ app.patch("/api/erp/:domain", authMiddleware, async (req, res) => {
   let merged = mergeErpDomainForSave(state.data || {}, domain, data);
   if (domain === "workers" || domain === "bankTransactions") {
     merged = finalizeWorkersDomainPayload(state.data || {}, merged);
+  }
+  if (domain === "sales") {
+    try {
+      merged = guardSaleTaxForRequest(state.data || {}, merged, req);
+    } catch (error) {
+      if (handleSaleTaxGuardError(res, error)) return;
+      throw error;
+    }
   }
 
   const actor = req.user.loginId || req.user.name || req.user.email;
@@ -3370,7 +3426,13 @@ app.put("/api/erp", authMiddleware, (req, res) => {
       ),
   };
 
-  const mergedPayload = mergeErpPaymentLinkState(existing.data || {}, payload);
+  let mergedPayload = mergeErpPaymentLinkState(existing.data || {}, payload);
+  try {
+    mergedPayload = guardSaleTaxForRequest(existing.data || {}, mergedPayload, req);
+  } catch (error) {
+    if (handleSaleTaxGuardError(res, error)) return;
+    throw error;
+  }
   const existingWorkers = existing.data?.workers || [];
   mergedPayload.workers = stripMonthlyPaymentMemoFromWorkers(
     processWorkersPortalCredentials(mergedPayload.workers || [], existingWorkers),
