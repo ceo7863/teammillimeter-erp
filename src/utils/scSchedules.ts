@@ -5,8 +5,10 @@ const SC_PARTICIPANT_MEAL_KEYS = ["meal", "mealCost", "mealAmount", "foodAllowan
 const SC_PARTICIPANT_EXPENSE_KEYS = ["expense", "expenseCost", "expenseAmount"] as const;
 
 export function parseScParticipantMoney(value: unknown): number | null {
-  if (value == null || value === "") return null;
-  const amount = Number(String(value).replace(/[^0-9.-]/g, ""));
+  if (value == null) return null;
+  const text = String(value).replace(/[,\s\u20A9\uC6D0]/g, "");
+  if (!text) return null;
+  const amount = Number(text);
   if (!Number.isFinite(amount) || amount < 0) return null;
   // Explicit 0 must stay 0 (do not treat as missing).
   return amount;
@@ -44,43 +46,33 @@ export function aggregateScParticipantExpenses(items: ScParticipantExpenseItem[]
   };
 }
 
+function pickFirstScParticipantMoney(
+  participant: Record<string, unknown>,
+  keys: readonly string[],
+): number | null {
+  for (const key of keys) {
+    const amount = parseScParticipantMoney(participant[key]);
+    if (amount != null) return amount;
+  }
+  return null;
+}
+
+/**
+ * Alias keys describe the same amount, so the first present key wins (never summed).
+ * Item arrays are used only when no aggregate key is present.
+ */
 export function extractScParticipantExtras(participant: Record<string, unknown> | null | undefined) {
   if (!participant) return { meal: null as number | null, expense: null as number | null };
-  let meal: number | null = null;
-  let expense: number | null = null;
-  let mealPresent = false;
-  let expensePresent = false;
-  for (const key of SC_PARTICIPANT_MEAL_KEYS) {
-    const amount = parseScParticipantMoney(participant[key]);
-    if (amount != null) {
-      mealPresent = true;
-      meal = (meal ?? 0) + amount;
-    }
-  }
-  for (const key of SC_PARTICIPANT_EXPENSE_KEYS) {
-    const amount = parseScParticipantMoney(participant[key]);
-    if (amount != null) {
-      expensePresent = true;
-      expense = (expense ?? 0) + amount;
-    }
-  }
+  let meal = pickFirstScParticipantMoney(participant, SC_PARTICIPANT_MEAL_KEYS);
+  let expense = pickFirstScParticipantMoney(participant, SC_PARTICIPANT_EXPENSE_KEYS);
   if (Array.isArray(participant.expenses)) {
     const aggregated = aggregateScParticipantExpenses(
       participant.expenses as ScParticipantExpenseItem[],
     );
-    if (aggregated.meal != null) {
-      mealPresent = true;
-      meal = (meal ?? 0) + aggregated.meal;
-    }
-    if (aggregated.expense != null) {
-      expensePresent = true;
-      expense = (expense ?? 0) + aggregated.expense;
-    }
+    if (meal == null) meal = aggregated.meal;
+    if (expense == null) expense = aggregated.expense;
   }
-  return {
-    meal: mealPresent ? meal ?? 0 : null,
-    expense: expensePresent ? expense ?? 0 : null,
-  };
+  return { meal, expense };
 }
 
 export type ScScheduleWorkLog = {
@@ -105,6 +97,9 @@ export type ScSchedule = {
   siteManagerName?: string;
   /** SC \uADFC\uBB34\uAE30\uB85D (\uC788\uC73C\uBA74 \uC608\uC815 \uC2DC\uAC04 \uB300\uC2E0 \uC0AC\uC6A9) */
   workLog?: ScScheduleWorkLog | null;
+  /** CalWalk export updatedAt, when the export provides it */
+  sourceUpdatedAt?: string | null;
+  syncedAt?: string | null;
   source?: "sc";
 };
 
@@ -264,6 +259,9 @@ export type ScScheduleWorkerInfo = {
   meal?: number | string | null;
   /** SC schedule-export participant expense (경비), when provided */
   expense?: number | string | null;
+  /** CalWalk member id, when the export provides it */
+  memberId?: string | null;
+  expenseItemIds?: string[];
 };
 
 /** SC participant name → 시공자 마스터 (이름·전화·차량번호) */
@@ -302,18 +300,24 @@ export function getScScheduleWorkerDetails(
     return resolved;
   }
 
-  return schedule.participants.map((participant, index) => {
+  return schedule.participants.map((participant) => {
     const key = String(participant.participantName || participant.name || "").trim();
-    const fallback =
-      resolved.find((row) => row.participantName === key || row.name === key) || resolved[index];
+    const fallback = key
+      ? resolved.find((row) => row.participantName === key || row.name === key)
+      : undefined;
     const extras = extractScParticipantExtras(participant as Record<string, unknown>);
+    const memberId = String(participant.memberId || "").trim();
     return {
       participantName: key || fallback?.participantName || "",
       name: String(participant.name || fallback?.name || key).trim(),
       phone: String(participant.phone || "").trim() || String(fallback?.phone || "").trim(),
       vehicleNo: String(participant.vehicleNo || "").trim() || String(fallback?.vehicleNo || "").trim(),
+      ...(memberId ? { memberId } : {}),
       ...(extras.meal != null ? { meal: extras.meal } : {}),
       ...(extras.expense != null ? { expense: extras.expense } : {}),
+      ...(Array.isArray(participant.expenseItemIds) && participant.expenseItemIds.length
+        ? { expenseItemIds: participant.expenseItemIds }
+        : {}),
     };
   });
 }

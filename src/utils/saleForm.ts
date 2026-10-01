@@ -21,6 +21,7 @@ import {
   isWorkerActive,
   resolveWorkerListName,
 } from "@/utils/workerPayments";
+import { stripCalwalkProvenance, type CalwalkLineProvenance } from "@/utils/calwalkLineProvenance";
 
 let workerLineKeyCounter = 0;
 
@@ -41,7 +42,7 @@ export type SaleWorkerLine = {
   createdBy?: string;
   createdByEmail?: string;
   createdAt?: string;
-};
+} & Partial<CalwalkLineProvenance>;
 
 export type SaleFormData = {
   date: string;
@@ -227,7 +228,12 @@ export function enrichWorkerLineOnWorkerSelect(
     return resetUnfilledWorkerLine(line);
   }
 
-  let nextLine = applyWorkerLineFieldUpdate(line, "worker", workerName);
+  const previousWorker = String(line.worker || "").trim();
+  const baseLine =
+    line.sourceType && previousWorker && previousWorker !== String(workerName).trim()
+      ? stripCalwalkProvenance(line)
+      : line;
+  let nextLine = applyWorkerLineFieldUpdate(baseLine, "worker", workerName);
   const selectedWorker = findActiveWorkerByName(workers, workerName);
   const selectedClient = clients.find((client) => client.name === clientName);
   nextLine.quantity = nextLine.quantity || "1";
@@ -444,15 +450,32 @@ function sanitizeWorkerGridCommitValue(rawValue: unknown, columnKey: string) {
   return sanitized;
 }
 
-/** Read pending worker-grid input values from the DOM (commit-on-blur fields). */
-export function commitWorkerGridInputsFromDom(workerRows: SaleWorkerLine[] = []): SaleWorkerLine[] {
-  if (typeof document === "undefined" || !workerRows.length) return workerRows;
+type DomQueryRoot = Pick<ParentNode, "querySelectorAll">;
+
+function resolveSaleFormDomRoot(root?: DomQueryRoot | null): DomQueryRoot | null {
+  if (root) return root;
+  return typeof document === "undefined" ? null : document;
+}
+
+/**
+ * Read pending worker-grid input values from the DOM (commit-on-blur fields).
+ * Pass the editor root so another mounted sale form's row N can never leak into this one.
+ */
+export function commitWorkerGridInputsFromDom(
+  workerRows: SaleWorkerLine[] = [],
+  root?: DomQueryRoot | null,
+): SaleWorkerLine[] {
+  const scope = resolveSaleFormDomRoot(root);
+  if (!scope || !workerRows.length) return workerRows;
 
   let changed = false;
   const next = workerRows.map((line) => ({ ...line }));
+  const selector = root
+    ? "[data-worker-row][data-worker-col]"
+    : ".erp-sale-form-page [data-worker-row][data-worker-col]";
 
-  document
-    .querySelectorAll(".erp-sale-form-page [data-worker-row][data-worker-col]")
+  scope
+    .querySelectorAll(selector)
     .forEach((element) => {
       if (!(element instanceof HTMLInputElement)) return;
 
@@ -474,17 +497,19 @@ export function commitWorkerGridInputsFromDom(workerRows: SaleWorkerLine[] = [])
 export function buildCommittedSaleFormDraft(
   meta: Omit<SaleFormData, "workers">,
   workerRows: SaleWorkerLine[] = [],
+  root?: DomQueryRoot | null,
 ): SaleFormData {
   return {
     ...meta,
-    workers: commitWorkerGridInputsFromDom(workerRows),
+    workers: commitWorkerGridInputsFromDom(workerRows, root),
   };
 }
 
-export function flushSaleFormFocusedInputs() {
+export function flushSaleFormFocusedInputs(root?: DomQueryRoot | null) {
   if (typeof document === "undefined") return Promise.resolve();
-  document
-    .querySelectorAll(".erp-sale-form-page input, .erp-sale-form-page textarea")
+  const scope = resolveSaleFormDomRoot(root);
+  scope
+    ?.querySelectorAll(root ? "input, textarea" : ".erp-sale-form-page input, .erp-sale-form-page textarea")
     .forEach((element) => {
       if (element instanceof HTMLElement) element.blur();
     });

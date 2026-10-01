@@ -1358,8 +1358,14 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
 
   const form = useLocalDraft ? buildLocalSaleForm(formMeta, workerRows) : controlledForm;
 
+  const editorHeadRef = useRef<HTMLDivElement | null>(null);
+  const resolveEditorRoot = useCallback(
+    () => editorHeadRef.current?.closest(".erp-sale-form-page") ?? null,
+    [],
+  );
+
   const fitWorkerCharges = useCallback(() => {
-    void flushSaleFormFocusedInputs().then(() => {
+    void flushSaleFormFocusedInputs(resolveEditorRoot()).then(() => {
       const clientName = String(formMetaRef.current.client || "").trim();
       if (!clientName) {
         window.alert("거래처를 먼저 선택해 주세요.");
@@ -1367,7 +1373,7 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
       }
       const selectedClient = clients.find((client) => client.name === clientName);
       const sourceRows = useLocalDraft ? workerRowsRef.current : (form?.workers ?? []);
-      const committedRows = commitWorkerGridInputsFromDom(sourceRows);
+      const committedRows = commitWorkerGridInputsFromDom(sourceRows, resolveEditorRoot());
       const targetHeadcount = Number.isFinite(Number(chargeTargetHeadcount)) && Number(chargeTargetHeadcount) > 0
         ? Math.floor(Number(chargeTargetHeadcount))
         : undefined;
@@ -1399,7 +1405,7 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
         );
       }
     });
-  }, [chargeTargetHeadcount, clients, controlledForm, controlledOnSharedMemoChange, controlledUpdateWorkerLine, form, syncLocalDraftRef, useLocalDraft]);
+  }, [chargeTargetHeadcount, clients, controlledForm, controlledOnSharedMemoChange, controlledUpdateWorkerLine, form, resolveEditorRoot, syncLocalDraftRef, useLocalDraft]);
 
   const removeWorkerLine = useCallback((index) => {
     if (useLocalDraft) {
@@ -1436,9 +1442,10 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
   }, [controlledCanSave, useLocalDraft, formMeta, form, workerRows, totals.bill]);
 
   const handleSave = useCallback(() => {
-    void flushSaleFormFocusedInputs().then(() => {
+    const editorRoot = resolveEditorRoot();
+    void flushSaleFormFocusedInputs(editorRoot).then(() => {
       if (useLocalDraft) {
-        const committed = buildCommittedSaleFormDraft(formMetaRef.current, workerRowsRef.current);
+        const committed = buildCommittedSaleFormDraft(formMetaRef.current, workerRowsRef.current, editorRoot);
         draftRef.current = committed;
         onDraftChangeRef.current?.(committed);
         onSave(committed);
@@ -1446,7 +1453,7 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
       }
       onSave(form);
     });
-  }, [onSave, useLocalDraft, form]);
+  }, [onSave, useLocalDraft, form, resolveEditorRoot]);
 
   const [clientSiteUnlocked, setClientSiteUnlocked] = useState(false);
   const [clientSiteUnlockPromptOpen, setClientSiteUnlockPromptOpen] = useState(false);
@@ -1490,7 +1497,7 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
 
   return (
     <>
-      <div className="erp-sale-form-compact-head">
+      <div className="erp-sale-form-compact-head" ref={editorHeadRef}>
         <div>
           <h1 className="erp-sale-form-compact-title">{title}</h1>
           <p className="erp-sale-form-compact-desc">{desc ?? `전표 입력 · 시공자 ${filledWorkerCount}/${displayWorkerRows.length}명`}</p>
@@ -5190,6 +5197,7 @@ function CalendarPage({
           schedules={selectedDayScSchedules}
           sales={sales}
           workers={workers}
+          clients={clients}
           loading={scImportLoading}
           error={scImportError}
           warning={scImportWarning}

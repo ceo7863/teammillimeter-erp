@@ -15,14 +15,13 @@ import {
 } from "@/utils/saleBilling";
 import { parseMoney } from "@/utils/receivables";
 import { parseWorkerMoney } from "@/utils/workerLineMetrics";
-import type { ScSchedule } from "@/utils/scSchedules";
+import type { ScSchedule, ScScheduleWorkerInfo } from "@/utils/scSchedules";
 import {
-  extractScParticipantExtras,
   formatScScheduleTimeRange,
   getScScheduleEffectiveWorkTimes,
   getScScheduleWorkerDetails,
-  parseScParticipantMoney,
 } from "@/utils/scSchedules";
+import { buildCalwalkLineProvenance } from "@/utils/calwalkLineProvenance";
 import type { ClientMasterLike } from "@/utils/clientMaster";
 import { findWorkerMasterByListName, type WorkerMasterLike } from "@/utils/workerPayments";
 import {
@@ -138,22 +137,23 @@ export function getWorkerExtrasHistoryReference(
   };
 }
 
+/** Meal and expense are copied only from this schedule participant; null leaves the field blank. */
 function applyWorkerExtrasFromSc(
   line: SaleWorkerLine,
-  workerInfo: { meal?: number | string | null; expense?: number | string | null },
+  schedule: Pick<ScSchedule, "id" | "sourceUpdatedAt">,
+  workerInfo: ScScheduleWorkerInfo,
   mealIncluded: boolean,
-) {
-  const next = { ...line };
-  const scExtras = extractScParticipantExtras(workerInfo as Record<string, unknown>);
-  const scMeal = parseScParticipantMoney(workerInfo.meal) ?? scExtras.meal;
-  const scExpense = parseScParticipantMoney(workerInfo.expense) ?? scExtras.expense;
+  importedAt: string,
+): SaleWorkerLine {
+  const provenance = buildCalwalkLineProvenance(schedule, workerInfo, importedAt);
+  const next: SaleWorkerLine = { ...line, ...provenance };
 
-  if (!mealIncluded && scMeal != null) {
-    next.meal = String(scMeal);
+  if (!mealIncluded && provenance.sourceMeal != null) {
+    next.meal = String(provenance.sourceMeal);
   }
 
-  if (scExpense != null) {
-    next.expense = String(scExpense);
+  if (provenance.sourceExpense != null) {
+    next.expense = String(provenance.sourceExpense);
   }
 
   return next;
@@ -213,6 +213,7 @@ export function buildSaleFormFromScSchedule(
   const workHours = resolveScScheduleWorkHoursForBilling(schedule);
   const overtimeHours = computeScheduleOvertimeHours(effectiveTimes.endTime, rules);
   const scheduleWorkers = getScScheduleWorkerDetails(schedule, workers);
+  const importedAt = new Date().toISOString();
 
   const workerLines = scheduleWorkers.map((workerInfo, index) => {
     const workerName = String(workerInfo.name || workerInfo.participantName || "").trim();
@@ -225,11 +226,7 @@ export function buildSaleFormFromScSchedule(
     );
     line.quantity = "1";
 
-    line = applyWorkerExtrasFromSc(
-      line,
-      workerInfo,
-      mealIncluded,
-    );
+    line = applyWorkerExtrasFromSc(line, schedule, workerInfo, mealIncluded, importedAt);
 
     line = applyScheduleBillingRules(
       line,
