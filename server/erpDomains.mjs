@@ -12,6 +12,7 @@ import {
   mergeWorkerMonthlyActualVouchersForSave,
   mergeWorkersForSave,
 } from "./erpSaveMerge.mjs";
+import { mergeAuditLogsForSave } from "./workerChargeRate.mjs";
 
 /** Domain name ? payload field keys stored in erp_domain_state. */
 export const ERP_DOMAIN_FIELDS = {
@@ -252,7 +253,9 @@ export function mergeErpDomainForSave(existingData, domain, incomingPartial) {
     case "settings":
       return {
         ...existing,
-        auditLogs: Array.isArray(incoming.auditLogs) ? incoming.auditLogs : existing.auditLogs || [],
+        auditLogs: Array.isArray(incoming.auditLogs)
+          ? mergeAuditLogsForSave(existing.auditLogs || [], incoming.auditLogs)
+          : existing.auditLogs || [],
         loginLogs: Array.isArray(incoming.loginLogs) ? incoming.loginLogs : existing.loginLogs || [],
         companyExpenses: Array.isArray(incoming.companyExpenses)
           ? incoming.companyExpenses

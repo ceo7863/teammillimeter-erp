@@ -1,3 +1,5 @@
+import { readWorkerChargeCost } from "./workerChargeRate";
+
 export type AuditAction = "create" | "update" | "delete" | "import";
 
 export type AuditLogEntry = {
@@ -89,7 +91,7 @@ export const WORKER_AUDIT_FIELDS: AuditFieldDef[] = [
   { key: "address", label: "주소" },
   { key: "vehicleNo", label: "차량번호" },
   { key: "constructionCost", label: "시공비", format: (v) => formatAuditMoney(v) },
-  { key: "customChargeCost", label: "개별청구단가", format: (v) => formatAuditMoney(v) },
+  { key: "customChargeCost", label: "개별청구단가", format: (v) => (v == null || v === "" ? "기본단가" : formatAuditMoney(v)) },
   { key: "overtimeCost", label: "야근비", format: (v) => formatAuditMoney(v) },
   { key: "feeRate", label: "수수료율", format: (v) => `${Math.round(Number(v || 0) * 100)}%` },
   { key: "memo", label: "비고" },
@@ -301,7 +303,7 @@ export function snapshotWorkerForAudit(worker: Record<string, unknown>) {
     address: worker.address || "",
     vehicleNo: worker.vehicleNo || "",
     constructionCost: worker.constructionCost ?? 0,
-    customChargeCost: worker.customChargeCost ?? 0,
+    customChargeCost: readWorkerChargeCost(worker as { customChargeCost?: unknown }),
     overtimeCost: worker.overtimeCost ?? 0,
     feeRate: worker.feeRate ?? 0,
     memo: worker.memo || "",

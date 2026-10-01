@@ -9,6 +9,7 @@ import {
   usesChargeAmountForBill,
   type WorkerLineLike,
 } from "./workerLineMetrics";
+import { readWorkerChargeCost } from "./workerChargeRate";
 
 export type SaleBillingLike = {
   id?: number | string;
@@ -113,25 +114,21 @@ export function getWorkerLineOriginalBill(line: WorkerLineLike) {
 
 /** 단축근무 청구 상한: 개별청구단가 > 시공자 기본단가(constructionCost) */
 export function resolveWorkerShortShiftChargeCap(
-  worker?: { customChargeCost?: number; constructionCost?: number } | null,
+  worker?: { customChargeCost?: number | null; constructionCost?: number } | null,
 ): number {
-  const customCharge = parseWorkerMoney(worker?.customChargeCost);
-  if (customCharge > 0) return customCharge;
-  return parseWorkerMoney(worker?.constructionCost);
+  return readWorkerChargeCost(worker) ?? parseWorkerMoney(worker?.constructionCost);
 }
 
-/** 시공자 선택 시 청구단가: 시공자 개별청구단가 > 거래처 청구단가(또는 시공비) */
+/** 시공자 선택 시 청구단가: 시공자 개별청구단가(0 포함) ?? 거래처 청구단가(또는 시공비) */
 export function resolveWorkerLineChargeAmount(
-  worker?: { customChargeCost?: number } | null,
+  worker?: { customChargeCost?: number | null } | null,
   client?: { customChargeCost?: number; constructionCost?: number; chargeCost?: number } | null,
 ): string {
-  const workerCharge = parseWorkerMoney(worker?.customChargeCost);
-  if (workerCharge > 0) return String(workerCharge);
   const clientCharge = parseWorkerMoney(
     client?.customChargeCost ?? client?.chargeCost ?? client?.constructionCost,
   );
-  if (clientCharge > 0) return String(clientCharge);
-  return "";
+  const charge = readWorkerChargeCost(worker) ?? (clientCharge > 0 ? clientCharge : null);
+  return charge === null ? "" : String(charge);
 }
 
 /** 시공자 선택 시 지급단가(시공비) */

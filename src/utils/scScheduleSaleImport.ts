@@ -24,6 +24,7 @@ import {
 import { buildCalwalkLineProvenance } from "@/utils/calwalkLineProvenance";
 import type { ClientMasterLike } from "@/utils/clientMaster";
 import { findWorkerMasterByListName, type WorkerMasterLike } from "@/utils/workerPayments";
+import { readWorkerChargeCost } from "@/utils/workerChargeRate";
 import {
   formatScheduleWorkHoursLabel,
   computeScheduleOvertimeHours,
@@ -176,7 +177,9 @@ function applyScheduleBillingRules(
   if (isShortShift && workHours != null) {
     const workerDefaultPay = parseWorkerMoney(line.unitCost);
     const workerChargeCap = resolveWorkerShortShiftChargeCap(worker);
-    const shortCharge = resolveShortShiftChargeAmount(workHours, rules, workerChargeCap);
+    // resolveShortShiftChargeAmount reads a 0 cap as "no cap"; an explicit 0원 rate must stay 0.
+    const shortCharge =
+      readWorkerChargeCost(worker) === 0 ? 0 : resolveShortShiftChargeAmount(workHours, rules, workerChargeCap);
     next.chargeAmount = String(shortCharge);
     next.unitCost = resolveShortShiftUnitCost(shortCharge, workerDefaultPay);
   }

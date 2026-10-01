@@ -91,6 +91,12 @@ import {
 } from "./pdfArchive.mjs";
 import { applySaleTaxGuard, collectTaxLockedSaleIds, planSaleTaxCorrection } from "./saleTaxGuard.mjs";
 import {
+  buildWorkerChargeCostAuditEntry,
+  mergeAuditLogsForSave,
+  planWorkerChargeCostUpdate,
+  readStoredWorkerChargeCost,
+} from "./workerChargeRate.mjs";
+import {
   initBoardAttachmentStore,
   createBoardAttachment,
   getBoardAttachmentFile,
@@ -1918,6 +1924,16 @@ function handleSaleTaxGuardError(res, error) {
   return true;
 }
 
+function handleWorkerRateError(res, error) {
+  if (!String(error?.code || "").startsWith("WORKER_RATE_") && error?.code !== "WORKER_NOT_FOUND") return false;
+  res.status(error.status || 400).json({
+    error: error.message,
+    code: error.code,
+    ...(error.currentValue !== undefined ? { currentValue: error.currentValue } : {}),
+  });
+  return true;
+}
+
 function handleErpSaveConflict(res, error) {
   if (error.status === 409) {
     res.status(409).json({
@@ -3210,6 +3226,103 @@ app.patch("/api/erp/workers/:workerId/monthly-payment-memo", authMiddleware, (re
   }
 });
 
+// saveErpDomains coalesces same-key writes (latest payload wins, every caller gets success), so rate
+// updates are serialized here and each one re-plans from the state left by the previous one.
+let workerRateWriteChain = Promise.resolve();
+function runWorkerRateWriteExclusive(task) {
+  const run = workerRateWriteChain.then(task, task);
+  workerRateWriteChain = run.catch(() => {});
+  return run;
+}
+
+app.patch("/api/erp/workers/:workerId/custom-charge-cost", authMiddleware, (req, res) =>
+  runWorkerRateWriteExclusive(() => handleWorkerChargeCostPatch(req, res)));
+
+async function handleWorkerChargeCostPatch(req, res) {
+  const actor = String(req.user?.loginId || req.user?.name || req.user?.email || "");
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const state = getErpState();
+    let plan;
+    try {
+      plan = planWorkerChargeCostUpdate({
+        workers: Array.isArray(state.data?.workers) ? state.data.workers : [],
+        workerId: req.params.workerId,
+        input: req.body || {},
+        actor,
+      });
+    } catch (error) {
+      if (handleWorkerRateError(res, error)) return;
+      console.error(error);
+      res.status(500).json({ error: "개별청구단가 저장에 실패했습니다." });
+      return;
+    }
+    const workerView = (worker) => ({
+      id: worker.id,
+      customChargeCost: worker.customChargeCost ?? null,
+      customChargeCostUpdatedAt: worker.customChargeCostUpdatedAt ?? null,
+      customChargeCostUpdatedBy: worker.customChargeCostUpdatedBy ?? null,
+    });
+    if (!plan.changed) {
+      res.json({ ok: true, changed: false, worker: workerView(plan.worker), version: state.version });
+      return;
+    }
+    const auditEntry = buildWorkerChargeCostAuditEntry({
+      worker: plan.worker,
+      before: plan.before,
+      after: plan.after,
+      user: req.user || {},
+    });
+    const merged = {
+      ...(state.data || {}),
+      workers: plan.workers,
+      auditLogs: mergeAuditLogsForSave(state.data?.auditLogs || [], [auditEntry]),
+    };
+    try {
+      const saved = await saveErpDomains(
+        { workers: pickDomainPayload(merged, "workers"), settings: pickDomainPayload(merged, "settings") },
+        state.version,
+        actor,
+      );
+      const persisted = (getErpState().data?.workers || []).find((row) => String(row?.id) === String(plan.worker.id));
+      if (readStoredWorkerChargeCost(persisted) !== plan.after) {
+        console.warn("[worker-rate] write superseded by a concurrent save; retrying", {
+          workerId: String(plan.worker.id),
+          attempt,
+        });
+        if (attempt < 2) continue;
+        res.status(409).json({
+          error: "동시에 저장된 다른 변경 때문에 개별청구단가를 저장하지 못했습니다. 다시 시도해 주세요.",
+          code: "WORKER_RATE_CONFLICT",
+          currentValue: readStoredWorkerChargeCost(persisted),
+        });
+        return;
+      }
+      console.log("[worker-rate] customChargeCost updated", {
+        workerId: String(plan.worker.id),
+        before: plan.before,
+        after: plan.after,
+        actor,
+      });
+      res.json({
+        ok: true,
+        changed: true,
+        worker: workerView(plan.worker),
+        before: plan.before,
+        after: plan.after,
+        auditEntry,
+        version: saved.version,
+      });
+      return;
+    } catch (error) {
+      if (error.status === 409 && attempt < 2) continue;
+      if (handleErpSaveConflict(res, error)) return;
+      console.error(error);
+      res.status(500).json({ error: "개별청구단가 저장에 실패했습니다." });
+      return;
+    }
+  }
+}
+
 app.patch("/api/erp/domains", authMiddleware, async (req, res) => {
   const { expectedVersion, domains } = req.body || {};
   if (!domains || typeof domains !== "object" || Array.isArray(domains)) {
@@ -3225,12 +3338,17 @@ app.patch("/api/erp/domains", authMiddleware, async (req, res) => {
 
   const state = getErpState();
   let merged = state.data || {};
-  for (const domain of domainNames) {
-    merged = mergeErpDomainForSave(merged, domain, domains[domain]);
-  }
+  try {
+    for (const domain of domainNames) {
+      merged = mergeErpDomainForSave(merged, domain, domains[domain]);
+    }
 
-  if (domainNames.includes("workers") || domainNames.includes("bankTransactions")) {
-    merged = finalizeWorkersDomainPayload(state.data || {}, merged);
+    if (domainNames.includes("workers") || domainNames.includes("bankTransactions")) {
+      merged = finalizeWorkersDomainPayload(state.data || {}, merged);
+    }
+  } catch (error) {
+    if (handleWorkerRateError(res, error)) return;
+    throw error;
   }
   if (domainNames.includes("sales")) {
     try {
@@ -3322,9 +3440,15 @@ app.patch("/api/erp/:domain", authMiddleware, async (req, res) => {
   }
 
   const state = getErpState();
-  let merged = mergeErpDomainForSave(state.data || {}, domain, data);
-  if (domain === "workers" || domain === "bankTransactions") {
-    merged = finalizeWorkersDomainPayload(state.data || {}, merged);
+  let merged;
+  try {
+    merged = mergeErpDomainForSave(state.data || {}, domain, data);
+    if (domain === "workers" || domain === "bankTransactions") {
+      merged = finalizeWorkersDomainPayload(state.data || {}, merged);
+    }
+  } catch (error) {
+    if (handleWorkerRateError(res, error)) return;
+    throw error;
   }
   if (domain === "sales") {
     try {
@@ -3471,7 +3595,13 @@ app.put("/api/erp", authMiddleware, (req, res) => {
       ),
   };
 
-  let mergedPayload = mergeErpPaymentLinkState(existing.data || {}, payload);
+  let mergedPayload;
+  try {
+    mergedPayload = mergeErpPaymentLinkState(existing.data || {}, payload);
+  } catch (error) {
+    if (handleWorkerRateError(res, error)) return;
+    throw error;
+  }
   try {
     mergedPayload = guardSaleTaxForRequest(existing.data || {}, mergedPayload, req);
   } catch (error) {

@@ -341,6 +341,7 @@ import {
   buildAuditEntries,
   diffAuditRecords,
   mergeAuditLogs,
+  type AuditLogEntry,
 } from "@/utils/auditLog";
 import {
   appendLoginLogs,
@@ -359,8 +360,15 @@ import {
   sumWorkerFormTotals,
 } from "@/utils/workerLineMetrics";
 import {
+  parseWorkerChargeCostDraft,
+  readWorkerChargeCost,
+  WORKER_RATE_SCOPE_NOTICE,
+  WORKER_RATE_ZERO_CONFIRM,
+  workerChargeCostInputValue,
+} from "@/utils/workerChargeRate";
+import { WorkerChargeRateCell } from "@/components/WorkerChargeRateCell";
+import {
   applyWorkerCustomChargeCostFromForm,
-  applyWorkerCustomChargeCostFromInline,
   compareWorkerMastersDefault,
   filterActiveWorkers,
   findWorkerMasterByListName,
@@ -408,6 +416,7 @@ import {
   loginWithApi,
   reverseReceiptApi,
   saveErpData,
+  saveWorkerChargeRateApi,
   saveWorkerMonthlyPaymentMemoApi,
   syncWorkerPortalLoginIdsFromSc,
   updateSidebarOrderApi,
@@ -1230,6 +1239,15 @@ function buildLocalSaleForm(meta, workers) {
   return { ...meta, workers };
 }
 
+function snapshotWorkerChargeRates(workers) {
+  const rates = new Map();
+  for (const worker of workers || []) {
+    const id = normalizeWorkerRecordId(worker?.id);
+    if (id) rates.set(id, readWorkerChargeCost(worker));
+  }
+  return rates;
+}
+
 const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
   title,
   desc,
@@ -1301,6 +1319,50 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
   }, [useLocalDraft, formMeta, workerRows]);
 
   const activeWorkers = useMemo(() => filterActiveWorkers(workers), [workers]);
+
+  const isNewSaleDraft = useLocalDraft && auditEntityId == null;
+  const latestWorkersRef = useRef(workers);
+  latestWorkersRef.current = workers;
+  const [workerRateSnapshot, setWorkerRateSnapshot] = useState(() => snapshotWorkerChargeRates(workers));
+  useEffect(() => {
+    setWorkerRateSnapshot(snapshotWorkerChargeRates(latestWorkersRef.current));
+  }, [sessionKey]);
+
+  const staleWorkerRateLines = useMemo(() => {
+    if (!isNewSaleDraft) return [];
+    const selectedClient = clients.find((client) => client.name === String(formMeta.client || "").trim());
+    const stale = [];
+    workerRows.forEach((line, index) => {
+      const name = String(line.worker || "").trim();
+      if (!name) return;
+      const master = findWorkerMasterByListName(activeWorkers, name);
+      const id = normalizeWorkerRecordId(master?.id);
+      if (!master || !id || !workerRateSnapshot.has(id)) return;
+      if (workerRateSnapshot.get(id) === readWorkerChargeCost(master)) return;
+      const latest = resolveWorkerLineChargeAmount(master, selectedClient);
+      if (latest === "" || String(line.chargeAmount ?? "") === latest) return;
+      stale.push({ index, worker: name, latest });
+    });
+    return stale;
+  }, [isNewSaleDraft, clients, formMeta.client, workerRows, activeWorkers, workerRateSnapshot]);
+
+  const applyLatestWorkerRates = useCallback(() => {
+    const latestByIndex = new Map(staleWorkerRateLines.map((entry) => [entry.index, entry.latest]));
+    setWorkerRows((prev) => {
+      const nextRows = prev.map((line, index) =>
+        latestByIndex.has(index)
+          ? applySaleWorkerLineUpdate(line, "chargeAmount", latestByIndex.get(index), activeWorkers, clients, formMetaRef.current.client)
+          : line,
+      );
+      syncLocalDraftRef(formMetaRef.current, nextRows);
+      return nextRows;
+    });
+    setWorkerRateSnapshot(snapshotWorkerChargeRates(latestWorkersRef.current));
+  }, [staleWorkerRateLines, activeWorkers, clients, syncLocalDraftRef]);
+
+  const keepDraftWorkerRates = useCallback(() => {
+    setWorkerRateSnapshot(snapshotWorkerChargeRates(latestWorkersRef.current));
+  }, []);
 
   const update = useCallback((key, value) => {
     if (useLocalDraft) {
@@ -1553,6 +1615,24 @@ const SaleFormCompactEditor = memo(function SaleFormCompactEditor({
           <div className="erp-sale-form-table-toolbar">
             <span className="erp-text-caption font-semibold text-slate-500">시공자 내역</span>
           </div>
+
+          {staleWorkerRateLines.length ? (
+            <div className="erp-sale-worker-rate-stale" role="status" data-worker-rate-stale={staleWorkerRateLines.length}>
+              <span>
+                작성 중 시공자 개별청구단가가 변경되었습니다 ({staleWorkerRateLines
+                  .map((entry) => `${entry.worker} → ${formatKRW(Number(entry.latest))}`)
+                  .join(", ")}). 이 전표에는 자동 반영되지 않습니다.
+              </span>
+              <div className="erp-sale-worker-rate-stale-actions">
+                <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={applyLatestWorkerRates}>
+                  최신 단가 적용
+                </Button>
+                <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={keepDraftWorkerRates}>
+                  현재 값 유지
+                </Button>
+              </div>
+            </div>
+          ) : null}
 
           <SaleFormWorkerGridSection
             workerRows={displayWorkerRows}
@@ -6731,6 +6811,7 @@ function WorkersPage({
   probationEvalRequests,
   onSaveProbationEvalTemplates,
   onShareToTeamChat,
+  onSaveWorkerChargeRate,
 }) {
   const { auditLogs } = useAudit();
   const workersRef = useRef(workers);
@@ -6744,7 +6825,6 @@ function WorkersPage({
     column: null,
     direction: "asc",
   });
-  const [inlineChargeDrafts, setInlineChargeDrafts] = useState({});
   const [constructionCostEdit, setConstructionCostEdit] = useState(null);
   const [formError, setFormError] = useState("");
   const [workerAiRulesOpen, setWorkerAiRulesOpen] = useState(false);
@@ -7046,6 +7126,17 @@ function WorkersPage({
       editingId != null
         ? workersRef.current.find((worker) => workerIdsEqual(worker.id, editingId))
         : null;
+    const chargeDraft = parseWorkerChargeCostDraft(form.customChargeCost);
+    if (chargeDraft.kind === "invalid") {
+      setFormError(chargeDraft.message);
+      return;
+    }
+    const nextChargeCost = chargeDraft.kind === "value" ? chargeDraft.value : null;
+    const baseChargeCost = existingWorker ? readWorkerChargeCost(existingWorker) : null;
+    const chargeCostChanged = nextChargeCost !== baseChargeCost;
+    if (chargeCostChanged && nextChargeCost === 0 && !window.confirm(`${WORKER_RATE_ZERO_CONFIRM}\n기존 확정 매출전표는 자동 변경되지 않습니다.`)) {
+      return;
+    }
     const feeNumber = Number(String(form.feeRate).replace(/[^0-9.]/g, ""));
     const prevGrade = normalizeWorkerGrade(existingWorker?.grade);
     const hireDate = String(form.hireDate || "").trim();
@@ -7085,7 +7176,10 @@ function WorkersPage({
       ...(form.portalPassword.trim() ? { portalPassword: form.portalPassword.trim() } : {}),
       isActive: existingWorker ? isWorkerActive(existingWorker) : true,
     };
-    const payloadWithCharge = applyWorkerCustomChargeCostFromForm(payload, form.customChargeCost);
+    // Existing workers keep the stored rate here; a change goes through the rate endpoint below.
+    const payloadWithCharge = existingWorker
+      ? payload
+      : applyWorkerCustomChargeCostFromForm(payload, form.customChargeCost);
 
     const probationNetPayRaw = String(form.probationNetPay ?? "").trim();
     if (probationNetPayRaw) {
@@ -7153,6 +7247,11 @@ function WorkersPage({
       },
       { flushNow: true },
     );
+    if (existingWorker && chargeCostChanged) {
+      void onSaveWorkerChargeRate(existingWorker, nextChargeCost, baseChargeCost).then((result) => {
+        if (!result.ok) window.alert(`개별청구단가 저장 실패: ${result.message}`);
+      });
+    }
     const pendingPhoto = pendingWorkerPhotoFile;
     setPendingWorkerPhotoFile(null);
     setWorkerPhotoPreviewUrl(null);
@@ -7187,7 +7286,7 @@ function WorkersPage({
       address: worker.address || "",
       vehicleNo: worker.vehicleNo || "",
       constructionCost: String(worker.constructionCost || ""),
-      customChargeCost: String(worker.customChargeCost || ""),
+      customChargeCost: workerChargeCostInputValue(readWorkerChargeCost(worker)),
       overtimeCost: String(worker.overtimeCost || "30000"),
       feeRate: String(Math.round((worker.feeRate || 0) * 100)),
       depositNameAliases: worker.depositNameAliases || "",
@@ -7223,23 +7322,6 @@ function WorkersPage({
         action: "delete",
         before: snapshotWorkerForAudit(worker),
         fields: WORKER_AUDIT_FIELDS,
-      },
-    );
-  };
-
-  const updateWorkerInline = (worker, value) => {
-    const nextWorker = applyWorkerCustomChargeCostFromInline(worker, value);
-    if (nextWorker === worker) return;
-
-    commitWorkerChange(
-      workersRef.current.map((item) => (workerIdsEqual(item.id, worker.id) ? nextWorker : item)),
-      {
-        entityId: worker.id,
-        entityLabel: worker.name,
-        action: "update",
-        before: snapshotWorkerForAudit(worker),
-        after: snapshotWorkerForAudit(nextWorker),
-        fields: WORKER_AUDIT_FIELDS.filter((field) => field.key === "customChargeCost"),
       },
     );
   };
@@ -7499,6 +7581,7 @@ function WorkersPage({
                 <span>외주 <b className="text-amber-700">{workerStats.outsource}</b></span>
                 <span>비활성 <b className="text-slate-500">{workerStats.inactive}</b></span>
               </div>
+              <p className="erp-workers-rate-notice" data-worker-rate-scope-notice="true">{WORKER_RATE_SCOPE_NOTICE}</p>
             </div>
           </div>
 
@@ -7608,24 +7691,7 @@ function WorkersPage({
                       <AuditCellHint entityType="worker" entityId={worker.id} field="constructionCost" fieldLabel="시공비" />
                     </td>
                     <td className="text-right erp-workers-charge-cell">
-                      <Input
-                        inputMode="numeric"
-                        value={inlineChargeDrafts[normalizeWorkerRecordId(worker.id)] ?? worker.customChargeCost ?? ""}
-                        onChange={(e) => setInlineChargeDrafts((prev) => ({ ...prev, [normalizeWorkerRecordId(worker.id)]: e.target.value }))}
-                        onBlur={(e) => {
-                          updateWorkerInline(worker, e.target.value);
-                          setInlineChargeDrafts((prev) => {
-                            const next = { ...prev };
-                            delete next[normalizeWorkerRecordId(worker.id)];
-                            return next;
-                          });
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") e.currentTarget.blur();
-                        }}
-                        placeholder="기본단가"
-                        className="erp-input-compact erp-workers-charge-input text-right"
-                      />
+                      <WorkerChargeRateCell worker={worker} onSave={onSaveWorkerChargeRate} />
                       <AuditCellHint entityType="worker" entityId={worker.id} field="customChargeCost" fieldLabel="개별청구단가" />
                     </td>
                     <td className="text-right whitespace-nowrap text-slate-600">{formatKRW(worker.overtimeCost || 30000)}</td>
@@ -9411,6 +9477,10 @@ export default function TeammillimeterErpMvp() {
         publishErpVersion(Math.max(erpVersionRef.current, Number(plan.globalVersion) || 0));
         return;
       }
+      if (plan.domains.includes("workers")) {
+        void syncWorkersFromServerRef.current();
+        if (!wantSales && !wantBank) return;
+      }
       const saleEditOpen = editingSaleMetaRef.current.mode === "edit";
       if (!isUserIdleForRemoteRefresh()) {
         if (wantSales && saleEditOpen) {
@@ -9649,6 +9719,56 @@ export default function TeammillimeterErpMvp() {
       console.error(error);
     }
   }, [apiMode, dataReady]);
+  const syncWorkersFromServerRef = useRef(syncWorkersFromServer);
+  syncWorkersFromServerRef.current = syncWorkersFromServer;
+
+  const applyConfirmedWorkerChargeCost = useCallback(
+    (workerId: string | number | undefined, patch: Partial<WorkerMasterLike>) => {
+      const nextWorkers = workersRef.current.map((row) =>
+        workerIdsEqual(row.id, workerId) ? { ...row, ...patch } : row,
+      );
+      workersRef.current = nextWorkers;
+      setWorkers(nextWorkers);
+    },
+    [],
+  );
+
+  const saveWorkerChargeRate = useCallback(
+    async (worker: WorkerMasterLike, value: number | null, expected: number | null) => {
+      if (!apiMode) {
+        applyConfirmedWorkerChargeCost(worker.id, { customChargeCost: value });
+        return { ok: true as const, value };
+      }
+      try {
+        const result = await saveWorkerChargeRateApi(worker.id as string | number, value, expected);
+        const confirmed = result.worker;
+        const confirmedValue = confirmed.customChargeCost ?? null;
+        applyConfirmedWorkerChargeCost(confirmed.id ?? worker.id, {
+          customChargeCost: confirmedValue,
+          ...(confirmed.customChargeCostUpdatedAt
+            ? {
+                customChargeCostUpdatedAt: confirmed.customChargeCostUpdatedAt,
+                customChargeCostUpdatedBy: confirmed.customChargeCostUpdatedBy,
+              }
+            : {}),
+        });
+        if (result.auditEntry) {
+          setAuditLogs((prev) => mergeAuditLogs(prev, [result.auditEntry as AuditLogEntry]));
+        }
+        return { ok: true as const, value: confirmedValue };
+      } catch (error) {
+        const err = error as Error & { status?: number; payload?: { currentValue?: number | null } };
+        const payload = err.payload;
+        if (payload && Object.prototype.hasOwnProperty.call(payload, "currentValue")) {
+          const currentValue = payload.currentValue ?? null;
+          applyConfirmedWorkerChargeCost(worker.id, { customChargeCost: currentValue });
+          return { ok: false as const, message: err.message, currentValue };
+        }
+        return { ok: false as const, message: err.message || "네트워크 오류로 저장하지 못했습니다." };
+      }
+    },
+    [apiMode, applyConfirmedWorkerChargeCost],
+  );
 
   const shouldReleasePendingLocalEdits = () =>
     !workerPersistInFlightRef.current &&
@@ -12454,6 +12574,7 @@ export default function TeammillimeterErpMvp() {
                 onShareToTeamChat={(worker) => {
                   openTeamChatWithShare({ link: buildWorkerTeamChatLink(worker as { id?: string | number; name?: string }) });
                 }}
+                onSaveWorkerChargeRate={saveWorkerChargeRate}
               />
             }
             officeStaffPanel={
