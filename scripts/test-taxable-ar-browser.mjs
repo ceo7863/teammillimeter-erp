@@ -16,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import jwt from "jsonwebtoken";
 import { chromium } from "playwright";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -25,7 +26,7 @@ const resultsPath = path.join(artifactsDir, "taxable-ar-browser-results.json");
 const ACTIVE_TAB_KEY = "teammillimeter-erp-active-tab";
 const JWT = "browser-taxable-ar";
 const PEER_TARGET_MS = 6000;
-const REQUIRED_CHECKS = 9;
+const REQUIRED_CHECKS = 10;
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "erp-taxable-ar-browser-"));
 const dbPath = path.join(tmpDir, "erp.sqlite");
@@ -473,8 +474,16 @@ try {
 
   await run("hard reload B + mobile: same tones and drawer tax card", async () => {
     await openCalendar(pageB);
-    const tonesB = await pageB.evaluate(readTones, [SITE_LEGACY, SITE_T10, SITE_NEW]);
-    assert.deepEqual(tonesB, { [SITE_LEGACY]: "GREEN", [SITE_T10]: "AMBER", [SITE_NEW]: "RED" });
+    await waitFor(
+      pageB,
+      ([sites, fn]) => {
+        const tones = new Function(`return (${fn})`)()(sites);
+        return { ok: tones[sites[0]] === "GREEN" && tones[sites[1]] === "AMBER" && tones[sites[2]] === "RED", tones };
+      },
+      [[SITE_LEGACY, SITE_T10, SITE_NEW], readTones.toString()],
+      15000,
+      "reloaded B tones",
+    );
     const viewB = await openSaleDrawer(pageB, SITE_NEW);
     assert.equal(viewB.treatment, "TAXABLE_10");
     assert.ok(viewB.cardText.includes(LABEL_T10));
@@ -493,6 +502,55 @@ try {
     await closeDrawer(pageM);
     const viewML = await openSaleDrawer(pageM, SITE_LEGACY);
     assert.ok(viewML.cardText.includes(LABEL_LEGACY));
+  });
+
+  await run("admin correction flow reclassifies the allocated legacy sale; peer turns AMBER live; receipts untouched", async () => {
+    const token = (role) => jwt.sign({ sub: null, loginId: `correction-${role}`, name: "정정", role }, JWT, { expiresIn: "10m" });
+    const post = async (role, body) => {
+      const res = await fetch(baseUrl + "/api/sales/tax-treatment-correction", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token(role)}` },
+        body: JSON.stringify(body),
+      });
+      return { status: res.status, body: await res.json().catch(() => ({})) };
+    };
+    const receiptsBefore = await (await fetch(baseUrl + `/api/receipts?clientId=${CLIENT.id}`, { headers: { Authorization: `Bearer ${token("admin")}` } })).json();
+    const body = { operationId: "tax-correct-1", saleIds: ["tax-legacy"], taxTreatment: "TAXABLE_10", reason: "부가세 포함 청구 정정" };
+    assert.equal((await post("staff", body)).status, 403);
+    assert.equal((await post("admin", { ...body, reason: "" })).status, 400);
+    assert.equal((await post("admin", { ...body, taxTreatment: "LEGACY_UNSPECIFIED" })).status, 400);
+    await openCalendar(pageB);
+    const first = await post("admin", body);
+    assert.equal(first.status, 200, JSON.stringify(first.body));
+    assert.deepEqual(first.body.changed, [{ saleId: "tax-legacy", from: "LEGACY_UNSPECIFIED", to: "TAXABLE_10" }]);
+    const saved = (await readSavedSales()).find((s) => s.id === "tax-legacy");
+    assert.equal(saved.taxTreatment, "TAXABLE_10");
+    assert.equal(Number(saved.vatAmount), 100000);
+    assert.equal(Number(saved.grossReceivableAmount), 1100000);
+    const ms = await waitFor(
+      pageB,
+      ([sites, fn]) => {
+        const tones = new Function(`return (${fn})`)()(sites);
+        return { ok: tones[sites[0]] === "AMBER", tones };
+      },
+      [[SITE_LEGACY], readTones.toString()],
+      PEER_TARGET_MS,
+      "peer tone after correction",
+    ).catch(async (error) => {
+      await openCalendar(pageB);
+      await pageB.waitForTimeout(1500);
+      const afterReload = await pageB.evaluate(readTones, [SITE_LEGACY]);
+      throw new Error(`${error.message}; after reload: ${JSON.stringify(afterReload)}`);
+    });
+    metrics.correctionPeerLatencyMs = ms;
+    const replay = await post("admin", body);
+    assert.equal(replay.status, 200);
+    assert.deepEqual(replay.body.changed, []);
+    assert.deepEqual(replay.body.alreadyApplied, ["tax-legacy"]);
+    const receiptsAfter = await (await fetch(baseUrl + `/api/receipts?clientId=${CLIENT.id}`, { headers: { Authorization: `Bearer ${token("admin")}` } })).json();
+    assert.deepEqual(receiptsAfter.receiptAllocations, receiptsBefore.receiptAllocations, "allocations untouched");
+    assert.deepEqual(receiptsAfter.receipts.map((r) => [r.id, r.grossAmount]), receiptsBefore.receipts.map((r) => [r.id, r.grossAmount]));
+    await shot(pageB, "peer-calendar-after-correction");
   });
 
   await run("console errors = 0", async () => {
