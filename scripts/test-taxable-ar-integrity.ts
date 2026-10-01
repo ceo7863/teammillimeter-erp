@@ -27,7 +27,7 @@ import { buildBankDepositMatchCandidates } from "../src/utils/bankReceivableMatc
 import { buildSaleFromForm, emptySaleForm, saleRowToForm, validateSaleFormTax } from "../src/utils/saleForm.ts";
 import { planCreateAndPostReceipt, proposeFifoAllocations } from "../server/receipts.mjs";
 import { buildStatementSalesSnapshot } from "../server/pdfArchive.mjs";
-import { applySaleTaxGuard, collectTaxLockedSaleIds } from "../server/saleTaxGuard.mjs";
+import { applySaleTaxGuard, collectTaxLockedSaleIds, planSaleTaxCorrection } from "../server/saleTaxGuard.mjs";
 
 type Check = { name: string; ok: boolean; detail?: unknown };
 const checks: Check[] = [];
@@ -638,6 +638,69 @@ check("Indiper fixture: legacy 15 sales supply 7,603,000 vs statement 8,363,300 
   assert.equal(grossAfter, 8_363_300);
   assert.equal(outstandingAfter, 760_300, "dry-run: the unallocated 760,300 would exactly cover the VAT");
   return { rootCause: "SALES_GROSS_EXCLUDES_VAT", effect: "UNALLOCATED_PREPAID", prepaidBefore, outstandingAfter };
+});
+
+check("correction flow: admin + reason reclassifies locked legacy sales, replay is a no-op", () => {
+  const sales = [sale(1, 1_000_000), sale(2, 455_000), sale(3, 300_000, "TAXABLE_10")];
+  const base = {
+    sales,
+    saleIds: [1, 2],
+    taxTreatment: "TAXABLE_10",
+    reason: "CEO 승인: 부가세 포함 청구",
+    isAdmin: true,
+    actor: "repair:ceo",
+    operationId: "op-1",
+    now: "2026-10-01T06:00:00.000Z",
+  };
+  const rejects = (overrides: Record<string, unknown>, code: string, status: number) =>
+    assert.throws(
+      () => planSaleTaxCorrection({ ...base, ...overrides }),
+      (error: { code?: string; status?: number }) => error.code === code && error.status === status,
+    );
+  rejects({ isAdmin: false }, "TAX_TREATMENT_ADMIN_ONLY", 403);
+  rejects({ reason: "  " }, "TAX_TREATMENT_REASON_REQUIRED", 400);
+  rejects({ taxTreatment: "LEGACY_UNSPECIFIED" }, "TAX_TREATMENT_INVALID", 400);
+  rejects({ taxTreatment: "CASH" }, "TAX_TREATMENT_INVALID", 400);
+  rejects({ operationId: "" }, "TAX_TREATMENT_INVALID", 400);
+  rejects({ saleIds: [1, 99] }, "TAX_TREATMENT_INVALID", 400);
+
+  const plan = planSaleTaxCorrection(base);
+  assert.deepEqual(plan.changes.map((c: { saleId: string }) => c.saleId), ["1", "2"]);
+  const [s1, s2, s3] = plan.sales;
+  assert.equal(s1.taxTreatment, "TAXABLE_10");
+  assert.equal(s1.vatAmount, 100_000);
+  assert.equal(s1.grossReceivableAmount, 1_100_000);
+  assert.equal(s2.grossReceivableAmount, 500_500);
+  assert.equal(s1.amount, 1_000_000, "supply amount is unchanged");
+  assert.equal(s1.paid, sales[0].paid, "paid untouched");
+  assert.equal(s1.previousTaxTreatment, "LEGACY_UNSPECIFIED");
+  assert.equal(s1.updatedAt, base.now, "peers merge by updatedAt");
+  assert.deepEqual(s1.taxTreatmentHistory.at(-1), {
+    at: base.now,
+    by: "repair:ceo",
+    from: "LEGACY_UNSPECIFIED",
+    to: "TAXABLE_10",
+    reason: base.reason,
+    correction: true,
+    operationId: "op-1",
+  });
+  assert.equal(s3, sales[2], "unselected sale is the same object");
+
+  const replay = planSaleTaxCorrection({ ...base, sales: plan.sales });
+  assert.equal(replay.changes.length, 0);
+  assert.deepEqual(replay.alreadyApplied, ["1", "2"]);
+  assert.equal(replay.sales, plan.sales);
+
+  const guarded = applySaleTaxGuard({
+    previousSales: plan.sales,
+    incomingSales: sales,
+    isAdmin: false,
+    actor: "stale-client",
+    lockedSaleIds: new Set(["1", "2"]),
+  });
+  assert.equal(guarded.sales[0].taxTreatment, "TAXABLE_10", "stale save without the field keeps the correction");
+  assert.equal(guarded.changes.length, 0);
+  return { changed: plan.changes.length, vat: s1.vatAmount + s2.vatAmount };
 });
 
 const failed = checks.filter((c) => !c.ok);

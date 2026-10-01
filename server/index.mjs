@@ -89,7 +89,7 @@ import {
   replacePdfArchiveFile,
   listSentStatementArchiveMetas,
 } from "./pdfArchive.mjs";
-import { applySaleTaxGuard, collectTaxLockedSaleIds } from "./saleTaxGuard.mjs";
+import { applySaleTaxGuard, collectTaxLockedSaleIds, planSaleTaxCorrection } from "./saleTaxGuard.mjs";
 import {
   initBoardAttachmentStore,
   createBoardAttachment,
@@ -3256,6 +3256,51 @@ app.patch("/api/erp/domains", authMiddleware, async (req, res) => {
       });
     }
     res.json({ ok: true, version: saved.version, updatedAt: saved.updatedAt, domains: saved.domains });
+  } catch (error) {
+    if (handleErpSaveConflict(res, error)) return;
+    console.error(error);
+    res.status(500).json({ error: "저장에 실패했습니다." });
+  }
+});
+
+app.post("/api/sales/tax-treatment-correction", authMiddleware, async (req, res) => {
+  const { operationId, saleIds, taxTreatment, reason } = req.body || {};
+  const actor = String(req.user?.loginId || req.user?.name || req.user?.email || "");
+  const state = getErpState();
+  let plan;
+  try {
+    plan = planSaleTaxCorrection({
+      sales: Array.isArray(state.data?.sales) ? state.data.sales : [],
+      saleIds: Array.isArray(saleIds) ? saleIds : [],
+      taxTreatment,
+      reason,
+      isAdmin: req.user?.role === "admin",
+      actor,
+      operationId,
+    });
+  } catch (error) {
+    if (handleSaleTaxGuardError(res, error)) return;
+    throw error;
+  }
+  if (!plan.changes.length) {
+    res.json({ ok: true, changed: [], alreadyApplied: plan.alreadyApplied, version: state.version });
+    return;
+  }
+  try {
+    const merged = { ...(state.data || {}), sales: plan.sales };
+    const saved = await saveErpDomains({ sales: pickDomainPayload(merged, "sales") }, state.version, actor);
+    console.log("[sale-tax] correction", {
+      operationId: String(operationId),
+      actor,
+      reason: String(reason).trim(),
+      changes: plan.changes.map((change) => ({ saleId: change.saleId, from: change.previous, to: change.next })),
+    });
+    res.json({
+      ok: true,
+      changed: plan.changes.map((change) => ({ saleId: change.saleId, from: change.previous, to: change.next })),
+      alreadyApplied: plan.alreadyApplied,
+      version: saved.version,
+    });
   } catch (error) {
     if (handleErpSaveConflict(res, error)) return;
     console.error(error);
